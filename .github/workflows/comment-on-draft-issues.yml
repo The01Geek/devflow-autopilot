@@ -1,0 +1,146 @@
+name: Comment on Draft Issues
+
+# When a new issue is created, check if its status in the GitHub Project
+# is "Draft". If so, post a comment "@claude /implement $ISSUE_NUMBER".
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  config:
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.config.outputs.enabled }}
+      project_number: ${{ steps.config.outputs.project_number }}
+      status_draft: ${{ steps.config.outputs.status_draft }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+      - name: Read config
+        id: config
+        run: |
+          CONFIG=".github/project-config.yml"
+          echo "enabled=$(yq '.workflows["comment-on-draft-issues"]' "$CONFIG")" >> "$GITHUB_OUTPUT"
+          echo "project_number=$(yq '.project_number' "$CONFIG")" >> "$GITHUB_OUTPUT"
+          echo "status_draft=$(yq '.statuses.draft' "$CONFIG")" >> "$GITHUB_OUTPUT"
+
+  comment-on-draft:
+    name: Comment on draft issues
+    needs: config
+    if: needs.config.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Check project status and comment if Draft
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          ORG="${{ github.repository_owner }}"
+          REPO_NAME="${{ github.event.repository.name }}"
+          PROJECT_NUMBER="${{ needs.config.outputs.project_number }}"
+          STATUS_DRAFT="${{ needs.config.outputs.status_draft }}"
+          ISSUE_NUMBER="${{ github.event.issue.number }}"
+
+          echo "🔍 Checking if issue #${ISSUE_NUMBER} has Draft status in project..."
+
+          # Query the issue directly for its project status (with retry for auto-add timing)
+          ISSUE_STATUS=""
+          MAX_RETRIES=3
+          RETRY_DELAY=30
+
+          for ATTEMPT in $(seq 1 $MAX_RETRIES); do
+            echo "🔍 Attempt $ATTEMPT/$MAX_RETRIES: Checking issue #${ISSUE_NUMBER} project status..."
+
+            if ! ISSUE_RESPONSE=$(gh api graphql -f query='
+              query {
+                repository(owner: "'$ORG'", name: "'$REPO_NAME'") {
+                  issue(number: '$ISSUE_NUMBER') {
+                    projectItems(first: 10) {
+                      nodes {
+                        project {
+                          number
+                        }
+                        fieldValues(first: 20) {
+                          nodes {
+                            ... on ProjectV2ItemFieldSingleSelectValue {
+                              name
+                              field {
+                                ... on ProjectV2SingleSelectField {
+                                  name
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }' 2>&1); then
+              echo "❌ Failed to query issue project status"
+              exit 1
+            fi
+
+            ISSUE_STATUS=$(echo "$ISSUE_RESPONSE" | jq -r '
+              .data.repository.issue.projectItems.nodes[]
+              | select(.project.number == '$PROJECT_NUMBER')
+              | .fieldValues.nodes[]
+              | select(.field.name == "Status")
+              | .name' 2>/dev/null)
+
+            if [ -n "$ISSUE_STATUS" ]; then
+              break
+            fi
+
+            if [ $ATTEMPT -lt $MAX_RETRIES ]; then
+              echo "⏳ Issue not found in project yet. Waiting ${RETRY_DELAY}s before retry..."
+              sleep $RETRY_DELAY
+            fi
+          done
+
+          if [ -z "$ISSUE_STATUS" ]; then
+            echo "ℹ️ Issue #$ISSUE_NUMBER is not in project #$PROJECT_NUMBER after $MAX_RETRIES attempts. Exiting."
+            exit 0
+          fi
+
+          echo "📋 Issue #$ISSUE_NUMBER status: \"$ISSUE_STATUS\""
+
+          # Check if status matches the configured Draft status
+          if [ "$ISSUE_STATUS" = "$STATUS_DRAFT" ]; then
+            echo "✅ Status is $STATUS_DRAFT — posting comment..."
+            COMMENT_BODY="@claude /implement $ISSUE_NUMBER"
+            gh issue comment "$ISSUE_NUMBER" \
+              --repo "$ORG/$REPO_NAME" \
+              --body "$COMMENT_BODY"
+            echo "✅ Comment posted on issue #$ISSUE_NUMBER"
+
+            echo "## ✅ Draft Issue Comment Posted" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "**Issue:** [#${ISSUE_NUMBER}](https://github.com/${ORG}/${REPO_NAME}/issues/${ISSUE_NUMBER})" >> "$GITHUB_STEP_SUMMARY"
+            echo "**Status:** $STATUS_DRAFT" >> "$GITHUB_STEP_SUMMARY"
+            echo "**Action:** Posted comment \`@claude run /feature-dev:feature-dev\`" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "ℹ️ Status is \"$ISSUE_STATUS\", not \"$STATUS_DRAFT\". No comment needed."
+
+            echo "## ℹ️ Issue Not in Draft Status" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "**Issue:** [#${ISSUE_NUMBER}](https://github.com/${ORG}/${REPO_NAME}/issues/${ISSUE_NUMBER})" >> "$GITHUB_STEP_SUMMARY"
+            echo "**Status:** $ISSUE_STATUS" >> "$GITHUB_STEP_SUMMARY"
+            echo "**Action:** No comment posted (status is not $STATUS_DRAFT)" >> "$GITHUB_STEP_SUMMARY"
+          fi
