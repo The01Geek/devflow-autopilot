@@ -21,7 +21,7 @@ on:
       - converted_to_draft
       - edited
       - synchronize
-  # pull_request_target fires for bot-created PR activity (e.g. radman-ai)
+  # pull_request_target fires for bot-created PR activity
   pull_request_target:
     types:
       - opened
