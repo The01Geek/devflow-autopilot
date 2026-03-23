@@ -1,0 +1,54 @@
+# .github/project-config.yml
+# ============================================
+# Project Automation Configuration
+# ============================================
+# Edit these values to match your project.
+# See README.md for documentation on each field.
+
+# GitHub Project board number (from your project URL)
+project_number: "1"
+
+# Branch that PRs target by default
+base_branch: "main"
+
+# Claude model to use for AI-powered workflows
+# Workflows may override this individually if needed
+claude_model: "claude-sonnet-4-6"
+
+# Project board status field values (must match your GitHub Project exactly)
+statuses:
+  draft: "Draft"
+  in_progress: "In Progress"
+  ai_pr_drafted: "AI PR Drafted"
+  released: "Released"
+  closed: "Closed"
+
+# Documentation paths (relative to repo root)
+docs:
+  internal: "docs/internal/"
+  external: "docs/external/"
+
+# Bot account login (for distinguishing AI-authored PRs from human ones)
+# Leave empty if not using a bot account
+bot_login: ""
+
+# Claude action settings
+claude:
+  # Bot logins allowed to trigger the Claude action (comma-separated)
+  allowed_bots: ""
+
+# WikiWizard settings
+wikiwizard:
+  documented_label: "Documented"
+  release_notes_file: "docs/external/release-notes.md"
+
+# Per-workflow enable/disable toggles
+workflows:
+  claude: true
+  claude-weekly-scan: true
+  WikiWizard: true
+  close-released-items: true
+  comment-on-draft-issues: true
+  move-to-in-progress: true
+  sync-pr-status-to-issue: true
+  update-ticket-status: true
