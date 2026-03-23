@@ -1,0 +1,439 @@
+name: Close Released Project Items
+
+# Manually triggered workflow that moves all issues and PRs
+# with "Released" status to "Closed" in the GitHub Project.
+# Optionally archives all items currently in "Closed" before moving.
+
+on:
+  workflow_dispatch:
+    inputs:
+      archive_closed_first:
+        description: 'Archive all items currently in the Closed column before moving Released items'
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  config:
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.config.outputs.enabled }}
+      project_number: ${{ steps.config.outputs.project_number }}
+      status_released: ${{ steps.config.outputs.status_released }}
+      status_closed: ${{ steps.config.outputs.status_closed }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+      - name: Read config
+        id: config
+        run: |
+          CONFIG=".github/project-config.yml"
+          echo "enabled=$(yq '.workflows["close-released-items"]' "$CONFIG")" >> "$GITHUB_OUTPUT"
+          echo "project_number=$(yq '.project_number' "$CONFIG")" >> "$GITHUB_OUTPUT"
+          echo "status_released=$(yq '.statuses.released' "$CONFIG")" >> "$GITHUB_OUTPUT"
+          echo "status_closed=$(yq '.statuses.closed' "$CONFIG")" >> "$GITHUB_OUTPUT"
+
+  close-released:
+    needs: config
+    if: needs.config.outputs.enabled == 'true'
+    name: Move Released items to Closed
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Move Released items to Closed
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          ARCHIVE_CLOSED_FIRST: ${{ inputs.archive_closed_first }}
+          PROJECT_NUMBER: ${{ needs.config.outputs.project_number }}
+          STATUS_RELEASED: ${{ needs.config.outputs.status_released }}
+          STATUS_CLOSED: ${{ needs.config.outputs.status_closed }}
+        run: |
+          set -euo pipefail
+          ORG="${{ github.repository_owner }}"
+
+          # Get project ID
+          if ! PROJECT_RESPONSE=$(gh api graphql -f query='
+            query {
+              organization(login: "'$ORG'") {
+                projectV2(number: '$PROJECT_NUMBER') {
+                  id
+                  title
+                }
+              }
+            }' 2>&1); then
+            echo "❌ Failed to query project"
+            exit 1
+          fi
+
+          PROJECT_ID=$(echo "$PROJECT_RESPONSE" | jq -r '.data.organization.projectV2.id' 2>/dev/null)
+          PROJECT_TITLE=$(echo "$PROJECT_RESPONSE" | jq -r '.data.organization.projectV2.title' 2>/dev/null)
+
+          if [ -z "$PROJECT_ID" ] || [ "$PROJECT_ID" = "null" ]; then
+            echo "❌ Project #$PROJECT_NUMBER not found in organization $ORG"
+            exit 1
+          fi
+
+          echo "📋 Project: $PROJECT_TITLE"
+
+          # Get Status field ID
+          if ! FIELDS_RESPONSE=$(gh api graphql -f query='
+            query {
+              node(id: "'$PROJECT_ID'") {
+                ... on ProjectV2 {
+                  fields(first: 20) {
+                    nodes {
+                      ... on ProjectV2SingleSelectField {
+                        id
+                        name
+                      }
+                    }
+                  }
+                }
+              }
+            }' 2>&1); then
+            echo "❌ Failed to query project fields"
+            exit 1
+          fi
+
+          FIELD_ID=$(echo "$FIELDS_RESPONSE" | jq -r '.data.node.fields.nodes[] | select(.name == "Status") | .id' 2>/dev/null)
+
+          if [ -z "$FIELD_ID" ] || [ "$FIELD_ID" = "null" ]; then
+            echo "❌ Status field not found in project"
+            exit 1
+          fi
+
+          # Get option IDs for the configured Released and Closed status values
+          if ! OPTIONS_RESPONSE=$(gh api graphql -f query='
+            query {
+              node(id: "'$FIELD_ID'") {
+                ... on ProjectV2SingleSelectField {
+                  options {
+                    id
+                    name
+                  }
+                }
+              }
+            }' 2>&1); then
+            echo "❌ Failed to query status options"
+            exit 1
+          fi
+
+          RELEASED_OPTION_ID=$(echo "$OPTIONS_RESPONSE" | jq -r --arg status "$STATUS_RELEASED" '.data.node.options[] | select(.name == $status) | .id' 2>/dev/null)
+          CLOSED_OPTION_ID=$(echo "$OPTIONS_RESPONSE" | jq -r --arg status "$STATUS_CLOSED" '.data.node.options[] | select(.name == $status) | .id' 2>/dev/null)
+
+          if [ -z "$RELEASED_OPTION_ID" ] || [ "$RELEASED_OPTION_ID" = "null" ]; then
+            echo "❌ '$STATUS_RELEASED' status option not found"
+            echo "   Available options:"
+            echo "$OPTIONS_RESPONSE" | jq -r '.data.node.options[].name' 2>/dev/null | sed 's/^/   - /'
+            exit 1
+          fi
+
+          if [ -z "$CLOSED_OPTION_ID" ] || [ "$CLOSED_OPTION_ID" = "null" ]; then
+            echo "❌ '$STATUS_CLOSED' status option not found"
+            echo "   Available options:"
+            echo "$OPTIONS_RESPONSE" | jq -r '.data.node.options[].name' 2>/dev/null | sed 's/^/   - /'
+            exit 1
+          fi
+
+          echo "✅ Found status options: $STATUS_RELEASED → $STATUS_CLOSED"
+
+          # Helper: collect all project items with a given status (paginated)
+          collect_items_by_status() {
+            local STATUS_NAME="$1"
+            local ITEMS=""
+            local CURSOR=""
+            local PAGE=1
+            local MAX_PAGES=20
+
+            while [ $PAGE -le $MAX_PAGES ]; do
+              if [ -n "$CURSOR" ]; then
+                QUERY='
+                  query {
+                    node(id: "'$PROJECT_ID'") {
+                      ... on ProjectV2 {
+                        items(first: 100, after: "'$CURSOR'") {
+                          pageInfo {
+                            hasNextPage
+                            endCursor
+                          }
+                          nodes {
+                            id
+                            isArchived
+                            content {
+                              ... on Issue {
+                                number
+                                title
+                                __typename
+                              }
+                              ... on PullRequest {
+                                number
+                                title
+                                __typename
+                              }
+                            }
+                            fieldValues(first: 20) {
+                              nodes {
+                                ... on ProjectV2ItemFieldSingleSelectValue {
+                                  name
+                                  field {
+                                    ... on ProjectV2SingleSelectField {
+                                      name
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }'
+              else
+                QUERY='
+                  query {
+                    node(id: "'$PROJECT_ID'") {
+                      ... on ProjectV2 {
+                        items(first: 100) {
+                          pageInfo {
+                            hasNextPage
+                            endCursor
+                          }
+                          nodes {
+                            id
+                            isArchived
+                            content {
+                              ... on Issue {
+                                number
+                                title
+                                __typename
+                              }
+                              ... on PullRequest {
+                                number
+                                title
+                                __typename
+                              }
+                            }
+                            fieldValues(first: 20) {
+                              nodes {
+                                ... on ProjectV2ItemFieldSingleSelectValue {
+                                  name
+                                  field {
+                                    ... on ProjectV2SingleSelectField {
+                                      name
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }'
+              fi
+
+              if ! RESPONSE=$(gh api graphql -f query="$QUERY" 2>&1); then
+                echo "❌ Failed to query project items (page $PAGE)"
+                exit 1
+              fi
+
+              PAGE_ITEMS=$(echo "$RESPONSE" | jq -c --arg status "$STATUS_NAME" '
+                [.data.node.items.nodes[] |
+                  select(.isArchived == false) |
+                  select(.fieldValues.nodes[] | select(.field.name == "Status" and .name == $status)) |
+                  {
+                    id: .id,
+                    number: .content.number,
+                    title: .content.title,
+                    type: .content.__typename
+                  }
+                ]' 2>/dev/null)
+
+              PAGE_COUNT=$(echo "$PAGE_ITEMS" | jq 'length' 2>/dev/null)
+
+              if [ "$PAGE_COUNT" -gt 0 ] 2>/dev/null; then
+                if [ -z "$ITEMS" ]; then
+                  ITEMS="$PAGE_ITEMS"
+                else
+                  ITEMS=$(echo "$ITEMS $PAGE_ITEMS" | jq -s 'add')
+                fi
+              fi
+
+              HAS_NEXT_PAGE=$(echo "$RESPONSE" | jq -r '.data.node.items.pageInfo.hasNextPage' 2>/dev/null)
+
+              if [ "$HAS_NEXT_PAGE" != "true" ]; then
+                break
+              fi
+
+              CURSOR=$(echo "$RESPONSE" | jq -r '.data.node.items.pageInfo.endCursor' 2>/dev/null)
+              PAGE=$((PAGE + 1))
+            done
+
+            echo "${ITEMS:-[]}"
+          }
+
+          # ── Step 1: Archive existing Closed items (if requested) ──────────────
+          ARCHIVED_ITEMS="[]"
+
+          if [ "$ARCHIVE_CLOSED_FIRST" = "true" ]; then
+            echo ""
+            echo "🗄️  Scanning for items to archive in the '$STATUS_CLOSED' column..."
+
+            CLOSED_ITEMS=$(collect_items_by_status "$STATUS_CLOSED")
+            CLOSED_TOTAL=$(echo "$CLOSED_ITEMS" | jq 'length')
+
+            if [ "$CLOSED_TOTAL" -eq 0 ] 2>/dev/null; then
+              echo "ℹ️  No unarchived items found in '$STATUS_CLOSED' column."
+            else
+              echo "📦 Found $CLOSED_TOTAL item(s) to archive"
+              ARCHIVED_ITEMS="$CLOSED_ITEMS"
+
+              while IFS= read -r item; do
+                ITEM_ID=$(echo "$item" | jq -r '.id')
+                ITEM_NUMBER=$(echo "$item" | jq -r '.number')
+                ITEM_TITLE=$(echo "$item" | jq -r '.title')
+                ITEM_TYPE=$(echo "$item" | jq -r '.type')
+
+                echo "🗄️  Archiving $ITEM_TYPE #$ITEM_NUMBER: \"$ITEM_TITLE\"..."
+
+                if ! ARCHIVE_RESPONSE=$(gh api graphql -f query='
+                  mutation {
+                    archiveProjectV2Item(input: {
+                      projectId: "'$PROJECT_ID'",
+                      itemId: "'$ITEM_ID'"
+                    }) {
+                      item {
+                        id
+                      }
+                    }
+                  }' 2>&1); then
+                  echo "❌ Failed to archive $ITEM_TYPE #$ITEM_NUMBER"
+                  continue
+                fi
+
+                ARCHIVED_ID=$(echo "$ARCHIVE_RESPONSE" | jq -r '.data.archiveProjectV2Item.item.id' 2>/dev/null)
+
+                if [ -z "$ARCHIVED_ID" ] || [ "$ARCHIVED_ID" = "null" ]; then
+                  echo "❌ Archive failed for $ITEM_TYPE #$ITEM_NUMBER"
+                  continue
+                fi
+
+                echo "✅ $ITEM_TYPE #$ITEM_NUMBER → Archived"
+              done < <(echo "$CLOSED_ITEMS" | jq -c '.[]')
+
+              echo ""
+              echo "✅ Done archiving $CLOSED_TOTAL $STATUS_CLOSED item(s)."
+            fi
+          else
+            echo "⏭️  Skipping archive step (archive_closed_first = false)"
+          fi
+
+          # ── Step 2: Collect all items with Released status ────────────────────
+          echo ""
+          echo "🔍 Scanning project for items with '$STATUS_RELEASED' status..."
+
+          RELEASED_ITEMS=$(collect_items_by_status "$STATUS_RELEASED")
+
+          if [ -z "$RELEASED_ITEMS" ] || [ "$RELEASED_ITEMS" = "[]" ]; then
+            echo "ℹ️ No items found with '$STATUS_RELEASED' status."
+
+            echo "## ℹ️ No Released Items Found" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "No issues or pull requests with **$STATUS_RELEASED** status were found in the project." >> "$GITHUB_STEP_SUMMARY"
+
+            if [ "$ARCHIVE_CLOSED_FIRST" = "true" ]; then
+              ARCHIVED_TOTAL=$(echo "$ARCHIVED_ITEMS" | jq 'length')
+              if [ "$ARCHIVED_TOTAL" -gt 0 ] 2>/dev/null; then
+                echo "" >> "$GITHUB_STEP_SUMMARY"
+                echo "## 🗄️ Archived $STATUS_CLOSED Items" >> "$GITHUB_STEP_SUMMARY"
+                echo "" >> "$GITHUB_STEP_SUMMARY"
+                echo "**Total items archived:** $ARCHIVED_TOTAL" >> "$GITHUB_STEP_SUMMARY"
+                echo "" >> "$GITHUB_STEP_SUMMARY"
+                echo "| Type | # | Title |" >> "$GITHUB_STEP_SUMMARY"
+                echo "|------|---|-------|" >> "$GITHUB_STEP_SUMMARY"
+                echo "$ARCHIVED_ITEMS" | jq -r '.[] | "| \(.type) | #\(.number) | \(.title) |"' >> "$GITHUB_STEP_SUMMARY" 2>/dev/null
+              fi
+            fi
+
+            exit 0
+          fi
+
+          TOTAL=$(echo "$RELEASED_ITEMS" | jq 'length')
+          echo "📦 Found $TOTAL item(s) with '$STATUS_RELEASED' status"
+
+          # ── Step 3: Move Released items to Closed ────────────────────────────
+          while IFS= read -r item; do
+            ITEM_ID=$(echo "$item" | jq -r '.id')
+            ITEM_NUMBER=$(echo "$item" | jq -r '.number')
+            ITEM_TITLE=$(echo "$item" | jq -r '.title')
+            ITEM_TYPE=$(echo "$item" | jq -r '.type')
+
+            echo "🔄 Moving $ITEM_TYPE #$ITEM_NUMBER to $STATUS_CLOSED: \"$ITEM_TITLE\"..."
+
+            if ! UPDATE_RESPONSE=$(gh api graphql -f query='
+              mutation {
+                updateProjectV2ItemFieldValue(input: {
+                  projectId: "'$PROJECT_ID'",
+                  itemId: "'$ITEM_ID'",
+                  fieldId: "'$FIELD_ID'",
+                  value: { singleSelectOptionId: "'$CLOSED_OPTION_ID'" }
+                }) {
+                  projectV2Item {
+                    id
+                  }
+                }
+              }' 2>&1); then
+              echo "❌ Failed to update $ITEM_TYPE #$ITEM_NUMBER"
+              continue
+            fi
+
+            UPDATED_ID=$(echo "$UPDATE_RESPONSE" | jq -r '.data.updateProjectV2ItemFieldValue.projectV2Item.id' 2>/dev/null)
+
+            if [ -z "$UPDATED_ID" ] || [ "$UPDATED_ID" = "null" ]; then
+              echo "❌ Update failed for $ITEM_TYPE #$ITEM_NUMBER"
+              continue
+            fi
+
+            echo "✅ $ITEM_TYPE #$ITEM_NUMBER → $STATUS_CLOSED"
+          done < <(echo "$RELEASED_ITEMS" | jq -c '.[]')
+
+          echo ""
+          echo "✅ Done! Processed $TOTAL $STATUS_RELEASED item(s)."
+
+          # ── Summary ──────────────────────────────────────────────────────────
+          if [ "$ARCHIVE_CLOSED_FIRST" = "true" ]; then
+            ARCHIVED_TOTAL=$(echo "$ARCHIVED_ITEMS" | jq 'length')
+            if [ "$ARCHIVED_TOTAL" -gt 0 ] 2>/dev/null; then
+              echo "## 🗄️ Archived $STATUS_CLOSED Items" >> "$GITHUB_STEP_SUMMARY"
+              echo "" >> "$GITHUB_STEP_SUMMARY"
+              echo "**Total items archived:** $ARCHIVED_TOTAL" >> "$GITHUB_STEP_SUMMARY"
+              echo "" >> "$GITHUB_STEP_SUMMARY"
+              echo "| Type | # | Title |" >> "$GITHUB_STEP_SUMMARY"
+              echo "|------|---|-------|" >> "$GITHUB_STEP_SUMMARY"
+              echo "$ARCHIVED_ITEMS" | jq -r '.[] | "| \(.type) | #\(.number) | \(.title) |"' >> "$GITHUB_STEP_SUMMARY" 2>/dev/null
+              echo "" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
+
+          echo "## ✅ $STATUS_RELEASED Items Moved to $STATUS_CLOSED" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Total items processed:** $TOTAL" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Type | # | Title |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|------|---|-------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "$RELEASED_ITEMS" | jq -r '.[] | "| \(.type) | #\(.number) | \(.title) |"' >> "$GITHUB_STEP_SUMMARY" 2>/dev/null
