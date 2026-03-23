@@ -11,7 +11,6 @@ Agent coding and workflow automation template files. Use this template to bootst
 | File | Description |
 |------|-------------|
 | claude.yml | Claude Code action — responds to @claude mentions in issues/PRs |
-| claude-weekly-scan.yml | Weekly dependency/security scan |
 | WikiWizard.yml | Auto-generate internal, external docs and release notes on PR merge |
 | close-released-items.yml | Bulk close "Released" items in GitHub Projects |
 | comment-on-draft-issues.yml | Auto-comment /implement on draft issues |

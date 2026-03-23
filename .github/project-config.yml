@@ -45,7 +45,6 @@ wikiwizard:
 # Per-workflow enable/disable toggles
 workflows:
   claude: true
-  claude-weekly-scan: true
   WikiWizard: true
   close-released-items: true
   comment-on-draft-issues: true
