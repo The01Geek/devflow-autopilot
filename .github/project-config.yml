@@ -13,7 +13,7 @@ base_branch: "main"
 
 # Claude model to use for AI-powered workflows
 # Workflows may override this individually if needed
-claude_model: "claude-sonnet-4-6"
+claude_model: "claude-opus-4-6"
 
 # Project board status field values (must match your GitHub Project exactly)
 statuses:
