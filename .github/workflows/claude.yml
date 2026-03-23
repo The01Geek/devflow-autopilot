@@ -1,0 +1,166 @@
+name: Claude Code
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  issues:
+    types: [opened]
+  pull_request_review:
+    types: [submitted]
+
+jobs:
+  config:
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.config.outputs.enabled }}
+      base_branch: ${{ steps.config.outputs.base_branch }}
+      claude_model: ${{ steps.config.outputs.claude_model }}
+      allowed_bots: ${{ steps.config.outputs.allowed_bots }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+      - name: Read config
+        id: config
+        run: |
+          CONFIG=".github/project-config.yml"
+          echo "enabled=$(yq '.workflows.claude' "$CONFIG")" >> "$GITHUB_OUTPUT"
+          echo "base_branch=$(yq '.base_branch' "$CONFIG")" >> "$GITHUB_OUTPUT"
+          echo "claude_model=$(yq '.claude_model' "$CONFIG")" >> "$GITHUB_OUTPUT"
+          echo "allowed_bots=$(yq '.claude.allowed_bots' "$CONFIG")" >> "$GITHUB_OUTPUT"
+
+  claude:
+    needs: config
+    if: |
+      needs.config.outputs.enabled == 'true' &&
+      (
+        (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
+        (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
+        (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
+        (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
+      )
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      actions: read # Required for Claude to read CI results on PRs
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Run Claude Code
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          allowed_bots: ${{ needs.config.outputs.allowed_bots }}
+
+          # This is an optional setting that allows Claude to read CI results on PRs
+          additional_permissions: |
+            actions: read
+
+          # Register the official plugin marketplace so plugins can be found
+          plugin_marketplaces: |
+            https://github.com/anthropics/claude-plugins-official.git
+
+          # Install plugins so skills like /pr-review-toolkit are available
+          plugins: |
+            pr-review-toolkit@claude-plugins-official
+            code-review@claude-plugins-official
+            feature-dev@claude-plugins-official
+            superpowers@claude-plugins-official
+            claude-md-management@claude-plugins-official
+
+          base_branch: ${{ needs.config.outputs.base_branch }}
+          claude_args: >-
+            --model ${{ needs.config.outputs.claude_model }}
+            --allowed-tools
+            "Read,
+            Write,
+            Edit,
+            Glob,
+            Grep,
+            Skill,
+            Agent,
+            TodoWrite,
+            EnterPlanMode,
+            ExitPlanMode,
+            Bash(git add:*),
+            Bash(git commit:*),
+            Bash(git push:*),
+            Bash(git status:*),
+            Bash(git diff:*),
+            Bash(git log:*),
+            Bash(git checkout:*),
+            Bash(git branch:*),
+            Bash(gh pr create:*),
+            Bash(gh pr edit:*),
+            Bash(gh pr comment:*),
+            Bash(gh pr diff:*),
+            Bash(gh pr view:*),
+            Bash(gh pr review:*),
+            Bash(gh pr ready:*),
+            Bash(npm install:*),
+            Bash(npm run build:*),
+            Bash(npm run lint:*),
+            Bash(npm test:*),
+            Bash(npx vitest:*),
+            Bash(npx eslint:*)"
+          # assignee_trigger: "claude"
+          # label_trigger: "claude"
+
+          # Optional: Give a custom prompt to Claude. If this is not specified, Claude will perform the instructions specified in the comment that tagged it.
+          # prompt: 'Update the pull request description to include a summary of changes.'
+
+          # Optional: Add claude_args to customize behavior and configuration
+          # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
+          # or https://docs.claude.com/en/docs/claude-code/sdk#command-line for available options
+
+      - name: Auto-create PR for /implement commands
+        if: |
+          github.event_name == 'issue_comment' &&
+          contains(github.event.comment.body, '/implement') &&
+          github.event.issue.pull_request == null
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+        run: |
+          set -euo pipefail
+
+          # Find the branch Claude created for this issue (gh API avoids git credential issues)
+          BRANCH=$(gh api "repos/${{ github.repository }}/git/matching-refs/heads/claude/issue-${ISSUE_NUMBER}-" \
+            -q 'sort_by(.ref) | reverse | .[0].ref // empty' \
+            | sed 's|^refs/heads/||' || true)
+
+          if [ -z "$BRANCH" ]; then
+            echo "No Claude branch found for issue #${ISSUE_NUMBER}, skipping PR creation"
+            exit 0
+          fi
+
+          echo "Found branch: $BRANCH"
+
+          # Skip if a PR already exists for this branch
+          EXISTING_PR=$(gh pr list --head "$BRANCH" --json number --jq '.[0].number' 2>/dev/null || true)
+          if [ -n "$EXISTING_PR" ]; then
+            echo "PR #${EXISTING_PR} already exists for branch ${BRANCH}, skipping"
+            exit 0
+          fi
+
+          # Create the PR and mark it ready for review
+          gh pr create \
+            --head "$BRANCH" \
+            --base "${{ github.event.repository.default_branch }}" \
+            --title "feat: ${ISSUE_TITLE}" \
+            --body "Resolves #${ISSUE_NUMBER}"
+
+          gh pr ready "$BRANCH"
+          echo "PR created and marked ready for review"
