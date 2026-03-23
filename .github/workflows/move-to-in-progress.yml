@@ -1,0 +1,445 @@
+name: Move Issue to In Progress on Branch Creation
+on:
+  create:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  config:
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.config.outputs.enabled }}
+      project_number: ${{ steps.config.outputs.project_number }}
+      status_in_progress: ${{ steps.config.outputs.status_in_progress }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+      - name: Read config
+        id: config
+        run: |
+          CONFIG=".github/project-config.yml"
+          echo "enabled=$(yq '.workflows["move-to-in-progress"]' "$CONFIG")" >> "$GITHUB_OUTPUT"
+          echo "project_number=$(yq '.project_number' "$CONFIG")" >> "$GITHUB_OUTPUT"
+          echo "status_in_progress=$(yq '.statuses.in_progress' "$CONFIG")" >> "$GITHUB_OUTPUT"
+
+  move-issue:
+    name: Move issue card when branch created
+    needs: config
+    if: needs.config.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    # env:
+    #   ACTIONS_STEP_DEBUG: true
+    #   ACTIONS_RUNNER_DEBUG: true
+    steps:
+      # - name: Debug - Show workflow context
+      #   run: |
+      #     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      #     echo "🔧 DEBUG: Workflow Context Information"
+      #     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      #     echo "GitHub Event: ${{ github.event_name }}"
+      #     echo "GitHub Ref: ${{ github.ref }}"
+      #     echo "GitHub Repository: ${{ github.repository }}"
+      #     echo "GitHub Actor: ${{ github.actor }}"
+      #     echo "GitHub SHA: ${{ github.sha }}"
+      #     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+      - name: Extract issue number from branch name
+        id: extract
+        run: |
+          # Skip tag creations — only process branches
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            echo "ℹ️ Tag creation detected, skipping"
+            echo "issue_number=" >> "$GITHUB_OUTPUT"
+            echo "branch_name=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          BRANCH=${GITHUB_REF#refs/heads/}
+          echo "Branch name: ${BRANCH}"
+
+          # Match patterns like:
+          # - issue-123, ISSUE-123, issue123
+          # - git-123, GIT-123
+          # - feature/issue-123, bugfix/git-456
+          # - #123
+          # Use word boundaries to avoid false matches on version numbers
+          if [[ "$BRANCH" =~ (^|/)([Ii]ssue-?|[Gg]it-?|#)([0-9]+)([^0-9]|$) ]]; then
+            ISSUE_NUM=${BASH_REMATCH[3]}
+            echo "✅ Found issue number: #${ISSUE_NUM}"
+            if [ -n "$GITHUB_OUTPUT" ]; then
+              echo "issue_number=${ISSUE_NUM}" >> "$GITHUB_OUTPUT" || { echo "❌ Failed to write issue_number to GITHUB_OUTPUT (path: $GITHUB_OUTPUT)"; exit 1; }
+              echo "branch_name=${BRANCH}" >> "$GITHUB_OUTPUT" || { echo "❌ Failed to write branch_name to GITHUB_OUTPUT (path: $GITHUB_OUTPUT)"; exit 1; }
+            else
+              echo "❌ GITHUB_OUTPUT environment variable is not set"
+              echo "   This is required by GitHub Actions to pass data between steps"
+              echo "   This should be automatically set by GitHub Actions runtime"
+              exit 1
+            fi
+          else
+            echo "ℹ️ No issue number found in branch name: ${BRANCH}"
+            if [ -n "$GITHUB_OUTPUT" ]; then
+              echo "issue_number=" >> "$GITHUB_OUTPUT"
+              echo "branch_name=${BRANCH}" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+      - name: Generate app token
+        if: steps.extract.outputs.issue_number != ''
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Move issue card in Projects (Next/Beta)
+        if: steps.extract.outputs.issue_number != ''
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          ORG="${{ github.repository_owner }}"
+          REPO_NAME="${{ github.event.repository.name }}"
+          PROJECT_NUMBER="${{ needs.config.outputs.project_number }}"
+          INPROG_STATUS="${{ needs.config.outputs.status_in_progress }}"
+          ISSUE_NUMBER="${{ steps.extract.outputs.issue_number }}"
+          BRANCH_NAME="${{ steps.extract.outputs.branch_name }}"
+
+          echo "🚀 Moving Issue #${ISSUE_NUMBER} to '$INPROG_STATUS'"
+
+          # Find the project ID (Projects Next)
+          # echo "🔍 Looking up project..."
+          if ! PROJECT_RESPONSE=$(gh api graphql -f query='
+            query {
+              organization(login: "'$ORG'") {
+                projectV2(number: '$PROJECT_NUMBER') {
+                  id
+                  title
+                }
+              }
+            }' 2>&1); then
+            echo "❌ Error: Failed to query project API for project #${PROJECT_NUMBER} in organization ${ORG}"
+            echo "   API Response:"
+            echo "$PROJECT_RESPONSE" | sed 's/^/   /'
+            echo "   Possible causes:"
+            echo "   - Token lacks 'read:project' scope"
+            echo "   - Organization name is incorrect"
+            echo "   - Rate limit exceeded"
+            exit 1
+          fi
+
+          # echo "📋 Project API Response:"
+          # if ! echo "$PROJECT_RESPONSE" | jq '.' 2>/dev/null; then
+          #   echo "❌ Error: Invalid JSON response from project API"
+          #   echo "Raw response: $PROJECT_RESPONSE"
+          #   exit 1
+          # fi
+
+          PROJECT_ID=$(echo "$PROJECT_RESPONSE" | jq -r '.data.organization.projectV2.id' 2>/dev/null)
+          PROJECT_TITLE=$(echo "$PROJECT_RESPONSE" | jq -r '.data.organization.projectV2.title' 2>/dev/null)
+
+          if [ -z "$PROJECT_ID" ] || [ "$PROJECT_ID" = "null" ]; then
+            echo "❌ Error: Project number $PROJECT_NUMBER not found in organization $ORG"
+            echo "   Please verify the project exists and the token has proper permissions."
+            exit 1
+          fi
+          # echo "✅ Found project: $PROJECT_TITLE (ID: $PROJECT_ID)"
+
+          # Find the item ID for the issue
+          # echo "🔍 Looking up issue #${ISSUE_NUMBER}..."
+          if ! ISSUE_RESPONSE=$(gh api graphql -f query='
+            query {
+              repository(owner: "'$ORG'", name: "'$REPO_NAME'") {
+                issue(number: '$ISSUE_NUMBER') {
+                  id
+                  title
+                  state
+                }
+              }
+            }' 2>&1); then
+            echo "❌ Error: Failed to query issue API for issue #${ISSUE_NUMBER} in ${ORG}/${REPO_NAME}"
+            echo "   API Response:"
+            echo "$ISSUE_RESPONSE" | sed 's/^/   /'
+            echo "   Possible causes:"
+            echo "   - Issue number ${ISSUE_NUMBER} does not exist"
+            echo "   - Token lacks 'repo' or 'read:org' scope"
+            echo "   - Repository name or organization is incorrect"
+            exit 1
+          fi
+
+          # echo "📋 Issue API Response:"
+          # if ! echo "$ISSUE_RESPONSE" | jq '.' 2>/dev/null; then
+          #   echo "❌ Error: Invalid JSON response from issue API"
+          #   echo "Raw response: $ISSUE_RESPONSE"
+          #   exit 1
+          # fi
+
+          ISSUE_NODE_ID=$(echo "$ISSUE_RESPONSE" | jq -r '.data.repository.issue.id' 2>/dev/null)
+          ISSUE_TITLE=$(echo "$ISSUE_RESPONSE" | jq -r '.data.repository.issue.title' 2>/dev/null)
+          ISSUE_STATE=$(echo "$ISSUE_RESPONSE" | jq -r '.data.repository.issue.state' 2>/dev/null)
+
+          if [ -z "$ISSUE_NODE_ID" ] || [ "$ISSUE_NODE_ID" = "null" ]; then
+            echo "❌ Error: Issue #$ISSUE_NUMBER not found in repository"
+            echo "   The issue may not exist or may have been deleted."
+            exit 1
+          fi
+          # echo "✅ Found issue: \"$ISSUE_TITLE\" (State: $ISSUE_STATE, ID: $ISSUE_NODE_ID)"
+
+          # echo "🔍 Looking up project item for issue (with pagination)..."
+          PROJECT_ITEM_ID=""
+          CURSOR=""
+          PAGE=1
+          MAX_PAGES=20  # Safety limit: 20 pages * 100 items = 2000 items max
+
+          while [ $PAGE -le $MAX_PAGES ]; do
+            # echo "   Fetching page $PAGE..."
+
+            if [ -n "$CURSOR" ]; then
+              QUERY='
+                query {
+                  node(id: "'$PROJECT_ID'") {
+                    ... on ProjectV2 {
+                      items(first: 100, after: "'$CURSOR'") {
+                        pageInfo {
+                          hasNextPage
+                          endCursor
+                        }
+                        nodes {
+                          id
+                          content {
+                            ... on Issue {
+                              id
+                              number
+                              title
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }'
+            else
+              QUERY='
+                query {
+                  node(id: "'$PROJECT_ID'") {
+                    ... on ProjectV2 {
+                      items(first: 100) {
+                        pageInfo {
+                          hasNextPage
+                          endCursor
+                        }
+                        nodes {
+                          id
+                          content {
+                            ... on Issue {
+                              id
+                              number
+                              title
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }'
+            fi
+
+            if ! PROJECT_ITEM_RESPONSE=$(gh api graphql -f query="$QUERY" 2>&1); then
+              echo "❌ Error: Failed to query project items API (page $PAGE)"
+              echo "   API Response:"
+              echo "$PROJECT_ITEM_RESPONSE" | sed 's/^/   /'
+              echo "   Context:"
+              echo "   - Project ID: $PROJECT_ID"
+              echo "   - Searching for issue #${ISSUE_NUMBER}"
+              exit 1
+            fi
+
+            # if ! echo "$PROJECT_ITEM_RESPONSE" | jq '.' >/dev/null 2>&1; then
+            #   echo "❌ Error: Invalid JSON response from project items API"
+            #   echo "Raw response: $PROJECT_ITEM_RESPONSE"
+            #   exit 1
+            # fi
+
+            # Try to find the issue in this page
+            PROJECT_ITEM_ID=$(echo "$PROJECT_ITEM_RESPONSE" | jq -r '.data.node.items.nodes[] | select(.content.number == '$ISSUE_NUMBER') | .id' 2>/dev/null)
+
+            if [ -n "$PROJECT_ITEM_ID" ] && [ "$PROJECT_ITEM_ID" != "null" ]; then
+              # echo "✅ Found project item on page $PAGE: $PROJECT_ITEM_ID"
+              break
+            fi
+
+            # Check if there are more pages
+            HAS_NEXT_PAGE=$(echo "$PROJECT_ITEM_RESPONSE" | jq -r '.data.node.items.pageInfo.hasNextPage' 2>/dev/null)
+
+            if [ "$HAS_NEXT_PAGE" != "true" ]; then
+              # echo "   No more pages to fetch"
+              break
+            fi
+
+            CURSOR=$(echo "$PROJECT_ITEM_RESPONSE" | jq -r '.data.node.items.pageInfo.endCursor' 2>/dev/null)
+            PAGE=$((PAGE + 1))
+          done
+
+          if [ -z "$PROJECT_ITEM_ID" ] || [ "$PROJECT_ITEM_ID" = "null" ]; then
+            echo "❌ Error: Issue #$ISSUE_NUMBER is not added to the project"
+            echo "   Please add the issue to project #$PROJECT_NUMBER first."
+            echo "   Searched through $PAGE page(s)"
+            exit 1
+          fi
+
+          # Find the field ID for the status field
+          # echo "🔍 Looking up Status field..."
+          if ! FIELDS_RESPONSE=$(gh api graphql -f query='
+            query {
+              node(id: "'$PROJECT_ID'") {
+                ... on ProjectV2 {
+                  fields(first: 20) {
+                    nodes {
+                      ... on ProjectV2Field {
+                        id
+                        name
+                      }
+                      ... on ProjectV2SingleSelectField {
+                        id
+                        name
+                      }
+                    }
+                  }
+                }
+              }
+            }' 2>&1); then
+            echo "❌ Error: Failed to query project fields API for project ID: $PROJECT_ID"
+            echo "   API Response:"
+            echo "$FIELDS_RESPONSE" | sed 's/^/   /'
+            echo "   Possible causes:"
+            echo "   - Token lacks 'read:project' scope"
+            echo "   - Project ID is invalid or project was deleted"
+            exit 1
+          fi
+
+          # echo "📋 Available Fields:"
+          # if ! echo "$FIELDS_RESPONSE" | jq '.data.node.fields.nodes[] | {id, name}' 2>/dev/null; then
+          #   echo "❌ Error: Invalid JSON response from fields API"
+          #   echo "Raw response: $FIELDS_RESPONSE"
+          #   exit 1
+          # fi
+
+          FIELD_ID=$(echo "$FIELDS_RESPONSE" | jq -r '.data.node.fields.nodes[] | select(.name == "Status") | .id' 2>/dev/null)
+
+          if [ -z "$FIELD_ID" ] || [ "$FIELD_ID" = "null" ]; then
+            echo "❌ Error: No 'Status' field found in the project"
+            echo "   Please ensure the project has a Status field configured."
+            exit 1
+          fi
+          # echo "✅ Found Status field: $FIELD_ID"
+
+          # Find the option ID for the configured In Progress status
+          # echo "🔍 Looking up '$INPROG_STATUS' status option..."
+          if ! OPTIONS_RESPONSE=$(gh api graphql -f query='
+            query {
+              node(id: "'$FIELD_ID'") {
+                ... on ProjectV2SingleSelectField {
+                  options {
+                    id
+                    name
+                  }
+                }
+              }
+            }' 2>&1); then
+            echo "❌ Error: Failed to query status options API for field ID: $FIELD_ID"
+            echo "   API Response:"
+            echo "$OPTIONS_RESPONSE" | sed 's/^/   /'
+            echo "   Possible causes:"
+            echo "   - Token lacks 'read:project' scope"
+            echo "   - Status field ID is invalid"
+            echo "   - Field is not a single-select field type"
+            exit 1
+          fi
+
+          # echo "📋 Available Status Options:"
+          # if ! echo "$OPTIONS_RESPONSE" | jq '.data.node.options[] | {id, name}' 2>/dev/null; then
+          #   echo "❌ Error: Invalid JSON response from status options API"
+          #   echo "Raw response: $OPTIONS_RESPONSE"
+          #   exit 1
+          # fi
+
+          OPTION_ID=$(echo "$OPTIONS_RESPONSE" | jq -r --arg status "$INPROG_STATUS" '.data.node.options[] | select(.name == $status) | .id' 2>/dev/null)
+
+          if [ -z "$OPTION_ID" ] || [ "$OPTION_ID" = "null" ]; then
+            echo "❌ Error: No status option found for '$INPROG_STATUS'"
+            echo "   Available status options:"
+            echo "$OPTIONS_RESPONSE" | jq -r '.data.node.options[].name' 2>/dev/null | sed 's/^/   - /'
+            exit 1
+          fi
+          # echo "✅ Found status option: $OPTION_ID"
+
+          # Update the status field to the configured In Progress status
+          # echo "🔄 Updating issue status to '$INPROG_STATUS'..."
+          # echo "   Project ID: $PROJECT_ID"
+          # echo "   Item ID: $PROJECT_ITEM_ID"
+          # echo "   Field ID: $FIELD_ID"
+          # echo "   Option ID: $OPTION_ID"
+
+          if ! UPDATE_RESPONSE=$(gh api graphql -f query='
+            mutation {
+              updateProjectV2ItemFieldValue(input: {
+                projectId: "'$PROJECT_ID'",
+                itemId: "'$PROJECT_ITEM_ID'",
+                fieldId: "'$FIELD_ID'",
+                value: { singleSelectOptionId: "'$OPTION_ID'" }
+              }) {
+                projectV2Item {
+                  id
+                }
+              }
+            }' 2>&1); then
+            echo "❌ Error: Failed to update project item status for issue #${ISSUE_NUMBER}"
+            echo "   API Response:"
+            echo "$UPDATE_RESPONSE" | sed 's/^/   /'
+            echo "   Context:"
+            echo "   - Project ID: $PROJECT_ID"
+            echo "   - Item ID: $PROJECT_ITEM_ID"
+            echo "   - Field ID: $FIELD_ID"
+            echo "   - Option ID: $OPTION_ID"
+            echo "   Possible causes:"
+            echo "   - Token lacks 'write:project' scope"
+            echo "   - One of the IDs is invalid or has changed"
+            echo "   - Project or item was deleted"
+            exit 1
+          fi
+
+          # echo "📋 Update Response:"
+          # if ! echo "$UPDATE_RESPONSE" | jq '.' 2>/dev/null; then
+          #   echo "❌ Error: Invalid JSON response from update mutation"
+          #   echo "Raw response: $UPDATE_RESPONSE"
+          #   exit 1
+          # fi
+
+          # Verify the update was successful
+          UPDATED_ITEM_ID=$(echo "$UPDATE_RESPONSE" | jq -r '.data.updateProjectV2ItemFieldValue.projectV2Item.id' 2>/dev/null)
+          if [ -z "$UPDATED_ITEM_ID" ] || [ "$UPDATED_ITEM_ID" = "null" ]; then
+            echo "❌ Error: Update mutation did not return expected data structure"
+            echo "   Response received:"
+            echo "$UPDATE_RESPONSE" | jq '.' 2>/dev/null || echo "$UPDATE_RESPONSE" | sed 's/^/   /'
+            echo "   Expected: .data.updateProjectV2ItemFieldValue.projectV2Item.id"
+            echo "   This may indicate:"
+            echo "   - GraphQL mutation failed silently"
+            echo "   - API response structure has changed"
+            echo "   - Permissions issue with the update operation"
+            exit 1
+          fi
+
+          echo "✅ Success! Issue #${ISSUE_NUMBER} moved to '$INPROG_STATUS'"
+
+          # Add GitHub Actions summary
+          echo "## ✅ Issue Status Updated" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Issue:** [#${ISSUE_NUMBER}](https://github.com/${ORG}/${REPO_NAME}/issues/${ISSUE_NUMBER})" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Branch:** \`${BRANCH_NAME}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Status:** Moved to **$INPROG_STATUS**" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Project:** ${ORG} Project #${PROJECT_NUMBER}" >> "$GITHUB_STEP_SUMMARY"
