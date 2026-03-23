@@ -70,13 +70,11 @@ All configuration lives in `.github/project-config.yml`.
 | wikiwizard.documented_label | Label applied after docs generated | "Documented" |
 | wikiwizard.release_notes_file | Release notes file path | "docs/external/release-notes.md" |
 | workflows.claude | Enable/disable claude.yml | true |
-| workflows.claude-weekly-scan | Enable/disable claude-weekly-scan.yml | true |
 | workflows.WikiWizard | Enable/disable WikiWizard.yml | true |
 | workflows.close-released-items | Enable/disable close-released-items.yml | true |
 | workflows.comment-on-draft-issues | Enable/disable comment-on-draft-issues.yml | true |
 | workflows.move-to-in-progress | Enable/disable move-to-in-progress.yml | true |
 | workflows.sync-pr-status-to-issue | Enable/disable sync-pr-status-to-issue.yml | true |
-| workflows.update-ticket-status | Enable/disable update-ticket-status.yml | true |
 
 ---
 
@@ -87,15 +85,15 @@ All configuration lives in `.github/project-config.yml`.
 | Secret | Description |
 |--------|-------------|
 | `CLAUDE_CODE_OAUTH_TOKEN` | For Claude Code API |
-| `APP_ID` | GitHub App numeric ID |
-| `APP_PRIVATE_KEY` | GitHub App PEM private key |
+| `RADMAN_AI_APP_ID` | GitHub App numeric ID |
+| `RADMAN_AI_PRIVATE_KEY` | GitHub App PEM private key |
 
 ### GitHub App Setup
 
 1. Go to Settings > Developer settings > GitHub Apps
 2. Create app with permissions: issues (write), pull_requests (write), projects (read/write), contents (read)
 3. Install on your repo
-4. Add `APP_ID` and `APP_PRIVATE_KEY` to repo secrets
+4. Add `RADMAN_AI_APP_ID` and `RADMAN_AI_PRIVATE_KEY` to repo secrets
 
 ### PAT Alternative
 
