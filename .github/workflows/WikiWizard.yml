@@ -146,6 +146,9 @@ jobs:
         run: |
           PROMPT=$(cat .github/workflows/prompts/wikiwizard-release-notes.action.prompt.md)
           PROMPT="${PROMPT//\[\[PR_NUMBER\]\]/${{ github.event.pull_request.number }}}"
+          PROMPT="${PROMPT//\[\[INTERNAL_DOC_LOCATION\]\]/${{ needs.config.outputs.docs_internal }}}"
+          PROMPT="${PROMPT//\[\[EXTERNAL_DOC_LOCATION\]\]/${{ needs.config.outputs.docs_external }}}"
+          PROMPT="${PROMPT//\[\[RELEASE_NOTES_FILE\]\]/${{ needs.config.outputs.release_notes_file }}}"
           echo "PROMPT<<PROMPT_CONTENT_EOF" >> $GITHUB_OUTPUT
           printf '%s\n' "$PROMPT" >> $GITHUB_OUTPUT
           echo "PROMPT_CONTENT_EOF" >> $GITHUB_OUTPUT

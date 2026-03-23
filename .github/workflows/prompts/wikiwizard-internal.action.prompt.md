@@ -32,7 +32,7 @@ Your goal is 100% alignment between code changes and documentation.
 ## **Configuration**
 
 Variables used in this prompt:
-- **[[INTERNAL_DOC_LOCATION]]**: `/docs/internal/` - Location where code documentation files are stored
+- **[[INTERNAL_DOC_LOCATION]]**: Location where code documentation files are stored
 
 ---
 
