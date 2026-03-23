@@ -1,0 +1,575 @@
+name: Sync PR Status to Issue
+
+# This workflow syncs the PR's project status to linked issues.
+# When a PR event occurs, it:
+# 1. Gets the PR's current status from the project board
+# 2. Finds all issues linked to the PR (via "Closes #123" syntax)
+# 3. Updates each linked issue's status to match the PR's status
+#
+# Requirements:
+# - APP_ID and APP_PRIVATE_KEY secrets must be configured
+# - Both PR and linked issues must be added to the project
+# - Linked issues must use "Closes #123" or similar syntax in PR description
+
+on:
+  pull_request:
+    types:
+      - opened
+      - closed
+      - reopened
+      - ready_for_review
+      - converted_to_draft
+      - edited
+      - synchronize
+  # pull_request_target fires for bot-created PR activity (e.g. radman-ai)
+  pull_request_target:
+    types:
+      - opened
+      - closed
+      - reopened
+      - ready_for_review
+      - converted_to_draft
+      - edited
+      - synchronize
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  config:
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.config.outputs.enabled }}
+      project_number: ${{ steps.config.outputs.project_number }}
+      status_ai_pr_drafted: ${{ steps.config.outputs.status_ai_pr_drafted }}
+      bot_login: ${{ steps.config.outputs.bot_login }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+      - name: Read config
+        id: config
+        run: |
+          CONFIG=".github/project-config.yml"
+          echo "enabled=$(yq '.workflows["sync-pr-status-to-issue"]' "$CONFIG")" >> "$GITHUB_OUTPUT"
+          echo "project_number=$(yq '.project_number' "$CONFIG")" >> "$GITHUB_OUTPUT"
+          echo "status_ai_pr_drafted=$(yq '.statuses.ai_pr_drafted' "$CONFIG")" >> "$GITHUB_OUTPUT"
+          echo "bot_login=$(yq '.bot_login' "$CONFIG")" >> "$GITHUB_OUTPUT"
+
+  sync-status:
+    needs: config
+    if: needs.config.outputs.enabled == 'true'
+    name: Sync PR status to associated issue
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check actor type
+        id: actor-check
+        run: |
+          BOT_LOGIN="${{ needs.config.outputs.bot_login }}"
+          if [ -z "$BOT_LOGIN" ]; then
+            echo "is_bot=false" >> "$GITHUB_OUTPUT"
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.actor }}" = "${BOT_LOGIN}[bot]" ]; then
+            echo "is_bot=true" >> "$GITHUB_OUTPUT"
+            if [ "${{ github.event_name }}" = "pull_request_target" ]; then
+              echo "should_run=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "should_run=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "is_bot=false" >> "$GITHUB_OUTPUT"
+            if [ "${{ github.event_name }}" = "pull_request" ]; then
+              echo "should_run=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "should_run=false" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+      - name: Generate app token
+        id: app-token
+        if: steps.actor-check.outputs.should_run == 'true'
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Get PR status from project
+        id: get_pr_status
+        if: steps.actor-check.outputs.should_run == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          ORG="${{ github.repository_owner }}"
+          REPO_NAME="${{ github.event.repository.name }}"
+          PROJECT_NUMBER="${{ needs.config.outputs.project_number }}"
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+
+          echo "🔍 Getting PR #$PR_NUMBER status from project..."
+
+          # Get project ID
+          if ! PROJECT_RESPONSE=$(gh api graphql -f query='
+            query {
+              organization(login: "'$ORG'") {
+                projectV2(number: '$PROJECT_NUMBER') {
+                  id
+                  title
+                }
+              }
+            }'); then
+            echo "❌ Error: Failed to query project"
+            exit 1
+          fi
+
+          PROJECT_ID=$(echo "$PROJECT_RESPONSE" | jq -r '.data.organization.projectV2.id' 2>/dev/null)
+
+          if [ -z "$PROJECT_ID" ] || [ "$PROJECT_ID" = "null" ]; then
+            echo "❌ Error: Project #$PROJECT_NUMBER not found"
+            exit 1
+          fi
+
+          # Get PR node ID
+          if ! PR_RESPONSE=$(gh api graphql -f query='
+            query {
+              repository(owner: "'$ORG'", name: "'$REPO_NAME'") {
+                pullRequest(number: '$PR_NUMBER') {
+                  id
+                  title
+                }
+              }
+            }'); then
+            echo "❌ Error: Failed to query PR"
+            exit 1
+          fi
+
+          PR_NODE_ID=$(echo "$PR_RESPONSE" | jq -r '.data.repository.pullRequest.id' 2>/dev/null)
+          PR_TITLE=$(echo "$PR_RESPONSE" | jq -r '.data.repository.pullRequest.title' 2>/dev/null)
+
+          if [ -z "$PR_NODE_ID" ] || [ "$PR_NODE_ID" = "null" ]; then
+            echo "❌ Error: PR #$PR_NUMBER not found"
+            exit 1
+          fi
+
+          echo "📋 PR #$PR_NUMBER: \"$PR_TITLE\""
+
+          # Find the PR in the project
+          echo "🔍 Looking for PR in project..."
+          PR_PROJECT_ITEM_ID=""
+          CURSOR=""
+          PAGE=1
+          MAX_PAGES=20
+
+          while [ $PAGE -le $MAX_PAGES ]; do
+            if [ -n "$CURSOR" ]; then
+              QUERY='
+                query {
+                  node(id: "'$PROJECT_ID'") {
+                    ... on ProjectV2 {
+                      items(first: 100, after: "'$CURSOR'") {
+                        pageInfo {
+                          hasNextPage
+                          endCursor
+                        }
+                        nodes {
+                          id
+                          content {
+                            ... on PullRequest {
+                              id
+                              number
+                            }
+                          }
+                          fieldValues(first: 20) {
+                            nodes {
+                              ... on ProjectV2ItemFieldSingleSelectValue {
+                                name
+                                field {
+                                  ... on ProjectV2SingleSelectField {
+                                    name
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }'
+            else
+              QUERY='
+                query {
+                  node(id: "'$PROJECT_ID'") {
+                    ... on ProjectV2 {
+                      items(first: 100) {
+                        pageInfo {
+                          hasNextPage
+                          endCursor
+                        }
+                        nodes {
+                          id
+                          content {
+                            ... on PullRequest {
+                              id
+                              number
+                            }
+                          }
+                          fieldValues(first: 20) {
+                            nodes {
+                              ... on ProjectV2ItemFieldSingleSelectValue {
+                                name
+                                field {
+                                  ... on ProjectV2SingleSelectField {
+                                    name
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }'
+            fi
+
+            if ! PROJECT_ITEM_RESPONSE=$(gh api graphql -f query="$QUERY"); then
+              echo "❌ Error: Failed to query project items"
+              exit 1
+            fi
+
+            # Find the PR item and extract its status
+            PR_ITEM=$(echo "$PROJECT_ITEM_RESPONSE" | jq -r '.data.node.items.nodes[] | select(.content.number == '$PR_NUMBER')')
+
+            if [ -n "$PR_ITEM" ] && [ "$PR_ITEM" != "null" ]; then
+              PR_PROJECT_ITEM_ID=$(echo "$PR_ITEM" | jq -r '.id')
+              PR_STATUS=$(echo "$PR_ITEM" | jq -r '.fieldValues.nodes[] | select(.field.name == "Status") | .name' 2>/dev/null)
+              break
+            fi
+
+            HAS_NEXT_PAGE=$(echo "$PROJECT_ITEM_RESPONSE" | jq -r '.data.node.items.pageInfo.hasNextPage' 2>/dev/null)
+
+            if [ "$HAS_NEXT_PAGE" != "true" ]; then
+              break
+            fi
+
+            CURSOR=$(echo "$PROJECT_ITEM_RESPONSE" | jq -r '.data.node.items.pageInfo.endCursor' 2>/dev/null)
+            PAGE=$((PAGE + 1))
+          done
+
+          if [ -z "$PR_PROJECT_ITEM_ID" ] || [ "$PR_PROJECT_ITEM_ID" = "null" ]; then
+            echo "⚠️  PR #$PR_NUMBER is not in project #$PROJECT_NUMBER"
+            echo "   Please add the PR to the project first."
+            exit 0
+          fi
+
+          if [ -z "$PR_STATUS" ] || [ "$PR_STATUS" = "null" ]; then
+            echo "⚠️  PR #$PR_NUMBER has no status set in the project"
+            echo "🔄 Auto-setting status to '${{ needs.config.outputs.status_ai_pr_drafted }}'..."
+
+            # Get status field ID
+            if ! FIELDS_RESPONSE=$(gh api graphql -f query='
+              query {
+                node(id: "'$PROJECT_ID'") {
+                  ... on ProjectV2 {
+                    fields(first: 20) {
+                      nodes {
+                        ... on ProjectV2SingleSelectField {
+                          id
+                          name
+                        }
+                      }
+                    }
+                  }
+                }
+              }'); then
+              echo "❌ Error: Failed to query fields"
+              exit 1
+            fi
+
+            FIELD_ID=$(echo "$FIELDS_RESPONSE" | jq -r '.data.node.fields.nodes[] | select(.name == "Status") | .id' 2>/dev/null)
+
+            if [ -z "$FIELD_ID" ] || [ "$FIELD_ID" = "null" ]; then
+              echo "❌ Error: Status field not found"
+              exit 1
+            fi
+
+            # Get status option ID for the configured AI PR Drafted status
+            if ! OPTIONS_RESPONSE=$(gh api graphql -f query='
+              query {
+                node(id: "'$FIELD_ID'") {
+                  ... on ProjectV2SingleSelectField {
+                    options {
+                      id
+                      name
+                    }
+                  }
+                }
+              }'); then
+              echo "❌ Error: Failed to query status options"
+              exit 1
+            fi
+
+            OPTION_ID=$(echo "$OPTIONS_RESPONSE" | jq -r --arg status "${{ needs.config.outputs.status_ai_pr_drafted }}" '.data.node.options[] | select(.name == $status) | .id' 2>/dev/null)
+
+            if [ -z "$OPTION_ID" ] || [ "$OPTION_ID" = "null" ]; then
+              echo "❌ Error: '${{ needs.config.outputs.status_ai_pr_drafted }}' status option not found in project"
+              exit 1
+            fi
+
+            # Update the PR's project item status
+            if ! UPDATE_RESPONSE=$(gh api graphql -f query='
+              mutation {
+                updateProjectV2ItemFieldValue(input: {
+                  projectId: "'$PROJECT_ID'",
+                  itemId: "'$PR_PROJECT_ITEM_ID'",
+                  fieldId: "'$FIELD_ID'",
+                  value: { singleSelectOptionId: "'$OPTION_ID'" }
+                }) {
+                  projectV2Item {
+                    id
+                  }
+                }
+              }'); then
+              echo "❌ Error: Failed to update PR status"
+              exit 1
+            fi
+
+            UPDATED_ITEM_ID=$(echo "$UPDATE_RESPONSE" | jq -r '.data.updateProjectV2ItemFieldValue.projectV2Item.id' 2>/dev/null)
+
+            if [ -z "$UPDATED_ITEM_ID" ] || [ "$UPDATED_ITEM_ID" = "null" ]; then
+              echo "❌ Error: Update failed for PR #$PR_NUMBER"
+              exit 1
+            fi
+
+            PR_STATUS="${{ needs.config.outputs.status_ai_pr_drafted }}"
+            echo "✅ PR #$PR_NUMBER status auto-set to: $PR_STATUS"
+          else
+            echo "✅ PR #$PR_NUMBER status: $PR_STATUS"
+          fi
+
+          echo "status=$PR_STATUS" >> "$GITHUB_OUTPUT"
+          echo "project_id=$PROJECT_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Sync status to linked issues
+        if: steps.actor-check.outputs.should_run == 'true' && steps.get_pr_status.outputs.status != ''
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          ORG="${{ github.repository_owner }}"
+          REPO_NAME="${{ github.event.repository.name }}"
+          PROJECT_NUMBER="${{ needs.config.outputs.project_number }}"
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+          NEW_STATUS="${{ steps.get_pr_status.outputs.status }}"
+          PROJECT_ID="${{ steps.get_pr_status.outputs.project_id }}"
+
+          echo "🔄 Syncing PR #$PR_NUMBER status to linked issues..."
+          echo "📊 Status to sync: $NEW_STATUS"
+
+          # Get the PR details to find linked issues
+          if ! PR_DETAILS=$(gh api graphql -f query='
+            query {
+              repository(owner: "'$ORG'", name: "'$REPO_NAME'") {
+                pullRequest(number: '$PR_NUMBER') {
+                  id
+                  title
+                  closingIssuesReferences(first: 10) {
+                    nodes {
+                      id
+                      number
+                      title
+                    }
+                  }
+                }
+              }
+            }'); then
+            echo "❌ Error: Failed to query PR details"
+            exit 1
+          fi
+
+          PR_TITLE=$(echo "$PR_DETAILS" | jq -r '.data.repository.pullRequest.title' 2>/dev/null)
+          echo "📋 PR #$PR_NUMBER: \"$PR_TITLE\""
+
+          # Get linked issues
+          LINKED_ISSUES=$(echo "$PR_DETAILS" | jq -r '.data.repository.pullRequest.closingIssuesReferences.nodes[] | @json' 2>/dev/null)
+
+          if [ -z "$LINKED_ISSUES" ]; then
+            echo "ℹ️  No linked issues found for PR #$PR_NUMBER"
+            exit 0
+          fi
+
+          # Get status field ID
+          if ! FIELDS_RESPONSE=$(gh api graphql -f query='
+            query {
+              node(id: "'$PROJECT_ID'") {
+                ... on ProjectV2 {
+                  fields(first: 20) {
+                    nodes {
+                      ... on ProjectV2SingleSelectField {
+                        id
+                        name
+                      }
+                    }
+                  }
+                }
+              }
+            }'); then
+            echo "❌ Error: Failed to query fields"
+            exit 1
+          fi
+
+          FIELD_ID=$(echo "$FIELDS_RESPONSE" | jq -r '.data.node.fields.nodes[] | select(.name == "Status") | .id' 2>/dev/null)
+
+          if [ -z "$FIELD_ID" ] || [ "$FIELD_ID" = "null" ]; then
+            echo "❌ Error: Status field not found"
+            exit 1
+          fi
+
+          # Get status option ID
+          if ! OPTIONS_RESPONSE=$(gh api graphql -f query='
+            query {
+              node(id: "'$FIELD_ID'") {
+                ... on ProjectV2SingleSelectField {
+                  options {
+                    id
+                    name
+                  }
+                }
+              }
+            }'); then
+            echo "❌ Error: Failed to query status options"
+            exit 1
+          fi
+
+          OPTION_ID=$(echo "$OPTIONS_RESPONSE" | jq -r --arg status "$NEW_STATUS" '.data.node.options[] | select(.name == $status) | .id' 2>/dev/null)
+
+          if [ -z "$OPTION_ID" ] || [ "$OPTION_ID" = "null" ]; then
+            echo "❌ Error: Status option not found for '$NEW_STATUS'"
+            exit 1
+          fi
+
+          # Update each linked issue
+          while IFS= read -r issue_json; do
+            ISSUE_NUMBER=$(echo "$issue_json" | jq -r '.number')
+            ISSUE_TITLE=$(echo "$issue_json" | jq -r '.title')
+            ISSUE_NODE_ID=$(echo "$issue_json" | jq -r '.id')
+
+            echo "🔍 Looking for issue #$ISSUE_NUMBER in project..."
+
+            # Find the project item for this issue
+            ISSUE_PROJECT_ITEM_ID=""
+            CURSOR=""
+            PAGE=1
+            MAX_PAGES=20
+
+            while [ $PAGE -le $MAX_PAGES ]; do
+              if [ -n "$CURSOR" ]; then
+                QUERY='
+                  query {
+                    node(id: "'$PROJECT_ID'") {
+                      ... on ProjectV2 {
+                        items(first: 100, after: "'$CURSOR'") {
+                          pageInfo {
+                            hasNextPage
+                            endCursor
+                          }
+                          nodes {
+                            id
+                            content {
+                              ... on Issue {
+                                id
+                                number
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }'
+              else
+                QUERY='
+                  query {
+                    node(id: "'$PROJECT_ID'") {
+                      ... on ProjectV2 {
+                        items(first: 100) {
+                          pageInfo {
+                            hasNextPage
+                            endCursor
+                          }
+                          nodes {
+                            id
+                            content {
+                              ... on Issue {
+                                id
+                                number
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }'
+              fi
+
+              if ! PROJECT_ITEM_RESPONSE=$(gh api graphql -f query="$QUERY"); then
+                echo "❌ Error: Failed to query project items"
+                exit 1
+              fi
+
+              ISSUE_PROJECT_ITEM_ID=$(echo "$PROJECT_ITEM_RESPONSE" | jq -r '.data.node.items.nodes[] | select(.content.number == '$ISSUE_NUMBER') | .id' 2>/dev/null)
+
+              if [ -n "$ISSUE_PROJECT_ITEM_ID" ] && [ "$ISSUE_PROJECT_ITEM_ID" != "null" ]; then
+                break
+              fi
+
+              HAS_NEXT_PAGE=$(echo "$PROJECT_ITEM_RESPONSE" | jq -r '.data.node.items.pageInfo.hasNextPage' 2>/dev/null)
+
+              if [ "$HAS_NEXT_PAGE" != "true" ]; then
+                break
+              fi
+
+              CURSOR=$(echo "$PROJECT_ITEM_RESPONSE" | jq -r '.data.node.items.pageInfo.endCursor' 2>/dev/null)
+              PAGE=$((PAGE + 1))
+            done
+
+            if [ -z "$ISSUE_PROJECT_ITEM_ID" ] || [ "$ISSUE_PROJECT_ITEM_ID" = "null" ]; then
+              echo "⚠️  Issue #$ISSUE_NUMBER not found in project, skipping"
+              continue
+            fi
+
+            # Update the issue status
+            echo "🔄 Updating issue #$ISSUE_NUMBER status to '$NEW_STATUS'..."
+
+            if ! UPDATE_RESPONSE=$(gh api graphql -f query='
+              mutation {
+                updateProjectV2ItemFieldValue(input: {
+                  projectId: "'$PROJECT_ID'",
+                  itemId: "'$ISSUE_PROJECT_ITEM_ID'",
+                  fieldId: "'$FIELD_ID'",
+                  value: { singleSelectOptionId: "'$OPTION_ID'" }
+                }) {
+                  projectV2Item {
+                    id
+                  }
+                }
+              }'); then
+              echo "❌ Error: Failed to update issue #$ISSUE_NUMBER"
+              continue
+            fi
+
+            UPDATED_ITEM_ID=$(echo "$UPDATE_RESPONSE" | jq -r '.data.updateProjectV2ItemFieldValue.projectV2Item.id' 2>/dev/null)
+
+            if [ -z "$UPDATED_ITEM_ID" ] || [ "$UPDATED_ITEM_ID" = "null" ]; then
+              echo "❌ Error: Update failed for issue #$ISSUE_NUMBER"
+              continue
+            fi
+
+            echo "✅ Issue #$ISSUE_NUMBER: \"$ISSUE_TITLE\" → $NEW_STATUS"
+          done < <(echo "$LINKED_ISSUES")
+
+          echo ""
+          echo "✅ Status sync complete!"
