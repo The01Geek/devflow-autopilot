@@ -1,0 +1,241 @@
+name: WikiWizard
+
+on:
+  pull_request:
+    types: [closed]
+
+concurrency:
+  group: wikiwizard-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  config:
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.config.outputs.enabled }}
+      project_number: ${{ steps.config.outputs.project_number }}
+      claude_model: ${{ steps.config.outputs.claude_model }}
+      docs_internal: ${{ steps.config.outputs.docs_internal }}
+      docs_external: ${{ steps.config.outputs.docs_external }}
+      documented_label: ${{ steps.config.outputs.documented_label }}
+      release_notes_file: ${{ steps.config.outputs.release_notes_file }}
+      bot_login: ${{ steps.config.outputs.bot_login }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+      - name: Read config
+        id: config
+        run: |
+          CONFIG=".github/project-config.yml"
+          echo "enabled=$(yq '.workflows.WikiWizard' "$CONFIG")" >> "$GITHUB_OUTPUT"
+          echo "project_number=$(yq '.project_number' "$CONFIG")" >> "$GITHUB_OUTPUT"
+          echo "claude_model=$(yq '.claude_model' "$CONFIG")" >> "$GITHUB_OUTPUT"
+          echo "docs_internal=$(yq '.docs.internal' "$CONFIG")" >> "$GITHUB_OUTPUT"
+          echo "docs_external=$(yq '.docs.external' "$CONFIG")" >> "$GITHUB_OUTPUT"
+          echo "documented_label=$(yq '.wikiwizard.documented_label' "$CONFIG")" >> "$GITHUB_OUTPUT"
+          echo "release_notes_file=$(yq '.wikiwizard.release_notes_file' "$CONFIG")" >> "$GITHUB_OUTPUT"
+          echo "bot_login=$(yq '.bot_login' "$CONFIG")" >> "$GITHUB_OUTPUT"
+
+  documentation:
+    needs: config
+    # Run only on merged PRs when the workflow is enabled
+    if: >-
+      needs.config.outputs.enabled == 'true' &&
+      github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Skip if already documented
+        id: check-label
+        run: |
+          DOCUMENTED_LABEL="${{ needs.config.outputs.documented_label }}"
+          LABELS='${{ toJson(github.event.pull_request.labels.*.name) }}'
+          if echo "$LABELS" | jq -e --arg label "$DOCUMENTED_LABEL" '. | index($label) != null' > /dev/null 2>&1; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "PR already has label '$DOCUMENTED_LABEL', skipping documentation run."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Read internal documentation prompt
+        id: read-internal-prompt
+        if: steps.check-label.outputs.skip != 'true'
+        run: |
+          DOCS_INTERNAL="${{ needs.config.outputs.docs_internal }}"
+          PROMPT=$(cat .github/workflows/prompts/wikiwizard-internal.action.prompt.md)
+          PROMPT="${PROMPT//\[\[INTERNAL_DOC_LOCATION\]\]/${DOCS_INTERNAL}}"
+          echo "PROMPT<<PROMPT_CONTENT_EOF" >> $GITHUB_OUTPUT
+          printf '%s\n' "$PROMPT" >> $GITHUB_OUTPUT
+          echo "PROMPT_CONTENT_EOF" >> $GITHUB_OUTPUT
+
+      - name: Run Internal Documentation Review
+        id: claude-internal
+        if: steps.check-label.outputs.skip != 'true'
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: ${{ steps.read-internal-prompt.outputs.PROMPT }}
+          claude_args: >-
+            --model ${{ needs.config.outputs.claude_model }}
+            --allowed-tools
+            "Read,
+            Edit,
+            Write,
+            Glob,
+            Grep,
+            Bash(git status:*),
+            Bash(git diff:*),
+            Bash(gh pr comment:*),
+            Bash(gh pr diff:*),
+            Bash(gh pr view:*),
+            Bash(gh pr review:*)"
+
+      - name: Read external documentation prompt
+        id: read-external-prompt
+        if: steps.check-label.outputs.skip != 'true'
+        run: |
+          DOCS_INTERNAL="${{ needs.config.outputs.docs_internal }}"
+          DOCS_EXTERNAL="${{ needs.config.outputs.docs_external }}"
+          PROMPT=$(cat .github/workflows/prompts/wikiwizard-external.action.prompt.md)
+          PROMPT="${PROMPT//\[\[INTERNAL_DOC_LOCATION\]\]/${DOCS_INTERNAL}}"
+          PROMPT="${PROMPT//\[\[EXTERNAL_DOC_LOCATION\]\]/${DOCS_EXTERNAL}}"
+          echo "PROMPT<<PROMPT_CONTENT_EOF" >> $GITHUB_OUTPUT
+          printf '%s\n' "$PROMPT" >> $GITHUB_OUTPUT
+          echo "PROMPT_CONTENT_EOF" >> $GITHUB_OUTPUT
+
+      - name: Run External Documentation Review
+        id: claude-external
+        if: steps.check-label.outputs.skip != 'true'
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: ${{ steps.read-external-prompt.outputs.PROMPT }}
+          claude_args: >-
+            --model ${{ needs.config.outputs.claude_model }}
+            --allowed-tools
+            "Read,
+            Edit,
+            Write,
+            Glob,
+            Grep,
+            Bash(git status:*),
+            Bash(git diff:*),
+            Bash(gh pr comment:*),
+            Bash(gh pr diff:*),
+            Bash(gh pr view:*),
+            Bash(gh pr review:*)"
+
+      - name: Read release notes prompt
+        id: read-release-prompt
+        if: steps.check-label.outputs.skip != 'true'
+        run: |
+          PROMPT=$(cat .github/workflows/prompts/wikiwizard-release-notes.action.prompt.md)
+          PROMPT="${PROMPT//\[\[PR_NUMBER\]\]/${{ github.event.pull_request.number }}}"
+          echo "PROMPT<<PROMPT_CONTENT_EOF" >> $GITHUB_OUTPUT
+          printf '%s\n' "$PROMPT" >> $GITHUB_OUTPUT
+          echo "PROMPT_CONTENT_EOF" >> $GITHUB_OUTPUT
+
+      - name: Run Release Notes Review
+        id: claude-release-notes
+        if: steps.check-label.outputs.skip != 'true'
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: ${{ steps.read-release-prompt.outputs.PROMPT }}
+          claude_args: >-
+            --model ${{ needs.config.outputs.claude_model }}
+            --allowed-tools
+            "Read,
+            Edit,
+            Write,
+            Glob,
+            Grep,
+            Bash(git status:*),
+            Bash(git diff:*),
+            Bash(gh pr view:*)"
+
+      - name: Commit and push all documentation changes
+        if: steps.check-label.outputs.skip != 'true'
+        run: |
+          DOCS_INTERNAL="${{ needs.config.outputs.docs_internal }}"
+          DOCS_EXTERNAL="${{ needs.config.outputs.docs_external }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+          # Remove any non-markdown files Claude may have created as scratch tools
+          find "${DOCS_INTERNAL}" "${DOCS_EXTERNAL}" -type f ! -name '*.md' -delete 2>/dev/null || true
+          git add "${DOCS_INTERNAL}*.md" "${DOCS_INTERNAL}**/*.md" || true
+          git add "${DOCS_EXTERNAL}*.md" "${DOCS_EXTERNAL}**/*.md" || true
+          if git diff --cached --quiet; then
+            echo "No documentation changes to commit"
+          else
+            git commit -m "docs: update documentation [skip ci]"
+            git push origin "HEAD:refs/heads/${{ github.event.repository.default_branch }}"
+          fi
+
+      - name: Add Documented Label
+        if: steps.check-label.outputs.skip != 'true' && success()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              labels: ['${{ needs.config.outputs.documented_label }}']
+            });
+
+  request-claude-review:
+    needs: [config, documentation]
+    # Only run if bot_login is configured
+    if: >-
+      needs.config.outputs.enabled == 'true' &&
+      needs.config.outputs.bot_login != '' &&
+      github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Post review comment
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          ORG="${{ github.repository_owner }}"
+          REPO_NAME="${{ github.event.repository.name }}"
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+
+          echo "Posting review request on PR #$PR_NUMBER..."
+          gh pr comment "$PR_NUMBER" \
+            --repo "$ORG/$REPO_NAME" \
+            --body "@claude run /pr-review-toolkit:review-pr"
+          echo "Review comment posted on PR #$PR_NUMBER"
+
+          echo "## Claude Review Requested" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**PR:** [#${PR_NUMBER}](https://github.com/${ORG}/${REPO_NAME}/pull/${PR_NUMBER})" >> "$GITHUB_STEP_SUMMARY"
