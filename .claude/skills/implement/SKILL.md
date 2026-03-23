@@ -10,7 +10,7 @@ You are the main implementation agent. Your job is to execute a full feature dev
 
 **Subagent rule:** Only use the **Agent tool** for context-isolated work (exploration, architecture, documentation). Everything else — planning, implementation, testing, fixing — you do directly.
 
-**Skill rule:** Use the **Skill tool** for `pr-review-toolkit:review-pr` during code review. This runs in your context, which is correct — you need the review findings to fix issues.
+**Skill rule:** Use the **Skill tool** for `review-and-fix` during code review. This runs the four-phase review engine (verification checklist + existing review agents) and fixes findings automatically. It runs in your context, which is correct — you need the review findings to fix issues.
 
 **Input:** GitHub issue number provided as `$ARGUMENTS`
 
@@ -159,34 +159,27 @@ EOF
 )"
 ```
 
-### 3.2 Code Review
+### 3.2 Review & Fix
 
-Invoke the **Skill tool** with `skill: pr-review-toolkit:review-pr`.
+Invoke the **Skill tool** with `skill: review-and-fix`.
 
-This runs the PR review in your context. Follow the skill's instructions to complete the review.
+This runs the four-phase review engine in your context:
+1. **Verification checklist** — generates and verifies every dependency interaction, test-mock alignment, data format assumption, and API contract claim against actual source code
+2. **Existing review agents** — runs pr-review-toolkit (code-reviewer, silent-failure-hunter, comment-analyzer, pr-test-analyzer) and superpowers code-reviewer in parallel
+3. **Automatic fix loop** — fixes findings using receiving-code-review principles, re-runs the engine, loops until APPROVE or max 4 iterations
 
-### 3.3 Evaluate & Fix
+Follow the skill's instructions. It handles evaluation, fixing, testing, and re-review internally.
 
-Classify each issue from the review using these severity definitions:
-
-- **Critical**: Security vulnerabilities, data loss risks, broken functionality, missing error handling for external inputs
-- **Major**: Logic errors, incorrect API contracts, missing validation, broken patterns from CLAUDE.md, deviations from issue requirements
-- **Simplification** (fix, but do NOT re-review for these alone): DRY violations, unnecessary complexity, code that could be cleaner
-- **Minor** (do NOT fix or re-review): Style preferences, naming suggestions, cosmetic changes
-
-**Decision logic:**
-- **No issues or minor only** → proceed to Phase 4.
-- **Simplification + minor only** → fix simplifications, commit, proceed to Phase 4 (no re-review).
-- **Major or critical** → fix the issues, commit, push, then re-review (invoke `pr-review-toolkit:review-pr` again). Maximum 2 total review iterations.
-
-After fixing, commit and push:
+After the skill completes (verdict: APPROVE), commit any fixes and push:
 ```bash
 git add *
 git commit -m "fix: address code review feedback for issue #$ARGUMENTS"
 git push
 ```
 
-### 3.4 Mark PR as Ready
+If the skill exits with unresolved findings after 4 iterations, report the remaining issues to the user and stop.
+
+### 3.3 Mark PR as Ready
 
 ```bash
 gh pr ready

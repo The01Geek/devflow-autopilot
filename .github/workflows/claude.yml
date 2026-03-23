@@ -54,7 +54,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          fetch-depth: 0
 
       - name: Run Claude Code
         id: claude
@@ -96,11 +96,14 @@ jobs:
             Bash(git add:*),
             Bash(git commit:*),
             Bash(git push:*),
+            Bash(git pull:*),
+            Bash(git fetch:*),
             Bash(git status:*),
             Bash(git diff:*),
             Bash(git log:*),
             Bash(git checkout:*),
             Bash(git branch:*),
+            Bash(git stash:*),
             Bash(gh pr create:*),
             Bash(gh pr edit:*),
             Bash(gh pr comment:*),

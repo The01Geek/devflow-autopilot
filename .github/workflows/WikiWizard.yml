@@ -236,7 +236,7 @@ jobs:
           echo "Posting review request on PR #$PR_NUMBER..."
           gh pr comment "$PR_NUMBER" \
             --repo "$ORG/$REPO_NAME" \
-            --body "@claude run /pr-review-toolkit:review-pr"
+            --body "@claude run /review"
           echo "Review comment posted on PR #$PR_NUMBER"
 
           echo "## Claude Review Requested" >> "$GITHUB_STEP_SUMMARY"
