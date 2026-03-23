@@ -50,4 +50,3 @@ workflows:
   comment-on-draft-issues: true
   move-to-in-progress: true
   sync-pr-status-to-issue: true
-  update-ticket-status: true

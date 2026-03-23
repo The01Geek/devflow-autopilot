@@ -16,7 +16,6 @@ Agent coding and workflow automation template files. Use this template to bootst
 | comment-on-draft-issues.yml | Auto-comment /implement on draft issues |
 | move-to-in-progress.yml | Move issue to "In Progress" on branch creation |
 | sync-pr-status-to-issue.yml | Sync PR project status to linked issues |
-| update-ticket-status.yml | Manual bulk status update via workflow dispatch |
 
 ### Agents
 
