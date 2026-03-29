@@ -127,13 +127,25 @@ jobs:
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://docs.claude.com/en/docs/claude-code/sdk#command-line for available options
 
+      - name: Generate app token for PR creation
+        id: pr-app-token
+        if: |
+          github.event_name == 'issue_comment' &&
+          contains(github.event.comment.body, '/implement') &&
+          github.event.issue.pull_request == null
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.RADMAN_AI_APP_ID }}
+          private-key: ${{ secrets.RADMAN_AI_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
       - name: Auto-create PR for /implement commands
         if: |
           github.event_name == 'issue_comment' &&
           contains(github.event.comment.body, '/implement') &&
           github.event.issue.pull_request == null
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.pr-app-token.outputs.token }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           ISSUE_TITLE: ${{ github.event.issue.title }}
         run: |
@@ -158,12 +170,22 @@ jobs:
             exit 0
           fi
 
+          # Extract PR description from Claude's output
+          CLAUDE_RESULT='${{ steps.claude.outputs.result }}'
+          PR_BODY=$(echo "$CLAUDE_RESULT" | sed -n '/<!-- PR_BODY_START -->/,/<!-- PR_BODY_END -->/{ /<!-- PR_BODY_START -->/d; /<!-- PR_BODY_END -->/d; p; }')
+
+          # Fallback if extraction fails
+          if [ -z "$PR_BODY" ]; then
+            echo "Warning: Could not extract PR description from Claude output, using fallback"
+            PR_BODY="Resolves #${ISSUE_NUMBER}"
+          fi
+
           # Create the PR and mark it ready for review
           gh pr create \
             --head "$BRANCH" \
             --base "${{ github.event.repository.default_branch }}" \
             --title "feat: ${ISSUE_TITLE}" \
-            --body "Resolves #${ISSUE_NUMBER}"
+            --body "$PR_BODY"
 
           gh pr ready "$BRANCH"
           echo "PR created and marked ready for review"

@@ -7,7 +7,7 @@ name: Sync PR Status to Issue
 # 3. Updates each linked issue's status to match the PR's status
 #
 # Requirements:
-# - BOT_APP_ID and BOT_PRIVATE_KEY secrets must be configured
+# - RADMAN_AI_APP_ID and RADMAN_AI_PRIVATE_KEY secrets must be configured
 # - Both PR and linked issues must be added to the project
 # - Linked issues must use "Closes #123" or similar syntax in PR description
 
@@ -21,7 +21,7 @@ on:
       - converted_to_draft
       - edited
       - synchronize
-  # pull_request_target fires for bot-created PR activity
+  # pull_request_target fires for bot-created PR activity (e.g. radman-ai)
   pull_request_target:
     types:
       - opened
@@ -63,16 +63,14 @@ jobs:
     needs: config
     if: needs.config.outputs.enabled == 'true'
     name: Sync PR status to associated issue
+    # Avoid duplicate runs: pull_request for human actors, pull_request_target for bots
     runs-on: ubuntu-latest
     steps:
       - name: Check actor type
         id: actor-check
         run: |
-          BOT_LOGIN="${{ needs.config.outputs.bot_login }}"
-          if [ -z "$BOT_LOGIN" ]; then
-            echo "is_bot=false" >> "$GITHUB_OUTPUT"
-            echo "should_run=true" >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.actor }}" = "${BOT_LOGIN}[bot]" ]; then
+          ACTOR="${{ github.actor }}"
+          if [[ "$ACTOR" == *"[bot]" ]]; then
             echo "is_bot=true" >> "$GITHUB_OUTPUT"
             if [ "${{ github.event_name }}" = "pull_request_target" ]; then
               echo "should_run=true" >> "$GITHUB_OUTPUT"
@@ -93,8 +91,8 @@ jobs:
         if: steps.actor-check.outputs.should_run == 'true'
         uses: actions/create-github-app-token@v2
         with:
-          app-id: ${{ secrets.BOT_APP_ID }}
-          private-key: ${{ secrets.BOT_PRIVATE_KEY }}
+          app-id: ${{ secrets.RADMAN_AI_APP_ID }}
+          private-key: ${{ secrets.RADMAN_AI_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
 
       - name: Get PR status from project

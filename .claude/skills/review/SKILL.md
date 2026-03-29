@@ -1,6 +1,6 @@
 ---
 name: review
-description: Comprehensive PR review with verification checklist. Runs a four-phase review engine (checklist generation, verification, existing review agents, aggregation) and presents an APPROVE/REJECT verdict. Does not fix issues.
+description: Use when you need a comprehensive code review of a PR or the current branch with a structured APPROVE/REJECT verdict. Does not fix issues. Takes an optional PR number as argument.
 argument-hint: pr-number
 ---
 
@@ -49,6 +49,41 @@ If the diff is empty, report: "No changes to review. Branch is identical to main
 
 From the diff, extract the list of changed files (use `--name-only` output or parse from PR diff). Store this list — it's needed for Phase 1 and Phase 3.
 
+### 0.4 Discover related GitHub issue
+
+Attempt to find the related issue number using these methods in order:
+
+**From PR body** (look for `Resolves #N`, `Fixes #N`, or `Closes #N`):
+
+If a PR number was provided:
+```bash
+ISSUE_NUM=$(gh pr view $ARGUMENTS --json body --jq '.body' | grep -oiP '(?:resolves|fixes|closes)\s+#\K\d+' | head -1)
+```
+
+If no PR number:
+```bash
+ISSUE_NUM=$(gh pr view HEAD --json body --jq '.body' 2>/dev/null | grep -oiP '(?:resolves|fixes|closes)\s+#\K\d+' | head -1)
+```
+
+**From branch name** (fallback — matches `issue-{number}` pattern set by `/implement`):
+```bash
+if [ -z "$ISSUE_NUM" ]; then
+  # If reviewing a PR, use the stored head branch name from Phase 0.2
+  # If reviewing current branch, use git branch --show-current
+  BRANCH_NAME="${STORED_HEAD_BRANCH:-$(git branch --show-current)}"
+  ISSUE_NUM=$(echo "$BRANCH_NAME" | grep -oP 'issue-\K\d+')
+fi
+```
+
+If an issue number was found, fetch the issue:
+```bash
+gh issue view $ISSUE_NUM --json title,body
+```
+
+**Truncation rule:** Only use the **first 200 lines** of the issue body. This captures the summary and desired behavior while skipping excessive implementation detail.
+
+Store the issue title and truncated body as `issue_context`. If no issue was found, set `issue_context` to empty and note: "No related issue found — skipping issue compliance check."
+
 ---
 
 ## Phase 1: Verification Checklist Generation
@@ -57,7 +92,7 @@ Output: `Phase 1/4: Generating verification checklist...`
 
 ### 1.1 Determine batching
 
-Count the changed files. If 10 or fewer, launch one checklist-generator agent. If more than 10, split into batches of 10 and launch one agent per batch. Merge the resulting checklists.
+Count the changed files. If 10 or fewer, launch one checklist-generator agent. If more than 10, split into batches of 10 and launch one agent per batch. Merge the resulting checklists by concatenating all items and renumbering IDs sequentially (VC-1, VC-2, ...). Deduplicate items that make the same claim about the same file.
 
 ### 1.2 Launch checklist-generator agent(s)
 
@@ -75,6 +110,18 @@ Changed files to analyze:
 {paste the file list here}
 
 Generate the verification checklist. Return the JSON array in a ```json code fence.
+```
+
+**If `issue_context` is not empty**, append this to the prompt:
+
+```
+The following GitHub issue describes the intended behavior for this PR. In addition to code-correctness items, include checklist items that verify the PR implements the key requirements from the issue's summary and desired behavior sections. Focus on functional requirements — not stylistic suggestions or background context in the issue.
+
+<issue>
+Title: {issue_title}
+Body (first 200 lines):
+{truncated_issue_body}
+</issue>
 ```
 
 ### 1.3 Parse the checklist
@@ -130,33 +177,35 @@ Output: `Phase 3/4: Running review agents...`
 
 ### 3.1 Launch existing review agents in parallel
 
-Launch all agents in a single message using multiple Agent tool calls. For each agent, pass a prompt telling it to review the changes on the current branch.
+Launch all agents in a single message using multiple Agent tool calls. For each agent, pass a prompt telling it to review the changes.
+
+**Diff command:** Use `gh pr diff $ARGUMENTS` if reviewing a PR by number, or `git diff origin/main...HEAD` if reviewing the current branch. Substitute the correct command into `{DIFF_CMD}` in the prompts below.
 
 Agents to launch:
 
 **pr-review-toolkit:code-reviewer** — prompt:
 ```
-Review the code changes on the current branch compared to origin/main. Run `git diff origin/main...HEAD` to see the diff. Read CLAUDE.md for project conventions. Focus on CLAUDE.md compliance, bugs, and code quality. Only report issues with confidence >= 80.
+Review the code changes in this PR. Run `{DIFF_CMD}` to see the diff. Read CLAUDE.md for project conventions. Focus on CLAUDE.md compliance, bugs, and code quality. Only report issues with confidence >= 80.
 ```
 
 **pr-review-toolkit:silent-failure-hunter** — prompt:
 ```
-Review the error handling in the code changes on the current branch. Run `git diff origin/main...HEAD` to see the diff. Read the full changed files. Check for silent failures, inadequate error handling, and inappropriate fallback behavior.
+Review the error handling in the code changes. Run `{DIFF_CMD}` to see the diff. Read the full changed files. Check for silent failures, inadequate error handling, and inappropriate fallback behavior.
 ```
 
 **pr-review-toolkit:comment-analyzer** — prompt:
 ```
-Analyze the code comments in the changes on the current branch. Run `git diff origin/main...HEAD` to see the diff. Check that docstrings and comments are accurate, helpful, and not misleading.
+Analyze the code comments in the changes. Run `{DIFF_CMD}` to see the diff. Check that docstrings and comments are accurate, helpful, and not misleading.
 ```
 
 **pr-review-toolkit:pr-test-analyzer** — prompt:
 ```
-Analyze test coverage for the changes on the current branch. Run `git diff origin/main...HEAD` to see the diff. Check if tests adequately cover new functionality and edge cases.
+Analyze test coverage for the changes. Run `{DIFF_CMD}` to see the diff. Check if tests adequately cover new functionality and edge cases.
 ```
 
 **superpowers:code-reviewer** — prompt:
 ```
-Review all changes on the current branch vs main. This is a final-pass code review against project standards.
+Review all changes in this PR/branch vs main. Run `{DIFF_CMD}` to see the diff. This is a final-pass code review against project standards.
 ```
 
 Conditionally launch **pr-review-toolkit:type-design-analyzer** only if the changed files include new class/type definitions (check for `class ` in the diff).
@@ -182,6 +231,10 @@ Construct the report in this format:
 
 ## Verdict: {APPROVE|REJECT} ({summary})
 
+## Issue Compliance
+{If issue found: "Reviewed against issue #{number}: {title}. Requirement-based checklist items are included in the verification results below."}
+{If no issue found: "No related issue found — requirement compliance not checked."}
+
 ## Verification Checklist Results
 {for each item: "- VC-N: VERDICT — claim [source_file:source_line]"}
 - ({total} checked, {pass} passed, {fail} failed, {inconclusive} inconclusive)
@@ -191,7 +244,7 @@ Construct the report in this format:
 
 ## Verdict Criteria
 - Any FAIL in verification checklist → REJECT
-- Any INCONCLUSIVE in verification checklist → REJECT
+- Any INCONCLUSIVE in verification checklist → REJECT (manual check needed)
 - Any Critical finding from review agents → REJECT
 - Checklist generation failed → max APPROVE WITH CAVEAT
 - 2+ review agents failed → partial review coverage

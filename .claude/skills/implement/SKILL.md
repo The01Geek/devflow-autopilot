@@ -193,51 +193,34 @@ Output: `Phase 4/4: Documentation — updating docs and finalizing PR...`
 
 ### 4.1 Update Documentation
 
-Use the **Agent tool** with `subagent_type: wikiwizard-combined` to update all documentation in a single session.
-
-Pass it:
+Spawn a **subagent** (using the Agent tool) and instruct it to invoke the `/docs` skill. Pass it:
 - The GitHub issue title, body, and number
-- Instruction: "Run all three documentation steps sequentially (internal docs, external docs, release notes). The issue context is provided for release notes generation."
+- Instruction: "Run /docs to update all documentation (internal docs, external docs, release notes). The issue context is provided for release notes generation."
 
-After the agent completes, commit any documentation changes. Read the docs path from `.github/project-config.yml`:
+After the subagent completes, commit any documentation changes. Read the docs paths from `.github/project-config.yml`:
 
 ```bash
-DOC_PATH=$(yq '.docs.path' .github/project-config.yml)
-git status -- "$DOC_PATH"
+DOCS_INTERNAL=$(yq '.docs.internal' .github/project-config.yml)
+DOCS_EXTERNAL=$(yq '.docs.external' .github/project-config.yml)
+git status -- "$DOCS_INTERNAL" "$DOCS_EXTERNAL"
 ```
 
 If there are changes:
 ```bash
-git add "$DOC_PATH"
+git add "$DOCS_INTERNAL" "$DOCS_EXTERNAL"
 git commit -m "docs: update documentation for issue #$ARGUMENTS"
 git push
 ```
 
-### 4.2 Update PR Description
+### 4.2 Generate PR Description
 
-Review the full branch diff to build the final PR description:
+Invoke the **Skill tool** with `skill: "pr-description"` and `args: "$ARGUMENTS"` (the issue number).
+
+This outputs the PR description between `<!-- PR_BODY_START -->` and `<!-- PR_BODY_END -->` markers. When running inside a GitHub Action, the bash step extracts this from the output to use as the PR body. When running locally, you can also use the output to update an existing PR:
+
 ```bash
-git log origin/main..HEAD --oneline
-```
-
-Update the PR with a proper description:
-```bash
-gh pr edit --title "{issue title}" --body "$(cat <<'EOF'
-## Summary
-
-{2-3 bullet points summarizing the changes}
-
-Resolves #{issue_number}
-
-## Completion Checklist
-
-- [x] Codebase explored and understood
-- [x] Feature implemented
-- [x] Tests passing
-- [x] Code reviewed and feedback addressed
-- [x] Documentation updated
-
-Generated with [Claude Code](https://claude.com/claude-code) via `/implement $ARGUMENTS`
+gh pr edit --body "$(cat <<'EOF'
+[paste the generated description here]
 EOF
 )"
 ```

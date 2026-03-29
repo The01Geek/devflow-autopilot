@@ -20,6 +20,7 @@ jobs:
       documented_label: ${{ steps.config.outputs.documented_label }}
       release_notes_file: ${{ steps.config.outputs.release_notes_file }}
       bot_login: ${{ steps.config.outputs.bot_login }}
+      allowed_bots: ${{ steps.config.outputs.allowed_bots }}
     steps:
       - uses: actions/checkout@v4
       - name: Install yq
@@ -38,6 +39,7 @@ jobs:
           echo "documented_label=$(yq '.wikiwizard.documented_label' "$CONFIG")" >> "$GITHUB_OUTPUT"
           echo "release_notes_file=$(yq '.wikiwizard.release_notes_file' "$CONFIG")" >> "$GITHUB_OUTPUT"
           echo "bot_login=$(yq '.bot_login' "$CONFIG")" >> "$GITHUB_OUTPUT"
+          echo "allowed_bots=$(yq '.wikiwizard.allowed_bots' "$CONFIG")" >> "$GITHUB_OUTPUT"
 
   documentation:
     needs: config
@@ -61,22 +63,16 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Read internal documentation prompt
-        id: read-internal-prompt
-        run: |
-          DOCS_INTERNAL="${{ needs.config.outputs.docs_internal }}"
-          PROMPT=$(cat .github/workflows/prompts/wikiwizard-internal.action.prompt.md)
-          PROMPT="${PROMPT//\[\[INTERNAL_DOC_LOCATION\]\]/${DOCS_INTERNAL}}"
-          echo "PROMPT<<PROMPT_CONTENT_EOF" >> $GITHUB_OUTPUT
-          printf '%s\n' "$PROMPT" >> $GITHUB_OUTPUT
-          echo "PROMPT_CONTENT_EOF" >> $GITHUB_OUTPUT
-
       - name: Run Internal Documentation Review
         id: claude-internal
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          prompt: ${{ steps.read-internal-prompt.outputs.PROMPT }}
+          allowed_bots: ${{ needs.config.outputs.allowed_bots }}
+          prompt: |
+            Read and follow the skill instructions in .claude/skills/docs-sync-internal/SKILL.md exactly.
+            The internal documentation path is ${{ needs.config.outputs.docs_internal }}.
+            Do not commit — the workflow handles commits.
           claude_args: >-
             --model ${{ needs.config.outputs.claude_model }}
             --allowed-tools
@@ -91,25 +87,18 @@ jobs:
             Bash(gh pr diff:*),
             Bash(gh pr view:*),
             Bash(gh pr review:*)"
-
-      - name: Read external documentation prompt
-        id: read-external-prompt
-        run: |
-          DOCS_INTERNAL="${{ needs.config.outputs.docs_internal }}"
-          DOCS_EXTERNAL="${{ needs.config.outputs.docs_external }}"
-          PROMPT=$(cat .github/workflows/prompts/wikiwizard-external.action.prompt.md)
-          PROMPT="${PROMPT//\[\[INTERNAL_DOC_LOCATION\]\]/${DOCS_INTERNAL}}"
-          PROMPT="${PROMPT//\[\[EXTERNAL_DOC_LOCATION\]\]/${DOCS_EXTERNAL}}"
-          echo "PROMPT<<PROMPT_CONTENT_EOF" >> $GITHUB_OUTPUT
-          printf '%s\n' "$PROMPT" >> $GITHUB_OUTPUT
-          echo "PROMPT_CONTENT_EOF" >> $GITHUB_OUTPUT
 
       - name: Run External Documentation Review
         id: claude-external
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          prompt: ${{ steps.read-external-prompt.outputs.PROMPT }}
+          allowed_bots: ${{ needs.config.outputs.allowed_bots }}
+          prompt: |
+            Read and follow the skill instructions in .claude/skills/docs-sync-external/SKILL.md exactly.
+            The internal documentation path is ${{ needs.config.outputs.docs_internal }}.
+            The external documentation path is ${{ needs.config.outputs.docs_external }}.
+            Do not commit — the workflow handles commits.
           claude_args: >-
             --model ${{ needs.config.outputs.claude_model }}
             --allowed-tools
@@ -125,24 +114,19 @@ jobs:
             Bash(gh pr view:*),
             Bash(gh pr review:*)"
 
-      - name: Read release notes prompt
-        id: read-release-prompt
-        run: |
-          PROMPT=$(cat .github/workflows/prompts/wikiwizard-release-notes.action.prompt.md)
-          PROMPT="${PROMPT//\[\[PR_NUMBER\]\]/${{ github.event.pull_request.number }}}"
-          PROMPT="${PROMPT//\[\[INTERNAL_DOC_LOCATION\]\]/${{ needs.config.outputs.docs_internal }}}"
-          PROMPT="${PROMPT//\[\[EXTERNAL_DOC_LOCATION\]\]/${{ needs.config.outputs.docs_external }}}"
-          PROMPT="${PROMPT//\[\[RELEASE_NOTES_FILE\]\]/${{ needs.config.outputs.release_notes_file }}}"
-          echo "PROMPT<<PROMPT_CONTENT_EOF" >> $GITHUB_OUTPUT
-          printf '%s\n' "$PROMPT" >> $GITHUB_OUTPUT
-          echo "PROMPT_CONTENT_EOF" >> $GITHUB_OUTPUT
-
       - name: Run Release Notes Review
         id: claude-release-notes
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          prompt: ${{ steps.read-release-prompt.outputs.PROMPT }}
+          allowed_bots: ${{ needs.config.outputs.allowed_bots }}
+          prompt: |
+            Read and follow the skill instructions in .claude/skills/docs-release-notes/SKILL.md exactly.
+            The internal documentation path is ${{ needs.config.outputs.docs_internal }}.
+            The external documentation path is ${{ needs.config.outputs.docs_external }}.
+            The release notes file is ${{ needs.config.outputs.release_notes_file }}.
+            The PR number is ${{ github.event.pull_request.number }}.
+            Do not commit — the workflow handles commits.
           claude_args: >-
             --model ${{ needs.config.outputs.claude_model }}
             --allowed-tools
@@ -201,8 +185,8 @@ jobs:
         id: app-token
         uses: actions/create-github-app-token@v2
         with:
-          app-id: ${{ secrets.BOT_APP_ID }}
-          private-key: ${{ secrets.BOT_PRIVATE_KEY }}
+          app-id: ${{ secrets.RADMAN_AI_APP_ID }}
+          private-key: ${{ secrets.RADMAN_AI_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
 
       - name: Post review comment
@@ -214,12 +198,12 @@ jobs:
           REPO_NAME="${{ github.event.repository.name }}"
           PR_NUMBER="${{ github.event.pull_request.number }}"
 
-          echo "Posting review request on PR #$PR_NUMBER..."
+          echo "💬 Posting review request on PR #$PR_NUMBER..."
           gh pr comment "$PR_NUMBER" \
             --repo "$ORG/$REPO_NAME" \
             --body "@claude run /review"
-          echo "Review comment posted on PR #$PR_NUMBER"
+          echo "✅ Review comment posted on PR #$PR_NUMBER"
 
-          echo "## Claude Review Requested" >> "$GITHUB_STEP_SUMMARY"
+          echo "## ✅ Claude Review Requested" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "**PR:** [#${PR_NUMBER}](https://github.com/${ORG}/${REPO_NAME}/pull/${PR_NUMBER})" >> "$GITHUB_STEP_SUMMARY"
