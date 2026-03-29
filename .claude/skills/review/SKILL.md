@@ -30,6 +30,8 @@ If there is output, warn: "You have uncommitted changes that will not be include
 gh pr diff $ARGUMENTS
 gh pr view $ARGUMENTS --json headRefName --jq '.headRefName'
 ```
+If either command fails (non-zero exit code), stop immediately and report: "Failed to retrieve diff. Verify the PR number exists and you have required permissions."
+
 Use the PR diff output for Phase 1. Store the head branch name.
 
 **If no argument (review current branch):**
@@ -37,6 +39,8 @@ Use the PR diff output for Phase 1. Store the head branch name.
 git diff origin/main...HEAD
 git diff origin/main...HEAD --name-only
 ```
+If either command fails (non-zero exit code), stop immediately and report: "Failed to retrieve diff. Verify origin/main is reachable and you are on a valid branch."
+
 Use the diff output for Phase 1. The current branch is the review target.
 
 If the diff is empty, report: "No changes to review. Branch is identical to main." and stop.
@@ -77,7 +81,7 @@ Generate the verification checklist. Return the JSON array in a ```json code fen
 
 Extract the JSON array from the agent's response (look for the ```json code fence).
 
-If the agent fails or returns malformed JSON, retry once. If it fails again, log: "Verification checklist generation failed. Proceeding with existing agents only." and skip to Phase 3.
+If the agent fails or returns malformed JSON, retry once. If it fails again, log: "Verification checklist generation failed. Proceeding with existing agents only." Set a `checklist_skipped` flag and skip to Phase 3.
 
 Store the parsed checklist items for Phase 2.
 
@@ -161,7 +165,7 @@ Conditionally launch **pr-review-toolkit:type-design-analyzer** only if the chan
 
 Collect all agent responses. Extract findings and their severity labels (Critical, Important/Major, Suggestion/Minor).
 
-If an agent fails, note: "[agent-name] did not return results." in the report.
+If an agent fails, note: "[agent-name] did not return results." in the report. Track the count of failed agents.
 
 ---
 
@@ -187,8 +191,12 @@ Construct the report in this format:
 
 ## Verdict Criteria
 - Any FAIL in verification checklist → REJECT
+- Any INCONCLUSIVE in verification checklist → REJECT
 - Any Critical finding from review agents → REJECT
+- Checklist generation failed → max APPROVE WITH CAVEAT
+- 2+ review agents failed → partial review coverage
 - Only Important/Suggestion findings → APPROVE with notes
+- No findings → APPROVE
 ```
 
 ### 4.2 Determine verdict
@@ -197,8 +205,10 @@ Apply these rules in order (first match wins):
 1. Any verification checklist item with verdict FAIL → **REJECT**
 2. Any verification checklist item with verdict INCONCLUSIVE → **REJECT** (add "manual check needed" note)
 3. Any Critical finding from existing review agents → **REJECT**
-4. Only Important or Suggestion findings → **APPROVE with notes**
-5. No findings → **APPROVE**
+4. If Phase 1+2 were skipped (checklist generation failed) → maximum verdict is **APPROVE WITH CAVEAT** — verification checklist not generated (never a clean APPROVE)
+5. If 2 or more Phase 3 agents failed to return results → add "partial review coverage" note to the verdict
+6. Only Important or Suggestion findings → **APPROVE with notes**
+7. No findings → **APPROVE**
 
 ### 4.3 Present the report
 

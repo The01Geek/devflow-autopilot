@@ -2,7 +2,7 @@
 name: verify-doc
 description: Verifies that documentation in the project's internal docs directory for a specific topic is accurate, complete, and aligned with the current codebase. Creates or updates documentation as needed.
 argument-hint: <topic>
-disable-model-invocation: true
+disable-model-invocation: false
 ---
 > **Note:** Read documentation path from `.github/project-config.yml` using: `yq '.docs.internal' .github/project-config.yml`. Use the result as `[[DOC_LOCATION]]` throughout this skill.
 

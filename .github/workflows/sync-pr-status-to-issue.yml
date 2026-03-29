@@ -7,7 +7,7 @@ name: Sync PR Status to Issue
 # 3. Updates each linked issue's status to match the PR's status
 #
 # Requirements:
-# - RADMAN_AI_APP_ID and RADMAN_AI_PRIVATE_KEY secrets must be configured
+# - BOT_APP_ID and BOT_PRIVATE_KEY secrets must be configured
 # - Both PR and linked issues must be added to the project
 # - Linked issues must use "Closes #123" or similar syntax in PR description
 
@@ -93,8 +93,8 @@ jobs:
         if: steps.actor-check.outputs.should_run == 'true'
         uses: actions/create-github-app-token@v2
         with:
-          app-id: ${{ secrets.RADMAN_AI_APP_ID }}
-          private-key: ${{ secrets.RADMAN_AI_PRIVATE_KEY }}
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
 
       - name: Get PR status from project

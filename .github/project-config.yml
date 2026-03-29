@@ -42,6 +42,10 @@ wikiwizard:
   documented_label: "Documented"
   release_notes_file: "docs/external/release-notes.md"
 
+# Test command(s) for review-and-fix skill to run after applying fixes
+# Customize to match your project's test runner(s)
+test_command: "echo 'No test command configured — edit test_command in .github/project-config.yml'"
+
 # Per-workflow enable/disable toggles
 workflows:
   claude: true

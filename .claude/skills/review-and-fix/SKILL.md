@@ -29,13 +29,14 @@ Execute the same four-phase review engine as the `/review` skill:
 **Phase 0: Setup**
 - Check for uncommitted changes (warn if present)
 - Determine diff: if `$ARGUMENTS` is a PR number, use `gh pr diff $ARGUMENTS`; otherwise use `git diff origin/main...HEAD`
+- If diff commands fail (non-zero exit code), stop immediately and report the error
 - Get changed file list from the diff
 - If diff is empty, report "No changes to review" and stop
 
 **Phase 1: Verification Checklist Generation**
 - Launch `checklist-generator` agent with the diff and file list
 - Parse JSON checklist from the response
-- If generation fails, retry once; if still fails, skip to Phase 3
+- If generation fails, retry once; if still fails, set `checklist_skipped` flag and skip to Phase 3
 
 **Phase 2: Checklist Verification**
 - Launch `checklist-verifier` agents in batches of 8 (one per checklist item)
@@ -45,11 +46,11 @@ Execute the same four-phase review engine as the `/review` skill:
 **Phase 3: Existing Review Agents**
 - Launch in parallel: `pr-review-toolkit:code-reviewer`, `pr-review-toolkit:silent-failure-hunter`, `pr-review-toolkit:comment-analyzer`, `pr-review-toolkit:pr-test-analyzer`, `superpowers:code-reviewer`
 - Conditionally launch `pr-review-toolkit:type-design-analyzer` if new types are in the diff
-- Collect findings with severity labels
+- Collect findings with severity labels. Track the count of failed agents.
 
 **Phase 4: Aggregation and Verdict**
 - Build the report (same format as `/review`)
-- Determine verdict using the same rules
+- Determine verdict using the same rules (including: checklist_skipped → max APPROVE WITH CAVEAT; 2+ failed agents → partial review coverage note)
 
 ### Step 2: Check Verdict
 
@@ -70,10 +71,9 @@ Apply the `superpowers:receiving-code-review` principles:
 
 3. **Fix one issue at a time.** After each fix, verify the surrounding code still makes sense.
 
-4. **Run tests** after all fixes:
+4. **Run tests** after all fixes. Read the `test_command` from `.github/project-config.yml` (`yq '.test_command' .github/project-config.yml`) and execute it:
    ```bash
-   docker compose exec backend pytest
-   cd client && npm run lint
+   # Run whatever test_command is configured in project-config.yml
    ```
    If tests fail, fix the test failures before continuing.
 

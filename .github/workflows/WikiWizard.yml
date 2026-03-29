@@ -2,10 +2,10 @@ name: WikiWizard
 
 on:
   pull_request:
-    types: [closed]
+    types: [opened, ready_for_review, synchronize, labeled, unlabeled]
 
 concurrency:
-  group: wikiwizard-${{ github.event.pull_request.number }}
+  group: claude-docs-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
@@ -41,10 +41,11 @@ jobs:
 
   documentation:
     needs: config
-    # Run only on merged PRs when the workflow is enabled
+    # Run when "Documented" label is not yet present and PR is not in draft mode
     if: >-
       needs.config.outputs.enabled == 'true' &&
-      github.event.pull_request.merged == true
+      !contains(github.event.pull_request.labels.*.name, needs.config.outputs.documented_label) &&
+      github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -56,25 +57,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Skip if already documented
-        id: check-label
-        run: |
-          DOCUMENTED_LABEL="${{ needs.config.outputs.documented_label }}"
-          LABELS='${{ toJson(github.event.pull_request.labels.*.name) }}'
-          if echo "$LABELS" | jq -e --arg label "$DOCUMENTED_LABEL" '. | index($label) != null' > /dev/null 2>&1; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "PR already has label '$DOCUMENTED_LABEL', skipping documentation run."
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Read internal documentation prompt
         id: read-internal-prompt
-        if: steps.check-label.outputs.skip != 'true'
         run: |
           DOCS_INTERNAL="${{ needs.config.outputs.docs_internal }}"
           PROMPT=$(cat .github/workflows/prompts/wikiwizard-internal.action.prompt.md)
@@ -85,7 +73,6 @@ jobs:
 
       - name: Run Internal Documentation Review
         id: claude-internal
-        if: steps.check-label.outputs.skip != 'true'
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -107,7 +94,6 @@ jobs:
 
       - name: Read external documentation prompt
         id: read-external-prompt
-        if: steps.check-label.outputs.skip != 'true'
         run: |
           DOCS_INTERNAL="${{ needs.config.outputs.docs_internal }}"
           DOCS_EXTERNAL="${{ needs.config.outputs.docs_external }}"
@@ -120,7 +106,6 @@ jobs:
 
       - name: Run External Documentation Review
         id: claude-external
-        if: steps.check-label.outputs.skip != 'true'
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -142,7 +127,6 @@ jobs:
 
       - name: Read release notes prompt
         id: read-release-prompt
-        if: steps.check-label.outputs.skip != 'true'
         run: |
           PROMPT=$(cat .github/workflows/prompts/wikiwizard-release-notes.action.prompt.md)
           PROMPT="${PROMPT//\[\[PR_NUMBER\]\]/${{ github.event.pull_request.number }}}"
@@ -155,7 +139,6 @@ jobs:
 
       - name: Run Release Notes Review
         id: claude-release-notes
-        if: steps.check-label.outputs.skip != 'true'
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -173,7 +156,6 @@ jobs:
             Bash(gh pr view:*)"
 
       - name: Commit and push all documentation changes
-        if: steps.check-label.outputs.skip != 'true'
         run: |
           DOCS_INTERNAL="${{ needs.config.outputs.docs_internal }}"
           DOCS_EXTERNAL="${{ needs.config.outputs.docs_external }}"
@@ -188,11 +170,11 @@ jobs:
             echo "No documentation changes to commit"
           else
             git commit -m "docs: update documentation [skip ci]"
-            git push origin "HEAD:refs/heads/${{ github.event.repository.default_branch }}"
+            git push origin "HEAD:refs/heads/${{ github.event.pull_request.head.ref }}"
           fi
 
       - name: Add Documented Label
-        if: steps.check-label.outputs.skip != 'true' && success()
+        if: success()
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -209,8 +191,7 @@ jobs:
     # Only run if bot_login is configured
     if: >-
       needs.config.outputs.enabled == 'true' &&
-      needs.config.outputs.bot_login != '' &&
-      github.event.pull_request.merged == true
+      needs.config.outputs.bot_login != ''
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -220,8 +201,8 @@ jobs:
         id: app-token
         uses: actions/create-github-app-token@v2
         with:
-          app-id: ${{ secrets.RADMAN_AI_APP_ID }}
-          private-key: ${{ secrets.RADMAN_AI_PRIVATE_KEY }}
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
 
       - name: Post review comment

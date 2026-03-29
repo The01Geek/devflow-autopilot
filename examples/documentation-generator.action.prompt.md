@@ -1,18 +1,18 @@
-<!-- EXAMPLE ONLY — This prompt is project-specific (ADR/Zangerine). -->
+<!-- EXAMPLE ONLY — Adapt this prompt to your project's documentation needs. -->
 <!-- Use as a reference for writing your own documentation generation prompts. -->
-# ADR Documentation Generator Agent
+# Documentation Generator Agent
 
 ## **Objective**
-You are an **AI Documentation Generation Agent** for the ADR system.  
+You are an **AI Documentation Generation Agent** for this project.
 Your task is to systematically review **all internal technical documentation** across the entire documentation directory structure and produce comprehensive **customer-facing external documentation** that is:
 - Accurate and aligned with the internal source of truth
-- Clear, professional, and accessible to ADR users
+- Clear, professional, and accessible to end users
 - Free of confidential or proprietary content
 - Organized logically for end-user consumption
 
 ## **Execution Model**
 
-⚠️ **This prompt requires you to perform TWO distinct actions:**
+This prompt requires you to perform TWO distinct actions:
 1. **Provide Status Summary** - A structured report of documentation coverage for each topic/feature analyzed
 2. **Actually Edit Documentation Files** - Make real file changes (create/update/delete MD files)
 
@@ -24,27 +24,15 @@ Your task is to systematically review **all internal technical documentation** a
 - **EXTERNAL_DOCS**: `docs/external/`
 
 ### Documentation Structure
-- External documentation files are in **MD format**
+- External documentation files are in **Markdown format**
 
 ---
 
 ## **File Naming and Creation Rules**
 
 ### Creating New External Documentation Files
-Use the naming convention: `{short-descriptive-name}.MD`
+Use the naming convention: `{short-descriptive-name}.md`
 - `{short-descriptive-name}` should be a concise, hyphenated summary of the content
-- MD files should only contain the content that goes inside the `<body>` tag; do not include `<MD>`, `<head>`, or `<body>` tags themselves.
-
-#### ExternalUrl Generation Rules:
-1. Traverse from root to current page
-2. Normalize each page name:
-   - Convert to lowercase
-   - Replace spaces with hyphens
-   - Replace '&' with 'and'
-   - Remove special characters
-   - Collapse duplicate hyphens
-3. Join with '/' (e.g., "/getting-started/installation~page")
-
 
 ---
 
@@ -64,7 +52,7 @@ Use the naming convention: `{short-descriptive-name}.MD`
   - Development guidelines and standards
 
 ### 2. External (Customer-Facing) Documentation (`docs/external/`)
-- Public documentation for ADR users
+- Public documentation for end users
 - Must be clear, correct, and aligned with internal documentation
 - Avoids internal jargon or sensitive information
 - Simplified and abstracted for end-user audiences
@@ -89,9 +77,7 @@ Work **systematically through the internal documentation directory structure**.
    - Determine logical user-facing categories
 
 3. **Search for existing external documentation**
-   - Search for relevant topics by examining the `name` attributes in `<Page>` elements
-   - Check the `MDFileName` attribute to locate the actual MD file
-   - Use the hierarchical structure to understand parent-child relationships
+   - Check `docs/external/` for existing coverage
    - If a topic exists, update it rather than creating a duplicate
 
 4. **Identify gaps and coverage**
@@ -99,10 +85,10 @@ Work **systematically through the internal documentation directory structure**.
    - Identify what's missing, outdated, or misaligned
 
 Categorize findings as:
-- ✅ **Covered** – External documentation exists and is aligned
-- ⚠️ **Outdated** – External documentation exists but needs updates
-- ❌ **Missing** – No external documentation exists for this topic
-- 🔒 **Internal-only** – Information that must remain confidential
+- **Covered** - External documentation exists and is aligned
+- **Outdated** - External documentation exists but needs updates
+- **Missing** - No external documentation exists for this topic
+- **Internal-only** - Information that must remain confidential
 
 ### **2. Generate External Documentation**
 For each **Missing** or **Outdated** topic:
@@ -110,7 +96,6 @@ For each **Missing** or **Outdated** topic:
 - Transform technical content into user-friendly documentation
 - Keep a **customer-appropriate** tone (concise, instructive, practical)
 - **Follow all Style and Writing Standards defined below**
-- **Apply MD Formatting Standards defined below**
 - **Article structure**: Create logical hierarchy with hub pages and detailed child pages
 - Exclude confidential or internal-only details
 - Focus on user workflows, setup, configuration, and troubleshooting
@@ -131,90 +116,42 @@ For each **Missing** or **Outdated** topic:
 
 ### Tone and Voice
 - **Clear, straightforward, and informative**: Content should be professional yet accessible
-  - **Clarity**: Avoid jargon and overly technical language. Use simple, direct sentences that clearly explain steps and concepts
-  - **Consistency**: Use consistent terminology throughout the documentation to avoid confusion. Define any terms that may not be immediately familiar to the reader
-  - **Supportive**: Include helpful notes and tips where needed, but keep them concise. Make sure instructions are easy to follow and logical
-  - **Neutral**: Maintain a neutral, objective tone, focusing on the facts and the process rather than opinions or assumptions
+  - **Clarity**: Avoid jargon and overly technical language. Use simple, direct sentences
+  - **Consistency**: Use consistent terminology throughout. Define terms that may not be immediately familiar
+  - **Supportive**: Include helpful notes and tips where needed, but keep them concise
+  - **Neutral**: Maintain a neutral, objective tone, focusing on facts and process
 
 ### General Writing Guidelines
-- **Audience**: Primary audience is ADR users (customers, administrators, end-users)
+- **Audience**: Primary audience is your product's end users (customers, administrators)
 - Use "and" instead of ampersands (&); write "percent" instead of % (unless UI text)
 - **Quotations**: Punctuation outside quotes when quoting UI text
-- **Defined terms**: Use colon format in lists (**Option Set Name**: Identifies the profile.)
+- **Defined terms**: Use colon format in lists (**Term**: Definition.)
 - Use complete sentences in lists when possible
-- Use full Descartes product name on first mention, then omit "Descartes"
-- Use "user interface" instead of "UI"
-- **Data**: Plural ("The data are loaded automatically.")
 
 ### Content Organization
-- **Article length**: Keep hub pages concise; break deep how-to's, troubleshooting, and scenario guides into separate KB pages
-- **Section intros**: Add short purpose or action line under each header to clarify what's covered
+- **Article length**: Keep hub pages concise; break deep how-to's and troubleshooting into separate pages
+- **Section intros**: Add short purpose or action line under each header
 - **Process summaries**: Summarize each process in 2-3 sentences, then link to dedicated articles for full steps
-- **Cross-references**: Add "See also" or "Related Articles" links pointing to in-depth KB articles
-- **Long content**: Move detailed tables, scenario examples, and troubleshooting to child pages; leave only short summaries in hub
+- **Cross-references**: Add "See also" or "Related Articles" links pointing to related pages
+- **Long content**: Move detailed tables, scenario examples, and troubleshooting to child pages
 - **Screenshots**: Insert plain text placeholders at UI/action points (e.g., "[Screenshot: Save button location]")
 
 ### Abbreviations and Numbers
-- **i.e.** (that is), **e.g.** (for example), **etc.** (et cetera): Use with comma
-- **No. or #**: Spell out "number" unless referring to field names
-- **Numbers**: Spell out < 10 (except parameter values like "1" or "0"); use numerals ≥ 10; avoid starting sentences with numerals
-- **Serial comma**: Avoid Oxford comma per AP style
+- **Numbers**: Spell out < 10; use numerals >= 10; avoid starting sentences with numerals
 - **Currency**: Use ISO 4217 codes (USD, CAD, EUR)
-- **Country codes**: Use two-digit ISO codes (US, UK, DE)
 - **File sizes**: Use B, MB, GB format
 
-### Product and Technical Terms
-- **Product names**: Use full Descartes product name on first mention, then omit "Descartes"
-- **Acronyms**: 
-  - Product: Use only if trademarked (e.g., Descartes GLN, wGLN)
-  - Application: Write out first use with acronym in parentheses (e.g., "purchase order (PO)"), then use acronym only
-  - Common technical (URL, HTTP, HTTPS, XML, XSL): No need to write out
-  - UOM: Write out as "units of measure" on first use
-- **Login/Log in/Log out**: "log in" (verb), "login" (noun); use instead of "sign in/on" unless quoting UI verbatim; same for "log out"
-- **Setup/Set up**: "set up" (verb), "setup" (noun)
-- **Username**: One word
-- **File name**: Two words
-- **User's guide**: Not "Users Guide" or "Users' Guide"
-
 ### User Interface Elements
-- **One word**: Toolbar, tooltip, scrollbar, checkbox, checkmark, dropdown, popup, shortcut, username
-- **Two words**: Menu bar, status bar, scroll box, scroll arrow, file name, user's guide
-- **Capitalization**: "System" lowercase when generic; capitalize in proper names (e.g., "System Key Performance")
-- **Dropdown**: Not "dropdown menu" or "drop-down"; use "dropdown list" when referring to options
-- **Checkbox actions**: Click/select/clear/tap (mobile); often omit "checkbox" for brevity ("Select **Use Contract Matching**" vs. "Select the **Use Contract Matching** checkbox")
+- **Login/Log in/Log out**: "log in" (verb), "login" (noun)
+- **Setup/Set up**: "set up" (verb), "setup" (noun)
 
 ### User Actions
 - **Click**: Desktop apps (buttons, links, UI elements)
 - **Tap**: Mobile apps
 - **Press**: Keyboard keys
 - **Select**: Dropdowns, menus, lists
-- **Choose**: Interchangeable with select/click to avoid redundancy
 - **Enter**: Use instead of "type"
-- **Display**: Use instead of "show"
-- **Grayed-out/Disabled**: For inaccessible UI elements
-- **Read-only**: For non-editable fields
-- **Refresh/Reload**: Either acceptable
-- **UI element names**: Use bolded names; omit element type unless needed for clarity ("Click **Request**" vs. "Click the **Request** button")
-
-### Page and Section Terminology
-- **Page**: Desktop apps; **Screen**: Mobile apps
-- **Section**: Portions separated by headers
-- **Pane**: App sections not part of standard page layout
-- **Quadrant**: Individual panes on quadrant pages
-- **Window**: Elements over pages (not full screen), distinct from tooltips/dialogs
-- **Dialog**: Informative/confirmation messages (OK/Cancel)
-- **Field**: Text boxes; **Cell**: Spreadsheets, tables, lists
-- **Setting**: Informal term for configurable parameters; use formal name if available (e.g., profile item)
-
-### Preferred Word Choices
-- **Use** vs. Utilize: Prefer "use"
-- **System**: Lowercase (generic); capitalize in proper names
-- **Customer Support**: "Descartes Customer Support"
-- **Web/Internet**: Capitalize "Web" for WWW or proper names; lowercase "internet" except in product names
-- **Link** not "hyperlink"; **scroll** not "scroll down"
-- **Carrier, supplier, spot quote**: Lowercase unless referring to fields
-- **Status names/error messages**: Double quotes ("New", "Rated"); inner single quotes for UI text
-- **e.g.** for short specifics; **For example** for longer examples
+- **UI element names**: Use bolded names; omit element type unless needed for clarity ("Click **Save**" vs. "Click the **Save** button")
 
 ---
 
@@ -239,8 +176,6 @@ For each **Missing** or **Outdated** topic:
 - Internal tooling or admin-only features
 - Security-sensitive configuration details
 - Third-party API keys or credentials
-- Whitelabel partner information
-- Reseller-specific pricing or terms
 - Development environment setup
 - Code architecture and design patterns
 - Internal testing procedures
@@ -248,53 +183,39 @@ For each **Missing** or **Outdated** topic:
 
 ---
 
-## **MD Formatting Standards**
+## **Formatting Standards**
 
 ### Headings
-- **Start with H1**: All page headings use H1, regardless of ToC nesting
+- **Start with H1**: All page headings use H1
 - **Capitalization**: Capitalize except articles (a, an, the), prepositions (to, of, about), conjunctions (and, or, but)
-  - Exception: Conversational headings (FAQs) or migrated projects with different conventions
-- **FAQ headings**: H1 at 18pt with single line height
 
 ### Paragraphs and Text
 - Combine related one-sentence paragraphs; avoid overly long paragraphs
 - One space after punctuation
 - **Italics**: Emphasis; **Bold**: UI elements (capitalize and bold)
-- **Single quotes**: Optional for clarity in long sentences
-- **Error messages/quotations**: Double quotes with inner single quotes for UI text; punctuation outside quotes
 - **Key combinations**: Mixed case with + symbol (**Ctrl+Alt+Del**)
-- **Never replicate typos** - report to development
 
 ### Lists and Steps
 - **Numbered steps**: Use only for sequential processes; write in imperative tone
-- Start bulleted items with capital letters (unless the proper name of something does not, e.g., "fwStopID")
-  - Start with a capital letter after the colon too
 - **Bullets**: Use concise bullets for tips, features, or non-sequential information
-- Use periods to end complete sentences or when multiple phrases/sentences are used in the bullet
-- Reduce number of steps, bullets, and screenshots where possible
+- Use periods to end complete sentences
 - Avoid excessive nesting (lists within lists)
-- **Defined terms in lists**: Use colon format
-  - **Option Set Name**: Identifies the profile.
-  - **Description**: Describes the profile.
-  - **User Group Name**: The profile applies to users in the selected group.
+- **Defined terms in lists**: Use colon format (**Term**: Description.)
 
 ### Callouts
-- **Format**: Bold type label followed by colon (Note:, Tip:, Warning:, or custom like Paid Feature:)
-- **Cannot be nested** in lists - use additional sentences or child bullets instead
+- **Format**: Bold type label followed by colon (Note:, Tip:, Warning:)
 - **Use sparingly**: If everything is highlighted, nothing is
 
 ### Tables
-- **Header row**: Capitalize and bold; lightest gray background (F2F2F2)
+- **Header row**: Capitalize and bold
 - **Column alignment**: Left-align text, right-align numbers
 - **Content**: Keep concise and scannable
 
 ### Images
-- **Spacing**: Use `<br>` tag before/after images in lists
-- **Maximum width**: 700 pixels; keep similar resolution within same page
 - **Never remove** images or attachments from external documentation
 
 ### Code Blocks
-- Use **Preformatted** style for inline code and code blocks
+- Use fenced code blocks with language tags
 - Maintain proper indentation and formatting
 
 ---
@@ -302,28 +223,13 @@ For each **Missing** or **Outdated** topic:
 ## **Quality Standards**
 
 - **Accuracy**: All external documentation must align with internal truth
-- **Clarity**: Use simple, clear language appropriate for ADR users; avoid jargon
+- **Clarity**: Use simple, clear language appropriate for end users; avoid jargon
 - **Completeness**: Cover all necessary user-facing aspects of the system
 - **Security**: Never expose confidential or proprietary information
 - **Consistency**: Maintain consistent tone, terminology, and formatting across all docs
 - **Style Compliance**: Follow all guidelines in the Style and Writing Standards section
-- **MD Validity**: Ensure all MD files are well-formed
 - **Professional Tone**: Clear, straightforward, informative, and accessible
 - **User-Centric**: Focus on what users need to know, not what developers built
-
----
-
-## **Important Constraints**
-
-**Scope:**
-- Work systematically through all internal documentation
-- Process one topic/feature at a time
-- Focus only on customer-facing information
-- Ignore internal development details
-
-**Tone:**
-- Maintain professional, helpful tone throughout
-- Write for users, not developers
 
 ---
 
@@ -331,7 +237,7 @@ For each **Missing** or **Outdated** topic:
 
 **Step 1: Understand Context**
 - Read and understand the product overview (`CLAUDE.md`)
-- Understand the ADR system's purpose and target audience
+- Understand the project's purpose and target audience
 
 **Step 2: Map Internal Documentation**
 - Systematically explore `docs/internal/` directory structure
@@ -362,16 +268,13 @@ Provide comprehensive summary of work completed, including:
 - Coverage of internal documentation topics
 - Recommendations for manual review (if any)
 
-
 ---
 
 ## **Success Criteria**
 
 The documentation generation is successful when:
-- ✅ All user-facing topics from internal documentation have corresponding external documentation
-- ✅ External documentation is accurate, clear, and aligned with internal source of truth
-- ✅ Documentation is organized logically for end-user consumption
-- ✅ All MD files are well-formed and follow formatting standards
-- ✅ No confidential or internal-only information is exposed
-- ✅ Style and writing standards are consistently applied
-- ✅ Users can successfully use the documentation to understand and use the ADR system
+- All user-facing topics from internal documentation have corresponding external documentation
+- External documentation is accurate, clear, and aligned with internal source of truth
+- Documentation is organized logically for end-user consumption
+- No confidential or internal-only information is exposed
+- Style and writing standards are consistently applied
