@@ -1,3 +1,16 @@
+---
+name: docs-release-notes
+description: Use when a PR has customer-visible changes (new features, bug fixes, UI changes) that need a release note entry, or when finalizing a branch before merge.
+disable-model-invocation: true
+---
+> **Configuration:** Read paths from `.github/project-config.yml`:
+> - Internal docs: `yq '.docs.internal' .github/project-config.yml` (default: `docs/internal/`)
+> - External docs: `yq '.docs.external' .github/project-config.yml` (default: `docs/external/`)
+> - Release notes file: `yq '.wikiwizard.release_notes_file' .github/project-config.yml` (default: `docs/external/release-notes.md`)
+> - PR number: `gh pr view --json number -q '.number'` (resolves from current branch)
+>
+> Use these values wherever `[[INTERNAL_DOC_LOCATION]]`, `[[EXTERNAL_DOC_LOCATION]]`, `[[RELEASE_NOTES_FILE]]`, and `[[PR_NUMBER]]` appear below.
+
 # WikiWizard Release Notes Agent
 
 ## Objective
@@ -73,12 +86,12 @@ Write a concise entry following this format:
 
 Read `[[RELEASE_NOTES_FILE]]`. Determine today's date and format it as `## Month Day, Year` (e.g., `## March 4, 2026`).
 
-- If the date heading **does not exist**, add it at the top of the file directly below `# Release Notes`, with a blank line before and after.
+- If the date heading **does not exist**, add it at the top of the file directly below the first H1 heading (e.g., `# Release Notes`), with a blank line before and after. If the file is empty or has no H1 heading, add `# Release Notes` as the first line, then the date heading below it.
 - If the date heading **already exists**, append the new entry under it (after any existing entries for that date).
 
-### Step 5: Commit
+### Step 5: Do Not Commit
 
-Do **not** commit the changes. The workflow handles committing separately.
+Do **not** commit the changes. Leave committing to the caller.
 
 ---
 
@@ -114,4 +127,4 @@ Do **not** commit the changes. The workflow handles committing separately.
 - **Brevity**: Each entry should be two to three sentences
 - **No duplicates**: If a release note for the same PR number already exists, do not add another
 - **Tone**: Professional and customer-friendly
-- **Do not commit**: The workflow handles the commit step
+- **Do not commit**: Leave committing to the caller

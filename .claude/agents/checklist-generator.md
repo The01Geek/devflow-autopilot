@@ -14,7 +14,7 @@ You do ENUMERATION, not JUDGMENT. You list what needs to be checked. You do NOT 
 ## Input
 
 You receive:
-1. A git diff (the full output of `git diff origin/main...HEAD`)
+1. A git diff (from `git diff origin/main...HEAD` or `gh pr diff <number>`)
 2. A list of changed files
 
 ## Process

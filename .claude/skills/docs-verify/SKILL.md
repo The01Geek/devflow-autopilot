@@ -1,14 +1,14 @@
 ---
-name: verify-doc
-description: Verifies that documentation in the project's internal docs directory for a specific topic is accurate, complete, and aligned with the current codebase. Creates or updates documentation as needed.
+name: docs-verify
+description: Use when you need to verify or update internal documentation for a specific topic, or when documentation may be outdated or missing for a feature.
 argument-hint: <topic>
-disable-model-invocation: true
+disable-model-invocation: false
 ---
-> **Note:** Read documentation path from `.github/project-config.yml` using: `yq '.docs.internal' .github/project-config.yml`. Use the result as `[[DOC_LOCATION]]` throughout this skill.
+> **Configuration:** Read the internal documentation path from `.github/project-config.yml` using: `yq '.docs.internal' .github/project-config.yml`. If the config file is missing or the key is absent, default to `docs/internal/`. Use the result as `[[INTERNAL_DOC_LOCATION]]` throughout this skill.
 
 ## **Objective**
 You are a **Documentation Accuracy Verification Agent** for code repositories.
-Your task is to verify that documentation about a specific topic in `[[DOC_LOCATION]]` is **accurate, complete, and aligned with the current codebase**.
+Your task is to verify that documentation about a specific topic in `[[INTERNAL_DOC_LOCATION]]` is **accurate, complete, and aligned with the current codebase**.
 
 ## **Primary Mission**
 Analyze a specific topic and verify:
@@ -28,7 +28,7 @@ Analyze a specific topic and verify:
 - Use code behavior, not historical documentation, to validate accuracy
 
 ### Documentation Scope
-Documentation files are located in `[[DOC_LOCATION]]` and organized by category in subdirectories.
+Documentation files are located in `[[INTERNAL_DOC_LOCATION]]` and organized by category in subdirectories.
 
 ---
 
@@ -43,7 +43,7 @@ Documentation files are located in `[[DOC_LOCATION]]` and organized by category 
 
 ### **Step 1: Locate Documentation Files**
 Search for any existing documentation about the topic:
-- Use `glob` to find files in `[[DOC_LOCATION]]` matching the topic name
+- Use `glob` to find files in `[[INTERNAL_DOC_LOCATION]]` matching the topic name
 - Search for files containing the topic using `grep` and `find` commands
 - Document all files found (or note if no files exist)
 
@@ -86,7 +86,7 @@ Choose ONE of these paths:
 **Path C: Documentation is missing**
 - Analyze the codebase thoroughly
 - Draft comprehensive documentation
-- Create a new `.md` file in appropriate `[[DOC_LOCATION]]` subdirectory
+- Create a new `.md` file in appropriate `[[INTERNAL_DOC_LOCATION]]` subdirectory
 - Include all essential information about the topic
 
 
@@ -105,10 +105,10 @@ Choose ONE of these paths:
 ## **File Operations**
 
 ### Creating New Documentation
-- Create in appropriate `[[DOC_LOCATION]]` subdirectory
+- Create in appropriate `[[INTERNAL_DOC_LOCATION]]` subdirectory
 - Use Markdown formatting with clear structure
 - Include: Overview, Key Components, Code Examples, Configuration, Important Notes
-- Follow existing documentation style and formatting in `[[DOC_LOCATION]]`
+- Follow existing documentation style and formatting in `[[INTERNAL_DOC_LOCATION]]`
 
 ### Editing Existing Documentation
 - Update content to match current code
@@ -141,12 +141,12 @@ Use descriptive names matching the topic:
 **Scope:**
 - Focus only on the specified topic
 - Search comprehensively for all related code and documentation
-- Stay within `[[DOC_LOCATION]]` boundaries for edits
+- Stay within `[[INTERNAL_DOC_LOCATION]]` boundaries for edits
 
 **File Operations:**
-- Create or edit only documentation files inside `[[DOC_LOCATION]]`
+- Create or edit only documentation files inside `[[INTERNAL_DOC_LOCATION]]`
 - Do not modify code files
-- Do not modify files outside `[[DOC_LOCATION]]`
+- Do not modify files outside `[[INTERNAL_DOC_LOCATION]]`
 
 ---
 
@@ -162,16 +162,16 @@ Before completing, verify you have:
 - [ ] Created or edited documentation files as needed
 - [ ] Ensured documentation aligns with current code
 - [ ] Verified documentation is complete and accurate
-- [ ] Stayed within `[[DOC_LOCATION]]` boundaries
+- [ ] Stayed within `[[INTERNAL_DOC_LOCATION]]` boundaries
 
 ---
 
 ## **Success Criteria**
 
-Task Complete When:
+✅ **Task Complete When:**
 1. Documentation accurately reflects current code implementation
 2. All important details about the topic are documented
 3. No contradictions between documentation and code
-4. Documentation file(s) created/updated in `[[DOC_LOCATION]]`
+4. Documentation file(s) created/updated in `[[INTERNAL_DOC_LOCATION]]`
 
 Topic to verify: $ARGUMENTS

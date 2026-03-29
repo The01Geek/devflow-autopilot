@@ -1,7 +1,7 @@
 name: Comment on Draft Issues
 
 # When a new issue is created, check if its status in the GitHub Project
-# is "Draft". If so, post a comment "@claude /implement $ISSUE_NUMBER".
+# is "Draft". If so, post a comment "@claude run /implement $ISSUE_NUMBER".
 
 on:
   issues:
@@ -121,7 +121,7 @@ jobs:
 
           echo "📋 Issue #$ISSUE_NUMBER status: \"$ISSUE_STATUS\""
 
-          # Check if status matches the configured Draft status
+          # Check if status is "Draft"
           if [ "$ISSUE_STATUS" = "$STATUS_DRAFT" ]; then
             echo "✅ Status is $STATUS_DRAFT — posting comment..."
             COMMENT_BODY="@claude /implement $ISSUE_NUMBER"

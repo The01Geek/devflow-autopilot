@@ -1,130 +1,167 @@
-# devflow-autopilot
+# ⚡ devflow-autopilot
 
-Agent coding and workflow automation template files. Use this template to bootstrap GitHub Projects automation and Claude Code agents/skills for any project.
+**Turn GitHub issues into reviewed, documented pull requests — automatically.**
 
----
-
-## What's Included
-
-### Workflows
-
-| File | Description |
-|------|-------------|
-| claude.yml | Claude Code action — responds to @claude mentions in issues/PRs |
-| WikiWizard.yml | Auto-generate internal, external docs and release notes on PR merge |
-| close-released-items.yml | Bulk close "Released" items in GitHub Projects |
-| comment-on-draft-issues.yml | Auto-comment /implement on draft issues |
-| move-to-in-progress.yml | Move issue to "In Progress" on branch creation |
-| sync-pr-status-to-issue.yml | Sync PR project status to linked issues |
-
-### Agents
-
-| File | Description |
-|------|-------------|
-| code-quality-reviewer | Language-agnostic code quality review |
-| documentation-accuracy-reviewer | Verifies documentation accuracy |
-| github-issue-creator | Creates structured GitHub issues from rough requirements |
-| performance-reviewer | Performance bottleneck analysis |
-| security-code-reviewer | OWASP-based security review |
-| test-coverage-reviewer | Test coverage gap analysis |
-| wikiwizard-combined | Orchestrates documentation generation |
-
-### Skills
-
-| File | Description |
-|------|-------------|
-| add-ticket | Creates GitHub issues from user stories |
-| documentation-review | Reviews and updates internal docs |
-| implement | Full feature development orchestrator |
-| verify-doc | Verifies/creates documentation for topics |
+devflow-autopilot is a template that wires Claude Code into your GitHub workflow. Drop an issue into your project board, and the automation handles the rest: branch creation, implementation, multi-agent code review, documentation, and status tracking.
 
 ---
 
-## Quick Start
+## 🔄 What happens when you create an issue
 
-1. Click "Use this template" → "Create a new repository"
-2. Edit `.github/project-config.yml` with your project values
-3. Set up authentication (see below)
-4. Enable/disable workflows via the `workflows:` toggles in config
+```
+1. You create a GitHub issue              (that's it — that's your part)
 
----
+2. Claude implements the feature           /implement orchestrates discovery,
+                                           planning, coding, and testing
 
-## Configuration Reference
+3. PR opens with full code review          /review runs parallel agents:
+                                           verification checklist, code review,
+                                           silent failure hunting, and more
 
-All configuration lives in `.github/project-config.yml`.
+4. Docs update themselves                  WikiWizard generates:
+                                           📘 Internal technical docs (for devs
+                                              and future AI agent context)
+                                           📗 External user-facing docs
+                                           📋 Release notes
 
-| Field | Description | Default |
-|-------|-------------|---------|
-| project_number | GitHub Project board number | "1" |
-| base_branch | Default PR target branch | "main" |
-| claude_model | Claude model for AI workflows | "claude-sonnet-4-6" |
-| statuses.draft | Draft status name | "Draft" |
-| statuses.in_progress | In Progress status name | "In Progress" |
-| statuses.ai_pr_drafted | AI PR Drafted status name | "AI PR Drafted" |
-| statuses.released | Released status name | "Released" |
-| statuses.closed | Closed status name | "Closed" |
-| docs.internal | Internal docs path | "docs/internal/" |
-| docs.external | External docs path | "docs/external/" |
-| bot_login | Bot account login | "" (empty) |
-| claude.allowed_bots | Bots allowed to trigger Claude action | "" (empty) |
-| wikiwizard.documented_label | Label applied after docs generated | "Documented" |
-| wikiwizard.release_notes_file | Release notes file path | "docs/external/release-notes.md" |
-| workflows.claude | Enable/disable claude.yml | true |
-| workflows.WikiWizard | Enable/disable WikiWizard.yml | true |
-| workflows.close-released-items | Enable/disable close-released-items.yml | true |
-| workflows.comment-on-draft-issues | Enable/disable comment-on-draft-issues.yml | true |
-| workflows.move-to-in-progress | Enable/disable move-to-in-progress.yml | true |
-| workflows.sync-pr-status-to-issue | Enable/disable sync-pr-status-to-issue.yml | true |
+5. Project board stays current             Status moves from Draft → In Progress
+                                           → AI PR Drafted automatically
+```
+
+You review the PR. Merge when ready. That's the workflow.
 
 ---
 
-## Authentication Setup
+## 🚀 Quick Start
+
+1. **Use this template** > Create a new repository
+2. Edit `.github/project-config.yml` with your project number and branch
+3. Add secrets: `CLAUDE_CODE_OAUTH_TOKEN`, `RADMAN_AI_APP_ID`, `RADMAN_AI_PRIVATE_KEY` ([setup guide](#-authentication))
+4. Create a [GitHub Projects (v2)](https://docs.github.com/en/issues/planning-and-tracking-with-projects) board with statuses: Draft, In Progress, AI PR Drafted, Released, Closed
+5. Fill in `CLAUDE.md` with your project's conventions
+
+Create an issue. Watch it become a PR.
+
+---
+
+## 🛠️ Skills
+
+Skills are slash commands you can run from issues, PRs, or the CLI.
+
+### Development
+
+| Skill | What it does |
+|-------|-------------|
+| `/implement` | Full lifecycle: issue → branch → implemented PR with tests |
+| `/review` | Four-phase code review with verification checklist and APPROVE/REJECT verdict |
+| `/review-and-fix` | Runs /review, fixes findings, re-reviews — up to 4 iterations |
+| `/create-issue` | Turns a rough idea into a structured GitHub issue |
+| `/pr-description` | Generates PR descriptions from branch diff, preserves human edits |
+
+### 📘 Documentation
+
+Two types of documentation are managed automatically:
+
+- **Internal docs** (`docs/internal/`) — Technical documentation for developers and AI coding agents. These serve as context for future Claude Code sessions, making each subsequent implementation more informed.
+- **External docs** (`docs/external/`) — Customer-facing documentation. Stripped of implementation details, written for end users.
+
+| Skill | What it does |
+|-------|-------------|
+| `/docs` | Updates internal docs, external docs, and release notes in one pass |
+| `/docs-verify` | Checks if documentation for a specific topic is accurate and current |
+| `/docs-sync-internal` | Syncs internal technical docs to match code changes on the branch |
+| `/docs-sync-external` | Aligns customer-facing docs with internal docs |
+| `/docs-bootstrap-internal` | Generates internal technical docs from scratch for undocumented codebases |
+| `/docs-bootstrap-external` | Creates external user-facing docs from existing internal docs |
+| `/docs-release-notes` | Writes release note entries for customer-visible changes |
+
+---
+
+## 🤖 Agents
+
+Specialized reviewers that run in parallel during `/review`.
+
+| Agent | Focus area |
+|-------|-----------|
+| 📝 checklist-generator | Enumerates every verifiable claim in a diff |
+| ✅ checklist-verifier | Checks each claim against actual source code |
+| 📌 github-issue-creator | Structures rough requirements into detailed issues |
+
+---
+
+## ⚙️ Workflows
+
+| Workflow | Trigger | What it does |
+|----------|---------|-------------|
+| claude.yml | `@claude` mention | Runs Claude Code with full skill/agent access |
+| WikiWizard.yml | PR opened or updated | Generates internal docs, external docs, and release notes on the PR branch |
+| comment-on-draft-issues.yml | Issue created | Auto-triggers `/implement` on Draft issues |
+| move-to-in-progress.yml | Branch created | Updates issue status in project board |
+| sync-pr-status-to-issue.yml | PR state change | Keeps linked issues in sync with PR status |
+| close-released-items.yml | Manual | Moves "Released" items to "Closed" |
+
+---
+
+## 📦 Configuration
+
+Everything is in `.github/project-config.yml`. Key fields:
+
+| Field | What it controls | Default |
+|-------|-----------------|---------|
+| `project_number` | Your GitHub Project board number | `"1"` |
+| `base_branch` | Default PR target | `"main"` |
+| `claude_model` | Model for AI workflows | `"claude-opus-4-6"` |
+| `statuses.*` | Project board status names | Draft, In Progress, etc. |
+| `docs.internal` / `docs.external` | Documentation paths | `docs/internal/`, `docs/external/` |
+| `bot_login` | Bot account for AI-authored PRs | `"radman-ai"` |
+| `claude.allowed_bots` | Bots that can trigger Claude | `"radman-ai"` |
+| `wikiwizard.*` | Doc generation settings | label, release notes path, allowed bots |
+| `workflows.*` | Toggle each workflow on/off | all `true` |
+
+---
+
+## 🔐 Authentication
 
 ### Required Secrets
 
-| Secret | Description |
-|--------|-------------|
-| `CLAUDE_CODE_OAUTH_TOKEN` | For Claude Code API |
-| `RADMAN_AI_APP_ID` | GitHub App numeric ID |
-| `RADMAN_AI_PRIVATE_KEY` | GitHub App PEM private key |
+| Secret | Purpose |
+|--------|---------|
+| `CLAUDE_CODE_OAUTH_TOKEN` | Claude Code API access ([docs](https://docs.anthropic.com/en/docs/claude-code/github-actions)) |
+| `RADMAN_AI_APP_ID` | GitHub App ID for project automation |
+| `RADMAN_AI_PRIVATE_KEY` | GitHub App private key |
 
 ### GitHub App Setup
 
-1. Go to Settings > Developer settings > GitHub Apps
-2. Create app with permissions: issues (write), pull_requests (write), projects (read/write), contents (read)
+1. Settings > Developer settings > GitHub Apps > New
+2. Permissions: issues (write), pull_requests (write), projects (read/write), contents (read)
 3. Install on your repo
-4. Add `RADMAN_AI_APP_ID` and `RADMAN_AI_PRIVATE_KEY` to repo secrets
+4. Add the App ID and private key as repo secrets
 
-### PAT Alternative
+To use different secret names, find-and-replace `RADMAN_AI_` in the workflow files.
 
-Use a Personal Access Token with `project` scope instead. Modify workflows to use the PAT secret directly.
-
----
-
-## Cross-Workflow Dependencies
-
-- WikiWizard's `request-claude-review` job posts a comment as the bot to trigger `claude.yml`
-- For this to work: the bot login from your GitHub App must match `claude.allowed_bots` in config
-- If you don't use a bot, set `bot_login` to empty and this job is skipped automatically
+A Personal Access Token with `project` scope works as an alternative.
 
 ---
 
-## Customization
+## 🧩 Customization
 
-- **Disable any workflow**: set its toggle to `false` in `.github/project-config.yml`
-- **Add project-specific skills**: create new directories under `.claude/skills/`
-- **Add project-specific agents**: add `.md` files to `.claude/agents/`
-- **Add language-specific plugins**: edit `.claude/settings.json`
-- **Add project conventions**: create a `CLAUDE.md` with your project's standards and architecture notes
+- **Toggle workflows** on/off in `project-config.yml`
+- **Add your own skills** — create a directory under `.claude/skills/` with a `SKILL.md`
+- **Add your own agents** — drop an `.md` file in `.claude/agents/`
+- **Add language plugins** — edit `.claude/settings.json`
+- **Define conventions** — fill in `CLAUDE.md` so Claude follows your project's standards
+- **Configure tests** — document test/lint commands in `CLAUDE.md` so `/review-and-fix` can run them
 
 ---
 
-## Examples
+## 📋 Requirements
 
-The `examples/` directory contains reference files not used by the template directly:
+- A GitHub repository (public or private)
+- [GitHub Projects (v2)](https://docs.github.com/en/issues/planning-and-tracking-with-projects) board with a Status field
+- Claude Code OAuth token
+- A GitHub App or PAT for project automation
 
-- `post-review-comment.yml` — Example workflow for triggering Claude on PR review completion
-- `documentation-generator.action.prompt.md` — Example prompt for documentation generation agents (ADR/Zangerine-specific; use as a reference for writing your own)
+No GitHub Projects? Disable the board-dependent workflows and use Claude Code skills directly from issues and PRs.
 
 ---
 

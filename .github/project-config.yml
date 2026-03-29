@@ -30,17 +30,18 @@ docs:
 
 # Bot account login (for distinguishing AI-authored PRs from human ones)
 # Leave empty if not using a bot account
-bot_login: ""
+bot_login: "radman-ai"
 
 # Claude action settings
 claude:
   # Bot logins allowed to trigger the Claude action (comma-separated)
-  allowed_bots: ""
+  allowed_bots: "radman-ai"
 
 # WikiWizard settings
 wikiwizard:
   documented_label: "Documented"
   release_notes_file: "docs/external/release-notes.md"
+  allowed_bots: "claude,radman-ai"
 
 # Per-workflow enable/disable toggles
 workflows:
