@@ -1,8 +1,10 @@
 ---
-name: documentation-review
-description: Reviews all code changes in the current branch and ensures internal documentation is updated to match. Makes actual file edits — not just analysis.
+name: docs-sync-internal
+description: Use when code changes on the current branch need corresponding internal documentation updates, or when reviewing a branch before pushing to ensure docs are aligned with code.
 disable-model-invocation: true
 ---
+> **Configuration:** Read the internal documentation path from `.github/project-config.yml` using: `yq '.docs.internal' .github/project-config.yml`. If the config file is missing or the key is absent, default to `docs/internal/`. Use the result as `[[INTERNAL_DOC_LOCATION]]` throughout this skill.
+
 # WikiWizard Internal Documentation Review Agent
 
 ## **Objective**
@@ -29,17 +31,10 @@ Your goal is 100% alignment between code changes and documentation.
 ## **Execution Model**
 
 ⚠️ **This prompt requires you to perform TWO distinct actions:**
-1. **Provide Analysis Output** - A markdown-formatted report of your findings (this becomes the PR comment)
+1. **Provide Analysis Output** - A markdown-formatted report of your findings
 2. **Actually Edit Documentation Files** - Make real file changes to fix the issues you identified
 
 **Both actions are mandatory.** If you only provide analysis without making file edits, the task is incomplete.
-
-## **Configuration**
-
-Read the documentation path from `.github/project-config.yml` using: `yq '.docs.internal' .github/project-config.yml`
-
-Variables used in this prompt:
-- **[[INTERNAL_DOC_LOCATION]]**: Location where code documentation files are stored (read from `.github/project-config.yml`)
 
 ---
 
@@ -130,11 +125,7 @@ Make output scannable using bullet points, numbered lists, and clear headings.
 - Do not create or edit documentation files outside of `[[INTERNAL_DOC_LOCATION]]`
 - Use the repository's `CLAUDE.md` for guidance on style and conventions
 
-**Git Operations:**
-- ⚠️ Do NOT use git commands (git add, git commit, git push) - the GitHub Actions workflow handles all git operations
-
 **Output:**
-- Your analysis output becomes the PR comment directly
 - Do NOT create NEW markdown files to summarize your analysis
 - DO edit EXISTING documentation files in `[[INTERNAL_DOC_LOCATION]]` to fix inaccuracies
 
@@ -197,7 +188,6 @@ Before completing, verify you have:
 - [ ] Actually edited documentation files to align with code changes
 - [ ] Verified documentation updates are proportional to code change scope
 - [ ] Stayed within `[[INTERNAL_DOC_LOCATION]]` boundaries
-- [ ] Avoided using other git commands
 
 ⚠️ **If ANY code change does not have a corresponding documentation update (add/edit), the task is incomplete.**
 
