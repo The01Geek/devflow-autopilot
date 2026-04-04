@@ -45,13 +45,19 @@ All workflow behavior is controlled by `.github/project-config.yml`. Key fields:
 | `sync-pr-status-to-issue.yml` | PR state change | Syncs PR status to linked issues |
 | `close-released-items.yml` | Manual dispatch | Moves "Released" items to "Closed", optionally archives |
 
+## GitHub App
+
+Project automation uses the **Radman AI** GitHub App: https://github.com/apps/radman-ai
+
+Users can install it directly, or create their own GitHub App if they prefer custom branding/permissions.
+
 ## Required Secrets
 
 | Secret | Purpose |
 |--------|---------|
 | `CLAUDE_CODE_OAUTH_TOKEN` | Claude Code API access |
-| `RADMAN_AI_APP_ID` | GitHub App ID for project automation |
-| `RADMAN_AI_PRIVATE_KEY` | GitHub App private key |
+| `RADMAN_AI_APP_ID` | GitHub App ID (Radman AI or your own app) |
+| `RADMAN_AI_PRIVATE_KEY` | GitHub App private key (Radman AI or your own app) |
 
 ## Coding Standards
 
