@@ -14,7 +14,7 @@ jobs:
       project_number: ${{ steps.config.outputs.project_number }}
       status_in_progress: ${{ steps.config.outputs.status_in_progress }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install yq
         run: |
           sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
@@ -91,7 +91,7 @@ jobs:
       - name: Generate app token
         if: steps.extract.outputs.issue_number != ''
         id: app-token
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ secrets.RADMAN_AI_APP_ID }}
           private-key: ${{ secrets.RADMAN_AI_PRIVATE_KEY }}

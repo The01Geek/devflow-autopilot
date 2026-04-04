@@ -1,59 +1,62 @@
-# Project Instructions
+# CLAUDE.md
 
-<!-- Claude Code skills and agents reference this file for project context. -->
-<!-- Uncomment and fill in the sections relevant to your project. -->
-<!-- Delete sections you don't need. -->
+## Project Overview
 
-<!-- ## Environment -->
-<!-- - Server timezone: UTC -->
-<!-- - Runtime: Node.js 20 / Python 3.12 / etc. -->
+**devflow-autopilot** is a GitHub template repository that wires Claude Code into GitHub workflows for automated issue-to-PR pipelines. It is **not an application** — it contains no backend, frontend, or runtime code. The entire project is GitHub Actions workflows, Claude Code skills/agents, and configuration.
 
-<!-- ## Development Setup -->
-<!-- - Install dependencies: `npm install` -->
-<!-- - Run dev server: `npm run dev` -->
-<!-- - Run tests: `npm test` -->
+**Repository**: https://github.com/The01Geek/devflow-autopilot
+**Primary Branch**: `master`
 
-<!-- ## Architecture -->
-<!-- Describe your project's high-level architecture here: -->
-<!-- - Backend: Express API with PostgreSQL -->
-<!-- - Frontend: React SPA with TypeScript -->
-<!-- - Key patterns: Repository pattern, service layer, etc. -->
+## What This Repo Contains
 
-<!-- ## Directory Structure -->
-<!-- Document your important directories: -->
-<!-- - `/src/api/` — API routes and controllers -->
-<!-- - `/src/services/` — Business logic layer -->
-<!-- - `/src/models/` — Database models -->
-<!-- - `/src/components/` — React components -->
-<!-- - `/tests/` — Test files -->
+```
+.github/
+  workflows/           # GitHub Actions workflow YAML files (the core of the project)
+  project-config.yml   # Central config: project number, statuses, toggles, model, docs paths
+.claude/
+  skills/              # Slash command skill definitions (implement, review, docs, etc.)
+  agents/              # Specialized agent definitions (checklist, issue creator)
+  settings.json        # Claude Code plugin/tool settings
+docs/
+  internal/            # AI-generated technical docs (for developers and future AI context)
+  external/            # AI-generated customer-facing docs
+CLAUDE.md              # This file — project conventions for Claude Code
+```
 
-<!-- ## Database -->
-<!-- - ORM: Prisma / TypeORM / Sequelize / etc. -->
-<!-- - Migrations: `npm run migrate` -->
-<!-- - Key tables and relationships -->
+There is no `src/`, no `package.json`, no `requirements.txt`, no Docker, no database.
 
-<!-- ## Coding Standards -->
+## Configuration
 
-<!-- ### Naming Conventions -->
-<!-- - Variables/functions: camelCase -->
-<!-- - Classes/types: PascalCase -->
-<!-- - Constants: UPPER_SNAKE_CASE -->
-<!-- - Database columns: snake_case -->
-<!-- - File names: kebab-case.ts -->
+All workflow behavior is controlled by `.github/project-config.yml`. Key fields:
+- `project_number` — GitHub Projects (v2) board number
+- `base_branch` — default PR target (`main` for consuming repos)
+- `claude_model` — model used by AI workflows
+- `statuses.*` — must match GitHub Project board status names exactly
+- `workflows.*` — per-workflow enable/disable toggles
 
-<!-- ### Code Style -->
-<!-- - Indentation: 2 spaces -->
-<!-- - Always use curly braces for if/else blocks -->
-<!-- - Prefer async/await over .then() chains -->
-<!-- - Use strict TypeScript (no `any`) -->
+## Workflows
 
-<!-- ## Testing -->
-<!-- - Framework: Jest / Vitest / pytest / etc. -->
-<!-- - Run all tests: `npm test` -->
-<!-- - Run specific: `npm test -- --grep "pattern"` -->
-<!-- - Coverage threshold: 80% -->
+| File | Trigger | Purpose |
+|------|---------|---------|
+| `claude.yml` | `@claude` mention | Runs Claude Code with full skill/agent access |
+| `WikiWizard.yml` | PR opened/updated | Auto-generates internal docs, external docs, release notes |
+| `comment-on-draft-issues.yml` | Issue created | Triggers `/implement` on Draft issues |
+| `move-to-in-progress.yml` | Branch created | Updates project board status |
+| `sync-pr-status-to-issue.yml` | PR state change | Syncs PR status to linked issues |
+| `close-released-items.yml` | Manual dispatch | Moves "Released" items to "Closed", optionally archives |
 
-<!-- ## API Conventions -->
-<!-- - REST endpoints follow: /api/v1/{resource} -->
-<!-- - Auth: Bearer token in Authorization header -->
-<!-- - Error format: { "error": { "code": "...", "message": "..." } } -->
+## Required Secrets
+
+| Secret | Purpose |
+|--------|---------|
+| `CLAUDE_CODE_OAUTH_TOKEN` | Claude Code API access |
+| `RADMAN_AI_APP_ID` | GitHub App ID for project automation |
+| `RADMAN_AI_PRIVATE_KEY` | GitHub App private key |
+
+## Coding Standards
+
+Since this project is purely YAML workflows and Markdown skills:
+
+- **Workflow YAML**: Keep steps focused and well-commented. Use `project-config.yml` for all configurable values — never hardcode project numbers, status names, or bot logins in workflow files.
+- **Skills/Agents**: Follow the existing `SKILL.md` format. Each skill is self-contained with clear instructions.
+- **Action versions**: Keep GitHub Actions pinned to latest major versions that support Node.js 24+ to avoid deprecation warnings.

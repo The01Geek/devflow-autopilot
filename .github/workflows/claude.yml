@@ -19,7 +19,7 @@ jobs:
       claude_model: ${{ steps.config.outputs.claude_model }}
       allowed_bots: ${{ steps.config.outputs.allowed_bots }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install yq
         run: |
           sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
@@ -52,7 +52,7 @@ jobs:
       actions: read # Required for Claude to read CI results on PRs
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -133,7 +133,7 @@ jobs:
           github.event_name == 'issue_comment' &&
           contains(github.event.comment.body, '/implement') &&
           github.event.issue.pull_request == null
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ secrets.RADMAN_AI_APP_ID }}
           private-key: ${{ secrets.RADMAN_AI_PRIVATE_KEY }}
