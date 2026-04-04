@@ -56,8 +56,9 @@ Users can install it directly, or create their own GitHub App if they prefer cus
 | Secret | Purpose |
 |--------|---------|
 | `CLAUDE_CODE_OAUTH_TOKEN` | Claude Code API access |
-| `RADMAN_AI_APP_ID` | GitHub App ID (Radman AI or your own app) |
 | `RADMAN_AI_PRIVATE_KEY` | GitHub App private key (Radman AI or your own app) |
+
+The GitHub App ID is read from `app_id` in `project-config.yml` (defaults to `3102164` for Radman AI).
 
 ## Coding Standards
 

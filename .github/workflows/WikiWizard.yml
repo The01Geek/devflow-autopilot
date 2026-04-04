@@ -21,6 +21,7 @@ jobs:
       release_notes_file: ${{ steps.config.outputs.release_notes_file }}
       bot_login: ${{ steps.config.outputs.bot_login }}
       allowed_bots: ${{ steps.config.outputs.allowed_bots }}
+      app_id: ${{ steps.config.outputs.app_id }}
     steps:
       - uses: actions/checkout@v6
       - name: Install yq
@@ -40,6 +41,7 @@ jobs:
           echo "release_notes_file=$(yq '.wikiwizard.release_notes_file' "$CONFIG")" >> "$GITHUB_OUTPUT"
           echo "bot_login=$(yq '.bot_login' "$CONFIG")" >> "$GITHUB_OUTPUT"
           echo "allowed_bots=$(yq '.wikiwizard.allowed_bots' "$CONFIG")" >> "$GITHUB_OUTPUT"
+          echo "app_id=$(yq '.app_id' "$CONFIG")" >> "$GITHUB_OUTPUT"
 
   documentation:
     needs: config
@@ -185,7 +187,7 @@ jobs:
         id: app-token
         uses: actions/create-github-app-token@v3
         with:
-          app-id: ${{ secrets.RADMAN_AI_APP_ID }}
+          app-id: ${{ needs.config.outputs.app_id }}
           private-key: ${{ secrets.RADMAN_AI_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
 

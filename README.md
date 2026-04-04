@@ -37,7 +37,7 @@ You review the PR. Merge when ready. That's the workflow.
 1. **Use this template** > Create a new repository
 2. Install the [Radman AI](https://github.com/apps/radman-ai) GitHub App on your repo
 3. Edit `.github/project-config.yml` with your project number and branch
-4. Add secrets: `CLAUDE_CODE_OAUTH_TOKEN`, `RADMAN_AI_APP_ID`, `RADMAN_AI_PRIVATE_KEY` ([setup guide](#-authentication))
+4. Add secrets: `CLAUDE_CODE_OAUTH_TOKEN`, `RADMAN_AI_PRIVATE_KEY` ([setup guide](#-authentication))
 5. Create a [GitHub Projects (v2)](https://docs.github.com/en/issues/planning-and-tracking-with-projects) board with statuses: Draft, In Progress, AI PR Drafted, Released, Closed
 6. Fill in `CLAUDE.md` with your project's conventions
 
@@ -110,6 +110,7 @@ Everything is in `.github/project-config.yml`. Key fields:
 | Field | What it controls | Default |
 |-------|-----------------|---------|
 | `project_number` | Your GitHub Project board number | `"1"` |
+| `app_id` | GitHub App ID for project automation | `"3102164"` (Radman AI) |
 | `base_branch` | Default PR target | `"main"` |
 | `claude_model` | Model for AI workflows | `"claude-opus-4-6"` |
 | `statuses.*` | Project board status names | Draft, In Progress, etc. |
@@ -128,23 +129,25 @@ Everything is in `.github/project-config.yml`. Key fields:
 | Secret | Purpose |
 |--------|---------|
 | `CLAUDE_CODE_OAUTH_TOKEN` | Claude Code API access ([docs](https://docs.anthropic.com/en/docs/claude-code/github-actions)) |
-| `RADMAN_AI_APP_ID` | GitHub App ID for project automation |
 | `RADMAN_AI_PRIVATE_KEY` | GitHub App private key |
+
+The GitHub App ID is configured in `.github/project-config.yml` (`app_id` field, defaults to `3102164` for Radman AI).
 
 ### GitHub App Setup
 
 **Option 1: Install Radman AI (recommended)**
 
 1. Install [Radman AI](https://github.com/apps/radman-ai) on your repository
-2. Add the App ID and private key as repo secrets (`RADMAN_AI_APP_ID`, `RADMAN_AI_PRIVATE_KEY`)
+2. Add the private key as a repo secret (`RADMAN_AI_PRIVATE_KEY`)
 
 **Option 2: Create your own GitHub App**
 
 1. Settings > Developer settings > GitHub Apps > New
 2. Permissions: issues (write), pull_requests (write), projects (read/write), contents (read)
 3. Install on your repo
-4. Add the App ID and private key as repo secrets
-5. Update `bot_login` and `allowed_bots` in `.github/project-config.yml` to match your app's slug
+4. Add the private key as a repo secret
+5. Set `app_id` in `.github/project-config.yml` to your app's ID
+6. Update `bot_login` and `allowed_bots` in `.github/project-config.yml` to match your app's slug
 
 To use different secret names, find-and-replace `RADMAN_AI_` in the workflow files.
 

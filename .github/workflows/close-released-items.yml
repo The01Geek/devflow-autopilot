@@ -26,6 +26,7 @@ jobs:
       project_number: ${{ steps.config.outputs.project_number }}
       status_released: ${{ steps.config.outputs.status_released }}
       status_closed: ${{ steps.config.outputs.status_closed }}
+      app_id: ${{ steps.config.outputs.app_id }}
     steps:
       - uses: actions/checkout@v6
       - name: Install yq
@@ -40,6 +41,7 @@ jobs:
           echo "project_number=$(yq '.project_number' "$CONFIG")" >> "$GITHUB_OUTPUT"
           echo "status_released=$(yq '.statuses.released' "$CONFIG")" >> "$GITHUB_OUTPUT"
           echo "status_closed=$(yq '.statuses.closed' "$CONFIG")" >> "$GITHUB_OUTPUT"
+          echo "app_id=$(yq '.app_id' "$CONFIG")" >> "$GITHUB_OUTPUT"
 
   close-released:
     needs: config
@@ -51,7 +53,7 @@ jobs:
         id: app-token
         uses: actions/create-github-app-token@v3
         with:
-          app-id: ${{ secrets.RADMAN_AI_APP_ID }}
+          app-id: ${{ needs.config.outputs.app_id }}
           private-key: ${{ secrets.RADMAN_AI_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
 

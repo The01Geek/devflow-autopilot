@@ -28,6 +28,10 @@ docs:
   internal: "docs/internal/"
   external: "docs/external/"
 
+# GitHub App ID for project automation (Radman AI default: 3102164)
+# Override this if using your own GitHub App
+app_id: "3102164"
+
 # Bot account login (for distinguishing AI-authored PRs from human ones)
 # Leave empty if not using a bot account
 bot_login: "radman-ai"

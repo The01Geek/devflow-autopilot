@@ -13,6 +13,7 @@ jobs:
       enabled: ${{ steps.config.outputs.enabled }}
       project_number: ${{ steps.config.outputs.project_number }}
       status_in_progress: ${{ steps.config.outputs.status_in_progress }}
+      app_id: ${{ steps.config.outputs.app_id }}
     steps:
       - uses: actions/checkout@v6
       - name: Install yq
@@ -26,6 +27,7 @@ jobs:
           echo "enabled=$(yq '.workflows["move-to-in-progress"]' "$CONFIG")" >> "$GITHUB_OUTPUT"
           echo "project_number=$(yq '.project_number' "$CONFIG")" >> "$GITHUB_OUTPUT"
           echo "status_in_progress=$(yq '.statuses.in_progress' "$CONFIG")" >> "$GITHUB_OUTPUT"
+          echo "app_id=$(yq '.app_id' "$CONFIG")" >> "$GITHUB_OUTPUT"
 
   move-issue:
     name: Move issue card when branch created
@@ -93,7 +95,7 @@ jobs:
         id: app-token
         uses: actions/create-github-app-token@v3
         with:
-          app-id: ${{ secrets.RADMAN_AI_APP_ID }}
+          app-id: ${{ needs.config.outputs.app_id }}
           private-key: ${{ secrets.RADMAN_AI_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
 

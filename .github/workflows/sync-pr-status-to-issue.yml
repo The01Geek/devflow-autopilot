@@ -7,7 +7,7 @@ name: Sync PR Status to Issue
 # 3. Updates each linked issue's status to match the PR's status
 #
 # Requirements:
-# - RADMAN_AI_APP_ID and RADMAN_AI_PRIVATE_KEY secrets must be configured
+# - RADMAN_AI_PRIVATE_KEY secret must be configured
 # - Both PR and linked issues must be added to the project
 # - Linked issues must use "Closes #123" or similar syntax in PR description
 
@@ -44,6 +44,7 @@ jobs:
       project_number: ${{ steps.config.outputs.project_number }}
       status_ai_pr_drafted: ${{ steps.config.outputs.status_ai_pr_drafted }}
       bot_login: ${{ steps.config.outputs.bot_login }}
+      app_id: ${{ steps.config.outputs.app_id }}
     steps:
       - uses: actions/checkout@v6
       - name: Install yq
@@ -58,6 +59,7 @@ jobs:
           echo "project_number=$(yq '.project_number' "$CONFIG")" >> "$GITHUB_OUTPUT"
           echo "status_ai_pr_drafted=$(yq '.statuses.ai_pr_drafted' "$CONFIG")" >> "$GITHUB_OUTPUT"
           echo "bot_login=$(yq '.bot_login' "$CONFIG")" >> "$GITHUB_OUTPUT"
+          echo "app_id=$(yq '.app_id' "$CONFIG")" >> "$GITHUB_OUTPUT"
 
   sync-status:
     needs: config
@@ -91,7 +93,7 @@ jobs:
         if: steps.actor-check.outputs.should_run == 'true'
         uses: actions/create-github-app-token@v3
         with:
-          app-id: ${{ secrets.RADMAN_AI_APP_ID }}
+          app-id: ${{ needs.config.outputs.app_id }}
           private-key: ${{ secrets.RADMAN_AI_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
 
