@@ -27,7 +27,7 @@ jobs:
       status_released: ${{ steps.config.outputs.status_released }}
       status_closed: ${{ steps.config.outputs.status_closed }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install yq
         run: |
           sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
@@ -49,7 +49,7 @@ jobs:
     steps:
       - name: Generate app token
         id: app-token
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ secrets.RADMAN_AI_APP_ID }}
           private-key: ${{ secrets.RADMAN_AI_PRIVATE_KEY }}
@@ -196,6 +196,38 @@ jobs:
                                     }
                                   }
                                 }
+                                ... on ProjectV2ItemFieldTextValue {
+                                  text
+                                  field {
+                                    ... on ProjectV2Field {
+                                      name
+                                    }
+                                  }
+                                }
+                                ... on ProjectV2ItemFieldNumberValue {
+                                  number
+                                  field {
+                                    ... on ProjectV2Field {
+                                      name
+                                    }
+                                  }
+                                }
+                                ... on ProjectV2ItemFieldDateValue {
+                                  date
+                                  field {
+                                    ... on ProjectV2Field {
+                                      name
+                                    }
+                                  }
+                                }
+                                ... on ProjectV2ItemFieldIterationValue {
+                                  title
+                                  field {
+                                    ... on ProjectV2IterationField {
+                                      name
+                                    }
+                                  }
+                                }
                               }
                             }
                           }
@@ -238,6 +270,38 @@ jobs:
                                     }
                                   }
                                 }
+                                ... on ProjectV2ItemFieldTextValue {
+                                  text
+                                  field {
+                                    ... on ProjectV2Field {
+                                      name
+                                    }
+                                  }
+                                }
+                                ... on ProjectV2ItemFieldNumberValue {
+                                  number
+                                  field {
+                                    ... on ProjectV2Field {
+                                      name
+                                    }
+                                  }
+                                }
+                                ... on ProjectV2ItemFieldDateValue {
+                                  date
+                                  field {
+                                    ... on ProjectV2Field {
+                                      name
+                                    }
+                                  }
+                                }
+                                ... on ProjectV2ItemFieldIterationValue {
+                                  title
+                                  field {
+                                    ... on ProjectV2IterationField {
+                                      name
+                                    }
+                                  }
+                                }
                               }
                             }
                           }
@@ -260,7 +324,16 @@ jobs:
                     id: .id,
                     number: .content.number,
                     title: .content.title,
-                    type: .content.__typename
+                    type: .content.__typename,
+                    fields: (
+                      [.fieldValues.nodes[]
+                        | select(.field.name != null and .field.name != "Status" and .field.name != "Title")
+                        | {
+                            key: .field.name,
+                            value: (if .name then .name elif .text then .text elif .number != null then (.number | tostring) elif .date then .date elif .title then .title else "" end)
+                          }
+                      ] | from_entries
+                    )
                   }
                 ]' 2>/dev/null)
 
@@ -285,6 +358,22 @@ jobs:
             done
 
             echo "${ITEMS:-[]}"
+          }
+
+          # Helper: render a markdown summary table with dynamic custom field columns
+          render_summary_table() {
+            local ITEMS_JSON="$1"
+            local TARGET="$2"
+
+            echo "$ITEMS_JSON" | jq -r '
+              ([.[].fields | keys[]] | unique) as $fnames |
+              ("| Type | # | Title |" + ($fnames | map(" " + . + " |") | join(""))),
+              ("|------|---|-------|" + ($fnames | map("------|") | join(""))),
+              (.[] | . as $item |
+                "| \(.type) | \(.number) | \(.title) |" +
+                ($fnames | map(" \($item.fields[.] // "") |") | join(""))
+              )
+            ' >> "$TARGET" 2>/dev/null
           }
 
           # ── Step 1: Archive existing Closed items (if requested) ──────────────
@@ -364,9 +453,7 @@ jobs:
                 echo "" >> "$GITHUB_STEP_SUMMARY"
                 echo "**Total items archived:** $ARCHIVED_TOTAL" >> "$GITHUB_STEP_SUMMARY"
                 echo "" >> "$GITHUB_STEP_SUMMARY"
-                echo "| Type | # | Title |" >> "$GITHUB_STEP_SUMMARY"
-                echo "|------|---|-------|" >> "$GITHUB_STEP_SUMMARY"
-                echo "$ARCHIVED_ITEMS" | jq -r '.[] | "| \(.type) | #\(.number) | \(.title) |"' >> "$GITHUB_STEP_SUMMARY" 2>/dev/null
+                render_summary_table "$ARCHIVED_ITEMS" "$GITHUB_STEP_SUMMARY"
               fi
             fi
 
@@ -423,9 +510,7 @@ jobs:
               echo "" >> "$GITHUB_STEP_SUMMARY"
               echo "**Total items archived:** $ARCHIVED_TOTAL" >> "$GITHUB_STEP_SUMMARY"
               echo "" >> "$GITHUB_STEP_SUMMARY"
-              echo "| Type | # | Title |" >> "$GITHUB_STEP_SUMMARY"
-              echo "|------|---|-------|" >> "$GITHUB_STEP_SUMMARY"
-              echo "$ARCHIVED_ITEMS" | jq -r '.[] | "| \(.type) | #\(.number) | \(.title) |"' >> "$GITHUB_STEP_SUMMARY" 2>/dev/null
+              render_summary_table "$ARCHIVED_ITEMS" "$GITHUB_STEP_SUMMARY"
               echo "" >> "$GITHUB_STEP_SUMMARY"
             fi
           fi
@@ -434,6 +519,4 @@ jobs:
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "**Total items processed:** $TOTAL" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Type | # | Title |" >> "$GITHUB_STEP_SUMMARY"
-          echo "|------|---|-------|" >> "$GITHUB_STEP_SUMMARY"
-          echo "$RELEASED_ITEMS" | jq -r '.[] | "| \(.type) | #\(.number) | \(.title) |"' >> "$GITHUB_STEP_SUMMARY" 2>/dev/null
+          render_summary_table "$RELEASED_ITEMS" "$GITHUB_STEP_SUMMARY"
