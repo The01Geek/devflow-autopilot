@@ -5,7 +5,7 @@
 **devflow-autopilot** is a GitHub template repository that wires Claude Code into GitHub workflows for automated issue-to-PR pipelines. It is **not an application** — it contains no backend, frontend, or runtime code. The entire project is GitHub Actions workflows, Claude Code skills/agents, and configuration.
 
 **Repository**: https://github.com/The01Geek/devflow-autopilot
-**Primary Branch**: `master`
+**Primary Branch**: `main`
 
 ## What This Repo Contains
 
