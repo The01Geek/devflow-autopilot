@@ -114,23 +114,37 @@ jobs:
 
           echo "🚀 Moving Issue #${ISSUE_NUMBER} to '$INPROG_STATUS'"
 
+          # Detect if owner is an organization or user
+          OWNER_TYPE=$(gh api graphql -f query='
+            query {
+              repositoryOwner(login: "'$ORG'") {
+                __typename
+              }
+            }' --jq '.data.repositoryOwner.__typename')
+
+          if [ "$OWNER_TYPE" = "Organization" ]; then
+            OWNER_FIELD="organization"
+          else
+            OWNER_FIELD="user"
+          fi
+
           # Find the project ID (Projects Next)
           # echo "🔍 Looking up project..."
           if ! PROJECT_RESPONSE=$(gh api graphql -f query='
             query {
-              organization(login: "'$ORG'") {
+              '$OWNER_FIELD'(login: "'$ORG'") {
                 projectV2(number: '$PROJECT_NUMBER') {
                   id
                   title
                 }
               }
             }' 2>&1); then
-            echo "❌ Error: Failed to query project API for project #${PROJECT_NUMBER} in organization ${ORG}"
+            echo "❌ Error: Failed to query project API for project #${PROJECT_NUMBER} in ${ORG}"
             echo "   API Response:"
             echo "$PROJECT_RESPONSE" | sed 's/^/   /'
             echo "   Possible causes:"
             echo "   - Token lacks 'read:project' scope"
-            echo "   - Organization name is incorrect"
+            echo "   - Owner name is incorrect"
             echo "   - Rate limit exceeded"
             exit 1
           fi
@@ -142,11 +156,11 @@ jobs:
           #   exit 1
           # fi
 
-          PROJECT_ID=$(echo "$PROJECT_RESPONSE" | jq -r '.data.organization.projectV2.id' 2>/dev/null)
-          PROJECT_TITLE=$(echo "$PROJECT_RESPONSE" | jq -r '.data.organization.projectV2.title' 2>/dev/null)
+          PROJECT_ID=$(echo "$PROJECT_RESPONSE" | jq -r '.data.'$OWNER_FIELD'.projectV2.id' 2>/dev/null)
+          PROJECT_TITLE=$(echo "$PROJECT_RESPONSE" | jq -r '.data.'$OWNER_FIELD'.projectV2.title' 2>/dev/null)
 
           if [ -z "$PROJECT_ID" ] || [ "$PROJECT_ID" = "null" ]; then
-            echo "❌ Error: Project number $PROJECT_NUMBER not found in organization $ORG"
+            echo "❌ Error: Project number $PROJECT_NUMBER not found for owner $ORG"
             echo "   Please verify the project exists and the token has proper permissions."
             exit 1
           fi

@@ -111,10 +111,24 @@ jobs:
 
           echo "🔍 Getting PR #$PR_NUMBER status from project..."
 
+          # Detect if owner is an organization or user
+          OWNER_TYPE=$(gh api graphql -f query='
+            query {
+              repositoryOwner(login: "'$ORG'") {
+                __typename
+              }
+            }' --jq '.data.repositoryOwner.__typename')
+
+          if [ "$OWNER_TYPE" = "Organization" ]; then
+            OWNER_FIELD="organization"
+          else
+            OWNER_FIELD="user"
+          fi
+
           # Get project ID
           if ! PROJECT_RESPONSE=$(gh api graphql -f query='
             query {
-              organization(login: "'$ORG'") {
+              '$OWNER_FIELD'(login: "'$ORG'") {
                 projectV2(number: '$PROJECT_NUMBER') {
                   id
                   title
@@ -125,7 +139,7 @@ jobs:
             exit 1
           fi
 
-          PROJECT_ID=$(echo "$PROJECT_RESPONSE" | jq -r '.data.organization.projectV2.id' 2>/dev/null)
+          PROJECT_ID=$(echo "$PROJECT_RESPONSE" | jq -r '.data.'$OWNER_FIELD'.projectV2.id' 2>/dev/null)
 
           if [ -z "$PROJECT_ID" ] || [ "$PROJECT_ID" = "null" ]; then
             echo "❌ Error: Project #$PROJECT_NUMBER not found"
