@@ -6,26 +6,97 @@ devflow-autopilot is a template that wires Claude Code into your GitHub workflow
 
 ---
 
+## ⚡ The `/implement` Pipeline
+
+From a GitHub issue to a production-ready pull request — four phases, multiple AI agents, zero manual coding:
+
+```mermaid
+flowchart TD
+    input(["📥 GitHub Issue"]):::input
+
+    input --> P2
+
+    subgraph P2 ["🧠 Phase 2 — Discover & Build"]
+        B1{{"🔍 code-explorer<br/>Understands your<br/>codebase & patterns"}}:::agent
+        B2{{"📐 code-architect<br/>Designs the<br/>right solution"}}:::agent
+        B3["💻 Implementer<br/>Writes code + tests"]:::code
+        B1 --> B2 --> B3
+    end
+
+    P2 --> P3
+
+    subgraph P3 ["🛡️ Phase 3 — Quality Gate"]
+        C2{{"🔄 /review-and-fix<br/>5 specialized review<br/>agents in parallel"}}:::agent
+        C3{"✅ Pass?"}:::decision
+        C4["🔧 Auto-fix<br/>findings"]:::fix
+        C5["✨ Quality<br/>approved"]:::success
+        C2 --> C3
+        C3 -- "❌ Fail" --> C4 --> C2
+        C3 -- "✅ Pass" --> C5
+    end
+
+    P3 --> P4
+
+    subgraph P4 ["📚 Phase 4 — Documentation"]
+        direction LR
+        D1["📘 Internal<br/>tech docs"]:::docs
+        D2["📗 External<br/>user docs"]:::docs
+        D3["📋 Release<br/>notes"]:::docs
+        D4["📝 PR<br/>description"]:::docs
+        D1 --> D2 --> D3 --> D4
+    end
+
+    P4 --> output
+
+    output(["📤 Production-Ready PR<br/>Reviewed · Documented · Tested"]):::output
+
+    classDef input fill:#f0f9ff,stroke:#0284c7,stroke-width:3px,color:#0c4a6e
+    classDef output fill:#d1fae5,stroke:#059669,stroke-width:3px,color:#065f46
+    classDef agent fill:#ede9fe,stroke:#7c3aed,stroke-width:2px,color:#4c1d95
+    classDef code fill:#dbeafe,stroke:#2563eb,stroke-width:1.5px,color:#1e3a8a
+    classDef review fill:#e0e7ff,stroke:#4f46e5,stroke-width:2px,color:#3730a3
+    classDef decision fill:#fef3c7,stroke:#d97706,stroke-width:2px,color:#92400e
+    classDef fix fill:#fecaca,stroke:#dc2626,stroke-width:2px,color:#7f1d1d
+    classDef success fill:#bbf7d0,stroke:#16a34a,stroke-width:2px,color:#14532d
+    classDef docs fill:#fce7f3,stroke:#db2777,stroke-width:2px,color:#9d174d
+
+    style P2 fill:#faf5ff,stroke:#7c3aed,stroke-width:2px
+    style P3 fill:#fffbeb,stroke:#d97706,stroke-width:2px
+    style P4 fill:#fdf2f8,stroke:#db2777,stroke-width:2px
+```
+
+---
+
 ## 🔄 What happens when you create an issue
 
-```
-1. You create a GitHub issue              (that's it — that's your part)
+```mermaid
+flowchart TD
+    A(["🆕 You create an issue"]):::user
+    B{"📋 Draft on<br/>project board?"}:::decision
+    C["🤖 Bot posts<br/>@claude /implement"]:::process
+    D["💬 You post<br/>@claude /implement"]:::user
+    E["⚡ /implement runs"]:::core
+    F["📂 Branch created"]:::process
+    G["🔍 Explore codebase<br/>🏗️ Design architecture"]:::process
+    H["💻 Write code & tests"]:::process
+    I["📋 Open draft PR"]:::process
+    J["🔄 Multi-agent review<br/>+ auto-fix loop"]:::agent
+    K["📘 Generate documentation<br/>Internal · External · Release Notes"]:::docs
+    L["✅ PR ready for review"]:::success
+    M(["👀 You review & merge"]):::user
 
-2. Claude implements the feature           /implement orchestrates discovery,
-                                           planning, coding, and testing
+    A --> B
+    B -- Yes --> C --> E
+    B -- No --> D --> E
+    E --> F --> G --> H --> I --> J --> K --> L --> M
 
-3. PR opens with full code review          /review runs parallel agents:
-                                           verification checklist, code review,
-                                           silent failure hunting, and more
-
-4. Docs update themselves                  WikiWizard generates:
-                                           📘 Internal technical docs (for devs
-                                              and future AI agent context)
-                                           📗 External user-facing docs
-                                           📋 Release notes
-
-5. Project board stays current             Status moves from Draft → In Progress
-                                           → AI PR Drafted automatically
+    classDef user fill:#d1fae5,stroke:#059669,stroke-width:2px,color:#065f46
+    classDef decision fill:#fef3c7,stroke:#d97706,stroke-width:2px,color:#92400e
+    classDef process fill:#dbeafe,stroke:#2563eb,stroke-width:1.5px,color:#1e3a8a
+    classDef core fill:#c7d2fe,stroke:#4f46e5,stroke-width:3px,color:#312e81
+    classDef agent fill:#ede9fe,stroke:#7c3aed,stroke-width:2px,color:#4c1d95
+    classDef docs fill:#fce7f3,stroke:#db2777,stroke-width:2px,color:#9d174d
+    classDef success fill:#bbf7d0,stroke:#16a34a,stroke-width:2px,color:#14532d
 ```
 
 You review the PR. Merge when ready. That's the workflow.
@@ -88,6 +159,39 @@ Specialized reviewers that run in parallel during `/review`.
 | ✅ checklist-verifier | Checks each claim against actual source code |
 | 📌 github-issue-creator | Structures rough requirements into detailed issues |
 
+`/review` runs a multi-agent pipeline. `/review-and-fix` wraps it with an auto-fix loop (up to 4 iterations):
+
+```mermaid
+flowchart TD
+    diff["📄 Git diff + changed files"]:::input
+    gen{{"📝 Checklist Generator<br/>Enumerate every verifiable claim"}}:::agent
+    verify{{"✅ Checklist Verifiers<br/>Verify each claim in parallel"}}:::agent
+
+    diff --> gen --> verify --> par
+
+    subgraph par ["🔍 Review Agents — run in parallel"]
+        direction LR
+        R1{{"Code<br/>Reviewer"}}:::agent
+        R2{{"Silent Failure<br/>Hunter"}}:::agent
+        R3{{"Comment<br/>Analyzer"}}:::agent
+        R4{{"Test Coverage<br/>Analyzer"}}:::agent
+        R5{{"Type Design<br/>Analyzer"}}:::agent
+    end
+
+    par --> agg["📊 Aggregate findings"]:::process
+    agg --> verdict{"Verdict"}:::decision
+    verdict -- "✅ APPROVE" --> done["🎉 Review complete"]:::success
+    verdict -- "❌ REJECT" --> fix["🔧 Auto-fix + commit"]:::fix
+    fix -.-> diff
+
+    classDef input fill:#f3f4f6,stroke:#6b7280,stroke-width:2px,color:#374151
+    classDef agent fill:#ede9fe,stroke:#7c3aed,stroke-width:2px,color:#4c1d95
+    classDef process fill:#dbeafe,stroke:#2563eb,stroke-width:1.5px,color:#1e3a8a
+    classDef decision fill:#fef3c7,stroke:#d97706,stroke-width:2px,color:#92400e
+    classDef success fill:#bbf7d0,stroke:#16a34a,stroke-width:2px,color:#14532d
+    classDef fix fill:#fecaca,stroke:#dc2626,stroke-width:2px,color:#7f1d1d
+```
+
 ---
 
 ## ⚙️ Workflows
@@ -100,6 +204,74 @@ Specialized reviewers that run in parallel during `/review`.
 | move-to-in-progress.yml | Branch created | Updates issue status in project board |
 | sync-pr-status-to-issue.yml | PR state change | Keeps linked issues in sync with PR status |
 | close-released-items.yml | Manual | Moves "Released" items to "Closed" |
+
+### Project Board Statuses
+
+Issues flow through these statuses automatically. Each arrow shows the workflow that handles the transition:
+
+```mermaid
+flowchart LR
+    A(["📋 Draft"]):::draft
+    B(["🔨 In Progress"]):::progress
+    C(["🤖 AI PR Drafted"]):::pr
+    D(["🚀 Released"]):::released
+    E(["✅ Closed"]):::closed
+
+    A -- "move-to-in-progress.yml<br/>Branch created" --> B
+    B -- "sync-pr-status-to-issue.yml<br/>PR opened" --> C
+    C -- "Merged + tagged" --> D
+    D -- "close-released-items.yml<br/>Manual dispatch" --> E
+
+    classDef draft fill:#fef3c7,stroke:#d97706,stroke-width:2px,color:#92400e
+    classDef progress fill:#dbeafe,stroke:#2563eb,stroke-width:2px,color:#1e3a8a
+    classDef pr fill:#ede9fe,stroke:#7c3aed,stroke-width:2px,color:#4c1d95
+    classDef released fill:#d1fae5,stroke:#059669,stroke-width:2px,color:#065f46
+    classDef closed fill:#f3f4f6,stroke:#6b7280,stroke-width:2px,color:#374151
+```
+
+### Workflow Trigger Map
+
+Six workflows react to GitHub events and keep everything moving:
+
+```mermaid
+flowchart LR
+    subgraph events ["⚡ GitHub Events"]
+        E1(["Issue opened"]):::event
+        E2(["Branch created"]):::event
+        E3(["@claude mentioned"]):::event
+        E4(["PR opened / updated"]):::event
+        E5(["Manual dispatch"]):::event
+    end
+
+    subgraph workflows ["⚙️ Workflows"]
+        W1["comment-on-<br/>draft-issues"]:::workflow
+        W2["move-to-<br/>in-progress"]:::workflow
+        W3["claude.yml"]:::workflow
+        W4["sync-pr-status-<br/>to-issue"]:::workflow
+        W5["WikiWizard"]:::workflow
+        W6["close-released-<br/>items"]:::workflow
+    end
+
+    subgraph effects ["✨ What Happens"]
+        F1["Posts @claude /implement<br/>on Draft issues"]:::effect
+        F2["Board status →<br/>In Progress"]:::effect
+        F3["Runs any Claude Code<br/>skill or agent"]:::effect
+        F4["Syncs PR status<br/>to linked issues"]:::effect
+        F5["Generates docs +<br/>triggers /review"]:::effect
+        F6["Moves Released →<br/>Closed"]:::effect
+    end
+
+    E1 --> W1 --> F1
+    E2 --> W2 --> F2
+    E3 --> W3 --> F3
+    E4 --> W4 --> F4
+    E4 --> W5 --> F5
+    E5 --> W6 --> F6
+
+    classDef event fill:#fef3c7,stroke:#d97706,stroke-width:2px,color:#92400e
+    classDef workflow fill:#dbeafe,stroke:#2563eb,stroke-width:2px,color:#1e3a8a
+    classDef effect fill:#d1fae5,stroke:#059669,stroke-width:2px,color:#065f46
+```
 
 ---
 
