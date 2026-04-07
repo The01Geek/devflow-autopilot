@@ -49,17 +49,9 @@ jobs:
     name: Move Released items to Closed
     runs-on: ubuntu-latest
     steps:
-      - name: Generate app token
-        id: app-token
-        uses: actions/create-github-app-token@v3
-        with:
-          app-id: ${{ needs.config.outputs.app_id }}
-          private-key: ${{ secrets.RADMAN_AI_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-
       - name: Move Released items to Closed
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ secrets.PROJECT_PAT }}
           ARCHIVE_CLOSED_FIRST: ${{ inputs.archive_closed_first }}
           PROJECT_NUMBER: ${{ needs.config.outputs.project_number }}
           STATUS_RELEASED: ${{ needs.config.outputs.status_released }}

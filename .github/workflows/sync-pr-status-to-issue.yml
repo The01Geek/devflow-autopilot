@@ -88,20 +88,11 @@ jobs:
             fi
           fi
 
-      - name: Generate app token
-        id: app-token
-        if: steps.actor-check.outputs.should_run == 'true'
-        uses: actions/create-github-app-token@v3
-        with:
-          app-id: ${{ needs.config.outputs.app_id }}
-          private-key: ${{ secrets.RADMAN_AI_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-
       - name: Get PR status from project
         id: get_pr_status
         if: steps.actor-check.outputs.should_run == 'true'
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ secrets.PROJECT_PAT }}
         run: |
           set -euo pipefail
           ORG="${{ github.repository_owner }}"
@@ -371,7 +362,7 @@ jobs:
       - name: Sync status to linked issues
         if: steps.actor-check.outputs.should_run == 'true' && steps.get_pr_status.outputs.status != ''
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ secrets.PROJECT_PAT }}
         run: |
           set -euo pipefail
           ORG="${{ github.repository_owner }}"

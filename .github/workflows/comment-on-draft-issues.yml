@@ -50,7 +50,8 @@ jobs:
 
       - name: Check project status and comment if Draft
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ secrets.PROJECT_PAT }}
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           set -euo pipefail
           ORG="${{ github.repository_owner }}"
@@ -61,7 +62,42 @@ jobs:
 
           echo "🔍 Checking if issue #${ISSUE_NUMBER} has Draft status in project..."
 
-          # Query the issue directly for its project status (with retry for auto-add timing)
+          # Detect if owner is an organization or user
+          OWNER_TYPE=$(gh api graphql -f query='
+            query {
+              repositoryOwner(login: "'$ORG'") {
+                __typename
+              }
+            }' --jq '.data.repositoryOwner.__typename')
+
+          if [ "$OWNER_TYPE" = "Organization" ]; then
+            OWNER_FIELD="organization"
+          else
+            OWNER_FIELD="user"
+          fi
+
+          # Get project ID
+          if ! PROJECT_RESPONSE=$(gh api graphql -f query='
+            query {
+              '$OWNER_FIELD'(login: "'$ORG'") {
+                projectV2(number: '$PROJECT_NUMBER') {
+                  id
+                }
+              }
+            }' 2>&1); then
+            echo "❌ Failed to query project"
+            echo "   Response: $PROJECT_RESPONSE"
+            exit 1
+          fi
+
+          PROJECT_ID=$(echo "$PROJECT_RESPONSE" | jq -r '.data.'$OWNER_FIELD'.projectV2.id' 2>/dev/null)
+
+          if [ -z "$PROJECT_ID" ] || [ "$PROJECT_ID" = "null" ]; then
+            echo "❌ Project #$PROJECT_NUMBER not found for owner $ORG"
+            exit 1
+          fi
+
+          # Find the issue in the project (with retry for auto-add timing)
           ISSUE_STATUS=""
           MAX_RETRIES=3
           RETRY_DELAY=30
@@ -69,22 +105,37 @@ jobs:
           for ATTEMPT in $(seq 1 $MAX_RETRIES); do
             echo "🔍 Attempt $ATTEMPT/$MAX_RETRIES: Checking issue #${ISSUE_NUMBER} project status..."
 
-            if ! ISSUE_RESPONSE=$(gh api graphql -f query='
-              query {
-                repository(owner: "'$ORG'", name: "'$REPO_NAME'") {
-                  issue(number: '$ISSUE_NUMBER') {
-                    projectItems(first: 10) {
-                      nodes {
-                        project {
-                          number
-                        }
-                        fieldValues(first: 20) {
+            # Paginate through project items to find the issue
+            CURSOR=""
+            PAGE=1
+            MAX_PAGES=20
+
+            while [ $PAGE -le $MAX_PAGES ]; do
+              if [ -n "$CURSOR" ]; then
+                QUERY='
+                  query {
+                    node(id: "'$PROJECT_ID'") {
+                      ... on ProjectV2 {
+                        items(first: 100, after: "'$CURSOR'") {
+                          pageInfo {
+                            hasNextPage
+                            endCursor
+                          }
                           nodes {
-                            ... on ProjectV2ItemFieldSingleSelectValue {
-                              name
-                              field {
-                                ... on ProjectV2SingleSelectField {
+                            content {
+                              ... on Issue {
+                                number
+                              }
+                            }
+                            fieldValues(first: 20) {
+                              nodes {
+                                ... on ProjectV2ItemFieldSingleSelectValue {
                                   name
+                                  field {
+                                    ... on ProjectV2SingleSelectField {
+                                      name
+                                    }
+                                  }
                                 }
                               }
                             }
@@ -92,23 +143,68 @@ jobs:
                         }
                       }
                     }
-                  }
-                }
-              }' 2>&1); then
-              echo "❌ Failed to query issue project status"
-              exit 1
-            fi
+                  }'
+              else
+                QUERY='
+                  query {
+                    node(id: "'$PROJECT_ID'") {
+                      ... on ProjectV2 {
+                        items(first: 100) {
+                          pageInfo {
+                            hasNextPage
+                            endCursor
+                          }
+                          nodes {
+                            content {
+                              ... on Issue {
+                                number
+                              }
+                            }
+                            fieldValues(first: 20) {
+                              nodes {
+                                ... on ProjectV2ItemFieldSingleSelectValue {
+                                  name
+                                  field {
+                                    ... on ProjectV2SingleSelectField {
+                                      name
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }'
+              fi
 
-            ISSUE_STATUS=$(echo "$ISSUE_RESPONSE" | jq -r '
-              .data.repository.issue.projectItems.nodes[]
-              | select(.project.number == '$PROJECT_NUMBER')
-              | .fieldValues.nodes[]
-              | select(.field.name == "Status")
-              | .name' 2>/dev/null)
+              if ! ITEMS_RESPONSE=$(gh api graphql -f query="$QUERY" 2>&1); then
+                echo "❌ Failed to query project items"
+                exit 1
+              fi
 
-            if [ -n "$ISSUE_STATUS" ]; then
-              break
-            fi
+              # Find the issue and extract its status
+              ISSUE_STATUS=$(echo "$ITEMS_RESPONSE" | jq -r '
+                .data.node.items.nodes[]
+                | select(.content.number == '$ISSUE_NUMBER')
+                | .fieldValues.nodes[]
+                | select(.field.name == "Status")
+                | .name' 2>/dev/null)
+
+              if [ -n "$ISSUE_STATUS" ]; then
+                break 2
+              fi
+
+              HAS_NEXT_PAGE=$(echo "$ITEMS_RESPONSE" | jq -r '.data.node.items.pageInfo.hasNextPage' 2>/dev/null)
+
+              if [ "$HAS_NEXT_PAGE" != "true" ]; then
+                break
+              fi
+
+              CURSOR=$(echo "$ITEMS_RESPONSE" | jq -r '.data.node.items.pageInfo.endCursor' 2>/dev/null)
+              PAGE=$((PAGE + 1))
+            done
 
             if [ $ATTEMPT -lt $MAX_RETRIES ]; then
               echo "⏳ Issue not found in project yet. Waiting ${RETRY_DELAY}s before retry..."
@@ -127,7 +223,7 @@ jobs:
           if [ "$ISSUE_STATUS" = "$STATUS_DRAFT" ]; then
             echo "✅ Status is $STATUS_DRAFT — posting comment..."
             COMMENT_BODY="@claude /implement $ISSUE_NUMBER"
-            gh issue comment "$ISSUE_NUMBER" \
+            GH_TOKEN="$APP_TOKEN" gh issue comment "$ISSUE_NUMBER" \
               --repo "$ORG/$REPO_NAME" \
               --body "$COMMENT_BODY"
             echo "✅ Comment posted on issue #$ISSUE_NUMBER"
@@ -136,7 +232,7 @@ jobs:
             echo "" >> "$GITHUB_STEP_SUMMARY"
             echo "**Issue:** [#${ISSUE_NUMBER}](https://github.com/${ORG}/${REPO_NAME}/issues/${ISSUE_NUMBER})" >> "$GITHUB_STEP_SUMMARY"
             echo "**Status:** $STATUS_DRAFT" >> "$GITHUB_STEP_SUMMARY"
-            echo "**Action:** Posted comment \`@claude run /feature-dev:feature-dev\`" >> "$GITHUB_STEP_SUMMARY"
+            echo "**Action:** Posted comment \`@claude /implement $ISSUE_NUMBER\`" >> "$GITHUB_STEP_SUMMARY"
           else
             echo "ℹ️ Status is \"$ISSUE_STATUS\", not \"$STATUS_DRAFT\". No comment needed."
 
