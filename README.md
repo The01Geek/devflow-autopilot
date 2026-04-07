@@ -37,7 +37,7 @@ You review the PR. Merge when ready. That's the workflow.
 1. **Use this template** > Create a new repository
 2. Install the [Radman AI](https://github.com/apps/radman-ai) GitHub App on your repo
 3. Edit `.github/project-config.yml` with your project number and branch
-4. Add secrets: `CLAUDE_CODE_OAUTH_TOKEN`, `RADMAN_AI_PRIVATE_KEY` ([setup guide](#-authentication))
+4. Add secrets: `CLAUDE_CODE_OAUTH_TOKEN`, `RADMAN_AI_PRIVATE_KEY`, `PROJECT_PAT` ([setup guide](#-authentication))
 5. Create a [GitHub Projects (v2)](https://docs.github.com/en/issues/planning-and-tracking-with-projects) board with statuses: Draft, In Progress, AI PR Drafted, Released, Closed
 6. Fill in `CLAUDE.md` with your project's conventions
 
@@ -130,8 +130,11 @@ Everything is in `.github/project-config.yml`. Key fields:
 |--------|---------|
 | `CLAUDE_CODE_OAUTH_TOKEN` | Claude Code API access ([docs](https://docs.anthropic.com/en/docs/claude-code/github-actions)) |
 | `RADMAN_AI_PRIVATE_KEY` | GitHub App private key |
+| `PROJECT_PAT` | Classic PAT with `repo` + `project` scopes — used for all ProjectV2 operations |
 
 The GitHub App ID is configured in `.github/project-config.yml` (`app_id` field, defaults to `3102164` for Radman AI).
+
+> **Why a PAT?** GitHub App installation tokens cannot access user-owned ProjectsV2 (there is no "Projects" permission for personal accounts). The `PROJECT_PAT` works around this limitation. If you move to an organization, you can switch back to the app token by granting "Organization permissions → Projects: Read & Write" on your GitHub App.
 
 ### GitHub App Setup
 
@@ -151,7 +154,16 @@ The GitHub App ID is configured in `.github/project-config.yml` (`app_id` field,
 
 To use different secret names, find-and-replace `RADMAN_AI_` in the workflow files.
 
-A Personal Access Token with `project` scope works as an alternative.
+### Classic PAT for Project Board Access
+
+GitHub App tokens **cannot access user-owned ProjectsV2** — this is a platform limitation. All project board workflows use the `PROJECT_PAT` secret instead.
+
+1. Go to [Settings → Developer settings → Personal access tokens → Tokens (classic)](https://github.com/settings/tokens)
+2. Create a token with scopes: **`repo`** and **`project`**
+3. Add it as a repository secret named **`PROJECT_PAT`**
+4. Rotate before expiry
+
+If you move to an **organization**, you can switch back to the GitHub App token by adding "Organization permissions → Projects: Read & Write" to your app, then removing the `PROJECT_PAT` references from the workflow files.
 
 ---
 
@@ -171,7 +183,8 @@ A Personal Access Token with `project` scope works as an alternative.
 - A GitHub repository (public or private)
 - [GitHub Projects (v2)](https://docs.github.com/en/issues/planning-and-tracking-with-projects) board with a Status field
 - Claude Code OAuth token
-- A GitHub App or PAT for project automation
+- A GitHub App (Radman AI or your own) for issue/PR automation
+- A Classic PAT with `repo` + `project` scopes for project board access
 
 No GitHub Projects? Disable the board-dependent workflows and use Claude Code skills directly from issues and PRs.
 

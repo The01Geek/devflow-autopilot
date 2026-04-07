@@ -57,8 +57,11 @@ Users can install it directly, or create their own GitHub App if they prefer cus
 |--------|---------|
 | `CLAUDE_CODE_OAUTH_TOKEN` | Claude Code API access |
 | `RADMAN_AI_PRIVATE_KEY` | GitHub App private key (Radman AI or your own app) |
+| `PROJECT_PAT` | Classic PAT (`repo` + `project` scopes) for ProjectV2 operations |
 
 The GitHub App ID is read from `app_id` in `project-config.yml` (defaults to `3102164` for Radman AI).
+
+> **Note:** GitHub App tokens cannot access user-owned ProjectsV2 (no "Projects" permission for personal accounts). All project board workflows use `PROJECT_PAT` instead. If the repo moves to an org, you can switch back to the app token.
 
 ## Coding Standards
 
