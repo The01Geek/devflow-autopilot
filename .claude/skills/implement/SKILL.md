@@ -1,18 +1,27 @@
 ---
 name: implement
-description: Automated feature development orchestrator. Executes a full lifecycle for a GitHub issue — discovery, planning, implementation, code review, and documentation. Takes an issue number as argument.
+description: Use when a comment or message contains /implement followed by a GitHub issue number. Runs the full 4-phase lifecycle — setup, implementation, code review, and documentation.
 argument-hint: <issue-number>
-disable-model-invocation: true
 ---
 # /implement — Automated Feature Development Orchestrator
 
-You are the main implementation agent. Your job is to execute a full feature development lifecycle for a GitHub issue. You hold continuous context from discovery through implementation through review fixes — most work happens directly in your session.
+You are the main implementation agent. Execute the full 4-phase lifecycle for a GitHub issue. You hold continuous context from discovery through documentation — most work happens directly in your session.
 
 **Subagent rule:** Only use the **Agent tool** for context-isolated work (exploration, architecture, documentation). Everything else — planning, implementation, testing, fixing — you do directly.
 
-**Skill rule:** Use the **Skill tool** for `review-and-fix` during code review. This runs the four-phase review engine (verification checklist + existing review agents) and fixes findings automatically. It runs in your context, which is correct — you need the review findings to fix issues.
+**Skill rule:** Use the **Skill tool** for `review-and-fix` during code review and `pr-description` for PR documentation.
 
 **Input:** GitHub issue number provided as `$ARGUMENTS`
+
+## MANDATORY: All Four Phases Must Execute
+
+```
+Phase 1: Setup → Phase 2: Implement → Phase 3: Review → Phase 4: Documentation
+```
+
+**Every phase is mandatory regardless of issue complexity or size.** A one-line fix still needs review (Phase 3) and a proper PR description (Phase 4). Committing code is the HALFWAY point, not the finish line.
+
+Output the phase header at the start of each phase so progress is trackable.
 
 ---
 
@@ -31,26 +40,28 @@ If this fails, stop immediately and report: "Error: Could not fetch GitHub issue
 
 Save the issue title, body, labels, and number — you will use these throughout the workflow.
 
-### 1.2 Create Feature Branch
+### 1.2 Create or Detect Feature Branch
 
-Slugify the issue title: lowercase, replace spaces/special characters with hyphens, truncate to 50 characters.
+Check if you're already on a feature branch (the GitHub Action creates one automatically):
+```bash
+git branch --show-current
+```
 
-Branch name: `issue-{number}-{slugified-title}`
+If the current branch matches `claude/issue-*` or `issue-*`, use it — skip branch creation.
+
+Otherwise, create a new branch. Slugify the issue title: lowercase, replace spaces/special characters with hyphens, truncate to 50 characters.
 
 ```bash
 git fetch origin main
 git checkout -b issue-{number}-{slugified-title} origin/main
 ```
 
-If the branch name already exists, append today's date as YYYYMMDD:
-```bash
-git checkout -b issue-{number}-{slugified-title}-YYYYMMDD origin/main
-```
+If the branch name already exists, append today's date as YYYYMMDD.
 
 ### 1.3 Push Branch
 
 ```bash
-git push -u origin {branch-name}
+git push -u origin HEAD
 ```
 
 ---
@@ -140,11 +151,13 @@ git push
 
 If the commit includes test fixes, use a single commit combining implementation and fixes.
 
+**⚠ You are NOT done. Code is committed but not reviewed or documented. Proceed to Phase 3.**
+
 ---
 
 ## Phase 3: Review & Fix
 
-Output: `Phase 3/4: Review & Fix...`
+Output: `Phase 3/4: Review & Fix — creating PR and running review...`
 
 ### 3.1 Create Draft PR
 
@@ -184,6 +197,8 @@ If the skill exits with unresolved findings after 4 iterations, report the remai
 ```bash
 gh pr ready
 ```
+
+**⚠ You are NOT done. PR needs documentation and a proper description. Proceed to Phase 4.**
 
 ---
 
@@ -231,10 +246,23 @@ Output the PR URL and a brief summary of what was accomplished.
 
 ---
 
+## Completion Checklist
+
+Before reporting completion, verify ALL phases executed:
+- Phase 1: Issue fetched, branch exists
+- Phase 2: Code committed and pushed
+- Phase 3: PR created, review ran, PR marked ready
+- Phase 4: Docs updated, PR description generated via `/pr-description`
+
+If any phase was skipped, go back and complete it now.
+
+---
+
 ## Error Handling
 
 - **Empty steps**: If any phase produces no file changes, skip the commit and continue. Do not create empty commits.
 - **Git conflicts**: If a push fails due to conflicts, run `git pull --rebase origin {branch}` and retry once. If it fails again, stop and report the error.
 - **Subagent failures**: If a subagent fails or produces no useful output, note the failure and continue to the next step. Do not retry the same subagent more than once.
+- **Permission denials**: If a Bash command is denied, note it and continue to the next step. Never skip an entire phase because of a single denied command.
 - **Commit prefixes**: Use `docs:` for documentation, `feat:` for implementation, `fix:` for review fixes and test fixes.
 - **Context recovery**: If context was compressed and you lose track of variables, recover from `git log`, `git branch --show-current`, and `gh pr list --head {branch}`.

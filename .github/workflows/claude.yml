@@ -18,7 +18,6 @@ jobs:
       base_branch: ${{ steps.config.outputs.base_branch }}
       claude_model: ${{ steps.config.outputs.claude_model }}
       allowed_bots: ${{ steps.config.outputs.allowed_bots }}
-      app_id: ${{ steps.config.outputs.app_id }}
     steps:
       - uses: actions/checkout@v6
       - name: Install yq
@@ -33,7 +32,6 @@ jobs:
           echo "base_branch=$(yq '.base_branch' "$CONFIG")" >> "$GITHUB_OUTPUT"
           echo "claude_model=$(yq '.claude_model' "$CONFIG")" >> "$GITHUB_OUTPUT"
           echo "allowed_bots=$(yq '.claude.allowed_bots' "$CONFIG")" >> "$GITHUB_OUTPUT"
-          echo "app_id=$(yq '.app_id' "$CONFIG")" >> "$GITHUB_OUTPUT"
 
   claude:
     needs: config
@@ -90,6 +88,7 @@ jobs:
             Edit,
             Glob,
             Grep,
+            LS,
             Skill,
             Agent,
             TodoWrite,
@@ -106,6 +105,7 @@ jobs:
             Bash(git checkout:*),
             Bash(git branch:*),
             Bash(git stash:*),
+            Bash(git rm:*),
             Bash(gh pr create:*),
             Bash(gh pr edit:*),
             Bash(gh pr comment:*),
@@ -113,12 +113,18 @@ jobs:
             Bash(gh pr view:*),
             Bash(gh pr review:*),
             Bash(gh pr ready:*),
+            Bash(gh issue view:*),
+            Bash(gh issue comment:*),
+            Bash(gh issue list:*),
+            Bash(gh api:*),
+            Bash(yq:*),
             Bash(npm install:*),
             Bash(npm run build:*),
             Bash(npm run lint:*),
             Bash(npm test:*),
             Bash(npx vitest:*),
-            Bash(npx eslint:*)"
+            Bash(npx eslint:*),
+            Bash(npx tsc:*)"
           # assignee_trigger: "claude"
           # label_trigger: "claude"
 
@@ -137,7 +143,7 @@ jobs:
           github.event.issue.pull_request == null
         uses: actions/create-github-app-token@v3
         with:
-          app-id: ${{ needs.config.outputs.app_id }}
+          app-id: ${{ secrets.RADMAN_AI_APP_ID }}
           private-key: ${{ secrets.RADMAN_AI_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
 
@@ -150,6 +156,7 @@ jobs:
           GH_TOKEN: ${{ steps.pr-app-token.outputs.token }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           ISSUE_TITLE: ${{ github.event.issue.title }}
+          CLAUDE_EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
         run: |
           set -euo pipefail
 
@@ -172,22 +179,113 @@ jobs:
             exit 0
           fi
 
-          # Extract PR description from Claude's output
-          CLAUDE_RESULT='${{ steps.claude.outputs.result }}'
-          PR_BODY=$(echo "$CLAUDE_RESULT" | sed -n '/<!-- PR_BODY_START -->/,/<!-- PR_BODY_END -->/{ /<!-- PR_BODY_START -->/d; /<!-- PR_BODY_END -->/d; p; }')
+          DEFAULT_BRANCH="${{ github.event.repository.default_branch }}"
+          PR_BODY=""
 
-          # Fallback if extraction fails
+          # --- Strategy 1: Extract from Claude's issue comment ---
+          # The claude-code-action posts a rich summary comment on the issue.
+          # This is the best source for the PR description.
+          echo "::group::Strategy 1 — Extract from Claude's issue comment"
+          CLAUDE_COMMENT=$(gh api "repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments" \
+            --jq '[.[] | select(.user.login == "claude[bot]")] | last | .body // empty' 2>/dev/null || true)
+
+          if [ -n "$CLAUDE_COMMENT" ]; then
+            echo "Found claude[bot] comment (${#CLAUDE_COMMENT} chars)"
+
+            # Extract content after the first --- separator (skip the status header)
+            COMMENT_BODY=$(echo "$CLAUDE_COMMENT" | sed -n '/^---$/,$ { /^---$/d; p; }')
+            # Trim leading blank lines and trailing whitespace/pipe artifacts
+            COMMENT_BODY=$(echo "$COMMENT_BODY" | sed -e '/./,$!d' -e 's/[[:space:]]*|[[:space:]]*$//')
+
+            if [ -n "$COMMENT_BODY" ] && [ "${#COMMENT_BODY}" -gt 50 ]; then
+              echo "Extracted comment body (${#COMMENT_BODY} chars)"
+              PR_BODY="${COMMENT_BODY}
+
+          ---
+          Resolves #${ISSUE_NUMBER}
+
+          Generated with [Claude Code](https://claude.ai/code) via \`/implement\`"
+            else
+              echo "Comment body too short or empty after extraction (${#COMMENT_BODY} chars)"
+            fi
+          else
+            echo "No claude[bot] comment found on issue #${ISSUE_NUMBER}"
+          fi
+          echo "::endgroup::"
+
+          # --- Strategy 2: Extract from Claude's execution log ---
+          if [ -z "$PR_BODY" ] && [ -n "${CLAUDE_EXECUTION_FILE:-}" ] && [ -f "${CLAUDE_EXECUTION_FILE}" ]; then
+            echo "::group::Strategy 2 — Parse Claude execution file"
+            echo "File: ${CLAUDE_EXECUTION_FILE} ($(wc -c < "$CLAUDE_EXECUTION_FILE") bytes)"
+
+            CLAUDE_RESPONSE=$(jq -r '
+              [.[] | select(.type == "result" and .subtype == "success")]
+              | last
+              | (.result // .content // empty)
+            ' "$CLAUDE_EXECUTION_FILE" 2>/dev/null || true)
+
+            if [ -n "$CLAUDE_RESPONSE" ]; then
+              echo "Extracted result text (${#CLAUDE_RESPONSE} chars)"
+
+              # Check for PR_BODY markers first (from /pr-description skill)
+              MARKED_BODY=$(echo "$CLAUDE_RESPONSE" | sed -n '/<!-- PR_BODY_START -->/,/<!-- PR_BODY_END -->/{ /<!-- PR_BODY_START -->/d; /<!-- PR_BODY_END -->/d; p; }')
+              if [ -n "$MARKED_BODY" ]; then
+                echo "Found PR_BODY markers in result"
+                PR_BODY="$MARKED_BODY"
+              else
+                # Use the result text as-is (it's Claude's final summary)
+                echo "Using result text as PR summary"
+                PR_BODY="## Summary
+
+          ${CLAUDE_RESPONSE}
+
+          ---
+          Resolves #${ISSUE_NUMBER}
+
+          Generated with [Claude Code](https://claude.ai/code) via \`/implement\`"
+              fi
+            else
+              echo "No result text in execution file"
+              jq '[.[] | select(.type == "result")] | last | keys' "$CLAUDE_EXECUTION_FILE" 2>/dev/null || true
+            fi
+            echo "::endgroup::"
+          fi
+
+          # --- Strategy 3: Generate from issue context + git diff ---
           if [ -z "$PR_BODY" ]; then
-            echo "Warning: Could not extract PR description from Claude output, using fallback"
-            PR_BODY="Resolves #${ISSUE_NUMBER}"
+            echo "::group::Strategy 3 — Generate from git context"
+
+            COMMITS=$(gh api "repos/${{ github.repository }}/compare/${DEFAULT_BRANCH}...${BRANCH}" \
+              --jq '[.commits[].commit.message] | map("- " + split("\n")[0]) | join("\n")' 2>/dev/null || echo "")
+            echo "Commits: $(echo "$COMMITS" | grep -c '^-' || echo 0)"
+
+            FILES_CHANGED=$(gh api "repos/${{ github.repository }}/compare/${DEFAULT_BRANCH}...${BRANCH}" \
+              --jq '[.files[].filename] | map("- `" + . + "`") | join("\n")' 2>/dev/null || echo "")
+            echo "Files changed: $(echo "$FILES_CHANGED" | grep -c '^-' || echo 0)"
+
+            PR_BODY="## Summary
+          Implementation of #${ISSUE_NUMBER}: ${ISSUE_TITLE}
+
+          ## Changes
+          ${COMMITS:-_No commit details available_}
+
+          ## Files Changed
+          ${FILES_CHANGED:-_No file details available_}
+
+          ---
+          Resolves #${ISSUE_NUMBER}
+
+          Generated with [Claude Code](https://claude.ai/code) via \`/implement\`"
+
+            echo "::endgroup::"
           fi
 
           # Create the PR and mark it ready for review
           gh pr create \
             --head "$BRANCH" \
-            --base "${{ github.event.repository.default_branch }}" \
+            --base "${DEFAULT_BRANCH}" \
             --title "feat: ${ISSUE_TITLE}" \
             --body "$PR_BODY"
 
-          gh pr ready "$BRANCH"
+          gh pr ready "$BRANCH" 2>/dev/null || true
           echo "PR created and marked ready for review"
