@@ -63,7 +63,7 @@ Fetch the existing body and apply these merge rules:
 - Test Plan — preserve human-added checklist items; add items for new changes; remove items for changes that no longer exist
 
 **Merge** (combine existing and new):
-- Resolves — if `$ARGUMENTS` provides an issue number, include it; also keep any existing issue references that differ from `$ARGUMENTS`
+- Resolves line — if `$ARGUMENTS` provides an issue number, include it; also keep any existing issue references that differ from `$ARGUMENTS`. CRITICAL: The keyword and issue number MUST be on the same line (e.g., `Resolves #42`) — GitHub only recognizes closing references when the keyword and `#N` are on one line. Never use a heading like `## Resolves` with `#N` on the next line.
 
 **Preserve as-is:**
 - Any non-template sections found between the markers (e.g., "## Reviewer Notes", "## Deploy Steps") — carry them forward in the same position
@@ -85,8 +85,7 @@ Output the description as plain text (not inside a code block) so it appears dir
 **[Area name]**: [What changed]
 **[Area name]**: [What changed]
 
-## Resolves
-#[issue number, or omit this section if no issue number was provided]
+Resolves #[issue number, or omit this line entirely if no issue number was provided]
 
 ## Test Plan
 - [ ] [Concrete verification step]
