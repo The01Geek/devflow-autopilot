@@ -6,6 +6,20 @@ devflow-autopilot is a template that wires Claude Code into your GitHub workflow
 
 ---
 
+## 🎬 See It In Action
+
+<div align="center">
+
+<a href="https://www.youtube.com/watch?v=Uyls8rcviBg">
+  <img src="https://img.youtube.com/vi/Uyls8rcviBg/maxresdefault.jpg" alt="Watch the demo on YouTube" width="600">
+</a>
+
+**[▶ Watch the full walkthrough on YouTube](https://www.youtube.com/watch?v=Uyls8rcviBg)**
+
+</div>
+
+---
+
 ## ⚡ The `/implement` Pipeline
 
 From a GitHub issue to a production-ready pull request — four phases, multiple AI agents, zero manual coding:
