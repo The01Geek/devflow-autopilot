@@ -12,16 +12,23 @@
 set -u
 
 LIB="$(cd "$(dirname "$0")/.." && pwd)"
+
+# Results are recorded to a file (one PASS/FAIL line each) rather than to shell
+# variables, so assertions that run inside ( … ) subshells — the conf.sh and
+# render-report.sh blocks, sourced in subshells to contain their `set -e` — are
+# counted in the final tally too. Counting in-memory would silently drop them.
+RESULTS_FILE="$(mktemp)"
+trap 'rm -f "$RESULTS_FILE"' EXIT
 PASS=0
 FAIL=0
 
 assert_eq() {
   local name="$1" expected="$2" actual="$3"
   if [ "$expected" = "$actual" ]; then
-    PASS=$((PASS + 1))
+    echo PASS >> "$RESULTS_FILE"
     printf '  PASS  %s\n' "$name"
   else
-    FAIL=$((FAIL + 1))
+    echo FAIL >> "$RESULTS_FILE"
     printf '  FAIL  %s\n         expected: %s\n         actual:   %s\n' \
       "$name" "$expected" "$actual"
   fi
@@ -374,7 +381,7 @@ assert_eq "incomplete-edit cooldown_active=true after recent audit PR" "true" "$
 # Missing overrides.json → should still emit the actionable array, not error
 AP_NOOV="$(DEVFLOW_GH="$AP_TMP/gh" bash "$LIB/actionable-patterns.sh" "$AP_TMP/r.jsonl" "/tmp/devflow-nonexistent-overrides-$$-$RANDOM.json")" \
   && assert_eq "actionable: missing overrides → incomplete-edit still present" "true" "$(echo "$AP_NOOV" | jq 'any(.[]; .tag=="incomplete-edit")')" \
-  || { FAIL=$((FAIL + 1)); printf '  FAIL  actionable: missing overrides → script errored\n'; }
+  || { echo FAIL >> "$RESULTS_FILE"; printf '  FAIL  actionable: missing overrides → script errored\n'; }
 rm -rf "$AP_TMP"
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -537,6 +544,11 @@ assert_eq "successful dismissal → exit 0" "0" "$DSR_RC"
 ( DSR_STUB_IDS="77" DSR_STUB_PUT_RC=1 DEVFLOW_GH="$DSR_STUB" bash "$DSR" 123 o/r >/dev/null 2>&1 ); DSR_RC=$?
 assert_eq "dismissal failure → exit 1" "1" "$DSR_RC"
 rm -f "$DSR_STUB"
+
+# Tally the shell assertions from the results file (authoritative — includes the
+# subshell blocks). The python section below adds its own counts on top.
+PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
+FAIL=$(grep -c '^FAIL$' "$RESULTS_FILE" || true)
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "python scripts (workpad._apply_mutations, parse_acs._is_post_merge)"

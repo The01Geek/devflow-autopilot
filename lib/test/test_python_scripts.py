@@ -3,13 +3,23 @@
 # SPDX-License-Identifier: MIT
 """Pure-function tests for the devflow Python scripts.
 
-Covers two fix areas that are silent-failure-class regressions if they drift:
+Covers areas that are silent-failure-class regressions if they drift:
 - `workpad._apply_mutations` — batch tick/note atomicity, and the "duplicate
   tick inside one batched --tick-* call surfaces an error" invariant.
 - `parse_acs._is_post_merge` — the new workflow/bot-trigger phrases plus
   documented false-positive cases (`monitoring` substring, generic
   "errors swallowed" prose, `click` substring, `workflow runner` vs
   `workflow run`, and `commenting on a` previous-decision prose).
+- `parse_acs._extract_section` / `_parse_checkboxes` / `_render_md` — the
+  case-sensitive, level-bounded heading match (a lowercase / trailing-colon /
+  wrong-level heading must yield zero items, not a silent miss that trivially
+  passes the implement skill's post-merge-exempt gate), bullet variants, and
+  the `(post-merge)` render tagging.
+- `file_deferrals._derive_area` / `_compute_id` / `_format_line_range` /
+  `_render_issue_body` — the `<area>` derivation examples, the deterministic
+  ID that must stay stable across regenerations (the verdict engine matches on
+  it), and the `PR #<n>` cross-link substring the verdict engine's guard
+  validates against ("Do not reformat without updating the matcher").
 
 Run from repo root:
     python3 lib/test/test_python_scripts.py
@@ -34,6 +44,7 @@ def _load(modname: str, path: Path) -> types.ModuleType:
 
 workpad = _load('workpad', SCRIPTS / 'workpad.py')
 parse_acs = _load('parse_acs', SCRIPTS / 'parse-acs.py')
+file_deferrals = _load('file_deferrals', SCRIPTS / 'file-deferrals.py')
 
 
 PASS = 0
@@ -176,6 +187,116 @@ for phrase in [
     "Note: this is commenting on a previous decision",  # `comment` inside `commenting`, no PR phrase
 ]:
     assert_eq(f"NOT post-merge: {phrase!r}", False, parse_acs._is_post_merge(phrase))
+
+
+print("parse_acs._extract_section / _parse_checkboxes / _render_md")
+
+AC_BODY = """## Summary
+intro text
+
+## Acceptance Criteria
+- [ ] first
+- [x] second done
+* [ ] star bullet
+not a checkbox line
+#### sub-note (deeper heading — must NOT terminate the section)
+- [ ] after subheading
+
+## Notes
+- [ ] should not appear
+"""
+
+_items = parse_acs._parse_checkboxes(parse_acs._extract_section(AC_BODY, 'Acceptance Criteria'))
+assert_eq("extract: 4 AC checkboxes (deeper heading does not terminate)", 4, len(_items))
+assert_eq("extract: first text", 'first', _items[0]['text'])
+assert_eq("extract: second ticked", True, _items[1]['ticked'])
+assert_eq("extract: '* ' bullet variant parsed", 'star bullet', _items[2]['text'])
+assert_eq("extract: stops at sibling '## Notes' (excluded)", False,
+          any(i['text'] == 'should not appear' for i in _items))
+
+# Case-sensitive, exact, level-bounded heading match — the silent-miss guards.
+assert_eq("extract: lowercase heading → no section", [],
+          parse_acs._extract_section(
+              AC_BODY.replace('## Acceptance Criteria', '## acceptance criteria'),
+              'Acceptance Criteria'))
+assert_eq("extract: trailing-colon heading → no section", [],
+          parse_acs._extract_section(
+              AC_BODY.replace('## Acceptance Criteria', '## Acceptance Criteria:'),
+              'Acceptance Criteria'))
+assert_eq("extract: level-3 heading matches", 1,
+          len(parse_acs._parse_checkboxes(
+              parse_acs._extract_section("### Acceptance Criteria\n- [ ] x\n",
+                                         'Acceptance Criteria'))))
+assert_eq("extract: level-4 heading not matched (only ##/###)", 0,
+          len(parse_acs._extract_section("#### Acceptance Criteria\n- [ ] x\n",
+                                         'Acceptance Criteria')))
+
+assert_eq("render_md: empty → sentinel", '_(none provided in issue body)_',
+          parse_acs._render_md([], []))
+assert_eq("render_md: post-merge tag appended", True,
+          parse_acs._render_md(
+              [{'text': 'do X after merge', 'ticked': False, 'post_merge': True}], []
+          ).endswith('(post-merge)'))
+assert_eq("render_md: no double post-merge tag", 1,
+          parse_acs._render_md(
+              [{'text': 'already (post-merge)', 'ticked': True, 'post_merge': True}], []
+          ).count('(post-merge)'))
+assert_eq("render_md: ticked box rendered", True,
+          parse_acs._render_md(
+              [{'text': 't', 'ticked': True, 'post_merge': False}], []
+          ).startswith('- [x]'))
+assert_eq("render_md: test plan appended after blank line", True,
+          '\n\n- [ ] b' in parse_acs._render_md(
+              [{'text': 'a', 'ticked': False, 'post_merge': False}],
+              [{'text': 'b', 'ticked': False, 'post_merge': False}]))
+
+
+print("file_deferrals._derive_area / _compute_id / _format_line_range / _render_issue_body")
+
+assert_eq("derive_area: src/example/transport/http.py → example", 'example',
+          file_deferrals._derive_area('src/example/transport/http.py'))
+assert_eq("derive_area: src/transport/http.py → transport", 'transport',
+          file_deferrals._derive_area('src/transport/http.py'))
+assert_eq("derive_area: lib/ is src-like → next segment", 'transport',
+          file_deferrals._derive_area('lib/transport/x.py'))
+assert_eq("derive_area: pyproject.toml → stem (no dir)", 'pyproject',
+          file_deferrals._derive_area('pyproject.toml'))
+assert_eq("derive_area: scripts/foo/bar.sh → first segment", 'scripts',
+          file_deferrals._derive_area('scripts/foo/bar.sh'))
+
+_e1 = {'file': 'a.py', 'symbol': 'foo', 'kind': 'bug', 'summary': '  bad thing  '}
+_e1_stripped = {'file': 'a.py', 'symbol': 'foo', 'kind': 'bug', 'summary': 'bad thing'}
+assert_eq("compute_id: 'dfr-' prefix", True,
+          file_deferrals._compute_id(_e1).startswith('dfr-'))
+assert_eq("compute_id: length = prefix + 6 hex", 10, len(file_deferrals._compute_id(_e1)))
+assert_eq("compute_id: deterministic across calls",
+          file_deferrals._compute_id(_e1), file_deferrals._compute_id(_e1))
+assert_eq("compute_id: summary stripped before hashing",
+          file_deferrals._compute_id(_e1), file_deferrals._compute_id(_e1_stripped))
+assert_eq("compute_id: differs when summary differs", False,
+          file_deferrals._compute_id(_e1)
+          == file_deferrals._compute_id(dict(_e1, summary='different')))
+
+assert_eq("format_line_range: equal start/end → single", '5',
+          file_deferrals._format_line_range([5, 5]))
+assert_eq("format_line_range: distinct → range", '3-9',
+          file_deferrals._format_line_range([3, 9]))
+assert_eq("format_line_range: tuple accepted", '1-2',
+          file_deferrals._format_line_range((1, 2)))
+assert_eq("format_line_range: None → (unspecified)", '(unspecified)',
+          file_deferrals._format_line_range(None))
+assert_eq("format_line_range: wrong arity → (unspecified)", '(unspecified)',
+          file_deferrals._format_line_range([1]))
+
+_body = file_deferrals._render_issue_body(
+    [{'severity': 'High', 'agent': 'sec', 'file': 'a.py', 'line_range': [1, 2],
+      'symbol': 'foo', 'kind': 'bug', 'summary': 'x', 'category': 'scope',
+      'explanation': 'later'}],
+    source_issue=40, pr_number=77)
+assert_eq("render_issue_body: 'PR #77' cross-link substring present", True, 'PR #77' in _body)
+assert_eq("render_issue_body: references source issue #40", True, '#40' in _body)
+assert_eq("render_issue_body: severity/agent heading", True, '### High — sec' in _body)
+assert_eq("render_issue_body: file:line-range", True, 'a.py:1-2' in _body)
 
 
 print()
