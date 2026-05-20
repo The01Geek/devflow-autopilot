@@ -19,3 +19,7 @@ venv/
 # OS / editor
 .DS_Store
 *.swp
+
+# Private maintainer working docs — never publish (kept outside the repo).
+/devflow-roadmap.md
+*.private.md
