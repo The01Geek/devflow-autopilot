@@ -30,8 +30,15 @@ def resolve_path(data, path):
 
 config_file = sys.argv[1]
 path = sys.argv[2]
-with open(config_file) as f:
-    data = yaml.safe_load(f)
+# Missing config file is the expected "no config" path (the local tier needs
+# none) — return __none__ silently so callers apply their defaults, rather than
+# raising and emitting a noisy ::warning:: traceback.
+try:
+    with open(config_file) as f:
+        data = yaml.safe_load(f) or {}
+except FileNotFoundError:
+    print("__none__")
+    sys.exit(0)
 val = resolve_path(data, path)
 if val is None:
     print("__none__")
