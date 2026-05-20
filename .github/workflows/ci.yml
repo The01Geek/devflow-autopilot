@@ -28,3 +28,34 @@ jobs:
 
       - name: Run test suite (jq filters, shell helpers, python scripts)
         run: bash lib/test/run.sh
+
+  lint:
+    name: lint (shellcheck + actionlint + ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      # shellcheck ships on ubuntu-latest runners — no extra action needed.
+      # SC1091 ("can't follow sourced file") is expected: helpers source each
+      # other via ${CLAUDE_SKILL_DIR}-relative paths that don't resolve at lint
+      # time, so it's excluded. The lib/test gh-stubs are deliberately minimal
+      # fixtures, not shipped code, so they're out of scope.
+      # continue-on-error while the existing scripts/workflows are brought to a
+      # clean baseline — remove it (promote to blocking) once the first run is green.
+      - name: ShellCheck (lib + scripts)
+        continue-on-error: true
+        run: shellcheck -e SC1091 $(git ls-files '*.sh' | grep -v '^lib/test/')
+
+      - name: actionlint (workflows)
+        continue-on-error: true
+        uses: raven-actions/actionlint@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: ruff (python)
+        run: |
+          python3 -m pip install --quiet ruff
+          ruff check $(git ls-files '*.py')

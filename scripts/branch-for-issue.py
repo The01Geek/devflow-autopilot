@@ -30,7 +30,6 @@ Exits 2 on bad arguments.
 import argparse
 import re
 import subprocess
-import sys
 import unicodedata
 from datetime import date
 
