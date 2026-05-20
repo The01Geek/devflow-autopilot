@@ -36,19 +36,25 @@ jobs:
       - uses: actions/checkout@v6
 
       # shellcheck ships on ubuntu-latest runners — no extra action needed.
-      # SC1091 ("can't follow sourced file") is expected: helpers source each
-      # other via ${CLAUDE_SKILL_DIR}-relative paths that don't resolve at lint
-      # time, so it's excluded. The lib/test gh-stubs are deliberately minimal
-      # fixtures, not shipped code, so they're out of scope.
-      # continue-on-error while the existing scripts/workflows are brought to a
-      # clean baseline — remove it (promote to blocking) once the first run is green.
+      # --severity=warning keeps the gate on real issues and drops info/style
+      # nags. SC1091 ("can't follow sourced file") is excluded: helpers source
+      # each other via ${CLAUDE_SKILL_DIR}-relative paths that don't resolve at
+      # lint time. The lib/test gh-stubs are deliberately minimal fixtures, not
+      # shipped code, so they're out of scope. Piping into xargs (rather than
+      # shellcheck $(...)) avoids the SC2046 word-split this very job would flag.
       - name: ShellCheck (lib + scripts)
-        continue-on-error: true
-        run: shellcheck -e SC1091 $(git ls-files '*.sh' | grep -v '^lib/test/')
+        run: |
+          git ls-files '*.sh' | grep -v '^lib/test/' \
+            | xargs -r shellcheck --severity=warning -e SC1091
 
+      # actionlint validates workflow syntax and runs shellcheck over run: blocks.
+      # SHELLCHECK_OPTS mirrors the severity policy; SC2034 is excluded because
+      # each step's run: block is analysed in isolation, so GitHub-context vars
+      # assigned in one block but consumed in another read as "unused".
       - name: actionlint (workflows)
-        continue-on-error: true
         uses: raven-actions/actionlint@v2
+        env:
+          SHELLCHECK_OPTS: --severity=warning --exclude=SC2034
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -58,4 +64,4 @@ jobs:
       - name: ruff (python)
         run: |
           python3 -m pip install --quiet ruff
-          ruff check $(git ls-files '*.py')
+          git ls-files '*.py' | xargs -r ruff check

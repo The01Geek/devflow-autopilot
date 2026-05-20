@@ -444,11 +444,11 @@ echo "meta-issue.sh"
 MI_TMP="$(mktemp -d)"
 echo '{"schema_version":1,"dismissed":{}}' > "$MI_TMP/ov.json"
 echo 'Proposed: strengthen the cheap gate.' > "$MI_TMP/body.md"
-cat > "$MI_TMP/gh" <<'STUB'
+cat > "$MI_TMP/gh" <<STUB
 #!/usr/bin/env bash
-case "$*" in
+case "\$*" in
   *"issue list"*) echo '' ;;                                # no existing issue
-  *"issue create"*) echo 'https://github.com/acme/example-repo/issues/4242' ;;
+  *"issue create"*) printf '%s' "\$*" > "$MI_TMP/create-args"; echo 'https://github.com/acme/example-repo/issues/4242' ;;
   *"issue comment"*) echo 'commented' ;;
   *) echo '' ;;
 esac
@@ -456,6 +456,12 @@ STUB
 chmod +x "$MI_TMP/gh"
 URL="$(DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --tag review-reject-bypassed --slug review-reject-bypassed --title "audit(devflow): x" --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov.json" 2>/dev/null)"
 assert_eq "meta-issue returns the new URL" "https://github.com/acme/example-repo/issues/4242" "$URL"
+# Created title must keep the de-dup key prefix (Step-1 search matches it) AND
+# carry the caller's --title (regression: --title was previously discarded).
+assert_eq "create title keeps the de-dup key" "true" \
+  "$(grep -qF -- '--title [devflow-retrospective] meta: review-reject-bypassed' "$MI_TMP/create-args" && echo true || echo false)"
+assert_eq "create title carries the caller --title" "true" \
+  "$(grep -qF -- 'audit(devflow): x' "$MI_TMP/create-args" && echo true || echo false)"
 assert_eq "override recorded with url"     "https://github.com/acme/example-repo/issues/4242" "$(jq -r '.dismissed["review-reject-bypassed"].meta_issue' "$MI_TMP/ov.json")"
 assert_eq "override reason"                "meta-plugin-issue" "$(jq -r '.dismissed["review-reject-bypassed"].reason' "$MI_TMP/ov.json")"
 assert_eq "override dismissed_by"          "devflow-weekly"    "$(jq -r '.dismissed["review-reject-bypassed"].dismissed_by' "$MI_TMP/ov.json")"
