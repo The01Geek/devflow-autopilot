@@ -1,0 +1,44 @@
+name: 'Generate DevFlow App Token'
+description: |
+  Thin wrapper over `actions/create-github-app-token@v3` that owns the
+  invocation conventions (owner pinning, app/private-key plumbing). Composite
+  actions cannot read `secrets.*` directly, so the caller passes them in as
+  inputs.
+
+  Note on naming: the input below is called `app-id` for historical reasons
+  but its value is plumbed to the upstream action's `client-id` input, which
+  accepts either the numeric App ID or the App's Client ID string. The secret
+  `DEVFLOW_APP_ID` may therefore hold either form. Do not conflate the two
+  concepts when using this token elsewhere — the GitHub API treats App ID and
+  Client ID as distinct identifiers.
+
+inputs:
+  app-id:
+    description: |
+      GitHub App identifier — accepts either the numeric App ID or the App
+      Client ID string (both work with actions/create-github-app-token@v3's
+      client-id input). Caller passes secrets.DEVFLOW_APP_ID.
+    required: true
+  private-key:
+    description: 'GitHub App private key. Caller passes secrets.DEVFLOW_APP_PRIVATE_KEY.'
+    required: true
+  owner:
+    description: 'GitHub owner (org or user). Defaults to the current repository owner.'
+    required: false
+    default: ${{ github.repository_owner }}
+
+outputs:
+  token:
+    description: 'Installation access token for the GitHub App.'
+    value: ${{ steps.app-token.outputs.token }}
+
+runs:
+  using: composite
+  steps:
+    - name: Generate app token
+      id: app-token
+      uses: actions/create-github-app-token@v3
+      with:
+        client-id: ${{ inputs.app-id }}
+        private-key: ${{ inputs.private-key }}
+        owner: ${{ inputs.owner }}

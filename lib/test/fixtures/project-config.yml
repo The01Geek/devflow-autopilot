@@ -1,0 +1,11 @@
+# Fixture config for the test suite (NOT the real project config).
+# run.sh points conf.sh at this file via DEVFLOW_CONFIG_FILE so the conf.sh
+# tests are hermetic and don't depend on the repo's live .github/project-config.yml.
+claude:
+  allowed_bots: "claude,example-bot"
+devflow_retrospective:
+  enabled: true
+  watched_authors: ["claude", "example-bot"]
+  min_occurrences: 2
+  cooldown_days: 3
+  implementation_branch_prefix: "claude/"

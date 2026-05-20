@@ -1,0 +1,248 @@
+name: Comment on Draft Issues
+
+# When a new issue is created, check if its status in the GitHub Project
+# is "Draft". If so, post a comment "@claude /devflow:implement $ISSUE_NUMBER".
+#
+# Auth model (standard GitHub App installation-token pattern):
+#   - PROJECT_PAT  (Classic PAT, scopes: repo + project) — used for all
+#     ProjectV2 GraphQL queries. GitHub App installation tokens cannot read
+#     user-owned Projects v2 (https://github.com/users/<owner>/projects/N) —
+#     known platform limitation. A Classic PAT is the only working option
+#     until/unless the project is migrated to an organization.
+#   - APP_TOKEN    (GitHub App installation token) — used to post the actual
+#     comment, so the @claude mention comes from the bot identity that
+#     claude.yml's allowlist recognises.
+#
+# Required repository secrets:
+#   - PROJECT_PAT             (Classic PAT, scopes: repo, project)
+#   - DEVFLOW_APP_ID        (numeric App ID or App Client ID)
+#   - DEVFLOW_APP_PRIVATE_KEY   (App private key for installation token)
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  config:
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.extract.outputs.enabled }}
+      project_number: ${{ steps.extract.outputs.project_number }}
+      status_draft: ${{ steps.extract.outputs.status_draft }}
+    steps:
+      - uses: actions/checkout@v6
+      - id: cfg
+        uses: ./.github/actions/read-project-config
+      - id: extract
+        env:
+          CONFIG_JSON: ${{ steps.cfg.outputs.json }}
+        run: |
+          set -euo pipefail
+          {
+            echo "enabled=$(echo "$CONFIG_JSON" | jq -r '.workflows["comment-on-draft-issues"] // false')"
+            echo "project_number=$(echo "$CONFIG_JSON" | jq -r '.project_number')"
+            echo "status_draft=$(echo "$CONFIG_JSON" | jq -r '.statuses.draft')"
+          } >> "$GITHUB_OUTPUT"
+
+  comment-on-draft:
+    name: Comment on draft issues
+    needs: config
+    if: needs.config.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      # Required so path-based composite action references resolve.
+      - uses: actions/checkout@v6
+
+      - name: Generate app token
+        id: app-token
+        uses: ./.github/actions/get-app-token
+        with:
+          app-id: ${{ secrets.DEVFLOW_APP_ID }}
+          private-key: ${{ secrets.DEVFLOW_APP_PRIVATE_KEY }}
+
+      - name: Check project status and comment if Draft
+        env:
+          # Default GH_TOKEN for project queries: Classic PAT with repo +
+          # project scopes. App installation tokens cannot read user-owned
+          # ProjectV2 data.
+          GH_TOKEN: ${{ secrets.PROJECT_PAT }}
+          # App token, used only for the final comment post so the @claude
+          # mention comes from the bot identity claude.yml allowlists.
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          ORG="${{ github.repository_owner }}"
+          REPO_NAME="${{ github.event.repository.name }}"
+          PROJECT_NUMBER="${{ needs.config.outputs.project_number }}"
+          STATUS_DRAFT="${{ needs.config.outputs.status_draft }}"
+          ISSUE_NUMBER="${{ github.event.issue.number }}"
+
+          echo "🔍 Checking if issue #${ISSUE_NUMBER} has Draft status in project..."
+
+          # Detect whether the repo owner is an organization or user — the
+          # GraphQL projectV2 field lives under either `organization(...)` or
+          # `user(...)` and the query has to use the matching one.
+          OWNER_TYPE=$(gh api graphql -f query='
+            query {
+              repositoryOwner(login: "'$ORG'") {
+                __typename
+              }
+            }' --jq '.data.repositoryOwner.__typename')
+
+          if [ "$OWNER_TYPE" = "Organization" ]; then
+            OWNER_FIELD="organization"
+          else
+            OWNER_FIELD="user"
+          fi
+
+          # Resolve the project's node ID by (owner, number).
+          if ! PROJECT_RESPONSE=$(gh api graphql -f query='
+            query {
+              '$OWNER_FIELD'(login: "'$ORG'") {
+                projectV2(number: '$PROJECT_NUMBER') {
+                  id
+                }
+              }
+            }' 2>&1); then
+            echo "❌ Failed to query project"
+            echo "   Response: $PROJECT_RESPONSE"
+            exit 1
+          fi
+
+          PROJECT_ID=$(echo "$PROJECT_RESPONSE" | jq -r '.data.'$OWNER_FIELD'.projectV2.id' 2>/dev/null)
+
+          if [ -z "$PROJECT_ID" ] || [ "$PROJECT_ID" = "null" ]; then
+            echo "❌ Project #$PROJECT_NUMBER not found for owner $ORG"
+            exit 1
+          fi
+
+          # Paginate items inside the project, looking for our issue and its
+          # Status field value. Retry the whole walk a few times so the
+          # project-auto-add workflow has a chance to land the new issue.
+          ISSUE_STATUS=""
+          MAX_RETRIES=3
+          RETRY_DELAY=30
+          MAX_PAGES=20
+
+          for ATTEMPT in $(seq 1 $MAX_RETRIES); do
+            echo "🔍 Attempt $ATTEMPT/$MAX_RETRIES: Checking issue #${ISSUE_NUMBER} project status..."
+
+            CURSOR=""
+            PAGE=1
+
+            while [ $PAGE -le $MAX_PAGES ]; do
+              if [ -n "$CURSOR" ]; then
+                QUERY='
+                  query {
+                    node(id: "'$PROJECT_ID'") {
+                      ... on ProjectV2 {
+                        items(first: 100, after: "'$CURSOR'") {
+                          pageInfo { hasNextPage endCursor }
+                          nodes {
+                            content { ... on Issue { number } }
+                            fieldValues(first: 20) {
+                              nodes {
+                                ... on ProjectV2ItemFieldSingleSelectValue {
+                                  name
+                                  field { ... on ProjectV2SingleSelectField { name } }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }'
+              else
+                QUERY='
+                  query {
+                    node(id: "'$PROJECT_ID'") {
+                      ... on ProjectV2 {
+                        items(first: 100) {
+                          pageInfo { hasNextPage endCursor }
+                          nodes {
+                            content { ... on Issue { number } }
+                            fieldValues(first: 20) {
+                              nodes {
+                                ... on ProjectV2ItemFieldSingleSelectValue {
+                                  name
+                                  field { ... on ProjectV2SingleSelectField { name } }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }'
+              fi
+
+              if ! ITEMS_RESPONSE=$(gh api graphql -f query="$QUERY" 2>&1); then
+                echo "❌ Failed to query project items"
+                exit 1
+              fi
+
+              ISSUE_STATUS=$(echo "$ITEMS_RESPONSE" | jq -r '
+                .data.node.items.nodes[]
+                | select(.content.number == '$ISSUE_NUMBER')
+                | .fieldValues.nodes[]
+                | select(.field.name == "Status")
+                | .name' 2>/dev/null)
+
+              if [ -n "$ISSUE_STATUS" ]; then
+                break 2
+              fi
+
+              HAS_NEXT_PAGE=$(echo "$ITEMS_RESPONSE" | jq -r '.data.node.items.pageInfo.hasNextPage' 2>/dev/null)
+              if [ "$HAS_NEXT_PAGE" != "true" ]; then
+                break
+              fi
+              CURSOR=$(echo "$ITEMS_RESPONSE" | jq -r '.data.node.items.pageInfo.endCursor' 2>/dev/null)
+              PAGE=$((PAGE + 1))
+            done
+
+            if [ $ATTEMPT -lt $MAX_RETRIES ]; then
+              echo "⏳ Issue not found in project yet. Waiting ${RETRY_DELAY}s before retry..."
+              sleep $RETRY_DELAY
+            fi
+          done
+
+          if [ -z "$ISSUE_STATUS" ]; then
+            echo "ℹ️ Issue #$ISSUE_NUMBER is not in project #$PROJECT_NUMBER after $MAX_RETRIES attempts. Exiting."
+            exit 0
+          fi
+
+          echo "📋 Issue #$ISSUE_NUMBER status: \"$ISSUE_STATUS\""
+
+          if [ "$ISSUE_STATUS" = "$STATUS_DRAFT" ]; then
+            echo "✅ Status is $STATUS_DRAFT — posting comment..."
+            COMMENT_BODY="@claude /devflow:implement $ISSUE_NUMBER"
+            # Use APP_TOKEN here so the comment author is the bot identity
+            # claude.yml's allowed_bots list recognises.
+            GH_TOKEN="$APP_TOKEN" gh issue comment "$ISSUE_NUMBER" \
+              --repo "$ORG/$REPO_NAME" \
+              --body "$COMMENT_BODY"
+            echo "✅ Comment posted on issue #$ISSUE_NUMBER"
+
+            {
+              echo "## ✅ Draft Issue Comment Posted"
+              echo
+              echo "**Issue:** [#${ISSUE_NUMBER}](https://github.com/${ORG}/${REPO_NAME}/issues/${ISSUE_NUMBER})"
+              echo "**Status:** $STATUS_DRAFT"
+              echo "**Action:** Posted comment \`$COMMENT_BODY\`"
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "ℹ️ Status is \"$ISSUE_STATUS\", not \"$STATUS_DRAFT\". No comment needed."
+
+            {
+              echo "## ℹ️ Issue Not in Draft Status"
+              echo
+              echo "**Issue:** [#${ISSUE_NUMBER}](https://github.com/${ORG}/${REPO_NAME}/issues/${ISSUE_NUMBER})"
+              echo "**Status:** $ISSUE_STATUS"
+              echo "**Action:** No comment posted (status is not $STATUS_DRAFT)"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi

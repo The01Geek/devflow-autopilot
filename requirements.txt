@@ -1,0 +1,4 @@
+# Python runtime dependency for DevFlow's helper scripts
+# (config-get.sh, workpad.py, match-deferrals.py, conf.sh all read YAML config).
+# Python 3.11+ is required. Install with:  python3 -m pip install -r requirements.txt
+PyYAML>=6

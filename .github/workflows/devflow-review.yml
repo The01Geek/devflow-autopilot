@@ -1,0 +1,771 @@
+name: Devflow Review (auto-trigger)
+
+# When a PR first becomes reviewable — opened directly as non-draft,
+# reopened non-draft, OR transitioned from draft to "ready for review"
+# (human or bot) — run the /devflow:review skill against it directly via
+# the reusable claude-runner workflow — one workflow run, no @claude run
+# comment artifact. Manual reviews via `@claude run /devflow:review`
+# comments continue to work unchanged through claude.yml.
+#
+# Why `opened`/`reopened` and not just `ready_for_review`: GitHub emits
+# `ready_for_review` ONLY on a draft→ready transition. A PR opened
+# directly as non-draft (the documented `gh pr create --fill` contributor
+# flow in CLAUDE.md, and most human PRs) never emits it — so the FIRST
+# review never triggered, and because `Devflow Review` is a REQUIRED
+# status check with no run, the PR was wedged "expected" forever with no
+# API-accessible trigger (only a manual draft toggle / Re-run rescued it).
+# Listening to `opened`/`reopened` closes that hole; draft-opened PRs are
+# skipped here and still get their review on the later `ready_for_review`.
+#
+# The run also surfaces as a dedicated `Devflow Review` GitHub Check Run on
+# the PR. Clicking that check's per-check **Re-run** button emits a
+# `check_run` (action: rerequested) webhook delivered to the default branch;
+# this workflow listens for it and re-executes the review against the PR's
+# *current* HEAD (not the possibly-stale SHA the old check was attached to).
+#
+# Trigger policy (see docs/internal/workflows/review-rerun-checks.md §0):
+# the FIRST review auto-triggers EXACTLY ONCE per PR — on whichever of
+# {opened non-draft, reopened non-draft, ready_for_review} fires first.
+# Exactly-once is enforced by the first-ready gate in precheck (it skips
+# when a `Devflow Review` check already exists on the PR head or any
+# commit), so a non-draft open followed by a draft→ready toggle still
+# reviews only once. Because `Devflow Review` is a REQUIRED status check,
+# a `synchronize` trigger also re-reviews a NEW HEAD — but ONLY when that
+# HEAD has no already-passing `Devflow Review` check (the cost guard), the
+# PR is not a draft, and the actor-dedupe canonical variant is running.
+# This closes the deadlock where a commit pushed after the one-shot review
+# left the new HEAD with no check and the required context blocked the PR
+# forever. The remaining manual re-review paths are unchanged: the check's
+# Re-run button or an `@claude run /devflow:review` comment.
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review, synchronize]
+  # Both pull_request and pull_request_target fire for every event regardless
+  # of actor; the precheck job's dedupe step routes each actor to exactly one
+  # variant (bot actors → _target so secrets resolve, humans → pull_request)
+  # so the review job runs once. Actor allowlisting happens later via
+  # project-config.claude.allowed_bots inside the runner. The dedupe action
+  # is action-agnostic (routes purely by actor + event_name), so it needs no
+  # change to cover `opened`/`reopened`. The first-review route below
+  # skips draft-opened PRs (an `opened` event can carry draft=true; a
+  # `ready_for_review` never does — the shared draft guard handles both).
+  #
+  # `synchronize` (a new commit pushed to an open PR) closes a deadlock:
+  # `Devflow Review` is a REQUIRED status check, but the first-ready gate
+  # auto-reviews EXACTLY ONCE, attaching the check to that commit only. Any
+  # later commit (every implementation agent pushes "address review" /
+  # "/simplify" / "docs" commits after the one-shot review) leaves the new
+  # HEAD with NO `Devflow Review` check → the required context is missing
+  # → the PR is blocked forever with no API-accessible re-trigger. The
+  # `synchronize` route below re-reviews the new HEAD, but ONLY when that
+  # HEAD has no already-passing `Devflow Review` check (cost guard: a push
+  # that someone already reviewed-green is not re-run; drafts are skipped).
+  pull_request_target:
+    types: [opened, reopened, ready_for_review, synchronize]
+  # Per-check Re-run on the `Devflow Review` check. Delivered to the default
+  # branch in a non-PR context (repo secrets resolve like `push`). The
+  # precheck `name == 'Devflow Review'` guard is load-bearing: this event
+  # fires for EVERY check including CI re-runs.
+  check_run:
+    types: [rerequested]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  # Per-PR AND per-event-source lane. The event_name suffix is load-bearing:
+  # `pull_request` and `pull_request_target` both fire for one ready_for_review
+  # and both carry the same pull_request.number — without the suffix the
+  # dedupe-loser variant (which no-ops in ~15s) would cancel the canonical
+  # variant mid-review via cancel-in-progress, and the auto-review would never
+  # run. Scoping by source keeps cancel-in-progress useful where it matters
+  # (a second check_run Re-run collapses an in-flight earlier Re-run for the
+  # same PR) while isolating the dedupe pair. github.run_id is the last-resort
+  # key for events with no resolvable PR (the job no-ops anyway).
+  group: devflow-review-${{ github.event.pull_request.number || github.event.check_run.pull_requests[0].number || github.run_id }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+jobs:
+  precheck:
+    runs-on: ubuntu-latest
+    # Explicit (plan §4 matrix): the first-ready gate reads check-runs and PR
+    # commits. On a public repo these are unauth-readable (verified: the gate
+    # query succeeded in self-test), but pinning checks/pull-requests: read
+    # removes any token-scope ambiguity at zero cost.
+    permissions:
+      contents: read
+      pull-requests: read
+      checks: read
+    outputs:
+      enabled: ${{ steps.extract.outputs.enabled }}
+      should_run: ${{ steps.route.outputs.should_run }}
+      pr_number: ${{ steps.route.outputs.pr_number }}
+      head_sha: ${{ steps.route.outputs.head_sha }}
+    steps:
+      - uses: actions/checkout@v6
+      - id: cfg
+        uses: ./.github/actions/read-project-config
+      - id: extract
+        env:
+          CONFIG_JSON: ${{ steps.cfg.outputs.json }}
+        run: |
+          set -euo pipefail
+          echo "enabled=$(echo "$CONFIG_JSON" | jq -r '.workflows["devflow-review"] // false')" >> "$GITHUB_OUTPUT"
+          echo "allowed_bots=$(echo "$CONFIG_JSON" | jq -r '.claude.allowed_bots // ""')" >> "$GITHUB_OUTPUT"
+      # Runs for all events; its should_run output is consulted on the
+      # ready_for_review AND synchronize paths to keep the review exactly
+      # once across the pull_request / pull_request_target pair (check_run
+      # is neither pull_request variant and routes by sender instead).
+      - id: dedupe
+        uses: ./.github/actions/dedupe-pr-events
+      - id: route
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          DEDUPE_OK: ${{ steps.dedupe.outputs.should_run }}
+          ALLOWED_BOTS: ${{ steps.extract.outputs.allowed_bots }}
+          # opened / reopened / ready_for_review / synchronize path inputs
+          PR_READY: ${{ github.event.pull_request.number }}
+          SHA_READY: ${{ github.event.pull_request.head.sha }}
+          PR_DRAFT: ${{ github.event.pull_request.draft }}
+          # check_run path inputs
+          CR_NAME: ${{ github.event.check_run.name }}
+          CR_ACTION: ${{ github.event.action }}
+          CR_PR: ${{ github.event.check_run.pull_requests[0].number }}
+          CR_HEAD: ${{ github.event.check_run.head_sha }}
+          SENDER: ${{ github.event.sender.login }}
+        run: |
+          set -euo pipefail
+          emit() { echo "$1=$2" >> "$GITHUB_OUTPUT"; }
+          # Safe defaults: deny unless a branch below explicitly enables.
+          emit should_run false
+          emit pr_number ""
+          emit head_sha ""
+
+          if [ "$EVENT_NAME" = "check_run" ]; then
+            # --- check_run (Re-run button) path ---
+            if [ "$CR_NAME" != "Devflow Review" ]; then
+              echo "::notice::check_run for '$CR_NAME' is not 'Devflow Review'; ignoring."
+              exit 0
+            fi
+            if [ "$CR_ACTION" != "rerequested" ]; then
+              echo "::notice::check_run action '$CR_ACTION' is not 'rerequested'; ignoring."
+              exit 0
+            fi
+
+            # Authorization gate (cost control on a public repo): the clicker
+            # must be an allowed bot OR a write/admin collaborator. check_run
+            # carries no PR actor, so authorize github.event.sender.login.
+            if [ -z "$SENDER" ]; then
+              echo "::warning::check_run rerequest has an empty sender.login; cannot authorize — skipping (cost control)."
+              exit 0
+            fi
+            # App actors arrive as `name[bot]`; allowed_bots stores bare
+            # logins. Strip the suffix on the sender side before comparing
+            # (mirrors dedupe-pr-events' `*"[bot]"` detection) so the
+            # documented allowed-bot Re-run path actually matches.
+            SENDER_BARE="${SENDER%\[bot\]}"
+            authorized=false
+            IFS=',' read -ra BOTS <<< "$ALLOWED_BOTS"
+            for b in "${BOTS[@]}"; do
+              bt="$(echo "$b" | xargs)"
+              [ -n "$bt" ] && { [ "$bt" = "$SENDER" ] || [ "$bt" = "$SENDER_BARE" ]; } \
+                && authorized=true
+            done
+            if [ "$authorized" != "true" ]; then
+              # Collaborator fallback only applies to human logins; an App
+              # actor 404s here (expected) and stays unauthorized unless it
+              # matched allowed_bots above.
+              PERM=$(gh api "repos/$REPO/collaborators/$SENDER/permission" \
+                       --jq '.permission' 2>/dev/null || echo "none")
+              case "$PERM" in
+                admin|write|maintain) authorized=true ;;
+              esac
+            fi
+            if [ "$authorized" != "true" ]; then
+              echo "::warning::Re-run requested by '$SENDER' who is not an allowed bot or write/admin collaborator; skipping (cost control)."
+              exit 0
+            fi
+
+            # Resolve the PR. Prefer the check's associated PR; fall back to a
+            # head-SHA search if force-push detached it.
+            PR="$CR_PR"
+            if [ -z "$PR" ] || [ "$PR" = "null" ]; then
+              PR=$(gh pr list --repo "$REPO" --search "$CR_HEAD" --state open \
+                     --json number --jq '.[0].number' 2>/dev/null || echo "")
+            fi
+            if [ -z "$PR" ] || [ "$PR" = "null" ]; then
+              echo "::notice::Could not resolve a PR for the re-run check (head $CR_HEAD); no-op."
+              exit 0
+            fi
+
+            # Re-resolve the PR's CURRENT head — the whole point of the
+            # feature. check_run.head_sha is the (possibly stale) commit the
+            # old check was attached to.
+            # `|| echo ""` so a gh failure reaches the graceful no-op below
+            # instead of aborting the step red under `set -e` (matching the
+            # sibling gh calls on this path).
+            HEAD=$(gh pr view "$PR" --repo "$REPO" --json headRefOid \
+                     --jq '.headRefOid' 2>/dev/null || echo "")
+            if [ -z "$HEAD" ] || [ "$HEAD" = "null" ]; then
+              echo "::warning::Could not resolve current HEAD for PR #$PR; no-op."
+              exit 0
+            fi
+            emit should_run true
+            emit pr_number "$PR"
+            emit head_sha "$HEAD"
+            echo "::notice::Re-running Devflow Review for PR #$PR at current HEAD $HEAD (requested by $SENDER)."
+            exit 0
+          fi
+
+          # --- synchronize (new commit pushed to an open PR) path ---
+          # Closes the required-check deadlock: the first-ready gate
+          # auto-reviews EXACTLY ONCE, so any commit pushed after that
+          # one-shot review leaves the new HEAD with no `Devflow Review`
+          # check and the (required) context blocks the PR forever. Here we
+          # re-review the new HEAD, but ONLY when it has no already-passing
+          # `Devflow Review` check (cost guard) and the PR is not a draft.
+          # Same actor dedupe as the ready path so the review runs exactly
+          # once across the pull_request / pull_request_target pair.
+          # NOTE: $CR_ACTION is `github.event.action` (the env var is shared
+          # with the check_run path's `CR_`-prefixed naming, not check_run-
+          # specific); for the pull_request variants it equals
+          # "synchronize" / "ready_for_review". Do not "fix" it to a
+          # check_run-only reading.
+          if [ "$CR_ACTION" = "synchronize" ]; then
+            if [ "$DEDUPE_OK" != "true" ]; then
+              echo "::notice::Non-canonical synchronize variant for actor; deferring to the other variant."
+              exit 0
+            fi
+            if [ "$PR_DRAFT" = "true" ]; then
+              echo "::notice::synchronize on a draft PR; skipping (drafts cannot merge — no review needed yet)."
+              exit 0
+            fi
+            PR="$PR_READY"
+            HEAD="$SHA_READY"
+            # Cost guard: skip if THIS head already has a *passing* Devflow
+            # Review check (event re-delivery, or a push already reviewed
+            # green). Fail CLOSED on query error, consistent with the
+            # first-ready gate: a missed re-review is recoverable by the
+            # next push or the manual Re-run button; a spurious LLM
+            # re-review is precisely the cost this guard exists to prevent.
+            # Emit ONE line per matching check-run and count lines, rather
+            # than `| length` per page: --paginate concatenates the jq
+            # output of every page, so a per-page `length` yields a
+            # multi-line count ("2\n0") on a >100-check-run commit. A
+            # value stream concatenates correctly across pages; line
+            # count is then exact. (--slurp would also work but is not
+            # reliable with --jq on older gh on the runner.)
+            if ! _RUNS=$(gh api --paginate \
+                  "repos/$REPO/commits/$HEAD/check-runs" \
+                  --jq '.check_runs[] | select(.name=="Devflow Review" and .conclusion=="success") | .id' \
+                  2>/dev/null); then
+              echo "::warning::Check-run query failed for $HEAD; failing closed (no synchronize re-review). Push again or use the Re-run button."
+              exit 0
+            fi
+            PASSING=$(printf '%s' "$_RUNS" | grep -c . || true)
+            if ! [[ "$PASSING" =~ ^[0-9]+$ ]]; then
+              echo "::warning::Non-numeric passing-check count ('$PASSING') for $HEAD; failing closed (no synchronize re-review)."
+              exit 0
+            fi
+            if [ "$PASSING" != "0" ]; then
+              echo "::notice::HEAD $HEAD already has a passing Devflow Review check; skipping synchronize re-review."
+              exit 0
+            fi
+            emit should_run true
+            emit pr_number "$PR"
+            emit head_sha "$HEAD"
+            echo "::notice::synchronize on PR #$PR HEAD $HEAD has no passing Devflow Review check; triggering re-review."
+            exit 0
+          fi
+
+          # --- first-review path: opened / reopened / ready_for_review ---
+          # (pull_request / pull_request_target). $CR_ACTION is
+          # github.event.action; for these it is "opened" | "reopened" |
+          # "ready_for_review" — all the FIRST-review trigger, gated to
+          # exactly-once by the first-ready check-existence query below.
+          if [ "$DEDUPE_OK" != "true" ]; then
+            echo "::notice::Non-canonical event variant for actor; deferring to the other variant."
+            exit 0
+          fi
+          # Draft guard: a `ready_for_review` event is never draft, but an
+          # `opened`/`reopened` event can carry draft=true (e.g. the devflow
+          # implement flow opens a draft, works, then marks it ready). Defer
+          # those — the later draft→ready `ready_for_review` reviews them,
+          # so exactly-once still holds. Harmless no-op for ready_for_review.
+          if [ "$PR_DRAFT" = "true" ]; then
+            echo "::notice::PR is draft ($CR_ACTION); deferring first review until it is marked ready."
+            exit 0
+          fi
+          PR="$PR_READY"
+          HEAD="$SHA_READY"
+
+          # First-ready gate (plan §0): auto-review EXACTLY ONCE per PR. If a
+          # `Devflow Review` check already exists for this PR's head OR any of
+          # its commits, this is a repeat draft→ready toggle — skip (manual
+          # Re-run only). Fail CLOSED on query error: a missed first review is
+          # recoverable via the Re-run button; an unwanted re-review is what
+          # §0 forbids.
+          # A truncated/empty body that still exits 0 yields a non-numeric
+          # count; treating that as 0 would fail OPEN (re-review on a repeat
+          # toggle), which §0 forbids. Require a bare integer or fail closed.
+          # Value-stream + line count, not per-page `| length` (see the
+          # synchronize cost-guard above): --paginate concatenates jq
+          # output per page, so `length` would yield a multi-line count
+          # on a >100-check-run commit.
+          if ! _RUNS=$(gh api --paginate \
+                "repos/$REPO/commits/$HEAD/check-runs" \
+                --jq '.check_runs[] | select(.name=="Devflow Review") | .id' \
+                2>/dev/null); then
+            echo "::warning::Check-run query failed for $HEAD; failing closed (no auto-review). Use the Re-run button if a review is needed."
+            exit 0
+          fi
+          EXISTING=$(printf '%s' "$_RUNS" | grep -c . || true)
+          if ! [[ "$EXISTING" =~ ^[0-9]+$ ]]; then
+            echo "::warning::Non-numeric check-run count ('$EXISTING') for $HEAD; failing closed (no auto-review)."
+            exit 0
+          fi
+          if [ "$EXISTING" = "0" ]; then
+            # head_sha alone can miss checks on earlier commits after a push;
+            # scan the PR's commit list as a backstop.
+            if ! COMMITS=$(gh pr view "$PR" --repo "$REPO" --json commits \
+                  --jq '.commits[].oid' 2>/dev/null); then
+              echo "::warning::Could not list PR commits for the first-ready gate; failing closed (no auto-review)."
+              exit 0
+            fi
+            for sha in $COMMITS; do
+              if ! _RUNS=$(gh api --paginate "repos/$REPO/commits/$sha/check-runs" \
+                    --jq '.check_runs[] | select(.name=="Devflow Review") | .id' \
+                    2>/dev/null); then
+                echo "::warning::Check-run query failed for commit $sha; failing closed (no auto-review)."
+                exit 0
+              fi
+              n=$(printf '%s' "$_RUNS" | grep -c . || true)
+              if ! [[ "$n" =~ ^[0-9]+$ ]]; then
+                echo "::warning::Non-numeric check-run count ('$n') for commit $sha; failing closed (no auto-review)."
+                exit 0
+              fi
+              if [ "$n" != "0" ]; then
+                EXISTING="$n"
+                break
+              fi
+            done
+          fi
+          if [ "$EXISTING" != "0" ]; then
+            echo "::notice::Devflow Review already ran for PR #$PR; skipping auto-trigger (use the check's Re-run button to re-review)."
+            exit 0
+          fi
+
+          emit should_run true
+          emit pr_number "$PR"
+          emit head_sha "$HEAD"
+          echo "::notice::First reviewable event ($CR_ACTION) for PR #$PR; auto-triggering Devflow Review at $HEAD."
+
+  create_check:
+    needs: precheck
+    if: needs.precheck.outputs.enabled == 'true' && needs.precheck.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      checks: write
+      contents: read
+    outputs:
+      check_run_id: ${{ steps.create.outputs.check_run_id }}
+    steps:
+      - id: create
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ needs.precheck.outputs.head_sha }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          SUMMARY='/devflow:review is executing. This is a required status check that encodes the verdict: it PASSES on APPROVE and FAILS on REJECT (a REJECT blocks merge). The full verdict is also posted as a formal PR review.'
+          ID=$(gh api -X POST "repos/$REPO/check-runs" \
+            -f name='Devflow Review' \
+            -f head_sha="$HEAD_SHA" \
+            -f status='in_progress' \
+            -f details_url="$RUN_URL" \
+            -f 'output[title]=Devflow review running' \
+            -f "output[summary]=$SUMMARY" \
+            --jq '.id')
+          # An HTTP-success-but-no-.id response would leave finalize_check's
+          # `!= ''` gate skipped and the check hung in_progress forever (the
+          # exact hang plan §6.3 guards against). Fail loudly instead.
+          if ! [[ "$ID" =~ ^[0-9]+$ ]]; then
+            echo "::error::check-run POST returned no numeric id ('$ID'); cannot create 'Devflow Review' check."
+            exit 1
+          fi
+          echo "check_run_id=$ID" >> "$GITHUB_OUTPUT"
+          echo "::notice::Created 'Devflow Review' check run $ID at $HEAD_SHA."
+
+  review:
+    # NOT needs: create_check — the formal verdict is the authoritative
+    # artifact and must still post even if the Checks-API POST fails
+    # (plan §6.3 "degraded but not silent"; the first-ready gate has already
+    # consumed the one-shot, so a skipped review here would be silent loss).
+    # create_check runs in parallel; finalize_check joins both.
+    needs: precheck
+    if: needs.precheck.outputs.enabled == 'true' && needs.precheck.outputs.should_run == 'true'
+    # A reusable workflow's effective GITHUB_TOKEN cannot exceed the caller
+    # job's permissions; granting id-token: write here matches what claude.yml
+    # already grants for the same anthropics/claude-code-action@v1 invocation.
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+    uses: ./.github/workflows/claude-runner.yml
+    with:
+      prompt: |
+        You are running inside the `devflow-review` GitHub
+        workflow. The PR number is ${{ needs.precheck.outputs.pr_number }}.
+
+        **Step 1 — Post the progress comment.** Body MUST start with the
+        HTML marker on its own line so the comment can be re-discovered
+        later. Use this exact template, rendered as GitHub-flavored
+        Markdown so users get a scannable status card:
+
+            <!-- devflow:review-progress -->
+            ## 🔍 Devflow Review In Progress
+
+            |   |   |
+            |---|---|
+            | **Status** | ⚙️ Setup |
+            | **Last updated** | `<UTC ISO-8601>` |
+
+            > 🤖 Posted by `devflow-review`. The formal verdict
+            > review will appear separately when complete.
+
+        Create with `gh pr comment ${{ needs.precheck.outputs.pr_number }}
+        --body-file <tmpfile>`.
+
+        **Step 2 — Run `/devflow:review` by reading and following
+        `.claude/plugins/devflow/skills/review/SKILL.md` exactly.** With
+        one addition: at every `Phase N/4:` boundary the skill announces
+        (0.5, 1, 2, 3, 4), PATCH the progress comment in place. Refresh
+        the **Status** row with the appropriate emoji + phase text, the
+        **Last updated** row with a fresh UTC ISO-8601 timestamp, and
+        optionally add a **Details** row with one line of context.
+
+        Status emoji conventions (use these consistently):
+        - ⚙️  Setup / Phase 0.5 (classifying diff)
+        - 📋 Phase 1/4 — Generating checklist
+        - 🔎 Phase 2/4 — Verifying N items
+        - 🧪 Phase 3/4 — Running review agents
+        - 📊 Phase 4/4 — Aggregating findings
+        - ✅ Approved — final state for APPROVE (see Step 3)
+        - ❌ Changes requested — final state for REJECT (see Step 3)
+        - ❌ Failed — <one-line reason> (run aborted; see Step 3 failure variant)
+
+        Do NOT use a ✅ Complete status on the final patch — the final
+        state must reflect the verdict, not just process completion. A
+        green check above a REJECT report misleads readers.
+
+        Example mid-run body:
+
+            <!-- devflow:review-progress -->
+            ## 🔍 Devflow Review In Progress
+
+            |   |   |
+            |---|---|
+            | **Status** | 🔎 Phase 2/4 — Verifying 12 items |
+            | **Last updated** | `2026-05-15T14:32:08Z` |
+            | **Details** | Diff classification: full engine |
+
+            > 🤖 Posted by `devflow-review`. The formal verdict
+            > review will appear separately when complete.
+
+        Re-discover the comment each phase by marker — do NOT carry the
+        comment ID across Bash tool calls:
+
+            PR=${{ needs.precheck.outputs.pr_number }}
+            MARKER='<!-- devflow:review-progress -->'
+            CID=$(gh pr view "$PR" --json comments \
+              --jq ".comments[] | select(.body | startswith(\"$MARKER\")) | .databaseId" \
+              | head -1)
+            REPO=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
+            gh api -X PATCH "/repos/$REPO/issues/comments/$CID" \
+              -F body=@/tmp/review-progress.md
+
+        **Step 3 — Final update.** After Phase 4.4 posts the formal
+        `gh pr review` (verdict stub only), PATCH the progress comment
+        one last time. The progress comment is the single human-readable
+        artifact carrying the full Phase 4.1 report, so this final PATCH
+        must embed the entire report body verbatim.
+
+        **The heading and Status row MUST reflect the actual verdict** —
+        do NOT default to a green ✅ on a REJECT. A reader scanning the
+        PR sees only the heading; a ✅ on top of a REJECT body misleads
+        them into thinking the PR was approved. Pick the variant by
+        verdict:
+
+        APPROVE (including "APPROVE with notes"):
+
+            <!-- devflow:review-progress -->
+            ## ✅ Devflow Review: APPROVE
+
+            |   |   |
+            |---|---|
+            | **Status** | ✅ Approved |
+            | **Last updated** | `<UTC ISO-8601>` |
+            | **Verdict** | <one-line verdict summary, e.g. "APPROVE with notes (2 suggestions)"> |
+
+            ---
+
+            <full Phase 4.1 report body, verbatim — do NOT regenerate or summarize>
+
+        REJECT:
+
+            <!-- devflow:review-progress -->
+            ## ❌ Devflow Review: REJECT — changes requested
+
+            |   |   |
+            |---|---|
+            | **Status** | ❌ Changes requested |
+            | **Last updated** | `<UTC ISO-8601>` |
+            | **Verdict** | <one-line verdict summary, e.g. "REJECT — 1 verification FAIL"> |
+
+            ---
+
+            <full Phase 4.1 report body, verbatim — do NOT regenerate or summarize>
+
+        Re-use the report already in context — do not regenerate it.
+        Apply the GitHub-specific PASS-items `<details>` augmentation
+        (see the "Report formatting override" block below) exactly once,
+        before embedding, so the rendered audit trail includes passed
+        items.
+
+        On the failure variant (run aborts before Phase 4.4 — empty
+        diff, checklist-gen failure, any fatal error), use:
+
+            <!-- devflow:review-progress -->
+            ## ❌ Devflow Review Failed
+
+            |   |   |
+            |---|---|
+            | **Status** | ❌ Failed — <one-line reason> |
+            | **Last updated** | `<UTC ISO-8601>` |
+
+        with no report body (there is none to embed).
+
+        **Report formatting override (GitHub-specific).** When the
+        `/devflow:review` skill builds the report in Phase 4.1, the
+        `## Verification Checklist Results` section lists only FAIL and
+        INCONCLUSIVE items plus the summary count. Before embedding the
+        report in Step 3, augment that section by appending the PASS
+        items inside a collapsed `<details>` block (omit the block
+        entirely when zero items passed):
+
+            <details>
+            <summary>✅ Passed items ({pass} of {total}) — click to expand</summary>
+
+            {for each PASS item: "- VC-N: claim [source_file:source_line]"}
+
+            </details>
+
+        This preserves the audit trail in GitHub's rendered Markdown
+        without dominating the visible report. Do not modify the skill
+        file itself — this override applies only to the GitHub-posted
+        report body.
+
+        **Constraints (do not violate):**
+        - Only ONE progress comment, edited in place. Never post a second.
+        - Do not alter Phase 4.4's `gh pr review` behavior — the verdict
+          review is the authoritative artifact; the progress comment only
+          points at it.
+      allowed_tools_profile: review
+    secrets: inherit
+
+  finalize_check:
+    # `name: Devflow Review` is the load-bearing fix for required-check
+    # recognition. GitHub's required-status-check matcher resolves ruleset
+    # context names to workflow job names; without this `name:` key the
+    # workflow has no job called `Devflow Review`, so the only check-run
+    # carrying that name is the one `create_check` POSTs via `gh api
+    # /check-runs`. On the FIRST push to a new PR that API check-run lands
+    # in a freshly-created check suite that GitHub's matcher does not
+    # immediately link to the ruleset context — `isRequired` stays `false`
+    # even though the check-run exists, so `mergeStateStatus` is BLOCKED
+    # and auto-merge never fires. Pushing an empty commit "fixes" it because
+    # the SECOND encounter of the same context on a new SHA links correctly
+    # — but that's a workaround, not a fix. Naming this job `Devflow Review`
+    # makes the Actions runner emit a workflow-job check-run with that name,
+    # which the matcher recognizes from the moment the job is queued, with
+    # no first-encounter delay. The API check-run from `create_check` is
+    # kept (the PATCH-by-id flow stays the source of truth for the verdict;
+    # this job-name check-run is the recognition surface). Two check-runs
+    # share the name and conclude together — `failure` if the API PATCH
+    # concluded `failure` (the `exit 1` at the end of the run block keeps
+    # this job's exit code in lockstep), `success` otherwise — so the
+    # required-check evaluation is consistent regardless of which check-run
+    # the matcher picks.
+    name: Devflow Review
+    needs: [precheck, create_check, review]
+    # always() so a failed/cancelled review still closes the check —
+    # otherwise it hangs `in_progress` forever and the Re-run button never
+    # appears. Gated on a check actually having been created.
+    if: always() && needs.create_check.outputs.check_run_id != ''
+    runs-on: ubuntu-latest
+    permissions:
+      # Job-level permissions REPLACE workflow-level (they do not merge), so
+      # contents:read must be re-declared here or actions/checkout below
+      # cannot clone (mirrors precheck/create_check/review, which all
+      # re-declare it for the same reason).
+      contents: read
+      checks: write
+      # write (not read): on an APPROVE verdict this job dismisses any stale
+      # CHANGES_REQUESTED review left by an earlier REJECT — the dismissals
+      # API requires pull-requests:write. Without this, a PR that was once
+      # rejected stays wedged at reviewDecision=CHANGES_REQUESTED even after
+      # a later APPROVE + green required check (the APPROVE-with-notes review
+      # is COMMENTED and never supersedes; the REJECT may also be a different
+      # bot identity). This is the auto-path safety net; the skill's Phase
+      # 4.4 final step does the same and covers the manual @claude path too.
+      pull-requests: write
+    steps:
+      # Trusted checkout for dismiss-stale-rejections.sh. This workflow fires
+      # on BOTH pull_request (human-authored PRs, routed here by
+      # dedupe-pr-events) and pull_request_target. On the pull_request
+      # trigger actions/checkout WITHOUT an explicit ref defaults to the PR
+      # MERGE ref — i.e. PR-author-controlled code — which would then run
+      # with this job's pull-requests:write token (script-injection /
+      # privilege-escalation). Pin to the repo default branch so the
+      # write-token job always runs the trusted in-repo copy regardless of
+      # trigger. fetch-depth:1 (only the script is needed) and
+      # persist-credentials:false (gh uses GH_TOKEN; don't leave the
+      # actions token in .git/config) are defense-in-depth.
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
+          persist-credentials: false
+      - id: finalize
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          CHECK_RUN_ID: ${{ needs.create_check.outputs.check_run_id }}
+          REVIEW_RESULT: ${{ needs.review.result }}
+          PR_NUMBER: ${{ needs.precheck.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          # The `Devflow Review` check conclusion encodes the review
+          # *verdict*, not merely whether the review *process* completed.
+          # This check is a REQUIRED status check (ruleset main-protected;
+          # see CLAUDE.md), so a REJECT must conclude `failure` to actually
+          # block auto-merge — historically a `--request-changes` review
+          # was advisory only (no required-review rule) and a rejected PR
+          # still auto-merged. Mapping:
+          #   review job failed            -> failure  (process broke; Re-run)
+          #   review job cancelled/skipped -> neutral  (superseded Re-run or
+          #         intentionally-not-run; a *neutral* required check does
+          #         NOT block, so a cancelled Re-run never looks like REJECT)
+          #   review job success + REJECT  -> failure  (blocks the merge)
+          #   review job success + APPROVE -> success
+          # REJECT is read from the formal artifact Phase 4.4 of the skill
+          # posts: a `--request-changes` review (state CHANGES_REQUESTED)
+          # or, on the documented gh-pr-review permission-failure fallback,
+          # a PR comment whose body carries the `## Verdict: REJECT` line.
+          SUMMARY='See the formal review verdict on the PR. Click Re-run on this check to re-review the current HEAD.'
+          case "$REVIEW_RESULT" in
+            cancelled|skipped)
+              CONCLUSION=neutral
+              TITLE="Devflow review not run ($REVIEW_RESULT)"
+              ;;
+            success)
+              if [ -z "${PR_NUMBER:-}" ]; then
+                # should_run=true always emits pr_number; never fabricate a
+                # REJECT we cannot substantiate.
+                echo "::warning::finalize_check: empty PR_NUMBER on a successful review; defaulting to success."
+                CONCLUSION=success
+                TITLE='Devflow review: APPROVE'
+              else
+                VERDICT=approve
+                # VERDICT_DETERMINED gates the irreversible dismissal below.
+                # The conclusion still defaults to success on a swallowed
+                # lookup error (changing that is out of scope and could
+                # itself wedge PRs), but a verdict reached by DEFAULT under
+                # a failed query must NOT trigger dismissal of a possibly-
+                # still-valid REJECT. Only a POSITIVELY observed APPROVE
+                # dismisses.
+                VERDICT_DETERMINED=false
+                if REVIEWS_JSON=$(gh api "repos/$REPO/pulls/$PR_NUMBER/reviews?per_page=100" 2>/dev/null); then
+                  VERDICT_DETERMINED=true
+                  STATE=$(echo "$REVIEWS_JSON" | jq -r 'last.state // ""' 2>/dev/null || echo "")
+                  RBODY=$(echo "$REVIEWS_JSON" | jq -r 'last.body // ""' 2>/dev/null || echo "")
+                  if [ "$STATE" = "CHANGES_REQUESTED" ]; then
+                    VERDICT=reject
+                  elif printf '%s\n' "$RBODY" | grep -qE '^##[[:space:]]+Verdict:[[:space:]]*REJECT'; then
+                    VERDICT=reject
+                  elif [ -z "$STATE" ]; then
+                    # gh pr review unavailable (e.g. same-identity self-review):
+                    # the skill falls back to `gh pr comment` with the report.
+                    if COMMENTS=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments?per_page=100" \
+                                    --jq '.[].body' 2>/dev/null); then
+                      printf '%s\n' "$COMMENTS" \
+                        | grep -qE '^##[[:space:]]+Verdict:[[:space:]]*REJECT' \
+                        && VERDICT=reject
+                    else
+                      # Fallback was REQUIRED (no review state) but its query
+                      # failed: verdict is unknown, not a positive APPROVE.
+                      VERDICT_DETERMINED=false
+                    fi
+                  fi
+                else
+                  echo "::warning::finalize_check: reviews API query failed for PR #$PR_NUMBER; verdict not positively determined — concluding success but NOT dismissing any review."
+                fi
+                if [ "$VERDICT" = reject ]; then
+                  CONCLUSION=failure
+                  TITLE='Devflow review: REJECT — changes requested'
+                else
+                  CONCLUSION=success
+                  TITLE='Devflow review: APPROVE'
+                fi
+              fi
+              ;;
+            *)
+              CONCLUSION=failure
+              TITLE='Devflow review process failed'
+              ;;
+          esac
+          if ! gh api -X PATCH "repos/$REPO/check-runs/$CHECK_RUN_ID" \
+            -f status='completed' \
+            -f conclusion="$CONCLUSION" \
+            -f "output[title]=$TITLE" \
+            -f "output[summary]=$SUMMARY"; then
+            echo "::error::Failed to finalize check $CHECK_RUN_ID; it may hang in_progress. Re-run the check or PATCH it manually."
+            exit 1
+          fi
+          echo "::notice::Finalized check $CHECK_RUN_ID as $CONCLUSION ($TITLE; review job result: $REVIEW_RESULT)."
+
+          # Auto-path safety net (same script the skill's Phase 4.4 final
+          # step calls — single source of truth). Gated on a POSITIVELY
+          # determined APPROVE: CONCLUSION=success (REJECT maps to failure),
+          # a real PR_NUMBER (the empty-PR fallback yields success without
+          # one), AND VERDICT_DETERMINED=true (the verdict came from a
+          # successful lookup, not a default under a swallowed API error —
+          # otherwise a correlated GitHub degradation could silently dismiss
+          # a still-valid REJECT). Best-effort: a non-zero exit is logged
+          # but never fails the job — the check is already finalized.
+          if [ "$CONCLUSION" = "success" ] && [ -n "${PR_NUMBER:-}" ] && [ "${VERDICT_DETERMINED:-false}" = "true" ]; then
+            if .claude/plugins/devflow/scripts/dismiss-stale-rejections.sh "$PR_NUMBER" "$REPO"; then
+              echo "::notice::Stale-REJECT dismissal completed for PR #$PR_NUMBER (no-op if none were outstanding)."
+            else
+              echo "::warning::dismiss-stale-rejections.sh exited non-zero for PR #$PR_NUMBER; the PR may stay blocked at reviewDecision=CHANGES_REQUESTED — dismiss it manually."
+            fi
+          fi
+
+          # Propagate REJECT through this job's own exit code so the workflow
+          # check-run named `Devflow Review` (created by GitHub from the job's
+          # `name:` above) carries the same blocking conclusion as the API
+          # check-run PATCHed above. The API PATCH stays the source of truth
+          # for the verdict (it sets the `output[summary]` body the user sees
+          # in the PR's checks tab); this exit code keeps the two check-runs
+          # in lockstep so whichever one the required-check matcher picks,
+          # the answer is the same. Only `failure` blocks: success exits 0,
+          # neutral (cancelled/skipped review) exits 0 too — a neutral
+          # required check does not block, matching the API PATCH's behaviour.
+          if [ "$CONCLUSION" = "failure" ]; then
+            exit 1
+          fi

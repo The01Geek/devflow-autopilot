@@ -1,0 +1,110 @@
+# .github/project-config.yml
+# ============================================
+# DevFlow project configuration (TEMPLATE)
+# ============================================
+# Copy this file to `.github/project-config.yml` and edit the values to match
+# your project, THEN commit it to your repo so the GitHub Actions ("cloud tier")
+# workflows can read it. See docs/cloud-setup.md for the full setup guide.
+#
+# The LOCAL tier (the /implement, /review, /docs, etc. skills you run inside
+# Claude Code) works with NO config file at all — every value below has a sane
+# built-in default. You only need this file if you enable the GitHub Actions
+# automation (the optional "autopilot" tier).
+#
+# Placeholders are written as YOUR_* — replace each one.
+
+# ── Project board (optional; only the board-sync workflows use it) ───────────
+# GitHub Project board number, from your project URL:
+#   https://github.com/users/<you>/projects/<number>
+# Leave as-is / delete the board-sync workflows if you don't use a Project board.
+project_number: "YOUR_PROJECT_NUMBER"
+
+# Branch that PRs target by default. Used as the review/merge base.
+base_branch: "main"
+
+# Claude model for AI-powered workflows (individual workflows may override).
+claude_model: "claude-opus-4-7"
+
+# Project board status field values (must match your GitHub Project exactly).
+statuses:
+  draft: "Draft"
+  in_progress: "In Progress"
+  ai_pr_drafted: "AI PR Drafted"
+  released: "Released"
+  closed: "Closed"
+
+# ── GitHub App (optional; only the cloud-tier workflows use it) ──────────────
+# Numeric App ID (or App Client ID) of the GitHub App that authors automated
+# PRs / project updates. See docs/cloud-setup.md for how to create one.
+# The App's credentials are supplied to workflows via the repository secrets
+# DEVFLOW_APP_ID and DEVFLOW_APP_PRIVATE_KEY (NOT this file).
+app_id: "YOUR_APP_ID"
+
+# Bot account login (distinguishes AI-authored PRs from human ones).
+# Leave empty if you are not using a dedicated bot account.
+bot_login: ""
+
+# ── Claude action settings ───────────────────────────────────────────────────
+claude:
+  # Bot logins allowed to trigger the Claude action (comma-separated).
+  # `claude` is Anthropic's GitHub App identity; add your own bot login and any
+  # automation accounts (e.g. dependabot) you want to trust.
+  allowed_bots: "claude,dependabot"
+  # Marker line identifying the persistent /implement workpad comment on issues.
+  # The /implement skill finds/edits exactly one comment per issue whose body
+  # starts with this marker. (Default if unset: "<!-- devflow:workpad -->".)
+  workpad_marker: "<!-- devflow:workpad -->"
+  # Reasoning effort for Claude-action workflows. Valid: low, medium, high,
+  # xhigh, max. "medium" omits --effort so the model's built-in default applies.
+  effort: "medium"
+
+claude_implement:
+  effort: "medium"
+
+claude_runner:
+  effort: "medium"
+
+# ── Documentation paths + the /docs suite ────────────────────────────────────
+docs:
+  internal: "docs/internal/"
+  external: "docs/external/"
+  # Customer-facing release-notes file maintained by the /docs-release-notes skill.
+  release_notes_file: "docs/external/release-notes.md"
+  # Label applied by /implement once its docs pass has run.
+  documented_label: "Documented"
+
+security_audit:
+  effort: "medium"
+
+# ── DevFlow retrospective / self-improvement loop ─────────────────────────────
+# Consumed by the /devflow-weekly skill (a locally-run orchestrator, not a
+# GitHub Actions workflow). retrospective_model / audit_model are optional
+# --model overrides the orchestrator passes to its subagents.
+devflow_retrospective:
+  enabled: true
+  retrospective_model: "claude-sonnet-4-6"
+  audit_model: "claude-opus-4-7"
+  # Branch prefix your implementation bot uses for its PRs. The retrospective
+  # loop only processes PRs on this prefix (plus DevFlow's own devflow/audit-*
+  # branches). Default: "claude/". Change this if your bot uses a different
+  # convention (e.g. "bot/", "copilot/") — otherwise the loop sees no PRs.
+  implementation_branch_prefix: "claude/"
+  # Repetition gate. status == regressed always bypasses this.
+  min_occurrences: 2
+  # Skip audit if the youngest audit PR is younger than this (createdAt-based).
+  cooldown_days: 3
+  # Soft cap on PRs processed per scheduled retrospective run.
+  max_prs_per_run: 500
+  # Optional: authors whose merged PRs the loop retrospects. Defaults to
+  # claude.allowed_bots if unset.
+  # watched_authors: ["claude"]
+
+# ── Per-workflow enable/disable toggles ───────────────────────────────────────
+workflows:
+  claude: true
+  close-released-items: true
+  comment-on-draft-issues: true
+  move-to-in-progress: true
+  sync-pr-status-to-issue: true
+  devflow-review: true
+  security_audit: true
