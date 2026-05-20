@@ -32,10 +32,20 @@ Run `bash lib/preflight.sh` to verify. (Shell helpers avoid GNU-only flags, so m
 
 DevFlow is published as a Claude Code plugin from this repository, which is also its own marketplace.
 
+**Quick install** — one line in your terminal:
+
+```bash
+claude plugin marketplace add The01Geek/devflow-autopilot && claude plugin install devflow@devflow-marketplace
+```
+
+**Or from inside Claude Code:**
+
 ```text
 /plugin marketplace add The01Geek/devflow-autopilot
 /plugin install devflow@devflow-marketplace
 ```
+
+Then run `/reload-plugins` (or restart) to activate.
 
 That's it for the local tier. DevFlow declares three companion plugins as **dependencies** — `feature-dev`, `pr-review-toolkit`, and `superpowers` (all from the official `claude-plugins-official` marketplace) — and Claude Code **auto-installs them** when you install DevFlow, provided that marketplace is in your configured marketplaces (it is by default). `/simplify` is a built-in Claude Code skill and needs no installation.
 
