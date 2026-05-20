@@ -19,6 +19,8 @@ venv/
 # OS / editor
 .DS_Store
 *.swp
+# WSL/Windows download marker (alternate data stream) — appears on any file.
+*:Zone.Identifier
 
 # Private maintainer working docs — never publish (kept outside the repo).
 /devflow-roadmap.md
