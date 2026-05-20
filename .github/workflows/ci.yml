@@ -4,6 +4,22 @@ on:
   push:
     branches: [main]
   pull_request:
+    # The default types (opened, synchronize, reopened) are NOT enough for
+    # our own bot PRs. The /devflow:implement flow opens a PR as a draft
+    # (skills/implement: `gh pr create --draft`), pushes its commits, then
+    # toggles ready-for-review (`gh pr ready`). claude-implement.yml checks
+    # out and pushes with the default GITHUB_TOKEN, so GitHub's recursion
+    # guard suppresses the `synchronize` event for those commits — and
+    # `ready_for_review` is not a default type. Listening only to the
+    # defaults meant CI never ran on the bot's HEAD; because `lib + python
+    # tests` is a REQUIRED status check, the PR wedged at "Expected —
+    # waiting for status" forever. Adding `ready_for_review` makes CI fire
+    # on the ready toggle against the current HEAD — the same event
+    # devflow-review.yml already keys off (see its `on:` comment) to catch
+    # these bot PRs. We do NOT switch to `pull_request_target`: this job
+    # runs arbitrary PR code (preflight + the test suite), which under
+    # pull_request_target would expose repo secrets to untrusted code.
+    types: [opened, synchronize, reopened, ready_for_review]
 
 permissions:
   contents: read
