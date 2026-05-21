@@ -87,10 +87,13 @@ Before finalizing the issue, verify:
 - [ ] Edge cases and error handling are considered
 - [ ] Architecture constraints are explicitly noted
 - [ ] Documentation references are accurate
+- [ ] No bare `#`-number is used except for a real issue/PR reference (ordinals/list items are spelled out)
 
 ## Output Format
 
 Provide the complete GitHub issue in markdown format that can be directly copied into GitHub. Use proper markdown formatting with headers, code blocks, and lists for readability. Include a brief summary at the end explaining key insights from your analysis.
+
+**GitHub autolink hygiene** (the issue body is posted to GitHub): never put a bare `#` immediately before a number unless it is a real issue or PR reference — GitHub renders `#2` as a link to issue/PR 2, which misleads readers. For an ordinal, count, or list position, spell it out ("item 2", "step 3"), never `#2`. Genuine references like `#123` stay as-is.
 
 **IMPORTANT: Do NOT add any labels to the GitHub issues you create.** When using `gh issue create`, do NOT use the `--label` flag. Issues must be created without labels — labeling is handled separately by the project maintainers.
 

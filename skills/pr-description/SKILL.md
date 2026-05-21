@@ -175,6 +175,7 @@ deferrals:
 - Changes section groups by logical area (e.g., "Orders module", "Frontend", "Database"), not individual files.
 - Test Plan items must be concrete and actionable, not generic ("Run tests").
 - The entire output between the markers must be valid GitHub-flavored Markdown.
+- **GitHub autolink hygiene** (the PR body is posted to GitHub): never put a bare `#` immediately before a number unless it is a real issue or PR reference — GitHub renders `#2` as a link to issue/PR 2, which misleads readers. For an ordinal, count, or list position, spell it out ("item 2", "step 3"), never `#2`. Genuine references like `#123` stay as-is.
 - Do NOT wrap the output in a code block. Output the markers and content as plain text so they appear directly in your response.
 - When updating an existing PR, do NOT discard human-added content. If in doubt about whether something was human-added, preserve it.
 

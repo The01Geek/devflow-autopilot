@@ -9,7 +9,7 @@ turn a GitHub issue into a reviewed, documented, merged PR — and learn from ev
 DevFlow bundles four things, plus a self-improving loop:
 
 1. **`/implement`** — a 4-phase orchestrator (setup → implement → review → document) that drives a GitHub issue all the way to a ready PR.
-2. **`/review` and `/review-and-fix`** — a verification-checklist-driven code-review engine (`/review` reports a verdict; `/review-and-fix` fixes findings and loops until it approves).
+2. **`/devflow:review` and `/devflow:review-and-fix`** — a verification-checklist-driven code-review engine (`/devflow:review` reports a verdict; `/devflow:review-and-fix` fixes findings and loops until it approves).
 3. **The `/docs` suite** — keep internal docs, external docs, and release notes aligned with the code.
 4. **`/create-issue`** — turn a rough user story or bug report into a well-structured GitHub issue.
 
@@ -35,19 +35,22 @@ DevFlow is published as a Claude Code plugin from this repository, which is also
 **Quick install** — one line in your terminal:
 
 ```bash
-claude plugin marketplace add The01Geek/devflow-autopilot && claude plugin install devflow@devflow-marketplace
+claude plugin marketplace add anthropics/claude-plugins-official && claude plugin marketplace add The01Geek/devflow-autopilot && claude plugin install devflow@devflow-marketplace
 ```
 
 **Or from inside Claude Code:**
 
 ```text
+/plugin marketplace add anthropics/claude-plugins-official
 /plugin marketplace add The01Geek/devflow-autopilot
 /plugin install devflow@devflow-marketplace
 ```
 
 Then run `/reload-plugins` (or restart) to activate.
 
-That's it for the local tier. DevFlow declares three companion plugins as **dependencies** — `feature-dev`, `pr-review-toolkit`, and `superpowers` (all from the official `claude-plugins-official` marketplace) — and Claude Code **auto-installs them** when you install DevFlow, provided that marketplace is in your configured marketplaces (it is by default). `/simplify` is a built-in Claude Code skill and needs no installation.
+That's it for the local tier. DevFlow declares three companion plugins as **dependencies** — `feature-dev`, `pr-review-toolkit`, and `superpowers` (all from the official `claude-plugins-official` marketplace). The `/plugin install` step **auto-installs them itself** (no `curl`/`install.sh` needed) **as long as `claude-plugins-official` has been added** — which is why the commands above add it first. The official marketplace is *discoverable* by default, but cross-marketplace dependencies only resolve once it's actually **added**; on a fresh machine where it hasn't been, DevFlow lands in the `/plugin` **Errors** tab with `dependency-unsatisfied` until you add the marketplace (then `/reload-plugins`) or install the three plugins manually. The deps install at the same scope as DevFlow and appear in `/plugin` as their own `@claude-plugins-official` entries, not nested under DevFlow. `/simplify` is a built-in Claude Code skill and needs no installation.
+
+> **Not** auto-installed: the **PyYAML** Python dependency (used by DevFlow's shell helpers). Plugin install only resolves companion *plugins* — it never runs `pip`. Install PyYAML yourself per [Prerequisites](#prerequisites) (`python3 -m pip install -r requirements.txt`); `install.sh` also handles it for the cloud tier.
 
 For autonomous GitHub Actions automation (the "cloud tier"), run this from your repo root — the same command installs and later updates it:
 
@@ -91,20 +94,20 @@ See **[`docs/cloud-setup.md`](docs/cloud-setup.md)** for secrets, the GitHub App
 | `/devflow:retrospective` | Stage A brief — per-PR retrospective analysis | subagent only (dispatched by `/devflow-weekly`) |
 | `/devflow:audit-implementations` | Stage B brief — per-pattern intervention drafting | subagent only (dispatched by `/devflow-weekly`) |
 
-**Agents** (`agents/`): `checklist-generator`, `checklist-deduper`, and `checklist-verifier` (used by `/review` and `/review-and-fix` to build, dedupe, and verify the verification checklist), and `github-issue-creator` (used by `/create-issue`).
+**Agents** (`agents/`): `checklist-generator`, `checklist-deduper`, and `checklist-verifier` (used by `/devflow:review` and `/devflow:review-and-fix` to build, dedupe, and verify the verification checklist), and `github-issue-creator` (used by `/create-issue`).
 
-> The bare slash-command forms (`/implement`, …) resolve to the `devflow:`-namespaced skills when the plugin is enabled and there's no name collision. **Note:** `/review`, `/init`, and `/security-review` are also built-in Claude Code commands — to reach DevFlow's reviewer unambiguously (especially from GitHub Actions / `@claude` comments), use the namespaced `/devflow:review`.
+> The bare slash-command forms (`/implement`, …) resolve to the `devflow:`-namespaced skills when the plugin is enabled and there's no name collision. **Note:** `/devflow:review`, `/init`, and `/security-review` are also built-in Claude Code commands — to reach DevFlow's reviewer unambiguously (especially from GitHub Actions / `@claude` comments), use the namespaced `/devflow:review`.
 
 ## Companion plugins (auto-installed dependencies)
 
 | Plugin | Used by | Source |
 |---|---|---|
 | `feature-dev` | `/implement` dispatches `feature-dev:code-explorer` (discovery) and `feature-dev:code-architect` (planning) | `claude-plugins-official` |
-| `pr-review-toolkit` | `/review` runs `code-reviewer`, `silent-failure-hunter`, `comment-analyzer`, `pr-test-analyzer`, and (gated) `type-design-analyzer` | `claude-plugins-official` |
-| `superpowers` | `/review`'s final-pass reviewer (`/superpowers:requesting-code-review`); brainstorming/TDD discipline | `claude-plugins-official` |
+| `pr-review-toolkit` | `/devflow:review` runs `code-reviewer`, `silent-failure-hunter`, `comment-analyzer`, `pr-test-analyzer`, and (gated) `type-design-analyzer` | `claude-plugins-official` |
+| `superpowers` | `/devflow:review`'s final-pass reviewer (`/superpowers:requesting-code-review`); brainstorming/TDD discipline | `claude-plugins-official` |
 | `/simplify` | `/implement` Phase 3.2 self-review | **built-in** Claude Code skill |
 
-Skills degrade gracefully if an optional companion is somehow missing (the review engine falls back to its other reviewers).
+The three `claude-plugins-official` plugins above are **auto-installed** by `/plugin install devflow@devflow-marketplace` (they're declared as dependencies in `plugin.json`) — **provided the `claude-plugins-official` marketplace has been added first** (see [Install](#install)); otherwise DevFlow shows in the `/plugin` Errors tab and you install them manually. `/simplify` is built in. This auto-install covers companion *plugins* only — the **PyYAML** Python dependency is separate and is **not** installed by `/plugin`. Skills degrade gracefully if an optional companion is somehow missing (the review engine falls back to its other reviewers).
 
 ## Project configuration
 
@@ -129,11 +132,11 @@ cp .github/project-config.example.yml .github/project-config.yml
 
 # Scope-Acknowledged Findings
 
-A structured handoff between `/review-and-fix`, `/implement`, `/pr-description`, and `/review` so a Critical finding deliberately deferred during the fix loop is not re-raised as a fresh REJECT by the next review run.
+A structured handoff between `/devflow:review-and-fix`, `/implement`, `/pr-description`, and `/devflow:review` so a Critical finding deliberately deferred during the fix loop is not re-raised as a fresh REJECT by the next review run.
 
 **The handoff, in order.**
 
-1. **`/review-and-fix` Loop Exit** runs a **widens-surface guard** on every Yes-downgrade skip — if the PR diff overlaps the deferred finding's file within ±10 lines, the skip is disqualified. Survivors are emitted as `.devflow/review/<slug>/deferrals.json`.
+1. **`/devflow:review-and-fix` Loop Exit** runs a **widens-surface guard** on every Yes-downgrade skip — if the PR diff overlaps the deferred finding's file within ±10 lines, the skip is disqualified. Survivors are emitted as `.devflow/review/<slug>/deferrals.json`.
 2. **`/implement` Phase 4.0.5** reads that manifest, runs `scripts/file-deferrals.py` to file **one follow-up issue per source file** (body contains the verbatim findings plus a `PR #<N>` cross-link), and rewrites the manifest with deterministic `id: dfr-<6-hex>` + `follow_up` fields.
 3. **`/pr-description`** renders a Scope-Acknowledged Findings block between `<!-- DEVFLOW_DEFERRED_FINDINGS_START -->` / `END` markers in the PR body.
 4. **`/devflow:review` Phase 4.0** (PR mode) runs `scripts/match-deferrals.py`, which validates each deferral against three guards and demotes matched findings to **Informational** before computing the verdict.
@@ -234,7 +237,7 @@ devflow_retrospective:
 .claude-plugin/
 ├── plugin.json          # plugin manifest (declares dependencies)
 └── marketplace.json     # this repo is its own marketplace
-skills/                  # the /implement, /review, /docs, … skills (one SKILL.md each)
+skills/                  # the /implement, /devflow:review, /docs, … skills (one SKILL.md each)
 agents/                  # checklist-generator/-deduper/-verifier, github-issue-creator
 scripts/                 # branch-for-issue.py, config-get.sh, file-deferrals.py,
                          #   match-deferrals.py, parse-acs.py, workpad.py,

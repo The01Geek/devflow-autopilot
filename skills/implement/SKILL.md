@@ -9,7 +9,7 @@ You are the main implementation agent. Execute the full 4-phase lifecycle for a 
 
 **Subagent rule:** Only use the **Agent tool** for context-isolated work (exploration, architecture, documentation). Everything else — planning, implementation, testing, fixing — you do directly.
 
-**Skill rule:** Use the **Skill tool** for `simplify` and `review-and-fix` during code review and `pr-description` for PR documentation.
+**Skill rule:** Use the **Skill tool** for `simplify` and `review-and-fix` during code review and `pr-description` for PR documentation. (`simplify` is the **built-in Claude Code `/simplify` slash-command** — always available, not a DevFlow plugin skill and not in any plugin list; invoke it via `skill: simplify` and never skip the step thinking it's missing.)
 
 **Input:** GitHub issue number provided as `$ARGUMENTS`
 
@@ -28,6 +28,8 @@ Output the phase header at the start of each phase so progress is trackable.
 ## Workpad Reference
 
 Throughout the run you maintain exactly **one** marker-tagged comment on the GitHub issue — the *workpad*. It is the durable progress surface: re-runs and follow-up runs resume from it, and it is the source of truth for the acceptance-criteria gate in Phase 3.
+
+**GitHub autolink hygiene** (every GitHub surface you write — workpad comment, PR body, follow-up issue bodies, completion summary): never put a bare `#` immediately before a number unless it is a real issue or PR reference — GitHub renders `#2` as a link to issue/PR 2, which misleads readers. For an ordinal, count, or list position, spell it out ("item 2", "step 3"), never `#2`. Genuine references like `#123` stay as-is.
 
 ### Workpad section template
 
@@ -272,7 +274,7 @@ If you are unsure whether to scope down, prefer a single fully-in-scope PR. Only
 
 #### 2.2.6 AC-Plan reconciliation (rewrite surface details, never relax intent)
 
-Some ACs name specific identifiers (job names, file paths, function names, command names). If the plan you settled on — or a later refactor in /simplify (3.2) or /review-and-fix (3.3) — uses different identifiers for the *same underlying behavior*, the literal AC text becomes stale and Phase 3.4 will reject a strictly-correct refactor. You may rewrite the affected AC in the workpad **only if** the rewritten text verifies the same observable outcome with the new identifiers; never relax what's verified.
+Some ACs name specific identifiers (job names, file paths, function names, command names). If the plan you settled on — or a later refactor in /simplify (3.2) or /devflow:review-and-fix (3.3) — uses different identifiers for the *same underlying behavior*, the literal AC text becomes stale and Phase 3.4 will reject a strictly-correct refactor. You may rewrite the affected AC in the workpad **only if** the rewritten text verifies the same observable outcome with the new identifiers; never relax what's verified.
 
 Reconciliation steps:
 ```bash
@@ -418,7 +420,7 @@ EOF
 
 ### 3.2 Self-Review with /simplify
 
-Invoke the **Skill tool** with `skill: simplify`.
+Invoke the **Skill tool** with `skill: simplify` — this runs the **built-in Claude Code `/simplify` slash-command**, not a DevFlow plugin skill (so there's no `devflow:` prefix and nothing to install). It ships with Claude Code and is always present; do not treat it as a missing skill or skip this phase.
 
 This runs three review agents in parallel — code-reuse, code-quality, efficiency — and fixes any concrete issues they flag in the diff. It is a fast, single-pass self-review that catches the kinds of issues (existing-utility duplication, hacky patterns, redundant work, unnecessary commentary) that the heavier `review-and-fix` engine in 3.3 would otherwise spend turns on. Running it here keeps 3.3 focused on correctness, contracts, and verification rather than quality nits.
 
@@ -433,7 +435,7 @@ If `/simplify` reported the code was already clean and made no changes, skip the
 
 ### 3.3 Review & Fix
 
-Invoke the **Skill tool** with `skill: review-and-fix`.
+Invoke the **Skill tool** with `skill: review-and-fix` and `args: "--push-each-iteration"`. The flag is load-bearing here: this phase operates on the live draft PR created in 3.1, and `--push-each-iteration` propagates each fix iteration to the remote branch so its CI validates the converging state and progress survives a mid-loop crash. (Direct users of `/devflow:review-and-fix` omit the flag and the loop stays local — see that skill's Input section for the flag's semantics.)
 
 This runs the four-phase review engine in your context:
 1. **Verification checklist** — generates and verifies every dependency interaction, test-mock alignment, data format assumption, and API contract claim against actual source code
@@ -442,10 +444,10 @@ This runs the four-phase review engine in your context:
 
 Follow the skill's instructions. It handles evaluation, fixing, testing, and re-review internally.
 
-After the skill completes (verdict: APPROVE), commit any fixes and push:
+After the skill completes (verdict: APPROVE), flush any residual fixes. With `--push-each-iteration` the loop has already committed and pushed every iteration, so this is normally a no-op — guard the commit so an empty staging area doesn't error:
 ```bash
 git add -A
-git commit -m "fix: address code review feedback for issue #$ARGUMENTS"
+git diff --cached --quiet || git commit -m "fix: address code review feedback for issue #$ARGUMENTS"
 git push
 ```
 
@@ -470,7 +472,7 @@ The gate applies only to criteria currently in the workpad's `## Acceptance Crit
 If non-post-merge criteria remain unchecked after Phase 3.3:
 
 1. If a criterion is satisfiable with a small follow-up edit, do it now (still inside Phase 3) — write the code, run tests, commit (using the `fix:` prefix), tick the box, and continue.
-2. If a criterion's *literal text* is now stale because /simplify or /review-and-fix refactored the structure (e.g. renamed jobs, merged files), but the *underlying behavior* the criterion verifies is preserved in the diff, apply **2.2.6** now: rewrite the AC text in the workpad with a `Decisions / Notes` paper trail, then tick the box.
+2. If a criterion's *literal text* is now stale because /simplify or /devflow:review-and-fix refactored the structure (e.g. renamed jobs, merged files), but the *underlying behavior* the criterion verifies is preserved in the diff, apply **2.2.6** now: rewrite the AC text in the workpad with a `Decisions / Notes` paper trail, then tick the box.
 3. If a criterion is genuinely outside this PR's scope and you missed it during 2.2.5, **go back to 2.2.5 now**: move the item to `Decisions / Notes` as deferred, rewrite the Acceptance Criteria section, PATCH, and re-run this gate against the narrowed set. Then continue to Phase 4.
 4. Otherwise — i.e. the criterion is in-scope but you cannot satisfy it AND it is not tagged `(post-merge)` — `workpad.py update $ISSUE_NUMBER --status Blocked --reflection "AC unmet (in-scope, not post-merge): {AC text}"`, then stop the run with a clear report to the user. Do **not** advance to Phase 4 with unmet in-scope, non-post-merge criteria.
 
@@ -609,7 +611,7 @@ Before reporting completion, verify ALL phases executed:
 
 - Phase 1: Issue fetched, branch exists, workpad initialized with Acceptance Criteria mirrored
 - Phase 2: For `bug`-labelled issues, reproduction signal recorded; if the issue spans multiple PRs, the 2.2.5 scope-adjustment rule was applied and the workpad's Acceptance Criteria section now contains only in-scope items; the 2.3.0 changed-contract sweep (re-run after any merge/rebase) and the 2.3.4 boundary-assumption sweep both ran over the diff — each cross-boundary claim verified against its source of truth, or routed to `(post-merge)` with a reflection note; code committed and pushed
-- Phase 3: Draft PR created, `/simplify` ran (fixes committed if any), `/review-and-fix` ran, acceptance criteria gate passed (PR still draft)
+- Phase 3: Draft PR created, `/simplify` ran (fixes committed if any), `/devflow:review-and-fix` ran, acceptance criteria gate passed (PR still draft)
 - Phase 4: If any criteria were deferred in 2.2.5, follow-up issue(s) filed in 4.0; if /devflow:review-and-fix emitted a deferrals manifest, follow-up issue(s) filed in 4.0.5 and the manifest hydrated; docs updated and "Documented" label applied; PR description generated via `/pr-description`; PR marked ready; workpad finalized with `Status: Complete`
 
 Verify each `Status` PATCH actually landed at the time it was issued (see the Update protocol's "Always verify a PATCH that changes `Status` actually landed" rule). If a phase was skipped or a `Status` PATCH didn't land, go back and complete it now. In particular:

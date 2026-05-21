@@ -25,6 +25,8 @@ LIB="${CLAUDE_SKILL_DIR}/../../lib"
 All scratch files live under `.devflow/tmp/` (gitignored). Learnings files
 (`.devflow/learnings/`) are tracked and committed via the state PR.
 
+**GitHub autolink hygiene** (any text you compose that lands on a GitHub surface — issue/PR titles, the state-PR report comment, body content you assemble): never put a bare `#` immediately before a number unless it is a real issue or PR reference — GitHub renders `#2` as a link to issue/PR 2, which misleads readers. For an ordinal, count, or list position, spell it out ("item 2", "step 3"), never `#2`. Genuine references like `#123` stay as-is.
+
 ---
 
 ## Procedure

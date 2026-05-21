@@ -1,14 +1,16 @@
 ---
 name: review-and-fix
 description: Use when you need findings on a PR or current branch to be auto-applied, not just reported.
-argument-hint: pr-number
+argument-hint: "[pr-number] [--push-each-iteration]"
 ---
 
 # /devflow:review-and-fix — Review, Fix, and Verify Loop
 
 You are the review-and-fix orchestrator. Run /devflow:review's review engine, fix the findings it surfaces, and re-run until the engine returns a clean verdict.
 
-**Input:** Optional PR number as `$ARGUMENTS`. If omitted, review and fix the current branch.
+**Input:** `$ARGUMENTS` may contain an optional PR number and/or the flag `--push-each-iteration`. Parse the two independently — either, both, or neither may be present (`863`, `--push-each-iteration`, `863 --push-each-iteration`, or empty). If no PR number is given, review and fix the current branch. The numeric token (if any) is `$PR_NUMBER` throughout this skill.
+
+**`--push-each-iteration` (default off).** When set, the loop runs `git push` after each iteration's fix commit (Step 3, item 6), so the remote PR branch — and any CI attached to it — tracks every iteration. When absent (the default, and the expected mode for direct user invocation), the loop commits locally and never touches the remote. The flag governs *commit propagation only*; it does NOT post a verdict to GitHub (`gh pr review` / `gh pr comment`) in either case — the skill stays silent on verdicts by design (see "Engine source of truth"). `/devflow:implement` sets this flag at its Phase 3.3 because it operates on a live draft PR with CI; direct users normally omit it. The flag is orthogonal to loop correctness: the loop sees its own fixes regardless of pushing (current-branch mode diffs against local `HEAD`; PR mode uses the head-override in Step 1).
 
 **Key principle:** You perform fixes DIRECTLY in this session. Do NOT delegate fixes to a subagent. You need full conversation context to apply `superpowers:receiving-code-review` principles (technical evaluation, pushback, verification).
 
@@ -179,6 +181,20 @@ Output: `Review iteration {N}/4...`
 
 If N ≥ 2: read `iter-<N-1>.json` from the workpad before proceeding.
 
+### Step 0.5: PR-mode branch sync (PR mode only)
+
+Skip this step entirely in current-branch mode (no `$PR_NUMBER`) — that mode already commits to and diffs against the checked-out branch.
+
+In PR mode, this step makes the loop's local fix commits and the engine's diff agree. On **iteration 1**, ensure the PR's head branch is the checked-out branch, so Step 3's fix commits land on the PR's branch and local `HEAD` *is* the PR head:
+
+```bash
+gh pr checkout $PR_NUMBER   # checks out (and tracks) the PR's head branch
+```
+
+If you are already on the PR's head branch (compare `git branch --show-current` against the `headRefName` resolved in the engine's Phase 0.2), this is a fast no-op. If `gh pr checkout` fails (e.g. dirty working tree, detached HEAD), **stop and report** — do not commit fixes onto the wrong branch.
+
+Keeping local `HEAD` equal to the PR head is what lets Step 1's head-override (passed on every PR-mode iteration) diff against the fix commits this loop makes — see that step for the rationale.
+
 ### Step 0.9: Fix-delta handoff (skip on iter 1)
 
 On iteration 1, skip this step — there is no prior iteration to hand off from. Proceed directly to Step 1.
@@ -218,6 +234,8 @@ Log: `Fix-delta handoff: iter-{N-1} fix touched {len(fix_files)} file(s) ({names
 **Why path-based loading, not `Skill: "devflow:review"`.** The `Skill` tool *executes* a skill end-to-end; it would run /devflow:review's Phase 4.4 (formal GitHub post) before this loop has converged, defeating the deferred-post design. We need /devflow:review's phases as a *procedure read inline*, not as an opaque invocation. The path-coupling that follows is the price of that: the glob assumes the plugin layout `<plugin-root>/skills/<skill-name>/SKILL.md` (per the agentskills.io convention) — `**` absorbs depth changes, but the `skills/review/` sub-path is load-bearing. If that layout ever changes, update the glob pattern here and in the "Engine sharing" paragraph at the top of /devflow:review's SKILL.md.
 
 When iter N≥2, hand off the `fix_files`, `prior_checklist`, and `prior_phase3_findings` computed in Step 0.9 into the engine's Phase 1 (generator variance-recovery prompt block), Phase 2 (narrow-reuse — Phase 2.0.5), and Phase 3 (prior-findings context block). Phase 1+2 always run; their *outputs* may be smaller because Phase 2.0.5 reuses some prior verdicts, but the phases themselves do not skip.
+
+**PR-mode head-override (every PR-mode iteration).** In PR mode, pass `head_override = local` into the engine's Phase 0.2 — see /devflow:review's Phase 0.2 "Caller head-override" for the mechanic (it diffs against local `HEAD` instead of re-fetching `gh pr diff`). This is what makes the engine review the fix commits this loop has made locally rather than stale pushed state: on iteration 1 (no fixes yet, branch freshly synced in Step 0.5) it is diff-identical to the remote fetch, and from iteration 2 on it keeps the loop off pre-fix code. Because convergence rides on this override and not on pushing, a no-push PR-mode run (`--push-each-iteration` absent) still converges. Current-branch mode needs no override — it already diffs against local `HEAD`.
 
 Skip /devflow:review's Phase 4.4 (formal GitHub review posting). The fix loop is silent on GitHub by design — the final report is emitted to chat only at Loop Exit. A human who wants a formal merge signal runs `/devflow:review <PR>` separately.
 
@@ -391,7 +409,13 @@ Apply the `superpowers:receiving-code-review` principles. After Step 2.5, the fi
    ```bash
    git add -A && git commit -m "fix: address review findings (iteration {N})"
    ```
-   This ensures the next review iteration sees the updated code in the diff. Capture the resulting SHA (`git rev-parse HEAD`) and write it to the iter-N workpad as `fix_commit_sha` — Step 0.9 of iter-(N+1) reads it.
+   Capture the resulting SHA (`git rev-parse HEAD`) and write it to the iter-N workpad as `fix_commit_sha` — Step 0.9 of iter-(N+1) reads it.
+
+   **If `--push-each-iteration` is set**, push immediately after the commit so the remote PR branch (and its CI) tracks this iteration:
+   ```bash
+   git push
+   ```
+   If the push fails (no upstream, rejected non-fast-forward, blocked by policy), do **not** abort the loop — report the failure in chat and continue. Pushing propagates fixes to the remote (CI, crash-durability); it is not what makes the next iteration see them (Step 1's head-override handles that), so a failed push never breaks convergence. When the flag is absent (the default), skip the push entirely.
 
 7. **Persist the workpad.** Before looping, write `iter-<N>.json` with: fix_commit_sha, fix_files (`git diff --name-only HEAD~1 HEAD`), the iter-N checklist + verdicts (each item flagged `reused_from_iter_prev: true|false` to record whether Phase 2.0.5's narrow-reuse path was taken), Phase 3 findings (each with `defect_signature`, `step25_classification`, and the matching `fix_decision` so iter-(N+1)'s Phase 3 handoff has the full record), `fix_decisions` (one entry per finding using the shape shown in the workpad schema example: `applied` entries carry `{finding_id, decision, commit}`; `pushed_back` / `deferred` entries carry the structured pushback fields `{source_file, claim_text, skip_category, evidence}` from Step 3 item 5 where `skip_category` is one of the values in the `skip_category` enum (authoritative) table; `advisory` entries — written by Step 2.5 at demotion time, not here — carry `skip_category: "advisory-parked"` plus the demotion `evidence`), convergence_inputs, `cap_drops` (from /devflow:review's Phase 1.1.5 output — see that skill for the shape), and telemetry (best-effort — see Loop Exit). The `shadow` block, if any, is appended later by Step 2.6 and is not populated here.
 

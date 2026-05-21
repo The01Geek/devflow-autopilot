@@ -43,6 +43,8 @@ If either command fails (non-zero exit code), stop immediately and report: "Fail
 
 Use the PR diff output for Phase 1. Store the head branch name, `baseRefOid` as `$PR_BASE_SHA`, and `headRefOid` as `$PR_HEAD_SHA` — Phase 1's per-file slicing needs them (see Phase 1.1).
 
+**Caller head-override (fix-loop reuse).** A wrapping skill (currently `/devflow:review-and-fix`) may pass `head_override = local`. When set, take the PR's head from the local working tree instead of the API: set `$PR_HEAD_SHA=$(git rev-parse HEAD)` and fetch the diff with `git diff "$PR_BASE_SHA...HEAD"` instead of `gh pr diff $ARGUMENTS`. This lets a fix loop review commits it has made locally but not yet pushed — the remote `headRefOid` would otherwise lag behind and the loop would re-review pre-fix code. It requires the PR's head branch to be the checked-out branch; the caller guarantees this (review-and-fix does so in its Step 0.5). When `head_override` is absent — standalone `/devflow:review`, the default — use the API head exactly as above; do **not** diff against local `HEAD`, since a standalone review must reflect the pushed PR state, not a dirty or stale local checkout.
+
 **Note on `gh pr diff` path filtering.** `gh pr diff <N>` does NOT support path arguments — `gh pr diff <N> -- <file>` errors with `accepts at most 1 arg(s)` (cli/cli#5398, unresolved). When you need per-file slicing in Phase 1.1, use `git diff "$PR_BASE_SHA...$PR_HEAD_SHA" -- <paths>` instead, or pipe the full `gh pr diff` through `filterdiff -i '<pattern>'` if `patchutils` is installed.
 
 **If no argument (review current branch):**
@@ -68,6 +70,8 @@ mkdir -p .devflow/review/<slug>
 gh pr diff $ARGUMENTS | tee .devflow/review/<slug>/diff.patch
 # or, in current-branch mode:
 # git diff origin/main...HEAD | tee .devflow/review/<slug>/diff.patch
+# or, in PR mode with head_override=local (fix-loop reuse — see "Caller head-override"):
+# git diff "$PR_BASE_SHA...HEAD" | tee .devflow/review/<slug>/diff.patch
 ```
 
 This replaces the bare `gh pr diff` / `git diff` invocation at the top of Phase 0.2 — use the `tee` form instead. Store `<slug>` and the resolved diff path (e.g. `.devflow/review/pr-863/diff.patch`) so Phase 3 can substitute it into its agent prompts via `{DIFF_PATH}`. The directory creation is harmless if it already exists; the file is overwritten on every run.
@@ -540,6 +544,8 @@ If the matcher itself errors out (exit code 2), log the failure (`Deferral match
 **Caching note.** The matcher hits the GitHub API once for the PR body + author and once per `follow_up.issue` for the cross-link guard. For a PR with N deferrals, this is N+1 API calls. Tolerable; if it ever becomes a bottleneck, batch the issue reads via `gh api graphql`.
 
 ### 4.1 Build the report
+
+**GitHub autolink hygiene** (this report is posted as a PR comment/review): never put a bare `#` immediately before a number unless it is a real issue or PR reference — GitHub renders `#2` as a link to issue/PR 2, which misleads readers. For an ordinal, count, or list position, spell it out ("item 2", "step 3"), never `#2`. Genuine references like `#123` stay as-is.
 
 Construct the report in this format:
 

@@ -11,7 +11,7 @@ original home in a private product repository.
 
 ### Added
 - `/implement` — 4-phase issue-to-PR orchestrator (setup → implement → review → docs).
-- `/review` and `/review-and-fix` — verification-checklist review engine (report-only and auto-fixing).
+- `/review` and `/devflow:review-and-fix` — verification-checklist review engine (report-only and auto-fixing).
 - `/docs` suite — `docs-sync-internal`, `docs-sync-external`, `docs-bootstrap-internal`, `docs-bootstrap-external`, `docs-verify`, `docs-release-notes`.
 - `/create-issue` and `/pr-description`.
 - Self-improving retrospective loop — `/devflow-weekly`, `/retrospective`, `/audit-implementations`.

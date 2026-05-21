@@ -11,7 +11,7 @@ When the failure pattern recurs, the highest-leverage fix could live on any of t
 
 - **`/implement` skill** (`skills/implement/SKILL.md`) — the orchestrator that drives the four-phase lifecycle. Strengthen a phase, add a check, tighten a gate.
 - **`/create-issue` skill** (`skills/create-issue/SKILL.md`) — the issue-quality entry point. If issues themselves are the bottleneck (vague acceptance criteria, missing repro steps, ambiguous scope), this is where to fix it.
-- **`/review` and `/review-and-fix` skills** — code-review discipline. If review caught a regression too late, the gap belongs here.
+- **`/review` and `/devflow:review-and-fix` skills** — code-review discipline. If review caught a regression too late, the gap belongs here.
 - **Phase sub-skills** (`pr-description`, `docs-sync-internal`, `docs-sync-external`, `docs-release-notes`, `docs-verify`) — narrower behaviors invoked by `/implement`.
 - **Issue templates** (`.github/ISSUE_TEMPLATE/`) — when the failure is structural (humans omit the same field every time), the template itself can encode the requirement.
 

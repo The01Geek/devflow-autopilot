@@ -9,12 +9,12 @@ If `$ARGUMENTS` is empty, ask the user to describe their user story, bug report,
 
 ## Steps
 
-### Step 1: Document current state
-Invoke the `/docs-verify` skill with the topic extracted from the user story (e.g., `/docs-verify survey module`).
+### Step 1: Assess current state (read-only)
+Invoke the `/docs-verify` skill in report-only mode with the topic extracted from the user story (e.g., `/docs-verify --report-only survey module`).
 
-This will verify and update documentation in `docs/internal/` for the relevant features.
+This verifies `docs/internal/` against the code and **returns a findings report** — current behavior, relevant files, and any doc/code drift — **without editing, committing, or pushing anything.**
 
-After the skill completes, commit and push the documentation changes.
+Do not commit or push. Carry the findings — including any drift noted — into Step 3.
 
 ### Step 2: Clarify user story
 

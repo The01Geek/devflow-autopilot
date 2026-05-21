@@ -74,7 +74,7 @@ cat > .claude-plugin/marketplace.json <<'JSON'
     {
       "name": "devflow",
       "source": "./.claude/plugins/devflow",
-      "description": "End-to-end dev workflow: /implement, /review + /review-and-fix, the /docs suite, /create-issue, plus the retrospective loop.",
+      "description": "End-to-end dev workflow: /implement, /review + /devflow:review-and-fix, the /docs suite, /create-issue, plus the retrospective loop.",
       "author": { "name": "Daniel Radman", "email": "daniel@radman.ai" },
       "homepage": "https://github.com/The01Geek/devflow-autopilot",
       "category": "development"

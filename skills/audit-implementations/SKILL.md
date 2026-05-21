@@ -128,6 +128,8 @@ Print **exactly one** JSON object to stdout and stop. Two forms:
 }
 ```
 
+**GitHub autolink hygiene** (your returned `body` and `proposed_change` are posted verbatim as a GitHub PR/issue body): never put a bare `#` immediately before a number unless it is a real issue or PR reference — GitHub renders `#2` as a link to issue/PR 2, which misleads readers. For an ordinal, count, or list position, spell it out ("item 2", "step 3"), never `#2`. Genuine references like `#123` stay as-is.
+
 **PR body structure** (normal form, sections in this order):
 
 ```
