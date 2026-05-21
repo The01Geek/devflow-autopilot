@@ -57,6 +57,20 @@ curl -fsSL https://raw.githubusercontent.com/The01Geek/devflow-autopilot/main/in
 
 See **[`docs/cloud-setup.md`](docs/cloud-setup.md)** for secrets, the GitHub App, and the full guide.
 
+## Updating
+
+- **Local tier** — enable auto-update once and Claude Code pulls new versions at startup; set `autoUpdate` on the marketplace in `~/.claude/settings.json`:
+  ```jsonc
+  "extraKnownMarketplaces": {
+    "devflow-marketplace": {
+      "source": { "source": "github", "repo": "The01Geek/devflow-autopilot" },
+      "autoUpdate": true
+    }
+  }
+  ```
+  Or update on demand: `/plugin marketplace update devflow-marketplace`.
+- **Cloud tier** — re-run the same `install.sh`. It's idempotent: it re-vendors the latest plugin + workflows, keeps your `.github/project-config.yml`, and re-applies any `cloud_secrets:` mapping. (CI requires the plugin vendored in the repo — a marketplace install isn't reachable from the Actions sandbox; see [`docs/cloud-setup.md`](docs/cloud-setup.md#why-the-plugin-is-vendored-not-added-as-a-github-marketplace-in-ci).)
+
 ## Skills and agents
 
 | Skill | What it does | Invoked |
@@ -109,6 +123,7 @@ cp .github/project-config.example.yml .github/project-config.yml
 - `base_branch` — review/merge base (default: repo default branch, else `main`).
 - `devflow_retrospective.*` — settings for `/devflow-weekly` (see [Configuration](#configuration)).
 - `setup.*` — *cloud tier only*: how the GitHub Actions runner provisions its toolchain (`python_version`, `node_version`, `install`) before Claude runs. See [`docs/cloud-setup.md`](docs/cloud-setup.md#runtime-provisioning-setup).
+- `cloud_secrets.*` — *cloud tier only*: optional override of the default secret names (`app_id`, `app_private_key`, `project_pat`); `install.sh` re-applies the mapping to the workflows on every run.
 
 ---
 
@@ -229,6 +244,7 @@ lib/                     # retrospective-loop helpers (*.sh, *.jq), preflight.sh
 .github/                 # optional cloud tier: workflows + composite actions
                          #   + project-config.example.yml
 docs/                    # cloud-setup.md
+install.sh               # one-command cloud-tier install/update for consumer repos
 ```
 
 Skills reference their bundled helpers via `${CLAUDE_SKILL_DIR}` so they resolve from any install location.

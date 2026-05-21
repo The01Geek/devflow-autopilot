@@ -99,10 +99,10 @@ If you don't use a board, delete those three workflows and leave
 
 ## Configure and enable
 
-1. `cp .github/project-config.example.yml .github/project-config.yml` and fill in
-   every `YOUR_*` placeholder. Commit it (it's gitignored by default — use
-   `git add -f .github/project-config.yml`, since the cloud workflows must read it
-   from the checked-out tree).
+1. `install.sh` scaffolds `.github/project-config.yml` from the template (only if
+   absent). Fill in every `YOUR_*` placeholder and commit it — the workflows read
+   it from the checked-out tree, so it must be committed (if your repo gitignores
+   it, force-add: `git add -f .github/project-config.yml`).
 2. The `workflows:` block in that file toggles each workflow on/off.
 3. Make `Devflow Review` a required status check (Settings → Branches → branch
    protection) once you've confirmed it runs.
@@ -150,8 +150,10 @@ Example for a split repo (Docker backend in `server/`, npm frontend in
 
 ## A note on validation
 
-The cloud-tier workflows were validated in their original home repository. When
-adopting them, run a low-stakes test (e.g. open a throwaway issue and `@claude`
-it) before relying on the automation — the exact tool-permission model for
-plugin-bundled scripts in CI depends on how you vendor the plugin and on your
-Claude Code action version.
+After installing (or updating), run a low-stakes test before relying on the
+automation: open a throwaway issue and `@claude` it, and confirm the run
+provisions and responds. The CI permission model is settled — `install.sh`
+vendors the plugin into the workspace, so its scripts resolve at the literal
+`.claude/plugins/devflow/scripts/…` paths the workflows allowlist. (A
+github-marketplace install is deliberately *not* used in CI: the Actions sandbox
+can't reach `~/.claude`, and `CLAUDE_SKILL_DIR` is unset there.)
