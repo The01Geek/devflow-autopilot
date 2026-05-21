@@ -102,6 +102,7 @@ cp .github/project-config.example.yml .github/project-config.yml
 - `claude.allowed_bots` — bot login allowlist; doubles as the **trusted-filer allowlist** for the Scope-Acknowledged Findings contract.
 - `base_branch` — review/merge base (default: repo default branch, else `main`).
 - `devflow_retrospective.*` — settings for `/devflow-weekly` (see [Configuration](#configuration)).
+- `setup.*` — *cloud tier only*: how the GitHub Actions runner provisions its toolchain (`python_version`, `node_version`, `install`) before Claude runs. See [`docs/cloud-setup.md`](docs/cloud-setup.md#runtime-provisioning-setup).
 
 ---
 

@@ -85,6 +85,37 @@ If you don't use a board, delete those three workflows and leave
 3. Make `Devflow Review` a required status check (Settings → Branches → branch
    protection) once you've confirmed it runs.
 
+## Runtime provisioning (`setup:`)
+
+The `@claude` and `/devflow:implement` workflows prepare the runner **before**
+Claude runs by reading a `setup:` block from `.github/project-config.yml`.
+There is no hardcoded toolchain — DevFlow installs into repos of every shape
+(Python package at root, npm frontend, Docker-only backend, polyglot), so you
+declare what your project needs:
+
+```yaml
+setup:
+  python_version: "3.11"   # runs setup-python only if non-empty
+  node_version: ""         # runs setup-node only if non-empty (e.g. "20")
+  install: |               # shell, run verbatim after the language setups
+    python -m pip install pyyaml   # required by DevFlow's own helpers
+    # ── add your project's dependency install below ──
+    # pip install -e ".[dev]"
+    # npm ci --prefix client
+    # pip install -r server/requirements.txt
+```
+
+- `python_version` / `node_version` gate the `actions/setup-python` /
+  `actions/setup-node` steps — leave a value empty to skip that language.
+- `install` is run verbatim; leave it empty to install nothing.
+- **Keep `python_version` set and `pip install pyyaml` present even for
+  non-Python projects** — DevFlow's own helper scripts currently require
+  Python ≥ 3.11 with PyYAML. List DevFlow's deps first, then your project's.
+
+Example for a split repo (Docker backend in `server/`, npm frontend in
+`client/`): keep `python_version: "3.11"` + `pip install pyyaml`, set
+`node_version: "20"`, and add `npm ci --prefix client` to `install`.
+
 ## Workflow inventory
 
 | Workflow | Purpose | Needs |

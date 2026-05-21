@@ -64,6 +64,33 @@ claude_implement:
 claude_runner:
   effort: "medium"
 
+# ── Cloud-tier runtime provisioning ──────────────────────────────────────────
+# How the GitHub Actions runner is prepared BEFORE Claude runs, for the
+# @claude and /devflow:implement workflows. This replaces what used to be a
+# hardcoded `pip install -e ".[dev,all]"` — devflow installs into repos of
+# every shape (Python package at root, npm frontend, Docker-only backend,
+# polyglot), so the toolchain must be declared, not assumed.
+#
+#   python_version  setup-python is run ONLY if this is non-empty. devflow's
+#                   OWN helper scripts currently require Python >= 3.11 with
+#                   PyYAML, so keep this set (and keep `pip install pyyaml` in
+#                   `install`) even for non-Python projects, until devflow's
+#                   bash-only refactor lands.
+#   node_version    setup-node is run ONLY if this is non-empty. Set it (e.g.
+#                   "20") if your project's tests/build need Node.
+#   install         Shell run verbatim after the language setups. Put devflow's
+#                   own deps first, then YOUR project's deps. Empty → skipped.
+#                   Docker-only backends often need nothing here beyond pyyaml.
+setup:
+  python_version: "3.11"
+  node_version: ""
+  install: |
+    python -m pip install pyyaml   # required by devflow's own helpers
+    # ── add your project's dependency install below ──
+    # pip install -e ".[dev]"          # Python package at repo root
+    # npm ci --prefix client           # npm frontend in client/
+    # pip install -r server/requirements.txt
+
 # ── Documentation paths + the /docs suite ────────────────────────────────────
 docs:
   internal: "docs/internal/"
