@@ -7,7 +7,7 @@
   "plugins": [
     {
       "name": "devflow",
-      "source": { "source": "github", "repo": "The01Geek/devflow-autopilot" },
+      "source": "./",
       "description": "End-to-end dev workflow: /implement orchestrator, /review + /review-and-fix engines, the /docs suite, /create-issue, plus the per-PR retrospective + weekly audit loop.",
       "author": { "name": "Daniel Radman", "email": "daniel@radman.ai" },
       "homepage": "https://github.com/The01Geek/devflow-autopilot",
