@@ -49,7 +49,13 @@ Then run `/reload-plugins` (or restart) to activate.
 
 That's it for the local tier. DevFlow declares three companion plugins as **dependencies** — `feature-dev`, `pr-review-toolkit`, and `superpowers` (all from the official `claude-plugins-official` marketplace) — and Claude Code **auto-installs them** when you install DevFlow, provided that marketplace is in your configured marketplaces (it is by default). `/simplify` is a built-in Claude Code skill and needs no installation.
 
-For autonomous GitHub Actions automation, see **[`docs/cloud-setup.md`](docs/cloud-setup.md)**.
+For autonomous GitHub Actions automation (the "cloud tier"), run this from your repo root — the same command installs and later updates it:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/The01Geek/devflow-autopilot/main/install.sh | bash
+```
+
+See **[`docs/cloud-setup.md`](docs/cloud-setup.md)** for secrets, the GitHub App, and the full guide.
 
 ## Skills and agents
 

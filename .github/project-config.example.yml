@@ -44,6 +44,18 @@ app_id: "YOUR_APP_ID"
 # Leave empty if you are not using a dedicated bot account.
 bot_login: ""
 
+# ── Secret name overrides (optional; consumed by install.sh) ─────────────────
+# The workflows reference these GitHub secrets by their DEFAULT names:
+#   DEVFLOW_APP_ID, DEVFLOW_APP_PRIVATE_KEY, PROJECT_PAT (+ CLAUDE_CODE_OAUTH_TOKEN).
+# If your org already stores these under different names, list the mapping here
+# and `install.sh` rewrites the workflow files to your names on EVERY run — so
+# updating the cloud tier never clobbers the remap. Delete this block to use the
+# default names. (CLAUDE_CODE_OAUTH_TOKEN is not remappable — keep that name.)
+# cloud_secrets:
+#   app_id: RADMAN_AI_APP_ID
+#   app_private_key: RADMAN_AI_PRIVATE_KEY
+#   project_pat: DEVFLOW_PAT
+
 # ── Claude action settings ───────────────────────────────────────────────────
 claude:
   # Bot logins allowed to trigger the Claude action (comma-separated).

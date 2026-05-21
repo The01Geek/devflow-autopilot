@@ -8,29 +8,51 @@ and project-board status syncs automatically. This guide sets that up.
 > Everything here is optional. Skip it entirely and DevFlow still works as an
 > in-editor toolkit.
 
-## How the cloud tier finds DevFlow's scripts
+## Install (and update) the cloud tier
 
-The local skills locate their bundled helpers via `${CLAUDE_SKILL_DIR}`. The
-GitHub Actions workflows, however, reference helper scripts at the **literal
-path** `.claude/plugins/devflow/scripts/…`. So the cloud tier expects DevFlow to
-be **vendored into your repository** at `.claude/plugins/devflow/`, served from a
-local-path marketplace. Two ways to do that:
+Run this from the root of your repository — it installs everything (vendored
+plugin, workflows, composite actions, a `project-config.yml` scaffold) and is
+**idempotent, so the same command updates** to the latest later:
 
-1. **Vendor (recommended for CI determinism).** Copy this plugin into your repo at
-   `.claude/plugins/devflow/`, add a repo-root `.claude-plugin/marketplace.json`
-   with a `directory` source, and enable it in `.claude/settings.json`:
-   ```jsonc
-   {
-     "extraKnownMarketplaces": {
-       "devflow-marketplace": { "source": { "source": "directory", "path": "." } }
-     },
-     "enabledPlugins": { "devflow@devflow-marketplace": true }
-   }
-   ```
-2. **Git submodule / subtree** at `.claude/plugins/devflow/` pinned to a release tag.
+```bash
+curl -fsSL https://raw.githubusercontent.com/The01Geek/devflow-autopilot/main/install.sh | bash
+# pin a version instead of tracking main:
+#   curl -fsSL .../install.sh | DEVFLOW_REF=v1.2.0 bash
+```
 
-Then copy the workflow files you want from this repo's `.github/workflows/` and the
-composite actions from `.github/actions/` into your repo.
+Then review with `git diff`, fill in the `YOUR_*` placeholders in
+`.github/project-config.yml`, and commit.
+
+### Why the plugin is vendored (not added as a github marketplace in CI)
+
+The local skills locate their helpers via `${CLAUDE_SKILL_DIR}`, but in the
+`claude-code-action` runner that variable is unset, the bash sandbox cannot read
+`~/.claude` (where a marketplace plugin would install), and `$`-expansion in
+commands is blocked. So the workflows reference helper scripts at the **literal
+workspace path** `.claude/plugins/devflow/scripts/…`, which means the plugin must
+be **vendored into the repo** at `.claude/plugins/devflow/`. `install.sh` does
+this for you and re-vendors on each run.
+
+> **Local editor use is different** — there, add this repo as a github marketplace
+> with auto-update and you never copy files:
+> ```jsonc
+> // ~/.claude/settings.json (or project .claude/settings.json)
+> {
+>   "extraKnownMarketplaces": {
+>     "devflow-marketplace": {
+>       "source": { "source": "github", "repo": "The01Geek/devflow-autopilot" },
+>       "autoUpdate": true
+>     }
+>   },
+>   "enabledPlugins": { "devflow@devflow-marketplace": true }
+> }
+> ```
+
+### Custom secret names
+
+If your repo stores the App/PAT secrets under non-default names, add a
+`cloud_secrets:` block to `.github/project-config.yml` (see the template) and
+`install.sh` rewrites the workflows to your names on every run.
 
 ## Required secrets
 
