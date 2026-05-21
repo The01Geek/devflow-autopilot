@@ -243,7 +243,7 @@ lib/                     # retrospective-loop helpers (*.sh, *.jq), preflight.sh
                          #   intervention-surfaces.md, test/
 .github/                 # optional cloud tier: workflows + composite actions
                          #   + project-config.example.yml
-docs/                    # cloud-setup.md
+docs/                    # cloud-setup.md, implement-skill.md
 install.sh               # one-command cloud-tier install/update for consumer repos
 ```
 
