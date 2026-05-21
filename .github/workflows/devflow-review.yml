@@ -418,6 +418,11 @@ jobs:
       id-token: write
     uses: ./.github/workflows/claude-runner.yml
     with:
+      # Check out the PR HEAD, not the base branch — the review must see the
+      # PR's own content, and a repo bootstrapping the devflow plugin via PR
+      # only has .claude/plugins/devflow on the head (empty falls back to the
+      # default ref).
+      ref: ${{ needs.precheck.outputs.head_sha }}
       prompt: |
         You are running inside the `devflow-review` GitHub
         workflow. The PR number is ${{ needs.precheck.outputs.pr_number }}.

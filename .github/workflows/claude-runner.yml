@@ -41,6 +41,17 @@ on:
         type: string
         required: false
         default: 'review'
+      ref:
+        description: |
+          Git ref/SHA to check out. Empty (default) uses the event's default
+          ref. PR-review callers MUST pass the PR head SHA so the run sees the
+          PR's own content — including any plugin/config/scripts the PR adds —
+          not the base branch. A repo bootstrapping the devflow plugin via PR
+          has no .claude/plugins/devflow on the base branch, so a base checkout
+          fails the plugin install; checking out the PR head fixes that.
+        type: string
+        required: false
+        default: ''
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN:
         description: 'Anthropic Claude Code OAuth token. Pass via `secrets: inherit` from callers.'
@@ -58,6 +69,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.ref }}
           fetch-depth: ${{ inputs.fetch_depth }}
 
       - id: cfg
