@@ -39,7 +39,7 @@ Before opening `intervention-surfaces.md`, check whether the pattern points at a
 - **Retrospective hallucination?** Does the retrospective's `summary` for the occurrence PRs contradict the primary-source evidence (PR/issue bodies, comments, reviews)? If yes, the fix belongs in `skills/retrospective/SKILL.md`, not in a downstream CLAUDE.md rule.
 - **Category vocabulary wrong?** Did the failures get forced into `other`, or into a category that doesn't really fit, because the fixed `categories` vocabulary in `retrospective/SKILL.md` lacks the right bucket — or has a bucket so broad it's useless? (Sub-patterns *within* a category are expected and handled in § 1; this is about the vocabulary itself being mis-designed.) If yes, the fix belongs in that vocabulary in `retrospective/SKILL.md` (and possibly the grouping logic in `lib/compute-patterns.jq`).
 - **Missing primary source?** Did the retrospective miss a piece of context that would have changed the diagnosis (a referenced PR, a CI log, a doc, an issue-comment thread)? If yes, the fix belongs in `fetch-pr-context.sh`.
-- **Threshold mis-tuned?** Are useful patterns suppressed by `cooldown_days` / `min_occurrences`, or surfaced too aggressively? If yes, the fix belongs in `.github/project-config.yml`.
+- **Threshold mis-tuned?** Are useful patterns suppressed by `cooldown_days` / `min_occurrences`, or surfaced too aggressively? If yes, the fix belongs in `.devflow/config.json`.
 
 If **any** answer is yes, the fix targets an exclusion-list path. Return immediately with the excluded form:
 
@@ -66,8 +66,8 @@ scripts/**
 .github/workflows/claude*.yml
 .github/workflows/devflow-*.yml
 .github/actions/**
-.github/project-config.yml
-.github/project-config.example.yml
+.devflow/config.json
+.devflow/config.example.json
 ```
 
 The exclusion limit is **design-review**, not writability. Locally all paths are writable; these route to a meta GitHub issue because they need a human to think about second-order effects on the self-improvement loop.

@@ -1,14 +1,17 @@
 # DevFlow ephemeral working state (review caches, weekly-loop temp files).
-# Keep the committed learnings/ overrides; ignore everything else under .devflow/.
-/.devflow/
+# Ignore everything under .devflow/ EXCEPT the committed overrides/templates
+# below. (Use /.devflow/* — not /.devflow/ — so the negations can re-include;
+# a wholesale dir-ignore can't be overridden per-path.)
+/.devflow/*
 !/.devflow/learnings/
+# Committed config template + schema (shipped). The LIVE .devflow/config.json
+# is NOT listed here, so it stays ignored — each adopter creates their own
+# (it holds project/board IDs). Force-add with `git add -f` to dogfood DevFlow
+# on this very repo and have its cloud workflows read it.
+!/.devflow/config.example.json
+!/.devflow/config.schema.json
 /.devflow-scratch/
 /.devflow-tmp/
-
-# Adopter's live config (copied from project-config.example.yml). Not shipped;
-# each adopter creates their own. Force-add with `git add -f` if you dogfood
-# DevFlow on this very repo and want its cloud workflows to read it.
-/.github/project-config.yml
 
 # Python
 __pycache__/

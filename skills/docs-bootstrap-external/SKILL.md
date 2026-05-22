@@ -2,7 +2,7 @@
 name: docs-bootstrap-external
 description: Use when setting up external documentation for the first time, performing a comprehensive documentation refresh, or when large portions of internal docs need corresponding external docs created.
 ---
-> **Configuration:** Read documentation paths from `.github/project-config.yml`:
+> **Configuration:** Read documentation paths from `.devflow/config.json`:
 > - Internal: `${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .docs.internal docs/internal/`
 > - External: `${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .docs.external docs/external/`
 >

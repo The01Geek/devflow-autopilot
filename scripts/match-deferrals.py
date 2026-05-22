@@ -12,7 +12,7 @@ to demote matched findings to Informational.
 Guards (any failing guard rejects the deferral — finding flows through as
 normal):
     1. Trusted filer:     PR author is in `claude.allowed_bots` from
-                          .github/project-config.yml.
+                          .devflow/config.json.
     2. Mutual cross-link: follow-up issue exists, is open, and its body
                           contains the substring "PR #<N>" (where N is the
                           current PR number).
@@ -66,7 +66,7 @@ LINE_DRIFT_TOLERANCE = 25
 WIDENS_SURFACE_TOLERANCE = 10
 BLOCK_START = "<!-- DEVFLOW_DEFERRED_FINDINGS_START -->"
 BLOCK_END = "<!-- DEVFLOW_DEFERRED_FINDINGS_END -->"
-DEFAULT_CONFIG = ".github/project-config.yml"
+DEFAULT_CONFIG = ".devflow/config.json"
 
 # Rejection reason codes — mirrored verbatim in skills/review/SKILL.md prose.
 # Edit both in lockstep.
@@ -226,7 +226,7 @@ def main(argv=None):
                    help="Path to JSON file with current Phase 3 findings, "
                         "or `-` to read from stdin.")
     p.add_argument("--config", default=DEFAULT_CONFIG,
-                   help="Path to project-config.yml (default: %(default)s).")
+                   help="Path to config.json (default: %(default)s).")
     args = p.parse_args(argv)
 
     diff_path = Path(args.diff)

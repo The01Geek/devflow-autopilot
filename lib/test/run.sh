@@ -160,13 +160,63 @@ assert_eq "missing merged_at does not poison first_seen" \
   "$(echo "$RESULT" | jq -r '.["other"].first_seen')"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "config-get.sh (resolver, direct)"
+# ────────────────────────────────────────────────────────────────────────────
+# The resolver is the single config-reading implementation (conf.sh, workpad.py,
+# match-deferrals.py all delegate to it), so its contract is tested directly here
+# — conf.sh's tests below can't observe exit codes (it swallows them by design).
+CG="$LIB/../scripts/config-get.sh"
+FIX="$LIB/test/fixtures/config.json"
+
+assert_eq "cg: present scalar"          "claude,example-bot" "$("$CG" .claude.allowed_bots '' "$FIX")"
+assert_eq "cg: nested int"              "2"                   "$("$CG" .devflow_retrospective.min_occurrences '' "$FIX")"
+assert_eq "cg: array → comma-join"      "claude,example-bot" "$("$CG" .devflow_retrospective.watched_authors '' "$FIX")"
+assert_eq "cg: leading dot optional"    "2"                   "$("$CG" devflow_retrospective.min_occurrences '' "$FIX")"
+assert_eq "cg: missing key → default"   "fallback"           "$("$CG" .a.b.c fallback "$FIX")"
+assert_eq "cg: descend into scalar → default" "dfl"          "$("$CG" .claude.allowed_bots.nope dfl "$FIX")"
+assert_eq "cg: missing file → default"  "dfl"                "$("$CG" .x dfl /no/such/config.json)"
+
+# Exit-code contract (run.sh uses `set -u`, not `set -e`, so a nonzero is safe).
+"$CG" .a.b.c '' "$FIX" >/dev/null 2>&1
+assert_eq "cg: missing key + empty default → exit 0" "0" "$?"
+# Run from an empty cwd so the default config path is deterministically absent
+# (don't couple this to the repo's live .devflow/config.json being valid JSON).
+( cd "$(mktemp -d)" && "$CG" .nope.nope >/dev/null 2>&1 )
+assert_eq "cg: missing key/file + no default → exit 1" "1" "$?"
+"$CG" "" >/dev/null 2>&1
+assert_eq "cg: empty KEY → exit 2" "2" "$?"
+CG_BAD="$(mktemp)"; printf '{ not valid json' > "$CG_BAD"
+"$CG" .a fallback "$CG_BAD" >/dev/null 2>&1
+assert_eq "cg: invalid JSON → exit 2" "2" "$?"
+rm -f "$CG_BAD"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "conf.sh"
 # ────────────────────────────────────────────────────────────────────────────
-( export DEVFLOW_CONFIG_FILE="$LIB/test/fixtures/project-config.yml"
+( export DEVFLOW_CONFIG_FILE="$LIB/test/fixtures/config.json"
   . "$LIB/conf.sh"
   assert_eq "watched authors from config" "claude,example-bot" "$(devflow_watched_authors)"
   assert_eq "min_occurrences from config" "2" "$(devflow_conf '.devflow_retrospective.min_occurrences' 99)"
   assert_eq "missing key → default" "fallback" "$(devflow_conf '.devflow_retrospective.nonexistent_key_xyz' fallback)"
+)
+# Resilience: conf.sh runs under `set -e`; a missing or malformed config must
+# return the default without aborting the sourcing chain.
+( export DEVFLOW_CONFIG_FILE="/no/such/devflow/config.json"
+  . "$LIB/conf.sh"
+  assert_eq "conf: missing file → default (no abort)" "dflt" "$(devflow_conf '.anything' dflt)"
+)
+( wp="$(mktemp)"; printf '{ not valid json' > "$wp"
+  export DEVFLOW_CONFIG_FILE="$wp"
+  . "$LIB/conf.sh"
+  assert_eq "conf: malformed JSON → default (warns, no abort)" "dflt" "$(devflow_conf '.anything' dflt 2>/dev/null)"
+  rm -f "$wp"
+)
+# watched_authors falls back to claude.allowed_bots when the override array is absent.
+( wp="$(mktemp)"; printf '{"claude":{"allowed_bots":"claude,fallback-bot"}}' > "$wp"
+  export DEVFLOW_CONFIG_FILE="$wp"
+  . "$LIB/conf.sh"
+  assert_eq "conf: watched_authors → allowed_bots fallback" "claude,fallback-bot" "$(devflow_watched_authors)"
+  rm -f "$wp"
 )
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -189,7 +239,7 @@ case "$*" in
 esac
 STUB
 chmod +x "$SCAN_TMP/gh"
-SCAN_OUT="$(DEVFLOW_CONFIG_FILE="$LIB/test/fixtures/project-config.yml" DEVFLOW_GH="$SCAN_TMP/gh" bash "$LIB/scan.sh" 2>/dev/null)"
+SCAN_OUT="$(DEVFLOW_CONFIG_FILE="$LIB/test/fixtures/config.json" DEVFLOW_GH="$SCAN_TMP/gh" bash "$LIB/scan.sh" 2>/dev/null)"
 assert_eq "scan includes unprocessed PR 3"        "true"  "$(echo "$SCAN_OUT" | jq 'any(.[]; .number==3)')"
 assert_eq "scan excludes already-recorded PR 1"   "false" "$(echo "$SCAN_OUT" | jq 'any(.[]; .number==1)')"
 assert_eq "scan excludes devflow/learnings branch" "false" "$(echo "$SCAN_OUT" | jq 'any(.[]; .number==9)')"
@@ -430,8 +480,9 @@ assert_eq "devflow workflow excluded"     "0" "$(ex ".github/workflows/devflow-d
 assert_eq "claude.yml excluded"           "0" "$(ex ".github/workflows/claude.yml")"
 assert_eq "claude-runner.yml excluded"    "0" "$(ex ".github/workflows/claude-runner.yml")"
 assert_eq "non-engine workflow allowed"   "1" "$(ex ".github/workflows/release.yml")"
-assert_eq "project-config excluded"       "0" "$(ex ".github/project-config.yml")"
-assert_eq "project-config.example excluded" "0" "$(ex ".github/project-config.example.yml")"
+assert_eq "config.json excluded"          "0" "$(ex ".devflow/config.json")"
+assert_eq "config.example excluded"       "0" "$(ex ".devflow/config.example.json")"
+assert_eq "config.schema excluded"        "0" "$(ex ".devflow/config.schema.json")"
 assert_eq "learnings data excluded"       "0" "$(ex ".devflow/learnings/overrides.json")"
 assert_eq "get-app-token excluded"        "0" "$(ex ".github/actions/get-app-token/action.yml")"
 assert_eq "stdin mode works"              "0" "$(printf '%s\n' 'CLAUDE.md' '.devflow/learnings/x.json' | bash "$LIB/check-excluded-path.sh" >/dev/null 2>&1; echo $?)"

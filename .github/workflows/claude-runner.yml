@@ -15,14 +15,14 @@ on:
       model:
         description: |
           Claude model to use. Defaults to the `claude_model` value from
-          .github/project-config.yml when empty.
+          .devflow/config.json when empty.
         type: string
         required: false
         default: ''
       effort:
         description: |
           Reasoning effort (low|medium|high|xhigh|max). Defaults to the
-          `claude_runner.effort` value from .github/project-config.yml when
+          `claude_runner.effort` value from .devflow/config.json when
           empty. When the resolved value is "medium", the --effort flag is
           omitted so the model's built-in default applies.
         type: string
@@ -88,11 +88,11 @@ jobs:
           ALLOWED_BOTS=$(echo "$CONFIG_JSON" | jq -r '.claude.allowed_bots // empty')
           EFFORT=$(echo "$CONFIG_JSON" | jq -r '.claude_runner.effort // "medium"')
           if [ -z "$CLAUDE_MODEL" ]; then
-            echo "::error::claude_model is missing from .github/project-config.yml"
+            echo "::error::claude_model is missing from .devflow/config.json"
             exit 1
           fi
           if [ -z "$ALLOWED_BOTS" ]; then
-            echo "::error::claude.allowed_bots is missing from .github/project-config.yml"
+            echo "::error::claude.allowed_bots is missing from .devflow/config.json"
             exit 1
           fi
           {

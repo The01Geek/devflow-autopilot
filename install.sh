@@ -9,7 +9,8 @@
 #   - .claude-plugin/marketplace.json local marketplace pointing at the above
 #   - .github/workflows/*.yml         the @claude / implement / review / board workflows
 #   - .github/actions/*               the composite actions they use
-#   - .github/project-config.yml      scaffolded from the template ONLY if absent
+#   - .devflow/config.json            scaffolded from the template ONLY if absent
+#   - .devflow/config.schema.json     refreshed every run (editor autocomplete)
 #
 # Why vendored (not a github marketplace): in the claude-code-action runner the
 # bash sandbox can't reach ~/.claude and CLAUDE_SKILL_DIR is unset, so the plugin
@@ -23,18 +24,19 @@
 #
 # Secret-name mapping (optional): the workflows reference the default secret
 # names DEVFLOW_APP_ID, DEVFLOW_APP_PRIVATE_KEY, PROJECT_PAT. If your repo uses
-# different names, add a `cloud_secrets:` block to .github/project-config.yml and
+# different names, add a `cloud_secrets` block to .devflow/config.json and
 # this installer rewrites them on EVERY run (so updates never clobber it):
-#   cloud_secrets:
-#     app_id: RADMAN_AI_APP_ID
-#     app_private_key: RADMAN_AI_PRIVATE_KEY
-#     project_pat: DEVFLOW_PAT
+#   "cloud_secrets": {
+#     "app_id": "RADMAN_AI_APP_ID",
+#     "app_private_key": "RADMAN_AI_PRIVATE_KEY",
+#     "project_pat": "DEVFLOW_PAT"
+#   }
 # ============================================================================
 set -euo pipefail
 
 REPO="${DEVFLOW_REPO:-The01Geek/devflow-autopilot}"
 REF="${DEVFLOW_REF:-main}"
-CONFIG=".github/project-config.yml"
+CONFIG=".devflow/config.json"
 
 log() { printf 'devflow-install: %s\n' "$1"; }
 die() { printf 'devflow-install: %s\n' "$1" >&2; exit 1; }
@@ -99,28 +101,44 @@ for a in dedupe-pr-events get-app-token read-project-config; do
   fi
 done
 
-# 5. project-config scaffold — never clobber an existing one.
+# 5. config scaffold — never clobber an existing one; always refresh the schema.
+mkdir -p .devflow
+cp "$SRC/.devflow/config.schema.json" .devflow/config.schema.json
 if [ -f "$CONFIG" ]; then
   log "keeping existing $CONFIG"
 else
-  cp "$SRC/.github/project-config.example.yml" "$CONFIG"
+  cp "$SRC/.devflow/config.example.json" "$CONFIG"
   log "scaffolded $CONFIG — fill in the YOUR_* placeholders before enabling workflows"
 fi
 
-# 6. Apply secret-name mapping from `cloud_secrets:` in project-config.yml (idempotent).
-#    Minimal grep/sed parser (no yq dependency on the consumer's machine).
+# 6. Apply secret-name mapping from `cloud_secrets` in config.json (idempotent).
+#    Reading a value out of JSON safely needs a real parser. We use jq, else
+#    node (one of which is present on essentially every dev/CI machine). We do
+#    NOT hand-roll a sed/grep JSON reader: scoping `cloud_secrets` with a
+#    `/}/`-terminated sed range collapses on single-line/compact JSON and can
+#    misread the top-level `app_id` (the App ID) as a secret name, silently
+#    rewriting workflows. cloud_secrets is a rare advanced feature; if it is set
+#    on a machine with neither jq nor node, we stop with an actionable message
+#    rather than risk corrupting the workflow files.
+_json_secret() {  # $1=key under cloud_secrets → prints value or ""
+  if command -v jq >/dev/null 2>&1; then
+    jq -r --arg k "$1" '.cloud_secrets[$k] // ""' "$CONFIG" 2>/dev/null
+  else
+    DEVFLOW_K="$1" node -e 'try{const o=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(((o.cloud_secrets||{})[process.env.DEVFLOW_K])||"")}catch(e){}' "$CONFIG" 2>/dev/null
+  fi
+}
 map_secret() {  # $1=config-key  $2=default-secret-name
-  local val
-  val="$(sed -n "/^cloud_secrets:/,/^[^[:space:]]/p" "$CONFIG" 2>/dev/null \
-        | sed -n "s/^[[:space:]]\{1,\}$1:[[:space:]]*[\"']\{0,1\}\([A-Za-z0-9_]\{1,\}\)[\"']\{0,1\}[[:space:]]*$/\1/p" \
-        | head -n1)"
+  local val; val="$(_json_secret "$1")"
   if [ -n "$val" ] && [ "$val" != "$2" ]; then
     log "secret remap: $2 → $val"
     grep -rl --include='*.yml' "$2" .github/workflows .github/actions 2>/dev/null \
       | while IFS= read -r f; do sed -i "s/\\b$2\\b/$val/g" "$f"; done
   fi
 }
-if [ -f "$CONFIG" ] && grep -q "^cloud_secrets:" "$CONFIG" 2>/dev/null; then
+if [ -f "$CONFIG" ] && grep -q '"cloud_secrets"' "$CONFIG" 2>/dev/null; then
+  if ! command -v jq >/dev/null 2>&1 && ! command -v node >/dev/null 2>&1; then
+    die "config has a cloud_secrets block but neither jq nor node is available to read it. Install jq (or node) and re-run, or remove cloud_secrets and use the default secret names (DEVFLOW_APP_ID, DEVFLOW_APP_PRIVATE_KEY, PROJECT_PAT)."
+  fi
   map_secret app_id           DEVFLOW_APP_ID
   map_secret app_private_key  DEVFLOW_APP_PRIVATE_KEY
   map_secret project_pat      PROJECT_PAT

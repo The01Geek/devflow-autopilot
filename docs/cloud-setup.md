@@ -11,7 +11,7 @@ and project-board status syncs automatically. This guide sets that up.
 ## Install (and update) the cloud tier
 
 Run this from the root of your repository — it installs everything (vendored
-plugin, workflows, composite actions, a `project-config.yml` scaffold) and is
+plugin, workflows, composite actions, a `.devflow/config.json` scaffold) and is
 **idempotent, so the same command updates** to the latest later:
 
 ```bash
@@ -21,7 +21,7 @@ curl -fsSL https://raw.githubusercontent.com/The01Geek/devflow-autopilot/main/in
 ```
 
 Then review with `git diff`, fill in the `YOUR_*` placeholders in
-`.github/project-config.yml`, and commit.
+`.devflow/config.json`, and commit.
 
 ### Why the plugin is vendored (not added as a github marketplace in CI)
 
@@ -51,7 +51,7 @@ this for you and re-vendors on each run.
 ### Custom secret names
 
 If your repo stores the App/PAT secrets under non-default names, add a
-`cloud_secrets:` block to `.github/project-config.yml` (see the template) and
+`cloud_secrets` block to `.devflow/config.json` (see the template) and
 `install.sh` rewrites the workflows to your names on every run.
 
 ## Required secrets
@@ -78,7 +78,7 @@ actions are attributable to a bot identity and can write to Projects.
 2. Generate a private key (downloads a `.pem`).
 3. Install the App on your repository.
 4. Put the App ID in `DEVFLOW_APP_ID` and the PEM in `DEVFLOW_APP_PRIVATE_KEY`.
-5. Set `app_id` and `bot_login` in `.github/project-config.yml` accordingly.
+5. Set `app_id` and `bot_login` in `.devflow/config.json` accordingly.
 
 The composite action `.github/actions/get-app-token` exchanges these for a
 short-lived installation token.
@@ -89,8 +89,8 @@ The `move-to-in-progress`, `sync-pr-status-to-issue`, and `close-released-items`
 workflows update a GitHub Project board. To use them:
 
 1. Create a Project board and note its number (from the URL).
-2. Set `project_number` and the `statuses:` field values in
-   `.github/project-config.yml` to **exactly** match your board's Status field
+2. Set `project_number` and the `statuses` field values in
+   `.devflow/config.json` to **exactly** match your board's Status field
    options.
 3. Provide `PROJECT_PAT`.
 
@@ -99,44 +99,45 @@ If you don't use a board, delete those three workflows and leave
 
 ## Configure and enable
 
-1. `install.sh` scaffolds `.github/project-config.yml` from the template (only if
+1. `install.sh` scaffolds `.devflow/config.json` from the template (only if
    absent). Fill in every `YOUR_*` placeholder and commit it — the workflows read
    it from the checked-out tree, so it must be committed (if your repo gitignores
-   it, force-add: `git add -f .github/project-config.yml`).
-2. The `workflows:` block in that file toggles each workflow on/off.
+   it, force-add: `git add -f .devflow/config.json`).
+2. The `workflows` block in that file toggles each workflow on/off.
 3. Make `Devflow Review` a required status check (Settings → Branches → branch
    protection) once you've confirmed it runs.
 
-## Runtime provisioning (`setup:`)
+## Runtime provisioning (`setup`)
 
 The `@claude` and `/devflow:implement` workflows prepare the runner **before**
-Claude runs by reading a `setup:` block from `.github/project-config.yml`.
+Claude runs by reading a `setup` block from `.devflow/config.json`.
 There is no hardcoded toolchain — DevFlow installs into repos of every shape
 (Python package at root, npm frontend, Docker-only backend, polyglot), so you
 declare what your project needs:
 
-```yaml
-setup:
-  python_version: "3.11"   # runs setup-python only if non-empty
-  node_version: ""         # runs setup-node only if non-empty (e.g. "20")
-  install: |               # shell, run verbatim after the language setups
-    python -m pip install pyyaml   # required by DevFlow's own helpers
-    # ── add your project's dependency install below ──
-    # pip install -e ".[dev]"
-    # npm ci --prefix client
-    # pip install -r server/requirements.txt
+```json
+"setup": {
+  "python_version": "3.11",
+  "node_version": "",
+  "install": [
+    "python -m pip install pyyaml",
+    "pip install -e \".[dev]\"",
+    "npm ci --prefix client"
+  ]
+}
 ```
 
 - `python_version` / `node_version` gate the `actions/setup-python` /
-  `actions/setup-node` steps — leave a value empty to skip that language.
-- `install` is run verbatim; leave it empty to install nothing.
+  `actions/setup-node` steps — leave a value empty (`""`) to skip that language.
+- `install` is an **array of shell lines**, joined with newlines and run
+  verbatim after the language setups; leave it `[]` to install nothing.
 - **Keep `python_version` set and `pip install pyyaml` present even for
   non-Python projects** — DevFlow's own helper scripts currently require
   Python ≥ 3.11 with PyYAML. List DevFlow's deps first, then your project's.
 
 Example for a split repo (Docker backend in `server/`, npm frontend in
-`client/`): keep `python_version: "3.11"` + `pip install pyyaml`, set
-`node_version: "20"`, and add `npm ci --prefix client` to `install`.
+`client/`): keep `"python_version": "3.11"` + `pip install pyyaml`, set
+`"node_version": "20"`, and add `npm ci --prefix client` to the `install` array.
 
 ## Workflow inventory
 

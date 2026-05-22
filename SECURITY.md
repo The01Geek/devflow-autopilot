@@ -19,7 +19,7 @@ workflows. A few areas warrant care:
   `DEVFLOW_APP_ID` and `DEVFLOW_APP_PRIVATE_KEY` (and a `PROJECT_PAT` for board
   sync). Never commit these. Store them as encrypted GitHub Actions secrets.
   See `docs/cloud-setup.md`.
-- **`project-config.yml` is gitignored** by default precisely so adopters don't
+- **`config.json` is gitignored** by default precisely so adopters don't
   accidentally commit project board numbers, App IDs, or bot logins. Treat it as
   environment configuration.
 - **Skills run shell commands.** DevFlow's skills execute `git`, `gh`, `jq`, and

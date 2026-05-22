@@ -40,7 +40,7 @@ for p in "${paths[@]}"; do
             excluded+=("$p") ;;
         .github/workflows/claude*.yml|.github/workflows/devflow-*.yml)
             excluded+=("$p") ;;
-        .github/project-config.yml|.github/project-config.example.yml)
+        .devflow/config.json|.devflow/config.example.json|.devflow/config.schema.json)
             excluded+=("$p") ;;
     esac
 done

@@ -11,7 +11,7 @@ from arguments + live GitHub state on each call.
 
 All subcommands shell out to `gh` for GitHub API access (same auth path as
 the rest of devflow). The workpad marker is read from
-`.github/project-config.yml` via the bundled `config-get.sh` helper, falling
+`.devflow/config.json` via the bundled `config-get.sh` helper, falling
 back to the built-in default `<!-- devflow:workpad -->` when the config file or
 key is absent (so it works with no config).
 
@@ -70,7 +70,7 @@ _DEFAULT_WORKPAD_MARKER = '<!-- devflow:workpad -->'
 
 
 def _workpad_marker():
-    # Read the marker from .github/project-config.yml, but fall back to the
+    # Read the marker from .devflow/config.json, but fall back to the
     # built-in default so the local tier works with no config file at all.
     here = Path(__file__).resolve().parent
     helper = here / 'config-get.sh'

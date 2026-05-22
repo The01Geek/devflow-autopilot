@@ -72,7 +72,7 @@ See **[`docs/cloud-setup.md`](docs/cloud-setup.md)** for secrets, the GitHub App
   }
   ```
   Or update on demand: `/plugin marketplace update devflow-marketplace`.
-- **Cloud tier** — re-run the same `install.sh`. It's idempotent: it re-vendors the latest plugin + workflows, keeps your `.github/project-config.yml`, and re-applies any `cloud_secrets:` mapping. (CI requires the plugin vendored in the repo — a marketplace install isn't reachable from the Actions sandbox; see [`docs/cloud-setup.md`](docs/cloud-setup.md#why-the-plugin-is-vendored-not-added-as-a-github-marketplace-in-ci).)
+- **Cloud tier** — re-run the same `install.sh`. It's idempotent: it re-vendors the latest plugin + workflows, keeps your `.devflow/config.json`, and re-applies any `cloud_secrets` mapping. (CI requires the plugin vendored in the repo — a marketplace install isn't reachable from the Actions sandbox; see [`docs/cloud-setup.md`](docs/cloud-setup.md#why-the-plugin-is-vendored-not-added-as-a-github-marketplace-in-ci).)
 
 ## Skills and agents
 
@@ -114,10 +114,10 @@ The three `claude-plugins-official` plugins above are **auto-installed** by `/pl
 The local tier needs **no config** — every value has a built-in default. To customize, copy the template:
 
 ```bash
-cp .github/project-config.example.yml .github/project-config.yml
+cp .devflow/config.example.json .devflow/config.json
 ```
 
-(The live `project-config.yml` is gitignored so you don't commit project/board IDs.) Keys the skills read:
+(The live `config.json` is gitignored so you don't commit project/board IDs. Your editor reads `config.schema.json` for autocomplete + field descriptions.) Keys the skills read:
 
 - `docs.internal`, `docs.external` — documentation paths (read by the `/docs` family and `/implement`).
 - `docs.release_notes_file`, `docs.documented_label` — release-notes path + the label `/implement` applies after its docs pass.
@@ -212,24 +212,32 @@ When an actionable pattern's best fix touches one of DevFlow's **own engine file
 skills/**          agents/**          lib/**          scripts/**
 .claude-plugin/**  .devflow/learnings/**
 .github/workflows/claude*.yml  .github/workflows/devflow-*.yml
-.github/actions/**  .github/project-config.yml  .github/project-config.example.yml
+.github/actions/**  .devflow/config.json  .devflow/config.example.json  .devflow/config.schema.json
 ```
 
 ## Configuration
 
-Under `devflow_retrospective:` in `.github/project-config.yml` (all optional — defaults shown):
+Under `devflow_retrospective` in `.devflow/config.json` (all optional — defaults shown):
 
-```yaml
-devflow_retrospective:
-  enabled: true
-  watched_authors: []                  # defaults to claude.allowed_bots
-  implementation_branch_prefix: "claude/"  # your bot's PR branch prefix
-  min_occurrences: 2                   # times a pattern must recur to be actionable
-  cooldown_days: 3                     # skip a pattern if an open audit PR is younger than this
-  max_prs_per_run: 500                 # cap on PRs processed per run
-  retrospective_model: ""              # optional --model override for Stage A
-  audit_model: ""                      # optional --model override for Stage B
+```json
+"devflow_retrospective": {
+  "enabled": true,
+  "watched_authors": [],
+  "implementation_branch_prefix": "claude/",
+  "min_occurrences": 2,
+  "cooldown_days": 3,
+  "max_prs_per_run": 500,
+  "retrospective_model": "",
+  "audit_model": ""
+}
 ```
+
+- `watched_authors` — defaults to `claude.allowed_bots` when `[]`.
+- `implementation_branch_prefix` — your bot's PR branch prefix.
+- `min_occurrences` — times a pattern must recur to be actionable.
+- `cooldown_days` — skip a pattern if an open audit PR is younger than this.
+- `max_prs_per_run` — cap on PRs processed per run.
+- `retrospective_model` / `audit_model` — optional `--model` overrides for Stage A / Stage B.
 
 ## Repository layout
 
@@ -245,7 +253,7 @@ scripts/                 # branch-for-issue.py, config-get.sh, file-deferrals.py
 lib/                     # retrospective-loop helpers (*.sh, *.jq), preflight.sh,
                          #   intervention-surfaces.md, test/
 .github/                 # optional cloud tier: workflows + composite actions
-                         #   + project-config.example.yml
+.devflow/                # config.example.json + config.schema.json (+ learnings/)
 docs/                    # cloud-setup.md, implement-skill.md
 install.sh               # one-command cloud-tier install/update for consumer repos
 ```
