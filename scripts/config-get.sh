@@ -14,7 +14,7 @@
 # Parses with Node (`node`), which is guaranteed wherever the DevFlow plugin
 # runs (Claude Code is a Node CLI) and preinstalled on GitHub runners — no
 # Python, PyYAML, or yq required. This is the ONE config-reading implementation
-# in DevFlow; lib/conf.sh delegates here.
+# in DevFlow; lib/config-source.sh delegates here.
 #
 # Exit codes:
 #   0  value (or default) printed to stdout

@@ -21,8 +21,8 @@ set -euo pipefail
 
 : "${DEVFLOW_GH:=gh}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=./conf.sh
-. "$HERE/conf.sh"
+# shellcheck source=./config-source.sh
+. "$HERE/config-source.sh"
 
 EXPLICIT_PRS=""
 while [[ $# -gt 0 ]]; do

@@ -1,9 +1,9 @@
 ---
-name: audit-implementations
-description: "Stage B of /devflow-weekly: given the bundled context of every occurrence PR for one recurring pattern, re-derive the root cause, make the intervention edits in the working tree, and return the touched paths + PR title + PR body as JSON. Invoked as a subagent on a branch the orchestrator already created."
+name: retrospective-audit
+description: "Stage B of /devflow:retrospective-weekly: given the bundled context of every occurrence PR for one recurring pattern, re-derive the root cause, make the intervention edits in the working tree, and return the touched paths + PR title + PR body as JSON. Invoked as a subagent on a branch the orchestrator already created."
 ---
 
-# audit-implementations — Stage B Drafting Brief
+# retrospective-audit — Stage B Drafting Brief
 
 You are the optimizer side of the devflow self-improving loop, invoked as a **subagent** for ONE recurring failure pattern. You are given:
 
@@ -84,7 +84,7 @@ Examples of valid surfaces:
 - Strengthen an existing CLAUDE.md rule with a more visible warning and a linkable example.
 - Add or tighten a linter/static-analysis rule that catches the broken pattern mechanically.
 - Edit `docs/internal/<feature>.md` to fill a gap the bot kept missing.
-- Update the `/create-issue` or `/implement` skill to require a missing check.
+- Update the `/create-issue` or `/devflow:implement` skill to require a missing check.
 
 ---
 

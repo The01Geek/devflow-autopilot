@@ -1,15 +1,7 @@
 {
   "$schema": "./config.schema.json",
-  "project_number": "YOUR_PROJECT_NUMBER",
   "base_branch": "main",
   "claude_model": "claude-opus-4-7",
-  "statuses": {
-    "in_progress": "In Progress",
-    "ai_pr_drafted": "AI PR Drafted",
-    "released": "Released",
-    "closed": "Closed"
-  },
-  "bot_login": "",
   "claude": {
     "allowed_bots": "claude,dependabot",
     "workpad_marker": "<!-- devflow:workpad -->",
@@ -37,9 +29,6 @@
     "release_notes_file": "docs/external/release-notes.md",
     "documented_label": "Documented"
   },
-  "security_audit": {
-    "effort": "medium"
-  },
   "devflow_retrospective": {
     "enabled": true,
     "retrospective_model": "claude-sonnet-4-6",
@@ -51,10 +40,6 @@
   },
   "workflows": {
     "claude": true,
-    "close-released-items": true,
-    "move-to-in-progress": true,
-    "sync-pr-status-to-issue": true,
-    "devflow-review": true,
-    "security_audit": true
+    "devflow-review": true
   }
 }
