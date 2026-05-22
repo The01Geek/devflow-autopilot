@@ -5,7 +5,7 @@ name: Claude Code (implement)
 # provisioning is identical to claude.yml (Python + pip install of the
 # project with dev + all DB drivers), so the split is structural rather
 # than environmental: this workflow reads `claude_implement.effort`
-# (currently "high" in .devflow/config.json) so /devflow:implement's
+# (e.g. "high") so /devflow:implement's
 # planning + write-the-tests phases get more reasoning budget than the
 # light flows, without inflating every @claude mention's cost. If future
 # implement work needs heavy provisioning the light path doesn't (e.g.

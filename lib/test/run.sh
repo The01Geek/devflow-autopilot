@@ -160,6 +160,35 @@ assert_eq "missing merged_at does not poison first_seen" \
   "$(echo "$RESULT" | jq -r '.["other"].first_seen')"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "config-get.sh (resolver, direct)"
+# ────────────────────────────────────────────────────────────────────────────
+# The resolver is the single config-reading implementation (conf.sh, workpad.py,
+# match-deferrals.py all delegate to it), so its contract is tested directly here
+# — conf.sh's tests below can't observe exit codes (it swallows them by design).
+CG="$LIB/../scripts/config-get.sh"
+FIX="$LIB/test/fixtures/config.json"
+
+assert_eq "cg: present scalar"          "claude,example-bot" "$("$CG" .claude.allowed_bots '' "$FIX")"
+assert_eq "cg: nested int"              "2"                   "$("$CG" .devflow_retrospective.min_occurrences '' "$FIX")"
+assert_eq "cg: array → comma-join"      "claude,example-bot" "$("$CG" .devflow_retrospective.watched_authors '' "$FIX")"
+assert_eq "cg: leading dot optional"    "2"                   "$("$CG" devflow_retrospective.min_occurrences '' "$FIX")"
+assert_eq "cg: missing key → default"   "fallback"           "$("$CG" .a.b.c fallback "$FIX")"
+assert_eq "cg: descend into scalar → default" "dfl"          "$("$CG" .claude.allowed_bots.nope dfl "$FIX")"
+assert_eq "cg: missing file → default"  "dfl"                "$("$CG" .x dfl /no/such/config.json)"
+
+# Exit-code contract (run.sh uses `set -u`, not `set -e`, so a nonzero is safe).
+"$CG" .a.b.c '' "$FIX" >/dev/null 2>&1
+assert_eq "cg: missing key + empty default → exit 0" "0" "$?"
+"$CG" .nope.nope >/dev/null 2>&1
+assert_eq "cg: missing key/file + no default → exit 1" "1" "$?"
+"$CG" "" >/dev/null 2>&1
+assert_eq "cg: empty KEY → exit 2" "2" "$?"
+CG_BAD="$(mktemp)"; printf '{ not valid json' > "$CG_BAD"
+"$CG" .a fallback "$CG_BAD" >/dev/null 2>&1
+assert_eq "cg: invalid JSON → exit 2" "2" "$?"
+rm -f "$CG_BAD"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "conf.sh"
 # ────────────────────────────────────────────────────────────────────────────
 ( export DEVFLOW_CONFIG_FILE="$LIB/test/fixtures/config.json"
@@ -167,6 +196,25 @@ echo "conf.sh"
   assert_eq "watched authors from config" "claude,example-bot" "$(devflow_watched_authors)"
   assert_eq "min_occurrences from config" "2" "$(devflow_conf '.devflow_retrospective.min_occurrences' 99)"
   assert_eq "missing key → default" "fallback" "$(devflow_conf '.devflow_retrospective.nonexistent_key_xyz' fallback)"
+)
+# Resilience: conf.sh runs under `set -e`; a missing or malformed config must
+# return the default without aborting the sourcing chain.
+( export DEVFLOW_CONFIG_FILE="/no/such/devflow/config.json"
+  . "$LIB/conf.sh"
+  assert_eq "conf: missing file → default (no abort)" "dflt" "$(devflow_conf '.anything' dflt)"
+)
+( wp="$(mktemp)"; printf '{ not valid json' > "$wp"
+  export DEVFLOW_CONFIG_FILE="$wp"
+  . "$LIB/conf.sh"
+  assert_eq "conf: malformed JSON → default (warns, no abort)" "dflt" "$(devflow_conf '.anything' dflt 2>/dev/null)"
+  rm -f "$wp"
+)
+# watched_authors falls back to claude.allowed_bots when the override array is absent.
+( wp="$(mktemp)"; printf '{"claude":{"allowed_bots":"claude,fallback-bot"}}' > "$wp"
+  export DEVFLOW_CONFIG_FILE="$wp"
+  . "$LIB/conf.sh"
+  assert_eq "conf: watched_authors → allowed_bots fallback" "claude,fallback-bot" "$(devflow_watched_authors)"
+  rm -f "$wp"
 )
 
 # ────────────────────────────────────────────────────────────────────────────

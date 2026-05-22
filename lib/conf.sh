@@ -20,9 +20,24 @@ _DEVFLOW_CONFIG_GET="${_DEVFLOW_CONF_DIR}/../scripts/config-get.sh"
 
 # Read a dot-path, returning $default when the key/file is absent or the
 # resolver fails (so a parse error or missing `node` never aborts the caller).
+# config-get.sh exit codes: 0 = value/default printed; 1 = key absent and no
+# default; 2 = bad args / missing node / JSON parse error. Only exit 2 is a
+# genuine failure — re-emit it as a ::warning:: so a malformed config.json
+# doesn't silently degrade every value to its default with no breadcrumb.
 devflow_conf() {
-  local path="$1" default="${2-}" val
-  val="$("$_DEVFLOW_CONFIG_GET" "$path" "$default" "$_DEVFLOW_CONFIG" 2>/dev/null)" || val="$default"
+  local path="$1" default="${2-}" val rc err
+  err="$(mktemp)"
+  set +e
+  val="$("$_DEVFLOW_CONFIG_GET" "$path" "$default" "$_DEVFLOW_CONFIG" 2>"$err")"
+  rc=$?
+  set -e
+  if [ "$rc" -eq 2 ]; then
+    echo "::warning::devflow_conf: config read failed for '${path}': $(cat "$err")" >&2
+    val="$default"
+  elif [ "$rc" -ne 0 ]; then
+    val="$default"
+  fi
+  rm -f "$err"
   printf '%s' "$val"
 }
 

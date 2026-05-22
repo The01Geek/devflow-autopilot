@@ -72,7 +72,7 @@ See **[`docs/cloud-setup.md`](docs/cloud-setup.md)** for secrets, the GitHub App
   }
   ```
   Or update on demand: `/plugin marketplace update devflow-marketplace`.
-- **Cloud tier** — re-run the same `install.sh`. It's idempotent: it re-vendors the latest plugin + workflows, keeps your `.devflow/config.json`, and re-applies any `cloud_secrets:` mapping. (CI requires the plugin vendored in the repo — a marketplace install isn't reachable from the Actions sandbox; see [`docs/cloud-setup.md`](docs/cloud-setup.md#why-the-plugin-is-vendored-not-added-as-a-github-marketplace-in-ci).)
+- **Cloud tier** — re-run the same `install.sh`. It's idempotent: it re-vendors the latest plugin + workflows, keeps your `.devflow/config.json`, and re-applies any `cloud_secrets` mapping. (CI requires the plugin vendored in the repo — a marketplace install isn't reachable from the Actions sandbox; see [`docs/cloud-setup.md`](docs/cloud-setup.md#why-the-plugin-is-vendored-not-added-as-a-github-marketplace-in-ci).)
 
 ## Skills and agents
 

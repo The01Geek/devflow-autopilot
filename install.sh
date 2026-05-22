@@ -112,19 +112,19 @@ else
 fi
 
 # 6. Apply secret-name mapping from `cloud_secrets` in config.json (idempotent).
-#    The installer runs in a bare shell, so read the value with whatever is
-#    available — jq, then node, then a cloud_secrets-scoped grep fallback. (This
-#    is the rare advanced path; the default secret names need no mapping.)
+#    Reading a value out of JSON safely needs a real parser. We use jq, else
+#    node (one of which is present on essentially every dev/CI machine). We do
+#    NOT hand-roll a sed/grep JSON reader: scoping `cloud_secrets` with a
+#    `/}/`-terminated sed range collapses on single-line/compact JSON and can
+#    misread the top-level `app_id` (the App ID) as a secret name, silently
+#    rewriting workflows. cloud_secrets is a rare advanced feature; if it is set
+#    on a machine with neither jq nor node, we stop with an actionable message
+#    rather than risk corrupting the workflow files.
 _json_secret() {  # $1=key under cloud_secrets → prints value or ""
   if command -v jq >/dev/null 2>&1; then
     jq -r --arg k "$1" '.cloud_secrets[$k] // ""' "$CONFIG" 2>/dev/null
-  elif command -v node >/dev/null 2>&1; then
-    DEVFLOW_K="$1" node -e 'try{const o=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(((o.cloud_secrets||{})[process.env.DEVFLOW_K])||"")}catch(e){}' "$CONFIG" 2>/dev/null
   else
-    # Scope to the cloud_secrets object first so the top-level "app_id" key
-    # (the App ID, not a secret name) can't be misread as a remap target.
-    sed -n '/"cloud_secrets"/,/}/p' "$CONFIG" 2>/dev/null \
-      | sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([A-Za-z0-9_]\{1,\}\)\".*/\1/p" | head -n1
+    DEVFLOW_K="$1" node -e 'try{const o=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(((o.cloud_secrets||{})[process.env.DEVFLOW_K])||"")}catch(e){}' "$CONFIG" 2>/dev/null
   fi
 }
 map_secret() {  # $1=config-key  $2=default-secret-name
@@ -136,6 +136,9 @@ map_secret() {  # $1=config-key  $2=default-secret-name
   fi
 }
 if [ -f "$CONFIG" ] && grep -q '"cloud_secrets"' "$CONFIG" 2>/dev/null; then
+  if ! command -v jq >/dev/null 2>&1 && ! command -v node >/dev/null 2>&1; then
+    die "config has a cloud_secrets block but neither jq nor node is available to read it. Install jq (or node) and re-run, or remove cloud_secrets and use the default secret names (DEVFLOW_APP_ID, DEVFLOW_APP_PRIVATE_KEY, PROJECT_PAT)."
+  fi
   map_secret app_id           DEVFLOW_APP_ID
   map_secret app_private_key  DEVFLOW_APP_PRIVATE_KEY
   map_secret project_pat      PROJECT_PAT
