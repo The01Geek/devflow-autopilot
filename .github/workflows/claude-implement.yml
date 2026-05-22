@@ -5,7 +5,7 @@ name: Claude Code (implement)
 # provisioning is identical to claude.yml (Python + pip install of the
 # project with dev + all DB drivers), so the split is structural rather
 # than environmental: this workflow reads `claude_implement.effort`
-# (currently "high" in .github/project-config.yml) so /devflow:implement's
+# (currently "high" in .devflow/config.json) so /devflow:implement's
 # planning + write-the-tests phases get more reasoning budget than the
 # light flows, without inflating every @claude mention's cost. If future
 # implement work needs heavy provisioning the light path doesn't (e.g.
@@ -99,7 +99,7 @@ jobs:
           # past that will error out visibly on the missing merge-base.
           fetch-depth: 50
 
-      # Provision the runtime from `.github/project-config.yml`'s `setup`
+      # Provision the runtime from `.devflow/config.json`'s `setup`
       # block rather than hardcoding the toolchain (see that file / cloud-setup.md
       # for the rationale). Read the config locally (checkout is done above) so
       # the multi-line install command stays a jq-extracted string we exec
@@ -151,7 +151,7 @@ jobs:
           CONFIG_JSON: ${{ steps.cfg.outputs.json }}
         run: |
           set -euo pipefail
-          INSTALL=$(echo "$CONFIG_JSON" | jq -r '.setup.install // ""')
+          INSTALL=$(echo "$CONFIG_JSON" | jq -r '.setup.install | if type=="array" then join("\n") elif type=="string" then . else "" end')
           if [ -n "$INSTALL" ]; then
             echo "::group::Installing project dependencies"
             # bash -euo pipefail (not a bare `bash -c`): the outer shell's

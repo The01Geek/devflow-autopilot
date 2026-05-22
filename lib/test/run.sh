@@ -162,7 +162,7 @@ assert_eq "missing merged_at does not poison first_seen" \
 # ────────────────────────────────────────────────────────────────────────────
 echo "conf.sh"
 # ────────────────────────────────────────────────────────────────────────────
-( export DEVFLOW_CONFIG_FILE="$LIB/test/fixtures/project-config.yml"
+( export DEVFLOW_CONFIG_FILE="$LIB/test/fixtures/config.json"
   . "$LIB/conf.sh"
   assert_eq "watched authors from config" "claude,example-bot" "$(devflow_watched_authors)"
   assert_eq "min_occurrences from config" "2" "$(devflow_conf '.devflow_retrospective.min_occurrences' 99)"
@@ -189,7 +189,7 @@ case "$*" in
 esac
 STUB
 chmod +x "$SCAN_TMP/gh"
-SCAN_OUT="$(DEVFLOW_CONFIG_FILE="$LIB/test/fixtures/project-config.yml" DEVFLOW_GH="$SCAN_TMP/gh" bash "$LIB/scan.sh" 2>/dev/null)"
+SCAN_OUT="$(DEVFLOW_CONFIG_FILE="$LIB/test/fixtures/config.json" DEVFLOW_GH="$SCAN_TMP/gh" bash "$LIB/scan.sh" 2>/dev/null)"
 assert_eq "scan includes unprocessed PR 3"        "true"  "$(echo "$SCAN_OUT" | jq 'any(.[]; .number==3)')"
 assert_eq "scan excludes already-recorded PR 1"   "false" "$(echo "$SCAN_OUT" | jq 'any(.[]; .number==1)')"
 assert_eq "scan excludes devflow/learnings branch" "false" "$(echo "$SCAN_OUT" | jq 'any(.[]; .number==9)')"
@@ -430,8 +430,9 @@ assert_eq "devflow workflow excluded"     "0" "$(ex ".github/workflows/devflow-d
 assert_eq "claude.yml excluded"           "0" "$(ex ".github/workflows/claude.yml")"
 assert_eq "claude-runner.yml excluded"    "0" "$(ex ".github/workflows/claude-runner.yml")"
 assert_eq "non-engine workflow allowed"   "1" "$(ex ".github/workflows/release.yml")"
-assert_eq "project-config excluded"       "0" "$(ex ".github/project-config.yml")"
-assert_eq "project-config.example excluded" "0" "$(ex ".github/project-config.example.yml")"
+assert_eq "config.json excluded"          "0" "$(ex ".devflow/config.json")"
+assert_eq "config.example excluded"       "0" "$(ex ".devflow/config.example.json")"
+assert_eq "config.schema excluded"        "0" "$(ex ".devflow/config.schema.json")"
 assert_eq "learnings data excluded"       "0" "$(ex ".devflow/learnings/overrides.json")"
 assert_eq "get-app-token excluded"        "0" "$(ex ".github/actions/get-app-token/action.yml")"
 assert_eq "stdin mode works"              "0" "$(printf '%s\n' 'CLAUDE.md' '.devflow/learnings/x.json' | bash "$LIB/check-excluded-path.sh" >/dev/null 2>&1; echo $?)"

@@ -1,0 +1,180 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/The01Geek/devflow-autopilot/.devflow/config.schema.json",
+  "title": "DevFlow project config",
+  "description": "DevFlow project configuration. The LOCAL tier (the /implement, /review, /docs skills you run inside Claude Code) works with NO config file at all — every value has a sane built-in default. You only need this file if you enable the GitHub Actions automation (the optional cloud/autopilot tier). See docs/cloud-setup.md.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Path/URL to this schema for editor autocomplete and validation. Ignored at load time."
+    },
+    "project_number": {
+      "type": "string",
+      "description": "GitHub Project board number from your project URL (https://github.com/users/<you>/projects/<number>). Only the board-sync workflows use it. Placeholder: YOUR_PROJECT_NUMBER."
+    },
+    "base_branch": {
+      "type": "string",
+      "description": "Branch that PRs target by default. Used as the review/merge base.",
+      "default": "main"
+    },
+    "claude_model": {
+      "type": "string",
+      "description": "Claude model for AI-powered workflows (individual workflows may override).",
+      "default": "claude-opus-4-7"
+    },
+    "statuses": {
+      "type": "object",
+      "description": "Project board Status field values — must match your GitHub Project EXACTLY.",
+      "properties": {
+        "draft": { "type": "string", "default": "Draft" },
+        "in_progress": { "type": "string", "default": "In Progress" },
+        "ai_pr_drafted": { "type": "string", "default": "AI PR Drafted" },
+        "released": { "type": "string", "default": "Released" },
+        "closed": { "type": "string", "default": "Closed" }
+      }
+    },
+    "app_id": {
+      "type": "string",
+      "description": "Numeric App ID (or App Client ID) of the GitHub App that authors automated PRs/project updates. Credentials are supplied via the secrets DEVFLOW_APP_ID and DEVFLOW_APP_PRIVATE_KEY, NOT this file. Placeholder: YOUR_APP_ID."
+    },
+    "bot_login": {
+      "type": "string",
+      "description": "Bot account login distinguishing AI-authored PRs from human ones. Leave empty if you are not using a dedicated bot account."
+    },
+    "cloud_secrets": {
+      "type": "object",
+      "description": "Optional secret-name overrides consumed by install.sh. Workflows reference DEVFLOW_APP_ID, DEVFLOW_APP_PRIVATE_KEY, PROJECT_PAT by default; map them to your org's names here and install.sh rewrites the workflows on every run. Omit this block to use the default names. (CLAUDE_CODE_OAUTH_TOKEN is not remappable.)",
+      "properties": {
+        "app_id": { "type": "string" },
+        "app_private_key": { "type": "string" },
+        "project_pat": { "type": "string" }
+      }
+    },
+    "claude": {
+      "type": "object",
+      "description": "Claude-action settings.",
+      "properties": {
+        "allowed_bots": {
+          "type": "string",
+          "description": "Bot logins allowed to trigger the Claude action (comma-separated). 'claude' is Anthropic's GitHub App identity; add your own bot/automation logins (e.g. dependabot).",
+          "default": "claude,dependabot"
+        },
+        "workpad_marker": {
+          "type": "string",
+          "description": "Marker line identifying the persistent /implement workpad comment on issues. One comment per issue whose body starts with this marker.",
+          "default": "<!-- devflow:workpad -->"
+        },
+        "effort": {
+          "type": "string",
+          "description": "Reasoning effort for Claude-action workflows. 'medium' omits --effort so the model's built-in default applies.",
+          "enum": ["low", "medium", "high", "xhigh", "max"],
+          "default": "medium"
+        }
+      }
+    },
+    "claude_implement": {
+      "type": "object",
+      "properties": {
+        "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"] }
+      }
+    },
+    "claude_runner": {
+      "type": "object",
+      "properties": {
+        "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"] }
+      }
+    },
+    "setup": {
+      "type": "object",
+      "description": "Cloud-tier runtime provisioning: how the GitHub Actions runner is prepared BEFORE Claude runs, for the @claude and /devflow:implement workflows.",
+      "properties": {
+        "python_version": {
+          "type": "string",
+          "description": "setup-python runs ONLY if non-empty. devflow's own helpers currently need Python >= 3.11 with PyYAML, so keep this set until devflow's bash-only refactor lands."
+        },
+        "node_version": {
+          "type": "string",
+          "description": "setup-node runs ONLY if non-empty. Set it (e.g. '20') if your project's tests/build need Node."
+        },
+        "install": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Shell lines run verbatim (joined with newlines) after the language setups. Put devflow's own deps first, then your project's. Empty array → skipped."
+        }
+      }
+    },
+    "docs": {
+      "type": "object",
+      "description": "Documentation paths used by the /docs suite.",
+      "properties": {
+        "internal": { "type": "string", "default": "docs/internal/" },
+        "external": { "type": "string", "default": "docs/external/" },
+        "release_notes_file": {
+          "type": "string",
+          "description": "Customer-facing release-notes file maintained by /docs-release-notes.",
+          "default": "docs/external/release-notes.md"
+        },
+        "documented_label": {
+          "type": "string",
+          "description": "Label applied by /implement once its docs pass has run.",
+          "default": "Documented"
+        }
+      }
+    },
+    "security_audit": {
+      "type": "object",
+      "properties": {
+        "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"] }
+      }
+    },
+    "devflow_retrospective": {
+      "type": "object",
+      "description": "DevFlow retrospective / self-improvement loop, consumed by the /devflow-weekly orchestrator (a locally-run skill, not a GitHub Actions workflow).",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "retrospective_model": { "type": "string", "description": "Optional --model override for the retrospective subagent." },
+        "audit_model": { "type": "string", "description": "Optional --model override for the audit subagent." },
+        "implementation_branch_prefix": {
+          "type": "string",
+          "description": "Branch prefix your implementation bot uses for its PRs. The loop only processes PRs on this prefix (plus DevFlow's own devflow/audit-* branches).",
+          "default": "claude/"
+        },
+        "min_occurrences": {
+          "type": "integer",
+          "description": "Repetition gate. status == regressed always bypasses this.",
+          "default": 2
+        },
+        "cooldown_days": {
+          "type": "integer",
+          "description": "Skip audit if the youngest audit PR is younger than this (createdAt-based).",
+          "default": 3
+        },
+        "max_prs_per_run": {
+          "type": "integer",
+          "description": "Soft cap on PRs processed per scheduled retrospective run.",
+          "default": 500
+        },
+        "watched_authors": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Authors whose merged PRs the loop retrospects. Defaults to claude.allowed_bots if unset."
+        }
+      }
+    },
+    "workflows": {
+      "type": "object",
+      "description": "Per-workflow enable/disable toggles.",
+      "properties": {
+        "claude": { "type": "boolean" },
+        "close-released-items": { "type": "boolean" },
+        "comment-on-draft-issues": { "type": "boolean" },
+        "move-to-in-progress": { "type": "boolean" },
+        "sync-pr-status-to-issue": { "type": "boolean" },
+        "devflow-review": { "type": "boolean" },
+        "security_audit": { "type": "boolean" }
+      }
+    }
+  }
+}

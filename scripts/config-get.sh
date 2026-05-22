@@ -1,23 +1,25 @@
 #!/usr/bin/env bash
 # SPDX-FileCopyrightText: 2026 Daniel Radman
 # SPDX-License-Identifier: MIT
-# Read a value from .github/project-config.yml.
+# Read a value from .devflow/config.json — DevFlow's single config resolver.
 #
 # Usage: config-get.sh KEY [DEFAULT] [CONFIG_FILE]
 #   KEY          dot-path like .docs.internal or .claude.workpad_marker
 #                (leading dot optional). Arbitrary nesting depth supported —
-#                the path is split on dots and walked through nested mappings.
+#                the path is split on dots and walked through nested objects.
 #   DEFAULT      printed if key is absent or value is empty/null. Pass an
 #                empty string ("") to explicitly request empty-on-missing.
-#   CONFIG_FILE  defaults to .github/project-config.yml
+#   CONFIG_FILE  defaults to .devflow/config.json
 #
-# Requires python3 with PyYAML (same contract as the rest of devflow; see
-# lib/conf.sh).
+# Parses with Node (`node`), which is guaranteed wherever the DevFlow plugin
+# runs (Claude Code is a Node CLI) and preinstalled on GitHub runners — no
+# Python, PyYAML, or yq required. This is the ONE config-reading implementation
+# in DevFlow; lib/conf.sh delegates here.
 #
 # Exit codes:
 #   0  value (or default) printed to stdout
 #   1  key not found and no default given
-#   2  bad arguments or YAML parse error
+#   2  bad arguments, missing `node`, or JSON parse error
 
 set -euo pipefail
 
@@ -27,7 +29,7 @@ if [ $# -ge 2 ]; then
     has_default=1
     default="$2"
 fi
-config_file="${3:-.github/project-config.yml}"
+config_file="${3:-.devflow/config.json}"
 
 if [ -z "$key" ]; then
     echo "config-get.sh: usage: config-get.sh KEY [DEFAULT] [CONFIG_FILE]" >&2
@@ -51,38 +53,33 @@ if [ ! -f "$config_file" ]; then
     exit 1
 fi
 
-case "$key" in
-    .*) ;;
-    *) key=".$key" ;;
-esac
+if ! command -v node >/dev/null 2>&1; then
+    echo "config-get.sh: 'node' is required to read $config_file" >&2
+    exit 2
+fi
 
-value=$(python3 - "$key" "$config_file" <<'PY'
-import sys
-try:
-    import yaml
-except ImportError:
-    sys.stderr.write("config-get.sh: PyYAML required\n")
-    sys.exit(2)
-key = sys.argv[1].lstrip('.')
-try:
-    with open(sys.argv[2]) as f:
-        data = yaml.safe_load(f) or {}
-except Exception as e:
-    sys.stderr.write(f"config-get.sh: {e}\n")
-    sys.exit(2)
-cur = data
-for part in key.split('.'):
-    if not isinstance(cur, dict) or part not in cur:
-        sys.exit(0)
-    cur = cur[part]
-if cur is None:
-    sys.exit(0)
-if isinstance(cur, list):
-    print(",".join(str(v) for v in cur))
-else:
-    print(cur)
-PY
-)
+# Walk the dot-path. Missing/null → empty stdout (caller applies default).
+# Lists join with ',' (matches prior behavior, e.g. allowed_bots/watched_authors).
+value=$(DEVFLOW_KEY="${key#.}" DEVFLOW_CONFIG="$config_file" node -e '
+  const fs = require("fs");
+  let data;
+  try {
+    data = JSON.parse(fs.readFileSync(process.env.DEVFLOW_CONFIG, "utf8"));
+  } catch (e) {
+    process.stderr.write("config-get.sh: " + e.message + "\n");
+    process.exit(2);
+  }
+  let cur = data;
+  for (const part of process.env.DEVFLOW_KEY.split(".")) {
+    if (cur === null || typeof cur !== "object" || Array.isArray(cur) || !(part in cur)) {
+      process.exit(0);
+    }
+    cur = cur[part];
+  }
+  if (cur === null || cur === undefined) process.exit(0);
+  if (Array.isArray(cur)) process.stdout.write(cur.join(","));
+  else process.stdout.write(String(cur));
+')
 
 if [ -z "$value" ]; then
     emit_default_or_fail

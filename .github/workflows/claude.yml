@@ -5,7 +5,7 @@ name: Claude Code
 # heavy /devflow:implement path lives in claude-implement.yml — both
 # files share the same toolchain today, but the split lets
 # /devflow:implement run under a higher `claude_implement.effort` setting
-# (configured in .github/project-config.yml) without inflating every
+# (configured in .devflow/config.json) without inflating every
 # @claude mention's cost, and leaves room for future implement-only
 # provisioning (e.g. Postgres + MySQL services for connector-level runs)
 # without touching the light path.
@@ -215,7 +215,7 @@ jobs:
           # problem.
           fetch-depth: 50
 
-      # Provision the runtime from `.github/project-config.yml`'s `setup`
+      # Provision the runtime from `.devflow/config.json`'s `setup`
       # block rather than hardcoding the toolchain (see that file / cloud-setup.md
       # for the rationale). Read the config locally (checkout is done above) so
       # the multi-line install command stays a jq-extracted string we exec
@@ -267,7 +267,7 @@ jobs:
           CONFIG_JSON: ${{ steps.cfg.outputs.json }}
         run: |
           set -euo pipefail
-          INSTALL=$(echo "$CONFIG_JSON" | jq -r '.setup.install // ""')
+          INSTALL=$(echo "$CONFIG_JSON" | jq -r '.setup.install | if type=="array" then join("\n") elif type=="string" then . else "" end')
           if [ -n "$INSTALL" ]; then
             echo "::group::Installing project dependencies"
             # bash -euo pipefail (not a bare `bash -c`): the outer shell's

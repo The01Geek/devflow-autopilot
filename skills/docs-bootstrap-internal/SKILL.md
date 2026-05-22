@@ -2,7 +2,7 @@
 name: docs-bootstrap-internal
 description: Use when setting up internal documentation for the first time, when the docs directory is empty or poorly organized, or when a codebase has no structured developer documentation yet.
 ---
-> **Configuration:** Read the internal documentation path from `.github/project-config.yml` using: `${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .docs.internal docs/internal/`. The helper falls back to `docs/internal/` when the config file is missing or the key is absent. Use the result as `[[INTERNAL_DOC_LOCATION]]` throughout this skill.
+> **Configuration:** Read the internal documentation path from `.devflow/config.json` using: `${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .docs.internal docs/internal/`. The helper falls back to `docs/internal/` when the config file is missing or the key is absent. Use the result as `[[INTERNAL_DOC_LOCATION]]` throughout this skill.
 
 # Internal Documentation Bootstrap Agent
 

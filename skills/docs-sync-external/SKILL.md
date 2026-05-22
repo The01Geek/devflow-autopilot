@@ -2,7 +2,7 @@
 name: docs-sync-external
 description: Use when internal documentation has been updated and external customer-facing docs need to be aligned, or when checking for outdated, missing, or confidential content in external docs.
 ---
-> **Configuration:** Read documentation paths from `.github/project-config.yml`:
+> **Configuration:** Read documentation paths from `.devflow/config.json`:
 > - Internal: `${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .docs.internal docs/internal/`
 > - External: `${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .docs.external docs/external/`
 >

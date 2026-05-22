@@ -45,7 +45,7 @@ on:
   # of actor; the precheck job's dedupe step routes each actor to exactly one
   # variant (bot actors → _target so secrets resolve, humans → pull_request)
   # so the review job runs once. Actor allowlisting happens later via
-  # project-config.claude.allowed_bots inside the runner. The dedupe action
+  # config.claude.allowed_bots inside the runner. The dedupe action
   # is action-agnostic (routes purely by actor + event_name), so it needs no
   # change to cover `opened`/`reopened`. The first-review route below
   # skips draft-opened PRs (an `opened` event can carry draft=true; a

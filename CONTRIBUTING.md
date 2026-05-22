@@ -42,7 +42,7 @@ auth is required to run them.
 - **Portability:** avoid GNU-only flags. Use `python3` for date math (not `date -d`)
   and ERE / `sed -E` (not `grep -P`).
 - **No secrets, owner-specific IDs, or product names** in committed files. Config
-  lives in `.github/project-config.yml` (created from the example), which is gitignored.
+  lives in `.devflow/config.json` (created from the example), which is gitignored.
 - New `.py`/`.sh` files carry an SPDX header:
   ```
   # SPDX-FileCopyrightText: 2026 Daniel Radman

@@ -16,18 +16,20 @@ jobs:
       app_id: ${{ steps.config.outputs.app_id }}
     steps:
       - uses: actions/checkout@v6
-      - name: Install yq
-        run: |
-          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
-          sudo chmod +x /usr/local/bin/yq
+      - id: cfg
+        uses: ./.github/actions/read-project-config
       - name: Read config
         id: config
+        env:
+          CONFIG_JSON: ${{ steps.cfg.outputs.json }}
         run: |
-          CONFIG=".github/project-config.yml"
-          echo "enabled=$(yq '.workflows["move-to-in-progress"]' "$CONFIG")" >> "$GITHUB_OUTPUT"
-          echo "project_number=$(yq '.project_number' "$CONFIG")" >> "$GITHUB_OUTPUT"
-          echo "status_in_progress=$(yq '.statuses.in_progress' "$CONFIG")" >> "$GITHUB_OUTPUT"
-          echo "app_id=$(yq '.app_id' "$CONFIG")" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          {
+            echo "enabled=$(echo "$CONFIG_JSON" | jq -r '.workflows["move-to-in-progress"] // false')"
+            echo "project_number=$(echo "$CONFIG_JSON" | jq -r '.project_number // ""')"
+            echo "status_in_progress=$(echo "$CONFIG_JSON" | jq -r '.statuses.in_progress // ""')"
+            echo "app_id=$(echo "$CONFIG_JSON" | jq -r '.app_id // ""')"
+          } >> "$GITHUB_OUTPUT"
 
   move-issue:
     name: Move issue card when branch created

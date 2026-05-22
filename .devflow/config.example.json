@@ -1,0 +1,60 @@
+{
+  "$schema": "./config.schema.json",
+  "project_number": "YOUR_PROJECT_NUMBER",
+  "base_branch": "main",
+  "claude_model": "claude-opus-4-7",
+  "statuses": {
+    "draft": "Draft",
+    "in_progress": "In Progress",
+    "ai_pr_drafted": "AI PR Drafted",
+    "released": "Released",
+    "closed": "Closed"
+  },
+  "app_id": "YOUR_APP_ID",
+  "bot_login": "",
+  "claude": {
+    "allowed_bots": "claude,dependabot",
+    "workpad_marker": "<!-- devflow:workpad -->",
+    "effort": "medium"
+  },
+  "claude_implement": {
+    "effort": "medium"
+  },
+  "claude_runner": {
+    "effort": "medium"
+  },
+  "setup": {
+    "python_version": "3.11",
+    "node_version": "",
+    "install": [
+      "python -m pip install pyyaml"
+    ]
+  },
+  "docs": {
+    "internal": "docs/internal/",
+    "external": "docs/external/",
+    "release_notes_file": "docs/external/release-notes.md",
+    "documented_label": "Documented"
+  },
+  "security_audit": {
+    "effort": "medium"
+  },
+  "devflow_retrospective": {
+    "enabled": true,
+    "retrospective_model": "claude-sonnet-4-6",
+    "audit_model": "claude-opus-4-7",
+    "implementation_branch_prefix": "claude/",
+    "min_occurrences": 2,
+    "cooldown_days": 3,
+    "max_prs_per_run": 500
+  },
+  "workflows": {
+    "claude": true,
+    "close-released-items": true,
+    "comment-on-draft-issues": true,
+    "move-to-in-progress": true,
+    "sync-pr-status-to-issue": true,
+    "devflow-review": true,
+    "security_audit": true
+  }
+}

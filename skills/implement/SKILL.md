@@ -98,7 +98,7 @@ Helper invariants baked into the script (orchestrator doesn't need to enforce th
 - `--rewrite-ac` preserves the original checkbox state (don't tick during a 2.2.6 rewrite — the gate ticks later via `--tick-ac`).
 - Heredoc / shell-interpolation hazards are eliminated — body content never traverses bash quoting; everything goes through files.
 
-The helper reads `claude.workpad_marker` from `.github/project-config.yml`, falling back to the built-in default `<!-- devflow:workpad -->` when the config file or key is absent (so it works with no config). It fails fast (exit 1 with a clear stderr message) when `gh` can't resolve the repo, when the underlying API call fails, or when a `--tick-*` / `--rewrite-ac` flag's substring matches zero or multiple checkboxes. `--tick-plan` / `--tick-ac` only consider unticked (`[ ]`) rows, so a duplicate tick in a single batched call surfaces as "no unticked checkbox matched" rather than silently no-op'ing.
+The helper reads `claude.workpad_marker` from `.devflow/config.json`, falling back to the built-in default `<!-- devflow:workpad -->` when the config file or key is absent (so it works with no config). It fails fast (exit 1 with a clear stderr message) when `gh` can't resolve the repo, when the underlying API call fails, or when a `--tick-*` / `--rewrite-ac` flag's substring matches zero or multiple checkboxes. `--tick-plan` / `--tick-ac` only consider unticked (`[ ]`) rows, so a duplicate tick in a single batched call surfaces as "no unticked checkbox matched" rather than silently no-op'ing.
 
 **Never create a second workpad on the same issue.** Phase 1.5 creates exactly one; every subsequent mutation goes through `update`. If you lose `$ISSUE_NUMBER` mid-run (context compaction), recover from `git log`, `git branch --show-current`, and `gh pr list --head $(git branch --show-current)` — then resume with `workpad.py update $ISSUE_NUMBER ...`.
 
@@ -198,7 +198,7 @@ Use the **Agent tool** with `subagent_type: feature-dev:code-explorer` to explor
 
 Pass the following prompt:
 - The GitHub issue title, body, and labels
-- **Explicit instruction:** "Start by reading {PRIMARY_PATHS if non-empty, otherwise the internal documentation path from `.github/project-config.yml` via `${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .docs.internal docs/internal/`} and read relevant files under that path to understand the system architecture and identify which modules and files are relevant to this issue. Use the documentation as a map to guide your code exploration. Then explore the actual code guided by those findings. Return a distilled summary of: relevant files, current behavior, patterns used, dependencies, and anything the implementer needs to know."
+- **Explicit instruction:** "Start by reading {PRIMARY_PATHS if non-empty, otherwise the internal documentation path from `.devflow/config.json` via `${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .docs.internal docs/internal/`} and read relevant files under that path to understand the system architecture and identify which modules and files are relevant to this issue. Use the documentation as a map to guide your code exploration. Then explore the actual code guided by those findings. Return a distilled summary of: relevant files, current behavior, patterns used, dependencies, and anything the implementer needs to know."
 
 Documentation updates are handled in Phase 4 by the `devflow:docs` subagent — it has the full picture (the shipped code, not just the plan) and the right mandate. Do not edit `.docs.internal` here; if the explorer surfaced outdated or missing docs, that signal carries forward in your context to Phase 4.1 where the subagent will act on it.
 
@@ -551,7 +551,7 @@ Spawn a **subagent** (using the Agent tool) and instruct it to invoke the `devfl
 - The GitHub issue title, body, and number
 - Instruction: "Invoke the `devflow:docs` skill to update all documentation (internal docs, external docs, release notes). The issue context is provided for release notes generation."
 
-After the subagent completes, commit any documentation changes. Read the docs paths from `.github/project-config.yml`:
+After the subagent completes, commit any documentation changes. Read the docs paths from `.devflow/config.json`:
 
 ```bash
 DOCS_INTERNAL=$(${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .docs.internal docs/internal/)

@@ -4,6 +4,13 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] — 2026-05-22
+
+### Changed
+- **BREAKING — config is now `.devflow/config.json` (JSON), not `.github/project-config.yml` (YAML).** Adopters re-run `install.sh` to scaffold the new file; the old YAML path is no longer read (no fallback ships). The live config stays gitignored; a committed `config.example.json` + `config.schema.json` (with `$schema` for editor autocomplete/validation) replace the YAML template.
+- **Both config parser prerequisites dropped.** A single Node-based resolver (`scripts/config-get.sh`, which `lib/conf.sh` now delegates to) reads the config — no PyYAML (plugin tier) and no yq (cloud tier). The `read-project-config` action validates with Node and passes the JSON through; the previously inline-yq board workflows now use that shared action.
+- `setup.install` is now a JSON **array of shell lines** (joined with newlines at runtime) instead of a YAML block scalar.
+
 ## [1.1.0] — 2026-05-21
 
 ### Added

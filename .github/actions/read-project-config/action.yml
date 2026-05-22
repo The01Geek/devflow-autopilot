@@ -1,42 +1,41 @@
-name: 'Read project-config.yml'
+name: 'Read project config'
 description: |
-  Install yq (idempotently) and emit the contents of `.github/project-config.yml`
-  as a single JSON string output. Consumers read fields with
+  Emit the contents of `.devflow/config.json` as a single JSON string output.
+  The config is already JSON, so this validates it with Node (preinstalled on
+  runners) and passes it through — no yq, no PyYAML. Consumers read fields with
   `fromJSON(steps.<id>.outputs.json).path.to.field`. Repository must already be
   checked out (typically via `actions/checkout@v6`).
 
 outputs:
   json:
-    description: 'The entire project-config.yml as a compact JSON string.'
+    description: 'The entire .devflow/config.json as a compact JSON string.'
     value: ${{ steps.read.outputs.json }}
 
 runs:
   using: composite
   steps:
-    - name: Install yq (if missing)
-      shell: bash
-      run: |
-        set -euo pipefail
-        if ! command -v yq >/dev/null 2>&1; then
-          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
-          sudo chmod +x /usr/local/bin/yq
-        fi
-
     - name: Read config
       id: read
       shell: bash
       run: |
         set -euo pipefail
-        CONFIG=".github/project-config.yml"
+        CONFIG=".devflow/config.json"
         if [ ! -f "$CONFIG" ]; then
-          echo "::error file=${CONFIG}::project-config.yml not found in working tree"
+          echo "::error file=${CONFIG}::config.json not found in working tree"
           exit 1
         fi
-        # Use the multiline GITHUB_OUTPUT form (heredoc) so the JSON survives
-        # any future config additions that contain newlines, special chars,
-        # or values larger than the single-line write limit. The compact `-I=0`
-        # avoids stray whitespace but is no longer load-bearing.
-        JSON=$(yq -o=json -I=0 '.' "$CONFIG")
+        # Validate + re-emit compactly so the output is guaranteed-valid JSON.
+        JSON=$(DEVFLOW_CONFIG="$CONFIG" node -e '
+          const fs = require("fs");
+          try {
+            process.stdout.write(JSON.stringify(JSON.parse(
+              fs.readFileSync(process.env.DEVFLOW_CONFIG, "utf8"))));
+          } catch (e) {
+            process.stderr.write("::error::invalid JSON in " +
+              process.env.DEVFLOW_CONFIG + ": " + e.message + "\n");
+            process.exit(1);
+          }')
+        # Multiline GITHUB_OUTPUT heredoc — robust to any future config content.
         delim="EOF_$(date +%s%N)_$$"
         {
           printf 'json<<%s\n' "$delim"
