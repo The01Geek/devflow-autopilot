@@ -15,7 +15,7 @@ DevFlow bundles four things, plus a self-improving loop:
 
 …plus a **self-improving loop** (`/devflow-weekly`) that reads the evidence trail of merged bot-authored PRs, finds recurring failure patterns, and opens human-reviewed PRs proposing the smallest change that would prevent the next occurrence. See [The retrospective loop](#the-retrospective-loop).
 
-> **Two tiers.** The **local tier** — the skills you run inside Claude Code — works with **zero configuration and no infrastructure**. The optional **cloud tier** (GitHub Actions) makes DevFlow run *autonomously* on issue/PR events; it needs a GitHub App and some setup (see [`docs/cloud-setup.md`](docs/cloud-setup.md)).
+> **Two tiers.** The **local tier** — the skills you run inside Claude Code — works with **zero configuration and no infrastructure**. The optional **cloud tier** (GitHub Actions) makes DevFlow run *autonomously* on issue/PR events; it needs a Claude Code OAuth token and a little setup (see [`docs/cloud-setup.md`](docs/cloud-setup.md)).
 
 ## Prerequisites
 
@@ -58,7 +58,7 @@ For autonomous GitHub Actions automation (the "cloud tier"), run this from your 
 curl -fsSL https://raw.githubusercontent.com/The01Geek/devflow-autopilot/main/install.sh | bash
 ```
 
-See **[`docs/cloud-setup.md`](docs/cloud-setup.md)** for secrets, the GitHub App, and the full guide.
+See **[`docs/cloud-setup.md`](docs/cloud-setup.md)** for secrets, triggers, and the full guide.
 
 ## Updating
 
@@ -73,6 +73,76 @@ See **[`docs/cloud-setup.md`](docs/cloud-setup.md)** for secrets, the GitHub App
   ```
   Or update on demand: `/plugin marketplace update devflow-marketplace`.
 - **Cloud tier** — re-run the same `install.sh`. It's idempotent: it re-vendors the latest plugin + workflows, keeps your `.devflow/config.json`, and re-applies any `cloud_secrets` mapping. (CI requires the plugin vendored in the repo — a marketplace install isn't reachable from the Actions sandbox; see [`docs/cloud-setup.md`](docs/cloud-setup.md#why-the-plugin-is-vendored-not-added-as-a-github-marketplace-in-ci).)
+
+## The workflow, end to end
+
+Here's the whole loop, from a rough idea to a reviewed pull request. This is the
+intended way to drive DevFlow.
+
+```
+   you: a rough idea
+        │
+        ▼
+  ┌───────────────────┐   /devflow:create-issue
+  │ 1. Create issue   │   turns the idea into a structured GitHub issue
+  └───────────────────┘   (asks clarifying questions, you confirm before it files)
+        │
+        ▼
+  ┌───────────────────┐   add the  devflow:implement  label to the issue
+  │ 2. Apply label    │   (this is the trigger — a human label-add starts it)
+  └───────────────────┘
+        │
+        ▼
+  ┌───────────────────┐   claude-implement.yml runs /devflow:implement autonomously:
+  │ 3. Implement      │   branch → plan → code → tests → draft PR → /simplify →
+  └───────────────────┘   /devflow:review-and-fix → docs → marks the PR ready
+        │                 (board moves to In Progress → AI PR Drafted along the way)
+        ▼
+  ┌───────────────────┐   devflow-review.yml posts a /devflow:review verdict as a
+  │ 4. Review gate    │   PR check; you review and merge
+  └───────────────────┘
+```
+
+### Step by step
+
+1. **Create the issue.** In Claude Code:
+   ```
+   /devflow:create-issue Add CSV export to the reports page
+   ```
+   It interviews you until the issue is unambiguous, shows you the rendered draft,
+   and files it **only after you confirm**. Say the issue lands as **#42**.
+
+2. **Start implementation by applying the label.** Add the **`devflow:implement`**
+   label to issue #42 — in the GitHub UI (**Labels → `devflow:implement`**) or from
+   the CLI:
+   ```bash
+   gh issue edit 42 --add-label devflow:implement
+   ```
+   That's the trigger. Because *you* added the label (a real user event), GitHub
+   fires `claude-implement.yml` natively — no bot comment, PAT, or GitHub App.
+   (The label is created for you at setup by `install.sh` / `/devflow:init`.)
+   Adding the label takes triage/write access, so that permission is what gates
+   who can start a run — see [the note in cloud-setup](docs/cloud-setup.md#triggering-devflowimplement).
+
+3. **DevFlow implements it.** The workflow runs the full `/devflow:implement`
+   lifecycle on its own: creates a branch, plans against your codebase, writes the
+   code and tests, opens a **draft PR**, self-reviews with `/simplify`, runs
+   `/devflow:review-and-fix`, files follow-up issues for any deferred findings,
+   updates the docs, and flips the PR to **ready**. If you use a project board, the
+   card moves `In Progress → AI PR Drafted` as it goes.
+
+4. **Review and merge.** `devflow-review.yml` runs `/devflow:review` as a gate and
+   posts its verdict on the PR. You do the final human review and merge. With a
+   board, `close-released-items` tidies up released cards.
+
+> **Prefer to drive it by hand?** Skip the label and just run
+> `/devflow:implement 42` directly in Claude Code, or comment
+> `@claude /devflow:implement 42` on the issue. The label is the zero-typing path;
+> all three reach the same lifecycle.
+
+The cloud tier (steps 2–4 running automatically on GitHub) needs only
+`CLAUDE_CODE_OAUTH_TOKEN` set as a secret — see [`docs/cloud-setup.md`](docs/cloud-setup.md).
+Everything else runs locally inside Claude Code with no infrastructure at all.
 
 ## Skills and agents
 
@@ -129,7 +199,7 @@ This creates `.devflow/config.json` from DevFlow's shipped template (only if you
 - `base_branch` — review/merge base (default: repo default branch, else `main`).
 - `devflow_retrospective.*` — settings for `/devflow-weekly` (see [Configuration](#configuration)).
 - `setup.*` — *cloud tier only*: how the GitHub Actions runner provisions its toolchain (`python_version`, `node_version`, `install`) before Claude runs. See [`docs/cloud-setup.md`](docs/cloud-setup.md#runtime-provisioning-setup).
-- `cloud_secrets.*` — *cloud tier only*: optional override of the default secret names (`app_id`, `app_private_key`, `project_pat`); `install.sh` re-applies the mapping to the workflows on every run.
+- `cloud_secrets.*` — *cloud tier only*: optional override of the default secret name (`project_pat`); `install.sh` re-applies the mapping to the workflows on every run.
 
 ---
 

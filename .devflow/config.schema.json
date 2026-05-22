@@ -28,16 +28,11 @@
       "type": "object",
       "description": "Project board Status field values — must match your GitHub Project EXACTLY.",
       "properties": {
-        "draft": { "type": "string", "default": "Draft" },
         "in_progress": { "type": "string", "default": "In Progress" },
         "ai_pr_drafted": { "type": "string", "default": "AI PR Drafted" },
         "released": { "type": "string", "default": "Released" },
         "closed": { "type": "string", "default": "Closed" }
       }
-    },
-    "app_id": {
-      "type": "string",
-      "description": "Numeric App ID (or App Client ID) of the GitHub App that authors automated PRs/project updates. Credentials are supplied via the secrets DEVFLOW_APP_ID and DEVFLOW_APP_PRIVATE_KEY, NOT this file. Placeholder: YOUR_APP_ID."
     },
     "bot_login": {
       "type": "string",
@@ -45,10 +40,8 @@
     },
     "cloud_secrets": {
       "type": "object",
-      "description": "Optional secret-name overrides consumed by install.sh. Workflows reference DEVFLOW_APP_ID, DEVFLOW_APP_PRIVATE_KEY, PROJECT_PAT by default; map them to your org's names here and install.sh rewrites the workflows on every run. Omit this block to use the default names. (CLAUDE_CODE_OAUTH_TOKEN is not remappable.)",
+      "description": "Optional secret-name overrides consumed by install.sh. Workflows reference PROJECT_PAT by default; map it to your org's name here and install.sh rewrites the workflows on every run. Omit this block to use the default name. (CLAUDE_CODE_OAUTH_TOKEN is not remappable.)",
       "properties": {
-        "app_id": { "type": "string" },
-        "app_private_key": { "type": "string" },
         "project_pat": { "type": "string" }
       }
     },
@@ -84,6 +77,11 @@
       "type": "object",
       "properties": {
         "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"] },
+        "trigger_label": {
+          "type": "string",
+          "description": "Issue label that triggers /devflow:implement (claude-implement.yml). Adding this label to an issue kicks off implementation — a human label-add is a real user event, so it needs no bot comment or GitHub App. The label must already exist in the repo. Empty/omitted → 'devflow:implement'.",
+          "default": "devflow:implement"
+        },
         "allowed_tools": {
           "type": "array",
           "items": { "type": "string" },
@@ -181,7 +179,6 @@
       "properties": {
         "claude": { "type": "boolean" },
         "close-released-items": { "type": "boolean" },
-        "comment-on-draft-issues": { "type": "boolean" },
         "move-to-in-progress": { "type": "boolean" },
         "sync-pr-status-to-issue": { "type": "boolean" },
         "devflow-review": { "type": "boolean" },

@@ -38,7 +38,7 @@ The limit is **design-review**, not writability — locally all paths are writab
 - The engine's own files (`skills/**`, `agents/**`, `lib/**`, `scripts/**`, `.claude-plugin/**`) — the plugin must not edit itself without human review
 - `.devflow/learnings/**` — data files
 - `.github/workflows/claude*.yml`, `.github/workflows/devflow-*.yml` — breaking these cripples the loop; human design review required
-- `.github/actions/read-project-config/**`, `.github/actions/dedupe-pr-events/**`, `.github/actions/get-app-token/**` — the three composite actions consumed by the devflow workflows; modifying them risks breaking the self-improvement loop
+- `.github/actions/read-project-config/**`, `.github/actions/dedupe-pr-events/**` — the composite actions consumed by the devflow workflows; modifying them risks breaking the self-improvement loop
 - `.devflow/config.json` — config changes touch every other workflow
 
 Everything else — CLAUDE.md, other skills, docs, agents, application code, the `/create-issue` skill, lint configs, issue templates — remains in scope.

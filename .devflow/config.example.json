@@ -4,13 +4,11 @@
   "base_branch": "main",
   "claude_model": "claude-opus-4-7",
   "statuses": {
-    "draft": "Draft",
     "in_progress": "In Progress",
     "ai_pr_drafted": "AI PR Drafted",
     "released": "Released",
     "closed": "Closed"
   },
-  "app_id": "YOUR_APP_ID",
   "bot_login": "",
   "claude": {
     "allowed_bots": "claude,dependabot",
@@ -20,6 +18,7 @@
   },
   "claude_implement": {
     "effort": "medium",
+    "trigger_label": "devflow:implement",
     "allowed_tools": []
   },
   "claude_runner": {
@@ -53,7 +52,6 @@
   "workflows": {
     "claude": true,
     "close-released-items": true,
-    "comment-on-draft-issues": true,
     "move-to-in-progress": true,
     "sync-pr-status-to-issue": true,
     "devflow-review": true,
