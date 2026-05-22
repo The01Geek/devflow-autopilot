@@ -608,22 +608,26 @@ Output the full report to the user.
 
 **If — and only if — `$ARGUMENTS` is a PR number** (you are reviewing an actual PR, not the current branch), you MUST also submit the verdict as a formal GitHub Pull Request review so it becomes a visible merge signal. A REJECT verdict that lives only in a comment or in chat output is routinely missed — the PR gets marked ready and merged with the rejection still outstanding. A `--request-changes` review blocks the merge button (or, at minimum, forces an explicit dismissal), which is the behavior we want.
 
-Map the verdict to a `gh pr review` action. The `--body` is a short verdict-only stub, not the full report — the auto-trigger workflow's progress comment carries the full Phase 4.1 report verbatim, and posting it in both places forces reviewers to scroll past two copies. Construct `$STUB` as:
+Map the verdict to a `gh pr review` action. **What goes in `--body` depends on whether a separate progress comment already carries the full report** — set `$BODY` accordingly:
 
-```
-## Verdict: {VERDICT} — full report in PR comment
+- **Workflow context** (`$GITHUB_ACTIONS` == `true` — the auto-trigger workflow or the `@claude` listener): a progress comment posts the full Phase 4.1 report verbatim, so the review body is a short verdict-only **stub**; putting the full report in both places forces reviewers to scroll past two copies. Set `$BODY` to `$STUB`:
 
-> The complete review report (checklist results, findings, details) is in the
-> Devflow Review progress comment on this PR.
-```
+  ```
+  ## Verdict: {VERDICT} — full report in PR comment
 
-where `{VERDICT}` is the actual verdict line (e.g. `APPROVE`, `APPROVE with notes`, `APPROVE WITH CAVEAT`, `REJECT`) — reflect what Phase 4.2 decided, do not template-fill literally. The `## Verdict: REJECT` prefix is load-bearing: `finalize_check` greps for it on the `gh pr comment` fallback path.
+  > The complete review report (checklist results, findings, details) is in the
+  > Devflow Review progress comment on this PR.
+  ```
+
+- **Standalone context** (`$GITHUB_ACTIONS` unset or not `true` — run directly from an IDE/CLI): there is **no** progress comment, so a stub would point at a comment that does not exist and the full report would live only in chat. Set `$BODY` to the full `$REPORT` from Phase 4.1 so the review itself carries it — one self-contained artifact, no dangling pointer. (The full report begins with `# Review Report`, which `dismiss-stale-rejections.sh` matches alongside the stub's `## Verdict: REJECT` prefix, so a standalone REJECT is still cleared by a later APPROVE.)
+
+where `{VERDICT}` is the actual verdict line (e.g. `APPROVE`, `APPROVE with notes`, `APPROVE WITH CAVEAT`, `REJECT`) — reflect what Phase 4.2 decided, do not template-fill literally. The `## Verdict: REJECT` text is load-bearing: `finalize_check` greps for it on the `gh pr comment` fallback path. It appears as the stub's first line AND as a `## Verdict: {VERDICT}` line inside the full `$REPORT`, so the grep matches in either context.
 
 | Verdict | Command |
 |---|---|
-| **REJECT** (any form) | `gh pr review $ARGUMENTS --request-changes --body "$STUB"` |
-| **APPROVE WITH CAVEAT** / **APPROVE with notes** | `gh pr review $ARGUMENTS --comment --body "$STUB"` |
-| **APPROVE** (clean, no findings) | `gh pr review $ARGUMENTS --approve --body "$STUB"` |
+| **REJECT** (any form) | `gh pr review $ARGUMENTS --request-changes --body "$BODY"` |
+| **APPROVE WITH CAVEAT** / **APPROVE with notes** | `gh pr review $ARGUMENTS --comment --body "$BODY"` |
+| **APPROVE** (clean, no findings) | `gh pr review $ARGUMENTS --approve --body "$BODY"` |
 
 If `gh pr review` fails (e.g. you cannot review your own PR as the same GitHub identity, or the token lacks permission), fall back to `gh pr comment $ARGUMENTS --body "$REPORT"` — use the full `$REPORT` here (not `$STUB`), since this fallback comment is the only artifact in that path. Note in your chat output that the formal review could not be posted. **Never silently skip this step on a REJECT** — the whole point is that the rejection must be impossible to miss.
 
