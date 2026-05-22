@@ -4,6 +4,16 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] — 2026-05-22
+
+### Added
+- **Config-driven `@claude` tool allowlist.** New `claude.allowed_tools` and `claude_implement.allowed_tools` arrays append repo-specific `--allowed-tools` entries (claude-code-action syntax, e.g. `Bash(make:*)`) on top of DevFlow's built-in base list — no workflow YAML editing. The two keys are independent: the implement path does not inherit the light path's extras. Documented in `docs/cloud-setup.md`.
+- **`/create-issue` confirmation gate.** New Step 4 renders the full assembled issue and waits for the user's explicit approval before `gh issue create` — the drafted ticket is never filed unseen. A gitignored `.devflow/tmp/issue-draft-<slug>.md` preview copy is written for editor review (never the posting source).
+
+### Fixed
+- **`/devflow:review` standalone runs no longer post a dangling pointer.** When run directly from an IDE/CLI (`$GITHUB_ACTIONS` unset), Phase 4.4 now puts the full report in the `gh pr review` body instead of a stub pointing at a progress comment that only the auto-trigger workflow creates.
+- **`claude-runner.yml` grants `actions: read`** to match its `additional_permissions` input, so Claude's CI-result reads no longer 403 (the explicit `permissions:` block had defaulted the scope to `none`).
+
 ## [2.0.0] — 2026-05-22
 
 ### Changed

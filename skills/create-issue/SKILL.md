@@ -19,9 +19,10 @@ This skill is a **pipeline that ends with a created GitHub issue** — not with 
 
 1. Run `/docs-verify --report-only` and capture its findings report
 2. Clarify the user story until the **Definition of Ready** is met (Step 2)
-3. Draft and create the GitHub issue, passing the **no-options gate** (Step 3)
+3. Draft the issue and pass the **no-options gate** (Step 3)
+4. Present the rendered issue, get the user's explicit confirmation, then create it (Step 4)
 
-Mark each todo `in_progress` when you start and `completed` only when done. **The skill is not complete until the issue is created** — a finished `/docs-verify` report is only todo 1.
+Mark each todo `in_progress` when you start and `completed` only when done. **The issue is created only after the user explicitly confirms the rendered draft (todo 4) — never before.** A finished `/docs-verify` report is only todo 1. If the user has not yet confirmed, the pipeline is paused at todo 4, not complete; that is a valid waiting state, not a reason to create the issue anyway.
 
 ## Steps
 
@@ -60,16 +61,38 @@ This verifies internal docs against the code and **returns a findings report** �
 - Do **not** invent a default and bury it in the body. Do **not** rephrase the open decision as an "option" or "recommended approach" elsewhere. The Blocked section is the *only* place an unresolved decision may appear.
 - "You decide" is not permission to guess silently — it is an unresolved item that belongs in Blocked, unless the choice is genuinely inconsequential to scope (e.g. a variable name).
 
-### Step 3: Draft and create the GitHub issue
+### Step 3: Draft the issue and pass the no-options gate
 
 Draft the issue **from the context you already hold** — the documentation findings from Step 1 (relevant files, current behavior, any drift) and the decisions from Step 2 — doing only targeted verification reads where a specific claim needs confirming. Do not re-explore the whole codebase; the findings are your map.
 
-Follow `references/issue-template.md` for the required section structure, the **no-options rule**, the quality checklist, autolink hygiene, and the exact `gh issue create` invocation. Key rules:
+Follow `references/issue-template.md` for the required section structure, the **no-options rule**, the quality checklist, and autolink hygiene. Key rules:
 
-- **No-options gate (run before posting):** re-read the rendered body. Outside the `## 🚫 Blocked` section it must contain **no** unresolved-decision language — no "or", "either", "alternatively", "could", "we might", "TBD", "option", "approach A vs B", "(optional)"-for-undecided, "e.g. X or Y" where X and Y are competing choices. Each acceptance criterion is one concrete unconditional assertion. If you find any such language, you skipped a decision: either ask the user now, or move it to the Blocked section. Do not post until the body is clean.
-- Create the issue **directly via `gh issue create`** piping the body through stdin — no scratch file, nothing written to the working tree.
-- **Do not add labels** — never pass `--label`.
-- Report the issue URL that `gh` prints on success.
+- **No-options gate (run before showing the draft):** re-read the rendered body. Outside the `## 🚫 Blocked` section it must contain **no** unresolved-decision language — no "or", "either", "alternatively", "could", "we might", "TBD", "option", "approach A vs B", "(optional)"-for-undecided, "e.g. X or Y" where X and Y are competing choices. Each acceptance criterion is one concrete unconditional assertion. If you find any such language, you skipped a decision: either ask the user now, or move it to the Blocked section. Do not proceed to Step 4 until the body is clean.
+
+Drafting produces a candidate issue **in your message only** — nothing is posted to GitHub in this step. Posting happens in Step 4, and only after the user confirms.
+
+### Step 4: Review with the user, then create
+
+**The issue is never created until the user has seen the full rendered draft and explicitly approved it.** The user story they gave you was a rough input; this is their one chance to read the assembled ticket as a whole and correct it before it becomes a real, notification-sending GitHub issue. This gate is **unconditional** — it applies no matter how thoroughly Step 2 resolved every decision, and no matter what the user said earlier.
+
+1. **Show the complete rendered issue in chat.** Post the exact title and the full body — every section, verbatim, as Markdown — directly in your message. Do not summarize it, abridge it, or describe it; the user reviews the literal text that would be filed. Do not use AskUserQuestion to stand in for showing the body (it truncates); render the body first, then you may use it for the confirm/edit prompt if you wish.
+2. **Also write the draft to a file for easy review.** Derive a short kebab-case slug from the issue title (e.g. "Add CSV export for survey results" → `add-csv-export-for-survey-results`) and write the rendered title + body to `.devflow/tmp/issue-draft-<slug>.md` (run `mkdir -p .devflow/tmp` first — that path is gitignored, so it never lands in a commit), with the title as a top `# ` heading above the body. **Pick the slug once, when you first write the file, and reuse that exact path for this issue from then on** — so revisions overwrite the one file (next sub-step) and a second or third issue you draft later gets its *own* distinct file instead of clobbering this one. This is a **convenience copy** so the user can open the draft in their editor; it never replaces showing the body in chat (todo above), and it is **not** the source the issue is created from. If the write fails (e.g. read-only sandbox), note it briefly and continue — the chat render is what matters.
+3. **Ask for explicit confirmation or feedback.** Plainly invite the user to either approve creation or request changes — e.g. *"Here's the full issue I'll file (also saved to `.devflow/tmp/issue-draft-<slug>.md`). Want me to create it as-is, or change anything first?"*
+4. **Iterate on feedback.** If the user requests any change, revise the draft, re-run the no-options gate (Step 3), **show the full rendered issue again, and overwrite the same `.devflow/tmp/issue-draft-<slug>.md` file you chose in sub-step 2** (keep the original filename even if the title changes, so you don't leave orphaned drafts behind). Repeat until the user approves. Each revision is re-presented in full — never apply edits and create in the same turn without showing the updated draft.
+5. **Create only on explicit approval.** Once the user clearly says to create it (e.g. "yes", "create it", "looks good, file it"), create the issue **directly via `gh issue create`**, piping the body through stdin — not from the draft file. The `.devflow/tmp/issue-draft-<slug>.md` copy is a gitignored preview, never the `--body-file` source and never committed; the issue body still goes through the stdin heredoc. **Do not add labels** — never pass `--label`. Report the issue URL that `gh` prints on success. See `references/issue-template.md` for the exact invocation.
+
+**This gate has no exceptions:**
+- "The user already answered every clarifying question in Step 2" — answering decision forks is **not** the same as reviewing the assembled ticket. Show it and wait.
+- "The user said 'just create it' / 'you decide' earlier" — that was said about a story they had **not yet seen written up**. It is not approval of *this* drafted issue. Render the draft and get explicit go-ahead on it.
+- "The user disengaged, so I'll file it with a Blocked section and move on" — drafting from what's decided is correct (Step 2), but you still present the rendered draft and wait for confirmation before creating. If the user never returns to confirm, leave the pipeline paused at todo 4 — do **not** create the issue to "finish".
+- "Showing the full body is verbose; a summary is enough" — no. Render the literal title and body that will be filed.
+
+**Red flags — STOP, you are about to skip the gate:**
+- You are constructing the `gh issue create` command in the same turn you drafted the body, with no user message approving it in between.
+- You are about to create the issue because Step 2 was "complete" or the user "already decided everything".
+- You are treating an earlier "just create it" as approval of a draft the user has not seen.
+
+All of these mean: show the full rendered issue, ask, and wait for an explicit yes.
 
 ---
 

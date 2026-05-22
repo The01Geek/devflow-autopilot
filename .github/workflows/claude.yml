@@ -32,6 +32,7 @@ jobs:
       claude_model: ${{ steps.extract.outputs.claude_model }}
       allowed_bots: ${{ steps.extract.outputs.allowed_bots }}
       effort: ${{ steps.extract.outputs.effort }}
+      allowed_tools_extra: ${{ steps.extract.outputs.allowed_tools_extra }}
     steps:
       - uses: actions/checkout@v6
       - id: cfg
@@ -47,6 +48,12 @@ jobs:
             echo "claude_model=$(echo "$CONFIG_JSON" | jq -r '.claude_model')"
             echo "allowed_bots=$(echo "$CONFIG_JSON" | jq -r '.claude.allowed_bots')"
             echo "effort=$(echo "$CONFIG_JSON" | jq -r '.claude.effort // "medium"')"
+            # Repo-specific extra allowlist entries, appended on top of the
+            # built-in devflow base list in the `claude` job's claude_args.
+            # Emits a leading-comma string (",Bash(make:*),…") or "" so it can
+            # be concatenated directly after the final base entry. Tool patterns
+            # never contain commas/newlines, so a single-line output is safe.
+            echo "allowed_tools_extra=$(echo "$CONFIG_JSON" | jq -r '.claude.allowed_tools // [] | if length > 0 then "," + join(",") else "" end')"
           } >> "$GITHUB_OUTPUT"
 
   # Dedupe a MANUAL `@claude run /devflow:review` against the AUTOMATED
@@ -431,7 +438,7 @@ jobs:
             Bash(rm:*),
             Bash(mv:*),
             Bash(cp:*),
-            Bash(tee:*)"
+            Bash(tee:*)${{ needs.config.outputs.allowed_tools_extra }}"
           # assignee_trigger: "claude"
           # label_trigger: "claude"
 

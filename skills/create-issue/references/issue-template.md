@@ -118,8 +118,14 @@ to issue/PR 2 and misleads readers. For an ordinal, count, or list position, spe
 
 ## Posting the issue
 
-Create the issue **directly** — no intermediate scratch file. Pipe the rendered body to
-`gh` via stdin with a quoted heredoc so backticks and `$` in the markdown are not expanded:
+**Precondition:** only run this after the user has seen the full rendered issue and
+explicitly approved creating it (Step 4 of the calling skill). Never post a draft the user
+has not confirmed.
+
+Create the issue **directly** — pipe the rendered body to `gh` via stdin with a quoted
+heredoc so backticks and `$` in the markdown are not expanded. Do **not** source the body
+from a file with `--body-file` (the `.devflow/tmp/issue-draft-<slug>.md` preview copy from
+Step 4 is for the user's eyes only — never the posting source):
 
 ```bash
 gh issue create --title "Action-oriented title here" --body-file - <<'BODY'

@@ -139,6 +139,36 @@ Example for a split repo (Docker backend in `server/`, npm frontend in
 `client/`): keep `"python_version": "3.11"` + `pip install pyyaml`, set
 `"node_version": "20"`, and add `npm ci --prefix client` to the `install` array.
 
+## Extending the tool allowlist
+
+`@claude` runs under a fixed `--allowed-tools` allowlist baked into the
+workflows (git/gh, the DevFlow scripts, Python, and common read-only shell
+tools). Provisioning a tool in `setup.install` does **not** let Claude *run* it
+— the tool also has to be on the allowlist. To grant your repo's own commands,
+add them on top of the built-in base list via config; you never edit the
+workflow YAML:
+
+```json
+"claude": {
+  "allowed_tools": ["Bash(make:*)", "Bash(docker compose:*)"]
+},
+"claude_implement": {
+  "allowed_tools": ["Bash(make:*)", "Bash(terraform:*)"]
+}
+```
+
+- Entries use [claude-code-action tool syntax](https://github.com/anthropics/claude-code-action)
+  (e.g. `Bash(make:*)`), and are **appended** to DevFlow's base list — they add,
+  never replace.
+- The two keys are **independent**: `claude.allowed_tools` covers the light
+  `@claude` path (`claude.yml`); `claude_implement.allowed_tools` covers the
+  heavy `/devflow:implement` path (`claude-implement.yml`). The implement path
+  does **not** inherit the light path's extras, so list every tool you want
+  during implementation under `claude_implement.allowed_tools`.
+- Leave a key out (or `[]`) to use the base list unchanged.
+- These come from your committed config, so treat them with the same care as
+  `setup.install`: only allowlist commands you trust to run unattended.
+
 ## Workflow inventory
 
 | Workflow | Purpose | Needs |
