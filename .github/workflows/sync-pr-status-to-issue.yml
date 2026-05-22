@@ -8,9 +8,10 @@ name: Sync PR Status to Issue
 #
 # Requirements:
 # - PROJECT_PAT secret must be configured (Classic PAT with `repo` +
-#   `project` scopes). App installation tokens cannot read user-owned
-#   Projects v2 — known platform limitation; see comment-on-draft-issues.yml
-#   for the full auth-model rationale.
+#   `project` scopes). A Classic PAT is required because user-owned
+#   Projects v2 (https://github.com/users/<owner>/projects/N) cannot be
+#   read by a GitHub App installation token — a known platform limitation.
+#   It is the only secret the board-sync workflows need.
 # - Both PR and linked issues must be added to the project
 # - Linked issues must use "Closes #123" or similar syntax in PR description
 
@@ -86,11 +87,9 @@ jobs:
         id: get_pr_status
         if: steps.actor-check.outputs.should_run == 'true'
         env:
-          # ProjectV2 queries/mutations only. The App installation token
-          # can't read user-owned Projects v2 (known platform limitation,
-          # documented in comment-on-draft-issues.yml's auth-model header)
-          # so we use a Classic PAT here. This step does no comment
-          # posting, so no APP_TOKEN side-channel is needed.
+          # ProjectV2 queries/mutations only. A GitHub App installation
+          # token can't read user-owned Projects v2 (known platform
+          # limitation), so we use a Classic PAT here.
           GH_TOKEN: ${{ secrets.PROJECT_PAT }}
           PR_IS_DRAFT: ${{ github.event.pull_request.draft }}
         run: |

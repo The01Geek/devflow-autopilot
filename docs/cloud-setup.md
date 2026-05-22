@@ -50,9 +50,9 @@ this for you and re-vendors on each run.
 
 ### Custom secret names
 
-If your repo stores the App/PAT secrets under non-default names, add a
+If your repo stores `PROJECT_PAT` under a non-default name, add a
 `cloud_secrets` block to `.devflow/config.json` (see the template) and
-`install.sh` rewrites the workflows to your names on every run.
+`install.sh` rewrites the workflows to your name on every run.
 
 ## Required secrets
 
@@ -62,26 +62,40 @@ variables → Actions**:
 | Secret | Used for | Notes |
 |---|---|---|
 | `CLAUDE_CODE_OAUTH_TOKEN` | Authenticates the Claude Code action (`/implement`, `/review` runners) | From your Anthropic account. |
-| `DEVFLOW_APP_ID` | GitHub App ID (or App Client ID) for project automation | See "GitHub App" below. |
-| `DEVFLOW_APP_PRIVATE_KEY` | The GitHub App's private key (PEM) | Paste the full PEM contents. |
-| `PROJECT_PAT` | Classic/fine-grained PAT with `project` scope, for board status sync | Only needed if you use a GitHub Project board. |
+| `PROJECT_PAT` | Classic PAT with `repo` + `project` scopes, for board status sync | Only needed if you use a GitHub Project board. A Classic PAT is required because user-owned Projects v2 can't be read by a `GITHUB_TOKEN`. |
 | `GITHUB_TOKEN` | (built in — no action needed) | Provided automatically to workflows. |
 
-## GitHub App (for project automation)
+That's it — no GitHub App is required. (Earlier versions needed one purely so a
+bot-authored "implement this" comment could re-trigger the workflow; that path
+is now a label, see below.)
 
-The board-sync and draft-issue workflows authenticate as a GitHub App so their
-actions are attributable to a bot identity and can write to Projects.
+## Triggering `/devflow:implement`
 
-1. Create a GitHub App (org or personal): **Settings → Developer settings → GitHub
-   Apps → New**. Grant: Repository **Contents** (RW), **Issues** (RW),
-   **Pull requests** (RW), and organization/user **Projects** (RW) if using a board.
-2. Generate a private key (downloads a `.pem`).
-3. Install the App on your repository.
-4. Put the App ID in `DEVFLOW_APP_ID` and the PEM in `DEVFLOW_APP_PRIVATE_KEY`.
-5. Set `app_id` and `bot_login` in `.devflow/config.json` accordingly.
+`claude-implement.yml` runs the full implementation lifecycle when **either**:
 
-The composite action `.github/actions/get-app-token` exchanges these for a
-short-lived installation token.
+- a comment or new issue contains `@claude /devflow:implement <#>`, **or**
+- the **`devflow:implement`** label is added to an issue.
+
+The label is the zero-friction path: add the `devflow:implement` label to any
+issue to kick off implementation. Because a human adding a label is a real user
+event, it triggers Actions natively — no bot comment, PAT, or GitHub App
+involved. Rename the label via `claude_implement.trigger_label` in
+`.devflow/config.json`.
+
+`install.sh` and `/devflow:init` **create this label for you** (best-effort, via
+`gh`); if `gh` wasn't authenticated at setup, create it manually under **Issues
+→ Labels → New label**.
+
+> **Who can trigger it.** Adding a label requires **triage or write** access, so
+> the label path is gated by repo permission, not by `claude.allowed_bots` (that
+> allowlist only constrains the `@claude` *comment* path). claude-code-action
+> still enforces its own actor check — non-write users can't trigger a run — but
+> be aware that **anyone with write/triage, or any bot that syncs labels, will
+> start an autonomous implement run by adding `devflow:implement`.** If you wire
+> up label automation, scope it so it can't bulk-apply this label unintentionally.
+
+For the full idea → issue → label → PR walkthrough, see
+[The workflow, end to end](../README.md#the-workflow-end-to-end) in the README.
 
 ## Project board (optional)
 
@@ -174,9 +188,8 @@ workflow YAML:
 | Workflow | Purpose | Needs |
 |---|---|---|
 | `ci.yml` | Runs DevFlow's own test suite | — (this repo's CI) |
-| `claude.yml`, `claude-implement.yml`, `claude-runner.yml` | Run Claude Code skills in response to comments/events | `CLAUDE_CODE_OAUTH_TOKEN` |
+| `claude.yml`, `claude-implement.yml`, `claude-runner.yml` | Run Claude Code skills in response to comments/events (incl. the `devflow:implement` label) | `CLAUDE_CODE_OAUTH_TOKEN` |
 | `devflow-review.yml` | Auto-runs `/devflow:review` as a gate on PRs | `CLAUDE_CODE_OAUTH_TOKEN` |
-| `comment-on-draft-issues.yml` | Bot comments on new draft issues | GitHub App secrets |
 | `move-to-in-progress.yml`, `sync-pr-status-to-issue.yml`, `close-released-items.yml` | Project-board status automation | `PROJECT_PAT` + board |
 
 ## A note on validation

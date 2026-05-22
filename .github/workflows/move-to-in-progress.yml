@@ -13,7 +13,6 @@ jobs:
       enabled: ${{ steps.config.outputs.enabled }}
       project_number: ${{ steps.config.outputs.project_number }}
       status_in_progress: ${{ steps.config.outputs.status_in_progress }}
-      app_id: ${{ steps.config.outputs.app_id }}
     steps:
       - uses: actions/checkout@v6
       - id: cfg
@@ -28,7 +27,6 @@ jobs:
             echo "enabled=$(echo "$CONFIG_JSON" | jq -r '.workflows["move-to-in-progress"] // false')"
             echo "project_number=$(echo "$CONFIG_JSON" | jq -r '.project_number // ""')"
             echo "status_in_progress=$(echo "$CONFIG_JSON" | jq -r '.statuses.in_progress // ""')"
-            echo "app_id=$(echo "$CONFIG_JSON" | jq -r '.app_id // ""')"
           } >> "$GITHUB_OUTPUT"
 
   move-issue:

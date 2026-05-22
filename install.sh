@@ -24,13 +24,11 @@
 #   # pin a version / point at a fork:
 #   DEVFLOW_REF=v1.2.0 DEVFLOW_REPO=The01Geek/devflow-autopilot bash install.sh
 #
-# Secret-name mapping (optional): the workflows reference the default secret
-# names DEVFLOW_APP_ID, DEVFLOW_APP_PRIVATE_KEY, PROJECT_PAT. If your repo uses
-# different names, add a `cloud_secrets` block to .devflow/config.json and
-# this installer rewrites them on EVERY run (so updates never clobber it):
+# Secret-name mapping (optional): the board-sync workflows reference the
+# default secret name PROJECT_PAT. If your repo uses a different name, add a
+# `cloud_secrets` block to .devflow/config.json and this installer rewrites it
+# on EVERY run (so updates never clobber it):
 #   "cloud_secrets": {
-#     "app_id": "RADMAN_AI_APP_ID",
-#     "app_private_key": "RADMAN_AI_PRIVATE_KEY",
 #     "project_pat": "DEVFLOW_PAT"
 #   }
 # ============================================================================
@@ -96,13 +94,13 @@ JSON
 # 3. Workflows (only those the primary repo actually ships).
 log "installing workflows + composite actions"
 mkdir -p .github/workflows .github/actions
-for w in claude claude-implement claude-runner devflow-review comment-on-draft-issues \
+for w in claude claude-implement claude-runner devflow-review \
          move-to-in-progress sync-pr-status-to-issue close-released-items security-audit; do
   [ -f "$SRC/.github/workflows/$w.yml" ] && cp "$SRC/.github/workflows/$w.yml" ".github/workflows/$w.yml"
 done
 
 # 4. Composite actions.
-for a in dedupe-pr-events get-app-token read-project-config; do
+for a in dedupe-pr-events read-project-config; do
   if [ -d "$SRC/.github/actions/$a" ]; then
     rm -rf ".github/actions/$a"
     cp -R "$SRC/.github/actions/$a" ".github/actions/$a"
@@ -120,10 +118,10 @@ bash "$SRC/scripts/scaffold-config.sh" "$PWD"
 #    node (one of which is present on essentially every dev/CI machine). We do
 #    NOT hand-roll a sed/grep JSON reader: scoping `cloud_secrets` with a
 #    `/}/`-terminated sed range collapses on single-line/compact JSON and can
-#    misread the top-level `app_id` (the App ID) as a secret name, silently
-#    rewriting workflows. cloud_secrets is a rare advanced feature; if it is set
-#    on a machine with neither jq nor node, we stop with an actionable message
-#    rather than risk corrupting the workflow files.
+#    misread a top-level key as a secret name, silently rewriting workflows.
+#    cloud_secrets is a rare advanced feature; if it is set on a machine with
+#    neither jq nor node, we stop with an actionable message rather than risk
+#    corrupting the workflow files.
 _json_secret() {  # $1=key under cloud_secrets → prints value or ""
   if command -v jq >/dev/null 2>&1; then
     jq -r --arg k "$1" '.cloud_secrets[$k] // ""' "$CONFIG" 2>/dev/null
@@ -141,11 +139,12 @@ map_secret() {  # $1=config-key  $2=default-secret-name
 }
 if [ -f "$CONFIG" ] && grep -q '"cloud_secrets"' "$CONFIG" 2>/dev/null; then
   if ! command -v jq >/dev/null 2>&1 && ! command -v node >/dev/null 2>&1; then
-    die "config has a cloud_secrets block but neither jq nor node is available to read it. Install jq (or node) and re-run, or remove cloud_secrets and use the default secret names (DEVFLOW_APP_ID, DEVFLOW_APP_PRIVATE_KEY, PROJECT_PAT)."
+    die "config has a cloud_secrets block but neither jq nor node is available to read it. Install jq (or node) and re-run, or remove cloud_secrets and use the default secret name (PROJECT_PAT)."
   fi
-  map_secret app_id           DEVFLOW_APP_ID
-  map_secret app_private_key  DEVFLOW_APP_PRIVATE_KEY
   map_secret project_pat      PROJECT_PAT
 fi
+
+# (The /devflow:implement trigger label is created best-effort by
+# scaffold-config.sh in step 5, so install.sh and /devflow:init stay in sync.)
 
 log "done (from ${REPO}@${REF}). Review with 'git status' / 'git diff' and commit."

@@ -26,7 +26,6 @@ jobs:
       project_number: ${{ steps.config.outputs.project_number }}
       status_released: ${{ steps.config.outputs.status_released }}
       status_closed: ${{ steps.config.outputs.status_closed }}
-      app_id: ${{ steps.config.outputs.app_id }}
     steps:
       - uses: actions/checkout@v6
       - id: cfg
@@ -42,7 +41,6 @@ jobs:
             echo "project_number=$(echo "$CONFIG_JSON" | jq -r '.project_number // ""')"
             echo "status_released=$(echo "$CONFIG_JSON" | jq -r '.statuses.released // ""')"
             echo "status_closed=$(echo "$CONFIG_JSON" | jq -r '.statuses.closed // ""')"
-            echo "app_id=$(echo "$CONFIG_JSON" | jq -r '.app_id // ""')"
           } >> "$GITHUB_OUTPUT"
 
   close-released:
