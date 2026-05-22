@@ -191,6 +191,52 @@ assert_eq "cg: invalid JSON → exit 2" "2" "$?"
 rm -f "$CG_BAD"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "scaffold-config.sh"
+# ────────────────────────────────────────────────────────────────────────────
+# Single shared scaffolder used by BOTH install.sh and the /devflow:init skill.
+# Templates resolve relative to the script (../.devflow), so we point it at a
+# throwaway TARGET root and assert against the repo's real template files.
+SC="$LIB/../scripts/scaffold-config.sh"
+TPL_DIR="$LIB/../.devflow"
+
+# 1. Fresh target → scaffolds config.json (from the example) + schema.
+SC_FRESH="$(mktemp -d)"
+bash "$SC" "$SC_FRESH" >/dev/null 2>&1
+assert_eq "scaffold: fresh exit 0" "0" "$?"
+assert_eq "scaffold: config.json created" "yes" \
+  "$([ -f "$SC_FRESH/.devflow/config.json" ] && echo yes || echo no)"
+assert_eq "scaffold: config.json == example template" \
+  "$(cat "$TPL_DIR/config.example.json")" "$(cat "$SC_FRESH/.devflow/config.json")"
+assert_eq "scaffold: schema created" "yes" \
+  "$([ -f "$SC_FRESH/.devflow/config.schema.json" ] && echo yes || echo no)"
+
+# 2. Existing config.json → NEVER clobbered; schema still refreshed over stale.
+SC_KEEP="$(mktemp -d)"
+mkdir -p "$SC_KEEP/.devflow"
+printf '{"sentinel":true}' > "$SC_KEEP/.devflow/config.json"
+printf 'STALE' > "$SC_KEEP/.devflow/config.schema.json"
+bash "$SC" "$SC_KEEP" >/dev/null 2>&1
+assert_eq "scaffold: existing config preserved" \
+  '{"sentinel":true}' "$(cat "$SC_KEEP/.devflow/config.json")"
+assert_eq "scaffold: schema refreshed over stale" \
+  "$(cat "$TPL_DIR/config.schema.json")" "$(cat "$SC_KEEP/.devflow/config.schema.json")"
+
+# 3. Idempotent: a second run leaves the scaffolded config.json unchanged.
+SC_B1="$(cat "$SC_FRESH/.devflow/config.json")"
+bash "$SC" "$SC_FRESH" >/dev/null 2>&1
+assert_eq "scaffold: idempotent re-run keeps config" \
+  "$SC_B1" "$(cat "$SC_FRESH/.devflow/config.json")"
+
+# 4. Templates missing next to the script → fail loudly (exit 2), no guessing.
+SC_NOTPL="$(mktemp -d)"; mkdir -p "$SC_NOTPL/scripts"
+cp "$SC" "$SC_NOTPL/scripts/scaffold-config.sh"
+SC_NOTPL_TGT="$(mktemp -d)"
+bash "$SC_NOTPL/scripts/scaffold-config.sh" "$SC_NOTPL_TGT" >/dev/null 2>&1
+assert_eq "scaffold: missing templates → exit 2" "2" "$?"
+
+rm -rf "$SC_FRESH" "$SC_KEEP" "$SC_NOTPL" "$SC_NOTPL_TGT"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "conf.sh"
 # ────────────────────────────────────────────────────────────────────────────
 ( export DEVFLOW_CONFIG_FILE="$LIB/test/fixtures/config.json"
