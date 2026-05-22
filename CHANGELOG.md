@@ -4,6 +4,15 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.1] — 2026-05-22
+
+### Added
+- **`/devflow:init`** — a one-time setup command (hidden from model auto-invocation via `disable-model-invocation`, so it adds zero per-turn context cost) that scaffolds `.devflow/config.json` from the shipped template **only if absent** and refreshes `config.schema.json`. It resolves templates from the installed plugin, so it works on a marketplace install where the templates aren't in the repo — unlike the old `cp .devflow/config.example.json …`, which only worked from the source repo.
+- **`scripts/scaffold-config.sh`** — the single shared config scaffolder. Both `/devflow:init` and `install.sh` call it, so local- and cloud-tier scaffolding can never drift; they coexist safely (no-clobber, schema-only refresh on re-run regardless of order).
+
+### Changed
+- `install.sh` step 5 now delegates to `scaffold-config.sh` (behaviour unchanged: never clobbers `config.json`, always refreshes the schema) and vendors the two config templates into the plugin so the vendored `/devflow:init` can find them.
+
 ## [2.1.0] — 2026-05-22
 
 ### Added

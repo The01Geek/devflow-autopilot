@@ -90,13 +90,14 @@ See **[`docs/cloud-setup.md`](docs/cloud-setup.md)** for secrets, the GitHub App
 | `/devflow:docs-bootstrap-internal` | Stand up an internal-docs structure from scratch | interactively |
 | `/devflow:docs-bootstrap-external` | Generate the initial external docs from internal docs | interactively |
 | `/devflow:create-issue` | Rough idea → well-structured GitHub issue | interactively |
+| `/devflow:init` | One-time setup: scaffold `.devflow/config.json` from the template (only if absent) + refresh `config.schema.json` | interactively |
 | `/devflow:devflow-weekly` | The weekly self-improvement loop orchestrator | interactively / headless |
 | `/devflow:retrospective` | Stage A brief — per-PR retrospective analysis | subagent only (dispatched by `/devflow-weekly`) |
 | `/devflow:audit-implementations` | Stage B brief — per-pattern intervention drafting | subagent only (dispatched by `/devflow-weekly`) |
 
 **Agents** (`agents/`): `checklist-generator`, `checklist-deduper`, and `checklist-verifier` (used by `/devflow:review` and `/devflow:review-and-fix` to build, dedupe, and verify the verification checklist).
 
-> The bare slash-command forms (`/implement`, …) resolve to the `devflow:`-namespaced skills when the plugin is enabled and there's no name collision. **Note:** `/devflow:review`, `/init`, and `/security-review` are also built-in Claude Code commands — to reach DevFlow's reviewer unambiguously (especially from GitHub Actions / `@claude` comments), use the namespaced `/devflow:review`.
+> The bare slash-command forms (`/implement`, …) resolve to the `devflow:`-namespaced skills when the plugin is enabled and there's no name collision. **Note:** `/devflow:review`, `/init`, and `/security-review` are also built-in Claude Code commands — to reach DevFlow's reviewer unambiguously (especially from GitHub Actions / `@claude` comments), use the namespaced `/devflow:review`. Likewise use `/devflow:init` for DevFlow's config scaffolder — bare `/init` is Claude Code's built-in CLAUDE.md generator.
 
 ## Companion plugins (auto-installed dependencies)
 
@@ -111,11 +112,13 @@ The three `claude-plugins-official` plugins above are **auto-installed** by `/pl
 
 ## Project configuration
 
-The local tier needs **no config** — every value has a built-in default. To customize, copy the template:
+The local tier needs **no config** — every value has a built-in default. To customize, scaffold the config files:
 
-```bash
-cp .devflow/config.example.json .devflow/config.json
 ```
+/devflow:init
+```
+
+This creates `.devflow/config.json` from DevFlow's shipped template (only if you don't already have one — it never clobbers a config you've filled in) and refreshes `.devflow/config.schema.json`. It pulls the templates from the installed plugin, so it works even though they aren't in your repo — a plain `cp .devflow/config.example.json …` only works from the DevFlow source repo, not a marketplace install. The cloud-tier `install.sh` runs the *same* scaffolder, so the two are interchangeable and safe to run in any order: whichever runs first creates `config.json`; the other leaves it untouched and just refreshes the schema.
 
 (The live `config.json` is gitignored so you don't commit project/board IDs. Your editor reads `config.schema.json` for autocomplete + field descriptions.) Keys the skills read:
 

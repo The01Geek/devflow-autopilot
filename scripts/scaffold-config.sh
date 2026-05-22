@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2026 Daniel Radman
+# SPDX-License-Identifier: MIT
+# scaffold-config.sh — DevFlow's single config-scaffolding implementation.
+#
+# Drops the DevFlow config files into a repo's .devflow/ directory:
+#   - config.json     scaffolded from config.example.json ONLY when absent
+#                     (never clobbers an existing one — your IDs/secrets stay).
+#   - config.schema.json  refreshed every run (editor autocomplete/validation).
+#
+# This is the ONE scaffolder. Both entry points call it so the behaviour can
+# never drift between them:
+#   - install.sh           (cloud tier — runs from a fresh clone, $SRC)
+#   - the /devflow:init skill (local tier — runs from the plugin cache)
+# Because both call here, the two coexist safely: whichever runs first creates
+# config.json; the other preserves it (no-clobber) and only refreshes the schema.
+#
+# Templates are resolved RELATIVE TO THIS SCRIPT (../.devflow), so the script is
+# self-locating wherever it ships (marketplace cache, vendored plugin, or a
+# clone). The caller never has to tell us where the templates are.
+#
+# Usage: scaffold-config.sh [TARGET_REPO_ROOT]
+#   TARGET_REPO_ROOT  where to write .devflow/ (default: git toplevel, else cwd)
+#
+# Exit codes:
+#   0  config.json scaffolded or kept; schema refreshed
+#   2  bad arguments, or the template files are missing next to the script
+set -euo pipefail
+
+log() { printf 'devflow-scaffold: %s\n' "$1"; }
+die() { printf 'devflow-scaffold: %s\n' "$1" >&2; exit 2; }
+
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TPL_DIR="$SELF_DIR/../.devflow"
+EXAMPLE="$TPL_DIR/config.example.json"
+SCHEMA="$TPL_DIR/config.schema.json"
+
+[ -f "$EXAMPLE" ] || die "template not found: $EXAMPLE (is the plugin install complete?)"
+[ -f "$SCHEMA" ]  || die "template not found: $SCHEMA (is the plugin install complete?)"
+
+TARGET_ROOT="${1:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
+DEST="$TARGET_ROOT/.devflow"
+CONFIG="$DEST/config.json"
+
+mkdir -p "$DEST"
+
+# Schema is generated, never hand-edited — safe to overwrite every run so
+# editors always validate against the current field set.
+cp "$SCHEMA" "$DEST/config.schema.json"
+
+if [ -f "$CONFIG" ]; then
+  log "keeping existing $CONFIG"
+else
+  cp "$EXAMPLE" "$CONFIG"
+  log "scaffolded $CONFIG — fill in the YOUR_* placeholders before enabling workflows"
+fi

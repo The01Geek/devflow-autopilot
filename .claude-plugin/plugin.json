@@ -1,6 +1,6 @@
 {
   "name": "devflow",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "End-to-end development workflow for Claude Code: /implement (4-phase orchestrator), /devflow:review and /devflow:review-and-fix (verification-checklist review engine), the /docs suite, /create-issue, plus the self-improving retrospective loop (/retrospective per-PR + /audit-implementations weekly).",
   "author": { "name": "Daniel Radman", "email": "daniel@radman.ai" },
   "homepage": "https://github.com/The01Geek/devflow-autopilot",

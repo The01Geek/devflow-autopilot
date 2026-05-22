@@ -5,7 +5,9 @@
 # Installs (or updates) the DevFlow GitHub Actions "cloud tier" into the CURRENT
 # repository. Idempotent — re-run any time to pull the latest from the primary
 # repo. It writes:
-#   - .claude/plugins/devflow/        the VENDORED plugin (scripts/skills/agents/lib)
+#   - .claude/plugins/devflow/        the VENDORED plugin (scripts/skills/agents/lib
+#                                     + .devflow/ templates, so /devflow:init can
+#                                     find them from the vendored copy too)
 #   - .claude-plugin/marketplace.json local marketplace pointing at the above
 #   - .github/workflows/*.yml         the @claude / implement / review / board workflows
 #   - .github/actions/*               the composite actions they use
@@ -58,6 +60,12 @@ log "vendoring plugin → .claude/plugins/devflow/"
 rm -rf .claude/plugins/devflow
 mkdir -p .claude/plugins/devflow
 cp -R "$SRC/.claude-plugin" "$SRC/agents" "$SRC/lib" "$SRC/scripts" "$SRC/skills" .claude/plugins/devflow/
+# Vendor ONLY the two config templates (not the whole .devflow/ tree — that would
+# drag in learnings/ and, from a dirty source, a live config.json). They let the
+# vendored /devflow:init resolve templates at scripts/../.devflow/.
+mkdir -p .claude/plugins/devflow/.devflow
+cp "$SRC/.devflow/config.example.json" "$SRC/.devflow/config.schema.json" \
+   .claude/plugins/devflow/.devflow/
 # The vendored copy is a plugin, not a marketplace — keep only plugin.json.
 rm -f .claude/plugins/devflow/.claude-plugin/marketplace.json
 find .claude/plugins/devflow -name __pycache__ -type d -prune -exec rm -rf {} + 2>/dev/null || true
@@ -101,15 +109,11 @@ for a in dedupe-pr-events get-app-token read-project-config; do
   fi
 done
 
-# 5. config scaffold — never clobber an existing one; always refresh the schema.
-mkdir -p .devflow
-cp "$SRC/.devflow/config.schema.json" .devflow/config.schema.json
-if [ -f "$CONFIG" ]; then
-  log "keeping existing $CONFIG"
-else
-  cp "$SRC/.devflow/config.example.json" "$CONFIG"
-  log "scaffolded $CONFIG — fill in the YOUR_* placeholders before enabling workflows"
-fi
+# 5. config scaffold — delegated to the ONE shared scaffolder so the cloud tier
+#    and the /devflow:init skill can never drift. It never clobbers an existing
+#    config.json and always refreshes config.schema.json. Templates resolve
+#    relative to the script ($SRC/.devflow), and we target the current repo root.
+bash "$SRC/scripts/scaffold-config.sh" "$PWD"
 
 # 6. Apply secret-name mapping from `cloud_secrets` in config.json (idempotent).
 #    Reading a value out of JSON safely needs a real parser. We use jq, else
