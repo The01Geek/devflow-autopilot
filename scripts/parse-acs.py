@@ -9,9 +9,12 @@ described the rules in English. The orchestrator still owns per-criterion
 override authority; this script just produces the heuristic starting point.
 
 Parsing rules:
-  - Match a heading exactly "Acceptance Criteria" (case-sensitive). The
-    `## Test Plan` section, when present, is appended to the same output
-    (separated by a blank line) per the skill's mirroring rule.
+  - Match a heading whose text is "Acceptance Criteria" (case-insensitive,
+    so `## Acceptance criteria` or `## ACCEPTANCE CRITERIA` all match). A
+    trailing colon or other extra characters still do not match — only the
+    casing is forgiven. The `## Test Plan` section, when present, is appended
+    to the same output (separated by a blank line) per the skill's mirroring
+    rule.
   - Heading level may be `##` or `###`.
   - Inside the section, accept `- [ ]`, `- [x]`, `* [ ]`, `* [x]`.
   - Stop at the next heading whose level is equal to or higher than the
@@ -126,7 +129,7 @@ def _extract_section(body: str, name: str) -> list[str]:
         if m:
             level, heading = len(m.group(1)), m.group(2).strip()
             if section_level is None:
-                if heading == name and level in (2, 3):
+                if heading.lower() == name.lower() and level in (2, 3):
                     section_level = level
                 continue
             if level <= section_level:
@@ -163,7 +166,8 @@ def _warn_near_miss(parsed: list, body: str, canonical: str, needle: str) -> Non
         sys.stderr.write(
             f"parse-acs.py: no {canonical} items parsed, but the body contains "
             f"a heading that mentions '{needle}' — check that it is exactly "
-            f"'## {canonical}' (case-sensitive, no trailing colon).\n"
+            f"'## {canonical}' (any casing is fine, but no trailing colon or "
+            f"extra words).\n"
         )
 
 
@@ -205,12 +209,12 @@ def main():
     criteria = _parse_checkboxes(ac_lines)
     test_plan = _parse_checkboxes(_extract_section(body, 'Test Plan'))
 
-    # Heading match in _extract_section is exact + case-sensitive. If the
-    # issue uses `## acceptance criteria` (lowercase), `## Acceptance Criteria:`
-    # (trailing colon), or `## ACs`, we'd silently produce zero items and the
-    # implement skill's post-merge-exempt gate would trivially pass. Surface
-    # the near-miss so the orchestrator can correct it. Same risk applies to
-    # `## test plan` / `## Test Plans` (plural) / `## Tests`.
+    # Heading match in _extract_section is case-insensitive but otherwise
+    # exact. `## acceptance criteria` (any casing) now matches, but
+    # `## Acceptance Criteria:` (trailing colon) or `## ACs` still produce zero
+    # items — and the implement skill's post-merge-exempt gate would trivially
+    # pass. Surface the near-miss so the orchestrator can correct it. Same risk
+    # applies to `## Test Plans` (plural) / `## Tests`.
     _warn_near_miss(criteria, body, 'Acceptance Criteria', 'acceptance')
     _warn_near_miss(test_plan, body, 'Test Plan', 'test plan')
 

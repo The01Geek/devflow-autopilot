@@ -173,7 +173,9 @@ Use descriptive names matching the topic:
 
 ## **Verification Checklist**
 
-Before completing, verify you have:
+> **`--report-only` mode:** the file-creation/edit items below do **not** apply — verify only that you searched docs and code, compared them, and produced an accurate findings report. The checklist and the *Success Criteria* below describe the standalone **write-mode** run; do not treat them as your "done" state in report-only mode.
+
+Before completing (write mode), verify you have:
 
 - [ ] Located all existing documentation about the topic
 - [ ] Searched codebase comprehensively for related code
@@ -189,12 +191,12 @@ Before completing, verify you have:
 
 ## **Success Criteria**
 
-✅ **Task Complete When:**
+**`--report-only` mode:** success = an accurate findings report returned as text and an unchanged working tree (no files created or edited). This mode is typically a **sub-step of another skill (e.g. `/create-issue`)** — when you finish, hand the report back to the calling flow and let it continue. Do **not** announce overall task completion or stop the larger task; the "Task Complete" criteria below are for standalone write-mode runs only.
+
+✅ **Write mode — Task Complete When:**
 1. Documentation accurately reflects current code implementation
 2. All important details about the topic are documented
 3. No contradictions between documentation and code
 4. Documentation file(s) created/updated in `[[INTERNAL_DOC_LOCATION]]`
-
-(In `--report-only` mode, success = an accurate findings report and an unchanged working tree — no files created or edited.)
 
 Arguments (optional leading `--report-only` flag, then the topic): $ARGUMENTS

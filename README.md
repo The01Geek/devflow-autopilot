@@ -94,7 +94,7 @@ See **[`docs/cloud-setup.md`](docs/cloud-setup.md)** for secrets, the GitHub App
 | `/devflow:retrospective` | Stage A brief — per-PR retrospective analysis | subagent only (dispatched by `/devflow-weekly`) |
 | `/devflow:audit-implementations` | Stage B brief — per-pattern intervention drafting | subagent only (dispatched by `/devflow-weekly`) |
 
-**Agents** (`agents/`): `checklist-generator`, `checklist-deduper`, and `checklist-verifier` (used by `/devflow:review` and `/devflow:review-and-fix` to build, dedupe, and verify the verification checklist), and `github-issue-creator` (used by `/create-issue`).
+**Agents** (`agents/`): `checklist-generator`, `checklist-deduper`, and `checklist-verifier` (used by `/devflow:review` and `/devflow:review-and-fix` to build, dedupe, and verify the verification checklist).
 
 > The bare slash-command forms (`/implement`, …) resolve to the `devflow:`-namespaced skills when the plugin is enabled and there's no name collision. **Note:** `/devflow:review`, `/init`, and `/security-review` are also built-in Claude Code commands — to reach DevFlow's reviewer unambiguously (especially from GitHub Actions / `@claude` comments), use the namespaced `/devflow:review`.
 
@@ -238,7 +238,7 @@ devflow_retrospective:
 ├── plugin.json          # plugin manifest (declares dependencies)
 └── marketplace.json     # this repo is its own marketplace
 skills/                  # the /implement, /devflow:review, /docs, … skills (one SKILL.md each)
-agents/                  # checklist-generator/-deduper/-verifier, github-issue-creator
+agents/                  # checklist-generator/-deduper/-verifier
 scripts/                 # branch-for-issue.py, config-get.sh, file-deferrals.py,
                          #   match-deferrals.py, parse-acs.py, workpad.py,
                          #   dismiss-stale-rejections.sh

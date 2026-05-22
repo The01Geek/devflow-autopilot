@@ -11,10 +11,11 @@ Covers areas that are silent-failure-class regressions if they drift:
   "errors swallowed" prose, `click` substring, `workflow runner` vs
   `workflow run`, and `commenting on a` previous-decision prose).
 - `parse_acs._extract_section` / `_parse_checkboxes` / `_render_md` — the
-  case-sensitive, level-bounded heading match (a lowercase / trailing-colon /
-  wrong-level heading must yield zero items, not a silent miss that trivially
-  passes the implement skill's post-merge-exempt gate), bullet variants, and
-  the `(post-merge)` render tagging.
+  case-insensitive, level-bounded heading match (a differently-cased heading
+  still matches, but a trailing-colon / wrong-level heading must yield zero
+  items, not a silent miss that trivially passes the implement skill's
+  post-merge-exempt gate), bullet variants, and the `(post-merge)` render
+  tagging.
 - `file_deferrals._derive_area` / `_compute_id` / `_format_line_range` /
   `_render_issue_body` — the `<area>` derivation examples, the deterministic
   ID that must stay stable across regenerations (the verdict engine matches on
@@ -164,6 +165,13 @@ def _atomic():
 assert_raises("batch tick with one missing match raises (atomic-update guarantee)",
               workpad._UpdateError, _atomic)
 
+# Heading match is case-insensitive: a differently-cased section heading is
+# still found and mutated (not a silent "section not found" error).
+LOWER_HEADING = WORKPAD_BODY.replace('## Acceptance Criteria', '## acceptance criteria')
+out = workpad._apply_mutations(LOWER_HEADING, make_args(tick_ac=['AC one']))
+assert_eq("case-insensitive heading: AC one ticked under lowercase heading",
+          True, '- [x] AC one' in out)
+
 
 print("parse_acs._is_post_merge")
 
@@ -214,11 +222,16 @@ assert_eq("extract: '* ' bullet variant parsed", 'star bullet', _items[2]['text'
 assert_eq("extract: stops at sibling '## Notes' (excluded)", False,
           any(i['text'] == 'should not appear' for i in _items))
 
-# Case-sensitive, exact, level-bounded heading match — the silent-miss guards.
-assert_eq("extract: lowercase heading → no section", [],
-          parse_acs._extract_section(
+# Case-insensitive, level-bounded heading match — the silent-miss guards.
+# Casing is forgiven, but a trailing colon / wrong level still must not match.
+assert_eq("extract: lowercase heading → matches (case-insensitive)", 4,
+          len(parse_acs._parse_checkboxes(parse_acs._extract_section(
               AC_BODY.replace('## Acceptance Criteria', '## acceptance criteria'),
-              'Acceptance Criteria'))
+              'Acceptance Criteria'))))
+assert_eq("extract: uppercase heading → matches (case-insensitive)", 4,
+          len(parse_acs._parse_checkboxes(parse_acs._extract_section(
+              AC_BODY.replace('## Acceptance Criteria', '## ACCEPTANCE CRITERIA'),
+              'Acceptance Criteria'))))
 assert_eq("extract: trailing-colon heading → no section", [],
           parse_acs._extract_section(
               AC_BODY.replace('## Acceptance Criteria', '## Acceptance Criteria:'),

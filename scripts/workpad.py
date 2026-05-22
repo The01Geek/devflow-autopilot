@@ -236,10 +236,10 @@ def _join_sections(preamble: str, sections: list[tuple[str, str]]) -> str:
 
 
 def _find_section(sections: list[tuple[str, str]], name: str) -> int | None:
-    """Return index of a section by its heading text (case-sensitive), or None."""
-    target = f'## {name}'
+    """Return index of a section by its heading text (case-insensitive), or None."""
+    target = f'## {name}'.lower()
     for i, (heading, _) in enumerate(sections):
-        if heading.strip() == target:
+        if heading.strip().lower() == target:
             return i
     return None
 
