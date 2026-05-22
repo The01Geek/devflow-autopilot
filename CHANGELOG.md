@@ -4,7 +4,7 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.2.0] — 2026-05-22
+## [2.1.1] — 2026-05-22
 
 ### Added
 - **`/devflow:init`** — a one-time setup command (hidden from model auto-invocation via `disable-model-invocation`, so it adds zero per-turn context cost) that scaffolds `.devflow/config.json` from the shipped template **only if absent** and refreshes `config.schema.json`. It resolves templates from the installed plugin, so it works on a marketplace install where the templates aren't in the repo — unlike the old `cp .devflow/config.example.json …`, which only worked from the source repo.
