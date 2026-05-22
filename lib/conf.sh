@@ -26,8 +26,8 @@ _DEVFLOW_CONFIG_GET="${_DEVFLOW_CONF_DIR}/../scripts/config-get.sh"
 # doesn't silently degrade every value to its default with no breadcrumb.
 devflow_conf() {
   local path="$1" default="${2-}" val rc err
-  err="$(mktemp)"
   set +e
+  err="$(mktemp)"   # inside set +e: a mktemp failure must not abort the caller
   val="$("$_DEVFLOW_CONFIG_GET" "$path" "$default" "$_DEVFLOW_CONFIG" 2>"$err")"
   rc=$?
   set -e

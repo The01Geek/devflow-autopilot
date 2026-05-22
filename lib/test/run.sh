@@ -179,7 +179,9 @@ assert_eq "cg: missing file → default"  "dfl"                "$("$CG" .x dfl /
 # Exit-code contract (run.sh uses `set -u`, not `set -e`, so a nonzero is safe).
 "$CG" .a.b.c '' "$FIX" >/dev/null 2>&1
 assert_eq "cg: missing key + empty default → exit 0" "0" "$?"
-"$CG" .nope.nope >/dev/null 2>&1
+# Run from an empty cwd so the default config path is deterministically absent
+# (don't couple this to the repo's live .devflow/config.json being valid JSON).
+( cd "$(mktemp -d)" && "$CG" .nope.nope >/dev/null 2>&1 )
 assert_eq "cg: missing key/file + no default → exit 1" "1" "$?"
 "$CG" "" >/dev/null 2>&1
 assert_eq "cg: empty KEY → exit 2" "2" "$?"
