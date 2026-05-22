@@ -15,10 +15,12 @@
   "claude": {
     "allowed_bots": "claude,dependabot",
     "workpad_marker": "<!-- devflow:workpad -->",
-    "effort": "medium"
+    "effort": "medium",
+    "allowed_tools": []
   },
   "claude_implement": {
-    "effort": "medium"
+    "effort": "medium",
+    "allowed_tools": []
   },
   "claude_runner": {
     "effort": "medium"
