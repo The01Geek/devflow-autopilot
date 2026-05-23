@@ -80,12 +80,16 @@ involved. Rename the label via `claude_implement.trigger_label` in
 → Labels → New label**.
 
 > **Who can trigger it.** Adding a label requires **triage or write** access, so
-> the label path is gated by repo permission, not by `claude.allowed_bots` (that
-> allowlist only constrains the `@claude` *comment* path). claude-code-action
-> still enforces its own actor check — non-write users can't trigger a run — but
-> be aware that **anyone with write/triage, or any bot that syncs labels, will
-> start an autonomous implement run by adding `devflow:implement`.** If you wire
-> up label automation, scope it so it can't bulk-apply this label unintentionally.
+> the label path is gated by repo permission. The bare `/devflow:implement <#>`
+> comment / review / issue-body path is gated the same way: the `gate` job runs
+> `scripts/resolve-implement-trigger.sh`, which authorizes the sender only if
+> they are an allowed bot (`claude.allowed_bots`) **or** a write / admin /
+> maintain collaborator, and fails closed otherwise. So `claude.allowed_bots` is
+> not the sole gate on the command path any more — repo permission is the other
+> half. Be aware that **anyone with write/triage, or any bot that syncs labels,
+> will start an autonomous implement run by adding `devflow:implement`.** If you
+> wire up label automation, scope it so it can't bulk-apply this label
+> unintentionally.
 
 For the full idea → issue → label → PR walkthrough, see
 [The workflow, end to end](../README.md#the-workflow-end-to-end) in the README.

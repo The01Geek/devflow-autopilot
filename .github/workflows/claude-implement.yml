@@ -123,7 +123,17 @@ jobs:
           # NOT at scripts/ (repo root). Matches every other workflow's
           # invocation convention (e.g. devflow-review.yml's
           # .claude/plugins/devflow/scripts/dismiss-stale-rejections.sh).
-          bash .claude/plugins/devflow/scripts/resolve-implement-trigger.sh >> "$GITHUB_OUTPUT"
+          RESOLVER=.claude/plugins/devflow/scripts/resolve-implement-trigger.sh
+          # Fail CLOSED (not a hard red workflow) if the plugin wasn't vendored,
+          # with an actionable root cause. A bare `bash <missing>` under set -e
+          # would exit non-zero with only a cryptic "No such file or directory"
+          # and no signal to the requester about why their command did nothing.
+          if [ ! -f "$RESOLVER" ]; then
+            echo "::error::devflow resolver not found at $RESOLVER — has install.sh vendored the plugin into this repo? Skipping the /devflow:implement run." >&2
+            { echo "should_run=false"; echo "number="; } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          bash "$RESOLVER" >> "$GITHUB_OUTPUT"
 
   claude:
     needs: [config, gate]
@@ -160,8 +170,16 @@ jobs:
           case "$TRIGGER_TEXT" in
             *"@claude"*)
               if [ -n "${NUMBER:-}" ] && [ "$NUMBER" != "null" ]; then
-                gh api "repos/$REPO/issues/$NUMBER/comments" -f "body=$BODY" >/dev/null \
-                  || echo "::warning::Could not post the @claude-redundant reminder comment."
+                # Capture gh's stderr into the warning so a failure (rate-limit,
+                # 403, wrong number) is diagnosable, not a bare "could not post".
+                if ! err="$(gh api "repos/$REPO/issues/$NUMBER/comments" -f "body=$BODY" 2>&1 >/dev/null)"; then
+                  echo "::warning::Could not post the @claude-redundant reminder comment (non-blocking): $err"
+                fi
+              else
+                # Unreachable on an authorized run (should_run=true implies a
+                # resolved number); leave a breadcrumb if the output wiring ever
+                # regresses rather than vanishing silently.
+                echo "::warning::Nudge skipped: no resolved issue number (NUMBER='${NUMBER:-}') — unexpected on an authorized run."
               fi
               ;;
             *) : ;;

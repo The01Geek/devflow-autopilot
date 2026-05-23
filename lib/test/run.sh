@@ -680,9 +680,17 @@ RIT_STUB_DIR="$(mktemp -d)"
 cat > "$RIT_STUB_DIR/gh" <<'STUB'
 #!/usr/bin/env bash
 # STUB_ERR (to stderr) + STUB_RC let a test simulate gh failures (transient or
-# 404); default is a clean success echoing STUB_PERM.
+# 404); default is a clean success echoing STUB_PERM. STUB_RECOVER (with a
+# STUB_COUNTER file) fails the FIRST permission call with a 500 and succeeds on
+# the second, so a test can prove the resolver's retry loop actually re-attempts.
 case "$*" in
   *"collaborators/"*"/permission"*)
+    if [ -n "${STUB_RECOVER:-}" ]; then
+      n=0; [ -f "${STUB_COUNTER:-/dev/null}" ] && n="$(cat "${STUB_COUNTER:-/dev/null}")"
+      n=$((n + 1)); echo "$n" > "${STUB_COUNTER:-/dev/null}"
+      if [ "$n" -lt 2 ]; then echo "gh: Internal Server Error (HTTP 500)" >&2; exit 1; fi
+      echo "${STUB_PERM:-none}"; exit 0
+    fi
     [ -n "${STUB_ERR:-}" ] && echo "$STUB_ERR" >&2
     [ "${STUB_RC:-0}" != 0 ] && exit "${STUB_RC}"
     echo "${STUB_PERM:-none}" ;;
@@ -742,8 +750,10 @@ OUT="$(ACTOR='alice' ALLOWED_BOTS='' REPO='acme/x' IS_LABEL_EVENT='false' \
   RESOLVE_RETRY_DELAY='0' PATH="$RIT_STUB_DIR:$PATH" bash "$RIT" 2>"$RIT_STUB_DIR/err")"
 assert_eq "rit: transient API error → should_run=false" \
   "should_run=false" "$(echo "$OUT" | grep '^should_run=')"
-assert_eq "rit: transient API error → honest diagnostic" \
-  "1" "$(grep -c 'transient collaborator-API error' "$RIT_STUB_DIR/err")"
+assert_eq "rit: transient API error → honest diagnostic (not mislabelled)" \
+  "1" "$(grep -c 'collaborator-permission lookup failed after retry' "$RIT_STUB_DIR/err")"
+assert_eq "rit: transient API error → surfaces the real gh error" \
+  "1" "$(grep -c 'HTTP 500' "$RIT_STUB_DIR/err")"
 
 # 7. Genuine 404 (not a collaborator) → fails closed as before, no retry stall.
 OUT="$(ACTOR='stranger' ALLOWED_BOTS='' REPO='acme/x' IS_LABEL_EVENT='false' \
@@ -753,7 +763,36 @@ OUT="$(ACTOR='stranger' ALLOWED_BOTS='' REPO='acme/x' IS_LABEL_EVENT='false' \
 assert_eq "rit: 404 non-collaborator → should_run=false" \
   "should_run=false" "$(echo "$OUT" | grep '^should_run=')"
 assert_eq "rit: 404 treated as non-collaborator, not transient" \
-  "1" "$(grep -c 'is not an allowed bot or write/admin collaborator' "$RIT_STUB_DIR/err")"
+  "1" "$(grep -c 'is not an allowed bot or write/admin/maintain collaborator' "$RIT_STUB_DIR/err")"
+
+# 8. Transient failure on attempt 1, success on attempt 2 → retry RECOVERS the
+#    collaborator. A regression collapsing the loop to a single call would fail
+#    closed and break this, which case 6 (double-failure) cannot catch.
+RIT_COUNTER="$RIT_STUB_DIR/recover_count"; : > "$RIT_COUNTER"
+OUT="$(ACTOR='alice' ALLOWED_BOTS='' REPO='acme/x' IS_LABEL_EVENT='false' \
+  TRIGGER_TEXT='/devflow:implement 7' CONTEXT_NUMBER='99' \
+  STUB_RECOVER='1' STUB_COUNTER="$RIT_COUNTER" STUB_PERM='write' \
+  RESOLVE_RETRY_DELAY='0' PATH="$RIT_STUB_DIR:$PATH" bash "$RIT")"
+assert_eq "rit: retry recovers collaborator on attempt 2 → should_run" \
+  "should_run=true" "$(echo "$OUT" | grep '^should_run=')"
+assert_eq "rit: retry recovers → number" \
+  "number=7" "$(echo "$OUT" | grep '^number=')"
+
+# 9. Explicit number with leading '#' and mixed-case command → extracted (pins
+#    the regex's `#?` arm and grep -i case-insensitivity).
+OUT="$(ACTOR='alice' ALLOWED_BOTS='' REPO='acme/x' IS_LABEL_EVENT='false' \
+  TRIGGER_TEXT='/DevFlow:Implement #13' CONTEXT_NUMBER='99' \
+  STUB_PERM='admin' PATH="$RIT_STUB_DIR:$PATH" bash "$RIT")"
+assert_eq "rit: '#'-prefixed mixed-case command → number=13" \
+  "number=13" "$(echo "$OUT" | grep '^number=')"
+
+# 10. allowed_bots with surrounding whitespace + bot is NOT the first entry →
+#     matched after parameter-expansion trim (pins the trim + loop continuation).
+OUT="$(ACTOR='bar[bot]' ALLOWED_BOTS=' foo , bar ' REPO='acme/x' \
+  IS_LABEL_EVENT='true' TRIGGER_TEXT='' CONTEXT_NUMBER='8' \
+  PATH="$RIT_STUB_DIR:$PATH" bash "$RIT")"
+assert_eq "rit: whitespace-trimmed, non-first allowed bot → should_run" \
+  "should_run=true" "$(echo "$OUT" | grep '^should_run=')"
 
 rm -rf "$RIT_STUB_DIR"
 
