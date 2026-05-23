@@ -1572,6 +1572,115 @@ assert_eq "et: invalid --mode → exit 2" "2" "$ET_MODE_RC"
 
 rm -rf "$ET_DIR" "$ET_DEG" "$ET_EMPTY"; rm -f "$ET_CFG"
 
+# ────────────────────────────────────────────────────────────────────────────
+echo "devflow-runner.yml: opt-in environment provisioning (issue #18)"
+# ────────────────────────────────────────────────────────────────────────────
+# The automated reviewer gains a build environment + build-tool allowlist ONLY
+# when the TRUSTED base config sets devflow_runner.provision_env: true. These
+# assertions pin the load-bearing invariants: (1) provisioning is gated on the
+# base-ref flag, (2) the build allowlist is appended ONLY under that guard so
+# the default profile stays byte-for-byte read-only, (3) both the flag and the
+# setup block are sourced from the base ref (never the PR head) so a PR cannot
+# enable provisioning or inject install commands into the write-token job.
+RUNNER="$LIB/../.github/workflows/devflow-runner.yml"
+
+# The read-only base profile line must NOT contain ANY of the 8 build tools —
+# this is the "byte-for-byte read-only when disabled" guarantee. Check all eight
+# (not just npm): a regression that moved a less-npm-shaped token like
+# Bash(make:*) or Bash(php:*) onto the base line would slip a single-tool grep
+# while breaking the security invariant. (The build tokens live only on the
+# separate, PROVISION_ENV-guarded append line below.)
+assert_eq "provision: read-only base profile has no build tools (all 8)" "0" \
+  "$(grep "TOOLS='Read,Glob,Grep" "$RUNNER" \
+     | grep -cE 'Bash\((npm|npx|node|yarn|pnpm|composer|php|make):\*\)' || true)"
+
+# The 8 build/verify tools are appended on a single line, and that line is
+# guarded by `if [ "$PROVISION_ENV" = "true" ]` on the immediately preceding
+# non-comment line.
+# Fixed-string match (-F): the literal contains `$TOOLS` and `(`/`)`/`*`; under a
+# strict-POSIX/ugrep `grep` a mid-pattern `$` would anchor and the line would
+# silently not match, skipping the guard assertion below. -F keeps it portable.
+BUILD_LINE=$(grep -nF 'TOOLS="$TOOLS,Bash(npm:*),Bash(npx:*),Bash(node:*),Bash(yarn:*),Bash(pnpm:*),Bash(composer:*),Bash(php:*),Bash(make:*)"' "$RUNNER" | cut -d: -f1)
+assert_eq "provision: build allowlist append line present (all 8 tools)" "1" \
+  "$(printf '%s\n' "$BUILD_LINE" | grep -c '^[0-9]' || true)"
+if [ -n "$BUILD_LINE" ]; then
+  GUARD_LINE=$(sed -n "$((BUILD_LINE - 1))p" "$RUNNER")
+  assert_eq "provision: build allowlist guarded by PROVISION_ENV == true" "yes" \
+    "$(echo "$GUARD_LINE" | grep -q 'if \[ "\$PROVISION_ENV" = "true" \]' && echo yes || echo no)"
+fi
+
+# The setup-project-env step is gated on the base-ref provision flag.
+assert_eq "provision: setup-project-env step present" "1" \
+  "$(grep -c 'uses: ./.github/actions/setup-project-env' "$RUNNER" || true)"
+assert_eq "provision: setup-project-env gated on base provision_env" "1" \
+  "$(grep -c "if: steps.baseprovision.outputs.provision_env == 'true'" "$RUNNER" || true)"
+
+# Coupling: the tool-profile guard and the provision step must read the SAME
+# gate. Pin that the tools step's PROVISION_ENV env is wired to
+# steps.baseprovision.outputs.provision_env — if it were ever pointed at a
+# stale/different source, build tools could be granted without (or without
+# matching) a provisioned env, and every other assertion would stay green.
+assert_eq "provision: PROVISION_ENV env wired to baseprovision output" "1" \
+  "$(grep -cF 'PROVISION_ENV: ${{ steps.baseprovision.outputs.provision_env }}' "$RUNNER" || true)"
+
+# Documented invariant (schema marks devflow_runner.allowed_tools deprecated/
+# inert): the runner must contain ZERO reads of devflow_runner.allowed_tools. If
+# a future change re-wires that key, this fails and the docs/schema must follow.
+assert_eq "provision: runner does not consume devflow_runner.allowed_tools" "0" \
+  "$(grep -cE 'devflow_runner\.allowed_tools|devflow_runner\[.allowed_tools' "$RUNNER" || true)"
+
+# Trust boundary on the SETUP channel (the one that carries setup.install): the
+# provision step's config_json must come from steps.baseprovision (base ref),
+# NOT steps.cfg / steps.extract (the PR-head config). A regression here would
+# re-open setup.install injection while every flag-side assertion stayed green.
+assert_eq "provision: setup config_json sourced from base (steps.baseprovision)" "1" \
+  "$(grep -cF 'config_json: ${{ steps.baseprovision.outputs.config_json }}' "$RUNNER" || true)"
+
+# The malformed/non-object base-config fallback must reset BASE_JSON to '{}' and
+# warn (collapse to read-only), not abort the job. Pin both halves of that arm.
+assert_eq "provision: malformed base config resets BASE_JSON to {}" "1" \
+  "$(grep -c "BASE_JSON='{}'" "$RUNNER" | awk '{print ($1>=1)?1:0}')"
+assert_eq "provision: malformed/non-object base config warns + read-only" "1" \
+  "$(grep -c 'malformed or non-object .devflow/config.json' "$RUNNER" || true)"
+
+# Trust boundary: the flag and setup block come from the base ref. BASE_REF is
+# sourced from the trusted event payload, fetched from origin, and read out of
+# FETCH_HEAD — never the checked-out PR head.
+assert_eq "provision: base ref from trusted event payload" "1" \
+  "$(grep -c 'github.event.pull_request.base.ref || github.event.repository.default_branch' "$RUNNER" || true)"
+assert_eq "provision: base config fetched from origin BASE_REF" "1" \
+  "$(grep -c 'git fetch --depth=1 origin "\$BASE_REF"' "$RUNNER" || true)"
+assert_eq "provision: provision_env read from FETCH_HEAD base config" "1" \
+  "$(grep -c 'FETCH_HEAD:.devflow/config.json' "$RUNNER" || true)"
+
+# Security: the flag is read EXACTLY ONCE, and only from the base-ref config
+# ($BASE_JSON) — never from the PR-head config ($CONFIG_JSON, the extract step).
+# We locate every jq read of `.devflow_runner.provision_env`: there must be one,
+# and it must pipe from BASE_JSON (and not CONFIG_JSON). A same-line CONFIG_JSON
+# negative alone was too weak — a refactor reading the flag from the head config
+# via an intermediate variable would slip past it and silently re-open the
+# self-escalation hole.
+PROV_READS=$(grep -nE '\.devflow_runner\.provision_env' "$RUNNER" | grep 'jq ' || true)
+assert_eq "provision: flag read exactly once (jq)" "1" \
+  "$(printf '%s\n' "$PROV_READS" | grep -c '^[0-9]' || true)"
+assert_eq "provision: flag read from base config (BASE_JSON), not PR-head CONFIG_JSON" "yes" \
+  "$(printf '%s\n' "$PROV_READS" | grep -q 'BASE_JSON' \
+     && ! printf '%s\n' "$PROV_READS" | grep -q 'CONFIG_JSON' && echo yes || echo no)"
+# The read uses the `== true` clamp, so the emitted GITHUB_OUTPUT token is always
+# the literal `true`/`false` that both consumers (the step `if:` and the shell
+# guard) compare against — and only a real boolean true enables provisioning.
+assert_eq "provision: flag read uses the '== true' clamp" "yes" \
+  "$(printf '%s\n' "$PROV_READS" | grep -q 'provision_env == true' && echo yes || echo no)"
+
+# Schema + example: the property is declared (boolean, default false) and the
+# example config carries it so editors and adopters see it.
+assert_eq "provision: schema declares provision_env boolean" "boolean" \
+  "$(jq -r '.properties.devflow_runner.properties.provision_env.type' "$LIB/../.devflow/config.schema.json")"
+assert_eq "provision: schema default is false" "false" \
+  "$(jq -r '.properties.devflow_runner.properties.provision_env.default' "$LIB/../.devflow/config.schema.json")"
+assert_eq "provision: config.example.json sets provision_env false" "false" \
+  "$(jq -r '.devflow_runner.provision_env' "$LIB/../.devflow/config.example.json")"
+
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)

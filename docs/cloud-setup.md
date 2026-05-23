@@ -105,10 +105,12 @@ For the full idea → issue → PR walkthrough, see
 
 ## Runtime provisioning (`setup`)
 
-The light command (`devflow.yml`), `/devflow:implement` (`devflow-implement.yml`),
-and the automated reviewer (`devflow-review.yml` → `devflow-runner.yml`) all
-prepare the runner **before**
-Claude runs by reading a `setup` block from `.devflow/config.json`.
+The light command (`devflow.yml`) and `/devflow:implement`
+(`devflow-implement.yml`) always prepare the runner **before**
+Claude runs by reading a `setup` block from `.devflow/config.json`; the
+automated reviewer (`devflow-review.yml` → `devflow-runner.yml`) does so too,
+but **only when you opt in** with `devflow_runner.provision_env: true` (see
+"Letting the reviewer build/test a PR" below).
 (`/devflow:init` auto-fills `node_version` + an install line from your repo's
 language(s) and lockfile — see "Letting the reviewer build/test a PR" below.)
 There is no hardcoded toolchain — DevFlow installs into repos of every shape
@@ -224,12 +226,14 @@ workflow YAML:
 - Entries use [claude-code-action tool syntax](https://github.com/anthropics/claude-code-action)
   (e.g. `Bash(make:*)`), and are **appended** to DevFlow's base list — they add,
   never replace.
-- The three keys are **independent**, one per execution path:
+- These keys are **independent**, one per execution path:
   `devflow.allowed_tools` → light `/devflow:*` command path (`devflow.yml`);
-  `devflow_implement.allowed_tools` → `/devflow:implement` (`devflow-implement.yml`);
-  `devflow_runner.allowed_tools` → the automated reviewer (`devflow-review.yml`).
+  `devflow_implement.allowed_tools` → `/devflow:implement` (`devflow-implement.yml`).
   None inherits another's extras, so list every tool you want for a given path
-  under that path's key.
+  under that path's key. The automated reviewer is governed differently — its
+  build access is a single opt-in flag, `devflow_runner.provision_env`, that
+  grants a **fixed** build allowlist (see "Letting the reviewer build/test a
+  PR" below), not a freeform per-tool list.
 - Leave a key out (or `[]`) to use the base list unchanged.
 - These come from your committed config, so treat them with the same care as
   `setup.install`: only allowlist commands you trust to run unattended.
@@ -237,12 +241,13 @@ workflow YAML:
 ## Letting the reviewer build/test a PR
 
 By default the automated reviewer is **read-only** — it inspects the diff but
-cannot compile, lint, or test it. To let it actually build a PR, give it the
-toolchain (`devflow_runner.allowed_tools`) **and** the runtime (`setup`):
+cannot compile, lint, or test it, so a build-dependent claim (e.g. "does
+`npx webpack` still compile after this change?") can only be flagged, not
+verified. Flip one flag to opt in:
 
 ```json
 "devflow_runner": {
-  "allowed_tools": ["Bash(npm:*)", "Bash(npx:*)", "Bash(webpack:*)", "Bash(tsc:*)"]
+  "provision_env": true
 },
 "setup": {
   "node_version": "20",
@@ -250,27 +255,50 @@ toolchain (`devflow_runner.allowed_tools`) **and** the runtime (`setup`):
 }
 ```
 
-You rarely write this by hand: **`/devflow:init` auto-detects your repo's
-language(s)** (Node, Go, Rust, Java, Ruby, PHP, .NET, Make, Docker) from their
-marker files and merges the right tools into all three allowlists plus `setup`
-(picking `npm ci` / `pnpm install` / `yarn install` from your lockfile). Re-run
-it after adding a language — the merge is an idempotent union that never drops
-your custom entries.
+When `devflow_runner.provision_env` is `true`, the runner (`devflow-runner.yml`)
+does two extra things before launching Claude:
+
+1. Runs the `setup-project-env` action — the same provisioning the
+   `/devflow:*` command path and `/devflow:implement` already use (Python /
+   Node / PHP → service containers → `setup.install`), so the reviewer has a
+   real built environment.
+2. Extends the read-only `review` tool profile with a **fixed** build/verify
+   Bash allowlist: `Bash(npm:*)`, `Bash(npx:*)`, `Bash(node:*)`,
+   `Bash(yarn:*)`, `Bash(pnpm:*)`, `Bash(composer:*)`, `Bash(php:*)`,
+   `Bash(make:*)`. (This is a fixed mainstream set, not a per-tool list you
+   pick.)
+
+When the flag is **absent or `false` (the default)**, none of this happens: the
+runner is byte-for-byte the read-only reviewer it was before — no provisioning
+step, no build tools, no added latency.
+
+The `setup` block is still populated for you: **`/devflow:init` auto-detects
+your repo's language(s)** (Node, Go, Rust, Java, Ruby, PHP, .NET, Make, Docker)
+from their marker files and fills in `setup` (picking `npm ci` /
+`pnpm install` / `yarn install` from your lockfile). Re-run it after adding a
+language — the merge is an idempotent union that never drops your custom
+entries. Enabling the reviewer's build environment is then just setting
+`provision_env: true`.
 
 > **⚠️ Security — read before enabling.** Build tools run the **PR author's
 > code** (e.g. an `npm` package's `postinstall` script) inside the reviewer,
 > which fires on `pull_request_target` with a `pull-requests: write` token. To
-> stop a PR from escalating itself, the reviewer reads `devflow_runner.allowed_tools`
-> and `setup` **only from your repo's base branch** — never from the PR's own
-> checkout — so a malicious PR cannot widen its own review's allowlist. But
-> enabling, say, `Bash(npm:*)` is still you opting into running untrusted build
+> stop a PR from escalating itself, the runner reads **both** the
+> `provision_env` flag **and** the `setup` block **only from your repo's base
+> branch** — never from the PR's own checkout — so a malicious PR can neither
+> turn provisioning on for its own review nor inject `setup.install` commands.
+> But enabling `provision_env` is still you opting into running untrusted build
 > steps against fork PRs. Mitigations: enable
 > [*Require approval for all outside collaborators*](https://docs.github.com/en/actions/managing-workflow-runs/approving-workflow-runs-from-public-forks)
-> for Actions, keep the allowlist to mainstream build/test/lint commands, and
-> review what `/devflow:init` adds before committing. Residual limitation: the
-> reviewer also runs the in-repo composite actions from the PR checkout, so a PR
-> that edits `.github/actions/**` is a separate, louder vector — protect those
-> paths if this matters to you.
+> for Actions, and keep `setup.install` to mainstream build/test/lint commands.
+> Residual limitation: the reviewer still runs the in-repo composite actions
+> (and the `setup.install` lines) from the PR checkout, so a PR that edits
+> `.github/actions/**` is a separate, louder vector — protect those paths if
+> this matters to you. Note too that the `setup` block comes from the base
+> branch but runs against the PR-head tree, so a PR that restructures the
+> project (renames the package dir, regenerates the lockfile) can make the
+> base-pinned install line fail — surfacing as a provisioning error, not a code
+> defect.
 
 ## Workflow inventory
 
