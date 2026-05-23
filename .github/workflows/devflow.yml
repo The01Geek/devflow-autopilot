@@ -50,11 +50,24 @@ jobs:
           CONFIG_JSON: ${{ steps.cfg.outputs.json }}
         run: |
           set -euo pipefail
+          ENABLED=$(echo "$CONFIG_JSON" | jq -r '.workflows.devflow // false')
+          # `// empty` collapses a missing/null allowlist to a real empty string.
+          # Fail loud only when the workflow is ENABLED — a config left on the
+          # pre-2.2.5 `claude.allowed_bots` key would otherwise propagate a
+          # literal "null" allowlist that silently matches no bot. Disabled repos
+          # skip the check (allowed_bots is read only downstream of the enabled
+          # gate), so this never breaks an intentionally-off install. Mirrors the
+          # guard in devflow-runner.yml.
+          ALLOWED_BOTS=$(echo "$CONFIG_JSON" | jq -r '.devflow.allowed_bots // empty')
+          if [ "$ENABLED" = "true" ] && [ -z "$ALLOWED_BOTS" ]; then
+            echo "::error::devflow.allowed_bots is missing from .devflow/config.json (a pre-2.2.5 config may still use the old 'claude.allowed_bots' key — see CHANGELOG 2.2.5 migration)"
+            exit 1
+          fi
           {
-            echo "enabled=$(echo "$CONFIG_JSON" | jq -r '.workflows.devflow // false')"
+            echo "enabled=$ENABLED"
             echo "base_branch=$(echo "$CONFIG_JSON" | jq -r '.base_branch')"
             echo "claude_model=$(echo "$CONFIG_JSON" | jq -r '.claude_model')"
-            echo "allowed_bots=$(echo "$CONFIG_JSON" | jq -r '.devflow.allowed_bots')"
+            echo "allowed_bots=$ALLOWED_BOTS"
             # Human logins allowed to trigger the command path (AND-filter on top
             # of the collaborator-permission gate; '*' = any collaborator).
             echo "allowed_users=$(echo "$CONFIG_JSON" | jq -r '.devflow.allowed_users // "*"')"
