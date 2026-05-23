@@ -57,7 +57,7 @@ runs:
         # sibling script (travels with the action, unit-tested in lib/test/) and
         # captured assignment-form: a failure aborts under set -e rather than
         # silently writing empty cache outputs.
-        node_cache_lines=$("$GITHUB_ACTION_PATH/resolve-node-cache.sh" "$node_ver" "$node_wd")
+        node_cache_lines=$(bash "$GITHUB_ACTION_PATH/resolve-node-cache.sh" "$node_ver" "$node_wd")
         {
           echo "python_version=$py_ver"
           echo "node_version=$node_ver"

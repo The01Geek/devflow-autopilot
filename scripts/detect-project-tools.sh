@@ -104,14 +104,17 @@ ACTIVE_JSON=$(printf '%s\n' "${ACTIVE[@]}" | jq -R . | jq -s .)
 # back to the first subdirectory lockfile (monorepo / co-located JS bundle under
 # e.g. jsx/, resources/js/, frontend/). Same prune set as marker_present so a
 # vendored node_modules lockfile never matches. Precedence pnpm → yarn → npm
-# mirrors the package-manager selection below. Prints the path relative to
-# TARGET_ROOT, or nothing when no lockfile exists.
+# (package-lock) → npm (shrinkwrap) mirrors resolve-node-cache.sh and action.yml.
+# When several subdirectories match the same manager, `-print -quit` returns
+# whichever the filesystem yields first — the feature targets a single co-located
+# bundle, so this is deterministic per checkout but not "nearest to root". Prints
+# the path relative to TARGET_ROOT, or nothing when no lockfile exists.
 find_node_lockfile() {
   local lf hit
-  for lf in pnpm-lock.yaml yarn.lock package-lock.json; do
+  for lf in pnpm-lock.yaml yarn.lock package-lock.json npm-shrinkwrap.json; do
     [ -f "$TARGET_ROOT/$lf" ] && { printf '%s' "$lf"; return; }
   done
-  for lf in pnpm-lock.yaml yarn.lock package-lock.json; do
+  for lf in pnpm-lock.yaml yarn.lock package-lock.json npm-shrinkwrap.json; do
     hit=$(find "$TARGET_ROOT" -maxdepth 3 \
             \( -name node_modules -o -name .git -o -name vendor -o -name target \
                -o -name dist -o -name build -o -name .venv \) -prune \
@@ -129,19 +132,23 @@ NODE_WD=""   # empty = repo root; only set when the build lives in a subdirector
 if printf '%s\n' "${ACTIVE[@]}" | grep -qx node; then
   NODE_LOCKFILE="$(find_node_lockfile)"
   case "${NODE_LOCKFILE##*/}" in
-    pnpm-lock.yaml)    NODE_CMD="pnpm install --frozen-lockfile" ;;
-    yarn.lock)         NODE_CMD="yarn install --frozen-lockfile" ;;
-    package-lock.json) NODE_CMD="npm ci" ;;
-    *)                 NODE_CMD="npm install" ;;   # no lockfile found
+    pnpm-lock.yaml)      NODE_CMD="pnpm install --frozen-lockfile" ;;
+    yarn.lock)           NODE_CMD="yarn install --frozen-lockfile" ;;
+    package-lock.json)   NODE_CMD="npm ci" ;;
+    npm-shrinkwrap.json) NODE_CMD="npm ci" ;;   # npm ci honors npm-shrinkwrap.json
+    *)                   NODE_CMD="npm install" ;;   # no lockfile found
   esac
   # dirname is "." for a root lockfile and for the no-lockfile case (empty
   # string), so both keep today's root-level install line and empty NODE_WD. A
   # subdirectory lockfile yields a subshell `cd` so a later root-level install
   # line in the same setup.install array is unaffected by the directory change.
+  # The directory is single-quoted in the generated line so a path with a space
+  # (e.g. a "resources/js" sibling) doesn't word-split when the install array is
+  # exec'd via `bash -c` in the action.
   NODE_LOCKDIR="$(dirname "$NODE_LOCKFILE")"
   if [ -n "$NODE_LOCKFILE" ] && [ "$NODE_LOCKDIR" != "." ]; then
     NODE_WD="$NODE_LOCKDIR"
-    NODE_INSTALL="(cd $NODE_WD && $NODE_CMD)"
+    NODE_INSTALL="(cd '$NODE_WD' && $NODE_CMD)"
   else
     NODE_INSTALL="$NODE_CMD"
   fi

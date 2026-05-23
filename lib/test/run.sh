@@ -341,8 +341,8 @@ printf '{"setup":{"node_version":"","install":[]}}' > "$DT6/.devflow/config.json
 bash "$DPT" "$DT6" >/dev/null 2>&1
 assert_eq "detect: subdir build sets node_working_directory" "jsx" \
   "$(jq -r '.setup.node_working_directory' "$DT6/.devflow/config.json")"
-assert_eq "detect: subdir install line is subshell-scoped into the dir" "yes" \
-  "$(jq -e '.setup.install | index("(cd jsx && npm ci)") != null' "$DT6/.devflow/config.json" >/dev/null && echo yes || echo no)"
+assert_eq "detect: subdir install line is subshell-scoped into the dir (quoted)" "yes" \
+  "$(jq -e '.setup.install | index("(cd '\''jsx'\'' && npm ci)") != null' "$DT6/.devflow/config.json" >/dev/null && echo yes || echo no)"
 
 # 8. Root Node build → node_working_directory is NEVER written (byte-identical
 #    to the pre-feature behavior) and the install line stays a bare npm ci.
@@ -356,7 +356,32 @@ assert_eq "detect: root build writes no node_working_directory key" "true" \
 assert_eq "detect: root build install line is bare npm ci (no cd)" "yes" \
   "$(jq -e '.setup.install | index("npm ci") != null' "$DT7/.devflow/config.json" >/dev/null && echo yes || echo no)"
 
-rm -rf "$DT1" "$DT2" "$DT3" "$DT4" "$DT5" "$DT6" "$DT7"
+# 9. Subdirectory npm-shrinkwrap.json (the 4th lockfile) → detected just like
+#    package-lock.json, mapping to `npm ci`, so detection stays consistent with
+#    resolve-node-cache.sh / action.yml (which both honor shrinkwrap).
+DT8="$(mktemp -d)"; mkdir -p "$DT8/.devflow" "$DT8/jsx"
+printf '{"name":"bundle"}' > "$DT8/jsx/package.json"
+printf '{}' > "$DT8/jsx/npm-shrinkwrap.json"
+printf '{"setup":{"node_version":"","install":[]}}' > "$DT8/.devflow/config.json"
+bash "$DPT" "$DT8" >/dev/null 2>&1
+assert_eq "detect: subdir npm-shrinkwrap.json sets node_working_directory" "jsx" \
+  "$(jq -r '.setup.node_working_directory' "$DT8/.devflow/config.json")"
+assert_eq "detect: subdir shrinkwrap install line is (cd 'jsx' && npm ci)" "yes" \
+  "$(jq -e '.setup.install | index("(cd '\''jsx'\'' && npm ci)") != null' "$DT8/.devflow/config.json" >/dev/null && echo yes || echo no)"
+
+# 10. A subdirectory name containing a space is single-quoted in the generated
+#     install line, so it survives the `bash -c` exec in the action verbatim.
+DT9="$(mktemp -d)"; mkdir -p "$DT9/.devflow" "$DT9/my app"
+printf '{"name":"bundle"}' > "$DT9/my app/package.json"
+printf '{}' > "$DT9/my app/package-lock.json"
+printf '{"setup":{"node_version":"","install":[]}}' > "$DT9/.devflow/config.json"
+bash "$DPT" "$DT9" >/dev/null 2>&1
+assert_eq "detect: spaced subdir name is quoted in install line" "yes" \
+  "$(jq -e '.setup.install | index("(cd '\''my app'\'' && npm ci)") != null' "$DT9/.devflow/config.json" >/dev/null && echo yes || echo no)"
+assert_eq "detect: spaced subdir name written verbatim to node_working_directory" "my app" \
+  "$(jq -r '.setup.node_working_directory' "$DT9/.devflow/config.json")"
+
+rm -rf "$DT1" "$DT2" "$DT3" "$DT4" "$DT5" "$DT6" "$DT7" "$DT8" "$DT9"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "resolve-node-cache.sh (setup-project-env helper)"
@@ -395,6 +420,20 @@ RNC_PREC="$(mktemp -d)"; : > "$RNC_PREC/pnpm-lock.yaml"; : > "$RNC_PREC/package-
 assert_eq "rnc: pnpm precedence over npm"           "node_cache=pnpm" \
   "$(rnc "$RNC_PREC" 20 "" | grep '^node_cache=')"
 
+# npm-shrinkwrap.json (the 4th lockfile) → npm cache, qualified path.
+RNC_SHR="$(mktemp -d)"; mkdir -p "$RNC_SHR/jsx"; : > "$RNC_SHR/jsx/npm-shrinkwrap.json"
+RNC_OUT="$(rnc "$RNC_SHR" 20 jsx)"
+assert_eq "rnc: subdir shrinkwrap → npm cache"      "node_cache=npm" \
+  "$(printf '%s\n' "$RNC_OUT" | grep '^node_cache=')"
+assert_eq "rnc: subdir shrinkwrap → qualified path" "node_cache_path=jsx/npm-shrinkwrap.json" \
+  "$(printf '%s\n' "$RNC_OUT" | grep '^node_cache_path=')"
+
+# Working directory set but no lockfile in it (config drift: dir named but
+# lockfile not committed there) → caching off, so setup-node never errors.
+RNC_WDNF="$(mktemp -d)"; mkdir -p "$RNC_WDNF/jsx"
+assert_eq "rnc: working dir set but no lockfile → empty cache" "node_cache=" \
+  "$(rnc "$RNC_WDNF" 20 jsx | grep '^node_cache=')"
+
 # No lockfile → caching disabled (empty), so setup-node never errors.
 RNC_NONE="$(mktemp -d)"
 RNC_OUT="$(rnc "$RNC_NONE" 20 "")"
@@ -408,7 +447,7 @@ assert_eq "rnc: no lockfile → empty path"           "node_cache_path=" \
 assert_eq "rnc: empty node_version → no cache"      "node_cache=" \
   "$(rnc "$RNC_ROOT" "" "" | grep '^node_cache=')"
 
-rm -rf "$RNC_SUB" "$RNC_ROOT" "$RNC_PREC" "$RNC_NONE"
+rm -rf "$RNC_SUB" "$RNC_ROOT" "$RNC_PREC" "$RNC_SHR" "$RNC_WDNF" "$RNC_NONE"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "config-source.sh"
