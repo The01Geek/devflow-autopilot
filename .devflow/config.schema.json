@@ -22,7 +22,7 @@
     },
     "devflow": {
       "type": "object",
-      "description": "Settings for the light /devflow:* command path (devflow.yml): trigger gating (allowed_bots/allowed_users), the implement workpad marker, reasoning effort, and extra tool allowlist.",
+      "description": "Shared DevFlow settings. allowed_bots/allowed_users gate triggering across ALL DevFlow workflows (devflow.yml, devflow-implement.yml, devflow-review.yml, devflow-runner.yml); workpad_marker is used by /devflow:implement; effort and allowed_tools apply specifically to the light /devflow:* command path (devflow.yml).",
       "properties": {
         "allowed_bots": {
           "type": "string",

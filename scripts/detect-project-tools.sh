@@ -131,7 +131,7 @@ jq -n \
   ([ $keys[] as $k | $p[$k].setup.install[]? ] + $extra_install) as $inst |
   ([ $keys[] as $k | $p[$k].setup.node_version? // empty ] | .[0]) as $nodever |
   $c
-  | .claude            = (.claude            // {})
+  | .devflow           = (.devflow           // {})
   | .devflow_implement  = (.devflow_implement  // {})
   | .devflow_runner     = (.devflow_runner     // {})
   | .setup             = (.setup             // {})

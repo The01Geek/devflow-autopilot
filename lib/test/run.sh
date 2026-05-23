@@ -272,7 +272,7 @@ printf '{"name":"x"}' > "$DT1/package.json"
 printf '{}' > "$DT1/package-lock.json"
 printf '{"devflow":{"allowed_tools":["Bash(make:*)"]},"setup":{"node_version":"","install":["python -m pip install pyyaml"]}}' > "$DT1/.devflow/config.json"
 bash "$DPT" "$DT1" >/dev/null 2>&1
-assert_eq "detect: npm tool in claude path"    "yes" "$(dpt_has .devflow.allowed_tools           'Bash(npm:*)' "$DT1/.devflow/config.json")"
+assert_eq "detect: npm tool in devflow path"   "yes" "$(dpt_has .devflow.allowed_tools           'Bash(npm:*)' "$DT1/.devflow/config.json")"
 assert_eq "detect: npm tool in implement path" "yes" "$(dpt_has .devflow_implement.allowed_tools 'Bash(npm:*)' "$DT1/.devflow/config.json")"
 assert_eq "detect: npm tool in runner path"    "yes" "$(dpt_has .devflow_runner.allowed_tools    'Bash(npm:*)' "$DT1/.devflow/config.json")"
 assert_eq "detect: node_version filled from empty" "20" \
@@ -283,6 +283,10 @@ assert_eq "detect: existing custom tool preserved at front (ordered union)" "Bas
   "$(jq -r '.devflow.allowed_tools[0]' "$DT1/.devflow/config.json")"
 assert_eq "detect: pyyaml install line kept first (order preserved)" "python -m pip install pyyaml" \
   "$(jq -r '.setup.install[0]' "$DT1/.devflow/config.json")"
+# Negative assertion: the rename must not leave a phantom `claude` object behind
+# (a stale `.claude = (.claude // {})` jq initializer would silently inject one).
+assert_eq "detect: no stray legacy 'claude' key written" "true" \
+  "$(jq -e '.claude == null' "$DT1/.devflow/config.json" >/dev/null && echo true || echo false)"
 
 # 2. Idempotent: a second run changes nothing.
 DT1_HASH="$(jq -S . "$DT1/.devflow/config.json" | sha256sum)"

@@ -75,7 +75,7 @@ def _workpad_marker():
     here = Path(__file__).resolve().parent
     helper = here / 'config-get.sh'
     try:
-        r = _run([str(helper), '.claude.workpad_marker', _DEFAULT_WORKPAD_MARKER])
+        r = _run([str(helper), '.devflow.workpad_marker', _DEFAULT_WORKPAD_MARKER])
     except (subprocess.CalledProcessError, OSError):
         return _DEFAULT_WORKPAD_MARKER
     marker = r.stdout.strip()

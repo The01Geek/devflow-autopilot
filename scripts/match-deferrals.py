@@ -270,7 +270,7 @@ def main(argv=None):
         print(json.dumps(result, indent=2))
         return 0
 
-    allowed_bots_raw = _config_get(".claude.allowed_bots", "", args.config)
+    allowed_bots_raw = _config_get(".devflow.allowed_bots", "", args.config)
     allowed_bots = {b.strip() for b in allowed_bots_raw.split(",") if b.strip()}
     pr_author_trusted = pr_author in allowed_bots if allowed_bots else False
     result["pr_author_trusted"] = pr_author_trusted
