@@ -916,6 +916,26 @@ assert_eq "install: Anthropic claude.yml preserved" \
   "present" "$([ -f "$WORK/.github/workflows/claude.yml" ] && echo present || echo absent)"
 rm -rf "$WORK"
 
+# ────────────────────────────────────────────────────────────────────────────
+echo "workflow partition invariant"
+# ────────────────────────────────────────────────────────────────────────────
+# Every gate `if:` line that matches a /devflow: command trigger must ALSO
+# negate @claude on that same line, so no comment can fire both a DevFlow
+# workflow and Anthropic's claude.yml. Covers devflow.yml (review/pr-description)
+# and devflow-implement.yml (/devflow:implement).
+WF="$LIB/../.github/workflows"
+for f in devflow devflow-implement; do
+  bad="$(grep -nE "contains\((github\.event[^)]*),[[:space:]]*'/devflow:(review|pr-description|implement)'\)" "$WF/$f.yml" \
+        | grep -v "@claude" || true)"
+  assert_eq "partition: $f.yml /devflow triggers all negate @claude" "" "$bad"
+done
+
+# The label trigger is gone: neither workflow may listen on `labeled`.
+for f in devflow devflow-implement; do
+  bad="$(grep -nE "^[[:space:]]*types:.*labeled" "$WF/$f.yml" || true)"
+  assert_eq "partition: $f.yml has no labeled trigger" "" "$bad"
+done
+
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
