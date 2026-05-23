@@ -1,28 +1,28 @@
-name: Claude Code (implement)
+name: DevFlow (implement)
 
 # Heavy listener for /devflow:implement. Fires on a BARE `/devflow:implement
-# <#>` comment, review, or issue body/title — and on the
-# `claude_implement.trigger_label` being added to an issue. It does NOT require
-# `@claude`.
+# <#>` comment, review, or new-issue body/title. It does NOT require `@claude`,
+# and there is NO label trigger — a human `/devflow:implement <#>` comment is
+# itself a native, no-App user event.
 #
-# Why no `@claude`: this workflow runs claude-code-action in AGENT mode with an
-# explicit, synthesised `/devflow:implement <n>` prompt (the `gate` job resolves
-# the number). Agent mode needs no trigger phrase. A stock claude.yml only
-# fires in TAG mode on its `@claude` phrase, so it never reacts to a bare
-# `/devflow:implement <n>` comment — the two workflows cannot double-fire on the
-# canonical path, and claude.yml needs NO edit when this plugin is installed.
+# Why bare-command only: this workflow runs claude-code-action in AGENT mode
+# with an explicit, synthesised `/devflow:implement <n>` prompt (the `gate` job
+# resolves the number). Agent mode needs no trigger phrase. Every trigger below
+# negates `@claude`, so an `@claude /devflow:implement` comment is ceded to
+# Anthropic's stock claude.yml (TAG mode) — an anti-pattern, since that listener
+# has no DevFlow plugin — and the two workflows can never double-fire. DevFlow
+# never touches claude.yml.
 #
 # Cost control: agent mode runs for ANY actor, so the `gate` job authorizes the
-# sender (an allowed bot OR a write/admin/maintain collaborator) before the
-# heavy `claude` job runs. See scripts/resolve-implement-trigger.sh.
+# sender (an allowed bot OR an `allowed_users` login with write/admin/maintain
+# access) before the heavy `claude` job runs. See scripts/resolve-implement-trigger.sh.
 #
 # This workflow reads `claude_implement.effort` (e.g. "high") so the planning +
-# write-the-tests phases get more reasoning budget than the light @claude flows
-# in claude.yml, without inflating every mention's cost.
+# write-the-tests phases get more reasoning budget than the light `/devflow:*`
+# flows in devflow.yml, without inflating every command's cost.
 #
 # Keep the plugin_marketplaces, plugins, and claude_args sections in sync with
-# claude.yml and claude-runner.yml so the skill surface is identical across
-# listeners.
+# devflow.yml so the skill surface is identical across listeners.
 
 on:
   issue_comment:
@@ -30,12 +30,12 @@ on:
   pull_request_review_comment:
     types: [created]
   issues:
-    types: [opened, labeled]
+    types: [opened]
   pull_request_review:
     types: [submitted]
 
 jobs:
-  # Duplicates the config job in claude.yml verbatim except for the
+  # Duplicates the config job in devflow.yml verbatim except for the
   # `effort` source (`claude_implement.effort` vs `claude.effort`). A
   # workflow_call indirection would buy nothing here — the config is
   # ~15 lines and the call would be more.
@@ -46,9 +46,9 @@ jobs:
       base_branch: ${{ steps.extract.outputs.base_branch }}
       claude_model: ${{ steps.extract.outputs.claude_model }}
       allowed_bots: ${{ steps.extract.outputs.allowed_bots }}
+      allowed_users: ${{ steps.extract.outputs.allowed_users }}
       effort: ${{ steps.extract.outputs.effort }}
       allowed_tools_extra: ${{ steps.extract.outputs.allowed_tools_extra }}
-      trigger_label: ${{ steps.extract.outputs.trigger_label }}
     steps:
       - uses: actions/checkout@v6
       - id: cfg
@@ -63,17 +63,16 @@ jobs:
             echo "base_branch=$(echo "$CONFIG_JSON" | jq -r '.base_branch')"
             echo "claude_model=$(echo "$CONFIG_JSON" | jq -r '.claude_model')"
             echo "allowed_bots=$(echo "$CONFIG_JSON" | jq -r '.claude.allowed_bots')"
+            # Human logins allowed to trigger /devflow:implement (AND-filter on
+            # top of the collaborator-permission gate; '*' = any collaborator).
+            echo "allowed_users=$(echo "$CONFIG_JSON" | jq -r '.claude.allowed_users // "*"')"
             echo "effort=$(echo "$CONFIG_JSON" | jq -r '.claude_implement.effort // "medium"')"
             # Repo-specific extra allowlist for the implement path. Independent
-            # from claude.yml's `claude.allowed_tools` — the heavy path does NOT
+            # from devflow.yml's `claude.allowed_tools` — the heavy path does NOT
             # inherit the light path's extras, so adopters list every extra tool
             # they want during /devflow:implement under `claude_implement.allowed_tools`.
             # Emits a leading-comma string (",Bash(make:*),…") or "".
             echo "allowed_tools_extra=$(echo "$CONFIG_JSON" | jq -r '.claude_implement.allowed_tools // [] | if length > 0 then "," + join(",") else "" end')"
-            # Issue label that triggers /devflow:implement. A human adding this
-            # label is a real user event, so it triggers the workflow natively —
-            # no bot-authored comment (and therefore no GitHub App) required.
-            echo "trigger_label=$(echo "$CONFIG_JSON" | jq -r 'if (.claude_implement.trigger_label // "") == "" then "devflow:implement" else .claude_implement.trigger_label end')"
           } >> "$GITHUB_OUTPUT"
 
   # Authorization + target-number gate. The action runs in AGENT mode below
@@ -87,11 +86,10 @@ jobs:
     if: |
       needs.config.outputs.enabled == 'true' &&
       (
-        (github.event_name == 'issue_comment' && contains(github.event.comment.body, '/devflow:implement')) ||
-        (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '/devflow:implement')) ||
-        (github.event_name == 'pull_request_review' && contains(github.event.review.body, '/devflow:implement')) ||
-        (github.event_name == 'issues' && github.event.action == 'opened' && (contains(github.event.issue.body, '/devflow:implement') || contains(github.event.issue.title, '/devflow:implement'))) ||
-        (github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == needs.config.outputs.trigger_label)
+        (github.event_name == 'issue_comment' && contains(github.event.comment.body, '/devflow:implement') && !contains(github.event.comment.body, '@claude')) ||
+        (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '/devflow:implement') && !contains(github.event.comment.body, '@claude')) ||
+        (github.event_name == 'pull_request_review' && contains(github.event.review.body, '/devflow:implement') && !contains(github.event.review.body, '@claude')) ||
+        (github.event_name == 'issues' && github.event.action == 'opened' && ((contains(github.event.issue.body, '/devflow:implement') && !contains(github.event.issue.body, '@claude')) || (contains(github.event.issue.title, '/devflow:implement') && !contains(github.event.issue.title, '@claude'))))
       )
     runs-on: ubuntu-latest
     permissions:
@@ -109,7 +107,7 @@ jobs:
           # commenter / reviewer / issue opener / labeller respectively.
           ACTOR: ${{ github.event.sender.login }}
           ALLOWED_BOTS: ${{ needs.config.outputs.allowed_bots }}
-          IS_LABEL_EVENT: ${{ github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == needs.config.outputs.trigger_label }}
+          ALLOWED_USERS: ${{ needs.config.outputs.allowed_users }}
           # issue.number for issues + issue_comment (PRs are issues); falls back
           # to pull_request.number for the review events.
           CONTEXT_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
@@ -146,49 +144,10 @@ jobs:
       id-token: write
       actions: read # Required for Claude to read CI results on PRs
     steps:
-      # Educational nudge toward the canonical bare `/devflow:implement <#>`
-      # form. Every claude.yml trigger clause carries `!contains(...,
-      # '/devflow:implement')`, so an `@claude /devflow:implement` comment does
-      # NOT wake the light listener — the `@claude` prefix is simply unnecessary
-      # (not harmful, and not a double-fire). When the trigger text carried
-      # `@claude`, post a one-line reminder pointing at the simpler bare command.
-      # Runs only on an authorized run (the job's should_run gate) and is skipped
-      # on the label path (no command text). Best-effort: a failed comment never
-      # blocks the implementation run.
-      - name: Nudge off redundant @claude prefix
-        if: github.event.action != 'labeled'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          NUMBER: ${{ needs.gate.outputs.number }}
-          # Same field selection as the gate's TRIGGER_TEXT; passed as an env
-          # var (never interpolated into bash) so body text cannot inject.
-          TRIGGER_TEXT: ${{ github.event.comment.body || github.event.review.body || format('{0} {1}', github.event.issue.title, github.event.issue.body) }}
-          BODY: "Heads up: you don't need `@claude` to start an implementation run — a bare `/devflow:implement <#>` comment triggers it directly. Your run was still kicked off; you can drop the `@claude` next time."
-        run: |
-          set -euo pipefail
-          case "$TRIGGER_TEXT" in
-            *"@claude"*)
-              if [ -n "${NUMBER:-}" ] && [ "$NUMBER" != "null" ]; then
-                # Capture gh's stderr into the warning so a failure (rate-limit,
-                # 403, wrong number) is diagnosable, not a bare "could not post".
-                if ! err="$(gh api "repos/$REPO/issues/$NUMBER/comments" -f "body=$BODY" 2>&1 >/dev/null)"; then
-                  echo "::warning::Could not post the @claude-redundant reminder comment (non-blocking): $err"
-                fi
-              else
-                # Unreachable on an authorized run (should_run=true implies a
-                # resolved number); leave a breadcrumb if the output wiring ever
-                # regresses rather than vanishing silently.
-                echo "::warning::Nudge skipped: no resolved issue number (NUMBER='${NUMBER:-}') — unexpected on an authorized run."
-              fi
-              ;;
-            *) : ;;
-          esac
-
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
-          # Matches claude.yml. /devflow:implement reads the diff via
+          # Matches devflow.yml. /devflow:implement reads the diff via
           # three-dot notation against `origin/main` (`git diff
           # origin/main...HEAD`), which internally computes a merge-base.
           # Depth 50 covers the realistic case (PRs typically ≤ a few
@@ -198,8 +157,8 @@ jobs:
 
       # Provision the runtime (Python / Node / pip cache / deps) from
       # `.devflow/config.json`'s `setup` block. The logic lives in the
-      # setup-project-env composite action so claude.yml and
-      # claude-implement.yml share ONE copy (checkout above gives the action
+      # setup-project-env composite action so devflow.yml and
+      # devflow-implement.yml share ONE copy (checkout above gives the action
       # the repo + config to read). See docs/cloud-setup.md for the rationale.
       - id: cfg
         uses: ./.github/actions/read-project-config
@@ -215,9 +174,9 @@ jobs:
           allowed_bots: ${{ needs.config.outputs.allowed_bots }}
 
           # Always agent mode: the gate resolved a single issue number, so the
-          # action never depends on `@claude` or on reading the raw body. A
-          # stock claude.yml (tag mode) therefore never double-fires on a bare
-          # `/devflow:implement <n>` comment.
+          # action never depends on `@claude` or on reading the raw body.
+          # Anthropic's stock claude.yml (tag mode) therefore never double-fires
+          # on a bare `/devflow:implement <n>` comment.
           prompt: ${{ format('/devflow:implement {0}', needs.gate.outputs.number) }}
 
           # Agent mode is silent by default; surface a progress comment so the
@@ -229,7 +188,7 @@ jobs:
             actions: read
 
           # Keep plugin_marketplaces, plugins, and claude_args in sync
-          # with claude.yml — both listeners must expose the same skill
+          # with devflow.yml — both listeners must expose the same skill
           # surface so that whether a flow hits the light or heavy path
           # is invisible to users invoking /devflow:* commands.
           plugin_marketplaces: |
