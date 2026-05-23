@@ -1,17 +1,25 @@
-name: 'Set up project runtime (Python / Node / deps)'
+name: 'Set up project runtime (Python / Node / PHP / services / deps)'
 description: |
   Provision the GitHub Actions runner from `.devflow/config.json`'s `setup`
   block BEFORE Claude runs, rather than hardcoding the toolchain (see that file
-  / docs/cloud-setup.md for the rationale): optional Python and Node, a pip
-  wheel cache, and the configured dependency-install lines.
+  / docs/cloud-setup.md for the rationale). In order: optional Python, Node
+  (with npm/yarn/pnpm download caching when a lockfile is present), and PHP;
+  then optional service containers (`docker run`); then the configured
+  dependency-install lines.
 
   The multi-line install command stays a jq-extracted string we exec directly,
-  never interpolated into a `run:` (injection-safe). Python/Node setup are
-  `uses:` actions — they must be static steps, so they are gated on a
-  configured version rather than data-looped over.
+  never interpolated into a `run:` (injection-safe). Python/Node/PHP setup are
+  `uses:` actions — they must be static steps, so they are gated on a configured
+  version rather than data-looped over.
 
-  Single source of truth: both `claude.yml` and `claude-implement.yml` call this
-  action, so the provisioning logic lives in exactly one place.
+  Service containers use `docker run` rather than GitHub Actions `services:`:
+  service containers cannot be created inside a composite action, and a static
+  reusable workflow cannot define a `services:` map from config. `docker run`
+  keeps it config-driven and reachable on 127.0.0.1:<host-port>.
+
+  Single source of truth: devflow.yml (command + runner jobs) and
+  devflow-implement.yml all call this action, so the provisioning logic lives in
+  exactly one place.
 
 inputs:
   config_json:
@@ -36,9 +44,30 @@ runs:
         # corrupt the GITHUB_OUTPUT line.
         py_ver=$(echo "$CONFIG_JSON" | jq -r '.setup.python_version // "" | if type=="string" then . else "" end')
         node_ver=$(echo "$CONFIG_JSON" | jq -r '.setup.node_version // "" | if type=="string" then . else "" end')
+        php_ver=$(echo "$CONFIG_JSON" | jq -r '.setup.php_version // "" | if type=="string" then . else "" end')
+        php_ext=$(echo "$CONFIG_JSON" | jq -r '.setup.php_extensions // "" | if type=="string" then . else "" end')
+        php_tools=$(echo "$CONFIG_JSON" | jq -r '.setup.php_tools // "" | if type=="string" then . else "" end')
+
+        # Node download caching errors out in setup-node when `cache` is set but
+        # no lockfile exists, so only enable it when a root lockfile is present —
+        # and pick the package manager that matches the lockfile.
+        node_cache=""
+        node_cache_path=""
+        if [ -n "$node_ver" ]; then
+          if   [ -f pnpm-lock.yaml ];      then node_cache="pnpm"; node_cache_path="pnpm-lock.yaml"
+          elif [ -f yarn.lock ];           then node_cache="yarn"; node_cache_path="yarn.lock"
+          elif [ -f package-lock.json ];   then node_cache="npm";  node_cache_path="package-lock.json"
+          elif [ -f npm-shrinkwrap.json ]; then node_cache="npm";  node_cache_path="npm-shrinkwrap.json"
+          fi
+        fi
         {
           echo "python_version=$py_ver"
           echo "node_version=$node_ver"
+          echo "node_cache=$node_cache"
+          echo "node_cache_path=$node_cache_path"
+          echo "php_version=$php_ver"
+          echo "php_extensions=$php_ext"
+          echo "php_tools=$php_tools"
         } >> "$GITHUB_OUTPUT"
 
     - name: Set up Python
@@ -52,6 +81,18 @@ runs:
       uses: actions/setup-node@v6
       with:
         node-version: ${{ steps.setupcfg.outputs.node_version }}
+        # Empty `cache` disables caching (the no-lockfile case computed above),
+        # so this never trips setup-node's "lock file is not found" error.
+        cache: ${{ steps.setupcfg.outputs.node_cache }}
+        cache-dependency-path: ${{ steps.setupcfg.outputs.node_cache_path }}
+
+    - name: Set up PHP
+      if: steps.setupcfg.outputs.php_version != ''
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: ${{ steps.setupcfg.outputs.php_version }}
+        extensions: ${{ steps.setupcfg.outputs.php_extensions }}
+        tools: ${{ steps.setupcfg.outputs.php_tools }}
 
     # Restore pip's wheel cache when Python is provisioned. setup-python's
     # built-in `cache: pip` is deliberately NOT used: it ERRORS when no
@@ -67,6 +108,86 @@ runs:
         key: pip-${{ runner.os }}-${{ hashFiles('**/requirements*.txt', '**/pyproject.toml', '**/setup.cfg', '**/setup.py') }}
         restore-keys: |
           pip-${{ runner.os }}-
+
+    - name: Start service containers
+      shell: bash
+      env:
+        CONFIG_JSON: ${{ inputs.config_json }}
+      run: |
+        set -euo pipefail
+        # Service containers (db/cache/queue) from `setup.services`, started via
+        # `docker run -d` so they work inside this composite action and stay
+        # config-driven. Values come from the TRUSTED base config (never the PR
+        # head), so a PR cannot inject a service or its env. Reachable from the
+        # runner and from build steps on 127.0.0.1:<host-port>.
+        SERVICES=$(echo "$CONFIG_JSON" | jq -c '.setup.services // [] | if type=="array" then . else [] end')
+        count=$(echo "$SERVICES" | jq 'length')
+        if [ "$count" -eq 0 ]; then
+          echo "No setup.services configured; skipping service containers."
+          exit 0
+        fi
+        if ! command -v docker >/dev/null 2>&1; then
+          echo "::warning::setup.services is configured but docker is unavailable on this runner; skipping service startup."
+          exit 0
+        fi
+
+        started=()
+        while IFS= read -r svc; do
+          [ -n "$svc" ] || continue
+          name=$(echo "$svc" | jq -r '.name')
+          image=$(echo "$svc" | jq -r '.image')
+          if [ -z "$name" ] || [ "$name" = "null" ] || [ -z "$image" ] || [ "$image" = "null" ]; then
+            echo "::warning::Skipping a setup.services entry missing name or image."
+            continue
+          fi
+          # Build argv as an array — env values and ports are never word-split,
+          # so a value containing spaces/metacharacters is passed safely.
+          args=(run -d --name "$name")
+          while IFS= read -r p; do [ -n "$p" ] && args+=(-p "$p"); done \
+            < <(echo "$svc" | jq -r '.ports[]? // empty')
+          while IFS= read -r kv; do [ -n "$kv" ] && args+=(-e "$kv"); done \
+            < <(echo "$svc" | jq -r '.env // {} | to_entries[] | "\(.key)=\(.value)"')
+          # `options` is a maintainer-authored raw string from trusted config —
+          # intentional word-split so flags like --health-cmd=... apply.
+          opts=$(echo "$svc" | jq -r '.options // ""')
+          if [ -n "$opts" ]; then
+            # shellcheck disable=SC2206
+            args+=($opts)
+          fi
+          args+=("$image")
+          echo "::group::Starting service '$name' ($image)"
+          docker "${args[@]}"
+          echo "::endgroup::"
+          started+=("$name")
+        done < <(echo "$SERVICES" | jq -c '.[]')
+
+        # Readiness: for containers that declare a health check (via `options`),
+        # wait until healthy; otherwise just confirm they're still running. Best
+        # effort — a timeout warns rather than failing the job, so the real test
+        # failure (if any) surfaces with a clearer message downstream.
+        for name in "${started[@]}"; do
+          health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$name" 2>/dev/null || echo "")
+          if [ -z "$health" ]; then
+            running=$(docker inspect --format '{{.State.Running}}' "$name" 2>/dev/null || echo "false")
+            if [ "$running" = "true" ]; then
+              echo "Service '$name' running (no health check declared)."
+            else
+              echo "::warning::Service '$name' is not running."
+            fi
+            continue
+          fi
+          echo "Waiting for service '$name' to become healthy…"
+          for _ in $(seq 1 60); do
+            health=$(docker inspect --format '{{.State.Health.Status}}' "$name" 2>/dev/null || echo "")
+            [ "$health" = "healthy" ] && break
+            sleep 2
+          done
+          if [ "$health" = "healthy" ]; then
+            echo "Service '$name' healthy."
+          else
+            echo "::warning::Service '$name' not healthy after ~120s (status: ${health:-unknown}); continuing."
+          fi
+        done
 
     - name: Provision project dependencies
       shell: bash

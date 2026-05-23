@@ -67,13 +67,20 @@
     },
     "claude_runner": {
       "type": "object",
+      "description": "Settings for the reusable runner that backs the automated reviewer (devflow-review.yml → devflow.yml `runner` job).",
       "properties": {
-        "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"] }
+        "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"] },
+        "allowed_tools": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Extra --allowed-tools entries for the automated /devflow:review reviewer (devflow.yml `runner` job), APPENDED on top of the read-only review base profile. This is what lets a review actually BUILD/TEST a PR — e.g. \"Bash(npm:*)\", \"Bash(npx:*)\", \"Bash(webpack:*)\", \"Bash(go:*)\". /devflow:init auto-populates this per detected language. SECURITY: these are read from the BASE branch's committed config (never the PR head), so a PR cannot grant itself tools — but any build tool you list here runs the PR author's code (e.g. npm postinstall) on pull_request_target with a write token. Enable only tools you trust to run against untrusted PRs. Empty/omitted → read-only review only.",
+          "default": []
+        }
       }
     },
     "setup": {
       "type": "object",
-      "description": "Cloud-tier runtime provisioning: how the GitHub Actions runner is prepared BEFORE Claude runs, for the @claude and /devflow:implement workflows.",
+      "description": "Cloud-tier runtime provisioning: how the GitHub Actions runner is prepared BEFORE Claude runs — for the /devflow:* command path, /devflow:implement, AND the automated reviewer. /devflow:init auto-populates node_version + install per detected language (deterministic presets), then the LLM enriches php_version/extensions and services by reading docker-compose/CI/composer.json. Provisioning order: Python → Node → PHP → service containers → install lines.",
       "properties": {
         "python_version": {
           "type": "string",
@@ -81,12 +88,50 @@
         },
         "node_version": {
           "type": "string",
-          "description": "setup-node runs ONLY if non-empty. Set it (e.g. '20') if your project's tests/build need Node."
+          "description": "setup-node runs ONLY if non-empty. Set it (e.g. '20') if your project's tests/build need Node. When set, npm/yarn/pnpm download caching is enabled automatically IF a lockfile (package-lock.json / yarn.lock / pnpm-lock.yaml) is present at the repo root."
+        },
+        "php_version": {
+          "type": "string",
+          "description": "shivammathur/setup-php runs ONLY if non-empty (e.g. '8.3'). Sets the PHP runtime + Composer. Populated by /devflow:init from composer.json's require.php constraint when detectable."
+        },
+        "php_extensions": {
+          "type": "string",
+          "description": "CSV list of PHP extensions to install with setup-php (e.g. 'mbstring, pdo_mysql, redis, intl'). Only used when php_version is set. Populated by /devflow:init from composer.json require.ext-* and the project's service needs."
+        },
+        "php_tools": {
+          "type": "string",
+          "description": "CSV list of PHP tools for setup-php (e.g. 'composer:v2, phpunit'). Optional — Composer is set up by default. Only used when php_version is set."
+        },
+        "services": {
+          "type": "array",
+          "description": "Service containers (databases, caches, queues) started via `docker run -d` BEFORE the install lines, reachable from the runner on 127.0.0.1:<host-port>. NOT GitHub Actions `services:` (which can't be defined in a composite action or driven by config). Populated by /devflow:init from docker-compose.yml / .env / existing CI. The runner needs Docker (preinstalled on ubuntu-latest) and the `docker` preset's allowlist.",
+          "items": {
+            "type": "object",
+            "required": ["name", "image"],
+            "properties": {
+              "name": { "type": "string", "description": "Container name (also the --name)." },
+              "image": { "type": "string", "description": "Image ref, e.g. 'mysql:8.0', 'redis:7', 'postgres:16'." },
+              "ports": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Port mappings 'host:container', e.g. ['3306:3306']. The app's test config should connect to 127.0.0.1:<host-port>."
+              },
+              "env": {
+                "type": "object",
+                "additionalProperties": { "type": "string" },
+                "description": "Environment variables passed as -e KEY=VALUE, e.g. {\"MYSQL_ROOT_PASSWORD\": \"root\", \"MYSQL_DATABASE\": \"app_test\"}."
+              },
+              "options": {
+                "type": "string",
+                "description": "Extra raw `docker run` options, word-split as written (maintainer-controlled, from the trusted base config). Use this for a health check so readiness is awaited, e.g. \"--health-cmd='mysqladmin ping -h 127.0.0.1' --health-interval=5s --health-timeout=5s --health-retries=20\"."
+              }
+            }
+          }
         },
         "install": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "Shell lines run verbatim (joined with newlines) after the language setups. Put devflow's own deps first, then your project's. Empty array → skipped."
+          "description": "Shell lines run verbatim (joined with newlines) after the language setups and service-container start. Put devflow's own deps first, then your project's (e.g. 'composer install --no-interaction'). Empty array → skipped."
         }
       }
     },
