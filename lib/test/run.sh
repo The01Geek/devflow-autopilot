@@ -1597,7 +1597,10 @@ assert_eq "provision: read-only base profile has no build tools (all 8)" "0" \
 # The 8 build/verify tools are appended on a single line, and that line is
 # guarded by `if [ "$PROVISION_ENV" = "true" ]` on the immediately preceding
 # non-comment line.
-BUILD_LINE=$(grep -n 'TOOLS="$TOOLS,Bash(npm:\*),Bash(npx:\*),Bash(node:\*),Bash(yarn:\*),Bash(pnpm:\*),Bash(composer:\*),Bash(php:\*),Bash(make:\*)"' "$RUNNER" | cut -d: -f1)
+# Fixed-string match (-F): the literal contains `$TOOLS` and `(`/`)`/`*`; under a
+# strict-POSIX/ugrep `grep` a mid-pattern `$` would anchor and the line would
+# silently not match, skipping the guard assertion below. -F keeps it portable.
+BUILD_LINE=$(grep -nF 'TOOLS="$TOOLS,Bash(npm:*),Bash(npx:*),Bash(node:*),Bash(yarn:*),Bash(pnpm:*),Bash(composer:*),Bash(php:*),Bash(make:*)"' "$RUNNER" | cut -d: -f1)
 assert_eq "provision: build allowlist append line present (all 8 tools)" "1" \
   "$(printf '%s\n' "$BUILD_LINE" | grep -c '^[0-9]' || true)"
 if [ -n "$BUILD_LINE" ]; then
