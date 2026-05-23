@@ -1,5 +1,5 @@
 {
-  "_comment": "Fixture config for the test suite (NOT the real project config). run.sh points conf.sh at this file via DEVFLOW_CONFIG_FILE so the conf.sh tests are hermetic and don't depend on the repo's live .devflow/config.json.",
+  "_comment": "Fixture config for the test suite (NOT the real project config). run.sh points config-source.sh at this file via DEVFLOW_CONFIG_FILE so the config-source.sh tests are hermetic and don't depend on the repo's live .devflow/config.json.",
   "claude": {
     "allowed_bots": "claude,example-bot"
   },

@@ -8,7 +8,7 @@ DevFlow is a single Claude Code plugin published at the repository root:
 
 ```
 .claude-plugin/   plugin.json + marketplace.json (manifests)
-skills/           the /implement, /review, /docs, … skills (SKILL.md each)
+skills/           the /devflow:implement, /devflow:review, /devflow:docs, … skills (SKILL.md each)
 agents/           subagent definitions
 lib/              shell + jq helpers for the retrospective loop, plus lib/test/
 scripts/          Python + shell CLIs (workpad.py, config-get.sh, …)
@@ -49,7 +49,7 @@ auth is required to run them.
   # SPDX-License-Identifier: MIT
   ```
 - The exclusion list in `lib/check-excluded-path.sh` and the copy in
-  `skills/audit-implementations/SKILL.md` must stay in sync.
+  `skills/retrospective-audit/SKILL.md` must stay in sync.
 
 ## Cloud-tier workflows
 

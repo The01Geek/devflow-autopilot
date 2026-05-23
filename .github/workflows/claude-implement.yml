@@ -173,69 +173,16 @@ jobs:
           # past that will error out visibly on the missing merge-base.
           fetch-depth: 50
 
-      # Provision the runtime from `.devflow/config.json`'s `setup`
-      # block rather than hardcoding the toolchain (see that file / cloud-setup.md
-      # for the rationale). Read the config locally (checkout is done above) so
-      # the multi-line install command stays a jq-extracted string we exec
-      # directly, never interpolated into a `run:` (injection-safe). Python/Node
-      # setup are `uses:` actions — they must be static YAML, so we gate them on
-      # a configured version rather than data-looping over them. Mirrors
-      # claude.yml — change both together.
+      # Provision the runtime (Python / Node / pip cache / deps) from
+      # `.devflow/config.json`'s `setup` block. The logic lives in the
+      # setup-project-env composite action so claude.yml and
+      # claude-implement.yml share ONE copy (checkout above gives the action
+      # the repo + config to read). See docs/cloud-setup.md for the rationale.
       - id: cfg
         uses: ./.github/actions/read-project-config
-      - id: setupcfg
-        env:
-          CONFIG_JSON: ${{ steps.cfg.outputs.json }}
-        run: |
-          set -euo pipefail
-          {
-            echo "python_version=$(echo "$CONFIG_JSON" | jq -r '.setup.python_version // ""')"
-            echo "node_version=$(echo "$CONFIG_JSON" | jq -r '.setup.node_version // ""')"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Set up Python
-        if: steps.setupcfg.outputs.python_version != ''
-        uses: actions/setup-python@v6
+      - uses: ./.github/actions/setup-project-env
         with:
-          python-version: ${{ steps.setupcfg.outputs.python_version }}
-
-      - name: Set up Node
-        if: steps.setupcfg.outputs.node_version != ''
-        uses: actions/setup-node@v6
-        with:
-          node-version: ${{ steps.setupcfg.outputs.node_version }}
-
-      # Restore pip's wheel cache when Python is provisioned. setup-python's
-      # built-in `cache: pip` is deliberately NOT used: it ERRORS when no
-      # requirements/pyproject file exists (the common case for non-package
-      # repos). This generic cache degrades to a stable key when no dep file is
-      # present, so it never errors and still saves heavy adopters
-      # (`pip install -e .[…]`) the repeated PyPI download on every run.
-      - name: Cache pip downloads
-        if: steps.setupcfg.outputs.python_version != ''
-        uses: actions/cache@v5
-        with:
-          path: ~/.cache/pip
-          key: pip-${{ runner.os }}-${{ hashFiles('**/requirements*.txt', '**/pyproject.toml', '**/setup.cfg', '**/setup.py') }}
-          restore-keys: |
-            pip-${{ runner.os }}-
-
-      - name: Provision project dependencies
-        env:
-          CONFIG_JSON: ${{ steps.cfg.outputs.json }}
-        run: |
-          set -euo pipefail
-          INSTALL=$(echo "$CONFIG_JSON" | jq -r '.setup.install | if type=="array" then join("\n") elif type=="string" then . else "" end')
-          if [ -n "$INSTALL" ]; then
-            echo "::group::Installing project dependencies"
-            # bash -euo pipefail (not a bare `bash -c`): the outer shell's
-            # set -e does NOT propagate into the child, so a multi-line install
-            # whose early line fails would otherwise continue and exit green.
-            bash -euo pipefail -c "$INSTALL"
-            echo "::endgroup::"
-          else
-            echo "No setup.install configured; skipping dependency install."
-          fi
+          config_json: ${{ steps.cfg.outputs.json }}
 
       - name: Run Claude Code
         id: claude

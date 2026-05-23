@@ -28,7 +28,7 @@ This skill wraps /devflow:review's four-phase engine in a fix loop. Phases 0 thr
 
 This skill **skips** /devflow:review's Phase 4.4 entirely — no GitHub post. The final report is emitted to chat only; the human reviewer decides whether to convert it into a formal merge signal by running `/devflow:review <PR>` separately (which performs an independent re-review and posts the result). It also adds:
 - A **fix-delta handoff** before Step 1 in iterations N≥2 (passes the prior iteration's checklist + fix-files into Phase 1's generator and Phase 2's narrow-reuse logic; Phase 1+2 always re-run — they are *not* skipped wholesale).
-- A **persistent workpad** (`.devflow/review/<slug>/iter-<N>.json`) that carries checklist verdicts, findings, fix decisions, and convergence inputs across iterations.
+- A **persistent workpad** (`.devflow/tmp/review/<slug>/iter-<N>.json`) that carries checklist verdicts, findings, fix decisions, and convergence inputs across iterations.
 - A **shadow review pass** at Step 2.6 that runs an independent re-review (fresh-context subagent executing /devflow:review's Phases 0–4.3) before declaring convergence on a non-REJECT verdict (see Step 2.6).
 - A **`## Coverage` section** in the final report aggregating per-iter finding counts, shadow agreement, and Phase 1.1.5 cap drops (see Loop Exit → Coverage).
 - A **per-phase telemetry summary** at Loop Exit (agent calls / tokens / wall-clock).
@@ -39,11 +39,11 @@ This skill **skips** /devflow:review's Phase 4.4 entirely — no GitHub post. Th
 
 ## Persistent workpad
 
-The orchestrator persists per-iteration state under `.devflow/review/<slug>/iter-<N>.json` (relative to the repo root). `<slug>` is `pr-<N>` in PR mode or the sanitized current branch name in branch mode. `<N>` is the iteration number, starting at 1.
+The orchestrator persists per-iteration state under `.devflow/tmp/review/<slug>/iter-<N>.json` (relative to the repo root). `<slug>` is `pr-<N>` in PR mode or the sanitized current branch name in branch mode. `<N>` is the iteration number, starting at 1.
 
-The same directory also contains `.devflow/review/<slug>/diff.patch` — the cached full diff written by Phase 0.2 of `/devflow:review` on every iteration (overwritten if it already exists). Phase 3 agents Read this file directly instead of re-running `gh pr diff` / `git diff` 4–5 times in parallel. See `/devflow:review`'s Phase 0.2 for the write logic.
+The same directory also contains `.devflow/tmp/review/<slug>/diff.patch` — the cached full diff written by Phase 0.2 of `/devflow:review` on every iteration (overwritten if it already exists). Phase 3 agents Read this file directly instead of re-running `gh pr diff` / `git diff` 4–5 times in parallel. See `/devflow:review`'s Phase 0.2 for the write logic.
 
-**Important.** The `.devflow/` directory is ephemeral working state — it should be listed in `.gitignore`. This skill does NOT add the entry itself (that is a repo-level concern); flag missing `.gitignore` coverage in the chat output if `.devflow/` is not already ignored.
+**Important.** Only `.devflow/tmp/` is ephemeral working state — the rest of `.devflow/` (`config.json`, `learnings/`, the schema/example) is intentionally tracked. The scaffolder (`scripts/scaffold-config.sh`, run by `install.sh` / `/devflow:init`) writes a scoped `.devflow/.gitignore` that ignores only `tmp/`. This skill does NOT manage that entry itself (it's a repo-level concern); flag missing coverage in the chat output only if `.devflow/tmp/` is not already ignored.
 
 ### Schema
 
@@ -443,11 +443,11 @@ Note: convergence is *not* a way around an unresolved REJECT. If iter N's verdic
 
 ### Pre-mapping: Widens-surface guard + deferrals manifest
 
-Run this step BEFORE the REJECT downgrade gate below. It does two things: enforces a widens-surface guard on Yes-downgrade skips, and emits a structured manifest that downstream callers (currently /implement Phase 4.0.5) can consume to file follow-up issues and inject the Scope-Acknowledged Findings block into the PR body.
+Run this step BEFORE the REJECT downgrade gate below. It does two things: enforces a widens-surface guard on Yes-downgrade skips, and emits a structured manifest that downstream callers (currently /devflow:implement Phase 4.0.5) can consume to file follow-up issues and inject the Scope-Acknowledged Findings block into the PR body.
 
-**Widens-surface guard.** Walk every `fix_decisions` entry in the final iter's workpad whose `skip_category` reads **Yes** in the enum table (Step 3, item 5 — currently `claim-quality`, `out-of-scope`, `already-tracked`). For each candidate, join to its Phase 3 finding via `finding_id` to obtain `defect_signature.file` and `defect_signature.line_range`, then read the cached diff (`.devflow/review/<slug>/diff.patch`) and check whether any non-comment hunk in the diff overlaps that file within ±10 lines of the line range. If overlap is detected, the skip is **disqualified for the downgrade gate** — append a bullet to the workpad's `Devflow Reflection` (`widens-surface guard rejected skip for finding {finding_id}: PR diff overlaps {file}:{lines}`) and treat the finding as a non-skipped REJECT trigger for the gate that runs next. This catches the "refactor around a pre-existing bug, then defer the bug" pattern: the bug's lines weren't touched in isolation, but the surrounding code changed in a way that widens reliance on the broken behavior.
+**Widens-surface guard.** Walk every `fix_decisions` entry in the final iter's workpad whose `skip_category` reads **Yes** in the enum table (Step 3, item 5 — currently `claim-quality`, `out-of-scope`, `already-tracked`). For each candidate, join to its Phase 3 finding via `finding_id` to obtain `defect_signature.file` and `defect_signature.line_range`, then read the cached diff (`.devflow/tmp/review/<slug>/diff.patch`) and check whether any non-comment hunk in the diff overlaps that file within ±10 lines of the line range. If overlap is detected, the skip is **disqualified for the downgrade gate** — append a bullet to the workpad's `Devflow Reflection` (`widens-surface guard rejected skip for finding {finding_id}: PR diff overlaps {file}:{lines}`) and treat the finding as a non-skipped REJECT trigger for the gate that runs next. This catches the "refactor around a pre-existing bug, then defer the bug" pattern: the bug's lines weren't touched in isolation, but the surrounding code changed in a way that widens reliance on the broken behavior.
 
-**Deferrals manifest.** After the guard runs, emit `.devflow/review/<slug>/deferrals.json` containing every **surviving** Yes-downgrade skip (i.e. `claim-quality` / `out-of-scope` / `already-tracked` entries that the widens-surface guard did not disqualify). The manifest is written regardless of whether the downgrade gate ultimately fires; `claim-quality` and `already-tracked` skips on non-REJECT runs are still legitimate deferrals worth tracking for the verdict matcher. If zero entries survive, omit the file entirely.
+**Deferrals manifest.** After the guard runs, emit `.devflow/tmp/review/<slug>/deferrals.json` containing every **surviving** Yes-downgrade skip (i.e. `claim-quality` / `out-of-scope` / `already-tracked` entries that the widens-surface guard did not disqualify). The manifest is written regardless of whether the downgrade gate ultimately fires; `claim-quality` and `already-tracked` skips on non-REJECT runs are still legitimate deferrals worth tracking for the verdict matcher. If zero entries survive, omit the file entirely.
 
 Schema:
 
@@ -475,7 +475,7 @@ Schema:
 
 `symbol` is best-effort: scan the finding's `description` for the first backtick-quoted identifier; if none, leave empty string. Downstream matchers (the /devflow:review verdict engine) fall back to `line_range` + summary similarity when `symbol` is absent.
 
-This step writes the artifact and applies the guard. It does **NOT** file follow-up issues, mutate the PR body, or touch GitHub — those are /implement Phase 4.0.5's responsibility. /devflow:review-and-fix is silent on GitHub by design and stays so. When the caller is standalone /devflow:review-and-fix (no orchestrator wrapping it), the manifest is still written but no consumer reads it — that's fine; it's informational state on disk and useful for debugging.
+This step writes the artifact and applies the guard. It does **NOT** file follow-up issues, mutate the PR body, or touch GitHub — those are /devflow:implement Phase 4.0.5's responsibility. /devflow:review-and-fix is silent on GitHub by design and stays so. When the caller is standalone /devflow:review-and-fix (no orchestrator wrapping it), the manifest is still written but no consumer reads it — that's fine; it's informational state on disk and useful for debugging.
 
 ### Pre-mapping: Step-3-evaluated REJECT downgrade
 

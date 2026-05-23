@@ -1,7 +1,7 @@
 ---
 name: retrospective
 description: >
-  Stage A of /devflow-weekly: analyze one non-clean PR from its pre-fetched
+  Stage A of /devflow:retrospective-weekly: analyze one non-clean PR from its pre-fetched
   context bundle and return a retrospective entry as JSON. Invoked as a
   subagent — do not call it directly.
 ---
@@ -56,8 +56,8 @@ Schema of `.devflow/tmp/pr-<n>.context.json` produced by `fetch-pr-context.sh`:
 | `pr_reviews` | array | Formal reviews: `[{author,state,body,submittedAt}]` |
 | `commits` | array | `[{sha,author_login,committer_login,committed_at,message}]` |
 | `workpad_body` | string\|null | Full text of the `<!-- devflow:workpad -->` comment |
-| `review_verdicts` | array | `/review` verdicts in time order: `[{verdict,createdAt}]` (APPROVE or REJECT) |
-| `implement_summary_comment` | string\|null | The `/implement` completion summary comment body |
+| `review_verdicts` | array | `/devflow:review` verdicts in time order: `[{verdict,createdAt}]` (APPROVE or REJECT) |
+| `implement_summary_comment` | string\|null | The `/devflow:implement` completion summary comment body |
 | `signals` | object | See below |
 
 `signals` sub-keys:
@@ -69,7 +69,7 @@ Schema of `.devflow/tmp/pr-<n>.context.json` produced by `fetch-pr-context.sh`:
 | `ci_failures_during_pr` | number | Non-success check-runs on the head SHA |
 | `workpad_final_status` | string | Parsed Status line from the workpad, e.g. `"Complete"`, `"Blocked"`, `""` |
 | `ttm_hours` | number | Time from PR creation to merge, in decimal hours |
-| `review_reject_outstanding` | boolean | True when the chronologically-last `/review` verdict is REJECT |
+| `review_reject_outstanding` | boolean | True when the chronologically-last `/devflow:review` verdict is REJECT |
 
 **Source priority.** `workpad_body` is your highest-signal primary source — the
 bot wrote it for itself, so friction sanitized out of commit messages and PR
@@ -91,7 +91,7 @@ handled those mechanically.)
 - **`imperfect`** — the PR shipped but then needed substantive human commits
   after the bot's last commit (`signals.post_bot_commits > 0` — this count
   already excludes pure merge commits like `Merge branch 'main'`, so it reflects
-  real fixups, not branch hygiene), or a `/review` REJECT was left outstanding,
+  real fixups, not branch hygiene), or a `/devflow:review` REJECT was left outstanding,
   or acceptance criteria from the linked issue were unmet.
 - **`blocked`** — `signals.workpad_final_status == "Blocked"` or the workpad /
   PR thread shows work was abandoned mid-task with no shipped fix.
@@ -114,7 +114,7 @@ explain why in `descriptors`.
 |---|---|
 | `doc-accuracy` | a doc, comment, docstring, or release-note describes code that does not match what shipped (wrong file path/symbol/CSS class, stale count, "remaining" list that isn't, behavior that isn't there). |
 | `fabricated-claim` | the PR description or release notes assert a deliverable that is **not in the diff** — a workflow, test, file, guard, or behavior that was never added. |
-| `review-gate-bypass` | the PR merged with an outstanding `/review` REJECT, or shipped a defect that an earlier lint / typecheck / review pass should have caught and didn't. |
+| `review-gate-bypass` | the PR merged with an outstanding `/devflow:review` REJECT, or shipped a defect that an earlier lint / typecheck / review pass should have caught and didn't. |
 | `unmet-acceptance-criteria` | the PR merged without satisfying an explicit requirement from the linked issue. |
 | `incomplete-edit` | a partial change — an orphaned setup line after a deletion, a half-applied rename, a stale count not propagated, a leftover-after-removal artifact — i.e. the kind of thing a human had to clean up in `human_postbot_diff`. |
 | `convention-violation` | the bot broke a project convention: a `CLAUDE.md` rule, a `phpcs.xml.dist`/lint rule, a skill instruction, or a workpad invariant. |
@@ -136,7 +136,7 @@ one fixable thing or several. Be specific; "code quality issue" is useless.
 ### summary
 
 One dense paragraph grounded in the bundle's primary sources. Quote the
-workpad status, the `/review` verdict(s), what the human had to fix in
+workpad status, the `/devflow:review` verdict(s), what the human had to fix in
 `human_postbot_diff` / `commits`, and which acceptance criteria slipped (if
 any). The reader should understand what went wrong without opening the PR.
 

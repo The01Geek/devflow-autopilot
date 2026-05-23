@@ -1,8 +1,8 @@
-# `/implement` skill — Phase 2.3 sweep discipline
+# `/devflow:implement` skill — Phase 2.3 sweep discipline
 
 **Skill:** `skills/implement/SKILL.md` (Phase 2.3, *Implement*)
 
-The `/implement` orchestrator runs a set of mandatory **sweeps** in Phase 2.3, after writing the
+The `/devflow:implement` orchestrator runs a set of mandatory **sweeps** in Phase 2.3, after writing the
 code and before running tests. Each sweep closes a class of blast-radius bug that survives `git diff`
 review because nothing is *syntactically* broken — the affected lines still compile, parse, or run;
 they are only *semantically* stale. This doc is the internal-docs counterpart of that section: it

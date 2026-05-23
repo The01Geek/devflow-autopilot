@@ -9,10 +9,13 @@
 #                                     + .devflow/ templates, so /devflow:init can
 #                                     find them from the vendored copy too)
 #   - .claude-plugin/marketplace.json local marketplace pointing at the above
-#   - .github/workflows/*.yml         the @claude / implement / review / board workflows
+#   - .github/workflows/*.yml         the @claude / implement / review workflows
 #   - .github/actions/*               the composite actions they use
 #   - .devflow/config.json            scaffolded from the template ONLY if absent
 #   - .devflow/config.schema.json     refreshed every run (editor autocomplete)
+#   - .devflow/.gitignore             scoped ignore for ephemeral tmp/ scratch
+#                                     (created if absent; keeps config.json +
+#                                     learnings/ committed)
 #
 # Why vendored (not a github marketplace): in the claude-code-action runner the
 # bash sandbox can't reach ~/.claude and CLAUDE_SKILL_DIR is unset, so the plugin
@@ -23,20 +26,11 @@
 #   curl -fsSL https://raw.githubusercontent.com/The01Geek/devflow-autopilot/main/install.sh | bash
 #   # pin a version / point at a fork:
 #   DEVFLOW_REF=v1.2.0 DEVFLOW_REPO=The01Geek/devflow-autopilot bash install.sh
-#
-# Secret-name mapping (optional): the board-sync workflows reference the
-# default secret name PROJECT_PAT. If your repo uses a different name, add a
-# `cloud_secrets` block to .devflow/config.json and this installer rewrites it
-# on EVERY run (so updates never clobber it):
-#   "cloud_secrets": {
-#     "project_pat": "DEVFLOW_PAT"
-#   }
 # ============================================================================
 set -euo pipefail
 
 REPO="${DEVFLOW_REPO:-The01Geek/devflow-autopilot}"
 REF="${DEVFLOW_REF:-main}"
-CONFIG=".devflow/config.json"
 
 log() { printf 'devflow-install: %s\n' "$1"; }
 die() { printf 'devflow-install: %s\n' "$1" >&2; exit 1; }
@@ -82,7 +76,7 @@ cat > .claude-plugin/marketplace.json <<'JSON'
     {
       "name": "devflow",
       "source": "./.claude/plugins/devflow",
-      "description": "End-to-end dev workflow: /implement, /review + /devflow:review-and-fix, the /docs suite, /create-issue, plus the retrospective loop.",
+      "description": "End-to-end dev workflow: /devflow:implement, /devflow:review + /devflow:review-and-fix, the /devflow:docs suite, /devflow:create-issue, plus the retrospective loop.",
       "author": { "name": "Daniel Radman", "email": "daniel@radman.ai" },
       "homepage": "https://github.com/The01Geek/devflow-autopilot",
       "category": "development"
@@ -94,13 +88,12 @@ JSON
 # 3. Workflows (only those the primary repo actually ships).
 log "installing workflows + composite actions"
 mkdir -p .github/workflows .github/actions
-for w in claude claude-implement claude-runner devflow-review \
-         move-to-in-progress sync-pr-status-to-issue close-released-items security-audit; do
+for w in claude claude-implement claude-runner devflow-review; do
   [ -f "$SRC/.github/workflows/$w.yml" ] && cp "$SRC/.github/workflows/$w.yml" ".github/workflows/$w.yml"
 done
 
 # 4. Composite actions.
-for a in dedupe-pr-events read-project-config; do
+for a in read-project-config setup-project-env; do
   if [ -d "$SRC/.github/actions/$a" ]; then
     rm -rf ".github/actions/$a"
     cp -R "$SRC/.github/actions/$a" ".github/actions/$a"
@@ -112,37 +105,6 @@ done
 #    config.json and always refreshes config.schema.json. Templates resolve
 #    relative to the script ($SRC/.devflow), and we target the current repo root.
 bash "$SRC/scripts/scaffold-config.sh" "$PWD"
-
-# 6. Apply secret-name mapping from `cloud_secrets` in config.json (idempotent).
-#    Reading a value out of JSON safely needs a real parser. We use jq, else
-#    node (one of which is present on essentially every dev/CI machine). We do
-#    NOT hand-roll a sed/grep JSON reader: scoping `cloud_secrets` with a
-#    `/}/`-terminated sed range collapses on single-line/compact JSON and can
-#    misread a top-level key as a secret name, silently rewriting workflows.
-#    cloud_secrets is a rare advanced feature; if it is set on a machine with
-#    neither jq nor node, we stop with an actionable message rather than risk
-#    corrupting the workflow files.
-_json_secret() {  # $1=key under cloud_secrets → prints value or ""
-  if command -v jq >/dev/null 2>&1; then
-    jq -r --arg k "$1" '.cloud_secrets[$k] // ""' "$CONFIG" 2>/dev/null
-  else
-    DEVFLOW_K="$1" node -e 'try{const o=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(((o.cloud_secrets||{})[process.env.DEVFLOW_K])||"")}catch(e){}' "$CONFIG" 2>/dev/null
-  fi
-}
-map_secret() {  # $1=config-key  $2=default-secret-name
-  local val; val="$(_json_secret "$1")"
-  if [ -n "$val" ] && [ "$val" != "$2" ]; then
-    log "secret remap: $2 → $val"
-    grep -rl --include='*.yml' "$2" .github/workflows .github/actions 2>/dev/null \
-      | while IFS= read -r f; do sed -i "s/\\b$2\\b/$val/g" "$f"; done
-  fi
-}
-if [ -f "$CONFIG" ] && grep -q '"cloud_secrets"' "$CONFIG" 2>/dev/null; then
-  if ! command -v jq >/dev/null 2>&1 && ! command -v node >/dev/null 2>&1; then
-    die "config has a cloud_secrets block but neither jq nor node is available to read it. Install jq (or node) and re-run, or remove cloud_secrets and use the default secret name (PROJECT_PAT)."
-  fi
-  map_secret project_pat      PROJECT_PAT
-fi
 
 # (The /devflow:implement trigger label is created best-effort by
 # scaffold-config.sh in step 5, so install.sh and /devflow:init stay in sync.)

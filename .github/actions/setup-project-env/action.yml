@@ -1,0 +1,87 @@
+name: 'Set up project runtime (Python / Node / deps)'
+description: |
+  Provision the GitHub Actions runner from `.devflow/config.json`'s `setup`
+  block BEFORE Claude runs, rather than hardcoding the toolchain (see that file
+  / docs/cloud-setup.md for the rationale): optional Python and Node, a pip
+  wheel cache, and the configured dependency-install lines.
+
+  The multi-line install command stays a jq-extracted string we exec directly,
+  never interpolated into a `run:` (injection-safe). Python/Node setup are
+  `uses:` actions — they must be static steps, so they are gated on a
+  configured version rather than data-looped over.
+
+  Single source of truth: both `claude.yml` and `claude-implement.yml` call this
+  action, so the provisioning logic lives in exactly one place.
+
+inputs:
+  config_json:
+    description: '.devflow/config.json contents, as emitted by the read-project-config action (steps.<id>.outputs.json).'
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - id: setupcfg
+      shell: bash
+      env:
+        CONFIG_JSON: ${{ inputs.config_json }}
+      run: |
+        set -euo pipefail
+        # Assignment form (not echo "k=$(…)"): a command-substitution failure
+        # inside `echo "k=$(…)"` is swallowed (echo still exits 0), so a missing
+        # jq or malformed CONFIG_JSON would silently write an empty version and
+        # skip the toolchain. Capturing into a var lets `set -e` abort instead.
+        # The `if type=="string"` guard maps a non-scalar value (a config typo
+        # like an object/array) to "" rather than letting multi-line JSON
+        # corrupt the GITHUB_OUTPUT line.
+        py_ver=$(echo "$CONFIG_JSON" | jq -r '.setup.python_version // "" | if type=="string" then . else "" end')
+        node_ver=$(echo "$CONFIG_JSON" | jq -r '.setup.node_version // "" | if type=="string" then . else "" end')
+        {
+          echo "python_version=$py_ver"
+          echo "node_version=$node_ver"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Set up Python
+      if: steps.setupcfg.outputs.python_version != ''
+      uses: actions/setup-python@v6
+      with:
+        python-version: ${{ steps.setupcfg.outputs.python_version }}
+
+    - name: Set up Node
+      if: steps.setupcfg.outputs.node_version != ''
+      uses: actions/setup-node@v6
+      with:
+        node-version: ${{ steps.setupcfg.outputs.node_version }}
+
+    # Restore pip's wheel cache when Python is provisioned. setup-python's
+    # built-in `cache: pip` is deliberately NOT used: it ERRORS when no
+    # requirements/pyproject file exists (the common case for non-package
+    # repos). This generic cache degrades to a stable key when no dep file is
+    # present, so it never errors and still saves heavy adopters
+    # (`pip install -e .[…]`) the repeated PyPI download on every run.
+    - name: Cache pip downloads
+      if: steps.setupcfg.outputs.python_version != ''
+      uses: actions/cache@v5
+      with:
+        path: ~/.cache/pip
+        key: pip-${{ runner.os }}-${{ hashFiles('**/requirements*.txt', '**/pyproject.toml', '**/setup.cfg', '**/setup.py') }}
+        restore-keys: |
+          pip-${{ runner.os }}-
+
+    - name: Provision project dependencies
+      shell: bash
+      env:
+        CONFIG_JSON: ${{ inputs.config_json }}
+      run: |
+        set -euo pipefail
+        INSTALL=$(echo "$CONFIG_JSON" | jq -r '.setup.install | if type=="array" then join("\n") elif type=="string" then . else "" end')
+        if [ -n "$INSTALL" ]; then
+          echo "::group::Installing project dependencies"
+          # bash -euo pipefail (not a bare `bash -c`): the outer shell's
+          # set -e does NOT propagate into the child, so a multi-line install
+          # whose early line fails would otherwise continue and exit green.
+          bash -euo pipefail -c "$INSTALL"
+          echo "::endgroup::"
+        else
+          echo "No setup.install configured; skipping dependency install."
+        fi

@@ -43,7 +43,7 @@ gh pr view HEAD --json number,body,title 2>/dev/null
 
 If this succeeds, an existing PR was found. Save the PR number and body for Step 2.
 
-**Best-effort: pull post-merge acceptance criteria from the /implement workpad.** When `/implement` parses a related issue's Acceptance Criteria (its Phase 1.4), it tags items that can only be verified after merge with a trailing `(post-merge)` marker on the checkbox line. Surface those items in the PR body so the merger sees them and can tick them off after deploy.
+**Best-effort: pull post-merge acceptance criteria from the /devflow:implement workpad.** When `/devflow:implement` parses a related issue's Acceptance Criteria (its Phase 1.4), it tags items that can only be verified after merge with a trailing `(post-merge)` marker on the checkbox line. Surface those items in the PR body so the merger sees them and can tick them off after deploy.
 
 If an issue number is available (from `$ARGUMENTS` or extracted from the existing PR body via `(?i)(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)` — mirroring GitHub's own case-insensitive closes-keyword detection), look up the workpad and read its body:
 
@@ -59,12 +59,12 @@ If `WORKPAD_BODY` is set, scan its `## Acceptance Criteria` section for lines ma
 
 If no workpad exists, no issue number is available, or no `(post-merge)`-tagged items are found, `POST_MERGE_ITEMS` stays empty and the template's Post-Merge Verification section is omitted entirely. The lookup is best-effort — never fail the run on a missing workpad.
 
-**Best-effort: pull deferred review findings from the manifest.** When /implement Phase 4.0.5 files follow-up issues for /devflow:review-and-fix deferrals, the manifest at `.devflow/review/pr-<N>/deferrals.json` is updated in place with `id` and `follow_up` fields per entry. Surface those entries in the PR body as a Scope-Acknowledged Findings block so /devflow:review (run later as a formal merge signal) can match them and demote the corresponding findings to Informational.
+**Best-effort: pull deferred review findings from the manifest.** When /devflow:implement Phase 4.0.5 files follow-up issues for /devflow:review-and-fix deferrals, the manifest at `.devflow/tmp/review/pr-<N>/deferrals.json` is updated in place with `id` and `follow_up` fields per entry. Surface those entries in the PR body as a Scope-Acknowledged Findings block so /devflow:review (run later as a formal merge signal) can match them and demote the corresponding findings to Informational.
 
 ```bash
 PR_NUMBER=$(gh pr view --json number --jq '.number' 2>/dev/null || true)
 if [ -n "$PR_NUMBER" ]; then
-    DEFERRALS_FILE=".devflow/review/pr-${PR_NUMBER}/deferrals.json"
+    DEFERRALS_FILE=".devflow/tmp/review/pr-${PR_NUMBER}/deferrals.json"
     if [ -s "$DEFERRALS_FILE" ]; then
         DEFERRALS_BODY=$(cat "$DEFERRALS_FILE")
     fi
@@ -88,8 +88,8 @@ Fetch the existing body and apply these merge rules:
 - Changes
 - Visual Changes
 - Breaking Changes
-- Post-Merge Verification (when `POST_MERGE_ITEMS` is non-empty — re-derived from the workpad on every run so the list stays in sync with the latest /implement parse)
-- Deferred Findings (when `DEFERRALS_BODY` is non-empty and contains entries with `follow_up.issue` — re-derived from the manifest on every run so the block stays in sync with the latest /implement Phase 4.0.5 filing)
+- Post-Merge Verification (when `POST_MERGE_ITEMS` is non-empty — re-derived from the workpad on every run so the list stays in sync with the latest /devflow:implement parse)
+- Deferred Findings (when `DEFERRALS_BODY` is non-empty and contains entries with `follow_up.issue` — re-derived from the manifest on every run so the block stays in sync with the latest /devflow:implement Phase 4.0.5 filing)
 
 **Merge** (keep existing items that are still relevant, add new ones, remove stale ones):
 - Test Plan — preserve human-added checklist items; add items for new changes; remove items for changes that no longer exist

@@ -15,11 +15,10 @@ DevFlow runs as a Claude Code plugin and, optionally, as a set of GitHub Actions
 workflows. A few areas warrant care:
 
 - **Cloud tier credentials.** The optional GitHub Actions automation uses a
-  Claude Code OAuth token (`CLAUDE_CODE_OAUTH_TOKEN`) and, if you use a project
-  board, a `PROJECT_PAT`. Never commit these. Store them as encrypted GitHub
-  Actions secrets. See `docs/cloud-setup.md`.
+  Claude Code OAuth token (`CLAUDE_CODE_OAUTH_TOKEN`). Never commit it. Store it
+  as an encrypted GitHub Actions secret. See `docs/cloud-setup.md`.
 - **`config.json` is gitignored** by default precisely so adopters don't
-  accidentally commit project board numbers or bot logins. Treat it as
+  accidentally commit environment-specific configuration. Treat it as
   environment configuration.
 - **Skills run shell commands.** DevFlow's skills execute `git`, `gh`, `jq`, and
   bundled Python helpers. Review the skills you install, as you would any plugin.

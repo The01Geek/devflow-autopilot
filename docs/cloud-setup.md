@@ -2,8 +2,8 @@
 
 The **local tier** (the skills you run inside Claude Code) needs none of this.
 The **cloud tier** makes DevFlow run *autonomously* on your repository: Claude
-responds to issue/PR events, `/devflow:review` runs as a required status check,
-and project-board status syncs automatically. This guide sets that up.
+responds to issue/PR events and `/devflow:review` runs as a required status
+check. This guide sets that up.
 
 > Everything here is optional. Skip it entirely and DevFlow still works as an
 > in-editor toolkit.
@@ -20,8 +20,8 @@ curl -fsSL https://raw.githubusercontent.com/The01Geek/devflow-autopilot/main/in
 #   curl -fsSL .../install.sh | DEVFLOW_REF=v1.2.0 bash
 ```
 
-Then review with `git diff`, fill in the `YOUR_*` placeholders in
-`.devflow/config.json`, and commit.
+Then review with `git diff` and commit. `.devflow/config.json` ships with a
+working default for every value — edit it only to customize.
 
 ### Why the plugin is vendored (not added as a github marketplace in CI)
 
@@ -48,12 +48,6 @@ this for you and re-vendors on each run.
 > }
 > ```
 
-### Custom secret names
-
-If your repo stores `PROJECT_PAT` under a non-default name, add a
-`cloud_secrets` block to `.devflow/config.json` (see the template) and
-`install.sh` rewrites the workflows to your name on every run.
-
 ## Required secrets
 
 Add these as repository (or environment) secrets under **Settings → Secrets and
@@ -61,8 +55,7 @@ variables → Actions**:
 
 | Secret | Used for | Notes |
 |---|---|---|
-| `CLAUDE_CODE_OAUTH_TOKEN` | Authenticates the Claude Code action (`/implement`, `/review` runners) | From your Anthropic account. |
-| `PROJECT_PAT` | Classic PAT with `repo` + `project` scopes, for board status sync | Only needed if you use a GitHub Project board. A Classic PAT is required because user-owned Projects v2 can't be read by a `GITHUB_TOKEN`. |
+| `CLAUDE_CODE_OAUTH_TOKEN` | Authenticates the Claude Code action (`/devflow:implement`, `/devflow:review` runners) | From your Anthropic account. |
 | `GITHUB_TOKEN` | (built in — no action needed) | Provided automatically to workflows. |
 
 That's it — no GitHub App is required. (Earlier versions needed one purely so a
@@ -97,26 +90,12 @@ involved. Rename the label via `claude_implement.trigger_label` in
 For the full idea → issue → label → PR walkthrough, see
 [The workflow, end to end](../README.md#the-workflow-end-to-end) in the README.
 
-## Project board (optional)
-
-The `move-to-in-progress`, `sync-pr-status-to-issue`, and `close-released-items`
-workflows update a GitHub Project board. To use them:
-
-1. Create a Project board and note its number (from the URL).
-2. Set `project_number` and the `statuses` field values in
-   `.devflow/config.json` to **exactly** match your board's Status field
-   options.
-3. Provide `PROJECT_PAT`.
-
-If you don't use a board, delete those three workflows and leave
-`project_number` as the placeholder.
-
 ## Configure and enable
 
 1. `install.sh` scaffolds `.devflow/config.json` from the template (only if
-   absent). Fill in every `YOUR_*` placeholder and commit it — the workflows read
-   it from the checked-out tree, so it must be committed (if your repo gitignores
-   it, force-add: `git add -f .devflow/config.json`).
+   absent). Every value has a working default, so commit it as-is or edit to
+   customize — the workflows read it from the checked-out tree, so it must be
+   committed (if your repo gitignores it, force-add: `git add -f .devflow/config.json`).
 2. The `workflows` block in that file toggles each workflow on/off.
 3. Make `Devflow Review` a required status check (Settings → Branches → branch
    protection) once you've confirmed it runs.
@@ -190,7 +169,6 @@ workflow YAML:
 | `ci.yml` | Runs DevFlow's own test suite | — (this repo's CI) |
 | `claude.yml`, `claude-implement.yml`, `claude-runner.yml` | Run Claude Code skills in response to comments/events (incl. the `devflow:implement` label) | `CLAUDE_CODE_OAUTH_TOKEN` |
 | `devflow-review.yml` | Auto-runs `/devflow:review` as a gate on PRs | `CLAUDE_CODE_OAUTH_TOKEN` |
-| `move-to-in-progress.yml`, `sync-pr-status-to-issue.yml`, `close-released-items.yml` | Project-board status automation | `PROJECT_PAT` + board |
 
 ## A note on validation
 

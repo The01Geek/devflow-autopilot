@@ -1,5 +1,5 @@
 ---
-name: devflow-weekly
+name: retrospective-weekly
 description: >
   Run the weekly devflow self-improvement loop locally: scan freshly-merged
   watched-author PRs, write per-PR retrospective entries (LLM only for PRs
@@ -8,7 +8,7 @@ description: >
   the weekly devflow retrospective + audit.
 ---
 
-# /devflow-weekly — Weekly Orchestrator
+# /devflow:retrospective-weekly — Weekly Orchestrator
 
 This skill is the single entry point the maintainer invokes once a week (or
 on demand). It is a *conductor*: it runs deterministic bash/jq scripts from
@@ -339,7 +339,7 @@ Issue **one Agent call per pattern, all in a single message** so they run in
 parallel. Each subagent's prompt:
 
 > Read and follow
-> `${CLAUDE_SKILL_DIR}/../audit-implementations/SKILL.md`
+> `${CLAUDE_SKILL_DIR}/../retrospective-audit/SKILL.md`
 > exactly.
 >
 > **Your worktree is `<absolute WT path>`** — branch `<BRANCH>` is already
@@ -544,7 +544,7 @@ manually after reviewing.
 
 ## § Cron / headless variant
 
-`claude -p "/devflow-weekly" --permission-mode acceptEdits` handles steps
+`claude -p "/devflow:retrospective-weekly" --permission-mode acceptEdits` handles steps
 1–9 unattended, except that Stage B edits to `.claude/**` paths (made inside
 the per-pattern worktrees under `.devflow/tmp/wt-<slug>/`) will trigger
 permission prompts. For fully unattended runs, add

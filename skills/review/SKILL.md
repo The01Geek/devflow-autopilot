@@ -58,7 +58,7 @@ Use the diff output for Phase 1. The current branch is the review target.
 
 If the diff is empty, report: "No changes to review. Branch is identical to main." and stop.
 
-**Cache the diff to disk.** Write the diff fetched above to `.devflow/review/<slug>/diff.patch` — **fetch once, do not re-run `gh pr diff` / `git diff`**. Compute `<slug>` as:
+**Cache the diff to disk.** Write the diff fetched above to `.devflow/tmp/review/<slug>/diff.patch` — **fetch once, do not re-run `gh pr diff` / `git diff`**. Compute `<slug>` as:
 
 - **PR mode:** `pr-<N>` where `<N>` is the PR number from `$ARGUMENTS`.
 - **Current-branch mode:** the current branch name sanitized for filesystem use — replace `/` with `-`, lowercase, drop any character that isn't `[a-z0-9._-]`. (Matches the workpad slug convention `/devflow:review-and-fix` already uses.)
@@ -66,17 +66,17 @@ If the diff is empty, report: "No changes to review. Branch is identical to main
 Combine the initial fetch with the cache write in one shot using `tee` so the diff is captured exactly once and stdout remains available for Phase 1 consumption:
 
 ```bash
-mkdir -p .devflow/review/<slug>
-gh pr diff $ARGUMENTS | tee .devflow/review/<slug>/diff.patch
+mkdir -p .devflow/tmp/review/<slug>
+gh pr diff $ARGUMENTS | tee .devflow/tmp/review/<slug>/diff.patch
 # or, in current-branch mode:
-# git diff origin/main...HEAD | tee .devflow/review/<slug>/diff.patch
+# git diff origin/main...HEAD | tee .devflow/tmp/review/<slug>/diff.patch
 # or, in PR mode with head_override=local (fix-loop reuse — see "Caller head-override"):
-# git diff "$PR_BASE_SHA...HEAD" | tee .devflow/review/<slug>/diff.patch
+# git diff "$PR_BASE_SHA...HEAD" | tee .devflow/tmp/review/<slug>/diff.patch
 ```
 
-This replaces the bare `gh pr diff` / `git diff` invocation at the top of Phase 0.2 — use the `tee` form instead. Store `<slug>` and the resolved diff path (e.g. `.devflow/review/pr-863/diff.patch`) so Phase 3 can substitute it into its agent prompts via `{DIFF_PATH}`. The directory creation is harmless if it already exists; the file is overwritten on every run.
+This replaces the bare `gh pr diff` / `git diff` invocation at the top of Phase 0.2 — use the `tee` form instead. Store `<slug>` and the resolved diff path (e.g. `.devflow/tmp/review/pr-863/diff.patch`) so Phase 3 can substitute it into its agent prompts via `{DIFF_PATH}`. The directory creation is harmless if it already exists; the file is overwritten on every run.
 
-**`.devflow/` should be gitignored** (it's ephemeral working state). This skill does not add the entry itself (that's a repo-level concern); flag missing `.gitignore` coverage in the chat output if `.devflow/` is not already ignored. When `/devflow:review` is invoked standalone (not from `/devflow:review-and-fix`), this cached diff is the only file in the directory — independent of the fix-loop's `iter-<N>.json` workpad files that live in the same place.
+**`.devflow/tmp/` should be gitignored** (it's ephemeral scratch); the rest of `.devflow/` (`config.json`, `learnings/`, the schema/example) is intentionally tracked. The scaffolder (`scripts/scaffold-config.sh`, run by `install.sh` / `/devflow:init`) writes a scoped `.devflow/.gitignore` that ignores only `tmp/`. This skill does not manage that entry itself (it's a repo-level concern); flag missing coverage in the chat output only if `.devflow/tmp/` is not already ignored. When `/devflow:review` is invoked standalone (not from `/devflow:review-and-fix`), this cached diff is the only file in the directory — independent of the fix-loop's `iter-<N>.json` workpad files that live in the same place.
 
 ### 0.3 Get changed file list
 
@@ -98,7 +98,7 @@ If no PR number:
 ISSUE_NUM=$(gh pr view HEAD --json body --jq '.body' 2>/dev/null | grep -oiE '(resolves|fixes|closes)[[:space:]]+#[0-9]+' | grep -oE '[0-9]+' | head -1)
 ```
 
-**From branch name** (fallback — matches `issue-{number}` pattern set by `/implement`):
+**From branch name** (fallback — matches `issue-{number}` pattern set by `/devflow:implement`):
 ```bash
 if [ -z "$ISSUE_NUM" ]; then
   # If reviewing a PR, use the stored head branch name from Phase 0.2
@@ -404,7 +404,7 @@ The following findings were raised by a prior review pass on this same code and 
 </prior_findings>
 ```
 
-**Diff path:** Substitute the cached diff path computed in Phase 0.2 (`.devflow/review/<slug>/diff.patch`) into `{DIFF_PATH}` in the prompts below. Phase 3 agents Read this file directly via their `Read` tool — no shell command, no `gh` API call, no redundant re-fetches across the 4–5 parallel agents. The previous `{DIFF_CMD}` substitution (which had every agent re-run `gh pr diff $ARGUMENTS` or `git diff origin/main...HEAD`) is superseded.
+**Diff path:** Substitute the cached diff path computed in Phase 0.2 (`.devflow/tmp/review/<slug>/diff.patch`) into `{DIFF_PATH}` in the prompts below. Phase 3 agents Read this file directly via their `Read` tool — no shell command, no `gh` API call, no redundant re-fetches across the 4–5 parallel agents. The previous `{DIFF_CMD}` substitution (which had every agent re-run `gh pr diff $ARGUMENTS` or `git diff origin/main...HEAD`) is superseded.
 
 **Required `defect_signature` block.** Every Phase-3 finding from every Phase-3 review-agent — both the ones listed below AND any added by future maintainers — MUST carry a `defect_signature` object so corroboration (Phase 3.2) is mechanical, not interpretive. Append this paragraph verbatim to every Phase-3 review-agent prompt — it's the only way to instruct external pr-review-toolkit agents we cannot edit:
 
@@ -508,7 +508,7 @@ Output: `Phase 4/4: Aggregating findings...`
 
 **Skip this step entirely in current-branch mode** (no PR → no body to read). On standalone branch reviews, there is no Scope-Acknowledged Findings block; jump straight to 4.1.
 
-When `$ARGUMENTS` is a PR number, the engine consults the **Scope-Acknowledged Findings** block in the PR body (delimited by `<!-- DEVFLOW_DEFERRED_FINDINGS_START -->` / `<!-- DEVFLOW_DEFERRED_FINDINGS_END -->`) and demotes any current finding that matches a validated deferral entry to **Informational**. This is the consumer side of the contract /implement Phase 4.0.5 produces; without it, /devflow:review re-raises findings that /implement already filed follow-up issues for, creating the policy mismatch the contract is meant to prevent. (See `${CLAUDE_SKILL_DIR}/../../scripts/match-deferrals.py` for the matcher's exact guard order and matching rule.)
+When `$ARGUMENTS` is a PR number, the engine consults the **Scope-Acknowledged Findings** block in the PR body (delimited by `<!-- DEVFLOW_DEFERRED_FINDINGS_START -->` / `<!-- DEVFLOW_DEFERRED_FINDINGS_END -->`) and demotes any current finding that matches a validated deferral entry to **Informational**. This is the consumer side of the contract /devflow:implement Phase 4.0.5 produces; without it, /devflow:review re-raises findings that /devflow:implement already filed follow-up issues for, creating the policy mismatch the contract is meant to prevent. (See `${CLAUDE_SKILL_DIR}/../../scripts/match-deferrals.py` for the matcher's exact guard order and matching rule.)
 
 Serialize the Phase 3 findings collected in 3.2 to a JSON array with one object per finding:
 
@@ -526,11 +526,11 @@ Pipe the JSON to the matcher via stdin (the `review` allowed-tools profile in `c
 ```bash
 printf '%s' "$FINDINGS_JSON" | ${CLAUDE_SKILL_DIR}/../../scripts/match-deferrals.py \
     --pr $ARGUMENTS \
-    --diff ".devflow/review/<slug>/diff.patch" \
+    --diff ".devflow/tmp/review/<slug>/diff.patch" \
     --findings -
 ```
 
-Capture the matcher's stdout (the JSON report described below). When invoked from /implement Phase 3.3 via /devflow:review-and-fix (which DOES have the Write tool), the file form `--findings .devflow/review/<slug>/findings.json` is equally supported — pick whichever the surrounding profile permits.
+Capture the matcher's stdout (the JSON report described below). When invoked from /devflow:implement Phase 3.3 via /devflow:review-and-fix (which DOES have the Write tool), the file form `--findings .devflow/tmp/review/<slug>/findings.json` is equally supported — pick whichever the surrounding profile permits.
 
 The matcher always exits 0 when it ran (any result, including no block found). Read the output JSON:
 
