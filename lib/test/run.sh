@@ -648,6 +648,72 @@ assert_eq "successful dismissal → exit 0" "0" "$DSR_RC"
 assert_eq "dismissal failure → exit 1" "1" "$DSR_RC"
 rm -f "$DSR_STUB"
 
+# ────────────────────────────────────────────────────────────────────────────
+echo "resolve-implement-trigger.sh"
+# ────────────────────────────────────────────────────────────────────────────
+# The implement trigger runs the action in AGENT mode (explicit prompt), which
+# executes for ANY actor — so this resolver is the cost/authorization gate AND
+# the issue-number resolver. Tests stub `gh` for the collaborator-permission
+# call; the allowed-bot path never reaches `gh`.
+RIT="$LIB/../scripts/resolve-implement-trigger.sh"
+
+# Inline gh stub: returns whatever STUB_PERM says for a collaborator-permission
+# query (the script passes --jq '.permission'; like gh-stub.sh we ignore --jq
+# and emit the already-extracted value), empty otherwise.
+RIT_STUB_DIR="$(mktemp -d)"
+cat > "$RIT_STUB_DIR/gh" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *"collaborators/"*"/permission"*) echo "${STUB_PERM:-none}" ;;
+  *) echo "" ;;
+esac
+STUB
+chmod +x "$RIT_STUB_DIR/gh"
+
+# 1. Allowed bot + label event → run on the labelled issue. `foo[bot]` actor
+#    must match the bare `foo` in allowed_bots. No gh call on this path.
+OUT="$(ACTOR='foo[bot]' ALLOWED_BOTS='foo,bar' REPO='acme/x' \
+  IS_LABEL_EVENT='true' TRIGGER_TEXT='' CONTEXT_NUMBER='42' \
+  PATH="$RIT_STUB_DIR:$PATH" bash "$RIT")"
+assert_eq "rit: allowed bot, label event → should_run" \
+  "should_run=true" "$(echo "$OUT" | grep '^should_run=')"
+assert_eq "rit: allowed bot, label event → number" \
+  "number=42" "$(echo "$OUT" | grep '^number=')"
+
+# 2. Write collaborator + explicit number in comment → run on that number.
+OUT="$(ACTOR='alice' ALLOWED_BOTS='' REPO='acme/x' IS_LABEL_EVENT='false' \
+  TRIGGER_TEXT='/devflow:implement 7' CONTEXT_NUMBER='99' \
+  STUB_PERM='write' PATH="$RIT_STUB_DIR:$PATH" bash "$RIT")"
+assert_eq "rit: write collaborator, explicit number → should_run" \
+  "should_run=true" "$(echo "$OUT" | grep '^should_run=')"
+assert_eq "rit: explicit number beats context" \
+  "number=7" "$(echo "$OUT" | grep '^number=')"
+
+# 3. Non-collaborator (gh → 'none') → blocked, no number.
+OUT="$(ACTOR='stranger' ALLOWED_BOTS='' REPO='acme/x' IS_LABEL_EVENT='false' \
+  TRIGGER_TEXT='/devflow:implement 7' CONTEXT_NUMBER='99' \
+  STUB_PERM='none' PATH="$RIT_STUB_DIR:$PATH" bash "$RIT")"
+assert_eq "rit: non-collaborator → should_run=false" \
+  "should_run=false" "$(echo "$OUT" | grep '^should_run=')"
+assert_eq "rit: non-collaborator → empty number" \
+  "number=" "$(echo "$OUT" | grep '^number=')"
+
+# 4. Authorized but NO number anywhere → blocked (can't implement nothing).
+OUT="$(ACTOR='alice' ALLOWED_BOTS='' REPO='acme/x' IS_LABEL_EVENT='false' \
+  TRIGGER_TEXT='/devflow:implement please' CONTEXT_NUMBER='' \
+  STUB_PERM='admin' PATH="$RIT_STUB_DIR:$PATH" bash "$RIT")"
+assert_eq "rit: no resolvable number → should_run=false" \
+  "should_run=false" "$(echo "$OUT" | grep '^should_run=')"
+
+# 5. Authorized, no explicit number but a context issue → fall back to context.
+OUT="$(ACTOR='alice' ALLOWED_BOTS='' REPO='acme/x' IS_LABEL_EVENT='false' \
+  TRIGGER_TEXT='/devflow:implement' CONTEXT_NUMBER='5' \
+  STUB_PERM='maintain' PATH="$RIT_STUB_DIR:$PATH" bash "$RIT")"
+assert_eq "rit: fallback to context number" \
+  "number=5" "$(echo "$OUT" | grep '^number=')"
+
+rm -rf "$RIT_STUB_DIR"
+
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
