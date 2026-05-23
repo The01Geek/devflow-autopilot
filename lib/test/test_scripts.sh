@@ -122,6 +122,189 @@ test_branch_for_issue() {
 }
 
 # ────────────────────────────────────────────────────────────────────────────
+test_parse_acs() {
+  local SCRIPT="scripts/parse-acs.sh"
+
+  # ── post-merge probe (true positives) ──────────────────────────────────────
+  assert_eq "post-merge: workflow run" "1" \
+    "$("$SCRIPT" --post-merge-probe "Check the artifact link in the workflow run")"
+  assert_eq "post-merge: on a live pr" "1" \
+    "$("$SCRIPT" --post-merge-probe "Verify the workflow runs on a live PR")"
+  assert_eq "post-merge: on a pr" "1" \
+    "$("$SCRIPT" --post-merge-probe "Comment /screenshot on a PR and confirm")"
+  assert_eq "post-merge: on a real pr" "1" \
+    "$("$SCRIPT" --post-merge-probe "Trigger the bot on a real PR")"
+  assert_eq "post-merge: comment on the pr" "1" \
+    "$("$SCRIPT" --post-merge-probe "After merge, comment on the PR to retest")"
+  assert_eq "post-merge: comment on a pr" "1" \
+    "$("$SCRIPT" --post-merge-probe "Maintainer should comment on a PR with /screenshot")"
+  assert_eq "post-merge: after merge" "1" \
+    "$("$SCRIPT" --post-merge-probe "do X after merge")"
+  assert_eq "post-merge: in production" "1" \
+    "$("$SCRIPT" --post-merge-probe "verify in production environment")"
+
+  # ── post-merge probe (false positives — must NOT match) ────────────────────
+  assert_eq "NOT post-merge: monitoring substring" "0" \
+    "$("$SCRIPT" --post-merge-probe "Sentry error monitoring is configured")"
+  assert_eq "NOT post-merge: no trigger phrase" "0" \
+    "$("$SCRIPT" --post-merge-probe "Errors must not be silently swallowed")"
+  assert_eq "NOT post-merge: click substring" "0" \
+    "$("$SCRIPT" --post-merge-probe "Add unit tests for the click handler")"
+  assert_eq "NOT post-merge: workflow runner not workflow run" "0" \
+    "$("$SCRIPT" --post-merge-probe "Document the CI workflow runner image")"
+  assert_eq "NOT post-merge: commenting on a (no pr phrase)" "0" \
+    "$("$SCRIPT" --post-merge-probe "Note: this is commenting on a previous decision")"
+  assert_eq "NOT post-merge: one-click does not trigger click" "0" \
+    "$("$SCRIPT" --post-merge-probe "one-click checkout flow")"
+
+  # ── section extraction + checkbox parse ───────────────────────────────────
+  local bf; bf="$(mktemp)"
+  cat >"$bf" <<'BODY'
+## Summary
+intro text
+
+## Acceptance Criteria
+- [ ] first
+- [x] second done
+* [ ] star bullet
+not a checkbox line
+#### sub-note (deeper heading — must NOT terminate the section)
+- [ ] after subheading
+
+## Notes
+- [ ] should not appear
+BODY
+
+  local md_out
+  md_out="$("$SCRIPT" --body-file "$bf" --format md)"
+
+  # 4 checkbox items expected
+  local count; count="$(printf '%s\n' "$md_out" | grep -c '^- \[')"
+  assert_eq "extract: 4 AC checkboxes (deeper heading does not terminate)" "4" "$count"
+
+  assert_true "extract: first item present" \
+    "printf '%s\n' \"\$md_out\" | grep -qFe '- [ ] first'"
+  assert_true "extract: second item ticked" \
+    "printf '%s\n' \"\$md_out\" | grep -qFe '- [x] second done'"
+  assert_true "extract: star bullet parsed" \
+    "printf '%s\n' \"\$md_out\" | grep -qFe '- [ ] star bullet'"
+  assert_true "extract: Notes section excluded" \
+    "! printf '%s\n' \"\$md_out\" | grep -qFe 'should not appear'"
+
+  # ── case-insensitive heading match ────────────────────────────────────────
+  local bf_lower; bf_lower="$(mktemp)"
+  sed 's/## Acceptance Criteria/## acceptance criteria/' "$bf" >"$bf_lower"
+  local count_lower; count_lower="$("$SCRIPT" --body-file "$bf_lower" --format md | grep -c '^- \[')"
+  assert_eq "extract: lowercase heading matches (case-insensitive)" "4" "$count_lower"
+  rm -f "$bf_lower"
+
+  local bf_upper; bf_upper="$(mktemp)"
+  sed 's/## Acceptance Criteria/## ACCEPTANCE CRITERIA/' "$bf" >"$bf_upper"
+  local count_upper; count_upper="$("$SCRIPT" --body-file "$bf_upper" --format md | grep -c '^- \[')"
+  assert_eq "extract: uppercase heading matches (case-insensitive)" "4" "$count_upper"
+  rm -f "$bf_upper"
+
+  # ── trailing-colon heading → zero items (near-miss, sentinel output) ───────
+  local bf_colon; bf_colon="$(mktemp)"
+  sed 's/## Acceptance Criteria/## Acceptance Criteria:/' "$bf" >"$bf_colon"
+  local sentinel_out; sentinel_out="$("$SCRIPT" --body-file "$bf_colon" --format md 2>/dev/null)"
+  assert_eq "extract: trailing-colon heading → sentinel" \
+    '_(none provided in issue body)_' "$sentinel_out"
+  rm -f "$bf_colon"
+
+  # ── level-3 heading matches ────────────────────────────────────────────────
+  local bf_l3; bf_l3="$(mktemp)"
+  printf '### Acceptance Criteria\n- [ ] x\n' >"$bf_l3"
+  local count_l3; count_l3="$("$SCRIPT" --body-file "$bf_l3" --format md | grep -c '^- \[')"
+  assert_eq "extract: level-3 heading matches" "1" "$count_l3"
+  rm -f "$bf_l3"
+
+  # ── level-4 heading does NOT match ────────────────────────────────────────
+  local bf_l4; bf_l4="$(mktemp)"
+  printf '#### Acceptance Criteria\n- [ ] x\n' >"$bf_l4"
+  local sentinel_l4; sentinel_l4="$("$SCRIPT" --body-file "$bf_l4" --format md 2>/dev/null)"
+  assert_eq "extract: level-4 heading not matched" \
+    '_(none provided in issue body)_' "$sentinel_l4"
+  rm -f "$bf_l4"
+
+  # ── sentinel when no sections ──────────────────────────────────────────────
+  local bf_empty; bf_empty="$(mktemp)"
+  printf '## Summary\nno criteria here\n' >"$bf_empty"
+  assert_eq "render_md: empty → sentinel" \
+    '_(none provided in issue body)_' \
+    "$("$SCRIPT" --body-file "$bf_empty" --format md 2>/dev/null)"
+  rm -f "$bf_empty"
+
+  # ── post-merge tag appended in md output ──────────────────────────────────
+  local bf_pm; bf_pm="$(mktemp)"
+  printf '## Acceptance Criteria\n- [ ] do X after merge\n' >"$bf_pm"
+  local pm_out; pm_out="$("$SCRIPT" --body-file "$bf_pm" --format md)"
+  assert_true "render_md: post-merge tag appended" \
+    "printf '%s\n' \"\$pm_out\" | grep -qF '(post-merge)'"
+  rm -f "$bf_pm"
+
+  # ── no double post-merge tag ───────────────────────────────────────────────
+  local bf_dbl; bf_dbl="$(mktemp)"
+  printf '## Acceptance Criteria\n- [x] already (post-merge)\n' >"$bf_dbl"
+  local dbl_out; dbl_out="$("$SCRIPT" --body-file "$bf_dbl" --format md)"
+  local dbl_count; dbl_count="$(printf '%s\n' "$dbl_out" | grep -o '(post-merge)' | wc -l | tr -d ' ')"
+  assert_eq "render_md: no double post-merge tag" "1" "$dbl_count"
+  rm -f "$bf_dbl"
+
+  # ── ticked box rendered with [x] ──────────────────────────────────────────
+  local bf_tick; bf_tick="$(mktemp)"
+  printf '## Acceptance Criteria\n- [x] done item\n' >"$bf_tick"
+  local tick_out; tick_out="$("$SCRIPT" --body-file "$bf_tick" --format md)"
+  assert_true "render_md: ticked box rendered" \
+    "printf '%s\n' \"\$tick_out\" | grep -qFe '- [x] done item'"
+  rm -f "$bf_tick"
+
+  # ── test plan appended after blank line ───────────────────────────────────
+  local bf_tp; bf_tp="$(mktemp)"
+  cat >"$bf_tp" <<'TPBODY'
+## Acceptance Criteria
+- [ ] a
+
+## Test Plan
+- [ ] b
+TPBODY
+  local tp_out; tp_out="$("$SCRIPT" --body-file "$bf_tp" --format md)"
+  assert_true "render_md: test plan appended after blank line" \
+    "printf '%s\n' \"\$tp_out\" | grep -qE '^\$' && printf '%s\n' \"\$tp_out\" | grep -qFe '- [ ] b'"
+  rm -f "$bf_tp"
+
+  # ── json format: correct keys via jq ──────────────────────────────────────
+  local bf_json; bf_json="$(mktemp)"
+  cat >"$bf_json" <<'JSONBODY'
+## Acceptance Criteria
+- [ ] check one
+- [x] check two
+JSONBODY
+  local json_out; json_out="$("$SCRIPT" --body-file "$bf_json" --format json)"
+  assert_true "json: acceptance_criteria key exists" \
+    "printf '%s\n' \"\$json_out\" | jq -e '.acceptance_criteria' >/dev/null 2>&1"
+  assert_true "json: test_plan key exists" \
+    "printf '%s\n' \"\$json_out\" | jq -e '.test_plan' >/dev/null 2>&1"
+  assert_true "json: first item has text field" \
+    "printf '%s\n' \"\$json_out\" | jq -e '.acceptance_criteria[0].text' >/dev/null 2>&1"
+  assert_true "json: first item has ticked field" \
+    "printf '%s\n' \"\$json_out\" | jq -e '.acceptance_criteria[0].ticked == false' >/dev/null 2>&1"
+  assert_true "json: second item ticked true" \
+    "printf '%s\n' \"\$json_out\" | jq -e '.acceptance_criteria[1].ticked == true' >/dev/null 2>&1"
+  assert_true "json: first item has post_merge field" \
+    "printf '%s\n' \"\$json_out\" | jq -e 'has(\"acceptance_criteria\") and (.acceptance_criteria[0] | has(\"post_merge\"))' >/dev/null 2>&1"
+  rm -f "$bf_json"
+
+  # ── bad args: exit 2 ──────────────────────────────────────────────────────
+  "$SCRIPT" --format md >/dev/null 2>&1
+  assert_eq "bad-args: no source → exit 2" "2" "$?"
+  "$SCRIPT" --issue 1 --body-file /dev/null >/dev/null 2>&1
+  assert_eq "bad-args: both sources → exit 2" "2" "$?"
+
+  rm -f "$bf"
+}
+
+# ────────────────────────────────────────────────────────────────────────────
 # Runner: discover and call every test_* function.
 # ────────────────────────────────────────────────────────────────────────────
 for _fn in $(declare -F | awk '{print $3}' | grep '^test_'); do
