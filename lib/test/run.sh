@@ -409,25 +409,12 @@ diff --git a/jsx/dist/app.min.js b/jsx/dist/app.min.js
 @@ -1 +1 @@
 -a
 +b'
-_DIFF_TRIMMED="$(printf '%s' "$_DIFF_SAMPLE" | python3 -c '
-import sys, re
-diff = sys.stdin.read()
-noise = re.compile(r"(^|/)(package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|composer\.lock|Gemfile\.lock|poetry\.lock|Cargo\.lock|go\.sum)$|\.min\.(js|css|mjs)$|\.map$|(^|/)(node_modules|vendor|dist|build)/")
-out, elide = [], False
-for line in diff.split("\n"):
-    if line.startswith("diff --git "):
-        parts = line.split(" ", 3)
-        path = parts[2][2:] if len(parts) > 2 and parts[2].startswith("a/") else ""
-        elide = bool(path and noise.search(path))
-        if elide:
-            out.append(line); out.append("[elided: %s]" % path); continue
-    if not elide: out.append(line)
-sys.stdout.write("\n".join(out))
-')"
+_DIFF_TRIMMED="$(printf '%s' "$_DIFF_SAMPLE" | awk -f "$LIB/diff-trim.awk")"
+_ELIDED='\[devflow: diff body elided — generated/vendored file:'
 assert_eq "diff trim: real source kept"       "true"  "$(printf '%s' "$_DIFF_TRIMMED" | grep -qx -- '+y' && echo true || echo false)"
-assert_eq "diff trim: lockfile body elided"   "true"  "$(printf '%s' "$_DIFF_TRIMMED" | grep -q '\[elided: package-lock.json\]' && echo true || echo false)"
+assert_eq "diff trim: lockfile body elided"   "true"  "$(printf '%s' "$_DIFF_TRIMMED" | grep -q "${_ELIDED} package-lock.json\]" && echo true || echo false)"
 assert_eq "diff trim: lockfile noise removed"  "false" "$(printf '%s' "$_DIFF_TRIMMED" | grep -q -- '- noise' && echo true || echo false)"
-assert_eq "diff trim: minified bundle elided"  "true"  "$(printf '%s' "$_DIFF_TRIMMED" | grep -q '\[elided: jsx/dist/app.min.js\]' && echo true || echo false)"
+assert_eq "diff trim: minified bundle elided"  "true"  "$(printf '%s' "$_DIFF_TRIMMED" | grep -q "${_ELIDED} jsx/dist/app.min.js\]" && echo true || echo false)"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "cheap-gate.jq"

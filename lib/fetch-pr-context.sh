@@ -138,28 +138,7 @@ fi
 # nulls it out — losing the parts that DO matter. The file *list*
 # (changed_files) keeps every path; only the hunk text is replaced with a
 # one-line marker so the analyst still knows the file changed.
-DIFF_RAW="$(printf '%s' "$DIFF_RAW" | python3 -c '
-import sys, re
-diff = sys.stdin.read()
-noise = re.compile(
-    r"(^|/)(package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml"
-    r"|composer\.lock|Gemfile\.lock|poetry\.lock|Cargo\.lock|go\.sum)$"
-    r"|\.min\.(js|css|mjs)$|\.map$|(^|/)(node_modules|vendor|dist|build)/"
-)
-out, elide = [], False
-for line in diff.split("\n"):
-    if line.startswith("diff --git "):
-        parts = line.split(" ", 3)
-        path = parts[2][2:] if len(parts) > 2 and parts[2].startswith("a/") else ""
-        elide = bool(path and noise.search(path))
-        if elide:
-            out.append(line)
-            out.append("[devflow: diff body elided — generated/vendored file: %s]" % path)
-            continue
-    if not elide:
-        out.append(line)
-sys.stdout.write("\n".join(out))
-' 2>/dev/null || printf '%s' "$DIFF_RAW")"
+DIFF_RAW="$(printf '%s' "$DIFF_RAW" | awk -f "$HERE/diff-trim.awk" 2>/dev/null || printf '%s' "$DIFF_RAW")"
 DIFF_LEN="${#DIFF_RAW}"
 if [ "$DIFF_FETCH_OK" -ne 0 ] || [ "$DIFF_LEN" -gt "$DIFF_BYTE_CAP" ]; then
     DIFF_JSON="null"
