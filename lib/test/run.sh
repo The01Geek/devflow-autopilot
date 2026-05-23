@@ -331,7 +331,84 @@ assert_eq "detect: composer tool in runner path" "yes" \
 assert_eq "detect: composer install line added" "yes" \
   "$(jq -e '.setup.install | index("composer install --no-interaction --prefer-dist --no-progress") != null' "$DT5/.devflow/config.json" >/dev/null && echo yes || echo no)"
 
-rm -rf "$DT1" "$DT2" "$DT3" "$DT4" "$DT5"
+# 7. Subdirectory Node build (package.json + lockfile under jsx/) → detection
+#    sets node_working_directory to the subdir AND scopes the install line into
+#    it with a subshell `cd` (not a root-level npm ci that would no-op).
+DT6="$(mktemp -d)"; mkdir -p "$DT6/.devflow" "$DT6/jsx"
+printf '{"name":"bundle"}' > "$DT6/jsx/package.json"
+printf '{}' > "$DT6/jsx/package-lock.json"
+printf '{"setup":{"node_version":"","install":[]}}' > "$DT6/.devflow/config.json"
+bash "$DPT" "$DT6" >/dev/null 2>&1
+assert_eq "detect: subdir build sets node_working_directory" "jsx" \
+  "$(jq -r '.setup.node_working_directory' "$DT6/.devflow/config.json")"
+assert_eq "detect: subdir install line is subshell-scoped into the dir" "yes" \
+  "$(jq -e '.setup.install | index("(cd jsx && npm ci)") != null' "$DT6/.devflow/config.json" >/dev/null && echo yes || echo no)"
+
+# 8. Root Node build → node_working_directory is NEVER written (byte-identical
+#    to the pre-feature behavior) and the install line stays a bare npm ci.
+DT7="$(mktemp -d)"; mkdir -p "$DT7/.devflow"
+printf '{"name":"rootapp"}' > "$DT7/package.json"
+printf '{}' > "$DT7/package-lock.json"
+printf '{"setup":{"node_version":"","install":[]}}' > "$DT7/.devflow/config.json"
+bash "$DPT" "$DT7" >/dev/null 2>&1
+assert_eq "detect: root build writes no node_working_directory key" "true" \
+  "$(jq -e '.setup | has("node_working_directory") | not' "$DT7/.devflow/config.json" >/dev/null && echo true || echo false)"
+assert_eq "detect: root build install line is bare npm ci (no cd)" "yes" \
+  "$(jq -e '.setup.install | index("npm ci") != null' "$DT7/.devflow/config.json" >/dev/null && echo yes || echo no)"
+
+rm -rf "$DT1" "$DT2" "$DT3" "$DT4" "$DT5" "$DT6" "$DT7"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "resolve-node-cache.sh (setup-project-env helper)"
+# ────────────────────────────────────────────────────────────────────────────
+# Resolves setup-node's `cache` / `cache-dependency-path` for a Node project
+# that may live in a subdirectory. The script probes lockfiles relative to cwd,
+# so each case runs it from a throwaway repo root. A regression here silently
+# disables caching for subdir builds or — worse — regresses root-based ones.
+RNC="$LIB/../.github/actions/setup-project-env/resolve-node-cache.sh"
+rnc() { ( cd "$1" && bash "$RNC" "$2" "${3:-}" ); }
+
+# Subdirectory lockfile + node_working_directory set → caching enabled, path
+# qualified by the directory.
+RNC_SUB="$(mktemp -d)"; mkdir -p "$RNC_SUB/jsx"; : > "$RNC_SUB/jsx/package-lock.json"
+RNC_OUT="$(rnc "$RNC_SUB" 20 jsx)"
+assert_eq "rnc: subdir lockfile → npm cache"        "node_cache=npm" \
+  "$(printf '%s\n' "$RNC_OUT" | grep '^node_cache=')"
+assert_eq "rnc: subdir lockfile → qualified path"   "node_cache_path=jsx/package-lock.json" \
+  "$(printf '%s\n' "$RNC_OUT" | grep '^node_cache_path=')"
+# Trailing slash on the directory is normalized (no doubled slash in the path).
+RNC_OUT_TS="$(rnc "$RNC_SUB" 20 jsx/)"
+assert_eq "rnc: trailing slash normalized"          "node_cache_path=jsx/package-lock.json" \
+  "$(printf '%s\n' "$RNC_OUT_TS" | grep '^node_cache_path=')"
+
+# Root lockfile, empty working directory → identical to the historical
+# root-based outputs (no regression).
+RNC_ROOT="$(mktemp -d)"; : > "$RNC_ROOT/yarn.lock"
+RNC_OUT="$(rnc "$RNC_ROOT" 20 "")"
+assert_eq "rnc: root yarn.lock → yarn cache"        "node_cache=yarn" \
+  "$(printf '%s\n' "$RNC_OUT" | grep '^node_cache=')"
+assert_eq "rnc: root yarn.lock → bare path"         "node_cache_path=yarn.lock" \
+  "$(printf '%s\n' "$RNC_OUT" | grep '^node_cache_path=')"
+
+# pnpm wins over a co-present npm lockfile (precedence preserved).
+RNC_PREC="$(mktemp -d)"; : > "$RNC_PREC/pnpm-lock.yaml"; : > "$RNC_PREC/package-lock.json"
+assert_eq "rnc: pnpm precedence over npm"           "node_cache=pnpm" \
+  "$(rnc "$RNC_PREC" 20 "" | grep '^node_cache=')"
+
+# No lockfile → caching disabled (empty), so setup-node never errors.
+RNC_NONE="$(mktemp -d)"
+RNC_OUT="$(rnc "$RNC_NONE" 20 "")"
+assert_eq "rnc: no lockfile → empty cache"          "node_cache=" \
+  "$(printf '%s\n' "$RNC_OUT" | grep '^node_cache=')"
+assert_eq "rnc: no lockfile → empty path"           "node_cache_path=" \
+  "$(printf '%s\n' "$RNC_OUT" | grep '^node_cache_path=')"
+
+# Empty node_version → caching off even when a lockfile is present (the "Node
+# not provisioned" case — setup-node won't run, so a cache key is meaningless).
+assert_eq "rnc: empty node_version → no cache"      "node_cache=" \
+  "$(rnc "$RNC_ROOT" "" "" | grep '^node_cache=')"
+
+rm -rf "$RNC_SUB" "$RNC_ROOT" "$RNC_PREC" "$RNC_NONE"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "config-source.sh"

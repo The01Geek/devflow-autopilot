@@ -44,27 +44,24 @@ runs:
         # corrupt the GITHUB_OUTPUT line.
         py_ver=$(echo "$CONFIG_JSON" | jq -r '.setup.python_version // "" | if type=="string" then . else "" end')
         node_ver=$(echo "$CONFIG_JSON" | jq -r '.setup.node_version // "" | if type=="string" then . else "" end')
+        node_wd=$(echo "$CONFIG_JSON" | jq -r '.setup.node_working_directory // "" | if type=="string" then . else "" end')
         php_ver=$(echo "$CONFIG_JSON" | jq -r '.setup.php_version // "" | if type=="string" then . else "" end')
         php_ext=$(echo "$CONFIG_JSON" | jq -r '.setup.php_extensions // "" | if type=="string" then . else "" end')
         php_tools=$(echo "$CONFIG_JSON" | jq -r '.setup.php_tools // "" | if type=="string" then . else "" end')
 
         # Node download caching errors out in setup-node when `cache` is set but
-        # no lockfile exists, so only enable it when a root lockfile is present —
-        # and pick the package manager that matches the lockfile.
-        node_cache=""
-        node_cache_path=""
-        if [ -n "$node_ver" ]; then
-          if   [ -f pnpm-lock.yaml ];      then node_cache="pnpm"; node_cache_path="pnpm-lock.yaml"
-          elif [ -f yarn.lock ];           then node_cache="yarn"; node_cache_path="yarn.lock"
-          elif [ -f package-lock.json ];   then node_cache="npm";  node_cache_path="package-lock.json"
-          elif [ -f npm-shrinkwrap.json ]; then node_cache="npm";  node_cache_path="npm-shrinkwrap.json"
-          fi
-        fi
+        # no lockfile exists, so only enable it when a lockfile is present — and
+        # pick the package manager that matches it. The lockfile is resolved
+        # under node_working_directory (empty = repo root, the historical case),
+        # so a subdirectory/monorepo JS build gets cached too. Extracted into a
+        # sibling script (travels with the action, unit-tested in lib/test/) and
+        # captured assignment-form: a failure aborts under set -e rather than
+        # silently writing empty cache outputs.
+        node_cache_lines=$("$GITHUB_ACTION_PATH/resolve-node-cache.sh" "$node_ver" "$node_wd")
         {
           echo "python_version=$py_ver"
           echo "node_version=$node_ver"
-          echo "node_cache=$node_cache"
-          echo "node_cache_path=$node_cache_path"
+          echo "$node_cache_lines"
           echo "php_version=$php_ver"
           echo "php_extensions=$php_ext"
           echo "php_tools=$php_tools"
