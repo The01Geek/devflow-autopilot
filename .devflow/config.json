@@ -10,7 +10,7 @@
     "allowed_tools": []
   },
   "claude_implement": {
-    "effort": "high",
+    "effort": "medium",
     "allowed_tools": []
   },
   "claude_runner": {
@@ -24,8 +24,8 @@
     ]
   },
   "docs": {
-    "internal": "docs/",
-    "external": "docs/",
+    "internal": "docs/internal/",
+    "external": "docs/external/",
     "release_notes_file": "CHANGELOG.md",
     "documented_label": "Documented"
   },
@@ -39,7 +39,7 @@
     "max_prs_per_run": 500
   },
   "workflows": {
-    "claude": true,
-    "devflow-review": true
+    "claude": false,
+    "devflow-review": false
   }
 }
