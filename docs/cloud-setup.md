@@ -74,12 +74,12 @@ user event, so it needs no bot comment, PAT, or GitHub App.
 
 > **Who can trigger it.** The `gate` job runs
 > `scripts/resolve-implement-trigger.sh`, which authorizes the sender only if
-> they are an allowed bot (`claude.allowed_bots`) **or** their login matches
-> `claude.allowed_users` **and** they hold write / admin / maintain access — and
-> fails closed otherwise. `claude.allowed_users` defaults to `"*"` (any
+> they are an allowed bot (`devflow.allowed_bots`) **or** their login matches
+> `devflow.allowed_users` **and** they hold write / admin / maintain access — and
+> fails closed otherwise. `devflow.allowed_users` defaults to `"*"` (any
 > collaborator) and can be narrowed to a comma-separated list of logins to
 > restrict who may start a run; it only tightens the collaborator gate, never
-> bypasses it. Bots are governed separately by `claude.allowed_bots` — this is
+> bypasses it. Bots are governed separately by `devflow.allowed_bots` — this is
 > the path for a custom GitHub App that posts the trigger comment on your behalf.
 > The same gate guards the light `/devflow:*` command path in `devflow.yml`.
 >
@@ -200,10 +200,10 @@ add them on top of the built-in base list via config; you never edit the
 workflow YAML:
 
 ```json
-"claude": {
+"devflow": {
   "allowed_tools": ["Bash(make:*)", "Bash(docker compose:*)"]
 },
-"claude_implement": {
+"devflow_implement": {
   "allowed_tools": ["Bash(make:*)", "Bash(terraform:*)"]
 }
 ```
@@ -212,9 +212,9 @@ workflow YAML:
   (e.g. `Bash(make:*)`), and are **appended** to DevFlow's base list — they add,
   never replace.
 - The three keys are **independent**, one per execution path:
-  `claude.allowed_tools` → light `/devflow:*` command path (`devflow.yml`);
-  `claude_implement.allowed_tools` → `/devflow:implement` (`devflow-implement.yml`);
-  `claude_runner.allowed_tools` → the automated reviewer (`devflow-review.yml`).
+  `devflow.allowed_tools` → light `/devflow:*` command path (`devflow.yml`);
+  `devflow_implement.allowed_tools` → `/devflow:implement` (`devflow-implement.yml`);
+  `devflow_runner.allowed_tools` → the automated reviewer (`devflow-review.yml`).
   None inherits another's extras, so list every tool you want for a given path
   under that path's key.
 - Leave a key out (or `[]`) to use the base list unchanged.
@@ -225,10 +225,10 @@ workflow YAML:
 
 By default the automated reviewer is **read-only** — it inspects the diff but
 cannot compile, lint, or test it. To let it actually build a PR, give it the
-toolchain (`claude_runner.allowed_tools`) **and** the runtime (`setup`):
+toolchain (`devflow_runner.allowed_tools`) **and** the runtime (`setup`):
 
 ```json
-"claude_runner": {
+"devflow_runner": {
   "allowed_tools": ["Bash(npm:*)", "Bash(npx:*)", "Bash(webpack:*)", "Bash(tsc:*)"]
 },
 "setup": {
@@ -247,7 +247,7 @@ your custom entries.
 > **⚠️ Security — read before enabling.** Build tools run the **PR author's
 > code** (e.g. an `npm` package's `postinstall` script) inside the reviewer,
 > which fires on `pull_request_target` with a `pull-requests: write` token. To
-> stop a PR from escalating itself, the reviewer reads `claude_runner.allowed_tools`
+> stop a PR from escalating itself, the reviewer reads `devflow_runner.allowed_tools`
 > and `setup` **only from your repo's base branch** — never from the PR's own
 > checkout — so a malicious PR cannot widen its own review's allowlist. But
 > enabling, say, `Bash(npm:*)` is still you opting into running untrusted build

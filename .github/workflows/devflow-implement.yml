@@ -24,7 +24,7 @@ run-name: "DevFlow implement (issue ${{ github.event.issue.number || github.even
 # sender (an allowed bot OR an `allowed_users` login with write/admin/maintain
 # access) before the heavy `claude` job runs. See scripts/resolve-implement-trigger.sh.
 #
-# This workflow reads `claude_implement.effort` (e.g. "high") so the planning +
+# This workflow reads `devflow_implement.effort` (e.g. "high") so the planning +
 # write-the-tests phases get more reasoning budget than the light `/devflow:*`
 # flows in devflow.yml, without inflating every command's cost.
 #
@@ -41,7 +41,7 @@ on:
 
 jobs:
   # Duplicates the config job in devflow.yml verbatim except for the
-  # `effort` source (`claude_implement.effort` vs `claude.effort`). A
+  # `effort` source (`devflow_implement.effort` vs `devflow.effort`). A
   # workflow_call indirection would buy nothing here — the config is
   # ~15 lines and the call would be more.
   config:
@@ -64,20 +64,20 @@ jobs:
         run: |
           set -euo pipefail
           {
-            echo "enabled=$(echo "$CONFIG_JSON" | jq -r '.workflows.claude // false')"
+            echo "enabled=$(echo "$CONFIG_JSON" | jq -r '.workflows.devflow // false')"
             echo "base_branch=$(echo "$CONFIG_JSON" | jq -r '.base_branch')"
             echo "claude_model=$(echo "$CONFIG_JSON" | jq -r '.claude_model')"
-            echo "allowed_bots=$(echo "$CONFIG_JSON" | jq -r '.claude.allowed_bots')"
+            echo "allowed_bots=$(echo "$CONFIG_JSON" | jq -r '.devflow.allowed_bots')"
             # Human logins allowed to trigger /devflow:implement (AND-filter on
             # top of the collaborator-permission gate; '*' = any collaborator).
-            echo "allowed_users=$(echo "$CONFIG_JSON" | jq -r '.claude.allowed_users // "*"')"
-            echo "effort=$(echo "$CONFIG_JSON" | jq -r '.claude_implement.effort // "medium"')"
+            echo "allowed_users=$(echo "$CONFIG_JSON" | jq -r '.devflow.allowed_users // "*"')"
+            echo "effort=$(echo "$CONFIG_JSON" | jq -r '.devflow_implement.effort // "medium"')"
             # Repo-specific extra allowlist for the implement path. Independent
-            # from devflow.yml's `claude.allowed_tools` — the heavy path does NOT
+            # from devflow.yml's `devflow.allowed_tools` — the heavy path does NOT
             # inherit the light path's extras, so adopters list every extra tool
-            # they want during /devflow:implement under `claude_implement.allowed_tools`.
+            # they want during /devflow:implement under `devflow_implement.allowed_tools`.
             # Emits a leading-comma string (",Bash(make:*),…") or "".
-            echo "allowed_tools_extra=$(echo "$CONFIG_JSON" | jq -r '.claude_implement.allowed_tools // [] | if length > 0 then "," + join(",") else "" end')"
+            echo "allowed_tools_extra=$(echo "$CONFIG_JSON" | jq -r '.devflow_implement.allowed_tools // [] | if length > 0 then "," + join(",") else "" end')"
           } >> "$GITHUB_OUTPUT"
 
   # Authorization + target-number gate. The action runs in AGENT mode below

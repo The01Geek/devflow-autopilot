@@ -190,8 +190,8 @@ This creates `.devflow/config.json` from DevFlow's shipped template (only if you
 
 - `docs.internal`, `docs.external` — documentation paths (read by the `/docs` family and `/devflow:implement`).
 - `docs.release_notes_file`, `docs.documented_label` — release-notes path + the label `/devflow:implement` applies after its docs pass.
-- `claude.workpad_marker` — marker line `/devflow:implement` uses to find/update its single per-issue workpad comment (default `<!-- devflow:workpad -->`).
-- `claude.allowed_bots` — bot login allowlist; doubles as the **trusted-filer allowlist** for the Scope-Acknowledged Findings contract.
+- `devflow.workpad_marker` — marker line `/devflow:implement` uses to find/update its single per-issue workpad comment (default `<!-- devflow:workpad -->`).
+- `devflow.allowed_bots` — bot login allowlist; doubles as the **trusted-filer allowlist** for the Scope-Acknowledged Findings contract.
 - `base_branch` — review/merge base (default: repo default branch, else `main`).
 - `devflow_retrospective.*` — settings for `/devflow:retrospective-weekly` (see [Configuration](#configuration)).
 - `setup.*` — *cloud tier only*: how the GitHub Actions runner provisions its toolchain (`python_version`, `node_version`, `install`) before Claude runs. See [`docs/cloud-setup.md`](docs/cloud-setup.md#runtime-provisioning-setup).
@@ -209,7 +209,7 @@ A structured handoff between `/devflow:review-and-fix`, `/devflow:implement`, `/
 3. **`/pr-description`** renders a Scope-Acknowledged Findings block between `<!-- DEVFLOW_DEFERRED_FINDINGS_START -->` / `END` markers in the PR body.
 4. **`/devflow:review` Phase 4.0** (PR mode) runs `scripts/match-deferrals.py`, which validates each deferral against three guards and demotes matched findings to **Informational** before computing the verdict.
 
-**The three guards** (any failure rejects the deferral): **trusted filer** (PR author in `claude.allowed_bots`); **mutual cross-link** (the follow-up issue exists, is open, and references `PR #<current_pr_number>`); **widens surface** (re-checked at review time). The contract is repo-agnostic: trusted-filer from `claude.allowed_bots`, base branch from `base_branch`.
+**The three guards** (any failure rejects the deferral): **trusted filer** (PR author in `devflow.allowed_bots`); **mutual cross-link** (the follow-up issue exists, is open, and references `PR #<current_pr_number>`); **widens surface** (re-checked at review time). The contract is repo-agnostic: trusted-filer from `devflow.allowed_bots`, base branch from `base_branch`.
 
 ---
 
@@ -300,7 +300,7 @@ Under `devflow_retrospective` in `.devflow/config.json` (all optional — defaul
 }
 ```
 
-- `watched_authors` — defaults to `claude.allowed_bots` when `[]`.
+- `watched_authors` — defaults to `devflow.allowed_bots` when `[]`.
 - `implementation_branch_prefix` — your bot's PR branch prefix.
 - `min_occurrences` — times a pattern must recur to be actionable.
 - `cooldown_days` — skip a pattern if an open audit PR is younger than this.

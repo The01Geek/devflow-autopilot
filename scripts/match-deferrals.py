@@ -11,7 +11,7 @@ to demote matched findings to Informational.
 
 Guards (any failing guard rejects the deferral — finding flows through as
 normal):
-    1. Trusted filer:     PR author is in `claude.allowed_bots` from
+    1. Trusted filer:     PR author is in `devflow.allowed_bots` from
                           .devflow/config.json.
     2. Mutual cross-link: follow-up issue exists, is open, and its body
                           contains the substring "PR #<N>" (where N is the
@@ -270,7 +270,7 @@ def main(argv=None):
         print(json.dumps(result, indent=2))
         return 0
 
-    allowed_bots_raw = _config_get(".claude.allowed_bots", "", args.config)
+    allowed_bots_raw = _config_get(".devflow.allowed_bots", "", args.config)
     allowed_bots = {b.strip() for b in allowed_bots_raw.split(",") if b.strip()}
     pr_author_trusted = pr_author in allowed_bots if allowed_bots else False
     result["pr_author_trusted"] = pr_author_trusted

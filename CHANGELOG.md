@@ -4,6 +4,12 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.5] — 2026-05-23
+
+### Changed
+- **Config keys renamed to align with the workflow filenames.** After the `claude*.yml → devflow*.yml` rename, the config sections kept their old `claude` prefix. They now match the workflows that read them: `claude` → **`devflow`** (light `/devflow:*` command path, `devflow.yml`), `claude_implement` → **`devflow_implement`** (`devflow-implement.yml`), `claude_runner` → **`devflow_runner`** (`devflow-runner.yml`), and the `workflows.claude` toggle → **`workflows.devflow`**. Updated across the schema, example config, `tool-presets.json`, all four workflows, `detect-project-tools.sh`, `config-source.sh`, `scan.sh`, and the docs/skills. The `claude_model` key, the `'claude'` bot identity in `allowed_bots`, and the `claude/` retrospective branch prefix are unchanged (they genuinely refer to Claude/Anthropic, not DevFlow).
+- **Migration:** re-run `install.sh` (or `/devflow:init`) to regenerate `.devflow/config.json` with the new keys, **or** rename them by hand: `claude` → `devflow`, `claude_implement` → `devflow_implement`, `claude_runner` → `devflow_runner`, and `workflows.claude` → `workflows.devflow`. The workflows read only the new names now — a config left on the old keys loses its `allowed_bots` allowlist and its `workflows.devflow` enable flag (both fall to empty/false), so the automation will go inert until renamed.
+
 ## [2.2.4] — 2026-05-23
 
 ### Fixed

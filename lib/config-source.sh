@@ -41,14 +41,14 @@ devflow_conf() {
   printf '%s' "$val"
 }
 
-# Watched authors → comma-separated. devflow override array > claude.allowed_bots string.
+# Watched authors → comma-separated. devflow override array > devflow.allowed_bots string.
 devflow_watched_authors() {
   local arr
   arr="$(devflow_conf '.devflow_retrospective.watched_authors' '')"
   if [ -n "$arr" ]; then
     printf '%s' "$arr"
   else
-    devflow_conf '.claude.allowed_bots' ''
+    devflow_conf '.devflow.allowed_bots' ''
   fi
 }
 

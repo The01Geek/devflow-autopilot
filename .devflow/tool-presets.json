@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "_comment": "DevFlow per-language tool presets. Single source of truth for `/devflow:init` (via scripts/detect-project-tools.sh) — detects each language by its marker file(s) and unions the matching `allowed_tools` into config.claude.allowed_tools, claude_implement.allowed_tools, and claude_runner.allowed_tools, plus contributes to the shared `setup` block. Edit here; do NOT hand-list tools in a repo's config.json. SECURITY: anything listed here can run a PR author's code during the automated review (pull_request_target + write token) — keep entries to mainstream build/test/lint tools and resolve which install command to use from the present lockfile (see scripts/detect-project-tools.sh).",
+  "_comment": "DevFlow per-language tool presets. Single source of truth for `/devflow:init` (via scripts/detect-project-tools.sh) — detects each language by its marker file(s) and unions the matching `allowed_tools` into config.devflow.allowed_tools, devflow_implement.allowed_tools, and devflow_runner.allowed_tools, plus contributes to the shared `setup` block. Edit here; do NOT hand-list tools in a repo's config.json. SECURITY: anything listed here can run a PR author's code during the automated review (pull_request_target + write token) — keep entries to mainstream build/test/lint tools and resolve which install command to use from the present lockfile (see scripts/detect-project-tools.sh).",
   "presets": {
     "node": {
       "markers": ["package.json"],
