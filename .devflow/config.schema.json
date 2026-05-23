@@ -169,6 +169,16 @@
       "properties": {
         "internal": { "type": "string", "default": "docs/internal/" },
         "external": { "type": "string", "default": "docs/external/" },
+        "internal_enabled": {
+          "type": "boolean",
+          "description": "When false, the /devflow:docs combined pass (and /devflow:implement's Phase 4.1 docs step) SKIPS internal-doc updates (Step 1, docs-sync-internal). Use it for repos with no internal docs tree, or to keep the implement pass from touching internal docs. Default true (run internal docs). Does not affect invoking /devflow:docs-sync-internal directly.",
+          "default": true
+        },
+        "external_enabled": {
+          "type": "boolean",
+          "description": "When false, the /devflow:docs combined pass (and /devflow:implement's Phase 4.1 docs step) SKIPS external-doc alignment (Step 2, docs-sync-external). Use it for repos with no separate customer-facing docs tree (e.g. a single flat docs/ directory). Default true (run external docs). Does not affect invoking /devflow:docs-sync-external directly.",
+          "default": true
+        },
         "release_notes_file": {
           "type": "string",
           "description": "Customer-facing release-notes file maintained by /devflow:docs-release-notes.",

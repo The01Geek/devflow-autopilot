@@ -6,6 +6,9 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Per-step toggles for the `/devflow:docs` pass (`docs.internal_enabled`, `docs.external_enabled`).** Two new boolean config keys (both default `true`) let you skip the internal-doc (Step 1) or external-doc (Step 2) sub-pass of the combined `/devflow:docs` run — which is what `/devflow:implement`'s Phase 4.1 invokes. Set `docs.external_enabled: false` for repos with a single flat `docs/` tree and no separate customer-facing docs, so the implement pass no longer runs external alignment; set `docs.internal_enabled: false` to skip internal-doc updates. Release-note generation (Step 3) is unaffected, and invoking `/devflow:docs-sync-internal` / `/devflow:docs-sync-external` directly still works regardless of the flags.
+
 ## [2.2.7] — 2026-05-23
 
 ### Added

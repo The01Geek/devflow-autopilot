@@ -28,8 +28,10 @@
     ]
   },
   "docs": {
-    "internal": "docs/internal/",
-    "external": "docs/external/",
+    "internal": "docs/",
+    "external": "docs/",
+    "internal_enabled": true,
+    "external_enabled": false,
     "release_notes_file": "CHANGELOG.md",
     "documented_label": "Documented"
   },
