@@ -1626,6 +1626,20 @@ assert_eq "provision: PROVISION_ENV env wired to baseprovision output" "1" \
 assert_eq "provision: runner does not consume devflow_runner.allowed_tools" "0" \
   "$(grep -cE 'devflow_runner\.allowed_tools|devflow_runner\[.allowed_tools' "$RUNNER" || true)"
 
+# Trust boundary on the SETUP channel (the one that carries setup.install): the
+# provision step's config_json must come from steps.baseprovision (base ref),
+# NOT steps.cfg / steps.extract (the PR-head config). A regression here would
+# re-open setup.install injection while every flag-side assertion stayed green.
+assert_eq "provision: setup config_json sourced from base (steps.baseprovision)" "1" \
+  "$(grep -cF 'config_json: ${{ steps.baseprovision.outputs.config_json }}' "$RUNNER" || true)"
+
+# The malformed/non-object base-config fallback must reset BASE_JSON to '{}' and
+# warn (collapse to read-only), not abort the job. Pin both halves of that arm.
+assert_eq "provision: malformed base config resets BASE_JSON to {}" "1" \
+  "$(grep -c "BASE_JSON='{}'" "$RUNNER" | awk '{print ($1>=1)?1:0}')"
+assert_eq "provision: malformed/non-object base config warns + read-only" "1" \
+  "$(grep -c 'malformed or non-object .devflow/config.json' "$RUNNER" || true)"
+
 # Trust boundary: the flag and setup block come from the base ref. BASE_REF is
 # sourced from the trusted event payload, fetched from origin, and read out of
 # FETCH_HEAD — never the checked-out PR head.

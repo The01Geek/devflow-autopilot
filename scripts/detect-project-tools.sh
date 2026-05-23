@@ -7,9 +7,11 @@
 # looks each match up in .devflow/tool-presets.json, and MERGES the union of the
 # matching presets into the repo's .devflow/config.json:
 #
-#   - the build/test/lint tool patterns are added to ALL three execution paths'
-#     allowlists: devflow.allowed_tools (command), devflow_implement.allowed_tools
-#     (implement), and devflow_runner.allowed_tools (the automated reviewer);
+#   - the build/test/lint tool patterns are added to three execution paths'
+#     allowlists: devflow.allowed_tools (command) and devflow_implement.allowed_tools
+#     (implement) are live; devflow_runner.allowed_tools is also populated but is
+#     currently INERT — the automated reviewer's build access is the opt-in flag
+#     devflow_runner.provision_env, not this list (see config.schema.json);
 #   - the shared `setup` block gets node_version (only when currently empty — a
 #     pinned version is never overridden) and a lockfile-appropriate install
 #     line so the runtime the tools need actually exists before Claude runs;
@@ -26,11 +28,13 @@
 # a missing jq / presets file / config logs a notice and exits 0 — never blocks
 # the scaffold.
 #
-# SECURITY: the tools written here run a PR author's code during the automated
-# review (pull_request_target + write token). The reviewer reads them from the
-# BASE branch's committed config (never the PR head — see devflow-review.yml),
-# so a PR cannot grant itself tools; but a maintainer enabling, say, Bash(npm:*)
-# is opting into running untrusted postinstall scripts. Keep presets to
+# SECURITY: the devflow / devflow_implement allowlists written here run a PR
+# author's code in their respective workflows. The automated reviewer instead
+# runs PR build code only when the maintainer sets devflow_runner.provision_env
+# (read from the BASE branch's committed config, never the PR head — see
+# devflow-review.yml — so a PR cannot enable it for itself), which then runs
+# setup.install + the PR's build under a write token. devflow_runner.allowed_tools
+# is auto-populated but currently inert for the reviewer. Keep presets to
 # mainstream toolchains and review the resulting config.json before committing.
 #
 # Usage: detect-project-tools.sh [TARGET_REPO_ROOT]

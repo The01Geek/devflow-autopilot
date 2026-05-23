@@ -132,9 +132,10 @@ jobs:
           # still run PR-author code once provisioning is on — that is the
           # maintainer's documented opt-in; see docs/cloud-setup.md.)
           #
-          # Deliberate: on any trigger that carries no `pull_request` (today only
-          # a check_run Re-run), the fallback reads provision_env from the
-          # default branch — so for a PR whose base is a NON-default branch, a
+          # Deliberate: on any trigger that carries no `pull_request` (the caller
+          # devflow-review.yml currently wires only check_run Re-runs — see its
+          # `on:` block), the fallback reads provision_env from the default
+          # branch — so for a PR whose base is a NON-default branch, a
           # re-run reads the default branch's flag, not that PR's actual base. We
           # accept this: the default branch is the most-protected trust anchor
           # for a security-sensitive opt-in, and provision_env is normally a
@@ -154,15 +155,18 @@ jobs:
             # PR head. --depth=1: only the tip is needed to read one file.
             if git fetch --depth=1 origin "$BASE_REF" >/dev/null 2>&1; then
               if RAW=$(git show "FETCH_HEAD:.devflow/config.json" 2>/dev/null); then
-                # Parse in its own guard so a MALFORMED base config collapses to
-                # read-only (the documented safe default), NOT aborts the whole
-                # review job under set -e — otherwise every open PR targeting
-                # that branch fails its review with an opaque jq error. The
-                # `== true` clamp below already prevents "provisioning with
-                # garbage," so a hard abort buys no safety, only lost
-                # availability. (2>/dev/null on jq so we emit our own actionable
-                # warning instead of the raw parse error.)
-                if BASE_JSON=$(printf '%s' "$RAW" | jq -c '.' 2>/dev/null); then
+                # Parse in its own guard so a MALFORMED or non-object base config
+                # collapses to read-only (the documented safe default), NOT
+                # aborts the whole review job under set -e — otherwise every open
+                # PR targeting that branch fails its review with an opaque jq
+                # error. `if type=="object" then . else empty end` + `-e` is
+                # load-bearing: jq -c '.' succeeds on ANY valid JSON including a
+                # bare scalar/array/null, and the `.devflow_runner` index on the
+                # next line would then error (jq exit 5) and abort under set -e.
+                # Requiring an object routes scalars/arrays to the else branch
+                # too. (2>/dev/null so we emit our own actionable warning, not the
+                # raw parse error.)
+                if BASE_JSON=$(printf '%s' "$RAW" | jq -ce 'if type=="object" then . else empty end' 2>/dev/null); then
                   # `== true` clamps to a literal true/false: only a real boolean
                   # `true` enables provisioning. A non-boolean (string/number) or
                   # absent value yields false, so a typo can never accidentally
@@ -170,7 +174,7 @@ jobs:
                   PROVISION=$(printf '%s' "$BASE_JSON" | jq -r '(.devflow_runner.provision_env == true)')
                 else
                   BASE_JSON='{}'
-                  echo "::warning::Base ref '$BASE_REF' has a malformed .devflow/config.json; defaulting to provision_env=false (read-only review). Fix the base-branch config to restore build-aware review."
+                  echo "::warning::Base ref '$BASE_REF' has a malformed or non-object .devflow/config.json; defaulting to provision_env=false (read-only review). Fix the base-branch config to restore build-aware review."
                 fi
               else
                 # No committed config on the base ref (e.g. a repo bootstrapping
