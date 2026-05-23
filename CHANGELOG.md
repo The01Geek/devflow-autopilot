@@ -4,6 +4,14 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.4] — 2026-05-23
+
+### Fixed
+- **`devflow-review.yml` no longer aborts as `startup_failure`** (the required `Devflow Review` check was permanently stuck, wedging every PR in adopting repos). Root cause: GitHub validates a called reusable workflow's permission ceiling against the caller's grant across the *whole* called graph at build time. The consolidated `devflow.yml` co-located the high-privilege `command` listener job (`contents: write` to push, `issues: write` to react) with the low-privilege reusable `runner`, so a read-only caller like `devflow-review.yml` could never grant a superset — the run aborted before any job started.
+
+### Changed
+- **Extracted the reusable runner into its own `devflow-runner.yml`.** It's a pure `workflow_call` file with one job whose permissions (`contents: read`, `pull-requests: write`, `id-token: write`, `actions: read`) are a clean subset of any caller's grant — restoring the pre-consolidation shape. `devflow.yml` is now purely the event-driven `/devflow:*` command listener (no `workflow_call` trigger, no `runner` job; the `inputs.prompt` discriminator on its jobs is gone). `devflow-review.yml` now calls `devflow-runner.yml` and grants `actions: read` (a superset of the runner's needs). The review path stays read-only (never gains `contents: write`); the light command path and `/devflow:implement` are unaffected. `install.sh` vendors the new file into consumer repos.
+
 ## [2.2.3] — 2026-05-23
 
 ### Added
