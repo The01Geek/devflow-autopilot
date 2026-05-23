@@ -138,7 +138,7 @@ Write the issue title (from the `gh issue view` above) to a temp file with the *
 
 ```bash
 git fetch origin main
-BRANCH=$(${CLAUDE_SKILL_DIR}/../../scripts/branch-for-issue.py $ARGUMENTS --title-file /tmp/devflow-issue-$ARGUMENTS-title.txt)
+BRANCH=$(${CLAUDE_SKILL_DIR}/../../scripts/branch-for-issue.sh $ARGUMENTS --title-file /tmp/devflow-issue-$ARGUMENTS-title.txt)
 git checkout -b "$BRANCH" origin/main
 ```
 
