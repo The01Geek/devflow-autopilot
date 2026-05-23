@@ -69,3 +69,16 @@ if [ ! -f "$GITIGNORE" ]; then
     '/tmp/' > "$GITIGNORE"
   log "wrote $GITIGNORE (ignores ephemeral .devflow/tmp/ scratch)"
 fi
+
+# Language-aware tool/runtime auto-population. Scans the target repo and merges
+# the matching per-language presets into config.json (idempotent union — safe
+# whether config.json was just scaffolded or kept). Lives in its own script so
+# the dumb file-copy above stays inspection-free; best-effort, so a missing jq
+# never blocks the scaffold. Both entry points (install.sh + /devflow:init)
+# reach it through here, so detection can't drift between them.
+DETECT="$SELF_DIR/detect-project-tools.sh"
+if [ -x "$DETECT" ]; then
+  bash "$DETECT" "$TARGET_ROOT" || log "auto-detection step failed (non-fatal); config left as-is."
+else
+  log "detect-project-tools.sh not found next to the scaffolder; skipping language auto-detection."
+fi

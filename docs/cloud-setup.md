@@ -105,8 +105,12 @@ For the full idea → issue → PR walkthrough, see
 
 ## Runtime provisioning (`setup`)
 
-The light command (`devflow.yml`) and `/devflow:implement` (`devflow-implement.yml`) workflows prepare the runner **before**
+The light command (`devflow.yml`), `/devflow:implement` (`devflow-implement.yml`),
+and the automated reviewer (`devflow-review.yml` → `devflow.yml`'s `runner`) all
+prepare the runner **before**
 Claude runs by reading a `setup` block from `.devflow/config.json`.
+(`/devflow:init` auto-fills `node_version` + an install line from your repo's
+language(s) and lockfile — see "Letting the reviewer build/test a PR" below.)
 There is no hardcoded toolchain — DevFlow installs into repos of every shape
 (Python package at root, npm frontend, Docker-only backend, polyglot), so you
 declare what your project needs:
@@ -135,6 +139,57 @@ Example for a split repo (Docker backend in `server/`, npm frontend in
 `client/`): keep `"python_version": "3.11"` + `pip install pyyaml`, set
 `"node_version": "20"`, and add `npm ci --prefix client` to the `install` array.
 
+### PHP, service containers, and dependency caching
+
+The `setup` block covers more than Python/Node, in this provisioning order
+(**Python → Node → PHP → service containers → `install` lines**):
+
+- **PHP** — set `setup.php_version` (e.g. `"8.3"`) to run
+  [`shivammathur/setup-php`](https://github.com/shivammathur/setup-php) with
+  Composer; `setup.php_extensions` is a CSV of extensions
+  (`"mbstring, intl, pdo_mysql, redis"`), `setup.php_tools` an optional CSV of
+  tools. `/devflow:init` fills these from `composer.json` and adds a
+  `composer install` line.
+- **Service containers** — `setup.services` starts databases/caches/queues your
+  tests need, via `docker run` (DevFlow does **not** use GitHub Actions
+  `services:` — those can't be defined in a composite action or driven by
+  config). Each service is reachable on **`127.0.0.1:<host-port>`**, so point
+  your *test* config at `127.0.0.1`. Give a `--health-cmd` in `options` so
+  startup is awaited:
+
+  ```json
+  "setup": {
+    "php_version": "8.3",
+    "php_extensions": "mbstring, intl, pdo_mysql, redis",
+    "services": [
+      {
+        "name": "mysql",
+        "image": "mysql:8.0",
+        "ports": ["3306:3306"],
+        "env": { "MYSQL_ROOT_PASSWORD": "root", "MYSQL_DATABASE": "app_test" },
+        "options": ["--health-cmd=mysqladmin ping -h 127.0.0.1 -uroot -proot", "--health-interval=5s", "--health-timeout=5s", "--health-retries=20"]
+      },
+      { "name": "redis", "image": "redis:7", "ports": ["6379:6379"] }
+    ],
+    "install": ["composer install --no-interaction", "php artisan migrate --env=testing --force"]
+  }
+  ```
+
+  The runner has Docker preinstalled; the `docker` preset's `Bash(docker:*)`
+  allowlist (auto-added when a `Dockerfile`/compose file is present) is what lets
+  build steps talk to the containers.
+- **Node dependency caching** — automatic: when `node_version` is set **and** a
+  root lockfile (`package-lock.json` / `yarn.lock` / `pnpm-lock.yaml`) is
+  present, `setup-node`'s download cache is enabled for the matching package
+  manager. No lockfile → caching is skipped (so it never errors).
+
+`/devflow:init` populates the deterministic parts (tool allowlists, `node_version`,
+`npm ci`/`composer install`) from language markers, then **explores the repo**
+(`docker-compose.yml`, `.env`, CI, `composer.json`) to enrich `php_version`,
+`php_extensions`, and `services` — the judgement-heavy fields a marker→list table
+can't infer. Review its additions before committing; service `env` and `install`
+lines run in CI from your committed (base-branch) config.
+
 ## Extending the tool allowlist
 
 The light `/devflow:*` command path runs under a fixed `--allowed-tools` allowlist baked into the
@@ -156,14 +211,53 @@ workflow YAML:
 - Entries use [claude-code-action tool syntax](https://github.com/anthropics/claude-code-action)
   (e.g. `Bash(make:*)`), and are **appended** to DevFlow's base list — they add,
   never replace.
-- The two keys are **independent**: `claude.allowed_tools` covers the light
-  `/devflow:*` command path (`devflow.yml`); `claude_implement.allowed_tools` covers the
-  heavy `/devflow:implement` path (`devflow-implement.yml`). The implement path
-  does **not** inherit the light path's extras, so list every tool you want
-  during implementation under `claude_implement.allowed_tools`.
+- The three keys are **independent**, one per execution path:
+  `claude.allowed_tools` → light `/devflow:*` command path (`devflow.yml`);
+  `claude_implement.allowed_tools` → `/devflow:implement` (`devflow-implement.yml`);
+  `claude_runner.allowed_tools` → the automated reviewer (`devflow-review.yml`).
+  None inherits another's extras, so list every tool you want for a given path
+  under that path's key.
 - Leave a key out (or `[]`) to use the base list unchanged.
 - These come from your committed config, so treat them with the same care as
   `setup.install`: only allowlist commands you trust to run unattended.
+
+## Letting the reviewer build/test a PR
+
+By default the automated reviewer is **read-only** — it inspects the diff but
+cannot compile, lint, or test it. To let it actually build a PR, give it the
+toolchain (`claude_runner.allowed_tools`) **and** the runtime (`setup`):
+
+```json
+"claude_runner": {
+  "allowed_tools": ["Bash(npm:*)", "Bash(npx:*)", "Bash(webpack:*)", "Bash(tsc:*)"]
+},
+"setup": {
+  "node_version": "20",
+  "install": ["npm ci"]
+}
+```
+
+You rarely write this by hand: **`/devflow:init` auto-detects your repo's
+language(s)** (Node, Go, Rust, Java, Ruby, PHP, .NET, Make, Docker) from their
+marker files and merges the right tools into all three allowlists plus `setup`
+(picking `npm ci` / `pnpm install` / `yarn install` from your lockfile). Re-run
+it after adding a language — the merge is an idempotent union that never drops
+your custom entries.
+
+> **⚠️ Security — read before enabling.** Build tools run the **PR author's
+> code** (e.g. an `npm` package's `postinstall` script) inside the reviewer,
+> which fires on `pull_request_target` with a `pull-requests: write` token. To
+> stop a PR from escalating itself, the reviewer reads `claude_runner.allowed_tools`
+> and `setup` **only from your repo's base branch** — never from the PR's own
+> checkout — so a malicious PR cannot widen its own review's allowlist. But
+> enabling, say, `Bash(npm:*)` is still you opting into running untrusted build
+> steps against fork PRs. Mitigations: enable
+> [*Require approval for all outside collaborators*](https://docs.github.com/en/actions/managing-workflow-runs/approving-workflow-runs-from-public-forks)
+> for Actions, keep the allowlist to mainstream build/test/lint commands, and
+> review what `/devflow:init` adds before committing. Residual limitation: the
+> reviewer also runs the in-repo composite actions from the PR checkout, so a PR
+> that edits `.github/actions/**` is a separate, louder vector — protect those
+> paths if this matters to you.
 
 ## Workflow inventory
 

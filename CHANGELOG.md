@@ -4,6 +4,18 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.3] — 2026-05-23
+
+### Added
+- **Service containers in cloud provisioning (`setup.services`).** Tests that need a database/cache/queue (MySQL, Postgres, Redis, …) can now declare it in `.devflow/config.json`; `setup-project-env` starts each via `docker run -d` before the install lines, reachable on `127.0.0.1:<host-port>`, and waits on a `--health-cmd` when given. (GitHub Actions `services:` can't be used — service containers aren't allowed inside a composite action and can't be config-driven in a static reusable workflow — so `docker run` is the config-driven equivalent.)
+- **PHP runtime provisioning (`setup.php_version` / `setup.php_extensions` / `setup.php_tools`).** Runs [`shivammathur/setup-php`](https://github.com/shivammathur/setup-php) (PHP + Composer + extensions) before tests. `/devflow:init` fills `php_version` from `composer.json`'s `require.php` and adds a `composer install` line; `detect-project-tools.sh` adds `composer install --no-interaction --prefer-dist --no-progress` whenever a `composer.json` is present.
+- **Automatic Node dependency caching.** When `setup.node_version` is set and a root lockfile (`package-lock.json` / `yarn.lock` / `pnpm-lock.yaml`) exists, `setup-node`'s download cache is enabled for the matching package manager. Gated on lockfile presence so it never trips `setup-node`'s "lock file is not found" error.
+- **LLM enrichment in `/devflow:init`.** The deterministic preset detection (marker file → tool allowlist + install line) remains the floor; on top of it, `/devflow:init` now explores the repo (`docker-compose.yml`, `.env`, existing CI, `composer.json`) to populate the judgement-heavy `setup` fields a marker→list table can't infer — `services`, `php_version`, `php_extensions`, and project-specific build/test steps.
+
+### Fixed
+- **`/devflow:init` no longer references the removed `devflow:implement` label.** The skill now states the trigger is a bare `/devflow:implement <#>` comment (the label trigger was removed in 2.2.1).
+- **`.devflow/tool-presets.json` is now tracked/shipped.** The `/.devflow/*` ignore rule had no re-include for it, so the preset registry `scripts/detect-project-tools.sh` depends on was missing from a clean checkout / the shipped plugin; added a `!` re-include so language auto-detection works after install.
+
 ## [2.2.2] — 2026-05-23
 
 ### Changed
