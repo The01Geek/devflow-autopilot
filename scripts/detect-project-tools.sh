@@ -8,8 +8,8 @@
 # matching presets into the repo's .devflow/config.json:
 #
 #   - the build/test/lint tool patterns are added to ALL three execution paths'
-#     allowlists: claude.allowed_tools (command), claude_implement.allowed_tools
-#     (implement), and claude_runner.allowed_tools (the automated reviewer);
+#     allowlists: devflow.allowed_tools (command), devflow_implement.allowed_tools
+#     (implement), and devflow_runner.allowed_tools (the automated reviewer);
 #   - the shared `setup` block gets node_version (only when currently empty — a
 #     pinned version is never overridden) and a lockfile-appropriate install
 #     line so the runtime the tools need actually exists before Claude runs.
@@ -132,12 +132,12 @@ jq -n \
   ([ $keys[] as $k | $p[$k].setup.node_version? // empty ] | .[0]) as $nodever |
   $c
   | .claude            = (.claude            // {})
-  | .claude_implement  = (.claude_implement  // {})
-  | .claude_runner     = (.claude_runner     // {})
+  | .devflow_implement  = (.devflow_implement  // {})
+  | .devflow_runner     = (.devflow_runner     // {})
   | .setup             = (.setup             // {})
-  | .claude.allowed_tools           = ((.claude.allowed_tools           // []) + $tools | odedupe)
-  | .claude_implement.allowed_tools = ((.claude_implement.allowed_tools // []) + $tools | odedupe)
-  | .claude_runner.allowed_tools    = ((.claude_runner.allowed_tools    // []) + $tools | odedupe)
+  | .devflow.allowed_tools           = ((.devflow.allowed_tools           // []) + $tools | odedupe)
+  | .devflow_implement.allowed_tools = ((.devflow_implement.allowed_tools // []) + $tools | odedupe)
+  | .devflow_runner.allowed_tools    = ((.devflow_runner.allowed_tools    // []) + $tools | odedupe)
   | .setup.install                  = ((.setup.install                  // []) + $inst  | odedupe)
   | (if ($nodever != null) and ((.setup.node_version // "") == "")
        then .setup.node_version = $nodever else . end)
@@ -149,8 +149,8 @@ if jq --sort-keys . "$CONFIG" >/dev/null 2>&1 && ! diff -q \
      <(jq --sort-keys . "$CONFIG") <(jq --sort-keys . "$TMP") >/dev/null 2>&1; then
   mv "$TMP" "$CONFIG"
   trap - EXIT
-  log "detected: ${ACTIVE[*]} — merged build/test tools into config.json (claude / claude_implement / claude_runner) + setup."
-  log "review the additions before committing; these tools run PR code during automated review (see config.schema.json claude_runner.allowed_tools)."
+  log "detected: ${ACTIVE[*]} — merged build/test tools into config.json (devflow / devflow_implement / devflow_runner) + setup."
+  log "review the additions before committing; these tools run PR code during automated review (see config.schema.json devflow_runner.allowed_tools)."
 else
   log "detected: ${ACTIVE[*]} — config.json already covers them; no changes."
 fi

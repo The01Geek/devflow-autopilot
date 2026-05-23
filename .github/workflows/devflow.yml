@@ -51,20 +51,20 @@ jobs:
         run: |
           set -euo pipefail
           {
-            echo "enabled=$(echo "$CONFIG_JSON" | jq -r '.workflows.claude // false')"
+            echo "enabled=$(echo "$CONFIG_JSON" | jq -r '.workflows.devflow // false')"
             echo "base_branch=$(echo "$CONFIG_JSON" | jq -r '.base_branch')"
             echo "claude_model=$(echo "$CONFIG_JSON" | jq -r '.claude_model')"
-            echo "allowed_bots=$(echo "$CONFIG_JSON" | jq -r '.claude.allowed_bots')"
+            echo "allowed_bots=$(echo "$CONFIG_JSON" | jq -r '.devflow.allowed_bots')"
             # Human logins allowed to trigger the command path (AND-filter on top
             # of the collaborator-permission gate; '*' = any collaborator).
-            echo "allowed_users=$(echo "$CONFIG_JSON" | jq -r '.claude.allowed_users // "*"')"
-            echo "effort=$(echo "$CONFIG_JSON" | jq -r '.claude.effort // "medium"')"
+            echo "allowed_users=$(echo "$CONFIG_JSON" | jq -r '.devflow.allowed_users // "*"')"
+            echo "effort=$(echo "$CONFIG_JSON" | jq -r '.devflow.effort // "medium"')"
             # Repo-specific extra allowlist entries, appended on top of the
             # built-in devflow base list in the `claude` job's claude_args.
             # Emits a leading-comma string (",Bash(make:*),…") or "" so it can
             # be concatenated directly after the final base entry. Tool patterns
             # never contain commas/newlines, so a single-line output is safe.
-            echo "allowed_tools_extra=$(echo "$CONFIG_JSON" | jq -r '.claude.allowed_tools // [] | if length > 0 then "," + join(",") else "" end')"
+            echo "allowed_tools_extra=$(echo "$CONFIG_JSON" | jq -r '.devflow.allowed_tools // [] | if length > 0 then "," + join(",") else "" end')"
           } >> "$GITHUB_OUTPUT"
 
   # Dedupe a MANUAL bare `/devflow:review` comment against the AUTOMATED

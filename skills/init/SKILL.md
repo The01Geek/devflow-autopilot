@@ -18,7 +18,7 @@ This is the single shared scaffolder — the same script `install.sh` uses, so t
 
 - creates `.devflow/config.json` from the shipped `config.example.json` **only if it does not already exist** — it never clobbers a config you've already filled in;
 - always refreshes `.devflow/config.schema.json` so your editor validates against the current field set;
-- **auto-detects the repo's language(s)** (Node, Go, Rust, Java, Ruby, PHP, .NET, Make, Docker) and **merges the matching build/test/lint tools** into `config.json` — into all three execution paths' allowlists (`claude.allowed_tools`, `claude_implement.allowed_tools`, `claude_runner.allowed_tools`) plus the `setup` block (`node_version` + a lockfile-appropriate install line, and a `composer install` line for PHP). This is what lets the automated reviewer actually build and test a PR. The merge is an **idempotent union**: it never removes your custom entries and never duplicates, so re-running after adding a language picks up only the new tools.
+- **auto-detects the repo's language(s)** (Node, Go, Rust, Java, Ruby, PHP, .NET, Make, Docker) and **merges the matching build/test/lint tools** into `config.json` — into all three execution paths' allowlists (`devflow.allowed_tools`, `devflow_implement.allowed_tools`, `devflow_runner.allowed_tools`) plus the `setup` block (`node_version` + a lockfile-appropriate install line, and a `composer install` line for PHP). This is what lets the automated reviewer actually build and test a PR. The merge is an **idempotent union**: it never removes your custom entries and never duplicates, so re-running after adding a language picks up only the new tools.
 
 It resolves the templates from the installed plugin (`${CLAUDE_SKILL_DIR}/../../.devflow/`), so it works whether DevFlow was installed via the marketplace or vendored by `install.sh`.
 
@@ -44,9 +44,9 @@ Read the scaffolder's output line and respond accordingly:
 
 The scaffolder also prints `devflow-detect:` lines from the language auto-detection. Read them and respond:
 
-- **`detected: <langs> — merged …`** — build/test tools for those languages were added to `config.json`. **Tell the user to review the additions before committing**, and flag the security implication plainly: these tools (e.g. `Bash(npm:*)`) run the PR author's code — including `npm`/`composer`/etc. install scripts — during the *automated reviewer* on `pull_request_target` with a write token. The reviewer reads them only from the base branch, so a PR can't grant itself tools, but the maintainer is opting into running untrusted build steps. If they don't want that, remove the entries from `claude_runner.allowed_tools` (and `setup`).
+- **`detected: <langs> — merged …`** — build/test tools for those languages were added to `config.json`. **Tell the user to review the additions before committing**, and flag the security implication plainly: these tools (e.g. `Bash(npm:*)`) run the PR author's code — including `npm`/`composer`/etc. install scripts — during the *automated reviewer* on `pull_request_target` with a write token. The reviewer reads them only from the base branch, so a PR can't grant itself tools, but the maintainer is opting into running untrusted build steps. If they don't want that, remove the entries from `devflow_runner.allowed_tools` (and `setup`).
 - **`detected: <langs> — config.json already covers them`** — idempotent re-run, nothing changed.
-- **`no known language markers detected`** or **`jq not found …`** — no auto-population happened; the reviewer stays read-only. If they need build tools, point them at `claude_runner.allowed_tools` in `config.schema.json`.
+- **`no known language markers detected`** or **`jq not found …`** — no auto-population happened; the reviewer stays read-only. If they need build tools, point them at `devflow_runner.allowed_tools` in `config.schema.json`.
 
 There is **no trigger label** to create: in the cloud tier, `/devflow:implement` is started by commenting a bare `/devflow:implement <#>` on the issue (a native user event) — not by applying a label. The sender must be an allowed bot or an `allowed_users` collaborator with write access.
 

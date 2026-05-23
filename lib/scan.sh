@@ -74,7 +74,7 @@ SINCE="$(python3 -c 'import datetime as d; print((d.datetime.now(d.timezone.utc)
 WATCHED="$(devflow_watched_authors)"
 
 if [ -z "$WATCHED" ]; then
-    echo "::warning::no watched authors configured (devflow_retrospective.watched_authors / claude.allowed_bots)" >&2
+    echo "::warning::no watched authors configured (devflow_retrospective.watched_authors / devflow.allowed_bots)" >&2
     echo '[]'
     exit 0
 fi

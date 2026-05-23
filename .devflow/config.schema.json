@@ -20,13 +20,13 @@
       "description": "Claude model for AI-powered workflows (individual workflows may override).",
       "default": "claude-opus-4-7"
     },
-    "claude": {
+    "devflow": {
       "type": "object",
-      "description": "Claude-action settings.",
+      "description": "Settings for the light /devflow:* command path (devflow.yml): trigger gating (allowed_bots/allowed_users), the implement workpad marker, reasoning effort, and extra tool allowlist.",
       "properties": {
         "allowed_bots": {
           "type": "string",
-          "description": "Bot logins allowed to trigger the Claude action (comma-separated). 'claude' is Anthropic's GitHub App identity; add your own bot/automation logins (e.g. dependabot).",
+          "description": "Bot logins allowed to trigger DevFlow workflows (comma-separated). 'claude' is Anthropic's GitHub App identity; add your own bot/automation logins (e.g. dependabot).",
           "default": "claude,dependabot"
         },
         "allowed_users": {
@@ -41,31 +41,31 @@
         },
         "effort": {
           "type": "string",
-          "description": "Reasoning effort for Claude-action workflows. 'medium' omits --effort so the model's built-in default applies.",
+          "description": "Reasoning effort for the light /devflow:* command path (devflow.yml). 'medium' omits --effort so the model's built-in default applies.",
           "enum": ["low", "medium", "high", "xhigh", "max"],
           "default": "medium"
         },
         "allowed_tools": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "Extra --allowed-tools entries for the light /devflow:* command path (devflow.yml), APPENDED on top of devflow's built-in base list. Use claude-code-action tool syntax, e.g. \"Bash(make:*)\", \"Bash(docker compose:*)\". Does not apply to /devflow:implement — see claude_implement.allowed_tools. Empty/omitted → base list only.",
+          "description": "Extra --allowed-tools entries for the light /devflow:* command path (devflow.yml), APPENDED on top of devflow's built-in base list. Use claude-code-action tool syntax, e.g. \"Bash(make:*)\", \"Bash(docker compose:*)\". Does not apply to /devflow:implement — see devflow_implement.allowed_tools. Empty/omitted → base list only.",
           "default": []
         }
       }
     },
-    "claude_implement": {
+    "devflow_implement": {
       "type": "object",
       "properties": {
         "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"] },
         "allowed_tools": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "Extra --allowed-tools entries for the /devflow:implement path (devflow-implement.yml), APPENDED on top of devflow's built-in base list. The implement path does NOT inherit claude.allowed_tools, so list every extra tool you want during implementation here. Empty/omitted → base list only.",
+          "description": "Extra --allowed-tools entries for the /devflow:implement path (devflow-implement.yml), APPENDED on top of devflow's built-in base list. The implement path does NOT inherit devflow.allowed_tools, so list every extra tool you want during implementation here. Empty/omitted → base list only.",
           "default": []
         }
       }
     },
-    "claude_runner": {
+    "devflow_runner": {
       "type": "object",
       "description": "Settings for the reusable runner that backs the automated reviewer (devflow-review.yml → devflow.yml `runner` job).",
       "properties": {
@@ -184,7 +184,7 @@
         "watched_authors": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "Authors whose merged PRs the loop retrospects. Defaults to claude.allowed_bots if unset."
+          "description": "Authors whose merged PRs the loop retrospects. Defaults to devflow.allowed_bots if unset."
         }
       }
     },
@@ -192,8 +192,8 @@
       "type": "object",
       "description": "Per-workflow enable/disable toggles.",
       "properties": {
-        "claude": { "type": "boolean" },
-        "devflow-review": { "type": "boolean" }
+        "devflow": { "type": "boolean", "description": "Enable the light /devflow:* command path (devflow.yml) and /devflow:implement (devflow-implement.yml)." },
+        "devflow-review": { "type": "boolean", "description": "Enable the automated reviewer (devflow-review.yml)." }
       }
     }
   }

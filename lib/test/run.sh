@@ -168,12 +168,12 @@ echo "config-get.sh (resolver, direct)"
 CG="$LIB/../scripts/config-get.sh"
 FIX="$LIB/test/fixtures/config.json"
 
-assert_eq "cg: present scalar"          "claude,example-bot" "$("$CG" .claude.allowed_bots '' "$FIX")"
+assert_eq "cg: present scalar"          "claude,example-bot" "$("$CG" .devflow.allowed_bots '' "$FIX")"
 assert_eq "cg: nested int"              "2"                   "$("$CG" .devflow_retrospective.min_occurrences '' "$FIX")"
 assert_eq "cg: array → comma-join"      "claude,example-bot" "$("$CG" .devflow_retrospective.watched_authors '' "$FIX")"
 assert_eq "cg: leading dot optional"    "2"                   "$("$CG" devflow_retrospective.min_occurrences '' "$FIX")"
 assert_eq "cg: missing key → default"   "fallback"           "$("$CG" .a.b.c fallback "$FIX")"
-assert_eq "cg: descend into scalar → default" "dfl"          "$("$CG" .claude.allowed_bots.nope dfl "$FIX")"
+assert_eq "cg: descend into scalar → default" "dfl"          "$("$CG" .devflow.allowed_bots.nope dfl "$FIX")"
 assert_eq "cg: missing file → default"  "dfl"                "$("$CG" .x dfl /no/such/config.json)"
 
 # Exit-code contract (run.sh uses `set -u`, not `set -e`, so a nonzero is safe).
@@ -270,17 +270,17 @@ dpt_has() { jq -e --arg t "$2" "$1 | index(\$t) != null" "$3" >/dev/null 2>&1 &&
 DT1="$(mktemp -d)"; mkdir -p "$DT1/.devflow"
 printf '{"name":"x"}' > "$DT1/package.json"
 printf '{}' > "$DT1/package-lock.json"
-printf '{"claude":{"allowed_tools":["Bash(make:*)"]},"setup":{"node_version":"","install":["python -m pip install pyyaml"]}}' > "$DT1/.devflow/config.json"
+printf '{"devflow":{"allowed_tools":["Bash(make:*)"]},"setup":{"node_version":"","install":["python -m pip install pyyaml"]}}' > "$DT1/.devflow/config.json"
 bash "$DPT" "$DT1" >/dev/null 2>&1
-assert_eq "detect: npm tool in claude path"    "yes" "$(dpt_has .claude.allowed_tools           'Bash(npm:*)' "$DT1/.devflow/config.json")"
-assert_eq "detect: npm tool in implement path" "yes" "$(dpt_has .claude_implement.allowed_tools 'Bash(npm:*)' "$DT1/.devflow/config.json")"
-assert_eq "detect: npm tool in runner path"    "yes" "$(dpt_has .claude_runner.allowed_tools    'Bash(npm:*)' "$DT1/.devflow/config.json")"
+assert_eq "detect: npm tool in claude path"    "yes" "$(dpt_has .devflow.allowed_tools           'Bash(npm:*)' "$DT1/.devflow/config.json")"
+assert_eq "detect: npm tool in implement path" "yes" "$(dpt_has .devflow_implement.allowed_tools 'Bash(npm:*)' "$DT1/.devflow/config.json")"
+assert_eq "detect: npm tool in runner path"    "yes" "$(dpt_has .devflow_runner.allowed_tools    'Bash(npm:*)' "$DT1/.devflow/config.json")"
 assert_eq "detect: node_version filled from empty" "20" \
   "$(jq -r '.setup.node_version' "$DT1/.devflow/config.json")"
 assert_eq "detect: npm ci chosen from package-lock.json" "yes" \
   "$(jq -e '.setup.install | index("npm ci") != null' "$DT1/.devflow/config.json" >/dev/null && echo yes || echo no)"
 assert_eq "detect: existing custom tool preserved at front (ordered union)" "Bash(make:*)" \
-  "$(jq -r '.claude.allowed_tools[0]' "$DT1/.devflow/config.json")"
+  "$(jq -r '.devflow.allowed_tools[0]' "$DT1/.devflow/config.json")"
 assert_eq "detect: pyyaml install line kept first (order preserved)" "python -m pip install pyyaml" \
   "$(jq -r '.setup.install[0]' "$DT1/.devflow/config.json")"
 
@@ -315,7 +315,7 @@ printf '<Project/>' > "$DT4/App.csproj"
 printf '{}' > "$DT4/.devflow/config.json"
 bash "$DPT" "$DT4" >/dev/null 2>&1
 assert_eq "detect: *.csproj glob matches dotnet" "yes" \
-  "$(dpt_has .claude_runner.allowed_tools 'Bash(dotnet:*)' "$DT4/.devflow/config.json")"
+  "$(dpt_has .devflow_runner.allowed_tools 'Bash(dotnet:*)' "$DT4/.devflow/config.json")"
 
 # 6. PHP (composer.json) → php tools in all paths AND a composer install line.
 DT5="$(mktemp -d)"; mkdir -p "$DT5/.devflow"
@@ -323,7 +323,7 @@ printf '{"require":{"php":">=8.2"}}' > "$DT5/composer.json"
 printf '{}' > "$DT5/.devflow/config.json"
 bash "$DPT" "$DT5" >/dev/null 2>&1
 assert_eq "detect: composer tool in runner path" "yes" \
-  "$(dpt_has .claude_runner.allowed_tools 'Bash(composer:*)' "$DT5/.devflow/config.json")"
+  "$(dpt_has .devflow_runner.allowed_tools 'Bash(composer:*)' "$DT5/.devflow/config.json")"
 assert_eq "detect: composer install line added" "yes" \
   "$(jq -e '.setup.install | index("composer install --no-interaction --prefer-dist --no-progress") != null' "$DT5/.devflow/config.json" >/dev/null && echo yes || echo no)"
 
@@ -350,8 +350,8 @@ echo "config-source.sh"
   assert_eq "conf: malformed JSON → default (warns, no abort)" "dflt" "$(devflow_conf '.anything' dflt 2>/dev/null)"
   rm -f "$wp"
 )
-# watched_authors falls back to claude.allowed_bots when the override array is absent.
-( wp="$(mktemp)"; printf '{"claude":{"allowed_bots":"claude,fallback-bot"}}' > "$wp"
+# watched_authors falls back to devflow.allowed_bots when the override array is absent.
+( wp="$(mktemp)"; printf '{"devflow":{"allowed_bots":"claude,fallback-bot"}}' > "$wp"
   export DEVFLOW_CONFIG_FILE="$wp"
   . "$LIB/config-source.sh"
   assert_eq "conf: watched_authors → allowed_bots fallback" "claude,fallback-bot" "$(devflow_watched_authors)"

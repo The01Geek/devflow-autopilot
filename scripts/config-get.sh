@@ -4,7 +4,7 @@
 # Read a value from .devflow/config.json — DevFlow's single config resolver.
 #
 # Usage: config-get.sh KEY [DEFAULT] [CONFIG_FILE]
-#   KEY          dot-path like .docs.internal or .claude.workpad_marker
+#   KEY          dot-path like .docs.internal or .devflow.workpad_marker
 #                (leading dot optional). Arbitrary nesting depth supported —
 #                the path is split on dots and walked through nested objects.
 #   DEFAULT      printed if key is absent or value is empty/null. Pass an
