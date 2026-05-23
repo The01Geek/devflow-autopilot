@@ -1,15 +1,40 @@
 {
   "name": "devflow",
-  "version": "2.2.2",
+  "version": "2.2.3",
   "description": "End-to-end development workflow for Claude Code: /devflow:implement (4-phase orchestrator), /devflow:review and /devflow:review-and-fix (verification-checklist review engine), the /devflow:docs suite, /devflow:create-issue, plus the self-improving retrospective loop (/devflow:retrospective per-PR + /devflow:retrospective-audit weekly).",
-  "author": { "name": "Daniel Radman", "email": "daniel@radman.ai" },
+  "author": {
+    "name": "Daniel Radman",
+    "email": "daniel@radman.ai"
+  },
   "homepage": "https://github.com/The01Geek/devflow-autopilot",
   "repository": "https://github.com/The01Geek/devflow-autopilot",
   "license": "MIT",
-  "keywords": ["implement", "code-review", "review", "documentation", "release-notes", "github-issue", "retrospective", "audit", "self-improvement", "evaluator-optimizer", "github-actions", "claude-code"],
+  "keywords": [
+    "implement",
+    "code-review",
+    "review",
+    "documentation",
+    "release-notes",
+    "github-issue",
+    "retrospective",
+    "audit",
+    "self-improvement",
+    "evaluator-optimizer",
+    "github-actions",
+    "claude-code"
+  ],
   "dependencies": [
-    { "name": "feature-dev", "marketplace": "claude-plugins-official" },
-    { "name": "pr-review-toolkit", "marketplace": "claude-plugins-official" },
-    { "name": "superpowers", "marketplace": "claude-plugins-official" }
+    {
+      "name": "feature-dev",
+      "marketplace": "claude-plugins-official"
+    },
+    {
+      "name": "pr-review-toolkit",
+      "marketplace": "claude-plugins-official"
+    },
+    {
+      "name": "superpowers",
+      "marketplace": "claude-plugins-official"
+    }
   ]
 }

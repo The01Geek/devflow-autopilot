@@ -8,8 +8,8 @@
 # `@claude` phrase, so Anthropic's stock claude.yml (tag mode, keyed on
 # `@claude`) never double-fires on a bare `/devflow:implement <n>` comment. The
 # trade-off: agent mode runs for ANY actor, so this script is the cost/
-# authorization gate. The only trigger is a bare command in a comment/review/
-# issue body — there is no label path.
+# authorization gate. The only trigger is a bare command in a real comment or
+# review — never an issue/PR description body — and there is no label path.
 #
 # Inputs (env):
 #   ACTOR           triggering login (github.event.sender.login); a trailing
@@ -17,7 +17,7 @@
 #   ALLOWED_BOTS    comma-separated bare bot logins from config.
 #   ALLOWED_USERS   comma-separated human logins ('*' = any collaborator).
 #   REPO            owner/repo, for the collaborator-permission API call.
-#   TRIGGER_TEXT    the comment / review / issue title+body that fired.
+#   TRIGGER_TEXT    the comment / review body that fired (never a description).
 #   CONTEXT_NUMBER  the issue/PR number the event is attached to: the fallback
 #                   target when TRIGGER_TEXT has no explicit number.
 #   GH_TOKEN        token for `gh api` (collaborator check), set by the caller.

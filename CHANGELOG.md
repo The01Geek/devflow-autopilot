@@ -4,7 +4,7 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.2.2] — 2026-05-23
+## [2.2.3] — 2026-05-23
 
 ### Added
 - **Service containers in cloud provisioning (`setup.services`).** Tests that need a database/cache/queue (MySQL, Postgres, Redis, …) can now declare it in `.devflow/config.json`; `setup-project-env` starts each via `docker run -d` before the install lines, reachable on `127.0.0.1:<host-port>`, and waits on a `--health-cmd` when given. (GitHub Actions `services:` can't be used — service containers aren't allowed inside a composite action and can't be config-driven in a static reusable workflow — so `docker run` is the config-driven equivalent.)
@@ -14,6 +14,15 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 - **`/devflow:init` no longer references the removed `devflow:implement` label.** The skill now states the trigger is a bare `/devflow:implement <#>` comment (the label trigger was removed in 2.2.1).
+
+## [2.2.2] — 2026-05-23
+
+### Changed
+- **DevFlow workflows trigger on real comments only — never on an issue/PR description.** `devflow.yml` and `devflow-implement.yml` no longer listen on the `issues` event, and their gates no longer match the trigger phrase against an issue body or title. A `/devflow:*` command merely *quoted* in an issue/PR description is now inert; only a genuine comment or review body starts a run. (Opening a PR never triggered anything either — neither workflow listens on `pull_request`.) See the new `docs/workflow-triggers.md`.
+
+### Added
+- **Duplicate `/devflow:implement` runs are ignored per issue/PR thread.** A second `/devflow:implement` for an issue while a run for it is already in flight is ignored — no second `claude` job, and the in-flight run is left untouched — via a new gate-stage check (`scripts/dedupe-implement-run.sh`) that defers only to *older* active runs (monotonic run-id tie-break). GitHub Actions has no native "skip if already running" (`cancel-in-progress` cancels or queues, neither ignores), so the check is explicit and fails open. `devflow-implement.yml` sets a `run-name` embedding the issue/PR number for the check to match on, and posts a brief duplicate-ignored notice — deliberately containing no trigger phrase, so the bot's own comment can't re-fire the workflow.
+- **Early-acknowledgement reaction.** The moment a `/devflow:*` command is authorized and resolvable, the `gate` job adds a 🚀 reaction to the triggering comment via `scripts/react-to-trigger.sh` — so requesters see the trigger was picked up well before the heavy `claude`/`command` job spins up. It is best-effort: the script always exits 0 and the step is `continue-on-error: true`, so a failed or forbidden reaction never blocks the run. A `/devflow:*` submitted as a PR *review* gets no reaction (GitHub exposes no reactions API for reviews). The `gate` job's token gains `issues: write` + `pull-requests: write` for the reactions POST.
 
 ## [2.2.1] — 2026-05-22
 

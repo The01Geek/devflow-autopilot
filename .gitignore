@@ -10,6 +10,9 @@
 # on this very repo and have its cloud workflows read it.
 !/.devflow/config.example.json
 !/.devflow/config.schema.json
+# Shipped per-language tool/preset registry read by scripts/detect-project-tools.sh
+# (/devflow:init). Must be tracked so the plugin ships it and a clean checkout works.
+!/.devflow/tool-presets.json
 /.devflow-scratch/
 /.devflow-tmp/
 

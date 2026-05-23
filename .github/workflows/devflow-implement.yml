@@ -1,9 +1,16 @@
 name: DevFlow (implement)
 
-# Heavy listener for /devflow:implement. Fires on a BARE `/devflow:implement
-# <#>` comment, review, or new-issue body/title. It does NOT require `@claude`,
-# and there is NO label trigger — a human `/devflow:implement <#>` comment is
-# itself a native, no-App user event.
+# `run-name` embeds the issue/PR thread the command was posted on so the gate's
+# duplicate check can recognise a second /devflow:implement on the same thread
+# while a run is in flight (see scripts/dedupe-implement-run.sh). Quoted because
+# the value contains characters YAML would otherwise mis-parse.
+run-name: "DevFlow implement (issue ${{ github.event.issue.number || github.event.pull_request.number }})"
+
+# Heavy listener for /devflow:implement. Fires ONLY on a BARE `/devflow:implement
+# <#>` real comment or review — a genuine user action. It does NOT trigger from
+# an issue/PR description body or title (the phrase merely *quoted* in a
+# description must never start a run), it does NOT require `@claude`, and there
+# is NO label trigger.
 #
 # Why bare-command only: this workflow runs claude-code-action in AGENT mode
 # with an explicit, synthesised `/devflow:implement <n>` prompt (the `gate` job
@@ -29,8 +36,6 @@ on:
     types: [created]
   pull_request_review_comment:
     types: [created]
-  issues:
-    types: [opened]
   pull_request_review:
     types: [submitted]
 
@@ -88,15 +93,18 @@ jobs:
       (
         (github.event_name == 'issue_comment' && contains(github.event.comment.body, '/devflow:implement') && !contains(github.event.comment.body, '@claude')) ||
         (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '/devflow:implement') && !contains(github.event.comment.body, '@claude')) ||
-        (github.event_name == 'pull_request_review' && contains(github.event.review.body, '/devflow:implement') && !contains(github.event.review.body, '@claude')) ||
-        (github.event_name == 'issues' && github.event.action == 'opened' && ((contains(github.event.issue.body, '/devflow:implement') && !contains(github.event.issue.body, '@claude')) || (contains(github.event.issue.title, '/devflow:implement') && !contains(github.event.issue.title, '@claude'))))
+        (github.event_name == 'pull_request_review' && contains(github.event.review.body, '/devflow:implement') && !contains(github.event.review.body, '@claude'))
       )
     runs-on: ubuntu-latest
     permissions:
-      contents: read   # checkout the resolver script; collaborator check uses GITHUB_TOKEN
+      contents: read        # checkout the resolver script; collaborator check uses GITHUB_TOKEN
+      issues: write         # react step + duplicate notice on issue comments
+      pull-requests: write  # react step: ack reaction on PR review comments
+      actions: read         # dedupe step: `gh run list` to detect an in-flight run
     outputs:
       should_run: ${{ steps.resolve.outputs.should_run }}
       number: ${{ steps.resolve.outputs.number }}
+      duplicate: ${{ steps.dedupe.outputs.duplicate }}
     steps:
       - uses: actions/checkout@v6
       - id: resolve
@@ -104,16 +112,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           # `sender` is present on every event here and equals the actor:
-          # commenter / reviewer / issue opener / labeller respectively.
+          # commenter / reviewer respectively.
           ACTOR: ${{ github.event.sender.login }}
           ALLOWED_BOTS: ${{ needs.config.outputs.allowed_bots }}
           ALLOWED_USERS: ${{ needs.config.outputs.allowed_users }}
-          # issue.number for issues + issue_comment (PRs are issues); falls back
-          # to pull_request.number for the review events.
+          # issue.number for issue_comment (PRs are issues); falls back to
+          # pull_request.number for the review events.
           CONTEXT_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
-          # Only the populated field contributes; passed as an env var (not
-          # interpolated into bash), so arbitrary body text cannot inject.
-          TRIGGER_TEXT: ${{ github.event.comment.body || github.event.review.body || format('{0} {1}', github.event.issue.title, github.event.issue.body) }}
+          # Only a real comment/review body contributes — never an issue/PR
+          # description. Passed as an env var (not interpolated into bash), so
+          # arbitrary body text cannot inject.
+          TRIGGER_TEXT: ${{ github.event.comment.body || github.event.review.body }}
         run: |
           set -euo pipefail
           # Vendored path: install.sh copies the plugin into
@@ -133,9 +142,77 @@ jobs:
           fi
           bash "$RESOLVER" >> "$GITHUB_OUTPUT"
 
+      # Duplicate detection: only when the resolver authorized + resolved a run.
+      # Decides `duplicate=true` if an OLDER /devflow:implement run for this same
+      # issue/PR thread is still active, so the heavy `claude` job below is
+      # skipped and the in-flight run is left untouched. Fails OPEN (the script
+      # emits duplicate=false on any error), so a query blip never swallows a
+      # legitimate single request.
+      - id: dedupe
+        if: ${{ steps.resolve.outputs.should_run == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          CONTEXT_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          DEDUPE=.claude/plugins/devflow/scripts/dedupe-implement-run.sh
+          # Fail OPEN if the plugin wasn't vendored: a missing dedupe check must
+          # not block a legitimate run — emit duplicate=false and let it proceed.
+          if [ ! -f "$DEDUPE" ]; then
+            echo "::warning::dedupe script not found at $DEDUPE; not deduping (run proceeds)." >&2
+            echo "duplicate=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          bash "$DEDUPE" >> "$GITHUB_OUTPUT"
+
+      # Early acknowledgement: react on the triggering comment the moment we know
+      # /devflow:implement is authorized, resolvable, AND not a duplicate, long
+      # before the heavy `claude` job runs. Best-effort and continue-on-error so
+      # a reaction hiccup never blocks the run. Skipped for duplicates — those
+      # get the explanatory notice below instead of a silent reaction.
+      - name: Acknowledge trigger
+        if: ${{ steps.resolve.outputs.should_run == 'true' && steps.dedupe.outputs.duplicate != 'true' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        # Invoked via `bash` (not bare-exec) so it works regardless of whether
+        # the vendored copy kept its executable bit — matching the resolver's
+        # `bash "$RESOLVER"` above. A missing file errors visibly but is
+        # absorbed by continue-on-error (best-effort ack).
+        run: bash .claude/plugins/devflow/scripts/react-to-trigger.sh
+
+      # Duplicate notice: tell the requester their command was ignored because a
+      # run for this issue/PR is already in flight. Best-effort. CRITICAL: the
+      # body must contain NO DevFlow trigger phrase — this comment is itself an
+      # issue_comment[created] event, and a trigger phrase here would re-enter
+      # the gate and could loop. Worded to avoid `/devflow:` and `@claude`.
+      - name: Notice — duplicate ignored
+        if: ${{ steps.resolve.outputs.should_run == 'true' && steps.dedupe.outputs.duplicate == 'true' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          NUMBER: ${{ steps.resolve.outputs.number }}
+        run: |
+          set -euo pipefail
+          NOTE="⏳ An implement run for this issue is already in progress — ignoring this duplicate request and leaving the running one untouched. It will finish on its own; re-issue the command once it completes if you need another pass."
+          # Capture gh's stderr into the warning so a permissions/rate-limit
+          # failure is distinguishable from a transient blip (same diagnostic
+          # discipline as react-to-trigger.sh) — without it, the requester gets
+          # no notice AND the log gives no actionable reason.
+          if ! err="$(gh issue comment "$NUMBER" --repo "$REPO" --body "$NOTE" 2>&1 >/dev/null)"; then
+            echo "::warning::could not post duplicate-ignored notice on #$NUMBER (continuing): ${err//$'\n'/ }" >&2
+          fi
+
   claude:
     needs: [config, gate]
-    if: needs.gate.outputs.should_run == 'true'
+    if: needs.gate.outputs.should_run == 'true' && needs.gate.outputs.duplicate != 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
