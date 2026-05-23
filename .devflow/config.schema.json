@@ -122,8 +122,9 @@
                 "description": "Environment variables passed as -e KEY=VALUE, e.g. {\"MYSQL_ROOT_PASSWORD\": \"root\", \"MYSQL_DATABASE\": \"app_test\"}."
               },
               "options": {
-                "type": "string",
-                "description": "Extra raw `docker run` options, word-split as written (maintainer-controlled, from the trusted base config). Use this for a health check so readiness is awaited, e.g. \"--health-cmd='mysqladmin ping -h 127.0.0.1' --health-interval=5s --health-timeout=5s --health-retries=20\"."
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Extra `docker run` options, one complete arg per array element (NOT a single space-separated string — that would word-split a health command's spaces). Use a health check so readiness is awaited, e.g. [\"--health-cmd=mysqladmin ping -h 127.0.0.1\", \"--health-interval=5s\", \"--health-timeout=5s\", \"--health-retries=20\"]. Maintainer-controlled, read from the trusted base config."
               }
             }
           }

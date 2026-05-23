@@ -85,11 +85,14 @@ log "vendoring plugin → .claude/plugins/devflow/"
 rm -rf .claude/plugins/devflow
 mkdir -p .claude/plugins/devflow
 cp -R "$SRC/.claude-plugin" "$SRC/agents" "$SRC/lib" "$SRC/scripts" "$SRC/skills" .claude/plugins/devflow/
-# Vendor ONLY the two config templates (not the whole .devflow/ tree — that would
-# drag in learnings/ and, from a dirty source, a live config.json). They let the
-# vendored /devflow:init resolve templates at scripts/../.devflow/.
+# Vendor ONLY the committed templates/registry (not the whole .devflow/ tree —
+# that would drag in learnings/ and, from a dirty source, a live config.json).
+# They let the vendored /devflow:init resolve templates at scripts/../.devflow/:
+# config.example.json + config.schema.json (scaffolding) and tool-presets.json
+# (the registry scripts/detect-project-tools.sh reads for language detection).
 mkdir -p .claude/plugins/devflow/.devflow
 cp "$SRC/.devflow/config.example.json" "$SRC/.devflow/config.schema.json" \
+   "$SRC/.devflow/tool-presets.json" \
    .claude/plugins/devflow/.devflow/
 # The vendored copy is a plugin, not a marketplace — keep only plugin.json.
 rm -f .claude/plugins/devflow/.claude-plugin/marketplace.json

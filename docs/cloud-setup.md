@@ -167,7 +167,7 @@ The `setup` block covers more than Python/Node, in this provisioning order
         "image": "mysql:8.0",
         "ports": ["3306:3306"],
         "env": { "MYSQL_ROOT_PASSWORD": "root", "MYSQL_DATABASE": "app_test" },
-        "options": "--health-cmd='mysqladmin ping -h 127.0.0.1 -uroot -proot' --health-interval=5s --health-timeout=5s --health-retries=20"
+        "options": ["--health-cmd=mysqladmin ping -h 127.0.0.1 -uroot -proot", "--health-interval=5s", "--health-timeout=5s", "--health-retries=20"]
       },
       { "name": "redis", "image": "redis:7", "ports": ["6379:6379"] }
     ],
