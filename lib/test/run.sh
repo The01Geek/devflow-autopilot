@@ -883,6 +883,77 @@ assert_eq "rct: unauthorized actor → should_run=false" \
 rm -rf "$RCT_STUB"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "react-to-trigger.sh"
+# ────────────────────────────────────────────────────────────────────────────
+# Early-ack reaction. Picks the reactions endpoint by event type, defaults the
+# content to `rocket`, and skips events with no reactions API (reviews). A `gh`
+# stub records the `api` call args to $REACT_REC so we can assert the endpoint.
+RT="$LIB/../scripts/react-to-trigger.sh"
+RT_STUB="$(mktemp -d)"
+cat > "$RT_STUB/gh" <<'STUB'
+#!/usr/bin/env bash
+echo "$*" >> "$REACT_REC"
+STUB
+chmod +x "$RT_STUB/gh"
+
+# Per-case vars go through `env` because words from "$@" expansion are NOT
+# honored as assignment prefixes (POSIX recognizes only literal tokens).
+react() { REACT_REC="$(mktemp)"; PATH="$RT_STUB:$PATH" REACT_REC="$REACT_REC" GH_TOKEN=x env "$@" bash "$RT" >/dev/null 2>&1; }
+
+# 1. issue_comment → react on the issue comment, default content rocket.
+react EVENT_NAME=issue_comment REPO=o/r COMMENT_ID=555
+assert_eq "react: issue_comment → issues/comments endpoint w/ rocket" \
+  "1" "$(grep -c 'repos/o/r/issues/comments/555/reactions.*content=rocket' "$REACT_REC")"
+rm -f "$REACT_REC"
+
+# 2. pull_request_review_comment → react on the PR review comment.
+react EVENT_NAME=pull_request_review_comment REPO=o/r COMMENT_ID=777
+assert_eq "react: review comment → pulls/comments endpoint" \
+  "1" "$(grep -c 'repos/o/r/pulls/comments/777/reactions' "$REACT_REC")"
+rm -f "$REACT_REC"
+
+# 3. issues (opened) → react on the issue itself.
+react EVENT_NAME=issues REPO=o/r ISSUE_NUMBER=42
+assert_eq "react: issues event → issues/<n> endpoint" \
+  "1" "$(grep -c 'repos/o/r/issues/42/reactions' "$REACT_REC")"
+rm -f "$REACT_REC"
+
+# 4. pull_request_review has no reactions API → no call at all.
+react EVENT_NAME=pull_request_review REPO=o/r COMMENT_ID=1
+assert_eq "react: review event makes no api call" \
+  "0" "$(grep -c 'reactions' "$REACT_REC")"
+rm -f "$REACT_REC"
+
+# 5. REACTION env overrides the default content.
+react EVENT_NAME=issue_comment REPO=o/r COMMENT_ID=9 REACTION=eyes
+assert_eq "react: REACTION env overrides default content" \
+  "1" "$(grep -c 'content=eyes' "$REACT_REC")"
+rm -f "$REACT_REC"
+
+# 6. gh failure (e.g. HTTP 403 from a missing write scope) must NOT fail the
+# step — best-effort: the script swallows it, exits 0, and warns to stderr with
+# the gh error one-lined. This is the load-bearing error branch the success
+# stub above can't reach (it always exits 0). A separate stub that prints a
+# multi-line error to stderr and exits 1 exercises both the exit-0 guarantee
+# and the `${err//$'\n'/ }` collapse.
+FAIL_STUB="$(mktemp -d)"
+cat > "$FAIL_STUB/gh" <<'STUB'
+#!/usr/bin/env bash
+printf 'HTTP 403: Resource not accessible by integration\n(check issues/pull-requests write)\n' >&2
+exit 1
+STUB
+chmod +x "$FAIL_STUB/gh"
+react_err="$(PATH="$FAIL_STUB:$PATH" GH_TOKEN=x EVENT_NAME=issue_comment REPO=o/r COMMENT_ID=1 bash "$RT" 2>&1 >/dev/null)"
+assert_eq "react: gh failure still exits 0 (best-effort, never blocks the run)" "0" "$?"
+assert_eq "react: gh failure warns to stderr" \
+  "1" "$(printf '%s\n' "$react_err" | grep -c '::warning::react: could not add')"
+assert_eq "react: multi-line gh error is collapsed to one log line" \
+  "1" "$(printf '%s\n' "$react_err" | grep -c 'integration (check issues')"
+rm -rf "$FAIL_STUB"
+
+rm -rf "$RT_STUB"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "install.sh: prune_stale_devflow_workflows"
 # ────────────────────────────────────────────────────────────────────────────
 # On upgrade, install.sh must remove DevFlow's OWN superseded claude*.yml but
@@ -934,6 +1005,34 @@ done
 for f in devflow devflow-implement; do
   bad="$(grep -nE "^[[:space:]]*types:.*labeled" "$WF/$f.yml" || true)"
   assert_eq "partition: $f.yml has no labeled trigger" "" "$bad"
+done
+
+# Early-ack reaction must stay correctly wired in BOTH gate jobs. These guard
+# the load-bearing properties that the react-to-trigger.sh unit tests above
+# CANNOT see (they exercise the script in isolation): it must run only after
+# authorization, the gate must hold the write scopes the POST needs, and it must
+# be `bash`-invoked so it doesn't depend on the vendored copy's exec bit. Slice
+# out just the gate job — `issues:/pull-requests: write` also appear on the
+# heavy command/claude jobs, so a whole-file grep would not prove gate scoping.
+gate_block() {
+  awk '
+    /^  [A-Za-z0-9_-]+:[[:space:]]*$/ { inblock = ($0 ~ /^  gate:/) }
+    inblock { print }
+  ' "$1"
+}
+for f in devflow devflow-implement; do
+  blk="$(gate_block "$WF/$f.yml")"
+  # 1. Ack step is gated on resolver authorization — never reacts before should_run.
+  guard="$(printf '%s\n' "$blk" | awk '/name: Acknowledge trigger/{f=1} f && /should_run ==/ {print "ok"; exit}')"
+  assert_eq "react: $f.yml ack step gated on should_run" "ok" "$guard"
+  # 2. Gate grants exactly the scopes the reactions POST needs.
+  assert_eq "react: $f.yml gate grants issues:write" "1" \
+    "$(printf '%s\n' "$blk" | grep -cE '^[[:space:]]+issues:[[:space:]]*write')"
+  assert_eq "react: $f.yml gate grants pull-requests:write" "1" \
+    "$(printf '%s\n' "$blk" | grep -cE '^[[:space:]]+pull-requests:[[:space:]]*write')"
+  # 3. Invoked via `bash` (no exec-bit dependency on the vendored copy).
+  bad="$(printf '%s\n' "$blk" | grep -nE 'run:.*react-to-trigger\.sh' | grep -v 'bash ' || true)"
+  assert_eq "react: $f.yml invokes react-to-trigger.sh via bash" "" "$bad"
 done
 
 # Tally the shell assertions from the results file (authoritative — includes the

@@ -82,6 +82,13 @@ user event, so it needs no bot comment, PAT, or GitHub App.
 > bypasses it. Bots are governed separately by `claude.allowed_bots` — this is
 > the path for a custom GitHub App that posts the trigger comment on your behalf.
 > The same gate guards the light `/devflow:*` command path in `devflow.yml`.
+>
+> **Early acknowledgement.** As soon as the gate authorizes a command, it adds a
+> 🚀 reaction to the triggering comment (or, for a `/devflow:implement` issue
+> body, the issue) via `scripts/react-to-trigger.sh` — so you can see the trigger
+> was picked up well before the heavy job spins up. It's best-effort: a failed
+> reaction never blocks the run, and a `/devflow:*` command submitted as a PR
+> *review* gets no reaction (GitHub has no reactions API for reviews).
 
 For the full idea → issue → PR walkthrough, see
 [The workflow, end to end](../README.md#the-workflow-end-to-end) in the README.

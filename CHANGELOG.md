@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.2] — 2026-05-23
+
+### Added
+- **Early-acknowledgement reaction.** The moment a `/devflow:*` command is authorized and resolvable, the `gate` job adds a 🚀 reaction to the triggering comment (or, for a `/devflow:implement` issue body/title, the issue itself) via `scripts/react-to-trigger.sh` — so requesters see the trigger was picked up well before the heavy `claude`/`command` job spins up. It is best-effort: the script always exits 0 and the step is `continue-on-error: true`, so a failed or forbidden reaction never blocks the run. A `/devflow:*` submitted as a PR *review* gets no reaction (GitHub exposes no reactions API for reviews). The `gate` job's token gains `issues: write` + `pull-requests: write` for the reactions POST.
+
 ## [2.2.1] — 2026-05-22
 
 ### Changed

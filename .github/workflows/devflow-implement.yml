@@ -93,7 +93,9 @@ jobs:
       )
     runs-on: ubuntu-latest
     permissions:
-      contents: read   # checkout the resolver script; collaborator check uses GITHUB_TOKEN
+      contents: read        # checkout the resolver script; collaborator check uses GITHUB_TOKEN
+      issues: write         # react step: ack reaction on issue comments + opened issues
+      pull-requests: write  # react step: ack reaction on PR review comments
     outputs:
       should_run: ${{ steps.resolve.outputs.should_run }}
       number: ${{ steps.resolve.outputs.number }}
@@ -132,6 +134,25 @@ jobs:
             exit 0
           fi
           bash "$RESOLVER" >> "$GITHUB_OUTPUT"
+
+      # Early acknowledgement: react on the triggering comment/issue the moment
+      # we know /devflow:implement is authorized + resolvable, long before the
+      # heavy `claude` job runs. Best-effort and continue-on-error so a reaction
+      # hiccup never blocks the run.
+      - name: Acknowledge trigger
+        if: ${{ steps.resolve.outputs.should_run == 'true' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        # Invoked via `bash` (not bare-exec) so it works regardless of whether
+        # the vendored copy kept its executable bit — matching the resolver's
+        # `bash "$RESOLVER"` above. A missing file errors visibly but is
+        # absorbed by continue-on-error (best-effort ack).
+        run: bash .claude/plugins/devflow/scripts/react-to-trigger.sh
 
   claude:
     needs: [config, gate]
