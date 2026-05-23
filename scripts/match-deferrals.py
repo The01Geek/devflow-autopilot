@@ -30,7 +30,7 @@ Usage:
 
 Pass `--findings -` to read the findings JSON from stdin. The stdin form is
 required when the caller cannot write a temp file (e.g., /devflow:review
-under the claude-runner.yml `review` profile, which is intentionally
+under devflow.yml's runner `review` profile, which is intentionally
 read-only and does not have the Write tool).
 
 Output (JSON to stdout, always exit 0 when the helper itself ran):
