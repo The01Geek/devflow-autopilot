@@ -169,45 +169,6 @@ jobs:
           fi
           echo "::notice::No in-flight auto review for PR #$PR HEAD $HEAD; manual review proceeds."
 
-  # Educational nudge for the redundant `@claude /devflow:implement <#>` form.
-  # The light `claude` job below is intentionally excluded on this case (its
-  # `!contains(.../devflow:implement)` clause), and claude-implement.yml owns the
-  # actual run — which now fires on a BARE `/devflow:implement <#>`, no `@claude`
-  # needed. So when a user prefixes `@claude`, that prefix is pure overhead: it
-  # additionally wakes this tag-mode listener for nothing. This job posts a
-  # one-line reminder so they learn the simpler trigger. It NEVER runs a billed
-  # Claude turn — just a comment — so the single-billed-run partition with
-  # claude-implement.yml still holds (only that workflow runs Claude).
-  implement_hint:
-    needs: config
-    if: |
-      needs.config.outputs.enabled == 'true' &&
-      (
-        (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude') && contains(github.event.comment.body, '/devflow:implement')) ||
-        (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude') && contains(github.event.comment.body, '/devflow:implement')) ||
-        (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude') && contains(github.event.review.body, '/devflow:implement')) ||
-        (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')) && (contains(github.event.issue.body, '/devflow:implement') || contains(github.event.issue.title, '/devflow:implement')))
-      )
-    runs-on: ubuntu-latest
-    permissions:
-      issues: write
-      pull-requests: write
-    steps:
-      - name: Remind that @claude is unnecessary for /devflow:implement
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
-          BODY: "Heads up: you don't need `@claude` to start an implementation run — a bare `/devflow:implement <#>` comment triggers it directly and avoids waking the light `@claude` listener for nothing. Your run was still kicked off; you can drop the `@claude` next time."
-        run: |
-          set -euo pipefail
-          if [ -z "${NUMBER:-}" ] || [ "$NUMBER" = "null" ]; then
-            echo "::notice::No issue/PR number on this event; skipping the @claude reminder."
-            exit 0
-          fi
-          gh api "repos/$REPO/issues/$NUMBER/comments" -f "body=$BODY" >/dev/null \
-            || echo "::warning::Could not post the @claude-redundant reminder comment."
-
   claude:
     needs: [config, review_dedupe]
     # Fires on @claude mentions that DO NOT contain `/devflow:implement` —

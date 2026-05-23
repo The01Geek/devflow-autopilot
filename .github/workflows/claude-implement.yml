@@ -131,6 +131,37 @@ jobs:
       id-token: write
       actions: read # Required for Claude to read CI results on PRs
     steps:
+      # Educational nudge for the redundant `@claude /devflow:implement <#>`
+      # form. This workflow fires on a BARE `/devflow:implement <#>` (the gate
+      # matches the command regardless of `@claude`), so prefixing `@claude` is
+      # pure overhead: it additionally wakes the tag-mode claude.yml listener for
+      # nothing. When the trigger text carried `@claude`, post a one-line
+      # reminder pointing at the simpler bare command. Runs only on an
+      # authorized run (the job's should_run gate) and is skipped on the label
+      # path (no command text). Best-effort: a failed comment never blocks the
+      # implementation run.
+      - name: Nudge off redundant @claude prefix
+        if: github.event.action != 'labeled'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          NUMBER: ${{ needs.gate.outputs.number }}
+          # Same field selection as the gate's TRIGGER_TEXT; passed as an env
+          # var (never interpolated into bash) so body text cannot inject.
+          TRIGGER_TEXT: ${{ github.event.comment.body || github.event.review.body || format('{0} {1}', github.event.issue.title, github.event.issue.body) }}
+          BODY: "Heads up: you don't need `@claude` to start an implementation run — a bare `/devflow:implement <#>` comment triggers it directly and avoids waking the light `@claude` listener for nothing. Your run was still kicked off; you can drop the `@claude` next time."
+        run: |
+          set -euo pipefail
+          case "$TRIGGER_TEXT" in
+            *"@claude"*)
+              if [ -n "${NUMBER:-}" ] && [ "$NUMBER" != "null" ]; then
+                gh api "repos/$REPO/issues/$NUMBER/comments" -f "body=$BODY" >/dev/null \
+                  || echo "::warning::Could not post the @claude-redundant reminder comment."
+              fi
+              ;;
+            *) : ;;
+          esac
+
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
