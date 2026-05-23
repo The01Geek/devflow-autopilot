@@ -61,9 +61,12 @@ fi
 THRESHOLD="$(devflow_conf '.devflow_review_and_fix.efficiency_cut_candidate_min_dispatch' 3)"
 # Guard: a non-numeric / empty operator-supplied value must not make --argjson
 # abort jq (and the script under set -e) — fall back to the documented default.
+# Also clamp values below the schema's `minimum: 1` (e.g. 0) to the default, so
+# the persisted record never carries a value config.schema.json forbids.
 case "$THRESHOLD" in
   ''|*[!0-9]*) THRESHOLD=3 ;;
 esac
+[ "$THRESHOLD" -lt 1 ] && THRESHOLD=3
 GENERATED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 # ── Collect valid iter-*.json workpads (skip unreadable / malformed) ─────────

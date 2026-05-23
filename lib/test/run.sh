@@ -1399,7 +1399,11 @@ ET_TBAD="$(mktemp)"; printf '{"devflow_review_and_fix":{"efficiency_cut_candidat
 ET_TB="$(DEVFLOW_CONFIG_FILE="$ET_TBAD" bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_DIR" --slug "pr-15" --mode record 2>/dev/null)"; ET_TB_RC=$?
 assert_eq "et: non-numeric threshold → wrapper still exits 0" "0" "$ET_TB_RC"
 assert_eq "et: non-numeric threshold → falls back to 3 in record" "3" "$(echo "$ET_TB" | jq -r '.cut_candidate_min_dispatch')"
-rm -f "$ET_TCFG" "$ET_TBAD"
+# A below-minimum value (0) is clamped to the default 3 (schema declares minimum:1).
+ET_TZERO="$(mktemp)"; printf '{"devflow_review_and_fix":{"efficiency_cut_candidate_min_dispatch":0}}' > "$ET_TZERO"
+ET_TZ="$(DEVFLOW_CONFIG_FILE="$ET_TZERO" bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_DIR" --slug "pr-15" --mode record)"
+assert_eq "et: threshold 0 (below schema minimum:1) → clamped to 3" "3" "$(echo "$ET_TZ" | jq -r '.cut_candidate_min_dispatch')"
+rm -f "$ET_TCFG" "$ET_TBAD" "$ET_TZERO"
 
 # CLI contract: an invalid --mode is rejected with exit 2 (protects SKILL.md's
 # dependence on the trace/record flag names).
