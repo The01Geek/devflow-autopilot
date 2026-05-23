@@ -523,7 +523,7 @@ Skip this step if the manifest does not exist or is empty.
 PR_NUMBER=$(gh pr view --json number --jq '.number')
 DEFERRALS_FILE=".devflow/tmp/review/pr-${PR_NUMBER}/deferrals.json"
 if [ -s "$DEFERRALS_FILE" ]; then
-    FILED_NUMBERS=$(${CLAUDE_SKILL_DIR}/../../scripts/file-deferrals.py \
+    FILED_NUMBERS=$(${CLAUDE_SKILL_DIR}/../../scripts/file-deferrals.sh \
         --source-issue $ARGUMENTS \
         --pr "$PR_NUMBER" \
         --manifest "$DEFERRALS_FILE")
@@ -543,7 +543,7 @@ if [ -n "${FILED_NUMBERS:-}" ]; then
 fi
 ```
 
-If the helper exits non-zero (every group failed), surface the failure to the workpad's Devflow Reflection (`--reflection "file-deferrals.py failed; no follow-up issues filed; PR body will not contain the Scope-Acknowledged Findings block — /devflow:review will treat any deferred findings as new"`) and continue to 4.1. The PR can still ship; it will just not enjoy the deferral demotion on next review.
+If the helper exits non-zero (every group failed), surface the failure to the workpad's Devflow Reflection (`--reflection "file-deferrals.sh failed; no follow-up issues filed; PR body will not contain the Scope-Acknowledged Findings block — /devflow:review will treat any deferred findings as new"`) and continue to 4.1. The PR can still ship; it will just not enjoy the deferral demotion on next review.
 
 ### 4.1 Update Documentation
 

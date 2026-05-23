@@ -305,6 +305,175 @@ JSONBODY
 }
 
 # ────────────────────────────────────────────────────────────────────────────
+test_file_deferrals() {
+  local SCRIPT="scripts/file-deferrals.sh"
+
+  # ── --area-probe ────────────────────────────────────────────────────────────
+  assert_eq "derive_area: src/example/transport/http.py → example" "example" \
+    "$("$SCRIPT" --area-probe src/example/transport/http.py)"
+  assert_eq "derive_area: src/transport/http.py → transport" "transport" \
+    "$("$SCRIPT" --area-probe src/transport/http.py)"
+  assert_eq "derive_area: lib/ is src-like → next segment" "transport" \
+    "$("$SCRIPT" --area-probe lib/transport/x.py)"
+  assert_eq "derive_area: pyproject.toml → stem (no dir)" "pyproject" \
+    "$("$SCRIPT" --area-probe pyproject.toml)"
+  assert_eq "derive_area: scripts/foo/bar.sh → first segment" "scripts" \
+    "$("$SCRIPT" --area-probe scripts/foo/bar.sh)"
+
+  # ── --id-probe: format, stability, and parity with python sha256 ────────────
+  local id1; id1="$("$SCRIPT" --id-probe a.py foo bug "bad thing")"
+  assert_eq "compute_id: dfr- prefix" "dfr-" "${id1:0:4}"
+  assert_eq "compute_id: length = 10 (prefix + 6 hex)" "10" "${#id1}"
+  assert_eq "compute_id: deterministic across calls" \
+    "$id1" "$("$SCRIPT" --id-probe a.py foo bug "bad thing")"
+  # Parity: bash digest must equal python hashlib.sha256 for same payload
+  assert_eq "compute_id: parity with python (a.py|foo|bug|bad thing)" \
+    "dfr-225e44" "$id1"
+  local id2; id2="$("$SCRIPT" --id-probe scripts/foo/bar.sh MyFunc perf "slow path")"
+  assert_eq "compute_id: parity with python (scripts/foo/bar.sh|MyFunc|perf|slow path)" \
+    "dfr-37f693" "$id2"
+  local id3; id3="$("$SCRIPT" --id-probe src/transport/http.py "" style "formatting")"
+  assert_eq "compute_id: parity with python (src/transport/http.py||style|formatting)" \
+    "dfr-7c7a46" "$id3"
+  # Summary stripping: leading/trailing whitespace stripped before hashing
+  assert_eq "compute_id: summary stripped before hashing" \
+    "$id1" "$("$SCRIPT" --id-probe a.py foo bug "  bad thing  ")"
+  # Differs when summary differs
+  local id_diff; id_diff="$("$SCRIPT" --id-probe a.py foo bug "different")"
+  assert_true "compute_id: differs when summary differs" "[ '$id1' != '$id_diff' ]"
+
+  # ── --line-range-probe ──────────────────────────────────────────────────────
+  assert_eq "format_line_range: equal start/end → single" "5" \
+    "$("$SCRIPT" --line-range-probe '[5,5]')"
+  assert_eq "format_line_range: distinct → range" "3-9" \
+    "$("$SCRIPT" --line-range-probe '[3,9]')"
+  assert_eq "format_line_range: null → (unspecified)" "(unspecified)" \
+    "$("$SCRIPT" --line-range-probe 'null')"
+  assert_eq "format_line_range: single-element → (unspecified)" "(unspecified)" \
+    "$("$SCRIPT" --line-range-probe '[1]')"
+
+  # ── dry-run: no network, no manifest modification ───────────────────────────
+  local mf; mf="$(mktemp)"
+  local mf_before mf_after
+  cat >"$mf" <<'MANIFEST'
+{
+  "schema_version": 1,
+  "generated_at": "2026-05-22T00:00:00Z",
+  "deferrals": [
+    {
+      "file": "src/auth/login.py",
+      "symbol": "do_login",
+      "kind": "bug",
+      "summary": "unsafe redirect",
+      "severity": "High",
+      "agent": "sec-agent",
+      "line_range": [10, 20],
+      "category": "scope",
+      "explanation": "out of scope for this PR"
+    },
+    {
+      "file": "src/auth/login.py",
+      "symbol": "validate_token",
+      "kind": "style",
+      "summary": "missing docstring",
+      "severity": "Low",
+      "agent": "lint-agent",
+      "line_range": [30, 30],
+      "category": "scope",
+      "explanation": "follow-up"
+    },
+    {
+      "file": "lib/utils.py",
+      "symbol": "helper",
+      "kind": "perf",
+      "summary": "N+1 query",
+      "severity": "Medium",
+      "agent": "perf-agent",
+      "line_range": [5, 7],
+      "category": "deferred",
+      "explanation": "separate ticket"
+    }
+  ]
+}
+MANIFEST
+  mf_before="$(cat "$mf")"
+
+  # dry-run: stderr contains intended actions for 2 groups; stdout prints 0s (dry-run issue nums)
+  local dry_stderr dry_stdout dry_rc
+  dry_stdout="$("$SCRIPT" --source-issue 10 --pr 42 --manifest "$mf" --dry-run 2>/tmp/dfr_dry_stderr)"
+  dry_rc=$?
+  dry_stderr="$(cat /tmp/dfr_dry_stderr)"
+  assert_eq "dry-run: exit 0" "0" "$dry_rc"
+
+  # Two distinct files → 2 intended issue lines in stderr
+  local intended_count; intended_count="$(printf '%s\n' "$dry_stderr" | grep -c '\[dry-run\] would file issue:')"
+  assert_eq "dry-run: 2 intended groups" "2" "$intended_count"
+
+  # stdout prints 2 zeros (one per group)
+  local stdout_count; stdout_count="$(printf '%s\n' "$dry_stdout" | grep -c '^0$')"
+  assert_eq "dry-run: 2 stdout lines (issue numbers)" "2" "$stdout_count"
+
+  # Manifest must not be modified during dry-run
+  mf_after="$(cat "$mf")"
+  assert_eq "dry-run: manifest unchanged" "$mf_before" "$mf_after"
+
+  # ── exit 2: existing follow_up entries → refuse to re-file ─────────────────
+  local mf_refiled; mf_refiled="$(mktemp)"
+  cat >"$mf_refiled" <<'REFILED'
+{
+  "schema_version": 1,
+  "generated_at": "2026-05-22T00:00:00Z",
+  "deferrals": [
+    {
+      "file": "a.py",
+      "kind": "bug",
+      "summary": "issue",
+      "follow_up": {"issue": 99, "url": "https://github.com/x/issues/99", "filed_at": "2026-01-01T00:00:00Z", "filed_by": "bot"}
+    }
+  ]
+}
+REFILED
+  "$SCRIPT" --source-issue 1 --pr 2 --manifest "$mf_refiled" >/dev/null 2>&1
+  assert_eq "exit2: existing follow_up → exit 2" "2" "$?"
+  rm -f "$mf_refiled"
+
+  # ── exit 2: bad schema_version ──────────────────────────────────────────────
+  local mf_badschema; mf_badschema="$(mktemp)"
+  printf '{"schema_version":99,"deferrals":[{"file":"x","kind":"bug","summary":"s"}]}' >"$mf_badschema"
+  "$SCRIPT" --source-issue 1 --pr 2 --manifest "$mf_badschema" >/dev/null 2>&1
+  assert_eq "exit2: bad schema_version → exit 2" "2" "$?"
+  rm -f "$mf_badschema"
+
+  # ── exit 2: empty deferrals array ──────────────────────────────────────────
+  local mf_empty; mf_empty="$(mktemp)"
+  printf '{"schema_version":1,"deferrals":[]}' >"$mf_empty"
+  "$SCRIPT" --source-issue 1 --pr 2 --manifest "$mf_empty" >/dev/null 2>&1
+  assert_eq "exit2: empty deferrals → exit 2" "2" "$?"
+  rm -f "$mf_empty"
+
+  # ── exit 2: invalid JSON ────────────────────────────────────────────────────
+  local mf_badjson; mf_badjson="$(mktemp)"
+  printf 'not json\n' >"$mf_badjson"
+  "$SCRIPT" --source-issue 1 --pr 2 --manifest "$mf_badjson" >/dev/null 2>&1
+  assert_eq "exit2: invalid JSON → exit 2" "2" "$?"
+  rm -f "$mf_badjson"
+
+  # ── exit 2: missing manifest file ──────────────────────────────────────────
+  "$SCRIPT" --source-issue 1 --pr 2 --manifest /nonexistent/path/deferrals.json >/dev/null 2>&1
+  assert_eq "exit2: missing manifest → exit 2" "2" "$?"
+
+  # ── bad args: missing required → exit 2 ────────────────────────────────────
+  "$SCRIPT" --pr 2 --manifest "$mf" >/dev/null 2>&1
+  assert_eq "bad-args: missing --source-issue → exit 2" "2" "$?"
+  "$SCRIPT" --source-issue 1 --manifest "$mf" >/dev/null 2>&1
+  assert_eq "bad-args: missing --pr → exit 2" "2" "$?"
+  "$SCRIPT" --source-issue 1 --pr 2 >/dev/null 2>&1
+  assert_eq "bad-args: missing --manifest → exit 2" "2" "$?"
+
+  rm -f "$mf" /tmp/dfr_dry_stderr
+}
+
+# ────────────────────────────────────────────────────────────────────────────
 # Runner: discover and call every test_* function.
 # ────────────────────────────────────────────────────────────────────────────
 for _fn in $(declare -F | awk '{print $3}' | grep '^test_'); do
