@@ -811,6 +811,7 @@ cat > "$DI_STUB/gh" <<'STUB'
 #!/usr/bin/env bash
 case "$*" in
   *"run list"*)
+    [ -n "${DI_ARGS_REC:-}" ] && echo "$*" >> "$DI_ARGS_REC"
     [ -n "${DEDUPE_GH_RC:-}" ] && exit "$DEDUPE_GH_RC"
     printf '%s' "${DEDUPE_RUNS_JSON:-[]}" ;;
   *) echo "" ;;
@@ -862,11 +863,41 @@ assert_eq "di: gh failure → fail open (not duplicate)" "duplicate=false" \
 assert_eq "di: missing context number → fail open" "duplicate=false" \
   "$(di 200 '' '[]')"
 
-# 11. The duplicate-ignored NOTICE must carry no DevFlow trigger phrase, or the
+# 11. Active-status set spanning 3+ overlapping runs: the OLDEST proceeds, a
+#     middle run defers. Asserts the "exactly one of N proceeds" invariant beyond
+#     the pairwise N=2 cases above (no double-skip across a 3-way race).
+THREE='[{"databaseId":100,"displayTitle":"DevFlow implement (issue 42)","status":"in_progress"},{"databaseId":200,"displayTitle":"DevFlow implement (issue 42)","status":"in_progress"},{"databaseId":300,"displayTitle":"DevFlow implement (issue 42)","status":"queued"}]'
+assert_eq "di: 3-way race, oldest (id 100) → proceeds" "duplicate=false" "$(di 100 42 "$THREE")"
+assert_eq "di: 3-way race, middle (id 200) → defers" "duplicate=true"  "$(di 200 42 "$THREE")"
+assert_eq "di: 3-way race, newest (id 300) → defers" "duplicate=true"  "$(di 300 42 "$THREE")"
+
+# 12. Malformed JSON (gh returned 200 + non-JSON, e.g. an HTML error page) → jq
+#     fails, count is non-numeric → fail OPEN. Distinct path from the gh-exit
+#     failure (#9) and missing-input (#10) cases.
+assert_eq "di: malformed run-list JSON → fail open (not duplicate)" "duplicate=false" \
+  "$(di 200 42 'not-json{')"
+
+# 13. The run list MUST be scoped to --workflow devflow-implement.yml — otherwise
+#     a same-numbered run of a DIFFERENT workflow (e.g. /devflow:review) could
+#     spuriously suppress a legitimate /devflow:implement. Record the gh argv and
+#     assert the flag is present.
+DI_REC="$(mktemp)"
+DEVFLOW_GH="$DI_STUB/gh" REPO=o/r RUN_ID=200 CONTEXT_NUMBER=42 DEDUPE_RUNS_JSON='[]' \
+  DI_ARGS_REC="$DI_REC" bash "$DIR" >/dev/null 2>&1
+assert_eq "di: run list is scoped to --workflow devflow-implement.yml" "1" \
+  "$(grep -c -- '--workflow devflow-implement.yml' "$DI_REC")"
+rm -f "$DI_REC"
+
+# 14. The duplicate-ignored NOTICE must carry no DevFlow trigger phrase, or the
 #     bot's own comment would re-fire devflow-implement.yml (self-trigger loop).
 #     Assert the workflow's notice body is phrase-free.
 NOTICE_LINE="$(grep -A2 'Notice — duplicate ignored' "$LIB/../.github/workflows/devflow-implement.yml" || true; \
   grep 'NOTE=' "$LIB/../.github/workflows/devflow-implement.yml" || true)"
+# Guard against a vacuous pass: if the grep window ever stops capturing the notice
+# body, grep -c on empty input returns 0 and the phrase-free checks pass without
+# inspecting anything. Assert we actually captured the notice first.
+assert_eq "di: notice test captured the notice body (no vacuous pass)" "1" \
+  "$(grep -c 'already in progress' <<< "$NOTICE_LINE")"
 assert_eq "di: duplicate notice contains no /devflow: phrase" "0" \
   "$(grep -c '/devflow:' <<< "$NOTICE_LINE")"
 assert_eq "di: duplicate notice contains no @claude" "0" \

@@ -202,8 +202,13 @@ jobs:
         run: |
           set -euo pipefail
           NOTE="⏳ An implement run for this issue is already in progress — ignoring this duplicate request and leaving the running one untouched. It will finish on its own; re-issue the command once it completes if you need another pass."
-          gh issue comment "$NUMBER" --repo "$REPO" --body "$NOTE" 2>/dev/null \
-            || echo "::warning::could not post duplicate-ignored notice on #$NUMBER (continuing)." >&2
+          # Capture gh's stderr into the warning so a permissions/rate-limit
+          # failure is distinguishable from a transient blip (same diagnostic
+          # discipline as react-to-trigger.sh) — without it, the requester gets
+          # no notice AND the log gives no actionable reason.
+          if ! err="$(gh issue comment "$NUMBER" --repo "$REPO" --body "$NOTE" 2>&1 >/dev/null)"; then
+            echo "::warning::could not post duplicate-ignored notice on #$NUMBER (continuing): ${err//$'\n'/ }" >&2
+          fi
 
   claude:
     needs: [config, gate]

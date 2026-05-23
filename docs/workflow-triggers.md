@@ -52,8 +52,12 @@ itself, in `scripts/dedupe-implement-run.sh`:
   matches that number out of each run's display title.
 - A run defers **only** to an active run with a *smaller* `databaseId` (an older
   run). Run ids increase monotonically, so among overlapping runs for one thread
-  exactly one — the oldest — has no older peer and proceeds; the rest ignore.
-  Two near-simultaneous commands therefore cannot both skip.
+  the oldest — having no older peer — proceeds and the rest ignore. The common
+  case (duplicate commands seconds apart) thus collapses to one run. Because
+  `gh run list` is eventually consistent, two commands fired in the same
+  sub-second window can each query before the other's run appears and both
+  proceed — a residual race that is accepted (it fails toward running, never
+  toward swallowing a request).
 - The check **fails open**: any query error yields `duplicate=false` and the run
   proceeds, because silently swallowing a legitimate single request is worse than
   a rare redundant run.

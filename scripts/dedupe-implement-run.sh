@@ -23,9 +23,18 @@
 #
 # Tie-break / no double-skip: a run defers ONLY to an active run with a SMALLER
 # databaseId (an older run). GitHub run ids increase monotonically, so among any
-# set of overlapping runs for one thread exactly one — the oldest — has no older
-# peer and proceeds; the rest see it and ignore. This run never defers to a
-# newer run, so two near-simultaneous commands cannot both skip.
+# set of overlapping runs for one thread the oldest — having no older peer —
+# proceeds, and the rest see it and ignore. This run never defers to a newer run,
+# so the common case (duplicate commands seconds apart) collapses to exactly one
+# run. CAVEAT: `gh run list` is eventually consistent, so two commands fired
+# within the same sub-second window can each query before the other's run row
+# materialises; both then see no older peer and proceed. That residual race is
+# accepted (it fails toward running, never toward silently swallowing a request).
+#
+# Boundaries: only this workflow's runs are considered (`--workflow`), and only
+# the first `--limit 100` listed runs — an older active peer beyond that window,
+# or a WORKFLOW rename, degrades to fail-open (a possible redundant run, never a
+# swallowed one).
 #
 # Inputs (env):
 #   REPO            owner/repo, for the `gh run list` call.
@@ -74,18 +83,25 @@ if ! runs_json="$("$GH" run list --repo "$repo" --workflow "$workflow" \
   exit 0
 fi
 
+# Capture jq's stderr so a permanent breakage (jq missing, malformed JSON from a
+# 5xx HTML error page) is distinguishable from a transient blip in the warning —
+# same diagnostic discipline as react-to-trigger.sh's gh-stderr capture. Without
+# it, a missing jq would silently disable dedupe forever behind a generic message.
+jq_err="$(mktemp)"
 count="$(printf '%s' "$runs_json" | jq -r --argjson run "$run_id" --arg target "$target" '
   [ .[]
     | select(.status as $s | ["in_progress","queued","requested","waiting","pending"] | index($s))
     | select(.databaseId < $run)
     | select(.displayTitle | test("(^|[^0-9])" + $target + "([^0-9]|$)"))
-  ] | length' 2>/dev/null || echo "")"
+  ] | length' 2>"$jq_err")" || count=""
 
 if ! [[ "$count" =~ ^[0-9]+$ ]]; then
-  echo "::warning::dedupe: could not parse active-run count; not deduping (run proceeds)." >&2
+  echo "::warning::dedupe: could not parse active-run count (jq: $(tr '\n' ' ' < "$jq_err")); not deduping (run proceeds)." >&2
+  rm -f "$jq_err"
   emit duplicate false
   exit 0
 fi
+rm -f "$jq_err"
 
 if [ "$count" -gt 0 ]; then
   echo "::notice::dedupe: $count older active /devflow:implement run(s) for issue/PR #$target; ignoring this duplicate." >&2

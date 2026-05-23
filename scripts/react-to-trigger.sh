@@ -20,11 +20,16 @@
 #
 # Inputs (env):
 #   EVENT_NAME    github.event_name (issue_comment | pull_request_review_comment
-#                 | issues | pull_request_review | …).
+#                 | pull_request_review | …). NOTE: no current DevFlow workflow
+#                 emits EVENT_NAME=issues — the `issues:[opened]` trigger was
+#                 removed (commands fire on real comments/reviews only). The
+#                 `issues` branch below is retained defensively (and unit-tested)
+#                 for reuse, but is unreachable from the shipped gates today.
 #   REPO          owner/repo, for the `gh api` path.
 #   COMMENT_ID    github.event.comment.id — set on the two *comment* events,
 #                 empty otherwise.
-#   ISSUE_NUMBER  github.event.issue.number — the target on the `issues` event.
+#   ISSUE_NUMBER  github.event.issue.number — the target on the (currently
+#                 unreachable) `issues` event; see EVENT_NAME note above.
 #   REACTION      reaction content (default: rocket). One of the GitHub set:
 #                 +1 -1 laugh confused heart hooray rocket eyes.
 #   GH_TOKEN      token for `gh api`, set by the caller.
@@ -39,8 +44,10 @@ repo="${REPO:-}"
 event="${EVENT_NAME:-}"
 
 # Resolve the reactions endpoint for this event. Comment events react on the
-# comment; a newly-opened issue reacts on the issue itself; everything else
-# (notably pull_request_review) has no reactions API.
+# comment; the `issues` arm (a newly-opened issue reacting on the issue itself)
+# is currently unreachable — no shipped workflow emits EVENT_NAME=issues — but is
+# kept defensively for reuse; everything else (notably pull_request_review) has
+# no reactions API.
 case "$event" in
   issue_comment)
     [ -n "${COMMENT_ID:-}" ] || { echo "::warning::react: issue_comment with no comment id; skipping." >&2; exit 0; }
