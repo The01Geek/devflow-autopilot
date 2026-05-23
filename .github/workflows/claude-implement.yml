@@ -118,7 +118,12 @@ jobs:
           TRIGGER_TEXT: ${{ github.event.comment.body || github.event.review.body || format('{0} {1}', github.event.issue.title, github.event.issue.body) }}
         run: |
           set -euo pipefail
-          bash scripts/resolve-implement-trigger.sh >> "$GITHUB_OUTPUT"
+          # Vendored path: install.sh copies the plugin into
+          # .claude/plugins/devflow/, so consumer repos have the script there,
+          # NOT at scripts/ (repo root). Matches every other workflow's
+          # invocation convention (e.g. devflow-review.yml's
+          # .claude/plugins/devflow/scripts/dismiss-stale-rejections.sh).
+          bash .claude/plugins/devflow/scripts/resolve-implement-trigger.sh >> "$GITHUB_OUTPUT"
 
   claude:
     needs: [config, gate]
@@ -131,15 +136,15 @@ jobs:
       id-token: write
       actions: read # Required for Claude to read CI results on PRs
     steps:
-      # Educational nudge for the redundant `@claude /devflow:implement <#>`
-      # form. This workflow fires on a BARE `/devflow:implement <#>` (the gate
-      # matches the command regardless of `@claude`), so prefixing `@claude` is
-      # pure overhead: it additionally wakes the tag-mode claude.yml listener for
-      # nothing. When the trigger text carried `@claude`, post a one-line
-      # reminder pointing at the simpler bare command. Runs only on an
-      # authorized run (the job's should_run gate) and is skipped on the label
-      # path (no command text). Best-effort: a failed comment never blocks the
-      # implementation run.
+      # Educational nudge toward the canonical bare `/devflow:implement <#>`
+      # form. Every claude.yml trigger clause carries `!contains(...,
+      # '/devflow:implement')`, so an `@claude /devflow:implement` comment does
+      # NOT wake the light listener — the `@claude` prefix is simply unnecessary
+      # (not harmful, and not a double-fire). When the trigger text carried
+      # `@claude`, post a one-line reminder pointing at the simpler bare command.
+      # Runs only on an authorized run (the job's should_run gate) and is skipped
+      # on the label path (no command text). Best-effort: a failed comment never
+      # blocks the implementation run.
       - name: Nudge off redundant @claude prefix
         if: github.event.action != 'labeled'
         env:
@@ -149,7 +154,7 @@ jobs:
           # Same field selection as the gate's TRIGGER_TEXT; passed as an env
           # var (never interpolated into bash) so body text cannot inject.
           TRIGGER_TEXT: ${{ github.event.comment.body || github.event.review.body || format('{0} {1}', github.event.issue.title, github.event.issue.body) }}
-          BODY: "Heads up: you don't need `@claude` to start an implementation run — a bare `/devflow:implement <#>` comment triggers it directly and avoids waking the light `@claude` listener for nothing. Your run was still kicked off; you can drop the `@claude` next time."
+          BODY: "Heads up: you don't need `@claude` to start an implementation run — a bare `/devflow:implement <#>` comment triggers it directly. Your run was still kicked off; you can drop the `@claude` next time."
         run: |
           set -euo pipefail
           case "$TRIGGER_TEXT" in

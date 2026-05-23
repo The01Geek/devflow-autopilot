@@ -679,8 +679,13 @@ RIT="$LIB/../scripts/resolve-implement-trigger.sh"
 RIT_STUB_DIR="$(mktemp -d)"
 cat > "$RIT_STUB_DIR/gh" <<'STUB'
 #!/usr/bin/env bash
+# STUB_ERR (to stderr) + STUB_RC let a test simulate gh failures (transient or
+# 404); default is a clean success echoing STUB_PERM.
 case "$*" in
-  *"collaborators/"*"/permission"*) echo "${STUB_PERM:-none}" ;;
+  *"collaborators/"*"/permission"*)
+    [ -n "${STUB_ERR:-}" ] && echo "$STUB_ERR" >&2
+    [ "${STUB_RC:-0}" != 0 ] && exit "${STUB_RC}"
+    echo "${STUB_PERM:-none}" ;;
   *) echo "" ;;
 esac
 STUB
@@ -727,6 +732,28 @@ OUT="$(ACTOR='alice' ALLOWED_BOTS='' REPO='acme/x' IS_LABEL_EVENT='false' \
   STUB_PERM='maintain' PATH="$RIT_STUB_DIR:$PATH" bash "$RIT")"
 assert_eq "rit: fallback to context number" \
   "number=5" "$(echo "$OUT" | grep '^number=')"
+
+# 6. Transient collaborator-API failure (non-404) → fails CLOSED with a
+#    transient-specific diagnostic, NOT mislabelled as "not a collaborator".
+#    RESOLVE_RETRY_DELAY=0 keeps the retry instant.
+OUT="$(ACTOR='alice' ALLOWED_BOTS='' REPO='acme/x' IS_LABEL_EVENT='false' \
+  TRIGGER_TEXT='/devflow:implement 7' CONTEXT_NUMBER='99' \
+  STUB_RC='1' STUB_ERR='gh: Internal Server Error (HTTP 500)' \
+  RESOLVE_RETRY_DELAY='0' PATH="$RIT_STUB_DIR:$PATH" bash "$RIT" 2>"$RIT_STUB_DIR/err")"
+assert_eq "rit: transient API error → should_run=false" \
+  "should_run=false" "$(echo "$OUT" | grep '^should_run=')"
+assert_eq "rit: transient API error → honest diagnostic" \
+  "1" "$(grep -c 'transient collaborator-API error' "$RIT_STUB_DIR/err")"
+
+# 7. Genuine 404 (not a collaborator) → fails closed as before, no retry stall.
+OUT="$(ACTOR='stranger' ALLOWED_BOTS='' REPO='acme/x' IS_LABEL_EVENT='false' \
+  TRIGGER_TEXT='/devflow:implement 7' CONTEXT_NUMBER='99' \
+  STUB_RC='1' STUB_ERR='gh: Not Found (HTTP 404)' \
+  RESOLVE_RETRY_DELAY='0' PATH="$RIT_STUB_DIR:$PATH" bash "$RIT" 2>"$RIT_STUB_DIR/err")"
+assert_eq "rit: 404 non-collaborator → should_run=false" \
+  "should_run=false" "$(echo "$OUT" | grep '^should_run=')"
+assert_eq "rit: 404 treated as non-collaborator, not transient" \
+  "1" "$(grep -c 'is not an allowed bot or write/admin collaborator' "$RIT_STUB_DIR/err")"
 
 rm -rf "$RIT_STUB_DIR"
 

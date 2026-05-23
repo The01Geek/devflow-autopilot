@@ -52,13 +52,36 @@ for b in "${bots[@]}"; do
     authorized=true
   fi
 done
+deny_reason="is not an allowed bot or write/admin collaborator"
 if [ "$authorized" != "true" ] && [ -n "$actor" ] && [ -n "$repo" ]; then
-  perm="$(gh api "repos/$repo/collaborators/$actor/permission" \
-            --jq '.permission' 2>/dev/null || echo "none")"
-  case "$perm" in admin|write|maintain) authorized=true ;; esac
+  # Distinguish a definitive "not a collaborator" (HTTP 404) from a transient
+  # API failure. The old `2>/dev/null || echo none` collapsed BOTH to "none",
+  # so a rate-limit / 5xx / network blip silently denied a genuine write/admin
+  # user and mislabelled it a permission problem. Retry once on a non-404 error
+  # before failing closed, and keep the diagnostic honest about which occurred.
+  err_file="$(mktemp)"
+  perm=""
+  for attempt in 1 2; do
+    if perm="$(gh api "repos/$repo/collaborators/$actor/permission" \
+                 --jq '.permission' 2>"$err_file")"; then
+      break
+    fi
+    if grep -q 'HTTP 404' "$err_file"; then
+      perm="none"            # actor is genuinely not a collaborator
+      break
+    fi
+    perm="__lookup_failed__"
+    [ "$attempt" = 1 ] && sleep "${RESOLVE_RETRY_DELAY:-2}"
+  done
+  rm -f "$err_file"
+  case "$perm" in
+    admin|write|maintain) authorized=true ;;
+    __lookup_failed__)
+      deny_reason="could not be authorized (transient collaborator-API error after retry); failing closed" ;;
+  esac
 fi
 if [ "$authorized" != "true" ]; then
-  echo "::warning::/devflow:implement requested by '$actor' who is not an allowed bot or write/admin collaborator; skipping (cost control)." >&2
+  echo "::warning::/devflow:implement requested by '$actor' $deny_reason; skipping (cost control)." >&2
   emit should_run false
   emit number ""
   exit 0
