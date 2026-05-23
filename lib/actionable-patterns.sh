@@ -100,8 +100,8 @@ OPEN_AUDIT_PR_MAP="$(
 )"
 
 # ── Cooldown boundary (epoch seconds for COOLDOWN days ago) ─────────────────
-# Portable date math via python3 (GNU `date -d` is unavailable on macOS/BSD).
-COOLDOWN_EPOCH="$(python3 -c "import datetime as d; print(int((d.datetime.now(d.timezone.utc)-d.timedelta(days=${COOLDOWN})).timestamp()))")"
+# Portable date math via jq (GNU `date -d` is unavailable on macOS/BSD).
+COOLDOWN_EPOCH="$(jq -rn --argjson d "$COOLDOWN" '(now - ($d * 86400)) | floor')"
 
 # ── Build output array ───────────────────────────────────────────────────────
 # For each tag in the pattern view where status is "open" or "regressed"

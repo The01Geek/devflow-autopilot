@@ -232,24 +232,16 @@ if [ -n "$WORKPAD_BODY" ]; then
     WORKPAD_FINAL_STATUS="$(echo "$WORKPAD_BODY" | sed -nE 's/^\*{0,2}[[:space:]]*[Ss]tatus[[:space:]]*:?\*{0,2}[[:space:]]*(.+)/\1/p' | head -1 | sed 's/[[:space:]]*$//' || true)"
 fi
 
-# ttm_hours: (merged_at - created_at) in decimal hours
-# The inner except already handles parse failures gracefully; the shell-level
-# fallback is redundant and dropped to avoid masking a missing python3 binary.
-# Timestamps are passed via the environment, not interpolated into the source,
-# so a stray quote in the value can't break out of the Python string literal.
-TTM_HOURS="$(DEVFLOW_MERGED_AT="$MERGED_AT" DEVFLOW_CREATED_AT="$CREATED_AT" python3 - <<'PYEOF'
-import os
-from datetime import datetime, timezone
-fmt = '%Y-%m-%dT%H:%M:%SZ'
-try:
-    merged = datetime.strptime(os.environ['DEVFLOW_MERGED_AT'], fmt).replace(tzinfo=timezone.utc)
-    created = datetime.strptime(os.environ['DEVFLOW_CREATED_AT'], fmt).replace(tzinfo=timezone.utc)
-    diff = (merged - created).total_seconds() / 3600.0
-    print(round(diff, 4))
-except Exception:
-    print(0.0)
-PYEOF
-)"
+# ttm_hours: (merged_at - created_at) in decimal hours, rounded to 4dp.
+# jq's fromdateiso8601 parses the `%Y-%m-%dT%H:%M:%SZ` (UTC `Z`) timestamps;
+# `try … catch null` makes a malformed/empty timestamp degrade to 0.0 instead
+# of erroring. Timestamps are passed as --arg (not interpolated into the
+# program text), so a stray quote in a value can't break out.
+TTM_HOURS="$(jq -rn --arg m "$MERGED_AT" --arg c "$CREATED_AT" '
+  def p($s): try ($s | fromdateiso8601) catch null;
+  (p($m)) as $mm | (p($c)) as $cc
+  | if ($mm == null or $cc == null) then 0.0
+    else (($mm - $cc) / 3600.0) | (. * 10000 | round) / 10000 end')"
 # Guard against an empty result poisoning the later `jq --argjson ttm_hours`.
 [ -n "$TTM_HOURS" ] || TTM_HOURS=0.0
 

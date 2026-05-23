@@ -68,9 +68,9 @@ if [ -n "$EXPLICIT_PRS" ]; then
 fi
 
 # ── Weekly mode ──────────────────────────────────────────────────────────────
-# Portable "7 days ago" (GNU `date -d` is not available on macOS/BSD; python3 is
-# a hard dependency, so use it for date math).
-SINCE="$(python3 -c 'import datetime as d; print((d.datetime.now(d.timezone.utc)-d.timedelta(days=7)).strftime("%Y-%m-%d"))')"
+# Portable "7 days ago" (GNU `date -d` is not available on macOS/BSD; jq is a
+# hard dependency, and jq's now/gmtime/strftime are portable + UTC).
+SINCE="$(jq -rn '(now - 7*86400) | gmtime | strftime("%Y-%m-%d")')"
 WATCHED="$(devflow_watched_authors)"
 
 if [ -z "$WATCHED" ]; then
