@@ -321,8 +321,8 @@ scripts/                 # branch-for-issue.py, config-get.sh, file-deferrals.py
 lib/                     # retrospective-loop helpers (*.sh, *.jq), preflight.sh,
                          #   intervention-surfaces.md, test/
 .github/                 # optional cloud tier: workflows + composite actions
-.devflow/                # config.example.json + config.schema.json (+ learnings/)
-docs/                    # cloud-setup.md, implement-skill.md
+.devflow/                # config.example.json + config.schema.json (+ learnings/, logs/)
+docs/                    # cloud-setup.md, implement-skill.md, workflow-triggers.md, efficiency-trace.md
 install.sh               # one-command cloud-tier install/update for consumer repos
 ```
 

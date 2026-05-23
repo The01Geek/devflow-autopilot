@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.7] — 2026-05-23
+
+### Added
+- **Per-run subagent effectiveness telemetry for `/devflow:review-and-fix`.** At the end of every run, the fix loop now derives a per-run effectiveness trace — printed to chat and written as one durable JSON record to `.devflow/logs/efficiency/<slug>-<timestamp>.json` — that scores each dispatched review subagent with exactly one of four verdicts (unique-effective, corroborating, noise, or null), so you can see which agents earned their cost on a given PR. The record also folds in the existing per-phase cost telemetry so that data survives the ephemeral cloud-runner teardown. Two new config keys under `devflow_review_and_fix` control it: `efficiency_telemetry_enabled` (boolean, default `true`) gates the behavior, and `efficiency_cut_candidate_min_dispatch` (integer, default `3`) is reserved for a follow-up cross-run analyzer. See `docs/efficiency-trace.md`. (#16)
+
 ## [2.2.6] — 2026-05-23
 
 ### Fixed
