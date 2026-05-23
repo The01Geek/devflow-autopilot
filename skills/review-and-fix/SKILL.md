@@ -65,6 +65,18 @@ The same directory also contains `.devflow/tmp/review/<slug>/diff.patch` — the
       "reused_from_iter_prev": false
     }
   ],
+  "phase3_dispatched": [
+    "pr-review-toolkit:code-reviewer",
+    "pr-review-toolkit:silent-failure-hunter",
+    "pr-review-toolkit:comment-analyzer"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": true,
+    "engine_self_modifying": false,
+    "checklist_skipped": null
+  },
   "phase3_findings": [
     {
       "agent": "pr-review-toolkit:code-reviewer",
@@ -155,6 +167,12 @@ The same directory also contains `.devflow/tmp/review/<slug>/diff.patch` — the
   }
 }
 ```
+
+`phase3_dispatched` is the array of Phase-3 agent identifiers **actually launched** this iteration, captured at Step 1's Phase 3.1 dispatch *after* Phase 0.5 gating (so a gated-out `pr-test-analyzer` / `type-design-analyzer` is absent). It is load-bearing for the Loop Exit effectiveness trace: a `null` verdict (dispatched but silent) is derived as `phase3_dispatched − (agents present in phase3_findings)`, so without this roster a silent agent is indistinguishable from one that was never launched. The field is best-effort — if it is absent on an older/partial workpad, the trace degrades to classifying only the agents that appear in `phase3_findings`.
+
+Use the **same identifier string** in `phase3_dispatched` that you write to each finding's `phase3_findings.agent`, so the trace can match dispatch to outcome. For the five pr-review-toolkit agents that is `pr-review-toolkit:<name>` (e.g. `pr-review-toolkit:code-reviewer`). For the sixth Phase-3 dispatch — the general-purpose final-pass reviewer launched via `Task`/`subagent_type: general-purpose` invoking `/superpowers:requesting-code-review` (see /devflow:review's Phase 3.1) — record it as **`superpowers:requesting-code-review`** in both places, so this (most expensive) dispatch is tallied consistently rather than appearing under an ad-hoc string each run.
+
+`diff_profile` records the engine's Phase 0.5 classification for this iteration — the four flags (`small_diff`, `config_only`, `has_new_types`, `engine_self_modifying`) plus `checklist_skipped` (`"intentional"` when Phase 0.5 bypassed Phase 1+2 on a small_diff+config_only diff, `"failure"` when checklist generation failed, else `null`). It is load-bearing for fair cross-run analysis in two ways: (1) a `null`-verdict agent on a `config_only` diff is *correctly* silent (out of its domain), not a cut candidate — the analyzer must segment by diff shape, and this is how it learns the shape; (2) it lets the trace report the orchestrator's **verification posture** — when Phase 0.5 skips the checklist, or when every verifiable item was resolved via the cheap orchestrator-direct `lite` path instead of dispatching verifier subagents, that is a deliberate cost-saving decision and the trace says so explicitly rather than rendering a bare "0 verifiers". Best-effort: if `diff_profile` is absent, the trace labels the profile "not recorded" and the posture falls back to the raw lite/agent counts.
 
 `cap_drops` is populated from /devflow:review's Phase 1.1.5 output (see that skill's Phase 1.1.5 for the shape — `count` is the total dropped at the 100-item cap, `by_category` is the per-category breakdown). The Coverage section in the final report reads this.
 
@@ -417,7 +435,7 @@ Apply the `superpowers:receiving-code-review` principles. After Step 2.5, the fi
    ```
    If the push fails (no upstream, rejected non-fast-forward, blocked by policy), do **not** abort the loop — report the failure in chat and continue. Pushing propagates fixes to the remote (CI, crash-durability); it is not what makes the next iteration see them (Step 1's head-override handles that), so a failed push never breaks convergence. When the flag is absent (the default), skip the push entirely.
 
-7. **Persist the workpad.** Before looping, write `iter-<N>.json` with: fix_commit_sha, fix_files (`git diff --name-only HEAD~1 HEAD`), the iter-N checklist + verdicts (each item flagged `reused_from_iter_prev: true|false` to record whether Phase 2.0.5's narrow-reuse path was taken), Phase 3 findings (each with `defect_signature`, `step25_classification`, and the matching `fix_decision` so iter-(N+1)'s Phase 3 handoff has the full record), `fix_decisions` (one entry per finding using the shape shown in the workpad schema example: `applied` entries carry `{finding_id, decision, commit}`; `pushed_back` / `deferred` entries carry the structured pushback fields `{source_file, claim_text, skip_category, evidence}` from Step 3 item 5 where `skip_category` is one of the values in the `skip_category` enum (authoritative) table; `advisory` entries — written by Step 2.5 at demotion time, not here — carry `skip_category: "advisory-parked"` plus the demotion `evidence`), convergence_inputs, `cap_drops` (from /devflow:review's Phase 1.1.5 output — see that skill for the shape), and telemetry (best-effort — see Loop Exit). The `shadow` block, if any, is appended later by Step 2.6 and is not populated here.
+7. **Persist the workpad.** Before looping, write `iter-<N>.json` with: fix_commit_sha, fix_files (`git diff --name-only HEAD~1 HEAD`), the iter-N checklist + verdicts (each item flagged `reused_from_iter_prev: true|false` to record whether Phase 2.0.5's narrow-reuse path was taken), `phase3_dispatched` (the array of Phase-3 agent identifiers actually launched this iteration after Phase 0.5 gating — see the workpad schema note above for why this roster is load-bearing for the Loop Exit effectiveness trace), `diff_profile` (the engine's Phase 0.5 flags + `checklist_skipped` for this iteration — see the schema note; carried into the record so cross-run analysis can segment by diff shape and the trace can report verification posture), Phase 3 findings (each with `defect_signature`, `step25_classification`, and the matching `fix_decision` so iter-(N+1)'s Phase 3 handoff has the full record), `fix_decisions` (one entry per finding using the shape shown in the workpad schema example: `applied` entries carry `{finding_id, decision, commit}`; `pushed_back` / `deferred` entries carry the structured pushback fields `{source_file, claim_text, skip_category, evidence}` from Step 3 item 5 where `skip_category` is one of the values in the `skip_category` enum (authoritative) table; `advisory` entries — written by Step 2.5 at demotion time, not here — carry `skip_category: "advisory-parked"` plus the demotion `evidence`), convergence_inputs, `cap_drops` (from /devflow:review's Phase 1.1.5 output — see that skill for the shape), and telemetry (best-effort — see Loop Exit). The `shadow` block, if any, is appended later by Step 2.6 and is not populated here.
 
 ### Step 4: Continue Loop
 
@@ -557,6 +575,51 @@ Notes:
 - Token counts are approximate (best-effort parsing of `<usage>` blocks). Mark with `~` to signal estimation.
 - Failures to collect telemetry are non-fatal — print whatever was captured, omit rows with no data.
 - Skip the table entirely when no iterations produced workpads (e.g. catastrophic early failure).
+
+### Subagent effectiveness trace
+
+After the Run telemetry table, derive and persist the **per-run subagent effectiveness trace** — a factual answer to "which subagents earned their cost on this PR." This is gated behind a config flag (on by default) and is **best-effort and non-fatal**: a missing/unreadable workpad, an absent `phase3_dispatched` field, or a write failure logs a warning and the loop still emits its normal verdict. Never abort the loop here.
+
+All derivation lives in `lib/efficiency-trace.jq` (a mechanical jq filter, no LLM) behind the `lib/efficiency-trace.sh` wrapper — mirroring how the weekly retrospective keeps `lib/` thin. The wrapper reads the gating flag itself, so when the flag is off it emits nothing and no file is written.
+
+1. **Read the gating flag** via the config helper (use the `${CLAUDE_SKILL_DIR}`-anchored path so the read is cwd-independent, matching how this engine invokes `match-deferrals.py` / `dismiss-stale-rejections.sh`):
+   ```bash
+   ENABLED=$(bash "${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh" .devflow_review_and_fix.efficiency_telemetry_enabled true)
+   ```
+   If `ENABLED` is not `true`, **skip this entire section** — render no trace and write no file under `.devflow/logs/`. (The wrapper re-checks the flag itself, so this is belt-and-suspenders; the read here is what gates the `mkdir`/render below.)
+
+2. **Resolve the run slug and timestamp.** `<slug>` is `pr-<N>` in PR mode or the sanitized current branch name in branch mode — the same slug used for the workpad directory `.devflow/tmp/review/<slug>/`. The run timestamp is `date -u +%Y%m%dT%H%M%SZ`.
+
+3. **Render the trace to chat** and **write the per-run record**. Capture the trace's stderr+rc so a real failure surfaces a reason rather than degrading silently to an empty skip:
+   ```bash
+   LIB="${CLAUDE_SKILL_DIR}/../../lib"
+   WORKPAD_DIR=".devflow/tmp/review/<slug>"
+   RECORD=".devflow/logs/efficiency/<slug>-$(date -u +%Y%m%dT%H%M%SZ).json"
+   mkdir -p .devflow/logs/efficiency
+   # Render the Markdown trace to chat (best-effort; empty output → skip):
+   TRACE="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$WORKPAD_DIR" --slug "<slug>" --mode trace 2>/tmp/devflow-et.err)" \
+     || echo "Effectiveness trace unavailable: $(cat /tmp/devflow-et.err)"
+   [ -n "$TRACE" ] && printf '%s\n' "$TRACE"
+   # Write the per-run JSON record (one file per run):
+   bash "$LIB/efficiency-trace.sh" --workpad-dir "$WORKPAD_DIR" --slug "<slug>" --mode record > "$RECORD" 2>/dev/null || true
+   # A flag-off / zero-iteration / failed run emits no output → a 0-byte file;
+   # remove it so flag-off (and a catastrophic-early-failure run) write nothing
+   # under .devflow/logs/.
+   [ -s "$RECORD" ] || rm -f "$RECORD"
+   ```
+   Print the rendered Markdown trace (the `--mode trace` output) into the chat report, after the Run telemetry table. The trace assigns each dispatched subagent exactly one verdict — **unique-effective**, **corroborating**, **noise**, or **null** (see `lib/efficiency-trace.jq`'s header and [`docs/efficiency-trace.md`](../../docs/efficiency-trace.md) for the derivation rules) — shows the per-iteration **diff profile** (the Phase 0.5 flags) and **verification posture** (so a low verifier count reads as a deliberate cheap-path/skip decision, not as "nothing ran"), the Phase-3 dispatch count, and flags any iteration that applied zero fixes as having added nothing.
+
+4. **The record is tracked.** `.devflow/logs/efficiency/<slug>-<timestamp>.json` lives under a tracked directory, so the run's existing commits sweep it up. When `--push-each-iteration` is set, the record written here survives GH-runner teardown via the same `git add -A` + push the fix iterations use; commit and push it now so it is not lost (keep the project's commit-message trailer):
+   ```bash
+   if [ -s "$RECORD" ] && <--push-each-iteration is set>; then
+     git add "$RECORD" && git commit -m "chore: persist review-and-fix effectiveness record
+
+Co-Authored-By: Claude <noreply@anthropic.com>" && git push || true
+   fi
+   ```
+   When `--push-each-iteration` is absent (the default, local mode), leave the record on disk uncommitted — consistent with the loop's no-remote-side-effect contract for that mode. The record carries the existing per-phase/per-iteration cost telemetry forward from the workpads, so that cost data is no longer discarded with `.devflow/tmp/`.
+
+If `lib/efficiency-trace.sh` is missing or errors, the trace step above already emits `Effectiveness trace unavailable: {reason}` to chat; proceed — the verdict is unaffected.
 
 ---
 

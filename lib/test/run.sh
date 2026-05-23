@@ -1240,6 +1240,222 @@ for f in devflow devflow-implement; do
   assert_eq "react: $f.yml invokes react-to-trigger.sh via bash" "" "$bad"
 done
 
+# ────────────────────────────────────────────────────────────────────────────
+echo "efficiency-trace.jq / efficiency-trace.sh"
+# ────────────────────────────────────────────────────────────────────────────
+# Per-run subagent effectiveness telemetry for /devflow:review-and-fix.
+# Derivation is mechanical (jq); the wrapper validates inputs, reads the gating
+# flag, and dispatches per mode. Fixtures exercise: 4-way verdict derivation,
+# the per-iteration marginal-yield line, flag-off → no writes, and graceful
+# degradation when phase3_dispatched is absent.
+ET_DIR="$(mktemp -d)"
+# Iter 1: a unique-effective applied finding (corroboration 1), a corroborating
+# applied finding (corroboration 2), one dispatched-but-silent agent (null), and
+# a mix of lite/agent checklist items. 4 fixes applied.
+cat > "$ET_DIR/iter-1.json" <<'EOF'
+{
+  "iter": 1,
+  "checklist": [
+    {"id":"VC-1","verification_mode":"lite","verdict":"PASS"},
+    {"id":"VC-2","verification_mode":"lite","verdict":"FAIL"},
+    {"id":"VC-3","verification_mode":"agent","verdict":"PASS"}
+  ],
+  "phase3_dispatched": ["pr-review-toolkit:code-reviewer","pr-review-toolkit:silent-failure-hunter","pr-review-toolkit:comment-analyzer"],
+  "phase3_findings": [
+    {"agent":"pr-review-toolkit:code-reviewer","corroboration_count":1,"fix_decision":"applied"},
+    {"agent":"pr-review-toolkit:silent-failure-hunter","corroboration_count":2,"fix_decision":"applied"}
+  ],
+  "convergence_inputs": {"fixes_applied": 4},
+  "telemetry": {"phase_3": {"calls": 3, "tokens": 48000, "wall_clock_s": 180}}
+}
+EOF
+# Iter 2: zero fixes (marginal-yield), one pushed-back finding (noise), one
+# dispatched-but-silent agent (null).
+cat > "$ET_DIR/iter-2.json" <<'EOF'
+{
+  "iter": 2,
+  "checklist": [],
+  "phase3_dispatched": ["pr-review-toolkit:code-reviewer","pr-review-toolkit:comment-analyzer"],
+  "phase3_findings": [
+    {"agent":"pr-review-toolkit:code-reviewer","corroboration_count":1,"fix_decision":"pushed_back"}
+  ],
+  "convergence_inputs": {"fixes_applied": 0},
+  "telemetry": {"phase_3": {"calls": 2, "tokens": 12000, "wall_clock_s": 60}}
+}
+EOF
+
+ET_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_DIR" --slug "pr-15" --mode record)"
+ET_verdict() { echo "$ET_REC" | jq -r --argjson i "$1" --arg a "$2" '.per_iteration[] | select(.iter==$i) | .agent_verdicts[] | select(.agent==$a) | .verdict'; }
+assert_eq "et: applied + corroboration<2 → unique-effective" "unique-effective" "$(ET_verdict 1 'pr-review-toolkit:code-reviewer')"
+assert_eq "et: applied + corroboration>=2 → corroborating"   "corroborating"    "$(ET_verdict 1 'pr-review-toolkit:silent-failure-hunter')"
+assert_eq "et: dispatched but silent → null"                 "null"             "$(ET_verdict 1 'pr-review-toolkit:comment-analyzer')"
+assert_eq "et: only pushed_back finding → noise"             "noise"            "$(ET_verdict 2 'pr-review-toolkit:code-reviewer')"
+assert_eq "et: roster-minus-findings null on a LATER iteration" "null"          "$(ET_verdict 2 'pr-review-toolkit:comment-analyzer')"
+assert_eq "et: record carries cost telemetry forward (iter1 phase_3 tokens)" "48000" \
+  "$(echo "$ET_REC" | jq -r '.telemetry[] | select(.iter==1) | .phases.phase_3.tokens')"
+assert_eq "et: record schema_version=1" "1" "$(echo "$ET_REC" | jq -r '.schema_version')"
+assert_eq "et: cut_candidate_min_dispatch carried into record (default 3)" "3" \
+  "$(echo "$ET_REC" | jq -r '.cut_candidate_min_dispatch')"
+assert_eq "et: checklist split lite=2" "2" "$(echo "$ET_REC" | jq -r '.per_iteration[] | select(.iter==1) | .checklist_lite_count')"
+assert_eq "et: checklist split agent=1" "1" "$(echo "$ET_REC" | jq -r '.per_iteration[] | select(.iter==1) | .checklist_agent_count')"
+
+# diff_profile + verification posture: the Phase 0.5 classification is carried
+# into the record (so the cross-run analyzer can segment by diff shape), and the
+# orchestrator's no-subagent cost decision is logged as an explicit posture
+# rather than a bare "0 verifiers".
+ET_PROF="$(mktemp -d)"
+# iter-1: engine_self_modifying diff, verification done via lite probes only (no agents).
+cat > "$ET_PROF/iter-1.json" <<'EOF'
+{"iter":1,"diff_profile":{"small_diff":false,"config_only":false,"has_new_types":false,"engine_self_modifying":true,"checklist_skipped":null},
+"checklist":[{"verification_mode":"lite","verdict":"PASS"},{"verification_mode":"lite","verdict":"PASS"}],
+"phase3_dispatched":["pr-review-toolkit:code-reviewer"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}
+EOF
+# iter-2: small_diff+config_only, Phase 0.5 intentionally skipped the checklist.
+cat > "$ET_PROF/iter-2.json" <<'EOF'
+{"iter":2,"diff_profile":{"small_diff":true,"config_only":true,"has_new_types":false,"engine_self_modifying":false,"checklist_skipped":"intentional"},
+"checklist":[],"phase3_dispatched":["pr-review-toolkit:code-reviewer"],
+"phase3_findings":[{"agent":"pr-review-toolkit:code-reviewer","corroboration_count":1,"fix_decision":"applied"}],
+"convergence_inputs":{"fixes_applied":1},"telemetry":null}
+EOF
+ET_PROF_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_PROF" --slug pr-15 --mode record)"
+assert_eq "et: diff_profile carried into record (engine_self_modifying)" "true" \
+  "$(echo "$ET_PROF_REC" | jq -r '.per_iteration[] | select(.iter==1) | .diff_profile.engine_self_modifying')"
+assert_eq "et: lite-only verification posture (no subagents dispatched)" "lite-only" \
+  "$(echo "$ET_PROF_REC" | jq -r '.per_iteration[] | select(.iter==1) | .verification_posture')"
+assert_eq "et: Phase 0.5 intentional skip → skipped-intentional posture" "skipped-intentional" \
+  "$(echo "$ET_PROF_REC" | jq -r '.per_iteration[] | select(.iter==2) | .verification_posture')"
+ET_PROF_TRACE="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_PROF" --slug pr-15 --mode trace)"
+assert_eq "et: trace logs the no-subagent decision (lite-only line)" "true" \
+  "$(echo "$ET_PROF_TRACE" | grep -q 'without dispatching verifier subagents' && echo true || echo false)"
+assert_eq "et: trace logs intentional Phase 0.5 skip" "true" \
+  "$(echo "$ET_PROF_TRACE" | grep -q 'skipped by Phase 0.5' && echo true || echo false)"
+assert_eq "et: trace renders diff profile line" "true" \
+  "$(echo "$ET_PROF_TRACE" | grep -q 'Diff profile: engine_self_modifying' && echo true || echo false)"
+# Absent diff_profile degrades gracefully: posture falls back to raw counts, label "not recorded".
+ET_NOPROF="$(mktemp -d)"
+cat > "$ET_NOPROF/iter-1.json" <<'EOF'
+{"iter":1,"checklist":[{"verification_mode":"agent","verdict":"PASS"}],"phase3_dispatched":["a"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}
+EOF
+ET_NOPROF_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_NOPROF" --slug s --mode record)"
+assert_eq "et: absent diff_profile → null in record" "null" \
+  "$(echo "$ET_NOPROF_REC" | jq -r '.per_iteration[0].diff_profile')"
+assert_eq "et: absent diff_profile → posture from raw counts (agent-only)" "agent-only" \
+  "$(echo "$ET_NOPROF_REC" | jq -r '.per_iteration[0].verification_posture')"
+rm -rf "$ET_PROF" "$ET_NOPROF"
+
+# Marginal-yield line: iter 2 applied 0 fixes → trace flags "added nothing".
+ET_TRACE="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_DIR" --slug "pr-15" --mode trace)"
+assert_eq "et: marginal-yield line for zero-fix iteration" "true" \
+  "$(echo "$ET_TRACE" | grep -q 'Marginal yield: this iteration applied 0 fixes' && echo true || echo false)"
+assert_eq "et: trace shows dispatched count" "true" \
+  "$(echo "$ET_TRACE" | grep -q 'Phase 3 agents dispatched: 3' && echo true || echo false)"
+
+# Flag-off → no output in either mode (so the SKILL.md write produces no file).
+ET_CFG="$(mktemp)"; printf '{"devflow_review_and_fix":{"efficiency_telemetry_enabled":false}}' > "$ET_CFG"
+ET_OFF_REC="$(DEVFLOW_CONFIG_FILE="$ET_CFG" bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_DIR" --slug "pr-15" --mode record)"
+ET_OFF_TRACE="$(DEVFLOW_CONFIG_FILE="$ET_CFG" bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_DIR" --slug "pr-15" --mode trace)"
+assert_eq "et: flag-off → record empty" "" "$ET_OFF_REC"
+assert_eq "et: flag-off → trace empty"  "" "$ET_OFF_TRACE"
+
+# Graceful degradation: a workpad WITHOUT phase3_dispatched still classifies the
+# agents that appear in phase3_findings; the trace flags the missing roster.
+ET_DEG="$(mktemp -d)"
+cat > "$ET_DEG/iter-1.json" <<'EOF'
+{"iter":1,"checklist":[],"phase3_findings":[{"agent":"pr-review-toolkit:code-reviewer","corroboration_count":1,"fix_decision":"applied"}],"convergence_inputs":{"fixes_applied":1},"telemetry":null}
+EOF
+ET_DEG_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_DEG" --slug "branch-x" --mode record)"
+assert_eq "et: degraded (no phase3_dispatched) still classifies finding agent" "unique-effective" \
+  "$(echo "$ET_DEG_REC" | jq -r '.per_iteration[0].agent_verdicts[] | select(.agent=="pr-review-toolkit:code-reviewer") | .verdict')"
+assert_eq "et: degraded dispatched_count=0 (roster absent)" "0" \
+  "$(echo "$ET_DEG_REC" | jq -r '.per_iteration[0].phase3_dispatched_count')"
+ET_DEG_TRACE="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_DEG" --slug "branch-x" --mode trace)"
+assert_eq "et: degraded trace flags absent phase3_dispatched" "true" \
+  "$(echo "$ET_DEG_TRACE" | grep -q 'absent.*null agents (dispatched but silent) cannot be shown' && echo true || echo false)"
+
+# Present-but-empty roster ("phase3_dispatched": []) is NOT "absent" — the
+# degradation warning must not fire (regression guard for has() vs length>0).
+ET_EMPTYROSTER="$(mktemp -d)"
+cat > "$ET_EMPTYROSTER/iter-1.json" <<'EOF'
+{"iter":1,"checklist":[],"phase3_dispatched":[],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}
+EOF
+ET_ER_TRACE="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_EMPTYROSTER" --slug "pr-15" --mode trace)"
+assert_eq "et: empty-but-present roster does NOT flag 'absent'" "false" \
+  "$(echo "$ET_ER_TRACE" | grep -q 'null agents (dispatched but silent) cannot be shown' && echo true || echo false)"
+rm -rf "$ET_EMPTYROSTER"
+
+# A valid-but-non-object workpad (stray array) is skipped, not crashed on
+# (best-effort never-abort contract). The wrapper must still exit 0.
+ET_BADSHAPE="$(mktemp -d)"
+printf '[1,2,3]' > "$ET_BADSHAPE/iter-1.json"
+ET_BS_TRACE="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_BADSHAPE" --slug "pr-15" --mode trace 2>/dev/null)"; ET_BS_RC=$?
+assert_eq "et: non-object workpad → wrapper exits 0 (never aborts)" "0" "$ET_BS_RC"
+assert_eq "et: non-object workpad → degrades to unavailable notice" "true" \
+  "$(echo "$ET_BS_TRACE" | grep -q 'effectiveness trace unavailable' && echo true || echo false)"
+rm -rf "$ET_BADSHAPE"
+
+# No readable workpads → trace degrades to a one-line notice, never errors.
+ET_EMPTY="$(mktemp -d)"
+ET_EMPTY_TRACE="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_EMPTY" --slug "branch-x" --mode trace)"
+assert_eq "et: empty workpad dir → graceful notice" "true" \
+  "$(echo "$ET_EMPTY_TRACE" | grep -q 'effectiveness trace unavailable' && echo true || echo false)"
+# record mode with zero readable iterations emits NOTHING (not a contentless
+# skeleton) so the caller's `[ -s ]` guard removes the 0-byte file — symmetric
+# with the flag-off contract.
+ET_EMPTY_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_EMPTY" --slug "branch-x" --mode record)"
+assert_eq "et: zero-iteration record emits empty (no skeleton)" "" "$ET_EMPTY_REC"
+
+# Verdict-precedence + branch coverage on a single mixed fixture. Each agent
+# below isolates one path through verdict_for that the happy-path fixtures miss.
+ET_PREC="$(mktemp -d)"
+cat > "$ET_PREC/iter-1.json" <<'EOF'
+{
+  "iter": 1,
+  "checklist": [],
+  "phase3_dispatched": ["agent-mixed-unique","agent-mixed-corr","agent-advisory","agent-deferred","agent-nocorr"],
+  "phase3_findings": [
+    {"agent":"agent-mixed-unique","corroboration_count":1,"fix_decision":"applied"},
+    {"agent":"agent-mixed-unique","corroboration_count":1,"fix_decision":"pushed_back"},
+    {"agent":"agent-mixed-corr","corroboration_count":3,"fix_decision":"applied"},
+    {"agent":"agent-mixed-corr","corroboration_count":1,"fix_decision":"advisory"},
+    {"agent":"agent-advisory","corroboration_count":1,"fix_decision":"advisory"},
+    {"agent":"agent-deferred","corroboration_count":1,"fix_decision":"deferred"},
+    {"agent":"agent-nocorr","fix_decision":"applied"}
+  ],
+  "convergence_inputs": {"fixes_applied": 3},
+  "telemetry": null
+}
+EOF
+ET_PREC_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_PREC" --slug "pr-15" --mode record)"
+ET_pv() { echo "$ET_PREC_REC" | jq -r --arg a "$1" '.per_iteration[0].agent_verdicts[] | select(.agent==$a) | .verdict'; }
+assert_eq "et: precedence applied(corr1)+pushed_back → unique-effective" "unique-effective" "$(ET_pv 'agent-mixed-unique')"
+assert_eq "et: precedence applied(corr3)+advisory → corroborating (applied dominates noise)" "corroborating" "$(ET_pv 'agent-mixed-corr')"
+assert_eq "et: advisory-only finding → noise" "noise" "$(ET_pv 'agent-advisory')"
+assert_eq "et: deferred-only finding → null (not noise)" "null" "$(ET_pv 'agent-deferred')"
+assert_eq "et: applied with missing corroboration_count → unique-effective (// 1 default)" "unique-effective" "$(ET_pv 'agent-nocorr')"
+rm -rf "$ET_PREC"
+
+# THRESHOLD: a valid custom integer is carried into the record; a non-numeric
+# operator value falls back to the default 3 WITHOUT aborting the wrapper.
+ET_TCFG="$(mktemp)"; printf '{"devflow_review_and_fix":{"efficiency_cut_candidate_min_dispatch":7}}' > "$ET_TCFG"
+ET_T7="$(DEVFLOW_CONFIG_FILE="$ET_TCFG" bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_DIR" --slug "pr-15" --mode record)"
+assert_eq "et: custom threshold 7 carried into record" "7" "$(echo "$ET_T7" | jq -r '.cut_candidate_min_dispatch')"
+ET_TBAD="$(mktemp)"; printf '{"devflow_review_and_fix":{"efficiency_cut_candidate_min_dispatch":"abc"}}' > "$ET_TBAD"
+ET_TB="$(DEVFLOW_CONFIG_FILE="$ET_TBAD" bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_DIR" --slug "pr-15" --mode record 2>/dev/null)"; ET_TB_RC=$?
+assert_eq "et: non-numeric threshold → wrapper still exits 0" "0" "$ET_TB_RC"
+assert_eq "et: non-numeric threshold → falls back to 3 in record" "3" "$(echo "$ET_TB" | jq -r '.cut_candidate_min_dispatch')"
+# A below-minimum value (0) is clamped to the default 3 (schema declares minimum:1).
+ET_TZERO="$(mktemp)"; printf '{"devflow_review_and_fix":{"efficiency_cut_candidate_min_dispatch":0}}' > "$ET_TZERO"
+ET_TZ="$(DEVFLOW_CONFIG_FILE="$ET_TZERO" bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_DIR" --slug "pr-15" --mode record)"
+assert_eq "et: threshold 0 (below schema minimum:1) → clamped to 3" "3" "$(echo "$ET_TZ" | jq -r '.cut_candidate_min_dispatch')"
+rm -f "$ET_TCFG" "$ET_TBAD" "$ET_TZERO"
+
+# CLI contract: an invalid --mode is rejected with exit 2 (protects SKILL.md's
+# dependence on the trace/record flag names).
+bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_DIR" --slug "pr-15" --mode bogus >/dev/null 2>&1; ET_MODE_RC=$?
+assert_eq "et: invalid --mode → exit 2" "2" "$ET_MODE_RC"
+
+rm -rf "$ET_DIR" "$ET_DEG" "$ET_EMPTY"; rm -f "$ET_CFG"
+
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
