@@ -1572,6 +1572,66 @@ assert_eq "et: invalid --mode → exit 2" "2" "$ET_MODE_RC"
 
 rm -rf "$ET_DIR" "$ET_DEG" "$ET_EMPTY"; rm -f "$ET_CFG"
 
+# ────────────────────────────────────────────────────────────────────────────
+echo "devflow-runner.yml: opt-in environment provisioning (issue #18)"
+# ────────────────────────────────────────────────────────────────────────────
+# The automated reviewer gains a build environment + build-tool allowlist ONLY
+# when the TRUSTED base config sets devflow_runner.provision_env: true. These
+# assertions pin the load-bearing invariants: (1) provisioning is gated on the
+# base-ref flag, (2) the build allowlist is appended ONLY under that guard so
+# the default profile stays byte-for-byte read-only, (3) both the flag and the
+# setup block are sourced from the base ref (never the PR head) so a PR cannot
+# enable provisioning or inject install commands into the write-token job.
+RUNNER="$LIB/../.github/workflows/devflow-runner.yml"
+
+# The read-only base profile line must NOT contain any build tool — this is the
+# "byte-for-byte read-only when disabled" guarantee. (The npm/etc. tokens live
+# only on the separate, PROVISION_ENV-guarded append line below.)
+assert_eq "provision: read-only base profile has no build tools" "0" \
+  "$(grep "TOOLS='Read,Glob,Grep" "$RUNNER" | grep -c 'Bash(npm:\*)' || true)"
+
+# The 8 build/verify tools are appended on a single line, and that line is
+# guarded by `if [ "$PROVISION_ENV" = "true" ]` on the immediately preceding
+# non-comment line.
+BUILD_LINE=$(grep -n 'TOOLS="$TOOLS,Bash(npm:\*),Bash(npx:\*),Bash(node:\*),Bash(yarn:\*),Bash(pnpm:\*),Bash(composer:\*),Bash(php:\*),Bash(make:\*)"' "$RUNNER" | cut -d: -f1)
+assert_eq "provision: build allowlist append line present (all 8 tools)" "1" \
+  "$(printf '%s\n' "$BUILD_LINE" | grep -c '^[0-9]' || true)"
+if [ -n "$BUILD_LINE" ]; then
+  GUARD_LINE=$(sed -n "$((BUILD_LINE - 1))p" "$RUNNER")
+  assert_eq "provision: build allowlist guarded by PROVISION_ENV == true" "yes" \
+    "$(echo "$GUARD_LINE" | grep -q 'if \[ "\$PROVISION_ENV" = "true" \]' && echo yes || echo no)"
+fi
+
+# The setup-project-env step is gated on the base-ref provision flag.
+assert_eq "provision: setup-project-env step present" "1" \
+  "$(grep -c 'uses: ./.github/actions/setup-project-env' "$RUNNER" || true)"
+assert_eq "provision: setup-project-env gated on base provision_env" "1" \
+  "$(grep -c "if: steps.baseprovision.outputs.provision_env == 'true'" "$RUNNER" || true)"
+
+# Trust boundary: the flag and setup block come from the base ref. BASE_REF is
+# sourced from the trusted event payload, fetched from origin, and read out of
+# FETCH_HEAD — never the checked-out PR head.
+assert_eq "provision: base ref from trusted event payload" "1" \
+  "$(grep -c 'github.event.pull_request.base.ref || github.event.repository.default_branch' "$RUNNER" || true)"
+assert_eq "provision: base config fetched from origin BASE_REF" "1" \
+  "$(grep -c 'git fetch --depth=1 origin "\$BASE_REF"' "$RUNNER" || true)"
+assert_eq "provision: provision_env read from FETCH_HEAD base config" "1" \
+  "$(grep -c 'FETCH_HEAD:.devflow/config.json' "$RUNNER" || true)"
+
+# Security: provision_env must NOT be read from the PR-head config (the extract
+# step's CONFIG_JSON). If it ever is, a PR could self-enable provisioning.
+assert_eq "provision: flag never read from PR-head CONFIG_JSON" "0" \
+  "$(grep -E 'CONFIG_JSON.*provision_env|provision_env.*CONFIG_JSON' "$RUNNER" | grep -c . || true)"
+
+# Schema + example: the property is declared (boolean, default false) and the
+# example config carries it so editors and adopters see it.
+assert_eq "provision: schema declares provision_env boolean" "boolean" \
+  "$(jq -r '.properties.devflow_runner.properties.provision_env.type' "$LIB/../.devflow/config.schema.json")"
+assert_eq "provision: schema default is false" "false" \
+  "$(jq -r '.properties.devflow_runner.properties.provision_env.default' "$LIB/../.devflow/config.schema.json")"
+assert_eq "provision: config.example.json sets provision_env false" "false" \
+  "$(jq -r '.devflow_runner.provision_env' "$LIB/../.devflow/config.example.json")"
+
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)

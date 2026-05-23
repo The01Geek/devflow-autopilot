@@ -119,10 +119,62 @@ jobs:
             echo "effort=$EFFORT"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Read trusted base-ref provisioning config
+        id: baseprovision
+        env:
+          # Source the base branch from the TRUSTED event payload — the PR's
+          # target branch, or the repo default for non-PR triggers (a check_run
+          # Re-run carries no pull_request) — never from a PR-controlled input.
+          # Both the provision_env flag AND the setup block below are read from
+          # this base ref's committed config, so a PR cannot enable provisioning
+          # for its own review, nor inject `setup.install` commands into this
+          # pull_request_target write-token job. (The build commands themselves
+          # still run PR-author code once provisioning is on — that is the
+          # maintainer's documented opt-in; see docs/cloud-setup.md.)
+          BASE_REF: ${{ github.event.pull_request.base.ref || github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          # Default to read-only/no-provisioning: a missing base ref, an
+          # un-fetchable branch, or a base with no committed config (the
+          # devflow-bootstrap-via-PR case) all collapse to provision_env=false.
+          PROVISION=false
+          BASE_JSON='{}'
+          if [ -n "$BASE_REF" ]; then
+            # origin is the upstream repo (fork-PR commits live under upstream
+            # refs), so the base tip is the maintainer-controlled config, not the
+            # PR head. --depth=1: only the tip is needed to read one file.
+            if git fetch --depth=1 origin "$BASE_REF" >/dev/null 2>&1; then
+              if RAW=$(git show "FETCH_HEAD:.devflow/config.json" 2>/dev/null); then
+                # jq validates + compacts; a malformed base config aborts under
+                # set -e rather than silently provisioning with garbage.
+                BASE_JSON=$(printf '%s' "$RAW" | jq -c '.')
+                # `== true` clamps to a literal true/false: only a real boolean
+                # `true` enables provisioning. A non-boolean (string/number) or
+                # absent value yields false, so a typo can never accidentally
+                # provision, and the step output is always a clean token.
+                PROVISION=$(printf '%s' "$BASE_JSON" | jq -r '(.devflow_runner.provision_env == true)')
+              fi
+            else
+              echo "::warning::Could not fetch base ref '$BASE_REF'; defaulting to provision_env=false (read-only review)."
+            fi
+          fi
+          echo "provision_env=$PROVISION" >> "$GITHUB_OUTPUT"
+          # Heredoc form forwards the (possibly multi-line) base config verbatim
+          # to setup-project-env regardless of content.
+          delim="EOF_$(date +%s%N)_$$"
+          {
+            printf 'config_json<<%s\n' "$delim"
+            printf '%s\n' "$BASE_JSON"
+            printf '%s\n' "$delim"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Resolve allowed-tools profile
         id: tools
         env:
           PROFILE: ${{ inputs.allowed_tools_profile }}
+          # Trusted base-ref opt-in (see the baseprovision step). Only when this
+          # is 'true' does the review profile gain build/verify commands.
+          PROVISION_ENV: ${{ steps.baseprovision.outputs.provision_env }}
         run: |
           set -euo pipefail
           # Profiles intentionally kept inline (single-string per profile) to
@@ -134,6 +186,15 @@ jobs:
               # only. No PHP/npm/composer (the review skill never shells out
               # to them). No Edit/Write (review must not mutate the tree).
               TOOLS='Read,Glob,Grep,LS,Skill,Agent,TodoWrite,WebFetch,WebSearch,Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git ls-files:*),Bash(git rev-parse:*),Bash(git merge-base:*),Bash(git blame:*),Bash(git branch:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr review:*),Bash(gh pr comment:*),Bash(gh pr list:*),Bash(gh pr checks:*),Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue list:*),Bash(gh search:*),Bash(gh repo view:*),Bash(gh run view:*),Bash(gh run list:*),Bash(gh api:*),Bash(jq:*),Bash(grep:*),Bash(rg:*),Bash(find:*),Bash(wc:*),Bash(sort:*),Bash(uniq:*),Bash(cut:*),Bash(tr:*),Bash(xargs:*),Bash(awk:*),Bash(sed:*),Bash(diff:*),Bash(comm:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(ls:*),Bash(tree:*),Bash(file:*),Bash(stat:*),Bash(date:*),Bash(pwd:*),Bash(realpath:*),Bash(dirname:*),Bash(basename:*),Bash(which:*),Bash(type:*),Bash(env:*),Bash(echo:*),Bash(printf:*),Bash(test:*),Bash(.claude/plugins/devflow/scripts/match-deferrals.py:*),Bash(.claude/plugins/devflow/scripts/dismiss-stale-rejections.sh:*)'
+              # When the trusted base config opted into provisioning, the runner
+              # has a built env (setup-project-env ran below), so grant the
+              # build/verify commands the reviewer needs to actually compile/
+              # test the PR instead of punting build-dependent claims. Appended
+              # ONLY here: when provisioning is off, TOOLS above is byte-for-byte
+              # the read-only profile.
+              if [ "$PROVISION_ENV" = "true" ]; then
+                TOOLS="$TOOLS,Bash(npm:*),Bash(npx:*),Bash(node:*),Bash(yarn:*),Bash(pnpm:*),Bash(composer:*),Bash(php:*),Bash(make:*)"
+              fi
               ;;
             *)
               echo "::error::Unknown allowed_tools_profile: $PROFILE"
@@ -160,6 +221,21 @@ jobs:
         run: |
           set -euo pipefail
           echo "value=$RESOLVED" >> "$GITHUB_OUTPUT"
+
+      # Provision the runtime BEFORE Claude runs, but ONLY when the trusted base
+      # config opted in via devflow_runner.provision_env. config_json is the
+      # BASE ref's config (steps.baseprovision), never the PR head, so PR edits
+      # to `setup.install` cannot inject commands here — the same trust boundary
+      # setup-project-env already documents for `services`. (The action body and
+      # the install commands still execute from / against the PR checkout once
+      # enabled; that residual vector is the documented opt-in — see
+      # docs/cloud-setup.md.) When the flag is absent/false this step is skipped
+      # and the runner behaves exactly as before: read-only, no build tools.
+      - name: Provision project environment (opt-in)
+        if: steps.baseprovision.outputs.provision_env == 'true'
+        uses: ./.github/actions/setup-project-env
+        with:
+          config_json: ${{ steps.baseprovision.outputs.config_json }}
 
       - name: Run Claude Code
         id: claude

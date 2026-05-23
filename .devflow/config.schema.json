@@ -67,9 +67,14 @@
     },
     "devflow_runner": {
       "type": "object",
-      "description": "Settings for the reusable runner that backs the automated reviewer (devflow-review.yml → devflow.yml `runner` job).",
+      "description": "Settings for the reusable runner that backs the automated reviewer (devflow-review.yml → devflow-runner.yml).",
       "properties": {
         "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"] },
+        "provision_env": {
+          "type": "boolean",
+          "description": "Opt the automated reviewer into provisioning a build environment. When true, devflow-runner.yml runs the setup-project-env action (Python/Node/PHP + service containers + `setup.install`) BEFORE Claude runs, and the read-only `review` tool profile gains a build/verify Bash allowlist (npm, npx, node, yarn, pnpm, composer, php, make) so the reviewer can actually build/test the PR instead of punting build-dependent claims. SECURITY: this flag AND the `setup` block are read from the TRUSTED base ref (your repo's base branch), never the PR head, so a PR cannot enable provisioning or inject install commands into itself. But the build tools still run the PR author's code (e.g. an npm package's postinstall) under devflow-review.yml's pull_request_target write token — enable only if you accept running untrusted PR build steps. Absent/false (the default) → the runner is unchanged: light, read-only, no build tools, no provisioning.",
+          "default": false
+        },
         "allowed_tools": {
           "type": "array",
           "items": { "type": "string" },

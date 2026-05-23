@@ -14,7 +14,8 @@
     "allowed_tools": []
   },
   "devflow_runner": {
-    "effort": "medium"
+    "effort": "medium",
+    "provision_env": false
   },
   "devflow_review_and_fix": {
     "efficiency_telemetry_enabled": true,
