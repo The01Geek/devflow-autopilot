@@ -3,9 +3,9 @@ name: Devflow Review (auto-trigger)
 # When a PR first becomes reviewable — opened directly as non-draft,
 # reopened non-draft, OR transitioned from draft to "ready for review"
 # (human or bot) — run the /devflow:review skill against it directly via
-# the reusable claude-runner workflow — one workflow run, no @claude run
-# comment artifact. Manual reviews via `@claude run /devflow:review`
-# comments continue to work unchanged through claude.yml.
+# devflow.yml's reusable `runner` job — one workflow run, no comment
+# mediation. Manual reviews via a bare `/devflow:review` comment work
+# through devflow.yml's command path.
 #
 # Why `opened`/`reopened` and not just `ready_for_review`: GitHub emits
 # `ready_for_review` ONLY on a draft→ready transition. A PR opened
@@ -36,7 +36,7 @@ name: Devflow Review (auto-trigger)
 # This closes the deadlock where a commit pushed after the one-shot review
 # left the new HEAD with no check and the required context blocked the PR
 # forever. The remaining manual re-review paths are unchanged: the check's
-# Re-run button or an `@claude run /devflow:review` comment.
+# Re-run button or a bare `/devflow:review` comment.
 
 on:
   pull_request:
@@ -423,13 +423,15 @@ jobs:
     needs: precheck
     if: needs.precheck.outputs.enabled == 'true' && needs.precheck.outputs.should_run == 'true'
     # A reusable workflow's effective GITHUB_TOKEN cannot exceed the caller
-    # job's permissions; granting id-token: write here matches what claude.yml
+    # job's permissions; granting id-token: write here matches what devflow.yml
     # already grants for the same anthropics/claude-code-action@v1 invocation.
     permissions:
       contents: read
       pull-requests: write
       id-token: write
-    uses: ./.github/workflows/claude-runner.yml
+    # Calls devflow.yml's reusable `runner` job (passing a non-empty prompt
+    # selects it; the bare-command jobs there are gated `inputs.prompt == ''`).
+    uses: ./.github/workflows/devflow.yml
     with:
       # Check out the PR HEAD, not the base branch — the review must see the
       # PR's own content, and a repo bootstrapping the devflow plugin via PR
@@ -640,7 +642,7 @@ jobs:
       # a later APPROVE + green required check (the APPROVE-with-notes review
       # is COMMENTED and never supersedes; the REJECT may also be a different
       # bot identity). This is the auto-path safety net; the skill's Phase
-      # 4.4 final step does the same and covers the manual @claude path too.
+      # 4.4 final step does the same and covers the manual /devflow:review path too.
       pull-requests: write
     steps:
       # Trusted checkout for dismiss-stale-rejections.sh. This workflow fires
