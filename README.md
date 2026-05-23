@@ -88,12 +88,12 @@ intended way to drive DevFlow.
   └───────────────────┘   (asks clarifying questions, you confirm before it files)
         │
         ▼
-  ┌───────────────────┐   add the  devflow:implement  label to the issue
-  │ 2. Apply label    │   (this is the trigger — a human label-add starts it)
+  ┌───────────────────┐   comment  /devflow:implement <#>  on the issue
+  │ 2. Trigger        │   (this is the trigger — a human comment starts it)
   └───────────────────┘
         │
         ▼
-  ┌───────────────────┐   claude-implement.yml runs /devflow:implement autonomously:
+  ┌───────────────────┐   devflow-implement.yml runs /devflow:implement autonomously:
   │ 3. Implement      │   branch → plan → code → tests → draft PR → /simplify →
   └───────────────────┘   /devflow:review-and-fix → docs → marks the PR ready
         │
@@ -112,17 +112,17 @@ intended way to drive DevFlow.
    It interviews you until the issue is unambiguous, shows you the rendered draft,
    and files it **only after you confirm**. Say the issue lands as **#42**.
 
-2. **Start implementation by applying the label.** Add the **`devflow:implement`**
-   label to issue #42 — in the GitHub UI (**Labels → `devflow:implement`**) or from
-   the CLI:
+2. **Start implementation by commenting the command.** Comment
+   `/devflow:implement 42` on issue #42 — in the GitHub UI or from the CLI:
    ```bash
-   gh issue edit 42 --add-label devflow:implement
+   gh issue comment 42 --body '/devflow:implement 42'
    ```
-   That's the trigger. Because *you* added the label (a real user event), GitHub
-   fires `claude-implement.yml` natively — no bot comment, PAT, or GitHub App.
-   (The label is created for you at setup by `install.sh` / `/devflow:init`.)
-   Adding the label takes triage/write access, so that permission is what gates
-   who can start a run — see [the note in cloud-setup](docs/cloud-setup.md#triggering-devflowimplement).
+   That's the trigger (no `@claude` prefix — that's ceded to Anthropic's Claude
+   GitHub App). Because *you* posted the comment (a real user event), GitHub fires
+   `devflow-implement.yml` natively — no bot comment, PAT, or GitHub App needed.
+   Triggering takes write/triage access (you must be an allowed bot or an
+   `allowed_users` collaborator), so that permission is what gates who can start a
+   run — see [the note in cloud-setup](docs/cloud-setup.md#triggering-devflowimplement).
 
 3. **DevFlow implements it.** The workflow runs the full `/devflow:implement`
    lifecycle on its own: creates a branch, plans against your codebase, writes the
@@ -133,10 +133,8 @@ intended way to drive DevFlow.
 4. **Review and merge.** `devflow-review.yml` runs `/devflow:review` as a gate and
    posts its verdict on the PR. You do the final human review and merge.
 
-> **Prefer to drive it by hand?** Skip the label and just run
-> `/devflow:implement 42` directly in Claude Code, or comment
-> `/devflow:implement 42` on the issue (no `@claude` needed). The label is the zero-typing path;
-> all three reach the same lifecycle.
+> **Prefer the editor?** Run `/devflow:implement 42` directly in Claude Code
+> instead of commenting on the issue — both reach the same lifecycle.
 
 The cloud tier (steps 2–4 running automatically on GitHub) needs only
 `CLAUDE_CODE_OAUTH_TOKEN` set as a secret — see [`docs/cloud-setup.md`](docs/cloud-setup.md).
@@ -147,7 +145,7 @@ Everything else runs locally inside Claude Code with no infrastructure at all.
 | Skill | What it does | Invoked |
 |---|---|---|
 | `/devflow:implement <issue#>` | Full lifecycle: fetch issue → branch + workpad → discover/plan → implement → test → draft PR → `/simplify` → `/devflow:review-and-fix` → acceptance gate → file follow-up issues for deferred findings → docs → ready PR | interactively, or by commenting `/devflow:implement <n>` on an issue (cloud tier) |
-| `/devflow:review [PR#]` | Comprehensive review: verification checklist (generated + verified against source), then `pr-review-toolkit` + `superpowers` reviewers; in PR mode matches the Scope-Acknowledged Findings block and demotes acknowledged findings; returns APPROVE/REJECT | interactively, or via `@claude run /devflow:review` |
+| `/devflow:review [PR#]` | Comprehensive review: verification checklist (generated + verified against source), then `pr-review-toolkit` + `superpowers` reviewers; in PR mode matches the Scope-Acknowledged Findings block and demotes acknowledged findings; returns APPROVE/REJECT | interactively, or by commenting a bare `/devflow:review` on the PR |
 | `/devflow:review-and-fix [PR#]` | `/devflow:review` + an automatic fix loop (max 4 iterations); writes a deferrals manifest at Loop Exit | interactively; called by `/devflow:implement` Phase 3 |
 | `/devflow:pr-description [issue#]` | Generate/update the PR description from the branch diff; renders the Scope-Acknowledged Findings block when present | interactively; called by `/devflow:implement` Phase 4 |
 | `/devflow:docs` | Orchestrates the three doc steps in one session | interactively; called by `/devflow:implement` Phase 4 |
@@ -165,7 +163,7 @@ Everything else runs locally inside Claude Code with no infrastructure at all.
 
 **Agents** (`agents/`): `checklist-generator`, `checklist-deduper`, and `checklist-verifier` (used by `/devflow:review` and `/devflow:review-and-fix` to build, dedupe, and verify the verification checklist).
 
-> DevFlow's commands are written in their `devflow:`-namespaced form (`/devflow:implement`, `/devflow:review`, …) throughout these docs — that's the canonical invocation and the form the cloud workflows use. **Namespacing matters most for the names that collide with built-ins:** `/review`, `/init`, and `/security-review` are *built-in* Claude Code commands, so a bare `/review` reaches Claude Code's PR reviewer (not DevFlow's review engine) and a bare `/init` runs Claude Code's CLAUDE.md generator (not DevFlow's config scaffolder). Always use `/devflow:review` and `/devflow:init` to reach DevFlow — especially from GitHub Actions / `@claude` comments, where the namespaced form is required.
+> DevFlow's commands are written in their `devflow:`-namespaced form (`/devflow:implement`, `/devflow:review`, …) throughout these docs — that's the canonical invocation and the form the cloud workflows use. **Namespacing matters most for the names that collide with built-ins:** `/review`, `/init`, and `/security-review` are *built-in* Claude Code commands, so a bare `/review` reaches Claude Code's PR reviewer (not DevFlow's review engine) and a bare `/init` runs Claude Code's CLAUDE.md generator (not DevFlow's config scaffolder). Always use `/devflow:review` and `/devflow:init` to reach DevFlow — especially from GitHub Actions comments, where the namespaced form is required. DevFlow's cloud workflows live in `devflow.yml`, `devflow-implement.yml`, and `devflow-review.yml` and trigger on **bare** `/devflow:*` comments (no `@claude`); DevFlow never creates or overwrites `claude.yml`, so it coexists with Anthropic's Claude GitHub App, which owns plain `@claude` mentions, Q&A, and `/security-review`.
 
 ## Companion plugins (auto-installed dependencies)
 
