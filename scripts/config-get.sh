@@ -11,15 +11,14 @@
 #                empty string ("") to explicitly request empty-on-missing.
 #   CONFIG_FILE  defaults to .devflow/config.json
 #
-# Parses with Node (`node`), which is guaranteed wherever the DevFlow plugin
-# runs (Claude Code is a Node CLI) and preinstalled on GitHub runners — no
-# Python, PyYAML, or yq required. This is the ONE config-reading implementation
-# in DevFlow; lib/config-source.sh delegates here.
+# Parses with jq — no Node, Python, PyYAML, or yq required.
+# This is the ONE config-reading implementation in DevFlow;
+# lib/config-source.sh delegates here.
 #
 # Exit codes:
 #   0  value (or default) printed to stdout
-#   1  key not found and no default given
-#   2  bad arguments, missing `node`, or JSON parse error
+#   1  key not found and no default given (an empty-string default still exits 0)
+#   2  bad arguments or JSON parse error
 
 set -euo pipefail
 
@@ -53,33 +52,17 @@ if [ ! -f "$config_file" ]; then
     exit 1
 fi
 
-if ! command -v node >/dev/null 2>&1; then
-    echo "config-get.sh: 'node' is required to read $config_file" >&2
-    exit 2
-fi
-
-# Walk the dot-path. Missing/null → empty stdout (caller applies default).
-# Lists join with ',' (matches prior behavior, e.g. allowed_bots/watched_authors).
-value=$(DEVFLOW_KEY="${key#.}" DEVFLOW_CONFIG="$config_file" node -e '
-  const fs = require("fs");
-  let data;
-  try {
-    data = JSON.parse(fs.readFileSync(process.env.DEVFLOW_CONFIG, "utf8"));
-  } catch (e) {
-    process.stderr.write("config-get.sh: " + e.message + "\n");
-    process.exit(2);
-  }
-  let cur = data;
-  for (const part of process.env.DEVFLOW_KEY.split(".")) {
-    if (cur === null || typeof cur !== "object" || Array.isArray(cur) || !(part in cur)) {
-      process.exit(0);
-    }
-    cur = cur[part];
-  }
-  if (cur === null || cur === undefined) process.exit(0);
-  if (Array.isArray(cur)) process.stdout.write(cur.join(","));
-  else process.stdout.write(String(cur));
-')
+# Walk the dot-path via jq getpath. Missing/null → empty stdout (caller applies
+# default). Arrays join with ',' (e.g. allowed_bots/watched_authors). A scalar
+# mid-path (try…catch null) yields empty rather than a jq error.
+value="$(DEVFLOW_KEY="${key#.}" jq -r '
+  ( env.DEVFLOW_KEY | split(".") ) as $parts
+  | try ( getpath($parts) ) catch null
+  | if   . == null         then ""
+    elif (type == "array")  then map(tostring) | join(",")
+    elif (type == "object") then ""
+    else tostring end
+' "$config_file" 2>/dev/null)" || { echo "config-get.sh: failed to parse $config_file" >&2; exit 2; }
 
 if [ -z "$value" ]; then
     emit_default_or_fail
