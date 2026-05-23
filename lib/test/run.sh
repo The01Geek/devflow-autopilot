@@ -1618,10 +1618,19 @@ assert_eq "provision: base config fetched from origin BASE_REF" "1" \
 assert_eq "provision: provision_env read from FETCH_HEAD base config" "1" \
   "$(grep -c 'FETCH_HEAD:.devflow/config.json' "$RUNNER" || true)"
 
-# Security: provision_env must NOT be read from the PR-head config (the extract
-# step's CONFIG_JSON). If it ever is, a PR could self-enable provisioning.
-assert_eq "provision: flag never read from PR-head CONFIG_JSON" "0" \
-  "$(grep -E 'CONFIG_JSON.*provision_env|provision_env.*CONFIG_JSON' "$RUNNER" | grep -c . || true)"
+# Security: the flag is read EXACTLY ONCE, and only from the base-ref config
+# ($BASE_JSON) — never from the PR-head config ($CONFIG_JSON, the extract step).
+# We locate every jq read of `.devflow_runner.provision_env`: there must be one,
+# and it must pipe from BASE_JSON (and not CONFIG_JSON). A same-line CONFIG_JSON
+# negative alone was too weak — a refactor reading the flag from the head config
+# via an intermediate variable would slip past it and silently re-open the
+# self-escalation hole.
+PROV_READS=$(grep -nE '\.devflow_runner\.provision_env' "$RUNNER" | grep 'jq ' || true)
+assert_eq "provision: flag read exactly once (jq)" "1" \
+  "$(printf '%s\n' "$PROV_READS" | grep -c '^[0-9]' || true)"
+assert_eq "provision: flag read from base config (BASE_JSON), not PR-head CONFIG_JSON" "yes" \
+  "$(printf '%s\n' "$PROV_READS" | grep -q 'BASE_JSON' \
+     && ! printf '%s\n' "$PROV_READS" | grep -q 'CONFIG_JSON' && echo yes || echo no)"
 
 # Schema + example: the property is declared (boolean, default false) and the
 # example config carries it so editors and adopters see it.

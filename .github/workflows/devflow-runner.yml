@@ -131,6 +131,14 @@ jobs:
           # pull_request_target write-token job. (The build commands themselves
           # still run PR-author code once provisioning is on — that is the
           # maintainer's documented opt-in; see docs/cloud-setup.md.)
+          #
+          # Deliberate: on a check_run Re-run of a PR whose base is a NON-default
+          # branch, the fallback reads provision_env from the default branch, not
+          # that PR's actual base. We accept this — the default branch is the
+          # most-protected trust anchor for a security-sensitive opt-in, and
+          # provision_env is normally a uniform repo-wide policy. The common
+          # pull_request / pull_request_target paths always read the PR's true
+          # base ref.
           BASE_REF: ${{ github.event.pull_request.base.ref || github.event.repository.default_branch }}
         run: |
           set -euo pipefail

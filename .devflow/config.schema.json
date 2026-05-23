@@ -78,7 +78,7 @@
         "allowed_tools": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "Extra --allowed-tools entries for the automated /devflow:review reviewer (devflow.yml `runner` job), APPENDED on top of the read-only review base profile. This is what lets a review actually BUILD/TEST a PR — e.g. \"Bash(npm:*)\", \"Bash(npx:*)\", \"Bash(webpack:*)\", \"Bash(go:*)\". /devflow:init auto-populates this per detected language. SECURITY: these are read from the BASE branch's committed config (never the PR head), so a PR cannot grant itself tools — but any build tool you list here runs the PR author's code (e.g. npm postinstall) on pull_request_target with a write token. Enable only tools you trust to run against untrusted PRs. Empty/omitted → read-only review only.",
+          "description": "NOTE: the reusable runner (devflow-runner.yml) does NOT currently consume this key — the automated reviewer's build access is governed by `devflow_runner.provision_env` above, which grants a fixed build/verify allowlist (see that property and docs/cloud-setup.md). /devflow:init still auto-populates this array per detected language (e.g. \"Bash(npm:*)\", \"Bash(go:*)\"), but until a freeform-allowlist path is wired into the runner, entries here have no effect on the reviewer. To enable build-aware reviews today, set `provision_env: true`. (Tracked for cleanup — see the follow-up issue filed from #18's run.)",
           "default": []
         }
       }
