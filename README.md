@@ -137,7 +137,7 @@ intended way to drive DevFlow.
 
 > **Prefer to drive it by hand?** Skip the label and just run
 > `/devflow:implement 42` directly in Claude Code, or comment
-> `@claude /devflow:implement 42` on the issue. The label is the zero-typing path;
+> `/devflow:implement 42` on the issue (no `@claude` needed). The label is the zero-typing path;
 > all three reach the same lifecycle.
 
 The cloud tier (steps 2–4 running automatically on GitHub) needs only
@@ -148,7 +148,7 @@ Everything else runs locally inside Claude Code with no infrastructure at all.
 
 | Skill | What it does | Invoked |
 |---|---|---|
-| `/devflow:implement <issue#>` | Full lifecycle: fetch issue → branch + workpad → discover/plan → implement → test → draft PR → `/simplify` → `/devflow:review-and-fix` → acceptance gate → file follow-up issues for deferred findings → docs → ready PR | interactively, or via `@claude /devflow:implement <n>` (cloud tier) |
+| `/devflow:implement <issue#>` | Full lifecycle: fetch issue → branch + workpad → discover/plan → implement → test → draft PR → `/simplify` → `/devflow:review-and-fix` → acceptance gate → file follow-up issues for deferred findings → docs → ready PR | interactively, or by commenting `/devflow:implement <n>` on an issue (cloud tier) |
 | `/devflow:review [PR#]` | Comprehensive review: verification checklist (generated + verified against source), then `pr-review-toolkit` + `superpowers` reviewers; in PR mode matches the Scope-Acknowledged Findings block and demotes acknowledged findings; returns APPROVE/REJECT | interactively, or via `@claude run /devflow:review` |
 | `/devflow:review-and-fix [PR#]` | `/devflow:review` + an automatic fix loop (max 4 iterations); writes a deferrals manifest at Loop Exit | interactively; called by `/implement` Phase 3 |
 | `/devflow:pr-description [issue#]` | Generate/update the PR description from the branch diff; renders the Scope-Acknowledged Findings block when present | interactively; called by `/implement` Phase 4 |

@@ -11,6 +11,7 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **End-to-end workflow walkthrough** in the README — issue → label → autonomous implement → review → docs → PR — so the full loop is demonstrated in one place.
 
 ### Changed
+- **`/devflow:implement` now triggers on a bare `/devflow:implement <#>`** — comment, review, or issue body/title — with **no `@claude` required**. `claude-implement.yml` runs claude-code-action in agent mode with a synthesised prompt and gates on a new authorization step (`scripts/resolve-implement-trigger.sh`: allowed bot or write/admin/maintain collaborator). Because a stock `claude.yml` only fires in tag mode on `@claude`, the two workflows can no longer double-fire on the bare command — and **installing the plugin no longer requires editing an adopter's `claude.yml`**. The `devflow:implement` label path is unchanged. `@claude /devflow:implement <#>` still works.
 - **`/devflow:implement` is now triggered by a label, not a bot comment.** Adding the **`devflow:implement`** label (configurable via `claude_implement.trigger_label`) to an issue starts the implementation lifecycle. `claude-implement.yml` gained an `issues: [labeled]` trigger and synthesises the command via an explicit `prompt`; the `@claude /devflow:implement <#>` comment/issue-body path is unchanged. Because a human label-add is a real user event, it triggers Actions natively — removing the entire GitHub App requirement (see Removed).
 
 ### Removed

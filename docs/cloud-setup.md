@@ -73,7 +73,7 @@ is now a label, see below.)
 
 `claude-implement.yml` runs the full implementation lifecycle when **either**:
 
-- a comment or new issue contains `@claude /devflow:implement <#>`, **or**
+- a comment, review, or new issue contains `/devflow:implement <#>` (no `@claude` required), **or**
 - the **`devflow:implement`** label is added to an issue.
 
 The label is the zero-friction path: add the `devflow:implement` label to any
@@ -123,7 +123,7 @@ If you don't use a board, delete those three workflows and leave
 
 ## Runtime provisioning (`setup`)
 
-The `@claude` and `/devflow:implement` workflows prepare the runner **before**
+The `@claude` (claude.yml) and `/devflow:implement` (claude-implement.yml) workflows prepare the runner **before**
 Claude runs by reading a `setup` block from `.devflow/config.json`.
 There is no hardcoded toolchain — DevFlow installs into repos of every shape
 (Python package at root, npm frontend, Docker-only backend, polyglot), so you
