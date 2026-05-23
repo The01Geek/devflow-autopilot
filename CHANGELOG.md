@@ -14,6 +14,7 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 - **`/devflow:init` no longer references the removed `devflow:implement` label.** The skill now states the trigger is a bare `/devflow:implement <#>` comment (the label trigger was removed in 2.2.1).
+- **`.devflow/tool-presets.json` is now tracked/shipped.** The `/.devflow/*` ignore rule had no re-include for it, so the preset registry `scripts/detect-project-tools.sh` depends on was missing from a clean checkout / the shipped plugin; added a `!` re-include so language auto-detection works after install.
 
 ## [2.2.2] — 2026-05-23
 
