@@ -796,6 +796,43 @@ assert_eq "rit: whitespace-trimmed, non-first allowed bot → should_run" \
 
 rm -rf "$RIT_STUB_DIR"
 
+# ────────────────────────────────────────────────────────────────────────────
+echo "authorize-actor.sh (allowed_users filter)"
+# ────────────────────────────────────────────────────────────────────────────
+AUTH="$LIB/../scripts/authorize-actor.sh"
+ASTUB="$(mktemp -d)"; cp "$LIB/test/fixtures/gh-stub.sh" "$ASTUB/gh"; chmod +x "$ASTUB/gh"
+# Alice is the login the gh stub treats as a write/admin collaborator (mirrors
+# the rit write-collaborator case: ACTOR='alice' STUB_PERM='write').
+COLLAB="alice"
+# shellcheck disable=SC1090,SC2154  # sources authorize-actor.sh at runtime; $authorized set there
+run_auth() { ( PATH="$ASTUB:$PATH"; . "$AUTH"; authorize_actor; printf '%s' "$authorized" ); }
+# shellcheck disable=SC1090,SC2154  # sources authorize-actor.sh at runtime; $deny_reason set there
+run_auth_reason() { ( PATH="$ASTUB:$PATH"; . "$AUTH"; authorize_actor; printf '%s' "$deny_reason" ); }
+
+# 1. Default (ALLOWED_USERS unset → '*') + collaborator → authorized.
+A="$(ACTOR="$COLLAB" ALLOWED_BOTS="somebot" REPO="o/r" run_auth)"
+assert_eq "auth: unset allowed_users + collaborator → authorized" "true" "$A"
+
+# 2. Explicit '*' + collaborator → authorized.
+A="$(ACTOR="$COLLAB" ALLOWED_BOTS="somebot" REPO="o/r" ALLOWED_USERS="*" run_auth)"
+assert_eq "auth: '*' + collaborator → authorized" "true" "$A"
+
+# 3. allowed_users lists the actor + collaborator → authorized.
+A="$(ACTOR="$COLLAB" ALLOWED_BOTS="somebot" REPO="o/r" ALLOWED_USERS="$COLLAB,other" run_auth)"
+assert_eq "auth: actor in allowed_users + collaborator → authorized" "true" "$A"
+
+# 4. allowed_users does NOT list the actor → denied even though collaborator.
+A="$(ACTOR="$COLLAB" ALLOWED_BOTS="somebot" REPO="o/r" ALLOWED_USERS="alice-x,bob" run_auth)"
+assert_eq "auth: collaborator not in allowed_users → denied" "false" "$A"
+R="$(ACTOR="$COLLAB" ALLOWED_BOTS="somebot" REPO="o/r" ALLOWED_USERS="alice-x,bob" run_auth_reason)"
+assert_eq "auth: deny_reason cites allowed_users" "is not in the configured allowed_users allowlist" "$R"
+
+# 5. Bot in allowed_bots bypasses allowed_users entirely.
+A="$(ACTOR="somebot" ALLOWED_BOTS="somebot" REPO="o/r" ALLOWED_USERS="nobody" run_auth)"
+assert_eq "auth: allowed bot bypasses allowed_users → authorized" "true" "$A"
+
+rm -rf "$ASTUB"
+
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)

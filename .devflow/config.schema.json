@@ -29,6 +29,11 @@
           "description": "Bot logins allowed to trigger the Claude action (comma-separated). 'claude' is Anthropic's GitHub App identity; add your own bot/automation logins (e.g. dependabot).",
           "default": "claude,dependabot"
         },
+        "allowed_users": {
+          "type": "string",
+          "description": "Human logins allowed to trigger DevFlow command/implement workflows (comma-separated), in addition to the write/admin/maintain collaborator requirement. '*' (default) allows any collaborator; narrow it to restrict to specific logins. Bots are governed separately by allowed_bots.",
+          "default": "*"
+        },
         "workpad_marker": {
           "type": "string",
           "description": "Marker line identifying the persistent /devflow:implement workpad comment on issues. One comment per issue whose body starts with this marker.",
