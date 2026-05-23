@@ -4,6 +4,20 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.1] — 2026-05-22
+
+### Changed
+- **DevFlow now owns its own workflow files and never touches `claude.yml`.** `claude.yml` is generated and owned by Anthropic's Claude GitHub App; DevFlow used to commandeer that filename. The light `@claude`-mention listener (`claude.yml`) and the reusable runner (`claude-runner.yml`) are merged into a single DevFlow-owned **`devflow.yml`** — one file with two roles, selected by whether `inputs.prompt` is set: the reusable `workflow_call` runner (called by `devflow-review.yml`) and the bare-`/devflow:*` command listener. `claude-implement.yml` → **`devflow-implement.yml`**.
+- **Triggering moved to bare `/devflow:*` commands; `@claude` is ceded to Anthropic.** Every DevFlow trigger now negates `@claude`, so `@claude` mentions (plus generic Q&A and `/security-review`) route only to Anthropic's `claude.yml`, and bare `/devflow:review` · `/devflow:pr-description` · `/devflow:review-and-fix` · `/devflow:implement <#>` route only to DevFlow. No comment can double-fire both. The light commands now run in AGENT mode via a new `scripts/resolve-command-trigger.sh` (sharing the authorization gate with the implement path through the new `scripts/authorize-actor.sh`).
+- **`install.sh`** ships `devflow.yml` / `devflow-implement.yml` / `devflow-review.yml` and, on upgrade, removes a repo's superseded DevFlow-authored `claude*.yml` — signature-guarded so a genuine Anthropic-owned `claude.yml` is left untouched.
+
+### Added
+- **`claude.allowed_users` config** (string, comma-separated logins or `"*"`, default `"*"`). A repo can restrict which human logins may trigger DevFlow workflows. It is an AND-filter on top of the existing write/admin/maintain collaborator check — it can only tighten the gate, never bypass it. Bots remain governed separately by `claude.allowed_bots` (the path for a custom GitHub App that posts the trigger comment).
+
+### Removed
+- **The `devflow:implement` label trigger.** A bare `/devflow:implement <#>` comment — itself a native, no-App user event — is now the sole trigger. The `claude_implement.trigger_label` config key, the label-creation step in `scaffold-config.sh`, and the `IS_LABEL_EVENT` resolver path are gone.
+- **Migration:** re-run `install.sh` (or `/devflow:init`) to install the renamed workflows; it removes the old DevFlow `claude.yml` / `claude-runner.yml` / `claude-implement.yml` automatically. If you installed Anthropic's Claude GitHub App, its `claude.yml` is preserved and now owns `@claude`. Drop the `claude_implement.trigger_label` key from `.devflow/config.json` (the label is no longer used); trigger implementation by commenting `/devflow:implement <#>` instead of applying a label.
+
 ## [2.2.0] — 2026-05-22
 
 ### Changed
