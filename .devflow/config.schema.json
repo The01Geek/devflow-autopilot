@@ -105,7 +105,11 @@
         },
         "node_version": {
           "type": "string",
-          "description": "setup-node runs ONLY if non-empty. Set it (e.g. '20') if your project's tests/build need Node. When set, npm/yarn/pnpm download caching is enabled automatically IF a lockfile (package-lock.json / yarn.lock / pnpm-lock.yaml) is present at the repo root."
+          "description": "setup-node runs ONLY if non-empty. Set it (e.g. '20') if your project's tests/build need Node. When set, npm/yarn/pnpm download caching is enabled automatically IF a lockfile (package-lock.json / yarn.lock / pnpm-lock.yaml / npm-shrinkwrap.json) is present in the directory named by node_working_directory (the repo root by default)."
+        },
+        "node_working_directory": {
+          "type": "string",
+          "description": "Directory (relative to the repo root) that holds the Node project's package.json/lockfile, for repos whose JS build lives in a subdirectory (e.g. 'jsx', 'resources/js', 'frontend') rather than at the root. When set, setup-node's download caching resolves the lockfile under this directory and /devflow:init scopes the generated Node install line into it. Empty/absent (the default) → caching and detection key off the repo root, byte-for-byte identical to the root-based behavior. Note: this only affects the auto-detected Node install line and cache resolution; setup.install lines still run from the repo root."
         },
         "php_version": {
           "type": "string",

@@ -130,7 +130,9 @@ declare what your project needs:
 - `python_version` / `node_version` gate the `actions/setup-python` /
   `actions/setup-node` steps — leave a value empty (`""`) to skip that language.
 - `install` is an **array of shell lines**, joined with newlines and run
-  verbatim after the language setups; leave it `[]` to install nothing.
+  verbatim **from the repo root** after the language setups; leave it `[]` to
+  install nothing. A line that needs a subdirectory must `cd` into it itself
+  (e.g. `(cd jsx && npm ci)` or `npm ci --prefix client`).
 - **Keep `python_version` set and `pip install pyyaml` present even for
   non-Python projects** — DevFlow's own helper scripts currently require
   Python ≥ 3.11 with PyYAML. List DevFlow's deps first, then your project's.
@@ -179,9 +181,20 @@ The `setup` block covers more than Python/Node, in this provisioning order
   allowlist (auto-added when a `Dockerfile`/compose file is present) is what lets
   build steps talk to the containers.
 - **Node dependency caching** — automatic: when `node_version` is set **and** a
-  root lockfile (`package-lock.json` / `yarn.lock` / `pnpm-lock.yaml`) is
-  present, `setup-node`'s download cache is enabled for the matching package
-  manager. No lockfile → caching is skipped (so it never errors).
+  lockfile (`package-lock.json` / `yarn.lock` / `pnpm-lock.yaml` /
+  `npm-shrinkwrap.json`) is present, `setup-node`'s download cache is enabled
+  for the matching package manager. The lockfile is resolved under
+  **`setup.node_working_directory`** — the repo root by default. No lockfile →
+  caching is skipped (so it never errors).
+- **Subdirectory / monorepo Node builds** — if your `package.json` + lockfile
+  live in a subdirectory (a PHP/Rails app with a `/jsx` or `/resources/js`
+  bundle, a monorepo `frontend/` package) rather than at the repo root, set
+  `setup.node_working_directory` to that directory (e.g. `"jsx"`). Caching then
+  keys off the lockfile there, and `/devflow:init` auto-detects it and scopes
+  the generated Node install line into that directory (a subshell `cd`). Leave
+  it empty/absent for a root-level build — provisioning is byte-for-byte the
+  same as before. Remember `install` lines still run from the repo root, so any
+  *additional* build line you add must scope itself into the subdirectory.
 
 `/devflow:init` populates the deterministic parts (tool allowlists, `node_version`,
 `npm ci`/`composer install`) from language markers, then **explores the repo**
