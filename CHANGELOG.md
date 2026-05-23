@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.6] — 2026-05-23
+
+### Fixed
+- **`devflow.yml` and `devflow-implement.yml` now fail loud on a missing `devflow.allowed_bots` instead of running with a `"null"` allowlist.** Previously the `config` job read `jq -r '.devflow.allowed_bots'` with no fallback, so a config left on the pre-2.2.5 `claude.allowed_bots` key emitted the literal string `null` — a bot allowlist that silently matches nothing, disabling triggering without telling the operator why. Both now read with `// empty` and emit a `::error::` + exit 1, but **only when `workflows.devflow` is enabled** (the allowlist is read only downstream of the enabled gate, so an intentionally-disabled repo is never failed). This brings the two command-path workflows in line with the fail-closed guard `devflow-runner.yml` already had.
+
 ## [2.2.5] — 2026-05-23
 
 ### Changed
