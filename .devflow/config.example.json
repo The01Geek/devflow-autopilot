@@ -11,7 +11,6 @@
   },
   "claude_implement": {
     "effort": "medium",
-    "trigger_label": "devflow:implement",
     "allowed_tools": []
   },
   "claude_runner": {

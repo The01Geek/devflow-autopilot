@@ -106,7 +106,4 @@ done
 #    relative to the script ($SRC/.devflow), and we target the current repo root.
 bash "$SRC/scripts/scaffold-config.sh" "$PWD"
 
-# (The /devflow:implement trigger label is created best-effort by
-# scaffold-config.sh in step 5, so install.sh and /devflow:init stay in sync.)
-
 log "done (from ${REPO}@${REF}). Review with 'git status' / 'git diff' and commit."

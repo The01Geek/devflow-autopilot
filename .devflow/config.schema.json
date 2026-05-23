@@ -48,7 +48,7 @@
         "allowed_tools": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "Extra --allowed-tools entries for the light @claude path (claude.yml), APPENDED on top of devflow's built-in base list. Use claude-code-action tool syntax, e.g. \"Bash(make:*)\", \"Bash(docker compose:*)\". Does not apply to /devflow:implement — see claude_implement.allowed_tools. Empty/omitted → base list only.",
+          "description": "Extra --allowed-tools entries for the light /devflow:* command path (devflow.yml), APPENDED on top of devflow's built-in base list. Use claude-code-action tool syntax, e.g. \"Bash(make:*)\", \"Bash(docker compose:*)\". Does not apply to /devflow:implement — see claude_implement.allowed_tools. Empty/omitted → base list only.",
           "default": []
         }
       }
@@ -57,15 +57,10 @@
       "type": "object",
       "properties": {
         "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"] },
-        "trigger_label": {
-          "type": "string",
-          "description": "Issue label that triggers /devflow:implement (claude-implement.yml). Adding this label to an issue kicks off implementation — a human label-add is a real user event, so it needs no bot comment or GitHub App. The label must already exist in the repo. Empty/omitted → 'devflow:implement'.",
-          "default": "devflow:implement"
-        },
         "allowed_tools": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "Extra --allowed-tools entries for the /devflow:implement path (claude-implement.yml), APPENDED on top of devflow's built-in base list. The implement path does NOT inherit claude.allowed_tools, so list every extra tool you want during implementation here. Empty/omitted → base list only.",
+          "description": "Extra --allowed-tools entries for the /devflow:implement path (devflow-implement.yml), APPENDED on top of devflow's built-in base list. The implement path does NOT inherit claude.allowed_tools, so list every extra tool you want during implementation here. Empty/omitted → base list only.",
           "default": []
         }
       }
