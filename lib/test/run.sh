@@ -882,6 +882,40 @@ assert_eq "rct: unauthorized actor → should_run=false" \
 
 rm -rf "$RCT_STUB"
 
+# ────────────────────────────────────────────────────────────────────────────
+echo "install.sh: prune_stale_devflow_workflows"
+# ────────────────────────────────────────────────────────────────────────────
+# On upgrade, install.sh must remove DevFlow's OWN superseded claude*.yml but
+# NEVER an Anthropic-owned claude.yml. Source the installer with
+# DEVFLOW_SELFTEST=1 (defines the functions, skips the installer body) and run
+# the prune function against throwaway repos.
+INSTALL="$LIB/../install.sh"
+
+# Case A: DevFlow-signed claude.yml + stale runner/implement → all removed.
+WORK="$(mktemp -d)"; mkdir -p "$WORK/.github/workflows"
+printf '%s\n' "name: Claude Code" "  review_dedupe:" > "$WORK/.github/workflows/claude.yml"
+echo "name: Claude Runner (reusable)" > "$WORK/.github/workflows/claude-runner.yml"
+echo "name: Claude Code (implement)" > "$WORK/.github/workflows/claude-implement.yml"
+# shellcheck disable=SC1090  # sources install.sh at runtime under DEVFLOW_SELFTEST
+( cd "$WORK" && DEVFLOW_SELFTEST=1 . "$INSTALL" && prune_stale_devflow_workflows ) >/dev/null 2>&1
+assert_eq "install: devflow-signed claude.yml removed" \
+  "absent" "$([ -f "$WORK/.github/workflows/claude.yml" ] && echo present || echo absent)"
+assert_eq "install: stale claude-runner.yml removed" \
+  "absent" "$([ -f "$WORK/.github/workflows/claude-runner.yml" ] && echo present || echo absent)"
+assert_eq "install: stale claude-implement.yml removed" \
+  "absent" "$([ -f "$WORK/.github/workflows/claude-implement.yml" ] && echo present || echo absent)"
+rm -rf "$WORK"
+
+# Case B: Anthropic's own claude.yml (no DevFlow signature) → preserved.
+WORK="$(mktemp -d)"; mkdir -p "$WORK/.github/workflows"
+printf '%s\n' "name: Claude Code" "  claude:" "    uses: anthropics/claude-code-action@v1" \
+  > "$WORK/.github/workflows/claude.yml"
+# shellcheck disable=SC1090
+( cd "$WORK" && DEVFLOW_SELFTEST=1 . "$INSTALL" && prune_stale_devflow_workflows ) >/dev/null 2>&1
+assert_eq "install: Anthropic claude.yml preserved" \
+  "present" "$([ -f "$WORK/.github/workflows/claude.yml" ] && echo present || echo absent)"
+rm -rf "$WORK"
+
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
