@@ -65,8 +65,8 @@ gone.)
 
 ## Triggering `/devflow:implement`
 
-`devflow-implement.yml` runs the full implementation lifecycle when a comment,
-review, or new-issue body contains a bare `/devflow:implement <#>` (no `@claude`
+`devflow-implement.yml` runs the full implementation lifecycle when a real
+comment or review body contains a bare `/devflow:implement <#>` (no `@claude`
 required — and **no** `@claude`: a comment containing `@claude` is ceded to
 Anthropic's Claude GitHub App, not DevFlow). There is no label trigger — a human
 `/devflow:implement <#>` comment is the sole entry point and is itself a native
@@ -82,6 +82,13 @@ user event, so it needs no bot comment, PAT, or GitHub App.
 > bypasses it. Bots are governed separately by `claude.allowed_bots` — this is
 > the path for a custom GitHub App that posts the trigger comment on your behalf.
 > The same gate guards the light `/devflow:*` command path in `devflow.yml`.
+>
+> **Early acknowledgement.** As soon as the gate authorizes a command, it adds a
+> 🚀 reaction to the triggering comment via `scripts/react-to-trigger.sh` — so you
+> can see the trigger was picked up well before the heavy job spins up. It's
+> best-effort: a failed reaction never blocks the run, and a `/devflow:*` command
+> submitted as a PR *review* gets no reaction (GitHub has no reactions API for
+> reviews).
 
 For the full idea → issue → PR walkthrough, see
 [The workflow, end to end](../README.md#the-workflow-end-to-end) in the README.
@@ -164,7 +171,7 @@ workflow YAML:
 |---|---|---|
 | `ci.yml` | Runs DevFlow's own test suite | — (this repo's CI) |
 | `devflow.yml` | Reusable runner (`workflow_call`) **and** the light `/devflow:*` command listener (review, review-and-fix, pr-description) | `CLAUDE_CODE_OAUTH_TOKEN` |
-| `devflow-implement.yml` | Runs `/devflow:implement` on a bare command comment/issue | `CLAUDE_CODE_OAUTH_TOKEN` |
+| `devflow-implement.yml` | Runs `/devflow:implement` on a bare command in a comment/review | `CLAUDE_CODE_OAUTH_TOKEN` |
 | `devflow-review.yml` | Auto-runs `/devflow:review` as a gate on PRs (calls `devflow.yml`'s runner) | `CLAUDE_CODE_OAUTH_TOKEN` |
 
 DevFlow never creates or overwrites `claude.yml` — that file belongs to

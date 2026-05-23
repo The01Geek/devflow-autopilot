@@ -797,6 +797,115 @@ assert_eq "rit: whitespace-trimmed, non-first allowed bot → should_run" \
 rm -rf "$RIT_STUB_DIR"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "dedupe-implement-run.sh"
+# ────────────────────────────────────────────────────────────────────────────
+# Per-thread duplicate detection for /devflow:implement. GitHub has no native
+# "skip if already running", so this gate-stage check decides duplicate=true
+# when an OLDER active run for the same issue/PR thread exists, letting the
+# workflow skip the billable job and leave the in-flight run untouched. The gh
+# `run list` call is stubbed via DEVFLOW_GH; DEDUPE_RUNS_JSON feeds the run set
+# and DEDUPE_GH_RC simulates a query failure.
+DIR="$LIB/../scripts/dedupe-implement-run.sh"
+DI_STUB="$(mktemp -d)"
+cat > "$DI_STUB/gh" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *"run list"*)
+    [ -n "${DI_ARGS_REC:-}" ] && echo "$*" >> "$DI_ARGS_REC"
+    [ -n "${DEDUPE_GH_RC:-}" ] && exit "$DEDUPE_GH_RC"
+    printf '%s' "${DEDUPE_RUNS_JSON:-[]}" ;;
+  *) echo "" ;;
+esac
+STUB
+chmod +x "$DI_STUB/gh"
+di() { DEVFLOW_GH="$DI_STUB/gh" REPO=o/r RUN_ID="$1" CONTEXT_NUMBER="$2" \
+  DEDUPE_RUNS_JSON="$3" bash "$DIR" 2>/dev/null; }
+
+# 1. An OLDER (smaller databaseId) active run for the same thread → duplicate.
+assert_eq "di: older active run, same thread → duplicate" "duplicate=true" \
+  "$(di 200 42 '[{"databaseId":100,"displayTitle":"DevFlow implement (issue 42)","status":"in_progress"}]')"
+
+# 2. A queued (not yet started) older run still counts as active → duplicate.
+assert_eq "di: older QUEUED run, same thread → duplicate" "duplicate=true" \
+  "$(di 200 42 '[{"databaseId":100,"displayTitle":"DevFlow implement (issue 42)","status":"queued"}]')"
+
+# 3. A NEWER run (larger id) is NOT deferred to — this run is the older of the
+#    two and proceeds; the newer one will defer to it. Guards against two
+#    near-simultaneous commands BOTH skipping.
+assert_eq "di: newer run, same thread → not duplicate (this run is older)" "duplicate=false" \
+  "$(di 200 42 '[{"databaseId":300,"displayTitle":"DevFlow implement (issue 42)","status":"in_progress"}]')"
+
+# 4. An older active run for a DIFFERENT thread → not a duplicate (per-thread).
+assert_eq "di: older run, different thread → not duplicate" "duplicate=false" \
+  "$(di 200 42 '[{"databaseId":100,"displayTitle":"DevFlow implement (issue 43)","status":"in_progress"}]')"
+
+# 5. Number-boundary: thread 2 must not match a run-name carrying thread 21.
+assert_eq "di: thread 2 does not match 'issue 21'" "duplicate=false" \
+  "$(di 200 2 '[{"databaseId":100,"displayTitle":"DevFlow implement (issue 21)","status":"in_progress"}]')"
+
+# 6. A finished run (completed) is not active → not a duplicate.
+assert_eq "di: completed run → not duplicate" "duplicate=false" \
+  "$(di 200 42 '[{"databaseId":100,"displayTitle":"DevFlow implement (issue 42)","status":"completed"}]')"
+
+# 7. Only this run itself in the list (id == RUN_ID) → not a duplicate.
+assert_eq "di: self only → not duplicate" "duplicate=false" \
+  "$(di 200 42 '[{"databaseId":200,"displayTitle":"DevFlow implement (issue 42)","status":"in_progress"}]')"
+
+# 8. No active runs at all → not a duplicate.
+assert_eq "di: empty run list → not duplicate" "duplicate=false" \
+  "$(di 200 42 '[]')"
+
+# 9. gh query failure → fail OPEN (run proceeds), never silently swallowed.
+assert_eq "di: gh failure → fail open (not duplicate)" "duplicate=false" \
+  "$(DEVFLOW_GH="$DI_STUB/gh" REPO=o/r RUN_ID=200 CONTEXT_NUMBER=42 DEDUPE_GH_RC=1 bash "$DIR" 2>/dev/null)"
+
+# 10. Missing/invalid CONTEXT_NUMBER → fail open (cannot dedupe without a thread).
+assert_eq "di: missing context number → fail open" "duplicate=false" \
+  "$(di 200 '' '[]')"
+
+# 11. Active-status set spanning 3+ overlapping runs: the OLDEST proceeds, a
+#     middle run defers. Asserts the "exactly one of N proceeds" invariant beyond
+#     the pairwise N=2 cases above (no double-skip across a 3-way race).
+THREE='[{"databaseId":100,"displayTitle":"DevFlow implement (issue 42)","status":"in_progress"},{"databaseId":200,"displayTitle":"DevFlow implement (issue 42)","status":"in_progress"},{"databaseId":300,"displayTitle":"DevFlow implement (issue 42)","status":"queued"}]'
+assert_eq "di: 3-way race, oldest (id 100) → proceeds" "duplicate=false" "$(di 100 42 "$THREE")"
+assert_eq "di: 3-way race, middle (id 200) → defers" "duplicate=true"  "$(di 200 42 "$THREE")"
+assert_eq "di: 3-way race, newest (id 300) → defers" "duplicate=true"  "$(di 300 42 "$THREE")"
+
+# 12. Malformed JSON (gh returned 200 + non-JSON, e.g. an HTML error page) → jq
+#     fails, count is non-numeric → fail OPEN. Distinct path from the gh-exit
+#     failure (#9) and missing-input (#10) cases.
+assert_eq "di: malformed run-list JSON → fail open (not duplicate)" "duplicate=false" \
+  "$(di 200 42 'not-json{')"
+
+# 13. The run list MUST be scoped to --workflow devflow-implement.yml — otherwise
+#     a same-numbered run of a DIFFERENT workflow (e.g. /devflow:review) could
+#     spuriously suppress a legitimate /devflow:implement. Record the gh argv and
+#     assert the flag is present.
+DI_REC="$(mktemp)"
+DEVFLOW_GH="$DI_STUB/gh" REPO=o/r RUN_ID=200 CONTEXT_NUMBER=42 DEDUPE_RUNS_JSON='[]' \
+  DI_ARGS_REC="$DI_REC" bash "$DIR" >/dev/null 2>&1
+assert_eq "di: run list is scoped to --workflow devflow-implement.yml" "1" \
+  "$(grep -c -- '--workflow devflow-implement.yml' "$DI_REC")"
+rm -f "$DI_REC"
+
+# 14. The duplicate-ignored NOTICE must carry no DevFlow trigger phrase, or the
+#     bot's own comment would re-fire devflow-implement.yml (self-trigger loop).
+#     Assert the workflow's notice body is phrase-free.
+NOTICE_LINE="$(grep -A2 'Notice — duplicate ignored' "$LIB/../.github/workflows/devflow-implement.yml" || true; \
+  grep 'NOTE=' "$LIB/../.github/workflows/devflow-implement.yml" || true)"
+# Guard against a vacuous pass: if the grep window ever stops capturing the notice
+# body, grep -c on empty input returns 0 and the phrase-free checks pass without
+# inspecting anything. Assert we actually captured the notice first.
+assert_eq "di: notice test captured the notice body (no vacuous pass)" "1" \
+  "$(grep -c 'already in progress' <<< "$NOTICE_LINE")"
+assert_eq "di: duplicate notice contains no /devflow: phrase" "0" \
+  "$(grep -c '/devflow:' <<< "$NOTICE_LINE")"
+assert_eq "di: duplicate notice contains no @claude" "0" \
+  "$(grep -c '@claude' <<< "$NOTICE_LINE")"
+
+rm -rf "$DI_STUB"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "authorize-actor.sh (allowed_users filter)"
 # ────────────────────────────────────────────────────────────────────────────
 AUTH="$LIB/../scripts/authorize-actor.sh"
@@ -883,6 +992,77 @@ assert_eq "rct: unauthorized actor → should_run=false" \
 rm -rf "$RCT_STUB"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "react-to-trigger.sh"
+# ────────────────────────────────────────────────────────────────────────────
+# Early-ack reaction. Picks the reactions endpoint by event type, defaults the
+# content to `rocket`, and skips events with no reactions API (reviews). A `gh`
+# stub records the `api` call args to $REACT_REC so we can assert the endpoint.
+RT="$LIB/../scripts/react-to-trigger.sh"
+RT_STUB="$(mktemp -d)"
+cat > "$RT_STUB/gh" <<'STUB'
+#!/usr/bin/env bash
+echo "$*" >> "$REACT_REC"
+STUB
+chmod +x "$RT_STUB/gh"
+
+# Per-case vars go through `env` because words from "$@" expansion are NOT
+# honored as assignment prefixes (POSIX recognizes only literal tokens).
+react() { REACT_REC="$(mktemp)"; PATH="$RT_STUB:$PATH" REACT_REC="$REACT_REC" GH_TOKEN=x env "$@" bash "$RT" >/dev/null 2>&1; }
+
+# 1. issue_comment → react on the issue comment, default content rocket.
+react EVENT_NAME=issue_comment REPO=o/r COMMENT_ID=555
+assert_eq "react: issue_comment → issues/comments endpoint w/ rocket" \
+  "1" "$(grep -c 'repos/o/r/issues/comments/555/reactions.*content=rocket' "$REACT_REC")"
+rm -f "$REACT_REC"
+
+# 2. pull_request_review_comment → react on the PR review comment.
+react EVENT_NAME=pull_request_review_comment REPO=o/r COMMENT_ID=777
+assert_eq "react: review comment → pulls/comments endpoint" \
+  "1" "$(grep -c 'repos/o/r/pulls/comments/777/reactions' "$REACT_REC")"
+rm -f "$REACT_REC"
+
+# 3. issues (opened) → react on the issue itself.
+react EVENT_NAME=issues REPO=o/r ISSUE_NUMBER=42
+assert_eq "react: issues event → issues/<n> endpoint" \
+  "1" "$(grep -c 'repos/o/r/issues/42/reactions' "$REACT_REC")"
+rm -f "$REACT_REC"
+
+# 4. pull_request_review has no reactions API → no call at all.
+react EVENT_NAME=pull_request_review REPO=o/r COMMENT_ID=1
+assert_eq "react: review event makes no api call" \
+  "0" "$(grep -c 'reactions' "$REACT_REC")"
+rm -f "$REACT_REC"
+
+# 5. REACTION env overrides the default content.
+react EVENT_NAME=issue_comment REPO=o/r COMMENT_ID=9 REACTION=eyes
+assert_eq "react: REACTION env overrides default content" \
+  "1" "$(grep -c 'content=eyes' "$REACT_REC")"
+rm -f "$REACT_REC"
+
+# 6. gh failure (e.g. HTTP 403 from a missing write scope) must NOT fail the
+# step — best-effort: the script swallows it, exits 0, and warns to stderr with
+# the gh error one-lined. This is the load-bearing error branch the success
+# stub above can't reach (it always exits 0). A separate stub that prints a
+# multi-line error to stderr and exits 1 exercises both the exit-0 guarantee
+# and the `${err//$'\n'/ }` collapse.
+FAIL_STUB="$(mktemp -d)"
+cat > "$FAIL_STUB/gh" <<'STUB'
+#!/usr/bin/env bash
+printf 'HTTP 403: Resource not accessible by integration\n(check issues/pull-requests write)\n' >&2
+exit 1
+STUB
+chmod +x "$FAIL_STUB/gh"
+react_err="$(PATH="$FAIL_STUB:$PATH" GH_TOKEN=x EVENT_NAME=issue_comment REPO=o/r COMMENT_ID=1 bash "$RT" 2>&1 >/dev/null)"
+assert_eq "react: gh failure still exits 0 (best-effort, never blocks the run)" "0" "$?"
+assert_eq "react: gh failure warns to stderr" \
+  "1" "$(printf '%s\n' "$react_err" | grep -c '::warning::react: could not add')"
+assert_eq "react: multi-line gh error is collapsed to one log line" \
+  "1" "$(printf '%s\n' "$react_err" | grep -c 'integration (check issues')"
+rm -rf "$FAIL_STUB"
+
+rm -rf "$RT_STUB"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "install.sh: prune_stale_devflow_workflows"
 # ────────────────────────────────────────────────────────────────────────────
 # On upgrade, install.sh must remove DevFlow's OWN superseded claude*.yml but
@@ -934,6 +1114,49 @@ done
 for f in devflow devflow-implement; do
   bad="$(grep -nE "^[[:space:]]*types:.*labeled" "$WF/$f.yml" || true)"
   assert_eq "partition: $f.yml has no labeled trigger" "" "$bad"
+done
+
+# Comment-only triggers: a /devflow:* phrase in an issue/PR DESCRIPTION must
+# never start a run. Neither workflow may (a) listen on the `issues` event, nor
+# (b) match the trigger phrase against an issue body/title in its gate `if:`.
+# Only real comment/review bodies are valid trigger sources.
+for f in devflow devflow-implement; do
+  bad="$(grep -nE "^[[:space:]]*issues:[[:space:]]*$" "$WF/$f.yml" || true)"
+  assert_eq "partition: $f.yml does not listen on the issues event" "" "$bad"
+  # No gate matching against issue.body / issue.title (those are descriptions).
+  bad="$(grep -nE "contains\(github\.event\.issue\.(body|title)" "$WF/$f.yml" || true)"
+  assert_eq "partition: $f.yml gate never matches an issue body/title" "" "$bad"
+  # TRIGGER_TEXT must be sourced only from comment/review bodies.
+  bad="$(grep -nE "TRIGGER_TEXT:.*github\.event\.issue\.(body|title)" "$WF/$f.yml" || true)"
+  assert_eq "partition: $f.yml TRIGGER_TEXT excludes issue body/title" "" "$bad"
+done
+
+# Early-ack reaction must stay correctly wired in BOTH gate jobs. These guard
+# the load-bearing properties that the react-to-trigger.sh unit tests above
+# CANNOT see (they exercise the script in isolation): it must run only after
+# authorization, the gate must hold the write scopes the POST needs, and it must
+# be `bash`-invoked so it doesn't depend on the vendored copy's exec bit. Slice
+# out just the gate job — `issues:/pull-requests: write` also appear on the
+# heavy command/claude jobs, so a whole-file grep would not prove gate scoping.
+gate_block() {
+  awk '
+    /^  [A-Za-z0-9_-]+:[[:space:]]*$/ { inblock = ($0 ~ /^  gate:/) }
+    inblock { print }
+  ' "$1"
+}
+for f in devflow devflow-implement; do
+  blk="$(gate_block "$WF/$f.yml")"
+  # 1. Ack step is gated on resolver authorization — never reacts before should_run.
+  guard="$(printf '%s\n' "$blk" | awk '/name: Acknowledge trigger/{f=1} f && /should_run ==/ {print "ok"; exit}')"
+  assert_eq "react: $f.yml ack step gated on should_run" "ok" "$guard"
+  # 2. Gate grants exactly the scopes the reactions POST needs.
+  assert_eq "react: $f.yml gate grants issues:write" "1" \
+    "$(printf '%s\n' "$blk" | grep -cE '^[[:space:]]+issues:[[:space:]]*write')"
+  assert_eq "react: $f.yml gate grants pull-requests:write" "1" \
+    "$(printf '%s\n' "$blk" | grep -cE '^[[:space:]]+pull-requests:[[:space:]]*write')"
+  # 3. Invoked via `bash` (no exec-bit dependency on the vendored copy).
+  bad="$(printf '%s\n' "$blk" | grep -nE 'run:.*react-to-trigger\.sh' | grep -v 'bash ' || true)"
+  assert_eq "react: $f.yml invokes react-to-trigger.sh via bash" "" "$bad"
 done
 
 # Tally the shell assertions from the results file (authoritative — includes the
