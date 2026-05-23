@@ -188,7 +188,7 @@ The local tier needs **no config** — every value has a built-in default. To cu
 
 This creates `.devflow/config.json` from DevFlow's shipped template (only if you don't already have one — it never clobbers a config you've filled in) and refreshes `.devflow/config.schema.json`. It pulls the templates from the installed plugin, so it works even though they aren't in your repo — a plain `cp .devflow/config.example.json …` only works from the DevFlow source repo, not a marketplace install. The cloud-tier `install.sh` runs the *same* scaffolder, so the two are interchangeable and safe to run in any order: whichever runs first creates `config.json`; the other leaves it untouched and just refreshes the schema.
 
-(The live `config.json` is gitignored so you don't commit environment-specific values. Your editor reads `config.schema.json` for autocomplete + field descriptions.) Keys the skills read:
+(`/devflow:init` / `install.sh` write a scoped `.devflow/.gitignore` that ignores only the ephemeral `.devflow/tmp/` scratch — `config.json` itself stays committed, since it now holds working defaults rather than environment-specific IDs, and the cloud tier reads it from the committed tree. Your editor reads `config.schema.json` for autocomplete + field descriptions.) Keys the skills read:
 
 - `docs.internal`, `docs.external` — documentation paths (read by the `/docs` family and `/devflow:implement`).
 - `docs.release_notes_file`, `docs.documented_label` — release-notes path + the label `/devflow:implement` applies after its docs pass.

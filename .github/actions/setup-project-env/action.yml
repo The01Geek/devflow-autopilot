@@ -27,9 +27,18 @@ runs:
         CONFIG_JSON: ${{ inputs.config_json }}
       run: |
         set -euo pipefail
+        # Assignment form (not echo "k=$(…)"): a command-substitution failure
+        # inside `echo "k=$(…)"` is swallowed (echo still exits 0), so a missing
+        # jq or malformed CONFIG_JSON would silently write an empty version and
+        # skip the toolchain. Capturing into a var lets `set -e` abort instead.
+        # The `if type=="string"` guard maps a non-scalar value (a config typo
+        # like an object/array) to "" rather than letting multi-line JSON
+        # corrupt the GITHUB_OUTPUT line.
+        py_ver=$(echo "$CONFIG_JSON" | jq -r '.setup.python_version // "" | if type=="string" then . else "" end')
+        node_ver=$(echo "$CONFIG_JSON" | jq -r '.setup.node_version // "" | if type=="string" then . else "" end')
         {
-          echo "python_version=$(echo "$CONFIG_JSON" | jq -r '.setup.python_version // ""')"
-          echo "node_version=$(echo "$CONFIG_JSON" | jq -r '.setup.node_version // ""')"
+          echo "python_version=$py_ver"
+          echo "node_version=$node_ver"
         } >> "$GITHUB_OUTPUT"
 
     - name: Set up Python
