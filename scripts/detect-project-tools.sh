@@ -202,7 +202,7 @@ if jq --sort-keys . "$CONFIG" >/dev/null 2>&1 && ! diff -q \
   mv "$TMP" "$CONFIG"
   trap - EXIT
   log "detected: ${ACTIVE[*]} — merged build/test tools into config.json (devflow / devflow_implement / devflow_runner) + setup."
-  log "review the additions before committing; these tools run PR code during automated review (see config.schema.json devflow_runner.allowed_tools)."
+  log "review the additions before committing; the devflow / devflow_implement entries run PR code in their respective workflows. NOTE: devflow_runner.allowed_tools is currently inert — the automated reviewer's build access is the opt-in flag devflow_runner.provision_env (see config.schema.json / docs/cloud-setup.md), which also runs PR build code under a write token."
 else
   log "detected: ${ACTIVE[*]} — config.json already covers them; no changes."
 fi

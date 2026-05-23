@@ -132,13 +132,14 @@ jobs:
           # still run PR-author code once provisioning is on — that is the
           # maintainer's documented opt-in; see docs/cloud-setup.md.)
           #
-          # Deliberate: on a check_run Re-run of a PR whose base is a NON-default
-          # branch, the fallback reads provision_env from the default branch, not
-          # that PR's actual base. We accept this — the default branch is the
-          # most-protected trust anchor for a security-sensitive opt-in, and
-          # provision_env is normally a uniform repo-wide policy. The common
-          # pull_request / pull_request_target paths always read the PR's true
-          # base ref.
+          # Deliberate: on any trigger that carries no `pull_request` (today only
+          # a check_run Re-run), the fallback reads provision_env from the
+          # default branch — so for a PR whose base is a NON-default branch, a
+          # re-run reads the default branch's flag, not that PR's actual base. We
+          # accept this: the default branch is the most-protected trust anchor
+          # for a security-sensitive opt-in, and provision_env is normally a
+          # uniform repo-wide policy. The common pull_request /
+          # pull_request_target paths always read the PR's true base ref.
           BASE_REF: ${{ github.event.pull_request.base.ref || github.event.repository.default_branch }}
         run: |
           set -euo pipefail
@@ -153,14 +154,29 @@ jobs:
             # PR head. --depth=1: only the tip is needed to read one file.
             if git fetch --depth=1 origin "$BASE_REF" >/dev/null 2>&1; then
               if RAW=$(git show "FETCH_HEAD:.devflow/config.json" 2>/dev/null); then
-                # jq validates + compacts; a malformed base config aborts under
-                # set -e rather than silently provisioning with garbage.
-                BASE_JSON=$(printf '%s' "$RAW" | jq -c '.')
-                # `== true` clamps to a literal true/false: only a real boolean
-                # `true` enables provisioning. A non-boolean (string/number) or
-                # absent value yields false, so a typo can never accidentally
-                # provision, and the step output is always a clean token.
-                PROVISION=$(printf '%s' "$BASE_JSON" | jq -r '(.devflow_runner.provision_env == true)')
+                # Parse in its own guard so a MALFORMED base config collapses to
+                # read-only (the documented safe default), NOT aborts the whole
+                # review job under set -e — otherwise every open PR targeting
+                # that branch fails its review with an opaque jq error. The
+                # `== true` clamp below already prevents "provisioning with
+                # garbage," so a hard abort buys no safety, only lost
+                # availability. (2>/dev/null on jq so we emit our own actionable
+                # warning instead of the raw parse error.)
+                if BASE_JSON=$(printf '%s' "$RAW" | jq -c '.' 2>/dev/null); then
+                  # `== true` clamps to a literal true/false: only a real boolean
+                  # `true` enables provisioning. A non-boolean (string/number) or
+                  # absent value yields false, so a typo can never accidentally
+                  # provision, and the step output is always a clean token.
+                  PROVISION=$(printf '%s' "$BASE_JSON" | jq -r '(.devflow_runner.provision_env == true)')
+                else
+                  BASE_JSON='{}'
+                  echo "::warning::Base ref '$BASE_REF' has a malformed .devflow/config.json; defaulting to provision_env=false (read-only review). Fix the base-branch config to restore build-aware review."
+                fi
+              else
+                # No committed config on the base ref (e.g. a repo bootstrapping
+                # devflow via this very PR) → read-only, as documented. Emit a
+                # notice so a silently-downgraded opt-in is at least observable.
+                echo "::notice::No .devflow/config.json on base ref '$BASE_REF'; provision_env=false (read-only review)."
               fi
             else
               echo "::warning::Could not fetch base ref '$BASE_REF'; defaulting to provision_env=false (read-only review)."

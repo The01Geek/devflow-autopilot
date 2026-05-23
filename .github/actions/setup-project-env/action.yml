@@ -23,7 +23,7 @@ description: |
 
 inputs:
   config_json:
-    description: '.devflow/config.json contents, as emitted by the read-project-config action (steps.<id>.outputs.json).'
+    description: '.devflow/config.json contents, as emitted by the read-project-config action (steps.<id>.outputs.json). The automated reviewer (devflow-runner.yml, provision_env path) instead passes the TRUSTED base-ref config it reads directly via git show + `jq -c` — a different provenance but the same shape (a JSON object with a `.setup` block), so this action consumes it identically.'
     required: true
 
 runs:

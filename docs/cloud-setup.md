@@ -294,7 +294,11 @@ entries. Enabling the reviewer's build environment is then just setting
 > Residual limitation: the reviewer still runs the in-repo composite actions
 > (and the `setup.install` lines) from the PR checkout, so a PR that edits
 > `.github/actions/**` is a separate, louder vector — protect those paths if
-> this matters to you.
+> this matters to you. Note too that the `setup` block comes from the base
+> branch but runs against the PR-head tree, so a PR that restructures the
+> project (renames the package dir, regenerates the lockfile) can make the
+> base-pinned install line fail — surfacing as a provisioning error, not a code
+> defect.
 
 ## Workflow inventory
 

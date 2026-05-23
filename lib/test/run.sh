@@ -1584,11 +1584,15 @@ echo "devflow-runner.yml: opt-in environment provisioning (issue #18)"
 # enable provisioning or inject install commands into the write-token job.
 RUNNER="$LIB/../.github/workflows/devflow-runner.yml"
 
-# The read-only base profile line must NOT contain any build tool — this is the
-# "byte-for-byte read-only when disabled" guarantee. (The npm/etc. tokens live
-# only on the separate, PROVISION_ENV-guarded append line below.)
-assert_eq "provision: read-only base profile has no build tools" "0" \
-  "$(grep "TOOLS='Read,Glob,Grep" "$RUNNER" | grep -c 'Bash(npm:\*)' || true)"
+# The read-only base profile line must NOT contain ANY of the 8 build tools —
+# this is the "byte-for-byte read-only when disabled" guarantee. Check all eight
+# (not just npm): a regression that moved a less-npm-shaped token like
+# Bash(make:*) or Bash(php:*) onto the base line would slip a single-tool grep
+# while breaking the security invariant. (The build tokens live only on the
+# separate, PROVISION_ENV-guarded append line below.)
+assert_eq "provision: read-only base profile has no build tools (all 8)" "0" \
+  "$(grep "TOOLS='Read,Glob,Grep" "$RUNNER" \
+     | grep -cE 'Bash\((npm|npx|node|yarn|pnpm|composer|php|make):\*\)' || true)"
 
 # The 8 build/verify tools are appended on a single line, and that line is
 # guarded by `if [ "$PROVISION_ENV" = "true" ]` on the immediately preceding
@@ -1607,6 +1611,20 @@ assert_eq "provision: setup-project-env step present" "1" \
   "$(grep -c 'uses: ./.github/actions/setup-project-env' "$RUNNER" || true)"
 assert_eq "provision: setup-project-env gated on base provision_env" "1" \
   "$(grep -c "if: steps.baseprovision.outputs.provision_env == 'true'" "$RUNNER" || true)"
+
+# Coupling: the tool-profile guard and the provision step must read the SAME
+# gate. Pin that the tools step's PROVISION_ENV env is wired to
+# steps.baseprovision.outputs.provision_env — if it were ever pointed at a
+# stale/different source, build tools could be granted without (or without
+# matching) a provisioned env, and every other assertion would stay green.
+assert_eq "provision: PROVISION_ENV env wired to baseprovision output" "1" \
+  "$(grep -cF 'PROVISION_ENV: ${{ steps.baseprovision.outputs.provision_env }}' "$RUNNER" || true)"
+
+# Documented invariant (schema marks devflow_runner.allowed_tools deprecated/
+# inert): the runner must contain ZERO reads of devflow_runner.allowed_tools. If
+# a future change re-wires that key, this fails and the docs/schema must follow.
+assert_eq "provision: runner does not consume devflow_runner.allowed_tools" "0" \
+  "$(grep -cE 'devflow_runner\.allowed_tools|devflow_runner\[.allowed_tools' "$RUNNER" || true)"
 
 # Trust boundary: the flag and setup block come from the base ref. BASE_REF is
 # sourced from the trusted event payload, fetched from origin, and read out of
@@ -1631,6 +1649,11 @@ assert_eq "provision: flag read exactly once (jq)" "1" \
 assert_eq "provision: flag read from base config (BASE_JSON), not PR-head CONFIG_JSON" "yes" \
   "$(printf '%s\n' "$PROV_READS" | grep -q 'BASE_JSON' \
      && ! printf '%s\n' "$PROV_READS" | grep -q 'CONFIG_JSON' && echo yes || echo no)"
+# The read uses the `== true` clamp, so the emitted GITHUB_OUTPUT token is always
+# the literal `true`/`false` that both consumers (the step `if:` and the shell
+# guard) compare against — and only a real boolean true enables provisioning.
+assert_eq "provision: flag read uses the '== true' clamp" "yes" \
+  "$(printf '%s\n' "$PROV_READS" | grep -q 'provision_env == true' && echo yes || echo no)"
 
 # Schema + example: the property is declared (boolean, default false) and the
 # example config carries it so editors and adopters see it.
