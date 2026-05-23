@@ -80,8 +80,6 @@ ensure_trigger_label() {
   local label="devflow:implement" tl=""
   if command -v jq >/dev/null 2>&1; then
     tl="$(jq -r '.claude_implement.trigger_label // empty' "$CONFIG" 2>/dev/null || true)"
-  elif command -v node >/dev/null 2>&1; then
-    tl="$(node -e 'try{const o=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write((o.claude_implement&&o.claude_implement.trigger_label)||"")}catch(e){}' "$CONFIG" 2>/dev/null || true)"
   fi
   [ -n "$tl" ] && label="$tl"
 
