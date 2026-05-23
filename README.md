@@ -60,6 +60,8 @@ curl -fsSL https://raw.githubusercontent.com/The01Geek/devflow-autopilot/main/in
 
 See **[`docs/cloud-setup.md`](docs/cloud-setup.md)** for secrets, triggers, and the full guide.
 
+> **Both tiers on one repo?** No conflict — the marketplace copy is cached centrally; `install.sh` vendors a separate copy into `.claude/plugins/devflow/` for CI only. Just don't run `/plugin marketplace add ./` there (it would activate two marketplaces named `devflow-marketplace`).
+
 ## Updating
 
 - **Local tier** — enable auto-update once and Claude Code pulls new versions at startup; set `autoUpdate` on the marketplace in `~/.claude/settings.json`:
