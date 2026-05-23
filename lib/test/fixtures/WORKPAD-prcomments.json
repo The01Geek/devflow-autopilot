@@ -1,0 +1,11 @@
+[
+  {
+    "id": 9001,
+    "user": {
+      "login": "claude-bot"
+    },
+    "body": "<!-- devflow:workpad -->\n# DevFlow Workpad — Issue #99\n\n**Status:** Implementing\n**Branch:** `feat/test`\n**Last updated:** 2026-05-15T00:00:00Z\n\n## Plan\n- [ ] Step alpha\n- [ ] Step beta\n- [ ] Step gamma\n\n## Acceptance Criteria\n- [ ] AC one\n- [ ] AC two\n\n## Decisions / Notes\n\n## Devflow Reflection\n",
+    "created_at": "2026-05-15T00:00:00Z",
+    "updated_at": "2026-05-15T00:00:00Z"
+  }
+]
