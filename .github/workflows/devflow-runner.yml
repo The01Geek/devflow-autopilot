@@ -167,11 +167,17 @@ jobs:
                 # too. (2>/dev/null so we emit our own actionable warning, not the
                 # raw parse error.)
                 if BASE_JSON=$(printf '%s' "$RAW" | jq -ce 'if type=="object" then . else empty end' 2>/dev/null); then
-                  # `== true` clamps to a literal true/false: only a real boolean
-                  # `true` enables provisioning. A non-boolean (string/number) or
-                  # absent value yields false, so a typo can never accidentally
-                  # provision, and the step output is always a clean token.
-                  PROVISION=$(printf '%s' "$BASE_JSON" | jq -r '(.devflow_runner.provision_env == true)')
+                  # `try … catch false` + `== true` clamps to a literal
+                  # true/false: only a real boolean `true` enables provisioning.
+                  # The top-level guard above only proves BASE_JSON is an object;
+                  # `.devflow_runner` could still be a non-object (e.g.
+                  # {"devflow_runner":"medium"}), and `.provision_env` on a
+                  # string/number/array errors (jq exit 5) — which would abort
+                  # this step under set -e. `try … catch false` makes any such
+                  # shape (and any non-boolean / absent value) yield a clean
+                  # `false`, so the step output is always a valid token and a
+                  # typo can never accidentally provision.
+                  PROVISION=$(printf '%s' "$BASE_JSON" | jq -r 'try (.devflow_runner.provision_env == true) catch false')
                 else
                   BASE_JSON='{}'
                   echo "::warning::Base ref '$BASE_REF' has a malformed or non-object .devflow/config.json; defaulting to provision_env=false (read-only review). Fix the base-branch config to restore build-aware review."
