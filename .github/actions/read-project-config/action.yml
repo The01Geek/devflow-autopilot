@@ -1,8 +1,8 @@
 name: 'Read project config'
 description: |
   Emit the contents of `.devflow/config.json` as a single JSON string output.
-  The config is already JSON, so this validates it with Node (preinstalled on
-  runners) and passes it through — no yq, no PyYAML. Consumers read fields with
+  The config is already JSON, so this validates it with jq (preinstalled on
+  runners) and passes it through — no Node, yq, or PyYAML. Consumers read fields with
   `fromJSON(steps.<id>.outputs.json).path.to.field`. Repository must already be
   checked out (typically via `actions/checkout@v6`).
 
@@ -25,16 +25,12 @@ runs:
           exit 1
         fi
         # Validate + re-emit compactly so the output is guaranteed-valid JSON.
-        JSON=$(DEVFLOW_CONFIG="$CONFIG" node -e '
-          const fs = require("fs");
-          try {
-            process.stdout.write(JSON.stringify(JSON.parse(
-              fs.readFileSync(process.env.DEVFLOW_CONFIG, "utf8"))));
-          } catch (e) {
-            process.stderr.write("::error::invalid JSON in " +
-              process.env.DEVFLOW_CONFIG + ": " + e.message + "\n");
-            process.exit(1);
-          }')
+        err=$(mktemp)
+        if ! JSON=$(jq -c . "$CONFIG" 2>"$err"); then
+          echo "::error file=${CONFIG}::invalid JSON in ${CONFIG}: $(cat "$err")"
+          rm -f "$err"; exit 1
+        fi
+        rm -f "$err"
         # Multiline GITHUB_OUTPUT heredoc — robust to any future config content.
         delim="EOF_$(date +%s%N)_$$"
         {
