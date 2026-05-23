@@ -4,6 +4,11 @@
 # a wholesale dir-ignore can't be overridden per-path.)
 /.devflow/*
 !/.devflow/learnings/
+# Per-run /devflow:review-and-fix effectiveness records (one file per run).
+# Tracked so the data survives ephemeral GH-runner teardown — see
+# docs/efficiency-trace.md. In adopter repos the scaffolder's .devflow/.gitignore
+# ignores only tmp/, so logs/ is tracked there without this negation.
+!/.devflow/logs/
 # Committed config template + schema (shipped). The LIVE .devflow/config.json
 # is NOT listed here, so it stays ignored — each adopter creates their own
 # (it holds project/board IDs). Force-add with `git add -f` to dogfood DevFlow

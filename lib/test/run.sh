@@ -1240,6 +1240,101 @@ for f in devflow devflow-implement; do
   assert_eq "react: $f.yml invokes react-to-trigger.sh via bash" "" "$bad"
 done
 
+# ────────────────────────────────────────────────────────────────────────────
+echo "efficiency-trace.jq / efficiency-trace.sh"
+# ────────────────────────────────────────────────────────────────────────────
+# Per-run subagent effectiveness telemetry for /devflow:review-and-fix.
+# Derivation is mechanical (jq); the wrapper validates inputs, reads the gating
+# flag, and dispatches per mode. Fixtures exercise: 4-way verdict derivation,
+# the per-iteration marginal-yield line, flag-off → no writes, and graceful
+# degradation when phase3_dispatched is absent.
+ET_DIR="$(mktemp -d)"
+# Iter 1: a unique-effective applied finding (corroboration 1), a corroborating
+# applied finding (corroboration 2), one dispatched-but-silent agent (null), and
+# a mix of lite/agent checklist items. 4 fixes applied.
+cat > "$ET_DIR/iter-1.json" <<'EOF'
+{
+  "iter": 1,
+  "checklist": [
+    {"id":"VC-1","verification_mode":"lite","verdict":"PASS"},
+    {"id":"VC-2","verification_mode":"lite","verdict":"FAIL"},
+    {"id":"VC-3","verification_mode":"agent","verdict":"PASS"}
+  ],
+  "phase3_dispatched": ["pr-review-toolkit:code-reviewer","pr-review-toolkit:silent-failure-hunter","pr-review-toolkit:comment-analyzer"],
+  "phase3_findings": [
+    {"agent":"pr-review-toolkit:code-reviewer","corroboration_count":1,"fix_decision":"applied"},
+    {"agent":"pr-review-toolkit:silent-failure-hunter","corroboration_count":2,"fix_decision":"applied"}
+  ],
+  "convergence_inputs": {"fixes_applied": 4},
+  "telemetry": {"phase_3": {"calls": 3, "tokens": 48000, "wall_clock_s": 180}}
+}
+EOF
+# Iter 2: zero fixes (marginal-yield), one pushed-back finding (noise), one
+# dispatched-but-silent agent (null).
+cat > "$ET_DIR/iter-2.json" <<'EOF'
+{
+  "iter": 2,
+  "checklist": [],
+  "phase3_dispatched": ["pr-review-toolkit:code-reviewer","pr-review-toolkit:comment-analyzer"],
+  "phase3_findings": [
+    {"agent":"pr-review-toolkit:code-reviewer","corroboration_count":1,"fix_decision":"pushed_back"}
+  ],
+  "convergence_inputs": {"fixes_applied": 0},
+  "telemetry": {"phase_3": {"calls": 2, "tokens": 12000, "wall_clock_s": 60}}
+}
+EOF
+
+ET_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_DIR" --slug "pr-15" --mode record)"
+ET_verdict() { echo "$ET_REC" | jq -r --argjson i "$1" --arg a "$2" '.per_iteration[] | select(.iter==$i) | .agent_verdicts[] | select(.agent==$a) | .verdict'; }
+assert_eq "et: applied + corroboration<2 → unique-effective" "unique-effective" "$(ET_verdict 1 'pr-review-toolkit:code-reviewer')"
+assert_eq "et: applied + corroboration>=2 → corroborating"   "corroborating"    "$(ET_verdict 1 'pr-review-toolkit:silent-failure-hunter')"
+assert_eq "et: dispatched but silent → null"                 "null"             "$(ET_verdict 1 'pr-review-toolkit:comment-analyzer')"
+assert_eq "et: only pushed_back finding → noise"             "noise"            "$(ET_verdict 2 'pr-review-toolkit:code-reviewer')"
+assert_eq "et: record carries cost telemetry forward (iter1 phase_3 tokens)" "48000" \
+  "$(echo "$ET_REC" | jq -r '.telemetry[] | select(.iter==1) | .phases.phase_3.tokens')"
+assert_eq "et: record schema_version=1" "1" "$(echo "$ET_REC" | jq -r '.schema_version')"
+assert_eq "et: cut_candidate_min_dispatch carried into record (default 3)" "3" \
+  "$(echo "$ET_REC" | jq -r '.cut_candidate_min_dispatch')"
+assert_eq "et: checklist split lite=2" "2" "$(echo "$ET_REC" | jq -r '.per_iteration[] | select(.iter==1) | .checklist_lite_count')"
+assert_eq "et: checklist split agent=1" "1" "$(echo "$ET_REC" | jq -r '.per_iteration[] | select(.iter==1) | .checklist_agent_count')"
+
+# Marginal-yield line: iter 2 applied 0 fixes → trace flags "added nothing".
+ET_TRACE="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_DIR" --slug "pr-15" --mode trace)"
+assert_eq "et: marginal-yield line for zero-fix iteration" "true" \
+  "$(echo "$ET_TRACE" | grep -q 'Marginal yield: this iteration applied 0 fixes' && echo true || echo false)"
+assert_eq "et: trace shows dispatched count" "true" \
+  "$(echo "$ET_TRACE" | grep -q 'Phase 3 agents dispatched: 3' && echo true || echo false)"
+
+# Flag-off → no output in either mode (so the SKILL.md write produces no file).
+ET_CFG="$(mktemp)"; printf '{"devflow_review_and_fix":{"efficiency_telemetry_enabled":false}}' > "$ET_CFG"
+ET_OFF_REC="$(DEVFLOW_CONFIG_FILE="$ET_CFG" bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_DIR" --slug "pr-15" --mode record)"
+ET_OFF_TRACE="$(DEVFLOW_CONFIG_FILE="$ET_CFG" bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_DIR" --slug "pr-15" --mode trace)"
+assert_eq "et: flag-off → record empty" "" "$ET_OFF_REC"
+assert_eq "et: flag-off → trace empty"  "" "$ET_OFF_TRACE"
+
+# Graceful degradation: a workpad WITHOUT phase3_dispatched still classifies the
+# agents that appear in phase3_findings; the trace flags the missing roster.
+ET_DEG="$(mktemp -d)"
+cat > "$ET_DEG/iter-1.json" <<'EOF'
+{"iter":1,"checklist":[],"phase3_findings":[{"agent":"pr-review-toolkit:code-reviewer","corroboration_count":1,"fix_decision":"applied"}],"convergence_inputs":{"fixes_applied":1},"telemetry":null}
+EOF
+ET_DEG_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_DEG" --slug "branch-x" --mode record)"
+assert_eq "et: degraded (no phase3_dispatched) still classifies finding agent" "unique-effective" \
+  "$(echo "$ET_DEG_REC" | jq -r '.per_iteration[0].agent_verdicts[] | select(.agent=="pr-review-toolkit:code-reviewer") | .verdict')"
+assert_eq "et: degraded dispatched_count=0 (roster absent)" "0" \
+  "$(echo "$ET_DEG_REC" | jq -r '.per_iteration[0].phase3_dispatched_count')"
+ET_DEG_TRACE="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_DEG" --slug "branch-x" --mode trace)"
+assert_eq "et: degraded trace flags absent phase3_dispatched" "true" \
+  "$(echo "$ET_DEG_TRACE" | grep -q 'absent.*null agents (dispatched but silent) cannot be shown' && echo true || echo false)"
+
+# No readable workpads → trace degrades to a one-line notice, never errors.
+ET_EMPTY="$(mktemp -d)"
+ET_EMPTY_TRACE="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_EMPTY" --slug "branch-x" --mode trace)"
+assert_eq "et: empty workpad dir → graceful notice" "true" \
+  "$(echo "$ET_EMPTY_TRACE" | grep -q 'effectiveness trace unavailable' && echo true || echo false)"
+
+rm -rf "$ET_DIR" "$ET_DEG" "$ET_EMPTY"; rm -f "$ET_CFG"
+
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
