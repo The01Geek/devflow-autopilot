@@ -11,7 +11,7 @@ to demote matched findings to Informational.
 
 Guards (any failing guard rejects the deferral — finding flows through as
 normal):
-    1. Trusted filer:     PR author is in `claude.allowed_bots` from
+    1. Trusted filer:     PR author is in `devflow.allowed_bots` from
                           .devflow/config.json.
     2. Mutual cross-link: follow-up issue exists, is open, and its body
                           contains the substring "PR #<N>" (where N is the
