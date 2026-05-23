@@ -1290,6 +1290,7 @@ assert_eq "et: applied + corroboration<2 → unique-effective" "unique-effective
 assert_eq "et: applied + corroboration>=2 → corroborating"   "corroborating"    "$(ET_verdict 1 'pr-review-toolkit:silent-failure-hunter')"
 assert_eq "et: dispatched but silent → null"                 "null"             "$(ET_verdict 1 'pr-review-toolkit:comment-analyzer')"
 assert_eq "et: only pushed_back finding → noise"             "noise"            "$(ET_verdict 2 'pr-review-toolkit:code-reviewer')"
+assert_eq "et: roster-minus-findings null on a LATER iteration" "null"          "$(ET_verdict 2 'pr-review-toolkit:comment-analyzer')"
 assert_eq "et: record carries cost telemetry forward (iter1 phase_3 tokens)" "48000" \
   "$(echo "$ET_REC" | jq -r '.telemetry[] | select(.iter==1) | .phases.phase_3.tokens')"
 assert_eq "et: record schema_version=1" "1" "$(echo "$ET_REC" | jq -r '.schema_version')"
@@ -1326,6 +1327,27 @@ assert_eq "et: degraded dispatched_count=0 (roster absent)" "0" \
 ET_DEG_TRACE="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_DEG" --slug "branch-x" --mode trace)"
 assert_eq "et: degraded trace flags absent phase3_dispatched" "true" \
   "$(echo "$ET_DEG_TRACE" | grep -q 'absent.*null agents (dispatched but silent) cannot be shown' && echo true || echo false)"
+
+# Present-but-empty roster ("phase3_dispatched": []) is NOT "absent" — the
+# degradation warning must not fire (regression guard for has() vs length>0).
+ET_EMPTYROSTER="$(mktemp -d)"
+cat > "$ET_EMPTYROSTER/iter-1.json" <<'EOF'
+{"iter":1,"checklist":[],"phase3_dispatched":[],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}
+EOF
+ET_ER_TRACE="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_EMPTYROSTER" --slug "pr-15" --mode trace)"
+assert_eq "et: empty-but-present roster does NOT flag 'absent'" "false" \
+  "$(echo "$ET_ER_TRACE" | grep -q 'null agents (dispatched but silent) cannot be shown' && echo true || echo false)"
+rm -rf "$ET_EMPTYROSTER"
+
+# A valid-but-non-object workpad (stray array) is skipped, not crashed on
+# (best-effort never-abort contract). The wrapper must still exit 0.
+ET_BADSHAPE="$(mktemp -d)"
+printf '[1,2,3]' > "$ET_BADSHAPE/iter-1.json"
+ET_BS_TRACE="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_BADSHAPE" --slug "pr-15" --mode trace 2>/dev/null)"; ET_BS_RC=$?
+assert_eq "et: non-object workpad → wrapper exits 0 (never aborts)" "0" "$ET_BS_RC"
+assert_eq "et: non-object workpad → degrades to unavailable notice" "true" \
+  "$(echo "$ET_BS_TRACE" | grep -q 'effectiveness trace unavailable' && echo true || echo false)"
+rm -rf "$ET_BADSHAPE"
 
 # No readable workpads → trace degrades to a one-line notice, never errors.
 ET_EMPTY="$(mktemp -d)"

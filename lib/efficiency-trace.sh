@@ -59,6 +59,11 @@ if [ "$ENABLED" != "true" ]; then
 fi
 
 THRESHOLD="$(devflow_conf '.devflow_review_and_fix.efficiency_cut_candidate_min_dispatch' 3)"
+# Guard: a non-numeric / empty operator-supplied value must not make --argjson
+# abort jq (and the script under set -e) — fall back to the documented default.
+case "$THRESHOLD" in
+  ''|*[!0-9]*) THRESHOLD=3 ;;
+esac
 GENERATED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 # ── Collect valid iter-*.json workpads (skip unreadable / malformed) ─────────
@@ -66,7 +71,11 @@ VALID_FILES=()
 if [ -n "$WORKPAD_DIR" ] && [ -d "$WORKPAD_DIR" ]; then
   for f in "$WORKPAD_DIR"/iter-*.json; do
     [ -e "$f" ] || continue                       # no glob match → skip
-    if jq empty "$f" >/dev/null 2>&1; then
+    # Require a JSON OBJECT, not merely well-formed JSON: the filter indexes the
+    # workpad as an object (.phase3_findings etc.), so a valid-but-non-object
+    # file (stray array/number/string from a partial write) would crash jq and
+    # abort the wrapper under set -e. Skip it instead, honoring best-effort.
+    if jq -e 'type == "object"' "$f" >/dev/null 2>&1; then
       VALID_FILES+=("$f")
     else
       echo "::warning::efficiency-trace.sh: skipping unreadable/malformed workpad '$f'" >&2

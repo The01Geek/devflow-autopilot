@@ -74,7 +74,10 @@ def iter_view:
       checklist_agent_count: ([$checklist[] | select(.verification_mode == "agent")] | length),
       fixes_applied: $fixes_applied,
       added_nothing: ($fixes_applied == 0),
-      phase3_dispatched_present: (($it | has("phase3_dispatched")) and ($dispatched | length) > 0),
+      # The roster is "present" iff the field exists at all. A legitimately-empty
+      # roster ("phase3_dispatched": []) is still present — only a genuinely
+      # absent field triggers the degradation warning in the trace.
+      phase3_dispatched_present: ($it | has("phase3_dispatched")),
       agent_verdicts: [
         $roster[] as $agent
         | {
