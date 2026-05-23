@@ -797,6 +797,84 @@ assert_eq "rit: whitespace-trimmed, non-first allowed bot → should_run" \
 rm -rf "$RIT_STUB_DIR"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "dedupe-implement-run.sh"
+# ────────────────────────────────────────────────────────────────────────────
+# Per-thread duplicate detection for /devflow:implement. GitHub has no native
+# "skip if already running", so this gate-stage check decides duplicate=true
+# when an OLDER active run for the same issue/PR thread exists, letting the
+# workflow skip the billable job and leave the in-flight run untouched. The gh
+# `run list` call is stubbed via DEVFLOW_GH; DEDUPE_RUNS_JSON feeds the run set
+# and DEDUPE_GH_RC simulates a query failure.
+DIR="$LIB/../scripts/dedupe-implement-run.sh"
+DI_STUB="$(mktemp -d)"
+cat > "$DI_STUB/gh" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *"run list"*)
+    [ -n "${DEDUPE_GH_RC:-}" ] && exit "$DEDUPE_GH_RC"
+    printf '%s' "${DEDUPE_RUNS_JSON:-[]}" ;;
+  *) echo "" ;;
+esac
+STUB
+chmod +x "$DI_STUB/gh"
+di() { DEVFLOW_GH="$DI_STUB/gh" REPO=o/r RUN_ID="$1" CONTEXT_NUMBER="$2" \
+  DEDUPE_RUNS_JSON="$3" bash "$DIR" 2>/dev/null; }
+
+# 1. An OLDER (smaller databaseId) active run for the same thread → duplicate.
+assert_eq "di: older active run, same thread → duplicate" "duplicate=true" \
+  "$(di 200 42 '[{"databaseId":100,"displayTitle":"DevFlow implement (issue 42)","status":"in_progress"}]')"
+
+# 2. A queued (not yet started) older run still counts as active → duplicate.
+assert_eq "di: older QUEUED run, same thread → duplicate" "duplicate=true" \
+  "$(di 200 42 '[{"databaseId":100,"displayTitle":"DevFlow implement (issue 42)","status":"queued"}]')"
+
+# 3. A NEWER run (larger id) is NOT deferred to — this run is the older of the
+#    two and proceeds; the newer one will defer to it. Guards against two
+#    near-simultaneous commands BOTH skipping.
+assert_eq "di: newer run, same thread → not duplicate (this run is older)" "duplicate=false" \
+  "$(di 200 42 '[{"databaseId":300,"displayTitle":"DevFlow implement (issue 42)","status":"in_progress"}]')"
+
+# 4. An older active run for a DIFFERENT thread → not a duplicate (per-thread).
+assert_eq "di: older run, different thread → not duplicate" "duplicate=false" \
+  "$(di 200 42 '[{"databaseId":100,"displayTitle":"DevFlow implement (issue 43)","status":"in_progress"}]')"
+
+# 5. Number-boundary: thread 2 must not match a run-name carrying thread 21.
+assert_eq "di: thread 2 does not match 'issue 21'" "duplicate=false" \
+  "$(di 200 2 '[{"databaseId":100,"displayTitle":"DevFlow implement (issue 21)","status":"in_progress"}]')"
+
+# 6. A finished run (completed) is not active → not a duplicate.
+assert_eq "di: completed run → not duplicate" "duplicate=false" \
+  "$(di 200 42 '[{"databaseId":100,"displayTitle":"DevFlow implement (issue 42)","status":"completed"}]')"
+
+# 7. Only this run itself in the list (id == RUN_ID) → not a duplicate.
+assert_eq "di: self only → not duplicate" "duplicate=false" \
+  "$(di 200 42 '[{"databaseId":200,"displayTitle":"DevFlow implement (issue 42)","status":"in_progress"}]')"
+
+# 8. No active runs at all → not a duplicate.
+assert_eq "di: empty run list → not duplicate" "duplicate=false" \
+  "$(di 200 42 '[]')"
+
+# 9. gh query failure → fail OPEN (run proceeds), never silently swallowed.
+assert_eq "di: gh failure → fail open (not duplicate)" "duplicate=false" \
+  "$(DEVFLOW_GH="$DI_STUB/gh" REPO=o/r RUN_ID=200 CONTEXT_NUMBER=42 DEDUPE_GH_RC=1 bash "$DIR" 2>/dev/null)"
+
+# 10. Missing/invalid CONTEXT_NUMBER → fail open (cannot dedupe without a thread).
+assert_eq "di: missing context number → fail open" "duplicate=false" \
+  "$(di 200 '' '[]')"
+
+# 11. The duplicate-ignored NOTICE must carry no DevFlow trigger phrase, or the
+#     bot's own comment would re-fire devflow-implement.yml (self-trigger loop).
+#     Assert the workflow's notice body is phrase-free.
+NOTICE_LINE="$(grep -A2 'Notice — duplicate ignored' "$LIB/../.github/workflows/devflow-implement.yml" || true; \
+  grep 'NOTE=' "$LIB/../.github/workflows/devflow-implement.yml" || true)"
+assert_eq "di: duplicate notice contains no /devflow: phrase" "0" \
+  "$(grep -c '/devflow:' <<< "$NOTICE_LINE")"
+assert_eq "di: duplicate notice contains no @claude" "0" \
+  "$(grep -c '@claude' <<< "$NOTICE_LINE")"
+
+rm -rf "$DI_STUB"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "authorize-actor.sh (allowed_users filter)"
 # ────────────────────────────────────────────────────────────────────────────
 AUTH="$LIB/../scripts/authorize-actor.sh"
@@ -1005,6 +1083,21 @@ done
 for f in devflow devflow-implement; do
   bad="$(grep -nE "^[[:space:]]*types:.*labeled" "$WF/$f.yml" || true)"
   assert_eq "partition: $f.yml has no labeled trigger" "" "$bad"
+done
+
+# Comment-only triggers: a /devflow:* phrase in an issue/PR DESCRIPTION must
+# never start a run. Neither workflow may (a) listen on the `issues` event, nor
+# (b) match the trigger phrase against an issue body/title in its gate `if:`.
+# Only real comment/review bodies are valid trigger sources.
+for f in devflow devflow-implement; do
+  bad="$(grep -nE "^[[:space:]]*issues:[[:space:]]*$" "$WF/$f.yml" || true)"
+  assert_eq "partition: $f.yml does not listen on the issues event" "" "$bad"
+  # No gate matching against issue.body / issue.title (those are descriptions).
+  bad="$(grep -nE "contains\(github\.event\.issue\.(body|title)" "$WF/$f.yml" || true)"
+  assert_eq "partition: $f.yml gate never matches an issue body/title" "" "$bad"
+  # TRIGGER_TEXT must be sourced only from comment/review bodies.
+  bad="$(grep -nE "TRIGGER_TEXT:.*github\.event\.issue\.(body|title)" "$WF/$f.yml" || true)"
+  assert_eq "partition: $f.yml TRIGGER_TEXT excludes issue body/title" "" "$bad"
 done
 
 # Early-ack reaction must stay correctly wired in BOTH gate jobs. These guard
