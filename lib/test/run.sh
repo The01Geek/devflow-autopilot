@@ -1354,6 +1354,57 @@ ET_EMPTY="$(mktemp -d)"
 ET_EMPTY_TRACE="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_EMPTY" --slug "branch-x" --mode trace)"
 assert_eq "et: empty workpad dir → graceful notice" "true" \
   "$(echo "$ET_EMPTY_TRACE" | grep -q 'effectiveness trace unavailable' && echo true || echo false)"
+# record mode with zero readable iterations emits NOTHING (not a contentless
+# skeleton) so the caller's `[ -s ]` guard removes the 0-byte file — symmetric
+# with the flag-off contract.
+ET_EMPTY_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_EMPTY" --slug "branch-x" --mode record)"
+assert_eq "et: zero-iteration record emits empty (no skeleton)" "" "$ET_EMPTY_REC"
+
+# Verdict-precedence + branch coverage on a single mixed fixture. Each agent
+# below isolates one path through verdict_for that the happy-path fixtures miss.
+ET_PREC="$(mktemp -d)"
+cat > "$ET_PREC/iter-1.json" <<'EOF'
+{
+  "iter": 1,
+  "checklist": [],
+  "phase3_dispatched": ["agent-mixed-unique","agent-mixed-corr","agent-advisory","agent-deferred","agent-nocorr"],
+  "phase3_findings": [
+    {"agent":"agent-mixed-unique","corroboration_count":1,"fix_decision":"applied"},
+    {"agent":"agent-mixed-unique","corroboration_count":1,"fix_decision":"pushed_back"},
+    {"agent":"agent-mixed-corr","corroboration_count":3,"fix_decision":"applied"},
+    {"agent":"agent-mixed-corr","corroboration_count":1,"fix_decision":"advisory"},
+    {"agent":"agent-advisory","corroboration_count":1,"fix_decision":"advisory"},
+    {"agent":"agent-deferred","corroboration_count":1,"fix_decision":"deferred"},
+    {"agent":"agent-nocorr","fix_decision":"applied"}
+  ],
+  "convergence_inputs": {"fixes_applied": 3},
+  "telemetry": null
+}
+EOF
+ET_PREC_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_PREC" --slug "pr-15" --mode record)"
+ET_pv() { echo "$ET_PREC_REC" | jq -r --arg a "$1" '.per_iteration[0].agent_verdicts[] | select(.agent==$a) | .verdict'; }
+assert_eq "et: precedence applied(corr1)+pushed_back → unique-effective" "unique-effective" "$(ET_pv 'agent-mixed-unique')"
+assert_eq "et: precedence applied(corr3)+advisory → corroborating (applied dominates noise)" "corroborating" "$(ET_pv 'agent-mixed-corr')"
+assert_eq "et: advisory-only finding → noise" "noise" "$(ET_pv 'agent-advisory')"
+assert_eq "et: deferred-only finding → null (not noise)" "null" "$(ET_pv 'agent-deferred')"
+assert_eq "et: applied with missing corroboration_count → unique-effective (// 1 default)" "unique-effective" "$(ET_pv 'agent-nocorr')"
+rm -rf "$ET_PREC"
+
+# THRESHOLD: a valid custom integer is carried into the record; a non-numeric
+# operator value falls back to the default 3 WITHOUT aborting the wrapper.
+ET_TCFG="$(mktemp)"; printf '{"devflow_review_and_fix":{"efficiency_cut_candidate_min_dispatch":7}}' > "$ET_TCFG"
+ET_T7="$(DEVFLOW_CONFIG_FILE="$ET_TCFG" bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_DIR" --slug "pr-15" --mode record)"
+assert_eq "et: custom threshold 7 carried into record" "7" "$(echo "$ET_T7" | jq -r '.cut_candidate_min_dispatch')"
+ET_TBAD="$(mktemp)"; printf '{"devflow_review_and_fix":{"efficiency_cut_candidate_min_dispatch":"abc"}}' > "$ET_TBAD"
+ET_TB="$(DEVFLOW_CONFIG_FILE="$ET_TBAD" bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_DIR" --slug "pr-15" --mode record 2>/dev/null)"; ET_TB_RC=$?
+assert_eq "et: non-numeric threshold → wrapper still exits 0" "0" "$ET_TB_RC"
+assert_eq "et: non-numeric threshold → falls back to 3 in record" "3" "$(echo "$ET_TB" | jq -r '.cut_candidate_min_dispatch')"
+rm -f "$ET_TCFG" "$ET_TBAD"
+
+# CLI contract: an invalid --mode is rejected with exit 2 (protects SKILL.md's
+# dependence on the trace/record flag names).
+bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_DIR" --slug "pr-15" --mode bogus >/dev/null 2>&1; ET_MODE_RC=$?
+assert_eq "et: invalid --mode → exit 2" "2" "$ET_MODE_RC"
 
 rm -rf "$ET_DIR" "$ET_DEG" "$ET_EMPTY"; rm -f "$ET_CFG"
 

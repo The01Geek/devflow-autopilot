@@ -42,7 +42,13 @@ Each dispatched subagent is assigned **exactly one** verdict per iteration, by t
 | **unique-effective** | Raised a finding that led to an applied fix, and no sibling agent corroborated it. | ∃ finding with `fix_decision == "applied"` **and** `corroboration_count < 2`. |
 | **corroborating** | Its finding led to an applied fix, but ≥1 other agent raised the same defect — added confidence, not coverage. | ∃ finding with `fix_decision == "applied"` (and not unique-effective, i.e. `corroboration_count ≥ 2`). |
 | **noise** | Its only findings were pushed back as false-positive or web-refuted. | No applied finding; ∃ finding with `fix_decision ∈ {pushed_back, advisory}`. |
-| **null** | Dispatched but raised nothing, or nothing that survived to an applied fix or a noise classification (e.g. only deferred findings). | Everything else, including no findings at all. |
+| **null** | Dispatched but raised nothing, or nothing that survived to an applied fix or a noise classification. | Everything else, including no findings at all. |
+
+A finding whose only outcome is `deferred` (the defect is real but out-of-scope / already-tracked)
+is deliberately classified **null**, *not* noise — `noise` is reserved for `pushed_back` / `advisory`
+(false-positive / web-refuted). The agent wasn't wrong, but it added no fix to *this* run, so it does
+not count against it as noise. Any future `fix_decision` value also defaults to `null` until
+`verdict_for` is taught about it.
 
 `corroboration_count` is sourced from `phase3_findings`; a missing value is treated as `1`
 (single-source / unique). The verdict reads `fix_decision` directly off each finding, so the
@@ -67,9 +73,16 @@ carries:
 - `cut_candidate_min_dispatch` — the config threshold (below), carried forward for the follow-up
   cross-run analyzer.
 - `per_iteration[]` — dispatch counts, checklist lite/agent split, fixes applied, the
-  `added_nothing` flag, and the `agent_verdicts` roster.
+  `added_nothing` flag, `phase3_dispatched_present` (so the analyzer can tell a genuinely
+  zero-dispatch iteration from one degraded by an absent roster — both show count 0), and the
+  `agent_verdicts` roster.
 - `telemetry[]` — the existing per-phase / per-iteration cost telemetry (calls / tokens /
   wall-clock) lifted out of each workpad, so cost data is no longer lost with `.devflow/tmp/`.
+  Each entry's `phases` mirrors the workpad's `telemetry` block **verbatim** (unnormalized; `null`
+  when the workpad recorded none) — it is a pass-through, not a versioned sub-schema.
+
+A run with zero readable iterations (catastrophic early failure) writes **no record at all** rather
+than a contentless skeleton — symmetric with the flag-off contract.
 
 `.devflow/logs/` is a **tracked** directory (mirroring the tracked `.devflow/learnings/`
 learnings-store). The run's existing `git add -A` sweeps the record in, and under

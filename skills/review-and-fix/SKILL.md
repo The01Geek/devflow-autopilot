@@ -573,38 +573,44 @@ After the Run telemetry table, derive and persist the **per-run subagent effecti
 
 All derivation lives in `lib/efficiency-trace.jq` (a mechanical jq filter, no LLM) behind the `lib/efficiency-trace.sh` wrapper — mirroring how the weekly retrospective keeps `lib/` thin. The wrapper reads the gating flag itself, so when the flag is off it emits nothing and no file is written.
 
-1. **Read the gating flag** via the config helper:
+1. **Read the gating flag** via the config helper (use the `${CLAUDE_SKILL_DIR}`-anchored path so the read is cwd-independent, matching how this engine invokes `match-deferrals.py` / `dismiss-stale-rejections.sh`):
    ```bash
-   ENABLED=$(bash scripts/config-get.sh .devflow_review_and_fix.efficiency_telemetry_enabled true)
+   ENABLED=$(bash "${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh" .devflow_review_and_fix.efficiency_telemetry_enabled true)
    ```
-   If `ENABLED` is not `true`, **skip this entire section** — render no trace and write no file under `.devflow/logs/`.
+   If `ENABLED` is not `true`, **skip this entire section** — render no trace and write no file under `.devflow/logs/`. (The wrapper re-checks the flag itself, so this is belt-and-suspenders; the read here is what gates the `mkdir`/render below.)
 
 2. **Resolve the run slug and timestamp.** `<slug>` is `pr-<N>` in PR mode or the sanitized current branch name in branch mode — the same slug used for the workpad directory `.devflow/tmp/review/<slug>/`. The run timestamp is `date -u +%Y%m%dT%H%M%SZ`.
 
-3. **Render the trace to chat** and **write the per-run record**:
+3. **Render the trace to chat** and **write the per-run record**. Capture the trace's stderr+rc so a real failure surfaces a reason rather than degrading silently to an empty skip:
    ```bash
+   LIB="${CLAUDE_SKILL_DIR}/../../lib"
    WORKPAD_DIR=".devflow/tmp/review/<slug>"
    RECORD=".devflow/logs/efficiency/<slug>-$(date -u +%Y%m%dT%H%M%SZ).json"
    mkdir -p .devflow/logs/efficiency
    # Render the Markdown trace to chat (best-effort; empty output → skip):
-   bash lib/efficiency-trace.sh --workpad-dir "$WORKPAD_DIR" --slug "<slug>" --mode trace
+   TRACE="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$WORKPAD_DIR" --slug "<slug>" --mode trace 2>/tmp/devflow-et.err)" \
+     || echo "Effectiveness trace unavailable: $(cat /tmp/devflow-et.err)"
+   [ -n "$TRACE" ] && printf '%s\n' "$TRACE"
    # Write the per-run JSON record (one file per run):
-   bash lib/efficiency-trace.sh --workpad-dir "$WORKPAD_DIR" --slug "<slug>" --mode record > "$RECORD"
-   # A flag-off / empty-output run leaves a 0-byte file — remove it so flag-off
-   # writes nothing under .devflow/logs/.
+   bash "$LIB/efficiency-trace.sh" --workpad-dir "$WORKPAD_DIR" --slug "<slug>" --mode record > "$RECORD" 2>/dev/null || true
+   # A flag-off / zero-iteration / failed run emits no output → a 0-byte file;
+   # remove it so flag-off (and a catastrophic-early-failure run) write nothing
+   # under .devflow/logs/.
    [ -s "$RECORD" ] || rm -f "$RECORD"
    ```
    Print the rendered Markdown trace (the `--mode trace` output) into the chat report, after the Run telemetry table. The trace assigns each dispatched subagent exactly one verdict — **unique-effective**, **corroborating**, **noise**, or **null** (see `lib/efficiency-trace.jq`'s header and [`docs/efficiency-trace.md`](../../docs/efficiency-trace.md) for the derivation rules) — shows per-iteration dispatch counts (Phase-3 agents, and checklist verifiers split into lite/agent), and flags any iteration that applied zero fixes as having added nothing.
 
-4. **The record is tracked.** `.devflow/logs/efficiency/<slug>-<timestamp>.json` lives under a tracked directory, so the run's existing commits sweep it up. When `--push-each-iteration` is set, the record written here survives GH-runner teardown via the same `git add -A` + push the fix iterations use; commit and push it now so it is not lost:
+4. **The record is tracked.** `.devflow/logs/efficiency/<slug>-<timestamp>.json` lives under a tracked directory, so the run's existing commits sweep it up. When `--push-each-iteration` is set, the record written here survives GH-runner teardown via the same `git add -A` + push the fix iterations use; commit and push it now so it is not lost (keep the project's commit-message trailer):
    ```bash
-   if [ -n "$RECORD" ] && [ -s "$RECORD" ] && <--push-each-iteration is set>; then
-     git add "$RECORD" && git commit -m "chore: persist review-and-fix effectiveness record" && git push || true
+   if [ -s "$RECORD" ] && <--push-each-iteration is set>; then
+     git add "$RECORD" && git commit -m "chore: persist review-and-fix effectiveness record
+
+Co-Authored-By: Claude <noreply@anthropic.com>" && git push || true
    fi
    ```
    When `--push-each-iteration` is absent (the default, local mode), leave the record on disk uncommitted — consistent with the loop's no-remote-side-effect contract for that mode. The record carries the existing per-phase/per-iteration cost telemetry forward from the workpads, so that cost data is no longer discarded with `.devflow/tmp/`.
 
-If `lib/efficiency-trace.sh` is missing or errors, note it in chat (`Effectiveness trace unavailable: {reason}`) and proceed — the verdict is unaffected.
+If `lib/efficiency-trace.sh` is missing or errors, the trace step above already emits `Effectiveness trace unavailable: {reason}` to chat; proceed — the verdict is unaffected.
 
 ---
 

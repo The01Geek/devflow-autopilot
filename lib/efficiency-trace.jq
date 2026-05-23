@@ -9,10 +9,12 @@
 # matching how the weekly retrospective does all mechanical work in lib/.
 #
 # Invocation (via lib/efficiency-trace.sh, which validates inputs first):
-#   jq -s -f lib/efficiency-trace.jq \
+#   jq --raw-output --slurp -f lib/efficiency-trace.jq \
 #      --arg mode {trace|record} --arg slug <slug> \
 #      --arg generated_at <iso8601> --argjson cut_candidate_min_dispatch <int> \
 #      iter-1.json iter-2.json ...
+#   (--raw-output is load-bearing for trace mode: it renders the Markdown string
+#   instead of emitting it JSON-quoted with literal \n.)
 #
 # Inputs:
 #   stdin: array of per-iteration workpad objects (pass -s to slurp the
@@ -31,8 +33,12 @@
 #   noise            — its only findings were pushed back / demoted to advisory
 #                      (fix_decision ∈ {pushed_back, advisory}); none applied.
 #   null             — dispatched but raised nothing, or nothing that survived
-#                      to an applied fix or a noise classification (e.g. only
-#                      deferred findings).
+#                      to an applied fix or a noise classification. A finding
+#                      whose only outcome is `deferred` (real, but out-of-scope
+#                      / already-tracked) is deliberately `null`, NOT `noise`:
+#                      `noise` is reserved for `pushed_back` / `advisory`
+#                      (false-positive / web-refuted). Any future `fix_decision`
+#                      value also defaults to `null` unless `verdict_for` is updated.
 #
 # Verdict precedence (highest wins, so each agent gets exactly one):
 #   unique-effective > corroborating > noise > null.
@@ -92,7 +98,12 @@ def iter_view:
 (. | map(iter_view) | sort_by(.iter // 0)) as $iters
 
 # ── record mode: the single per-run JSON record ─────────────────────────────
+# With zero readable iterations (catastrophic early failure) emit nothing, not a
+# contentless skeleton — symmetric with the flag-off contract and the trace
+# mode's "unavailable" degradation, so the caller's `[ -s ]` guard removes the
+# 0-byte file and no empty record is committed.
 | if $mode == "record" then
+    if ($iters | length) == 0 then empty else
     {
       schema_version: 1,
       slug: $slug,
@@ -103,6 +114,10 @@ def iter_view:
         iter: .iter,
         phase3_dispatched: .phase3_dispatched,
         phase3_dispatched_count: .phase3_dispatched_count,
+        # Carried into the durable record so the cross-run analyzer can tell a
+        # genuinely zero-dispatch iteration from one degraded by an absent roster
+        # (both show count 0) — the chat-only trace warning does not survive teardown.
+        phase3_dispatched_present: .phase3_dispatched_present,
         checklist_lite_count: .checklist_lite_count,
         checklist_agent_count: .checklist_agent_count,
         fixes_applied: .fixes_applied,
@@ -110,9 +125,11 @@ def iter_view:
         agent_verdicts: .agent_verdicts
       })),
       # Cost telemetry carried forward from each workpad so it is no longer lost
-      # when .devflow/tmp/ is destroyed at GH-runner teardown.
+      # when .devflow/tmp/ is destroyed at GH-runner teardown. `phases` mirrors
+      # the workpad's `telemetry` block verbatim (unnormalized; null when absent).
       telemetry: ($iters | map({iter: .iter, phases: .telemetry}))
     }
+    end
 
 # ── trace mode: the rendered Markdown effectiveness trace ───────────────────
   elif $mode == "trace" then
