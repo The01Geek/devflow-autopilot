@@ -1299,6 +1299,50 @@ assert_eq "et: cut_candidate_min_dispatch carried into record (default 3)" "3" \
 assert_eq "et: checklist split lite=2" "2" "$(echo "$ET_REC" | jq -r '.per_iteration[] | select(.iter==1) | .checklist_lite_count')"
 assert_eq "et: checklist split agent=1" "1" "$(echo "$ET_REC" | jq -r '.per_iteration[] | select(.iter==1) | .checklist_agent_count')"
 
+# diff_profile + verification posture: the Phase 0.5 classification is carried
+# into the record (so the cross-run analyzer can segment by diff shape), and the
+# orchestrator's no-subagent cost decision is logged as an explicit posture
+# rather than a bare "0 verifiers".
+ET_PROF="$(mktemp -d)"
+# iter-1: engine_self_modifying diff, verification done via lite probes only (no agents).
+cat > "$ET_PROF/iter-1.json" <<'EOF'
+{"iter":1,"diff_profile":{"small_diff":false,"config_only":false,"has_new_types":false,"engine_self_modifying":true,"checklist_skipped":null},
+"checklist":[{"verification_mode":"lite","verdict":"PASS"},{"verification_mode":"lite","verdict":"PASS"}],
+"phase3_dispatched":["pr-review-toolkit:code-reviewer"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}
+EOF
+# iter-2: small_diff+config_only, Phase 0.5 intentionally skipped the checklist.
+cat > "$ET_PROF/iter-2.json" <<'EOF'
+{"iter":2,"diff_profile":{"small_diff":true,"config_only":true,"has_new_types":false,"engine_self_modifying":false,"checklist_skipped":"intentional"},
+"checklist":[],"phase3_dispatched":["pr-review-toolkit:code-reviewer"],
+"phase3_findings":[{"agent":"pr-review-toolkit:code-reviewer","corroboration_count":1,"fix_decision":"applied"}],
+"convergence_inputs":{"fixes_applied":1},"telemetry":null}
+EOF
+ET_PROF_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_PROF" --slug pr-15 --mode record)"
+assert_eq "et: diff_profile carried into record (engine_self_modifying)" "true" \
+  "$(echo "$ET_PROF_REC" | jq -r '.per_iteration[] | select(.iter==1) | .diff_profile.engine_self_modifying')"
+assert_eq "et: lite-only verification posture (no subagents dispatched)" "lite-only" \
+  "$(echo "$ET_PROF_REC" | jq -r '.per_iteration[] | select(.iter==1) | .verification_posture')"
+assert_eq "et: Phase 0.5 intentional skip → skipped-intentional posture" "skipped-intentional" \
+  "$(echo "$ET_PROF_REC" | jq -r '.per_iteration[] | select(.iter==2) | .verification_posture')"
+ET_PROF_TRACE="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_PROF" --slug pr-15 --mode trace)"
+assert_eq "et: trace logs the no-subagent decision (lite-only line)" "true" \
+  "$(echo "$ET_PROF_TRACE" | grep -q 'without dispatching verifier subagents' && echo true || echo false)"
+assert_eq "et: trace logs intentional Phase 0.5 skip" "true" \
+  "$(echo "$ET_PROF_TRACE" | grep -q 'skipped by Phase 0.5' && echo true || echo false)"
+assert_eq "et: trace renders diff profile line" "true" \
+  "$(echo "$ET_PROF_TRACE" | grep -q 'Diff profile: engine_self_modifying' && echo true || echo false)"
+# Absent diff_profile degrades gracefully: posture falls back to raw counts, label "not recorded".
+ET_NOPROF="$(mktemp -d)"
+cat > "$ET_NOPROF/iter-1.json" <<'EOF'
+{"iter":1,"checklist":[{"verification_mode":"agent","verdict":"PASS"}],"phase3_dispatched":["a"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}
+EOF
+ET_NOPROF_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_NOPROF" --slug s --mode record)"
+assert_eq "et: absent diff_profile → null in record" "null" \
+  "$(echo "$ET_NOPROF_REC" | jq -r '.per_iteration[0].diff_profile')"
+assert_eq "et: absent diff_profile → posture from raw counts (agent-only)" "agent-only" \
+  "$(echo "$ET_NOPROF_REC" | jq -r '.per_iteration[0].verification_posture')"
+rm -rf "$ET_PROF" "$ET_NOPROF"
+
 # Marginal-yield line: iter 2 applied 0 fixes → trace flags "added nothing".
 ET_TRACE="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_DIR" --slug "pr-15" --mode trace)"
 assert_eq "et: marginal-yield line for zero-fix iteration" "true" \

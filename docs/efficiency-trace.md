@@ -54,13 +54,40 @@ not count against it as noise. Any future `fix_decision` value also defaults to 
 (single-source / unique). The verdict reads `fix_decision` directly off each finding, so the
 classification needs no join into `fix_decisions`.
 
+## The diff profile and verification posture
+
+A `null` verdict means different things on different diffs. On an app-code change with real bugs, a
+silent `code-reviewer` may genuinely have under-earned its cost; on a config-only or
+engine-self-modifying jq/docs change, the *same* silence is correct — that reviewer's domain simply
+wasn't in the diff. Aggregating raw `null`-rate across diff shapes would systematically recommend
+cutting the generalist agents, which is backwards. So each iteration carries a `diff_profile`: the
+engine's Phase 0.5 classification (`small_diff`, `config_only`, `has_new_types`,
+`engine_self_modifying`, and `checklist_skipped`). The cross-run analyzer **must segment by
+`diff_profile`** before drawing any cut conclusion — a `null` on a diff outside the agent's domain is
+not a cut signal.
+
+The same `diff_profile` drives a **verification posture** that keeps a healthy cost-saving choice
+from looking like a gap. The orchestrator deliberately avoids dispatching verifier subagents when it
+doesn't need them — resolving substring claims via the cheap orchestrator-direct `lite` probe, or
+skipping Phase 1+2 entirely when Phase 0.5 classifies the diff as low-risk (`small_diff` +
+`config_only`). That is good behavior, not absence of work, so the trace names it explicitly rather
+than printing a bare "0 verifiers":
+
+| Posture | When | Trace line |
+|---|---|---|
+| `skipped-intentional` | Phase 0.5 bypassed Phase 1+2 (small_diff + config_only) | "Checklist: skipped by Phase 0.5 (…) — verifier subagents intentionally not dispatched for a low-risk diff." |
+| `skipped-failure` | checklist generation failed | "Checklist: generation failed — proceeded with review agents only." |
+| `lite-only` | items resolved via `lite` probes, zero agents dispatched | "Checklist verifiers: N lite (orchestrator-direct), 0 agent — … without dispatching verifier subagents (cost-saving, by design)." |
+| `agent-only` / `mixed` | verifier subagents dispatched | "Checklist verifiers: N lite, M agent." |
+| `none-recorded` | no skip reason and zero items recorded | "Checklist verifiers: none recorded for this iteration." (the one posture that flags a genuine instrumentation gap) |
+
 ## The rendered trace
 
 `lib/efficiency-trace.sh --mode trace` renders Markdown printed to chat after the Run telemetry
-table. Per iteration it shows the count of Phase-3 agents dispatched, the checklist verifiers split
-into **lite** and **agent** modes, the fixes applied, and each agent's verdict. Any iteration that
-applied **zero** fixes is flagged with a marginal-yield line ("added nothing"), making a wasted
-iteration visible at a glance.
+table. Per iteration it shows the diff profile, the verification posture (above), the count of
+Phase-3 agents dispatched, the fixes applied, and each agent's verdict. Any iteration that applied
+**zero** fixes is flagged with a marginal-yield line ("added nothing"), making a wasted iteration
+visible at a glance.
 
 ## The per-run record
 
@@ -72,10 +99,10 @@ carries:
 - `schema_version`, `slug`, `generated_at`, `iterations`.
 - `cut_candidate_min_dispatch` — the config threshold (below), carried forward for the follow-up
   cross-run analyzer.
-- `per_iteration[]` — dispatch counts, checklist lite/agent split, fixes applied, the
-  `added_nothing` flag, `phase3_dispatched_present` (so the analyzer can tell a genuinely
-  zero-dispatch iteration from one degraded by an absent roster — both show count 0), and the
-  `agent_verdicts` roster.
+- `per_iteration[]` — dispatch counts, `diff_profile` (Phase 0.5 flags — segment cut decisions by
+  this), `verification_posture`, checklist lite/agent split, fixes applied, the `added_nothing` flag,
+  `phase3_dispatched_present` (so the analyzer can tell a genuinely zero-dispatch iteration from one
+  degraded by an absent roster — both show count 0), and the `agent_verdicts` roster.
 - `telemetry[]` — the existing per-phase / per-iteration cost telemetry (calls / tokens /
   wall-clock) lifted out of each workpad, so cost data is no longer lost with `.devflow/tmp/`.
   Each entry's `phases` mirrors the workpad's `telemetry` block **verbatim** (unnormalized; `null`
