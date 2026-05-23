@@ -1681,6 +1681,40 @@ assert_eq "provision: schema default is false" "false" \
 assert_eq "provision: config.example.json sets provision_env false" "false" \
   "$(jq -r '.devflow_runner.provision_env' "$LIB/../.devflow/config.example.json")"
 
+# ────────────────────────────────────────────────────────────────────────────
+echo "docs per-step toggles (docs.internal_enabled / docs.external_enabled)"
+# ────────────────────────────────────────────────────────────────────────────
+# The /devflow:docs pass gates Step 1 (internal) and Step 2 (external) on these
+# booleans (default true). Pin the schema declaration, the example, and — most
+# importantly — that config-get.sh returns a literal "false" for a false flag
+# (not coerced to the default), since the skill's skip decision compares against
+# "false". A regression that coerced false→default would silently re-enable a
+# disabled step.
+SCHEMA="$LIB/../.devflow/config.schema.json"
+for key in internal_enabled external_enabled; do
+  assert_eq "docs toggle: schema declares $key boolean" "boolean" \
+    "$(jq -r ".properties.docs.properties.${key}.type" "$SCHEMA")"
+  assert_eq "docs toggle: schema default $key is true" "true" \
+    "$(jq -r ".properties.docs.properties.${key}.default" "$SCHEMA")"
+done
+# config-get.sh must surface a false flag as the literal string "false".
+DOCS_CFG="$(mktemp)"; printf '{"docs":{"internal_enabled":false,"external_enabled":true}}' > "$DOCS_CFG"
+assert_eq "docs toggle: config-get returns literal false (not the default)" "false" \
+  "$(bash "$LIB/../scripts/config-get.sh" .docs.internal_enabled true "$DOCS_CFG")"
+assert_eq "docs toggle: config-get returns true when set true" "true" \
+  "$(bash "$LIB/../scripts/config-get.sh" .docs.external_enabled false "$DOCS_CFG")"
+DOCS_CFG_BARE="$(mktemp)"; printf '{"docs":{}}' > "$DOCS_CFG_BARE"
+assert_eq "docs toggle: config-get falls back to default when key absent" "true" \
+  "$(bash "$LIB/../scripts/config-get.sh" .docs.internal_enabled true "$DOCS_CFG_BARE")"
+rm -f "$DOCS_CFG" "$DOCS_CFG_BARE"
+# The docs skill must actually consult both toggles (guards against silent drift
+# where the schema declares a flag the skill never reads).
+DOCS_SKILL="$LIB/../skills/docs/SKILL.md"
+assert_eq "docs toggle: skill reads .docs.internal_enabled" "1" \
+  "$(grep -c '\.docs\.internal_enabled' "$DOCS_SKILL" || true)"
+assert_eq "docs toggle: skill reads .docs.external_enabled" "1" \
+  "$(grep -c '\.docs\.external_enabled' "$DOCS_SKILL" || true)"
+
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
