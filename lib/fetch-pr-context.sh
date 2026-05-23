@@ -12,8 +12,8 @@ PR="${1:?Usage: fetch-pr-context.sh <pr-number>}"
 : "${DEVFLOW_GH:=gh}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# shellcheck source=./conf.sh
-. "$HERE/conf.sh"
+# shellcheck source=./config-source.sh
+. "$HERE/config-source.sh"
 
 REPO="$("$DEVFLOW_GH" repo view --json nameWithOwner -q .nameWithOwner)" \
   || { echo "::error::fetch-pr-context: failed to resolve repo name" >&2; exit 1; }

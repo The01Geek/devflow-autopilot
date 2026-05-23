@@ -53,7 +53,7 @@ if [[ -n "$EXISTING" ]]; then
     NUMBER="$(printf '%s' "$EXISTING" | jq -r '.number')"
     if [[ "$DRY_RUN" -eq 0 ]]; then
         "$DEVFLOW_GH" issue comment "$NUMBER" \
-            --body "Pattern \`${TAG}\` recurred again — see the latest devflow-weekly run." \
+            --body "Pattern \`${TAG}\` recurred again — see the latest retrospective-weekly run." \
             >/dev/null \
           || echo "::warning::meta-issue: failed to add recurrence comment to #${NUMBER}" >&2
     fi
@@ -101,7 +101,7 @@ jq \
     --arg url "$URL" \
     '.dismissed[$tag] = {
         dismissed_at: $now,
-        dismissed_by: "devflow-weekly",
+        dismissed_by: "retrospective-weekly",
         reason: "meta-plugin-issue",
         meta_issue: $url
     }' \

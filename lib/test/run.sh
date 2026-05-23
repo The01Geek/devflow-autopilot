@@ -5,8 +5,8 @@
 #   bash lib/test/run.sh
 #
 # Each test asserts a specific load-bearing invariant. A failure here means a
-# downstream regression in the /devflow-weekly orchestrator or the
-# retrospective / audit-implementations subagent briefs — keep these small and
+# downstream regression in the /devflow:retrospective-weekly orchestrator or the
+# retrospective / retrospective-audit subagent briefs — keep these small and
 # targeted, not exhaustive.
 
 set -u
@@ -14,7 +14,7 @@ set -u
 LIB="$(cd "$(dirname "$0")/.." && pwd)"
 
 # Results are recorded to a file (one PASS/FAIL line each) rather than to shell
-# variables, so assertions that run inside ( … ) subshells — the conf.sh and
+# variables, so assertions that run inside ( … ) subshells — the config-source.sh and
 # render-report.sh blocks, sourced in subshells to contain their `set -e` — are
 # counted in the final tally too. Counting in-memory would silently drop them.
 RESULTS_FILE="$(mktemp)"
@@ -162,9 +162,9 @@ assert_eq "missing merged_at does not poison first_seen" \
 # ────────────────────────────────────────────────────────────────────────────
 echo "config-get.sh (resolver, direct)"
 # ────────────────────────────────────────────────────────────────────────────
-# The resolver is the single config-reading implementation (conf.sh, workpad.py,
+# The resolver is the single config-reading implementation (config-source.sh, workpad.py,
 # match-deferrals.py all delegate to it), so its contract is tested directly here
-# — conf.sh's tests below can't observe exit codes (it swallows them by design).
+# — config-source.sh's tests below can't observe exit codes (it swallows them by design).
 CG="$LIB/../scripts/config-get.sh"
 FIX="$LIB/test/fixtures/config.json"
 
@@ -209,23 +209,39 @@ assert_eq "scaffold: config.json == example template" \
   "$(cat "$TPL_DIR/config.example.json")" "$(cat "$SC_FRESH/.devflow/config.json")"
 assert_eq "scaffold: schema created" "yes" \
   "$([ -f "$SC_FRESH/.devflow/config.schema.json" ] && echo yes || echo no)"
+# Scoped scratch ignore: created, ignores ONLY tmp/ (so config.json + learnings
+# stay committable — never the .devflow/ root).
+assert_eq "scaffold: .devflow/.gitignore created" "yes" \
+  "$([ -f "$SC_FRESH/.devflow/.gitignore" ] && echo yes || echo no)"
+assert_eq "scaffold: .gitignore ignores tmp/" "yes" \
+  "$(grep -qxF '/tmp/' "$SC_FRESH/.devflow/.gitignore" && echo yes || echo no)"
+assert_eq "scaffold: .gitignore does NOT ignore the .devflow root" "no" \
+  "$(grep -qE '^/?\*?$|^\.$' "$SC_FRESH/.devflow/.gitignore" && echo yes || echo no)"
 
-# 2. Existing config.json → NEVER clobbered; schema still refreshed over stale.
+# 2. Existing config.json + .gitignore → NEVER clobbered; schema still refreshed.
 SC_KEEP="$(mktemp -d)"
 mkdir -p "$SC_KEEP/.devflow"
 printf '{"sentinel":true}' > "$SC_KEEP/.devflow/config.json"
 printf 'STALE' > "$SC_KEEP/.devflow/config.schema.json"
+printf 'CUSTOM-IGNORE\n' > "$SC_KEEP/.devflow/.gitignore"
 bash "$SC" "$SC_KEEP" >/dev/null 2>&1
 assert_eq "scaffold: existing config preserved" \
   '{"sentinel":true}' "$(cat "$SC_KEEP/.devflow/config.json")"
 assert_eq "scaffold: schema refreshed over stale" \
   "$(cat "$TPL_DIR/config.schema.json")" "$(cat "$SC_KEEP/.devflow/config.schema.json")"
+assert_eq "scaffold: existing .gitignore preserved" \
+  'CUSTOM-IGNORE' "$(cat "$SC_KEEP/.devflow/.gitignore")"
 
-# 3. Idempotent: a second run leaves the scaffolded config.json unchanged.
+# 3. Idempotent: a second run leaves the scaffolded config.json AND the
+#    scaffolder's OWN .gitignore byte-identical (guards the `if [ ! -f ]` create
+#    guard against a regression that re-writes/appends on every run).
 SC_B1="$(cat "$SC_FRESH/.devflow/config.json")"
+SC_GI1="$(cat "$SC_FRESH/.devflow/.gitignore")"
 bash "$SC" "$SC_FRESH" >/dev/null 2>&1
 assert_eq "scaffold: idempotent re-run keeps config" \
   "$SC_B1" "$(cat "$SC_FRESH/.devflow/config.json")"
+assert_eq "scaffold: idempotent re-run keeps .gitignore" \
+  "$SC_GI1" "$(cat "$SC_FRESH/.devflow/.gitignore")"
 
 # 4. Templates missing next to the script → fail loudly (exit 2), no guessing.
 SC_NOTPL="$(mktemp -d)"; mkdir -p "$SC_NOTPL/scripts"
@@ -237,30 +253,30 @@ assert_eq "scaffold: missing templates → exit 2" "2" "$?"
 rm -rf "$SC_FRESH" "$SC_KEEP" "$SC_NOTPL" "$SC_NOTPL_TGT"
 
 # ────────────────────────────────────────────────────────────────────────────
-echo "conf.sh"
+echo "config-source.sh"
 # ────────────────────────────────────────────────────────────────────────────
 ( export DEVFLOW_CONFIG_FILE="$LIB/test/fixtures/config.json"
-  . "$LIB/conf.sh"
+  . "$LIB/config-source.sh"
   assert_eq "watched authors from config" "claude,example-bot" "$(devflow_watched_authors)"
   assert_eq "min_occurrences from config" "2" "$(devflow_conf '.devflow_retrospective.min_occurrences' 99)"
   assert_eq "missing key → default" "fallback" "$(devflow_conf '.devflow_retrospective.nonexistent_key_xyz' fallback)"
 )
-# Resilience: conf.sh runs under `set -e`; a missing or malformed config must
+# Resilience: config-source.sh runs under `set -e`; a missing or malformed config must
 # return the default without aborting the sourcing chain.
 ( export DEVFLOW_CONFIG_FILE="/no/such/devflow/config.json"
-  . "$LIB/conf.sh"
+  . "$LIB/config-source.sh"
   assert_eq "conf: missing file → default (no abort)" "dflt" "$(devflow_conf '.anything' dflt)"
 )
 ( wp="$(mktemp)"; printf '{ not valid json' > "$wp"
   export DEVFLOW_CONFIG_FILE="$wp"
-  . "$LIB/conf.sh"
+  . "$LIB/config-source.sh"
   assert_eq "conf: malformed JSON → default (warns, no abort)" "dflt" "$(devflow_conf '.anything' dflt 2>/dev/null)"
   rm -f "$wp"
 )
 # watched_authors falls back to claude.allowed_bots when the override array is absent.
 ( wp="$(mktemp)"; printf '{"claude":{"allowed_bots":"claude,fallback-bot"}}' > "$wp"
   export DEVFLOW_CONFIG_FILE="$wp"
-  . "$LIB/conf.sh"
+  . "$LIB/config-source.sh"
   assert_eq "conf: watched_authors → allowed_bots fallback" "claude,fallback-bot" "$(devflow_watched_authors)"
   rm -f "$wp"
 )
@@ -561,7 +577,7 @@ assert_eq "create title carries the caller --title" "true" \
   "$(grep -qF -- 'audit(devflow): x' "$MI_TMP/create-args" && echo true || echo false)"
 assert_eq "override recorded with url"     "https://github.com/acme/example-repo/issues/4242" "$(jq -r '.dismissed["review-reject-bypassed"].meta_issue' "$MI_TMP/ov.json")"
 assert_eq "override reason"                "meta-plugin-issue" "$(jq -r '.dismissed["review-reject-bypassed"].reason' "$MI_TMP/ov.json")"
-assert_eq "override dismissed_by"          "devflow-weekly"    "$(jq -r '.dismissed["review-reject-bypassed"].dismissed_by' "$MI_TMP/ov.json")"
+assert_eq "override dismissed_by"          "retrospective-weekly"    "$(jq -r '.dismissed["review-reject-bypassed"].dismissed_by' "$MI_TMP/ov.json")"
 # existing-issue path
 cat > "$MI_TMP/gh" <<'STUB'
 #!/usr/bin/env bash

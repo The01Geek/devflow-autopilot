@@ -1,14 +1,14 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "devflow-marketplace",
-  "description": "DevFlow: an end-to-end development-workflow plugin for Claude Code — /implement orchestrator, /review + /review-and-fix engines, the /docs suite, /create-issue, plus a self-improving retrospective loop.",
+  "description": "DevFlow: an end-to-end development-workflow plugin for Claude Code — /devflow:implement orchestrator, /devflow:review + /devflow:review-and-fix engines, the /devflow:docs suite, /devflow:create-issue, plus a self-improving retrospective loop.",
   "owner": { "name": "Daniel Radman", "email": "daniel@radman.ai" },
   "allowCrossMarketplaceDependenciesOn": ["claude-plugins-official"],
   "plugins": [
     {
       "name": "devflow",
       "source": "./",
-      "description": "End-to-end dev workflow: /implement orchestrator, /review + /review-and-fix engines, the /docs suite, /create-issue, plus the per-PR retrospective + weekly audit loop.",
+      "description": "End-to-end dev workflow: /devflow:implement orchestrator, /devflow:review + /devflow:review-and-fix engines, the /devflow:docs suite, /devflow:create-issue, plus the per-PR retrospective + weekly audit loop.",
       "author": { "name": "Daniel Radman", "email": "daniel@radman.ai" },
       "homepage": "https://github.com/The01Geek/devflow-autopilot",
       "category": "development"

@@ -1,9 +1,9 @@
 ---
 name: implement
-description: Use when a comment or message contains /implement followed by a GitHub issue number. Runs the full 4-phase lifecycle — setup, implementation, code review, and documentation.
+description: Use when a comment or message contains /devflow:implement followed by a GitHub issue number. Runs the full 4-phase lifecycle — setup, implementation, code review, and documentation.
 argument-hint: <issue-number>
 ---
-# /implement — Automated Feature Development Orchestrator
+# /devflow:implement — Automated Feature Development Orchestrator
 
 You are the main implementation agent. Execute the full 4-phase lifecycle for a GitHub issue. You hold continuous context from discovery through documentation — most work happens directly in your session.
 
@@ -166,7 +166,7 @@ A post-merge criterion is **not** deferred work (that's the 2.2.5 rule) — the 
 
 Either kind of override goes into `Decisions / Notes` with a one-line reason.
 
-A criterion that is partially live (mixed code + live concerns) is tagged post-merge — verify the code-part during /implement, leave the live-part for after-merge.
+A criterion that is partially live (mixed code + live concerns) is tagged post-merge — verify the code-part during /devflow:implement, leave the live-part for after-merge.
 
 ### 1.5 Initialize or Load the Workpad
 
@@ -177,8 +177,8 @@ ISSUE_NUMBER=$ARGUMENTS
 WORKPAD_ID=$(${CLAUDE_SKILL_DIR}/../../scripts/workpad.py id "$ISSUE_NUMBER" || true)
 ```
 
-- **`WORKPAD_ID` empty (fresh issue)** → Build the initial body to a temp file: `Status: Setup`, `Branch:` `$(git branch --show-current)`, a placeholder `Last updated:`, empty `## Plan` (filled in during 2.2), the AC contents from `/tmp/acs-${ARGUMENTS}.md` (produced by 1.4), no `## Reproduction` section yet (added in 2.1.5 if applicable), `## Decisions / Notes` seeded with one bullet like `- {now} — /implement run started`, and an empty `## Devflow Reflection`. Then `workpad.py create $ISSUE_NUMBER <tmp-file>`.
-- **`WORKPAD_ID` non-empty (resume)** → Read the live body with `workpad.py body $WORKPAD_ID`. Treat its `Decisions / Notes` and `Devflow Reflection` as load-bearing context (see Workpad Reference). To reset for this run, apply: `workpad.py update $ISSUE_NUMBER --status Setup --branch "$(git branch --show-current)" --note "/implement re-run started"`. If the issue's Acceptance Criteria section changed since the last run, also pass `--replace-acs-file /tmp/acs-${ARGUMENTS}.md`.
+- **`WORKPAD_ID` empty (fresh issue)** → Build the initial body to a temp file: `Status: Setup`, `Branch:` `$(git branch --show-current)`, a placeholder `Last updated:`, empty `## Plan` (filled in during 2.2), the AC contents from `/tmp/acs-${ARGUMENTS}.md` (produced by 1.4), no `## Reproduction` section yet (added in 2.1.5 if applicable), `## Decisions / Notes` seeded with one bullet like `- {now} — /devflow:implement run started`, and an empty `## Devflow Reflection`. Then `workpad.py create $ISSUE_NUMBER <tmp-file>`.
+- **`WORKPAD_ID` non-empty (resume)** → Read the live body with `workpad.py body $WORKPAD_ID`. Treat its `Decisions / Notes` and `Devflow Reflection` as load-bearing context (see Workpad Reference). To reset for this run, apply: `workpad.py update $ISSUE_NUMBER --status Setup --branch "$(git branch --show-current)" --note "/devflow:implement re-run started"`. If the issue's Acceptance Criteria section changed since the last run, also pass `--replace-acs-file /tmp/acs-${ARGUMENTS}.md`.
 
 After this step, every later phase boundary touches the workpad via `workpad.py update $ISSUE_NUMBER ...` — no `WORKPAD_ID` variable to track across calls.
 
@@ -349,7 +349,7 @@ After implementing, before running tests, do this sweep:
 
 1. From `git diff --staged -U0` (or `git diff -U0`), list every function/method/query/new file your diff added or changed lines in.
 2. Re-read each one in its post-edit state and check it against the rules in `CLAUDE.md` that apply to the languages and surfaces your diff touched.
-3. Fix any violation in code the diff already touches. If fixing it cleanly is genuinely out of scope (it would balloon the diff into an unrelated refactor), say so explicitly in the workpad `Decisions / Notes` with the reason — do not leave it silent for `/review` to catch.
+3. Fix any violation in code the diff already touches. If fixing it cleanly is genuinely out of scope (it would balloon the diff into an unrelated refactor), say so explicitly in the workpad `Decisions / Notes` with the reason — do not leave it silent for `/devflow:review` to catch.
 4. Do not reformat or rename code the diff didn't otherwise touch — this sweep covers only lines/functions/files your change already modified or introduced, never a repo-wide cleanup.
 
 Treat a known convention violation in touched code as a defect in **this** PR, not a pre-existing-style excuse — if the diff touched it, it leaves `CLAUDE.md`-compliant.
@@ -413,7 +413,7 @@ Work in progress — automated review pending.
 
 Resolves #{issue_number}
 
-Generated with [Claude Code](https://claude.com/claude-code) via `/implement $ARGUMENTS`
+Generated with [Claude Code](https://claude.com/claude-code) via `/devflow:implement $ARGUMENTS`
 EOF
 )"
 ```
@@ -463,7 +463,7 @@ Before advancing to Phase 4, verify every **non-post-merge** checkbox in the wor
 
 Tick each criterion as you confirm it: `workpad.py update $ISSUE_NUMBER --tick-ac "{substring of AC text}"`. Cite the verification (a test, a file:line, or a Decisions/Notes entry) in a `--note` on the same call where helpful.
 
-**Post-merge criteria are exempt from the gate.** A criterion whose checkbox line ends in `(post-merge)` (tagged during Phase 1.4) does not block. The orchestrator's responsibility for a post-merge criterion ends at "the code reaches the state where the live verification *becomes possible* to run." Leave the checkbox unticked — the merger will tick it after deploy via the `## Post-Merge Verification` section that `/pr-description` adds to the PR body in Phase 4.2. Do **not** invent evidence to tick a post-merge box during /implement; the live signal is what counts.
+**Post-merge criteria are exempt from the gate.** A criterion whose checkbox line ends in `(post-merge)` (tagged during Phase 1.4) does not block. The orchestrator's responsibility for a post-merge criterion ends at "the code reaches the state where the live verification *becomes possible* to run." Leave the checkbox unticked — the merger will tick it after deploy via the `## Post-Merge Verification` section that `/pr-description` adds to the PR body in Phase 4.2. Do **not** invent evidence to tick a post-merge box during /devflow:implement; the live signal is what counts.
 
 If the workpad's Acceptance Criteria section reads `_(none provided in issue body)_`, the gate passes trivially.
 
@@ -498,7 +498,7 @@ For each logical chunk of deferred work (typically: one issue per remaining "pha
 gh issue create \
   --title "<short descriptive title — e.g. 'Phase N of <parent topic>'>" \
   --body "$(cat <<'EOF'
-Follow-up to #$ARGUMENTS — captures deferred acceptance criteria from that issue's /implement run.
+Follow-up to #$ARGUMENTS — captures deferred acceptance criteria from that issue's /devflow:implement run.
 
 ## Acceptance Criteria
 - [ ] {deferred criterion verbatim}
@@ -506,7 +506,7 @@ Follow-up to #$ARGUMENTS — captures deferred acceptance criteria from that iss
 …
 
 ## Context
-The parent issue #$ARGUMENTS spans multiple PRs. This follow-up tracks the work that the parent's /implement run scoped out — see the workpad on #$ARGUMENTS for the full scope decision.
+The parent issue #$ARGUMENTS spans multiple PRs. This follow-up tracks the work that the parent's /devflow:implement run scoped out — see the workpad on #$ARGUMENTS for the full scope decision.
 EOF
 )"
 ```
@@ -515,13 +515,13 @@ Record the new issue numbers in the workpad: `workpad.py update $ISSUE_NUMBER --
 
 ### 4.0.5 File Follow-Up Issues for Deferred Review Findings
 
-If Phase 3.3's /devflow:review-and-fix run emitted a deferrals manifest (`.devflow/review/<slug>/deferrals.json` — see that skill's "Pre-mapping: Widens-surface guard + deferrals manifest" section for what's in it), file follow-up GitHub issues for those findings now and update the manifest in place with the assigned issue numbers + deterministic deferral IDs. Phase 4.2's /pr-description run will then surface them in the PR body as a Scope-Acknowledged Findings block that /devflow:review's verdict matcher honors.
+If Phase 3.3's /devflow:review-and-fix run emitted a deferrals manifest (`.devflow/tmp/review/<slug>/deferrals.json` — see that skill's "Pre-mapping: Widens-surface guard + deferrals manifest" section for what's in it), file follow-up GitHub issues for those findings now and update the manifest in place with the assigned issue numbers + deterministic deferral IDs. Phase 4.2's /pr-description run will then surface them in the PR body as a Scope-Acknowledged Findings block that /devflow:review's verdict matcher honors.
 
 Skip this step if the manifest does not exist or is empty.
 
 ```bash
 PR_NUMBER=$(gh pr view --json number --jq '.number')
-DEFERRALS_FILE=".devflow/review/pr-${PR_NUMBER}/deferrals.json"
+DEFERRALS_FILE=".devflow/tmp/review/pr-${PR_NUMBER}/deferrals.json"
 if [ -s "$DEFERRALS_FILE" ]; then
     FILED_NUMBERS=$(${CLAUDE_SKILL_DIR}/../../scripts/file-deferrals.py \
         --source-issue $ARGUMENTS \
@@ -595,11 +595,11 @@ Then finalize the workpad in one call:
 ```bash
 workpad.py update $ISSUE_NUMBER \
     --status Complete \
-    --note "/implement run finished, PR marked ready: <PR_URL>" \
+    --note "/devflow:implement run finished, PR marked ready: <PR_URL>" \
     [--reflection "{noteworthy event}" ...repeat per event]
 ```
 
-Add one `--reflection` flag per noteworthy event a human should know for troubleshooting: a failed step that was skipped, a subagent that returned no useful output, a permission denial, a test you couldn't run, an ambiguity you resolved with an assumption, or any deviation from the planned flow. `--reflection` is repeatable so all events land in a single atomic update. (No separate "Notes from /implement run" comment is posted — the workpad replaces it.)
+Add one `--reflection` flag per noteworthy event a human should know for troubleshooting: a failed step that was skipped, a subagent that returned no useful output, a permission denial, a test you couldn't run, an ambiguity you resolved with an assumption, or any deviation from the planned flow. `--reflection` is repeatable so all events land in a single atomic update. (No separate "Notes from /devflow:implement run" comment is posted — the workpad replaces it.)
 
 Then output the PR URL and a one- or two-line summary of what was accomplished.
 

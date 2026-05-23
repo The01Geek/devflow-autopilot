@@ -41,7 +41,7 @@ fi
 # ── Commit metadata ───────────────────────────────────────────────────────────
 WEEK_LABEL="$(date -u +%G-W%V)"
 SUBJECT="chore(devflow): retrospectives for ${WEEK_LABEL} (${N} entries)"
-BODY="Retrospective entries from the $(date -u +%F) /devflow-weekly run. Merge once CI passes."
+BODY="Retrospective entries from the $(date -u +%F) /devflow:retrospective-weekly run. Merge once CI passes."
 
 # ── Helper: run or dry-run a command ─────────────────────────────────────────
 _run() {

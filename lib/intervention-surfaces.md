@@ -1,5 +1,5 @@
 <!--
-Shared prompt fragment used by the /audit-implementations drafting brief (Stage B subagent).
+Shared prompt fragment used by the /retrospective-audit drafting brief (Stage B subagent).
 When proposing a corrective intervention, the agent considers — but is NOT limited to — these surfaces.
 -->
 
@@ -9,16 +9,16 @@ When the failure pattern recurs, the highest-leverage fix could live on any of t
 
 ### Process / workflow surfaces
 
-- **`/implement` skill** (`skills/implement/SKILL.md`) — the orchestrator that drives the four-phase lifecycle. Strengthen a phase, add a check, tighten a gate.
+- **`/devflow:implement` skill** (`skills/implement/SKILL.md`) — the orchestrator that drives the four-phase lifecycle. Strengthen a phase, add a check, tighten a gate.
 - **`/create-issue` skill** (`skills/create-issue/SKILL.md`) — the issue-quality entry point. If issues themselves are the bottleneck (vague acceptance criteria, missing repro steps, ambiguous scope), this is where to fix it.
-- **`/review` and `/devflow:review-and-fix` skills** — code-review discipline. If review caught a regression too late, the gap belongs here.
-- **Phase sub-skills** (`pr-description`, `docs-sync-internal`, `docs-sync-external`, `docs-release-notes`, `docs-verify`) — narrower behaviors invoked by `/implement`.
+- **`/devflow:review` and `/devflow:review-and-fix` skills** — code-review discipline. If review caught a regression too late, the gap belongs here.
+- **Phase sub-skills** (`pr-description`, `docs-sync-internal`, `docs-sync-external`, `docs-release-notes`, `docs-verify`) — narrower behaviors invoked by `/devflow:implement`.
 - **Issue templates** (`.github/ISSUE_TEMPLATE/`) — when the failure is structural (humans omit the same field every time), the template itself can encode the requirement.
 
 ### Knowledge / convention surfaces
 
 - **`CLAUDE.md`** at repo root — durable, agent-loaded conventions. Use sparingly: every rule here is loaded on every run. Strengthen an existing rule before adding a new one.
-- **`docs/internal/<feature>.md`** — feature-specific technical context. The `/implement` skill is told to consult these first; if Claude missed one, the docs may be missing or stale.
+- **`docs/internal/<feature>.md`** — feature-specific technical context. The `/devflow:implement` skill is told to consult these first; if Claude missed one, the docs may be missing or stale.
 - **`docs/external/`** — user-facing docs. Less common as an intervention surface but valid when the failure is documentation drift.
 - **Lint rules** (`phpcs.xml.dist`, ESLint configs, etc.) — encode mechanical conventions where a human-readable rule won't reliably stick.
 
@@ -38,7 +38,7 @@ The limit is **design-review**, not writability — locally all paths are writab
 - The engine's own files (`skills/**`, `agents/**`, `lib/**`, `scripts/**`, `.claude-plugin/**`) — the plugin must not edit itself without human review
 - `.devflow/learnings/**` — data files
 - `.github/workflows/claude*.yml`, `.github/workflows/devflow-*.yml` — breaking these cripples the loop; human design review required
-- `.github/actions/read-project-config/**`, `.github/actions/dedupe-pr-events/**` — the composite actions consumed by the devflow workflows; modifying them risks breaking the self-improvement loop
+- `.github/actions/read-project-config/**`, `.github/actions/setup-project-env/**` — the composite actions consumed by the devflow workflows; modifying them risks breaking the self-improvement loop
 - `.devflow/config.json` — config changes touch every other workflow
 
 Everything else — CLAUDE.md, other skills, docs, agents, application code, the `/create-issue` skill, lint configs, issue templates — remains in scope.

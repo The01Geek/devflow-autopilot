@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # SPDX-FileCopyrightText: 2026 Daniel Radman
 # SPDX-License-Identifier: MIT
-# conf.sh — read settings from .devflow/config.json. Source, don't exec.
+# config-source.sh — read settings from .devflow/config.json. Source, don't exec.
 #   devflow_conf '.devflow_retrospective.min_occurrences' 2
 #
 # This is an ergonomic shell wrapper; the actual parsing is delegated to
 # scripts/config-get.sh (the ONE config-reading implementation, Node-based —
-# no Python/PyYAML/yq). conf.sh never aborts the sourcing chain.
+# no Python/PyYAML/yq). config-source.sh never aborts the sourcing chain.
 set -euo pipefail
 # Repo root via git; fall back to cwd when not in a git tree (don't abort the
 # sourcing chain under `set -e`).

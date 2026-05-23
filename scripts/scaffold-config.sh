@@ -52,7 +52,22 @@ if [ -f "$CONFIG" ]; then
   log "keeping existing $CONFIG"
 else
   cp "$EXAMPLE" "$CONFIG"
-  log "scaffolded $CONFIG — fill in the YOUR_* placeholders before enabling workflows"
+  log "scaffolded $CONFIG — every value has a working default; edit it only to customize"
+fi
+
+# Ignore ONLY the ephemeral scratch dir (.devflow/tmp/), never the rest of
+# .devflow/: config.json must be committed for the cloud tier to read it, and
+# learnings/ (retrospectives) and the schema/example are tracked too. A scoped
+# .devflow/.gitignore keeps this self-contained — no mutation of the repo-root
+# .gitignore. Created only when absent so an adopter's edits survive re-runs.
+GITIGNORE="$DEST/.gitignore"
+if [ ! -f "$GITIGNORE" ]; then
+  printf '%s\n' \
+    '# DevFlow ephemeral scratch (review caches, weekly-loop temp files, issue' \
+    '# drafts). Safe to delete; never commit. Everything else under .devflow/' \
+    '# (config.json, learnings/, the schema/example) is intentionally tracked.' \
+    '/tmp/' > "$GITIGNORE"
+  log "wrote $GITIGNORE (ignores ephemeral .devflow/tmp/ scratch)"
 fi
 
 # Ensure the /devflow:implement trigger label exists in the repo. Adding this

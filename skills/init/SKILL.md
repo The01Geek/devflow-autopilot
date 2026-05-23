@@ -26,7 +26,7 @@ It resolves the templates from the installed plugin (`${CLAUDE_SKILL_DIR}/../../
 
 Read the scaffolder's output line and respond accordingly:
 
-- **`scaffolded …`** — a fresh `.devflow/config.json` was created. Tell the user to fill in the `YOUR_*` placeholders (e.g. `project_number`) before enabling workflows; their editor will validate against `config.schema.json`. **Do not invent these values** — they are GitHub-account-specific and only the user can supply them.
+- **`scaffolded …`** — a fresh `.devflow/config.json` was created. Every value has a working default, so it's usable as-is; tell the user they only need to edit it to customize (their editor validates against `config.schema.json`).
 - **`keeping existing …`** — they already had a `config.json`; it was left untouched and only the schema was refreshed. Nothing more to do.
 
 The scaffolder also prints a `trigger label …` line: report it as-is. If it says gh wasn't available or the label couldn't be created, tell the user to create a label named `devflow:implement` (Issues → Labels) — adding it to an issue is what kicks off `/devflow:implement` in the cloud tier.

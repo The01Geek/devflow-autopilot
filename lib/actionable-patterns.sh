@@ -36,8 +36,8 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 
 # Source config helpers.
-# shellcheck source=lib/conf.sh
-. "$HERE/conf.sh"
+# shellcheck source=lib/config-source.sh
+. "$HERE/config-source.sh"
 
 RETRO_FILE="$1"
 OVERRIDES_FILE="$2"

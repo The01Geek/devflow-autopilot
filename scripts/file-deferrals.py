@@ -4,7 +4,7 @@
 """DevFlow follow-up filer for review-and-fix deferrals.
 
 The /implement skill's Phase 4.0.5 reads the deferrals manifest produced by
-/devflow:review-and-fix (at `.devflow/review/<slug>/deferrals.json`), files
+/devflow:review-and-fix (at `.devflow/tmp/review/<slug>/deferrals.json`), files
 one follow-up GitHub issue per source file, and rewrites the manifest with
 the assigned issue numbers + deterministic deferral IDs. The /devflow:review
 verdict engine then matches these entries against the PR-body block to
