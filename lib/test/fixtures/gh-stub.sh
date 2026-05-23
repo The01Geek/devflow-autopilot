@@ -44,6 +44,14 @@ case "$ARGS" in
     # gh issue view or gh api repos/.../issues/<n>
     cat "$FX/${SET}-issue.json" 2>/dev/null || echo '{}'
     ;;
+  *"collaborators/alice/permission"*)
+    # Alice is the known write/admin collaborator used by auth unit tests.
+    echo "write"
+    ;;
+  *"collaborators/"*"/permission"*)
+    # Any other actor is not a collaborator (returns 'none' via HTTP 404 path).
+    echo "Not Found (HTTP 404)" >&2; exit 1
+    ;;
   *)
     echo '[]'
     ;;

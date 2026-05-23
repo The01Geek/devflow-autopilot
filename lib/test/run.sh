@@ -699,18 +699,18 @@ esac
 STUB
 chmod +x "$RIT_STUB_DIR/gh"
 
-# 1. Allowed bot + label event → run on the labelled issue. `foo[bot]` actor
-#    must match the bare `foo` in allowed_bots. No gh call on this path.
+# 1. Allowed bot + explicit number in comment → run on that number. `foo[bot]`
+#    actor must match the bare `foo` in allowed_bots. No gh call on this path.
 OUT="$(ACTOR='foo[bot]' ALLOWED_BOTS='foo,bar' REPO='acme/x' \
-  IS_LABEL_EVENT='true' TRIGGER_TEXT='' CONTEXT_NUMBER='42' \
+  TRIGGER_TEXT='/devflow:implement #42' CONTEXT_NUMBER='7' \
   PATH="$RIT_STUB_DIR:$PATH" bash "$RIT")"
-assert_eq "rit: allowed bot, label event → should_run" \
+assert_eq "rit: allowed bot, explicit number → should_run" \
   "should_run=true" "$(echo "$OUT" | grep '^should_run=')"
-assert_eq "rit: allowed bot, label event → number" \
+assert_eq "rit: allowed bot, explicit number → number" \
   "number=42" "$(echo "$OUT" | grep '^number=')"
 
 # 2. Write collaborator + explicit number in comment → run on that number.
-OUT="$(ACTOR='alice' ALLOWED_BOTS='' REPO='acme/x' IS_LABEL_EVENT='false' \
+OUT="$(ACTOR='alice' ALLOWED_BOTS='' REPO='acme/x' \
   TRIGGER_TEXT='/devflow:implement 7' CONTEXT_NUMBER='99' \
   STUB_PERM='write' PATH="$RIT_STUB_DIR:$PATH" bash "$RIT")"
 assert_eq "rit: write collaborator, explicit number → should_run" \
@@ -719,7 +719,7 @@ assert_eq "rit: explicit number beats context" \
   "number=7" "$(echo "$OUT" | grep '^number=')"
 
 # 3. Non-collaborator (gh → 'none') → blocked, no number.
-OUT="$(ACTOR='stranger' ALLOWED_BOTS='' REPO='acme/x' IS_LABEL_EVENT='false' \
+OUT="$(ACTOR='stranger' ALLOWED_BOTS='' REPO='acme/x' \
   TRIGGER_TEXT='/devflow:implement 7' CONTEXT_NUMBER='99' \
   STUB_PERM='none' PATH="$RIT_STUB_DIR:$PATH" bash "$RIT")"
 assert_eq "rit: non-collaborator → should_run=false" \
@@ -728,14 +728,14 @@ assert_eq "rit: non-collaborator → empty number" \
   "number=" "$(echo "$OUT" | grep '^number=')"
 
 # 4. Authorized but NO number anywhere → blocked (can't implement nothing).
-OUT="$(ACTOR='alice' ALLOWED_BOTS='' REPO='acme/x' IS_LABEL_EVENT='false' \
+OUT="$(ACTOR='alice' ALLOWED_BOTS='' REPO='acme/x' \
   TRIGGER_TEXT='/devflow:implement please' CONTEXT_NUMBER='' \
   STUB_PERM='admin' PATH="$RIT_STUB_DIR:$PATH" bash "$RIT")"
 assert_eq "rit: no resolvable number → should_run=false" \
   "should_run=false" "$(echo "$OUT" | grep '^should_run=')"
 
 # 5. Authorized, no explicit number but a context issue → fall back to context.
-OUT="$(ACTOR='alice' ALLOWED_BOTS='' REPO='acme/x' IS_LABEL_EVENT='false' \
+OUT="$(ACTOR='alice' ALLOWED_BOTS='' REPO='acme/x' \
   TRIGGER_TEXT='/devflow:implement' CONTEXT_NUMBER='5' \
   STUB_PERM='maintain' PATH="$RIT_STUB_DIR:$PATH" bash "$RIT")"
 assert_eq "rit: fallback to context number" \
@@ -744,7 +744,7 @@ assert_eq "rit: fallback to context number" \
 # 6. Transient collaborator-API failure (non-404) → fails CLOSED with a
 #    transient-specific diagnostic, NOT mislabelled as "not a collaborator".
 #    RESOLVE_RETRY_DELAY=0 keeps the retry instant.
-OUT="$(ACTOR='alice' ALLOWED_BOTS='' REPO='acme/x' IS_LABEL_EVENT='false' \
+OUT="$(ACTOR='alice' ALLOWED_BOTS='' REPO='acme/x' \
   TRIGGER_TEXT='/devflow:implement 7' CONTEXT_NUMBER='99' \
   STUB_RC='1' STUB_ERR='gh: Internal Server Error (HTTP 500)' \
   RESOLVE_RETRY_DELAY='0' PATH="$RIT_STUB_DIR:$PATH" bash "$RIT" 2>"$RIT_STUB_DIR/err")"
@@ -756,7 +756,7 @@ assert_eq "rit: transient API error → surfaces the real gh error" \
   "1" "$(grep -c 'HTTP 500' "$RIT_STUB_DIR/err")"
 
 # 7. Genuine 404 (not a collaborator) → fails closed as before, no retry stall.
-OUT="$(ACTOR='stranger' ALLOWED_BOTS='' REPO='acme/x' IS_LABEL_EVENT='false' \
+OUT="$(ACTOR='stranger' ALLOWED_BOTS='' REPO='acme/x' \
   TRIGGER_TEXT='/devflow:implement 7' CONTEXT_NUMBER='99' \
   STUB_RC='1' STUB_ERR='gh: Not Found (HTTP 404)' \
   RESOLVE_RETRY_DELAY='0' PATH="$RIT_STUB_DIR:$PATH" bash "$RIT" 2>"$RIT_STUB_DIR/err")"
@@ -769,7 +769,7 @@ assert_eq "rit: 404 treated as non-collaborator, not transient" \
 #    collaborator. A regression collapsing the loop to a single call would fail
 #    closed and break this, which case 6 (double-failure) cannot catch.
 RIT_COUNTER="$RIT_STUB_DIR/recover_count"; : > "$RIT_COUNTER"
-OUT="$(ACTOR='alice' ALLOWED_BOTS='' REPO='acme/x' IS_LABEL_EVENT='false' \
+OUT="$(ACTOR='alice' ALLOWED_BOTS='' REPO='acme/x' \
   TRIGGER_TEXT='/devflow:implement 7' CONTEXT_NUMBER='99' \
   STUB_RECOVER='1' STUB_COUNTER="$RIT_COUNTER" STUB_PERM='write' \
   RESOLVE_RETRY_DELAY='0' PATH="$RIT_STUB_DIR:$PATH" bash "$RIT")"
@@ -780,7 +780,7 @@ assert_eq "rit: retry recovers → number" \
 
 # 9. Explicit number with leading '#' and mixed-case command → extracted (pins
 #    the regex's `#?` arm and grep -i case-insensitivity).
-OUT="$(ACTOR='alice' ALLOWED_BOTS='' REPO='acme/x' IS_LABEL_EVENT='false' \
+OUT="$(ACTOR='alice' ALLOWED_BOTS='' REPO='acme/x' \
   TRIGGER_TEXT='/DevFlow:Implement #13' CONTEXT_NUMBER='99' \
   STUB_PERM='admin' PATH="$RIT_STUB_DIR:$PATH" bash "$RIT")"
 assert_eq "rit: '#'-prefixed mixed-case command → number=13" \
@@ -789,12 +789,152 @@ assert_eq "rit: '#'-prefixed mixed-case command → number=13" \
 # 10. allowed_bots with surrounding whitespace + bot is NOT the first entry →
 #     matched after parameter-expansion trim (pins the trim + loop continuation).
 OUT="$(ACTOR='bar[bot]' ALLOWED_BOTS=' foo , bar ' REPO='acme/x' \
-  IS_LABEL_EVENT='true' TRIGGER_TEXT='' CONTEXT_NUMBER='8' \
+  TRIGGER_TEXT='/devflow:implement 8' CONTEXT_NUMBER='8' \
   PATH="$RIT_STUB_DIR:$PATH" bash "$RIT")"
 assert_eq "rit: whitespace-trimmed, non-first allowed bot → should_run" \
   "should_run=true" "$(echo "$OUT" | grep '^should_run=')"
 
 rm -rf "$RIT_STUB_DIR"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "authorize-actor.sh (allowed_users filter)"
+# ────────────────────────────────────────────────────────────────────────────
+AUTH="$LIB/../scripts/authorize-actor.sh"
+ASTUB="$(mktemp -d)"; cp "$LIB/test/fixtures/gh-stub.sh" "$ASTUB/gh"; chmod +x "$ASTUB/gh"
+# Alice is the login the gh stub treats as a write/admin collaborator (mirrors
+# the rit write-collaborator case: ACTOR='alice' STUB_PERM='write').
+COLLAB="alice"
+# shellcheck disable=SC1090,SC2154  # sources authorize-actor.sh at runtime; $authorized set there
+run_auth() { ( PATH="$ASTUB:$PATH"; . "$AUTH"; authorize_actor; printf '%s' "$authorized" ); }
+# shellcheck disable=SC1090,SC2154  # sources authorize-actor.sh at runtime; $deny_reason set there
+run_auth_reason() { ( PATH="$ASTUB:$PATH"; . "$AUTH"; authorize_actor; printf '%s' "$deny_reason" ); }
+
+# 1. Default (ALLOWED_USERS unset → '*') + collaborator → authorized.
+A="$(ACTOR="$COLLAB" ALLOWED_BOTS="somebot" REPO="o/r" run_auth)"
+assert_eq "auth: unset allowed_users + collaborator → authorized" "true" "$A"
+
+# 2. Explicit '*' + collaborator → authorized.
+A="$(ACTOR="$COLLAB" ALLOWED_BOTS="somebot" REPO="o/r" ALLOWED_USERS="*" run_auth)"
+assert_eq "auth: '*' + collaborator → authorized" "true" "$A"
+
+# 3. allowed_users lists the actor + collaborator → authorized.
+A="$(ACTOR="$COLLAB" ALLOWED_BOTS="somebot" REPO="o/r" ALLOWED_USERS="$COLLAB,other" run_auth)"
+assert_eq "auth: actor in allowed_users + collaborator → authorized" "true" "$A"
+
+# 4. allowed_users does NOT list the actor → denied even though collaborator.
+A="$(ACTOR="$COLLAB" ALLOWED_BOTS="somebot" REPO="o/r" ALLOWED_USERS="alice-x,bob" run_auth)"
+assert_eq "auth: collaborator not in allowed_users → denied" "false" "$A"
+R="$(ACTOR="$COLLAB" ALLOWED_BOTS="somebot" REPO="o/r" ALLOWED_USERS="alice-x,bob" run_auth_reason)"
+assert_eq "auth: deny_reason cites allowed_users" "is not in the configured allowed_users allowlist" "$R"
+
+# 5. Bot in allowed_bots bypasses allowed_users entirely.
+A="$(ACTOR="somebot" ALLOWED_BOTS="somebot" REPO="o/r" ALLOWED_USERS="nobody" run_auth)"
+assert_eq "auth: allowed bot bypasses allowed_users → authorized" "true" "$A"
+
+rm -rf "$ASTUB"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "resolve-command-trigger.sh"
+# ────────────────────────────────────────────────────────────────────────────
+# Light command dispatch (review / review-and-fix / pr-description) in AGENT
+# mode. Authorizes the sender (allowed bot bypasses gh; otherwise allowed_users
+# + collaborator), detects the command, and resolves a target number. Reuses
+# gh-stub.sh (alice → write collaborator; any other actor → HTTP 404).
+RCT="$LIB/../scripts/resolve-command-trigger.sh"
+RCT_STUB="$(mktemp -d)"; cp "$LIB/test/fixtures/gh-stub.sh" "$RCT_STUB/gh"; chmod +x "$RCT_STUB/gh"
+
+# 1. Allowed bot, /devflow:review with explicit number → review command.
+OUT="$(PATH="$RCT_STUB:$PATH" ACTOR="devflow-bot" ALLOWED_BOTS="devflow-bot" \
+  REPO="o/r" GH_TOKEN="x" CONTEXT_NUMBER="99" \
+  TRIGGER_TEXT="/devflow:review #42" bash "$RCT")"
+assert_eq "rct: review w/ explicit number → should_run" \
+  "should_run=true" "$(echo "$OUT" | grep '^should_run=')"
+assert_eq "rct: review w/ explicit number → command" \
+  "command=/devflow:review 42" "$(echo "$OUT" | grep '^command=')"
+
+# 2. review-and-fix must win over the /devflow:review substring it contains.
+OUT="$(PATH="$RCT_STUB:$PATH" ACTOR="devflow-bot" ALLOWED_BOTS="devflow-bot" \
+  REPO="o/r" GH_TOKEN="x" CONTEXT_NUMBER="7" \
+  TRIGGER_TEXT="please run /devflow:review-and-fix now" bash "$RCT")"
+assert_eq "rct: review-and-fix beats review substring → command" \
+  "command=/devflow:review-and-fix 7" "$(echo "$OUT" | grep '^command=')"
+
+# 3. pr-description, no explicit number → falls back to the context number.
+OUT="$(PATH="$RCT_STUB:$PATH" ACTOR="devflow-bot" ALLOWED_BOTS="devflow-bot" \
+  REPO="o/r" GH_TOKEN="x" CONTEXT_NUMBER="13" \
+  TRIGGER_TEXT="/devflow:pr-description" bash "$RCT")"
+assert_eq "rct: pr-description falls back to context number → command" \
+  "command=/devflow:pr-description 13" "$(echo "$OUT" | grep '^command=')"
+
+# 4. No devflow command present → should_run=false.
+OUT="$(PATH="$RCT_STUB:$PATH" ACTOR="devflow-bot" ALLOWED_BOTS="devflow-bot" \
+  REPO="o/r" GH_TOKEN="x" CONTEXT_NUMBER="1" \
+  TRIGGER_TEXT="just a normal comment" bash "$RCT")"
+assert_eq "rct: no command → should_run=false" \
+  "should_run=false" "$(echo "$OUT" | grep '^should_run=')"
+
+# 5. Unauthorized actor (gh-stub 404 → not a collaborator) → should_run=false.
+OUT="$(PATH="$RCT_STUB:$PATH" ACTOR="random-user" ALLOWED_BOTS="devflow-bot" \
+  REPO="o/r" GH_TOKEN="x" CONTEXT_NUMBER="5" \
+  TRIGGER_TEXT="/devflow:review" bash "$RCT")"
+assert_eq "rct: unauthorized actor → should_run=false" \
+  "should_run=false" "$(echo "$OUT" | grep '^should_run=')"
+
+rm -rf "$RCT_STUB"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "install.sh: prune_stale_devflow_workflows"
+# ────────────────────────────────────────────────────────────────────────────
+# On upgrade, install.sh must remove DevFlow's OWN superseded claude*.yml but
+# NEVER an Anthropic-owned claude.yml. Source the installer with
+# DEVFLOW_SELFTEST=1 (defines the functions, skips the installer body) and run
+# the prune function against throwaway repos.
+INSTALL="$LIB/../install.sh"
+
+# Case A: DevFlow-signed claude.yml + stale runner/implement → all removed.
+WORK="$(mktemp -d)"; mkdir -p "$WORK/.github/workflows"
+printf '%s\n' "name: Claude Code" "  review_dedupe:" > "$WORK/.github/workflows/claude.yml"
+echo "name: Claude Runner (reusable)" > "$WORK/.github/workflows/claude-runner.yml"
+echo "name: Claude Code (implement)" > "$WORK/.github/workflows/claude-implement.yml"
+# shellcheck disable=SC1090  # sources install.sh at runtime under DEVFLOW_SELFTEST
+( cd "$WORK" && DEVFLOW_SELFTEST=1 . "$INSTALL" && prune_stale_devflow_workflows ) >/dev/null 2>&1
+assert_eq "install: devflow-signed claude.yml removed" \
+  "absent" "$([ -f "$WORK/.github/workflows/claude.yml" ] && echo present || echo absent)"
+assert_eq "install: stale claude-runner.yml removed" \
+  "absent" "$([ -f "$WORK/.github/workflows/claude-runner.yml" ] && echo present || echo absent)"
+assert_eq "install: stale claude-implement.yml removed" \
+  "absent" "$([ -f "$WORK/.github/workflows/claude-implement.yml" ] && echo present || echo absent)"
+rm -rf "$WORK"
+
+# Case B: Anthropic's own claude.yml (no DevFlow signature) → preserved.
+WORK="$(mktemp -d)"; mkdir -p "$WORK/.github/workflows"
+printf '%s\n' "name: Claude Code" "  claude:" "    uses: anthropics/claude-code-action@v1" \
+  > "$WORK/.github/workflows/claude.yml"
+# shellcheck disable=SC1090
+( cd "$WORK" && DEVFLOW_SELFTEST=1 . "$INSTALL" && prune_stale_devflow_workflows ) >/dev/null 2>&1
+assert_eq "install: Anthropic claude.yml preserved" \
+  "present" "$([ -f "$WORK/.github/workflows/claude.yml" ] && echo present || echo absent)"
+rm -rf "$WORK"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "workflow partition invariant"
+# ────────────────────────────────────────────────────────────────────────────
+# Every gate `if:` line that matches a /devflow: command trigger must ALSO
+# negate @claude on that same line, so no comment can fire both a DevFlow
+# workflow and Anthropic's claude.yml. Covers devflow.yml (review/pr-description)
+# and devflow-implement.yml (/devflow:implement).
+WF="$LIB/../.github/workflows"
+for f in devflow devflow-implement; do
+  bad="$(grep -nE "contains\((github\.event[^)]*),[[:space:]]*'/devflow:(review|pr-description|implement)'\)" "$WF/$f.yml" \
+        | grep -v "@claude" || true)"
+  assert_eq "partition: $f.yml /devflow triggers all negate @claude" "" "$bad"
+done
+
+# The label trigger is gone: neither workflow may listen on `labeled`.
+for f in devflow devflow-implement; do
+  bad="$(grep -nE "^[[:space:]]*types:.*labeled" "$WF/$f.yml" || true)"
+  assert_eq "partition: $f.yml has no labeled trigger" "" "$bad"
+done
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.

@@ -9,7 +9,9 @@
 #                                     + .devflow/ templates, so /devflow:init can
 #                                     find them from the vendored copy too)
 #   - .claude-plugin/marketplace.json local marketplace pointing at the above
-#   - .github/workflows/*.yml         the @claude / implement / review workflows
+#   - .github/workflows/*.yml         devflow.yml / devflow-implement.yml /
+#                                     devflow-review.yml (superseded claude*.yml
+#                                     are removed on upgrade, Anthropic's left)
 #   - .github/actions/*               the composite actions they use
 #   - .devflow/config.json            scaffolded from the template ONLY if absent
 #   - .devflow/config.schema.json     refreshed every run (editor autocomplete)
@@ -34,6 +36,37 @@ REF="${DEVFLOW_REF:-main}"
 
 log() { printf 'devflow-install: %s\n' "$1"; }
 die() { printf 'devflow-install: %s\n' "$1" >&2; exit 1; }
+
+# Remove DevFlow's OWN superseded workflow files on upgrade. Left behind, the
+# old claude.yml keeps listening for @claude and double-fires alongside the new
+# devflow.yml. claude-runner.yml / claude-implement.yml are DevFlow-specific
+# names (Anthropic never generates them), so removing them is safe. claude.yml,
+# however, is SHARED with Anthropic's Claude GitHub App — so remove it ONLY when
+# it carries a DevFlow signature (the review_dedupe job / the old header line);
+# otherwise it is Anthropic's and must be left untouched.
+prune_stale_devflow_workflows() {
+  local wf=.github/workflows f
+  for f in claude-runner claude-implement; do
+    if [ -f "$wf/$f.yml" ]; then
+      rm -f "$wf/$f.yml"
+      log "removed superseded $f.yml (logic now in devflow.yml / devflow-implement.yml)"
+    fi
+  done
+  if [ -f "$wf/claude.yml" ]; then
+    if grep -qE 'review_dedupe:|Light @claude-mention listener for non-implementing' "$wf/claude.yml"; then
+      rm -f "$wf/claude.yml"
+      log "removed DevFlow's old claude.yml (logic now in devflow.yml)"
+    else
+      log "left existing claude.yml untouched — it is not DevFlow's (likely Anthropic's Claude GitHub App)."
+    fi
+  fi
+}
+
+# When sourced by the test harness (DEVFLOW_SELFTEST=1), define the functions
+# above and stop — the installer body below (which clones + writes files) does
+# not run. `return` only executes on the sourced path; `|| true` keeps `set -e`
+# happy on the unlikely executed-with-the-flag path.
+if [ "${DEVFLOW_SELFTEST:-}" = "1" ]; then return 0 2>/dev/null || true; fi
 
 command -v git >/dev/null 2>&1 || die "git is required."
 [ -d .git ] || die "run this from the root of a git repository."
@@ -88,9 +121,12 @@ JSON
 # 3. Workflows (only those the primary repo actually ships).
 log "installing workflows + composite actions"
 mkdir -p .github/workflows .github/actions
-for w in claude claude-implement claude-runner devflow-review; do
+for w in devflow devflow-implement devflow-review; do
   [ -f "$SRC/.github/workflows/$w.yml" ] && cp "$SRC/.github/workflows/$w.yml" ".github/workflows/$w.yml"
 done
+# Drop DevFlow's superseded claude*.yml on upgrade (signature-guarded so an
+# Anthropic-owned claude.yml is never touched).
+prune_stale_devflow_workflows
 
 # 4. Composite actions.
 for a in read-project-config setup-project-env; do
@@ -105,8 +141,5 @@ done
 #    config.json and always refreshes config.schema.json. Templates resolve
 #    relative to the script ($SRC/.devflow), and we target the current repo root.
 bash "$SRC/scripts/scaffold-config.sh" "$PWD"
-
-# (The /devflow:implement trigger label is created best-effort by
-# scaffold-config.sh in step 5, so install.sh and /devflow:init stay in sync.)
 
 log "done (from ${REPO}@${REF}). Review with 'git status' / 'git diff' and commit."

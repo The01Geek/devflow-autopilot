@@ -7,7 +7,7 @@ on:
     # The default types (opened, synchronize, reopened) are NOT enough for
     # our own bot PRs. The /devflow:implement flow opens a PR as a draft
     # (skills/implement: `gh pr create --draft`), pushes its commits, then
-    # toggles ready-for-review (`gh pr ready`). claude-implement.yml checks
+    # toggles ready-for-review (`gh pr ready`). devflow-implement.yml checks
     # out and pushes with the default GITHUB_TOKEN, so GitHub's recursion
     # guard suppresses the `synchronize` event for those commits — and
     # `ready_for_review` is not a default type. Listening only to the

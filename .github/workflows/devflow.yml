@@ -1,0 +1,631 @@
+name: DevFlow
+
+# DevFlow-owned workflow with TWO roles in one file, discriminated by whether
+# `inputs.prompt` is set:
+#
+#   1. REUSABLE RUNNER (workflow_call, inputs.prompt != '') — the `runner` job.
+#      devflow-review.yml calls this to run a Claude skill from an explicit
+#      prompt under a named tool profile (today: "review"). This is the body
+#      that used to live in the standalone claude-runner.yml.
+#
+#   2. LIGHT COMMAND LISTENER (events, inputs.prompt == '') — the `config` /
+#      review_dedupe / `gate` / `command` jobs. Fires on a BARE `/devflow:review`,
+#      `/devflow:review-and-fix`, or `/devflow:pr-description` comment/review/issue
+#      and runs claude-code-action in AGENT mode with a synthesised prompt. This
+#      is the body that used to live in the standalone claude.yml.
+#
+# Why bare commands (no `@claude`): Anthropic's Claude GitHub App owns the
+# `claude.yml` it generates and the `@claude` mention surface (plus generic Q&A
+# and /security-review). DevFlow never touches that file. EVERY DevFlow trigger
+# below negates `@claude`, so an `@claude …` comment routes ONLY to Anthropic's
+# listener and a bare `/devflow:*` comment routes ONLY here — the two can never
+# double-fire. The heavy /devflow:implement path lives in devflow-implement.yml
+# under the same partition. See docs/cloud-setup.md.
+
+on:
+  workflow_call:
+    inputs:
+      prompt:
+        description: |
+          Prompt passed through to anthropics/claude-code-action@v1. Non-empty
+          selects the reusable `runner` job; this file's other (event-triggered)
+          jobs key off `inputs.prompt == ''`, so it carries an explicit default
+          of '' and is NOT marked required — that keeps the discriminator
+          unambiguous on issue_comment/issues/pull_request_review runs. Callers
+          (devflow-review.yml) always pass a real prompt.
+        type: string
+        required: false
+        default: ''
+      model:
+        description: |
+          Claude model to use. Defaults to the `claude_model` value from
+          .devflow/config.json when empty.
+        type: string
+        required: false
+        default: ''
+      effort:
+        description: |
+          Reasoning effort (low|medium|high|xhigh|max). Defaults to the
+          `claude_runner.effort` value from .devflow/config.json when
+          empty. When the resolved value is "medium", the --effort flag is
+          omitted so the model's built-in default applies.
+        type: string
+        required: false
+        default: ''
+      fetch_depth:
+        description: 'Passed to actions/checkout. 50 covers any realistic PR commit range.'
+        type: number
+        required: false
+        default: 50
+      allowed_tools_profile:
+        description: |
+          Internal mapping to the actual --allowed-tools string. Only the
+          "review" profile is defined today; add more when a real caller
+          requires one. Do not speculate.
+        type: string
+        required: false
+        default: 'review'
+      ref:
+        description: |
+          Git ref/SHA to check out. Empty (default) uses the event's default
+          ref. PR-review callers MUST pass the PR head SHA so the run sees the
+          PR's own content — including any plugin/config/scripts the PR adds —
+          not the base branch. A repo bootstrapping the devflow plugin via PR
+          has no .claude/plugins/devflow on the base branch, so a base checkout
+          fails the plugin install; checking out the PR head fixes that.
+        type: string
+        required: false
+        default: ''
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN:
+        description: 'Anthropic Claude Code OAuth token. Pass via `secrets: inherit` from callers.'
+        required: true
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  issues:
+    types: [opened]
+  pull_request_review:
+    types: [submitted]
+
+jobs:
+  config:
+    if: ${{ inputs.prompt == '' }}
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.extract.outputs.enabled }}
+      base_branch: ${{ steps.extract.outputs.base_branch }}
+      claude_model: ${{ steps.extract.outputs.claude_model }}
+      allowed_bots: ${{ steps.extract.outputs.allowed_bots }}
+      effort: ${{ steps.extract.outputs.effort }}
+      allowed_tools_extra: ${{ steps.extract.outputs.allowed_tools_extra }}
+      allowed_users: ${{ steps.extract.outputs.allowed_users }}
+    steps:
+      - uses: actions/checkout@v6
+      - id: cfg
+        uses: ./.github/actions/read-project-config
+      - id: extract
+        env:
+          CONFIG_JSON: ${{ steps.cfg.outputs.json }}
+        run: |
+          set -euo pipefail
+          {
+            echo "enabled=$(echo "$CONFIG_JSON" | jq -r '.workflows.claude // false')"
+            echo "base_branch=$(echo "$CONFIG_JSON" | jq -r '.base_branch')"
+            echo "claude_model=$(echo "$CONFIG_JSON" | jq -r '.claude_model')"
+            echo "allowed_bots=$(echo "$CONFIG_JSON" | jq -r '.claude.allowed_bots')"
+            # Human logins allowed to trigger the command path (AND-filter on top
+            # of the collaborator-permission gate; '*' = any collaborator).
+            echo "allowed_users=$(echo "$CONFIG_JSON" | jq -r '.claude.allowed_users // "*"')"
+            echo "effort=$(echo "$CONFIG_JSON" | jq -r '.claude.effort // "medium"')"
+            # Repo-specific extra allowlist entries, appended on top of the
+            # built-in devflow base list in the `claude` job's claude_args.
+            # Emits a leading-comma string (",Bash(make:*),…") or "" so it can
+            # be concatenated directly after the final base entry. Tool patterns
+            # never contain commas/newlines, so a single-line output is safe.
+            echo "allowed_tools_extra=$(echo "$CONFIG_JSON" | jq -r '.claude.allowed_tools // [] | if length > 0 then "," + join(",") else "" end')"
+          } >> "$GITHUB_OUTPUT"
+
+  # Dedupe a MANUAL bare `/devflow:review` comment against the AUTOMATED
+  # devflow-review path. Both are independent triggers: a commit
+  # push fires devflow-review's `synchronize` re-review, and the
+  # human who pushed it typically also comments `/devflow:review`
+  # within a second or two. Without this gate BOTH run a full (billable) LLM
+  # review of the same HEAD and post their own status comment — the observed
+  # "two comments" bug (PR #113, 15:06:55 synchronize + 15:06:56 comment).
+  #
+  # Policy ("auto suppresses manual"): if devflow-review is already
+  # in-flight for this PR's CURRENT head — either an in_progress `Devflow
+  # Review` check on that exact SHA, or a queued/in_progress
+  # devflow-review run on the PR's branch (covers the sub-second
+  # race before create_check POSTs the check) — skip the manual review and
+  # leave a one-line pointer instead. Deliberately fail-OPEN (default
+  # suppress=false): a missed suppression just reproduces today's recoverable
+  # double-comment, whereas a wrong suppression would silently swallow a
+  # review the user explicitly asked for. This is the opposite failure
+  # direction from devflow-review's fail-closed gates, by design.
+  #
+  # Only `/devflow:review` is deduped — NOT `/devflow:review-and-fix` (that
+  # auto-applies fixes and has no automated equivalent), and not the
+  # pr-description flow, which falls through with suppress=false untouched.
+  review_dedupe:
+    needs: config
+    if: ${{ inputs.prompt == '' && needs.config.outputs.enabled == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      checks: read
+      actions: read
+    outputs:
+      suppress: ${{ steps.guard.outputs.suppress }}
+    steps:
+      - id: guard
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BODY: ${{ github.event.comment.body || github.event.review.body || github.event.issue.body }}
+          PR: ${{ github.event.issue.number || github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          emit() { echo "suppress=$1" >> "$GITHUB_OUTPUT"; }
+          emit false  # fail-OPEN default: manual review proceeds unless we prove auto is in-flight
+
+          # First-match-wins: review-and-fix (no automated counterpart, never
+          # dedupe) is matched BEFORE the /devflow:review substring it
+          # contains; anything else is not a review request.
+          case "$BODY" in
+            *"/devflow:review-and-fix"*)
+              echo "::notice::/devflow:review-and-fix has no auto path; not deduping."
+              exit 0 ;;
+            *"/devflow:review"*) : ;;
+            *)
+              echo "::notice::Not a /devflow:review request; nothing to dedupe."
+              exit 0 ;;
+          esac
+
+          if [ -z "${PR:-}" ] || [ "$PR" = "null" ]; then
+            echo "::notice::No PR number on this event; fail-open (manual review proceeds)."
+            exit 0
+          fi
+
+          HEAD=$(gh pr view "$PR" --repo "$REPO" --json headRefOid --jq .headRefOid 2>/dev/null || echo "")
+          BRANCH=$(gh pr view "$PR" --repo "$REPO" --json headRefName --jq .headRefName 2>/dev/null || echo "")
+          if [ -z "$HEAD" ] || [ "$HEAD" = "null" ]; then
+            echo "::notice::Could not resolve PR #$PR HEAD; fail-open (manual review proceeds)."
+            exit 0
+          fi
+
+          # Signal 1: an in-flight `Devflow Review` check on THIS exact HEAD.
+          # A query failure stays fail-open (IC=0 → not suppressed) but is
+          # surfaced as a ::warning:: so a permanently-failing signal is
+          # distinguishable from "no auto run existed".
+          if RAW_IC=$(gh api --paginate "repos/$REPO/commits/$HEAD/check-runs" \
+                 --jq '.check_runs[] | select(.name=="Devflow Review" and (.status=="queued" or .status=="in_progress")) | .id' \
+                 2>/dev/null); then
+            IC=$(printf '%s' "$RAW_IC" | grep -c . || true)
+          else
+            echo "::warning::Signal 1 (check-runs) query failed for $HEAD; treating as 0 (fail-open — manual review may proceed)."
+            IC=0
+          fi
+          [[ "$IC" =~ ^[0-9]+$ ]] || IC=0
+
+          # Signal 2: a queued/in_progress devflow-review run on the
+          # PR's branch. Covers the <1s synchronize-vs-comment race where the
+          # auto run has started but create_check has not POSTed the check yet
+          # (an in-flight auto run on the same branch is, by that workflow's
+          # own first-ready/synchronize design, reviewing the latest HEAD).
+          IR=0
+          if [ -n "$BRANCH" ] && [ "$BRANCH" != "null" ]; then
+            if ! IR=$(gh run list --repo "$REPO" \
+                   --workflow devflow-review.yml \
+                   --branch "$BRANCH" \
+                   --json status \
+                   --jq '[.[] | select(.status=="queued" or .status=="in_progress")] | length' \
+                   2>/dev/null); then
+              echo "::warning::Signal 2 (run-list) query failed for branch $BRANCH; treating as 0 (fail-open)."
+              IR=0
+            fi
+          fi
+          [[ "$IR" =~ ^[0-9]+$ ]] || IR=0
+
+          if [ "$IC" != "0" ] || [ "$IR" != "0" ]; then
+            emit true
+            NOTE="ℹ️ An automated **Devflow Review** is already running for this commit (\`${HEAD:0:7}\`). Skipping this manual \`/devflow:review\` to avoid a duplicate review and double comments. Use the **Re-run** button on the \`Devflow Review\` check if you need to re-review."
+            gh pr comment "$PR" --repo "$REPO" --body "$NOTE" 2>/dev/null || true
+            echo "::notice::Suppressed manual /devflow:review for PR #$PR (in-flight check=$IC run=$IR)."
+            exit 0
+          fi
+          echo "::notice::No in-flight auto review for PR #$PR HEAD $HEAD; manual review proceeds."
+
+  # Authorization + command-detection gate for the LIGHT command path. The
+  # `command` job below runs claude-code-action in AGENT mode (explicit prompt),
+  # which executes for ANY actor, so this job is the cost control: it runs
+  # resolve-command-trigger.sh, which authorizes the sender (allowed bot, or an
+  # allowed_users login with write/admin/maintain access) and resolves which
+  # /devflow:* command + target number to synthesise. Coarse event matching
+  # stays in this job's `if:` so irrelevant events never spin a runner.
+  #
+  # PARTITION INVARIANT: every branch negates `@claude` and `/devflow:implement`.
+  # `@claude …` is ceded to Anthropic's claude.yml; `/devflow:implement` is the
+  # heavy path (devflow-implement.yml). `/devflow:review` substring-matches
+  # `/devflow:review-and-fix`, so both are covered by the review clause and the
+  # resolver disambiguates. The `issues` event matches `.body` only (light
+  # commands are body-only, never title).
+  gate:
+    needs: config
+    if: |
+      inputs.prompt == '' &&
+      needs.config.outputs.enabled == 'true' &&
+      (
+        (github.event_name == 'issue_comment' && (contains(github.event.comment.body, '/devflow:review') || contains(github.event.comment.body, '/devflow:pr-description')) && !contains(github.event.comment.body, '@claude') && !contains(github.event.comment.body, '/devflow:implement')) ||
+        (github.event_name == 'pull_request_review_comment' && (contains(github.event.comment.body, '/devflow:review') || contains(github.event.comment.body, '/devflow:pr-description')) && !contains(github.event.comment.body, '@claude') && !contains(github.event.comment.body, '/devflow:implement')) ||
+        (github.event_name == 'pull_request_review' && (contains(github.event.review.body, '/devflow:review') || contains(github.event.review.body, '/devflow:pr-description')) && !contains(github.event.review.body, '@claude') && !contains(github.event.review.body, '/devflow:implement')) ||
+        (github.event_name == 'issues' && (contains(github.event.issue.body, '/devflow:review') || contains(github.event.issue.body, '/devflow:pr-description')) && !contains(github.event.issue.body, '@claude') && !contains(github.event.issue.body, '/devflow:implement'))
+      )
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read   # checkout the resolver; collaborator check uses GITHUB_TOKEN
+    outputs:
+      should_run: ${{ steps.resolve.outputs.should_run }}
+      command: ${{ steps.resolve.outputs.command }}
+    steps:
+      - uses: actions/checkout@v6
+      - id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ACTOR: ${{ github.event.sender.login }}
+          ALLOWED_BOTS: ${{ needs.config.outputs.allowed_bots }}
+          ALLOWED_USERS: ${{ needs.config.outputs.allowed_users }}
+          CONTEXT_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+          # Only the populated field contributes; passed as an env var (never
+          # interpolated into bash) so arbitrary body text cannot inject.
+          TRIGGER_TEXT: ${{ github.event.comment.body || github.event.review.body || github.event.issue.body }}
+        run: |
+          set -euo pipefail
+          # Vendored path: install.sh copies the plugin into .claude/plugins/devflow/.
+          RESOLVER=.claude/plugins/devflow/scripts/resolve-command-trigger.sh
+          if [ ! -x "$RESOLVER" ]; then
+            echo "::error::devflow resolver not found at $RESOLVER — has install.sh vendored the plugin into this repo? Skipping." >&2
+            { echo "should_run=false"; echo "command="; } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          "$RESOLVER" >> "$GITHUB_OUTPUT"
+
+  command:
+    needs: [config, review_dedupe, gate]
+    if: ${{ inputs.prompt == '' && needs.gate.outputs.should_run == 'true' && needs.review_dedupe.outputs.suppress != 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      actions: read # Required for Claude to read CI results on PRs
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          # /devflow:review and /devflow:pr-description read the diff via
+          # three-dot notation against `origin/main` (`git diff
+          # origin/main...HEAD`), which internally computes a merge-base —
+          # an ancestor walk on both sides. Depth 50 covers the realistic
+          # case (PRs typically ≤ a few dozen commits behind main); long-
+          # lived branches that drift past that will error out visibly on
+          # the missing merge-base rather than silently produce wrong
+          # output. Bump to `fetch-depth: 0` if that becomes a recurring
+          # problem.
+          fetch-depth: 50
+
+      # Provision the runtime (Python / Node / pip cache / deps) from
+      # `.devflow/config.json`'s `setup` block. The logic lives in the
+      # setup-project-env composite action so devflow.yml and
+      # devflow-implement.yml share ONE copy (checkout above gives the action
+      # the repo + config to read). See docs/cloud-setup.md for the rationale.
+      - id: cfg
+        uses: ./.github/actions/read-project-config
+      - uses: ./.github/actions/setup-project-env
+        with:
+          config_json: ${{ steps.cfg.outputs.json }}
+
+      - name: Run Claude Code
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          allowed_bots: ${{ needs.config.outputs.allowed_bots }}
+
+          # AGENT mode: the gate resolved which /devflow:* command + number to
+          # run and synthesised a clean prompt (no @claude needed; extra
+          # free-text in the comment is intentionally dropped, matching the
+          # implement path). The skills read PR/issue context themselves.
+          prompt: ${{ needs.gate.outputs.command }}
+
+          # This is an optional setting that allows Claude to read CI results on PRs
+          additional_permissions: |
+            actions: read
+
+          # Register the official plugin marketplace plus this repo's own
+          # local marketplace. `./` resolves to the workflow's checkout root
+          # (where .claude-plugin/marketplace.json lives), so PR-branch changes
+          # to the marketplace or .claude/plugins/devflow/** are exercised by
+          # devflow.yml on the PR that introduces them — a git-URL entry would
+          # always resolve to main. Local-path marketplaces are supported by
+          # claude-code-action since v1.0.28 (we pin @v1, the floating major).
+          plugin_marketplaces: |
+            https://github.com/anthropics/claude-plugins-official.git
+            ./
+
+          # Install plugins so skills like /pr-review-toolkit and /devflow:* are available
+          plugins: |
+            pr-review-toolkit@claude-plugins-official
+            code-review@claude-plugins-official
+            feature-dev@claude-plugins-official
+            superpowers@claude-plugins-official
+            claude-md-management@claude-plugins-official
+            devflow@devflow-marketplace
+
+          base_branch: ${{ needs.config.outputs.base_branch }}
+          claude_args: >-
+            --model ${{ needs.config.outputs.claude_model }}
+            ${{ needs.config.outputs.effort != 'medium' && format('--effort {0}', needs.config.outputs.effort) || '' }}
+            --allowed-tools
+            "Read,
+            Write,
+            Edit,
+            Glob,
+            Grep,
+            LS,
+            Skill,
+            Agent,
+            TodoWrite,
+            EnterPlanMode,
+            ExitPlanMode,
+            WebFetch,
+            WebSearch,
+            Bash(git add:*),
+            Bash(git commit:*),
+            Bash(git push:*),
+            Bash(git pull:*),
+            Bash(git fetch:*),
+            Bash(git status:*),
+            Bash(git diff:*),
+            Bash(git log:*),
+            Bash(git show:*),
+            Bash(git checkout:*),
+            Bash(git branch:*),
+            Bash(git stash:*),
+            Bash(git rm:*),
+            Bash(git mv:*),
+            Bash(git restore:*),
+            Bash(git revert:*),
+            Bash(git blame:*),
+            Bash(git ls-files:*),
+            Bash(git rev-parse:*),
+            Bash(git merge-base:*),
+            Bash(gh pr create:*),
+            Bash(gh pr edit:*),
+            Bash(gh pr comment:*),
+            Bash(gh pr diff:*),
+            Bash(gh pr view:*),
+            Bash(gh pr review:*),
+            Bash(gh pr ready:*),
+            Bash(gh pr list:*),
+            Bash(gh pr checks:*),
+            Bash(gh pr status:*),
+            Bash(gh pr reopen:*),
+            Bash(gh issue view:*),
+            Bash(gh issue comment:*),
+            Bash(gh issue list:*),
+            Bash(gh issue edit:*),
+            Bash(gh issue create:*),
+            Bash(gh issue reopen:*),
+            Bash(gh issue status:*),
+            Bash(gh search:*),
+            Bash(gh label list:*),
+            Bash(gh repo view:*),
+            Bash(gh run view:*),
+            Bash(gh run list:*),
+            Bash(gh workflow view:*),
+            Bash(gh workflow list:*),
+            Bash(gh api:*),
+            Bash(jq:*),
+            Bash(.claude/plugins/devflow/scripts/config-get.sh:*),
+            Bash(.claude/plugins/devflow/scripts/workpad.py:*),
+            Bash(.claude/plugins/devflow/scripts/parse-acs.py:*),
+            Bash(.claude/plugins/devflow/scripts/branch-for-issue.py:*),
+            Bash(.claude/plugins/devflow/scripts/file-deferrals.py:*),
+            Bash(.claude/plugins/devflow/scripts/match-deferrals.py:*),
+            Bash(.claude/plugins/devflow/scripts/dismiss-stale-rejections.sh:*),
+            Bash(pip install:*),
+            Bash(pip:*),
+            Bash(python:*),
+            Bash(python3:*),
+            Bash(python -m:*),
+            Bash(python3 -m:*),
+            Bash(ruff:*),
+            Bash(ruff check:*),
+            Bash(ruff format:*),
+            Bash(pytest:*),
+            Bash(mypy:*),
+            Bash(grep:*),
+            Bash(rg:*),
+            Bash(find:*),
+            Bash(wc:*),
+            Bash(sort:*),
+            Bash(uniq:*),
+            Bash(cut:*),
+            Bash(tr:*),
+            Bash(xargs:*),
+            Bash(awk:*),
+            Bash(sed:*),
+            Bash(diff:*),
+            Bash(comm:*),
+            Bash(cat:*),
+            Bash(head:*),
+            Bash(tail:*),
+            Bash(less:*),
+            Bash(ls:*),
+            Bash(tree:*),
+            Bash(file:*),
+            Bash(stat:*),
+            Bash(date:*),
+            Bash(pwd:*),
+            Bash(realpath:*),
+            Bash(dirname:*),
+            Bash(basename:*),
+            Bash(which:*),
+            Bash(type:*),
+            Bash(env:*),
+            Bash(echo:*),
+            Bash(printf:*),
+            Bash(test:*),
+            Bash(touch:*),
+            Bash(mkdir:*),
+            Bash(rmdir:*),
+            Bash(rm:*),
+            Bash(mv:*),
+            Bash(cp:*),
+            Bash(tee:*)${{ needs.config.outputs.allowed_tools_extra }}"
+
+  # ── Reusable runner (workflow_call) ───────────────────────────────────────
+  # Selected when a caller passes a non-empty inputs.prompt (devflow-review.yml).
+  # Runs a Claude skill from the explicit prompt under a named tool profile, with
+  # no comment mediation. The command pipeline above is skipped on this path (its
+  # jobs are all gated `inputs.prompt == ''`). Body kept verbatim from the former
+  # standalone claude-runner.yml; keep plugin_marketplaces / plugins / claude_args
+  # in sync with the `command` job above and with devflow-implement.yml.
+  runner:
+    if: ${{ inputs.prompt != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+      actions: read # Required for Claude to read CI results (paired with additional_permissions below)
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: ${{ inputs.fetch_depth }}
+
+      - id: cfg
+        uses: ./.github/actions/read-project-config
+
+      - id: extract
+        env:
+          CONFIG_JSON: ${{ steps.cfg.outputs.json }}
+        run: |
+          set -euo pipefail
+          # `// empty` collapses missing/null to a real empty string so the
+          # explicit checks below fail loudly with an actionable message,
+          # instead of silently propagating literal `null` into
+          # `--model null` / `allowed_bots: null` downstream.
+          CLAUDE_MODEL=$(echo "$CONFIG_JSON" | jq -r '.claude_model // empty')
+          ALLOWED_BOTS=$(echo "$CONFIG_JSON" | jq -r '.claude.allowed_bots // empty')
+          EFFORT=$(echo "$CONFIG_JSON" | jq -r '.claude_runner.effort // "medium"')
+          if [ -z "$CLAUDE_MODEL" ]; then
+            echo "::error::claude_model is missing from .devflow/config.json"
+            exit 1
+          fi
+          if [ -z "$ALLOWED_BOTS" ]; then
+            echo "::error::claude.allowed_bots is missing from .devflow/config.json"
+            exit 1
+          fi
+          {
+            echo "claude_model=$CLAUDE_MODEL"
+            echo "allowed_bots=$ALLOWED_BOTS"
+            echo "effort=$EFFORT"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Resolve allowed-tools profile
+        id: tools
+        env:
+          PROFILE: ${{ inputs.allowed_tools_profile }}
+        run: |
+          set -euo pipefail
+          # Profiles intentionally kept inline (single-string per profile) to
+          # avoid premature factoring into a composite action. Add new
+          # profiles here as real callers require them; do not speculate.
+          case "$PROFILE" in
+            review)
+              # Slim profile for /devflow:review — read-only, comment/post-review
+              # only. No PHP/npm/composer (the review skill never shells out
+              # to them). No Edit/Write (review must not mutate the tree).
+              TOOLS='Read,Glob,Grep,LS,Skill,Agent,TodoWrite,WebFetch,WebSearch,Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git ls-files:*),Bash(git rev-parse:*),Bash(git merge-base:*),Bash(git blame:*),Bash(git branch:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr review:*),Bash(gh pr comment:*),Bash(gh pr list:*),Bash(gh pr checks:*),Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue list:*),Bash(gh search:*),Bash(gh repo view:*),Bash(gh run view:*),Bash(gh run list:*),Bash(gh api:*),Bash(jq:*),Bash(grep:*),Bash(rg:*),Bash(find:*),Bash(wc:*),Bash(sort:*),Bash(uniq:*),Bash(cut:*),Bash(tr:*),Bash(xargs:*),Bash(awk:*),Bash(sed:*),Bash(diff:*),Bash(comm:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(ls:*),Bash(tree:*),Bash(file:*),Bash(stat:*),Bash(date:*),Bash(pwd:*),Bash(realpath:*),Bash(dirname:*),Bash(basename:*),Bash(which:*),Bash(type:*),Bash(env:*),Bash(echo:*),Bash(printf:*),Bash(test:*),Bash(.claude/plugins/devflow/scripts/match-deferrals.py:*),Bash(.claude/plugins/devflow/scripts/dismiss-stale-rejections.sh:*)'
+              ;;
+            *)
+              echo "::error::Unknown allowed_tools_profile: $PROFILE"
+              exit 1
+              ;;
+          esac
+          # Heredoc form forwards the value verbatim regardless of length or
+          # embedded special characters; safe to extend with more profiles
+          # without revisiting quoting.
+          delim="EOF_$(date +%s%N)_$$"
+          {
+            printf 'tools<<%s\n' "$delim"
+            printf '%s\n' "$TOOLS"
+            printf '%s\n' "$delim"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Resolve effort
+        id: effort
+        env:
+          # Resolve input-vs-config once so the claude_args expression below
+          # mirrors the shape used by the other workflows (single output ref,
+          # no double-evaluated ternary).
+          RESOLVED: ${{ inputs.effort != '' && inputs.effort || steps.extract.outputs.effort }}
+        run: |
+          set -euo pipefail
+          echo "value=$RESOLVED" >> "$GITHUB_OUTPUT"
+
+      - name: Run Claude Code
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Pass the workflow's own GITHUB_TOKEN so the action skips its
+          # OIDC → app-token exchange, which 401s for jobs running inside a
+          # reusable workflow_call from pull_request_target (anthropics/
+          # claude-code-action#443, #721). Cost: progress comment and final
+          # review post under `github-actions[bot]` instead of `@claude`.
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          allowed_bots: ${{ steps.extract.outputs.allowed_bots }}
+
+          additional_permissions: |
+            actions: read
+
+          prompt: ${{ inputs.prompt }}
+
+          # Marketplaces and plugin install list are kept verbatim in sync with
+          # the `command` job above (and devflow-implement.yml) so the bare-command
+          # path and this automated runner path resolve identical skill/plugin
+          # versions. Drift between them must be a deliberate separate change.
+          plugin_marketplaces: |
+            https://github.com/anthropics/claude-plugins-official.git
+            ./
+
+          plugins: |
+            pr-review-toolkit@claude-plugins-official
+            code-review@claude-plugins-official
+            feature-dev@claude-plugins-official
+            superpowers@claude-plugins-official
+            claude-md-management@claude-plugins-official
+            devflow@devflow-marketplace
+
+          # --permission-mode acceptEdits auto-approves Edit/Write plus the
+          # filesystem Bash commands mkdir/touch/rm/rmdir/mv/cp/sed. The
+          # "review" profile uses none of those, so the flag is a no-op for
+          # this profile today — kept as defensive precedent-matching with
+          # prompt-mode invocations and to absorb future profiles
+          # that may need the auto-approved commands.
+          claude_args: >-
+            --model ${{ inputs.model != '' && inputs.model || steps.extract.outputs.claude_model }}
+            ${{ steps.effort.outputs.value != 'medium' && format('--effort {0}', steps.effort.outputs.value) || '' }}
+            --permission-mode acceptEdits
+            --allowed-tools "${{ steps.tools.outputs.tools }}"

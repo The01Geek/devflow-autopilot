@@ -59,39 +59,31 @@ variables → Actions**:
 | `GITHUB_TOKEN` | (built in — no action needed) | Provided automatically to workflows. |
 
 That's it — no GitHub App is required. (Earlier versions needed one purely so a
-bot-authored "implement this" comment could re-trigger the workflow; that path
-is now a label, see below.)
+bot-authored "implement this" comment could re-trigger the workflow; a human
+`/devflow:implement <#>` comment is itself a native user event, so that need is
+gone.)
 
 ## Triggering `/devflow:implement`
 
-`claude-implement.yml` runs the full implementation lifecycle when **either**:
+`devflow-implement.yml` runs the full implementation lifecycle when a comment,
+review, or new-issue body contains a bare `/devflow:implement <#>` (no `@claude`
+required — and **no** `@claude`: a comment containing `@claude` is ceded to
+Anthropic's Claude GitHub App, not DevFlow). There is no label trigger — a human
+`/devflow:implement <#>` comment is the sole entry point and is itself a native
+user event, so it needs no bot comment, PAT, or GitHub App.
 
-- a comment, review, or new issue contains `/devflow:implement <#>` (no `@claude` required), **or**
-- the **`devflow:implement`** label is added to an issue.
-
-The label is the zero-friction path: add the `devflow:implement` label to any
-issue to kick off implementation. Because a human adding a label is a real user
-event, it triggers Actions natively — no bot comment, PAT, or GitHub App
-involved. Rename the label via `claude_implement.trigger_label` in
-`.devflow/config.json`.
-
-`install.sh` and `/devflow:init` **create this label for you** (best-effort, via
-`gh`); if `gh` wasn't authenticated at setup, create it manually under **Issues
-→ Labels → New label**.
-
-> **Who can trigger it.** Adding a label requires **triage or write** access, so
-> the label path is gated by repo permission. The bare `/devflow:implement <#>`
-> comment / review / issue-body path is gated the same way: the `gate` job runs
+> **Who can trigger it.** The `gate` job runs
 > `scripts/resolve-implement-trigger.sh`, which authorizes the sender only if
-> they are an allowed bot (`claude.allowed_bots`) **or** a write / admin /
-> maintain collaborator, and fails closed otherwise. So `claude.allowed_bots` is
-> not the sole gate on the command path any more — repo permission is the other
-> half. Be aware that **anyone with write/triage, or any bot that syncs labels,
-> will start an autonomous implement run by adding `devflow:implement`.** If you
-> wire up label automation, scope it so it can't bulk-apply this label
-> unintentionally.
+> they are an allowed bot (`claude.allowed_bots`) **or** their login matches
+> `claude.allowed_users` **and** they hold write / admin / maintain access — and
+> fails closed otherwise. `claude.allowed_users` defaults to `"*"` (any
+> collaborator) and can be narrowed to a comma-separated list of logins to
+> restrict who may start a run; it only tightens the collaborator gate, never
+> bypasses it. Bots are governed separately by `claude.allowed_bots` — this is
+> the path for a custom GitHub App that posts the trigger comment on your behalf.
+> The same gate guards the light `/devflow:*` command path in `devflow.yml`.
 
-For the full idea → issue → label → PR walkthrough, see
+For the full idea → issue → PR walkthrough, see
 [The workflow, end to end](../README.md#the-workflow-end-to-end) in the README.
 
 ## Configure and enable
@@ -106,7 +98,7 @@ For the full idea → issue → label → PR walkthrough, see
 
 ## Runtime provisioning (`setup`)
 
-The `@claude` (claude.yml) and `/devflow:implement` (claude-implement.yml) workflows prepare the runner **before**
+The light command (`devflow.yml`) and `/devflow:implement` (`devflow-implement.yml`) workflows prepare the runner **before**
 Claude runs by reading a `setup` block from `.devflow/config.json`.
 There is no hardcoded toolchain — DevFlow installs into repos of every shape
 (Python package at root, npm frontend, Docker-only backend, polyglot), so you
@@ -138,7 +130,7 @@ Example for a split repo (Docker backend in `server/`, npm frontend in
 
 ## Extending the tool allowlist
 
-`@claude` runs under a fixed `--allowed-tools` allowlist baked into the
+The light `/devflow:*` command path runs under a fixed `--allowed-tools` allowlist baked into the
 workflows (git/gh, the DevFlow scripts, Python, and common read-only shell
 tools). Provisioning a tool in `setup.install` does **not** let Claude *run* it
 — the tool also has to be on the allowlist. To grant your repo's own commands,
@@ -158,8 +150,8 @@ workflow YAML:
   (e.g. `Bash(make:*)`), and are **appended** to DevFlow's base list — they add,
   never replace.
 - The two keys are **independent**: `claude.allowed_tools` covers the light
-  `@claude` path (`claude.yml`); `claude_implement.allowed_tools` covers the
-  heavy `/devflow:implement` path (`claude-implement.yml`). The implement path
+  `/devflow:*` command path (`devflow.yml`); `claude_implement.allowed_tools` covers the
+  heavy `/devflow:implement` path (`devflow-implement.yml`). The implement path
   does **not** inherit the light path's extras, so list every tool you want
   during implementation under `claude_implement.allowed_tools`.
 - Leave a key out (or `[]`) to use the base list unchanged.
@@ -171,14 +163,21 @@ workflow YAML:
 | Workflow | Purpose | Needs |
 |---|---|---|
 | `ci.yml` | Runs DevFlow's own test suite | — (this repo's CI) |
-| `claude.yml`, `claude-implement.yml`, `claude-runner.yml` | Run Claude Code skills in response to comments/events (incl. the `devflow:implement` label) | `CLAUDE_CODE_OAUTH_TOKEN` |
-| `devflow-review.yml` | Auto-runs `/devflow:review` as a gate on PRs | `CLAUDE_CODE_OAUTH_TOKEN` |
+| `devflow.yml` | Reusable runner (`workflow_call`) **and** the light `/devflow:*` command listener (review, review-and-fix, pr-description) | `CLAUDE_CODE_OAUTH_TOKEN` |
+| `devflow-implement.yml` | Runs `/devflow:implement` on a bare command comment/issue | `CLAUDE_CODE_OAUTH_TOKEN` |
+| `devflow-review.yml` | Auto-runs `/devflow:review` as a gate on PRs (calls `devflow.yml`'s runner) | `CLAUDE_CODE_OAUTH_TOKEN` |
+
+DevFlow never creates or overwrites `claude.yml` — that file belongs to
+Anthropic's Claude GitHub App, which owns plain `@claude` mentions, Q&A, and
+`/security-review`. Every DevFlow trigger negates `@claude`, so the two never
+double-fire; if a repo had an old DevFlow-authored `claude.yml`/`claude-runner.yml`/`claude-implement.yml`,
+`install.sh` removes it on upgrade (a genuine Anthropic `claude.yml` is left untouched).
 
 ## A note on validation
 
 After installing (or updating), run a low-stakes test before relying on the
-automation: open a throwaway issue and `@claude` it, and confirm the run
-provisions and responds. The CI permission model is settled — `install.sh`
+automation: open a throwaway PR and comment a bare `/devflow:review` on it, and
+confirm the run provisions and responds. The CI permission model is settled — `install.sh`
 vendors the plugin into the workspace, so its scripts resolve at the literal
 `.claude/plugins/devflow/scripts/…` paths the workflows allowlist. (A
 github-marketplace install is deliberately *not* used in CI: the Actions sandbox

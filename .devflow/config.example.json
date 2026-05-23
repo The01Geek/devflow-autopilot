@@ -4,13 +4,13 @@
   "claude_model": "claude-opus-4-7",
   "claude": {
     "allowed_bots": "claude,dependabot",
+    "allowed_users": "*",
     "workpad_marker": "<!-- devflow:workpad -->",
     "effort": "medium",
     "allowed_tools": []
   },
   "claude_implement": {
     "effort": "medium",
-    "trigger_label": "devflow:implement",
     "allowed_tools": []
   },
   "claude_runner": {
