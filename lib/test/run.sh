@@ -253,6 +253,83 @@ assert_eq "scaffold: missing templates → exit 2" "2" "$?"
 rm -rf "$SC_FRESH" "$SC_KEEP" "$SC_NOTPL" "$SC_NOTPL_TGT"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "detect-project-tools.sh"
+# ────────────────────────────────────────────────────────────────────────────
+# Language auto-detection: scans a throwaway repo for marker files and merges
+# the matching presets (from the repo's real .devflow/tool-presets.json) into a
+# .devflow/config.json. Run by scaffold-config.sh, so a regression here silently
+# wires the wrong tools into the cloud reviewer.
+DPT="$LIB/../scripts/detect-project-tools.sh"
+
+# Helper: does an allowlist contain a tool pattern?
+dpt_has() { jq -e --arg t "$2" "$1 | index(\$t) != null" "$3" >/dev/null 2>&1 && echo yes || echo no; }
+
+# 1. Node + npm lockfile → tools land in ALL THREE paths; node_version filled;
+#    `npm ci` chosen from package-lock.json; an existing custom entry is kept
+#    at the front (ordered union, not alphabetical); install order preserved.
+DT1="$(mktemp -d)"; mkdir -p "$DT1/.devflow"
+printf '{"name":"x"}' > "$DT1/package.json"
+printf '{}' > "$DT1/package-lock.json"
+printf '{"claude":{"allowed_tools":["Bash(make:*)"]},"setup":{"node_version":"","install":["python -m pip install pyyaml"]}}' > "$DT1/.devflow/config.json"
+bash "$DPT" "$DT1" >/dev/null 2>&1
+assert_eq "detect: npm tool in claude path"    "yes" "$(dpt_has .claude.allowed_tools           'Bash(npm:*)' "$DT1/.devflow/config.json")"
+assert_eq "detect: npm tool in implement path" "yes" "$(dpt_has .claude_implement.allowed_tools 'Bash(npm:*)' "$DT1/.devflow/config.json")"
+assert_eq "detect: npm tool in runner path"    "yes" "$(dpt_has .claude_runner.allowed_tools    'Bash(npm:*)' "$DT1/.devflow/config.json")"
+assert_eq "detect: node_version filled from empty" "20" \
+  "$(jq -r '.setup.node_version' "$DT1/.devflow/config.json")"
+assert_eq "detect: npm ci chosen from package-lock.json" "yes" \
+  "$(jq -e '.setup.install | index("npm ci") != null' "$DT1/.devflow/config.json" >/dev/null && echo yes || echo no)"
+assert_eq "detect: existing custom tool preserved at front (ordered union)" "Bash(make:*)" \
+  "$(jq -r '.claude.allowed_tools[0]' "$DT1/.devflow/config.json")"
+assert_eq "detect: pyyaml install line kept first (order preserved)" "python -m pip install pyyaml" \
+  "$(jq -r '.setup.install[0]' "$DT1/.devflow/config.json")"
+
+# 2. Idempotent: a second run changes nothing.
+DT1_HASH="$(jq -S . "$DT1/.devflow/config.json" | sha256sum)"
+bash "$DPT" "$DT1" >/dev/null 2>&1
+assert_eq "detect: idempotent re-run is a no-op" \
+  "$DT1_HASH" "$(jq -S . "$DT1/.devflow/config.json" | sha256sum)"
+
+# 3. A pinned node_version is NEVER overridden; no lockfile → `npm install`.
+DT2="$(mktemp -d)"; mkdir -p "$DT2/.devflow"
+printf '{"name":"y"}' > "$DT2/package.json"
+printf '{"setup":{"node_version":"18","install":[]}}' > "$DT2/.devflow/config.json"
+bash "$DPT" "$DT2" >/dev/null 2>&1
+assert_eq "detect: pinned node_version not overridden" "18" \
+  "$(jq -r '.setup.node_version' "$DT2/.devflow/config.json")"
+assert_eq "detect: no lockfile → npm install" "yes" \
+  "$(jq -e '.setup.install | index("npm install") != null' "$DT2/.devflow/config.json" >/dev/null && echo yes || echo no)"
+
+# 4. False-positive guard: a marker ONLY inside node_modules must NOT match —
+#    config stays exactly the empty object it started as.
+DT3="$(mktemp -d)"; mkdir -p "$DT3/.devflow" "$DT3/node_modules/foo"
+printf '{"x":1}' > "$DT3/node_modules/foo/package.json"
+printf '{}' > "$DT3/.devflow/config.json"
+bash "$DPT" "$DT3" >/dev/null 2>&1
+assert_eq "detect: vendored node_modules marker does not trigger" "{}" \
+  "$(jq -c . "$DT3/.devflow/config.json")"
+
+# 5. Glob marker (*.csproj) matches dotnet.
+DT4="$(mktemp -d)"; mkdir -p "$DT4/.devflow"
+printf '<Project/>' > "$DT4/App.csproj"
+printf '{}' > "$DT4/.devflow/config.json"
+bash "$DPT" "$DT4" >/dev/null 2>&1
+assert_eq "detect: *.csproj glob matches dotnet" "yes" \
+  "$(dpt_has .claude_runner.allowed_tools 'Bash(dotnet:*)' "$DT4/.devflow/config.json")"
+
+# 6. PHP (composer.json) → php tools in all paths AND a composer install line.
+DT5="$(mktemp -d)"; mkdir -p "$DT5/.devflow"
+printf '{"require":{"php":">=8.2"}}' > "$DT5/composer.json"
+printf '{}' > "$DT5/.devflow/config.json"
+bash "$DPT" "$DT5" >/dev/null 2>&1
+assert_eq "detect: composer tool in runner path" "yes" \
+  "$(dpt_has .claude_runner.allowed_tools 'Bash(composer:*)' "$DT5/.devflow/config.json")"
+assert_eq "detect: composer install line added" "yes" \
+  "$(jq -e '.setup.install | index("composer install --no-interaction --prefer-dist --no-progress") != null' "$DT5/.devflow/config.json" >/dev/null && echo yes || echo no)"
+
+rm -rf "$DT1" "$DT2" "$DT3" "$DT4" "$DT5"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "config-source.sh"
 # ────────────────────────────────────────────────────────────────────────────
 ( export DEVFLOW_CONFIG_FILE="$LIB/test/fixtures/config.json"
