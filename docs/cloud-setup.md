@@ -66,7 +66,7 @@ is now a label, see below.)
 
 `claude-implement.yml` runs the full implementation lifecycle when **either**:
 
-- a comment or new issue contains `@claude /devflow:implement <#>`, **or**
+- a comment, review, or new issue contains `/devflow:implement <#>` (no `@claude` required), **or**
 - the **`devflow:implement`** label is added to an issue.
 
 The label is the zero-friction path: add the `devflow:implement` label to any
@@ -80,12 +80,16 @@ involved. Rename the label via `claude_implement.trigger_label` in
 → Labels → New label**.
 
 > **Who can trigger it.** Adding a label requires **triage or write** access, so
-> the label path is gated by repo permission, not by `claude.allowed_bots` (that
-> allowlist only constrains the `@claude` *comment* path). claude-code-action
-> still enforces its own actor check — non-write users can't trigger a run — but
-> be aware that **anyone with write/triage, or any bot that syncs labels, will
-> start an autonomous implement run by adding `devflow:implement`.** If you wire
-> up label automation, scope it so it can't bulk-apply this label unintentionally.
+> the label path is gated by repo permission. The bare `/devflow:implement <#>`
+> comment / review / issue-body path is gated the same way: the `gate` job runs
+> `scripts/resolve-implement-trigger.sh`, which authorizes the sender only if
+> they are an allowed bot (`claude.allowed_bots`) **or** a write / admin /
+> maintain collaborator, and fails closed otherwise. So `claude.allowed_bots` is
+> not the sole gate on the command path any more — repo permission is the other
+> half. Be aware that **anyone with write/triage, or any bot that syncs labels,
+> will start an autonomous implement run by adding `devflow:implement`.** If you
+> wire up label automation, scope it so it can't bulk-apply this label
+> unintentionally.
 
 For the full idea → issue → label → PR walkthrough, see
 [The workflow, end to end](../README.md#the-workflow-end-to-end) in the README.
@@ -102,7 +106,7 @@ For the full idea → issue → label → PR walkthrough, see
 
 ## Runtime provisioning (`setup`)
 
-The `@claude` and `/devflow:implement` workflows prepare the runner **before**
+The `@claude` (claude.yml) and `/devflow:implement` (claude-implement.yml) workflows prepare the runner **before**
 Claude runs by reading a `setup` block from `.devflow/config.json`.
 There is no hardcoded toolchain — DevFlow installs into repos of every shape
 (Python package at root, npm frontend, Docker-only backend, polyglot), so you

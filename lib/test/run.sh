@@ -664,6 +664,138 @@ assert_eq "successful dismissal → exit 0" "0" "$DSR_RC"
 assert_eq "dismissal failure → exit 1" "1" "$DSR_RC"
 rm -f "$DSR_STUB"
 
+# ────────────────────────────────────────────────────────────────────────────
+echo "resolve-implement-trigger.sh"
+# ────────────────────────────────────────────────────────────────────────────
+# The implement trigger runs the action in AGENT mode (explicit prompt), which
+# executes for ANY actor — so this resolver is the cost/authorization gate AND
+# the issue-number resolver. Tests stub `gh` for the collaborator-permission
+# call; the allowed-bot path never reaches `gh`.
+RIT="$LIB/../scripts/resolve-implement-trigger.sh"
+
+# Inline gh stub: returns whatever STUB_PERM says for a collaborator-permission
+# query (the script passes --jq '.permission'; like gh-stub.sh we ignore --jq
+# and emit the already-extracted value), empty otherwise.
+RIT_STUB_DIR="$(mktemp -d)"
+cat > "$RIT_STUB_DIR/gh" <<'STUB'
+#!/usr/bin/env bash
+# STUB_ERR (to stderr) + STUB_RC let a test simulate gh failures (transient or
+# 404); default is a clean success echoing STUB_PERM. STUB_RECOVER (with a
+# STUB_COUNTER file) fails the FIRST permission call with a 500 and succeeds on
+# the second, so a test can prove the resolver's retry loop actually re-attempts.
+case "$*" in
+  *"collaborators/"*"/permission"*)
+    if [ -n "${STUB_RECOVER:-}" ]; then
+      n=0; [ -f "${STUB_COUNTER:-/dev/null}" ] && n="$(cat "${STUB_COUNTER:-/dev/null}")"
+      n=$((n + 1)); echo "$n" > "${STUB_COUNTER:-/dev/null}"
+      if [ "$n" -lt 2 ]; then echo "gh: Internal Server Error (HTTP 500)" >&2; exit 1; fi
+      echo "${STUB_PERM:-none}"; exit 0
+    fi
+    [ -n "${STUB_ERR:-}" ] && echo "$STUB_ERR" >&2
+    [ "${STUB_RC:-0}" != 0 ] && exit "${STUB_RC}"
+    echo "${STUB_PERM:-none}" ;;
+  *) echo "" ;;
+esac
+STUB
+chmod +x "$RIT_STUB_DIR/gh"
+
+# 1. Allowed bot + label event → run on the labelled issue. `foo[bot]` actor
+#    must match the bare `foo` in allowed_bots. No gh call on this path.
+OUT="$(ACTOR='foo[bot]' ALLOWED_BOTS='foo,bar' REPO='acme/x' \
+  IS_LABEL_EVENT='true' TRIGGER_TEXT='' CONTEXT_NUMBER='42' \
+  PATH="$RIT_STUB_DIR:$PATH" bash "$RIT")"
+assert_eq "rit: allowed bot, label event → should_run" \
+  "should_run=true" "$(echo "$OUT" | grep '^should_run=')"
+assert_eq "rit: allowed bot, label event → number" \
+  "number=42" "$(echo "$OUT" | grep '^number=')"
+
+# 2. Write collaborator + explicit number in comment → run on that number.
+OUT="$(ACTOR='alice' ALLOWED_BOTS='' REPO='acme/x' IS_LABEL_EVENT='false' \
+  TRIGGER_TEXT='/devflow:implement 7' CONTEXT_NUMBER='99' \
+  STUB_PERM='write' PATH="$RIT_STUB_DIR:$PATH" bash "$RIT")"
+assert_eq "rit: write collaborator, explicit number → should_run" \
+  "should_run=true" "$(echo "$OUT" | grep '^should_run=')"
+assert_eq "rit: explicit number beats context" \
+  "number=7" "$(echo "$OUT" | grep '^number=')"
+
+# 3. Non-collaborator (gh → 'none') → blocked, no number.
+OUT="$(ACTOR='stranger' ALLOWED_BOTS='' REPO='acme/x' IS_LABEL_EVENT='false' \
+  TRIGGER_TEXT='/devflow:implement 7' CONTEXT_NUMBER='99' \
+  STUB_PERM='none' PATH="$RIT_STUB_DIR:$PATH" bash "$RIT")"
+assert_eq "rit: non-collaborator → should_run=false" \
+  "should_run=false" "$(echo "$OUT" | grep '^should_run=')"
+assert_eq "rit: non-collaborator → empty number" \
+  "number=" "$(echo "$OUT" | grep '^number=')"
+
+# 4. Authorized but NO number anywhere → blocked (can't implement nothing).
+OUT="$(ACTOR='alice' ALLOWED_BOTS='' REPO='acme/x' IS_LABEL_EVENT='false' \
+  TRIGGER_TEXT='/devflow:implement please' CONTEXT_NUMBER='' \
+  STUB_PERM='admin' PATH="$RIT_STUB_DIR:$PATH" bash "$RIT")"
+assert_eq "rit: no resolvable number → should_run=false" \
+  "should_run=false" "$(echo "$OUT" | grep '^should_run=')"
+
+# 5. Authorized, no explicit number but a context issue → fall back to context.
+OUT="$(ACTOR='alice' ALLOWED_BOTS='' REPO='acme/x' IS_LABEL_EVENT='false' \
+  TRIGGER_TEXT='/devflow:implement' CONTEXT_NUMBER='5' \
+  STUB_PERM='maintain' PATH="$RIT_STUB_DIR:$PATH" bash "$RIT")"
+assert_eq "rit: fallback to context number" \
+  "number=5" "$(echo "$OUT" | grep '^number=')"
+
+# 6. Transient collaborator-API failure (non-404) → fails CLOSED with a
+#    transient-specific diagnostic, NOT mislabelled as "not a collaborator".
+#    RESOLVE_RETRY_DELAY=0 keeps the retry instant.
+OUT="$(ACTOR='alice' ALLOWED_BOTS='' REPO='acme/x' IS_LABEL_EVENT='false' \
+  TRIGGER_TEXT='/devflow:implement 7' CONTEXT_NUMBER='99' \
+  STUB_RC='1' STUB_ERR='gh: Internal Server Error (HTTP 500)' \
+  RESOLVE_RETRY_DELAY='0' PATH="$RIT_STUB_DIR:$PATH" bash "$RIT" 2>"$RIT_STUB_DIR/err")"
+assert_eq "rit: transient API error → should_run=false" \
+  "should_run=false" "$(echo "$OUT" | grep '^should_run=')"
+assert_eq "rit: transient API error → honest diagnostic (not mislabelled)" \
+  "1" "$(grep -c 'collaborator-permission lookup failed after retry' "$RIT_STUB_DIR/err")"
+assert_eq "rit: transient API error → surfaces the real gh error" \
+  "1" "$(grep -c 'HTTP 500' "$RIT_STUB_DIR/err")"
+
+# 7. Genuine 404 (not a collaborator) → fails closed as before, no retry stall.
+OUT="$(ACTOR='stranger' ALLOWED_BOTS='' REPO='acme/x' IS_LABEL_EVENT='false' \
+  TRIGGER_TEXT='/devflow:implement 7' CONTEXT_NUMBER='99' \
+  STUB_RC='1' STUB_ERR='gh: Not Found (HTTP 404)' \
+  RESOLVE_RETRY_DELAY='0' PATH="$RIT_STUB_DIR:$PATH" bash "$RIT" 2>"$RIT_STUB_DIR/err")"
+assert_eq "rit: 404 non-collaborator → should_run=false" \
+  "should_run=false" "$(echo "$OUT" | grep '^should_run=')"
+assert_eq "rit: 404 treated as non-collaborator, not transient" \
+  "1" "$(grep -c 'is not an allowed bot or write/admin/maintain collaborator' "$RIT_STUB_DIR/err")"
+
+# 8. Transient failure on attempt 1, success on attempt 2 → retry RECOVERS the
+#    collaborator. A regression collapsing the loop to a single call would fail
+#    closed and break this, which case 6 (double-failure) cannot catch.
+RIT_COUNTER="$RIT_STUB_DIR/recover_count"; : > "$RIT_COUNTER"
+OUT="$(ACTOR='alice' ALLOWED_BOTS='' REPO='acme/x' IS_LABEL_EVENT='false' \
+  TRIGGER_TEXT='/devflow:implement 7' CONTEXT_NUMBER='99' \
+  STUB_RECOVER='1' STUB_COUNTER="$RIT_COUNTER" STUB_PERM='write' \
+  RESOLVE_RETRY_DELAY='0' PATH="$RIT_STUB_DIR:$PATH" bash "$RIT")"
+assert_eq "rit: retry recovers collaborator on attempt 2 → should_run" \
+  "should_run=true" "$(echo "$OUT" | grep '^should_run=')"
+assert_eq "rit: retry recovers → number" \
+  "number=7" "$(echo "$OUT" | grep '^number=')"
+
+# 9. Explicit number with leading '#' and mixed-case command → extracted (pins
+#    the regex's `#?` arm and grep -i case-insensitivity).
+OUT="$(ACTOR='alice' ALLOWED_BOTS='' REPO='acme/x' IS_LABEL_EVENT='false' \
+  TRIGGER_TEXT='/DevFlow:Implement #13' CONTEXT_NUMBER='99' \
+  STUB_PERM='admin' PATH="$RIT_STUB_DIR:$PATH" bash "$RIT")"
+assert_eq "rit: '#'-prefixed mixed-case command → number=13" \
+  "number=13" "$(echo "$OUT" | grep '^number=')"
+
+# 10. allowed_bots with surrounding whitespace + bot is NOT the first entry →
+#     matched after parameter-expansion trim (pins the trim + loop continuation).
+OUT="$(ACTOR='bar[bot]' ALLOWED_BOTS=' foo , bar ' REPO='acme/x' \
+  IS_LABEL_EVENT='true' TRIGGER_TEXT='' CONTEXT_NUMBER='8' \
+  PATH="$RIT_STUB_DIR:$PATH" bash "$RIT")"
+assert_eq "rit: whitespace-trimmed, non-first allowed bot → should_run" \
+  "should_run=true" "$(echo "$OUT" | grep '^should_run=')"
+
+rm -rf "$RIT_STUB_DIR"
+
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
