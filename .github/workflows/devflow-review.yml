@@ -422,16 +422,20 @@ jobs:
     # create_check runs in parallel; finalize_check joins both.
     needs: precheck
     if: needs.precheck.outputs.enabled == 'true' && needs.precheck.outputs.should_run == 'true'
-    # A reusable workflow's effective GITHUB_TOKEN cannot exceed the caller
-    # job's permissions; granting id-token: write here matches what devflow.yml
-    # already grants for the same anthropics/claude-code-action@v1 invocation.
+    # A called reusable workflow's job permissions must be a SUBSET of the
+    # caller job's grant (validated at graph-build time). devflow-runner.yml's
+    # job needs contents:read + pull-requests:write + id-token:write + actions:read,
+    # so this grant is an exact superset. `actions: read` is required — without it
+    # the runner's `actions: read` would exceed this grant and abort the run as
+    # `startup_failure` (the very bug this split fixes); keep it here.
     permissions:
       contents: read
       pull-requests: write
       id-token: write
-    # Calls devflow.yml's reusable `runner` job (passing a non-empty prompt
-    # selects it; the bare-command jobs there are gated `inputs.prompt == ''`).
-    uses: ./.github/workflows/devflow.yml
+      actions: read
+    # Calls the dedicated reusable runner (its own file, so its permission
+    # ceiling is a clean subset of this read-only caller — see devflow-runner.yml).
+    uses: ./.github/workflows/devflow-runner.yml
     with:
       # Check out the PR HEAD, not the base branch — the review must see the
       # PR's own content, and a repo bootstrapping the devflow plugin via PR

@@ -1,0 +1,45 @@
+{
+  "$schema": "./config.schema.json",
+  "base_branch": "main",
+  "claude_model": "claude-opus-4-7",
+  "claude": {
+    "allowed_bots": "claude,dependabot",
+    "allowed_users": "*",
+    "workpad_marker": "<!-- devflow:workpad -->",
+    "effort": "medium",
+    "allowed_tools": []
+  },
+  "claude_implement": {
+    "effort": "medium",
+    "allowed_tools": []
+  },
+  "claude_runner": {
+    "effort": "medium"
+  },
+  "setup": {
+    "python_version": "3.11",
+    "node_version": "",
+    "install": [
+      "python -m pip install -r requirements.txt"
+    ]
+  },
+  "docs": {
+    "internal": "docs/internal/",
+    "external": "docs/external/",
+    "release_notes_file": "CHANGELOG.md",
+    "documented_label": "Documented"
+  },
+  "devflow_retrospective": {
+    "enabled": true,
+    "retrospective_model": "claude-sonnet-4-6",
+    "audit_model": "claude-opus-4-7",
+    "implementation_branch_prefix": "claude/",
+    "min_occurrences": 2,
+    "cooldown_days": 3,
+    "max_prs_per_run": 500
+  },
+  "workflows": {
+    "claude": false,
+    "devflow-review": false
+  }
+}

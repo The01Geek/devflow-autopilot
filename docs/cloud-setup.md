@@ -106,7 +106,7 @@ For the full idea → issue → PR walkthrough, see
 ## Runtime provisioning (`setup`)
 
 The light command (`devflow.yml`), `/devflow:implement` (`devflow-implement.yml`),
-and the automated reviewer (`devflow-review.yml` → `devflow.yml`'s `runner`) all
+and the automated reviewer (`devflow-review.yml` → `devflow-runner.yml`) all
 prepare the runner **before**
 Claude runs by reading a `setup` block from `.devflow/config.json`.
 (`/devflow:init` auto-fills `node_version` + an install line from your repo's
@@ -264,9 +264,10 @@ your custom entries.
 | Workflow | Purpose | Needs |
 |---|---|---|
 | `ci.yml` | Runs DevFlow's own test suite | — (this repo's CI) |
-| `devflow.yml` | Reusable runner (`workflow_call`) **and** the light `/devflow:*` command listener (review, review-and-fix, pr-description) | `CLAUDE_CODE_OAUTH_TOKEN` |
+| `devflow.yml` | Light `/devflow:*` command listener (review, review-and-fix, pr-description) — event-driven only, no `workflow_call` | `CLAUDE_CODE_OAUTH_TOKEN` |
+| `devflow-runner.yml` | Reusable runner (`workflow_call`) — one read-only job called by `devflow-review.yml`; lives apart from `devflow.yml` so its permission ceiling stays a subset of the caller's grant | `CLAUDE_CODE_OAUTH_TOKEN` |
 | `devflow-implement.yml` | Runs `/devflow:implement` on a bare command in a comment/review | `CLAUDE_CODE_OAUTH_TOKEN` |
-| `devflow-review.yml` | Auto-runs `/devflow:review` as a gate on PRs (calls `devflow.yml`'s runner) | `CLAUDE_CODE_OAUTH_TOKEN` |
+| `devflow-review.yml` | Auto-runs `/devflow:review` as a gate on PRs (calls `devflow-runner.yml`) | `CLAUDE_CODE_OAUTH_TOKEN` |
 
 DevFlow never creates or overwrites `claude.yml` — that file belongs to
 Anthropic's Claude GitHub App, which owns plain `@claude` mentions, Q&A, and
