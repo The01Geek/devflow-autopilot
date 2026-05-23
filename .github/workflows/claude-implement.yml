@@ -1,37 +1,28 @@
 name: Claude Code (implement)
 
-# Heavy @claude-mention listener — fires only when the triggering event
-# contains both `@claude` and `/devflow:implement`. Today the runtime
-# provisioning is identical to claude.yml (Python + pip install of the
-# project with dev + all DB drivers), so the split is structural rather
-# than environmental: this workflow reads `claude_implement.effort`
-# (e.g. "high") so /devflow:implement's
-# planning + write-the-tests phases get more reasoning budget than the
-# light flows, without inflating every @claude mention's cost. If future
-# implement work needs heavy provisioning the light path doesn't (e.g.
-# Postgres + MySQL service containers for connector-level /implement
-# runs), add it here, not in claude.yml.
+# Heavy listener for /devflow:implement. Fires on a BARE `/devflow:implement
+# <#>` comment, review, or issue body/title — and on the
+# `claude_implement.trigger_label` being added to an issue. It does NOT require
+# `@claude`.
 #
-# Mutually-exclusive `if:` conditions on this workflow and claude.yml
-# guarantee exactly one fires per event: claude.yml requires `@claude`
-# AND NOT `/devflow:implement`; this workflow requires `@claude` AND
-# `/devflow:implement`. If you add a new heavy slash command, extend
-# BOTH `if:` blocks symmetrically — never make them overlap.
+# Why no `@claude`: this workflow runs claude-code-action in AGENT mode with an
+# explicit, synthesised `/devflow:implement <n>` prompt (the `gate` job resolves
+# the number). Agent mode needs no trigger phrase. A stock claude.yml only
+# fires in TAG mode on its `@claude` phrase, so it never reacts to a bare
+# `/devflow:implement <n>` comment — the two workflows cannot double-fire on the
+# canonical path, and claude.yml needs NO edit when this plugin is installed.
 #
-# This workflow also fires when the `claude_implement.trigger_label`
-# (default `devflow:implement`) is added to an issue. That path is unique
-# to this workflow — claude.yml does NOT subscribe to `labeled` events, so
-# there is no symmetry to maintain there. A human adding the label is a
-# real user event that triggers Actions natively, so this needs no
-# bot-authored comment and no GitHub App (it replaces the old
-# comment-on-draft-issues.yml + get-app-token machinery).
+# Cost control: agent mode runs for ANY actor, so the `gate` job authorizes the
+# sender (an allowed bot OR a write/admin/maintain collaborator) before the
+# heavy `claude` job runs. See scripts/resolve-implement-trigger.sh.
 #
-# Most of this file is structurally identical to claude.yml so the
-# plugin/marketplace surface area is the same. Keep the
-# plugin_marketplaces, plugins, and claude_args sections in sync between
-# the two files (and with claude-runner.yml's review profile where
-# applicable); the existing claude-runner.yml comment establishes that
-# convention.
+# This workflow reads `claude_implement.effort` (e.g. "high") so the planning +
+# write-the-tests phases get more reasoning budget than the light @claude flows
+# in claude.yml, without inflating every mention's cost.
+#
+# Keep the plugin_marketplaces, plugins, and claude_args sections in sync with
+# claude.yml and claude-runner.yml so the skill surface is identical across
+# listeners.
 
 on:
   issue_comment:
@@ -85,22 +76,53 @@ jobs:
             echo "trigger_label=$(echo "$CONFIG_JSON" | jq -r 'if (.claude_implement.trigger_label // "") == "" then "devflow:implement" else .claude_implement.trigger_label end')"
           } >> "$GITHUB_OUTPUT"
 
-  claude:
+  # Authorization + target-number gate. The action runs in AGENT mode below
+  # (explicit prompt), which executes for ANY actor, so this job is the cost
+  # control: it runs the resolver, which authorizes the sender (allowed bot OR
+  # write/admin/maintain collaborator) and resolves the issue number. The
+  # `claude` job runs ONLY when should_run=true. Coarse event matching stays in
+  # this job's `if:` so irrelevant events never spin a runner.
+  gate:
     needs: config
-    # Inverse of claude.yml's `if:` — every clause that excludes
-    # `/devflow:implement` there REQUIRES it here. The two sets of
-    # clauses partition the event space exactly: for any single event,
-    # `contains(..., '/devflow:implement')` is either true or false, so
-    # exactly one workflow's `if:` evaluates true.
     if: |
       needs.config.outputs.enabled == 'true' &&
       (
-        (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude') && contains(github.event.comment.body, '/devflow:implement')) ||
-        (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude') && contains(github.event.comment.body, '/devflow:implement')) ||
-        (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude') && contains(github.event.review.body, '/devflow:implement')) ||
-        (github.event_name == 'issues' && github.event.action == 'opened' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')) && (contains(github.event.issue.body, '/devflow:implement') || contains(github.event.issue.title, '/devflow:implement'))) ||
+        (github.event_name == 'issue_comment' && contains(github.event.comment.body, '/devflow:implement')) ||
+        (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '/devflow:implement')) ||
+        (github.event_name == 'pull_request_review' && contains(github.event.review.body, '/devflow:implement')) ||
+        (github.event_name == 'issues' && github.event.action == 'opened' && (contains(github.event.issue.body, '/devflow:implement') || contains(github.event.issue.title, '/devflow:implement'))) ||
         (github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == needs.config.outputs.trigger_label)
       )
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read   # checkout the resolver script; collaborator check uses GITHUB_TOKEN
+    outputs:
+      should_run: ${{ steps.resolve.outputs.should_run }}
+      number: ${{ steps.resolve.outputs.number }}
+    steps:
+      - uses: actions/checkout@v6
+      - id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          # `sender` is present on every event here and equals the actor:
+          # commenter / reviewer / issue opener / labeller respectively.
+          ACTOR: ${{ github.event.sender.login }}
+          ALLOWED_BOTS: ${{ needs.config.outputs.allowed_bots }}
+          IS_LABEL_EVENT: ${{ github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == needs.config.outputs.trigger_label }}
+          # issue.number for issues + issue_comment (PRs are issues); falls back
+          # to pull_request.number for the review events.
+          CONTEXT_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+          # Only the populated field contributes; passed as an env var (not
+          # interpolated into bash), so arbitrary body text cannot inject.
+          TRIGGER_TEXT: ${{ github.event.comment.body || github.event.review.body || format('{0} {1}', github.event.issue.title, github.event.issue.body) }}
+        run: |
+          set -euo pipefail
+          bash scripts/resolve-implement-trigger.sh >> "$GITHUB_OUTPUT"
+
+  claude:
+    needs: [config, gate]
+    if: needs.gate.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -191,11 +213,15 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           allowed_bots: ${{ needs.config.outputs.allowed_bots }}
 
-          # The label path has no `@claude /devflow:implement` text for the
-          # action to read, so synthesise the command explicitly. Every other
-          # path leaves this empty and the action uses the triggering
-          # comment/issue body as the prompt, exactly as before.
-          prompt: ${{ (github.event_name == 'issues' && github.event.action == 'labeled') && format('/devflow:implement {0}', github.event.issue.number) || '' }}
+          # Always agent mode: the gate resolved a single issue number, so the
+          # action never depends on `@claude` or on reading the raw body. A
+          # stock claude.yml (tag mode) therefore never double-fires on a bare
+          # `/devflow:implement <n>` comment.
+          prompt: ${{ format('/devflow:implement {0}', needs.gate.outputs.number) }}
+
+          # Agent mode is silent by default; surface a progress comment so the
+          # requester sees the run was picked up (applies to all paths now).
+          track_progress: true
 
           # This is an optional setting that allows Claude to read CI results on PRs
           additional_permissions: |
