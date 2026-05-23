@@ -833,6 +833,55 @@ assert_eq "auth: allowed bot bypasses allowed_users → authorized" "true" "$A"
 
 rm -rf "$ASTUB"
 
+# ────────────────────────────────────────────────────────────────────────────
+echo "resolve-command-trigger.sh"
+# ────────────────────────────────────────────────────────────────────────────
+# Light command dispatch (review / review-and-fix / pr-description) in AGENT
+# mode. Authorizes the sender (allowed bot bypasses gh; otherwise allowed_users
+# + collaborator), detects the command, and resolves a target number. Reuses
+# gh-stub.sh (alice → write collaborator; any other actor → HTTP 404).
+RCT="$LIB/../scripts/resolve-command-trigger.sh"
+RCT_STUB="$(mktemp -d)"; cp "$LIB/test/fixtures/gh-stub.sh" "$RCT_STUB/gh"; chmod +x "$RCT_STUB/gh"
+
+# 1. Allowed bot, /devflow:review with explicit number → review command.
+OUT="$(PATH="$RCT_STUB:$PATH" ACTOR="devflow-bot" ALLOWED_BOTS="devflow-bot" \
+  REPO="o/r" GH_TOKEN="x" CONTEXT_NUMBER="99" \
+  TRIGGER_TEXT="/devflow:review #42" bash "$RCT")"
+assert_eq "rct: review w/ explicit number → should_run" \
+  "should_run=true" "$(echo "$OUT" | grep '^should_run=')"
+assert_eq "rct: review w/ explicit number → command" \
+  "command=/devflow:review 42" "$(echo "$OUT" | grep '^command=')"
+
+# 2. review-and-fix must win over the /devflow:review substring it contains.
+OUT="$(PATH="$RCT_STUB:$PATH" ACTOR="devflow-bot" ALLOWED_BOTS="devflow-bot" \
+  REPO="o/r" GH_TOKEN="x" CONTEXT_NUMBER="7" \
+  TRIGGER_TEXT="please run /devflow:review-and-fix now" bash "$RCT")"
+assert_eq "rct: review-and-fix beats review substring → command" \
+  "command=/devflow:review-and-fix 7" "$(echo "$OUT" | grep '^command=')"
+
+# 3. pr-description, no explicit number → falls back to the context number.
+OUT="$(PATH="$RCT_STUB:$PATH" ACTOR="devflow-bot" ALLOWED_BOTS="devflow-bot" \
+  REPO="o/r" GH_TOKEN="x" CONTEXT_NUMBER="13" \
+  TRIGGER_TEXT="/devflow:pr-description" bash "$RCT")"
+assert_eq "rct: pr-description falls back to context number → command" \
+  "command=/devflow:pr-description 13" "$(echo "$OUT" | grep '^command=')"
+
+# 4. No devflow command present → should_run=false.
+OUT="$(PATH="$RCT_STUB:$PATH" ACTOR="devflow-bot" ALLOWED_BOTS="devflow-bot" \
+  REPO="o/r" GH_TOKEN="x" CONTEXT_NUMBER="1" \
+  TRIGGER_TEXT="just a normal comment" bash "$RCT")"
+assert_eq "rct: no command → should_run=false" \
+  "should_run=false" "$(echo "$OUT" | grep '^should_run=')"
+
+# 5. Unauthorized actor (gh-stub 404 → not a collaborator) → should_run=false.
+OUT="$(PATH="$RCT_STUB:$PATH" ACTOR="random-user" ALLOWED_BOTS="devflow-bot" \
+  REPO="o/r" GH_TOKEN="x" CONTEXT_NUMBER="5" \
+  TRIGGER_TEXT="/devflow:review" bash "$RCT")"
+assert_eq "rct: unauthorized actor → should_run=false" \
+  "should_run=false" "$(echo "$OUT" | grep '^should_run=')"
+
+rm -rf "$RCT_STUB"
+
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
