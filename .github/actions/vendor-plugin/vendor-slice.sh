@@ -11,8 +11,8 @@
 # shared `devflow_copy_slice` function (see DEVFLOW_VENDOR_SOURCE below), and the
 # vendor-plugin composite action executes it — so the copied set can never drift.
 #
-# Executed (the composite action), it follows a single deterministic algorithm,
-# writing nothing when the plugin is already present:
+# Executed (the composite action), it follows a single deterministic algorithm.
+# Only the committed branch is a no-op; the self and fetch branches both copy:
 #   1. committed  — `.claude/plugins/devflow/scripts` already in the checkout → use it (no-op).
 #   2. self       — the plugin lives at the checkout root (this source repo)    → copy it in.
 #   3. fetch      — neither                                                      → clone DEVFLOW_REF and copy it in.
@@ -36,21 +36,35 @@ devflow_vendor_die() { printf 'devflow-vendor: %s\n' "$1" >&2; exit 1; }
 
 # The single shared "what is the plugin" definition. Mirrors the file set
 # install.sh has always vendored. SRC = a checkout/clone root; DEST = where the
-# plugin lands. Replaces DEST wholesale so a partial/stale copy can't survive.
+# plugin lands. Stages into a sibling temp dir and swaps in with one atomic `mv`
+# at the very end: $dest is only ever touched once the full slice copied cleanly,
+# so a partial copy (a removed/renamed slice dir aborting cp under set -e, disk
+# full) never lands at $dest — where the committed-branch check would otherwise
+# mask it as a valid plugin on the next run.
 devflow_copy_slice() {
-  local src="$1" dest="$2"
-  rm -rf "$dest"
-  mkdir -p "$dest"
-  cp -R "$src/.claude-plugin" "$src/agents" "$src/lib" "$src/scripts" "$src/skills" "$dest/"
+  local src="$1" dest="$2" stage
+  stage="${dest}.vendor-stage.$$"
+  rm -rf "$stage"
+  mkdir -p "$stage"
+  cp -R "$src/.claude-plugin" "$src/agents" "$src/lib" "$src/scripts" "$src/skills" "$stage/"
   # Only the committed templates/registry — not the whole .devflow/ tree (which
   # would drag in learnings/ and a possibly-dirty config.json).
-  mkdir -p "$dest/.devflow"
+  mkdir -p "$stage/.devflow"
   cp "$src/.devflow/config.example.json" "$src/.devflow/config.schema.json" \
      "$src/.devflow/tool-presets.json" \
-     "$dest/.devflow/"
+     "$stage/.devflow/"
   # The vendored copy is a plugin, not a marketplace — keep only plugin.json.
-  rm -f "$dest/.claude-plugin/marketplace.json"
-  find "$dest" -name __pycache__ -type d -prune -exec rm -rf {} + 2>/dev/null || true
+  rm -f "$stage/.claude-plugin/marketplace.json"
+  find "$stage" -name __pycache__ -type d -prune -exec rm -rf {} + 2>/dev/null || true
+  # Sanity floor before the swap: the load-bearing members must have landed.
+  if [ ! -d "$stage/scripts" ] || [ ! -f "$stage/.claude-plugin/plugin.json" ] \
+     || [ ! -f "$stage/.devflow/config.schema.json" ]; then
+    rm -rf "$stage"
+    devflow_vendor_die "incomplete plugin slice copied from $src (missing scripts/, plugin.json, or .devflow templates) — refusing to install a partial copy."
+  fi
+  rm -rf "$dest"
+  mkdir -p "$(dirname "$dest")"
+  mv "$stage" "$dest"
 }
 
 devflow_vendor_main() {

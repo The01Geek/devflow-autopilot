@@ -1989,7 +1989,62 @@ assert_eq "vendor: install.sh defines set_config_version" "1" \
 assert_eq "vendor: install.sh invokes set_config_version on the config" "1" \
   "$(grep -c 'set_config_version "\.devflow/config\.json"' "$REPO_ROOT/install.sh" || true)"
 
-rm -rf "$VS_COMMIT" "$VS_SELF" "$VS_REMOTE" "$VS_FETCH" "$VS_FETCH_SHA"
+# committed branch WINS over self: run from the repo root (self-branch markers
+# all present) with a pre-populated dest — the committed short-circuit must fire
+# so the sentinel survives. Proves precedence, not just an isolated empty-cwd no-op.
+VS_PREC="$(mktemp -d)/dest"; mkdir -p "$VS_PREC/scripts"; : > "$VS_PREC/scripts/sentinel"
+( cd "$REPO_ROOT" && DEVFLOW_DEST="$VS_PREC" bash "$VENDOR" >/dev/null 2>&1 )
+assert_eq "vendor: committed branch beats self (precedence)" "yes" "$(vexists "$VS_PREC/scripts/sentinel")"
+
+# self branch copies the FULL slice, not just scripts/ (a dropped cp arg would
+# silently ship a plugin missing agents/lib/skills or the tool registry).
+assert_eq "vendor: self copies agents/" "yes" "$(vexists "$VS_SELF/agents")"
+assert_eq "vendor: self copies lib/" "yes" "$(vexists "$VS_SELF/lib")"
+assert_eq "vendor: self copies skills/" "yes" "$(vexists "$VS_SELF/skills")"
+assert_eq "vendor: self copies .devflow/tool-presets.json" "yes" "$(vexists "$VS_SELF/.devflow/tool-presets.json")"
+
+# self-branch NEGATIVE: a consumer repo with its OWN top-level scripts/+skills/
+# but a non-devflow plugin.json must NOT be mistaken for the source repo — it
+# falls through to fetch. Guards the plugin.json name discriminator.
+VS_DECOY="$(mktemp -d)"; mkdir -p "$VS_DECOY/scripts" "$VS_DECOY/skills" "$VS_DECOY/.claude-plugin"
+printf '{"name":"not-devflow"}' > "$VS_DECOY/.claude-plugin/plugin.json"
+: > "$VS_DECOY/scripts/their-own-tool.sh"
+VS_DECOY_DEST="$(mktemp -d)/dest"
+( cd "$VS_DECOY" && env -u DEVFLOW_REF \
+    DEVFLOW_DEST="$VS_DECOY_DEST" DEVFLOW_REPO_URL="$VS_REMOTE" DEVFLOW_REF="main" \
+    bash "$VENDOR" >/dev/null 2>&1 )
+assert_eq "vendor: decoy consumer falls through to fetch (not self)" "yes" "$(vexists "$VS_DECOY_DEST/scripts/resolve-implement-trigger.sh")"
+assert_eq "vendor: decoy consumer's own scripts/ not taken as the plugin" "no" "$(vexists "$VS_DECOY_DEST/scripts/their-own-tool.sh")"
+
+# fetch with an unreachable ref fails loud (no silent empty/partial dest).
+VS_BADREF_RC=0
+( cd "$(mktemp -d)" && env -u DEVFLOW_REF \
+    DEVFLOW_DEST="$(mktemp -d)/dest" DEVFLOW_REPO_URL="$VS_REMOTE" DEVFLOW_REF="no-such-ref-xyz" \
+    bash "$VENDOR" >/dev/null 2>&1 ) || VS_BADREF_RC=$?
+assert_eq "vendor: fetch with unreachable ref fails loud" "yes" \
+  "$([ "$VS_BADREF_RC" -ne 0 ] && echo yes || echo no)"
+
+# set_config_version (install.sh) BEHAVIORAL: pins devflow_version without
+# clobbering other keys, and a present-but-failing tool (malformed config)
+# degrades to a warning + return 0 rather than aborting the install.
+if command -v jq >/dev/null 2>&1; then
+  SCV_INSTALL="$LIB/../install.sh"
+  SCV_CFG="$(mktemp)"; printf '{"base_branch":"main","devflow":{"effort":"high"}}' > "$SCV_CFG"
+  # shellcheck disable=SC1090
+  ( DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" && set_config_version "$SCV_CFG" "abc123" ) >/dev/null 2>&1
+  assert_eq "scv: pins devflow_version" "abc123" "$(jq -r '.devflow_version' "$SCV_CFG")"
+  assert_eq "scv: preserves sibling top-level key" "main" "$(jq -r '.base_branch' "$SCV_CFG")"
+  assert_eq "scv: preserves nested key" "high" "$(jq -r '.devflow.effort' "$SCV_CFG")"
+  SCV_BAD="$(mktemp)"; printf '{ not valid json' > "$SCV_BAD"
+  SCV_RC=0
+  # shellcheck disable=SC1090
+  ( DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" && set_config_version "$SCV_BAD" "abc123" ) >/dev/null 2>&1 || SCV_RC=$?
+  assert_eq "scv: malformed config → returns 0 (degrades, never aborts)" "0" "$SCV_RC"
+  rm -f "$SCV_CFG" "$SCV_BAD"
+fi
+
+rm -rf "$VS_COMMIT" "$VS_SELF" "$VS_REMOTE" "$VS_FETCH" "$VS_FETCH_SHA" \
+       "$VS_PREC" "$VS_DECOY" "$VS_DECOY_DEST"
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.

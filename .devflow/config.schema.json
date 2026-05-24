@@ -22,8 +22,8 @@
     },
     "devflow_version": {
       "type": "string",
-      "description": "Git ref (tag, branch, or commit SHA) of The01Geek/devflow-autopilot that the cloud-tier workflows fetch the plugin from at runtime (the vendor-plugin composite action's fetch branch — i.e. a thin install where the plugin tree is NOT committed). install.sh pins this to the commit it installed from; bump it to update. Ignored when the plugin is committed into .claude/plugins/devflow/ (DEVFLOW_VENDOR=1) or when running in the source repo. Leave it set to a pinned value so the runtime fetch never tracks mutable main.",
-      "default": "main"
+      "description": "Git ref (tag, branch, or commit SHA) of The01Geek/devflow-autopilot that the cloud-tier workflows fetch the plugin from at runtime (the vendor-plugin composite action's fetch branch — i.e. a thin install where the plugin tree is NOT committed). install.sh pins this to the commit it installed from (when no jq/node/python3 is available at install time it stays empty and you must set it by hand). Bump it to update. Ignored when the plugin is committed into .claude/plugins/devflow/ (DEVFLOW_VENDOR=1) or when running in the source repo. Empty by default on purpose: the fetch branch fails loud on an empty ref rather than silently tracking mutable main, so an un-pinned thin install is caught instead of drifting.",
+      "default": ""
     },
     "devflow": {
       "type": "object",

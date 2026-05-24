@@ -48,28 +48,36 @@ die() { printf 'devflow-install: %s\n' "$1" >&2; exit 1; }
 # Pin .devflow/config.json's devflow_version to the ref we installed, so the
 # runtime fetch (vendor-plugin) never tracks mutable main. Adds or updates the
 # single key without clobbering the rest of the config — preferring jq, then
-# node, then python3 (any one suffices; all are JSON-safe). If none is present
-# the key is left as-is (the scaffolded template carries a default) and the user
-# is told to set it by hand, so a missing tool never aborts the install.
+# node, then python3 (any one suffices; all are JSON-safe), each writing to a
+# temp file and renaming so a failure can never truncate the config in place.
+# NEVER aborts the install: a missing tool OR a present-but-failing tool (e.g. a
+# pre-existing config.json that isn't valid JSON, a read-only .devflow/) both
+# degrade to a warning telling the user to set the key by hand. The success-path
+# `return 0`s live inside the `if` conditions so `set -e` can't fire on a tool
+# failure mid-chain.
 set_config_version() {
   local cfg="$1" version="$2" tmp
   [ -f "$cfg" ] || return 0
+  tmp="$(mktemp)" || { log "warning: mktemp failed; add \"devflow_version\": \"$version\" to $cfg by hand."; return 0; }
   if command -v jq >/dev/null 2>&1; then
-    tmp="$(mktemp)"
-    jq --arg v "$version" '.devflow_version = $v' "$cfg" > "$tmp" && mv "$tmp" "$cfg"
+    if jq --arg v "$version" '.devflow_version = $v' "$cfg" > "$tmp" 2>/dev/null && mv "$tmp" "$cfg"; then
+      log "pinned devflow_version=$version in $cfg"; return 0
+    fi
   elif command -v node >/dev/null 2>&1; then
-    DEVFLOW_CFG="$cfg" DEVFLOW_VER="$version" node -e 'const fs=require("fs"),p=process.env.DEVFLOW_CFG;const c=JSON.parse(fs.readFileSync(p,"utf8"));c.devflow_version=process.env.DEVFLOW_VER;fs.writeFileSync(p,JSON.stringify(c,null,2)+"\n");'
+    if DEVFLOW_CFG="$cfg" DEVFLOW_VER="$version" DEVFLOW_OUT="$tmp" node -e 'const fs=require("fs");const c=JSON.parse(fs.readFileSync(process.env.DEVFLOW_CFG,"utf8"));c.devflow_version=process.env.DEVFLOW_VER;fs.writeFileSync(process.env.DEVFLOW_OUT,JSON.stringify(c,null,2)+"\n");' 2>/dev/null && mv "$tmp" "$cfg"; then
+      log "pinned devflow_version=$version in $cfg"; return 0
+    fi
   elif command -v python3 >/dev/null 2>&1; then
-    DEVFLOW_CFG="$cfg" DEVFLOW_VER="$version" python3 -c 'import json,os
-p=os.environ["DEVFLOW_CFG"]
-c=json.load(open(p))
+    if DEVFLOW_CFG="$cfg" DEVFLOW_VER="$version" DEVFLOW_OUT="$tmp" python3 -c 'import json,os
+c=json.load(open(os.environ["DEVFLOW_CFG"]))
 c["devflow_version"]=os.environ["DEVFLOW_VER"]
-open(p,"w").write(json.dumps(c,indent=2)+"\n")'
-  else
-    log "warning: no jq/node/python3 found to set devflow_version=$version — add \"devflow_version\": \"$version\" to $cfg by hand so the runtime fetch is pinned."
-    return 0
+open(os.environ["DEVFLOW_OUT"],"w").write(json.dumps(c,indent=2)+"\n")' 2>/dev/null && mv "$tmp" "$cfg"; then
+      log "pinned devflow_version=$version in $cfg"; return 0
+    fi
   fi
-  log "pinned devflow_version=$version in $cfg"
+  rm -f "$tmp"
+  log "warning: could not set devflow_version=$version automatically — add \"devflow_version\": \"$version\" to $cfg by hand so the runtime fetch is pinned."
+  return 0
 }
 
 # Remove DevFlow's OWN superseded workflow files on upgrade. Left behind, the
@@ -187,8 +195,14 @@ bash "$SRC/scripts/scaffold-config.sh" "$PWD"
 # 6. Pin devflow_version to the exact commit we installed from, so the runtime
 #    fetch is reproducible and never tracks mutable main. Re-running the
 #    installer re-stamps it; a maintainer can also bump it by hand to any tag,
-#    branch, or SHA. Falls back to $REF if the clone has no resolvable HEAD.
-PIN="$(git -C "$SRC" rev-parse HEAD 2>/dev/null || echo "$REF")"
+#    branch, or SHA. The clone+checkout above gives $SRC a resolvable HEAD, so
+#    this essentially always yields a SHA; only a broken clone falls back to
+#    $REF — warn there, since $REF may be a mutable branch (the very thing the
+#    pin exists to avoid).
+if PIN="$(git -C "$SRC" rev-parse HEAD 2>/dev/null)"; then :; else
+  PIN="$REF"
+  log "warning: could not resolve the installed commit SHA; pinning devflow_version=$PIN (if that is a mutable branch, set it to a tag or SHA by hand to freeze the runtime fetch)."
+fi
 set_config_version ".devflow/config.json" "$PIN"
 
 log "done (from ${REPO}@${REF}). Review with 'git status' / 'git diff' and commit."

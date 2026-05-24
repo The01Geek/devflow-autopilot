@@ -49,9 +49,10 @@ that needs the plugin runs the `vendor-plugin` composite action right after
 checkout, which materializes the tree via a single deterministic algorithm —
 **committed** (already in the checkout, e.g. a `DEVFLOW_VENDOR=1` install → used
 as-is), **self** (the source repo, whose plugin lives at its own root → copied
-in), or **fetch** (a thin consumer → shallow-clones `devflow_version` and copies
-it in). The fetch branch refuses to run without a pinned `devflow_version`, so a
-thin install never tracks mutable `main`.
+in), or **fetch** (a thin consumer → clones `devflow_version` and copies it in —
+shallow when it names a branch/tag, a full clone + checkout when it's the commit
+SHA `install.sh` pins). The fetch branch refuses to run without a pinned
+`devflow_version`, so a thin install never tracks mutable `main`.
 
 > **Local editor use is different** — there, add this repo as a github marketplace
 > with auto-update and you never copy files:
