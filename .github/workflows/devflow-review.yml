@@ -681,10 +681,17 @@ jobs:
       # workspace path (committed → self → fetch). continue-on-error so a vendor
       # hiccup never hangs this REQUIRED check — the dismiss call is already
       # guarded for a missing script.
-      - uses: ./.github/actions/vendor-plugin
+      - id: vendor
+        uses: ./.github/actions/vendor-plugin
         continue-on-error: true
         with:
           ref: ${{ steps.pin.outputs.devflow_version }}
+      # Surface a swallowed vendor failure: without this, a continue-on-error
+      # vendor step that failed leaves the dismiss call below silently skipping,
+      # with no breadcrumb that vendoring (not the dismiss logic) was the cause.
+      - name: Warn on vendor failure
+        if: ${{ steps.vendor.outcome != 'success' }}
+        run: echo "::warning::vendor-plugin did not succeed in finalize_check; dismiss-stale-rejections.sh may be absent — a stale REJECT will not be auto-dismissed. Dismiss it manually if the PR stays at CHANGES_REQUESTED."
       - id: finalize
         env:
           GH_TOKEN: ${{ github.token }}
