@@ -27,8 +27,12 @@ This is a **thin install**: the bulky plugin tree is **not** committed to your
 repo. The workflows fetch it at runtime (see below), pinned to the
 `devflow_version` that `install.sh` writes into `.devflow/config.json` — the
 commit it installed from. **To update**, bump `devflow_version` to a newer tag,
-branch, or commit SHA (or just re-run the installer — now a small diff). Because
-the pin is explicit, your CI never silently tracks a moving `main`.
+branch, or commit SHA (or just re-run the installer — now a small diff).
+Re-running also **backfills any newly-added config keys** into your existing
+`.devflow/config.json` (at any nesting depth) so you can discover and opt into
+new features; values you've already set are preserved and your arrays (e.g.
+`allowed_tools`) are left untouched. Because the pin is explicit, your CI never
+silently tracks a moving `main`.
 
 > **Prefer to commit the plugin instead?** Run `DEVFLOW_VENDOR=1 … | bash`. That
 > vendors the full tree into `.claude/plugins/devflow/` so nothing is fetched at
@@ -116,10 +120,12 @@ For the full idea → issue → PR walkthrough, see
 
 ## Configure and enable
 
-1. `install.sh` scaffolds `.devflow/config.json` from the template (only if
-   absent). Every value has a working default, so commit it as-is or edit to
-   customize — the workflows read it from the checked-out tree, so it must be
-   committed (if your repo gitignores it, force-add: `git add -f .devflow/config.json`).
+1. `install.sh` scaffolds `.devflow/config.json` from the template when absent;
+   when it already exists it's kept and re-running only **backfills newly-added
+   keys** from the template (existing values win, your arrays stay as-is). Every
+   value has a working default, so commit it as-is or edit to customize — the
+   workflows read it from the checked-out tree, so it must be committed (if your
+   repo gitignores it, force-add: `git add -f .devflow/config.json`).
 2. The `workflows` block in that file toggles each workflow on/off.
 3. Make `Devflow Review` a required status check (Settings → Branches → branch
    protection) once you've confirmed it runs.
