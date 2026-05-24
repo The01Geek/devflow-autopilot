@@ -55,6 +55,7 @@ jobs:
       effort: ${{ steps.extract.outputs.effort }}
       allowed_tools_extra: ${{ steps.extract.outputs.allowed_tools_extra }}
       devflow_version: ${{ steps.extract.outputs.devflow_version }}
+      workpad_marker: ${{ steps.extract.outputs.workpad_marker }}
     steps:
       - uses: actions/checkout@v6
       - id: cfg
@@ -94,6 +95,8 @@ jobs:
             echo "allowed_tools_extra=$(echo "$CONFIG_JSON" | jq -r '.devflow_implement.allowed_tools // [] | if length > 0 then "," + join(",") else "" end')"
             # Pinned plugin ref for the vendor-plugin fetch branch (thin installs).
             echo "devflow_version=$(echo "$CONFIG_JSON" | jq -r '.devflow_version // empty')"
+            # Effective workpad marker, passed to the resolver's self-trigger guard.
+            echo "workpad_marker=$(echo "$CONFIG_JSON" | jq -r '.devflow.workpad_marker // "<!-- devflow:workpad -->"')"
           } >> "$GITHUB_OUTPUT"
 
   # Authorization + target-number gate. The action runs in AGENT mode below
@@ -146,6 +149,7 @@ jobs:
           # description. Passed as an env var (not interpolated into bash), so
           # arbitrary body text cannot inject.
           TRIGGER_TEXT: ${{ github.event.comment.body || github.event.review.body }}
+          SELF_COMMENT_MARKER: ${{ needs.config.outputs.workpad_marker }}
         run: |
           set -euo pipefail
           # Vendored path: install.sh copies the plugin into
