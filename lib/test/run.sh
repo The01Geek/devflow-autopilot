@@ -2168,10 +2168,18 @@ printf '{}' > "$VS_FLOORSRC/.devflow/config.schema.json"
 printf '{}' > "$VS_FLOORSRC/.devflow/tool-presets.json"
 VS_FLOORSRC_DEST="$(mktemp -d)/dest"
 VS_FLOORSRC_RC=0
+# Capture stderr (the die stream) so we can assert the abort came from the FLOOR,
+# not an early cp-under-set-e abort. Without this, a future change that added a
+# required member to devflow_copy_slice's cp list (without adding it to this
+# fixture) would silently degrade case (b) into a duplicate of case (a) and lose
+# all coverage of the explicit floor branch while staying green.
 # shellcheck disable=SC1090
-( DEVFLOW_VENDOR_SOURCE=1 . "$VENDOR" && devflow_copy_slice "$VS_FLOORSRC" "$VS_FLOORSRC_DEST" ) >/dev/null 2>&1 || VS_FLOORSRC_RC=$?
+VS_FLOORSRC_ERR="$( ( DEVFLOW_VENDOR_SOURCE=1 . "$VENDOR" \
+    && devflow_copy_slice "$VS_FLOORSRC" "$VS_FLOORSRC_DEST" ) 2>&1 >/dev/null )" || VS_FLOORSRC_RC=$?
 assert_eq "vendor: sanity floor aborts when plugin.json didn't land (cp succeeded)" "yes" \
   "$([ "$VS_FLOORSRC_RC" -ne 0 ] && echo yes || echo no)"
+assert_eq "vendor: floor abort is the floor's doing, not a cp-under-set-e abort" "yes" \
+  "$(printf '%s' "$VS_FLOORSRC_ERR" | grep -q 'incomplete plugin slice copied' && echo yes || echo no)"
 assert_eq "vendor: sanity floor leaves dest non-existent (no partial copy lands)" "no" \
   "$(vexists "$VS_FLOORSRC_DEST")"
 rm -rf "$VS_BADSRC" "$(dirname "$VS_FLOOR_DEST")" "$VS_FLOORSRC" "$(dirname "$VS_FLOORSRC_DEST")"
