@@ -2019,6 +2019,17 @@ printf '{}' > "$VS_REMOTE/.devflow/config.schema.json"
 printf '{}' > "$VS_REMOTE/.devflow/tool-presets.json"
 ( cd "$VS_REMOTE" && git init -q -b main && git add -A \
     && git -c user.email=t@t -c user.name=t commit -qm fixture ) >/dev/null 2>&1
+# Capture the BASE (non-tip) commit, then add a second commit carrying a
+# tip-only marker inside the slice. `git clone --branch` rejects ANY raw commit
+# SHA (it accepts only branch/tag names), so pinning a SHA always forces the
+# full-clone + checkout fallback regardless of which commit it is. Using a
+# NON-TIP SHA is what makes that checkout VERIFIABLE: the tip-only marker's
+# absence in the copied slice proves the fallback checked out the pinned base
+# commit rather than the clone's default tip.
+VS_BASE_SHA="$(git -C "$VS_REMOTE" rev-parse HEAD)"
+: > "$VS_REMOTE/scripts/tip-only-marker.sh"
+( cd "$VS_REMOTE" && git add -A \
+    && git -c user.email=t@t -c user.name=t commit -qm 'tip commit' ) >/dev/null 2>&1
 VS_FETCH="$(mktemp -d)/dest"
 ( cd "$(mktemp -d)" && env -u DEVFLOW_REF \
     DEVFLOW_DEST="$VS_FETCH" DEVFLOW_REPO_URL="$VS_REMOTE" DEVFLOW_REF="main" \
@@ -2029,14 +2040,18 @@ assert_eq "vendor: fetch branch drops the vendored marketplace.json" "no" "$(vex
 # offline in the materialized plugin (no web access in the runner sandbox).
 assert_eq "vendor: fetch branch copies docs/ (offline skill links resolve)" "yes" "$(vexists "$VS_FETCH/docs/efficiency-trace.md")"
 
-# fetch branch pinned to a commit SHA — `--branch <sha>` fails, so this exercises
-# the full-clone + checkout fallback (the path install.sh's default SHA pin hits).
-VS_SHA="$(git -C "$VS_REMOTE" rev-parse HEAD)"
+# fetch branch pinned to a NON-TIP commit SHA. `--branch` rejects any raw SHA,
+# so this always takes the full-clone + checkout fallback (the path install.sh's
+# default SHA pin hits); the non-tip pin additionally lets the marker-absence
+# assertion below prove the checkout landed on the pinned commit.
 VS_FETCH_SHA="$(mktemp -d)/dest"
 ( cd "$(mktemp -d)" && env -u DEVFLOW_REF \
-    DEVFLOW_DEST="$VS_FETCH_SHA" DEVFLOW_REPO_URL="$VS_REMOTE" DEVFLOW_REF="$VS_SHA" \
+    DEVFLOW_DEST="$VS_FETCH_SHA" DEVFLOW_REPO_URL="$VS_REMOTE" DEVFLOW_REF="$VS_BASE_SHA" \
     bash "$VENDOR" >/dev/null 2>&1 )
 assert_eq "vendor: fetch branch resolves a commit SHA via the clone fallback" "yes" "$(vexists "$VS_FETCH_SHA/scripts/resolve-implement-trigger.sh")"
+# The tip-only marker (added in the second commit) must be ABSENT — proves the
+# fallback checked out the pinned base commit, not the clone's default tip.
+assert_eq "vendor: SHA fallback checks out the pinned non-tip commit (no tip-only marker)" "no" "$(vexists "$VS_FETCH_SHA/scripts/tip-only-marker.sh")"
 
 # fetch branch with no ref — fails loud rather than tracking mutable main.
 VS_NOREF_RC=0
@@ -2059,6 +2074,30 @@ assert_eq "vendor: composite action runs the shared slice script" "1" \
 # workflows reference it, so a missing copy breaks every cloud run.
 assert_eq "vendor: install.sh copies the vendor-plugin composite action" "1" \
   "$(grep -cE 'for a in .*vendor-plugin' "$REPO_ROOT/install.sh" || true)"
+# AC8 placement drift-guard: the vendor-plugin composite action reads files at
+# ./.github/actions/…, so the repo must be checked out BEFORE it runs in every
+# plugin-using job (six across the four workflows). Scan each workflow, reset the
+# "checkout seen" flag at each 2-space job/section boundary, and tally each
+# vendor-plugin use as ok only if an actions/checkout preceded it in the same job.
+VP_PLACEMENT="$(awk '
+  FNR==1 { seen=0 }
+  /^  [A-Za-z_][A-Za-z0-9_-]*:[[:space:]]*$/ { seen=0 }
+  /uses:[[:space:]]*actions\/checkout/ { seen=1 }
+  /uses:[[:space:]]*\.\/\.github\/actions\/vendor-plugin/ { if (seen) ok++; else bad++ }
+  END { print (ok+0)"/"(bad+0) }
+' "$REPO_ROOT"/.github/workflows/*.yml)"
+assert_eq "vendor: vendor-plugin runs after checkout in all six plugin jobs" "6/0" "$VP_PLACEMENT"
+
+# AC3 finalize_check drift-guard: the dismiss call must be preceded by an
+# explicit executability check so a vendoring miss (absent script, exit 127)
+# is reported distinctly from a present-but-errored run. A workflow-level grep
+# guard (the script-absent branch cannot be exercised by the shell harness):
+# the `[ ! -x … ]` test and a distinct "absent" warning string must both be
+# present in devflow-review.yml.
+assert_eq "review: finalize_check guards dismiss with [ -x ] before invoking" "1" \
+  "$(grep -c '\[ ! -x "\$DISMISS" \]' "$REVIEW_WF" || true)"
+assert_eq "review: finalize_check emits a distinct script-absent warning" "1" \
+  "$(grep -c 'dismiss-stale-rejections.sh absent — vendoring did not materialize it' "$REVIEW_WF" || true)"
 
 # devflow_version pin (AC7): declared in the schema and present in the example.
 assert_eq "vendor: schema declares devflow_version string" "string" \
@@ -2110,6 +2149,85 @@ VS_BADREF_RC=0
 assert_eq "vendor: fetch with unreachable ref fails loud" "yes" \
   "$([ "$VS_BADREF_RC" -ne 0 ] && echo yes || echo no)"
 
+# Clone-failure diagnostics (AC1/AC2): a genuine fetch failure must surface its
+# real cause in the die message, and a failed checkout after a successful clone
+# must be textually distinguishable from a total clone failure. Capture stderr
+# (the die stream) rather than discarding it, and assert the distinct phrasing.
+# (Exercises the shared clone-chain logic that install.sh mirrors verbatim.)
+#
+# checkout-fail: a valid remote but an unreachable ref — the fast --branch
+# attempt fails quietly, the fallback full-clone succeeds, the checkout fails.
+VS_CKOUT_ERR="$( ( cd "$(mktemp -d)" && env -u DEVFLOW_REF \
+    DEVFLOW_DEST="$(mktemp -d)/dest" DEVFLOW_REPO_URL="$VS_REMOTE" DEVFLOW_REF="no-such-ref-xyz" \
+    bash "$VENDOR" ) 2>&1 >/dev/null )" || true
+assert_eq "vendor: unreachable ref surfaces 'clone succeeded but checkout failed'" "yes" \
+  "$(printf '%s' "$VS_CKOUT_ERR" | grep -q 'clone succeeded but checkout failed' && echo yes || echo no)"
+# total clone failure: an unreachable URL — both clone attempts fail, so the die
+# reports 'clone failed' and must NOT be mislabeled as a checkout failure.
+VS_CLONE_ERR="$( ( cd "$(mktemp -d)" && env -u DEVFLOW_REF \
+    DEVFLOW_DEST="$(mktemp -d)/dest" DEVFLOW_REPO_URL="$(mktemp -d)/no-such-repo.git" DEVFLOW_REF="main" \
+    bash "$VENDOR" ) 2>&1 >/dev/null )" || true
+assert_eq "vendor: unreachable URL surfaces 'clone failed'" "yes" \
+  "$(printf '%s' "$VS_CLONE_ERR" | grep -q 'clone failed' && echo yes || echo no)"
+assert_eq "vendor: total clone failure is not mislabeled as a checkout failure" "no" \
+  "$(printf '%s' "$VS_CLONE_ERR" | grep -q 'checkout failed' && echo yes || echo no)"
+
+# devflow_copy_slice no-partial-copy guarantee: an incomplete source must abort
+# non-zero AND leave $dest untouched — $dest is only ever created by the final
+# atomic mv, so a partial copy never lands where the committed-branch check would
+# later mistake it for a valid plugin. Two abort paths back this guarantee, and
+# we cover BOTH:
+#   (a) a missing slice dir trips `cp -R "$src/scripts"` under set -e (the abort
+#       fires at the cp, before the explicit floor check); and
+#   (b) the explicit sanity floor (vendor-slice.sh) fires when cp SUCCEEDS but a
+#       load-bearing member (plugin.json) didn't land.
+# Source the shared definition (DEVFLOW_VENDOR_SOURCE=1 returns without running).
+#
+# (a) source missing scripts/ — cp aborts under set -e (matches AC: "source
+#     missing scripts/ → non-zero exit AND $dest non-existent").
+VS_BADSRC="$(mktemp -d)"
+mkdir -p "$VS_BADSRC"/.claude-plugin "$VS_BADSRC"/agents "$VS_BADSRC"/docs \
+        "$VS_BADSRC"/lib "$VS_BADSRC"/skills "$VS_BADSRC"/.devflow   # NOTE: no scripts/
+printf '{}' > "$VS_BADSRC/.claude-plugin/plugin.json"
+printf '{}' > "$VS_BADSRC/.devflow/config.example.json"
+printf '{}' > "$VS_BADSRC/.devflow/config.schema.json"
+printf '{}' > "$VS_BADSRC/.devflow/tool-presets.json"
+VS_FLOOR_DEST="$(mktemp -d)/dest"   # parent exists; dest itself must NOT be created
+VS_FLOOR_RC=0
+# shellcheck disable=SC1090
+( DEVFLOW_VENDOR_SOURCE=1 . "$VENDOR" && devflow_copy_slice "$VS_BADSRC" "$VS_FLOOR_DEST" ) >/dev/null 2>&1 || VS_FLOOR_RC=$?
+assert_eq "vendor: missing scripts/ aborts the copy (cp-under-set-e guard)" "yes" \
+  "$([ "$VS_FLOOR_RC" -ne 0 ] && echo yes || echo no)"
+assert_eq "vendor: missing scripts/ leaves dest non-existent (no partial copy lands)" "no" \
+  "$(vexists "$VS_FLOOR_DEST")"
+
+# (b) source whose dirs all copy cleanly but with NO plugin.json — cp succeeds,
+#     so this genuinely reaches and trips the explicit sanity-floor check.
+VS_FLOORSRC="$(mktemp -d)"
+mkdir -p "$VS_FLOORSRC"/.claude-plugin "$VS_FLOORSRC"/agents "$VS_FLOORSRC"/docs \
+        "$VS_FLOORSRC"/lib "$VS_FLOORSRC"/scripts "$VS_FLOORSRC"/skills "$VS_FLOORSRC"/.devflow
+# NOTE: no .claude-plugin/plugin.json — the floor's plugin.json check must fire.
+printf '{}' > "$VS_FLOORSRC/.devflow/config.example.json"
+printf '{}' > "$VS_FLOORSRC/.devflow/config.schema.json"
+printf '{}' > "$VS_FLOORSRC/.devflow/tool-presets.json"
+VS_FLOORSRC_DEST="$(mktemp -d)/dest"
+VS_FLOORSRC_RC=0
+# Capture stderr (the die stream) so we can assert the abort came from the FLOOR,
+# not an early cp-under-set-e abort. Without this, a future change that added a
+# required member to devflow_copy_slice's cp list (without adding it to this
+# fixture) would silently degrade case (b) into a duplicate of case (a) and lose
+# all coverage of the explicit floor branch while staying green.
+# shellcheck disable=SC1090
+VS_FLOORSRC_ERR="$( ( DEVFLOW_VENDOR_SOURCE=1 . "$VENDOR" \
+    && devflow_copy_slice "$VS_FLOORSRC" "$VS_FLOORSRC_DEST" ) 2>&1 >/dev/null )" || VS_FLOORSRC_RC=$?
+assert_eq "vendor: sanity floor aborts when plugin.json didn't land (cp succeeded)" "yes" \
+  "$([ "$VS_FLOORSRC_RC" -ne 0 ] && echo yes || echo no)"
+assert_eq "vendor: floor abort is the floor's doing, not a cp-under-set-e abort" "yes" \
+  "$(printf '%s' "$VS_FLOORSRC_ERR" | grep -q 'incomplete plugin slice copied' && echo yes || echo no)"
+assert_eq "vendor: sanity floor leaves dest non-existent (no partial copy lands)" "no" \
+  "$(vexists "$VS_FLOORSRC_DEST")"
+rm -rf "$VS_BADSRC" "$(dirname "$VS_FLOOR_DEST")" "$VS_FLOORSRC" "$(dirname "$VS_FLOORSRC_DEST")"
+
 # set_config_version (install.sh) BEHAVIORAL: pins devflow_version without
 # clobbering other keys, and a present-but-failing tool (malformed config)
 # degrades to a warning + return 0 rather than aborting the install.
@@ -2127,6 +2245,50 @@ if command -v jq >/dev/null 2>&1; then
   ( DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" && set_config_version "$SCV_BAD" "abc123" ) >/dev/null 2>&1 || SCV_RC=$?
   assert_eq "scv: malformed config → returns 0 (degrades, never aborts)" "0" "$SCV_RC"
   rm -f "$SCV_CFG" "$SCV_BAD"
+fi
+
+# set_config_version cross-language backends: jq is selected first on CI, so the
+# node and python3 arms never run under the block above. Force the lower backends
+# by shadowing the higher tools off PATH — a curated bin dir holding only the
+# tools that backend needs (jq, and for python3 also node, deliberately omitted).
+# Scoped to a subshell so the PATH mutation can't leak into later assertions.
+SCV_INSTALL="$LIB/../install.sh"
+scv_mkbin() {  # $1=dest bin dir; rest=command names to symlink from the real PATH
+  # PATH is fully REPLACED with this dir in the caller, so list every external
+  # command the backend invokes. Fail loud on an unresolvable tool — a silently
+  # incomplete bin dir would make set_config_version degrade to its warning path
+  # and surface as an opaque assertion mismatch rather than a clear setup error.
+  local d="$1" c p; shift; mkdir -p "$d"
+  for c in "$@"; do
+    p="$(command -v "$c")" || { echo "scv_mkbin: required command not found: $c" >&2; return 1; }
+    ln -sf "$p" "$d/$c"
+  done
+}
+# node backend — jq absent, node present.
+if command -v node >/dev/null 2>&1; then
+  SCV_NODE_BIN="$(mktemp -d)/bin"
+  scv_mkbin "$SCV_NODE_BIN" node mktemp mv rm   # jq deliberately omitted
+  SCV_NODE_CFG="$(mktemp)"; printf '{"base_branch":"main","devflow":{"effort":"high"}}' > "$SCV_NODE_CFG"
+  # shellcheck disable=SC1090
+  ( PATH="$SCV_NODE_BIN"; DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" \
+      && set_config_version "$SCV_NODE_CFG" "node-sha" ) >/dev/null 2>&1
+  assert_eq "scv(node): pins devflow_version" "node-sha" "$(jq -r '.devflow_version' "$SCV_NODE_CFG")"
+  assert_eq "scv(node): preserves sibling top-level key" "main" "$(jq -r '.base_branch' "$SCV_NODE_CFG")"
+  assert_eq "scv(node): preserves nested key" "high" "$(jq -r '.devflow.effort' "$SCV_NODE_CFG")"
+  rm -f "$SCV_NODE_CFG"
+fi
+# python3 backend — jq AND node absent, python3 present.
+if command -v python3 >/dev/null 2>&1; then
+  SCV_PY_BIN="$(mktemp -d)/bin"
+  scv_mkbin "$SCV_PY_BIN" python3 mktemp mv rm   # jq AND node deliberately omitted
+  SCV_PY_CFG="$(mktemp)"; printf '{"base_branch":"main","devflow":{"effort":"high"}}' > "$SCV_PY_CFG"
+  # shellcheck disable=SC1090
+  ( PATH="$SCV_PY_BIN"; DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" \
+      && set_config_version "$SCV_PY_CFG" "py-sha" ) >/dev/null 2>&1
+  assert_eq "scv(python3): pins devflow_version" "py-sha" "$(jq -r '.devflow_version' "$SCV_PY_CFG")"
+  assert_eq "scv(python3): preserves sibling top-level key" "main" "$(jq -r '.base_branch' "$SCV_PY_CFG")"
+  assert_eq "scv(python3): preserves nested key" "high" "$(jq -r '.devflow.effort' "$SCV_PY_CFG")"
+  rm -f "$SCV_PY_CFG"
 fi
 
 rm -rf "$VS_COMMIT" "$VS_SELF" "$VS_REMOTE" "$VS_FETCH" "$VS_FETCH_SHA" \

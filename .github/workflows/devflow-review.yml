@@ -812,7 +812,16 @@ jobs:
           # a still-valid REJECT). Best-effort: a non-zero exit is logged
           # but never fails the job — the check is already finalized.
           if [ "$CONCLUSION" = "success" ] && [ -n "${PR_NUMBER:-}" ] && [ "${VERDICT_DETERMINED:-false}" = "true" ]; then
-            if .claude/plugins/devflow/scripts/dismiss-stale-rejections.sh "$PR_NUMBER" "$REPO"; then
+            DISMISS=.claude/plugins/devflow/scripts/dismiss-stale-rejections.sh
+            if [ ! -x "$DISMISS" ]; then
+              # Distinct from the "ran and exited non-zero" branch below: an
+              # absent/non-executable script means vendoring never materialized
+              # it (committed → self → fetch all missed), NOT a dismiss-logic
+              # failure. The "Warn on vendor failure" step above flags the vendor
+              # layer; this names the consequence here at the dismiss layer so a
+              # missing-file (exit 127) no longer reads the same as a real error.
+              echo "::warning::dismiss-stale-rejections.sh absent — vendoring did not materialize it at $DISMISS; a stale REJECT was NOT auto-dismissed. Dismiss it manually if the PR stays at CHANGES_REQUESTED."
+            elif "$DISMISS" "$PR_NUMBER" "$REPO"; then
               echo "::notice::Stale-REJECT dismissal completed for PR #$PR_NUMBER (no-op if none were outstanding)."
             else
               echo "::warning::dismiss-stale-rejections.sh exited non-zero for PR #$PR_NUMBER; the PR may stay blocked at reviewDecision=CHANGES_REQUESTED — dismiss it manually."
