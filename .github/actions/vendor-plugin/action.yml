@@ -33,7 +33,10 @@ runs:
         # Seal the rest of vendor-slice.sh's env contract: these are test-only
         # overrides, so blank them here to keep `ref`/`repo` the COMPLETE action
         # surface — ambient job/runner env can't silently redirect the clone or
-        # the destination. Empty values fall back to vendor-slice.sh's defaults.
+        # the destination, nor flip the script into source-only mode (a stray
+        # ambient DEVFLOW_VENDOR_SOURCE=1 would make this step a silent no-op that
+        # materializes nothing). Empty values fall back to vendor-slice.sh's defaults.
         DEVFLOW_REPO_URL: ''
         DEVFLOW_DEST: ''
+        DEVFLOW_VENDOR_SOURCE: ''
       run: bash "${GITHUB_ACTION_PATH}/vendor-slice.sh"

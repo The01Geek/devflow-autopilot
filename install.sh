@@ -47,14 +47,19 @@ die() { printf 'devflow-install: %s\n' "$1" >&2; exit 1; }
 
 # Pin .devflow/config.json's devflow_version to the ref we installed, so the
 # runtime fetch (vendor-plugin) never tracks mutable main. Adds or updates the
-# single key without clobbering the rest of the config — preferring jq, then
-# node, then python3 (any one suffices; all are JSON-safe), each writing to a
-# temp file and renaming so a failure can never truncate the config in place.
+# single key without clobbering the rest of the config — using the FIRST
+# available of jq, node, or python3 (whichever is installed; all are JSON-safe),
+# each writing to a temp file and renaming so a failure can never truncate the
+# config in place. This is tool SELECTION, not a retry cascade: the `command -v`
+# checks are `if`/`elif` conditions, so once a tool is found the other arms are
+# skipped — a present-but-failing tool does NOT fall through to the next one.
+# That is fine: the realistic failure (a malformed config.json, a read-only
+# .devflow/) would defeat node/python3 too.
 # NEVER aborts the install: a missing tool OR a present-but-failing tool (e.g. a
 # pre-existing config.json that isn't valid JSON, a read-only .devflow/) both
 # degrade to a warning telling the user to set the key by hand. The success-path
 # `return 0`s live inside the `if` conditions so `set -e` can't fire on a tool
-# failure mid-chain.
+# failure.
 set_config_version() {
   local cfg="$1" version="$2" tmp
   [ -f "$cfg" ] || return 0
