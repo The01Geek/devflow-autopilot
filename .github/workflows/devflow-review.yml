@@ -451,7 +451,7 @@ jobs:
     with:
       # Check out the PR HEAD, not the base branch — the review must see the
       # PR's own content, and a repo bootstrapping the devflow plugin via PR
-      # only has .claude/plugins/devflow on the head (empty falls back to the
+      # only has .devflow/vendor/devflow on the head (empty falls back to the
       # default ref).
       ref: ${{ needs.precheck.outputs.head_sha }}
       prompt: |
@@ -478,7 +478,7 @@ jobs:
         --body-file <tmpfile>`.
 
         **Step 2 — Run `/devflow:review` by reading and following
-        `.claude/plugins/devflow/skills/review/SKILL.md` exactly.** With
+        `.devflow/vendor/devflow/skills/review/SKILL.md` exactly.** With
         one addition: at every `Phase N/4:` boundary the skill announces
         (0.5, 1, 2, 3, 4), PATCH the progress comment in place. Refresh
         the **Status** row with the appropriate emoji + phase text, the
@@ -812,7 +812,7 @@ jobs:
           # a still-valid REJECT). Best-effort: a non-zero exit is logged
           # but never fails the job — the check is already finalized.
           if [ "$CONCLUSION" = "success" ] && [ -n "${PR_NUMBER:-}" ] && [ "${VERDICT_DETERMINED:-false}" = "true" ]; then
-            DISMISS=.claude/plugins/devflow/scripts/dismiss-stale-rejections.sh
+            DISMISS=.devflow/vendor/devflow/scripts/dismiss-stale-rejections.sh
             if [ ! -x "$DISMISS" ]; then
               # Distinct from the "ran and exited non-zero" branch below: an
               # absent/non-executable script means vendoring never materialized

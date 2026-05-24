@@ -127,7 +127,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       # Materialize the plugin into the workspace so the resolver/dedupe/react
-      # scripts exist at .claude/plugins/devflow/scripts/ (committed → self →
+      # scripts exist at .devflow/vendor/devflow/scripts/ (committed → self →
       # fetch). Without it a thin consumer — or this source repo — fails closed
       # at "resolver not found".
       - uses: ./.github/actions/vendor-plugin
@@ -153,11 +153,11 @@ jobs:
         run: |
           set -euo pipefail
           # Vendored path: install.sh copies the plugin into
-          # .claude/plugins/devflow/, so consumer repos have the script there,
+          # .devflow/vendor/devflow/, so consumer repos have the script there,
           # NOT at scripts/ (repo root). Matches every other workflow's
           # invocation convention (e.g. devflow-review.yml's
-          # .claude/plugins/devflow/scripts/dismiss-stale-rejections.sh).
-          RESOLVER=.claude/plugins/devflow/scripts/resolve-implement-trigger.sh
+          # .devflow/vendor/devflow/scripts/dismiss-stale-rejections.sh).
+          RESOLVER=.devflow/vendor/devflow/scripts/resolve-implement-trigger.sh
           # Fail CLOSED (not a hard red workflow) if the plugin wasn't vendored,
           # with an actionable root cause. A bare `bash <missing>` under set -e
           # would exit non-zero with only a cryptic "No such file or directory"
@@ -184,7 +184,7 @@ jobs:
           RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
-          DEDUPE=.claude/plugins/devflow/scripts/dedupe-implement-run.sh
+          DEDUPE=.devflow/vendor/devflow/scripts/dedupe-implement-run.sh
           # Fail OPEN if the plugin wasn't vendored: a missing dedupe check must
           # not block a legitimate run — emit duplicate=false and let it proceed.
           if [ ! -f "$DEDUPE" ]; then
@@ -212,7 +212,7 @@ jobs:
         # the vendored copy kept its executable bit — matching the resolver's
         # `bash "$RESOLVER"` above. A missing file errors visibly but is
         # absorbed by continue-on-error (best-effort ack).
-        run: bash .claude/plugins/devflow/scripts/react-to-trigger.sh
+        run: bash .devflow/vendor/devflow/scripts/react-to-trigger.sh
 
       # Duplicate notice: tell the requester their command was ignored because a
       # run for this issue/PR is already in flight. Best-effort. CRITICAL: the
@@ -260,7 +260,7 @@ jobs:
           fetch-depth: 50
 
       # Materialize the plugin (committed → self → fetch) so claude-code-action
-      # loads it from .claude/plugins/devflow/ and the agent's helper scripts
+      # loads it from .devflow/vendor/devflow/ and the agent's helper scripts
       # resolve at the literal workspace path the allowlist below grants.
       - uses: ./.github/actions/vendor-plugin
         with:
@@ -379,12 +379,12 @@ jobs:
             Bash(gh workflow list:*),
             Bash(gh api:*),
             Bash(jq:*),
-            Bash(.claude/plugins/devflow/scripts/config-get.sh:*),
-            Bash(.claude/plugins/devflow/scripts/workpad.py:*),
-            Bash(.claude/plugins/devflow/scripts/parse-acs.py:*),
-            Bash(.claude/plugins/devflow/scripts/branch-for-issue.py:*),
-            Bash(.claude/plugins/devflow/scripts/file-deferrals.py:*),
-            Bash(.claude/plugins/devflow/scripts/match-deferrals.py:*),
+            Bash(.devflow/vendor/devflow/scripts/config-get.sh:*),
+            Bash(.devflow/vendor/devflow/scripts/workpad.py:*),
+            Bash(.devflow/vendor/devflow/scripts/parse-acs.py:*),
+            Bash(.devflow/vendor/devflow/scripts/branch-for-issue.py:*),
+            Bash(.devflow/vendor/devflow/scripts/file-deferrals.py:*),
+            Bash(.devflow/vendor/devflow/scripts/match-deferrals.py:*),
             Bash(pip install:*),
             Bash(pip:*),
             Bash(python:*),

@@ -15,8 +15,11 @@
 #   - .devflow/config.schema.json     refreshed every run (editor autocomplete)
 #   - .devflow/.gitignore             scoped ignore for ephemeral tmp/ scratch
 #                                     (created if absent; keeps config.json +
-#                                     learnings/ committed)
-#   - .claude/plugins/devflow/        the plugin tree — ONLY with DEVFLOW_VENDOR=1
+#                                     learnings/ committed). A thin install also
+#                                     adds /vendor/ so the runtime-vendored tree
+#                                     is never committed; DEVFLOW_VENDOR=1 removes
+#                                     that line (it commits the tree on purpose).
+#   - .devflow/vendor/devflow/        the plugin tree — ONLY with DEVFLOW_VENDOR=1
 #                                     (thin install otherwise; see below)
 #
 # Thin by default: the workflows materialize the plugin into the workspace at
@@ -110,6 +113,69 @@ prune_stale_devflow_workflows() {
   fi
 }
 
+# Remove a stale committed plugin tree at the OLD vendored location
+# (.claude/plugins/devflow) left by a pre-relocation DEVFLOW_VENDOR=1 install.
+# The plugin now lives at .devflow/vendor/devflow because claude-code-action's
+# restore-from-base deletes .claude/ on PRs (it is a SENSITIVE_PATH), which wiped
+# a tree vendored there. Signature-guarded — only ever removes a directory that
+# is actually DevFlow's plugin (carries a devflow plugin.json) so an unrelated
+# .claude/plugins/devflow is never touched. Prunes now-empty parents best-effort,
+# never the user's wider .claude/ (which holds settings/skills/hooks).
+prune_stale_vendored_plugin() {
+  local old=.claude/plugins/devflow
+  [ -d "$old" ] || return 0   # common case: no old tree → silent no-op.
+  if [ -f "$old/.claude-plugin/plugin.json" ] \
+     && grep -Eq '"name"[[:space:]]*:[[:space:]]*"devflow"' "$old/.claude-plugin/plugin.json"; then
+    rm -rf "$old"
+    rmdir .claude/plugins .claude 2>/dev/null || true
+    log "removed stale committed plugin at $old (relocated to .devflow/vendor/devflow)"
+  else
+    # The directory exists but is not a recognizable DevFlow plugin (no devflow
+    # plugin.json — e.g. a partial/interrupted older install, or an unrelated
+    # tree). Don't rm it blindly; warn so a genuinely-stale tree isn't left to be
+    # silently wiped by claude-code-action's .claude/ restore on the next cloud PR.
+    log "warning: $old exists but carries no devflow plugin.json; leaving it untouched — if it is a stale pre-relocation vendored tree, remove it by hand (.claude/ is wiped on cloud PRs)."
+  fi
+}
+
+# Keep the runtime-vendored tree out of consumer commits — but only for thin
+# installs. A thin consumer materializes .devflow/vendor/devflow at RUNTIME (in
+# cloud CI); now that it survives the restore-from-base (the whole point of the
+# relocation), an implement/review-fix run's `git add -A` would otherwise stage
+# the bulky tree into the consumer's PR. So a thin install adds `/vendor/` to
+# .devflow/.gitignore (patterns there are relative to .devflow/, matching the
+# existing `/tmp/` entry). A DEVFLOW_VENDOR=1 install commits the tree on
+# purpose, so the ignore line must be ABSENT there — handle the thin→vendor
+# upgrade by removing a previously-added line. Idempotent; no-op when the
+# scaffolded .gitignore is missing.
+manage_vendor_gitignore() {
+  local gi=.devflow/.gitignore
+  [ -f "$gi" ] || return 0
+  if [ "${DEVFLOW_VENDOR:-}" = "1" ]; then
+    if grep -qxF '/vendor/' "$gi"; then
+      # Portable in-place delete — NOT `sed -i` (GNU-only; BSD/macOS sed needs a
+      # backup-suffix arg, and this is a `curl | bash` installer that must run on
+      # macOS — see CONTRIBUTING.md). Filter to a temp, then swap only on a clean
+      # filter. grep exit 0 = lines kept, 1 = none kept (/vendor/ was the only
+      # line → empty result is correct), 2 = real error: distinguish so a
+      # mid-write failure (e.g. ENOSPC) never `mv`s a truncated temp over the
+      # tracked .gitignore and silently drops /tmp/.
+      local _rc=0
+      grep -vxF '/vendor/' "$gi" > "$gi.tmp" || _rc=$?
+      if [ "$_rc" -le 1 ]; then
+        mv "$gi.tmp" "$gi"
+        log "un-ignored .devflow/vendor/ (DEVFLOW_VENDOR=1 commits the plugin tree)"
+      else
+        rm -f "$gi.tmp"
+        log "warning: could not rewrite $gi (grep exit $_rc); left /vendor/ in place — remove it by hand so the committed tree is tracked."
+      fi
+    fi
+  elif ! grep -qxF '/vendor/' "$gi"; then
+    printf '/vendor/\n' >> "$gi"
+    log "ignored .devflow/vendor/ (runtime-vendored plugin must not be committed by a thin install)"
+  fi
+}
+
 # When sourced by the test harness (DEVFLOW_SELFTEST=1), define the functions
 # above and stop — the installer body below (which clones + writes files) does
 # not run. `return` only executes on the sourced path; `|| true` keeps `set -e`
@@ -152,11 +218,15 @@ SRC="$TMP/src"
 # shellcheck source=.github/actions/vendor-plugin/vendor-slice.sh
 DEVFLOW_VENDOR_SOURCE=1 . "$SRC/.github/actions/vendor-plugin/vendor-slice.sh"
 if [ "${DEVFLOW_VENDOR:-}" = "1" ]; then
-  log "vendoring plugin → .claude/plugins/devflow/ (DEVFLOW_VENDOR=1)"
-  devflow_copy_slice "$SRC" ".claude/plugins/devflow"
+  log "vendoring plugin → .devflow/vendor/devflow/ (DEVFLOW_VENDOR=1)"
+  devflow_copy_slice "$SRC" ".devflow/vendor/devflow"
 else
   log "thin install: the plugin is fetched at runtime (set DEVFLOW_VENDOR=1 to commit it instead)"
 fi
+
+# Upgrade migration: remove a stale committed tree at the old .claude/plugins/devflow
+# location (relocated to .devflow/vendor/devflow). Runs for both install modes.
+prune_stale_vendored_plugin
 
 # 2. Root marketplace manifest so `plugin_marketplaces: ./` resolves the vendored plugin.
 log "writing .claude-plugin/marketplace.json"
@@ -165,13 +235,13 @@ cat > .claude-plugin/marketplace.json <<'JSON'
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "devflow-marketplace",
-  "description": "Local marketplace for the vendored DevFlow plugin (.claude/plugins/devflow). Installed by devflow-autopilot/install.sh.",
+  "description": "Local marketplace for the vendored DevFlow plugin (.devflow/vendor/devflow). Installed by devflow-autopilot/install.sh.",
   "owner": { "name": "Daniel Radman", "email": "daniel@radman.ai" },
   "allowCrossMarketplaceDependenciesOn": ["claude-plugins-official"],
   "plugins": [
     {
       "name": "devflow",
-      "source": "./.claude/plugins/devflow",
+      "source": "./.devflow/vendor/devflow",
       "description": "End-to-end dev workflow: /devflow:implement, /devflow:review + /devflow:review-and-fix, the /devflow:docs suite, /devflow:create-issue, plus the retrospective loop.",
       "author": { "name": "Daniel Radman", "email": "daniel@radman.ai" },
       "homepage": "https://github.com/The01Geek/devflow-autopilot",
@@ -207,6 +277,10 @@ done
 #    refreshes config.schema.json. Templates resolve relative to the script
 #    ($SRC/.devflow), and we target the current repo root.
 bash "$SRC/scripts/scaffold-config.sh" "$PWD"
+
+# 5b. Gitignore the runtime-vendored tree for thin installs (and un-ignore it for
+#     DEVFLOW_VENDOR=1, which commits it). Runs after scaffold so .devflow/.gitignore exists.
+manage_vendor_gitignore
 
 # 6. Pin devflow_version to the exact commit we installed from, so the runtime
 #    fetch is reproducible and never tracks mutable main. Re-running the

@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.1] — 2026-05-24
+
+### Fixed
+- **The cloud tier now reviews and implements on thin-install repos again — the runtime-vendored plugin moved out of `.claude/`.** `claude-code-action` runs a security step on every pull request that deletes each of its `SENSITIVE_PATHS` (including the whole `.claude/` directory) and restores them from the base branch *before* installing plugins. A plugin vendored at `.claude/plugins/devflow/` was therefore wiped, so `plugin install` failed with `Source path does not exist` and the run aborted before producing a verdict — breaking `devflow-review` and `devflow-implement` on every thin-install consumer (the default mode). The `vendor-plugin` action, `install.sh`, the local `marketplace.json`, and all workflow helper-script references now use `.devflow/vendor/devflow/`, which sits outside every `SENSITIVE_PATH` and survives the restore. `install.sh` also removes a stale committed tree at the old `.claude/plugins/devflow/` path on upgrade (signature-guarded), and — because the relocated tree now survives the restore — a thin install adds `/vendor/` to `.devflow/.gitignore` so a cloud run's `git add -A` never commits it (a `DEVFLOW_VENDOR=1` install keeps it tracked). Apply the fix by re-running `install.sh` (or picking up the updated workflows); a config-only `devflow_version` bump does not relocate the path. (#47)
+
 ## [2.3.0] — 2026-05-24
 
 ### Added

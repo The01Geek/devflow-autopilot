@@ -230,7 +230,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       # Materialize the plugin so resolve-command-trigger.sh / react-to-trigger.sh
-      # exist at .claude/plugins/devflow/scripts/ (committed → self → fetch).
+      # exist at .devflow/vendor/devflow/scripts/ (committed → self → fetch).
       - uses: ./.github/actions/vendor-plugin
         with:
           ref: ${{ needs.config.outputs.devflow_version }}
@@ -248,8 +248,8 @@ jobs:
           TRIGGER_TEXT: ${{ github.event.comment.body || github.event.review.body }}
         run: |
           set -euo pipefail
-          # Vendored path: install.sh copies the plugin into .claude/plugins/devflow/.
-          RESOLVER=.claude/plugins/devflow/scripts/resolve-command-trigger.sh
+          # Vendored path: install.sh copies the plugin into .devflow/vendor/devflow/.
+          RESOLVER=.devflow/vendor/devflow/scripts/resolve-command-trigger.sh
           if [ ! -x "$RESOLVER" ]; then
             echo "::error::devflow resolver not found at $RESOLVER — has install.sh vendored the plugin into this repo? Skipping." >&2
             { echo "should_run=false"; echo "command="; } >> "$GITHUB_OUTPUT"
@@ -276,7 +276,7 @@ jobs:
         # the vendored copy kept its executable bit — same robustness rationale
         # as the implement resolver's `bash "$RESOLVER"`. A missing file errors
         # visibly but is absorbed by continue-on-error (best-effort ack).
-        run: bash .claude/plugins/devflow/scripts/react-to-trigger.sh
+        run: bash .devflow/vendor/devflow/scripts/react-to-trigger.sh
 
   command:
     needs: [config, review_dedupe, gate]
@@ -304,7 +304,7 @@ jobs:
           fetch-depth: 50
 
       # Materialize the plugin (committed → self → fetch) so claude-code-action
-      # loads it from .claude/plugins/devflow/ and the agent's helper scripts
+      # loads it from .devflow/vendor/devflow/ and the agent's helper scripts
       # resolve at the literal workspace path the allowlist grants.
       - uses: ./.github/actions/vendor-plugin
         with:
@@ -341,7 +341,7 @@ jobs:
           # Register the official plugin marketplace plus this repo's own
           # local marketplace. `./` resolves to the workflow's checkout root
           # (where .claude-plugin/marketplace.json lives), so PR-branch changes
-          # to the marketplace or .claude/plugins/devflow/** are exercised by
+          # to the marketplace or .devflow/vendor/devflow/** are exercised by
           # devflow.yml on the PR that introduces them — a git-URL entry would
           # always resolve to main. Local-path marketplaces are supported by
           # claude-code-action since v1.0.28 (we pin @v1, the floating major).
@@ -423,13 +423,13 @@ jobs:
             Bash(gh workflow list:*),
             Bash(gh api:*),
             Bash(jq:*),
-            Bash(.claude/plugins/devflow/scripts/config-get.sh:*),
-            Bash(.claude/plugins/devflow/scripts/workpad.py:*),
-            Bash(.claude/plugins/devflow/scripts/parse-acs.py:*),
-            Bash(.claude/plugins/devflow/scripts/branch-for-issue.py:*),
-            Bash(.claude/plugins/devflow/scripts/file-deferrals.py:*),
-            Bash(.claude/plugins/devflow/scripts/match-deferrals.py:*),
-            Bash(.claude/plugins/devflow/scripts/dismiss-stale-rejections.sh:*),
+            Bash(.devflow/vendor/devflow/scripts/config-get.sh:*),
+            Bash(.devflow/vendor/devflow/scripts/workpad.py:*),
+            Bash(.devflow/vendor/devflow/scripts/parse-acs.py:*),
+            Bash(.devflow/vendor/devflow/scripts/branch-for-issue.py:*),
+            Bash(.devflow/vendor/devflow/scripts/file-deferrals.py:*),
+            Bash(.devflow/vendor/devflow/scripts/match-deferrals.py:*),
+            Bash(.devflow/vendor/devflow/scripts/dismiss-stale-rejections.sh:*),
             Bash(pip install:*),
             Bash(pip:*),
             Bash(python:*),

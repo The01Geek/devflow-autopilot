@@ -1489,6 +1489,158 @@ assert_eq "install: Anthropic claude.yml preserved" \
 rm -rf "$WORK"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "install.sh: prune_stale_vendored_plugin"
+# ────────────────────────────────────────────────────────────────────────────
+# On upgrade, install.sh must remove a stale committed plugin at the OLD
+# .claude/plugins/devflow location (relocated to .devflow/vendor/devflow), but
+# ONLY when it is actually DevFlow's plugin, and must never remove a non-empty
+# user .claude/ directory.
+
+# Case A: a DevFlow-signed tree at the old path → removed, empty parents pruned.
+WORK="$(mktemp -d)"; mkdir -p "$WORK/.claude/plugins/devflow/.claude-plugin"
+printf '{"name":"devflow"}' > "$WORK/.claude/plugins/devflow/.claude-plugin/plugin.json"
+# shellcheck disable=SC1090
+( cd "$WORK" && DEVFLOW_SELFTEST=1 . "$INSTALL" && prune_stale_vendored_plugin ) >/dev/null 2>&1
+assert_eq "install: stale committed .claude/plugins/devflow removed" \
+  "absent" "$([ -d "$WORK/.claude/plugins/devflow" ] && echo present || echo absent)"
+assert_eq "install: emptied .claude/ pruned" \
+  "absent" "$([ -d "$WORK/.claude" ] && echo present || echo absent)"
+rm -rf "$WORK"
+
+# Case B: a non-DevFlow plugin.json at that path → preserved (signature guard).
+WORK="$(mktemp -d)"; mkdir -p "$WORK/.claude/plugins/devflow/.claude-plugin"
+printf '{"name":"not-devflow"}' > "$WORK/.claude/plugins/devflow/.claude-plugin/plugin.json"
+# shellcheck disable=SC1090
+( cd "$WORK" && DEVFLOW_SELFTEST=1 . "$INSTALL" && prune_stale_vendored_plugin ) >/dev/null 2>&1
+assert_eq "install: non-devflow .claude/plugins/devflow preserved" \
+  "present" "$([ -d "$WORK/.claude/plugins/devflow" ] && echo present || echo absent)"
+rm -rf "$WORK"
+
+# Case C: DevFlow tree removed but a non-empty .claude/ (other content) is kept.
+WORK="$(mktemp -d)"; mkdir -p "$WORK/.claude/plugins/devflow/.claude-plugin" "$WORK/.claude/skills"
+printf '{"name":"devflow"}' > "$WORK/.claude/plugins/devflow/.claude-plugin/plugin.json"
+printf 'x' > "$WORK/.claude/skills/keep.md"
+# shellcheck disable=SC1090
+( cd "$WORK" && DEVFLOW_SELFTEST=1 . "$INSTALL" && prune_stale_vendored_plugin ) >/dev/null 2>&1
+assert_eq "install: devflow tree removed under non-empty .claude" \
+  "absent" "$([ -d "$WORK/.claude/plugins/devflow" ] && echo present || echo absent)"
+assert_eq "install: emptied .claude/plugins parent pruned, non-empty .claude kept" \
+  "absent-present" "$([ -d "$WORK/.claude/plugins" ] && echo present || echo absent)-$([ -d "$WORK/.claude" ] && echo present || echo absent)"
+assert_eq "install: non-empty user .claude/ preserved" \
+  "present" "$([ -f "$WORK/.claude/skills/keep.md" ] && echo present || echo absent)"
+rm -rf "$WORK"
+
+# Case D: no old tree at all (the common thin-install path) → clean no-op, exit 0,
+# and an unrelated .claude/ is untouched.
+WORK="$(mktemp -d)"; mkdir -p "$WORK/.claude/skills"; printf 'x' > "$WORK/.claude/skills/keep.md"
+# shellcheck disable=SC1090
+( cd "$WORK" && DEVFLOW_SELFTEST=1 . "$INSTALL" && prune_stale_vendored_plugin ) >/dev/null 2>&1
+assert_eq "install: prune is a clean no-op when no old tree exists" "0" "$?"
+assert_eq "install: prune leaves unrelated .claude/ untouched when no old tree" \
+  "present" "$([ -f "$WORK/.claude/skills/keep.md" ] && echo present || echo absent)"
+rm -rf "$WORK"
+
+# Case E: old dir exists but carries no devflow plugin.json (partial/interrupted
+# install) → left in place (not blindly removed), exit 0.
+WORK="$(mktemp -d)"; mkdir -p "$WORK/.claude/plugins/devflow/scripts"
+printf 'x' > "$WORK/.claude/plugins/devflow/scripts/stray.sh"
+# shellcheck disable=SC1090
+( cd "$WORK" && DEVFLOW_SELFTEST=1 . "$INSTALL" && prune_stale_vendored_plugin ) >/dev/null 2>&1
+assert_eq "install: unsigned old tree is a clean exit" "0" "$?"
+assert_eq "install: unsigned old tree is left untouched" \
+  "present" "$([ -d "$WORK/.claude/plugins/devflow" ] && echo present || echo absent)"
+rm -rf "$WORK"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "install.sh: manage_vendor_gitignore"
+# ────────────────────────────────────────────────────────────────────────────
+# Thin installs must ignore the runtime-vendored .devflow/vendor/ tree so a
+# cloud run's `git add -A` never commits it; DEVFLOW_VENDOR=1 commits it on
+# purpose, so the ignore line must be absent there. Patterns are relative to
+# .devflow/, matching the scaffolded `/tmp/` entry.
+
+# Case A: thin install (DEVFLOW_VENDOR unset) → /vendor/ appended, /tmp/ kept.
+WORK="$(mktemp -d)"; mkdir -p "$WORK/.devflow"; printf '/tmp/\n' > "$WORK/.devflow/.gitignore"
+# shellcheck disable=SC1090
+( cd "$WORK" && DEVFLOW_SELFTEST=1 . "$INSTALL" && manage_vendor_gitignore ) >/dev/null 2>&1
+assert_eq "install: thin install ignores /vendor/" \
+  "yes" "$(grep -qxF '/vendor/' "$WORK/.devflow/.gitignore" && echo yes || echo no)"
+assert_eq "install: thin install keeps /tmp/" \
+  "yes" "$(grep -qxF '/tmp/' "$WORK/.devflow/.gitignore" && echo yes || echo no)"
+# Idempotent: a second run does not duplicate the line.
+# shellcheck disable=SC1090
+( cd "$WORK" && DEVFLOW_SELFTEST=1 . "$INSTALL" && manage_vendor_gitignore ) >/dev/null 2>&1
+assert_eq "install: thin /vendor/ ignore is idempotent" \
+  "1" "$(grep -cxF '/vendor/' "$WORK/.devflow/.gitignore")"
+rm -rf "$WORK"
+
+# Case B: DEVFLOW_VENDOR=1 → a previously-added /vendor/ line is removed, /tmp/ kept.
+WORK="$(mktemp -d)"; mkdir -p "$WORK/.devflow"; printf '/tmp/\n/vendor/\n' > "$WORK/.devflow/.gitignore"
+# shellcheck disable=SC1090
+( cd "$WORK" && DEVFLOW_SELFTEST=1 . "$INSTALL" && DEVFLOW_VENDOR=1 manage_vendor_gitignore ) >/dev/null 2>&1
+assert_eq "install: DEVFLOW_VENDOR=1 un-ignores /vendor/" \
+  "no" "$(grep -qxF '/vendor/' "$WORK/.devflow/.gitignore" && echo yes || echo no)"
+assert_eq "install: DEVFLOW_VENDOR=1 keeps /tmp/" \
+  "yes" "$(grep -qxF '/tmp/' "$WORK/.devflow/.gitignore" && echo yes || echo no)"
+rm -rf "$WORK"
+
+# Case C: no scaffolded .gitignore → no-op, no crash (exit 0).
+WORK="$(mktemp -d)"; mkdir -p "$WORK/.devflow"
+# shellcheck disable=SC1090
+( cd "$WORK" && DEVFLOW_SELFTEST=1 . "$INSTALL" && manage_vendor_gitignore ) >/dev/null 2>&1
+assert_eq "install: missing .gitignore is a clean no-op" \
+  "0" "$?"
+assert_eq "install: no .gitignore created when absent" \
+  "absent" "$([ -f "$WORK/.devflow/.gitignore" ] && echo present || echo absent)"
+rm -rf "$WORK"
+
+# Case D: DEVFLOW_VENDOR=1 when /vendor/ is already absent → steady-state no-op,
+# /tmp/ kept (symmetric to the thin-side idempotency check above).
+WORK="$(mktemp -d)"; mkdir -p "$WORK/.devflow"; printf '/tmp/\n' > "$WORK/.devflow/.gitignore"
+# shellcheck disable=SC1090
+( cd "$WORK" && DEVFLOW_SELFTEST=1 . "$INSTALL" && DEVFLOW_VENDOR=1 manage_vendor_gitignore ) >/dev/null 2>&1
+assert_eq "install: DEVFLOW_VENDOR=1 with /vendor/ already absent keeps it absent" \
+  "no" "$(grep -qxF '/vendor/' "$WORK/.devflow/.gitignore" && echo yes || echo no)"
+assert_eq "install: DEVFLOW_VENDOR=1 steady-state keeps /tmp/" \
+  "yes" "$(grep -qxF '/tmp/' "$WORK/.devflow/.gitignore" && echo yes || echo no)"
+rm -rf "$WORK"
+
+# Case E: DEVFLOW_VENDOR=1 when /vendor/ is the ONLY line (the empty-filter edge
+# the grep-exit-1 handling exists for) → removed cleanly, file left empty, exit 0.
+WORK="$(mktemp -d)"; mkdir -p "$WORK/.devflow"; printf '/vendor/\n' > "$WORK/.devflow/.gitignore"
+# shellcheck disable=SC1090
+( cd "$WORK" && DEVFLOW_SELFTEST=1 . "$INSTALL" && DEVFLOW_VENDOR=1 manage_vendor_gitignore ) >/dev/null 2>&1
+assert_eq "install: DEVFLOW_VENDOR=1 removes /vendor/ when it is the only line" "0" "$?"
+assert_eq "install: only-line /vendor/ removal leaves no /vendor/" \
+  "no" "$(grep -qxF '/vendor/' "$WORK/.devflow/.gitignore" && echo yes || echo no)"
+rm -rf "$WORK"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "no stale .claude/plugins/devflow reference in shipped cloud-tier files"
+# ────────────────────────────────────────────────────────────────────────────
+# Locks the invariant this relocation establishes: the runtime-vendored plugin
+# lives at .devflow/vendor/devflow, so no workflow, composite action, or config
+# schema may reference the old .claude/plugins/devflow path (a stale reference
+# fails closed at runtime — "resolver not found" / wiped plugin). install.sh and
+# the test file are not in the scan scope (it covers only `.github` +
+# config.schema.json) — they legitimately name the old path (the prune migration
+# that removes it, and these tests), and there is no exclusion filter to maintain.
+# NB: no `xargs -r` — that flag is GNU-only (BSD/macOS xargs rejects it), and
+# CONTRIBUTING bans GNU-only flags. The `git ls-files` input is always non-empty
+# (.devflow/config.schema.json + the .github workflows are tracked), so the
+# no-run-if-empty behavior `-r` provides is never needed here.
+STALE=$(cd "$LIB/.." && git ls-files .github .devflow/config.schema.json \
+  | xargs grep -lF '.claude/plugins/devflow' 2>/dev/null || true)
+assert_eq "install: no shipped cloud-tier file references the old vendored path" \
+  "" "$STALE"
+
+# The generated marketplace.json `source` is the one path-bearing installer
+# output with no other coverage; a heredoc typo reverting it would ship to fresh
+# consumers uncaught. Assert it matches the relocated vendor destination.
+assert_eq "install: marketplace.json source matches the vendored path" \
+  "1" "$(grep -cF '"source": "./.devflow/vendor/devflow"' "$LIB/../install.sh")"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "workflow partition invariant"
 # ────────────────────────────────────────────────────────────────────────────
 # Every gate `if:` line that matches a /devflow: command trigger must ALSO
