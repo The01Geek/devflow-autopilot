@@ -329,7 +329,11 @@ jobs:
           # Counting those would make the gate conclude the review "already ran"
           # and skip it forever. A null conclusion (in-progress review) is
           # `!= "skipped"`, so a running review still counts — exactly-once
-          # holds. Mirrors the synchronize cost-guard's conclusion-scoped query.
+          # holds. Uses the same conclusion-scoped select shape as the
+          # synchronize cost-guard above, but a deliberately WIDER filter
+          # (`!= "skipped"` here vs `== "success"` there): the two are not
+          # interchangeable — do not align them. lib/test/run.sh pins this
+          # divergence.
           # A truncated/empty body that still exits 0 yields a non-numeric
           # count; treating that as 0 would fail OPEN (re-review on a repeat
           # toggle), which §0 forbids. Require a bare integer or fail closed.
