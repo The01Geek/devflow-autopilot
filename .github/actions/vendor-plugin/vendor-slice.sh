@@ -46,7 +46,7 @@ devflow_copy_slice() {
   stage="${dest}.vendor-stage.$$"
   rm -rf "$stage"
   mkdir -p "$stage"
-  cp -R "$src/.claude-plugin" "$src/agents" "$src/lib" "$src/scripts" "$src/skills" "$stage/"
+  cp -R "$src/.claude-plugin" "$src/agents" "$src/docs" "$src/lib" "$src/scripts" "$src/skills" "$stage/"
   # Only the committed templates/registry — not the whole .devflow/ tree (which
   # would drag in learnings/ and a possibly-dirty config.json).
   mkdir -p "$stage/.devflow"

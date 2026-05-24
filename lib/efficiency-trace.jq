@@ -87,7 +87,7 @@ def verdict_for($findings):
   | if ($applied | any(((.corroboration_count // 1)) < 2)) then "unique-effective"
     elif ($applied | length) > 0 then "corroborating"
     elif ($decisions | any(. == "pushed_back" or . == "advisory")) then "noise"
-    else "null"
+    else null
     end;
 
 # Per-iteration derived view.
