@@ -203,8 +203,56 @@ def cmd_now(_args):
 _STATUS_RE = re.compile(r'^\*\*Status:\*\*\s+.*$', re.MULTILINE)
 _STATUS_VALUE_RE = re.compile(r'^\*\*Status:\*\*\s+(.*?)\s*$', re.MULTILINE)
 _BRANCH_RE = re.compile(r'^\*\*Branch:\*\*\s+.*$', re.MULTILINE)
+_RUN_RE = re.compile(r'^\*\*Run:\*\*\s+.*$', re.MULTILINE)
+_PR_RE = re.compile(r'^\*\*PR:\*\*\s+.*$', re.MULTILINE)
 _LAST_UPDATED_RE = re.compile(r'^\*\*Last updated:\*\*\s+.*$', re.MULTILINE)
 _SECTION_RE = re.compile(r'^(##\s+.+)$', re.MULTILINE)
+
+# Canonical status glyphs (reaction-compatible). The Status line always begins
+# with one; `_status_glyph` derives it from the status word so the orchestrator
+# passes a bare status ("Setup", "Complete", "Blocked") and the helper is the
+# single source of truth for the glyph vocabulary. 🚀=running (any in-progress
+# phase), 🎉=Complete, 👎=Blocked. These match the triggering-comment reactions
+# (rocket / hooray / -1) the implement skill emits.
+_STATUS_GLYPHS = ('🚀', '🎉', '👎')
+
+
+def _strip_status_glyph(status: str) -> str:
+    """Drop a leading canonical glyph (and following spaces) from a status value,
+    so re-applying `--status` is idempotent and the note sub-heading uses the
+    bare phase word, not '🚀 Implementing'."""
+    s = status.lstrip()
+    for g in _STATUS_GLYPHS:
+        if s.startswith(g):
+            return s[len(g):].lstrip()
+    return s
+
+
+def _status_glyph(status: str) -> str:
+    s = _strip_status_glyph(status).strip().lower()
+    if s.startswith('complete'):
+        return '🎉'
+    if s.startswith('blocked'):
+        return '👎'
+    return '🚀'
+
+
+def _set_or_insert_header(body: str, regex: re.Pattern, label: str, value: str) -> str:
+    """Replace a `**{label}:** …` front-matter line with `value`, or insert it
+    immediately after the Branch line when absent (so a legacy workpad created
+    before run/PR links existed still accepts `--run-link`/`--pr-link` on a
+    resume instead of erroring). `value` is substituted via a function replacer
+    so regex-special characters in the value (e.g. URL `?`/`&`) are literal."""
+    new_line = f'**{label}:** {value}'
+    body, n = regex.subn(lambda _m: new_line, body, count=1)
+    if n:
+        return body
+    body, n = _BRANCH_RE.subn(lambda m: m.group(0) + '\n' + new_line, body, count=1)
+    if n == 0:
+        raise _UpdateError(
+            f'{label} line absent and no Branch line to insert it after'
+        )
+    return body
 
 
 def _split_sections(body: str) -> tuple[str, list[tuple[str, str]]]:
@@ -328,7 +376,54 @@ def _rewrite_checkbox(
     return '\n'.join(new_lines) + ('\n' if content.endswith('\n') else '')
 
 
+def _split_details(content: str) -> tuple[str | None, str, str | None]:
+    """If a section's content wraps its body in a `<details>` block, return
+    `(head, inner, tail)` where `head` is the opening `<details>`/`<summary>`
+    lines (plus the blank line markdown needs to render inside), `inner` is the
+    collapsible body, and `tail` is the closing `</details>`. Returns
+    `(None, content, None)` when there is no wrapper — so the append helpers
+    operate on a legacy (un-wrapped) section unchanged.
+
+    This lets `Decisions / Notes` and `Devflow Reflection` be collapsed in a
+    `<details>` block while `--note`/`--reflection` still append *inside* it
+    (before `</details>`), never after — which would silently fall outside the
+    collapsible region."""
+    lines = content.split('\n')
+    try:
+        o = next(i for i, l in enumerate(lines) if l.strip().startswith('<details'))
+        c = next(i for i in range(len(lines) - 1, -1, -1) if lines[i].strip() == '</details>')
+    except StopIteration:
+        return None, content, None
+    if c <= o:
+        return None, content, None
+    head_end = o + 1
+    if head_end < len(lines) and lines[head_end].strip().startswith('<summary'):
+        head_end += 1
+    if head_end < len(lines) and lines[head_end].strip() == '':
+        head_end += 1
+    head = '\n'.join(lines[:head_end])
+    inner = '\n'.join(lines[head_end:c]).strip('\n')
+    tail = '\n'.join(lines[c:])
+    return head, inner, tail
+
+
+def _rewrap_details(head: str, new_inner: str, tail: str) -> str:
+    """Reassemble a `<details>` section from its head, freshly-mutated inner
+    body, and tail (a blank line after `<summary>` is preserved for markdown)."""
+    return head.rstrip('\n') + '\n\n' + new_inner.strip('\n') + '\n' + tail + '\n'
+
+
 def _append_note(content: str, note: str, timestamp: str, phase: str | None) -> str:
+    """`<details>`-aware wrapper around `_append_note_inner` (see that function
+    for the phase-grouping semantics)."""
+    head, inner, tail = _split_details(content)
+    new_inner = _append_note_inner(inner, note, timestamp, phase)
+    if head is None:
+        return new_inner
+    return _rewrap_details(head, new_inner, tail)
+
+
+def _append_note_inner(content: str, note: str, timestamp: str, phase: str | None) -> str:
     """Append a `- {timestamp} — {note}` bullet under a `### {phase}` sub-heading.
 
     Notes are grouped by lifecycle phase: the `### {phase}` sub-heading is
@@ -368,6 +463,15 @@ def _append_note(content: str, note: str, timestamp: str, phase: str | None) -> 
 
 
 def _append_bullet(content: str, text: str) -> str:
+    """`<details>`-aware wrapper around `_append_bullet_inner`."""
+    head, inner, tail = _split_details(content)
+    new_inner = _append_bullet_inner(inner, text)
+    if head is None:
+        return new_inner
+    return _rewrap_details(head, new_inner, tail)
+
+
+def _append_bullet_inner(content: str, text: str) -> str:
     """Append a `- {text}` bullet (no timestamp) to a bullet-list section."""
     stripped = content.rstrip('\n')
     if stripped and not stripped.endswith('\n'):
@@ -473,13 +577,21 @@ def _apply_mutations(body: str, args) -> str:
 
     # Front-matter mutations.
     if args.status:
-        body, n = _STATUS_RE.subn(f'**Status:** {args.status}', body, count=1)
+        clean = _strip_status_glyph(args.status)
+        glyph = _status_glyph(clean)
+        body, n = _STATUS_RE.subn(f'**Status:** {glyph} {clean}', body, count=1)
         if n == 0:
             raise _UpdateError('Status line not found in workpad')
     if args.branch:
-        body, n = _BRANCH_RE.subn(f'**Branch:** `{args.branch}`', body, count=1)
+        body, n = _BRANCH_RE.subn(
+            lambda _m: f'**Branch:** `{args.branch}`', body, count=1,
+        )
         if n == 0:
             raise _UpdateError('Branch line not found in workpad')
+    if args.run_link:
+        body = _set_or_insert_header(body, _RUN_RE, 'Run', args.run_link)
+    if args.pr_link:
+        body = _set_or_insert_header(body, _PR_RE, 'PR', args.pr_link)
 
     # Always refresh Last updated.
     body, n = _LAST_UPDATED_RE.subn(f'**Last updated:** {now}', body, count=1)
@@ -488,12 +600,25 @@ def _apply_mutations(body: str, args) -> str:
 
     # Notes are grouped under a `### {Status}` sub-heading. Read the
     # post-mutation Status so a combined `--status X --note Y` call files the
-    # note under X (the status line was already rewritten above).
+    # note under X (the status line was already rewritten above). Strip the
+    # leading glyph so the sub-heading is the bare phase word ("Implementing"),
+    # not "🚀 Implementing".
     status_match = _STATUS_VALUE_RE.search(body)
-    current_phase = status_match.group(1).strip() if status_match else None
+    current_phase = (
+        _strip_status_glyph(status_match.group(1).strip()) if status_match else None
+    )
 
     # Section-level mutations.
     preamble, sections = _split_sections(body)
+
+    if args.tick_progress:
+        idx = _find_section(sections, 'Progress')
+        if idx is None:
+            raise _UpdateError("section '## Progress' not found")
+        heading, content = sections[idx]
+        for text in args.tick_progress:
+            content = _tick_checkbox(content, text, 'Progress')
+        sections[idx] = (heading, content)
 
     if args.tick_plan:
         idx = _find_section(sections, 'Plan')
@@ -597,8 +722,20 @@ def main():
              'body internally; Last updated is refreshed automatically.',
     )
     u.add_argument('issue', type=int)
-    u.add_argument('--status', help='Replace the Status line value.')
+    u.add_argument('--status', help='Replace the Status line value. A canonical '
+                   'glyph (🚀 running / 🎉 Complete / 👎 Blocked) is derived from '
+                   'the status word and prepended automatically.')
     u.add_argument('--branch', help='Replace the Branch line value.')
+    u.add_argument('--run-link', metavar='VALUE',
+                   help='Set the Run front-matter line to VALUE (markdown ok). '
+                        'Inserted after Branch if the line is absent.')
+    u.add_argument('--pr-link', metavar='VALUE',
+                   help='Set the PR front-matter line to VALUE (markdown ok). '
+                        'Inserted after Branch if the line is absent.')
+    u.add_argument('--tick-progress', metavar='TEXT', action='append', default=[],
+                   help='Tick one ## Progress checkbox matching TEXT (substring). '
+                        'May be passed multiple times to tick several boxes in '
+                        'one atomic update.')
     u.add_argument('--tick-plan', metavar='TEXT', action='append', default=[],
                    help='Tick one Plan checkbox matching TEXT (substring). '
                         'May be passed multiple times to tick several boxes '
