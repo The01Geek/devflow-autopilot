@@ -41,6 +41,7 @@ jobs:
       effort: ${{ steps.extract.outputs.effort }}
       allowed_tools_extra: ${{ steps.extract.outputs.allowed_tools_extra }}
       allowed_users: ${{ steps.extract.outputs.allowed_users }}
+      devflow_version: ${{ steps.extract.outputs.devflow_version }}
     steps:
       - uses: actions/checkout@v6
       - id: cfg
@@ -78,6 +79,8 @@ jobs:
             # be concatenated directly after the final base entry. Tool patterns
             # never contain commas/newlines, so a single-line output is safe.
             echo "allowed_tools_extra=$(echo "$CONFIG_JSON" | jq -r '.devflow.allowed_tools // [] | if length > 0 then "," + join(",") else "" end')"
+            # Pinned plugin ref for the vendor-plugin fetch branch (thin installs).
+            echo "devflow_version=$(echo "$CONFIG_JSON" | jq -r '.devflow_version // empty')"
           } >> "$GITHUB_OUTPUT"
 
   # Dedupe a MANUAL bare `/devflow:review` comment against the AUTOMATED
@@ -226,6 +229,11 @@ jobs:
       command: ${{ steps.resolve.outputs.command }}
     steps:
       - uses: actions/checkout@v6
+      # Materialize the plugin so resolve-command-trigger.sh / react-to-trigger.sh
+      # exist at .claude/plugins/devflow/scripts/ (committed → self → fetch).
+      - uses: ./.github/actions/vendor-plugin
+        with:
+          ref: ${{ needs.config.outputs.devflow_version }}
       - id: resolve
         env:
           GH_TOKEN: ${{ github.token }}
@@ -294,6 +302,13 @@ jobs:
           # output. Bump to `fetch-depth: 0` if that becomes a recurring
           # problem.
           fetch-depth: 50
+
+      # Materialize the plugin (committed → self → fetch) so claude-code-action
+      # loads it from .claude/plugins/devflow/ and the agent's helper scripts
+      # resolve at the literal workspace path the allowlist grants.
+      - uses: ./.github/actions/vendor-plugin
+        with:
+          ref: ${{ needs.config.outputs.devflow_version }}
 
       # Provision the runtime (Python / Node / pip cache / deps) from
       # `.devflow/config.json`'s `setup` block. The logic lives in the

@@ -665,6 +665,33 @@ jobs:
           ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 1
           persist-credentials: false
+      # Read the pinned plugin ref tolerantly — a missing/bare config must not
+      # fail this job (the dismiss call below is a best-effort safety net), so we
+      # don't use the hard-failing read-project-config action here.
+      - id: pin
+        shell: bash
+        run: |
+          set -euo pipefail
+          REF=""
+          if [ -f .devflow/config.json ]; then
+            REF=$(jq -r '.devflow_version // empty' .devflow/config.json 2>/dev/null || true)
+          fi
+          echo "devflow_version=$REF" >> "$GITHUB_OUTPUT"
+      # Materialize the plugin so dismiss-stale-rejections.sh exists at the
+      # workspace path (committed → self → fetch). continue-on-error so a vendor
+      # hiccup never hangs this REQUIRED check — the dismiss call is already
+      # guarded for a missing script.
+      - id: vendor
+        uses: ./.github/actions/vendor-plugin
+        continue-on-error: true
+        with:
+          ref: ${{ steps.pin.outputs.devflow_version }}
+      # Surface a swallowed vendor failure: without this, a continue-on-error
+      # vendor step that failed leaves the dismiss call below silently skipping,
+      # with no breadcrumb that vendoring (not the dismiss logic) was the cause.
+      - name: Warn on vendor failure
+        if: ${{ steps.vendor.outcome != 'success' }}
+        run: echo "::warning::vendor-plugin did not succeed in finalize_check; dismiss-stale-rejections.sh may be absent — a stale REJECT will not be auto-dismissed. Dismiss it manually if the PR stays at CHANGES_REQUESTED."
       - id: finalize
         env:
           GH_TOKEN: ${{ github.token }}
