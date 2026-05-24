@@ -109,10 +109,10 @@ devflow_vendor_main() {
   if ! git clone --quiet --depth 1 --branch "$DEVFLOW_REF" "$url" "$tmp/src" 2>/dev/null; then
     rm -rf "$tmp/src"
     if ! clone_err="$(git clone --quiet "$url" "$tmp/src" 2>&1)"; then
-      devflow_vendor_die "could not fetch $url @ $DEVFLOW_REF (clone failed): $clone_err"
+      devflow_vendor_die "could not fetch $url @ $DEVFLOW_REF — clone failed: $clone_err"
     fi
     if ! checkout_err="$(git -C "$tmp/src" checkout --quiet "$DEVFLOW_REF" 2>&1)"; then
-      devflow_vendor_die "could not fetch $url @ $DEVFLOW_REF (clone succeeded but checkout failed): $checkout_err"
+      devflow_vendor_die "could not fetch $url @ $DEVFLOW_REF — clone succeeded but checkout failed: $checkout_err"
     fi
   fi
   devflow_copy_slice "$tmp/src" "$dest"
