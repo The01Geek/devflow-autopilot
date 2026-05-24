@@ -365,7 +365,7 @@ jobs:
               if ! _RUNS=$(gh api --paginate "repos/$REPO/commits/$sha/check-runs" \
                     --jq '.check_runs[] | select(.name=="Devflow Review" and .conclusion != "skipped") | .id' \
                     2>/dev/null); then
-                echo "::warning::Check-run query failed for commit $sha; failing closed (no auto-review)."
+                echo "::warning::Check-run query failed for commit $sha; failing closed (no auto-review). Use the Re-run button if a review is needed."
                 exit 0
               fi
               n=$(printf '%s' "$_RUNS" | grep -c . || true)
