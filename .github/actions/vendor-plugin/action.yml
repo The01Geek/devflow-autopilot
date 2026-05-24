@@ -1,0 +1,33 @@
+name: 'Vendor DevFlow plugin'
+description: |
+  Materialize the DevFlow plugin into `.claude/plugins/devflow/` at runtime, so
+  the cloud-tier workflows find their helper scripts at the literal workspace
+  path without the plugin tree having to be committed into the repo. Runs the
+  committed → self → fetch algorithm in vendor-slice.sh (the single source of
+  truth, shared with install.sh). Place this step right after `actions/checkout`
+  in any job that runs plugin scripts or `anthropics/claude-code-action`.
+
+inputs:
+  ref:
+    description: |
+      Git ref (tag, branch, or commit SHA) to fetch the plugin from on the fetch
+      branch — i.e. a thin consumer that committed no plugin. Sourced from
+      `.devflow/config.json` `devflow_version`. Ignored on the committed and self
+      branches. The fetch branch fails loud when this is empty rather than
+      tracking mutable `main`.
+    required: false
+    default: ''
+  repo:
+    description: 'owner/name to fetch the plugin from on the fetch branch.'
+    required: false
+    default: 'The01Geek/devflow-autopilot'
+
+runs:
+  using: composite
+  steps:
+    - name: Vendor plugin
+      shell: bash
+      env:
+        DEVFLOW_REF: ${{ inputs.ref }}
+        DEVFLOW_REPO: ${{ inputs.repo }}
+      run: bash "${GITHUB_ACTION_PATH}/vendor-slice.sh"

@@ -1901,6 +1901,83 @@ assert_eq "docs toggle: skill reads .docs.internal_enabled" "1" \
 assert_eq "docs toggle: skill reads .docs.external_enabled" "1" \
   "$(grep -c '\.docs\.external_enabled' "$DOCS_SKILL" || true)"
 
+# ────────────────────────────────────────────────────────────────────────────
+echo "vendor-slice.sh (runtime plugin materialization: committed → self → fetch)"
+# ────────────────────────────────────────────────────────────────────────────
+VENDOR="$LIB/../.github/actions/vendor-plugin/vendor-slice.sh"
+REPO_ROOT="$(cd "$LIB/.." && pwd)"
+vexists() { [ -e "$1" ] && echo yes || echo no; }
+
+# committed branch — a pre-populated dest (already has scripts/) is left as-is.
+VS_COMMIT="$(mktemp -d)/dest"; mkdir -p "$VS_COMMIT/scripts"; : > "$VS_COMMIT/scripts/sentinel"
+( cd "$(mktemp -d)" && DEVFLOW_DEST="$VS_COMMIT" bash "$VENDOR" >/dev/null 2>&1 )
+assert_eq "vendor: committed branch is a no-op (sentinel survives)" "yes" "$(vexists "$VS_COMMIT/scripts/sentinel")"
+
+# self branch — cwd is the repo root (has scripts/ + skills/ + plugin.json), so
+# the in-tree plugin is copied into dest through the shared slice definition.
+VS_SELF="$(mktemp -d)/dest"
+( cd "$REPO_ROOT" && DEVFLOW_DEST="$VS_SELF" bash "$VENDOR" >/dev/null 2>&1 )
+assert_eq "vendor: self branch copies scripts from checkout root" "yes" "$(vexists "$VS_SELF/scripts/resolve-implement-trigger.sh")"
+assert_eq "vendor: self branch drops the vendored marketplace.json" "no" "$(vexists "$VS_SELF/.claude-plugin/marketplace.json")"
+assert_eq "vendor: self branch keeps plugin.json" "yes" "$(vexists "$VS_SELF/.claude-plugin/plugin.json")"
+assert_eq "vendor: self branch copies the .devflow templates" "yes" "$(vexists "$VS_SELF/.devflow/config.schema.json")"
+
+# fetch branch — no plugin in cwd; clone a local fixture remote (offline) and
+# copy its slice in. Exercises the clone-by-ref + copy path without the network.
+VS_REMOTE="$(mktemp -d)"
+mkdir -p "$VS_REMOTE"/.claude-plugin "$VS_REMOTE"/agents "$VS_REMOTE"/lib \
+        "$VS_REMOTE"/scripts "$VS_REMOTE"/skills "$VS_REMOTE"/.devflow
+printf '{}' > "$VS_REMOTE/.claude-plugin/plugin.json"
+printf '{}' > "$VS_REMOTE/.claude-plugin/marketplace.json"
+: > "$VS_REMOTE/scripts/resolve-implement-trigger.sh"
+# git won't track empty dirs — give each slice dir a file so the clone carries
+# the whole slice (mirrors the real repo, where none of these dirs are empty).
+: > "$VS_REMOTE/agents/placeholder.md"
+: > "$VS_REMOTE/lib/placeholder.sh"
+: > "$VS_REMOTE/skills/placeholder.md"
+printf '{}' > "$VS_REMOTE/.devflow/config.example.json"
+printf '{}' > "$VS_REMOTE/.devflow/config.schema.json"
+printf '{}' > "$VS_REMOTE/.devflow/tool-presets.json"
+( cd "$VS_REMOTE" && git init -q -b main && git add -A \
+    && git -c user.email=t@t -c user.name=t commit -qm fixture ) >/dev/null 2>&1
+VS_FETCH="$(mktemp -d)/dest"
+( cd "$(mktemp -d)" && env -u DEVFLOW_REF \
+    DEVFLOW_DEST="$VS_FETCH" DEVFLOW_REPO_URL="$VS_REMOTE" DEVFLOW_REF="main" \
+    bash "$VENDOR" >/dev/null 2>&1 )
+assert_eq "vendor: fetch branch clones the pinned ref and copies the slice" "yes" "$(vexists "$VS_FETCH/scripts/resolve-implement-trigger.sh")"
+assert_eq "vendor: fetch branch drops the vendored marketplace.json" "no" "$(vexists "$VS_FETCH/.claude-plugin/marketplace.json")"
+
+# fetch branch with no ref — fails loud rather than tracking mutable main.
+VS_NOREF_RC=0
+( cd "$(mktemp -d)" && env -u DEVFLOW_REF DEVFLOW_DEST="$(mktemp -d)/dest" \
+    bash "$VENDOR" >/dev/null 2>&1 ) || VS_NOREF_RC=$?
+assert_eq "vendor: fetch branch with no ref fails loud" "yes" \
+  "$([ "$VS_NOREF_RC" -ne 0 ] && echo yes || echo no)"
+
+# AC2 drift-guards: install.sh and the composite action both go through the ONE
+# shared slice definition, so the copied file set can never diverge.
+# Match the executable source line, not the shellcheck-directive comment above it.
+assert_eq "vendor: install.sh sources the shared slice script" "1" \
+  "$(grep -cE '^[^#]*vendor-slice\.sh' "$REPO_ROOT/install.sh" || true)"
+assert_eq "vendor: install.sh calls the shared copy function" "1" \
+  "$(grep -c 'devflow_copy_slice "\$SRC"' "$REPO_ROOT/install.sh" || true)"
+# Match the run: invocation, not the description prose that also names the script.
+assert_eq "vendor: composite action runs the shared slice script" "1" \
+  "$(grep -cE 'run:.*vendor-slice\.sh' "$REPO_ROOT/.github/actions/vendor-plugin/action.yml" || true)"
+
+# devflow_version pin (AC7): declared in the schema and present in the example.
+assert_eq "vendor: schema declares devflow_version string" "string" \
+  "$(jq -r '.properties.devflow_version.type' "$REPO_ROOT/.devflow/config.schema.json")"
+assert_eq "vendor: config.example.json carries devflow_version" "1" \
+  "$(jq 'has("devflow_version")' "$REPO_ROOT/.devflow/config.example.json" | grep -c true || true)"
+# install.sh stamps it without clobbering other keys (helper present + invoked).
+assert_eq "vendor: install.sh defines set_config_version" "1" \
+  "$(grep -c 'set_config_version()' "$REPO_ROOT/install.sh" || true)"
+assert_eq "vendor: install.sh invokes set_config_version on the config" "1" \
+  "$(grep -c 'set_config_version "\.devflow/config\.json"' "$REPO_ROOT/install.sh" || true)"
+
+rm -rf "$VS_COMMIT" "$VS_SELF" "$VS_REMOTE" "$VS_FETCH"
+
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)

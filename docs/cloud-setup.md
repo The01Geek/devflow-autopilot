@@ -10,8 +10,8 @@ check. This guide sets that up.
 
 ## Install (and update) the cloud tier
 
-Run this from the root of your repository — it installs everything (vendored
-plugin, workflows, composite actions, a `.devflow/config.json` scaffold) and is
+Run this from the root of your repository — it installs the workflows, composite
+actions, a local `marketplace.json`, and a `.devflow/config.json` scaffold, and is
 **idempotent, so the same command updates** to the latest later:
 
 ```bash
@@ -23,15 +23,35 @@ curl -fsSL https://raw.githubusercontent.com/The01Geek/devflow-autopilot/main/in
 Then review with `git diff` and commit. `.devflow/config.json` ships with a
 working default for every value — edit it only to customize.
 
-### Why the plugin is vendored (not added as a github marketplace in CI)
+This is a **thin install**: the bulky plugin tree is **not** committed to your
+repo. The workflows fetch it at runtime (see below), pinned to the
+`devflow_version` that `install.sh` writes into `.devflow/config.json` — the
+commit it installed from. **To update**, bump `devflow_version` to a newer tag,
+branch, or commit SHA (or just re-run the installer — now a small diff). Because
+the pin is explicit, your CI never silently tracks a moving `main`.
+
+> **Prefer to commit the plugin instead?** Run `DEVFLOW_VENDOR=1 … | bash`. That
+> vendors the full tree into `.claude/plugins/devflow/` so nothing is fetched at
+> runtime — self-hosting, fully auditable in your repo, at the cost of a large
+> vendored diff on every update. `devflow_version` is then ignored.
+
+### Why the plugin lives at a workspace path (not added as a github marketplace in CI)
 
 The local skills locate their helpers via `${CLAUDE_SKILL_DIR}`, but in the
 `claude-code-action` runner that variable is unset, the bash sandbox cannot read
 `~/.claude` (where a marketplace plugin would install), and `$`-expansion in
 commands is blocked. So the workflows reference helper scripts at the **literal
-workspace path** `.claude/plugins/devflow/scripts/…`, which means the plugin must
-be **vendored into the repo** at `.claude/plugins/devflow/`. `install.sh` does
-this for you and re-vendors on each run.
+workspace path** `.claude/plugins/devflow/scripts/…` — the plugin must physically
+be at `.claude/plugins/devflow/` when a job runs.
+
+A thin install satisfies that **at runtime** rather than by committing: every job
+that needs the plugin runs the `vendor-plugin` composite action right after
+checkout, which materializes the tree via a single deterministic algorithm —
+**committed** (already in the checkout, e.g. a `DEVFLOW_VENDOR=1` install → used
+as-is), **self** (the source repo, whose plugin lives at its own root → copied
+in), or **fetch** (a thin consumer → shallow-clones `devflow_version` and copies
+it in). The fetch branch refuses to run without a pinned `devflow_version`, so a
+thin install never tracks mutable `main`.
 
 > **Local editor use is different** — there, add this repo as a github marketplace
 > with auto-update and you never copy files:

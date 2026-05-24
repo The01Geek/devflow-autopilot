@@ -2,6 +2,7 @@
   "$schema": "./config.schema.json",
   "base_branch": "main",
   "claude_model": "claude-opus-4-7",
+  "devflow_version": "main",
   "devflow": {
     "allowed_bots": "claude,dependabot",
     "allowed_users": "*",
