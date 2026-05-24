@@ -1,6 +1,6 @@
 ---
 name: init
-description: Use when setting up DevFlow in a repo for the first time, or after a plugin update — scaffolds .devflow/config.json from the shipped template (only if absent) and refreshes config.schema.json. Invoke explicitly with /devflow:init.
+description: Use when setting up DevFlow in a repo for the first time, or after a plugin update — scaffolds .devflow/config.json from the shipped template (when absent) or backfills newly-added keys into an existing one (preserving your values), and refreshes config.schema.json. Invoke explicitly with /devflow:init.
 disable-model-invocation: true
 ---
 
