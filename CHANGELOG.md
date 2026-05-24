@@ -6,6 +6,9 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- **`/devflow:create-issue` now offers a one-keystroke hand-off into the implement workflow, and renders a consistent confirmation layout.** After it creates an issue, the skill always asks whether you want to start implementation right away; answer yes and it comments `/devflow:implement <#>` on the new issue for you, so you no longer need to switch to GitHub to kick off the work. (The comment starts an implement run only when your repository's DevFlow workflows are enabled and you are an authorized commenter.) The confirmation message you review before creation now always places the saved draft-file note below the full issue preview, so every confirmation reads the same way. (#30)
+
 ## [2.2.8] — 2026-05-23
 
 ### Changed
