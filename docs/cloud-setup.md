@@ -283,7 +283,13 @@ does two extra things before launching Claude:
 1. Runs the `setup-project-env` action — the same provisioning the
    `/devflow:*` command path and `/devflow:implement` already use (Python /
    Node / PHP → service containers → `setup.install`), so the reviewer has a
-   real built environment.
+   real built environment. Service-container startup is best-effort: if a
+   service fails to start or never becomes healthy, the runner prepends an
+   infra-status note to the reviewer prompt naming the degraded service and
+   instructing the reviewer to attribute any resulting build/test failures to
+   infrastructure rather than the PR — so a transient outage surfaces as a clear
+   caveat instead of silently degrading the review into a false "changes
+   requested" verdict.
 2. Extends the read-only `review` tool profile with the **freeform
    `devflow_runner.allowed_tools`** list from your base-branch config — read
    verbatim from the trusted base ref. This is **language-agnostic**: a Go shop
