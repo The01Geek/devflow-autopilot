@@ -991,6 +991,39 @@ OUT="$(ACTOR='bar[bot]' ALLOWED_BOTS=' foo , bar ' REPO='acme/x' \
 assert_eq "rit: whitespace-trimmed, non-first allowed bot → should_run" \
   "should_run=true" "$(echo "$OUT" | grep '^should_run=')"
 
+# 11. Self-trigger guard: a Devflow-authored workpad comment (leads with the
+#     marker, quotes a `/devflow:implement run started` note) must NOT fire a
+#     run — even for an allowed bot, since the guard runs BEFORE authorization
+#     and number resolution. Covers the issue #25 regression directly.
+RIT_WORKPAD_TEXT=$'<!-- devflow:workpad -->\n# DevFlow Workpad — Issue #25\n\n## Decisions / Notes\n### Setup\n- 04:57:07 — /devflow:implement run started'
+OUT="$(ACTOR='claude[bot]' ALLOWED_BOTS='claude' REPO='acme/x' \
+  TRIGGER_TEXT="$RIT_WORKPAD_TEXT" CONTEXT_NUMBER='25' \
+  SELF_COMMENT_MARKER='<!-- devflow:workpad -->' \
+  PATH="$RIT_STUB_DIR:$PATH" bash "$RIT")"
+assert_eq "rit: workpad-marker body → should_run=false (self-trigger guard)" \
+  "should_run=false" "$(echo "$OUT" | grep '^should_run=')"
+assert_eq "rit: workpad-marker body → empty number" \
+  "number=" "$(echo "$OUT" | grep '^number=')"
+
+# 12. The guard's marker defaults to workpad.py's fallback when
+#     SELF_COMMENT_MARKER is unset, so a workpad body is guarded regardless.
+OUT="$(ACTOR='claude[bot]' ALLOWED_BOTS='claude' REPO='acme/x' \
+  TRIGGER_TEXT="$RIT_WORKPAD_TEXT" CONTEXT_NUMBER='25' \
+  PATH="$RIT_STUB_DIR:$PATH" bash "$RIT")"
+assert_eq "rit: default marker guards workpad body when SELF_COMMENT_MARKER unset" \
+  "should_run=false" "$(echo "$OUT" | grep '^should_run=')"
+
+# 13. Sanity: a genuine command WITHOUT the marker is unaffected — the guard
+#     must not over-match (allowed bot, explicit number, marker env present).
+OUT="$(ACTOR='claude[bot]' ALLOWED_BOTS='claude' REPO='acme/x' \
+  TRIGGER_TEXT='/devflow:implement 25' CONTEXT_NUMBER='25' \
+  SELF_COMMENT_MARKER='<!-- devflow:workpad -->' \
+  PATH="$RIT_STUB_DIR:$PATH" bash "$RIT")"
+assert_eq "rit: no-marker command still runs (guard does not over-match)" \
+  "should_run=true" "$(echo "$OUT" | grep '^should_run=')"
+assert_eq "rit: no-marker command → parsed number" \
+  "number=25" "$(echo "$OUT" | grep '^number=')"
+
 rm -rf "$RIT_STUB_DIR"
 
 # ────────────────────────────────────────────────────────────────────────────

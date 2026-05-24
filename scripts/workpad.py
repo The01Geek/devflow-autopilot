@@ -201,6 +201,7 @@ def cmd_now(_args):
 # section block is the heading line plus all lines until the next ## heading.
 
 _STATUS_RE = re.compile(r'^\*\*Status:\*\*\s+.*$', re.MULTILINE)
+_STATUS_VALUE_RE = re.compile(r'^\*\*Status:\*\*\s+(.*?)\s*$', re.MULTILINE)
 _BRANCH_RE = re.compile(r'^\*\*Branch:\*\*\s+.*$', re.MULTILINE)
 _LAST_UPDATED_RE = re.compile(r'^\*\*Last updated:\*\*\s+.*$', re.MULTILINE)
 _SECTION_RE = re.compile(r'^(##\s+.+)$', re.MULTILINE)
@@ -327,12 +328,43 @@ def _rewrite_checkbox(
     return '\n'.join(new_lines) + ('\n' if content.endswith('\n') else '')
 
 
-def _append_note(content: str, note: str, timestamp: str) -> str:
-    """Append a `- {timestamp} — {note}` bullet to a bullet-list section."""
-    stripped = content.rstrip('\n')
-    if stripped and not stripped.endswith('\n'):
-        stripped += '\n'
-    return stripped + f"- {timestamp} — {note}\n"
+def _append_note(content: str, note: str, timestamp: str, phase: str | None) -> str:
+    """Append a `- {timestamp} — {note}` bullet under a `### {phase}` sub-heading.
+
+    Notes are grouped by lifecycle phase: the `### {phase}` sub-heading is
+    created on first use and reused thereafter, and bullets stay in chronological
+    order within a phase (a new bullet lands at the end of its phase's block,
+    before any later phase). `timestamp` is the time-only `HH:MM:SS` string.
+    When `phase` is falsy (no resolvable Status), the bullet is appended flat —
+    preserving the legacy append-only behavior.
+    """
+    bullet = f"- {timestamp} — {note}"
+    if not phase:
+        stripped = content.rstrip('\n')
+        if stripped and not stripped.endswith('\n'):
+            stripped += '\n'
+        return stripped + bullet + '\n'
+    heading = f"### {phase}"
+    lines = content.rstrip('\n').split('\n') if content.strip() else []
+    head_idx = next(
+        (i for i, ln in enumerate(lines) if ln.strip() == heading), None
+    )
+    if head_idx is None:
+        new_lines = list(lines)
+        if new_lines and new_lines[-1].strip():
+            new_lines.append('')  # blank line before a freshly-created sub-heading
+        new_lines += [heading, bullet]
+        return '\n'.join(new_lines) + '\n'
+    # Insert after the last bullet of this phase's block — before the next
+    # `### ` sub-heading (or end of section), skipping any trailing blank lines.
+    end = next(
+        (j for j in range(head_idx + 1, len(lines)) if lines[j].startswith('### ')),
+        len(lines),
+    )
+    while end > head_idx + 1 and not lines[end - 1].strip():
+        end -= 1
+    new_lines = lines[:end] + [bullet] + lines[end:]
+    return '\n'.join(new_lines) + '\n'
 
 
 def _append_bullet(content: str, text: str) -> str:
@@ -435,9 +467,9 @@ def cmd_update(args):
 def _apply_mutations(body: str, args) -> str:
     """Apply all mutations from args atomically. Raises _UpdateError on any
     failure; caller should not patch on failure."""
-    now = datetime.datetime.now(datetime.timezone.utc).strftime(
-        '%Y-%m-%dT%H:%M:%SZ'
-    )
+    now_dt = datetime.datetime.now(datetime.timezone.utc)
+    now = now_dt.strftime('%Y-%m-%dT%H:%M:%SZ')  # full ISO for `Last updated`
+    now_time = now_dt.strftime('%H:%M:%S')        # time-only for note bullets
 
     # Front-matter mutations.
     if args.status:
@@ -453,6 +485,12 @@ def _apply_mutations(body: str, args) -> str:
     body, n = _LAST_UPDATED_RE.subn(f'**Last updated:** {now}', body, count=1)
     if n == 0:
         raise _UpdateError('Last updated line not found in workpad')
+
+    # Notes are grouped under a `### {Status}` sub-heading. Read the
+    # post-mutation Status so a combined `--status X --note Y` call files the
+    # note under X (the status line was already rewritten above).
+    status_match = _STATUS_VALUE_RE.search(body)
+    current_phase = status_match.group(1).strip() if status_match else None
 
     # Section-level mutations.
     preamble, sections = _split_sections(body)
@@ -513,7 +551,7 @@ def _apply_mutations(body: str, args) -> str:
             raise _UpdateError("section '## Decisions / Notes' not found")
         heading, content = sections[idx]
         for text in args.note:
-            content = _append_note(content, text, now)
+            content = _append_note(content, text, now_time, current_phase)
         sections[idx] = (heading, content)
 
     if args.reflection:
@@ -573,9 +611,11 @@ def main():
                    help='Find one AC matching OLD; replace its text with NEW. '
                         'Preserves the checkbox state. For Phase 2.2.6.')
     u.add_argument('--note', metavar='TEXT', action='append', default=[],
-                   help='Append an auto-timestamped Decisions/Notes entry. '
-                        'May be passed multiple times to append several '
-                        'entries in one atomic update.')
+                   help='Append a Decisions/Notes entry, prefixed with a '
+                        'time-only HH:MM:SS UTC timestamp and grouped under a '
+                        '### {current Status} sub-heading. May be passed '
+                        'multiple times to append several entries (sharing one '
+                        'timestamp) in one atomic update.')
     u.add_argument('--reflection', metavar='TEXT', action='append', default=[],
                    help='Append a bullet to Devflow Reflection (no timestamp). '
                         'May be passed multiple times to append several bullets '
