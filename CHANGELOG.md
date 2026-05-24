@@ -6,6 +6,12 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Improved
+- **DevFlow-posted comments are easier to read.** In the `/devflow:implement` workpad, the `Decisions / Notes` bullets now carry a compact time-only `HH:MM:SS` timestamp and are grouped under `### {phase}` sub-headings that match the workpad's current `Status` (the full ISO-8601 timestamp is kept only on the `Last updated:` line). The `/devflow:review` report now collapses passing verification checks into a `<details>` block — so failing and inconclusive items stay visible up front — and prefixes each Code Review Finding with a severity icon (🔴 Critical, 🟠 Important/Major, 🟡 Suggestion/Minor, ℹ️ Informational). (#34)
+
+### Fixed
+- **DevFlow's own workpad comment can no longer re-trigger a `/devflow:implement` run on the same issue.** Because the implement workpad quotes the literal phrase `/devflow:implement`, an allowed bot posting it could previously re-enter the trigger gate and start a duplicate run on its own thread. The trigger resolver (`scripts/resolve-implement-trigger.sh`) now declines, before authorization, any comment whose body contains the workpad marker. This protects the default marker (`<!-- devflow:workpad -->`) out of the box. **Repos that customize `devflow.workpad_marker` also need a one-time manual edit** to `.github/workflows/devflow-implement.yml` (passing the marker into the resolver) — a maintainer must apply it because the automation cannot modify workflow files. (#34)
+
 ## [2.2.8] — 2026-05-23
 
 ### Changed
