@@ -410,10 +410,58 @@ jobs:
       # docs/cloud-setup.md.) When the flag is absent/false this step is skipped
       # and the runner behaves exactly as before: read-only, no build tools.
       - name: Provision project environment (opt-in)
+        id: provision
         if: steps.baseprovision.outputs.provision_env == 'true'
         uses: ./.github/actions/setup-project-env
         with:
           config_json: ${{ steps.baseprovision.outputs.config_json }}
+
+      # Provisioning is best-effort: a service container that never becomes
+      # healthy emits a `::warning::` and the job continues (see
+      # setup-project-env), so a build/verify command that then fails for lack of
+      # that dependency would otherwise look like a PR defect to the reviewer.
+      # When the action reports degraded services via its `health_summary` output,
+      # prepend a fenced infra-status note to the reviewer prompt instructing it to
+      # blame infrastructure, not the PR. This step is deliberately NOT gated on
+      # provision_env: when the provision step is skipped (or every service is
+      # healthy) the output resolves to empty and the prompt is forwarded
+      # byte-for-byte unchanged, so the read-only happy path is unaffected.
+      - name: Compose review prompt
+        id: compose
+        env:
+          BASE_PROMPT: ${{ inputs.prompt }}
+          HEALTH_SUMMARY: ${{ steps.provision.outputs.health_summary }}
+        run: |
+          set -euo pipefail
+          if [ -n "$HEALTH_SUMMARY" ]; then
+            PROMPT="> [!IMPORTANT]
+          > **Infrastructure status: one or more service containers did not come up.**
+          > This reviewer environment was provisioned (\`provision_env\` is on), but
+          > the following services are degraded:
+          >
+          ${HEALTH_SUMMARY}
+          >
+          > If any build, test, or verify command below fails because it could not
+          > reach one of these services, attribute that failure to the degraded
+          > infrastructure above — NOT to a defect in this pull request. Review the
+          > rest of the change normally.
+
+          ---
+
+          ${BASE_PROMPT}"
+          else
+            PROMPT="$BASE_PROMPT"
+          fi
+          # Heredoc transport with a unique, timestamped delimiter: the prompt is
+          # full of markdown/backticks, so a fixed sentinel could collide with its
+          # content and prematurely terminate the output. The same pattern guards
+          # the other multiline outputs in this workflow.
+          delim="PROMPT_EOF_$(date +%s%N)_$$"
+          {
+            printf 'prompt<<%s\n' "$delim"
+            printf '%s\n' "$PROMPT"
+            printf '%s\n' "$delim"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Run Claude Code
         id: claude
@@ -431,7 +479,7 @@ jobs:
           additional_permissions: |
             actions: read
 
-          prompt: ${{ inputs.prompt }}
+          prompt: ${{ steps.compose.outputs.prompt }}
 
           # Marketplaces and plugin install list are kept verbatim in sync with
           # devflow.yml's `command` job and devflow-implement.yml so the

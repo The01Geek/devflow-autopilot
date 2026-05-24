@@ -6,6 +6,9 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Infrastructure failures during a provisioned review are no longer misread as PR defects.** When `devflow_runner.provision_env: true` and a service container fails to come up, the `setup-project-env` action now emits a `health_summary` of the degraded services, and `devflow-runner.yml` prepends a fenced infra-status note to the reviewer prompt telling it to attribute any resulting build/test failures to the degraded infrastructure rather than the pull request. Provisioning stays warning-only (a degraded service never fails the step), and when every service is healthy — or `provision_env` is off — the prompt is forwarded byte-for-byte unchanged, so the read-only happy path is unaffected. (#22)
+
 ### Improved
 - **DevFlow-posted comments are easier to read.** In the `/devflow:implement` workpad, the `Decisions / Notes` bullets now carry a compact time-only `HH:MM:SS` timestamp and are grouped under `### {phase}` sub-headings that match the workpad's current `Status` (the full ISO-8601 timestamp is kept only on the `Last updated:` line). The `/devflow:review` report now collapses passing verification checks into a `<details>` block — so failing and inconclusive items stay visible up front — and prefixes each Code Review Finding with a severity icon (🔴 Critical, 🟠 Important/Major, 🟡 Suggestion/Minor, ℹ️ Informational). (#34)
 ### Fixed
