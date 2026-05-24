@@ -414,7 +414,7 @@ Work in progress — automated review pending.
 
 Resolves #{issue_number}
 
-Generated with [Claude Code](https://claude.com/claude-code) via `/devflow:implement $ARGUMENTS`
+Generated via `/devflow:implement $ARGUMENTS`
 EOF
 )"
 ```
