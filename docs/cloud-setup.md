@@ -363,8 +363,10 @@ double-fire; if a repo had an old DevFlow-authored `claude.yml`/`claude-runner.y
 
 After installing (or updating), run a low-stakes test before relying on the
 automation: open a throwaway PR and comment a bare `/devflow:review` on it, and
-confirm the run provisions and responds. The CI permission model is settled — `install.sh`
-vendors the plugin into the workspace, so its scripts resolve at the literal
+confirm the run provisions and responds. The CI permission model is settled —
+each plugin-using job runs the `vendor-plugin` action right after checkout, which
+materializes the plugin at `.claude/plugins/devflow/` (from the commit, the source
+repo, or the pinned `devflow_version` fetch), so its scripts resolve at the literal
 `.claude/plugins/devflow/scripts/…` paths the workflows allowlist. (A
 github-marketplace install is deliberately *not* used in CI: the Actions sandbox
 can't reach `~/.claude`, and `CLAUDE_SKILL_DIR` is unset there.)
