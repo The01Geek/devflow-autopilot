@@ -77,9 +77,8 @@
         },
         "allowed_tools": {
           "type": "array",
-          "deprecated": true,
           "items": { "type": "string" },
-          "description": "DEPRECATED / inert: the reusable runner (devflow-runner.yml) does NOT consume this key. The automated reviewer's build access is governed by `devflow_runner.provision_env` above, which grants a fixed build/verify allowlist (see that property and docs/cloud-setup.md). /devflow:init still auto-populates this array per detected language (e.g. \"Bash(npm:*)\", \"Bash(go:*)\"), but until a freeform-allowlist path is wired into the runner, entries here have no effect on the reviewer. To enable build-aware reviews today, set `provision_env: true`.",
+          "description": "Freeform build/verify tools (claude-code-action syntax, e.g. \"Bash(go:*)\", \"Bash(cargo:*)\", \"Bash(npm:*)\") APPENDED to the automated reviewer's read-only `review` profile — but ONLY when `provision_env: true` above. Read from the TRUSTED base ref (your repo's base branch), never the PR head, so a PR cannot grant itself tools. This makes build-aware review language-agnostic: list your toolchain here, no DevFlow release needed. A deterministic deny-list floor is enforced by devflow-runner.yml when the list is consumed — file-mutation tools (Edit, Write, MultiEdit, NotebookEdit) and raw-shell/eval/privilege Bash (bash, sh, zsh, eval, exec, source, sudo) are stripped (with a warning) regardless of what is listed here, so the catastrophic tier can never reach a write-token job reviewing untrusted code. When `provision_env` is false the reviewer is byte-for-byte read-only regardless of this list. /devflow:init auto-populates this per detected language and enriches it from your repo's real build setup.",
           "default": []
         }
       }

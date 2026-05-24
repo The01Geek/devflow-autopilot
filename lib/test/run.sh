@@ -1573,7 +1573,7 @@ assert_eq "et: invalid --mode → exit 2" "2" "$ET_MODE_RC"
 rm -rf "$ET_DIR" "$ET_DEG" "$ET_EMPTY"; rm -f "$ET_CFG"
 
 # ────────────────────────────────────────────────────────────────────────────
-echo "devflow-runner.yml: opt-in environment provisioning (issue #18)"
+echo "devflow-runner.yml: opt-in environment provisioning (issues #18, #21)"
 # ────────────────────────────────────────────────────────────────────────────
 # The automated reviewer gains a build environment + build-tool allowlist ONLY
 # when the TRUSTED base config sets devflow_runner.provision_env: true. These
@@ -1594,20 +1594,46 @@ assert_eq "provision: read-only base profile has no build tools (all 8)" "0" \
   "$(grep "TOOLS='Read,Glob,Grep" "$RUNNER" \
      | grep -cE 'Bash\((npm|npx|node|yarn|pnpm|composer|php|make):\*\)' || true)"
 
-# The 8 build/verify tools are appended on a single line, and that line is
-# guarded by `if [ "$PROVISION_ENV" = "true" ]` on the immediately preceding
-# non-comment line.
+# Issue #21: the build append is now the FREEFORM devflow_runner.allowed_tools
+# list (read from the trusted base ref), not the old hard-coded npm…make set.
+# (1) The fixed 8-tool append line must be GONE — listing build tools is now the
+# adopter's config job, language-agnostic.
 # Fixed-string match (-F): the literal contains `$TOOLS` and `(`/`)`/`*`; under a
 # strict-POSIX/ugrep `grep` a mid-pattern `$` would anchor and the line would
-# silently not match, skipping the guard assertion below. -F keeps it portable.
-BUILD_LINE=$(grep -nF 'TOOLS="$TOOLS,Bash(npm:*),Bash(npx:*),Bash(node:*),Bash(yarn:*),Bash(pnpm:*),Bash(composer:*),Bash(php:*),Bash(make:*)"' "$RUNNER" | cut -d: -f1)
-assert_eq "provision: build allowlist append line present (all 8 tools)" "1" \
-  "$(printf '%s\n' "$BUILD_LINE" | grep -c '^[0-9]' || true)"
-if [ -n "$BUILD_LINE" ]; then
-  GUARD_LINE=$(sed -n "$((BUILD_LINE - 1))p" "$RUNNER")
-  assert_eq "provision: build allowlist guarded by PROVISION_ENV == true" "yes" \
-    "$(echo "$GUARD_LINE" | grep -q 'if \[ "\$PROVISION_ENV" = "true" \]' && echo yes || echo no)"
-fi
+# silently not match. -F keeps it portable.
+assert_eq "provision: hard-coded npm…make build append removed" "0" \
+  "$(grep -cF 'TOOLS="$TOOLS,Bash(npm:*),Bash(npx:*),Bash(node:*),Bash(yarn:*),Bash(pnpm:*),Bash(composer:*),Bash(php:*),Bash(make:*)"' "$RUNNER" || true)"
+
+# (2) baseprovision emits runner_tools from the TRUSTED base ref ($BASE_JSON),
+# joined to a comma string — the same trust channel as provision_env.
+assert_eq "provision: runner_tools read from base config (BASE_JSON)" "1" \
+  "$(grep -cF '.devflow_runner.allowed_tools // [] | join(",")' "$RUNNER" || true)"
+assert_eq "provision: runner_tools written to GITHUB_OUTPUT" "1" \
+  "$(grep -cF 'runner_tools=$RUNNER_TOOLS' "$RUNNER" || true)"
+# The Resolve-profile step's RUNNER_TOOLS env is wired to that base-ref output —
+# never a PR-head source.
+assert_eq "provision: RUNNER_TOOLS env wired to baseprovision output" "1" \
+  "$(grep -cF 'RUNNER_TOOLS: ${{ steps.baseprovision.outputs.runner_tools }}' "$RUNNER" || true)"
+
+# (3) The freeform list is appended (the filtered remainder) and that append is
+# guarded by `if [ "$PROVISION_ENV" = "true" ]`, so the default profile stays
+# byte-for-byte read-only. Locate the append line and confirm the guard precedes
+# the deny-list filter block it lives in.
+assert_eq "provision: freeform allowed_tools appended to profile" "1" \
+  "$(grep -cF 'TOOLS="$TOOLS,$FILTERED"' "$RUNNER" || true)"
+assert_eq "provision: freeform append guarded by PROVISION_ENV == true" "1" \
+  "$(grep -c 'if \[ "\$PROVISION_ENV" = "true" \]' "$RUNNER" || true)"
+
+# (4) Deny-list floor: the catastrophic tier is stripped before appending. Pin
+# the exact-name denies, the command-word denies, and both warnings.
+assert_eq "provision: deny-list names present (Edit/Write/MultiEdit/NotebookEdit)" "1" \
+  "$(grep -cF "DENY_NAMES='Edit Write MultiEdit NotebookEdit'" "$RUNNER" || true)"
+assert_eq "provision: deny-list shells/eval/privilege present" "1" \
+  "$(grep -cF "DENY_CMDS='bash sh zsh eval exec source sudo'" "$RUNNER" || true)"
+assert_eq "provision: stripped deny-listed entries warned" "1" \
+  "$(grep -c 'stripped deny-listed entries' "$RUNNER" || true)"
+assert_eq "provision: empty-after-strip warns build-aware review has no tools" "1" \
+  "$(grep -c 'build-aware review is enabled with NO build tools' "$RUNNER" || true)"
 
 # The setup-project-env step is gated on the base-ref provision flag.
 assert_eq "provision: setup-project-env step present" "1" \
@@ -1623,11 +1649,27 @@ assert_eq "provision: setup-project-env gated on base provision_env" "1" \
 assert_eq "provision: PROVISION_ENV env wired to baseprovision output" "1" \
   "$(grep -cF 'PROVISION_ENV: ${{ steps.baseprovision.outputs.provision_env }}' "$RUNNER" || true)"
 
-# Documented invariant (schema marks devflow_runner.allowed_tools deprecated/
-# inert): the runner must contain ZERO reads of devflow_runner.allowed_tools. If
-# a future change re-wires that key, this fails and the docs/schema must follow.
-assert_eq "provision: runner does not consume devflow_runner.allowed_tools" "0" \
-  "$(grep -cE 'devflow_runner\.allowed_tools|devflow_runner\[.allowed_tools' "$RUNNER" || true)"
+# Issue #21 inverted this invariant: the runner now DOES consume
+# devflow_runner.allowed_tools (gated on provision_env, deny-list-floored). At
+# least one read must be present — if a future change drops it, build-aware
+# review silently regresses to read-only and this fails.
+assert_eq "provision: runner consumes devflow_runner.allowed_tools" "1" \
+  "$(grep -cE 'devflow_runner\.allowed_tools' "$RUNNER" | awk '{print ($1>=1)?1:0}')"
+# The schema must no longer mark the key deprecated (it is live again).
+assert_eq "provision: schema does not mark allowed_tools deprecated" "null" \
+  "$(jq -r '.properties.devflow_runner.properties.allowed_tools.deprecated' "$LIB/../.devflow/config.schema.json")"
+
+# Fast-feedback deny-list guard in detect-project-tools.sh: the runner write must
+# go through the filtered $runner_tools var (not raw $tools), and a `denylisted`
+# filter must be defined — so /devflow:init never writes a deny-listed tool into
+# devflow_runner.allowed_tools.
+DETECT="$LIB/../scripts/detect-project-tools.sh"
+assert_eq "provision: detect defines a denylisted jq filter" "1" \
+  "$(grep -c 'def denylisted:' "$DETECT" || true)"
+assert_eq "provision: detect filters runner write through denylisted" "1" \
+  "$(grep -cF 'select(denylisted | not)' "$DETECT" || true)"
+assert_eq "provision: detect runner write uses filtered \$runner_tools" "1" \
+  "$(grep -cF '.devflow_runner.allowed_tools    = ((.devflow_runner.allowed_tools    // []) + $runner_tools' "$DETECT" || true)"
 
 # Trust boundary on the SETUP channel (the one that carries setup.install): the
 # provision step's config_json must come from steps.baseprovision (base ref),
