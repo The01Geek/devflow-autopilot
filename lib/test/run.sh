@@ -1701,10 +1701,14 @@ for job in doc["jobs"].values():
 raise SystemExit("tools step not found")
 PY
   # Emit the full resolved TOOLS string for a given provision flag + runner list.
+  # Capture the exit code: a crashed step (e.g. a set -e abort mid-filter) must
+  # NOT masquerade as "nothing appended" and let a stripping assertion pass — on
+  # failure we emit a sentinel so the assertion fails loudly.
   emit_tools() {  # $1=PROVISION_ENV  $2=RUNNER_TOOLS
-    local out; out=$(mktemp)
+    local out rc; out=$(mktemp)
     PROFILE=review PROVISION_ENV="$1" RUNNER_TOOLS="$2" GITHUB_OUTPUT="$out" \
-      bash "$TOOLS_STEP" >/dev/null 2>&1 || true
+      bash "$TOOLS_STEP" >/dev/null 2>&1; rc=$?
+    if [ "$rc" -ne 0 ]; then printf '__EMIT_FAILED_rc=%s__' "$rc"; rm -f "$out"; return; fi
     awk '/^tools<</{f=1;next} (f && /^EOF_/){f=0} f' "$out"
     rm -f "$out"
   }
@@ -1712,12 +1716,42 @@ PY
   # filter adds on top of it.
   BASE_TOOLS=$(emit_tools false '')
   append_of() { local full; full=$(emit_tools "$1" "$2"); printf '%s' "${full#"$BASE_TOOLS"}"; }
+  # Guards a "stripped" case can't pass via a crash: the read-only base must still
+  # be fully present (proving the step ran to completion and ONLY dropped denies).
+  base_intact() { case "$(emit_tools "$1" "$2")" in "$BASE_TOOLS"*) echo yes ;; *) echo no ;; esac; }
+
+  # The base itself must be the real read-only profile, not an empty/garbled value
+  # (otherwise the prefix-strip lens would hide base-profile regressions).
+  assert_eq "provision(behavior): base profile is the read-only anchor" "yes" \
+    "$(case "$BASE_TOOLS" in Read,Glob,Grep*) echo yes ;; *) echo no ;; esac)"
 
   # Multi-word raw-shell / privilege entries are stripped (deny by the binary).
   assert_eq "provision(behavior): Bash(sudo rm:*) stripped" "" \
     "$(append_of true 'Bash(sudo rm:*)')"
   assert_eq "provision(behavior): Bash(sh -c:*) stripped" "" \
     "$(append_of true 'Bash(sh -c:*)')"
+  # Wrapper / path / env-assignment / bare-or-empty evasions are all stripped.
+  assert_eq "provision(behavior): Bash(env bash:*) wrapper stripped" "" \
+    "$(append_of true 'Bash(env bash:*)')"
+  assert_eq "provision(behavior): Bash(/bin/bash:*) path-form stripped" "" \
+    "$(append_of true 'Bash(/bin/bash:*)')"
+  assert_eq "provision(behavior): Bash(xargs sh -c:*) wrapper stripped" "" \
+    "$(append_of true 'Bash(xargs sh -c:*)')"
+  assert_eq "provision(behavior): Bash(FOO=1 bash:*) env-assignment stripped" "" \
+    "$(append_of true 'Bash(FOO=1 bash:*)')"
+  assert_eq "provision(behavior): bare Bash stripped" "" \
+    "$(append_of true 'Bash')"
+  assert_eq "provision(behavior): Bash(:*) empty-cmd stripped" "" \
+    "$(append_of true 'Bash(:*)')"
+  # Newline-smuggled second tool: the producer forwards newlines verbatim, so the
+  # consumer must normalize them — the embedded Bash(sudo:*) must be stripped.
+  assert_eq "provision(behavior): newline-smuggled Bash(sudo:*) stripped" ",Bash(go:*)" \
+    "$(append_of true "$(printf 'Bash(go:*)\nBash(sudo:*)')")"
+  # Each stripped case ran to completion (base profile intact), not crashed.
+  assert_eq "provision(behavior): base intact after stripping env-wrapper" "yes" \
+    "$(base_intact true 'Bash(env bash:*)')"
+  assert_eq "provision(behavior): base intact after stripping path-form" "yes" \
+    "$(base_intact true 'Bash(/bin/bash:*)')"
   # Bare-word denies + a file-mutation tool are stripped.
   assert_eq "provision(behavior): Write + Bash(bash:*) stripped" "" \
     "$(append_of true 'Write,Bash(bash:*)')"
@@ -1728,10 +1762,28 @@ PY
   # Provisioning off → nothing appended even with a non-empty list (read-only).
   assert_eq "provision(behavior): provision_env=false appends nothing" "" \
     "$(append_of false 'Bash(go:*),Bash(cargo:*)')"
+  # Provisioning on + empty list → nothing appended (the warning is grepped above).
+  assert_eq "provision(behavior): provision_env=true empty list appends nothing" "" \
+    "$(append_of true '')"
   # Mixed list: denies dropped, clean kept, order preserved.
   assert_eq "provision(behavior): mixed list keeps only clean entries" ",Bash(go:*),Bash(make:*)" \
     "$(append_of true 'Bash(go:*),Bash(sudo:*),Edit,Bash(make:*)')"
   rm -f "$TOOLS_STEP"
+
+  # Behavioral test of the detect-project-tools.sh jq deny mirror: extract the
+  # `denylisted` def from the script (so this tracks the real filter, not a copy)
+  # and assert it agrees with the runner on the same evasion corpus.
+  DENYDEF=$(awk '/def denylisted:/{f=1} f{print} f&&/end;/{exit}' "$DETECT")
+  jq_deny() { jq -rn --arg e "$1" "$DENYDEF"' ($e | denylisted)'; }
+  assert_eq "provision(jq-mirror): Edit denied" "true" "$(jq_deny 'Edit')"
+  assert_eq "provision(jq-mirror): Bash(sudo rm:*) denied" "true" "$(jq_deny 'Bash(sudo rm:*)')"
+  assert_eq "provision(jq-mirror): Bash(env bash:*) denied" "true" "$(jq_deny 'Bash(env bash:*)')"
+  assert_eq "provision(jq-mirror): Bash(/bin/bash:*) denied" "true" "$(jq_deny 'Bash(/bin/bash:*)')"
+  assert_eq "provision(jq-mirror): Bash(FOO=1 bash:*) denied" "true" "$(jq_deny 'Bash(FOO=1 bash:*)')"
+  assert_eq "provision(jq-mirror): bare Bash denied" "true" "$(jq_deny 'Bash')"
+  assert_eq "provision(jq-mirror): Bash(go:*) allowed" "false" "$(jq_deny 'Bash(go:*)')"
+  assert_eq "provision(jq-mirror): Bash(go build:*) allowed" "false" "$(jq_deny 'Bash(go build:*)')"
+  assert_eq "provision(jq-mirror): Bash(shellcheck:*) allowed (lookalike)" "false" "$(jq_deny 'Bash(shellcheck:*)')"
 else
   echo "  SKIP  provision(behavior): python3+pyyaml unavailable; static assertions only"
 fi

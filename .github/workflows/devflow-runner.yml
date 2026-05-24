@@ -255,29 +255,40 @@ jobs:
               # SECURITY — deny-list floor. Before appending, strip the
               # categorically-unrecoverable tier no matter what /devflow:init's
               # LLM enrichment or a later hand-edit wrote into the base config:
-              # tree-mutation tools (Edit/Write/MultiEdit/NotebookEdit) and
-              # raw-shell / eval / privilege Bash (bash/sh/zsh/eval/exec/source/
-              # sudo). This is the AUTHORITATIVE boundary — it runs here, at
-              # consume-time, on the trusted base-ref list, because a fast-feedback
-              # guard in detect-project-tools.sh can be bypassed by a hand-edit but
-              # this filter cannot. A denied entry is dropped + warned, never fatal
-              # (a typo must not abort every review). The list is mirrored in
-              # scripts/detect-project-tools.sh (fast feedback only); keep both in
-              # sync — this copy is the one that actually enforces.
+              # tree-mutation tools (Edit/Write/MultiEdit/NotebookEdit) and any
+              # Bash entry that can reach a raw shell / eval / privilege binary
+              # (bash/sh/zsh/eval/exec/source/sudo). This is the AUTHORITATIVE
+              # boundary — it runs here, at consume-time, on the trusted base-ref
+              # list, because a fast-feedback guard in detect-project-tools.sh can
+              # be bypassed by a hand-edit but this filter cannot. A denied entry
+              # is dropped + warned, never fatal (a typo must not abort every
+              # review). The list is mirrored in scripts/detect-project-tools.sh
+              # (fast feedback only); keep both in sync — this copy enforces.
+              #
+              # A bare-name blocklist is trivially bypassable, so the Bash check is
+              # hardened against the known evasions: it scans EVERY whitespace token
+              # of the command spec (the part before the first ':') by its basename,
+              # so a wrapper/path/prefix can't smuggle a shell past it —
+              # Bash(env bash:*), Bash(/bin/bash:*), Bash(xargs sh -c:*),
+              # Bash(nice sudo:*) are all stripped. It also denies any env-assignment
+              # token (FOO=1 bash) and an empty/bare command word (bare `Bash`,
+              # Bash(:*) — which claude-code-action would read as "all shell").
               if [ "$PROVISION_ENV" = "true" ]; then
-                # Exact tool-name denies, and Bash command-word denies (matched on
-                # the <cmd> inside Bash(<cmd>:…), tolerant of surrounding space).
                 DENY_NAMES='Edit Write MultiEdit NotebookEdit'
                 DENY_CMDS='bash sh zsh eval exec source sudo'
                 FILTERED=''
                 STRIPPED=''
-                # Split RUNNER_TOOLS on comma ONCE (so an entry like
-                # "Bash(go build:*)" keeps its internal space), then restore the
-                # default IFS so the inner space-separated DENY_* loops split
-                # correctly. `set -f` disables pathname expansion for the split:
-                # every entry contains a literal `*` (e.g. Bash(npm:*)), so without
-                # noglob the unquoted expansion could glob against the checked-out
-                # working tree and rewrite the list into filenames.
+                # Newlines/CRs in an entry are normalized to the comma delimiter so
+                # a multi-line entry can't smuggle a second tool past the per-entry
+                # check (the heredoc transport forwards newlines verbatim). Then
+                # split on comma ONCE (an entry like "Bash(go build:*)" keeps its
+                # internal space) and restore the default IFS so the inner
+                # whitespace-token loops split correctly. `set -f` disables pathname
+                # expansion for the split: every entry contains a literal `*` (e.g.
+                # Bash(npm:*)), so without noglob the unquoted expansion could glob
+                # against the checked-out working tree and rewrite the list.
+                RUNNER_TOOLS="${RUNNER_TOOLS//$'\r'/}"
+                RUNNER_TOOLS="${RUNNER_TOOLS//$'\n'/,}"
                 OLDIFS=$IFS
                 IFS=','
                 set -f
@@ -295,21 +306,28 @@ jobs:
                   done
                   if [ "$denied" = false ]; then
                     case "$entry" in
-                      Bash\(*\))
+                      Bash) denied=true ;;            # bare Bash = all shell
+                      Bash\(*)                         # prefix match: no trailing ')' required
                         inner="${entry#Bash(}"; inner="${inner%)}"
-                        cmd="${inner%%:*}"
+                        cmd="${inner%%:*}"             # command spec, before the first ':'
                         cmd="${cmd#"${cmd%%[![:space:]]*}"}"
                         cmd="${cmd%"${cmd##*[![:space:]]}"}"
-                        # The executable is the FIRST whitespace-delimited token of
-                        # the command spec — deny by the BINARY, so Bash(sudo rm:*),
-                        # Bash(sh -c:*), Bash(bash -c:*) are stripped, not just the
-                        # bare-word Bash(sudo:*)/Bash(sh:*) forms. (claude-code-action
-                        # grants the named binary; a multi-word arg prefix doesn't
-                        # make it safer.)
-                        binword="${cmd%%[[:space:]]*}"
-                        for c in $DENY_CMDS; do
-                          if [ "$binword" = "$c" ]; then denied=true; break; fi
-                        done
+                        if [ -z "$cmd" ]; then
+                          denied=true                  # empty command word = all shell
+                        else
+                          # Scan every whitespace token of the spec by basename, so a
+                          # wrapper/path/prefix can't hide a denied binary.
+                          for tok in $cmd; do
+                            case "$tok" in
+                              [A-Za-z_]*=*) denied=true; break ;;   # env-assignment prefix
+                            esac
+                            tokbase="${tok##*/}"                    # strip any path
+                            for c in $DENY_CMDS; do
+                              if [ "$tokbase" = "$c" ]; then denied=true; break; fi
+                            done
+                            [ "$denied" = true ] && break
+                          done
+                        fi
                         ;;
                     esac
                   fi
