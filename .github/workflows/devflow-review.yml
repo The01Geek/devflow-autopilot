@@ -73,6 +73,7 @@ on:
 permissions:
   contents: read
   pull-requests: write
+  issues: read
 
 concurrency:
   # Per-PR AND per-event-source lane. The event_name suffix is load-bearing:
@@ -436,15 +437,17 @@ jobs:
     if: needs.precheck.outputs.enabled == 'true' && needs.precheck.outputs.should_run == 'true'
     # A called reusable workflow's job permissions must be a SUBSET of the
     # caller job's grant (validated at graph-build time). devflow-runner.yml's
-    # job needs contents:read + pull-requests:write + id-token:write + actions:read,
-    # so this grant is an exact superset. `actions: read` is required — without it
-    # the runner's `actions: read` would exceed this grant and abort the run as
-    # `startup_failure` (the very bug this split fixes); keep it here.
+    # job needs contents:read + pull-requests:write + id-token:write + actions:read
+    # + issues:read, so this grant is an exact superset. `actions: read` is
+    # required — without it the runner's `actions: read` would exceed this grant
+    # and abort the run as `startup_failure` (the very bug this split fixes); keep
+    # it here. Same for `issues: read` (runner reads the linked issue's ACs).
     permissions:
       contents: read
       pull-requests: write
       id-token: write
       actions: read
+      issues: read
     # Calls the dedicated reusable runner (its own file, so its permission
     # ceiling is a clean subset of this read-only caller — see devflow-runner.yml).
     uses: ./.github/workflows/devflow-runner.yml
@@ -464,7 +467,7 @@ jobs:
         Markdown so users get a scannable status card:
 
             <!-- devflow:review-progress -->
-            ## 🔍 Devflow Review In Progress
+            ### 🔍 Devflow Review In Progress
 
             |   |   |
             |---|---|
@@ -502,7 +505,7 @@ jobs:
         Example mid-run body:
 
             <!-- devflow:review-progress -->
-            ## 🔍 Devflow Review In Progress
+            ### 🔍 Devflow Review In Progress
 
             |   |   |
             |---|---|
@@ -531,80 +534,42 @@ jobs:
         artifact carrying the full Phase 4.1 report, so this final PATCH
         must embed the entire report body verbatim.
 
-        **The heading and Status row MUST reflect the actual verdict** —
-        do NOT default to a green ✅ on a REJECT. A reader scanning the
-        PR sees only the heading; a ✅ on top of a REJECT body misleads
-        them into thinking the PR was approved. Pick the variant by
-        verdict:
+        **The heading MUST reflect the actual verdict** — do NOT default
+        to a green ✅ on a REJECT. A reader scanning the PR sees only the
+        heading; a ✅ on top of a REJECT body misleads them into thinking
+        the PR was approved. The in-progress status table is dropped on
+        the final update: the embedded Phase 4.1 report below already
+        carries the verdict, and GitHub's own comment-edit history
+        records when it was last updated. Pick the variant by verdict:
 
         APPROVE (including "APPROVE with notes"):
 
             <!-- devflow:review-progress -->
-            ## ✅ Devflow Review: APPROVE
-
-            |   |   |
-            |---|---|
-            | **Status** | ✅ Approved |
-            | **Last updated** | `<UTC ISO-8601>` |
-            | **Verdict** | <one-line verdict summary, e.g. "APPROVE with notes (2 suggestions)"> |
-
-            ---
+            ### ✅ Devflow Review: APPROVE
 
             <full Phase 4.1 report body, verbatim — do NOT regenerate or summarize>
 
         REJECT:
 
             <!-- devflow:review-progress -->
-            ## ❌ Devflow Review: REJECT — changes requested
-
-            |   |   |
-            |---|---|
-            | **Status** | ❌ Changes requested |
-            | **Last updated** | `<UTC ISO-8601>` |
-            | **Verdict** | <one-line verdict summary, e.g. "REJECT — 1 verification FAIL"> |
-
-            ---
+            ### ❌ Devflow Review: REJECT — changes requested
 
             <full Phase 4.1 report body, verbatim — do NOT regenerate or summarize>
 
-        Re-use the report already in context — do not regenerate it.
-        Apply the GitHub-specific PASS-items `<details>` augmentation
-        (see the "Report formatting override" block below) exactly once,
-        before embedding, so the rendered audit trail includes passed
-        items.
+        Re-use the report already in context — do not regenerate it. The
+        Phase 4.1 report already collapses passed checklist items into a
+        `<details>` block, so embed it verbatim — no extra augmentation.
 
         On the failure variant (run aborts before Phase 4.4 — empty
         diff, checklist-gen failure, any fatal error), use:
 
             <!-- devflow:review-progress -->
-            ## ❌ Devflow Review Failed
+            ### ❌ Devflow Review Failed
 
-            |   |   |
-            |---|---|
-            | **Status** | ❌ Failed — <one-line reason> |
-            | **Last updated** | `<UTC ISO-8601>` |
+            <one-line reason — there is no Phase 4.1 report body to embed>
 
-        with no report body (there is none to embed).
-
-        **Report formatting override (GitHub-specific).** When the
-        `/devflow:review` skill builds the report in Phase 4.1, the
-        `## Verification Checklist Results` section lists only FAIL and
-        INCONCLUSIVE items plus the summary count. Before embedding the
-        report in Step 3, augment that section by appending the PASS
-        items inside a collapsed `<details>` block (omit the block
-        entirely when zero items passed):
-
-            <details>
-            <summary>✅ Passed items ({pass} of {total}) — click to expand</summary>
-
-            {for each PASS item: "- VC-N: claim [source_file:source_line]"}
-
-            </details>
-
-        This preserves the audit trail in GitHub's rendered Markdown
-        without dominating the visible report. Do not modify the skill
-        file itself — this override applies only to the GitHub-posted
-        report body.
+        The failure reason carries the only diagnostic content here, so
+        keep it on the heading-following line rather than in a table.
 
         **Constraints (do not violate):**
         - Only ONE progress comment, edited in place. Never post a second.

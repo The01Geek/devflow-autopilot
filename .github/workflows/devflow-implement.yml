@@ -292,7 +292,7 @@ jobs:
 
           # Agent mode is silent by default; surface a progress comment so the
           # requester sees the run was picked up (applies to all paths now).
-          track_progress: true
+          track_progress: false
 
           # This is an optional setting that allows Claude to read CI results on PRs
           additional_permissions: |

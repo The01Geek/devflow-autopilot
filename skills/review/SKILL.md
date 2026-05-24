@@ -470,7 +470,7 @@ Invoke the `/superpowers:requesting-code-review` skill to perform a final-pass c
 - Diff path: `{DIFF_PATH}` (the full diff, cached to disk by Phase 0.2 — Read it directly rather than re-fetching)
 - Prior-iteration findings (already considered, look for new): {iter-(N-1) phase3_findings JSON if fix-loop iteration N≥2, else "none"}
 
-Return your findings in the standard Phase-3 output format: ### Strengths / ### Issues (grouped by Critical / Important / Suggestion) / ### Recommendations / ### Assessment. Every issue MUST carry a `defect_signature` block per the contract below.
+Return your findings in the standard Phase-3 output format: ### Strengths / ### Issues (grouped by Critical / Important / Suggestion) / ### Recommendations (rendered as a numbered list) / ### Assessment. Every issue MUST carry a `defect_signature` block per the contract below.
 
 {paste the defect_signature paragraph above}
 ```
@@ -550,8 +550,6 @@ If the matcher itself errors out (exit code 2), log the failure (`Deferral match
 Construct the report in this format:
 
 ```markdown
-# Review Report
-
 ## Verdict: {APPROVE | APPROVE with notes | APPROVE WITH CAVEAT | APPROVE WITH ADVISORY NOTES | REJECT} ({summary})
 
 ## Issue Compliance
@@ -559,13 +557,13 @@ Construct the report in this format:
 {If no issue found: "No related issue found — requirement compliance not checked."}
 
 ## Verification Checklist Results
-- ({total} checked, {pass} passed, {fail} failed, {inconclusive} inconclusive)
+{a plain-text line, not a bullet, no surrounding parentheses:} {total} checked, {pass} passed, {fail} failed, {inconclusive} inconclusive — {lite_count} via lite probe, {agent_count} via agent.
 {for each FAIL or INCONCLUSIVE item: "- VC-N: VERDICT — claim [source_file:source_line]"}
 {when {pass} > 0, emit the PASS items inside a collapsed block — `{pass}` MUST equal the number of `- VC-N` lines listed inside it. Leave a blank line before `<details>` so GitHub renders the collapsible correctly after the preceding list:}
 
-<details><summary>{pass} passed checks</summary>
+<details><summary>✅ Passed items ({pass} of {total}) — click to expand</summary>
 
-{for each PASS item: "- VC-N: PASS — claim [source_file:source_line]"}
+{for each PASS item: "- VC-N: claim [source_file:source_line]"}
 
 </details>
 {when {pass} == 0, omit the `<details>` block entirely — never emit an empty collapsible.}
@@ -573,9 +571,10 @@ Construct the report in this format:
 FAIL and INCONCLUSIVE items stay listed outside the `<details>` block so they remain visible. The block renders collapsibly on GitHub; in a chat-only `/devflow:review-and-fix` run it renders as inline HTML, which stays readable.
 
 ## Code Review Findings
-{for each finding, prefix the line with its severity icon — 🔴 Critical, 🟠 Important/Major, 🟡 Suggestion/Minor, ℹ️ Informational — Deferred: "- {icon} [agent-name] severity: description (raised by N/{total Phase 3 agents that returned results} agents)"}
-{for findings whose index appears in the matcher's honored[] list, append " [Deferred → #{follow_up_issue}]" to the line, render it with the ℹ️ icon, and place it under a separate sub-heading "### Informational — Deferred" rather than under its original severity bucket.}
-{group Critical findings first, then Important/Major, then Suggestion/Minor, then Informational — Deferred. Within each severity, list corroborated findings (N≥2) before single-source ones (N=1) so the highest-confidence items lead.}
+{Group findings by severity under a sub-heading that carries the severity icon — "### 🔴 Critical", "### 🟠 Important / Major", "### 🟡 Suggestion / Minor", "### ℹ️ Informational — Deferred". Emit the sub-headings in that order and omit any whose group has no findings.}
+{Within each group render each finding as a numbered-list item with NO icon and NO agent-name prefix: "1. severity: description (raised by N/{total Phase 3 agents that returned results} agents)", numbering restarting from 1 within each sub-heading. The severity icon belongs on the sub-heading only — never prefix the list items.}
+{for findings whose index appears in the matcher's honored[] list, append " [Deferred → #{follow_up_issue}]" to the line and place it under the "### ℹ️ Informational — Deferred" sub-heading rather than under its original severity bucket.}
+{Within each severity, list corroborated findings (N≥2) before single-source ones (N=1) so the highest-confidence items lead.}
 
 ## Deferrals
 {Omit this section entirely when 4.0 was skipped (current-branch mode) or block_present was false. Otherwise render:}
@@ -627,7 +626,7 @@ Map the verdict to a `gh pr review` action. **What goes in `--body` depends on w
   > Devflow Review progress comment on this PR.
   ```
 
-- **Standalone context** (`$GITHUB_ACTIONS` unset or not `true` — run directly from an IDE/CLI): there is **no** progress comment, so a stub would point at a comment that does not exist and the full report would live only in chat. Set `$BODY` to the full `$REPORT` from Phase 4.1 so the review itself carries it — one self-contained artifact, no dangling pointer. (The full report begins with `# Review Report`, which `dismiss-stale-rejections.sh` matches alongside the stub's `## Verdict: REJECT` prefix, so a standalone REJECT is still cleared by a later APPROVE.)
+- **Standalone context** (`$GITHUB_ACTIONS` unset or not `true` — run directly from an IDE/CLI): there is **no** progress comment, so a stub would point at a comment that does not exist and the full report would live only in chat. Set `$BODY` to the full `$REPORT` from Phase 4.1 so the review itself carries it — one self-contained artifact, no dangling pointer. (The full report begins with its `## Verdict: {VERDICT}` line, so a standalone REJECT starts with `## Verdict: REJECT` — the exact prefix `dismiss-stale-rejections.sh` matches, so a standalone REJECT is still cleared by a later APPROVE.)
 
 where `{VERDICT}` is the actual verdict line (e.g. `APPROVE`, `APPROVE with notes`, `APPROVE WITH CAVEAT`, `REJECT`) — reflect what Phase 4.2 decided, do not template-fill literally. The `## Verdict: REJECT` text is load-bearing: `finalize_check` greps for it on the `gh pr comment` fallback path. It appears as the stub's first line AND as a `## Verdict: {VERDICT}` line inside the full `$REPORT`, so the grep matches in either context.
 

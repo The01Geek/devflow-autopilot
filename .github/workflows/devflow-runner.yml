@@ -73,12 +73,13 @@ on:
 # Job permissions are a clean subset of any caller's grant — this is the
 # invariant whose violation caused the startup_failure. A caller's `review`
 # job MUST grant a superset (contents:read, pull-requests:write, id-token:write,
-# actions:read); see devflow-review.yml.
+# actions:read, issues:read); see devflow-review.yml.
 permissions:
   contents: read
   pull-requests: write
   id-token: write
   actions: read # Required for Claude to read CI results (paired with additional_permissions below)
+  issues: read # Required to read the linked issue when reviewing against its acceptance criteria
 
 jobs:
   run:
