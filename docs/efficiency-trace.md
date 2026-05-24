@@ -13,9 +13,10 @@ effectiveness record, what that record contains, and how each subagent earns its
 The per-iteration workpads under `.devflow/tmp/review/<slug>/iter-<N>.json` already carry the
 data needed to answer "which subagents earned their cost on this PR" — `phase3_findings`
 (with `agent`, `corroboration_count`, `fix_decision`), `fix_decisions`, and per-phase cost
-telemetry (calls / tokens / wall-clock). But `.devflow/tmp/` is **ephemeral**: on a virtual
-GitHub runner the whole directory is destroyed at teardown, so the moment a run finishes the data
-is gone. Optimization decisions ("is this agent pulling its weight?") were left to guesswork.
+telemetry (calls / tokens / wall-clock). But `.devflow/tmp/` is **ephemeral** scratch in every
+run — gitignored and routinely cleaned out locally, and destroyed wholesale when a cloud GitHub
+runner is torn down. Either way, the moment a run finishes the data is liable to vanish.
+Optimization decisions ("is this agent pulling its weight?") were left to guesswork.
 
 At Loop Exit the loop now derives a per-run effectiveness trace, prints it to chat, and writes one
 durable, **tracked** record so the data survives teardown and is reviewable after the fact.
@@ -113,7 +114,8 @@ than a contentless skeleton — symmetric with the flag-off contract.
 
 `.devflow/logs/` is a **tracked** directory (mirroring the tracked `.devflow/learnings/`
 learnings-store). The run's existing `git add -A` sweeps the record in, and under
-`--push-each-iteration` it is committed and pushed, surviving GH-runner teardown.
+`--push-each-iteration` it is committed and pushed, surviving teardown — whether that is a
+cloud runner being destroyed or a local `.devflow/tmp/` cleanup.
 
 ## Config keys
 

@@ -230,10 +230,10 @@ workflow YAML:
   `devflow.allowed_tools` → light `/devflow:*` command path (`devflow.yml`);
   `devflow_implement.allowed_tools` → `/devflow:implement` (`devflow-implement.yml`).
   None inherits another's extras, so list every tool you want for a given path
-  under that path's key. The automated reviewer is governed differently — its
-  build access is a single opt-in flag, `devflow_runner.provision_env`, that
-  grants a **fixed** build allowlist (see "Letting the reviewer build/test a
-  PR" below), not a freeform per-tool list.
+  under that path's key. The automated reviewer's build tools live in a third
+  key, `devflow_runner.allowed_tools`, gated behind the `devflow_runner.provision_env`
+  opt-in and bounded by a deny-list floor (see "Letting the reviewer build/test a
+  PR" below).
 - Leave a key out (or `[]`) to use the base list unchanged.
 - These come from your committed config, so treat them with the same care as
   `setup.install`: only allowlist commands you trust to run unattended.
@@ -247,7 +247,8 @@ verified. Flip one flag to opt in:
 
 ```json
 "devflow_runner": {
-  "provision_env": true
+  "provision_env": true,
+  "allowed_tools": ["Bash(npm:*)", "Bash(npx:*)", "Bash(node:*)"]
 },
 "setup": {
   "node_version": "20",
@@ -262,15 +263,36 @@ does two extra things before launching Claude:
    `/devflow:*` command path and `/devflow:implement` already use (Python /
    Node / PHP → service containers → `setup.install`), so the reviewer has a
    real built environment.
-2. Extends the read-only `review` tool profile with a **fixed** build/verify
-   Bash allowlist: `Bash(npm:*)`, `Bash(npx:*)`, `Bash(node:*)`,
-   `Bash(yarn:*)`, `Bash(pnpm:*)`, `Bash(composer:*)`, `Bash(php:*)`,
-   `Bash(make:*)`. (This is a fixed mainstream set, not a per-tool list you
-   pick.)
+2. Extends the read-only `review` tool profile with the **freeform
+   `devflow_runner.allowed_tools`** list from your base-branch config — read
+   verbatim from the trusted base ref. This is **language-agnostic**: a Go shop
+   lists `Bash(go:*)`, a Rust shop `Bash(cargo:*)`, and so on — no DevFlow
+   release is needed per language. `/devflow:init` auto-populates it from your
+   detected toolchain.
+
+   Before appending, the runner enforces a deterministic **deny-list floor**: it
+   strips file-mutation tools (`Edit`, `Write`, `MultiEdit`, `NotebookEdit`) and
+   any `Bash(…)` whose command-position binary is a raw shell / eval / privilege
+   tool (`bash`, `sh`, `zsh`, `dash`, `ksh`, `fish`, `eval`, `exec`, `source`,
+   `sudo`, `doas`, `su`) **or** an exec-wrapper that would run its argument as the
+   real command (`env`, `xargs`, `nice`, `timeout`, `nohup`, `setsid`, `command`,
+   `chroot`, `runuser`) — so `Bash(env bash:*)`, `Bash(/bin/bash:*)`,
+   `Bash(FOO=1 bash:*)`, and `Bash(go;sudo:*)` are all stripped, while legitimate
+   build entries whose *subcommand or argument* happens to be a deny word
+   (`Bash(docker exec:*)`, `Bash(make CC=gcc:*)`) are kept. The runner emits a
+   `::warning::` for each stripped entry and continues with the safe remainder, so
+   this catastrophic tier can never reach the reviewer's write-token job no matter
+   what `config.json` lists. (The floor blocks *direct* shell/privilege access; it
+   does **not** try to block interpreters like `node -e` / `python -c`, which are
+   legitimate build tools — enabling `provision_env` already means accepting that
+   the reviewer runs the PR's build code.) If the
+   list is empty (or empty after stripping) while `provision_env` is on, the
+   runner warns that build-aware review is enabled with no build tools.
 
 When the flag is **absent or `false` (the default)**, none of this happens: the
 runner is byte-for-byte the read-only reviewer it was before — no provisioning
-step, no build tools, no added latency.
+step, no build tools, no added latency, regardless of what
+`devflow_runner.allowed_tools` contains.
 
 The `setup` block is still populated for you: **`/devflow:init` auto-detects
 your repo's language(s)** (Node, Go, Rust, Java, Ruby, PHP, .NET, Make, Docker)

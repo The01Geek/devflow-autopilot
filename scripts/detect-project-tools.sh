@@ -8,10 +8,11 @@
 # matching presets into the repo's .devflow/config.json:
 #
 #   - the build/test/lint tool patterns are added to three execution paths'
-#     allowlists: devflow.allowed_tools (command) and devflow_implement.allowed_tools
-#     (implement) are live; devflow_runner.allowed_tools is also populated but is
-#     currently INERT — the automated reviewer's build access is the opt-in flag
-#     devflow_runner.provision_env, not this list (see config.schema.json);
+#     allowlists: devflow.allowed_tools (command), devflow_implement.allowed_tools
+#     (implement), and devflow_runner.allowed_tools (the automated reviewer). The
+#     reviewer consumes its list only when devflow_runner.provision_env is set in
+#     the trusted base config, and the runner enforces a deny-list floor over it
+#     (see config.schema.json / docs/cloud-setup.md);
 #   - the shared `setup` block gets node_version (only when currently empty — a
 #     pinned version is never overridden) and a lockfile-appropriate install
 #     line so the runtime the tools need actually exists before Claude runs;
@@ -33,9 +34,12 @@
 # runs PR build code only when the maintainer sets devflow_runner.provision_env
 # (read from the BASE branch's committed config, never the PR head — see
 # devflow-review.yml — so a PR cannot enable it for itself), which then runs
-# setup.install + the PR's build under a write token. devflow_runner.allowed_tools
-# is auto-populated but currently inert for the reviewer. Keep presets to
-# mainstream toolchains and review the resulting config.json before committing.
+# setup.install + the PR's build under a write token AND grants the freeform
+# devflow_runner.allowed_tools list (bounded by the runner's deny-list floor).
+# This script never writes a deny-listed tool — the same catastrophic tier the
+# runner strips (tree-mutation tools + raw-shell/eval/privilege Bash) is filtered
+# here too, as fast feedback; the runner's copy is the authoritative boundary.
+# Keep presets to mainstream toolchains and review the config.json before commit.
 #
 # Usage: detect-project-tools.sh [TARGET_REPO_ROOT]
 #   TARGET_REPO_ROOT  repo to scan + whose .devflow/config.json to update
@@ -179,9 +183,36 @@ jq -n \
   --argjson extra_install "$EXTRA_INSTALL_JSON" \
   --arg nodewd "$NODE_WD" '
   def odedupe: reduce .[] as $x ([]; if any(.[]; . == $x) then . else . + [$x] end);
+  # Fast-feedback mirror of the runner deny-list floor (devflow-runner.yml is the
+  # authoritative boundary). Same rules as the runner: inspect the command-position
+  # binary (first whitespace token of the spec, before the first : or ) ) by its
+  # basename and deny a shell/eval/privilege binary or an exec-wrapper; deny a
+  # leading env-assignment; deny any shell metacharacter in the spec; deny an empty
+  # or bare command word. Non-leading arg tokens are NOT scanned, so legitimate
+  # tools whose subcommand is a deny word (docker exec, make CC=gcc) are kept.
+  def denylisted:
+    (gsub("^\\s+|\\s+$";"")) as $t
+    | if (["Edit","Write","MultiEdit","NotebookEdit"] | index($t)) != null then true
+      elif $t == "Bash" then true
+      elif ($t | test("^Bash\\(")) then
+        (($t | capture("^Bash\\(\\s*(?<spec>[^:)]*)") | .spec) | gsub("^\\s+|\\s+$";"")) as $cmd
+        | if $cmd == "" then true
+          elif ($cmd | test("[;|&$<>()`]")) then true
+          # ASCII-whitespace split (`[ \t]`, not `\s`) so the command-position token
+          # matches the runner shell `${cmd%%[[:space:]]*}` exactly — `\s` is Unicode
+          # in Oniguruma and would split on NBSP where the shell does not, desyncing
+          # the two filters on an entry like Bash(bash<nbsp>x:*).
+          else (($cmd | [splits("[ \t]+")][0]) // "") as $binword
+            | if ($binword | test("^[A-Za-z_][^=]*=")) then true
+              else (($binword | sub("^.*/";"")) as $b
+                    | (["bash","sh","zsh","dash","ksh","fish","eval","exec","source","sudo","doas","su","env","xargs","nice","timeout","nohup","setsid","command","chroot","runuser"] | index($b)) != null)
+              end
+          end
+      else false end;
   ($cfg[0]) as $c |
   ($pre[0].presets) as $p |
   ([ $keys[] as $k | $p[$k].allowed_tools[]? ]) as $tools |
+  ([ $tools[] | select(denylisted | not) ]) as $runner_tools |
   ([ $keys[] as $k | $p[$k].setup.install[]? ] + $extra_install) as $inst |
   ([ $keys[] as $k | $p[$k].setup.node_version? // empty ] | .[0]) as $nodever |
   $c
@@ -191,7 +222,7 @@ jq -n \
   | .setup             = (.setup             // {})
   | .devflow.allowed_tools           = ((.devflow.allowed_tools           // []) + $tools | odedupe)
   | .devflow_implement.allowed_tools = ((.devflow_implement.allowed_tools // []) + $tools | odedupe)
-  | .devflow_runner.allowed_tools    = ((.devflow_runner.allowed_tools    // []) + $tools | odedupe)
+  | .devflow_runner.allowed_tools    = ((.devflow_runner.allowed_tools    // []) + $runner_tools | odedupe)
   | .setup.install                  = ((.setup.install                  // []) + $inst  | odedupe)
   | (if ($nodever != null) and ((.setup.node_version // "") == "")
        then .setup.node_version = $nodever else . end)
@@ -206,7 +237,7 @@ if jq --sort-keys . "$CONFIG" >/dev/null 2>&1 && ! diff -q \
   mv "$TMP" "$CONFIG"
   trap - EXIT
   log "detected: ${ACTIVE[*]} — merged build/test tools into config.json (devflow / devflow_implement / devflow_runner) + setup."
-  log "review the additions before committing; the devflow / devflow_implement entries run PR code in their respective workflows. NOTE: devflow_runner.allowed_tools is currently inert — the automated reviewer's build access is the opt-in flag devflow_runner.provision_env (see config.schema.json / docs/cloud-setup.md), which also runs PR build code under a write token."
+  log "review the additions before committing; the devflow / devflow_implement entries run PR code in their respective workflows. The devflow_runner.allowed_tools entries reach the automated reviewer only when devflow_runner.provision_env is set in the base config (see config.schema.json / docs/cloud-setup.md), which also runs PR build code under a write token; the runner enforces a deny-list floor over that list."
 else
   log "detected: ${ACTIVE[*]} — config.json already covers them; no changes."
 fi

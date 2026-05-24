@@ -1573,7 +1573,7 @@ assert_eq "et: invalid --mode → exit 2" "2" "$ET_MODE_RC"
 rm -rf "$ET_DIR" "$ET_DEG" "$ET_EMPTY"; rm -f "$ET_CFG"
 
 # ────────────────────────────────────────────────────────────────────────────
-echo "devflow-runner.yml: opt-in environment provisioning (issue #18)"
+echo "devflow-runner.yml: opt-in environment provisioning (issues #18, #21)"
 # ────────────────────────────────────────────────────────────────────────────
 # The automated reviewer gains a build environment + build-tool allowlist ONLY
 # when the TRUSTED base config sets devflow_runner.provision_env: true. These
@@ -1594,20 +1594,58 @@ assert_eq "provision: read-only base profile has no build tools (all 8)" "0" \
   "$(grep "TOOLS='Read,Glob,Grep" "$RUNNER" \
      | grep -cE 'Bash\((npm|npx|node|yarn|pnpm|composer|php|make):\*\)' || true)"
 
-# The 8 build/verify tools are appended on a single line, and that line is
-# guarded by `if [ "$PROVISION_ENV" = "true" ]` on the immediately preceding
-# non-comment line.
+# Issue #21: the build append is now the FREEFORM devflow_runner.allowed_tools
+# list (read from the trusted base ref), not the old hard-coded npm…make set.
+# (1) The fixed 8-tool append line must be GONE — listing build tools is now the
+# adopter's config job, language-agnostic.
 # Fixed-string match (-F): the literal contains `$TOOLS` and `(`/`)`/`*`; under a
 # strict-POSIX/ugrep `grep` a mid-pattern `$` would anchor and the line would
-# silently not match, skipping the guard assertion below. -F keeps it portable.
-BUILD_LINE=$(grep -nF 'TOOLS="$TOOLS,Bash(npm:*),Bash(npx:*),Bash(node:*),Bash(yarn:*),Bash(pnpm:*),Bash(composer:*),Bash(php:*),Bash(make:*)"' "$RUNNER" | cut -d: -f1)
-assert_eq "provision: build allowlist append line present (all 8 tools)" "1" \
-  "$(printf '%s\n' "$BUILD_LINE" | grep -c '^[0-9]' || true)"
-if [ -n "$BUILD_LINE" ]; then
-  GUARD_LINE=$(sed -n "$((BUILD_LINE - 1))p" "$RUNNER")
-  assert_eq "provision: build allowlist guarded by PROVISION_ENV == true" "yes" \
-    "$(echo "$GUARD_LINE" | grep -q 'if \[ "\$PROVISION_ENV" = "true" \]' && echo yes || echo no)"
-fi
+# silently not match. -F keeps it portable.
+assert_eq "provision: hard-coded npm…make build append removed" "0" \
+  "$(grep -cF 'TOOLS="$TOOLS,Bash(npm:*),Bash(npx:*),Bash(node:*),Bash(yarn:*),Bash(pnpm:*),Bash(composer:*),Bash(php:*),Bash(make:*)"' "$RUNNER" || true)"
+
+# (2) baseprovision emits runner_tools from the TRUSTED base ref ($BASE_JSON),
+# joined to a comma string — the same trust channel as provision_env.
+assert_eq "provision: runner_tools read from base config (BASE_JSON)" "1" \
+  "$(grep -cF '.devflow_runner.allowed_tools // [] | map(strings) | join(",")' "$RUNNER" || true)"
+assert_eq "provision: runner_tools written to GITHUB_OUTPUT (heredoc)" "1" \
+  "$(grep -cF "printf 'runner_tools<<%s" "$RUNNER" || true)"
+# The runner_tools value goes through a heredoc (not a single-line key=value
+# echo), so a newline in a hand-edited base allowed_tools entry can't truncate
+# the value or inject further step outputs.
+assert_eq "provision: runner_tools value forwarded verbatim via heredoc" "1" \
+  "$(grep -cF "printf '%s\\n' \"\$RUNNER_TOOLS\"" "$RUNNER" || true)"
+# The Resolve-profile step's RUNNER_TOOLS env is wired to that base-ref output —
+# never a PR-head source.
+assert_eq "provision: RUNNER_TOOLS env wired to baseprovision output" "1" \
+  "$(grep -cF 'RUNNER_TOOLS: ${{ steps.baseprovision.outputs.runner_tools }}' "$RUNNER" || true)"
+
+# (3) The freeform list is appended (the filtered remainder) and that append is
+# guarded by `if [ "$PROVISION_ENV" = "true" ]`, so the default profile stays
+# byte-for-byte read-only. Locate the append line and confirm the guard precedes
+# the deny-list filter block it lives in.
+assert_eq "provision: freeform allowed_tools appended to profile" "1" \
+  "$(grep -cF 'TOOLS="$TOOLS,$FILTERED"' "$RUNNER" || true)"
+assert_eq "provision: freeform append guarded by PROVISION_ENV == true" "1" \
+  "$(grep -c 'if \[ "\$PROVISION_ENV" = "true" \]' "$RUNNER" || true)"
+# Structural: the append must sit AFTER the PROVISION_ENV guard, not merely
+# coexist in the file — else a future dedent could append build tools to the
+# default read-only profile while both greps above still pass. Pin line order.
+APPEND_LN=$(grep -nF 'TOOLS="$TOOLS,$FILTERED"' "$RUNNER" | head -1 | cut -d: -f1)
+GUARD_LN=$(grep -n 'if \[ "\$PROVISION_ENV" = "true" \]' "$RUNNER" | head -1 | cut -d: -f1)
+assert_eq "provision: freeform append is inside the PROVISION_ENV guard (guard precedes append)" "yes" \
+  "$([ -n "$APPEND_LN" ] && [ -n "$GUARD_LN" ] && [ "$GUARD_LN" -lt "$APPEND_LN" ] && echo yes || echo no)"
+
+# (4) Deny-list floor: the catastrophic tier is stripped before appending. Pin
+# the exact-name denies, the command-word denies, and both warnings.
+assert_eq "provision: deny-list names present (Edit/Write/MultiEdit/NotebookEdit)" "1" \
+  "$(grep -cF "DENY_NAMES='Edit Write MultiEdit NotebookEdit'" "$RUNNER" || true)"
+assert_eq "provision: deny-list shells/eval/privilege present" "1" \
+  "$(grep -c "DENY_CMDS='bash sh zsh" "$RUNNER" || true)"
+assert_eq "provision: stripped deny-listed entries warned" "1" \
+  "$(grep -c 'stripped deny-listed entries' "$RUNNER" || true)"
+assert_eq "provision: empty-after-strip warns build-aware review has no tools" "1" \
+  "$(grep -c 'build-aware review is enabled with NO build tools' "$RUNNER" || true)"
 
 # The setup-project-env step is gated on the base-ref provision flag.
 assert_eq "provision: setup-project-env step present" "1" \
@@ -1623,11 +1661,159 @@ assert_eq "provision: setup-project-env gated on base provision_env" "1" \
 assert_eq "provision: PROVISION_ENV env wired to baseprovision output" "1" \
   "$(grep -cF 'PROVISION_ENV: ${{ steps.baseprovision.outputs.provision_env }}' "$RUNNER" || true)"
 
-# Documented invariant (schema marks devflow_runner.allowed_tools deprecated/
-# inert): the runner must contain ZERO reads of devflow_runner.allowed_tools. If
-# a future change re-wires that key, this fails and the docs/schema must follow.
-assert_eq "provision: runner does not consume devflow_runner.allowed_tools" "0" \
-  "$(grep -cE 'devflow_runner\.allowed_tools|devflow_runner\[.allowed_tools' "$RUNNER" || true)"
+# Issue #21 inverted this invariant: the runner now DOES consume
+# devflow_runner.allowed_tools (gated on provision_env, deny-list-floored). At
+# least one read must be present — if a future change drops it, build-aware
+# review silently regresses to read-only and this fails.
+assert_eq "provision: runner consumes devflow_runner.allowed_tools" "1" \
+  "$(grep -cE 'devflow_runner\.allowed_tools' "$RUNNER" | awk '{print ($1>=1)?1:0}')"
+# The schema must no longer mark the key deprecated (it is live again).
+assert_eq "provision: schema does not mark allowed_tools deprecated" "null" \
+  "$(jq -r '.properties.devflow_runner.properties.allowed_tools.deprecated' "$LIB/../.devflow/config.schema.json")"
+
+# Fast-feedback deny-list guard in detect-project-tools.sh: the runner write must
+# go through the filtered $runner_tools var (not raw $tools), and a `denylisted`
+# filter must be defined — so /devflow:init never writes a deny-listed tool into
+# devflow_runner.allowed_tools.
+DETECT="$LIB/../scripts/detect-project-tools.sh"
+assert_eq "provision: detect defines a denylisted jq filter" "1" \
+  "$(grep -c 'def denylisted:' "$DETECT" || true)"
+assert_eq "provision: detect filters runner write through denylisted" "1" \
+  "$(grep -cF 'select(denylisted | not)' "$DETECT" || true)"
+assert_eq "provision: detect runner write uses filtered \$runner_tools" "1" \
+  "$(grep -cF '.devflow_runner.allowed_tools    = ((.devflow_runner.allowed_tools    // []) + $runner_tools' "$DETECT" || true)"
+
+# Behavioral: actually RUN the 'tools' step's deny-list filter. The static greps
+# above only prove the deny-list STRINGS exist, not that filtering works — and
+# this is a security boundary, so logic regressions (a broken command-word split,
+# the multi-word bypass Bash(sudo rm:*), a guard that stops gating) must fail the
+# suite. We extract the step's run: script and exercise it under several inputs.
+if command -v python3 >/dev/null 2>&1 && python3 -c 'import yaml' >/dev/null 2>&1; then
+  TOOLS_STEP=$(mktemp)
+  python3 - "$RUNNER" >"$TOOLS_STEP" <<'PY'
+import sys, yaml
+doc = yaml.safe_load(open(sys.argv[1]))
+for job in doc["jobs"].values():
+    for s in job.get("steps", []):
+        if s.get("id") == "tools" and "run" in s:
+            sys.stdout.write("#!/usr/bin/env bash\nset -euo pipefail\n" + s["run"])
+            raise SystemExit
+raise SystemExit("tools step not found")
+PY
+  # Emit the full resolved TOOLS string for a given provision flag + runner list.
+  # Capture the exit code: a crashed step (e.g. a set -e abort mid-filter) must
+  # NOT masquerade as "nothing appended" and let a stripping assertion pass — on
+  # failure we emit a sentinel so the assertion fails loudly.
+  emit_tools() {  # $1=PROVISION_ENV  $2=RUNNER_TOOLS
+    local out rc; out=$(mktemp)
+    PROFILE=review PROVISION_ENV="$1" RUNNER_TOOLS="$2" GITHUB_OUTPUT="$out" \
+      bash "$TOOLS_STEP" >/dev/null 2>&1; rc=$?
+    if [ "$rc" -ne 0 ]; then printf '__EMIT_FAILED_rc=%s__' "$rc"; rm -f "$out"; return; fi
+    awk '/^tools<</{f=1;next} (f && /^EOF_/){f=0} f' "$out"
+    rm -f "$out"
+  }
+  # The read-only base = provisioning off; the freeform append is everything the
+  # filter adds on top of it.
+  BASE_TOOLS=$(emit_tools false '')
+  append_of() { local full; full=$(emit_tools "$1" "$2"); printf '%s' "${full#"$BASE_TOOLS"}"; }
+  # Guards a "stripped" case can't pass via a crash: the read-only base must still
+  # be fully present (proving the step ran to completion and ONLY dropped denies).
+  base_intact() { case "$(emit_tools "$1" "$2")" in "$BASE_TOOLS"*) echo yes ;; *) echo no ;; esac; }
+
+  # The base itself must be the real read-only profile, not an empty/garbled value
+  # (otherwise the prefix-strip lens would hide base-profile regressions).
+  assert_eq "provision(behavior): base profile is the read-only anchor" "yes" \
+    "$(case "$BASE_TOOLS" in Read,Glob,Grep*) echo yes ;; *) echo no ;; esac)"
+
+  # Multi-word raw-shell / privilege entries are stripped (deny by the binary).
+  assert_eq "provision(behavior): Bash(sudo rm:*) stripped" "" \
+    "$(append_of true 'Bash(sudo rm:*)')"
+  assert_eq "provision(behavior): Bash(sh -c:*) stripped" "" \
+    "$(append_of true 'Bash(sh -c:*)')"
+  # Wrapper / path / env-assignment / bare-or-empty evasions are all stripped.
+  assert_eq "provision(behavior): Bash(env bash:*) wrapper stripped" "" \
+    "$(append_of true 'Bash(env bash:*)')"
+  assert_eq "provision(behavior): Bash(/bin/bash:*) path-form stripped" "" \
+    "$(append_of true 'Bash(/bin/bash:*)')"
+  assert_eq "provision(behavior): Bash(xargs sh -c:*) wrapper stripped" "" \
+    "$(append_of true 'Bash(xargs sh -c:*)')"
+  assert_eq "provision(behavior): Bash(FOO=1 bash:*) env-assignment stripped" "" \
+    "$(append_of true 'Bash(FOO=1 bash:*)')"
+  assert_eq "provision(behavior): bare Bash stripped" "" \
+    "$(append_of true 'Bash')"
+  assert_eq "provision(behavior): Bash(:*) empty-cmd stripped" "" \
+    "$(append_of true 'Bash(:*)')"
+  # Newline-smuggled second tool: the producer forwards newlines verbatim, so the
+  # consumer must normalize them — the embedded Bash(sudo:*) must be stripped.
+  assert_eq "provision(behavior): newline-smuggled Bash(sudo:*) stripped" ",Bash(go:*)" \
+    "$(append_of true "$(printf 'Bash(go:*)\nBash(sudo:*)')")"
+  # Each stripped case ran to completion (base profile intact), not crashed.
+  assert_eq "provision(behavior): base intact after stripping env-wrapper" "yes" \
+    "$(base_intact true 'Bash(env bash:*)')"
+  assert_eq "provision(behavior): base intact after stripping path-form" "yes" \
+    "$(base_intact true 'Bash(/bin/bash:*)')"
+  # Bare-word denies + a file-mutation tool are stripped.
+  assert_eq "provision(behavior): Write + Bash(bash:*) stripped" "" \
+    "$(append_of true 'Write,Bash(bash:*)')"
+  # Legitimate build tools survive — including an internal space and a lookalike
+  # prefix (shellcheck must NOT be caught by the 'sh' deny).
+  assert_eq "provision(behavior): clean build tools survive" ",Bash(go:*),Bash(go build:*),Bash(shellcheck:*)" \
+    "$(append_of true 'Bash(go:*),Bash(go build:*),Bash(shellcheck:*)')"
+  # Provisioning off → nothing appended even with a non-empty list (read-only).
+  assert_eq "provision(behavior): provision_env=false appends nothing" "" \
+    "$(append_of false 'Bash(go:*),Bash(cargo:*)')"
+  # Provisioning on + empty list → nothing appended (the warning is grepped above).
+  assert_eq "provision(behavior): provision_env=true empty list appends nothing" "" \
+    "$(append_of true '')"
+  # Mixed list: denies dropped, clean kept, order preserved.
+  assert_eq "provision(behavior): mixed list keeps only clean entries" ",Bash(go:*),Bash(make:*)" \
+    "$(append_of true 'Bash(go:*),Bash(sudo:*),Edit,Bash(make:*)')"
+  # Regression guard (must NOT over-strip): a deny word as a SUBCOMMAND or arg of a
+  # non-wrapper command, or as a path arg, is legitimate and must survive — only
+  # the command-position binary is inspected.
+  assert_eq "provision(behavior): Bash(docker exec:*) kept (exec is a docker subcommand)" ",Bash(docker exec:*)" \
+    "$(append_of true 'Bash(docker exec:*)')"
+  assert_eq "provision(behavior): Bash(make CC=gcc:*) kept (= is a make arg, not a leading assignment)" ",Bash(make CC=gcc:*)" \
+    "$(append_of true 'Bash(make CC=gcc:*)')"
+  assert_eq "provision(behavior): Bash(go run ./cmd/sh:*) kept (sh is a path arg)" ",Bash(go run ./cmd/sh:*)" \
+    "$(append_of true 'Bash(go run ./cmd/sh:*)')"
+  # Shell-metacharacter entries are stripped (classic "append a second command").
+  assert_eq "provision(behavior): Bash(go;sudo:*) metachar stripped" "" \
+    "$(append_of true 'Bash(go;sudo:*)')"
+  assert_eq "provision(behavior): Bash(cat x|sh:*) pipe-to-shell stripped" "" \
+    "$(append_of true 'Bash(cat x|sh:*)')"
+  # Closing-paren-before-colon form is stripped (shell must match the jq mirror).
+  assert_eq "provision(behavior): Bash(sh):* stripped" "" \
+    "$(append_of true 'Bash(sh):*')"
+  # Leading env-assignment with non-identifier name (go.x=1) stripped, matching jq.
+  assert_eq "provision(behavior): Bash(go.x=1:*) leading-assignment stripped" "" \
+    "$(append_of true 'Bash(go.x=1:*)')"
+  rm -f "$TOOLS_STEP"
+
+  # Behavioral test of the detect-project-tools.sh jq deny mirror: extract the
+  # `denylisted` def from the script (so this tracks the real filter, not a copy)
+  # and assert it agrees with the runner on the same evasion corpus.
+  DENYDEF=$(awk '/def denylisted:/{f=1} f{print} f&&/end;/{exit}' "$DETECT")
+  jq_deny() { jq -rn --arg e "$1" "$DENYDEF"' ($e | denylisted)'; }
+  assert_eq "provision(jq-mirror): Edit denied" "true" "$(jq_deny 'Edit')"
+  assert_eq "provision(jq-mirror): Bash(sudo rm:*) denied" "true" "$(jq_deny 'Bash(sudo rm:*)')"
+  assert_eq "provision(jq-mirror): Bash(env bash:*) denied" "true" "$(jq_deny 'Bash(env bash:*)')"
+  assert_eq "provision(jq-mirror): Bash(/bin/bash:*) denied" "true" "$(jq_deny 'Bash(/bin/bash:*)')"
+  assert_eq "provision(jq-mirror): Bash(FOO=1 bash:*) denied" "true" "$(jq_deny 'Bash(FOO=1 bash:*)')"
+  assert_eq "provision(jq-mirror): bare Bash denied" "true" "$(jq_deny 'Bash')"
+  assert_eq "provision(jq-mirror): Bash(go;sudo:*) metachar denied" "true" "$(jq_deny 'Bash(go;sudo:*)')"
+  assert_eq "provision(jq-mirror): Bash(sh):* denied (paren-before-colon)" "true" "$(jq_deny 'Bash(sh):*')"
+  assert_eq "provision(jq-mirror): Bash(go:*) allowed" "false" "$(jq_deny 'Bash(go:*)')"
+  assert_eq "provision(jq-mirror): Bash(go build:*) allowed" "false" "$(jq_deny 'Bash(go build:*)')"
+  assert_eq "provision(jq-mirror): Bash(shellcheck:*) allowed (lookalike)" "false" "$(jq_deny 'Bash(shellcheck:*)')"
+  assert_eq "provision(jq-mirror): Bash(docker exec:*) allowed (subcommand)" "false" "$(jq_deny 'Bash(docker exec:*)')"
+  assert_eq "provision(jq-mirror): Bash(make CC=gcc:*) allowed (arg assignment)" "false" "$(jq_deny 'Bash(make CC=gcc:*)')"
+  # Env-assignment regex aligned with the runner's `[A-Za-z_]*=*` glob: a leading
+  # assignment whose name has non-identifier chars (go.x=1) must deny in BOTH.
+  assert_eq "provision(jq-mirror): Bash(go.x=1:*) leading-assignment denied" "true" "$(jq_deny 'Bash(go.x=1:*)')"
+else
+  echo "  SKIP  provision(behavior): python3+pyyaml unavailable; static assertions only"
+fi
 
 # Trust boundary on the SETUP channel (the one that carries setup.install): the
 # provision step's config_json must come from steps.baseprovision (base ref),

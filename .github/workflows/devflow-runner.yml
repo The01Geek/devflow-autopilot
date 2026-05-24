@@ -193,8 +193,26 @@ jobs:
             fi
           fi
           echo "provision_env=$PROVISION" >> "$GITHUB_OUTPUT"
-          # Heredoc form forwards the (possibly multi-line) base config verbatim
-          # to setup-project-env regardless of content.
+          # Freeform reviewer build allowlist, read from the SAME trusted base ref
+          # as provision_env above (so a PR cannot grant itself tools). Emitted as
+          # a comma-joined string. `map(strings)` keeps only string elements so a
+          # single hand-edited non-string entry degrades to "drop that element",
+          # not "join errors → catch "" → silently lose ALL tools"; `try … catch ""`
+          # still guards a non-object/array `devflow_runner`/`allowed_tools`,
+          # collapsing it to empty (no build tools). The deny-list floor is applied
+          # at CONSUME time in the next step, so the authoritative filter sees
+          # exactly the string forwarded here.
+          RUNNER_TOOLS=$(printf '%s' "$BASE_JSON" | jq -r 'try (.devflow_runner.allowed_tools // [] | map(strings) | join(",")) catch ""')
+          # Heredoc forms forward both values verbatim regardless of content — a
+          # newline in either (a hand-edited allowed_tools entry, a multi-line base
+          # config) must not corrupt step outputs the way a plain key=value echo
+          # would (only its first line is parsed; the rest inject further outputs).
+          delim="EOF_$(date +%s%N)_$$"
+          {
+            printf 'runner_tools<<%s\n' "$delim"
+            printf '%s\n' "$RUNNER_TOOLS"
+            printf '%s\n' "$delim"
+          } >> "$GITHUB_OUTPUT"
           delim="EOF_$(date +%s%N)_$$"
           {
             printf 'config_json<<%s\n' "$delim"
@@ -209,6 +227,11 @@ jobs:
           # Trusted base-ref opt-in (see the baseprovision step). Only when this
           # is 'true' does the review profile gain build/verify commands.
           PROVISION_ENV: ${{ steps.baseprovision.outputs.provision_env }}
+          # Freeform build/verify allowlist from the trusted base ref's
+          # devflow_runner.allowed_tools (see the baseprovision step). Appended to
+          # the review profile only when PROVISION_ENV is 'true', and only after
+          # the deny-list floor below strips the catastrophic tier.
+          RUNNER_TOOLS: ${{ steps.baseprovision.outputs.runner_tools }}
         run: |
           set -euo pipefail
           # Profiles intentionally kept inline (single-string per profile) to
@@ -222,12 +245,123 @@ jobs:
               TOOLS='Read,Glob,Grep,LS,Skill,Agent,TodoWrite,WebFetch,WebSearch,Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git ls-files:*),Bash(git rev-parse:*),Bash(git merge-base:*),Bash(git blame:*),Bash(git branch:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr review:*),Bash(gh pr comment:*),Bash(gh pr list:*),Bash(gh pr checks:*),Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue list:*),Bash(gh search:*),Bash(gh repo view:*),Bash(gh run view:*),Bash(gh run list:*),Bash(gh api:*),Bash(jq:*),Bash(grep:*),Bash(rg:*),Bash(find:*),Bash(wc:*),Bash(sort:*),Bash(uniq:*),Bash(cut:*),Bash(tr:*),Bash(xargs:*),Bash(awk:*),Bash(sed:*),Bash(diff:*),Bash(comm:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(ls:*),Bash(tree:*),Bash(file:*),Bash(stat:*),Bash(date:*),Bash(pwd:*),Bash(realpath:*),Bash(dirname:*),Bash(basename:*),Bash(which:*),Bash(type:*),Bash(env:*),Bash(echo:*),Bash(printf:*),Bash(test:*),Bash(.claude/plugins/devflow/scripts/match-deferrals.py:*),Bash(.claude/plugins/devflow/scripts/dismiss-stale-rejections.sh:*)'
               # When the trusted base config opted into provisioning, the runner
               # has a built env (setup-project-env ran below), so grant the
-              # build/verify commands the reviewer needs to actually compile/
-              # test the PR instead of punting build-dependent claims. Appended
+              # freeform build/verify commands the maintainer listed in
+              # devflow_runner.allowed_tools (read from the trusted base ref —
+              # RUNNER_TOOLS) so the reviewer can actually compile/test the PR in
+              # ANY language instead of punting build-dependent claims. Appended
               # ONLY here: when provisioning is off, TOOLS above is byte-for-byte
-              # the read-only profile.
+              # the read-only profile, regardless of RUNNER_TOOLS content.
+              #
+              # SECURITY — deny-list floor. Before appending, strip the
+              # categorically-unrecoverable tier no matter what /devflow:init's
+              # LLM enrichment or a later hand-edit wrote into the base config:
+              # tree-mutation tools (Edit/Write/MultiEdit/NotebookEdit) and any
+              # Bash entry that can reach a raw shell / eval / privilege binary
+              # (bash/sh/zsh/eval/exec/source/sudo). This is the AUTHORITATIVE
+              # boundary — it runs here, at consume-time, on the trusted base-ref
+              # list, because a fast-feedback guard in detect-project-tools.sh can
+              # be bypassed by a hand-edit but this filter cannot. A denied entry
+              # is dropped + warned, never fatal (a typo must not abort every
+              # review). The list is mirrored in scripts/detect-project-tools.sh
+              # (fast feedback only); keep both in sync — this copy enforces.
+              #
+              # A bare-name blocklist is trivially bypassable, so the Bash check
+              # inspects the COMMAND-POSITION binary (the first whitespace token of
+              # the spec, before the first ':' or ')') by its basename, and denies:
+              #   - a raw shell / eval / privilege binary (bash/sh/zsh/dash/ksh/
+              #     fish/eval/exec/source/sudo/doas/su) — incl. path forms like
+              #     /bin/bash, since we compare the basename;
+              #   - an exec-wrapper (env/xargs/nice/timeout/nohup/setsid/command/
+              #     chroot/runuser) whose first arg would BE the real command —
+              #     this is what closes Bash(env bash:*) / Bash(xargs sh -c:*)
+              #     without having to scan every arg token;
+              #   - a leading env-assignment (FOO=1 bash) — the var prefix shifts
+              #     the executable past token 0;
+              #   - any shell metacharacter anywhere in the spec (; | & $ < > ( )
+              #     backtick), which is the classic "append a second command" vector
+              #     (Bash(go;sudo:*), Bash(cat x|sh:*));
+              #   - an empty command word (bare `Bash`, Bash(:*) = "all shell").
+              # We deliberately do NOT scan non-leading arg tokens by basename — that
+              # over-strips legitimate tools whose subcommand/arg happens to be a
+              # deny word (Bash(docker exec:*), Bash(make CC=gcc:*),
+              # Bash(go run ./cmd/sh:*)). This is the AUTHORITATIVE boundary; the
+              # jq mirror in scripts/detect-project-tools.sh applies the same rules.
               if [ "$PROVISION_ENV" = "true" ]; then
-                TOOLS="$TOOLS,Bash(npm:*),Bash(npx:*),Bash(node:*),Bash(yarn:*),Bash(pnpm:*),Bash(composer:*),Bash(php:*),Bash(make:*)"
+                DENY_NAMES='Edit Write MultiEdit NotebookEdit'
+                DENY_CMDS='bash sh zsh dash ksh fish eval exec source sudo doas su env xargs nice timeout nohup setsid command chroot runuser'
+                FILTERED=''
+                STRIPPED=''
+                # Newlines/CRs in an entry are normalized to the comma delimiter so
+                # a multi-line entry can't smuggle a second tool past the per-entry
+                # check (the heredoc transport forwards newlines verbatim). Then
+                # split on comma ONCE (an entry like "Bash(go build:*)" keeps its
+                # internal space) and restore the default IFS. `set -f` disables
+                # pathname expansion for the split: every entry contains a literal
+                # `*` (e.g. Bash(npm:*)), so without noglob the unquoted expansion
+                # could glob against the checked-out working tree. All per-entry
+                # parsing below uses parameter expansion / `case` (no word-split of
+                # an unquoted var), so no further globbing occurs.
+                RUNNER_TOOLS="${RUNNER_TOOLS//$'\r'/}"
+                RUNNER_TOOLS="${RUNNER_TOOLS//$'\n'/,}"
+                OLDIFS=$IFS
+                IFS=','
+                set -f
+                set -- $RUNNER_TOOLS
+                set +f
+                IFS=$OLDIFS
+                for raw in "$@"; do
+                  # Trim surrounding whitespace from the whole entry.
+                  entry="${raw#"${raw%%[![:space:]]*}"}"
+                  entry="${entry%"${entry##*[![:space:]]}"}"
+                  [ -z "$entry" ] && continue
+                  denied=false
+                  for n in $DENY_NAMES; do
+                    if [ "$entry" = "$n" ]; then denied=true; break; fi
+                  done
+                  if [ "$denied" = false ]; then
+                    case "$entry" in
+                      Bash) denied=true ;;            # bare Bash = all shell
+                      Bash\(*)                         # prefix match: no trailing ')' required
+                        inner="${entry#Bash(}"
+                        cmd="${inner%%:*}"             # spec: before the first ':'
+                        cmd="${cmd%%)*}"               # and before the first ')'
+                        cmd="${cmd#"${cmd%%[![:space:]]*}"}"
+                        cmd="${cmd%"${cmd##*[![:space:]]}"}"
+                        binword="${cmd%%[[:space:]]*}" # command-position token (no glob)
+                        binbase="${binword##*/}"        # strip any path
+                        if [ -z "$cmd" ]; then
+                          denied=true                  # empty command word = all shell
+                        else
+                          case "$cmd" in
+                            *[';|&$<>()']*) denied=true ;;   # shell metacharacter in spec
+                            *'`'*) denied=true ;;            # backtick command-substitution
+                          esac
+                          case "$binword" in
+                            [A-Za-z_]*=*) denied=true ;;     # leading env-assignment (FOO=1 cmd)
+                          esac
+                          if [ "$denied" = false ]; then
+                            for c in $DENY_CMDS; do
+                              if [ "$binbase" = "$c" ]; then denied=true; break; fi
+                            done
+                          fi
+                        fi
+                        ;;
+                    esac
+                  fi
+                  if [ "$denied" = true ]; then
+                    STRIPPED="${STRIPPED:+$STRIPPED, }$entry"
+                  else
+                    FILTERED="${FILTERED:+$FILTERED,}$entry"
+                  fi
+                done
+                if [ -n "$STRIPPED" ]; then
+                  echo "::warning::devflow_runner.allowed_tools: stripped deny-listed entries before building the review profile: $STRIPPED. These are never permitted on the reviewer's write-token job (tree mutation / raw shell / privilege escalation); the review continues with the safe remainder."
+                fi
+                if [ -n "$FILTERED" ]; then
+                  TOOLS="$TOOLS,$FILTERED"
+                else
+                  echo "::warning::devflow_runner.provision_env is true but devflow_runner.allowed_tools is empty (or empty after deny-list stripping): build-aware review is enabled with NO build tools, so the reviewer has only the read-only profile. Populate devflow_runner.allowed_tools with your build/test/lint tools (e.g. Bash(go:*), Bash(cargo:*)) to enable build-aware review."
+                fi
               fi
               ;;
             *)
