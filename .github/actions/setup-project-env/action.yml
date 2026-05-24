@@ -26,6 +26,19 @@ inputs:
     description: '.devflow/config.json contents, as emitted by the read-project-config action (steps.<id>.outputs.json). The automated reviewer (devflow-runner.yml, provision_env path) instead passes the TRUSTED base-ref config it reads directly via git show + `jq -c` — a different provenance but the same shape (a JSON object with a `.setup` block), so this action consumes it identically.'
     required: true
 
+outputs:
+  health_summary:
+    description: |
+      Empty string when every started service container is running/healthy (or
+      when no services are configured). Otherwise a multiline string with one
+      line per degraded service, naming the service and its failure reason (not
+      running, or unhealthy after the readiness timeout with its last status).
+      Provisioning stays warning-only — a degraded service populates this output
+      but never fails the step. Consumed by devflow-runner.yml to prepend an
+      infra-status note to the reviewer prompt so build/test failures tracing to
+      a service that never came up are attributed to infrastructure, not the PR.
+    value: ${{ steps.services.outputs.health_summary }}
+
 runs:
   using: composite
   steps:
@@ -107,6 +120,7 @@ runs:
           pip-${{ runner.os }}-
 
     - name: Start service containers
+      id: services
       shell: bash
       env:
         CONFIG_JSON: ${{ inputs.config_json }}
@@ -162,6 +176,13 @@ runs:
         # wait until healthy; otherwise just confirm they're still running. Best
         # effort — a timeout warns rather than failing the job, so the real test
         # failure (if any) surfaces with a clearer message downstream.
+        #
+        # Each degraded service ALSO accumulates a one-line entry in `degraded`,
+        # emitted below as the `health_summary` output so the calling workflow can
+        # tell the reviewer which dependency never came up. This is purely
+        # additive to the existing warning-only behavior — nothing here fails the
+        # step.
+        degraded=()
         for name in "${started[@]}"; do
           health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$name" 2>/dev/null || echo "")
           if [ -z "$health" ]; then
@@ -170,6 +191,7 @@ runs:
               echo "Service '$name' running (no health check declared)."
             else
               echo "::warning::Service '$name' is not running."
+              degraded+=("- $name: not running")
             fi
             continue
           fi
@@ -183,8 +205,23 @@ runs:
             echo "Service '$name' healthy."
           else
             echo "::warning::Service '$name' not healthy after ~120s (status: ${health:-unknown}); continuing."
+            degraded+=("- $name: not healthy after ~120s (status: ${health:-unknown})")
           fi
         done
+
+        # Emit the degraded-service summary as a multiline step output. When every
+        # service is healthy `degraded` is empty and we write nothing, so the
+        # output resolves to the empty string (the all-healthy contract). A unique,
+        # timestamped heredoc delimiter avoids any collision with the summary's own
+        # content, mirroring the heredoc transport used elsewhere in the runner.
+        if [ ${#degraded[@]} -gt 0 ]; then
+          delim="HEALTH_EOF_$(date +%s%N)_$$"
+          {
+            printf 'health_summary<<%s\n' "$delim"
+            printf '%s\n' "${degraded[@]}"
+            printf '%s\n' "$delim"
+          } >> "$GITHUB_OUTPUT"
+        fi
 
     - name: Provision project dependencies
       shell: bash
