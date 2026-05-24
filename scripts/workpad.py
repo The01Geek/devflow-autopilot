@@ -398,7 +398,7 @@ def _split_details(content: str) -> tuple[str | None, str, str | None]:
     collapsible region."""
     lines = content.split('\n')
     try:
-        o = next(i for i, l in enumerate(lines) if l.strip().startswith('<details'))
+        o = next(i for i, line in enumerate(lines) if line.strip().startswith('<details'))
         c = next(i for i in range(len(lines) - 1, -1, -1) if lines[i].strip() == '</details>')
     except StopIteration:
         return None, content, None
