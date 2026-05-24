@@ -6,6 +6,8 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **Vendored skills' `../../docs/…` links now resolve offline, and two `/devflow:review-and-fix` efficiency-trace telemetry-hygiene defects.** The `vendor-plugin` slice now also copies the `docs/` tree, so a skill's relative `../../docs/efficiency-trace.md` link points at a real file in the materialized plugin instead of dangling (the runtime runner sandbox has no web access). Separately, the `--mode record` invocation in `/devflow:review-and-fix` no longer discards stderr into a 0-byte file — a real regression now surfaces a `::warning::` breadcrumb, mirroring the existing `--mode trace` handling — and a silent (dispatched-but-raised-nothing) agent's verdict is now emitted as JSON `null` rather than the string `"null"`, so a cross-run analyzer can use the idiomatic `select(.verdict == null)`. The `null` verdict category itself is unchanged (`docs/efficiency-trace.md` already describes it). (#33)
 ### Changed
 - **`/devflow:create-issue` now offers a one-keystroke hand-off into the implement workflow, and renders a consistent confirmation layout.** After it creates an issue, the skill always asks whether you want to start implementation right away; answer yes and it comments `/devflow:implement <#>` on the new issue for you, so you no longer need to switch to GitHub to kick off the work. (The comment starts an implement run only when your repository's DevFlow workflows are enabled and you are an authorized commenter.) The confirmation message you review before creation now always places the saved draft-file note below the full issue preview, so every confirmation reads the same way. (#30)
 
