@@ -37,7 +37,7 @@
   },
   "devflow_retrospective": {
     "enabled": true,
-    "retrospective_model": "claude-sonnet-4-6",
+    "retrospective_model": "claude-opus-4-7",
     "audit_model": "claude-opus-4-7",
     "implementation_branch_prefix": "claude/",
     "min_occurrences": 2,
@@ -45,7 +45,7 @@
     "max_prs_per_run": 500
   },
   "workflows": {
-    "devflow": false,
-    "devflow-review": false
+    "devflow": true,
+    "devflow-review": true
   }
 }
