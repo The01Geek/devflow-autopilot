@@ -155,12 +155,20 @@ manage_vendor_gitignore() {
     if grep -qxF '/vendor/' "$gi"; then
       # Portable in-place delete — NOT `sed -i` (GNU-only; BSD/macOS sed needs a
       # backup-suffix arg, and this is a `curl | bash` installer that must run on
-      # macOS — see CONTRIBUTING.md). Filter to a temp and swap. `|| true`
-      # absorbs grep's exit 1 when /vendor/ was the only line (the readability of
-      # $gi was just proven by the `grep -qxF` guard, so exit 2 can't occur here).
-      grep -vxF '/vendor/' "$gi" > "$gi.tmp" || true
-      mv "$gi.tmp" "$gi"
-      log "un-ignored .devflow/vendor/ (DEVFLOW_VENDOR=1 commits the plugin tree)"
+      # macOS — see CONTRIBUTING.md). Filter to a temp, then swap only on a clean
+      # filter. grep exit 0 = lines kept, 1 = none kept (/vendor/ was the only
+      # line → empty result is correct), 2 = real error: distinguish so a
+      # mid-write failure (e.g. ENOSPC) never `mv`s a truncated temp over the
+      # tracked .gitignore and silently drops /tmp/.
+      local _rc=0
+      grep -vxF '/vendor/' "$gi" > "$gi.tmp" || _rc=$?
+      if [ "$_rc" -le 1 ]; then
+        mv "$gi.tmp" "$gi"
+        log "un-ignored .devflow/vendor/ (DEVFLOW_VENDOR=1 commits the plugin tree)"
+      else
+        rm -f "$gi.tmp"
+        log "warning: could not rewrite $gi (grep exit $_rc); left /vendor/ in place — remove it by hand so the committed tree is tracked."
+      fi
     fi
   elif ! grep -qxF '/vendor/' "$gi"; then
     printf '/vendor/\n' >> "$gi"

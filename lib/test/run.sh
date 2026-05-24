@@ -1524,6 +1524,8 @@ printf 'x' > "$WORK/.claude/skills/keep.md"
 ( cd "$WORK" && DEVFLOW_SELFTEST=1 . "$INSTALL" && prune_stale_vendored_plugin ) >/dev/null 2>&1
 assert_eq "install: devflow tree removed under non-empty .claude" \
   "absent" "$([ -d "$WORK/.claude/plugins/devflow" ] && echo present || echo absent)"
+assert_eq "install: emptied .claude/plugins parent pruned, non-empty .claude kept" \
+  "absent-present" "$([ -d "$WORK/.claude/plugins" ] && echo present || echo absent)-$([ -d "$WORK/.claude" ] && echo present || echo absent)"
 assert_eq "install: non-empty user .claude/ preserved" \
   "present" "$([ -f "$WORK/.claude/skills/keep.md" ] && echo present || echo absent)"
 rm -rf "$WORK"
@@ -1603,6 +1605,16 @@ assert_eq "install: DEVFLOW_VENDOR=1 steady-state keeps /tmp/" \
   "yes" "$(grep -qxF '/tmp/' "$WORK/.devflow/.gitignore" && echo yes || echo no)"
 rm -rf "$WORK"
 
+# Case E: DEVFLOW_VENDOR=1 when /vendor/ is the ONLY line (the empty-filter edge
+# the grep-exit-1 handling exists for) → removed cleanly, file left empty, exit 0.
+WORK="$(mktemp -d)"; mkdir -p "$WORK/.devflow"; printf '/vendor/\n' > "$WORK/.devflow/.gitignore"
+# shellcheck disable=SC1090
+( cd "$WORK" && DEVFLOW_SELFTEST=1 . "$INSTALL" && DEVFLOW_VENDOR=1 manage_vendor_gitignore ) >/dev/null 2>&1
+assert_eq "install: DEVFLOW_VENDOR=1 removes /vendor/ when it is the only line" "0" "$?"
+assert_eq "install: only-line /vendor/ removal leaves no /vendor/" \
+  "no" "$(grep -qxF '/vendor/' "$WORK/.devflow/.gitignore" && echo yes || echo no)"
+rm -rf "$WORK"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "no stale .claude/plugins/devflow reference in shipped cloud-tier files"
 # ────────────────────────────────────────────────────────────────────────────
@@ -1610,12 +1622,23 @@ echo "no stale .claude/plugins/devflow reference in shipped cloud-tier files"
 # lives at .devflow/vendor/devflow, so no workflow, composite action, or config
 # schema may reference the old .claude/plugins/devflow path (a stale reference
 # fails closed at runtime — "resolver not found" / wiped plugin). install.sh and
-# the test file are EXEMPT: they intentionally name the old path (the prune
-# migration that removes it, and these tests).
+# the test file are not in the scan scope (it covers only `.github` +
+# config.schema.json) — they legitimately name the old path (the prune migration
+# that removes it, and these tests), and there is no exclusion filter to maintain.
+# NB: no `xargs -r` — that flag is GNU-only (BSD/macOS xargs rejects it), and
+# CONTRIBUTING bans GNU-only flags. The `git ls-files` input is always non-empty
+# (.devflow/config.schema.json + the .github workflows are tracked), so the
+# no-run-if-empty behavior `-r` provides is never needed here.
 STALE=$(cd "$LIB/.." && git ls-files .github .devflow/config.schema.json \
-  | xargs -r grep -lF '.claude/plugins/devflow' 2>/dev/null || true)
+  | xargs grep -lF '.claude/plugins/devflow' 2>/dev/null || true)
 assert_eq "install: no shipped cloud-tier file references the old vendored path" \
   "" "$STALE"
+
+# The generated marketplace.json `source` is the one path-bearing installer
+# output with no other coverage; a heredoc typo reverting it would ship to fresh
+# consumers uncaught. Assert it matches the relocated vendor destination.
+assert_eq "install: marketplace.json source matches the vendored path" \
+  "1" "$(grep -cF '"source": "./.devflow/vendor/devflow"' "$LIB/../install.sh")"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "workflow partition invariant"
