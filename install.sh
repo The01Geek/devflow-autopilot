@@ -127,11 +127,21 @@ log "fetching ${REPO}@${REF} …"
 # which is what resolves a commit SHA (--branch rejects SHAs). Without the
 # fallback's checkout, a SHA ref would silently land on the default branch and
 # we'd pin devflow_version to the wrong commit. rm -rf before the fallback so a
-# cleaned-up-or-not partial first attempt never blocks the reclone.
-git clone --quiet --depth 1 --branch "$REF" "https://github.com/${REPO}.git" "$TMP/src" 2>/dev/null \
-  || { rm -rf "$TMP/src"; git clone --quiet "https://github.com/${REPO}.git" "$TMP/src" \
-       && git -C "$TMP/src" checkout --quiet "$REF"; } \
-  || die "could not clone https://github.com/${REPO} (ref: ${REF})."
+# cleaned-up-or-not partial first attempt never blocks the reclone. stderr is
+# suppressed ONLY on the --branch attempt (a SHA legitimately fails it, and that
+# expected failure must stay quiet); the fallback clone and checkout each
+# capture their stderr so a genuine failure reports its real cause, and a failed
+# checkout after a successful clone is distinguishable from a total clone failure.
+CLONE_URL="https://github.com/${REPO}.git"
+if ! git clone --quiet --depth 1 --branch "$REF" "$CLONE_URL" "$TMP/src" 2>/dev/null; then
+  rm -rf "$TMP/src"
+  if ! CLONE_ERR="$(git clone --quiet "$CLONE_URL" "$TMP/src" 2>&1)"; then
+    die "could not clone $CLONE_URL (ref: ${REF}) — clone failed: $CLONE_ERR"
+  fi
+  if ! CHECKOUT_ERR="$(git -C "$TMP/src" checkout --quiet "$REF" 2>&1)"; then
+    die "could not clone $CLONE_URL (ref: ${REF}) — clone succeeded but checkout failed: $CHECKOUT_ERR"
+  fi
+fi
 SRC="$TMP/src"
 
 # 1. Plugin tree. Thin by default — the vendor-plugin composite action puts it

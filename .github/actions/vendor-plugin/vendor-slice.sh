@@ -99,11 +99,22 @@ devflow_vendor_main() {
   devflow_vendor_log "fetch: cloning $url @ $DEVFLOW_REF"
   # Fast path: shallow clone of a branch/tag. Fallback: full clone + checkout,
   # which also resolves a commit SHA (which --branch cannot take). Mirrors the
-  # clone fallback install.sh uses.
-  git clone --quiet --depth 1 --branch "$DEVFLOW_REF" "$url" "$tmp/src" 2>/dev/null \
-    || { rm -rf "$tmp/src"; git clone --quiet "$url" "$tmp/src" \
-         && git -C "$tmp/src" checkout --quiet "$DEVFLOW_REF"; } \
-    || devflow_vendor_die "could not fetch $url @ $DEVFLOW_REF"
+  # clone fallback install.sh uses. stderr is suppressed ONLY on the --branch
+  # attempt — a SHA legitimately fails it, and that expected failure must stay
+  # quiet. The fallback clone and checkout each capture their stderr so a
+  # genuine fetch failure reports its real cause (auth, network, not-found,
+  # rate-limit) instead of a generic message, and a failed checkout after a
+  # successful clone is distinguishable from a total clone failure.
+  local clone_err checkout_err
+  if ! git clone --quiet --depth 1 --branch "$DEVFLOW_REF" "$url" "$tmp/src" 2>/dev/null; then
+    rm -rf "$tmp/src"
+    if ! clone_err="$(git clone --quiet "$url" "$tmp/src" 2>&1)"; then
+      devflow_vendor_die "could not fetch $url @ $DEVFLOW_REF (clone failed): $clone_err"
+    fi
+    if ! checkout_err="$(git -C "$tmp/src" checkout --quiet "$DEVFLOW_REF" 2>&1)"; then
+      devflow_vendor_die "could not fetch $url @ $DEVFLOW_REF (clone succeeded but checkout failed): $checkout_err"
+    fi
+  fi
   devflow_copy_slice "$tmp/src" "$dest"
 }
 
