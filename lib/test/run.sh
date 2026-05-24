@@ -1357,6 +1357,46 @@ for f in devflow devflow-implement; do
 done
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "devflow-review.yml first-ready gate invariant"
+# ────────────────────────────────────────────────────────────────────────────
+# The first-ready gate counts pre-existing `Devflow Review` check-runs to enforce
+# auto-review-exactly-once. A skipped job still emits a `Devflow Review` check-run
+# (conclusion: skipped) — from the dual pull_request/pull_request_target dedupe
+# loser and from draft/synchronize deferrals — so both gate queries (head-SHA and
+# commit-list backstop) MUST exclude `conclusion == "skipped"`, or the gate
+# counts its own deferrals as "already ran" and the review never fires. The
+# sibling synchronize cost-guard keeps its narrower `conclusion=="success"` filter
+# (correct for that path); this guard asserts exactly two gate queries carry the
+# skipped-exclusion form.
+#
+# The regexes tolerate optional whitespace around `==` / `!=` (` *==? *`) so a
+# jq reformat of the workflow doesn't produce a false failure. The load-bearing
+# protection is the bare-query guard below: it pins the actual issue-#32
+# regression (a first-ready-gate select on the name alone, with no conclusion
+# filter, that recounts skipped deferrals as "already ran") to zero occurrences.
+REVIEW_WF="$WF/devflow-review.yml"
+# (1) No first-ready-gate query may count check-runs unconditionally — a name-only
+# select with nothing after it is exactly the issue-#32 bug.
+bare_gate_query_count="$(grep -cE \
+  'select\(\.name *== *"Devflow Review"\) *\|' \
+  "$REVIEW_WF" || true)"
+assert_eq "first-ready gate: no unfiltered Devflow Review check-run query" \
+  "0" "$bare_gate_query_count"
+# (2) Both gate queries (head-SHA + commit-list backstop) exclude skipped check-runs.
+gate_skipped_filter_count="$(grep -cE \
+  'select\(\.name *== *"Devflow Review" and \.conclusion *!= *"skipped"\)' \
+  "$REVIEW_WF" || true)"
+assert_eq "first-ready gate: both queries exclude conclusion==skipped" \
+  "2" "$gate_skipped_filter_count"
+# (3) The synchronize cost-guard must NOT be widened to != "skipped" — it stays
+# scoped to conclusion=="success".
+sync_success_filter_count="$(grep -cE \
+  'select\(\.name *== *"Devflow Review" and \.conclusion *== *"success"\)' \
+  "$REVIEW_WF" || true)"
+assert_eq "synchronize cost-guard keeps conclusion==success filter" \
+  "1" "$sync_success_filter_count"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "efficiency-trace.jq / efficiency-trace.sh"
 # ────────────────────────────────────────────────────────────────────────────
 # Per-run subagent effectiveness telemetry for /devflow:review-and-fix.
