@@ -1357,6 +1357,32 @@ for f in devflow devflow-implement; do
 done
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "devflow-review.yml first-ready gate invariant"
+# ────────────────────────────────────────────────────────────────────────────
+# The first-ready gate counts pre-existing `Devflow Review` check-runs to enforce
+# auto-review-exactly-once. A skipped job still emits a `Devflow Review` check-run
+# (conclusion: skipped) — from the dual pull_request/pull_request_target dedupe
+# loser and from draft/synchronize deferrals — so both gate queries (head-SHA and
+# commit-list backstop) MUST exclude `conclusion == "skipped"`, or the gate
+# counts its own deferrals as "already ran" and the review never fires. The
+# sibling synchronize cost-guard keeps its narrower `conclusion=="success"` filter
+# (correct for that path); this guard asserts exactly two gate queries carry the
+# skipped-exclusion form.
+REVIEW_WF="$WF/devflow-review.yml"
+gate_skipped_filter_count="$(grep -cE \
+  'select\(\.name=="Devflow Review" and \.conclusion != "skipped"\)' \
+  "$REVIEW_WF" || true)"
+assert_eq "first-ready gate: both queries exclude conclusion==skipped" \
+  "2" "$gate_skipped_filter_count"
+# The synchronize cost-guard must NOT be widened to != "skipped" — it stays
+# scoped to conclusion=="success".
+sync_success_filter_count="$(grep -cE \
+  'select\(\.name=="Devflow Review" and \.conclusion=="success"\)' \
+  "$REVIEW_WF" || true)"
+assert_eq "synchronize cost-guard keeps conclusion==success filter" \
+  "1" "$sync_success_filter_count"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "efficiency-trace.jq / efficiency-trace.sh"
 # ────────────────────────────────────────────────────────────────────────────
 # Per-run subagent effectiveness telemetry for /devflow:review-and-fix.

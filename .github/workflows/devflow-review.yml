@@ -317,11 +317,19 @@ jobs:
           HEAD="$SHA_READY"
 
           # First-ready gate (plan §0): auto-review EXACTLY ONCE per PR. If a
-          # `Devflow Review` check already exists for this PR's head OR any of
-          # its commits, this is a repeat draft→ready toggle — skip (manual
-          # Re-run only). Fail CLOSED on query error: a missed first review is
-          # recoverable via the Re-run button; an unwanted re-review is what
-          # §0 forbids.
+          # `Devflow Review` check that actually ran (or is running) already
+          # exists for this PR's head OR any of its commits, this is a repeat
+          # draft→ready toggle — skip (manual Re-run only). Fail CLOSED on query
+          # error: a missed first review is recoverable via the Re-run button;
+          # an unwanted re-review is what §0 forbids.
+          # Exclude `conclusion == "skipped"`: a skipped job still emits a
+          # `Devflow Review` check-run, and the dual pull_request /
+          # pull_request_target wiring guarantees skipped checks (the dedupe
+          # loser on HEAD, plus draft/synchronize deferrals on earlier commits).
+          # Counting those would make the gate conclude the review "already ran"
+          # and skip it forever. A null conclusion (in-progress review) is
+          # `!= "skipped"`, so a running review still counts — exactly-once
+          # holds. Mirrors the synchronize cost-guard's conclusion-scoped query.
           # A truncated/empty body that still exits 0 yields a non-numeric
           # count; treating that as 0 would fail OPEN (re-review on a repeat
           # toggle), which §0 forbids. Require a bare integer or fail closed.
@@ -331,7 +339,7 @@ jobs:
           # on a >100-check-run commit.
           if ! _RUNS=$(gh api --paginate \
                 "repos/$REPO/commits/$HEAD/check-runs" \
-                --jq '.check_runs[] | select(.name=="Devflow Review") | .id' \
+                --jq '.check_runs[] | select(.name=="Devflow Review" and .conclusion != "skipped") | .id' \
                 2>/dev/null); then
             echo "::warning::Check-run query failed for $HEAD; failing closed (no auto-review). Use the Re-run button if a review is needed."
             exit 0
@@ -351,7 +359,7 @@ jobs:
             fi
             for sha in $COMMITS; do
               if ! _RUNS=$(gh api --paginate "repos/$REPO/commits/$sha/check-runs" \
-                    --jq '.check_runs[] | select(.name=="Devflow Review") | .id' \
+                    --jq '.check_runs[] | select(.name=="Devflow Review" and .conclusion != "skipped") | .id' \
                     2>/dev/null); then
                 echo "::warning::Check-run query failed for commit $sha; failing closed (no auto-review)."
                 exit 0
