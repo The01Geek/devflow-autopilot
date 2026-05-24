@@ -6,6 +6,9 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **The automated Devflow Review now reliably fires on a pull request's first ready-for-review, instead of silently never running.** The first-ready gate that enforces "auto-review exactly once per pull request" was counting *every* `Devflow Review` check-run when deciding whether a pull request had already been reviewed — including the `skipped` check-runs that the dual `pull_request`/`pull_request_target` wiring routinely emits (the deduplication loser, plus draft and synchronize deferrals). Because a skipped run looked like an already-completed review, the gate concluded the review had run and never triggered it, leaving the required `Devflow Review` check unsatisfied and the pull request unmergeable. Both gate queries now ignore `skipped` check-runs so only a genuinely attempted (or in-progress) review counts, preserving the exactly-once guarantee while letting the first real review through. No configuration change is needed. (#35)
+
 ## [2.2.8] — 2026-05-23
 
 ### Changed
