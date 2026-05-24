@@ -6,6 +6,9 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **Vendored skills' `../../docs/…` links now resolve offline, and two `/devflow:review-and-fix` efficiency-trace telemetry-hygiene defects.** The `vendor-plugin` slice now also copies the `docs/` tree, so a skill's relative `../../docs/efficiency-trace.md` link points at a real file in the materialized plugin instead of dangling (the runtime runner sandbox has no web access). Separately, the `--mode record` invocation in `/devflow:review-and-fix` no longer discards stderr into a 0-byte file — a real regression now surfaces a `::warning::` breadcrumb, mirroring the existing `--mode trace` handling — and a silent (dispatched-but-raised-nothing) agent's verdict is now emitted as JSON `null` rather than the string `"null"`, so a cross-run analyzer can use the idiomatic `select(.verdict == null)`. The `null` verdict category itself is unchanged (`docs/efficiency-trace.md` already describes it). (#33)
+
 ## [2.2.8] — 2026-05-23
 
 ### Changed
