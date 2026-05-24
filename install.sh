@@ -15,7 +15,10 @@
 #   - .devflow/config.schema.json     refreshed every run (editor autocomplete)
 #   - .devflow/.gitignore             scoped ignore for ephemeral tmp/ scratch
 #                                     (created if absent; keeps config.json +
-#                                     learnings/ committed)
+#                                     learnings/ committed). A thin install also
+#                                     adds /vendor/ so the runtime-vendored tree
+#                                     is never committed; DEVFLOW_VENDOR=1 removes
+#                                     that line (it commits the tree on purpose).
 #   - .devflow/vendor/devflow/        the plugin tree — ONLY with DEVFLOW_VENDOR=1
 #                                     (thin install otherwise; see below)
 #
@@ -128,6 +131,30 @@ prune_stale_vendored_plugin() {
   fi
 }
 
+# Keep the runtime-vendored tree out of consumer commits — but only for thin
+# installs. A thin consumer materializes .devflow/vendor/devflow at RUNTIME (in
+# cloud CI); now that it survives the restore-from-base (the whole point of the
+# relocation), an implement/review-fix run's `git add -A` would otherwise stage
+# the bulky tree into the consumer's PR. So a thin install adds `/vendor/` to
+# .devflow/.gitignore (patterns there are relative to .devflow/, matching the
+# existing `/tmp/` entry). A DEVFLOW_VENDOR=1 install commits the tree on
+# purpose, so the ignore line must be ABSENT there — handle the thin→vendor
+# upgrade by removing a previously-added line. Idempotent; no-op when the
+# scaffolded .gitignore is missing.
+manage_vendor_gitignore() {
+  local gi=.devflow/.gitignore
+  [ -f "$gi" ] || return 0
+  if [ "${DEVFLOW_VENDOR:-}" = "1" ]; then
+    if grep -qxF '/vendor/' "$gi"; then
+      sed -i '\#^/vendor/$#d' "$gi"
+      log "un-ignored .devflow/vendor/ (DEVFLOW_VENDOR=1 commits the plugin tree)"
+    fi
+  elif ! grep -qxF '/vendor/' "$gi"; then
+    printf '/vendor/\n' >> "$gi"
+    log "ignored .devflow/vendor/ (runtime-vendored plugin must not be committed by a thin install)"
+  fi
+}
+
 # When sourced by the test harness (DEVFLOW_SELFTEST=1), define the functions
 # above and stop — the installer body below (which clones + writes files) does
 # not run. `return` only executes on the sourced path; `|| true` keeps `set -e`
@@ -229,6 +256,10 @@ done
 #    refreshes config.schema.json. Templates resolve relative to the script
 #    ($SRC/.devflow), and we target the current repo root.
 bash "$SRC/scripts/scaffold-config.sh" "$PWD"
+
+# 5b. Gitignore the runtime-vendored tree for thin installs (and un-ignore it for
+#     DEVFLOW_VENDOR=1, which commits it). Runs after scaffold so .devflow/.gitignore exists.
+manage_vendor_gitignore
 
 # 6. Pin devflow_version to the exact commit we installed from, so the runtime
 #    fetch is reproducible and never tracks mutable main. Re-running the

@@ -1529,6 +1529,49 @@ assert_eq "install: non-empty user .claude/ preserved" \
 rm -rf "$WORK"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "install.sh: manage_vendor_gitignore"
+# ────────────────────────────────────────────────────────────────────────────
+# Thin installs must ignore the runtime-vendored .devflow/vendor/ tree so a
+# cloud run's `git add -A` never commits it; DEVFLOW_VENDOR=1 commits it on
+# purpose, so the ignore line must be absent there. Patterns are relative to
+# .devflow/, matching the scaffolded `/tmp/` entry.
+
+# Case A: thin install (DEVFLOW_VENDOR unset) → /vendor/ appended, /tmp/ kept.
+WORK="$(mktemp -d)"; mkdir -p "$WORK/.devflow"; printf '/tmp/\n' > "$WORK/.devflow/.gitignore"
+# shellcheck disable=SC1090
+( cd "$WORK" && DEVFLOW_SELFTEST=1 . "$INSTALL" && manage_vendor_gitignore ) >/dev/null 2>&1
+assert_eq "install: thin install ignores /vendor/" \
+  "yes" "$(grep -qxF '/vendor/' "$WORK/.devflow/.gitignore" && echo yes || echo no)"
+assert_eq "install: thin install keeps /tmp/" \
+  "yes" "$(grep -qxF '/tmp/' "$WORK/.devflow/.gitignore" && echo yes || echo no)"
+# Idempotent: a second run does not duplicate the line.
+# shellcheck disable=SC1090
+( cd "$WORK" && DEVFLOW_SELFTEST=1 . "$INSTALL" && manage_vendor_gitignore ) >/dev/null 2>&1
+assert_eq "install: thin /vendor/ ignore is idempotent" \
+  "1" "$(grep -cxF '/vendor/' "$WORK/.devflow/.gitignore")"
+rm -rf "$WORK"
+
+# Case B: DEVFLOW_VENDOR=1 → a previously-added /vendor/ line is removed, /tmp/ kept.
+WORK="$(mktemp -d)"; mkdir -p "$WORK/.devflow"; printf '/tmp/\n/vendor/\n' > "$WORK/.devflow/.gitignore"
+# shellcheck disable=SC1090
+( cd "$WORK" && DEVFLOW_SELFTEST=1 . "$INSTALL" && DEVFLOW_VENDOR=1 manage_vendor_gitignore ) >/dev/null 2>&1
+assert_eq "install: DEVFLOW_VENDOR=1 un-ignores /vendor/" \
+  "no" "$(grep -qxF '/vendor/' "$WORK/.devflow/.gitignore" && echo yes || echo no)"
+assert_eq "install: DEVFLOW_VENDOR=1 keeps /tmp/" \
+  "yes" "$(grep -qxF '/tmp/' "$WORK/.devflow/.gitignore" && echo yes || echo no)"
+rm -rf "$WORK"
+
+# Case C: no scaffolded .gitignore → no-op, no crash (exit 0).
+WORK="$(mktemp -d)"; mkdir -p "$WORK/.devflow"
+# shellcheck disable=SC1090
+( cd "$WORK" && DEVFLOW_SELFTEST=1 . "$INSTALL" && manage_vendor_gitignore ) >/dev/null 2>&1
+assert_eq "install: missing .gitignore is a clean no-op" \
+  "0" "$?"
+assert_eq "install: no .gitignore created when absent" \
+  "absent" "$([ -f "$WORK/.devflow/.gitignore" ] && echo present || echo absent)"
+rm -rf "$WORK"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "workflow partition invariant"
 # ────────────────────────────────────────────────────────────────────────────
 # Every gate `if:` line that matches a /devflow: command trigger must ALSO
