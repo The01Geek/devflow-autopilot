@@ -202,9 +202,10 @@ for a in read-project-config setup-project-env vendor-plugin; do
 done
 
 # 5. config scaffold — delegated to the ONE shared scaffolder so the cloud tier
-#    and the /devflow:init skill can never drift. It never clobbers an existing
-#    config.json and always refreshes config.schema.json. Templates resolve
-#    relative to the script ($SRC/.devflow), and we target the current repo root.
+#    and the /devflow:init skill can never drift. It never overwrites a value the
+#    user has set (it only backfills keys newly added to the example) and always
+#    refreshes config.schema.json. Templates resolve relative to the script
+#    ($SRC/.devflow), and we target the current repo root.
 bash "$SRC/scripts/scaffold-config.sh" "$PWD"
 
 # 6. Pin devflow_version to the exact commit we installed from, so the runtime

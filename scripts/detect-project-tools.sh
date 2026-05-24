@@ -230,14 +230,47 @@ jq -n \
        then .setup.node_working_directory = $nodewd else . end)
   ' > "$TMP"
 
+# --- 4. Best-effort shape guard before committing the merge -----------------
+# The merge above can only PARSE-check its output. A malformed pre-existing
+# config (e.g. a numeric node_version, or a managed allowlist that isn't an
+# array of strings) is carried through and yields valid-but-wrong-shaped JSON,
+# which an upgrade-time re-run would then overwrite the user's file with. A real
+# JSON-schema validator would add a dependency this jq-only, never-block
+# scaffolder deliberately avoids, so we instead assert — with the jq we already
+# require — the shape of just the fields THIS script manages against the schema's
+# types (see .devflow/config.schema.json). On a mismatch we keep the existing
+# config untouched and warn rather than write a drifted one. jq's `and`
+# short-circuits, so the object checks gate the indexing checks: a non-object
+# managed key fails fast instead of erroring on the `.key.subkey` access.
+config_shape_ok() {
+  jq -e '
+    def str_array: type == "array" and all(.[]; type == "string");
+    (.devflow            // {} | type == "object")
+    and (.devflow_implement // {} | type == "object")
+    and (.devflow_runner    // {} | type == "object")
+    and (.setup             // {} | type == "object")
+    and (.devflow.allowed_tools           // [] | str_array)
+    and (.devflow_implement.allowed_tools // [] | str_array)
+    and (.devflow_runner.allowed_tools    // [] | str_array)
+    and (.setup.install                   // [] | str_array)
+    and (.setup.node_version              // "" | type == "string")
+    and (.setup.node_working_directory    // "" | type == "string")
+  ' "$1" >/dev/null 2>&1
+}
+
 # Only rewrite when the merge actually changed something (keeps re-runs quiet
-# and avoids touching the file's mtime for no reason).
+# and avoids touching the file's mtime for no reason) AND the merged result
+# still has the expected shape (so a drifted upgrade keeps the old config).
 if jq --sort-keys . "$CONFIG" >/dev/null 2>&1 && ! diff -q \
      <(jq --sort-keys . "$CONFIG") <(jq --sort-keys . "$TMP") >/dev/null 2>&1; then
-  mv "$TMP" "$CONFIG"
-  trap - EXIT
-  log "detected: ${ACTIVE[*]} — merged build/test tools into config.json (devflow / devflow_implement / devflow_runner) + setup."
-  log "review the additions before committing; the devflow / devflow_implement entries run PR code in their respective workflows. The devflow_runner.allowed_tools entries reach the automated reviewer only when devflow_runner.provision_env is set in the base config (see config.schema.json / docs/cloud-setup.md), which also runs PR build code under a write token; the runner enforces a deny-list floor over that list."
+  if config_shape_ok "$TMP"; then
+    mv "$TMP" "$CONFIG"
+    trap - EXIT
+    log "detected: ${ACTIVE[*]} — merged build/test tools into config.json (devflow / devflow_implement / devflow_runner) + setup."
+    log "review the additions before committing; the devflow / devflow_implement entries run PR code in their respective workflows. The devflow_runner.allowed_tools entries reach the automated reviewer only when devflow_runner.provision_env is set in the base config (see config.schema.json / docs/cloud-setup.md), which also runs PR build code under a write token; the runner enforces a deny-list floor over that list."
+  else
+    log "detected: ${ACTIVE[*]} — the merged config.json failed a best-effort shape check (a devflow/setup field has an unexpected type); your existing config.json is left unchanged. Fix the field types (see .devflow/config.schema.json) and re-run, or add the tool entries by hand."
+  fi
 else
   log "detected: ${ACTIVE[*]} — config.json already covers them; no changes."
 fi
