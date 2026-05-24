@@ -1607,9 +1607,14 @@ assert_eq "provision: hard-coded npm…make build append removed" "0" \
 # (2) baseprovision emits runner_tools from the TRUSTED base ref ($BASE_JSON),
 # joined to a comma string — the same trust channel as provision_env.
 assert_eq "provision: runner_tools read from base config (BASE_JSON)" "1" \
-  "$(grep -cF '.devflow_runner.allowed_tools // [] | join(",")' "$RUNNER" || true)"
-assert_eq "provision: runner_tools written to GITHUB_OUTPUT" "1" \
-  "$(grep -cF 'runner_tools=$RUNNER_TOOLS' "$RUNNER" || true)"
+  "$(grep -cF '.devflow_runner.allowed_tools // [] | map(strings) | join(",")' "$RUNNER" || true)"
+assert_eq "provision: runner_tools written to GITHUB_OUTPUT (heredoc)" "1" \
+  "$(grep -cF "printf 'runner_tools<<%s" "$RUNNER" || true)"
+# The runner_tools value goes through a heredoc (not a single-line key=value
+# echo), so a newline in a hand-edited base allowed_tools entry can't truncate
+# the value or inject further step outputs.
+assert_eq "provision: runner_tools value forwarded verbatim via heredoc" "1" \
+  "$(grep -cF "printf '%s\\n' \"\$RUNNER_TOOLS\"" "$RUNNER" || true)"
 # The Resolve-profile step's RUNNER_TOOLS env is wired to that base-ref output —
 # never a PR-head source.
 assert_eq "provision: RUNNER_TOOLS env wired to baseprovision output" "1" \
@@ -1623,6 +1628,13 @@ assert_eq "provision: freeform allowed_tools appended to profile" "1" \
   "$(grep -cF 'TOOLS="$TOOLS,$FILTERED"' "$RUNNER" || true)"
 assert_eq "provision: freeform append guarded by PROVISION_ENV == true" "1" \
   "$(grep -c 'if \[ "\$PROVISION_ENV" = "true" \]' "$RUNNER" || true)"
+# Structural: the append must sit AFTER the PROVISION_ENV guard, not merely
+# coexist in the file — else a future dedent could append build tools to the
+# default read-only profile while both greps above still pass. Pin line order.
+APPEND_LN=$(grep -nF 'TOOLS="$TOOLS,$FILTERED"' "$RUNNER" | head -1 | cut -d: -f1)
+GUARD_LN=$(grep -n 'if \[ "\$PROVISION_ENV" = "true" \]' "$RUNNER" | head -1 | cut -d: -f1)
+assert_eq "provision: freeform append is inside the PROVISION_ENV guard (guard precedes append)" "yes" \
+  "$([ -n "$APPEND_LN" ] && [ -n "$GUARD_LN" ] && [ "$GUARD_LN" -lt "$APPEND_LN" ] && echo yes || echo no)"
 
 # (4) Deny-list floor: the catastrophic tier is stripped before appending. Pin
 # the exact-name denies, the command-word denies, and both warnings.
@@ -1670,6 +1682,59 @@ assert_eq "provision: detect filters runner write through denylisted" "1" \
   "$(grep -cF 'select(denylisted | not)' "$DETECT" || true)"
 assert_eq "provision: detect runner write uses filtered \$runner_tools" "1" \
   "$(grep -cF '.devflow_runner.allowed_tools    = ((.devflow_runner.allowed_tools    // []) + $runner_tools' "$DETECT" || true)"
+
+# Behavioral: actually RUN the 'tools' step's deny-list filter. The static greps
+# above only prove the deny-list STRINGS exist, not that filtering works — and
+# this is a security boundary, so logic regressions (a broken command-word split,
+# the multi-word bypass Bash(sudo rm:*), a guard that stops gating) must fail the
+# suite. We extract the step's run: script and exercise it under several inputs.
+if command -v python3 >/dev/null 2>&1 && python3 -c 'import yaml' >/dev/null 2>&1; then
+  TOOLS_STEP=$(mktemp)
+  python3 - "$RUNNER" >"$TOOLS_STEP" <<'PY'
+import sys, yaml
+doc = yaml.safe_load(open(sys.argv[1]))
+for job in doc["jobs"].values():
+    for s in job.get("steps", []):
+        if s.get("id") == "tools" and "run" in s:
+            sys.stdout.write("#!/usr/bin/env bash\nset -euo pipefail\n" + s["run"])
+            raise SystemExit
+raise SystemExit("tools step not found")
+PY
+  # Emit the full resolved TOOLS string for a given provision flag + runner list.
+  emit_tools() {  # $1=PROVISION_ENV  $2=RUNNER_TOOLS
+    local out; out=$(mktemp)
+    PROFILE=review PROVISION_ENV="$1" RUNNER_TOOLS="$2" GITHUB_OUTPUT="$out" \
+      bash "$TOOLS_STEP" >/dev/null 2>&1 || true
+    awk '/^tools<</{f=1;next} (f && /^EOF_/){f=0} f' "$out"
+    rm -f "$out"
+  }
+  # The read-only base = provisioning off; the freeform append is everything the
+  # filter adds on top of it.
+  BASE_TOOLS=$(emit_tools false '')
+  append_of() { local full; full=$(emit_tools "$1" "$2"); printf '%s' "${full#"$BASE_TOOLS"}"; }
+
+  # Multi-word raw-shell / privilege entries are stripped (deny by the binary).
+  assert_eq "provision(behavior): Bash(sudo rm:*) stripped" "" \
+    "$(append_of true 'Bash(sudo rm:*)')"
+  assert_eq "provision(behavior): Bash(sh -c:*) stripped" "" \
+    "$(append_of true 'Bash(sh -c:*)')"
+  # Bare-word denies + a file-mutation tool are stripped.
+  assert_eq "provision(behavior): Write + Bash(bash:*) stripped" "" \
+    "$(append_of true 'Write,Bash(bash:*)')"
+  # Legitimate build tools survive — including an internal space and a lookalike
+  # prefix (shellcheck must NOT be caught by the 'sh' deny).
+  assert_eq "provision(behavior): clean build tools survive" ",Bash(go:*),Bash(go build:*),Bash(shellcheck:*)" \
+    "$(append_of true 'Bash(go:*),Bash(go build:*),Bash(shellcheck:*)')"
+  # Provisioning off → nothing appended even with a non-empty list (read-only).
+  assert_eq "provision(behavior): provision_env=false appends nothing" "" \
+    "$(append_of false 'Bash(go:*),Bash(cargo:*)')"
+  # Mixed list: denies dropped, clean kept, order preserved.
+  assert_eq "provision(behavior): mixed list keeps only clean entries" ",Bash(go:*),Bash(make:*)" \
+    "$(append_of true 'Bash(go:*),Bash(sudo:*),Edit,Bash(make:*)')"
+  rm -f "$TOOLS_STEP"
+else
+  echo "  SKIP  provision(behavior): python3+pyyaml unavailable; static assertions only"
+fi
 
 # Trust boundary on the SETUP channel (the one that carries setup.install): the
 # provision step's config_json must come from steps.baseprovision (base ref),

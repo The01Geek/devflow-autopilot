@@ -195,16 +195,24 @@ jobs:
           echo "provision_env=$PROVISION" >> "$GITHUB_OUTPUT"
           # Freeform reviewer build allowlist, read from the SAME trusted base ref
           # as provision_env above (so a PR cannot grant itself tools). Emitted as
-          # a comma-joined single-line string; allowlist entries never contain
-          # newlines, so a plain key=value write is safe. `try … catch ""` keeps a
-          # non-object/non-array `devflow_runner` (or `allowed_tools`) from aborting
-          # this step under set -e — it collapses to empty, i.e. no build tools.
-          # The deny-list floor is applied at CONSUME time in the next step, not
-          # here, so the authoritative filter sees exactly the string forwarded.
-          RUNNER_TOOLS=$(printf '%s' "$BASE_JSON" | jq -r 'try (.devflow_runner.allowed_tools // [] | join(",")) catch ""')
-          echo "runner_tools=$RUNNER_TOOLS" >> "$GITHUB_OUTPUT"
-          # Heredoc form forwards the (possibly multi-line) base config verbatim
-          # to setup-project-env regardless of content.
+          # a comma-joined string. `map(strings)` keeps only string elements so a
+          # single hand-edited non-string entry degrades to "drop that element",
+          # not "join errors → catch "" → silently lose ALL tools"; `try … catch ""`
+          # still guards a non-object/array `devflow_runner`/`allowed_tools`,
+          # collapsing it to empty (no build tools). The deny-list floor is applied
+          # at CONSUME time in the next step, so the authoritative filter sees
+          # exactly the string forwarded here.
+          RUNNER_TOOLS=$(printf '%s' "$BASE_JSON" | jq -r 'try (.devflow_runner.allowed_tools // [] | map(strings) | join(",")) catch ""')
+          # Heredoc forms forward both values verbatim regardless of content — a
+          # newline in either (a hand-edited allowed_tools entry, a multi-line base
+          # config) must not corrupt step outputs the way a plain key=value echo
+          # would (only its first line is parsed; the rest inject further outputs).
+          delim="EOF_$(date +%s%N)_$$"
+          {
+            printf 'runner_tools<<%s\n' "$delim"
+            printf '%s\n' "$RUNNER_TOOLS"
+            printf '%s\n' "$delim"
+          } >> "$GITHUB_OUTPUT"
           delim="EOF_$(date +%s%N)_$$"
           {
             printf 'config_json<<%s\n' "$delim"
@@ -266,10 +274,15 @@ jobs:
                 # Split RUNNER_TOOLS on comma ONCE (so an entry like
                 # "Bash(go build:*)" keeps its internal space), then restore the
                 # default IFS so the inner space-separated DENY_* loops split
-                # correctly.
+                # correctly. `set -f` disables pathname expansion for the split:
+                # every entry contains a literal `*` (e.g. Bash(npm:*)), so without
+                # noglob the unquoted expansion could glob against the checked-out
+                # working tree and rewrite the list into filenames.
                 OLDIFS=$IFS
                 IFS=','
+                set -f
                 set -- $RUNNER_TOOLS
+                set +f
                 IFS=$OLDIFS
                 for raw in "$@"; do
                   # Trim surrounding whitespace from the whole entry.
@@ -287,8 +300,15 @@ jobs:
                         cmd="${inner%%:*}"
                         cmd="${cmd#"${cmd%%[![:space:]]*}"}"
                         cmd="${cmd%"${cmd##*[![:space:]]}"}"
+                        # The executable is the FIRST whitespace-delimited token of
+                        # the command spec — deny by the BINARY, so Bash(sudo rm:*),
+                        # Bash(sh -c:*), Bash(bash -c:*) are stripped, not just the
+                        # bare-word Bash(sudo:*)/Bash(sh:*) forms. (claude-code-action
+                        # grants the named binary; a multi-word arg prefix doesn't
+                        # make it safer.)
+                        binword="${cmd%%[[:space:]]*}"
                         for c in $DENY_CMDS; do
-                          if [ "$cmd" = "$c" ]; then denied=true; break; fi
+                          if [ "$binword" = "$c" ]; then denied=true; break; fi
                         done
                         ;;
                     esac

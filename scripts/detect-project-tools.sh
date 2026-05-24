@@ -190,7 +190,7 @@ jq -n \
   def denylisted:
     . as $e
     | if (["Edit","Write","MultiEdit","NotebookEdit"] | index($e)) != null then true
-      elif ($e | test("^\\s*Bash\\(\\s*(bash|sh|zsh|eval|exec|source|sudo)\\s*[:)]")) then true
+      elif ($e | test("^\\s*Bash\\(\\s*(bash|sh|zsh|eval|exec|source|sudo)(\\s|:|\\))")) then true
       else false end;
   ($cfg[0]) as $c |
   ($pre[0].presets) as $p |
