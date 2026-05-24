@@ -218,15 +218,16 @@ assert_eq "scaffold: .gitignore ignores tmp/" "yes" \
 assert_eq "scaffold: .gitignore does NOT ignore the .devflow root" "no" \
   "$(grep -qE '^/?\*?$|^\.$' "$SC_FRESH/.devflow/.gitignore" && echo yes || echo no)"
 
-# 2. Existing config.json + .gitignore → NEVER clobbered; schema still refreshed.
+# 2. Existing config.json + .gitignore → the user's value is NEVER clobbered
+#    (missing keys are backfilled — see block 5); schema still refreshed.
 SC_KEEP="$(mktemp -d)"
 mkdir -p "$SC_KEEP/.devflow"
 printf '{"sentinel":true}' > "$SC_KEEP/.devflow/config.json"
 printf 'STALE' > "$SC_KEEP/.devflow/config.schema.json"
 printf 'CUSTOM-IGNORE\n' > "$SC_KEEP/.devflow/.gitignore"
 bash "$SC" "$SC_KEEP" >/dev/null 2>&1
-assert_eq "scaffold: existing config preserved" \
-  '{"sentinel":true}' "$(cat "$SC_KEEP/.devflow/config.json")"
+assert_eq "scaffold: existing custom value preserved through backfill" \
+  "true" "$(jq -r '.sentinel' "$SC_KEEP/.devflow/config.json")"
 assert_eq "scaffold: schema refreshed over stale" \
   "$(cat "$TPL_DIR/config.schema.json")" "$(cat "$SC_KEEP/.devflow/config.schema.json")"
 assert_eq "scaffold: existing .gitignore preserved" \
@@ -250,7 +251,83 @@ SC_NOTPL_TGT="$(mktemp -d)"
 bash "$SC_NOTPL/scripts/scaffold-config.sh" "$SC_NOTPL_TGT" >/dev/null 2>&1
 assert_eq "scaffold: missing templates → exit 2" "2" "$?"
 
-rm -rf "$SC_FRESH" "$SC_KEEP" "$SC_NOTPL" "$SC_NOTPL_TGT"
+# 5. Config-key backfill on an existing config: a recursive deep-merge adds keys
+#    newly introduced in the example (at any depth) while preserving the user's
+#    values and arrays. No language markers in these throwaway dirs, so the
+#    detect step is a no-op and only the backfill is under test.
+SC_BF="$(mktemp -d)"; mkdir -p "$SC_BF/.devflow"
+# An old config predating devflow_runner.provision_env: a custom top-level value,
+# a custom nested value, and a user-tuned array we must not touch.
+printf '%s' '{"base_branch":"release","devflow_runner":{"effort":"high"},"devflow":{"allowed_tools":["Bash(make:*)","Bash(npm:*)"]}}' \
+  > "$SC_BF/.devflow/config.json"
+# Capture stdout so we can also assert the backfill log line the /devflow:init
+# skill (skills/init/SKILL.md) keys its "After running" guidance off of.
+SC_BF_OUT="$(bash "$SC" "$SC_BF" 2>&1)"
+assert_eq "scaffold-backfill: nested missing key added (devflow_runner.provision_env)" \
+  "false" "$(jq -r '.devflow_runner.provision_env' "$SC_BF/.devflow/config.json")"
+assert_eq "scaffold-backfill: top-level missing key added (claude_model)" \
+  "claude-opus-4-7" "$(jq -r '.claude_model' "$SC_BF/.devflow/config.json")"
+assert_eq "scaffold-backfill: existing top-level value preserved (base_branch)" \
+  "release" "$(jq -r '.base_branch' "$SC_BF/.devflow/config.json")"
+assert_eq "scaffold-backfill: existing nested value preserved (devflow_runner.effort)" \
+  "high" "$(jq -r '.devflow_runner.effort' "$SC_BF/.devflow/config.json")"
+# jq `*` replaces arrays with the right operand (the user's), never merging or
+# deduping — so the user's array survives with its exact elements and order
+# (read back via `jq -c`, which normalizes whitespace but not contents).
+assert_eq "scaffold-backfill: existing array left unchanged (allowed_tools)" \
+  '["Bash(make:*)","Bash(npm:*)"]' \
+  "$(jq -c '.devflow.allowed_tools' "$SC_BF/.devflow/config.json")"
+# The documented log line fires when a backfill actually happens.
+assert_eq "scaffold-backfill: backfill emits the documented log line" "yes" \
+  "$(printf '%s' "$SC_BF_OUT" | grep -q 'backfilled newly-added keys' && echo yes || echo no)"
+
+# 5b. A config already holding every example key is a no-op: byte-for-byte
+#     identical afterwards (the merge changed nothing, so the file isn't rewritten)
+#     and the backfill log line is NOT emitted.
+SC_NOOP="$(mktemp -d)"; mkdir -p "$SC_NOOP/.devflow"
+cp "$TPL_DIR/config.example.json" "$SC_NOOP/.devflow/config.json"
+SC_NOOP_BEFORE="$(cat "$SC_NOOP/.devflow/config.json")"
+SC_NOOP_OUT="$(bash "$SC" "$SC_NOOP" 2>&1)"
+assert_eq "scaffold-backfill: complete config is a byte-identical no-op" \
+  "$SC_NOOP_BEFORE" "$(cat "$SC_NOOP/.devflow/config.json")"
+assert_eq "scaffold-backfill: no-op does NOT emit the backfill log line" "no" \
+  "$(printf '%s' "$SC_NOOP_OUT" | grep -q 'backfilled newly-added keys' && echo yes || echo no)"
+
+# 5c. jq unavailable → backfill skipped, scaffold still succeeds and leaves the
+#     config untouched. Run under a PATH that resolves the coreutils the scaffold
+#     needs but NOT jq, so `command -v jq` fails exactly as on a host without jq.
+#     The symlink set below must track every external command scaffold-config.sh
+#     (and its detect-project-tools.sh callee) reaches on the jq-absent path; git
+#     is intentionally absent because TARGET_ROOT is passed explicitly ($1), and
+#     mv/find/grep are not reached once `command -v jq` short-circuits.
+SC_NOJQ="$(mktemp -d)"; mkdir -p "$SC_NOJQ/.devflow"
+printf '%s' '{"sentinel":true}' > "$SC_NOJQ/.devflow/config.json"
+NOJQ_BIN="$(mktemp -d)"
+for b in bash dirname mkdir cp rm cat printf find grep diff mktemp; do
+  src="$(command -v "$b")" && ln -s "$src" "$NOJQ_BIN/$b"
+done
+BASH_BIN="$(command -v bash)"
+PATH="$NOJQ_BIN" "$BASH_BIN" "$SC" "$SC_NOJQ" >/dev/null 2>&1
+assert_eq "scaffold-backfill: jq unavailable → scaffold exits 0 (best-effort)" \
+  "0" "$?"
+assert_eq "scaffold-backfill: jq unavailable → config left as-is (no backfill)" \
+  '{"sentinel":true}' "$(cat "$SC_NOJQ/.devflow/config.json")"
+
+# 5d. Malformed (invalid-JSON) existing config → backfill skipped, scaffold still
+#     succeeds, the malformed bytes are left untouched (no clobber/truncation),
+#     and the schema is still refreshed (proving the scaffold proceeded past the
+#     skip). Guards the `jq -e .` validity branch.
+SC_BAD="$(mktemp -d)"; mkdir -p "$SC_BAD/.devflow"
+printf '%s' '{ not valid json' > "$SC_BAD/.devflow/config.json"
+bash "$SC" "$SC_BAD" >/dev/null 2>&1
+assert_eq "scaffold-backfill: malformed config → scaffold exits 0 (best-effort)" \
+  "0" "$?"
+assert_eq "scaffold-backfill: malformed config left untouched (no clobber)" \
+  '{ not valid json' "$(cat "$SC_BAD/.devflow/config.json")"
+assert_eq "scaffold-backfill: malformed config → schema still refreshed" \
+  "$(cat "$TPL_DIR/config.schema.json")" "$(cat "$SC_BAD/.devflow/config.schema.json")"
+
+rm -rf "$SC_FRESH" "$SC_KEEP" "$SC_NOTPL" "$SC_NOTPL_TGT" "$SC_BF" "$SC_NOOP" "$SC_NOJQ" "$NOJQ_BIN" "$SC_BAD"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "config.example.json ⊇ config.schema.json (superset invariant)"
@@ -440,7 +517,33 @@ assert_eq "detect: spaced subdir name is quoted in install line" "yes" \
 assert_eq "detect: spaced subdir name written verbatim to node_working_directory" "my app" \
   "$(jq -r '.setup.node_working_directory' "$DT9/.devflow/config.json")"
 
-rm -rf "$DT1" "$DT2" "$DT3" "$DT4" "$DT5" "$DT6" "$DT7" "$DT8" "$DT9"
+# 11. Best-effort shape guard: a malformed pre-existing config (numeric
+#     node_version, which the schema types as a string) is carried through the
+#     merge into valid-but-wrong-shaped JSON. The guard must REFUSE to write it —
+#     the user's config is left byte-identical — and the script must still exit 0
+#     (best-effort, never blocks the surrounding scaffold).
+DT10="$(mktemp -d)"; mkdir -p "$DT10/.devflow"
+printf '{"name":"z"}' > "$DT10/package.json"
+printf '{}' > "$DT10/package-lock.json"
+printf '{"setup":{"node_version":20,"install":[]}}' > "$DT10/.devflow/config.json"
+DT10_BEFORE="$(cat "$DT10/.devflow/config.json")"
+bash "$DPT" "$DT10" >/dev/null 2>&1
+assert_eq "detect: shape-drifted merge still exits 0 (best-effort)" "0" "$?"
+assert_eq "detect: shape-drifted merge leaves config untouched" \
+  "$DT10_BEFORE" "$(cat "$DT10/.devflow/config.json")"
+
+# 12. The shape guard does NOT block a well-formed merge: a valid empty config
+#     with a node marker is merged and written (npm tools land), confirming the
+#     guard is a safety net, not a gate on the happy path.
+DT11="$(mktemp -d)"; mkdir -p "$DT11/.devflow"
+printf '{"name":"ok"}' > "$DT11/package.json"
+printf '{}' > "$DT11/package-lock.json"
+printf '{}' > "$DT11/.devflow/config.json"
+bash "$DPT" "$DT11" >/dev/null 2>&1
+assert_eq "detect: well-formed merge passes the guard and is written" "yes" \
+  "$(dpt_has .devflow.allowed_tools 'Bash(npm:*)' "$DT11/.devflow/config.json")"
+
+rm -rf "$DT1" "$DT2" "$DT3" "$DT4" "$DT5" "$DT6" "$DT7" "$DT8" "$DT9" "$DT10" "$DT11"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "resolve-node-cache.sh (setup-project-env helper)"
