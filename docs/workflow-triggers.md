@@ -59,13 +59,13 @@ that runs *before* authorization and number resolution: it declines any
 - On a match the gate emits `should_run=false` (with an empty `number`) and logs a
   `::warning::`, regardless of actor or which command phrase the body quotes.
 
-> **Workflow wiring caveat.** Passing `SELF_COMMENT_MARKER` into the resolver's
+> **Workflow wiring.** Passing `SELF_COMMENT_MARKER` into the resolver's
 > environment (and exposing a `workpad_marker` config output) lives in
-> `.github/workflows/devflow-implement.yml`. That workflow change is **not yet
-> applied** — it must be wired up manually by a maintainer, because the GitHub App
-> token used here lacks `workflows` permission. Until then the guard still fully
-> protects the **default** marker (its built-in fallback); the env wiring is only
-> needed for repos that customize `devflow.workpad_marker`.
+> `.github/workflows/devflow-implement.yml`, and is **applied as shipped** — the
+> config job extracts `devflow.workpad_marker` (defaulting to the built-in
+> `<!-- devflow:workpad -->`) and the gate passes it to the resolver. So both the
+> **default** marker and any repo-customized `devflow.workpad_marker` are protected
+> out of the box, with no manual edit required.
 
 ## Duplicate `/devflow:implement` runs are ignored per thread
 
