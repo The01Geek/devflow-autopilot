@@ -253,6 +253,52 @@ assert_eq "scaffold: missing templates → exit 2" "2" "$?"
 rm -rf "$SC_FRESH" "$SC_KEEP" "$SC_NOTPL" "$SC_NOTPL_TGT"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "config.example.json ⊇ config.schema.json (superset invariant)"
+# ────────────────────────────────────────────────────────────────────────────
+# config.example.json drives the scaffold/backfill (scaffold-config.sh copies it
+# verbatim to a fresh config.json); config.schema.json drives editor validation.
+# They are hand-maintained independently, so a key added to one but not the other
+# silently either won't backfill (a schema default with no example entry never
+# reaches a scaffolded config) or won't validate (an example key the schema
+# doesn't define). These two assertions pin the relation in both directions:
+#   1. every key in the example is a property the schema defines  → always validates
+#   2. every schema property carrying a `default` is in the example → always backfills
+# Optional schema properties with NO default (php_*, services, watched_authors,
+# node_working_directory, …) are intentionally omitted from the example and are
+# therefore NOT required by check 2. The recursion descends into nested object
+# `properties` and array `items`, so deep keys (e.g. setup.services.[].image) and
+# nested defaults are covered too. A non-empty list on either side is the drift.
+CFG_EXAMPLE="$TPL_DIR/config.example.json"
+CFG_SCHEMA="$TPL_DIR/config.schema.json"
+CFG_DRIFT="$(jq -n '
+  # Property-name paths the schema DEFINES (descends into .properties + .items).
+  def spaths:
+    def recur($p):
+      ( (.properties // {}) | to_entries[] | ($p+[.key]) as $q
+        | ($q|join(".")), (.value|recur($q)) ),
+      ( (.items // empty) | recur($p+["[]"]) );
+    [ recur([]) ];
+  # Schema property paths that declare a `default` (the backfillable keys).
+  def dpaths:
+    def recur($p):
+      ( (.properties // {}) | to_entries[] | ($p+[.key]) as $q
+        | (if (.value | (type=="object" and has("default"))) then ($q|join(".")) else empty end),
+          (.value|recur($q)) ),
+      ( (.items // empty) | recur($p+["[]"]) );
+    [ recur([]) ];
+  # Object-key paths present in the example (array indices excluded).
+  def kpaths:
+    [ paths | select(all(.[]; type=="string")) | join(".") ];
+  input as $ex | input as $sch
+  | { example_not_in_schema:        (($ex|kpaths) - ($sch|spaths) | sort),
+      schema_default_not_in_example: (($sch|dpaths) - ($ex|kpaths) | sort) }
+' "$CFG_EXAMPLE" "$CFG_SCHEMA")"
+assert_eq "config: every example key is defined in the schema" "[]" \
+  "$(echo "$CFG_DRIFT" | jq -c '.example_not_in_schema')"
+assert_eq "config: every schema default appears in the example" "[]" \
+  "$(echo "$CFG_DRIFT" | jq -c '.schema_default_not_in_example')"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "detect-project-tools.sh"
 # ────────────────────────────────────────────────────────────────────────────
 # Language auto-detection: scans a throwaway repo for marker files and merges
