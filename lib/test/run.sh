@@ -2088,6 +2088,17 @@ VP_PLACEMENT="$(awk '
 ' "$REPO_ROOT"/.github/workflows/*.yml)"
 assert_eq "vendor: vendor-plugin runs after checkout in all six plugin jobs" "6/0" "$VP_PLACEMENT"
 
+# AC3 finalize_check drift-guard: the dismiss call must be preceded by an
+# explicit executability check so a vendoring miss (absent script, exit 127)
+# is reported distinctly from a present-but-errored run. A workflow-level grep
+# guard (the script-absent branch cannot be exercised by the shell harness):
+# the `[ ! -x … ]` test and a distinct "absent" warning string must both be
+# present in devflow-review.yml.
+assert_eq "review: finalize_check guards dismiss with [ -x ] before invoking" "1" \
+  "$(grep -c '\[ ! -x "\$DISMISS" \]' "$REVIEW_WF" || true)"
+assert_eq "review: finalize_check emits a distinct script-absent warning" "1" \
+  "$(grep -c 'dismiss-stale-rejections.sh absent — vendoring did not materialize it' "$REVIEW_WF" || true)"
+
 # devflow_version pin (AC7): declared in the schema and present in the example.
 assert_eq "vendor: schema declares devflow_version string" "string" \
   "$(jq -r '.properties.devflow_version.type' "$REPO_ROOT/.devflow/config.schema.json")"
