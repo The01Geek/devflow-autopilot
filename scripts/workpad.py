@@ -611,9 +611,11 @@ def main():
                    help='Find one AC matching OLD; replace its text with NEW. '
                         'Preserves the checkbox state. For Phase 2.2.6.')
     u.add_argument('--note', metavar='TEXT', action='append', default=[],
-                   help='Append an auto-timestamped Decisions/Notes entry. '
-                        'May be passed multiple times to append several '
-                        'entries in one atomic update.')
+                   help='Append a Decisions/Notes entry, prefixed with a '
+                        'time-only HH:MM:SS UTC timestamp and grouped under a '
+                        '### {current Status} sub-heading. May be passed '
+                        'multiple times to append several entries (sharing one '
+                        'timestamp) in one atomic update.')
     u.add_argument('--reflection', metavar='TEXT', action='append', default=[],
                    help='Append a bullet to Devflow Reflection (no timestamp). '
                         'May be passed multiple times to append several bullets '

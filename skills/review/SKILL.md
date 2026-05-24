@@ -561,7 +561,8 @@ Construct the report in this format:
 ## Verification Checklist Results
 - ({total} checked, {pass} passed, {fail} failed, {inconclusive} inconclusive)
 {for each FAIL or INCONCLUSIVE item: "- VC-N: VERDICT — claim [source_file:source_line]"}
-{when {pass} > 0, emit the PASS items inside a collapsed block — `{pass}` MUST equal the number of `- VC-N` lines listed inside it:}
+{when {pass} > 0, emit the PASS items inside a collapsed block — `{pass}` MUST equal the number of `- VC-N` lines listed inside it. Leave a blank line before `<details>` so GitHub renders the collapsible correctly after the preceding list:}
+
 <details><summary>{pass} passed checks</summary>
 
 {for each PASS item: "- VC-N: PASS — claim [source_file:source_line]"}

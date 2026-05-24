@@ -217,6 +217,25 @@ nb4 = out4.split('## Decisions / Notes', 1)[1]
 assert_eq("note: two notes in one call preserve argument order", True,
           nb4.index('alpha note') < nb4.index('beta note'))
 
+# Inter-phase insertion: a note for an EARLIER phase lands at the end of that
+# phase's block, before a later phase's sub-heading — the core multi-phase
+# lifecycle invariant (Setup → Implementing → ... across many update calls).
+MULTI_PHASE = "### Setup\n- 04:00:00 — first setup\n\n### Implementing\n- 05:00:00 — impl note\n"
+mp = workpad._append_note(MULTI_PHASE, "late setup", "04:30:00", "Setup")
+assert_eq("note: inter-phase insert reuses earlier sub-heading", 1, mp.count('### Setup'))
+assert_eq("note: inter-phase insert does not duplicate later sub-heading", 1,
+          mp.count('### Implementing'))
+assert_eq("note: inter-phase note lands inside its phase, before the next sub-heading",
+          True, mp.index('late setup') < mp.index('### Implementing'))
+assert_eq("note: inter-phase note follows the earlier same-phase bullet", True,
+          mp.index('first setup') < mp.index('late setup'))
+
+# Falsy phase → flat append (legacy behavior): no `### ` sub-heading is created.
+flat = workpad._append_note("- 01:00:00 — old\n", "orphan", "02:00:00", None)
+assert_eq("note: phase=None appends flat (no sub-heading)", False, '### ' in flat)
+assert_eq("note: phase=None preserves order and bullet", True,
+          flat.index('old') < flat.index('orphan') and flat.endswith('- 02:00:00 — orphan\n'))
+
 
 print("parse_acs._is_post_merge")
 

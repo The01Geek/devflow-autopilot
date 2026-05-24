@@ -50,10 +50,12 @@ marker="${SELF_COMMENT_MARKER:-<!-- devflow:workpad -->}"
 # DevFlow's own workpad comment quotes the literal phrase `/devflow:implement`
 # (e.g. the "/devflow:implement run started" note) and carries no `@claude`, so
 # it would otherwise re-enter the gate and fire a duplicate run on its own
-# thread. A workpad comment is identified by the marker it leads with; declining
-# any comment that contains it stops the self-trigger regardless of actor (an
-# allowed bot posts the workpad) or which phrase it quotes. Substring match —
-# not a regex — so a customized marker with regex-special chars matches literally.
+# thread. The workpad always begins with the marker (workpad.py matches it with
+# startswith); here we deliberately decline any comment that *contains* the
+# marker anywhere — a broader check, so a quoted/embedded marker is still caught
+# — regardless of actor (an allowed bot posts the workpad) or which phrase it
+# quotes. Substring match — not a regex — so a customized marker with
+# regex-special chars matches literally.
 if [ -n "$marker" ]; then
   case "$text" in
     *"$marker"*)
