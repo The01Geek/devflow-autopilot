@@ -16,7 +16,7 @@ bash "${CLAUDE_SKILL_DIR}/../../scripts/scaffold-config.sh"
 
 This is the single shared scaffolder — the same script `install.sh` uses, so the two entry points can never drift. With no argument it targets the current repo root (git toplevel) and:
 
-- creates `.devflow/config.json` from the shipped `config.example.json` **only if it does not already exist** — it never clobbers a config you've already filled in;
+- creates `.devflow/config.json` from the shipped `config.example.json` **only if it does not already exist** — it never clobbers a config you've already filled in. When the config already exists it's kept and re-running **backfills any newly-added keys** from the example (at any nesting depth) so you can opt into new features; values you've already set always win and arrays you've tuned (e.g. `allowed_tools`) are left as-is;
 - always refreshes `.devflow/config.schema.json` so your editor validates against the current field set;
 - **auto-detects the repo's language(s)** (Node, Go, Rust, Java, Ruby, PHP, .NET, Make, Docker) and **merges the matching build/test/lint tools** into `config.json` — into all three allowlists (`devflow.allowed_tools`, `devflow_implement.allowed_tools`, and `devflow_runner.allowed_tools`, which the automated reviewer consumes when `devflow_runner.provision_env: true` — see below) plus the `setup` block (`node_version` + a lockfile-appropriate install line, and a `composer install` line for PHP). When the Node `package.json`/lockfile lives in a **subdirectory** (a monorepo `frontend/` package, or a PHP/Rails app with a co-located `/jsx` or `/resources/js` bundle), it is auto-detected into `setup.node_working_directory` and the generated Node install line is scoped into that directory (a subshell `cd`) so caching and the build target the right place; a root-level build leaves `node_working_directory` empty. The `setup` block is what lets the automated reviewer build/test a PR — but only once the maintainer opts in with `devflow_runner.provision_env: true` (see "Letting the reviewer build/test a PR" in docs/cloud-setup.md). The merge is an **idempotent union**: it never removes your custom entries and never duplicates, so re-running after adding a language picks up only the new tools.
 
@@ -62,7 +62,7 @@ The automated reviewer fires on `pull_request_target` with a `pull-requests: wri
 Read the scaffolder's output line and respond accordingly:
 
 - **`scaffolded …`** — a fresh `.devflow/config.json` was created. Every value has a working default, so it's usable as-is; tell the user they only need to edit it to customize (their editor validates against `config.schema.json`).
-- **`keeping existing …`** — they already had a `config.json`; it was left untouched and only the schema was refreshed. Nothing more to do.
+- **`keeping existing …`** — they already had a `config.json`; their values were preserved. It may be followed by **`backfilled newly-added keys …`** when the upgrade added keys the example gained since their config was written (existing values and arrays untouched) — tell the user to review the small diff before committing. If only `keeping existing …` prints, the config already had every key and nothing changed.
 
 The scaffolder also prints `devflow-detect:` lines from the language auto-detection. Read them and respond:
 

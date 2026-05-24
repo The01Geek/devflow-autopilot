@@ -218,15 +218,16 @@ assert_eq "scaffold: .gitignore ignores tmp/" "yes" \
 assert_eq "scaffold: .gitignore does NOT ignore the .devflow root" "no" \
   "$(grep -qE '^/?\*?$|^\.$' "$SC_FRESH/.devflow/.gitignore" && echo yes || echo no)"
 
-# 2. Existing config.json + .gitignore → NEVER clobbered; schema still refreshed.
+# 2. Existing config.json + .gitignore → the user's value is NEVER clobbered
+#    (missing keys are backfilled — see block 5); schema still refreshed.
 SC_KEEP="$(mktemp -d)"
 mkdir -p "$SC_KEEP/.devflow"
 printf '{"sentinel":true}' > "$SC_KEEP/.devflow/config.json"
 printf 'STALE' > "$SC_KEEP/.devflow/config.schema.json"
 printf 'CUSTOM-IGNORE\n' > "$SC_KEEP/.devflow/.gitignore"
 bash "$SC" "$SC_KEEP" >/dev/null 2>&1
-assert_eq "scaffold: existing config preserved" \
-  '{"sentinel":true}' "$(cat "$SC_KEEP/.devflow/config.json")"
+assert_eq "scaffold: existing custom value preserved through backfill" \
+  "true" "$(jq -r '.sentinel' "$SC_KEEP/.devflow/config.json")"
 assert_eq "scaffold: schema refreshed over stale" \
   "$(cat "$TPL_DIR/config.schema.json")" "$(cat "$SC_KEEP/.devflow/config.schema.json")"
 assert_eq "scaffold: existing .gitignore preserved" \
@@ -250,7 +251,56 @@ SC_NOTPL_TGT="$(mktemp -d)"
 bash "$SC_NOTPL/scripts/scaffold-config.sh" "$SC_NOTPL_TGT" >/dev/null 2>&1
 assert_eq "scaffold: missing templates → exit 2" "2" "$?"
 
-rm -rf "$SC_FRESH" "$SC_KEEP" "$SC_NOTPL" "$SC_NOTPL_TGT"
+# 5. Config-key backfill on an existing config: a recursive deep-merge adds keys
+#    newly introduced in the example (at any depth) while preserving the user's
+#    values and arrays. No language markers in these throwaway dirs, so the
+#    detect step is a no-op and only the backfill is under test.
+SC_BF="$(mktemp -d)"; mkdir -p "$SC_BF/.devflow"
+# An old config predating devflow_runner.provision_env: a custom top-level value,
+# a custom nested value, and a user-tuned array we must not touch.
+printf '%s' '{"base_branch":"release","devflow_runner":{"effort":"high"},"devflow":{"allowed_tools":["Bash(make:*)","Bash(npm:*)"]}}' \
+  > "$SC_BF/.devflow/config.json"
+bash "$SC" "$SC_BF" >/dev/null 2>&1
+assert_eq "scaffold-backfill: nested missing key added (devflow_runner.provision_env)" \
+  "false" "$(jq -r '.devflow_runner.provision_env' "$SC_BF/.devflow/config.json")"
+assert_eq "scaffold-backfill: top-level missing key added (claude_model)" \
+  "claude-opus-4-7" "$(jq -r '.claude_model' "$SC_BF/.devflow/config.json")"
+assert_eq "scaffold-backfill: existing top-level value preserved (base_branch)" \
+  "release" "$(jq -r '.base_branch' "$SC_BF/.devflow/config.json")"
+assert_eq "scaffold-backfill: existing nested value preserved (devflow_runner.effort)" \
+  "high" "$(jq -r '.devflow_runner.effort' "$SC_BF/.devflow/config.json")"
+# jq `*` replaces arrays with the right operand (the user's), never merging or
+# deduping — so the user's array is byte-for-byte what they set.
+assert_eq "scaffold-backfill: existing array left unchanged (allowed_tools)" \
+  '["Bash(make:*)","Bash(npm:*)"]' \
+  "$(jq -c '.devflow.allowed_tools' "$SC_BF/.devflow/config.json")"
+
+# 5b. A config already holding every example key is a no-op: byte-for-byte
+#     identical afterwards (the merge changed nothing, so the file isn't rewritten).
+SC_NOOP="$(mktemp -d)"; mkdir -p "$SC_NOOP/.devflow"
+cp "$TPL_DIR/config.example.json" "$SC_NOOP/.devflow/config.json"
+SC_NOOP_BEFORE="$(cat "$SC_NOOP/.devflow/config.json")"
+bash "$SC" "$SC_NOOP" >/dev/null 2>&1
+assert_eq "scaffold-backfill: complete config is a byte-identical no-op" \
+  "$SC_NOOP_BEFORE" "$(cat "$SC_NOOP/.devflow/config.json")"
+
+# 5c. jq unavailable → backfill skipped, scaffold still succeeds and leaves the
+#     config untouched. Run under a PATH that resolves the coreutils the scaffold
+#     needs but NOT jq, so `command -v jq` fails exactly as on a host without jq.
+SC_NOJQ="$(mktemp -d)"; mkdir -p "$SC_NOJQ/.devflow"
+printf '%s' '{"sentinel":true}' > "$SC_NOJQ/.devflow/config.json"
+NOJQ_BIN="$(mktemp -d)"
+for b in bash dirname mkdir cp rm cat printf find grep diff mktemp; do
+  src="$(command -v "$b")" && ln -s "$src" "$NOJQ_BIN/$b"
+done
+BASH_BIN="$(command -v bash)"
+PATH="$NOJQ_BIN" "$BASH_BIN" "$SC" "$SC_NOJQ" >/dev/null 2>&1
+assert_eq "scaffold-backfill: jq unavailable → scaffold exits 0 (best-effort)" \
+  "0" "$?"
+assert_eq "scaffold-backfill: jq unavailable → config left as-is (no backfill)" \
+  '{"sentinel":true}' "$(cat "$SC_NOJQ/.devflow/config.json")"
+
+rm -rf "$SC_FRESH" "$SC_KEEP" "$SC_NOTPL" "$SC_NOTPL_TGT" "$SC_BF" "$SC_NOOP" "$SC_NOJQ" "$NOJQ_BIN"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "detect-project-tools.sh"
