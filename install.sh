@@ -110,8 +110,14 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
 log "fetching ${REPO}@${REF} …"
+# Fast path: shallow clone of a branch/tag. Fallback: full clone + checkout,
+# which is what resolves a commit SHA (--branch rejects SHAs). Without the
+# fallback's checkout, a SHA ref would silently land on the default branch and
+# we'd pin devflow_version to the wrong commit. rm -rf before the fallback so a
+# cleaned-up-or-not partial first attempt never blocks the reclone.
 git clone --quiet --depth 1 --branch "$REF" "https://github.com/${REPO}.git" "$TMP/src" 2>/dev/null \
-  || git clone --quiet --depth 1 "https://github.com/${REPO}.git" "$TMP/src" \
+  || { rm -rf "$TMP/src"; git clone --quiet "https://github.com/${REPO}.git" "$TMP/src" \
+       && git -C "$TMP/src" checkout --quiet "$REF"; } \
   || die "could not clone https://github.com/${REPO} (ref: ${REF})."
 SRC="$TMP/src"
 
@@ -162,8 +168,10 @@ done
 # Anthropic-owned claude.yml is never touched).
 prune_stale_devflow_workflows
 
-# 4. Composite actions.
-for a in read-project-config setup-project-env; do
+# 4. Composite actions. vendor-plugin is REQUIRED even for a thin install — the
+#    workflows reference `./.github/actions/vendor-plugin` to materialize the
+#    plugin at runtime, so it (unlike the plugin tree) must always be committed.
+for a in read-project-config setup-project-env vendor-plugin; do
   if [ -d "$SRC/.github/actions/$a" ]; then
     rm -rf ".github/actions/$a"
     cp -R "$SRC/.github/actions/$a" ".github/actions/$a"

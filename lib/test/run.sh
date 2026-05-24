@@ -1947,6 +1947,15 @@ VS_FETCH="$(mktemp -d)/dest"
 assert_eq "vendor: fetch branch clones the pinned ref and copies the slice" "yes" "$(vexists "$VS_FETCH/scripts/resolve-implement-trigger.sh")"
 assert_eq "vendor: fetch branch drops the vendored marketplace.json" "no" "$(vexists "$VS_FETCH/.claude-plugin/marketplace.json")"
 
+# fetch branch pinned to a commit SHA — `--branch <sha>` fails, so this exercises
+# the full-clone + checkout fallback (the path install.sh's default SHA pin hits).
+VS_SHA="$(git -C "$VS_REMOTE" rev-parse HEAD)"
+VS_FETCH_SHA="$(mktemp -d)/dest"
+( cd "$(mktemp -d)" && env -u DEVFLOW_REF \
+    DEVFLOW_DEST="$VS_FETCH_SHA" DEVFLOW_REPO_URL="$VS_REMOTE" DEVFLOW_REF="$VS_SHA" \
+    bash "$VENDOR" >/dev/null 2>&1 )
+assert_eq "vendor: fetch branch resolves a commit SHA via the clone fallback" "yes" "$(vexists "$VS_FETCH_SHA/scripts/resolve-implement-trigger.sh")"
+
 # fetch branch with no ref — fails loud rather than tracking mutable main.
 VS_NOREF_RC=0
 ( cd "$(mktemp -d)" && env -u DEVFLOW_REF DEVFLOW_DEST="$(mktemp -d)/dest" \
@@ -1964,6 +1973,10 @@ assert_eq "vendor: install.sh calls the shared copy function" "1" \
 # Match the run: invocation, not the description prose that also names the script.
 assert_eq "vendor: composite action runs the shared slice script" "1" \
   "$(grep -cE 'run:.*vendor-slice\.sh' "$REPO_ROOT/.github/actions/vendor-plugin/action.yml" || true)"
+# install.sh must COMMIT the vendor-plugin action even on a thin install — the
+# workflows reference it, so a missing copy breaks every cloud run.
+assert_eq "vendor: install.sh copies the vendor-plugin composite action" "1" \
+  "$(grep -cE 'for a in .*vendor-plugin' "$REPO_ROOT/install.sh" || true)"
 
 # devflow_version pin (AC7): declared in the schema and present in the example.
 assert_eq "vendor: schema declares devflow_version string" "string" \
@@ -1976,7 +1989,7 @@ assert_eq "vendor: install.sh defines set_config_version" "1" \
 assert_eq "vendor: install.sh invokes set_config_version on the config" "1" \
   "$(grep -c 'set_config_version "\.devflow/config\.json"' "$REPO_ROOT/install.sh" || true)"
 
-rm -rf "$VS_COMMIT" "$VS_SELF" "$VS_REMOTE" "$VS_FETCH"
+rm -rf "$VS_COMMIT" "$VS_SELF" "$VS_REMOTE" "$VS_FETCH" "$VS_FETCH_SHA"
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.

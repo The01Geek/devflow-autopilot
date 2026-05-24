@@ -87,7 +87,7 @@ devflow_vendor_main() {
   # which also resolves a commit SHA (which --branch cannot take). Mirrors the
   # clone fallback install.sh uses.
   git clone --quiet --depth 1 --branch "$DEVFLOW_REF" "$url" "$tmp/src" 2>/dev/null \
-    || { git clone --quiet "$url" "$tmp/src" \
+    || { rm -rf "$tmp/src"; git clone --quiet "$url" "$tmp/src" \
          && git -C "$tmp/src" checkout --quiet "$DEVFLOW_REF"; } \
     || devflow_vendor_die "could not fetch $url @ $DEVFLOW_REF"
   devflow_copy_slice "$tmp/src" "$dest"
