@@ -82,8 +82,8 @@ def assert_raises(name, exc_type, fn):
 def make_args(**overrides):
     """Build an argparse.Namespace matching cmd_update's expected shape."""
     base = dict(
-        status=None, branch=None,
-        tick_plan=[], tick_ac=[],
+        status=None, branch=None, run_link=None, pr_link=None,
+        tick_progress=[], tick_plan=[], tick_ac=[],
         rewrite_ac=None,
         replace_plan_file=None, replace_acs_file=None, set_reproduction_file=None,
         note=[], reflection=[],
@@ -235,6 +235,141 @@ flat = workpad._append_note("- 01:00:00 — old\n", "orphan", "02:00:00", None)
 assert_eq("note: phase=None appends flat (no sub-heading)", False, '### ' in flat)
 assert_eq("note: phase=None preserves order and bullet", True,
           flat.index('old') < flat.index('orphan') and flat.endswith('- 02:00:00 — orphan\n'))
+
+
+print("workpad: status glyph / run+PR links / ## Progress / <details>")
+
+# A workpad shaped like the single-comment template: status glyph, Run/PR
+# front-matter lines, a ## Progress checklist, and Decisions/Reflection wrapped
+# in <details>.
+WORKPAD_V2 = """<!-- devflow:workpad -->
+# DevFlow Workpad — Issue #999
+
+**Status:** 🚀 Setup
+**Branch:** `feat/x`
+**Run:** [View run](https://example/run/1)
+**PR:** _not yet created_
+**Last updated:** 2026-05-15T00:00:00Z
+
+## Progress
+- [ ] **Setup** — branch & workpad
+- [ ] **Implement**
+  - [ ] code + sweeps
+- [ ] **Review**
+- [ ] **Documentation**
+- [ ] **PR marked ready**
+
+## Plan
+- [ ] Step alpha
+
+## Acceptance Criteria
+- [ ] AC one
+- [ ] AC two
+
+## Decisions / Notes
+<details>
+<summary>Decisions / Notes (click to expand)</summary>
+
+### Setup
+- 00:00:00 — run started
+</details>
+
+## Devflow Reflection
+<details>
+<summary>Devflow Reflection (click to expand)</summary>
+
+</details>
+"""
+
+# Status glyph: derived from the status word, prepended, idempotent.
+assert_eq("glyph: running phase → 🚀", '🚀', workpad._status_glyph('Implementing'))
+assert_eq("glyph: Complete → 🎉", '🎉', workpad._status_glyph('Complete'))
+assert_eq("glyph: Blocked → 👎", '👎', workpad._status_glyph('Blocked'))
+assert_eq("glyph: strips an existing leading glyph", 'Implementing',
+          workpad._strip_status_glyph('🚀 Implementing'))
+
+out = workpad._apply_mutations(WORKPAD_V2, make_args(status='Complete'))
+assert_eq("status: glyph applied to Status line", True,
+          '**Status:** 🎉 Complete' in out)
+# Idempotent: passing a glyph-prefixed status doesn't double up.
+out_idem = workpad._apply_mutations(WORKPAD_V2, make_args(status='🎉 Complete'))
+assert_eq("status: re-applying a glyph-prefixed status is idempotent", 1,
+          out_idem.count('🎉'))
+# A status transition while a note is added groups the note under the bare
+# phase word (no glyph in the sub-heading).
+out_note = workpad._apply_mutations(WORKPAD_V2, make_args(status='Reviewing', note=['x']))
+assert_eq("status+note: sub-heading is the bare phase (no glyph)", True,
+          '### Reviewing' in out_note and '### 🚀 Reviewing' not in out_note)
+
+# Run / PR links: replace when present.
+out = workpad._apply_mutations(WORKPAD_V2, make_args(
+    run_link='[logs](https://example/run/2)', pr_link='[#5](https://example/pr/5)'))
+assert_eq("run-link: replaced", True, '**Run:** [logs](https://example/run/2)' in out)
+assert_eq("pr-link: replaced", True, '**PR:** [#5](https://example/pr/5)' in out)
+assert_eq("run-link: regex-special chars in URL kept literal", True,
+          '?a=1&b=2' in workpad._apply_mutations(
+              WORKPAD_V2, make_args(run_link='https://e/r?a=1&b=2')))
+
+# Run / PR links: inserted after Branch when absent (legacy workpad resume).
+LEGACY = WORKPAD_V2.replace('**Run:** [View run](https://example/run/1)\n', '') \
+                   .replace('**PR:** _not yet created_\n', '')
+assert_eq("legacy: no Run/PR lines in fixture", False,
+          '**Run:**' in LEGACY or '**PR:**' in LEGACY)
+out = workpad._apply_mutations(LEGACY, make_args(run_link='R', pr_link='P'))
+assert_eq("run-link: inserted after Branch when absent", True, '**Run:** R' in out)
+assert_eq("pr-link: inserted after Branch when absent", True, '**PR:** P' in out)
+assert_eq("inserted links sit between Branch and Last updated", True,
+          out.index('**Branch:**') < out.index('**Run:** R')
+          and out.index('**PR:** P') < out.index('**Last updated:**'))
+# Canonical order preserved when BOTH are inserted in one call: Run before PR.
+assert_eq("both-absent insert keeps Run before PR", True,
+          out.index('**Run:** R') < out.index('**PR:** P'))
+# Resume case: Run already present, only PR inserted → PR lands after Run, not
+# above it (regression guard for the insert-after-Branch ordering bug).
+RUN_ONLY = WORKPAD_V2.replace('**PR:** _not yet created_\n', '')
+out = workpad._apply_mutations(RUN_ONLY, make_args(pr_link='[#9](u)'))
+assert_eq("pr-link inserted after an existing Run line (not above it)", True,
+          out.index('**Run:**') < out.index('**PR:** [#9](u)')
+          and out.index('**PR:** [#9](u)') < out.index('**Last updated:**'))
+
+# ## Progress ticks (incl. a nested sub-item), with the same failure modes as --tick-*.
+out = workpad._apply_mutations(WORKPAD_V2, make_args(
+    tick_progress=['**Setup**', 'code + sweeps']))
+assert_eq("tick-progress: top-level Setup ticked", True,
+          '- [x] **Setup**' in out)
+assert_eq("tick-progress: nested sub-item ticked", True,
+          '- [x] code + sweeps' in out)
+def _amb_progress():
+    workpad._apply_mutations(WORKPAD_V2, make_args(tick_progress=['**']))
+assert_raises("ambiguous --tick-progress raises _UpdateError",
+              workpad._UpdateError, _amb_progress)
+
+# <details>: --note appends INSIDE the block (before </details>), not after.
+out = workpad._apply_mutations(WORKPAD_V2, make_args(status='Implementing', note=['inside?']))
+dn = out.split('## Decisions / Notes', 1)[1].split('## Devflow Reflection', 1)[0]
+assert_eq("details/note: new note is before </details>", True,
+          'inside?' in dn and dn.index('inside?') < dn.index('</details>'))
+assert_eq("details/note: still exactly one </details> in section", 1,
+          dn.count('</details>'))
+# <details>: --reflection appends inside the (initially empty) Reflection block.
+out = workpad._apply_mutations(WORKPAD_V2, make_args(reflection=['reflect!']))
+rf = out.split('## Devflow Reflection', 1)[1]
+assert_eq("details/reflection: bullet before </details>", True,
+          'reflect!' in rf and rf.index('reflect!') < rf.index('</details>'))
+
+# Invariants preserved: marker first line; AC section still parseable.
+out = workpad._apply_mutations(WORKPAD_V2, make_args(
+    status='Reviewing', note=['n'], reflection=['r'], tick_ac=['AC one']))
+assert_eq("invariant: marker is still the first line", True,
+          out.startswith('<!-- devflow:workpad -->'))
+assert_eq("invariant: ## Acceptance Criteria still present and outside <details>",
+          True, '## Acceptance Criteria' in out
+          and out.index('## Acceptance Criteria') < out.index('## Decisions / Notes'))
+_ac = parse_acs._parse_checkboxes(
+    parse_acs._extract_section(out, 'Acceptance Criteria'))
+assert_eq("invariant: AC section parses to 2 checkboxes after mutation", 2, len(_ac))
+assert_eq("invariant: AC one ticked is visible to the parser", True,
+          any(i['text'] == 'AC one' and i['ticked'] for i in _ac))
 
 
 print("parse_acs._is_post_merge")

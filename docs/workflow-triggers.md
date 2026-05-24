@@ -67,6 +67,46 @@ that runs *before* authorization and number resolution: it declines any
 > **default** marker and any repo-customized `devflow.workpad_marker` are protected
 > out of the box, with no manual edit required.
 
+## A `/devflow:implement` run posts exactly one comment — the workpad
+
+A run maintains a **single** GitHub comment, the marker-tagged *workpad*
+(`scripts/workpad.py`). It is both the immediate "job started" acknowledgment
+and the durable progress surface — Status, the `## Progress` phase checklist,
+run/branch/PR links, Plan, Acceptance Criteria, and (collapsed in `<details>`)
+Decisions/Notes and Reflection.
+
+- **`track_progress: false`** on the `claude-code-action` step in
+  `.github/workflows/devflow-implement.yml` disables the action's *own*
+  progress comment, so the workpad is the only comment a run posts. (The
+  light `/devflow:review` · `/devflow:pr-description` listener in `devflow.yml`
+  keeps `track_progress` as-is — those flows have no workpad.)
+- The workpad is created as the **first GitHub write** of the run, in Phase 1
+  *before* the branch, so the requester sees acknowledgment immediately. The
+  `Run` link is built inside the runner from
+  `$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID` (standard
+  env vars — no workflow wiring needed); the `Branch` line is filled the instant
+  the branch exists, and the `PR` link once the draft PR is created in Phase 3.1.
+
+### Status-glyph / reaction vocabulary
+
+The workpad `Status` line begins with a canonical glyph that `workpad.py`
+derives from the status word, and the same glyph is mirrored as a reaction on
+the **triggering** comment so the two never disagree. The vocabulary is
+constrained to GitHub's fixed reaction set (`+1 -1 laugh confused heart hooray
+rocket eyes` — ✅/❌ are *not* reactions):
+
+| State | Glyph | Reaction |
+|---|---|---|
+| Running (any in-progress phase) | 🚀 | `rocket` (added on pickup by the `gate` job) |
+| Complete | 🎉 | `hooray` (added in Phase 4.3) |
+| Blocked | 👎 | `-1` (added at any Blocked finalizer) |
+
+The completion/blocked reaction is emitted via `scripts/react-to-trigger.sh`
+(the same script the gate uses for the pickup 🚀) and is driven by the run's
+**final workpad `Status`**, not the job's exit code — a run can exit 0 while
+`Blocked`. The reaction is best-effort: a failure never blocks the run, and the
+workpad `Status` glyph remains the authoritative signal.
+
 ## Duplicate `/devflow:implement` runs are ignored per thread
 
 A second `/devflow:implement` for an issue/PR while a run for it is already in

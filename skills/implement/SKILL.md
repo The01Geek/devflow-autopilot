@@ -27,7 +27,29 @@ Output the phase header at the start of each phase so progress is trackable.
 
 ## Workpad Reference
 
-Throughout the run you maintain exactly **one** marker-tagged comment on the GitHub issue — the *workpad*. It is the durable progress surface: re-runs and follow-up runs resume from it, and it is the source of truth for the acceptance-criteria gate in Phase 3.
+Throughout the run you maintain exactly **one** marker-tagged comment on the GitHub issue — the *workpad*. It is the run's **single GitHub comment** and durable progress surface: it is created as the very first GitHub write (Phase 1.2, before the branch), serves as the immediate "job started" acknowledgment, and re-runs and follow-up runs resume from it. It is the source of truth for the acceptance-criteria gate in Phase 3. claude-code-action's own progress comment is disabled (`track_progress: false` in `devflow-implement.yml`), so the workpad is the *only* comment a run posts.
+
+**Status glyph (canonical, reaction-compatible).** The `Status` line always begins with a glyph that `workpad.py` derives from the status word — you pass a bare status (`--status Setup`, `--status Complete`, `--status Blocked`) and the helper prepends it: 🚀 for any in-progress phase (Setup/Discovering/Reproducing/Planning/Implementing/Reviewing/Documenting), 🎉 for `Complete`, 👎 for `Blocked`. The same vocabulary drives the triggering-comment reaction (🚀 `rocket` on pickup → 🎉 `hooray` on Complete → 👎 `-1` on Blocked), so the comment glyph and the reaction always match. (✅/❌ are *not* valid GitHub reactions, which is why 👎 is the Blocked glyph.)
+
+**Outcome reaction on the triggering comment.** The `gate` job already added 🚀 `rocket` on pickup. At every **terminal** Status transition you must add the matching reaction to the *triggering* comment so the outcome is visible without opening the workpad: 🎉 `hooray` when you set `Status: Complete` (Phase 4.3), and 👎 `-1` at **any** `Status: Blocked` finalizer (the reaction is driven by the final workpad `Status`, not the job exit code — a run can exit 0 while `Blocked`). Reuse `react-to-trigger.sh` (same script the gate uses) rather than a bespoke `gh api` call; it is best-effort (always exits 0), so a reaction hiccup never blocks the run:
+
+```bash
+# REACTION=hooray for Complete, REACTION=-1 for Blocked.
+# Resolve the triggering comment (best-effort): the newest issue comment that
+# quotes /devflow:implement but is NOT the workpad (no marker). $GITHUB_EVENT_PATH
+# also carries .comment.id when the event was a comment — prefer it when present.
+TRIGGER_COMMENT_ID=$(jq -r '.comment.id // empty' "$GITHUB_EVENT_PATH" 2>/dev/null || true)
+if [ -z "$TRIGGER_COMMENT_ID" ]; then
+  TRIGGER_COMMENT_ID=$(gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER/comments?per_page=100" \
+    --jq 'map(select((.body | contains("/devflow:implement")) and (.body | contains("devflow:workpad") | not))) | last | .id' 2>/dev/null || true)
+fi
+if [ -n "$TRIGGER_COMMENT_ID" ]; then
+  REPO="$GITHUB_REPOSITORY" EVENT_NAME=issue_comment COMMENT_ID="$TRIGGER_COMMENT_ID" REACTION="$REACTION" \
+    bash ${CLAUDE_SKILL_DIR}/../../scripts/react-to-trigger.sh || true
+fi
+```
+
+If the triggering comment can't be resolved (a review-body trigger has no reactions API; the id lookup fails), skip the reaction silently — the workpad `Status` glyph remains the authoritative signal.
 
 **GitHub autolink hygiene** (every GitHub surface you write — workpad comment, PR body, follow-up issue bodies, completion summary): never put a bare `#` immediately before a number unless it is a real issue or PR reference — GitHub renders `#2` as a link to issue/PR 2, which misleads readers. For an ordinal, count, or list position, spell it out ("item 2", "step 3"), never `#2`. Genuine references like `#123` stay as-is.
 
@@ -35,13 +57,29 @@ Throughout the run you maintain exactly **one** marker-tagged comment on the Git
 
 The workpad comment body MUST start with the marker line on its own line, followed by these sections (omit `Reproduction` when the issue is not labelled `bug`):
 
+The always-visible region (marker line, header, `Status`, links, `## Progress`, `## Plan`, `## Acceptance Criteria`) stays uncollapsed so the comment is scannable at a glance; the two append-only growing sections (`## Decisions / Notes`, `## Devflow Reflection`) are wrapped in `<details>` blocks so they don't push the rest of the comment out of view. **Keep `## Acceptance Criteria` outside any `<details>`** — the Phase 3.4 gate reads it.
+
 ```markdown
 <!-- devflow:workpad -->
 # DevFlow Workpad — Issue #{number}
 
-**Status:** {Setup|Discovering|Reproducing|Planning|Implementing|Reviewing|Documenting|Complete|Blocked}
+**Status:** 🚀 Setup
 **Branch:** `{branch}`
+**Run:** [View run]({run_url})
+**PR:** _not yet created_
 **Last updated:** {output of `workpad.py now`, e.g. 2026-05-05T17:42:11Z}
+
+## Progress
+- [ ] **Setup** — branch & workpad
+- [ ] **Implement**
+  - [ ] reproduction captured (bug issues only)
+  - [ ] code + sweeps
+- [ ] **Review**
+  - [ ] `/simplify`
+  - [ ] `review-and-fix`
+  - [ ] acceptance-criteria gate
+- [ ] **Documentation**
+- [ ] **PR marked ready**
 
 ## Plan
 - [ ] {step}
@@ -53,12 +91,22 @@ The workpad comment body MUST start with the marker line on its own line, follow
 {captured signal — failing test, error log, or repro command. Section only present for `bug`-labelled issues.}
 
 ## Decisions / Notes
+<details>
+<summary>Decisions / Notes (click to expand)</summary>
+
 ### {phase — the workpad's `Status` when the note was appended, e.g. Setup}
 - {HH:MM:SS} — {append-only chronological note}
+</details>
 
 ## Devflow Reflection
+<details>
+<summary>Devflow Reflection (click to expand)</summary>
+
 - {only when something was unclear, blocked, or deferred during execution}
+</details>
 ```
+
+`{run_url}` is `$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID` (standard runner env vars; no workflow change needed). When those env vars are absent (a local-tier run outside Actions), use a plain `_(local run)_` placeholder for the `Run` line. For `bug`-labelled issues keep the `reproduction captured (bug issues only)` sub-item; for non-bug issues you may drop it.
 
 ### Workpad helper CLI
 
@@ -70,7 +118,7 @@ Subcommand reference:
 | --- | --- |
 | `workpad.py id ISSUE` | Print the workpad comment ID, or exit 1 with empty stdout if none exists. |
 | `workpad.py body COMMENT_ID` | Print the full body of an existing workpad. |
-| `workpad.py create ISSUE BODY_FILE` | Create the workpad on a fresh issue and print the new comment ID. Use this exactly once per issue, in Phase 1.5. |
+| `workpad.py create ISSUE BODY_FILE` | Create the workpad on a fresh issue and print the new comment ID. Use this exactly once per issue, in Phase 1.2 (the first GitHub write). |
 | `workpad.py update ISSUE [mutations...]` | Apply atomic mutations and PATCH. **This is the mutation entry point used at every phase boundary after creation.** See the flags below. |
 | `workpad.py now` | Canonical UTC ISO-8601 timestamp. (`update` already refreshes `Last updated` automatically; use `now` only when you need a timestamp in some other string, e.g. a follow-up issue body.) |
 | `workpad.py patch COMMENT_ID BODY_FILE` | Low-level body-file PATCH. Prefer `update`; only use this for bulk-rewrite cases the `update` flags don't cover. |
@@ -79,8 +127,11 @@ Subcommand reference:
 
 | Flag | Effect |
 | --- | --- |
-| `--status STATUS` | Replace the Status line. |
+| `--status STATUS` | Replace the Status line. Pass a **bare** status word — the helper prepends the canonical glyph (🚀/🎉/👎) and strips any glyph you pass, so re-applying is idempotent. |
 | `--branch BRANCH` | Replace the Branch line. |
+| `--run-link VALUE` | Set the `Run` front-matter line to VALUE (markdown ok). Inserted after `Branch` if the line is absent (legacy-workpad resume). |
+| `--pr-link VALUE` | Set the `PR` front-matter line to VALUE (markdown ok). Inserted after `Branch` if absent. Used in Phase 3.1 once the draft PR exists. |
+| `--tick-progress TEXT` | Tick one unticked `## Progress` checkbox whose text contains TEXT (substring), same zero/multi-match failure behavior as `--tick-plan`. **Repeatable.** |
 | `--tick-plan TEXT` | Tick one unticked Plan checkbox whose text contains TEXT (substring). Fails if TEXT matches zero unticked checkboxes or multiple. **Repeatable** — pass multiple times to tick several boxes in one atomic update. |
 | `--tick-ac TEXT` | Same, for Acceptance Criteria. **Repeatable.** |
 | `--rewrite-ac OLD NEW` | Phase 2.2.6: find an AC by OLD substring, replace its full text with NEW, keep the box state. |
@@ -94,6 +145,8 @@ Subcommand reference:
 
 Helper invariants baked into the script (orchestrator doesn't need to enforce them):
 - Decisions / Notes is append-only — `--note` only appends, never rewrites; each bullet is grouped under a `### {current Status}` sub-heading and carries a time-only `HH:MM:SS` prefix.
+- `--note`/`--reflection` are **`<details>`-aware**: when the section body is wrapped in a `<details>` block (the template default), the new bullet is inserted *inside* the block (before `</details>`), never after — so the collapsible region stays intact and the marker-first / AC-parseable invariants hold.
+- The `Status` glyph is owned by the helper — `--status` derives and prepends it, and the `### {Status}` note sub-heading uses the bare phase word (no glyph).
 - Devflow Reflection accumulates bullets — `--reflection` only appends.
 - `--tick-*` flags edit only the box character and preserve the rest of the line.
 - `--rewrite-ac` preserves the original checkbox state (don't tick during a 2.2.6 rewrite — the gate ticks later via `--tick-ac`).
@@ -101,7 +154,7 @@ Helper invariants baked into the script (orchestrator doesn't need to enforce th
 
 The helper reads `devflow.workpad_marker` from `.devflow/config.json`, falling back to the built-in default `<!-- devflow:workpad -->` when the config file or key is absent (so it works with no config). It fails fast (exit 1 with a clear stderr message) when `gh` can't resolve the repo, when the underlying API call fails, or when a `--tick-*` / `--rewrite-ac` flag's substring matches zero or multiple checkboxes. `--tick-plan` / `--tick-ac` only consider unticked (`[ ]`) rows, so a duplicate tick in a single batched call surfaces as "no unticked checkbox matched" rather than silently no-op'ing.
 
-**Never create a second workpad on the same issue.** Phase 1.5 creates exactly one; every subsequent mutation goes through `update`. If you lose `$ISSUE_NUMBER` mid-run (context compaction), recover from `git log`, `git branch --show-current`, and `gh pr list --head $(git branch --show-current)` — then resume with `workpad.py update $ISSUE_NUMBER ...`.
+**Never create a second workpad on the same issue.** Phase 1.2 creates exactly one; every subsequent mutation goes through `update`. If you lose `$ISSUE_NUMBER` mid-run (context compaction), recover from `git log`, `git branch --show-current`, and `gh pr list --head $(git branch --show-current)` — then resume with `workpad.py update $ISSUE_NUMBER ...`.
 
 When a workpad already exists at the start of a re-run, treat its `Decisions / Notes` and `Devflow Reflection` as load-bearing context — read them via `workpad.py body $(workpad.py id $ISSUE_NUMBER)` before deciding what to do next. If `Status` is `Blocked`, surface `Devflow Reflection` to the user and pause for confirmation before proceeding past Phase 1 — otherwise an automated re-run will blow through the gate that originally stopped the previous run.
 
@@ -111,7 +164,9 @@ When a workpad already exists at the start of a re-run, treat its `Decisions / N
 
 ## Phase 1: Setup
 
-Output: `Phase 1/4: Setup — fetching issue and creating branch...`
+Output: `Phase 1/4: Setup — creating the workpad and branch...`
+
+**Ordering matters in Phase 1.** The workpad is the run's *only* GitHub comment and its "job started" acknowledgment, so it must be the **first GitHub write** — created (1.3) *before* the branch (1.4). Fetch the issue (1.1) and parse its acceptance criteria (1.2) first because the workpad body mirrors them; then create the workpad; then create the branch and immediately fill the workpad's `Branch` line.
 
 ### 1.1 Fetch the GitHub Issue
 
@@ -124,32 +179,7 @@ If this fails, stop immediately and report: "Error: Could not fetch GitHub issue
 
 Save the issue title, body, labels, and number — you will use these throughout the workflow. Note whether the labels include `bug` — Phase 2.1.5 depends on it.
 
-### 1.2 Create or Detect Feature Branch
-
-Check if you're already on a feature branch (the GitHub Action creates one automatically):
-```bash
-git branch --show-current
-```
-
-If the current branch matches `claude/issue-*` or `issue-*`, use it — skip branch creation.
-
-Otherwise, create a new branch. The canonical branch name is computed by the helper (handles slugification, unicode, length truncation, and collision suffixing deterministically):
-
-Write the issue title (from the `gh issue view` above) to a temp file with the **Write tool** — `/tmp/devflow-issue-$ARGUMENTS-title.txt` — then derive the branch from it. Using `--title-file` instead of passing the title as a positional shell argument avoids breakage when the title contains quotes, backticks, or `$`.
-
-```bash
-git fetch origin main
-BRANCH=$(${CLAUDE_SKILL_DIR}/../../scripts/branch-for-issue.py $ARGUMENTS --title-file /tmp/devflow-issue-$ARGUMENTS-title.txt)
-git checkout -b "$BRANCH" origin/main
-```
-
-### 1.3 Push Branch
-
-```bash
-git push -u origin HEAD
-```
-
-### 1.4 Parse Acceptance Criteria from the issue body
+### 1.2 Parse Acceptance Criteria from the issue body
 
 Run the bundled parser to extract `## Acceptance Criteria` and (optional) `## Test Plan` sections from the issue, pre-classifying each criterion as either code-verifiable or *post-merge*:
 
@@ -169,19 +199,55 @@ Either kind of override goes into `Decisions / Notes` with a one-line reason.
 
 A criterion that is partially live (mixed code + live concerns) is tagged post-merge — verify the code-part during /devflow:implement, leave the live-part for after-merge.
 
-### 1.5 Initialize or Load the Workpad
+### 1.3 Initialize or Load the Workpad (first GitHub write)
 
-Set `ISSUE_NUMBER=$ARGUMENTS` and check whether a workpad already exists for this issue:
+This is the **first GitHub write of the run** — before the branch exists — so the requester sees an acknowledgment immediately. Set `ISSUE_NUMBER=$ARGUMENTS`, derive the run link, and check whether a workpad already exists:
 
 ```bash
 ISSUE_NUMBER=$ARGUMENTS
+RUN_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"   # "/actions/runs/" segment is literal; empty env (local run) → use a "_(local run)_" placeholder
 WORKPAD_ID=$(${CLAUDE_SKILL_DIR}/../../scripts/workpad.py id "$ISSUE_NUMBER" || true)
 ```
 
-- **`WORKPAD_ID` empty (fresh issue)** → Build the initial body to a temp file: `Status: Setup`, `Branch:` `$(git branch --show-current)`, a placeholder `Last updated:`, empty `## Plan` (filled in during 2.2), the AC contents from `/tmp/acs-${ARGUMENTS}.md` (produced by 1.4), no `## Reproduction` section yet (added in 2.1.5 if applicable), `## Decisions / Notes` seeded under a `### Setup` sub-heading with one time-only bullet (`### Setup` then `- {HH:MM:SS} — /devflow:implement run started`, where `{HH:MM:SS}` is the time portion of `workpad.py now`), and an empty `## Devflow Reflection`. Then `workpad.py create $ISSUE_NUMBER <tmp-file>`.
-- **`WORKPAD_ID` non-empty (resume)** → Read the live body with `workpad.py body $WORKPAD_ID`. Treat its `Decisions / Notes` and `Devflow Reflection` as load-bearing context (see Workpad Reference). To reset for this run, apply: `workpad.py update $ISSUE_NUMBER --status Setup --branch "$(git branch --show-current)" --note "/devflow:implement re-run started"`. If the issue's Acceptance Criteria section changed since the last run, also pass `--replace-acs-file /tmp/acs-${ARGUMENTS}.md`.
+- **`WORKPAD_ID` empty (fresh issue)** → Build the initial body to a temp file, following the **Workpad section template** above exactly: `**Status:** 🚀 Setup`; `**Branch:** _(creating…)_` (a placeholder — filled in 1.4 the instant the branch exists, so it is never left blank on a completed run); `**Run:** [View run]($RUN_URL)`; `**PR:** _not yet created_`; a placeholder `Last updated:`; the `## Progress` checklist (all unticked); empty `## Plan` (filled in during 2.2); the AC contents from `/tmp/acs-${ARGUMENTS}.md` (produced by 1.2); no `## Reproduction` section yet (added in 2.1.5 if applicable); `## Decisions / Notes` as a `<details>` block seeded under a `### Setup` sub-heading with one time-only bullet (`- {HH:MM:SS} — /devflow:implement run started`, where `{HH:MM:SS}` is the time portion of `workpad.py now`); and an empty `## Devflow Reflection` `<details>` block. Then `workpad.py create $ISSUE_NUMBER <tmp-file>`. (Do **not** pass a glyph-less `Status:` — the template seeds `🚀 Setup` directly; later transitions go through `--status`, which manages the glyph.)
+- **`WORKPAD_ID` non-empty (resume)** → Read the live body with `workpad.py body $WORKPAD_ID`. Treat its `Decisions / Notes` and `Devflow Reflection` as load-bearing context (see Workpad Reference). To reset for this run, apply: `workpad.py update $ISSUE_NUMBER --status Setup --run-link "[View run]($RUN_URL)" --note "/devflow:implement re-run started"`. If the issue's Acceptance Criteria section changed since the last run, also pass `--replace-acs-file /tmp/acs-${ARGUMENTS}.md`. **Legacy-workpad migration (required):** a workpad created before this change won't have `Run`/`PR`/`## Progress` lines. `--run-link`/`--pr-link` insert the missing header lines on their own, but `--tick-progress` (used at every later phase boundary) will **abort the run** with `section '## Progress' not found` if the section is absent. So when resuming such a workpad you MUST seed a `## Progress` section before Phase 1.5 — `workpad.py body` the live comment, splice the `## Progress` checklist from the template above into the body (right after the front-matter, before `## Plan`), and `workpad.py patch $WORKPAD_ID <file>`. Do not leave it to chance: skip this and the first `--tick-progress` call fails closed.
 
 After this step, every later phase boundary touches the workpad via `workpad.py update $ISSUE_NUMBER ...` — no `WORKPAD_ID` variable to track across calls.
+
+### 1.4 Create or Detect Feature Branch
+
+Check if you're already on a feature branch (the GitHub Action creates one automatically):
+```bash
+git branch --show-current
+```
+
+If the current branch matches `claude/issue-*` or `issue-*`, use it — skip branch creation.
+
+Otherwise, create a new branch. The canonical branch name is computed by the helper (handles slugification, unicode, length truncation, and collision suffixing deterministically):
+
+Write the issue title (from the `gh issue view` above) to a temp file with the **Write tool** — `/tmp/devflow-issue-$ARGUMENTS-title.txt` — then derive the branch from it. Using `--title-file` instead of passing the title as a positional shell argument avoids breakage when the title contains quotes, backticks, or `$`.
+
+```bash
+git fetch origin main
+BRANCH=$(${CLAUDE_SKILL_DIR}/../../scripts/branch-for-issue.py $ARGUMENTS --title-file /tmp/devflow-issue-$ARGUMENTS-title.txt)
+git checkout -b "$BRANCH" origin/main
+```
+
+**Immediately fill the workpad's `Branch` line** (so the placeholder from 1.3 is never left on a completed run):
+```bash
+workpad.py update $ISSUE_NUMBER --branch "$(git branch --show-current)"
+```
+
+### 1.5 Push Branch
+
+```bash
+git push -u origin HEAD
+```
+
+Then tick the Setup phase in the workpad's `## Progress` checklist:
+```bash
+workpad.py update $ISSUE_NUMBER --tick-progress "branch & workpad"
+```
 
 ---
 
@@ -213,11 +279,11 @@ If the labels **do** include `bug`, you must capture a *reproduction signal* bef
 - a quoted error log / stack trace from a real run, or
 - a recorded shell command (with output) that demonstrates the failure.
 
-Write the evidence to a temp file, then: `workpad.py update $ISSUE_NUMBER --status Reproducing --set-reproduction-file /tmp/repro-${ISSUE_NUMBER}.md --note "captured reproduction signal"`. (The helper inserts `## Reproduction` after `## Acceptance Criteria` if it doesn't yet exist.)
+Write the evidence to a temp file, then: `workpad.py update $ISSUE_NUMBER --status Reproducing --set-reproduction-file /tmp/repro-${ISSUE_NUMBER}.md --tick-progress "reproduction captured" --note "captured reproduction signal"`. (The helper inserts `## Reproduction` after `## Acceptance Criteria` if it doesn't yet exist.)
 
 **Temporary proof edits are allowed** when they raise confidence in the reproduction (e.g. inserting a `console.log`, hardcoding a request payload, tweaking a build input). Every temporary proof edit MUST be reverted before the implementation commit in 2.5, and the fact that you made one must be recorded in the workpad's `Reproduction` section so reviewers can follow the evidence.
 
-**Phase 2.2 cannot start until the workpad's `Reproduction` section is populated.** If you cannot reproduce the bug: `workpad.py update $ISSUE_NUMBER --status Blocked --reflection "cannot reproduce: {obstacle}"`, then stop the run — do not invent a fix.
+**Phase 2.2 cannot start until the workpad's `Reproduction` section is populated.** If you cannot reproduce the bug: `workpad.py update $ISSUE_NUMBER --status Blocked --reflection "cannot reproduce: {obstacle}"`, then emit the 👎 outcome reaction (see *Outcome reaction* in the Workpad Reference) and stop the run — do not invent a fix.
 
 ### 2.2 Assess Complexity & Plan
 
@@ -371,7 +437,7 @@ After implementing, before running tests, do this sweep:
 1. From `git diff --staged -U0` (or `git diff -U0`), list every claim the diff depends on that falls into one of the four kinds above. The diff is the *trigger* for finding which boundaries the change now relies on — a boundary's definition site (an unchanged import, a producer module, a version pin) usually sits in context `-U0` doesn't print, so follow each claim to its actual source. Purely-internal claims (a local you just wrote, a function defined in the same diff) are **out of scope** — this sweep is only about boundaries you don't own.
 2. For each claim, verify it against the **actual source of truth** — the pinned version's installed source/changelog, the producer module, the documented supported-runtime range across *all* of it, the real host — never from memory.
 3. **A test assertion about a boundary is itself an unverified claim.** A test that asserts a wrong boundary value still passes — it encodes the bug rather than catching it — so a green run at 2.4 is not confirmation. When the diff adds or changes a test that asserts a boundary value, verify that value against the same source of truth here.
-4. If the code is wrong, fix it. If a boundary genuinely **cannot** be verified in-environment, do **not** assert it as true: always record the gap with `workpad.py update $ISSUE_NUMBER --reflection "unverified boundary: {claim} — needs {live env} to confirm"` so it is visible to review and the merger. If — and only if — a specific acceptance criterion's verification depends on that boundary, additionally retag that criterion `(post-merge)` (per Phase 1.4, via the Phase 3.4 `--rewrite-ac` retag pattern) so the 3.4 gate doesn't block on a live-only check. `(post-merge)` covers code that ships correct but can only be *verified* live — it is never a way to wave through a boundary you suspect is wrong (that is a blocker).
+4. If the code is wrong, fix it. If a boundary genuinely **cannot** be verified in-environment, do **not** assert it as true: always record the gap with `workpad.py update $ISSUE_NUMBER --reflection "unverified boundary: {claim} — needs {live env} to confirm"` so it is visible to review and the merger. If — and only if — a specific acceptance criterion's verification depends on that boundary, additionally retag that criterion `(post-merge)` (per Phase 1.2, via the Phase 3.4 `--rewrite-ac` retag pattern) so the 3.4 gate doesn't block on a live-only check. `(post-merge)` covers code that ships correct but can only be *verified* live — it is never a way to wave through a boundary you suspect is wrong (that is a blocker).
 
 Treat an unverified boundary assumption as a defect in **this** PR, not a review-engine problem to be caught downstream — if the diff depends on it, verify it here or route it to `(post-merge)` with a reflection note.
 
@@ -396,6 +462,8 @@ git push
 
 If the commit includes test fixes, use a single commit combining implementation and fixes.
 
+Then tick the implementation gate **and its parent phase** in the workpad: `workpad.py update $ISSUE_NUMBER --tick-progress "code + sweeps" --tick-progress "**Implement**"`.
+
 **⚠ You are NOT done. Code is committed but not reviewed or documented. Proceed to Phase 3.**
 
 ---
@@ -419,6 +487,13 @@ EOF
 )"
 ```
 
+Then populate the workpad's `PR` link from the freshly-created draft PR:
+```bash
+PR_URL=$(gh pr view --json url --jq '.url')
+PR_NUM=$(gh pr view --json number --jq '.number')
+workpad.py update $ISSUE_NUMBER --pr-link "[#$PR_NUM]($PR_URL)"
+```
+
 ### 3.2 Self-Review with /simplify
 
 Invoke the **Skill tool** with `skill: simplify` — this runs the **built-in Claude Code `/simplify` slash-command**, not a DevFlow plugin skill (so there's no `devflow:` prefix and nothing to install). It ships with Claude Code and is always present; do not treat it as a missing skill or skip this phase.
@@ -433,6 +508,8 @@ git push
 ```
 
 If `/simplify` reported the code was already clean and made no changes, skip the commit and continue.
+
+Then tick the `/simplify` gate: `workpad.py update $ISSUE_NUMBER --tick-progress "/simplify"`.
 
 ### 3.3 Review & Fix
 
@@ -452,7 +529,9 @@ git diff --cached --quiet || git commit -m "fix: address code review feedback fo
 git push
 ```
 
-If the skill exits with unresolved findings after 4 iterations: `workpad.py update $ISSUE_NUMBER --status Blocked --reflection "review-and-fix unresolved after 4 iterations: {summary}"`, then stop.
+Then tick the `review-and-fix` gate: `workpad.py update $ISSUE_NUMBER --tick-progress "review-and-fix"`.
+
+If the skill exits with unresolved findings after 4 iterations: `workpad.py update $ISSUE_NUMBER --status Blocked --reflection "review-and-fix unresolved after 4 iterations: {summary}"`, then emit the 👎 outcome reaction (see *Outcome reaction* in the Workpad Reference) and stop.
 
 ### 3.4 Acceptance Criteria Gate
 
@@ -464,7 +543,7 @@ Before advancing to Phase 4, verify every **non-post-merge** checkbox in the wor
 
 Tick each criterion as you confirm it: `workpad.py update $ISSUE_NUMBER --tick-ac "{substring of AC text}"`. Cite the verification (a test, a file:line, or a Decisions/Notes entry) in a `--note` on the same call where helpful.
 
-**Post-merge criteria are exempt from the gate.** A criterion whose checkbox line ends in `(post-merge)` (tagged during Phase 1.4) does not block. The orchestrator's responsibility for a post-merge criterion ends at "the code reaches the state where the live verification *becomes possible* to run." Leave the checkbox unticked — the merger will tick it after deploy via the `## Post-Merge Verification` section that `/pr-description` adds to the PR body in Phase 4.2. Do **not** invent evidence to tick a post-merge box during /devflow:implement; the live signal is what counts.
+**Post-merge criteria are exempt from the gate.** A criterion whose checkbox line ends in `(post-merge)` (tagged during Phase 1.2) does not block. The orchestrator's responsibility for a post-merge criterion ends at "the code reaches the state where the live verification *becomes possible* to run." Leave the checkbox unticked — the merger will tick it after deploy via the `## Post-Merge Verification` section that `/pr-description` adds to the PR body in Phase 4.2. Do **not** invent evidence to tick a post-merge box during /devflow:implement; the live signal is what counts.
 
 If the workpad's Acceptance Criteria section reads `_(none provided in issue body)_`, the gate passes trivially.
 
@@ -475,9 +554,11 @@ If non-post-merge criteria remain unchecked after Phase 3.3:
 1. If a criterion is satisfiable with a small follow-up edit, do it now (still inside Phase 3) — write the code, run tests, commit (using the `fix:` prefix), tick the box, and continue.
 2. If a criterion's *literal text* is now stale because /simplify or /devflow:review-and-fix refactored the structure (e.g. renamed jobs, merged files), but the *underlying behavior* the criterion verifies is preserved in the diff, apply **2.2.6** now: rewrite the AC text in the workpad with a `Decisions / Notes` paper trail, then tick the box.
 3. If a criterion is genuinely outside this PR's scope and you missed it during 2.2.5, **go back to 2.2.5 now**: move the item to `Decisions / Notes` as deferred, rewrite the Acceptance Criteria section, PATCH, and re-run this gate against the narrowed set. Then continue to Phase 4.
-4. Otherwise — i.e. the criterion is in-scope but you cannot satisfy it AND it is not tagged `(post-merge)` — `workpad.py update $ISSUE_NUMBER --status Blocked --reflection "AC unmet (in-scope, not post-merge): {AC text}"`, then stop the run with a clear report to the user. Do **not** advance to Phase 4 with unmet in-scope, non-post-merge criteria.
+4. Otherwise — i.e. the criterion is in-scope but you cannot satisfy it AND it is not tagged `(post-merge)` — `workpad.py update $ISSUE_NUMBER --status Blocked --reflection "AC unmet (in-scope, not post-merge): {AC text}"`, then emit the 👎 outcome reaction (see *Outcome reaction* in the Workpad Reference) and stop the run with a clear report to the user. Do **not** advance to Phase 4 with unmet in-scope, non-post-merge criteria.
 
-(A criterion that the orchestrator can't satisfy AND that's clearly post-merge-only should have been tagged `(post-merge)` in Phase 1.4 — if it wasn't, retroactively retag with `workpad.py update $ISSUE_NUMBER --rewrite-ac "{old text}" "{old text} (post-merge)" --note "retro-tagged as post-merge: {reason}"`, then let it pass the gate.)
+Once the gate passes (every non-post-merge AC ticked), tick the gate **and its parent phase** in the workpad: `workpad.py update $ISSUE_NUMBER --tick-progress "acceptance-criteria gate" --tick-progress "**Review**"`.
+
+(A criterion that the orchestrator can't satisfy AND that's clearly post-merge-only should have been tagged `(post-merge)` in Phase 1.2 — if it wasn't, retroactively retag with `workpad.py update $ISSUE_NUMBER --rewrite-ac "{old text}" "{old text} (post-merge)" --note "retro-tagged as post-merge: {reason}"`, then let it pass the gate.)
 
 **⚠ You are NOT done. PR is still a draft and needs documentation and a proper description. Proceed to Phase 4.**
 
@@ -574,6 +655,8 @@ DOCUMENTED_LABEL=$(${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .docs.documen
 gh pr edit --add-label "$DOCUMENTED_LABEL"
 ```
 
+Then tick the Documentation phase in the workpad: `workpad.py update $ISSUE_NUMBER --tick-progress "Documentation"`.
+
 ### 4.2 Generate PR Description
 
 Invoke the **Skill tool** with `skill: "pr-description"` and `args: "$ARGUMENTS"` (the issue number). The skill detects the existing PR and updates its body directly.
@@ -591,18 +674,19 @@ gh pr view --json body --jq '.body' | grep -q "Work in progress — automated re
 gh pr ready
 ```
 
-Then finalize the workpad in one call:
+Then finalize the workpad in one call — tick the final `## Progress` item and flip `Status` to `Complete` (the helper swaps the glyph to 🎉):
 
 ```bash
 workpad.py update $ISSUE_NUMBER \
     --status Complete \
+    --tick-progress "PR marked ready" \
     --note "/devflow:implement run finished, PR marked ready: <PR_URL>" \
     [--reflection "{noteworthy event}" ...repeat per event]
 ```
 
 Add one `--reflection` flag per noteworthy event a human should know for troubleshooting: a failed step that was skipped, a subagent that returned no useful output, a permission denial, a test you couldn't run, an ambiguity you resolved with an assumption, or any deviation from the planned flow. `--reflection` is repeatable so all events land in a single atomic update. (No separate "Notes from /devflow:implement run" comment is posted — the workpad replaces it.)
 
-Then output the PR URL and a one- or two-line summary of what was accomplished.
+Finally, emit the 🎉 outcome reaction on the triggering comment (`REACTION=hooray`; see *Outcome reaction* in the Workpad Reference), then output the PR URL and a one- or two-line summary of what was accomplished.
 
 ---
 
@@ -610,10 +694,10 @@ Then output the PR URL and a one- or two-line summary of what was accomplished.
 
 Before reporting completion, verify ALL phases executed:
 
-- Phase 1: Issue fetched, branch exists, workpad initialized with Acceptance Criteria mirrored
+- Phase 1: Issue fetched; workpad created as the **first GitHub write** (before the branch) with run link, `## Progress` checklist, and Acceptance Criteria mirrored; branch exists and the workpad `Branch` line is filled; Setup ticked in `## Progress`
 - Phase 2: For `bug`-labelled issues, reproduction signal recorded; if the issue spans multiple PRs, the 2.2.5 scope-adjustment rule was applied and the workpad's Acceptance Criteria section now contains only in-scope items; the 2.3.0 changed-contract sweep (re-run after any merge/rebase) and the 2.3.4 boundary-assumption sweep both ran over the diff — each cross-boundary claim verified against its source of truth, or routed to `(post-merge)` with a reflection note; code committed and pushed
 - Phase 3: Draft PR created, `/simplify` ran (fixes committed if any), `/devflow:review-and-fix` ran, acceptance criteria gate passed (PR still draft)
-- Phase 4: If any criteria were deferred in 2.2.5, follow-up issue(s) filed in 4.0; if /devflow:review-and-fix emitted a deferrals manifest, follow-up issue(s) filed in 4.0.5 and the manifest hydrated; docs updated and "Documented" label applied; PR description generated via `/pr-description`; PR marked ready; workpad finalized with `Status: Complete`
+- Phase 4: If any criteria were deferred in 2.2.5, follow-up issue(s) filed in 4.0; if /devflow:review-and-fix emitted a deferrals manifest, follow-up issue(s) filed in 4.0.5 and the manifest hydrated; docs updated and "Documented" label applied; PR description generated via `/pr-description`; PR marked ready; every *applicable* `## Progress` item ticked (the `reproduction captured` sub-item is bug-only); workpad finalized with `Status: Complete` (🎉) and the 🎉 outcome reaction emitted on the triggering comment
 
 Verify each `Status` PATCH actually landed at the time it was issued (see the Update protocol's "Always verify a PATCH that changes `Status` actually landed" rule). If a phase was skipped or a `Status` PATCH didn't land, go back and complete it now. In particular:
 
