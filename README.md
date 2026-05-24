@@ -60,7 +60,9 @@ curl -fsSL https://raw.githubusercontent.com/The01Geek/devflow-autopilot/main/in
 
 See **[`docs/cloud-setup.md`](docs/cloud-setup.md)** for secrets, triggers, and the full guide.
 
-> **Both tiers on one repo?** No conflict — the marketplace copy is cached centrally; `install.sh` vendors a separate copy into `.claude/plugins/devflow/` for CI only. Just don't run `/plugin marketplace add ./` there (it would activate two marketplaces named `devflow-marketplace`).
+> **Thin by default.** `install.sh` does **not** commit the plugin tree to your repo — it installs the workflows, composite actions, a local `marketplace.json`, and a `.devflow/config.json` scaffold, and pins a `devflow_version` (the commit it installed from). At runtime the workflows materialize the plugin into `.claude/plugins/devflow/` via the `vendor-plugin` composite action, so there's no bulky vendored diff to carry. Pass `DEVFLOW_VENDOR=1` to commit the tree instead (self-hosting; `devflow_version` is then ignored).
+>
+> **Both tiers on one repo?** No conflict — the local marketplace copy is cached centrally; the cloud tier materializes its own copy under `.claude/plugins/devflow/` at runtime (or commits one with `DEVFLOW_VENDOR=1`). Just don't run `/plugin marketplace add ./` there (it would activate two marketplaces named `devflow-marketplace`).
 
 ## Updating
 
@@ -74,7 +76,7 @@ See **[`docs/cloud-setup.md`](docs/cloud-setup.md)** for secrets, triggers, and 
   }
   ```
   Or update on demand: `/plugin marketplace update devflow-marketplace`.
-- **Cloud tier** — re-run the same `install.sh`. It's idempotent: it re-vendors the latest plugin + workflows and keeps your `.devflow/config.json`. (CI requires the plugin vendored in the repo — a marketplace install isn't reachable from the Actions sandbox; see [`docs/cloud-setup.md`](docs/cloud-setup.md#why-the-plugin-is-vendored-not-added-as-a-github-marketplace-in-ci).)
+- **Cloud tier** — bump `devflow_version` in `.devflow/config.json` to a newer tag, branch, or commit SHA (the workflows fetch that ref at runtime), or just re-run the same `install.sh` — now a small diff, since it re-stamps `devflow_version` and refreshes the workflows/actions without committing the plugin tree, and keeps your config. (The plugin must be at the literal workspace path when CI runs because a marketplace install isn't reachable from the Actions sandbox — the `vendor-plugin` action satisfies this at runtime; see [`docs/cloud-setup.md`](docs/cloud-setup.md#why-the-plugin-lives-at-a-workspace-path-not-added-as-a-github-marketplace-in-ci).)
 
 ## The workflow, end to end
 
@@ -197,6 +199,7 @@ This creates `.devflow/config.json` from DevFlow's shipped template (only if you
 - `base_branch` — review/merge base (default: repo default branch, else `main`).
 - `devflow_retrospective.*` — settings for `/devflow:retrospective-weekly` (see [Configuration](#configuration)).
 - `setup.*` — *cloud tier only*: how the GitHub Actions runner provisions its toolchain (`python_version`, `node_version`, `install`) before Claude runs. See [`docs/cloud-setup.md`](docs/cloud-setup.md#runtime-provisioning-setup).
+- `devflow_version` — *cloud tier only*: the git ref (tag, branch, or commit SHA) the workflows fetch the plugin from at runtime on a thin install. `install.sh` pins it to the commit it installed from; bump it to update. Ignored when the plugin is committed (`DEVFLOW_VENDOR=1`) or in the source repo. Empty by default so an un-pinned thin install fails loud instead of tracking mutable `main`.
 
 ---
 
@@ -323,9 +326,10 @@ scripts/                 # branch-for-issue.py, config-get.sh, file-deferrals.py
 lib/                     # retrospective-loop helpers (*.sh, *.jq), preflight.sh,
                          #   intervention-surfaces.md, test/
 .github/                 # optional cloud tier: workflows + composite actions
+                         #   (incl. vendor-plugin, which materializes the plugin at runtime)
 .devflow/                # config.example.json + config.schema.json (+ learnings/, logs/)
 docs/                    # cloud-setup.md, implement-skill.md, workflow-triggers.md, efficiency-trace.md
-install.sh               # one-command cloud-tier install/update for consumer repos
+install.sh               # one-command cloud-tier install/update (thin by default; DEVFLOW_VENDOR=1 to commit the plugin)
 ```
 
 Skills reference their bundled helpers via `${CLAUDE_SKILL_DIR}` so they resolve from any install location.
