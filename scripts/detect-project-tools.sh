@@ -198,8 +198,12 @@ jq -n \
         (($t | capture("^Bash\\(\\s*(?<spec>[^:)]*)") | .spec) | gsub("^\\s+|\\s+$";"")) as $cmd
         | if $cmd == "" then true
           elif ($cmd | test("[;|&$<>()`]")) then true
-          else (($cmd | [splits("\\s+")][0]) // "") as $binword
-            | if ($binword | test("^[A-Za-z_][A-Za-z0-9_]*=")) then true
+          # ASCII-whitespace split (`[ \t]`, not `\s`) so the command-position token
+          # matches the runner shell `${cmd%%[[:space:]]*}` exactly — `\s` is Unicode
+          # in Oniguruma and would split on NBSP where the shell does not, desyncing
+          # the two filters on an entry like Bash(bash<nbsp>x:*).
+          else (($cmd | [splits("[ \t]+")][0]) // "") as $binword
+            | if ($binword | test("^[A-Za-z_][^=]*=")) then true
               else (($binword | sub("^.*/";"")) as $b
                     | (["bash","sh","zsh","dash","ksh","fish","eval","exec","source","sudo","doas","su","env","xargs","nice","timeout","nohup","setsid","command","chroot","runuser"] | index($b)) != null)
               end

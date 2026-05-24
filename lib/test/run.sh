@@ -1785,6 +1785,9 @@ PY
   # Closing-paren-before-colon form is stripped (shell must match the jq mirror).
   assert_eq "provision(behavior): Bash(sh):* stripped" "" \
     "$(append_of true 'Bash(sh):*')"
+  # Leading env-assignment with non-identifier name (go.x=1) stripped, matching jq.
+  assert_eq "provision(behavior): Bash(go.x=1:*) leading-assignment stripped" "" \
+    "$(append_of true 'Bash(go.x=1:*)')"
   rm -f "$TOOLS_STEP"
 
   # Behavioral test of the detect-project-tools.sh jq deny mirror: extract the
@@ -1805,6 +1808,9 @@ PY
   assert_eq "provision(jq-mirror): Bash(shellcheck:*) allowed (lookalike)" "false" "$(jq_deny 'Bash(shellcheck:*)')"
   assert_eq "provision(jq-mirror): Bash(docker exec:*) allowed (subcommand)" "false" "$(jq_deny 'Bash(docker exec:*)')"
   assert_eq "provision(jq-mirror): Bash(make CC=gcc:*) allowed (arg assignment)" "false" "$(jq_deny 'Bash(make CC=gcc:*)')"
+  # Env-assignment regex aligned with the runner's `[A-Za-z_]*=*` glob: a leading
+  # assignment whose name has non-identifier chars (go.x=1) must deny in BOTH.
+  assert_eq "provision(jq-mirror): Bash(go.x=1:*) leading-assignment denied" "true" "$(jq_deny 'Bash(go.x=1:*)')"
 else
   echo "  SKIP  provision(behavior): python3+pyyaml unavailable; static assertions only"
 fi
