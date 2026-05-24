@@ -1447,6 +1447,11 @@ assert_eq "et: applied + corroboration>=2 → corroborating"   "corroborating"  
 assert_eq "et: dispatched but silent → null"                 "null"             "$(ET_verdict 1 'pr-review-toolkit:comment-analyzer')"
 assert_eq "et: only pushed_back finding → noise"             "noise"            "$(ET_verdict 2 'pr-review-toolkit:code-reviewer')"
 assert_eq "et: roster-minus-findings null on a LATER iteration" "null"          "$(ET_verdict 2 'pr-review-toolkit:comment-analyzer')"
+# The silent-agent verdict must be JSON null, not the string "null" — so a
+# cross-run analyzer can use idiomatic `select(.verdict == null)`. `jq -r`
+# renders both as "null", so assert the JSON type explicitly.
+ET_verdict_type() { echo "$ET_REC" | jq -r --argjson i "$1" --arg a "$2" '.per_iteration[] | select(.iter==$i) | .agent_verdicts[] | select(.agent==$a) | .verdict | type'; }
+assert_eq "et: silent-agent verdict is JSON null, not string" "null" "$(ET_verdict_type 1 'pr-review-toolkit:comment-analyzer')"
 assert_eq "et: record carries cost telemetry forward (iter1 phase_3 tokens)" "48000" \
   "$(echo "$ET_REC" | jq -r '.telemetry[] | select(.iter==1) | .phases.phase_3.tokens')"
 assert_eq "et: record schema_version=1" "1" "$(echo "$ET_REC" | jq -r '.schema_version')"
@@ -1965,14 +1970,15 @@ assert_eq "vendor: self branch copies the .devflow templates" "yes" "$(vexists "
 # fetch branch — no plugin in cwd; clone a local fixture remote (offline) and
 # copy its slice in. Exercises the clone-by-ref + copy path without the network.
 VS_REMOTE="$(mktemp -d)"
-mkdir -p "$VS_REMOTE"/.claude-plugin "$VS_REMOTE"/agents "$VS_REMOTE"/lib \
-        "$VS_REMOTE"/scripts "$VS_REMOTE"/skills "$VS_REMOTE"/.devflow
+mkdir -p "$VS_REMOTE"/.claude-plugin "$VS_REMOTE"/agents "$VS_REMOTE"/docs \
+        "$VS_REMOTE"/lib "$VS_REMOTE"/scripts "$VS_REMOTE"/skills "$VS_REMOTE"/.devflow
 printf '{}' > "$VS_REMOTE/.claude-plugin/plugin.json"
 printf '{}' > "$VS_REMOTE/.claude-plugin/marketplace.json"
 : > "$VS_REMOTE/scripts/resolve-implement-trigger.sh"
 # git won't track empty dirs — give each slice dir a file so the clone carries
 # the whole slice (mirrors the real repo, where none of these dirs are empty).
 : > "$VS_REMOTE/agents/placeholder.md"
+: > "$VS_REMOTE/docs/efficiency-trace.md"
 : > "$VS_REMOTE/lib/placeholder.sh"
 : > "$VS_REMOTE/skills/placeholder.md"
 printf '{}' > "$VS_REMOTE/.devflow/config.example.json"
@@ -1986,6 +1992,9 @@ VS_FETCH="$(mktemp -d)/dest"
     bash "$VENDOR" >/dev/null 2>&1 )
 assert_eq "vendor: fetch branch clones the pinned ref and copies the slice" "yes" "$(vexists "$VS_FETCH/scripts/resolve-implement-trigger.sh")"
 assert_eq "vendor: fetch branch drops the vendored marketplace.json" "no" "$(vexists "$VS_FETCH/.claude-plugin/marketplace.json")"
+# docs/ must travel with the slice so skills' relative ../../docs/… links resolve
+# offline in the materialized plugin (no web access in the runner sandbox).
+assert_eq "vendor: fetch branch copies docs/ (offline skill links resolve)" "yes" "$(vexists "$VS_FETCH/docs/efficiency-trace.md")"
 
 # fetch branch pinned to a commit SHA — `--branch <sha>` fails, so this exercises
 # the full-clone + checkout fallback (the path install.sh's default SHA pin hits).
@@ -2039,6 +2048,10 @@ assert_eq "vendor: committed branch beats self (precedence)" "yes" "$(vexists "$
 # self branch copies the FULL slice, not just scripts/ (a dropped cp arg would
 # silently ship a plugin missing agents/lib/skills or the tool registry).
 assert_eq "vendor: self copies agents/" "yes" "$(vexists "$VS_SELF/agents")"
+assert_eq "vendor: self copies docs/" "yes" "$(vexists "$VS_SELF/docs")"
+# A known doc lands, so the skills' relative ../../docs/efficiency-trace.md link
+# resolves to a real file in the materialized plugin.
+assert_eq "vendor: self copies docs/efficiency-trace.md" "yes" "$(vexists "$VS_SELF/docs/efficiency-trace.md")"
 assert_eq "vendor: self copies lib/" "yes" "$(vexists "$VS_SELF/lib")"
 assert_eq "vendor: self copies skills/" "yes" "$(vexists "$VS_SELF/skills")"
 assert_eq "vendor: self copies .devflow/tool-presets.json" "yes" "$(vexists "$VS_SELF/.devflow/tool-presets.json")"

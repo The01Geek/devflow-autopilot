@@ -600,8 +600,11 @@ All derivation lives in `lib/efficiency-trace.jq` (a mechanical jq filter, no LL
    TRACE="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$WORKPAD_DIR" --slug "<slug>" --mode trace 2>/tmp/devflow-et.err)" \
      || echo "Effectiveness trace unavailable: $(cat /tmp/devflow-et.err)"
    [ -n "$TRACE" ] && printf '%s\n' "$TRACE"
-   # Write the per-run JSON record (one file per run):
-   bash "$LIB/efficiency-trace.sh" --workpad-dir "$WORKPAD_DIR" --slug "<slug>" --mode record > "$RECORD" 2>/dev/null || true
+   # Write the per-run JSON record (one file per run). Capture stderr so a real
+   # regression surfaces a ::warning:: breadcrumb instead of vanishing into a
+   # 0-byte file — mirroring the --mode trace stderr handling above:
+   bash "$LIB/efficiency-trace.sh" --workpad-dir "$WORKPAD_DIR" --slug "<slug>" --mode record > "$RECORD" 2>/tmp/devflow-et-record.err \
+     || echo "::warning::devflow efficiency-trace record mode failed: $(cat /tmp/devflow-et-record.err)"
    # A flag-off / zero-iteration / failed run emits no output → a 0-byte file;
    # remove it so flag-off (and a catastrophic-early-failure run) write nothing
    # under .devflow/logs/.
