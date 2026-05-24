@@ -37,7 +37,7 @@ auth is required to run them.
 ## Conventions
 
 - **Skills reference bundled files via `${CLAUDE_SKILL_DIR}/../../<dir>/…`** so they
-  resolve regardless of install location. Never hardcode `.claude/plugins/devflow/…`
+  resolve regardless of install location. Never hardcode `.devflow/vendor/devflow/…`
   in a skill (the cloud-tier *workflows* are the one exception — see below).
 - **Portability:** avoid GNU-only flags. Use `python3` for date math (not `date -d`)
   and ERE / `sed -E` (not `grep -P`).
@@ -54,7 +54,7 @@ auth is required to run them.
 ## Cloud-tier workflows
 
 The `.github/workflows/*.yml` files run inside GitHub Actions, where they reference
-plugin scripts at `.claude/plugins/devflow/scripts/…`. That path assumes the cloud
+plugin scripts at `.devflow/vendor/devflow/scripts/…`. That path assumes the cloud
 tier is used with the plugin **vendored** into the consuming repo at that path (see
 `docs/cloud-setup.md`). This is intentional and distinct from the local skills, which
 use `${CLAUDE_SKILL_DIR}`.

@@ -35,7 +35,7 @@ new features; values you've already set are preserved and your arrays (e.g.
 silently tracks a moving `main`.
 
 > **Prefer to commit the plugin instead?** Run `DEVFLOW_VENDOR=1 … | bash`. That
-> vendors the full tree into `.claude/plugins/devflow/` so nothing is fetched at
+> vendors the full tree into `.devflow/vendor/devflow/` so nothing is fetched at
 > runtime — self-hosting, fully auditable in your repo, at the cost of a large
 > vendored diff on every update. `devflow_version` is then ignored.
 
@@ -45,8 +45,24 @@ The local skills locate their helpers via `${CLAUDE_SKILL_DIR}`, but in the
 `claude-code-action` runner that variable is unset, the bash sandbox cannot read
 `~/.claude` (where a marketplace plugin would install), and `$`-expansion in
 commands is blocked. So the workflows reference helper scripts at the **literal
-workspace path** `.claude/plugins/devflow/scripts/…` — the plugin must physically
-be at `.claude/plugins/devflow/` when a job runs.
+workspace path** `.devflow/vendor/devflow/scripts/…` — the plugin must physically
+be at `.devflow/vendor/devflow/` when a job runs.
+
+**Why `.devflow/vendor/` and not `.claude/`.** On every pull request,
+`claude-code-action` runs a security step (`restoreConfigFromBase`) *before* it
+installs plugins: for each of its `SENSITIVE_PATHS` — `.claude`, `.mcp.json`,
+`.claude.json`, `.gitmodules`, `.ripgreprc`, `CLAUDE.md`, `CLAUDE.local.md`,
+`.husky` — it deletes the path (`rm -rf`) and then restores it from the **base
+branch**, so a PR can't inject `.claude/` config into a trusted-token run. A
+plugin vendored under `.claude/plugins/devflow/` is therefore wiped: the whole
+`.claude/` directory is removed, and the base branch has no vendored tree to
+restore, so the subsequent `plugin install` fails with `Source path does not
+exist`. Vendoring to `.devflow/vendor/devflow/` — outside every `SENSITIVE_PATH`
+— sidesteps the restore entirely; `claude-code-action` performs no other
+working-tree-destructive step, so the runtime-vendored tree survives until
+install. (A committed `DEVFLOW_VENDOR=1` tree at the old `.claude/` path used to
+survive only because the restore re-checked-it-out from base — relocating makes
+both install modes robust.)
 
 A thin install satisfies that **at runtime** rather than by committing: every job
 that needs the plugin runs the `vendor-plugin` composite action right after
@@ -377,8 +393,8 @@ After installing (or updating), run a low-stakes test before relying on the
 automation: open a throwaway PR and comment a bare `/devflow:review` on it, and
 confirm the run provisions and responds. The CI permission model is settled —
 each plugin-using job runs the `vendor-plugin` action right after checkout, which
-materializes the plugin at `.claude/plugins/devflow/` (from the commit, the source
+materializes the plugin at `.devflow/vendor/devflow/` (from the commit, the source
 repo, or the pinned `devflow_version` fetch), so its scripts resolve at the literal
-`.claude/plugins/devflow/scripts/…` paths the workflows allowlist. (A
+`.devflow/vendor/devflow/scripts/…` paths the workflows allowlist. (A
 github-marketplace install is deliberately *not* used in CI: the Actions sandbox
 can't reach `~/.claude`, and `CLAUDE_SKILL_DIR` is unset there.)

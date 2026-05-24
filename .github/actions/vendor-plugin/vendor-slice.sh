@@ -5,7 +5,7 @@
 # vendor-slice.sh — materialize the DevFlow plugin into the workspace
 # ============================================================================
 # The cloud-tier workflows reference plugin helpers at the literal workspace
-# path `.claude/plugins/devflow/…`. This script puts the plugin there at RUNTIME
+# path `.devflow/vendor/devflow/…`. This script puts the plugin there at RUNTIME
 # so the tree no longer has to be committed into a consumer repo. It is the ONE
 # definition of "which files are the plugin" — install.sh sources it for the
 # shared `devflow_copy_slice` function (see DEVFLOW_VENDOR_SOURCE below), and the
@@ -13,7 +13,7 @@
 #
 # Executed (the composite action), it follows a single deterministic algorithm.
 # Only the committed branch is a no-op; the self and fetch branches both copy:
-#   1. committed  — `.claude/plugins/devflow/scripts` already in the checkout → use it (no-op).
+#   1. committed  — `.devflow/vendor/devflow/scripts` already in the checkout → use it (no-op).
 #   2. self       — the plugin lives at the checkout root (this source repo)    → copy it in.
 #   3. fetch      — neither                                                      → clone DEVFLOW_REF and copy it in.
 # The fetch branch refuses to run without a pinned ref, so a thin consumer never
@@ -26,7 +26,7 @@
 #   DEVFLOW_REPO       owner/name to fetch from (default The01Geek/devflow-autopilot).
 #   DEVFLOW_REPO_URL   full clone URL (default https://github.com/$DEVFLOW_REPO.git);
 #                      overridable so tests can clone a local fixture offline.
-#   DEVFLOW_DEST       destination dir (default .claude/plugins/devflow); overridable for tests.
+#   DEVFLOW_DEST       destination dir (default .devflow/vendor/devflow); overridable for tests.
 #   DEVFLOW_VENDOR_SOURCE=1  define functions and return WITHOUT running — for `source`rs.
 # ============================================================================
 set -euo pipefail
@@ -68,7 +68,7 @@ devflow_copy_slice() {
 }
 
 devflow_vendor_main() {
-  local dest="${DEVFLOW_DEST:-.claude/plugins/devflow}"
+  local dest="${DEVFLOW_DEST:-.devflow/vendor/devflow}"
 
   # 1. committed branch — a consumer that committed the plugin (self-hosting).
   if [ -d "$dest/scripts" ]; then

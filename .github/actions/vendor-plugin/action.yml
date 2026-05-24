@@ -1,6 +1,6 @@
 name: 'Vendor DevFlow plugin'
 description: |
-  Materialize the DevFlow plugin into `.claude/plugins/devflow/` at runtime, so
+  Materialize the DevFlow plugin into `.devflow/vendor/devflow/` at runtime, so
   the cloud-tier workflows find their helper scripts at the literal workspace
   path without the plugin tree having to be committed into the repo. Runs the
   committed → self → fetch algorithm in vendor-slice.sh (the single source of

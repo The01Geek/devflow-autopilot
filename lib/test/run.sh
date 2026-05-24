@@ -1489,6 +1489,46 @@ assert_eq "install: Anthropic claude.yml preserved" \
 rm -rf "$WORK"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "install.sh: prune_stale_vendored_plugin"
+# ────────────────────────────────────────────────────────────────────────────
+# On upgrade, install.sh must remove a stale committed plugin at the OLD
+# .claude/plugins/devflow location (relocated to .devflow/vendor/devflow), but
+# ONLY when it is actually DevFlow's plugin, and must never remove a non-empty
+# user .claude/ directory.
+
+# Case A: a DevFlow-signed tree at the old path → removed, empty parents pruned.
+WORK="$(mktemp -d)"; mkdir -p "$WORK/.claude/plugins/devflow/.claude-plugin"
+printf '{"name":"devflow"}' > "$WORK/.claude/plugins/devflow/.claude-plugin/plugin.json"
+# shellcheck disable=SC1090
+( cd "$WORK" && DEVFLOW_SELFTEST=1 . "$INSTALL" && prune_stale_vendored_plugin ) >/dev/null 2>&1
+assert_eq "install: stale committed .claude/plugins/devflow removed" \
+  "absent" "$([ -d "$WORK/.claude/plugins/devflow" ] && echo present || echo absent)"
+assert_eq "install: emptied .claude/ pruned" \
+  "absent" "$([ -d "$WORK/.claude" ] && echo present || echo absent)"
+rm -rf "$WORK"
+
+# Case B: a non-DevFlow plugin.json at that path → preserved (signature guard).
+WORK="$(mktemp -d)"; mkdir -p "$WORK/.claude/plugins/devflow/.claude-plugin"
+printf '{"name":"not-devflow"}' > "$WORK/.claude/plugins/devflow/.claude-plugin/plugin.json"
+# shellcheck disable=SC1090
+( cd "$WORK" && DEVFLOW_SELFTEST=1 . "$INSTALL" && prune_stale_vendored_plugin ) >/dev/null 2>&1
+assert_eq "install: non-devflow .claude/plugins/devflow preserved" \
+  "present" "$([ -d "$WORK/.claude/plugins/devflow" ] && echo present || echo absent)"
+rm -rf "$WORK"
+
+# Case C: DevFlow tree removed but a non-empty .claude/ (other content) is kept.
+WORK="$(mktemp -d)"; mkdir -p "$WORK/.claude/plugins/devflow/.claude-plugin" "$WORK/.claude/skills"
+printf '{"name":"devflow"}' > "$WORK/.claude/plugins/devflow/.claude-plugin/plugin.json"
+printf 'x' > "$WORK/.claude/skills/keep.md"
+# shellcheck disable=SC1090
+( cd "$WORK" && DEVFLOW_SELFTEST=1 . "$INSTALL" && prune_stale_vendored_plugin ) >/dev/null 2>&1
+assert_eq "install: devflow tree removed under non-empty .claude" \
+  "absent" "$([ -d "$WORK/.claude/plugins/devflow" ] && echo present || echo absent)"
+assert_eq "install: non-empty user .claude/ preserved" \
+  "present" "$([ -f "$WORK/.claude/skills/keep.md" ] && echo present || echo absent)"
+rm -rf "$WORK"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "workflow partition invariant"
 # ────────────────────────────────────────────────────────────────────────────
 # Every gate `if:` line that matches a /devflow: command trigger must ALSO
