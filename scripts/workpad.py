@@ -237,22 +237,30 @@ def _status_glyph(status: str) -> str:
     return '🚀'
 
 
-def _set_or_insert_header(body: str, regex: re.Pattern, label: str, value: str) -> str:
+def _set_or_insert_header(
+    body: str, regex: re.Pattern, label: str, value: str, anchors: list[re.Pattern]
+) -> str:
     """Replace a `**{label}:** …` front-matter line with `value`, or insert it
-    immediately after the Branch line when absent (so a legacy workpad created
-    before run/PR links existed still accepts `--run-link`/`--pr-link` on a
-    resume instead of erroring). `value` is substituted via a function replacer
-    so regex-special characters in the value (e.g. URL `?`/`&`) are literal."""
+    after the first matching `anchors` line when absent (so a legacy workpad
+    created before run/PR links existed still accepts `--run-link`/`--pr-link`
+    on a resume instead of erroring). `anchors` is tried in priority order to
+    preserve the canonical Status/Branch/Run/PR/Last-updated ordering — e.g. PR
+    inserts after Run when Run exists, else after Branch — so a freshly-inserted
+    line never jumps above an existing one. `value` is substituted via a
+    function replacer so regex-special characters in the value (e.g. URL
+    `?`/`&`) are literal."""
     new_line = f'**{label}:** {value}'
     body, n = regex.subn(lambda _m: new_line, body, count=1)
     if n:
         return body
-    body, n = _BRANCH_RE.subn(lambda m: m.group(0) + '\n' + new_line, body, count=1)
-    if n == 0:
-        raise _UpdateError(
-            f'{label} line absent and no Branch line to insert it after'
-        )
-    return body
+    for anchor in anchors:
+        body, n = anchor.subn(lambda m: m.group(0) + '\n' + new_line, body, count=1)
+        if n:
+            return body
+    raise _UpdateError(
+        f'{label} line absent and no anchor line ({", ".join(a.pattern for a in anchors)}) '
+        f'to insert it after'
+    )
 
 
 def _split_sections(body: str) -> tuple[str, list[tuple[str, str]]]:
@@ -589,9 +597,13 @@ def _apply_mutations(body: str, args) -> str:
         if n == 0:
             raise _UpdateError('Branch line not found in workpad')
     if args.run_link:
-        body = _set_or_insert_header(body, _RUN_RE, 'Run', args.run_link)
+        body = _set_or_insert_header(body, _RUN_RE, 'Run', args.run_link, [_BRANCH_RE])
     if args.pr_link:
-        body = _set_or_insert_header(body, _PR_RE, 'PR', args.pr_link)
+        # Anchor PR after Run when Run exists (else Branch), so the canonical
+        # Run-then-PR order holds whether one or both lines are being inserted.
+        body = _set_or_insert_header(
+            body, _PR_RE, 'PR', args.pr_link, [_RUN_RE, _BRANCH_RE],
+        )
 
     # Always refresh Last updated.
     body, n = _LAST_UPDATED_RE.subn(f'**Last updated:** {now}', body, count=1)

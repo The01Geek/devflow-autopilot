@@ -321,6 +321,16 @@ assert_eq("pr-link: inserted after Branch when absent", True, '**PR:** P' in out
 assert_eq("inserted links sit between Branch and Last updated", True,
           out.index('**Branch:**') < out.index('**Run:** R')
           and out.index('**PR:** P') < out.index('**Last updated:**'))
+# Canonical order preserved when BOTH are inserted in one call: Run before PR.
+assert_eq("both-absent insert keeps Run before PR", True,
+          out.index('**Run:** R') < out.index('**PR:** P'))
+# Resume case: Run already present, only PR inserted → PR lands after Run, not
+# above it (regression guard for the insert-after-Branch ordering bug).
+RUN_ONLY = WORKPAD_V2.replace('**PR:** _not yet created_\n', '')
+out = workpad._apply_mutations(RUN_ONLY, make_args(pr_link='[#9](u)'))
+assert_eq("pr-link inserted after an existing Run line (not above it)", True,
+          out.index('**Run:**') < out.index('**PR:** [#9](u)')
+          and out.index('**PR:** [#9](u)') < out.index('**Last updated:**'))
 
 # ## Progress ticks (incl. a nested sub-item), with the same failure modes as --tick-*.
 out = workpad._apply_mutations(WORKPAD_V2, make_args(
