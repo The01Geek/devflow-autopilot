@@ -1528,6 +1528,27 @@ assert_eq "install: non-empty user .claude/ preserved" \
   "present" "$([ -f "$WORK/.claude/skills/keep.md" ] && echo present || echo absent)"
 rm -rf "$WORK"
 
+# Case D: no old tree at all (the common thin-install path) → clean no-op, exit 0,
+# and an unrelated .claude/ is untouched.
+WORK="$(mktemp -d)"; mkdir -p "$WORK/.claude/skills"; printf 'x' > "$WORK/.claude/skills/keep.md"
+# shellcheck disable=SC1090
+( cd "$WORK" && DEVFLOW_SELFTEST=1 . "$INSTALL" && prune_stale_vendored_plugin ) >/dev/null 2>&1
+assert_eq "install: prune is a clean no-op when no old tree exists" "0" "$?"
+assert_eq "install: prune leaves unrelated .claude/ untouched when no old tree" \
+  "present" "$([ -f "$WORK/.claude/skills/keep.md" ] && echo present || echo absent)"
+rm -rf "$WORK"
+
+# Case E: old dir exists but carries no devflow plugin.json (partial/interrupted
+# install) → left in place (not blindly removed), exit 0.
+WORK="$(mktemp -d)"; mkdir -p "$WORK/.claude/plugins/devflow/scripts"
+printf 'x' > "$WORK/.claude/plugins/devflow/scripts/stray.sh"
+# shellcheck disable=SC1090
+( cd "$WORK" && DEVFLOW_SELFTEST=1 . "$INSTALL" && prune_stale_vendored_plugin ) >/dev/null 2>&1
+assert_eq "install: unsigned old tree is a clean exit" "0" "$?"
+assert_eq "install: unsigned old tree is left untouched" \
+  "present" "$([ -d "$WORK/.claude/plugins/devflow" ] && echo present || echo absent)"
+rm -rf "$WORK"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "install.sh: manage_vendor_gitignore"
 # ────────────────────────────────────────────────────────────────────────────
@@ -1570,6 +1591,31 @@ assert_eq "install: missing .gitignore is a clean no-op" \
 assert_eq "install: no .gitignore created when absent" \
   "absent" "$([ -f "$WORK/.devflow/.gitignore" ] && echo present || echo absent)"
 rm -rf "$WORK"
+
+# Case D: DEVFLOW_VENDOR=1 when /vendor/ is already absent → steady-state no-op,
+# /tmp/ kept (symmetric to the thin-side idempotency check above).
+WORK="$(mktemp -d)"; mkdir -p "$WORK/.devflow"; printf '/tmp/\n' > "$WORK/.devflow/.gitignore"
+# shellcheck disable=SC1090
+( cd "$WORK" && DEVFLOW_SELFTEST=1 . "$INSTALL" && DEVFLOW_VENDOR=1 manage_vendor_gitignore ) >/dev/null 2>&1
+assert_eq "install: DEVFLOW_VENDOR=1 with /vendor/ already absent keeps it absent" \
+  "no" "$(grep -qxF '/vendor/' "$WORK/.devflow/.gitignore" && echo yes || echo no)"
+assert_eq "install: DEVFLOW_VENDOR=1 steady-state keeps /tmp/" \
+  "yes" "$(grep -qxF '/tmp/' "$WORK/.devflow/.gitignore" && echo yes || echo no)"
+rm -rf "$WORK"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "no stale .claude/plugins/devflow reference in shipped cloud-tier files"
+# ────────────────────────────────────────────────────────────────────────────
+# Locks the invariant this relocation establishes: the runtime-vendored plugin
+# lives at .devflow/vendor/devflow, so no workflow, composite action, or config
+# schema may reference the old .claude/plugins/devflow path (a stale reference
+# fails closed at runtime — "resolver not found" / wiped plugin). install.sh and
+# the test file are EXEMPT: they intentionally name the old path (the prune
+# migration that removes it, and these tests).
+STALE=$(cd "$LIB/.." && git ls-files .github .devflow/config.schema.json \
+  | xargs -r grep -lF '.claude/plugins/devflow' 2>/dev/null || true)
+assert_eq "install: no shipped cloud-tier file references the old vendored path" \
+  "" "$STALE"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "workflow partition invariant"

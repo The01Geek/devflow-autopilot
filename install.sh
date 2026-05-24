@@ -123,11 +123,18 @@ prune_stale_devflow_workflows() {
 # never the user's wider .claude/ (which holds settings/skills/hooks).
 prune_stale_vendored_plugin() {
   local old=.claude/plugins/devflow
+  [ -d "$old" ] || return 0   # common case: no old tree → silent no-op.
   if [ -f "$old/.claude-plugin/plugin.json" ] \
      && grep -Eq '"name"[[:space:]]*:[[:space:]]*"devflow"' "$old/.claude-plugin/plugin.json"; then
     rm -rf "$old"
     rmdir .claude/plugins .claude 2>/dev/null || true
     log "removed stale committed plugin at $old (relocated to .devflow/vendor/devflow)"
+  else
+    # The directory exists but is not a recognizable DevFlow plugin (no devflow
+    # plugin.json — e.g. a partial/interrupted older install, or an unrelated
+    # tree). Don't rm it blindly; warn so a genuinely-stale tree isn't left to be
+    # silently wiped by claude-code-action's .claude/ restore on the next cloud PR.
+    log "warning: $old exists but carries no devflow plugin.json; leaving it untouched — if it is a stale pre-relocation vendored tree, remove it by hand (.claude/ is wiped on cloud PRs)."
   fi
 }
 
@@ -146,7 +153,13 @@ manage_vendor_gitignore() {
   [ -f "$gi" ] || return 0
   if [ "${DEVFLOW_VENDOR:-}" = "1" ]; then
     if grep -qxF '/vendor/' "$gi"; then
-      sed -i '\#^/vendor/$#d' "$gi"
+      # Portable in-place delete — NOT `sed -i` (GNU-only; BSD/macOS sed needs a
+      # backup-suffix arg, and this is a `curl | bash` installer that must run on
+      # macOS — see CONTRIBUTING.md). Filter to a temp and swap. `|| true`
+      # absorbs grep's exit 1 when /vendor/ was the only line (the readability of
+      # $gi was just proven by the `grep -qxF` guard, so exit 2 can't occur here).
+      grep -vxF '/vendor/' "$gi" > "$gi.tmp" || true
+      mv "$gi.tmp" "$gi"
       log "un-ignored .devflow/vendor/ (DEVFLOW_VENDOR=1 commits the plugin tree)"
     fi
   elif ! grep -qxF '/vendor/' "$gi"; then

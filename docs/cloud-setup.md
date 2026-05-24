@@ -50,10 +50,12 @@ be at `.devflow/vendor/devflow/` when a job runs.
 
 **Why `.devflow/vendor/` and not `.claude/`.** On every pull request,
 `claude-code-action` runs a security step (`restoreConfigFromBase`) *before* it
-installs plugins: for each of its `SENSITIVE_PATHS` — `.claude`, `.mcp.json`,
-`.claude.json`, `.gitmodules`, `.ripgreprc`, `CLAUDE.md`, `CLAUDE.local.md`,
-`.husky` — it deletes the path (`rm -rf`) and then restores it from the **base
-branch**, so a PR can't inject `.claude/` config into a trusted-token run. A
+installs plugins: for each of its `SENSITIVE_PATHS` — as of `claude-code-action`
+v1, `.claude`, `.mcp.json`, `.claude.json`, `.gitmodules`, `.ripgreprc`,
+`CLAUDE.md`, `CLAUDE.local.md`, `.husky` (see that action's
+`src/github/operations/restore-config.ts` for the current set) — it deletes the
+path (`rm -rf`) and then restores it from the **base branch**, so a PR can't
+inject `.claude/` config into a trusted-token run. A
 plugin vendored under `.claude/plugins/devflow/` is therefore wiped: the whole
 `.claude/` directory is removed, and the base branch has no vendored tree to
 restore, so the subsequent `plugin install` fails with `Source path does not
