@@ -458,7 +458,33 @@ assert_eq "detect: spaced subdir name is quoted in install line" "yes" \
 assert_eq "detect: spaced subdir name written verbatim to node_working_directory" "my app" \
   "$(jq -r '.setup.node_working_directory' "$DT9/.devflow/config.json")"
 
-rm -rf "$DT1" "$DT2" "$DT3" "$DT4" "$DT5" "$DT6" "$DT7" "$DT8" "$DT9"
+# 11. Best-effort shape guard: a malformed pre-existing config (numeric
+#     node_version, which the schema types as a string) is carried through the
+#     merge into valid-but-wrong-shaped JSON. The guard must REFUSE to write it —
+#     the user's config is left byte-identical — and the script must still exit 0
+#     (best-effort, never blocks the surrounding scaffold).
+DT10="$(mktemp -d)"; mkdir -p "$DT10/.devflow"
+printf '{"name":"z"}' > "$DT10/package.json"
+printf '{}' > "$DT10/package-lock.json"
+printf '{"setup":{"node_version":20,"install":[]}}' > "$DT10/.devflow/config.json"
+DT10_BEFORE="$(cat "$DT10/.devflow/config.json")"
+bash "$DPT" "$DT10" >/dev/null 2>&1
+assert_eq "detect: shape-drifted merge still exits 0 (best-effort)" "0" "$?"
+assert_eq "detect: shape-drifted merge leaves config untouched" \
+  "$DT10_BEFORE" "$(cat "$DT10/.devflow/config.json")"
+
+# 12. The shape guard does NOT block a well-formed merge: a valid empty config
+#     with a node marker is merged and written (npm tools land), confirming the
+#     guard is a safety net, not a gate on the happy path.
+DT11="$(mktemp -d)"; mkdir -p "$DT11/.devflow"
+printf '{"name":"ok"}' > "$DT11/package.json"
+printf '{}' > "$DT11/package-lock.json"
+printf '{}' > "$DT11/.devflow/config.json"
+bash "$DPT" "$DT11" >/dev/null 2>&1
+assert_eq "detect: well-formed merge passes the guard and is written" "yes" \
+  "$(dpt_has .devflow.allowed_tools 'Bash(npm:*)' "$DT11/.devflow/config.json")"
+
+rm -rf "$DT1" "$DT2" "$DT3" "$DT4" "$DT5" "$DT6" "$DT7" "$DT8" "$DT9" "$DT10" "$DT11"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "resolve-node-cache.sh (setup-project-env helper)"
