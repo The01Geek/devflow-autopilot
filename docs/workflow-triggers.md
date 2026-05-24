@@ -35,6 +35,38 @@ The partition tests assert all of this: no `issues:` event, no
 `contains(github.event.issue.body|title, …)` in any gate, and no `issue.body` in
 `TRIGGER_TEXT`.
 
+## DevFlow's own workpad comment can't self-trigger `/devflow:implement`
+
+The `/devflow:implement` orchestrator maintains one marker-tagged **workpad**
+comment per issue (see `scripts/workpad.py`), and that comment quotes the literal
+phrase `/devflow:implement` (e.g. its seeded `/devflow:implement run started`
+note). Because the comment is posted by an allowed bot, it would otherwise re-enter
+the gate as a fresh `issue_comment[created]` event and fire a duplicate run on its
+own thread.
+
+`scripts/resolve-implement-trigger.sh` closes this with a **self-trigger guard**
+that runs *before* authorization and number resolution: it declines any
+`TRIGGER_TEXT` that *contains* the effective workpad marker. The check reads:
+
+- The marker comes from the `SELF_COMMENT_MARKER` env var, defaulting to
+  `<!-- devflow:workpad -->` when unset/empty — the same fallback `workpad.py`
+  uses, so the guard protects a repo with no config exactly the same.
+- It is a literal **substring** match (`case "$text" in *"$marker"*`), not a
+  regex, so a marker customized with regex-special characters still matches
+  literally, and a marker quoted/embedded anywhere in the body is still caught.
+  This is deliberately broader than `workpad.py`'s own marker check, which only
+  matches with `startswith`.
+- On a match the gate emits `should_run=false` (with an empty `number`) and logs a
+  `::warning::`, regardless of actor or which command phrase the body quotes.
+
+> **Workflow wiring.** Passing `SELF_COMMENT_MARKER` into the resolver's
+> environment (and exposing a `workpad_marker` config output) lives in
+> `.github/workflows/devflow-implement.yml`, and is **applied as shipped** — the
+> config job extracts `devflow.workpad_marker` (defaulting to the built-in
+> `<!-- devflow:workpad -->`) and the gate passes it to the resolver. So both the
+> **default** marker and any repo-customized `devflow.workpad_marker` are protected
+> out of the box, with no manual edit required.
+
 ## Duplicate `/devflow:implement` runs are ignored per thread
 
 A second `/devflow:implement` for an issue/PR while a run for it is already in

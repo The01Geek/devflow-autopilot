@@ -53,7 +53,8 @@ The workpad comment body MUST start with the marker line on its own line, follow
 {captured signal — failing test, error log, or repro command. Section only present for `bug`-labelled issues.}
 
 ## Decisions / Notes
-- {output of `workpad.py now`} — {append-only chronological note}
+### {phase — the workpad's `Status` when the note was appended, e.g. Setup}
+- {HH:MM:SS} — {append-only chronological note}
 
 ## Devflow Reflection
 - {only when something was unclear, blocked, or deferred during execution}
@@ -83,7 +84,7 @@ Subcommand reference:
 | `--tick-plan TEXT` | Tick one unticked Plan checkbox whose text contains TEXT (substring). Fails if TEXT matches zero unticked checkboxes or multiple. **Repeatable** — pass multiple times to tick several boxes in one atomic update. |
 | `--tick-ac TEXT` | Same, for Acceptance Criteria. **Repeatable.** |
 | `--rewrite-ac OLD NEW` | Phase 2.2.6: find an AC by OLD substring, replace its full text with NEW, keep the box state. |
-| `--note TEXT` | Append an auto-timestamped entry to Decisions / Notes. **Repeatable** — multiple notes in one call share the same timestamp and are appended in argument order. |
+| `--note TEXT` | Append a Decisions / Notes entry, prefixed with a time-only `HH:MM:SS` UTC timestamp and grouped under a `### {current Status}` sub-heading (created on first use, reused thereafter). **Repeatable** — multiple notes in one call share the same timestamp, land under the current `Status` sub-heading, and are appended in argument order. |
 | `--reflection TEXT` | Append a bullet to Devflow Reflection (no timestamp). **Repeatable.** |
 | `--replace-plan-file FILE` | Replace the Plan section content with FILE. |
 | `--replace-acs-file FILE` | Phase 2.2.5: replace Acceptance Criteria content with FILE. |
@@ -92,7 +93,7 @@ Subcommand reference:
 `update` always re-fetches the live body before mutating (this narrows but does not eliminate the clobber window for concurrent edits; acceptable because the orchestrator is the single writer in practice), always refreshes `Last updated`, and PATCHes atomically — within a single `update` call, all of its mutations apply or none do. The patched body is printed to stdout so callers can verify the change actually landed.
 
 Helper invariants baked into the script (orchestrator doesn't need to enforce them):
-- Decisions / Notes is append-only — `--note` only appends, never rewrites.
+- Decisions / Notes is append-only — `--note` only appends, never rewrites; each bullet is grouped under a `### {current Status}` sub-heading and carries a time-only `HH:MM:SS` prefix.
 - Devflow Reflection accumulates bullets — `--reflection` only appends.
 - `--tick-*` flags edit only the box character and preserve the rest of the line.
 - `--rewrite-ac` preserves the original checkbox state (don't tick during a 2.2.6 rewrite — the gate ticks later via `--tick-ac`).
@@ -177,7 +178,7 @@ ISSUE_NUMBER=$ARGUMENTS
 WORKPAD_ID=$(${CLAUDE_SKILL_DIR}/../../scripts/workpad.py id "$ISSUE_NUMBER" || true)
 ```
 
-- **`WORKPAD_ID` empty (fresh issue)** → Build the initial body to a temp file: `Status: Setup`, `Branch:` `$(git branch --show-current)`, a placeholder `Last updated:`, empty `## Plan` (filled in during 2.2), the AC contents from `/tmp/acs-${ARGUMENTS}.md` (produced by 1.4), no `## Reproduction` section yet (added in 2.1.5 if applicable), `## Decisions / Notes` seeded with one bullet like `- {now} — /devflow:implement run started`, and an empty `## Devflow Reflection`. Then `workpad.py create $ISSUE_NUMBER <tmp-file>`.
+- **`WORKPAD_ID` empty (fresh issue)** → Build the initial body to a temp file: `Status: Setup`, `Branch:` `$(git branch --show-current)`, a placeholder `Last updated:`, empty `## Plan` (filled in during 2.2), the AC contents from `/tmp/acs-${ARGUMENTS}.md` (produced by 1.4), no `## Reproduction` section yet (added in 2.1.5 if applicable), `## Decisions / Notes` seeded under a `### Setup` sub-heading with one time-only bullet (`### Setup` then `- {HH:MM:SS} — /devflow:implement run started`, where `{HH:MM:SS}` is the time portion of `workpad.py now`), and an empty `## Devflow Reflection`. Then `workpad.py create $ISSUE_NUMBER <tmp-file>`.
 - **`WORKPAD_ID` non-empty (resume)** → Read the live body with `workpad.py body $WORKPAD_ID`. Treat its `Decisions / Notes` and `Devflow Reflection` as load-bearing context (see Workpad Reference). To reset for this run, apply: `workpad.py update $ISSUE_NUMBER --status Setup --branch "$(git branch --show-current)" --note "/devflow:implement re-run started"`. If the issue's Acceptance Criteria section changed since the last run, also pass `--replace-acs-file /tmp/acs-${ARGUMENTS}.md`.
 
 After this step, every later phase boundary touches the workpad via `workpad.py update $ISSUE_NUMBER ...` — no `WORKPAD_ID` variable to track across calls.
