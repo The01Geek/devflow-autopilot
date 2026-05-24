@@ -20,6 +20,11 @@
 #   TRIGGER_TEXT    the comment / review body that fired (never a description).
 #   CONTEXT_NUMBER  the issue/PR number the event is attached to: the fallback
 #                   target when TRIGGER_TEXT has no explicit number.
+#   SELF_COMMENT_MARKER  the repo's effective workpad marker. When TRIGGER_TEXT
+#                   contains it (literal substring), the comment is one DevFlow
+#                   posted itself (the workpad), so we decline — a self-trigger
+#                   guard. Defaults to '<!-- devflow:workpad -->' when unset/empty
+#                   (matching scripts/workpad.py's own fallback).
 #   GH_TOKEN        token for `gh api` (collaborator check), set by the caller.
 #
 # Output: two `key=value` lines on stdout (the caller appends them to
@@ -37,6 +42,28 @@ emit() { printf '%s=%s\n' "$1" "$2"; }
 actor="${ACTOR:-}"
 text="${TRIGGER_TEXT:-}"
 context_number="${CONTEXT_NUMBER:-}"
+# Effective workpad marker; defaults to workpad.py's own fallback so the guard
+# protects repos with no config just the same.
+marker="${SELF_COMMENT_MARKER:-<!-- devflow:workpad -->}"
+
+# --- Self-trigger guard (runs BEFORE authorization / number resolution) -----
+# DevFlow's own workpad comment quotes the literal phrase `/devflow:implement`
+# (e.g. the "/devflow:implement run started" note) and carries no `@claude`, so
+# it would otherwise re-enter the gate and fire a duplicate run on its own
+# thread. A workpad comment is identified by the marker it leads with; declining
+# any comment that contains it stops the self-trigger regardless of actor (an
+# allowed bot posts the workpad) or which phrase it quotes. Substring match —
+# not a regex — so a customized marker with regex-special chars matches literally.
+if [ -n "$marker" ]; then
+  case "$text" in
+    *"$marker"*)
+      echo "::warning::/devflow:implement trigger came from a Devflow-authored comment (workpad marker present); skipping (self-trigger guard)." >&2
+      emit should_run false
+      emit number ""
+      exit 0
+      ;;
+  esac
+fi
 
 # --- Authorization (cost control: agent mode runs for any actor) ------------
 # Shared with resolve-command-trigger.sh — see scripts/authorize-actor.sh.

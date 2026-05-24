@@ -561,12 +561,19 @@ Construct the report in this format:
 ## Verification Checklist Results
 - ({total} checked, {pass} passed, {fail} failed, {inconclusive} inconclusive)
 {for each FAIL or INCONCLUSIVE item: "- VC-N: VERDICT — claim [source_file:source_line]"}
+{when {pass} > 0, emit the PASS items inside a collapsed block — `{pass}` MUST equal the number of `- VC-N` lines listed inside it:}
+<details><summary>{pass} passed checks</summary>
 
-PASS items are summarized in the count line above; do not list them individually. Callers that render the report in environments supporting collapsible Markdown (e.g. GitHub PR comments) MAY wrap a per-item PASS list in a `<details>` block, but the skill itself does not emit one.
+{for each PASS item: "- VC-N: PASS — claim [source_file:source_line]"}
+
+</details>
+{when {pass} == 0, omit the `<details>` block entirely — never emit an empty collapsible.}
+
+FAIL and INCONCLUSIVE items stay listed outside the `<details>` block so they remain visible. The block renders collapsibly on GitHub; in a chat-only `/devflow:review-and-fix` run it renders as inline HTML, which stays readable.
 
 ## Code Review Findings
-{for each finding: "- [agent-name] severity: description (raised by N/{total Phase 3 agents that returned results} agents)"}
-{for findings whose index appears in the matcher's honored[] list, append " [Deferred → #{follow_up_issue}]" to the line and render the finding under a separate sub-heading "### Informational — Deferred" rather than under its original severity bucket.}
+{for each finding, prefix the line with its severity icon — 🔴 Critical, 🟠 Important/Major, 🟡 Suggestion/Minor, ℹ️ Informational — Deferred: "- {icon} [agent-name] severity: description (raised by N/{total Phase 3 agents that returned results} agents)"}
+{for findings whose index appears in the matcher's honored[] list, append " [Deferred → #{follow_up_issue}]" to the line, render it with the ℹ️ icon, and place it under a separate sub-heading "### Informational — Deferred" rather than under its original severity bucket.}
 {group Critical findings first, then Important/Major, then Suggestion/Minor, then Informational — Deferred. Within each severity, list corroborated findings (N≥2) before single-source ones (N=1) so the highest-confidence items lead.}
 
 ## Deferrals
