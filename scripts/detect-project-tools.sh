@@ -184,13 +184,12 @@ jq -n \
   --arg nodewd "$NODE_WD" '
   def odedupe: reduce .[] as $x ([]; if any(.[]; . == $x) then . else . + [$x] end);
   # Fast-feedback mirror of the runner deny-list floor (devflow-runner.yml is the
-  # authoritative boundary). The reviewer never receives the catastrophic tier —
-  # tree-mutation tools and any Bash entry that can reach a raw shell / eval /
-  # privilege binary — so this script never writes one into
-  # devflow_runner.allowed_tools, regardless of preset content. Mirror the runner:
-  # scan every whitespace token of the command spec by basename (so a wrapper /
-  # path / prefix cannot hide a denied binary — env bash, /bin/bash, xargs sh),
-  # deny env-assignment tokens (FOO=1 bash), and deny a bare/empty command word.
+  # authoritative boundary). Same rules as the runner: inspect the command-position
+  # binary (first whitespace token of the spec, before the first : or ) ) by its
+  # basename and deny a shell/eval/privilege binary or an exec-wrapper; deny a
+  # leading env-assignment; deny any shell metacharacter in the spec; deny an empty
+  # or bare command word. Non-leading arg tokens are NOT scanned, so legitimate
+  # tools whose subcommand is a deny word (docker exec, make CC=gcc) are kept.
   def denylisted:
     (gsub("^\\s+|\\s+$";"")) as $t
     | if (["Edit","Write","MultiEdit","NotebookEdit"] | index($t)) != null then true
@@ -198,10 +197,12 @@ jq -n \
       elif ($t | test("^Bash\\(")) then
         (($t | capture("^Bash\\(\\s*(?<spec>[^:)]*)") | .spec) | gsub("^\\s+|\\s+$";"")) as $cmd
         | if $cmd == "" then true
-          else ([ $cmd | splits("\\s+") ] | any(
-                  test("^[A-Za-z_][A-Za-z0-9_]*=")
-                  or ((sub("^.*/";"")) as $b | (["bash","sh","zsh","eval","exec","source","sudo"] | index($b)) != null)
-                ))
+          elif ($cmd | test("[;|&$<>()`]")) then true
+          else (($cmd | [splits("\\s+")][0]) // "") as $binword
+            | if ($binword | test("^[A-Za-z_][A-Za-z0-9_]*=")) then true
+              else (($binword | sub("^.*/";"")) as $b
+                    | (["bash","sh","zsh","dash","ksh","fish","eval","exec","source","sudo","doas","su","env","xargs","nice","timeout","nohup","setsid","command","chroot","runuser"] | index($b)) != null)
+              end
           end
       else false end;
   ($cfg[0]) as $c |

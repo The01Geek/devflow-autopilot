@@ -1641,7 +1641,7 @@ assert_eq "provision: freeform append is inside the PROVISION_ENV guard (guard p
 assert_eq "provision: deny-list names present (Edit/Write/MultiEdit/NotebookEdit)" "1" \
   "$(grep -cF "DENY_NAMES='Edit Write MultiEdit NotebookEdit'" "$RUNNER" || true)"
 assert_eq "provision: deny-list shells/eval/privilege present" "1" \
-  "$(grep -cF "DENY_CMDS='bash sh zsh eval exec source sudo'" "$RUNNER" || true)"
+  "$(grep -c "DENY_CMDS='bash sh zsh" "$RUNNER" || true)"
 assert_eq "provision: stripped deny-listed entries warned" "1" \
   "$(grep -c 'stripped deny-listed entries' "$RUNNER" || true)"
 assert_eq "provision: empty-after-strip warns build-aware review has no tools" "1" \
@@ -1768,6 +1768,23 @@ PY
   # Mixed list: denies dropped, clean kept, order preserved.
   assert_eq "provision(behavior): mixed list keeps only clean entries" ",Bash(go:*),Bash(make:*)" \
     "$(append_of true 'Bash(go:*),Bash(sudo:*),Edit,Bash(make:*)')"
+  # Regression guard (must NOT over-strip): a deny word as a SUBCOMMAND or arg of a
+  # non-wrapper command, or as a path arg, is legitimate and must survive — only
+  # the command-position binary is inspected.
+  assert_eq "provision(behavior): Bash(docker exec:*) kept (exec is a docker subcommand)" ",Bash(docker exec:*)" \
+    "$(append_of true 'Bash(docker exec:*)')"
+  assert_eq "provision(behavior): Bash(make CC=gcc:*) kept (= is a make arg, not a leading assignment)" ",Bash(make CC=gcc:*)" \
+    "$(append_of true 'Bash(make CC=gcc:*)')"
+  assert_eq "provision(behavior): Bash(go run ./cmd/sh:*) kept (sh is a path arg)" ",Bash(go run ./cmd/sh:*)" \
+    "$(append_of true 'Bash(go run ./cmd/sh:*)')"
+  # Shell-metacharacter entries are stripped (classic "append a second command").
+  assert_eq "provision(behavior): Bash(go;sudo:*) metachar stripped" "" \
+    "$(append_of true 'Bash(go;sudo:*)')"
+  assert_eq "provision(behavior): Bash(cat x|sh:*) pipe-to-shell stripped" "" \
+    "$(append_of true 'Bash(cat x|sh:*)')"
+  # Closing-paren-before-colon form is stripped (shell must match the jq mirror).
+  assert_eq "provision(behavior): Bash(sh):* stripped" "" \
+    "$(append_of true 'Bash(sh):*')"
   rm -f "$TOOLS_STEP"
 
   # Behavioral test of the detect-project-tools.sh jq deny mirror: extract the
@@ -1781,9 +1798,13 @@ PY
   assert_eq "provision(jq-mirror): Bash(/bin/bash:*) denied" "true" "$(jq_deny 'Bash(/bin/bash:*)')"
   assert_eq "provision(jq-mirror): Bash(FOO=1 bash:*) denied" "true" "$(jq_deny 'Bash(FOO=1 bash:*)')"
   assert_eq "provision(jq-mirror): bare Bash denied" "true" "$(jq_deny 'Bash')"
+  assert_eq "provision(jq-mirror): Bash(go;sudo:*) metachar denied" "true" "$(jq_deny 'Bash(go;sudo:*)')"
+  assert_eq "provision(jq-mirror): Bash(sh):* denied (paren-before-colon)" "true" "$(jq_deny 'Bash(sh):*')"
   assert_eq "provision(jq-mirror): Bash(go:*) allowed" "false" "$(jq_deny 'Bash(go:*)')"
   assert_eq "provision(jq-mirror): Bash(go build:*) allowed" "false" "$(jq_deny 'Bash(go build:*)')"
   assert_eq "provision(jq-mirror): Bash(shellcheck:*) allowed (lookalike)" "false" "$(jq_deny 'Bash(shellcheck:*)')"
+  assert_eq "provision(jq-mirror): Bash(docker exec:*) allowed (subcommand)" "false" "$(jq_deny 'Bash(docker exec:*)')"
+  assert_eq "provision(jq-mirror): Bash(make CC=gcc:*) allowed (arg assignment)" "false" "$(jq_deny 'Bash(make CC=gcc:*)')"
 else
   echo "  SKIP  provision(behavior): python3+pyyaml unavailable; static assertions only"
 fi

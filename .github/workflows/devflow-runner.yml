@@ -265,28 +265,42 @@ jobs:
               # review). The list is mirrored in scripts/detect-project-tools.sh
               # (fast feedback only); keep both in sync — this copy enforces.
               #
-              # A bare-name blocklist is trivially bypassable, so the Bash check is
-              # hardened against the known evasions: it scans EVERY whitespace token
-              # of the command spec (the part before the first ':') by its basename,
-              # so a wrapper/path/prefix can't smuggle a shell past it —
-              # Bash(env bash:*), Bash(/bin/bash:*), Bash(xargs sh -c:*),
-              # Bash(nice sudo:*) are all stripped. It also denies any env-assignment
-              # token (FOO=1 bash) and an empty/bare command word (bare `Bash`,
-              # Bash(:*) — which claude-code-action would read as "all shell").
+              # A bare-name blocklist is trivially bypassable, so the Bash check
+              # inspects the COMMAND-POSITION binary (the first whitespace token of
+              # the spec, before the first ':' or ')') by its basename, and denies:
+              #   - a raw shell / eval / privilege binary (bash/sh/zsh/dash/ksh/
+              #     fish/eval/exec/source/sudo/doas/su) — incl. path forms like
+              #     /bin/bash, since we compare the basename;
+              #   - an exec-wrapper (env/xargs/nice/timeout/nohup/setsid/command/
+              #     chroot/runuser) whose first arg would BE the real command —
+              #     this is what closes Bash(env bash:*) / Bash(xargs sh -c:*)
+              #     without having to scan every arg token;
+              #   - a leading env-assignment (FOO=1 bash) — the var prefix shifts
+              #     the executable past token 0;
+              #   - any shell metacharacter anywhere in the spec (; | & $ < > ( )
+              #     backtick), which is the classic "append a second command" vector
+              #     (Bash(go;sudo:*), Bash(cat x|sh:*));
+              #   - an empty command word (bare `Bash`, Bash(:*) = "all shell").
+              # We deliberately do NOT scan non-leading arg tokens by basename — that
+              # over-strips legitimate tools whose subcommand/arg happens to be a
+              # deny word (Bash(docker exec:*), Bash(make CC=gcc:*),
+              # Bash(go run ./cmd/sh:*)). This is the AUTHORITATIVE boundary; the
+              # jq mirror in scripts/detect-project-tools.sh applies the same rules.
               if [ "$PROVISION_ENV" = "true" ]; then
                 DENY_NAMES='Edit Write MultiEdit NotebookEdit'
-                DENY_CMDS='bash sh zsh eval exec source sudo'
+                DENY_CMDS='bash sh zsh dash ksh fish eval exec source sudo doas su env xargs nice timeout nohup setsid command chroot runuser'
                 FILTERED=''
                 STRIPPED=''
                 # Newlines/CRs in an entry are normalized to the comma delimiter so
                 # a multi-line entry can't smuggle a second tool past the per-entry
                 # check (the heredoc transport forwards newlines verbatim). Then
                 # split on comma ONCE (an entry like "Bash(go build:*)" keeps its
-                # internal space) and restore the default IFS so the inner
-                # whitespace-token loops split correctly. `set -f` disables pathname
-                # expansion for the split: every entry contains a literal `*` (e.g.
-                # Bash(npm:*)), so without noglob the unquoted expansion could glob
-                # against the checked-out working tree and rewrite the list.
+                # internal space) and restore the default IFS. `set -f` disables
+                # pathname expansion for the split: every entry contains a literal
+                # `*` (e.g. Bash(npm:*)), so without noglob the unquoted expansion
+                # could glob against the checked-out working tree. All per-entry
+                # parsing below uses parameter expansion / `case` (no word-split of
+                # an unquoted var), so no further globbing occurs.
                 RUNNER_TOOLS="${RUNNER_TOOLS//$'\r'/}"
                 RUNNER_TOOLS="${RUNNER_TOOLS//$'\n'/,}"
                 OLDIFS=$IFS
@@ -308,25 +322,28 @@ jobs:
                     case "$entry" in
                       Bash) denied=true ;;            # bare Bash = all shell
                       Bash\(*)                         # prefix match: no trailing ')' required
-                        inner="${entry#Bash(}"; inner="${inner%)}"
-                        cmd="${inner%%:*}"             # command spec, before the first ':'
+                        inner="${entry#Bash(}"
+                        cmd="${inner%%:*}"             # spec: before the first ':'
+                        cmd="${cmd%%)*}"               # and before the first ')'
                         cmd="${cmd#"${cmd%%[![:space:]]*}"}"
                         cmd="${cmd%"${cmd##*[![:space:]]}"}"
+                        binword="${cmd%%[[:space:]]*}" # command-position token (no glob)
+                        binbase="${binword##*/}"        # strip any path
                         if [ -z "$cmd" ]; then
                           denied=true                  # empty command word = all shell
                         else
-                          # Scan every whitespace token of the spec by basename, so a
-                          # wrapper/path/prefix can't hide a denied binary.
-                          for tok in $cmd; do
-                            case "$tok" in
-                              [A-Za-z_]*=*) denied=true; break ;;   # env-assignment prefix
-                            esac
-                            tokbase="${tok##*/}"                    # strip any path
+                          case "$cmd" in
+                            *[';|&$<>()']*) denied=true ;;   # shell metacharacter in spec
+                            *'`'*) denied=true ;;            # backtick command-substitution
+                          esac
+                          case "$binword" in
+                            [A-Za-z_]*=*) denied=true ;;     # leading env-assignment (FOO=1 cmd)
+                          esac
+                          if [ "$denied" = false ]; then
                             for c in $DENY_CMDS; do
-                              if [ "$tokbase" = "$c" ]; then denied=true; break; fi
+                              if [ "$binbase" = "$c" ]; then denied=true; break; fi
                             done
-                            [ "$denied" = true ] && break
-                          done
+                          fi
                         fi
                         ;;
                     esac
