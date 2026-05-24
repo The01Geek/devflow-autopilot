@@ -609,7 +609,7 @@ All derivation lives in `lib/efficiency-trace.jq` (a mechanical jq filter, no LL
    ```
    Print the rendered Markdown trace (the `--mode trace` output) into the chat report, after the Run telemetry table. The trace assigns each dispatched subagent exactly one verdict — **unique-effective**, **corroborating**, **noise**, or **null** (see `lib/efficiency-trace.jq`'s header and [`docs/efficiency-trace.md`](../../docs/efficiency-trace.md) for the derivation rules) — shows the per-iteration **diff profile** (the Phase 0.5 flags) and **verification posture** (so a low verifier count reads as a deliberate cheap-path/skip decision, not as "nothing ran"), the Phase-3 dispatch count, and flags any iteration that applied zero fixes as having added nothing.
 
-4. **The record is tracked.** `.devflow/logs/efficiency/<slug>-<timestamp>.json` lives under a tracked directory, so the run's existing commits sweep it up. When `--push-each-iteration` is set, the record written here survives GH-runner teardown via the same `git add -A` + push the fix iterations use; commit and push it now so it is not lost (keep the project's commit-message trailer):
+4. **The record is tracked.** `.devflow/logs/efficiency/<slug>-<timestamp>.json` lives under a tracked directory, so the run's existing commits sweep it up. When `--push-each-iteration` is set, the record written here survives teardown — a destroyed cloud runner or a local `.devflow/tmp/` cleanup alike — via the same `git add -A` + push the fix iterations use; commit and push it now so it is not lost (keep the project's commit-message trailer):
    ```bash
    if [ -s "$RECORD" ] && <--push-each-iteration is set>; then
      git add "$RECORD" && git commit -m "chore: persist review-and-fix effectiveness record
