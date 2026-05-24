@@ -257,17 +257,29 @@ echo "config.example.json ⊇ config.schema.json (superset invariant)"
 # ────────────────────────────────────────────────────────────────────────────
 # config.example.json drives the scaffold/backfill (scaffold-config.sh copies it
 # verbatim to a fresh config.json); config.schema.json drives editor validation.
-# They are hand-maintained independently, so a key added to one but not the other
+# They are hand-maintained independently, so a key in one but not the other
 # silently either won't backfill (a schema default with no example entry never
-# reaches a scaffolded config) or won't validate (an example key the schema
-# doesn't define). These two assertions pin the relation in both directions:
-#   1. every key in the example is a property the schema defines  → always validates
-#   2. every schema property carrying a `default` is in the example → always backfills
-# Optional schema properties with NO default (php_*, services, watched_authors,
-# node_working_directory, …) are intentionally omitted from the example and are
-# therefore NOT required by check 2. The recursion descends into nested object
-# `properties` and array `items`, so deep keys (e.g. setup.services.[].image) and
-# nested defaults are covered too. A non-empty list on either side is the drift.
+# reaches a scaffolded config) or is an undocumented/typo'd key the schema does
+# not describe. These two assertions pin the relation in both directions:
+#   1. every object key in the example is a property the schema defines (catches
+#      typo'd / undocumented keys — the schema is additionalProperties:true, so
+#      such a key would still *validate*, it would just go unnoticed).
+#   2. every schema property carrying a `default` is present in the example (so a
+#      backfilled config.json actually carries every defaulted key).
+# Scope of the comparison (what is and isn't checked):
+#   - Only OBJECT-key paths are compared. Keys nested inside example array
+#     ELEMENTS are out of scope — the example has no array-of-object entries
+#     (setup.install is a scalar array), and such keys would validate under
+#     additionalProperties anyway; kpaths drops array-index paths accordingly.
+#   - Optional schema properties with NO default (php_*, services,
+#     watched_authors, node_working_directory, …) are intentionally omitted from
+#     the example and so are NOT required by check 2.
+#   - Defaults are collected from object properties only — dpaths does not
+#     descend into array `items`: a default on an array element cannot be
+#     satisfied by the (element-less) example, so check 2 would otherwise be
+#     permanently unsatisfiable. spaths DOES descend into items so check 1's
+#     allowed-key set stays complete (e.g. setup.services.[].image).
+# A non-empty list on either side is the drift.
 CFG_EXAMPLE="$TPL_DIR/config.example.json"
 CFG_SCHEMA="$TPL_DIR/config.schema.json"
 CFG_DRIFT="$(jq -n '
@@ -278,13 +290,14 @@ CFG_DRIFT="$(jq -n '
         | ($q|join(".")), (.value|recur($q)) ),
       ( (.items // empty) | recur($p+["[]"]) );
     [ recur([]) ];
-  # Schema property paths that declare a `default` (the backfillable keys).
+  # Schema OBJECT-property paths that declare a `default` (the backfillable
+  # keys). Deliberately does NOT descend into array `items` — see the scope
+  # note above for why an array-element default would make check 2 unsatisfiable.
   def dpaths:
     def recur($p):
-      ( (.properties // {}) | to_entries[] | ($p+[.key]) as $q
-        | (if (.value | (type=="object" and has("default"))) then ($q|join(".")) else empty end),
-          (.value|recur($q)) ),
-      ( (.items // empty) | recur($p+["[]"]) );
+      (.properties // {}) | to_entries[] | ($p+[.key]) as $q
+      | (if (.value | (type=="object" and has("default"))) then ($q|join(".")) else empty end),
+        (.value|recur($q));
     [ recur([]) ];
   # Object-key paths present in the example (array indices excluded).
   def kpaths:
