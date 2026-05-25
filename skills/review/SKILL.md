@@ -21,6 +21,72 @@ You are the review engine orchestrator. Run a four-phase review and present an A
 
 ---
 
+## Live Progress Comment (PR mode)
+
+In **PR mode** (a PR number was provided, or the engine resolved one), and when `devflow_review.live_progress_comment_enabled` is `true` (default), the engine maintains a **single live progress comment** on the PR — the `<!-- devflow:review-progress -->` comment — and updates it **in place** as it works: a blueprint of the phases up front, then per-phase results (diff classification, checklist counts, each Phase-3 agent's findings as that agent returns, the verdict), finalizing with the report plus the telemetry summary and effectiveness trace. A programmer watching the PR sees findings accrue in real time; afterwards the comment is a complete narrative of the run.
+
+This is the review-side analogue of `/devflow:implement`'s workpad and reuses the **same helper** — `scripts/workpad.py` — pointed at the review marker via the `DEVFLOW_WORKPAD_MARKER` env override (set inline on every call so it survives the fresh-shell-per-call model):
+
+Invoke the helper by its `${CLAUDE_SKILL_DIR}`-anchored path (cwd-independent, and it resolves to the `.devflow/vendor/devflow/scripts/workpad.py` form the cloud allow-list grants — a bare `scripts/workpad.py` would match neither):
+
+```bash
+WP_PY="${CLAUDE_SKILL_DIR}/../../scripts/workpad.py"
+MARKER='<!-- devflow:review-progress -->'
+# Author the body to /tmp with a quoted heredoc (no Write tool needed — works
+# under the read-only cloud profile, which grants Bash(cat:*); /tmp is outside
+# the repo tree, so this is not a tree write):
+cat > /tmp/review-wp.md <<'EOF'
+…review-workpad body (template below)…
+EOF
+# find-or-detect (PR comments live under the issues API; a PR number works here):
+WP=$(DEVFLOW_WORKPAD_MARKER="$MARKER" "$WP_PY" id "$PR_NUMBER" 2>/dev/null || true)
+# create (first GitHub write) once, or rewrite in place at each phase boundary:
+WP=$(DEVFLOW_WORKPAD_MARKER="$MARKER" "$WP_PY" create "$PR_NUMBER" /tmp/review-wp.md)   # once
+DEVFLOW_WORKPAD_MARKER="$MARKER" "$WP_PY" patch "$WP" /tmp/review-wp.md                 # each update
+```
+
+The review body uses its **own section template** (the orchestrator authors it; `workpad.py` only carries it). Rebuild the body from your held state (re-author the `/tmp` file with the heredoc above) and `patch` at each phase boundary — you hold the full run state in context, so a full-body rewrite is simplest and avoids implement-specific section mutations:
+
+```markdown
+<!-- devflow:review-progress -->
+# Devflow Review — PR #{N}
+
+**Status:** 🚀 Reviewing
+**Diff profile:** _(pending Phase 0.5)_
+**Last updated:** {workpad.py now}
+
+## Blueprint
+- [ ] Classify diff (Phase 0.5)
+- [ ] Generate verification checklist (Phase 1)
+- [ ] Verify checklist (Phase 2)
+- [ ] Review agents (Phase 3)
+- [ ] Aggregate & verdict (Phase 4)
+
+## Findings (live)
+_(Phase-3 findings appear here as each agent returns.)_
+
+## Verdict
+_(pending)_
+```
+
+**Update protocol** (tick the Blueprint box and fill the matching section as each phase completes):
+- **Phase 0.5** → set `Diff profile`, tick *Classify diff*.
+- **Phase 1/1.5** → tick *Generate verification checklist* (note item count).
+- **Phase 2** → tick *Verify checklist*, record `{pass} passed, {fail} failed, {inconclusive} inconclusive`.
+- **Phase 3** → as **each** agent returns, append its findings under `## Findings (live)` and `patch` immediately (this is the real-time surface — do not batch to the end); tick *Review agents* once all return.
+- **Phase 4** → write the verdict + full Phase 4.1 report into the comment, tick *Aggregate & verdict*, flip `Status` to the glyph-mapped terminal state, and append the telemetry summary + effectiveness trace (see Phase 4.5).
+
+**This comment is the report surface.** When the live comment is active, the full Phase 4.1 report lands **in this comment** (the engine authors it incrementally), so Phase 4.4's `gh pr review` body stays the short verdict **stub** pointing at it — exactly the workflow-context behavior 4.4 already describes. Reconcile with `.github/workflows/devflow-review.yml`: the workflow must **not** separately seed a second `devflow:review-progress` comment when the skill authors it (a gate/setup step may pre-seed the lean blueprint for the earliest acknowledgment, mirroring `/devflow:implement`).
+
+**Read-only cloud is fine.** The slim cloud `review` profile is read-only for the tree but carries `gh api` / `gh pr comment`, so creating and editing this comment is permitted; only the `.devflow/logs/efficiency/` **file** write is gated to writable runs (see Phase 4.5).
+
+**Gating & fallbacks.**
+- `devflow_review.live_progress_comment_enabled` = `false` → skip the live comment entirely; behave as today (report produced once at the end). Read it via `${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .devflow_review.live_progress_comment_enabled true`.
+- **Non-PR / current-branch mode** → there is no comment surface; render the same blueprint-and-progress narrative incrementally to **chat** as you go, and create no comment.
+- Comment create/patch is **best-effort** — a failure is logged and the review continues to its verdict; never abort the review on a workpad write failure.
+
+---
+
 ## Phase 0: Setup
 
 ### 0.1 Check for uncommitted changes
@@ -81,6 +147,10 @@ This replaces the bare `gh pr diff` / `git diff` invocation at the top of Phase 
 ### 0.3 Get changed file list
 
 From the diff, extract the list of changed files (use `--name-only` output or parse from PR diff). Store this list — it's needed for Phase 1 and Phase 3.
+
+### 0.3.5 Seed the live progress comment (PR mode)
+
+In PR mode, and when `devflow_review.live_progress_comment_enabled` is `true` (read it via `${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .devflow_review.live_progress_comment_enabled true`), seed the live progress comment **now** — this is the engine's first GitHub write, so "review started" lands as early as possible. Detect-or-create the `<!-- devflow:review-progress -->` comment with the Blueprint template (all boxes unticked), per the **Live Progress Comment** section above. If a gate/setup step already pre-seeded a lean blueprint comment, resume it (`workpad.py id`) instead of posting a second one. Thereafter follow the update protocol at each phase boundary. In non-PR mode, or when the flag is off, skip this step (the narrative goes to chat as you proceed, or is produced once at the end, respectively).
 
 ### 0.4 Discover related GitHub issue
 
@@ -651,6 +721,40 @@ ${CLAUDE_SKILL_DIR}/../../scripts/dismiss-stale-rejections.sh "$ARGUMENTS"
 
 If it exits non-zero (token scope), say so in chat output and that the PR stays blocked until dismissed manually. **A dismissal failure never downgrades the verdict** — the verdict stands; only merge-gate housekeeping failed.
 
+### 4.5 Run telemetry + effectiveness trace
+
+This step is gated by `devflow_review_and_fix.efficiency_telemetry_enabled` (read via `${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .devflow_review_and_fix.efficiency_telemetry_enabled true`; the flag is shared with `/devflow:review-and-fix`). When `false`, skip this step entirely — no telemetry, no trace, no record. It is **independent** of the live-comment flag: the live comment can be on with telemetry off (an incremental narrative with no telemetry/trace block), or vice versa.
+
+When enabled, assemble a **single workpad-shaped object** for this run from state the engine already produced, and write it to `.devflow/tmp/review/<slug>/iter-1.json`:
+
+```json
+{
+  "iter": 1,
+  "source": "review",
+  "diff_profile": { … the Phase 0.5 flags … },
+  "checklist": [ { "verification_mode": "lite|agent", "verdict": "…" }, … ],
+  "phase3_dispatched": [ "<agent id>", … ],
+  "phase3_findings": [ { "agent": "<id>", "corroboration_count": N, "contributed_to_verdict": true|false }, … ],
+  "telemetry": { "phase_0_5": {…}, "phase_1": {…}, "phase_2": {…}, "phase_3": {…} }
+}
+```
+
+`source: "review"` is what selects the **review-mode** derivation in `lib/efficiency-trace.jq` (and distinguishes the record from `/devflow:review-and-fix`'s). Because standalone review never applies a fix, each Phase-3 finding carries `contributed_to_verdict` instead of `fix_decision`: set it `true` when the finding counted toward the verdict (drove the REJECT, or was a non-deferral-demoted Important/Suggestion in an APPROVE-with-notes), and `false` when Phase 4.0's deferral match demoted it to Informational. The jq then classifies each agent `unique-effective` / `corroborating` / `noise` / `null` exactly as it does for the fix-loop, but off contribution instead of applied-fix.
+
+Then render the trace and (on a writable run) persist the record, reusing the **same hardened invocation** `/devflow:review-and-fix`'s Loop Exit uses (direct invocation — no `bash` prefix; rc/stderr `::warning::` breadcrumbs; remove-on-rc≠0):
+
+```bash
+LIB="${CLAUDE_SKILL_DIR}/../../lib"
+WORKPAD_DIR=".devflow/tmp/review/<slug>"
+TELEM="$("$LIB/efficiency-trace.sh" --workpad-dir "$WORKPAD_DIR" --slug "<slug>" --mode trace 2>/tmp/devflow-rv-et.err)"; T_RC=$?
+[ "$T_RC" -ne 0 ] && echo "::warning::review effectiveness trace unavailable (rc=$T_RC): $(cat /tmp/devflow-rv-et.err)"
+```
+
+- **PR mode + live comment on:** append the Run telemetry summary (per-phase `calls`/`tokens`/`wall_clock_s`) and the rendered `$TELEM` trace into the live progress comment's finalization (Phase 4 of the update protocol), so the comment is the single complete surface. The comment edit goes through `gh` — permitted under the read-only cloud profile.
+- **Writable run (local/IDE) only:** also write the JSON record to `.devflow/logs/efficiency/<slug>-$(date -u +%Y%m%dT%H%M%SZ).json` via `--mode record` (same remove-on-rc≠0/empty guard as review-and-fix). **Do not attempt the file write or any `git`/commit under the read-only cloud `review` profile** — the comment is the cloud surface; the file is writable-run-only.
+
+Best-effort throughout: a telemetry/trace failure is a `::warning::`, never a downgrade of the verdict.
+
 ---
 
 ## Common Mistakes
@@ -660,6 +764,9 @@ If it exits non-zero (token scope), say so in chat output and that the PR stays 
 - Treating an agent's verbalized confidence as load-bearing — Phase 3.2's corroboration count (mechanical, signature-based) is the stronger signal. A 95%-confident single-source finding is weaker than a 3-of-5 corroborated one.
 - Dispatching `pr-review-toolkit:type-design-analyzer` on a diff where `has_new_types` is false — the gate exists because that analyzer over-fires when the word *class* appears in YAML, markdown, or comments. Honor the gate on every profile, including `engine_self_modifying`.
 - Posting a REJECT verdict only to chat without `gh pr review --request-changes` — Phase 4.4 exists because chat-only rejections get missed and the PR ships anyway.
+- Posting a **second** `devflow:review-progress` comment when the skill is authoring the live one — there is exactly one such comment per PR; detect-or-resume it (`workpad.py id`) and reconcile with `devflow-review.yml` so the workflow does not also seed one.
+- Batching Phase-3 findings into the live comment only at the end — append each agent's findings and `patch` **as that agent returns**; the real-time accrual is the whole point of the live comment.
+- Attempting a `.devflow/logs/efficiency/` file write or `git`/commit under the read-only cloud `review` profile — that profile is read-only for the tree; route observability to the PR comment via `gh` and gate the record file to writable runs.
 - Posting an APPROVE without dismissing a prior REJECT's `CHANGES_REQUESTED` review (Phase 4.4 final step) — "the required check is green so it'll merge" is the trap: a sticky changes-request keeps `reviewDecision: CHANGES_REQUESTED` and wedges the PR despite the green check and APPROVE verdict.
 - Paraphrasing Phase 0.5 in a way that loses the `engine_self_modifying` override — the first row keeps the full checklist (no `checklist_skipped`) and all four always-on Phase 3 agents firing on engine-self-modifying diffs, because typos in SKILL.md or agent files silently break every future review. (The override does NOT force-dispatch `type-design-analyzer` / `pr-test-analyzer`; those keep their structural-applicability gates on every profile.)
 - Skipping `/devflow:review-and-fix`'s Step 2.5 web-verification gate for single-source Critical findings — auto-applied fixes from confidently-stated-but-wrong external-tool claims are a known false-positive vector. (This skill itself doesn't run Step 2.5; flag it as a mistake when reviewing changes to `/devflow:review-and-fix`.)

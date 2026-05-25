@@ -105,6 +105,17 @@
         }
       }
     },
+    "devflow_review": {
+      "type": "object",
+      "description": "Settings for the standalone /devflow:review engine. See docs/efficiency-trace.md.",
+      "properties": {
+        "live_progress_comment_enabled": {
+          "type": "boolean",
+          "description": "When true, a PR-mode /devflow:review authors a single live progress comment (the <!-- devflow:review-progress --> comment) incrementally as it works — a blueprint of the phases up front, then per-phase updates (diff classification, checklist results, each Phase-3 agent's findings as they land, the verdict), finalizing with the run-telemetry summary and effectiveness trace. When false, /devflow:review falls back to producing its report once at the end (no incremental updates). Independent of devflow_review_and_fix.efficiency_telemetry_enabled, which separately gates the embedded telemetry/trace.",
+          "default": true
+        }
+      }
+    },
     "setup": {
       "type": "object",
       "description": "Cloud-tier runtime provisioning: how the GitHub Actions runner is prepared BEFORE Claude runs — for the /devflow:* command path, /devflow:implement, AND the automated reviewer. /devflow:init auto-populates node_version + install per detected language (deterministic presets), then the LLM enriches php_version/extensions and services by reading docker-compose/CI/composer.json. Provisioning order: Python → Node → PHP → service containers → install lines.",

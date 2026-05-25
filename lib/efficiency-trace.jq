@@ -80,15 +80,37 @@ def posture_line($it):
 
 # Classify one agent's findings (an array of phase3_findings rows for that
 # agent in one iteration) into a single verdict.
+#
+# Two derivations, selected by the finding shape (not an extra arg):
+#   * review-and-fix records carry `fix_decision` (applied/pushed_back/advisory) —
+#     "effective" means the finding led to an APPLIED fix.
+#   * standalone /devflow:review records carry `contributed_to_verdict` (a boolean)
+#     instead — review never fixes, so "effective" means the finding CONTRIBUTED
+#     to the verdict (drove the REJECT or was counted in APPROVE-with-notes), and
+#     `noise` means every finding was deferral-demoted to Informational
+#     (contributed_to_verdict == false). The buckets and precedence
+#     (unique-effective > corroborating > noise > null) are identical; only the
+#     "did it count?" signal differs.
 def verdict_for($findings):
-  ($findings | map(.fix_decision)) as $decisions
-  | ($findings | map(select(.fix_decision == "applied"))) as $applied
-  # corroboration_count missing → treat as 1 (unique / single-source).
-  | if ($applied | any(((.corroboration_count // 1)) < 2)) then "unique-effective"
-    elif ($applied | length) > 0 then "corroborating"
-    elif ($decisions | any(. == "pushed_back" or . == "advisory")) then "noise"
-    else null
-    end;
+  if ($findings | any(has("contributed_to_verdict"))) then
+    # review-mode: contribution-to-verdict replaces applied-fix.
+    ($findings | map(select(.contributed_to_verdict == true))) as $contributing
+    | if ($contributing | any(((.corroboration_count // 1)) < 2)) then "unique-effective"
+      elif ($contributing | length) > 0 then "corroborating"
+      elif ($findings | any(.contributed_to_verdict == false)) then "noise"
+      else null
+      end
+  else
+    # review-and-fix mode: applied-fix is the effectiveness signal.
+    ($findings | map(.fix_decision)) as $decisions
+    | ($findings | map(select(.fix_decision == "applied"))) as $applied
+    # corroboration_count missing → treat as 1 (unique / single-source).
+    | if ($applied | any(((.corroboration_count // 1)) < 2)) then "unique-effective"
+      elif ($applied | length) > 0 then "corroborating"
+      elif ($decisions | any(. == "pushed_back" or . == "advisory")) then "noise"
+      else null
+      end
+  end;
 
 # Per-iteration derived view.
 def iter_view:
@@ -139,7 +161,12 @@ def iter_view:
             verdict: verdict_for([$findings[] | select(finding_agent == $agent)])
           }
       ],
-      telemetry: ($it.telemetry // null)
+      telemetry: ($it.telemetry // null),
+      # Which skill produced this iteration: "review" (standalone /devflow:review)
+      # vs the default review-and-fix loop. Carried so a cross-run analyzer can
+      # segment effectiveness by originating skill (both write into the same
+      # .devflow/logs/efficiency/ store; the filename does not disambiguate them).
+      source: ($it.source // null)
     };
 
 # ── Build the ordered per-iteration array ───────────────────────────────────
@@ -156,6 +183,10 @@ def iter_view:
       schema_version: 1,
       slug: $slug,
       generated_at: $generated_at,
+      # Originating skill for the whole run, taken from the workpads (each iter
+      # may carry `source`; default to the historical producer when absent so
+      # existing review-and-fix records read unchanged).
+      source: ($iters | map(.source) | map(select(. != null)) | (.[0] // "review-and-fix")),
       cut_candidate_min_dispatch: $cut_candidate_min_dispatch,
       iterations: ($iters | length),
       per_iteration: ($iters | map({

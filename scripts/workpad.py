@@ -72,6 +72,14 @@ _DEFAULT_WORKPAD_MARKER = '<!-- devflow:workpad -->'
 
 
 def _workpad_marker():
+    # An explicit override wins (set inline per-invocation so it survives Claude
+    # Code's fresh-shell-per-call model): /devflow:review uses this to target its
+    # own `<!-- devflow:review-progress -->` comment with the same helper, rather
+    # than forking a parallel script. Empty/unset → fall through to config/default.
+    import os
+    override = os.environ.get('DEVFLOW_WORKPAD_MARKER', '').strip()
+    if override:
+        return override
     # Read the marker from .devflow/config.json, but fall back to the
     # built-in default so the local tier works with no config file at all.
     here = Path(__file__).resolve().parent

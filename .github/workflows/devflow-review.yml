@@ -461,121 +461,36 @@ jobs:
         You are running inside the `devflow-review` GitHub
         workflow. The PR number is ${{ needs.precheck.outputs.pr_number }}.
 
-        **Step 1 — Post the progress comment.** Body MUST start with the
-        HTML marker on its own line so the comment can be re-discovered
-        later. Use this exact template, rendered as GitHub-flavored
-        Markdown so users get a scannable status card:
+        **Run `/devflow:review` by reading and following
+        `.devflow/vendor/devflow/skills/review/SKILL.md` exactly.** That
+        skill now **owns the live progress comment end-to-end** (see its
+        "Live Progress Comment" section): in PR mode it seeds the single
+        `<!-- devflow:review-progress -->` comment as its first GitHub
+        write (Phase 0.3.5), updates it in place at every phase boundary —
+        including each Phase-3 agent's findings as that agent returns —
+        and finalizes it with the verdict, the full Phase 4.1 report, and
+        the telemetry + effectiveness trace (Phase 4.5). Your only job is
+        to run that skill against PR
+        ${{ needs.precheck.outputs.pr_number }}.
 
-            <!-- devflow:review-progress -->
-            ### 🔍 Devflow Review In Progress
-
-            |   |   |
-            |---|---|
-            | **Status** | ⚙️ Setup |
-            | **Last updated** | `<UTC ISO-8601>` |
-
-            > 🤖 Posted by `devflow-review`. The formal verdict
-            > review will appear separately when complete.
-
-        Create with `gh pr comment ${{ needs.precheck.outputs.pr_number }}
-        --body-file <tmpfile>`.
-
-        **Step 2 — Run `/devflow:review` by reading and following
-        `.devflow/vendor/devflow/skills/review/SKILL.md` exactly.** With
-        one addition: at every `Phase N/4:` boundary the skill announces
-        (0.5, 1, 2, 3, 4), PATCH the progress comment in place. Refresh
-        the **Status** row with the appropriate emoji + phase text, the
-        **Last updated** row with a fresh UTC ISO-8601 timestamp, and
-        optionally add a **Details** row with one line of context.
-
-        Status emoji conventions (use these consistently):
-        - ⚙️  Setup / Phase 0.5 (classifying diff)
-        - 📋 Phase 1/4 — Generating checklist
-        - 🔎 Phase 2/4 — Verifying N items
-        - 🧪 Phase 3/4 — Running review agents
-        - 📊 Phase 4/4 — Aggregating findings
-        - ✅ Approved — final state for APPROVE (see Step 3)
-        - ❌ Changes requested — final state for REJECT (see Step 3)
-        - ❌ Failed — <one-line reason> (run aborted; see Step 3 failure variant)
-
-        Do NOT use a ✅ Complete status on the final patch — the final
-        state must reflect the verdict, not just process completion. A
-        green check above a REJECT report misleads readers.
-
-        Example mid-run body:
-
-            <!-- devflow:review-progress -->
-            ### 🔍 Devflow Review In Progress
-
-            |   |   |
-            |---|---|
-            | **Status** | 🔎 Phase 2/4 — Verifying 12 items |
-            | **Last updated** | `2026-05-15T14:32:08Z` |
-            | **Details** | Diff classification: full engine |
-
-            > 🤖 Posted by `devflow-review`. The formal verdict
-            > review will appear separately when complete.
-
-        Re-discover the comment each phase by marker — do NOT carry the
-        comment ID across Bash tool calls:
-
-            PR=${{ needs.precheck.outputs.pr_number }}
-            MARKER='<!-- devflow:review-progress -->'
-            CID=$(gh pr view "$PR" --json comments \
-              --jq ".comments[] | select(.body | startswith(\"$MARKER\")) | .databaseId" \
-              | head -1)
-            REPO=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
-            gh api -X PATCH "/repos/$REPO/issues/comments/$CID" \
-              -F body=@/tmp/review-progress.md
-
-        **Step 3 — Final update.** After Phase 4.4 posts the formal
-        `gh pr review` (verdict stub only), PATCH the progress comment
-        one last time. The progress comment is the single human-readable
-        artifact carrying the full Phase 4.1 report, so this final PATCH
-        must embed the entire report body verbatim.
-
-        **The heading MUST reflect the actual verdict** — do NOT default
-        to a green ✅ on a REJECT. A reader scanning the PR sees only the
-        heading; a ✅ on top of a REJECT body misleads them into thinking
-        the PR was approved. The in-progress status table is dropped on
-        the final update: the embedded Phase 4.1 report below already
-        carries the verdict, and GitHub's own comment-edit history
-        records when it was last updated. Pick the variant by verdict:
-
-        APPROVE (including "APPROVE with notes"):
-
-            <!-- devflow:review-progress -->
-            ### ✅ Devflow Review: APPROVE
-
-            <full Phase 4.1 report body, verbatim — do NOT regenerate or summarize>
-
-        REJECT:
-
-            <!-- devflow:review-progress -->
-            ### ❌ Devflow Review: REJECT — changes requested
-
-            <full Phase 4.1 report body, verbatim — do NOT regenerate or summarize>
-
-        Re-use the report already in context — do not regenerate it. The
-        Phase 4.1 report already collapses passed checklist items into a
-        `<details>` block, so embed it verbatim — no extra augmentation.
-
-        On the failure variant (run aborts before Phase 4.4 — empty
-        diff, checklist-gen failure, any fatal error), use:
-
-            <!-- devflow:review-progress -->
-            ### ❌ Devflow Review Failed
-
-            <one-line reason — there is no Phase 4.1 report body to embed>
-
-        The failure reason carries the only diagnostic content here, so
-        keep it on the heading-following line rather than in a table.
+        **Do NOT seed, template, or PATCH a separate progress comment from
+        this workflow.** Earlier versions of this prompt carried their own
+        status-card template and per-phase PATCH choreography; that now
+        lives in the skill, and duplicating it here would post a second
+        competing comment. Let the skill do it.
 
         **Constraints (do not violate):**
-        - Only ONE progress comment, edited in place. Never post a second.
+        - Exactly ONE `devflow:review-progress` comment, authored by the
+          skill, edited in place. Never post a second.
+        - The final state of that comment must reflect the actual verdict
+          (the skill's Status glyph + embedded Phase 4.1 report handle
+          this) — never a green check above a REJECT.
         - Do not alter Phase 4.4's `gh pr review` behavior — the verdict
-          review is the authoritative artifact; the progress comment only
-          points at it.
+          review is the authoritative merge signal; the progress comment
+          only points at it.
+        - On a fatal error before Phase 4.4 (empty diff, checklist-gen
+          failure, any fatal error), ensure the progress comment ends in a
+          clearly-failed state with a one-line reason.
       allowed_tools_profile: review
     secrets: inherit
 

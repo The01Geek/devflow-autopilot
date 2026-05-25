@@ -172,6 +172,44 @@ normal verdict. The trace is observability, never a gate — it must never abort
 
 ## Out of scope (tracked as follow-up)
 
-This feature is scoped to `/devflow:review-and-fix` only. The cross-run analyzer
-(`lib/efficiency-report.jq`), the weekly-loop recommendation section, the cut-threshold consumer,
-and a thin record for standalone `/devflow:review` are deliberately out of scope.
+The cross-run analyzer (`lib/efficiency-report.jq`), the weekly-loop recommendation section, and the
+cut-threshold consumer are deliberately out of scope.
+
+(Standalone `/devflow:review` was previously listed here as out of scope; it now produces its own
+per-run record and live trace — see **Standalone /devflow:review** below.)
+
+## Standalone /devflow:review
+
+`/devflow:review` (the single-pass engine, no fix loop) produces the same observability as
+`/devflow:review-and-fix`, surfaced through a **live progress comment** on the PR and — on a writable
+run — a per-run record. Two differences from the fix-loop case:
+
+**Review-mode effectiveness derivation.** Standalone review never applies a fix, so its records have
+no `fix_decision`. Each Phase-3 finding instead carries `contributed_to_verdict` (a boolean):
+`true` when the finding counted toward the verdict (drove the REJECT, or was a non-deferral-demoted
+finding in an APPROVE-with-notes), `false` when Phase 4.0's deferral match demoted it to
+Informational. `verdict_for` in `lib/efficiency-trace.jq` selects its **review-mode branch** off the
+presence of `contributed_to_verdict` (not an extra argument): `unique-effective` = a contributing
+finding no sibling corroborated, `corroborating` = a contributing finding ≥2 agents raised, `noise` =
+only deferral-demoted findings, `null` = dispatched but silent. The buckets and precedence are
+identical to the fix-loop's; only the "did it count?" signal differs. Records produced by
+`/devflow:review-and-fix` (which carry `fix_decision`, not `contributed_to_verdict`) keep the
+applied-fix derivation unchanged.
+
+**`source` field.** Every record carries `source` — `"review"` for standalone `/devflow:review`,
+`"review-and-fix"` (the default when absent) for the fix loop. Both write into the same
+`.devflow/logs/efficiency/` store with `pr-<N>-<ts>.json` names, so `source` (not the filename) is
+what a cross-run analyzer uses to segment by originating skill.
+
+**Live progress comment + read-only cloud.** In PR mode (and when
+`devflow_review.live_progress_comment_enabled` is `true`, the default), `/devflow:review` authors a
+single `<!-- devflow:review-progress -->` comment incrementally — a blueprint of the phases, then
+per-phase results and each Phase-3 agent's findings as they land, finalizing with the verdict, the
+full report, and the telemetry summary + effectiveness trace. It reuses `scripts/workpad.py` via the
+`DEVFLOW_WORKPAD_MARKER` env override (set inline per call) rather than a parallel helper. The slim
+cloud `review` profile is read-only for the tree but grants `gh api` / `gh pr comment`, so the comment
+edits are permitted there; the per-run record **file** write is gated to writable (local/IDE) runs —
+under the read-only cloud profile the trace renders into the comment only, and no file/tree write or
+`git` is attempted. The two flags compose independently:
+`devflow_review.live_progress_comment_enabled` gates the live comment, and
+`devflow_review_and_fix.efficiency_telemetry_enabled` gates the embedded telemetry/trace + record.

@@ -122,6 +122,29 @@ WORKPAD_BODY = """<!-- devflow:workpad -->
 """
 
 
+print("workpad._workpad_marker (issue #55 review-marker override)")
+
+# DEVFLOW_WORKPAD_MARKER env override wins, so /devflow:review can target its own
+# <!-- devflow:review-progress --> comment with the same helper (set inline per
+# call so it survives Claude Code's fresh-shell-per-call model).
+import os as _os  # noqa: E402
+
+_saved = _os.environ.pop('DEVFLOW_WORKPAD_MARKER', None)
+try:
+    _os.environ['DEVFLOW_WORKPAD_MARKER'] = '<!-- devflow:review-progress -->'
+    assert_eq("marker: env override wins", '<!-- devflow:review-progress -->',
+              workpad._workpad_marker())
+    # A blank/whitespace override is ignored — falls through to config/default,
+    # never returns an empty marker (which would match every comment).
+    _os.environ['DEVFLOW_WORKPAD_MARKER'] = '   '
+    assert_eq("marker: blank override does not win (non-empty marker)", True,
+              workpad._workpad_marker() != '')
+finally:
+    _os.environ.pop('DEVFLOW_WORKPAD_MARKER', None)
+    if _saved is not None:
+        _os.environ['DEVFLOW_WORKPAD_MARKER'] = _saved
+
+
 print("workpad._apply_mutations")
 
 # Batch tick: multiple --tick-plan in one call ticks all of them.

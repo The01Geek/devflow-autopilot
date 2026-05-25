@@ -1958,6 +1958,55 @@ rm -rf "$ET_PT"
 assert_eq "et(#52): lib/efficiency-trace.sh committed executable (100755)" "100755" \
   "$(cd "$LIB/.." && git ls-files -s lib/efficiency-trace.sh | cut -d' ' -f1)"
 
+# ── Review-mode derivation (issue #55) ──────────────────────────────────────
+# Standalone /devflow:review never applies a fix, so its records carry
+# `contributed_to_verdict` (bool) per finding instead of `fix_decision`.
+# verdict_for must select the review-mode branch off that field's presence:
+# contributed (corr<2)→unique-effective, contributed (corr>=2)→corroborating,
+# only-demoted→noise, silent→null. And the record carries source:"review".
+ET_REV="$(mktemp -d)"
+cat > "$ET_REV/iter-1.json" <<'EOF'
+{
+  "iter": 1,
+  "source": "review",
+  "checklist": [{"verification_mode":"lite","verdict":"PASS"},{"verification_mode":"agent","verdict":"FAIL"}],
+  "phase3_dispatched": ["rev-unique","rev-corrob","rev-demoted","rev-silent"],
+  "phase3_findings": [
+    {"agent":"rev-unique","corroboration_count":1,"contributed_to_verdict":true},
+    {"agent":"rev-corrob","corroboration_count":3,"contributed_to_verdict":true},
+    {"agent":"rev-demoted","corroboration_count":1,"contributed_to_verdict":false}
+  ],
+  "convergence_inputs": {"fixes_applied": 0},
+  "telemetry": {"phase_3": {"calls": 4, "tokens": 30000, "wall_clock_s": 90}}
+}
+EOF
+ET_REV_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_REV" --slug "pr-99" --mode record)"
+ET_rv() { echo "$ET_REV_REC" | jq -r --arg a "$1" '.per_iteration[0].agent_verdicts[] | select(.agent==$a) | .verdict'; }
+assert_eq "et(#55): review-mode contributed + corr<2 → unique-effective" "unique-effective" "$(ET_rv 'rev-unique')"
+assert_eq "et(#55): review-mode contributed + corr>=2 → corroborating"    "corroborating"    "$(ET_rv 'rev-corrob')"
+assert_eq "et(#55): review-mode only-demoted finding → noise"             "noise"            "$(ET_rv 'rev-demoted')"
+assert_eq "et(#55): review-mode dispatched-but-silent → null"             "null"             "$(ET_rv 'rev-silent')"
+assert_eq "et(#55): review-mode silent verdict is JSON null (not string)" "null" \
+  "$(echo "$ET_REV_REC" | jq -r '.per_iteration[0].agent_verdicts[] | select(.agent=="rev-silent") | .verdict | type')"
+assert_eq "et(#55): record carries source: review" "review" \
+  "$(echo "$ET_REV_REC" | jq -r '.source')"
+rm -rf "$ET_REV"
+
+# A review-and-fix record (fix_decision, no contributed_to_verdict) is unaffected
+# by the review-mode branch and defaults source to review-and-fix.
+ET_RAF="$(mktemp -d)"
+cat > "$ET_RAF/iter-1.json" <<'EOF'
+{"iter":1,"checklist":[],"phase3_dispatched":["a"],
+"phase3_findings":[{"agent":"a","corroboration_count":1,"fix_decision":"applied"}],
+"convergence_inputs":{"fixes_applied":1},"telemetry":null}
+EOF
+ET_RAF_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_RAF" --slug "pr-1" --mode record)"
+assert_eq "et(#55): review-and-fix record still classifies off fix_decision (applied→unique-effective)" "unique-effective" \
+  "$(echo "$ET_RAF_REC" | jq -r '.per_iteration[0].agent_verdicts[] | select(.agent=="a") | .verdict')"
+assert_eq "et(#55): absent source defaults to review-and-fix" "review-and-fix" \
+  "$(echo "$ET_RAF_REC" | jq -r '.source')"
+rm -rf "$ET_RAF"
+
 # Populated checklist/telemetry writer gap closed (issue #52): a workpad where
 # Phase 1+2 ran yields a real lite/agent split, a non-none-recorded posture, and
 # non-null telemetry[].phases — i.e. none-recorded/null phases now signal genuine
