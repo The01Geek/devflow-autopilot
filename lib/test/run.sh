@@ -1904,18 +1904,59 @@ cat > "$ET_GATE/iter-2.json" <<'EOF'
 "phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":{"phase_3":{"calls":5,"tokens":52000,"wall_clock_s":160}}}
 EOF
 ET_GATE_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_GATE" --slug "pr-15" --mode record)"
-ET_roster() { echo "$ET_GATE_REC" | jq -r --argjson i "$1" '.per_iteration[] | select(.iter==$i) | .phase3_dispatched | join(",")'; }
-assert_eq "et(#52): engine-PR no-types/no-tests roster excludes type-design-analyzer" "false" \
-  "$(echo "$(ET_roster 1)" | grep -q 'type-design-analyzer' && echo true || echo false)"
-assert_eq "et(#52): engine-PR no-types/no-tests roster excludes pr-test-analyzer" "false" \
-  "$(echo "$(ET_roster 1)" | grep -q 'pr-test-analyzer' && echo true || echo false)"
+# Exact array-membership (jq `index`), not substring grep — so an exclusion
+# assertion can't be fooled by a longer agent id that merely contains the name.
+# These assert the trace's roster PASSTHROUGH for the rosters the gating prose
+# produces; the gating decision itself is LLM-prose in skills/review/SKILL.md
+# (not harness-reachable), so this guards that a gated roster survives the trace.
+ET_has() { echo "$ET_GATE_REC" | jq -r --argjson i "$1" --arg a "$2" '.per_iteration[] | select(.iter==$i) | (.phase3_dispatched | index($a) != null)'; }
+assert_eq "et(#52): engine-PR no-types/no-tests roster passthrough excludes type-design-analyzer" "false" \
+  "$(ET_has 1 'pr-review-toolkit:type-design-analyzer')"
+assert_eq "et(#52): engine-PR no-types/no-tests roster passthrough excludes pr-test-analyzer" "false" \
+  "$(ET_has 1 'pr-review-toolkit:pr-test-analyzer')"
 assert_eq "et(#52): engine-PR no-types/no-tests dispatched count = 4 always-on" "4" \
   "$(echo "$ET_GATE_REC" | jq -r '.per_iteration[] | select(.iter==1) | .phase3_dispatched_count')"
-assert_eq "et(#52): engine-PR adding testable code includes pr-test-analyzer" "true" \
-  "$(echo "$(ET_roster 2)" | grep -q 'pr-review-toolkit:pr-test-analyzer' && echo true || echo false)"
+assert_eq "et(#52): engine-PR adding testable code roster passthrough includes pr-test-analyzer" "true" \
+  "$(ET_has 2 'pr-review-toolkit:pr-test-analyzer')"
 assert_eq "et(#52): engine-PR adding testable code still excludes type-design-analyzer" "false" \
-  "$(echo "$(ET_roster 2)" | grep -q 'type-design-analyzer' && echo true || echo false)"
+  "$(ET_has 2 'pr-review-toolkit:type-design-analyzer')"
 rm -rf "$ET_GATE"
+
+# none-recorded posture remains reachable for the genuine degraded case the
+# writer-gap-closing prose now leans on: Phase 1+2 ran (checklist_skipped null)
+# but the checklist array is empty / no items recorded. This is the "real
+# regression worth investigating" branch — lock it so it can't silently change.
+ET_NR="$(mktemp -d)"
+cat > "$ET_NR/iter-1.json" <<'EOF'
+{"iter":1,"diff_profile":{"small_diff":false,"config_only":false,"has_new_types":false,"engine_self_modifying":false,"checklist_skipped":null},
+"checklist":[],"phase3_dispatched":["pr-review-toolkit:code-reviewer"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}
+EOF
+ET_NR_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_NR" --slug "pr-15" --mode record)"
+assert_eq "et(#52): Phase 1+2 ran but zero checklist items → none-recorded (genuine gap)" "none-recorded" \
+  "$(echo "$ET_NR_REC" | jq -r '.per_iteration[0].verification_posture')"
+rm -rf "$ET_NR"
+
+# Partial telemetry resilience: a workpad whose telemetry block has one phase
+# present (others absent) still yields a non-null telemetry[].phases — mirroring
+# the writer contract that a missing per-source token never nulls the whole block.
+ET_PT="$(mktemp -d)"
+cat > "$ET_PT/iter-1.json" <<'EOF'
+{"iter":1,"checklist":[{"verification_mode":"lite","verdict":"PASS"}],"phase3_dispatched":["a"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":{"phase_3":{"calls":1,"wall_clock_s":10}}}
+EOF
+ET_PT_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_PT" --slug "pr-15" --mode record)"
+assert_eq "et(#52): partial telemetry (one phase, no tokens) → phases non-null" "false" \
+  "$(echo "$ET_PT_REC" | jq -r '.telemetry[] | select(.iter==1) | .phases' | grep -q '^null$' && echo true || echo false)"
+assert_eq "et(#52): partial telemetry preserves the present phase's calls" "1" \
+  "$(echo "$ET_PT_REC" | jq -r '.telemetry[] | select(.iter==1) | .phases.phase_3.calls')"
+rm -rf "$ET_PT"
+
+# Executable-bit guard (corroborated review finding): direct invocation of the
+# helper depends on lib/efficiency-trace.sh keeping its committed +x bit through
+# vendoring. The harness invokes it `bash "$LIB/..."`, which masks a lost bit, so
+# assert the committed mode is 100755 — a lost bit fails CI rather than silently
+# disabling headless telemetry in production.
+assert_eq "et(#52): lib/efficiency-trace.sh committed executable (100755)" "100755" \
+  "$(cd "$LIB/.." && git ls-files -s lib/efficiency-trace.sh | cut -d' ' -f1)"
 
 # Populated checklist/telemetry writer gap closed (issue #52): a workpad where
 # Phase 1+2 ran yields a real lite/agent split, a non-none-recorded posture, and
