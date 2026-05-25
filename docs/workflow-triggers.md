@@ -82,7 +82,9 @@ not raw ISO-8601.
   `.github/workflows/devflow-implement.yml` disables the action's *own*
   progress comment, so the workpad is the only comment a run posts. (The
   light `/devflow:review` · `/devflow:pr-description` listener in `devflow.yml`
-  keeps `track_progress` as-is — those flows have no workpad.)
+  keeps `track_progress` as-is. `/devflow:pr-description` has no workpad;
+  `/devflow:review` in PR mode now authors its own live progress comment —
+  see below.)
 - The workpad is created **as early as possible**, before the requester waits
   on any runtime. In a cloud run the **`gate` job** creates a lean workpad
   (`workpad.py new-body` → `create`) right after authorization + dedupe — *before*
@@ -116,6 +118,49 @@ The completion/blocked reaction is emitted via `scripts/react-to-trigger.sh`
 **final workpad `Status`**, not the job's exit code — a run can exit 0 while
 `Blocked`. The reaction is best-effort: a failure never blocks the run, and the
 workpad `Status` glyph remains the authoritative signal.
+
+## A PR-mode `/devflow:review` posts one live progress comment
+
+Standalone `/devflow:review` (the light listener in `devflow.yml`, and the
+automated `devflow-review.yml` reviewer) is the review-side analogue of the
+implement workpad. In **PR mode**, and when
+`devflow_review.live_progress_comment_enabled` is `true` (the default), the
+review engine maintains a **single** marker-tagged comment —
+`<!-- devflow:review-progress -->` — and rewrites it **in place** as it works:
+a blueprint of the phases up front, then per-phase results (diff classification,
+checklist counts, each Phase-3 agent's findings appended *as that agent
+returns*, the verdict), finalizing with the full Phase 4.1 report plus a
+run-telemetry summary and effectiveness trace. `skills/review/SKILL.md` owns
+this end-to-end (Phase 0.3.5 seeds it; the update protocol rewrites it at each
+phase boundary; Phase 4.5 finalizes it).
+
+- It reuses the **same helper** as the implement workpad — `scripts/workpad.py`
+  — pointed at the review marker via the `DEVFLOW_WORKPAD_MARKER` env override
+  (set inline per call so it survives Claude Code's fresh-shell-per-call model;
+  empty/unset falls through to `devflow.workpad_marker` / the built-in default).
+- The engine **owns the comment end-to-end**, so `devflow-review.yml` no longer
+  seeds, templates, or PATCHes a competing progress comment — its prompt just
+  runs the skill against the PR. The earlier per-phase PATCH choreography that
+  lived in the workflow now lives in the skill. Exactly one such comment exists
+  per PR; the engine detects-or-resumes it (`workpad.py id`) rather than posting
+  a second.
+- Phase 4.4's `gh pr review` stays the authoritative merge signal (a short
+  verdict stub); the live comment is the human-readable narrative pointing at it.
+  The final comment state reflects the actual verdict — never a green check above
+  a REJECT.
+- It works under the **read-only cloud `review` profile**: the comment is
+  created/edited via `gh` (a comment edit, not a tree write), and the runner's
+  `review` tool profile additionally allow-lists `workpad.py`, `config-get.sh`,
+  and `efficiency-trace.sh` for this. The effectiveness-trace **record file**
+  under `.devflow/logs/efficiency/` is gated to writable (local/IDE) runs only —
+  see [`efficiency-trace.md`](efficiency-trace.md).
+- Gating: `devflow_review.live_progress_comment_enabled = false` skips the live
+  comment (the report is produced once at the end, as before); in non-PR /
+  current-branch mode there is no comment surface and the narrative goes to chat.
+  This flag is independent of
+  `devflow_review_and_fix.efficiency_telemetry_enabled`, which separately gates
+  the embedded telemetry/trace. Comment writes are best-effort — a failure is
+  logged and the review continues to its verdict.
 
 ## Duplicate `/devflow:implement` runs are ignored per thread
 

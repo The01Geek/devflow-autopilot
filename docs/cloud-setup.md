@@ -288,7 +288,14 @@ workflow YAML:
 By default the automated reviewer is **read-only** — it inspects the diff but
 cannot compile, lint, or test it, so a build-dependent claim (e.g. "does
 `npx webpack` still compile after this change?") can only be flagged, not
-verified. Flip one flag to opt in:
+verified. (Read-only still covers the live `<!-- devflow:review-progress -->`
+progress comment: the `review` tool profile allow-lists `workpad.py`,
+`config-get.sh`, and `efficiency-trace.sh` because those only edit the PR comment
+via `gh` and read the run's state — they never mutate the tree. The
+effectiveness-trace **record file** is the one piece gated to writable runs. See
+[`workflow-triggers.md`](workflow-triggers.md) and
+[`efficiency-trace.md`](efficiency-trace.md).) Flip one flag to opt in to
+build/test:
 
 ```json
 "devflow_runner": {
