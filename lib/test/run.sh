@@ -1961,7 +1961,8 @@ assert_eq "et(#52): lib/efficiency-trace.sh committed executable (100755)" "1007
 # ── Review-mode derivation (issue #55) ──────────────────────────────────────
 # Standalone /devflow:review never applies a fix, so its records carry
 # `contributed_to_verdict` (bool) per finding instead of `fix_decision`.
-# verdict_for must select the review-mode branch off that field's presence:
+# verdict_for selects the review-mode branch off the run-level source:"review"
+# (not per-finding field presence — see the ET_RMIX omitted-field case below):
 # contributed (corr<2)→unique-effective, contributed (corr>=2)→corroborating,
 # only-demoted→noise, silent→null. And the record carries source:"review".
 ET_REV="$(mktemp -d)"

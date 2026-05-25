@@ -189,9 +189,12 @@ no `fix_decision`. Each Phase-3 finding instead carries `contributed_to_verdict`
 `true` when the finding counted toward the verdict (drove the REJECT, or was a non-deferral-demoted
 finding in an APPROVE-with-notes), `false` when Phase 4.0's deferral match demoted it to
 Informational. `verdict_for` in `lib/efficiency-trace.jq` selects its **review-mode branch** off the
-presence of `contributed_to_verdict` (not an extra argument): `unique-effective` = a contributing
-finding no sibling corroborated, `corroborating` = a contributing finding ≥2 agents raised, `noise` =
-only deferral-demoted findings, `null` = dispatched but silent. The buckets and precedence are
+run-level `source == "review"` (passed as an explicit `$review_mode` argument), *not* off per-finding
+field presence — a demoted finding may carry `contributed_to_verdict: false` or omit it entirely, and
+keying on presence would mis-route such an agent into the fix-loop branch and downgrade it from
+`noise` to `null`. In review mode: `unique-effective` = a contributing finding no sibling corroborated,
+`corroborating` = a contributing finding ≥2 agents raised, `noise` = the agent raised findings but
+none contributed, `null` = dispatched but silent. The buckets and precedence are
 identical to the fix-loop's; only the "did it count?" signal differs. Records produced by
 `/devflow:review-and-fix` (which carry `fix_decision`, not `contributed_to_verdict`) keep the
 applied-fix derivation unchanged.
