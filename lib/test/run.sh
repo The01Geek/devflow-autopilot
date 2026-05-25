@@ -1881,6 +1881,53 @@ assert_eq "et: absent diff_profile → posture from raw counts (agent-only)" "ag
   "$(echo "$ET_NOPROF_REC" | jq -r '.per_iteration[0].verification_posture')"
 rm -rf "$ET_PROF" "$ET_NOPROF"
 
+# Engine-PR analyzer gating (issue #52): the gating change is prose in
+# skills/review/SKILL.md; its observable contract is the phase3_dispatched
+# roster the orchestrator writes. Assert the roster flows through the trace so
+# a gated-out type/test analyzer is absent on an engine-self-modifying diff with
+# nothing for them to analyze, and present when the engine PR adds testable code.
+ET_GATE="$(mktemp -d)"
+# iter-1: engine_self_modifying, has_new_types=false, no test/code-logic changes
+# → only the four always-on agents dispatched; type/test analyzers gated out.
+cat > "$ET_GATE/iter-1.json" <<'EOF'
+{"iter":1,"diff_profile":{"small_diff":false,"config_only":true,"has_new_types":false,"engine_self_modifying":true,"checklist_skipped":null},
+"checklist":[{"verification_mode":"lite","verdict":"PASS"}],
+"phase3_dispatched":["pr-review-toolkit:code-reviewer","pr-review-toolkit:silent-failure-hunter","pr-review-toolkit:comment-analyzer","superpowers:requesting-code-review"],
+"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":{"phase_3":{"calls":4,"tokens":40000,"wall_clock_s":120}}}
+EOF
+# iter-2: engine_self_modifying diff that adds testable code logic → pr-test-analyzer
+# is dispatched (test-relevance predicate branch 2); type-design still gated out.
+cat > "$ET_GATE/iter-2.json" <<'EOF'
+{"iter":2,"diff_profile":{"small_diff":false,"config_only":false,"has_new_types":false,"engine_self_modifying":true,"checklist_skipped":null},
+"checklist":[{"verification_mode":"agent","verdict":"PASS"}],
+"phase3_dispatched":["pr-review-toolkit:code-reviewer","pr-review-toolkit:silent-failure-hunter","pr-review-toolkit:comment-analyzer","superpowers:requesting-code-review","pr-review-toolkit:pr-test-analyzer"],
+"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":{"phase_3":{"calls":5,"tokens":52000,"wall_clock_s":160}}}
+EOF
+ET_GATE_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_GATE" --slug "pr-15" --mode record)"
+ET_roster() { echo "$ET_GATE_REC" | jq -r --argjson i "$1" '.per_iteration[] | select(.iter==$i) | .phase3_dispatched | join(",")'; }
+assert_eq "et(#52): engine-PR no-types/no-tests roster excludes type-design-analyzer" "false" \
+  "$(echo "$(ET_roster 1)" | grep -q 'type-design-analyzer' && echo true || echo false)"
+assert_eq "et(#52): engine-PR no-types/no-tests roster excludes pr-test-analyzer" "false" \
+  "$(echo "$(ET_roster 1)" | grep -q 'pr-test-analyzer' && echo true || echo false)"
+assert_eq "et(#52): engine-PR no-types/no-tests dispatched count = 4 always-on" "4" \
+  "$(echo "$ET_GATE_REC" | jq -r '.per_iteration[] | select(.iter==1) | .phase3_dispatched_count')"
+assert_eq "et(#52): engine-PR adding testable code includes pr-test-analyzer" "true" \
+  "$(echo "$(ET_roster 2)" | grep -q 'pr-review-toolkit:pr-test-analyzer' && echo true || echo false)"
+assert_eq "et(#52): engine-PR adding testable code still excludes type-design-analyzer" "false" \
+  "$(echo "$(ET_roster 2)" | grep -q 'type-design-analyzer' && echo true || echo false)"
+rm -rf "$ET_GATE"
+
+# Populated checklist/telemetry writer gap closed (issue #52): a workpad where
+# Phase 1+2 ran yields a real lite/agent split, a non-none-recorded posture, and
+# non-null telemetry[].phases — i.e. none-recorded/null phases now signal genuine
+# degradation only, never a normal full-engine run.
+assert_eq "et(#52): populated checklist → posture is not none-recorded" "false" \
+  "$(echo "$ET_REC" | jq -r '.per_iteration[] | select(.iter==1) | .verification_posture' | grep -q 'none-recorded' && echo true || echo false)"
+assert_eq "et(#52): populated checklist → posture mixed (lite+agent)" "mixed" \
+  "$(echo "$ET_REC" | jq -r '.per_iteration[] | select(.iter==1) | .verification_posture')"
+assert_eq "et(#52): populated telemetry block → telemetry[].phases non-null" "false" \
+  "$(echo "$ET_REC" | jq -r '.telemetry[] | select(.iter==1) | .phases' | grep -q '^null$' && echo true || echo false)"
+
 # Marginal-yield line: iter 2 applied 0 fixes → trace flags "added nothing".
 ET_TRACE="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_DIR" --slug "pr-15" --mode trace)"
 assert_eq "et: marginal-yield line for zero-fix iteration" "true" \

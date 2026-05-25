@@ -134,18 +134,19 @@ Apply the engine profile per the table below. The first row **overrides** all ot
 
 | Combination | Engine behavior |
 |---|---|
-| `engine_self_modifying` (any combination of the other flags) | Override the other flags: run the **full engine** (no Phase 1+2 skip, no agent gating in Phase 3.1). The risk surface is "every future review breaks if this is wrong," which dwarfs the per-PR cost saving from a leaner profile. |
-| `small_diff` AND `config_only` | Skip Phase 1 + Phase 2 (checklist gen + verify) entirely. Set `checklist_skipped = "intentional"`. In Phase 3.1, skip `pr-test-analyzer` and `pr-review-toolkit:type-design-analyzer`. |
-| `config_only` (but not `small_diff`) | Run Phase 1+2 normally. In Phase 3.1, skip `pr-test-analyzer` and `pr-review-toolkit:type-design-analyzer`. |
-| `small_diff` (but not `config_only`) | Run Phase 1+2 normally. In Phase 3.1, skip `pr-test-analyzer` if no test files (`*test*`, `*spec*`, language-specific test naming conventions, etc.) appear in the diff. |
-| neither flag set | Run the full engine. In Phase 3.1, still apply the `has_new_types` gate for `type-design-analyzer`. |
+| `engine_self_modifying` (any combination of the other flags) | Override the other flags' **checklist** behavior: run the **full Phase 1+2 checklist** (no skip — `checklist_skipped` stays `null`) and all four **always-on** Phase 3 agents (`code-reviewer`, `silent-failure-hunter`, `comment-analyzer`, `requesting-code-review`) unconditionally. The risk surface is "every future review breaks if this is wrong," which dwarfs the per-PR cost saving from a leaner profile. **Two structural-applicability gates survive the override** (they are about whether the agent has anything in the diff to analyze, not about cost): `type-design-analyzer` runs only when `has_new_types` is true, and `pr-test-analyzer` runs only when the **test-relevance predicate** (defined in Phase 3.1) matches. |
+| `small_diff` AND `config_only` | Skip Phase 1 + Phase 2 (checklist gen + verify) entirely. Set `checklist_skipped = "intentional"`. In Phase 3.1, skip `pr-review-toolkit:type-design-analyzer` (`has_new_types` is false on a config-only diff) and apply the unified `pr-test-analyzer` test-relevance predicate (which skips on a config-only diff). |
+| `config_only` (but not `small_diff`) | Run Phase 1+2 normally. In Phase 3.1, skip `pr-review-toolkit:type-design-analyzer` and apply the unified `pr-test-analyzer` test-relevance predicate (which skips on a config-only diff). |
+| `small_diff` (but not `config_only`) | Run Phase 1+2 normally. In Phase 3.1, apply the `has_new_types` gate for `type-design-analyzer` and the unified `pr-test-analyzer` test-relevance predicate. |
+| neither flag set | Run the full engine. In Phase 3.1, apply the `has_new_types` gate for `type-design-analyzer` and the unified `pr-test-analyzer` test-relevance predicate. |
 
-Concretely: when `engine_self_modifying` is true, the orchestrator does NOT set `checklist_skipped = "intentional"` regardless of `small_diff` / `config_only`, and the Phase 3.1 engine-profile gates listed below are bypassed (every Phase 3 agent in the launch list runs). The override is not an aesthetic tag on the announcement line — it is the load-bearing rule that keeps the full engine wired through Phase 1's skip predicate AND Phase 3.1's per-agent gates for engine-self-modifying diffs.
+Concretely: when `engine_self_modifying` is true, the orchestrator does NOT set `checklist_skipped = "intentional"` regardless of `small_diff` / `config_only`, and the **always-on** Phase 3 agents all run. The override is the load-bearing rule that keeps the full checklist and the always-on reviewers wired in on engine-self-modifying diffs. It is **not** a blanket bypass of Phase 3.1's per-agent gates: the two structural-applicability gates — `has_new_types` for `type-design-analyzer`, and the test-relevance predicate for `pr-test-analyzer` — apply on every diff profile, `engine_self_modifying` included, because an agent with nothing in the diff to analyze adds only cost (a `null` type-design verdict, a `corroborating`-only test-analyzer run), never signal. The engine-risk rationale protects the checklist and the always-on agents, not the dispatch of demonstrably-inapplicable analyzers.
 
-`has_new_types` is the canonical predicate for the type-design-analyzer gate in Phase 3.1; the previous heuristic ("check for `class ` in the diff") fires false-positives on YAML/markdown comments and is superseded.
+`has_new_types` is the canonical predicate for the type-design-analyzer gate in Phase 3.1 across all diff profiles; the previous heuristic ("check for `class ` in the diff") fires false-positives on YAML/markdown comments and is superseded.
 
 Announce one line, e.g.:
-- `Diff classification: engine_self_modifying (overrides other flags) → running full engine — this diff modifies the review engine itself.`
+- `Diff classification: engine_self_modifying (overrides other flags) → running full checklist + always-on agents — this diff modifies the review engine itself. type-design-analyzer / pr-test-analyzer still gated by applicability (has_new_types / test-relevance predicate).`
+- `Diff classification: engine_self_modifying, has_new_types=false, no test-relevant changes → full checklist + always-on agents; skipping type-design-analyzer + pr-test-analyzer (nothing in the diff for them to analyze).`
 - `Diff classification: small_diff + config_only → skipping Phase 1+2 and pr-test-analyzer + type-design-analyzer.`
 - `Diff classification: config_only → skipping pr-test-analyzer + type-design-analyzer (Phase 1+2 still run).`
 - `Diff classification: full engine.`
@@ -449,7 +450,7 @@ Analyze test coverage for the changes. Read the cached diff at `{DIFF_PATH}`. Ch
 {paste the defect_signature paragraph above}
 ```
 
-**pr-review-toolkit:type-design-analyzer** — *launched only when the `has_new_types` gate is true (see Phase 3.1 gates below), and always when `engine_self_modifying` is set; skipped otherwise* — prompt:
+**pr-review-toolkit:type-design-analyzer** — *launched only when the `has_new_types` gate is true (see Phase 3.1 gates below), on every diff profile including `engine_self_modifying`; skipped otherwise* — prompt:
 ```
 Analyze the type design in the code changes. Read the cached diff at `{DIFF_PATH}`. Evaluate the types actually introduced or modified in this diff for encapsulation, invariant expression, usefulness, and enforcement. Do not report on pre-existing types the diff does not touch.
 
@@ -475,14 +476,18 @@ Return your findings in the standard Phase-3 output format: ### Strengths / ### 
 {paste the defect_signature paragraph above}
 ```
 
-**Phase 0.5 engine-profile gates (apply to this launch list):**
+**Phase 3.1 structural-applicability gates (apply to this launch list on every diff profile):**
 
-These gates are **BYPASSED entirely** when `engine_self_modifying` is set in Phase 0.5 — every Phase 3 agent in the launch list runs regardless of `config_only` / `small_diff` / `has_new_types` for engine-self-modifying diffs (see Phase 0.5's override row). Apply the gates below only when `engine_self_modifying` is false.
+These two gates decide whether `type-design-analyzer` and `pr-test-analyzer` have anything *in the diff* to analyze. They are **applicability** gates, not cost-profile gates, so they apply uniformly across all Phase 0.5 profiles — `engine_self_modifying` included. The `engine_self_modifying` override (Phase 0.5) keeps the full checklist and the four always-on agents (`code-reviewer`, `silent-failure-hunter`, `comment-analyzer`, `requesting-code-review`) firing regardless of these gates; it does **not** force-dispatch the type/test analyzers when the diff gives them nothing to do.
 
-- Skip `pr-review-toolkit:pr-test-analyzer` when `config_only` is set, OR when `small_diff` is set AND no test files appear in the diff.
-- Skip `pr-review-toolkit:type-design-analyzer` when `has_new_types` is false. (This replaces the older "check for `class ` in the diff" predicate, which over-fired on the literal word *class* appearing in YAML / markdown / comments.)
+- Skip `pr-review-toolkit:type-design-analyzer` when `has_new_types` is false. (This replaces the older "check for `class ` in the diff" predicate, which over-fired on the literal word *class* appearing in YAML / markdown / comments.) When `has_new_types` is true, it is launched — on every profile, `engine_self_modifying` included.
+- Dispatch `pr-review-toolkit:pr-test-analyzer` per the **test-relevance predicate** below; skip it when the predicate does not match.
 
-In all other cases, `pr-review-toolkit:type-design-analyzer` is launched when `has_new_types` is true.
+**`pr-test-analyzer` test-relevance predicate (defined once, applied to every diff profile):** dispatch `pr-test-analyzer` when **either** branch matches —
+1. the diff **adds or modifies a test file** (a changed path matching `*test*` / `*spec*`, or a language-specific test-naming convention — e.g. `*_test.go`, `test_*.py`, `*.spec.ts`, `*Test.java`); **or**
+2. the diff **adds new testable code logic** — at least one added line (`+`, excluding `+++`) in a file whose extension is **not** in the `config_only` set (`{.yml, .yaml, .json, .md, .toml, .ini, .lock, .txt}`).
+
+Skip `pr-test-analyzer` when **neither** branch matches — i.e. a docs-only or config-only diff with no test-file change. This single predicate replaces the older profile-specific wording ("always runs unless `small_diff` with no test files"); it applies identically under `engine_self_modifying`. (On most engine PRs branch 2 fires — they add `lib/*.sh` / `.jq` / `.py` logic — which is intended: it preserves the "you changed logic but added no tests" catch. The win is on docs-only / config-only engine PRs, where it now correctly skips.)
 
 ### 3.2 Collect results
 
@@ -653,8 +658,8 @@ If it exits non-zero (token scope), say so in chat output and that the PR stays 
 - Re-running Phase 1 on a config-only PR when Phase 0.5 classified it as `small_diff + config_only` — Phase 0.5 already gates this; trust the classification rather than second-guessing it.
 - Letting checklist generation failure silently degrade to a clean APPROVE — Phase 4.2 rule 4a forces APPROVE WITH CAVEAT in that case; do not skip past it because "the rest of the engine ran fine."
 - Treating an agent's verbalized confidence as load-bearing — Phase 3.2's corroboration count (mechanical, signature-based) is the stronger signal. A 95%-confident single-source finding is weaker than a 3-of-5 corroborated one.
-- Dispatching `pr-review-toolkit:type-design-analyzer` on a diff where `has_new_types` is false — the gate exists because that analyzer over-fires when the word *class* appears in YAML, markdown, or comments. Honor the gate.
+- Dispatching `pr-review-toolkit:type-design-analyzer` on a diff where `has_new_types` is false — the gate exists because that analyzer over-fires when the word *class* appears in YAML, markdown, or comments. Honor the gate on every profile, including `engine_self_modifying`.
 - Posting a REJECT verdict only to chat without `gh pr review --request-changes` — Phase 4.4 exists because chat-only rejections get missed and the PR ships anyway.
 - Posting an APPROVE without dismissing a prior REJECT's `CHANGES_REQUESTED` review (Phase 4.4 final step) — "the required check is green so it'll merge" is the trap: a sticky changes-request keeps `reviewDecision: CHANGES_REQUESTED` and wedges the PR despite the green check and APPROVE verdict.
-- Paraphrasing Phase 0.5 in a way that loses the `engine_self_modifying` override — the first row of the table overrides all others; the full engine must run on engine-self-modifying diffs because typos in SKILL.md or agent files silently break every future review.
+- Paraphrasing Phase 0.5 in a way that loses the `engine_self_modifying` override — the first row keeps the full checklist (no `checklist_skipped`) and all four always-on Phase 3 agents firing on engine-self-modifying diffs, because typos in SKILL.md or agent files silently break every future review. (The override does NOT force-dispatch `type-design-analyzer` / `pr-test-analyzer`; those keep their structural-applicability gates on every profile.)
 - Skipping `/devflow:review-and-fix`'s Step 2.5 web-verification gate for single-source Critical findings — auto-applied fixes from confidently-stated-but-wrong external-tool claims are a known false-positive vector. (This skill itself doesn't run Step 2.5; flag it as a mistake when reviewing changes to `/devflow:review-and-fix`.)
