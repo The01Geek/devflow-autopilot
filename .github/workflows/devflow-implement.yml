@@ -429,6 +429,7 @@ jobs:
             Bash(.devflow/vendor/devflow/scripts/branch-for-issue.py:*),
             Bash(.devflow/vendor/devflow/scripts/file-deferrals.py:*),
             Bash(.devflow/vendor/devflow/scripts/match-deferrals.py:*),
+            Bash(.devflow/vendor/devflow/lib/efficiency-trace.sh:*),
             Bash(pip install:*),
             Bash(pip:*),
             Bash(python:*),

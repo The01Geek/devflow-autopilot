@@ -6,6 +6,9 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **`/devflow:review` efficiency telemetry no longer overstates cost on engine pull requests, records real verifier and per-phase data, and persists on headless runs.** Three corrections ship together. First, the `engine_self_modifying` Phase 0.5 override stops force-dispatching `type-design-analyzer` and `pr-test-analyzer`: it still runs the full checklist and the four always-on reviewers unconditionally, but those two analyzers keep their structural-applicability gates (`has_new_types` and a unified test-relevance predicate) on every diff profile, so a docs-only or config-only engine pull request no longer pads its cost with analyzers that have nothing to examine. Second, `/devflow:review-and-fix` now reliably writes the `checklist[]` array and the `telemetry` block to each iteration workpad whenever the checklist ran, so efficiency-trace records report the real lite-versus-agent verifier split and per-phase cost instead of `none-recorded` or null. Third, the efficiency-trace helpers are now invoked directly (no `bash` prefix) and `lib/efficiency-trace.sh` is committed executable and allow-listed, so headless and cloud runs persist the per-run record instead of silently skipping it at the permission gate. See `docs/efficiency-trace.md`. (#53)
+
 ## [2.3.2] — 2026-05-25
 
 ### Fixed

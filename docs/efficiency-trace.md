@@ -67,6 +67,13 @@ engine's Phase 0.5 classification (`small_diff`, `config_only`, `has_new_types`,
 `diff_profile`** before drawing any cut conclusion — a `null` on a diff outside the agent's domain is
 not a cut signal.
 
+The `engine_self_modifying` override (Phase 0.5) no longer force-dispatches every Phase 3 agent: it
+keeps the full checklist and the four always-on agents firing, but `type-design-analyzer` and
+`pr-test-analyzer` keep their structural-applicability gates on every profile (`has_new_types` for
+the former, the test-relevance predicate for the latter). So on a docs-only / config-only engine PR
+those two analyzers are correctly skipped rather than padding the dispatch roster with `null` /
+`corroborating`-only runs — which is exactly what made the earlier engine-PR records overstate cost.
+
 The same `diff_profile` drives a **verification posture** that keeps a healthy cost-saving choice
 from looking like a gap. The orchestrator deliberately avoids dispatching verifier subagents when it
 doesn't need them — resolving substring claims via the cheap orchestrator-direct `lite` probe, or
@@ -81,6 +88,16 @@ than printing a bare "0 verifiers":
 | `lite-only` | items resolved via `lite` probes, zero agents dispatched | "Checklist verifiers: N lite (orchestrator-direct), 0 agent — … without dispatching verifier subagents (cost-saving, by design)." |
 | `agent-only` / `mixed` | verifier subagents dispatched | "Checklist verifiers: N lite, M agent." |
 | `none-recorded` | no skip reason and zero items recorded | "Checklist verifiers: none recorded for this iteration." (the one posture that flags a genuine instrumentation gap) |
+
+`/devflow:review-and-fix` now writes the `checklist[]` array (with each item's `verification_mode`)
+and the `telemetry` block to every `iter-<N>.json` workpad whenever Phase 1+2 ran — the writer gap
+that previously left these unpopulated is closed. As a result `none-recorded` and a null
+`telemetry[].phases` are reachable **only** in genuinely degraded cases (no checklist ran, or
+telemetry truly uncaptured), never on a normal full-engine run; a `none-recorded` posture on a run
+where Phase 1+2 ran is now a real regression worth investigating, not the expected steady state. The
+fields remain best-effort and non-fatal: a single missing `<usage>` block is skipped per-source
+without dropping the whole `telemetry` block, and a wholly-absent field still degrades gracefully
+rather than aborting the loop.
 
 ## The rendered trace
 
@@ -116,6 +133,26 @@ than a contentless skeleton — symmetric with the flag-off contract.
 learnings-store). The run's existing `git add -A` sweeps the record in, and under
 `--push-each-iteration` it is committed and pushed, surviving teardown — whether that is a
 cloud runner being destroyed or a local `.devflow/tmp/` cleanup.
+
+**Headless persistence.** `/devflow:review-and-fix` invokes `config-get.sh` and
+`efficiency-trace.sh` **directly** (resolving to a `.devflow/vendor/devflow/…` path), the same way
+`/devflow:implement` invokes its helpers — never `bash <path>`. Resolved-path allow-list entries
+match on the command's leading token after expansion, so a `bash`-prefixed command would start with
+`bash`, match nothing, prompt, and be denied on a headless run (silently skipping the trace). Direct
+invocation requires `lib/efficiency-trace.sh` to be committed with its executable bit, and **every**
+workflow allow-list under which `/devflow:review-and-fix`'s Loop Exit runs to carry
+`Bash(.devflow/vendor/devflow/lib/efficiency-trace.sh:*)`. Two workflows qualify, because the loop's
+Loop Exit runs on both entry paths:
+
+- `.github/workflows/devflow.yml` — the inline allow-list for the `/devflow:review-and-fix` comment
+  path.
+- `.github/workflows/devflow-implement.yml` — the heavy `/devflow:implement` path (partitioned out of
+  `devflow.yml`, which carries the comment-trigger routing). `/devflow:implement` Phase 3.3 invokes
+  `/devflow:review-and-fix --push-each-iteration`, which runs the full Loop Exit, so this workflow's
+  allow-list needs the entry too — alongside the `config-get.sh` entry it already carries.
+
+The slim `review` profile in `devflow-runner.yml` is read-only and never runs the Loop Exit, so it
+needs no entry.
 
 ## Config keys
 

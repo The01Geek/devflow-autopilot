@@ -430,6 +430,7 @@ jobs:
             Bash(.devflow/vendor/devflow/scripts/file-deferrals.py:*),
             Bash(.devflow/vendor/devflow/scripts/match-deferrals.py:*),
             Bash(.devflow/vendor/devflow/scripts/dismiss-stale-rejections.sh:*),
+            Bash(.devflow/vendor/devflow/lib/efficiency-trace.sh:*),
             Bash(pip install:*),
             Bash(pip:*),
             Bash(python:*),
