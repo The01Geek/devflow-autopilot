@@ -543,7 +543,30 @@ bash "$DPT" "$DT11" >/dev/null 2>&1
 assert_eq "detect: well-formed merge passes the guard and is written" "yes" \
   "$(dpt_has .devflow.allowed_tools 'Bash(npm:*)' "$DT11/.devflow/config.json")"
 
-rm -rf "$DT1" "$DT2" "$DT3" "$DT4" "$DT5" "$DT6" "$DT7" "$DT8" "$DT9" "$DT10" "$DT11"
+# 13. Windows regression: the native Windows jq build (winget jqlang.jq, run
+#     under Git Bash) terminates every stdout line with CRLF. The marker/preset
+#     read loops must strip the trailing CR — otherwise `read` captures keys like
+#     $'node\r', the `.presets[$k]` lookup asks for a key that doesn't exist, and
+#     a repo with valid markers is reported as "no known language markers". We
+#     can't install a Windows jq in CI, so we shadow jq on PATH with a wrapper
+#     that appends a CR to every output line (a faithful stand-in) and confirm a
+#     plain Node repo is still detected end-to-end.
+DT12="$(mktemp -d)"; mkdir -p "$DT12/.devflow" "$DT12/bin"
+printf '{"name":"win"}' > "$DT12/package.json"
+printf '{}' > "$DT12/package-lock.json"
+printf '{}' > "$DT12/.devflow/config.json"
+DT12_REAL_JQ="$(command -v jq)"
+cat > "$DT12/bin/jq" <<EOF
+#!/usr/bin/env bash
+# Stand-in for the native Windows jq: delegate to real jq, then CRLF every line.
+"$DT12_REAL_JQ" "\$@" | awk '{ printf "%s\r\n", \$0 }'
+EOF
+chmod +x "$DT12/bin/jq"
+PATH="$DT12/bin:$PATH" bash "$DPT" "$DT12" >/dev/null 2>&1
+assert_eq "detect: CRLF jq stdout (Windows) still detects node markers" "yes" \
+  "$(dpt_has .devflow.allowed_tools 'Bash(npm:*)' "$DT12/.devflow/config.json")"
+
+rm -rf "$DT1" "$DT2" "$DT3" "$DT4" "$DT5" "$DT6" "$DT7" "$DT8" "$DT9" "$DT10" "$DT11" "$DT12"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "resolve-node-cache.sh (setup-project-env helper)"

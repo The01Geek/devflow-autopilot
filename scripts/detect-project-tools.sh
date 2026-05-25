@@ -84,6 +84,12 @@ marker_present() {
   [ -n "$hit" ]
 }
 
+# `tr -d '\r'` strips the carriage return the native Windows jq build appends to
+# every stdout line (Git Bash / MSYS). Without it, `read` captures keys/markers
+# like $'node\r', the later `.presets[$k]` lookup asks for a key that doesn't
+# exist, and detection silently finds nothing. Only these two pipelines need it:
+# every other jq call here either writes JSON to a tempfile or feeds jq-as-arg,
+# where a stray CR is harmless whitespace to the JSON parser.
 ACTIVE=()
 while IFS= read -r key; do
   [ -n "$key" ] || continue
@@ -91,9 +97,9 @@ while IFS= read -r key; do
   while IFS= read -r marker; do
     [ -n "$marker" ] || continue
     if marker_present "$marker"; then matched=true; break; fi
-  done < <(jq -r --arg k "$key" '.presets[$k].markers[]?' "$PRESETS")
+  done < <(jq -r --arg k "$key" '.presets[$k].markers[]?' "$PRESETS" | tr -d '\r')
   $matched && ACTIVE+=("$key")
-done < <(jq -r '.presets | keys[]' "$PRESETS")
+done < <(jq -r '.presets | keys[]' "$PRESETS" | tr -d '\r')
 
 if [ "${#ACTIVE[@]}" -eq 0 ]; then
   log "no known language markers detected; config.json left unchanged."
