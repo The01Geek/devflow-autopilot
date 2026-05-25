@@ -16,12 +16,13 @@ back to the built-in default `<!-- devflow:workpad -->` when the config file or
 key is absent (so it works with no config).
 
 Usage:
-    workpad.py id      ISSUE
-    workpad.py body    COMMENT_ID
-    workpad.py patch   COMMENT_ID BODY_FILE
-    workpad.py create  ISSUE BODY_FILE
+    workpad.py id        ISSUE
+    workpad.py body      COMMENT_ID
+    workpad.py patch     COMMENT_ID BODY_FILE
+    workpad.py create    ISSUE BODY_FILE
+    workpad.py new-body  ISSUE [--run-link V] [--branch V]
     workpad.py now
-    workpad.py update  ISSUE [mutations...]
+    workpad.py update    ISSUE [mutations...]
 
 `id` exits 1 with empty stdout when no workpad exists yet (so callers can
 detect "first run" via `$?` or an empty captured value, the same shape the
@@ -30,9 +31,10 @@ previous bash helper had).
 `update` is the high-level mutation entry point used by /implement at every
 phase boundary. It re-fetches the workpad body, applies the requested
 mutations atomically, auto-updates `Last updated`, and PATCHes the result.
-The Decisions/Notes section is append-only; Devflow Reflection accumulates
-bullets; checkbox sections are mutated in place rather than rewritten. See
-`workpad.py update --help` for the available mutation flags.
+Notes (`--note`) are append-only and nest under their lifecycle phase inside
+the ## Progress section; Devflow Reflection accumulates bullets; checkbox
+sections are mutated in place rather than rewritten. See `workpad.py update
+--help` for the available mutation flags.
 """
 
 import argparse
@@ -184,6 +186,56 @@ def cmd_now(_args):
     print(now.strftime('%Y-%m-%dT%H:%M:%SZ'))
 
 
+def cmd_new_body(args):
+    """Print the lean initial workpad skeleton to stdout, for piping into a file
+    and `create`. Deliberately minimal — only what's available before the run
+    does any work: status, links, friendly timestamp, and the empty ## Progress
+    checklist (with the run-started note nested under Setup). The Plan and
+    Acceptance Criteria are placeholders the orchestrator fills once it begins
+    (Phase 2.2 / Phase 1.2). Used by the `gate` job to post the acknowledgment
+    before runtime provisioning, and by the local-tier fresh-issue path."""
+    marker = _workpad_marker()
+    now_dt = datetime.datetime.now(datetime.timezone.utc)
+    last_updated = now_dt.strftime('%Y-%m-%d %H:%M UTC')
+    seed_ts = now_dt.strftime('%H:%M:%S')
+    branch = f'`{args.branch}`' if args.branch else '_(creating…)_'
+    run = args.run_link or '_(local run)_'
+    sys.stdout.write(f"""{marker}
+# DevFlow Workpad — Issue #{args.issue}
+
+**Status:** 🚀 Setup
+**Branch:** {branch}
+**Run:** {run}
+**PR:** _not yet created_
+**Last updated:** {last_updated}
+
+## Progress
+- [ ] **Setup** — branch & workpad
+  - {seed_ts} — /devflow:implement run started
+- [ ] **Implement**
+  - [ ] reproduction captured (bug issues only)
+  - [ ] code + sweeps
+- [ ] **Review**
+  - [ ] `/simplify`
+  - [ ] `review-and-fix`
+  - [ ] acceptance-criteria gate
+- [ ] **Documentation**
+- [ ] **PR marked ready**
+
+## Plan
+- [ ] _(planning in progress)_
+
+## Acceptance Criteria
+_(pending — mirrored from the issue when the run begins)_
+
+## Devflow Reflection
+<details>
+<summary>Devflow Reflection (click to expand)</summary>
+
+</details>
+""")
+
+
 # ============================================================================
 # update: high-level mutation entry point
 # ============================================================================
@@ -235,6 +287,70 @@ def _status_glyph(status: str) -> str:
     if s.startswith('blocked'):
         return '👎'
     return '🚀'
+
+
+# The canonical ## Progress top-level phase labels, in order — the single
+# source of truth that `_STATUS_TO_PROGRESS_PHASE` (below) and the `new-body`
+# checklist (cmd_new_body) must both agree with. A note is nested under one of
+# these rows by substring match, so renaming a phase here, in the map, or in
+# the template without updating the others would misfile notes silently; the
+# import-time assert below and the `new-body`-template test guard against that.
+_PROGRESS_PHASES = ('Setup', 'Implement', 'Review', 'Documentation', 'PR marked ready')
+
+# Maps a workpad Status word (glyph-stripped, lowercased) to the ## Progress
+# top-level phase its notes nest under. Several in-progress statuses share one
+# phase (Discovering/Reproducing/Planning/Implementing → Implement). A status
+# absent from this map (Blocked) nests under the most recent *ticked* phase —
+# see `_progress_phase_for_status`. The lookup degrades gracefully: if the
+# mapped phase label isn't present in the checklist (a template rename), it
+# falls back the same way, so a note is never dropped.
+_STATUS_TO_PROGRESS_PHASE = {
+    'setup': 'Setup',
+    'discovering': 'Implement',
+    'reproducing': 'Implement',
+    'planning': 'Implement',
+    'implementing': 'Implement',
+    'reviewing': 'Review',
+    'documenting': 'Documentation',
+    'complete': 'PR marked ready',
+}
+
+# Fail loudly at import if the map ever names a phase the canonical list doesn't
+# — a rename that would otherwise misfile notes with no signal.
+assert set(_STATUS_TO_PROGRESS_PHASE.values()) <= set(_PROGRESS_PHASES), (
+    'workpad: _STATUS_TO_PROGRESS_PHASE names a phase not in _PROGRESS_PHASES: '
+    f'{set(_STATUS_TO_PROGRESS_PHASE.values()) - set(_PROGRESS_PHASES)}'
+)
+
+# A top-level (column-0, no leading whitespace) ## Progress checkbox — one row
+# per lifecycle phase. Nested sub-items (`  - [ ] code + sweeps`) and nested
+# note bullets carry leading whitespace and are deliberately not matched.
+_TOP_LEVEL_CHECKBOX_RE = re.compile(r'^[-*] \[([ xX])\]\s+(.*)$')
+
+
+def _progress_phase_for_status(progress_content: str, status: str | None) -> str | None:
+    """Return the label text of the ## Progress top-level phase a note for
+    `status` nests under, or None when the section has no top-level phases (the
+    caller then appends the note flat).
+
+    Mapped statuses nest under their phase; an unmapped status (Blocked) or a
+    mapped phase that isn't present nests under the most recent *ticked*
+    (completed) top-level row, else the first phase."""
+    rows = []  # (label_text, ticked)
+    for line in progress_content.split('\n'):
+        m = _TOP_LEVEL_CHECKBOX_RE.match(line)
+        if m:
+            rows.append((m.group(2), m.group(1).lower() == 'x'))
+    if not rows:
+        return None
+    key = _strip_status_glyph(status or '').strip().lower()
+    mapped = _STATUS_TO_PROGRESS_PHASE.get(key)
+    if mapped:
+        for text, _ in rows:
+            if mapped.lower() in text.lower():
+                return text
+    ticked = [text for text, t in rows if t]
+    return ticked[-1] if ticked else rows[0][0]
 
 
 def _set_or_insert_header(
@@ -392,8 +508,8 @@ def _split_details(content: str) -> tuple[str | None, str, str | None]:
     `(None, content, None)` when there is no wrapper — so the append helpers
     operate on a legacy (un-wrapped) section unchanged.
 
-    This lets `Decisions / Notes` and `Devflow Reflection` be collapsed in a
-    `<details>` block while `--note`/`--reflection` still append *inside* it
+    This lets `Devflow Reflection` be collapsed in a `<details>` block while
+    `--reflection` still appends *inside* it
     (before `</details>`), never after — which would silently fall outside the
     collapsible region."""
     lines = content.split('\n')
@@ -421,53 +537,44 @@ def _rewrap_details(head: str, new_inner: str, tail: str) -> str:
     return head.rstrip('\n') + '\n\n' + new_inner.strip('\n') + '\n' + tail + '\n'
 
 
-def _append_note(content: str, note: str, timestamp: str, phase: str | None) -> str:
-    """`<details>`-aware wrapper around `_append_note_inner` (see that function
-    for the phase-grouping semantics)."""
-    head, inner, tail = _split_details(content)
-    new_inner = _append_note_inner(inner, note, timestamp, phase)
-    if head is None:
-        return new_inner
-    return _rewrap_details(head, new_inner, tail)
+def _append_progress_note(
+    content: str, note: str, timestamp: str, phase_label: str | None
+) -> str:
+    """Insert a `  - {timestamp} — {note}` bullet nested under the ## Progress
+    top-level phase whose row text contains `phase_label`.
 
-
-def _append_note_inner(content: str, note: str, timestamp: str, phase: str | None) -> str:
-    """Append a `- {timestamp} — {note}` bullet under a `### {phase}` sub-heading.
-
-    Notes are grouped by lifecycle phase: the `### {phase}` sub-heading is
-    created on first use and reused thereafter, and bullets stay in chronological
-    order within a phase (a new bullet lands at the end of its phase's block,
-    before any later phase). `timestamp` is the time-only `HH:MM:SS` string.
-    When `phase` is falsy (no resolvable Status), the bullet is appended flat —
-    preserving the legacy append-only behavior.
-    """
-    bullet = f"- {timestamp} — {note}"
-    if not phase:
+    Notes live inside the Progress section now (no separate Decisions / Notes
+    section): the bullet lands at the end of its phase's block — after that
+    phase's sub-checkboxes and any earlier notes, before the next top-level
+    phase — so a phase's notes stay grouped and chronological across many
+    update calls. `timestamp` is the time-only `HH:MM:SS` string. When
+    `phase_label` is None, or no row matches it, the note is appended flat at
+    the end of the section so it is never dropped."""
+    lines = content.split('\n')
+    start = None
+    if phase_label:
+        for i, line in enumerate(lines):
+            m = _TOP_LEVEL_CHECKBOX_RE.match(line)
+            if m and phase_label.lower() in m.group(2).lower():
+                start = i
+                break
+    if start is None:
+        # No resolvable phase row → flat (un-nested) append at section end.
         stripped = content.rstrip('\n')
-        if stripped and not stripped.endswith('\n'):
-            stripped += '\n'
-        return stripped + bullet + '\n'
-    heading = f"### {phase}"
-    lines = content.rstrip('\n').split('\n') if content.strip() else []
-    head_idx = next(
-        (i for i, ln in enumerate(lines) if ln.strip() == heading), None
-    )
-    if head_idx is None:
-        new_lines = list(lines)
-        if new_lines and new_lines[-1].strip():
-            new_lines.append('')  # blank line before a freshly-created sub-heading
-        new_lines += [heading, bullet]
-        return '\n'.join(new_lines) + '\n'
-    # Insert after the last bullet of this phase's block — before the next
-    # `### ` sub-heading (or end of section), skipping any trailing blank lines.
+        prefix = stripped + '\n' if stripped.strip() else ''
+        return prefix + f"- {timestamp} — {note}\n"
+    # Block end: the next top-level phase row, else end of section. Nested
+    # sub-items carry leading whitespace and never match, so they stay inside
+    # the block.
     end = next(
-        (j for j in range(head_idx + 1, len(lines)) if lines[j].startswith('### ')),
+        (j for j in range(start + 1, len(lines))
+         if _TOP_LEVEL_CHECKBOX_RE.match(lines[j])),
         len(lines),
     )
-    while end > head_idx + 1 and not lines[end - 1].strip():
+    while end > start + 1 and not lines[end - 1].strip():
         end -= 1
-    new_lines = lines[:end] + [bullet] + lines[end:]
-    return '\n'.join(new_lines) + '\n'
+    new_lines = lines[:end] + [f"  - {timestamp} — {note}"] + lines[end:]
+    return '\n'.join(new_lines) + ('\n' if content.endswith('\n') else '')
 
 
 def _append_bullet(content: str, text: str) -> str:
@@ -580,7 +687,10 @@ def _apply_mutations(body: str, args) -> str:
     """Apply all mutations from args atomically. Raises _UpdateError on any
     failure; caller should not patch on failure."""
     now_dt = datetime.datetime.now(datetime.timezone.utc)
-    now = now_dt.strftime('%Y-%m-%dT%H:%M:%SZ')  # full ISO for `Last updated`
+    # Friendly UTC for the human-facing `Last updated` line (the `now`
+    # subcommand still prints full ISO-8601 for machine uses like follow-up
+    # issue bodies; note bullets keep their time-only HH:MM:SS prefix).
+    last_updated = now_dt.strftime('%Y-%m-%d %H:%M UTC')
     now_time = now_dt.strftime('%H:%M:%S')        # time-only for note bullets
 
     # Front-matter mutations.
@@ -606,15 +716,14 @@ def _apply_mutations(body: str, args) -> str:
         )
 
     # Always refresh Last updated.
-    body, n = _LAST_UPDATED_RE.subn(f'**Last updated:** {now}', body, count=1)
+    body, n = _LAST_UPDATED_RE.subn(f'**Last updated:** {last_updated}', body, count=1)
     if n == 0:
         raise _UpdateError('Last updated line not found in workpad')
 
-    # Notes are grouped under a `### {Status}` sub-heading. Read the
+    # Notes nest under their lifecycle phase inside ## Progress. Read the
     # post-mutation Status so a combined `--status X --note Y` call files the
-    # note under X (the status line was already rewritten above). Strip the
-    # leading glyph so the sub-heading is the bare phase word ("Implementing"),
-    # not "🚀 Implementing".
+    # note under X's phase (the status line was already rewritten above). Strip
+    # the leading glyph so the phase lookup keys on the bare word ("Reviewing").
     status_match = _STATUS_VALUE_RE.search(body)
     current_phase = (
         _strip_status_glyph(status_match.group(1).strip()) if status_match else None
@@ -683,12 +792,13 @@ def _apply_mutations(body: str, args) -> str:
             )
 
     if args.note:
-        idx = _find_section(sections, 'Decisions / Notes')
+        idx = _find_section(sections, 'Progress')
         if idx is None:
-            raise _UpdateError("section '## Decisions / Notes' not found")
+            raise _UpdateError("section '## Progress' not found")
         heading, content = sections[idx]
+        phase_label = _progress_phase_for_status(content, current_phase)
         for text in args.note:
-            content = _append_note(content, text, now_time, current_phase)
+            content = _append_progress_note(content, text, now_time, phase_label)
         sections[idx] = (heading, content)
 
     if args.reflection:
@@ -728,6 +838,19 @@ def main():
     s = sub.add_parser('now', help='UTC ISO-8601 timestamp.')
     s.set_defaults(func=cmd_now)
 
+    s = sub.add_parser(
+        'new-body',
+        help='Print the lean initial workpad skeleton to stdout (pipe to a '
+             'file, then `create`).',
+    )
+    s.add_argument('issue', type=int)
+    s.add_argument('--run-link', metavar='VALUE', default=None,
+                   help='Run front-matter value (markdown ok). Defaults to a '
+                        '"_(local run)_" placeholder when omitted.')
+    s.add_argument('--branch', metavar='VALUE', default=None,
+                   help='Branch name. Defaults to a "_(creating…)_" placeholder.')
+    s.set_defaults(func=cmd_new_body)
+
     u = sub.add_parser(
         'update',
         help='Apply atomic mutations to the workpad and PATCH. Re-fetches the '
@@ -760,9 +883,9 @@ def main():
                    help='Find one AC matching OLD; replace its text with NEW. '
                         'Preserves the checkbox state. For Phase 2.2.6.')
     u.add_argument('--note', metavar='TEXT', action='append', default=[],
-                   help='Append a Decisions/Notes entry, prefixed with a '
-                        'time-only HH:MM:SS UTC timestamp and grouped under a '
-                        '### {current Status} sub-heading. May be passed '
+                   help='Append a note bullet, prefixed with a time-only '
+                        'HH:MM:SS UTC timestamp and nested under the current '
+                        'Status\'s phase inside ## Progress. May be passed '
                         'multiple times to append several entries (sharing one '
                         'timestamp) in one atomic update.')
     u.add_argument('--reflection', metavar='TEXT', action='append', default=[],

@@ -214,6 +214,50 @@ jobs:
         # absorbed by continue-on-error (best-effort ack).
         run: bash .devflow/vendor/devflow/scripts/react-to-trigger.sh
 
+      # Early workpad: post the run's single comment NOW — before the heavy
+      # `claude` job boots and provisions its runtime (setup-project-env:
+      # Python/Node/services/deps). The workpad is a pure acknowledgment that
+      # needs none of that, so creating it here (right after auth + dedupe) is
+      # the earliest the requester can see a durable "job started" comment. The
+      # `claude` job's Phase 1.3 detects this workpad via `workpad.py id` and
+      # resumes it (filling Plan + Acceptance Criteria into the same comment) —
+      # it never posts a second one. Best-effort: continue-on-error so a hiccup
+      # never blocks the run. The `workpad.py id` guard below skips creation
+      # when a workpad already exists (a re-trigger on the same thread), but the
+      # *real* guarantee against two concurrent runs both creating one is the
+      # upstream `dedupe` step (this step only runs when duplicate != 'true');
+      # the `id` guard can't be atomic on its own.
+      - name: Create workpad (early acknowledgement)
+        if: ${{ steps.resolve.outputs.should_run == 'true' && steps.dedupe.outputs.duplicate != 'true' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUMBER: ${{ steps.resolve.outputs.number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          WP=.devflow/vendor/devflow/scripts/workpad.py
+          if [ ! -f "$WP" ]; then
+            echo "::warning::workpad.py not vendored at $WP; skipping early workpad (the claude job will create it)." >&2
+            exit 0
+          fi
+          # Skip if a workpad already exists (re-trigger / earlier run) so the
+          # claude job resumes it instead of getting a duplicate.
+          if python3 "$WP" id "$NUMBER" >/dev/null 2>&1; then
+            echo "Workpad already exists for #$NUMBER — leaving it for the claude job to resume."
+            exit 0
+          fi
+          BODY="$(mktemp)"
+          # Emit an explicit warning on failure rather than letting
+          # continue-on-error swallow it silently — the claude job still
+          # creates the workpad in Phase 1.3, so the run is unaffected, but an
+          # operator gets a breadcrumb (mirrors the missing-workpad.py warning).
+          if ! { python3 "$WP" new-body "$NUMBER" --run-link "[View run]($RUN_URL)" > "$BODY" \
+                 && python3 "$WP" create "$NUMBER" "$BODY"; }; then
+            echo "::warning::early workpad create failed for #$NUMBER; the claude job will create it instead." >&2
+            exit 0
+          fi
+
       # Duplicate notice: tell the requester their command was ignored because a
       # run for this issue/PR is already in flight. Best-effort. CRITICAL: the
       # body must contain NO DevFlow trigger phrase — this comment is itself an
