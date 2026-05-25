@@ -139,9 +139,18 @@ cloud runner being destroyed or a local `.devflow/tmp/` cleanup.
 `/devflow:implement` invokes its helpers — never `bash <path>`. Resolved-path allow-list entries
 match on the command's leading token after expansion, so a `bash`-prefixed command would start with
 `bash`, match nothing, prompt, and be denied on a headless run (silently skipping the trace). Direct
-invocation requires `lib/efficiency-trace.sh` to be committed with its executable bit, and the
-allow-lists to carry `Bash(.devflow/vendor/devflow/lib/efficiency-trace.sh:*)` (added to the inline
-list in `.github/workflows/devflow.yml` that covers the implement and review-and-fix comment paths).
+invocation requires `lib/efficiency-trace.sh` to be committed with its executable bit, and **every**
+workflow allow-list under which `/devflow:review-and-fix`'s Loop Exit runs to carry
+`Bash(.devflow/vendor/devflow/lib/efficiency-trace.sh:*)`. Two workflows qualify, because the loop's
+Loop Exit runs on both entry paths:
+
+- `.github/workflows/devflow.yml` — the inline allow-list for the `/devflow:review-and-fix` comment
+  path.
+- `.github/workflows/devflow-implement.yml` — the heavy `/devflow:implement` path (partitioned out of
+  `devflow.yml`, which carries the comment-trigger routing). `/devflow:implement` Phase 3.3 invokes
+  `/devflow:review-and-fix --push-each-iteration`, which runs the full Loop Exit, so this workflow's
+  allow-list needs the entry too — alongside the `config-get.sh` entry it already carries.
+
 The slim `review` profile in `devflow-runner.yml` is read-only and never runs the Loop Exit, so it
 needs no entry.
 

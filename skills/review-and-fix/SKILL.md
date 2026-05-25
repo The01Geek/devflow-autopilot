@@ -584,11 +584,14 @@ All derivation lives in `lib/efficiency-trace.jq` (a mechanical jq filter, no LL
 
 **Invoke both helpers directly — no `bash` prefix.** `config-get.sh` below and `efficiency-trace.sh` in step 3 are invoked the way `/devflow:implement` invokes its helpers: as executables resolving to a `.devflow/vendor/devflow/…` path, never `bash <path>`. Resolved-path allow-list entries (`Bash(.devflow/vendor/devflow/lib/efficiency-trace.sh:*)`, `Bash(.devflow/vendor/devflow/scripts/config-get.sh:*)`) match on the command's leading token after expansion; a `bash`-prefixed command starts with `bash` and matches nothing, so on a headless run the prompt is denied and the trace is silently skipped. Direct invocation requires `lib/efficiency-trace.sh` to keep its executable bit (it is committed `+x`); never re-add a `bash` prefix to dodge a missing bit.
 
-1. **Read the gating flag** via the config helper (use the `${CLAUDE_SKILL_DIR}`-anchored path so the read is cwd-independent, matching how this engine invokes `match-deferrals.py` / `dismiss-stale-rejections.sh`):
+1. **Read the gating flag** via the config helper (use the `${CLAUDE_SKILL_DIR}`-anchored path so the read is cwd-independent, matching how this engine invokes `match-deferrals.py` / `dismiss-stale-rejections.sh`). Capture stderr + rc so a resolver failure is distinguishable from an intentional flag-off — `config-get.sh` exits non-zero with empty stdout when `node` is missing or `config.json` is malformed, and an empty `ENABLED` would otherwise fall into the "not true → skip" branch indistinguishably from `false`:
    ```bash
-   ENABLED=$("${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh" .devflow_review_and_fix.efficiency_telemetry_enabled true)
+   ENABLED=$("${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh" .devflow_review_and_fix.efficiency_telemetry_enabled true 2>/tmp/devflow-et-flag.err); ENABLED_RC=$?
+   if [ "$ENABLED_RC" -ne 0 ]; then
+     echo "::warning::devflow efficiency-trace gate read failed (rc=$ENABLED_RC): $(cat /tmp/devflow-et-flag.err) — skipping trace"
+   fi
    ```
-   If `ENABLED` is not `true`, **skip this entire section** — render no trace and write no file under `.devflow/logs/`. (The wrapper re-checks the flag itself, so this is belt-and-suspenders; the read here is what gates the `mkdir`/render below.)
+   If `ENABLED_RC` is non-zero or `ENABLED` is not `true`, **skip this entire section** — render no trace and write no file under `.devflow/logs/`. (The wrapper re-checks the flag itself, so this is belt-and-suspenders; the read here is what gates the `mkdir`/render below. The `::warning::` above ensures a genuine resolver failure surfaces in the Actions UI rather than masquerading as a deliberate flag-off.)
 
 2. **Resolve the run slug and timestamp.** `<slug>` is `pr-<N>` in PR mode or the sanitized current branch name in branch mode — the same slug used for the workpad directory `.devflow/tmp/review/<slug>/`. The run timestamp is `date -u +%Y%m%dT%H%M%SZ`.
 
@@ -598,19 +601,29 @@ All derivation lives in `lib/efficiency-trace.jq` (a mechanical jq filter, no LL
    WORKPAD_DIR=".devflow/tmp/review/<slug>"
    RECORD=".devflow/logs/efficiency/<slug>-$(date -u +%Y%m%dT%H%M%SZ).json"
    mkdir -p .devflow/logs/efficiency
-   # Render the Markdown trace to chat (best-effort; empty output → skip):
-   TRACE="$("$LIB/efficiency-trace.sh" --workpad-dir "$WORKPAD_DIR" --slug "<slug>" --mode trace 2>/tmp/devflow-et.err)" \
-     || echo "Effectiveness trace unavailable: $(cat /tmp/devflow-et.err)"
-   [ -n "$TRACE" ] && printf '%s\n' "$TRACE"
-   # Write the per-run JSON record (one file per run). Capture stderr so a real
-   # regression surfaces a ::warning:: breadcrumb instead of vanishing into a
-   # 0-byte file — mirroring the --mode trace stderr handling above:
-   "$LIB/efficiency-trace.sh" --workpad-dir "$WORKPAD_DIR" --slug "<slug>" --mode record > "$RECORD" 2>/tmp/devflow-et-record.err \
-     || echo "::warning::devflow efficiency-trace record mode failed: $(cat /tmp/devflow-et-record.err)"
-   # A flag-off / zero-iteration / failed run emits no output → a 0-byte file;
-   # remove it so flag-off (and a catastrophic-early-failure run) write nothing
-   # under .devflow/logs/.
-   [ -s "$RECORD" ] || rm -f "$RECORD"
+   # Render the Markdown trace to chat. Use ::warning:: (not a plain echo) so a
+   # failure surfaces in the Actions UI on a headless run; and detect the
+   # all-workpads-malformed case, where the helper exits 0 with empty stdout (the
+   # `||` branch never fires) — print an explicit notice so it isn't a silent no-op.
+   TRACE="$("$LIB/efficiency-trace.sh" --workpad-dir "$WORKPAD_DIR" --slug "<slug>" --mode trace 2>/tmp/devflow-et.err)"; TRACE_RC=$?
+   if [ "$TRACE_RC" -ne 0 ]; then
+     echo "::warning::devflow efficiency-trace unavailable (rc=$TRACE_RC): $(cat /tmp/devflow-et.err)"
+   elif [ -z "$TRACE" ]; then
+     echo "::warning::devflow efficiency-trace produced no output (all workpads unreadable/malformed?): $(cat /tmp/devflow-et.err)"
+   else
+     printf '%s\n' "$TRACE"
+   fi
+   # Write the per-run JSON record (one file per run). Capture rc + stderr so a real
+   # regression surfaces a ::warning:: breadcrumb instead of vanishing silently:
+   "$LIB/efficiency-trace.sh" --workpad-dir "$WORKPAD_DIR" --slug "<slug>" --mode record > "$RECORD" 2>/tmp/devflow-et-record.err; RECORD_RC=$?
+   if [ "$RECORD_RC" -ne 0 ]; then
+     echo "::warning::devflow efficiency-trace record mode failed (rc=$RECORD_RC): $(cat /tmp/devflow-et-record.err)"
+   fi
+   # Remove the record on ANY of: helper failure (rc≠0 — guards a truncated-but-
+   # non-empty file left by a mid-write abort, which a bare `-s` check would keep
+   # and `git add -A` would then commit), or empty output (flag-off / zero-iteration
+   # run → 0-byte file). Only a clean rc-0, non-empty write survives.
+   { [ "$RECORD_RC" -ne 0 ] || [ ! -s "$RECORD" ]; } && rm -f "$RECORD"
    ```
    Print the rendered Markdown trace (the `--mode trace` output) into the chat report, after the Run telemetry table. The trace assigns each dispatched subagent exactly one verdict — **unique-effective**, **corroborating**, **noise**, or **null** (see `lib/efficiency-trace.jq`'s header and [`docs/efficiency-trace.md`](../../docs/efficiency-trace.md) for the derivation rules) — shows the per-iteration **diff profile** (the Phase 0.5 flags) and **verification posture** (so a low verifier count reads as a deliberate cheap-path/skip decision, not as "nothing ran"), the Phase-3 dispatch count, and flags any iteration that applied zero fixes as having added nothing.
 
