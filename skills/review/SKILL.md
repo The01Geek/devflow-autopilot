@@ -746,12 +746,25 @@ Then render the trace and (on a writable run) persist the record, reusing the **
 ```bash
 LIB="${CLAUDE_SKILL_DIR}/../../lib"
 WORKPAD_DIR=".devflow/tmp/review/<slug>"
+# Trace (renders to chat / the live comment; reads only):
 TELEM="$("$LIB/efficiency-trace.sh" --workpad-dir "$WORKPAD_DIR" --slug "<slug>" --mode trace 2>/tmp/devflow-rv-et.err)"; T_RC=$?
 [ "$T_RC" -ne 0 ] && echo "::warning::review effectiveness trace unavailable (rc=$T_RC): $(cat /tmp/devflow-rv-et.err)"
+
+# Record (WRITABLE runs only — never under the read-only cloud profile). Show the
+# full guard here rather than leaving it to prose: the remove-on-rc≠0/empty step
+# is load-bearing — without it a truncated mid-write or 0-byte record survives into
+# the run's git add -A. (jq emits `empty` on zero iterations, so the file guard is
+# the only thing preventing a 0-byte artifact.)
+RECORD=".devflow/logs/efficiency/<slug>-$(date -u +%Y%m%dT%H%M%SZ).json"
+mkdir -p .devflow/logs/efficiency
+"$LIB/efficiency-trace.sh" --workpad-dir "$WORKPAD_DIR" --slug "<slug>" --mode record > "$RECORD" 2>/tmp/devflow-rv-rec.err; R_RC=$?
+[ "$R_RC" -ne 0 ] && echo "::warning::review effectiveness record failed (rc=$R_RC): $(cat /tmp/devflow-rv-rec.err)"
+{ [ "$R_RC" -ne 0 ] || [ ! -s "$RECORD" ]; } && rm -f "$RECORD"
 ```
 
 - **PR mode + live comment on:** append the Run telemetry summary (per-phase `calls`/`tokens`/`wall_clock_s`) and the rendered `$TELEM` trace into the live progress comment's finalization (Phase 4 of the update protocol), so the comment is the single complete surface. The comment edit goes through `gh` — permitted under the read-only cloud profile.
-- **Writable run (local/IDE) only:** also write the JSON record to `.devflow/logs/efficiency/<slug>-$(date -u +%Y%m%dT%H%M%SZ).json` via `--mode record` (same remove-on-rc≠0/empty guard as review-and-fix). **Do not attempt the file write or any `git`/commit under the read-only cloud `review` profile** — the comment is the cloud surface; the file is writable-run-only.
+- **Writable run (local/IDE) only:** run the record block above. **Do not run it — no file write, no `git`/commit — under the read-only cloud `review` profile**; the comment is the cloud surface, the file is writable-run-only.
+- **Telemetry-on with live comment OFF, in a read-only cloud run:** there is no surface — the live comment is disabled and the record file is gated out of cloud. Do **not** silently compute-and-discard: emit a one-line chat note (`::warning::devflow review telemetry enabled but no surface available (live comment disabled, read-only run) — trace not persisted`) so the no-op is visible rather than baffling. In a writable run this combination still writes the record file, so the note is read-only-cloud-only.
 
 Best-effort throughout: a telemetry/trace failure is a `::warning::`, never a downgrade of the verdict.
 

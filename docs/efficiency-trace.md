@@ -213,3 +213,8 @@ under the read-only cloud profile the trace renders into the comment only, and n
 `git` is attempted. The two flags compose independently:
 `devflow_review.live_progress_comment_enabled` gates the live comment, and
 `devflow_review_and_fix.efficiency_telemetry_enabled` gates the embedded telemetry/trace + record.
+One combination has no output surface: telemetry **on** with the live comment **off** in a read-only
+cloud run — the record file is gated out of cloud and the comment is disabled, so there is nowhere to
+put the trace. The skill emits a one-line `::warning::` in that case rather than silently
+computing-and-discarding, so the no-op is visible. (In a writable run that combination still writes
+the record file.)

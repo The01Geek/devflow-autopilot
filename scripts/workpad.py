@@ -40,6 +40,7 @@ sections are mutated in place rather than rewritten. See `workpad.py update
 import argparse
 import datetime
 import json
+import os
 import re
 import subprocess
 import sys
@@ -76,7 +77,6 @@ def _workpad_marker():
     # Code's fresh-shell-per-call model): /devflow:review uses this to target its
     # own `<!-- devflow:review-progress -->` comment with the same helper, rather
     # than forking a parallel script. Empty/unset → fall through to config/default.
-    import os
     override = os.environ.get('DEVFLOW_WORKPAD_MARKER', '').strip()
     if override:
         return override

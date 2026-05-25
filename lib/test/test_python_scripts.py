@@ -134,11 +134,14 @@ try:
     _os.environ['DEVFLOW_WORKPAD_MARKER'] = '<!-- devflow:review-progress -->'
     assert_eq("marker: env override wins", '<!-- devflow:review-progress -->',
               workpad._workpad_marker())
-    # A blank/whitespace override is ignored — falls through to config/default,
-    # never returns an empty marker (which would match every comment).
+    # A blank/whitespace override is ignored — falls through to config/default.
+    # Assert it lands on the documented default marker (not merely non-empty), so
+    # a regression in the fall-through wiring that returned the wrong marker is
+    # caught. (No .devflow/config.json in the test cwd → config-get.sh returns the
+    # passed default, which is workpad._DEFAULT_WORKPAD_MARKER.)
     _os.environ['DEVFLOW_WORKPAD_MARKER'] = '   '
-    assert_eq("marker: blank override does not win (non-empty marker)", True,
-              workpad._workpad_marker() != '')
+    assert_eq("marker: blank override falls through to default marker",
+              workpad._DEFAULT_WORKPAD_MARKER, workpad._workpad_marker())
 finally:
     _os.environ.pop('DEVFLOW_WORKPAD_MARKER', None)
     if _saved is not None:

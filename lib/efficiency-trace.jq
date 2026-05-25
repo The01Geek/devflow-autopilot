@@ -40,6 +40,15 @@
 #                      (false-positive / web-refuted). Any future `fix_decision`
 #                      value also defaults to `null` unless `verdict_for` is updated.
 #
+# The four buckets above are written in `fix_decision` (review-and-fix) terms.
+# `verdict_for` has a SECOND derivation for standalone-/devflow:review records
+# (run-level `source == "review"`), where there is no `fix_decision`: a finding's
+# `contributed_to_verdict` boolean replaces applied-fix as the effectiveness
+# signal — `noise` = the agent raised findings but none contributed to the verdict
+# (deferral-demoted to Informational, via explicit `false` or an omitted field),
+# `null` = dispatched but raised nothing. Buckets and precedence are identical;
+# only the discriminator differs. See `verdict_for` for the authoritative logic.
+#
 # Verdict precedence (highest wins, so each agent gets exactly one):
 #   unique-effective > corroborating > noise > null.
 #
@@ -91,13 +100,26 @@ def posture_line($it):
 #     (contributed_to_verdict == false). The buckets and precedence
 #     (unique-effective > corroborating > noise > null) are identical; only the
 #     "did it count?" signal differs.
-def verdict_for($findings):
-  if ($findings | any(has("contributed_to_verdict"))) then
-    # review-mode: contribution-to-verdict replaces applied-fix.
+# `$review_mode` is the run-level discriminator (`source == "review"`), NOT the
+# per-finding field shape. Keying on the run-level source — not on
+# `any(has("contributed_to_verdict"))` — is deliberate: a review-mode agent whose
+# only finding was deferral-demoted may carry `contributed_to_verdict: false` *or*
+# omit it entirely, and a per-finding-presence test would mis-route that whole
+# agent into the fix-loop branch and silently downgrade a real-but-demoted finding
+# from `noise` to `null`. With the run-level key, review-mode `noise` is reached
+# whenever the agent raised findings but none contributed — robust to an omitted
+# field.
+def verdict_for($findings; $review_mode):
+  if $review_mode then
+    # review-mode: contribution-to-verdict replaces applied-fix. A finding counts
+    # as contributing only on explicit `contributed_to_verdict == true`; anything
+    # else (false, or the field absent) is non-contributing.
     ($findings | map(select(.contributed_to_verdict == true))) as $contributing
     | if ($contributing | any(((.corroboration_count // 1)) < 2)) then "unique-effective"
       elif ($contributing | length) > 0 then "corroborating"
-      elif ($findings | any(.contributed_to_verdict == false)) then "noise"
+      # Raised findings but none contributed → noise (handles explicit false AND
+      # an omitted field); no findings at all → null (dispatched but silent).
+      elif ($findings | length) > 0 then "noise"
       else null
       end
   else
@@ -158,7 +180,7 @@ def iter_view:
         $roster[] as $agent
         | {
             agent: $agent,
-            verdict: verdict_for([$findings[] | select(finding_agent == $agent)])
+            verdict: verdict_for([$findings[] | select(finding_agent == $agent)]; ($it.source == "review"))
           }
       ],
       telemetry: ($it.telemetry // null),
@@ -185,7 +207,12 @@ def iter_view:
       generated_at: $generated_at,
       # Originating skill for the whole run, taken from the workpads (each iter
       # may carry `source`; default to the historical producer when absent so
-      # existing review-and-fix records read unchanged).
+      # existing review-and-fix records read unchanged). Assumes one source per
+      # run (a run is either a /devflow:review pass or a review-and-fix loop, never
+      # both) — takes the first non-null. Per-iteration `verdict_for` still keys
+      # off each iter's own `source`, so a (not-currently-produced) mixed-source
+      # run would still classify each iteration correctly even though this
+      # run-level label collapses to one value.
       source: ($iters | map(.source) | map(select(. != null)) | (.[0] // "review-and-fix")),
       cut_candidate_min_dispatch: $cut_candidate_min_dispatch,
       iterations: ($iters | length),

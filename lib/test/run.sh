@@ -2007,6 +2007,61 @@ assert_eq "et(#55): absent source defaults to review-and-fix" "review-and-fix" \
   "$(echo "$ET_RAF_REC" | jq -r '.source')"
 rm -rf "$ET_RAF"
 
+# Review-mode per-agent aggregation (issue #55 review hardening): the verdict is
+# keyed off the run-level source ("review"), not per-finding field presence, so
+# these stress the branch ordering and the omitted-field → noise path that the
+# one-finding-per-agent fixtures above don't reach.
+ET_RMIX="$(mktemp -d)"
+cat > "$ET_RMIX/iter-1.json" <<'EOF'
+{
+  "iter": 1,
+  "source": "review",
+  "checklist": [],
+  "phase3_dispatched": ["mix-unique","mix-corrob","omit-demoted","mixcorr"],
+  "phase3_findings": [
+    {"agent":"mix-unique","corroboration_count":1,"contributed_to_verdict":true},
+    {"agent":"mix-unique","corroboration_count":1,"contributed_to_verdict":false},
+    {"agent":"mix-corrob","corroboration_count":3,"contributed_to_verdict":true},
+    {"agent":"mix-corrob","corroboration_count":1,"contributed_to_verdict":false},
+    {"agent":"omit-demoted","corroboration_count":1},
+    {"agent":"mixcorr","corroboration_count":3,"contributed_to_verdict":true},
+    {"agent":"mixcorr","corroboration_count":1,"contributed_to_verdict":true}
+  ],
+  "convergence_inputs": {"fixes_applied": 0},
+  "telemetry": null
+}
+EOF
+ET_RMIX_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_RMIX" --slug "pr-99" --mode record)"
+ET_mv() { echo "$ET_RMIX_REC" | jq -r --arg a "$1" '.per_iteration[0].agent_verdicts[] | select(.agent==$a) | .verdict'; }
+assert_eq "et(#55): contributing finding wins over a co-located demoted one (corr<2)" "unique-effective" "$(ET_mv 'mix-unique')"
+assert_eq "et(#55): contributing finding wins over a co-located demoted one (corr>=2)" "corroborating" "$(ET_mv 'mix-corrob')"
+# The regression test for the corroborated review finding: a demoted finding that
+# OMITS contributed_to_verdict must still classify noise (not null) — the agent
+# raised something, it just didn't contribute.
+assert_eq "et(#55): omitted contributed_to_verdict on a raised finding → noise (not null)" "noise" "$(ET_mv 'omit-demoted')"
+# Mixed corroboration within contributing findings: any unique (corr<2) → unique-effective.
+assert_eq "et(#55): mixed corroboration among contributing findings → unique-effective" "unique-effective" "$(ET_mv 'mixcorr')"
+rm -rf "$ET_RMIX"
+
+# Multi-iteration run-level source resolution: iter-1 carries no source, iter-2
+# carries "review" → the run-level source is "review" (first non-null), and each
+# iteration still classifies off its own source.
+ET_RMI="$(mktemp -d)"
+cat > "$ET_RMI/iter-1.json" <<'EOF'
+{"iter":1,"checklist":[],"phase3_dispatched":["a"],"phase3_findings":[{"agent":"a","corroboration_count":1,"fix_decision":"applied"}],"convergence_inputs":{"fixes_applied":1},"telemetry":null}
+EOF
+cat > "$ET_RMI/iter-2.json" <<'EOF'
+{"iter":2,"source":"review","checklist":[],"phase3_dispatched":["b"],"phase3_findings":[{"agent":"b","corroboration_count":1,"contributed_to_verdict":true}],"convergence_inputs":{"fixes_applied":0},"telemetry":null}
+EOF
+ET_RMI_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_RMI" --slug "pr-99" --mode record)"
+assert_eq "et(#55): run-level source is first non-null across iters (review)" "review" \
+  "$(echo "$ET_RMI_REC" | jq -r '.source')"
+assert_eq "et(#55): iter-1 (fix_decision, no source) classifies off its own shape" "unique-effective" \
+  "$(echo "$ET_RMI_REC" | jq -r '.per_iteration[] | select(.iter==1) | .agent_verdicts[0].verdict')"
+assert_eq "et(#55): iter-2 (source review) classifies review-mode" "unique-effective" \
+  "$(echo "$ET_RMI_REC" | jq -r '.per_iteration[] | select(.iter==2) | .agent_verdicts[0].verdict')"
+rm -rf "$ET_RMI"
+
 # Populated checklist/telemetry writer gap closed (issue #52): a workpad where
 # Phase 1+2 ran yields a real lite/agent split, a non-none-recorded posture, and
 # non-null telemetry[].phases — i.e. none-recorded/null phases now signal genuine
