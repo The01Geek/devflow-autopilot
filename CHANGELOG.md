@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Improved
+- **The `/devflow:implement` workpad now appears almost immediately, and reads more cleanly.** The workpad — a run's single "job started" comment — is now created by the workflow's `gate` job right after authorization and de-duplication, *before* the heavy `claude` job boots and provisions its runtime (`setup-project-env`: Python/Node/service containers/dependency installs), which the acknowledgment never needed. On repos with containers or heavy installs that removes minutes of silence between the trigger and the first comment. The `claude` job's Phase 1.3 detects the pre-created workpad (`workpad.py id`) and resumes it — filling in the Plan and Acceptance Criteria on the *same* comment — so a run still posts exactly one comment. Two readability changes ship alongside: the `Last updated:` line is now friendly UTC (`2026-05-05 17:42 UTC`) instead of raw ISO-8601, and the separate `Decisions / Notes` section is gone — its timestamped notes now nest under the matching phase inside `## Progress`, so "what happened, by phase" lives in one place (`## Devflow Reflection` remains its own collapsible section). Workpads created before this change still resume without error and keep their existing notes. A new `workpad.py new-body` subcommand emits the lean initial skeleton the `gate` job posts. See `docs/workflow-triggers.md`. (#49)
+
 ## [2.3.1] — 2026-05-24
 
 ### Fixed
