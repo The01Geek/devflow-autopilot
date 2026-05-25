@@ -117,7 +117,12 @@ def cmd_id(args):
         if len(items) < 100:
             break
         page += 1
-    sys.exit(1)
+    # Exit 2 (distinct from _fail's exit 1) means "scanned successfully, no
+    # matching comment" — i.e. first run / not yet seeded. A real `gh api` or
+    # parse failure above exits 1 via _fail. Callers can thus tell a benign
+    # "create it" from a transient API error and avoid posting a duplicate
+    # workpad comment on a failure they mistook for "not found".
+    sys.exit(2)
 
 
 def cmd_body(args):
@@ -825,7 +830,7 @@ def main():
     p = argparse.ArgumentParser(prog='workpad.py')
     sub = p.add_subparsers(dest='cmd', required=True)
 
-    s = sub.add_parser('id', help='Print workpad comment ID for an issue (exit 1 if absent).')
+    s = sub.add_parser('id', help='Print workpad comment ID for an issue (exit 2 if absent; exit 1 on API/parse error).')
     s.add_argument('issue', type=int)
     s.set_defaults(func=cmd_id)
 

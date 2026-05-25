@@ -90,14 +90,14 @@ def posture_line($it):
 # Classify one agent's findings (an array of phase3_findings rows for that
 # agent in one iteration) into a single verdict.
 #
-# Two derivations, selected by the finding shape (not an extra arg):
+# Two derivations, selected by the `$review_mode` arg (the run-level `source`):
 #   * review-and-fix records carry `fix_decision` (applied/pushed_back/advisory) —
 #     "effective" means the finding led to an APPLIED fix.
 #   * standalone /devflow:review records carry `contributed_to_verdict` (a boolean)
 #     instead — review never fixes, so "effective" means the finding CONTRIBUTED
 #     to the verdict (drove the REJECT or was counted in APPROVE-with-notes), and
 #     `noise` means every finding was deferral-demoted to Informational
-#     (contributed_to_verdict == false). The buckets and precedence
+#     (contributed_to_verdict == false, or the field absent). The buckets and precedence
 #     (unique-effective > corroborating > noise > null) are identical; only the
 #     "did it count?" signal differs.
 # `$review_mode` is the run-level discriminator (`source == "review"`), NOT the
@@ -113,7 +113,9 @@ def verdict_for($findings; $review_mode):
   if $review_mode then
     # review-mode: contribution-to-verdict replaces applied-fix. A finding counts
     # as contributing only on explicit `contributed_to_verdict == true`; anything
-    # else (false, or the field absent) is non-contributing.
+    # else (false, the field absent, or a non-boolean/malformed value such as a
+    # stringified "true" from an LLM-authored record) is treated as
+    # non-contributing — the strict `== true` is deliberately the only truthy gate.
     ($findings | map(select(.contributed_to_verdict == true))) as $contributing
     | if ($contributing | any(((.corroboration_count // 1)) < 2)) then "unique-effective"
       elif ($contributing | length) > 0 then "corroborating"

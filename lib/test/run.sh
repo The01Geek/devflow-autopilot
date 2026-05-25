@@ -2018,7 +2018,7 @@ cat > "$ET_RMIX/iter-1.json" <<'EOF'
   "iter": 1,
   "source": "review",
   "checklist": [],
-  "phase3_dispatched": ["mix-unique","mix-corrob","omit-demoted","mixcorr"],
+  "phase3_dispatched": ["mix-unique","mix-corrob","omit-demoted","mixcorr","allcorr"],
   "phase3_findings": [
     {"agent":"mix-unique","corroboration_count":1,"contributed_to_verdict":true},
     {"agent":"mix-unique","corroboration_count":1,"contributed_to_verdict":false},
@@ -2026,7 +2026,9 @@ cat > "$ET_RMIX/iter-1.json" <<'EOF'
     {"agent":"mix-corrob","corroboration_count":1,"contributed_to_verdict":false},
     {"agent":"omit-demoted","corroboration_count":1},
     {"agent":"mixcorr","corroboration_count":3,"contributed_to_verdict":true},
-    {"agent":"mixcorr","corroboration_count":1,"contributed_to_verdict":true}
+    {"agent":"mixcorr","corroboration_count":1,"contributed_to_verdict":true},
+    {"agent":"allcorr","corroboration_count":2,"contributed_to_verdict":true},
+    {"agent":"allcorr","corroboration_count":3,"contributed_to_verdict":true}
   ],
   "convergence_inputs": {"fixes_applied": 0},
   "telemetry": null
@@ -2042,6 +2044,15 @@ assert_eq "et(#55): contributing finding wins over a co-located demoted one (cor
 assert_eq "et(#55): omitted contributed_to_verdict on a raised finding → noise (not null)" "noise" "$(ET_mv 'omit-demoted')"
 # Mixed corroboration within contributing findings: any unique (corr<2) → unique-effective.
 assert_eq "et(#55): mixed corroboration among contributing findings → unique-effective" "unique-effective" "$(ET_mv 'mixcorr')"
+# 2+ contributing findings, ALL corroborated (corr>=2) → stays corroborating (no
+# unique discoverer among them). Guards the precedence boundary the single-finding
+# rev-corrob fixture above can't reach.
+assert_eq "et(#55): 2+ contributing findings all corr>=2 → corroborating" "corroborating" "$(ET_mv 'allcorr')"
+# Review-mode verdicts must also surface in the --mode trace Markdown (the live-
+# comment surface), not just the --mode record JSON exercised above.
+ET_RMIX_TRACE="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_RMIX" --slug "pr-99" --mode trace)"
+assert_eq "et(#55): review-mode verdicts render in --mode trace Markdown" "true" \
+  "$(echo "$ET_RMIX_TRACE" | grep -qiE 'corroborating|unique-effective' && echo true || echo false)"
 rm -rf "$ET_RMIX"
 
 # Multi-iteration run-level source resolution: iter-1 carries no source, iter-2

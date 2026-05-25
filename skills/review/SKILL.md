@@ -38,11 +38,21 @@ MARKER='<!-- devflow:review-progress -->'
 cat > /tmp/review-wp.md <<'EOF'
 …review-workpad body (template below)…
 EOF
-# find-or-detect (PR comments live under the issues API; a PR number works here):
-WP=$(DEVFLOW_WORKPAD_MARKER="$MARKER" "$WP_PY" id "$PR_NUMBER" 2>/dev/null || true)
-# create (first GitHub write) once, or rewrite in place at each phase boundary:
-WP=$(DEVFLOW_WORKPAD_MARKER="$MARKER" "$WP_PY" create "$PR_NUMBER" /tmp/review-wp.md)   # once
-DEVFLOW_WORKPAD_MARKER="$MARKER" "$WP_PY" patch "$WP" /tmp/review-wp.md                 # each update
+# find-or-detect (PR comments live under the issues API; a PR number works here).
+# `id` distinguishes its exit codes: 0 = found (resume it), 2 = scanned cleanly
+# but absent (first run → create), 1 = a real gh-api/parse failure. Branch on the
+# code so a transient API error is NOT mistaken for "first run" (which would post
+# a duplicate comment — forbidden, exactly one per PR):
+WP=$(DEVFLOW_WORKPAD_MARKER="$MARKER" "$WP_PY" id "$PR_NUMBER" 2>/dev/null); rc=$?
+if [ "$rc" -eq 0 ]; then
+  :                                                                                    # resume $WP
+elif [ "$rc" -eq 2 ]; then
+  WP=$(DEVFLOW_WORKPAD_MARKER="$MARKER" "$WP_PY" create "$PR_NUMBER" /tmp/review-wp.md) # first GitHub write
+else
+  WP=""                                                                                # API error → skip seeding (best-effort), do NOT create
+fi
+# rewrite in place at each phase boundary (only when $WP is set):
+[ -n "$WP" ] && DEVFLOW_WORKPAD_MARKER="$MARKER" "$WP_PY" patch "$WP" /tmp/review-wp.md # each update
 ```
 
 The review body uses its **own section template** (the orchestrator authors it; `workpad.py` only carries it). Rebuild the body from your held state (re-author the `/tmp` file with the heredoc above) and `patch` at each phase boundary — you hold the full run state in context, so a full-body rewrite is simplest and avoids implement-specific section mutations:
@@ -84,6 +94,7 @@ _(pending)_
 - `devflow_review.live_progress_comment_enabled` = `false` → skip the live comment entirely; behave as today (report produced once at the end). Read it via `${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .devflow_review.live_progress_comment_enabled true`.
 - **Non-PR / current-branch mode** → there is no comment surface; render the same blueprint-and-progress narrative incrementally to **chat** as you go, and create no comment.
 - Comment create/patch is **best-effort** — a failure is logged and the review continues to its verdict; never abort the review on a workpad write failure.
+- **Fatal review abort after seeding.** If the review itself hits a fatal error *after* the comment is seeded (e.g. the diff becomes unfetchable mid-run, or an agent dispatch fails irrecoverably) and cannot reach the Phase 4 verdict, do **not** leave the comment frozen in `🚀 Reviewing`. Best-effort `patch` it to a clearly-failed terminal state — flip `Status` to `❌ Review failed`, add a one-line `## Verdict` of `REVIEW INCOMPLETE — <reason>`, and leave the partial Blueprint ticks as-is — before surfacing the failure. This is the skill-owned analogue of the old `devflow-review.yml` `### ❌ Devflow Review Failed` variant (the workflow no longer authors it).
 
 ---
 
@@ -725,7 +736,7 @@ If it exits non-zero (token scope), say so in chat output and that the PR stays 
 
 This step is gated by `devflow_review_and_fix.efficiency_telemetry_enabled` (read via `${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .devflow_review_and_fix.efficiency_telemetry_enabled true`; the flag is shared with `/devflow:review-and-fix`). When `false`, skip this step entirely — no telemetry, no trace, no record. It is **independent** of the live-comment flag: the live comment can be on with telemetry off (an incremental narrative with no telemetry/trace block), or vice versa.
 
-When enabled, assemble a **single workpad-shaped object** for this run from state the engine already produced, and write it to `.devflow/tmp/review/<slug>/iter-1.json`:
+When enabled, assemble a **single workpad-shaped object** for this run from state the engine already produced, and write it to `.devflow/tmp/review/<slug>/iter-1.json`. This scratch write is the input `efficiency-trace.sh --mode trace` reads back; it lands in gitignored `.devflow/tmp/` (the same ephemeral-scratch location as Phase 0.2's `diff.patch`), so it does **not** make the trace a tree write and is permitted under the read-only cloud `review` profile — only the durable `--mode record` file under `.devflow/logs/efficiency/` is gated to writable runs.
 
 ```json
 {

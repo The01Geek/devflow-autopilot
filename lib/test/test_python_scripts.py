@@ -137,11 +137,22 @@ try:
     # A blank/whitespace override is ignored — falls through to config/default.
     # Assert it lands on the documented default marker (not merely non-empty), so
     # a regression in the fall-through wiring that returned the wrong marker is
-    # caught. (No .devflow/config.json in the test cwd → config-get.sh returns the
-    # passed default, which is workpad._DEFAULT_WORKPAD_MARKER.)
+    # caught. config-get.sh reads `.devflow/config.json` relative to cwd; the repo
+    # *does* carry one whose workpad_marker is byte-identical to the default, so to
+    # genuinely exercise the default-leg (config absent → config-get.sh returns the
+    # passed default) we must run from a cwd with no .devflow/config.json. (Running
+    # from the repo root would pass either way and prove nothing.) workpad resolves
+    # config-get.sh via __file__, so the chdir does not break locating the helper.
+    import tempfile as _tempfile  # noqa: E402
     _os.environ['DEVFLOW_WORKPAD_MARKER'] = '   '
-    assert_eq("marker: blank override falls through to default marker",
-              workpad._DEFAULT_WORKPAD_MARKER, workpad._workpad_marker())
+    _orig_cwd = _os.getcwd()
+    with _tempfile.TemporaryDirectory() as _td:
+        _os.chdir(_td)
+        try:
+            assert_eq("marker: blank override falls through to default marker (no config in cwd)",
+                      workpad._DEFAULT_WORKPAD_MARKER, workpad._workpad_marker())
+        finally:
+            _os.chdir(_orig_cwd)
 finally:
     _os.environ.pop('DEVFLOW_WORKPAD_MARKER', None)
     if _saved is not None:

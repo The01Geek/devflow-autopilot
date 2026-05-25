@@ -109,7 +109,7 @@ Subcommand reference:
 
 | Command | Purpose |
 | --- | --- |
-| `workpad.py id ISSUE` | Print the workpad comment ID, or exit 1 with empty stdout if none exists. |
+| `workpad.py id ISSUE` | Print the workpad comment ID, or empty stdout with exit 2 if none exists (exit 1 on a gh-api/parse error). |
 | `workpad.py body COMMENT_ID` | Print the full body of an existing workpad. |
 | `workpad.py create ISSUE BODY_FILE` | Create the workpad on a fresh issue from a body file and print the new comment ID. Use at most once per issue (the cloud `gate` job already does this; the local fresh-issue path does it in 1.3). |
 | `workpad.py new-body ISSUE [--run-link V] [--branch V]` | Print the lean initial workpad skeleton to stdout (Status/links/timestamp + empty `## Progress`, placeholder Plan/AC). Pipe to a temp file, then `create`. |

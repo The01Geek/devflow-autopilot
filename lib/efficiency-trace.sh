@@ -86,6 +86,17 @@ if [ -n "$WORKPAD_DIR" ] && [ -d "$WORKPAD_DIR" ]; then
   done
 fi
 
+# Future-proofing guard: a run is expected to be single-source — either a
+# /devflow:review pass or a review-and-fix loop, never both. The jq collapses the
+# run-level `source` to the first non-null (per-iter verdicts still key off each
+# iter's own source), so a mixed-source run would silently mislabel the record.
+# That input is not currently produced; warn (don't fail) if it ever appears.
+if [ "${#VALID_FILES[@]}" -gt 1 ]; then
+  if [ "$(jq -r '.source // empty' "${VALID_FILES[@]}" 2>/dev/null | sort -u | wc -l)" -gt 1 ]; then
+    echo "::warning::efficiency-trace.sh: workpads carry mixed 'source' values; record collapses to the first (a run should be single-source)" >&2
+  fi
+fi
+
 # jq -s over zero files yields null, not []; feed an explicit empty array so the
 # filter (which expects an array) degrades to an empty trace / empty record.
 if [ "${#VALID_FILES[@]}" -eq 0 ]; then
