@@ -557,7 +557,7 @@ Construct the report in this format:
 {If no issue found: "No related issue found — requirement compliance not checked."}
 
 ## Verification Checklist Results
-{a plain-text line, not a bullet, no surrounding parentheses:} {total} checked, {pass} passed, {fail} failed, {inconclusive} inconclusive — {lite_count} via lite probe, {agent_count} via agent.
+{a plain-text line, not a bullet, no surrounding parentheses:} {pass} passed, {fail} failed, {inconclusive} inconclusive — {lite_count} via lite probe, {agent_count} via agent.
 {for each FAIL or INCONCLUSIVE item: "- VC-N: VERDICT — claim [source_file:source_line]"}
 {when {pass} > 0, emit the PASS items inside a collapsed block — `{pass}` MUST equal the number of `- VC-N` lines listed inside it. Leave a blank line before `<details>` so GitHub renders the collapsible correctly after the preceding list:}
 
@@ -572,7 +572,7 @@ FAIL and INCONCLUSIVE items stay listed outside the `<details>` block so they re
 
 ## Code Review Findings
 {Group findings by severity under a sub-heading that carries the severity icon — "### 🔴 Critical", "### 🟠 Important / Major", "### 🟡 Suggestion / Minor", "### ℹ️ Informational — Deferred". Emit the sub-headings in that order and omit any whose group has no findings.}
-{Within each group render each finding as a numbered-list item with NO icon and NO agent-name prefix: "1. severity: description (raised by N/{total Phase 3 agents that returned results} agents)", numbering restarting from 1 within each sub-heading. The severity icon belongs on the sub-heading only — never prefix the list items.}
+{Within each group render each finding as a numbered-list item with NO icon, NO agent-name prefix, and NO severity-word prefix: "1. description (raised by N/{total Phase 3 agents that returned results} agents)", numbering restarting from 1 within each sub-heading. The severity is conveyed by the sub-heading alone — never repeat the icon or the severity word ("Critical:", "Important:", "Suggestion:") on the list items.}
 {for findings whose index appears in the matcher's honored[] list, append " [Deferred → #{follow_up_issue}]" to the line and place it under the "### ℹ️ Informational — Deferred" sub-heading rather than under its original severity bucket.}
 {Within each severity, list corroborated findings (N≥2) before single-source ones (N=1) so the highest-confidence items lead.}
 

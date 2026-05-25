@@ -562,7 +562,14 @@ cat > "$DT12/bin/jq" <<EOF
 "$DT12_REAL_JQ" "\$@" | awk '{ printf "%s\r\n", \$0 }'
 EOF
 chmod +x "$DT12/bin/jq"
+# Sanity guard: confirm the shim actually injects CRLF. Without this, a future
+# break in the wrapper would turn the regression test below into a passing
+# no-op (it would assert "yes" even with the fix removed). If this fails, the
+# CRLF path is no longer being exercised — fix the shim, not the assertion.
+assert_eq "detect(DT12 control): jq shim emits CRLF" "yes" \
+  "$(PATH="$DT12/bin:$PATH" jq -n '1' | grep -q $'\r' && echo yes || echo no)"
 PATH="$DT12/bin:$PATH" bash "$DPT" "$DT12" >/dev/null 2>&1
+assert_eq "detect: CRLF jq stdout (Windows) exits 0" "0" "$?"
 assert_eq "detect: CRLF jq stdout (Windows) still detects node markers" "yes" \
   "$(dpt_has .devflow.allowed_tools 'Bash(npm:*)' "$DT12/.devflow/config.json")"
 

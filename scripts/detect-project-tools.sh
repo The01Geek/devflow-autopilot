@@ -87,9 +87,12 @@ marker_present() {
 # `tr -d '\r'` strips the carriage return the native Windows jq build appends to
 # every stdout line (Git Bash / MSYS). Without it, `read` captures keys/markers
 # like $'node\r', the later `.presets[$k]` lookup asks for a key that doesn't
-# exist, and detection silently finds nothing. Only these two pipelines need it:
-# every other jq call here either writes JSON to a tempfile or feeds jq-as-arg,
-# where a stray CR is harmless whitespace to the JSON parser.
+# exist, and detection silently finds nothing. The load-bearing invariant is
+# narrow: only jq output consumed line-by-line by `read` needs the strip. Every
+# other jq call here either writes JSON to a tempfile, feeds jq-as-arg, captures
+# output re-parsed as JSON (via --argjson), or is read only for its exit code —
+# in all of those a stray CR is harmless. Adding a new `read`-driven jq pipeline
+# below? It needs `| tr -d '\r'` too.
 ACTIVE=()
 while IFS= read -r key; do
   [ -n "$key" ] || continue
