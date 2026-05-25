@@ -129,7 +129,7 @@ Subcommand reference:
 | `--tick-plan TEXT` | Tick one unticked Plan checkbox whose text contains TEXT (substring). Fails if TEXT matches zero unticked checkboxes or multiple. **Repeatable** — pass multiple times to tick several boxes in one atomic update. |
 | `--tick-ac TEXT` | Same, for Acceptance Criteria. **Repeatable.** |
 | `--rewrite-ac OLD NEW` | Phase 2.2.6: find an AC by OLD substring, replace its full text with NEW, keep the box state. |
-| `--note TEXT` | Append a note bullet, prefixed with a time-only `HH:MM:SS` UTC timestamp and nested under the current `Status`'s phase inside `## Progress` (Setup/Discovering/…/Complete map to the matching top-level phase row; Blocked nests under the most recent in-progress phase). **Repeatable** — multiple notes in one call share the same timestamp and are appended in argument order. |
+| `--note TEXT` | Append a note bullet, prefixed with a time-only `HH:MM:SS` UTC timestamp and nested under the current `Status`'s phase inside `## Progress` (Setup/Discovering/…/Complete map to the matching top-level phase row; Blocked nests under the most recent completed phase). **Repeatable** — multiple notes in one call share the same timestamp and are appended in argument order. |
 | `--reflection TEXT` | Append a bullet to Devflow Reflection (no timestamp). **Repeatable.** |
 | `--replace-plan-file FILE` | Replace the Plan section content with FILE. |
 | `--replace-acs-file FILE` | Phase 2.2.5: replace Acceptance Criteria content with FILE. |
@@ -139,8 +139,8 @@ Subcommand reference:
 
 Helper invariants baked into the script (orchestrator doesn't need to enforce them):
 - Notes are append-only — `--note` only appends, never rewrites; each bullet nests under its lifecycle phase inside `## Progress` and carries a time-only `HH:MM:SS` prefix.
-- `--note`/`--reflection` are **`<details>`-aware**: when the section body is wrapped in a `<details>` block (the template default), the new bullet is inserted *inside* the block (before `</details>`), never after — so the collapsible region stays intact and the marker-first / AC-parseable invariants hold.
-- The `Status` glyph is owned by the helper — `--status` derives and prepends it, and the `### {Status}` note sub-heading uses the bare phase word (no glyph).
+- `--reflection` is **`<details>`-aware**: because `## Devflow Reflection` is wrapped in a `<details>` block, the new bullet is inserted *inside* the block (before `</details>`), never after — so the collapsible region stays intact and the marker-first / AC-parseable invariants hold. (`--note` writes plain bullets into the un-wrapped `## Progress` section, so this doesn't apply to it.)
+- The `Status` glyph is owned by the helper — `--status` derives and prepends it, and a note's phase is resolved from the bare (glyph-stripped) Status word.
 - Devflow Reflection accumulates bullets — `--reflection` only appends.
 - `--tick-*` flags edit only the box character and preserve the rest of the line.
 - `--rewrite-ac` preserves the original checkbox state (don't tick during a 2.2.6 rewrite — the gate ticks later via `--tick-ac`).

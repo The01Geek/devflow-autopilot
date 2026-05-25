@@ -289,13 +289,21 @@ def _status_glyph(status: str) -> str:
     return '🚀'
 
 
+# The canonical ## Progress top-level phase labels, in order — the single
+# source of truth that `_STATUS_TO_PROGRESS_PHASE` (below) and the `new-body`
+# checklist (cmd_new_body) must both agree with. A note is nested under one of
+# these rows by substring match, so renaming a phase here, in the map, or in
+# the template without updating the others would misfile notes silently; the
+# import-time assert below and the `new-body`-template test guard against that.
+_PROGRESS_PHASES = ('Setup', 'Implement', 'Review', 'Documentation', 'PR marked ready')
+
 # Maps a workpad Status word (glyph-stripped, lowercased) to the ## Progress
 # top-level phase its notes nest under. Several in-progress statuses share one
 # phase (Discovering/Reproducing/Planning/Implementing → Implement). A status
-# absent from this map (Blocked) nests under the *most recent in-progress*
-# phase — see `_progress_phase_for_status`. The lookup degrades gracefully: if
-# the mapped phase label isn't present in the checklist (a template rename), it
-# falls back to the most-recent-active phase too, so a note is never dropped.
+# absent from this map (Blocked) nests under the most recent *ticked* phase —
+# see `_progress_phase_for_status`. The lookup degrades gracefully: if the
+# mapped phase label isn't present in the checklist (a template rename), it
+# falls back the same way, so a note is never dropped.
 _STATUS_TO_PROGRESS_PHASE = {
     'setup': 'Setup',
     'discovering': 'Implement',
@@ -306,6 +314,13 @@ _STATUS_TO_PROGRESS_PHASE = {
     'documenting': 'Documentation',
     'complete': 'PR marked ready',
 }
+
+# Fail loudly at import if the map ever names a phase the canonical list doesn't
+# — a rename that would otherwise misfile notes with no signal.
+assert set(_STATUS_TO_PROGRESS_PHASE.values()) <= set(_PROGRESS_PHASES), (
+    'workpad: _STATUS_TO_PROGRESS_PHASE names a phase not in _PROGRESS_PHASES: '
+    f'{set(_STATUS_TO_PROGRESS_PHASE.values()) - set(_PROGRESS_PHASES)}'
+)
 
 # A top-level (column-0, no leading whitespace) ## Progress checkbox — one row
 # per lifecycle phase. Nested sub-items (`  - [ ] code + sweeps`) and nested
@@ -319,8 +334,8 @@ def _progress_phase_for_status(progress_content: str, status: str | None) -> str
     caller then appends the note flat).
 
     Mapped statuses nest under their phase; an unmapped status (Blocked) or a
-    mapped phase that isn't present nests under the most recent in-progress
-    phase — the last ticked top-level row, else the first phase."""
+    mapped phase that isn't present nests under the most recent *ticked*
+    (completed) top-level row, else the first phase."""
     rows = []  # (label_text, ticked)
     for line in progress_content.split('\n'):
         m = _TOP_LEVEL_CHECKBOX_RE.match(line)

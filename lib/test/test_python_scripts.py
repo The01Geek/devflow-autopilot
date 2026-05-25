@@ -232,20 +232,33 @@ assert_eq("note: two notes in one call preserve argument order", True,
           prog4.index('alpha note') < prog4.index('beta note'))
 
 # Status → phase mapping, incl. the Blocked fallback to the most recent
-# in-progress (last ticked top-level) phase.
+# *ticked* (completed) top-level phase.
 PROGRESS = ("- [x] **Setup** — branch & workpad\n"
             "- [x] **Implement**\n  - [x] code + sweeps\n"
             "- [ ] **Review**\n- [ ] **Documentation**\n- [ ] **PR marked ready**\n")
+assert_eq("phase-map: Setup → Setup", "**Setup** — branch & workpad",
+          workpad._progress_phase_for_status(PROGRESS, "Setup"))
+assert_eq("phase-map: Discovering → Implement", "**Implement**",
+          workpad._progress_phase_for_status(PROGRESS, "Discovering"))
+assert_eq("phase-map: Reproducing → Implement", "**Implement**",
+          workpad._progress_phase_for_status(PROGRESS, "Reproducing"))
 assert_eq("phase-map: Planning → Implement", "**Implement**",
           workpad._progress_phase_for_status(PROGRESS, "Planning"))
 assert_eq("phase-map: Documenting → Documentation", "**Documentation**",
           workpad._progress_phase_for_status(PROGRESS, "Documenting"))
 assert_eq("phase-map: Complete → PR marked ready", "**PR marked ready**",
           workpad._progress_phase_for_status(PROGRESS, "Complete"))
-assert_eq("phase-map: Blocked → most recent in-progress (last ticked) phase",
+assert_eq("phase-map: Blocked → most recent ticked (completed) phase",
           "**Implement**", workpad._progress_phase_for_status(PROGRESS, "Blocked"))
 assert_eq("phase-map: no phases → None", None,
           workpad._progress_phase_for_status("(none yet)\n", "Setup"))
+# Graceful-degradation fall-through: a mapped phase ABSENT from the checklist
+# (e.g. a template that dropped the Documentation row) falls back to the most
+# recent ticked phase rather than returning None / crashing — so the note is
+# never dropped.
+PROGRESS_NO_DOC = "- [x] **Setup**\n- [x] **Implement**\n- [ ] **Review**\n"
+assert_eq("phase-map: mapped phase absent → falls back to last ticked (not None)",
+          "**Implement**", workpad._progress_phase_for_status(PROGRESS_NO_DOC, "Documenting"))
 
 # _append_progress_note nests under the matched phase; an unmatched/None phase
 # appends flat (un-indented) so a note is never dropped.
@@ -425,6 +438,16 @@ assert_eq("new-body: Plan + AC are placeholders (not populated)", True,
           '_(planning in progress)_' in _nb and '_(pending' in _nb)
 assert_eq("new-body: no separate Decisions / Notes section", False,
           '## Decisions / Notes' in _nb)
+# Map ↔ template drift guard: every canonical phase (and therefore every value
+# the Status→phase map resolves to) must substring-match a top-level row that
+# the new-body template actually emits — otherwise a phase rename in one place
+# misfiles notes silently. This is the cross-boundary check the import-time
+# assert (map ⊆ _PROGRESS_PHASES) can't make on its own.
+_nb_rows = [m.group(2) for line in _nb.split('## Plan', 1)[0].split('\n')
+            if (m := workpad._TOP_LEVEL_CHECKBOX_RE.match(line))]
+for _ph in workpad._PROGRESS_PHASES:
+    assert_eq(f"new-body template emits a top-level row matching phase {_ph!r}", True,
+              any(_ph.lower() in _r.lower() for _r in _nb_rows))
 # The skeleton round-trips through the mutation engine (gate creates it, the
 # claude job then mutates the same comment).
 _rt = workpad._apply_mutations(_nb, make_args(tick_progress=['**Setup**'], note=['go']))
