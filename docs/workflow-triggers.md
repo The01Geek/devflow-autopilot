@@ -71,21 +71,31 @@ that runs *before* authorization and number resolution: it declines any
 
 A run maintains a **single** GitHub comment, the marker-tagged *workpad*
 (`scripts/workpad.py`). It is both the immediate "job started" acknowledgment
-and the durable progress surface — Status, the `## Progress` phase checklist,
-run/branch/PR links, Plan, Acceptance Criteria, and (collapsed in `<details>`)
-Decisions/Notes and Reflection.
+and the durable progress surface — Status, the `## Progress` phase checklist
+(with append-only timestamped notes nested under each phase), run/branch/PR
+links, Plan, Acceptance Criteria, and (collapsed in `<details>`) the Devflow
+Reflection. There is no separate Decisions / Notes section — notes live inside
+`## Progress`. The `Last updated` line is friendly UTC (`2026-05-05 17:42 UTC`),
+not raw ISO-8601.
 
 - **`track_progress: false`** on the `claude-code-action` step in
   `.github/workflows/devflow-implement.yml` disables the action's *own*
   progress comment, so the workpad is the only comment a run posts. (The
   light `/devflow:review` · `/devflow:pr-description` listener in `devflow.yml`
   keeps `track_progress` as-is — those flows have no workpad.)
-- The workpad is created as the **first GitHub write** of the run, in Phase 1
-  *before* the branch, so the requester sees acknowledgment immediately. The
-  `Run` link is built inside the runner from
-  `$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID` (standard
-  env vars — no workflow wiring needed); the `Branch` line is filled the instant
-  the branch exists, and the `PR` link once the draft PR is created in Phase 3.1.
+- The workpad is created **as early as possible**, before the requester waits
+  on any runtime. In a cloud run the **`gate` job** creates a lean workpad
+  (`workpad.py new-body` → `create`) right after authorization + dedupe — *before*
+  the heavy `claude` job boots and runs `setup-project-env` (Python/Node/services/
+  deps), which the acknowledgment does not need. The `claude` job's Phase 1.3
+  detects that workpad via `workpad.py id` and **resumes** it (filling in the Plan
+  and the real Acceptance Criteria), never posting a second comment. A local-tier
+  run (no `gate` job) creates the workpad itself in Phase 1.3 as the first GitHub
+  write. Either way it is created *before* the branch. The `Run` link is built
+  from `$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID`
+  (standard env vars — no workflow wiring needed); the `Branch` line is filled the
+  instant the branch exists, and the `PR` link once the draft PR is created in
+  Phase 3.1.
 
 ### Status-glyph / reaction vocabulary
 

@@ -27,7 +27,9 @@ Run from repo root:
 """
 
 import argparse
+import contextlib
 import importlib.util
+import io
 import re
 import sys
 import types
@@ -99,6 +101,14 @@ WORKPAD_BODY = """<!-- devflow:workpad -->
 **Branch:** `feat/x`
 **Last updated:** 2026-05-15T00:00:00Z
 
+## Progress
+- [ ] **Setup** — branch & workpad
+- [ ] **Implement**
+  - [ ] code + sweeps
+- [ ] **Review**
+- [ ] **Documentation**
+- [ ] **PR marked ready**
+
 ## Plan
 - [ ] Step alpha
 - [ ] Step beta
@@ -107,8 +117,6 @@ WORKPAD_BODY = """<!-- devflow:workpad -->
 ## Acceptance Criteria
 - [ ] AC one
 - [ ] AC two
-
-## Decisions / Notes
 
 ## Devflow Reflection
 """
@@ -174,67 +182,81 @@ assert_eq("case-insensitive heading: AC one ticked under lowercase heading",
           True, '- [x] AC one' in out)
 
 
-print("workpad._append_note: compact timestamp + phase sub-heading grouping")
+print("workpad notes: compact timestamp + nesting under ## Progress phase")
 
-# Compact timestamp: note bullet renders `- HH:MM:SS — {note}` (no date/T/Z).
+# Compact timestamp: note bullet renders `  - HH:MM:SS — {note}` (no date/T/Z),
+# nested (indented) under its phase.
 out = workpad._apply_mutations(WORKPAD_BODY, make_args(note=['narrowed AC']))
 note_line = next(ln for ln in out.splitlines() if '— narrowed AC' in ln)
-ts = note_line.split(' — ')[0].lstrip('- ').strip()
+assert_eq("note: bullet is indented (nested under its phase)", True,
+          note_line.startswith('  - '))
+ts = note_line.split(' — ')[0].lstrip(' -').strip()
 assert_eq("note: timestamp is HH:MM:SS", True,
           bool(re.fullmatch(r'\d{2}:\d{2}:\d{2}', ts)))
 assert_eq("note: timestamp has no date / T / Z", True,
           'T' not in ts and 'Z' not in ts and '-' not in ts)
 
-# First note creates a `### {Status}` sub-heading (Status is Implementing here).
-assert_eq("note: first note creates '### Implementing' sub-heading", True,
-          '### Implementing' in out)
+# The note nests under the phase matching the Status (Implementing → Implement):
+# it lands inside the Implement block, before the next top-level phase (Review).
+prog = out.split('## Plan', 1)[0]
+assert_eq("note: Implementing-status note nests under **Implement**", True,
+          prog.index('**Implement**') < prog.index('narrowed AC')
+          and prog.index('narrowed AC') < prog.index('**Review**'))
 
-# `Last updated` stays full ISO-8601 — only the note bullet became time-only.
+# `Last updated` is friendly UTC (YYYY-MM-DD HH:MM UTC), not ISO-8601 — no
+# `T` date/time separator and no trailing `Z`.
 lu = next(ln for ln in out.splitlines() if ln.startswith('**Last updated:**'))
-assert_eq("note: Last updated remains full ISO-8601", True,
-          bool(re.search(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z', lu)))
+assert_eq("note: Last updated is friendly UTC (no ISO T-separator / Z)", True,
+          bool(re.search(r'\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC', lu))
+          and not re.search(r'\dT\d', lu) and not re.search(r'\dZ', lu))
 
-# Second same-phase note reuses the sub-heading (no duplicate) and follows the first.
+# Second same-phase note follows the first, still under Implement.
 out2 = workpad._apply_mutations(out, make_args(note=['second note']))
-assert_eq("note: second same-phase note reuses sub-heading (no duplicate)", 1,
-          out2.count('### Implementing'))
-nb2 = out2.split('## Decisions / Notes', 1)[1]
-assert_eq("note: second note follows first chronologically", True,
-          nb2.index('narrowed AC') < nb2.index('second note'))
+prog2 = out2.split('## Plan', 1)[0]
+assert_eq("note: second same-phase note follows the first chronologically", True,
+          prog2.index('narrowed AC') < prog2.index('second note'))
+assert_eq("note: second same-phase note still before next phase", True,
+          prog2.index('second note') < prog2.index('**Review**'))
 
-# Combined --status + --note groups the note under the POST-mutation Status.
+# Combined --status + --note nests under the POST-mutation Status's phase.
 out3 = workpad._apply_mutations(WORKPAD_BODY, make_args(status='Reviewing', note=['x']))
-assert_eq("note: combined --status/--note groups under NEW status", True,
-          '### Reviewing' in out3)
-assert_eq("note: combined --status/--note not under old status", False,
-          '### Implementing' in out3)
+prog3 = out3.split('## Plan', 1)[0]
+assert_eq("note: combined --status/--note nests under NEW status's phase (Review)", True,
+          prog3.index('**Review**') < prog3.index('— x')
+          and prog3.index('— x') < prog3.index('**Documentation**'))
 
-# Two notes in one call: one sub-heading, argument order preserved.
+# Two notes in one call: argument order preserved, both under Implement.
 out4 = workpad._apply_mutations(WORKPAD_BODY, make_args(note=['alpha note', 'beta note']))
-assert_eq("note: two notes in one call share a single sub-heading", 1,
-          out4.count('### Implementing'))
-nb4 = out4.split('## Decisions / Notes', 1)[1]
+prog4 = out4.split('## Plan', 1)[0]
 assert_eq("note: two notes in one call preserve argument order", True,
-          nb4.index('alpha note') < nb4.index('beta note'))
+          prog4.index('alpha note') < prog4.index('beta note'))
 
-# Inter-phase insertion: a note for an EARLIER phase lands at the end of that
-# phase's block, before a later phase's sub-heading — the core multi-phase
-# lifecycle invariant (Setup → Implementing → ... across many update calls).
-MULTI_PHASE = "### Setup\n- 04:00:00 — first setup\n\n### Implementing\n- 05:00:00 — impl note\n"
-mp = workpad._append_note(MULTI_PHASE, "late setup", "04:30:00", "Setup")
-assert_eq("note: inter-phase insert reuses earlier sub-heading", 1, mp.count('### Setup'))
-assert_eq("note: inter-phase insert does not duplicate later sub-heading", 1,
-          mp.count('### Implementing'))
-assert_eq("note: inter-phase note lands inside its phase, before the next sub-heading",
-          True, mp.index('late setup') < mp.index('### Implementing'))
-assert_eq("note: inter-phase note follows the earlier same-phase bullet", True,
-          mp.index('first setup') < mp.index('late setup'))
+# Status → phase mapping, incl. the Blocked fallback to the most recent
+# in-progress (last ticked top-level) phase.
+PROGRESS = ("- [x] **Setup** — branch & workpad\n"
+            "- [x] **Implement**\n  - [x] code + sweeps\n"
+            "- [ ] **Review**\n- [ ] **Documentation**\n- [ ] **PR marked ready**\n")
+assert_eq("phase-map: Planning → Implement", "**Implement**",
+          workpad._progress_phase_for_status(PROGRESS, "Planning"))
+assert_eq("phase-map: Documenting → Documentation", "**Documentation**",
+          workpad._progress_phase_for_status(PROGRESS, "Documenting"))
+assert_eq("phase-map: Complete → PR marked ready", "**PR marked ready**",
+          workpad._progress_phase_for_status(PROGRESS, "Complete"))
+assert_eq("phase-map: Blocked → most recent in-progress (last ticked) phase",
+          "**Implement**", workpad._progress_phase_for_status(PROGRESS, "Blocked"))
+assert_eq("phase-map: no phases → None", None,
+          workpad._progress_phase_for_status("(none yet)\n", "Setup"))
 
-# Falsy phase → flat append (legacy behavior): no `### ` sub-heading is created.
-flat = workpad._append_note("- 01:00:00 — old\n", "orphan", "02:00:00", None)
-assert_eq("note: phase=None appends flat (no sub-heading)", False, '### ' in flat)
-assert_eq("note: phase=None preserves order and bullet", True,
-          flat.index('old') < flat.index('orphan') and flat.endswith('- 02:00:00 — orphan\n'))
+# _append_progress_note nests under the matched phase; an unmatched/None phase
+# appends flat (un-indented) so a note is never dropped.
+nested = workpad._append_progress_note(PROGRESS, "hi", "06:00:00", "**Review**")
+rl = next(ln for ln in nested.splitlines() if '— hi' in ln)
+assert_eq("append-progress-note: nested under Review, indented", True,
+          rl.startswith('  - ') and nested.index('— hi') < nested.index('**Documentation**'))
+flat = workpad._append_progress_note(PROGRESS, "orphan", "07:00:00", None)
+fl = next(ln for ln in flat.splitlines() if '— orphan' in ln)
+assert_eq("append-progress-note: phase=None appends flat (un-indented)", True,
+          fl.startswith('- ') and not fl.startswith('  - '))
 
 
 print("workpad: status glyph / run+PR links / ## Progress / <details>")
@@ -295,11 +317,14 @@ assert_eq("status: glyph applied to Status line", True,
 out_idem = workpad._apply_mutations(WORKPAD_V2, make_args(status='🎉 Complete'))
 assert_eq("status: re-applying a glyph-prefixed status is idempotent", 1,
           out_idem.count('🎉'))
-# A status transition while a note is added groups the note under the bare
-# phase word (no glyph in the sub-heading).
+# A status transition while a note is added nests the note under the matching
+# ## Progress phase (Reviewing → Review), keyed on the bare (glyph-stripped)
+# post-mutation Status.
 out_note = workpad._apply_mutations(WORKPAD_V2, make_args(status='Reviewing', note=['x']))
-assert_eq("status+note: sub-heading is the bare phase (no glyph)", True,
-          '### Reviewing' in out_note and '### 🚀 Reviewing' not in out_note)
+prog_note = out_note.split('## Plan', 1)[0]
+assert_eq("status+note: note nests under the new status's phase (Review)", True,
+          prog_note.index('**Review**') < prog_note.index('— x')
+          and prog_note.index('— x') < prog_note.index('**Documentation**'))
 
 # Run / PR links: replace when present.
 out = workpad._apply_mutations(WORKPAD_V2, make_args(
@@ -344,13 +369,19 @@ def _amb_progress():
 assert_raises("ambiguous --tick-progress raises _UpdateError",
               workpad._UpdateError, _amb_progress)
 
-# <details>: --note appends INSIDE the block (before </details>), not after.
-out = workpad._apply_mutations(WORKPAD_V2, make_args(status='Implementing', note=['inside?']))
-dn = out.split('## Decisions / Notes', 1)[1].split('## Devflow Reflection', 1)[0]
-assert_eq("details/note: new note is before </details>", True,
-          'inside?' in dn and dn.index('inside?') < dn.index('</details>'))
-assert_eq("details/note: still exactly one </details> in section", 1,
-          dn.count('</details>'))
+# Legacy resume: WORKPAD_V2 still carries a pre-change separate ## Decisions /
+# Notes section. --note now writes into ## Progress, must NOT error, and must
+# leave that legacy section (and its existing bullets) intact (AC: resuming a
+# pre-change workpad doesn't error or drop note content).
+out = workpad._apply_mutations(WORKPAD_V2, make_args(status='Implementing', note=['fresh note']))
+prog = out.split('## Plan', 1)[0]
+assert_eq("legacy-resume: new note nests under ## Progress (Implement phase)", True,
+          '— fresh note' in prog
+          and prog.index('**Implement**') < prog.index('fresh note'))
+assert_eq("legacy-resume: legacy ## Decisions / Notes section preserved", True,
+          '## Decisions / Notes' in out)
+assert_eq("legacy-resume: existing legacy note content not dropped", True,
+          'run started' in out)
 # <details>: --reflection appends inside the (initially empty) Reflection block.
 out = workpad._apply_mutations(WORKPAD_V2, make_args(reflection=['reflect!']))
 rf = out.split('## Devflow Reflection', 1)[1]
@@ -362,14 +393,51 @@ out = workpad._apply_mutations(WORKPAD_V2, make_args(
     status='Reviewing', note=['n'], reflection=['r'], tick_ac=['AC one']))
 assert_eq("invariant: marker is still the first line", True,
           out.startswith('<!-- devflow:workpad -->'))
-assert_eq("invariant: ## Acceptance Criteria still present and outside <details>",
+assert_eq("invariant: ## Acceptance Criteria still present and before Devflow Reflection",
           True, '## Acceptance Criteria' in out
-          and out.index('## Acceptance Criteria') < out.index('## Decisions / Notes'))
+          and out.index('## Acceptance Criteria') < out.index('## Devflow Reflection'))
 _ac = parse_acs._parse_checkboxes(
     parse_acs._extract_section(out, 'Acceptance Criteria'))
 assert_eq("invariant: AC section parses to 2 checkboxes after mutation", 2, len(_ac))
 assert_eq("invariant: AC one ticked is visible to the parser", True,
           any(i['text'] == 'AC one' and i['ticked'] for i in _ac))
+
+
+print("workpad new-body: lean initial skeleton")
+
+_buf = io.StringIO()
+with contextlib.redirect_stdout(_buf):
+    workpad.cmd_new_body(argparse.Namespace(
+        issue=7, run_link='[View run](https://x/1)', branch=None))
+_nb = _buf.getvalue()
+assert_eq("new-body: starts with the workpad marker", True,
+          _nb.startswith(workpad._workpad_marker()))
+assert_eq("new-body: Status is 🚀 Setup", True, '**Status:** 🚀 Setup' in _nb)
+assert_eq("new-body: friendly Last updated (no T / Z)", True,
+          bool(re.search(r'\*\*Last updated:\*\* \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC', _nb)))
+assert_eq("new-body: Branch placeholder", True, '**Branch:** _(creating' in _nb)
+assert_eq("new-body: run link applied", True, '[View run](https://x/1)' in _nb)
+assert_eq("new-body: has ## Progress checklist", True,
+          '## Progress' in _nb and '**Setup**' in _nb)
+assert_eq("new-body: run-started note nested (indented) under Setup", True,
+          '  - ' in _nb and '/devflow:implement run started' in _nb)
+assert_eq("new-body: Plan + AC are placeholders (not populated)", True,
+          '_(planning in progress)_' in _nb and '_(pending' in _nb)
+assert_eq("new-body: no separate Decisions / Notes section", False,
+          '## Decisions / Notes' in _nb)
+# The skeleton round-trips through the mutation engine (gate creates it, the
+# claude job then mutates the same comment).
+_rt = workpad._apply_mutations(_nb, make_args(tick_progress=['**Setup**'], note=['go']))
+assert_eq("new-body: skeleton accepts --tick-progress + --note", True,
+          '- [x] **Setup**' in _rt and '— go' in _rt)
+# --branch fills the Branch line in backticks instead of the placeholder.
+_buf2 = io.StringIO()
+with contextlib.redirect_stdout(_buf2):
+    workpad.cmd_new_body(argparse.Namespace(issue=7, run_link=None, branch='issue-7-x'))
+_nb2 = _buf2.getvalue()
+assert_eq("new-body: --branch fills Branch line", True, '**Branch:** `issue-7-x`' in _nb2)
+assert_eq("new-body: omitted --run-link → local placeholder", True,
+          '**Run:** _(local run)_' in _nb2)
 
 
 print("parse_acs._is_post_merge")
