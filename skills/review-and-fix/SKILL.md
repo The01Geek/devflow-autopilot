@@ -29,7 +29,7 @@ This skill wraps /devflow:review's four-phase engine in a fix loop. Phases 0 thr
 This skill **skips** /devflow:review's Phase 4.4 entirely — no GitHub post. The final report is emitted to chat only; the human reviewer decides whether to convert it into a formal merge signal by running `/devflow:review <PR>` separately (which performs an independent re-review and posts the result). It also adds:
 - A **fix-delta handoff** before Step 1 in iterations N≥2 (passes the prior iteration's checklist + fix-files into Phase 1's generator and Phase 2's narrow-reuse logic; Phase 1+2 always re-run — they are *not* skipped wholesale).
 - A **persistent workpad** (`.devflow/tmp/review/<slug>/iter-<N>.json`) that carries checklist verdicts, findings, fix decisions, and convergence inputs across iterations.
-- A **shadow review pass** at Step 2.6 that runs an independent re-review (fresh-context subagent executing /devflow:review's Phases 0–4.3) before declaring convergence on a non-REJECT verdict (see Step 2.6).
+- A **shadow review pass** at Step 2.6 — a *parent-orchestrated* independent re-review that re-runs /devflow:review's Phases 0–4.3 with each reviewer agent's prompt blinded to the loop's prior findings — before declaring convergence on a non-REJECT verdict (see Step 2.6).
 - A **`## Coverage` section** in the final report aggregating per-iter finding counts, shadow agreement, and Phase 1.1.5 cap drops (see Loop Exit → Coverage).
 - A **per-phase telemetry summary** at Loop Exit (agent calls / tokens / wall-clock).
 
@@ -143,6 +143,8 @@ The same directory also contains `.devflow/tmp/review/<slug>/diff.patch` — the
   "shadow": {
     "ran_at": null,
     "verdict": null,
+    "coverage": null,
+    "reviewers_dispatched": [],
     "phase3_findings": [],
     "phase2_fails": [],
     "comparison": {
@@ -162,7 +164,7 @@ The same directory also contains `.devflow/tmp/review/<slug>/diff.patch` — the
     "phase_2":    {"calls": 27,"tokens": 95000, "wall_clock_s": 220},
     "phase_3":    {"calls": 5, "tokens": 48000, "wall_clock_s": 180},
     "step_2_5":   {"calls": 0, "tokens": 0,     "wall_clock_s": 4,  "webfetches": 2},
-    "step_2_6":   {"calls": 0, "tokens": 0,     "wall_clock_s": 0},
+    "step_2_6":   {"calls": 4, "tokens": 41000, "wall_clock_s": 165},
     "phase_4_x":  {"calls": 0, "tokens": 0,     "wall_clock_s": 1}
   }
 }
@@ -176,7 +178,7 @@ Use the **same identifier string** in `phase3_dispatched` that you write to each
 
 `cap_drops` is populated from /devflow:review's Phase 1.1.5 output (see that skill's Phase 1.1.5 for the shape — `count` is the total dropped at the 100-item cap, `by_category` is the per-category breakdown). The Coverage section in the final report reads this.
 
-`shadow` is populated by Step 2.6 (the shadow review pass). It is only present on the workpad of the iter that triggered the shadow — typically the iter with the tentative non-REJECT verdict. Promoted-shadow iters (when the shadow surfaces new findings and triggers iter N+1 → Step 2.5) have their own workpad without a `shadow` block of their own unless they too produce a non-REJECT verdict that triggers another shadow.
+`shadow` is populated by Step 2.6 (the shadow review pass). `coverage` is `"full"` when the parent ran the complete multi-agent fan-out a standalone /devflow:review Phase 3 would launch (subject to the Phase 3.1 applicability gates) and `"not_verified"` when the fan-out could not be completed (outcome 3 — see Step 2.6 "Decide"); `reviewers_dispatched` is the roster of Phase-3 reviewer agents the parent actually launched for the shadow (same identifier strings as `phase3_dispatched`). It is only present on the workpad of the iter that triggered the shadow — typically the iter with the tentative non-REJECT verdict. Promoted-shadow iters (when the shadow surfaces new findings and triggers iter N+1 → Step 2.5) have their own workpad without a `shadow` block of their own unless they too produce a non-REJECT verdict that triggers another shadow.
 
 ### Lifecycle
 
@@ -307,32 +309,29 @@ For each Critical/Important finding raised by exactly one Phase 3 agent:
 
 Run a structurally-independent re-review before declaring convergence. Only triggers when the loop's tentative final verdict is non-REJECT (APPROVE, APPROVE WITH ADVISORY NOTES, APPROVE WITH CAVEAT / APPROVE with notes) — either from Step 2 on the current iteration, or from Step 4.5's early-exit convergence path. REJECT verdicts skip this step and go straight to Loop Exit.
 
-**Why a shadow pass.** Iterations inside the fix loop share state — the orchestrator's context window carries prior findings, fix decisions, and pushback history forward. That state biases what the engine looks for and what it accepts as "already considered." The shadow pass is the loop's audit: a fresh engine context with no knowledge of the iter history runs the same engine and we compare. This matches what users already do manually today (`/devflow:review <PR>` after `/devflow:review-and-fix`); doing it inside the loop costs the same and feeds the result into one more iteration if the shadow disagrees, instead of leaving it to the human.
+**Why a shadow pass.** Iterations inside the fix loop share state — the orchestrator's context window carries prior findings, fix decisions, and pushback history forward. That state biases what the engine looks for and what it accepts as "already considered." The shadow pass is the loop's audit: the same multi-agent engine runs again, and we compare. This matches what users already do manually today (`/devflow:review <PR>` after `/devflow:review-and-fix`); doing it inside the loop costs the same and feeds the result into one more iteration if the shadow disagrees, instead of leaving it to the human.
+
+**Where independence comes from.** The shadow's independence does **not** come from running the engine inside a fresh subagent context — it cannot. The engine's Phase 1, 1.5, 2, and 3 each *fan out to subagents*, and a subagent cannot dispatch its own subagents (nested `Agent`/`Task` dispatch is unsupported in the harness — this is structural, not a permissions gap, so granting `Agent` to a subagent does not fix it). A single shadow subagent told to "run the engine" therefore reaches Phase 3, finds it has no `Agent` tool, and silently collapses to a degraded single-agent self-check that returns a plausible clean `APPROVE` — the exact false-convergence this step exists to prevent. So the **parent orchestrator** runs the shadow fan-out itself (the parent *can* dispatch), and independence is enforced **per reviewer prompt**: each shadow reviewer agent runs in a fresh context whose prompt withholds the loop's prior findings, fix decisions, and pushback history. The only residual shared state is the parent's aggregation — a far smaller bias risk than losing all of Phase 3's coverage to a degraded subagent.
 
 **Iteration accounting.** The shadow pass itself is NOT counted toward the max-4 iteration cap — it's a verification pass on the final iter's state, not a fix iteration. A *promoted* iter (one started because the shadow surfaced new findings — see outcome #2 below) DOES count toward the cap, because it runs Step 2.5 + Step 3 + Step 4 + Step 4.5 from the fix-loop side even though it skips Phase 1+2.
 
-#### Dispatch
+#### Run the shadow fan-out (parent-orchestrated)
 
-Use the **Agent tool** (NOT the `Skill` tool) with `subagent_type: "general-purpose"`. The subagent's fresh context window is the structural guarantee: it has no access to the orchestrator's prior findings, workpad, fix decisions, or pushback history. We dispatch the engine *inline as a procedure read from SKILL.md* — not via the `Skill` tool — because `Skill` runs a skill end-to-end and would execute /devflow:review's Phase 4.4 before the shadow can be intercepted; we need the phases as steps the subagent walks through itself so it can stop before Phase 4.4. This mirrors the Step 1 pattern in this file.
+**The parent orchestrator runs the shadow engine pass itself — do NOT delegate the whole engine to one `general-purpose` subagent.** A single subagent cannot dispatch the engine's Phase 1/1.5/2/3 fan-out (nested dispatch is unsupported), so it would degrade to a single-agent self-check and return a false clean verdict. Instead, re-run /devflow:review's Phases 0 through 4.3 from the parent exactly as Step 1 does — `Glob` for `**/devflow/skills/review/SKILL.md`, `Read` it in full, and execute its phases inline (the parent holds the `Agent` tool, so every Phase-3 reviewer launches normally). Stop before Phase 4.4 (no `gh pr review` / `gh pr comment` — the loop is silent on GitHub by design). This reuses /devflow:review's Phase 3.1 launch list and per-agent prompts verbatim, so the shadow exercises the **same reviewer set** a standalone `/devflow:review` Phase 3 would launch on this diff — subject to the same Phase 3.1 structural-applicability gates (`has_new_types` for `type-design-analyzer`, the test-relevance predicate for `pr-test-analyzer`), evaluated against the same Phase 0.5 `diff_profile` the loop already recorded.
 
-Prompt:
+**Blind every shadow reviewer prompt — this is the independence guarantee now.** Because the parent's own context is no longer blind (it carries the iter history), independence must be enforced in the prompts instead. This is the **inverse** of Step 1's iter-N≥2 behavior:
 
-```
-You are running a shadow code-review pass for /devflow:review-and-fix's convergence audit. Your fresh context window is the structural guarantee — do NOT consult any prior conversation, workpad, or fix history; everything you need is in /devflow:review's SKILL.md and the diff itself.
+- Do **NOT** run Step 0.9's fix-delta handoff for the shadow, and do **NOT** pass `prior_phase3_findings` / `prior_checklist` / `fix_files` into any shadow phase.
+- Do **NOT** prepend /devflow:review's Phase 3.1 "Prior-findings context (fix-loop callers only)" block to any shadow reviewer prompt, and do **NOT** populate the general-purpose final-pass reviewer's "Prior-iteration findings (already considered, look for new)" line — pass `"none"` there. The "already considered, look for new" handoff is correct for normal fix iterations but **defeats the shadow's purpose**; reintroducing it turns the audit back into a self-check.
+- Each shadow reviewer therefore sees only the diff and the standard task + `defect_signature` prompt — a fresh context with the loop's findings withheld.
 
-1. Use `Glob` with pattern `**/devflow/skills/review/SKILL.md` to locate /devflow:review's SKILL.md. Read it in full.
-2. Execute its Phases 0 through 4.3 verbatim against {PR <N> | the current branch}. Do not improvise the Phase 3 agent prompts; do not skip the Phase 1 >10-file batching; do not substitute your own verdict criteria.
-3. DO NOT execute Phase 4.4 (no `gh pr review` / `gh pr comment` / no formal GitHub post). This is an internal shadow pass and must produce zero side effects on the PR. /devflow:review's Phase 4.4 only runs in PR mode anyway, but be explicit: if invoked in PR mode, stop after Phase 4.3.
-4. Return your output as a single JSON object in a ```json code fence with these keys:
-   - "verdict": one of APPROVE / "APPROVE with notes" / "APPROVE WITH CAVEAT" / "APPROVE WITH ADVISORY NOTES" / REJECT
-   - "report": the full markdown report from /devflow:review's Phase 4.1
-   - "phase3_findings": the array of Phase 3 findings with `defect_signature` blocks
-   - "phase2_fails": the array of Phase 2 checklist items with verdict FAIL or INCONCLUSIVE (empty if Phase 1+2 were skipped)
-```
+Capture `reviewers_dispatched` (the roster of Phase-3 agents you actually launched, after the Phase 3.1 gates) as you dispatch — the workpad record and the report's Coverage section both report it. Collect the engine's Phase 4.1 markdown report, its verdict, the aggregated Phase 3 findings (each with its `defect_signature`), and the Phase 2 FAIL/INCONCLUSIVE items, then proceed to "Parse and compare".
+
+**Honest-degradation fail-safe.** If the parent genuinely cannot run the full multi-agent fan-out — the `Agent` tool is unavailable, /devflow:review's SKILL.md is unreadable, or any constraint prevents launching the standard reviewer set — do **NOT** fall back to a single-agent pass and do **NOT** report a clean verdict from a partial pass. Record `coverage: "not_verified"` with the reason and take **outcome 3** below ("shadow agreement not verified"). A degraded pass is never allowed to clear the PR.
 
 #### Parse and compare
 
-When the subagent returns, parse out `shadow_verdict`, `shadow_phase3_findings`, and `shadow_phase2_fails`.
+When the shadow fan-out completes, aggregate the engine's verdict and findings (same Phase 4 aggregation the loop already runs) into `shadow_verdict`, `shadow_phase3_findings`, and `shadow_phase2_fails`.
 
 **Compare shadow's findings to the loop's last iter's findings** (the workpad's `iter-<N>.json` from the loop's most recent fix iteration — N is the iteration that produced the tentative final verdict, not counting the shadow itself):
 
@@ -344,7 +343,7 @@ Apply the same comparison to `shadow_phase2_fails` against the last iter's `chec
 
 Three outcomes:
 
-1. **Shadow's findings are a subset of (or equal to) the loop's last iter's findings AND `shadow_verdict` is non-REJECT** → genuine convergence. Record the shadow result in the workpad (see "Shadow workpad record" below) and proceed to **Loop Exit** with the tentative final verdict unchanged.
+1. **The shadow ran with full reviewer coverage (`coverage: "full"`) AND its findings are a subset of (or equal to) the loop's last iter's findings AND `shadow_verdict` is non-REJECT** → genuine convergence. Record the shadow result in the workpad (see "Shadow workpad record" below) and proceed to **Loop Exit** with the tentative final verdict unchanged. (A clean subset is only convergence when the full fan-out actually ran — a partial pass takes outcome 3, never this one.)
 
 2. **Shadow surfaces any new Critical or Important Phase 3 finding, OR any new Phase 2 FAIL, OR `shadow_verdict` is REJECT** → the loop has not converged. **Promote the shadow's new findings into a new iteration:**
    - The promoted iter has its own iter number (N+1) and writes its own `iter-<N+1>.json` workpad at end-of-iter per the regular Persistent workpad → Lifecycle rule. Its `iter` field is N+1; it does NOT overload iter-N's workpad.
@@ -357,7 +356,7 @@ Three outcomes:
      - Final verdict `APPROVE WITH UNRESOLVED SHADOW FINDINGS` otherwise (Important-only).
      - Include the unresolved shadow findings verbatim in the chat output and in the report's `## Unresolved Shadow Findings` section.
 
-3. **Shadow returns a malformed or empty response, or the subagent errors** → record the failure in the workpad, note it in chat (`Shadow review pass failed: {reason}. Proceeding to Loop Exit with the loop's tentative verdict — shadow agreement not verified.`), and proceed to Loop Exit. Do not retry; do not block the loop on a shadow failure.
+3. **The shadow could not run the full multi-agent fan-out, OR a reviewer returned a malformed/empty response, OR the fan-out otherwise errored** → shadow agreement is *not verified*. Record `coverage: "not_verified"` and the reason in the workpad, note it in chat (`Shadow review pass not verified: {reason}. Proceeding to Loop Exit with the loop's tentative verdict — shadow agreement not verified.`), and proceed to Loop Exit. **Never** downgrade to a single-agent pass and report a clean verdict from it: a not-verified shadow leaves the loop's tentative verdict standing but is reported as unverified, never as agreement. Do not retry; do not block the loop on a shadow failure.
 
 #### Shadow workpad record
 
@@ -367,6 +366,8 @@ After Step 2.6 completes (regardless of outcome), append a `shadow` block to the
 "shadow": {
   "ran_at": "2026-05-17T12:34:00Z",
   "verdict": "APPROVE",
+  "coverage": "full",
+  "reviewers_dispatched": ["pr-review-toolkit:code-reviewer", "pr-review-toolkit:silent-failure-hunter", "pr-review-toolkit:comment-analyzer", "superpowers:requesting-code-review"],
   "phase3_findings": [/* the parsed array */],
   "phase2_fails": [/* the parsed array */],
   "comparison": {
@@ -380,7 +381,7 @@ After Step 2.6 completes (regardless of outcome), append a `shadow` block to the
 }
 ```
 
-The Coverage section in the final report (Loop Exit) reads this block.
+`coverage` is `"full"` only when the parent completed the multi-agent fan-out (outcome 1 or 2); set it to `"not_verified"` for outcome 3 and leave `reviewers_dispatched` as the partial roster (or `[]`) plus the reason captured alongside. The Coverage section in the final report (Loop Exit) reads this block.
 
 #### Cost note
 
@@ -388,7 +389,7 @@ The shadow pass roughly doubles the cost of a converging run — one full engine
 
 1. It matches what experienced users already do manually (`/devflow:review` after `/devflow:review-and-fix`); net cost is zero in their workflow and shadow agreement is now mechanical rather than a separate session.
 2. It addresses the empirically-observed "review finds things review-and-fix missed" pattern — the entire reason this step exists.
-3. The structural guarantee (fresh context window, no fix-loop state) is what makes shadow a credible audit rather than a self-check that re-derives the same answer.
+3. The independence guarantee (each reviewer agent runs in a fresh context with the loop's prior findings withheld from its prompt) is what makes shadow a credible audit rather than a self-check that re-derives the same answer. The parent runs the fan-out so the full reviewer set actually launches; blinding lives in the prompts, not in a subagent context that could not have dispatched the fan-out in the first place.
 
 ### Step 3: Fix Findings
 
@@ -507,9 +508,11 @@ The fix loop is silent on GitHub by design — it does NOT post a `gh pr review`
 
 Map the final verdict to the chat line that precedes the full report:
 
-- **APPROVE**: `Review passed after {N} iteration(s) (shadow agreed). All checks approved.`
-- **APPROVE WITH ADVISORY NOTES**: `Review passed after {N} iteration(s) (shadow agreed) with {M} advisory finding(s) parked for human review. See report.`
-- **APPROVE WITH CAVEAT** (engine verdict APPROVE WITH CAVEAT / APPROVE with notes, or the Step-3-evaluated REJECT downgrade fired): `Review passed after {N} iteration(s) (shadow agreed) with caveats. See report.`
+In the three APPROVE lines below, `{shadow status}` states the shadow's coverage explicitly so the chat line never overclaims an audit that didn't fully run: render it as `shadow agreed, full coverage` when the `shadow` block's `coverage` is `"full"` and outcome 1 held, or `shadow agreement not verified` when `coverage` is `"not_verified"` (outcome 3). (A non-REJECT verdict always reached Step 2.6, so one of these two always applies here.)
+
+- **APPROVE**: `Review passed after {N} iteration(s) ({shadow status}). All checks approved.`
+- **APPROVE WITH ADVISORY NOTES**: `Review passed after {N} iteration(s) ({shadow status}) with {M} advisory finding(s) parked for human review. See report.`
+- **APPROVE WITH CAVEAT** (engine verdict APPROVE WITH CAVEAT / APPROVE with notes, or the Step-3-evaluated REJECT downgrade fired): `Review passed after {N} iteration(s) ({shadow status}) with caveats. See report.`
 - **APPROVE WITH UNRESOLVED SHADOW FINDINGS** (iter cap hit while shadow still surfaced new Important findings — see Step 2.6): `Review converged after {N} iteration(s) but a final shadow pass surfaced {K} new Important finding(s) that the loop could not address within the iteration cap. See report.`
 - **REJECT** (max iterations reached or convergence exit with the iteration's verdict still REJECT *and* the downgrade did not apply, OR shadow surfaced a new Critical at the iter cap): `Review still has findings after {N} iteration(s). Remaining issues require manual review:` followed by the list of unresolved findings. Then append the formal-merge-signal hint, conditional on mode:
   - **PR mode** (`$ARGUMENTS` is a PR number): `To post this verdict as a formal merge signal (e.g. a blocking --request-changes review), run \`/devflow:review {PR_NUMBER}\` — it performs an independent re-review and posts the result.`
@@ -534,7 +537,7 @@ Compute by reading every `iter-<K>.json` workpad (plus the appended `shadow` blo
 
 ### Shadow agreement
 
-Shadow pass raised X findings; Y were already in iter N (overlap = Y/X); Z were new (Z_crit Critical, Z_imp Important). {If Z > 0: "The loop promoted them into iter (N+1); this report reflects the post-promotion state."} {If Z == 0: "Genuine convergence — shadow agreed with the loop."} {If shadow did not run (e.g. REJECT verdict): "Shadow pass did not run — final verdict was REJECT before convergence."}
+{If `coverage` is `"full"`: "Shadow ran with full reviewer coverage ({reviewers_dispatched roster}). It raised X findings; Y were already in iter N (overlap = Y/X); Z were new (Z_crit Critical, Z_imp Important)." then — If Z > 0: "The loop promoted them into iter (N+1); this report reflects the post-promotion state." / If Z == 0: "Genuine convergence — shadow agreed with the loop."} {If `coverage` is `"not_verified"`: "Shadow agreement NOT verified — the full multi-agent fan-out could not be completed ({reason}); the loop's tentative verdict stands but was not independently audited."} {If shadow did not run at all (e.g. REJECT verdict): "Shadow pass did not run — final verdict was REJECT before convergence."}
 
 ### Phase 1.1.5 cap drops
 
