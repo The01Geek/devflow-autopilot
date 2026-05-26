@@ -145,6 +145,8 @@ The same directory also contains `.devflow/tmp/review/<slug>/diff.patch` — the
     "verdict": null,
     "coverage": null,
     "reviewers_dispatched": [],
+    "expected_reviewers": [],
+    "reason": null,
     "phase3_findings": [],
     "phase2_fails": [],
     "comparison": {
@@ -164,7 +166,7 @@ The same directory also contains `.devflow/tmp/review/<slug>/diff.patch` — the
     "phase_2":    {"calls": 27,"tokens": 95000, "wall_clock_s": 220},
     "phase_3":    {"calls": 5, "tokens": 48000, "wall_clock_s": 180},
     "step_2_5":   {"calls": 0, "tokens": 0,     "wall_clock_s": 4,  "webfetches": 2},
-    "step_2_6":   {"calls": 4, "tokens": 41000, "wall_clock_s": 165},
+    "step_2_6":   {"calls": 35,"tokens": 155000,"wall_clock_s": 440},
     "phase_4_x":  {"calls": 0, "tokens": 0,     "wall_clock_s": 1}
   }
 }
@@ -317,7 +319,7 @@ Run a structurally-independent re-review before declaring convergence. Only trig
 
 #### Run the shadow fan-out (parent-orchestrated)
 
-**The parent orchestrator runs the shadow engine pass itself — do NOT delegate the whole engine to one `general-purpose` subagent.** A single subagent cannot dispatch the engine's Phase 1/1.5/2/3 fan-out (nested dispatch is unsupported), so it would degrade to a single-agent self-check and return a false clean verdict. Instead, re-run /devflow:review's Phases 0 through 4.3 from the parent exactly as Step 1 does — `Glob` for `**/devflow/skills/review/SKILL.md`, `Read` it in full, and execute its phases inline (the parent holds the `Agent` tool, so every Phase-3 reviewer launches normally). Stop before Phase 4.4 (no `gh pr review` / `gh pr comment` — the loop is silent on GitHub by design). This reuses /devflow:review's Phase 3.1 launch list and per-agent prompts verbatim, so the shadow exercises the **same reviewer set** a standalone `/devflow:review` Phase 3 would launch on this diff — subject to the same Phase 3.1 structural-applicability gates (`has_new_types` for `type-design-analyzer`, the test-relevance predicate for `pr-test-analyzer`), evaluated against the same Phase 0.5 `diff_profile` the loop already recorded.
+**The parent orchestrator runs the shadow engine pass itself — do NOT delegate the whole engine to one `general-purpose` subagent.** A single subagent cannot dispatch the engine's Phase 1/1.5/2/3 fan-out (nested dispatch is unsupported), so it would degrade to a single-agent self-check and return a false clean verdict. Instead, re-run /devflow:review's Phases 0 through 4.3 from the parent using the same loading mechanic as Step 1 — `Glob` for `**/devflow/skills/review/SKILL.md`, `Read` it in full, and execute its phases inline (the parent holds the `Agent` tool, so every Phase-3 reviewer launches normally) — but with the prior-findings handoff *withheld* (the inverse of Step 1's iter-N≥2 inputs; see "Blind every shadow reviewer prompt" below). Stop before Phase 4.4 (no `gh pr review` / `gh pr comment` — the loop is silent on GitHub by design). This reuses /devflow:review's Phase 3.1 launch list and per-agent prompts verbatim, so the shadow exercises the **same reviewer set** a standalone `/devflow:review` Phase 3 would launch on this diff — subject to the same Phase 3.1 structural-applicability gates (`has_new_types` for `type-design-analyzer`, the test-relevance predicate for `pr-test-analyzer`), evaluated against the same Phase 0.5 `diff_profile` the loop already recorded.
 
 **Blind every shadow reviewer prompt — this is the independence guarantee now.** Because the parent's own context is no longer blind (it carries the iter history), independence must be enforced in the prompts instead. This is the **inverse** of Step 1's iter-N≥2 behavior:
 
@@ -325,9 +327,16 @@ Run a structurally-independent re-review before declaring convergence. Only trig
 - Do **NOT** prepend /devflow:review's Phase 3.1 "Prior-findings context (fix-loop callers only)" block to any shadow reviewer prompt, and do **NOT** populate the general-purpose final-pass reviewer's "Prior-iteration findings (already considered, look for new)" line — pass `"none"` there. The "already considered, look for new" handoff is correct for normal fix iterations but **defeats the shadow's purpose**; reintroducing it turns the audit back into a self-check.
 - Each shadow reviewer therefore sees only the diff and the standard task + `defect_signature` prompt — a fresh context with the loop's findings withheld.
 
-Capture `reviewers_dispatched` (the roster of Phase-3 agents you actually launched, after the Phase 3.1 gates) as you dispatch — the workpad record and the report's Coverage section both report it. Collect the engine's Phase 4.1 markdown report, its verdict, the aggregated Phase 3 findings (each with its `defect_signature`), and the Phase 2 FAIL/INCONCLUSIVE items, then proceed to "Parse and compare".
+Capture `reviewers_dispatched` (the roster of Phase-3 agents you actually launched) as you dispatch — the workpad record and the report's Coverage section both report it. Collect the engine's Phase 4.1 markdown report, its verdict, the aggregated Phase 3 findings (each with its `defect_signature`), and the Phase 2 FAIL/INCONCLUSIVE items, then proceed to "Parse and compare".
 
-**Honest-degradation fail-safe.** If the parent genuinely cannot run the full multi-agent fan-out — the `Agent` tool is unavailable, /devflow:review's SKILL.md is unreadable, or any constraint prevents launching the standard reviewer set — do **NOT** fall back to a single-agent pass and do **NOT** report a clean verdict from a partial pass. Record `coverage: "not_verified"` with the reason and take **outcome 3** below ("shadow agreement not verified"). A degraded pass is never allowed to clear the PR.
+**Coverage is a positive assertion, not the default-on-no-error.** Before you may set `coverage: "full"`, compute the **expected roster** for this run and confirm `reviewers_dispatched` covers it — `"full"` is something you *prove*, never what you assume because nothing visibly broke. The expected roster is mechanical (so a gated-out analyzer is never confused with a dropped reviewer):
+
+- the four **always-on** agents — `pr-review-toolkit:code-reviewer`, `pr-review-toolkit:silent-failure-hunter`, `pr-review-toolkit:comment-analyzer`, `superpowers:requesting-code-review` — unconditionally; **plus**
+- `pr-review-toolkit:type-design-analyzer` iff `has_new_types` is true, and `pr-review-toolkit:pr-test-analyzer` iff the test-relevance predicate matches, both evaluated against the recorded `diff_profile` per /devflow:review's Phase 3.1 gates.
+
+A missing **always-on** agent (or a missing gated analyzer whose gate is *true*) is a coverage shortfall → `coverage: "not_verified"`, outcome 3. A gated-*out* analyzer (its gate is false) is **not** a shortfall — it was correctly never expected. Set `coverage: "full"` only when `reviewers_dispatched` ⊇ the computed expected roster and every dispatched reviewer returned a parseable result.
+
+**Honest-degradation fail-safe.** If the parent cannot complete that full fan-out — the `Agent` tool is unavailable, /devflow:review's SKILL.md is unreadable, a reviewer returned nothing/garbage, or `reviewers_dispatched` falls short of the expected roster for any other reason — do **NOT** fall back to a single-agent pass and do **NOT** report a clean verdict from a partial pass. Record `coverage: "not_verified"` with a `reason` naming what was missing and take **outcome 3** below. Coverage is **fail-closed**: any value other than a positively-verified `"full"` (including `null`, unset, or unrecognized) is treated as `"not_verified"` everywhere downstream. A degraded pass is never allowed to clear the PR.
 
 #### Parse and compare
 
@@ -340,6 +349,8 @@ A shadow finding is **new** iff no finding in the last iter's `phase3_findings` 
 Apply the same comparison to `shadow_phase2_fails` against the last iter's `checklist` (matching on `claim_signature` where available, else on `(source_file, claim text)`).
 
 #### Decide
+
+**Evaluate coverage first.** Before classifying findings, settle `coverage` per the positive-assertion rule above. If it is anything other than a verified `"full"`, the fan-out was incomplete and its findings are an untrustworthy "what's new" signal — take **outcome 3** regardless of what the partial pass produced (a partial pass that happens to catch one new finding does **not** route to outcome 2; incomplete coverage always wins). Only when `coverage` is `"full"` do outcomes 1 and 2 apply.
 
 Three outcomes:
 
@@ -368,6 +379,8 @@ After Step 2.6 completes (regardless of outcome), append a `shadow` block to the
   "verdict": "APPROVE",
   "coverage": "full",
   "reviewers_dispatched": ["pr-review-toolkit:code-reviewer", "pr-review-toolkit:silent-failure-hunter", "pr-review-toolkit:comment-analyzer", "superpowers:requesting-code-review"],
+  "expected_reviewers": ["pr-review-toolkit:code-reviewer", "pr-review-toolkit:silent-failure-hunter", "pr-review-toolkit:comment-analyzer", "superpowers:requesting-code-review"],
+  "reason": null,
   "phase3_findings": [/* the parsed array */],
   "phase2_fails": [/* the parsed array */],
   "comparison": {
@@ -381,7 +394,7 @@ After Step 2.6 completes (regardless of outcome), append a `shadow` block to the
 }
 ```
 
-`coverage` is `"full"` only when the parent completed the multi-agent fan-out (outcome 1 or 2); set it to `"not_verified"` for outcome 3 and leave `reviewers_dispatched` as the partial roster (or `[]`) plus the reason captured alongside. The Coverage section in the final report (Loop Exit) reads this block.
+`coverage` is `"full"` only when `reviewers_dispatched` covered `expected_reviewers` and every reviewer returned cleanly (outcome 1 or 2); otherwise it is `"not_verified"` (outcome 3), with `reviewers_dispatched` left as the partial roster (or `[]`) and `reason` naming what was missing. `expected_reviewers` is the mechanically-computed roster (four always-on agents plus any gated analyzer whose Phase 3.1 gate is true against `diff_profile`) so a reader can see *why* a shortfall was a shortfall. The Coverage section in the final report (Loop Exit) reads this block; because Loop Exit reads it back from disk, `reason` must be persisted here, not only rendered in chat.
 
 #### Cost note
 
@@ -508,9 +521,9 @@ The fix loop is silent on GitHub by design — it does NOT post a `gh pr review`
 
 Map the final verdict to the chat line that precedes the full report:
 
-In the three APPROVE lines below, `{shadow status}` states the shadow's coverage explicitly so the chat line never overclaims an audit that didn't fully run. Read it from the **final iteration's** `shadow` block (the iter that produced the final verdict — a promoted iter writes its own `shadow` block, so the relevant one is always the last): render `shadow agreed, full coverage` when that block's `coverage` is `"full"`, or `shadow agreement not verified` when `coverage` is `"not_verified"`. (A plain-APPROVE final verdict only arises from outcome 1 — full coverage, shadow agreed — or outcome 3 — not verified; outcome 2 promotes to a further iter rather than ending here, so `coverage` alone disambiguates.)
+In all three APPROVE-family lines below (APPROVE, APPROVE WITH ADVISORY NOTES, APPROVE WITH CAVEAT), `{shadow status}` states the shadow's coverage explicitly so the chat line never overclaims an audit that didn't fully run. Read it from the **final iteration's** `shadow` block (the iter that produced the final verdict — a promoted iter writes its own `shadow` block, so the relevant one is always the last): render `shadow agreed, full coverage` when that block's `coverage` is `"full"`, or `shadow agreement not verified` when `coverage` is anything else (fail-closed — `"not_verified"`, `null`, or unset all render as not-verified). (Any APPROVE-family final verdict only arises from outcome 1 — full coverage, shadow agreed — or outcome 3 — not verified; outcome 2 promotes to a further iter rather than ending here, so `coverage` alone disambiguates.) When `{shadow status}` is the not-verified string, **drop the trailing `All checks approved.` / `with caveats.` absolute clause** — replace it with `See report.` so the headline doesn't overclaim relative to its own parenthetical.
 
-- **APPROVE**: `Review passed after {N} iteration(s) ({shadow status}). All checks approved.`
+- **APPROVE**: `Review passed after {N} iteration(s) ({shadow status}). All checks approved.` (→ `… ({shadow status}). See report.` when not-verified)
 - **APPROVE WITH ADVISORY NOTES**: `Review passed after {N} iteration(s) ({shadow status}) with {M} advisory finding(s) parked for human review. See report.`
 - **APPROVE WITH CAVEAT** (engine verdict APPROVE WITH CAVEAT / APPROVE with notes, or the Step-3-evaluated REJECT downgrade fired): `Review passed after {N} iteration(s) ({shadow status}) with caveats. See report.`
 - **APPROVE WITH UNRESOLVED SHADOW FINDINGS** (iter cap hit while shadow still surfaced new Important findings — see Step 2.6): `Review converged after {N} iteration(s) but a final shadow pass surfaced {K} new Important finding(s) that the loop could not address within the iteration cap. See report.`
@@ -537,7 +550,7 @@ Compute by reading every `iter-<K>.json` workpad (plus the appended `shadow` blo
 
 ### Shadow agreement
 
-Read the **final iteration's** `shadow` block (a promoted iter writes its own; the relevant one is the last):
+Read the **final iteration's** `shadow` block (a promoted iter writes its own; the relevant one is the last). **Also scan every iter's `shadow` block:** if any *earlier* shadow ran `coverage: "not_verified"` (even when the final one is `"full"`), append a line — `Note: an earlier shadow pass (iter K) was not verified ({reason}); only the final pass achieved full coverage.` — so the audit chain's gaps aren't hidden behind the last clean pass.
 
 {If `coverage` is `"full"`: "Shadow ran with full reviewer coverage ({reviewers_dispatched roster}). It raised X findings; Y were already in iter N (overlap = Y/X); Z were new (Z_crit Critical, Z_imp Important)." then — If Z > 0: "The loop promoted them into iter (N+1); this report reflects the post-promotion state." / If Z == 0: "Genuine convergence — shadow agreed with the loop."} {If `coverage` is `"not_verified"`: "Shadow agreement NOT verified — the full multi-agent fan-out could not be completed ({reason}); the loop's tentative verdict stands but was not independently audited."} {If shadow did not run at all (e.g. REJECT verdict): "Shadow pass did not run — final verdict was REJECT before convergence."}
 

@@ -6,6 +6,11 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.3.4] — 2026-05-26
+
+### Fixed
+- **`/devflow:review-and-fix`'s shadow review pass now runs the full multi-agent reviewer fan-out instead of silently degrading to a single-agent self-check.** The Step 2.6 shadow pass — the loop's end-of-run convergence audit — was dispatched as one `general-purpose` subagent told to execute `/devflow:review`'s whole engine. But the engine's Phase 3 fans out to 5–6 reviewer subagents, and a subagent cannot dispatch its own subagents (nested dispatch is unsupported by the harness), so the shadow collapsed to a degraded single-agent pass and returned a plausible clean `APPROVE` — the audit never actually ran. This was the root cause of the recurring "a manual `/devflow:review` after the loop finds Important things the loop missed" pattern. Step 2.6 now has the **parent orchestrator** run the shadow's Phase-3 fan-out itself (the parent can dispatch), with independence enforced **per reviewer prompt** — each shadow reviewer runs in a fresh context with the loop's prior findings, fix decisions, and pushback history withheld. `coverage: "full"` is now a positively-verified assertion: the parent computes the expected reviewer roster (the four always-on agents plus any gated analyzer whose Phase 3.1 gate is true) and confirms the dispatched roster covered it before declaring convergence. When the fan-out cannot complete, the run records `coverage: "not_verified"` and reports "shadow agreement not verified" — never a clean verdict from a degraded pass (fail-closed). The chat output and the report's Coverage section now state explicitly whether the shadow ran with full coverage or was not verified. (#57)
+
 ## [2.3.3] — 2026-05-25
 
 ### Added
