@@ -136,9 +136,13 @@ whether the shadow ran with full coverage or was not verified, rendering `shadow
 coverage` only for a present `"full"` block and `shadow agreement not verified` otherwise (dropping
 the absolute "All checks approved." / "with caveats." clause when not verified, so the headline
 never overclaims relative to its own parenthetical). The separate
-`APPROVE WITH UNRESOLVED SHADOW FINDINGS` verdict — outcome 2 hitting the iteration cap — carries
-`coverage: "full"` (the shadow ran fully and *disagreed*) and uses its own dedicated line; it is
-never routed through the `{shadow status}` template.
+`APPROVE WITH UNRESOLVED SHADOW FINDINGS` verdict — outcome 2 hitting the iteration cap — *normally*
+carries `coverage: "full"` (the shadow ran fully and *disagreed*) and uses its own dedicated line; it
+is never routed through the `{shadow status}` template. That dedicated line carries its own
+render-time coverage assertion: the full-coverage block it reads lives "one iter back" (the
+promotion-triggering iter) and was written by the same best-effort append that can be lost, so when
+that block is absent or not `"full"` the line falls back to a not-verified rendering rather than
+asserting a shadow result the persisted record can't back.
 
 ## Calibration: "shadow agreed, full coverage" is not "nothing left to find"
 
