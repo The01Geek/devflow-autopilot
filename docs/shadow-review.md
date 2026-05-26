@@ -111,6 +111,23 @@ A degraded pass must **never** clear a PR with a clean verdict. The guard is the
   and the shadow's Phase-2 fails are empty *by design*. Coverage is about the reviewer roster, not
   the checklist; record `checklist_skipped` on the block so a reader doesn't mistake an empty
   Phase-2 result for a re-audited checklist axis.
+- **Dispatched is not collected — a 1:1 join is required.** `coverage: "full"` requires not only
+  that the expected roster was *dispatched* but that each dispatched identifier maps to exactly one
+  *collected and successfully-parsed* result. A dispatched-but-lost result (launched, never
+  collected, or unparseable) is a shortfall like a never-dispatched one. "It's in
+  `reviewers_dispatched`" is not evidence the reviewer ran.
+- **A too-narrow self-classification cannot silently shrink the roster.** Because the expected
+  roster is computed from the shadow's *own* Phase 0.5, an under-classification would shrink the
+  expected and dispatched rosters in lockstep and still read `"full"`. A tripwire compares the
+  shadow's `diff_profile` against the loop's last-iter recorded profile; a narrowing divergence (or
+  a missing last-iter profile) widens *both* the expected roster and the dispatch to the union of
+  the two profiles' gated analyzers, fail-closed, so a dropped analyzer surfaces as a shortfall
+  rather than passing as full.
+- **Block presence is verified, not assumed, before "shadow agreed" fires.** The Step 2.6 workpad
+  append is best-effort and can be lost. Outcome 1 (the "shadow agreed" path) re-reads the appended
+  block from disk and confirms a present `coverage: "full"` block before committing; a lost write
+  falls through to not-verified, exactly as the Loop Exit render sites already fail closed on a
+  missing block.
 
 When the fan-out cannot complete — the `Agent` tool is unavailable, the engine SKILL.md is
 unreadable, the shadow's Phase 0.5 can't classify the diff, a reviewer returned nothing / garbage /
