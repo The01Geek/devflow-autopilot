@@ -124,13 +124,26 @@ WORKPAD_BODY = """<!-- devflow:workpad -->
 
 print("workpad._workpad_marker (issue #55 review-marker override)")
 
-# DEVFLOW_WORKPAD_MARKER env override wins, so /devflow:review can target its own
-# <!-- devflow:review-progress --> comment with the same helper (set inline per
-# call so it survives Claude Code's fresh-shell-per-call model).
+# Marker override lets /devflow:review target its own <!-- devflow:review-progress
+# --> comment with the same helper. Precedence: the `--marker` CLI flag (passed as
+# a plain argument, so the command still starts with the allow-listed helper path)
+# > the DEVFLOW_WORKPAD_MARKER env var (back-compat) > config > built-in default.
 import os as _os  # noqa: E402
 
 _saved = _os.environ.pop('DEVFLOW_WORKPAD_MARKER', None)
 try:
+    # --marker flag wins, with NO env var set (the cloud /devflow:review path).
+    assert_eq("marker: --marker flag wins (no env)", '<!-- devflow:review-progress -->',
+              workpad._workpad_marker('<!-- devflow:review-progress -->'))
+    # --marker flag wins even over a conflicting env var.
+    _os.environ['DEVFLOW_WORKPAD_MARKER'] = '<!-- devflow:env-marker -->'
+    assert_eq("marker: --marker flag overrides env", '<!-- devflow:review-progress -->',
+              workpad._workpad_marker('<!-- devflow:review-progress -->'))
+    # A blank/whitespace flag is ignored — falls through to the env var.
+    assert_eq("marker: blank flag falls through to env", '<!-- devflow:env-marker -->',
+              workpad._workpad_marker('   '))
+    _os.environ.pop('DEVFLOW_WORKPAD_MARKER', None)
+
     _os.environ['DEVFLOW_WORKPAD_MARKER'] = '<!-- devflow:review-progress -->'
     assert_eq("marker: env override wins", '<!-- devflow:review-progress -->',
               workpad._workpad_marker())
@@ -186,7 +199,7 @@ def _cmd_id_exit(comments_stdout=None, *, raise_api=False):
     rev_marker = '<!-- devflow:review-progress -->'
     saved = (workpad._run, workpad._repo_full, workpad._workpad_marker)
     workpad._repo_full = lambda: 'owner/repo'
-    workpad._workpad_marker = lambda: rev_marker
+    workpad._workpad_marker = lambda explicit=None: rev_marker
     if raise_api:
         def _boom(cmd, **kw):
             raise _subprocess.CalledProcessError(1, cmd, stderr='gh: API error')
@@ -197,7 +210,7 @@ def _cmd_id_exit(comments_stdout=None, *, raise_api=False):
     code = None
     try:
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
-            workpad.cmd_id(argparse.Namespace(issue=999))
+            workpad.cmd_id(argparse.Namespace(issue=999, marker=None))
     except SystemExit as e:
         code = e.code
     finally:
@@ -230,7 +243,7 @@ def _cmd_id_paginated(pages):
     page call (in order). Returns (exit_code, printed_id, num_page_calls)."""
     saved = (workpad._run, workpad._repo_full, workpad._workpad_marker)
     workpad._repo_full = lambda: 'owner/repo'
-    workpad._workpad_marker = lambda: _MARK
+    workpad._workpad_marker = lambda explicit=None: _MARK
     calls = {'n': 0}
 
     def _seq(cmd, **kw):
@@ -243,7 +256,7 @@ def _cmd_id_paginated(pages):
     code = None
     try:
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
-            workpad.cmd_id(argparse.Namespace(issue=999))
+            workpad.cmd_id(argparse.Namespace(issue=999, marker=None))
     except SystemExit as e:
         code = e.code
     finally:
@@ -566,7 +579,7 @@ print("workpad new-body: lean initial skeleton")
 _buf = io.StringIO()
 with contextlib.redirect_stdout(_buf):
     workpad.cmd_new_body(argparse.Namespace(
-        issue=7, run_link='[View run](https://x/1)', branch=None))
+        issue=7, run_link='[View run](https://x/1)', branch=None, marker=None))
 _nb = _buf.getvalue()
 assert_eq("new-body: starts with the workpad marker", True,
           _nb.startswith(workpad._workpad_marker()))
@@ -601,7 +614,7 @@ assert_eq("new-body: skeleton accepts --tick-progress + --note", True,
 # --branch fills the Branch line in backticks instead of the placeholder.
 _buf2 = io.StringIO()
 with contextlib.redirect_stdout(_buf2):
-    workpad.cmd_new_body(argparse.Namespace(issue=7, run_link=None, branch='issue-7-x'))
+    workpad.cmd_new_body(argparse.Namespace(issue=7, run_link=None, branch='issue-7-x', marker=None))
 _nb2 = _buf2.getvalue()
 assert_eq("new-body: --branch fills Branch line", True, '**Branch:** `issue-7-x`' in _nb2)
 assert_eq("new-body: omitted --run-link → local placeholder", True,

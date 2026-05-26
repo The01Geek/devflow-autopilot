@@ -209,7 +209,8 @@ what a cross-run analyzer uses to segment by originating skill.
 single `<!-- devflow:review-progress -->` comment incrementally — a blueprint of the phases, then
 per-phase results and each Phase-3 agent's findings as they land, finalizing with the verdict, the
 full report, and the telemetry summary + effectiveness trace. It reuses `scripts/workpad.py` via the
-`DEVFLOW_WORKPAD_MARKER` env override (set inline per call) rather than a parallel helper. The slim
+helper's `--marker` flag (passed as a plain argument so the command still starts with the allow-listed
+helper path) rather than a parallel helper. The slim
 cloud `review` profile is read-only for the tree but grants `gh api` / `gh pr comment`, so the comment
 edits are permitted there; the per-run record **file** write is gated to writable (local/IDE) runs —
 under the read-only cloud profile the trace renders into the comment only, and no file/tree write or

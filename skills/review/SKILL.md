@@ -25,13 +25,11 @@ You are the review engine orchestrator. Run a four-phase review and present an A
 
 In **PR mode** (a PR number was provided, or the engine resolved one), and when `devflow_review.live_progress_comment_enabled` is `true` (default), the engine maintains a **single live progress comment** on the PR — the `<!-- devflow:review-progress -->` comment — and updates it **in place** as it works: a blueprint of the phases up front, then per-phase results (diff classification, checklist counts, each Phase-3 agent's findings as that agent returns, the verdict), finalizing with the report plus the telemetry summary and effectiveness trace. A programmer watching the PR sees findings accrue in real time; afterwards the comment is a complete narrative of the run.
 
-This is the review-side analogue of `/devflow:implement`'s workpad and reuses the **same helper** — `scripts/workpad.py` — pointed at the review marker via the `DEVFLOW_WORKPAD_MARKER` env override (set inline on every call so it survives the fresh-shell-per-call model):
+This is the review-side analogue of `/devflow:implement`'s workpad and reuses the **same helper** — `scripts/workpad.py` — pointed at the review marker via the `--marker` flag (a plain argument, so the command still *starts with* the helper path):
 
-Invoke the helper by its `${CLAUDE_SKILL_DIR}`-anchored path (cwd-independent, and it resolves to the `.devflow/vendor/devflow/scripts/workpad.py` form the cloud allow-list grants — a bare `scripts/workpad.py` would match neither):
+Invoke the helper inline by its `${CLAUDE_SKILL_DIR}`-anchored path (cwd-independent, and it resolves to the `.devflow/vendor/devflow/scripts/workpad.py` form the cloud allow-list grants). **Do not route it through a shell variable (`WP_PY="…"; "$WP_PY" …`) or a leading `VAR=value` env-assignment** — either makes the command no longer *begin with* the allow-listed path, so every call is silently denied under the read-only cloud `review` profile and the live comment never appears. Pass the marker with `--marker` instead (a bare `scripts/workpad.py`, an env-assignment prefix, or a `"$WP_PY"`-style variable would each match neither):
 
 ```bash
-WP_PY="${CLAUDE_SKILL_DIR}/../../scripts/workpad.py"
-MARKER='<!-- devflow:review-progress -->'
 # Author the body to /tmp with a quoted heredoc (no Write tool needed — works
 # under the read-only cloud profile, which grants Bash(cat:*); /tmp is outside
 # the repo tree, so this is not a tree write):
@@ -43,11 +41,13 @@ EOF
 # but absent (first run → create), 1 = a real gh-api/parse failure. Branch on the
 # code so a transient API error is NOT mistaken for "first run" (which would post
 # a duplicate comment — forbidden, exactly one per PR):
-WP=$(DEVFLOW_WORKPAD_MARKER="$MARKER" "$WP_PY" id "$PR_NUMBER" 2>/dev/null); rc=$?
+WP=$(${CLAUDE_SKILL_DIR}/../../scripts/workpad.py id "$PR_NUMBER" --marker '<!-- devflow:review-progress -->' 2>/dev/null); rc=$?
 if [ "$rc" -eq 0 ]; then
   :                                                                                    # resume $WP
 elif [ "$rc" -eq 2 ]; then
-  WP=$(DEVFLOW_WORKPAD_MARKER="$MARKER" "$WP_PY" create "$PR_NUMBER" /tmp/review-wp.md) # first GitHub write
+  # first GitHub write — the marker is embedded as the body file's first line, so
+  # `create` needs no --marker:
+  WP=$(${CLAUDE_SKILL_DIR}/../../scripts/workpad.py create "$PR_NUMBER" /tmp/review-wp.md)
 else
   # API error/parse failure (NOT "absent"): skip seeding to avoid a duplicate, but
   # surface the no-op so a missing live comment is diagnosable rather than baffling
@@ -55,8 +55,9 @@ else
   WP=""
   echo "::warning::devflow review: live progress-comment seeding failed (workpad.py id rc=$rc, gh-api/parse error); continuing without the live comment" >&2
 fi
-# rewrite in place at each phase boundary (only when $WP is set):
-[ -n "$WP" ] && DEVFLOW_WORKPAD_MARKER="$MARKER" "$WP_PY" patch "$WP" /tmp/review-wp.md # each update
+# rewrite in place at each phase boundary (only when $WP is set); `patch` targets
+# the comment by its ID, so it needs no marker either:
+[ -n "$WP" ] && ${CLAUDE_SKILL_DIR}/../../scripts/workpad.py patch "$WP" /tmp/review-wp.md # each update
 ```
 
 The review body uses its **own section template** (the orchestrator authors it; `workpad.py` only carries it). Rebuild the body from your held state (re-author the `/tmp` file with the heredoc above) and `patch` at each phase boundary — you hold the full run state in context, so a full-body rewrite is simplest and avoids implement-specific section mutations:

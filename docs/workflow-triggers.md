@@ -135,9 +135,14 @@ this end-to-end (Phase 0.3.5 seeds it; the update protocol rewrites it at each
 phase boundary; Phase 4.5 finalizes it).
 
 - It reuses the **same helper** as the implement workpad — `scripts/workpad.py`
-  — pointed at the review marker via the `DEVFLOW_WORKPAD_MARKER` env override
-  (set inline per call so it survives Claude Code's fresh-shell-per-call model;
-  empty/unset falls through to `devflow.workpad_marker` / the built-in default).
+  — pointed at the review marker via the helper's `--marker` flag (a plain
+  argument on each call; precedence: `--marker` > the `DEVFLOW_WORKPAD_MARKER`
+  env var > `devflow.workpad_marker` config > the built-in default). The flag is
+  used rather than the env var because a leading `VAR=value` env-assignment
+  makes the command un-matchable against the cloud allow-list rule
+  `Bash(.../workpad.py:*)` — the command would no longer *start with* the helper
+  path — so those calls would be silently denied on the read-only `review`
+  profile and the live comment would never appear.
 - The engine **owns the comment end-to-end**, so `devflow-review.yml` no longer
   seeds, templates, or PATCHes a competing progress comment — its prompt just
   runs the skill against the PR. The earlier per-phase PATCH choreography that
