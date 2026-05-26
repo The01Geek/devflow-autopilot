@@ -659,11 +659,14 @@ git commit -m "docs: update documentation for issue #$ARGUMENTS"
 git push
 ```
 
-Then add the "Documented" label to mark that the docs pass ran. The label signals "the docs pass ran and was reviewed", so apply it when the docs subagent actually ran — either it produced changes (and you committed them above), or it returned cleanly with no changes needed. Skip the label and add a `--reflection` note to the workpad instead when the docs subagent failed, returned no useful output, or was unable to run. (Downstream docs automation, if the adopter runs any, can key off this label to avoid double-processing the PR.)
+Then add the configured post-docs labels to mark that the docs pass ran. The labels signal "the docs pass ran and was reviewed", so apply them when the docs subagent actually ran — either it produced changes (and you committed them above), or it returned cleanly with no changes needed. Skip the labels and add a `--reflection` note to the workpad instead when the docs subagent failed, returned no useful output, or was unable to run. (Downstream docs automation, if the adopter runs any, can key off these labels to avoid double-processing the PR.)
+
+`docs.labels` is a comma-separated list (default `Documented`). Normalize it before applying — split on commas, trim each entry, drop empties — then pass the cleaned list to a single `gh pr edit --add-label` call so every configured label is applied:
 
 ```bash
-DOCUMENTED_LABEL=$(${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .docs.documented_label Documented)
-gh pr edit --add-label "$DOCUMENTED_LABEL"
+DOCS_LABELS=$(${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .docs.labels Documented)
+CLEAN_LABELS=$(echo "$DOCS_LABELS" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' | paste -sd, -)
+[ -n "$CLEAN_LABELS" ] && gh pr edit --add-label "$CLEAN_LABELS"
 ```
 
 Then tick the Documentation phase in the workpad: `workpad.py update $ISSUE_NUMBER --tick-progress "Documentation"`.

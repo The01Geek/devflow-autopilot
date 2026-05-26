@@ -199,9 +199,9 @@
           "description": "Customer-facing release-notes file maintained by /devflow:docs-release-notes.",
           "default": "docs/external/release-notes.md"
         },
-        "documented_label": {
+        "labels": {
           "type": "string",
-          "description": "Label applied by /devflow:implement once its docs pass has run.",
+          "description": "Comma-separated list of labels applied by /devflow:implement once its docs pass has run. Each entry is trimmed and empty entries are dropped, so \"Documented, Shipped\" applies both Documented and Shipped.",
           "default": "Documented"
         }
       }

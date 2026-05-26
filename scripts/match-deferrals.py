@@ -66,6 +66,7 @@ LINE_DRIFT_TOLERANCE = 25
 WIDENS_SURFACE_TOLERANCE = 10
 BLOCK_START = "<!-- DEVFLOW_DEFERRED_FINDINGS_START -->"
 BLOCK_END = "<!-- DEVFLOW_DEFERRED_FINDINGS_END -->"
+PAYLOAD_START = "<!-- DEVFLOW_DEFERRED_PAYLOAD"
 DEFAULT_CONFIG = ".devflow/config.json"
 
 # Rejection reason codes — mirrored verbatim in skills/review/SKILL.md prose.
@@ -109,20 +110,53 @@ def _extract_block(pr_body: str) -> str | None:
 
 
 def _parse_yaml_payload(block: str) -> dict:
-    """Parse the YAML fenced inside the marked block."""
+    """Parse the YAML payload from the hidden DEVFLOW_DEFERRED_PAYLOAD comment.
+
+    The PR-description renderer shows a human-readable Markdown table inside the
+    START/END markers and stores the exact machine payload in a hidden HTML
+    comment so it stays invisible in the rendered PR body. The schema is
+    unchanged (schema_version + deferrals[]); only the payload's location moved
+    out of a visible ```yaml fence into this comment.
+    """
     try:
         import yaml
     except ImportError:
         _fail("PyYAML required to parse deferred-findings block")
 
-    fence_match = re.search(r"```ya?ml\s*\n(.*?)\n```", block, re.DOTALL)
-    if not fence_match:
+    payload_match = re.search(
+        re.escape(PAYLOAD_START) + r"\s*\n(.*?)\n-->", block, re.DOTALL
+    )
+    if not payload_match:
+        # The START/END markers exist (we are inside the extracted block), so a
+        # payload comment is expected. Its absence means the renderer dropped or
+        # malformed it (e.g. an unterminated comment) — warn so a visibly-deferred
+        # PR with no machine payload is diagnosable rather than silently honoring
+        # nothing. Still degrade gracefully to {} (no run failure).
+        sys.stderr.write(
+            "match-deferrals.py: deferrals block present but no parseable "
+            "DEVFLOW_DEFERRED_PAYLOAD comment found; ignoring the block\n"
+        )
         return {}
     try:
-        return yaml.safe_load(fence_match.group(1)) or {}
+        loaded = yaml.safe_load(payload_match.group(1))
     except yaml.YAMLError as e:
         sys.stderr.write(f"match-deferrals.py: YAML parse failed: {e}\n")
         return {}
+    if loaded is None:
+        # Payload comment present but empty/whitespace-only — same operator-visible
+        # outcome as a missing comment (block present, nothing honored), so warn
+        # for the same diagnosability reason.
+        sys.stderr.write(
+            "match-deferrals.py: DEVFLOW_DEFERRED_PAYLOAD comment is empty; "
+            "ignoring the block\n"
+        )
+        return {}
+    if not isinstance(loaded, dict):
+        sys.stderr.write(
+            "match-deferrals.py: payload is not a mapping; ignoring\n"
+        )
+        return {}
+    return loaded
 
 
 def _get_pr_body_and_author(pr_number: int) -> tuple[str, str]:

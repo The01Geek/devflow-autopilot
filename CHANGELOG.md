@@ -6,6 +6,11 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.4.0] — 2026-05-26
+
+### Changed
+- **⚠️ Breaking: the `docs.documented_label` config key is renamed to `docs.labels` and now accepts a comma-separated list.** `/devflow:implement` applies post-docs labels after its documentation pass; the key that names them moved from `docs.documented_label` (a single label) to `docs.labels`, which takes a comma-separated list (default still `"Documented"`). Each entry is trimmed and empty entries are dropped, so `"Documented, Shipped"` applies both `Documented` and `Shipped` in one pass. This is a hard rename with no fallback — **adopters with an existing `.devflow/config.json` must rename `docs.documented_label` to `docs.labels`** (re-running the installer also backfills the new key, but will not remove a stale `docs.documented_label`). See the config keys list in `README.md`. (#60)
+- **The PR-description Deferred Findings block is now human-readable.** When `/devflow:implement` or `/devflow:pr-description` defers review findings, the Deferred Findings section now renders a readable Markdown table — one row per deferral with its severity, file, summary, and follow-up issue — instead of a raw YAML payload. The exact machine payload (`schema_version: 1` / `deferrals[]`) moved into a hidden `DEVFLOW_DEFERRED_PAYLOAD` HTML comment that does not appear in the rendered pull request, and `scripts/match-deferrals.py` now reads the payload from that comment. The surrounding markers and payload schema version are unchanged, so `/devflow:review`'s honoring of deferred findings as Informational is unaffected. (#60)
 ## [2.3.4] — 2026-05-26
 
 ### Fixed

@@ -71,7 +71,7 @@ if [ -n "$PR_NUMBER" ]; then
 fi
 ```
 
-If `DEFERRALS_BODY` is set and the parsed JSON has at least one entry under `deferrals[]` with a populated `follow_up.issue`, render the Deferred Findings section in Step 2's template (converting the JSON entries to the YAML shape shown there). Entries lacking a `follow_up.issue` are stale half-written manifests — skip them silently. Otherwise omit the section entirely. The lookup is best-effort — never fail the run on a missing or unparseable manifest.
+If `DEFERRALS_BODY` is set and the parsed JSON has at least one entry under `deferrals[]` with a populated `follow_up.issue`, render the Deferred Findings section in Step 2's template — a human-readable Markdown table (one row per deferral) for readers, plus the exact machine payload (the same `schema_version: 1` / `deferrals[]` YAML shape) inside the hidden `DEVFLOW_DEFERRED_PAYLOAD` HTML comment that `scripts/match-deferrals.py` parses. Entries lacking a `follow_up.issue` are stale half-written manifests — skip them silently. Otherwise omit the section entirely. The lookup is best-effort — never fail the run on a missing or unparseable manifest.
 
 ## Step 2: Generate the PR Description
 
@@ -131,12 +131,16 @@ The following items can only be verified after this PR is merged or deployed. Ti
 - [ ] [...]
 
 ## Deferred Findings
-[Omit this entire section when DEFERRALS_BODY is empty or contains no entries with a populated follow_up.issue. When non-empty, render with the markers — the /devflow:review verdict matcher parses them exactly:]
+[Omit this entire section when DEFERRALS_BODY is empty or contains no entries with a populated follow_up.issue. When non-empty, render with the markers — the /devflow:review verdict matcher parses them exactly. The visible content is a human-readable Markdown table; the exact machine payload lives in a hidden HTML comment (`DEVFLOW_DEFERRED_PAYLOAD`) so it does not appear in the rendered PR body. One table row per deferral; one payload entry per deferral, in the same order:]
 
 <!-- DEVFLOW_DEFERRED_FINDINGS_START -->
 These review-agent findings were deferred under the Scope-Acknowledged Findings contract. /devflow:review honors matching entries as Informational; closing a linked follow-up issue invalidates the deferral and forces re-verification.
 
-```yaml
+| Severity | File | Finding | Follow-up |
+| --- | --- | --- | --- |
+| <severity> | `<path>:<start>-<end>` | <one-line summary> | #<N> |
+
+<!-- DEVFLOW_DEFERRED_PAYLOAD
 schema_version: 1
 deferrals:
   - id: <dfr-...>
@@ -158,7 +162,7 @@ deferrals:
       url: <url>
       filed_at: <ISO 8601 UTC>
       filed_by: <login>
-```
+-->
 <!-- DEVFLOW_DEFERRED_FINDINGS_END -->
 
 ## Visual Changes
