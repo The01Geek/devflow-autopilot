@@ -119,10 +119,12 @@ A degraded pass must **never** clear a PR with a clean verdict. The guard is the
 - **A too-narrow self-classification cannot silently shrink the roster.** Because the expected
   roster is computed from the shadow's *own* Phase 0.5, an under-classification would shrink the
   expected and dispatched rosters in lockstep and still read `"full"`. A tripwire compares the
-  shadow's `diff_profile` against the loop's last-iter recorded profile; a narrowing divergence (or
-  a missing last-iter profile) widens *both* the expected roster and the dispatch to the union of
-  the two profiles' gated analyzers, fail-closed, so a dropped analyzer surfaces as a shortfall
-  rather than passing as full.
+  shadow's `diff_profile` against the loop's last-iter recorded profile: a narrowing divergence
+  widens *both* the expected roster and the dispatch to the union of the two profiles' gated
+  analyzers; a *missing* last-iter profile (it is a best-effort field) has no second operand to
+  union against, so it trips to the **full gated roster** (both gated analyzers) instead. Either way
+  the widening is fail-closed, so a dropped analyzer surfaces as a shortfall rather than passing as
+  full.
 - **Block presence is verified, not assumed, before "shadow agreed" fires.** The Step 2.6 workpad
   append is best-effort and can be lost. Outcome 1 (the "shadow agreed" path) re-reads the appended
   block from disk and confirms a present `coverage: "full"` block before committing; a lost write
