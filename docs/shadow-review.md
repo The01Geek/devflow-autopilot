@@ -120,6 +120,14 @@ back to a single-agent pass and does **not** report a clean verdict. It records
 Step 2.6's Decide step: the loop's tentative verdict stands but is reported as *unverified*, never
 as agreement.
 
+One bounded exception applies before outcome 3 is recorded (Step 2.6's *Transient vs. structural*
+rule): a **single** dispatched reviewer that returned garbage / empty while the rest of the roster
+returned cleanly gets **exactly one** targeted re-dispatch first; only if that retry also fails (or
+does not return) is `not_verified` recorded. **Structural** failures (the `Agent` tool unavailable,
+the engine SKILL.md unreadable, Phase 0.5 unable to classify) and any **multi-reviewer** failure are
+immediate `not_verified` with no retry — they will not recover on a re-run. This is a single bounded
+retry, not a fall-back to the lenient "treat as inconclusive and proceed" path.
+
 ### Fail-closed on both value and block presence
 
 Coverage is **fail-closed in two dimensions**:
@@ -172,8 +180,9 @@ was exhaustively reviewed.
 
 The practical consequence: a clean shadow result is a real signal that the loop converged honestly,
 but the human gate — and, for a formal merge signal, a separate `/devflow:review <PR>` run — remains
-the exhaustiveness check. The shadow makes that separate run *cheaper to skip when low-stakes*, never
-*safe to assume unnecessary*.
+the exhaustiveness check. A clean shadow *raises confidence* in that gate's outcome; it is never a
+criterion for *waiving* it. Treat the separate independent review as the default, not as something a
+clean shadow makes optional.
 
 ## Cost
 
