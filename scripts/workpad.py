@@ -667,6 +667,12 @@ def cmd_update(args):
             break
         page += 1
     if comment_id is None:
+        # Deliberately exit 1 (not cmd_id's exit-2 "scanned-clean-absent"): unlike
+        # `id`, `update` has no create-fallback to disambiguate toward, so "absent"
+        # here is a caller error (update before create), not a benign first-run
+        # signal. Callers resolve create-vs-resume via `id` (which DOES split 2/1);
+        # `update` only ever runs against an already-resolved workpad, so it does
+        # not carry the exit-2 contract.
         sys.stderr.write(
             f"workpad.py update: no workpad found for issue #{args.issue}; "
             f"call `workpad.py create` first\n"

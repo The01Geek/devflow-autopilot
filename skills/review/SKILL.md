@@ -769,6 +769,8 @@ This step is gated by `devflow_review_and_fix.efficiency_telemetry_enabled` (rea
 
 When enabled, assemble a **single workpad-shaped object** for this run from state the engine already produced, and write it to `.devflow/tmp/review/<slug>/iter-1.json`. This scratch write is the input `efficiency-trace.sh --mode trace` reads back; it lands in gitignored `.devflow/tmp/` (the same ephemeral-scratch location as Phase 0.2's `diff.patch`), so it does **not** make the trace a tree write and is permitted under the read-only cloud `review` profile — only the durable `--mode record` file under `.devflow/logs/efficiency/` is gated to writable runs.
 
+**Author it with an allow-listed command** — the read-only cloud `review` profile grants `Bash(jq:*)`, `Bash(printf:*)`, and `Bash(cat:*)` but **not** `Bash(tee:*)`, so do not copy Phase 0.2's `… | tee` pattern here (that write rides a `gh pr diff` pipe; this one has no such pipe). Build the object with `jq -n` (or `cat <<'EOF'`/`printf '%s'`) and `>`-redirect it, e.g. `jq -n --argjson findings '…' '{iter:1, source:"review", …}' > .devflow/tmp/review/<slug>/iter-1.json`. The `>` redirect of an allow-listed command head is permitted; a non-allow-listed head like `tee` would be silently denied under the cloud profile and the trace would have no input.
+
 ```json
 {
   "iter": 1,

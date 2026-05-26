@@ -125,8 +125,9 @@ Standalone `/devflow:review` (the light listener in `devflow.yml`, and the
 automated `devflow-review.yml` reviewer) is the review-side analogue of the
 implement workpad. In **PR mode**, and when
 `devflow_review.live_progress_comment_enabled` is `true` (the default), the
-review engine maintains a **single** marker-tagged comment —
-`<!-- devflow:review-progress -->` — and rewrites it **in place** as it works:
+review engine maintains a **single per-run** marker-tagged comment — keyed by a
+run-keyed marker (`<!-- devflow:review-progress run=<id>-<attempt> -->`; the bare
+`devflow:review-progress` is its prefix) — and rewrites it **in place** as it works:
 a blueprint of the phases up front, then per-phase results (diff classification,
 checklist counts, each Phase-3 agent's findings appended *as that agent
 returns*, the verdict), finalizing with the full Phase 4.1 report plus a
