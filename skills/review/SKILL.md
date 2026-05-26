@@ -49,7 +49,11 @@ if [ "$rc" -eq 0 ]; then
 elif [ "$rc" -eq 2 ]; then
   WP=$(DEVFLOW_WORKPAD_MARKER="$MARKER" "$WP_PY" create "$PR_NUMBER" /tmp/review-wp.md) # first GitHub write
 else
-  WP=""                                                                                # API error → skip seeding (best-effort), do NOT create
+  # API error/parse failure (NOT "absent"): skip seeding to avoid a duplicate, but
+  # surface the no-op so a missing live comment is diagnosable rather than baffling
+  # (mirrors Phase 4.5's no-surface ::warning:: discipline — never fail silently):
+  WP=""
+  echo "::warning::devflow review: live progress-comment seeding failed (workpad.py id rc=$rc, gh-api/parse error); continuing without the live comment" >&2
 fi
 # rewrite in place at each phase boundary (only when $WP is set):
 [ -n "$WP" ] && DEVFLOW_WORKPAD_MARKER="$MARKER" "$WP_PY" patch "$WP" /tmp/review-wp.md # each update
@@ -86,7 +90,7 @@ _(pending)_
 - **Phase 3** → as **each** agent returns, append its findings under `## Findings (live)` and `patch` immediately (this is the real-time surface — do not batch to the end); tick *Review agents* once all return.
 - **Phase 4** → write the verdict + full Phase 4.1 report into the comment, tick *Aggregate & verdict*, flip `Status` to the glyph-mapped terminal state, and append the telemetry summary + effectiveness trace (see Phase 4.5).
 
-**This comment is the report surface.** When the live comment is active, the full Phase 4.1 report lands **in this comment** (the engine authors it incrementally), so Phase 4.4's `gh pr review` body stays the short verdict **stub** pointing at it — exactly the workflow-context behavior 4.4 already describes. Reconcile with `.github/workflows/devflow-review.yml`: the workflow must **not** separately seed a second `devflow:review-progress` comment when the skill authors it (a gate/setup step may pre-seed the lean blueprint for the earliest acknowledgment, mirroring `/devflow:implement`).
+**This comment is the report surface.** When the live comment is active, the full Phase 4.1 report lands **in this comment** (the engine authors it incrementally), so Phase 4.4's `gh pr review` body stays the short verdict **stub** pointing at it — exactly the workflow-context behavior 4.4 already describes. Reconcile with `.github/workflows/devflow-review.yml`: the workflow must **not** separately seed a second `devflow:review-progress` comment when the skill authors it. (Forward-looking: a gate/setup step *may* pre-seed the lean blueprint for the earliest acknowledgment, mirroring `/devflow:implement` — but no review-side gate does this today, so in practice the skill is the first and only author; the resume-vs-create branch above still applies unchanged if such a pre-seed is ever added.)
 
 **Read-only cloud is fine.** The slim cloud `review` profile is read-only for the tree but carries `gh api` / `gh pr comment`, so creating and editing this comment is permitted; only the `.devflow/logs/efficiency/` **file** write is gated to writable runs (see Phase 4.5).
 

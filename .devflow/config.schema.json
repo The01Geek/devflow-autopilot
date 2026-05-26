@@ -107,7 +107,7 @@
     },
     "devflow_review": {
       "type": "object",
-      "description": "Settings for the standalone /devflow:review engine. See docs/efficiency-trace.md.",
+      "description": "Settings for the standalone /devflow:review engine. See docs/workflow-triggers.md (live progress comment) and docs/efficiency-trace.md (telemetry + effectiveness trace).",
       "properties": {
         "live_progress_comment_enabled": {
           "type": "boolean",

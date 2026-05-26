@@ -96,7 +96,10 @@ fi
 # source-less one is correctly flagged as mixed — a bare `.source // empty` would
 # drop the absent iter from the set and stay silent on that real mix.
 if [ "${#VALID_FILES[@]}" -gt 1 ]; then
-  if [ "$(jq -r '.source // "review-and-fix"' "${VALID_FILES[@]}" 2>/dev/null | sort -u | wc -l)" -gt 1 ]; then
+  # No `2>/dev/null` here: VALID_FILES already passed the `type == "object"` gate
+  # above, so this jq cannot fail on malformed input — suppressing its stderr would
+  # only hide a genuine jq malfunction (the project's no-silent-failure stance).
+  if [ "$(jq -r '.source // "review-and-fix"' "${VALID_FILES[@]}" | sort -u | wc -l)" -gt 1 ]; then
     echo "::warning::efficiency-trace.sh: workpads carry mixed 'source' values; record collapses to the first non-null (a run should be single-source)" >&2
   fi
 fi

@@ -225,6 +225,48 @@ _code, _ = _cmd_id_exit("this is not json")
 assert_eq("cmd_id: unparseable gh response → exit 1 (parse error, not absent)", 1, _code)
 
 
+def _cmd_id_paginated(pages):
+    """Run cmd_id with a stateful _run that returns one stdout string per gh-api
+    page call (in order). Returns (exit_code, printed_id, num_page_calls)."""
+    saved = (workpad._run, workpad._repo_full, workpad._workpad_marker)
+    workpad._repo_full = lambda: 'owner/repo'
+    workpad._workpad_marker = lambda: _MARK
+    calls = {'n': 0}
+
+    def _seq(cmd, **kw):
+        i = calls['n']
+        calls['n'] += 1
+        return _FakeRun(pages[i] if i < len(pages) else pages[-1])
+
+    workpad._run = _seq
+    out = io.StringIO()
+    code = None
+    try:
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            workpad.cmd_id(argparse.Namespace(issue=999))
+    except SystemExit as e:
+        code = e.code
+    finally:
+        workpad._run, workpad._repo_full, workpad._workpad_marker = saved
+    return code, out.getvalue().strip(), calls['n']
+
+
+# Pagination: a FULL first page (100 non-matching comments) forces the loop to
+# fetch page 2 (`if len(items) < 100: break` is false, `page += 1`). The match on
+# page 2 must be found — a regression collapsing pagination would miss an existing
+# comment on a busy PR and post a DUPLICATE, the exact failure exit-2 prevents.
+_full_page = _json.dumps([{"id": i, "body": "unrelated comment"} for i in range(100)])
+_page2_hit = _json.dumps([{"id": 777, "body": _MARK + "\nfound on page 2"}])
+_code, _printed, _ncalls = _cmd_id_paginated([_full_page, _page2_hit])
+assert_eq("cmd_id: match on page 2 (after a full page 1) → exit 0", None, _code)
+assert_eq("cmd_id: page-2 match prints the correct id", "777", _printed)
+assert_eq("cmd_id: pagination actually fetched a 2nd page", 2, _ncalls)
+# Full page 1 + short no-match page 2 → clean-absent exit 2 (loop terminates, no hang).
+_code, _, _ncalls = _cmd_id_paginated([_full_page, _json.dumps([])])
+assert_eq("cmd_id: full page then short no-match page → exit 2 (absent)", 2, _code)
+assert_eq("cmd_id: absent-after-pagination terminated at 2 pages", 2, _ncalls)
+
+
 print("workpad._apply_mutations")
 
 # Batch tick: multiple --tick-plan in one call ticks all of them.

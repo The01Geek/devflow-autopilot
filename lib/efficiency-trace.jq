@@ -44,8 +44,10 @@
 # `verdict_for` has a SECOND derivation for standalone-/devflow:review records
 # (run-level `source == "review"`), where there is no `fix_decision`: a finding's
 # `contributed_to_verdict` boolean replaces applied-fix as the effectiveness
-# signal — `noise` = the agent raised findings but none contributed to the verdict
-# (deferral-demoted to Informational, via explicit `false` or an omitted field),
+# signal — `noise` = the agent raised findings but none satisfied
+# `contributed_to_verdict == true` (deferral-demoted via explicit `false`, an omitted
+# field, OR a malformed value such as a stringified `"true"` — the strict `== true`
+# gate treats all three as non-contributing),
 # `null` = dispatched but raised nothing. Buckets and precedence are identical;
 # only the discriminator differs. See `verdict_for` for the authoritative logic.
 #
@@ -96,8 +98,9 @@ def posture_line($it):
 #   * standalone /devflow:review records carry `contributed_to_verdict` (a boolean)
 #     instead — review never fixes, so "effective" means the finding CONTRIBUTED
 #     to the verdict (drove the REJECT or was counted in APPROVE-with-notes), and
-#     `noise` means every finding was deferral-demoted to Informational
-#     (contributed_to_verdict == false, or the field absent). The buckets and precedence
+#     `noise` means the agent raised findings but none satisfied
+#     `contributed_to_verdict == true` (explicit `false`, the field absent, or a
+#     malformed value — the strict `== true` gate, see verdict_for). The buckets and precedence
 #     (unique-effective > corroborating > noise > null) are identical; only the
 #     "did it count?" signal differs.
 # `$review_mode` is the run-level discriminator (`source == "review"`), NOT the
