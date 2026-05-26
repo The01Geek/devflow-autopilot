@@ -508,7 +508,7 @@ The fix loop is silent on GitHub by design — it does NOT post a `gh pr review`
 
 Map the final verdict to the chat line that precedes the full report:
 
-In the three APPROVE lines below, `{shadow status}` states the shadow's coverage explicitly so the chat line never overclaims an audit that didn't fully run: render it as `shadow agreed, full coverage` when the `shadow` block's `coverage` is `"full"` and outcome 1 held, or `shadow agreement not verified` when `coverage` is `"not_verified"` (outcome 3). (A non-REJECT verdict always reached Step 2.6, so one of these two always applies here.)
+In the three APPROVE lines below, `{shadow status}` states the shadow's coverage explicitly so the chat line never overclaims an audit that didn't fully run. Read it from the **final iteration's** `shadow` block (the iter that produced the final verdict — a promoted iter writes its own `shadow` block, so the relevant one is always the last): render `shadow agreed, full coverage` when that block's `coverage` is `"full"`, or `shadow agreement not verified` when `coverage` is `"not_verified"`. (A plain-APPROVE final verdict only arises from outcome 1 — full coverage, shadow agreed — or outcome 3 — not verified; outcome 2 promotes to a further iter rather than ending here, so `coverage` alone disambiguates.)
 
 - **APPROVE**: `Review passed after {N} iteration(s) ({shadow status}). All checks approved.`
 - **APPROVE WITH ADVISORY NOTES**: `Review passed after {N} iteration(s) ({shadow status}) with {M} advisory finding(s) parked for human review. See report.`
@@ -536,6 +536,8 @@ Compute by reading every `iter-<K>.json` workpad (plus the appended `shadow` blo
 | ... | | | | | | |
 
 ### Shadow agreement
+
+Read the **final iteration's** `shadow` block (a promoted iter writes its own; the relevant one is the last):
 
 {If `coverage` is `"full"`: "Shadow ran with full reviewer coverage ({reviewers_dispatched roster}). It raised X findings; Y were already in iter N (overlap = Y/X); Z were new (Z_crit Critical, Z_imp Important)." then — If Z > 0: "The loop promoted them into iter (N+1); this report reflects the post-promotion state." / If Z == 0: "Genuine convergence — shadow agreed with the loop."} {If `coverage` is `"not_verified"`: "Shadow agreement NOT verified — the full multi-agent fan-out could not be completed ({reason}); the loop's tentative verdict stands but was not independently audited."} {If shadow did not run at all (e.g. REJECT verdict): "Shadow pass did not run — final verdict was REJECT before convergence."}
 
