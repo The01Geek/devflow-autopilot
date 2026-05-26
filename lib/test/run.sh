@@ -2018,7 +2018,7 @@ cat > "$ET_RMIX/iter-1.json" <<'EOF'
   "iter": 1,
   "source": "review",
   "checklist": [],
-  "phase3_dispatched": ["mix-unique","mix-corrob","omit-demoted","mixcorr","allcorr"],
+  "phase3_dispatched": ["mix-unique","mix-corrob","omit-demoted","mixcorr","allcorr","str-true"],
   "phase3_findings": [
     {"agent":"mix-unique","corroboration_count":1,"contributed_to_verdict":true},
     {"agent":"mix-unique","corroboration_count":1,"contributed_to_verdict":false},
@@ -2028,7 +2028,8 @@ cat > "$ET_RMIX/iter-1.json" <<'EOF'
     {"agent":"mixcorr","corroboration_count":3,"contributed_to_verdict":true},
     {"agent":"mixcorr","corroboration_count":1,"contributed_to_verdict":true},
     {"agent":"allcorr","corroboration_count":2,"contributed_to_verdict":true},
-    {"agent":"allcorr","corroboration_count":3,"contributed_to_verdict":true}
+    {"agent":"allcorr","corroboration_count":3,"contributed_to_verdict":true},
+    {"agent":"str-true","corroboration_count":1,"contributed_to_verdict":"true"}
   ],
   "convergence_inputs": {"fixes_applied": 0},
   "telemetry": null
@@ -2048,6 +2049,11 @@ assert_eq "et(#55): mixed corroboration among contributing findings → unique-e
 # unique discoverer among them). Guards the precedence boundary the single-finding
 # rev-corrob fixture above can't reach.
 assert_eq "et(#55): 2+ contributing findings all corr>=2 → corroborating" "corroborating" "$(ET_mv 'allcorr')"
+# Malformed contributed_to_verdict (a stringified "true" from an LLM-authored
+# record) is NOT truthy: the `== true` gate is strict, so the agent raised a
+# finding that didn't contribute → noise (not unique-effective, not null). Pins
+# the deliberate strict-boolean contract documented in verdict_for.
+assert_eq "et(#55): stringified \"true\" contributed_to_verdict → noise (strict == true gate)" "noise" "$(ET_mv 'str-true')"
 # Review-mode verdicts must also surface in the --mode trace Markdown (the live-
 # comment surface), not just the --mode record JSON exercised above.
 ET_RMIX_TRACE="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_RMIX" --slug "pr-99" --mode trace)"
@@ -2073,6 +2079,54 @@ assert_eq "et(#55): iter-1 (fix_decision, no source) classifies off its own shap
 assert_eq "et(#55): iter-2 (source review) classifies review-mode" "unique-effective" \
   "$(echo "$ET_RMI_REC" | jq -r '.per_iteration[] | select(.iter==2) | .agent_verdicts[0].verdict')"
 rm -rf "$ET_RMI"
+
+# Mixed-source future-proofing warning (issue #55 review hardening): a run whose
+# iterations carry genuinely divergent `source` values is not currently produced,
+# but if it ever is, the wrapper warns (best-effort, never aborts) — the record's
+# run-level source collapses to the first non-null and would otherwise silently
+# mislabel the run. No fixture exercised this guard before.
+ET_MIXSRC="$(mktemp -d)"
+cat > "$ET_MIXSRC/iter-1.json" <<'EOF'
+{"iter":1,"source":"review","checklist":[],"phase3_dispatched":["a"],"phase3_findings":[{"agent":"a","corroboration_count":1,"contributed_to_verdict":true}],"convergence_inputs":{"fixes_applied":0},"telemetry":null}
+EOF
+cat > "$ET_MIXSRC/iter-2.json" <<'EOF'
+{"iter":2,"source":"review-and-fix","checklist":[],"phase3_dispatched":["b"],"phase3_findings":[{"agent":"b","corroboration_count":1,"fix_decision":"applied"}],"convergence_inputs":{"fixes_applied":1},"telemetry":null}
+EOF
+ET_MIXSRC_ERR="$(mktemp)"
+ET_MIXSRC_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_MIXSRC" --slug "pr-99" --mode record 2>"$ET_MIXSRC_ERR")"; ET_MIXSRC_RC=$?
+assert_eq "et(#55): mixed explicit sources → wrapper still exits 0 (best-effort)" "0" "$ET_MIXSRC_RC"
+assert_eq "et(#55): mixed explicit sources (review + review-and-fix) → warns" "true" \
+  "$(grep -q "::warning::.*mixed 'source'" "$ET_MIXSRC_ERR" && echo true || echo false)"
+assert_eq "et(#55): mixed-source record still collapses run-level source to first non-null (review)" "review" \
+  "$(echo "$ET_MIXSRC_REC" | jq -r '.source')"
+# A `review` iter mixed with a source-LESS iter must ALSO warn: the absent source
+# is counted as the run-level default (review-and-fix), so the run is genuinely
+# mixed even though one iter omits the field. Guards the `.source // "review-and-fix"`
+# counting — a bare `.source // empty` would drop the absent iter and stay silent.
+cat > "$ET_MIXSRC/iter-2.json" <<'EOF'
+{"iter":2,"checklist":[],"phase3_dispatched":["b"],"phase3_findings":[{"agent":"b","corroboration_count":1,"fix_decision":"applied"}],"convergence_inputs":{"fixes_applied":1},"telemetry":null}
+EOF
+ET_MIXSRC_ERR2="$(mktemp)"
+bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_MIXSRC" --slug "pr-99" --mode record >/dev/null 2>"$ET_MIXSRC_ERR2"
+assert_eq "et(#55): review + source-less iter → also warns (absent counts as default)" "true" \
+  "$(grep -q "::warning::.*mixed 'source'" "$ET_MIXSRC_ERR2" && echo true || echo false)"
+rm -rf "$ET_MIXSRC"; rm -f "$ET_MIXSRC_ERR" "$ET_MIXSRC_ERR2"
+
+# Regression guard for the new counting: a uniform single-source run must NOT warn.
+# Two source-less iters both default to review-and-fix → one distinct value → silent
+# (this is the common /devflow:review-and-fix loop, which must stay warning-free).
+ET_SAMESRC="$(mktemp -d)"
+cat > "$ET_SAMESRC/iter-1.json" <<'EOF'
+{"iter":1,"checklist":[],"phase3_dispatched":["a"],"phase3_findings":[{"agent":"a","corroboration_count":1,"fix_decision":"applied"}],"convergence_inputs":{"fixes_applied":1},"telemetry":null}
+EOF
+cat > "$ET_SAMESRC/iter-2.json" <<'EOF'
+{"iter":2,"checklist":[],"phase3_dispatched":["b"],"phase3_findings":[{"agent":"b","corroboration_count":1,"fix_decision":"applied"}],"convergence_inputs":{"fixes_applied":1},"telemetry":null}
+EOF
+ET_SAMESRC_ERR="$(mktemp)"
+bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_SAMESRC" --slug "pr-1" --mode record >/dev/null 2>"$ET_SAMESRC_ERR"
+assert_eq "et(#55): uniform source-less run → does NOT warn" "false" \
+  "$(grep -q "::warning::.*mixed 'source'" "$ET_SAMESRC_ERR" && echo true || echo false)"
+rm -rf "$ET_SAMESRC"; rm -f "$ET_SAMESRC_ERR"
 
 # Populated checklist/telemetry writer gap closed (issue #52): a workpad where
 # Phase 1+2 ran yields a real lite/agent split, a non-none-recorded posture, and

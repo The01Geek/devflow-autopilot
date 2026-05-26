@@ -91,9 +91,13 @@ fi
 # run-level `source` to the first non-null (per-iter verdicts still key off each
 # iter's own source), so a mixed-source run would silently mislabel the record.
 # That input is not currently produced; warn (don't fail) if it ever appears.
+# An ABSENT per-iter source counts as the run-level default ("review-and-fix",
+# matching the jq's `// "review-and-fix"`), so a `review` iter mixed with a
+# source-less one is correctly flagged as mixed — a bare `.source // empty` would
+# drop the absent iter from the set and stay silent on that real mix.
 if [ "${#VALID_FILES[@]}" -gt 1 ]; then
-  if [ "$(jq -r '.source // empty' "${VALID_FILES[@]}" 2>/dev/null | sort -u | wc -l)" -gt 1 ]; then
-    echo "::warning::efficiency-trace.sh: workpads carry mixed 'source' values; record collapses to the first (a run should be single-source)" >&2
+  if [ "$(jq -r '.source // "review-and-fix"' "${VALID_FILES[@]}" 2>/dev/null | sort -u | wc -l)" -gt 1 ]; then
+    echo "::warning::efficiency-trace.sh: workpads carry mixed 'source' values; record collapses to the first non-null (a run should be single-source)" >&2
   fi
 fi
 

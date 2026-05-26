@@ -159,6 +159,72 @@ finally:
         _os.environ['DEVFLOW_WORKPAD_MARKER'] = _saved
 
 
+print("workpad.cmd_id exit-code contract (issue #55 live-comment seeding)")
+
+# The /devflow:review live-comment seeding branches on `workpad.py id`'s exit code
+# (0 = found → resume, 2 = scanned-clean-but-absent → create, 1 = gh-api/parse
+# error → skip, do NOT create). A regression collapsing the absent case (2) back
+# to a generic error (1) would make a transient API hiccup look identical to "no
+# comment yet", so the caller would post a DUPLICATE progress comment. These pin
+# all three codes by stubbing the gh calls (no network).
+import json as _json  # noqa: E402
+import subprocess as _subprocess  # noqa: E402
+
+
+class _FakeRun:
+    def __init__(self, stdout):
+        self.stdout = stdout
+
+
+def _cmd_id_exit(comments_stdout=None, *, raise_api=False):
+    """Run cmd_id against a stubbed gh layer; return its exit code (None = exit 0).
+
+    `_repo_full` and `_workpad_marker` are stubbed so no real gh/config call
+    happens; `_run` returns the canned comments page (or raises to simulate a
+    transient gh-api failure).
+    """
+    rev_marker = '<!-- devflow:review-progress -->'
+    saved = (workpad._run, workpad._repo_full, workpad._workpad_marker)
+    workpad._repo_full = lambda: 'owner/repo'
+    workpad._workpad_marker = lambda: rev_marker
+    if raise_api:
+        def _boom(cmd, **kw):
+            raise _subprocess.CalledProcessError(1, cmd, stderr='gh: API error')
+        workpad._run = _boom
+    else:
+        workpad._run = lambda cmd, **kw: _FakeRun(comments_stdout)
+    out = io.StringIO()
+    code = None
+    try:
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            workpad.cmd_id(argparse.Namespace(issue=999))
+    except SystemExit as e:
+        code = e.code
+    finally:
+        workpad._run, workpad._repo_full, workpad._workpad_marker = saved
+    return code, out.getvalue().strip()
+
+
+_MARK = '<!-- devflow:review-progress -->'
+# Found: a comment whose body starts with the review marker → print id, exit 0.
+_code, _printed = _cmd_id_exit(_json.dumps([{"id": 12345, "body": _MARK + "\nbody"}]))
+assert_eq("cmd_id: matching comment → exit 0 (no SystemExit)", None, _code)
+assert_eq("cmd_id: matching comment → prints the comment id", "12345", _printed)
+# Clean scan, nothing matches (page < 100 → loop breaks) → exit 2 (first run → create).
+_code, _ = _cmd_id_exit(_json.dumps([{"id": 1, "body": "an unrelated comment"}]))
+assert_eq("cmd_id: scanned cleanly, absent → exit 2 (distinct create signal)", 2, _code)
+# Empty issue (no comments at all) is still a clean scan → exit 2, not error.
+_code, _ = _cmd_id_exit(_json.dumps([]))
+assert_eq("cmd_id: no comments at all → exit 2 (clean-absent, not error)", 2, _code)
+# gh api failure → exit 1 (NOT 2): the caller must not mistake a transient error
+# for "absent" and post a duplicate comment.
+_code, _ = _cmd_id_exit(raise_api=True)
+assert_eq("cmd_id: gh-api error → exit 1 (must NOT collapse to absent's 2)", 1, _code)
+# Unparseable gh response → exit 1 (parse error path), again distinct from absent.
+_code, _ = _cmd_id_exit("this is not json")
+assert_eq("cmd_id: unparseable gh response → exit 1 (parse error, not absent)", 1, _code)
+
+
 print("workpad._apply_mutations")
 
 # Batch tick: multiple --tick-plan in one call ticks all of them.
