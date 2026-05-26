@@ -6,6 +6,8 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.3.3] — 2026-05-25
+
 ### Added
 - **Standalone `/devflow:review` now narrates its work in a single live progress comment on the pull request.** In pull-request mode, and on by default through the new `devflow_review.live_progress_comment_enabled` setting, `/devflow:review` authors one `devflow:review-progress` comment and updates it in place as it works: a blueprint of the phases up front, then per-phase updates, each Phase-3 review agent's findings as they land, the verdict, and finally a run-telemetry summary and a per-run effectiveness trace. Watching a pull request now means watching the review accrue findings in real time, and the finished comment is a complete record of the run. The effectiveness trace uses a review-specific derivation — because a review never applies a fix, a finding counts as effective when it contributed to the verdict — and its records carry a `source: "review"` field. The feature works under the read-only cloud reviewer (the comment is posted through `gh`; the on-disk trace record is written only on writable or local runs), and the new setting is independent of `efficiency_telemetry_enabled`, which separately controls whether the telemetry and trace block is embedded. Set `devflow_review.live_progress_comment_enabled` to `false` to keep the previous behavior of producing the report once at the end. See `docs/efficiency-trace.md`. (#56)
 
