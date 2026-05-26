@@ -361,7 +361,7 @@ jobs:
           base_branch: ${{ needs.config.outputs.base_branch }}
           claude_args: >-
             --model ${{ needs.config.outputs.claude_model }}
-            ${{ needs.config.outputs.effort != 'medium' && format('--effort {0}', needs.config.outputs.effort) || '' }}
+            --effort ${{ needs.config.outputs.effort }}
             --allowed-tools
             "Read,
             Write,

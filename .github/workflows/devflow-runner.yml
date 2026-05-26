@@ -36,8 +36,9 @@ on:
         description: |
           Reasoning effort (low|medium|high|xhigh|max). Defaults to the
           `devflow_runner.effort` value from .devflow/config.json when
-          empty. When the resolved value is "medium", the --effort flag is
-          omitted so the model's built-in default applies.
+          empty (which itself falls back to "medium"). The resolved value is
+          always passed explicitly via `--effort` — including "medium" — so
+          the effort is pinned rather than relying on the model's default.
         type: string
         required: false
         default: ''
@@ -514,6 +515,6 @@ jobs:
           # that may need the auto-approved commands.
           claude_args: >-
             --model ${{ inputs.model != '' && inputs.model || steps.extract.outputs.claude_model }}
-            ${{ steps.effort.outputs.value != 'medium' && format('--effort {0}', steps.effort.outputs.value) || '' }}
+            --effort ${{ steps.effort.outputs.value }}
             --permission-mode acceptEdits
             --allowed-tools "${{ steps.tools.outputs.tools }}"
