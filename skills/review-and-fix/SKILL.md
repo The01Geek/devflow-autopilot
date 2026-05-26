@@ -402,7 +402,7 @@ After Step 2.6 completes (regardless of outcome), append a `shadow` block to the
 }
 ```
 
-`coverage` is `"full"` only when `reviewers_dispatched` covered `expected_reviewers` and every reviewer returned cleanly (outcome 1 or 2); otherwise it is `"not_verified"` (outcome 3), with `reviewers_dispatched` left as the partial roster (or `[]`) and `reason` naming what was missing. `expected_reviewers` is the mechanically-computed roster (four always-on agents plus any gated analyzer whose Phase 3.1 gate is true against `diff_profile`) so a reader can see *why* a shortfall was a shortfall. The Coverage section in the final report (Loop Exit) reads this block; because Loop Exit reads it back from disk, `reason` must be persisted here, not only rendered in chat.
+`coverage` is `"full"` only when `reviewers_dispatched` covered `expected_reviewers` and every reviewer returned cleanly (outcome 1 or 2); otherwise it is `"not_verified"` (outcome 3), with `reviewers_dispatched` left as the partial roster (or `[]`) and `reason` naming what was missing. `expected_reviewers` is the mechanically-computed roster (four always-on agents plus any gated analyzer whose Phase 3.1 gate is true against `diff_profile`) so a reader can see *why* a shortfall was a shortfall. The Coverage section in the final report (Loop Exit) reads this block; because Loop Exit reads it back from disk, `reason` must be persisted here, not only rendered in chat. **On a `not_verified` block, `verdict` is non-authoritative** — the shadow may have produced a clean-looking value before the coverage shortfall was detected, but no consumer may read `verdict` without first gating on `coverage == "full"`. Coverage is the authoritative signal; `verdict` is meaningful only when coverage is full.
 
 #### Cost note
 
@@ -669,7 +669,7 @@ If `lib/efficiency-trace.sh` is missing or errors, the trace step above already 
 
 ## Error Handling
 
-- **Agent failures**: Treat as INCONCLUSIVE or note in report. Never abort the entire review.
+- **Agent failures**: Treat as INCONCLUSIVE or note in report. Never abort the entire review. **Exception — shadow reviewers (Step 2.6):** this lenient rule does NOT apply to a shadow-pass reviewer failure. A shadow reviewer that fails, returns garbage, or is absent from the dispatched roster is a coverage shortfall that forces `coverage: "not_verified"` / outcome 3 (the shadow's fail-closed contract) — it must never be silently treated as INCONCLUSIVE-and-proceed, because that re-opens the false-clean path Step 2.6 exists to close.
 - **Test failures after fixes**: Fix the test failures before re-running the review loop.
 - **Commit failures**: If a commit fails (e.g., pre-commit hook), fix the issue and retry the commit.
 - **Cannot locate /devflow:review's SKILL.md**: This is fatal — /devflow:review-and-fix depends on the engine. Error out with a clear message; do not improvise by paraphrasing the phases. (See "Engine source of truth" at the top.)
