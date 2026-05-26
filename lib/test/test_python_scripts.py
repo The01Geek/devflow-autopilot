@@ -894,8 +894,9 @@ assert_eq("parse_payload: first finding file", "a.py",
           _deferrals[0].get("finding", {}).get("file"))
 assert_eq("parse_payload: first follow_up issue is int", 41,
           _deferrals[0].get("follow_up", {}).get("issue"))
-# Entry missing follow_up.issue parses fine here — main()'s loop is what skips it
-# silently via REASON_MISSING_FOLLOW_UP_ISSUE (this asserts the data round-trips).
+# Entry missing follow_up.issue parses fine here — main()'s loop records it under
+# rejected_deferrals with REASON_MISSING_FOLLOW_UP_ISSUE (never honored, but the run
+# does not fail); this asserts the data round-trips through extraction.
 assert_eq("parse_payload: second entry has no follow_up.issue", None,
           (_deferrals[1].get("follow_up") or {}).get("issue"))
 
@@ -914,6 +915,20 @@ assert_eq("parse_payload: block with table but no hidden payload → {}", {},
 # no run failure).
 assert_eq("extract_block: no markers at all → None", None,
           match_deferrals._extract_block("a PR body with no deferrals section"))
+
+# A payload comment whose YAML is a non-mapping (list/scalar) must degrade to {} —
+# main() then reads payload.get("deferrals") on a dict and never AttributeErrors on
+# a structurally-wrong-but-valid-YAML payload.
+_nonmap_payload = """<!-- DEVFLOW_DEFERRED_FINDINGS_START -->
+<!-- DEVFLOW_DEFERRED_PAYLOAD
+- just
+- a
+- list
+-->
+<!-- DEVFLOW_DEFERRED_FINDINGS_END -->"""
+assert_eq("parse_payload: non-mapping YAML payload → {}", {},
+          match_deferrals._parse_yaml_payload(
+              match_deferrals._extract_block(_nonmap_payload)))
 
 
 print()
