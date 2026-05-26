@@ -88,7 +88,7 @@ def make_args(**overrides):
         tick_progress=[], tick_plan=[], tick_ac=[],
         rewrite_ac=None,
         replace_plan_file=None, replace_acs_file=None, set_reproduction_file=None,
-        note=[], reflection=[],
+        note=[], reflection=[], marker=None,
     )
     base.update(overrides)
     return argparse.Namespace(**base)
@@ -120,6 +120,219 @@ WORKPAD_BODY = """<!-- devflow:workpad -->
 
 ## Devflow Reflection
 """
+
+
+print("workpad._workpad_marker (issue #55 review-marker override)")
+
+# Marker override lets /devflow:review target its own <!-- devflow:review-progress
+# --> comment with the same helper. Precedence: the `--marker` CLI flag (passed as
+# a plain argument, so the command still starts with the allow-listed helper path)
+# > the DEVFLOW_WORKPAD_MARKER env var (back-compat) > config > built-in default.
+import os as _os  # noqa: E402
+
+_saved = _os.environ.pop('DEVFLOW_WORKPAD_MARKER', None)
+try:
+    # --marker flag wins, with NO env var set (the cloud /devflow:review path).
+    assert_eq("marker: --marker flag wins (no env)", '<!-- devflow:review-progress -->',
+              workpad._workpad_marker('<!-- devflow:review-progress -->'))
+    # --marker flag wins even over a conflicting env var.
+    _os.environ['DEVFLOW_WORKPAD_MARKER'] = '<!-- devflow:env-marker -->'
+    assert_eq("marker: --marker flag overrides env", '<!-- devflow:review-progress -->',
+              workpad._workpad_marker('<!-- devflow:review-progress -->'))
+    # A blank/whitespace flag is ignored — falls through to the env var.
+    assert_eq("marker: blank flag falls through to env", '<!-- devflow:env-marker -->',
+              workpad._workpad_marker('   '))
+    _os.environ.pop('DEVFLOW_WORKPAD_MARKER', None)
+
+    _os.environ['DEVFLOW_WORKPAD_MARKER'] = '<!-- devflow:review-progress -->'
+    assert_eq("marker: env override wins", '<!-- devflow:review-progress -->',
+              workpad._workpad_marker())
+    # A blank/whitespace override is ignored — falls through to config/default.
+    # Assert it lands on the documented default marker (not merely non-empty), so
+    # a regression in the fall-through wiring that returned the wrong marker is
+    # caught. config-get.sh reads `.devflow/config.json` relative to cwd; the repo
+    # *does* carry one whose workpad_marker is byte-identical to the default, so to
+    # genuinely exercise the default-leg (config absent → config-get.sh returns the
+    # passed default) we must run from a cwd with no .devflow/config.json. (Running
+    # from the repo root would pass either way and prove nothing.) workpad resolves
+    # config-get.sh via __file__, so the chdir does not break locating the helper.
+    import tempfile as _tempfile  # noqa: E402
+    _os.environ['DEVFLOW_WORKPAD_MARKER'] = '   '
+    _orig_cwd = _os.getcwd()
+    with _tempfile.TemporaryDirectory() as _td:
+        _os.chdir(_td)
+        try:
+            assert_eq("marker: blank override falls through to default marker (no config in cwd)",
+                      workpad._DEFAULT_WORKPAD_MARKER, workpad._workpad_marker())
+        finally:
+            _os.chdir(_orig_cwd)
+finally:
+    _os.environ.pop('DEVFLOW_WORKPAD_MARKER', None)
+    if _saved is not None:
+        _os.environ['DEVFLOW_WORKPAD_MARKER'] = _saved
+
+
+print("workpad.cmd_id exit-code contract (issue #55 live-comment seeding)")
+
+# The /devflow:review live-comment seeding branches on `workpad.py id`'s exit code
+# (0 = found → resume, 2 = scanned-clean-but-absent → create, 1 = gh-api/parse
+# error → skip, do NOT create). A regression collapsing the absent case (2) back
+# to a generic error (1) would make a transient API hiccup look identical to "no
+# comment yet", so the caller would post a DUPLICATE progress comment. These pin
+# all three codes by stubbing the gh calls (no network).
+import json as _json  # noqa: E402
+import subprocess as _subprocess  # noqa: E402
+
+
+class _FakeRun:
+    # Models ONLY `.stdout` — the sole `_run(...)` attribute cmd_id/cmd_update read
+    # on the success path. A consumer that later reads `.returncode`/`.stderr` would
+    # hit an opaque AttributeError here; extend this double (and this note) if so.
+    def __init__(self, stdout):
+        self.stdout = stdout
+
+
+def _cmd_id_exit(comments_stdout=None, *, raise_api=False):
+    """Run cmd_id against a stubbed gh layer; return its exit code (None = exit 0).
+
+    `_repo_full` and `_workpad_marker` are stubbed so no real gh/config call
+    happens; `_run` returns the canned comments page (or raises to simulate a
+    transient gh-api failure).
+    """
+    rev_marker = '<!-- devflow:review-progress -->'
+    saved = (workpad._run, workpad._repo_full, workpad._workpad_marker)
+    workpad._repo_full = lambda: 'owner/repo'
+    workpad._workpad_marker = lambda explicit=None: rev_marker
+    if raise_api:
+        def _boom(cmd, **kw):
+            raise _subprocess.CalledProcessError(1, cmd, stderr='gh: API error')
+        workpad._run = _boom
+    else:
+        workpad._run = lambda cmd, **kw: _FakeRun(comments_stdout)
+    out = io.StringIO()
+    code = None
+    try:
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            workpad.cmd_id(argparse.Namespace(issue=999, marker=None))
+    except SystemExit as e:
+        code = e.code
+    finally:
+        workpad._run, workpad._repo_full, workpad._workpad_marker = saved
+    return code, out.getvalue().strip()
+
+
+_MARK = '<!-- devflow:review-progress -->'
+# Found: a comment whose body starts with the review marker → print id, exit 0.
+_code, _printed = _cmd_id_exit(_json.dumps([{"id": 12345, "body": _MARK + "\nbody"}]))
+assert_eq("cmd_id: matching comment → exit 0 (no SystemExit)", None, _code)
+assert_eq("cmd_id: matching comment → prints the comment id", "12345", _printed)
+# Clean scan, nothing matches (page < 100 → loop breaks) → exit 2 (first run → create).
+_code, _ = _cmd_id_exit(_json.dumps([{"id": 1, "body": "an unrelated comment"}]))
+assert_eq("cmd_id: scanned cleanly, absent → exit 2 (distinct create signal)", 2, _code)
+# Empty issue (no comments at all) is still a clean scan → exit 2, not error.
+_code, _ = _cmd_id_exit(_json.dumps([]))
+assert_eq("cmd_id: no comments at all → exit 2 (clean-absent, not error)", 2, _code)
+# gh api failure → exit 1 (NOT 2): the caller must not mistake a transient error
+# for "absent" and post a duplicate comment.
+_code, _ = _cmd_id_exit(raise_api=True)
+assert_eq("cmd_id: gh-api error → exit 1 (must NOT collapse to absent's 2)", 1, _code)
+# Unparseable gh response → exit 1 (parse error path), again distinct from absent.
+_code, _ = _cmd_id_exit("this is not json")
+assert_eq("cmd_id: unparseable gh response → exit 1 (parse error, not absent)", 1, _code)
+
+
+def _cmd_id_paginated(pages):
+    """Run cmd_id with a stateful _run that returns one stdout string per gh-api
+    page call (in order). Returns (exit_code, printed_id, num_page_calls)."""
+    saved = (workpad._run, workpad._repo_full, workpad._workpad_marker)
+    workpad._repo_full = lambda: 'owner/repo'
+    workpad._workpad_marker = lambda explicit=None: _MARK
+    calls = {'n': 0}
+
+    def _seq(cmd, **kw):
+        i = calls['n']
+        calls['n'] += 1
+        return _FakeRun(pages[i] if i < len(pages) else pages[-1])
+
+    workpad._run = _seq
+    out = io.StringIO()
+    code = None
+    try:
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            workpad.cmd_id(argparse.Namespace(issue=999, marker=None))
+    except SystemExit as e:
+        code = e.code
+    finally:
+        workpad._run, workpad._repo_full, workpad._workpad_marker = saved
+    return code, out.getvalue().strip(), calls['n']
+
+
+# Pagination: a FULL first page (100 non-matching comments) forces the loop to
+# fetch page 2 (`if len(items) < 100: break` is false, `page += 1`). The match on
+# page 2 must be found — a regression collapsing pagination would miss an existing
+# comment on a busy PR and post a DUPLICATE, the exact failure exit-2 prevents.
+_full_page = _json.dumps([{"id": i, "body": "unrelated comment"} for i in range(100)])
+_page2_hit = _json.dumps([{"id": 777, "body": _MARK + "\nfound on page 2"}])
+_code, _printed, _ncalls = _cmd_id_paginated([_full_page, _page2_hit])
+assert_eq("cmd_id: match on page 2 (after a full page 1) → exit 0", None, _code)
+assert_eq("cmd_id: page-2 match prints the correct id", "777", _printed)
+assert_eq("cmd_id: pagination actually fetched a 2nd page", 2, _ncalls)
+# Full page 1 + short no-match page 2 → clean-absent exit 2 (loop terminates, no hang).
+_code, _, _ncalls = _cmd_id_paginated([_full_page, _json.dumps([])])
+assert_eq("cmd_id: full page then short no-match page → exit 2 (absent)", 2, _code)
+assert_eq("cmd_id: absent-after-pagination terminated at 2 pages", 2, _ncalls)
+
+
+print("workpad --marker argv → resolver wiring (issue #56 review)")
+
+# End-to-end wiring: prove cmd_id AND cmd_update pass `args.marker` to
+# `_workpad_marker`. The other marker tests call `_workpad_marker(...)` directly, so
+# a regression reverting the call sites to a no-arg `_workpad_marker()` (dropping
+# args.marker) would pass all of them yet silently break the cloud /devflow:review
+# path, where the run-keyed marker is supplied only via --marker. Capture the
+# explicit arg the resolver receives.
+_cap = {}
+
+
+def _capture_marker(explicit=None):
+    _cap['explicit'] = explicit
+    return explicit or workpad._DEFAULT_WORKPAD_MARKER
+
+
+def _boom_repo():
+    # cmd_update resolves the marker (args.marker) BEFORE _repo_full; bail here so
+    # the test asserts the wiring without mocking the whole id→fetch→patch flow.
+    raise SystemExit(99)
+
+
+_CUSTOM = '<!-- devflow:review-progress run=test-1 -->'
+_saved = (workpad._workpad_marker, workpad._repo_full, workpad._run)
+try:
+    workpad._workpad_marker = _capture_marker
+    workpad._repo_full = lambda: 'owner/repo'
+    # cmd_id: a comment whose body starts with the custom marker must be found via
+    # args.marker (capturing resolver returns the explicit arg).
+    workpad._run = lambda cmd, **kw: _FakeRun(_json.dumps([{"id": 42, "body": _CUSTOM + "\nx"}]))
+    _out = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(_out), contextlib.redirect_stderr(io.StringIO()):
+            workpad.cmd_id(argparse.Namespace(issue=1, marker=_CUSTOM))
+    except SystemExit:
+        pass
+    assert_eq("cmd_id: --marker argv reaches the resolver", _CUSTOM, _cap.get('explicit'))
+    assert_eq("cmd_id: comment matched via the --marker value", "42", _out.getvalue().strip())
+
+    # cmd_update: same wiring — capture the explicit arg, then bail at _repo_full.
+    _cap.clear()
+    workpad._repo_full = _boom_repo
+    try:
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            workpad.cmd_update(make_args(issue=1, marker=_CUSTOM))
+    except SystemExit:
+        pass
+    assert_eq("cmd_update: --marker argv reaches the resolver", _CUSTOM, _cap.get('explicit'))
+finally:
+    workpad._workpad_marker, workpad._repo_full, workpad._run = _saved
 
 
 print("workpad._apply_mutations")
@@ -421,7 +634,7 @@ print("workpad new-body: lean initial skeleton")
 _buf = io.StringIO()
 with contextlib.redirect_stdout(_buf):
     workpad.cmd_new_body(argparse.Namespace(
-        issue=7, run_link='[View run](https://x/1)', branch=None))
+        issue=7, run_link='[View run](https://x/1)', branch=None, marker=None))
 _nb = _buf.getvalue()
 assert_eq("new-body: starts with the workpad marker", True,
           _nb.startswith(workpad._workpad_marker()))
@@ -456,7 +669,7 @@ assert_eq("new-body: skeleton accepts --tick-progress + --note", True,
 # --branch fills the Branch line in backticks instead of the placeholder.
 _buf2 = io.StringIO()
 with contextlib.redirect_stdout(_buf2):
-    workpad.cmd_new_body(argparse.Namespace(issue=7, run_link=None, branch='issue-7-x'))
+    workpad.cmd_new_body(argparse.Namespace(issue=7, run_link=None, branch='issue-7-x', marker=None))
 _nb2 = _buf2.getvalue()
 assert_eq("new-body: --branch fills Branch line", True, '**Branch:** `issue-7-x`' in _nb2)
 assert_eq("new-body: omitted --run-link → local placeholder", True,

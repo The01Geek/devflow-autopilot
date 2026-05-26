@@ -86,6 +86,28 @@ if [ -n "$WORKPAD_DIR" ] && [ -d "$WORKPAD_DIR" ]; then
   done
 fi
 
+# Future-proofing guard: a run is expected to be single-source — either a
+# /devflow:review pass or a review-and-fix loop, never both. The jq collapses the
+# run-level `source` to the first non-null (per-iter verdicts still key off each
+# iter's own source), so a mixed-source run would silently mislabel the record.
+# That input is not currently produced; warn (don't fail) if it ever appears.
+# An ABSENT per-iter source counts as the run-level default ("review-and-fix",
+# matching the jq's `// "review-and-fix"`), so a `review` iter mixed with a
+# source-less one is correctly flagged as mixed — a bare `.source // empty` would
+# drop the absent iter from the set and stay silent on that real mix.
+if [ "${#VALID_FILES[@]}" -gt 1 ]; then
+  # No `2>/dev/null` here: VALID_FILES already passed the `type == "object"` gate
+  # above, so this jq cannot fail on malformed input — suppressing its stderr would
+  # only hide a genuine jq malfunction (the project's no-silent-failure stance).
+  # Only a STRING `.source` is a real label; a non-string (array/number/bool from a
+  # malformed write) is bucketed as the default, mirroring verdict_for's `== "review"`
+  # gate — otherwise its JSON rendering would inflate the distinct count into a
+  # false-positive "mixed source" warning.
+  if [ "$(jq -r 'if (.source | type) == "string" then .source else "review-and-fix" end' "${VALID_FILES[@]}" | sort -u | wc -l)" -gt 1 ]; then
+    echo "::warning::efficiency-trace.sh: workpads carry mixed 'source' values; record collapses to the first non-null (a run should be single-source)" >&2
+  fi
+fi
+
 # jq -s over zero files yields null, not []; feed an explicit empty array so the
 # filter (which expects an array) degrades to an empty trace / empty record.
 if [ "${#VALID_FILES[@]}" -eq 0 ]; then

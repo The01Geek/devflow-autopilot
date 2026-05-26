@@ -40,6 +40,17 @@
 #                      (false-positive / web-refuted). Any future `fix_decision`
 #                      value also defaults to `null` unless `verdict_for` is updated.
 #
+# The four buckets above are written in `fix_decision` (review-and-fix) terms.
+# `verdict_for` has a SECOND derivation for standalone-/devflow:review records
+# (run-level `source == "review"`), where there is no `fix_decision`: a finding's
+# `contributed_to_verdict` boolean replaces applied-fix as the effectiveness
+# signal — `noise` = the agent raised findings but none satisfied
+# `contributed_to_verdict == true` (deferral-demoted via explicit `false`, an omitted
+# field, OR a malformed value such as a stringified `"true"` — the strict `== true`
+# gate treats all three as non-contributing),
+# `null` = dispatched but raised nothing. Buckets and precedence are identical;
+# only the discriminator differs. See `verdict_for` for the authoritative logic.
+#
 # Verdict precedence (highest wins, so each agent gets exactly one):
 #   unique-effective > corroborating > noise > null.
 #
@@ -80,15 +91,53 @@ def posture_line($it):
 
 # Classify one agent's findings (an array of phase3_findings rows for that
 # agent in one iteration) into a single verdict.
-def verdict_for($findings):
-  ($findings | map(.fix_decision)) as $decisions
-  | ($findings | map(select(.fix_decision == "applied"))) as $applied
-  # corroboration_count missing → treat as 1 (unique / single-source).
-  | if ($applied | any(((.corroboration_count // 1)) < 2)) then "unique-effective"
-    elif ($applied | length) > 0 then "corroborating"
-    elif ($decisions | any(. == "pushed_back" or . == "advisory")) then "noise"
-    else null
-    end;
+#
+# Two derivations, selected by the `$review_mode` arg (the run-level `source`):
+#   * review-and-fix records carry `fix_decision` (applied/pushed_back/advisory) —
+#     "effective" means the finding led to an APPLIED fix.
+#   * standalone /devflow:review records carry `contributed_to_verdict` (a boolean)
+#     instead — review never fixes, so "effective" means the finding CONTRIBUTED
+#     to the verdict (drove the REJECT or was counted in APPROVE-with-notes), and
+#     `noise` means the agent raised findings but none satisfied
+#     `contributed_to_verdict == true` (explicit `false`, the field absent, or a
+#     malformed value — the strict `== true` gate, see verdict_for). The buckets and precedence
+#     (unique-effective > corroborating > noise > null) are identical; only the
+#     "did it count?" signal differs.
+# `$review_mode` is the run-level discriminator (`source == "review"`), NOT the
+# per-finding field shape. Keying on the run-level source — not on
+# `any(has("contributed_to_verdict"))` — is deliberate: a review-mode agent whose
+# only finding was deferral-demoted may carry `contributed_to_verdict: false` *or*
+# omit it entirely, and a per-finding-presence test would mis-route that whole
+# agent into the fix-loop branch and silently downgrade a real-but-demoted finding
+# from `noise` to `null`. With the run-level key, review-mode `noise` is reached
+# whenever the agent raised findings but none contributed — robust to an omitted
+# field.
+def verdict_for($findings; $review_mode):
+  if $review_mode then
+    # review-mode: contribution-to-verdict replaces applied-fix. A finding counts
+    # as contributing only on explicit `contributed_to_verdict == true`; anything
+    # else (false, the field absent, or a non-boolean/malformed value such as a
+    # stringified "true" from an LLM-authored record) is treated as
+    # non-contributing — the strict `== true` is deliberately the only truthy gate.
+    ($findings | map(select(.contributed_to_verdict == true))) as $contributing
+    | if ($contributing | any(((.corroboration_count // 1)) < 2)) then "unique-effective"
+      elif ($contributing | length) > 0 then "corroborating"
+      # Raised findings but none contributed → noise (handles explicit false AND
+      # an omitted field); no findings at all → null (dispatched but silent).
+      elif ($findings | length) > 0 then "noise"
+      else null
+      end
+  else
+    # review-and-fix mode: applied-fix is the effectiveness signal.
+    ($findings | map(.fix_decision)) as $decisions
+    | ($findings | map(select(.fix_decision == "applied"))) as $applied
+    # corroboration_count missing → treat as 1 (unique / single-source).
+    | if ($applied | any(((.corroboration_count // 1)) < 2)) then "unique-effective"
+      elif ($applied | length) > 0 then "corroborating"
+      elif ($decisions | any(. == "pushed_back" or . == "advisory")) then "noise"
+      else null
+      end
+  end;
 
 # Per-iteration derived view.
 def iter_view:
@@ -136,10 +185,15 @@ def iter_view:
         $roster[] as $agent
         | {
             agent: $agent,
-            verdict: verdict_for([$findings[] | select(finding_agent == $agent)])
+            verdict: verdict_for([$findings[] | select(finding_agent == $agent)]; ($it.source == "review"))
           }
       ],
-      telemetry: ($it.telemetry // null)
+      telemetry: ($it.telemetry // null),
+      # Which skill produced this iteration: "review" (standalone /devflow:review)
+      # vs the default review-and-fix loop. Carried so a cross-run analyzer can
+      # segment effectiveness by originating skill (both write into the same
+      # .devflow/logs/efficiency/ store; the filename does not disambiguate them).
+      source: ($it.source // null)
     };
 
 # ── Build the ordered per-iteration array ───────────────────────────────────
@@ -156,6 +210,15 @@ def iter_view:
       schema_version: 1,
       slug: $slug,
       generated_at: $generated_at,
+      # Originating skill for the whole run, taken from the workpads (each iter
+      # may carry `source`; default to the historical producer when absent so
+      # existing review-and-fix records read unchanged). Assumes one source per
+      # run (a run is either a /devflow:review pass or a review-and-fix loop, never
+      # both) — takes the first non-null. Per-iteration `verdict_for` still keys
+      # off each iter's own `source`, so a (not-currently-produced) mixed-source
+      # run would still classify each iteration correctly even though this
+      # run-level label collapses to one value.
+      source: ($iters | map(.source) | map(select(. != null)) | (.[0] // "review-and-fix")),
       cut_candidate_min_dispatch: $cut_candidate_min_dispatch,
       iterations: ($iters | length),
       per_iteration: ($iters | map({
@@ -193,14 +256,25 @@ def iter_view:
             ["_No iteration workpads were readable — effectiveness trace unavailable._"]
           else
             ($iters | map(
-              [ "### Iteration \(.iter)",
-                "- Diff profile: \(diff_profile_label(.diff_profile))",
-                "- Phase 3 agents dispatched: \(.phase3_dispatched_count)",
-                posture_line(.),
-                "- Fixes applied: \(.fixes_applied)"
-              ]
+              # Review mode (source == "review") never applies fixes — effectiveness is
+              # verdict contribution, not applied fixes. So the fixes-oriented summary and
+              # the "added nothing" warning are review-mode-adapted; otherwise a healthy
+              # review (agents contributed) would print a contradictory "0 fixes — added
+              # nothing" line right below its unique-effective verdicts.
+              (.source == "review") as $review_mode
+              | ([.agent_verdicts[] | select(.verdict == "unique-effective" or .verdict == "corroborating")] | length) as $contributed
+              | [ "### Iteration \(.iter)",
+                  "- Diff profile: \(diff_profile_label(.diff_profile))",
+                  "- Phase 3 agents dispatched: \(.phase3_dispatched_count)",
+                  posture_line(.),
+                  (if $review_mode
+                   then "- Effectiveness signal: verdict contribution (standalone review applies no fixes) — \($contributed) of \(.agent_verdicts | length) agent(s) contributed"
+                   else "- Fixes applied: \(.fixes_applied)" end)
+                ]
               + (.agent_verdicts | map("  - \(.agent) — \(.verdict)") | (if length == 0 then ["- Agent verdicts: (none dispatched)"] else ["- Agent verdicts:"] + . end))
-              + (if .added_nothing then ["- ⚠ Marginal yield: this iteration applied 0 fixes — added nothing."] else [] end)
+              + (if $review_mode
+                 then (if ($contributed == 0 and (.agent_verdicts | length) > 0) then ["- ⚠ Marginal yield: no dispatched agent contributed to the verdict this run."] else [] end)
+                 else (if .added_nothing then ["- ⚠ Marginal yield: this iteration applied 0 fixes — added nothing."] else [] end) end)
               + (if (.phase3_dispatched_present | not) then ["- ⚠ `phase3_dispatched` absent — null agents (dispatched but silent) cannot be shown for this iteration."] else [] end)
               + [""]
             ) | add)

@@ -16,17 +16,24 @@ back to the built-in default `<!-- devflow:workpad -->` when the config file or
 key is absent (so it works with no config).
 
 Usage:
-    workpad.py id        ISSUE
+    workpad.py id        ISSUE [--marker M]
     workpad.py body      COMMENT_ID
     workpad.py patch     COMMENT_ID BODY_FILE
     workpad.py create    ISSUE BODY_FILE
-    workpad.py new-body  ISSUE [--run-link V] [--branch V]
+    workpad.py new-body  ISSUE [--run-link V] [--branch V] [--marker M]
     workpad.py now
-    workpad.py update    ISSUE [mutations...]
+    workpad.py update    ISSUE [mutations...] [--marker M]
 
-`id` exits 1 with empty stdout when no workpad exists yet (so callers can
-detect "first run" via `$?` or an empty captured value, the same shape the
-previous bash helper had).
+Subcommands that locate the workpad by its marker comment (`id`, `new-body`,
+`update`) accept `--marker` to target a non-default marker — /devflow:review
+uses it to drive its own `<!-- devflow:review-progress -->` comment. The flag
+is preferred over the `DEVFLOW_WORKPAD_MARKER` env var: a leading
+env-assignment makes the command un-matchable against the cloud allow-list.
+
+`id` exits 2 with empty stdout when it scanned cleanly but no workpad exists
+yet (so callers can detect "first run" via `$?`); exit 1 is reserved for a
+real gh-api/parse error, so a transient failure is never mistaken for "first
+run" (which would post a duplicate comment).
 
 `update` is the high-level mutation entry point used by /implement at every
 phase boundary. It re-fetches the workpad body, applies the requested
@@ -40,6 +47,7 @@ sections are mutated in place rather than rewritten. See `workpad.py update
 import argparse
 import datetime
 import json
+import os
 import re
 import subprocess
 import sys
@@ -71,7 +79,20 @@ def _repo_full():
 _DEFAULT_WORKPAD_MARKER = '<!-- devflow:workpad -->'
 
 
-def _workpad_marker():
+def _workpad_marker(explicit=None):
+    # An explicit override wins: /devflow:review uses this to target its own
+    # `<!-- devflow:review-progress -->` comment with the same helper, rather
+    # than forking a parallel script. Precedence: the `--marker` CLI flag, then
+    # the `DEVFLOW_WORKPAD_MARKER` env var, then config, then the built-in
+    # default. The flag is preferred over the env var because a leading
+    # env-assignment (`DEVFLOW_WORKPAD_MARKER=… workpad.py …`) makes the command
+    # un-matchable against the cloud allow-list rule `Bash(.../workpad.py:*)`
+    # (the command no longer *starts with* the script path), so those calls are
+    # silently denied on the read-only `review` profile; `--marker` keeps the
+    # path as the command prefix. The env var is retained for back-compat.
+    override = (explicit or '').strip() or os.environ.get('DEVFLOW_WORKPAD_MARKER', '').strip()
+    if override:
+        return override
     # Read the marker from .devflow/config.json, but fall back to the
     # built-in default so the local tier works with no config file at all.
     here = Path(__file__).resolve().parent
@@ -85,7 +106,7 @@ def _workpad_marker():
 
 
 def cmd_id(args):
-    marker = _workpad_marker()
+    marker = _workpad_marker(args.marker)
     repo = _repo_full()
     page = 1
     while True:
@@ -109,7 +130,12 @@ def cmd_id(args):
         if len(items) < 100:
             break
         page += 1
-    sys.exit(1)
+    # Exit 2 (distinct from _fail's exit 1) means "scanned successfully, no
+    # matching comment" — i.e. first run / not yet seeded. A real `gh api` or
+    # parse failure above exits 1 via _fail. Callers can thus tell a benign
+    # "create it" from a transient API error and avoid posting a duplicate
+    # workpad comment on a failure they mistook for "not found".
+    sys.exit(2)
 
 
 def cmd_body(args):
@@ -194,7 +220,7 @@ def cmd_new_body(args):
     Acceptance Criteria are placeholders the orchestrator fills once it begins
     (Phase 2.2 / Phase 1.2). Used by the `gate` job to post the acknowledgment
     before runtime provisioning, and by the local-tier fresh-issue path."""
-    marker = _workpad_marker()
+    marker = _workpad_marker(args.marker)
     now_dt = datetime.datetime.now(datetime.timezone.utc)
     last_updated = now_dt.strftime('%Y-%m-%d %H:%M UTC')
     seed_ts = now_dt.strftime('%H:%M:%S')
@@ -616,7 +642,7 @@ class _UpdateError(Exception):
 def cmd_update(args):
     # Resolve comment ID from the issue. update is stateless for callers.
     # cmd_id prints + sys.exits; we inline the lookup to capture the ID.
-    marker = _workpad_marker()
+    marker = _workpad_marker(args.marker)
     repo = _repo_full()
     comment_id = None
     page = 1
@@ -641,6 +667,12 @@ def cmd_update(args):
             break
         page += 1
     if comment_id is None:
+        # Deliberately exit 1 (not cmd_id's exit-2 "scanned-clean-absent"): unlike
+        # `id`, `update` has no create-fallback to disambiguate toward, so "absent"
+        # here is a caller error (update before create), not a benign first-run
+        # signal. Callers resolve create-vs-resume via `id` (which DOES split 2/1);
+        # `update` only ever runs against an already-resolved workpad, so it does
+        # not carry the exit-2 contract.
         sys.stderr.write(
             f"workpad.py update: no workpad found for issue #{args.issue}; "
             f"call `workpad.py create` first\n"
@@ -817,8 +849,21 @@ def main():
     p = argparse.ArgumentParser(prog='workpad.py')
     sub = p.add_subparsers(dest='cmd', required=True)
 
-    s = sub.add_parser('id', help='Print workpad comment ID for an issue (exit 1 if absent).')
+    # Shared marker-override help. Passing the marker as a regular argument
+    # (rather than via the DEVFLOW_WORKPAD_MARKER env var, which forced a
+    # leading env-assignment onto the command) keeps the helper path as the
+    # command prefix so the cloud allow-list rule `Bash(.../workpad.py:*)`
+    # still matches — /devflow:review relies on this for its
+    # `<!-- devflow:review-progress -->` comment.
+    _marker_help = (
+        'Marker comment that tags this workpad. Overrides the '
+        'DEVFLOW_WORKPAD_MARKER env var and the .devflow/config.json value; '
+        "defaults to '<!-- devflow:workpad -->'."
+    )
+
+    s = sub.add_parser('id', help='Print workpad comment ID for an issue (exit 2 if absent; exit 1 on API/parse error).')
     s.add_argument('issue', type=int)
+    s.add_argument('--marker', default=None, help=_marker_help)
     s.set_defaults(func=cmd_id)
 
     s = sub.add_parser('body', help='Print the body of an existing workpad comment.')
@@ -849,6 +894,7 @@ def main():
                         '"_(local run)_" placeholder when omitted.')
     s.add_argument('--branch', metavar='VALUE', default=None,
                    help='Branch name. Defaults to a "_(creating…)_" placeholder.')
+    s.add_argument('--marker', default=None, help=_marker_help)
     s.set_defaults(func=cmd_new_body)
 
     u = sub.add_parser(
@@ -900,6 +946,7 @@ def main():
     u.add_argument('--set-reproduction-file', metavar='FILE',
                    help='Set the Reproduction section to FILE contents. Inserts '
                         'the section after Acceptance Criteria if missing.')
+    u.add_argument('--marker', default=None, help=_marker_help)
     u.set_defaults(func=cmd_update)
 
     args = p.parse_args()

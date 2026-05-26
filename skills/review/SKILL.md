@@ -21,6 +21,114 @@ You are the review engine orchestrator. Run a four-phase review and present an A
 
 ---
 
+## Live Progress Comment (PR mode)
+
+In **PR mode** (a PR number was provided, or the engine resolved one), and when `devflow_review.live_progress_comment_enabled` is `true` (default), the engine maintains a **live progress comment for this run** — a `devflow:review-progress` comment — and updates it **in place** as it works: a blueprint of the phases up front, then per-phase results (diff classification, checklist counts, each Phase-3 agent's findings as that agent returns, the verdict), finalizing with the report plus the telemetry summary and effectiveness trace. A programmer watching the PR sees findings accrue in real time; afterwards the comment is a complete narrative of that run. Each review run gets its **own** such comment (see *One progress comment per review run* below) — earlier runs' comments remain on the PR as history.
+
+This is the review-side analogue of `/devflow:implement`'s workpad and reuses the **same helper** — `scripts/workpad.py` — pointed at the review marker via the `--marker` flag (a plain argument, so the command still *starts with* the helper path).
+
+**One progress comment per review *run*, not per PR.** Each run seeds its **own** comment and updates only that one; a later run must never re-discover and overwrite an earlier run's comment — the previous reviews stay on the PR as history. This is enforced by a **run-keyed marker**: the marker line carries a per-run discriminator (`run=<id>-<attempt>`), so the find-or-resume lookup only ever matches the *current* run's comment.
+
+Invoke the helper inline by its `${CLAUDE_SKILL_DIR}`-anchored path (cwd-independent, and it resolves to the `.devflow/vendor/devflow/scripts/workpad.py` form the cloud allow-list grants). **Do not route the *executable* through a shell variable (`WP_PY="…"; "$WP_PY" …`) or a leading `VAR=value` env-assignment** — either makes the command no longer *begin with* the allow-listed path, so every call is silently denied under the read-only cloud `review` profile and the live comment never appears. Pass the marker with `--marker "$MARKER"` instead — a variable in *argument* position is fine (the command still starts with the path); only the leading token and an env-assignment prefix break the match:
+
+```bash
+# One progress comment PER REVIEW RUN. The marker carries a run discriminator so a
+# later run never re-discovers (and overwrites) an earlier run's comment — each run
+# seeds its own. In cloud the key is the workflow run id + attempt; locally there is
+# no run id, so it falls back to a UTC timestamp (NOT a constant — a constant would
+# collapse every local review of one PR onto a single comment, defeating per-run
+# isolation on the local PR path). Compute $MARKER ONCE and reuse that exact literal
+# for every call in this run — you hold it in context; do not let it drift between
+# phases. (Re-deriving in cloud yields the same string since the env vars persist;
+# locally the timestamp would change, so reuse the held literal, never recompute.):
+MARKER="<!-- devflow:review-progress run=${GITHUB_RUN_ID:-local-$(date -u +%Y%m%dT%H%M%SZ)}-${GITHUB_RUN_ATTEMPT:-1} -->"
+# Human-facing indicator: a link to THIS run's job, rendered as the comment's `Run`
+# line (same convention as the /devflow:implement workpad). The "/actions/runs/"
+# segment is literal; empty env (a local run outside Actions) → use a plain
+# "_(local run)_" placeholder for the Run line instead of a broken link:
+RUN_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+# Author the body to /tmp. The marker MUST be the body's first line; write it
+# separately (printf) so the rest can stay a quoted heredoc with no expansion of the
+# template's own backticks/`$`. (Bash(cat:*)/Bash(printf:*) are granted under the
+# read-only cloud profile; /tmp is outside the repo tree, so this is not a tree write.)
+printf '%s\n' "$MARKER" > /tmp/review-wp.md
+cat >> /tmp/review-wp.md <<'EOF'
+…review-workpad body, WITHOUT a marker line — the template below, from its `# Devflow Review` H1 down…
+EOF
+# find-or-resume THIS run's comment by its run-keyed marker (a prior run's comment has
+# a different key and is never matched). `id` exit codes: 0 = found (resume — e.g. a
+# mid-run retry after context loss), 2 = scanned cleanly but absent (this run's first
+# write → create), 1 = a real gh-api/parse failure. Branch on the code so a transient
+# API error is NOT mistaken for "first write" (which would post a duplicate for this run):
+# Capture id's stderr to a temp file (NOT /dev/null) so the rc=1 branch can report
+# the *actual* gh-api/parse error rather than a generic "it failed":
+WP=$(${CLAUDE_SKILL_DIR}/../../scripts/workpad.py id "$PR_NUMBER" --marker "$MARKER" 2>/tmp/devflow-rv-id.err); rc=$?
+if [ "$rc" -eq 0 ]; then
+  :                                                                                    # resume $WP (this run's own comment)
+elif [ "$rc" -eq 2 ]; then
+  # this run's first GitHub write — the marker is the body file's first line, so
+  # `create` needs no --marker:
+  WP=$(${CLAUDE_SKILL_DIR}/../../scripts/workpad.py create "$PR_NUMBER" /tmp/review-wp.md)
+else
+  # API error/parse failure (NOT "absent"): skip seeding to avoid a duplicate, but
+  # surface the no-op WITH the captured error so a missing live comment is
+  # diagnosable rather than baffling (mirrors Phase 4.5's no-silent-failure discipline):
+  WP=""
+  echo "::warning::devflow review: live progress-comment seeding failed (workpad.py id rc=$rc): $(cat /tmp/devflow-rv-id.err); continuing without the live comment" >&2
+fi
+# rewrite in place at each phase boundary (only when $WP is set); `patch` targets
+# the comment by its ID, so it needs no marker either. Guard it like the seed: a
+# mid-run patch failure is the feature's most visible failure mode (a frozen
+# comment), so capture rc + stderr and surface a ::warning:: — never silently freeze:
+if [ -n "$WP" ]; then
+  ${CLAUDE_SKILL_DIR}/../../scripts/workpad.py patch "$WP" /tmp/review-wp.md 2>/tmp/devflow-rv-patch.err || \
+    echo "::warning::devflow review: live progress-comment update failed (workpad.py patch rc=$?): $(cat /tmp/devflow-rv-patch.err); the comment may be frozen at an earlier phase — the review continues to its verdict" >&2
+fi
+```
+
+The review body uses its **own section template** (the orchestrator authors it; `workpad.py` only carries it). Rebuild the body from your held state (re-author the `/tmp` file: `printf` the `$MARKER` line, then the template below from its `# Devflow Review` H1 down) and `patch` at each phase boundary — you hold the full run state in context, so a full-body rewrite is simplest and avoids implement-specific section mutations. Substitute `{N}` (PR number), `{RUN_URL}` (the run link computed above; `_(local run)_` when there is no run id), and `{workpad.py now}` (the timestamp) when authoring:
+
+```markdown
+# Devflow Review — PR #{N}
+
+**Status:** 🚀 Reviewing
+**Diff profile:** _(pending Phase 0.5)_
+**Run:** [View run]({RUN_URL})
+**Last updated:** {workpad.py now}
+
+## Blueprint
+- [ ] Classify diff (Phase 0.5)
+- [ ] Generate verification checklist (Phase 1)
+- [ ] Verify checklist (Phase 2)
+- [ ] Review agents (Phase 3)
+- [ ] Aggregate & verdict (Phase 4)
+
+## Findings (live)
+_(Phase-3 findings appear here as each agent returns.)_
+
+## Verdict
+_(pending)_
+```
+
+**Update protocol** (tick the Blueprint box and fill the matching section as each phase completes):
+- **Phase 0.5** → set `Diff profile`, tick *Classify diff*.
+- **Phase 1/1.5** → tick *Generate verification checklist* (note item count).
+- **Phase 2** → tick *Verify checklist*, record `{pass} passed, {fail} failed, {inconclusive} inconclusive`.
+- **Phase 3** → as **each** agent returns, append its findings under `## Findings (live)` and `patch` immediately (this is the real-time surface — do not batch to the end); tick *Review agents* once all return.
+- **Phase 4** → write the verdict + full Phase 4.1 report into the comment, tick *Aggregate & verdict*, flip `Status` to the glyph-mapped terminal state, and append the telemetry summary + effectiveness trace (see Phase 4.5).
+
+**This comment is the report surface.** When the live comment is active, the full Phase 4.1 report lands **in this comment** (the engine authors it incrementally), so Phase 4.4's `gh pr review` body stays the short verdict **stub** pointing at it. Phase 4.4 keys that stub-vs-full choice on whether this skill authored the live comment carrying the report this run (`$WP` set) — **not** on `$GITHUB_ACTIONS`, because the workflow no longer seeds a fallback comment, so a cloud run with the flag off (or a failed seed) has `$GITHUB_ACTIONS == true` yet no report-carrying comment. The body is the stub whenever `$WP` is set (cloud or standalone local PR-mode alike) and the full report otherwise. Reconcile with `.github/workflows/devflow-review.yml`: the workflow must **not** separately seed a `devflow:review-progress` comment — the skill is the sole author, one comment per run keyed by the run-keyed marker.
+
+**Read-only cloud is fine.** The slim cloud `review` profile is read-only for the tree but carries `gh api` / `gh pr comment`, so creating and editing this comment is permitted; only the `.devflow/logs/efficiency/` **file** write is gated to writable runs (see Phase 4.5).
+
+**Gating & fallbacks.**
+- `devflow_review.live_progress_comment_enabled` = `false` → skip the live comment entirely; behave as today (report produced once at the end). Read it via `${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .devflow_review.live_progress_comment_enabled true`.
+- **Non-PR / current-branch mode** → there is no comment surface; render the same blueprint-and-progress narrative incrementally to **chat** as you go, and create no comment.
+- Comment create/patch is **best-effort** — a failure is logged and the review continues to its verdict; never abort the review on a workpad write failure.
+- **Fatal review abort after seeding.** If the review itself hits a fatal error *after* the comment is seeded (e.g. the diff becomes unfetchable mid-run, or an agent dispatch fails irrecoverably) and cannot reach the Phase 4 verdict, do **not** leave the comment frozen in `🚀 Reviewing`. Best-effort `patch` it to a clearly-failed terminal state — flip `Status` to `❌ Review failed`, add a one-line `## Verdict` of `REVIEW INCOMPLETE — <reason>`, and leave the partial Blueprint ticks as-is — before surfacing the failure. This is the skill-owned analogue of the old `devflow-review.yml` `### ❌ Devflow Review Failed` variant (the workflow no longer authors it).
+
+---
+
 ## Phase 0: Setup
 
 ### 0.1 Check for uncommitted changes
@@ -81,6 +189,10 @@ This replaces the bare `gh pr diff` / `git diff` invocation at the top of Phase 
 ### 0.3 Get changed file list
 
 From the diff, extract the list of changed files (use `--name-only` output or parse from PR diff). Store this list — it's needed for Phase 1 and Phase 3.
+
+### 0.3.5 Seed the live progress comment (PR mode)
+
+In PR mode, and when `devflow_review.live_progress_comment_enabled` is `true` (read it via `${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .devflow_review.live_progress_comment_enabled true`), seed **this run's** live progress comment **now** — this is the engine's first GitHub write, so "review started" lands as early as possible. Create a fresh comment for this run, keyed by the run-keyed marker, with the Blueprint template (all boxes unticked) and the `Run` link to this job, per the **Live Progress Comment** section above. Because the marker carries this run's id, the find-or-resume lookup matches **only this run's** comment: on a mid-run retry (`rc=0`) it resumes that same comment; it never resumes or overwrites a **previous** run's comment — those stay on the PR as review history. Thereafter follow the update protocol at each phase boundary. In non-PR mode, or when the flag is off, skip this step (the narrative goes to chat as you proceed, or is produced once at the end, respectively).
 
 ### 0.4 Discover related GitHub issue
 
@@ -620,9 +732,9 @@ Output the full report to the user.
 
 **If — and only if — `$ARGUMENTS` is a PR number** (you are reviewing an actual PR, not the current branch), you MUST also submit the verdict as a formal GitHub Pull Request review so it becomes a visible merge signal. A REJECT verdict that lives only in a comment or in chat output is routinely missed — the PR gets marked ready and merged with the rejection still outstanding. A `--request-changes` review blocks the merge button (or, at minimum, forces an explicit dismissal), which is the behavior we want.
 
-Map the verdict to a `gh pr review` action. **What goes in `--body` depends on whether a separate progress comment already carries the full report** — set `$BODY` accordingly:
+Map the verdict to a `gh pr review` action. **What goes in `--body` depends on whether a progress comment already carries the full report** — set `$BODY` accordingly. The discriminator is *"does a progress comment carrying the full report exist for this run?"* — i.e. **did the skill author the live progress comment this run (`$WP` set)?** — NOT `$GITHUB_ACTIONS`. The skill is now the **sole** author of that comment in every context: `devflow-review.yml` no longer seeds one (it defers to Phase 0.3.5), and the skill authors it even in a standalone local PR-mode run. So keying on `$GITHUB_ACTIONS` would be wrong in two directions — it would double-post locally (where it is false but the skill seeded), and, worse, in a cloud run with `live_progress_comment_enabled = false` (or where the Phase 0.3.5 seed failed) it would be *true* while **no** comment carries the report, leaving the stub pointing at a comment that does not exist and the full report posted nowhere. `$WP` is the single authoritative signal.
 
-- **Workflow context** (`$GITHUB_ACTIONS` == `true` — the auto-trigger workflow or the `@claude` listener): a progress comment posts the full Phase 4.1 report verbatim, so the review body is a short verdict-only **stub**; putting the full report in both places forces reviewers to scroll past two copies. Set `$BODY` to `$STUB`:
+- **A progress comment carries the report** — true when the skill authored the live progress comment this run (PR mode AND `devflow_review.live_progress_comment_enabled` AND the Phase 0.3.5 seed succeeded, i.e. **`$WP` is set**), in cloud or local alike. The full Phase 4.1 report already lives in that comment, so the review body is a short verdict-only **stub**; putting the full report in both places forces reviewers to scroll past two copies. Set `$BODY` to `$STUB`:
 
   ```
   ## Verdict: {VERDICT} — full report in PR comment
@@ -631,7 +743,7 @@ Map the verdict to a `gh pr review` action. **What goes in `--body` depends on w
   > Devflow Review progress comment on this PR.
   ```
 
-- **Standalone context** (`$GITHUB_ACTIONS` unset or not `true` — run directly from an IDE/CLI): there is **no** progress comment, so a stub would point at a comment that does not exist and the full report would live only in chat. Set `$BODY` to the full `$REPORT` from Phase 4.1 so the review itself carries it — one self-contained artifact, no dangling pointer. (The full report begins with its `## Verdict: {VERDICT}` line, so a standalone REJECT starts with `## Verdict: REJECT` — the exact prefix `dismiss-stale-rejections.sh` matches, so a standalone REJECT is still cleared by a later APPROVE.)
+- **No progress comment exists** — **`$WP` is unset**: the live comment is **off** (`live_progress_comment_enabled` false), its seed failed, or this is current-branch/non-PR mode. This now includes **cloud runs with the flag off** (the workflow no longer seeds a fallback comment), not just standalone local runs. A stub would point at a comment that does not exist and the full report would live only in chat (lost entirely in a cloud run), so set `$BODY` to the full `$REPORT` from Phase 4.1 — one self-contained artifact, no dangling pointer. (The full report begins with its `## Verdict: {VERDICT}` line, so a standalone REJECT starts with `## Verdict: REJECT` — the exact prefix `dismiss-stale-rejections.sh` matches, so a standalone REJECT is still cleared by a later APPROVE.)
 
 where `{VERDICT}` is the actual verdict line (e.g. `APPROVE`, `APPROVE with notes`, `APPROVE WITH CAVEAT`, `REJECT`) — reflect what Phase 4.2 decided, do not template-fill literally. The `## Verdict: REJECT` text is load-bearing: `finalize_check` greps for it on the `gh pr comment` fallback path. It appears as the stub's first line AND as a `## Verdict: {VERDICT}` line inside the full `$REPORT`, so the grep matches in either context.
 
@@ -651,6 +763,62 @@ ${CLAUDE_SKILL_DIR}/../../scripts/dismiss-stale-rejections.sh "$ARGUMENTS"
 
 If it exits non-zero (token scope), say so in chat output and that the PR stays blocked until dismissed manually. **A dismissal failure never downgrades the verdict** — the verdict stands; only merge-gate housekeeping failed.
 
+### 4.5 Run telemetry + effectiveness trace
+
+This step is gated by `devflow_review_and_fix.efficiency_telemetry_enabled` (read via `${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .devflow_review_and_fix.efficiency_telemetry_enabled true`; the flag is shared with `/devflow:review-and-fix`). When `false`, skip this step entirely — no telemetry, no trace, no record. It is **independent** of the live-comment flag: the live comment can be on with telemetry off (an incremental narrative with no telemetry/trace block), or vice versa.
+
+When enabled, assemble a **single workpad-shaped object** for this run from state the engine already produced, and write it to `.devflow/tmp/review/<slug>/iter-1.json`. This scratch write is the input `efficiency-trace.sh --mode trace` reads back; it lands in gitignored `.devflow/tmp/` (the same ephemeral-scratch location as Phase 0.2's `diff.patch`), so it does **not** make the trace a tree write and is permitted under the read-only cloud `review` profile — only the durable `--mode record` file under `.devflow/logs/efficiency/` is gated to writable runs.
+
+**Author it with an allow-listed command** — the read-only cloud `review` profile grants `Bash(jq:*)`, `Bash(printf:*)`, and `Bash(cat:*)` but **not** `Bash(tee:*)`, so do not copy Phase 0.2's `… | tee` pattern here (that write rides a `gh pr diff` pipe; this one has no such pipe). Build the object with `jq -n` (or `cat <<'EOF'`/`printf '%s'`) and `>`-redirect it, e.g. `jq -n --argjson findings '…' '{iter:1, source:"review", …}' > .devflow/tmp/review/<slug>/iter-1.json`. The `>` redirect of an allow-listed command head is permitted; a non-allow-listed head like `tee` would be silently denied under the cloud profile and the trace would have no input.
+
+```json
+{
+  "iter": 1,
+  "source": "review",
+  "diff_profile": { … the Phase 0.5 flags … },
+  "checklist": [ { "verification_mode": "lite|agent", "verdict": "…" }, … ],
+  "phase3_dispatched": [ "<agent id>", … ],
+  "phase3_findings": [ { "agent": "<id>", "corroboration_count": N, "contributed_to_verdict": true|false }, … ],
+  "telemetry": { "phase_0_5": {…}, "phase_1": {…}, "phase_2": {…}, "phase_3": {…} }
+}
+```
+
+`source: "review"` is what selects the **review-mode** derivation in `lib/efficiency-trace.jq` (and distinguishes the record from `/devflow:review-and-fix`'s). Because standalone review never applies a fix, each Phase-3 finding carries `contributed_to_verdict` instead of `fix_decision`: set it `true` when the finding counted toward the verdict (drove the REJECT, or was a non-deferral-demoted Important/Suggestion in an APPROVE-with-notes), and `false` when Phase 4.0's deferral match demoted it to Informational. The jq then classifies each agent `unique-effective` / `corroborating` / `noise` / `null` exactly as it does for the fix-loop, but off contribution instead of applied-fix.
+
+Then render the trace and (on a writable run) persist the record, reusing the **same hardened invocation** `/devflow:review-and-fix`'s Loop Exit uses (direct invocation — no `bash` prefix; rc/stderr `::warning::` breadcrumbs; remove-on-rc≠0):
+
+```bash
+LIB="${CLAUDE_SKILL_DIR}/../../lib"
+WORKPAD_DIR=".devflow/tmp/review/<slug>"
+# Trace (renders to chat / the live comment; reads only):
+TELEM="$("$LIB/efficiency-trace.sh" --workpad-dir "$WORKPAD_DIR" --slug "<slug>" --mode trace 2>/tmp/devflow-rv-et.err)"; T_RC=$?
+# Three-way, mirroring /devflow:review-and-fix's Loop Exit: rc≠0 is a failure;
+# rc=0-but-empty stdout (e.g. telemetry flag off, or zero readable workpads) is a
+# benign no-trace — surface it but append nothing, never a blank trace section:
+if [ "$T_RC" -ne 0 ]; then
+  echo "::warning::review effectiveness trace unavailable (rc=$T_RC): $(cat /tmp/devflow-rv-et.err)"; TELEM=""
+elif [ -z "$TELEM" ]; then
+  echo "::warning::review effectiveness trace rendered empty (rc=0, no output — telemetry disabled or no readable workpads); omitting the trace section"
+fi
+
+# Record (WRITABLE runs only — never under the read-only cloud profile). Show the
+# full guard here rather than leaving it to prose: the remove-on-rc≠0/empty step
+# is load-bearing — without it a truncated mid-write or 0-byte record survives into
+# the run's git add -A. (jq emits `empty` on zero iterations, so the file guard is
+# the only thing preventing a 0-byte artifact.)
+RECORD=".devflow/logs/efficiency/<slug>-$(date -u +%Y%m%dT%H%M%SZ).json"
+mkdir -p .devflow/logs/efficiency
+"$LIB/efficiency-trace.sh" --workpad-dir "$WORKPAD_DIR" --slug "<slug>" --mode record > "$RECORD" 2>/tmp/devflow-rv-rec.err; R_RC=$?
+[ "$R_RC" -ne 0 ] && echo "::warning::review effectiveness record failed (rc=$R_RC): $(cat /tmp/devflow-rv-rec.err)"
+{ [ "$R_RC" -ne 0 ] || [ ! -s "$RECORD" ]; } && rm -f "$RECORD"
+```
+
+- **PR mode + live comment on:** append the Run telemetry summary (per-phase `calls`/`tokens`/`wall_clock_s`) and the rendered `$TELEM` trace into the live progress comment's finalization (Phase 4 of the update protocol), so the comment is the single complete surface. The comment edit goes through `gh` — permitted under the read-only cloud profile.
+- **Writable run (local/IDE) only:** run the record block above. **Do not run it — no file write, no `git`/commit — under the read-only cloud `review` profile**; the comment is the cloud surface, the file is writable-run-only.
+- **Telemetry-on with live comment OFF, in a read-only cloud run:** there is no surface — the live comment is disabled and the record file is gated out of cloud. Do **not** silently compute-and-discard: emit a one-line chat note (`::warning::devflow review telemetry enabled but no surface available (live comment disabled, read-only run) — trace not persisted`) so the no-op is visible rather than baffling. In a writable run this combination still writes the record file, so the note is read-only-cloud-only.
+
+Best-effort throughout: a telemetry/trace failure is a `::warning::`, never a downgrade of the verdict.
+
 ---
 
 ## Common Mistakes
@@ -660,6 +828,9 @@ If it exits non-zero (token scope), say so in chat output and that the PR stays 
 - Treating an agent's verbalized confidence as load-bearing — Phase 3.2's corroboration count (mechanical, signature-based) is the stronger signal. A 95%-confident single-source finding is weaker than a 3-of-5 corroborated one.
 - Dispatching `pr-review-toolkit:type-design-analyzer` on a diff where `has_new_types` is false — the gate exists because that analyzer over-fires when the word *class* appears in YAML, markdown, or comments. Honor the gate on every profile, including `engine_self_modifying`.
 - Posting a REJECT verdict only to chat without `gh pr review --request-changes` — Phase 4.4 exists because chat-only rejections get missed and the PR ships anyway.
+- Posting a **second** comment for the **same run**, or re-discovering a **previous** run's comment and overwriting it — there is exactly one such comment **per run**, keyed by the run-keyed marker (`run=<id>-<attempt>`). `workpad.py id --marker "$MARKER"` matches only this run's comment, so resume yields this run's own comment; prior runs' comments stay untouched as history. Reconcile with `devflow-review.yml` so the workflow does not also seed one.
+- Batching Phase-3 findings into the live comment only at the end — append each agent's findings and `patch` **as that agent returns**; the real-time accrual is the whole point of the live comment.
+- Attempting a `.devflow/logs/efficiency/` file write or `git`/commit under the read-only cloud `review` profile — that profile is read-only for the tree; route observability to the PR comment via `gh` and gate the record file to writable runs.
 - Posting an APPROVE without dismissing a prior REJECT's `CHANGES_REQUESTED` review (Phase 4.4 final step) — "the required check is green so it'll merge" is the trap: a sticky changes-request keeps `reviewDecision: CHANGES_REQUESTED` and wedges the PR despite the green check and APPROVE verdict.
 - Paraphrasing Phase 0.5 in a way that loses the `engine_self_modifying` override — the first row keeps the full checklist (no `checklist_skipped`) and all four always-on Phase 3 agents firing on engine-self-modifying diffs, because typos in SKILL.md or agent files silently break every future review. (The override does NOT force-dispatch `type-design-analyzer` / `pr-test-analyzer`; those keep their structural-applicability gates on every profile.)
 - Skipping `/devflow:review-and-fix`'s Step 2.5 web-verification gate for single-source Critical findings — auto-applied fixes from confidently-stated-but-wrong external-tool claims are a known false-positive vector. (This skill itself doesn't run Step 2.5; flag it as a mistake when reviewing changes to `/devflow:review-and-fix`.)
