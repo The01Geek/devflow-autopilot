@@ -930,6 +930,17 @@ assert_eq("parse_payload: non-mapping YAML payload → {}", {},
           match_deferrals._parse_yaml_payload(
               match_deferrals._extract_block(_nonmap_payload)))
 
+# An empty/whitespace-only payload comment (renderer emitted the shell but no body)
+# → {} (loaded is None path), so main()'s payload.get("deferrals") stays safe.
+_empty_payload = """<!-- DEVFLOW_DEFERRED_FINDINGS_START -->
+<!-- DEVFLOW_DEFERRED_PAYLOAD
+
+-->
+<!-- DEVFLOW_DEFERRED_FINDINGS_END -->"""
+assert_eq("parse_payload: empty payload comment → {}", {},
+          match_deferrals._parse_yaml_payload(
+              match_deferrals._extract_block(_empty_payload)))
+
 
 print()
 print(f"{PASS} passed, {FAIL} failed")

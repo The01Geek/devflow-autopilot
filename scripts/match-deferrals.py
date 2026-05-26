@@ -143,6 +143,13 @@ def _parse_yaml_payload(block: str) -> dict:
         sys.stderr.write(f"match-deferrals.py: YAML parse failed: {e}\n")
         return {}
     if loaded is None:
+        # Payload comment present but empty/whitespace-only — same operator-visible
+        # outcome as a missing comment (block present, nothing honored), so warn
+        # for the same diagnosability reason.
+        sys.stderr.write(
+            "match-deferrals.py: DEVFLOW_DEFERRED_PAYLOAD comment is empty; "
+            "ignoring the block\n"
+        )
         return {}
     if not isinstance(loaded, dict):
         sys.stderr.write(
