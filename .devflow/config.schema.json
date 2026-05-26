@@ -111,7 +111,7 @@
       "properties": {
         "live_progress_comment_enabled": {
           "type": "boolean",
-          "description": "When true, a PR-mode /devflow:review authors a single live progress comment (the <!-- devflow:review-progress --> comment) incrementally as it works — a blueprint of the phases up front, then per-phase updates (diff classification, checklist results, each Phase-3 agent's findings as they land, the verdict), finalizing with the run-telemetry summary and effectiveness trace. When false, /devflow:review falls back to producing its report once at the end (no incremental updates). Independent of devflow_review_and_fix.efficiency_telemetry_enabled, which separately gates the embedded telemetry/trace.",
+          "description": "When true, a PR-mode /devflow:review authors a live progress comment for that run (a run-keyed <!-- devflow:review-progress run=<id>-<attempt> --> comment — one per review run, so a later run posts its own rather than overwriting an earlier run's) incrementally as it works — a blueprint of the phases up front, then per-phase updates (diff classification, checklist results, each Phase-3 agent's findings as they land, the verdict), finalizing with the run-telemetry summary and effectiveness trace. When false, /devflow:review falls back to producing its report once at the end (no incremental updates). Independent of devflow_review_and_fix.efficiency_telemetry_enabled, which separately gates the embedded telemetry/trace.",
           "default": true
         }
       }

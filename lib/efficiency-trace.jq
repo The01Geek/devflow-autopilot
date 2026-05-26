@@ -256,14 +256,25 @@ def iter_view:
             ["_No iteration workpads were readable — effectiveness trace unavailable._"]
           else
             ($iters | map(
-              [ "### Iteration \(.iter)",
-                "- Diff profile: \(diff_profile_label(.diff_profile))",
-                "- Phase 3 agents dispatched: \(.phase3_dispatched_count)",
-                posture_line(.),
-                "- Fixes applied: \(.fixes_applied)"
-              ]
+              # Review mode (source == "review") never applies fixes — effectiveness is
+              # verdict contribution, not applied fixes. So the fixes-oriented summary and
+              # the "added nothing" warning are review-mode-adapted; otherwise a healthy
+              # review (agents contributed) would print a contradictory "0 fixes — added
+              # nothing" line right below its unique-effective verdicts.
+              (.source == "review") as $review_mode
+              | ([.agent_verdicts[] | select(.verdict == "unique-effective" or .verdict == "corroborating")] | length) as $contributed
+              | [ "### Iteration \(.iter)",
+                  "- Diff profile: \(diff_profile_label(.diff_profile))",
+                  "- Phase 3 agents dispatched: \(.phase3_dispatched_count)",
+                  posture_line(.),
+                  (if $review_mode
+                   then "- Effectiveness signal: verdict contribution (standalone review applies no fixes) — \($contributed) of \(.agent_verdicts | length) agent(s) contributed"
+                   else "- Fixes applied: \(.fixes_applied)" end)
+                ]
               + (.agent_verdicts | map("  - \(.agent) — \(.verdict)") | (if length == 0 then ["- Agent verdicts: (none dispatched)"] else ["- Agent verdicts:"] + . end))
-              + (if .added_nothing then ["- ⚠ Marginal yield: this iteration applied 0 fixes — added nothing."] else [] end)
+              + (if $review_mode
+                 then (if ($contributed == 0 and (.agent_verdicts | length) > 0) then ["- ⚠ Marginal yield: no dispatched agent contributed to the verdict this run."] else [] end)
+                 else (if .added_nothing then ["- ⚠ Marginal yield: this iteration applied 0 fixes — added nothing."] else [] end) end)
               + (if (.phase3_dispatched_present | not) then ["- ⚠ `phase3_dispatched` absent — null agents (dispatched but silent) cannot be shown for this iteration."] else [] end)
               + [""]
             ) | add)

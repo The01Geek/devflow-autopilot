@@ -99,7 +99,11 @@ if [ "${#VALID_FILES[@]}" -gt 1 ]; then
   # No `2>/dev/null` here: VALID_FILES already passed the `type == "object"` gate
   # above, so this jq cannot fail on malformed input — suppressing its stderr would
   # only hide a genuine jq malfunction (the project's no-silent-failure stance).
-  if [ "$(jq -r '.source // "review-and-fix"' "${VALID_FILES[@]}" | sort -u | wc -l)" -gt 1 ]; then
+  # Only a STRING `.source` is a real label; a non-string (array/number/bool from a
+  # malformed write) is bucketed as the default, mirroring verdict_for's `== "review"`
+  # gate — otherwise its JSON rendering would inflate the distinct count into a
+  # false-positive "mixed source" warning.
+  if [ "$(jq -r 'if (.source | type) == "string" then .source else "review-and-fix" end' "${VALID_FILES[@]}" | sort -u | wc -l)" -gt 1 ]; then
     echo "::warning::efficiency-trace.sh: workpads carry mixed 'source' values; record collapses to the first non-null (a run should be single-source)" >&2
   fi
 fi

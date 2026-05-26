@@ -30,9 +30,10 @@ uses it to drive its own `<!-- devflow:review-progress -->` comment. The flag
 is preferred over the `DEVFLOW_WORKPAD_MARKER` env var: a leading
 env-assignment makes the command un-matchable against the cloud allow-list.
 
-`id` exits 1 with empty stdout when no workpad exists yet (so callers can
-detect "first run" via `$?` or an empty captured value, the same shape the
-previous bash helper had).
+`id` exits 2 with empty stdout when it scanned cleanly but no workpad exists
+yet (so callers can detect "first run" via `$?`); exit 1 is reserved for a
+real gh-api/parse error, so a transient failure is never mistaken for "first
+run" (which would post a duplicate comment).
 
 `update` is the high-level mutation entry point used by /implement at every
 phase boundary. It re-fetches the workpad body, applies the requested

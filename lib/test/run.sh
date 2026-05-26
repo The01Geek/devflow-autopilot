@@ -2059,6 +2059,16 @@ assert_eq "et(#55): stringified \"true\" contributed_to_verdict → noise (stric
 ET_RMIX_TRACE="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_RMIX" --slug "pr-99" --mode trace)"
 assert_eq "et(#55): review-mode verdicts render in --mode trace Markdown" "true" \
   "$(echo "$ET_RMIX_TRACE" | grep -qiE 'corroborating|unique-effective' && echo true || echo false)"
+# Review-mode render (issue #56 review): the fixes-oriented summary/warning lines
+# are adapted for review mode — show the verdict-contribution signal, NOT the
+# misleading "Fixes applied: 0" / fix-based "added nothing" that would contradict
+# the unique-effective/corroborating verdicts a healthy review prints.
+assert_eq "et(#56): review-mode trace shows the verdict-contribution signal" "true" \
+  "$(echo "$ET_RMIX_TRACE" | grep -q 'Effectiveness signal: verdict contribution' && echo true || echo false)"
+assert_eq "et(#56): review-mode trace omits the fixes-oriented 'Fixes applied' line" "true" \
+  "$(echo "$ET_RMIX_TRACE" | grep -q 'Fixes applied' && echo false || echo true)"
+assert_eq "et(#56): review-mode trace (agents contributed) omits the fix-based 'added nothing' warning" "true" \
+  "$(echo "$ET_RMIX_TRACE" | grep -q 'added nothing' && echo false || echo true)"
 rm -rf "$ET_RMIX"
 
 # Multi-iteration run-level source resolution: iter-1 carries no source, iter-2

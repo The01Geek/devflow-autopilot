@@ -34,12 +34,14 @@ Invoke the helper inline by its `${CLAUDE_SKILL_DIR}`-anchored path (cwd-indepen
 ```bash
 # One progress comment PER REVIEW RUN. The marker carries a run discriminator so a
 # later run never re-discovers (and overwrites) an earlier run's comment — each run
-# seeds its own. In cloud the key is the workflow run id + attempt (stable across
-# this run's fresh-shell Bash calls, since the env vars persist, so re-deriving it
-# below yields the same string every phase); locally there is no run id, so it falls
-# back to `local-1`. Compute $MARKER ONCE and reuse that exact literal for every call
-# in this run — you hold it in context; do not let it drift between phases:
-MARKER="<!-- devflow:review-progress run=${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1} -->"
+# seeds its own. In cloud the key is the workflow run id + attempt; locally there is
+# no run id, so it falls back to a UTC timestamp (NOT a constant — a constant would
+# collapse every local review of one PR onto a single comment, defeating per-run
+# isolation on the local PR path). Compute $MARKER ONCE and reuse that exact literal
+# for every call in this run — you hold it in context; do not let it drift between
+# phases. (Re-deriving in cloud yields the same string since the env vars persist;
+# locally the timestamp would change, so reuse the held literal, never recompute.):
+MARKER="<!-- devflow:review-progress run=${GITHUB_RUN_ID:-local-$(date -u +%Y%m%dT%H%M%SZ)}-${GITHUB_RUN_ATTEMPT:-1} -->"
 # Human-facing indicator: a link to THIS run's job, rendered as the comment's `Run`
 # line (same convention as the /devflow:implement workpad). The "/actions/runs/"
 # segment is literal; empty env (a local run outside Actions) → use a plain
@@ -58,7 +60,9 @@ EOF
 # mid-run retry after context loss), 2 = scanned cleanly but absent (this run's first
 # write → create), 1 = a real gh-api/parse failure. Branch on the code so a transient
 # API error is NOT mistaken for "first write" (which would post a duplicate for this run):
-WP=$(${CLAUDE_SKILL_DIR}/../../scripts/workpad.py id "$PR_NUMBER" --marker "$MARKER" 2>/dev/null); rc=$?
+# Capture id's stderr to a temp file (NOT /dev/null) so the rc=1 branch can report
+# the *actual* gh-api/parse error rather than a generic "it failed":
+WP=$(${CLAUDE_SKILL_DIR}/../../scripts/workpad.py id "$PR_NUMBER" --marker "$MARKER" 2>/tmp/devflow-rv-id.err); rc=$?
 if [ "$rc" -eq 0 ]; then
   :                                                                                    # resume $WP (this run's own comment)
 elif [ "$rc" -eq 2 ]; then
@@ -67,14 +71,19 @@ elif [ "$rc" -eq 2 ]; then
   WP=$(${CLAUDE_SKILL_DIR}/../../scripts/workpad.py create "$PR_NUMBER" /tmp/review-wp.md)
 else
   # API error/parse failure (NOT "absent"): skip seeding to avoid a duplicate, but
-  # surface the no-op so a missing live comment is diagnosable rather than baffling
-  # (mirrors Phase 4.5's no-surface ::warning:: discipline — never fail silently):
+  # surface the no-op WITH the captured error so a missing live comment is
+  # diagnosable rather than baffling (mirrors Phase 4.5's no-silent-failure discipline):
   WP=""
-  echo "::warning::devflow review: live progress-comment seeding failed (workpad.py id rc=$rc, gh-api/parse error); continuing without the live comment" >&2
+  echo "::warning::devflow review: live progress-comment seeding failed (workpad.py id rc=$rc): $(cat /tmp/devflow-rv-id.err); continuing without the live comment" >&2
 fi
 # rewrite in place at each phase boundary (only when $WP is set); `patch` targets
-# the comment by its ID, so it needs no marker either:
-[ -n "$WP" ] && ${CLAUDE_SKILL_DIR}/../../scripts/workpad.py patch "$WP" /tmp/review-wp.md # each update
+# the comment by its ID, so it needs no marker either. Guard it like the seed: a
+# mid-run patch failure is the feature's most visible failure mode (a frozen
+# comment), so capture rc + stderr and surface a ::warning:: — never silently freeze:
+if [ -n "$WP" ]; then
+  ${CLAUDE_SKILL_DIR}/../../scripts/workpad.py patch "$WP" /tmp/review-wp.md 2>/tmp/devflow-rv-patch.err || \
+    echo "::warning::devflow review: live progress-comment update failed (workpad.py patch rc=$?): $(cat /tmp/devflow-rv-patch.err); the comment may be frozen at an earlier phase — the review continues to its verdict" >&2
+fi
 ```
 
 The review body uses its **own section template** (the orchestrator authors it; `workpad.py` only carries it). Rebuild the body from your held state (re-author the `/tmp` file: `printf` the `$MARKER` line, then the template below from its `# Devflow Review` H1 down) and `patch` at each phase boundary — you hold the full run state in context, so a full-body rewrite is simplest and avoids implement-specific section mutations. Substitute `{N}` (PR number), `{RUN_URL}` (the run link computed above; `_(local run)_` when there is no run id), and `{workpad.py now}` (the timestamp) when authoring:
@@ -781,7 +790,14 @@ LIB="${CLAUDE_SKILL_DIR}/../../lib"
 WORKPAD_DIR=".devflow/tmp/review/<slug>"
 # Trace (renders to chat / the live comment; reads only):
 TELEM="$("$LIB/efficiency-trace.sh" --workpad-dir "$WORKPAD_DIR" --slug "<slug>" --mode trace 2>/tmp/devflow-rv-et.err)"; T_RC=$?
-[ "$T_RC" -ne 0 ] && echo "::warning::review effectiveness trace unavailable (rc=$T_RC): $(cat /tmp/devflow-rv-et.err)"
+# Three-way, mirroring /devflow:review-and-fix's Loop Exit: rc≠0 is a failure;
+# rc=0-but-empty stdout (e.g. telemetry flag off, or zero readable workpads) is a
+# benign no-trace — surface it but append nothing, never a blank trace section:
+if [ "$T_RC" -ne 0 ]; then
+  echo "::warning::review effectiveness trace unavailable (rc=$T_RC): $(cat /tmp/devflow-rv-et.err)"; TELEM=""
+elif [ -z "$TELEM" ]; then
+  echo "::warning::review effectiveness trace rendered empty (rc=0, no output — telemetry disabled or no readable workpads); omitting the trace section"
+fi
 
 # Record (WRITABLE runs only — never under the read-only cloud profile). Show the
 # full guard here rather than leaving it to prose: the remove-on-rc≠0/empty step

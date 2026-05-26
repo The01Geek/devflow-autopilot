@@ -88,7 +88,7 @@ def make_args(**overrides):
         tick_progress=[], tick_plan=[], tick_ac=[],
         rewrite_ac=None,
         replace_plan_file=None, replace_acs_file=None, set_reproduction_file=None,
-        note=[], reflection=[],
+        note=[], reflection=[], marker=None,
     )
     base.update(overrides)
     return argparse.Namespace(**base)
@@ -185,6 +185,9 @@ import subprocess as _subprocess  # noqa: E402
 
 
 class _FakeRun:
+    # Models ONLY `.stdout` — the sole `_run(...)` attribute cmd_id/cmd_update read
+    # on the success path. A consumer that later reads `.returncode`/`.stderr` would
+    # hit an opaque AttributeError here; extend this double (and this note) if so.
     def __init__(self, stdout):
         self.stdout = stdout
 
@@ -278,6 +281,58 @@ assert_eq("cmd_id: pagination actually fetched a 2nd page", 2, _ncalls)
 _code, _, _ncalls = _cmd_id_paginated([_full_page, _json.dumps([])])
 assert_eq("cmd_id: full page then short no-match page → exit 2 (absent)", 2, _code)
 assert_eq("cmd_id: absent-after-pagination terminated at 2 pages", 2, _ncalls)
+
+
+print("workpad --marker argv → resolver wiring (issue #56 review)")
+
+# End-to-end wiring: prove cmd_id AND cmd_update pass `args.marker` to
+# `_workpad_marker`. The other marker tests call `_workpad_marker(...)` directly, so
+# a regression reverting the call sites to a no-arg `_workpad_marker()` (dropping
+# args.marker) would pass all of them yet silently break the cloud /devflow:review
+# path, where the run-keyed marker is supplied only via --marker. Capture the
+# explicit arg the resolver receives.
+_cap = {}
+
+
+def _capture_marker(explicit=None):
+    _cap['explicit'] = explicit
+    return explicit or workpad._DEFAULT_WORKPAD_MARKER
+
+
+def _boom_repo():
+    # cmd_update resolves the marker (args.marker) BEFORE _repo_full; bail here so
+    # the test asserts the wiring without mocking the whole id→fetch→patch flow.
+    raise SystemExit(99)
+
+
+_CUSTOM = '<!-- devflow:review-progress run=test-1 -->'
+_saved = (workpad._workpad_marker, workpad._repo_full, workpad._run)
+try:
+    workpad._workpad_marker = _capture_marker
+    workpad._repo_full = lambda: 'owner/repo'
+    # cmd_id: a comment whose body starts with the custom marker must be found via
+    # args.marker (capturing resolver returns the explicit arg).
+    workpad._run = lambda cmd, **kw: _FakeRun(_json.dumps([{"id": 42, "body": _CUSTOM + "\nx"}]))
+    _out = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(_out), contextlib.redirect_stderr(io.StringIO()):
+            workpad.cmd_id(argparse.Namespace(issue=1, marker=_CUSTOM))
+    except SystemExit:
+        pass
+    assert_eq("cmd_id: --marker argv reaches the resolver", _CUSTOM, _cap.get('explicit'))
+    assert_eq("cmd_id: comment matched via the --marker value", "42", _out.getvalue().strip())
+
+    # cmd_update: same wiring — capture the explicit arg, then bail at _repo_full.
+    _cap.clear()
+    workpad._repo_full = _boom_repo
+    try:
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            workpad.cmd_update(make_args(issue=1, marker=_CUSTOM))
+    except SystemExit:
+        pass
+    assert_eq("cmd_update: --marker argv reaches the resolver", _CUSTOM, _cap.get('explicit'))
+finally:
+    workpad._workpad_marker, workpad._repo_full, workpad._run = _saved
 
 
 print("workpad._apply_mutations")
