@@ -206,11 +206,13 @@ what a cross-run analyzer uses to segment by originating skill.
 
 **Live progress comment + read-only cloud.** In PR mode (and when
 `devflow_review.live_progress_comment_enabled` is `true`, the default), `/devflow:review` authors a
-single `<!-- devflow:review-progress -->` comment incrementally — a blueprint of the phases, then
+`devflow:review-progress` comment incrementally — a blueprint of the phases, then
 per-phase results and each Phase-3 agent's findings as they land, finalizing with the verdict, the
-full report, and the telemetry summary + effectiveness trace. It reuses `scripts/workpad.py` via the
-helper's `--marker` flag (passed as a plain argument so the command still starts with the allow-listed
-helper path) rather than a parallel helper. The slim
+full report, and the telemetry summary + effectiveness trace. One such comment is seeded **per review
+run**, keyed by a run-keyed marker (`<!-- devflow:review-progress run=<id>-<attempt> -->`) carrying a
+link to that job, so a later run never overwrites an earlier run's comment. It reuses
+`scripts/workpad.py` via the helper's `--marker` flag (passed as a plain argument so the command still
+starts with the allow-listed helper path) rather than a parallel helper. The slim
 cloud `review` profile is read-only for the tree but grants `gh api` / `gh pr comment`, so the comment
 edits are permitted there; the per-run record **file** write is gated to writable (local/IDE) runs —
 under the read-only cloud profile the trace renders into the comment only, and no file/tree write or

@@ -147,8 +147,11 @@ phase boundary; Phase 4.5 finalizes it).
   seeds, templates, or PATCHes a competing progress comment — its prompt just
   runs the skill against the PR. The earlier per-phase PATCH choreography that
   lived in the workflow now lives in the skill. Exactly one such comment exists
-  per PR; the engine detects-or-resumes it (`workpad.py id`) rather than posting
-  a second.
+  **per review run**: each run seeds its own, keyed by a run-keyed marker
+  (`<!-- devflow:review-progress run=<id>-<attempt> -->`) and carrying a link to
+  that job, so `workpad.py id --marker …` resolves only the current run's comment
+  — earlier runs' comments are never overwritten and stay on the PR as review
+  history.
 - Phase 4.4's `gh pr review` stays the authoritative merge signal (a short
   verdict stub); the live comment is the human-readable narrative pointing at it.
   The final comment state reflects the actual verdict — never a green check above

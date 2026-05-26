@@ -23,29 +23,46 @@ You are the review engine orchestrator. Run a four-phase review and present an A
 
 ## Live Progress Comment (PR mode)
 
-In **PR mode** (a PR number was provided, or the engine resolved one), and when `devflow_review.live_progress_comment_enabled` is `true` (default), the engine maintains a **single live progress comment** on the PR — the `<!-- devflow:review-progress -->` comment — and updates it **in place** as it works: a blueprint of the phases up front, then per-phase results (diff classification, checklist counts, each Phase-3 agent's findings as that agent returns, the verdict), finalizing with the report plus the telemetry summary and effectiveness trace. A programmer watching the PR sees findings accrue in real time; afterwards the comment is a complete narrative of the run.
+In **PR mode** (a PR number was provided, or the engine resolved one), and when `devflow_review.live_progress_comment_enabled` is `true` (default), the engine maintains a **live progress comment for this run** — a `devflow:review-progress` comment — and updates it **in place** as it works: a blueprint of the phases up front, then per-phase results (diff classification, checklist counts, each Phase-3 agent's findings as that agent returns, the verdict), finalizing with the report plus the telemetry summary and effectiveness trace. A programmer watching the PR sees findings accrue in real time; afterwards the comment is a complete narrative of that run. Each review run gets its **own** such comment (see *One progress comment per review run* below) — earlier runs' comments remain on the PR as history.
 
-This is the review-side analogue of `/devflow:implement`'s workpad and reuses the **same helper** — `scripts/workpad.py` — pointed at the review marker via the `--marker` flag (a plain argument, so the command still *starts with* the helper path):
+This is the review-side analogue of `/devflow:implement`'s workpad and reuses the **same helper** — `scripts/workpad.py` — pointed at the review marker via the `--marker` flag (a plain argument, so the command still *starts with* the helper path).
 
-Invoke the helper inline by its `${CLAUDE_SKILL_DIR}`-anchored path (cwd-independent, and it resolves to the `.devflow/vendor/devflow/scripts/workpad.py` form the cloud allow-list grants). **Do not route it through a shell variable (`WP_PY="…"; "$WP_PY" …`) or a leading `VAR=value` env-assignment** — either makes the command no longer *begin with* the allow-listed path, so every call is silently denied under the read-only cloud `review` profile and the live comment never appears. Pass the marker with `--marker` instead (a bare `scripts/workpad.py`, an env-assignment prefix, or a `"$WP_PY"`-style variable would each match neither):
+**One progress comment per review *run*, not per PR.** Each run seeds its **own** comment and updates only that one; a later run must never re-discover and overwrite an earlier run's comment — the previous reviews stay on the PR as history. This is enforced by a **run-keyed marker**: the marker line carries a per-run discriminator (`run=<id>-<attempt>`), so the find-or-resume lookup only ever matches the *current* run's comment.
+
+Invoke the helper inline by its `${CLAUDE_SKILL_DIR}`-anchored path (cwd-independent, and it resolves to the `.devflow/vendor/devflow/scripts/workpad.py` form the cloud allow-list grants). **Do not route the *executable* through a shell variable (`WP_PY="…"; "$WP_PY" …`) or a leading `VAR=value` env-assignment** — either makes the command no longer *begin with* the allow-listed path, so every call is silently denied under the read-only cloud `review` profile and the live comment never appears. Pass the marker with `--marker "$MARKER"` instead — a variable in *argument* position is fine (the command still starts with the path); only the leading token and an env-assignment prefix break the match:
 
 ```bash
-# Author the body to /tmp with a quoted heredoc (no Write tool needed — works
-# under the read-only cloud profile, which grants Bash(cat:*); /tmp is outside
-# the repo tree, so this is not a tree write):
-cat > /tmp/review-wp.md <<'EOF'
-…review-workpad body (template below)…
+# One progress comment PER REVIEW RUN. The marker carries a run discriminator so a
+# later run never re-discovers (and overwrites) an earlier run's comment — each run
+# seeds its own. In cloud the key is the workflow run id + attempt (stable across
+# this run's fresh-shell Bash calls, since the env vars persist, so re-deriving it
+# below yields the same string every phase); locally there is no run id, so it falls
+# back to `local-1`. Compute $MARKER ONCE and reuse that exact literal for every call
+# in this run — you hold it in context; do not let it drift between phases:
+MARKER="<!-- devflow:review-progress run=${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1} -->"
+# Human-facing indicator: a link to THIS run's job, rendered as the comment's `Run`
+# line (same convention as the /devflow:implement workpad). The "/actions/runs/"
+# segment is literal; empty env (a local run outside Actions) → use a plain
+# "_(local run)_" placeholder for the Run line instead of a broken link:
+RUN_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+# Author the body to /tmp. The marker MUST be the body's first line; write it
+# separately (printf) so the rest can stay a quoted heredoc with no expansion of the
+# template's own backticks/`$`. (Bash(cat:*)/Bash(printf:*) are granted under the
+# read-only cloud profile; /tmp is outside the repo tree, so this is not a tree write.)
+printf '%s\n' "$MARKER" > /tmp/review-wp.md
+cat >> /tmp/review-wp.md <<'EOF'
+…review-workpad body, WITHOUT a marker line — the template below, from its `# Devflow Review` H1 down…
 EOF
-# find-or-detect (PR comments live under the issues API; a PR number works here).
-# `id` distinguishes its exit codes: 0 = found (resume it), 2 = scanned cleanly
-# but absent (first run → create), 1 = a real gh-api/parse failure. Branch on the
-# code so a transient API error is NOT mistaken for "first run" (which would post
-# a duplicate comment — forbidden, exactly one per PR):
-WP=$(${CLAUDE_SKILL_DIR}/../../scripts/workpad.py id "$PR_NUMBER" --marker '<!-- devflow:review-progress -->' 2>/dev/null); rc=$?
+# find-or-resume THIS run's comment by its run-keyed marker (a prior run's comment has
+# a different key and is never matched). `id` exit codes: 0 = found (resume — e.g. a
+# mid-run retry after context loss), 2 = scanned cleanly but absent (this run's first
+# write → create), 1 = a real gh-api/parse failure. Branch on the code so a transient
+# API error is NOT mistaken for "first write" (which would post a duplicate for this run):
+WP=$(${CLAUDE_SKILL_DIR}/../../scripts/workpad.py id "$PR_NUMBER" --marker "$MARKER" 2>/dev/null); rc=$?
 if [ "$rc" -eq 0 ]; then
-  :                                                                                    # resume $WP
+  :                                                                                    # resume $WP (this run's own comment)
 elif [ "$rc" -eq 2 ]; then
-  # first GitHub write — the marker is embedded as the body file's first line, so
+  # this run's first GitHub write — the marker is the body file's first line, so
   # `create` needs no --marker:
   WP=$(${CLAUDE_SKILL_DIR}/../../scripts/workpad.py create "$PR_NUMBER" /tmp/review-wp.md)
 else
@@ -60,14 +77,14 @@ fi
 [ -n "$WP" ] && ${CLAUDE_SKILL_DIR}/../../scripts/workpad.py patch "$WP" /tmp/review-wp.md # each update
 ```
 
-The review body uses its **own section template** (the orchestrator authors it; `workpad.py` only carries it). Rebuild the body from your held state (re-author the `/tmp` file with the heredoc above) and `patch` at each phase boundary — you hold the full run state in context, so a full-body rewrite is simplest and avoids implement-specific section mutations:
+The review body uses its **own section template** (the orchestrator authors it; `workpad.py` only carries it). Rebuild the body from your held state (re-author the `/tmp` file: `printf` the `$MARKER` line, then the template below from its `# Devflow Review` H1 down) and `patch` at each phase boundary — you hold the full run state in context, so a full-body rewrite is simplest and avoids implement-specific section mutations. Substitute `{N}` (PR number), `{RUN_URL}` (the run link computed above; `_(local run)_` when there is no run id), and `{workpad.py now}` (the timestamp) when authoring:
 
 ```markdown
-<!-- devflow:review-progress -->
 # Devflow Review — PR #{N}
 
 **Status:** 🚀 Reviewing
 **Diff profile:** _(pending Phase 0.5)_
+**Run:** [View run]({RUN_URL})
 **Last updated:** {workpad.py now}
 
 ## Blueprint
@@ -91,7 +108,7 @@ _(pending)_
 - **Phase 3** → as **each** agent returns, append its findings under `## Findings (live)` and `patch` immediately (this is the real-time surface — do not batch to the end); tick *Review agents* once all return.
 - **Phase 4** → write the verdict + full Phase 4.1 report into the comment, tick *Aggregate & verdict*, flip `Status` to the glyph-mapped terminal state, and append the telemetry summary + effectiveness trace (see Phase 4.5).
 
-**This comment is the report surface.** When the live comment is active, the full Phase 4.1 report lands **in this comment** (the engine authors it incrementally), so Phase 4.4's `gh pr review` body stays the short verdict **stub** pointing at it. Phase 4.4 keys that stub-vs-full choice on whether a progress comment carrying the report exists — `$GITHUB_ACTIONS == true` **or** this skill having authored the live comment (`$WP` set) — so the body is the stub whenever this comment was authored, including in a standalone local PR-mode run (not only the workflow context). Reconcile with `.github/workflows/devflow-review.yml`: the workflow must **not** separately seed a second `devflow:review-progress` comment when the skill authors it. (Forward-looking: a gate/setup step *may* pre-seed the lean blueprint for the earliest acknowledgment, mirroring `/devflow:implement` — but no review-side gate does this today, so in practice the skill is the first and only author; the resume-vs-create branch above still applies unchanged if such a pre-seed is ever added.)
+**This comment is the report surface.** When the live comment is active, the full Phase 4.1 report lands **in this comment** (the engine authors it incrementally), so Phase 4.4's `gh pr review` body stays the short verdict **stub** pointing at it. Phase 4.4 keys that stub-vs-full choice on whether a progress comment carrying the report exists — `$GITHUB_ACTIONS == true` **or** this skill having authored the live comment (`$WP` set) — so the body is the stub whenever this comment was authored, including in a standalone local PR-mode run (not only the workflow context). Reconcile with `.github/workflows/devflow-review.yml`: the workflow must **not** separately seed a `devflow:review-progress` comment — the skill is the sole author, one comment per run keyed by the run-keyed marker.
 
 **Read-only cloud is fine.** The slim cloud `review` profile is read-only for the tree but carries `gh api` / `gh pr comment`, so creating and editing this comment is permitted; only the `.devflow/logs/efficiency/` **file** write is gated to writable runs (see Phase 4.5).
 
@@ -166,7 +183,7 @@ From the diff, extract the list of changed files (use `--name-only` output or pa
 
 ### 0.3.5 Seed the live progress comment (PR mode)
 
-In PR mode, and when `devflow_review.live_progress_comment_enabled` is `true` (read it via `${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .devflow_review.live_progress_comment_enabled true`), seed the live progress comment **now** — this is the engine's first GitHub write, so "review started" lands as early as possible. Detect-or-create the `<!-- devflow:review-progress -->` comment with the Blueprint template (all boxes unticked), per the **Live Progress Comment** section above. If a gate/setup step already pre-seeded a lean blueprint comment, resume it (`workpad.py id`) instead of posting a second one. Thereafter follow the update protocol at each phase boundary. In non-PR mode, or when the flag is off, skip this step (the narrative goes to chat as you proceed, or is produced once at the end, respectively).
+In PR mode, and when `devflow_review.live_progress_comment_enabled` is `true` (read it via `${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .devflow_review.live_progress_comment_enabled true`), seed **this run's** live progress comment **now** — this is the engine's first GitHub write, so "review started" lands as early as possible. Create a fresh comment for this run, keyed by the run-keyed marker, with the Blueprint template (all boxes unticked) and the `Run` link to this job, per the **Live Progress Comment** section above. Because the marker carries this run's id, the find-or-resume lookup matches **only this run's** comment: on a mid-run retry (`rc=0`) it resumes that same comment; it never resumes or overwrites a **previous** run's comment — those stay on the PR as review history. Thereafter follow the update protocol at each phase boundary. In non-PR mode, or when the flag is off, skip this step (the narrative goes to chat as you proceed, or is produced once at the end, respectively).
 
 ### 0.4 Discover related GitHub issue
 
@@ -793,7 +810,7 @@ Best-effort throughout: a telemetry/trace failure is a `::warning::`, never a do
 - Treating an agent's verbalized confidence as load-bearing — Phase 3.2's corroboration count (mechanical, signature-based) is the stronger signal. A 95%-confident single-source finding is weaker than a 3-of-5 corroborated one.
 - Dispatching `pr-review-toolkit:type-design-analyzer` on a diff where `has_new_types` is false — the gate exists because that analyzer over-fires when the word *class* appears in YAML, markdown, or comments. Honor the gate on every profile, including `engine_self_modifying`.
 - Posting a REJECT verdict only to chat without `gh pr review --request-changes` — Phase 4.4 exists because chat-only rejections get missed and the PR ships anyway.
-- Posting a **second** `devflow:review-progress` comment when the skill is authoring the live one — there is exactly one such comment per PR; detect-or-resume it (`workpad.py id`) and reconcile with `devflow-review.yml` so the workflow does not also seed one.
+- Posting a **second** comment for the **same run**, or re-discovering a **previous** run's comment and overwriting it — there is exactly one such comment **per run**, keyed by the run-keyed marker (`run=<id>-<attempt>`). `workpad.py id --marker "$MARKER"` matches only this run's comment, so resume yields this run's own comment; prior runs' comments stay untouched as history. Reconcile with `devflow-review.yml` so the workflow does not also seed one.
 - Batching Phase-3 findings into the live comment only at the end — append each agent's findings and `patch` **as that agent returns**; the real-time accrual is the whole point of the live comment.
 - Attempting a `.devflow/logs/efficiency/` file write or `git`/commit under the read-only cloud `review` profile — that profile is read-only for the tree; route observability to the PR comment via `gh` and gate the record file to writable runs.
 - Posting an APPROVE without dismissing a prior REJECT's `CHANGES_REQUESTED` review (Phase 4.4 final step) — "the required check is green so it'll merge" is the trap: a sticky changes-request keeps `reviewDecision: CHANGES_REQUESTED` and wedges the PR despite the green check and APPROVE verdict.

@@ -464,9 +464,10 @@ jobs:
         **Run `/devflow:review` by reading and following
         `.devflow/vendor/devflow/skills/review/SKILL.md` exactly.** That
         skill now **owns the live progress comment end-to-end** (see its
-        "Live Progress Comment" section): in PR mode it seeds the single
-        `<!-- devflow:review-progress -->` comment as its first GitHub
-        write (Phase 0.3.5), updates it in place at every phase boundary —
+        "Live Progress Comment" section): in PR mode it seeds **this run's
+        own** `devflow:review-progress` comment (keyed by a run-keyed marker
+        and carrying a link to this job) as its first GitHub write
+        (Phase 0.3.5), updates it in place at every phase boundary —
         including each Phase-3 agent's findings as that agent returns —
         and finalizes it with the verdict, the full Phase 4.1 report, and
         the telemetry + effectiveness trace (Phase 4.5). Your only job is
@@ -480,8 +481,10 @@ jobs:
         competing comment. Let the skill do it.
 
         **Constraints (do not violate):**
-        - Exactly ONE `devflow:review-progress` comment, authored by the
-          skill, edited in place. Never post a second.
+        - Exactly ONE `devflow:review-progress` comment **per run**, authored
+          by the skill and edited in place. Never post a second for this run,
+          and never overwrite a previous run's comment — each run keys its
+          comment by a run-keyed marker, so earlier reviews stay as history.
         - The final state of that comment must reflect the actual verdict
           (the skill's Status glyph + embedded Phase 4.1 report handle
           this) — never a green check above a REJECT.
