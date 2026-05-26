@@ -39,7 +39,7 @@
     "internal_enabled": true,
     "external_enabled": true,
     "release_notes_file": "docs/external/release-notes.md",
-    "documented_label": "Documented"
+    "labels": "Documented"
   },
   "devflow_retrospective": {
     "enabled": true,

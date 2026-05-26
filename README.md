@@ -193,7 +193,7 @@ This creates `.devflow/config.json` from DevFlow's shipped template (only if you
 (`/devflow:init` / `install.sh` write a scoped `.devflow/.gitignore` that ignores only the ephemeral `.devflow/tmp/` scratch — `config.json` itself stays committed, since it now holds working defaults rather than environment-specific IDs, and the cloud tier reads it from the committed tree. Your editor reads `config.schema.json` for autocomplete + field descriptions.) Keys the skills read:
 
 - `docs.internal`, `docs.external` — documentation paths (read by the `/docs` family and `/devflow:implement`).
-- `docs.release_notes_file`, `docs.documented_label` — release-notes path + the label `/devflow:implement` applies after its docs pass.
+- `docs.release_notes_file`, `docs.labels` — release-notes path + the comma-separated list of labels `/devflow:implement` applies after its docs pass (e.g. `"Documented, Shipped"`; each entry trimmed, empty entries dropped).
 - `devflow.workpad_marker` — marker line `/devflow:implement` uses to find/update its single per-issue workpad comment (default `<!-- devflow:workpad -->`).
 - `devflow.allowed_bots` — bot login allowlist; doubles as the **trusted-filer allowlist** for the Scope-Acknowledged Findings contract.
 - `base_branch` — review/merge base (default: repo default branch, else `main`).

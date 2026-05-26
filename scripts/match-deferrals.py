@@ -66,6 +66,7 @@ LINE_DRIFT_TOLERANCE = 25
 WIDENS_SURFACE_TOLERANCE = 10
 BLOCK_START = "<!-- DEVFLOW_DEFERRED_FINDINGS_START -->"
 BLOCK_END = "<!-- DEVFLOW_DEFERRED_FINDINGS_END -->"
+PAYLOAD_START = "<!-- DEVFLOW_DEFERRED_PAYLOAD"
 DEFAULT_CONFIG = ".devflow/config.json"
 
 # Rejection reason codes — mirrored verbatim in skills/review/SKILL.md prose.
@@ -109,17 +110,26 @@ def _extract_block(pr_body: str) -> str | None:
 
 
 def _parse_yaml_payload(block: str) -> dict:
-    """Parse the YAML fenced inside the marked block."""
+    """Parse the YAML payload from the hidden DEVFLOW_DEFERRED_PAYLOAD comment.
+
+    The PR-description renderer shows a human-readable Markdown table inside the
+    START/END markers and stores the exact machine payload in a hidden HTML
+    comment so it stays invisible in the rendered PR body. The schema is
+    unchanged (schema_version + deferrals[]); only the payload's location moved
+    out of a visible ```yaml fence into this comment.
+    """
     try:
         import yaml
     except ImportError:
         _fail("PyYAML required to parse deferred-findings block")
 
-    fence_match = re.search(r"```ya?ml\s*\n(.*?)\n```", block, re.DOTALL)
-    if not fence_match:
+    payload_match = re.search(
+        re.escape(PAYLOAD_START) + r"\s*\n(.*?)\n-->", block, re.DOTALL
+    )
+    if not payload_match:
         return {}
     try:
-        return yaml.safe_load(fence_match.group(1)) or {}
+        return yaml.safe_load(payload_match.group(1)) or {}
     except yaml.YAMLError as e:
         sys.stderr.write(f"match-deferrals.py: YAML parse failed: {e}\n")
         return {}

@@ -21,6 +21,10 @@ Covers areas that are silent-failure-class regressions if they drift:
   ID that must stay stable across regenerations (the verdict engine matches on
   it), and the `PR #<n>` cross-link substring the verdict engine's guard
   validates against ("Do not reformat without updating the matcher").
+- `match_deferrals._extract_block` / `_parse_yaml_payload` — the deferred-findings
+  payload now lives in a hidden DEVFLOW_DEFERRED_PAYLOAD HTML comment (the PR body
+  shows a human-readable table); the matcher must parse the payload from that
+  comment, not the visible table, and degrade gracefully on an absent block.
 
 Run from repo root:
     python3 lib/test/test_python_scripts.py
@@ -49,6 +53,7 @@ def _load(modname: str, path: Path) -> types.ModuleType:
 workpad = _load('workpad', SCRIPTS / 'workpad.py')
 parse_acs = _load('parse_acs', SCRIPTS / 'parse-acs.py')
 file_deferrals = _load('file_deferrals', SCRIPTS / 'file-deferrals.py')
+match_deferrals = _load('match_deferrals', SCRIPTS / 'match-deferrals.py')
 
 
 PASS = 0
@@ -813,6 +818,102 @@ assert_eq("render_issue_body: 'PR #77' cross-link substring present", True, 'PR 
 assert_eq("render_issue_body: references source issue #40", True, '#40' in _body)
 assert_eq("render_issue_body: severity/agent heading", True, '### High — sec' in _body)
 assert_eq("render_issue_body: file:line-range", True, 'a.py:1-2' in _body)
+
+
+print("match_deferrals._extract_block / _parse_yaml_payload (hidden-comment payload)")
+
+# New-format PR body: a human-readable Markdown table is the VISIBLE content
+# inside the START/END markers, and the exact machine payload lives in a hidden
+# DEVFLOW_DEFERRED_PAYLOAD HTML comment (invisible in rendered Markdown). The
+# matcher must parse the payload from the hidden comment, not the visible table.
+NEW_FORMAT_BODY = """## Summary
+- did a thing
+
+## Deferred Findings
+<!-- DEVFLOW_DEFERRED_FINDINGS_START -->
+These review-agent findings were deferred under the Scope-Acknowledged Findings contract.
+
+| Severity | File | Finding | Follow-up |
+| --- | --- | --- | --- |
+| Important | `a.py:10-12` | thing one | #41 |
+| Suggestion | `b.py:5-5` | thing two (no issue) | — |
+
+<!-- DEVFLOW_DEFERRED_PAYLOAD
+schema_version: 1
+deferrals:
+  - id: dfr-aaa111
+    finding:
+      agent: code-reviewer
+      severity: Important
+      file: a.py
+      line_range: [10, 12]
+      symbol: foo
+      kind: bug
+      summary: |
+        thing one
+    reason:
+      category: out-of-scope
+      explanation: |
+        later
+    follow_up:
+      issue: 41
+      url: https://example/issues/41
+      filed_at: 2026-05-26T00:00:00Z
+      filed_by: claude
+  - id: dfr-bbb222
+    finding:
+      agent: code-reviewer
+      severity: Suggestion
+      file: b.py
+      line_range: [5, 5]
+      symbol: bar
+      kind: style
+      summary: |
+        thing two
+    reason:
+      category: claim-quality
+      explanation: |
+        minor
+    follow_up: {}
+-->
+<!-- DEVFLOW_DEFERRED_FINDINGS_END -->
+
+## Test Plan
+- [ ] run it
+"""
+
+_blk = match_deferrals._extract_block(NEW_FORMAT_BODY)
+assert_eq("extract_block: block found between markers", True, _blk is not None)
+assert_eq("extract_block: visible table is inside the block", True, '| Severity |' in _blk)
+_payload = match_deferrals._parse_yaml_payload(_blk)
+_deferrals = _payload.get("deferrals") or []
+assert_eq("parse_payload: schema_version preserved", 1, _payload.get("schema_version"))
+assert_eq("parse_payload: both deferrals extracted from hidden comment", 2, len(_deferrals))
+assert_eq("parse_payload: first id", "dfr-aaa111", _deferrals[0].get("id"))
+assert_eq("parse_payload: first finding file", "a.py",
+          _deferrals[0].get("finding", {}).get("file"))
+assert_eq("parse_payload: first follow_up issue is int", 41,
+          _deferrals[0].get("follow_up", {}).get("issue"))
+# Entry missing follow_up.issue parses fine here — main()'s loop is what skips it
+# silently via REASON_MISSING_FOLLOW_UP_ISSUE (this asserts the data round-trips).
+assert_eq("parse_payload: second entry has no follow_up.issue", None,
+          (_deferrals[1].get("follow_up") or {}).get("issue"))
+
+# The visible table is NOT mistaken for the payload — a body whose block has a
+# table but no hidden payload comment degrades to an empty dict (no crash).
+_no_payload = """<!-- DEVFLOW_DEFERRED_FINDINGS_START -->
+| Severity | File | Finding | Follow-up |
+| --- | --- | --- | --- |
+| Important | `a.py:1-2` | x | #9 |
+<!-- DEVFLOW_DEFERRED_FINDINGS_END -->"""
+assert_eq("parse_payload: block with table but no hidden payload → {}", {},
+          match_deferrals._parse_yaml_payload(
+              match_deferrals._extract_block(_no_payload)))
+
+# Absent block → _extract_block returns None (matcher reports block_present:false,
+# no run failure).
+assert_eq("extract_block: no markers at all → None", None,
+          match_deferrals._extract_block("a PR body with no deferrals section"))
 
 
 print()
