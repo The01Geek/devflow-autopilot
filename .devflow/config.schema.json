@@ -46,7 +46,7 @@
         },
         "effort": {
           "type": "string",
-          "description": "Reasoning effort for the light /devflow:* command path (devflow.yml). 'medium' omits --effort so the model's built-in default applies.",
+          "description": "Reasoning effort for the light /devflow:* command path (devflow.yml). Always passed explicitly via --effort (including 'medium'), so the effort is pinned rather than relying on the model's built-in default.",
           "enum": ["low", "medium", "high", "xhigh", "max"],
           "default": "medium"
         },
@@ -122,7 +122,7 @@
       "properties": {
         "python_version": {
           "type": "string",
-          "description": "setup-python runs ONLY if non-empty. devflow's own helpers currently need Python >= 3.11 with PyYAML, so keep this set until devflow's bash-only refactor lands."
+          "description": "setup-python runs ONLY if non-empty. Config is read by a Node resolver (config-get.sh), NOT Python — but match-deferrals.py and workpad.py still need Python >= 3.11 with PyYAML to parse the YAML deferred-findings/workpad blocks in PR/issue bodies, and those run in the cloud workflows, so keep this set (e.g. '3.11') until those helpers are ported."
         },
         "node_version": {
           "type": "string",
@@ -232,6 +232,11 @@
           "type": "integer",
           "description": "Soft cap on PRs processed per scheduled retrospective run.",
           "default": 500
+        },
+        "diff_byte_cap": {
+          "type": "integer",
+          "description": "Per-PR diff size ceiling (bytes) for the retrospective context bundle (lib/fetch-pr-context.sh). A PR whose embedded diff exceeds this — or whose diff can't be fetched — gets diff: null / diff_truncated: true and the analyst works from changed_files, reviews, and the issue instead. Generated/vendored file bodies (lockfiles, bundles, node_modules/vendor/dist/build) are elided before the cap is applied.",
+          "default": 204800
         },
         "watched_authors": {
           "type": "array",
