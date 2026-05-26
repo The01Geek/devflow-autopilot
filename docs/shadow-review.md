@@ -140,6 +140,37 @@ never overclaims relative to its own parenthetical). The separate
 `coverage: "full"` (the shadow ran fully and *disagreed*) and uses its own dedicated line; it is
 never routed through the `{shadow status}` template.
 
+## Calibration: "shadow agreed, full coverage" is not "nothing left to find"
+
+The in-loop shadow pass **narrows** the gap between the fix loop's self-assessment and an
+independent review — it does not **close** it. Read the strongest possible shadow result,
+`shadow agreed, full coverage`, for exactly what it asserts: *a fresh in-loop sample, run with the
+loop's prior findings withheld from each reviewer prompt, surfaced nothing new this pass.* It does
+**not** assert that there is nothing left to find.
+
+Two structural reasons the gap persists:
+
+- **It is one sample, not a different reviewer population.** The shadow re-runs the *same* engine
+  and the *same* reviewer roster the loop already used; blinding the prompts removes the
+  *already-considered* bias but not the reviewers' shared blind spots. A genuinely independent
+  standalone `/devflow:review` — a separate session, separate accumulated context — samples the
+  space differently and routinely finds things a single in-loop re-sample does not.
+- **The shadow runs against the loop's own accumulated context.** The parent orchestrator that runs
+  the fan-out still carries the iter history; only the per-reviewer prompts are blind. That residual
+  shared state is a far smaller bias than a degraded single-agent self-check, but it is not zero.
+
+**Evidence.** On PR #58 itself — the PR that made the shadow pass parent-orchestrated and
+fail-closed — the in-loop shadow agreed with full coverage, yet a subsequent standalone
+`/devflow:review` run surfaced ~7 hardening items the in-loop shadow had not caught (none Critical;
+they became the follow-up tracked in issue #61). That is the calibration in a single data point:
+"shadow agreed, full coverage" meant the in-loop re-sample found nothing new, **not** that the PR
+was exhaustively reviewed.
+
+The practical consequence: a clean shadow result is a real signal that the loop converged honestly,
+but the human gate — and, for a formal merge signal, a separate `/devflow:review <PR>` run — remains
+the exhaustiveness check. The shadow makes that separate run *cheaper to skip when low-stakes*, never
+*safe to assume unnecessary*.
+
 ## Cost
 
 The shadow pass roughly **doubles** the cost of a converging run — one full engine pass that does
