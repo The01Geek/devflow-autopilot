@@ -258,6 +258,19 @@ assert_eq "max_iterations clamp: float → 5"                    "5"  "$(maxi_cl
 assert_eq "max_iterations clamp: empty → 5"                    "5"  "$(maxi_clamp '')"
 assert_eq "max_iterations clamp: resolver failure (rc≠0) → 5"  "5"  "$(maxi_clamp '' 2)"
 
+# Drift guard: maxi_clamp above is a hand-maintained copy of the SKILL's inline
+# clamp, so the clamp assertions would keep passing even if the *shipped* clamp in
+# SKILL.md were edited. Pin the load-bearing tokens in the real SKILL so a change to
+# the regex (negative-aware), the below-1 floor, or the default-5 fallback fails here
+# instead of silently passing against the copy.
+MAXI_SKILL="$LIB/../skills/review-and-fix/SKILL.md"
+assert_eq "max_iterations clamp: SKILL keeps the negative-aware integer regex" "yes" \
+  "$(grep -qF "'^-?[0-9]+\$'" "$MAXI_SKILL" && echo yes || echo no)"
+assert_eq "max_iterations clamp: SKILL keeps the below-1 floor" "yes" \
+  "$(grep -qF '"$MAX_ITERS" -lt 1' "$MAXI_SKILL" && echo yes || echo no)"
+assert_eq "max_iterations clamp: SKILL keeps the default-5 fallback" "yes" \
+  "$(grep -qF 'MAX_ITERS=5' "$MAXI_SKILL" && echo yes || echo no)"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "scaffold-config.sh"
 # ────────────────────────────────────────────────────────────────────────────

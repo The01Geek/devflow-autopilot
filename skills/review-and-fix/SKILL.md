@@ -211,6 +211,12 @@ The workpad is best-effort and informational. A write failure should not abort t
 
 ```bash
 MAX_ITERS=$("${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh" .devflow_review_and_fix.max_iterations 5 2>/tmp/devflow-maxiter.err); MAX_ITERS_RC=$?
+# Surface a genuine resolver failure (missing `node`, malformed config.json) in the
+# Actions UI rather than swallowing it into a silent default — mirrors the
+# effectiveness-trace gate's `::warning::` on a non-zero read.
+if [ "$MAX_ITERS_RC" -ne 0 ]; then
+  echo "::warning::devflow review-and-fix max_iterations read failed (rc=$MAX_ITERS_RC): $(cat /tmp/devflow-maxiter.err) — using default 5"
+fi
 # Fallback to the default 5 on any resolver failure (rc≠0 → empty stdout) or a
 # non-integer/empty value; clamp a configured value below 1 up to 1 so the loop
 # always runs at least once. No upper bound is imposed — any integer ≥ 1 is honored.
