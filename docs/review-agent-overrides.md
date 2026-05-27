@@ -16,8 +16,11 @@ pass of `/devflow:implement`).
 
 ## The nine configurable identifiers
 
-The override keys are byte-identical to the telemetry identifiers (`phase3_dispatched`, each
-finding's `agent`) so config, dispatch, and the effectiveness trace stay aligned:
+The override keys are byte-identical to the subagent identifiers the engine dispatches under, so
+config, dispatch, and the effectiveness trace stay aligned. The six Phase-3 keys appear verbatim in
+the `phase3_dispatched` telemetry and in each finding's `agent`; the three checklist-phase keys
+(`devflow:checklist-generator`/`-deduper`/`-verifier`) run earlier, at Phases 1/1.5/2, and so do not
+appear in `phase3_dispatched`:
 
 | Identifier | Phase | Notes |
 |---|---|---|

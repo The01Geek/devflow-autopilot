@@ -171,8 +171,10 @@ Both live under `devflow_review_and_fix` in `.devflow/config.json`
 **Acting on the trace.** The telemetry above tells you *which* subagents earn their cost; the
 per-subagent `devflow_review.agent_overrides` block is the lever to *act* on it — move a mechanical
 pass to a cheaper model / lower effort, or pin a high-value reviewer to a stronger model / higher
-effort. The override keys are byte-identical to the `phase3_dispatched` / finding `agent`
-identifiers used throughout this doc, so the trace and the override config stay aligned. See
+effort. The override keys are byte-identical to the subagent identifiers the engine dispatches
+under: the six Phase-3 keys are the `phase3_dispatched` / finding `agent` identifiers used
+throughout this doc, while the three checklist-phase keys (Phases 1/1.5/2) run earlier and so do not
+appear in `phase3_dispatched`. Either way the trace and the override config stay aligned. See
 [review-agent-overrides.md](review-agent-overrides.md).
 
 ## Non-fatal by design
