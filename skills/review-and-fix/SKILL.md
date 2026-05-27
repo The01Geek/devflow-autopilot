@@ -787,7 +787,11 @@ Co-Authored-By: Claude <noreply@anthropic.com>" -- "${ADD_PATHS[@]}" 2>&1)"; the
       # matching the fix iterations' remote contract. In default local mode the commit is
       # created but NOT pushed: local mode's no-remote-side-effect property is preserved by
       # not pushing, not by leaving tracked files uncommitted.
-      <if --push-each-iteration is set>: git push || echo "::warning::observability-artifact push failed; commit is local-only, loop continues"
+      if <--push-each-iteration is set>; then
+        if ! push_err="$(git push 2>&1)"; then
+          echo "::warning::observability-artifact push failed: ${push_err:-unknown}; commit is local-only, loop continues"
+        fi
+      fi
     else
       echo "::warning::observability-artifact commit failed: ${commit_err:-unknown}; artifacts left staged, loop continues"
     fi
@@ -795,7 +799,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>" -- "${ADD_PATHS[@]}" 2>&1)"; the
 fi
 ```
 
-Run this block on every writable run; skip it under the read-only cloud `review` profile (where neither artifact was written and the tree is not writable). The existence checks plus the pathspec-scoped `git diff --cached --quiet -- "${ADD_PATHS[@]}"` guard make it a clean no-op when neither artifact changed this run (telemetry gated off *and* nothing durable to copy), so no empty commit is ever created. Because both the guard and the commit are pathspec-scoped, the commit contains only the `.devflow/logs/` artifacts regardless of what else may be staged. A user who does not want the logs can drop the single labeled `chore:` commit with one `git reset`.
+Run this block on every writable run; skip it under the read-only cloud `review` profile (where neither artifact was written and the tree is not writable). The existence checks plus the pathspec-scoped `git diff --cached --quiet -- "${ADD_PATHS[@]}"` guard make it a clean no-op when neither artifact changed this run (telemetry gated off *and* nothing durable to copy), so no empty commit is ever created. Because both the guard and the commit are pathspec-scoped, the commit contains only the `.devflow/logs/` artifacts regardless of what else may be staged. A user who does not want the logs can drop the single labeled `chore:` commit with one `git reset HEAD~1`.
 
 ---
 
