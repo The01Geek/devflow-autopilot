@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.3] — 2026-05-27
+
+### Fixed
+- **`/devflow:review-and-fix`'s shadow pass now closes the fail-open holes around its `APPROVE WITH UNRESOLVED SHADOW FINDINGS` (AWUSF) verdict and re-keys the coverage tripwire to what was actually dispatched.** Building on the 2.4.1 shadow-coverage hardening (#61), this follow-up tightens three remaining gaps. First, `/devflow:implement`'s post-loop flush now only treats `APPROVE`, `APPROVE WITH CAVEAT`, and `APPROVE WITH ADVISORY NOTES` as clean approve-family verdicts; `APPROVE WITH UNRESOLVED SHADOW FINDINGS` is routed to its own handling instead of being silently swept up as "approved." Second, the convergence audit's roster tripwire is re-keyed off `phase3_dispatched` (the agents actually launched) rather than the expected roster, so a degraded or short fan-out trips the fail-closed `coverage: "not_verified"` path instead of returning a clean verdict. Third, the AWUSF re-review contract no longer fails open when the shadow's findings cannot be re-confirmed. See `docs/shadow-review.md`. (#61)
+
 ## [2.4.2] — 2026-05-26
 
 ### Fixed
