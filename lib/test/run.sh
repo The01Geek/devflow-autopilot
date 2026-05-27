@@ -191,6 +191,74 @@ assert_eq "cg: invalid JSON → exit 2" "2" "$?"
 rm -f "$CG_BAD"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "devflow_review_and_fix.max_iterations (schema + resolution)"
+# ────────────────────────────────────────────────────────────────────────────
+# The /devflow:review-and-fix fix-loop cap is read from config via config-get.sh
+# (default 5) and then clamped INLINE in skills/review-and-fix/SKILL.md: a value
+# below 1 → floor 1, a non-integer/empty/unparseable value (or a resolver failure)
+# → 5, with no upper bound. The clamp itself is prompt bash (not a script — AC3
+# mandates the SKILL read directly via config-get.sh), so we pin (a) the
+# schema/example contract, (b) the resolver read behavior that feeds the clamp,
+# and (c) the clamp logic via a function kept byte-aligned with the SKILL block.
+MAXI_SCHEMA="$TPL_DIR/config.schema.json"
+MAXI_EXAMPLE="$TPL_DIR/config.example.json"
+MAXI_PROP='.properties.devflow_review_and_fix.properties.max_iterations'
+assert_eq "max_iterations: schema type is integer" "integer" \
+  "$(jq -r "$MAXI_PROP.type" "$MAXI_SCHEMA")"
+assert_eq "max_iterations: schema minimum is 1" "1" \
+  "$(jq -r "$MAXI_PROP.minimum" "$MAXI_SCHEMA")"
+assert_eq "max_iterations: schema default is 5" "5" \
+  "$(jq -r "$MAXI_PROP.default" "$MAXI_SCHEMA")"
+assert_eq "max_iterations: schema has a non-empty description" "yes" \
+  "$(jq -e "$MAXI_PROP.description | type == \"string\" and (length > 0)" "$MAXI_SCHEMA" >/dev/null && echo yes || echo no)"
+assert_eq "max_iterations: example value matches schema default" \
+  "$(jq -r "$MAXI_PROP.default" "$MAXI_SCHEMA")" \
+  "$(jq -r '.devflow_review_and_fix.max_iterations' "$MAXI_EXAMPLE")"
+
+# Resolver-read behavior (the part the SKILL invokes; the clamp is downstream).
+MAXI_CFG="$(mktemp)"
+printf '%s' '{"devflow_review_and_fix":{"max_iterations":9}}' > "$MAXI_CFG"
+assert_eq "max_iterations: configured integer read back verbatim" "9" \
+  "$("$CG" .devflow_review_and_fix.max_iterations 5 "$MAXI_CFG")"
+# Key absent → resolver emits the default 5 (the no-config / unset case; AC: default 5).
+printf '%s' '{"devflow_review_and_fix":{}}' > "$MAXI_CFG"
+assert_eq "max_iterations: unset key → resolver default 5" "5" \
+  "$("$CG" .devflow_review_and_fix.max_iterations 5 "$MAXI_CFG")"
+assert_eq "max_iterations: missing config file → resolver default 5" "5" \
+  "$("$CG" .devflow_review_and_fix.max_iterations 5 /no/such/config.json)"
+# A below-floor value (0) and a non-integer ("abc") are passed through verbatim by
+# the resolver — the SKILL's inline clamp turns these into 1 and 5 respectively.
+printf '%s' '{"devflow_review_and_fix":{"max_iterations":0}}' > "$MAXI_CFG"
+assert_eq "max_iterations: below-floor value passed through to clamp (0)" "0" \
+  "$("$CG" .devflow_review_and_fix.max_iterations 5 "$MAXI_CFG")"
+printf '%s' '{"devflow_review_and_fix":{"max_iterations":"abc"}}' > "$MAXI_CFG"
+assert_eq "max_iterations: non-integer value passed through to clamp (abc)" "abc" \
+  "$("$CG" .devflow_review_and_fix.max_iterations 5 "$MAXI_CFG")"
+rm -f "$MAXI_CFG"
+
+# The SKILL's inline clamp, applied to the resolver output above. Mirrors the exact
+# logic in skills/review-and-fix/SKILL.md so the floor/fallback/no-upper-bound ACs
+# are exercised, not just asserted in prose. Keep byte-aligned with the SKILL block.
+maxi_clamp() {
+  local v="$1" rc="${2:-0}"
+  if [ "$rc" -ne 0 ] || ! printf '%s' "$v" | grep -Eq '^-?[0-9]+$'; then
+    printf '5\n'
+  elif [ "$v" -lt 1 ]; then
+    printf '1\n'
+  else
+    printf '%s\n' "$v"
+  fi
+}
+assert_eq "max_iterations clamp: valid value honored"          "9"  "$(maxi_clamp 9)"
+assert_eq "max_iterations clamp: large value honored (no cap)"  "42" "$(maxi_clamp 42)"
+assert_eq "max_iterations clamp: 0 → floor 1"                  "1"  "$(maxi_clamp 0)"
+assert_eq "max_iterations clamp: negative → floor 1"           "1"  "$(maxi_clamp -3)"
+assert_eq "max_iterations clamp: non-integer → 5"              "5"  "$(maxi_clamp abc)"
+assert_eq "max_iterations clamp: float → 5"                    "5"  "$(maxi_clamp 2.5)"
+assert_eq "max_iterations clamp: empty → 5"                    "5"  "$(maxi_clamp '')"
+assert_eq "max_iterations clamp: resolver failure (rc≠0) → 5"  "5"  "$(maxi_clamp '' 2)"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "scaffold-config.sh"
 # ────────────────────────────────────────────────────────────────────────────
 # Single shared scaffolder used by BOTH install.sh and the /devflow:init skill.
