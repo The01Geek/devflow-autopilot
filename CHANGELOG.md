@@ -6,6 +6,11 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.4.1] — 2026-05-26
+
+### Fixed
+- **`/devflow:review-and-fix`'s Step 2.6 shadow pass now defends its `coverage: "full"` claim against the complete Phase-3 reviewer roster.** The convergence audit's expected roster is computed from the four always-on agents plus any structurally-gated analyzer (`type-design-analyzer` when `has_new_types`, `pr-test-analyzer` when the diff is test-relevant), and the dispatched roster is checked against it before convergence can be declared. The roster tripwire is now keyed off `phase3_dispatched` so a degraded or short fan-out trips the fail-closed `coverage: "not_verified"` path instead of returning a clean verdict. `engine_self_modifying` no longer manufactures a phantom shortfall: the override forces the full checklist and the always-on agents, but the two structural gates survive it, so the expected roster stays "four always-on + each analyzer whose gate is true." (#61)
+
 ## [2.4.0] — 2026-05-26
 
 ### Changed
