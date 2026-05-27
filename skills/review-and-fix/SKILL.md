@@ -288,7 +288,7 @@ The engine produces, for this iteration: a verdict in {APPROVE, APPROVE WITH CAV
 
 - Engine verdict **APPROVE** AND no advisory findings carry forward from any prior Step 2.5 → tentative final verdict `APPROVE`. Go to **Step 2.6: Shadow review** before exiting the loop.
 - Engine verdict **APPROVE** but advisory findings have been parked → tentative final verdict `APPROVE WITH ADVISORY NOTES`. Go to **Step 2.6: Shadow review**.
-- Engine verdict **APPROVE WITH CAVEAT** (Phase 4.2 rule 4a/4b — a checklist *coverage* gap, e.g. checklist generation failed; **not** a finding-severity verdict) → tentative final verdict `APPROVE WITH CAVEAT`. Go to **Step 2.6: Shadow review**. There are no Important findings to fix on this path; the caveat is about verification coverage.
+- Engine verdict **APPROVE WITH CAVEAT** (Phase 4.2 rule 4a — a checklist *coverage* gap, e.g. checklist generation failed; **not** a finding-severity verdict) → tentative final verdict `APPROVE WITH CAVEAT`. Go to **Step 2.6: Shadow review**. There are no Important findings to fix on this path; the caveat is about verification coverage.
 - Engine verdict **APPROVE with notes** (Phase 4.2 rule 6 — only Important and/or Suggestion findings present, no Critical) → split on finding severity:
   - **If the current iteration's `phase3_findings` contains any finding with `severity` `Important` (or its `Major` alias)** → do **NOT** go to the shadow pass yet. Continue to **Step 2.5** (verification gate) → **Step 3** (fix), routing it exactly as a REJECT would route *for loop purposes* — a skill named review-and-**fix** fixes Important findings, it does not merely note them. The same Step 2.5 gate that guards Critical findings runs first (web-verifying single-source external-tool claims, passing codebase claims straight through), so a confidently-wrong Important finding is demoted to advisory rather than blindly applied — the identical protection Critical findings already get. An Important finding Step 3 *cannot* fix is recorded via the existing `skip_category` pushback flow (Step 3, item 5), the same as a skipped Critical; it does **not** spin, because the 4-iteration cap, the "same `(source_file, claim_text)` skipped twice → escalate to the user and stop" rule (Step 3, item 5), and Step 4.5's convergence check jointly bound it. This routing change lives **only** here in the loop wrapper; `/devflow:review`'s Phase 4.2 verdict computation is unchanged — standalone `/devflow:review` still reports an Important-only PR as "APPROVE with notes" and applies no fixes.
   - **If every finding is `severity` `Suggestion`/`Minor` only** (no Important/Major, no Critical) → tentative final verdict `APPROVE WITH CAVEAT`. Go to **Step 2.6: Shadow review**. Suggestion/Minor findings remain advisory and are **not** auto-fixed.
@@ -693,13 +693,19 @@ The run-scoped scratch under `.devflow/tmp/review/<slug>/<run-id>/` is gitignore
 # effectiveness-trace block's $WORKPAD_DIR is telemetry-gated, so it is not in scope here.
 WORKPAD_DIR=".devflow/tmp/review/<slug>/<run-id>"
 DURABLE=".devflow/logs/review/<slug>/<run-id>"
-if [ -d "$WORKPAD_DIR" ]; then
+# `compgen -G` both tests for and (on success) is the source of the .json matches, so the
+# unmatched-glob case (run dir exists but holds no .json — reachable only if iter-1's
+# best-effort write failed) short-circuits the copy entirely instead of passing a literal
+# `*.json` to cp and tripping a spurious failure warning under nullglob-off.
+if [ -d "$WORKPAD_DIR" ] && compgen -G "$WORKPAD_DIR"/*.json >/dev/null; then
   # Best-effort (never aborts the loop), but log on failure rather than swallowing it
   # with a bare `|| true` — a denied mkdir/cp (read-only FS, ENOSPC, perms) should leave
   # a breadcrumb, matching the effectiveness-trace block's posture, so a missing durable
-  # copy isn't discovered only when someone later goes looking for it.
-  if ! { mkdir -p "$DURABLE" && cp -p "$WORKPAD_DIR"/*.json "$DURABLE"/ 2>/dev/null; }; then
-    echo "::warning::durable workpad copy failed ($WORKPAD_DIR -> $DURABLE); best-effort, loop continues"
+  # copy isn't discovered only when someone later goes looking for it. Capture the real
+  # mkdir/cp stderr into the warning rather than `2>/dev/null`-ing it, so the breadcrumb
+  # names the actual reason (ENOSPC/perms) instead of just asserting failure.
+  if ! cp_err="$( { mkdir -p "$DURABLE" && cp -p "$WORKPAD_DIR"/*.json "$DURABLE"/; } 2>&1 )"; then
+    echo "::warning::durable workpad copy failed ($WORKPAD_DIR -> $DURABLE): ${cp_err:-unknown}; best-effort, loop continues"
   fi
 fi
 ```
