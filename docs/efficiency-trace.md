@@ -134,9 +134,15 @@ A run with zero readable iterations (catastrophic early failure) writes **no rec
 than a contentless skeleton — symmetric with the flag-off contract.
 
 `.devflow/logs/` is a **tracked** directory (mirroring the tracked `.devflow/learnings/`
-learnings-store). The run's existing `git add -A` sweeps the record in, and under
-`--push-each-iteration` it is committed and pushed, surviving teardown — whether that is a
-cloud runner being destroyed or a local `.devflow/tmp/` cleanup.
+learnings-store). At Loop Exit the run persists the record deterministically in a single
+dedicated `chore:` commit (alongside the durable workpad copy), scoped to the
+`.devflow/logs/` artifacts so it never absorbs unrelated changes — created on every writable
+run, **local mode included**, so the record no longer depends on an incidental future
+`git add -A` to sweep it in. That commit is **pushed only under `--push-each-iteration`**; in
+default local mode it is committed but not pushed, preserving the no-remote-side-effect
+property by not pushing rather than by leaving a tracked file uncommitted. Either way the
+record survives teardown — whether a cloud runner being destroyed or a local `.devflow/tmp/`
+cleanup.
 
 **Headless persistence.** `/devflow:review-and-fix` invokes `config-get.sh` and
 `efficiency-trace.sh` **directly** (resolving to a `.devflow/vendor/devflow/…` path), the same way

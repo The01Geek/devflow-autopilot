@@ -721,15 +721,7 @@ All derivation lives in `lib/efficiency-trace.jq` (a mechanical jq filter, no LL
    ```
    Print the rendered Markdown trace (the `--mode trace` output) into the chat report, after the Run telemetry table. The trace assigns each dispatched subagent exactly one verdict — **unique-effective**, **corroborating**, **noise**, or **null** (see `lib/efficiency-trace.jq`'s header and [`docs/efficiency-trace.md`](../../docs/efficiency-trace.md) for the derivation rules) — shows the per-iteration **diff profile** (the Phase 0.5 flags) and **verification posture** (so a low verifier count reads as a deliberate cheap-path/skip decision, not as "nothing ran"), the Phase-3 dispatch count, and flags any iteration that applied zero fixes as having added nothing.
 
-4. **The record is tracked.** `.devflow/logs/efficiency/<slug>-<timestamp>.json` lives under a tracked directory, so the run's existing commits sweep it up. When `--push-each-iteration` is set, the record written here survives teardown — a destroyed cloud runner or a local `.devflow/tmp/` cleanup alike — via the same `git add -A` + push the fix iterations use; commit and push it now so it is not lost (keep the project's commit-message trailer):
-   ```bash
-   if [ -s "$RECORD" ] && <--push-each-iteration is set>; then
-     git add "$RECORD" && git commit -m "chore: persist review-and-fix effectiveness record
-
-Co-Authored-By: Claude <noreply@anthropic.com>" && git push || true
-   fi
-   ```
-   When `--push-each-iteration` is absent (the default, local mode), leave the record on disk uncommitted — consistent with the loop's no-remote-side-effect contract for that mode. The record carries the existing per-phase/per-iteration cost telemetry forward from the workpads, so that cost data is no longer discarded with `.devflow/tmp/`.
+4. **The record is committed deterministically.** `.devflow/logs/efficiency/<slug>-<timestamp>.json` lives under a tracked directory (the scoped `.devflow/.gitignore` ignores only `tmp/`). Do **not** leave it for an incidental future `git add -A` to absorb — that is nondeterministic and leaves untracked working-tree cruft in a standalone local run (where no further commits follow this one). Instead, both observability artifacts (this record and the durable workpad copy below) are committed together in a single dedicated `chore:` commit at the end of Loop Exit — see "Persisting observability artifacts" below. That commit is created on every writable run, **local included**; it is pushed only when `--push-each-iteration` is set. So local mode's no-remote-side-effect property is preserved by *not pushing*, not by leaving a tracked file uncommitted. The record carries the existing per-phase/per-iteration cost telemetry forward from the workpads, so that cost data is no longer discarded with `.devflow/tmp/`.
 
 If `lib/efficiency-trace.sh` is missing or errors, the trace step above already emits `Effectiveness trace unavailable: {reason}` to chat; proceed — the verdict is unaffected.
 
@@ -763,7 +755,30 @@ if [ -d "$WORKPAD_DIR" ] && compgen -G "$WORKPAD_DIR"/*.json >/dev/null; then
 fi
 ```
 
-The copy is best-effort: a failure never aborts the loop. Because the destination is tracked, the run's existing commits sweep it up — when `--push-each-iteration` is set it is committed and pushed alongside the effectiveness record (and when driven by `/devflow:implement`, that orchestrator's subsequent `git add -A` commits include it); when the flag is absent (default local mode) it is left on disk uncommitted, consistent with the loop's no-remote-side-effect contract. Do **not** run this block under the read-only cloud `review` profile — the durable copy is intentionally writable-runs-only.
+The copy is best-effort: a failure never aborts the loop. Because the destination is tracked, this run persists it deterministically alongside the effectiveness record in the single dedicated `chore:` commit at the end of Loop Exit (see "Persisting observability artifacts" below) — committed on every writable run, **local included**, and additionally pushed only when `--push-each-iteration` is set (so when driven by `/devflow:implement`, that orchestrator finds it already committed rather than relying on a later `git add -A` to sweep it up). Do **not** run this block under the read-only cloud `review` profile — the durable copy is intentionally writable-runs-only.
+
+### Persisting observability artifacts
+
+Both artifacts written above — the effectiveness record (`.devflow/logs/efficiency/<slug>-<timestamp>.json`, when telemetry is enabled and the run had readable iterations) and the durable workpad copy (`.devflow/logs/review/<slug>/<run-id>/`, on a writable run) — live under the tracked `.devflow/logs/` tree. Persist them deterministically in a single dedicated `chore:` commit at the end of Loop Exit, *after* the run's fix commits, rather than leaving them for an incidental future `git add -A` to absorb:
+
+```bash
+# Stage ONLY the .devflow/logs/ artifact subtrees this run wrote — never `git add -A`, so
+# the commit cannot absorb unrelated working-tree changes. Records/copies committed by
+# earlier runs are unchanged and stage as no-ops; only this run's new files are added.
+git add -- .devflow/logs/efficiency/ .devflow/logs/review/
+if ! git diff --cached --quiet; then
+  git commit -m "chore: persist review-and-fix observability artifacts
+
+Co-Authored-By: Claude <noreply@anthropic.com>" || true
+  # Push ONLY when --push-each-iteration is set (cloud / opt-in), matching the fix
+  # iterations' remote contract. In default local mode the commit is created but NOT
+  # pushed: local mode's no-remote-side-effect property is preserved by not pushing, not
+  # by leaving tracked files uncommitted.
+  <if --push-each-iteration is set>: git push || true
+fi
+```
+
+Run this block on every writable run; skip it under the read-only cloud `review` profile (where neither artifact was written and the tree is not writable). The `git diff --cached --quiet` guard makes it a clean no-op when neither artifact exists this run (telemetry gated off *and* nothing durable to copy), so no empty commit is ever created. A user who does not want the logs can drop the single labeled `chore:` commit with one `git reset`.
 
 ---
 
