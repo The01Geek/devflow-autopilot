@@ -218,9 +218,9 @@ Two structural reasons the gap persists:
   the fan-out still carries the iter history; only the per-reviewer prompts are blind. That residual
   shared state is a far smaller bias than a degraded single-agent self-check, but it is not zero.
 
-**Evidence.** On PR #58 itself — the PR that made the shadow pass parent-orchestrated and
+**Evidence.** On PR #58 (issue #57) itself — the PR that made the shadow pass parent-orchestrated and
 fail-closed — the in-loop shadow agreed with full coverage, yet a subsequent standalone
-`/devflow:review` run surfaced ~7 hardening items the in-loop shadow had not caught (none Critical;
+`/devflow:review` run surfaced several hardening items the in-loop shadow had not caught (none Critical;
 they became the follow-up tracked in issue #61). That is the calibration in a single data point:
 "shadow agreed, full coverage" meant the in-loop re-sample found nothing new, **not** that the PR
 was exhaustively reviewed.
