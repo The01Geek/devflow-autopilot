@@ -13,7 +13,8 @@ how each subagent earns its verdict.
 
 ## The problem this closes
 
-The per-iteration workpads under `.devflow/tmp/review/<slug>/iter-<N>.json` already carry the
+The per-iteration workpads under `.devflow/tmp/review/<slug>/<run-id>/iter-<N>.json` (run-scoped, so
+repeated or concurrent reviews of the same PR never clobber each other) already carry the
 data needed to answer "which subagents earned their cost on this PR" — `phase3_findings`
 (with `agent`, `corroboration_count`, `fix_decision`), `fix_decisions`, and per-phase cost
 telemetry (calls / tokens / wall-clock). But `.devflow/tmp/` is **ephemeral** scratch in every

@@ -330,6 +330,15 @@ Pass it:
 
 The architect returns a focused blueprint (files to create/modify, component designs, data flows, build sequence). Hold this blueprint in your context — do NOT commit it (it is a temporary working artifact).
 
+#### 2.2.4 Reuse & Altitude gate (mandatory, before the plan is written)
+
+Two of the cleanup lenses that the Phase 3.2 `/simplify` pass would otherwise flag — **reuse** and **altitude** — are *design* decisions, far cheaper to make now than to refactor out of a finished diff. Apply both to the plan (from either path) before you write it to the workpad:
+
+1. **Reuse.** For every piece of new code the plan proposes (a helper, a parser, a validator, a state shape, an API client), grep the shared/utility modules and the files adjacent to the change for something that already does the job. If it exists, the plan reuses the existing helper by `file:line` rather than re-implementing it. New code is justified only when no existing implementation fits — don't propose new code when a suitable one already exists.
+2. **Altitude.** Check that each planned change sits at the right depth, not as a fragile bandaid. A pile of special cases layered on shared infrastructure is the signal that the fix isn't deep enough — prefer generalizing the underlying mechanism over stacking special cases. If the plan is reaching for a special-case patch, ask whether the shared mechanism should change instead, and re-aim the plan there.
+
+Fold the result into the plan: name the helpers to reuse (with `file:line`) in the relevant plan steps, and pick the altitude before writing the steps. This is a planning gate, not a code edit — it changes *what you will write*, so it must precede the plan write below.
+
 After planning (either path), write the plan steps as `- [ ]` checkboxes to a temp file, then `workpad.py update $ISSUE_NUMBER --replace-plan-file /tmp/plan-${ISSUE_NUMBER}.md`.
 
 #### 2.2.5 Scope-Adjustment Rule (multi-PR issues)
@@ -452,6 +461,19 @@ After implementing, before running tests, do this sweep:
 
 Treat an unverified boundary assumption as a defect in **this** PR, not a review-engine problem to be caught downstream — if the diff depends on it, verify it here or route it to `(post-merge)` with a reflection note.
 
+#### 2.3.5 Simplification & Efficiency sweep (mandatory)
+
+2.3.0–2.3.4 keep the diff correct, dead-line-free, and convention-clean; the 2.2.4 gate already settled reuse and altitude at plan time. This sweep handles the two remaining cleanup lenses that only become visible once the code is *assembled*.
+
+After implementing, before running tests, re-read every function your diff added or changed lines in (from `git diff --staged -U0` or `git diff -U0`) and apply both lenses:
+
+1. **Simplification.** Flag and remove unnecessary complexity the diff *adds*: redundant or derivable state (a field that's always recomputable from another), copy-paste with slight variation (collapse to one parameterized form), needless deep nesting (flatten with early returns), and dead code the diff leaves behind. For each, write the simpler form that does the same job.
+2. **Efficiency.** Flag and fix wasted work the diff *introduces*: redundant computation or repeated I/O inside a loop or hot path that could be hoisted or cached, independent operations run sequentially that could run together, and blocking work added to startup or a hot path. Reach for the cheaper alternative — but don't trade clarity for a micro-optimization that doesn't sit on a hot path.
+
+Scope and discipline mirror the other 2.3.x sweeps: only touch functions/files the diff already added or changed lines in — never a repo-wide refactor. If a simplification is real but cleanly fixing it is genuinely out of scope (it would balloon the diff into an unrelated refactor), say so explicitly in the workpad notes (`--note`) with the reason rather than leaving it silent. Reuse and altitude are **not** re-litigated here — they were decided in 2.2.4; this sweep is only simplification and efficiency.
+
+Treat avoidable added complexity or wasted work in touched code as a defect in **this** PR, not a `/simplify` problem to be caught downstream.
+
 ### 2.4 Test
 
 Run the project's test and lint commands (check `CLAUDE.md` or `README`). Issue both Bash calls in a single assistant turn so they run in parallel.
@@ -509,7 +531,7 @@ workpad.py update $ISSUE_NUMBER --pr-link "[#$PR_NUM]($PR_URL)"
 
 Invoke the **Skill tool** with `skill: simplify` — this runs the **built-in Claude Code `/simplify` slash-command**, not a DevFlow plugin skill (so there's no `devflow:` prefix and nothing to install). It ships with Claude Code and is always present; do not treat it as a missing skill or skip this phase.
 
-This runs three review agents in parallel — code-reuse, code-quality, efficiency — and fixes any concrete issues they flag in the diff. It is a fast, single-pass self-review that catches the kinds of issues (existing-utility duplication, hacky patterns, redundant work, unnecessary commentary) that the heavier `review-and-fix` engine in 3.3 would otherwise spend turns on. Running it here keeps 3.3 focused on correctness, contracts, and verification rather than quality nits.
+`/simplify` is equivalent to `/code-review --fix`: it runs the code-review engine over the current diff — correctness angles plus the **reuse / simplification / efficiency / altitude** cleanup angles — and applies the fixes directly instead of stopping at a report (skipping any whose fix would change intended behavior). It is a fast self-review that catches the kinds of issues the heavier `review-and-fix` engine in 3.3 would otherwise spend turns on, keeping 3.3 focused on correctness, contracts, and verification rather than quality nits.
 
 After the skill completes, commit any fixes and push:
 ```bash
@@ -614,18 +636,68 @@ Record the new issue numbers in the workpad: `workpad.py update $ISSUE_NUMBER --
 
 ### 4.0.5 File Follow-Up Issues for Deferred Review Findings
 
-If Phase 3.3's /devflow:review-and-fix run emitted a deferrals manifest (`.devflow/tmp/review/<slug>/deferrals.json` — see that skill's "Pre-mapping: Widens-surface guard + deferrals manifest" section for what's in it), file follow-up GitHub issues for those findings now and update the manifest in place with the assigned issue numbers + deterministic deferral IDs. Phase 4.2's /pr-description run will then surface them in the PR body as a Scope-Acknowledged Findings block that /devflow:review's verdict matcher honors.
+If Phase 3.3's /devflow:review-and-fix run emitted a deferrals manifest, file follow-up GitHub issues for those findings now and update the manifest in place with the assigned issue numbers + deterministic deferral IDs. Phase 4.2's /pr-description run will then surface them in the PR body as a Scope-Acknowledged Findings block that /devflow:review's verdict matcher honors.
 
-Skip this step if the manifest does not exist or is empty.
+**Manifests are run-scoped** (`.devflow/tmp/review/<slug>/<run-id>/deferrals.json` — see that skill's "Pre-mapping: Widens-surface guard + deferrals manifest" section for what's in it). A single /devflow:implement run can produce **two** of them: Phase 3.3's first /devflow:review-and-fix run and its bounded re-review both run on the same PR with distinct run-ids. Reading one fixed path would miss the other run's deferrals (issue #68 F1, acceptance criterion 3). So **merge every run-scoped manifest into one slug-level aggregate** before filing, then file from the aggregate. The aggregate is the single path /pr-description reads in Phase 4.2.
+
+Skip this step if no run-scoped manifest exists or all are empty.
 
 ```bash
 PR_NUMBER=$(gh pr view --json number --jq '.number')
-DEFERRALS_FILE=".devflow/tmp/review/pr-${PR_NUMBER}/deferrals.json"
-if [ -s "$DEFERRALS_FILE" ]; then
-    FILED_NUMBERS=$(${CLAUDE_SKILL_DIR}/../../scripts/file-deferrals.py \
+SLUG_DIR=".devflow/tmp/review/pr-${PR_NUMBER}"
+AGG="${SLUG_DIR}/deferrals.json"   # slug-level aggregate the consumers read; distinct from the per-run files
+# run-id and slug are path-safe (alphanumeric/hyphen/dot), so the unquoted find-output
+# word-split below is safe. -size +0c skips empty manifests.
+MANIFESTS=$(find "$SLUG_DIR" -mindepth 2 -maxdepth 2 -name deferrals.json -size +0c 2>/dev/null | sort)
+if [ -n "$MANIFESTS" ]; then
+    # Merge the deferrals[] arrays across runs. The dedup key mirrors file-deferrals.py's
+    # _compute_id payload — (file|symbol|kind|summary.strip()), every field defaulted to ""
+    # — so a finding deferred in both runs collapses to one row, is filed once, and a null
+    # field never errors the string concat. Header fields come from the first input.
+    # Idempotent re-runs: feed any prior hydrated aggregate FIRST so its `follow_up` entries
+    # win the dedup (unique_by keeps the first occurrence); otherwise a re-run rebuilds $AGG
+    # from the raw run-scoped manifests (which never carry follow_up), wiping the prior
+    # hydration so file-deferrals.py re-files duplicates. Write via temp so reading $AGG is safe.
+    # (file-deferrals.py refuses any manifest where *some* entry is already hydrated, so on a
+    # re-run this prevents duplicate filing but does not incrementally file newly-added
+    # deferrals — that all-or-nothing is the helper's existing guard, handled benignly below.)
+    PRIOR=""; [ -s "$AGG" ] && PRIOR="$AGG"
+    if jq -s '.[0] as $f | {schema_version:$f.schema_version, pr_branch:$f.pr_branch, base_branch:$f.base_branch, generated_at:$f.generated_at,
+        deferrals: ([.[].deferrals[]] | unique_by((.file // "") + "|" + (.symbol // "") + "|" + (.kind // "") + "|" + ((.summary // "") | gsub("^\\s+|\\s+$";"")))) }' \
+        $PRIOR $MANIFESTS > "${AGG}.tmp"; then
+        mv "${AGG}.tmp" "$AGG"
+    else
+        # jq failed (malformed manifest, schema drift): keep any prior hydrated $AGG
+        # intact, do NOT file from a half-merged temp, and surface the gap rather than
+        # silently falling through to the filing guard with a stale aggregate.
+        rm -f "${AGG}.tmp"
+        workpad.py update $ISSUE_NUMBER --reflection "Phase 4.0.5 deferrals merge (jq) failed over: ${MANIFESTS}; deferrals NOT filed this run — inspect the run-scoped manifests."
+        AGG=""   # make the filing guard below unambiguously false
+    fi
+fi
+if [ -n "$AGG" ] && [ -s "$AGG" ]; then
+    # Capture rc so file-deferrals.py's exit codes aren't discarded: 0 = filed; exit 2
+    # with "already has follow_up" is the benign idempotent-re-run case (the prior
+    # aggregate is still hydrated and /pr-description reads it fine) — not a failure.
+    FILED_OUT=$(${CLAUDE_SKILL_DIR}/../../scripts/file-deferrals.py \
         --source-issue $ARGUMENTS \
         --pr "$PR_NUMBER" \
-        --manifest "$DEFERRALS_FILE")
+        --manifest "$AGG" 2>/tmp/devflow-fd.err); FD_RC=$?
+    if [ "$FD_RC" -eq 0 ]; then
+        FILED_NUMBERS="$FILED_OUT"
+        # file-deferrals.py exits 0 even on PARTIAL success: a per-file group whose
+        # `gh issue create` failed is dropped from the manifest, yet the helper still
+        # exits 0. Surface that so the dropped findings (which won't reach the PR's
+        # Scope-Acknowledged block) leave a breadcrumb instead of vanishing silently.
+        grep -q 'were dropped from manifest' /tmp/devflow-fd.err && \
+            workpad.py update $ISSUE_NUMBER --reflection "file-deferrals.py filed partially (rc=0): $(cat /tmp/devflow-fd.err); dropped groups will NOT appear in the PR's Scope-Acknowledged Findings block."
+    elif grep -q 'already has follow_up' /tmp/devflow-fd.err; then
+        workpad.py update $ISSUE_NUMBER --note "Deferrals already filed on a prior run (idempotent re-run) — nothing new to file; the hydrated aggregate stands."
+    elif grep -q 'no deferrals' /tmp/devflow-fd.err; then
+        workpad.py update $ISSUE_NUMBER --note "Aggregate held no deferrals to file — nothing to do."
+    else
+        workpad.py update $ISSUE_NUMBER --reflection "file-deferrals.py failed (rc=${FD_RC}): $(cat /tmp/devflow-fd.err); no follow-up issues filed this run."
+    fi
 fi
 ```
 
@@ -642,7 +714,7 @@ if [ -n "${FILED_NUMBERS:-}" ]; then
 fi
 ```
 
-If the helper exits non-zero (every group failed), surface the failure to the workpad's Devflow Reflection (`--reflection "file-deferrals.py failed; no follow-up issues filed; PR body will not contain the Scope-Acknowledged Findings block — /devflow:review will treat any deferred findings as new"`) and continue to 4.1. The PR can still ship; it will just not enjoy the deferral demotion on next review.
+The rc handling above distinguishes three cases: a clean filing (rc 0), the benign idempotent-re-run (`exit 2` with "already has follow_up" — the prior aggregate is still hydrated, `/pr-description` reads it fine, recorded as a plain note), and a genuine failure (any other non-zero — every `gh issue create` group failed, or an unusable/corrupt manifest), which lands a `Devflow Reflection` breadcrumb. On a genuine failure continue to 4.1 anyway — the PR can still ship; it just won't carry the Scope-Acknowledged Findings block, so `/devflow:review` will treat any deferred findings as new.
 
 ### 4.1 Update Documentation
 

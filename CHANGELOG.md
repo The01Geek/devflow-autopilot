@@ -4,7 +4,15 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.4.2] — 2026-05-26
+
+### Fixed
+- **`/devflow:review-and-fix` is hardened against run-clobbering, self-review misfires, an engine-surface carve-out gap, and now auto-fixes Important findings instead of only noting them.** Four corrections ship together. First, every review run's scratch (`diff.patch`, the per-iteration `iter-*.json` workpads, and the `deferrals.json` manifest) is now **run-scoped** under `.devflow/tmp/review/<slug>/<run-id>/`, so repeated or concurrent reviews of the same pull request — including `/devflow:implement`'s bounded re-review — never overwrite each other's state; a durable copy is also persisted to `.devflow/logs/review/<slug>/<run-id>/` on writable runs, and `/devflow:implement` Phase 4.0.5 merges every run-scoped deferrals manifest into one slug-level aggregate before filing follow-up issues. Second, when `/devflow:review-and-fix` reviews DevFlow's own engine and the vendored-consumer lookup finds nothing, it now falls back to the repository's own `skills/review/SKILL.md` (with explicit self-review and version-skew guidance) instead of erroring out or silently using a stale plugin-cache copy. Third, engine-surface pull requests (`skills/`, `agents/`, `lib/` — even when the diff is entirely Markdown) are excluded from the "doc-only" carve-out, reconciling it with the `engine_self_modifying` override so the highest-risk diffs always get the full review. Fourth, an Important (Major) finding on an otherwise-approvable pull request now routes through the fix loop and is corrected, rather than surfacing only as a chat note; standalone `/devflow:review` verdict behavior is unchanged. See `README.md`, `docs/shadow-review.md`, and `docs/efficiency-trace.md`. (#69)
+
+## [2.4.1] — 2026-05-26
+
+### Fixed
+- **`/devflow:review-and-fix`'s Step 2.6 shadow pass now defends its `coverage: "full"` claim against the complete Phase-3 reviewer roster.** The convergence audit's expected roster is computed from the four always-on agents plus any structurally-gated analyzer (`type-design-analyzer` when `has_new_types`, `pr-test-analyzer` when the diff is test-relevant), and the dispatched roster is checked against it before convergence can be declared. The roster tripwire is now keyed off `phase3_dispatched` so a degraded or short fan-out trips the fail-closed `coverage: "not_verified"` path instead of returning a clean verdict. `engine_self_modifying` no longer manufactures a phantom shortfall: the override forces the full checklist and the always-on agents, but the two structural gates survive it, so the expected roster stays "four always-on + each analyzer whose gate is true." (#61)
 
 ## [2.4.0] — 2026-05-26
 

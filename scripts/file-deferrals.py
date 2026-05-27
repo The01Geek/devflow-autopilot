@@ -3,10 +3,11 @@
 # SPDX-License-Identifier: MIT
 """DevFlow follow-up filer for review-and-fix deferrals.
 
-The /implement skill's Phase 4.0.5 reads the deferrals manifest produced by
-/devflow:review-and-fix (at `.devflow/tmp/review/<slug>/deferrals.json`), files
-one follow-up GitHub issue per source file, and rewrites the manifest with
-the assigned issue numbers + deterministic deferral IDs. The /devflow:review
+The /implement skill's Phase 4.0.5 merges the run-scoped deferrals manifests
+produced by /devflow:review-and-fix (at `.devflow/tmp/review/<slug>/<run-id>/deferrals.json`,
+one per run) into a single slug-level aggregate, passes that aggregate as
+`--manifest`, files one follow-up GitHub issue per source file, and rewrites
+the aggregate with the assigned issue numbers + deterministic deferral IDs. The /devflow:review
 verdict engine then matches these entries against the PR-body block to
 demote already-acknowledged findings.
 
