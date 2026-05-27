@@ -45,6 +45,11 @@ import sys
 
 VALID_EFFORTS = ("low", "medium", "high", "xhigh", "max")
 
+# config-get.sh stringifies a config value via Node's String(); a JSON object
+# yields this sentinel. read_raw uses it to tell a present-but-empty object
+# entry ({}) from a scalar/array entry the operator hand-edited in.
+_OBJECT_SENTINEL = "[object Object]"
+
 # The nine review-engine subagent identifiers. Byte-identical to the schema
 # property keys and the dispatch ids in skills/review/SKILL.md; the six Phase-3
 # ids additionally match the telemetry strings (phase3_dispatched / finding
@@ -174,14 +179,27 @@ def read_raw(dispatched, config_get, config_file):
                 entry[field] = value
         # A present-but-empty entry ({}) is a real config state that must shadow
         # `default` (entry-level precedence). The leaf reads can't distinguish it
-        # from an absent key, so probe the entry object itself: config-get.sh
-        # prints a non-empty string ("[object Object]") for a present object and
-        # nothing for an absent key. Only probe when no field was read — the
-        # common path stays at two reads.
+        # from an absent key, so probe the entry object itself. config-get.sh
+        # stringifies the value: a JSON object prints the sentinel
+        # "[object Object]" (Node's String({})), a scalar/array prints its own
+        # stringification, and an absent key prints nothing. So:
+        #   - sentinel       → present object, no model/effort → {} (shadows default)
+        #   - other non-empty → a non-object entry (hand-edited config bypassing
+        #     schema validation, e.g. `"agent": "high"`) → warn and treat as
+        #     no-entry so `default` still applies; never crash.
+        #   - empty          → absent key → no entry.
+        # Only probe when no field was read — the common path stays at two reads.
         if entry:
             raw[agent] = entry
-        elif _config_get(config_get, config_file, base, warnings):
-            raw[agent] = {}
+        else:
+            probe = _config_get(config_get, config_file, base, warnings)
+            if probe == _OBJECT_SENTINEL:
+                raw[agent] = {}
+            elif probe:
+                warnings.append(
+                    f"agent_overrides[{agent}]={probe!r} is not an object; "
+                    f"ignoring it (no override for '{agent}'; default still applies)."
+                )
     # Dedupe while preserving first-seen order (a missing/mispathed helper would
     # otherwise emit the same line ~2-3x per agent).
     deduped = list(dict.fromkeys(warnings))
@@ -202,7 +220,7 @@ def main(argv=None):
     # A dispatched id not in the known roster is almost always a drift between
     # SKILL.md's hardcoded strings and the canonical roster, or an operator typo
     # in agent_overrides — warn (don't abort) so it isn't a silent no-op.
-    unknown = [a for a in args.agents if a not in KNOWN_AGENTS]
+    unknown = list(dict.fromkeys(a for a in args.agents if a not in KNOWN_AGENTS))
 
     raw, read_warnings = read_raw(args.agents, args.config_get, args.config)
     result, resolve_warnings = resolve_overrides(raw, args.agents)

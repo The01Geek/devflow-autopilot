@@ -1066,9 +1066,38 @@ try:
 finally:
     _os.unlink(_bad_cfg)
 
+# A non-object entry hand-edited into the config (e.g. `"agent": "high"`) must,
+# on the REAL config-get.sh path, be detected and warned — NOT silently coerced
+# to a present-but-empty {} that shadows `default`. read_raw distinguishes the
+# object sentinel from a scalar/array stringification.
+with _tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as _nocf:
+    _nocf.write(
+        '{"devflow_review":{"agent_overrides":{'
+        '"default":{"effort":"high"},'
+        '"pr-review-toolkit:code-reviewer":"high",'
+        '"pr-review-toolkit:comment-analyzer":["a","b"]}}}'
+    )
+    _no_cfg = _nocf.name
+try:
+    _noraw, _nowarn = _rro.read_raw(
+        ["pr-review-toolkit:code-reviewer", "pr-review-toolkit:comment-analyzer"],
+        _config_get_sh, _no_cfg)
+    assert_eq("read_raw: scalar entry is NOT coerced to {} (treated as no-entry)",
+              False, "pr-review-toolkit:code-reviewer" in _noraw)
+    assert_eq("read_raw: array entry is NOT coerced to {} (treated as no-entry)",
+              False, "pr-review-toolkit:comment-analyzer" in _noraw)
+    assert_eq("read_raw: each non-object entry surfaces a warning",
+              2, len([w for w in _nowarn if "is not an object" in w]))
+    # Since the malformed entries are treated as no-entry, `default` applies.
+    _no_e2e, _ = _rro.resolve_overrides(_noraw, ["pr-review-toolkit:code-reviewer"])
+    assert_eq("read_raw+resolve: non-object entry falls back to default",
+              {"effort": "high"}, _no_e2e["pr-review-toolkit:code-reviewer"])
+finally:
+    _os.unlink(_no_cfg)
+
 # A non-object entry (hand-edited config bypassing schema validation) must be
 # ignored with a warning, NEVER crash resolution — the engine never aborts on
-# config shape.
+# config shape. (resolve_overrides-level guard, belt-and-suspenders for direct callers.)
 _nd_res, _nd_warn = _rro.resolve_overrides(
     {"pr-review-toolkit:code-reviewer": "high"},
     ["pr-review-toolkit:code-reviewer"],
