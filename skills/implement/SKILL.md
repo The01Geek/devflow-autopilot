@@ -613,21 +613,48 @@ Output: `Phase 4/4: Documentation — updating docs and finalizing PR...`
 
 If Phase 2.2.5's scope-adjustment rule deferred any acceptance criteria, file a follow-up GitHub issue capturing them now. Skip this step if no criteria were deferred.
 
-For each logical chunk of deferred work (typically: one issue per remaining "phase" in a phased cleanup), create a GitHub issue. If multiple follow-up issues are needed, issue all `gh issue create` calls in a single assistant turn so they run in parallel, and append a single combined note (`--note`) afterward (do not PATCH the workpad between each `gh issue create`):
+For each logical chunk of deferred work (typically: one issue per remaining "phase" in a phased cleanup), create a GitHub issue. If multiple follow-up issues are needed, issue all `gh issue create` calls in a single assistant turn so they run in parallel, and append a single combined note (`--note`) afterward (do not PATCH the workpad between each `gh issue create`).
+
+**Body format — follow the create-issue template.** Build each follow-up issue body to the section structure and writing discipline of `skills/create-issue/references/issue-template.md` (the same format authority `/devflow:create-issue` uses), so an implement-generated follow-up reads like every other devflow-authored issue rather than a two-section stub. Specifically:
+
+- **Sections, in this order:** `## Problem Statement`, `## Current Behavior`, `## Desired Behavior`, `## User Impact`, `## Technical Context`, `## Acceptance Criteria`, `## Implementation Notes`. Populate them from the parent issue and the workpad's 2.2.5 scope-decision note: the scope decision and the parent's framing → Problem Statement / Current Behavior / Desired Behavior / User Impact; the parent's relevant files, architecture alignment, and cross-layer impact → Technical Context; the verbatim deferred criteria → Acceptance Criteria; the parent issue cross-reference threads through Problem Statement and Technical Context.
+- **Acceptance Criteria are carried verbatim.** The deferred criteria were already-decided acceptance criteria on the parent issue — reproduce them exactly under `## Acceptance Criteria` as `- [ ]` checkboxes, preserving the 2.2.5 verbatim-preservation guarantee. Do not reword, split, or merge them.
+- **No-options rule applies.** Observe the template's no-options discipline — no choice / hedge / deferral language (no "or", "could", "consider", "TBD", "for now", "(optional)") anywhere in the body. The deferred criteria are resolved decisions, so the gate is satisfied by construction; do not reintroduce hedging when describing the deferred scope.
+- **Autonomous-run adaptation.** Phase 4.0 runs inside an autonomous /devflow:implement execution with no user present, so the template's *interactive* elements do not apply: there is **no clarification round** and **no `## 🚫 Blocked` section** — the deferred criteria are already-decided acceptance criteria, so nothing is unresolved. Build the body inline here; do **not** invoke the full interactive `/devflow:create-issue` pipeline.
+- **GitHub autolink hygiene.** Never put a bare `#` before a number unless it is a real issue/PR reference; spell out ordinals and counts ("item 2", "phase 3").
+- **Posting rules.** Pass the body via a quoted-heredoc on stdin (`--body "$(cat <<'EOF' … EOF)"`) — **not** `--body-file` — so backticks and `$` in the markdown are not expanded, and add **no** `--label` (labeling is handled separately by maintainers).
 
 ```bash
 gh issue create \
   --title "<short descriptive title — e.g. 'Phase N of <parent topic>'>" \
   --body "$(cat <<'EOF'
-Follow-up to #$ARGUMENTS — captures deferred acceptance criteria from that issue's /devflow:implement run.
+## Problem Statement
+Follow-up to #$ARGUMENTS. <Why this remaining work is needed and who hits the pain — drawn from the parent issue's framing and the 2.2.5 scope-decision note.>
+
+## Current Behavior
+<What exists today / what's missing — the state the parent PR left, scoped to this chunk.>
+
+## Desired Behavior
+<The single decided behavior after this follow-up ships, stated declaratively.>
+
+## User Impact
+<Who benefits and how.>
+
+## Technical Context
+- **Relevant Files** — <files from the parent issue's Technical Context relevant to this chunk.>
+- **Architecture Alignment** — <how this fits existing patterns; carried from the parent.>
+- **Cross-layer Impact** — <layers affected.>
+- Parent issue #$ARGUMENTS was scoped to a single PR by its /devflow:implement run; see the workpad on #$ARGUMENTS for the full scope decision.
 
 ## Acceptance Criteria
 - [ ] {deferred criterion verbatim}
 - [ ] {deferred criterion verbatim}
 …
 
-## Context
-The parent issue #$ARGUMENTS spans multiple PRs. This follow-up tracks the work that the parent's /devflow:implement run scoped out — see the workpad on #$ARGUMENTS for the full scope decision.
+## Implementation Notes
+- **Approach** — <the decided design for this chunk, drawn from the parent's plan.>
+- **Code Patterns** — <patterns in this codebase to mirror.>
+- **Potential Gotchas** — <constraints or pitfalls carried from the parent issue.>
 EOF
 )"
 ```
