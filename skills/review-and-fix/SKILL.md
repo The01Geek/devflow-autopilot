@@ -762,32 +762,40 @@ The copy is best-effort: a failure never aborts the loop. Because the destinatio
 Both artifacts written above — the effectiveness record (`.devflow/logs/efficiency/<slug>-<timestamp>.json`, when telemetry is enabled and the run had readable iterations) and the durable workpad copy (`.devflow/logs/review/<slug>/<run-id>/`, on a writable run) — live under the tracked `.devflow/logs/` tree. Persist them deterministically in a single dedicated `chore:` commit at the end of Loop Exit, *after* the run's fix commits, rather than leaving them for an incidental future `git add -A` to absorb:
 
 ```bash
-# Stage ONLY the .devflow/logs/ artifact subtrees this run wrote — never `git add -A`, so
-# the commit cannot absorb unrelated working-tree changes. Records/copies committed by
-# earlier runs are unchanged and stage as no-ops; only this run's new files are added.
-# Add each subtree conditionally on its existence: the effectiveness record is
-# telemetry-gated (its dir is absent when the trace is disabled) while the durable copy is
-# not, so passing a non-existent pathspec to a single `git add` would abort it atomically
-# and stage NEITHER subtree.
+# Stage ONLY the .devflow/logs/ artifact subtrees this run wrote. Add each subtree
+# conditionally on its existence: the effectiveness record is telemetry-gated (its dir is
+# absent when the trace is disabled) while the durable copy is not, so passing a
+# non-existent pathspec to a single `git add` would abort it atomically and stage NEITHER
+# subtree. The commit below is then ALSO pathspec-scoped (`git commit -- "${ADD_PATHS[@]}"`),
+# so the "only .devflow/logs/ artifacts" guarantee is enforced by the commit itself, not
+# merely by what we add — a pre-dirty index left staged by an earlier step can never ride
+# into this chore: commit. Best-effort with `::warning::` breadcrumbs, matching the
+# effectiveness-trace and durable-copy blocks above; a failure never aborts the loop.
 ADD_PATHS=()
 [ -d .devflow/logs/efficiency ] && ADD_PATHS+=(.devflow/logs/efficiency)
 [ -d .devflow/logs/review ] && ADD_PATHS+=(.devflow/logs/review)
 if [ "${#ADD_PATHS[@]}" -gt 0 ]; then
-  git add -- "${ADD_PATHS[@]}"
-  if ! git diff --cached --quiet; then
-    git commit -m "chore: persist review-and-fix observability artifacts
+  if ! add_err="$(git add -- "${ADD_PATHS[@]}" 2>&1)"; then
+    echo "::warning::observability-artifact staging failed: ${add_err:-unknown}; not persisted this run, loop continues"
+  # Scope the dirtiness check to the artifact pathspecs too, so an unrelated pre-staged
+  # change does not make this fire (and the empty case is a clean no-op — no empty commit).
+  elif ! git diff --cached --quiet -- "${ADD_PATHS[@]}"; then
+    if commit_err="$(git commit -m "chore: persist review-and-fix observability artifacts
 
-Co-Authored-By: Claude <noreply@anthropic.com>" || true
-    # Push ONLY when --push-each-iteration is set (cloud / opt-in), matching the fix
-    # iterations' remote contract. In default local mode the commit is created but NOT
-    # pushed: local mode's no-remote-side-effect property is preserved by not pushing, not
-    # by leaving tracked files uncommitted.
-    <if --push-each-iteration is set>: git push || true
+Co-Authored-By: Claude <noreply@anthropic.com>" -- "${ADD_PATHS[@]}" 2>&1)"; then
+      # Push ONLY when --push-each-iteration is set (cloud / opt-in) AND the commit landed,
+      # matching the fix iterations' remote contract. In default local mode the commit is
+      # created but NOT pushed: local mode's no-remote-side-effect property is preserved by
+      # not pushing, not by leaving tracked files uncommitted.
+      <if --push-each-iteration is set>: git push || echo "::warning::observability-artifact push failed; commit is local-only, loop continues"
+    else
+      echo "::warning::observability-artifact commit failed: ${commit_err:-unknown}; artifacts left staged, loop continues"
+    fi
   fi
 fi
 ```
 
-Run this block on every writable run; skip it under the read-only cloud `review` profile (where neither artifact was written and the tree is not writable). The existence checks plus the `git diff --cached --quiet` guard make it a clean no-op when neither artifact exists this run (telemetry gated off *and* nothing durable to copy), so no empty commit is ever created. A user who does not want the logs can drop the single labeled `chore:` commit with one `git reset`.
+Run this block on every writable run; skip it under the read-only cloud `review` profile (where neither artifact was written and the tree is not writable). The existence checks plus the pathspec-scoped `git diff --cached --quiet -- "${ADD_PATHS[@]}"` guard make it a clean no-op when neither artifact changed this run (telemetry gated off *and* nothing durable to copy), so no empty commit is ever created. Because both the guard and the commit are pathspec-scoped, the commit contains only the `.devflow/logs/` artifacts regardless of what else may be staged. A user who does not want the logs can drop the single labeled `chore:` commit with one `git reset`.
 
 ---
 
