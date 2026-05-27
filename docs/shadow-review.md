@@ -124,12 +124,15 @@ A degraded pass must **never** clear a PR with a clean verdict. The guard is the
 - **A too-narrow self-classification cannot silently shrink the reviewer roster.** Because the
   expected roster is computed from the shadow's *own* Phase 0.5, an under-classification would shrink
   the expected and dispatched rosters in lockstep and still read `"full"`. A tripwire compares the
-  shadow's `diff_profile` against the loop's last-iter recorded profile: a narrowing divergence
-  widens *both* the expected roster and the dispatch to the union of the two profiles' gated
-  analyzers; a *missing* last-iter profile (it is a best-effort field) has no second operand to
-  union against, so it trips to the **full gated roster** (both gated analyzers) instead. Either way
-  the widening is fail-closed, so a dropped analyzer surfaces as a shortfall rather than passing as
-  full. (This guards the gated-*analyzer* dimension; the parallel risk that a mis-set skip drops the
+  shadow's own expected gated analyzers against the gated analyzers the loop's last iter actually
+  launched — read from the recorded `phase3_dispatched` roster, **not** from `diff_profile` (the
+  persisted profile carries `has_new_types` but not the test-relevance predicate, so a profile-vs-
+  profile check would be blind to a narrowed `pr-test-analyzer`; the dispatched roster records the
+  post-gate launch of *both* analyzers): a narrowing divergence widens *both* the expected roster and
+  the dispatch to the union of both sides' gated analyzers; a *missing* last-iter `phase3_dispatched`
+  (it is a best-effort field) has no second operand to union against, so it trips to the **full gated
+  roster** (both gated analyzers) instead. Either way the widening is fail-closed, so a dropped
+  analyzer surfaces as a shortfall rather than passing as full. (This guards the gated-*analyzer* dimension; the parallel risk that a mis-set skip drops the
   *checklist* axis is closed by the checklist-skip tripwire above — the two together cover both ways
   a too-narrow self-classification could otherwise read `"full"`.)
 - **Block presence is verified, not assumed, before "shadow agreed" fires.** The Step 2.6 workpad
