@@ -112,10 +112,12 @@ A degraded pass must **never** clear a PR with a clean verdict. The guard is the
   the reviewer roster, not the checklist; record `checklist_skipped` on the block so a reader doesn't
   mistake an empty Phase-2 result for a re-audited checklist axis. The risk a mis-set skip drops the
   checklist axis while the roster join still reads `"full"` is closed by a checklist-axis analogue of
-  the roster tripwire below: if the loop's last iter *ran* the checklist but the shadow now skips it
-  (a narrowing divergence), the skip is suspect, so Phase 1+2 are forced to run anyway; an absent
-  last-iter comparand fails closed the same way (run the checklist). Only a skip both profiles agree
-  on is honored.
+  the roster tripwire below: the shadow's skip is honored **only** when the loop's last-iter
+  `checklist_skipped` is *also exactly* `"intentional"`. Every other comparand value trips and forces
+  Phase 1+2 to run: the loop *ran* the checklist (`null` — the canonical narrowing), the loop's
+  checklist generation *failed* (`"failure"` — it never audited the axis either, so a skip on top
+  would leave it unaudited), or the comparand is absent/unparseable/unreadable (fails closed like the
+  roster tripwire). Only a skip both profiles independently judged legitimate is honored.
 - **Dispatched is not collected — a 1:1 join is required.** `coverage: "full"` requires not only
   that the expected roster was *dispatched* but that each dispatched identifier maps to exactly one
   *collected and successfully-parsed* result. A dispatched-but-lost result (launched, never
