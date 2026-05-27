@@ -653,15 +653,34 @@ if [ -n "$MANIFESTS" ]; then
     # from the raw run-scoped manifests (which never carry follow_up), wiping the prior
     # hydration so file-deferrals.py re-files duplicates. Write via temp so reading $AGG is safe.
     PRIOR=""; [ -s "$AGG" ] && PRIOR="$AGG"
-    jq -s '.[0] as $f | {schema_version:$f.schema_version, pr_branch:$f.pr_branch, base_branch:$f.base_branch, generated_at:$f.generated_at,
+    if jq -s '.[0] as $f | {schema_version:$f.schema_version, pr_branch:$f.pr_branch, base_branch:$f.base_branch, generated_at:$f.generated_at,
         deferrals: ([.[].deferrals[]] | unique_by((.file // "") + "|" + (.symbol // "") + "|" + (.kind // "") + "|" + ((.summary // "") | gsub("^\\s+|\\s+$";"")))) }' \
-        $PRIOR $MANIFESTS > "${AGG}.tmp" && mv "${AGG}.tmp" "$AGG"
+        $PRIOR $MANIFESTS > "${AGG}.tmp"; then
+        mv "${AGG}.tmp" "$AGG"
+    else
+        # jq failed (malformed manifest, schema drift): keep any prior hydrated $AGG
+        # intact, do NOT file from a half-merged temp, and surface the gap rather than
+        # silently falling through to the filing guard with a stale aggregate.
+        rm -f "${AGG}.tmp"
+        workpad.py update $ISSUE_NUMBER --reflection "Phase 4.0.5 deferrals merge (jq) failed over: ${MANIFESTS}; deferrals NOT filed this run — inspect the run-scoped manifests."
+        AGG=""   # make the filing guard below unambiguously false
+    fi
 fi
-if [ -s "$AGG" ]; then
-    FILED_NUMBERS=$(${CLAUDE_SKILL_DIR}/../../scripts/file-deferrals.py \
+if [ -n "$AGG" ] && [ -s "$AGG" ]; then
+    # Capture rc so file-deferrals.py's exit codes aren't discarded: 0 = filed; exit 2
+    # with "already has follow_up" is the benign idempotent-re-run case (the prior
+    # aggregate is still hydrated and /pr-description reads it fine) — not a failure.
+    FILED_OUT=$(${CLAUDE_SKILL_DIR}/../../scripts/file-deferrals.py \
         --source-issue $ARGUMENTS \
         --pr "$PR_NUMBER" \
-        --manifest "$AGG")
+        --manifest "$AGG" 2>/tmp/devflow-fd.err); FD_RC=$?
+    if [ "$FD_RC" -eq 0 ]; then
+        FILED_NUMBERS="$FILED_OUT"
+    elif grep -q 'already has follow_up' /tmp/devflow-fd.err; then
+        workpad.py update $ISSUE_NUMBER --note "Deferrals already filed on a prior run (idempotent re-run) — nothing new to file; the hydrated aggregate stands."
+    else
+        workpad.py update $ISSUE_NUMBER --reflection "file-deferrals.py failed (rc=${FD_RC}): $(cat /tmp/devflow-fd.err); no follow-up issues filed this run."
+    fi
 fi
 ```
 
@@ -678,7 +697,7 @@ if [ -n "${FILED_NUMBERS:-}" ]; then
 fi
 ```
 
-If the helper exits non-zero (every group failed), surface the failure to the workpad's Devflow Reflection (`--reflection "file-deferrals.py failed; no follow-up issues filed; PR body will not contain the Scope-Acknowledged Findings block — /devflow:review will treat any deferred findings as new"`) and continue to 4.1. The PR can still ship; it will just not enjoy the deferral demotion on next review.
+The rc handling above distinguishes three cases: a clean filing (rc 0), the benign idempotent-re-run (`exit 2` with "already has follow_up" — the prior aggregate is still hydrated, `/pr-description` reads it fine, recorded as a plain note), and a genuine failure (any other non-zero — every `gh issue create` group failed, or an unusable/corrupt manifest), which lands a `Devflow Reflection` breadcrumb. On a genuine failure continue to 4.1 anyway — the PR can still ship; it just won't carry the Scope-Acknowledged Findings block, so `/devflow:review` will treat any deferred findings as new.
 
 ### 4.1 Update Documentation
 
