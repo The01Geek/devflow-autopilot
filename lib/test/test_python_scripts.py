@@ -54,6 +54,8 @@ workpad = _load('workpad', SCRIPTS / 'workpad.py')
 parse_acs = _load('parse_acs', SCRIPTS / 'parse-acs.py')
 file_deferrals = _load('file_deferrals', SCRIPTS / 'file-deferrals.py')
 match_deferrals = _load('match_deferrals', SCRIPTS / 'match-deferrals.py')
+resolve_review_overrides = _load(
+    'resolve_review_overrides', SCRIPTS / 'resolve-review-overrides.py')
 
 
 PASS = 0
@@ -940,6 +942,85 @@ _empty_payload = """<!-- DEVFLOW_DEFERRED_FINDINGS_START -->
 assert_eq("parse_payload: empty payload comment → {}", {},
           match_deferrals._parse_yaml_payload(
               match_deferrals._extract_block(_empty_payload)))
+
+
+# ---------------------------------------------------------------------------
+# resolve_review_overrides.resolve_overrides — per-subagent model/effort
+# overrides for the /devflow:review engine. Covers the four AC cases: specific
+# entry wins, default-fallback, no-entry (no override emitted), and invalid
+# effort (warn + drop to session effort, model still forwarded).
+# ---------------------------------------------------------------------------
+_rro = resolve_review_overrides
+
+# Specific entry wins over default; default supplies only no-entry agents.
+_raw = {
+    "default": {"effort": "medium"},
+    "pr-review-toolkit:code-reviewer": {"model": "claude-opus-4-7", "effort": "high"},
+    "devflow:checklist-deduper": {"model": "claude-haiku-4-5-20251001", "effort": "low"},
+}
+_res, _warn = _rro.resolve_overrides(
+    _raw,
+    ["pr-review-toolkit:code-reviewer", "devflow:checklist-deduper",
+     "devflow:checklist-verifier"],
+)
+assert_eq("resolve: specific code-reviewer entry wins",
+          {"model": "claude-opus-4-7", "effort": "high"},
+          _res["pr-review-toolkit:code-reviewer"])
+assert_eq("resolve: specific deduper entry wins",
+          {"model": "claude-haiku-4-5-20251001", "effort": "low"},
+          _res["devflow:checklist-deduper"])
+assert_eq("resolve: no-entry agent falls back to default",
+          {"effort": "medium"}, _res["devflow:checklist-verifier"])
+assert_eq("resolve: specific entry does NOT inherit default fields (no warnings)",
+          [], _warn)
+
+# default does NOT backfill missing fields of an agent that has its own entry:
+# code-reviewer below has only a model, default has effort — effort must NOT leak in.
+_res2, _ = _rro.resolve_overrides(
+    {"default": {"effort": "max"},
+     "pr-review-toolkit:code-reviewer": {"model": "m"}},
+    ["pr-review-toolkit:code-reviewer"],
+)
+assert_eq("resolve: own entry is used whole (no default backfill of effort)",
+          {"model": "m"}, _res2["pr-review-toolkit:code-reviewer"])
+
+# No entry and no default → no override emitted for that agent.
+_res3, _ = _rro.resolve_overrides({}, ["pr-review-toolkit:code-reviewer"])
+assert_eq("resolve: no entry + no default → empty override map", {}, _res3)
+
+# Invalid effort → warning + drop effort (fall back to session); model forwarded.
+_res4, _warn4 = _rro.resolve_overrides(
+    {"pr-review-toolkit:code-reviewer": {"model": "m", "effort": "turbo"}},
+    ["pr-review-toolkit:code-reviewer"],
+)
+assert_eq("resolve: invalid effort dropped, model forwarded",
+          {"model": "m"}, _res4["pr-review-toolkit:code-reviewer"])
+assert_eq("resolve: invalid effort emits exactly one warning", 1, len(_warn4))
+
+# An entry that resolves to neither a model nor a valid effort emits no override.
+_res5, _ = _rro.resolve_overrides(
+    {"pr-review-toolkit:code-reviewer": {"effort": "bogus"}},
+    ["pr-review-toolkit:code-reviewer"],
+)
+assert_eq("resolve: entry with only-invalid-effort emits no override", {}, _res5)
+
+# A present-but-empty own entry still counts as "has an entry" — default must not apply.
+_res6, _ = _rro.resolve_overrides(
+    {"default": {"effort": "high"}, "devflow:checklist-verifier": {}},
+    ["devflow:checklist-verifier"],
+)
+assert_eq("resolve: empty own entry shadows default → no override", {}, _res6)
+
+# The published KNOWN_AGENTS roster stays byte-identical to the nine telemetry ids.
+assert_eq("resolve: KNOWN_AGENTS is the nine review-engine identifiers",
+          ("devflow:checklist-generator", "devflow:checklist-deduper",
+           "devflow:checklist-verifier", "pr-review-toolkit:code-reviewer",
+           "pr-review-toolkit:silent-failure-hunter",
+           "pr-review-toolkit:comment-analyzer",
+           "pr-review-toolkit:type-design-analyzer",
+           "pr-review-toolkit:pr-test-analyzer",
+           "superpowers:requesting-code-review"),
+          _rro.KNOWN_AGENTS)
 
 
 print()
