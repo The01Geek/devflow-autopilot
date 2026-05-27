@@ -59,6 +59,7 @@ Each value optionally sets `model` and/or `effort`:
   only for subagents that have no entry of their own. (So `code-reviewer: { model: m }` with a
   `default: { effort: high }` dispatches `code-reviewer` with model `m` and the **session** effort
   — not `high`.)
+- **Explicit empty entry opts out of `default`.** An explicit empty entry (`"pr-review-toolkit:code-reviewer": {}`) counts as "has an entry": it sets neither model nor effort **and** does not inherit `default`. Use it to deliberately exclude one subagent from a broad `default` override.
 - **No-entry fallback.** A subagent with **neither its own entry nor a `default`** is dispatched
   exactly as today — the global `claude_model` and the session effort — with **no `--agents`
   override emitted for it**. Existing configs (which have no `agent_overrides` block at all) are

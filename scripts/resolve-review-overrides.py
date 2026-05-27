@@ -175,8 +175,21 @@ def read_raw(dispatched, config_get, config_file):
             # Agent ids contain ':' but never '.', so they are a single
             # dot-path segment — config-get.sh splits on '.' only.
             value = _config_get(config_get, config_file, f"{base}.{field}", warnings)
-            if value:
-                entry[field] = value
+            if not value:
+                continue
+            # config-get.sh stringifies a non-scalar leaf: a JSON object becomes
+            # the sentinel. Forwarding that as a model id (or letting it reach the
+            # effort enum check as a misleading "not one of …") would launder an
+            # invalid shape into a bogus literal — drop it with a clear warning.
+            # (An array leaf joins to a comma string and is indistinguishable from
+            # a scalar; that narrow case is documented as unhandled.)
+            if value == _OBJECT_SENTINEL:
+                warnings.append(
+                    f"agent_overrides[{agent}].{field} is an object, not a "
+                    f"scalar; ignoring it for '{agent}'."
+                )
+                continue
+            entry[field] = value
         # A present-but-empty entry ({}) is a real config state that must shadow
         # `default` (entry-level precedence). The leaf reads can't distinguish it
         # from an absent key, so probe the entry object itself. config-get.sh

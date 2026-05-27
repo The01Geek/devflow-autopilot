@@ -1121,6 +1121,57 @@ assert_eq("resolve: empty-string model dropped, effort kept",
           {"effort": "high"}, _bm_res["pr-review-toolkit:code-reviewer"])
 assert_eq("resolve: empty-string model emits a warning", 1, len(_bm_warn))
 
+# An object-valued model/effort leaf (hand-edited) must be dropped with a clear
+# warning on the real path, not laundered into the "[object Object]" sentinel
+# and forwarded as a model id (or surfaced as a misleading "not in enum" effort).
+with _tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as _objf:
+    _objf.write(
+        '{"devflow_review":{"agent_overrides":{'
+        '"pr-review-toolkit:code-reviewer":{"model":{"nested":1},"effort":"high"}}}}'
+    )
+    _obj_cfg = _objf.name
+try:
+    _objraw, _objwarn = _rro.read_raw(
+        ["pr-review-toolkit:code-reviewer"], _config_get_sh, _obj_cfg)
+    assert_eq("read_raw: object-valued model is dropped (not laundered to sentinel)",
+              {"effort": "high"}, _objraw.get("pr-review-toolkit:code-reviewer"))
+    assert_eq("read_raw: object-valued leaf surfaces a warning",
+              1, len([w for w in _objwarn if "is an object, not a scalar" in w]))
+finally:
+    _os.unlink(_obj_cfg)
+
+# main() CLI contract the engine depends on: pure JSON to stdout, warnings to
+# stderr (never stdout), exit 0 on config shape, and an unknown-agent warning.
+import json
+_out, _err = io.StringIO(), io.StringIO()
+with contextlib.redirect_stdout(_out), contextlib.redirect_stderr(_err):
+    _rc = _rro.main(["pr-review-toolkit:code-reviewer", "--config", "/nonexistent/c.json"])
+assert_eq("main: exit 0 on absent config", 0, _rc)
+assert_eq("main: stdout is parseable JSON ({} when no overrides)",
+          {}, json.loads(_out.getvalue()))
+assert_eq("main: no warning leaked to stdout", True, "::warning::" not in _out.getvalue())
+
+_out2, _err2 = io.StringIO(), io.StringIO()
+with contextlib.redirect_stdout(_out2), contextlib.redirect_stderr(_err2):
+    _rc2 = _rro.main(["pr-review-tookit:code-reviewer", "--config", "/nonexistent/c.json"])
+assert_eq("main: unknown agent id still exits 0", 0, _rc2)
+assert_eq("main: unknown agent id warns on stderr",
+          True, "is not a known" in _err2.getvalue())
+assert_eq("main: stdout stays pure JSON even with an unknown-agent warning",
+          {}, json.loads(_out2.getvalue()))
+
+# Drift guard: KNOWN_AGENTS must stay byte-identical to the schema's
+# agent_overrides property keys (minus `default`). A tenth subagent added to the
+# schema but not here (or vice versa) breaks config/dispatch/telemetry alignment.
+_schema_path = SCRIPTS.parent / '.devflow' / 'config.schema.json'
+with open(_schema_path) as _sf:
+    _schema = json.load(_sf)
+_schema_keys = set(
+    _schema["properties"]["devflow_review"]["properties"]["agent_overrides"]["properties"]
+)
+assert_eq("schema agent_overrides keys == KNOWN_AGENTS + 'default'",
+          set(_rro.KNOWN_AGENTS) | {"default"}, _schema_keys)
+
 # The published KNOWN_AGENTS roster stays byte-identical to the nine telemetry ids.
 assert_eq("resolve: KNOWN_AGENTS is the nine review-engine identifiers",
           ("devflow:checklist-generator", "devflow:checklist-deduper",
