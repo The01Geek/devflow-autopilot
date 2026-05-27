@@ -644,16 +644,18 @@ AGG="${SLUG_DIR}/deferrals.json"   # slug-level aggregate the consumers read; di
 # word-split below is safe. -size +0c skips empty manifests.
 MANIFESTS=$(find "$SLUG_DIR" -mindepth 2 -maxdepth 2 -name deferrals.json -size +0c 2>/dev/null | sort)
 if [ -n "$MANIFESTS" ]; then
-    # Merge the deferrals[] arrays across runs. Dedup on the SAME key file-deferrals.py
-    # hashes its id from (file+symbol+kind+summary), so a finding deferred in both runs
-    # collapses to one row and is filed once. Header fields come from the first manifest.
-    # The dedup key mirrors file-deferrals.py's _compute_id payload EXACTLY —
-    # (file|symbol|kind|summary.strip()), every field defaulted to "" — so a finding
-    # deferred in both runs hashes to one id and is filed once (and so a null field
-    # never errors the string concat).
+    # Merge the deferrals[] arrays across runs. The dedup key mirrors file-deferrals.py's
+    # _compute_id payload — (file|symbol|kind|summary.strip()), every field defaulted to ""
+    # — so a finding deferred in both runs collapses to one row, is filed once, and a null
+    # field never errors the string concat. Header fields come from the first input.
+    # Idempotent re-runs: feed any prior hydrated aggregate FIRST so its `follow_up` entries
+    # win the dedup (unique_by keeps the first occurrence); otherwise a re-run rebuilds $AGG
+    # from the raw run-scoped manifests (which never carry follow_up), wiping the prior
+    # hydration so file-deferrals.py re-files duplicates. Write via temp so reading $AGG is safe.
+    PRIOR=""; [ -s "$AGG" ] && PRIOR="$AGG"
     jq -s '.[0] as $f | {schema_version:$f.schema_version, pr_branch:$f.pr_branch, base_branch:$f.base_branch, generated_at:$f.generated_at,
         deferrals: ([.[].deferrals[]] | unique_by((.file // "") + "|" + (.symbol // "") + "|" + (.kind // "") + "|" + ((.summary // "") | gsub("^\\s+|\\s+$";"")))) }' \
-        $MANIFESTS > "$AGG"
+        $PRIOR $MANIFESTS > "${AGG}.tmp" && mv "${AGG}.tmp" "$AGG"
 fi
 if [ -s "$AGG" ]; then
     FILED_NUMBERS=$(${CLAUDE_SKILL_DIR}/../../scripts/file-deferrals.py \

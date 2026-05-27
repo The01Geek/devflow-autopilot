@@ -325,7 +325,7 @@ For each Critical/Important finding raised by exactly one Phase 3 agent:
 
 ### Step 2.6: Shadow review (non-REJECT verdicts only)
 
-Run a structurally-independent re-review before declaring convergence. Only triggers when the loop's tentative final verdict is non-REJECT (APPROVE, APPROVE WITH ADVISORY NOTES, APPROVE WITH CAVEAT / APPROVE with notes) — either from Step 2 on the current iteration, or from Step 4.5's early-exit convergence path. REJECT verdicts skip this step and go straight to Loop Exit.
+Run a structurally-independent re-review before declaring convergence. Only triggers when the loop's tentative final verdict is non-REJECT (APPROVE, APPROVE WITH ADVISORY NOTES, APPROVE WITH CAVEAT) — either from Step 2 on the current iteration, or from Step 4.5's early-exit convergence path. REJECT verdicts skip this step and go straight to Loop Exit. (Per the Step 2 F4 split, an `APPROVE with notes` engine verdict carrying an Important/Major finding is **not** a tentative final verdict — it routes to Step 2.5 → Step 3 like a REJECT and only reaches the shadow once those findings are fixed or pushed back; a Suggestion/Minor-only `APPROVE with notes` arrives here as `APPROVE WITH CAVEAT`.)
 
 **Why a shadow pass.** Iterations inside the fix loop share state — the orchestrator's context window carries prior findings, fix decisions, and pushback history forward. That state biases what the engine looks for and what it accepts as "already considered." The shadow pass is the loop's audit: the same multi-agent engine runs again, and we compare. This matches what users already do manually today (`/devflow:review <PR>` after `/devflow:review-and-fix`); doing it inside the loop costs the same and feeds the result into one more iteration if the shadow disagrees, instead of leaving it to the human.
 
@@ -682,13 +682,16 @@ If `lib/efficiency-trace.sh` is missing or errors, the trace step above already 
 
 ### Durable workpad copy (writable runs only)
 
-The run-scoped scratch under `.devflow/tmp/review/<slug>/<run-id>/` is gitignored and is destroyed with the runner (or a local `.devflow/tmp/` cleanup). On a **writable** run, persist a durable run-scoped copy of the workpad so this run's `iter-*.json` / `deferrals.json` survive teardown — mirroring the effectiveness-record durable-copy pattern and `/devflow:review`'s Phase 4.5 tmp-scratch/logs-durable split:
+The run-scoped scratch under `.devflow/tmp/review/<slug>/<run-id>/` is gitignored and is destroyed with the runner (or a local `.devflow/tmp/` cleanup). On a **writable** run, persist a durable run-scoped copy of the workpad so this run's `iter-*.json` / `deferrals.json` survive teardown — using the same writable-run gating as the effectiveness record and `/devflow:review`'s Phase 4.5 tmp-scratch/logs-durable split:
 
 ```bash
 # Writable run (local/IDE) only. Under the read-only cloud `review` profile, SKIP this
 # block entirely — no copy, no error; the gitignored `.devflow/tmp/` scratch above still
 # succeeds and is sufficient for the in-run consumers. `.devflow/logs/` is a tracked
 # directory (the repo `.gitignore` negates it), so no gitignore change is needed.
+# Define the paths in THIS block: each fenced snippet is a separate shell, and the
+# effectiveness-trace block's $WORKPAD_DIR is telemetry-gated, so it is not in scope here.
+WORKPAD_DIR=".devflow/tmp/review/<slug>/<run-id>"
 DURABLE=".devflow/logs/review/<slug>/<run-id>"
 if [ -d "$WORKPAD_DIR" ]; then
   mkdir -p "$DURABLE" && cp -p "$WORKPAD_DIR"/*.json "$DURABLE"/ 2>/dev/null || true
