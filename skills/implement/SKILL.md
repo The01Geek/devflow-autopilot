@@ -676,8 +676,16 @@ if [ -n "$AGG" ] && [ -s "$AGG" ]; then
         --manifest "$AGG" 2>/tmp/devflow-fd.err); FD_RC=$?
     if [ "$FD_RC" -eq 0 ]; then
         FILED_NUMBERS="$FILED_OUT"
+        # file-deferrals.py exits 0 even on PARTIAL success: a per-file group whose
+        # `gh issue create` failed is dropped from the manifest, yet the helper still
+        # exits 0. Surface that so the dropped findings (which won't reach the PR's
+        # Scope-Acknowledged block) leave a breadcrumb instead of vanishing silently.
+        grep -q 'were dropped from manifest' /tmp/devflow-fd.err && \
+            workpad.py update $ISSUE_NUMBER --reflection "file-deferrals.py filed partially (rc=0): $(cat /tmp/devflow-fd.err); dropped groups will NOT appear in the PR's Scope-Acknowledged Findings block."
     elif grep -q 'already has follow_up' /tmp/devflow-fd.err; then
         workpad.py update $ISSUE_NUMBER --note "Deferrals already filed on a prior run (idempotent re-run) — nothing new to file; the hydrated aggregate stands."
+    elif grep -q 'no deferrals' /tmp/devflow-fd.err; then
+        workpad.py update $ISSUE_NUMBER --note "Aggregate held no deferrals to file — nothing to do."
     else
         workpad.py update $ISSUE_NUMBER --reflection "file-deferrals.py failed (rc=${FD_RC}): $(cat /tmp/devflow-fd.err); no follow-up issues filed this run."
     fi
