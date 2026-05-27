@@ -1143,6 +1143,33 @@ _de_res, _de_warn = _rro.resolve_overrides(
 assert_eq("resolve: bad default effort → no override for any no-entry agent", {}, _de_res)
 assert_eq("resolve: bad default effort warnings are identical (collapse to one)",
           1, len(set(_de_warn)))
+# Pin the agent-agnostic SCOPE wording, not just the collapse count: a regression that
+# re-introduced a per-agent token would still collapse for a single agent but lose the
+# "affects every agent" meaning that is the load-bearing UX of the dedup.
+assert_eq("resolve: default-sourced warning is agent-agnostic (names the shared scope)",
+          True, any("affects every agent" in w for w in _de_warn))
+
+# The model branch carries the SAME agent-agnostic scope as the effort branch — a bad
+# `default.model` across several no-entry agents must ALSO collapse to one line. (Only
+# the effort branch was exercised before; a regression re-adding {agent} to the model
+# message would pass every other test while restoring per-agent model spam.)
+_dm_res, _dm_warn = _rro.resolve_overrides(
+    {"default": {"model": ""}},
+    ["pr-review-toolkit:code-reviewer", "pr-review-toolkit:comment-analyzer",
+     "pr-review-toolkit:silent-failure-hunter"],
+)
+assert_eq("resolve: bad default model → no override for any no-entry agent", {}, _dm_res)
+assert_eq("resolve: bad default model warnings collapse to one", 1, len(set(_dm_warn)))
+
+# Symmetric contract: distinct OWN entries with bad values stay agent-specific (must
+# NOT collapse), so each names its own misconfigured entry.
+_oe_res, _oe_warn = _rro.resolve_overrides(
+    {"pr-review-toolkit:code-reviewer": {"effort": "turbo"},
+     "pr-review-toolkit:comment-analyzer": {"effort": "turbo"}},
+    ["pr-review-toolkit:code-reviewer", "pr-review-toolkit:comment-analyzer"],
+)
+assert_eq("resolve: distinct own-entry bad-effort warnings stay distinct (not collapsed)",
+          2, len(set(_oe_warn)))
 
 # An object-valued model/effort leaf (hand-edited) must be dropped with a clear
 # warning on the real path, not laundered into the "[object Object]" sentinel
