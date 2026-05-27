@@ -155,7 +155,10 @@ returned cleanly gets **exactly one** targeted re-dispatch first; only if that r
 does not return) is `not_verified` recorded. That single retry is **global to the whole shadow pass**
 (the initial fan-out and any tripwire-widened late reviewer dispatches share the one budget) and
 covers **Phase-3 reviewers only** — Phase 1+2 work a tripped checklist re-run forces is engine phase
-dispatch, not a reviewer retry. **Structural** failures (the `Agent` tool unavailable,
+dispatch, not a reviewer retry. (A forced checklist re-audit that cannot complete still fails closed:
+it surfaces as a Phase-2 INCONCLUSIVE, which drives the shadow's verdict to REJECT per the engine's
+verdict mapping, which the loop promotes into another iteration — so a degraded re-audit never reads
+clean.) **Structural** failures (the `Agent` tool unavailable,
 the engine SKILL.md unreadable, Phase 0.5 unable to classify) and any **multi-reviewer** failure are
 immediate `not_verified` with no retry — they will not recover on a re-run. This is a single bounded
 retry, not a fall-back to the lenient "treat as inconclusive and proceed" path.
