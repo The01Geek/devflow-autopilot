@@ -765,20 +765,29 @@ Both artifacts written above — the effectiveness record (`.devflow/logs/effici
 # Stage ONLY the .devflow/logs/ artifact subtrees this run wrote — never `git add -A`, so
 # the commit cannot absorb unrelated working-tree changes. Records/copies committed by
 # earlier runs are unchanged and stage as no-ops; only this run's new files are added.
-git add -- .devflow/logs/efficiency/ .devflow/logs/review/
-if ! git diff --cached --quiet; then
-  git commit -m "chore: persist review-and-fix observability artifacts
+# Add each subtree conditionally on its existence: the effectiveness record is
+# telemetry-gated (its dir is absent when the trace is disabled) while the durable copy is
+# not, so passing a non-existent pathspec to a single `git add` would abort it atomically
+# and stage NEITHER subtree.
+ADD_PATHS=()
+[ -d .devflow/logs/efficiency ] && ADD_PATHS+=(.devflow/logs/efficiency)
+[ -d .devflow/logs/review ] && ADD_PATHS+=(.devflow/logs/review)
+if [ "${#ADD_PATHS[@]}" -gt 0 ]; then
+  git add -- "${ADD_PATHS[@]}"
+  if ! git diff --cached --quiet; then
+    git commit -m "chore: persist review-and-fix observability artifacts
 
 Co-Authored-By: Claude <noreply@anthropic.com>" || true
-  # Push ONLY when --push-each-iteration is set (cloud / opt-in), matching the fix
-  # iterations' remote contract. In default local mode the commit is created but NOT
-  # pushed: local mode's no-remote-side-effect property is preserved by not pushing, not
-  # by leaving tracked files uncommitted.
-  <if --push-each-iteration is set>: git push || true
+    # Push ONLY when --push-each-iteration is set (cloud / opt-in), matching the fix
+    # iterations' remote contract. In default local mode the commit is created but NOT
+    # pushed: local mode's no-remote-side-effect property is preserved by not pushing, not
+    # by leaving tracked files uncommitted.
+    <if --push-each-iteration is set>: git push || true
+  fi
 fi
 ```
 
-Run this block on every writable run; skip it under the read-only cloud `review` profile (where neither artifact was written and the tree is not writable). The `git diff --cached --quiet` guard makes it a clean no-op when neither artifact exists this run (telemetry gated off *and* nothing durable to copy), so no empty commit is ever created. A user who does not want the logs can drop the single labeled `chore:` commit with one `git reset`.
+Run this block on every writable run; skip it under the read-only cloud `review` profile (where neither artifact was written and the tree is not writable). The existence checks plus the `git diff --cached --quiet` guard make it a clean no-op when neither artifact exists this run (telemetry gated off *and* nothing durable to copy), so no empty commit is ever created. A user who does not want the logs can drop the single labeled `chore:` commit with one `git reset`.
 
 ---
 
