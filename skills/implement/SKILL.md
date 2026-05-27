@@ -652,6 +652,9 @@ if [ -n "$MANIFESTS" ]; then
     # win the dedup (unique_by keeps the first occurrence); otherwise a re-run rebuilds $AGG
     # from the raw run-scoped manifests (which never carry follow_up), wiping the prior
     # hydration so file-deferrals.py re-files duplicates. Write via temp so reading $AGG is safe.
+    # (file-deferrals.py refuses any manifest where *some* entry is already hydrated, so on a
+    # re-run this prevents duplicate filing but does not incrementally file newly-added
+    # deferrals — that all-or-nothing is the helper's existing guard, handled benignly below.)
     PRIOR=""; [ -s "$AGG" ] && PRIOR="$AGG"
     if jq -s '.[0] as $f | {schema_version:$f.schema_version, pr_branch:$f.pr_branch, base_branch:$f.base_branch, generated_at:$f.generated_at,
         deferrals: ([.[].deferrals[]] | unique_by((.file // "") + "|" + (.symbol // "") + "|" + (.kind // "") + "|" + ((.summary // "") | gsub("^\\s+|\\s+$";"")))) }' \
