@@ -1028,25 +1028,69 @@ with _tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as _cf:
     )
     _cfg_path = _cf.name
 try:
-    _raw = _rro.read_raw(
+    _rr_raw, _rr_warn = _rro.read_raw(
         ["devflow:checklist-verifier", "pr-review-toolkit:code-reviewer",
          "pr-review-toolkit:comment-analyzer"],
         _config_get_sh, _cfg_path,
     )
     assert_eq("read_raw: present-but-empty entry is represented as {} (shadows default)",
-              {}, _raw.get("devflow:checklist-verifier"))
+              {}, _rr_raw.get("devflow:checklist-verifier"))
     assert_eq("read_raw: full entry's fields are read",
               {"model": "m", "effort": "low"},
-              _raw.get("pr-review-toolkit:code-reviewer"))
+              _rr_raw.get("pr-review-toolkit:code-reviewer"))
     assert_eq("read_raw: absent agent is not added to raw",
-              False, "pr-review-toolkit:comment-analyzer" in _raw)
+              False, "pr-review-toolkit:comment-analyzer" in _rr_raw)
     assert_eq("read_raw: default entry is read", {"effort": "high"},
-              _raw.get("default"))
+              _rr_raw.get("default"))
+    assert_eq("read_raw: well-formed config yields no warnings", [], _rr_warn)
     # End-to-end resolution off the real config path: empty entry must NOT inherit default.
-    _e2e, _ = _rro.resolve_overrides(_raw, ["devflow:checklist-verifier"])
+    _e2e, _ = _rro.resolve_overrides(_rr_raw, ["devflow:checklist-verifier"])
     assert_eq("read_raw+resolve: empty entry shadows default end-to-end", {}, _e2e)
 finally:
     _os.unlink(_cfg_path)
+
+# read_raw on a malformed config must NOT silently swallow the parse error: it
+# returns no overrides AND surfaces a warning (config-get.sh exits 2), rather
+# than collapsing the parse failure to a silent "no overrides".
+with _tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as _bcf:
+    _bcf.write('{"devflow_review": {"agent_overrides": {  BROKEN')
+    _bad_cfg = _bcf.name
+try:
+    _braw, _bwarn = _rro.read_raw(
+        ["pr-review-toolkit:code-reviewer"], _config_get_sh, _bad_cfg)
+    assert_eq("read_raw: malformed config yields no overrides", {}, _braw)
+    assert_eq("read_raw: malformed config surfaces a warning (not silent)",
+              True, len(_bwarn) >= 1)
+    assert_eq("read_raw: malformed-config warnings are deduped (one line, not per-read)",
+              1, len(_bwarn))
+finally:
+    _os.unlink(_bad_cfg)
+
+# A non-object entry (hand-edited config bypassing schema validation) must be
+# ignored with a warning, NEVER crash resolution — the engine never aborts on
+# config shape.
+_nd_res, _nd_warn = _rro.resolve_overrides(
+    {"pr-review-toolkit:code-reviewer": "high"},
+    ["pr-review-toolkit:code-reviewer"],
+)
+assert_eq("resolve: non-object entry is ignored (no override, no crash)",
+          {}, _nd_res)
+assert_eq("resolve: non-object entry emits a warning", 1, len(_nd_warn))
+# A non-object `default` is likewise ignored, not crashed.
+_ndd_res, _ndd_warn = _rro.resolve_overrides(
+    {"default": ["not", "an", "object"]}, ["pr-review-toolkit:code-reviewer"])
+assert_eq("resolve: non-object default is ignored (no override)", {}, _ndd_res)
+assert_eq("resolve: non-object default emits a warning", 1, len(_ndd_warn))
+
+# A present-but-unusable model (empty/non-string) is dropped WITH a warning,
+# mirroring the invalid-effort path (no silent asymmetry).
+_bm_res, _bm_warn = _rro.resolve_overrides(
+    {"pr-review-toolkit:code-reviewer": {"model": "", "effort": "high"}},
+    ["pr-review-toolkit:code-reviewer"],
+)
+assert_eq("resolve: empty-string model dropped, effort kept",
+          {"effort": "high"}, _bm_res["pr-review-toolkit:code-reviewer"])
+assert_eq("resolve: empty-string model emits a warning", 1, len(_bm_warn))
 
 # The published KNOWN_AGENTS roster stays byte-identical to the nine telemetry ids.
 assert_eq("resolve: KNOWN_AGENTS is the nine review-engine identifiers",

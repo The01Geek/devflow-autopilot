@@ -144,6 +144,8 @@ OVERRIDES=$(${CLAUDE_SKILL_DIR}/../../scripts/resolve-review-overrides.py \
     "devflow:checklist-generator" 2>/tmp/devflow-rv-ovr.err)
 ```
 
+The same cloud allow-list leading-token rule that governs `workpad.py` (see the Live Progress Comment section above) applies here: the helper must be the command's leading token. `OVERRIDES=$(…)` is fine — the path is the leading token *inside* the command substitution — but do **not** refactor it to route the executable through a shell variable (`RRO="…/resolve-review-overrides.py"; "$RRO" …`) or prepend a `VAR=value` env-assignment, or the read-only cloud `review` profile silently denies it and every dispatch falls back to no overrides.
+
 Resolution rules the helper enforces (so the engine just consumes its output):
 - **Entry-level precedence.** A subagent with its own entry uses only that entry; the `default` does **not** backfill its missing fields. `default` supplies model/effort only for subagents with no entry of their own.
 - **No-entry passthrough.** A subagent with neither its own entry nor a `default` produces no override — dispatch it unchanged.
