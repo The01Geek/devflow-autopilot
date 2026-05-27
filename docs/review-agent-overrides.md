@@ -67,12 +67,17 @@ Each value optionally sets `model` and/or `effort`:
   override emitted for it**. Existing configs (which have no `agent_overrides` block at all) are
   therefore completely unaffected.
 - **Invalid effort → warn + fall back.** An `effort` value outside the enum produces a
-  `::warning::` and falls back to the session effort rather than aborting the run. A non-empty
-  `model` string is forwarded as given; an empty/non-string `model` is dropped with its own warning.
+  `::warning::` and falls back to the session effort rather than aborting the run. A non-blank
+  `model` string is forwarded as given; an empty, whitespace-only, or non-string `model` is dropped
+  with its own warning.
 - **Malformed shapes never abort.** A non-object entry (a hand-edited `"agent": "high"` or a list,
-  which bypasses schema validation) is ignored with a warning and treated as no-entry, so `default`
-  still applies. A non-object `default` is likewise ignored. An entry that resolves to neither a
-  model nor a valid effort emits no override at all. The engine never aborts on config shape.
+  which bypasses schema validation) is ignored with a warning and, on the engine-facing end-to-end
+  path (`read_raw`), treated as no-entry — so `default` still applies. (A direct `resolve_overrides`
+  call handed the same non-object entry skips it *without* applying `default`, since the entry's
+  presence already counts as "has an entry"; operators only reach the resolver via `read_raw`, so the
+  `default`-applies behavior is the one they observe.) A non-object `default` is likewise ignored. An
+  entry that resolves to neither a model nor a valid effort emits no override at all. The engine never
+  aborts on config shape.
   - **Object-valued `model`/`effort` leaf.** A hand-edited object leaf (e.g. `"model": {…}`) is
     dropped with a warning. If that was the entry's only field, the entry resolves to `{}` — which,
     being a present (empty) entry, **shadows `default`** for that subagent (it is dispatched at the

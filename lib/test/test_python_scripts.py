@@ -1121,6 +1121,29 @@ assert_eq("resolve: empty-string model dropped, effort kept",
           {"effort": "high"}, _bm_res["pr-review-toolkit:code-reviewer"])
 assert_eq("resolve: empty-string model emits a warning", 1, len(_bm_warn))
 
+# A whitespace-only model is as unusable as an empty one — dropped WITH a warning,
+# not forwarded verbatim as a bogus model id.
+_wm_res, _wm_warn = _rro.resolve_overrides(
+    {"pr-review-toolkit:code-reviewer": {"model": "   ", "effort": "high"}},
+    ["pr-review-toolkit:code-reviewer"],
+)
+assert_eq("resolve: whitespace-only model dropped, effort kept",
+          {"effort": "high"}, _wm_res["pr-review-toolkit:code-reviewer"])
+assert_eq("resolve: whitespace-only model emits a warning", 1, len(_wm_warn))
+
+# A bad value on the shared `default` must NOT emit one warning per no-entry agent
+# (warning spam: up to nine lines for one fat-fingered default). The default-sourced
+# message is agent-agnostic, so the per-agent warnings are IDENTICAL and collapse to
+# a single line under main()'s cross-source dedup.
+_de_res, _de_warn = _rro.resolve_overrides(
+    {"default": {"effort": "turbo"}},
+    ["pr-review-toolkit:code-reviewer", "pr-review-toolkit:comment-analyzer",
+     "pr-review-toolkit:silent-failure-hunter"],
+)
+assert_eq("resolve: bad default effort → no override for any no-entry agent", {}, _de_res)
+assert_eq("resolve: bad default effort warnings are identical (collapse to one)",
+          1, len(set(_de_warn)))
+
 # An object-valued model/effort leaf (hand-edited) must be dropped with a clear
 # warning on the real path, not laundered into the "[object Object]" sentinel
 # and forwarded as a model id (or surfaced as a misleading "not in enum" effort).
@@ -1159,6 +1182,46 @@ assert_eq("main: unknown agent id warns on stderr",
           True, "is not a known" in _err2.getvalue())
 assert_eq("main: stdout stays pure JSON even with an unknown-agent warning",
           {}, json.loads(_out2.getvalue()))
+
+# main() collapses the now-identical default-sourced warnings to a SINGLE stderr
+# line (the warning-spam fix), even with several no-entry agents dispatched.
+with _tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as _deff:
+    _deff.write('{"devflow_review":{"agent_overrides":{"default":{"effort":"turbo"}}}}')
+    _def_cfg = _deff.name
+try:
+    _od, _ed = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(_od), contextlib.redirect_stderr(_ed):
+        _rc_def = _rro.main([
+            "pr-review-toolkit:code-reviewer", "pr-review-toolkit:comment-analyzer",
+            "pr-review-toolkit:silent-failure-hunter", "--config", _def_cfg])
+    assert_eq("main: bad default effort exits 0", 0, _rc_def)
+    assert_eq("main: bad default effort → {} overrides", {}, json.loads(_od.getvalue()))
+    _eff_lines = [ln for ln in _ed.getvalue().splitlines()
+                  if "falling back to session effort" in ln]
+    assert_eq("main: bad default effort emits exactly one deduped warning line",
+              1, len(_eff_lines))
+finally:
+    _os.unlink(_def_cfg)
+
+# A non-object `default` on the real read_raw path: the warning must name the real
+# consequence (no fallback for no-entry agents), NOT the nonsensical "default still
+# applies" phrasing meaningful only for a real agent key.
+with _tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as _ndf:
+    _ndf.write('{"devflow_review":{"agent_overrides":{"default":"high"}}}')
+    _nd_cfg = _ndf.name
+try:
+    _ndraw, _ndwarn = _rro.read_raw(
+        ["pr-review-toolkit:code-reviewer"], _config_get_sh, _nd_cfg)
+    assert_eq("read_raw: non-object default is not added to raw",
+              False, "default" in _ndraw)
+    _dmsg = [w for w in _ndwarn if "[default]" in w and "is not an object" in w]
+    assert_eq("read_raw: non-object default surfaces a warning", 1, len(_dmsg))
+    assert_eq("read_raw: non-object default warning avoids 'default still applies'",
+              False, any("default still applies" in w for w in _dmsg))
+    assert_eq("read_raw: non-object default warning names the real consequence",
+              True, any("no fallback default" in w for w in _dmsg))
+finally:
+    _os.unlink(_nd_cfg)
 
 # Drift guard: KNOWN_AGENTS must stay byte-identical to the schema's
 # agent_overrides property keys (minus `default`). A tenth subagent added to the

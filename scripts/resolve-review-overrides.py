@@ -18,9 +18,9 @@ Resolution rules (mirroring the schema + docs/review-agent-overrides.md):
     (dispatched exactly as today — global claude_model + session effort).
   - `effort` outside the schema enum is dropped with a warning (falls back to
     the session effort); the run never aborts on a bad effort value.
-  - A non-empty string `model` is forwarded as given (no value validation); a
-    present-but-unusable model (empty/non-string) is dropped with a warning,
-    mirroring the invalid-effort path.
+  - A non-blank string `model` is forwarded as given (no value validation); a
+    present-but-unusable model (empty, whitespace-only, or non-string) is dropped
+    with a warning, mirroring the invalid-effort path.
   - An entry that resolves to neither a model nor a valid effort emits no
     override for that subagent (nothing to apply).
   - A non-object entry (e.g. a hand-edited `"agent": "high"` or a list) is
@@ -51,9 +51,11 @@ import sys
 
 VALID_EFFORTS = ("low", "medium", "high", "xhigh", "max")
 
-# config-get.sh stringifies a config value via Node's String(); a JSON object
-# yields this sentinel. read_raw uses it to tell a present-but-empty object
-# entry ({}) from a scalar/array entry the operator hand-edited in.
+# config-get.sh stringifies a non-array config value via Node's String(); a JSON
+# object yields this sentinel. (Arrays take config-get.sh's separate join(",")
+# branch, so they do NOT stringify to this sentinel — see read_raw's array-leaf
+# note.) read_raw uses it to tell a present-but-empty object entry ({}) from a
+# scalar/array entry the operator hand-edited in.
 _OBJECT_SENTINEL = "[object Object]"
 
 # The nine review-engine subagent identifiers. Byte-identical to the schema
@@ -107,15 +109,24 @@ def resolve_overrides(raw, dispatched):
             )
             continue
         resolved = {}
+        # A bad value on the shared `default` entry affects every no-entry agent;
+        # phrasing the warning per-agent would emit one near-identical line per
+        # such agent (up to nine for a single fat-fingered `default`). Phrase
+        # default-sourced warnings agent-agnostically so they collapse to one line
+        # under main()'s dedup; keep own-entry warnings agent-specific (each names
+        # a distinct misconfigured entry).
+        own = source != "default"
+        scope = f" for '{agent}'" if own else " (affects every agent with no entry of its own)"
 
         model = entry.get("model")
         if model is not None:
-            if isinstance(model, str) and model:
+            # A whitespace-only model is as unusable as an empty one; reject both.
+            if isinstance(model, str) and model.strip():
                 resolved["model"] = model
             else:
                 warnings.append(
                     f"agent_overrides[{source}].model={model!r} is not a "
-                    f"non-empty string; ignoring it for '{agent}'."
+                    f"non-blank string; ignoring it{scope}."
                 )
 
         effort = entry.get("effort")
@@ -125,8 +136,7 @@ def resolve_overrides(raw, dispatched):
             else:
                 warnings.append(
                     f"agent_overrides[{source}].effort={effort!r} is not one of "
-                    f"{list(VALID_EFFORTS)}; falling back to session effort for "
-                    f"'{agent}'."
+                    f"{list(VALID_EFFORTS)}; falling back to session effort{scope}."
                 )
 
         if resolved:
@@ -215,9 +225,17 @@ def read_raw(dispatched, config_get, config_file):
             if probe == _OBJECT_SENTINEL:
                 raw[agent] = {}
             elif probe:
+                # "default still applies" is meaningful for a real agent (it falls
+                # back to the default entry) but nonsensical for the `default` key
+                # itself — a malformed `default` just yields no fallback at all.
+                consequence = (
+                    "no fallback default for no-entry agents"
+                    if agent == "default"
+                    else f"no override for '{agent}'; default still applies"
+                )
                 warnings.append(
                     f"agent_overrides[{agent}]={probe!r} is not an object; "
-                    f"ignoring it (no override for '{agent}'; default still applies)."
+                    f"ignoring it ({consequence})."
                 )
     # Dedupe while preserving first-seen order (a missing/mispathed helper would
     # otherwise emit the same line ~2-3x per agent).
@@ -249,7 +267,11 @@ def main(argv=None):
             "review-engine subagent id (KNOWN_AGENTS); any override for it is "
             "resolved but it may indicate a typo or dispatch/roster drift.\n"
         )
-    for w in read_warnings + resolve_warnings:
+    # Dedupe across BOTH sources, preserving first-seen order: read_raw already
+    # dedupes its own, but a malformed `default` makes resolve_overrides emit one
+    # (now agent-agnostic) line that would otherwise repeat, and the two sources
+    # can also overlap. One actionable line per distinct problem.
+    for w in dict.fromkeys(read_warnings + resolve_warnings):
         sys.stderr.write(f"::warning::resolve-review-overrides: {w}\n")
     sys.stdout.write(json.dumps(result) + "\n")
     return 0
