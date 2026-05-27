@@ -630,18 +630,36 @@ Record the new issue numbers in the workpad: `workpad.py update $ISSUE_NUMBER --
 
 ### 4.0.5 File Follow-Up Issues for Deferred Review Findings
 
-If Phase 3.3's /devflow:review-and-fix run emitted a deferrals manifest (`.devflow/tmp/review/<slug>/deferrals.json` — see that skill's "Pre-mapping: Widens-surface guard + deferrals manifest" section for what's in it), file follow-up GitHub issues for those findings now and update the manifest in place with the assigned issue numbers + deterministic deferral IDs. Phase 4.2's /pr-description run will then surface them in the PR body as a Scope-Acknowledged Findings block that /devflow:review's verdict matcher honors.
+If Phase 3.3's /devflow:review-and-fix run emitted a deferrals manifest, file follow-up GitHub issues for those findings now and update the manifest in place with the assigned issue numbers + deterministic deferral IDs. Phase 4.2's /pr-description run will then surface them in the PR body as a Scope-Acknowledged Findings block that /devflow:review's verdict matcher honors.
 
-Skip this step if the manifest does not exist or is empty.
+**Manifests are run-scoped** (`.devflow/tmp/review/<slug>/<run-id>/deferrals.json` — see that skill's "Pre-mapping: Widens-surface guard + deferrals manifest" section for what's in it). A single /devflow:implement run can produce **two** of them: Phase 3.3's first /devflow:review-and-fix run and its bounded re-review both run on the same PR with distinct run-ids. Reading one fixed path would miss the other run's deferrals (issue #68 F1, acceptance criterion 3). So **merge every run-scoped manifest into one slug-level aggregate** before filing, then file from the aggregate. The aggregate is the single path /pr-description reads in Phase 4.2.
+
+Skip this step if no run-scoped manifest exists or all are empty.
 
 ```bash
 PR_NUMBER=$(gh pr view --json number --jq '.number')
-DEFERRALS_FILE=".devflow/tmp/review/pr-${PR_NUMBER}/deferrals.json"
-if [ -s "$DEFERRALS_FILE" ]; then
+SLUG_DIR=".devflow/tmp/review/pr-${PR_NUMBER}"
+AGG="${SLUG_DIR}/deferrals.json"   # slug-level aggregate the consumers read; distinct from the per-run files
+# run-id and slug are path-safe (alphanumeric/hyphen/dot), so the unquoted find-output
+# word-split below is safe. -size +0c skips empty manifests.
+MANIFESTS=$(find "$SLUG_DIR" -mindepth 2 -maxdepth 2 -name deferrals.json -size +0c 2>/dev/null | sort)
+if [ -n "$MANIFESTS" ]; then
+    # Merge the deferrals[] arrays across runs. Dedup on the SAME key file-deferrals.py
+    # hashes its id from (file+symbol+kind+summary), so a finding deferred in both runs
+    # collapses to one row and is filed once. Header fields come from the first manifest.
+    # The dedup key mirrors file-deferrals.py's _compute_id payload EXACTLY —
+    # (file|symbol|kind|summary.strip()), every field defaulted to "" — so a finding
+    # deferred in both runs hashes to one id and is filed once (and so a null field
+    # never errors the string concat).
+    jq -s '.[0] as $f | {schema_version:$f.schema_version, pr_branch:$f.pr_branch, base_branch:$f.base_branch, generated_at:$f.generated_at,
+        deferrals: ([.[].deferrals[]] | unique_by((.file // "") + "|" + (.symbol // "") + "|" + (.kind // "") + "|" + ((.summary // "") | gsub("^\\s+|\\s+$";"")))) }' \
+        $MANIFESTS > "$AGG"
+fi
+if [ -s "$AGG" ]; then
     FILED_NUMBERS=$(${CLAUDE_SKILL_DIR}/../../scripts/file-deferrals.py \
         --source-issue $ARGUMENTS \
         --pr "$PR_NUMBER" \
-        --manifest "$DEFERRALS_FILE")
+        --manifest "$AGG")
 fi
 ```
 

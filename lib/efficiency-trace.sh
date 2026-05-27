@@ -11,7 +11,7 @@
 #
 # Args:
 #   --workpad-dir DIR   directory holding the run's iter-<N>.json workpads
-#                       (e.g. .devflow/tmp/review/<slug>/).
+#                       (e.g. .devflow/tmp/review/<slug>/<run-id>/).
 #   --slug SLUG         the run slug (pr-<N> or sanitized branch name).
 #   --mode trace        emit the rendered Markdown trace to stdout.
 #   --mode record       emit the per-run JSON record to stdout.
