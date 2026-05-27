@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.1] — 2026-05-27
+
+### Fixed
+- **`/devflow:review-and-fix` now persists its observability artifacts deterministically in local mode instead of leaving them as untracked working-tree cruft.** At the end of its fix loop, the command writes two artifacts under the tracked `.devflow/logs/` tree: the effectiveness record (`.devflow/logs/efficiency/<slug>-<timestamp>.json`) and the durable workpad copy (`.devflow/logs/review/<slug>/<run-id>/`). Previously these were left uncommitted, relying on an incidental future `git add -A` to sweep them in — which never happened in a standalone local run, so cost telemetry and review history were silently discarded with `.devflow/tmp/` cleanup. They are now committed together in a single dedicated, pathspec-scoped `chore:` commit on every writable run, local mode included; the commit contains only the `.devflow/logs/` artifacts and is pushed only under `--push-each-iteration`. Default local mode commits but does not push, so its no-remote-side-effect property is preserved. A user who does not want the logs can drop the single labeled commit with one `git reset HEAD~1`. Standalone `/devflow:review` is unaffected. See `docs/efficiency-trace.md`. (#73)
+
 ## [2.5.0] — 2026-05-27
 
 ### Added
