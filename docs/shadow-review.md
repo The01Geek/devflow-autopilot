@@ -74,7 +74,7 @@ degraded subagent.
 ## The honest-degradation fail-safe: coverage is a positively-verified assertion
 
 A degraded pass must **never** clear a PR with a clean verdict. The guard is the shadow block's
-`coverage` field, recorded on the workpad (`.devflow/tmp/review/<slug>/iter-<N>.json`):
+`coverage` field, recorded on the workpad (`.devflow/tmp/review/<slug>/<run-id>/iter-<N>.json`, run-scoped):
 
 - **`coverage: "full"` is something the parent *proves*, not the default-on-no-error.** Before it
   may set `"full"`, the parent computes the **expected reviewer roster** for this run and confirms
