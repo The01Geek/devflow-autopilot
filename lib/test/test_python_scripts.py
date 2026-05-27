@@ -1016,8 +1016,8 @@ assert_eq("resolve: empty own entry shadows default → no override", {}, _res6)
 # reads alone can't tell {} from an absent key, so read_raw probes the entry
 # object — this test guards that the probe stays wired (a pure-function test
 # alone would pass while the real config path silently let `default` backfill).
-import os as _os
-import tempfile as _tempfile
+import os as _os  # noqa: E402
+import tempfile as _tempfile  # noqa: E402
 _config_get_sh = str(SCRIPTS / 'config-get.sh')
 with _tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as _cf:
     _cf.write(
@@ -1196,7 +1196,7 @@ finally:
 
 # main() CLI contract the engine depends on: pure JSON to stdout, warnings to
 # stderr (never stdout), exit 0 on config shape, and an unknown-agent warning.
-import json
+import json  # noqa: E402
 _out, _err = io.StringIO(), io.StringIO()
 with contextlib.redirect_stdout(_out), contextlib.redirect_stderr(_err):
     _rc = _rro.main(["pr-review-toolkit:code-reviewer", "--config", "/nonexistent/c.json"])
