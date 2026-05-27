@@ -200,8 +200,8 @@ echo "devflow_review_and_fix.max_iterations (schema + resolution)"
 # mandates the SKILL read directly via config-get.sh), so we pin (a) the
 # schema/example contract, (b) the resolver read behavior that feeds the clamp,
 # and (c) the clamp logic via a function kept byte-aligned with the SKILL block.
-MAXI_SCHEMA="$TPL_DIR/config.schema.json"
-MAXI_EXAMPLE="$TPL_DIR/config.example.json"
+MAXI_SCHEMA="$LIB/../.devflow/config.schema.json"
+MAXI_EXAMPLE="$LIB/../.devflow/config.example.json"
 MAXI_PROP='.properties.devflow_review_and_fix.properties.max_iterations'
 assert_eq "max_iterations: schema type is integer" "integer" \
   "$(jq -r "$MAXI_PROP.type" "$MAXI_SCHEMA")"
