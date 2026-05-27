@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.0] — 2026-05-27
+
+### Added
+- **The `/devflow:review-and-fix` fix-loop iteration cap is now configurable via `devflow_review_and_fix.max_iterations` (default 5).** The maximum number of fix-loop iterations was previously hardcoded to 4 across `skills/review-and-fix/SKILL.md`, so tuning it meant hand-editing the vendored skill (overwritten on the next plugin update). The cap is now resolved once at loop start from `.devflow/config.json` — using the same `config-get.sh` resolver the efficiency-telemetry flag uses — and applied everywhere the loop references it (loop header, the `Review iteration {N}/<cap>` progress line, the Phase 0.5 note, the shadow-pass iteration accounting, and the promoted-iteration guard). The default raises the prior hardcoded behavior from 4 to 5, applying to every run including repos with no config file. A configured value below 1 is clamped up to 1 (the loop always runs at least once); a non-integer, empty, missing, or unparseable value (including a malformed config or absent `node`) falls back to 5; and no hard upper bound is imposed. Applies to `/devflow:review-and-fix` run directly and via `/devflow:implement`'s Phase 3. See `docs/shadow-review.md` and `docs/efficiency-trace.md`. (#66)
+
 ## [2.4.3] — 2026-05-27
 
 ### Fixed

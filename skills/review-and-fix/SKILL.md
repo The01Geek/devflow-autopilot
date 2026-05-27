@@ -207,11 +207,31 @@ The workpad is best-effort and informational. A write failure should not abort t
 
 ## Main Loop
 
-Execute this loop with a maximum of 4 iterations.
+**Resolve the iteration cap once, at loop start.** Read `devflow_review_and_fix.max_iterations` (default 5) via the config helper — the same `${CLAUDE_SKILL_DIR}`-anchored, no-`bash`-prefix invocation the effectiveness-trace gate uses (see "Subagent effectiveness trace"), so the read is cwd-independent and the resolved-path allow-list entry matches. Capture stderr + rc so a resolver failure (missing `node`, malformed `config.json` → non-zero exit with empty stdout) is distinguishable from a legitimately-absent key, and clamp the result:
+
+```bash
+MAX_ITERS=$("${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh" .devflow_review_and_fix.max_iterations 5 2>/tmp/devflow-maxiter.err); MAX_ITERS_RC=$?
+# Surface a genuine resolver failure (missing `node`, malformed config.json) in the
+# Actions UI rather than swallowing it into a silent default — mirrors the
+# effectiveness-trace gate's `::warning::` on a non-zero read.
+if [ "$MAX_ITERS_RC" -ne 0 ]; then
+  echo "::warning::devflow review-and-fix max_iterations read failed (rc=$MAX_ITERS_RC): $(cat /tmp/devflow-maxiter.err) — using default 5"
+fi
+# Fallback to the default 5 on any resolver failure (rc≠0 → empty stdout) or a
+# non-integer/empty value; clamp a configured value below 1 up to 1 so the loop
+# always runs at least once. No upper bound is imposed — any integer ≥ 1 is honored.
+if [ "$MAX_ITERS_RC" -ne 0 ] || ! printf '%s' "$MAX_ITERS" | grep -Eq '^-?[0-9]+$'; then
+  MAX_ITERS=5
+elif [ "$MAX_ITERS" -lt 1 ]; then
+  MAX_ITERS=1
+fi
+```
+
+Execute this loop with a maximum of `$MAX_ITERS` iterations (the configured cap resolved above; default 5).
 
 ### Iteration Start
 
-Output: `Review iteration {N}/4...`
+Output: `Review iteration {N}/$MAX_ITERS...`
 
 If N ≥ 2: read `iter-<N-1>.json` from the workpad before proceeding.
 
@@ -285,7 +305,7 @@ Skip /devflow:review's Phase 4.4 (formal GitHub review posting). The fix loop is
 
 Every drift incident this skill has had traces to one of those rationalizations. Violating the letter of /devflow:review's phases is violating the spirit, even when the paraphrase reads correct.
 
-The engine produces, for this iteration: a verdict in {APPROVE, APPROVE with notes, APPROVE WITH CAVEAT, APPROVE WITH ADVISORY NOTES, REJECT} (matching `/devflow:review`'s Phase 4.1 enum) plus a markdown report. Phase 0.5 flags (`small_diff`, `config_only`, `has_new_types`, `engine_self_modifying`, `checklist_skipped`) apply unchanged. **The fix loop's iteration cap is still max 4** — Phase 0.5 only scales agent dispatch, not the loop.
+The engine produces, for this iteration: a verdict in {APPROVE, APPROVE with notes, APPROVE WITH CAVEAT, APPROVE WITH ADVISORY NOTES, REJECT} (matching `/devflow:review`'s Phase 4.1 enum) plus a markdown report. Phase 0.5 flags (`small_diff`, `config_only`, `has_new_types`, `engine_self_modifying`, `checklist_skipped`) apply unchanged. **The fix loop's iteration cap is still `$MAX_ITERS`** (the configured cap; default 5) — Phase 0.5 only scales agent dispatch, not the loop.
 
 ### Step 2: Check Verdict
 
@@ -293,7 +313,7 @@ The engine produces, for this iteration: a verdict in {APPROVE, APPROVE with not
 - Engine verdict **APPROVE** but advisory findings have been parked → tentative final verdict `APPROVE WITH ADVISORY NOTES`. Go to **Step 2.6: Shadow review**.
 - Engine verdict **APPROVE WITH CAVEAT** (Phase 4.2 rule 4a — a checklist *coverage* gap, e.g. checklist generation failed; **not** a finding-severity verdict) → tentative final verdict `APPROVE WITH CAVEAT`. Go to **Step 2.6: Shadow review**. There are no Important findings to fix on this path; the caveat is about verification coverage.
 - Engine verdict **APPROVE with notes** (Phase 4.2 rule 6 — only Important and/or Suggestion findings present, no Critical) → split on finding severity:
-  - **If the current iteration's `phase3_findings` contains any finding with `severity` `Important` (or its `Major` alias)** → do **NOT** go to the shadow pass yet. Continue to **Step 2.5** (verification gate) → **Step 3** (fix), routing it exactly as a REJECT would route *for loop purposes* — a skill named review-and-**fix** fixes Important findings, it does not merely note them. The same Step 2.5 gate that guards Critical findings runs first (web-verifying single-source external-tool claims, passing codebase claims straight through), so a confidently-wrong Important finding is demoted to advisory rather than blindly applied — the identical protection Critical findings already get. An Important finding Step 3 *cannot* fix is recorded via the existing `skip_category` pushback flow (Step 3, item 5), the same as a skipped Critical; it does **not** spin, because the 4-iteration cap, the "same `(source_file, claim_text)` skipped twice → escalate to the user and stop" rule (Step 3, item 5), and Step 4.5's convergence check jointly bound it. This routing change lives **only** here in the loop wrapper; `/devflow:review`'s Phase 4.2 verdict computation is unchanged — standalone `/devflow:review` still reports an Important-only PR as "APPROVE with notes" and applies no fixes.
+  - **If the current iteration's `phase3_findings` contains any finding with `severity` `Important` (or its `Major` alias)** → do **NOT** go to the shadow pass yet. Continue to **Step 2.5** (verification gate) → **Step 3** (fix), routing it exactly as a REJECT would route *for loop purposes* — a skill named review-and-**fix** fixes Important findings, it does not merely note them. The same Step 2.5 gate that guards Critical findings runs first (web-verifying single-source external-tool claims, passing codebase claims straight through), so a confidently-wrong Important finding is demoted to advisory rather than blindly applied — the identical protection Critical findings already get. An Important finding Step 3 *cannot* fix is recorded via the existing `skip_category` pushback flow (Step 3, item 5), the same as a skipped Critical; it does **not** spin, because the `$MAX_ITERS`-iteration cap, the "same `(source_file, claim_text)` skipped twice → escalate to the user and stop" rule (Step 3, item 5), and Step 4.5's convergence check jointly bound it. This routing change lives **only** here in the loop wrapper; `/devflow:review`'s Phase 4.2 verdict computation is unchanged — standalone `/devflow:review` still reports an Important-only PR as "APPROVE with notes" and applies no fixes.
   - **If every finding is `severity` `Suggestion`/`Minor` only** (no Important/Major, no Critical) → tentative final verdict `APPROVE WITH CAVEAT`. Go to **Step 2.6: Shadow review**. Suggestion/Minor findings remain advisory and are **not** auto-fixed.
 - Engine verdict **REJECT** → continue to Step 2.5. (REJECT verdicts never reach the shadow pass — the loop is still finding things to fix; let it converge first.)
 
@@ -334,7 +354,7 @@ Run a structurally-independent re-review before declaring convergence. Only trig
 
 **Where independence comes from.** The shadow's independence does **not** come from running the engine inside a fresh subagent context — it cannot. The engine's Phase 1, 1.5, and 3 *fan out to subagents* (and Phase 2 does for its agent-path items — lite items the orchestrator probes directly), and a subagent cannot dispatch its own subagents (nested `Agent`/`Task` dispatch is unsupported in the harness — this is structural, not a permissions gap, so granting `Agent` to a subagent does not fix it). A single shadow subagent told to "run the engine" therefore reaches Phase 3, finds it has no `Agent` tool, and silently collapses to a degraded single-agent self-check that returns a plausible clean `APPROVE` — the exact false-convergence this step exists to prevent. So the **parent orchestrator** runs the shadow fan-out itself (the parent *can* dispatch), and independence is enforced **per reviewer prompt**: each shadow reviewer agent runs in a fresh context whose prompt withholds the loop's prior findings, fix decisions, and pushback history. The only residual shared state is the parent's aggregation — a far smaller bias risk than losing all of Phase 3's coverage to a degraded subagent.
 
-**Iteration accounting.** The shadow pass itself is NOT counted toward the max-4 iteration cap — it's a verification pass on the final iter's state, not a fix iteration. A *promoted* iter (one started because the shadow surfaced new findings — see outcome #2 below) DOES count toward the cap, because it runs Step 2.5 + Step 3 + Step 4 + Step 4.5 from the fix-loop side even though it skips Phase 1+2.
+**Iteration accounting.** The shadow pass itself is NOT counted toward the `$MAX_ITERS`-iteration cap — it's a verification pass on the final iter's state, not a fix iteration. A *promoted* iter (one started because the shadow surfaced new findings — see outcome #2 below) DOES count toward the cap, because it runs Step 2.5 + Step 3 + Step 4 + Step 4.5 from the fix-loop side even though it skips Phase 1+2.
 
 #### Run the shadow fan-out (parent-orchestrated)
 
@@ -403,7 +423,7 @@ Three outcomes:
    - Treat the shadow's new findings as iter (N+1)'s Phase 3 findings (plus iter (N+1)'s Phase 2 FAILs for any new checklist FAILs from shadow).
    - Skip Phase 1+2 for this promoted iter — shadow already ran a full engine, so re-running Phase 1+2 would be redundant work. (This is the one place in the loop where Phase 1+2 is skipped on iter ≥2; it's safe because the inputs *are* a Phase 1+2+3 result.)
    - Go straight to **Step 2.5** (pre-fix verification gate) → **Step 3** (fix findings) for the promoted iter. The regular loop continues from there: Step 4 → Step 4.5 → Step 1 of iter (N+2) if needed.
-   - **Iteration cap still applies** (see "Iteration accounting" above — promoted iter counts toward max-4). If iter 4 has already run and shadow still surfaces new findings, do NOT start iter 5. Exit to Loop Exit with:
+   - **Iteration cap still applies** (see "Iteration accounting" above — promoted iter counts toward the `$MAX_ITERS` cap). If the final iter (iter `$MAX_ITERS`) has already run and shadow still surfaces new findings, do NOT start a further iteration. Exit to Loop Exit with:
      - Final verdict `REJECT` if any of shadow's new findings is Critical.
      - Final verdict `APPROVE WITH UNRESOLVED SHADOW FINDINGS` otherwise (Important-only).
      - Include the unresolved shadow findings verbatim in the chat output and in the report's `## Unresolved Shadow Findings` section.

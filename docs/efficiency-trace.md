@@ -5,8 +5,8 @@
 
 When `/devflow:review-and-fix` runs, its fix loop dispatches a lot of subagents per iteration —
 up to six Phase-3 review agents (four always-on plus two structurally-gated analyzers) plus the
-Phase-2 checklist verifiers, re-run across as many as
-four iterations, plus a shadow pass (the parent-orchestrated convergence audit — see
+Phase-2 checklist verifiers, re-run across as many iterations as the configurable cap allows
+(`devflow_review_and_fix.max_iterations`, default 5), plus a shadow pass (the parent-orchestrated convergence audit — see
 [shadow-review.md](shadow-review.md) for its mechanics and the `step_2_6` telemetry shape). This
 doc records *why* the run now emits a durable effectiveness record, what that record contains, and
 how each subagent earns its verdict.
