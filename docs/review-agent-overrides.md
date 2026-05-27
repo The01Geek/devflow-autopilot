@@ -73,6 +73,17 @@ Each value optionally sets `model` and/or `effort`:
   which bypasses schema validation) is ignored with a warning and treated as no-entry, so `default`
   still applies. A non-object `default` is likewise ignored. An entry that resolves to neither a
   model nor a valid effort emits no override at all. The engine never aborts on config shape.
+  - **Object-valued `model`/`effort` leaf.** A hand-edited object leaf (e.g. `"model": {…}`) is
+    dropped with a warning. If that was the entry's only field, the entry resolves to `{}` — which,
+    being a present (empty) entry, **shadows `default`** for that subagent (it is dispatched at the
+    session model/effort, not the `default` override).
+  - **Array-valued leaf (narrow gap).** `config-get.sh` joins an array leaf with commas before this
+    resolver sees it, so it is indistinguishable from a scalar string. A multi-element array effort
+    (`["high","low"]` → `"high,low"`) fails the enum check and is dropped with a warning, but a
+    **single-element** array (`["high"]` → `"high"`) silently passes, and an array `model`
+    (`["a","b"]` → `"a,b"`) is forwarded verbatim as a model id. All of these require hand-editing
+    past the schema (`additionalProperties:false` + the `effort` enum + `model:string` reject them
+    in any validated config); the worst case is one malformed dispatch the harness would itself reject.
 - **Gated agents.** The two structurally-gated Phase-3 analyzers (`type-design-analyzer`,
   `pr-test-analyzer`) are only dispatched on applicable diffs; an override is emitted only for an
   agent actually dispatched in a given run.

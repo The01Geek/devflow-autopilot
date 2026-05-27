@@ -25,7 +25,12 @@ Resolution rules (mirroring the schema + docs/review-agent-overrides.md):
     override for that subagent (nothing to apply).
   - A non-object entry (e.g. a hand-edited `"agent": "high"` or a list) is
     ignored with a warning rather than crashing — the engine never aborts on
-    config shape.
+    config shape. Whether `default` then applies is path-dependent: `read_raw`
+    drops such an entry before it reaches the raw map, so `default` still
+    backfills that subagent; but a direct `resolve_overrides` call handed the
+    non-object entry skips it WITHOUT applying `default` (the entry's presence
+    in `raw` already counts as "has an entry"). The end-to-end path is
+    `read_raw`, so operators see the `default`-applies behavior.
 
 Usage:
     resolve-review-overrides.py AGENT [AGENT ...] [--config FILE] [--config-get PATH]
@@ -33,8 +38,9 @@ Usage:
 Prints the override map as JSON to stdout, e.g.
     {"pr-review-toolkit:code-reviewer": {"model": "claude-opus-4-7", "effort": "high"}}
 Prints `{}` when no dispatched subagent has an applicable override (the engine
-then emits no --agents block). Warnings go to stderr; exit code is always 0
-unless arguments are invalid (the engine must never abort on config shape).
+then emits no --agents block). Warnings go to stderr; `main()` always returns 0
+on any config shape. Invalid CLI arguments never reach `main()` — argparse exits
+the process itself before `main()` runs — so the engine never aborts on config.
 """
 
 import argparse

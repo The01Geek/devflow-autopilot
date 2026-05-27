@@ -1183,6 +1183,83 @@ assert_eq("resolve: KNOWN_AGENTS is the nine review-engine identifiers",
            "superpowers:requesting-code-review"),
           _rro.KNOWN_AGENTS)
 
+# Characterization: pins the documented array-leaf gap so it can only change
+# deliberately. config-get.sh joins an array leaf with commas before the resolver
+# sees it, so a SINGLE-element array is indistinguishable from a scalar string.
+with _tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as _arrf:
+    _arrf.write(
+        '{"devflow_review":{"agent_overrides":{'
+        '"pr-review-toolkit:code-reviewer":{"effort":["high"]},'
+        '"pr-review-toolkit:silent-failure-hunter":{"effort":["high","low"]},'
+        '"pr-review-toolkit:pr-test-analyzer":{"model":["a","b"]}}}}'
+    )
+    _arr_cfg = _arrf.name
+try:
+    _arr_dispatched = ["pr-review-toolkit:code-reviewer",
+                       "pr-review-toolkit:silent-failure-hunter",
+                       "pr-review-toolkit:pr-test-analyzer"]
+    _arr_raw, _ = _rro.read_raw(_arr_dispatched, _config_get_sh, _arr_cfg)
+    _arr_res, _arr_rwarn = _rro.resolve_overrides(_arr_raw, _arr_dispatched)
+    # Single-element array effort → joined to a bare scalar that passes the enum.
+    assert_eq("char: single-element array effort ['high'] laundered to 'high' (documented gap)",
+              {"effort": "high"}, _arr_res["pr-review-toolkit:code-reviewer"])
+    # Multi-element array effort → 'high,low' → fails the enum → dropped + warned.
+    assert_eq("char: multi-element array effort is dropped (fails enum)",
+              None, _arr_res.get("pr-review-toolkit:silent-failure-hunter"))
+    assert_eq("char: multi-element array effort warns",
+              True, any("high,low" in w for w in _arr_rwarn))
+    # Array model → 'a,b' → forwarded verbatim as a model id (documented gap).
+    assert_eq("char: array model ['a','b'] laundered to 'a,b' (documented gap)",
+              {"model": "a,b"}, _arr_res["pr-review-toolkit:pr-test-analyzer"])
+finally:
+    _os.unlink(_arr_cfg)
+
+# Unknown/typo'd agent id WITH a matching agent_overrides entry: resolution keys
+# off the dispatched id (not KNOWN_AGENTS), so the override is still emitted AND
+# the unknown-id warning fires. (The existing unknown test used an absent config.)
+with _tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as _tyf:
+    _tyf.write(
+        '{"devflow_review":{"agent_overrides":{'
+        '"pr-review-toolkit:code-reviewter":{"effort":"high"}}}}'
+    )
+    _ty_cfg = _tyf.name
+try:
+    _to, _te = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(_to), contextlib.redirect_stderr(_te):
+        _trc = _rro.main(["pr-review-toolkit:code-reviewter", "--config", _ty_cfg])
+    assert_eq("main: typo'd id with a matching override still exits 0", 0, _trc)
+    assert_eq("main: typo'd id override is emitted in stdout JSON",
+              {"pr-review-toolkit:code-reviewter": {"effort": "high"}},
+              json.loads(_to.getvalue()))
+    assert_eq("main: typo'd id also warns it is not a known subagent",
+              True, "is not a known" in _te.getvalue())
+finally:
+    _os.unlink(_ty_cfg)
+
+# Duplicate dispatched ids must not destabilize output: read_raw/resolve key by
+# agent, and the unknown-id warning is deduped (dict.fromkeys) to one line.
+_do, _de = io.StringIO(), io.StringIO()
+with contextlib.redirect_stdout(_do), contextlib.redirect_stderr(_de):
+    _drc = _rro.main(["pr-review-toolkit:typo", "pr-review-toolkit:typo",
+                      "--config", "/nonexistent/c.json"])
+assert_eq("main: duplicate dispatched ids exit 0", 0, _drc)
+assert_eq("main: duplicate dispatched ids yield stable JSON ({} here)",
+          {}, json.loads(_do.getvalue()))
+assert_eq("main: duplicate unknown id warns exactly once (deduped)",
+          1, _de.getvalue().count("is not a known"))
+
+# _config_get OSError branch: a bogus helper path makes subprocess.run raise
+# OSError; it must be caught (warned, returns "") rather than propagated. The
+# non-zero-exit branch (e.g. parse error / missing node) is covered above by the
+# malformed-config read_raw test.
+_oserr_warn = []
+_oserr_out = _rro._config_get(
+    "/nonexistent/definitely-not-a-real-config-get.sh", None,
+    ".devflow_review.agent_overrides.default.effort", _oserr_warn)
+assert_eq("_config_get: OSError on bogus helper path returns '' (no raise)", "", _oserr_out)
+assert_eq("_config_get: OSError on bogus helper path surfaces a warning",
+          True, any("cannot run" in w for w in _oserr_warn))
+
 
 print()
 print(f"{PASS} passed, {FAIL} failed")
