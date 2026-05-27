@@ -24,7 +24,12 @@
     "efficiency_cut_candidate_min_dispatch": 3
   },
   "devflow_review": {
-    "live_progress_comment_enabled": true
+    "live_progress_comment_enabled": true,
+    "agent_overrides": {
+      "default": { "effort": "medium" },
+      "devflow:checklist-deduper": { "model": "claude-haiku-4-5-20251001", "effort": "low" },
+      "pr-review-toolkit:code-reviewer": { "model": "claude-opus-4-7", "effort": "high" }
+    }
   },
   "setup": {
     "python_version": "3.11",

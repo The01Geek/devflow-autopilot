@@ -129,6 +129,37 @@ _(pending)_
 
 ---
 
+## Per-Subagent Model/Effort Overrides
+
+Operators can tune each review subagent's model and reasoning effort via the `devflow_review.agent_overrides` block in `.devflow/config.json` (see `docs/review-agent-overrides.md` and the schema). The block maps a subagent identifier — or the special `default` key — to a `{model?, effort?}` override. Because this engine is shared, the overrides take effect identically whether it is reached via standalone `/devflow:review` or via `/devflow:review-and-fix` (and thus `/devflow:implement`).
+
+**Five of the nine subagents are external plugins** (`pr-review-toolkit:*`, `superpowers:*` / `general-purpose`) whose frontmatter DevFlow cannot edit, and **effort is not a dispatch-time `Agent`/`Task` parameter** — both model and effort must ride on a per-run `--agents` JSON block. So at each dispatch phase you **materialize an `--agents` override block** for the subagents about to be dispatched and dispatch them through it. Subagents with no applicable override are dispatched exactly as today (no `--agents` entry, global `claude_model` + session effort).
+
+**Resolve overrides with the bundled helper** — do not hand-roll the precedence/validation in prose. Before each dispatch phase, pass the identifiers about to be dispatched to `resolve-review-overrides.py`; it reads each one's `model`/`effort` (and the `default`) via `config-get.sh` (DevFlow's single config reader), applies the rules below, and prints the override map as JSON (`{}` when nothing applies). Like every DevFlow config read, the helper resolves `.devflow/config.json` **relative to the current working directory** — invoke it from the repo root (pass `--config <path>` if you must run elsewhere), or every override silently resolves to `{}`:
+
+```bash
+# Pass ONLY the agents actually being dispatched this phase (e.g. omit gated-out
+# type-design-analyzer / pr-test-analyzer). Empty/`{}` output → emit no --agents block.
+# Substitute a PHASE-DISTINCT literal for <phase> when you author each phase's command
+# — use `phase1` here (Phase 1), `phase1_5` (Phase 1.5), `phase2` (Phase 2), `phase3`
+# (Phase 3). This is a template substitution you fill in, NOT a shell variable: do not
+# emit a bare `$PHASE` (it would be unset and collapse all phases onto one file,
+# truncating earlier phases' unread diagnostics — see the surfacing rule below).
+OVERRIDES=$(${CLAUDE_SKILL_DIR}/../../scripts/resolve-review-overrides.py \
+    "devflow:checklist-generator" 2>/tmp/devflow-rv-ovr.phase1.err)
+```
+
+The same cloud allow-list leading-token rule that governs `workpad.py` (see the Live Progress Comment section above) applies here: the helper must be the command's leading token. `OVERRIDES=$(…)` is fine — the path is the leading token *inside* the command substitution — but do **not** refactor it to route the executable through a shell variable (`RRO="…/resolve-review-overrides.py"; "$RRO" …`) or prepend a `VAR=value` env-assignment, or the read-only cloud `review` profile silently denies it and every dispatch falls back to no overrides.
+
+Resolution rules the helper enforces (so the engine just consumes its output):
+- **Entry-level precedence.** A subagent with its own entry uses only that entry; the `default` does **not** backfill its missing fields. `default` supplies model/effort only for subagents with no entry of their own.
+- **No-entry passthrough.** A subagent with neither its own entry nor a `default` produces no override — dispatch it unchanged.
+- **Invalid effort → warn + fall back.** An `effort` outside the `low/medium/high/xhigh/max` enum is dropped with a `::warning::` (the subagent falls back to the session effort); the run never aborts. A non-blank `model` string is forwarded as given; an empty/whitespace-only/non-string `model` is likewise dropped with a `::warning::`, mirroring the invalid-effort path.
+
+For each subagent present in `$OVERRIDES`, build its `--agents` entry from the resolved `model`/`effort` (the external plugins' own `description`/`prompt`/`tools` come from their installed definitions — you only layer on the configured `model`/`effort`). Dispatch the phase's agents through that materialized `--agents` block; dispatch any subagent absent from `$OVERRIDES` exactly as before. The helper is best-effort: **surface its captured stderr (the `/tmp/devflow-rv-ovr.<phase>.err` file this phase wrote, e.g. `…phase1.err`) whenever it is non-empty — not only on a non-zero exit, and do so immediately after this phase's resolve, before the next dispatch phase runs.** The helper deliberately exits 0 even when it drops a malformed entry (invalid effort, non-object entry, unusable model), writing those `::warning::` lines to stderr; keying the surfacing on exit code alone would silently swallow exactly those operator-misconfiguration diagnostics. Because the resolver runs once per dispatch phase (Phase 1, 1.5, 2, 3), each phase writes its **own** `<phase>`-tagged stderr file (`phase1` / `phase1_5` / `phase2` / `phase3`, substituted as a literal — not a shell variable) and surfaces it before the next phase; a single shared filename (or a bare unset `$PHASE` that collapses to one) would let a later phase truncate an earlier phase's unread diagnostics. On a non-zero exit, additionally dispatch with no overrides rather than blocking the review.
+
+---
+
 ## Phase 0: Setup
 
 ### 0.1 Check for uncommitted changes
@@ -324,7 +355,7 @@ where `M` is the total dropped count (`N - 100`) and the per-category counts sum
 
 ### 1.2 Launch checklist-generator agent(s)
 
-Use the **Agent tool** with `subagent_type: "devflow:checklist-generator"`.
+Use the **Agent tool** with `subagent_type: "devflow:checklist-generator"`. First resolve overrides for the agents about to be dispatched (`devflow:checklist-generator`) per **Per-Subagent Model/Effort Overrides** above, and dispatch through the materialized `--agents` block when one applies.
 
 Pass the following prompt:
 ```
@@ -390,7 +421,7 @@ Output: `Phase 1.5/4: Deduping checklist across {B} batches...`
 
 ### 1.5.1 Launch the deduper agent
 
-Use the **Agent tool** with `subagent_type: "devflow:checklist-deduper"`.
+Use the **Agent tool** with `subagent_type: "devflow:checklist-deduper"`. Resolve overrides for `devflow:checklist-deduper` per **Per-Subagent Model/Effort Overrides** above and dispatch through the materialized `--agents` block when one applies.
 
 Concatenate the raw checklist items from all batches into a single JSON array. Preserve each item's original `id` and tag it with its source batch so traceability survives the merge — prefix each `id` with `batch{K}:` (e.g. `batch1:VC-3`, `batch2:VC-1`) before passing to the deduper.
 
@@ -469,7 +500,7 @@ Record the result in the same JSON shape as agent verdicts:
 
 Split the *agent* items into batches of up to 8. For each batch, launch all agents in parallel using multiple Agent tool calls in a single message.
 
-Use the **Agent tool** with `subagent_type: "devflow:checklist-verifier"` for each item.
+Use the **Agent tool** with `subagent_type: "devflow:checklist-verifier"` for each item. Resolve overrides for `devflow:checklist-verifier` once per Phase 2 (the verdict is identical across the batch) per **Per-Subagent Model/Effort Overrides** above, and dispatch every verifier through the materialized `--agents` block when one applies.
 
 Pass the following prompt for each:
 ```
@@ -507,6 +538,8 @@ Output: `Phase 3/4: Running review agents...`
 ### 3.1 Launch existing review agents in parallel
 
 Launch all agents in a single message using multiple Agent tool calls. For each agent, pass a prompt telling it to review the changes.
+
+**Resolve overrides for the Phase-3 roster first.** After the Phase 3.1 applicability gates decide which agents actually launch this run, pass that exact roster (the always-on four — `code-reviewer`, `silent-failure-hunter`, `comment-analyzer`, and the final-pass `superpowers:requesting-code-review` dispatched as a `general-purpose` Task — plus any gated-in `type-design-analyzer` / `pr-test-analyzer`) to `resolve-review-overrides.py` per **Per-Subagent Model/Effort Overrides** above. Materialize one `--agents` block from its output and dispatch each Phase-3 agent through it; do **not** request overrides for a gated-out agent (only emit overrides for agents actually dispatched). The final-pass reviewer's override is keyed under `superpowers:requesting-code-review` even though it is dispatched as a `general-purpose` Task (see its dispatch note below).
 
 **Phase 3 always re-runs on every iteration of the fix loop.** Unlike Phase 1+2 (where individual items can be narrow-reused via `claim_signature` + untouched-file checks — see Phase 2.0.5), Phase 3's review agents are the main lever for *variance recovery*: an LLM reviewer asked the same question twice in different sessions will not always surface the same findings, and that variance is the whole point of iterating. Skipping Phase 3 on a later iteration because "the fix didn't touch any flagged file" silently throws away the second-look signal — exactly the false-pass mode this engine is designed to avoid.
 
@@ -576,7 +609,7 @@ Analyze the type design in the code changes. Read the cached diff at `{DIFF_PATH
 {paste the defect_signature paragraph above}
 ```
 
-**General-purpose final-pass reviewer** — dispatch a `Task` with `subagent_type: general-purpose` and instruct it to invoke the `/superpowers:requesting-code-review` skill (that skill renders its own reviewer prompt; we do not inline it). This dispatch assumes the `superpowers` plugin is installed in the executing environment; if `/superpowers:requesting-code-review` is not available, the subagent will surface that and the orchestrator should fall back to relying on the other Phase-3 reviewer agents above.
+**General-purpose final-pass reviewer** — dispatch a `Task` with `subagent_type: general-purpose` and instruct it to invoke the `/superpowers:requesting-code-review` skill (that skill renders its own reviewer prompt; we do not inline it). This dispatch assumes the `superpowers` plugin is installed in the executing environment; if `/superpowers:requesting-code-review` is not available, the subagent will surface that and the orchestrator should fall back to relying on the other Phase-3 reviewer agents above. **Override key:** resolve and apply this dispatch's model/effort override under the identifier `superpowers:requesting-code-review` (not `general-purpose`) — materialize it into the `--agents` block as the `general-purpose` agent definition for this Task so the configured model/effort ride on it, keeping config, dispatch, and the effectiveness trace aligned.
 
 Prompt:
 
