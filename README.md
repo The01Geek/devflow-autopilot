@@ -209,8 +209,8 @@ A structured handoff between `/devflow:review-and-fix`, `/devflow:implement`, `/
 
 **The handoff, in order.**
 
-1. **`/devflow:review-and-fix` Loop Exit** runs a **widens-surface guard** on every Yes-downgrade skip — if the PR diff overlaps the deferred finding's file within ±10 lines, the skip is disqualified. Survivors are emitted as `.devflow/tmp/review/<slug>/deferrals.json`.
-2. **`/devflow:implement` Phase 4.0.5** reads that manifest, runs `scripts/file-deferrals.py` to file **one follow-up issue per source file** (body contains the verbatim findings plus a `PR #<N>` cross-link), and rewrites the manifest with deterministic `id: dfr-<6-hex>` + `follow_up` fields.
+1. **`/devflow:review-and-fix` Loop Exit** runs a **widens-surface guard** on every Yes-downgrade skip — if the PR diff overlaps the deferred finding's file within ±10 lines, the skip is disqualified. Survivors are emitted as a **run-scoped** manifest `.devflow/tmp/review/<slug>/<run-id>/deferrals.json` (one per run, so a repeated or concurrent run — including `/devflow:implement`'s bounded re-review — never clobbers another's).
+2. **`/devflow:implement` Phase 4.0.5** **merges every run-scoped manifest into one slug-level aggregate** (`.devflow/tmp/review/<slug>/deferrals.json`), runs `scripts/file-deferrals.py` over that aggregate to file **one follow-up issue per source file** (body contains the verbatim findings plus a `PR #<N>` cross-link), and rewrites the aggregate with deterministic `id: dfr-<6-hex>` + `follow_up` fields.
 3. **`/pr-description`** renders a Scope-Acknowledged Findings block between `<!-- DEVFLOW_DEFERRED_FINDINGS_START -->` / `END` markers in the PR body.
 4. **`/devflow:review` Phase 4.0** (PR mode) runs `scripts/match-deferrals.py`, which validates each deferral against three guards and demotes matched findings to **Informational** before computing the verdict.
 
@@ -263,7 +263,8 @@ scan.sh
 
 - **`.devflow/learnings/retrospectives.jsonl`** — append-only ground truth; one JSON object per processed PR (`kind: implementation | audit`). Tracked in git.
 - **`.devflow/learnings/overrides.json`** — human-editable map of dismissed patterns + reasons. Tracked in git.
-- **`.devflow/tmp/`** — all ephemeral scratch for each run: review caches (`tmp/review/<slug>/` — cached diff, per-iteration workpads, deferrals manifest), weekly-loop temp files, and issue drafts. Gitignored via a scoped `.devflow/.gitignore` (which ignores only `tmp/`, so `config.json` and `learnings/` stay committed).
+- **`.devflow/tmp/`** — all ephemeral scratch for each run: review caches (`tmp/review/<slug>/<run-id>/` — **run-scoped** per review run, holding that run's cached diff, per-iteration workpads, and deferrals manifest, so repeated or concurrent runs on the same PR never clobber each other; `/devflow:implement` merges the per-run deferrals manifests into one slug-level aggregate at `tmp/review/<slug>/deferrals.json`), weekly-loop temp files, and issue drafts. Gitignored via a scoped `.devflow/.gitignore` (which ignores only `tmp/`, so `config.json` and `learnings/` stay committed).
+- **`.devflow/logs/review/<slug>/<run-id>/`** — a durable copy of a review run's workpads (`iter-*.json`, `deferrals.json`), written on **writable** runs only (skipped under the read-only cloud `review` profile) so the run's state survives the ephemeral `tmp/` teardown. Tracked in git (`.devflow/logs/` is negated in the `.gitignore`).
 
 Pattern occurrences, fix history, and status (`open`/`regressed`/`fixed`/`dismissed`) are computed on demand by `lib/compute-patterns.jq`. The loop is **idempotent** — re-running processes only PRs not already in `retrospectives.jsonl` on the default branch.
 

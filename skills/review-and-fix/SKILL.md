@@ -16,7 +16,7 @@ You are the review-and-fix orchestrator. Run /devflow:review's review engine, fi
 
 ## When NOT to use
 
-- Not for trivial doc-only PRs — use `/devflow:review` and read the report; auto-fixing prose adds churn for little value.
+- Not for trivial doc-only PRs — use `/devflow:review` and read the report; auto-fixing prose adds churn for little value. **Exception — engine-surface PRs are never "doc-only" for this purpose.** When the diff touches devflow's own engine surface (`skills/**`, `agents/**`, `lib/**` — including changes that are *entirely* Markdown, like a SKILL.md edit), `/devflow:review`'s Phase 0.5 sets `engine_self_modifying` and forces the **full** checklist + all four always-on Phase-3 agents, precisely because a typo there silently breaks every future review. Those changes are the highest-risk diffs in the repo, not low-value prose — so this doc-only carve-out does **not** apply to them: an all-Markdown engine-surface PR is unambiguously a valid `review-and-fix` target. The carve-out is only for genuinely inert prose (READMEs, `docs/`, comments) outside the engine surface.
 - Not for PRs where you want to hand-review every finding before deciding — use `/devflow:review` instead; this skill commits fixes between iterations.
 - Not for PRs that cross a release boundary or touch infrastructure where surprise commits would be costly — review-and-fix produces commits as a side effect of converging.
 - Not for first-pass branch hygiene (rebases, conflict resolution, build fixes) — get a clean diff first, then run review-and-fix on the result.
@@ -28,7 +28,7 @@ This skill wraps /devflow:review's four-phase engine in a fix loop. Phases 0 thr
 
 This skill **skips** /devflow:review's Phase 4.4 entirely — no GitHub post. The final report is emitted to chat only; the human reviewer decides whether to convert it into a formal merge signal by running `/devflow:review <PR>` separately (which performs an independent re-review and posts the result). It also adds:
 - A **fix-delta handoff** before Step 1 in iterations N≥2 (passes the prior iteration's checklist + fix-files into Phase 1's generator and Phase 2's narrow-reuse logic; Phase 1+2 always re-run — they are *not* skipped wholesale).
-- A **persistent workpad** (`.devflow/tmp/review/<slug>/iter-<N>.json`) that carries checklist verdicts, findings, fix decisions, and convergence inputs across iterations.
+- A **persistent workpad** (`.devflow/tmp/review/<slug>/<run-id>/iter-<N>.json`, run-scoped) that carries checklist verdicts, findings, fix decisions, and convergence inputs across iterations.
 - A **shadow review pass** at Step 2.6 — a *parent-orchestrated* independent re-review that re-runs /devflow:review's Phases 0–4.3 with each reviewer agent's prompt blinded to the loop's prior findings — before declaring convergence on a non-REJECT verdict (see Step 2.6).
 - A **`## Coverage` section** in the final report aggregating per-iter finding counts, shadow agreement, and Phase 1.1.5 cap drops (see Loop Exit → Coverage).
 - A **per-phase telemetry summary** at Loop Exit (agent calls / tokens / wall-clock).
@@ -39,9 +39,17 @@ This skill **skips** /devflow:review's Phase 4.4 entirely — no GitHub post. Th
 
 ## Persistent workpad
 
-The orchestrator persists per-iteration state under `.devflow/tmp/review/<slug>/iter-<N>.json` (relative to the repo root). `<slug>` is `pr-<N>` in PR mode or the sanitized current branch name in branch mode. `<N>` is the iteration number, starting at 1.
+The orchestrator persists per-iteration state under `.devflow/tmp/review/<slug>/<run-id>/iter-<N>.json` (relative to the repo root). `<slug>` is `pr-<N>` in PR mode or the sanitized current branch name in branch mode. `<run-id>` is a per-run discriminator (see below). `<N>` is the iteration number, starting at 1.
 
-The same directory also contains `.devflow/tmp/review/<slug>/diff.patch` — the cached full diff written by Phase 0.2 of `/devflow:review` on every iteration (overwritten if it already exists). Phase 3 agents Read this file directly instead of re-running `gh pr diff` / `git diff` 4–5 times in parallel. See `/devflow:review`'s Phase 0.2 for the write logic.
+**Run-scoping (`<run-id>`).** The workpad is scoped by a per-run id so that a second `/devflow:review-and-fix` or `/devflow:review` invocation on the same PR — including `/devflow:implement` Phase 3.3's bounded re-review, which re-invokes this skill on the *same* PR — never clobbers a prior run's `iter-*.json` or `deferrals.json`. Reuse the **exact** discriminator `/devflow:review`'s live progress comment already uses (don't invent a new one):
+
+```bash
+RUN_ID="${GITHUB_RUN_ID:-local-$(date -u +%Y%m%dT%H%M%SZ)}-${GITHUB_RUN_ATTEMPT:-1}"
+```
+
+Compute `RUN_ID` **once at loop start, before iteration 1, and hold the literal value for the run's whole lifetime** — never recompute it (on a local run the timestamp would change between calls and split one run's state across two directories). This is the same compute-once-and-reuse rule the run-keyed progress-comment marker follows.
+
+**All in-run scratch is run-scoped** — `diff.patch`, `iter-*.json`, and `deferrals.json` all live under `.devflow/tmp/review/<slug>/<run-id>/`, so two runs on the same PR never clobber any of them. The cached diff is at `.devflow/tmp/review/<slug>/<run-id>/diff.patch` — the full diff written by Phase 0.2 of `/devflow:review` on every iteration (overwritten within a run, but never across runs). Phase 3 agents Read this file directly via the `{DIFF_PATH}` substitution Phase 0.2 fills in, instead of re-running `gh pr diff` / `git diff` 4–5 times in parallel — so they pick up the run-scoped path automatically with no per-agent-prompt change. **Run-id consistency across the wrapper and the engine:** so the engine's Phase 0.2 and this wrapper agree on one `<run-id>` for the whole run (rather than `/devflow:review` computing a fresh timestamp-based id on each inline invocation), the wrapper passes its held `RUN_ID` into the engine's Phase 0.2 (see Step 1's head-override paragraph, which already plumbs caller inputs into Phase 0.2). See `/devflow:review`'s Phase 0.2 for the write logic.
 
 **Important.** Only `.devflow/tmp/` is ephemeral working state — the rest of `.devflow/` (`config.json`, `learnings/`, the schema/example) is intentionally tracked. The scaffolder (`scripts/scaffold-config.sh`, run by `install.sh` / `/devflow:init`) writes a scoped `.devflow/.gitignore` that ignores only `tmp/`. This skill does NOT manage that entry itself (it's a repo-level concern); flag missing coverage in the chat output only if `.devflow/tmp/` is not already ignored.
 
@@ -185,7 +193,7 @@ Use the **same identifier string** in `phase3_dispatched` that you write to each
 
 ### Lifecycle
 
-- **Iter 1 start:** create the directory if missing. There is no prior iteration to read.
+- **Iter 1 start:** create the run-scoped directory `.devflow/tmp/review/<slug>/<run-id>/` if missing (using the `RUN_ID` computed once at loop start). There is no prior iteration to read.
 - **Iter N start (N≥2):** before doing anything else, read `iter-<N-1>.json`. The fix-delta handoff (Step 0.9) and convergence check both consume it. If the file is missing or unreadable, log a warning and continue without the handoff optimizations (Phase 1 generator runs without the prior-checklist variance-recovery block; Phase 2.0.5 reuses nothing; Phase 3 runs without prior-findings context). Phase 1+2+3 still run — they always do.
 - **Iter N end:** write `iter-<N>.json` with everything collected during the iteration before looping back to Step 1.
 - **Step 2.6 end (shadow pass):** when the shadow review pass runs at end-of-loop, append the `shadow` block to the latest iter's workpad (re-writing `iter-<N>.json` with the shadow result included). If the shadow promotes new findings into iter (N+1), iter (N+1) is a normal iter from a lifecycle standpoint — it will write its own `iter-<N+1>.json` per the regular end-of-iter rule.
@@ -252,11 +260,15 @@ Log: `Fix-delta handoff: iter-{N-1} fix touched {len(fix_files)} file(s) ({names
 
 ### Step 1: Run the Review Engine
 
-**Mandatory and authoritative.** Use `Glob` with pattern `**/devflow/skills/review/SKILL.md` to locate /devflow:review's SKILL.md, then `Read` it in full. Execute its **Phases 0 through 4.3 verbatim** — do not improvise the Phase 3 agent prompts, do not skip the Phase 1 >10-file batching, do not substitute your own verdict criteria. This skill deliberately does *not* contain a paraphrase of those phases; if you cannot read /devflow:review's SKILL.md, error out (see Error Handling).
+**Mandatory and authoritative.** Use `Glob` with pattern `**/devflow/skills/review/SKILL.md` to locate /devflow:review's SKILL.md, then `Read` it in full. **Engine-location fallback (self-review case).** That Glob requires a `devflow/` path component, so it matches the vendored-consumer layout (e.g. `.devflow/vendor/devflow/skills/review/SKILL.md`) but **nothing inside the devflow repo itself**, whose engine lives at the repo-root `skills/review/SKILL.md`. When the Glob returns **no match**, fall back to the repo-own path `skills/review/SKILL.md` (resolved from the repo root) and `Read` that. The Glob stays **primary** (the common adopter case); this fallback only ever applies when devflow reviews its *own* PR (see the self-review callout below). Execute its **Phases 0 through 4.3 verbatim** — do not improvise the Phase 3 agent prompts, do not skip the Phase 1 >10-file batching, do not substitute your own verdict criteria. This skill deliberately does *not* contain a paraphrase of those phases; only error out (see Error Handling) when **both** the Glob and the repo-own fallback fail to resolve a readable file.
 
 **Why path-based loading, not `Skill: "devflow:review"`.** The `Skill` tool *executes* a skill end-to-end; it would run /devflow:review's Phase 4.4 (formal GitHub post) before this loop has converged, defeating the deferred-post design. We need /devflow:review's phases as a *procedure read inline*, not as an opaque invocation. The path-coupling that follows is the price of that: the glob assumes the plugin layout `<plugin-root>/skills/<skill-name>/SKILL.md` (per the agentskills.io convention) — `**` absorbs depth changes, but the `skills/review/` sub-path is load-bearing. If that layout ever changes, update the glob pattern here and in the "Engine sharing" paragraph at the top of /devflow:review's SKILL.md.
 
+**Self-review / version-skew (the artifact under review *is* the executing engine).** When the PR under review modifies devflow's own engine surface (`skills/**`, `agents/**`, `lib/**`), two hazards apply that don't exist on an adopter's repo. (1) **Engine location:** the vendored-consumer Glob matches nothing in the devflow repo, so without the repo-own fallback above the run would either hit the fatal "cannot locate" path or — worse — silently resolve a *stale plugin-cache copy* (`.claude/plugins/.../devflow/<version>/skills/review/SKILL.md`) that diverges from the branch under review. The Glob is primary (adopter case) and the repo-own path is its no-match fallback — but in the self-review case that ordering can betray you: if a stale plugin-cache copy carrying a `devflow/` path component happens to sit under the working tree, the Glob *matches it* and the fallback never fires. So when reviewing devflow's own PR, **override to the repo-own `skills/review/SKILL.md` on the branch whenever the Glob resolves a copy whose content diverges from it**: the branch is the source of truth for a self-review, and a cache-vs-branch skew means you would be reviewing the diff with a *different* engine than the one the diff changes. (2) **Loaded-vs-edited skew:** your *own* running instructions are whatever was loaded at invocation (often the plugin cache), which may predate the branch's engine edits — so a change this very PR makes to the loop wrapper does **not** alter the loop you are currently executing. Read the engine fresh from the branch on every Step 1 (and Step 2.6) rather than trusting loaded memory of "what the engine does," and treat the branch's `skills/review/SKILL.md` as authoritative when it disagrees with your loaded copy.
+
 When iter N≥2, hand off the `fix_files`, `prior_checklist`, and `prior_phase3_findings` computed in Step 0.9 into the engine's Phase 1 (generator variance-recovery prompt block), Phase 2 (narrow-reuse — Phase 2.0.5), and Phase 3 (prior-findings context block). Phase 1+2 always run; their *outputs* may be smaller because Phase 2.0.5 reuses some prior verdicts, but the phases themselves do not skip.
+
+**Pass the held `run_id` into the engine's Phase 0.2 on every iteration (both modes).** So the engine scopes its scratch (`diff.patch`, and its Phase 4.5 trace input) under the *same* `<run-id>` this wrapper uses for `iter-*.json` / `deferrals.json`, hand the `RUN_ID` computed once at loop start to Phase 0.2 — see /devflow:review's Phase 0.2 "Caller run-id" for the mechanic (Phase 0.2 prefers a caller-provided run-id over computing its own, which on a local run would otherwise change between inline invocations and scatter one run's scratch across directories).
 
 **PR-mode head-override (every PR-mode iteration).** In PR mode, pass `head_override = local` into the engine's Phase 0.2 — see /devflow:review's Phase 0.2 "Caller head-override" for the mechanic (it diffs against local `HEAD` instead of re-fetching `gh pr diff`). This is what makes the engine review the fix commits this loop has made locally rather than stale pushed state: on iteration 1 (no fixes yet, branch freshly synced in Step 0.5) it is diff-identical to the remote fetch, and from iteration 2 on it keeps the loop off pre-fix code. Because convergence rides on this override and not on pushing, a no-push PR-mode run (`--push-each-iteration` absent) still converges. Current-branch mode needs no override — it already diffs against local `HEAD`.
 
@@ -276,7 +288,10 @@ The engine produces, for this iteration: a verdict in {APPROVE, APPROVE WITH CAV
 
 - Engine verdict **APPROVE** AND no advisory findings carry forward from any prior Step 2.5 → tentative final verdict `APPROVE`. Go to **Step 2.6: Shadow review** before exiting the loop.
 - Engine verdict **APPROVE** but advisory findings have been parked → tentative final verdict `APPROVE WITH ADVISORY NOTES`. Go to **Step 2.6: Shadow review**.
-- Engine verdict **APPROVE WITH CAVEAT** / **APPROVE with notes** → tentative final verdict `APPROVE WITH CAVEAT`. Go to **Step 2.6: Shadow review**.
+- Engine verdict **APPROVE WITH CAVEAT** (Phase 4.2 rule 4a — a checklist *coverage* gap, e.g. checklist generation failed; **not** a finding-severity verdict) → tentative final verdict `APPROVE WITH CAVEAT`. Go to **Step 2.6: Shadow review**. There are no Important findings to fix on this path; the caveat is about verification coverage.
+- Engine verdict **APPROVE with notes** (Phase 4.2 rule 6 — only Important and/or Suggestion findings present, no Critical) → split on finding severity:
+  - **If the current iteration's `phase3_findings` contains any finding with `severity` `Important` (or its `Major` alias)** → do **NOT** go to the shadow pass yet. Continue to **Step 2.5** (verification gate) → **Step 3** (fix), routing it exactly as a REJECT would route *for loop purposes* — a skill named review-and-**fix** fixes Important findings, it does not merely note them. The same Step 2.5 gate that guards Critical findings runs first (web-verifying single-source external-tool claims, passing codebase claims straight through), so a confidently-wrong Important finding is demoted to advisory rather than blindly applied — the identical protection Critical findings already get. An Important finding Step 3 *cannot* fix is recorded via the existing `skip_category` pushback flow (Step 3, item 5), the same as a skipped Critical; it does **not** spin, because the 4-iteration cap, the "same `(source_file, claim_text)` skipped twice → escalate to the user and stop" rule (Step 3, item 5), and Step 4.5's convergence check jointly bound it. This routing change lives **only** here in the loop wrapper; `/devflow:review`'s Phase 4.2 verdict computation is unchanged — standalone `/devflow:review` still reports an Important-only PR as "APPROVE with notes" and applies no fixes.
+  - **If every finding is `severity` `Suggestion`/`Minor` only** (no Important/Major, no Critical) → tentative final verdict `APPROVE WITH CAVEAT`. Go to **Step 2.6: Shadow review**. Suggestion/Minor findings remain advisory and are **not** auto-fixed.
 - Engine verdict **REJECT** → continue to Step 2.5. (REJECT verdicts never reach the shadow pass — the loop is still finding things to fix; let it converge first.)
 
 ### Step 2.5: Pre-fix verification gate
@@ -310,7 +325,7 @@ For each Critical/Important finding raised by exactly one Phase 3 agent:
 
 ### Step 2.6: Shadow review (non-REJECT verdicts only)
 
-Run a structurally-independent re-review before declaring convergence. Only triggers when the loop's tentative final verdict is non-REJECT (APPROVE, APPROVE WITH ADVISORY NOTES, APPROVE WITH CAVEAT / APPROVE with notes) — either from Step 2 on the current iteration, or from Step 4.5's early-exit convergence path. REJECT verdicts skip this step and go straight to Loop Exit.
+Run a structurally-independent re-review before declaring convergence. Only triggers when the loop's tentative final verdict is non-REJECT (APPROVE, APPROVE WITH ADVISORY NOTES, APPROVE WITH CAVEAT) — either from Step 2 on the current iteration, or from Step 4.5's early-exit convergence path. REJECT verdicts skip this step and go straight to Loop Exit. (Per the Step 2 APPROVE-with-notes severity split, an `APPROVE with notes` engine verdict carrying an Important/Major finding is **not** a tentative final verdict — it routes to Step 2.5 → Step 3 like a REJECT and only reaches the shadow once those findings are fixed or pushed back; a Suggestion/Minor-only `APPROVE with notes` arrives here as `APPROVE WITH CAVEAT`.)
 
 **Why a shadow pass.** Iterations inside the fix loop share state — the orchestrator's context window carries prior findings, fix decisions, and pushback history forward. That state biases what the engine looks for and what it accepts as "already considered." The shadow pass is the loop's audit: the same multi-agent engine runs again, and we compare. This matches what users already do manually today (`/devflow:review <PR>` after `/devflow:review-and-fix`); doing it inside the loop costs the same and feeds the result into one more iteration if the shadow disagrees, instead of leaving it to the human.
 
@@ -320,7 +335,7 @@ Run a structurally-independent re-review before declaring convergence. Only trig
 
 #### Run the shadow fan-out (parent-orchestrated)
 
-**The parent orchestrator runs the shadow engine pass itself — do NOT delegate the whole engine to one `general-purpose` subagent.** A single subagent cannot dispatch the engine's Phase 1/1.5/2/3 fan-out (nested dispatch is unsupported), so it would degrade to a single-agent self-check and return a false clean verdict. Instead, re-run /devflow:review's Phases 0 through 4.3 from the parent using the same loading mechanic as Step 1 — `Glob` for `**/devflow/skills/review/SKILL.md`, `Read` it in full, and execute its phases inline (the parent holds the `Agent` tool, so every Phase-3 reviewer launches normally) — but with the prior-findings handoff *withheld* (the inverse of Step 1's iter-N≥2 inputs; see "Blind every shadow reviewer prompt" below). Stop before Phase 4.4 (no `gh pr review` / `gh pr comment` — the loop is silent on GitHub by design). This reuses /devflow:review's Phase 3.1 launch list and per-agent prompts verbatim, so the shadow exercises the **same reviewer set** a standalone `/devflow:review` Phase 3 would launch on this diff — subject to the same Phase 3.1 structural-applicability gates (`has_new_types` for `type-design-analyzer`, the test-relevance predicate for `pr-test-analyzer`), evaluated against the shadow's own Phase 0.5 classification (it re-runs Phase 0.5 as part of Phases 0–4.3) — see the expected-roster rule below.
+**The parent orchestrator runs the shadow engine pass itself — do NOT delegate the whole engine to one `general-purpose` subagent.** A single subagent cannot dispatch the engine's Phase 1/1.5/2/3 fan-out (nested dispatch is unsupported), so it would degrade to a single-agent self-check and return a false clean verdict. Instead, re-run /devflow:review's Phases 0 through 4.3 from the parent using the same loading mechanic as Step 1 — `Glob` for `**/devflow/skills/review/SKILL.md` (with the repo-own `skills/review/SKILL.md` fallback when the Glob matches nothing, per Step 1), `Read` it in full, and execute its phases inline (the parent holds the `Agent` tool, so every Phase-3 reviewer launches normally) — but with the prior-findings handoff *withheld* (the inverse of Step 1's iter-N≥2 inputs; see "Blind every shadow reviewer prompt" below). Stop before Phase 4.4 (no `gh pr review` / `gh pr comment` — the loop is silent on GitHub by design). This reuses /devflow:review's Phase 3.1 launch list and per-agent prompts verbatim, so the shadow exercises the **same reviewer set** a standalone `/devflow:review` Phase 3 would launch on this diff — subject to the same Phase 3.1 structural-applicability gates (`has_new_types` for `type-design-analyzer`, the test-relevance predicate for `pr-test-analyzer`), evaluated against the shadow's own Phase 0.5 classification (it re-runs Phase 0.5 as part of Phases 0–4.3) — see the expected-roster rule below.
 
 **Blind every shadow reviewer prompt — this is the independence guarantee now.** Because the parent's own context is no longer blind (it carries the iter history), independence must be enforced in the prompts instead. This is the **inverse** of Step 1's iter-N≥2 behavior:
 
@@ -485,9 +500,9 @@ Note: convergence is *not* a way around an unresolved REJECT. If iter N's verdic
 
 Run this step BEFORE the REJECT downgrade gate below. It does two things: enforces a widens-surface guard on Yes-downgrade skips, and emits a structured manifest that downstream callers (currently /devflow:implement Phase 4.0.5) can consume to file follow-up issues and inject the Scope-Acknowledged Findings block into the PR body.
 
-**Widens-surface guard.** Walk every `fix_decisions` entry in the final iter's workpad whose `skip_category` reads **Yes** in the enum table (Step 3, item 5 — currently `claim-quality`, `out-of-scope`, `already-tracked`). For each candidate, join to its Phase 3 finding via `finding_id` to obtain `defect_signature.file` and `defect_signature.line_range`, then read the cached diff (`.devflow/tmp/review/<slug>/diff.patch`) and check whether any non-comment hunk in the diff overlaps that file within ±10 lines of the line range. If overlap is detected, the skip is **disqualified for the downgrade gate** — append a bullet to the workpad's `Devflow Reflection` (`widens-surface guard rejected skip for finding {finding_id}: PR diff overlaps {file}:{lines}`) and treat the finding as a non-skipped REJECT trigger for the gate that runs next. This catches the "refactor around a pre-existing bug, then defer the bug" pattern: the bug's lines weren't touched in isolation, but the surrounding code changed in a way that widens reliance on the broken behavior.
+**Widens-surface guard.** Walk every `fix_decisions` entry in the final iter's workpad whose `skip_category` reads **Yes** in the enum table (Step 3, item 5 — currently `claim-quality`, `out-of-scope`, `already-tracked`). For each candidate, join to its Phase 3 finding via `finding_id` to obtain `defect_signature.file` and `defect_signature.line_range`, then read the cached diff (`.devflow/tmp/review/<slug>/<run-id>/diff.patch`) and check whether any non-comment hunk in the diff overlaps that file within ±10 lines of the line range. If overlap is detected, the skip is **disqualified for the downgrade gate** — append a bullet to the workpad's `Devflow Reflection` (`widens-surface guard rejected skip for finding {finding_id}: PR diff overlaps {file}:{lines}`) and treat the finding as a non-skipped REJECT trigger for the gate that runs next. This catches the "refactor around a pre-existing bug, then defer the bug" pattern: the bug's lines weren't touched in isolation, but the surrounding code changed in a way that widens reliance on the broken behavior.
 
-**Deferrals manifest.** After the guard runs, emit `.devflow/tmp/review/<slug>/deferrals.json` containing every **surviving** Yes-downgrade skip (i.e. `claim-quality` / `out-of-scope` / `already-tracked` entries that the widens-surface guard did not disqualify). The manifest is written regardless of whether the downgrade gate ultimately fires; `claim-quality` and `already-tracked` skips on non-REJECT runs are still legitimate deferrals worth tracking for the verdict matcher. If zero entries survive, omit the file entirely.
+**Deferrals manifest.** After the guard runs, emit `.devflow/tmp/review/<slug>/<run-id>/deferrals.json` (run-scoped, alongside this run's `iter-*.json`) containing every **surviving** Yes-downgrade skip (i.e. `claim-quality` / `out-of-scope` / `already-tracked` entries that the widens-surface guard did not disqualify). The manifest is written regardless of whether the downgrade gate ultimately fires; `claim-quality` and `already-tracked` skips on non-REJECT runs are still legitimate deferrals worth tracking for the verdict matcher. If zero entries survive, omit the file entirely.
 
 Schema:
 
@@ -619,12 +634,12 @@ All derivation lives in `lib/efficiency-trace.jq` (a mechanical jq filter, no LL
    ```
    If `ENABLED_RC` is non-zero or `ENABLED` is not `true`, **skip this entire section** — render no trace and write no file under `.devflow/logs/`. (The wrapper re-checks the flag itself, so this is belt-and-suspenders; the read here is what gates the `mkdir`/render below. The `::warning::` above ensures a genuine resolver failure surfaces in the Actions UI rather than masquerading as a deliberate flag-off.)
 
-2. **Resolve the run slug and timestamp.** `<slug>` is `pr-<N>` in PR mode or the sanitized current branch name in branch mode — the same slug used for the workpad directory `.devflow/tmp/review/<slug>/`. The run timestamp is `date -u +%Y%m%dT%H%M%SZ`.
+2. **Resolve the run slug and timestamp.** `<slug>` is `pr-<N>` in PR mode or the sanitized current branch name in branch mode; `<run-id>` is the per-run discriminator computed once at loop start (see Persistent workpad → Run-scoping). The run's workpads live in the run-scoped directory `.devflow/tmp/review/<slug>/<run-id>/`. The run timestamp is `date -u +%Y%m%dT%H%M%SZ`.
 
 3. **Render the trace to chat** and **write the per-run record**. Capture the trace's stderr+rc so a real failure surfaces a reason rather than degrading silently to an empty skip:
    ```bash
    LIB="${CLAUDE_SKILL_DIR}/../../lib"
-   WORKPAD_DIR=".devflow/tmp/review/<slug>"
+   WORKPAD_DIR=".devflow/tmp/review/<slug>/<run-id>"   # run-scoped: the trace must read THIS run's iter-*.json, not a sibling run's
    RECORD=".devflow/logs/efficiency/<slug>-$(date -u +%Y%m%dT%H%M%SZ).json"
    mkdir -p .devflow/logs/efficiency
    # Render the Markdown trace to chat. Use ::warning:: (not a plain echo) so a
@@ -665,6 +680,38 @@ Co-Authored-By: Claude <noreply@anthropic.com>" && git push || true
 
 If `lib/efficiency-trace.sh` is missing or errors, the trace step above already emits `Effectiveness trace unavailable: {reason}` to chat; proceed — the verdict is unaffected.
 
+### Durable workpad copy (writable runs only)
+
+The run-scoped scratch under `.devflow/tmp/review/<slug>/<run-id>/` is gitignored and is destroyed with the runner (or a local `.devflow/tmp/` cleanup). On a **writable** run, persist a durable run-scoped copy of the workpad so this run's `iter-*.json` / `deferrals.json` survive teardown. The read-only-profile guard is the same write-permission enforcement the effectiveness record relies on (the cloud `review` profile denies the `mkdir`/`cp`), mirroring `/devflow:review`'s Phase 4.5 tmp-scratch/logs-durable split — though unlike the effectiveness record this copy is not additionally behind the telemetry flag; it runs on every writable run:
+
+```bash
+# Writable run (local/IDE) only. Under the read-only cloud `review` profile, SKIP this
+# block entirely — no copy, no error; the gitignored `.devflow/tmp/` scratch above still
+# succeeds and is sufficient for the in-run consumers. `.devflow/logs/` is a tracked
+# directory (the repo `.gitignore` negates it), so no gitignore change is needed.
+# Define the paths in THIS block: each fenced snippet is a separate shell, and the
+# effectiveness-trace block's $WORKPAD_DIR is telemetry-gated, so it is not in scope here.
+WORKPAD_DIR=".devflow/tmp/review/<slug>/<run-id>"
+DURABLE=".devflow/logs/review/<slug>/<run-id>"
+# `compgen -G` both tests for and (on success) is the source of the .json matches, so the
+# unmatched-glob case (run dir exists but holds no .json — reachable only if iter-1's
+# best-effort write failed) short-circuits the copy entirely instead of passing a literal
+# `*.json` to cp and tripping a spurious failure warning under nullglob-off.
+if [ -d "$WORKPAD_DIR" ] && compgen -G "$WORKPAD_DIR"/*.json >/dev/null; then
+  # Best-effort (never aborts the loop), but log on failure rather than swallowing it
+  # with a bare `|| true` — a denied mkdir/cp (read-only FS, ENOSPC, perms) should leave
+  # a breadcrumb, matching the effectiveness-trace block's posture, so a missing durable
+  # copy isn't discovered only when someone later goes looking for it. Capture the real
+  # mkdir/cp stderr into the warning rather than `2>/dev/null`-ing it, so the breadcrumb
+  # names the actual reason (ENOSPC/perms) instead of just asserting failure.
+  if ! cp_err="$( { mkdir -p "$DURABLE" && cp -p "$WORKPAD_DIR"/*.json "$DURABLE"/; } 2>&1 )"; then
+    echo "::warning::durable workpad copy failed ($WORKPAD_DIR -> $DURABLE): ${cp_err:-unknown}; best-effort, loop continues"
+  fi
+fi
+```
+
+The copy is best-effort: a failure never aborts the loop. Because the destination is tracked, the run's existing commits sweep it up — when `--push-each-iteration` is set it is committed and pushed alongside the effectiveness record (and when driven by `/devflow:implement`, that orchestrator's subsequent `git add -A` commits include it); when the flag is absent (default local mode) it is left on disk uncommitted, consistent with the loop's no-remote-side-effect contract. Do **not** run this block under the read-only cloud `review` profile — the durable copy is intentionally writable-runs-only.
+
 ---
 
 ## Error Handling
@@ -672,7 +719,7 @@ If `lib/efficiency-trace.sh` is missing or errors, the trace step above already 
 - **Agent failures**: Treat as INCONCLUSIVE or note in report. Never abort the entire review. **Exception — shadow reviewers (Step 2.6):** this lenient rule does NOT apply to a shadow-pass reviewer failure. A shadow reviewer that fails, returns garbage, or is absent from the dispatched roster is a coverage shortfall that forces `coverage: "not_verified"` / outcome 3 (the shadow's fail-closed contract) — it must never be silently treated as INCONCLUSIVE-and-proceed, because that re-opens the false-clean path Step 2.6 exists to close.
 - **Test failures after fixes**: Fix the test failures before re-running the review loop.
 - **Commit failures**: If a commit fails (e.g., pre-commit hook), fix the issue and retry the commit.
-- **Cannot locate /devflow:review's SKILL.md**: This is fatal — /devflow:review-and-fix depends on the engine. Error out with a clear message; do not improvise by paraphrasing the phases. (See "Engine source of truth" at the top.)
+- **Cannot locate /devflow:review's SKILL.md**: Fatal **only when both** the primary Glob (`**/devflow/skills/review/SKILL.md`) **and** the repo-own fallback (`skills/review/SKILL.md`, the devflow-self / self-review case — see Step 1) fail to resolve a readable file. If the Glob misses but the fallback resolves, that is the normal self-review path — proceed, do not error. When both miss, error out with a clear message; do not improvise by paraphrasing the phases, and do not silently fall back to a stale plugin-cache copy. (See "Engine source of truth" and the self-review callout in Step 1.)
 
 ---
 
