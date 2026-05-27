@@ -1,0 +1,24 @@
+cff-version: 1.2.0
+message: "If you use DevFlow, please cite it using the metadata below."
+title: "DevFlow"
+abstract: >-
+  DevFlow is a Claude Code plugin that makes agentic coding work on real
+  codebases: it turns a request into a complete, tested, reviewed, and
+  documented pull request that is ready for a developer's final review, and
+  improves itself through a weekly retrospective loop.
+type: software
+authors:
+  - family-names: Radman
+    given-names: Daniel
+    email: daniel@radman.ai
+repository-code: "https://github.com/The01Geek/devflow-autopilot"
+url: "https://github.com/The01Geek/devflow-autopilot"
+license: MIT
+version: 2.4.3
+keywords:
+  - claude-code
+  - agentic-ai
+  - code-review-automation
+  - developer-tools
+  - github-actions
+  - documentation

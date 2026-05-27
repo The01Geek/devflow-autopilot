@@ -1,38 +1,56 @@
-# DevFlow
+# DevFlow: agentic coding that ships on real codebases
 
 [![CI](https://github.com/The01Geek/devflow-autopilot/actions/workflows/ci.yml/badge.svg)](https://github.com/The01Geek/devflow-autopilot/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-An end-to-end development-workflow plugin for [Claude Code](https://code.claude.com):
-turn a GitHub issue into a reviewed, documented, merged PR — and learn from every run.
+**Point an AI coding agent at a real ticket in a large codebase and it comes back half-done, wrong patterns, missing tests, stale docs, and you spend longer reviewing and fixing it than you saved.** DevFlow is the [Claude Code](https://code.claude.com) plugin that takes that work off your plate: it turns one request into a complete PR, planned, tested, reviewed, and documented, so you do the final review and merge, not the cleanup. It even **audits its own review**, and improves itself every week. Open source, built on Anthropic's official plugins.
 
 DevFlow bundles four things, plus a self-improving loop:
 
-1. **`/devflow:implement`** — a 4-phase orchestrator (setup → implement → review → document) that drives a GitHub issue all the way to a ready PR.
-2. **`/devflow:review` and `/devflow:review-and-fix`** — a verification-checklist-driven code-review engine (`/devflow:review` reports a verdict; `/devflow:review-and-fix` fixes findings and loops until it approves).
-3. **The `/docs` suite** — keep internal docs, external docs, and release notes aligned with the code.
-4. **`/create-issue`** — turn a rough user story or bug report into a well-structured GitHub issue.
+1. **`/devflow:implement`**: a 4-phase orchestrator (setup → implement → review → document) that drives a GitHub issue all the way to a ready PR.
+2. **`/devflow:review` and `/devflow:review-and-fix`**: a verification-checklist-driven code-review engine (`/devflow:review` reports a verdict; `/devflow:review-and-fix` fixes findings and loops until it approves).
+3. **The `/docs` suite**: keep internal docs, external docs, and release notes aligned with the code.
+4. **`/create-issue`**: turn a rough user story or bug report into a well-structured GitHub issue.
 
 …plus a **self-improving loop** (`/devflow:retrospective-weekly`) that reads the evidence trail of merged bot-authored PRs, finds recurring failure patterns, and opens human-reviewed PRs proposing the smallest change that would prevent the next occurrence. See [The retrospective loop](#the-retrospective-loop).
 
-> **Two tiers.** The **local tier** — the skills you run inside Claude Code — works with **zero configuration and no infrastructure**. The optional **cloud tier** (GitHub Actions) makes DevFlow run *autonomously* on issue/PR events; it needs a Claude Code OAuth token and a little setup (see [`docs/cloud-setup.md`](docs/cloud-setup.md)).
+> **Two tiers.** The **local tier**: the skills you run inside Claude Code, works with **zero configuration and no infrastructure**. The optional **cloud tier** (GitHub Actions) makes DevFlow run *autonomously* on issue/PR events; it needs a Claude Code OAuth token and a little setup (see [`docs/cloud-setup.md`](docs/cloud-setup.md)).
 
-## Prerequisites
+## Contents
 
-The local skills need these on your PATH:
+- [Quick start](#quick-start)
+- [Install](#install)
+- [Requirements](#requirements)
+- [Updating](#updating)
+- [The workflow, end to end](#the-workflow-end-to-end)
+- [Skills and agents](#skills-and-agents)
+- [Companion plugins](#companion-plugins-auto-installed-dependencies)
+- [Project configuration](#project-configuration)
+- [Scope-Acknowledged Findings](#scope-acknowledged-findings)
+- [The retrospective loop](#the-retrospective-loop)
+- [Repository layout](#repository-layout)
+- [Contributing](#contributing)
+- [License](#license)
 
-- **`git`**
-- **[`gh`](https://cli.github.com)** (GitHub CLI), authenticated (`gh auth login`)
-- **`jq`**
-- **Python 3.11+** with **PyYAML** — `python3 -m pip install -r requirements.txt`
+## Quick start
 
-Run `bash lib/preflight.sh` to verify. (Shell helpers avoid GNU-only flags, so macOS/BSD work without GNU coreutils.)
+```bash
+claude plugin marketplace add anthropics/claude-plugins-official && claude plugin marketplace add The01Geek/devflow-autopilot && claude plugin install devflow@devflow-marketplace
+```
+
+Run `/reload-plugins`, then turn an issue into a reviewed, documented PR, right inside Claude Code:
+
+```text
+/devflow:implement 42
+```
+
+The local tier needs **zero configuration**. See [Install](#install) for the full options (and the cloud tier), and [Requirements](#requirements) for the handful of tools it expects on your PATH.
 
 ## Install
 
 DevFlow is published as a Claude Code plugin from this repository, which is also its own marketplace.
 
-**Quick install** — one line in your terminal:
+**Quick install**: one line in your terminal:
 
 ```bash
 claude plugin marketplace add anthropics/claude-plugins-official && claude plugin marketplace add The01Geek/devflow-autopilot && claude plugin install devflow@devflow-marketplace
@@ -41,18 +59,21 @@ claude plugin marketplace add anthropics/claude-plugins-official && claude plugi
 **Or from inside Claude Code:**
 
 ```text
+# Add the marketplace
 /plugin marketplace add anthropics/claude-plugins-official
 /plugin marketplace add The01Geek/devflow-autopilot
+
+# Install plugin
 /plugin install devflow@devflow-marketplace
 ```
 
 Then run `/reload-plugins` (or restart) to activate.
 
-That's it for the local tier. DevFlow declares three companion plugins as **dependencies** — `feature-dev`, `pr-review-toolkit`, and `superpowers` (all from the official `claude-plugins-official` marketplace). The `/plugin install` step **auto-installs them itself** (no `curl`/`install.sh` needed) **as long as `claude-plugins-official` has been added** — which is why the commands above add it first. The official marketplace is *discoverable* by default, but cross-marketplace dependencies only resolve once it's actually **added**; on a fresh machine where it hasn't been, DevFlow lands in the `/plugin` **Errors** tab with `dependency-unsatisfied` until you add the marketplace (then `/reload-plugins`) or install the three plugins manually. The deps install at the same scope as DevFlow and appear in `/plugin` as their own `@claude-plugins-official` entries, not nested under DevFlow. `/simplify` is a built-in Claude Code skill and needs no installation.
+That's it for the local tier. DevFlow declares three companion plugins as **dependencies**: `feature-dev`, `pr-review-toolkit`, and `superpowers` (all from the official `claude-plugins-official` marketplace). The `/plugin install` step **auto-installs them itself** (no `curl`/`install.sh` needed) **as long as `claude-plugins-official` has been added**: which is why the commands above add it first. The official marketplace is *discoverable* by default, but cross-marketplace dependencies only resolve once it's actually **added**; on a fresh machine where it hasn't been, DevFlow lands in the `/plugin` **Errors** tab with `dependency-unsatisfied` until you add the marketplace (then `/reload-plugins`) or install the three plugins manually. The deps install at the same scope as DevFlow and appear in `/plugin` as their own `@claude-plugins-official` entries, not nested under DevFlow. `/simplify` is a built-in Claude Code skill and needs no installation.
 
-> **Not** auto-installed: the **PyYAML** Python dependency (used by DevFlow's shell helpers). Plugin install only resolves companion *plugins* — it never runs `pip`. Install PyYAML yourself per [Prerequisites](#prerequisites) (`python3 -m pip install -r requirements.txt`); `install.sh` also handles it for the cloud tier.
+> **Not** auto-installed: the **PyYAML** Python dependency (used by DevFlow's shell helpers). Plugin install only resolves companion *plugins*, it never runs `pip`. Install PyYAML yourself per [Requirements](#requirements) (`python3 -m pip install -r requirements.txt`); `install.sh` also handles it for the cloud tier.
 
-For autonomous GitHub Actions automation (the "cloud tier"), run this from your repo root — the same command installs and later updates it:
+For autonomous GitHub Actions automation (the "cloud tier"), run this from your repo root, the same command installs and later updates it:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/The01Geek/devflow-autopilot/main/install.sh | bash
@@ -60,13 +81,25 @@ curl -fsSL https://raw.githubusercontent.com/The01Geek/devflow-autopilot/main/in
 
 See **[`docs/cloud-setup.md`](docs/cloud-setup.md)** for secrets, triggers, and the full guide.
 
-> **Thin by default.** `install.sh` does **not** commit the plugin tree to your repo — it installs the workflows, composite actions, a local `marketplace.json`, and a `.devflow/config.json` scaffold, and pins a `devflow_version` (the commit it installed from). At runtime the workflows materialize the plugin into `.devflow/vendor/devflow/` via the `vendor-plugin` composite action, so there's no bulky vendored diff to carry. Pass `DEVFLOW_VENDOR=1` to commit the tree instead (self-hosting; `devflow_version` is then ignored).
+> **Thin by default.** `install.sh` does **not** commit the plugin tree to your repo, it installs the workflows, composite actions, a local `marketplace.json`, and a `.devflow/config.json` scaffold, and pins a `devflow_version` (the commit it installed from). At runtime the workflows materialize the plugin into `.devflow/vendor/devflow/` via the `vendor-plugin` composite action, so there's no bulky vendored diff to carry. Pass `DEVFLOW_VENDOR=1` to commit the tree instead (self-hosting; `devflow_version` is then ignored).
 >
-> **Both tiers on one repo?** No conflict — the local marketplace copy is cached centrally; the cloud tier materializes its own copy under `.devflow/vendor/devflow/` at runtime (or commits one with `DEVFLOW_VENDOR=1`). Just don't run `/plugin marketplace add ./` there (it would activate two marketplaces named `devflow-marketplace`).
+> **Both tiers on one repo?** No conflict, the local marketplace copy is cached centrally; the cloud tier materializes its own copy under `.devflow/vendor/devflow/` at runtime (or commits one with `DEVFLOW_VENDOR=1`). Just don't run `/plugin marketplace add ./` there (it would activate two marketplaces named `devflow-marketplace`).
+
+## Requirements
+
+**Local tier**: these must be on your PATH (`bash lib/preflight.sh` checks all of them):
+
+- **`git`** and **[`gh`](https://cli.github.com)** (GitHub CLI, authenticated via `gh auth login`), you most likely already have these.
+- **`jq`**: JSON wrangling inside the skills.
+- **Python 3.11+ with PyYAML**: `python3 -m pip install -r requirements.txt`. **The step people miss:** `/plugin install` never runs `pip`, so install PyYAML yourself.
+
+All four are used by the core skills (`/devflow:implement` and `/devflow:review` both call them), none is optional. Shell helpers avoid GNU-only flags, so macOS/BSD work without GNU coreutils.
+
+**Cloud tier**: nothing to install on your machine. The GitHub Actions runner provisions its own toolchain (Python, Node, …) via the `setup:` block; you only set a `CLAUDE_CODE_OAUTH_TOKEN` secret (see [`docs/cloud-setup.md`](docs/cloud-setup.md)).
 
 ## Updating
 
-- **Local tier** — enable auto-update once and Claude Code pulls new versions at startup; set `autoUpdate` on the marketplace in `~/.claude/settings.json`:
+- **Local tier**: enable auto-update once and Claude Code pulls new versions at startup; set `autoUpdate` on the marketplace in `~/.claude/settings.json`:
   ```jsonc
   "extraKnownMarketplaces": {
     "devflow-marketplace": {
@@ -76,7 +109,7 @@ See **[`docs/cloud-setup.md`](docs/cloud-setup.md)** for secrets, triggers, and 
   }
   ```
   Or update on demand: `/plugin marketplace update devflow-marketplace`.
-- **Cloud tier** — bump `devflow_version` in `.devflow/config.json` to a newer tag, branch, or commit SHA (the workflows fetch that ref at runtime), or just re-run the same `install.sh` — now a small diff, since it re-stamps `devflow_version` and refreshes the workflows/actions without committing the plugin tree, and keeps your config. (The plugin must be at the literal workspace path when CI runs because a marketplace install isn't reachable from the Actions sandbox — the `vendor-plugin` action satisfies this at runtime; see [`docs/cloud-setup.md`](docs/cloud-setup.md#why-the-plugin-lives-at-a-workspace-path-not-added-as-a-github-marketplace-in-ci).)
+- **Cloud tier**: bump `devflow_version` in `.devflow/config.json` to a newer tag, branch, or commit SHA (the workflows fetch that ref at runtime), or just re-run the same `install.sh`, now a small diff, since it re-stamps `devflow_version` and refreshes the workflows/actions without committing the plugin tree, and keeps your config. (The plugin must be at the literal workspace path when CI runs because a marketplace install isn't reachable from the Actions sandbox, the `vendor-plugin` action satisfies this at runtime; see [`docs/cloud-setup.md`](docs/cloud-setup.md#why-the-plugin-lives-at-a-workspace-path-not-added-as-a-github-marketplace-in-ci).)
 
 ## The workflow, end to end
 
@@ -93,7 +126,7 @@ intended way to drive DevFlow.
         │
         ▼
   ┌───────────────────┐   comment  /devflow:implement <#>  on the issue
-  │ 2. Trigger        │   (this is the trigger — a human comment starts it)
+  │ 2. Trigger        │   (this is the trigger, a human comment starts it)
   └───────────────────┘
         │
         ▼
@@ -117,16 +150,16 @@ intended way to drive DevFlow.
    and files it **only after you confirm**. Say the issue lands as **#42**.
 
 2. **Start implementation by commenting the command.** Comment
-   `/devflow:implement 42` on issue #42 — in the GitHub UI or from the CLI:
+   `/devflow:implement 42` on issue #42, in the GitHub UI or from the CLI:
    ```bash
    gh issue comment 42 --body '/devflow:implement 42'
    ```
-   That's the trigger (no `@claude` prefix — that's ceded to Anthropic's Claude
+   That's the trigger (no `@claude` prefix, that's ceded to Anthropic's Claude
    GitHub App). Because *you* posted the comment (a real user event), GitHub fires
-   `devflow-implement.yml` natively — no bot comment, PAT, or GitHub App needed.
+   `devflow-implement.yml` natively, no bot comment, PAT, or GitHub App needed.
    Triggering takes write/triage access (you must be an allowed bot or an
    `allowed_users` collaborator), so that permission is what gates who can start a
-   run — see [the note in cloud-setup](docs/cloud-setup.md#triggering-devflowimplement).
+   run, see [the note in cloud-setup](docs/cloud-setup.md#triggering-devflowimplement).
 
 3. **DevFlow implements it.** The workflow runs the full `/devflow:implement`
    lifecycle on its own: creates a branch, plans against your codebase, writes the
@@ -138,10 +171,10 @@ intended way to drive DevFlow.
    posts its verdict on the PR. You do the final human review and merge.
 
 > **Prefer the editor?** Run `/devflow:implement 42` directly in Claude Code
-> instead of commenting on the issue — both reach the same lifecycle.
+> instead of commenting on the issue, both reach the same lifecycle.
 
 The cloud tier (steps 2–4 running automatically on GitHub) needs only
-`CLAUDE_CODE_OAUTH_TOKEN` set as a secret — see [`docs/cloud-setup.md`](docs/cloud-setup.md).
+`CLAUDE_CODE_OAUTH_TOKEN` set as a secret, see [`docs/cloud-setup.md`](docs/cloud-setup.md).
 Everything else runs locally inside Claude Code with no infrastructure at all.
 
 ## Skills and agents
@@ -162,12 +195,12 @@ Everything else runs locally inside Claude Code with no infrastructure at all.
 | `/devflow:create-issue` | Rough idea → well-structured GitHub issue | interactively |
 | `/devflow:init` | One-time setup: scaffold `.devflow/config.json` from the template (only if absent) + refresh `config.schema.json` | interactively |
 | `/devflow:retrospective-weekly` | The weekly self-improvement loop orchestrator | interactively / headless |
-| `/devflow:retrospective` | Stage A brief — per-PR retrospective analysis | subagent only (dispatched by `/devflow:retrospective-weekly`) |
-| `/devflow:retrospective-audit` | Stage B brief — per-pattern intervention drafting | subagent only (dispatched by `/devflow:retrospective-weekly`) |
+| `/devflow:retrospective` | Stage A brief, per-PR retrospective analysis | subagent only (dispatched by `/devflow:retrospective-weekly`) |
+| `/devflow:retrospective-audit` | Stage B brief, per-pattern intervention drafting | subagent only (dispatched by `/devflow:retrospective-weekly`) |
 
 **Agents** (`agents/`): `checklist-generator`, `checklist-deduper`, and `checklist-verifier` (used by `/devflow:review` and `/devflow:review-and-fix` to build, dedupe, and verify the verification checklist).
 
-> DevFlow's commands are written in their `devflow:`-namespaced form (`/devflow:implement`, `/devflow:review`, …) throughout these docs — that's the canonical invocation and the form the cloud workflows use. **Namespacing matters most for the names that collide with built-ins:** `/review`, `/init`, and `/security-review` are *built-in* Claude Code commands, so a bare `/review` reaches Claude Code's PR reviewer (not DevFlow's review engine) and a bare `/init` runs Claude Code's CLAUDE.md generator (not DevFlow's config scaffolder). Always use `/devflow:review` and `/devflow:init` to reach DevFlow — especially from GitHub Actions comments, where the namespaced form is required. DevFlow's cloud workflows live in `devflow.yml`, `devflow-implement.yml`, and `devflow-review.yml` and trigger on **bare** `/devflow:*` comments (no `@claude`); DevFlow never creates or overwrites `claude.yml`, so it coexists with Anthropic's Claude GitHub App, which owns plain `@claude` mentions, Q&A, and `/security-review`.
+> DevFlow's commands are written in their `devflow:`-namespaced form (`/devflow:implement`, `/devflow:review`, …) throughout these docs, that's the canonical invocation and the form the cloud workflows use. **Namespacing matters most for the names that collide with built-ins:** `/review`, `/init`, and `/security-review` are *built-in* Claude Code commands, so a bare `/review` reaches Claude Code's PR reviewer (not DevFlow's review engine) and a bare `/init` runs Claude Code's CLAUDE.md generator (not DevFlow's config scaffolder). Always use `/devflow:review` and `/devflow:init` to reach DevFlow, especially from GitHub Actions comments, where the namespaced form is required. DevFlow's cloud workflows live in `devflow.yml`, `devflow-implement.yml`, and `devflow-review.yml` and trigger on **bare** `/devflow:*` comments (no `@claude`); DevFlow never creates or overwrites `claude.yml`, so it coexists with Anthropic's Claude GitHub App, which owns plain `@claude` mentions, Q&A, and `/security-review`.
 
 ## Companion plugins (auto-installed dependencies)
 
@@ -178,38 +211,38 @@ Everything else runs locally inside Claude Code with no infrastructure at all.
 | `superpowers` | `/devflow:review`'s final-pass reviewer (`/superpowers:requesting-code-review`); brainstorming/TDD discipline | `claude-plugins-official` |
 | `/simplify` | `/devflow:implement` Phase 3.2 self-review | **built-in** Claude Code skill |
 
-The three `claude-plugins-official` plugins above are **auto-installed** by `/plugin install devflow@devflow-marketplace` (they're declared as dependencies in `plugin.json`) — **provided the `claude-plugins-official` marketplace has been added first** (see [Install](#install)); otherwise DevFlow shows in the `/plugin` Errors tab and you install them manually. `/simplify` is built in. This auto-install covers companion *plugins* only — the **PyYAML** Python dependency is separate and is **not** installed by `/plugin`. Skills degrade gracefully if an optional companion is somehow missing (the review engine falls back to its other reviewers).
+The three `claude-plugins-official` plugins above are **auto-installed** by `/plugin install devflow@devflow-marketplace` (they're declared as dependencies in `plugin.json`), **provided the `claude-plugins-official` marketplace has been added first** (see [Install](#install)); otherwise DevFlow shows in the `/plugin` Errors tab and you install them manually. `/simplify` is built in. This auto-install covers companion *plugins* only, the **PyYAML** Python dependency is separate and is **not** installed by `/plugin`. Skills degrade gracefully if an optional companion is somehow missing (the review engine falls back to its other reviewers).
 
 ## Project configuration
 
-The local tier needs **no config** — every value has a built-in default. To customize, scaffold the config files:
+The local tier needs **no config**: every value has a built-in default. To customize, scaffold the config files:
 
 ```
 /devflow:init
 ```
 
-This creates `.devflow/config.json` from DevFlow's shipped template (only if you don't already have one — it never clobbers a config you've filled in) and refreshes `.devflow/config.schema.json`. It pulls the templates from the installed plugin, so it works even though they aren't in your repo — a plain `cp .devflow/config.example.json …` only works from the DevFlow source repo, not a marketplace install. The cloud-tier `install.sh` runs the *same* scaffolder, so the two are interchangeable and safe to run in any order: whichever runs first creates `config.json`; the other leaves it untouched and just refreshes the schema.
+This creates `.devflow/config.json` from DevFlow's shipped template (only if you don't already have one, it never clobbers a config you've filled in) and refreshes `.devflow/config.schema.json`. It pulls the templates from the installed plugin, so it works even though they aren't in your repo, a plain `cp .devflow/config.example.json …` only works from the DevFlow source repo, not a marketplace install. The cloud-tier `install.sh` runs the *same* scaffolder, so the two are interchangeable and safe to run in any order: whichever runs first creates `config.json`; the other leaves it untouched and just refreshes the schema.
 
-(`/devflow:init` / `install.sh` write a scoped `.devflow/.gitignore` that ignores only the ephemeral `.devflow/tmp/` scratch — `config.json` itself stays committed, since it now holds working defaults rather than environment-specific IDs, and the cloud tier reads it from the committed tree. Your editor reads `config.schema.json` for autocomplete + field descriptions.) Keys the skills read:
+(`/devflow:init` / `install.sh` write a scoped `.devflow/.gitignore` that ignores only the ephemeral `.devflow/tmp/` scratch, `config.json` itself stays committed, since it now holds working defaults rather than environment-specific IDs, and the cloud tier reads it from the committed tree. Your editor reads `config.schema.json` for autocomplete + field descriptions.) Keys the skills read:
 
-- `docs.internal`, `docs.external` — documentation paths (read by the `/docs` family and `/devflow:implement`).
-- `docs.release_notes_file`, `docs.labels` — release-notes path + the comma-separated list of labels `/devflow:implement` applies after its docs pass (e.g. `"Documented, Shipped"`; each entry trimmed, empty entries dropped).
-- `devflow.workpad_marker` — marker line `/devflow:implement` uses to find/update its single per-issue workpad comment (default `<!-- devflow:workpad -->`).
-- `devflow.allowed_bots` — bot login allowlist; doubles as the **trusted-filer allowlist** for the Scope-Acknowledged Findings contract.
-- `base_branch` — review/merge base (default: repo default branch, else `main`).
-- `devflow_retrospective.*` — settings for `/devflow:retrospective-weekly` (see [Configuration](#configuration)).
-- `setup.*` — *cloud tier only*: how the GitHub Actions runner provisions its toolchain (`python_version`, `node_version`, `install`) before Claude runs. See [`docs/cloud-setup.md`](docs/cloud-setup.md#runtime-provisioning-setup).
-- `devflow_version` — *cloud tier only*: the git ref (tag, branch, or commit SHA) the workflows fetch the plugin from at runtime on a thin install. `install.sh` pins it to the commit it installed from; bump it to update. Ignored when the plugin is committed (`DEVFLOW_VENDOR=1`) or in the source repo. Empty by default so an un-pinned thin install fails loud instead of tracking mutable `main`.
+- `docs.internal`, `docs.external`, documentation paths (read by the `/docs` family and `/devflow:implement`).
+- `docs.release_notes_file`, `docs.labels`, release-notes path + the comma-separated list of labels `/devflow:implement` applies after its docs pass (e.g. `"Documented, Shipped"`; each entry trimmed, empty entries dropped).
+- `devflow.workpad_marker`, marker line `/devflow:implement` uses to find/update its single per-issue workpad comment (default `<!-- devflow:workpad -->`).
+- `devflow.allowed_bots`, bot login allowlist; doubles as the **trusted-filer allowlist** for the Scope-Acknowledged Findings contract.
+- `base_branch`, review/merge base (default: repo default branch, else `main`).
+- `devflow_retrospective.*`, settings for `/devflow:retrospective-weekly` (see [Configuration](#configuration)).
+- `setup.*`, *cloud tier only*: how the GitHub Actions runner provisions its toolchain (`python_version`, `node_version`, `install`) before Claude runs. See [`docs/cloud-setup.md`](docs/cloud-setup.md#runtime-provisioning-setup).
+- `devflow_version`, *cloud tier only*: the git ref (tag, branch, or commit SHA) the workflows fetch the plugin from at runtime on a thin install. `install.sh` pins it to the commit it installed from; bump it to update. Ignored when the plugin is committed (`DEVFLOW_VENDOR=1`) or in the source repo. Empty by default so an un-pinned thin install fails loud instead of tracking mutable `main`.
 
 ---
 
-# Scope-Acknowledged Findings
+## Scope-Acknowledged Findings
 
 A structured handoff between `/devflow:review-and-fix`, `/devflow:implement`, `/pr-description`, and `/devflow:review` so a Critical finding deliberately deferred during the fix loop is not re-raised as a fresh REJECT by the next review run.
 
 **The handoff, in order.**
 
-1. **`/devflow:review-and-fix` Loop Exit** runs a **widens-surface guard** on every Yes-downgrade skip — if the PR diff overlaps the deferred finding's file within ±10 lines, the skip is disqualified. Survivors are emitted as a **run-scoped** manifest `.devflow/tmp/review/<slug>/<run-id>/deferrals.json` (one per run, so a repeated or concurrent run — including `/devflow:implement`'s bounded re-review — never clobbers another's).
+1. **`/devflow:review-and-fix` Loop Exit** runs a **widens-surface guard** on every Yes-downgrade skip, if the PR diff overlaps the deferred finding's file within ±10 lines, the skip is disqualified. Survivors are emitted as a **run-scoped** manifest `.devflow/tmp/review/<slug>/<run-id>/deferrals.json` (one per run, so a repeated or concurrent run, including `/devflow:implement`'s bounded re-review, never clobbers another's).
 2. **`/devflow:implement` Phase 4.0.5** **merges every run-scoped manifest into one slug-level aggregate** (`.devflow/tmp/review/<slug>/deferrals.json`), runs `scripts/file-deferrals.py` over that aggregate to file **one follow-up issue per source file** (body contains the verbatim findings plus a `PR #<N>` cross-link), and rewrites the aggregate with deterministic `id: dfr-<6-hex>` + `follow_up` fields.
 3. **`/pr-description`** renders a Scope-Acknowledged Findings block between `<!-- DEVFLOW_DEFERRED_FINDINGS_START -->` / `END` markers in the PR body.
 4. **`/devflow:review` Phase 4.0** (PR mode) runs `scripts/match-deferrals.py`, which validates each deferral against three guards and demotes matched findings to **Informational** before computing the verdict.
@@ -218,11 +251,11 @@ A structured handoff between `/devflow:review-and-fix`, `/devflow:implement`, `/
 
 ---
 
-# The retrospective loop
+## The retrospective loop
 
-A two-stage evaluator/optimizer self-improvement loop for the `/devflow:implement` automation. Every bot-authored PR leaves evidence — review comments, post-bot commits, CI signals, workpad state. Once a week, `/devflow:retrospective-weekly` reads the accumulated trail, finds patterns that recur, and opens a human-reviewed PR proposing the smallest change that would have prevented the next occurrence (a CLAUDE.md tweak, a skill rewrite, a missing doc, a new lint rule, a tightened issue template). Humans approve or reject.
+A two-stage evaluator/optimizer self-improvement loop for the `/devflow:implement` automation. Every bot-authored PR leaves evidence, review comments, post-bot commits, CI signals, workpad state. Once a week, `/devflow:retrospective-weekly` reads the accumulated trail, finds patterns that recur, and opens a human-reviewed PR proposing the smallest change that would have prevented the next occurrence (a CLAUDE.md tweak, a skill rewrite, a missing doc, a new lint rule, a tightened issue template). Humans approve or reject.
 
-## How to run it
+### How to run it
 
 ```text
 /devflow:retrospective-weekly
@@ -236,11 +269,11 @@ Run it in an interactive Claude Code session from the repo root, ideally weekly.
 claude -p "/devflow:retrospective-weekly" --permission-mode acceptEdits
 ```
 
-If Stage B edits engine paths unattended (skill-file interventions), it would need `--dangerously-skip-permissions` — but the **recommended mode is the interactive run**, where you approve each change. (This flag disables all permission prompts; use it only in a trusted, sandboxed scheduler.)
+If Stage B edits engine paths unattended (skill-file interventions), it would need `--dangerously-skip-permissions`, but the **recommended mode is the interactive run**, where you approve each change. (This flag disables all permission prompts; use it only in a trusted, sandboxed scheduler.)
 
 > **Who runs this?** The retrospective loop is primarily DevFlow improving DevFlow, run on this repo. Adopters can run it on their own repo to retrospect their bot's PRs; if your bot uses a branch prefix other than `claude/`, set `devflow_retrospective.implementation_branch_prefix`.
 
-## The pipeline (LLM/heuristic split)
+### The pipeline (LLM/heuristic split)
 
 Deterministic scripts handle all scanning, fetching, signal computation, gating, pattern math, and git/PR/issue mechanics. The LLM is invoked **only** at two genuine-judgment points: **Stage A** (per-PR retrospective, only for PRs that fail the mechanical clean gate) and **Stage B** (per-pattern intervention drafting). Everything else costs zero LLM tokens.
 
@@ -259,16 +292,16 @@ scan.sh
   → post-status.sh
 ```
 
-## Data
+### Data
 
-- **`.devflow/learnings/retrospectives.jsonl`** — append-only ground truth; one JSON object per processed PR (`kind: implementation | audit`). Tracked in git.
-- **`.devflow/learnings/overrides.json`** — human-editable map of dismissed patterns + reasons. Tracked in git.
-- **`.devflow/tmp/`** — all ephemeral scratch for each run: review caches (`tmp/review/<slug>/<run-id>/` — **run-scoped** per review run, holding that run's cached diff, per-iteration workpads, and deferrals manifest, so repeated or concurrent runs on the same PR never clobber each other; `/devflow:implement` merges the per-run deferrals manifests into one slug-level aggregate at `tmp/review/<slug>/deferrals.json`), weekly-loop temp files, and issue drafts. Gitignored via a scoped `.devflow/.gitignore` (which ignores only `tmp/`, so `config.json` and `learnings/` stay committed).
-- **`.devflow/logs/review/<slug>/<run-id>/`** — a durable copy of a review run's workpads (`iter-*.json`, `deferrals.json`), written on **writable** runs only (skipped under the read-only cloud `review` profile) so the run's state survives the ephemeral `tmp/` teardown. Tracked in git (`.devflow/logs/` is negated in the `.gitignore`).
+- **`.devflow/learnings/retrospectives.jsonl`**: append-only ground truth; one JSON object per processed PR (`kind: implementation | audit`). Tracked in git.
+- **`.devflow/learnings/overrides.json`**: human-editable map of dismissed patterns + reasons. Tracked in git.
+- **`.devflow/tmp/`**: all ephemeral scratch for each run: review caches (`tmp/review/<slug>/<run-id>/`, **run-scoped** per review run, holding that run's cached diff, per-iteration workpads, and deferrals manifest, so repeated or concurrent runs on the same PR never clobber each other; `/devflow:implement` merges the per-run deferrals manifests into one slug-level aggregate at `tmp/review/<slug>/deferrals.json`), weekly-loop temp files, and issue drafts. Gitignored via a scoped `.devflow/.gitignore` (which ignores only `tmp/`, so `config.json` and `learnings/` stay committed).
+- **`.devflow/logs/review/<slug>/<run-id>/`**: a durable copy of a review run's workpads (`iter-*.json`, `deferrals.json`), written on **writable** runs only (skipped under the read-only cloud `review` profile) so the run's state survives the ephemeral `tmp/` teardown. Tracked in git (`.devflow/logs/` is negated in the `.gitignore`).
 
-Pattern occurrences, fix history, and status (`open`/`regressed`/`fixed`/`dismissed`) are computed on demand by `lib/compute-patterns.jq`. The loop is **idempotent** — re-running processes only PRs not already in `retrospectives.jsonl` on the default branch.
+Pattern occurrences, fix history, and status (`open`/`regressed`/`fixed`/`dismissed`) are computed on demand by `lib/compute-patterns.jq`. The loop is **idempotent**: re-running processes only PRs not already in `retrospectives.jsonl` on the default branch.
 
-### Inspect the current pattern view
+#### Inspect the current pattern view
 
 From the plugin's directory (or a checkout of this repo):
 
@@ -278,7 +311,7 @@ jq -s -f lib/compute-patterns.jq \
    .devflow/learnings/retrospectives.jsonl
 ```
 
-## Exclusion list (design-review paths)
+### Exclusion list (design-review paths)
 
 When an actionable pattern's best fix touches one of DevFlow's **own engine files**, Stage B returns `excluded: true` instead of editing, and the orchestrator files a `[devflow-retrospective] meta: <tag>` issue + records a dismissal override. `lib/check-excluded-path.sh` enforces this list:
 
@@ -289,9 +322,9 @@ skills/**          agents/**          lib/**          scripts/**
 .github/actions/**  .devflow/config.json  .devflow/config.example.json  .devflow/config.schema.json
 ```
 
-## Configuration
+### Configuration
 
-Under `devflow_retrospective` in `.devflow/config.json` (all optional — defaults shown):
+Under `devflow_retrospective` in `.devflow/config.json` (all optional, defaults shown):
 
 ```json
 "devflow_retrospective": {
@@ -306,12 +339,12 @@ Under `devflow_retrospective` in `.devflow/config.json` (all optional — defaul
 }
 ```
 
-- `watched_authors` — defaults to `devflow.allowed_bots` when `[]`.
-- `implementation_branch_prefix` — your bot's PR branch prefix.
-- `min_occurrences` — times a pattern must recur to be actionable.
-- `cooldown_days` — skip a pattern if an open audit PR is younger than this.
-- `max_prs_per_run` — cap on PRs processed per run.
-- `retrospective_model` / `audit_model` — optional `--model` overrides for Stage A / Stage B.
+- `watched_authors`, defaults to `devflow.allowed_bots` when `[]`.
+- `implementation_branch_prefix`, your bot's PR branch prefix.
+- `min_occurrences`, times a pattern must recur to be actionable.
+- `cooldown_days`, skip a pattern if an open audit PR is younger than this.
+- `max_prs_per_run`, cap on PRs processed per run.
+- `retrospective_model` / `audit_model`, optional `--model` overrides for Stage A / Stage B.
 
 ## Repository layout
 
@@ -329,7 +362,8 @@ lib/                     # retrospective-loop helpers (*.sh, *.jq), preflight.sh
 .github/                 # optional cloud tier: workflows + composite actions
                          #   (incl. vendor-plugin, which materializes the plugin at runtime)
 .devflow/                # config.example.json + config.schema.json (+ learnings/, logs/)
-docs/                    # cloud-setup.md, implement-skill.md, workflow-triggers.md, efficiency-trace.md
+docs/                    # cloud-setup.md, workflow-triggers.md, implement-skill.md, shadow-review.md,
+                         #   review-agent-overrides.md, efficiency-trace.md, DEVFLOW_SYSTEM_OVERVIEW.md
 install.sh               # one-command cloud-tier install/update (thin by default; DEVFLOW_VENDOR=1 to commit the plugin)
 ```
 
