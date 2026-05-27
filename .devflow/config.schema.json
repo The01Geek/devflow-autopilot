@@ -90,7 +90,7 @@
     },
     "devflow_review_and_fix": {
       "type": "object",
-      "description": "Settings for /devflow:review-and-fix per-run subagent effectiveness telemetry. See docs/efficiency-trace.md.",
+      "description": "Settings for /devflow:review-and-fix: the fix-loop iteration cap and per-run subagent effectiveness telemetry. See docs/shadow-review.md and docs/efficiency-trace.md.",
       "properties": {
         "max_iterations": {
           "type": "integer",
