@@ -1153,6 +1153,10 @@ assert_eq("resolve: default-sourced warning is agent-agnostic (names the shared 
 # `default.model` across several no-entry agents must ALSO collapse to one line. (Only
 # the effort branch was exercised before; a regression re-adding {agent} to the model
 # message would pass every other test while restoring per-agent model spam.)
+# NOTE: this is a direct-call guard for the resolve_overrides contract — the
+# `default.model=""` branch is NOT reachable via the real engine path, since read_raw
+# drops empty/whitespace leaves before resolve_overrides sees them (unlike the
+# effort branch, which has the end-to-end main() twin below).
 _dm_res, _dm_warn = _rro.resolve_overrides(
     {"default": {"model": ""}},
     ["pr-review-toolkit:code-reviewer", "pr-review-toolkit:comment-analyzer",

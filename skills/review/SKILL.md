@@ -140,11 +140,13 @@ Operators can tune each review subagent's model and reasoning effort via the `de
 ```bash
 # Pass ONLY the agents actually being dispatched this phase (e.g. omit gated-out
 # type-design-analyzer / pr-test-analyzer). Empty/`{}` output → emit no --agents block.
-# Use a PHASE-DISTINCT stderr file ($PHASE is e.g. phase1, phase1_5, phase2, phase3)
-# so an earlier phase's diagnostics are not truncated by a later phase's resolve
-# before you have surfaced them (see the surfacing rule below).
+# Substitute a PHASE-DISTINCT literal for <phase> when you author each phase's command
+# — use `phase1` here (Phase 1), `phase1_5` (Phase 1.5), `phase2` (Phase 2), `phase3`
+# (Phase 3). This is a template substitution you fill in, NOT a shell variable: do not
+# emit a bare `$PHASE` (it would be unset and collapse all phases onto one file,
+# truncating earlier phases' unread diagnostics — see the surfacing rule below).
 OVERRIDES=$(${CLAUDE_SKILL_DIR}/../../scripts/resolve-review-overrides.py \
-    "devflow:checklist-generator" 2>"/tmp/devflow-rv-ovr.$PHASE.err")
+    "devflow:checklist-generator" 2>/tmp/devflow-rv-ovr.phase1.err)
 ```
 
 The same cloud allow-list leading-token rule that governs `workpad.py` (see the Live Progress Comment section above) applies here: the helper must be the command's leading token. `OVERRIDES=$(…)` is fine — the path is the leading token *inside* the command substitution — but do **not** refactor it to route the executable through a shell variable (`RRO="…/resolve-review-overrides.py"; "$RRO" …`) or prepend a `VAR=value` env-assignment, or the read-only cloud `review` profile silently denies it and every dispatch falls back to no overrides.
@@ -154,7 +156,7 @@ Resolution rules the helper enforces (so the engine just consumes its output):
 - **No-entry passthrough.** A subagent with neither its own entry nor a `default` produces no override — dispatch it unchanged.
 - **Invalid effort → warn + fall back.** An `effort` outside the `low/medium/high/xhigh/max` enum is dropped with a `::warning::` (the subagent falls back to the session effort); the run never aborts. A non-blank `model` string is forwarded as given; an empty/whitespace-only/non-string `model` is likewise dropped with a `::warning::`, mirroring the invalid-effort path.
 
-For each subagent present in `$OVERRIDES`, build its `--agents` entry from the resolved `model`/`effort` (the external plugins' own `description`/`prompt`/`tools` come from their installed definitions — you only layer on the configured `model`/`effort`). Dispatch the phase's agents through that materialized `--agents` block; dispatch any subagent absent from `$OVERRIDES` exactly as before. The helper is best-effort: **surface its captured stderr (`/tmp/devflow-rv-ovr.$PHASE.err`) whenever it is non-empty — not only on a non-zero exit, and do so immediately after this phase's resolve, before the next dispatch phase runs.** The helper deliberately exits 0 even when it drops a malformed entry (invalid effort, non-object entry, unusable model), writing those `::warning::` lines to stderr; keying the surfacing on exit code alone would silently swallow exactly those operator-misconfiguration diagnostics. Because the resolver runs once per dispatch phase (Phase 1, 1.5, 2, 3), each phase writes its **own** `$PHASE`-tagged stderr file and surfaces it before the next phase — a single shared filename would let a later phase truncate an earlier phase's unread diagnostics. On a non-zero exit, additionally dispatch with no overrides rather than blocking the review.
+For each subagent present in `$OVERRIDES`, build its `--agents` entry from the resolved `model`/`effort` (the external plugins' own `description`/`prompt`/`tools` come from their installed definitions — you only layer on the configured `model`/`effort`). Dispatch the phase's agents through that materialized `--agents` block; dispatch any subagent absent from `$OVERRIDES` exactly as before. The helper is best-effort: **surface its captured stderr (the `/tmp/devflow-rv-ovr.<phase>.err` file this phase wrote, e.g. `…phase1.err`) whenever it is non-empty — not only on a non-zero exit, and do so immediately after this phase's resolve, before the next dispatch phase runs.** The helper deliberately exits 0 even when it drops a malformed entry (invalid effort, non-object entry, unusable model), writing those `::warning::` lines to stderr; keying the surfacing on exit code alone would silently swallow exactly those operator-misconfiguration diagnostics. Because the resolver runs once per dispatch phase (Phase 1, 1.5, 2, 3), each phase writes its **own** `<phase>`-tagged stderr file (`phase1` / `phase1_5` / `phase2` / `phase3`, substituted as a literal — not a shell variable) and surfaces it before the next phase; a single shared filename (or a bare unset `$PHASE` that collapses to one) would let a later phase truncate an earlier phase's unread diagnostics. On a non-zero exit, additionally dispatch with no overrides rather than blocking the review.
 
 ---
 
