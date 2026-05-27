@@ -116,19 +116,24 @@ def read_raw(dispatched, config_get, config_file):
     """Read each dispatched agent's (+ default's) model/effort via config-get.sh."""
     raw = {}
     for agent in list(dispatched) + ["default"]:
+        base = f".devflow_review.agent_overrides.{agent}"
         entry = {}
         for field in ("model", "effort"):
             # Agent ids contain ':' but never '.', so they are a single
             # dot-path segment — config-get.sh splits on '.' only.
-            value = _config_get(
-                config_get,
-                config_file,
-                f".devflow_review.agent_overrides.{agent}.{field}",
-            )
+            value = _config_get(config_get, config_file, f"{base}.{field}")
             if value:
                 entry[field] = value
+        # A present-but-empty entry ({}) is a real config state that must shadow
+        # `default` (entry-level precedence). The leaf reads can't distinguish it
+        # from an absent key, so probe the entry object itself: config-get.sh
+        # prints a non-empty string ("[object Object]") for a present object and
+        # nothing for an absent key. Only probe when no field was read — the
+        # common path stays at two reads.
         if entry:
             raw[agent] = entry
+        elif _config_get(config_get, config_file, base):
+            raw[agent] = {}
     return raw
 
 

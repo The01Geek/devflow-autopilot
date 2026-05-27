@@ -1011,6 +1011,43 @@ _res6, _ = _rro.resolve_overrides(
 )
 assert_eq("resolve: empty own entry shadows default → no override", {}, _res6)
 
+# read_raw integration (exercises the real config-get.sh I/O path, not just the
+# pure resolver). The empty-own-entry contract must hold END-TO-END: the leaf
+# reads alone can't tell {} from an absent key, so read_raw probes the entry
+# object — this test guards that the probe stays wired (a pure-function test
+# alone would pass while the real config path silently let `default` backfill).
+import os as _os
+import tempfile as _tempfile
+_config_get_sh = str(SCRIPTS / 'config-get.sh')
+with _tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as _cf:
+    _cf.write(
+        '{"devflow_review":{"agent_overrides":{'
+        '"default":{"effort":"high"},'
+        '"devflow:checklist-verifier":{},'
+        '"pr-review-toolkit:code-reviewer":{"model":"m","effort":"low"}}}}'
+    )
+    _cfg_path = _cf.name
+try:
+    _raw = _rro.read_raw(
+        ["devflow:checklist-verifier", "pr-review-toolkit:code-reviewer",
+         "pr-review-toolkit:comment-analyzer"],
+        _config_get_sh, _cfg_path,
+    )
+    assert_eq("read_raw: present-but-empty entry is represented as {} (shadows default)",
+              {}, _raw.get("devflow:checklist-verifier"))
+    assert_eq("read_raw: full entry's fields are read",
+              {"model": "m", "effort": "low"},
+              _raw.get("pr-review-toolkit:code-reviewer"))
+    assert_eq("read_raw: absent agent is not added to raw",
+              False, "pr-review-toolkit:comment-analyzer" in _raw)
+    assert_eq("read_raw: default entry is read", {"effort": "high"},
+              _raw.get("default"))
+    # End-to-end resolution off the real config path: empty entry must NOT inherit default.
+    _e2e, _ = _rro.resolve_overrides(_raw, ["devflow:checklist-verifier"])
+    assert_eq("read_raw+resolve: empty entry shadows default end-to-end", {}, _e2e)
+finally:
+    _os.unlink(_cfg_path)
+
 # The published KNOWN_AGENTS roster stays byte-identical to the nine telemetry ids.
 assert_eq("resolve: KNOWN_AGENTS is the nine review-engine identifiers",
           ("devflow:checklist-generator", "devflow:checklist-deduper",
