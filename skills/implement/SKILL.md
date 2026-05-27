@@ -533,7 +533,7 @@ This runs the four-phase review engine in your context:
 
 Follow the skill's instructions. It handles evaluation, fixing, testing, and re-review internally.
 
-After the skill completes (verdict: APPROVE), flush any residual fixes. With `--push-each-iteration` the loop has already committed and pushed every iteration, so this is normally a no-op — guard the commit so an empty staging area doesn't error:
+After the skill completes with a clean approve-family verdict (`APPROVE`, `APPROVE WITH CAVEAT`, or `APPROVE WITH ADVISORY NOTES` — **not** `APPROVE WITH UNRESOLVED SHADOW FINDINGS`, which is handled separately below), flush any residual fixes. With `--push-each-iteration` the loop has already committed and pushed every iteration, so this is normally a no-op — guard the commit so an empty staging area doesn't error:
 ```bash
 git add -A
 git diff --cached --quiet || git commit -m "fix: address code review feedback for issue #$ARGUMENTS"
@@ -542,7 +542,11 @@ git push
 
 Then tick the `review-and-fix` gate: `workpad.py update $ISSUE_NUMBER --tick-progress "review-and-fix"`.
 
-If the skill exits with unresolved findings after 4 iterations: `workpad.py update $ISSUE_NUMBER --status Blocked --reflection "review-and-fix unresolved after 4 iterations: {summary}"`, then emit the 👎 outcome reaction (see *Outcome reaction* in the Workpad Reference) and stop.
+**If the skill returns `APPROVE WITH UNRESOLVED SHADOW FINDINGS`** (the iteration-cap shadow pass surfaced new Important — never Critical — findings the loop could not address; see that skill's Step 2.6 outcome 2): this is **not** a clean approve. The findings came from a *full-coverage* shadow pass and are real, but they reach you only in chat + the report's `## Unresolved Shadow Findings` section (they do **not** flow through the Step-3 deferrals manifest, so Phase 4.0.5 will not file them). You may **not** silently hand-fix them and ship — any fix you apply to resolve them is itself unreviewed spec/code that no independent pass has seen, and shipping it is the unreviewed-final-edit gap the skill's caller contract forbids. Pick one:
+1. **Fix + re-review (bounded once).** Apply fixes for the unresolved findings, commit (`fix:` prefix), then **re-invoke `review-and-fix` exactly one more time** (Skill tool, same `args: "--push-each-iteration"`) so the fix delta gets an independent shadow/review pass. If that bounded re-review returns a clean approve-family verdict, flush residual fixes (above) and continue. If it returns `APPROVE WITH UNRESOLVED SHADOW FINDINGS` again or `REJECT`, do **not** loop a third time — fall to the Blocked path below. Trigger at most **one** orchestrator-initiated re-review; the bound is what keeps this terminating.
+2. **Do not fix — fall to the Blocked path below** (treat the unresolved findings as "unresolved after the cap").
+
+If the skill exits with unresolved findings after 4 iterations (including an `APPROVE WITH UNRESOLVED SHADOW FINDINGS` you did not resolve via the bounded re-review above): `workpad.py update $ISSUE_NUMBER --status Blocked --reflection "review-and-fix unresolved after 4 iterations: {summary}"`, then emit the 👎 outcome reaction (see *Outcome reaction* in the Workpad Reference) and stop.
 
 ### 3.4 Acceptance Criteria Gate
 

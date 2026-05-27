@@ -106,25 +106,32 @@ A degraded pass must **never** clear a PR with a clean verdict. The guard is the
   Full coverage requires that every dispatched reviewer returned a result that positively shows it
   ran (an assessment/verdict plus a `defect_signature` on every finding). A reviewer that errored
   internally yet emitted `{findings: []}` with no assessment is not a clean reviewer.
-- **Checklist skip is not a coverage shortfall.** If the shadow's own Phase 0.5 sets
-  `checklist_skipped = "intentional"` (a `small_diff` + `config_only` diff), Phase 1+2 don't run
-  and the shadow's Phase-2 fails are empty *by design*. Coverage is about the reviewer roster, not
-  the checklist; record `checklist_skipped` on the block so a reader doesn't mistake an empty
-  Phase-2 result for a re-audited checklist axis.
+- **Checklist skip is not a coverage shortfall — but a *narrowing* skip is tripped.** If the
+  shadow's own Phase 0.5 sets `checklist_skipped = "intentional"` (a `small_diff` + `config_only`
+  diff), Phase 1+2 don't run and the shadow's Phase-2 fails are empty *by design*. Coverage is about
+  the reviewer roster, not the checklist; record `checklist_skipped` on the block so a reader doesn't
+  mistake an empty Phase-2 result for a re-audited checklist axis. The risk a mis-set skip drops the
+  checklist axis while the roster join still reads `"full"` is closed by a checklist-axis analogue of
+  the roster tripwire below: if the loop's last iter *ran* the checklist but the shadow now skips it
+  (a narrowing divergence), the skip is suspect, so Phase 1+2 are forced to run anyway; an absent
+  last-iter comparand fails closed the same way (run the checklist). Only a skip both profiles agree
+  on is honored.
 - **Dispatched is not collected — a 1:1 join is required.** `coverage: "full"` requires not only
   that the expected roster was *dispatched* but that each dispatched identifier maps to exactly one
   *collected and successfully-parsed* result. A dispatched-but-lost result (launched, never
   collected, or unparseable) is a shortfall like a never-dispatched one. "It's in
   `reviewers_dispatched`" is not evidence the reviewer ran.
-- **A too-narrow self-classification cannot silently shrink the roster.** Because the expected
-  roster is computed from the shadow's *own* Phase 0.5, an under-classification would shrink the
-  expected and dispatched rosters in lockstep and still read `"full"`. A tripwire compares the
+- **A too-narrow self-classification cannot silently shrink the reviewer roster.** Because the
+  expected roster is computed from the shadow's *own* Phase 0.5, an under-classification would shrink
+  the expected and dispatched rosters in lockstep and still read `"full"`. A tripwire compares the
   shadow's `diff_profile` against the loop's last-iter recorded profile: a narrowing divergence
   widens *both* the expected roster and the dispatch to the union of the two profiles' gated
   analyzers; a *missing* last-iter profile (it is a best-effort field) has no second operand to
   union against, so it trips to the **full gated roster** (both gated analyzers) instead. Either way
   the widening is fail-closed, so a dropped analyzer surfaces as a shortfall rather than passing as
-  full.
+  full. (This guards the gated-*analyzer* dimension; the parallel risk that a mis-set skip drops the
+  *checklist* axis is closed by the checklist-skip tripwire above — the two together cover both ways
+  a too-narrow self-classification could otherwise read `"full"`.)
 - **Block presence is verified, not assumed, before "shadow agreed" fires.** The Step 2.6 workpad
   append is best-effort and can be lost. Outcome 1 (the "shadow agreed" path) re-reads the appended
   block from disk and confirms a present `coverage: "full"` block before committing; a lost write
@@ -169,7 +176,17 @@ is never routed through the `{shadow status}` template. That dedicated line carr
 render-time coverage assertion: the full-coverage block it reads lives "one iter back" (the
 promotion-triggering iter) and was written by the same best-effort append that can be lost, so when
 that block is absent or not `"full"` the line falls back to a not-verified rendering rather than
-asserting a shadow result the persisted record can't back.
+asserting a shadow result the persisted record can't back. The headline and the report's Coverage
+section both pin to *that same* one-iter-back block (never an earlier iter's block) and evaluate the
+lost-write branch before the `"full"` branch, so a lost promotion-triggering block can't make the
+report read "full coverage" while the headline reads "not verified."
+
+`APPROVE WITH UNRESOLVED SHADOW FINDINGS` is terminal *for the loop* — it is at the iteration cap and
+will not re-review itself, and its unresolved Important findings surface only in chat and the report's
+`## Unresolved Shadow Findings` section. A wrapping orchestrator (e.g. `/devflow:implement`) that
+chooses to *fix* those findings must re-establish independent coverage by re-running the loop once
+over the fix delta; it must not resolve them with an unreviewed final commit. Otherwise the very edit
+that answers the shadow ships with no independent eyes on it — the gap this contract closes.
 
 ## Calibration: "shadow agreed, full coverage" is not "nothing left to find"
 
