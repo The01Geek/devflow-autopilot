@@ -113,6 +113,23 @@
           "type": "boolean",
           "description": "When true, a PR-mode /devflow:review authors a live progress comment for that run (a run-keyed <!-- devflow:review-progress run=<id>-<attempt> --> comment — one per review run, so a later run posts its own rather than overwriting an earlier run's) incrementally as it works — a blueprint of the phases up front, then per-phase updates (diff classification, checklist results, each Phase-3 agent's findings as they land, the verdict), finalizing with the run-telemetry summary and effectiveness trace. When false, /devflow:review falls back to producing its report once at the end (no incremental updates). Independent of devflow_review_and_fix.efficiency_telemetry_enabled, which separately gates the embedded telemetry/trace.",
           "default": true
+        },
+        "agent_overrides": {
+          "type": "object",
+          "description": "Per-subagent model/effort overrides for the shared /devflow:review engine. Applies to BOTH standalone /devflow:review AND the Phase-3 review pass of /devflow:review-and-fix (and thus /devflow:implement), since both drive the same engine. Keys are the nine review-engine subagent identifiers (byte-identical to the telemetry strings) plus an optional `default` fallback. Each value optionally sets `model` (free-form model id, forwarded to the dispatch as given) and/or `effort` (one of low/medium/high/xhigh/max — an out-of-enum value warns and falls back to the session effort rather than aborting). Resolution is entry-level: a subagent with its own entry uses only that entry (the `default` does NOT backfill its missing fields); `default` supplies model/effort only for subagents with no entry of their own. A subagent with neither its own entry nor a `default` is dispatched exactly as today — global claude_model + session effort — with no --agents override emitted for it. See docs/review-agent-overrides.md.",
+          "additionalProperties": false,
+          "properties": {
+            "default": { "type": "object", "additionalProperties": false, "properties": { "model": { "type": "string" }, "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"] } } },
+            "devflow:checklist-generator": { "type": "object", "additionalProperties": false, "properties": { "model": { "type": "string" }, "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"] } } },
+            "devflow:checklist-deduper": { "type": "object", "additionalProperties": false, "properties": { "model": { "type": "string" }, "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"] } } },
+            "devflow:checklist-verifier": { "type": "object", "additionalProperties": false, "properties": { "model": { "type": "string" }, "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"] } } },
+            "pr-review-toolkit:code-reviewer": { "type": "object", "additionalProperties": false, "properties": { "model": { "type": "string" }, "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"] } } },
+            "pr-review-toolkit:silent-failure-hunter": { "type": "object", "additionalProperties": false, "properties": { "model": { "type": "string" }, "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"] } } },
+            "pr-review-toolkit:comment-analyzer": { "type": "object", "additionalProperties": false, "properties": { "model": { "type": "string" }, "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"] } } },
+            "pr-review-toolkit:type-design-analyzer": { "type": "object", "additionalProperties": false, "properties": { "model": { "type": "string" }, "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"] } } },
+            "pr-review-toolkit:pr-test-analyzer": { "type": "object", "additionalProperties": false, "properties": { "model": { "type": "string" }, "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"] } } },
+            "superpowers:requesting-code-review": { "type": "object", "additionalProperties": false, "properties": { "model": { "type": "string" }, "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"] } } }
+          }
         }
       }
     },

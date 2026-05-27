@@ -1,0 +1,50 @@
+{
+  "iter": 4,
+  "started_at": "2026-05-27T14:33:00Z",
+  "fix_commit_sha": "56826f9",
+  "fix_files": [],
+  "diff_profile": {"small_diff": false, "config_only": false, "has_new_types": false, "engine_self_modifying": true, "checklist_skipped": null},
+  "checklist": [
+    {"id": "VC4-1", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "data_format_assumption:SKILL.md:phase-literal-set-matches-real-phases", "reused_from_iter_prev": false},
+    {"id": "VC4-2", "verification_mode": "lite", "verdict": "PASS", "claim_signature": "api_contract:SKILL.md:phase1_5-literal-spelling-consistent", "reused_from_iter_prev": false},
+    {"id": "VC4-3", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "data_format_assumption:SKILL.md:snippet-phase-literal-matches-example-agent", "reused_from_iter_prev": false}
+  ],
+  "phase3_dispatched": ["pr-review-toolkit:code-reviewer", "pr-review-toolkit:silent-failure-hunter", "pr-review-toolkit:comment-analyzer", "pr-review-toolkit:pr-test-analyzer", "superpowers:requesting-code-review"],
+  "phase3_findings": [
+    {"agent": "pr-review-toolkit:silent-failure-hunter", "severity": "Suggestion", "description": "surfacing contract is prose-only/LLM-executed — swallow risk reduced not mechanically eliminated (structural skill-orchestration limitation, explicitly not a regression)", "defect_signature": {"file": "skills/review/SKILL.md", "line_range": [159, 159], "kind": "other"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "deferred"},
+    {"agent": "pr-review-toolkit:silent-failure-hunter", "severity": "Suggestion", "description": "/tmp/devflow-rv-ovr.<phase>.err not run-scoped (cross-run collision; over-surfaces stale rather than swallowing — safe direction)", "defect_signature": {"file": "skills/review/SKILL.md", "line_range": [148, 149], "kind": "other"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "deferred"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "F4-prose-llm-surfacing", "decision": "deferred", "source_file": "skills/review/SKILL.md", "claim_text": "surfacing contract is prose-only/LLM-executed", "skip_category": "uncategorized", "evidence": "structural limitation of all skill-prose orchestration; flagged by the reviewer itself as not a regression and not a code defect; iter-3 strictly reduced its likelihood"},
+    {"finding_id": "F4-tmp-not-run-scoped", "decision": "deferred", "source_file": "skills/review/SKILL.md", "claim_text": "<phase>.err stderr file not run-scoped", "skip_category": "uncategorized", "evidence": "LOW; over-surfaces a stale warning (safe direction) rather than swallowing; parity-with-progress-comment enhancement, not blocking; at iteration cap"}
+  ],
+  "convergence_inputs": {"fixes_applied": 0, "fix_diff_lines": 0, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "telemetry": {
+    "phase_1": {"calls": 1, "tokens": 49382, "wall_clock_s": 141},
+    "phase_2": {"calls": 0, "tokens": 0, "wall_clock_s": 6},
+    "phase_3": {"calls": 5, "tokens": 280000, "wall_clock_s": 67},
+    "step_2_5": {"calls": 0, "tokens": 0, "wall_clock_s": 2},
+    "phase_4_x": {"calls": 0, "tokens": 0, "wall_clock_s": 2},
+    "step_2_6": {"calls": 7, "tokens": 397000, "wall_clock_s": 171}
+  },
+  "shadow": {
+    "ran_at": "2026-05-27T14:40:00Z",
+    "verdict": "APPROVE WITH CAVEAT",
+    "coverage": "full",
+    "reviewers_dispatched": ["pr-review-toolkit:code-reviewer", "pr-review-toolkit:silent-failure-hunter", "pr-review-toolkit:comment-analyzer", "pr-review-toolkit:pr-test-analyzer", "superpowers:requesting-code-review"],
+    "expected_reviewers": ["pr-review-toolkit:code-reviewer", "pr-review-toolkit:silent-failure-hunter", "pr-review-toolkit:comment-analyzer", "pr-review-toolkit:pr-test-analyzer", "superpowers:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {"agent": "pr-review-toolkit:comment-analyzer", "severity": "Suggestion", "description": "docs/efficiency-trace.md:173 overclaims override keys are byte-identical to phase3_dispatched/telemetry ids — true only for the six Phase-3 ids; the three checklist-phase ids are not in phase3_dispatched", "defect_signature": {"file": "docs/efficiency-trace.md", "line_range": [173, 174], "kind": "comment_drift"}},
+      {"agent": "pr-review-toolkit:comment-analyzer", "severity": "Suggestion", "description": "docs/review-agent-overrides.md:19 same overclaim (telemetry-id equality generalized across all nine keys)", "defect_signature": {"file": "docs/review-agent-overrides.md", "line_range": [19, 19], "kind": "comment_drift"}},
+      {"agent": "pr-review-toolkit:silent-failure-hunter", "severity": "Suggestion", "description": "_config_get cause-focused warning lacks dotted_key context; dedup rationale rests on the always-pass-default invariant — latent comment-drift trap if that invariant is removed", "defect_signature": {"file": "scripts/resolve-review-overrides.py", "line_range": [157, 175], "kind": "comment_drift"}},
+      {"agent": "pr-review-toolkit:silent-failure-hunter", "severity": "Suggestion", "description": "read_raw probe assumes config-get.sh failure is deterministic across reads (undocumented)", "defect_signature": {"file": "scripts/resolve-review-overrides.py", "line_range": [221, 239], "kind": "logic_error"}},
+      {"agent": "pr-review-toolkit:pr-test-analyzer", "severity": "Suggestion", "description": "7 minor coverage gaps: non-zero-exit cause variety, main() warning ordering w/ unknown-id, example.json not schema-validated, valid-default end-to-end via read_raw, empty dispatched list, double-object-leaf probe, SKILL.md dispatch-string drift guard", "defect_signature": {"file": "lib/test/test_python_scripts.py", "line_range": [0, 0], "kind": "test_gap"}}
+    ],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 11, "overlap_with_iter_N": 0, "new": 11, "new_critical": 0, "new_important": 0},
+    "promoted_to_iter_next": false
+  }
+}

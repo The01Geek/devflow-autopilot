@@ -168,6 +168,15 @@ Both live under `devflow_review_and_fix` in `.devflow/config.json`
 | `efficiency_telemetry_enabled` | boolean | `true` | Master gate. When `false`, the loop renders no trace and writes no file under `.devflow/logs/`. |
 | `efficiency_cut_candidate_min_dispatch` | integer | `3` | Minimum dispatch count before an all-null/noise agent is flagged as a cut candidate. Defined here so the config surface is stable; **consumed by the follow-up cross-run analyzer**, not by `/devflow:review-and-fix` itself (the record carries it forward). |
 
+**Acting on the trace.** The telemetry above tells you *which* subagents earn their cost; the
+per-subagent `devflow_review.agent_overrides` block is the lever to *act* on it — move a mechanical
+pass to a cheaper model / lower effort, or pin a high-value reviewer to a stronger model / higher
+effort. The override keys are byte-identical to the subagent identifiers the engine dispatches
+under: the six Phase-3 keys are the `phase3_dispatched` / finding `agent` identifiers used
+throughout this doc, while the three checklist-phase keys (Phases 1/1.5/2) run earlier and so do not
+appear in `phase3_dispatched`. Either way the trace and the override config stay aligned. See
+[review-agent-overrides.md](review-agent-overrides.md).
+
 ## Non-fatal by design
 
 Derivation and persistence are best-effort: a missing or unreadable workpad, an absent

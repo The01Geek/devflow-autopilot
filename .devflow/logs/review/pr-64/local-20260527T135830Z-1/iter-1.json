@@ -1,0 +1,102 @@
+{
+  "iter": 1,
+  "started_at": "2026-05-27T13:58:30Z",
+  "fix_commit_sha": "9dd8252",
+  "fix_files": [
+    ".github/workflows/devflow-implement.yml",
+    ".github/workflows/devflow-runner.yml",
+    ".github/workflows/devflow.yml",
+    "docs/review-agent-overrides.md",
+    "lib/test/test_python_scripts.py",
+    "scripts/resolve-review-overrides.py",
+    "skills/review/SKILL.md"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "checklist": [
+    {"id": "VC-1", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "dependency_interaction:resolve-review-overrides.py:object-sentinel-matches-config-get", "reused_from_iter_prev": false},
+    {"id": "VC-2", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "dependency_interaction:resolve-review-overrides.py:array-join-comma", "reused_from_iter_prev": false},
+    {"id": "VC-3", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "dependency_interaction:config-get.sh:colon-key-single-segment", "reused_from_iter_prev": false},
+    {"id": "VC-4", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "dependency_interaction:resolve-review-overrides.py:nonzero-exit-is-failure", "reused_from_iter_prev": false},
+    {"id": "VC-5", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "data_format_assumption:resolve-review-overrides.py:known-agents-eq-schema-keys", "reused_from_iter_prev": false},
+    {"id": "VC-6", "verification_mode": "agent", "verdict": "FAIL", "claim_signature": "data_format_assumption:resolve-review-overrides.py:known-agents-eq-telemetry-ids", "reused_from_iter_prev": false, "note": "claim over-stated; code correct (six Phase-3 ids match telemetry, comment scopes it; KNOWN_AGENTS<->schema enforced by VC-5)"},
+    {"id": "VC-7", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "api_contract:config.schema.json:effort-enum-matches-valid-efforts", "reused_from_iter_prev": false},
+    {"id": "VC-8", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "api_contract:SKILL.md:dispatch-sites-wire-overrides", "reused_from_iter_prev": false},
+    {"id": "VC-9", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "api_contract:SKILL.md:final-pass-keyed-under-superpowers", "reused_from_iter_prev": false},
+    {"id": "VC-10", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "api_contract:SKILL.md:helper-path-resolves", "reused_from_iter_prev": false},
+    {"id": "VC-11", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "data_format_assumption:config.example.json:example-validates-against-schema", "reused_from_iter_prev": false},
+    {"id": "VC-12", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "api_contract:resolve-review-overrides.py:entry-level-precedence", "reused_from_iter_prev": false},
+    {"id": "VC-13", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "data_format_assumption:resolve-review-overrides.py:empty-entry-probe-wired", "reused_from_iter_prev": false},
+    {"id": "VC-14", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "api_contract:resolve-review-overrides.py:invalid-effort-warn-fallback", "reused_from_iter_prev": false},
+    {"id": "VC-15", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "api_contract:resolve-review-overrides.py:main-pure-json-exit0", "reused_from_iter_prev": false},
+    {"id": "VC-16", "verification_mode": "lite", "verdict": "PASS", "claim_signature": "api_contract:efficiency-trace.md:cross-references-overrides-doc", "reused_from_iter_prev": false},
+    {"id": "VC-17", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "api_contract:review-agent-overrides.md:lists-nine-identifiers", "reused_from_iter_prev": false},
+    {"id": "VC-18", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "api_contract:test_python_scripts.py:module-importable-no-main-on-import", "reused_from_iter_prev": false},
+    {"id": "VC-19", "verification_mode": "agent", "verdict": "FAIL", "claim_signature": "dependency_interaction:cloud-setup.md:review-profile-allowlists-resolver", "reused_from_iter_prev": false, "note": "real defect: cloud review allow-lists omit resolver — FIXED iter 1"},
+    {"id": "VC-20", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "data_format_assumption:config-get.sh:absent-path-empty-exit0", "reused_from_iter_prev": false}
+  ],
+  "phase3_dispatched": [
+    "pr-review-toolkit:code-reviewer",
+    "pr-review-toolkit:silent-failure-hunter",
+    "pr-review-toolkit:comment-analyzer",
+    "pr-review-toolkit:pr-test-analyzer",
+    "superpowers:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {"agent": "pr-review-toolkit:silent-failure-hunter", "severity": "Important", "description": "SKILL.md surfaces resolver stderr only 'if it errors' but the helper exits 0 by design; partial-drop warnings unreachable", "defect_signature": {"file": "skills/review/SKILL.md", "line_range": [835, 845], "kind": "logic_error"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "pr-review-toolkit:silent-failure-hunter", "severity": "Suggestion", "description": "array-leaf laundering silent (documented + test-pinned, schema-gated)", "defect_signature": {"file": "scripts/resolve-review-overrides.py", "line_range": [183, 198], "kind": "api_misuse"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "deferred"},
+    {"agent": "pr-review-toolkit:silent-failure-hunter", "severity": "Suggestion", "description": "config-get failure warning prominence does not scale with blast radius (bounded, deduped)", "defect_signature": {"file": "scripts/resolve-review-overrides.py", "line_range": [157, 166], "kind": "logic_error"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "deferred"},
+    {"agent": "pr-review-toolkit:silent-failure-hunter", "severity": "Suggestion", "description": "cloud-profile allow-list omission silent total fallback (same root as final-pass + VC-19)", "defect_signature": {"file": "docs/cloud-setup.md", "line_range": [70, 78], "kind": "logic_error"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "pr-review-toolkit:comment-analyzer", "severity": "Suggestion", "description": "review-agent-overrides.md non-object behavior stated path-independently", "defect_signature": {"file": "docs/review-agent-overrides.md", "line_range": [178, 180], "kind": "comment_drift"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "pr-review-toolkit:comment-analyzer", "severity": "Suggestion", "description": "SKILL.md model rule omits drop-with-warning behavior", "defect_signature": {"file": "skills/review/SKILL.md", "line_range": [143, 143], "kind": "comment_drift"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "pr-review-toolkit:comment-analyzer", "severity": "Suggestion", "description": "_OBJECT_SENTINEL comment over-generalizes arrays as String()", "defect_signature": {"file": "scripts/resolve-review-overrides.py", "line_range": [54, 57], "kind": "comment_drift"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "pr-review-toolkit:pr-test-analyzer", "severity": "Important", "description": "default carrying invalid model/effort untested + warning-spam (per-agent dup warnings)", "defect_signature": {"file": "scripts/resolve-review-overrides.py", "line_range": [94, 134], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "pr-review-toolkit:pr-test-analyzer", "severity": "Important", "description": "read_raw non-object-default branch untested + self-contradictory warning", "defect_signature": {"file": "scripts/resolve-review-overrides.py", "line_range": [217, 221], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "pr-review-toolkit:pr-test-analyzer", "severity": "Important", "description": "whitespace-only model forwarded verbatim", "defect_signature": {"file": "scripts/resolve-review-overrides.py", "line_range": [111, 119], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "pr-review-toolkit:pr-test-analyzer", "severity": "Suggestion", "description": "non-zero-exit branch only covered transitively", "defect_signature": {"file": "scripts/resolve-review-overrides.py", "line_range": [157, 165], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "deferred"},
+    {"agent": "pr-review-toolkit:pr-test-analyzer", "severity": "Suggestion", "description": "default --config-get resolution (omitted arg) untested", "defect_signature": {"file": "scripts/resolve-review-overrides.py", "line_range": [232, 236], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "deferred"},
+    {"agent": "pr-review-toolkit:pr-test-analyzer", "severity": "Suggestion", "description": "warning assertions over-rely on len==1 (brittle to message regressions)", "defect_signature": {"file": "lib/test/test_python_scripts.py", "line_range": [281, 405], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "deferred"},
+    {"agent": "superpowers:requesting-code-review", "severity": "Important", "description": "cloud review allow-list omits resolve-review-overrides.py → feature silent no-op in cloud", "defect_signature": {"file": ".github/workflows/devflow-runner.yml", "line_range": [264, 264], "kind": "api_misuse"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "superpowers:requesting-code-review", "severity": "Suggestion", "description": "empty-string model warning unreachable on real config path (direct-caller guard only)", "defect_signature": {"file": "scripts/resolve-review-overrides.py", "line_range": [666, 674], "kind": "comment_drift"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "deferred"},
+    {"agent": "superpowers:requesting-code-review", "severity": "Suggestion", "description": "schema effort-enum duplicated 10x (consider $defs/$ref)", "defect_signature": {"file": ".devflow/config.schema.json", "line_range": [33, 42], "kind": "style"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "deferred"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "VC-19", "decision": "applied", "commit": "9dd8252"},
+    {"finding_id": "F-cloud-allowlist", "decision": "applied", "commit": "9dd8252"},
+    {"finding_id": "F-skillmd-stderr", "decision": "applied", "commit": "9dd8252"},
+    {"finding_id": "F-default-warnspam", "decision": "applied", "commit": "9dd8252"},
+    {"finding_id": "F-nonobject-default-msg", "decision": "applied", "commit": "9dd8252"},
+    {"finding_id": "F-whitespace-model", "decision": "applied", "commit": "9dd8252"},
+    {"finding_id": "F-comment-overrides-doc", "decision": "applied", "commit": "9dd8252"},
+    {"finding_id": "F-comment-skillmd-model", "decision": "applied", "commit": "9dd8252"},
+    {"finding_id": "F-comment-sentinel", "decision": "applied", "commit": "9dd8252"},
+    {"finding_id": "VC-6", "decision": "pushed_back", "source_file": "scripts/resolve-review-overrides.py", "claim_text": "KNOWN_AGENTS byte-identical to telemetry strings in review-and-fix/SKILL.md (all nine)", "skip_category": "claim-quality", "evidence": "Code is correct: the comment at resolve-review-overrides.py:60-62 accurately scopes telemetry alignment to the six Phase-3 ids; KNOWN_AGENTS<->schema alignment (the actually-enforced contract) PASSes (VC-5) via the drift-guard test. The claim over-stated by asserting all nine appear as telemetry strings in review-and-fix/SKILL.md; the three checklist ids are correctly Phase-1/2 dispatch ids."},
+    {"finding_id": "F-array-launder", "decision": "deferred", "source_file": "scripts/resolve-review-overrides.py", "claim_text": "array-leaf laundering silent", "skip_category": "uncategorized", "evidence": "documented + characterization-test-pinned narrow gap; schema rejects all such shapes on the validated path"},
+    {"finding_id": "F-warn-prominence", "decision": "deferred", "source_file": "scripts/resolve-review-overrides.py", "claim_text": "config-get failure warning prominence", "skip_category": "uncategorized", "evidence": "bounded + deduped; the warning is present, just same prefix as a field typo"},
+    {"finding_id": "F-test-nonzero-exit", "decision": "deferred", "source_file": "scripts/resolve-review-overrides.py", "claim_text": "non-zero-exit branch only transitive", "skip_category": "uncategorized", "evidence": "covered via integration; minor symmetry nit"},
+    {"finding_id": "F-test-default-configget", "decision": "deferred", "source_file": "scripts/resolve-review-overrides.py", "claim_text": "default --config-get arg untested", "skip_category": "uncategorized", "evidence": "coverage gap only, verified working; not worth a fix-loop iteration"},
+    {"finding_id": "F-test-len1", "decision": "deferred", "source_file": "lib/test/test_python_scripts.py", "claim_text": "warning assertions over-rely on len==1", "skip_category": "uncategorized", "evidence": "test-quality nit; newer tests already match substrings"},
+    {"finding_id": "F-empty-model-unreachable", "decision": "deferred", "source_file": "scripts/resolve-review-overrides.py", "claim_text": "empty-model warning unreachable on real path", "skip_category": "uncategorized", "evidence": "harmless; the guard is belt-and-suspenders for direct callers"},
+    {"finding_id": "F-schema-defs", "decision": "deferred", "source_file": ".devflow/config.schema.json", "claim_text": "effort enum duplicated 10x", "skip_category": "uncategorized", "evidence": "style/churn; drift guarded for keys; enum-drift risk is low and would surface in VALID_EFFORTS<->schema mismatch"}
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 9,
+    "fix_diff_lines": 0,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "telemetry": {
+    "phase_0": {"calls": 0, "tokens": 0, "wall_clock_s": 5},
+    "phase_0_5": {"calls": 0, "tokens": 0, "wall_clock_s": 2},
+    "phase_1": {"calls": 1, "tokens": 55004, "wall_clock_s": 84},
+    "phase_2": {"calls": 19, "tokens": 280000, "wall_clock_s": 200},
+    "phase_3": {"calls": 5, "tokens": 272000, "wall_clock_s": 88},
+    "step_2_5": {"calls": 0, "tokens": 0, "wall_clock_s": 3, "webfetches": 0},
+    "phase_4_x": {"calls": 0, "tokens": 0, "wall_clock_s": 2}
+  }
+}
