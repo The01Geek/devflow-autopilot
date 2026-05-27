@@ -49,7 +49,9 @@ Each value optionally sets `model` and/or `effort`:
 }
 ```
 
-- `model` — free-form model id, forwarded to the dispatch as given (no validation).
+- `model` — free-form model id, forwarded to the dispatch as given (no *value* validation). A
+  present-but-unusable model (empty string or non-string) is dropped with a `::warning::`, mirroring
+  the invalid-effort path.
 - `effort` — one of `low`, `medium`, `high`, `xhigh`, `max`.
 
 ## Resolution rules
@@ -65,8 +67,12 @@ Each value optionally sets `model` and/or `effort`:
   override emitted for it**. Existing configs (which have no `agent_overrides` block at all) are
   therefore completely unaffected.
 - **Invalid effort → warn + fall back.** An `effort` value outside the enum produces a
-  `::warning::` and falls back to the session effort rather than aborting the run. A `model` string
-  is always forwarded as given.
+  `::warning::` and falls back to the session effort rather than aborting the run. A non-empty
+  `model` string is forwarded as given; an empty/non-string `model` is dropped with its own warning.
+- **Malformed shapes never abort.** A non-object entry (a hand-edited `"agent": "high"` or a list,
+  which bypasses schema validation) is ignored with a warning and treated as no-entry, so `default`
+  still applies. A non-object `default` is likewise ignored. An entry that resolves to neither a
+  model nor a valid effort emits no override at all. The engine never aborts on config shape.
 - **Gated agents.** The two structurally-gated Phase-3 analyzers (`type-design-analyzer`,
   `pr-test-analyzer`) are only dispatched on applicable diffs; an override is emitted only for an
   agent actually dispatched in a given run.
@@ -80,3 +86,11 @@ block. The engine resolves the overrides with `scripts/resolve-review-overrides.
 the config through `config-get.sh`) and materializes that block at each dispatch phase; the
 external plugins' own `description`/`prompt`/`tools` come from their installed definitions, with
 only the configured `model`/`effort` layered on. DevFlow never edits any external plugin's files.
+
+The helper must be the command's **leading token** (the same cloud allow-list rule that governs
+`workpad.py`); `OVERRIDES=$(…/resolve-review-overrides.py …)` is fine — the path is the leading
+token inside the command substitution — but routing it through a shell variable or prepending a
+`VAR=value` env-assignment makes the read-only cloud `review` profile deny it, and every override
+silently resolves to `{}`. In the cloud review profile, `resolve-review-overrides.py` must also be
+on the `review` tool allow-list for overrides to take effect (see
+[cloud-setup.md](cloud-setup.md)); a local/interactive run is unaffected.

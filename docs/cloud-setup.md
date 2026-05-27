@@ -294,7 +294,15 @@ run=<id>-<attempt> -->` progress comment: the `review` tool profile allow-lists 
 via `gh` and read the run's state — they never mutate the tree. The
 effectiveness-trace **record file** is the one piece gated to writable runs. See
 [`workflow-triggers.md`](workflow-triggers.md) and
-[`efficiency-trace.md`](efficiency-trace.md).) Flip one flag to opt in to
+[`efficiency-trace.md`](efficiency-trace.md).) Read-only also covers
+`resolve-review-overrides.py`, which the shared review engine runs to resolve the
+per-subagent `devflow_review.agent_overrides` block — it only reads config via
+`config-get.sh` and prints the resolved override map to stdout, never touching the
+tree. For those overrides to take effect under the cloud `review` profile, that
+script must be on the profile's tool allow-list (alongside the readers above); if
+it is omitted, the engine's override resolution is denied and every override
+silently falls back to `{}` (no override). See
+[`review-agent-overrides.md`](review-agent-overrides.md). Flip one flag to opt in to
 build/test:
 
 ```json

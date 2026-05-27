@@ -6,6 +6,9 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Per-subagent model and effort are now configurable for the review engine (`devflow_review.agent_overrides`).** A new config block in `.devflow/config.json` lets you set the `model` and reasoning `effort` for each of the nine review-engine subagents individually, plus an optional `default` fallback. Because the engine is shared, the overrides apply identically to standalone `/devflow:review`, to `/devflow:review-and-fix`, and to the Phase 3 review pass of `/devflow:implement` — so you can move a mechanical pass to a cheaper model or lower effort and pin a high-value reviewer to a stronger model or higher effort. Resolution is entry-level: a subagent with its own entry uses only that entry (the `default` does not backfill its missing fields), an explicit empty entry opts a subagent out of the `default`, and a subagent with no entry runs exactly as before. The change is fully backward compatible — an existing config with no `agent_overrides` block is unaffected — and malformed values are handled gracefully: an out-of-range effort or an unusable model is dropped with a warning and falls back rather than aborting the run. See `docs/review-agent-overrides.md`. (#64)
+
 ## [2.4.0] — 2026-05-26
 
 ### Changed
