@@ -74,7 +74,7 @@ degraded subagent.
 ## The honest-degradation fail-safe: coverage is a positively-verified assertion
 
 A degraded pass must **never** clear a PR with a clean verdict. The guard is the shadow block's
-`coverage` field, recorded on the workpad (`.devflow/tmp/review/<slug>/iter-<N>.json`):
+`coverage` field, recorded on the workpad (`.devflow/tmp/review/<slug>/<run-id>/iter-<N>.json`, run-scoped):
 
 - **`coverage: "full"` is something the parent *proves*, not the default-on-no-error.** Before it
   may set `"full"`, the parent computes the **expected reviewer roster** for this run and confirms
@@ -106,11 +106,42 @@ A degraded pass must **never** clear a PR with a clean verdict. The guard is the
   Full coverage requires that every dispatched reviewer returned a result that positively shows it
   ran (an assessment/verdict plus a `defect_signature` on every finding). A reviewer that errored
   internally yet emitted `{findings: []}` with no assessment is not a clean reviewer.
-- **Checklist skip is not a coverage shortfall.** If the shadow's own Phase 0.5 sets
-  `checklist_skipped = "intentional"` (a `small_diff` + `config_only` diff), Phase 1+2 don't run
-  and the shadow's Phase-2 fails are empty *by design*. Coverage is about the reviewer roster, not
-  the checklist; record `checklist_skipped` on the block so a reader doesn't mistake an empty
-  Phase-2 result for a re-audited checklist axis.
+- **Checklist skip is not a coverage shortfall — but a *narrowing* skip is tripped.** If the
+  shadow's own Phase 0.5 sets `checklist_skipped = "intentional"` (a `small_diff` + `config_only`
+  diff), Phase 1+2 don't run and the shadow's Phase-2 fails are empty *by design*. Coverage is about
+  the reviewer roster, not the checklist; record `checklist_skipped` on the block so a reader doesn't
+  mistake an empty Phase-2 result for a re-audited checklist axis. The risk a mis-set skip drops the
+  checklist axis while the roster join still reads `"full"` is closed by a checklist-axis analogue of
+  the roster tripwire below: the shadow's skip is honored **only** when the loop's last-iter
+  `checklist_skipped` is *also exactly* `"intentional"`. Every other comparand value trips and forces
+  Phase 1+2 to run: the loop *ran* the checklist (`null` — the canonical narrowing), the loop's
+  checklist generation *failed* (`"failure"` — it never audited the axis either, so a skip on top
+  would leave it unaudited), or the comparand is absent/unparseable/unreadable (fails closed like the
+  roster tripwire). Only a skip both profiles independently judged legitimate is honored.
+- **Dispatched is not collected — a 1:1 join is required.** `coverage: "full"` requires not only
+  that the expected roster was *dispatched* but that each dispatched identifier maps to exactly one
+  *collected and successfully-parsed* result. A dispatched-but-lost result (launched, never
+  collected, or unparseable) is a shortfall like a never-dispatched one. "It's in
+  `reviewers_dispatched`" is not evidence the reviewer ran.
+- **A too-narrow self-classification cannot silently shrink the reviewer roster.** Because the
+  expected roster is computed from the shadow's *own* Phase 0.5, an under-classification would shrink
+  the expected and dispatched rosters in lockstep and still read `"full"`. A tripwire compares the
+  shadow's own expected gated analyzers against the gated analyzers the loop's last iter actually
+  launched — read from the recorded `phase3_dispatched` roster, **not** from `diff_profile` (the
+  persisted profile carries `has_new_types` but not the test-relevance predicate, so a profile-vs-
+  profile check would be blind to a narrowed `pr-test-analyzer`; the dispatched roster records the
+  post-gate launch of *both* analyzers): a narrowing divergence widens *both* the expected roster and
+  the dispatch to the union of both sides' gated analyzers; a *missing* last-iter `phase3_dispatched`
+  (it is a best-effort field) has no second operand to union against, so it trips to the **full gated
+  roster** (both gated analyzers) instead. Either way the widening is fail-closed, so a dropped
+  analyzer surfaces as a shortfall rather than passing as full. (This guards the gated-*analyzer* dimension; the parallel risk that a mis-set skip drops the
+  *checklist* axis is closed by the checklist-skip tripwire above — the two together cover both ways
+  a too-narrow self-classification could otherwise read `"full"`.)
+- **Block presence is verified, not assumed, before "shadow agreed" fires.** The Step 2.6 workpad
+  append is best-effort and can be lost. Outcome 1 (the "shadow agreed" path) re-reads the appended
+  block from disk and confirms a present `coverage: "full"` block before committing; a lost write
+  falls through to not-verified, exactly as the Loop Exit render sites already fail closed on a
+  missing block.
 
 When the fan-out cannot complete — the `Agent` tool is unavailable, the engine SKILL.md is
 unreadable, the shadow's Phase 0.5 can't classify the diff, a reviewer returned nothing / garbage /
@@ -119,6 +150,20 @@ back to a single-agent pass and does **not** report a clean verdict. It records
 `coverage: "not_verified"` with a `reason` naming what was missing and takes **outcome 3** of
 Step 2.6's Decide step: the loop's tentative verdict stands but is reported as *unverified*, never
 as agreement.
+
+One bounded exception applies before outcome 3 is recorded (Step 2.6's *Transient vs. structural*
+rule): a **single** dispatched reviewer that returned garbage / empty while the rest of the roster
+returned cleanly gets **exactly one** targeted re-dispatch first; only if that retry also fails (or
+does not return) is `not_verified` recorded. That single retry is **global to the whole shadow pass**
+(the initial fan-out and any tripwire-widened late reviewer dispatches share the one budget) and
+covers **Phase-3 reviewers only** — Phase 1+2 work a tripped checklist re-run forces is engine phase
+dispatch, not a reviewer retry. (A forced checklist re-audit that cannot complete still fails closed:
+it surfaces as a Phase-2 INCONCLUSIVE, which drives the shadow's verdict to REJECT per the engine's
+verdict mapping, which the loop promotes into another iteration — so a degraded re-audit never reads
+clean.) **Structural** failures (the `Agent` tool unavailable,
+the engine SKILL.md unreadable, Phase 0.5 unable to classify) and any **multi-reviewer** failure are
+immediate `not_verified` with no retry — they will not recover on a re-run. This is a single bounded
+retry, not a fall-back to the lenient "treat as inconclusive and proceed" path.
 
 ### Fail-closed on both value and block presence
 
@@ -136,9 +181,55 @@ whether the shadow ran with full coverage or was not verified, rendering `shadow
 coverage` only for a present `"full"` block and `shadow agreement not verified` otherwise (dropping
 the absolute "All checks approved." / "with caveats." clause when not verified, so the headline
 never overclaims relative to its own parenthetical). The separate
-`APPROVE WITH UNRESOLVED SHADOW FINDINGS` verdict — outcome 2 hitting the iteration cap — carries
-`coverage: "full"` (the shadow ran fully and *disagreed*) and uses its own dedicated line; it is
-never routed through the `{shadow status}` template.
+`APPROVE WITH UNRESOLVED SHADOW FINDINGS` verdict — outcome 2 hitting the iteration cap — *normally*
+carries `coverage: "full"` (the shadow ran fully and *disagreed*) and uses its own dedicated line; it
+is never routed through the `{shadow status}` template. That dedicated line carries its own
+render-time coverage assertion: the full-coverage block it reads lives "one iter back" (the
+promotion-triggering iter) and was written by the same best-effort append that can be lost, so when
+that block is absent or not `"full"` the line falls back to a not-verified rendering rather than
+asserting a shadow result the persisted record can't back. The headline and the report's Coverage
+section both pin to *that same* one-iter-back block (never an earlier iter's block) and evaluate the
+lost-write branch before the `"full"` branch, so a lost promotion-triggering block can't make the
+report read "full coverage" while the headline reads "not verified."
+
+`APPROVE WITH UNRESOLVED SHADOW FINDINGS` is terminal *for the loop* — it is at the iteration cap and
+will not re-review itself, and its unresolved Important findings surface only in chat and the report's
+`## Unresolved Shadow Findings` section. A wrapping orchestrator (e.g. `/devflow:implement`) that
+chooses to *fix* those findings must re-establish independent coverage by re-running the loop once
+over the fix delta; it must not resolve them with an unreviewed final commit. Otherwise the very edit
+that answers the shadow ships with no independent eyes on it — the gap this contract closes.
+
+## Calibration: "shadow agreed, full coverage" is not "nothing left to find"
+
+The in-loop shadow pass **narrows** the gap between the fix loop's self-assessment and an
+independent review — it does not **close** it. Read the strongest possible shadow result,
+`shadow agreed, full coverage`, for exactly what it asserts: *a fresh in-loop sample, run with the
+loop's prior findings withheld from each reviewer prompt, surfaced nothing new this pass.* It does
+**not** assert that there is nothing left to find.
+
+Two structural reasons the gap persists:
+
+- **It is one sample, not a different reviewer population.** The shadow re-runs the *same* engine
+  and the *same* reviewer roster the loop already used; blinding the prompts removes the
+  *already-considered* bias but not the reviewers' shared blind spots. A genuinely independent
+  standalone `/devflow:review` — a separate session, separate accumulated context — samples the
+  space differently and routinely finds things a single in-loop re-sample does not.
+- **The shadow runs against the loop's own accumulated context.** The parent orchestrator that runs
+  the fan-out still carries the iter history; only the per-reviewer prompts are blind. That residual
+  shared state is a far smaller bias than a degraded single-agent self-check, but it is not zero.
+
+**Evidence.** On PR #58 (issue #57) itself — the PR that made the shadow pass parent-orchestrated and
+fail-closed — the in-loop shadow agreed with full coverage, yet a subsequent standalone
+`/devflow:review` run surfaced several hardening items the in-loop shadow had not caught (none Critical;
+they became the follow-up tracked in issue #61). That is the calibration in a single data point:
+"shadow agreed, full coverage" meant the in-loop re-sample found nothing new, **not** that the PR
+was exhaustively reviewed.
+
+The practical consequence: a clean shadow result is a real signal that the loop converged honestly,
+but the human gate — and, for a formal merge signal, a separate `/devflow:review <PR>` run — remains
+the exhaustiveness check. A clean shadow *raises confidence* in that gate's outcome; it is never a
+criterion for *waiving* it. Treat the separate independent review as the default, not as something a
+clean shadow makes optional.
 
 ## Cost
 

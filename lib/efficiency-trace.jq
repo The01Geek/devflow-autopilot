@@ -2,7 +2,7 @@
 # the /devflow:review-and-fix per-iteration workpads.
 #
 # This is the mechanical heart of the telemetry feature: it reads the
-# `iter-<N>.json` workpads (already on disk under .devflow/tmp/review/<slug>/),
+# `iter-<N>.json` workpads (already on disk under .devflow/tmp/review/<slug>/<run-id>/),
 # assigns each dispatched Phase-3 subagent exactly one of four effectiveness
 # verdicts, and emits EITHER a rendered Markdown trace ($mode == "trace") OR a
 # single per-run JSON record ($mode == "record"). No LLM, no side effects —

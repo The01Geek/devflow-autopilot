@@ -179,6 +179,11 @@ Use the PR diff output for Phase 1. Store the head branch name, `baseRefOid` as 
 
 **Caller head-override (fix-loop reuse).** A wrapping skill (currently `/devflow:review-and-fix`) may pass `head_override = local`. When set, take the PR's head from the local working tree instead of the API: set `$PR_HEAD_SHA=$(git rev-parse HEAD)` and fetch the diff with `git diff "$PR_BASE_SHA...HEAD"` instead of `gh pr diff $ARGUMENTS`. This lets a fix loop review commits it has made locally but not yet pushed — the remote `headRefOid` would otherwise lag behind and the loop would re-review pre-fix code. It requires the PR's head branch to be the checked-out branch; the caller guarantees this (review-and-fix does so in its Step 0.5). When `head_override` is absent — standalone `/devflow:review`, the default — use the API head exactly as above; do **not** diff against local `HEAD`, since a standalone review must reflect the pushed PR state, not a dirty or stale local checkout.
 
+**Caller run-id (run-scoped scratch).** All of this run's scratch under `.devflow/tmp/review/<slug>/` is nested one level deeper under a per-run `<run-id>` so concurrent or repeated reviews of the same PR never clobber each other (the same isolation the per-run progress-comment marker provides). Resolve `<run-id>` **once** at the start of Phase 0.2 and hold the literal for the whole run:
+
+- A wrapping skill (currently `/devflow:review-and-fix`) may pass `run_id = <value>` — its own loop-start `RUN_ID`. When provided, use it verbatim so the engine's `diff.patch` lands in the *same* run directory as the wrapper's `iter-*.json` / `deferrals.json`.
+- When absent (standalone `/devflow:review`), compute it with the **same derivation the progress-comment marker uses** — `${GITHUB_RUN_ID:-local-$(date -u +%Y%m%dT%H%M%SZ)}-${GITHUB_RUN_ATTEMPT:-1}` — and reuse that held literal everywhere (never recompute; on a local run the timestamp would otherwise drift between phases and scatter one run's scratch across directories).
+
 **Note on `gh pr diff` path filtering.** `gh pr diff <N>` does NOT support path arguments — `gh pr diff <N> -- <file>` errors with `accepts at most 1 arg(s)` (cli/cli#5398, unresolved). When you need per-file slicing in Phase 1.1, use `git diff "$PR_BASE_SHA...$PR_HEAD_SHA" -- <paths>` instead, or pipe the full `gh pr diff` through `filterdiff -i '<pattern>'` if `patchutils` is installed.
 
 **If no argument (review current branch):**
@@ -192,25 +197,27 @@ Use the diff output for Phase 1. The current branch is the review target.
 
 If the diff is empty, report: "No changes to review. Branch is identical to main." and stop.
 
-**Cache the diff to disk.** Write the diff fetched above to `.devflow/tmp/review/<slug>/diff.patch` — **fetch once, do not re-run `gh pr diff` / `git diff`**. Compute `<slug>` as:
+**Cache the diff to disk.** Write the diff fetched above to `.devflow/tmp/review/<slug>/<run-id>/diff.patch` — **fetch once, do not re-run `gh pr diff` / `git diff`**. Compute `<slug>` as:
 
 - **PR mode:** `pr-<N>` where `<N>` is the PR number from `$ARGUMENTS`.
 - **Current-branch mode:** the current branch name sanitized for filesystem use — replace `/` with `-`, lowercase, drop any character that isn't `[a-z0-9._-]`. (Matches the workpad slug convention `/devflow:review-and-fix` already uses.)
 
+and `<run-id>` per "Caller run-id" above (caller-provided when wrapped, else computed once here).
+
 Combine the initial fetch with the cache write in one shot using `tee` so the diff is captured exactly once and stdout remains available for Phase 1 consumption:
 
 ```bash
-mkdir -p .devflow/tmp/review/<slug>
-gh pr diff $ARGUMENTS | tee .devflow/tmp/review/<slug>/diff.patch
+mkdir -p .devflow/tmp/review/<slug>/<run-id>
+gh pr diff $ARGUMENTS | tee .devflow/tmp/review/<slug>/<run-id>/diff.patch
 # or, in current-branch mode:
-# git diff origin/main...HEAD | tee .devflow/tmp/review/<slug>/diff.patch
+# git diff origin/main...HEAD | tee .devflow/tmp/review/<slug>/<run-id>/diff.patch
 # or, in PR mode with head_override=local (fix-loop reuse — see "Caller head-override"):
-# git diff "$PR_BASE_SHA...HEAD" | tee .devflow/tmp/review/<slug>/diff.patch
+# git diff "$PR_BASE_SHA...HEAD" | tee .devflow/tmp/review/<slug>/<run-id>/diff.patch
 ```
 
-This replaces the bare `gh pr diff` / `git diff` invocation at the top of Phase 0.2 — use the `tee` form instead. Store `<slug>` and the resolved diff path (e.g. `.devflow/tmp/review/pr-863/diff.patch`) so Phase 3 can substitute it into its agent prompts via `{DIFF_PATH}`. The directory creation is harmless if it already exists; the file is overwritten on every run.
+This replaces the bare `gh pr diff` / `git diff` invocation at the top of Phase 0.2 — use the `tee` form instead. Store `<slug>`, `<run-id>`, and the resolved diff path (e.g. `.devflow/tmp/review/pr-863/<run-id>/diff.patch`) so Phase 3 can substitute it into its agent prompts via `{DIFF_PATH}`. The directory creation is harmless if it already exists; the file is overwritten on every run *within the same run-id*, never across runs.
 
-**`.devflow/tmp/` should be gitignored** (it's ephemeral scratch); the rest of `.devflow/` (`config.json`, `learnings/`, the schema/example) is intentionally tracked. The scaffolder (`scripts/scaffold-config.sh`, run by `install.sh` / `/devflow:init`) writes a scoped `.devflow/.gitignore` that ignores only `tmp/`. This skill does not manage that entry itself (it's a repo-level concern); flag missing coverage in the chat output only if `.devflow/tmp/` is not already ignored. When `/devflow:review` is invoked standalone (not from `/devflow:review-and-fix`), this cached diff is the only file in the directory — independent of the fix-loop's `iter-<N>.json` workpad files that live in the same place.
+**`.devflow/tmp/` should be gitignored** (it's ephemeral scratch); the rest of `.devflow/` (`config.json`, `learnings/`, the schema/example) is intentionally tracked. The scaffolder (`scripts/scaffold-config.sh`, run by `install.sh` / `/devflow:init`) writes a scoped `.devflow/.gitignore` that ignores only `tmp/`. This skill does not manage that entry itself (it's a repo-level concern); flag missing coverage in the chat output only if `.devflow/tmp/` is not already ignored. The run-scoped `<run-id>` subdirectory isolates this run's scratch from any other run on the same PR (standalone or fix-loop), so a repeated or concurrent review never clobbers another run's `diff.patch` / `iter-*.json` / `deferrals.json`.
 
 ### 0.3 Get changed file list
 
@@ -545,7 +552,7 @@ The following findings were raised by a prior review pass on this same code and 
 </prior_findings>
 ```
 
-**Diff path:** Substitute the cached diff path computed in Phase 0.2 (`.devflow/tmp/review/<slug>/diff.patch`) into `{DIFF_PATH}` in the prompts below. Phase 3 agents Read this file directly via their `Read` tool — no shell command, no `gh` API call, no redundant re-fetches across the 4–5 parallel agents. The previous `{DIFF_CMD}` substitution (which had every agent re-run `gh pr diff $ARGUMENTS` or `git diff origin/main...HEAD`) is superseded.
+**Diff path:** Substitute the cached diff path computed in Phase 0.2 (`.devflow/tmp/review/<slug>/<run-id>/diff.patch`) into `{DIFF_PATH}` in the prompts below. Phase 3 agents Read this file directly via their `Read` tool — no shell command, no `gh` API call, no redundant re-fetches across the 4–5 parallel agents. The previous `{DIFF_CMD}` substitution (which had every agent re-run `gh pr diff $ARGUMENTS` or `git diff origin/main...HEAD`) is superseded.
 
 **Required `defect_signature` block.** Every Phase-3 finding from every Phase-3 review-agent — both the ones listed below AND any added by future maintainers — MUST carry a `defect_signature` object so corroboration (Phase 3.2) is mechanical, not interpretive. Append this paragraph verbatim to every Phase-3 review-agent prompt — it's the only way to instruct external pr-review-toolkit agents we cannot edit:
 
@@ -671,11 +678,11 @@ Pipe the JSON to the matcher via stdin (the `review` allowed-tools profile in `c
 ```bash
 printf '%s' "$FINDINGS_JSON" | ${CLAUDE_SKILL_DIR}/../../scripts/match-deferrals.py \
     --pr $ARGUMENTS \
-    --diff ".devflow/tmp/review/<slug>/diff.patch" \
+    --diff ".devflow/tmp/review/<slug>/<run-id>/diff.patch" \
     --findings -
 ```
 
-Capture the matcher's stdout (the JSON report described below). When invoked from /devflow:implement Phase 3.3 via /devflow:review-and-fix (which DOES have the Write tool), the file form `--findings .devflow/tmp/review/<slug>/findings.json` is equally supported — pick whichever the surrounding profile permits.
+Capture the matcher's stdout (the JSON report described below). When invoked from /devflow:implement Phase 3.3 via /devflow:review-and-fix (which DOES have the Write tool), the file form `--findings .devflow/tmp/review/<slug>/<run-id>/findings.json` is equally supported — pick whichever the surrounding profile permits.
 
 The matcher always exits 0 when it ran (any result, including no block found). Read the output JSON:
 
@@ -795,9 +802,9 @@ If it exits non-zero (token scope), say so in chat output and that the PR stays 
 
 This step is gated by `devflow_review_and_fix.efficiency_telemetry_enabled` (read via `${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .devflow_review_and_fix.efficiency_telemetry_enabled true`; the flag is shared with `/devflow:review-and-fix`). When `false`, skip this step entirely — no telemetry, no trace, no record. It is **independent** of the live-comment flag: the live comment can be on with telemetry off (an incremental narrative with no telemetry/trace block), or vice versa.
 
-When enabled, assemble a **single workpad-shaped object** for this run from state the engine already produced, and write it to `.devflow/tmp/review/<slug>/iter-1.json`. This scratch write is the input `efficiency-trace.sh --mode trace` reads back; it lands in gitignored `.devflow/tmp/` (the same ephemeral-scratch location as Phase 0.2's `diff.patch`), so it does **not** make the trace a tree write and is permitted under the read-only cloud `review` profile — only the durable `--mode record` file under `.devflow/logs/efficiency/` is gated to writable runs.
+When enabled, assemble a **single workpad-shaped object** for this run from state the engine already produced, and write it to `.devflow/tmp/review/<slug>/<run-id>/iter-1.json` (run-scoped, the same `<run-id>` Phase 0.2 resolved — see "Caller run-id"). This scratch write is the input `efficiency-trace.sh --mode trace` reads back; it lands in gitignored `.devflow/tmp/` (the same ephemeral-scratch location as Phase 0.2's `diff.patch`), so it does **not** make the trace a tree write and is permitted under the read-only cloud `review` profile — only the durable `--mode record` file under `.devflow/logs/efficiency/` is gated to writable runs.
 
-**Author it with an allow-listed command** — the read-only cloud `review` profile grants `Bash(jq:*)`, `Bash(printf:*)`, and `Bash(cat:*)` but **not** `Bash(tee:*)`, so do not copy Phase 0.2's `… | tee` pattern here (that write rides a `gh pr diff` pipe; this one has no such pipe). Build the object with `jq -n` (or `cat <<'EOF'`/`printf '%s'`) and `>`-redirect it, e.g. `jq -n --argjson findings '…' '{iter:1, source:"review", …}' > .devflow/tmp/review/<slug>/iter-1.json`. The `>` redirect of an allow-listed command head is permitted; a non-allow-listed head like `tee` would be silently denied under the cloud profile and the trace would have no input.
+**Author it with an allow-listed command** — the read-only cloud `review` profile grants `Bash(jq:*)`, `Bash(printf:*)`, and `Bash(cat:*)` but **not** `Bash(tee:*)`, so do not copy Phase 0.2's `… | tee` pattern here (that write rides a `gh pr diff` pipe; this one has no such pipe). Build the object with `jq -n` (or `cat <<'EOF'`/`printf '%s'`) and `>`-redirect it, e.g. `jq -n --argjson findings '…' '{iter:1, source:"review", …}' > .devflow/tmp/review/<slug>/<run-id>/iter-1.json`. The `>` redirect of an allow-listed command head is permitted; a non-allow-listed head like `tee` would be silently denied under the cloud profile and the trace would have no input.
 
 ```json
 {
@@ -817,7 +824,7 @@ Then render the trace and (on a writable run) persist the record, reusing the **
 
 ```bash
 LIB="${CLAUDE_SKILL_DIR}/../../lib"
-WORKPAD_DIR=".devflow/tmp/review/<slug>"
+WORKPAD_DIR=".devflow/tmp/review/<slug>/<run-id>"   # run-scoped: read THIS run's iter-1.json
 # Trace (renders to chat / the live comment; reads only):
 TELEM="$("$LIB/efficiency-trace.sh" --workpad-dir "$WORKPAD_DIR" --slug "<slug>" --mode trace 2>/tmp/devflow-rv-et.err)"; T_RC=$?
 # Three-way, mirroring /devflow:review-and-fix's Loop Exit: rc≠0 is a failure;

@@ -59,12 +59,12 @@ If `WORKPAD_BODY` is set, scan its `## Acceptance Criteria` section for lines ma
 
 If no workpad exists, no issue number is available, or no `(post-merge)`-tagged items are found, `POST_MERGE_ITEMS` stays empty and the template's Post-Merge Verification section is omitted entirely. The lookup is best-effort — never fail the run on a missing workpad.
 
-**Best-effort: pull deferred review findings from the manifest.** When /devflow:implement Phase 4.0.5 files follow-up issues for /devflow:review-and-fix deferrals, the manifest at `.devflow/tmp/review/pr-<N>/deferrals.json` is updated in place with `id` and `follow_up` fields per entry. Surface those entries in the PR body as a Scope-Acknowledged Findings block so /devflow:review (run later as a formal merge signal) can match them and demote the corresponding findings to Informational.
+**Best-effort: pull deferred review findings from the manifest.** /devflow:review-and-fix now writes each run's manifest **run-scoped** (`.devflow/tmp/review/<slug>/<run-id>/deferrals.json`), and /devflow:implement Phase 4.0.5 merges every run-scoped manifest into one **slug-level aggregate** at `.devflow/tmp/review/pr-<N>/deferrals.json`, then files follow-up issues and updates that aggregate in place with `id` and `follow_up` fields per entry. Read the slug-level aggregate (the single hydrated path Phase 4.0.5 produces) and surface its entries in the PR body as a Scope-Acknowledged Findings block so /devflow:review (run later as a formal merge signal) can match them and demote the corresponding findings to Informational. (Only entries with a populated `follow_up.issue` render — and only Phase 4.0.5 populates that, so the aggregate is the authoritative source; the run-scoped per-run files are raw, un-hydrated inputs to the merge.)
 
 ```bash
 PR_NUMBER=$(gh pr view --json number --jq '.number' 2>/dev/null || true)
 if [ -n "$PR_NUMBER" ]; then
-    DEFERRALS_FILE=".devflow/tmp/review/pr-${PR_NUMBER}/deferrals.json"
+    DEFERRALS_FILE=".devflow/tmp/review/pr-${PR_NUMBER}/deferrals.json"   # slug-level aggregate written by /devflow:implement Phase 4.0.5
     if [ -s "$DEFERRALS_FILE" ]; then
         DEFERRALS_BODY=$(cat "$DEFERRALS_FILE")
     fi
