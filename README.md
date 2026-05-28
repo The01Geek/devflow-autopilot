@@ -183,7 +183,7 @@ Everything else runs locally inside Claude Code with no infrastructure at all.
 |---|---|---|
 | `/devflow:implement <issue#>` | Full lifecycle: fetch issue → branch + workpad → discover/plan → implement → test → draft PR → `/simplify` → `/devflow:review-and-fix` → acceptance gate → file follow-up issues for deferred findings → docs → ready PR | interactively, or by commenting `/devflow:implement <n>` on an issue (cloud tier) |
 | `/devflow:review [PR#]` | Comprehensive review: verification checklist (generated + verified against source), then `pr-review-toolkit` + `superpowers` reviewers; in PR mode matches the Scope-Acknowledged Findings block and demotes acknowledged findings; returns APPROVE/REJECT | interactively, or by commenting a bare `/devflow:review` on the PR |
-| `/devflow:review-and-fix [PR#]` | `/devflow:review` + an automatic fix loop (max 4 iterations); writes a deferrals manifest at Loop Exit | interactively; called by `/devflow:implement` Phase 3 |
+| `/devflow:review-and-fix [PR#]` | `/devflow:review` + an automatic fix loop (configurable cap, `devflow_review_and_fix.max_iterations`, default 5); writes a deferrals manifest at Loop Exit | interactively; called by `/devflow:implement` Phase 3 |
 | `/devflow:pr-description [issue#]` | Generate/update the PR description from the branch diff; renders the Scope-Acknowledged Findings block when present | interactively; called by `/devflow:implement` Phase 4 |
 | `/devflow:docs` | Orchestrates the three doc steps in one session | interactively; called by `/devflow:implement` Phase 4 |
 | `/devflow:docs-sync-internal` | Update internal docs to match code changes on the branch | interactively; called by `/docs` |

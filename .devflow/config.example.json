@@ -20,6 +20,7 @@
     "allowed_tools": []
   },
   "devflow_review_and_fix": {
+    "max_iterations": 5,
     "efficiency_telemetry_enabled": true,
     "efficiency_cut_candidate_min_dispatch": 3
   },

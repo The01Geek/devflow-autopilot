@@ -207,11 +207,31 @@ The workpad is best-effort and informational. A write failure should not abort t
 
 ## Main Loop
 
-Execute this loop with a maximum of 4 iterations.
+**Resolve the iteration cap once, at loop start.** Read `devflow_review_and_fix.max_iterations` (default 5) via the config helper — the same `${CLAUDE_SKILL_DIR}`-anchored, no-`bash`-prefix invocation the effectiveness-trace gate uses (see "Subagent effectiveness trace"), so the read is cwd-independent and the resolved-path allow-list entry matches. Capture stderr + rc so a resolver failure (missing `node`, malformed `config.json` → non-zero exit with empty stdout) is distinguishable from a legitimately-absent key, and clamp the result:
+
+```bash
+MAX_ITERS=$("${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh" .devflow_review_and_fix.max_iterations 5 2>/tmp/devflow-maxiter.err); MAX_ITERS_RC=$?
+# Surface a genuine resolver failure (missing `node`, malformed config.json) in the
+# Actions UI rather than swallowing it into a silent default — mirrors the
+# effectiveness-trace gate's `::warning::` on a non-zero read.
+if [ "$MAX_ITERS_RC" -ne 0 ]; then
+  echo "::warning::devflow review-and-fix max_iterations read failed (rc=$MAX_ITERS_RC): $(cat /tmp/devflow-maxiter.err) — using default 5"
+fi
+# Fallback to the default 5 on any resolver failure (rc≠0 → empty stdout) or a
+# non-integer/empty value; clamp a configured value below 1 up to 1 so the loop
+# always runs at least once. No upper bound is imposed — any integer ≥ 1 is honored.
+if [ "$MAX_ITERS_RC" -ne 0 ] || ! printf '%s' "$MAX_ITERS" | grep -Eq '^-?[0-9]+$'; then
+  MAX_ITERS=5
+elif [ "$MAX_ITERS" -lt 1 ]; then
+  MAX_ITERS=1
+fi
+```
+
+Execute this loop with a maximum of `$MAX_ITERS` iterations (the configured cap resolved above; default 5).
 
 ### Iteration Start
 
-Output: `Review iteration {N}/4...`
+Output: `Review iteration {N}/$MAX_ITERS...`
 
 If N ≥ 2: read `iter-<N-1>.json` from the workpad before proceeding.
 
@@ -285,7 +305,7 @@ Skip /devflow:review's Phase 4.4 (formal GitHub review posting). The fix loop is
 
 Every drift incident this skill has had traces to one of those rationalizations. Violating the letter of /devflow:review's phases is violating the spirit, even when the paraphrase reads correct.
 
-The engine produces, for this iteration: a verdict in {APPROVE, APPROVE with notes, APPROVE WITH CAVEAT, APPROVE WITH ADVISORY NOTES, REJECT} (matching `/devflow:review`'s Phase 4.1 enum) plus a markdown report. Phase 0.5 flags (`small_diff`, `config_only`, `has_new_types`, `engine_self_modifying`, `checklist_skipped`) apply unchanged. **The fix loop's iteration cap is still max 4** — Phase 0.5 only scales agent dispatch, not the loop.
+The engine produces, for this iteration: a verdict in {APPROVE, APPROVE with notes, APPROVE WITH CAVEAT, APPROVE WITH ADVISORY NOTES, REJECT} (matching `/devflow:review`'s Phase 4.1 enum) plus a markdown report. Phase 0.5 flags (`small_diff`, `config_only`, `has_new_types`, `engine_self_modifying`, `checklist_skipped`) apply unchanged. **The fix loop's iteration cap is still `$MAX_ITERS`** (the configured cap; default 5) — Phase 0.5 only scales agent dispatch, not the loop.
 
 ### Step 2: Check Verdict
 
@@ -293,7 +313,7 @@ The engine produces, for this iteration: a verdict in {APPROVE, APPROVE with not
 - Engine verdict **APPROVE** but advisory findings have been parked → tentative final verdict `APPROVE WITH ADVISORY NOTES`. Go to **Step 2.6: Shadow review**.
 - Engine verdict **APPROVE WITH CAVEAT** (Phase 4.2 rule 4a — a checklist *coverage* gap, e.g. checklist generation failed; **not** a finding-severity verdict) → tentative final verdict `APPROVE WITH CAVEAT`. Go to **Step 2.6: Shadow review**. There are no Important findings to fix on this path; the caveat is about verification coverage.
 - Engine verdict **APPROVE with notes** (Phase 4.2 rule 6 — only Important and/or Suggestion findings present, no Critical) → split on finding severity:
-  - **If the current iteration's `phase3_findings` contains any finding with `severity` `Important` (or its `Major` alias)** → do **NOT** go to the shadow pass yet. Continue to **Step 2.5** (verification gate) → **Step 3** (fix), routing it exactly as a REJECT would route *for loop purposes* — a skill named review-and-**fix** fixes Important findings, it does not merely note them. The same Step 2.5 gate that guards Critical findings runs first (web-verifying single-source external-tool claims, passing codebase claims straight through), so a confidently-wrong Important finding is demoted to advisory rather than blindly applied — the identical protection Critical findings already get. An Important finding Step 3 *cannot* fix is recorded via the existing `skip_category` pushback flow (Step 3, item 5), the same as a skipped Critical; it does **not** spin, because the 4-iteration cap, the "same `(source_file, claim_text)` skipped twice → escalate to the user and stop" rule (Step 3, item 5), and Step 4.5's convergence check jointly bound it. This routing change lives **only** here in the loop wrapper; `/devflow:review`'s Phase 4.2 verdict computation is unchanged — standalone `/devflow:review` still reports an Important-only PR as "APPROVE with notes" and applies no fixes.
+  - **If the current iteration's `phase3_findings` contains any finding with `severity` `Important` (or its `Major` alias)** → do **NOT** go to the shadow pass yet. Continue to **Step 2.5** (verification gate) → **Step 3** (fix), routing it exactly as a REJECT would route *for loop purposes* — a skill named review-and-**fix** fixes Important findings, it does not merely note them. The same Step 2.5 gate that guards Critical findings runs first (web-verifying single-source external-tool claims, passing codebase claims straight through), so a confidently-wrong Important finding is demoted to advisory rather than blindly applied — the identical protection Critical findings already get. An Important finding Step 3 *cannot* fix is recorded via the existing `skip_category` pushback flow (Step 3, item 5), the same as a skipped Critical; it does **not** spin, because the `$MAX_ITERS`-iteration cap, the "same `(source_file, claim_text)` skipped twice → escalate to the user and stop" rule (Step 3, item 5), and Step 4.5's convergence check jointly bound it. This routing change lives **only** here in the loop wrapper; `/devflow:review`'s Phase 4.2 verdict computation is unchanged — standalone `/devflow:review` still reports an Important-only PR as "APPROVE with notes" and applies no fixes.
   - **If every finding is `severity` `Suggestion`/`Minor` only** (no Important/Major, no Critical) → tentative final verdict `APPROVE WITH CAVEAT`. Go to **Step 2.6: Shadow review**. Suggestion/Minor findings remain advisory and are **not** auto-fixed.
 - Engine verdict **REJECT** → continue to Step 2.5. (REJECT verdicts never reach the shadow pass — the loop is still finding things to fix; let it converge first.)
 
@@ -334,7 +354,7 @@ Run a structurally-independent re-review before declaring convergence. Only trig
 
 **Where independence comes from.** The shadow's independence does **not** come from running the engine inside a fresh subagent context — it cannot. The engine's Phase 1, 1.5, and 3 *fan out to subagents* (and Phase 2 does for its agent-path items — lite items the orchestrator probes directly), and a subagent cannot dispatch its own subagents (nested `Agent`/`Task` dispatch is unsupported in the harness — this is structural, not a permissions gap, so granting `Agent` to a subagent does not fix it). A single shadow subagent told to "run the engine" therefore reaches Phase 3, finds it has no `Agent` tool, and silently collapses to a degraded single-agent self-check that returns a plausible clean `APPROVE` — the exact false-convergence this step exists to prevent. So the **parent orchestrator** runs the shadow fan-out itself (the parent *can* dispatch), and independence is enforced **per reviewer prompt**: each shadow reviewer agent runs in a fresh context whose prompt withholds the loop's prior findings, fix decisions, and pushback history. The only residual shared state is the parent's aggregation — a far smaller bias risk than losing all of Phase 3's coverage to a degraded subagent.
 
-**Iteration accounting.** The shadow pass itself is NOT counted toward the max-4 iteration cap — it's a verification pass on the final iter's state, not a fix iteration. A *promoted* iter (one started because the shadow surfaced new findings — see outcome #2 below) DOES count toward the cap, because it runs Step 2.5 + Step 3 + Step 4 + Step 4.5 from the fix-loop side even though it skips Phase 1+2.
+**Iteration accounting.** The shadow pass itself is NOT counted toward the `$MAX_ITERS`-iteration cap — it's a verification pass on the final iter's state, not a fix iteration. A *promoted* iter (one started because the shadow surfaced new findings — see outcome #2 below) DOES count toward the cap, because it runs Step 2.5 + Step 3 + Step 4 + Step 4.5 from the fix-loop side even though it skips Phase 1+2.
 
 #### Run the shadow fan-out (parent-orchestrated)
 
@@ -403,7 +423,7 @@ Three outcomes:
    - Treat the shadow's new findings as iter (N+1)'s Phase 3 findings (plus iter (N+1)'s Phase 2 FAILs for any new checklist FAILs from shadow).
    - Skip Phase 1+2 for this promoted iter — shadow already ran a full engine, so re-running Phase 1+2 would be redundant work. (This is the one place in the loop where Phase 1+2 is skipped on iter ≥2; it's safe because the inputs *are* a Phase 1+2+3 result.)
    - Go straight to **Step 2.5** (pre-fix verification gate) → **Step 3** (fix findings) for the promoted iter. The regular loop continues from there: Step 4 → Step 4.5 → Step 1 of iter (N+2) if needed.
-   - **Iteration cap still applies** (see "Iteration accounting" above — promoted iter counts toward max-4). If iter 4 has already run and shadow still surfaces new findings, do NOT start iter 5. Exit to Loop Exit with:
+   - **Iteration cap still applies** (see "Iteration accounting" above — promoted iter counts toward the `$MAX_ITERS` cap). If the final iter (iter `$MAX_ITERS`) has already run and shadow still surfaces new findings, do NOT start a further iteration. Exit to Loop Exit with:
      - Final verdict `REJECT` if any of shadow's new findings is Critical.
      - Final verdict `APPROVE WITH UNRESOLVED SHADOW FINDINGS` otherwise (Important-only).
      - Include the unresolved shadow findings verbatim in the chat output and in the report's `## Unresolved Shadow Findings` section.
@@ -701,15 +721,7 @@ All derivation lives in `lib/efficiency-trace.jq` (a mechanical jq filter, no LL
    ```
    Print the rendered Markdown trace (the `--mode trace` output) into the chat report, after the Run telemetry table. The trace assigns each dispatched subagent exactly one verdict — **unique-effective**, **corroborating**, **noise**, or **null** (see `lib/efficiency-trace.jq`'s header and [`docs/efficiency-trace.md`](../../docs/efficiency-trace.md) for the derivation rules) — shows the per-iteration **diff profile** (the Phase 0.5 flags) and **verification posture** (so a low verifier count reads as a deliberate cheap-path/skip decision, not as "nothing ran"), the Phase-3 dispatch count, and flags any iteration that applied zero fixes as having added nothing.
 
-4. **The record is tracked.** `.devflow/logs/efficiency/<slug>-<timestamp>.json` lives under a tracked directory, so the run's existing commits sweep it up. When `--push-each-iteration` is set, the record written here survives teardown — a destroyed cloud runner or a local `.devflow/tmp/` cleanup alike — via the same `git add -A` + push the fix iterations use; commit and push it now so it is not lost (keep the project's commit-message trailer):
-   ```bash
-   if [ -s "$RECORD" ] && <--push-each-iteration is set>; then
-     git add "$RECORD" && git commit -m "chore: persist review-and-fix effectiveness record
-
-Co-Authored-By: Claude <noreply@anthropic.com>" && git push || true
-   fi
-   ```
-   When `--push-each-iteration` is absent (the default, local mode), leave the record on disk uncommitted — consistent with the loop's no-remote-side-effect contract for that mode. The record carries the existing per-phase/per-iteration cost telemetry forward from the workpads, so that cost data is no longer discarded with `.devflow/tmp/`.
+4. **The record is committed deterministically.** `.devflow/logs/efficiency/<slug>-<timestamp>.json` lives under a tracked directory (the scoped `.devflow/.gitignore` ignores only `tmp/`). Do **not** leave it for an incidental future `git add -A` to absorb — that is nondeterministic and leaves untracked working-tree cruft in a standalone local run (where no further commits follow this one). Instead, both observability artifacts (this record and the durable workpad copy below) are committed together in a single dedicated `chore:` commit at the end of Loop Exit — see "Persisting observability artifacts" below. That commit is created on every writable run, **local included**; it is pushed only when `--push-each-iteration` is set. So local mode's no-remote-side-effect property is preserved by *not pushing*, not by leaving a tracked file uncommitted. The record carries the existing per-phase/per-iteration cost telemetry forward from the workpads, so that cost data is no longer discarded with `.devflow/tmp/`.
 
 If `lib/efficiency-trace.sh` is missing or errors, the trace step above already emits `Effectiveness trace unavailable: {reason}` to chat; proceed — the verdict is unaffected.
 
@@ -743,7 +755,51 @@ if [ -d "$WORKPAD_DIR" ] && compgen -G "$WORKPAD_DIR"/*.json >/dev/null; then
 fi
 ```
 
-The copy is best-effort: a failure never aborts the loop. Because the destination is tracked, the run's existing commits sweep it up — when `--push-each-iteration` is set it is committed and pushed alongside the effectiveness record (and when driven by `/devflow:implement`, that orchestrator's subsequent `git add -A` commits include it); when the flag is absent (default local mode) it is left on disk uncommitted, consistent with the loop's no-remote-side-effect contract. Do **not** run this block under the read-only cloud `review` profile — the durable copy is intentionally writable-runs-only.
+The copy is best-effort: a failure never aborts the loop. Because the destination is tracked, this run persists it deterministically alongside the effectiveness record in the single dedicated `chore:` commit at the end of Loop Exit (see "Persisting observability artifacts" below) — committed on every writable run, **local included**, and additionally pushed only when `--push-each-iteration` is set (so when driven by `/devflow:implement`, that orchestrator finds it already committed rather than relying on a later `git add -A` to sweep it up). Do **not** run this block under the read-only cloud `review` profile — the durable copy is intentionally writable-runs-only.
+
+### Persisting observability artifacts
+
+Both artifacts written above — the effectiveness record (`.devflow/logs/efficiency/<slug>-<timestamp>.json`, when telemetry is enabled and the run had readable iterations) and the durable workpad copy (`.devflow/logs/review/<slug>/<run-id>/`, on a writable run) — live under the tracked `.devflow/logs/` tree. Persist them deterministically in a single dedicated `chore:` commit at the end of Loop Exit, *after* the run's fix commits, rather than leaving them for an incidental future `git add -A` to absorb:
+
+```bash
+# Stage ONLY the .devflow/logs/ artifact subtrees this run wrote. Add each subtree
+# conditionally on its existence: the effectiveness record is telemetry-gated (its dir is
+# absent when the trace is disabled) while the durable copy is not, so passing a
+# non-existent pathspec to a single `git add` would abort it atomically and stage NEITHER
+# subtree. The commit below is then ALSO pathspec-scoped (`git commit -- "${ADD_PATHS[@]}"`),
+# so the "only .devflow/logs/ artifacts" guarantee is enforced by the commit itself, not
+# merely by what we add — a pre-dirty index left staged by an earlier step can never ride
+# into this chore: commit. Best-effort with `::warning::` breadcrumbs, matching the
+# effectiveness-trace and durable-copy blocks above; a failure never aborts the loop.
+ADD_PATHS=()
+[ -d .devflow/logs/efficiency ] && ADD_PATHS+=(.devflow/logs/efficiency)
+[ -d .devflow/logs/review ] && ADD_PATHS+=(.devflow/logs/review)
+if [ "${#ADD_PATHS[@]}" -gt 0 ]; then
+  if ! add_err="$(git add -- "${ADD_PATHS[@]}" 2>&1)"; then
+    echo "::warning::observability-artifact staging failed: ${add_err:-unknown}; not persisted this run, loop continues"
+  # Scope the dirtiness check to the artifact pathspecs too, so an unrelated pre-staged
+  # change does not make this fire (and the empty case is a clean no-op — no empty commit).
+  elif ! git diff --cached --quiet -- "${ADD_PATHS[@]}"; then
+    if commit_err="$(git commit -m "chore: persist review-and-fix observability artifacts
+
+Co-Authored-By: Claude <noreply@anthropic.com>" -- "${ADD_PATHS[@]}" 2>&1)"; then
+      # Push ONLY when --push-each-iteration is set (cloud / opt-in) AND the commit landed,
+      # matching the fix iterations' remote contract. In default local mode the commit is
+      # created but NOT pushed: local mode's no-remote-side-effect property is preserved by
+      # not pushing, not by leaving tracked files uncommitted.
+      if <--push-each-iteration is set>; then
+        if ! push_err="$(git push 2>&1)"; then
+          echo "::warning::observability-artifact push failed: ${push_err:-unknown}; commit is local-only, loop continues"
+        fi
+      fi
+    else
+      echo "::warning::observability-artifact commit failed: ${commit_err:-unknown}; artifacts left staged, loop continues"
+    fi
+  fi
+fi
+```
+
+Run this block on every writable run; skip it under the read-only cloud `review` profile (where neither artifact was written and the tree is not writable). The existence checks plus the pathspec-scoped `git diff --cached --quiet -- "${ADD_PATHS[@]}"` guard make it a clean no-op when neither artifact changed this run (telemetry gated off *and* nothing durable to copy), so no empty commit is ever created. Because both the guard and the commit are pathspec-scoped, the commit contains only the `.devflow/logs/` artifacts regardless of what else may be staged. A user who does not want the logs can drop the single labeled `chore:` commit with one `git reset HEAD~1`.
 
 ---
 

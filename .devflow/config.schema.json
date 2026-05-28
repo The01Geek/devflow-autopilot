@@ -90,8 +90,14 @@
     },
     "devflow_review_and_fix": {
       "type": "object",
-      "description": "Settings for /devflow:review-and-fix per-run subagent effectiveness telemetry. See docs/efficiency-trace.md.",
+      "description": "Settings for /devflow:review-and-fix: the fix-loop iteration cap and per-run subagent effectiveness telemetry. See docs/shadow-review.md and docs/efficiency-trace.md.",
       "properties": {
+        "max_iterations": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum number of fix-loop iterations /devflow:review-and-fix runs before exiting with its latest verdict. Higher converges on a clean verdict more often at greater subagent cost; lower saves cost. A value below 1 is clamped up to 1, and a non-integer/empty/unparseable value (or an unreadable config) falls back to the default. No upper bound is imposed. See docs/shadow-review.md.",
+          "default": 5
+        },
         "efficiency_telemetry_enabled": {
           "type": "boolean",
           "description": "When true, /devflow:review-and-fix derives a per-subagent effectiveness trace at Loop Exit, prints it to chat, and persists one per-run record to .devflow/logs/efficiency/. When false, the loop neither renders the trace nor writes any file under .devflow/logs/. Derivation is best-effort: a failure never aborts the fix loop.",
