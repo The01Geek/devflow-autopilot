@@ -347,7 +347,7 @@ SC_BF_OUT="$(bash "$SC" "$SC_BF" 2>&1)"
 assert_eq "scaffold-backfill: nested missing key added (devflow_runner.provision_env)" \
   "false" "$(jq -r '.devflow_runner.provision_env' "$SC_BF/.devflow/config.json")"
 assert_eq "scaffold-backfill: top-level missing key added (claude_model)" \
-  "claude-opus-4-7" "$(jq -r '.claude_model' "$SC_BF/.devflow/config.json")"
+  "claude-opus-4-8" "$(jq -r '.claude_model' "$SC_BF/.devflow/config.json")"
 assert_eq "scaffold-backfill: existing top-level value preserved (base_branch)" \
   "release" "$(jq -r '.base_branch' "$SC_BF/.devflow/config.json")"
 assert_eq "scaffold-backfill: existing nested value preserved (devflow_runner.effort)" \
