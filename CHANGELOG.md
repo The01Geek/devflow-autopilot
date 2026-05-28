@@ -4,6 +4,14 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.2] — 2026-05-28
+
+### Changed
+- **The default Claude model for AI-powered workflows is now Claude Opus 4.8 (`claude-opus-4-8`).** `claude_model` is bumped from `claude-opus-4-7` to `claude-opus-4-8` across `.devflow/config.example.json`, `.devflow/config.json`, the `config.schema.json` default, and the `.claude-plugin/marketplace.json` mirror; the retrospective `audit_model` and the `pr-review-toolkit:code-reviewer` review-agent override follow suit, and `docs/DEVFLOW_SYSTEM_OVERVIEW.md` is updated to match.
+
+### Fixed
+- **The `effort` setting is removed from the Haiku `checklist-deduper` agent override.** Claude Haiku rejects the `effort` parameter (HTTP 400); `effort` is supported only on Opus 4.5–4.8 and Sonnet 4.6. The `pr-review-toolkit:code-reviewer` override is also set to `medium` effort.
+
 ## [2.5.1] — 2026-05-27
 
 ### Fixed

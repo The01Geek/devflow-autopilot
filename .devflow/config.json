@@ -1,7 +1,8 @@
 {
   "$schema": "./config.schema.json",
   "base_branch": "main",
-  "claude_model": "claude-opus-4-7",
+  "claude_model": "claude-opus-4-8",
+  "devflow_version": "8e3c1a66d5a0afe9ad407ce2d831b4430f612457",
   "devflow": {
     "allowed_bots": "claude,dependabot",
     "allowed_users": "*",
@@ -14,11 +15,29 @@
     "allowed_tools": []
   },
   "devflow_runner": {
-    "effort": "medium"
+    "effort": "medium",
+    "provision_env": false,
+    "allowed_tools": []
   },
   "devflow_review_and_fix": {
+    "max_iterations": 5,
     "efficiency_telemetry_enabled": true,
     "efficiency_cut_candidate_min_dispatch": 3
+  },
+  "devflow_review": {
+    "live_progress_comment_enabled": true,
+    "agent_overrides": {
+      "default": {
+        "effort": "medium"
+      },
+      "devflow:checklist-deduper": {
+        "model": "claude-haiku-4-5-20251001"
+      },
+      "pr-review-toolkit:code-reviewer": {
+        "model": "claude-opus-4-8",
+        "effort": "medium"
+      }
+    }
   },
   "setup": {
     "python_version": "3.11",
@@ -37,12 +56,13 @@
   },
   "devflow_retrospective": {
     "enabled": true,
-    "retrospective_model": "claude-opus-4-7",
-    "audit_model": "claude-opus-4-7",
+    "retrospective_model": "claude-opus-4-8",
+    "audit_model": "claude-opus-4-8",
     "implementation_branch_prefix": "claude/",
     "min_occurrences": 2,
     "cooldown_days": 3,
-    "max_prs_per_run": 500
+    "max_prs_per_run": 500,
+    "diff_byte_cap": 204800
   },
   "workflows": {
     "devflow": true,

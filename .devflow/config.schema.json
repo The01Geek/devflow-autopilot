@@ -18,7 +18,7 @@
     "claude_model": {
       "type": "string",
       "description": "Claude model for AI-powered workflows (individual workflows may override).",
-      "default": "claude-opus-4-7"
+      "default": "claude-opus-4-8"
     },
     "devflow_version": {
       "type": "string",

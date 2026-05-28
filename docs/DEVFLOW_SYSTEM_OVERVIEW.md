@@ -554,11 +554,12 @@ Skills reference bundled helpers via `${CLAUDE_SKILL_DIR}` so they resolve from 
 **One-liner (StoryBrand elevator pitch, customer is the hero, DevFlow is the guide).** *We help developers drowning in half-finished AI pull requests turn a single request into a complete, review-ready PR, so they ship real features on a real codebase without cleaning up after the agent.*
 
 **Three pillars (use as the deck's spine):**
-1. **Works on real codebases, not just pet projects.** A one-liner → a codebase-grounded issue → a complete, review-ready PR, the full-round implementation out-of-the-box agents can't finish on production code. End-to-end, not just code; every phase mandatory.
-2. **Rigorous, auditable review.** Independent verification checklists, a panel of specialized reviewers, mechanical corroboration, and a shadow pass that audits its own approval.
+1. **Works on real codebases, not just pet projects.** A one-line feature request → a codebase-grounded ticket → a complete PR ready for your final review, the full-round implementation out-of-the-box agents can't finish on production code. End-to-end, not just code; the steps a one-shot agent skips (tests, review, docs) are exactly the ones DevFlow won't.
+2. **Review that fixes what it finds.** A review-and-fix loop that applies the fixes and re-reviews until it approves, on top of independent verification checklists, a panel of specialized reviewers, mechanical corroboration, and a shadow pass that audits its own approval.
 3. **It learns.** A weekly retrospective reads its own track record and proposes the smallest fix that prevents the next mistake, humans approve.
 
 **Differentiators worth naming explicitly:**
+- "Ship the PR. Not the cleanup." (the hero tagline)
 - "Agentic coding that works on real codebases, not just pet projects."
 - "Committing code is the halfway point, not the finish line."
 - Shadow review, *it audits its own audit*, with honest calibration (narrows the gap, never closes it).
