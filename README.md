@@ -1,9 +1,15 @@
 # DevFlow: agentic coding that ships on real codebases
+![DevFlow — Ship the PR, not the cleanup. A Claude Code plugin that turns one request into one merge-ready pull request across four phases: Setup (/devflow:create-issue), Implement (/devflow:implement), Review & fix (/devflow:review-and-fix), and Document (/devflow:docs).](docs/ship-pr.png)
+
 
 [![CI](https://github.com/The01Geek/devflow-autopilot/actions/workflows/ci.yml/badge.svg)](https://github.com/The01Geek/devflow-autopilot/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-**Point an AI coding agent at a real ticket in a large codebase and it comes back half-done, wrong patterns, missing tests, stale docs, and you spend longer reviewing and fixing it than you saved.** DevFlow is the [Claude Code](https://code.claude.com) plugin that takes that work off your plate: it turns one request into a complete PR, planned, tested, reviewed, and documented, so you do the final review and merge, not the cleanup. It even **audits its own review**, and improves itself every week. Open source, built on Anthropic's official plugins.
+> **AI coding agents look incredible on a demo repo. Point one at a real ticket in a large production codebase and it stalls.**
+
+Wrong patterns, half the change, missing tests, stale docs — and you spend more time reviewing and fixing its output than it ever saved. The hard part of shipping software was never writing the code; it's the workflow *around* the code, and that's exactly what breaks down at production scale.
+
+DevFlow is the [Claude Code](https://code.claude.com) plugin that closes that gap: it takes a developer's one-line feature request and carries it all the way to a complete, tested, reviewed, documented pull request — so you do the final review and merge, not the cleanup. It even **audits its own review**, and improves itself every week. Open source, built on Anthropic's official plugins.
 
 DevFlow bundles four things, plus a self-improving loop:
 
@@ -18,6 +24,8 @@ DevFlow bundles four things, plus a self-improving loop:
 
 ## Contents
 
+- [How it's different](#how-its-different)
+- [Who it's for](#who-its-for)
 - [Quick start](#quick-start)
 - [Install](#install)
 - [Requirements](#requirements)
@@ -31,6 +39,20 @@ DevFlow bundles four things, plus a self-improving loop:
 - [Repository layout](#repository-layout)
 - [Contributing](#contributing)
 - [License](#license)
+
+## How it's different
+
+**✓ Works on real codebases, not just pet projects.** Unlike a raw agent that drafts part of the change and stops, DevFlow delivers the full round — grounded in *your* architecture and patterns, with the tests the change actually needs — on production code, not just a demo repo.
+
+**✓ Review that fixes what it finds.** DevFlow doesn't just flag problems and hand you a list — its **review-and-fix loop** applies the fixes and re-reviews, iterating until it approves. Underneath: independent verification checklists, a panel of specialized reviewers, mechanical corroboration, and a **shadow pass** — a second, structurally-independent review that re-checks the approval before it stands, so DevFlow audits its own audit.
+
+**✓ It learns.** Each run leaves a trail that compounds into better future runs: a **DevFlow Reflection** logging the assumptions it made and anything it couldn't verify; an **effectiveness trace** of which steps and review agents earned their keep; **living docs** kept in sync with the code; and a **weekly retrospective** that reads the track record and opens a PR proposing the smallest fix that prevents the next recurring failure (see [The retrospective loop](#the-retrospective-loop)).
+
+The thesis isn't code generation — it's **disciplined, auditable AI software delivery at production scale.** A single LLM pass is variable; DevFlow's architecture is built around *not trusting any single pass*.
+
+## Who it's for
+
+A developer or team working in a **large, business-grade codebase** who's tried agentic coding and hit the wall where it dazzles on toy projects but can't complete a real ticket — and who's already on Claude Code + GitHub.
 
 ## Quick start
 
@@ -113,31 +135,19 @@ All four are used by the core skills (`/devflow:implement` and `/devflow:review`
 
 ## The workflow, end to end
 
-Here's the whole loop, from a rough idea to a reviewed pull request. This is the
-intended way to drive DevFlow.
+Here's the whole loop, from a feature request to a reviewed pull request. This is
+the intended way to drive DevFlow.
 
-```
-   you: a rough idea
-        │
-        ▼
-  ┌───────────────────┐   /devflow:create-issue
-  │ 1. Create issue   │   turns the idea into a structured GitHub issue
-  └───────────────────┘   (asks clarifying questions, you confirm before it files)
-        │
-        ▼
-  ┌───────────────────┐   comment  /devflow:implement <#>  on the issue
-  │ 2. Trigger        │   (this is the trigger, a human comment starts it)
-  └───────────────────┘
-        │
-        ▼
-  ┌───────────────────┐   devflow-implement.yml runs /devflow:implement autonomously:
-  │ 3. Implement      │   branch → plan → code → tests → draft PR → /simplify →
-  └───────────────────┘   /devflow:review-and-fix → docs → marks the PR ready
-        │
-        ▼
-  ┌───────────────────┐   devflow-review.yml posts a /devflow:review verdict as a
-  │ 4. Review gate    │   PR check; you review and merge
-  └───────────────────┘
+```text
+   you: a feature request
+       │
+/devflow:create-issue   →  explore codebase → implementation options → detailed GitHub issue
+       │
+/devflow:implement      →  architect → code → build/test → /devflow:review-and-fix loop → /devflow:docs
+       │
+/devflow:review         →  (optional) independent, comprehensive check → PR ready for developer hand-off
+       │
+   you: final review & merge
 ```
 
 ### Step by step
