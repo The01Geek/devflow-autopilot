@@ -33,7 +33,7 @@
     "internal_enabled": true,
     "external_enabled": false,
     "release_notes_file": "CHANGELOG.md",
-    "labels": "Documented"
+    "labels": "DevFlow"
   },
   "devflow_retrospective": {
     "enabled": true,

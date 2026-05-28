@@ -224,8 +224,8 @@
         },
         "labels": {
           "type": "string",
-          "description": "Comma-separated list of labels applied by /devflow:implement once its docs pass has run. Each entry is trimmed and empty entries are dropped, so \"Documented, Shipped\" applies both Documented and Shipped.",
-          "default": "Documented"
+          "description": "Comma-separated list of labels applied by /devflow:implement once its docs pass has run. Each entry is trimmed and empty entries are dropped, so \"DevFlow, Shipped\" applies both DevFlow and Shipped.",
+          "default": "DevFlow"
         }
       }
     },
