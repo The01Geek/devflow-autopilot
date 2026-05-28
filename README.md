@@ -1,5 +1,7 @@
 # DevFlow: agentic coding that ships on real codebases
-![DevFlow — Ship the PR, not the cleanup. A Claude Code plugin that turns one request into one merge-ready pull request across four phases: Setup (/devflow:create-issue), Implement (/devflow:implement), Review & fix (/devflow:review-and-fix), and Document (/devflow:docs).](docs/ship-pr.png)
+[![DevFlow — Ship the PR, not the cleanup. A Claude Code plugin that turns one request into one merge-ready pull request across four phases: Setup (/devflow:create-issue), Implement (/devflow:implement), Review & fix (/devflow:review-and-fix), and Document (/devflow:docs).](docs/ship-pr.png)](https://the01geek.github.io/devflow-autopilot/)
+
+▶ **[Interactive one-pager](https://the01geek.github.io/devflow-autopilot/)** · **[Watch the loop](https://the01geek.github.io/devflow-autopilot/DevFlow-Loop.html)**
 
 
 [![CI](https://github.com/The01Geek/devflow-autopilot/actions/workflows/ci.yml/badge.svg)](https://github.com/The01Geek/devflow-autopilot/actions/workflows/ci.yml)
