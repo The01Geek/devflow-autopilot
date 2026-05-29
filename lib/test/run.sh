@@ -433,6 +433,13 @@ assert_eq "scaffold-migration: second Haiku-pinned entry (non-deduper) also stri
   "false" "$(jq '.devflow_review.agent_overrides["devflow:checklist-generator"] | has("effort")' "$SC_MIG/.devflow/config.json")"
 assert_eq "scaffold-migration: non-Haiku override effort left untouched" \
   "high" "$(jq -r '.devflow_review.agent_overrides["pr-review-toolkit:code-reviewer"].effort' "$SC_MIG/.devflow/config.json")"
+# The model-less `default` entry must survive: `(.value.model // "")` yields ""
+# which fails the Haiku predicate, so its effort is kept. Asserted on the FIRST
+# run directly (not just via the idempotent no-op below, which would pass even
+# if both runs stripped it identically), so a regression dropping the model
+# guard is caught loudly.
+assert_eq "scaffold-migration: model-less default override effort left untouched" \
+  "medium" "$(jq -r '.devflow_review.agent_overrides.default.effort' "$SC_MIG/.devflow/config.json")"
 assert_eq "scaffold-migration: cleanup emits the documented log line" "yes" \
   "$(printf '%s' "$SC_MIG_OUT" | grep -q "removed unsupported 'effort' from Haiku-pinned" && echo yes || echo no)"
 # Second run is a no-churn no-op: config already clean → byte-identical and the
