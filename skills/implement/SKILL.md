@@ -274,6 +274,8 @@ Update the workpad: `workpad.py update $ISSUE_NUMBER --status Discovering --note
 
 Use the **Agent tool** with `subagent_type: feature-dev:code-explorer` to explore the codebase and understand the system as it relates to the issue.
 
+**The issue body is a starting point, not the source of truth.** Treat its problem framing, any stated root cause, and its Technical Context as a strong lead to *verify* — never fact to implement on faith. The explorer (and the architect in Path B) confirm the issue's claims against the actual code; where they diverge, **the code wins**: surface the divergence in the workpad and plan from what the code shows, rather than implementing a claim the code contradicts.
+
 **Pick the exploration map first.** Default is `.docs.internal`. Override it when the issue scope sits outside app code — scan the issue body for path mentions (`.github/workflows/`, `.claude/`, `scripts/`, `cron/`, `tools/`, etc.) or a section headed "Technical Context", "Relevant files", "Files to touch", "Files to change", or "Implementation files"; collect those paths as `PRIMARY_PATHS` and instruct the explorer to read them first, falling back to `.docs.internal` only for gaps. Otherwise `PRIMARY_PATHS` stays empty and the default applies.
 
 Pass the following prompt:
@@ -492,6 +494,8 @@ Run the project's test and lint commands (check `CLAUDE.md` or `README`). Issue 
 
 - If **both pass** → proceed to committing.
 - If **either fails** → fix the failing tests/lint errors yourself (you wrote the code, you have full context). Re-run the failing command(s) to verify.
+
+**When the deliverable can't be exercised by a test, a green suite is not enough.** A change whose deliverable is prose, templates, config, or an embedded DSL (jq or shell inside Markdown, a SKILL.md procedure) is invisible to the test suite — passing tests say nothing about it. Match the verification to the deliverable: for a **logic-bearing** artifact (config, template, jq/shell-in-prose), enumerate an **adversarial input-shape matrix** — the corrupt, empty, scalar-where-object-expected, and edge shapes — and statically dry-trace the logic against each; for **pure prose** (e.g. a reworded procedure), trace it against representative scenarios. Record the traces concisely in a workpad `--note`. (This is the same lesson the review engine's shape-sweep learned the expensive way — run it as your *opening* move on parser/best-effort code, not after three review iterations.)
 
 ### 2.5 Commit Implementation
 
