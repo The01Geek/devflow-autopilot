@@ -513,6 +513,16 @@ If the commit includes test fixes, use a single commit combining implementation 
 
 Then tick the implementation gate **and its parent phase** in the workpad: `workpad.py update $ISSUE_NUMBER --tick-progress "code + sweeps" --tick-progress "**Implement**"`.
 
+### 2.6 Version & changelog decision
+
+If the repository documents a versioning / changelog convention (look in `CLAUDE.md` and contributor docs — for DevFlow itself, the "bump `plugin.json` + matching `CHANGELOG.md`" gotcha), decide **now**, while the committed diff is concrete, whether this change warrants a version bump and at what increment, and **record the decision in the workpad** so it survives context compaction:
+
+```bash
+workpad.py update $ISSUE_NUMBER --note "version decision: {bump to X.Y.Z | no bump} — {one-line reason, e.g. 'consumer-facing fix' / 'internal-only: tests/CI/docs'}"
+```
+
+This step owns only the *decision*; the bump is **applied in Phase 3.1.5** (after the PR exists, so the `CHANGELOG` entry can cite the PR number). Use the repo's stated increment rule — for DevFlow, the smallest correct SemVer step (patch = fix, minor = backward-compatible feature, major = breaking). If the repo documents **no** versioning convention, this is a no-op: record nothing and continue.
+
 **⚠ You are NOT done. Code is committed but not reviewed or documented. Proceed to Phase 3.**
 
 ---
@@ -542,6 +552,21 @@ PR_URL=$(gh pr view --json url --jq '.url')
 PR_NUM=$(gh pr view --json number --jq '.number')
 workpad.py update $ISSUE_NUMBER --pr-link "[#$PR_NUM]($PR_URL)"
 ```
+
+### 3.1.5 Apply the version bump + CHANGELOG (if 2.6 decided to bump)
+
+If the Phase 2.6 decision (read it back from the workpad note; re-derive from the committed diff if the note was lost) was **no bump** — or the repo documents no versioning convention — skip this step. Otherwise apply the bump **now**, *before* `/simplify` (3.2) and `/devflow:review-and-fix` (3.3), so the version + `CHANGELOG` land inside the diff those steps review (and the review gate that fails on a version↔`CHANGELOG` mismatch sees them consistent):
+
+1. Bump the repo's version file by the decided increment — for DevFlow, `.claude-plugin/plugin.json`'s `version`.
+2. Add the matching `CHANGELOG.md` entry in the repo's changelog format, now citing the just-created PR number (`#$PR_NUM`).
+3. Commit and push so the review pass covers it:
+   ```bash
+   git add .claude-plugin/plugin.json CHANGELOG.md   # the repo's version + changelog files
+   git commit -m "chore: bump version and changelog for issue #$ARGUMENTS (#$PR_NUM)"
+   git push
+   ```
+
+The Phase 4.3 clean-tree backstop is the final guard that this never ends up uncommitted.
 
 ### 3.2 Self-Review with /simplify
 
@@ -831,7 +856,7 @@ Before reporting completion, verify ALL phases executed:
 
 - Phase 1: Issue fetched; workpad created as the **first GitHub write** (before the branch) with run link, `## Progress` checklist, and Acceptance Criteria mirrored; branch exists and the workpad `Branch` line is filled; Setup ticked in `## Progress`
 - Phase 2: For `bug`-labelled issues, reproduction signal recorded; if the issue spans multiple PRs, the 2.2.5 scope-adjustment rule was applied and the workpad's Acceptance Criteria section now contains only in-scope items; the 2.3.0 changed-contract sweep (re-run after any merge/rebase) and the 2.3.4 boundary-assumption sweep both ran over the diff — each cross-boundary claim verified against its source of truth, or routed to `(post-merge)` with a reflection note; code committed and pushed
-- Phase 3: Draft PR created, `/simplify` ran (fixes committed if any), `/devflow:review-and-fix` ran, acceptance criteria gate passed (PR still draft)
+- Phase 3: Draft PR created; the Phase 2.6 version decision applied in 3.1.5 if it called for a bump (`plugin.json` + matching `CHANGELOG.md`, committed before the review pass); `/simplify` ran (fixes committed if any); `/devflow:review-and-fix` ran; acceptance criteria gate passed (PR still draft)
 - Phase 4: If any criteria were deferred in 2.2.5, follow-up issue(s) filed in 4.0; if /devflow:review-and-fix emitted a deferrals manifest, follow-up issue(s) filed in 4.0.5 and the manifest hydrated; docs updated and "Documented" label applied; PR description generated via `/pr-description`; PR marked ready; every *applicable* `## Progress` item ticked (the `reproduction captured` sub-item is bug-only); workpad finalized with `Status: Complete` (🎉) and the 🎉 outcome reaction emitted on the triggering comment
 
 Verify each `Status` PATCH actually landed at the time it was issued (see the Update protocol's "Always verify a PATCH that changes `Status` actually landed" rule). If a phase was skipped or a `Status` PATCH didn't land, go back and complete it now. In particular:

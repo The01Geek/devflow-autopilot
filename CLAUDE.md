@@ -31,7 +31,7 @@ CI (`.github/workflows/ci.yml`) runs the same suite + lint on every PR. The **re
 - **Cloud allowlist needs the helper as the command's LEADING token.** No `VAR=value` prefix, no `bash <path>` wrapper — otherwise the read-only `review` profile silently denies it (overrides/telemetry resolve to empty). Invoke `config-get.sh`/`efficiency-trace.sh`/`resolve-review-overrides.py` directly by path.
 - **Vendor to `.devflow/vendor/devflow/`, never `.claude/`.** `claude-code-action` `rm -rf`s sensitive paths (incl. `.claude/`) and restores them from the *base* branch before installing plugins, which would wipe a plugin vendored under `.claude/`.
 - **The exclusion list in `lib/check-excluded-path.sh` and the copy in `skills/retrospective-audit/SKILL.md` must stay in sync.**
-- **Bump `plugin.json` `version`? Add the matching `CHANGELOG.md` entry in the same change** — the Phase 3 review gate FAILs without it.
+- **Bump `plugin.json` `version`? Add the matching `CHANGELOG.md` entry in the same change** — the Phase 3 review gate FAILs without it. **Bump for changes that should reach consumer repos as an update** (a fix/feature/breaking change to the engine surface); internal-only changes (tests, CI, dev-only docs) do **not** bump. Use the smallest *correct* SemVer step — patch for a fix, minor for a backward-compatible feature, major for a breaking change — not always-patch. (`/devflow:implement` owns this decision in Phase 2.6 and applies it in Phase 3.1.5.)
 
 ## Conventions
 
