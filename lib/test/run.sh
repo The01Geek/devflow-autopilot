@@ -417,12 +417,12 @@ rm -rf "$SC_FRESH" "$SC_KEEP" "$SC_NOTPL" "$SC_NOTPL_TGT" "$SC_BF" "$SC_NOOP" "$
 
 # 6. Haiku effort-cleanup migration on an EXISTING config: scaffold-config.sh
 #    strips `effort` from any agent_overrides entry whose model is a Haiku id.
-#    PR #77 removed that effort key from the example, but the add-only backfill
-#    can never propagate a removal to a pre-existing config, so the dedicated
-#    cleanup is what repairs an adopter's stale HTTP-400 combo. Mirrors the
-#    SC_BF inline-mktemp pattern; no language markers, so detect is a no-op.
+#    An earlier release removed that effort key from the example, but the add-only
+#    backfill can never propagate a removal to a pre-existing config, so the
+#    dedicated cleanup is what repairs an adopter's stale HTTP-400 combo. Mirrors
+#    the SC_BF inline-mktemp pattern; no language markers, so detect is a no-op.
 SC_MIG="$(mktemp -d)"; mkdir -p "$SC_MIG/.devflow"
-# A pre-#77 config: Haiku deduper carrying the HTTP-400 effort key, a SECOND
+# A legacy config: Haiku deduper carrying the HTTP-400 effort key, a SECOND
 # Haiku-pinned entry on a different agent (proving the cleanup generalizes to
 # any Haiku override, not just the deduper — a regression that hard-coded the
 # deduper key would otherwise pass green), plus a non-Haiku override whose
@@ -582,6 +582,92 @@ assert_eq "scaffold-robustness: valid Haiku sibling still has its effort strippe
 assert_eq "scaffold-robustness: the non-string-model entry is left untouched (unmatched, did not detonate the filter)" \
   "low" "$(jq -r '.devflow_review.agent_overrides["devflow:checklist-verifier"].effort' "$SC_BADMODEL/.devflow/config.json")"
 rm -rf "$SC_BADMODEL"
+
+# 6g. Unit-test the rewrite_config_if_changed helper in ISOLATION, sourced via the
+#     library-only hook (DEVFLOW_SCAFFOLD_LIB_ONLY) so the helpers load without the
+#     scaffold body running. This locks the two robustness arms the main flow's
+#     validity gate keeps unreachable once it has passed: a normalization (jq)
+#     failure must NOT phantom-rewrite, and a write (mv) failure must
+#     log-and-continue. Run in a subshell so the helper's `set -euo pipefail` and
+#     its log()/die() definitions never leak into the rest of the suite.
+( export DEVFLOW_SCAFFOLD_LIB_ONLY=1
+  # shellcheck disable=SC1090
+  . "$SC"
+  set +e +o pipefail
+  # (a) cmpfail arm — the bug the helper exists to prevent: a left-hand (cfg)
+  #     normalization failure must log the comparison-untrusted message and leave
+  #     cfg untouched, NOT mv the candidate over it (the process-substitution
+  #     phantom-rewrite trap).
+  HU="$(mktemp -d)"
+  printf '%s' 'not json' > "$HU/cfg.json"      # cfg fails jq --sort-keys
+  printf '%s' '{"a":2}'  > "$HU/cand.json"      # cand is valid and differs
+  HU_BEFORE="$(cat "$HU/cfg.json")"
+  HU_OUT="$(rewrite_config_if_changed "$HU/cfg.json" "$HU/cand.json" "HELPERTEST-CHANGED" "HELPERTEST-CMPFAIL" 2>&1)"
+  HU_RC=$?
+  assert_eq "rewrite-helper: cmpfail arm returns 0 (does not abort the scaffold)" "0" "$HU_RC"
+  assert_eq "rewrite-helper: cmpfail arm emits the comparison-untrusted message" "yes" \
+    "$(printf '%s' "$HU_OUT" | grep -q 'HELPERTEST-CMPFAIL' && echo yes || echo no)"
+  assert_eq "rewrite-helper: cmpfail arm does NOT phantom-rewrite (cfg bytes survive)" \
+    "$HU_BEFORE" "$(cat "$HU/cfg.json")"
+  assert_eq "rewrite-helper: cmpfail arm does NOT emit the changed message" "no" \
+    "$(printf '%s' "$HU_OUT" | grep -q 'HELPERTEST-CHANGED' && echo yes || echo no)"
+  rm -rf "$HU"
+
+  # (b) happy path: two differing valid configs ARE rewritten, changed message fires.
+  HU_OK="$(mktemp -d)"
+  printf '%s' '{"a":1}' > "$HU_OK/cfg.json"
+  printf '%s' '{"a":2}' > "$HU_OK/cand.json"
+  HU_OK_OUT="$(rewrite_config_if_changed "$HU_OK/cfg.json" "$HU_OK/cand.json" "HELPERTEST-CHANGED" "HELPERTEST-CMPFAIL" 2>&1)"
+  assert_eq "rewrite-helper: happy path rewrites the config (cand wins)" "2" \
+    "$(jq -r '.a' "$HU_OK/cfg.json")"
+  assert_eq "rewrite-helper: happy path emits the changed message" "yes" \
+    "$(printf '%s' "$HU_OK_OUT" | grep -q 'HELPERTEST-CHANGED' && echo yes || echo no)"
+  rm -rf "$HU_OK"
+
+  # (c) mv-failure arm: a write failure must log-and-continue (return 0), leaving
+  #     the original bytes — not abort under set -euo pipefail. Provoked by making
+  #     cfg's directory unwritable, which only bites a non-root user; root bypasses
+  #     permission bits, so skip there (CI runs non-root and exercises this).
+  if [ "$(id -u)" -ne 0 ]; then
+    HU_RO="$(mktemp -d)"
+    printf '%s' '{"a":1}' > "$HU_RO/cfg.json"
+    HU_CAND="$(mktemp)"
+    printf '%s' '{"a":2}' > "$HU_CAND"
+    HU_RO_BEFORE="$(cat "$HU_RO/cfg.json")"
+    chmod a-w "$HU_RO"
+    HU_RO_OUT="$(rewrite_config_if_changed "$HU_RO/cfg.json" "$HU_CAND" "HELPERTEST-CHANGED" "HELPERTEST-CMPFAIL" 2>&1)"
+    HU_RO_RC=$?
+    chmod u+w "$HU_RO"
+    assert_eq "rewrite-helper: mv-failure arm returns 0 (logs-and-continues)" "0" "$HU_RO_RC"
+    assert_eq "rewrite-helper: mv-failure arm emits the could-not-write message" "yes" \
+      "$(printf '%s' "$HU_RO_OUT" | grep -q 'could not write' && echo yes || echo no)"
+    assert_eq "rewrite-helper: mv-failure arm leaves the original bytes intact" \
+      "$HU_RO_BEFORE" "$(cat "$HU_RO/cfg.json")"
+    rm -rf "$HU_RO" "$HU_CAND"
+  fi
+)
+
+# 6h. Positive jq-EXECUTION-failure path for the backfill arm: a CORRUPT
+#     config.example.json next to a COPY of the scaffolder makes the backfill's
+#     `jq -n --slurpfile ex ...` fail to PARSE the template (not merely be absent),
+#     so the "merge failed (jq error)" arm fires for real — it previously had only
+#     negative assertions. The existing valid config.json is left untouched and the
+#     scaffold still exits 0 (best-effort). Mirrors the SC_NOTPL copy-the-script
+#     layout so the template resolves next to the copy.
+SC_JQERR="$(mktemp -d)"; mkdir -p "$SC_JQERR/scripts" "$SC_JQERR/.devflow"
+cp "$SC" "$SC_JQERR/scripts/scaffold-config.sh"
+printf '%s' '{ corrupt example'   > "$SC_JQERR/.devflow/config.example.json"
+cp "$TPL_DIR/config.schema.json"    "$SC_JQERR/.devflow/config.schema.json"
+SC_JQERR_TGT="$(mktemp -d)"; mkdir -p "$SC_JQERR_TGT/.devflow"
+printf '%s' '{"sentinel":true}'    > "$SC_JQERR_TGT/.devflow/config.json"
+SC_JQERR_OUT="$(bash "$SC_JQERR/scripts/scaffold-config.sh" "$SC_JQERR_TGT" 2>&1)"; SC_JQERR_RC=$?
+assert_eq "scaffold-jqerr: corrupt example template → scaffold still exits 0 (best-effort)" \
+  "0" "$SC_JQERR_RC"
+assert_eq "scaffold-jqerr: corrupt example template → the backfill 'merge failed (jq error)' arm fires" "yes" \
+  "$(printf '%s' "$SC_JQERR_OUT" | grep -q 'config-key backfill merge failed (jq error)' && echo yes || echo no)"
+assert_eq "scaffold-jqerr: corrupt example template → existing config left untouched (no clobber)" \
+  '{"sentinel":true}' "$(cat "$SC_JQERR_TGT/.devflow/config.json")"
+rm -rf "$SC_JQERR" "$SC_JQERR_TGT"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "shipped agent_overrides: deduper pins Sonnet 4.6 w/ effort; no Haiku override carries effort"
