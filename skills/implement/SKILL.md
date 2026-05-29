@@ -830,6 +830,14 @@ gh pr view --json body --jq '.body' | grep -q "Work in progress — automated re
 
 ### 4.3 Mark PR as Ready and Finalize Workpad
 
+**Clean-tree backstop (before marking ready).** Assert nothing uncommitted reaches `gh pr ready`:
+
+```bash
+git status --porcelain
+```
+
+If it is non-empty, **do not** mark the PR ready yet. The run began from a clean `origin/main` checkout, so anything dirty here is this run's own work an earlier phase failed to commit (most often the Phase 3.1.5 version bump / `CHANGELOG`). Commit the part that belongs to this PR with the right prefix (`feat:`/`fix:`/`docs:`/`chore:`) and push, and record in `Devflow Reflection` which phase under-committed — surface the gap, don't paper over it. Surface (do not blindly `git add`) any unexpected untracked file. When the tree is already clean this is a no-op — create no empty commit. Only then:
+
 ```bash
 gh pr ready
 ```
@@ -857,7 +865,7 @@ Before reporting completion, verify ALL phases executed:
 - Phase 1: Issue fetched; workpad created as the **first GitHub write** (before the branch) with run link, `## Progress` checklist, and Acceptance Criteria mirrored; branch exists and the workpad `Branch` line is filled; Setup ticked in `## Progress`
 - Phase 2: For `bug`-labelled issues, reproduction signal recorded; if the issue spans multiple PRs, the 2.2.5 scope-adjustment rule was applied and the workpad's Acceptance Criteria section now contains only in-scope items; the 2.3.0 changed-contract sweep (re-run after any merge/rebase) and the 2.3.4 boundary-assumption sweep both ran over the diff — each cross-boundary claim verified against its source of truth, or routed to `(post-merge)` with a reflection note; code committed and pushed
 - Phase 3: Draft PR created; the Phase 2.6 version decision applied in 3.1.5 if it called for a bump (`plugin.json` + matching `CHANGELOG.md`, committed before the review pass); `/simplify` ran (fixes committed if any); `/devflow:review-and-fix` ran; acceptance criteria gate passed (PR still draft)
-- Phase 4: If any criteria were deferred in 2.2.5, follow-up issue(s) filed in 4.0; if /devflow:review-and-fix emitted a deferrals manifest, follow-up issue(s) filed in 4.0.5 and the manifest hydrated; docs updated and "Documented" label applied; PR description generated via `/pr-description`; PR marked ready; every *applicable* `## Progress` item ticked (the `reproduction captured` sub-item is bug-only); workpad finalized with `Status: Complete` (🎉) and the 🎉 outcome reaction emitted on the triggering comment
+- Phase 4: If any criteria were deferred in 2.2.5, follow-up issue(s) filed in 4.0; if /devflow:review-and-fix emitted a deferrals manifest, follow-up issue(s) filed in 4.0.5 and the manifest hydrated; docs updated and "Documented" label applied; PR description generated via `/pr-description`; **working tree asserted clean (4.3 backstop), any remainder committed**; PR marked ready; every *applicable* `## Progress` item ticked (the `reproduction captured` sub-item is bug-only); workpad finalized with `Status: Complete` (🎉) and the 🎉 outcome reaction emitted on the triggering comment
 
 Verify each `Status` PATCH actually landed at the time it was issued (see the Update protocol's "Always verify a PATCH that changes `Status` actually landed" rule). If a phase was skipped or a `Status` PATCH didn't land, go back and complete it now. In particular:
 
