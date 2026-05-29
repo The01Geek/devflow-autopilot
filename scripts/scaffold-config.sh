@@ -129,9 +129,9 @@ else
   BACKFILL_TMP="$(mktemp)"
   trap 'rm -f "$BACKFILL_TMP"' EXIT
   if ! jq -n --slurpfile ex "$EXAMPLE" --slurpfile cfg "$CONFIG" '
-        ($cfg[0].devflow_review.agent_overrides // {}) as $userao
+        ($cfg[0].devflow_review.agent_overrides? // {}) as $userao
         | ($ex[0] * $cfg[0])
-        | if (.devflow_review.agent_overrides | type) == "object" then
+        | if (.devflow_review | type) == "object" and (.devflow_review.agent_overrides | type) == "object" then
             .devflow_review.agent_overrides |= with_entries(
               # Do NOT let the deep-merge GRAFT an effort from the example onto a
               # Haiku-pinned entry the user left effort-less. The shipped example
@@ -204,7 +204,7 @@ if command -v jq >/dev/null 2>&1 && jq -e . "$CONFIG" >/dev/null 2>&1; then
   CLEANUP_TMP="$(mktemp)"
   trap 'rm -f "$CLEANUP_TMP"' EXIT
   if ! jq '
-        if (.devflow_review.agent_overrides | type) == "object" then
+        if (.devflow_review | type) == "object" and (.devflow_review.agent_overrides | type) == "object" then
           .devflow_review.agent_overrides |= with_entries(
             if (.value | type) == "object"
                and (((.value.model | strings) // "") | startswith("claude-haiku-"))

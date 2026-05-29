@@ -502,6 +502,15 @@ assert_eq "scaffold-migration: non-object devflow_review → scaffold still exit
   "0" "$SC_DR_BAD_RC"
 assert_eq "scaffold-migration: non-object devflow_review emits the probe-error breadcrumb (not swallowed to 'null')" "yes" \
   "$(printf '%s' "$SC_DR_BAD_OUT" | grep -q 'could not inspect .devflow_review.agent_overrides' && echo yes || echo no)"
+# A scalar devflow_review must not DETONATE the backfill or cleanup jq into a
+# misdirected generic failure. The backfill still merges the other top-level keys
+# (a non-object devflow_review short-circuits the graft-guard's `if` to `else .`),
+# and the cleanup no-ops cleanly — so neither the "merge failed" nor the "cleanup
+# failed" generic breadcrumb fires; only the accurate probe breadcrumb above does.
+assert_eq "scaffold-migration: non-object devflow_review does NOT emit the misdirected backfill 'merge failed'" "no" \
+  "$(printf '%s' "$SC_DR_BAD_OUT" | grep -q 'config-key backfill merge failed' && echo yes || echo no)"
+assert_eq "scaffold-migration: non-object devflow_review does NOT emit the misdirected 'cleanup failed'" "no" \
+  "$(printf '%s' "$SC_DR_BAD_OUT" | grep -q 'Haiku effort-cleanup failed' && echo yes || echo no)"
 rm -rf "$SC_DR_BAD"
 
 # 6d. Graft guard: a config that re-pins the deduper to a Haiku id WITHOUT effort
