@@ -4,6 +4,16 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.4] — 2026-05-29
+
+### Changed
+- **Default reasoning effort for the Opus 4.8 workflow paths is raised from `medium` to `high`.** Opus 4.8's own API default is `high`, and Anthropic's guidance is to keep `high` as the floor for intelligence-sensitive coding/agentic work. The bump is applied to `devflow.effort`, `devflow_implement.effort`, and `devflow_runner.effort` in both `.devflow/config.json` and `.devflow/config.example.json`; to the `default` and `pr-review-toolkit:code-reviewer` review-agent overrides in the example; to the `devflow.effort` `default` in `.devflow/config.schema.json`; and to the cloud-tier fallbacks (`// "high"`) in `.github/workflows/devflow.yml`, `devflow-implement.yml`, and `devflow-runner.yml` (plus the runner's `effort` input description).
+- **The `devflow:checklist-deduper` review-agent override now defaults to Claude Sonnet 4.6 (`claude-sonnet-4-6`) at `medium` effort, replacing the Claude Haiku pin.** `medium` is Anthropic's recommended default for Sonnet 4.6 (best balance of speed, cost, and quality for tool-heavy/agentic work), and Sonnet 4.6 requires effort to be set explicitly to avoid unexpected latency — so the override carries it. Applied in `.devflow/config.example.json`, with `.devflow/config.schema.json`, `docs/review-agent-overrides.md`, and the shipped-example guard in `lib/test/run.sh` updated to assert the new Sonnet+effort default (and that no shipped Haiku-pinned override ever carries `effort`).
+
+### Fixed
+- **The config backfill no longer grafts the example's Sonnet-deduper `effort` onto a user's Haiku-pinned override.** Because the shipped deduper override now carries an `effort` key, the deep-merge backfill (`example * config`) would otherwise add that `effort` onto any config that re-pins the deduper to a Haiku id (which rejects `effort` with HTTP 400) on every re-scaffold, churning against the Haiku effort-cleanup. `scripts/scaffold-config.sh` now strips only a *grafted* effort (Haiku model + the user supplied none), leaving a user's own stale effort for the dedicated cleanup — so re-scaffolds stay quiet, byte-identical no-ops. Covered by a new graft-guard test in `lib/test/run.sh`.
+- **Hardened `scaffold-config.sh` per the PR #79 review.** The backfill and Haiku effort-cleanup now share a `rewrite_config_if_changed` helper that compares canonical configs via captured variables (a `jq` normalization failure is detected explicitly instead of being masked by `diff`'s process substitution) and guards the `mv` so a write failure logs-and-continues rather than aborting the best-effort scaffold under `set -euo pipefail`. A non-object `agent_overrides` now emits an anti-silent-failure breadcrumb, and new tests cover the jq-missing skip on a Haiku config (distinguishing "skipped" from "no work") and the non-object breadcrumb.
+
 ## [2.5.3] — 2026-05-28
 
 ### Fixed

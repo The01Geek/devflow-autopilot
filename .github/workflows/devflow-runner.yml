@@ -36,8 +36,8 @@ on:
         description: |
           Reasoning effort (low|medium|high|xhigh|max). Defaults to the
           `devflow_runner.effort` value from .devflow/config.json when
-          empty (which itself falls back to "medium"). The resolved value is
-          always passed explicitly via `--effort` — including "medium" — so
+          empty (which itself falls back to "high"). The resolved value is
+          always passed explicitly via `--effort` — including "high" — so
           the effort is pinned rather than relying on the model's default.
         type: string
         required: false
@@ -106,7 +106,7 @@ jobs:
           # `--model null` / `allowed_bots: null` downstream.
           CLAUDE_MODEL=$(echo "$CONFIG_JSON" | jq -r '.claude_model // empty')
           ALLOWED_BOTS=$(echo "$CONFIG_JSON" | jq -r '.devflow.allowed_bots // empty')
-          EFFORT=$(echo "$CONFIG_JSON" | jq -r '.devflow_runner.effort // "medium"')
+          EFFORT=$(echo "$CONFIG_JSON" | jq -r '.devflow_runner.effort // "high"')
           if [ -z "$CLAUDE_MODEL" ]; then
             echo "::error::claude_model is missing from .devflow/config.json"
             exit 1

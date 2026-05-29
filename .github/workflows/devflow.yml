@@ -72,7 +72,7 @@ jobs:
             # Human logins allowed to trigger the command path (AND-filter on top
             # of the collaborator-permission gate; '*' = any collaborator).
             echo "allowed_users=$(echo "$CONFIG_JSON" | jq -r '.devflow.allowed_users // "*"')"
-            echo "effort=$(echo "$CONFIG_JSON" | jq -r '.devflow.effort // "medium"')"
+            echo "effort=$(echo "$CONFIG_JSON" | jq -r '.devflow.effort // "high"')"
             # Repo-specific extra allowlist entries, appended on top of the
             # built-in devflow base list in the `claude` job's claude_args.
             # Emits a leading-comma string (",Bash(make:*),…") or "" so it can

@@ -86,7 +86,7 @@ jobs:
             # Human logins allowed to trigger /devflow:implement (AND-filter on
             # top of the collaborator-permission gate; '*' = any collaborator).
             echo "allowed_users=$(echo "$CONFIG_JSON" | jq -r '.devflow.allowed_users // "*"')"
-            echo "effort=$(echo "$CONFIG_JSON" | jq -r '.devflow_implement.effort // "medium"')"
+            echo "effort=$(echo "$CONFIG_JSON" | jq -r '.devflow_implement.effort // "high"')"
             # Repo-specific extra allowlist for the implement path. Independent
             # from devflow.yml's `devflow.allowed_tools` — the heavy path does NOT
             # inherit the light path's extras, so adopters list every extra tool

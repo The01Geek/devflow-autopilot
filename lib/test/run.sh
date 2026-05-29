@@ -373,6 +373,11 @@ assert_eq "scaffold-backfill: complete config is a byte-identical no-op" \
   "$SC_NOOP_BEFORE" "$(cat "$SC_NOOP/.devflow/config.json")"
 assert_eq "scaffold-backfill: no-op does NOT emit the backfill log line" "no" \
   "$(printf '%s' "$SC_NOOP_OUT" | grep -q 'backfilled newly-added keys' && echo yes || echo no)"
+# The shipped example pins Sonnet 4.6 (no Haiku override), so a fresh scaffold of
+# it must never emit the Haiku effort-cleanup log line — locks the clean path so
+# a regression that re-pins Haiku-with-effort in the example is caught.
+assert_eq "scaffold-migration: clean shipped example emits no Haiku cleanup log line" "no" \
+  "$(printf '%s' "$SC_NOOP_OUT" | grep -q "removed unsupported 'effort' from Haiku-pinned" && echo yes || echo no)"
 
 # 5c. jq unavailable → backfill skipped, scaffold still succeeds and leaves the
 #     config untouched. Run under a PATH that resolves the coreutils the scaffold
@@ -452,31 +457,90 @@ assert_eq "scaffold-migration: clean config does NOT re-emit the cleanup log lin
   "$(printf '%s' "$SC_MIG_OUT2" | grep -q "removed unsupported 'effort' from Haiku-pinned" && echo yes || echo no)"
 rm -rf "$SC_MIG"
 
+# 6b. jq unavailable during the Haiku effort-cleanup: a config that DOES carry a
+#     stale Haiku+effort combo must be LEFT UNTOUCHED (cleanup skipped, not
+#     silently "nothing to do"), and the skip breadcrumb must fire. The SC_NOJQ
+#     case above uses a non-Haiku config, so it cannot tell "correctly skipped"
+#     from "no work"; this fixture closes that gap. Same PATH-without-jq trick.
+SC_MIG_NOJQ="$(mktemp -d)"; mkdir -p "$SC_MIG_NOJQ/.devflow"
+printf '%s' '{"devflow_review":{"agent_overrides":{"devflow:checklist-deduper":{"model":"claude-haiku-4-5-20251001","effort":"low"}}}}' \
+  > "$SC_MIG_NOJQ/.devflow/config.json"
+MIG_NOJQ_BIN="$(mktemp -d)"
+for b in bash dirname mkdir cp rm cat printf find grep diff mktemp; do
+  src="$(command -v "$b")" && ln -s "$src" "$MIG_NOJQ_BIN/$b"
+done
+MIG_BASH_BIN="$(command -v bash)"
+SC_MIG_NOJQ_OUT="$(PATH="$MIG_NOJQ_BIN" "$MIG_BASH_BIN" "$SC" "$SC_MIG_NOJQ" 2>&1)"
+# Read back with the test's normal (jq-present) PATH; only the scaffold RAN jq-less.
+assert_eq "scaffold-migration: jq unavailable → Haiku+effort combo left untouched (skipped, not a no-op)" \
+  "low" "$(jq -r '.devflow_review.agent_overrides["devflow:checklist-deduper"].effort' "$SC_MIG_NOJQ/.devflow/config.json")"
+assert_eq "scaffold-migration: jq unavailable → emits the cleanup-skipped breadcrumb" "yes" \
+  "$(printf '%s' "$SC_MIG_NOJQ_OUT" | grep -q 'skipping Haiku effort-cleanup' && echo yes || echo no)"
+rm -rf "$SC_MIG_NOJQ" "$MIG_NOJQ_BIN"
+
+# 6c. agent_overrides hand-corrupted to a non-object (array): the cleanup filter
+#     no-ops via its `else .` arm, but the anti-silent-failure breadcrumb must
+#     fire so the silence is not an ambiguous "nothing to do". The backfill leaves
+#     the array in place (jq `*` lets the right operand win on a type mismatch).
+SC_AO_BAD="$(mktemp -d)"; mkdir -p "$SC_AO_BAD/.devflow"
+printf '%s' '{"devflow_review":{"agent_overrides":["oops"]}}' > "$SC_AO_BAD/.devflow/config.json"
+SC_AO_BAD_OUT="$(bash "$SC" "$SC_AO_BAD" 2>&1)"
+assert_eq "scaffold-migration: non-object agent_overrides emits the skip breadcrumb" "yes" \
+  "$(printf '%s' "$SC_AO_BAD_OUT" | grep -q 'agent_overrides is present but not an object' && echo yes || echo no)"
+rm -rf "$SC_AO_BAD"
+
+# 6d. Graft guard: a config that re-pins the deduper to a Haiku id WITHOUT effort
+#     must NOT gain an effort key from the example's Sonnet-4.6+effort deduper
+#     default via the backfill deep-merge (Haiku rejects effort with HTTP 400; an
+#     ungated graft would re-fire on every re-scaffold and churn against the
+#     cleanup). Start from a COMPLETE example-derived config so the ONLY thing the
+#     backfill could change is the grafted effort — making this a precise probe.
+SC_GRAFT="$(mktemp -d)"; mkdir -p "$SC_GRAFT/.devflow"
+jq '.devflow_review.agent_overrides["devflow:checklist-deduper"] = {"model":"claude-haiku-4-5-20251001"}' \
+  "$TPL_DIR/config.example.json" > "$SC_GRAFT/.devflow/config.json"
+SC_GRAFT_BEFORE="$(cat "$SC_GRAFT/.devflow/config.json")"
+SC_GRAFT_OUT="$(bash "$SC" "$SC_GRAFT" 2>&1)"
+assert_eq "scaffold-graft-guard: backfill does NOT graft effort onto a Haiku deduper" \
+  "false" "$(jq '.devflow_review.agent_overrides["devflow:checklist-deduper"] | has("effort")' "$SC_GRAFT/.devflow/config.json")"
+assert_eq "scaffold-graft-guard: Haiku deduper model preserved" \
+  "claude-haiku-4-5-20251001" "$(jq -r '.devflow_review.agent_overrides["devflow:checklist-deduper"].model' "$SC_GRAFT/.devflow/config.json")"
+assert_eq "scaffold-graft-guard: re-scaffold is a byte-identical quiet no-op" \
+  "$SC_GRAFT_BEFORE" "$(cat "$SC_GRAFT/.devflow/config.json")"
+assert_eq "scaffold-graft-guard: quiet no-op emits neither backfill nor cleanup log" "yes" \
+  "$(printf '%s' "$SC_GRAFT_OUT" | grep -qE "backfilled newly-added keys|removed unsupported 'effort'" && echo no || echo yes)"
+rm -rf "$SC_GRAFT"
+
 # ────────────────────────────────────────────────────────────────────────────
-echo "shipped agent_overrides: Haiku deduper carries no effort key"
+echo "shipped agent_overrides: deduper pins Sonnet 4.6 w/ effort; no Haiku override carries effort"
 # ────────────────────────────────────────────────────────────────────────────
-# Claude Haiku rejects the `effort` parameter (HTTP 400); effort is supported
-# only on Opus 4.5–4.8 and Sonnet 4.6. The checklist-deduper override pins Haiku,
-# so its entry must NOT carry an `effort` key. resolve-review-overrides.py forwards
-# any valid-enum effort ("low" passes), so the resolver cannot catch a regression
-# here — the constraint is a model-API fact enforced only by the config data. This
-# assertion guards the shipped example so a future edit can't silently reintroduce
-# the HTTP-400 misconfiguration.
-# A positive sentinel, not has("effort") alone: a bare `has("effort") == false`
-# check also reads false when the entry is missing, renamed, or the parent block
-# is restructured, so a refactor that drops the deduper entry (letting nothing
-# pin Haiku-without-effort) could sail through green. This asserts the entry
-# positively EXISTS, is object-typed, pins a Haiku model, AND carries no effort
-# key — so a dropped/renamed entry ("missing-entry"), a model no longer Haiku
-# ("not-haiku"), or a reintroduced effort ("has-effort") each FAIL loudly.
-assert_eq "agent_overrides: shipped Haiku deduper override exists, pins Haiku, and has no effort key" \
+# The shipped checklist-deduper override pins Claude Sonnet 4.6 (which DOES
+# support `effort`) with effort "medium" — Sonnet 4.6's recommended default, and
+# effort must be set explicitly on Sonnet 4.6 to avoid unexpected latency. A
+# positive sentinel, not a bare has("effort"): a refactor that drops/renames the
+# entry, swaps the model, or strips the effort each FAIL loudly rather than
+# sailing through green. The entry must positively EXIST, be object-typed, pin
+# claude-sonnet-4-6, AND carry an `effort` key — so a dropped/renamed entry
+# ("missing-entry"), a model no longer Sonnet 4.6 ("not-sonnet"), or a removed
+# effort ("no-effort") each FAIL loudly.
+assert_eq "agent_overrides: shipped deduper override exists, pins Sonnet 4.6, and carries an effort key" \
   "ok" \
   "$(jq -r '
       (.devflow_review.agent_overrides["devflow:checklist-deduper"]) as $d
       | if ($d | type) != "object" then "missing-entry"
-        elif (($d.model // "") | startswith("claude-haiku-") | not) then "not-haiku"
-        elif ($d | has("effort")) then "has-effort"
+        elif (($d.model // "") != "claude-sonnet-4-6") then "not-sonnet"
+        elif ($d | has("effort") | not) then "no-effort"
         else "ok" end' "$TPL_DIR/config.example.json")"
+# Claude Haiku rejects `effort` with HTTP 400 (supported only on Opus 4.5–4.8 /
+# Sonnet 4.6). The shipped example no longer pins Haiku anywhere, but this guard
+# keeps the invariant the scaffold-config.sh cleanup protects: should any shipped
+# override ever pin a Haiku model, it must NOT also carry an `effort` key.
+assert_eq "agent_overrides: no shipped Haiku-pinned override carries an effort key" \
+  "ok" \
+  "$(jq -r '
+      [ (.devflow_review.agent_overrides // {}) | to_entries[]
+        | select((.value | type) == "object")
+        | select(((.value.model // "") | startswith("claude-haiku-")) and (.value | has("effort"))) ]
+      | if length == 0 then "ok" else "haiku-with-effort" end' "$TPL_DIR/config.example.json")"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "config.example.json ⊇ config.schema.json (superset invariant)"
