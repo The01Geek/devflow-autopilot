@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.0] — 2026-05-29
+
+### Added
+- **`/devflow:implement` and `/devflow:review-and-fix` gain seven reliability improvements distilled from real-run feedback.** `/devflow:review-and-fix`'s fix loop now generalizes each fix to its `defect_signature.kind` and sweeps the changed surface for same-class siblings in the *same* iteration, so a defect class that previously took several fix-loop iterations (each shadow pass roughly doubling run cost) is resolved in one. `/devflow:implement` now: owns the version/CHANGELOG bump explicitly — it decides in a new Phase 2.6 and applies in a new Phase 3.1.5 (after the PR exists, so the CHANGELOG can cite the PR number, and before the review pass, so the bump is reviewed) — and asserts a clean working tree before marking the PR ready, so a version bump or other late change can no longer ship uncommitted; gates its Phase 2.3 blast-radius sweeps behind a fail-safe "sweep selection" classifier that cuts ceremony on add-only diffs without ever skipping a warranted sweep (each sweep heading stays authoritative, so the index can only over-select); records concise grep evidence for the grep-based sweeps rather than attesting; mandates static dry-tracing against an adversarial input-shape matrix when a deliverable cannot be exercised by a test; treats the issue body as a lead to verify against the code rather than the source of truth; and omits the bug-only "reproduction captured" workpad sub-item for non-bug issues (`workpad.py new-body --no-reproduction`, default-include so the label-agnostic cloud gate is unaffected). `CLAUDE.md` now documents when a change warrants a version bump and the smallest-correct-SemVer-step increment rule. See `docs/implement-skill.md`. (#81)
+
 ## [2.5.2] — 2026-05-28
 
 ### Changed
