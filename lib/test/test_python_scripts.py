@@ -681,6 +681,20 @@ _nb2 = _buf2.getvalue()
 assert_eq("new-body: --branch fills Branch line", True, '**Branch:** `issue-7-x`' in _nb2)
 assert_eq("new-body: omitted --run-link → local placeholder", True,
           '**Run:** _(local run)_' in _nb2)
+# --no-reproduction omits the bug-only sub-item (non-bug issues) without
+# disturbing the rest of the Implement phase. The default (no flag) keeps it, so
+# the label-agnostic gate job is unaffected.
+assert_eq("new-body: reproduction sub-item present by default", True,
+          'reproduction captured (bug issues only)' in _nb)
+_buf3 = io.StringIO()
+with contextlib.redirect_stdout(_buf3):
+    workpad.cmd_new_body(argparse.Namespace(
+        issue=7, run_link=None, branch=None, marker=None, no_reproduction=True))
+_nb3 = _buf3.getvalue()
+assert_eq("new-body: --no-reproduction omits the bug-only sub-item", False,
+          'reproduction captured' in _nb3)
+assert_eq("new-body: --no-reproduction keeps code + sweeps under Implement", True,
+          '**Implement**' in _nb3 and '- [ ] code + sweeps' in _nb3)
 
 
 print("parse_acs._is_post_merge")
