@@ -347,7 +347,7 @@ SC_BF_OUT="$(bash "$SC" "$SC_BF" 2>&1)"
 assert_eq "scaffold-backfill: nested missing key added (devflow_runner.provision_env)" \
   "false" "$(jq -r '.devflow_runner.provision_env' "$SC_BF/.devflow/config.json")"
 assert_eq "scaffold-backfill: top-level missing key added (claude_model)" \
-  "claude-opus-4-7" "$(jq -r '.claude_model' "$SC_BF/.devflow/config.json")"
+  "claude-opus-4-8" "$(jq -r '.claude_model' "$SC_BF/.devflow/config.json")"
 assert_eq "scaffold-backfill: existing top-level value preserved (base_branch)" \
   "release" "$(jq -r '.base_branch' "$SC_BF/.devflow/config.json")"
 assert_eq "scaffold-backfill: existing nested value preserved (devflow_runner.effort)" \
@@ -409,6 +409,20 @@ assert_eq "scaffold-backfill: malformed config → schema still refreshed" \
   "$(cat "$TPL_DIR/config.schema.json")" "$(cat "$SC_BAD/.devflow/config.schema.json")"
 
 rm -rf "$SC_FRESH" "$SC_KEEP" "$SC_NOTPL" "$SC_NOTPL_TGT" "$SC_BF" "$SC_NOOP" "$SC_NOJQ" "$NOJQ_BIN" "$SC_BAD"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "shipped agent_overrides: Haiku deduper carries no effort key"
+# ────────────────────────────────────────────────────────────────────────────
+# Claude Haiku rejects the `effort` parameter (HTTP 400); effort is supported
+# only on Opus 4.5–4.8 and Sonnet 4.6. The checklist-deduper override pins Haiku,
+# so its entry must NOT carry an `effort` key. resolve-review-overrides.py forwards
+# any valid-enum effort ("low" passes), so the resolver cannot catch a regression
+# here — the constraint is a model-API fact enforced only by the config data. This
+# assertion guards the shipped example so a future edit can't silently reintroduce
+# the HTTP-400 misconfiguration.
+assert_eq "agent_overrides: shipped Haiku deduper override has no effort key" \
+  "false" \
+  "$(jq '.devflow_review.agent_overrides["devflow:checklist-deduper"] | has("effort")' "$TPL_DIR/config.example.json")"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "config.example.json ⊇ config.schema.json (superset invariant)"

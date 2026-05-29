@@ -1,7 +1,7 @@
 {
   "$schema": "./config.schema.json",
   "base_branch": "main",
-  "claude_model": "claude-opus-4-7",
+  "claude_model": "claude-opus-4-8",
   "devflow": {
     "allowed_bots": "claude,dependabot",
     "allowed_users": "*",
@@ -37,8 +37,8 @@
   },
   "devflow_retrospective": {
     "enabled": true,
-    "retrospective_model": "claude-opus-4-7",
-    "audit_model": "claude-opus-4-7",
+    "retrospective_model": "claude-opus-4-8",
+    "audit_model": "claude-opus-4-8",
     "implementation_branch_prefix": "claude/",
     "min_occurrences": 2,
     "cooldown_days": 3,

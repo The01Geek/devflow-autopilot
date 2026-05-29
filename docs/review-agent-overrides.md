@@ -45,8 +45,8 @@ Each value optionally sets `model` and/or `effort`:
   "devflow_review": {
     "agent_overrides": {
       "default": { "effort": "medium" },
-      "devflow:checklist-deduper": { "model": "claude-haiku-4-5-20251001", "effort": "low" },
-      "pr-review-toolkit:code-reviewer": { "model": "claude-opus-4-7", "effort": "high" }
+      "devflow:checklist-deduper": { "model": "claude-haiku-4-5-20251001" },
+      "pr-review-toolkit:code-reviewer": { "model": "claude-opus-4-8", "effort": "medium" }
     }
   }
 }

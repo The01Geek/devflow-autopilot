@@ -955,7 +955,7 @@ _rro = resolve_review_overrides
 # Specific entry wins over default; default supplies only no-entry agents.
 _raw = {
     "default": {"effort": "medium"},
-    "pr-review-toolkit:code-reviewer": {"model": "claude-opus-4-7", "effort": "high"},
+    "pr-review-toolkit:code-reviewer": {"model": "claude-opus-4-8", "effort": "high"},
     "devflow:checklist-deduper": {"model": "claude-haiku-4-5-20251001", "effort": "low"},
 }
 _res, _warn = _rro.resolve_overrides(
@@ -964,7 +964,7 @@ _res, _warn = _rro.resolve_overrides(
      "devflow:checklist-verifier"],
 )
 assert_eq("resolve: specific code-reviewer entry wins",
-          {"model": "claude-opus-4-7", "effort": "high"},
+          {"model": "claude-opus-4-8", "effort": "high"},
           _res["pr-review-toolkit:code-reviewer"])
 assert_eq("resolve: specific deduper entry wins",
           {"model": "claude-haiku-4-5-20251001", "effort": "low"},
