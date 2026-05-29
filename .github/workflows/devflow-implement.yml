@@ -248,11 +248,20 @@ jobs:
             exit 0
           fi
           BODY="$(mktemp)"
+          # Non-bug issues omit the bug-only "reproduction captured" sub-item, so
+          # the gate-created workpad matches Phase 1.3's fresh-issue path. Only
+          # trim when the label lookup SUCCEEDS and a 'bug' label is absent; if the
+          # lookup fails, fall back to rendering it (a bug issue must not silently
+          # lose the row). The assignment in the `if` condition is exempt from set -e.
+          REPRO_FLAG=""
+          if LABELS="$(gh issue view "$NUMBER" --json labels --jq '.labels[].name' 2>/dev/null)"; then
+            printf '%s\n' "$LABELS" | grep -qix bug || REPRO_FLAG="--no-reproduction"
+          fi
           # Emit an explicit warning on failure rather than letting
           # continue-on-error swallow it silently — the claude job still
           # creates the workpad in Phase 1.3, so the run is unaffected, but an
           # operator gets a breadcrumb (mirrors the missing-workpad.py warning).
-          if ! { python3 "$WP" new-body "$NUMBER" --run-link "[View run]($RUN_URL)" > "$BODY" \
+          if ! { python3 "$WP" new-body "$NUMBER" --run-link "[View run]($RUN_URL)" $REPRO_FLAG > "$BODY" \
                  && python3 "$WP" create "$NUMBER" "$BODY"; }; then
             echo "::warning::early workpad create failed for #$NUMBER; the claude job will create it instead." >&2
             exit 0
