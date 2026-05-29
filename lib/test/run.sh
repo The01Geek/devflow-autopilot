@@ -410,6 +410,36 @@ assert_eq "scaffold-backfill: malformed config → schema still refreshed" \
 
 rm -rf "$SC_FRESH" "$SC_KEEP" "$SC_NOTPL" "$SC_NOTPL_TGT" "$SC_BF" "$SC_NOOP" "$SC_NOJQ" "$NOJQ_BIN" "$SC_BAD"
 
+# 6. Haiku effort-cleanup migration on an EXISTING config: scaffold-config.sh
+#    strips `effort` from any agent_overrides entry whose model is a Haiku id.
+#    PR #77 removed that effort key from the example, but the add-only backfill
+#    can never propagate a removal to a pre-existing config, so the dedicated
+#    cleanup is what repairs an adopter's stale HTTP-400 combo. Mirrors the
+#    SC_BF inline-mktemp pattern; no language markers, so detect is a no-op.
+SC_MIG="$(mktemp -d)"; mkdir -p "$SC_MIG/.devflow"
+# A pre-#77 config: Haiku deduper carrying the HTTP-400 effort key, plus a
+# non-Haiku override whose effort must be left untouched.
+printf '%s' '{"devflow_review":{"agent_overrides":{"default":{"effort":"medium"},"devflow:checklist-deduper":{"model":"claude-haiku-4-5-20251001","effort":"low"},"pr-review-toolkit:code-reviewer":{"model":"claude-opus-4-8","effort":"high"}}}}' \
+  > "$SC_MIG/.devflow/config.json"
+SC_MIG_OUT="$(bash "$SC" "$SC_MIG" 2>&1)"
+assert_eq "scaffold-migration: Haiku deduper effort stripped" \
+  "false" "$(jq '.devflow_review.agent_overrides["devflow:checklist-deduper"] | has("effort")' "$SC_MIG/.devflow/config.json")"
+assert_eq "scaffold-migration: Haiku deduper model preserved" \
+  "claude-haiku-4-5-20251001" "$(jq -r '.devflow_review.agent_overrides["devflow:checklist-deduper"].model' "$SC_MIG/.devflow/config.json")"
+assert_eq "scaffold-migration: non-Haiku override effort left untouched" \
+  "high" "$(jq -r '.devflow_review.agent_overrides["pr-review-toolkit:code-reviewer"].effort' "$SC_MIG/.devflow/config.json")"
+assert_eq "scaffold-migration: cleanup emits the documented log line" "yes" \
+  "$(printf '%s' "$SC_MIG_OUT" | grep -q "removed unsupported 'effort' from Haiku-pinned" && echo yes || echo no)"
+# Second run is a no-churn no-op: config already clean → byte-identical and the
+# cleanup log line is NOT re-emitted.
+SC_MIG_BEFORE="$(cat "$SC_MIG/.devflow/config.json")"
+SC_MIG_OUT2="$(bash "$SC" "$SC_MIG" 2>&1)"
+assert_eq "scaffold-migration: second run is a byte-identical no-op" \
+  "$SC_MIG_BEFORE" "$(cat "$SC_MIG/.devflow/config.json")"
+assert_eq "scaffold-migration: clean config does NOT re-emit the cleanup log line" "no" \
+  "$(printf '%s' "$SC_MIG_OUT2" | grep -q "removed unsupported 'effort' from Haiku-pinned" && echo yes || echo no)"
+rm -rf "$SC_MIG"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "shipped agent_overrides: Haiku deduper carries no effort key"
 # ────────────────────────────────────────────────────────────────────────────
@@ -420,9 +450,21 @@ echo "shipped agent_overrides: Haiku deduper carries no effort key"
 # here — the constraint is a model-API fact enforced only by the config data. This
 # assertion guards the shipped example so a future edit can't silently reintroduce
 # the HTTP-400 misconfiguration.
-assert_eq "agent_overrides: shipped Haiku deduper override has no effort key" \
-  "false" \
-  "$(jq '.devflow_review.agent_overrides["devflow:checklist-deduper"] | has("effort")' "$TPL_DIR/config.example.json")"
+# A positive sentinel, not has("effort") alone: a bare `has("effort") == false`
+# check also reads false when the entry is missing, renamed, or the parent block
+# is restructured, so a refactor that drops the deduper entry (letting nothing
+# pin Haiku-without-effort) could sail through green. This asserts the entry
+# positively EXISTS, is object-typed, pins a Haiku model, AND carries no effort
+# key — so a dropped/renamed entry ("missing-entry"), a model no longer Haiku
+# ("not-haiku"), or a reintroduced effort ("has-effort") each FAIL loudly.
+assert_eq "agent_overrides: shipped Haiku deduper override exists, pins Haiku, and has no effort key" \
+  "ok" \
+  "$(jq -r '
+      (.devflow_review.agent_overrides["devflow:checklist-deduper"]) as $d
+      | if ($d | type) != "object" then "missing-entry"
+        elif (($d.model // "") | startswith("claude-haiku-") | not) then "not-haiku"
+        elif ($d | has("effort")) then "has-effort"
+        else "ok" end' "$TPL_DIR/config.example.json")"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "config.example.json ⊇ config.schema.json (superset invariant)"

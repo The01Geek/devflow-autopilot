@@ -122,6 +122,44 @@ else
   trap - EXIT
 fi
 
+# Repair model/effort combinations the model API rejects but the no-clobber
+# backfill above structurally cannot fix. PR #77 removed `effort` from the
+# Haiku-pinned checklist-deduper override in the example, but a key *removal*
+# never propagates through the backfill — it only ADDS keys, never deletes (see
+# the deletion-tracking note above). So an adopter who scaffolded before that
+# fix silently keeps `effort` on a Haiku override, which Claude Haiku rejects
+# with HTTP 400 (effort is supported only on Opus 4.5–4.8 / Sonnet 4.6). This
+# data-driven cleanup drops `effort` from any agent_overrides entry whose
+# `model` is a Haiku id — narrow (only that combination), idempotent, and
+# best-effort with the same diff -q mtime-churn guard as the backfill: an
+# already-clean config is a quiet no-op. Lives here, not in the backfill,
+# because it removes a key rather than adding one.
+if command -v jq >/dev/null 2>&1 && jq -e . "$CONFIG" >/dev/null 2>&1; then
+  CLEANUP_TMP="$(mktemp)"
+  trap 'rm -f "$CLEANUP_TMP"' EXIT
+  if ! jq '
+        if (.devflow_review.agent_overrides | type) == "object" then
+          .devflow_review.agent_overrides |= with_entries(
+            if (.value | type) == "object"
+               and ((.value.model // "") | startswith("claude-haiku-"))
+               and (.value | has("effort"))
+            then .value |= del(.effort) else . end)
+        else . end' "$CONFIG" > "$CLEANUP_TMP" 2>/dev/null; then
+    log "Haiku effort-cleanup failed (jq error); leaving $CONFIG unchanged."
+  else
+    cu_rc=0
+    diff -q <(jq --sort-keys . "$CONFIG") <(jq --sort-keys . "$CLEANUP_TMP") >/dev/null 2>&1 || cu_rc=$?
+    if [ "$cu_rc" -eq 1 ]; then
+      mv "$CLEANUP_TMP" "$CONFIG"
+      log "removed unsupported 'effort' from Haiku-pinned agent_overrides in $CONFIG (Claude Haiku rejects effort with HTTP 400)."
+    elif [ "$cu_rc" -gt 1 ]; then
+      log "could not compare the Haiku effort-cleanup against $CONFIG; leaving it unchanged."
+    fi
+  fi
+  rm -f "$CLEANUP_TMP"
+  trap - EXIT
+fi
+
 # Language-aware tool/runtime auto-population. Scans the target repo and merges
 # the matching per-language presets into config.json (idempotent union — safe
 # whether config.json was just scaffolded or kept). Lives in its own script so
