@@ -417,15 +417,20 @@ rm -rf "$SC_FRESH" "$SC_KEEP" "$SC_NOTPL" "$SC_NOTPL_TGT" "$SC_BF" "$SC_NOOP" "$
 #    cleanup is what repairs an adopter's stale HTTP-400 combo. Mirrors the
 #    SC_BF inline-mktemp pattern; no language markers, so detect is a no-op.
 SC_MIG="$(mktemp -d)"; mkdir -p "$SC_MIG/.devflow"
-# A pre-#77 config: Haiku deduper carrying the HTTP-400 effort key, plus a
-# non-Haiku override whose effort must be left untouched.
-printf '%s' '{"devflow_review":{"agent_overrides":{"default":{"effort":"medium"},"devflow:checklist-deduper":{"model":"claude-haiku-4-5-20251001","effort":"low"},"pr-review-toolkit:code-reviewer":{"model":"claude-opus-4-8","effort":"high"}}}}' \
+# A pre-#77 config: Haiku deduper carrying the HTTP-400 effort key, a SECOND
+# Haiku-pinned entry on a different agent (proving the cleanup generalizes to
+# any Haiku override, not just the deduper — a regression that hard-coded the
+# deduper key would otherwise pass green), plus a non-Haiku override whose
+# effort must be left untouched.
+printf '%s' '{"devflow_review":{"agent_overrides":{"default":{"effort":"medium"},"devflow:checklist-deduper":{"model":"claude-haiku-4-5-20251001","effort":"low"},"devflow:checklist-generator":{"model":"claude-haiku-4-5-20251001","effort":"high"},"pr-review-toolkit:code-reviewer":{"model":"claude-opus-4-8","effort":"high"}}}}' \
   > "$SC_MIG/.devflow/config.json"
 SC_MIG_OUT="$(bash "$SC" "$SC_MIG" 2>&1)"
 assert_eq "scaffold-migration: Haiku deduper effort stripped" \
   "false" "$(jq '.devflow_review.agent_overrides["devflow:checklist-deduper"] | has("effort")' "$SC_MIG/.devflow/config.json")"
 assert_eq "scaffold-migration: Haiku deduper model preserved" \
   "claude-haiku-4-5-20251001" "$(jq -r '.devflow_review.agent_overrides["devflow:checklist-deduper"].model' "$SC_MIG/.devflow/config.json")"
+assert_eq "scaffold-migration: second Haiku-pinned entry (non-deduper) also stripped" \
+  "false" "$(jq '.devflow_review.agent_overrides["devflow:checklist-generator"] | has("effort")' "$SC_MIG/.devflow/config.json")"
 assert_eq "scaffold-migration: non-Haiku override effort left untouched" \
   "high" "$(jq -r '.devflow_review.agent_overrides["pr-review-toolkit:code-reviewer"].effort' "$SC_MIG/.devflow/config.json")"
 assert_eq "scaffold-migration: cleanup emits the documented log line" "yes" \

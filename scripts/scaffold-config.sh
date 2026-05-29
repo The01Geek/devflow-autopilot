@@ -158,6 +158,11 @@ if command -v jq >/dev/null 2>&1 && jq -e . "$CONFIG" >/dev/null 2>&1; then
   fi
   rm -f "$CLEANUP_TMP"
   trap - EXIT
+else
+  # The backfill block above already logs the specific reason (jq missing /
+  # invalid JSON) for the same guard; this one-liner keeps the Haiku migration
+  # from being silently dependent on that block for its own skip breadcrumb.
+  log "skipping Haiku effort-cleanup (jq missing or $CONFIG not valid JSON)."
 fi
 
 # Language-aware tool/runtime auto-population. Scans the target repo and merges
