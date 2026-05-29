@@ -146,7 +146,7 @@ else
               # inside a single-quoted jq program — keep it apostrophe-free.)
               .key as $k
               | if (.value | type) == "object"
-                   and ((.value.model // "") | startswith("claude-haiku-"))
+                   and (((.value.model | strings) // "") | startswith("claude-haiku-"))
                    and (.value | has("effort"))
                    and (($userao[$k] // {}) | (type == "object" and has("effort")) | not)
                 then .value |= del(.effort) else . end)
@@ -207,7 +207,7 @@ if command -v jq >/dev/null 2>&1 && jq -e . "$CONFIG" >/dev/null 2>&1; then
         if (.devflow_review.agent_overrides | type) == "object" then
           .devflow_review.agent_overrides |= with_entries(
             if (.value | type) == "object"
-               and ((.value.model // "") | startswith("claude-haiku-"))
+               and (((.value.model | strings) // "") | startswith("claude-haiku-"))
                and (.value | has("effort"))
             then .value |= del(.effort) else . end)
         else . end' "$CONFIG" > "$CLEANUP_TMP" 2>/dev/null; then

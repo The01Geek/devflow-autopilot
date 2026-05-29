@@ -552,6 +552,28 @@ assert_eq "scaffold-graft-guard: preserve-branch Haiku model kept through both p
   "claude-haiku-4-5-20251001" "$(jq -r '.devflow_review.agent_overrides["devflow:checklist-deduper"].model' "$SC_PRESERVE/.devflow/config.json")"
 rm -rf "$SC_PRESERVE"
 
+# 6f. Robustness: a non-string `model` on ONE agent_overrides entry must not
+#     detonate the whole backfill/cleanup jq and leave sibling Haiku entries
+#     un-repaired. Without the `(.value.model | strings)` guard, `startswith` on a
+#     non-string model errors (rc=5), aborting the filter for ALL entries — so a
+#     valid Haiku+effort sibling keeps its HTTP-400 combo and the only breadcrumb
+#     is a misdirected generic "jq error". The guard makes a non-string model fall
+#     through `else .` (unmatched) so siblings are still repaired. Fixture: a
+#     complete example-derived config with a valid Haiku+effort entry AND a
+#     non-string-model entry.
+SC_BADMODEL="$(mktemp -d)"; mkdir -p "$SC_BADMODEL/.devflow"
+jq '.devflow_review.agent_overrides["devflow:checklist-generator"] = {"model":"claude-haiku-4-5-20251001","effort":"high"}
+    | .devflow_review.agent_overrides["devflow:checklist-verifier"] = {"model":{"oops":true},"effort":"low"}' \
+  "$TPL_DIR/config.example.json" > "$SC_BADMODEL/.devflow/config.json"
+SC_BADMODEL_OUT="$(bash "$SC" "$SC_BADMODEL" 2>&1)"; SC_BADMODEL_RC=$?
+assert_eq "scaffold-robustness: non-string model entry does not abort the scaffold (exit 0)" \
+  "0" "$SC_BADMODEL_RC"
+assert_eq "scaffold-robustness: valid Haiku sibling still has its effort stripped despite a non-string-model entry" \
+  "false" "$(jq '.devflow_review.agent_overrides["devflow:checklist-generator"] | has("effort")' "$SC_BADMODEL/.devflow/config.json")"
+assert_eq "scaffold-robustness: the non-string-model entry is left untouched (unmatched, did not detonate the filter)" \
+  "low" "$(jq -r '.devflow_review.agent_overrides["devflow:checklist-verifier"].effort' "$SC_BADMODEL/.devflow/config.json")"
+rm -rf "$SC_BADMODEL"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "shipped agent_overrides: deduper pins Sonnet 4.6 w/ effort; no Haiku override carries effort"
 # ────────────────────────────────────────────────────────────────────────────
