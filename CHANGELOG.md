@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.3] — 2026-05-28
+
+### Fixed
+- **Re-scaffolding now repairs an existing config that still pins Claude Haiku with an `effort` key, instead of leaving it to keep hitting HTTP 400.** Release 2.5.2 removed the unsupported `effort` from the shipped `devflow:checklist-deduper` example, but the config backfill only ever adds keys — it can never propagate that *removal* to a config scaffolded earlier, so adopters silently kept the rejected combination on the dedup pass. `scripts/scaffold-config.sh` now runs an idempotent cleanup on every `/devflow:init` or `install.sh` re-scaffold that strips `effort` from any `agent_overrides` entry whose `model` is a Haiku id (`claude-haiku-*`), leaving non-Haiku overrides untouched; an already-clean config is a byte-identical no-op with no log line. The constraint is documented on the `devflow:checklist-deduper` property in `.devflow/config.schema.json`, the shipped-example guard in `lib/test/run.sh` is hardened to a positive sentinel (it now fails if the entry is missing, renamed, or no longer Haiku-pinned, not only if an `effort` key reappears) plus a new migration test, and `docs/review-agent-overrides.md` and `docs/DEVFLOW_SYSTEM_OVERVIEW.md` describe the constraint and the re-scaffold repair. (#79)
+
 ## [2.5.2] — 2026-05-28
 
 ### Changed

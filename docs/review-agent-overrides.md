@@ -57,6 +57,21 @@ Each value optionally sets `model` and/or `effort`:
   the invalid-effort path.
 - `effort` — one of `low`, `medium`, `high`, `xhigh`, `max`.
 
+> **Claude Haiku rejects `effort`.** The `effort` parameter is supported only on Opus 4.5–4.8 and
+> Sonnet 4.6; Claude Haiku rejects it with **HTTP 400**. So any entry that pins a Haiku model (a
+> `claude-haiku-*` id, as the shipped `devflow:checklist-deduper` override does) **must not** also
+> carry an `effort` key. The schema does not enforce this (it is a model-API fact, not a structural
+> one), so the constraint is documented on the `devflow:checklist-deduper` property in
+> `config.schema.json` and guarded by the shipped-example test in `lib/test/run.sh`.
+>
+> **Re-scaffold repairs stale configs.** Earlier releases shipped the deduper override *with* an
+> `effort` key, so configs scaffolded before that was removed silently retain the HTTP-400 combo.
+> The add-only config backfill cannot fix this — a key *removal* in the example never propagates to
+> an existing config. Instead, `scripts/scaffold-config.sh` runs a best-effort, idempotent cleanup
+> on every re-scaffold (`/devflow:init` or `install.sh`): it strips `effort` from *any*
+> `agent_overrides` entry whose `model` is a Haiku id, leaving non-Haiku overrides untouched. An
+> already-clean config is a quiet no-op (no file churn, no log line).
+
 ## Resolution rules
 
 - **Entry-level precedence.** A subagent with its own entry uses **only** that entry; the
