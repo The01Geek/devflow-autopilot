@@ -373,6 +373,11 @@ assert_eq "scaffold-backfill: complete config is a byte-identical no-op" \
   "$SC_NOOP_BEFORE" "$(cat "$SC_NOOP/.devflow/config.json")"
 assert_eq "scaffold-backfill: no-op does NOT emit the backfill log line" "no" \
   "$(printf '%s' "$SC_NOOP_OUT" | grep -q 'backfilled newly-added keys' && echo yes || echo no)"
+# The shipped example pins Sonnet 4.6 (no Haiku override), so a fresh scaffold of
+# it must never emit the Haiku effort-cleanup log line — locks the clean path so
+# a regression that re-pins Haiku-with-effort in the example is caught.
+assert_eq "scaffold-migration: clean shipped example emits no Haiku cleanup log line" "no" \
+  "$(printf '%s' "$SC_NOOP_OUT" | grep -q "removed unsupported 'effort' from Haiku-pinned" && echo yes || echo no)"
 
 # 5c. jq unavailable → backfill skipped, scaffold still succeeds and leaves the
 #     config untouched. Run under a PATH that resolves the coreutils the scaffold
@@ -410,19 +415,291 @@ assert_eq "scaffold-backfill: malformed config → schema still refreshed" \
 
 rm -rf "$SC_FRESH" "$SC_KEEP" "$SC_NOTPL" "$SC_NOTPL_TGT" "$SC_BF" "$SC_NOOP" "$SC_NOJQ" "$NOJQ_BIN" "$SC_BAD"
 
+# 6. Haiku effort-cleanup migration on an EXISTING config: scaffold-config.sh
+#    strips `effort` from any agent_overrides entry whose model is a Haiku id.
+#    An earlier release removed that effort key from the example, but the add-only
+#    backfill can never propagate a removal to a pre-existing config, so the
+#    dedicated cleanup is what repairs an adopter's stale HTTP-400 combo. Mirrors
+#    the SC_BF inline-mktemp pattern; no language markers, so detect is a no-op.
+SC_MIG="$(mktemp -d)"; mkdir -p "$SC_MIG/.devflow"
+# A legacy config: Haiku deduper carrying the HTTP-400 effort key, a SECOND
+# Haiku-pinned entry on a different agent (proving the cleanup generalizes to
+# any Haiku override, not just the deduper — a regression that hard-coded the
+# deduper key would otherwise pass green), plus a non-Haiku override whose
+# effort must be left untouched.
+printf '%s' '{"devflow_review":{"agent_overrides":{"default":{"effort":"medium"},"devflow:checklist-deduper":{"model":"claude-haiku-4-5-20251001","effort":"low"},"devflow:checklist-generator":{"model":"claude-haiku-4-5-20251001","effort":"high"},"pr-review-toolkit:code-reviewer":{"model":"claude-opus-4-8","effort":"high"}}}}' \
+  > "$SC_MIG/.devflow/config.json"
+SC_MIG_OUT="$(bash "$SC" "$SC_MIG" 2>&1)"
+assert_eq "scaffold-migration: Haiku deduper effort stripped" \
+  "false" "$(jq '.devflow_review.agent_overrides["devflow:checklist-deduper"] | has("effort")' "$SC_MIG/.devflow/config.json")"
+assert_eq "scaffold-migration: Haiku deduper model preserved" \
+  "claude-haiku-4-5-20251001" "$(jq -r '.devflow_review.agent_overrides["devflow:checklist-deduper"].model' "$SC_MIG/.devflow/config.json")"
+assert_eq "scaffold-migration: second Haiku-pinned entry (non-deduper) also stripped" \
+  "false" "$(jq '.devflow_review.agent_overrides["devflow:checklist-generator"] | has("effort")' "$SC_MIG/.devflow/config.json")"
+assert_eq "scaffold-migration: non-Haiku override effort left untouched" \
+  "high" "$(jq -r '.devflow_review.agent_overrides["pr-review-toolkit:code-reviewer"].effort' "$SC_MIG/.devflow/config.json")"
+# The model-less `default` entry must survive: `(.value.model // "")` yields ""
+# which fails the Haiku predicate, so its effort is kept. Asserted on the FIRST
+# run directly (not just via the idempotent no-op below, which would pass even
+# if both runs stripped it identically), so a regression dropping the model
+# guard is caught loudly.
+assert_eq "scaffold-migration: model-less default override effort left untouched" \
+  "medium" "$(jq -r '.devflow_review.agent_overrides.default.effort' "$SC_MIG/.devflow/config.json")"
+assert_eq "scaffold-migration: cleanup emits the documented log line" "yes" \
+  "$(printf '%s' "$SC_MIG_OUT" | grep -q "removed unsupported 'effort' from Haiku-pinned" && echo yes || echo no)"
+# Second run is a no-churn no-op: config already clean → byte-identical and the
+# cleanup log line is NOT re-emitted.
+SC_MIG_BEFORE="$(cat "$SC_MIG/.devflow/config.json")"
+SC_MIG_OUT2="$(bash "$SC" "$SC_MIG" 2>&1)"
+assert_eq "scaffold-migration: second run is a byte-identical no-op" \
+  "$SC_MIG_BEFORE" "$(cat "$SC_MIG/.devflow/config.json")"
+assert_eq "scaffold-migration: clean config does NOT re-emit the cleanup log line" "no" \
+  "$(printf '%s' "$SC_MIG_OUT2" | grep -q "removed unsupported 'effort' from Haiku-pinned" && echo yes || echo no)"
+rm -rf "$SC_MIG"
+
+# 6b. jq unavailable during the Haiku effort-cleanup: a config that DOES carry a
+#     stale Haiku+effort combo must be LEFT UNTOUCHED (cleanup skipped, not
+#     silently "nothing to do"), and the skip breadcrumb must fire. The SC_NOJQ
+#     case above uses a non-Haiku config, so it cannot tell "correctly skipped"
+#     from "no work"; this fixture closes that gap. Same PATH-without-jq trick.
+SC_MIG_NOJQ="$(mktemp -d)"; mkdir -p "$SC_MIG_NOJQ/.devflow"
+printf '%s' '{"devflow_review":{"agent_overrides":{"devflow:checklist-deduper":{"model":"claude-haiku-4-5-20251001","effort":"low"}}}}' \
+  > "$SC_MIG_NOJQ/.devflow/config.json"
+MIG_NOJQ_BIN="$(mktemp -d)"
+for b in bash dirname mkdir cp rm cat printf find grep diff mktemp; do
+  src="$(command -v "$b")" && ln -s "$src" "$MIG_NOJQ_BIN/$b"
+done
+MIG_BASH_BIN="$(command -v bash)"
+SC_MIG_NOJQ_OUT="$(PATH="$MIG_NOJQ_BIN" "$MIG_BASH_BIN" "$SC" "$SC_MIG_NOJQ" 2>&1)"
+# Read back with the test's normal (jq-present) PATH; only the scaffold RAN jq-less.
+assert_eq "scaffold-migration: jq unavailable → Haiku+effort combo left untouched (skipped, not a no-op)" \
+  "low" "$(jq -r '.devflow_review.agent_overrides["devflow:checklist-deduper"].effort' "$SC_MIG_NOJQ/.devflow/config.json")"
+assert_eq "scaffold-migration: jq unavailable → emits the cleanup-skipped breadcrumb" "yes" \
+  "$(printf '%s' "$SC_MIG_NOJQ_OUT" | grep -q 'skipping Haiku effort-cleanup' && echo yes || echo no)"
+rm -rf "$SC_MIG_NOJQ" "$MIG_NOJQ_BIN"
+
+# 6c. agent_overrides hand-corrupted to a non-object (array): the cleanup filter
+#     no-ops via its `else .` arm, but the anti-silent-failure breadcrumb must
+#     fire so the silence is not an ambiguous "nothing to do". The backfill leaves
+#     the array in place (jq `*` lets the right operand win on a type mismatch).
+SC_AO_BAD="$(mktemp -d)"; mkdir -p "$SC_AO_BAD/.devflow"
+printf '%s' '{"devflow_review":{"agent_overrides":["oops"]}}' > "$SC_AO_BAD/.devflow/config.json"
+SC_AO_BAD_OUT="$(bash "$SC" "$SC_AO_BAD" 2>&1)"
+assert_eq "scaffold-migration: non-object agent_overrides emits the skip breadcrumb" "yes" \
+  "$(printf '%s' "$SC_AO_BAD_OUT" | grep -q 'agent_overrides is present but not an object' && echo yes || echo no)"
+rm -rf "$SC_AO_BAD"
+
+# 6c-bis. devflow_review ITSELF is a non-object (a string). It is valid JSON (so it
+#     passes the jq -e . gate), but `.devflow_review.agent_overrides` then ERRORS
+#     rather than yielding null. The breadcrumb probe must surface that as its own
+#     specific "could not inspect ... (jq error ...)" line — not fold the error into
+#     "null" and stay silent (the silent-failure-hunter gap). The scaffold still
+#     exits 0 (best-effort) and leaves the malformed value untouched.
+SC_DR_BAD="$(mktemp -d)"; mkdir -p "$SC_DR_BAD/.devflow"
+printf '%s' '{"devflow_review":"oops"}' > "$SC_DR_BAD/.devflow/config.json"
+SC_DR_BAD_OUT="$(bash "$SC" "$SC_DR_BAD" 2>&1)"; SC_DR_BAD_RC=$?
+assert_eq "scaffold-migration: non-object devflow_review → scaffold still exits 0 (best-effort)" \
+  "0" "$SC_DR_BAD_RC"
+assert_eq "scaffold-migration: non-object devflow_review emits the probe-error breadcrumb (not swallowed to 'null')" "yes" \
+  "$(printf '%s' "$SC_DR_BAD_OUT" | grep -q 'could not inspect .devflow_review.agent_overrides' && echo yes || echo no)"
+# A scalar devflow_review must not DETONATE the backfill or cleanup jq into a
+# misdirected generic failure. The backfill still merges the other top-level keys
+# (a non-object devflow_review short-circuits the graft-guard's `if` to `else .`),
+# and the cleanup no-ops cleanly — so neither the "merge failed" nor the "cleanup
+# failed" generic breadcrumb fires; only the accurate probe breadcrumb above does.
+assert_eq "scaffold-migration: non-object devflow_review does NOT emit the misdirected backfill 'merge failed'" "no" \
+  "$(printf '%s' "$SC_DR_BAD_OUT" | grep -q 'config-key backfill merge failed' && echo yes || echo no)"
+assert_eq "scaffold-migration: non-object devflow_review does NOT emit the misdirected 'cleanup failed'" "no" \
+  "$(printf '%s' "$SC_DR_BAD_OUT" | grep -q 'Haiku effort-cleanup failed' && echo yes || echo no)"
+rm -rf "$SC_DR_BAD"
+
+# 6d. Graft guard: a config that re-pins the deduper to a Haiku id WITHOUT effort
+#     must NOT gain an effort key from the example's Sonnet-4.6+effort deduper
+#     default via the backfill deep-merge (Haiku rejects effort with HTTP 400; an
+#     ungated graft would re-fire on every re-scaffold and churn against the
+#     cleanup). Start from a COMPLETE example-derived config so the ONLY thing the
+#     backfill could change is the grafted effort — making this a precise probe.
+SC_GRAFT="$(mktemp -d)"; mkdir -p "$SC_GRAFT/.devflow"
+jq '.devflow_review.agent_overrides["devflow:checklist-deduper"] = {"model":"claude-haiku-4-5-20251001"}' \
+  "$TPL_DIR/config.example.json" > "$SC_GRAFT/.devflow/config.json"
+SC_GRAFT_BEFORE="$(cat "$SC_GRAFT/.devflow/config.json")"
+SC_GRAFT_OUT="$(bash "$SC" "$SC_GRAFT" 2>&1)"
+assert_eq "scaffold-graft-guard: backfill does NOT graft effort onto a Haiku deduper" \
+  "false" "$(jq '.devflow_review.agent_overrides["devflow:checklist-deduper"] | has("effort")' "$SC_GRAFT/.devflow/config.json")"
+assert_eq "scaffold-graft-guard: Haiku deduper model preserved" \
+  "claude-haiku-4-5-20251001" "$(jq -r '.devflow_review.agent_overrides["devflow:checklist-deduper"].model' "$SC_GRAFT/.devflow/config.json")"
+assert_eq "scaffold-graft-guard: re-scaffold is a byte-identical quiet no-op" \
+  "$SC_GRAFT_BEFORE" "$(cat "$SC_GRAFT/.devflow/config.json")"
+assert_eq "scaffold-graft-guard: quiet no-op emits neither backfill nor cleanup log" "yes" \
+  "$(printf '%s' "$SC_GRAFT_OUT" | grep -qE "backfilled newly-added keys|removed unsupported 'effort'" && echo no || echo yes)"
+rm -rf "$SC_GRAFT"
+
+# 6e. Graft-guard PRESERVE branch: a user who pins the deduper to a Haiku id WITH
+#     their OWN effort must have that effort PRESERVED by the backfill (the
+#     graft-guard strips only a *grafted* effort, never the user's) and removed by
+#     the dedicated CLEANUP instead. SC_MIG only asserts the end state (effort
+#     gone), which cannot tell "graft-guard preserved + cleanup stripped" from a
+#     regression where "graft-guard wrongly stripped + cleanup no-op" — both leave
+#     effort absent. Discriminate via the CLEANUP log: it fires only if the effort
+#     SURVIVED the backfill into the cleanup. Start from a COMPLETE example-derived
+#     config so the backfill is otherwise a byte-identical no-op.
+SC_PRESERVE="$(mktemp -d)"; mkdir -p "$SC_PRESERVE/.devflow"
+jq '.devflow_review.agent_overrides["devflow:checklist-deduper"] = {"model":"claude-haiku-4-5-20251001","effort":"low"}' \
+  "$TPL_DIR/config.example.json" > "$SC_PRESERVE/.devflow/config.json"
+SC_PRESERVE_OUT="$(bash "$SC" "$SC_PRESERVE" 2>&1)"
+# The discriminator: the cleanup log fires ⇒ the user's effort survived the backfill
+# (graft-guard left it alone) and the dedicated cleanup is what stripped it. A
+# regression that strips a user's own effort in the backfill would make the backfill
+# log fire and the cleanup a silent no-op — failing this assertion.
+assert_eq "scaffold-graft-guard: user's OWN Haiku effort survives backfill and is stripped by the cleanup" \
+  "yes" "$(printf '%s' "$SC_PRESERVE_OUT" | grep -q "removed unsupported 'effort' from Haiku-pinned" && echo yes || echo no)"
+assert_eq "scaffold-graft-guard: preserve-branch sees no backfill rewrite (graft-guard touched nothing)" \
+  "no" "$(printf '%s' "$SC_PRESERVE_OUT" | grep -q 'backfilled newly-added keys' && echo yes || echo no)"
+assert_eq "scaffold-graft-guard: preserve-branch effort ultimately removed" \
+  "false" "$(jq '.devflow_review.agent_overrides["devflow:checklist-deduper"] | has("effort")' "$SC_PRESERVE/.devflow/config.json")"
+assert_eq "scaffold-graft-guard: preserve-branch Haiku model kept through both passes" \
+  "claude-haiku-4-5-20251001" "$(jq -r '.devflow_review.agent_overrides["devflow:checklist-deduper"].model' "$SC_PRESERVE/.devflow/config.json")"
+rm -rf "$SC_PRESERVE"
+
+# 6f. Robustness: a non-string `model` on ONE agent_overrides entry must not
+#     detonate the whole backfill/cleanup jq and leave sibling Haiku entries
+#     un-repaired. Without the `(.value.model | strings)` guard, `startswith` on a
+#     non-string model errors (rc=5), aborting the filter for ALL entries — so a
+#     valid Haiku+effort sibling keeps its HTTP-400 combo and the only breadcrumb
+#     is a misdirected generic "jq error". The guard makes a non-string model fall
+#     through `else .` (unmatched) so siblings are still repaired. Fixture: a
+#     complete example-derived config with a valid Haiku+effort entry AND a
+#     non-string-model entry.
+SC_BADMODEL="$(mktemp -d)"; mkdir -p "$SC_BADMODEL/.devflow"
+jq '.devflow_review.agent_overrides["devflow:checklist-generator"] = {"model":"claude-haiku-4-5-20251001","effort":"high"}
+    | .devflow_review.agent_overrides["devflow:checklist-verifier"] = {"model":{"oops":true},"effort":"low"}' \
+  "$TPL_DIR/config.example.json" > "$SC_BADMODEL/.devflow/config.json"
+SC_BADMODEL_OUT="$(bash "$SC" "$SC_BADMODEL" 2>&1)"; SC_BADMODEL_RC=$?
+assert_eq "scaffold-robustness: non-string model entry does not abort the scaffold (exit 0)" \
+  "0" "$SC_BADMODEL_RC"
+assert_eq "scaffold-robustness: valid Haiku sibling still has its effort stripped despite a non-string-model entry" \
+  "false" "$(jq '.devflow_review.agent_overrides["devflow:checklist-generator"] | has("effort")' "$SC_BADMODEL/.devflow/config.json")"
+assert_eq "scaffold-robustness: the non-string-model entry is left untouched (unmatched, did not detonate the filter)" \
+  "low" "$(jq -r '.devflow_review.agent_overrides["devflow:checklist-verifier"].effort' "$SC_BADMODEL/.devflow/config.json")"
+rm -rf "$SC_BADMODEL"
+
+# 6g. Unit-test the rewrite_config_if_changed helper in ISOLATION, sourced via the
+#     library-only hook (DEVFLOW_SCAFFOLD_LIB_ONLY) so the helpers load without the
+#     scaffold body running. This locks the two robustness arms the main flow's
+#     validity gate keeps unreachable once it has passed: a normalization (jq)
+#     failure must NOT phantom-rewrite, and a write (mv) failure must
+#     log-and-continue. Run in a subshell so the helper's `set -euo pipefail` and
+#     its log()/die() definitions never leak into the rest of the suite.
+( export DEVFLOW_SCAFFOLD_LIB_ONLY=1
+  # shellcheck disable=SC1090
+  . "$SC"
+  set +e +o pipefail
+  # (a) cmpfail arm — the bug the helper exists to prevent: a left-hand (cfg)
+  #     normalization failure must log the comparison-untrusted message and leave
+  #     cfg untouched, NOT mv the candidate over it (the process-substitution
+  #     phantom-rewrite trap).
+  HU="$(mktemp -d)"
+  printf '%s' 'not json' > "$HU/cfg.json"      # cfg fails jq --sort-keys
+  printf '%s' '{"a":2}'  > "$HU/cand.json"      # cand is valid and differs
+  HU_BEFORE="$(cat "$HU/cfg.json")"
+  HU_OUT="$(rewrite_config_if_changed "$HU/cfg.json" "$HU/cand.json" "HELPERTEST-CHANGED" "HELPERTEST-CMPFAIL" 2>&1)"
+  HU_RC=$?
+  assert_eq "rewrite-helper: cmpfail arm returns 0 (does not abort the scaffold)" "0" "$HU_RC"
+  assert_eq "rewrite-helper: cmpfail arm emits the comparison-untrusted message" "yes" \
+    "$(printf '%s' "$HU_OUT" | grep -q 'HELPERTEST-CMPFAIL' && echo yes || echo no)"
+  assert_eq "rewrite-helper: cmpfail arm does NOT phantom-rewrite (cfg bytes survive)" \
+    "$HU_BEFORE" "$(cat "$HU/cfg.json")"
+  assert_eq "rewrite-helper: cmpfail arm does NOT emit the changed message" "no" \
+    "$(printf '%s' "$HU_OUT" | grep -q 'HELPERTEST-CHANGED' && echo yes || echo no)"
+  rm -rf "$HU"
+
+  # (b) happy path: two differing valid configs ARE rewritten, changed message fires.
+  HU_OK="$(mktemp -d)"
+  printf '%s' '{"a":1}' > "$HU_OK/cfg.json"
+  printf '%s' '{"a":2}' > "$HU_OK/cand.json"
+  HU_OK_OUT="$(rewrite_config_if_changed "$HU_OK/cfg.json" "$HU_OK/cand.json" "HELPERTEST-CHANGED" "HELPERTEST-CMPFAIL" 2>&1)"
+  assert_eq "rewrite-helper: happy path rewrites the config (cand wins)" "2" \
+    "$(jq -r '.a' "$HU_OK/cfg.json")"
+  assert_eq "rewrite-helper: happy path emits the changed message" "yes" \
+    "$(printf '%s' "$HU_OK_OUT" | grep -q 'HELPERTEST-CHANGED' && echo yes || echo no)"
+  rm -rf "$HU_OK"
+
+  # (c) mv-failure arm: a write failure must log-and-continue (return 0), leaving
+  #     the original bytes — not abort under set -euo pipefail. Provoked by making
+  #     cfg's directory unwritable, which only bites a non-root user; root bypasses
+  #     permission bits, so skip there (CI runs non-root and exercises this).
+  if [ "$(id -u)" -ne 0 ]; then
+    HU_RO="$(mktemp -d)"
+    printf '%s' '{"a":1}' > "$HU_RO/cfg.json"
+    HU_CAND="$(mktemp)"
+    printf '%s' '{"a":2}' > "$HU_CAND"
+    HU_RO_BEFORE="$(cat "$HU_RO/cfg.json")"
+    chmod a-w "$HU_RO"
+    HU_RO_OUT="$(rewrite_config_if_changed "$HU_RO/cfg.json" "$HU_CAND" "HELPERTEST-CHANGED" "HELPERTEST-CMPFAIL" 2>&1)"
+    HU_RO_RC=$?
+    chmod u+w "$HU_RO"
+    assert_eq "rewrite-helper: mv-failure arm returns 0 (logs-and-continues)" "0" "$HU_RO_RC"
+    assert_eq "rewrite-helper: mv-failure arm emits the could-not-write message" "yes" \
+      "$(printf '%s' "$HU_RO_OUT" | grep -q 'could not write' && echo yes || echo no)"
+    assert_eq "rewrite-helper: mv-failure arm leaves the original bytes intact" \
+      "$HU_RO_BEFORE" "$(cat "$HU_RO/cfg.json")"
+    rm -rf "$HU_RO" "$HU_CAND"
+  fi
+)
+
+# 6h. Positive jq-EXECUTION-failure path for the backfill arm: a CORRUPT
+#     config.example.json next to a COPY of the scaffolder makes the backfill's
+#     `jq -n --slurpfile ex ...` fail to PARSE the template (not merely be absent),
+#     so the "merge failed (jq error)" arm fires for real — it previously had only
+#     negative assertions. The existing valid config.json is left untouched and the
+#     scaffold still exits 0 (best-effort). Mirrors the SC_NOTPL copy-the-script
+#     layout so the template resolves next to the copy.
+SC_JQERR="$(mktemp -d)"; mkdir -p "$SC_JQERR/scripts" "$SC_JQERR/.devflow"
+cp "$SC" "$SC_JQERR/scripts/scaffold-config.sh"
+printf '%s' '{ corrupt example'   > "$SC_JQERR/.devflow/config.example.json"
+cp "$TPL_DIR/config.schema.json"    "$SC_JQERR/.devflow/config.schema.json"
+SC_JQERR_TGT="$(mktemp -d)"; mkdir -p "$SC_JQERR_TGT/.devflow"
+printf '%s' '{"sentinel":true}'    > "$SC_JQERR_TGT/.devflow/config.json"
+SC_JQERR_OUT="$(bash "$SC_JQERR/scripts/scaffold-config.sh" "$SC_JQERR_TGT" 2>&1)"; SC_JQERR_RC=$?
+assert_eq "scaffold-jqerr: corrupt example template → scaffold still exits 0 (best-effort)" \
+  "0" "$SC_JQERR_RC"
+assert_eq "scaffold-jqerr: corrupt example template → the backfill 'merge failed (jq error)' arm fires" "yes" \
+  "$(printf '%s' "$SC_JQERR_OUT" | grep -q 'config-key backfill merge failed (jq error)' && echo yes || echo no)"
+assert_eq "scaffold-jqerr: corrupt example template → existing config left untouched (no clobber)" \
+  '{"sentinel":true}' "$(cat "$SC_JQERR_TGT/.devflow/config.json")"
+rm -rf "$SC_JQERR" "$SC_JQERR_TGT"
+
 # ────────────────────────────────────────────────────────────────────────────
-echo "shipped agent_overrides: Haiku deduper carries no effort key"
+echo "shipped agent_overrides: deduper pins Sonnet 4.6 w/ effort; no Haiku override carries effort"
 # ────────────────────────────────────────────────────────────────────────────
-# Claude Haiku rejects the `effort` parameter (HTTP 400); effort is supported
-# only on Opus 4.5–4.8 and Sonnet 4.6. The checklist-deduper override pins Haiku,
-# so its entry must NOT carry an `effort` key. resolve-review-overrides.py forwards
-# any valid-enum effort ("low" passes), so the resolver cannot catch a regression
-# here — the constraint is a model-API fact enforced only by the config data. This
-# assertion guards the shipped example so a future edit can't silently reintroduce
-# the HTTP-400 misconfiguration.
-assert_eq "agent_overrides: shipped Haiku deduper override has no effort key" \
-  "false" \
-  "$(jq '.devflow_review.agent_overrides["devflow:checklist-deduper"] | has("effort")' "$TPL_DIR/config.example.json")"
+# The shipped checklist-deduper override pins Claude Sonnet 4.6 (which DOES
+# support `effort`) with effort "medium" — Sonnet 4.6's recommended default, and
+# effort must be set explicitly on Sonnet 4.6 to avoid unexpected latency. A
+# positive sentinel, not a bare has("effort"): a refactor that drops/renames the
+# entry, swaps the model, or strips the effort each FAIL loudly rather than
+# sailing through green. The entry must positively EXIST, be object-typed, pin
+# claude-sonnet-4-6, AND carry an `effort` key — so a dropped/renamed entry
+# ("missing-entry"), a model no longer Sonnet 4.6 ("not-sonnet"), or a removed
+# effort ("no-effort") each FAIL loudly.
+assert_eq "agent_overrides: shipped deduper override exists, pins Sonnet 4.6, and carries an effort key" \
+  "ok" \
+  "$(jq -r '
+      (.devflow_review.agent_overrides["devflow:checklist-deduper"]) as $d
+      | if ($d | type) != "object" then "missing-entry"
+        elif (($d.model // "") != "claude-sonnet-4-6") then "not-sonnet"
+        elif ($d | has("effort") | not) then "no-effort"
+        else "ok" end' "$TPL_DIR/config.example.json")"
+# Claude Haiku rejects `effort` with HTTP 400 (supported only on Opus 4.5–4.8 /
+# Sonnet 4.6). The shipped example no longer pins Haiku anywhere, but this guard
+# keeps the invariant the scaffold-config.sh cleanup protects: should any shipped
+# override ever pin a Haiku model, it must NOT also carry an `effort` key.
+assert_eq "agent_overrides: no shipped Haiku-pinned override carries an effort key" \
+  "ok" \
+  "$(jq -r '
+      [ (.devflow_review.agent_overrides // {}) | to_entries[]
+        | select((.value | type) == "object")
+        | select(((.value.model // "") | startswith("claude-haiku-")) and (.value | has("effort"))) ]
+      | if length == 0 then "ok" else "haiku-with-effort" end' "$TPL_DIR/config.example.json")"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "config.example.json ⊇ config.schema.json (superset invariant)"

@@ -7,15 +7,15 @@
     "allowed_bots": "claude,dependabot",
     "allowed_users": "*",
     "workpad_marker": "<!-- devflow:workpad -->",
-    "effort": "medium",
+    "effort": "high",
     "allowed_tools": []
   },
   "devflow_implement": {
-    "effort": "medium",
+    "effort": "high",
     "allowed_tools": []
   },
   "devflow_runner": {
-    "effort": "medium",
+    "effort": "high",
     "provision_env": false,
     "allowed_tools": []
   },
@@ -27,9 +27,9 @@
   "devflow_review": {
     "live_progress_comment_enabled": true,
     "agent_overrides": {
-      "default": { "effort": "medium" },
-      "devflow:checklist-deduper": { "model": "claude-haiku-4-5-20251001" },
-      "pr-review-toolkit:code-reviewer": { "model": "claude-opus-4-8", "effort": "medium" }
+      "default": { "effort": "high" },
+      "devflow:checklist-deduper": { "model": "claude-sonnet-4-6", "effort": "medium" },
+      "pr-review-toolkit:code-reviewer": { "model": "claude-opus-4-8", "effort": "high" }
     }
   },
   "setup": {

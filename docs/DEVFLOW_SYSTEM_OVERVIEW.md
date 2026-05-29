@@ -483,6 +483,8 @@ The local tier needs **no config**. To customize, `/devflow:init` scaffolds `.de
 
 `/devflow:init` auto-detects languages (Node, Go, Rust, Java, Ruby, PHP, .NET, Make, Docker) and merges matching build/test/lint tools into three independent allowlists, plus the `setup` block, idempotently (your values always win).
 
+Re-running `/devflow:init` (or `install.sh`) also **backfills** newly-added keys into an existing `.devflow/config.json` without clobbering your values. Backfill is add-only, so it cannot propagate a key *removal*; for the one case where that matters — a `devflow_review.agent_overrides` entry pinning Claude Haiku must not carry an `effort` key, which Haiku rejects with HTTP 400 — re-scaffold runs a separate idempotent cleanup that strips `effort` from any Haiku-pinned override (see [review-agent-overrides.md](review-agent-overrides.md)). An already-clean config is left byte-identical.
+
 ---
 
 ## 18. Installation & updates

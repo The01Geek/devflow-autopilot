@@ -32,6 +32,44 @@ set -euo pipefail
 log() { printf 'devflow-scaffold: %s\n' "$1"; }
 die() { printf 'devflow-scaffold: %s\n' "$1" >&2; exit 2; }
 
+# Atomically replace a config file with a candidate temp IFF their canonical
+# (jq --sort-keys) forms differ — the shared "rewrite only on a real change"
+# guard for both the backfill and the Haiku effort-cleanup passes below.
+#   $1 config path   $2 candidate temp file
+#   $3 log line on a successful rewrite
+#   $4 log line when the comparison itself cannot be trusted
+# Each side is normalized into a captured variable rather than compared via
+# `diff -q <(jq …) <(jq …)`: process substitution hides the inner jq's exit
+# status, so a left-hand normalization failure would read as "configs differ"
+# and fire a phantom rewrite. Capturing lets us detect a jq failure explicitly
+# and skip. The `mv` is guarded so a write failure (read-only FS, ENOSPC, an
+# immutable file) logs-and-continues — surfacing the underlying cause — instead
+# of aborting the whole best-effort scaffold under `set -euo pipefail`.
+rewrite_config_if_changed() {
+  local cfg="$1" cand="$2" changed_msg="$3" cmpfail_msg="$4"
+  local cfg_norm cand_norm mv_err
+  if ! cfg_norm="$(jq --sort-keys . "$cfg" 2>/dev/null)" \
+     || ! cand_norm="$(jq --sort-keys . "$cand" 2>/dev/null)"; then
+    log "$cmpfail_msg"
+    return 0
+  fi
+  if [ "$cfg_norm" != "$cand_norm" ]; then
+    if mv_err="$(mv "$cand" "$cfg" 2>&1)"; then
+      log "$changed_msg"
+    else
+      log "could not write $cfg from a generated update${mv_err:+ ($mv_err)}; leaving it unchanged."
+    fi
+  fi
+}
+
+# Testability hook: sourcing this script with DEVFLOW_SCAFFOLD_LIB_ONLY set loads
+# the helpers above (log/die/rewrite_config_if_changed) for unit tests WITHOUT
+# running the scaffold. The variable is never set in normal CLI/install/init
+# invocations, so this is a no-op there.
+if [ -n "${DEVFLOW_SCAFFOLD_LIB_ONLY:-}" ]; then
+  return 0 2>/dev/null || exit 0
+fi
+
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TPL_DIR="$SELF_DIR/../.devflow"
 EXAMPLE="$TPL_DIR/config.example.json"
@@ -96,30 +134,115 @@ if ! command -v jq >/dev/null 2>&1; then
 elif ! jq -e . "$CONFIG" >/dev/null 2>&1; then
   log "existing $CONFIG is not valid JSON; skipping config-key backfill (fix or delete it to re-scaffold)."
 else
-  BACKFILL_TMP="$(mktemp)"
-  trap 'rm -f "$BACKFILL_TMP"' EXIT
-  if ! jq -n --slurpfile ex "$EXAMPLE" --slurpfile cfg "$CONFIG" '$ex[0] * $cfg[0]' \
-        > "$BACKFILL_TMP" 2>/dev/null; then
+  BACKFILL_TMP="$(mktemp)"; BACKFILL_ERR="$(mktemp)"
+  trap 'rm -f "$BACKFILL_TMP" "$BACKFILL_ERR"' EXIT
+  if ! jq -n --slurpfile ex "$EXAMPLE" --slurpfile cfg "$CONFIG" '
+        ($cfg[0].devflow_review.agent_overrides? // {}) as $userao
+        | ($ex[0] * $cfg[0])
+        | if (.devflow_review | type) == "object" and (.devflow_review.agent_overrides | type) == "object" then
+            .devflow_review.agent_overrides |= with_entries(
+              # Do NOT let the deep-merge GRAFT an effort from the example onto a
+              # Haiku-pinned entry the user left effort-less. The shipped example
+              # pins the deduper to Sonnet 4.6 WITH effort; merged onto a config that
+              # re-pins that key to a Haiku id, the merge would add the effort from
+              # the example (Claude Haiku rejects effort with HTTP 400) and re-graft
+              # it on every re-scaffold, fighting the cleanup below forever. Strip
+              # ONLY a grafted effort (Haiku model + effort present + the user
+              # supplied none); a user-set stale effort is preserved here and
+              # repaired by the dedicated Haiku effort-cleanup below, so that the
+              # migration first-run behavior is unchanged. (NOTE: this comment lives
+              # inside a single-quoted jq program — keep it apostrophe-free.)
+              .key as $k
+              | if (.value | type) == "object"
+                   and (((.value.model | strings) // "") | startswith("claude-haiku-"))
+                   and (.value | has("effort"))
+                   and (($userao[$k] // {}) | (type == "object" and has("effort")) | not)
+                then .value |= del(.effort) else . end)
+          else . end' \
+        > "$BACKFILL_TMP" 2>"$BACKFILL_ERR"; then
     # A genuine merge failure (odd jq build, OOM, corrupt template) is logged and
-    # skipped — never masked as a silent no-op, and never aborts the scaffold.
-    log "config-key backfill merge failed (jq error); leaving $CONFIG unchanged."
+    # skipped — never masked as a silent no-op, and never aborts the scaffold. The
+    # captured jq stderr is surfaced so the failure mode is actionable rather than
+    # a fixed, ambiguous "(jq error)".
+    bf_err="$(cat "$BACKFILL_ERR")"
+    log "config-key backfill merge failed (jq error)${bf_err:+: $bf_err}; leaving $CONFIG unchanged."
   else
-    # diff -q exit codes: 0 = identical (quiet no-op), 1 = differ (backfill added
-    # keys), >1 = diff itself failed. Capture the code without tripping `set -e`
-    # (a bare non-zero command would abort the script), and fail safe on >1 —
-    # leave the config untouched rather than overwriting from a comparison we
-    # can't trust.
-    bf_rc=0
-    diff -q <(jq --sort-keys . "$CONFIG") <(jq --sort-keys . "$BACKFILL_TMP") >/dev/null 2>&1 || bf_rc=$?
-    if [ "$bf_rc" -eq 1 ]; then
-      mv "$BACKFILL_TMP" "$CONFIG"
-      log "backfilled newly-added keys into $CONFIG from the example (your values and arrays kept)."
-    elif [ "$bf_rc" -gt 1 ]; then
-      log "could not compare the merged config against $CONFIG; leaving it unchanged."
-    fi
+    # Rewrite only when the merge actually changed something; a jq normalization
+    # failure leaves the config untouched (fail-safe) rather than overwriting
+    # from a comparison we can't trust. See rewrite_config_if_changed.
+    rewrite_config_if_changed "$CONFIG" "$BACKFILL_TMP" \
+      "backfilled newly-added keys into $CONFIG from the example (your values and arrays kept)." \
+      "could not compare the merged config against $CONFIG; leaving it unchanged."
   fi
-  rm -f "$BACKFILL_TMP"
+  rm -f "$BACKFILL_TMP" "$BACKFILL_ERR"
   trap - EXIT
+fi
+
+# Repair model/effort combinations the model API rejects but the no-clobber
+# backfill above structurally cannot fix. The shipped example once pinned the
+# checklist-deduper to a Haiku id and carried an `effort` key on it; the example
+# now defaults that override to Sonnet 4.6, but a key *removal* never propagates
+# through the backfill — it only ADDS keys, never deletes (see the
+# deletion-tracking note above). So an adopter who scaffolded earlier silently
+# keeps `effort` on a Haiku override (their own deduper pin, or any other agent
+# they pinned to Haiku), which the model API rejects (see the graft-guard above
+# for the Haiku-rejects-effort / HTTP-400 rationale). This data-driven cleanup
+# drops `effort` from any agent_overrides entry whose `model` is a Haiku id —
+# narrow (only that combination), idempotent, and best-effort with the same
+# mtime-churn guard as the backfill: an already-clean config is a quiet no-op.
+# Lives here, not in the backfill, because it removes a key rather than adding
+# one. (The backfill separately refuses to GRAFT the example's Sonnet-deduper
+# effort onto a Haiku-pinned entry, so the two passes never churn against each
+# other on a re-scaffold.)
+if command -v jq >/dev/null 2>&1 && jq -e . "$CONFIG" >/dev/null 2>&1; then
+  # Anti-silent-failure breadcrumb: if agent_overrides exists but is not an
+  # object (hand-corrupted to an array/string/scalar), the cleanup filter below
+  # still RUNS but no-ops via its `else .` arm (leaving the malformed value as-is).
+  # Surface that we saw it, so the no-op is not an ambiguous "nothing to do" — and
+  # word it as a no-op, NOT a "skip", so nobody mistakes it for the genuine
+  # jq-missing skip below and adds a real `continue` that would strand the EXIT
+  # trap set just after this probe. Capture the probe's exit status
+  # (via `|| ao_rc=$?`, which keeps the failing assignment off `set -e`) instead
+  # of folding a jq error into "null" with `|| printf 'null'`: when `devflow_review`
+  # ITSELF is a non-object (e.g. a string), `.agent_overrides` indexing errors
+  # (rc≠0) rather than yielding "null", and the old fold suppressed this very
+  # breadcrumb — leaving only the generic "cleanup failed (jq error)" line below
+  # to (mis)explain a corrupt config. Distinguish probe-error from genuinely-absent.
+  ao_rc=0
+  ao_type="$(jq -r '.devflow_review.agent_overrides | type' "$CONFIG" 2>/dev/null)" || ao_rc=$?
+  if [ "$ao_rc" -ne 0 ]; then
+    log "could not inspect .devflow_review.agent_overrides in $CONFIG (jq error — is devflow_review itself a non-object?); the Haiku effort-cleanup below will no-op."
+  elif [ "$ao_type" != "object" ] && [ "$ao_type" != "null" ]; then
+    log "agent_overrides is present but not an object ($ao_type); the Haiku effort-cleanup below will no-op (the non-object value is left untouched)."
+  fi
+  CLEANUP_TMP="$(mktemp)"; CLEANUP_ERR="$(mktemp)"
+  trap 'rm -f "$CLEANUP_TMP" "$CLEANUP_ERR"' EXIT
+  if ! jq '
+        if (.devflow_review | type) == "object" and (.devflow_review.agent_overrides | type) == "object" then
+          .devflow_review.agent_overrides |= with_entries(
+            if (.value | type) == "object"
+               and (((.value.model | strings) // "") | startswith("claude-haiku-"))
+               and (.value | has("effort"))
+            then .value |= del(.effort) else . end)
+        else . end' "$CONFIG" > "$CLEANUP_TMP" 2>"$CLEANUP_ERR"; then
+    # Surface the captured jq stderr so a genuine execution failure is actionable
+    # rather than a fixed, ambiguous "(jq error)".
+    cu_err="$(cat "$CLEANUP_ERR")"
+    log "Haiku effort-cleanup failed (jq error)${cu_err:+: $cu_err}; leaving $CONFIG unchanged."
+  else
+    rewrite_config_if_changed "$CONFIG" "$CLEANUP_TMP" \
+      "removed unsupported 'effort' from Haiku-pinned agent_overrides in $CONFIG (Claude Haiku rejects effort with HTTP 400)." \
+      "could not compare the Haiku effort-cleanup against $CONFIG; leaving it unchanged."
+  fi
+  rm -f "$CLEANUP_TMP" "$CLEANUP_ERR"
+  trap - EXIT
+else
+  # The backfill block above already logs the specific reason for the SAME guard
+  # (jq missing / invalid JSON); cross-reference it here so this line reads as one
+  # resolved cause rather than a second, distinct problem — while still emitting
+  # its own breadcrumb so the Haiku migration is never silently dependent on the
+  # backfill block for its skip notice.
+  log "skipping Haiku effort-cleanup for the same reason as the backfill skip above (jq missing or $CONFIG not valid JSON)."
 fi
 
 # Language-aware tool/runtime auto-population. Scans the target repo and merges
