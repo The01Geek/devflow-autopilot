@@ -255,7 +255,7 @@ jobs:
           # lose the row). The assignment in the `if` condition is exempt from set -e.
           REPRO_FLAG=""
           if LABELS="$(gh issue view "$NUMBER" --json labels --jq '.labels[].name' 2>/dev/null)"; then
-            printf '%s\n' "$LABELS" | grep -qix bug || REPRO_FLAG="--no-reproduction"
+            grep -qix bug <<<"$LABELS" || REPRO_FLAG="--no-reproduction"
           fi
           # Emit an explicit warning on failure rather than letting
           # continue-on-error swallow it silently — the claude job still
