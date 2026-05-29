@@ -7,10 +7,10 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [2.5.2] — 2026-05-28
 
 ### Changed
-- **The default Claude model for AI-powered workflows is now Claude Opus 4.8 (`claude-opus-4-8`).** `claude_model` is bumped from `claude-opus-4-7` to `claude-opus-4-8` across `.devflow/config.example.json`, `.devflow/config.json`, the `config.schema.json` default, and the `.claude-plugin/marketplace.json` mirror; the retrospective `audit_model` and the `pr-review-toolkit:code-reviewer` review-agent override follow suit, and `docs/DEVFLOW_SYSTEM_OVERVIEW.md` is updated to match.
+- **The default Claude model for AI-powered workflows is now Claude Opus 4.8 (`claude-opus-4-8`).** `claude_model` is bumped from `claude-opus-4-7` to `claude-opus-4-8` in `.devflow/config.example.json` and `.devflow/config.json`, and the `claude_model` default in `.devflow/config.schema.json` follows. The retrospective `retrospective_model` and `audit_model` (in `.devflow/config.json`) and the `pr-review-toolkit:code-reviewer` review-agent override are bumped to match. Documentation is aligned: the config-key table in `docs/DEVFLOW_SYSTEM_OVERVIEW.md` and the override examples in `docs/review-agent-overrides.md` now read `claude-opus-4-8`, and the scaffold-backfill assertion in `lib/test/run.sh` tracks the new default.
 
 ### Fixed
-- **The `effort` setting is removed from the Haiku `checklist-deduper` agent override.** Claude Haiku rejects the `effort` parameter (HTTP 400); `effort` is supported only on Opus 4.5–4.8 and Sonnet 4.6. The `pr-review-toolkit:code-reviewer` override is also set to `medium` effort.
+- **The unsupported `effort` setting is removed from the Haiku `checklist-deduper` agent override.** Claude Haiku rejects the `effort` parameter (HTTP 400); `effort` is supported only on Opus 4.5–4.8 and Sonnet 4.6. The fix is applied in `.devflow/config.example.json` and the `docs/review-agent-overrides.md` example, and `lib/test/run.sh` now asserts the shipped Haiku override carries no `effort` key so the misconfiguration cannot silently recur. The `pr-review-toolkit:code-reviewer` override is set to `medium` effort.
 
 ## [2.5.1] — 2026-05-27
 
