@@ -467,7 +467,7 @@ The local tier needs **no config**. To customize, `/devflow:init` scaffolds `.de
 | Key | Purpose |
 |---|---|
 | `base_branch` | Review/merge base (default `main`). |
-| `claude_model` | Default model (default `claude-opus-4-7`). |
+| `claude_model` | Default model (default `claude-opus-4-8`). |
 | `devflow_version` | Cloud-tier: git ref the workflows fetch the plugin from (thin install). |
 | `devflow.allowed_bots` / `allowed_users` | Trigger authorization (also the trusted-filer allowlist). |
 | `devflow.workpad_marker` | Workpad comment marker. |
