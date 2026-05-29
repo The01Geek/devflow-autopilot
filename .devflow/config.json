@@ -6,15 +6,15 @@
     "allowed_bots": "claude,dependabot",
     "allowed_users": "*",
     "workpad_marker": "<!-- devflow:workpad -->",
-    "effort": "medium",
+    "effort": "high",
     "allowed_tools": []
   },
   "devflow_implement": {
-    "effort": "medium",
+    "effort": "high",
     "allowed_tools": []
   },
   "devflow_runner": {
-    "effort": "medium"
+    "effort": "high"
   },
   "devflow_review_and_fix": {
     "efficiency_telemetry_enabled": true,
