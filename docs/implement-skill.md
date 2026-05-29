@@ -8,6 +8,8 @@ review because nothing is *syntactically* broken — the affected lines still co
 they are only *semantically* stale. This doc is the internal-docs counterpart of that section: it
 records *why* each sweep exists so the skill text can stay terse.
 
+A **"Sweep selection (run first)"** preamble in the skill indexes which of these sweeps a given diff's shape warrants — so an add-only diff runs just the three always-on sweeps (2.3.3/2.3.4/2.3.5) instead of consciously dispatching the deletion/contract sweeps as no-ops. The index is **fail-safe**: each sweep's own heading (the *Triggers on* column below) stays authoritative, so a drifted or incomplete index can only over-select, never skip a warranted sweep.
+
 ## The sweeps
 
 | Sweep | Triggers on | Closes |

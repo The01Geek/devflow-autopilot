@@ -99,7 +99,7 @@ The always-visible region (marker line, header, `Status`, links, `## Progress`, 
 </details>
 ```
 
-`{run_url}` is `$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID` (standard runner env vars; no workflow change needed). When those env vars are absent (a local-tier run outside Actions), use a plain `_(local run)_` placeholder for the `Run` line. For `bug`-labelled issues keep the `reproduction captured (bug issues only)` sub-item; for non-bug issues you may drop it.
+`{run_url}` is `$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID` (standard runner env vars; no workflow change needed). When those env vars are absent (a local-tier run outside Actions), use a plain `_(local run)_` placeholder for the `Run` line. For `bug`-labelled issues the `reproduction captured (bug issues only)` sub-item is rendered; for non-bug issues pass `--no-reproduction` to `new-body` (1.3) so it isn't. (The cloud `gate` and the resume path create the skeleton label-agnostically, so this trimming applies to the local fresh-issue path.)
 
 ### Workpad helper CLI
 
@@ -208,11 +208,13 @@ WORKPAD_ID=$(${CLAUDE_SKILL_DIR}/../../scripts/workpad.py id "$ISSUE_NUMBER" || 
 - **`WORKPAD_ID` empty (fresh issue — local-tier run with no `gate` job)** → Build the lean skeleton with the helper and create it, then mirror the issue's Acceptance Criteria into it:
   ```bash
   BODY=$(mktemp)
-  workpad.py new-body $ISSUE_NUMBER --run-link "[View run]($RUN_URL)" > "$BODY"   # omit --run-link for a local run → "_(local run)_" placeholder
+  # Add --no-reproduction for non-bug issues (labels from 1.1) so the bug-only
+  # "reproduction captured" sub-item isn't rendered; omit the flag for bug issues.
+  workpad.py new-body $ISSUE_NUMBER --run-link "[View run]($RUN_URL)" > "$BODY"   # + --no-reproduction unless the issue is bug-labelled; omit --run-link for a local run
   workpad.py create $ISSUE_NUMBER "$BODY"
   workpad.py update $ISSUE_NUMBER --replace-acs-file /tmp/acs-${ARGUMENTS}.md
   ```
-  `new-body` seeds `**Status:** 🚀 Setup`, the `**Branch:** _(creating…)_` placeholder (filled in 1.4 the instant the branch exists), the friendly `Last updated`, the full `## Progress` checklist with the `/devflow:implement run started` note nested under Setup, a placeholder `## Plan` (filled in 2.2), a placeholder `## Acceptance Criteria` (you replace it above), and an empty `## Devflow Reflection` `<details>` block. The `## Reproduction` section is added later in 2.1.5 if applicable.
+  `new-body` seeds `**Status:** 🚀 Setup`, the `**Branch:** _(creating…)_` placeholder (filled in 1.4 the instant the branch exists), the friendly `Last updated`, the `## Progress` checklist (the bug-only `reproduction captured` sub-item is rendered only when `--no-reproduction` is omitted) with the `/devflow:implement run started` note nested under Setup, a placeholder `## Plan` (filled in 2.2), a placeholder `## Acceptance Criteria` (you replace it above), and an empty `## Devflow Reflection` `<details>` block. The `## Reproduction` section is added later in 2.1.5 if applicable.
 - **`WORKPAD_ID` non-empty (resume — the normal cloud path, since `gate` pre-created it; or a re-run)** → Read the live body with `workpad.py body $WORKPAD_ID`. Treat its `## Progress` notes and `Devflow Reflection` as load-bearing context (see Workpad Reference). Reset for this run **and populate the Acceptance Criteria** (a `gate`-created workpad carries only a placeholder AC section, so always replace it):
   ```bash
   workpad.py update $ISSUE_NUMBER \
@@ -271,6 +273,8 @@ Update the workpad: `workpad.py update $ISSUE_NUMBER --status Discovering --note
 ### 2.1 Discovery
 
 Use the **Agent tool** with `subagent_type: feature-dev:code-explorer` to explore the codebase and understand the system as it relates to the issue.
+
+**The issue body is a starting point, not the source of truth.** Treat its problem framing, any stated root cause, and its Technical Context as a strong lead to *verify* — never fact to implement on faith. The explorer (and the architect in Path B) confirm the issue's claims against the actual code; where they diverge, **the code wins**: surface the divergence in the workpad and plan from what the code shows, rather than implementing a claim the code contradicts.
 
 **Pick the exploration map first.** Default is `.docs.internal`. Override it when the issue scope sits outside app code — scan the issue body for path mentions (`.github/workflows/`, `.claude/`, `scripts/`, `cron/`, `tools/`, etc.) or a section headed "Technical Context", "Relevant files", "Files to touch", "Files to change", or "Implementation files"; collect those paths as `PRIMARY_PATHS` and instruct the explorer to read them first, falling back to `.docs.internal` only for gaps. Otherwise `PRIMARY_PATHS` stays empty and the default applies.
 
@@ -384,6 +388,16 @@ Now implement the feature yourself. You have full context:
 
 Write the code. Follow the patterns and conventions described in `CLAUDE.md`. As plan steps complete, tick them off: `workpad.py update $ISSUE_NUMBER --tick-plan "{substring of completed step}"`.
 
+**Sweep selection (run first).** The 2.3.x sweeps below are **not a flat checklist** — classify the diff and run the sweeps its shape warrants (**when in doubt, run them all**). Each sweep's heading states its own authoritative trigger; this list only tells you which to *consider*:
+
+- **Deletes** code (a call site, branch, method, file, route, page, or asset) → run **2.3.1**, and **2.3.2** if it deletes a method/file/route/page.
+- **Changes a contract** (a signature, a renamed/moved symbol, a tightened validator, or a routing/branch predicate) → run **2.3.0**.
+- **Always**, whatever the diff's shape → run **2.3.3** (convention), **2.3.4** (boundary-assumption), **2.3.5** (simplification & efficiency).
+
+This narrows *ceremony*, never *coverage*, and is **fail-safe**: each sweep's heading is authoritative, so if its trigger fires you run it even when this list didn't call it out — if the index ever drifts from a heading, the heading wins (drift can only add a sweep, never skip a warranted one). An add-only diff typically runs just the three always-on sweeps. **Record the diff shape you classified and the sweeps you are running in a workpad `--note`** — the selection is then an auditable commitment a reviewer or the weekly retrospective can check, not a silent skip; a note reading "add-only" on a diff that in fact deleted a file is a visible error, where an unrecorded mental skip is not.
+
+For the grep-based sweeps (**2.3.0**, **2.3.2**), don't merely attest you grepped: run the actual `git grep -n` / `grep -rnE` the sweep describes and record a **concise** result via `--note` (the match count plus "all intended", or the specific offending sites) — evidence, not a claim.
+
 #### 2.3.0 Changed-contract sweep (mandatory whenever the change modifies a signature, renames/moves a symbol, tightens a validator, or changes a routing/branch predicate)
 
 2.3.1–2.3.3 below all trigger on *deletion* or *addition*. Modifying a contract is just as blast-radius-prone, but it slips past `git diff` review because every dependent site still compiles — the call resolves, the fixture parses, the assertion runs — and is only *semantically* stale. After any change that modifies a signature, renames or moves a symbol, tightens a validator, or alters a predicate that classifies input, before running tests, grep the whole repo for every dependent site and bring each into line:
@@ -481,6 +495,8 @@ Run the project's test and lint commands (check `CLAUDE.md` or `README`). Issue 
 - If **both pass** → proceed to committing.
 - If **either fails** → fix the failing tests/lint errors yourself (you wrote the code, you have full context). Re-run the failing command(s) to verify.
 
+**When the deliverable can't be exercised by a test, a green suite is not enough.** A change whose deliverable is prose, templates, config, or an embedded DSL (jq or shell inside Markdown, a SKILL.md procedure) is invisible to the test suite — passing tests say nothing about it. Match the verification to the deliverable: for a **logic-bearing** artifact (config, template, jq/shell-in-prose), enumerate an **adversarial input-shape matrix** — the corrupt, empty, scalar-where-object-expected, and edge shapes — and statically dry-trace the logic against each; for **pure prose** (e.g. a reworded procedure), trace it against representative scenarios. Record the traces concisely in a workpad `--note`. (This is the same lesson the review engine's shape-sweep learned the expensive way — run it as your *opening* move on parser/best-effort code, not after three review iterations.)
+
 ### 2.5 Commit Implementation
 
 For `bug`-labelled issues: confirm any temporary proof edits made in 2.1.5 have been reverted. Verify with `git diff HEAD` and `git diff --staged`. The working tree about to be committed must NOT include any stray `console.log`s, hardcoded payloads, or other proof-only edits.
@@ -496,6 +512,16 @@ git push
 If the commit includes test fixes, use a single commit combining implementation and fixes.
 
 Then tick the implementation gate **and its parent phase** in the workpad: `workpad.py update $ISSUE_NUMBER --tick-progress "code + sweeps" --tick-progress "**Implement**"`.
+
+### 2.6 Version & changelog decision
+
+If the repository documents a versioning / changelog convention (look in `CLAUDE.md` and contributor docs — for DevFlow itself, the "bump `plugin.json` + matching `CHANGELOG.md`" gotcha), decide **now**, while the committed diff is concrete, whether this change warrants a version bump and at what increment, and **record the decision in the workpad** so it survives context compaction:
+
+```bash
+workpad.py update $ISSUE_NUMBER --note "version decision: {bump to X.Y.Z | no bump} — {one-line reason, e.g. 'consumer-facing fix' / 'internal-only: tests/CI/docs'}"
+```
+
+This step owns only the *decision*; the bump is **applied in Phase 3.1.5** (after the PR exists, so the `CHANGELOG` entry can cite the PR number). Use the repo's stated increment rule — for DevFlow, the smallest correct SemVer step (patch = fix, minor = backward-compatible feature, major = breaking). If the repo documents **no** versioning convention, this is a no-op: record nothing and continue.
 
 **⚠ You are NOT done. Code is committed but not reviewed or documented. Proceed to Phase 3.**
 
@@ -526,6 +552,21 @@ PR_URL=$(gh pr view --json url --jq '.url')
 PR_NUM=$(gh pr view --json number --jq '.number')
 workpad.py update $ISSUE_NUMBER --pr-link "[#$PR_NUM]($PR_URL)"
 ```
+
+### 3.1.5 Apply the version bump + CHANGELOG (if 2.6 decided to bump)
+
+If the Phase 2.6 decision (read it back from the workpad note; re-derive from the committed diff if the note was lost) was **no bump** — or the repo documents no versioning convention — skip this step. Otherwise apply the bump **now**, *before* `/simplify` (3.2) and `/devflow:review-and-fix` (3.3), so the version + `CHANGELOG` land inside the diff those steps review (and the review gate that fails on a version↔`CHANGELOG` mismatch sees them consistent):
+
+1. Bump the repo's version file by the decided increment — for DevFlow, `.claude-plugin/plugin.json`'s `version`.
+2. Add the matching `CHANGELOG.md` entry in the repo's changelog format, now citing the just-created PR number (`#$PR_NUM`).
+3. Commit and push so the review pass covers it:
+   ```bash
+   git add .claude-plugin/plugin.json CHANGELOG.md   # the repo's version + changelog files
+   git commit -m "chore: bump version and changelog for issue #$ARGUMENTS (#$PR_NUM)"
+   git push
+   ```
+
+The Phase 4.3 clean-tree backstop is the final guard that this never ends up uncommitted.
 
 ### 3.2 Self-Review with /simplify
 
@@ -789,6 +830,14 @@ gh pr view --json body --jq '.body' | grep -q "Work in progress — automated re
 
 ### 4.3 Mark PR as Ready and Finalize Workpad
 
+**Clean-tree backstop (before marking ready).** Assert nothing uncommitted reaches `gh pr ready`:
+
+```bash
+git status --porcelain
+```
+
+If it is non-empty, **do not** mark the PR ready yet. The run began from a clean `origin/main` checkout, so anything dirty here is this run's own work an earlier phase failed to commit (most often the Phase 3.1.5 version bump / `CHANGELOG`). Commit the part that belongs to this PR with the right prefix (`feat:`/`fix:`/`docs:`/`chore:`) and push, and record in `Devflow Reflection` which phase under-committed — surface the gap, don't paper over it. Surface (do not blindly `git add`) any unexpected untracked file. When the tree is already clean this is a no-op — create no empty commit. Only then:
+
 ```bash
 gh pr ready
 ```
@@ -815,8 +864,8 @@ Before reporting completion, verify ALL phases executed:
 
 - Phase 1: Issue fetched; workpad created as the **first GitHub write** (before the branch) with run link, `## Progress` checklist, and Acceptance Criteria mirrored; branch exists and the workpad `Branch` line is filled; Setup ticked in `## Progress`
 - Phase 2: For `bug`-labelled issues, reproduction signal recorded; if the issue spans multiple PRs, the 2.2.5 scope-adjustment rule was applied and the workpad's Acceptance Criteria section now contains only in-scope items; the 2.3.0 changed-contract sweep (re-run after any merge/rebase) and the 2.3.4 boundary-assumption sweep both ran over the diff — each cross-boundary claim verified against its source of truth, or routed to `(post-merge)` with a reflection note; code committed and pushed
-- Phase 3: Draft PR created, `/simplify` ran (fixes committed if any), `/devflow:review-and-fix` ran, acceptance criteria gate passed (PR still draft)
-- Phase 4: If any criteria were deferred in 2.2.5, follow-up issue(s) filed in 4.0; if /devflow:review-and-fix emitted a deferrals manifest, follow-up issue(s) filed in 4.0.5 and the manifest hydrated; docs updated and "Documented" label applied; PR description generated via `/pr-description`; PR marked ready; every *applicable* `## Progress` item ticked (the `reproduction captured` sub-item is bug-only); workpad finalized with `Status: Complete` (🎉) and the 🎉 outcome reaction emitted on the triggering comment
+- Phase 3: Draft PR created; the Phase 2.6 version decision applied in 3.1.5 if it called for a bump (`plugin.json` + matching `CHANGELOG.md`, committed before the review pass); `/simplify` ran (fixes committed if any); `/devflow:review-and-fix` ran; acceptance criteria gate passed (PR still draft)
+- Phase 4: If any criteria were deferred in 2.2.5, follow-up issue(s) filed in 4.0; if /devflow:review-and-fix emitted a deferrals manifest, follow-up issue(s) filed in 4.0.5 and the manifest hydrated; docs updated and "Documented" label applied; PR description generated via `/pr-description`; **working tree asserted clean (4.3 backstop), any remainder committed**; PR marked ready; every *applicable* `## Progress` item ticked (the `reproduction captured` sub-item is bug-only); workpad finalized with `Status: Complete` (🎉) and the 🎉 outcome reaction emitted on the triggering comment
 
 Verify each `Status` PATCH actually landed at the time it was issued (see the Update protocol's "Always verify a PATCH that changes `Status` actually landed" rule). If a phase was skipped or a `Status` PATCH didn't land, go back and complete it now. In particular:
 

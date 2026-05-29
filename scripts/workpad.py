@@ -226,6 +226,16 @@ def cmd_new_body(args):
     seed_ts = now_dt.strftime('%H:%M:%S')
     branch = f'`{args.branch}`' if args.branch else '_(creating…)_'
     run = args.run_link or '_(local run)_'
+    # The reproduction sub-item is bug-only. It renders by default because the
+    # `gate` job creates the workpad without knowing the issue's labels, so the
+    # default must not drop it; the local fresh-issue path (Phase 1.3) passes
+    # --no-reproduction for non-bug issues to keep the Progress list free of a
+    # permanently-unticked row.
+    repro = (
+        ''
+        if getattr(args, 'no_reproduction', False)
+        else '  - [ ] reproduction captured (bug issues only)\n'
+    )
     sys.stdout.write(f"""{marker}
 # DevFlow Workpad — Issue #{args.issue}
 
@@ -239,8 +249,7 @@ def cmd_new_body(args):
 - [ ] **Setup** — branch & workpad
   - {seed_ts} — /devflow:implement run started
 - [ ] **Implement**
-  - [ ] reproduction captured (bug issues only)
-  - [ ] code + sweeps
+{repro}  - [ ] code + sweeps
 - [ ] **Review**
   - [ ] `/simplify`
   - [ ] `review-and-fix`
@@ -894,6 +903,10 @@ def main():
                         '"_(local run)_" placeholder when omitted.')
     s.add_argument('--branch', metavar='VALUE', default=None,
                    help='Branch name. Defaults to a "_(creating…)_" placeholder.')
+    s.add_argument('--no-reproduction', action='store_true',
+                   help='Omit the bug-only "reproduction captured" sub-item. '
+                        'Pass for non-bug issues; the line renders by default so '
+                        'the label-agnostic gate job keeps it.')
     s.add_argument('--marker', default=None, help=_marker_help)
     s.set_defaults(func=cmd_new_body)
 
