@@ -489,6 +489,21 @@ assert_eq "scaffold-migration: non-object agent_overrides emits the skip breadcr
   "$(printf '%s' "$SC_AO_BAD_OUT" | grep -q 'agent_overrides is present but not an object' && echo yes || echo no)"
 rm -rf "$SC_AO_BAD"
 
+# 6c-bis. devflow_review ITSELF is a non-object (a string). It is valid JSON (so it
+#     passes the jq -e . gate), but `.devflow_review.agent_overrides` then ERRORS
+#     rather than yielding null. The breadcrumb probe must surface that as its own
+#     specific "could not inspect ... (jq error ...)" line — not fold the error into
+#     "null" and stay silent (the silent-failure-hunter gap). The scaffold still
+#     exits 0 (best-effort) and leaves the malformed value untouched.
+SC_DR_BAD="$(mktemp -d)"; mkdir -p "$SC_DR_BAD/.devflow"
+printf '%s' '{"devflow_review":"oops"}' > "$SC_DR_BAD/.devflow/config.json"
+SC_DR_BAD_OUT="$(bash "$SC" "$SC_DR_BAD" 2>&1)"; SC_DR_BAD_RC=$?
+assert_eq "scaffold-migration: non-object devflow_review → scaffold still exits 0 (best-effort)" \
+  "0" "$SC_DR_BAD_RC"
+assert_eq "scaffold-migration: non-object devflow_review emits the probe-error breadcrumb (not swallowed to 'null')" "yes" \
+  "$(printf '%s' "$SC_DR_BAD_OUT" | grep -q 'could not inspect .devflow_review.agent_overrides' && echo yes || echo no)"
+rm -rf "$SC_DR_BAD"
+
 # 6d. Graft guard: a config that re-pins the deduper to a Haiku id WITHOUT effort
 #     must NOT gain an effort key from the example's Sonnet-4.6+effort deduper
 #     default via the backfill deep-merge (Haiku rejects effort with HTTP 400; an
@@ -509,6 +524,33 @@ assert_eq "scaffold-graft-guard: re-scaffold is a byte-identical quiet no-op" \
 assert_eq "scaffold-graft-guard: quiet no-op emits neither backfill nor cleanup log" "yes" \
   "$(printf '%s' "$SC_GRAFT_OUT" | grep -qE "backfilled newly-added keys|removed unsupported 'effort'" && echo no || echo yes)"
 rm -rf "$SC_GRAFT"
+
+# 6e. Graft-guard PRESERVE branch: a user who pins the deduper to a Haiku id WITH
+#     their OWN effort must have that effort PRESERVED by the backfill (the
+#     graft-guard strips only a *grafted* effort, never the user's) and removed by
+#     the dedicated CLEANUP instead. SC_MIG only asserts the end state (effort
+#     gone), which cannot tell "graft-guard preserved + cleanup stripped" from a
+#     regression where "graft-guard wrongly stripped + cleanup no-op" — both leave
+#     effort absent. Discriminate via the CLEANUP log: it fires only if the effort
+#     SURVIVED the backfill into the cleanup. Start from a COMPLETE example-derived
+#     config so the backfill is otherwise a byte-identical no-op.
+SC_PRESERVE="$(mktemp -d)"; mkdir -p "$SC_PRESERVE/.devflow"
+jq '.devflow_review.agent_overrides["devflow:checklist-deduper"] = {"model":"claude-haiku-4-5-20251001","effort":"low"}' \
+  "$TPL_DIR/config.example.json" > "$SC_PRESERVE/.devflow/config.json"
+SC_PRESERVE_OUT="$(bash "$SC" "$SC_PRESERVE" 2>&1)"
+# The discriminator: the cleanup log fires ⇒ the user's effort survived the backfill
+# (graft-guard left it alone) and the dedicated cleanup is what stripped it. A
+# regression that strips a user's own effort in the backfill would make the backfill
+# log fire and the cleanup a silent no-op — failing this assertion.
+assert_eq "scaffold-graft-guard: user's OWN Haiku effort survives backfill and is stripped by the cleanup" \
+  "yes" "$(printf '%s' "$SC_PRESERVE_OUT" | grep -q "removed unsupported 'effort' from Haiku-pinned" && echo yes || echo no)"
+assert_eq "scaffold-graft-guard: preserve-branch sees no backfill rewrite (graft-guard touched nothing)" \
+  "no" "$(printf '%s' "$SC_PRESERVE_OUT" | grep -q 'backfilled newly-added keys' && echo yes || echo no)"
+assert_eq "scaffold-graft-guard: preserve-branch effort ultimately removed" \
+  "false" "$(jq '.devflow_review.agent_overrides["devflow:checklist-deduper"] | has("effort")' "$SC_PRESERVE/.devflow/config.json")"
+assert_eq "scaffold-graft-guard: preserve-branch Haiku model kept through both passes" \
+  "claude-haiku-4-5-20251001" "$(jq -r '.devflow_review.agent_overrides["devflow:checklist-deduper"].model' "$SC_PRESERVE/.devflow/config.json")"
+rm -rf "$SC_PRESERVE"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "shipped agent_overrides: deduper pins Sonnet 4.6 w/ effort; no Haiku override carries effort"

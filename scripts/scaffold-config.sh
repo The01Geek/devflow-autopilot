@@ -187,9 +187,18 @@ if command -v jq >/dev/null 2>&1 && jq -e . "$CONFIG" >/dev/null 2>&1; then
   # Anti-silent-failure breadcrumb: if agent_overrides exists but is not an
   # object (hand-corrupted to an array/string/scalar), the cleanup filter below
   # no-ops via its `else .` arm. Surface that we saw it and skipped, so the
-  # silence is not an ambiguous "nothing to do".
-  ao_type="$(jq -r '.devflow_review.agent_overrides | type' "$CONFIG" 2>/dev/null || printf 'null\n')"
-  if [ "$ao_type" != "object" ] && [ "$ao_type" != "null" ]; then
+  # silence is not an ambiguous "nothing to do". Capture the probe's exit status
+  # (via `|| ao_rc=$?`, which keeps the failing assignment off `set -e`) instead
+  # of folding a jq error into "null" with `|| printf 'null'`: when `devflow_review`
+  # ITSELF is a non-object (e.g. a string), `.agent_overrides` indexing errors
+  # (rc≠0) rather than yielding "null", and the old fold suppressed this very
+  # breadcrumb — leaving only the generic "cleanup failed (jq error)" line below
+  # to (mis)explain a corrupt config. Distinguish probe-error from genuinely-absent.
+  ao_rc=0
+  ao_type="$(jq -r '.devflow_review.agent_overrides | type' "$CONFIG" 2>/dev/null)" || ao_rc=$?
+  if [ "$ao_rc" -ne 0 ]; then
+    log "could not inspect .devflow_review.agent_overrides in $CONFIG (jq error — is devflow_review itself a non-object?); skipping Haiku effort-cleanup."
+  elif [ "$ao_type" != "object" ] && [ "$ao_type" != "null" ]; then
     log "agent_overrides is present but not an object ($ao_type); skipping Haiku effort-cleanup."
   fi
   CLEANUP_TMP="$(mktemp)"
