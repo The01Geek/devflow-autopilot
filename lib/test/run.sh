@@ -271,6 +271,22 @@ assert_eq "max_iterations clamp: SKILL keeps the below-1 floor" "yes" \
 assert_eq "max_iterations clamp: SKILL keeps the default-5 fallback" "yes" \
   "$(grep -qF 'MAX_ITERS=5' "$MAXI_SKILL" && echo yes || echo no)"
 
+# Drift guard: the Phase 2.3 sweep list lives in three places that must stay in
+# sync — the sweep body in implement/SKILL.md, the "Sweep selection" always-run
+# index in the same file, and the rationale table in docs/implement-skill.md. The
+# error-handling & silent-failure sweep (2.3.6) front-loads the Phase 3.3
+# silent-failure-hunter agent; if any of the three loses it the catch reverts to
+# the contingent, inconsistent homing the baseline showed. Pin all three so a
+# half-applied removal fails here instead of silently shipping.
+IMPL_SKILL="$LIB/../skills/implement/SKILL.md"
+IMPL_DOC="$LIB/../docs/implement-skill.md"
+assert_eq "sweep 2.3.6: implement SKILL keeps the sweep body" "yes" \
+  "$(grep -qF '#### 2.3.6 Error-handling & silent-failure sweep' "$IMPL_SKILL" && echo yes || echo no)"
+assert_eq "sweep 2.3.6: implement SKILL lists it in the always-run index" "yes" \
+  "$(grep -qF '**2.3.6** (error-handling & silent-failure)' "$IMPL_SKILL" && echo yes || echo no)"
+assert_eq "sweep 2.3.6: docs/implement-skill.md keeps the rationale table row" "yes" \
+  "$(grep -qF '| 2.3.6 Error-handling & silent-failure |' "$IMPL_DOC" && echo yes || echo no)"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "scaffold-config.sh"
 # ────────────────────────────────────────────────────────────────────────────

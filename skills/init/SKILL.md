@@ -80,10 +80,10 @@ The scaffolder also prints `devflow-detect:` lines from the language auto-detect
 - **`detected: <langs> — config.json already covers them`** — idempotent re-run, nothing changed.
 - **`no known language markers detected`** or **`jq not found …`** — no auto-population happened; the reviewer stays read-only. To make the reviewer build/test PRs they must set `devflow_runner.provision_env: true` and populate the `setup` block (see `config.schema.json` / docs/cloud-setup.md).
 
-Then read the preflight output:
+Then branch on the preflight **exit code** (the durable signal — every line it prints carries the stable `devflow preflight:` prefix, but the wording can change; the exit code won't):
 
-- **`all dependencies present.`** — the local tier is ready to run; nothing to report.
-- **any `devflow preflight: missing …` / `PyYAML not found …` line** — relay it to the user verbatim and tell them to install the gap themselves before running `/devflow:implement` or `/devflow:review`. For the common case (PyYAML missing), the fix is `python3 -m pip install -r requirements.txt` (preflight also prints its own `pip install pyyaml` hint). **Do not run `pip` for them** and **do not treat this as an init failure** — the config was still scaffolded.
+- **Exit 0** (the `devflow preflight: all dependencies present.` line) — the local tier is ready to run; nothing to report.
+- **Non-zero exit** (one or more `devflow preflight: …` lines on stderr — a `missing required tool`, `PyYAML not found`, or `Python 3.11+ required` gap) — relay it to the user verbatim and tell them to install the gap themselves before running `/devflow:implement` or `/devflow:review`. For the common case (PyYAML missing), the fix is `python3 -m pip install -r requirements.txt` (preflight also prints its own `pip install pyyaml` hint). **Do not run `pip` for them** and **do not treat this as an init failure** — the config was still scaffolded.
 
 There is **no trigger label** to create: in the cloud tier, `/devflow:implement` is started by commenting a bare `/devflow:implement <#>` on the issue (a native user event) — not by applying a label. The sender must be an allowed bot or an `allowed_users` collaborator with write access.
 

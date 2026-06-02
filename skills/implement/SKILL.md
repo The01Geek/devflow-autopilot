@@ -243,11 +243,19 @@ Write the issue title (from the `gh issue view` above) to a temp file with the *
 The base branch is **read from config** (`base_branch` in `.devflow/config.json`, default `main`) — never hard-code `main`, so the run branches off whatever trunk the consumer repo actually uses (`master`, `develop`, …):
 
 ```bash
-# config-get.sh exits non-zero with empty stdout on a malformed config / missing node
-# (the `main` default is not applied), so guard the read instead of branching off "".
+# config-get.sh fails two distinct ways, both yielding empty stdout + a non-zero
+# exit, and in neither is the `main` default applied:
+#   - the .devflow/config.json is malformed/unreadable, or
+#   - `node` (the resolver runtime) is missing.
+# So guard the read rather than branch off "". The guard catches only an empty
+# read — it trusts config-get's contract that it prints a fully-resolved value or
+# nothing, never a partial/garbage string.
 BASE=$(${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .base_branch main) || BASE=""
-[ -n "$BASE" ] || { echo "devflow: base_branch read failed; falling back to 'main'" >&2; BASE=main; }
-git fetch origin "$BASE"
+[ -n "$BASE" ] || { echo "devflow: base_branch read failed (malformed config or missing node); falling back to 'main'" >&2; BASE=main; }
+# Fetch the base explicitly with a DevFlow breadcrumb so a bad/offline base is
+# attributable here, not a bare git error downstream — most importantly when the
+# fallback 'main' isn't the consumer's real trunk (a master/develop repo).
+git fetch origin "$BASE" || { echo "devflow: could not fetch base branch 'origin/$BASE' — set base_branch in .devflow/config.json to the repo's real trunk (master/develop/…)" >&2; exit 1; }
 BRANCH=$(${CLAUDE_SKILL_DIR}/../../scripts/branch-for-issue.py $ARGUMENTS --title-file /tmp/devflow-issue-$ARGUMENTS-title.txt)
 git checkout -b "$BRANCH" "origin/$BASE"
 ```
@@ -392,7 +400,7 @@ Now implement the feature yourself. You have full context:
 - The architect's blueprint (if complex) or your own inline plan (if simple)
 - The original issue requirements
 
-**Test-first gate (mandatory when the change is testable).** Before you write implementation code, decide whether the change adds or alters behavior an automated test (unit or integration) can exercise — a function's return value, an API or CLI contract, an exit code, a parser's handling of an input shape, a state transition, a raised error, or an end-to-end path an integration test drives. If it does, write the test **first**, run it, and confirm it **fails for the right reason** (the behavior doesn't exist yet), then implement until it passes. This is the 2.1.5 reproduce-first gate generalized from bugs to features — for a `bug`-labelled issue the failing test you captured in 2.1.5 **already satisfies this gate**; do not write a second one. A test added *after* the code, never seen to fail, encodes whatever the code happens to do rather than what the issue requires — write it first.
+**Test-first gate (mandatory when the change is testable).** Before you write implementation code, decide whether the change adds or alters behavior an automated test (unit or integration) can exercise — a function's return value, an API or CLI contract, an exit code, a parser's handling of an input shape, a state transition, a raised error, or an end-to-end path an integration test drives. If it does, write the test **first**, run it, and confirm it **fails for the right reason** (the behavior doesn't exist yet), then implement until it passes. This is the 2.1.5 reproduce-first gate generalized from bugs to features — but mind what 2.1.5 actually captured: its reproduction signal is **any one of** a failing test, a quoted error log, *or* a recorded shell command. Only when that signal **was a failing test** does it already satisfy this gate (don't write a second one). If 2.1.5 reproduced the bug with a non-test signal (a log or a shell command), there is no failing test yet, so this gate **still applies**: write the failing test now, before implementing the fix. A test added *after* the code, never seen to fail, encodes whatever the code happens to do rather than what the issue requires — write it first.
 
 **When no automated test applies**, there is nothing to assert against: a change whose deliverable is prose, templates, config, or an embedded DSL (jq or shell inside Markdown, a `SKILL.md` procedure), or one with no observable behavior boundary. A change whose behavior emerges only from an end-to-end round trip is **not** this case — an integration test can drive it, so it takes the gate above. Skip the test and rely on the Phase 2.4 adversarial input-shape dry-trace instead — do **not** invent a parallel mechanism.
 
@@ -404,9 +412,9 @@ Write the code. Follow the patterns and conventions described in `CLAUDE.md`. As
 
 - **Deletes** code (a call site, branch, method, file, route, page, or asset) → run **2.3.1**, and **2.3.2** if it deletes a method/file/route/page.
 - **Changes a contract** (a signature, a renamed/moved symbol, a tightened validator, or a routing/branch predicate) → run **2.3.0**.
-- **Always**, whatever the diff's shape → run **2.3.3** (convention), **2.3.4** (boundary-assumption), **2.3.5** (simplification & efficiency).
+- **Always**, whatever the diff's shape → run **2.3.3** (convention), **2.3.4** (boundary-assumption), **2.3.5** (simplification & efficiency), **2.3.6** (error-handling & silent-failure).
 
-This narrows *ceremony*, never *coverage*, and is **fail-safe**: each sweep's heading is authoritative, so if its trigger fires you run it even when this list didn't call it out — if the index ever drifts from a heading, the heading wins (drift can only add a sweep, never skip a warranted one). An add-only diff typically runs just the three always-on sweeps. **Record the diff shape you classified and the sweeps you are running in a workpad `--note`** — the selection is then an auditable commitment a reviewer or the weekly retrospective can check, not a silent skip; a note reading "add-only" on a diff that in fact deleted a file is a visible error, where an unrecorded mental skip is not.
+This narrows *ceremony*, never *coverage*, and is **fail-safe**: each sweep's heading is authoritative, so if its trigger fires you run it even when this list didn't call it out — if the index ever drifts from a heading, the heading wins (drift can only add a sweep, never skip a warranted one). An add-only diff typically runs just the four always-on sweeps. **Record the diff shape you classified and the sweeps you are running in a workpad `--note`** — the selection is then an auditable commitment a reviewer or the weekly retrospective can check, not a silent skip; a note reading "add-only" on a diff that in fact deleted a file is a visible error, where an unrecorded mental skip is not.
 
 For the grep-based sweeps (**2.3.0**, **2.3.2**), don't merely attest you grepped: run the actual `git grep -n` / `grep -rnE` the sweep describes and record a **concise** result via `--note` (the match count plus "all intended", or the specific offending sites) — evidence, not a claim.
 
@@ -499,6 +507,28 @@ After implementing, before running tests, re-read every function your diff added
 Scope and discipline mirror the other 2.3.x sweeps: only touch functions/files the diff already added or changed lines in — never a repo-wide refactor. If a simplification is real but cleanly fixing it is genuinely out of scope (it would balloon the diff into an unrelated refactor), say so explicitly in the workpad notes (`--note`) with the reason rather than leaving it silent. Reuse and altitude are **not** re-litigated here — they were decided in 2.2.4; this sweep is only simplification and efficiency.
 
 Treat avoidable added complexity or wasted work in touched code as a defect in **this** PR, not a `/simplify` problem to be caught downstream.
+
+#### 2.3.6 Error-handling & silent-failure sweep (mandatory)
+
+2.3.0–2.3.5 keep the diff correct, propagated, dead-line-free, and clean. This sweep targets the defect class the Phase 3.3 `silent-failure-hunter` review agent keeps surfacing: an error the code *handles* in a way that hides it — swallowed, over-broadly caught, masked by an unexplained fallback, or reported too vaguely to act on. These ship clean because the happy path works and the suite is green (the failure only fires on an input the tests don't exercise), so they survive `git diff` review and only surface as a Phase 3.3 finding or a production incident. The cheapest place to catch them is here, alongside the other always-on sweeps.
+
+A **silent failure** is any error the code can hit that doesn't leave the caller, the user, or a log a true, actionable account of what went wrong. The recurring kinds, in this repo's idiom:
+
+- **Swallowed error.** A `try/except` that catches and continues, a bash `... || true` / `cmd 2>/dev/null` / `|| echo ""` / unchecked `$?`, or a `jq`/parse step whose failure is discarded — leaving no breadcrumb, or (worse) printing/returning *success* for work that may not have happened. An empty `except:` / `catch {}` is the absolute form and is never acceptable.
+- **Over-broad catch.** `except Exception:` / `except:` (or a bash trap) around more than the one operation whose specific failure you meant to handle, so an *unrelated* error — a typo'd name, a missing dependency, a `KeyboardInterrupt` — hides under the same handler. Catch the narrowest type around the smallest scope.
+- **Unjustified or wrong-direction fallback.** Falling back to a default, the built-in config default, an alternate path, or empty output on failure without recording *that* it fell back and *why* — the reader can't tell a real empty result from a masked failure. A fallback that defaults an *error* to a success-shaped value (an API error read as "passing", a parse error read as "no criteria") is worse: it fails *open*. A fallback is allowed only as documented, intended behavior, it fails toward the safe side, and it still leaves a breadcrumb.
+- **Misdirected or generic breadcrumb.** A best-effort path that *does* emit a message, but a generic one ("error", "failed") that points at the wrong cause — the silent-fail trap CLAUDE.md already calls out for `config-get.sh` / the jq consumers. The breadcrumb must name the *specific* shape that detonated.
+- **Mock/stub leaking past tests.** Production code falling back to a fake/stub/hard-coded value when the real source is unavailable, outside test scaffolding.
+
+After implementing, before running tests, do this sweep:
+
+1. From `git diff --staged -U0` (or `git diff -U0`), list every error-handling site the diff **added or changed**: each `try/except` / `catch`, each `|| true` / `|| echo` / `2>/dev/null` / `set +e`, each `$?` check or swallowed exit code, each fallback/default-on-failure, each `jq`/parse step that can fail, each optional-chaining / `// default` that can skip a failing op. If the diff added none, the sweep is a no-op — record that and move on.
+2. For each site, confirm it does **not** silently fail: the failure is either propagated, or handled with (a) a breadcrumb naming the *specific* cause and (b) — for anything user- or caller-facing — an actionable account of what went wrong. A best-effort exit-0 path still leaves the **specific** breadcrumb, never a generic or misdirected one, and never prints success for work that didn't happen.
+3. Narrow every broad catch to the specific type around the smallest scope. For each catch you keep, enumerate what unexpected errors it could swallow — if that list isn't empty, tighten it.
+4. Justify every fallback: it must be documented/intended behavior, it must fail toward the safe side (never default an error to a success-shaped value), and it must leave a breadcrumb distinguishing a masked failure from a real empty result. Remove any production fallback to a mock/stub.
+5. Fix any silent failure in touched code. If a handler is *genuinely* a best-effort absorber, make that intent explicit in a comment **and** keep its breadcrumb — don't leave it reading as an accidental swallow. If a fix is truly out of scope, say so in a `--note` with the reason rather than leaving it silent for `/devflow:review` to catch.
+
+Scope and discipline mirror the other 2.3.x sweeps: only touch error-handling sites the diff already added or changed — never a repo-wide error-handling audit. Treat a silent failure in touched code as a defect in **this** PR, not a `silent-failure-hunter` finding to be caught downstream.
 
 ### 2.4 Test
 
