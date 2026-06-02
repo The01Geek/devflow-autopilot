@@ -310,6 +310,42 @@ assert_eq "base_branch read: SKILL checks out origin/\$BASE" "yes" \
 assert_eq "base_branch read: SKILL keeps the attributable fetch-failure breadcrumb" "yes" \
   "$(grep -qF 'could not fetch base branch' "$IMPL_SKILL" && echo yes || echo no)"
 
+# Behavioral coverage for the base_branch read+guard (token pins above catch a
+# refactor that DROPS a token, but not a semantic regression in config-get's
+# soft/hard contract that the guard depends on). Mirrors the max_iterations
+# resolver+clamp pattern: exercise config-get's real exit behavior, then the
+# SKILL's inline guard logic against it. Keep byte-aligned with the SKILL block.
+BB_CFG="$(mktemp)"
+printf '%s' '{"base_branch":"develop"}' > "$BB_CFG"
+assert_eq "base_branch: configured value read back verbatim" "develop" \
+  "$("$CG" .base_branch main "$BB_CFG")"
+printf '%s' '{"devflow":{"effort":"high"}}' > "$BB_CFG"
+assert_eq "base_branch: absent key → resolver soft-defaults to main (exit 0)" "main" \
+  "$("$CG" .base_branch main "$BB_CFG")"
+assert_eq "base_branch: missing config file → resolver soft-defaults to main (exit 0)" "main" \
+  "$("$CG" .base_branch main /no/such/config.json)"
+# Hard path: a malformed config must exit NON-ZERO with EMPTY stdout (the default is
+# NOT applied) — this is the exact contract the inline guard relies on. A regression
+# that made config-get emit `main` here would silently mask a malformed-config repo
+# onto main; this assertion fails loudly if that contract ever drifts.
+printf '%s' '{bad json' > "$BB_CFG"
+BB_OUT="$("$CG" .base_branch main "$BB_CFG" 2>/dev/null)"; BB_RC=$?
+assert_eq "base_branch: malformed config → resolver exits non-zero, empty stdout" "nonzero-empty" \
+  "$([ "$BB_RC" -ne 0 ] && [ -z "$BB_OUT" ] && echo nonzero-empty || echo "rc=$BB_RC out='$BB_OUT'")"
+rm -f "$BB_CFG"
+
+# The SKILL's inline empty-read guard (Phase 1.4): an empty OR failed read → 'main'.
+# Mirrors `BASE=$(config-get.sh …) || BASE=""; [ -n "$BASE" ] || BASE=main` so the
+# fallback is exercised as behavior, not just asserted as text.
+base_guard() {
+  local v="$1" rc="${2:-0}"
+  { [ "$rc" -eq 0 ] && [ -n "$v" ]; } && { printf '%s\n' "$v"; return; }
+  printf 'main\n'
+}
+assert_eq "base_branch guard: configured value honored"            "develop" "$(base_guard develop)"
+assert_eq "base_branch guard: empty read (rc 0) → main"            "main"    "$(base_guard '')"
+assert_eq "base_branch guard: hard-failure read (rc≠0, empty) → main" "main" "$(base_guard '' 2)"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "scaffold-config.sh"
 # ────────────────────────────────────────────────────────────────────────────

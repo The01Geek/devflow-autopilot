@@ -256,7 +256,7 @@ BASE=$(${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .base_branch main) || BAS
 # Fetch the base explicitly with a DevFlow breadcrumb so a bad/offline base is
 # attributable here, not a bare git error downstream — most importantly when the
 # fallback 'main' isn't the consumer's real trunk (a master/develop repo).
-git fetch origin "$BASE" || { echo "devflow: could not fetch base branch 'origin/$BASE' — set base_branch in .devflow/config.json to the repo's real trunk (master/develop/…)" >&2; exit 1; }
+git fetch origin "$BASE" || { echo "devflow: could not fetch base branch 'origin/$BASE' — if the base is correct, check network/auth; otherwise set base_branch in .devflow/config.json to the repo's real trunk (master/develop/…)" >&2; exit 1; }
 BRANCH=$(${CLAUDE_SKILL_DIR}/../../scripts/branch-for-issue.py $ARGUMENTS --title-file /tmp/devflow-issue-$ARGUMENTS-title.txt)
 git checkout -b "$BRANCH" "origin/$BASE"
 ```
