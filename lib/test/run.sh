@@ -833,6 +833,34 @@ assert_eq "lpe: empty skill name → exit non-zero" "yes" \
   "$([ "$EMPTY_NAME_RC" -ne 0 ] && echo yes || echo no)"
 assert_eq "lpe: empty skill name → empty stdout" "" "$EMPTY_NAME_OUT"
 
+# Present-but-unreadable file → refused LOUDLY (exit 2 + breadcrumb), never the
+# silent empty no-op the calling skill reads as "proceed unchanged" (which would
+# drop the consumer's extension). Root bypasses the permission bits, so this only
+# asserts for an ordinary user — skip under root rather than reporting a false FAIL.
+printf 'unreadable content' > "$LPE_DIR/.devflow/prompt-extensions/locked.md"
+chmod 000 "$LPE_DIR/.devflow/prompt-extensions/locked.md"
+if [ "$(id -u)" -ne 0 ] && [ ! -r "$LPE_DIR/.devflow/prompt-extensions/locked.md" ]; then
+  LOCK_OUT="$(cd "$LPE_DIR" && bash "$LPE" locked 2>/tmp/devflow-lpe-lock.err)"; LOCK_RC=$?
+  assert_eq "lpe: unreadable present file → exit non-zero (not a silent no-op)" "yes" \
+    "$([ "$LOCK_RC" -ne 0 ] && echo yes || echo no)"
+  assert_eq "lpe: unreadable present file → no content leaked to stdout" "" "$LOCK_OUT"
+  assert_eq "lpe: unreadable present file → breadcrumb names the file" "yes" \
+    "$(grep -qF 'not readable' /tmp/devflow-lpe-lock.err && echo yes || echo no)"
+fi
+chmod 644 "$LPE_DIR/.devflow/prompt-extensions/locked.md"   # restore so rm -rf can clean up
+
+# Intended symlink behavior (pins a DECISION, not an accident): the name guard
+# constrains the model-supplied NAME, not the resolved target. A symlink the repo
+# owner commits inside the consumer-owned extensions dir IS followed by `cat` — the
+# directory's contents are trusted by design. This documents that AC 5's "reads no
+# file outside" is a name-confinement guarantee, not symlink-target confinement.
+printf 'TARGET-OF-SYMLINK' > "$LPE_DIR/symlink-target.txt"
+ln -s "../../symlink-target.txt" "$LPE_DIR/.devflow/prompt-extensions/linked.md"
+LINK_OUT="$(cd "$LPE_DIR" && bash "$LPE" linked 2>/dev/null)"; LINK_RC=$?
+assert_eq "lpe: symlinked extension inside the dir is followed (consumer-owned, by design)" \
+  "TARGET-OF-SYMLINK" "$LINK_OUT"
+assert_eq "lpe: symlinked extension → exit 0" "0" "$LINK_RC"
+
 # AC 8: read-only + idempotent — identical output on re-run, source file unchanged.
 printf 'idem\n' > "$LPE_DIR/.devflow/prompt-extensions/init.md"
 LPE_IDEM1="$(cd "$LPE_DIR" && bash "$LPE" init 2>/dev/null)"
@@ -853,12 +881,22 @@ echo "load-prompt-extension.sh: every skills/*/SKILL.md carries the standardized
 # canonical helper path-suffix AND the skill's own directory name so a copy-paste
 # of the wrong skill name, a half-applied removal, or a path drift all fail here
 # rather than shipping silently. Fails when a future skill omits the step.
+LPE_SKILL_COUNT=0
 for SKILL_DIR in "$LIB"/../skills/*/; do
   SKILL_NAME="$(basename "$SKILL_DIR")"
   SKILL_FILE="$SKILL_DIR/SKILL.md"
+  LPE_SKILL_COUNT=$((LPE_SKILL_COUNT + 1))
   assert_eq "lpe-coverage: $SKILL_NAME/SKILL.md invokes the helper for its own name" "yes" \
     "$([ -f "$SKILL_FILE" ] && grep -qF "load-prompt-extension.sh $SKILL_NAME" "$SKILL_FILE" && echo yes || echo no)"
 done
+# Guard against the loop becoming a vacuous no-op: if the skills/*/ glob ever
+# matched nothing (a path typo, a restructure, a wrong CWD), the loop above would
+# run zero assertions and the drift guard would silently pass. The guard's entire
+# value is catching a future skill that ships without the step, so assert it
+# actually enumerated the skills (>0; floor matches the current 16, kept as ≥1 so
+# adding a skill never trips it).
+assert_eq "lpe-coverage: enumeration is non-vacuous (skills/*/ glob matched)" "yes" \
+  "$([ "$LPE_SKILL_COUNT" -ge 1 ] && echo yes || echo no)"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "shipped agent_overrides: deduper pins Sonnet 4.6 w/ effort; no Haiku override carries effort"

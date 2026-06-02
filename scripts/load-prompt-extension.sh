@@ -21,10 +21,14 @@
 # text as additional instructions appended to the end of its own prompt.
 #
 # SKILL_NAME is validated BEFORE any filesystem access: a value that is empty or
-# contains a '/' character or a '..' sequence is rejected (exit 2), so the
-# resolved path can never escape .devflow/prompt-extensions/. (The file's own
-# contents are consumer-owned trusted prose by design; only the model-supplied
-# name is constrained here.)
+# contains a '/' character or a '..' sequence is rejected (exit 2). This
+# constrains the *name* — so the model-executed argument can never name a file
+# outside .devflow/prompt-extensions/ — NOT the resolved target: a symlink the
+# repo owner commits inside that directory is still followed by `cat`. That is by
+# design — the directory's contents are consumer-owned trusted prose, and a
+# consumer who symlinks outward is only reaching into their own repo. The argument
+# is the only attacker-influenceable input (a skill could be coaxed to pass an
+# unexpected value); the file's bytes are trusted.
 #
 # Plain POSIX-portable shell, no GNU-only flags — runs on macOS/BSD without GNU
 # coreutils. `cat` reproduces the file's bytes exactly, adding or stripping no
@@ -32,7 +36,10 @@
 #
 # Exit codes:
 #   0  file printed verbatim, or absent/empty (no-op)
-#   2  bad arguments (missing SKILL_NAME, or it contains '/' or '..')
+#   2  bad arguments (missing SKILL_NAME, or it contains '/' or '..'), OR the named
+#      extension file exists but is unreadable — refused loudly rather than left to
+#      a bare `cat` error that the calling skill would mistake for the empty no-op,
+#      silently dropping the consumer's customization
 
 set -euo pipefail
 
@@ -56,6 +63,15 @@ ext_file=".devflow/prompt-extensions/${skill}.md"
 
 # Absent → no-op (nothing printed, exit 0). Present → emit verbatim. An empty
 # file naturally prints nothing. -f also rules out a directory at that path.
+# A present-but-unreadable file is refused loudly (exit 2) rather than letting a
+# bare `cat` failure under `set -e` masquerade as the empty no-op the calling
+# skill treats as "proceed unchanged" — that would silently drop the consumer's
+# extension. (Note: a process running as root bypasses the permission bits, so
+# this guard only fires for an ordinary user, which is the real-world case.)
 if [ -f "$ext_file" ]; then
+    if [ ! -r "$ext_file" ]; then
+        echo "load-prompt-extension.sh: '$ext_file' exists but is not readable; refusing to silently skip a consumer extension (fix its permissions)" >&2
+        exit 2
+    fi
     cat "$ext_file"
 fi
