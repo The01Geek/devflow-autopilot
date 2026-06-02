@@ -76,21 +76,78 @@ Checkbox items (`- [ ]`), each a **single unconditional, testable assertion**:
 Describe the **one** approach the user chose — not a comparison of candidates.
 - **Approach** — the decided design: the specific files to touch and how the change fits.
 - **Code Patterns** — patterns already used in this codebase to mirror.
-- **Testing Strategy** — classify against test automation first, then state the plan so
-  the implementer inherits a clear test-first expectation:
-  - **Can an automated test exercise this change?** — any automated test, not only a unit
-    test: a return value, an API/CLI contract, an exit code, a parser's handling of an
-    input shape, a state transition, a raised error, or an end-to-end path an integration
-    test can drive. If any such boundary exists, the change is covered by test automation.
-  - **If automatable:** name the specific assertion to write **before** the code (unit or
-    integration, whichever fits the boundary) — it must fail first for the right reason
-    (the behavior does not exist yet), then pass. Tie each assertion back to an Acceptance
-    Criterion above.
-  - **If no automated test applies** (the deliverable is prose, templates, config, or an
-    embedded DSL with no observable behavior boundary): say so with the one-line reason,
-    and name the verification that stands in for a test — the acceptance criteria
-    confirmed by review, or an adversarial trace of the input shapes the change must
-    survive.
+- **Testing Strategy** — the implementer must inherit a concrete, test-first plan, not a
+  vague intent. Build it in three moves: **(1) classify the boundary, (2) walk the coverage
+  dimensions, (3) commit to named assertions tied to ACs.** The plan you write is *decided*
+  — the no-options rule still applies here: state what **will** be tested, never "we could
+  test X or Y." The dimension list below is a checklist *for you while drafting*; it does
+  not get pasted into the issue. What lands in the issue is the chosen assertions.
+
+  **Move 1 — Classify the test boundary.** Can an automated test exercise this change? Any
+  automated test counts, not only a unit test: a return value, an API/CLI contract, an exit
+  code, a parser's handling of an input shape, a state transition, a raised error, or an
+  end-to-end path an integration test can drive. If any such boundary exists, the change is
+  covered by test automation. Then **name the test level(s)** deliberately — more than one
+  often applies: a pure helper (e.g. an RFC-4180 quoting function) earns a unit test *and*
+  the endpoint that calls it earns an integration test. Say both; do not collapse them.
+
+  **Move 2 — Walk the coverage dimensions.** For each dimension below, either include
+  concrete cases or let it drop because it genuinely does not apply — a dimension's absence
+  is a *decision*, not an oversight. The Acceptance Criteria above are the floor, not the
+  ceiling: most ACs spell out only the happy path, so the test plan routinely adds cases the
+  ACs never named.
+  - **Happy path** — the primary decided behavior for each AC.
+  - **Boundary & degenerate inputs** — empty / zero / one / max: empty collection, first and
+    last element, off-by-one edges, page 0 and past-the-end, size and length limits, empty
+    string vs. null vs. missing. (The CSV export with *zero* responses still emits a header
+    row; pagination is exercised at page 0, the exact-multiple page, and the partial final
+    page — these are where off-by-ones hide.)
+  - **Error & failure paths** — every error the change can raise or must reject: malformed
+    input, missing resource (404), unauthenticated vs. unauthorized (401 vs. 403), conflict,
+    downstream/dependency failure. Assert the *specific* failure (status, error type,
+    message contract), not merely "it errors."
+  - **Adversarial / malformed input** — values crafted to break parsing or escaping:
+    delimiter/quote/newline injection (RFC-4180), Unicode / non-ASCII / encoding (UTF-8,
+    BOM), oversized or deeply-nested payloads, and every hostile shape a parser or config
+    consumer must survive without detonating.
+  - **State, concurrency & idempotency** — re-running the operation, concurrent callers,
+    partial-failure rollback, ordering, and double-fire. Assert the invariant still holds.
+  - **Scale / performance** — only when an AC implies it (streaming vs. buffering, 100k+
+    rows, query-count ceilings). Assert the *property* (no full-collection buffering, bounded
+    query count), not a brittle wall-clock number.
+  - **Security / authorization** — ownership and tenant isolation, and that secrets or other
+    tenants' data are never exposed, whenever the change touches an access boundary.
+
+  **Move 3 — Commit to named assertions.**
+  - **Every AC maps to at least one named assertion, and every assertion maps back to an
+    AC** — no orphans in either direction. If an AC cannot be pinned by any assertion, it is
+    not testable as written: tighten it, or it belongs in `## 🚫 Blocked`.
+  - Each assertion is **test-first**: written before the code, it must fail first *for the
+    right reason* — and spell that reason out. For a *feature*, the right reason is that the
+    behavior does not exist yet. **For a bug fix, the right reason is that the test
+    reproduces the reported defect** — the regression test must fail against today's code by
+    exhibiting the exact wrong behavior (the dropped last row, the off-by-one), then pass
+    after the fix. "Behavior doesn't exist yet" is the wrong framing for a bug; the wrong
+    behavior already exists.
+  - Name the **fixtures / test doubles** the failing test needs, and what must **not** be
+    mocked — never mock the unit under test or the boundary the assertion is proving.
+  - **Don't test the framework.** Assert observable behavior (the CSV bytes round-trip
+    through a standard parser, the row count, the raised error type), not internal wiring or
+    library internals (a specific transport header the framework sets, a private call count)
+    *unless that wiring is itself the AC*.
+  - **Guarantee-class changes** (the deterministic backstop / hook / gate mechanisms on the
+    Step 2 strength ladder): the test must prove the guarantee holds **on the path where the
+    actor skipped the manual step** — that is the entire reason the mechanism exists. Assert
+    it fires (and is idempotent) when a human or agent *forgot* the cooperative step, not
+    only when everyone cooperated.
+
+  **If no automated test applies** — the deliverable is prose, marketing copy, pure config
+  with no consumer behavior, or a DSL with no observable boundary — say so with the one-line
+  reason, then give the stand-in as a **reproducible verification**: a numbered manual
+  checklist or an adversarial trace of the input shapes the change must survive, each item
+  tied to an AC and concrete enough that a second reviewer reaches the same verdict.
+  "Confirmed by review" alone is not a plan — state *what* the reviewer checks and *how they
+  know it passed.*
 - **Documentation Needed** — what doc updates the change requires.
 - **Potential Gotchas** — pitfalls and architectural constraints (these are warnings, not
   unresolved choices).
@@ -126,7 +183,7 @@ incomplete issues.
 - [ ] Technical context cites real file paths / class names from this project
 - [ ] Acceptance criteria are measurable, testable, and unconditional
 - [ ] Implementation notes describe a single chosen approach
-- [ ] Testing Strategy classifies test-automation coverage and states the test-first expectation (or names the stand-in verification when no automated test applies)
+- [ ] Testing Strategy classifies the boundary + level, walks the coverage dimensions (boundary/error/adversarial/state/scale/security as they apply), and gives test-first assertions with every AC mapped to ≥1 assertion and no orphan assertions — bug fixes reproduce the defect first; guarantee-class changes test the skipped-step path; or it names a reproducible stand-in verification when no automated test applies
 - [ ] **No-options gate passed**: no choice/hedge/deferral language outside `## 🚫 Blocked`
 - [ ] Any unresolved decision is in `## 🚫 Blocked`, phrased as a question — nowhere else
 - [ ] Edge cases and error handling are considered
