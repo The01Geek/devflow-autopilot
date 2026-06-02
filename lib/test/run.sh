@@ -758,13 +758,16 @@ assert_eq "scaffold-pe: .devflow/prompt-extensions/ created" "yes" \
   "$([ -d "$SC_PE/.devflow/prompt-extensions" ] && echo yes || echo no)"
 assert_eq "scaffold-pe: commented example file created" "yes" \
   "$([ -f "$SC_PE/.devflow/prompt-extensions/create-issue.md.example" ] && echo yes || echo no)"
-# The example carries explanatory comment text (not an empty placeholder).
-assert_eq "scaffold-pe: example file is non-empty / commented" "yes" \
-  "$([ -s "$SC_PE/.devflow/prompt-extensions/create-issue.md.example" ] && echo yes || echo no)"
+# The example carries explanatory comment text — verify it actually opens an
+# HTML comment block (stronger than a bare non-empty check, which its name implies).
+assert_eq "scaffold-pe: example file is a commented block" "yes" \
+  "$(grep -qF '<!--' "$SC_PE/.devflow/prompt-extensions/create-issue.md.example" && echo yes || echo no)"
 # Inert: no live `<skill>.md` is scaffolded (only the .example template), so the
-# no-op path is the default until a consumer deliberately drops a real file.
+# no-op path is the default until a consumer deliberately drops a real file. Use a
+# glob + `[ -e ]` rather than spawning `ls` to test for existence; with nullglob
+# off, an unmatched glob leaves the literal pattern in "$1", which `[ -e ]` rejects.
 assert_eq "scaffold-pe: example is inert (no live <skill>.md present)" "no" \
-  "$(ls "$SC_PE/.devflow/prompt-extensions/"*.md >/dev/null 2>&1 && echo yes || echo no)"
+  "$(set -- "$SC_PE/.devflow/prompt-extensions/"*.md; [ -e "$1" ] && echo yes || echo no)"
 # Idempotent: a second run leaves the example byte-identical (guards the
 # `if [ ! -d ]` create guard against re-writing on every run).
 SC_PE_EX1="$(cat "$SC_PE/.devflow/prompt-extensions/create-issue.md.example")"

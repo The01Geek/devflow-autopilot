@@ -127,7 +127,7 @@ if [ ! -d "$EXTENSIONS_DIR" ]; then
   # forgot to drop the .example suffix would inject no actionable instruction.
   printf '%s\n' \
     '<!--' \
-    'DevFlow prompt-extension example (issue #84).' \
+    'DevFlow prompt-extension example.' \
     '' \
     'This directory holds consumer-owned prompt extensions for DevFlow skills.' \
     'Drop a file named `<skill-name>.md` here and its contents are appended' \
@@ -140,17 +140,10 @@ if [ ! -d "$EXTENSIONS_DIR" ]; then
     'implement, review, review-and-fix, pr-description, init, the docs* family,' \
     'and the retrospective* family.' \
     '' \
-    'To activate, copy this file to `create-issue.md` (drop the .example suffix)' \
-    'and replace this comment with your own instructions.' \
-    '' \
-    'Worked example — list applicable Azure DevOps test cases in every issue:' \
-    'register a project-scoped Azure DevOps MCP server in your repo .mcp.json,' \
-    'then put an instruction like the following in create-issue.md. MCP tools are' \
-    'model-invoked from prose, so tell the model to CALL the tool explicitly:' \
-    '' \
-    '  When building the issue body, call the Azure DevOps MCP server to fetch the' \
-    '  test cases applicable to this work item and list them under a new' \
-    '  "## Applicable Azure DevOps Test Cases" section.' \
+    'To activate, copy this file to `<skill-name>.md` (e.g. create-issue.md),' \
+    'drop the .example suffix, and replace this comment with your own' \
+    'instructions. For a worked example, see the "Extending skills with prompt' \
+    'extensions" section in docs/DEVFLOW_SYSTEM_OVERVIEW.md.' \
     '-->' > "$EXTENSIONS_DIR/create-issue.md.example"
   log "created $EXTENSIONS_DIR/ with a commented example (rename create-issue.md.example to <skill>.md to activate)"
 fi
