@@ -271,6 +271,81 @@ assert_eq "max_iterations clamp: SKILL keeps the below-1 floor" "yes" \
 assert_eq "max_iterations clamp: SKILL keeps the default-5 fallback" "yes" \
   "$(grep -qF 'MAX_ITERS=5' "$MAXI_SKILL" && echo yes || echo no)"
 
+# Drift guard: the Phase 2.3 sweep list lives in three places that must stay in
+# sync — the sweep body in implement/SKILL.md, the "Sweep selection" always-run
+# index in the same file, and the rationale table in docs/implement-skill.md. The
+# error-handling & silent-failure sweep (2.3.6) front-loads the Phase 3.3
+# silent-failure-hunter agent; if any of the three loses it the catch reverts to
+# the contingent, inconsistent homing the baseline showed. Pin all three so a
+# half-applied removal fails here instead of silently shipping.
+IMPL_SKILL="$LIB/../skills/implement/SKILL.md"
+IMPL_DOC="$LIB/../docs/implement-skill.md"
+assert_eq "sweep 2.3.6: implement SKILL keeps the sweep body" "yes" \
+  "$(grep -qF '#### 2.3.6 Error-handling & silent-failure sweep' "$IMPL_SKILL" && echo yes || echo no)"
+assert_eq "sweep 2.3.6: implement SKILL lists it in the always-run index" "yes" \
+  "$(grep -qF '**2.3.6** (error-handling & silent-failure)' "$IMPL_SKILL" && echo yes || echo no)"
+assert_eq "sweep 2.3.6: docs/implement-skill.md keeps the rationale table row" "yes" \
+  "$(grep -qF '| 2.3.6 Error-handling & silent-failure |' "$IMPL_DOC" && echo yes || echo no)"
+# Heading/index/table pins above catch a half-applied *removal* but not a semantic
+# gutting that leaves the heading while deleting the sweep's load-bearing steps.
+# Pin one step token unique to the 2.3.6 procedure (the false-success rule) so a
+# reviewer who guts the steps but keeps the heading still trips the suite.
+assert_eq "sweep 2.3.6: implement SKILL keeps the false-success step rule" "yes" \
+  "$(grep -qF "never prints success for work that didn't happen" "$IMPL_SKILL" && echo yes || echo no)"
+
+# Drift guard: the base_branch read in implement/SKILL.md Phase 1.4 is the skill's
+# one piece of load-bearing inline bash — like the max_iterations clamp above, the
+# tokens it relies on can be silently broken by a SKILL edit (drop the `|| BASE=""`
+# and `git fetch origin ""` runs; drop the fetch guard and a bad base fails with a
+# bare git error instead of an attributable DevFlow breadcrumb). Pin the tokens so
+# a refactor of the block fails here rather than shipping a silent regression.
+assert_eq "base_branch read: SKILL reads via config-get with the main default" "yes" \
+  "$(grep -qF 'config-get.sh .base_branch main' "$IMPL_SKILL" && echo yes || echo no)"
+assert_eq "base_branch read: SKILL guards the empty read" "yes" \
+  "$(grep -qF '[ -n "$BASE" ]' "$IMPL_SKILL" && echo yes || echo no)"
+assert_eq "base_branch read: SKILL fetches origin/\$BASE (not hard-coded main)" "yes" \
+  "$(grep -qF 'git fetch origin "$BASE"' "$IMPL_SKILL" && echo yes || echo no)"
+assert_eq "base_branch read: SKILL checks out origin/\$BASE" "yes" \
+  "$(grep -qF 'git checkout -b "$BRANCH" "origin/$BASE"' "$IMPL_SKILL" && echo yes || echo no)"
+assert_eq "base_branch read: SKILL keeps the attributable fetch-failure breadcrumb" "yes" \
+  "$(grep -qF 'could not fetch base branch' "$IMPL_SKILL" && echo yes || echo no)"
+
+# Behavioral coverage for the base_branch read+guard (token pins above catch a
+# refactor that DROPS a token, but not a semantic regression in config-get's
+# soft/hard contract that the guard depends on). Mirrors the max_iterations
+# resolver+clamp pattern: exercise config-get's real exit behavior, then the
+# SKILL's inline guard logic against it. Keep byte-aligned with the SKILL block.
+BB_CFG="$(mktemp)"
+printf '%s' '{"base_branch":"develop"}' > "$BB_CFG"
+assert_eq "base_branch: configured value read back verbatim" "develop" \
+  "$("$CG" .base_branch main "$BB_CFG")"
+printf '%s' '{"devflow":{"effort":"high"}}' > "$BB_CFG"
+assert_eq "base_branch: absent key → resolver soft-defaults to main (exit 0)" "main" \
+  "$("$CG" .base_branch main "$BB_CFG")"
+assert_eq "base_branch: missing config file → resolver soft-defaults to main (exit 0)" "main" \
+  "$("$CG" .base_branch main /no/such/config.json)"
+# Hard path: a malformed config must exit NON-ZERO with EMPTY stdout (the default is
+# NOT applied) — this is the exact contract the inline guard relies on. A regression
+# that made config-get emit `main` here would silently mask a malformed-config repo
+# onto main; this assertion fails loudly if that contract ever drifts.
+printf '%s' '{bad json' > "$BB_CFG"
+BB_OUT="$("$CG" .base_branch main "$BB_CFG" 2>/dev/null)"; BB_RC=$?
+assert_eq "base_branch: malformed config → resolver exits non-zero, empty stdout" "nonzero-empty" \
+  "$([ "$BB_RC" -ne 0 ] && [ -z "$BB_OUT" ] && echo nonzero-empty || echo "rc=$BB_RC out='$BB_OUT'")"
+rm -f "$BB_CFG"
+
+# The SKILL's inline empty-read guard (Phase 1.4): an empty OR failed read → 'main'.
+# Mirrors `BASE=$(config-get.sh …) || BASE=""; [ -n "$BASE" ] || BASE=main` so the
+# fallback is exercised as behavior, not just asserted as text.
+base_guard() {
+  local v="$1" rc="${2:-0}"
+  { [ "$rc" -eq 0 ] && [ -n "$v" ]; } && { printf '%s\n' "$v"; return; }
+  printf 'main\n'
+}
+assert_eq "base_branch guard: configured value honored"            "develop" "$(base_guard develop)"
+assert_eq "base_branch guard: empty read (rc 0) → main"            "main"    "$(base_guard '')"
+assert_eq "base_branch guard: hard-failure read (rc≠0, empty) → main" "main" "$(base_guard '' 2)"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "scaffold-config.sh"
 # ────────────────────────────────────────────────────────────────────────────

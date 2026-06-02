@@ -22,6 +22,16 @@ This is the single shared scaffolder — the same script `install.sh` uses, so t
 
 It resolves the templates from the installed plugin (`${CLAUDE_SKILL_DIR}/../../.devflow/`), so it works whether DevFlow was installed via the marketplace or vendored by `install.sh`.
 
+## Then: verify the runtime dependencies are present
+
+The scaffolder needs only `jq`, but **running** DevFlow's skills needs more — and **PyYAML is the one dependency people miss**, because `/plugin install` resolves companion *plugins* and never runs `pip`. Config itself is JSON (read by a Node resolver, no PyYAML), so a missing PyYAML doesn't break scaffolding — but it silently degrades the runtime Python helpers that parse YAML blocks in PR/issue bodies (`match-deferrals.py`, `workpad.py`). So after scaffolding, run the preflight check and surface any gap:
+
+```bash
+bash "${CLAUDE_SKILL_DIR}/../../lib/preflight.sh"
+```
+
+This verifies `git`, `gh`, `jq`, `python3` (>=3.11), and **PyYAML**, printing an actionable line per missing item and exiting non-zero if any is absent. It's **advisory** — scaffolding already succeeded, so a non-zero exit here is a dependency gap to *report*, not an init failure. **Never run `pip` yourself**: DevFlow deliberately keeps `pip` out of the plugin/init path, so relay the install command and let the user run it (see "After running"). Read the result and respond per the matching branch below.
+
 ## Then: enrich the `setup` block by exploring the repo
 
 The scaffolder's language detection is a **deterministic floor** (marker file → known tool list + install line). It cannot infer a project's **service dependencies, runtime versions, or extensions** — those need judgement, which is your job. After it runs, **read the repo and fill in the `setup` fields a marker→list table can't**, editing `.devflow/config.json` directly (it's schema-validated; see `config.schema.json` for every field). Add **only what the project's tests actually need** — each addition runs in the cloud tier.
@@ -69,6 +79,11 @@ The scaffolder also prints `devflow-detect:` lines from the language auto-detect
 - **`detected: <langs> — merged …`** — build/test tools for those languages were added to `config.json`. **Tell the user to review the additions before committing.** The `devflow_runner.allowed_tools` entries reach the automated reviewer only when `devflow_runner.provision_env: true` is set in the base-branch config, which runs the PR author's `setup.install` + build steps on `pull_request_target` with a write token. The flag and the freeform allowlist are read only from the base branch, so a PR can't enable it or grant itself tools, and the runner strips the deny-listed tier regardless; but enabling `provision_env` is opting into running untrusted build steps. If they want the reviewer read-only (the default), leave `provision_env` unset/false. The `devflow.allowed_tools` / `devflow_implement.allowed_tools` entries take effect in their own workflows.
 - **`detected: <langs> — config.json already covers them`** — idempotent re-run, nothing changed.
 - **`no known language markers detected`** or **`jq not found …`** — no auto-population happened; the reviewer stays read-only. To make the reviewer build/test PRs they must set `devflow_runner.provision_env: true` and populate the `setup` block (see `config.schema.json` / docs/cloud-setup.md).
+
+Then branch on the preflight **exit code** (the durable signal — every line it prints carries the stable `devflow preflight:` prefix, but the wording can change; the exit code won't):
+
+- **Exit 0** (the `devflow preflight: all dependencies present.` line) — the local tier is ready to run; nothing to report.
+- **Non-zero exit** (one or more `devflow preflight: …` lines on stderr — a `missing required tool`, `PyYAML not found`, or `Python 3.11+ required` gap) — relay it to the user verbatim and tell them to install the gap themselves before running `/devflow:implement` or `/devflow:review`. For the common case (PyYAML missing), the fix is `python3 -m pip install -r requirements.txt` (preflight also prints its own `pip install pyyaml` hint). **Do not run `pip` for them** and **do not treat this as an init failure** — the config was still scaffolded.
 
 There is **no trigger label** to create: in the cloud tier, `/devflow:implement` is started by commenting a bare `/devflow:implement <#>` on the issue (a native user event) — not by applying a label. The sender must be an allowed bot or an `allowed_users` collaborator with write access.
 

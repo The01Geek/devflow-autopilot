@@ -4,6 +4,21 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.0] — 2026-06-02
+
+### Added
+- **`/devflow:implement` gains a Phase 2.3 error-handling & silent-failure sweep (2.3.6).** A new always-on sweep distills the Phase 3.3 `silent-failure-hunter` review agent into a pre-commit check, so swallowed errors (`try/except` that continues, `... || true` / `2>/dev/null` / `|| echo ""`, discarded `$?`), over-broad `except`/catch blocks, unjustified or **fail-open** fallbacks (defaulting an error to a success-shaped value), mock/stub leaks into production, and generic/misdirected breadcrumbs are caught and fixed where they were written instead of surfacing as a review iteration later. Baseline testing confirmed the class had no home among the existing sweeps — capable agents caught these only when they happened to double as a boundary (2.3.4) or convention (2.3.3) issue, and missed a pure swallow that printed success for work that never happened; 2.3.6 gives the class a deterministic home. See `docs/implement-skill.md`. (#82)
+- **`/devflow:implement` gains a mandatory test-first gate.** Before writing implementation code, Phase 2 now requires deciding whether the change adds or alters behavior an automated test (unit *or* integration) can exercise — a return value, an API/CLI contract, an exit code, a parser's handling of an input shape, a state transition, a raised error, or an end-to-end path — and if so writing the failing test **first** (the 2.1.5 reproduce-first gate generalized from bugs to features; a `bug`-labelled issue already satisfies it only when its 2.1.5 reproduction signal was a failing test, not a log or shell-command repro). When no automated test applies, the run relies on the Phase 2.4 adversarial input-shape dry-trace instead of inventing a parallel mechanism. The call is recorded in the workpad either way, as an auditable commitment a reviewer or the weekly retrospective can catch. (#82)
+- **`/devflow:implement` branches off the configured `base_branch` instead of a hard-coded `main`.** Setup now reads `base_branch` from `.devflow/config.json` (default `main`) via `config-get.sh`, so a consumer repo whose trunk is `master`/`develop` branches and rebases correctly. The Phase 2.3 post-merge re-run, the Error Handling rebase-recovery note, and the pre-ready clean-tree assertion all reference the configured base branch rather than `main`. (#82)
+- **`/devflow:init` now runs the runtime-dependency preflight after scaffolding.** It invokes `lib/preflight.sh` and surfaces any gap — most importantly the easily-missed **PyYAML**, which `/plugin install` never installs — as an advisory report (never an init failure, never running `pip` for the user), with a matching response branch for the preflight output. (#82)
+- **`/devflow:create-issue` issue template gains a standardized Technical-Context scope note and a Testing-Strategy classification.** Every issue now opens Technical Context with fixed boilerplate clarifying that the listed files are starting points, not the full blast radius, and the Testing Strategy classifies the change against test automation (name the test-first assertion when automatable; name the stand-in verification when not), enforced by two new self-check checklist items. (#82)
+
+### Changed
+- **`/devflow:create-issue` raises the clarification cap from ~3 to ~6 rounds**, giving the Definition-of-Ready loop more room before treating remaining gaps as disengagement. (#82)
+
+### Fixed
+- **Slash-command references in the create-issue skill and the system-overview doc are namespaced** (`/docs-verify` → `/devflow:docs-verify`), and a `Blocked`→`Block` verb typo in the disengagement push-back guidance is corrected. (#82)
+
 ## [2.6.0] — 2026-05-29
 
 ### Added
@@ -242,7 +257,7 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 - `/devflow:review-and-fix` — `--push-each-iteration` flag and a PR-mode head-override, so the fix loop reviews its own local commits and can propagate each iteration to the remote PR (and its CI). `/implement` Phase 3.3 sets the flag.
-- `/docs-verify` — `--report-only` mode that returns a findings report without editing, committing, or pushing; `/create-issue` now uses it so issue creation never writes to a protected branch.
+- `/devflow:docs-verify` — `--report-only` mode that returns a findings report without editing, committing, or pushing; `/create-issue` now uses it so issue creation never writes to a protected branch.
 - `/implement` — 2.3.0 changed-contract and 2.3.4 boundary-assumption sweeps over the diff.
 - GitHub Actions "cloud tier" `install.sh` — one-command install/update — plus configurable cloud-workflow runtime provisioning.
 - GitHub autolink-hygiene guidance (no bare `#`+digit unless a real issue/PR reference) across the GitHub-writing skills.
