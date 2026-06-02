@@ -14,6 +14,14 @@ You are the review-and-fix orchestrator. Run /devflow:review's review engine, fi
 
 **Key principle:** You perform fixes DIRECTLY in this session. Do NOT delegate fixes to a subagent. You need full conversation context to apply `superpowers:receiving-code-review` principles (technical evaluation, pushback, verification).
 
+**Consumer prompt extension (load first).** Before doing this skill's work, load any consumer-supplied prompt extension for this skill and honor it. From the repo root, run:
+
+```bash
+${CLAUDE_SKILL_DIR}/../../scripts/load-prompt-extension.sh review-and-fix
+```
+
+If the helper exits non-zero, a consumer extension exists but could not be loaded — surface its stderr message and do not silently proceed as if none existed. If it exits 0 and prints text, treat that text as additional instructions appended to the end of this skill's own prompt for this run — it is upgrade-safe, consumer-owned customization committed under `.devflow/prompt-extensions/`. If it exits 0 and prints nothing, proceed unchanged.
+
 ## When NOT to use
 
 - Not for trivial doc-only PRs — use `/devflow:review` and read the report; auto-fixing prose adds churn for little value. **Exception — engine-surface PRs are never "doc-only" for this purpose.** When the diff touches devflow's own engine surface (`skills/**`, `agents/**`, `lib/**` — including changes that are *entirely* Markdown, like a SKILL.md edit), `/devflow:review`'s Phase 0.5 sets `engine_self_modifying` and forces the **full** checklist + all four always-on Phase-3 agents, precisely because a typo there silently breaks every future review. Those changes are the highest-risk diffs in the repo, not low-value prose — so this doc-only carve-out does **not** apply to them: an all-Markdown engine-surface PR is unambiguously a valid `review-and-fix` target. The carve-out is only for genuinely inert prose (READMEs, `docs/`, comments) outside the engine surface.
@@ -153,6 +161,7 @@ Compute `RUN_ID` **once at loop start, before iteration 1, and hold the literal 
   },
   "shadow": {
     "ran_at": null,
+    "reviewed_sha": null,
     "verdict": null,
     "coverage": null,
     "reviewers_dispatched": [],
@@ -440,11 +449,12 @@ Three outcomes:
 
 #### Shadow workpad record
 
-After Step 2.6 completes (regardless of outcome), append a `shadow` block to the last iter's workpad file (`iter-<N>.json`):
+After Step 2.6 completes (regardless of outcome), append a `shadow` block to the last iter's workpad file (`iter-<N>.json`). Capture `reviewed_sha` as `git rev-parse HEAD` here — the shadow fan-out reviewed the current working tree and nothing is committed between the fan-out and this record, so HEAD is exactly the commit the shadow saw. The Loop Exit *post-shadow edit gate* compares it against HEAD-at-exit to catch any edit committed afterward that the shadow never reviewed.
 
 ```json
 "shadow": {
   "ran_at": "2026-05-17T12:34:00Z",
+  "reviewed_sha": "abc1234",                             /* git rev-parse HEAD captured when this shadow pass ran — the commit the shadow actually reviewed; the Loop Exit post-shadow edit gate asserts HEAD still equals it */
   "verdict": "APPROVE",                                  /* the in-memory shadow_verdict; null on a not_verified (outcome 3) block */
   "coverage": "full",
   /* this example depicts a diff where neither structural gate fired (has_new_types false, no test-relevant change), hence the four always-on agents only — it is NOT the same scenario as the iter-workpad example above, whose has_new_types:true adds type-design-analyzer; the two need not match */
@@ -493,6 +503,8 @@ Apply the `superpowers:receiving-code-review` principles. After Step 2.5, the fi
 3. **Fix one issue at a time — then fix its whole class, not just the reported instance.** After each fix, verify the surrounding code still makes sense. Then generalize the finding to its `defect_signature.kind` and scan the **changed surface** (the files/hunks in this PR's diff, plus any file your fix just touched) for other instances of the same class; fix every sibling in this **same** iteration, applying item 2's severity triage to each. A reviewer reports the one instance it happened to land on, but a bug class usually recurs across the diff (e.g. one unchecked-type jq op flagged → sweep the program for every unguarded `startswith`/index/`// ""`-on-maybe-non-string op). Catching siblings here, deterministically, is far cheaper than letting the next Step 2.6 shadow rediscover them one at a time — each shadow that promotes a missed sibling costs a full extra engine pass plus a promoted fix iteration (see the Cost note under Step 2.6). **Bound the sweep to the PR's own changed surface — never to pre-existing untouched code** (that is what the `out-of-scope` skip and the Loop Exit widens-surface guard are for); a sibling you deliberately choose not to fix is recorded through the same pushback flow as any skip (item 5).
 
 4. **Run tests** after all fixes. Check CLAUDE.md, README, or project configuration for the project's test and lint commands. If tests fail, fix the test failures before continuing.
+
+   **When a fix's deliverable IS a test or guard** (a new regression test, a coverage check, a drift/sync assertion), a green suite is necessary but **not sufficient** — a *vacuous* guard passes too. **Mutation-check it:** temporarily break the thing it is supposed to catch (delete the line/block it pins, flip the condition) and confirm the guard goes **RED**, then restore. A guard you never saw fail may assert nothing — e.g. a substring `grep` that also matches unrelated text elsewhere in the file, so it stays green even when the guarded content is gone (pin a *target-unique* phrase instead). This is TDD's red-before-green applied to the guards you add while fixing; skipping it is how a "fix" ships a test that protects nothing.
 
 5. **Track pushbacks.** For each finding you skipped (whether checklist FAIL or Phase 3 finding), record a structured entry: `{source_file, claim_text, skip_category, evidence}`. `skip_category` MUST be one of the values defined in the **`skip_category` enum (authoritative)** block below — this is the single source of truth for the enum, referenced by both this step and the Loop Exit Pre-mapping gate. Adding a new category requires editing only this block; both consumers read from it.
 
@@ -589,6 +601,27 @@ This step writes the artifact and applies the guard. It does **NOT** file follow
 If the engine's final verdict is **REJECT** AND **every** REJECT trigger (checklist FAILs and Critical Phase 3 findings) was Step-3-skipped with a `skip_category` whose "qualifies for REJECT downgrade?" column in the `skip_category` enum (authoritative) table (Step 3, item 5) reads **Yes** AND survived the widens-surface guard above, **downgrade the final verdict to `APPROVE WITH CAVEAT`** and surface each trigger in the report's `## Downgraded Findings` section with its category label and evidence.
 
 The gate consults that table directly — it does not maintain its own list. If a future edit adds a sixth `skip_category`, mark its downgrade-eligibility in the table row and the gate picks it up automatically. **One trigger whose category reads "No" (or "N/A", or whose category isn't in the table at all) keeps the REJECT.** Similarly, any REJECT trigger that was NOT skipped at all (i.e. the orchestrator addressed it in Step 3 but the post-fix engine re-run still rejects) keeps the REJECT; the downgrade gate is for false-positive REJECTs, not for unfinished work. A trigger whose skip was disqualified by the widens-surface guard above keeps the REJECT for the same reason — the guard found that this PR widens reliance on the deferred bug, so the bug is no longer "pre-existing and unrelated" for review purposes.
+
+### Pre-mapping: Post-shadow edit gate (no unreviewed final edits)
+
+The shadow pass (Step 2.6) is the loop's last independent review, so its verdict is honest only if **nothing changed after it ran**. A fix, tweak, or "advisory flush" committed *after* the shadow reviewed HEAD is unverified — and a green test suite does **not** cover it (a weak/vacuous test passes, and a prose/doc edit has no test at all). This is the same unreviewed-final-edit gap the `APPROVE WITH UNRESOLVED SHADOW FINDINGS` caller contract closes, generalized to **every** post-shadow edit and enforced mechanically here so it cannot ride out on operator memory.
+
+Read `reviewed_sha` from the shadow block of the iteration the final shadow ran on (the most recent iter carrying a `shadow` block; for an `APPROVE WITH UNRESOLVED SHADOW FINDINGS` run, the one-iter-back block). Then compare it to the commit that will actually ship:
+
+```bash
+HEAD_NOW=$(git rev-parse HEAD)
+```
+
+- **`HEAD_NOW` == `reviewed_sha`** → the shadow reviewed exactly what ships; proceed to the verdict unchanged.
+- **`HEAD_NOW` != `reviewed_sha`** (a commit landed after the shadow) → the approve-family verdict is **stale over the post-shadow delta**; do **not** emit it as-is. Run a **bounded delta-review**: dispatch the standard Phase-3 reviewer roster (blinded, per Step 2.6) over just `git diff <reviewed_sha>..HEAD`.
+  - Delta-review clean (no new Critical/Important) → set `reviewed_sha = HEAD_NOW`, record the delta-review on the shadow block, and proceed with the verdict.
+  - Delta-review surfaces a new **Important** (or cannot run at all) → downgrade the chat verdict's `{shadow status}` to `shadow agreement not verified`.
+  - Delta-review surfaces a new **Critical** → the verdict becomes **REJECT**.
+  - **Never emit `shadow agreed, full coverage` over a delta the shadow never saw.**
+
+This gate is also `reviewed_sha`-absent fail-closed: if no shadow block carries a `reviewed_sha` (older/partial workpad), treat the verdict's shadow status as `shadow agreement not verified` rather than assuming the shadow covered HEAD.
+
+**The cheapest way to never trip this gate is the discipline it enforces — make the shadow-reviewed commit the deliverable.** Outcome-1 convergence means *converged*: Suggestion-level findings from the final shadow become notes / follow-up issues, **not** post-convergence code edits. If a final-shadow finding is worth *fixing*, it is worth *re-reviewing* — route it through a promoted iteration (which re-shadows), never a quiet flush after the verdict.
 
 ### Verdict → chat output
 

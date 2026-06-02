@@ -290,8 +290,12 @@ cannot compile, lint, or test it, so a build-dependent claim (e.g. "does
 `npx webpack` still compile after this change?") can only be flagged, not
 verified. (Read-only still covers the live per-run `<!-- devflow:review-progress
 run=<id>-<attempt> -->` progress comment: the `review` tool profile allow-lists `workpad.py`,
-`config-get.sh`, and `efficiency-trace.sh` because those only edit the PR comment
-via `gh` and read the run's state — they never mutate the tree. The
+`config-get.sh`, `load-prompt-extension.sh`, and `efficiency-trace.sh` because those only
+edit the PR comment via `gh`, read config, read the run's state, or `cat` a consumer-owned
+prompt-extension file — they never mutate the tree. (`load-prompt-extension.sh` is the
+standardized preflight every skill now runs — including `review` and `review-and-fix` — so
+it must be on the read-only profile too, or the convention would silently no-op in the cloud
+review tier.) The
 effectiveness-trace **record file** is the one piece gated to writable runs. See
 [`workflow-triggers.md`](workflow-triggers.md) and
 [`efficiency-trace.md`](efficiency-trace.md).) Read-only also covers

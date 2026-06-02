@@ -110,6 +110,44 @@ if [ ! -f "$GITIGNORE" ]; then
   log "wrote $GITIGNORE (ignores ephemeral .devflow/tmp/ scratch)"
 fi
 
+# Consumer-owned prompt-extensions directory (issue #84). Skills load
+# .devflow/prompt-extensions/<skill-name>.md verbatim when present, so a repo can
+# append repo-specific instructions to any skill with no plugin edit. Scaffold the
+# directory plus a single COMMENTED, INERT example so adopters discover the
+# convention; the `.example` suffix keeps it from matching `<skill-name>.md`, so it
+# never injects itself into a real run until a consumer deliberately renames it.
+# Created only when the directory is absent so an adopter's own extensions and edits
+# survive re-runs (same guard discipline as the .gitignore above). The directory is
+# intentionally NOT gitignored (the scoped .devflow/.gitignore ignores only tmp/),
+# so a team commits and shares its extensions.
+EXTENSIONS_DIR="$DEST/prompt-extensions"
+if [ ! -d "$EXTENSIONS_DIR" ]; then
+  mkdir -p "$EXTENSIONS_DIR"
+  # The example is itself a Markdown comment block, so even a verbatim copy that
+  # forgot to drop the .example suffix would inject no actionable instruction.
+  printf '%s\n' \
+    '<!--' \
+    'DevFlow prompt-extension example.' \
+    '' \
+    'This directory holds consumer-owned prompt extensions for DevFlow skills.' \
+    'Drop a file named `<skill-name>.md` here and its contents are appended' \
+    'VERBATIM to the end of that skill prompt every time the skill runs — an' \
+    'upgrade-safe way to add repo-specific instructions without forking the' \
+    'plugin. Marketplace updates never touch this directory. When no file exists' \
+    'for a skill, the skill behaves exactly as it does today (the no-op path).' \
+    '' \
+    '`<skill-name>` is the skill directory name under skills/: create-issue,' \
+    'implement, review, review-and-fix, pr-description, init, the docs* family,' \
+    'and the retrospective* family.' \
+    '' \
+    'To activate, copy this file to `<skill-name>.md` (e.g. create-issue.md),' \
+    'drop the .example suffix, and replace this comment with your own' \
+    'instructions. For a worked example, see the "Extending skills with prompt' \
+    'extensions" section in docs/DEVFLOW_SYSTEM_OVERVIEW.md.' \
+    '-->' > "$EXTENSIONS_DIR/create-issue.md.example"
+  log "created $EXTENSIONS_DIR/ with a commented example (rename create-issue.md.example to <skill>.md to activate)"
+fi
+
 # Backfill newly-introduced keys into an EXISTING config.json. A recursive
 # deep-merge ($example * $config) adds any key present in the example but absent
 # from the repo's config — at any nesting depth (e.g. devflow_runner.provision_env)

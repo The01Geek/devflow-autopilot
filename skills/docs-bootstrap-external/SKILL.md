@@ -8,6 +8,14 @@ description: Use when setting up external documentation for the first time, perf
 >
 > The helper falls back to the default value when the config file is missing or the key is absent. Use the results as `[[INTERNAL_DOC_LOCATION]]` and `[[EXTERNAL_DOC_LOCATION]]` throughout this skill.
 
+**Consumer prompt extension (load first).** Before doing this skill's work, load any consumer-supplied prompt extension for this skill and honor it. From the repo root, run:
+
+```bash
+${CLAUDE_SKILL_DIR}/../../scripts/load-prompt-extension.sh docs-bootstrap-external
+```
+
+If the helper exits non-zero, a consumer extension exists but could not be loaded — surface its stderr message and do not silently proceed as if none existed. If it exits 0 and prints text, treat that text as additional instructions appended to the end of this skill's own prompt for this run — it is upgrade-safe, consumer-owned customization committed under `.devflow/prompt-extensions/`. If it exits 0 and prints nothing, proceed unchanged.
+
 # External Documentation Generator Agent
 
 ## Preflight

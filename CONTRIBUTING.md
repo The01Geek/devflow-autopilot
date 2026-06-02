@@ -50,6 +50,15 @@ auth is required to run them.
   ```
 - The exclusion list in `lib/check-excluded-path.sh` and the copy in
   `skills/retrospective-audit/SKILL.md` must stay in sync.
+- **Every `skills/*/SKILL.md` carries the standardized consumer prompt-extension
+  step.** As a preflight, each skill invokes
+  `${CLAUDE_SKILL_DIR}/../../scripts/load-prompt-extension.sh <skill-name>` and honors
+  any returned text as instructions appended verbatim to the end of its own prompt — the
+  consumer-owned, upgrade-safe `.devflow/prompt-extensions/<skill-name>.md` (absent or
+  empty → no-op). When you **add a new skill**, copy this step verbatim (substituting the
+  new skill's directory name) so it inherits the convention. A coverage test in
+  `lib/test/run.sh` enumerates every `skills/*/SKILL.md` and fails if one omits the step —
+  the same drift guard as the exclusion-list sync above.
 
 ## Cloud-tier workflows
 

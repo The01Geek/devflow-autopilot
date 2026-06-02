@@ -10,6 +10,14 @@ Generate a structured PR description by analyzing the current branch's changes a
 
 **Input:** `$ARGUMENTS` is an optional GitHub issue number. If provided, include a "Resolves #N" link.
 
+**Consumer prompt extension (load first).** Before doing this skill's work, load any consumer-supplied prompt extension for this skill and honor it. From the repo root, run:
+
+```bash
+${CLAUDE_SKILL_DIR}/../../scripts/load-prompt-extension.sh pr-description
+```
+
+If the helper exits non-zero, a consumer extension exists but could not be loaded — surface its stderr message and do not silently proceed as if none existed. If it exits 0 and prints text, treat that text as additional instructions appended to the end of this skill's own prompt for this run — it is upgrade-safe, consumer-owned customization committed under `.devflow/prompt-extensions/`. If it exits 0 and prints nothing, proceed unchanged.
+
 ## Step 1: Gather Context
 
 Run these commands to understand what changed:
