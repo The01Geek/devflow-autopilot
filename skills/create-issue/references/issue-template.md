@@ -47,7 +47,15 @@ title rule; that would be inventing a default the skill forbids.
 - **User Impact** — who benefits and how.
 
 ### Technical Context
-Ground this in the documentation findings passed by the caller:
+Ground this in the documentation findings passed by the caller. Open the section with this
+standardized **scope note**, included **verbatim** in every issue. It is fixed boilerplate,
+not an undecided choice — the no-options gate does not apply to it, so never reword or drop
+it during the no-options check:
+
+> **Scope note:** The files and details below are the known starting points, not the full
+> list. Before implementing, trace the change through the codebase to find every affected
+> call site, consumer, and layer — this issue maps the work, it does not bound it.
+
 - **Relevant Classes/Files** — specific files from the findings (verify before citing).
 - **Architecture Alignment** — how this fits existing patterns.
 - **Dependencies** — the specific service/module/library this depends on. If a library is
@@ -68,7 +76,21 @@ Checkbox items (`- [ ]`), each a **single unconditional, testable assertion**:
 Describe the **one** approach the user chose — not a comparison of candidates.
 - **Approach** — the decided design: the specific files to touch and how the change fits.
 - **Code Patterns** — patterns already used in this codebase to mirror.
-- **Testing Strategy** — how this should be tested.
+- **Testing Strategy** — classify against test automation first, then state the plan so
+  the implementer inherits a clear test-first expectation:
+  - **Can an automated test exercise this change?** — any automated test, not only a unit
+    test: a return value, an API/CLI contract, an exit code, a parser's handling of an
+    input shape, a state transition, a raised error, or an end-to-end path an integration
+    test can drive. If any such boundary exists, the change is covered by test automation.
+  - **If automatable:** name the specific assertion to write **before** the code (unit or
+    integration, whichever fits the boundary) — it must fail first for the right reason
+    (the behavior does not exist yet), then pass. Tie each assertion back to an Acceptance
+    Criterion above.
+  - **If no automated test applies** (the deliverable is prose, templates, config, or an
+    embedded DSL with no observable behavior boundary): say so with the one-line reason,
+    and name the verification that stands in for a test — the acceptance criteria
+    confirmed by review, or an adversarial trace of the input shapes the change must
+    survive.
 - **Documentation Needed** — what doc updates the change requires.
 - **Potential Gotchas** — pitfalls and architectural constraints (these are warnings, not
   unresolved choices).
@@ -100,9 +122,11 @@ incomplete issues.
 - [ ] Title is clear, action-oriented, and scoped to one feature/fix
 - [ ] Problem statement explains the "why" and names who benefits
 - [ ] Desired Behavior is stated as one decided behavior, not a menu
+- [ ] Technical Context opens with the standardized scope note, included verbatim
 - [ ] Technical context cites real file paths / class names from this project
 - [ ] Acceptance criteria are measurable, testable, and unconditional
 - [ ] Implementation notes describe a single chosen approach
+- [ ] Testing Strategy classifies test-automation coverage and states the test-first expectation (or names the stand-in verification when no automated test applies)
 - [ ] **No-options gate passed**: no choice/hedge/deferral language outside `## 🚫 Blocked`
 - [ ] Any unresolved decision is in `## 🚫 Blocked`, phrased as a question — nowhere else
 - [ ] Edge cases and error handling are considered

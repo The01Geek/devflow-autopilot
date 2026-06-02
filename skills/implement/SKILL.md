@@ -240,10 +240,13 @@ Otherwise, create a new branch. The canonical branch name is computed by the hel
 
 Write the issue title (from the `gh issue view` above) to a temp file with the **Write tool** — `/tmp/devflow-issue-$ARGUMENTS-title.txt` — then derive the branch from it. Using `--title-file` instead of passing the title as a positional shell argument avoids breakage when the title contains quotes, backticks, or `$`.
 
+The base branch is **read from config** (`base_branch` in `.devflow/config.json`, default `main`) — never hard-code `main`, so the run branches off whatever trunk the consumer repo actually uses (`master`, `develop`, …):
+
 ```bash
-git fetch origin main
+BASE=$(${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .base_branch main)
+git fetch origin "$BASE"
 BRANCH=$(${CLAUDE_SKILL_DIR}/../../scripts/branch-for-issue.py $ARGUMENTS --title-file /tmp/devflow-issue-$ARGUMENTS-title.txt)
-git checkout -b "$BRANCH" origin/main
+git checkout -b "$BRANCH" "origin/$BASE"
 ```
 
 **Immediately fill the workpad's `Branch` line** (so the placeholder from 1.3 is never left on a completed run):
@@ -386,6 +389,12 @@ Now implement the feature yourself. You have full context:
 - The architect's blueprint (if complex) or your own inline plan (if simple)
 - The original issue requirements
 
+**Test-first gate (mandatory when the change is testable).** Before you write implementation code, decide whether the change adds or alters behavior an automated test (unit or integration) can exercise — a function's return value, an API or CLI contract, an exit code, a parser's handling of an input shape, a state transition, a raised error, or an end-to-end path an integration test drives. If it does, write the test **first**, run it, and confirm it **fails for the right reason** (the behavior doesn't exist yet), then implement until it passes. This is the 2.1.5 reproduce-first gate generalized from bugs to features — for a `bug`-labelled issue the failing test you captured in 2.1.5 **already satisfies this gate**; do not write a second one. A test added *after* the code, never seen to fail, encodes whatever the code happens to do rather than what the issue requires — write it first.
+
+**When no automated test applies**, there is nothing to assert against: a change whose deliverable is prose, templates, config, or an embedded DSL (jq or shell inside Markdown, a `SKILL.md` procedure), or one with no observable behavior boundary. A change whose behavior emerges only from an end-to-end round trip is **not** this case — an integration test can drive it, so it takes the gate above. Skip the test and rely on the Phase 2.4 adversarial input-shape dry-trace instead — do **not** invent a parallel mechanism.
+
+Record the call either way: `workpad.py update $ISSUE_NUMBER --note "test-first: {test path, fails→passes} | {no automated test: <reason>; dry-trace at 2.4}"`. Like the 2.3 sweep-selection note, this is an auditable commitment — a "no automated test" note on a change that plainly added a pure function, a new exit code, or a drivable end-to-end path is a visible error a reviewer or the weekly retrospective can catch, where a silent skip is not.
+
 Write the code. Follow the patterns and conventions described in `CLAUDE.md`. As plan steps complete, tick them off: `workpad.py update $ISSUE_NUMBER --tick-plan "{substring of completed step}"`.
 
 **Sweep selection (run first).** The 2.3.x sweeps below are **not a flat checklist** — classify the diff and run the sweeps its shape warrants (**when in doubt, run them all**). Each sweep's heading states its own authoritative trigger; this list only tells you which to *consider*:
@@ -408,7 +417,7 @@ For the grep-based sweeps (**2.3.0**, **2.3.2**), don't merely attest you greppe
 
 A modify / rename / reroute is not done until grepping for the old symbol, predicate value, stream, or contract returns only the intended sites.
 
-**Re-run this sweep after any merge or rebase of `main`.** A clean *textual* merge is not a clean *semantic* merge: `main` may have added a fixture, call site, or assertion (often from a concurrently-merged PR) that your new contract now rejects, and git merges it cleanly without ever surfacing the conflict. After any `git merge main` / `git pull --rebase` the run performs (including the Error Handling conflict-recovery path), re-run steps 1–3 against the newly-arrived sites and treat any new site that violates the change's contract as a defect in *this* PR. See [`docs/implement-skill.md`](../../docs/implement-skill.md) for why each Phase 2.3 sweep exists.
+**Re-run this sweep after any merge or rebase of the base branch** (the configured `base_branch`, not a hard-coded `main`)**.** A clean *textual* merge is not a clean *semantic* merge: the base branch may have added a fixture, call site, or assertion (often from a concurrently-merged PR) that your new contract now rejects, and git merges it cleanly without ever surfacing the conflict. After any `git merge` / `git pull --rebase` of the base branch the run performs (including the Error Handling conflict-recovery path), re-run steps 1–3 against the newly-arrived sites and treat any new site that violates the change's contract as a defect in *this* PR. See [`docs/implement-skill.md`](../../docs/implement-skill.md) for why each Phase 2.3 sweep exists.
 
 #### 2.3.1 Orphaned-setup sweep (mandatory whenever the change deletes code)
 
@@ -836,7 +845,7 @@ gh pr view --json body --jq '.body' | grep -q "Work in progress — automated re
 git status --porcelain
 ```
 
-If it is non-empty, **do not** mark the PR ready yet. The run began from a clean `origin/main` checkout, so anything dirty here is this run's own work an earlier phase failed to commit (most often the Phase 3.1.5 version bump / `CHANGELOG`). Commit the part that belongs to this PR with the right prefix (`feat:`/`fix:`/`docs:`/`chore:`) and push, and record in `Devflow Reflection` which phase under-committed — surface the gap, don't paper over it. Surface (do not blindly `git add`) any unexpected untracked file. When the tree is already clean this is a no-op — create no empty commit. Only then:
+If it is non-empty, **do not** mark the PR ready yet. The run began from a clean base-branch checkout (`origin/` + the configured `base_branch`), so anything dirty here is this run's own work an earlier phase failed to commit (most often the Phase 3.1.5 version bump / `CHANGELOG`). Commit the part that belongs to this PR with the right prefix (`feat:`/`fix:`/`docs:`/`chore:`) and push, and record in `Devflow Reflection` which phase under-committed — surface the gap, don't paper over it. Surface (do not blindly `git add`) any unexpected untracked file. When the tree is already clean this is a no-op — create no empty commit. Only then:
 
 ```bash
 gh pr ready
@@ -877,7 +886,7 @@ Verify each `Status` PATCH actually landed at the time it was issued (see the Up
 ## Error Handling
 
 - **Empty steps**: If any phase produces no file changes, skip the commit and continue. Do not create empty commits.
-- **Git conflicts**: If a push fails due to conflicts, run `git pull --rebase origin {branch}` and retry once. If it fails again, stop and report the error. After any successful rebase here, re-run the Phase 2.3.0 changed-contract sweep against the newly-arrived sites — a clean textual rebase can still surface a fixture, call site, or assertion from `main` that the change's contract now rejects.
+- **Git conflicts**: If a push fails due to conflicts, run `git pull --rebase origin {branch}` and retry once. If it fails again, stop and report the error. After any successful rebase here, re-run the Phase 2.3.0 changed-contract sweep against the newly-arrived sites — a clean textual rebase can still surface a fixture, call site, or assertion from the base branch that the change's contract now rejects.
 - **Subagent failures**: If a subagent fails or produces no useful output, note the failure in the workpad's `Devflow Reflection` and continue to the next step. Do not retry the same subagent more than once.
 - **Permission denials**: If a Bash command is denied, note it in the workpad and continue to the next step. Never skip an entire phase because of a single denied command.
 - **Commit prefixes**: Use `docs:` for documentation, `feat:` for implementation, `fix:` for review fixes and test fixes.

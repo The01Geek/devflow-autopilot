@@ -4,6 +4,20 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.0] — 2026-06-02
+
+### Added
+- **`/devflow:implement` gains a mandatory test-first gate.** Before writing implementation code, Phase 2 now requires deciding whether the change adds or alters behavior an automated test (unit *or* integration) can exercise — a return value, an API/CLI contract, an exit code, a parser's handling of an input shape, a state transition, a raised error, or an end-to-end path — and if so writing the failing test **first** (the 2.1.5 reproduce-first gate generalized from bugs to features; a `bug`-labelled issue's existing 2.1.5 test already satisfies it). When no automated test applies, the run relies on the Phase 2.4 adversarial input-shape dry-trace instead of inventing a parallel mechanism. The call is recorded in the workpad either way, as an auditable commitment a reviewer or the weekly retrospective can catch.
+- **`/devflow:implement` branches off the configured `base_branch` instead of a hard-coded `main`.** Setup now reads `base_branch` from `.devflow/config.json` (default `main`) via `config-get.sh`, so a consumer repo whose trunk is `master`/`develop` branches and rebases correctly. The Phase 2.3 post-merge re-run, the Error Handling rebase-recovery note, and the pre-ready clean-tree assertion all reference the configured base branch rather than `main`.
+- **`/devflow:init` now runs the runtime-dependency preflight after scaffolding.** It invokes `lib/preflight.sh` and surfaces any gap — most importantly the easily-missed **PyYAML**, which `/plugin install` never installs — as an advisory report (never an init failure, never running `pip` for the user), with a matching response branch for the preflight output.
+- **`/devflow:create-issue` issue template gains a standardized Technical-Context scope note and a Testing-Strategy classification.** Every issue now opens Technical Context with fixed boilerplate clarifying that the listed files are starting points, not the full blast radius, and the Testing Strategy classifies the change against test automation (name the test-first assertion when automatable; name the stand-in verification when not), enforced by two new self-check checklist items.
+
+### Changed
+- **`/devflow:create-issue` raises the clarification cap from ~3 to ~6 rounds**, giving the Definition-of-Ready loop more room before treating remaining gaps as disengagement.
+
+### Fixed
+- **Slash-command references in the create-issue skill and the marketing/overview docs are namespaced** (`/docs-verify` → `/devflow:docs-verify`), and a `Blocked`→`Block` verb typo in the disengagement push-back guidance is corrected.
+
 ## [2.6.0] — 2026-05-29
 
 ### Added
@@ -242,7 +256,7 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 - `/devflow:review-and-fix` — `--push-each-iteration` flag and a PR-mode head-override, so the fix loop reviews its own local commits and can propagate each iteration to the remote PR (and its CI). `/implement` Phase 3.3 sets the flag.
-- `/docs-verify` — `--report-only` mode that returns a findings report without editing, committing, or pushing; `/create-issue` now uses it so issue creation never writes to a protected branch.
+- `/devflow:docs-verify` — `--report-only` mode that returns a findings report without editing, committing, or pushing; `/create-issue` now uses it so issue creation never writes to a protected branch.
 - `/implement` — 2.3.0 changed-contract and 2.3.4 boundary-assumption sweeps over the diff.
 - GitHub Actions "cloud tier" `install.sh` — one-command install/update — plus configurable cloud-workflow runtime provisioning.
 - GitHub autolink-hygiene guidance (no bare `#`+digit unless a real issue/PR reference) across the GitHub-writing skills.

@@ -11,28 +11,28 @@ If `$ARGUMENTS` is empty, ask the user to describe their user story, bug report,
 
 **An issue is the output of resolved decisions — not a place to park unresolved ones.**
 
-Every decision a developer would otherwise have to guess at MUST be resolved by asking the user *before* the issue is written. Whatever the user genuinely will not or cannot resolve goes into one explicit **Blocked** section — never disguised as an "option", a "recommended approach", an "Open Question", a default, or conditional wording scattered through the body. Listing options in the issue body is the failure this skill exists to prevent.
+Every decision a developer would otherwise have to guess at MUST be resolved by asking the user *before* the issue is written. Whatever the user genuinely will not or cannot resolve goes into one explicit **Blocked** section — never disguised as an "option", a "recommended approach", an "Open Question", a default, or conditional wording scattered through the body.
 
 ## Completion checklist (do this first)
 
 This skill is a **pipeline that ends with a created GitHub issue and an offer to start implementation** — not with a documentation report. Before doing anything else, create a TodoWrite todo list with exactly these items:
 
-1. Run `/docs-verify --report-only` and capture its findings report
+1. Run `/devflow:docs-verify --report-only` and capture its findings report
 2. Clarify the user story until the **Definition of Ready** is met (Step 2)
 3. Draft the issue and pass the **no-options gate** (Step 3)
 4. Present the rendered issue, get the user's explicit confirmation, then create it (Step 4, sub-steps 1–5)
 5. After creation succeeds, offer to start implementation (Step 4, sub-step 6)
 
-Mark each todo `in_progress` when you start and `completed` only when done. **The issue is created only after the user explicitly confirms the rendered draft (todo 4) — never before.** A finished `/docs-verify` report is only todo 1. If the user has not yet confirmed, the pipeline is paused at todo 4, not complete; that is a valid waiting state, not a reason to create the issue anyway. Todo 5 runs only after a successful creation — it is the post-creation hand-off, not a gate on creating the issue.
+Mark each todo `in_progress` when you start and `completed` only when done. **The issue is created only after the user explicitly confirms the rendered draft (todo 4) — never before.** A finished `/devflow:docs-verify` report is only todo 1. If the user has not yet confirmed, the pipeline is paused at todo 4, not complete; that is a valid waiting state, not a reason to create the issue anyway. Todo 5 runs only after a successful creation — it is the post-creation hand-off, not a gate on creating the issue.
 
 ## Steps
 
 ### Step 1: Assess current state (read-only)
-Invoke the `/docs-verify` skill in report-only mode with the topic extracted from the user story (e.g., `/docs-verify --report-only survey module`).
+Invoke the `/devflow:docs-verify` skill in report-only mode with the topic extracted from the user story (e.g., `/devflow:docs-verify --report-only survey module`).
 
 This verifies internal docs against the code and **returns a findings report** — current behavior, relevant files, and any doc/code drift — **without editing, committing, or pushing anything.**
 
-`/docs-verify` is a standalone workflow, so it announces its own completion when it finishes. That signal ends *its* report (todo 1), not this skill — keep going to Step 2. Carry the findings, including any drift noted, forward into Step 3.
+`/devflow:docs-verify` is a standalone workflow, so it announces its own completion when it finishes. That signal ends *its* report (todo 1), not this skill — keep going to Step 2. Carry the findings, including any drift noted, forward into Step 3.
 
 ### Step 2: Clarify until the Definition of Ready is met
 
@@ -52,9 +52,9 @@ This verifies internal docs against the code and **returns a findings report** �
 - Use the **AskUserQuestion** tool. Batch 2–4 related questions per call rather than one long interrogation.
 - For each question, offer concrete multiple-choice options. When the codebase or findings make one choice clearly best, list it **first** and mark it `(Recommended)` with a one-line why.
 - After each round of answers, **re-check the Definition of Ready**. If gaps remain, ask another batch. Keep going until the list is fully satisfied — do not draft with items still open.
-- Cap at ~3 rounds. If facts are still missing after that, treat the remainder as disengagement (below).
+- Cap at ~6 rounds. If facts are still missing after that, treat the remainder as disengagement (below).
 
-**Push back once before accepting total disengagement.** If the user disengages while the issue is still *unbuildable* — no decided scope, or the single core behavior fork is still open (the ticket would be almost entirely Blocked) — do not silently produce a hollow issue. Say so plainly, once: e.g. *"As-is this issue won't be buildable — every decision is still open. Can you answer just two things: (1) is this one feature or several, and (2) <the single most defining behavior fork>? Otherwise I'll file it with everything flagged as blocked."* Ask those via one AskUserQuestion batch. If the user answers, continue clarifying; if they disengage again, proceed below. This push-back happens **at most once** — do not nag. It does not apply when only peripheral forks remain open (e.g. link expiry) — Blocked those without comment.
+**Push back once before accepting total disengagement.** If the user disengages while the issue is still *unbuildable* — no decided scope, or the single core behavior fork is still open (the ticket would be almost entirely Blocked) — do not silently produce a hollow issue. Say so plainly, once: e.g. *"As-is this issue won't be buildable — every decision is still open. Can you answer just two things: (1) is this one feature or several, and (2) <the single most defining behavior fork>? Otherwise I'll file it with everything flagged as blocked."* Ask those via one AskUserQuestion batch. If the user answers, continue clarifying; if they disengage again, proceed below. This push-back happens **at most once** — do not nag. It does not apply when only peripheral forks remain open (e.g. link expiry) — Block those without comment.
 
 **When the user disengages** — says "just create it", goes quiet, or answers "I don't know" / "you decide" to a Definition-of-Ready question:
 
@@ -82,7 +82,7 @@ Drafting produces a candidate issue **in your message only** — nothing is post
 3. **Ask for explicit confirmation or feedback.** Plainly invite the user to either approve creation or request changes. **The draft-save-location note (`.devflow/tmp/issue-draft-<slug>.md`) always renders *below* the rendered issue preview — never above it**, so every confirmation message has the same layout: the full rendered body (sub-step 1) first, then the draft-path note, then the confirm/edit question. Separate the note from the preview rather than embedding it inline ahead of the body — e.g. after the rendered body, add a line such as *"Draft also saved to `.devflow/tmp/issue-draft-<slug>.md` for review."* and then ask *"Want me to create it as-is, or change anything first?"*
 4. **Iterate on feedback.** If the user requests any change, revise the draft, re-run the no-options gate (Step 3), **show the full rendered issue again, and overwrite the same `.devflow/tmp/issue-draft-<slug>.md` file you chose in sub-step 2** (keep the original filename even if the title changes, so you don't leave orphaned drafts behind). Repeat until the user approves. Each revision is re-presented in full — never apply edits and create in the same turn without showing the updated draft.
 5. **Create only on explicit approval.** Once the user clearly says to create it (e.g. "yes", "create it", "looks good, file it"), create the issue **directly via `gh issue create`**, piping the body through stdin — not from the draft file. The `.devflow/tmp/issue-draft-<slug>.md` copy is a gitignored preview, never the `--body-file` source and never committed; the issue body still goes through the stdin heredoc. **Do not add labels** — never pass `--label`. Report the issue URL that `gh` prints on success, and capture the new issue's number from the trailing path segment of that URL (e.g. `…/issues/42` → `42`) — sub-step 6 needs it. See `references/issue-template.md` for the exact invocation.
-6. **Offer to start implementation.** This sub-step runs **only after `gh issue create` succeeds** (it exits zero and prints an issue URL) and the URL has been reported. If creation failed (non-zero exit, or no URL printed), stop here and surface `gh`'s error output verbatim — do **not** show this prompt. After a successful creation, **always** present a yes/no prompt via the **AskUserQuestion** tool (as used in Step 2) asking whether to start implementation now by commenting `/devflow:implement <issue_number>` on the newly created issue. This prompt appears after **every** successful creation and is **not** gated on `.devflow/config.json` — do not read config to decide whether to show it.
+6. **Offer to start implementation.** This sub-step runs **only after `gh issue create` succeeds** (it exits zero and prints an issue URL) and the URL has been reported. If creation failed (non-zero exit, or no URL printed), stop here and surface `gh`'s error output verbatim — do **not** show this prompt. After a successful creation, **always** present a yes/no prompt via the **AskUserQuestion** tool (as used in Step 2) asking whether to start implementation now by commenting `/devflow:implement <issue_number>` on the newly created issue.
    - **On "yes":** post the comment yourself with `gh issue comment <issue_number> --body "/devflow:implement <issue_number>"`, using the issue number captured in sub-step 5. Use the bare `/devflow:implement <n>` form with **no** `@claude` mention, so the comment routes to the repo's `devflow-implement.yml` listener rather than the stock Anthropic listener. If `gh issue comment` succeeds, report that the comment was posted, and that it fires the implement run **only when** the repo's devflow workflows are enabled and the commenter is authorized — both enforced by the `gate` job in `.github/workflows/devflow-implement.yml` (authorization via `scripts/resolve-implement-trigger.sh`). Surface that caveat in the reported outcome; it does **not** gate whether the prompt is shown. If `gh issue comment` fails, surface its error output and report that the issue was created but the implement comment could not be posted — do not claim the comment was posted.
    - **On "no":** finish without posting any comment.
 
