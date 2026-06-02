@@ -243,7 +243,10 @@ Write the issue title (from the `gh issue view` above) to a temp file with the *
 The base branch is **read from config** (`base_branch` in `.devflow/config.json`, default `main`) — never hard-code `main`, so the run branches off whatever trunk the consumer repo actually uses (`master`, `develop`, …):
 
 ```bash
-BASE=$(${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .base_branch main)
+# config-get.sh exits non-zero with empty stdout on a malformed config / missing node
+# (the `main` default is not applied), so guard the read instead of branching off "".
+BASE=$(${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .base_branch main) || BASE=""
+[ -n "$BASE" ] || { echo "devflow: base_branch read failed; falling back to 'main'" >&2; BASE=main; }
 git fetch origin "$BASE"
 BRANCH=$(${CLAUDE_SKILL_DIR}/../../scripts/branch-for-issue.py $ARGUMENTS --title-file /tmp/devflow-issue-$ARGUMENTS-title.txt)
 git checkout -b "$BRANCH" "origin/$BASE"

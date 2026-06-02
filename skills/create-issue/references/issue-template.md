@@ -1,7 +1,7 @@
 # GitHub Issue Template & Quality Guide
 
 Reference for drafting and posting a well-structured GitHub issue. The calling skill
-(`/create-issue`) has already gathered documentation findings and **resolved every
+(`/devflow:create-issue`) has already gathered documentation findings and **resolved every
 in-scope decision with the user**. Draft the issue **from that context**, doing only
 targeted verification reads where a specific claim needs confirming. Do not re-explore
 the whole codebase; the findings are your map.

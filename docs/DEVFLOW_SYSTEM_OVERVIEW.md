@@ -168,7 +168,7 @@ This is the canonical story for a demo video or "how it works" slide:
 | `/devflow:docs-sync-internal` | Update internal docs to match branch code changes | called by `/docs` |
 | `/devflow:docs-sync-external` | Align external/customer docs with internal docs | called by `/docs` |
 | `/devflow:docs-release-notes` | Generate a release-note entry for customer-visible changes | called by `/docs` |
-| `/devflow:docs-verify <topic>` | Verify/refresh internal docs for one topic (has `--report-only` mode) | interactively; sub-step of `/create-issue` |
+| `/devflow:docs-verify <topic>` | Verify/refresh internal docs for one topic (has `--report-only` mode) | interactively; sub-step of `/devflow:create-issue` |
 | `/devflow:docs-bootstrap-internal` | Stand up an internal-docs structure from scratch | interactively |
 | `/devflow:docs-bootstrap-external` | Generate initial external docs from internal docs | interactively |
 | `/devflow:create-issue` | Rough idea → well-structured GitHub issue | interactively |
@@ -321,7 +321,7 @@ DevFlow treats documentation as part of "done." `/devflow:docs` orchestrates thr
 3. **`docs-release-notes`**: if the change is customer-visible, appends a brief entry (`- **[Category] Short Title**: description. (#PR)`); otherwise does nothing.
 
 Supporting skills:
-- **`docs-verify <topic>`**: verifies internal docs for one topic against code (codebase = source of truth). Has a `--report-only` mode (no writes) used by `/create-issue`. Verdicts: `DOCS ACCURATE` / `DRIFT FOUND` / `DOCS MISSING`.
+- **`docs-verify <topic>`**: verifies internal docs for one topic against code (codebase = source of truth). Has a `--report-only` mode (no writes) used by `/devflow:create-issue`. Verdicts: `DOCS ACCURATE` / `DRIFT FOUND` / `DOCS MISSING`.
 - **`docs-bootstrap-internal`**: stands up an internal-docs tree from scratch, organized **domain-first** (`orders/`, `customers/`) not code-layer-first, flat (one level), quality over quantity (5–10 thorough seed docs, not 50 stubs).
 - **`docs-bootstrap-external`**: generates the initial external docs from the internal source of truth.
 
@@ -339,7 +339,7 @@ Turns a rough user story / bug report / feature idea into a well-structured GitH
 
 The skill exists to prevent "option-listing" issues. Steps:
 1. **Assess (read-only):** run `/devflow:docs-verify --report-only` on the topic to ground the issue in current behavior.
-2. **Clarify until Definition of Ready:** problem + beneficiary, single coherent scope, one decided behavior per fork, one implementation approach, concrete testable acceptance criteria. Uses `AskUserQuestion`, capped at ~3 rounds.
+2. **Clarify until Definition of Ready:** problem + beneficiary, single coherent scope, one decided behavior per fork, one implementation approach, concrete testable acceptance criteria. Uses `AskUserQuestion`, capped at ~6 rounds.
 3. **Draft + no-options gate:** outside an explicit `## 🚫 Blocked` section, no unresolved-decision language ("or", "either", "TBD", "option", "approach A vs B"). Unresolvable decisions go into exactly one Blocked section, never invented defaults.
 4. **Review then create:** show the **complete rendered issue** in chat (never summarized), get **explicit confirmation**, then `gh issue create`. After creation, offer to start implementation (which posts the bare `/devflow:implement <n>` comment).
 
