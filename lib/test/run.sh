@@ -849,6 +849,18 @@ if [ "$(id -u)" -ne 0 ] && [ ! -r "$LPE_DIR/.devflow/prompt-extensions/locked.md
 fi
 chmod 644 "$LPE_DIR/.devflow/prompt-extensions/locked.md"   # restore so rm -rf can clean up
 
+# Broken symlink (present link, missing target) → refused LOUDLY (exit 2 +
+# breadcrumb), not the silent no-op a bare `-f` test would yield — same silent-drop
+# class as the unreadable guard, for an unresolvable link.
+ln -s "./this-target-does-not-exist.md" "$LPE_DIR/.devflow/prompt-extensions/broken.md"
+BROKEN_OUT="$(cd "$LPE_DIR" && bash "$LPE" broken 2>/tmp/devflow-lpe-broken.err)"; BROKEN_RC=$?
+assert_eq "lpe: broken symlink (missing target) → exit non-zero (not silent no-op)" "yes" \
+  "$([ "$BROKEN_RC" -ne 0 ] && echo yes || echo no)"
+assert_eq "lpe: broken symlink → empty stdout" "" "$BROKEN_OUT"
+assert_eq "lpe: broken symlink → breadcrumb names the missing target" "yes" \
+  "$(grep -qF 'missing target' /tmp/devflow-lpe-broken.err && echo yes || echo no)"
+rm -f "$LPE_DIR/.devflow/prompt-extensions/broken.md"
+
 # Intended symlink behavior (pins a DECISION, not an accident): the name guard
 # constrains the model-supplied NAME, not the resolved target. A symlink the repo
 # owner commits inside the consumer-owned extensions dir IS followed by `cat` — the
@@ -886,8 +898,12 @@ for SKILL_DIR in "$LIB"/../skills/*/; do
   SKILL_NAME="$(basename "$SKILL_DIR")"
   SKILL_FILE="$SKILL_DIR/SKILL.md"
   LPE_SKILL_COUNT=$((LPE_SKILL_COUNT + 1))
+  # Anchor the name to a trailing boundary (end-of-line or whitespace) so a short
+  # name that is a prefix of a sibling (docs vs docs-verify, review vs review-and-fix,
+  # retrospective vs retrospective-weekly) cannot vacuously match the sibling's
+  # invocation — the guard's whole job is pinning each skill's OWN directory name.
   assert_eq "lpe-coverage: $SKILL_NAME/SKILL.md invokes the helper for its own name" "yes" \
-    "$([ -f "$SKILL_FILE" ] && grep -qF "load-prompt-extension.sh $SKILL_NAME" "$SKILL_FILE" && echo yes || echo no)"
+    "$([ -f "$SKILL_FILE" ] && grep -qE "load-prompt-extension\.sh $SKILL_NAME(\$|[[:space:]])" "$SKILL_FILE" && echo yes || echo no)"
 done
 # Guard against the loop becoming a vacuous no-op: if the skills/*/ glob ever
 # matched nothing (a path typo, a restructure, a wrong CWD), the loop above would
