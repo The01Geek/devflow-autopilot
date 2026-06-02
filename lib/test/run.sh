@@ -844,7 +844,7 @@ if [ "$(id -u)" -ne 0 ] && [ ! -r "$LPE_DIR/.devflow/prompt-extensions/locked.md
   assert_eq "lpe: unreadable present file → exit non-zero (not a silent no-op)" "yes" \
     "$([ "$LOCK_RC" -ne 0 ] && echo yes || echo no)"
   assert_eq "lpe: unreadable present file → no content leaked to stdout" "" "$LOCK_OUT"
-  assert_eq "lpe: unreadable present file → breadcrumb names the file" "yes" \
+  assert_eq "lpe: unreadable present file → breadcrumb says 'not readable'" "yes" \
     "$(grep -qF 'not readable' /tmp/devflow-lpe-lock.err && echo yes || echo no)"
 fi
 chmod 644 "$LPE_DIR/.devflow/prompt-extensions/locked.md"   # restore so rm -rf can clean up
@@ -928,6 +928,20 @@ for SKILL_DIR in "$LIB"/../skills/*/; do
   # a future edit that comments out the step (leaving a stale reference) fails here.
   assert_eq "lpe-coverage: $SKILL_NAME/SKILL.md invokes the helper for its own name" "yes" \
     "$([ -f "$SKILL_FILE" ] && grep -Fxq '${CLAUDE_SKILL_DIR}/../../scripts/load-prompt-extension.sh '"$SKILL_NAME" "$SKILL_FILE" && echo yes || echo no)"
+  # The invocation line alone is half the contract — the step must also tell the
+  # model to HONOR the helper's exit code (surface a non-zero exit, don't silently
+  # proceed). Pin a stable fragment of that prose so a future edit can't drop the
+  # exit-code handling while leaving the invocation line intact (which would make
+  # the helper's loud refusals never reach the consumer).
+  assert_eq "lpe-coverage: $SKILL_NAME/SKILL.md honors the helper exit code (prose)" "yes" \
+    "$([ -f "$SKILL_FILE" ] && grep -qF 'exits non-zero' "$SKILL_FILE" && echo yes || echo no)"
+done
+# The two strict-JSON-stdout subagents carry an EXTRA caveat (absent from the other
+# 14) that a consumer extension must not break their one-JSON-object contract. Pin
+# it so a copy-paste of the generic block over them can't silently erase it.
+for SUB in retrospective retrospective-audit; do
+  assert_eq "lpe-coverage: $SUB keeps the strict-JSON-contract caveat" "yes" \
+    "$(grep -qF 'must not break that contract' "$LIB/../skills/$SUB/SKILL.md" && echo yes || echo no)"
 done
 # Guard against the loop becoming a vacuous no-op: if the skills/*/ glob ever
 # matched nothing (a path typo, a restructure, a wrong CWD), the loop above would
