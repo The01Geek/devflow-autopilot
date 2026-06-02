@@ -286,6 +286,29 @@ assert_eq "sweep 2.3.6: implement SKILL lists it in the always-run index" "yes" 
   "$(grep -qF '**2.3.6** (error-handling & silent-failure)' "$IMPL_SKILL" && echo yes || echo no)"
 assert_eq "sweep 2.3.6: docs/implement-skill.md keeps the rationale table row" "yes" \
   "$(grep -qF '| 2.3.6 Error-handling & silent-failure |' "$IMPL_DOC" && echo yes || echo no)"
+# Heading/index/table pins above catch a half-applied *removal* but not a semantic
+# gutting that leaves the heading while deleting the sweep's load-bearing steps.
+# Pin one step token unique to the 2.3.6 procedure (the false-success rule) so a
+# reviewer who guts the steps but keeps the heading still trips the suite.
+assert_eq "sweep 2.3.6: implement SKILL keeps the false-success step rule" "yes" \
+  "$(grep -qF "never prints success for work that didn't happen" "$IMPL_SKILL" && echo yes || echo no)"
+
+# Drift guard: the base_branch read in implement/SKILL.md Phase 1.4 is the skill's
+# one piece of load-bearing inline bash — like the max_iterations clamp above, the
+# tokens it relies on can be silently broken by a SKILL edit (drop the `|| BASE=""`
+# and `git fetch origin ""` runs; drop the fetch guard and a bad base fails with a
+# bare git error instead of an attributable DevFlow breadcrumb). Pin the tokens so
+# a refactor of the block fails here rather than shipping a silent regression.
+assert_eq "base_branch read: SKILL reads via config-get with the main default" "yes" \
+  "$(grep -qF 'config-get.sh .base_branch main' "$IMPL_SKILL" && echo yes || echo no)"
+assert_eq "base_branch read: SKILL guards the empty read" "yes" \
+  "$(grep -qF '[ -n "$BASE" ]' "$IMPL_SKILL" && echo yes || echo no)"
+assert_eq "base_branch read: SKILL fetches origin/\$BASE (not hard-coded main)" "yes" \
+  "$(grep -qF 'git fetch origin "$BASE"' "$IMPL_SKILL" && echo yes || echo no)"
+assert_eq "base_branch read: SKILL checks out origin/\$BASE" "yes" \
+  "$(grep -qF 'git checkout -b "$BRANCH" "origin/$BASE"' "$IMPL_SKILL" && echo yes || echo no)"
+assert_eq "base_branch read: SKILL keeps the attributable fetch-failure breadcrumb" "yes" \
+  "$(grep -qF 'could not fetch base branch' "$IMPL_SKILL" && echo yes || echo no)"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "scaffold-config.sh"

@@ -243,13 +243,14 @@ Write the issue title (from the `gh issue view` above) to a temp file with the *
 The base branch is **read from config** (`base_branch` in `.devflow/config.json`, default `main`) — never hard-code `main`, so the run branches off whatever trunk the consumer repo actually uses (`master`, `develop`, …):
 
 ```bash
-# config-get.sh fails two distinct ways, both yielding empty stdout + a non-zero
-# exit, and in neither is the `main` default applied:
-#   - the .devflow/config.json is malformed/unreadable, or
-#   - `node` (the resolver runtime) is missing.
-# So guard the read rather than branch off "". The guard catches only an empty
-# read — it trusts config-get's contract that it prints a fully-resolved value or
-# nothing, never a partial/garbage string.
+# config-get.sh itself falls back to the supplied `main` default — printing it,
+# exit 0 — on the ordinary SOFT paths: a missing config file or an absent/empty
+# key. It does NOT apply the default on a HARD failure — a malformed/unreadable
+# .devflow/config.json, or a missing `node` (the resolver runtime) — which exits
+# non-zero with empty stdout. So this guard exists only for those two hard paths:
+# catch the empty read and supply `main` here (config-get already handled the
+# soft paths). It trusts config-get's contract that it prints a fully-resolved
+# value or nothing, never a partial/garbage string.
 BASE=$(${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .base_branch main) || BASE=""
 [ -n "$BASE" ] || { echo "devflow: base_branch read failed (malformed config or missing node); falling back to 'main'" >&2; BASE=main; }
 # Fetch the base explicitly with a DevFlow breadcrumb so a bad/offline base is

@@ -17,7 +17,7 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **`/devflow:create-issue` raises the clarification cap from ~3 to ~6 rounds**, giving the Definition-of-Ready loop more room before treating remaining gaps as disengagement. (#82)
 
 ### Fixed
-- **Slash-command references in the create-issue skill and the marketing/overview docs are namespaced** (`/docs-verify` → `/devflow:docs-verify`), and a `Blocked`→`Block` verb typo in the disengagement push-back guidance is corrected. (#82)
+- **Slash-command references in the create-issue skill and the system-overview doc are namespaced** (`/docs-verify` → `/devflow:docs-verify`), and a `Blocked`→`Block` verb typo in the disengagement push-back guidance is corrected. (#82)
 
 ## [2.6.0] — 2026-05-29
 
