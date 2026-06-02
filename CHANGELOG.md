@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.1] — 2026-06-02
+
+### Changed
+- **`/devflow:create-issue` deepens the issue template's Testing-Strategy guidance from a binary classification into a three-move framework**, so every filed issue hands the implementer a concrete, test-first plan instead of a one-assertion-per-AC stub. The drafter now (1) classifies the test boundary **and names the level(s)** — a pure helper earns a unit test *and* its caller earns an integration test, no longer collapsed into one; (2) walks seven coverage dimensions (happy path, boundary & degenerate, error & failure, adversarial/encoding, state/concurrency/idempotency, scale, security) where the acceptance criteria are explicitly *the floor, not the ceiling* and an inapplicable dimension is dropped as a recorded decision; and (3) commits to named assertions with **bidirectional AC↔assertion mapping** (no orphans either way), fixtures/doubles spelled out ("never mock the unit under test"), and a "don't test the framework" rule. Two behaviors the previous text missed are now mandatory: **a bug fix's failing test must reproduce the reported defect** (not "behavior doesn't exist yet" — the wrong behavior already exists), and a **guarantee-class change** (a deterministic backstop/hook/gate on the Step 2 strength ladder) must be tested *on the path where the actor skipped the manual step*, since that is the entire reason the mechanism exists. The non-automatable stand-in is hardened from "confirmed by review" into a reproducible numbered checklist or adversarial input-shape trace. The matching self-check checklist item is updated to gate the richer expectation. Baseline subagent runs (feature, bug fix, guarantee-class) confirmed the prior text left each of these gaps uncovered and the new framework closes them while preserving the no-options discipline. See `skills/create-issue/references/issue-template.md`. (#83)
+
 ## [2.7.0] — 2026-06-02
 
 ### Added
