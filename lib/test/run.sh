@@ -872,10 +872,14 @@ assert_eq "lpe: directory at <skill>.md → breadcrumb 'not a regular file'" "ye
   "$(grep -qF 'not a regular file' /tmp/devflow-lpe-adir.err && echo yes || echo no)"
 mkdir "$LPE_DIR/realdir"
 ln -s "../../realdir" "$LPE_DIR/.devflow/prompt-extensions/dirlink.md"
-DIRLINK_OUT="$(cd "$LPE_DIR" && bash "$LPE" dirlink 2>/dev/null)"; DIRLINK_RC=$?
+DIRLINK_OUT="$(cd "$LPE_DIR" && bash "$LPE" dirlink 2>/tmp/devflow-lpe-dirlink.err)"; DIRLINK_RC=$?
 assert_eq "lpe: symlink resolving to a directory → exit non-zero (not silent no-op)" "yes" \
   "$([ "$DIRLINK_RC" -ne 0 ] && echo yes || echo no)"
 assert_eq "lpe: symlink-to-directory → empty stdout" "" "$DIRLINK_OUT"
+# Pin WHICH guard fired (the non-regular guard, not the broken-symlink one) so a
+# future refactor can't silently reroute this shape through the wrong branch.
+assert_eq "lpe: symlink-to-directory → breadcrumb 'not a regular file'" "yes" \
+  "$(grep -qF 'not a regular file' /tmp/devflow-lpe-dirlink.err && echo yes || echo no)"
 rm -rf "$LPE_DIR/.devflow/prompt-extensions/adir.md" "$LPE_DIR/.devflow/prompt-extensions/dirlink.md" "$LPE_DIR/realdir"
 
 # Intended symlink behavior (pins a DECISION, not an accident): the name guard
@@ -915,12 +919,15 @@ for SKILL_DIR in "$LIB"/../skills/*/; do
   SKILL_NAME="$(basename "$SKILL_DIR")"
   SKILL_FILE="$SKILL_DIR/SKILL.md"
   LPE_SKILL_COUNT=$((LPE_SKILL_COUNT + 1))
-  # Anchor the name to a trailing boundary (end-of-line or whitespace) so a short
-  # name that is a prefix of a sibling (docs vs docs-verify, review vs review-and-fix,
-  # retrospective vs retrospective-weekly) cannot vacuously match the sibling's
-  # invocation — the guard's whole job is pinning each skill's OWN directory name.
+  # Match the FULL canonical invocation as a whole line (grep -Fx), per AC 6's
+  # `${CLAUDE_SKILL_DIR}/../../scripts/load-prompt-extension.sh <skill-name>` form.
+  # Whole-line fixed-string matching (a) pins each skill's OWN name so a short name
+  # that is a prefix of a sibling (docs vs docs-verify, review vs review-and-fix)
+  # cannot vacuously match, and (b) rejects a prose mention or a commented-out /
+  # HTML-comment-wrapped reference — only a live, exact invocation line passes, so
+  # a future edit that comments out the step (leaving a stale reference) fails here.
   assert_eq "lpe-coverage: $SKILL_NAME/SKILL.md invokes the helper for its own name" "yes" \
-    "$([ -f "$SKILL_FILE" ] && grep -qE "load-prompt-extension\.sh $SKILL_NAME(\$|[[:space:]])" "$SKILL_FILE" && echo yes || echo no)"
+    "$([ -f "$SKILL_FILE" ] && grep -Fxq '${CLAUDE_SKILL_DIR}/../../scripts/load-prompt-extension.sh '"$SKILL_NAME" "$SKILL_FILE" && echo yes || echo no)"
 done
 # Guard against the loop becoming a vacuous no-op: if the skills/*/ glob ever
 # matched nothing (a path typo, a restructure, a wrong CWD), the loop above would

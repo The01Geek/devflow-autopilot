@@ -63,9 +63,12 @@ esac
 
 ext_file=".devflow/prompt-extensions/${skill}.md"
 
-# Absent → no-op (nothing printed, exit 0). Present → emit verbatim. An empty
-# file naturally prints nothing. The non-regular and broken-symlink shapes are
-# refused above, so by here the only present case reaching `-f` is a regular file.
+# Refuse every "present but undeliverable" shape loudly (exit 2 + a specific
+# breadcrumb) instead of letting it fall through to the silent empty no-op the
+# calling skill reads as "proceed unchanged" — that would drop the consumer
+# extension. The guards below partition those shapes; an absent file (none of them
+# fire) is the only path that reaches the no-op exit 0 at the very end.
+#
 # A symlink whose target is missing makes the `-f` test below false, so without
 # this branch a committed `<skill>.md -> ../moved.md` (or a link that resolves only
 # on another machine) would silently no-op and drop the consumer extension — the
@@ -87,11 +90,13 @@ if [ -e "$ext_file" ] && [ ! -f "$ext_file" ]; then
     exit 2
 fi
 
-# A present-but-unreadable file is refused loudly (exit 2) rather than letting a
-# bare `cat` failure under `set -e` masquerade as the empty no-op the calling
-# skill treats as "proceed unchanged" — that would silently drop the consumer's
-# extension. (Note: a process running as root bypasses the permission bits, so
-# this guard only fires for an ordinary user, which is the real-world case.)
+# By here the broken-symlink and non-regular guards above have fired on every
+# undeliverable *present* shape, so the only present case reaching `-f` is a
+# regular file (an absent file makes `-f` false → the no-op exit 0 at the end).
+# A present-but-unreadable regular file is still refused loudly (exit 2) rather
+# than letting a bare `cat` failure under `set -e` masquerade as the empty no-op
+# the calling skill reads as "proceed unchanged". (Note: a process running as root
+# bypasses the permission bits, so this guard only fires for an ordinary user.)
 if [ -f "$ext_file" ]; then
     if [ ! -r "$ext_file" ]; then
         echo "load-prompt-extension.sh: '$ext_file' exists but is not readable; refusing to silently skip a consumer extension (fix its permissions)" >&2

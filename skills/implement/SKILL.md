@@ -19,7 +19,7 @@ You are the main implementation agent. Execute the full 4-phase lifecycle for a 
 ${CLAUDE_SKILL_DIR}/../../scripts/load-prompt-extension.sh implement
 ```
 
-If the helper prints anything, treat that text as additional instructions appended to the end of this skill's own prompt for this run — it is upgrade-safe, consumer-owned customization committed under `.devflow/prompt-extensions/`. If it prints nothing, proceed unchanged.
+If the helper exits non-zero, a consumer extension exists but could not be loaded — surface its stderr message and do not silently proceed as if none existed. If it exits 0 and prints text, treat that text as additional instructions appended to the end of this skill's own prompt for this run — it is upgrade-safe, consumer-owned customization committed under `.devflow/prompt-extensions/`. If it exits 0 and prints nothing, proceed unchanged.
 
 ## MANDATORY: All Four Phases Must Execute
 
