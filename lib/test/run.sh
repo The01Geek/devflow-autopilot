@@ -745,6 +745,119 @@ assert_eq "scaffold-jqerr: corrupt example template → existing config left unt
 rm -rf "$SC_JQERR" "$SC_JQERR_TGT"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "scaffold-config.sh: creates .devflow/prompt-extensions/ + an inert example"
+# ────────────────────────────────────────────────────────────────────────────
+# Scaffolding must create the consumer-owned prompt-extensions directory with a
+# commented EXAMPLE file (issue #84, AC 9). The example must be INERT — named
+# with a `.example` suffix so it is NOT a live `<skill>.md` that would inject
+# itself into a real skill run.
+SC="$LIB/../scripts/scaffold-config.sh"
+SC_PE="$(mktemp -d)"
+bash "$SC" "$SC_PE" >/dev/null 2>&1
+assert_eq "scaffold-pe: .devflow/prompt-extensions/ created" "yes" \
+  "$([ -d "$SC_PE/.devflow/prompt-extensions" ] && echo yes || echo no)"
+assert_eq "scaffold-pe: commented example file created" "yes" \
+  "$([ -f "$SC_PE/.devflow/prompt-extensions/create-issue.md.example" ] && echo yes || echo no)"
+# The example carries explanatory comment text (not an empty placeholder).
+assert_eq "scaffold-pe: example file is non-empty / commented" "yes" \
+  "$([ -s "$SC_PE/.devflow/prompt-extensions/create-issue.md.example" ] && echo yes || echo no)"
+# Inert: no live `<skill>.md` is scaffolded (only the .example template), so the
+# no-op path is the default until a consumer deliberately drops a real file.
+assert_eq "scaffold-pe: example is inert (no live <skill>.md present)" "no" \
+  "$(ls "$SC_PE/.devflow/prompt-extensions/"*.md >/dev/null 2>&1 && echo yes || echo no)"
+# Idempotent: a second run leaves the example byte-identical (guards the
+# `if [ ! -d ]` create guard against re-writing on every run).
+SC_PE_EX1="$(cat "$SC_PE/.devflow/prompt-extensions/create-issue.md.example")"
+bash "$SC" "$SC_PE" >/dev/null 2>&1
+assert_eq "scaffold-pe: idempotent re-run keeps example unchanged" \
+  "$SC_PE_EX1" "$(cat "$SC_PE/.devflow/prompt-extensions/create-issue.md.example")"
+rm -rf "$SC_PE"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "load-prompt-extension.sh (consumer prompt-extension reader)"
+# ────────────────────────────────────────────────────────────────────────────
+# The helper prints .devflow/prompt-extensions/<skill>.md verbatim (relative to
+# CWD) when present, nothing otherwise; it validates the skill-name argument and
+# refuses any value containing '/' or '..' before touching the filesystem.
+# (issue #84, AC 1–5, AC 8.)
+LPE="$LIB/../scripts/load-prompt-extension.sh"
+LPE_DIR="$(mktemp -d)"
+mkdir -p "$LPE_DIR/.devflow/prompt-extensions"
+
+# AC 1: present → stdout equals the file, exit 0.
+printf 'line one\nline two\n' > "$LPE_DIR/.devflow/prompt-extensions/implement.md"
+LPE_OUT="$(cd "$LPE_DIR" && bash "$LPE" implement 2>/dev/null)"; LPE_RC=$?
+assert_eq "lpe: present → verbatim stdout (newlines trimmed by \$())" \
+  "$(printf 'line one\nline two')" "$LPE_OUT"
+assert_eq "lpe: present → exit 0" "0" "$LPE_RC"
+
+# AC 4: byte-for-byte verbatim incl. multi-byte UTF-8, NO trailing newline added
+# when the file has none. cmp the helper's raw bytes against the source file.
+printf 'café 日本語 🎉 no-trailing-newline' > "$LPE_DIR/.devflow/prompt-extensions/review.md"
+( cd "$LPE_DIR" && bash "$LPE" review 2>/dev/null ) > "$LPE_DIR/out-utf8.bin"
+assert_eq "lpe: UTF-8 verbatim, no trailing newline added (cmp byte-exact)" "yes" \
+  "$(cmp -s "$LPE_DIR/.devflow/prompt-extensions/review.md" "$LPE_DIR/out-utf8.bin" && echo yes || echo no)"
+# AC 4 (other direction): a file WITH a trailing newline round-trips unchanged.
+printf 'has trailing newline\n' > "$LPE_DIR/.devflow/prompt-extensions/docs.md"
+( cd "$LPE_DIR" && bash "$LPE" docs 2>/dev/null ) > "$LPE_DIR/out-nl.bin"
+assert_eq "lpe: trailing-newline file round-trips byte-for-byte" "yes" \
+  "$(cmp -s "$LPE_DIR/.devflow/prompt-extensions/docs.md" "$LPE_DIR/out-nl.bin" && echo yes || echo no)"
+
+# AC 2: absent file → empty stdout, exit 0 (no-op path).
+LPE_ABS_OUT="$(cd "$LPE_DIR" && bash "$LPE" pr-description 2>/dev/null)"; LPE_ABS_RC=$?
+assert_eq "lpe: absent → empty stdout" "" "$LPE_ABS_OUT"
+assert_eq "lpe: absent → exit 0" "0" "$LPE_ABS_RC"
+
+# AC 3: empty file → empty stdout, exit 0.
+: > "$LPE_DIR/.devflow/prompt-extensions/create-issue.md"
+LPE_EMP_OUT="$(cd "$LPE_DIR" && bash "$LPE" create-issue 2>/dev/null)"; LPE_EMP_RC=$?
+assert_eq "lpe: empty file → empty stdout" "" "$LPE_EMP_OUT"
+assert_eq "lpe: empty file → exit 0" "0" "$LPE_EMP_RC"
+
+# AC 5: path-traversal — reject '/' and '..' BEFORE any read, exit non-zero,
+# print nothing. Sentinels the helper would leak if validation were absent:
+#   name '../config'  → .devflow/prompt-extensions/../config.md = .devflow/config.md
+printf 'SECRET-OUTSIDE' > "$LPE_DIR/.devflow/config.md"
+for bad in "a/b" ".." "../config" "../../etc/passwd" "foo/../bar"; do
+  BAD_OUT="$(cd "$LPE_DIR" && bash "$LPE" "$bad" 2>/dev/null)"; BAD_RC=$?
+  assert_eq "lpe: reject '$bad' → exit non-zero" "yes" \
+    "$([ "$BAD_RC" -ne 0 ] && echo yes || echo no)"
+  assert_eq "lpe: reject '$bad' → reads nothing outside (empty stdout)" "" "$BAD_OUT"
+done
+# Empty skill name → bad arguments, exit non-zero.
+EMPTY_NAME_OUT="$(cd "$LPE_DIR" && bash "$LPE" "" 2>/dev/null)"; EMPTY_NAME_RC=$?
+assert_eq "lpe: empty skill name → exit non-zero" "yes" \
+  "$([ "$EMPTY_NAME_RC" -ne 0 ] && echo yes || echo no)"
+assert_eq "lpe: empty skill name → empty stdout" "" "$EMPTY_NAME_OUT"
+
+# AC 8: read-only + idempotent — identical output on re-run, source file unchanged.
+printf 'idem\n' > "$LPE_DIR/.devflow/prompt-extensions/init.md"
+LPE_IDEM1="$(cd "$LPE_DIR" && bash "$LPE" init 2>/dev/null)"
+LPE_CKSUM_BEFORE="$(cksum "$LPE_DIR/.devflow/prompt-extensions/init.md")"
+LPE_IDEM2="$(cd "$LPE_DIR" && bash "$LPE" init 2>/dev/null)"
+LPE_CKSUM_AFTER="$(cksum "$LPE_DIR/.devflow/prompt-extensions/init.md")"
+assert_eq "lpe: idempotent — identical output on re-run" "$LPE_IDEM1" "$LPE_IDEM2"
+assert_eq "lpe: read-only — source file unchanged after run" \
+  "$LPE_CKSUM_BEFORE" "$LPE_CKSUM_AFTER"
+rm -rf "$LPE_DIR"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "load-prompt-extension.sh: every skills/*/SKILL.md carries the standardized step"
+# ────────────────────────────────────────────────────────────────────────────
+# Coverage / drift guard (issue #84, AC 6 + AC 7). The standardized step spans
+# every skill's SKILL.md; this enumeration is the enforcement that keeps them in
+# sync (same drift hazard as the exclusion-list-sync requirement). Pin BOTH the
+# canonical helper path-suffix AND the skill's own directory name so a copy-paste
+# of the wrong skill name, a half-applied removal, or a path drift all fail here
+# rather than shipping silently. Fails when a future skill omits the step.
+for SKILL_DIR in "$LIB"/../skills/*/; do
+  SKILL_NAME="$(basename "$SKILL_DIR")"
+  SKILL_FILE="$SKILL_DIR/SKILL.md"
+  assert_eq "lpe-coverage: $SKILL_NAME/SKILL.md invokes the helper for its own name" "yes" \
+    "$([ -f "$SKILL_FILE" ] && grep -qF "load-prompt-extension.sh $SKILL_NAME" "$SKILL_FILE" && echo yes || echo no)"
+done
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "shipped agent_overrides: deduper pins Sonnet 4.6 w/ effort; no Haiku override carries effort"
 # ────────────────────────────────────────────────────────────────────────────
 # The shipped checklist-deduper override pins Claude Sonnet 4.6 (which DOES

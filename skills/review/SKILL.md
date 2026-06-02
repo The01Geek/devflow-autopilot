@@ -12,6 +12,14 @@ You are the review engine orchestrator. Run a four-phase review and present an A
 
 **Engine sharing.** Phases 0 through 4.3 of this skill are also executed verbatim by `/devflow:review-and-fix` (which wraps them in a fix loop and skips Phase 4.4 entirely — no GitHub post; its final report is emitted to chat only). When modifying engine behavior here — Phase 3 agent prompts, Phase 1 batching, Phase 0.5 classification, Phase 4 verdict criteria — verify `/devflow:review-and-fix` still produces the same findings; that's where divergence has historically slipped in. `/devflow:review-and-fix`'s SKILL.md deliberately keeps no paraphrase of these phases, so changes here propagate automatically as long as the file is reachable at the path `**/devflow/skills/review/SKILL.md`.
 
+**Consumer prompt extension (load first).** Before doing this skill's work, load any consumer-supplied prompt extension for this skill and honor it. From the repo root, run:
+
+```bash
+${CLAUDE_SKILL_DIR}/../../scripts/load-prompt-extension.sh review
+```
+
+If the helper prints anything, treat that text as additional instructions appended to the end of this skill's own prompt for this run — it is upgrade-safe, consumer-owned customization committed under `.devflow/prompt-extensions/`. If it prints nothing, proceed unchanged.
+
 ## When NOT to use
 
 - Not for PRs you want auto-fixed — use `/devflow:review-and-fix` instead.

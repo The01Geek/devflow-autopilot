@@ -14,6 +14,14 @@ You are the review-and-fix orchestrator. Run /devflow:review's review engine, fi
 
 **Key principle:** You perform fixes DIRECTLY in this session. Do NOT delegate fixes to a subagent. You need full conversation context to apply `superpowers:receiving-code-review` principles (technical evaluation, pushback, verification).
 
+**Consumer prompt extension (load first).** Before doing this skill's work, load any consumer-supplied prompt extension for this skill and honor it. From the repo root, run:
+
+```bash
+${CLAUDE_SKILL_DIR}/../../scripts/load-prompt-extension.sh review-and-fix
+```
+
+If the helper prints anything, treat that text as additional instructions appended to the end of this skill's own prompt for this run — it is upgrade-safe, consumer-owned customization committed under `.devflow/prompt-extensions/`. If it prints nothing, proceed unchanged.
+
 ## When NOT to use
 
 - Not for trivial doc-only PRs — use `/devflow:review` and read the report; auto-fixing prose adds churn for little value. **Exception — engine-surface PRs are never "doc-only" for this purpose.** When the diff touches devflow's own engine surface (`skills/**`, `agents/**`, `lib/**` — including changes that are *entirely* Markdown, like a SKILL.md edit), `/devflow:review`'s Phase 0.5 sets `engine_self_modifying` and forces the **full** checklist + all four always-on Phase-3 agents, precisely because a typo there silently breaks every future review. Those changes are the highest-risk diffs in the repo, not low-value prose — so this doc-only carve-out does **not** apply to them: an all-Markdown engine-surface PR is unambiguously a valid `review-and-fix` target. The carve-out is only for genuinely inert prose (READMEs, `docs/`, comments) outside the engine surface.

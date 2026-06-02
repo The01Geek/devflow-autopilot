@@ -3,6 +3,14 @@ name: create-issue
 description: Use when you have a rough user story, bug report, or feature idea that needs to become a well-structured GitHub issue.
 argument-hint: <user-story>
 ---
+**Consumer prompt extension (load first).** Before doing this skill's work, load any consumer-supplied prompt extension for this skill and honor it. From the repo root, run:
+
+```bash
+${CLAUDE_SKILL_DIR}/../../scripts/load-prompt-extension.sh create-issue
+```
+
+If the helper prints anything, treat that text as additional instructions appended to the end of this skill's own prompt for this run — it is upgrade-safe, consumer-owned customization committed under `.devflow/prompt-extensions/`. If it prints nothing, proceed unchanged.
+
 ## Prerequisites
 
 If `$ARGUMENTS` is empty, ask the user to describe their user story, bug report, or feature idea before proceeding.

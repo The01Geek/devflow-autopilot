@@ -181,6 +181,26 @@ This is the canonical story for a demo video or "how it works" slide:
 
 **Naming note (important for accuracy in any demo):** DevFlow's commands use the `devflow:`-namespaced form. This matters most for names that collide with built-ins: `/review`, `/init`, and `/security-review` are *built-in* Claude Code commands, so always use `/devflow:review` and `/devflow:init` to reach DevFlow, especially from GitHub Actions comments, where the namespaced form is required.
 
+### Extending skills with prompt extensions (consumer-owned)
+
+Every skill in the catalog honors one upgrade-safe extension convention. As a standardized first step, each skill runs the bundled reader
+
+```bash
+${CLAUDE_SKILL_DIR}/../../scripts/load-prompt-extension.sh <skill-name>
+```
+
+which prints the contents of `.devflow/prompt-extensions/<skill-name>.md` (resolved relative to the repo root) when that file exists, and the skill treats that text as **additional instructions appended verbatim to the end of its own prompt** for that run. `<skill-name>` is the skill's directory name under `skills/` (`create-issue`, `implement`, `review`, …). When the file is **absent** — or present but empty — the helper prints nothing and the step is a **no-op**: the skill behaves exactly as it does without it.
+
+The extension file lives in the **consumer's** repo, committed under `.devflow/prompt-extensions/` and shared by the team. It is never part of the plugin, so marketplace updates never overwrite it and never conflict with it — the same upgrade-safe separation DevFlow already relies on for the gitignored live `config.json`. `/devflow:init` scaffolds the directory with a commented `create-issue.md.example` so adopters discover the convention. The helper validates the skill-name argument (rejecting any value containing `/` or `..`) before any filesystem access, so the resolved path can never escape `.devflow/prompt-extensions/`.
+
+**Worked example — Azure DevOps test cases in every generated issue.** An adopter who stores test cases in Azure DevOps wants `/devflow:create-issue` to list the applicable test cases in each generated issue body, while upstream DevFlow stays Azure-DevOps-agnostic. They:
+
+1. Register a **project-scoped Azure DevOps MCP server** in their repo's `.mcp.json`.
+2. Commit `.devflow/prompt-extensions/create-issue.md` containing, for example:
+   > When building the issue body, call the Azure DevOps MCP server to fetch the test cases applicable to this work item and list them under a new "## Applicable Azure DevOps Test Cases" section.
+
+Because the injected text is appended verbatim and MCP tools are model-invoked from prose (not deterministically function-called), the extension must **tell the model to call the tool** rather than assume it runs automatically. No plugin file is edited; the customization is entirely consumer-owned and survives every plugin update.
+
 ---
 
 ## 7. Deep dive: `/devflow:implement` (the 4-phase orchestrator)
