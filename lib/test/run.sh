@@ -930,11 +930,14 @@ for SKILL_DIR in "$LIB"/../skills/*/; do
     "$([ -f "$SKILL_FILE" ] && grep -Fxq '${CLAUDE_SKILL_DIR}/../../scripts/load-prompt-extension.sh '"$SKILL_NAME" "$SKILL_FILE" && echo yes || echo no)"
   # The invocation line alone is half the contract — the step must also tell the
   # model to HONOR the helper's exit code (surface a non-zero exit, don't silently
-  # proceed). Pin a stable fragment of that prose so a future edit can't drop the
-  # exit-code handling while leaving the invocation line intact (which would make
-  # the helper's loud refusals never reach the consumer).
+  # proceed). Pin a BLOCK-UNIQUE fragment of that prose, NOT a generic one: the
+  # phrase "exits non-zero" recurs elsewhere in review/SKILL.md and
+  # review-and-fix/SKILL.md (their dismiss-stale / config-get prose), so a generic
+  # grep would false-pass for those two skills even if the prompt-extension block's
+  # own exit-code prose were deleted. This fragment appears ONLY in the block, so
+  # the guard goes red iff the block's exit-code handling is actually removed.
   assert_eq "lpe-coverage: $SKILL_NAME/SKILL.md honors the helper exit code (prose)" "yes" \
-    "$([ -f "$SKILL_FILE" ] && grep -qF 'exits non-zero' "$SKILL_FILE" && echo yes || echo no)"
+    "$([ -f "$SKILL_FILE" ] && grep -qF 'a consumer extension exists but could not be loaded' "$SKILL_FILE" && echo yes || echo no)"
 done
 # The two strict-JSON-stdout subagents carry an EXTRA caveat (absent from the other
 # 14) that a consumer extension must not break their one-JSON-object contract. Pin
