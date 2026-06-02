@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.0] — 2026-06-02
+
+### Added
+- **Every DevFlow skill honors a consumer-owned prompt-extension convention.** A new shared reader, `scripts/load-prompt-extension.sh <skill-name>`, prints the byte-for-byte contents of `.devflow/prompt-extensions/<skill-name>.md` (resolved relative to the repo root) when that file exists, and each `skills/*/SKILL.md` now runs it as a standardized preflight step, treating any returned text as instructions appended verbatim to the end of its own prompt for that run. When the file is absent or empty the helper prints nothing and the step is a no-op, so a skill behaves exactly as before unless the consumer opts in. The extension file lives in the consumer's repo (committed, team-shared) and is never part of the plugin, so marketplace updates never overwrite or conflict with it — the first upgrade-safe way for an adopting team to add repo-specific instructions to any skill with no fork. The helper validates the skill-name argument (rejecting any `/` or `..`) before touching the filesystem so the path can never escape the extensions directory; it is plain POSIX shell carrying the SPDX header. `/devflow:init` scaffolding (`scripts/scaffold-config.sh`) now creates `.devflow/prompt-extensions/` with a commented, inert `create-issue.md.example` so adopters discover the convention, and a coverage test in `lib/test/run.sh` enumerates every `skills/*/SKILL.md` and fails if any omits the standardized step. See the "Extending skills with prompt extensions" subsection in `docs/DEVFLOW_SYSTEM_OVERVIEW.md` (includes the Azure DevOps `create-issue` worked example) and the matching convention note in `CONTRIBUTING.md`. (#85)
+
 ## [2.7.1] — 2026-06-02
 
 ### Changed
