@@ -37,9 +37,10 @@
 # Exit codes:
 #   0  file printed verbatim, or absent/empty (no-op)
 #   2  bad arguments (missing SKILL_NAME, or it contains '/' or '..'), OR the named
-#      extension exists but cannot be delivered (unreadable, or a symlink whose
-#      target is missing) — refused loudly rather than left to masquerade as the
-#      empty no-op the calling skill treats as "proceed unchanged", which would
+#      extension exists but cannot be delivered as a Markdown file (unreadable, a
+#      symlink whose target is missing, or not a regular file — a directory or a
+#      symlink resolving to one) — refused loudly rather than left to masquerade as
+#      the empty no-op the calling skill treats as "proceed unchanged", which would
 #      silently drop the consumer's customization
 
 set -euo pipefail
@@ -63,7 +64,8 @@ esac
 ext_file=".devflow/prompt-extensions/${skill}.md"
 
 # Absent → no-op (nothing printed, exit 0). Present → emit verbatim. An empty
-# file naturally prints nothing. -f also rules out a directory at that path.
+# file naturally prints nothing. The non-regular and broken-symlink shapes are
+# refused above, so by here the only present case reaching `-f` is a regular file.
 # A symlink whose target is missing makes the `-f` test below false, so without
 # this branch a committed `<skill>.md -> ../moved.md` (or a link that resolves only
 # on another machine) would silently no-op and drop the consumer extension — the
@@ -72,6 +74,16 @@ ext_file=".devflow/prompt-extensions/${skill}.md"
 # -e true and is followed by design, per the header.)
 if [ -L "$ext_file" ] && [ ! -e "$ext_file" ]; then
     echo "load-prompt-extension.sh: '$ext_file' is a symlink with a missing target; refusing to silently skip a consumer extension (fix or remove the link)" >&2
+    exit 2
+fi
+
+# A present entry that is NOT a regular file — a directory (e.g. a fat-fingered
+# `mkdir <skill>.md`), a symlink resolving to a directory, a fifo/device — also
+# makes the `-f` test below false and would silently no-op, dropping the consumer
+# extension (same class as the guards above). Refuse it loudly. A regular file, or
+# a symlink resolving to one, is `-f` true and falls through to be read.
+if [ -e "$ext_file" ] && [ ! -f "$ext_file" ]; then
+    echo "load-prompt-extension.sh: '$ext_file' exists but is not a regular file; refusing to silently skip a consumer extension (expected a Markdown file)" >&2
     exit 2
 fi
 

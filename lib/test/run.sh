@@ -861,6 +861,23 @@ assert_eq "lpe: broken symlink → breadcrumb names the missing target" "yes" \
   "$(grep -qF 'missing target' /tmp/devflow-lpe-broken.err && echo yes || echo no)"
 rm -f "$LPE_DIR/.devflow/prompt-extensions/broken.md"
 
+# Present-but-not-a-regular-file → refused LOUDLY, not a silent no-op: a directory
+# at <skill>.md (a fat-fingered `mkdir`) and a symlink resolving to a directory both
+# have -f false and would otherwise drop the extension silently (same class).
+mkdir "$LPE_DIR/.devflow/prompt-extensions/adir.md"
+ADIR_OUT="$(cd "$LPE_DIR" && bash "$LPE" adir 2>/tmp/devflow-lpe-adir.err)"; ADIR_RC=$?
+assert_eq "lpe: directory at <skill>.md → exit non-zero (not silent no-op)" "yes" \
+  "$([ "$ADIR_RC" -ne 0 ] && echo yes || echo no)"
+assert_eq "lpe: directory at <skill>.md → breadcrumb 'not a regular file'" "yes" \
+  "$(grep -qF 'not a regular file' /tmp/devflow-lpe-adir.err && echo yes || echo no)"
+mkdir "$LPE_DIR/realdir"
+ln -s "../../realdir" "$LPE_DIR/.devflow/prompt-extensions/dirlink.md"
+DIRLINK_OUT="$(cd "$LPE_DIR" && bash "$LPE" dirlink 2>/dev/null)"; DIRLINK_RC=$?
+assert_eq "lpe: symlink resolving to a directory → exit non-zero (not silent no-op)" "yes" \
+  "$([ "$DIRLINK_RC" -ne 0 ] && echo yes || echo no)"
+assert_eq "lpe: symlink-to-directory → empty stdout" "" "$DIRLINK_OUT"
+rm -rf "$LPE_DIR/.devflow/prompt-extensions/adir.md" "$LPE_DIR/.devflow/prompt-extensions/dirlink.md" "$LPE_DIR/realdir"
+
 # Intended symlink behavior (pins a DECISION, not an accident): the name guard
 # constrains the model-supplied NAME, not the resolved target. A symlink the repo
 # owner commits inside the consumer-owned extensions dir IS followed by `cat` — the
