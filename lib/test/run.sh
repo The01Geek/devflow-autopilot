@@ -1622,35 +1622,37 @@ esac
 STUB
 chmod +x "$SCAN_TMP/gh-100"
 
+# One-line driver (house style: cf. rnc/ex/di): run scan.sh against the gh-100
+# stub with the given 200-response injected as $SCAN_RESP; $? carries scan's exit.
+scan100() {  # $1 = $SCAN_RESP value (printf %b-interpreted by the stub)
+  SCAN_RESP="$1" DEVFLOW_CONFIG_FILE="$LIB/test/fixtures/config.json" \
+    DEVFLOW_GH="$SCAN_TMP/gh-100" bash "$LIB/scan.sh" >/dev/null 2>&1
+}
+
 # Build the base64 payloads with the local base64 so the test is host-portable.
 B64_NOPR="$(printf '{"notpr":1}\n{"other":2}\n' | base64 | tr -d '\n')"
 B64_NONJSON="$(printf 'this is not json\nat all\n' | base64 | tr -d '\n')"
+B64_PR="$(printf '{"pr":1}\n{"pr":2}\n' | base64 | tr -d '\n')"
 
-SCAN_RESP='HTTP/2.0 200 OK\r\n\r\n{"content":"'"$B64_NOPR"'"}\n' \
-  DEVFLOW_CONFIG_FILE="$LIB/test/fixtures/config.json" DEVFLOW_GH="$SCAN_TMP/gh-100" bash "$LIB/scan.sh" >/dev/null 2>&1
+scan100 'HTTP/2.0 200 OK\r\n\r\n{"content":"'"$B64_NOPR"'"}\n'
 assert_eq "scan #100: non-empty content decoding to zero pr records exits loud (no silent backlog re-queue)" "1" "$?"
 
-SCAN_RESP='HTTP/2.0 200 OK\r\n\r\n{"content":"'"$B64_NONJSON"'"}\n' \
-  DEVFLOW_CONFIG_FILE="$LIB/test/fixtures/config.json" DEVFLOW_GH="$SCAN_TMP/gh-100" bash "$LIB/scan.sh" >/dev/null 2>&1
+scan100 'HTTP/2.0 200 OK\r\n\r\n{"content":"'"$B64_NONJSON"'"}\n'
 assert_eq "scan #100: base64-of-non-json content (jq parse miss) exits loud" "1" "$?"
 
-SCAN_RESP='HTTP/2.0 200 OK\r\n\r\n{"content":"@@not-valid-base64@@"}\n' \
-  DEVFLOW_CONFIG_FILE="$LIB/test/fixtures/config.json" DEVFLOW_GH="$SCAN_TMP/gh-100" bash "$LIB/scan.sh" >/dev/null 2>&1
+scan100 'HTTP/2.0 200 OK\r\n\r\n{"content":"@@not-valid-base64@@"}\n'
 assert_eq "scan #100: invalid base64 content (decode miss) exits loud" "1" "$?"
 
-SCAN_RESP='HTTP/2.0 200 OK\r\n\r\n{"content":"","foo":1}\n' \
-  DEVFLOW_CONFIG_FILE="$LIB/test/fixtures/config.json" DEVFLOW_GH="$SCAN_TMP/gh-100" bash "$LIB/scan.sh" >/dev/null 2>&1
+scan100 'HTTP/2.0 200 OK\r\n\r\n{"content":"","foo":1}\n'
 assert_eq "scan #100: HTTP 200 with neither content nor download_url exits loud" "1" "$?"
 
 # Regression: the >1 MB download_url fallback path still parses cleanly (exit 0)
 # when the fetched body carries real pr records.
-SCAN_RESP='HTTP/2.0 200 OK\r\n\r\n{"content":"","download_url":"https://example.test/raw/retro.jsonl"}\n' \
-  DEVFLOW_CONFIG_FILE="$LIB/test/fixtures/config.json" DEVFLOW_GH="$SCAN_TMP/gh-100" bash "$LIB/scan.sh" >/dev/null 2>&1
+scan100 'HTTP/2.0 200 OK\r\n\r\n{"content":"","download_url":"https://example.test/raw/retro.jsonl"}\n'
 assert_eq "scan #100: download_url fallback with real records succeeds (exit 0)" "0" "$?"
 
 # Regression: the original happy path (valid jsonl with pr records) still exits 0.
-SCAN_RESP="HTTP/2.0 200 OK\r\n\r\n{\"content\":\"$(printf '{"pr":1}\n{"pr":2}\n' | base64 | tr -d '\n')\"}\n" \
-  DEVFLOW_CONFIG_FILE="$LIB/test/fixtures/config.json" DEVFLOW_GH="$SCAN_TMP/gh-100" bash "$LIB/scan.sh" >/dev/null 2>&1
+scan100 'HTTP/2.0 200 OK\r\n\r\n{"content":"'"$B64_PR"'"}\n'
 assert_eq "scan #100: valid jsonl with pr records still succeeds (exit 0)" "0" "$?"
 
 rm -rf "$SCAN_TMP"
