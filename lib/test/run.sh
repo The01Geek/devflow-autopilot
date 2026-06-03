@@ -38,8 +38,9 @@ assert_eq() {
 echo "classify-pr-kind.jq"
 # ────────────────────────────────────────────────────────────────────────────
 
-classify() {
+classify() {  # branch watched [impl_prefix] [labels-json] [closing-json]
   jq -nr --arg branch "$1" --argjson watched "$2" --arg impl_prefix "${3:-claude/}" \
+    --argjson labels "${4:-[]}" --argjson closing "${5:-[]}" \
     -f "$LIB/classify-pr-kind.jq"
 }
 
@@ -58,6 +59,37 @@ assert_eq "claude/ branch with watched=false is skip" \
 assert_eq "devflow/learnings- branch is skip" \
   "skip" \
   "$(classify "devflow/learnings-2026-W18" "true")"
+
+# #97: classifier mirrors scan's union predicate so scan-selected PRs are not
+# dropped at fetch. A DevFlow-labelled PR on a non-prefix branch → implementation.
+assert_eq "#97 classify: DevFlow-label PR on issue-* branch is implementation" \
+  "implementation" \
+  "$(classify "issue-97-foo" "true" "claude/" '[{"name":"DevFlow"}]' '[]')"
+# A watched-author PR that closes an issue, on a non-prefix branch → implementation.
+assert_eq "#97 classify: closes-issue PR on issue-* branch is implementation" \
+  "implementation" \
+  "$(classify "issue-97-foo" "true" "claude/" '[]' '[{"number":97}]')"
+# True negative: no label, closes nothing, branch matches no prefix → skip.
+assert_eq "#97 classify: no label/closes/prefix → skip" \
+  "skip" \
+  "$(classify "issue-97-foo" "true" "claude/" '[]' '[]')"
+# Empty prefix must NOT match-all: an unrelated branch with no label/closes → skip.
+assert_eq "#97 classify: empty prefix is not match-all (unrelated branch → skip)" \
+  "skip" \
+  "$(classify "feature/unrelated" "true" "" '[]' '[]')"
+# Empty prefix still honors the closes-issue path → implementation.
+assert_eq "#97 classify: empty prefix still selects via closes-issue" \
+  "implementation" \
+  "$(classify "issue-97-foo" "true" "" '[]' '[{"number":97}]')"
+# Arm-ordering precedence: a devflow/audit-* branch that ALSO carries the DevFlow
+# label must classify as audit-intervention (audit arm precedes the label arm),
+# never get mis-routed to the implementation variant.
+assert_eq "#97 classify: DevFlow-labelled audit branch stays audit-intervention" \
+  "audit-intervention" \
+  "$(classify "devflow/audit-foo-2026-05-01-abc1234" "true" "claude/" '[{"name":"DevFlow"}]' '[{"number":97}]')"
+assert_eq "#97 classify: audit branch with watched=false is skip (label/closes do not override)" \
+  "skip" \
+  "$(classify "devflow/audit-foo-2026-05-01-abc1234" "false" "claude/" '[{"name":"DevFlow"}]' '[{"number":97}]')"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "compute-patterns.jq"
@@ -1691,6 +1723,364 @@ assert_eq "review comment → clean=false"      "false" "$(echo "$BASE" | jq '.s
 assert_eq "workpad Blocked → clean=false"     "false" "$(echo "$BASE" | jq '.signals.workpad_final_status="Blocked"' | gate | jq -r .clean)"
 assert_eq "workpad empty string → clean=true" "true"  "$(echo "$BASE" | jq '.signals.workpad_final_status=""' | gate | jq -r .clean)"
 assert_eq "workpad null → clean=true"         "true"  "$(echo "$BASE" | jq '.signals.workpad_final_status=null' | gate | jq -r .clean)"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "issue #97: reserved DevFlow label + issue-workpad reflection ingestion"
+# ────────────────────────────────────────────────────────────────────────────
+
+# ── ensure-label.sh: idempotent, always exit 0 (best-effort) ─────────────────
+EL_TMP="$(mktemp -d)"
+cat > "$EL_TMP/gh" <<'STUB'
+#!/usr/bin/env bash
+# First create succeeds; a marker makes the second call report "already exists".
+MARK="$(dirname "$0")/.created"
+case "$*" in
+  *"label create"*)
+    if [ -f "$MARK" ]; then echo "label already exists" >&2; exit 1; fi
+    touch "$MARK"; exit 0 ;;
+  *) exit 0 ;;
+esac
+STUB
+chmod +x "$EL_TMP/gh"
+DEVFLOW_GH="$EL_TMP/gh" bash "$LIB/../scripts/ensure-label.sh" DevFlow >/dev/null 2>&1; EL_R1=$?
+DEVFLOW_GH="$EL_TMP/gh" bash "$LIB/../scripts/ensure-label.sh" DevFlow >/dev/null 2>&1; EL_R2=$?
+assert_eq "ensure-label: first run exits 0 (created)"            "0" "$EL_R1"
+assert_eq "ensure-label: second run exits 0 (already exists)"    "0" "$EL_R2"
+cat > "$EL_TMP/ghfail" <<'STUB'
+#!/usr/bin/env bash
+echo "HTTP 500: server error" >&2; exit 1
+STUB
+chmod +x "$EL_TMP/ghfail"
+DEVFLOW_GH="$EL_TMP/ghfail" bash "$LIB/../scripts/ensure-label.sh" DevFlow >/dev/null 2>&1; EL_R3=$?
+assert_eq "ensure-label: hard gh failure still exits 0 (best-effort)" "0" "$EL_R3"
+rm -rf "$EL_TMP"
+
+# ── scan.sh: union detection predicate (label / closes-issue / audit / prefix) ─
+S97="$(mktemp -d)"
+cat > "$S97/cfg.json" <<'CFG'
+{"devflow":{"allowed_bots":"claude"},"devflow_retrospective":{"watched_authors":["claude"],"implementation_branch_prefix":"claude/"}}
+CFG
+cat > "$S97/cfg-noprefix.json" <<'CFG'
+{"devflow":{"allowed_bots":"claude"},"devflow_retrospective":{"watched_authors":["claude"],"implementation_branch_prefix":""}}
+CFG
+
+# (a) label path is author- AND branch-agnostic
+cat > "$S97/gh-label" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *"repo view"*) echo "acme/example-repo" ;;
+  *"pr list"*"--label DevFlow"*) echo '[{"number":777,"headRefName":"random/whatever","mergedAt":"2026-05-20T00:00:00Z"}]' ;;
+  *"pr list"*"author:"*) echo '[]' ;;
+  *"pr list"*) echo '[]' ;;
+  *"api"*"retrospectives.jsonl?ref=main"*) printf 'HTTP/2.0 404 Not Found\r\n\r\n' ;;
+  *) echo '[]' ;;
+esac
+STUB
+chmod +x "$S97/gh-label"
+SCAN_L="$(DEVFLOW_CONFIG_FILE="$S97/cfg.json" DEVFLOW_GH="$S97/gh-label" bash "$LIB/scan.sh" 2>/dev/null)"
+assert_eq "scan #97: DevFlow-label PR selected (author/branch-agnostic)" "true" \
+  "$(echo "$SCAN_L" | jq 'any(.[]; .number==777)')"
+
+# (b) closes-issue fallback with NO prefix and NO label (guarantee-class) + true negative
+cat > "$S97/gh-closes" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *"repo view"*) echo "acme/example-repo" ;;
+  *"pr list"*"--label DevFlow"*) echo '[]' ;;
+  *"pr list"*"author:"*) echo '[{"number":61,"headRefName":"issue-61-x","author":{"login":"claude"},"mergedAt":"2026-05-21T00:00:00Z","labels":[],"closingIssuesReferences":[{"number":60}]},{"number":99,"headRefName":"feature/hand","author":{"login":"claude"},"mergedAt":"2026-05-21T00:00:00Z","labels":[],"closingIssuesReferences":[]}]' ;;
+  *"pr list"*) echo '[]' ;;
+  *"api"*"retrospectives.jsonl?ref=main"*) printf 'HTTP/2.0 404 Not Found\r\n\r\n' ;;
+  *) echo '[]' ;;
+esac
+STUB
+chmod +x "$S97/gh-closes"
+SCAN_B="$(DEVFLOW_CONFIG_FILE="$S97/cfg-noprefix.json" DEVFLOW_GH="$S97/gh-closes" bash "$LIB/scan.sh" 2>/dev/null)"
+assert_eq "scan #97: closes-issue path selects PR on issue-* with empty prefix/no label" "true" \
+  "$(echo "$SCAN_B" | jq 'any(.[]; .number==61)')"
+assert_eq "scan #97: true negative (no label/closes/audit/prefix) excluded; empty prefix ≠ match-all" "false" \
+  "$(echo "$SCAN_B" | jq 'any(.[]; .number==99)')"
+
+# (d) dedupe: a PR matching BOTH label and closes paths appears once
+cat > "$S97/gh-dedupe" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *"repo view"*) echo "acme/example-repo" ;;
+  *"pr list"*"--label DevFlow"*) echo '[{"number":55,"headRefName":"issue-55-x","mergedAt":"2026-05-22T00:00:00Z"}]' ;;
+  *"pr list"*"author:"*) echo '[{"number":55,"headRefName":"issue-55-x","author":{"login":"claude"},"mergedAt":"2026-05-22T00:00:00Z","labels":[{"name":"DevFlow"}],"closingIssuesReferences":[{"number":54}]}]' ;;
+  *"pr list"*) echo '[]' ;;
+  *"api"*"retrospectives.jsonl?ref=main"*) printf 'HTTP/2.0 404 Not Found\r\n\r\n' ;;
+  *) echo '[]' ;;
+esac
+STUB
+chmod +x "$S97/gh-dedupe"
+SCAN_D="$(DEVFLOW_CONFIG_FILE="$S97/cfg.json" DEVFLOW_GH="$S97/gh-dedupe" bash "$LIB/scan.sh" 2>/dev/null)"
+assert_eq "scan #97: PR matching both label+closes appears once (dedupe)" "1" \
+  "$(echo "$SCAN_D" | jq '[.[] | select(.number==55)] | length')"
+
+# the 6 existing bot PRs are selected via path (b) with no prefix and no backfill
+cat > "$S97/gh-six" <<'STUB'
+#!/usr/bin/env bash
+SIX='[{"number":62,"headRefName":"issue-62-a","author":{"login":"claude"},"mergedAt":"2026-05-01T00:00:00Z","labels":[],"closingIssuesReferences":[{"number":162}]},
+      {"number":64,"headRefName":"issue-64-b","author":{"login":"claude"},"mergedAt":"2026-05-02T00:00:00Z","labels":[],"closingIssuesReferences":[{"number":164}]},
+      {"number":71,"headRefName":"issue-71-c","author":{"login":"claude"},"mergedAt":"2026-05-03T00:00:00Z","labels":[],"closingIssuesReferences":[{"number":171}]},
+      {"number":72,"headRefName":"issue-72-d","author":{"login":"claude"},"mergedAt":"2026-05-04T00:00:00Z","labels":[],"closingIssuesReferences":[{"number":172}]},
+      {"number":73,"headRefName":"issue-73-e","author":{"login":"claude"},"mergedAt":"2026-05-05T00:00:00Z","labels":[],"closingIssuesReferences":[{"number":173}]},
+      {"number":87,"headRefName":"issue-87-f","author":{"login":"claude"},"mergedAt":"2026-05-06T00:00:00Z","labels":[],"closingIssuesReferences":[{"number":187}]}]'
+case "$*" in
+  *"repo view"*) echo "acme/example-repo" ;;
+  *"pr list"*"--label DevFlow"*) echo '[]' ;;
+  *"pr list"*"author:"*) echo "$SIX" ;;
+  *"pr list"*) echo '[]' ;;
+  *"api"*"retrospectives.jsonl?ref=main"*) printf 'HTTP/2.0 404 Not Found\r\n\r\n' ;;
+  *) echo '[]' ;;
+esac
+STUB
+chmod +x "$S97/gh-six"
+SCAN_SIX="$(DEVFLOW_CONFIG_FILE="$S97/cfg-noprefix.json" DEVFLOW_GH="$S97/gh-six" bash "$LIB/scan.sh" 2>/dev/null)"
+assert_eq "scan #97: the 6 bot PRs selected via closes-issue path (no prefix, no backfill)" "62 64 71 72 73 87" \
+  "$(echo "$SCAN_SIX" | jq -r '[.[].number] | sort | join(" ")')"
+
+# Empty watched-authors list: the label pass still runs and must NOT early-exit
+# to '[]' — the no-op-prevention guarantee. (Guards a regression that restored
+# the old `[ -z "$WATCHED" ] → echo '[]'; exit 0`.)
+cat > "$S97/cfg-nowatched.json" <<'CFG'
+{"devflow":{"allowed_bots":""},"devflow_retrospective":{"watched_authors":[],"implementation_branch_prefix":"claude/"}}
+CFG
+SCAN_NW="$(DEVFLOW_CONFIG_FILE="$S97/cfg-nowatched.json" DEVFLOW_GH="$S97/gh-label" bash "$LIB/scan.sh" 2>/dev/null)"
+assert_eq "scan #97: label pass runs with empty watched-authors (no silent no-op)" "true" \
+  "$(echo "$SCAN_NW" | jq 'any(.[]; .number==777)')"
+
+# --prs ad-hoc mode applies the union predicate too: a DevFlow-labelled PR on a
+# non-prefix branch (no closes) is selected; a true-negative is dropped.
+cat > "$S97/gh-prs" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *"repo view"*) echo "acme/example-repo" ;;
+  *"pr view 800 --repo"*) echo '{"number":800,"headRefName":"random/x","mergedAt":"2026-05-25T00:00:00Z","state":"MERGED","labels":[{"name":"DevFlow"}],"closingIssuesReferences":[],"author":{"login":"nonwatched"}}' ;;
+  *"pr view 801 --repo"*) echo '{"number":801,"headRefName":"feature/plain","mergedAt":"2026-05-26T00:00:00Z","state":"MERGED","labels":[],"closingIssuesReferences":[],"author":{"login":"nonwatched"}}' ;;
+  *"pr view 802 --repo"*) echo '{"number":802,"headRefName":"issue-802-x","mergedAt":"2026-05-27T00:00:00Z","state":"MERGED","labels":[],"closingIssuesReferences":[{"number":702}],"author":{"login":"claude"}}' ;;
+  *"pr view 803 --repo"*) echo '{"number":803,"headRefName":"issue-803-x","mergedAt":"2026-05-28T00:00:00Z","state":"MERGED","labels":[],"closingIssuesReferences":[{"number":703}],"author":{"login":"nonwatched"}}' ;;
+  *) echo '[]' ;;
+esac
+STUB
+chmod +x "$S97/gh-prs"
+PRS97="$(DEVFLOW_CONFIG_FILE="$S97/cfg.json" DEVFLOW_GH="$S97/gh-prs" bash "$LIB/scan.sh" --prs "800,801,802,803" 2>/dev/null)"
+assert_eq "scan #97 --prs: DevFlow-labelled PR on non-prefix branch selected" "true" \
+  "$(echo "$PRS97" | jq 'any(.[]; .number==800)')"
+assert_eq "scan #97 --prs: true-negative (no label/closes/prefix) dropped" "false" \
+  "$(echo "$PRS97" | jq 'any(.[]; .number==801)')"
+# --prs closes-issue path is author-gated by _author_is_watched: a WATCHED
+# author that closes an issue (no label/prefix) is selected; a non-watched
+# author with the same closes-only shape is dropped.
+assert_eq "scan #97 --prs: watched-author closes-issue on non-prefix branch selected" "true" \
+  "$(echo "$PRS97" | jq 'any(.[]; .number==802)')"
+assert_eq "scan #97 --prs: non-watched closes-only dropped (path b is author-gated)" "false" \
+  "$(echo "$PRS97" | jq 'any(.[]; .number==803)')"
+rm -rf "$S97"
+
+# ── fetch-pr-context.sh: workpad + reflections sourced from the ISSUE thread ──
+F97="$(mktemp -d)"
+cat > "$F97/prview.json" <<'PV'
+{"number":900,"headRefName":"claude/issue-901-x","baseRefName":"main","headRefOid":"sha900beef","mergeCommit":{"oid":"merge900"},"mergedAt":"2026-05-08T16:31:00Z","createdAt":"2026-05-08T07:00:00Z","author":{"login":"example-bot"},"title":"t","body":"Closes #901","additions":1,"deletions":0,"files":[{"path":"x.txt"}],"labels":[]}
+PV
+cat > "$F97/issue.json" <<'IJ'
+{"number":901,"title":"i","body":"b","labels":[],"comments":[]}
+IJ
+# Stub distinguishes the ISSUE thread (issues/901/comments — workpad lives here)
+# from the PR thread (issues/900/comments — empty). Reads whatever
+# issuecomments.json currently holds so scenarios can be swapped in place.
+cat > "$F97/gh" <<'STUB'
+#!/usr/bin/env bash
+FX="${DEVFLOW_FX}"
+case "$*" in
+  *"repo view"*) echo "acme/example-repo" ;;
+  *"pr view"*) cat "$FX/prview.json" ;;
+  *"pr diff"*) echo 'diff --git a/x.txt b/x.txt' ;;
+  *"pulls/"*"/comments"*) echo '[]' ;;
+  *"pulls/"*"/reviews"*) echo '[]' ;;
+  *"pulls/"*"/commits"*) echo '[]' ;;
+  *"check-runs"*) echo '{"check_runs":[]}' ;;
+  *"issues/901/comments"*) cat "$FX/issuecomments.json" ;;
+  *"issues/900/comments"*) echo '[]' ;;
+  *"issues/"*"/comments"*) echo '[]' ;;
+  *"issues/901"*) cat "$FX/issue.json" ;;
+  *"commits/"*) echo '{"files":[]}' ;;
+  *) echo '[]' ;;
+esac
+STUB
+chmod +x "$F97/gh"
+
+# Scenario 1: Status 🎉 Complete + two reflection bullets (one with backticks/$).
+cat > "$F97/workpad.md" <<'WPMD'
+<!-- devflow:workpad -->
+# DevFlow Workpad — Issue #901
+
+**Status:** 🎉 Complete
+
+## Progress
+- [x] **Setup**
+
+## Devflow Reflection
+<details>
+<summary>Devflow Reflection (click to expand)</summary>
+
+- permission classifier blocked `bash lib/test/run.sh` ($CLAUDE_CODE classifier denied local test exec)
+- scope narrowed: deferred part X to a follow-up
+</details>
+WPMD
+jq -Rs '[{user:{login:"example-bot"},body:.,created_at:"2026-05-08T10:00:00Z"}]' < "$F97/workpad.md" > "$F97/issuecomments.json"
+F_OUT="$(DEVFLOW_FX="$F97" DEVFLOW_GH="$F97/gh" bash "$LIB/fetch-pr-context.sh" 900 2>/dev/null)"
+F_CTX="$(cat "$F_OUT")"
+assert_eq "fetch #97: workpad_final_status sourced from ISSUE, glyph stripped → Complete" "Complete" \
+  "$(jq -r '.signals.workpad_final_status' <<<"$F_CTX")"
+assert_eq "fetch #97: reflections[] has the two bullets" "2" \
+  "$(jq '.reflections | length' <<<"$F_CTX")"
+EXP_REFL='permission classifier blocked `bash lib/test/run.sh` ($CLAUDE_CODE classifier denied local test exec)'
+assert_eq "fetch #97: reflection bullet byte-for-byte (backticks/\$ survive)" "$EXP_REFL" \
+  "$(jq -r '.reflections[0]' <<<"$F_CTX")"
+
+# Scenario 2: empty Devflow Reflection block → reflections == []
+cat > "$F97/workpad-empty.md" <<'WPMD'
+<!-- devflow:workpad -->
+# DevFlow Workpad — Issue #901
+**Status:** 🚀 Implementing
+## Devflow Reflection
+<details>
+<summary>Devflow Reflection (click to expand)</summary>
+
+</details>
+WPMD
+jq -Rs '[{user:{login:"example-bot"},body:.,created_at:"2026-05-08T10:00:00Z"}]' < "$F97/workpad-empty.md" > "$F97/issuecomments.json"
+F_OUT2="$(DEVFLOW_FX="$F97" DEVFLOW_GH="$F97/gh" bash "$LIB/fetch-pr-context.sh" 900 2>/dev/null)"
+assert_eq "fetch #97: empty reflection block → reflections == []" "0" \
+  "$(jq '.reflections | length' < "$F_OUT2")"
+
+# Scenario 3: malformed block (no closing </details>) degrades without detonating
+cat > "$F97/workpad-malformed.md" <<'WPMD'
+<!-- devflow:workpad -->
+**Status:** 🚀 Reviewing
+## Devflow Reflection
+<details>
+<summary>Devflow Reflection (click to expand)</summary>
+
+- a malformed-block bullet
+WPMD
+jq -Rs '[{user:{login:"example-bot"},body:.,created_at:"2026-05-08T10:00:00Z"}]' < "$F97/workpad-malformed.md" > "$F97/issuecomments.json"
+F_OUT3="$(DEVFLOW_FX="$F97" DEVFLOW_GH="$F97/gh" bash "$LIB/fetch-pr-context.sh" 900 2>/dev/null)"; F_RC3=$?
+assert_eq "fetch #97: malformed reflection block exits 0 (no detonation)" "0" "$F_RC3"
+assert_eq "fetch #97: malformed reflection block degrades to a valid array" "array" \
+  "$(jq -r '.reflections | type' < "$F_OUT3")"
+
+# Scenario 4: Blocked workpad (from issue) → end-to-end gate clean=false (signal live)
+cat > "$F97/workpad-blocked.md" <<'WPMD'
+<!-- devflow:workpad -->
+**Status:** 👎 Blocked
+## Devflow Reflection
+<details>
+<summary>Devflow Reflection (click to expand)</summary>
+
+</details>
+WPMD
+jq -Rs '[{user:{login:"example-bot"},body:.,created_at:"2026-05-08T10:00:00Z"}]' < "$F97/workpad-blocked.md" > "$F97/issuecomments.json"
+F_OUT4="$(DEVFLOW_FX="$F97" DEVFLOW_GH="$F97/gh" bash "$LIB/fetch-pr-context.sh" 900 2>/dev/null)"
+assert_eq "fetch #97: Blocked status sourced from ISSUE → Blocked" "Blocked" \
+  "$(jq -r '.signals.workpad_final_status' < "$F_OUT4")"
+assert_eq "gate #97: Blocked workpad (from issue) → clean=false (signal live again)" "false" \
+  "$(jq -c -f "$LIB/cheap-gate.jq" < "$F_OUT4" | jq -r .clean)"
+rm -rf "$F97"
+
+# Integration: a PR scan selects via the label/closes-issue path — on an issue-*
+# branch matching NO prefix — must NOT be dropped at fetch (classify-pr-kind.jq
+# now mirrors scan's union predicate; pre-fix it returned "skip" → exit 2).
+FI97="$(mktemp -d)"
+cat > "$FI97/prview.json" <<'PV'
+{"number":950,"headRefName":"issue-97-foo","baseRefName":"main","headRefOid":"sha950","mergeCommit":{"oid":"m950"},"mergedAt":"2026-05-27T00:00:00Z","createdAt":"2026-05-27T00:00:00Z","author":{"login":"claude[bot]"},"title":"t","body":"Closes #97","additions":1,"deletions":0,"files":[{"path":"x.txt"}],"labels":[{"name":"DevFlow"}],"closingIssuesReferences":[{"number":97}]}
+PV
+cat > "$FI97/issue.json" <<'IJ'
+{"number":97,"title":"i","body":"b","labels":[],"comments":[]}
+IJ
+cat > "$FI97/gh" <<'STUB'
+#!/usr/bin/env bash
+FX="${DEVFLOW_FX}"
+case "$*" in
+  *"repo view"*) echo "acme/example-repo" ;;
+  *"pr view"*) cat "$FX/prview.json" ;;
+  *"pr diff"*) echo 'diff --git a/x.txt b/x.txt' ;;
+  *"pulls/"*"/comments"*) echo '[]' ;;
+  *"pulls/"*"/reviews"*) echo '[]' ;;
+  *"pulls/"*"/commits"*) echo '[]' ;;
+  *"check-runs"*) echo '{"check_runs":[]}' ;;
+  *"issues/"*"/comments"*) echo '[]' ;;
+  *"issues/97"*) cat "$FX/issue.json" ;;
+  *"commits/"*) echo '{"files":[]}' ;;
+  *) echo '[]' ;;
+esac
+STUB
+chmod +x "$FI97/gh"
+FI_OUT="$(DEVFLOW_FX="$FI97" DEVFLOW_GH="$FI97/gh" bash "$LIB/fetch-pr-context.sh" 950 2>/dev/null)"; FI_RC=$?
+assert_eq "fetch #97: label/closes PR on non-prefix branch is NOT skipped (exit 0)" "0" "$FI_RC"
+assert_eq "fetch #97: label/closes PR on non-prefix branch → kind=implementation" "implementation" \
+  "$([ -n "$FI_OUT" ] && jq -r '.kind' < "$FI_OUT" || echo MISSING)"
+rm -rf "$FI97"
+
+# Issue-number derivation falls back to GitHub's own linkage (#98 finding I-1):
+# a DevFlow PR on an `issue-<N>-<slug>` branch (NOT `claude/issue-<N>`) whose body
+# carries no Closes/Fixes/Resolves keyword — linked only via the UI — is selected
+# by the union predicate yet would source an EMPTY workpad without this fallback.
+# closingIssuesReferences[0].number must supply the issue number.
+FCL="$(mktemp -d)"
+cat > "$FCL/prview.json" <<'PV'
+{"number":960,"headRefName":"issue-712-foo","baseRefName":"main","headRefOid":"sha960","mergeCommit":{"oid":"m960"},"mergedAt":"2026-05-27T00:00:00Z","createdAt":"2026-05-27T00:00:00Z","author":{"login":"claude[bot]"},"title":"t","body":"no keyword linkage here","additions":1,"deletions":0,"files":[{"path":"x.txt"}],"labels":[{"name":"DevFlow"}],"closingIssuesReferences":[{"number":712}]}
+PV
+cat > "$FCL/issue.json" <<'IJ'
+{"number":712,"title":"i","body":"b","labels":[],"comments":[]}
+IJ
+cat > "$FCL/gh" <<'STUB'
+#!/usr/bin/env bash
+FX="${DEVFLOW_FX}"
+case "$*" in
+  *"repo view"*) echo "acme/example-repo" ;;
+  *"pr view"*) cat "$FX/prview.json" ;;
+  *"pr diff"*) echo 'diff --git a/x.txt b/x.txt' ;;
+  *"pulls/"*"/comments"*) echo '[]' ;;
+  *"pulls/"*"/reviews"*) echo '[]' ;;
+  *"pulls/"*"/commits"*) echo '[]' ;;
+  *"check-runs"*) echo '{"check_runs":[]}' ;;
+  *"issues/"*"/comments"*) echo '[]' ;;
+  *"issues/712"*) cat "$FX/issue.json" ;;
+  *"commits/"*) echo '{"files":[]}' ;;
+  *) echo '[]' ;;
+esac
+STUB
+chmod +x "$FCL/gh"
+FCL_OUT="$(DEVFLOW_FX="$FCL" DEVFLOW_GH="$FCL/gh" bash "$LIB/fetch-pr-context.sh" 960 2>/dev/null)"
+assert_eq "fetch I-1: issue# falls back to closingIssuesReferences when branch+body miss" "712" \
+  "$([ -n "$FCL_OUT" ] && jq -r '.issue_number' < "$FCL_OUT" || echo MISSING)"
+rm -rf "$FCL"
+
+# ── cheap-gate.jq: a non-empty reflections[] forces analysis even when clean ──
+assert_eq "gate #97: reflections non-empty → clean=false (all signals clean)" "false" \
+  "$(echo "$BASE" | jq '.reflections=["friction note"]' | gate | jq -r .clean)"
+assert_eq "gate #97: reflection reason names the signal" "workpad reflections present" \
+  "$(echo "$BASE" | jq '.reflections=["friction note"]' | gate | jq -r .reason)"
+
+# ── SKILL.md / config contract pins (grep) ───────────────────────────────────
+assert_eq "#97 pin: ensure-label.sh exists" "yes" \
+  "$([ -f "$LIB/../scripts/ensure-label.sh" ] && echo yes || echo no)"
+assert_eq "#97 pin: create-issue ensures+applies DevFlow label" "yes" \
+  "$(grep -q 'ensure-label.sh DevFlow' "$LIB/../skills/create-issue/SKILL.md" && grep -q -- '--add-label DevFlow' "$LIB/../skills/create-issue/SKILL.md" && echo yes || echo no)"
+assert_eq "#97 pin: implement applies DevFlow label at PR create" "yes" \
+  "$(grep -q 'ensure-label.sh DevFlow' "$LIB/../skills/implement/SKILL.md" && grep -q -- '--add-label DevFlow' "$LIB/../skills/implement/SKILL.md" && echo yes || echo no)"
+assert_eq "#97 pin: retrospective-weekly Stage B applies DevFlow label" "yes" \
+  "$(grep -q 'ensure-label.sh DevFlow' "$LIB/../skills/retrospective-weekly/SKILL.md" && grep -q -- '--add-label DevFlow' "$LIB/../skills/retrospective-weekly/SKILL.md" && echo yes || echo no)"
+assert_eq "#97 pin: init creates the reserved DevFlow provenance label" "yes" \
+  "$(grep -q 'ensure-label.sh DevFlow' "$LIB/../skills/init/SKILL.md" && grep -qi 'provenance' "$LIB/../skills/init/SKILL.md" && echo yes || echo no)"
+assert_eq "#97 pin: retrospective Stage A consumes reflections" "yes" \
+  "$(grep -qi 'reflection' "$LIB/../skills/retrospective/SKILL.md" && echo yes || echo no)"
+assert_eq "#97 pin: cheap-gate carries the reflection reason string" "yes" \
+  "$(grep -q 'workpad reflections present' "$LIB/cheap-gate.jq" && echo yes || echo no)"
+assert_eq "#97 pin: config.example.json docs.labels reverted to Documented" "Documented" \
+  "$(jq -r '.docs.labels' "$LIB/../.devflow/config.example.json")"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "clean-entry.jq / audit-entry.jq / actionable-patterns.sh"
