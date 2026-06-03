@@ -110,42 +110,86 @@ if [ ! -f "$GITIGNORE" ]; then
   log "wrote $GITIGNORE (ignores ephemeral .devflow/tmp/ scratch)"
 fi
 
-# Consumer-owned prompt-extensions directory (issue #84). Skills load
-# .devflow/prompt-extensions/<skill-name>.md verbatim when present, so a repo can
-# append repo-specific instructions to any skill with no plugin edit. Scaffold the
-# directory plus a single COMMENTED, INERT example so adopters discover the
-# convention; the `.example` suffix keeps it from matching `<skill-name>.md`, so it
-# never injects itself into a real run until a consumer deliberately renames it.
-# Created only when the directory is absent so an adopter's own extensions and edits
-# survive re-runs (same guard discipline as the .gitignore above). The directory is
-# intentionally NOT gitignored (the scoped .devflow/.gitignore ignores only tmp/),
-# so a team commits and shares its extensions.
+# Consumer-owned prompt-extensions directory (issue #84, extended in issue #95).
+# Skills load .devflow/prompt-extensions/<skill-name>.md verbatim when present, so a
+# repo can append repo-specific instructions to any skill with no plugin edit.
+# Scaffold one COMMENTED, INERT <skill>.md.example PER SKILL so adopters discover
+# that EVERY skill is extensible, not just create-issue. The `.example` suffix keeps
+# each file from matching `<skill-name>.md`, so it never injects itself into a real
+# run until a consumer deliberately renames it; and the whole body is an HTML
+# comment, so even a misrename that drops `.example` injects no actionable
+# instruction. mkdir -p is idempotent; the absence guard is PER FILE (not on the
+# directory), so an adopter who scaffolded before issue #95 — and so has only
+# create-issue.md.example — gets the remaining examples backfilled on re-run, while
+# any file they created or edited (an .example OR a live <skill>.md) is never
+# touched. The directory is intentionally NOT gitignored (the scoped
+# .devflow/.gitignore ignores only tmp/), so a team commits and shares its
+# extensions.
+#
+# The skill list below is authoritative and is kept in sync with skills/ by a drift
+# guard in lib/test/run.sh (it derives the expected set from skills/*/ and fails if
+# the scaffolder forgets one). Each row is <skill-name>|<one-line hint>. Keep both
+# fields apostrophe-free ASCII: a hint reaches a printf arg below, and an ASCII
+# apostrophe in a single-quoted bash string would terminate it (shellcheck
+# SC1073/SC1011) while a curly apostrophe would trip SC1112 (see CLAUDE.md).
 EXTENSIONS_DIR="$DEST/prompt-extensions"
-if [ ! -d "$EXTENSIONS_DIR" ]; then
-  mkdir -p "$EXTENSIONS_DIR"
-  # The example is itself a Markdown comment block, so even a verbatim copy that
-  # forgot to drop the .example suffix would inject no actionable instruction.
-  printf '%s\n' \
-    '<!--' \
-    'DevFlow prompt-extension example.' \
-    '' \
-    'This directory holds consumer-owned prompt extensions for DevFlow skills.' \
-    'Drop a file named `<skill-name>.md` here and its contents are appended' \
-    'VERBATIM to the end of that skill prompt every time the skill runs — an' \
-    'upgrade-safe way to add repo-specific instructions without forking the' \
-    'plugin. Marketplace updates never touch this directory. When no file exists' \
-    'for a skill, the skill behaves exactly as it does today (the no-op path).' \
-    '' \
-    '`<skill-name>` is the skill directory name under skills/: create-issue,' \
-    'implement, review, review-and-fix, pr-description, init, the docs* family,' \
-    'and the retrospective* family.' \
-    '' \
-    'To activate, copy this file to `<skill-name>.md` (e.g. create-issue.md),' \
-    'drop the .example suffix, and replace this comment with your own' \
-    'instructions. For a worked example, see the "Extending skills with prompt' \
-    'extensions" section in docs/DEVFLOW_SYSTEM_OVERVIEW.md.' \
-    '-->' > "$EXTENSIONS_DIR/create-issue.md.example"
-  log "created $EXTENSIONS_DIR/ with a commented example (rename create-issue.md.example to <skill>.md to activate)"
+mkdir -p "$EXTENSIONS_DIR"
+pe_created=0
+while IFS='|' read -r pe_skill pe_hint; do
+  [ -n "$pe_skill" ] || continue
+  pe_target="$EXTENSIONS_DIR/$pe_skill.md.example"
+  # Per-file backfill: never touch a file that already exists (an adopter's edited
+  # example, or a live <skill>.md they authored), only create absent .example files.
+  if [ -e "$pe_target" ]; then
+    continue
+  fi
+  # The body is itself one Markdown comment block: the first line opens `<!--`, the
+  # last closes `-->`, with the skill name and its hint interpolated between. The
+  # static lines are single-quoted printf args (apostrophe-free ASCII); the two
+  # interpolated lines use %s so $pe_skill / $pe_hint expand without quoting hazards.
+  {
+    printf '%s\n' '<!--'
+    printf '%s\n' "DevFlow prompt-extension example for the $pe_skill skill."
+    printf '%s\n' \
+      '' \
+      'This directory holds consumer-owned prompt extensions for DevFlow skills.' \
+      'Drop a file named <skill-name>.md here (no .example suffix) and its contents' \
+      'are appended VERBATIM to the end of that skill prompt every time it runs. It' \
+      'is an upgrade-safe way to add repo-specific instructions without forking the' \
+      'plugin. Marketplace updates never touch this directory. When no file exists' \
+      'for a skill, that skill behaves exactly as it does today (the no-op path).' \
+      ''
+    printf '%s\n' "Useful extension for $pe_skill: $pe_hint"
+    printf '%s\n' \
+      '' \
+      'To activate, copy this file to the same name without the .example suffix' \
+      '(for example create-issue.md.example becomes create-issue.md) and replace' \
+      'this comment with your own instructions. For the full convention and a' \
+      'worked example, see the "Extending skills with prompt extensions" section' \
+      'in docs/DEVFLOW_SYSTEM_OVERVIEW.md.' \
+      '-->'
+  } > "$pe_target"
+  pe_created=$((pe_created + 1))
+done <<'PE_SKILLS'
+create-issue|extend the generated issue body with links to your house tracker or test-case system
+docs|point the docs pass at extra documentation roots specific to your repo
+docs-bootstrap-external|describe your public docs-site structure so the external bootstrap matches it
+docs-bootstrap-internal|name the internal doc conventions and directory layout your team follows
+docs-release-notes|match your release-notes house style, audience, and changelog format
+docs-sync-external|list which internal sections are confidential and must never reach external docs
+docs-sync-internal|flag the code areas whose internal docs your team keeps especially current
+docs-verify|name the topics whose internal docs your team treats as load-bearing
+implement|add repo-specific implementation constraints the orchestrator must honor
+init|add post-scaffold setup steps unique to your repo
+pr-description|enforce your PR-description template sections and required labels
+retrospective|add house criteria for what counts as a clean PR in the retrospective
+retrospective-audit|name the intervention patterns your team prioritizes when auditing
+retrospective-weekly|tune which authors and time window the weekly loop scans
+review|add house review rules the reviewer must enforce
+review-and-fix|add house review rules and fix-loop guardrails specific to your repo
+PE_SKILLS
+if [ "$pe_created" -gt 0 ]; then
+  log "created/backfilled $pe_created prompt-extension example(s) in $EXTENSIONS_DIR/ (rename <skill>.md.example to <skill>.md to activate)"
 fi
 
 # Backfill newly-introduced keys into an EXISTING config.json. A recursive
