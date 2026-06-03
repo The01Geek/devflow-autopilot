@@ -48,6 +48,7 @@ This verifies internal docs against the code and **returns a findings report** �
 
 **Definition of Ready — every item below must have a single, decided answer before you draft:**
 
+- [ ] **Independent derivation before anchoring (run the pass below FIRST, on every run).** You have independently re-derived the full Definition of Ready — problem/beneficiary, behavioral forks, edge/error cases, and acceptance criteria — from the stated problem and the Step 1 findings *before* weighing the user's supplied criteria, and you drive clarification from the **delta plus conflicts**. User-supplied acceptance criteria are suspect input on two axes — **completeness** (which forks, edge cases, and factors the list omits) and **correctness** (each criterion is atomic, testable, and a genuinely resolved decision, not a disguised unresolved fork) — so a comprehensive-*looking* story earns the same scrutiny a terse one already gets. This mirrors "Solution-space expansion before convergence" below, generalized from the implementation-approach fork to the problem, behavior, edge-case, and acceptance-criteria forks.
 - [ ] **Problem & beneficiary** — who hits this pain and why it matters. (Not "users want export" — *which* users, doing *what*, blocked *how*.)
 - [ ] **Single coherent scope** — the issue is exactly one feature/fix. If the story bundles two or more ("export results *and* notify when ready"), ask the user whether to split; default to one issue per feature.
 - [ ] **One decided behavior per fork** — every place the story could mean different things (format, channel, trigger condition, access model, edge-case handling) has *one* chosen answer. No "or", no "either", no "default for now".
@@ -55,9 +56,19 @@ This verifies internal docs against the code and **returns a findings report** �
 - [ ] **One implementation approach** — present the expanded mechanism menu (including the strongest class found above), and the user has picked one. You surface each option's **guarantee-strength** and trade-offs *in the question*, not in the issue.
 - [ ] **Concrete acceptance criteria** — you can state each as a single unconditional, testable assertion. If an AC would need a conditional ("if links are public…"), the underlying fork isn't resolved yet — go ask.
 
+**Independent-derivation pass (mandatory, before any clarification round — runs on every run regardless of how complete the story looks).**
+
+A story that *looks* fully baked — structured sections, its own acceptance-criteria list — is the trap this pass defuses: when criteria arrive pre-written, the temptation is to treat them as answers "already known from the user story" and skip derivation, so the supplied list silently anchors the whole issue. A terse one-line story produces a *better* issue precisely because there is nothing to anchor on. This pass removes the anchor by **ordering**, not by isolation:
+
+1. **Derive first, read the supplied answers second.** Before reading the user's acceptance criteria (and any other pre-supplied decisions) *as answers*, independently re-derive the full Definition of Ready above — problem/beneficiary framing, every behavioral fork, edge/error cases, and the acceptance criteria — from the stated problem and the Step 1 codebase findings. **Write that derivation down first.** The ordering is the mechanism: you commit to your own list before the user's list can frame your thinking. This is a forced self-check, not an isolation guarantee — you still see the supplied criteria; you simply derive *before* weighing them. (A blind-subagent variant that never sees the supplied list was rejected, to keep this skill's no-subagent, all-inline model and avoid the added latency.)
+2. **Treat supplied acceptance criteria as suspect on two axes.** *Completeness* — which behavioral forks, edge cases, and factors does your independent list have that theirs omits? *Correctness* — is each supplied criterion atomic, testable, and a genuinely resolved decision, or a buried unresolved fork wearing the costume of a decided one? A polished, comprehensive-looking list earns the **same** scrutiny a terse story gets, since it has more to challenge.
+3. **Drive the clarification rounds from the delta.** Diff your independently-derived list against the story and clarify from the **delta plus any conflicts** — the forks, edge cases, and factors you derived that the story left unresolved; the supplied criteria that fail the correctness test; and anywhere the two lists disagree. The supplied criteria are one of the two inputs to that diff, never a shortcut past it.
+
+This pass **feeds** the clarification rounds; the no-options gate (Step 3) still governs the final body. Its output is a working derivation to clarify against — never a place to park options in the issue itself.
+
 **How to ask:**
 
-- Use the **AskUserQuestion** tool. Batch 2–4 related questions per call rather than one long interrogation.
+- Use the **AskUserQuestion** tool. Source the batches from the independent-derivation **delta plus conflicts** (the pass above), and batch 2–4 related questions per call rather than one long interrogation.
 - For each question, offer concrete multiple-choice options. When the codebase or findings make one choice clearly best, list it **first** and mark it `(Recommended)` with a one-line why.
 - After each round of answers, **re-check the Definition of Ready**. If gaps remain, ask another batch. Keep going until the list is fully satisfied — do not draft with items still open.
 - Cap at ~6 rounds. If facts are still missing after that, treat the remainder as disengagement (below).
