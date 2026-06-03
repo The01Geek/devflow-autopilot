@@ -1,0 +1,50 @@
+{
+  "iter": 1,
+  "source": "review-and-fix",
+  "fix_commit_sha": "af36ae06ec7ef365a15ebca6f52bc931eb996629",
+  "fix_files": ["lib/test/run.sh"],
+  "diff_profile": {"small_diff": false, "config_only": false, "has_new_types": false, "engine_self_modifying": true, "checklist_skipped": null},
+  "checklist": [
+    {"id":"VC-1","verification_mode":"lite","verdict":"PASS","claim_signature":"string_presence:provision-auto-mode.sh:spdx-header-present","reused_from_iter_prev":false},
+    {"id":"VC-2","verification_mode":"lite","verdict":"PASS","claim_signature":"api_contract:provision-auto-mode.sh:no-default-mode-written","reused_from_iter_prev":false},
+    {"id":"VC-3","verification_mode":"agent","verdict":"PASS","claim_signature":"dependency_interaction:provision-auto-mode.sh:env-var-name-correct","reused_from_iter_prev":false},
+    {"id":"VC-4","verification_mode":"agent","verdict":"PASS","claim_signature":"data_format_assumption:provision-auto-mode.sh:merge-user-wins-order","reused_from_iter_prev":false},
+    {"id":"VC-5","verification_mode":"agent","verdict":"PASS","claim_signature":"api_contract:provision-auto-mode.sh:consent-gate-no-write","reused_from_iter_prev":false},
+    {"id":"VC-6","verification_mode":"agent","verdict":"PASS","claim_signature":"test_mock_alignment:run.sh:breadcrumb-grep-match","reused_from_iter_prev":false},
+    {"id":"VC-7","verification_mode":"agent","verdict":"PASS","claim_signature":"test_mock_alignment:provision-auto-mode.sh:env-path-breadcrumb-exact","reused_from_iter_prev":false},
+    {"id":"VC-8","verification_mode":"agent","verdict":"PASS","claim_signature":"api_contract:provision-auto-mode.sh:default-user-scope-target","reused_from_iter_prev":false},
+    {"id":"VC-9","verification_mode":"agent","verdict":"PASS","claim_signature":"api_contract:provision-auto-mode.sh:arg-validation-precedes-write","reused_from_iter_prev":false},
+    {"id":"VC-10","verification_mode":"agent","verdict":"PASS","claim_signature":"dependency_interaction:SKILL.md:skill-dir-helper-path","reused_from_iter_prev":false},
+    {"id":"VC-11","verification_mode":"agent","verdict":"PASS","claim_signature":"data_format_assumption:provision-auto-mode.sh:no-change-skips-write","reused_from_iter_prev":false},
+    {"id":"VC-12","verification_mode":"agent","verdict":"PASS","claim_signature":"api_contract:provision-auto-mode.sh:atomic-same-dir-mv","reused_from_iter_prev":false},
+    {"id":"VC-13","verification_mode":"lite","verdict":"PASS","claim_signature":"string_presence:CHANGELOG.md:2.8.2-entry-present","reused_from_iter_prev":false},
+    {"id":"VC-14","verification_mode":"agent","verdict":"PASS","claim_signature":"api_contract:provision-auto-mode.sh:copy-paste-inner-key-only","reused_from_iter_prev":false},
+    {"id":"VC-15","verification_mode":"agent","verdict":"PASS","claim_signature":"data_format_assumption:provision-auto-mode.sh:non-object-root-guard","reused_from_iter_prev":false}
+  ],
+  "phase3_dispatched": ["pr-review-toolkit:code-reviewer","pr-review-toolkit:silent-failure-hunter","pr-review-toolkit:comment-analyzer","pr-review-toolkit:pr-test-analyzer","superpowers:requesting-code-review"],
+  "phase3_findings": [
+    {"agent":"pr-review-toolkit:pr-test-analyzer","severity":"Important","description":"env-present-as-null shape-guard sub-case untested","defect_signature":{"file":"lib/test/run.sh","line_range":[201,213],"kind":"test_gap"},"corroboration_count":1,"step25_classification":"codebase","fix_decision":"applied"},
+    {"agent":"pr-review-toolkit:pr-test-analyzer","severity":"Important","description":"non-0/non-1 preserved-value breadcrumb else-branch untested","defect_signature":{"file":"lib/test/run.sh","line_range":[149,164],"kind":"test_gap"},"corroboration_count":1,"step25_classification":"codebase","fix_decision":"applied"},
+    {"agent":"pr-review-toolkit:pr-test-analyzer","severity":"Important","description":"write-failure/atomicity path untested","defect_signature":{"file":"scripts/provision-auto-mode.sh","line_range":[537,553],"kind":"test_gap"},"corroboration_count":1,"step25_classification":"codebase","fix_decision":"applied"},
+    {"agent":"pr-review-toolkit:pr-test-analyzer","severity":"Suggestion","description":"malformed-JSON breadcrumb assertion looser than sibling","defect_signature":{"file":"lib/test/run.sh","line_range":[198,199],"kind":"test_gap"},"corroboration_count":1,"step25_classification":"codebase","fix_decision":"applied"},
+    {"agent":"pr-review-toolkit:pr-test-analyzer","severity":"Suggestion","description":"no-consent inner-key form not asserted","defect_signature":{"file":"lib/test/run.sh","line_range":[120,121],"kind":"test_gap"},"corroboration_count":1,"step25_classification":"codebase","fix_decision":"applied"},
+    {"agent":"pr-review-toolkit:silent-failure-hunter","severity":"Suggestion","description":"no-consent path gives blind advice over an existing deliberate 0 (UX, prose already warns)","defect_signature":{"file":"scripts/provision-auto-mode.sh","line_range":[94,103],"kind":"logic_error"},"corroboration_count":1,"step25_classification":"codebase","fix_decision":"deferred"},
+    {"agent":"pr-review-toolkit:comment-analyzer","severity":"Suggestion","description":"CHANGELOG cites (#107) while in-code refs say issue #105","defect_signature":{"file":"CHANGELOG.md","line_range":[24,24],"kind":"comment_drift"},"corroboration_count":2,"step25_classification":"codebase","fix_decision":"pushed_back"}
+  ],
+  "fix_decisions": [
+    {"finding_id":"F-1","decision":"applied","commit":"af36ae0"},
+    {"finding_id":"F-2","decision":"applied","commit":"af36ae0"},
+    {"finding_id":"F-3","decision":"applied","commit":"af36ae0"},
+    {"finding_id":"F-4","decision":"applied","commit":"af36ae0"},
+    {"finding_id":"F-5","decision":"applied","commit":"af36ae0"},
+    {"finding_id":"F-6","decision":"deferred","source_file":"scripts/provision-auto-mode.sh","claim_text":"no-consent path gives blind advice over existing 0","skip_category":"uncategorized","evidence":"real but minor UX nit; the prose at the no-consent path already warns the user to leave a deliberate 0 as-is; reading+parsing the target in the print-only path expands the most-traveled path's behavior beyond this PR's scope"},
+    {"finding_id":"F-7","decision":"pushed_back","source_file":"CHANGELOG.md","claim_text":"CHANGELOG cites (#107) while in-code refs say issue #105","skip_category":"claim-quality","evidence":"DevFlow CHANGELOG convention cites the PR number in the trailing (#NN) (e.g. (#104), (#89)); #107 is the PR, #105 the implementation issue — both correct, not a defect"}
+  ],
+  "convergence_inputs": {"fixes_applied": 5, "fix_diff_lines": 60, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "telemetry": {
+    "phase_1": {"calls": 1, "tokens": 65217, "wall_clock_s": 79},
+    "phase_2": {"calls": 12, "tokens": 230000, "wall_clock_s": 31},
+    "phase_3": {"calls": 6, "tokens": 317000, "wall_clock_s": 100}
+  }
+}

@@ -1,0 +1,130 @@
+{
+  "iter": 5,
+  "source": "review-and-fix",
+  "fix_commit_sha": "44552b3be3470d930840a71af6272f576507f1ce",
+  "fix_files": [
+    "scripts/provision-auto-mode.sh",
+    "lib/test/run.sh"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "note": "PROMOTED from iter-4 shadow (outcome 2). Phase1+2 skipped per promoted-iter rule; inputs are the shadow Phase-3 findings.",
+  "phase3_dispatched": [],
+  "phase3_findings": [
+    {
+      "agent": "pr-review-toolkit:pr-test-analyzer",
+      "severity": "Important",
+      "description": "--apply empty-string positional silently mis-targets user-scope default",
+      "defect_signature": {
+        "file": "scripts/provision-auto-mode.sh",
+        "line_range": [
+          60,
+          84
+        ],
+        "kind": "logic_error"
+      },
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "pr-review-toolkit:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "PRESERVED_RAW fallback comment overstates",
+      "defect_signature": {
+        "file": "scripts/provision-auto-mode.sh",
+        "line_range": [
+          210,
+          217
+        ],
+        "kind": "comment_drift"
+      },
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "pr-review-toolkit:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "symlinked target replaced (inherited from sibling provision-local-settings.sh)",
+      "defect_signature": {
+        "file": "scripts/provision-auto-mode.sh",
+        "line_range": [
+          223,
+          236
+        ],
+        "kind": "other"
+      },
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    },
+    {
+      "agent": "pr-review-toolkit:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "[ -f ] skips symlink-to-dir/special-file (inherited from sibling)",
+      "defect_signature": {
+        "file": "scripts/provision-auto-mode.sh",
+        "line_range": [
+          126,
+          139
+        ],
+        "kind": "other"
+      },
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "S-1",
+      "decision": "applied",
+      "commit": "44552b3be3470d930840a71af6272f576507f1ce"
+    },
+    {
+      "finding_id": "S-2",
+      "decision": "applied",
+      "commit": "44552b3be3470d930840a71af6272f576507f1ce"
+    },
+    {
+      "finding_id": "S-3",
+      "decision": "deferred",
+      "source_file": "scripts/provision-auto-mode.sh",
+      "claim_text": "symlinked target replaced rather than written through",
+      "skip_category": "out-of-scope",
+      "evidence": "inherited verbatim from sibling provision-local-settings.sh atomic mktemp+mv; established project-wide pattern, not a regression, not reachable from the fixed /devflow:init caller path"
+    },
+    {
+      "finding_id": "S-4",
+      "decision": "deferred",
+      "source_file": "scripts/provision-auto-mode.sh",
+      "claim_text": "[ -f ] skips symlink-to-dir/special-file target",
+      "skip_category": "out-of-scope",
+      "evidence": "matches sibling provision-local-settings.sh behavior; still fails closed (exit 2, nothing clobbered) via downstream write guard; breadcrumb-precision nit only, not a regression"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 2,
+    "fix_diff_lines": 32,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "telemetry": {
+    "step_2_6": {
+      "calls": 6,
+      "tokens": 415000,
+      "wall_clock_s": 110
+    },
+    "phase_3": {
+      "calls": 5,
+      "tokens": 168000,
+      "wall_clock_s": 73
+    }
+  },
+  "checklist": []
+}

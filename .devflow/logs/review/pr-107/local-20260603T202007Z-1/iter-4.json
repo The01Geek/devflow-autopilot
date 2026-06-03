@@ -1,0 +1,136 @@
+{
+  "iter": 4,
+  "source": "review-and-fix",
+  "fix_commit_sha": null,
+  "fix_files": [],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "checklist": [],
+  "phase3_dispatched": [
+    "pr-review-toolkit:code-reviewer",
+    "pr-review-toolkit:silent-failure-hunter",
+    "pr-review-toolkit:comment-analyzer",
+    "pr-review-toolkit:pr-test-analyzer",
+    "superpowers:requesting-code-review"
+  ],
+  "phase3_findings": [],
+  "fix_decisions": [],
+  "convergence_inputs": {
+    "fixes_applied": 0,
+    "fix_diff_lines": 0,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "telemetry": {
+    "phase_3": {
+      "calls": 4,
+      "tokens": 233000,
+      "wall_clock_s": 148
+    }
+  },
+  "note": "Step 4.5 convergence: all three conditions hold (0 fixes, 0 diff lines, no new findings) → early-exit convergence; tentative verdict APPROVE → shadow review next",
+  "shadow": {
+    "ran_at": "2026-06-03T20:55:00Z",
+    "reviewed_sha": "44552b3be3470d930840a71af6272f576507f1ce",
+    "verdict": "APPROVE with notes",
+    "coverage": "full",
+    "reviewers_dispatched": [
+      "pr-review-toolkit:code-reviewer",
+      "pr-review-toolkit:silent-failure-hunter",
+      "pr-review-toolkit:comment-analyzer",
+      "pr-review-toolkit:pr-test-analyzer",
+      "superpowers:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "pr-review-toolkit:code-reviewer",
+      "pr-review-toolkit:silent-failure-hunter",
+      "pr-review-toolkit:comment-analyzer",
+      "pr-review-toolkit:pr-test-analyzer",
+      "superpowers:requesting-code-review"
+    ],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {
+        "agent": "pr-review-toolkit:pr-test-analyzer",
+        "severity": "Important",
+        "description": "--apply with empty-string positional writes to the real ~/.claude/settings.json (silent mis-target)",
+        "defect_signature": {
+          "file": "scripts/provision-auto-mode.sh",
+          "line_range": [
+            60,
+            84
+          ],
+          "kind": "logic_error"
+        }
+      },
+      {
+        "agent": "pr-review-toolkit:pr-test-analyzer",
+        "severity": "Important",
+        "description": "symlinked target replaced rather than written through (untested)",
+        "defect_signature": {
+          "file": "scripts/provision-auto-mode.sh",
+          "line_range": [
+            223,
+            236
+          ],
+          "kind": "test_gap"
+        }
+      },
+      {
+        "agent": "pr-review-toolkit:silent-failure-hunter",
+        "severity": "Suggestion",
+        "description": "|| PRESERVED_RAW= fallback would render blank, comment overstates",
+        "defect_signature": {
+          "file": "scripts/provision-auto-mode.sh",
+          "line_range": [
+            210,
+            217
+          ],
+          "kind": "comment_drift"
+        }
+      },
+      {
+        "agent": "pr-review-toolkit:silent-failure-hunter",
+        "severity": "Suggestion",
+        "description": "[ -f ] skips symlink-to-dir / special-file target, generic downstream breadcrumb",
+        "defect_signature": {
+          "file": "scripts/provision-auto-mode.sh",
+          "line_range": [
+            126,
+            139
+          ],
+          "kind": "other"
+        }
+      }
+    ],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 4,
+      "overlap_with_iter_N": 0,
+      "new": 4,
+      "new_critical": 0,
+      "new_important": 2
+    },
+    "promoted_to_iter_next": true,
+    "delta_review": {
+      "reviewed_range": "d80c53d..HEAD",
+      "verdict": "clean",
+      "new_critical": 0,
+      "new_important": 0,
+      "suggestions": [
+        "header exit-codes docstring omits the new empty-target cause",
+        "test comment says env -u where cell uses HOME= override"
+      ]
+    }
+  },
+  "checklist_note": "convergence-confirmation iter; no code change since iter-3, no checklist re-verification needed"
+}

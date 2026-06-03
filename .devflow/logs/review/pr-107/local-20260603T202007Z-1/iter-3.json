@@ -1,0 +1,76 @@
+{
+  "iter": 3,
+  "source": "review-and-fix",
+  "fix_commit_sha": "d80c53d9be304cc08b1504f094873df92f803e55",
+  "fix_files": [
+    "scripts/provision-auto-mode.sh",
+    "lib/test/run.sh"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "checklist": [],
+  "phase3_dispatched": [
+    "pr-review-toolkit:code-reviewer",
+    "pr-review-toolkit:silent-failure-hunter",
+    "pr-review-toolkit:comment-analyzer",
+    "pr-review-toolkit:pr-test-analyzer",
+    "superpowers:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "pr-review-toolkit:silent-failure-hunter",
+      "severity": "Important",
+      "description": "// empty in iter-2 jq -c read blanks the preserved value in the breadcrumb for a JSON false/null leaf (fix-induced cosmetic regression)",
+      "defect_signature": {
+        "file": "scripts/provision-auto-mode.sh",
+        "line_range": [
+          217,
+          221
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F3-1",
+      "decision": "applied",
+      "commit": "d80c53d"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 1,
+    "fix_diff_lines": 18,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "telemetry": {
+    "phase_1": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 0
+    },
+    "phase_2": {
+      "calls": 1,
+      "tokens": 19000,
+      "wall_clock_s": 17
+    },
+    "phase_3": {
+      "calls": 5,
+      "tokens": 292000,
+      "wall_clock_s": 128
+    }
+  },
+  "checklist_note": "VC-11 (no-change breadcrumb block) re-verified PASS after the changed block; other 14 items narrow-reused (unaffected by the breadcrumb-only change)"
+}
