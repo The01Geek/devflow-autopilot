@@ -604,21 +604,6 @@ gh pr edit "$PR_NUM" --add-label DevFlow \
 ```
 `ensure-label.sh` always exits 0 (it logs whether it created the label, found it present, or hit a `gh` error), and a failed `--add-label` is logged and ignored — continue regardless of the label outcome.
 
-### 3.1.5 Apply the version bump + CHANGELOG (if 2.6 decided to bump)
-
-If the Phase 2.6 decision (read it back from the workpad note; re-derive from the committed diff if the note was lost) was **no bump** — or the repo documents no versioning convention — skip this step. Otherwise apply the bump **now**, *before* `/simplify` (3.2) and `/devflow:review-and-fix` (3.3), so the version + `CHANGELOG` land inside the diff those steps review (and the review gate that fails on a version↔`CHANGELOG` mismatch sees them consistent):
-
-1. Bump the repo's version file by the decided increment — for DevFlow, `.claude-plugin/plugin.json`'s `version`.
-2. Add the matching `CHANGELOG.md` entry in the repo's changelog format, now citing the just-created PR number (`#$PR_NUM`).
-3. Commit and push so the review pass covers it:
-   ```bash
-   git add .claude-plugin/plugin.json CHANGELOG.md   # the repo's version + changelog files
-   git commit -m "chore: bump version and changelog for issue #$ARGUMENTS (#$PR_NUM)"
-   git push
-   ```
-
-The Phase 4.3 clean-tree backstop is the final guard that this never ends up uncommitted.
-
 ### 3.2 Self-Review with /simplify
 
 Invoke the **Skill tool** with `skill: simplify` — this runs the **built-in Claude Code `/simplify` slash-command**, not a DevFlow plugin skill (so there's no `devflow:` prefix and nothing to install). It ships with Claude Code and is always present; do not treat it as a missing skill or skip this phase.
