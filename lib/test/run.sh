@@ -4389,8 +4389,8 @@ echo "provision-local-settings.sh (project .claude/settings.json provisioner)"
 # = true; it never writes permissions.defaultMode and never writes the
 # CLAUDE_CODE_ENABLE_AUTO_MODE env var — that var is honored only from user scope
 # (~/.claude/settings.json) / managed settings, so writing it to the PROJECT file
-# would be a silent no-op; the selectable-auto-mode half is deferred (issue #88
-# AC 2 reduced; tracked separately).
+# would be a silent no-op; the selectable-auto-mode half lives in the separate
+# user-scope provisioner provision-auto-mode.sh (issue #105), tested below.
 # Lead with the adversarial existing-shape matrix per the parser-editing gotcha:
 #   {missing, empty, whitespace-only, {}, other-marketplaces, other-env-vars,
 #    user-defaultMode, unrelated-keys, not-JSON}.  (Issue #88, AC 1, 3-8.)
@@ -4642,6 +4642,132 @@ assert_eq "pls: isolation → scaffold-config.sh creates no .claude/ dir (AC7)" 
 rm -rf "$PLS_FRESH" "$PLS_KEEP" "$PLS_IDEM" "$PLS_BAD" "$PLS_EMPTY" "$PLS_WS" \
        "$PLS_OBJ" "$PLS_ISO" "$PLS_ARR" "$PLS_SCALAR" "$PLS_WRONGTYPE" \
        "$PLS_NESTED" "$PLS_NODEFAULT" "$PLS_DEEP" "$PLS_ENV0" "$PLS_UNREAD"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "provision-auto-mode.sh (user-scope ~/.claude/settings.json auto-mode provisioner)"
+# ────────────────────────────────────────────────────────────────────────────
+# The deferred-from-#88 selectable-auto-mode half (issue #105). CLAUDE_CODE_ENABLE_AUTO_MODE
+# is a permission-gating env var honored only from USER scope (~/.claude/settings.json) /
+# managed settings, so this helper writes it there (never project scope). It is selectable,
+# never on: it writes only env.CLAUDE_CODE_ENABLE_AUTO_MODE="1", never permissions.defaultMode.
+# Because ~/.claude/settings.json is user-global, it never writes without explicit consent:
+# default (no --apply) prints the copy-paste line and writes nothing; --apply (the caller's
+# confirmed consent) performs the same additive, non-clobbering, atomic, fail-closed merge as
+# provision-local-settings.sh — incl. NEVER clobbering a deliberately-disabled "0".
+# Lead with the adversarial existing-shape matrix per the parser-editing gotcha:
+#   {missing, empty, {}, env-with-other-keys, user-"0", user-"1", env-as-string, array-root,
+#    not-JSON}. (Issue #105, AC 1-5.)
+PAM="$LIB/../scripts/provision-auto-mode.sh"
+
+# AC 2 (consent gate): default (no --apply) writes NOTHING and surfaces the copy-paste line.
+PAM_NOCONSENT="$(mktemp -d)"; PAM_NC_SF="$PAM_NOCONSENT/settings.json"
+PAM_NC_OUT="$(bash "$PAM" "$PAM_NC_SF" 2>&1)"; PAM_NC_RC=$?
+assert_eq "pam: no --apply → exit 0 (AC2)" "0" "$PAM_NC_RC"
+assert_eq "pam: no --apply → file NOT created (no touch without consent, AC2)" "no" \
+  "$([ -f "$PAM_NC_SF" ] && echo yes || echo no)"
+assert_eq "pam: no --apply → prints the copy-paste env var (AC1 copy-paste path)" "yes" \
+  "$(printf '%s' "$PAM_NC_OUT" | grep -q 'CLAUDE_CODE_ENABLE_AUTO_MODE' && echo yes || echo no)"
+assert_eq "pam: no --apply → honest 'selectable' framing, not 'on' (AC4)" "yes" \
+  "$(printf '%s' "$PAM_NC_OUT" | grep -qi 'selectable' && echo yes || echo no)"
+
+# AC 1 + AC 4 (apply path): fresh file → env.CLAUDE_CODE_ENABLE_AUTO_MODE="1" written to
+# the (user-scope) target, NO permissions.defaultMode, exit 0, breadcrumb says selectable.
+PAM_FRESH="$(mktemp -d)"; PAM_F_SF="$PAM_FRESH/settings.json"
+PAM_F_OUT="$(bash "$PAM" --apply "$PAM_F_SF" 2>&1)"; PAM_F_RC=$?
+assert_eq "pam: --apply fresh → exit 0" "0" "$PAM_F_RC"
+assert_eq "pam: --apply fresh → file created" "yes" "$([ -f "$PAM_F_SF" ] && echo yes || echo no)"
+assert_eq "pam: --apply fresh → CLAUDE_CODE_ENABLE_AUTO_MODE=1 written (AC1)" "1" \
+  "$(jq -r '.env.CLAUDE_CODE_ENABLE_AUTO_MODE' "$PAM_F_SF" 2>/dev/null)"
+assert_eq "pam: --apply fresh → no permissions.defaultMode (selectable, not on; AC4)" "false" \
+  "$(jq -r 'has("permissions")' "$PAM_F_SF" 2>/dev/null)"
+assert_eq "pam: --apply fresh → breadcrumb says 'selectable' (honest, AC4)" "yes" \
+  "$(printf '%s' "$PAM_F_OUT" | grep -qi 'selectable' && echo yes || echo no)"
+
+# AC 3 (no-clobber): a deliberately-disabled "0" is preserved (never flipped to "1"),
+# even under --apply; other env vars preserved; idempotent breadcrumb.
+PAM_ZERO="$(mktemp -d)"; PAM_Z_SF="$PAM_ZERO/settings.json"
+printf '%s' '{"env":{"CLAUDE_CODE_ENABLE_AUTO_MODE":"0","FOO":"bar"}}' > "$PAM_Z_SF"
+PAM_Z_OUT="$(bash "$PAM" --apply "$PAM_Z_SF" 2>&1)"; PAM_Z_RC=$?
+assert_eq "pam: --apply over user '0' → exit 0" "0" "$PAM_Z_RC"
+assert_eq "pam: --apply over user '0' → '0' preserved, never clobbered (AC3)" "0" \
+  "$(jq -r '.env.CLAUDE_CODE_ENABLE_AUTO_MODE' "$PAM_Z_SF" 2>/dev/null)"
+assert_eq "pam: --apply over user '0' → other env var preserved (AC3)" "bar" \
+  "$(jq -r '.env.FOO' "$PAM_Z_SF" 2>/dev/null)"
+assert_eq "pam: --apply over user '0' → 'nothing changed' breadcrumb (AC3)" "yes" \
+  "$(printf '%s' "$PAM_Z_OUT" | grep -qi 'nothing changed' && echo yes || echo no)"
+
+# AC 3 (no-clobber): existing env + unrelated top key → auto-mode added alongside, all preserved.
+PAM_KEEP="$(mktemp -d)"; PAM_K_SF="$PAM_KEEP/settings.json"
+printf '%s' '{"env":{"OTHER":"x"},"customTopKey":123}' > "$PAM_K_SF"
+bash "$PAM" --apply "$PAM_K_SF" >/dev/null 2>&1; PAM_K_RC=$?
+assert_eq "pam: --apply keep → exit 0" "0" "$PAM_K_RC"
+assert_eq "pam: --apply keep → auto-mode added alongside (AC1)" "1" \
+  "$(jq -r '.env.CLAUDE_CODE_ENABLE_AUTO_MODE' "$PAM_K_SF" 2>/dev/null)"
+assert_eq "pam: --apply keep → other env var preserved (AC3)" "x" \
+  "$(jq -r '.env.OTHER' "$PAM_K_SF" 2>/dev/null)"
+assert_eq "pam: --apply keep → unrelated top-level key preserved (AC3)" "123" \
+  "$(jq -r '.customTopKey' "$PAM_K_SF" 2>/dev/null)"
+
+# AC 3 (idempotent): re-run --apply over an already-provisioned "1" → byte-identical,
+# 'nothing changed', no second write.
+PAM_IDEM="$(mktemp -d)"; PAM_I_SF="$PAM_IDEM/settings.json"
+bash "$PAM" --apply "$PAM_I_SF" >/dev/null 2>&1
+PAM_I_FIRST="$(cat "$PAM_I_SF")"
+PAM_I_OUT="$(bash "$PAM" --apply "$PAM_I_SF" 2>&1)"; PAM_I_RC=$?
+PAM_I_SECOND="$(cat "$PAM_I_SF")"
+assert_eq "pam: idempotent → second --apply exit 0 (AC3)" "0" "$PAM_I_RC"
+assert_eq "pam: idempotent → file byte-identical (AC3)" "$PAM_I_FIRST" "$PAM_I_SECOND"
+assert_eq "pam: idempotent → 'nothing changed' breadcrumb (AC3)" "yes" \
+  "$(printf '%s' "$PAM_I_OUT" | grep -qi 'nothing changed' && echo yes || echo no)"
+
+# AC 3 (fail-closed): malformed existing JSON → exit non-zero, file byte-for-byte unchanged.
+PAM_BAD="$(mktemp -d)"; PAM_B_SF="$PAM_BAD/settings.json"
+printf '%s' '{ not valid json' > "$PAM_B_SF"
+PAM_B_OUT="$(bash "$PAM" --apply "$PAM_B_SF" 2>&1)"; PAM_B_RC=$?
+assert_eq "pam: --apply malformed → exit non-zero (fail-closed, AC3)" "yes" \
+  "$([ "$PAM_B_RC" -ne 0 ] && echo yes || echo no)"
+assert_eq "pam: --apply malformed → file byte-for-byte unchanged (AC3)" '{ not valid json' \
+  "$(cat "$PAM_B_SF")"
+assert_eq "pam: --apply malformed → specific breadcrumb" "yes" \
+  "$(printf '%s' "$PAM_B_OUT" | grep -qiE 'not valid json|malformed' && echo yes || echo no)"
+
+# AC 3 (fail-closed): `env` present as a non-object → exit non-zero, unchanged, path named.
+# Without the depth guard the merge would silently drop DevFlow's env and exit 0.
+PAM_ENVSTR="$(mktemp -d)"; PAM_ES_SF="$PAM_ENVSTR/settings.json"
+printf '%s' '{"env":"oops"}' > "$PAM_ES_SF"
+PAM_ES_OUT="$(bash "$PAM" --apply "$PAM_ES_SF" 2>&1)"; PAM_ES_RC=$?
+assert_eq "pam: --apply env-as-string → exit non-zero (no silent drop, AC3)" "yes" \
+  "$([ "$PAM_ES_RC" -ne 0 ] && echo yes || echo no)"
+assert_eq "pam: --apply env-as-string → file unchanged" '{"env":"oops"}' "$(cat "$PAM_ES_SF")"
+assert_eq "pam: --apply env-as-string → breadcrumb names the env path" "yes" \
+  "$(printf '%s' "$PAM_ES_OUT" | grep -qi 'env' && echo yes || echo no)"
+
+# AC 3 (fail-closed): non-object root (array) → exit non-zero, file unchanged.
+PAM_ARR="$(mktemp -d)"; PAM_A_SF="$PAM_ARR/settings.json"
+printf '%s' '[1,2,3]' > "$PAM_A_SF"
+PAM_A_OUT="$(bash "$PAM" --apply "$PAM_A_SF" 2>&1)"; PAM_A_RC=$?
+assert_eq "pam: --apply array root → exit non-zero" "yes" \
+  "$([ "$PAM_A_RC" -ne 0 ] && echo yes || echo no)"
+assert_eq "pam: --apply array root → file unchanged" '[1,2,3]' "$(cat "$PAM_A_SF")"
+
+# AC 3: empty existing file is benign (treated as {}) → key added, exit 0.
+PAM_EMPTY="$(mktemp -d)"; PAM_E_SF="$PAM_EMPTY/settings.json"
+: > "$PAM_E_SF"
+bash "$PAM" --apply "$PAM_E_SF" >/dev/null 2>&1; PAM_E_RC=$?
+assert_eq "pam: --apply empty file → exit 0 (benign)" "0" "$PAM_E_RC"
+assert_eq "pam: --apply empty file → key added" "1" \
+  "$(jq -r '.env.CLAUDE_CODE_ENABLE_AUTO_MODE' "$PAM_E_SF" 2>/dev/null)"
+
+# AC 1 (user scope): with no target arg, the default target is $HOME/.claude/settings.json.
+# Use an isolated HOME so the real one is never touched.
+PAM_HOME="$(mktemp -d)"
+PAM_H_OUT="$(HOME="$PAM_HOME" bash "$PAM" --apply 2>&1)"; PAM_H_RC=$?
+assert_eq "pam: --apply default target → exit 0" "0" "$PAM_H_RC"
+assert_eq "pam: --apply default target → wrote \$HOME/.claude/settings.json (user scope, AC1)" "1" \
+  "$(jq -r '.env.CLAUDE_CODE_ENABLE_AUTO_MODE' "$PAM_HOME/.claude/settings.json" 2>/dev/null)"
+
+rm -rf "$PAM_NOCONSENT" "$PAM_FRESH" "$PAM_ZERO" "$PAM_KEEP" "$PAM_IDEM" \
+       "$PAM_BAD" "$PAM_ENVSTR" "$PAM_ARR" "$PAM_EMPTY" "$PAM_HOME"
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.

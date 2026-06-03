@@ -23,7 +23,8 @@
 # scope: it is honored only from user scope (~/.claude/settings.json) or managed
 # settings (see code.claude.com/docs/en/permission-modes and .../settings). Writing
 # it into the project .claude/settings.json is a silent no-op, so it is deliberately
-# omitted; that capability is tracked as a separate follow-up.
+# omitted here; that capability lives in the dedicated, consent-gated user-scope
+# provisioner scripts/provision-auto-mode.sh (issue #105).
 #
 # Mirrors scaffold-config.sh's contract: deterministic, idempotent, never
 # clobbers user values, prints a stable `devflow-settings:` breadcrumb per
