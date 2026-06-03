@@ -97,3 +97,70 @@ Then branch on the preflight **exit code** (the durable signal — every line it
 There is **no trigger label** to create: in the cloud tier, `/devflow:implement` is started by commenting a bare `/devflow:implement <#>` on the issue (a native user event) — not by applying a label. The sender must be an allowed bot or an `allowed_users` collaborator with write access.
 
 If the scaffolder exits non-zero (exit 2 = templates not found next to the script), the plugin install is incomplete. Tell the user to reinstall/update the DevFlow plugin (or run `install.sh` for the cloud tier). **Do not fall back to hand-writing the files** — that reintroduces exactly the drift this skill exists to prevent.
+
+## Finally: advisory project-memory check (CLAUDE.md)
+
+Config is scaffolded and the preflight has run, so init has **already succeeded** — this last step is a purely **advisory project-memory check** that **never creates, writes, or edits** `CLAUDE.md` (or any agent-instruction file) and **never blocks or fails init** regardless of what it finds. A repo with no `CLAUDE.md` gives DevFlow's automations no project memory, so `/devflow:review` and `/devflow:implement` run without the conventions, gotchas, and architecture notes that materially improve their output — and new adopters (the people running `/devflow:init`) are the ones most likely to be missing it. Surface that gap once, here, without ever touching a file.
+
+Resolve the repo root and probe for the relevant files using only `git rev-parse --show-toplevel` and POSIX `test -f` (no GNU-only flags, so macOS/BSD behave identically). **Resolve the root defensively** — if `git rev-parse` fails (init run outside a git repo, or a corrupt/missing `.git`) it would otherwise leave `$ROOT` empty and every probe would test `/CLAUDE.md`, falsely reporting "absent" and emitting a misleading nudge; silence its stderr and **skip the whole check** (emit nothing) when the root can't be resolved — the step is advisory, so a non-repo invocation must produce no output rather than a wrong one:
+
+```bash
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || ROOT=
+# Cannot resolve the repo root → skip the advisory check entirely (never probe "/").
+[ -n "$ROOT" ] || return 0 2>/dev/null || exit 0
+# CLAUDE.md detection is repo-root only (nested package-level, ~/.claude, and the
+# gitignored personal-override CLAUDE.local.md are all deliberately out of scope —
+# the nudge is about committed, team-shared project memory).
+[ -f "$ROOT/CLAUDE.md" ] && echo "claude-md: present" || echo "claude-md: absent"
+# AGENTS.md is matched across its common spellings — plural/singular AND any case
+# (`AGENTS.md`/`agents.md`/`AGENT.md`/`agent.md`) — rather than a GNU-only `find -iname`.
+# (Only the case axis is true case-insensitivity, and only on a case-insensitive FS like
+# macOS — a Linux-only casing such as `Agents.md` is not probed; the singular forms are a
+# different spelling, not a casing.) These all denote one logical convention, so report it
+# AT MOST ONCE: a case-insensitive FS makes a file's case-variants all match, and a repo
+# carrying both plural and singular still warrants a single nudge. First match wins.
+# Accumulate the deduped hits into $detected (filenames are space-free) so the
+# CLAUDE.md-present check below reuses this exact list instead of re-globbing.
+detected=
+agents_seen=
+for f in "AGENTS.md" "agents.md" "AGENT.md" "agent.md"; do
+  [ -f "$ROOT/$f" ] && { [ -n "$agents_seen" ] || { echo "agent-file: $f"; detected="$detected $f"; }; agents_seen=1; }
+done
+# The remaining files have a single canonical casing — no dedup needed.
+for f in ".github/copilot-instructions.md" "GEMINI.md" ".cursorrules"; do
+  [ -f "$ROOT/$f" ] && { echo "agent-file: $f"; detected="$detected $f"; }
+done
+```
+
+The `@`-import paths you cite are **repo-root-relative**, matching how Claude Code resolves `CLAUDE.md` imports — `@AGENTS.md`, `@.github/copilot-instructions.md`, `@GEMINI.md`, `@.cursorrules`. When `CLAUDE.md` is present, check **every** detected agent file the same loop-driven way (don't hand-pick one) — for each existing file, grep `CLAUDE.md` for its `@`-path and treat a miss as an unreferenced file. **Reuse the exact deduped list the detection above emitted** (its `agent-file:` names — capture them into `$detected`), in the **same shell** so `$ROOT` is still set; do **not** re-probe/re-glob here, or the AGENTS.md dedup would be undone and one physical file flagged under several spellings again:
+
+```bash
+# `$detected` = the deduped `agent-file:` names captured from the detection above (one
+# entry per physical file) — NOT a fresh re-glob.
+# Case-insensitive match (-i): on a case-insensitive FS the casing reported above may
+# differ from how the user actually wrote the @-import in CLAUDE.md (e.g. detected
+# `@AGENTS.md` vs a written `@agents.md`), and a case-sensitive grep would then falsely
+# flag a correctly-wired import as unreferenced. Matching case-insensitively errs toward
+# silence (the safe, advisory direction).
+# Only the CLAUDE.md-present cases (matrix 3/4) consult these imports — gate the loop on
+# CLAUDE.md's existence explicitly, so on the no-CLAUDE.md paths it can never grep a missing
+# target (don't lean on the rc>=2 swallow below as the only thing keeping case 1/2 quiet).
+if [ -f "$ROOT/CLAUDE.md" ]; then
+  for f in $detected; do
+    grep -qiF "@$f" "$ROOT/CLAUDE.md"; rc=$?
+    # rc 0 = referenced; rc 1 = genuinely no match → unreferenced; rc>=2 = grep read error
+    # (vanished/unreadable CLAUDE.md after the test -f) → stay silent, don't misreport it as
+    # unreferenced. Discriminating the codes keeps the step erring toward silence.
+    [ "$rc" -eq 1 ] && echo "unreferenced: @$f"
+  done
+fi
+```
+
+Compose output per this four-case matrix, and **say nothing when nothing is actionable** (so successful re-runs stay clean):
+
+- **No `CLAUDE.md`, no detected agent file** → emit exactly **one** nudge: recommend the built-in `/init` command to create a `CLAUDE.md`, noting that project memory improves DevFlow's review/implement results. (Say nothing about `@`-imports — there is nothing to reuse.)
+- **No `CLAUDE.md`, one or more detected agent files present** → the same nudge to the built-in `/init`, **plus** name each existing file and tell the user to reference it from the new `CLAUDE.md` via its `@`-import path (e.g. "you already have `AGENTS.md` — reference it with `@AGENTS.md`"). Emit **one** nudge per *physical* file — the detection above already collapses AGENTS.md's spelling/case variants to a single entry, so never cite the same file under several spellings.
+- **`CLAUDE.md` present but it does not already reference an existing detected agent file** → suggest adding that file's `@`-import to `CLAUDE.md` (name the file and its `@`-path); no `/init` nudge.
+- **`CLAUDE.md` present and it already references each existing detected agent file via `@`-import (or no such files exist)** → produce **no project-memory output** at all.
+
+Remember: the built-in `/init` is a *different* command from `/devflow:init` (it lives in Claude Code itself) — recommend it, but never run it on the user's behalf here. The whole step is a relay, exactly like the preflight branch above.

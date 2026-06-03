@@ -359,7 +359,7 @@ Turns a rough user story / bug report / feature idea into a well-structured GitH
 
 The skill exists to prevent "option-listing" issues. Steps:
 1. **Assess (read-only):** run `/devflow:docs-verify --report-only` on the topic to ground the issue in current behavior.
-2. **Clarify until Definition of Ready:** problem + beneficiary, single coherent scope, one decided behavior per fork, one implementation approach, concrete testable acceptance criteria. Uses `AskUserQuestion`, capped at ~6 rounds.
+2. **Clarify until Definition of Ready:** an unconditional **independent-derivation pass runs first on every run** — the orchestrator re-derives the full Definition of Ready (problem/beneficiary, behavioral forks, edge/error cases, acceptance criteria) from the problem and the Step 1 findings *before* weighing the user's supplied criteria, then drives clarification from the delta plus conflicts; user-supplied acceptance criteria are challenged on completeness *and* correctness, so a comprehensive-looking story gets the same scrutiny a terse one does (an ordering-based self-check, not subagent isolation). The Definition of Ready itself: problem + beneficiary, single coherent scope, one decided behavior per fork, **solution-space expansion before convergence** (independently generate the mechanism space and surface a categorically stronger guarantee class than the user proposed), one implementation approach, concrete testable acceptance criteria. Uses `AskUserQuestion`, capped at ~6 rounds.
 3. **Draft + no-options gate:** outside an explicit `## 🚫 Blocked` section, no unresolved-decision language ("or", "either", "TBD", "option", "approach A vs B"). Unresolvable decisions go into exactly one Blocked section, never invented defaults.
 4. **Review then create:** show the **complete rendered issue** in chat (never summarized), get **explicit confirmation**, then `gh issue create`. After creation, offer to start implementation (which posts the bare `/devflow:implement <n>` comment).
 
@@ -504,6 +504,8 @@ The local tier needs **no config**. To customize, `/devflow:init` scaffolds `.de
 `/devflow:init` auto-detects languages (Node, Go, Rust, Java, Ruby, PHP, .NET, Make, Docker) and merges matching build/test/lint tools into three independent allowlists, plus the `setup` block, idempotently (your values always win).
 
 Re-running `/devflow:init` (or `install.sh`) also **backfills** newly-added keys into an existing `.devflow/config.json` without clobbering your values. Backfill is add-only, so it cannot propagate a key *removal*; for the one case where that matters — a `devflow_review.agent_overrides` entry pinning Claude Haiku must not carry an `effort` key, which Haiku rejects with HTTP 400 — re-scaffold runs a separate idempotent cleanup that strips `effort` from any Haiku-pinned override (see [review-agent-overrides.md](review-agent-overrides.md)). An already-clean config is left byte-identical.
+
+After scaffolding and the dependency preflight, `/devflow:init` runs one final **advisory project-memory check**: if the repo root has no `CLAUDE.md` it nudges you toward the built-in `/init` (project memory measurably improves DevFlow's review/implement results), and it points any agent-instruction files you already keep for other tools (`.github/copilot-instructions.md`, `AGENTS.md`, `GEMINI.md`, `.cursorrules`) at `CLAUDE.md` `@`-import reuse. The check is strictly advisory — it never writes or edits any file and never blocks init (which has already succeeded), and stays silent when nothing is actionable.
 
 ---
 

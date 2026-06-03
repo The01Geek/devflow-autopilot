@@ -65,6 +65,13 @@ it during the no-options check:
 
 ### Acceptance Criteria
 Checkbox items (`- [ ]`), each a **single unconditional, testable assertion**:
+- **Supplied criteria are challenged, never accepted at face value.** When the user's story
+  arrives with its own acceptance-criteria list, that list is *suspect input*, not a finished
+  section. Vet each item for **correctness** (is it atomic, testable, and a genuinely resolved
+  decision — not an unresolved fork in disguise?) and the list as a whole for **completeness**
+  (which forks, edge cases, and factors does it omit?). This is the Step-2 independent-derivation
+  discipline at draft time — a polished, comprehensive-looking list earns the same scrutiny a
+  terse story gets.
 - Specific and implementable — a developer knows exactly when it's met.
 - No conditionals tied to an undecided fork ("if links are public…"). A conditional AC
   means the fork is unresolved — it belongs in Blocked, not here.
