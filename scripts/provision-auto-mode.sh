@@ -53,33 +53,34 @@ log()  { printf 'devflow-automode: %s\n' "$1"; }
 warn() { printf 'devflow-automode: %s\n' "$1" >&2; }
 
 # ── Parse args: an optional --apply flag and at most one positional target. ──
+# The positional is the settings file to provision (SETTINGS); production omits it
+# and we default to user scope below.
 APPLY=0
-TARGET=""
+SETTINGS=""
 for arg in "$@"; do
   case "$arg" in
     --apply) APPLY=1 ;;
     -*)      warn "unknown option: $arg"; exit 2 ;;
-    *)       if [ -n "$TARGET" ]; then
+    *)       if [ -n "$SETTINGS" ]; then
                warn "unexpected extra argument: $arg"; exit 2
              fi
-             TARGET="$arg" ;;
+             SETTINGS="$arg" ;;
   esac
 done
 
 # Resolve the target. Default is user scope ($HOME/.claude/settings.json). In the
 # no-consent path HOME-unset is non-fatal (we only need a label to display); in the
 # --apply path it is a hard error (we cannot resolve where to write).
-if [ -z "$TARGET" ]; then
+if [ -z "$SETTINGS" ]; then
   if [ -n "${HOME:-}" ]; then
-    TARGET="$HOME/.claude/settings.json"
+    SETTINGS="$HOME/.claude/settings.json"
   elif [ "$APPLY" -eq 1 ]; then
     warn "cannot resolve ~/.claude/settings.json (HOME is unset); provisioned nothing."
     exit 2
   else
-    TARGET="~/.claude/settings.json"   # display-only; no file is touched without --apply
+    SETTINGS="~/.claude/settings.json"   # display-only; no file is touched without --apply
   fi
 fi
-SETTINGS="$TARGET"
 
 # The exact one-line setting we provision — printed verbatim in the no-consent path
 # so the user can paste it into the `env` object of their user settings themselves.
