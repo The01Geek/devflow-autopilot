@@ -4,6 +4,10 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.2] — 2026-06-03
+
+### Added
+- **The issue #80 review-and-fix observability backstop now runs automatically — the privileged wiring deferred from #101 is committed.** PR #101 shipped the portable core (`lib/efficiency-trace.sh --persist`, `--self-check`, tests, docs) but left two entry points that invoke `--persist` uncommitted, because a GitHub App token cannot push `.github/workflows/` and an agent cannot write `.claude/` — so nothing called the backstop automatically. Both are now in place, copied verbatim from `docs/efficiency-trace.md`: a local-tier `Stop` hook in `.claude/settings.json` that runs `bash lib/efficiency-trace.sh --persist || true` after the turn (best-effort, never blocks), and an unconditional `Persist review-and-fix observability artifacts (backstop)` step (`if: ${{ always() }}`, best-effort, pushes only when a recovery commit was created) appended after `Run Claude Code` in the cloud writable workflows `.github/workflows/devflow.yml` (the `command` job) and `.github/workflows/devflow-implement.yml`. `devflow-runner.yml` is intentionally excluded (read-only `review` profile, no fix loop, nothing to persist). The cloud guarantee rides solely on the workflow steps — `claude-code-action` wipes and restores `.claude/` from the base branch, so the local hook never runs in cloud. (#108)
 ## [2.8.1] — 2026-06-03
 
 ### Fixed

@@ -1,0 +1,48 @@
+{
+  "iter": 2,
+  "started_at": "2026-05-27T12:30:00Z",
+  "fix_commit_sha": "b0f6f8d",
+  "fix_files": ["skills/implement/SKILL.md", "skills/review-and-fix/SKILL.md"],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": true,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "checklist": [
+    {"id": "VC2-1", "verification_mode": "lite", "verdict": "PASS", "claim_signature": "api_contract:implement.md:shadow-status-string-source-location", "reused_from_iter_prev": false, "evidence": "post-fix: implement now points at the verdict headline {shadow status} token, not 'from the report'"},
+    {"id": "VC2-2", "verification_mode": "lite", "verdict": "PASS", "claim_signature": "api_contract:implement.md:rereview-clear-string-reachable", "reused_from_iter_prev": false},
+    {"id": "VC2-3", "verification_mode": "lite", "verdict": "PASS", "claim_signature": "data_format_assumption:CHANGELOG.md:approve-family-triple-matches-implement", "reused_from_iter_prev": false},
+    {"id": "VC2-9", "verification_mode": "lite", "verdict": "PASS", "claim_signature": "data_format_assumption:CHANGELOG.md:243-issue-refs-consistency", "reused_from_iter_prev": false},
+    {"id": "VC2-8", "verification_mode": "lite", "verdict": "PASS", "claim_signature": "api_contract:review-and-fix.md:checklist-skipped-field-path-nesting", "reused_from_iter_prev": false, "evidence": "post-fix: nesting made explicit at line 191"}
+  ],
+  "phase3_dispatched": [
+    "pr-review-toolkit:code-reviewer",
+    "pr-review-toolkit:silent-failure-hunter",
+    "pr-review-toolkit:comment-analyzer",
+    "superpowers:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {"agent": "pr-review-toolkit:silent-failure-hunter", "severity": "Important", "description": "VARIANCE-RECOVERED: implement reads shadow-coverage status 'from the report' but the literals shadow agreed,full coverage / shadow agreement not verified live only in the verdict headline {shadow status}, not the report Coverage section — fix-induced by iter-1's F1/F2 edit", "defect_signature": {"file": "skills/implement/SKILL.md", "line_range": [565, 568], "kind": "api_misuse"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "pr-review-toolkit:comment-analyzer", "severity": "Suggestion", "description": "diff_profile.checklist_skipped dotted path vs sibling-reading schema prose (example JSON authoritative/nested)", "defect_signature": {"file": "skills/review-and-fix/SKILL.md", "line_range": [191, 191], "kind": "comment_drift"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-iter2-string-source", "decision": "applied", "commit": "b0f6f8d"},
+    {"finding_id": "F-iter2-checklist-skipped-nesting", "decision": "applied", "commit": "b0f6f8d"}
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 2,
+    "fix_diff_lines": 6,
+    "new_corroborated_critical_count": 0,
+    "new_corroborated_important_count": 1
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "telemetry": {
+    "phase_1":   {"calls": 1, "tokens": 68717, "wall_clock_s": 106},
+    "phase_2":   {"calls": 0, "wall_clock_s": 3, "note": "variance items lite-verified post-fix by orchestrator; no verifier subagents dispatched"},
+    "phase_3":   {"calls": 4, "tokens": 376000, "wall_clock_s": 134},
+    "step_2_5":  {"calls": 0, "wall_clock_s": 2, "webfetches": 0},
+    "phase_4_x": {"calls": 0, "wall_clock_s": 2}
+  }
+}
