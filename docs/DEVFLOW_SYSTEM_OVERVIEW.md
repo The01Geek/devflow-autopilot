@@ -191,7 +191,7 @@ ${CLAUDE_SKILL_DIR}/../../scripts/load-prompt-extension.sh <skill-name>
 
 which prints the contents of `.devflow/prompt-extensions/<skill-name>.md` (resolved relative to the repo root) when that file exists, and the skill treats that text as **additional instructions appended verbatim to the end of its own prompt** for that run. `<skill-name>` is the skill's directory name under `skills/` (`create-issue`, `implement`, `review`, …). When the file is **absent** — or present but empty — the helper prints nothing and the step is a **no-op**: the skill behaves exactly as it does without it. A file that exists but cannot be delivered (unreadable, a broken symlink, or not a regular file) is refused loudly with a non-zero exit and a breadcrumb, and the skill surfaces that rather than silently skipping it — so a misconfigured extension never vanishes without a trace.
 
-The extension file lives in the **consumer's** repo, committed under `.devflow/prompt-extensions/` and shared by the team. It is never part of the plugin, so marketplace updates never overwrite it and never conflict with it — the same consumer-owned-vs-plugin separation that keeps your `.devflow/config.json` yours across updates (note the extension files are *tracked/committed* so a team shares them, unlike the gitignored live `config.json`). `/devflow:init` scaffolds the directory with a commented `create-issue.md.example` so adopters discover the convention. The helper validates the skill-name argument (rejecting any value containing `/` or `..`) before any filesystem access, so the resolved path can never escape `.devflow/prompt-extensions/`.
+The extension file lives in the **consumer's** repo, committed under `.devflow/prompt-extensions/` and shared by the team. It is never part of the plugin, so marketplace updates never overwrite it and never conflict with it — the same consumer-owned-vs-plugin separation that keeps your `.devflow/config.json` yours across updates (note the extension files are *tracked/committed* so a team shares them, unlike the gitignored live `config.json`). `/devflow:init` scaffolds the directory with a commented, inert `<skill-name>.md.example` for **every** skill — each carrying a skill-specific hint — so adopters discover that the convention works for all of them, not just one. The examples are backfilled per file (each created only when absent), so an adopter who scaffolded earlier picks up any newly added examples on re-run while their own extension files (an edited `.example`, or a live `<skill-name>.md`) are never overwritten. The helper validates the skill-name argument (rejecting any value containing `/` or `..`) before any filesystem access, so the resolved path can never escape `.devflow/prompt-extensions/`.
 
 **Worked example — Azure DevOps test cases in every generated issue.** An adopter who stores test cases in Azure DevOps wants `/devflow:create-issue` to list the applicable test cases in each generated issue body, while upstream DevFlow stays Azure-DevOps-agnostic. They:
 
@@ -359,7 +359,7 @@ Turns a rough user story / bug report / feature idea into a well-structured GitH
 
 The skill exists to prevent "option-listing" issues. Steps:
 1. **Assess (read-only):** run `/devflow:docs-verify --report-only` on the topic to ground the issue in current behavior.
-2. **Clarify until Definition of Ready:** problem + beneficiary, single coherent scope, one decided behavior per fork, one implementation approach, concrete testable acceptance criteria. Uses `AskUserQuestion`, capped at ~6 rounds.
+2. **Clarify until Definition of Ready:** an unconditional **independent-derivation pass runs first on every run** — the orchestrator re-derives the full Definition of Ready (problem/beneficiary, behavioral forks, edge/error cases, acceptance criteria) from the problem and the Step 1 findings *before* weighing the user's supplied criteria, then drives clarification from the delta plus conflicts; user-supplied acceptance criteria are challenged on completeness *and* correctness, so a comprehensive-looking story gets the same scrutiny a terse one does (an ordering-based self-check, not subagent isolation). The Definition of Ready itself: problem + beneficiary, single coherent scope, one decided behavior per fork, **solution-space expansion before convergence** (independently generate the mechanism space and surface a categorically stronger guarantee class than the user proposed), one implementation approach, concrete testable acceptance criteria. Uses `AskUserQuestion`, capped at ~6 rounds.
 3. **Draft + no-options gate:** outside an explicit `## 🚫 Blocked` section, no unresolved-decision language ("or", "either", "TBD", "option", "approach A vs B"). Unresolvable decisions go into exactly one Blocked section, never invented defaults.
 4. **Review then create:** show the **complete rendered issue** in chat (never summarized), get **explicit confirmation**, then `gh issue create`. After creation, offer to start implementation (which posts the bare `/devflow:implement <n>` comment).
 
@@ -373,7 +373,17 @@ The issue is created **only after the user explicitly confirms**: a pending conf
 
 > **This is DevFlow's "it learns" story, the strongest differentiator for a keynote.** It is an **evaluator/optimizer** self-improvement loop for the `/devflow:implement` automation.
 
-**The idea.** Every bot-authored PR leaves an evidence trail: review comments, post-bot human commits, CI signals, the workpad's final state. Once a week, `/devflow:retrospective-weekly` reads the accumulated trail, finds **patterns that recur**, and opens a **human-reviewed** PR proposing the smallest change that would prevent the next occurrence, a CLAUDE.md tweak, a skill rewrite, a missing doc, a new lint rule, a tightened issue template. Humans approve or reject.
+**The idea.** Every bot-authored PR leaves an evidence trail: review comments, post-bot human commits, CI signals, the workpad's final state, and the bot's own `## Devflow Reflection` friction notes. Once a week, `/devflow:retrospective-weekly` reads the accumulated trail, finds **patterns that recur**, and opens a **human-reviewed** PR proposing the smallest change that would prevent the next occurrence, a CLAUDE.md tweak, a skill rewrite, a missing doc, a new lint rule, a tightened issue template. Humans approve or reject.
+
+**Detection (how a PR is selected).** `lib/scan.sh` selects a merged PR for retrospection via a **union predicate** — a PR qualifies when **any** of these holds, deduplicated by number:
+- **(a) the reserved `DevFlow` provenance label** — DevFlow stamps the literal `DevFlow` label on every issue and PR it creates (`/devflow:create-issue`, `/devflow:implement` at PR create, Stage B), all via the idempotent best-effort `scripts/ensure-label.sh` (`/devflow:init` pre-creates the label at setup so it exists from day one). This path is **author- and branch-agnostic**, so it works in any repo with **zero branch-naming configuration**;
+- **(b) a watched author that closes an issue** — a watched-author PR with a non-empty `closingIssuesReferences`. This is the branch-naming-independent fallback that makes detection work even when the label step was skipped (e.g. DevFlow's own `issue-<N>-<slug>` branches, which match no prefix);
+- **(c) the fixed `devflow/audit-*` branch** — Stage B intervention PRs;
+- **(d) the configured `implementation_branch_prefix`** — *only* when it is set non-empty (an empty/unset prefix excludes nothing and never degrades to a match-all glob).
+
+The label (a) and closes-issue (b) paths mean the loop can no longer silently no-op when an adopter's bot uses an unrecognized branch prefix.
+
+**The workpad lives on the issue.** `lib/fetch-pr-context.sh` reads the `<!-- devflow:workpad -->` comment from the **linked issue's** comments (where `/devflow:implement` writes it), not the PR conversation thread. From it the bundle derives `workpad_final_status` (with the canonical 🚀/🎉/👎 glyph stripped to the bare word) and a `reflections[]` array of the `## Devflow Reflection` bullets. `lib/cheap-gate.jq` forces LLM analysis of any run that left **at least one reflection bullet** — that self-reported friction is precisely what the loop exists to learn from — and the issue-sourced `workpad_final_status` makes a `Blocked` run gate correctly instead of being mis-read as clean.
 
 **The LLM/heuristic split (a key efficiency claim).** Deterministic scripts handle *all* scanning, fetching, signal computation, gating, pattern math, and git/PR/issue mechanics. The LLM is invoked at **only two genuine-judgment points**:
 - **Stage A** (`/devflow:retrospective`), a per-PR retrospective, **only for PRs that fail a mechanical "clean gate."** Clean PRs are processed deterministically at **zero LLM cost.**
@@ -498,12 +508,14 @@ The local tier needs **no config**. To customize, `/devflow:init` scaffolds `.de
 | `devflow_review_and_fix.efficiency_telemetry_enabled` / `efficiency_cut_candidate_min_dispatch` | Telemetry. |
 | `setup.*` | Cloud-tier runtime provisioning (versions, services, install lines). |
 | `docs.*` | Doc paths, enable flags, release-notes file, labels. |
-| `devflow_retrospective.*` | Weekly loop settings (watched authors, branch prefix, min occurrences, cooldown, etc.). |
+| `devflow_retrospective.*` | Weekly loop settings (watched authors, min occurrences, cooldown, etc.). Detection is by the reserved `DevFlow` label + a closes-issue fallback (see §12); `implementation_branch_prefix` is an **optional** extra match path, not the detection mechanism, and may be left empty. |
 | `workflows.*` | Per-workflow enable/disable toggles. |
 
 `/devflow:init` auto-detects languages (Node, Go, Rust, Java, Ruby, PHP, .NET, Make, Docker) and merges matching build/test/lint tools into three independent allowlists, plus the `setup` block, idempotently (your values always win).
 
 Re-running `/devflow:init` (or `install.sh`) also **backfills** newly-added keys into an existing `.devflow/config.json` without clobbering your values. Backfill is add-only, so it cannot propagate a key *removal*; for the one case where that matters — a `devflow_review.agent_overrides` entry pinning Claude Haiku must not carry an `effort` key, which Haiku rejects with HTTP 400 — re-scaffold runs a separate idempotent cleanup that strips `effort` from any Haiku-pinned override (see [review-agent-overrides.md](review-agent-overrides.md)). An already-clean config is left byte-identical.
+
+After scaffolding and the dependency preflight, `/devflow:init` runs one final **advisory project-memory check**: if the repo root has no `CLAUDE.md` it nudges you toward the built-in `/init` (project memory measurably improves DevFlow's review/implement results), and it points any agent-instruction files you already keep for other tools (`.github/copilot-instructions.md`, `AGENTS.md`, `GEMINI.md`, `.cursorrules`) at `CLAUDE.md` `@`-import reuse. The check is strictly advisory — it never writes or edits any file and never blocks init (which has already succeeded), and stays silent when nothing is actionable.
 
 ---
 
@@ -535,8 +547,9 @@ Thin by default (installs workflows, actions, a local marketplace, a config scaf
 └── marketplace.json     # this repo is its own marketplace
 skills/                  # one SKILL.md per skill
 agents/                  # checklist-generator / -deduper / -verifier
-scripts/                 # branch-for-issue.py, config-get.sh, file-deferrals.py,
-                         #   match-deferrals.py, parse-acs.py, workpad.py, …
+scripts/                 # branch-for-issue.py, config-get.sh, ensure-label.sh,
+                         #   file-deferrals.py, match-deferrals.py, parse-acs.py,
+                         #   workpad.py, …
 lib/                     # retrospective-loop helpers (*.sh, *.jq), preflight.sh, test/
 .github/                 # cloud tier: workflows + composite actions (incl. vendor-plugin)
 .devflow/                # config.example.json + config.schema.json (+ learnings/, logs/)

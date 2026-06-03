@@ -63,7 +63,8 @@ Schema of `.devflow/tmp/pr-<n>.context.json` produced by `fetch-pr-context.sh`:
 | `pr_comments` | array | PR conversation thread: `[{author,body,createdAt}]` |
 | `pr_reviews` | array | Formal reviews: `[{author,state,body,submittedAt}]` |
 | `commits` | array | `[{sha,author_login,committer_login,committed_at,message}]` |
-| `workpad_body` | string\|null | Full text of the `<!-- devflow:workpad -->` comment |
+| `workpad_body` | string\|null | Full text of the `<!-- devflow:workpad -->` comment, read from the **issue** thread (where the workpad lives), not the PR thread |
+| `reflections` | array | The bullet lines from the workpad's `## Devflow Reflection` `<details>` block — the bot's own self-reported friction notes (`[]` when none) |
 | `review_verdicts` | array | `/devflow:review` verdicts in time order: `[{verdict,createdAt}]` (APPROVE or REJECT) |
 | `implement_summary_comment` | string\|null | The `/devflow:implement` completion summary comment body |
 | `signals` | object | See below |
@@ -79,11 +80,23 @@ Schema of `.devflow/tmp/pr-<n>.context.json` produced by `fetch-pr-context.sh`:
 | `ttm_hours` | number | Time from PR creation to merge, in decimal hours |
 | `review_reject_outstanding` | boolean | True when the chronologically-last `/devflow:review` verdict is REJECT |
 
-**Source priority.** `workpad_body` is your highest-signal primary source — the
-bot wrote it for itself, so friction sanitized out of commit messages and PR
-descriptions survives here. When the workpad conflicts with the polished
-narrative elsewhere, favor the workpad and quote concrete passages. After the
-workpad, the strongest signals are `review_verdicts` / `pr_reviews` /
+**Source priority.** The **issue workpad** is your highest-signal primary source,
+and you treat its three facets as primary analysis input:
+- `reflections` — the bot's own `## Devflow Reflection` bullets. These are the
+  most direct friction signal in the whole bundle: the bot recorded, in its own
+  words, what was unclear, blocked, or deferred. **Read every reflection bullet
+  and let it drive the verdict, categories, and descriptors** — a run that left
+  even one reflection is, by construction, not a frictionless run (the clean-gate
+  already forces it into analysis for exactly this reason).
+- `signals.workpad_final_status` — the bot's final Status (`Complete` / `Blocked`
+  / an interim state); it bounds the verdict (see below).
+- `workpad_body` — the full workpad, including the `## Progress` notes nested
+  under each phase. Mine its append-only notes for the moment-to-moment story.
+
+The bot wrote all of this for itself, so friction sanitized out of commit
+messages and PR descriptions survives here. When the workpad conflicts with the
+polished narrative elsewhere, favor the workpad and quote concrete passages.
+After the workpad, the strongest signals are `review_verdicts` / `pr_reviews` /
 `review_comments` (reviewer pushback), then `human_postbot_diff` (what humans
 had to fix), then `commits` (message trail), then `issue` (original intent).
 

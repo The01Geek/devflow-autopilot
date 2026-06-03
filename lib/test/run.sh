@@ -38,8 +38,9 @@ assert_eq() {
 echo "classify-pr-kind.jq"
 # ────────────────────────────────────────────────────────────────────────────
 
-classify() {
+classify() {  # branch watched [impl_prefix] [labels-json] [closing-json]
   jq -nr --arg branch "$1" --argjson watched "$2" --arg impl_prefix "${3:-claude/}" \
+    --argjson labels "${4:-[]}" --argjson closing "${5:-[]}" \
     -f "$LIB/classify-pr-kind.jq"
 }
 
@@ -58,6 +59,37 @@ assert_eq "claude/ branch with watched=false is skip" \
 assert_eq "devflow/learnings- branch is skip" \
   "skip" \
   "$(classify "devflow/learnings-2026-W18" "true")"
+
+# #97: classifier mirrors scan's union predicate so scan-selected PRs are not
+# dropped at fetch. A DevFlow-labelled PR on a non-prefix branch → implementation.
+assert_eq "#97 classify: DevFlow-label PR on issue-* branch is implementation" \
+  "implementation" \
+  "$(classify "issue-97-foo" "true" "claude/" '[{"name":"DevFlow"}]' '[]')"
+# A watched-author PR that closes an issue, on a non-prefix branch → implementation.
+assert_eq "#97 classify: closes-issue PR on issue-* branch is implementation" \
+  "implementation" \
+  "$(classify "issue-97-foo" "true" "claude/" '[]' '[{"number":97}]')"
+# True negative: no label, closes nothing, branch matches no prefix → skip.
+assert_eq "#97 classify: no label/closes/prefix → skip" \
+  "skip" \
+  "$(classify "issue-97-foo" "true" "claude/" '[]' '[]')"
+# Empty prefix must NOT match-all: an unrelated branch with no label/closes → skip.
+assert_eq "#97 classify: empty prefix is not match-all (unrelated branch → skip)" \
+  "skip" \
+  "$(classify "feature/unrelated" "true" "" '[]' '[]')"
+# Empty prefix still honors the closes-issue path → implementation.
+assert_eq "#97 classify: empty prefix still selects via closes-issue" \
+  "implementation" \
+  "$(classify "issue-97-foo" "true" "" '[]' '[{"number":97}]')"
+# Arm-ordering precedence: a devflow/audit-* branch that ALSO carries the DevFlow
+# label must classify as audit-intervention (audit arm precedes the label arm),
+# never get mis-routed to the implementation variant.
+assert_eq "#97 classify: DevFlow-labelled audit branch stays audit-intervention" \
+  "audit-intervention" \
+  "$(classify "devflow/audit-foo-2026-05-01-abc1234" "true" "claude/" '[{"name":"DevFlow"}]' '[{"number":97}]')"
+assert_eq "#97 classify: audit branch with watched=false is skip (label/closes do not override)" \
+  "skip" \
+  "$(classify "devflow/audit-foo-2026-05-01-abc1234" "false" "claude/" '[{"name":"DevFlow"}]' '[{"number":97}]')"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "compute-patterns.jq"
@@ -309,6 +341,19 @@ assert_eq "base_branch read: SKILL checks out origin/\$BASE" "yes" \
   "$(grep -qF 'git checkout -b "$BRANCH" "origin/$BASE"' "$IMPL_SKILL" && echo yes || echo no)"
 assert_eq "base_branch read: SKILL keeps the attributable fetch-failure breadcrumb" "yes" \
   "$(grep -qF 'could not fetch base branch' "$IMPL_SKILL" && echo yes || echo no)"
+
+# Versioning is per-repo policy, not the engine's job: implement/SKILL.md must carry NO
+# version-bump step. A repo that wants version management opts in via its consumer prompt
+# extension (.devflow/prompt-extensions/implement.md), which the loader appends to the skill.
+# Pin (1) both removed section headings to 0, (2) no stray Phase-2.6/3.1.5 cross-refs, and
+# (3) that DevFlow itself re-homes its own rule into that extension so the dogfooded behavior
+# is not silently lost. ("Step 2.6" refs elsewhere belong to review-and-fix, not here.)
+assert_eq "implement: no version-bump section (versioning is per-repo, not the engine)" "0" \
+  "$(grep -cE '^### (2\.6 Version & changelog|3\.1\.5 Apply the version bump)' "$IMPL_SKILL")"
+assert_eq "implement: no stray version-phase cross-refs (Phase 2.6 / 3.1.5)" "0" \
+  "$(grep -cE '3\.1\.5|Phase 2\.6' "$IMPL_SKILL")"
+assert_eq "implement: DevFlow re-homes its versioning rule to the implement prompt extension" "yes" \
+  "$(EXT="$LIB/../.devflow/prompt-extensions/implement.md"; [ -s "$EXT" ] && grep -qF 'plugin.json' "$EXT" && grep -qiF 'changelog' "$EXT" && echo yes || echo no)"
 
 # Behavioral coverage for the base_branch read+guard (token pins above catch a
 # refactor that DROPS a token, but not a semantic regression in config-get's
@@ -745,36 +790,151 @@ assert_eq "scaffold-jqerr: corrupt example template → existing config left unt
 rm -rf "$SC_JQERR" "$SC_JQERR_TGT"
 
 # ────────────────────────────────────────────────────────────────────────────
-echo "scaffold-config.sh: creates .devflow/prompt-extensions/ + an inert example"
+echo "scaffold-config.sh: scaffolds an inert prompt-extension example for EVERY skill"
 # ────────────────────────────────────────────────────────────────────────────
-# Scaffolding must create the consumer-owned prompt-extensions directory with a
-# commented EXAMPLE file (issue #84, AC 9). The example must be INERT — named
-# with a `.example` suffix so it is NOT a live `<skill>.md` that would inject
-# itself into a real skill run.
+# Scaffolding must create .devflow/prompt-extensions/<skill>.md.example for every
+# skill under skills/ (issue #95), not just create-issue. Each example is INERT:
+# the `.example` suffix keeps it from matching the live `<skill>.md` that
+# load-prompt-extension.sh treats as an extension, and its whole body is an HTML
+# comment so even a misrename that drops `.example` injects no actionable text. The
+# expected skill set is DERIVED from skills/*/ (the same source of truth the
+# SKILL.md coverage guard uses), so this doubles as a drift guard: a new skill the
+# scaffolder's authored list forgets fails the per-skill assertions below.
 SC="$LIB/../scripts/scaffold-config.sh"
+LPE="$LIB/../scripts/load-prompt-extension.sh"
 SC_PE="$(mktemp -d)"
-bash "$SC" "$SC_PE" >/dev/null 2>&1
+SC_PE_OUT="$(bash "$SC" "$SC_PE" 2>&1)"
+SC_PE_DIR="$SC_PE/.devflow/prompt-extensions"
+
 assert_eq "scaffold-pe: .devflow/prompt-extensions/ created" "yes" \
-  "$([ -d "$SC_PE/.devflow/prompt-extensions" ] && echo yes || echo no)"
-assert_eq "scaffold-pe: commented example file created" "yes" \
-  "$([ -f "$SC_PE/.devflow/prompt-extensions/create-issue.md.example" ] && echo yes || echo no)"
-# The example carries explanatory comment text — verify it actually opens an
-# HTML comment block (stronger than a bare non-empty check, which its name implies).
-assert_eq "scaffold-pe: example file is a commented block" "yes" \
-  "$(grep -qF '<!--' "$SC_PE/.devflow/prompt-extensions/create-issue.md.example" && echo yes || echo no)"
-# Inert: no live `<skill>.md` is scaffolded (only the .example template), so the
-# no-op path is the default until a consumer deliberately drops a real file. Use a
-# glob + `[ -e ]` rather than spawning `ls` to test for existence; with nullglob
-# off, an unmatched glob leaves the literal pattern in "$1", which `[ -e ]` rejects.
-assert_eq "scaffold-pe: example is inert (no live <skill>.md present)" "no" \
-  "$(set -- "$SC_PE/.devflow/prompt-extensions/"*.md; [ -e "$1" ] && echo yes || echo no)"
-# Idempotent: a second run leaves the example byte-identical (guards the
-# `if [ ! -d ]` create guard against re-writing on every run).
-SC_PE_EX1="$(cat "$SC_PE/.devflow/prompt-extensions/create-issue.md.example")"
-bash "$SC" "$SC_PE" >/dev/null 2>&1
-assert_eq "scaffold-pe: idempotent re-run keeps example unchanged" \
-  "$SC_PE_EX1" "$(cat "$SC_PE/.devflow/prompt-extensions/create-issue.md.example")"
+  "$([ -d "$SC_PE_DIR" ] && echo yes || echo no)"
+
+SC_PE_MISSING=""; SC_PE_NOTCOMMENT=""; SC_PE_NOHINT=""; SC_PE_EMPTYHINT=""; SC_PE_LIVE=""; SC_PE_NOTINERT=""
+for SKILL_DIR in "$LIB"/../skills/*/; do
+  skill="$(basename "$SKILL_DIR")"
+  f="$SC_PE_DIR/$skill.md.example"
+  if [ -f "$f" ]; then
+    # AC 3: body is a SINGLE comment block — first non-blank line opens `<!--`,
+    # last non-blank line closes `-->`. Read the file once, then slice.
+    nonblank="$(grep -v '^[[:space:]]*$' "$f")"
+    first="$(printf '%s\n' "$nonblank" | head -n1)"
+    last="$(printf '%s\n' "$nonblank" | tail -n1)"
+    case "$first" in '<!--'*) : ;; *) SC_PE_NOTCOMMENT="$SC_PE_NOTCOMMENT $skill" ;; esac
+    case "$last"  in *'-->')  : ;; *) SC_PE_NOTCOMMENT="$SC_PE_NOTCOMMENT $skill" ;; esac
+    # AC 4: a per-skill hint line naming the skill, distinct from the boilerplate.
+    grep -qF "Useful extension for $skill:" "$f" || SC_PE_NOHINT="$SC_PE_NOHINT $skill"
+    # AC 4 (strengthened): the hint must be NON-EMPTY — `Useful extension for <skill>: `
+    # with nothing after the colon-space would pass the bare presence check above but
+    # ship a hint-less example. Require at least one char after the literal prefix.
+    grep -qE "Useful extension for $skill: .+" "$f" || SC_PE_EMPTYHINT="$SC_PE_EMPTYHINT $skill"
+  else
+    SC_PE_MISSING="$SC_PE_MISSING $skill"   # AC 1
+  fi
+  # AC 2: the .example suffix means no live `<skill>.md` is ever scaffolded.
+  [ -e "$SC_PE_DIR/$skill.md" ] && SC_PE_LIVE="$SC_PE_LIVE $skill"
+  # AC 5: the REAL reader treats the scaffolded example as an inert no-op
+  # (empty stdout + exit 0) — exercised, not mocked.
+  RDR_OUT="$(cd "$SC_PE" && bash "$LPE" "$skill" 2>/dev/null)"; RDR_RC=$?
+  { [ -z "$RDR_OUT" ] && [ "$RDR_RC" -eq 0 ]; } || SC_PE_NOTINERT="$SC_PE_NOTINERT $skill"
+done
+assert_eq "scaffold-pe: an example exists for every skill (AC 1)" "" "$SC_PE_MISSING"
+assert_eq "scaffold-pe: every example body is a single HTML comment block (AC 3)" "" "$SC_PE_NOTCOMMENT"
+assert_eq "scaffold-pe: every example carries a per-skill hint line (AC 4)" "" "$SC_PE_NOHINT"
+assert_eq "scaffold-pe: every per-skill hint is non-empty (AC 4)" "" "$SC_PE_EMPTYHINT"
+assert_eq "scaffold-pe: no live <skill>.md scaffolded — only .example (AC 2)" "" "$SC_PE_LIVE"
+assert_eq "scaffold-pe: real load-prompt-extension reader is inert no-op for every skill (AC 5)" "" "$SC_PE_NOTINERT"
+# Drift guard (bidirectional): the set of scaffolded `<skill>.md.example` basenames must
+# EQUAL the set of skills under skills/*/ — catching BOTH a forgotten skill (forward
+# drift: a skills/ dir with no example) AND a stale heredoc row (reverse drift: an
+# orphan example for a renamed/removed skill that the per-skill loop above never visits).
+SC_PE_EXPECTED="$(for d in "$LIB"/../skills/*/; do basename "$d"; done | sort | tr '\n' ' ')"
+SC_PE_GOT="$(for ex in "$SC_PE_DIR"/*.md.example; do b="$(basename "$ex")"; printf '%s\n' "${b%.md.example}"; done | sort | tr '\n' ' ')"
+assert_eq "scaffold-pe: scaffolded example set EQUALS skills/*/ (no missing, no orphan)" \
+  "$SC_PE_EXPECTED" "$SC_PE_GOT"
+# Atomic-write contract: the scaffolder writes each example to `<skill>.md.example.tmp`
+# and `mv`s it into place, so a successful scaffold leaves NO `.tmp` behind (the mv
+# consumed it). Pin it — every other glob here filters to `*.md.example`, so a
+# regression (e.g. cp instead of mv, or a dropped rm -f) that stranded a temp would
+# otherwise be invisible. Glob + [ -e ] (nullglob-off leaves the literal pattern, which
+# [ -e ] rejects) rather than spawning ls.
+assert_eq "scaffold-pe: no .tmp temp survives a successful scaffold (atomic mv consumed it)" "no" \
+  "$(set -- "$SC_PE_DIR"/*.md.example.tmp; [ -e "$1" ] && echo yes || echo no)"
+# AC 9 (created half): a creation log line is emitted on a fresh scaffold. Match the
+# literal "prompt-extension example" — NOT just the dir path "prompt-extensions/",
+# which any mention would satisfy — so the assertion pins the new reporting line.
+assert_eq "scaffold-pe: emits a creation log line on a fresh scaffold (AC 9)" "yes" \
+  "$(printf '%s\n' "$SC_PE_OUT" | grep -qF 'prompt-extension example' && echo yes || echo no)"
+
+# AC 7 + AC 9 (no-op half): a second run rewrites nothing (every example
+# byte-identical) and emits NO creation log line.
+SC_PE_SUM1="$(find "$SC_PE_DIR" -type f -name '*.example' | sort | xargs cksum)"
+SC_PE_OUT2="$(bash "$SC" "$SC_PE" 2>&1)"
+SC_PE_SUM2="$(find "$SC_PE_DIR" -type f -name '*.example' | sort | xargs cksum)"
+assert_eq "scaffold-pe: idempotent re-run keeps every example byte-identical (AC 7)" \
+  "$SC_PE_SUM1" "$SC_PE_SUM2"
+assert_eq "scaffold-pe: no creation log line on an all-present no-op re-run (AC 9)" "no" \
+  "$(printf '%s\n' "$SC_PE_OUT2" | grep -qF 'prompt-extension example' && echo yes || echo no)"
 rm -rf "$SC_PE"
+
+# AC 6 (partial backfill): a dir that already holds ONLY create-issue.md.example
+# (an adopter who ran /devflow:init before issue #95) gets the other skills backfilled,
+# and the pre-existing create-issue.md.example is left byte-identical (never clobbered).
+# (AC 8 — adopter live-file safety — is asserted in the separate block further below.)
+SC_PE_BF="$(mktemp -d)"
+mkdir -p "$SC_PE_BF/.devflow/prompt-extensions"
+printf 'SENTINEL-PREEXISTING-EXAMPLE\n' > "$SC_PE_BF/.devflow/prompt-extensions/create-issue.md.example"
+SC_PE_BF_SENT="$(cat "$SC_PE_BF/.devflow/prompt-extensions/create-issue.md.example")"
+bash "$SC" "$SC_PE_BF" >/dev/null 2>&1
+SC_PE_BF_MISSING=""
+for SKILL_DIR in "$LIB"/../skills/*/; do
+  skill="$(basename "$SKILL_DIR")"
+  [ "$skill" = "create-issue" ] && continue
+  [ -f "$SC_PE_BF/.devflow/prompt-extensions/$skill.md.example" ] || SC_PE_BF_MISSING="$SC_PE_BF_MISSING $skill"
+done
+assert_eq "scaffold-pe: partial backfill creates the other examples (AC 6)" "" "$SC_PE_BF_MISSING"
+assert_eq "scaffold-pe: partial backfill leaves the pre-existing example byte-identical (AC 6)" \
+  "$SC_PE_BF_SENT" "$(cat "$SC_PE_BF/.devflow/prompt-extensions/create-issue.md.example")"
+rm -rf "$SC_PE_BF"
+
+# AC 8 (adopter live-file safety): a real review.md the adopter authored (no .example
+# suffix → a LIVE extension) is never overwritten/deleted/shadowed, and review.md.example
+# is still created alongside it.
+SC_PE_LV="$(mktemp -d)"
+mkdir -p "$SC_PE_LV/.devflow/prompt-extensions"
+printf 'ADOPTER LIVE REVIEW RULES\n' > "$SC_PE_LV/.devflow/prompt-extensions/review.md"
+SC_PE_LV_SENT="$(cat "$SC_PE_LV/.devflow/prompt-extensions/review.md")"
+bash "$SC" "$SC_PE_LV" >/dev/null 2>&1
+assert_eq "scaffold-pe: adopter's live review.md is untouched (AC 8)" \
+  "$SC_PE_LV_SENT" "$(cat "$SC_PE_LV/.devflow/prompt-extensions/review.md")"
+assert_eq "scaffold-pe: review.md.example still created alongside the live review.md (AC 8)" "yes" \
+  "$([ -f "$SC_PE_LV/.devflow/prompt-extensions/review.md.example" ] && echo yes || echo no)"
+rm -rf "$SC_PE_LV"
+
+# Write-failure path (best-effort / silent-failure contract): a per-file write that
+# fails must NOT abort the scaffold — it logs a breadcrumb naming the file and
+# continues (matching rewrite_config_if_changed and the jq blocks). Make the
+# prompt-extensions dir read-only so every write fails; assert the scaffolder still
+# exits 0, emits a "could not write" breadcrumb, and leaves no .example at the guarded
+# path. The scaffolder writes to a temp and mv's it into place atomically, so a failed
+# write can NEVER leave a partial/zero-byte <skill>.md.example that the [ -e ] guard
+# would then treat as present and never retry — the no-leftover assertion below holds by
+# construction (atomicity), not by hoping a failed redirect wrote nothing. Root bypasses
+# the perm bits, so skip under root (as the lpe unreadable test does).
+SC_PE_WF="$(mktemp -d)"
+mkdir -p "$SC_PE_WF/.devflow/prompt-extensions"
+chmod 555 "$SC_PE_WF/.devflow/prompt-extensions"
+if [ "$(id -u)" -ne 0 ] && [ ! -w "$SC_PE_WF/.devflow/prompt-extensions" ]; then
+  SC_PE_WF_OUT="$(bash "$SC" "$SC_PE_WF" 2>&1)"; SC_PE_WF_RC=$?
+  assert_eq "scaffold-pe: a write failure does not abort the scaffold (exit 0)" "0" "$SC_PE_WF_RC"
+  assert_eq "scaffold-pe: a write failure emits a 'could not write' breadcrumb" "yes" \
+    "$(printf '%s\n' "$SC_PE_WF_OUT" | grep -qF 'could not write' && echo yes || echo no)"
+  assert_eq "scaffold-pe: a write failure leaves no zero-byte .example leftover" "no" \
+    "$(set -- "$SC_PE_WF/.devflow/prompt-extensions/"*.md.example; [ -e "$1" ] && echo yes || echo no)"
+  assert_eq "scaffold-pe: a write failure leaves no .tmp temp behind" "no" \
+    "$(set -- "$SC_PE_WF/.devflow/prompt-extensions/"*.md.example.tmp; [ -e "$1" ] && echo yes || echo no)"
+fi
+chmod 755 "$SC_PE_WF/.devflow/prompt-extensions"
+rm -rf "$SC_PE_WF"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "load-prompt-extension.sh (consumer prompt-extension reader)"
@@ -954,6 +1114,78 @@ done
 # adding a skill never trips it).
 assert_eq "lpe-coverage: enumeration is non-vacuous (skills/*/ glob matched)" "yes" \
   "$([ "$LPE_SKILL_COUNT" -ge 1 ] && echo yes || echo no)"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "init project-memory nudge: skills/init/SKILL.md carries the advisory CLAUDE.md step"
+# ────────────────────────────────────────────────────────────────────────────
+# Content / drift guard (issue #90). The deliverable is LLM-directing prose in a
+# SKILL.md — there is no runtime code path to exercise — so the repo's established
+# stand-in (mirroring the lpe-coverage and exit-code-contract grep guards above) is
+# a content guard pinning the load-bearing instruction tokens. It goes red if the
+# advisory step is dropped, reworded away, or loses one of its detected filenames /
+# the @-import guidance / the never-write-never-block discipline. Each fragment
+# below is BLOCK-UNIQUE to the new step (verified absent from the rest of the SKILL),
+# so a match means the step itself is present, not some unrelated prose.
+INIT_SKILL="$LIB/../skills/init/SKILL.md"
+assert_eq "init-memory-nudge: advisory step heading present" "yes" \
+  "$(grep -qF 'advisory project-memory check' "$INIT_SKILL" && echo yes || echo no)"
+# Every detected agent-instruction filename (AC3) plus the CLAUDE.md target itself
+# must be named, or the four-case behavior matrix can't be followed.
+for FN in 'CLAUDE.md' '.github/copilot-instructions.md' 'AGENTS.md' 'GEMINI.md' '.cursorrules'; do
+  assert_eq "init-memory-nudge: names detected file token ($FN)" "yes" \
+    "$(grep -qF "$FN" "$INIT_SKILL" && echo yes || echo no)"
+done
+# AGENTS.md is matched across common spellings — case-insensitive (agents.md) plus
+# the singular form (agent.md) — AC3. Pin BOTH the prose claim AND a behavioral token
+# (the lowercase `agents.md` variant the step actually probes): the word alone could
+# survive a regression that trims the variant list down to just `AGENTS.md`, so the
+# lowercase form is what proves the spelling/case handling is really there.
+assert_eq "init-memory-nudge: AGENTS.md detection is case-insensitive (prose)" "yes" \
+  "$(grep -qiF 'case-insensitive' "$INIT_SKILL" && echo yes || echo no)"
+assert_eq "init-memory-nudge: case-insensitive AGENTS variant probed (agents.md)" "yes" \
+  "$(grep -qF 'agents.md' "$INIT_SKILL" && echo yes || echo no)"
+# The AGENTS.md spelling/case variants denote one logical convention; on a case-insensitive
+# filesystem (macOS) a file's case-variants all match `test -f`, so the step must collapse
+# them to a single detection or it would emit a duplicate @-import nudge. Pin the dedup
+# instruction so a reword can't silently re-introduce the duplicate-nudge defect.
+assert_eq "init-memory-nudge: AGENTS.md case-variants deduped to one (at most once)" "yes" \
+  "$(grep -qF 'AT MOST ONCE' "$INIT_SKILL" && echo yes || echo no)"
+# The defensive repo-root guard is the one piece of load-bearing executable shell in the
+# step: without it an unresolvable root collapses $ROOT to empty and every probe tests
+# "/CLAUDE.md", emitting a misleading nudge. Pin the guard prose so a reword/deletion fails.
+assert_eq "init-memory-nudge: defends against an unresolvable repo root" "yes" \
+  "$(grep -qF 'Resolve the root defensively' "$INIT_SKILL" && echo yes || echo no)"
+# Case 2 (no CLAUDE.md, agent files present) must not re-expand the deduped detection
+# into per-spelling nudges — pin the consumer-side one-nudge-per-physical-file rule so a
+# reword can't undo the dedup on the agent-files-present path.
+assert_eq "init-memory-nudge: case 2 emits one nudge per physical file" "yes" \
+  "$(grep -qF 'nudge per *physical* file' "$INIT_SKILL" && echo yes || echo no)"
+# The unreferenced-import check must distinguish a grep read error (rc>=2) from a genuine
+# no-match (rc 1) so a vanished/unreadable CLAUDE.md is not misreported as unreferenced.
+assert_eq "init-memory-nudge: grep read-error path stays silent (rc>=2)" "yes" \
+  "$(grep -qF 'grep read error' "$INIT_SKILL" && echo yes || echo no)"
+# The @-import reuse guidance (AC4/AC5): pin two concrete repo-root-relative paths,
+# including the dotted .github one (the easiest to get wrong).
+assert_eq "init-memory-nudge: @-import example for AGENTS.md present" "yes" \
+  "$(grep -qF '@AGENTS.md' "$INIT_SKILL" && echo yes || echo no)"
+assert_eq "init-memory-nudge: @-import path for copilot-instructions present" "yes" \
+  "$(grep -qF '@.github/copilot-instructions.md' "$INIT_SKILL" && echo yes || echo no)"
+# AC2: the absent-everything case nudges toward the BUILT-IN /init.
+assert_eq "init-memory-nudge: recommends the built-in /init" "yes" \
+  "$(grep -qF 'built-in `/init`' "$INIT_SKILL" && echo yes || echo no)"
+# AC7: strictly advisory — never writes any file, never blocks/fails init.
+assert_eq "init-memory-nudge: never writes/edits any agent file (advisory)" "yes" \
+  "$(grep -qF 'never creates, writes, or edits' "$INIT_SKILL" && echo yes || echo no)"
+assert_eq "init-memory-nudge: never blocks or fails init" "yes" \
+  "$(grep -qF 'never blocks or fails init' "$INIT_SKILL" && echo yes || echo no)"
+# AC6 — the silence discipline (no output when nothing is actionable) keeps successful
+# re-runs clean; pin it so a reword can't drop the quiet-when-nothing-to-say rule.
+assert_eq "init-memory-nudge: stays silent when nothing is actionable (AC6)" "yes" \
+  "$(grep -qF 'say nothing when nothing is actionable' "$INIT_SKILL" && echo yes || echo no)"
+# AC5 — the CLAUDE.md-present-but-unreferenced case (matrix case 3). Pin a block-unique
+# fragment of that bullet so dropping the 'suggest adding the @-import' branch fails here.
+assert_eq "init-memory-nudge: covers CLAUDE.md-present-but-unreferenced case (AC5)" "yes" \
+  "$(grep -qF 'does not already reference' "$INIT_SKILL" && echo yes || echo no)"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "shipped agent_overrides: deduper pins Sonnet 4.6 w/ effort; no Haiku override carries effort"
@@ -1491,6 +1723,364 @@ assert_eq "review comment → clean=false"      "false" "$(echo "$BASE" | jq '.s
 assert_eq "workpad Blocked → clean=false"     "false" "$(echo "$BASE" | jq '.signals.workpad_final_status="Blocked"' | gate | jq -r .clean)"
 assert_eq "workpad empty string → clean=true" "true"  "$(echo "$BASE" | jq '.signals.workpad_final_status=""' | gate | jq -r .clean)"
 assert_eq "workpad null → clean=true"         "true"  "$(echo "$BASE" | jq '.signals.workpad_final_status=null' | gate | jq -r .clean)"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "issue #97: reserved DevFlow label + issue-workpad reflection ingestion"
+# ────────────────────────────────────────────────────────────────────────────
+
+# ── ensure-label.sh: idempotent, always exit 0 (best-effort) ─────────────────
+EL_TMP="$(mktemp -d)"
+cat > "$EL_TMP/gh" <<'STUB'
+#!/usr/bin/env bash
+# First create succeeds; a marker makes the second call report "already exists".
+MARK="$(dirname "$0")/.created"
+case "$*" in
+  *"label create"*)
+    if [ -f "$MARK" ]; then echo "label already exists" >&2; exit 1; fi
+    touch "$MARK"; exit 0 ;;
+  *) exit 0 ;;
+esac
+STUB
+chmod +x "$EL_TMP/gh"
+DEVFLOW_GH="$EL_TMP/gh" bash "$LIB/../scripts/ensure-label.sh" DevFlow >/dev/null 2>&1; EL_R1=$?
+DEVFLOW_GH="$EL_TMP/gh" bash "$LIB/../scripts/ensure-label.sh" DevFlow >/dev/null 2>&1; EL_R2=$?
+assert_eq "ensure-label: first run exits 0 (created)"            "0" "$EL_R1"
+assert_eq "ensure-label: second run exits 0 (already exists)"    "0" "$EL_R2"
+cat > "$EL_TMP/ghfail" <<'STUB'
+#!/usr/bin/env bash
+echo "HTTP 500: server error" >&2; exit 1
+STUB
+chmod +x "$EL_TMP/ghfail"
+DEVFLOW_GH="$EL_TMP/ghfail" bash "$LIB/../scripts/ensure-label.sh" DevFlow >/dev/null 2>&1; EL_R3=$?
+assert_eq "ensure-label: hard gh failure still exits 0 (best-effort)" "0" "$EL_R3"
+rm -rf "$EL_TMP"
+
+# ── scan.sh: union detection predicate (label / closes-issue / audit / prefix) ─
+S97="$(mktemp -d)"
+cat > "$S97/cfg.json" <<'CFG'
+{"devflow":{"allowed_bots":"claude"},"devflow_retrospective":{"watched_authors":["claude"],"implementation_branch_prefix":"claude/"}}
+CFG
+cat > "$S97/cfg-noprefix.json" <<'CFG'
+{"devflow":{"allowed_bots":"claude"},"devflow_retrospective":{"watched_authors":["claude"],"implementation_branch_prefix":""}}
+CFG
+
+# (a) label path is author- AND branch-agnostic
+cat > "$S97/gh-label" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *"repo view"*) echo "acme/example-repo" ;;
+  *"pr list"*"--label DevFlow"*) echo '[{"number":777,"headRefName":"random/whatever","mergedAt":"2026-05-20T00:00:00Z"}]' ;;
+  *"pr list"*"author:"*) echo '[]' ;;
+  *"pr list"*) echo '[]' ;;
+  *"api"*"retrospectives.jsonl?ref=main"*) printf 'HTTP/2.0 404 Not Found\r\n\r\n' ;;
+  *) echo '[]' ;;
+esac
+STUB
+chmod +x "$S97/gh-label"
+SCAN_L="$(DEVFLOW_CONFIG_FILE="$S97/cfg.json" DEVFLOW_GH="$S97/gh-label" bash "$LIB/scan.sh" 2>/dev/null)"
+assert_eq "scan #97: DevFlow-label PR selected (author/branch-agnostic)" "true" \
+  "$(echo "$SCAN_L" | jq 'any(.[]; .number==777)')"
+
+# (b) closes-issue fallback with NO prefix and NO label (guarantee-class) + true negative
+cat > "$S97/gh-closes" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *"repo view"*) echo "acme/example-repo" ;;
+  *"pr list"*"--label DevFlow"*) echo '[]' ;;
+  *"pr list"*"author:"*) echo '[{"number":61,"headRefName":"issue-61-x","author":{"login":"claude"},"mergedAt":"2026-05-21T00:00:00Z","labels":[],"closingIssuesReferences":[{"number":60}]},{"number":99,"headRefName":"feature/hand","author":{"login":"claude"},"mergedAt":"2026-05-21T00:00:00Z","labels":[],"closingIssuesReferences":[]}]' ;;
+  *"pr list"*) echo '[]' ;;
+  *"api"*"retrospectives.jsonl?ref=main"*) printf 'HTTP/2.0 404 Not Found\r\n\r\n' ;;
+  *) echo '[]' ;;
+esac
+STUB
+chmod +x "$S97/gh-closes"
+SCAN_B="$(DEVFLOW_CONFIG_FILE="$S97/cfg-noprefix.json" DEVFLOW_GH="$S97/gh-closes" bash "$LIB/scan.sh" 2>/dev/null)"
+assert_eq "scan #97: closes-issue path selects PR on issue-* with empty prefix/no label" "true" \
+  "$(echo "$SCAN_B" | jq 'any(.[]; .number==61)')"
+assert_eq "scan #97: true negative (no label/closes/audit/prefix) excluded; empty prefix ≠ match-all" "false" \
+  "$(echo "$SCAN_B" | jq 'any(.[]; .number==99)')"
+
+# (d) dedupe: a PR matching BOTH label and closes paths appears once
+cat > "$S97/gh-dedupe" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *"repo view"*) echo "acme/example-repo" ;;
+  *"pr list"*"--label DevFlow"*) echo '[{"number":55,"headRefName":"issue-55-x","mergedAt":"2026-05-22T00:00:00Z"}]' ;;
+  *"pr list"*"author:"*) echo '[{"number":55,"headRefName":"issue-55-x","author":{"login":"claude"},"mergedAt":"2026-05-22T00:00:00Z","labels":[{"name":"DevFlow"}],"closingIssuesReferences":[{"number":54}]}]' ;;
+  *"pr list"*) echo '[]' ;;
+  *"api"*"retrospectives.jsonl?ref=main"*) printf 'HTTP/2.0 404 Not Found\r\n\r\n' ;;
+  *) echo '[]' ;;
+esac
+STUB
+chmod +x "$S97/gh-dedupe"
+SCAN_D="$(DEVFLOW_CONFIG_FILE="$S97/cfg.json" DEVFLOW_GH="$S97/gh-dedupe" bash "$LIB/scan.sh" 2>/dev/null)"
+assert_eq "scan #97: PR matching both label+closes appears once (dedupe)" "1" \
+  "$(echo "$SCAN_D" | jq '[.[] | select(.number==55)] | length')"
+
+# the 6 existing bot PRs are selected via path (b) with no prefix and no backfill
+cat > "$S97/gh-six" <<'STUB'
+#!/usr/bin/env bash
+SIX='[{"number":62,"headRefName":"issue-62-a","author":{"login":"claude"},"mergedAt":"2026-05-01T00:00:00Z","labels":[],"closingIssuesReferences":[{"number":162}]},
+      {"number":64,"headRefName":"issue-64-b","author":{"login":"claude"},"mergedAt":"2026-05-02T00:00:00Z","labels":[],"closingIssuesReferences":[{"number":164}]},
+      {"number":71,"headRefName":"issue-71-c","author":{"login":"claude"},"mergedAt":"2026-05-03T00:00:00Z","labels":[],"closingIssuesReferences":[{"number":171}]},
+      {"number":72,"headRefName":"issue-72-d","author":{"login":"claude"},"mergedAt":"2026-05-04T00:00:00Z","labels":[],"closingIssuesReferences":[{"number":172}]},
+      {"number":73,"headRefName":"issue-73-e","author":{"login":"claude"},"mergedAt":"2026-05-05T00:00:00Z","labels":[],"closingIssuesReferences":[{"number":173}]},
+      {"number":87,"headRefName":"issue-87-f","author":{"login":"claude"},"mergedAt":"2026-05-06T00:00:00Z","labels":[],"closingIssuesReferences":[{"number":187}]}]'
+case "$*" in
+  *"repo view"*) echo "acme/example-repo" ;;
+  *"pr list"*"--label DevFlow"*) echo '[]' ;;
+  *"pr list"*"author:"*) echo "$SIX" ;;
+  *"pr list"*) echo '[]' ;;
+  *"api"*"retrospectives.jsonl?ref=main"*) printf 'HTTP/2.0 404 Not Found\r\n\r\n' ;;
+  *) echo '[]' ;;
+esac
+STUB
+chmod +x "$S97/gh-six"
+SCAN_SIX="$(DEVFLOW_CONFIG_FILE="$S97/cfg-noprefix.json" DEVFLOW_GH="$S97/gh-six" bash "$LIB/scan.sh" 2>/dev/null)"
+assert_eq "scan #97: the 6 bot PRs selected via closes-issue path (no prefix, no backfill)" "62 64 71 72 73 87" \
+  "$(echo "$SCAN_SIX" | jq -r '[.[].number] | sort | join(" ")')"
+
+# Empty watched-authors list: the label pass still runs and must NOT early-exit
+# to '[]' — the no-op-prevention guarantee. (Guards a regression that restored
+# the old `[ -z "$WATCHED" ] → echo '[]'; exit 0`.)
+cat > "$S97/cfg-nowatched.json" <<'CFG'
+{"devflow":{"allowed_bots":""},"devflow_retrospective":{"watched_authors":[],"implementation_branch_prefix":"claude/"}}
+CFG
+SCAN_NW="$(DEVFLOW_CONFIG_FILE="$S97/cfg-nowatched.json" DEVFLOW_GH="$S97/gh-label" bash "$LIB/scan.sh" 2>/dev/null)"
+assert_eq "scan #97: label pass runs with empty watched-authors (no silent no-op)" "true" \
+  "$(echo "$SCAN_NW" | jq 'any(.[]; .number==777)')"
+
+# --prs ad-hoc mode applies the union predicate too: a DevFlow-labelled PR on a
+# non-prefix branch (no closes) is selected; a true-negative is dropped.
+cat > "$S97/gh-prs" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *"repo view"*) echo "acme/example-repo" ;;
+  *"pr view 800 --repo"*) echo '{"number":800,"headRefName":"random/x","mergedAt":"2026-05-25T00:00:00Z","state":"MERGED","labels":[{"name":"DevFlow"}],"closingIssuesReferences":[],"author":{"login":"nonwatched"}}' ;;
+  *"pr view 801 --repo"*) echo '{"number":801,"headRefName":"feature/plain","mergedAt":"2026-05-26T00:00:00Z","state":"MERGED","labels":[],"closingIssuesReferences":[],"author":{"login":"nonwatched"}}' ;;
+  *"pr view 802 --repo"*) echo '{"number":802,"headRefName":"issue-802-x","mergedAt":"2026-05-27T00:00:00Z","state":"MERGED","labels":[],"closingIssuesReferences":[{"number":702}],"author":{"login":"claude"}}' ;;
+  *"pr view 803 --repo"*) echo '{"number":803,"headRefName":"issue-803-x","mergedAt":"2026-05-28T00:00:00Z","state":"MERGED","labels":[],"closingIssuesReferences":[{"number":703}],"author":{"login":"nonwatched"}}' ;;
+  *) echo '[]' ;;
+esac
+STUB
+chmod +x "$S97/gh-prs"
+PRS97="$(DEVFLOW_CONFIG_FILE="$S97/cfg.json" DEVFLOW_GH="$S97/gh-prs" bash "$LIB/scan.sh" --prs "800,801,802,803" 2>/dev/null)"
+assert_eq "scan #97 --prs: DevFlow-labelled PR on non-prefix branch selected" "true" \
+  "$(echo "$PRS97" | jq 'any(.[]; .number==800)')"
+assert_eq "scan #97 --prs: true-negative (no label/closes/prefix) dropped" "false" \
+  "$(echo "$PRS97" | jq 'any(.[]; .number==801)')"
+# --prs closes-issue path is author-gated by _author_is_watched: a WATCHED
+# author that closes an issue (no label/prefix) is selected; a non-watched
+# author with the same closes-only shape is dropped.
+assert_eq "scan #97 --prs: watched-author closes-issue on non-prefix branch selected" "true" \
+  "$(echo "$PRS97" | jq 'any(.[]; .number==802)')"
+assert_eq "scan #97 --prs: non-watched closes-only dropped (path b is author-gated)" "false" \
+  "$(echo "$PRS97" | jq 'any(.[]; .number==803)')"
+rm -rf "$S97"
+
+# ── fetch-pr-context.sh: workpad + reflections sourced from the ISSUE thread ──
+F97="$(mktemp -d)"
+cat > "$F97/prview.json" <<'PV'
+{"number":900,"headRefName":"claude/issue-901-x","baseRefName":"main","headRefOid":"sha900beef","mergeCommit":{"oid":"merge900"},"mergedAt":"2026-05-08T16:31:00Z","createdAt":"2026-05-08T07:00:00Z","author":{"login":"example-bot"},"title":"t","body":"Closes #901","additions":1,"deletions":0,"files":[{"path":"x.txt"}],"labels":[]}
+PV
+cat > "$F97/issue.json" <<'IJ'
+{"number":901,"title":"i","body":"b","labels":[],"comments":[]}
+IJ
+# Stub distinguishes the ISSUE thread (issues/901/comments — workpad lives here)
+# from the PR thread (issues/900/comments — empty). Reads whatever
+# issuecomments.json currently holds so scenarios can be swapped in place.
+cat > "$F97/gh" <<'STUB'
+#!/usr/bin/env bash
+FX="${DEVFLOW_FX}"
+case "$*" in
+  *"repo view"*) echo "acme/example-repo" ;;
+  *"pr view"*) cat "$FX/prview.json" ;;
+  *"pr diff"*) echo 'diff --git a/x.txt b/x.txt' ;;
+  *"pulls/"*"/comments"*) echo '[]' ;;
+  *"pulls/"*"/reviews"*) echo '[]' ;;
+  *"pulls/"*"/commits"*) echo '[]' ;;
+  *"check-runs"*) echo '{"check_runs":[]}' ;;
+  *"issues/901/comments"*) cat "$FX/issuecomments.json" ;;
+  *"issues/900/comments"*) echo '[]' ;;
+  *"issues/"*"/comments"*) echo '[]' ;;
+  *"issues/901"*) cat "$FX/issue.json" ;;
+  *"commits/"*) echo '{"files":[]}' ;;
+  *) echo '[]' ;;
+esac
+STUB
+chmod +x "$F97/gh"
+
+# Scenario 1: Status 🎉 Complete + two reflection bullets (one with backticks/$).
+cat > "$F97/workpad.md" <<'WPMD'
+<!-- devflow:workpad -->
+# DevFlow Workpad — Issue #901
+
+**Status:** 🎉 Complete
+
+## Progress
+- [x] **Setup**
+
+## Devflow Reflection
+<details>
+<summary>Devflow Reflection (click to expand)</summary>
+
+- permission classifier blocked `bash lib/test/run.sh` ($CLAUDE_CODE classifier denied local test exec)
+- scope narrowed: deferred part X to a follow-up
+</details>
+WPMD
+jq -Rs '[{user:{login:"example-bot"},body:.,created_at:"2026-05-08T10:00:00Z"}]' < "$F97/workpad.md" > "$F97/issuecomments.json"
+F_OUT="$(DEVFLOW_FX="$F97" DEVFLOW_GH="$F97/gh" bash "$LIB/fetch-pr-context.sh" 900 2>/dev/null)"
+F_CTX="$(cat "$F_OUT")"
+assert_eq "fetch #97: workpad_final_status sourced from ISSUE, glyph stripped → Complete" "Complete" \
+  "$(jq -r '.signals.workpad_final_status' <<<"$F_CTX")"
+assert_eq "fetch #97: reflections[] has the two bullets" "2" \
+  "$(jq '.reflections | length' <<<"$F_CTX")"
+EXP_REFL='permission classifier blocked `bash lib/test/run.sh` ($CLAUDE_CODE classifier denied local test exec)'
+assert_eq "fetch #97: reflection bullet byte-for-byte (backticks/\$ survive)" "$EXP_REFL" \
+  "$(jq -r '.reflections[0]' <<<"$F_CTX")"
+
+# Scenario 2: empty Devflow Reflection block → reflections == []
+cat > "$F97/workpad-empty.md" <<'WPMD'
+<!-- devflow:workpad -->
+# DevFlow Workpad — Issue #901
+**Status:** 🚀 Implementing
+## Devflow Reflection
+<details>
+<summary>Devflow Reflection (click to expand)</summary>
+
+</details>
+WPMD
+jq -Rs '[{user:{login:"example-bot"},body:.,created_at:"2026-05-08T10:00:00Z"}]' < "$F97/workpad-empty.md" > "$F97/issuecomments.json"
+F_OUT2="$(DEVFLOW_FX="$F97" DEVFLOW_GH="$F97/gh" bash "$LIB/fetch-pr-context.sh" 900 2>/dev/null)"
+assert_eq "fetch #97: empty reflection block → reflections == []" "0" \
+  "$(jq '.reflections | length' < "$F_OUT2")"
+
+# Scenario 3: malformed block (no closing </details>) degrades without detonating
+cat > "$F97/workpad-malformed.md" <<'WPMD'
+<!-- devflow:workpad -->
+**Status:** 🚀 Reviewing
+## Devflow Reflection
+<details>
+<summary>Devflow Reflection (click to expand)</summary>
+
+- a malformed-block bullet
+WPMD
+jq -Rs '[{user:{login:"example-bot"},body:.,created_at:"2026-05-08T10:00:00Z"}]' < "$F97/workpad-malformed.md" > "$F97/issuecomments.json"
+F_OUT3="$(DEVFLOW_FX="$F97" DEVFLOW_GH="$F97/gh" bash "$LIB/fetch-pr-context.sh" 900 2>/dev/null)"; F_RC3=$?
+assert_eq "fetch #97: malformed reflection block exits 0 (no detonation)" "0" "$F_RC3"
+assert_eq "fetch #97: malformed reflection block degrades to a valid array" "array" \
+  "$(jq -r '.reflections | type' < "$F_OUT3")"
+
+# Scenario 4: Blocked workpad (from issue) → end-to-end gate clean=false (signal live)
+cat > "$F97/workpad-blocked.md" <<'WPMD'
+<!-- devflow:workpad -->
+**Status:** 👎 Blocked
+## Devflow Reflection
+<details>
+<summary>Devflow Reflection (click to expand)</summary>
+
+</details>
+WPMD
+jq -Rs '[{user:{login:"example-bot"},body:.,created_at:"2026-05-08T10:00:00Z"}]' < "$F97/workpad-blocked.md" > "$F97/issuecomments.json"
+F_OUT4="$(DEVFLOW_FX="$F97" DEVFLOW_GH="$F97/gh" bash "$LIB/fetch-pr-context.sh" 900 2>/dev/null)"
+assert_eq "fetch #97: Blocked status sourced from ISSUE → Blocked" "Blocked" \
+  "$(jq -r '.signals.workpad_final_status' < "$F_OUT4")"
+assert_eq "gate #97: Blocked workpad (from issue) → clean=false (signal live again)" "false" \
+  "$(jq -c -f "$LIB/cheap-gate.jq" < "$F_OUT4" | jq -r .clean)"
+rm -rf "$F97"
+
+# Integration: a PR scan selects via the label/closes-issue path — on an issue-*
+# branch matching NO prefix — must NOT be dropped at fetch (classify-pr-kind.jq
+# now mirrors scan's union predicate; pre-fix it returned "skip" → exit 2).
+FI97="$(mktemp -d)"
+cat > "$FI97/prview.json" <<'PV'
+{"number":950,"headRefName":"issue-97-foo","baseRefName":"main","headRefOid":"sha950","mergeCommit":{"oid":"m950"},"mergedAt":"2026-05-27T00:00:00Z","createdAt":"2026-05-27T00:00:00Z","author":{"login":"claude[bot]"},"title":"t","body":"Closes #97","additions":1,"deletions":0,"files":[{"path":"x.txt"}],"labels":[{"name":"DevFlow"}],"closingIssuesReferences":[{"number":97}]}
+PV
+cat > "$FI97/issue.json" <<'IJ'
+{"number":97,"title":"i","body":"b","labels":[],"comments":[]}
+IJ
+cat > "$FI97/gh" <<'STUB'
+#!/usr/bin/env bash
+FX="${DEVFLOW_FX}"
+case "$*" in
+  *"repo view"*) echo "acme/example-repo" ;;
+  *"pr view"*) cat "$FX/prview.json" ;;
+  *"pr diff"*) echo 'diff --git a/x.txt b/x.txt' ;;
+  *"pulls/"*"/comments"*) echo '[]' ;;
+  *"pulls/"*"/reviews"*) echo '[]' ;;
+  *"pulls/"*"/commits"*) echo '[]' ;;
+  *"check-runs"*) echo '{"check_runs":[]}' ;;
+  *"issues/"*"/comments"*) echo '[]' ;;
+  *"issues/97"*) cat "$FX/issue.json" ;;
+  *"commits/"*) echo '{"files":[]}' ;;
+  *) echo '[]' ;;
+esac
+STUB
+chmod +x "$FI97/gh"
+FI_OUT="$(DEVFLOW_FX="$FI97" DEVFLOW_GH="$FI97/gh" bash "$LIB/fetch-pr-context.sh" 950 2>/dev/null)"; FI_RC=$?
+assert_eq "fetch #97: label/closes PR on non-prefix branch is NOT skipped (exit 0)" "0" "$FI_RC"
+assert_eq "fetch #97: label/closes PR on non-prefix branch → kind=implementation" "implementation" \
+  "$([ -n "$FI_OUT" ] && jq -r '.kind' < "$FI_OUT" || echo MISSING)"
+rm -rf "$FI97"
+
+# Issue-number derivation falls back to GitHub's own linkage (#98 finding I-1):
+# a DevFlow PR on an `issue-<N>-<slug>` branch (NOT `claude/issue-<N>`) whose body
+# carries no Closes/Fixes/Resolves keyword — linked only via the UI — is selected
+# by the union predicate yet would source an EMPTY workpad without this fallback.
+# closingIssuesReferences[0].number must supply the issue number.
+FCL="$(mktemp -d)"
+cat > "$FCL/prview.json" <<'PV'
+{"number":960,"headRefName":"issue-712-foo","baseRefName":"main","headRefOid":"sha960","mergeCommit":{"oid":"m960"},"mergedAt":"2026-05-27T00:00:00Z","createdAt":"2026-05-27T00:00:00Z","author":{"login":"claude[bot]"},"title":"t","body":"no keyword linkage here","additions":1,"deletions":0,"files":[{"path":"x.txt"}],"labels":[{"name":"DevFlow"}],"closingIssuesReferences":[{"number":712}]}
+PV
+cat > "$FCL/issue.json" <<'IJ'
+{"number":712,"title":"i","body":"b","labels":[],"comments":[]}
+IJ
+cat > "$FCL/gh" <<'STUB'
+#!/usr/bin/env bash
+FX="${DEVFLOW_FX}"
+case "$*" in
+  *"repo view"*) echo "acme/example-repo" ;;
+  *"pr view"*) cat "$FX/prview.json" ;;
+  *"pr diff"*) echo 'diff --git a/x.txt b/x.txt' ;;
+  *"pulls/"*"/comments"*) echo '[]' ;;
+  *"pulls/"*"/reviews"*) echo '[]' ;;
+  *"pulls/"*"/commits"*) echo '[]' ;;
+  *"check-runs"*) echo '{"check_runs":[]}' ;;
+  *"issues/"*"/comments"*) echo '[]' ;;
+  *"issues/712"*) cat "$FX/issue.json" ;;
+  *"commits/"*) echo '{"files":[]}' ;;
+  *) echo '[]' ;;
+esac
+STUB
+chmod +x "$FCL/gh"
+FCL_OUT="$(DEVFLOW_FX="$FCL" DEVFLOW_GH="$FCL/gh" bash "$LIB/fetch-pr-context.sh" 960 2>/dev/null)"
+assert_eq "fetch I-1: issue# falls back to closingIssuesReferences when branch+body miss" "712" \
+  "$([ -n "$FCL_OUT" ] && jq -r '.issue_number' < "$FCL_OUT" || echo MISSING)"
+rm -rf "$FCL"
+
+# ── cheap-gate.jq: a non-empty reflections[] forces analysis even when clean ──
+assert_eq "gate #97: reflections non-empty → clean=false (all signals clean)" "false" \
+  "$(echo "$BASE" | jq '.reflections=["friction note"]' | gate | jq -r .clean)"
+assert_eq "gate #97: reflection reason names the signal" "workpad reflections present" \
+  "$(echo "$BASE" | jq '.reflections=["friction note"]' | gate | jq -r .reason)"
+
+# ── SKILL.md / config contract pins (grep) ───────────────────────────────────
+assert_eq "#97 pin: ensure-label.sh exists" "yes" \
+  "$([ -f "$LIB/../scripts/ensure-label.sh" ] && echo yes || echo no)"
+assert_eq "#97 pin: create-issue ensures+applies DevFlow label" "yes" \
+  "$(grep -q 'ensure-label.sh DevFlow' "$LIB/../skills/create-issue/SKILL.md" && grep -q -- '--add-label DevFlow' "$LIB/../skills/create-issue/SKILL.md" && echo yes || echo no)"
+assert_eq "#97 pin: implement applies DevFlow label at PR create" "yes" \
+  "$(grep -q 'ensure-label.sh DevFlow' "$LIB/../skills/implement/SKILL.md" && grep -q -- '--add-label DevFlow' "$LIB/../skills/implement/SKILL.md" && echo yes || echo no)"
+assert_eq "#97 pin: retrospective-weekly Stage B applies DevFlow label" "yes" \
+  "$(grep -q 'ensure-label.sh DevFlow' "$LIB/../skills/retrospective-weekly/SKILL.md" && grep -q -- '--add-label DevFlow' "$LIB/../skills/retrospective-weekly/SKILL.md" && echo yes || echo no)"
+assert_eq "#97 pin: init creates the reserved DevFlow provenance label" "yes" \
+  "$(grep -q 'ensure-label.sh DevFlow' "$LIB/../skills/init/SKILL.md" && grep -qi 'provenance' "$LIB/../skills/init/SKILL.md" && echo yes || echo no)"
+assert_eq "#97 pin: retrospective Stage A consumes reflections" "yes" \
+  "$(grep -qi 'reflection' "$LIB/../skills/retrospective/SKILL.md" && echo yes || echo no)"
+assert_eq "#97 pin: cheap-gate carries the reflection reason string" "yes" \
+  "$(grep -q 'workpad reflections present' "$LIB/cheap-gate.jq" && echo yes || echo no)"
+assert_eq "#97 pin: config.example.json docs.labels reverted to Documented" "Documented" \
+  "$(jq -r '.docs.labels' "$LIB/../.devflow/config.example.json")"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "clean-entry.jq / audit-entry.jq / actionable-patterns.sh"

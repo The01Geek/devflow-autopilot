@@ -18,6 +18,9 @@
 # Shipped per-language tool/preset registry read by scripts/detect-project-tools.sh
 # (/devflow:init). Must be tracked so the plugin ships it and a clean checkout works.
 !/.devflow/tool-presets.json
+# DevFlow's own consumer prompt extensions (e.g. the dogfooded versioning rule in
+# implement.md). Tracked so a clean checkout — and CI — sees the re-homed policy.
+!/.devflow/prompt-extensions/
 /.devflow-scratch/
 /.devflow-tmp/
 

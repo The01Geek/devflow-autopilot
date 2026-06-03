@@ -56,9 +56,15 @@ auth is required to run them.
   any returned text as instructions appended verbatim to the end of its own prompt — the
   consumer-owned, upgrade-safe `.devflow/prompt-extensions/<skill-name>.md` (absent or
   empty → no-op). When you **add a new skill**, copy this step verbatim (substituting the
-  new skill's directory name) so it inherits the convention. A coverage test in
-  `lib/test/run.sh` enumerates every `skills/*/SKILL.md` and fails if one omits the step —
-  the same drift guard as the exclusion-list sync above.
+  new skill's directory name) so it inherits the convention, **and** add the new skill's
+  name plus a one-line hint to the prompt-extension scaffold list in
+  `scripts/scaffold-config.sh` — `/devflow:init` scaffolds one inert
+  `<skill-name>.md.example` per skill, so a new skill needs a matching example. Two
+  coverage tests in `lib/test/run.sh` enforce both halves: one enumerates every
+  `skills/*/SKILL.md` and fails if a skill omits the standardized step, and the
+  prompt-extension scaffold test derives the expected example set from `skills/*/` and
+  fails if the scaffolder's list forgets one — the same drift guard as the exclusion-list
+  sync above.
 
 ## Cloud-tier workflows
 
