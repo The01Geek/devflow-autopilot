@@ -4758,6 +4758,12 @@ assert_eq "pam: no --apply → prints the copy-paste env var (AC1 copy-paste pat
   "$(printf '%s' "$PAM_NC_OUT" | grep -q 'CLAUDE_CODE_ENABLE_AUTO_MODE' && echo yes || echo no)"
 assert_eq "pam: no --apply → honest 'selectable' framing, not 'on' (AC4)" "yes" \
   "$(printf '%s' "$PAM_NC_OUT" | grep -qi 'selectable' && echo yes || echo no)"
+# The copy-paste hint prints the INNER key only ("CLAUDE_CODE_ENABLE_AUTO_MODE": "1"), never a
+# full '"env": { … }' wrapper — pasting a second "env" block into an existing env object would
+# create a duplicate key. The grep-for-var-name assertion above would still pass on a regressed
+# full-wrapper print, so pin the intentional inner-key-only shape: no bare `"env"` wrapper line.
+assert_eq "pam: no --apply → prints the INNER key only, not an '\"env\": {' wrapper (no dup-env clobber)" "no" \
+  "$(printf '%s' "$PAM_NC_OUT" | grep -qE '"env"[[:space:]]*:' && echo yes || echo no)"
 
 # AC 2 (consent gate over an EXISTING populated file): no --apply still writes nothing —
 # a deliberate "0" is left byte-for-byte unchanged (the strongest 'no touch without consent').
@@ -4800,6 +4806,22 @@ assert_eq "pam: --apply over user '0' → breadcrumb says NOT selectable, never 
 assert_eq "pam: --apply over user '0' → file byte-for-byte unchanged (no-write branch, AC3)" \
   "$PAM_Z_BEFORE" "$(cat "$PAM_Z_SF")"
 
+# AC 3 (no-clobber): an arbitrary non-"0"/non-"1" leaf (e.g. a "true"/"yes" user typo) hits the
+# else-branch of the two PRESERVED breadcrumbs and must be preserved-and-reported "NOT
+# selectable", same as "0". The "0" cell above exercises only one value of that branch; SKILL.md
+# relays this breadcrumb verbatim, so the distinction is contractual for any non-"1" value.
+PAM_NONONE="$(mktemp -d)"; PAM_NN_SF="$PAM_NONONE/settings.json"
+printf '%s' '{"env":{"CLAUDE_CODE_ENABLE_AUTO_MODE":"true"}}' > "$PAM_NN_SF"
+PAM_NN_BEFORE="$(cat "$PAM_NN_SF")"
+PAM_NN_OUT="$(bash "$PAM" --apply "$PAM_NN_SF" 2>&1)"; PAM_NN_RC=$?
+assert_eq "pam: --apply over user 'true' → exit 0" "0" "$PAM_NN_RC"
+assert_eq "pam: --apply over user 'true' → value preserved, never clobbered to '1' (AC3)" "true" \
+  "$(jq -r '.env.CLAUDE_CODE_ENABLE_AUTO_MODE' "$PAM_NN_SF" 2>/dev/null)"
+assert_eq "pam: --apply over user 'true' → breadcrumb says NOT selectable (else-branch, AC4)" "yes" \
+  "$(printf '%s' "$PAM_NN_OUT" | grep -qi 'NOT selectable' && echo yes || echo no)"
+assert_eq "pam: --apply over user 'true' → file byte-for-byte unchanged (AC3)" \
+  "$PAM_NN_BEFORE" "$(cat "$PAM_NN_SF")"
+
 # AC 3 (no-clobber): existing env + unrelated top key → auto-mode added alongside, all preserved.
 PAM_KEEP="$(mktemp -d)"; PAM_K_SF="$PAM_KEEP/settings.json"
 printf '%s' '{"env":{"OTHER":"x"},"customTopKey":123}' > "$PAM_K_SF"
@@ -4832,8 +4854,12 @@ assert_eq "pam: --apply malformed → exit non-zero (fail-closed, AC3)" "yes" \
   "$([ "$PAM_B_RC" -ne 0 ] && echo yes || echo no)"
 assert_eq "pam: --apply malformed → file byte-for-byte unchanged (AC3)" '{ not valid json' \
   "$(cat "$PAM_B_SF")"
-assert_eq "pam: --apply malformed → specific breadcrumb" "yes" \
-  "$(printf '%s' "$PAM_B_OUT" | grep -qiE 'not valid json|malformed' && echo yes || echo no)"
+# Pin the target-unique substring 'not valid JSON', not the loose 'not valid json|malformed'
+# alternation: 'malformed' is the WRONG-SHAPE path's breadcrumb (line ~185), so the alternation
+# would also pass if a regression misrouted an invalid-JSON file into the shape-guard's generic
+# message. Same discipline the env-as-string cell below applies.
+assert_eq "pam: --apply malformed → specific breadcrumb says 'not valid JSON' (not the wrong-shape message)" "yes" \
+  "$(printf '%s' "$PAM_B_OUT" | grep -qi 'not valid JSON' && echo yes || echo no)"
 
 # AC 3 (fail-closed): `env` present as a non-object → exit non-zero, unchanged, path named.
 # Without the depth guard the merge would silently drop DevFlow's env and exit 0.
@@ -4848,6 +4874,22 @@ assert_eq "pam: --apply env-as-string → file unchanged" '{"env":"oops"}' "$(ca
 # the specific shape message instead — the test must prove the precise no-silent-drop path.
 assert_eq "pam: --apply env-as-string → breadcrumb specifically names the env path" "yes" \
   "$(printf '%s' "$PAM_ES_OUT" | grep -qiE 'env path is present but not a JSON object' && echo yes || echo no)"
+
+# AC 3 (fail-closed): `env` present as JSON `null` → exit non-zero, unchanged, path named.
+# This is the subtle sibling of env-as-string: the guard deliberately tests presence via the
+# parent has() check (NOT `getpath != null`) precisely so a right-hand `null` is caught — jq's
+# `*` treats a right-hand null as a winning value that replaces the whole defaults subtree,
+# silently dropping DevFlow's env and exiting 0. A regression reverting the guard to a
+# `getpath($p) != null` presence test would still reject env-as-string (that cell passes) yet
+# let `{"env":null}` through — this cell is the only thing that would go red. (mutation-checked.)
+PAM_ENVNULL="$(mktemp -d)"; PAM_EN_SF="$PAM_ENVNULL/settings.json"
+printf '%s' '{"env":null}' > "$PAM_EN_SF"
+PAM_EN_OUT="$(bash "$PAM" --apply "$PAM_EN_SF" 2>&1)"; PAM_EN_RC=$?
+assert_eq "pam: --apply env-as-null → exit non-zero (no silent subtree drop, AC3)" "yes" \
+  "$([ "$PAM_EN_RC" -ne 0 ] && echo yes || echo no)"
+assert_eq "pam: --apply env-as-null → file unchanged" '{"env":null}' "$(cat "$PAM_EN_SF")"
+assert_eq "pam: --apply env-as-null → breadcrumb specifically names the env path" "yes" \
+  "$(printf '%s' "$PAM_EN_OUT" | grep -qiE 'env path is present but not a JSON object' && echo yes || echo no)"
 
 # AC 3 (fail-closed): non-object root (array) → exit non-zero, file unchanged.
 PAM_ARR="$(mktemp -d)"; PAM_A_SF="$PAM_ARR/settings.json"
@@ -4940,9 +4982,29 @@ if [ "$(id -u)" -ne 0 ] && [ ! -r "$PAM_UR_SF" ]; then
 fi
 chmod 644 "$PAM_UR_SF"   # restore so rm -rf can clean up
 
-rm -rf "$PAM_NOCONSENT" "$PAM_NCEXIST" "$PAM_FRESH" "$PAM_ZERO" "$PAM_KEEP" "$PAM_IDEM" \
-       "$PAM_BAD" "$PAM_ENVSTR" "$PAM_ARR" "$PAM_SCALAR" "$PAM_EMPTY" "$PAM_HOME" \
-       "$PAM_WS" "$PAM_UNREAD"
+# AC 3 (atomic + fail-closed on the WRITE side): a real change against a read-only target dir
+# holding a valid existing file → mktemp in that dir fails → exit 2 with a specific breadcrumb,
+# and the original is left byte-for-byte unchanged (the atomicity contract: $SETTINGS is untouched
+# until the same-dir mv, so a failed write never tears it). The read side has the unreadable cell
+# above; this is the only coverage of the write/mktemp failure path. Root bypasses the dir perm
+# bits, so skip under root (same guard as the unreadable cell).
+PAM_RODIR="$(mktemp -d)"; PAM_RO_SF="$PAM_RODIR/settings.json"
+printf '%s' '{"env":{"FOO":"bar"}}' > "$PAM_RO_SF"   # valid, lacks the key → a real change is needed
+PAM_RO_BEFORE="$(cat "$PAM_RO_SF")"
+chmod 555 "$PAM_RODIR"   # read+exec but NOT writable → mktemp in-dir fails
+if [ "$(id -u)" -ne 0 ] && [ ! -w "$PAM_RODIR" ]; then
+  PAM_RO_OUT="$(bash "$PAM" --apply "$PAM_RO_SF" 2>&1)"; PAM_RO_RC=$?
+  assert_eq "pam: --apply read-only target dir → exit 2 (write fail-closed, AC3)" "2" "$PAM_RO_RC"
+  assert_eq "pam: --apply read-only target dir → breadcrumb names the write/temp failure" "yes" \
+    "$(printf '%s' "$PAM_RO_OUT" | grep -qiE 'could not (create a temp file|write)' && echo yes || echo no)"
+  assert_eq "pam: --apply read-only target dir → original byte-for-byte unchanged (atomicity, AC3)" \
+    "$PAM_RO_BEFORE" "$(cat "$PAM_RO_SF")"
+fi
+chmod 755 "$PAM_RODIR"   # restore so rm -rf can clean up
+
+rm -rf "$PAM_NOCONSENT" "$PAM_NCEXIST" "$PAM_FRESH" "$PAM_ZERO" "$PAM_NONONE" "$PAM_KEEP" "$PAM_IDEM" \
+       "$PAM_BAD" "$PAM_ENVSTR" "$PAM_ENVNULL" "$PAM_ARR" "$PAM_SCALAR" "$PAM_EMPTY" "$PAM_HOME" \
+       "$PAM_WS" "$PAM_UNREAD" "$PAM_RODIR"
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
