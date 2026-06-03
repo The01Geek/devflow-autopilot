@@ -1661,6 +1661,12 @@ scan100 'HTTP/2.0 200 OK\r\n\r\n{"content":"","foo":1}\n'; RC=$?
 assert_eq "scan #100: HTTP 200 with neither content nor download_url exits loud" "1" "$RC"
 assert_eq "scan #100: no-fallback breadcrumb names the missing surfaces" "yes" "$(have 'neither inline content nor a download_url' "$SCAN_ERR")"
 
+# An unparseable 200 envelope (non-JSON body) fails with its OWN accurate
+# breadcrumb, not the misleading "neither content nor download_url" one.
+scan100 'HTTP/2.0 200 OK\r\n\r\nthis is not a json envelope\n'; RC=$?
+assert_eq "scan #100: unparseable HTTP-200 envelope exits loud" "1" "$RC"
+assert_eq "scan #100: unparseable-envelope breadcrumb is specific" "yes" "$(have 'envelope was not parseable JSON' "$SCAN_ERR")"
+
 # download_url (>1 MB) branch now shares the zero-record collapse guard: a
 # parseable body carrying zero pr records must fail loud, not silently re-queue.
 scan100 'HTTP/2.0 200 OK\r\n\r\n{"content":"","download_url":"https://example.test/raw/nopr.jsonl"}\n'; RC=$?

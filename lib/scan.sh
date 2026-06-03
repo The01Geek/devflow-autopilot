@@ -166,17 +166,19 @@ fi
 # Parse decoded retrospectives.jsonl text into a JSON array of processed PR
 # numbers (sets the global EXISTING), failing loud (exit 1) on either silent-
 # collapse mode under HTTP 200:
-#   - a jq parse failure (unparseable content — a decode miss), or
+#   - a jq parse failure (unparseable content), or
 #   - a successful parse that yields zero pr records from non-empty content
 #     (pr-less / schema-drifted / truncated-but-still-parseable content).
-# A populated retrospectives.jsonl always carries >=1 {"pr":...} record — it is
-# created by the first append, so an absent file is the 404 path above, never an
-# empty 200 — so zero records from real content is corruption, not an empty
-# backlog. Swallowing it into an empty EXISTING would re-queue the whole backlog
-# and create duplicate retrospectives. BOTH call sites (the inline <=1 MB content
-# and the >1 MB download_url body) share this guard, so neither transport can
-# collapse silently. Called in the current shell (never via $(...)), so its exit
-# terminates scan, not just a subshell.
+# This assumes the file's append-only schema, where every record carries a
+# {"pr":...} field: a populated file then holds >=1 such record, and an absent
+# file is the 404 path above (never an empty 200), so zero records from real
+# content is corruption, not an empty backlog. (If a record type WITHOUT a `.pr`
+# field is ever added to the file, revisit this guard — it would fire on a
+# legitimately pr-less record.) Swallowing a collapse into an empty EXISTING
+# would re-queue the whole backlog and create duplicate retrospectives. BOTH call
+# sites (the inline <=1 MB content and the >1 MB download_url body) share this
+# guard, so neither transport can collapse silently. Called in the current shell
+# (never via $(...)), so its exit terminates scan, not just a subshell.
 _decode_existing() {  # $1 = decoded jsonl text, $2 = source label for breadcrumbs
     if ! EXISTING="$(printf '%s' "$1" | jq -s 'map(.pr // empty)' 2>"$ERR")"; then
         echo "::error::scan: parsing retrospectives.jsonl ($2) failed — unparseable content under HTTP 200: $(cat "$ERR")" >&2
@@ -196,12 +198,26 @@ HTTP="$(awk 'NR==1 {print $2; exit}' "$RESP")"
 case "$HTTP" in
     200)
         BODY_JSON="$(awk 'BEGIN{b=0} /^\r?$/{b=1; next} b' "$RESP")"
-        RAW="$(echo "$BODY_JSON" | jq -r '.content // ""')"
+        # Validate the Contents-API envelope parses as JSON once, up front, so an
+        # unparseable 200 body fails with an accurate breadcrumb HERE rather than
+        # being misattributed downstream to "neither content nor download_url"
+        # (jq on a non-JSON body yields empty stdout + nonzero, which downstream
+        # would otherwise read as an absent `.content` field). $ERR is single-use
+        # scratch: every `2>"$ERR"` truncates it and each reader cats it right
+        # after its own write, so breadcrumbs never cross streams.
+        if ! RAW="$(printf '%s' "$BODY_JSON" | jq -r '.content // ""' 2>"$ERR")"; then
+            echo "::error::scan: HTTP 200 for retrospectives.jsonl but the Contents API envelope was not parseable JSON: $(cat "$ERR")" >&2
+            exit 1
+        fi
         if [ -n "$RAW" ]; then
             # The Contents API base64-encodes `content` (with embedded newlines)
-            # for files <= 1 MB. Decode explicitly so a base64 miss gets a
-            # specific breadcrumb instead of a bare set -e abort.
-            if ! DECODED="$(printf '%s' "$RAW" | base64 -d 2>"$ERR")"; then
+            # for files <= 1 MB. Decode via python3 (already a hard dep — see the
+            # date math above; portable across macOS/BSD, unlike `base64 -d`) so a
+            # decode miss gets a specific breadcrumb instead of a bare set -e
+            # abort. Whitespace is stripped first (GitHub wraps the base64) and
+            # validate=True rejects genuinely-invalid input rather than silently
+            # discarding non-alphabet bytes the way a lenient decoder would.
+            if ! DECODED="$(printf '%s' "$RAW" | python3 -c 'import sys, base64; sys.stdout.buffer.write(base64.b64decode("".join(sys.stdin.read().split()), validate=True))' 2>"$ERR")"; then
                 echo "::error::scan: base64 decode of retrospectives.jsonl content failed under HTTP 200: $(cat "$ERR")" >&2
                 exit 1
             fi
