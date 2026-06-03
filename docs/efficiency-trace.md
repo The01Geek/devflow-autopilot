@@ -114,9 +114,12 @@ visible at a glance.
 ## The per-run record
 
 `lib/efficiency-trace.sh --mode record` emits one JSON object written to
-`.devflow/logs/efficiency/<slug>-<run-timestamp>.json` — **one file per run** (not an appended
-JSONL), which keeps the store conflict-free across concurrent PR branches at merge time. The record
-carries:
+`.devflow/logs/efficiency/<slug>-<run-id>.json` — **one file per run** (not an appended
+JSONL), which keeps the store conflict-free across concurrent PR branches at merge time. The
+filename is keyed by the run's `<run-id>` (the same discriminator that scopes the workpad
+directory), **not** a fresh `date` timestamp: this is what lets the `--persist` backstop (below) be
+idempotent — the agent's Loop-Exit write and any later `--persist` re-derivation resolve the *same*
+path, so a run is never recorded twice. The record carries:
 
 - `schema_version`, `slug`, `generated_at`, `iterations`.
 - `cut_candidate_min_dispatch` — the config threshold (below), carried forward for the follow-up
@@ -191,6 +194,110 @@ Derivation and persistence are best-effort: a missing or unreadable workpad, an 
 `phase3_dispatched` field, or a write failure logs a warning and the fix loop continues to its
 normal verdict. The trace is observability, never a gate — it must never abort the loop.
 
+## Non-droppable persistence (the self-check + `--persist` backstop)
+
+Best-effort persistence has a failure mode: when `/devflow:review-and-fix` is driven
+**interactively/inline** by an orchestrator rather than as a discrete end-to-end invocation, the
+agent can follow the engine's *substance* (review, shadow, fixes) but silently drop the Loop Exit
+*bookkeeping* — the per-iteration workpad write, the record derivation, the durable copy, and the
+`chore:` persist commit. Nothing distinguishes "correctly persisted nothing because telemetry was
+off" from "silently forgot to persist," so the gap is invisible, and the lost record can never be
+reconstructed (token/wall-clock telemetry is only capturable live). Three layers close this, weakest
+to strongest — the deterministic backstop (Layer 3) is the actual guarantee; the others shrink the
+blast radius and provide a portable fallback.
+
+**Layer 1 — wording (portable, agent-executed).** The SKILL.md Loop Exit persistence steps are
+marked **mandatory on every writable run**, and a `## Common Mistakes` entry names the
+interactive-drop failure mode so a future orchestrator does not silently skip them.
+
+**Layer 2 — self-check + incremental capture (portable, agent-executed).**
+- *Incremental capture.* Each `iter-<N>.json` is written **the moment that iteration's data exists**
+  (Step 3 item 7), not batched at Loop Exit — so a dropped Loop Exit still leaves the workpads on
+  disk for Layers 2/3 to derive from. This shrinks the blast radius from "everything" to "just the
+  final derive+commit."
+- *Self-check.* `lib/efficiency-trace.sh --self-check --workpad-dir DIR --slug SLUG` is run at Loop
+  Exit on a converged writable run. If the run wrote **zero** `iter-*.json` workpads, or produced no
+  effectiveness record at `.devflow/logs/efficiency/<slug>-<run-id>.json`, it emits a loud
+  `::warning::` naming exactly what was not persisted (and points at `--persist` as the recovery).
+  It **warns, never blocks** — it never writes, never commits, never changes the verdict, and always
+  exits 0. It is **silent** when telemetry is disabled (no record is expected) and on a read-only
+  run (the cloud `review` profile, where SKILL.md never invokes it — there is no Loop Exit there).
+
+**Layer 3 — deterministic backstop (harness-executed, the actual guarantee).**
+- *`lib/efficiency-trace.sh --persist`.* Derives the effectiveness record **and** stages+commits it +
+  the durable workpad copy from whatever `iter-*.json` workpads exist on disk, in one scoped
+  `chore:` commit. With `--workpad-dir`/`--slug` it persists one run; without them it **discovers**
+  every `.devflow/tmp/review/<slug>/<run-id>/` holding `iter-*.json` and persists each (skipping
+  standalone `/devflow:review` runs — `source == "review"` — which have their own Phase 4.5 path).
+  It is **idempotent**: the record filename is run-id-keyed and presence-based (an existing record is
+  never re-derived, so its `generated_at` can't churn), the durable copy is a content-idempotent
+  `cp`, and the commit is pathspec-scoped with a `git diff --cached` guard — so a re-run produces no
+  new commit and never an empty one. Best-effort: every failure logs a `::warning::` and it always
+  exits 0. The durable copy runs on every writable run (not telemetry-gated); the record is
+  telemetry-gated.
+- *`Stop` hook (local-tier only).* The project's `.claude/settings.json` registers a `Stop` hook
+  that runs `--persist` after the agent's turn ends — when the run is already complete, so persisting
+  there is **non-blocking by construction**. `--persist`'s discovery + presence-based idempotency *is*
+  the "review-and-fix activity detected but no committed record exists" gate: it is a clean no-op when
+  there is nothing unpersisted. It is best-effort (`|| true`); a failure never fails the session. The
+  hook config (for this repo; adopters point the command at the vendored
+  `.devflow/vendor/devflow/lib/efficiency-trace.sh`):
+
+  ```json
+  {
+    "hooks": {
+      "Stop": [
+        {
+          "matcher": "",
+          "hooks": [
+            { "type": "command", "command": "bash lib/efficiency-trace.sh --persist || true" }
+          ]
+        }
+      ]
+    }
+  }
+  ```
+
+  > **Note on this repo's `.claude/settings.json`.** Writing `.claude/` is a privileged,
+  > self-modifying action that an agent is structurally barred from (it is the harness boundary that
+  > stops an agent rewriting its own hooks/permissions), so the file itself is committed by a
+  > maintainer, not by `/devflow:implement`. The `--persist` mode it calls, the cloud-tier guarantee,
+  > and this documentation all ship in the same change; only the local hook file is the human step.
+- *Cloud-tier wrapper.* **`Stop` hooks are local-only**: `claude-code-action` `rm -rf`s and restores
+  `.claude/` from the **base** branch before installing plugins, so a PR branch's `.claude/` hook is
+  discarded for that PR's own cloud run, and the cloud guarantee must **never** depend on the hook.
+  Instead the cloud writable workflows — **`.github/workflows/devflow.yml`** (the
+  `/devflow:review-and-fix` comment path's `command` job) and **`.github/workflows/devflow-implement.yml`**
+  (the `/devflow:implement` Phase 3.3 `--push-each-iteration` path) — invoke `--persist`
+  unconditionally (`if: always()`, best-effort) in a workflow step **after** `Run Claude Code`,
+  pushing only if a recovery commit was created. (`devflow-runner.yml` is the read-only `review`
+  profile — it runs no fix loop and cannot write the tree, so it is intentionally **excluded**: there
+  is nothing to persist there.) The step to add after `Run Claude Code` in each of those two
+  workflows (a GitHub App token cannot self-modify `.github/workflows/`, so a maintainer commits this):
+
+  ```yaml
+  - name: Persist review-and-fix observability artifacts (backstop)
+    if: ${{ always() }}
+    run: |
+      set +e
+      HELPER=.devflow/vendor/devflow/lib/efficiency-trace.sh
+      [ -f "$HELPER" ] || { echo "::warning::observability backstop: $HELPER missing; skipped"; exit 0; }
+      git config user.name "github-actions[bot]" 2>/dev/null || true
+      git config user.email "41898282+github-actions[bot]@users.noreply.github.com" 2>/dev/null || true
+      before=$(git rev-parse HEAD 2>/dev/null)
+      bash "$HELPER" --persist
+      after=$(git rev-parse HEAD 2>/dev/null)
+      if [ -n "$after" ] && [ "$before" != "$after" ]; then
+        git push || echo "::warning::observability backstop: push of persisted artifacts failed; commit is local-only"
+      fi
+      exit 0
+  ```
+
+This guarantees **persistence of whatever telemetry was captured**. It does **not** guarantee
+*capture* of `tokens` / `wall_clock_s` — those come from `<usage>` blocks the agent reads live and no
+post-hoc tool can recover them if the agent never recorded them (the incremental writes + the
+self-check warning maximize capture, but it remains irreducibly agent-dependent).
+
 ## Out of scope (tracked as follow-up)
 
 The cross-run analyzer (`lib/efficiency-report.jq`), the weekly-loop recommendation section, and the
@@ -222,8 +329,10 @@ applied-fix derivation unchanged.
 
 **`source` field.** Every record carries `source` — `"review"` for standalone `/devflow:review`,
 `"review-and-fix"` (the default when absent) for the fix loop. Both write into the same
-`.devflow/logs/efficiency/` store with `pr-<N>-<ts>.json` names, so `source` (not the filename) is
-what a cross-run analyzer uses to segment by originating skill.
+`.devflow/logs/efficiency/` store, so `source` (not the filename) is what a cross-run analyzer uses
+to segment by originating skill. (The two skills key the filename differently — review-and-fix by
+`<run-id>` for its `--persist` backstop's idempotency, standalone review by timestamp — but since
+`source` is the segmentation key, the filename scheme is free to differ.)
 
 **Live progress comment + read-only cloud.** In PR mode (and when
 `devflow_review.live_progress_comment_enabled` is `true`, the default), `/devflow:review` authors a
