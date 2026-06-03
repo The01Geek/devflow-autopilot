@@ -411,11 +411,11 @@ scan.sh
 **The exclusion list (a self-governance safeguard).** When a pattern's best fix would touch DevFlow's **own engine files** (`skills/**`, `agents/**`, `lib/**`, `scripts/**`, `.claude-plugin/**`, the workflows, etc.), Stage B refuses to auto-edit and instead files a `[devflow-retrospective] meta:` issue + records a dismissal, those changes need human design review.
 
 **Data (all in git, append-only ground truth):**
-- `.devflow/learnings/retrospectives.jsonl`, one JSON object per processed PR.
+- `.devflow/learnings/retrospectives.jsonl`, one JSON object per processed PR (every record carries a `pr` field).
 - `.devflow/learnings/overrides.json`, human-editable map of dismissed patterns.
 - Pattern status (`open`/`regressed`/`fixed`/`dismissed`) is computed **on demand** by `lib/compute-patterns.jq`.
 
-**Idempotent:** re-running processes only PRs not already recorded. **Never auto-merges**: the maintainer merges intervention PRs manually.
+**Idempotent:** re-running processes only PRs not already recorded — `lib/scan.sh` reads `retrospectives.jsonl` from the base branch via the GitHub Contents API and subtracts the already-processed PR numbers from the candidate set. A `404` is the legitimate first-run case (the file isn't on the base branch yet) and leaves the processed set empty. Any *other* failure to decode the processed set under `HTTP 200` — an unparseable Contents-API envelope, a base64 decode miss, a `jq` parse failure, a body carrying neither inline content nor a `download_url`, a failed `download_url` fetch, or content that parses but yields zero `pr` records — **fails loud (exit 1) with a specific breadcrumb** rather than collapsing the processed set to empty. A silent collapse would re-queue the entire backlog and create duplicate retrospectives, so genuinely-corrupt state aborts the scan instead. The same guard (`_decode_existing`) covers both the inline `≤ 1 MB` content transport and the `> 1 MB` `download_url` fallback. **Never auto-merges**: the maintainer merges intervention PRs manually.
 
 ---
 

@@ -1603,6 +1603,95 @@ assert_eq "--prs includes explicit merged retrospected PR 1" "true"  "$(echo "$P
 assert_eq "--prs drops non-retrospected branch PR 2"        "false" "$(echo "$PRS_OUT" | jq 'any(.[]; .number==2)')"
 assert_eq "--prs drops non-merged PR 3"                     "false" "$(echo "$PRS_OUT" | jq 'any(.[]; .number==3)')"
 assert_eq "--prs ignores already-processed retrospectives.jsonl (PR 1 from gh stub matches an EXISTING pr in weekly mode but here is kept)" "1" "$(echo "$PRS_OUT" | jq 'length')"
+
+# #100: retrospectives.jsonl HTTP-200 decode is loud on a decode/parse MISS, not
+# silently collapsed to [] (which would re-queue the whole backlog and create
+# duplicate retrospectives). Adversarial input-shape matrix over the 200 branch:
+#   content {valid-jsonl-no-pr, base64-of-non-json, invalid-base64, ""+download_url, ""+none}.
+# One stub serves all shapes; the per-shape response is injected via $SCAN_RESP
+# (read at runtime, so embedded quotes never traverse the stub's bash quoting).
+cat > "$SCAN_TMP/gh-100" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *"repo view"*) echo "acme/example-repo" ;;
+  *"api"*"retrospectives.jsonl?ref=main"*) printf '%b' "$SCAN_RESP" ;;
+  *"api"*"raw/retro.jsonl"*) printf '{"pr":1}\n{"pr":2}\n' ;;   # download_url: real records
+  *"api"*"raw/nopr.jsonl"*) printf '{"notpr":1}\n' ;;           # download_url: parseable, zero pr records
+  *"api"*"raw/fail.jsonl"*) exit 1 ;;                           # download_url: fetch failure
+  *"pr list"*) echo '[]' ;;
+  *) echo '[]' ;;
+esac
+STUB
+chmod +x "$SCAN_TMP/gh-100"
+
+# Driver (house style: cf. rnc/ex/di): run scan.sh against the gh-100 stub with
+# the given 200-response injected as $SCAN_RESP. Captures scan's stderr into the
+# global $SCAN_ERR (stdout discarded); the call's own $? carries scan's exit, so
+# a caller does `scan100 '...'; RC=$?` then asserts on $RC and $SCAN_ERR.
+scan100() {  # $1 = $SCAN_RESP value (printf %b-interpreted by the stub)
+  SCAN_ERR="$(SCAN_RESP="$1" DEVFLOW_CONFIG_FILE="$LIB/test/fixtures/config.json" \
+    DEVFLOW_GH="$SCAN_TMP/gh-100" bash "$LIB/scan.sh" 2>&1 >/dev/null)"
+}
+# Substring membership → "yes"/"no" (assert_eq is the only assertion helper), so
+# each loud-failure case can assert the SPECIFIC breadcrumb, not just exit 1 —
+# CLAUDE.md: a generic/misdirected breadcrumb is itself the bug for this code.
+have() {  # $1 = needle, $2 = haystack
+  case "$2" in *"$1"*) echo yes ;; *) echo no ;; esac
+}
+
+# Build the base64 payloads with the local base64 so the test is host-portable.
+B64_NOPR="$(printf '{"notpr":1}\n{"other":2}\n' | base64 | tr -d '\n')"
+B64_NONJSON="$(printf 'this is not json\nat all\n' | base64 | tr -d '\n')"
+B64_PR="$(printf '{"pr":1}\n{"pr":2}\n' | base64 | tr -d '\n')"
+
+scan100 'HTTP/2.0 200 OK\r\n\r\n{"content":"'"$B64_NOPR"'"}\n'; RC=$?
+assert_eq "scan #100: inline content with zero pr records exits loud" "1" "$RC"
+assert_eq "scan #100: zero-record breadcrumb names the collapse" "yes" "$(have 'zero pr records' "$SCAN_ERR")"
+assert_eq "scan #100: zero-record breadcrumb names the inline source" "yes" "$(have '(inline content)' "$SCAN_ERR")"
+
+scan100 'HTTP/2.0 200 OK\r\n\r\n{"content":"'"$B64_NONJSON"'"}\n'; RC=$?
+assert_eq "scan #100: base64-of-non-json content (jq parse miss) exits loud" "1" "$RC"
+assert_eq "scan #100: parse-miss breadcrumb names parsing failure" "yes" "$(have 'parsing retrospectives.jsonl (inline content) failed' "$SCAN_ERR")"
+
+scan100 'HTTP/2.0 200 OK\r\n\r\n{"content":"@@not-valid-base64@@"}\n'; RC=$?
+assert_eq "scan #100: invalid base64 content (decode miss) exits loud" "1" "$RC"
+assert_eq "scan #100: decode-miss breadcrumb names base64" "yes" "$(have 'base64 decode' "$SCAN_ERR")"
+
+scan100 'HTTP/2.0 200 OK\r\n\r\n{"content":"","foo":1}\n'; RC=$?
+assert_eq "scan #100: HTTP 200 with neither content nor download_url exits loud" "1" "$RC"
+assert_eq "scan #100: no-fallback breadcrumb names the missing surfaces" "yes" "$(have 'neither inline content nor a download_url' "$SCAN_ERR")"
+
+# An unparseable 200 envelope (non-JSON body) fails with its OWN accurate
+# breadcrumb, not the misleading "neither content nor download_url" one.
+scan100 'HTTP/2.0 200 OK\r\n\r\nthis is not a json envelope\n'; RC=$?
+assert_eq "scan #100: unparseable HTTP-200 envelope exits loud" "1" "$RC"
+assert_eq "scan #100: unparseable-envelope breadcrumb is specific" "yes" "$(have 'envelope was not parseable JSON' "$SCAN_ERR")"
+
+# download_url (>1 MB) branch now shares the zero-record collapse guard: a
+# parseable body carrying zero pr records must fail loud, not silently re-queue.
+scan100 'HTTP/2.0 200 OK\r\n\r\n{"content":"","download_url":"https://example.test/raw/nopr.jsonl"}\n'; RC=$?
+assert_eq "scan #100: download_url body with zero pr records exits loud" "1" "$RC"
+assert_eq "scan #100: download_url zero-record breadcrumb names the source" "yes" "$(have '(download_url)' "$SCAN_ERR")"
+
+# download_url branch: a failed fetch of the large file exits loud with a specific cause.
+scan100 'HTTP/2.0 200 OK\r\n\r\n{"content":"","download_url":"https://example.test/raw/fail.jsonl"}\n'; RC=$?
+assert_eq "scan #100: download_url fetch failure exits loud" "1" "$RC"
+assert_eq "scan #100: download_url fetch-failure breadcrumb is specific" "yes" "$(have 'via download_url failed' "$SCAN_ERR")"
+
+# Non-200/404 HTTP status is fatal — never proceed on an empty processed-set.
+scan100 'HTTP/2.0 500 Internal Server Error\r\n\r\n{}\n'; RC=$?
+assert_eq "scan #100: HTTP 500 exits loud" "1" "$RC"
+assert_eq "scan #100: HTTP-500 breadcrumb names the status" "yes" "$(have 'HTTP 500' "$SCAN_ERR")"
+
+# Regression: the >1 MB download_url fallback path still parses cleanly (exit 0)
+# when the fetched body carries real pr records.
+scan100 'HTTP/2.0 200 OK\r\n\r\n{"content":"","download_url":"https://example.test/raw/retro.jsonl"}\n'; RC=$?
+assert_eq "scan #100: download_url fallback with real records succeeds (exit 0)" "0" "$RC"
+
+# Regression: the original happy path (valid jsonl with pr records) still exits 0.
+scan100 'HTTP/2.0 200 OK\r\n\r\n{"content":"'"$B64_PR"'"}\n'; RC=$?
+assert_eq "scan #100: valid jsonl with pr records still succeeds (exit 0)" "0" "$RC"
+
 rm -rf "$SCAN_TMP"
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -4768,6 +4857,18 @@ assert_eq "pam: --apply array root → exit non-zero" "yes" \
   "$([ "$PAM_A_RC" -ne 0 ] && echo yes || echo no)"
 assert_eq "pam: --apply array root → file unchanged" '[1,2,3]' "$(cat "$PAM_A_SF")"
 
+# AC 3 (fail-closed): non-object SCALAR root (bare number/string/bool/null) → exit non-zero,
+# file unchanged. The array-root sibling above only covers the `type == "array"` arm; a bare
+# scalar is the other half of "root is not an object". Without this cell a regression narrowing
+# the guard to object-or-array (e.g. `type == "array"` instead of `!= "object"`) would pass
+# every other test yet detonate `$defaults * $existing` under `set -u` on a scalar root.
+PAM_SCALAR="$(mktemp -d)"; PAM_S_SF="$PAM_SCALAR/settings.json"
+printf '%s' '42' > "$PAM_S_SF"
+PAM_S_OUT="$(bash "$PAM" --apply "$PAM_S_SF" 2>&1)"; PAM_S_RC=$?
+assert_eq "pam: --apply scalar root → exit non-zero (fail-closed, AC3)" "yes" \
+  "$([ "$PAM_S_RC" -ne 0 ] && echo yes || echo no)"
+assert_eq "pam: --apply scalar root → file byte-for-byte unchanged (AC3)" '42' "$(cat "$PAM_S_SF")"
+
 # AC 3: empty existing file is benign (treated as {}) → key added, exit 0.
 PAM_EMPTY="$(mktemp -d)"; PAM_E_SF="$PAM_EMPTY/settings.json"
 : > "$PAM_E_SF"
@@ -4804,6 +4905,19 @@ assert_eq "pam: extra positional → exit 2 (no silent mis-target)" "2" "$PAM_EX
 assert_eq "pam: extra positional → breadcrumb names the unexpected argument" "yes" \
   "$(printf '%s' "$PAM_EXTRA_OUT" | grep -qi 'unexpected extra argument' && echo yes || echo no)"
 
+# The two exit-2 arg-contract paths are documented as --apply-INDEPENDENT, but the cells above
+# exercise them only WITHOUT --apply. Assert the --apply-prefixed forms too: a regression that
+# moved arg validation AFTER the consent gate would let `--apply --bogus` / `--apply foo bar`
+# slip into the write path uncaught. Both must still fail closed (exit 2) before any write.
+PAM_AB_OUT="$(bash "$PAM" --apply --bogus 2>&1)"; PAM_AB_RC=$?
+assert_eq "pam: --apply + unknown option → exit 2 (validated regardless of --apply)" "2" "$PAM_AB_RC"
+assert_eq "pam: --apply + unknown option → breadcrumb names the bad option" "yes" \
+  "$(printf '%s' "$PAM_AB_OUT" | grep -qi 'unknown option' && echo yes || echo no)"
+PAM_AE_OUT="$(bash "$PAM" --apply foo bar 2>&1)"; PAM_AE_RC=$?
+assert_eq "pam: --apply + extra positional → exit 2 (validated regardless of --apply)" "2" "$PAM_AE_RC"
+assert_eq "pam: --apply + extra positional → breadcrumb names the unexpected argument" "yes" \
+  "$(printf '%s' "$PAM_AE_OUT" | grep -qi 'unexpected extra argument' && echo yes || echo no)"
+
 # AC 1 (user-scope hard-fail): --apply with no target AND HOME unset cannot resolve
 # ~/.claude/settings.json → exit 2 with a specific breadcrumb, writes nothing. `env -u`
 # is POSIX-portable (macOS/BSD env support it), matching the no-GNU-only-flags rule.
@@ -4827,7 +4941,7 @@ fi
 chmod 644 "$PAM_UR_SF"   # restore so rm -rf can clean up
 
 rm -rf "$PAM_NOCONSENT" "$PAM_NCEXIST" "$PAM_FRESH" "$PAM_ZERO" "$PAM_KEEP" "$PAM_IDEM" \
-       "$PAM_BAD" "$PAM_ENVSTR" "$PAM_ARR" "$PAM_EMPTY" "$PAM_HOME" \
+       "$PAM_BAD" "$PAM_ENVSTR" "$PAM_ARR" "$PAM_SCALAR" "$PAM_EMPTY" "$PAM_HOME" \
        "$PAM_WS" "$PAM_UNREAD"
 
 # Tally the shell assertions from the results file (authoritative — includes the

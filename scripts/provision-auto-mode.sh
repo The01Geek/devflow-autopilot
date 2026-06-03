@@ -79,6 +79,7 @@ if [ -z "$SETTINGS" ]; then
     warn "cannot resolve ~/.claude/settings.json (HOME is unset); provisioned nothing."
     exit 2
   else
+    # shellcheck disable=SC2088  # intentional display-only literal — no file is touched without --apply, so tilde expansion is not wanted
     SETTINGS="~/.claude/settings.json"   # display-only; no file is touched without --apply
   fi
 fi
