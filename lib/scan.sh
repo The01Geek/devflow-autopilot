@@ -35,12 +35,43 @@ done
 REPO="$("$DEVFLOW_GH" repo view --json nameWithOwner -q .nameWithOwner)"
 MAX_PRS="$(devflow_conf '.devflow_retrospective.max_prs_per_run' 500)"
 # Adopter's implementation-bot branch prefix (default "claude/"). devflow/audit-
-# is DevFlow's own internal convention and is intentionally fixed.
+# is DevFlow's own internal convention and is intentionally fixed. An EMPTY
+# prefix is honoured as "disable the prefix path" — it must NOT degrade to a
+# `*`-glob that matches every branch (the old `${IMPL_PREFIX}*` bug).
 IMPL_PREFIX="$(devflow_conf '.devflow_retrospective.implementation_branch_prefix' 'claude/')"
+# Watched authors (comma list, [bot] suffix optional). Used by the closes-issue
+# path (b); the label path (a) is deliberately author-agnostic, so it does not
+# depend on this being set.
+WATCHED="$(devflow_watched_authors)"
 
-# ── Retrospected-branch predicate (shared by both modes) ─────────────────────
-_is_retrospected_branch() {  # $1 = headRefName
-    case "$1" in ${IMPL_PREFIX}*|devflow/audit-*) return 0 ;; *) return 1 ;; esac
+# ── Retrospection predicate (shared by every mode) ───────────────────────────
+# A merged PR qualifies for retrospection when ANY of these holds:
+#   (a) it carries the reserved DevFlow provenance label   (author/branch-agnostic)
+#   (b) $watched is true AND it closes >=1 issue (closingIssuesReferences non-empty)
+#   (c) its branch is a devflow/audit-* intervention branch
+#   (d) implementation_branch_prefix is set non-empty AND its branch matches it
+# Inputs: $impl (prefix string, "" disables path d), $watched (bool).
+# Operates on one PR object carrying .labels, .closingIssuesReferences,
+# .headRefName (each defaulted, so a missing field never aborts the filter).
+# .labels entries may be objects ({name}) or bare strings depending on the gh
+# call/stub, so normalise to the name before comparing.
+RETRO_PREDICATE='
+  ((.labels // []) | map(if type == "object" then (.name // "") else . end) | any(. == "DevFlow"))
+  or ($watched and (((.closingIssuesReferences // []) | length) > 0))
+  or (((.headRefName // "") | startswith("devflow/audit-")))
+  or (($impl != "") and ((.headRefName // "") | startswith($impl)))
+'
+
+# ── _author_is_watched <login> ───────────────────────────────────────────────
+# True when <login> (with an optional trailing [bot]) is in the WATCHED list.
+_author_is_watched() {
+    local _cand="${1%\[bot\]}" _x
+    IFS=',' read -ra _wl <<< "$WATCHED"
+    for _x in "${_wl[@]}"; do
+        _x="$(echo "$_x" | xargs)"; _x="${_x%\[bot\]}"
+        [ -n "$_x" ] && [ "$_x" = "$_cand" ] && return 0
+    done
+    return 1
 }
 
 # ── Ad-hoc mode: explicit PR list, no search, no processed-filter ─────────────
@@ -50,7 +81,7 @@ if [ -n "$EXPLICIT_PRS" ]; then
     for _p in "${_prs[@]}"; do
         _p="$(echo "$_p" | xargs)"
         [ -n "$_p" ] || continue
-        if ! _PRJSON="$("$DEVFLOW_GH" pr view "$_p" --repo "$REPO" --json number,headRefName,mergedAt,state 2>/dev/null)"; then
+        if ! _PRJSON="$("$DEVFLOW_GH" pr view "$_p" --repo "$REPO" --json number,headRefName,mergedAt,state,labels,closingIssuesReferences,author 2>/dev/null)"; then
             echo "::warning::scan --prs: could not fetch PR ${_p}; skipping" >&2; continue
         fi
         _STATE="$(echo "$_PRJSON" | jq -r '.state // ""')"
@@ -58,10 +89,14 @@ if [ -n "$EXPLICIT_PRS" ]; then
         if [ "$_STATE" != "MERGED" ]; then
             echo "::warning::scan --prs: PR ${_p} is ${_STATE:-unknown}, not MERGED; skipping" >&2; continue
         fi
-        if ! _is_retrospected_branch "$_HEAD"; then
-            echo "::warning::scan --prs: PR ${_p} branch '${_HEAD}' is not a retrospected branch; skipping" >&2; continue
+        _WATCHED=false
+        _author_is_watched "$(echo "$_PRJSON" | jq -r '.author.login // ""')" && _WATCHED=true
+        _SEL="$(echo "$_PRJSON" | jq -c --arg impl "$IMPL_PREFIX" --argjson watched "$_WATCHED" \
+            "select($RETRO_PREDICATE) | {number, headRefName, mergedAt}" 2>/dev/null || true)"
+        if [ -z "$_SEL" ]; then
+            echo "::warning::scan --prs: PR ${_p} (branch '${_HEAD}') matches no retrospection path; skipping" >&2; continue
         fi
-        CANDIDATES="$(jq -nc --argjson a "$CANDIDATES" --argjson b "$(echo "$_PRJSON" | jq '[{number, headRefName, mergedAt}]')" '$a + $b | unique_by(.number)')"
+        CANDIDATES="$(jq -nc --argjson a "$CANDIDATES" --argjson b "[$_SEL]" '$a + $b | unique_by(.number)')"
     done
     echo "$CANDIDATES" | jq -c --argjson cap "$MAX_PRS" 'sort_by(.mergedAt) | [.[0:$cap][] | {number, headRefName, mergedAt}]'
     exit 0
@@ -71,31 +106,47 @@ fi
 # Portable "7 days ago" (GNU `date -d` is not available on macOS/BSD; python3 is
 # a hard dependency, so use it for date math).
 SINCE="$(python3 -c 'import datetime as d; print((d.datetime.now(d.timezone.utc)-d.timedelta(days=7)).strftime("%Y-%m-%d"))')"
-WATCHED="$(devflow_watched_authors)"
-
-if [ -z "$WATCHED" ]; then
-    echo "::warning::no watched authors configured (devflow_retrospective.watched_authors / devflow.allowed_bots)" >&2
-    echo '[]'
-    exit 0
-fi
 
 CANDIDATES='[]'
-IFS=',' read -ra _watched <<< "$WATCHED"
-for _w in "${_watched[@]}"; do
-    _t="$(echo "$_w" | xargs)"; _t="${_t%\[bot\]}"
-    for _form in "app/${_t}" "${_t}"; do
-        if BATCH="$("$DEVFLOW_GH" pr list --repo "$REPO" --state merged \
-                --search "merged:>=${SINCE} author:${_form}" \
-                --json number,headRefName,author,mergedAt --limit 100 \
-                --jq "[.[] | select((.headRefName|startswith(\"${IMPL_PREFIX}\")) or (.headRefName|startswith(\"devflow/audit-\")))]" 2>/dev/null)"; then
-            # Also filter locally in case the --jq flag was not applied by the caller (e.g. in tests)
-            BATCH="$(echo "$BATCH" | jq --arg impl "$IMPL_PREFIX" '[.[] | select((.headRefName|startswith($impl)) or (.headRefName|startswith("devflow/audit-")))]')"
-        else
-            echo "::warning::gh pr list failed for author:${_form}" >&2; BATCH='[]'
-        fi
-        CANDIDATES="$(jq -nc --argjson a "$CANDIDATES" --argjson b "$BATCH" '$a + $b | unique_by(.number)')"
+
+# ── Path (a): label pass — author- and branch-agnostic ───────────────────────
+# Every merged PR carrying the reserved DevFlow provenance label in the window
+# qualifies, regardless of author or branch name. This runs even when no
+# watched authors are configured (the label is the branch-naming-independent
+# detection mechanism). Best-effort: a gh failure logs and yields no candidates.
+if LABEL_BATCH="$("$DEVFLOW_GH" pr list --repo "$REPO" --state merged --label DevFlow \
+        --search "merged:>=${SINCE}" \
+        --json number,headRefName,mergedAt --limit 100 2>/dev/null)"; then
+    LABEL_BATCH="$(echo "$LABEL_BATCH" | jq '[.[] | {number, headRefName, mergedAt}]' 2>/dev/null || echo '[]')"
+else
+    echo "::warning::gh pr list --label DevFlow failed" >&2; LABEL_BATCH='[]'
+fi
+CANDIDATES="$(jq -nc --argjson a "$CANDIDATES" --argjson b "$LABEL_BATCH" '$a + $b | unique_by(.number)')"
+
+# ── Paths (b)–(d): watched-author search ─────────────────────────────────────
+# Skipped (not fatal) when no watched authors are configured — the label pass
+# above still stands on its own.
+if [ -z "$WATCHED" ]; then
+    echo "::warning::no watched authors configured (devflow_retrospective.watched_authors / devflow.allowed_bots); relying on the DevFlow-label path only" >&2
+else
+    IFS=',' read -ra _watched <<< "$WATCHED"
+    for _w in "${_watched[@]}"; do
+        _t="$(echo "$_w" | xargs)"; _t="${_t%\[bot\]}"
+        for _form in "app/${_t}" "${_t}"; do
+            if BATCH="$("$DEVFLOW_GH" pr list --repo "$REPO" --state merged \
+                    --search "merged:>=${SINCE} author:${_form}" \
+                    --json number,headRefName,author,mergedAt,labels,closingIssuesReferences --limit 100 2>/dev/null)"; then
+                # These are watched-author results, so $watched is true for the
+                # closes-issue path (b). Filter locally with the shared predicate.
+                BATCH="$(echo "$BATCH" | jq --arg impl "$IMPL_PREFIX" --argjson watched true \
+                    "[.[] | select($RETRO_PREDICATE) | {number, headRefName, mergedAt}]" 2>/dev/null || echo '[]')"
+            else
+                echo "::warning::gh pr list failed for author:${_form}" >&2; BATCH='[]'
+            fi
+            CANDIDATES="$(jq -nc --argjson a "$CANDIDATES" --argjson b "$BATCH" '$a + $b | unique_by(.number)')"
+        done
     done
-done
+fi
 
 EXISTING='[]'
 RESP="$(mktemp)"; ERR="$(mktemp)"

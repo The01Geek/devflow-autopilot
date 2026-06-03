@@ -606,6 +606,14 @@ PR_NUM=$(gh pr view --json number --jq '.number')
 workpad.py update $ISSUE_NUMBER --pr-link "[#$PR_NUM]($PR_URL)"
 ```
 
+Then stamp the reserved `DevFlow` **provenance** label on the PR (best-effort). `DevFlow` is a hardcoded provenance constant (no config key controls it) — it is the branch-naming-independent signal the weekly retrospective uses to detect DevFlow-authored PRs. Apply it via `--add-label` after creation (mirroring the Phase 4.1 docs-label idiom) so a label hiccup can never block the run:
+```bash
+${CLAUDE_SKILL_DIR}/../../scripts/ensure-label.sh DevFlow
+gh pr edit "$PR_NUM" --add-label DevFlow \
+  || echo "devflow: could not apply the DevFlow label to PR #$PR_NUM (best-effort, continuing)" >&2
+```
+`ensure-label.sh` always exits 0 (it logs whether it created the label, found it present, or hit a `gh` error), and a failed `--add-label` is logged and ignored — continue regardless of the label outcome.
+
 ### 3.1.5 Apply the version bump + CHANGELOG (if 2.6 decided to bump)
 
 If the Phase 2.6 decision (read it back from the workpad note; re-derive from the committed diff if the note was lost) was **no bump** — or the repo documents no versioning convention — skip this step. Otherwise apply the bump **now**, *before* `/simplify` (3.2) and `/devflow:review-and-fix` (3.3), so the version + `CHANGELOG` land inside the diff those steps review (and the review gate that fails on a version↔`CHANGELOG` mismatch sees them consistent):

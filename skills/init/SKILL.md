@@ -95,6 +95,14 @@ Then branch on the preflight **exit code** (the durable signal — every line it
 
 There is **no trigger label** to create: in the cloud tier, `/devflow:implement` is started by commenting a bare `/devflow:implement <#>` on the issue (a native user event) — not by applying a label. The sender must be an allowed bot or an `allowed_users` collaborator with write access.
 
+DevFlow does, however, stamp a single reserved **provenance** label — the literal `DevFlow` — on every issue and PR it creates, so the weekly retrospective can detect its own work independently of branch naming. Create that label now (best-effort, only here where `gh` is available — never in `scaffold-config.sh`, which must run without `gh` auth on the vendoring path) so it exists from day one:
+
+```bash
+${CLAUDE_SKILL_DIR}/../../scripts/ensure-label.sh DevFlow
+```
+
+`ensure-label.sh` always exits 0 — it creates the label, treats an already-exists outcome as success, and logs a breadcrumb on a real `gh` failure — so a label-creation failure (no auth, offline) **never fails init**. Report a one-line note if it logged a failure, then continue.
+
 If the scaffolder exits non-zero (exit 2 = templates not found next to the script), the plugin install is incomplete. Tell the user to reinstall/update the DevFlow plugin (or run `install.sh` for the cloud tier). **Do not fall back to hand-writing the files** — that reintroduces exactly the drift this skill exists to prevent.
 
 ## Finally: advisory project-memory check (CLAUDE.md)

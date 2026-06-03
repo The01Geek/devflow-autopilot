@@ -76,6 +76,11 @@ fi
 
 # ── 5. Issue details ─────────────────────────────────────────────────────────
 ISSUE_JSON="null"
+# The workpad lives on the ISSUE (header `# DevFlow Workpad — Issue #<N>`,
+# marker `<!-- devflow:workpad -->`), authored by github-actions — NOT on the PR
+# conversation thread. Default to an empty array so the workpad/reflection parse
+# below is safe even when no linked issue was found.
+ISSUE_COMMENTS_RAW='[]'
 if [ "$ISSUE_NUMBER" != "null" ]; then
     ISSUE_RAW="$("$DEVFLOW_GH" api "repos/${REPO}/issues/${ISSUE_NUMBER}" --paginate)" \
       || { echo "::error::fetch-pr-context: failed to fetch issue ${ISSUE_NUMBER} for PR ${PR}" >&2; exit 1; }
@@ -224,12 +229,58 @@ else
     fi
 fi
 
-# workpad_body and workpad_final_status
-WORKPAD_BODY="$(echo "$PR_COMMENTS_RAW" | jq -r '[.[] | select(.body | test("<!-- devflow:workpad -->"; "i"))] | first | .body // ""')"
+# workpad_body, workpad_final_status, reflections
+# The workpad lives on the ISSUE thread (ISSUE_COMMENTS_RAW), not the PR
+# conversation thread — reading it from the PR thread (the old bug) left it
+# ~always empty, so the workpad signal in cheap-gate.jq was inert.
+WORKPAD_BODY="$(echo "$ISSUE_COMMENTS_RAW" | jq -r '[.[] | select((.body // "") | test("<!-- devflow:workpad -->"; "i"))] | first | .body // ""')"
 WORKPAD_FINAL_STATUS=""
+REFLECTIONS="[]"
 if [ -n "$WORKPAD_BODY" ]; then
-    # Extract value after a line like "**Status:** Complete" or "Status: Complete"
-    WORKPAD_FINAL_STATUS="$(echo "$WORKPAD_BODY" | sed -nE 's/^\*{0,2}[[:space:]]*[Ss]tatus[[:space:]]*:?\*{0,2}[[:space:]]*(.+)/\1/p' | head -1 | sed 's/[[:space:]]*$//' || true)"
+    # Extract the value after "**Status:** <glyph> <word>" / "Status: <word>".
+    # workpad.py prepends a canonical glyph (🚀/🎉/👎) to the status word, so the
+    # captured value is e.g. "🎉 Complete" — take the LAST whitespace token to
+    # drop the glyph and yield the bare word ("Complete"/"Blocked"/…). Statuses
+    # are single words by the workpad vocabulary. `tr -d '\r'` first guards
+    # against CRLF bodies leaving a trailing carriage return on the token.
+    WORKPAD_FINAL_STATUS="$(printf '%s' "$WORKPAD_BODY" | tr -d '\r' | sed -nE 's/^\*{0,2}[[:space:]]*[Ss]tatus[[:space:]]*:?\*{0,2}[[:space:]]*(.+)/\1/p' | head -1 | awk '{print $NF}')"
+    # reflections[]: the bullet lines inside the workpad's `## Devflow Reflection`
+    # <details> block (excluding the <summary> scaffold). Parsed in python3 (a
+    # hard dependency) over the env-passed body — no shell quoting traverses the
+    # markdown, and metacharacters (backticks, $) in a bullet survive intact.
+    REFLECTIONS="$(DEVFLOW_WORKPAD_BODY="$WORKPAD_BODY" python3 - <<'PYEOF'
+import os, re, json
+body = os.environ.get('DEVFLOW_WORKPAD_BODY', '')
+out, in_section = [], False
+for raw in body.split('\n'):
+    line = raw.rstrip('\r')
+    if re.match(r'^##\s+Devflow Reflection\s*$', line):
+        in_section = True
+        continue
+    if not in_section:
+        continue
+    # End of the reflection region: the closing </details>, or the next
+    # `## ` heading (degrade gracefully when </details> is missing — malformed
+    # block must not detonate the parse or swallow the rest of the comment).
+    if '</details>' in line:
+        break
+    if re.match(r'^##\s+\S', line):
+        break
+    # Skip the <details>/<summary> scaffold lines.
+    if '<details' in line or '<summary' in line or '</summary>' in line:
+        continue
+    m = re.match(r'^\s*[-*]\s+(.*\S)\s*$', line)
+    if m:
+        out.append(m.group(1))
+print(json.dumps(out))
+PYEOF
+)"
+    # Guard against a python hiccup leaving an empty/invalid value that would
+    # break the later `--slurpfile reflections`.
+    if ! printf '%s' "$REFLECTIONS" | jq -e . >/dev/null 2>&1; then
+        echo "::warning::fetch-pr-context: reflection parse produced no valid JSON for PR ${PR}; defaulting to []" >&2
+        REFLECTIONS="[]"
+    fi
 fi
 
 # ttm_hours: (merged_at - created_at) in decimal hours
@@ -362,6 +413,7 @@ printf '%s' "$COMMITS"                  > "$_JQ_TMP/commits.json"
 printf '%s' "$CHANGED_FILES"            > "$_JQ_TMP/changed_files.json"
 printf '%s' "$REVIEW_VERDICTS"          > "$_JQ_TMP/review_verdicts.json"
 printf '%s' "$WORKPAD_BODY_JSON"        > "$_JQ_TMP/workpad_body.json"
+printf '%s' "$REFLECTIONS"              > "$_JQ_TMP/reflections.json"
 printf '%s' "$IMPLEMENT_SUMMARY_JSON"   > "$_JQ_TMP/implement_summary_comment.json"
 
 jq -n \
@@ -391,6 +443,7 @@ jq -n \
     --slurpfile pr_reviews "$_JQ_TMP/pr_reviews.json" \
     --slurpfile commits "$_JQ_TMP/commits.json" \
     --slurpfile workpad_body "$_JQ_TMP/workpad_body.json" \
+    --slurpfile reflections "$_JQ_TMP/reflections.json" \
     --slurpfile review_verdicts "$_JQ_TMP/review_verdicts.json" \
     --argjson review_reject_outstanding "$REVIEW_REJECT_OUTSTANDING" \
     --slurpfile implement_summary_comment "$_JQ_TMP/implement_summary_comment.json" \
@@ -427,6 +480,7 @@ jq -n \
         pr_reviews: $pr_reviews[0],
         commits: $commits[0],
         workpad_body: $workpad_body[0],
+        reflections: $reflections[0],
         review_verdicts: $review_verdicts[0],
         implement_summary_comment: $implement_summary_comment[0],
         signals: {
