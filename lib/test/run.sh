@@ -956,6 +956,44 @@ assert_eq "lpe-coverage: enumeration is non-vacuous (skills/*/ glob matched)" "y
   "$([ "$LPE_SKILL_COUNT" -ge 1 ] && echo yes || echo no)"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "init project-memory nudge: skills/init/SKILL.md carries the advisory CLAUDE.md step"
+# ────────────────────────────────────────────────────────────────────────────
+# Content / drift guard (issue #90). The deliverable is LLM-directing prose in a
+# SKILL.md — there is no runtime code path to exercise — so the repo's established
+# stand-in (mirroring the lpe-coverage and exit-code-contract grep guards above) is
+# a content guard pinning the load-bearing instruction tokens. It goes red if the
+# advisory step is dropped, reworded away, or loses one of its detected filenames /
+# the @-import guidance / the never-write-never-block discipline. Each fragment
+# below is BLOCK-UNIQUE to the new step (verified absent from the rest of the SKILL),
+# so a match means the step itself is present, not some unrelated prose.
+INIT_SKILL="$LIB/../skills/init/SKILL.md"
+assert_eq "init-memory-nudge: advisory step heading present" "yes" \
+  "$(grep -qF 'advisory project-memory check' "$INIT_SKILL" && echo yes || echo no)"
+# Every detected agent-instruction filename (AC3) plus the CLAUDE.md target itself
+# must be named, or the four-case behavior matrix can't be followed.
+for FN in 'CLAUDE.md' '.github/copilot-instructions.md' 'AGENTS.md' 'GEMINI.md' '.cursorrules'; do
+  assert_eq "init-memory-nudge: names detected file token ($FN)" "yes" \
+    "$(grep -qF "$FN" "$INIT_SKILL" && echo yes || echo no)"
+done
+# AGENTS.md is matched case-insensitively (covers agent.md / agents.md) — AC3.
+assert_eq "init-memory-nudge: AGENTS.md detection is case-insensitive (prose)" "yes" \
+  "$(grep -qiF 'case-insensitive' "$INIT_SKILL" && echo yes || echo no)"
+# The @-import reuse guidance (AC4/AC5): pin two concrete repo-root-relative paths,
+# including the dotted .github one (the easiest to get wrong).
+assert_eq "init-memory-nudge: @-import example for AGENTS.md present" "yes" \
+  "$(grep -qF '@AGENTS.md' "$INIT_SKILL" && echo yes || echo no)"
+assert_eq "init-memory-nudge: @-import path for copilot-instructions present" "yes" \
+  "$(grep -qF '@.github/copilot-instructions.md' "$INIT_SKILL" && echo yes || echo no)"
+# AC2: the absent-everything case nudges toward the BUILT-IN /init.
+assert_eq "init-memory-nudge: recommends the built-in /init" "yes" \
+  "$(grep -qF 'built-in `/init`' "$INIT_SKILL" && echo yes || echo no)"
+# AC7: strictly advisory — never writes any file, never blocks/fails init.
+assert_eq "init-memory-nudge: never writes/edits any agent file (advisory)" "yes" \
+  "$(grep -qF 'never creates, writes, or edits' "$INIT_SKILL" && echo yes || echo no)"
+assert_eq "init-memory-nudge: never blocks or fails init" "yes" \
+  "$(grep -qF 'never blocks or fails init' "$INIT_SKILL" && echo yes || echo no)"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "shipped agent_overrides: deduper pins Sonnet 4.6 w/ effort; no Haiku override carries effort"
 # ────────────────────────────────────────────────────────────────────────────
 # The shipped checklist-deduper override pins Claude Sonnet 4.6 (which DOES

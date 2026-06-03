@@ -505,6 +505,8 @@ The local tier needs **no config**. To customize, `/devflow:init` scaffolds `.de
 
 Re-running `/devflow:init` (or `install.sh`) also **backfills** newly-added keys into an existing `.devflow/config.json` without clobbering your values. Backfill is add-only, so it cannot propagate a key *removal*; for the one case where that matters — a `devflow_review.agent_overrides` entry pinning Claude Haiku must not carry an `effort` key, which Haiku rejects with HTTP 400 — re-scaffold runs a separate idempotent cleanup that strips `effort` from any Haiku-pinned override (see [review-agent-overrides.md](review-agent-overrides.md)). An already-clean config is left byte-identical.
 
+After scaffolding and the dependency preflight, `/devflow:init` runs one final **advisory project-memory check**: if the repo root has no `CLAUDE.md` it nudges you toward the built-in `/init` (project memory measurably improves DevFlow's review/implement results), and it points any agent-instruction files you already keep for other tools (`.github/copilot-instructions.md`, `AGENTS.md`, `GEMINI.md`, `.cursorrules`) at `CLAUDE.md` `@`-import reuse. The check is strictly advisory — it never writes or edits any file and never blocks init (which has already succeeded), and stays silent when nothing is actionable.
+
 ---
 
 ## 18. Installation & updates

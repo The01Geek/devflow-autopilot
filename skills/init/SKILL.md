@@ -96,3 +96,32 @@ Then branch on the preflight **exit code** (the durable signal — every line it
 There is **no trigger label** to create: in the cloud tier, `/devflow:implement` is started by commenting a bare `/devflow:implement <#>` on the issue (a native user event) — not by applying a label. The sender must be an allowed bot or an `allowed_users` collaborator with write access.
 
 If the scaffolder exits non-zero (exit 2 = templates not found next to the script), the plugin install is incomplete. Tell the user to reinstall/update the DevFlow plugin (or run `install.sh` for the cloud tier). **Do not fall back to hand-writing the files** — that reintroduces exactly the drift this skill exists to prevent.
+
+## Finally: advisory project-memory check (CLAUDE.md)
+
+Config is scaffolded and the preflight has run, so init has **already succeeded** — this last step is a purely **advisory project-memory check** that **never creates, writes, or edits** `CLAUDE.md` (or any agent-instruction file) and **never blocks or fails init** regardless of what it finds. A repo with no `CLAUDE.md` gives DevFlow's automations no project memory, so `/devflow:review` and `/devflow:implement` run without the conventions, gotchas, and architecture notes that materially improve their output — and new adopters (the people running `/devflow:init`) are the ones most likely to be missing it. Surface that gap once, here, without ever touching a file.
+
+Resolve the repo root and probe for the relevant files using only `git rev-parse --show-toplevel` and POSIX `test -f` (no GNU-only flags, so macOS/BSD behave identically):
+
+```bash
+ROOT="$(git rev-parse --show-toplevel)"
+# CLAUDE.md detection is repo-root only (nested package-level or ~/.claude files are out of scope).
+[ -f "$ROOT/CLAUDE.md" ] && echo "claude-md: present" || echo "claude-md: absent"
+# Detected agent-instruction files at their canonical paths. AGENTS.md is matched
+# CASE-INSENSITIVELY by testing the common forms (covers agent.md / agents.md) rather
+# than reaching for a GNU-only `find -iname`.
+for f in ".github/copilot-instructions.md" "AGENTS.md" "agents.md" "AGENT.md" "agent.md" "GEMINI.md" ".cursorrules"; do
+  [ -f "$ROOT/$f" ] && echo "agent-file: $f"
+done
+```
+
+The `@`-import paths you cite are **repo-root-relative**, matching how Claude Code resolves `CLAUDE.md` imports — `@AGENTS.md`, `@.github/copilot-instructions.md`, `@GEMINI.md`, `@.cursorrules`. When `CLAUDE.md` is present, check whether it already references each existing agent file by grepping for that file's `@`-path (`grep -qF '@AGENTS.md' "$ROOT/CLAUDE.md"`, etc.).
+
+Compose output per this four-case matrix, and **say nothing when nothing is actionable** (so successful re-runs stay clean):
+
+- **No `CLAUDE.md`, no detected agent file** → emit exactly **one** nudge: recommend the built-in `/init` command to create a `CLAUDE.md`, noting that project memory improves DevFlow's review/implement results. (Say nothing about `@`-imports — there is nothing to reuse.)
+- **No `CLAUDE.md`, one or more detected agent files present** → the same nudge to the built-in `/init`, **plus** name each existing file and tell the user to reference it from the new `CLAUDE.md` via its `@`-import path (e.g. "you already have `AGENTS.md` — reference it with `@AGENTS.md`").
+- **`CLAUDE.md` present but it does not already reference an existing detected agent file** → suggest adding that file's `@`-import to `CLAUDE.md` (name the file and its `@`-path); no `/init` nudge.
+- **`CLAUDE.md` present and it already references each existing detected agent file via `@`-import (or no such files exist)** → produce **no project-memory output** at all.
+
+Remember: the built-in `/init` is a *different* command from `/devflow:init` (it lives in Claude Code itself) — recommend it, but never run it or any file write on the user's behalf here. The whole step is a relay, exactly like the preflight branch above.
