@@ -975,21 +975,26 @@ for FN in 'CLAUDE.md' '.github/copilot-instructions.md' 'AGENTS.md' 'GEMINI.md' 
   assert_eq "init-memory-nudge: names detected file token ($FN)" "yes" \
     "$(grep -qF "$FN" "$INIT_SKILL" && echo yes || echo no)"
 done
-# AGENTS.md is matched case-insensitively (covers agent.md / agents.md) — AC3.
-# Pin BOTH the prose claim AND a behavioral token (the lowercase `agents.md`
-# variant the step actually probes): the word alone could survive a regression
-# that trims the variant list down to just `AGENTS.md`, so the lowercase form is
-# what proves the case-insensitive handling is really there.
+# AGENTS.md is matched across common spellings — case-insensitive (agents.md) plus
+# the singular form (agent.md) — AC3. Pin BOTH the prose claim AND a behavioral token
+# (the lowercase `agents.md` variant the step actually probes): the word alone could
+# survive a regression that trims the variant list down to just `AGENTS.md`, so the
+# lowercase form is what proves the spelling/case handling is really there.
 assert_eq "init-memory-nudge: AGENTS.md detection is case-insensitive (prose)" "yes" \
   "$(grep -qiF 'case-insensitive' "$INIT_SKILL" && echo yes || echo no)"
 assert_eq "init-memory-nudge: case-insensitive AGENTS variant probed (agents.md)" "yes" \
   "$(grep -qF 'agents.md' "$INIT_SKILL" && echo yes || echo no)"
-# A case-insensitive filesystem (macOS) makes every AGENTS.md case-variant's `test -f`
-# match the one physical file; the step must collapse them to a single detection or it
-# would emit a duplicate @-import nudge per casing. Pin the dedup instruction so a
-# reword can't silently re-introduce the duplicate-nudge defect.
+# The AGENTS.md spelling/case variants denote one logical convention; on a case-insensitive
+# filesystem (macOS) a file's case-variants all match `test -f`, so the step must collapse
+# them to a single detection or it would emit a duplicate @-import nudge. Pin the dedup
+# instruction so a reword can't silently re-introduce the duplicate-nudge defect.
 assert_eq "init-memory-nudge: AGENTS.md case-variants deduped to one (at most once)" "yes" \
   "$(grep -qF 'AT MOST ONCE' "$INIT_SKILL" && echo yes || echo no)"
+# The defensive repo-root guard is the one piece of load-bearing executable shell in the
+# step: without it an unresolvable root collapses $ROOT to empty and every probe tests
+# "/CLAUDE.md", emitting a misleading nudge. Pin the guard prose so a reword/deletion fails.
+assert_eq "init-memory-nudge: defends against an unresolvable repo root" "yes" \
+  "$(grep -qF 'Resolve the root defensively' "$INIT_SKILL" && echo yes || echo no)"
 # The @-import reuse guidance (AC4/AC5): pin two concrete repo-root-relative paths,
 # including the dotted .github one (the easiest to get wrong).
 assert_eq "init-memory-nudge: @-import example for AGENTS.md present" "yes" \

@@ -111,11 +111,13 @@ ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || ROOT=
 # gitignored personal-override CLAUDE.local.md are all deliberately out of scope —
 # the nudge is about committed, team-shared project memory).
 [ -f "$ROOT/CLAUDE.md" ] && echo "claude-md: present" || echo "claude-md: absent"
-# AGENTS.md is matched against its common casings (`AGENTS.md`/`agents.md`/`AGENT.md`/
-# `agent.md`) rather than a GNU-only `find -iname`; this is case-insensitive only on a
-# case-insensitive FS (macOS) — a Linux-only casing like `Agents.md` is not probed. On a
-# case-insensitive FS EVERY form's `test -f` matches the one physical file, so report
-# AGENTS.md AT MOST ONCE (first matching casing wins) — never one nudge per casing.
+# AGENTS.md is matched across its common spellings — plural/singular AND any case
+# (`AGENTS.md`/`agents.md`/`AGENT.md`/`agent.md`) — rather than a GNU-only `find -iname`.
+# (Only the case axis is true case-insensitivity, and only on a case-insensitive FS like
+# macOS — a Linux-only casing such as `Agents.md` is not probed; the singular forms are a
+# different spelling, not a casing.) These all denote one logical convention, so report it
+# AT MOST ONCE: a case-insensitive FS makes a file's case-variants all match, and a repo
+# carrying both plural and singular still warrants a single nudge. First match wins.
 agents_seen=
 for f in "AGENTS.md" "agents.md" "AGENT.md" "agent.md"; do
   [ -f "$ROOT/$f" ] && { [ -n "$agents_seen" ] || echo "agent-file: $f"; agents_seen=1; }
@@ -135,14 +137,18 @@ The `@`-import paths you cite are **repo-root-relative**, matching how Claude Co
 # flag a correctly-wired import as unreferenced. Matching case-insensitively errs toward
 # silence (the safe, advisory direction).
 for f in <each agent file detected above>; do
-  grep -qiF "@$f" "$ROOT/CLAUDE.md" || echo "unreferenced: @$f"
+  grep -qiF "@$f" "$ROOT/CLAUDE.md"; rc=$?
+  # rc 0 = referenced; rc 1 = genuinely no match → unreferenced; rc>=2 = grep read error
+  # (vanished/unreadable CLAUDE.md after the test -f) → stay silent, don't misreport it as
+  # unreferenced. Discriminating the codes keeps the step erring toward silence.
+  [ "$rc" -eq 1 ] && echo "unreferenced: @$f"
 done
 ```
 
 Compose output per this four-case matrix, and **say nothing when nothing is actionable** (so successful re-runs stay clean):
 
 - **No `CLAUDE.md`, no detected agent file** → emit exactly **one** nudge: recommend the built-in `/init` command to create a `CLAUDE.md`, noting that project memory improves DevFlow's review/implement results. (Say nothing about `@`-imports — there is nothing to reuse.)
-- **No `CLAUDE.md`, one or more detected agent files present** → the same nudge to the built-in `/init`, **plus** name each existing file and tell the user to reference it from the new `CLAUDE.md` via its `@`-import path (e.g. "you already have `AGENTS.md` — reference it with `@AGENTS.md`"). Emit **one** nudge per *physical* file — the detection above already collapses AGENTS.md's case-variants to a single entry, so never cite the same file under several casings.
+- **No `CLAUDE.md`, one or more detected agent files present** → the same nudge to the built-in `/init`, **plus** name each existing file and tell the user to reference it from the new `CLAUDE.md` via its `@`-import path (e.g. "you already have `AGENTS.md` — reference it with `@AGENTS.md`"). Emit **one** nudge per *physical* file — the detection above already collapses AGENTS.md's spelling/case variants to a single entry, so never cite the same file under several spellings.
 - **`CLAUDE.md` present but it does not already reference an existing detected agent file** → suggest adding that file's `@`-import to `CLAUDE.md` (name the file and its `@`-path); no `/init` nudge.
 - **`CLAUDE.md` present and it already references each existing detected agent file via `@`-import (or no such files exist)** → produce **no project-memory output** at all.
 
