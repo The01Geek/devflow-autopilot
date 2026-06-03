@@ -40,7 +40,9 @@
 # Exit codes:
 #   0  printed the copy-paste line (no --apply); or provisioned / already-complete
 #      (--apply).
-#   2  --apply but a precondition / I-O failure: the existing file is unreadable, is
+#   2  a malformed invocation, independent of --apply: an unknown option, or more than
+#      one positional target. OR --apply but a precondition / I-O failure: the existing
+#      file is unreadable, is
 #      not valid JSON, or is valid JSON of the wrong shape (a non-object root, or
 #      `env` present as a non-object); or jq is missing; or HOME is unset with no
 #      explicit target; or the settings dir / temp file / merged file could not be
@@ -95,6 +97,7 @@ if [ "$APPLY" -ne 1 ]; then
   log "settings ($SETTINGS) yourself (create an 'env' object if you have none):"
   printf '    %s\n' "$SETTING_LINE"
   log "(selectable only — it is never turned on for you, and plan/model/admin gates still apply.)"
+  log "If you have deliberately set it to \"0\" to disable auto mode, leave that as-is — don't add this line."
   log "Or, to have /devflow:init add it for you, re-run with explicit consent: provision-auto-mode.sh --apply"
   exit 0
 fi
@@ -200,9 +203,10 @@ if [ "$(printf '%s' "$EXISTING" | jq -S .)" = "$(printf '%s' "$MERGED" | jq -S .
   # when the user's preserved value actually DISABLES it: "1" → already selectable;
   # anything else (notably a deliberate "0") → preserved but NOT selectable. (We are in
   # this branch only because env.CLAUDE_CODE_ENABLE_AUTO_MODE is already present — an
-  # absent key would have made MERGED differ — so the read is always populated; `|| true`
-  # keeps a defensive jq hiccup from aborting under `set -e` rather than masking a real
-  # failure, since this is a cosmetic-breadcrumb read on already-validated JSON.)
+  # absent key would have made MERGED differ — so the read is always populated; the
+  # `|| PRESERVED=""` fallback keeps a defensive jq hiccup from aborting under `set -e`
+  # rather than masking a real failure, since this is a cosmetic-breadcrumb read on
+  # already-validated JSON.)
   PRESERVED="$(printf '%s' "$EXISTING" | jq -r '.env.CLAUDE_CODE_ENABLE_AUTO_MODE // empty')" || PRESERVED=""
   if [ "$PRESERVED" = "1" ]; then
     log "$SETTINGS already sets CLAUDE_CODE_ENABLE_AUTO_MODE=\"1\" — 'auto' is already selectable; nothing changed."

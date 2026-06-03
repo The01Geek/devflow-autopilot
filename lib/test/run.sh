@@ -4670,6 +4670,16 @@ assert_eq "pam: no --apply → prints the copy-paste env var (AC1 copy-paste pat
 assert_eq "pam: no --apply → honest 'selectable' framing, not 'on' (AC4)" "yes" \
   "$(printf '%s' "$PAM_NC_OUT" | grep -qi 'selectable' && echo yes || echo no)"
 
+# AC 2 (consent gate over an EXISTING populated file): no --apply still writes nothing —
+# a deliberate "0" is left byte-for-byte unchanged (the strongest 'no touch without consent').
+PAM_NCEXIST="$(mktemp -d)"; PAM_NCE_SF="$PAM_NCEXIST/settings.json"
+printf '%s' '{"env":{"CLAUDE_CODE_ENABLE_AUTO_MODE":"0"}}' > "$PAM_NCE_SF"
+PAM_NCE_BEFORE="$(cat "$PAM_NCE_SF")"
+bash "$PAM" "$PAM_NCE_SF" >/dev/null 2>&1; PAM_NCE_RC=$?
+assert_eq "pam: no --apply over existing '0' → exit 0 (AC2)" "0" "$PAM_NCE_RC"
+assert_eq "pam: no --apply over existing file → byte-for-byte unchanged (no touch without consent, AC2)" \
+  "$PAM_NCE_BEFORE" "$(cat "$PAM_NCE_SF")"
+
 # AC 1 + AC 4 (apply path): fresh file → env.CLAUDE_CODE_ENABLE_AUTO_MODE="1" written to
 # the (user-scope) target, NO permissions.defaultMode, exit 0, breadcrumb says selectable.
 PAM_FRESH="$(mktemp -d)"; PAM_F_SF="$PAM_FRESH/settings.json"
@@ -4687,6 +4697,7 @@ assert_eq "pam: --apply fresh → breadcrumb says 'selectable' (honest, AC4)" "y
 # even under --apply; other env vars preserved; idempotent breadcrumb.
 PAM_ZERO="$(mktemp -d)"; PAM_Z_SF="$PAM_ZERO/settings.json"
 printf '%s' '{"env":{"CLAUDE_CODE_ENABLE_AUTO_MODE":"0","FOO":"bar"}}' > "$PAM_Z_SF"
+PAM_Z_BEFORE="$(cat "$PAM_Z_SF")"
 PAM_Z_OUT="$(bash "$PAM" --apply "$PAM_Z_SF" 2>&1)"; PAM_Z_RC=$?
 assert_eq "pam: --apply over user '0' → exit 0" "0" "$PAM_Z_RC"
 assert_eq "pam: --apply over user '0' → '0' preserved, never clobbered (AC3)" "0" \
@@ -4697,6 +4708,8 @@ assert_eq "pam: --apply over user '0' → 'nothing changed' breadcrumb (AC3)" "y
   "$(printf '%s' "$PAM_Z_OUT" | grep -qi 'nothing changed' && echo yes || echo no)"
 assert_eq "pam: --apply over user '0' → breadcrumb says NOT selectable, never implies 'on' (honest, AC4)" "yes" \
   "$(printf '%s' "$PAM_Z_OUT" | grep -qi 'NOT selectable' && echo yes || echo no)"
+assert_eq "pam: --apply over user '0' → file byte-for-byte unchanged (no-write branch, AC3)" \
+  "$PAM_Z_BEFORE" "$(cat "$PAM_Z_SF")"
 
 # AC 3 (no-clobber): existing env + unrelated top key → auto-mode added alongside, all preserved.
 PAM_KEEP="$(mktemp -d)"; PAM_K_SF="$PAM_KEEP/settings.json"
@@ -4813,7 +4826,7 @@ if [ "$(id -u)" -ne 0 ] && [ ! -r "$PAM_UR_SF" ]; then
 fi
 chmod 644 "$PAM_UR_SF"   # restore so rm -rf can clean up
 
-rm -rf "$PAM_NOCONSENT" "$PAM_FRESH" "$PAM_ZERO" "$PAM_KEEP" "$PAM_IDEM" \
+rm -rf "$PAM_NOCONSENT" "$PAM_NCEXIST" "$PAM_FRESH" "$PAM_ZERO" "$PAM_KEEP" "$PAM_IDEM" \
        "$PAM_BAD" "$PAM_ENVSTR" "$PAM_ARR" "$PAM_EMPTY" "$PAM_HOME" \
        "$PAM_WS" "$PAM_UNREAD"
 
