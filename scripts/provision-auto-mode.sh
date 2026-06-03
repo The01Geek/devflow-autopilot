@@ -82,14 +82,17 @@ if [ -z "$SETTINGS" ]; then
   fi
 fi
 
-# The exact one-line setting we provision — printed verbatim in the no-consent path
-# so the user can paste it into the `env` object of their user settings themselves.
-SETTING_LINE='"env": { "CLAUDE_CODE_ENABLE_AUTO_MODE": "1" }'
+# The exact setting we provision — printed in the no-consent path so the user can add
+# it themselves. We print the INNER key (not a full '"env": { … }' block) so pasting it
+# into an EXISTING 'env' object can't create a duplicate 'env' key that silently drops
+# the user's other env vars — the very clobber the --apply deep-merge avoids.
+SETTING_LINE='"CLAUDE_CODE_ENABLE_AUTO_MODE": "1"'
 
 # ── DEFAULT (no consent): surface the copy-paste line and write NOTHING. ──
 if [ "$APPLY" -ne 1 ]; then
   log "auto mode is left unchanged. To make 'auto' SELECTABLE in the Shift+Tab"
-  log "permission-mode cycle, add this to your user settings ($SETTINGS) yourself:"
+  log "permission-mode cycle, add this line inside the 'env' object of your user"
+  log "settings ($SETTINGS) yourself (create an 'env' object if you have none):"
   printf '    %s\n' "$SETTING_LINE"
   log "(selectable only — it is never turned on for you, and plan/model/admin gates still apply.)"
   log "Or, to have /devflow:init add it for you, re-run with explicit consent: provision-auto-mode.sh --apply"
@@ -189,11 +192,23 @@ if ! MERGED="$(jq -n --argjson defaults "$DEFAULTS" --argjson existing "$EXISTIN
 fi
 
 # Only write on a real change (idempotent — no mtime churn on a re-run, and the
-# no-clobber "0" case lands here: the merge keeps the user's "0", so MERGED == EXISTING
-# and we report "nothing changed" without a write). Compare canonical (sorted) forms so
-# formatting differences never read as a change.
+# no-clobber "0"/disabled case lands here: the merge keeps the user's existing value, so
+# MERGED == EXISTING and we report "nothing changed" without a write). Compare canonical
+# (sorted) forms so formatting differences never read as a change.
 if [ "$(printf '%s' "$EXISTING" | jq -S .)" = "$(printf '%s' "$MERGED" | jq -S .)" ]; then
-  log "$SETTINGS already has CLAUDE_CODE_ENABLE_AUTO_MODE set (your value is preserved); nothing changed."
+  # Distinguish the two no-change cases so the breadcrumb never implies "selectable"
+  # when the user's preserved value actually DISABLES it: "1" → already selectable;
+  # anything else (notably a deliberate "0") → preserved but NOT selectable. (We are in
+  # this branch only because env.CLAUDE_CODE_ENABLE_AUTO_MODE is already present — an
+  # absent key would have made MERGED differ — so the read is always populated; `|| true`
+  # keeps a defensive jq hiccup from aborting under `set -e` rather than masking a real
+  # failure, since this is a cosmetic-breadcrumb read on already-validated JSON.)
+  PRESERVED="$(printf '%s' "$EXISTING" | jq -r '.env.CLAUDE_CODE_ENABLE_AUTO_MODE // empty')" || PRESERVED=""
+  if [ "$PRESERVED" = "1" ]; then
+    log "$SETTINGS already sets CLAUDE_CODE_ENABLE_AUTO_MODE=\"1\" — 'auto' is already selectable; nothing changed."
+  else
+    log "$SETTINGS already sets CLAUDE_CODE_ENABLE_AUTO_MODE=\"$PRESERVED\" (your value is preserved) — 'auto' is NOT selectable while this is not \"1\"; nothing changed."
+  fi
   exit 0
 fi
 

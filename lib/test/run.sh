@@ -4695,6 +4695,8 @@ assert_eq "pam: --apply over user '0' → other env var preserved (AC3)" "bar" \
   "$(jq -r '.env.FOO' "$PAM_Z_SF" 2>/dev/null)"
 assert_eq "pam: --apply over user '0' → 'nothing changed' breadcrumb (AC3)" "yes" \
   "$(printf '%s' "$PAM_Z_OUT" | grep -qi 'nothing changed' && echo yes || echo no)"
+assert_eq "pam: --apply over user '0' → breadcrumb says NOT selectable, never implies 'on' (honest, AC4)" "yes" \
+  "$(printf '%s' "$PAM_Z_OUT" | grep -qi 'NOT selectable' && echo yes || echo no)"
 
 # AC 3 (no-clobber): existing env + unrelated top key → auto-mode added alongside, all preserved.
 PAM_KEEP="$(mktemp -d)"; PAM_K_SF="$PAM_KEEP/settings.json"
@@ -4739,8 +4741,11 @@ PAM_ES_OUT="$(bash "$PAM" --apply "$PAM_ES_SF" 2>&1)"; PAM_ES_RC=$?
 assert_eq "pam: --apply env-as-string → exit non-zero (no silent drop, AC3)" "yes" \
   "$([ "$PAM_ES_RC" -ne 0 ] && echo yes || echo no)"
 assert_eq "pam: --apply env-as-string → file unchanged" '{"env":"oops"}' "$(cat "$PAM_ES_SF")"
-assert_eq "pam: --apply env-as-string → breadcrumb names the env path" "yes" \
-  "$(printf '%s' "$PAM_ES_OUT" | grep -qi 'env' && echo yes || echo no)"
+# Target-unique substring: a bare grep -qi 'env' would also pass on the generic guard
+# breadcrumb ("settings-shape check failed") that does NOT name the env path, so assert
+# the specific shape message instead — the test must prove the precise no-silent-drop path.
+assert_eq "pam: --apply env-as-string → breadcrumb specifically names the env path" "yes" \
+  "$(printf '%s' "$PAM_ES_OUT" | grep -qiE 'env path is present but not a JSON object' && echo yes || echo no)"
 
 # AC 3 (fail-closed): non-object root (array) → exit non-zero, file unchanged.
 PAM_ARR="$(mktemp -d)"; PAM_A_SF="$PAM_ARR/settings.json"
@@ -4766,8 +4771,51 @@ assert_eq "pam: --apply default target → exit 0" "0" "$PAM_H_RC"
 assert_eq "pam: --apply default target → wrote \$HOME/.claude/settings.json (user scope, AC1)" "1" \
   "$(jq -r '.env.CLAUDE_CODE_ENABLE_AUTO_MODE' "$PAM_HOME/.claude/settings.json" 2>/dev/null)"
 
+# AC 3 (shape-matrix completeness): whitespace-only existing file is benign (treated as
+# {}) → key added, exit 0 — the whitespace cell the parser-editing gotcha calls out.
+PAM_WS="$(mktemp -d)"; PAM_WS_SF="$PAM_WS/settings.json"
+printf '   \n\t\n' > "$PAM_WS_SF"
+bash "$PAM" --apply "$PAM_WS_SF" >/dev/null 2>&1; PAM_WS_RC=$?
+assert_eq "pam: --apply whitespace-only file → exit 0 (treated as empty, not malformed)" "0" "$PAM_WS_RC"
+assert_eq "pam: --apply whitespace-only → key added" "1" \
+  "$(jq -r '.env.CLAUDE_CODE_ENABLE_AUTO_MODE' "$PAM_WS_SF" 2>/dev/null)"
+
+# AC 2 / arg contract: a malformed invocation fails closed (exit 2) with a specific
+# breadcrumb — never a silent mis-target. The two documented exit-2 arg paths:
+PAM_BADOPT_OUT="$(bash "$PAM" --bogus 2>&1)"; PAM_BADOPT_RC=$?
+assert_eq "pam: unknown option → exit 2" "2" "$PAM_BADOPT_RC"
+assert_eq "pam: unknown option → breadcrumb names the bad option" "yes" \
+  "$(printf '%s' "$PAM_BADOPT_OUT" | grep -qi 'unknown option' && echo yes || echo no)"
+PAM_EXTRA_OUT="$(bash "$PAM" foo bar 2>&1)"; PAM_EXTRA_RC=$?
+assert_eq "pam: extra positional → exit 2 (no silent mis-target)" "2" "$PAM_EXTRA_RC"
+assert_eq "pam: extra positional → breadcrumb names the unexpected argument" "yes" \
+  "$(printf '%s' "$PAM_EXTRA_OUT" | grep -qi 'unexpected extra argument' && echo yes || echo no)"
+
+# AC 1 (user-scope hard-fail): --apply with no target AND HOME unset cannot resolve
+# ~/.claude/settings.json → exit 2 with a specific breadcrumb, writes nothing. `env -u`
+# is POSIX-portable (macOS/BSD env support it), matching the no-GNU-only-flags rule.
+PAM_NOHOME_OUT="$(env -u HOME bash "$PAM" --apply 2>&1)"; PAM_NOHOME_RC=$?
+assert_eq "pam: --apply + HOME unset → exit 2 (cannot resolve user scope)" "2" "$PAM_NOHOME_RC"
+assert_eq "pam: --apply + HOME unset → breadcrumb says HOME is unset" "yes" \
+  "$(printf '%s' "$PAM_NOHOME_OUT" | grep -qi 'HOME is unset' && echo yes || echo no)"
+
+# Present-but-unreadable existing settings → exit 2 with a distinct "not readable"
+# breadcrumb (not misattributed to invalid JSON), file untouched. Root bypasses the perm
+# bits, so assert only for an ordinary user — skip under root (same guard the pls block uses).
+PAM_UNREAD="$(mktemp -d)"; PAM_UR_SF="$PAM_UNREAD/settings.json"
+printf '%s' '{"env":{"FOO":"bar"}}' > "$PAM_UR_SF"
+chmod 000 "$PAM_UR_SF"
+if [ "$(id -u)" -ne 0 ] && [ ! -r "$PAM_UR_SF" ]; then
+  PAM_UR_OUT="$(bash "$PAM" --apply "$PAM_UR_SF" 2>&1)"; PAM_UR_RC=$?
+  assert_eq "pam: unreadable settings → exit 2" "2" "$PAM_UR_RC"
+  assert_eq "pam: unreadable settings → breadcrumb says 'not readable' (not 'invalid JSON')" "yes" \
+    "$(printf '%s' "$PAM_UR_OUT" | grep -qi 'not readable' && echo yes || echo no)"
+fi
+chmod 644 "$PAM_UR_SF"   # restore so rm -rf can clean up
+
 rm -rf "$PAM_NOCONSENT" "$PAM_FRESH" "$PAM_ZERO" "$PAM_KEEP" "$PAM_IDEM" \
-       "$PAM_BAD" "$PAM_ENVSTR" "$PAM_ARR" "$PAM_EMPTY" "$PAM_HOME"
+       "$PAM_BAD" "$PAM_ENVSTR" "$PAM_ARR" "$PAM_EMPTY" "$PAM_HOME" \
+       "$PAM_WS" "$PAM_UNREAD"
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.

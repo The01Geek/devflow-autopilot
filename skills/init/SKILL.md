@@ -76,7 +76,8 @@ With `--apply` it targets `~/.claude/settings.json` and **deep-merges** `env.CLA
 Read the helper's `devflow-automode:` line and respond:
 
 - **`provisioned … 'auto' is now SELECTABLE …`** — the user consented and `~/.claude/settings.json` gained `CLAUDE_CODE_ENABLE_AUTO_MODE="1"`. Tell the user `auto` is now **selectable** in the Shift+Tab cycle (not on — they pick it, and plan/model/admin gates still apply), and to review the change. Do **not** claim auto mode was enabled or turned on.
-- **`… already has CLAUDE_CODE_ENABLE_AUTO_MODE set …; nothing changed`** — idempotent re-run, or the user had a deliberate `"0"` that was preserved. Nothing to report beyond that their value was kept.
+- **`… already sets CLAUDE_CODE_ENABLE_AUTO_MODE="1" — 'auto' is already selectable; nothing changed`** — idempotent re-run; `auto` is already selectable. Nothing to report beyond that.
+- **`… already sets CLAUDE_CODE_ENABLE_AUTO_MODE="…" (your value is preserved) — 'auto' is NOT selectable …; nothing changed`** — the user has a deliberate non-`"1"` value (e.g. a `"0"`) that was **preserved**. Relay that their value was kept and that `auto` is therefore **not** selectable; do **not** offer to flip it (the disable was deliberate — they can re-run with consent themselves if they change their mind).
 - **the no-flag copy-paste output** (they declined, or you couldn't ask) — relay the one-line setting and tell the user they can add it to `~/.claude/settings.json` themselves, or re-run `/devflow:init` and consent.
 - **`existing … is not readable …`**, **`… is not valid JSON …`**, **`… is malformed for provisioning …`**, or **`jq not found …`** (exit 2) — relay the specific breadcrumb; the file was left **byte-for-byte unchanged**. Tell them to fix or remove the file (or install jq), then re-run. Do **not** hand-edit `~/.claude/settings.json` yourself.
 
