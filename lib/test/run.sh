@@ -325,6 +325,22 @@ assert_eq "sweep 2.3.6: docs/implement-skill.md keeps the rationale table row" "
 assert_eq "sweep 2.3.6: implement SKILL keeps the false-success step rule" "yes" \
   "$(grep -qF "never prints success for work that didn't happen" "$IMPL_SKILL" && echo yes || echo no)"
 
+# Same drift guard for the 2.3.0a peer-checkpoint-completeness sweep: the additive
+# twin of 2.3.0 lives in the same three places (sweep body, "Sweep selection" index,
+# rationale table) and must stay in sync. It homes the recurring incomplete-edit
+# sub-pattern (a rule added at only some of its co-equal peer sites); if any of the
+# three loses it, that catch reverts to a review REJECT or a post-bot fix.
+assert_eq "sweep 2.3.0a: implement SKILL keeps the sweep body" "yes" \
+  "$(grep -qF '#### 2.3.0a Peer-checkpoint completeness sweep' "$IMPL_SKILL" && echo yes || echo no)"
+assert_eq "sweep 2.3.0a: implement SKILL lists it in the always-run index" "yes" \
+  "$(grep -qF 'run **2.3.0a**' "$IMPL_SKILL" && echo yes || echo no)"
+assert_eq "sweep 2.3.0a: docs/implement-skill.md keeps the rationale table row" "yes" \
+  "$(grep -qF '| 2.3.0a Peer-checkpoint completeness |' "$IMPL_DOC" && echo yes || echo no)"
+# Pin one step token unique to the 2.3.0a procedure (the grep-the-peer-set rule) so a
+# reviewer who guts the steps but keeps the heading still trips the suite.
+assert_eq "sweep 2.3.0a: implement SKILL keeps the enumerate-by-grep step" "yes" \
+  "$(grep -qF 'Enumerate the peer set by grep, not from memory' "$IMPL_SKILL" && echo yes || echo no)"
+
 # Drift guard: the base_branch read in implement/SKILL.md Phase 1.4 is the skill's
 # one piece of load-bearing inline bash — like the max_iterations clamp above, the
 # tokens it relies on can be silently broken by a SKILL edit (drop the `|| BASE=""`
