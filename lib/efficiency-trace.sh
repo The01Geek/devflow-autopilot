@@ -286,19 +286,35 @@ do_persist() {
   # failure leaves a ::warning:: and exits 0.
   # Relative pathspecs resolved against $root via `git -C` (robust regardless of
   # the caller's cwd); existence is checked on the absolute path.
-  local add_err
+  local add_err diff_rc commit_err
   ADD_PATHS=()
   [ -d "${root}/.devflow/logs/efficiency" ] && ADD_PATHS+=(".devflow/logs/efficiency")
   [ -d "${root}/.devflow/logs/review" ] && ADD_PATHS+=(".devflow/logs/review")
   if [ "${#ADD_PATHS[@]}" -gt 0 ]; then
     if ! add_err="$(git -C "$root" add -- "${ADD_PATHS[@]}" 2>&1)"; then
       echo "::warning::efficiency-trace.sh --persist: staging failed: ${add_err:-unknown}; not persisted this run" >&2
-    elif ! git -C "$root" diff --cached --quiet -- "${ADD_PATHS[@]}"; then
-      local commit_err
-      if ! commit_err="$(git -C "$root" commit -m "chore: persist review-and-fix observability artifacts
+    else
+      # Inspect the staged-diff rc explicitly rather than via `! git diff --quiet`:
+      # `--quiet` returns 0 = no staged diff, 1 = staged diff present, but >=2 (128)
+      # on a git FAULT (corrupt index, an index.lock race with a concurrent process
+      # — reachable when the Stop hook overlaps another git op). `! …` would fold
+      # that fault into the rc-0 no-commit no-op SILENTLY, leaving the staged record
+      # uncommitted (and lost at cloud teardown) while self-check sees the
+      # working-tree file and reads clean — the exact false-clean this issue closes.
+      # `|| diff_rc=$?` (not a bare command): `git diff --quiet` returns 1 when a
+      # staged diff is present, which would trip `set -e` as a bare statement —
+      # the left side of `||` is exempt, and we still capture the rc.
+      diff_rc=0
+      git -C "$root" diff --cached --quiet -- "${ADD_PATHS[@]}" || diff_rc=$?
+      if [ "$diff_rc" -eq 1 ]; then
+        if ! commit_err="$(git -C "$root" commit -m "chore: persist review-and-fix observability artifacts
 
 Co-Authored-By: Claude <noreply@anthropic.com>" -- "${ADD_PATHS[@]}" 2>&1)"; then
-        echo "::warning::efficiency-trace.sh --persist: commit failed: ${commit_err:-unknown}; artifacts left staged" >&2
+          echo "::warning::efficiency-trace.sh --persist: commit failed: ${commit_err:-unknown}; artifacts left staged" >&2
+        fi
+      elif [ "$diff_rc" -ne 0 ]; then
+        # rc 0 is the clean nothing-to-commit no-op (no breadcrumb); only a fault rc warns.
+        echo "::warning::efficiency-trace.sh --persist: staged-diff check failed (rc=${diff_rc}, git fault); artifacts left staged, not committed" >&2
       fi
     fi
   fi
