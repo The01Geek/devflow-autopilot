@@ -62,6 +62,13 @@ RETRO_PREDICATE='
   or (($impl != "") and ((.headRefName // "") | startswith($impl)))
 '
 
+# ── _add_candidates <json-array> ─────────────────────────────────────────────
+# Fold a batch of PR objects into the running CANDIDATES set, deduplicating by
+# number. Shared by every mode so the union/dedupe rule lives in one place.
+_add_candidates() {  # $1 = JSON array of PR objects
+    CANDIDATES="$(jq -nc --argjson a "$CANDIDATES" --argjson b "$1" '$a + $b | unique_by(.number)')"
+}
+
 # ── _author_is_watched <login> ───────────────────────────────────────────────
 # True when <login> (with an optional trailing [bot]) is in the WATCHED list.
 _author_is_watched() {
@@ -96,7 +103,7 @@ if [ -n "$EXPLICIT_PRS" ]; then
         if [ -z "$_SEL" ]; then
             echo "::warning::scan --prs: PR ${_p} (branch '${_HEAD}') matches no retrospection path; skipping" >&2; continue
         fi
-        CANDIDATES="$(jq -nc --argjson a "$CANDIDATES" --argjson b "[$_SEL]" '$a + $b | unique_by(.number)')"
+        _add_candidates "[$_SEL]"
     done
     echo "$CANDIDATES" | jq -c --argjson cap "$MAX_PRS" 'sort_by(.mergedAt) | [.[0:$cap][] | {number, headRefName, mergedAt}]'
     exit 0
@@ -121,7 +128,7 @@ if LABEL_BATCH="$("$DEVFLOW_GH" pr list --repo "$REPO" --state merged --label De
 else
     echo "::warning::gh pr list --label DevFlow failed" >&2; LABEL_BATCH='[]'
 fi
-CANDIDATES="$(jq -nc --argjson a "$CANDIDATES" --argjson b "$LABEL_BATCH" '$a + $b | unique_by(.number)')"
+_add_candidates "$LABEL_BATCH"
 
 # ── Paths (b)–(d): watched-author search ─────────────────────────────────────
 # Skipped (not fatal) when no watched authors are configured — the label pass
@@ -143,7 +150,7 @@ else
             else
                 echo "::warning::gh pr list failed for author:${_form}" >&2; BATCH='[]'
             fi
-            CANDIDATES="$(jq -nc --argjson a "$CANDIDATES" --argjson b "$BATCH" '$a + $b | unique_by(.number)')"
+            _add_candidates "$BATCH"
         done
     done
 fi
