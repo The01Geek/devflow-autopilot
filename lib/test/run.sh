@@ -3716,7 +3716,7 @@ assert_eq "pls: deep wrong-typed source → file byte-for-byte unchanged" \
   '{"extraKnownMarketplaces":{"devflow-marketplace":{"source":"x","autoUpdate":true}}}' \
   "$(cat "$PLS_DEEP/.claude/settings.json")"
 assert_eq "pls: deep wrong-typed source → breadcrumb names the source path" "yes" \
-  "$(printf '%s' "$PLS_DEEP_OUT" | grep -qiE 'source|devflow-marketplace' && echo yes || echo no)"
+  "$(printf '%s' "$PLS_DEEP_OUT" | grep -qi 'source' && echo yes || echo no)"
 
 # Merge-direction (user-wins) guard: a user who set a DevFlow-owned value to a
 # NON-default keeps it — provisioning must not clobber it. This pins the operand
@@ -3734,6 +3734,35 @@ assert_eq "pls: user-set autoUpdate:false NOT clobbered (merge direction)" "fals
 assert_eq "pls: user-set enabledPlugins:false NOT clobbered (merge direction)" "false" \
   "$(jq -r '.enabledPlugins["devflow@devflow-marketplace"]' "$PLS_ND_SF" 2>/dev/null)"
 
+# A user who deliberately set the consent-sensitive env auto-mode leaf to "0"
+# keeps it — provisioning must never flip it back to "1" (that would re-enable
+# selectable auto mode against their intent). Guards the env subtree against an
+# operand-order or special-case regression the autoUpdate/enabledPlugins leaves
+# above don't cover.
+PLS_ENV0="$(mktemp -d)"; mkdir -p "$PLS_ENV0/.claude"
+printf '%s' '{"env":{"CLAUDE_CODE_ENABLE_AUTO_MODE":"0"}}' > "$PLS_ENV0/.claude/settings.json"
+bash "$PLS" "$PLS_ENV0" >/dev/null 2>&1
+assert_eq "pls: user-set env auto-mode \"0\" NOT clobbered to \"1\"" "0" \
+  "$(jq -r '.env.CLAUDE_CODE_ENABLE_AUTO_MODE' "$PLS_ENV0/.claude/settings.json" 2>/dev/null)"
+
+# null at a DevFlow object-valued path is NOT exempt: jq merge treats a present
+# null as a winning value that replaces the defaults subtree (silently dropping
+# the setting), so it is rejected exactly like a wrong-typed scalar — exit
+# non-zero, file unchanged, path named. Absent paths (getpath also returns null)
+# must stay benign, which the fresh/keep/empty cases above already prove.
+for nullcase in '{"env":null}' '{"extraKnownMarketplaces":null}' '{"extraKnownMarketplaces":{"devflow-marketplace":null}}'; do
+  PLS_NULL="$(mktemp -d)"; mkdir -p "$PLS_NULL/.claude"
+  printf '%s' "$nullcase" > "$PLS_NULL/.claude/settings.json"
+  PLS_NULL_OUT="$(bash "$PLS" "$PLS_NULL" 2>&1)"; PLS_NULL_RC=$?
+  assert_eq "pls: present-null at a DevFlow path ($nullcase) → exit non-zero" "yes" \
+    "$([ "$PLS_NULL_RC" -ne 0 ] && echo yes || echo no)"
+  assert_eq "pls: present-null ($nullcase) → file byte-for-byte unchanged" "$nullcase" \
+    "$(cat "$PLS_NULL/.claude/settings.json")"
+  assert_eq "pls: present-null ($nullcase) → breadcrumb names a wrong-shape path" "yes" \
+    "$(printf '%s' "$PLS_NULL_OUT" | grep -qiE 'not a JSON object|malformed' && echo yes || echo no)"
+  rm -rf "$PLS_NULL"
+done
+
 # Wrong-typed DevFlow container key (env as a string) → exit non-zero, named in
 # the breadcrumb, file unchanged, and (critically) the DevFlow env var is NOT
 # silently dropped behind a false "added" breadcrumb.
@@ -3744,8 +3773,8 @@ assert_eq "pls: wrong-typed container (env=string) → exit non-zero" "yes" \
   "$([ "$PLS_WT_RC" -ne 0 ] && echo yes || echo no)"
 assert_eq "pls: wrong-typed container → file byte-for-byte unchanged" '{"env":"oops","other":1}' \
   "$(cat "$PLS_WRONGTYPE/.claude/settings.json")"
-assert_eq "pls: wrong-typed container → breadcrumb names the env key" "yes" \
-  "$(printf '%s' "$PLS_WT_OUT" | grep -qiE 'env|not a JSON object|malformed' && echo yes || echo no)"
+assert_eq "pls: wrong-typed container → breadcrumb names the env path" "yes" \
+  "$(printf '%s' "$PLS_WT_OUT" | grep -qi 'env' && echo yes || echo no)"
 
 # Empty / whitespace-only / {} existing files are benign (treated as {}), NOT
 # malformed: DevFlow keys are added, exit 0.
@@ -3781,7 +3810,7 @@ assert_eq "pls: isolation → scaffold-config.sh creates no .claude/ dir (AC7)" 
 
 rm -rf "$PLS_FRESH" "$PLS_KEEP" "$PLS_IDEM" "$PLS_BAD" "$PLS_EMPTY" "$PLS_WS" \
        "$PLS_OBJ" "$PLS_ISO" "$PLS_ARR" "$PLS_SCALAR" "$PLS_WRONGTYPE" \
-       "$PLS_NESTED" "$PLS_NODEFAULT" "$PLS_DEEP"
+       "$PLS_NESTED" "$PLS_NODEFAULT" "$PLS_DEEP" "$PLS_ENV0"
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.

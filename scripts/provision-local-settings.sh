@@ -78,6 +78,12 @@ DEFAULTS='{
 #   - non-empty, does NOT parse    -> MALFORMED: bail without touching the file
 EXISTING='{}'
 if [ -f "$SETTINGS" ]; then
+  # Distinguish an unreadable file (perms) from invalid JSON so the breadcrumb
+  # names the real cause rather than misdirecting the user to "fix the JSON".
+  if [ ! -r "$SETTINGS" ]; then
+    warn "existing $SETTINGS is not readable (check permissions); left it unchanged and provisioned nothing."
+    exit 2
+  fi
   if [ -s "$SETTINGS" ] && grep -q '[^[:space:]]' "$SETTINGS"; then
     if ! EXISTING="$(jq . "$SETTINGS" 2>/dev/null)"; then
       warn "existing $SETTINGS is not valid JSON; left it unchanged and provisioned nothing (fix or remove it, then re-run /devflow:init)."
@@ -116,9 +122,18 @@ BAD_SHAPE="$(printf '%s' "$EXISTING" | jq -r --argjson defaults "$DEFAULTS" '
       ( [ ($defaults | paths) as $p
           | select(($defaults | getpath($p) | type) == "object") | $p ] as $objpaths
         | [ $objpaths[] | . as $p
-            | ($root | try getpath($p) catch null) as $v
-            | select($v != null and ($v | type) != "object")
-            | "the \($p | join(".")) path is present but not a JSON object (\($v | type))" ]
+            # Flag a path the user has PRESENT as a non-object (any type, including
+            # null — jq merge treats a right-hand null as a winning value that
+            # replaces the whole defaults subtree, so a present null silently drops
+            # the DevFlow setting just like a string would). Test presence via the
+            # parent has() check, not getpath alone: getpath returns null for BOTH an
+            # absent path and a present-null one, and an absent path is fine (the
+            # merge fills it). A non-object parent is skipped here and flagged by its
+            # own (shallower) object-path instead, so each corruption is named once.
+            | ($root | try getpath($p[0:-1]) catch null) as $parent
+            | select(($parent | type) == "object" and ($parent | has($p[-1]))
+                     and (($parent[$p[-1]]) | type) != "object")
+            | "the \($p | join(".")) path is present but not a JSON object (\(($parent[$p[-1]]) | type))" ]
         | join("; ") )
     end')"
 if [ -n "$BAD_SHAPE" ]; then
@@ -135,7 +150,10 @@ if [ "$(printf '%s' "$EXISTING" | jq -S .)" = "$(printf '%s' "$MERGED" | jq -S .
   exit 0
 fi
 
-mkdir -p "$SETTINGS_DIR"
+mkdir -p "$SETTINGS_DIR" || {
+  warn "could not create $SETTINGS_DIR; left $SETTINGS unchanged."
+  exit 2
+}
 TMP="$(mktemp "$SETTINGS_DIR/.settings.json.XXXXXX")" || {
   warn "could not create a temp file in $SETTINGS_DIR; left $SETTINGS unchanged."
   exit 2
