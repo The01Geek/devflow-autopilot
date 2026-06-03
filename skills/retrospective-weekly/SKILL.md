@@ -460,6 +460,14 @@ else
     gh pr create --base main --head "$BRANCH" --title "$TITLE" --body-file .devflow/tmp/pr-body-${SLUG}.md
     PR_NUMBER=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
 fi
+
+# Stamp the reserved DevFlow provenance label on the intervention PR (best-effort).
+# DevFlow is a hardcoded provenance constant (no config key); applying it after
+# creation mirrors the /devflow:implement Phase 4 docs-label idiom so a label
+# hiccup never aborts the Stage B run.
+${CLAUDE_SKILL_DIR}/../../scripts/ensure-label.sh DevFlow
+[ -n "$PR_NUMBER" ] && { gh pr edit "$PR_NUMBER" --add-label DevFlow \
+    || echo "devflow: could not apply the DevFlow label to PR #$PR_NUMBER (best-effort, continuing)" >&2; }
 ```
 
 Record `{number: $PR_NUMBER, tag: "<pattern.tag>"}` in `intervention_prs`, then

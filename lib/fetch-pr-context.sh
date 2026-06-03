@@ -19,7 +19,7 @@ REPO="$("$DEVFLOW_GH" repo view --json nameWithOwner -q .nameWithOwner)" \
   || { echo "::error::fetch-pr-context: failed to resolve repo name" >&2; exit 1; }
 
 # ── 1. PR metadata ──────────────────────────────────────────────────────────
-PR_JSON="$("$DEVFLOW_GH" pr view "$PR" --json number,headRefName,baseRefName,headRefOid,mergeCommit,mergedAt,createdAt,author,title,body,additions,deletions,files,labels)" \
+PR_JSON="$("$DEVFLOW_GH" pr view "$PR" --json number,headRefName,baseRefName,headRefOid,mergeCommit,mergedAt,createdAt,author,title,body,additions,deletions,files,labels,closingIssuesReferences)" \
   || { echo "::error::fetch-pr-context: failed to fetch PR metadata for PR ${PR}" >&2; exit 1; }
 
 BRANCH="$(echo "$PR_JSON" | jq -r .headRefName)"
@@ -36,9 +36,15 @@ ADDITIONS="$(echo "$PR_JSON" | jq -r .additions)"
 DELETIONS="$(echo "$PR_JSON" | jq -r .deletions)"
 CHANGED_FILES="$(echo "$PR_JSON" | jq '[.files[].path]')"
 
-# ── 2. Classify branch kind ──────────────────────────────────────────────────
+# ── 2. Classify retrospection kind ───────────────────────────────────────────
+# Mirror lib/scan.sh's union predicate (label / closes-issue / audit / prefix) so
+# a PR scan selected on the label or closes-issue path — e.g. DevFlow's own
+# issue-<N>-<slug> branches that match no prefix — is not then dropped here.
 IMPL_PREFIX="$(devflow_conf '.devflow_retrospective.implementation_branch_prefix' 'claude/')"
-KIND="$(jq -rn --arg branch "$BRANCH" --argjson watched true --arg impl_prefix "$IMPL_PREFIX" -f "$HERE/classify-pr-kind.jq")"
+LABELS_JSON="$(echo "$PR_JSON" | jq -c '.labels // []')"
+CLOSING_JSON="$(echo "$PR_JSON" | jq -c '.closingIssuesReferences // []')"
+KIND="$(jq -rn --arg branch "$BRANCH" --argjson watched true --arg impl_prefix "$IMPL_PREFIX" \
+    --argjson labels "$LABELS_JSON" --argjson closing "$CLOSING_JSON" -f "$HERE/classify-pr-kind.jq")"
 if [ "$KIND" = "skip" ]; then
     echo "fetch-pr-context: branch $BRANCH is not a retrospected branch" >&2
     exit 2
@@ -71,11 +77,27 @@ else
     ISSUE_FROM_BODY="$(echo "$BODY" | grep -oiE '(Closes|Fixes|Resolves)[[:space:]]+#[0-9]+' | grep -oE '[0-9]+' | head -1 || true)"
     if [ -n "$ISSUE_FROM_BODY" ]; then
         ISSUE_NUMBER="$ISSUE_FROM_BODY"
+    else
+        # Final fallback: GitHub's own issue linkage (closingIssuesReferences).
+        # DevFlow's own `issue-<N>-<slug>` branches never match the `claude/issue-`
+        # pattern above, and a PR linked only via the UI carries no Closes/Fixes
+        # keyword in its body — yet such PRs are selected by the union predicate.
+        # Without this they source an EMPTY workpad (a milder form of the bug this
+        # change fixes). Use the first linked issue's number.
+        ISSUE_FROM_CLOSING="$(echo "$CLOSING_JSON" | jq -r '.[0].number // empty' 2>/dev/null || true)"
+        if [ -n "$ISSUE_FROM_CLOSING" ]; then
+            ISSUE_NUMBER="$ISSUE_FROM_CLOSING"
+        fi
     fi
 fi
 
 # ── 5. Issue details ─────────────────────────────────────────────────────────
 ISSUE_JSON="null"
+# The workpad lives on the ISSUE (header `# DevFlow Workpad — Issue #<N>`,
+# marker `<!-- devflow:workpad -->`), authored by github-actions — NOT on the PR
+# conversation thread. Default to an empty array so the workpad/reflection parse
+# below is safe even when no linked issue was found.
+ISSUE_COMMENTS_RAW='[]'
 if [ "$ISSUE_NUMBER" != "null" ]; then
     ISSUE_RAW="$("$DEVFLOW_GH" api "repos/${REPO}/issues/${ISSUE_NUMBER}" --paginate)" \
       || { echo "::error::fetch-pr-context: failed to fetch issue ${ISSUE_NUMBER} for PR ${PR}" >&2; exit 1; }
@@ -224,12 +246,69 @@ else
     fi
 fi
 
-# workpad_body and workpad_final_status
-WORKPAD_BODY="$(echo "$PR_COMMENTS_RAW" | jq -r '[.[] | select(.body | test("<!-- devflow:workpad -->"; "i"))] | first | .body // ""')"
+# workpad_body, workpad_final_status, reflections
+# The workpad lives on the ISSUE thread (ISSUE_COMMENTS_RAW), not the PR
+# conversation thread — reading it from the PR thread (the old bug) left it
+# ~always empty, so the workpad signal in cheap-gate.jq was inert.
+WORKPAD_BODY="$(echo "$ISSUE_COMMENTS_RAW" | jq -r '[.[] | select((.body // "") | test("<!-- devflow:workpad -->"; "i"))] | first | .body // ""')"
 WORKPAD_FINAL_STATUS=""
+REFLECTIONS="[]"
 if [ -n "$WORKPAD_BODY" ]; then
-    # Extract value after a line like "**Status:** Complete" or "Status: Complete"
-    WORKPAD_FINAL_STATUS="$(echo "$WORKPAD_BODY" | sed -nE 's/^\*{0,2}[[:space:]]*[Ss]tatus[[:space:]]*:?\*{0,2}[[:space:]]*(.+)/\1/p' | head -1 | sed 's/[[:space:]]*$//' || true)"
+    # Extract the value after "**Status:** <glyph> <word>" / "Status: <word>".
+    # workpad.py prepends a canonical glyph (🚀/🎉/👎) to the status word, so the
+    # captured value is e.g. "🎉 Complete" — take the LAST whitespace token to
+    # drop the glyph and yield the bare word ("Complete"/"Blocked"/…). Statuses
+    # are single words by the workpad vocabulary. `tr -d '\r'` first guards
+    # against CRLF bodies leaving a trailing carriage return on the token.
+    # Trailing `|| true`: under `set -euo pipefail`, `head -1` closing the pipe
+    # early can hand `sed` a SIGPIPE (141) and abort the script; guard it.
+    WORKPAD_FINAL_STATUS="$(printf '%s' "$WORKPAD_BODY" | tr -d '\r' | sed -nE 's/^\*{0,2}[[:space:]]*[Ss]tatus[[:space:]]*:?\*{0,2}[[:space:]]*(.+)/\1/p' | head -1 | awk '{print $NF}' || true)"
+    # Fail toward analysis, not toward "clean": a workpad is present but its
+    # Status line did not parse (corrupt/hand-edited — workpad.py always writes
+    # `**Status:** <glyph> <word>`). cheap-gate.jq treats "" as clean, so an
+    # empty status here on a *present* workpad would silently pass a possibly-bad
+    # run. Substitute a non-empty sentinel (any non-Complete value gates not-clean).
+    if [ -z "$WORKPAD_FINAL_STATUS" ]; then
+        echo "::warning::fetch-pr-context: workpad present for PR ${PR} but Status line did not parse; not treating as Complete" >&2
+        WORKPAD_FINAL_STATUS="Unparsed"
+    fi
+    # reflections[]: the bullet lines inside the workpad's `## Devflow Reflection`
+    # <details> block (excluding the <summary> scaffold). Parsed in python3 (a
+    # hard dependency) over the env-passed body — no shell quoting traverses the
+    # markdown, and metacharacters (backticks, $) in a bullet survive intact.
+    REFLECTIONS="$(DEVFLOW_WORKPAD_BODY="$WORKPAD_BODY" python3 - <<'PYEOF'
+import os, re, json
+body = os.environ.get('DEVFLOW_WORKPAD_BODY', '')
+out, in_section = [], False
+for raw in body.split('\n'):
+    line = raw.rstrip('\r')
+    if re.match(r'^##\s+Devflow Reflection\s*$', line):
+        in_section = True
+        continue
+    if not in_section:
+        continue
+    # End of the reflection region: the closing </details>, or the next
+    # `## ` heading (degrade gracefully when </details> is missing — malformed
+    # block must not detonate the parse or swallow the rest of the comment).
+    if '</details>' in line:
+        break
+    if re.match(r'^##\s+\S', line):
+        break
+    # Skip the <details>/<summary> scaffold lines.
+    if '<details' in line or '<summary' in line or '</summary>' in line:
+        continue
+    m = re.match(r'^\s*[-*]\s+(.*\S)\s*$', line)
+    if m:
+        out.append(m.group(1))
+print(json.dumps(out))
+PYEOF
+)"
+    # Guard against a python hiccup leaving an empty/invalid value that would
+    # break the later `--slurpfile reflections`.
+    if ! printf '%s' "$REFLECTIONS" | jq -e . >/dev/null 2>&1; then
+        echo "::warning::fetch-pr-context: reflection parse produced no valid JSON for PR ${PR}; defaulting to []" >&2
+        REFLECTIONS="[]"
+    fi
 fi
 
 # ttm_hours: (merged_at - created_at) in decimal hours
@@ -362,6 +441,7 @@ printf '%s' "$COMMITS"                  > "$_JQ_TMP/commits.json"
 printf '%s' "$CHANGED_FILES"            > "$_JQ_TMP/changed_files.json"
 printf '%s' "$REVIEW_VERDICTS"          > "$_JQ_TMP/review_verdicts.json"
 printf '%s' "$WORKPAD_BODY_JSON"        > "$_JQ_TMP/workpad_body.json"
+printf '%s' "$REFLECTIONS"              > "$_JQ_TMP/reflections.json"
 printf '%s' "$IMPLEMENT_SUMMARY_JSON"   > "$_JQ_TMP/implement_summary_comment.json"
 
 jq -n \
@@ -391,6 +471,7 @@ jq -n \
     --slurpfile pr_reviews "$_JQ_TMP/pr_reviews.json" \
     --slurpfile commits "$_JQ_TMP/commits.json" \
     --slurpfile workpad_body "$_JQ_TMP/workpad_body.json" \
+    --slurpfile reflections "$_JQ_TMP/reflections.json" \
     --slurpfile review_verdicts "$_JQ_TMP/review_verdicts.json" \
     --argjson review_reject_outstanding "$REVIEW_REJECT_OUTSTANDING" \
     --slurpfile implement_summary_comment "$_JQ_TMP/implement_summary_comment.json" \
@@ -427,6 +508,7 @@ jq -n \
         pr_reviews: $pr_reviews[0],
         commits: $commits[0],
         workpad_body: $workpad_body[0],
+        reflections: $reflections[0],
         review_verdicts: $review_verdicts[0],
         implement_summary_comment: $implement_summary_comment[0],
         signals: {

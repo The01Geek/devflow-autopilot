@@ -18,6 +18,10 @@
 #                                          superseded by a later APPROVE
 #     ci_status_unknown         <bool>   — true if CI check-runs could not be read
 #                                          (fail-safe: such a PR is never "clean")
+#   plus one TOP-LEVEL field (sibling of .signals), defaulted to [] when absent
+#   (older bundles predate it):
+#     reflections               <array>  — the workpad's `## Devflow Reflection`
+#                                          bullets; non-empty ⇒ forces analysis
 #
 # Output:
 #   One compact JSON object:
@@ -30,12 +34,19 @@
 #     • post_bot_commits         == 0
 #     • review_comments_count    == 0
 #     • workpad_final_status     is "Complete", "", or null
+#     • reflections              is empty (no `## Devflow Reflection` bullets)
 #
 #   "reason" names the FIRST failing check when clean=false, or
 #   "all clean signals" when clean=true. Check order matches the priority
-#   used in the LLM triage prompt (most-blocking first).
+#   used in the LLM triage prompt (most-blocking first). The reflection check
+#   is last: a run that left a friction bullet on its workpad is forced into
+#   LLM analysis even when every other signal is clean — that self-reported
+#   friction is exactly the signal the retrospective exists to learn from.
+#   `reflections` is a top-level bundle field (sibling of .signals), so it is
+#   read directly and defaulted to [] when absent (older bundles lack it).
 
 .signals as $s
+| ((.reflections // []) | length) as $reflection_count
 | (($s.workpad_final_status == "Complete")
    or ($s.workpad_final_status == "")
    or ($s.workpad_final_status == null)) as $workpad_ok
@@ -46,5 +57,6 @@
   elif $s.post_bot_commits        > 0             then { clean: false, reason: "human commits after the bot" }
   elif $s.review_comments_count   > 0             then { clean: false, reason: "review comments present" }
   elif ($workpad_ok | not)                        then { clean: false, reason: "workpad status not Complete" }
+  elif $reflection_count          > 0             then { clean: false, reason: "workpad reflections present" }
   else                                                 { clean: true,  reason: "all clean signals" }
   end

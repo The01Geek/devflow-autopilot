@@ -45,7 +45,7 @@
     "internal_enabled": true,
     "external_enabled": true,
     "release_notes_file": "docs/external/release-notes.md",
-    "labels": "DevFlow"
+    "labels": "Documented"
   },
   "devflow_retrospective": {
     "enabled": true,
