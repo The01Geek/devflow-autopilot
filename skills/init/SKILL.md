@@ -141,13 +141,18 @@ The `@`-import paths you cite are **repo-root-relative**, matching how Claude Co
 # `@AGENTS.md` vs a written `@agents.md`), and a case-sensitive grep would then falsely
 # flag a correctly-wired import as unreferenced. Matching case-insensitively errs toward
 # silence (the safe, advisory direction).
-for f in $detected; do
-  grep -qiF "@$f" "$ROOT/CLAUDE.md"; rc=$?
-  # rc 0 = referenced; rc 1 = genuinely no match → unreferenced; rc>=2 = grep read error
-  # (vanished/unreadable CLAUDE.md after the test -f) → stay silent, don't misreport it as
-  # unreferenced. Discriminating the codes keeps the step erring toward silence.
-  [ "$rc" -eq 1 ] && echo "unreferenced: @$f"
-done
+# Only the CLAUDE.md-present cases (matrix 3/4) consult these imports — gate the loop on
+# CLAUDE.md's existence explicitly, so on the no-CLAUDE.md paths it can never grep a missing
+# target (don't lean on the rc>=2 swallow below as the only thing keeping case 1/2 quiet).
+if [ -f "$ROOT/CLAUDE.md" ]; then
+  for f in $detected; do
+    grep -qiF "@$f" "$ROOT/CLAUDE.md"; rc=$?
+    # rc 0 = referenced; rc 1 = genuinely no match → unreferenced; rc>=2 = grep read error
+    # (vanished/unreadable CLAUDE.md after the test -f) → stay silent, don't misreport it as
+    # unreferenced. Discriminating the codes keeps the step erring toward silence.
+    [ "$rc" -eq 1 ] && echo "unreferenced: @$f"
+  done
+fi
 ```
 
 Compose output per this four-case matrix, and **say nothing when nothing is actionable** (so successful re-runs stay clean):
