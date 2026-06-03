@@ -37,11 +37,13 @@
 #
 # Exit codes:
 #   0  settings provisioned, or already complete (a quiet "nothing changed").
-#   2  the existing .claude/settings.json is corrupt for provisioning — not valid
-#      JSON, or valid JSON of the wrong shape (a non-object root, or a DevFlow
-#      container key that is not an object) — left byte-for-byte unchanged (fix or
-#      remove it, then re-run); or jq is missing; or a temp file could not be
-#      created.
+#   2  any precondition or I/O failure — the existing .claude/settings.json is
+#      unreadable, is not valid JSON, or is valid JSON of the wrong shape (a
+#      non-object root, or a DevFlow object-valued path present as a non-object);
+#      or jq is missing; or the settings dir / temp file could not be created or
+#      the merged file could not be written. In every exit-2 case the existing
+#      file is left BYTE-FOR-BYTE UNCHANGED and a specific `devflow-settings:`
+#      breadcrumb names the cause.
 set -euo pipefail
 
 log()  { printf 'devflow-settings: %s\n' "$1"; }
@@ -114,7 +116,13 @@ fi
 # case above: a specific breadcrumb, exit 2, file left byte-for-byte unchanged
 # (nothing written yet). Mirrors scaffold-config.sh, which type-checks a container
 # is an object before recursing.
-BAD_SHAPE="$(printf '%s' "$EXISTING" | jq -r --argjson defaults "$DEFAULTS" '
+# Capture with `if !` so a failure of the guard's OWN jq fails CLOSED. A bare
+# `BAD_SHAPE="$(…)"` assignment masks the command-substitution exit status from
+# `set -e`, so a jq error inside the probe would leave BAD_SHAPE empty and sail
+# past the `[ -n ]` check below as if the shape were validated — silently
+# defeating the very guard meant to prevent a bad merge. Treat a probe failure as
+# corrupt input (exit 2, file untouched).
+if ! BAD_SHAPE="$(printf '%s' "$EXISTING" | jq -r --argjson defaults "$DEFAULTS" '
   . as $root
   | if ($root | type) != "object" then
       "the file is valid JSON but not a JSON object (\($root | type))"
@@ -135,13 +143,23 @@ BAD_SHAPE="$(printf '%s' "$EXISTING" | jq -r --argjson defaults "$DEFAULTS" '
                      and (($parent[$p[-1]]) | type) != "object")
             | "the \($p | join(".")) path is present but not a JSON object (\(($parent[$p[-1]]) | type))" ]
         | join("; ") )
-    end')"
+    end')"; then
+  warn "existing $SETTINGS could not be validated for provisioning (the settings-shape check failed); left it unchanged and provisioned nothing."
+  exit 2
+fi
 if [ -n "$BAD_SHAPE" ]; then
   warn "existing $SETTINGS is malformed for provisioning ($BAD_SHAPE); left it unchanged and provisioned nothing (fix or remove it, then re-run /devflow:init)."
   exit 2
 fi
 
-MERGED="$(jq -n --argjson defaults "$DEFAULTS" --argjson existing "$EXISTING" '$defaults * $existing')"
+# The merge cannot fail post-guard ($existing is a validated object whose every
+# DevFlow object-path is object-or-absent, $defaults is a fixed valid object, so
+# `*` always succeeds), but guard it anyway so an unanticipated jq failure
+# (OOM, a broken build) fails CLOSED with a breadcrumb rather than a raw error.
+if ! MERGED="$(jq -n --argjson defaults "$DEFAULTS" --argjson existing "$EXISTING" '$defaults * $existing')"; then
+  warn "could not compute the provisioned settings for $SETTINGS (merge failed); left it unchanged."
+  exit 2
+fi
 
 # Only write on a real change (idempotent — no mtime churn on a re-run). Compare
 # canonical (sorted) forms so formatting differences never read as a change.

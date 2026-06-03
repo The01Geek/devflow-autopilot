@@ -3660,6 +3660,22 @@ assert_eq "pls: malformed → file byte-for-byte unchanged (AC6)" '{ not valid j
 assert_eq "pls: malformed → breadcrumb names the malformed-settings condition (AC6)" "yes" \
   "$(printf '%s' "$PLS_BAD_OUT" | grep -qiE 'not valid json|malformed' && echo yes || echo no)"
 
+# Present-but-unreadable settings file → exit 2 with a distinct "not readable"
+# breadcrumb (not misattributed to invalid JSON), file untouched. Root bypasses
+# the perm bits, so assert only for an ordinary user — skip under root rather than
+# reporting a false FAIL (same guard the load-prompt-extension block uses).
+PLS_UNREAD="$(mktemp -d)"; mkdir -p "$PLS_UNREAD/.claude"
+printf '%s' '{"env":{"FOO":"bar"}}' > "$PLS_UNREAD/.claude/settings.json"
+chmod 000 "$PLS_UNREAD/.claude/settings.json"
+if [ "$(id -u)" -ne 0 ] && [ ! -r "$PLS_UNREAD/.claude/settings.json" ]; then
+  PLS_UNREAD_OUT="$(bash "$PLS" "$PLS_UNREAD" 2>&1)"; PLS_UNREAD_RC=$?
+  assert_eq "pls: unreadable settings → exit non-zero" "yes" \
+    "$([ "$PLS_UNREAD_RC" -ne 0 ] && echo yes || echo no)"
+  assert_eq "pls: unreadable settings → breadcrumb says 'not readable' (not 'invalid JSON')" "yes" \
+    "$(printf '%s' "$PLS_UNREAD_OUT" | grep -qi 'not readable' && echo yes || echo no)"
+fi
+chmod 644 "$PLS_UNREAD/.claude/settings.json"   # restore so rm -rf can clean up
+
 # Valid JSON but WRONG SHAPE — a non-object root (array / scalar) or a DevFlow
 # container key present as a non-object — is corrupt for provisioning: exit
 # non-zero, specific breadcrumb, file byte-for-byte unchanged. These shapes parse
@@ -3810,7 +3826,7 @@ assert_eq "pls: isolation → scaffold-config.sh creates no .claude/ dir (AC7)" 
 
 rm -rf "$PLS_FRESH" "$PLS_KEEP" "$PLS_IDEM" "$PLS_BAD" "$PLS_EMPTY" "$PLS_WS" \
        "$PLS_OBJ" "$PLS_ISO" "$PLS_ARR" "$PLS_SCALAR" "$PLS_WRONGTYPE" \
-       "$PLS_NESTED" "$PLS_NODEFAULT" "$PLS_DEEP" "$PLS_ENV0"
+       "$PLS_NESTED" "$PLS_NODEFAULT" "$PLS_DEEP" "$PLS_ENV0" "$PLS_UNREAD"
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
