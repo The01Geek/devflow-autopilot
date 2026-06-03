@@ -976,8 +976,14 @@ for FN in 'CLAUDE.md' '.github/copilot-instructions.md' 'AGENTS.md' 'GEMINI.md' 
     "$(grep -qF "$FN" "$INIT_SKILL" && echo yes || echo no)"
 done
 # AGENTS.md is matched case-insensitively (covers agent.md / agents.md) — AC3.
+# Pin BOTH the prose claim AND a behavioral token (the lowercase `agents.md`
+# variant the step actually probes): the word alone could survive a regression
+# that trims the variant list down to just `AGENTS.md`, so the lowercase form is
+# what proves the case-insensitive handling is really there.
 assert_eq "init-memory-nudge: AGENTS.md detection is case-insensitive (prose)" "yes" \
   "$(grep -qiF 'case-insensitive' "$INIT_SKILL" && echo yes || echo no)"
+assert_eq "init-memory-nudge: case-insensitive AGENTS variant probed (agents.md)" "yes" \
+  "$(grep -qF 'agents.md' "$INIT_SKILL" && echo yes || echo no)"
 # The @-import reuse guidance (AC4/AC5): pin two concrete repo-root-relative paths,
 # including the dotted .github one (the easiest to get wrong).
 assert_eq "init-memory-nudge: @-import example for AGENTS.md present" "yes" \

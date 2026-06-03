@@ -115,7 +115,13 @@ for f in ".github/copilot-instructions.md" "AGENTS.md" "agents.md" "AGENT.md" "a
 done
 ```
 
-The `@`-import paths you cite are **repo-root-relative**, matching how Claude Code resolves `CLAUDE.md` imports — `@AGENTS.md`, `@.github/copilot-instructions.md`, `@GEMINI.md`, `@.cursorrules`. When `CLAUDE.md` is present, check whether it already references each existing agent file by grepping for that file's `@`-path (`grep -qF '@AGENTS.md' "$ROOT/CLAUDE.md"`, etc.).
+The `@`-import paths you cite are **repo-root-relative**, matching how Claude Code resolves `CLAUDE.md` imports — `@AGENTS.md`, `@.github/copilot-instructions.md`, `@GEMINI.md`, `@.cursorrules`. When `CLAUDE.md` is present, check **every** detected agent file the same loop-driven way (don't hand-pick one) — for each existing file, grep `CLAUDE.md` for its `@`-path and treat a miss as an unreferenced file:
+
+```bash
+for f in <each agent file detected above>; do
+  grep -qF "@$f" "$ROOT/CLAUDE.md" || echo "unreferenced: @$f"
+done
+```
 
 Compose output per this four-case matrix, and **say nothing when nothing is actionable** (so successful re-runs stay clean):
 
@@ -124,4 +130,4 @@ Compose output per this four-case matrix, and **say nothing when nothing is acti
 - **`CLAUDE.md` present but it does not already reference an existing detected agent file** → suggest adding that file's `@`-import to `CLAUDE.md` (name the file and its `@`-path); no `/init` nudge.
 - **`CLAUDE.md` present and it already references each existing detected agent file via `@`-import (or no such files exist)** → produce **no project-memory output** at all.
 
-Remember: the built-in `/init` is a *different* command from `/devflow:init` (it lives in Claude Code itself) — recommend it, but never run it or any file write on the user's behalf here. The whole step is a relay, exactly like the preflight branch above.
+Remember: the built-in `/init` is a *different* command from `/devflow:init` (it lives in Claude Code itself) — recommend it, but never run it on the user's behalf here. The whole step is a relay, exactly like the preflight branch above.
