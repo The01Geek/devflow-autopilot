@@ -995,6 +995,15 @@ assert_eq "init-memory-nudge: AGENTS.md case-variants deduped to one (at most on
 # "/CLAUDE.md", emitting a misleading nudge. Pin the guard prose so a reword/deletion fails.
 assert_eq "init-memory-nudge: defends against an unresolvable repo root" "yes" \
   "$(grep -qF 'Resolve the root defensively' "$INIT_SKILL" && echo yes || echo no)"
+# Case 2 (no CLAUDE.md, agent files present) must not re-expand the deduped detection
+# into per-spelling nudges — pin the consumer-side one-nudge-per-physical-file rule so a
+# reword can't undo the dedup on the agent-files-present path.
+assert_eq "init-memory-nudge: case 2 emits one nudge per physical file" "yes" \
+  "$(grep -qF 'nudge per *physical* file' "$INIT_SKILL" && echo yes || echo no)"
+# The unreferenced-import check must distinguish a grep read error (rc>=2) from a genuine
+# no-match (rc 1) so a vanished/unreadable CLAUDE.md is not misreported as unreferenced.
+assert_eq "init-memory-nudge: grep read-error path stays silent (rc>=2)" "yes" \
+  "$(grep -qF 'grep read error' "$INIT_SKILL" && echo yes || echo no)"
 # The @-import reuse guidance (AC4/AC5): pin two concrete repo-root-relative paths,
 # including the dotted .github one (the easiest to get wrong).
 assert_eq "init-memory-nudge: @-import example for AGENTS.md present" "yes" \

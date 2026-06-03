@@ -118,25 +118,30 @@ ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || ROOT=
 # different spelling, not a casing.) These all denote one logical convention, so report it
 # AT MOST ONCE: a case-insensitive FS makes a file's case-variants all match, and a repo
 # carrying both plural and singular still warrants a single nudge. First match wins.
+# Accumulate the deduped hits into $detected (filenames are space-free) so the
+# CLAUDE.md-present check below reuses this exact list instead of re-globbing.
+detected=
 agents_seen=
 for f in "AGENTS.md" "agents.md" "AGENT.md" "agent.md"; do
-  [ -f "$ROOT/$f" ] && { [ -n "$agents_seen" ] || echo "agent-file: $f"; agents_seen=1; }
+  [ -f "$ROOT/$f" ] && { [ -n "$agents_seen" ] || { echo "agent-file: $f"; detected="$detected $f"; }; agents_seen=1; }
 done
 # The remaining files have a single canonical casing — no dedup needed.
 for f in ".github/copilot-instructions.md" "GEMINI.md" ".cursorrules"; do
-  [ -f "$ROOT/$f" ] && echo "agent-file: $f"
+  [ -f "$ROOT/$f" ] && { echo "agent-file: $f"; detected="$detected $f"; }
 done
 ```
 
-The `@`-import paths you cite are **repo-root-relative**, matching how Claude Code resolves `CLAUDE.md` imports — `@AGENTS.md`, `@.github/copilot-instructions.md`, `@GEMINI.md`, `@.cursorrules`. When `CLAUDE.md` is present, check **every** detected agent file the same loop-driven way (don't hand-pick one) — for each existing file, grep `CLAUDE.md` for its `@`-path and treat a miss as an unreferenced file:
+The `@`-import paths you cite are **repo-root-relative**, matching how Claude Code resolves `CLAUDE.md` imports — `@AGENTS.md`, `@.github/copilot-instructions.md`, `@GEMINI.md`, `@.cursorrules`. When `CLAUDE.md` is present, check **every** detected agent file the same loop-driven way (don't hand-pick one) — for each existing file, grep `CLAUDE.md` for its `@`-path and treat a miss as an unreferenced file. **Reuse the exact deduped list the detection above emitted** (its `agent-file:` names — capture them into `$detected`), in the **same shell** so `$ROOT` is still set; do **not** re-probe/re-glob here, or the AGENTS.md dedup would be undone and one physical file flagged under several spellings again:
 
 ```bash
+# `$detected` = the deduped `agent-file:` names captured from the detection above (one
+# entry per physical file) — NOT a fresh re-glob.
 # Case-insensitive match (-i): on a case-insensitive FS the casing reported above may
 # differ from how the user actually wrote the @-import in CLAUDE.md (e.g. detected
 # `@AGENTS.md` vs a written `@agents.md`), and a case-sensitive grep would then falsely
 # flag a correctly-wired import as unreferenced. Matching case-insensitively errs toward
 # silence (the safe, advisory direction).
-for f in <each agent file detected above>; do
+for f in $detected; do
   grep -qiF "@$f" "$ROOT/CLAUDE.md"; rc=$?
   # rc 0 = referenced; rc 1 = genuinely no match → unreferenced; rc>=2 = grep read error
   # (vanished/unreadable CLAUDE.md after the test -f) → stay silent, don't misreport it as
