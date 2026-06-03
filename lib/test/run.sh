@@ -1688,6 +1688,37 @@ chmod +x "$SCAN_TMP/gh6"
 DEVFLOW_CONFIG_FILE="$LIB/test/fixtures/config.json" DEVFLOW_GH="$SCAN_TMP/gh6" bash "$LIB/scan.sh" >/dev/null 2>&1; SCAN_AUTHOR_DEG_RC=$?
 assert_eq "#103 I-3/T1: weekly watched-author reshape failure exits non-zero too" "1" "$SCAN_AUTHOR_DEG_RC"
 
+# #103 I-3/T1 (shadow): complete the 2x2 degraded matrix (label|author x fetch|reshape).
+# gh4=label-fetch, gh6=author-reshape above; here gh7=label-RESHAPE (a non-array label
+# batch aborts the reshape jq) and gh8=author-FETCH (author `pr list` exits non-zero).
+cat > "$SCAN_TMP/gh7" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *"repo view"*) echo "acme/example-repo" ;;
+  *"pr list"*"--label DevFlow"*) echo '{"not":"an-array"}' ;;
+  *"pr list"*) echo '[]' ;;
+  *"api"*"retrospectives.jsonl?ref=main"*) printf 'HTTP/2.0 404 Not Found\r\n\r\n' ;;
+  *) echo '[]' ;;
+esac
+STUB
+chmod +x "$SCAN_TMP/gh7"
+DEVFLOW_CONFIG_FILE="$LIB/test/fixtures/config.json" DEVFLOW_GH="$SCAN_TMP/gh7" bash "$LIB/scan.sh" >/dev/null 2>&1; SCAN_LBL_RESHAPE_RC=$?
+assert_eq "#103 I-3/T1: weekly label-reshape failure exits non-zero" "1" "$SCAN_LBL_RESHAPE_RC"
+cat > "$SCAN_TMP/gh8" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *"repo view"*) echo "acme/example-repo" ;;
+  *"pr list"*"--label DevFlow"*) echo '[]' ;;
+  *"pr list"*"author:"*) echo "author fetch outage" >&2; exit 1 ;;
+  *"pr list"*) echo '[]' ;;
+  *"api"*"retrospectives.jsonl?ref=main"*) printf 'HTTP/2.0 404 Not Found\r\n\r\n' ;;
+  *) echo '[]' ;;
+esac
+STUB
+chmod +x "$SCAN_TMP/gh8"
+DEVFLOW_CONFIG_FILE="$LIB/test/fixtures/config.json" DEVFLOW_GH="$SCAN_TMP/gh8" bash "$LIB/scan.sh" >/dev/null 2>&1; SCAN_AUTHOR_FETCH_RC=$?
+assert_eq "#103 I-3/T1: weekly watched-author fetch failure exits non-zero" "1" "$SCAN_AUTHOR_FETCH_RC"
+
 # #103 I-3 (regression): a fully-healthy weekly run still exits 0.
 DEVFLOW_CONFIG_FILE="$LIB/test/fixtures/config.json" DEVFLOW_GH="$SCAN_TMP/gh" bash "$LIB/scan.sh" >/dev/null 2>&1; SCAN_OK_RC=$?
 assert_eq "#103 I-3: healthy weekly run still exits 0" "0" "$SCAN_OK_RC"

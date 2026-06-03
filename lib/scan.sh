@@ -92,7 +92,9 @@ if [ -n "$EXPLICIT_PRS" ]; then
     # Scratch for the predicate jq's stderr, so a detonation breadcrumb names the
     # actual jq diagnostic (e.g. "Cannot iterate over string") and not just an
     # exit code. Overwritten per PR, read immediately, removed before the print.
+    # Trap-cleaned so a mid-loop `set -e` abort can't orphan it in $TMPDIR.
     PRS_ERR="$(mktemp)"
+    trap 'rm -f "$PRS_ERR"' EXIT
     IFS=',' read -ra _prs <<< "$EXPLICIT_PRS"
     for _p in "${_prs[@]}"; do
         _p="$(echo "$_p" | xargs)"
@@ -114,6 +116,9 @@ if [ -n "$EXPLICIT_PRS" ]; then
         # (e.g. a non-array `labels` slips the predicate's `// []` guard, so `map`
         # aborts); report that as a distinct "predicate evaluation failed"
         # breadcrumb rather than the misleading "matches no retrospection path".
+        # Non-fatal by design here (warn + `continue`), unlike weekly mode's
+        # degraded gate: --prs is the operator-named ad-hoc path, so a per-PR
+        # breadcrumb on stderr is the right granularity rather than a hard exit.
         set +e
         _SEL="$(echo "$_PRJSON" | jq -c --arg impl "$IMPL_PREFIX" --argjson watched "$_WATCHED" \
             "select($RETRO_PREDICATE) | {number, headRefName, mergedAt}" 2>"$PRS_ERR")"
@@ -150,8 +155,11 @@ DEGRADED=0
 # expiry vs rate-limit vs a malformed shape) rather than a generic "failed". One
 # scratch file, overwritten per call (each breadcrumb reads it immediately, before
 # the next call), removed just before the gate; collapse newlines and cap length
-# so a breadcrumb stays a single bounded line.
+# so a breadcrumb stays a single bounded line. Trap-cleaned at creation so a
+# `set -e` abort between here and the explicit `rm -f` below cannot orphan it;
+# the later `RESP`/`ERR` trap replaces this one only after FETCH_ERR is removed.
 FETCH_ERR="$(mktemp)"
+trap 'rm -f "$FETCH_ERR"' EXIT
 
 # ── Path (a): label pass — author- and branch-agnostic ───────────────────────
 # Every merged PR carrying the reserved DevFlow provenance label in the window
