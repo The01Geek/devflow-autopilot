@@ -421,13 +421,14 @@ Write the code. Follow the patterns and conventions described in `CLAUDE.md`. As
 
 - **Deletes** code (a call site, branch, method, file, route, page, or asset) → run **2.3.1**, and **2.3.2** if it deletes a method/file/route/page.
 - **Changes a contract** (a signature, a renamed/moved symbol, a tightened validator, or a routing/branch predicate) → run **2.3.0**.
+- **Adds a rule that has peers** (a clause, guard, validator, or invariant that must hold at two or more co-equal sites for the rule to actually hold) → run **2.3.0a**.
 - **Always**, whatever the diff's shape → run **2.3.3** (convention), **2.3.4** (boundary-assumption), **2.3.5** (simplification & efficiency), **2.3.6** (error-handling & silent-failure).
 
 This narrows *ceremony*, never *coverage*, and is **fail-safe**: each sweep's heading is authoritative, so if its trigger fires you run it even when this list didn't call it out — if the index ever drifts from a heading, the heading wins (drift can only add a sweep, never skip a warranted one). An add-only diff typically runs just the four always-on sweeps. **Record the diff shape you classified and the sweeps you are running in a workpad `--note`** — the selection is then an auditable commitment a reviewer or the weekly retrospective can check, not a silent skip; a note reading "add-only" on a diff that in fact deleted a file is a visible error, where an unrecorded mental skip is not.
 
 **Run each selected sweep after implementing and before running tests (Phase 2.4)** — that timing is the same for every sweep.
 
-For the grep-based sweeps (**2.3.0**, **2.3.2**), don't merely attest you grepped: run the actual `git grep -n` / `grep -rnE` the sweep describes and record a **concise** result via `--note` (the match count plus "all intended", or the specific offending sites) — evidence, not a claim.
+For the grep-based sweeps (**2.3.0**, **2.3.0a**, **2.3.2**), don't merely attest you grepped: run the actual `git grep -n` / `grep -rnE` the sweep describes and record a **concise** result via `--note` (the match count plus "all intended", or the specific offending sites) — evidence, not a claim.
 
 #### 2.3.0 Changed-contract sweep (mandatory whenever the change modifies a signature, renames/moves a symbol, tightens a validator, or changes a routing/branch predicate)
 
@@ -440,6 +441,16 @@ For the grep-based sweeps (**2.3.0**, **2.3.2**), don't merely attest you greppe
 A modify / rename / reroute is not done until grepping for the old symbol, predicate value, stream, or contract returns only the intended sites.
 
 **Re-run this sweep after any merge or rebase of the base branch** (the configured `base_branch`, not a hard-coded `main`)**.** A clean *textual* merge is not a clean *semantic* merge: the base branch may have added a fixture, call site, or assertion (often from a concurrently-merged PR) that your new contract now rejects, and git merges it cleanly without ever surfacing the conflict. After any `git merge` / `git pull --rebase` of the base branch the run performs (including the Error Handling conflict-recovery path), re-run steps 1–3 against the newly-arrived sites and treat any new site that violates the change's contract as a defect in *this* PR. See [`docs/implement-skill.md`](../../docs/implement-skill.md) for why each Phase 2.3 sweep exists.
+
+#### 2.3.0a Peer-checkpoint completeness sweep (mandatory whenever the change adds a rule/clause/guard/invariant that has co-equal peer sites)
+
+2.3.0 catches a *modified* contract leaving its *dependent* sites (callers, fixtures) stale. This sweep catches the additive twin: you **add** a rule — a guard, a validator clause, a read-only precondition, a classification tripwire, a fallback — and state it at only *some* of the co-equal sites that must all carry it for the rule to actually hold. Each site reads correct in `git diff`, the happy path works, and the PR's own prose/CHANGELOG describes the rule as if it held everywhere — so the asymmetry ships clean and surfaces only as a `/devflow:review` REJECT or a human/post-bot patch. This is *not* caller→callee propagation (that is 2.3.0's job); a **peer set** is two or more sites that must each enforce the *same* rule independently (the four gate checkpoints of a skill step, the object/scalar/array branches of a config-leaf handler, the selection predicate *and* the parallel derivation that must agree on the same fallback). After adding any such rule, before running tests:
+
+1. **Enumerate the peer set by grep, not from memory.** Pick the shared marker the peers have in common (the clause's keyword, the guarded variable, the predicate name, the step heading) and `git grep -n` it across the repo to list every site the rule must hold at. Working from memory is exactly how a peer gets missed.
+2. **Apply the rule at every member — or record the exemption.** Add the clause/guard/branch at each enumerated site. If a peer is *deliberately* exempt, that is allowed, but the asymmetry must be recorded with a `--note` (which peer, why) — a *silent* one-sided rule is the defect; a *documented* one is a decision.
+3. **Reconcile prose that overclaims the rule's breadth.** Grep the diff's own prose, CHANGELOG, and docs for any statement that describes the rule as universal ("every checkpoint", "all branches", "always"). Either make it true at every peer or narrow the prose to match reality — an overclaiming sentence on a half-applied rule is itself a defect.
+
+The rule is not done until grepping the shared marker returns the rule present at every peer in the set (or an explicit `--note` for each exemption).
 
 #### 2.3.1 Orphaned-setup sweep (mandatory whenever the change deletes code)
 
