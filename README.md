@@ -136,6 +136,8 @@ All four are used by the core skills (`/devflow:implement` and `/devflow:review`
   }
   ```
   Or update on demand: `/plugin marketplace update devflow-marketplace`.
+
+  `/devflow:init` can also — **only with your explicit consent** — make `auto` permission mode **selectable** in the Shift+Tab cycle by adding `CLAUDE_CODE_ENABLE_AUTO_MODE="1"` to your **user-global** `~/.claude/settings.json` (it must live at user scope; Claude Code ignores it in a project file). This is *selectable, never on*: it writes no `permissions.defaultMode`, so you still choose `auto` yourself and plan/model/admin gates still apply. It asks before touching the user-global file, preserves a deliberately-disabled `"0"` (never flips it to `"1"`), and is idempotent, atomic, and fail-closed; decline and it just prints the one-line setting for you to add yourself.
 - **Cloud tier**: bump `devflow_version` in `.devflow/config.json` to a newer tag, branch, or commit SHA (the workflows fetch that ref at runtime), or just re-run the same `install.sh`, now a small diff, since it re-stamps `devflow_version` and refreshes the workflows/actions without committing the plugin tree, and keeps your config. (The plugin must be at the literal workspace path when CI runs because a marketplace install isn't reachable from the Actions sandbox, the `vendor-plugin` action satisfies this at runtime; see [`docs/cloud-setup.md`](docs/cloud-setup.md#why-the-plugin-lives-at-a-workspace-path-not-added-as-a-github-marketplace-in-ci).)
 
 ## The workflow, end to end

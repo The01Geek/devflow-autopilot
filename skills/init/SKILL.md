@@ -55,7 +55,31 @@ With no argument it targets the current repo root and **deep-merges** the market
 
 It is **local/interactive-tier only** — the cloud (CI) tier uses claude-code-action's own allowlist profile and consumes no local marketplace install, so this helper is **not** wired into the shared scaffolder and a cloud-only `install.sh` run writes no `.claude/settings.json`. It is **idempotent** (re-running after the keys exist changes nothing) and writes **no** `permissions.defaultMode`.
 
-> **Selectable `auto` mode is deliberately NOT provisioned here.** Setting `env.CLAUDE_CODE_ENABLE_AUTO_MODE` only takes effect from **user scope** (`~/.claude/settings.json`) or managed settings — Claude Code filters permission-gating env vars out of project scope, so writing it into the project `.claude/settings.json` would be a silent no-op. That capability is tracked as a separate follow-up; do not claim `/devflow:init` enables or makes auto mode selectable.
+> **Selectable `auto` mode is provisioned separately, at user scope.** Setting `env.CLAUDE_CODE_ENABLE_AUTO_MODE` takes effect only from **user scope** (`~/.claude/settings.json`) or managed settings — Claude Code filters permission-gating env vars out of project scope, so writing it into the project `.claude/settings.json` would be a silent no-op. The project provisioner above therefore never writes it; the **next step** provisions it into user scope, behind explicit consent. Never claim `/devflow:init` *enables* or *turns on* auto mode — at most it makes auto mode **selectable** (the user still has to choose it in the Shift+Tab cycle, and plan/model/admin gates still apply).
+
+## Then: optionally make `auto` mode selectable (user scope — with consent)
+
+`auto` permission mode only appears in the Shift+Tab cycle when `env.CLAUDE_CODE_ENABLE_AUTO_MODE="1"` is set in **user-scope** `~/.claude/settings.json` (or managed settings) — see the no-op note above for why the project file can't do it. Because `~/.claude/settings.json` is **user-global** — it affects *every* one of the user's projects, not just this repo — `/devflow:init` must never edit it silently. So this step is **consent-gated**:
+
+1. **Ask first.** Tell the user that making `auto` selectable means adding `CLAUDE_CODE_ENABLE_AUTO_MODE="1"` to their **user-global** `~/.claude/settings.json` (affecting all their projects), that it is **selectable only** — never turned on for them, and plan/model/admin gates still apply — and ask whether they want DevFlow to add it now. Default to **not** writing.
+2. **If they decline, or you cannot ask** (non-interactive run), invoke the helper with **no flag** — it prints the exact one-line setting for the user to add themselves and writes **nothing**:
+   ```bash
+   bash "${CLAUDE_SKILL_DIR}/../../scripts/provision-auto-mode.sh"
+   ```
+3. **Only if the user explicitly consents,** pass `--apply` so the helper performs the user-scope write:
+   ```bash
+   bash "${CLAUDE_SKILL_DIR}/../../scripts/provision-auto-mode.sh" --apply
+   ```
+
+With `--apply` it targets `~/.claude/settings.json` and **deep-merges** `env.CLAUDE_CODE_ENABLE_AUTO_MODE="1"` additively and **without clobbering anything the user already set** — including a deliberately-disabled `"0"`, which it **preserves** and reports as "nothing changed" (it never flips a `"0"` to `"1"`). The merge is **idempotent**, **atomic** (mktemp + same-dir mv), and **fail-closed**: a malformed or wrong-shaped `~/.claude/settings.json` is left byte-for-byte unchanged with a specific `devflow-automode:` breadcrumb and a non-zero exit. It writes **no** `permissions.defaultMode` — `auto` stays selectable, never on.
+
+Read the helper's `devflow-automode:` line and respond:
+
+- **`provisioned … 'auto' is now SELECTABLE …`** — the user consented and `~/.claude/settings.json` gained `CLAUDE_CODE_ENABLE_AUTO_MODE="1"`. Tell the user `auto` is now **selectable** in the Shift+Tab cycle (not on — they pick it, and plan/model/admin gates still apply), and to review the change. Do **not** claim auto mode was enabled or turned on.
+- **`… already sets CLAUDE_CODE_ENABLE_AUTO_MODE="1" — 'auto' is already selectable; nothing changed`** — idempotent re-run; `auto` is already selectable. Nothing to report beyond that.
+- **`… already sets CLAUDE_CODE_ENABLE_AUTO_MODE="…" (your value is preserved) — 'auto' is NOT selectable …; nothing changed`** — the user has a deliberate non-`"1"` value (e.g. a `"0"`) that was **preserved**. Relay that their value was kept and that `auto` is therefore **not** selectable; do **not** offer to flip it (the disable was deliberate — they can re-run with consent themselves if they change their mind).
+- **the no-flag copy-paste output** (they declined, or you couldn't ask) — relay the one-line setting and tell the user they can add it to `~/.claude/settings.json` themselves, or re-run `/devflow:init` and consent.
+- **`existing … is not readable …`**, **`… is not valid JSON …`**, **`… is malformed for provisioning …`**, or **`jq not found …`** (exit 2) — relay the specific breadcrumb; the file was left **byte-for-byte unchanged**. Tell them to fix or remove the file (or install jq), then re-run. Do **not** hand-edit `~/.claude/settings.json` yourself.
 
 ## Then: enrich the `setup` block by exploring the repo
 
@@ -107,7 +131,7 @@ The scaffolder also prints `devflow-detect:` lines from the language auto-detect
 
 Read the settings provisioner's `devflow-settings:` line and respond:
 
-- **`provisioned … (added: …)`** — the project `.claude/settings.json` gained the listed DevFlow keys (the `devflow-marketplace` registration is now auto-updating). **Tell the user to review the change before committing.** Do **not** claim auto mode was enabled or made selectable — that half is deferred.
+- **`provisioned … (added: …)`** — the project `.claude/settings.json` gained the listed DevFlow keys (the `devflow-marketplace` registration is now auto-updating). **Tell the user to review the change before committing.** Do **not** claim *this* (project-scope) step enabled or made auto mode selectable — selectable `auto` mode is the separate user-scope step above (`provision-auto-mode.sh`).
 - **`… already has the DevFlow keys; nothing changed`** — idempotent re-run; the settings already had every key. Nothing to report beyond that it was already set up.
 - **`existing … is not readable …`**, **`existing … is not valid JSON …`**, or **`existing … is malformed for provisioning …`** (exit 2) — the existing `.claude/settings.json` is unusable: it is unreadable (permissions), it does not parse as JSON, or it parses but has the wrong shape (a non-object root, or a DevFlow key the merge needs as an object — e.g. `extraKnownMarketplaces` or the `devflow-marketplace` entry — present as a non-object). The helper left it **byte-for-byte unchanged** and provisioned nothing. Relay the specific breadcrumb to the user; for the not-readable case tell them to fix the file permissions, otherwise to fix or remove the file — then re-run `/devflow:init`. Do **not** hand-edit the settings file yourself.
 - **`jq not found …`** (exit 2) — relay the gap; the marketplace settings were not provisioned. (The same `jq` the scaffolder needs.)

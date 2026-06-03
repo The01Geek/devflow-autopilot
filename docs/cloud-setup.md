@@ -92,6 +92,14 @@ SHA `install.sh` pins). The fetch branch refuses to run without a pinned
 >   "enabledPlugins": { "devflow@devflow-marketplace": true }
 > }
 > ```
+> `/devflow:init` can additionally — **only with your explicit consent** — make
+> `auto` permission mode **selectable** by writing `CLAUDE_CODE_ENABLE_AUTO_MODE="1"`
+> into your **user-global** `~/.claude/settings.json` (it must be user scope —
+> Claude Code filters this permission-gating env var out of project settings). It is
+> *selectable, never on* (no `permissions.defaultMode` is written), preserves a
+> deliberately-disabled `"0"`, and prints the one-line setting instead of writing if
+> you decline. This is a **local-tier** convenience only — the cloud runner uses
+> claude-code-action's own allowlist profile and consumes no `~/.claude/settings.json`.
 
 ## Required secrets
 
