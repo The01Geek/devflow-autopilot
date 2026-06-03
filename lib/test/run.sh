@@ -342,6 +342,19 @@ assert_eq "base_branch read: SKILL checks out origin/\$BASE" "yes" \
 assert_eq "base_branch read: SKILL keeps the attributable fetch-failure breadcrumb" "yes" \
   "$(grep -qF 'could not fetch base branch' "$IMPL_SKILL" && echo yes || echo no)"
 
+# Versioning is per-repo policy, not the engine's job: implement/SKILL.md must carry NO
+# version-bump step. A repo that wants version management opts in via its consumer prompt
+# extension (.devflow/prompt-extensions/implement.md), which the loader appends to the skill.
+# Pin (1) both removed section headings to 0, (2) no stray Phase-2.6/3.1.5 cross-refs, and
+# (3) that DevFlow itself re-homes its own rule into that extension so the dogfooded behavior
+# is not silently lost. ("Step 2.6" refs elsewhere belong to review-and-fix, not here.)
+assert_eq "implement: no version-bump section (versioning is per-repo, not the engine)" "0" \
+  "$(grep -cE '^### (2\.6 Version & changelog|3\.1\.5 Apply the version bump)' "$IMPL_SKILL")"
+assert_eq "implement: no stray version-phase cross-refs (Phase 2.6 / 3.1.5)" "0" \
+  "$(grep -cE '3\.1\.5|Phase 2\.6' "$IMPL_SKILL")"
+assert_eq "implement: DevFlow re-homes its versioning rule to the implement prompt extension" "yes" \
+  "$(EXT="$LIB/../.devflow/prompt-extensions/implement.md"; [ -s "$EXT" ] && grep -qF 'plugin.json' "$EXT" && grep -qiF 'changelog' "$EXT" && echo yes || echo no)"
+
 # Behavioral coverage for the base_branch read+guard (token pins above catch a
 # refactor that DROPS a token, but not a semantic regression in config-get's
 # soft/hard contract that the guard depends on). Mirrors the max_iterations
@@ -777,36 +790,151 @@ assert_eq "scaffold-jqerr: corrupt example template → existing config left unt
 rm -rf "$SC_JQERR" "$SC_JQERR_TGT"
 
 # ────────────────────────────────────────────────────────────────────────────
-echo "scaffold-config.sh: creates .devflow/prompt-extensions/ + an inert example"
+echo "scaffold-config.sh: scaffolds an inert prompt-extension example for EVERY skill"
 # ────────────────────────────────────────────────────────────────────────────
-# Scaffolding must create the consumer-owned prompt-extensions directory with a
-# commented EXAMPLE file (issue #84, AC 9). The example must be INERT — named
-# with a `.example` suffix so it is NOT a live `<skill>.md` that would inject
-# itself into a real skill run.
+# Scaffolding must create .devflow/prompt-extensions/<skill>.md.example for every
+# skill under skills/ (issue #95), not just create-issue. Each example is INERT:
+# the `.example` suffix keeps it from matching the live `<skill>.md` that
+# load-prompt-extension.sh treats as an extension, and its whole body is an HTML
+# comment so even a misrename that drops `.example` injects no actionable text. The
+# expected skill set is DERIVED from skills/*/ (the same source of truth the
+# SKILL.md coverage guard uses), so this doubles as a drift guard: a new skill the
+# scaffolder's authored list forgets fails the per-skill assertions below.
 SC="$LIB/../scripts/scaffold-config.sh"
+LPE="$LIB/../scripts/load-prompt-extension.sh"
 SC_PE="$(mktemp -d)"
-bash "$SC" "$SC_PE" >/dev/null 2>&1
+SC_PE_OUT="$(bash "$SC" "$SC_PE" 2>&1)"
+SC_PE_DIR="$SC_PE/.devflow/prompt-extensions"
+
 assert_eq "scaffold-pe: .devflow/prompt-extensions/ created" "yes" \
-  "$([ -d "$SC_PE/.devflow/prompt-extensions" ] && echo yes || echo no)"
-assert_eq "scaffold-pe: commented example file created" "yes" \
-  "$([ -f "$SC_PE/.devflow/prompt-extensions/create-issue.md.example" ] && echo yes || echo no)"
-# The example carries explanatory comment text — verify it actually opens an
-# HTML comment block (stronger than a bare non-empty check, which its name implies).
-assert_eq "scaffold-pe: example file is a commented block" "yes" \
-  "$(grep -qF '<!--' "$SC_PE/.devflow/prompt-extensions/create-issue.md.example" && echo yes || echo no)"
-# Inert: no live `<skill>.md` is scaffolded (only the .example template), so the
-# no-op path is the default until a consumer deliberately drops a real file. Use a
-# glob + `[ -e ]` rather than spawning `ls` to test for existence; with nullglob
-# off, an unmatched glob leaves the literal pattern in "$1", which `[ -e ]` rejects.
-assert_eq "scaffold-pe: example is inert (no live <skill>.md present)" "no" \
-  "$(set -- "$SC_PE/.devflow/prompt-extensions/"*.md; [ -e "$1" ] && echo yes || echo no)"
-# Idempotent: a second run leaves the example byte-identical (guards the
-# `if [ ! -d ]` create guard against re-writing on every run).
-SC_PE_EX1="$(cat "$SC_PE/.devflow/prompt-extensions/create-issue.md.example")"
-bash "$SC" "$SC_PE" >/dev/null 2>&1
-assert_eq "scaffold-pe: idempotent re-run keeps example unchanged" \
-  "$SC_PE_EX1" "$(cat "$SC_PE/.devflow/prompt-extensions/create-issue.md.example")"
+  "$([ -d "$SC_PE_DIR" ] && echo yes || echo no)"
+
+SC_PE_MISSING=""; SC_PE_NOTCOMMENT=""; SC_PE_NOHINT=""; SC_PE_EMPTYHINT=""; SC_PE_LIVE=""; SC_PE_NOTINERT=""
+for SKILL_DIR in "$LIB"/../skills/*/; do
+  skill="$(basename "$SKILL_DIR")"
+  f="$SC_PE_DIR/$skill.md.example"
+  if [ -f "$f" ]; then
+    # AC 3: body is a SINGLE comment block — first non-blank line opens `<!--`,
+    # last non-blank line closes `-->`. Read the file once, then slice.
+    nonblank="$(grep -v '^[[:space:]]*$' "$f")"
+    first="$(printf '%s\n' "$nonblank" | head -n1)"
+    last="$(printf '%s\n' "$nonblank" | tail -n1)"
+    case "$first" in '<!--'*) : ;; *) SC_PE_NOTCOMMENT="$SC_PE_NOTCOMMENT $skill" ;; esac
+    case "$last"  in *'-->')  : ;; *) SC_PE_NOTCOMMENT="$SC_PE_NOTCOMMENT $skill" ;; esac
+    # AC 4: a per-skill hint line naming the skill, distinct from the boilerplate.
+    grep -qF "Useful extension for $skill:" "$f" || SC_PE_NOHINT="$SC_PE_NOHINT $skill"
+    # AC 4 (strengthened): the hint must be NON-EMPTY — `Useful extension for <skill>: `
+    # with nothing after the colon-space would pass the bare presence check above but
+    # ship a hint-less example. Require at least one char after the literal prefix.
+    grep -qE "Useful extension for $skill: .+" "$f" || SC_PE_EMPTYHINT="$SC_PE_EMPTYHINT $skill"
+  else
+    SC_PE_MISSING="$SC_PE_MISSING $skill"   # AC 1
+  fi
+  # AC 2: the .example suffix means no live `<skill>.md` is ever scaffolded.
+  [ -e "$SC_PE_DIR/$skill.md" ] && SC_PE_LIVE="$SC_PE_LIVE $skill"
+  # AC 5: the REAL reader treats the scaffolded example as an inert no-op
+  # (empty stdout + exit 0) — exercised, not mocked.
+  RDR_OUT="$(cd "$SC_PE" && bash "$LPE" "$skill" 2>/dev/null)"; RDR_RC=$?
+  { [ -z "$RDR_OUT" ] && [ "$RDR_RC" -eq 0 ]; } || SC_PE_NOTINERT="$SC_PE_NOTINERT $skill"
+done
+assert_eq "scaffold-pe: an example exists for every skill (AC 1)" "" "$SC_PE_MISSING"
+assert_eq "scaffold-pe: every example body is a single HTML comment block (AC 3)" "" "$SC_PE_NOTCOMMENT"
+assert_eq "scaffold-pe: every example carries a per-skill hint line (AC 4)" "" "$SC_PE_NOHINT"
+assert_eq "scaffold-pe: every per-skill hint is non-empty (AC 4)" "" "$SC_PE_EMPTYHINT"
+assert_eq "scaffold-pe: no live <skill>.md scaffolded — only .example (AC 2)" "" "$SC_PE_LIVE"
+assert_eq "scaffold-pe: real load-prompt-extension reader is inert no-op for every skill (AC 5)" "" "$SC_PE_NOTINERT"
+# Drift guard (bidirectional): the set of scaffolded `<skill>.md.example` basenames must
+# EQUAL the set of skills under skills/*/ — catching BOTH a forgotten skill (forward
+# drift: a skills/ dir with no example) AND a stale heredoc row (reverse drift: an
+# orphan example for a renamed/removed skill that the per-skill loop above never visits).
+SC_PE_EXPECTED="$(for d in "$LIB"/../skills/*/; do basename "$d"; done | sort | tr '\n' ' ')"
+SC_PE_GOT="$(for ex in "$SC_PE_DIR"/*.md.example; do b="$(basename "$ex")"; printf '%s\n' "${b%.md.example}"; done | sort | tr '\n' ' ')"
+assert_eq "scaffold-pe: scaffolded example set EQUALS skills/*/ (no missing, no orphan)" \
+  "$SC_PE_EXPECTED" "$SC_PE_GOT"
+# Atomic-write contract: the scaffolder writes each example to `<skill>.md.example.tmp`
+# and `mv`s it into place, so a successful scaffold leaves NO `.tmp` behind (the mv
+# consumed it). Pin it — every other glob here filters to `*.md.example`, so a
+# regression (e.g. cp instead of mv, or a dropped rm -f) that stranded a temp would
+# otherwise be invisible. Glob + [ -e ] (nullglob-off leaves the literal pattern, which
+# [ -e ] rejects) rather than spawning ls.
+assert_eq "scaffold-pe: no .tmp temp survives a successful scaffold (atomic mv consumed it)" "no" \
+  "$(set -- "$SC_PE_DIR"/*.md.example.tmp; [ -e "$1" ] && echo yes || echo no)"
+# AC 9 (created half): a creation log line is emitted on a fresh scaffold. Match the
+# literal "prompt-extension example" — NOT just the dir path "prompt-extensions/",
+# which any mention would satisfy — so the assertion pins the new reporting line.
+assert_eq "scaffold-pe: emits a creation log line on a fresh scaffold (AC 9)" "yes" \
+  "$(printf '%s\n' "$SC_PE_OUT" | grep -qF 'prompt-extension example' && echo yes || echo no)"
+
+# AC 7 + AC 9 (no-op half): a second run rewrites nothing (every example
+# byte-identical) and emits NO creation log line.
+SC_PE_SUM1="$(find "$SC_PE_DIR" -type f -name '*.example' | sort | xargs cksum)"
+SC_PE_OUT2="$(bash "$SC" "$SC_PE" 2>&1)"
+SC_PE_SUM2="$(find "$SC_PE_DIR" -type f -name '*.example' | sort | xargs cksum)"
+assert_eq "scaffold-pe: idempotent re-run keeps every example byte-identical (AC 7)" \
+  "$SC_PE_SUM1" "$SC_PE_SUM2"
+assert_eq "scaffold-pe: no creation log line on an all-present no-op re-run (AC 9)" "no" \
+  "$(printf '%s\n' "$SC_PE_OUT2" | grep -qF 'prompt-extension example' && echo yes || echo no)"
 rm -rf "$SC_PE"
+
+# AC 6 (partial backfill): a dir that already holds ONLY create-issue.md.example
+# (an adopter who ran /devflow:init before issue #95) gets the other skills backfilled,
+# and the pre-existing create-issue.md.example is left byte-identical (never clobbered).
+# (AC 8 — adopter live-file safety — is asserted in the separate block further below.)
+SC_PE_BF="$(mktemp -d)"
+mkdir -p "$SC_PE_BF/.devflow/prompt-extensions"
+printf 'SENTINEL-PREEXISTING-EXAMPLE\n' > "$SC_PE_BF/.devflow/prompt-extensions/create-issue.md.example"
+SC_PE_BF_SENT="$(cat "$SC_PE_BF/.devflow/prompt-extensions/create-issue.md.example")"
+bash "$SC" "$SC_PE_BF" >/dev/null 2>&1
+SC_PE_BF_MISSING=""
+for SKILL_DIR in "$LIB"/../skills/*/; do
+  skill="$(basename "$SKILL_DIR")"
+  [ "$skill" = "create-issue" ] && continue
+  [ -f "$SC_PE_BF/.devflow/prompt-extensions/$skill.md.example" ] || SC_PE_BF_MISSING="$SC_PE_BF_MISSING $skill"
+done
+assert_eq "scaffold-pe: partial backfill creates the other examples (AC 6)" "" "$SC_PE_BF_MISSING"
+assert_eq "scaffold-pe: partial backfill leaves the pre-existing example byte-identical (AC 6)" \
+  "$SC_PE_BF_SENT" "$(cat "$SC_PE_BF/.devflow/prompt-extensions/create-issue.md.example")"
+rm -rf "$SC_PE_BF"
+
+# AC 8 (adopter live-file safety): a real review.md the adopter authored (no .example
+# suffix → a LIVE extension) is never overwritten/deleted/shadowed, and review.md.example
+# is still created alongside it.
+SC_PE_LV="$(mktemp -d)"
+mkdir -p "$SC_PE_LV/.devflow/prompt-extensions"
+printf 'ADOPTER LIVE REVIEW RULES\n' > "$SC_PE_LV/.devflow/prompt-extensions/review.md"
+SC_PE_LV_SENT="$(cat "$SC_PE_LV/.devflow/prompt-extensions/review.md")"
+bash "$SC" "$SC_PE_LV" >/dev/null 2>&1
+assert_eq "scaffold-pe: adopter's live review.md is untouched (AC 8)" \
+  "$SC_PE_LV_SENT" "$(cat "$SC_PE_LV/.devflow/prompt-extensions/review.md")"
+assert_eq "scaffold-pe: review.md.example still created alongside the live review.md (AC 8)" "yes" \
+  "$([ -f "$SC_PE_LV/.devflow/prompt-extensions/review.md.example" ] && echo yes || echo no)"
+rm -rf "$SC_PE_LV"
+
+# Write-failure path (best-effort / silent-failure contract): a per-file write that
+# fails must NOT abort the scaffold — it logs a breadcrumb naming the file and
+# continues (matching rewrite_config_if_changed and the jq blocks). Make the
+# prompt-extensions dir read-only so every write fails; assert the scaffolder still
+# exits 0, emits a "could not write" breadcrumb, and leaves no .example at the guarded
+# path. The scaffolder writes to a temp and mv's it into place atomically, so a failed
+# write can NEVER leave a partial/zero-byte <skill>.md.example that the [ -e ] guard
+# would then treat as present and never retry — the no-leftover assertion below holds by
+# construction (atomicity), not by hoping a failed redirect wrote nothing. Root bypasses
+# the perm bits, so skip under root (as the lpe unreadable test does).
+SC_PE_WF="$(mktemp -d)"
+mkdir -p "$SC_PE_WF/.devflow/prompt-extensions"
+chmod 555 "$SC_PE_WF/.devflow/prompt-extensions"
+if [ "$(id -u)" -ne 0 ] && [ ! -w "$SC_PE_WF/.devflow/prompt-extensions" ]; then
+  SC_PE_WF_OUT="$(bash "$SC" "$SC_PE_WF" 2>&1)"; SC_PE_WF_RC=$?
+  assert_eq "scaffold-pe: a write failure does not abort the scaffold (exit 0)" "0" "$SC_PE_WF_RC"
+  assert_eq "scaffold-pe: a write failure emits a 'could not write' breadcrumb" "yes" \
+    "$(printf '%s\n' "$SC_PE_WF_OUT" | grep -qF 'could not write' && echo yes || echo no)"
+  assert_eq "scaffold-pe: a write failure leaves no zero-byte .example leftover" "no" \
+    "$(set -- "$SC_PE_WF/.devflow/prompt-extensions/"*.md.example; [ -e "$1" ] && echo yes || echo no)"
+  assert_eq "scaffold-pe: a write failure leaves no .tmp temp behind" "no" \
+    "$(set -- "$SC_PE_WF/.devflow/prompt-extensions/"*.md.example.tmp; [ -e "$1" ] && echo yes || echo no)"
+fi
+chmod 755 "$SC_PE_WF/.devflow/prompt-extensions"
+rm -rf "$SC_PE_WF"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "load-prompt-extension.sh (consumer prompt-extension reader)"

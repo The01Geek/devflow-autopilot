@@ -566,16 +566,6 @@ If the commit includes test fixes, use a single commit combining implementation 
 
 Then tick the implementation gate **and its parent phase** in the workpad: `workpad.py update $ISSUE_NUMBER --tick-progress "code + sweeps" --tick-progress "**Implement**"`.
 
-### 2.6 Version & changelog decision
-
-If the repository documents a versioning / changelog convention (look in `CLAUDE.md` and contributor docs — for DevFlow itself, the "bump `plugin.json` + matching `CHANGELOG.md`" gotcha), decide **now**, while the committed diff is concrete, whether this change warrants a version bump and at what increment, and **record the decision in the workpad** so it survives context compaction:
-
-```bash
-workpad.py update $ISSUE_NUMBER --note "version decision: {bump to X.Y.Z | no bump} — {one-line reason, e.g. 'consumer-facing fix' / 'internal-only: tests/CI/docs'}"
-```
-
-This step owns only the *decision*; the bump is **applied in Phase 3.1.5** (after the PR exists, so the `CHANGELOG` entry can cite the PR number). Use the repo's stated increment rule — for DevFlow, the smallest correct SemVer step (patch = fix, minor = backward-compatible feature, major = breaking). If the repo documents **no** versioning convention, this is a no-op: record nothing and continue.
-
 **⚠ You are NOT done. Code is committed but not reviewed or documented. Proceed to Phase 3.**
 
 ---
@@ -897,7 +887,7 @@ gh pr view --json body --jq '.body' | grep -q "Work in progress — automated re
 git status --porcelain
 ```
 
-If it is non-empty, **do not** mark the PR ready yet. The run began from a clean base-branch checkout (`origin/` + the configured `base_branch`), so anything dirty here is this run's own work an earlier phase failed to commit (most often the Phase 3.1.5 version bump / `CHANGELOG`). Commit the part that belongs to this PR with the right prefix (`feat:`/`fix:`/`docs:`/`chore:`) and push, and record in `Devflow Reflection` which phase under-committed — surface the gap, don't paper over it. Surface (do not blindly `git add`) any unexpected untracked file. When the tree is already clean this is a no-op — create no empty commit. Only then:
+If it is non-empty, **do not** mark the PR ready yet. The run began from a clean base-branch checkout (`origin/` + the configured `base_branch`), so anything dirty here is this run's own work an earlier phase failed to commit. Commit the part that belongs to this PR with the right prefix (`feat:`/`fix:`/`docs:`/`chore:`) and push, and record in `Devflow Reflection` which phase under-committed — surface the gap, don't paper over it. Surface (do not blindly `git add`) any unexpected untracked file. When the tree is already clean this is a no-op — create no empty commit. Only then:
 
 ```bash
 gh pr ready
@@ -925,7 +915,7 @@ Before reporting completion, verify ALL phases executed:
 
 - Phase 1: issue fetched; workpad created before the branch with run link, `## Progress` checklist, and Acceptance Criteria mirrored; branch exists and the workpad `Branch` line filled; Setup ticked
 - Phase 2: reproduction signal recorded for `bug`-labelled issues; if the issue spans multiple PRs, the 2.2.5 scope-adjustment was applied and the Acceptance Criteria section holds only in-scope items; the 2.3.0 changed-contract and 2.3.4 boundary-assumption sweeps both ran over the diff, each cross-boundary claim verified or routed to `(post-merge)`; code committed and pushed
-- Phase 3: draft PR created; the Phase 2.6 version decision applied in 3.1.5 if it called for a bump; `/simplify` ran; `/devflow:review-and-fix` ran; acceptance-criteria gate passed (PR still draft)
+- Phase 3: draft PR created; `/simplify` ran; `/devflow:review-and-fix` ran; acceptance-criteria gate passed (PR still draft)
 - Phase 4: follow-up issue(s) filed in 4.0 for any 2.2.5-deferred criteria; follow-up issue(s) filed in 4.0.5 and the manifest hydrated if /devflow:review-and-fix emitted a deferrals manifest; docs updated and the `Documented` label applied; PR description generated via `/pr-description`; working tree asserted clean (4.3 backstop) and any remainder committed; PR marked ready; every applicable `## Progress` item ticked; workpad finalized with `Status: Complete` (🎉) and the 🎉 outcome reaction emitted on the triggering comment
 
 Verify each `Status` PATCH actually landed at the time it was issued (see the Update protocol's "Always verify a PATCH that changes `Status` actually landed" rule). If a phase was skipped or a `Status` PATCH didn't land, go back and complete it now. In particular:
