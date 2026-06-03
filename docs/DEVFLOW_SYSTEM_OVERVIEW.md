@@ -536,7 +536,7 @@ curl -fsSL https://raw.githubusercontent.com/The01Geek/devflow-autopilot/main/in
 ```
 Thin by default (installs workflows, actions, a local marketplace, a config scaffold, and pins `devflow_version`). `DEVFLOW_VENDOR=1` commits the tree instead.
 
-**Updates:** local tier, enable `autoUpdate` on the marketplace in `~/.claude/settings.json`. Cloud tier, bump `devflow_version` or re-run `install.sh`.
+**Updates:** local tier, `/devflow:init` provisions the project `.claude/settings.json` — it registers `devflow-marketplace` under `extraKnownMarketplaces` with `autoUpdate: true` and enables the plugin under `enabledPlugins`, so Claude Code keeps the plugin updated (additive and non-clobbering, idempotent on re-run); it never sets `permissions.defaultMode`. Selectable `auto` mode is **not** provisioned — `CLAUDE_CODE_ENABLE_AUTO_MODE` is honored only from user scope (`~/.claude/settings.json`) or managed settings, so writing it to the project file is a silent no-op (tracked as a separate follow-up). This is local-tier only — the cloud tier neither needs nor receives a `.claude/settings.json`. Cloud tier, bump `devflow_version` or re-run `install.sh`.
 
 ---
 

@@ -76,10 +76,12 @@ shallow when it names a branch/tag, a full clone + checkout when it's the commit
 SHA `install.sh` pins). The fetch branch refuses to run without a pinned
 `devflow_version`, so a thin install never tracks mutable `main`.
 
-> **Local editor use is different** — there, add this repo as a github marketplace
-> with auto-update and you never copy files:
+> **Local editor use is different** — there you add this repo as a github
+> marketplace with auto-update and never copy files. Running **`/devflow:init`
+> provisions this for you** into the project `.claude/settings.json` (additively,
+> never clobbering your values, idempotent on re-run), so you don't hand-edit it:
 > ```jsonc
-> // ~/.claude/settings.json (or project .claude/settings.json)
+> // project .claude/settings.json — provisioned by /devflow:init
 > {
 >   "extraKnownMarketplaces": {
 >     "devflow-marketplace": {

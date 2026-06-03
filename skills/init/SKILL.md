@@ -41,6 +41,22 @@ bash "${CLAUDE_SKILL_DIR}/../../lib/preflight.sh"
 
 This verifies `git`, `gh`, `jq`, `python3` (>=3.11), and **PyYAML**, printing an actionable line per missing item and exiting non-zero if any is absent. It's **advisory** — scaffolding already succeeded, so a non-zero exit here is a dependency gap to *report*, not an init failure. **Never run `pip` yourself**: DevFlow deliberately keeps `pip` out of the plugin/init path, so relay the install command and let the user run it (see "After running"). Read the result and respond per the matching branch below.
 
+## Then: provision the local Claude Code settings
+
+Keeping the DevFlow plugin auto-updated otherwise needs a hand-edited Claude Code settings file. This step provisions that into the repo's **project** `.claude/settings.json` so adopters get it as a one-command outcome of `/devflow:init` instead of a manual edit they have to find in the docs:
+
+```bash
+bash "${CLAUDE_SKILL_DIR}/../../scripts/provision-local-settings.sh"
+```
+
+With no argument it targets the current repo root and **deep-merges** the marketplace registration into `.claude/settings.json`, **additively and without clobbering anything you already set** (the user's value wins at every depth — same no-clobber discipline as the config scaffolder):
+
+- `extraKnownMarketplaces["devflow-marketplace"]` (a `github` source for `The01Geek/devflow-autopilot`, `autoUpdate: true`) and `enabledPlugins["devflow@devflow-marketplace"] = true`, so Claude Code keeps the DevFlow plugin updated automatically.
+
+It is **local/interactive-tier only** — the cloud (CI) tier uses claude-code-action's own allowlist profile and consumes no local marketplace install, so this helper is **not** wired into the shared scaffolder and a cloud-only `install.sh` run writes no `.claude/settings.json`. It is **idempotent** (re-running after the keys exist changes nothing) and writes **no** `permissions.defaultMode`.
+
+> **Selectable `auto` mode is deliberately NOT provisioned here.** Setting `env.CLAUDE_CODE_ENABLE_AUTO_MODE` only takes effect from **user scope** (`~/.claude/settings.json`) or managed settings — Claude Code filters permission-gating env vars out of project scope, so writing it into the project `.claude/settings.json` would be a silent no-op. That capability is tracked as a separate follow-up; do not claim `/devflow:init` enables or makes auto mode selectable.
+
 ## Then: enrich the `setup` block by exploring the repo
 
 The scaffolder's language detection is a **deterministic floor** (marker file → known tool list + install line). It cannot infer a project's **service dependencies, runtime versions, or extensions** — those need judgement, which is your job. After it runs, **read the repo and fill in the `setup` fields a marker→list table can't**, editing `.devflow/config.json` directly (it's schema-validated; see `config.schema.json` for every field). Add **only what the project's tests actually need** — each addition runs in the cloud tier.
@@ -88,6 +104,13 @@ The scaffolder also prints `devflow-detect:` lines from the language auto-detect
 - **`detected: <langs> — merged …`** — build/test tools for those languages were added to `config.json`. **Tell the user to review the additions before committing.** The `devflow_runner.allowed_tools` entries reach the automated reviewer only when `devflow_runner.provision_env: true` is set in the base-branch config, which runs the PR author's `setup.install` + build steps on `pull_request_target` with a write token. The flag and the freeform allowlist are read only from the base branch, so a PR can't enable it or grant itself tools, and the runner strips the deny-listed tier regardless; but enabling `provision_env` is opting into running untrusted build steps. If they want the reviewer read-only (the default), leave `provision_env` unset/false. The `devflow.allowed_tools` / `devflow_implement.allowed_tools` entries take effect in their own workflows.
 - **`detected: <langs> — config.json already covers them`** — idempotent re-run, nothing changed.
 - **`no known language markers detected`** or **`jq not found …`** — no auto-population happened; the reviewer stays read-only. To make the reviewer build/test PRs they must set `devflow_runner.provision_env: true` and populate the `setup` block (see `config.schema.json` / docs/cloud-setup.md).
+
+Read the settings provisioner's `devflow-settings:` line and respond:
+
+- **`provisioned … (added: …)`** — the project `.claude/settings.json` gained the listed DevFlow keys (the `devflow-marketplace` registration is now auto-updating). **Tell the user to review the change before committing.** Do **not** claim auto mode was enabled or made selectable — that half is deferred.
+- **`… already has the DevFlow keys; nothing changed`** — idempotent re-run; the settings already had every key. Nothing to report beyond that it was already set up.
+- **`existing … is not readable …`**, **`existing … is not valid JSON …`**, or **`existing … is malformed for provisioning …`** (exit 2) — the existing `.claude/settings.json` is unusable: it is unreadable (permissions), it does not parse as JSON, or it parses but has the wrong shape (a non-object root, or a DevFlow key the merge needs as an object — e.g. `extraKnownMarketplaces` or the `devflow-marketplace` entry — present as a non-object). The helper left it **byte-for-byte unchanged** and provisioned nothing. Relay the specific breadcrumb to the user; for the not-readable case tell them to fix the file permissions, otherwise to fix or remove the file — then re-run `/devflow:init`. Do **not** hand-edit the settings file yourself.
+- **`jq not found …`** (exit 2) — relay the gap; the marketplace settings were not provisioned. (The same `jq` the scaffolder needs.)
 
 Then branch on the preflight **exit code** (the durable signal — every line it prints carries the stable `devflow preflight:` prefix, but the wording can change; the exit code won't):
 

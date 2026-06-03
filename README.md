@@ -123,13 +123,16 @@ All four are used by the core skills (`/devflow:implement` and `/devflow:review`
 
 ## Updating
 
-- **Local tier**: enable auto-update once and Claude Code pulls new versions at startup; set `autoUpdate` on the marketplace in `~/.claude/settings.json`:
+- **Local tier**: running `/devflow:init` provisions your repo's project `.claude/settings.json` so Claude Code keeps the plugin updated — it registers `devflow-marketplace` under `extraKnownMarketplaces` with `autoUpdate: true` and enables the plugin under `enabledPlugins`, additively and without clobbering anything you already set (re-running is a no-op once the keys exist). Review the change before committing. The provisioned block looks like:
   ```jsonc
-  "extraKnownMarketplaces": {
-    "devflow-marketplace": {
-      "source": { "source": "github", "repo": "The01Geek/devflow-autopilot" },
-      "autoUpdate": true
-    }
+  {
+    "extraKnownMarketplaces": {
+      "devflow-marketplace": {
+        "source": { "source": "github", "repo": "The01Geek/devflow-autopilot" },
+        "autoUpdate": true
+      }
+    },
+    "enabledPlugins": { "devflow@devflow-marketplace": true }
   }
   ```
   Or update on demand: `/plugin marketplace update devflow-marketplace`.
