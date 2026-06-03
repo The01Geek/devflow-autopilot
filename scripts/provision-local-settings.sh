@@ -87,25 +87,38 @@ if [ -f "$SETTINGS" ]; then
 fi
 
 # Type-guard the shapes the deep-merge relies on. `jq .` above only proves the
-# file PARSES; two valid-but-corrupt shapes still slip through: a non-object
-# root (`[...]` or a bare scalar), and a DevFlow container key
-# (extraKnownMarketplaces / enabledPlugins / env) present as a non-object. On the
-# first, `$defaults * $existing` is a jq error (object times array/scalar) that,
-# under `set -euo pipefail`, aborts the script with a raw jq message and exit 5 —
-# escaping this script's documented 0/2 contract with no breadcrumb. On the
-# second, the merge silently keeps the user's wrong-typed value and drops the
-# DevFlow setting. Both are corrupt settings, so treat them exactly like the
-# malformed-JSON case above: a specific breadcrumb, exit 2, file left
-# byte-for-byte unchanged (nothing has been written yet). Mirrors
-# scaffold-config.sh, which type-checks a container is an object before recursing.
-BAD_SHAPE="$(printf '%s' "$EXISTING" | jq -r '
+# file PARSES; valid-but-corrupt shapes still slip through:
+#   - a non-object ROOT (`[...]` or a bare scalar) — `$defaults * $existing` is a
+#     jq error (object times array/scalar) that, under `set -euo pipefail`, aborts
+#     the script with a raw jq message and exit 5, escaping the documented 0/2
+#     contract with no breadcrumb;
+#   - a non-object at any path the merge must recurse THROUGH — every object-valued
+#     path in $defaults (extraKnownMarketplaces, its devflow-marketplace entry, that
+#     entry's source object, enabledPlugins, env) — where the user holds a non-object
+#     value. jq's `*` does not error there; it silently keeps the user's value and
+#     drops DevFlow's whole subtree below it (e.g. a string at devflow-marketplace
+#     drops the marketplace source + autoUpdate, so the plugin never auto-updates),
+#     yet still exits 0 with a success breadcrumb.
+# To catch EVERY level in one sweep (rather than enumerating them by hand and
+# rediscovering the next level each review), derive the object-valued paths FROM
+# $defaults and flag any that $root holds as a non-object. A wrong-typed value at a
+# genuine LEAF (autoUpdate, the enable flag, the env value, source.repo) is NOT an
+# object-valued path, so it is a legitimate user-wins clobber and is never flagged.
+# All flagged shapes are corrupt settings, treated exactly like the malformed-JSON
+# case above: a specific breadcrumb, exit 2, file left byte-for-byte unchanged
+# (nothing written yet). Mirrors scaffold-config.sh, which type-checks a container
+# is an object before recursing.
+BAD_SHAPE="$(printf '%s' "$EXISTING" | jq -r --argjson defaults "$DEFAULTS" '
   . as $root
   | if ($root | type) != "object" then
       "the file is valid JSON but not a JSON object (\($root | type))"
     else
-      ( ["extraKnownMarketplaces", "enabledPlugins", "env"]
-        | map(. as $k | select(($root | has($k)) and (($root[$k] | type) != "object"))
-              | "the \($k) key is present but not a JSON object (\($root[$k] | type))")
+      ( [ ($defaults | paths) as $p
+          | select(($defaults | getpath($p) | type) == "object") | $p ] as $objpaths
+        | [ $objpaths[] | . as $p
+            | ($root | try getpath($p) catch null) as $v
+            | select($v != null and ($v | type) != "object")
+            | "the \($p | join(".")) path is present but not a JSON object (\($v | type))" ]
         | join("; ") )
     end')"
 if [ -n "$BAD_SHAPE" ]; then
@@ -128,8 +141,14 @@ TMP="$(mktemp "$SETTINGS_DIR/.settings.json.XXXXXX")" || {
   exit 2
 }
 trap 'rm -f "$TMP"' EXIT
-printf '%s\n' "$MERGED" > "$TMP"
-mv "$TMP" "$SETTINGS"
+# Guard the write so a failure (read-only FS, ENOSPC, an immutable/owned file)
+# leaves a devflow-settings: breadcrumb + exit 2 rather than a raw shell/mv error
+# that escapes the documented 0/2 contract. $SETTINGS is untouched until the mv
+# (an atomic same-dir rename), so a failed write leaves the original intact.
+if ! { printf '%s\n' "$MERGED" > "$TMP" && mv "$TMP" "$SETTINGS"; }; then
+  warn "could not write $SETTINGS (check permissions and free space); left it unchanged."
+  exit 2
+fi
 trap - EXIT
 
 # Friendly labels for the DevFlow marker keys the merge actually landed, derived

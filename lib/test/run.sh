@@ -3683,6 +3683,56 @@ assert_eq "pls: scalar root → exit non-zero" "yes" \
   "$([ "$PLS_SCALAR_RC" -ne 0 ] && echo yes || echo no)"
 assert_eq "pls: scalar root → file unchanged" '42' \
   "$(cat "$PLS_SCALAR/.claude/settings.json")"
+assert_eq "pls: scalar root → specific breadcrumb names the wrong shape" "yes" \
+  "$(printf '%s' "$PLS_SCALAR_OUT" | grep -qiE 'not a JSON object|malformed' && echo yes || echo no)"
+
+# Nested wrong-typed DevFlow object: extraKnownMarketplaces is a valid object (so
+# it passes the top-level container check) but the devflow-marketplace entry is a
+# non-object. Without the depth guard the merge silently keeps the user's scalar
+# and drops DevFlow's marketplace source+autoUpdate while exiting 0 with a success
+# breadcrumb. Must exit non-zero, name the devflow-marketplace entry, leave the
+# file unchanged. (Issue #88 iter-2 review: nested silent-drop.)
+PLS_NESTED="$(mktemp -d)"; mkdir -p "$PLS_NESTED/.claude"
+printf '%s' '{"extraKnownMarketplaces":{"devflow-marketplace":"oops"}}' > "$PLS_NESTED/.claude/settings.json"
+PLS_NESTED_OUT="$(bash "$PLS" "$PLS_NESTED" 2>&1)"; PLS_NESTED_RC=$?
+assert_eq "pls: nested wrong-typed marketplace → exit non-zero (not a silent drop)" "yes" \
+  "$([ "$PLS_NESTED_RC" -ne 0 ] && echo yes || echo no)"
+assert_eq "pls: nested wrong-typed marketplace → file byte-for-byte unchanged" \
+  '{"extraKnownMarketplaces":{"devflow-marketplace":"oops"}}' \
+  "$(cat "$PLS_NESTED/.claude/settings.json")"
+assert_eq "pls: nested wrong-typed marketplace → breadcrumb names devflow-marketplace" "yes" \
+  "$(printf '%s' "$PLS_NESTED_OUT" | grep -qi 'devflow-marketplace' && echo yes || echo no)"
+
+# One level deeper still: devflow-marketplace is a valid object but its `source`
+# (a DevFlow-owned object) is wrong-typed. The general object-path guard must
+# catch this too (not just the one-level-up case), proving it covers every level
+# the merge recurses through rather than a hand-enumerated subset.
+PLS_DEEP="$(mktemp -d)"; mkdir -p "$PLS_DEEP/.claude"
+printf '%s' '{"extraKnownMarketplaces":{"devflow-marketplace":{"source":"x","autoUpdate":true}}}' > "$PLS_DEEP/.claude/settings.json"
+PLS_DEEP_OUT="$(bash "$PLS" "$PLS_DEEP" 2>&1)"; PLS_DEEP_RC=$?
+assert_eq "pls: deep wrong-typed source → exit non-zero (general guard covers all levels)" "yes" \
+  "$([ "$PLS_DEEP_RC" -ne 0 ] && echo yes || echo no)"
+assert_eq "pls: deep wrong-typed source → file byte-for-byte unchanged" \
+  '{"extraKnownMarketplaces":{"devflow-marketplace":{"source":"x","autoUpdate":true}}}' \
+  "$(cat "$PLS_DEEP/.claude/settings.json")"
+assert_eq "pls: deep wrong-typed source → breadcrumb names the source path" "yes" \
+  "$(printf '%s' "$PLS_DEEP_OUT" | grep -qiE 'source|devflow-marketplace' && echo yes || echo no)"
+
+# Merge-direction (user-wins) guard: a user who set a DevFlow-owned value to a
+# NON-default keeps it — provisioning must not clobber it. This pins the operand
+# order ($defaults * $existing); an accidental inversion would flip autoUpdate
+# back to true and this fails. (The earlier keep test only covers ABSENT DevFlow
+# keys, which an inverted merge would still add — so it cannot catch a flip.)
+PLS_NODEFAULT="$(mktemp -d)"; mkdir -p "$PLS_NODEFAULT/.claude"
+printf '%s' '{"extraKnownMarketplaces":{"devflow-marketplace":{"source":{"source":"github","repo":"The01Geek/devflow-autopilot"},"autoUpdate":false}},"enabledPlugins":{"devflow@devflow-marketplace":false}}' \
+  > "$PLS_NODEFAULT/.claude/settings.json"
+bash "$PLS" "$PLS_NODEFAULT" >/dev/null 2>&1; PLS_ND_RC=$?
+PLS_ND_SF="$PLS_NODEFAULT/.claude/settings.json"
+assert_eq "pls: user-set DevFlow non-default → exit 0" "0" "$PLS_ND_RC"
+assert_eq "pls: user-set autoUpdate:false NOT clobbered (merge direction)" "false" \
+  "$(jq -r '.extraKnownMarketplaces["devflow-marketplace"].autoUpdate' "$PLS_ND_SF" 2>/dev/null)"
+assert_eq "pls: user-set enabledPlugins:false NOT clobbered (merge direction)" "false" \
+  "$(jq -r '.enabledPlugins["devflow@devflow-marketplace"]' "$PLS_ND_SF" 2>/dev/null)"
 
 # Wrong-typed DevFlow container key (env as a string) → exit non-zero, named in
 # the breadcrumb, file unchanged, and (critically) the DevFlow env var is NOT
@@ -3730,7 +3780,8 @@ assert_eq "pls: isolation → scaffold-config.sh creates no .claude/ dir (AC7)" 
   "$([ -d "$PLS_ISO/.claude" ] && echo yes || echo no)"
 
 rm -rf "$PLS_FRESH" "$PLS_KEEP" "$PLS_IDEM" "$PLS_BAD" "$PLS_EMPTY" "$PLS_WS" \
-       "$PLS_OBJ" "$PLS_ISO" "$PLS_ARR" "$PLS_SCALAR" "$PLS_WRONGTYPE"
+       "$PLS_OBJ" "$PLS_ISO" "$PLS_ARR" "$PLS_SCALAR" "$PLS_WRONGTYPE" \
+       "$PLS_NESTED" "$PLS_NODEFAULT" "$PLS_DEEP"
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
