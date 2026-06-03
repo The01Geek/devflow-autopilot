@@ -18,6 +18,10 @@
 #                                          superseded by a later APPROVE
 #     ci_status_unknown         <bool>   — true if CI check-runs could not be read
 #                                          (fail-safe: such a PR is never "clean")
+#   plus one TOP-LEVEL field (sibling of .signals), defaulted to [] when absent
+#   (older bundles predate it):
+#     reflections               <array>  — the workpad's `## Devflow Reflection`
+#                                          bullets; non-empty ⇒ forces analysis
 #
 # Output:
 #   One compact JSON object:

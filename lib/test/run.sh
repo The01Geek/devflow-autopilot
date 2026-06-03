@@ -38,8 +38,9 @@ assert_eq() {
 echo "classify-pr-kind.jq"
 # ────────────────────────────────────────────────────────────────────────────
 
-classify() {
+classify() {  # branch watched [impl_prefix] [labels-json] [closing-json]
   jq -nr --arg branch "$1" --argjson watched "$2" --arg impl_prefix "${3:-claude/}" \
+    --argjson labels "${4:-[]}" --argjson closing "${5:-[]}" \
     -f "$LIB/classify-pr-kind.jq"
 }
 
@@ -58,6 +59,28 @@ assert_eq "claude/ branch with watched=false is skip" \
 assert_eq "devflow/learnings- branch is skip" \
   "skip" \
   "$(classify "devflow/learnings-2026-W18" "true")"
+
+# #97: classifier mirrors scan's union predicate so scan-selected PRs are not
+# dropped at fetch. A DevFlow-labelled PR on a non-prefix branch → implementation.
+assert_eq "#97 classify: DevFlow-label PR on issue-* branch is implementation" \
+  "implementation" \
+  "$(classify "issue-97-foo" "true" "claude/" '[{"name":"DevFlow"}]' '[]')"
+# A watched-author PR that closes an issue, on a non-prefix branch → implementation.
+assert_eq "#97 classify: closes-issue PR on issue-* branch is implementation" \
+  "implementation" \
+  "$(classify "issue-97-foo" "true" "claude/" '[]' '[{"number":97}]')"
+# True negative: no label, closes nothing, branch matches no prefix → skip.
+assert_eq "#97 classify: no label/closes/prefix → skip" \
+  "skip" \
+  "$(classify "issue-97-foo" "true" "claude/" '[]' '[]')"
+# Empty prefix must NOT match-all: an unrelated branch with no label/closes → skip.
+assert_eq "#97 classify: empty prefix is not match-all (unrelated branch → skip)" \
+  "skip" \
+  "$(classify "feature/unrelated" "true" "" '[]' '[]')"
+# Empty prefix still honors the closes-issue path → implementation.
+assert_eq "#97 classify: empty prefix still selects via closes-issue" \
+  "implementation" \
+  "$(classify "issue-97-foo" "true" "" '[]' '[{"number":97}]')"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "compute-patterns.jq"
@@ -1679,6 +1702,34 @@ chmod +x "$S97/gh-six"
 SCAN_SIX="$(DEVFLOW_CONFIG_FILE="$S97/cfg-noprefix.json" DEVFLOW_GH="$S97/gh-six" bash "$LIB/scan.sh" 2>/dev/null)"
 assert_eq "scan #97: the 6 bot PRs selected via closes-issue path (no prefix, no backfill)" "62 64 71 72 73 87" \
   "$(echo "$SCAN_SIX" | jq -r '[.[].number] | sort | join(" ")')"
+
+# Empty watched-authors list: the label pass still runs and must NOT early-exit
+# to '[]' — the no-op-prevention guarantee. (Guards a regression that restored
+# the old `[ -z "$WATCHED" ] → echo '[]'; exit 0`.)
+cat > "$S97/cfg-nowatched.json" <<'CFG'
+{"devflow":{"allowed_bots":""},"devflow_retrospective":{"watched_authors":[],"implementation_branch_prefix":"claude/"}}
+CFG
+SCAN_NW="$(DEVFLOW_CONFIG_FILE="$S97/cfg-nowatched.json" DEVFLOW_GH="$S97/gh-label" bash "$LIB/scan.sh" 2>/dev/null)"
+assert_eq "scan #97: label pass runs with empty watched-authors (no silent no-op)" "true" \
+  "$(echo "$SCAN_NW" | jq 'any(.[]; .number==777)')"
+
+# --prs ad-hoc mode applies the union predicate too: a DevFlow-labelled PR on a
+# non-prefix branch (no closes) is selected; a true-negative is dropped.
+cat > "$S97/gh-prs" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *"repo view"*) echo "acme/example-repo" ;;
+  *"pr view 800 --repo"*) echo '{"number":800,"headRefName":"random/x","mergedAt":"2026-05-25T00:00:00Z","state":"MERGED","labels":[{"name":"DevFlow"}],"closingIssuesReferences":[],"author":{"login":"nonwatched"}}' ;;
+  *"pr view 801 --repo"*) echo '{"number":801,"headRefName":"feature/plain","mergedAt":"2026-05-26T00:00:00Z","state":"MERGED","labels":[],"closingIssuesReferences":[],"author":{"login":"nonwatched"}}' ;;
+  *) echo '[]' ;;
+esac
+STUB
+chmod +x "$S97/gh-prs"
+PRS97="$(DEVFLOW_CONFIG_FILE="$S97/cfg.json" DEVFLOW_GH="$S97/gh-prs" bash "$LIB/scan.sh" --prs "800,801" 2>/dev/null)"
+assert_eq "scan #97 --prs: DevFlow-labelled PR on non-prefix branch selected" "true" \
+  "$(echo "$PRS97" | jq 'any(.[]; .number==800)')"
+assert_eq "scan #97 --prs: true-negative (no label/closes/prefix) dropped" "false" \
+  "$(echo "$PRS97" | jq 'any(.[]; .number==801)')"
 rm -rf "$S97"
 
 # ── fetch-pr-context.sh: workpad + reflections sourced from the ISSUE thread ──
@@ -1791,6 +1842,40 @@ assert_eq "fetch #97: Blocked status sourced from ISSUE → Blocked" "Blocked" \
 assert_eq "gate #97: Blocked workpad (from issue) → clean=false (signal live again)" "false" \
   "$(jq -c -f "$LIB/cheap-gate.jq" < "$F_OUT4" | jq -r .clean)"
 rm -rf "$F97"
+
+# Integration: a PR scan selects via the label/closes-issue path — on an issue-*
+# branch matching NO prefix — must NOT be dropped at fetch (classify-pr-kind.jq
+# now mirrors scan's union predicate; pre-fix it returned "skip" → exit 2).
+FI97="$(mktemp -d)"
+cat > "$FI97/prview.json" <<'PV'
+{"number":950,"headRefName":"issue-97-foo","baseRefName":"main","headRefOid":"sha950","mergeCommit":{"oid":"m950"},"mergedAt":"2026-05-27T00:00:00Z","createdAt":"2026-05-27T00:00:00Z","author":{"login":"claude[bot]"},"title":"t","body":"Closes #97","additions":1,"deletions":0,"files":[{"path":"x.txt"}],"labels":[{"name":"DevFlow"}],"closingIssuesReferences":[{"number":97}]}
+PV
+cat > "$FI97/issue.json" <<'IJ'
+{"number":97,"title":"i","body":"b","labels":[],"comments":[]}
+IJ
+cat > "$FI97/gh" <<'STUB'
+#!/usr/bin/env bash
+FX="${DEVFLOW_FX}"
+case "$*" in
+  *"repo view"*) echo "acme/example-repo" ;;
+  *"pr view"*) cat "$FX/prview.json" ;;
+  *"pr diff"*) echo 'diff --git a/x.txt b/x.txt' ;;
+  *"pulls/"*"/comments"*) echo '[]' ;;
+  *"pulls/"*"/reviews"*) echo '[]' ;;
+  *"pulls/"*"/commits"*) echo '[]' ;;
+  *"check-runs"*) echo '{"check_runs":[]}' ;;
+  *"issues/"*"/comments"*) echo '[]' ;;
+  *"issues/97"*) cat "$FX/issue.json" ;;
+  *"commits/"*) echo '{"files":[]}' ;;
+  *) echo '[]' ;;
+esac
+STUB
+chmod +x "$FI97/gh"
+FI_OUT="$(DEVFLOW_FX="$FI97" DEVFLOW_GH="$FI97/gh" bash "$LIB/fetch-pr-context.sh" 950 2>/dev/null)"; FI_RC=$?
+assert_eq "fetch #97: label/closes PR on non-prefix branch is NOT skipped (exit 0)" "0" "$FI_RC"
+assert_eq "fetch #97: label/closes PR on non-prefix branch → kind=implementation" "implementation" \
+  "$([ -n "$FI_OUT" ] && jq -r '.kind' < "$FI_OUT" || echo MISSING)"
+rm -rf "$FI97"
 
 # ── cheap-gate.jq: a non-empty reflections[] forces analysis even when clean ──
 assert_eq "gate #97: reflections non-empty → clean=false (all signals clean)" "false" \

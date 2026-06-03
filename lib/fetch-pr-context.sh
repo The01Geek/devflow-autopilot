@@ -19,7 +19,7 @@ REPO="$("$DEVFLOW_GH" repo view --json nameWithOwner -q .nameWithOwner)" \
   || { echo "::error::fetch-pr-context: failed to resolve repo name" >&2; exit 1; }
 
 # ── 1. PR metadata ──────────────────────────────────────────────────────────
-PR_JSON="$("$DEVFLOW_GH" pr view "$PR" --json number,headRefName,baseRefName,headRefOid,mergeCommit,mergedAt,createdAt,author,title,body,additions,deletions,files,labels)" \
+PR_JSON="$("$DEVFLOW_GH" pr view "$PR" --json number,headRefName,baseRefName,headRefOid,mergeCommit,mergedAt,createdAt,author,title,body,additions,deletions,files,labels,closingIssuesReferences)" \
   || { echo "::error::fetch-pr-context: failed to fetch PR metadata for PR ${PR}" >&2; exit 1; }
 
 BRANCH="$(echo "$PR_JSON" | jq -r .headRefName)"
@@ -36,9 +36,15 @@ ADDITIONS="$(echo "$PR_JSON" | jq -r .additions)"
 DELETIONS="$(echo "$PR_JSON" | jq -r .deletions)"
 CHANGED_FILES="$(echo "$PR_JSON" | jq '[.files[].path]')"
 
-# ── 2. Classify branch kind ──────────────────────────────────────────────────
+# ── 2. Classify retrospection kind ───────────────────────────────────────────
+# Mirror lib/scan.sh's union predicate (label / closes-issue / audit / prefix) so
+# a PR scan selected on the label or closes-issue path — e.g. DevFlow's own
+# issue-<N>-<slug> branches that match no prefix — is not then dropped here.
 IMPL_PREFIX="$(devflow_conf '.devflow_retrospective.implementation_branch_prefix' 'claude/')"
-KIND="$(jq -rn --arg branch "$BRANCH" --argjson watched true --arg impl_prefix "$IMPL_PREFIX" -f "$HERE/classify-pr-kind.jq")"
+LABELS_JSON="$(echo "$PR_JSON" | jq -c '.labels // []')"
+CLOSING_JSON="$(echo "$PR_JSON" | jq -c '.closingIssuesReferences // []')"
+KIND="$(jq -rn --arg branch "$BRANCH" --argjson watched true --arg impl_prefix "$IMPL_PREFIX" \
+    --argjson labels "$LABELS_JSON" --argjson closing "$CLOSING_JSON" -f "$HERE/classify-pr-kind.jq")"
 if [ "$KIND" = "skip" ]; then
     echo "fetch-pr-context: branch $BRANCH is not a retrospected branch" >&2
     exit 2
@@ -243,7 +249,9 @@ if [ -n "$WORKPAD_BODY" ]; then
     # drop the glyph and yield the bare word ("Complete"/"Blocked"/…). Statuses
     # are single words by the workpad vocabulary. `tr -d '\r'` first guards
     # against CRLF bodies leaving a trailing carriage return on the token.
-    WORKPAD_FINAL_STATUS="$(printf '%s' "$WORKPAD_BODY" | tr -d '\r' | sed -nE 's/^\*{0,2}[[:space:]]*[Ss]tatus[[:space:]]*:?\*{0,2}[[:space:]]*(.+)/\1/p' | head -1 | awk '{print $NF}')"
+    # Trailing `|| true`: under `set -euo pipefail`, `head -1` closing the pipe
+    # early can hand `sed` a SIGPIPE (141) and abort the script; guard it.
+    WORKPAD_FINAL_STATUS="$(printf '%s' "$WORKPAD_BODY" | tr -d '\r' | sed -nE 's/^\*{0,2}[[:space:]]*[Ss]tatus[[:space:]]*:?\*{0,2}[[:space:]]*(.+)/\1/p' | head -1 | awk '{print $NF}' || true)"
     # reflections[]: the bullet lines inside the workpad's `## Devflow Reflection`
     # <details> block (excluding the <summary> scaffold). Parsed in python3 (a
     # hard dependency) over the env-passed body — no shell quoting traverses the

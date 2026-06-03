@@ -1,19 +1,24 @@
 #!/usr/bin/env bash
 # SPDX-FileCopyrightText: 2026 Daniel Radman
 # SPDX-License-Identifier: MIT
-# scan.sh — emit JSON array of unprocessed watched-author PRs.
+# scan.sh — emit JSON array of unprocessed PRs matching the retrospection predicate.
+#
+# A PR qualifies when ANY of: it carries the reserved DevFlow label
+# (author/branch-agnostic), it is by a watched author and closes >=1 issue, its
+# branch is devflow/audit-*, or implementation_branch_prefix is set non-empty and
+# its branch matches it. See the RETRO_PREDICATE block below.
 #
 # Usage:
-#   scan.sh                       weekly mode: watched-author PRs merged in the
-#                                 last 7 days, minus those already in
-#                                 retrospectives.jsonl on main.
+#   scan.sh                       weekly mode: PRs matching the predicate merged
+#                                 in the last 7 days, minus those already in
+#                                 retrospectives.jsonl on main. The DevFlow-label
+#                                 pass runs even with no watched authors configured.
 #   scan.sh --prs 774,786,772     ad-hoc mode: use exactly these PR numbers,
 #                                 skipping the GitHub search AND the
 #                                 already-processed filter (for backfill / a
 #                                 targeted re-run / a test run). Each number is
-#                                 still confirmed to be a merged retrospected
-#                                 branch (claude/* or devflow/audit-*); others
-#                                 are dropped with a warning.
+#                                 still confirmed to match the retrospection
+#                                 predicate; others are dropped with a warning.
 #
 # Output: [{number, headRefName, mergedAt}, ...] sorted by mergedAt, capped at
 # max_prs_per_run.
@@ -124,7 +129,8 @@ CANDIDATES='[]'
 if LABEL_BATCH="$("$DEVFLOW_GH" pr list --repo "$REPO" --state merged --label DevFlow \
         --search "merged:>=${SINCE}" \
         --json number,headRefName,mergedAt --limit 100 2>/dev/null)"; then
-    LABEL_BATCH="$(echo "$LABEL_BATCH" | jq '[.[] | {number, headRefName, mergedAt}]' 2>/dev/null || echo '[]')"
+    LABEL_BATCH="$(echo "$LABEL_BATCH" | jq '[.[] | {number, headRefName, mergedAt}]' 2>/dev/null)" \
+        || { echo "::warning::scan: jq reshape of the DevFlow-label batch failed; treating as empty" >&2; LABEL_BATCH='[]'; }
 else
     echo "::warning::gh pr list --label DevFlow failed" >&2; LABEL_BATCH='[]'
 fi
@@ -146,7 +152,8 @@ else
                 # These are watched-author results, so $watched is true for the
                 # closes-issue path (b). Filter locally with the shared predicate.
                 BATCH="$(echo "$BATCH" | jq --arg impl "$IMPL_PREFIX" --argjson watched true \
-                    "[.[] | select($RETRO_PREDICATE) | {number, headRefName, mergedAt}]" 2>/dev/null || echo '[]')"
+                    "[.[] | select($RETRO_PREDICATE) | {number, headRefName, mergedAt}]" 2>/dev/null)" \
+                    || { echo "::warning::scan: jq reshape failed for author:${_form}; treating as empty" >&2; BATCH='[]'; }
             else
                 echo "::warning::gh pr list failed for author:${_form}" >&2; BATCH='[]'
             fi
