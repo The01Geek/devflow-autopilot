@@ -138,10 +138,10 @@ emit_jq() {
   fi
 }
 
-# Repo root (for the .devflow/logs/ destinations and the commit). Falls back to
-# cwd when not in a git tree — the durable/record writes still land relative to
-# it, and a non-repo commit simply fails best-effort with a breadcrumb.
-repo_root() { git rev-parse --show-toplevel 2>/dev/null || pwd; }
+# Repo root (for the .devflow/logs/ destinations and the commit) comes from the
+# already-sourced config-source.sh via devflow_repo_root — it caches
+# `git rev-parse --show-toplevel || pwd` once, so a non-repo tree falls back to
+# cwd and a non-repo commit simply fails best-effort with a breadcrumb.
 
 # ── --self-check (Layer 2): warn-only, never writes, never fails ─────────────
 do_self_check() {
@@ -155,7 +155,7 @@ do_self_check() {
   fi
   local run_id root record
   run_id="$(basename "$WORKPAD_DIR")"
-  root="$(repo_root)"
+  root="$(devflow_repo_root)"
   # No iter-*.json workpad at all → per-iteration telemetry was never captured.
   if [ ! -d "$WORKPAD_DIR" ] || ! compgen -G "$WORKPAD_DIR"/iter-*.json >/dev/null 2>&1; then
     echo "::warning::devflow review-and-fix self-check: NO iter-*.json workpad was written for run ${SLUG}/${run_id} — per-iteration effectiveness telemetry was not captured this run; there is nothing to persist." >&2
@@ -171,17 +171,20 @@ do_self_check() {
 
 # ── --persist (Layer 3): derive + durable-copy + one scoped chore: commit ────
 
-# Persist one run dir's artifacts (best-effort). Sets the global PERSIST_ROOT so
-# the single commit at the end is scoped correctly. Returns 0 always.
+# Persist one run dir's artifacts (best-effort). Returns 0 always.
 persist_one() {
   local dir="$1" slug="$2" run_id="$3" root="$4"
-  local newest src durable record out cp_err
-  # A run dir with no iter-*.json is nothing to persist.
-  compgen -G "$dir"/iter-*.json >/dev/null 2>&1 || return 0
+  local src durable record out cp_err newest
+  # A run dir with no iter-*.json is nothing to persist. The glob expands in
+  # sorted order, so the last element is the newest iteration — no ls|sort|tail.
+  # (Last-index form, not ${iters[-1]}: negative indexing needs bash 4.3, but
+  # these helpers must run on stock macOS bash 3.2.)
+  local iters=("$dir"/iter-*.json)
+  [ -e "${iters[0]}" ] || return 0
+  newest="${iters[$((${#iters[@]} - 1))]}"
   # Skip standalone /devflow:review runs — they have their own Phase 4.5 record
   # path and are out of scope for this review-and-fix backstop. A malformed
   # newest workpad defaults to the historical producer (never "review").
-  newest="$(ls -1 "$dir"/iter-*.json 2>/dev/null | sort | tail -1)"
   src="$(jq -r 'if (.source | type) == "string" then .source else "review-and-fix" end' "$newest" 2>/dev/null || echo "review-and-fix")"
   [ "$src" = "review" ] && return 0
 
@@ -219,8 +222,8 @@ persist_one() {
 }
 
 do_persist() {
-  local root dir slug run_id parent
-  root="$(repo_root)"
+  local root dir slug run_id
+  root="$(devflow_repo_root)"
   if [ -n "$WORKPAD_DIR" ]; then
     # Targeted: persist exactly the given run. Slug from --slug, else the parent
     # dir name; run-id is the workpad-dir basename.
@@ -239,8 +242,7 @@ do_persist() {
       [ -d "$dir" ] || continue
       dir="${dir%/}"                                # strip trailing slash
       run_id="$(basename "$dir")"
-      parent="$(dirname "$dir")"
-      slug="$(basename "$parent")"
+      slug="$(basename "$(dirname "$dir")")"
       persist_one "$dir" "$slug" "$run_id" "$root"
     done
   fi
