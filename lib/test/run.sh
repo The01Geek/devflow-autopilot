@@ -3564,6 +3564,137 @@ fi
 rm -rf "$VS_COMMIT" "$VS_SELF" "$VS_REMOTE" "$VS_FETCH" "$VS_FETCH_SHA" \
        "$VS_PREC" "$VS_DECOY" "$VS_DECOY_DEST"
 
+# ────────────────────────────────────────────────────────────────────────────
+echo "provision-local-settings.sh (project .claude/settings.json provisioner)"
+# ────────────────────────────────────────────────────────────────────────────
+# The helper deep-merges DevFlow keys into a consumer repo's project
+# .claude/settings.json — additive, non-clobbering, idempotent — and is invoked
+# only from /devflow:init (never from scaffold-config.sh / install.sh). It writes
+# extraKnownMarketplaces[devflow-marketplace] (autoUpdate true + a github source
+# for The01Geek/devflow-autopilot), enabledPlugins[devflow@devflow-marketplace]
+# = true, and env.CLAUDE_CODE_ENABLE_AUTO_MODE = "1"; it never writes
+# permissions.defaultMode (auto mode is made selectable, not the default).
+# Lead with the adversarial existing-shape matrix per the parser-editing gotcha:
+#   {missing, empty, whitespace-only, {}, other-marketplaces, other-env-vars,
+#    user-defaultMode, unrelated-keys, not-JSON}.  (Issue #88, AC 1-8.)
+PLS="$LIB/../scripts/provision-local-settings.sh"
+PLS_SC="$LIB/../scripts/scaffold-config.sh"
+
+# AC 1 + AC 2 + AC 3: fresh repo (no .claude/settings.json) → file is created
+# with all three DevFlow key groups, the env auto-mode var, and NO
+# permissions.defaultMode; exit 0; breadcrumb names what it provisioned.
+PLS_FRESH="$(mktemp -d)"
+PLS_FRESH_OUT="$(bash "$PLS" "$PLS_FRESH" 2>&1)"; PLS_FRESH_RC=$?
+PLS_SF="$PLS_FRESH/.claude/settings.json"
+assert_eq "pls: fresh → exit 0" "0" "$PLS_FRESH_RC"
+assert_eq "pls: fresh → .claude/settings.json created" "yes" \
+  "$([ -f "$PLS_SF" ] && echo yes || echo no)"
+assert_eq "pls: fresh → marketplace autoUpdate true (AC1)" "true" \
+  "$(jq -r '.extraKnownMarketplaces["devflow-marketplace"].autoUpdate' "$PLS_SF" 2>/dev/null)"
+assert_eq "pls: fresh → marketplace source is github (AC1)" "github" \
+  "$(jq -r '.extraKnownMarketplaces["devflow-marketplace"].source.source' "$PLS_SF" 2>/dev/null)"
+assert_eq "pls: fresh → marketplace repo The01Geek/devflow-autopilot (AC1)" "The01Geek/devflow-autopilot" \
+  "$(jq -r '.extraKnownMarketplaces["devflow-marketplace"].source.repo' "$PLS_SF" 2>/dev/null)"
+assert_eq "pls: fresh → enabledPlugins devflow true (AC1)" "true" \
+  "$(jq -r '.enabledPlugins["devflow@devflow-marketplace"]' "$PLS_SF" 2>/dev/null)"
+assert_eq "pls: fresh → env CLAUDE_CODE_ENABLE_AUTO_MODE 1 (AC2)" "1" \
+  "$(jq -r '.env.CLAUDE_CODE_ENABLE_AUTO_MODE' "$PLS_SF" 2>/dev/null)"
+assert_eq "pls: fresh → no permissions key written (AC3)" "false" \
+  "$(jq -r 'has("permissions")' "$PLS_SF" 2>/dev/null)"
+assert_eq "pls: fresh → breadcrumb names what it provisioned (AC8)" "yes" \
+  "$(printf '%s' "$PLS_FRESH_OUT" | grep -qiE 'provision|added' && echo yes || echo no)"
+assert_eq "pls: fresh → breadcrumb says review before committing (AC8)" "yes" \
+  "$(printf '%s' "$PLS_FRESH_OUT" | grep -qi 'review' && echo yes || echo no)"
+
+# AC 4: existing settings with user values → every pre-existing key/value is
+# preserved (other marketplace, other env var, user defaultMode, unrelated top
+# key) and only the missing DevFlow keys are added.
+PLS_KEEP="$(mktemp -d)"; mkdir -p "$PLS_KEEP/.claude"
+printf '%s\n' '{"extraKnownMarketplaces":{"other-mp":{"source":{"source":"github","repo":"acme/other"},"autoUpdate":false}},"env":{"FOO":"bar"},"permissions":{"defaultMode":"plan"},"customTopKey":123}' \
+  > "$PLS_KEEP/.claude/settings.json"
+PLS_KEEP_OUT="$(bash "$PLS" "$PLS_KEEP" 2>&1)"; PLS_KEEP_RC=$?
+PLS_SK="$PLS_KEEP/.claude/settings.json"
+assert_eq "pls: keep → exit 0" "0" "$PLS_KEEP_RC"
+assert_eq "pls: keep → other marketplace repo preserved (AC4)" "acme/other" \
+  "$(jq -r '.extraKnownMarketplaces["other-mp"].source.repo' "$PLS_SK" 2>/dev/null)"
+assert_eq "pls: keep → other marketplace autoUpdate preserved (AC4)" "false" \
+  "$(jq -r '.extraKnownMarketplaces["other-mp"].autoUpdate' "$PLS_SK" 2>/dev/null)"
+assert_eq "pls: keep → other env var preserved (AC4)" "bar" \
+  "$(jq -r '.env.FOO' "$PLS_SK" 2>/dev/null)"
+assert_eq "pls: keep → user defaultMode NOT clobbered (AC4)" "plan" \
+  "$(jq -r '.permissions.defaultMode' "$PLS_SK" 2>/dev/null)"
+assert_eq "pls: keep → unrelated top-level key preserved (AC4)" "123" \
+  "$(jq -r '.customTopKey' "$PLS_SK" 2>/dev/null)"
+assert_eq "pls: keep → devflow marketplace added alongside (AC4)" "true" \
+  "$(jq -r '.extraKnownMarketplaces["devflow-marketplace"].autoUpdate' "$PLS_SK" 2>/dev/null)"
+assert_eq "pls: keep → devflow env var added alongside (AC4)" "1" \
+  "$(jq -r '.env.CLAUDE_CODE_ENABLE_AUTO_MODE' "$PLS_SK" 2>/dev/null)"
+assert_eq "pls: keep → enabledPlugins added (AC4)" "true" \
+  "$(jq -r '.enabledPlugins["devflow@devflow-marketplace"]' "$PLS_SK" 2>/dev/null)"
+
+# AC 5: idempotent re-run → byte-identical file, "nothing changed" breadcrumb,
+# no duplicate entries.
+PLS_IDEM="$(mktemp -d)"
+bash "$PLS" "$PLS_IDEM" >/dev/null 2>&1
+PLS_SI="$PLS_IDEM/.claude/settings.json"
+PLS_IDEM_FIRST="$(cat "$PLS_SI")"
+PLS_IDEM_OUT="$(bash "$PLS" "$PLS_IDEM" 2>&1)"; PLS_IDEM_RC=$?
+PLS_IDEM_SECOND="$(cat "$PLS_SI")"
+assert_eq "pls: idempotent → second run exit 0 (AC5)" "0" "$PLS_IDEM_RC"
+assert_eq "pls: idempotent → file byte-identical after re-run (AC5)" \
+  "$PLS_IDEM_FIRST" "$PLS_IDEM_SECOND"
+assert_eq "pls: idempotent → 'nothing changed' breadcrumb (AC5)" "yes" \
+  "$(printf '%s' "$PLS_IDEM_OUT" | grep -qi 'nothing changed' && echo yes || echo no)"
+assert_eq "pls: idempotent → no duplicate marketplace entry (AC5)" "1" \
+  "$(jq -r '.extraKnownMarketplaces | length' "$PLS_SI" 2>/dev/null)"
+
+# AC 6: malformed (non-empty invalid JSON) → exit non-zero, specific breadcrumb,
+# file left byte-for-byte unchanged (no clobber/partial edit).
+PLS_BAD="$(mktemp -d)"; mkdir -p "$PLS_BAD/.claude"
+printf '%s' '{ not valid json' > "$PLS_BAD/.claude/settings.json"
+PLS_BAD_OUT="$(bash "$PLS" "$PLS_BAD" 2>&1)"; PLS_BAD_RC=$?
+assert_eq "pls: malformed → exit non-zero (AC6)" "yes" \
+  "$([ "$PLS_BAD_RC" -ne 0 ] && echo yes || echo no)"
+assert_eq "pls: malformed → file byte-for-byte unchanged (AC6)" '{ not valid json' \
+  "$(cat "$PLS_BAD/.claude/settings.json")"
+assert_eq "pls: malformed → breadcrumb names the malformed-settings condition (AC6)" "yes" \
+  "$(printf '%s' "$PLS_BAD_OUT" | grep -qiE 'not valid json|malformed' && echo yes || echo no)"
+
+# Empty / whitespace-only / {} existing files are benign (treated as {}), NOT
+# malformed: DevFlow keys are added, exit 0.
+PLS_EMPTY="$(mktemp -d)"; mkdir -p "$PLS_EMPTY/.claude"
+: > "$PLS_EMPTY/.claude/settings.json"
+PLS_EMPTY_OUT="$(bash "$PLS" "$PLS_EMPTY" 2>&1)"; PLS_EMPTY_RC=$?
+assert_eq "pls: empty file → exit 0 (not malformed)" "0" "$PLS_EMPTY_RC"
+assert_eq "pls: empty file → marketplace added" "true" \
+  "$(jq -r '.extraKnownMarketplaces["devflow-marketplace"].autoUpdate' "$PLS_EMPTY/.claude/settings.json" 2>/dev/null)"
+
+PLS_WS="$(mktemp -d)"; mkdir -p "$PLS_WS/.claude"
+printf '   \n\t\n' > "$PLS_WS/.claude/settings.json"
+PLS_WS_OUT="$(bash "$PLS" "$PLS_WS" 2>&1)"; PLS_WS_RC=$?
+assert_eq "pls: whitespace-only file → exit 0 (treated as empty, not malformed)" "0" "$PLS_WS_RC"
+assert_eq "pls: whitespace-only → env auto-mode added" "1" \
+  "$(jq -r '.env.CLAUDE_CODE_ENABLE_AUTO_MODE' "$PLS_WS/.claude/settings.json" 2>/dev/null)"
+
+PLS_OBJ="$(mktemp -d)"; mkdir -p "$PLS_OBJ/.claude"
+printf '%s' '{}' > "$PLS_OBJ/.claude/settings.json"
+PLS_OBJ_OUT="$(bash "$PLS" "$PLS_OBJ" 2>&1)"; PLS_OBJ_RC=$?
+assert_eq "pls: {} → exit 0" "0" "$PLS_OBJ_RC"
+assert_eq "pls: {} → enabledPlugins added" "true" \
+  "$(jq -r '.enabledPlugins["devflow@devflow-marketplace"]' "$PLS_OBJ/.claude/settings.json" 2>/dev/null)"
+
+# AC 7: isolation invariant — the cloud path (scaffold-config.sh, as install.sh
+# calls it) creates/modifies NO .claude/settings.json.
+PLS_ISO="$(mktemp -d)"
+bash "$PLS_SC" "$PLS_ISO" >/dev/null 2>&1
+assert_eq "pls: isolation → scaffold-config.sh writes no .claude/settings.json (AC7)" "no" \
+  "$([ -f "$PLS_ISO/.claude/settings.json" ] && echo yes || echo no)"
+assert_eq "pls: isolation → scaffold-config.sh creates no .claude/ dir (AC7)" "no" \
+  "$([ -d "$PLS_ISO/.claude" ] && echo yes || echo no)"
+
+rm -rf "$PLS_FRESH" "$PLS_KEEP" "$PLS_IDEM" "$PLS_BAD" "$PLS_EMPTY" "$PLS_WS" \
+       "$PLS_OBJ" "$PLS_ISO"
+
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)

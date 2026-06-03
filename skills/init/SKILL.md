@@ -40,6 +40,23 @@ bash "${CLAUDE_SKILL_DIR}/../../lib/preflight.sh"
 
 This verifies `git`, `gh`, `jq`, `python3` (>=3.11), and **PyYAML**, printing an actionable line per missing item and exiting non-zero if any is absent. It's **advisory** — scaffolding already succeeded, so a non-zero exit here is a dependency gap to *report*, not an init failure. **Never run `pip` yourself**: DevFlow deliberately keeps `pip` out of the plugin/init path, so relay the install command and let the user run it (see "After running"). Read the result and respond per the matching branch below.
 
+## Then: provision the local Claude Code settings
+
+Two local/interactive-tier conveniences otherwise need a hand-edited Claude Code settings file. This step provisions them into the repo's **project** `.claude/settings.json` so adopters get them as a one-command outcome of `/devflow:init` instead of a manual edit they have to find in the docs:
+
+```bash
+bash "${CLAUDE_SKILL_DIR}/../../scripts/provision-local-settings.sh"
+```
+
+With no argument it targets the current repo root and **deep-merges** three key groups into `.claude/settings.json`, **additively and without clobbering anything you already set** (the user's value wins at every depth — same no-clobber discipline as the config scaffolder):
+
+- `extraKnownMarketplaces["devflow-marketplace"]` (a `github` source for `The01Geek/devflow-autopilot`, `autoUpdate: true`) and `enabledPlugins["devflow@devflow-marketplace"] = true`, so Claude Code keeps the DevFlow plugin updated automatically;
+- `env.CLAUDE_CODE_ENABLE_AUTO_MODE = "1"`, which makes the `auto` permission mode **selectable** in the `Shift+Tab` cycle on the Bedrock / Vertex AI / Foundry providers (a harmless no-op on the Anthropic API, where auto mode is already available).
+
+It is **local/interactive-tier only** — the cloud (CI) tier uses claude-code-action's own allowlist profile and consumes neither a local marketplace install nor a local permission mode, so this helper is **not** wired into the shared scaffolder and a cloud-only `install.sh` run writes no `.claude/settings.json`. It is **idempotent** (re-running after the keys exist changes nothing) and writes **no** `permissions.defaultMode`: auto mode is made *available*, never made the default — the developer still opts in per session via the `Shift+Tab` prompt.
+
+**Be honest about what this does and does not do** when you report it: setting the env var only makes auto mode *selectable*; it does **not** turn it on, and it does **not** guarantee auto mode is usable — Claude Code also gates auto mode on plan, model (Opus 4.7/4.8 on Bedrock/Vertex/Foundry; Opus 4.6+/Sonnet 4.6 on the Anthropic API), and an admin enable on Team/Enterprise. Never claim auto mode is "on."
+
 ## Then: enrich the `setup` block by exploring the repo
 
 The scaffolder's language detection is a **deterministic floor** (marker file → known tool list + install line). It cannot infer a project's **service dependencies, runtime versions, or extensions** — those need judgement, which is your job. After it runs, **read the repo and fill in the `setup` fields a marker→list table can't**, editing `.devflow/config.json` directly (it's schema-validated; see `config.schema.json` for every field). Add **only what the project's tests actually need** — each addition runs in the cloud tier.
@@ -87,6 +104,13 @@ The scaffolder also prints `devflow-detect:` lines from the language auto-detect
 - **`detected: <langs> — merged …`** — build/test tools for those languages were added to `config.json`. **Tell the user to review the additions before committing.** The `devflow_runner.allowed_tools` entries reach the automated reviewer only when `devflow_runner.provision_env: true` is set in the base-branch config, which runs the PR author's `setup.install` + build steps on `pull_request_target` with a write token. The flag and the freeform allowlist are read only from the base branch, so a PR can't enable it or grant itself tools, and the runner strips the deny-listed tier regardless; but enabling `provision_env` is opting into running untrusted build steps. If they want the reviewer read-only (the default), leave `provision_env` unset/false. The `devflow.allowed_tools` / `devflow_implement.allowed_tools` entries take effect in their own workflows.
 - **`detected: <langs> — config.json already covers them`** — idempotent re-run, nothing changed.
 - **`no known language markers detected`** or **`jq not found …`** — no auto-population happened; the reviewer stays read-only. To make the reviewer build/test PRs they must set `devflow_runner.provision_env: true` and populate the `setup` block (see `config.schema.json` / docs/cloud-setup.md).
+
+Read the settings provisioner's `devflow-settings:` line and respond:
+
+- **`provisioned … (added: …)`** — the project `.claude/settings.json` gained the listed DevFlow keys. **Tell the user to review the change before committing.** Note honestly that `env.CLAUDE_CODE_ENABLE_AUTO_MODE` only makes auto mode *selectable* in the `Shift+Tab` cycle on Bedrock/Vertex/Foundry (a no-op on the Anthropic API) — it does not turn auto mode on, and plan/model/admin gates still apply.
+- **`… already has the DevFlow keys; nothing changed`** — idempotent re-run; the settings already had every key. Nothing to report beyond that it was already set up.
+- **`existing … is not valid JSON …`** (exit 2) — the existing `.claude/settings.json` is malformed, so the helper left it **byte-for-byte unchanged** and provisioned nothing. Relay this to the user and tell them to fix or remove the file, then re-run `/devflow:init`. Do **not** hand-edit the settings file yourself.
+- **`jq not found …`** (exit 2) — relay the gap; the marketplace/auto-mode settings were not provisioned. (The same `jq` the scaffolder needs.)
 
 Then branch on the preflight **exit code** (the durable signal — every line it prints carries the stable `devflow preflight:` prefix, but the wording can change; the exit code won't):
 

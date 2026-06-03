@@ -523,7 +523,7 @@ curl -fsSL https://raw.githubusercontent.com/The01Geek/devflow-autopilot/main/in
 ```
 Thin by default (installs workflows, actions, a local marketplace, a config scaffold, and pins `devflow_version`). `DEVFLOW_VENDOR=1` commits the tree instead.
 
-**Updates:** local tier, enable `autoUpdate` on the marketplace in `~/.claude/settings.json`. Cloud tier, bump `devflow_version` or re-run `install.sh`.
+**Updates:** local tier, `/devflow:init` provisions the project `.claude/settings.json` — it registers `devflow-marketplace` under `extraKnownMarketplaces` with `autoUpdate: true` and enables the plugin under `enabledPlugins`, so Claude Code keeps the plugin updated (additive and non-clobbering, idempotent on re-run). The same step writes `env.CLAUDE_CODE_ENABLE_AUTO_MODE = "1"`, which makes `auto` permission mode **selectable** in the `Shift+Tab` cycle on Bedrock/Vertex/Foundry (a no-op on the Anthropic API); it never sets `permissions.defaultMode`, so auto mode is made available, never the default. This is local-tier only — the cloud tier neither needs nor receives a `.claude/settings.json`. Cloud tier, bump `devflow_version` or re-run `install.sh`.
 
 ---
 
