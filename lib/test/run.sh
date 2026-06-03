@@ -310,6 +310,19 @@ assert_eq "base_branch read: SKILL checks out origin/\$BASE" "yes" \
 assert_eq "base_branch read: SKILL keeps the attributable fetch-failure breadcrumb" "yes" \
   "$(grep -qF 'could not fetch base branch' "$IMPL_SKILL" && echo yes || echo no)"
 
+# Versioning is per-repo policy, not the engine's job: implement/SKILL.md must carry NO
+# version-bump step. A repo that wants version management opts in via its consumer prompt
+# extension (.devflow/prompt-extensions/implement.md), which the loader appends to the skill.
+# Pin (1) both removed section headings to 0, (2) no stray Phase-2.6/3.1.5 cross-refs, and
+# (3) that DevFlow itself re-homes its own rule into that extension so the dogfooded behavior
+# is not silently lost. ("Step 2.6" refs elsewhere belong to review-and-fix, not here.)
+assert_eq "implement: no version-bump section (versioning is per-repo, not the engine)" "0" \
+  "$(grep -cE '^### (2\.6 Version & changelog|3\.1\.5 Apply the version bump)' "$IMPL_SKILL")"
+assert_eq "implement: no stray version-phase cross-refs (Phase 2.6 / 3.1.5)" "0" \
+  "$(grep -cE '3\.1\.5|Phase 2\.6' "$IMPL_SKILL")"
+assert_eq "implement: DevFlow re-homes its versioning rule to the implement prompt extension" "yes" \
+  "$(EXT="$LIB/../.devflow/prompt-extensions/implement.md"; [ -s "$EXT" ] && grep -qF 'plugin.json' "$EXT" && grep -qiF 'changelog' "$EXT" && echo yes || echo no)"
+
 # Behavioral coverage for the base_branch read+guard (token pins above catch a
 # refactor that DROPS a token, but not a semantic regression in config-get's
 # soft/hard contract that the guard depends on). Mirrors the max_iterations
