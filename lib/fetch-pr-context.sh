@@ -262,6 +262,11 @@ if [ -n "$WORKPAD_BODY" ]; then
     # coupled the strip to a single-word status vocabulary and would mis-gate a
     # future multi-word status (e.g. "In Progress" → "Progress"). The glyphs are
     # matched as literal byte sequences, so the strip is locale-independent.
+    # The glyph SET below must stay in sync with workpad.py's `_STATUS_GLYPHS`
+    # (the single source of truth that *writes* the glyph); enumerating the exact
+    # set — rather than a broad "strip any leading symbol" — is deliberate, so a
+    # corrupt/hand-edited status with an UNKNOWN leading symbol is preserved (not
+    # silently normalised to a clean-looking word) and gates not-clean below.
     # `tr -d '\r'` first guards against CRLF bodies leaving a trailing carriage
     # return on the value. Trailing `|| true`: under `set -euo pipefail`, `head -1`
     # closing the pipe early can hand an upstream stage a SIGPIPE (141) and abort
