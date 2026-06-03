@@ -58,13 +58,24 @@ warn() { printf 'devflow-automode: %s\n' "$1" >&2; }
 # and we default to user scope below.
 APPLY=0
 SETTINGS=""
+TARGET_GIVEN=0   # tracks an EXPLICIT positional, so an empty-string arg ("") is distinguishable
+                 # from "no target". Without this, `[ -z "$SETTINGS" ]` below cannot tell
+                 # `--apply ""` (empty explicit arg) from `--apply` (no arg) and would silently
+                 # fall through to the real $HOME/.claude/settings.json — a mis-target footgun.
 for arg in "$@"; do
   case "$arg" in
     --apply) APPLY=1 ;;
     -*)      warn "unknown option: $arg"; exit 2 ;;
-    *)       if [ -n "$SETTINGS" ]; then
+    *)       if [ "$TARGET_GIVEN" -eq 1 ]; then
                warn "unexpected extra argument: $arg"; exit 2
              fi
+             # An explicitly-passed empty target is meaningless — fail closed rather than
+             # silently retargeting to the user-scope default.
+             if [ -z "$arg" ]; then
+               warn "empty target path argument; provisioned nothing (pass a real path or omit it for user scope)."
+               exit 2
+             fi
+             TARGET_GIVEN=1
              SETTINGS="$arg" ;;
   esac
 done
@@ -219,8 +230,11 @@ if [ "$(printf '%s' "$EXISTING" | jq -S .)" = "$(printf '%s' "$MERGED" | jq -S .
   # leaf shapes ("…AUTO_MODE= (your value is preserved)…"). This branch is reachable only when
   # env.CLAUDE_CODE_ENABLE_AUTO_MODE is PRESENT (an absent key makes MERGED differ from
   # EXISTING), so the raw read is always populated and needs no absent-key fallback — the read
-  # yields the literal `false`/`null`/`1`/`"0"` so every preserved value renders honestly. The
-  # `|| PRESERVED_RAW=""` stays purely as a defensive set-e guard on a jq hiccup.
+  # yields the literal `false`/`null`/`1`/`"0"`, so every preserved value renders honestly on
+  # this (the only reachable) path. The `|| PRESERVED_RAW=""` is a last-resort defensive set-e
+  # guard against a jq hiccup; it cannot fire on the already-validated, key-present JSON here,
+  # and if it somehow did the breadcrumb would render a blank value — strictly worse than the
+  # literal, but unreachable, so it is the safe fail-soft for a cosmetic read.
   PRESERVED_RAW="$(printf '%s' "$EXISTING" | jq -c '.env.CLAUDE_CODE_ENABLE_AUTO_MODE')" || PRESERVED_RAW=""
   if [ "$PRESERVED_RAW" = '"1"' ]; then
     log "$SETTINGS already sets CLAUDE_CODE_ENABLE_AUTO_MODE=\"1\" — 'auto' is already selectable; nothing changed."

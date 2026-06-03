@@ -5001,6 +5001,21 @@ assert_eq "pam: --apply + extra positional → exit 2 (validated regardless of -
 assert_eq "pam: --apply + extra positional → breadcrumb names the unexpected argument" "yes" \
   "$(printf '%s' "$PAM_AE_OUT" | grep -qi 'unexpected extra argument' && echo yes || echo no)"
 
+# An EXPLICIT empty-string positional must fail closed, NOT silently retarget to the user-scope
+# default ($HOME/.claude/settings.json) — `[ -z "$SETTINGS" ]` alone cannot tell `--apply ""`
+# from `--apply`. We isolate HOME to a throwaway dir and assert (a) exit 2 with a specific
+# breadcrumb AND (b) the user-scope default file was NOT created (the actual mis-target this
+# guards). Mutation: drop the empty-arg guard and 'no user-scope write' goes RED (the helper
+# would write to $HOME/.claude/settings.json). env -u/HOME isolation keeps the real home safe.
+PAM_EMPTYARG_HOME="$(mktemp -d)"
+PAM_EMPTYARG_OUT="$(HOME="$PAM_EMPTYARG_HOME" bash "$PAM" --apply "" 2>&1)"; PAM_EMPTYARG_RC=$?
+assert_eq "pam: --apply with empty-string target → exit 2 (no silent mis-target)" "2" "$PAM_EMPTYARG_RC"
+assert_eq "pam: --apply with empty-string target → breadcrumb names the empty target" "yes" \
+  "$(printf '%s' "$PAM_EMPTYARG_OUT" | grep -qi 'empty target path' && echo yes || echo no)"
+assert_eq "pam: --apply with empty-string target → did NOT write the user-scope default (mis-target guarded)" "no" \
+  "$([ -f "$PAM_EMPTYARG_HOME/.claude/settings.json" ] && echo yes || echo no)"
+rm -rf "$PAM_EMPTYARG_HOME"
+
 # AC 1 (user-scope hard-fail): --apply with no target AND HOME unset cannot resolve
 # ~/.claude/settings.json → exit 2 with a specific breadcrumb, writes nothing. `env -u`
 # is POSIX-portable (macOS/BSD env support it), matching the no-GNU-only-flags rule.
