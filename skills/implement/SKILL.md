@@ -425,7 +425,7 @@ Write the code. Follow the patterns and conventions described in `CLAUDE.md`. As
 
 This narrows *ceremony*, never *coverage*, and is **fail-safe**: each sweep's heading is authoritative, so if its trigger fires you run it even when this list didn't call it out — if the index ever drifts from a heading, the heading wins (drift can only add a sweep, never skip a warranted one). An add-only diff typically runs just the four always-on sweeps. **Record the diff shape you classified and the sweeps you are running in a workpad `--note`** — the selection is then an auditable commitment a reviewer or the weekly retrospective can check, not a silent skip; a note reading "add-only" on a diff that in fact deleted a file is a visible error, where an unrecorded mental skip is not.
 
-**Run each selected sweep after implementing and before running tests (Phase 2.4)** — that timing is identical for every sweep, so the bodies below state only each sweep's own trigger, steps, and downstream reference.
+**Run each selected sweep after implementing and before running tests (Phase 2.4)** — that timing is the same for every sweep.
 
 For the grep-based sweeps (**2.3.0**, **2.3.2**), don't merely attest you grepped: run the actual `git grep -n` / `grep -rnE` the sweep describes and record a **concise** result via `--note` (the match count plus "all intended", or the specific offending sites) — evidence, not a claim.
 
@@ -477,6 +477,8 @@ Same principle as 2.3.1, applied to `CLAUDE.md` conventions instead of dead code
 - A raw query/literal string in code you touched that violates the project's style rules (quoting, casing, identifier escaping) — whatever the project's CLAUDE.md mandates for embedded queries or literals.
 - A new variable, method, file, or identifier you introduced that copies a legacy misspelling or non-conforming name from a sibling file — whatever the project's CLAUDE.md mandates for naming. "It matches the established convention across the existing code" is **not** a valid reason to propagate a misspelled or non-conforming name into new code; name the new thing correctly.
 
+Do this sweep:
+
 1. From `git diff --staged -U0` (or `git diff -U0`), list every function/method/query/new file your diff added or changed lines in.
 2. Re-read each one in its post-edit state and check it against the rules in `CLAUDE.md` that apply to the languages and surfaces your diff touched.
 3. Fix any violation in code the diff already touches. If fixing it cleanly is genuinely out of scope (it would balloon the diff into an unrelated refactor), say so explicitly in the workpad notes (`--note`) with the reason — do not leave it silent for `/devflow:review` to catch.
@@ -494,6 +496,8 @@ A **boundary assumption** is any factual claim the diff relies on about somethin
 - **Supported-runtime behavior** — a behavior of the language, standard library, or interpreter. Verify it holds across the project's **entire** documented supported-runtime range, not just the version in your hands.
 - **Sibling-producer output** — the shape or content of data produced by another module your code consumes. Verify it by reading the **production producer**, not by assuming a field is populated (e.g. consuming a field that the producer hard-codes empty).
 - **Real host/runtime environment** — a path, base URL, network namespace, or sandbox constraint of where the code actually runs. Verify against the **real host**, not the local dev shell (e.g. relative asset paths that resolve locally but 404 under the deployed base URL).
+
+Do this sweep:
 
 1. From `git diff --staged -U0` (or `git diff -U0`), list every claim the diff depends on that falls into one of the four kinds above. The diff is the *trigger* for finding which boundaries the change now relies on — a boundary's definition site (an unchanged import, a producer module, a version pin) usually sits in context `-U0` doesn't print, so follow each claim to its actual source. Purely-internal claims (a local you just wrote, a function defined in the same diff) are **out of scope** — this sweep is only about boundaries you don't own.
 2. For each claim, verify it against the **actual source of truth** — the pinned version's installed source/changelog, the producer module, the documented supported-runtime range across *all* of it, the real host — never from memory.
@@ -526,6 +530,8 @@ A **silent failure** is any error the code can hit that doesn't leave the caller
 - **Unjustified or wrong-direction fallback.** Falling back to a default, the built-in config default, an alternate path, or empty output on failure without recording *that* it fell back and *why* — the reader can't tell a real empty result from a masked failure. A fallback that defaults an *error* to a success-shaped value (an API error read as "passing", a parse error read as "no criteria") is worse: it fails *open*. A fallback is allowed only as documented, intended behavior, it fails toward the safe side, and it still leaves a breadcrumb.
 - **Misdirected or generic breadcrumb.** A best-effort path that *does* emit a message, but a generic one ("error", "failed") that points at the wrong cause — the silent-fail trap CLAUDE.md already calls out for `config-get.sh` / the jq consumers. The breadcrumb must name the *specific* shape that detonated.
 - **Mock/stub leaking past tests.** Production code falling back to a fake/stub/hard-coded value when the real source is unavailable, outside test scaffolding.
+
+Do this sweep:
 
 1. From `git diff --staged -U0` (or `git diff -U0`), list every error-handling site the diff **added or changed**: each `try/except` / `catch`, each `|| true` / `|| echo` / `2>/dev/null` / `set +e`, each `$?` check or swallowed exit code, each fallback/default-on-failure, each `jq`/parse step that can fail, each optional-chaining / `// default` that can skip a failing op. If the diff added none, the sweep is a no-op — record that and move on.
 2. For each site, confirm it does **not** silently fail: the failure is either propagated, or handled with (a) a breadcrumb naming the *specific* cause and (b) — for anything user- or caller-facing — an actionable account of what went wrong. A best-effort exit-0 path still leaves the **specific** breadcrumb, never a generic or misdirected one, and never prints success for work that didn't happen.
