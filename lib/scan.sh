@@ -89,6 +89,12 @@ _author_is_watched() {
 # ── Ad-hoc mode: explicit PR list, no search, no processed-filter ─────────────
 if [ -n "$EXPLICIT_PRS" ]; then
     CANDIDATES='[]'
+    # Scratch for the predicate jq's stderr, so a detonation breadcrumb names the
+    # actual jq diagnostic (e.g. "Cannot iterate over string") and not just an
+    # exit code. Overwritten per PR, read immediately, removed before the print.
+    # Trap-cleaned so a mid-loop `set -e` abort can't orphan it in $TMPDIR.
+    PRS_ERR="$(mktemp)"
+    trap 'rm -f "$PRS_ERR"' EXIT
     IFS=',' read -ra _prs <<< "$EXPLICIT_PRS"
     for _p in "${_prs[@]}"; do
         _p="$(echo "$_p" | xargs)"
@@ -103,13 +109,30 @@ if [ -n "$EXPLICIT_PRS" ]; then
         fi
         _WATCHED=false
         _author_is_watched "$(echo "$_PRJSON" | jq -r '.author.login // ""')" && _WATCHED=true
+        # Split the jq exit status from the empty-result case. `select(…)` emits the
+        # object on a match and nothing on a legitimate non-match — both exit 0 — so
+        # the empty string alone cannot distinguish "evaluated and excluded" from
+        # "the predicate never ran". A non-zero jq exit means the filter detonated
+        # (e.g. a non-array `labels` slips the predicate's `// []` guard, so `map`
+        # aborts); report that as a distinct "predicate evaluation failed"
+        # breadcrumb rather than the misleading "matches no retrospection path".
+        # Non-fatal by design here (warn + `continue`), unlike weekly mode's
+        # degraded gate: --prs is the operator-named ad-hoc path, so a per-PR
+        # breadcrumb on stderr is the right granularity rather than a hard exit.
+        set +e
         _SEL="$(echo "$_PRJSON" | jq -c --arg impl "$IMPL_PREFIX" --argjson watched "$_WATCHED" \
-            "select($RETRO_PREDICATE) | {number, headRefName, mergedAt}" 2>/dev/null || true)"
+            "select($RETRO_PREDICATE) | {number, headRefName, mergedAt}" 2>"$PRS_ERR")"
+        _SEL_RC=$?
+        set -e
+        if [ "$_SEL_RC" -ne 0 ]; then
+            echo "::warning::scan --prs: PR ${_p} (branch '${_HEAD}') predicate evaluation failed (jq exit ${_SEL_RC}: $(tr '\n' ' ' < "$PRS_ERR" | cut -c1-300)); skipping" >&2; continue
+        fi
         if [ -z "$_SEL" ]; then
             echo "::warning::scan --prs: PR ${_p} (branch '${_HEAD}') matches no retrospection path; skipping" >&2; continue
         fi
         _add_candidates "[$_SEL]"
     done
+    rm -f "$PRS_ERR"
     echo "$CANDIDATES" | jq -c --argjson cap "$MAX_PRS" 'sort_by(.mergedAt) | [.[0:$cap][] | {number, headRefName, mergedAt}]'
     exit 0
 fi
@@ -120,6 +143,23 @@ fi
 SINCE="$(python3 -c 'import datetime as d; print((d.datetime.now(d.timezone.utc)-d.timedelta(days=7)).strftime("%Y-%m-%d"))')"
 
 CANDIDATES='[]'
+# Set when ANY candidate-source fetch or jq-reshape below hard-fails. Each such
+# failure currently logs a ::warning::, substitutes an empty batch, and the run
+# proceeds — so a partial GitHub outage silently UNDER-COUNTS the unprocessed set
+# and exits 0, which a scheduled cron reads as "0 new PRs to retrospect" (the
+# silent no-op the retrospective exists to eliminate). The degraded gate after
+# the searches turns that into a non-zero exit.
+DEGRADED=0
+# Captures the stderr of each candidate-source fetch/reshape so the breadcrumbs
+# below — and the now-FATAL degraded gate — can name the actual gh/jq cause (auth
+# expiry vs rate-limit vs a malformed shape) rather than a generic "failed". One
+# scratch file, overwritten per call (each breadcrumb reads it immediately, before
+# the next call), removed just before the gate; collapse newlines and cap length
+# so a breadcrumb stays a single bounded line. Trap-cleaned at creation so a
+# `set -e` abort between here and the explicit `rm -f` below cannot orphan it;
+# the later `RESP`/`ERR` trap replaces this one only after FETCH_ERR is removed.
+FETCH_ERR="$(mktemp)"
+trap 'rm -f "$FETCH_ERR"' EXIT
 
 # ── Path (a): label pass — author- and branch-agnostic ───────────────────────
 # Every merged PR carrying the reserved DevFlow provenance label in the window
@@ -128,11 +168,11 @@ CANDIDATES='[]'
 # detection mechanism). Best-effort: a gh failure logs and yields no candidates.
 if LABEL_BATCH="$("$DEVFLOW_GH" pr list --repo "$REPO" --state merged --label DevFlow \
         --search "merged:>=${SINCE}" \
-        --json number,headRefName,mergedAt --limit 100 2>/dev/null)"; then
-    LABEL_BATCH="$(echo "$LABEL_BATCH" | jq '[.[] | {number, headRefName, mergedAt}]' 2>/dev/null)" \
-        || { echo "::warning::scan: jq reshape of the DevFlow-label batch failed; treating as empty" >&2; LABEL_BATCH='[]'; }
+        --json number,headRefName,mergedAt --limit 100 2>"$FETCH_ERR")"; then
+    LABEL_BATCH="$(echo "$LABEL_BATCH" | jq '[.[] | {number, headRefName, mergedAt}]' 2>"$FETCH_ERR")" \
+        || { echo "::warning::scan: jq reshape of the DevFlow-label batch failed ($(tr '\n' ' ' < "$FETCH_ERR" | cut -c1-300)); treating as empty" >&2; LABEL_BATCH='[]'; DEGRADED=1; }
 else
-    echo "::warning::gh pr list --label DevFlow failed" >&2; LABEL_BATCH='[]'
+    echo "::warning::gh pr list --label DevFlow failed ($(tr '\n' ' ' < "$FETCH_ERR" | cut -c1-300))" >&2; LABEL_BATCH='[]'; DEGRADED=1
 fi
 _add_candidates "$LABEL_BATCH"
 
@@ -148,18 +188,32 @@ else
         for _form in "app/${_t}" "${_t}"; do
             if BATCH="$("$DEVFLOW_GH" pr list --repo "$REPO" --state merged \
                     --search "merged:>=${SINCE} author:${_form}" \
-                    --json number,headRefName,author,mergedAt,labels,closingIssuesReferences --limit 100 2>/dev/null)"; then
+                    --json number,headRefName,author,mergedAt,labels,closingIssuesReferences --limit 100 2>"$FETCH_ERR")"; then
                 # These are watched-author results, so $watched is true for the
                 # closes-issue path (b). Filter locally with the shared predicate.
                 BATCH="$(echo "$BATCH" | jq --arg impl "$IMPL_PREFIX" --argjson watched true \
-                    "[.[] | select($RETRO_PREDICATE) | {number, headRefName, mergedAt}]" 2>/dev/null)" \
-                    || { echo "::warning::scan: jq reshape failed for author:${_form}; treating as empty" >&2; BATCH='[]'; }
+                    "[.[] | select($RETRO_PREDICATE) | {number, headRefName, mergedAt}]" 2>"$FETCH_ERR")" \
+                    || { echo "::warning::scan: jq reshape failed for author:${_form} ($(tr '\n' ' ' < "$FETCH_ERR" | cut -c1-300)); treating as empty" >&2; BATCH='[]'; DEGRADED=1; }
             else
-                echo "::warning::gh pr list failed for author:${_form}" >&2; BATCH='[]'
+                echo "::warning::gh pr list failed for author:${_form} ($(tr '\n' ' ' < "$FETCH_ERR" | cut -c1-300))" >&2; BATCH='[]'; DEGRADED=1
             fi
             _add_candidates "$BATCH"
         done
     done
+fi
+
+rm -f "$FETCH_ERR"
+
+# ── Degraded gate ─────────────────────────────────────────────────────────────
+# If any candidate-source fetch/reshape above hard-failed, the unprocessed-PR set
+# is under-counted. Fail non-zero (mirroring the retrospectives.jsonl hard-read
+# error below) so the partial outage is not mistaken for "0 new PRs to
+# retrospect" — exit before the processed-filter read; an under-counted set must
+# never reach stdout looking complete. The per-source ::warning::s above already
+# named each specific gh/jq cause; this gate is the fatal summary.
+if [ "$DEGRADED" -ne 0 ]; then
+    echo "::error::scan: one or more candidate-source fetches failed; the unprocessed-PR set would be under-counted. Exiting non-zero rather than reporting a partial set as complete." >&2
+    exit 1
 fi
 
 # ── _decode_existing <jsonl-text> <source-label> ─────────────────────────────

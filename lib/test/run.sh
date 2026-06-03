@@ -1604,6 +1604,125 @@ assert_eq "--prs drops non-retrospected branch PR 2"        "false" "$(echo "$PR
 assert_eq "--prs drops non-merged PR 3"                     "false" "$(echo "$PRS_OUT" | jq 'any(.[]; .number==3)')"
 assert_eq "--prs ignores already-processed retrospectives.jsonl (PR 1 from gh stub matches an EXISTING pr in weekly mode but here is kept)" "1" "$(echo "$PRS_OUT" | jq 'length')"
 
+# #103 I-2: in --prs mode, a jq PREDICATE EVALUATION failure must emit a distinct
+# "predicate evaluation failed" breadcrumb, not be misreported as a clean "matches
+# no retrospection path" exclusion (which asserts the PR was evaluated-and-excluded
+# when the predicate may never have run). Force the jq error with a non-array
+# `labels` shape: the predicate's `(.labels // [])` guard defaults only null/false,
+# so `map(...)` over a string aborts the filter (exit non-zero).
+cat > "$SCAN_TMP/gh3" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *"repo view"*) echo "acme/example-repo" ;;
+  *"pr view 5 --repo"*) echo '{"number":5,"headRefName":"claude/issue-5","mergedAt":"2026-05-01T00:00:00Z","state":"MERGED","labels":"not-an-array","closingIssuesReferences":[],"author":{"login":"x"}}' ;;
+  *) echo '[]' ;;
+esac
+STUB
+chmod +x "$SCAN_TMP/gh3"
+PRS_ERR_OUT="$(DEVFLOW_CONFIG_FILE="$LIB/test/fixtures/config.json" DEVFLOW_GH="$SCAN_TMP/gh3" bash "$LIB/scan.sh" --prs "5" 2>&1 >/dev/null)"
+assert_eq "#103 I-2: --prs jq predicate error emits 'predicate evaluation failed' breadcrumb" "true" \
+  "$(echo "$PRS_ERR_OUT" | grep -q 'predicate evaluation failed' && echo true || echo false)"
+assert_eq "#103 I-2: --prs jq predicate error is NOT misreported as 'matches no retrospection path'" "false" \
+  "$(echo "$PRS_ERR_OUT" | grep -q 'matches no retrospection path' && echo true || echo false)"
+# F1 (review): the breadcrumb names the actual jq cause (exit code + diagnostic),
+# not just "failed" — `jq exit <n>:` is the format that carries the captured stderr.
+assert_eq "#103 F1: --prs predicate-error breadcrumb names the jq exit code + diagnostic" "true" \
+  "$(echo "$PRS_ERR_OUT" | grep -Eq 'jq exit [0-9]+:' && echo true || echo false)"
+
+# #103 I-2 (negative): a genuine non-match still emits the "matches no retrospection
+# path" breadcrumb (and NOT the predicate-failure one) — the split must not collapse
+# the two cases in the other direction.
+cat > "$SCAN_TMP/gh3b" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *"repo view"*) echo "acme/example-repo" ;;
+  *"pr view 6 --repo"*) echo '{"number":6,"headRefName":"feature/plain","mergedAt":"2026-05-01T00:00:00Z","state":"MERGED","labels":[],"closingIssuesReferences":[],"author":{"login":"x"}}' ;;
+  *) echo '[]' ;;
+esac
+STUB
+chmod +x "$SCAN_TMP/gh3b"
+PRS_NM="$(DEVFLOW_CONFIG_FILE="$LIB/test/fixtures/config.json" DEVFLOW_GH="$SCAN_TMP/gh3b" bash "$LIB/scan.sh" --prs "6" 2>&1 >/dev/null)"
+assert_eq "#103 I-2: genuine non-match still says 'matches no retrospection path'" "true" \
+  "$(echo "$PRS_NM" | grep -q 'matches no retrospection path' && echo true || echo false)"
+assert_eq "#103 I-2: genuine non-match does NOT say 'predicate evaluation failed'" "false" \
+  "$(echo "$PRS_NM" | grep -q 'predicate evaluation failed' && echo true || echo false)"
+
+# #103 I-3: in weekly mode, a candidate-source fetch hard-failure (here the
+# DevFlow-label `gh pr list`) must force a NON-ZERO exit, so a partial GitHub
+# outage cannot masquerade as "0 new PRs" and let a cron see success.
+cat > "$SCAN_TMP/gh4" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *"repo view"*) echo "acme/example-repo" ;;
+  *"pr list"*"--label DevFlow"*) echo "boom: gh outage" >&2; exit 1 ;;
+  *"pr list"*) echo '[]' ;;
+  *"api"*"retrospectives.jsonl?ref=main"*) printf 'HTTP/2.0 404 Not Found\r\n\r\n' ;;
+  *) echo '[]' ;;
+esac
+STUB
+chmod +x "$SCAN_TMP/gh4"
+SCAN_DEG="$(DEVFLOW_CONFIG_FILE="$LIB/test/fixtures/config.json" DEVFLOW_GH="$SCAN_TMP/gh4" bash "$LIB/scan.sh" 2>&1 >/dev/null)"; SCAN_DEG_RC=$?
+assert_eq "#103 I-3: weekly label-fetch hard failure exits non-zero (no silent under-count)" "1" "$SCAN_DEG_RC"
+assert_eq "#103 I-3: weekly degraded run emits an ::error:: breadcrumb" "true" \
+  "$(echo "$SCAN_DEG" | grep -q '::error::scan:' && echo true || echo false)"
+# F2 (review): the per-source ::warning:: names the actual gh cause, not just "failed".
+assert_eq "#103 F2: weekly degraded breadcrumb names the underlying gh cause" "true" \
+  "$(echo "$SCAN_DEG" | grep -q 'boom: gh outage' && echo true || echo false)"
+
+# #103 I-3 / T1 (review): the watched-author path also degrades. Only the
+# label-fetch path was exercised above; here a watched-author `pr list` returns a
+# non-array, so the author-side jq RESHAPE aborts (`.labels` on a string), which
+# must set DEGRADED and exit non-zero exactly like the label path.
+cat > "$SCAN_TMP/gh6" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *"repo view"*) echo "acme/example-repo" ;;
+  *"pr list"*"--label DevFlow"*) echo '[]' ;;
+  *"pr list"*"author:"*) echo '{"not":"an-array"}' ;;
+  *"pr list"*) echo '[]' ;;
+  *"api"*"retrospectives.jsonl?ref=main"*) printf 'HTTP/2.0 404 Not Found\r\n\r\n' ;;
+  *) echo '[]' ;;
+esac
+STUB
+chmod +x "$SCAN_TMP/gh6"
+DEVFLOW_CONFIG_FILE="$LIB/test/fixtures/config.json" DEVFLOW_GH="$SCAN_TMP/gh6" bash "$LIB/scan.sh" >/dev/null 2>&1; SCAN_AUTHOR_DEG_RC=$?
+assert_eq "#103 I-3/T1: weekly watched-author reshape failure exits non-zero too" "1" "$SCAN_AUTHOR_DEG_RC"
+
+# #103 I-3/T1 (shadow): complete the 2x2 degraded matrix (label|author x fetch|reshape).
+# gh4=label-fetch, gh6=author-reshape above; here gh7=label-RESHAPE (a non-array label
+# batch aborts the reshape jq) and gh8=author-FETCH (author `pr list` exits non-zero).
+cat > "$SCAN_TMP/gh7" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *"repo view"*) echo "acme/example-repo" ;;
+  *"pr list"*"--label DevFlow"*) echo '{"not":"an-array"}' ;;
+  *"pr list"*) echo '[]' ;;
+  *"api"*"retrospectives.jsonl?ref=main"*) printf 'HTTP/2.0 404 Not Found\r\n\r\n' ;;
+  *) echo '[]' ;;
+esac
+STUB
+chmod +x "$SCAN_TMP/gh7"
+DEVFLOW_CONFIG_FILE="$LIB/test/fixtures/config.json" DEVFLOW_GH="$SCAN_TMP/gh7" bash "$LIB/scan.sh" >/dev/null 2>&1; SCAN_LBL_RESHAPE_RC=$?
+assert_eq "#103 I-3/T1: weekly label-reshape failure exits non-zero" "1" "$SCAN_LBL_RESHAPE_RC"
+cat > "$SCAN_TMP/gh8" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *"repo view"*) echo "acme/example-repo" ;;
+  *"pr list"*"--label DevFlow"*) echo '[]' ;;
+  *"pr list"*"author:"*) echo "author fetch outage" >&2; exit 1 ;;
+  *"pr list"*) echo '[]' ;;
+  *"api"*"retrospectives.jsonl?ref=main"*) printf 'HTTP/2.0 404 Not Found\r\n\r\n' ;;
+  *) echo '[]' ;;
+esac
+STUB
+chmod +x "$SCAN_TMP/gh8"
+DEVFLOW_CONFIG_FILE="$LIB/test/fixtures/config.json" DEVFLOW_GH="$SCAN_TMP/gh8" bash "$LIB/scan.sh" >/dev/null 2>&1; SCAN_AUTHOR_FETCH_RC=$?
+assert_eq "#103 I-3/T1: weekly watched-author fetch failure exits non-zero" "1" "$SCAN_AUTHOR_FETCH_RC"
+
+# #103 I-3 (regression): a fully-healthy weekly run still exits 0.
+DEVFLOW_CONFIG_FILE="$LIB/test/fixtures/config.json" DEVFLOW_GH="$SCAN_TMP/gh" bash "$LIB/scan.sh" >/dev/null 2>&1; SCAN_OK_RC=$?
+assert_eq "#103 I-3: healthy weekly run still exits 0" "0" "$SCAN_OK_RC"
+
 # #100: retrospectives.jsonl HTTP-200 decode is loud on a decode/parse MISS, not
 # silently collapsed to [] (which would re-queue the whole backlog and create
 # duplicate retrospectives). Adversarial input-shape matrix over the 200 branch:
@@ -2076,7 +2195,76 @@ assert_eq "fetch #97: Blocked status sourced from ISSUE → Blocked" "Blocked" \
   "$(jq -r '.signals.workpad_final_status' < "$F_OUT4")"
 assert_eq "gate #97: Blocked workpad (from issue) → clean=false (signal live again)" "false" \
   "$(jq -c -f "$LIB/cheap-gate.jq" < "$F_OUT4" | jq -r .clean)"
+
+# Scenario 5 (#103 S-1): the status strip removes the leading workpad glyph by the
+# known glyph SET (🚀/🎉/👎), NOT by taking the last whitespace token. A multi-word
+# status must survive intact — the old `awk '{print $NF}'` silently truncated it to
+# its final word ("In Progress" → "Progress").
+cat > "$F97/workpad-multiword.md" <<'WPMD'
+<!-- devflow:workpad -->
+**Status:** 🚀 In Progress
+## Devflow Reflection
+<details>
+<summary>Devflow Reflection (click to expand)</summary>
+
+</details>
+WPMD
+jq -Rs '[{user:{login:"example-bot"},body:.,created_at:"2026-05-08T10:00:00Z"}]' < "$F97/workpad-multiword.md" > "$F97/issuecomments.json"
+F_OUT5="$(DEVFLOW_FX="$F97" DEVFLOW_GH="$F97/gh" bash "$LIB/fetch-pr-context.sh" 900 2>/dev/null)"
+assert_eq "fetch #103 S-1: multi-word status preserved (glyph-set strip, not last-token)" "In Progress" \
+  "$(jq -r '.signals.workpad_final_status' < "$F_OUT5")"
+# Single-word glyphed status still strips cleanly (no regression of the common case).
+cat > "$F97/workpad-single.md" <<'WPMD'
+<!-- devflow:workpad -->
+**Status:** 🎉 Complete
+## Devflow Reflection
+<details>
+<summary>Devflow Reflection (click to expand)</summary>
+
+</details>
+WPMD
+jq -Rs '[{user:{login:"example-bot"},body:.,created_at:"2026-05-08T10:00:00Z"}]' < "$F97/workpad-single.md" > "$F97/issuecomments.json"
+F_OUT6="$(DEVFLOW_FX="$F97" DEVFLOW_GH="$F97/gh" bash "$LIB/fetch-pr-context.sh" 900 2>/dev/null)"
+assert_eq "fetch #103 S-1: single-word glyphed status still strips to bare word" "Complete" \
+  "$(jq -r '.signals.workpad_final_status' < "$F_OUT6")"
+# S-1 (review T2): a status with an UNKNOWN leading symbol (not in the glyph set)
+# is PRESERVED, not normalized to a clean-looking word. This locks the deliberate
+# choice to enumerate the glyph set rather than strip any leading symbol — a
+# "simplify to strip any leading non-alnum" regression would turn "? Mystery"
+# into "Mystery". The preserved value is not "Complete", so it gates not-clean
+# (fail toward analysis).
+cat > "$F97/workpad-unknownsym.md" <<'WPMD'
+<!-- devflow:workpad -->
+**Status:** ? Mystery
+## Devflow Reflection
+<details>
+<summary>Devflow Reflection (click to expand)</summary>
+
+</details>
+WPMD
+jq -Rs '[{user:{login:"example-bot"},body:.,created_at:"2026-05-08T10:00:00Z"}]' < "$F97/workpad-unknownsym.md" > "$F97/issuecomments.json"
+F_OUT7="$(DEVFLOW_FX="$F97" DEVFLOW_GH="$F97/gh" bash "$LIB/fetch-pr-context.sh" 900 2>/dev/null)"
+assert_eq "fetch #103 S-1: unknown leading symbol preserved (enumerated set, not strip-any-symbol)" "? Mystery" \
+  "$(jq -r '.signals.workpad_final_status' < "$F_OUT7")"
 rm -rf "$F97"
+
+# S-1 (review, corroborated x4): the inline glyph set in fetch-pr-context.sh must
+# stay in sync with workpad.py's _STATUS_GLYPHS (the single source of truth that
+# WRITES the glyph). Mirrors the check-excluded-path.sh sync-test discipline:
+# assert the two glyph sets are equal, so a glyph added to workpad.py without
+# updating the strip (which would silently stop stripping it) fails CI.
+GLYPH_SYNC="$(python3 - "$LIB/../scripts/workpad.py" "$LIB/fetch-pr-context.sh" <<'PY'
+import sys, re
+wp = open(sys.argv[1], encoding='utf-8').read()
+fpc = open(sys.argv[2], encoding='utf-8').read()
+m = re.search(r"_STATUS_GLYPHS\s*=\s*\(([^)]*)\)", wp)
+wp_glyphs = set(re.findall(r"'([^']+)'", m.group(1))) if m else set()
+m2 = re.search(r"\[\[:space:\]\]\*\(([^)]*)\)\?\[\[:space:\]\]", fpc)
+fpc_glyphs = set(m2.group(1).split('|')) if m2 else set()
+print('yes' if wp_glyphs and wp_glyphs == fpc_glyphs else 'no')
+PY
+)"
+assert_eq "#103 S-1: fetch-pr-context glyph set stays in sync with workpad.py _STATUS_GLYPHS" "yes" "$GLYPH_SYNC"
 
 # Integration: a PR scan selects via the label/closes-issue path — on an issue-*
 # branch matching NO prefix — must NOT be dropped at fetch (classify-pr-kind.jq
