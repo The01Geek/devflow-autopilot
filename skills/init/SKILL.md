@@ -43,20 +43,19 @@ This verifies `git`, `gh`, `jq`, `python3` (>=3.11), and **PyYAML**, printing an
 
 ## Then: provision the local Claude Code settings
 
-Two local/interactive-tier conveniences otherwise need a hand-edited Claude Code settings file. This step provisions them into the repo's **project** `.claude/settings.json` so adopters get them as a one-command outcome of `/devflow:init` instead of a manual edit they have to find in the docs:
+Keeping the DevFlow plugin auto-updated otherwise needs a hand-edited Claude Code settings file. This step provisions that into the repo's **project** `.claude/settings.json` so adopters get it as a one-command outcome of `/devflow:init` instead of a manual edit they have to find in the docs:
 
 ```bash
 bash "${CLAUDE_SKILL_DIR}/../../scripts/provision-local-settings.sh"
 ```
 
-With no argument it targets the current repo root and **deep-merges** three key groups into `.claude/settings.json`, **additively and without clobbering anything you already set** (the user's value wins at every depth — same no-clobber discipline as the config scaffolder):
+With no argument it targets the current repo root and **deep-merges** the marketplace registration into `.claude/settings.json`, **additively and without clobbering anything you already set** (the user's value wins at every depth — same no-clobber discipline as the config scaffolder):
 
-- `extraKnownMarketplaces["devflow-marketplace"]` (a `github` source for `The01Geek/devflow-autopilot`, `autoUpdate: true`) and `enabledPlugins["devflow@devflow-marketplace"] = true`, so Claude Code keeps the DevFlow plugin updated automatically;
-- `env.CLAUDE_CODE_ENABLE_AUTO_MODE = "1"`, which makes the `auto` permission mode **selectable** in the `Shift+Tab` cycle on the Bedrock / Vertex AI / Foundry providers (a harmless no-op on the Anthropic API, where auto mode is already available).
+- `extraKnownMarketplaces["devflow-marketplace"]` (a `github` source for `The01Geek/devflow-autopilot`, `autoUpdate: true`) and `enabledPlugins["devflow@devflow-marketplace"] = true`, so Claude Code keeps the DevFlow plugin updated automatically.
 
-It is **local/interactive-tier only** — the cloud (CI) tier uses claude-code-action's own allowlist profile and consumes neither a local marketplace install nor a local permission mode, so this helper is **not** wired into the shared scaffolder and a cloud-only `install.sh` run writes no `.claude/settings.json`. It is **idempotent** (re-running after the keys exist changes nothing) and writes **no** `permissions.defaultMode`: auto mode is made *available*, never made the default — the developer still opts in per session via the `Shift+Tab` prompt.
+It is **local/interactive-tier only** — the cloud (CI) tier uses claude-code-action's own allowlist profile and consumes no local marketplace install, so this helper is **not** wired into the shared scaffolder and a cloud-only `install.sh` run writes no `.claude/settings.json`. It is **idempotent** (re-running after the keys exist changes nothing) and writes **no** `permissions.defaultMode`.
 
-**Be honest about what this does and does not do** when you report it: setting the env var only makes auto mode *selectable*; it does **not** turn it on, and it does **not** guarantee auto mode is usable — Claude Code also gates auto mode on plan, model (Opus 4.7/4.8 on Bedrock/Vertex/Foundry; Opus 4.6+/Sonnet 4.6 on the Anthropic API), and an admin enable on Team/Enterprise. Never claim auto mode is "on."
+> **Selectable `auto` mode is deliberately NOT provisioned here.** Setting `env.CLAUDE_CODE_ENABLE_AUTO_MODE` only takes effect from **user scope** (`~/.claude/settings.json`) or managed settings — Claude Code filters permission-gating env vars out of project scope, so writing it into the project `.claude/settings.json` would be a silent no-op. That capability is tracked as a separate follow-up; do not claim `/devflow:init` enables or makes auto mode selectable.
 
 ## Then: enrich the `setup` block by exploring the repo
 
@@ -108,10 +107,10 @@ The scaffolder also prints `devflow-detect:` lines from the language auto-detect
 
 Read the settings provisioner's `devflow-settings:` line and respond:
 
-- **`provisioned … (added: …)`** — the project `.claude/settings.json` gained the listed DevFlow keys. **Tell the user to review the change before committing.** Note honestly that `env.CLAUDE_CODE_ENABLE_AUTO_MODE` only makes auto mode *selectable* in the `Shift+Tab` cycle on Bedrock/Vertex/Foundry (a no-op on the Anthropic API) — it does not turn auto mode on, and plan/model/admin gates still apply.
+- **`provisioned … (added: …)`** — the project `.claude/settings.json` gained the listed DevFlow keys (the `devflow-marketplace` registration is now auto-updating). **Tell the user to review the change before committing.** Do **not** claim auto mode was enabled or made selectable — that half is deferred.
 - **`… already has the DevFlow keys; nothing changed`** — idempotent re-run; the settings already had every key. Nothing to report beyond that it was already set up.
-- **`existing … is not readable …`**, **`existing … is not valid JSON …`**, or **`existing … is malformed for provisioning …`** (exit 2) — the existing `.claude/settings.json` is unusable: it is unreadable (permissions), it does not parse as JSON, or it parses but has the wrong shape (a non-object root, or a DevFlow key the merge needs as an object — e.g. `env` or the `devflow-marketplace` entry — present as a non-object). The helper left it **byte-for-byte unchanged** and provisioned nothing. Relay the specific breadcrumb to the user; for the not-readable case tell them to fix the file permissions, otherwise to fix or remove the file — then re-run `/devflow:init`. Do **not** hand-edit the settings file yourself.
-- **`jq not found …`** (exit 2) — relay the gap; the marketplace/auto-mode settings were not provisioned. (The same `jq` the scaffolder needs.)
+- **`existing … is not readable …`**, **`existing … is not valid JSON …`**, or **`existing … is malformed for provisioning …`** (exit 2) — the existing `.claude/settings.json` is unusable: it is unreadable (permissions), it does not parse as JSON, or it parses but has the wrong shape (a non-object root, or a DevFlow key the merge needs as an object — e.g. `extraKnownMarketplaces` or the `devflow-marketplace` entry — present as a non-object). The helper left it **byte-for-byte unchanged** and provisioned nothing. Relay the specific breadcrumb to the user; for the not-readable case tell them to fix the file permissions, otherwise to fix or remove the file — then re-run `/devflow:init`. Do **not** hand-edit the settings file yourself.
+- **`jq not found …`** (exit 2) — relay the gap; the marketplace settings were not provisioned. (The same `jq` the scaffolder needs.)
 
 Then branch on the preflight **exit code** (the durable signal — every line it prints carries the stable `devflow preflight:` prefix, but the wording can change; the exit code won't):
 

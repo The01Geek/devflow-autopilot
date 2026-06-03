@@ -123,7 +123,7 @@ All four are used by the core skills (`/devflow:implement` and `/devflow:review`
 
 ## Updating
 
-- **Local tier**: running `/devflow:init` provisions your repo's project `.claude/settings.json` so Claude Code keeps the plugin updated — it registers `devflow-marketplace` under `extraKnownMarketplaces` with `autoUpdate: true` and enables the plugin under `enabledPlugins`, additively and without clobbering anything you already set (re-running is a no-op once the keys exist). It also writes `env.CLAUDE_CODE_ENABLE_AUTO_MODE = "1"`, which makes the `auto` permission mode **selectable** in the `Shift+Tab` cycle on Bedrock/Vertex/Foundry (a no-op on the Anthropic API); it does **not** make auto mode the default. Review the change before committing. The provisioned block looks like:
+- **Local tier**: running `/devflow:init` provisions your repo's project `.claude/settings.json` so Claude Code keeps the plugin updated — it registers `devflow-marketplace` under `extraKnownMarketplaces` with `autoUpdate: true` and enables the plugin under `enabledPlugins`, additively and without clobbering anything you already set (re-running is a no-op once the keys exist). Review the change before committing. The provisioned block looks like:
   ```jsonc
   {
     "extraKnownMarketplaces": {
@@ -132,8 +132,7 @@ All four are used by the core skills (`/devflow:implement` and `/devflow:review`
         "autoUpdate": true
       }
     },
-    "enabledPlugins": { "devflow@devflow-marketplace": true },
-    "env": { "CLAUDE_CODE_ENABLE_AUTO_MODE": "1" }
+    "enabledPlugins": { "devflow@devflow-marketplace": true }
   }
   ```
   Or update on demand: `/plugin marketplace update devflow-marketplace`.

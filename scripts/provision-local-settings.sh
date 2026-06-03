@@ -11,20 +11,19 @@
 # keeping this out of the shared scaffolder is what guarantees a cloud-only
 # install.sh run writes no .claude/settings.json (issue #88, AC 7).
 #
-# It deep-merges three key groups into the project settings, additively and
-# WITHOUT clobbering any value the user already set:
+# It deep-merges the DevFlow marketplace registration into the project settings,
+# additively and WITHOUT clobbering any value the user already set:
 #   - extraKnownMarketplaces["devflow-marketplace"]  (a github source for
 #       The01Geek/devflow-autopilot + autoUpdate:true) and
 #       enabledPlugins["devflow@devflow-marketplace"]=true, so Claude Code keeps
-#       the DevFlow plugin updated;
-#   - env.CLAUDE_CODE_ENABLE_AUTO_MODE="1", which makes the `auto` permission
-#       mode SELECTABLE in the Shift+Tab cycle on Bedrock/Vertex/Foundry (a
-#       harmless no-op on the Anthropic API, where auto mode is already
-#       available). It does NOT make auto mode the default and does NOT
-#       guarantee it is usable (plan/model/admin gates still apply) — we never
-#       write permissions.defaultMode. Per Claude Code's settings model the env
-#       var is honored from PROJECT scope (it has no scope restriction), unlike
-#       defaultMode:auto which project scope deliberately ignores.
+#       the DevFlow plugin updated.
+#
+# NOTE — selectable auto mode is NOT provisioned here. CLAUDE_CODE_ENABLE_AUTO_MODE
+# is a permission-gating env var, and Claude Code filters those out of PROJECT
+# scope: it is honored only from user scope (~/.claude/settings.json) or managed
+# settings (see code.claude.com/docs/en/permission-modes and .../settings). Writing
+# it into the project .claude/settings.json is a silent no-op, so it is deliberately
+# omitted; that capability is tracked as a separate follow-up.
 #
 # Mirrors scaffold-config.sh's contract: deterministic, idempotent, never
 # clobbers user values, prints a stable `devflow-settings:` breadcrumb per
@@ -60,8 +59,8 @@ fi
 
 # The DevFlow defaults as a JSON literal. The merge below is `$defaults *
 # $existing`, so the user's value wins at every depth and only keys they have
-# not set are filled. permissions.defaultMode is intentionally absent — auto
-# mode is made selectable, never made the default.
+# not set are filled. permissions.defaultMode is intentionally absent, and no
+# env var is written — see the auto-mode NOTE in the header.
 DEFAULTS='{
   "extraKnownMarketplaces": {
     "devflow-marketplace": {
@@ -69,8 +68,7 @@ DEFAULTS='{
       "autoUpdate": true
     }
   },
-  "enabledPlugins": { "devflow@devflow-marketplace": true },
-  "env": { "CLAUDE_CODE_ENABLE_AUTO_MODE": "1" }
+  "enabledPlugins": { "devflow@devflow-marketplace": true }
 }'
 
 # Resolve the existing settings into a JSON value to merge against.
@@ -102,7 +100,7 @@ fi
 #     contract with no breadcrumb;
 #   - a non-object at any path the merge must recurse THROUGH — every object-valued
 #     path in $defaults (extraKnownMarketplaces, its devflow-marketplace entry, that
-#     entry's source object, enabledPlugins, env) — where the user holds a non-object
+#     entry's source object, enabledPlugins) — where the user holds a non-object
 #     value. jq's `*` does not error there; it silently keeps the user's value and
 #     drops DevFlow's whole subtree below it (e.g. a string at devflow-marketplace
 #     drops the marketplace source + autoUpdate, so the plugin never auto-updates),
@@ -110,7 +108,7 @@ fi
 # To catch EVERY level in one sweep (rather than enumerating them by hand and
 # rediscovering the next level each review), derive the object-valued paths FROM
 # $defaults and flag any that $root holds as a non-object. A wrong-typed value at a
-# genuine LEAF (autoUpdate, the enable flag, the env value, source.repo) is NOT an
+# genuine LEAF (autoUpdate, the enable flag, source.repo) is NOT an
 # object-valued path, so it is a legitimate user-wins clobber and is never flagged.
 # All flagged shapes are corrupt settings, treated exactly like the malformed-JSON
 # case above: a specific breadcrumb, exit 2, file left byte-for-byte unchanged
@@ -193,18 +191,27 @@ trap - EXIT
 # object-or-absent by the type-guard above, so these two-level getpath probes
 # never index a non-object. We reach here only past the "nothing changed"
 # early-exit, so at least one leaf differs.
+# Capture the delta with `if !` so a failure of this jq fails CLOSED: it runs via
+# command substitution (not the old `done < <(jq …)` process substitution, whose
+# exit status `set -e` cannot observe), so a jq hiccup here degrades to the generic
+# success message with a warning rather than silently. The write already succeeded
+# (atomic mv above), so a delta-probe failure cannot corrupt provisioning.
+added_raw=""
+if ! added_raw="$(jq -nr --argjson e "$EXISTING" --argjson m "$MERGED" '
+  [ {l: "extraKnownMarketplaces[devflow-marketplace]", p: ["extraKnownMarketplaces", "devflow-marketplace"]},
+    {l: "enabledPlugins[devflow@devflow-marketplace]",  p: ["enabledPlugins", "devflow@devflow-marketplace"]} ]
+  | map(select(($e | getpath(.p)) != ($m | getpath(.p))) | .l) | .[]')"; then
+  warn "provisioned $SETTINGS but could not summarize which keys changed (delta probe failed)."
+  added_raw=""
+fi
 added=()
 while IFS= read -r label; do
-  added+=("$label")
-done < <(jq -nr --argjson e "$EXISTING" --argjson m "$MERGED" '
-  [ {l: "extraKnownMarketplaces[devflow-marketplace]", p: ["extraKnownMarketplaces", "devflow-marketplace"]},
-    {l: "enabledPlugins[devflow@devflow-marketplace]",  p: ["enabledPlugins", "devflow@devflow-marketplace"]},
-    {l: "env.CLAUDE_CODE_ENABLE_AUTO_MODE",             p: ["env", "CLAUDE_CODE_ENABLE_AUTO_MODE"]} ]
-  | map(select(($e | getpath(.p)) != ($m | getpath(.p))) | .l) | .[]')
+  [ -n "$label" ] && added+=("$label")
+done <<< "$added_raw"
 
 if [ "${#added[@]}" -gt 0 ]; then
   joined="$(printf '%s, ' "${added[@]}")"; joined="${joined%, }"
-  log "provisioned $SETTINGS (added: $joined). Auto mode is now selectable, not on. Review the change before committing."
+  log "provisioned $SETTINGS (added: $joined): the DevFlow marketplace is now registered and auto-updating. Review the change before committing."
 else
-  log "provisioned $SETTINGS. Auto mode is now selectable, not on. Review the change before committing."
+  log "provisioned $SETTINGS: the DevFlow marketplace is now registered and auto-updating. Review the change before committing."
 fi

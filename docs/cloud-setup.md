@@ -89,10 +89,7 @@ SHA `install.sh` pins). The fetch branch refuses to run without a pinned
 >       "autoUpdate": true
 >     }
 >   },
->   "enabledPlugins": { "devflow@devflow-marketplace": true },
->   // Makes `auto` permission mode selectable in Shift+Tab on Bedrock/Vertex/
->   // Foundry (a no-op on the Anthropic API); never sets permissions.defaultMode.
->   "env": { "CLAUDE_CODE_ENABLE_AUTO_MODE": "1" }
+>   "enabledPlugins": { "devflow@devflow-marketplace": true }
 > }
 > ```
 

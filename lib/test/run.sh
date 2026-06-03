@@ -4161,18 +4161,22 @@ echo "provision-local-settings.sh (project .claude/settings.json provisioner)"
 # .claude/settings.json — additive, non-clobbering, idempotent — and is invoked
 # only from /devflow:init (never from scaffold-config.sh / install.sh). It writes
 # extraKnownMarketplaces[devflow-marketplace] (autoUpdate true + a github source
-# for The01Geek/devflow-autopilot), enabledPlugins[devflow@devflow-marketplace]
-# = true, and env.CLAUDE_CODE_ENABLE_AUTO_MODE = "1"; it never writes
-# permissions.defaultMode (auto mode is made selectable, not the default).
+# for The01Geek/devflow-autopilot) and enabledPlugins[devflow@devflow-marketplace]
+# = true; it never writes permissions.defaultMode and never writes the
+# CLAUDE_CODE_ENABLE_AUTO_MODE env var — that var is honored only from user scope
+# (~/.claude/settings.json) / managed settings, so writing it to the PROJECT file
+# would be a silent no-op; the selectable-auto-mode half is deferred (issue #88
+# AC 2 reduced; tracked separately).
 # Lead with the adversarial existing-shape matrix per the parser-editing gotcha:
 #   {missing, empty, whitespace-only, {}, other-marketplaces, other-env-vars,
-#    user-defaultMode, unrelated-keys, not-JSON}.  (Issue #88, AC 1-8.)
+#    user-defaultMode, unrelated-keys, not-JSON}.  (Issue #88, AC 1, 3-8.)
 PLS="$LIB/../scripts/provision-local-settings.sh"
 PLS_SC="$LIB/../scripts/scaffold-config.sh"
 
-# AC 1 + AC 2 + AC 3: fresh repo (no .claude/settings.json) → file is created
-# with all three DevFlow key groups, the env auto-mode var, and NO
-# permissions.defaultMode; exit 0; breadcrumb names what it provisioned.
+# AC 1 + AC 3: fresh repo (no .claude/settings.json) → file is created with the
+# marketplace + enabledPlugins key groups, NO permissions.defaultMode, and NO
+# CLAUDE_CODE_ENABLE_AUTO_MODE env var (deferred — see header); exit 0; breadcrumb
+# names what it provisioned.
 PLS_FRESH="$(mktemp -d)"
 PLS_FRESH_OUT="$(bash "$PLS" "$PLS_FRESH" 2>&1)"; PLS_FRESH_RC=$?
 PLS_SF="$PLS_FRESH/.claude/settings.json"
@@ -4187,8 +4191,8 @@ assert_eq "pls: fresh → marketplace repo The01Geek/devflow-autopilot (AC1)" "T
   "$(jq -r '.extraKnownMarketplaces["devflow-marketplace"].source.repo' "$PLS_SF" 2>/dev/null)"
 assert_eq "pls: fresh → enabledPlugins devflow true (AC1)" "true" \
   "$(jq -r '.enabledPlugins["devflow@devflow-marketplace"]' "$PLS_SF" 2>/dev/null)"
-assert_eq "pls: fresh → env CLAUDE_CODE_ENABLE_AUTO_MODE 1 (AC2)" "1" \
-  "$(jq -r '.env.CLAUDE_CODE_ENABLE_AUTO_MODE' "$PLS_SF" 2>/dev/null)"
+assert_eq "pls: fresh → CLAUDE_CODE_ENABLE_AUTO_MODE NOT written (deferred; project-scope no-op)" "false" \
+  "$(jq -r '(.env // {}) | has("CLAUDE_CODE_ENABLE_AUTO_MODE")' "$PLS_SF" 2>/dev/null)"
 assert_eq "pls: fresh → no permissions key written (AC3)" "false" \
   "$(jq -r 'has("permissions")' "$PLS_SF" 2>/dev/null)"
 assert_eq "pls: fresh → breadcrumb names what it provisioned (AC8)" "yes" \
@@ -4217,8 +4221,6 @@ assert_eq "pls: keep → unrelated top-level key preserved (AC4)" "123" \
   "$(jq -r '.customTopKey' "$PLS_SK" 2>/dev/null)"
 assert_eq "pls: keep → devflow marketplace added alongside (AC4)" "true" \
   "$(jq -r '.extraKnownMarketplaces["devflow-marketplace"].autoUpdate' "$PLS_SK" 2>/dev/null)"
-assert_eq "pls: keep → devflow env var added alongside (AC4)" "1" \
-  "$(jq -r '.env.CLAUDE_CODE_ENABLE_AUTO_MODE' "$PLS_SK" 2>/dev/null)"
 assert_eq "pls: keep → enabledPlugins added (AC4)" "true" \
   "$(jq -r '.enabledPlugins["devflow@devflow-marketplace"]' "$PLS_SK" 2>/dev/null)"
 
@@ -4340,15 +4342,14 @@ assert_eq "pls: user-set autoUpdate:false NOT clobbered (merge direction)" "fals
 assert_eq "pls: user-set enabledPlugins:false NOT clobbered (merge direction)" "false" \
   "$(jq -r '.enabledPlugins["devflow@devflow-marketplace"]' "$PLS_ND_SF" 2>/dev/null)"
 
-# A user who deliberately set the consent-sensitive env auto-mode leaf to "0"
-# keeps it — provisioning must never flip it back to "1" (that would re-enable
-# selectable auto mode against their intent). Guards the env subtree against an
-# operand-order or special-case regression the autoUpdate/enabledPlugins leaves
-# above don't cover.
+# The provisioner never writes the auto-mode env var, so a user's pre-existing
+# env block — including a deliberately-disabled CLAUDE_CODE_ENABLE_AUTO_MODE="0" —
+# is left exactly as-is (the merge does not touch `env` at all now). Guards against
+# a regression that re-introduces an env write and flips a user's consent leaf.
 PLS_ENV0="$(mktemp -d)"; mkdir -p "$PLS_ENV0/.claude"
 printf '%s' '{"env":{"CLAUDE_CODE_ENABLE_AUTO_MODE":"0"}}' > "$PLS_ENV0/.claude/settings.json"
 bash "$PLS" "$PLS_ENV0" >/dev/null 2>&1
-assert_eq "pls: user-set env auto-mode \"0\" NOT clobbered to \"1\"" "0" \
+assert_eq "pls: user env auto-mode \"0\" left untouched (provisioner writes no env)" "0" \
   "$(jq -r '.env.CLAUDE_CODE_ENABLE_AUTO_MODE' "$PLS_ENV0/.claude/settings.json" 2>/dev/null)"
 
 # null at a DevFlow object-valued path is NOT exempt: jq merge treats a present
@@ -4356,7 +4357,7 @@ assert_eq "pls: user-set env auto-mode \"0\" NOT clobbered to \"1\"" "0" \
 # the setting), so it is rejected exactly like a wrong-typed scalar — exit
 # non-zero, file unchanged, path named. Absent paths (getpath also returns null)
 # must stay benign, which the fresh/keep/empty cases above already prove.
-for nullcase in '{"env":null}' '{"extraKnownMarketplaces":null}' '{"extraKnownMarketplaces":{"devflow-marketplace":null}}'; do
+for nullcase in '{"enabledPlugins":null}' '{"extraKnownMarketplaces":null}' '{"extraKnownMarketplaces":{"devflow-marketplace":null}}'; do
   PLS_NULL="$(mktemp -d)"; mkdir -p "$PLS_NULL/.claude"
   printf '%s' "$nullcase" > "$PLS_NULL/.claude/settings.json"
   PLS_NULL_OUT="$(bash "$PLS" "$PLS_NULL" 2>&1)"; PLS_NULL_RC=$?
@@ -4369,18 +4370,18 @@ for nullcase in '{"env":null}' '{"extraKnownMarketplaces":null}' '{"extraKnownMa
   rm -rf "$PLS_NULL"
 done
 
-# Wrong-typed DevFlow container key (env as a string) → exit non-zero, named in
-# the breadcrumb, file unchanged, and (critically) the DevFlow env var is NOT
-# silently dropped behind a false "added" breadcrumb.
+# Wrong-typed DevFlow container key (extraKnownMarketplaces as a string) → exit
+# non-zero, named in the breadcrumb, file unchanged, and (critically) the DevFlow
+# marketplace is NOT silently dropped behind a false "added" breadcrumb.
 PLS_WRONGTYPE="$(mktemp -d)"; mkdir -p "$PLS_WRONGTYPE/.claude"
-printf '%s' '{"env":"oops","other":1}' > "$PLS_WRONGTYPE/.claude/settings.json"
+printf '%s' '{"extraKnownMarketplaces":"oops","other":1}' > "$PLS_WRONGTYPE/.claude/settings.json"
 PLS_WT_OUT="$(bash "$PLS" "$PLS_WRONGTYPE" 2>&1)"; PLS_WT_RC=$?
-assert_eq "pls: wrong-typed container (env=string) → exit non-zero" "yes" \
+assert_eq "pls: wrong-typed container (extraKnownMarketplaces=string) → exit non-zero" "yes" \
   "$([ "$PLS_WT_RC" -ne 0 ] && echo yes || echo no)"
-assert_eq "pls: wrong-typed container → file byte-for-byte unchanged" '{"env":"oops","other":1}' \
+assert_eq "pls: wrong-typed container → file byte-for-byte unchanged" '{"extraKnownMarketplaces":"oops","other":1}' \
   "$(cat "$PLS_WRONGTYPE/.claude/settings.json")"
-assert_eq "pls: wrong-typed container → breadcrumb names the env path" "yes" \
-  "$(printf '%s' "$PLS_WT_OUT" | grep -qi 'env' && echo yes || echo no)"
+assert_eq "pls: wrong-typed container → breadcrumb names the extraKnownMarketplaces path" "yes" \
+  "$(printf '%s' "$PLS_WT_OUT" | grep -qi 'extraKnownMarketplaces' && echo yes || echo no)"
 
 # Empty / whitespace-only / {} existing files are benign (treated as {}), NOT
 # malformed: DevFlow keys are added, exit 0.
@@ -4395,8 +4396,8 @@ PLS_WS="$(mktemp -d)"; mkdir -p "$PLS_WS/.claude"
 printf '   \n\t\n' > "$PLS_WS/.claude/settings.json"
 PLS_WS_OUT="$(bash "$PLS" "$PLS_WS" 2>&1)"; PLS_WS_RC=$?
 assert_eq "pls: whitespace-only file → exit 0 (treated as empty, not malformed)" "0" "$PLS_WS_RC"
-assert_eq "pls: whitespace-only → env auto-mode added" "1" \
-  "$(jq -r '.env.CLAUDE_CODE_ENABLE_AUTO_MODE' "$PLS_WS/.claude/settings.json" 2>/dev/null)"
+assert_eq "pls: whitespace-only → marketplace added" "true" \
+  "$(jq -r '.extraKnownMarketplaces["devflow-marketplace"].autoUpdate' "$PLS_WS/.claude/settings.json" 2>/dev/null)"
 
 PLS_OBJ="$(mktemp -d)"; mkdir -p "$PLS_OBJ/.claude"
 printf '%s' '{}' > "$PLS_OBJ/.claude/settings.json"
