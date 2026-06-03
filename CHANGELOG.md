@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.4] — 2026-06-03
+
+### Changed
+- **`/devflow:create-issue`'s independent-derivation pass now produces an observable, gated artifact instead of relying on an ordering-only self-check.** The Step 2 pass (added in 2.7.3, #93) previously instructed the orchestrator to "write the derivation down first" with no named location and no later confirmation, so a skipped pass — the exact regression the pass guards against — left no breadcrumb and the output looked identical to a correct run. Step 2 now names a concrete location, `.devflow/tmp/issue-derivation-<slug>.md` (reusing the gitignored convenience-copy pattern Step 4 already uses for `issue-draft-<slug>.md`, `mkdir -p .devflow/tmp` first), requires the derivation be written there **before any clarification round**, and adds a Definition-of-Ready gate that confirms the artifact exists before the first `AskUserQuestion` call — surfacing a skipped pass (stop and run it) rather than silently continuing. A read-only sandbox where the write fails falls back to recording the derivation inline in chat, so it stays observable; only a derivation missing from *both* disk and chat trips the gate. The guarantee stays honestly framed as an **ordering-based self-check with an observable artifact** — one rung stronger than the prior ordering-only check, still short of the subagent-isolation variant #92 deliberately rejected — and adds no new script, dependency, or subagent (only the `mkdir -p` + file write Step 4 already performs). Carried from #92 / PR #93's shadow-review observation. (#99)
+
 ## [2.7.3] — 2026-06-03
 
 ### Added
