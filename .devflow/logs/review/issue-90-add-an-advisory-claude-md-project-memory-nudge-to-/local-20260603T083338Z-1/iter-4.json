@@ -1,0 +1,114 @@
+{
+  "iter": 4,
+  "source": "review-and-fix",
+  "fix_commit_sha": "7565f8c67b86eafed5c05262a3bf060e1ecea966",
+  "fix_files": [
+    "skills/init/SKILL.md",
+    "lib/test/run.sh"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "checklist": [],
+  "phase3_dispatched": [
+    "pr-review-toolkit:code-reviewer",
+    "pr-review-toolkit:silent-failure-hunter",
+    "pr-review-toolkit:comment-analyzer",
+    "pr-review-toolkit:pr-test-analyzer",
+    "superpowers:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "pr-review-toolkit:silent-failure-hunter",
+      "severity": "Important",
+      "description": "block 2 free-form placeholder could re-glob and bypass AGENTS.md dedup / lose $ROOT cross-shell",
+      "defect_signature": {
+        "file": "skills/init/SKILL.md",
+        "line_range": [
+          139,
+          145
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "pr-review-toolkit:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "case-2 dedup + rc>=2 silence unpinned by tests",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          1000,
+          1011
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "checklist-generator-variance",
+      "severity": "Suggestion",
+      "description": "version-string plugin.json<->CHANGELOG match + return/exit idiom — both verified sound",
+      "defect_signature": {
+        "file": "skills/init/SKILL.md",
+        "line_range": [
+          107,
+          109
+        ],
+        "kind": "other"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "advisory"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "block-wiring",
+      "decision": "applied",
+      "commit": "7565f8c67b86eafed5c05262a3bf060e1ecea966"
+    },
+    {
+      "finding_id": "test-pins-case2-rc2",
+      "decision": "applied",
+      "commit": "7565f8c67b86eafed5c05262a3bf060e1ecea966"
+    },
+    {
+      "finding_id": "version-match-and-idiom",
+      "decision": "advisory",
+      "source_file": "skills/init/SKILL.md",
+      "claim_text": "version-string match + return/exit idiom",
+      "skip_category": "advisory-parked",
+      "evidence": "both verified sound by reviewers (version 2.8.0 matches CHANGELOG; rc=128 outside repo caught by guard)"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 3,
+    "fix_diff_lines": 28,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "telemetry": {
+    "phase_1": {
+      "calls": 1
+    },
+    "phase_2": {
+      "calls": 0
+    },
+    "phase_3": {
+      "calls": 5
+    }
+  }
+}

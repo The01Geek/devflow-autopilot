@@ -256,13 +256,22 @@ REFLECTIONS="[]"
 if [ -n "$WORKPAD_BODY" ]; then
     # Extract the value after "**Status:** <glyph> <word>" / "Status: <word>".
     # workpad.py prepends a canonical glyph (🚀/🎉/👎) to the status word, so the
-    # captured value is e.g. "🎉 Complete" — take the LAST whitespace token to
-    # drop the glyph and yield the bare word ("Complete"/"Blocked"/…). Statuses
-    # are single words by the workpad vocabulary. `tr -d '\r'` first guards
-    # against CRLF bodies leaving a trailing carriage return on the token.
-    # Trailing `|| true`: under `set -euo pipefail`, `head -1` closing the pipe
-    # early can hand `sed` a SIGPIPE (141) and abort the script; guard it.
-    WORKPAD_FINAL_STATUS="$(printf '%s' "$WORKPAD_BODY" | tr -d '\r' | sed -nE 's/^\*{0,2}[[:space:]]*[Ss]tatus[[:space:]]*:?\*{0,2}[[:space:]]*(.+)/\1/p' | head -1 | awk '{print $NF}' || true)"
+    # captured value is e.g. "🎉 Complete". Strip that glyph by the known glyph SET
+    # the workpad owns (a leading 🚀/🎉/👎 plus surrounding whitespace), NOT by
+    # taking the last whitespace token: the old `awk '{print $NF}'` silently
+    # coupled the strip to a single-word status vocabulary and would mis-gate a
+    # future multi-word status (e.g. "In Progress" → "Progress"). The glyphs are
+    # matched as literal byte sequences, so the strip is locale-independent.
+    # The glyph SET below must stay in sync with workpad.py's `_STATUS_GLYPHS`
+    # (the single source of truth that *writes* the glyph); enumerating the exact
+    # set — rather than a broad "strip any leading symbol" — is deliberate, so a
+    # corrupt/hand-edited status with an UNKNOWN leading symbol is preserved (not
+    # silently normalised to a clean-looking word) and gates not-clean below.
+    # `tr -d '\r'` first guards against CRLF bodies leaving a trailing carriage
+    # return on the value. Trailing `|| true`: under `set -euo pipefail`, `head -1`
+    # closing the pipe early can hand an upstream stage a SIGPIPE (141) and abort
+    # the script; guard it.
+    WORKPAD_FINAL_STATUS="$(printf '%s' "$WORKPAD_BODY" | tr -d '\r' | sed -nE 's/^\*{0,2}[[:space:]]*[Ss]tatus[[:space:]]*:?\*{0,2}[[:space:]]*(.+)/\1/p' | head -1 | sed -E 's/^[[:space:]]*(🚀|🎉|👎)?[[:space:]]*//; s/[[:space:]]+$//' || true)"
     # Fail toward analysis, not toward "clean": a workpad is present but its
     # Status line did not parse (corrupt/hand-edited — workpad.py always writes
     # `**Status:** <glyph> <word>`). cheap-gate.jq treats "" as clean, so an

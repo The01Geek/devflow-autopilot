@@ -1,0 +1,152 @@
+{
+  "iter": 1,
+  "source": "review-and-fix",
+  "fix_commit_sha": "d8e63a61e9664b0c8dd08e0cfb40acf2c86d8e75",
+  "fix_files": [
+    "skills/init/SKILL.md",
+    "lib/test/run.sh"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "checklist": [
+    {
+      "id": "VC-1",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "claim_signature": "string_presence:skill.md:never-creates-writes-edits-token",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-2",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "claim_signature": "string_presence:skill.md:never-blocks-fails-init-token",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-3",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "claim_signature": "string_presence:skill.md:built-in-init-token",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-4",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "claim_signature": "string_presence:skill.md:lowercase-agents-variant-token",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-5",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "claim_signature": "string_presence:skill.md:copilot-import-path-token",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-6",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "test_mock_alignment:run.sh:guard-token-set-matches-ac3",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-7",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "data_format_assumption:skill.md:import-path-grep-form",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-8",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "dependency_interaction:skill.md:posix-only-detection",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-9",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "api_contract:skill.md:four-case-matrix-covers-acs",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-10",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "api_contract:skill.md:placement-after-preflight-existing-steps-intact",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-11",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "api_contract:skill.md:nudge-states-improves-results",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-12",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "claim_signature": "string_presence:changelog.md:2.8.0-entry-matches-version",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-13",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "claim_signature": "string_presence:overview.md:notes-advisory-nudge",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-14",
+      "verification_mode": "agent",
+      "verdict": "FAIL",
+      "claim_signature": "data_format_assumption:skill.md:case-insensitive-fs-duplicate-agents",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-15",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "string_presence:run.sh:guard-tokens-block-unique",
+      "reused_from_iter_prev": false
+    }
+  ],
+  "phase3_dispatched": [],
+  "phase3_findings": [],
+  "fix_decisions": [
+    {
+      "finding_id": "VC-14",
+      "decision": "applied",
+      "commit": "d8e63a61e9664b0c8dd08e0cfb40acf2c86d8e75"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 1,
+    "fix_diff_lines": 24,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "telemetry": {
+    "phase_1": {
+      "calls": 1
+    },
+    "phase_2": {
+      "calls": 8
+    },
+    "phase_3": {
+      "calls": 0
+    }
+  }
+}
