@@ -956,6 +956,78 @@ assert_eq "lpe-coverage: enumeration is non-vacuous (skills/*/ glob matched)" "y
   "$([ "$LPE_SKILL_COUNT" -ge 1 ] && echo yes || echo no)"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "init project-memory nudge: skills/init/SKILL.md carries the advisory CLAUDE.md step"
+# ────────────────────────────────────────────────────────────────────────────
+# Content / drift guard (issue #90). The deliverable is LLM-directing prose in a
+# SKILL.md — there is no runtime code path to exercise — so the repo's established
+# stand-in (mirroring the lpe-coverage and exit-code-contract grep guards above) is
+# a content guard pinning the load-bearing instruction tokens. It goes red if the
+# advisory step is dropped, reworded away, or loses one of its detected filenames /
+# the @-import guidance / the never-write-never-block discipline. Each fragment
+# below is BLOCK-UNIQUE to the new step (verified absent from the rest of the SKILL),
+# so a match means the step itself is present, not some unrelated prose.
+INIT_SKILL="$LIB/../skills/init/SKILL.md"
+assert_eq "init-memory-nudge: advisory step heading present" "yes" \
+  "$(grep -qF 'advisory project-memory check' "$INIT_SKILL" && echo yes || echo no)"
+# Every detected agent-instruction filename (AC3) plus the CLAUDE.md target itself
+# must be named, or the four-case behavior matrix can't be followed.
+for FN in 'CLAUDE.md' '.github/copilot-instructions.md' 'AGENTS.md' 'GEMINI.md' '.cursorrules'; do
+  assert_eq "init-memory-nudge: names detected file token ($FN)" "yes" \
+    "$(grep -qF "$FN" "$INIT_SKILL" && echo yes || echo no)"
+done
+# AGENTS.md is matched across common spellings — case-insensitive (agents.md) plus
+# the singular form (agent.md) — AC3. Pin BOTH the prose claim AND a behavioral token
+# (the lowercase `agents.md` variant the step actually probes): the word alone could
+# survive a regression that trims the variant list down to just `AGENTS.md`, so the
+# lowercase form is what proves the spelling/case handling is really there.
+assert_eq "init-memory-nudge: AGENTS.md detection is case-insensitive (prose)" "yes" \
+  "$(grep -qiF 'case-insensitive' "$INIT_SKILL" && echo yes || echo no)"
+assert_eq "init-memory-nudge: case-insensitive AGENTS variant probed (agents.md)" "yes" \
+  "$(grep -qF 'agents.md' "$INIT_SKILL" && echo yes || echo no)"
+# The AGENTS.md spelling/case variants denote one logical convention; on a case-insensitive
+# filesystem (macOS) a file's case-variants all match `test -f`, so the step must collapse
+# them to a single detection or it would emit a duplicate @-import nudge. Pin the dedup
+# instruction so a reword can't silently re-introduce the duplicate-nudge defect.
+assert_eq "init-memory-nudge: AGENTS.md case-variants deduped to one (at most once)" "yes" \
+  "$(grep -qF 'AT MOST ONCE' "$INIT_SKILL" && echo yes || echo no)"
+# The defensive repo-root guard is the one piece of load-bearing executable shell in the
+# step: without it an unresolvable root collapses $ROOT to empty and every probe tests
+# "/CLAUDE.md", emitting a misleading nudge. Pin the guard prose so a reword/deletion fails.
+assert_eq "init-memory-nudge: defends against an unresolvable repo root" "yes" \
+  "$(grep -qF 'Resolve the root defensively' "$INIT_SKILL" && echo yes || echo no)"
+# Case 2 (no CLAUDE.md, agent files present) must not re-expand the deduped detection
+# into per-spelling nudges — pin the consumer-side one-nudge-per-physical-file rule so a
+# reword can't undo the dedup on the agent-files-present path.
+assert_eq "init-memory-nudge: case 2 emits one nudge per physical file" "yes" \
+  "$(grep -qF 'nudge per *physical* file' "$INIT_SKILL" && echo yes || echo no)"
+# The unreferenced-import check must distinguish a grep read error (rc>=2) from a genuine
+# no-match (rc 1) so a vanished/unreadable CLAUDE.md is not misreported as unreferenced.
+assert_eq "init-memory-nudge: grep read-error path stays silent (rc>=2)" "yes" \
+  "$(grep -qF 'grep read error' "$INIT_SKILL" && echo yes || echo no)"
+# The @-import reuse guidance (AC4/AC5): pin two concrete repo-root-relative paths,
+# including the dotted .github one (the easiest to get wrong).
+assert_eq "init-memory-nudge: @-import example for AGENTS.md present" "yes" \
+  "$(grep -qF '@AGENTS.md' "$INIT_SKILL" && echo yes || echo no)"
+assert_eq "init-memory-nudge: @-import path for copilot-instructions present" "yes" \
+  "$(grep -qF '@.github/copilot-instructions.md' "$INIT_SKILL" && echo yes || echo no)"
+# AC2: the absent-everything case nudges toward the BUILT-IN /init.
+assert_eq "init-memory-nudge: recommends the built-in /init" "yes" \
+  "$(grep -qF 'built-in `/init`' "$INIT_SKILL" && echo yes || echo no)"
+# AC7: strictly advisory — never writes any file, never blocks/fails init.
+assert_eq "init-memory-nudge: never writes/edits any agent file (advisory)" "yes" \
+  "$(grep -qF 'never creates, writes, or edits' "$INIT_SKILL" && echo yes || echo no)"
+assert_eq "init-memory-nudge: never blocks or fails init" "yes" \
+  "$(grep -qF 'never blocks or fails init' "$INIT_SKILL" && echo yes || echo no)"
+# AC6 — the silence discipline (no output when nothing is actionable) keeps successful
+# re-runs clean; pin it so a reword can't drop the quiet-when-nothing-to-say rule.
+assert_eq "init-memory-nudge: stays silent when nothing is actionable (AC6)" "yes" \
+  "$(grep -qF 'say nothing when nothing is actionable' "$INIT_SKILL" && echo yes || echo no)"
+# AC5 — the CLAUDE.md-present-but-unreferenced case (matrix case 3). Pin a block-unique
+# fragment of that bullet so dropping the 'suggest adding the @-import' branch fails here.
+assert_eq "init-memory-nudge: covers CLAUDE.md-present-but-unreferenced case (AC5)" "yes" \
+  "$(grep -qF 'does not already reference' "$INIT_SKILL" && echo yes || echo no)"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "shipped agent_overrides: deduper pins Sonnet 4.6 w/ effort; no Haiku override carries effort"
 # ────────────────────────────────────────────────────────────────────────────
 # The shipped checklist-deduper override pins Claude Sonnet 4.6 (which DOES
