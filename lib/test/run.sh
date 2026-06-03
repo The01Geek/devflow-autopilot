@@ -3511,6 +3511,230 @@ assert_eq "et: invalid --mode → exit 2" "2" "$ET_MODE_RC"
 rm -rf "$ET_DIR" "$ET_DEG" "$ET_EMPTY"; rm -f "$ET_CFG"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "efficiency-trace.sh --persist / --self-check (issue #80)"
+# ────────────────────────────────────────────────────────────────────────────
+# Layer 2 (--self-check, warn-only) + Layer 3 (--persist, deterministic backstop)
+# that make /devflow:review-and-fix Loop Exit observability persistence
+# non-droppable. Both are best-effort: they MUST always exit 0 and never abort.
+#
+# Adversarial input-shape matrix exercised below (the bug class is "a shape
+# detonates the helper or yields a misdirected/silent breadcrumb"):
+#   workpad dir:   {present + iter-*.json, present + no iter, absent tmp tree}
+#   workpad shape: {valid object, malformed/non-object, review-mode source}
+#   record state:  {absent → derive+commit, already-present → no-op}
+#   telemetry:     {on → record, off → no record but durable copy still made}
+#   re-run:        {second --persist → no new commit (idempotent)}
+
+# A throwaway git repo so --persist's add/commit have somewhere real to land
+# (the helper resolves the repo root and commits via `git -C "$root"`).
+ETP_REPO="$(mktemp -d)"
+git -C "$ETP_REPO" init -q
+git -C "$ETP_REPO" config user.email devflow-test@example.com
+git -C "$ETP_REPO" config user.name "devflow test"
+ETP_RUN="$ETP_REPO/.devflow/tmp/review/pr-77/run-abc"
+mkdir -p "$ETP_RUN"
+cat > "$ETP_RUN/iter-1.json" <<'EOF'
+{"iter":1,"checklist":[{"verification_mode":"lite","verdict":"PASS"}],
+"phase3_dispatched":["pr-review-toolkit:code-reviewer"],
+"phase3_findings":[{"agent":"pr-review-toolkit:code-reviewer","corroboration_count":1,"fix_decision":"applied"}],
+"convergence_inputs":{"fixes_applied":1},"telemetry":{"phase_3":{"calls":1,"tokens":1000,"wall_clock_s":10}}}
+EOF
+# A non-iter scratch sibling confirms the durable copy carries *.json siblings,
+# while discovery/derivation key only off iter-*.json.
+printf '{"deferrals":[]}' > "$ETP_RUN/deferrals.json"
+
+# --persist (discovery): derive the record + durable copy + ONE chore: commit.
+( cd "$ETP_REPO" && bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1; ETP_RC=$?
+assert_eq "et-persist: always exits 0" "0" "$ETP_RC"
+assert_eq "et-persist: record written at run-id-keyed path" "yes" \
+  "$([ -f "$ETP_REPO/.devflow/logs/efficiency/pr-77-run-abc.json" ] && echo yes || echo no)"
+assert_eq "et-persist: durable workpad copy written" "yes" \
+  "$([ -f "$ETP_REPO/.devflow/logs/review/pr-77/run-abc/iter-1.json" ] && echo yes || echo no)"
+assert_eq "et-persist: durable copy carries deferrals.json sibling" "yes" \
+  "$([ -f "$ETP_REPO/.devflow/logs/review/pr-77/run-abc/deferrals.json" ] && echo yes || echo no)"
+assert_eq "et-persist: artifacts committed in a scoped chore: commit" \
+  "chore: persist review-and-fix observability artifacts" \
+  "$(git -C "$ETP_REPO" log -1 --format=%s)"
+assert_eq "et-persist: record is tracked (committed, not left untracked)" "yes" \
+  "$(git -C "$ETP_REPO" ls-files -- .devflow/logs/efficiency/pr-77-run-abc.json | grep -q . && echo yes || echo no)"
+assert_eq "et-persist: committed record is a real derivation (schema_version)" "1" \
+  "$(jq -r '.schema_version' "$ETP_REPO/.devflow/logs/efficiency/pr-77-run-abc.json")"
+
+# --persist idempotency: a second run is a clean no-op (no new / empty commit).
+ETP_COUNT1="$(git -C "$ETP_REPO" rev-list --count HEAD)"
+( cd "$ETP_REPO" && bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1; ETP_RC2=$?
+ETP_COUNT2="$(git -C "$ETP_REPO" rev-list --count HEAD)"
+assert_eq "et-persist: re-run exits 0" "0" "$ETP_RC2"
+assert_eq "et-persist: re-run creates NO new commit (idempotent, no empty commit)" \
+  "$ETP_COUNT1" "$ETP_COUNT2"
+
+# --persist telemetry OFF: no record derived, but the durable copy still persists
+# (the durable copy is writable-run-gated, not telemetry-gated — mirrors SKILL.md).
+ETP_OFF_REPO="$(mktemp -d)"
+git -C "$ETP_OFF_REPO" init -q
+git -C "$ETP_OFF_REPO" config user.email t@e.com; git -C "$ETP_OFF_REPO" config user.name t
+mkdir -p "$ETP_OFF_REPO/.devflow/tmp/review/pr-9/run-x"
+cp "$ETP_RUN/iter-1.json" "$ETP_OFF_REPO/.devflow/tmp/review/pr-9/run-x/iter-1.json"
+ETP_OFF_CFG="$(mktemp)"; printf '{"devflow_review_and_fix":{"efficiency_telemetry_enabled":false}}' > "$ETP_OFF_CFG"
+( cd "$ETP_OFF_REPO" && DEVFLOW_CONFIG_FILE="$ETP_OFF_CFG" bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
+assert_eq "et-persist: telemetry off → NO efficiency record derived" "no" \
+  "$([ -e "$ETP_OFF_REPO/.devflow/logs/efficiency/pr-9-run-x.json" ] && echo yes || echo no)"
+assert_eq "et-persist: telemetry off → durable copy STILL made" "yes" \
+  "$([ -f "$ETP_OFF_REPO/.devflow/logs/review/pr-9/run-x/iter-1.json" ] && echo yes || echo no)"
+rm -f "$ETP_OFF_CFG"; rm -rf "$ETP_OFF_REPO"
+
+# --persist review-mode run (source=="review") is out of scope → skipped entirely.
+ETP_REV_REPO="$(mktemp -d)"
+git -C "$ETP_REV_REPO" init -q
+git -C "$ETP_REV_REPO" config user.email t@e.com; git -C "$ETP_REV_REPO" config user.name t
+mkdir -p "$ETP_REV_REPO/.devflow/tmp/review/pr-5/run-r"
+printf '{"iter":1,"source":"review","phase3_findings":[]}' \
+  > "$ETP_REV_REPO/.devflow/tmp/review/pr-5/run-r/iter-1.json"
+( cd "$ETP_REV_REPO" && bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
+assert_eq "et-persist: review-mode run skipped → no record" "no" \
+  "$([ -e "$ETP_REV_REPO/.devflow/logs/efficiency/pr-5-run-r.json" ] && echo yes || echo no)"
+assert_eq "et-persist: review-mode run skipped → no durable copy" "no" \
+  "$([ -d "$ETP_REV_REPO/.devflow/logs/review/pr-5" ] && echo yes || echo no)"
+rm -rf "$ETP_REV_REPO"
+
+# --persist malformed-only workpad (non-object) → exit 0, no record written.
+ETP_BAD_REPO="$(mktemp -d)"
+git -C "$ETP_BAD_REPO" init -q
+git -C "$ETP_BAD_REPO" config user.email t@e.com; git -C "$ETP_BAD_REPO" config user.name t
+mkdir -p "$ETP_BAD_REPO/.devflow/tmp/review/pr-3/run-b"
+printf '[]' > "$ETP_BAD_REPO/.devflow/tmp/review/pr-3/run-b/iter-1.json"
+( cd "$ETP_BAD_REPO" && bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1; ETP_BAD_RC=$?
+assert_eq "et-persist: malformed-only workpad → exit 0" "0" "$ETP_BAD_RC"
+assert_eq "et-persist: malformed-only workpad → no record (empty derivation)" "no" \
+  "$([ -e "$ETP_BAD_REPO/.devflow/logs/efficiency/pr-3-run-b.json" ] && echo yes || echo no)"
+rm -rf "$ETP_BAD_REPO"
+
+# --persist with no review activity at all → clean no-op (no commit).
+ETP_EMPTY_REPO="$(mktemp -d)"
+git -C "$ETP_EMPTY_REPO" init -q
+git -C "$ETP_EMPTY_REPO" config user.email t@e.com; git -C "$ETP_EMPTY_REPO" config user.name t
+( cd "$ETP_EMPTY_REPO" && bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1; ETP_EMPTY_RC=$?
+assert_eq "et-persist: no review activity → exit 0" "0" "$ETP_EMPTY_RC"
+assert_eq "et-persist: no review activity → no commit created" "no" \
+  "$(git -C "$ETP_EMPTY_REPO" rev-parse HEAD >/dev/null 2>&1 && echo yes || echo no)"
+rm -rf "$ETP_EMPTY_REPO"
+
+# --self-check (warn-only). Telemetry-off silence is the shell-enforceable half
+# of the AC's "silent when telemetry disabled / read-only"; read-only silence is
+# structural — SKILL.md only invokes the self-check on writable runs.
+ETSC_REPO="$(mktemp -d)"
+git -C "$ETSC_REPO" init -q
+ETSC_RUN="$ETSC_REPO/.devflow/tmp/review/pr-12/run-y"
+mkdir -p "$ETSC_RUN"
+printf '{"iter":1,"phase3_findings":[]}' > "$ETSC_RUN/iter-1.json"
+ETSC_OUT="$( ( cd "$ETSC_REPO" && bash "$LIB/efficiency-trace.sh" --self-check --workpad-dir "$ETSC_RUN" --slug pr-12 ) 2>&1 )"; ETSC_RC=$?
+assert_eq "et-selfcheck: always exits 0" "0" "$ETSC_RC"
+assert_eq "et-selfcheck: workpads present but no record → warns 'was NOT persisted'" "yes" \
+  "$(printf '%s' "$ETSC_OUT" | grep -qF 'was NOT persisted' && echo yes || echo no)"
+assert_eq "et-selfcheck: warning names the run-id-keyed record path" "yes" \
+  "$(printf '%s' "$ETSC_OUT" | grep -qF 'pr-12-run-y.json' && echo yes || echo no)"
+ETSC_EMPTY="$ETSC_REPO/.devflow/tmp/review/pr-12/run-empty"
+mkdir -p "$ETSC_EMPTY"
+ETSC_OUT2="$( ( cd "$ETSC_REPO" && bash "$LIB/efficiency-trace.sh" --self-check --workpad-dir "$ETSC_EMPTY" --slug pr-12 ) 2>&1 )"
+assert_eq "et-selfcheck: zero workpads → warns NO iter-*.json captured" "yes" \
+  "$(printf '%s' "$ETSC_OUT2" | grep -qF 'NO iter-*.json workpad' && echo yes || echo no)"
+ETSC_OFF_CFG="$(mktemp)"; printf '{"devflow_review_and_fix":{"efficiency_telemetry_enabled":false}}' > "$ETSC_OFF_CFG"
+ETSC_OUT3="$( ( cd "$ETSC_REPO" && DEVFLOW_CONFIG_FILE="$ETSC_OFF_CFG" bash "$LIB/efficiency-trace.sh" --self-check --workpad-dir "$ETSC_RUN" --slug pr-12 ) 2>&1 )"
+assert_eq "et-selfcheck: telemetry disabled → silent (no warning)" "" "$ETSC_OUT3"
+# --self-check on a --workpad-dir that does not exist at all (the `! -d` half of
+# the guard, distinct from the empty-but-existing dir above).
+ETSC_OUT4="$( ( cd "$ETSC_REPO" && bash "$LIB/efficiency-trace.sh" --self-check --workpad-dir "$ETSC_REPO/.devflow/tmp/review/pr-12/nope" --slug pr-12 ) 2>&1 )"; ETSC_RC4=$?
+assert_eq "et-selfcheck: nonexistent workpad dir → exit 0" "0" "$ETSC_RC4"
+assert_eq "et-selfcheck: nonexistent workpad dir → warns NO iter-*.json" "yes" \
+  "$(printf '%s' "$ETSC_OUT4" | grep -qF 'NO iter-*.json workpad' && echo yes || echo no)"
+rm -f "$ETSC_OFF_CFG"; rm -rf "$ETSC_REPO" "$ETP_REPO"
+
+# A minimal valid review-and-fix iter workpad (no `source` → defaults review-and-fix).
+ETP_ITER='{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}'
+
+# --persist TARGETED mode (--workpad-dir/--slug): exercises do_persist's first
+# branch (slug from --slug, run-id from the workpad-dir basename) — discovery
+# never reaches it.
+ETPT_REPO="$(mktemp -d)"
+git -C "$ETPT_REPO" init -q
+git -C "$ETPT_REPO" config user.email t@e.com; git -C "$ETPT_REPO" config user.name t
+mkdir -p "$ETPT_REPO/.devflow/tmp/review/pr-22/run-t"
+printf '%s' "$ETP_ITER" > "$ETPT_REPO/.devflow/tmp/review/pr-22/run-t/iter-1.json"
+( cd "$ETPT_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$ETPT_REPO/.devflow/tmp/review/pr-22/run-t" --slug pr-22 ) >/dev/null 2>&1
+assert_eq "et-persist: targeted --workpad-dir/--slug writes the run-id-keyed record" "yes" \
+  "$([ -f "$ETPT_REPO/.devflow/logs/efficiency/pr-22-run-t.json" ] && echo yes || echo no)"
+# --slug ABSENT → slug falls back to basename(dirname(workpad-dir)).
+mkdir -p "$ETPT_REPO/.devflow/tmp/review/pr-23/run-u"
+printf '%s' "$ETP_ITER" > "$ETPT_REPO/.devflow/tmp/review/pr-23/run-u/iter-1.json"
+( cd "$ETPT_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$ETPT_REPO/.devflow/tmp/review/pr-23/run-u" ) >/dev/null 2>&1
+assert_eq "et-persist: targeted --slug-absent → slug from parent dir name" "yes" \
+  "$([ -f "$ETPT_REPO/.devflow/logs/efficiency/pr-23-run-u.json" ] && echo yes || echo no)"
+rm -rf "$ETPT_REPO"
+
+# Mixed valid + malformed iters where the lexicographically-LAST (probed) iter is
+# the malformed one: the source probe fails, defaults to review-and-fix (the safe
+# direction — the run is NOT wrongly skipped), leaves a breadcrumb, and the record
+# is still derived from the surviving valid iter.
+ETMX_REPO="$(mktemp -d)"
+git -C "$ETMX_REPO" init -q
+git -C "$ETMX_REPO" config user.email t@e.com; git -C "$ETMX_REPO" config user.name t
+mkdir -p "$ETMX_REPO/.devflow/tmp/review/pr-40/run-m"
+printf '%s' "$ETP_ITER" > "$ETMX_REPO/.devflow/tmp/review/pr-40/run-m/iter-1.json"
+printf '[]' > "$ETMX_REPO/.devflow/tmp/review/pr-40/run-m/iter-2.json"   # malformed, sorts last
+ETMX_OUT="$( ( cd "$ETMX_REPO" && bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 )"; ETMX_RC=$?
+assert_eq "et-persist: malformed-newest probe → exit 0 (not wrongly skipped)" "0" "$ETMX_RC"
+assert_eq "et-persist: malformed-newest → record still derived from valid iter" "yes" \
+  "$([ -f "$ETMX_REPO/.devflow/logs/efficiency/pr-40-run-m.json" ] && echo yes || echo no)"
+assert_eq "et-persist: malformed-newest source probe leaves a breadcrumb" "yes" \
+  "$(printf '%s' "$ETMX_OUT" | grep -qF "could not read 'source'" && echo yes || echo no)"
+rm -rf "$ETMX_REPO"
+
+# Discovery over MULTIPLE run dirs → exactly ONE batched chore: commit, with a
+# review-mode sibling that must be skipped (makes the review-skip discriminating:
+# the two review-and-fix dirs persist while the review dir does not, in the SAME
+# repo, so the skip can't pass merely because the whole copy step is broken).
+ETMD_REPO="$(mktemp -d)"
+git -C "$ETMD_REPO" init -q
+git -C "$ETMD_REPO" config user.email t@e.com; git -C "$ETMD_REPO" config user.name t
+mkdir -p "$ETMD_REPO/.devflow/tmp/review/pr-30/run-a" "$ETMD_REPO/.devflow/tmp/review/pr-31/run-b" "$ETMD_REPO/.devflow/tmp/review/pr-32/run-c"
+printf '%s' "$ETP_ITER" > "$ETMD_REPO/.devflow/tmp/review/pr-30/run-a/iter-1.json"
+printf '%s' "$ETP_ITER" > "$ETMD_REPO/.devflow/tmp/review/pr-31/run-b/iter-1.json"
+printf '{"iter":1,"source":"review","phase3_findings":[]}' > "$ETMD_REPO/.devflow/tmp/review/pr-32/run-c/iter-1.json"
+( cd "$ETMD_REPO" && bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
+assert_eq "et-persist: multi-dir discovery persists run dir A" "yes" \
+  "$([ -f "$ETMD_REPO/.devflow/logs/efficiency/pr-30-run-a.json" ] && echo yes || echo no)"
+assert_eq "et-persist: multi-dir discovery persists run dir B" "yes" \
+  "$([ -f "$ETMD_REPO/.devflow/logs/efficiency/pr-31-run-b.json" ] && echo yes || echo no)"
+assert_eq "et-persist: review-mode sibling skipped while siblings persist" "no" \
+  "$([ -e "$ETMD_REPO/.devflow/logs/efficiency/pr-32-run-c.json" ] && echo yes || echo no)"
+assert_eq "et-persist: N records committed in exactly ONE batched commit" "1" \
+  "$(git -C "$ETMD_REPO" rev-list --count HEAD)"
+rm -rf "$ETMD_REPO"
+
+# Durable-copy refresh: the record is presence-frozen, but a NEW iter appearing
+# after the first persist must still be copied into the durable tree and produce
+# a new commit — proving the copy is not gated by the frozen record.
+ETDR_REPO="$(mktemp -d)"
+git -C "$ETDR_REPO" init -q
+git -C "$ETDR_REPO" config user.email t@e.com; git -C "$ETDR_REPO" config user.name t
+mkdir -p "$ETDR_REPO/.devflow/tmp/review/pr-50/run-d"
+printf '%s' "$ETP_ITER" > "$ETDR_REPO/.devflow/tmp/review/pr-50/run-d/iter-1.json"
+( cd "$ETDR_REPO" && bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
+ETDR_COUNT1="$(git -C "$ETDR_REPO" rev-list --count HEAD)"
+# A second iteration appears, then re-persist.
+printf '{"iter":2,"phase3_dispatched":["a"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}' \
+  > "$ETDR_REPO/.devflow/tmp/review/pr-50/run-d/iter-2.json"
+( cd "$ETDR_REPO" && bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1
+ETDR_COUNT2="$(git -C "$ETDR_REPO" rev-list --count HEAD)"
+assert_eq "et-persist: first persist made exactly 1 commit" "1" "$ETDR_COUNT1"
+assert_eq "et-persist: new iter after persist → durable copy refreshed (iter-2 present)" "yes" \
+  "$([ -f "$ETDR_REPO/.devflow/logs/review/pr-50/run-d/iter-2.json" ] && echo yes || echo no)"
+assert_eq "et-persist: durable refresh produces a new commit (record frozen, copy not)" "2" "$ETDR_COUNT2"
+assert_eq "et-persist: frozen record was NOT re-derived (iterations stays 1)" "1" \
+  "$(jq -r '.iterations' "$ETDR_REPO/.devflow/logs/efficiency/pr-50-run-d.json")"
+rm -rf "$ETDR_REPO"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "devflow-runner.yml: opt-in environment provisioning (issues #18, #21)"
 # ────────────────────────────────────────────────────────────────────────────
 # The automated reviewer gains a build environment + build-tool allowlist ONLY
