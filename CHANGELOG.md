@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.0] — 2026-06-03
+
+### Added
+- **`/devflow:init` now ends with an advisory project-memory check.** After config scaffolding and the dependency preflight, the skill resolves the git repo root and probes for a `CLAUDE.md` plus the agent-instruction files other tools leave behind (`.github/copilot-instructions.md`, root `AGENTS.md` matched case-insensitively, `GEMINI.md`, `.cursorrules`), then surfaces a single advisory nudge per a four-case matrix: no `CLAUDE.md` and no agent files → recommend the built-in `/init` to create one (project memory measurably improves `/devflow:review` and `/devflow:implement` results); no `CLAUDE.md` but agent files present → the same nudge plus the repo-root-relative `@`-import path to reuse each (`@AGENTS.md`, `@.github/copilot-instructions.md`, …); `CLAUDE.md` present but not referencing an existing agent file → suggest adding that `@`-import; everything already wired (or nothing to wire) → no output. The check is strictly advisory — it **never creates, writes, or edits** `CLAUDE.md` or any agent file and **never blocks or fails init** (which has already succeeded), and stays silent when nothing is actionable. The guidance is prose in `skills/init/SKILL.md` (no new helper script; detection uses only `git rev-parse --show-toplevel` and POSIX file tests, no GNU-only flags), guarded by a content test in `lib/test/run.sh` and noted in `docs/DEVFLOW_SYSTEM_OVERVIEW.md`. (#91)
+
 ## [2.7.2] — 2026-06-02
 
 ### Added
