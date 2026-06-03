@@ -3660,6 +3660,43 @@ assert_eq "pls: malformed → file byte-for-byte unchanged (AC6)" '{ not valid j
 assert_eq "pls: malformed → breadcrumb names the malformed-settings condition (AC6)" "yes" \
   "$(printf '%s' "$PLS_BAD_OUT" | grep -qiE 'not valid json|malformed' && echo yes || echo no)"
 
+# Valid JSON but WRONG SHAPE — a non-object root (array / scalar) or a DevFlow
+# container key present as a non-object — is corrupt for provisioning: exit
+# non-zero, specific breadcrumb, file byte-for-byte unchanged. These shapes parse
+# as JSON (so the not-JSON gate above lets them through) but would otherwise
+# either crash the merge (object * array/scalar → jq error) or silently drop the
+# DevFlow setting. (Issue #88 review: non-object-root + wrong-typed sub-key.)
+PLS_ARR="$(mktemp -d)"; mkdir -p "$PLS_ARR/.claude"
+printf '%s' '[1,2,3]' > "$PLS_ARR/.claude/settings.json"
+PLS_ARR_OUT="$(bash "$PLS" "$PLS_ARR" 2>&1)"; PLS_ARR_RC=$?
+assert_eq "pls: array root → exit non-zero (no uncaught jq crash)" "yes" \
+  "$([ "$PLS_ARR_RC" -ne 0 ] && echo yes || echo no)"
+assert_eq "pls: array root → file byte-for-byte unchanged" '[1,2,3]' \
+  "$(cat "$PLS_ARR/.claude/settings.json")"
+assert_eq "pls: array root → specific breadcrumb names the wrong shape" "yes" \
+  "$(printf '%s' "$PLS_ARR_OUT" | grep -qiE 'not a JSON object|malformed' && echo yes || echo no)"
+
+PLS_SCALAR="$(mktemp -d)"; mkdir -p "$PLS_SCALAR/.claude"
+printf '%s' '42' > "$PLS_SCALAR/.claude/settings.json"
+PLS_SCALAR_OUT="$(bash "$PLS" "$PLS_SCALAR" 2>&1)"; PLS_SCALAR_RC=$?
+assert_eq "pls: scalar root → exit non-zero" "yes" \
+  "$([ "$PLS_SCALAR_RC" -ne 0 ] && echo yes || echo no)"
+assert_eq "pls: scalar root → file unchanged" '42' \
+  "$(cat "$PLS_SCALAR/.claude/settings.json")"
+
+# Wrong-typed DevFlow container key (env as a string) → exit non-zero, named in
+# the breadcrumb, file unchanged, and (critically) the DevFlow env var is NOT
+# silently dropped behind a false "added" breadcrumb.
+PLS_WRONGTYPE="$(mktemp -d)"; mkdir -p "$PLS_WRONGTYPE/.claude"
+printf '%s' '{"env":"oops","other":1}' > "$PLS_WRONGTYPE/.claude/settings.json"
+PLS_WT_OUT="$(bash "$PLS" "$PLS_WRONGTYPE" 2>&1)"; PLS_WT_RC=$?
+assert_eq "pls: wrong-typed container (env=string) → exit non-zero" "yes" \
+  "$([ "$PLS_WT_RC" -ne 0 ] && echo yes || echo no)"
+assert_eq "pls: wrong-typed container → file byte-for-byte unchanged" '{"env":"oops","other":1}' \
+  "$(cat "$PLS_WRONGTYPE/.claude/settings.json")"
+assert_eq "pls: wrong-typed container → breadcrumb names the env key" "yes" \
+  "$(printf '%s' "$PLS_WT_OUT" | grep -qiE 'env|not a JSON object|malformed' && echo yes || echo no)"
+
 # Empty / whitespace-only / {} existing files are benign (treated as {}), NOT
 # malformed: DevFlow keys are added, exit 0.
 PLS_EMPTY="$(mktemp -d)"; mkdir -p "$PLS_EMPTY/.claude"
@@ -3693,7 +3730,7 @@ assert_eq "pls: isolation → scaffold-config.sh creates no .claude/ dir (AC7)" 
   "$([ -d "$PLS_ISO/.claude" ] && echo yes || echo no)"
 
 rm -rf "$PLS_FRESH" "$PLS_KEEP" "$PLS_IDEM" "$PLS_BAD" "$PLS_EMPTY" "$PLS_WS" \
-       "$PLS_OBJ" "$PLS_ISO"
+       "$PLS_OBJ" "$PLS_ISO" "$PLS_ARR" "$PLS_SCALAR" "$PLS_WRONGTYPE"
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.

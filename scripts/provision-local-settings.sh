@@ -37,9 +37,11 @@
 #
 # Exit codes:
 #   0  settings provisioned, or already complete (a quiet "nothing changed").
-#   2  the existing .claude/settings.json is present but not valid JSON (left
-#      byte-for-byte unchanged — fix or remove it, then re-run), or jq is
-#      missing, or a temp file could not be created.
+#   2  the existing .claude/settings.json is corrupt for provisioning — not valid
+#      JSON, or valid JSON of the wrong shape (a non-object root, or a DevFlow
+#      container key that is not an object) — left byte-for-byte unchanged (fix or
+#      remove it, then re-run); or jq is missing; or a temp file could not be
+#      created.
 set -euo pipefail
 
 log()  { printf 'devflow-settings: %s\n' "$1"; }
@@ -84,21 +86,32 @@ if [ -f "$SETTINGS" ]; then
   fi
 fi
 
-# Friendly labels for the DevFlow marker keys ABSENT before the merge — emitted
-# straight from jq, with each label paired to its own presence test in one
-# object, so there is no positional flag string whose bit order must track the
-# label order. Used ONLY to word the breadcrumb, never to drive the merge.
-# `try ... catch false` keeps a hand-corrupted non-object value (e.g. env set to
-# a string) from aborting a probe. `to_entries` preserves jq's key order, so the
-# absent labels list in declaration order.
-added=()
-while IFS= read -r label; do
-  added+=("$label")
-done < <(printf '%s' "$EXISTING" | jq -r '
-  { "extraKnownMarketplaces[devflow-marketplace]": (try (.extraKnownMarketplaces["devflow-marketplace"] != null) catch false),
-    "enabledPlugins[devflow@devflow-marketplace]":  (try (.enabledPlugins["devflow@devflow-marketplace"] != null) catch false),
-    "env.CLAUDE_CODE_ENABLE_AUTO_MODE":             (try (.env.CLAUDE_CODE_ENABLE_AUTO_MODE != null) catch false) }
-  | to_entries | map(select(.value | not) | .key) | .[]')
+# Type-guard the shapes the deep-merge relies on. `jq .` above only proves the
+# file PARSES; two valid-but-corrupt shapes still slip through: a non-object
+# root (`[...]` or a bare scalar), and a DevFlow container key
+# (extraKnownMarketplaces / enabledPlugins / env) present as a non-object. On the
+# first, `$defaults * $existing` is a jq error (object times array/scalar) that,
+# under `set -euo pipefail`, aborts the script with a raw jq message and exit 5 —
+# escaping this script's documented 0/2 contract with no breadcrumb. On the
+# second, the merge silently keeps the user's wrong-typed value and drops the
+# DevFlow setting. Both are corrupt settings, so treat them exactly like the
+# malformed-JSON case above: a specific breadcrumb, exit 2, file left
+# byte-for-byte unchanged (nothing has been written yet). Mirrors
+# scaffold-config.sh, which type-checks a container is an object before recursing.
+BAD_SHAPE="$(printf '%s' "$EXISTING" | jq -r '
+  . as $root
+  | if ($root | type) != "object" then
+      "the file is valid JSON but not a JSON object (\($root | type))"
+    else
+      ( ["extraKnownMarketplaces", "enabledPlugins", "env"]
+        | map(. as $k | select(($root | has($k)) and (($root[$k] | type) != "object"))
+              | "the \($k) key is present but not a JSON object (\($root[$k] | type))")
+        | join("; ") )
+    end')"
+if [ -n "$BAD_SHAPE" ]; then
+  warn "existing $SETTINGS is malformed for provisioning ($BAD_SHAPE); left it unchanged and provisioned nothing (fix or remove it, then re-run /devflow:init)."
+  exit 2
+fi
 
 MERGED="$(jq -n --argjson defaults "$DEFAULTS" --argjson existing "$EXISTING" '$defaults * $existing')"
 
@@ -119,9 +132,24 @@ printf '%s\n' "$MERGED" > "$TMP"
 mv "$TMP" "$SETTINGS"
 trap - EXIT
 
+# Friendly labels for the DevFlow marker keys the merge actually landed, derived
+# from the EXISTING->MERGED delta (a leaf differs) so the breadcrumb can never
+# claim a key the merge did not write. The top-level containers are guaranteed
+# object-or-absent by the type-guard above, so these two-level getpath probes
+# never index a non-object. We reach here only past the "nothing changed"
+# early-exit, so at least one leaf differs.
+added=()
+while IFS= read -r label; do
+  added+=("$label")
+done < <(jq -nr --argjson e "$EXISTING" --argjson m "$MERGED" '
+  [ {l: "extraKnownMarketplaces[devflow-marketplace]", p: ["extraKnownMarketplaces", "devflow-marketplace"]},
+    {l: "enabledPlugins[devflow@devflow-marketplace]",  p: ["enabledPlugins", "devflow@devflow-marketplace"]},
+    {l: "env.CLAUDE_CODE_ENABLE_AUTO_MODE",             p: ["env", "CLAUDE_CODE_ENABLE_AUTO_MODE"]} ]
+  | map(select(($e | getpath(.p)) != ($m | getpath(.p))) | .l) | .[]')
+
 if [ "${#added[@]}" -gt 0 ]; then
   joined="$(printf '%s, ' "${added[@]}")"; joined="${joined%, }"
   log "provisioned $SETTINGS (added: $joined). Auto mode is now selectable, not on. Review the change before committing."
 else
-  log "provisioned $SETTINGS (backfilled missing DevFlow setting sub-keys). Review the change before committing."
+  log "provisioned $SETTINGS. Auto mode is now selectable, not on. Review the change before committing."
 fi
