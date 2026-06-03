@@ -13,6 +13,8 @@ git ls-files '*.py' | xargs -r ruff check
 
 CI (`.github/workflows/ci.yml`) runs the same suite + lint on every PR. The **required** status check is the job name **`lib + python tests`** (not "CI", which is the workflow name and never resolves).
 
+**If the `bash <path>` wrapper above is denied** (it is — the read-only profile silently denies any non-leading-token command; see the *LEADING token* gotcha): the suite scripts carry the executable bit + a `#!/usr/bin/env bash` shebang, so retry by invoking the path **directly as the leading token** — `lib/test/run.sh`, `lib/preflight.sh` — never `bash lib/test/run.sh`. Only if the *direct* form is **also** denied (e.g. the test runner's `mktemp` writes are sandbox-blocked) may you treat the **`lib + python tests`** CI job as the authoritative gate — and then you MUST record in the workpad both that the local run was denied and that CI is the gate, so the skip is an auditable decision, never a silent bypass. A reflection that says "could not run the suite" without first having tried the direct-leading-token form is the bypass this rule exists to stop.
+
 ## Architecture
 
 - `skills/` — one `SKILL.md` per command (`/devflow:implement`, `/devflow:review`, `/devflow:review-and-fix`, the `/devflow:docs` family, `/devflow:create-issue`, `/devflow:retrospective-weekly`, …).
