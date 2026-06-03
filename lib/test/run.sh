@@ -81,6 +81,15 @@ assert_eq "#97 classify: empty prefix is not match-all (unrelated branch → ski
 assert_eq "#97 classify: empty prefix still selects via closes-issue" \
   "implementation" \
   "$(classify "issue-97-foo" "true" "" '[]' '[{"number":97}]')"
+# Arm-ordering precedence: a devflow/audit-* branch that ALSO carries the DevFlow
+# label must classify as audit-intervention (audit arm precedes the label arm),
+# never get mis-routed to the implementation variant.
+assert_eq "#97 classify: DevFlow-labelled audit branch stays audit-intervention" \
+  "audit-intervention" \
+  "$(classify "devflow/audit-foo-2026-05-01-abc1234" "true" "claude/" '[{"name":"DevFlow"}]' '[{"number":97}]')"
+assert_eq "#97 classify: audit branch with watched=false is skip (label/closes do not override)" \
+  "skip" \
+  "$(classify "devflow/audit-foo-2026-05-01-abc1234" "false" "claude/" '[{"name":"DevFlow"}]' '[{"number":97}]')"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "compute-patterns.jq"
@@ -1721,15 +1730,24 @@ case "$*" in
   *"repo view"*) echo "acme/example-repo" ;;
   *"pr view 800 --repo"*) echo '{"number":800,"headRefName":"random/x","mergedAt":"2026-05-25T00:00:00Z","state":"MERGED","labels":[{"name":"DevFlow"}],"closingIssuesReferences":[],"author":{"login":"nonwatched"}}' ;;
   *"pr view 801 --repo"*) echo '{"number":801,"headRefName":"feature/plain","mergedAt":"2026-05-26T00:00:00Z","state":"MERGED","labels":[],"closingIssuesReferences":[],"author":{"login":"nonwatched"}}' ;;
+  *"pr view 802 --repo"*) echo '{"number":802,"headRefName":"issue-802-x","mergedAt":"2026-05-27T00:00:00Z","state":"MERGED","labels":[],"closingIssuesReferences":[{"number":702}],"author":{"login":"claude"}}' ;;
+  *"pr view 803 --repo"*) echo '{"number":803,"headRefName":"issue-803-x","mergedAt":"2026-05-28T00:00:00Z","state":"MERGED","labels":[],"closingIssuesReferences":[{"number":703}],"author":{"login":"nonwatched"}}' ;;
   *) echo '[]' ;;
 esac
 STUB
 chmod +x "$S97/gh-prs"
-PRS97="$(DEVFLOW_CONFIG_FILE="$S97/cfg.json" DEVFLOW_GH="$S97/gh-prs" bash "$LIB/scan.sh" --prs "800,801" 2>/dev/null)"
+PRS97="$(DEVFLOW_CONFIG_FILE="$S97/cfg.json" DEVFLOW_GH="$S97/gh-prs" bash "$LIB/scan.sh" --prs "800,801,802,803" 2>/dev/null)"
 assert_eq "scan #97 --prs: DevFlow-labelled PR on non-prefix branch selected" "true" \
   "$(echo "$PRS97" | jq 'any(.[]; .number==800)')"
 assert_eq "scan #97 --prs: true-negative (no label/closes/prefix) dropped" "false" \
   "$(echo "$PRS97" | jq 'any(.[]; .number==801)')"
+# --prs closes-issue path is author-gated by _author_is_watched: a WATCHED
+# author that closes an issue (no label/prefix) is selected; a non-watched
+# author with the same closes-only shape is dropped.
+assert_eq "scan #97 --prs: watched-author closes-issue on non-prefix branch selected" "true" \
+  "$(echo "$PRS97" | jq 'any(.[]; .number==802)')"
+assert_eq "scan #97 --prs: non-watched closes-only dropped (path b is author-gated)" "false" \
+  "$(echo "$PRS97" | jq 'any(.[]; .number==803)')"
 rm -rf "$S97"
 
 # ── fetch-pr-context.sh: workpad + reflections sourced from the ISSUE thread ──

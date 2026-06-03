@@ -252,6 +252,15 @@ if [ -n "$WORKPAD_BODY" ]; then
     # Trailing `|| true`: under `set -euo pipefail`, `head -1` closing the pipe
     # early can hand `sed` a SIGPIPE (141) and abort the script; guard it.
     WORKPAD_FINAL_STATUS="$(printf '%s' "$WORKPAD_BODY" | tr -d '\r' | sed -nE 's/^\*{0,2}[[:space:]]*[Ss]tatus[[:space:]]*:?\*{0,2}[[:space:]]*(.+)/\1/p' | head -1 | awk '{print $NF}' || true)"
+    # Fail toward analysis, not toward "clean": a workpad is present but its
+    # Status line did not parse (corrupt/hand-edited — workpad.py always writes
+    # `**Status:** <glyph> <word>`). cheap-gate.jq treats "" as clean, so an
+    # empty status here on a *present* workpad would silently pass a possibly-bad
+    # run. Substitute a non-empty sentinel (any non-Complete value gates not-clean).
+    if [ -z "$WORKPAD_FINAL_STATUS" ]; then
+        echo "::warning::fetch-pr-context: workpad present for PR ${PR} but Status line did not parse; not treating as Complete" >&2
+        WORKPAD_FINAL_STATUS="Unparsed"
+    fi
     # reflections[]: the bullet lines inside the workpad's `## Devflow Reflection`
     # <details> block (excluding the <summary> scaffold). Parsed in python3 (a
     # hard dependency) over the env-passed body — no shell quoting traverses the
