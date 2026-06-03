@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "dismissed": {
+    "tooling-gap": {
+      "dismissed_at": "2026-06-03T21:39:06Z",
+      "dismissed_by": "retrospective-weekly",
+      "reason": "meta-plugin-issue",
+      "meta_issue": "https://github.com/The01Geek/devflow-autopilot/issues/113"
+    },
+    "incomplete-edit": {
+      "dismissed_at": "2026-06-03T21:39:06Z",
+      "dismissed_by": "retrospective-weekly",
+      "reason": "meta-plugin-issue",
+      "meta_issue": "https://github.com/The01Geek/devflow-autopilot/issues/114"
+    }
+  }
+}
