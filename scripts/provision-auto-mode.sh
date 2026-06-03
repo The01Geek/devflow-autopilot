@@ -42,11 +42,10 @@
 #      (--apply).
 #   2  a malformed invocation, independent of --apply: an unknown option, or more than
 #      one positional target. OR --apply but a precondition / I-O failure: the existing
-#      file is unreadable, is
-#      not valid JSON, or is valid JSON of the wrong shape (a non-object root, or
-#      `env` present as a non-object); or jq is missing; or HOME is unset with no
-#      explicit target; or the settings dir / temp file / merged file could not be
-#      created or written. In every exit-2 case the existing file is left
+#      file is unreadable, is not valid JSON, or is valid JSON of the wrong shape (a
+#      non-object root, or `env` present as a non-object); or jq is missing; or HOME is
+#      unset with no explicit target; or the settings dir / temp file / merged file
+#      could not be created or written. In every exit-2 case the existing file is left
 #      BYTE-FOR-BYTE UNCHANGED and a specific `devflow-automode:` breadcrumb names
 #      the cause.
 set -euo pipefail
