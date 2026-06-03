@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.0] — 2026-06-03
+
+### Added
+- **`/devflow:init` now scaffolds a prompt-extension `.example` for *every* skill, not just `create-issue`.** `scripts/scaffold-config.sh` replaces its single `create-issue.md.example` write with a per-file backfill loop over all 16 skills (`create-issue`, the `docs*` family, `implement`, `init`, `pr-description`, the `retrospective*` family, `review`, `review-and-fix`), each carrying a skill-specific one-line hint. The directory-level create guard becomes a per-file `[ -e ]` guard, so an adopter who ran `/devflow:init` before this release picks up the remaining 15 examples on their next re-run while any example they edited — or a live `<skill-name>.md` they authored — is never overwritten. Every scaffolded file is one inert HTML-comment block (the `.example` suffix keeps it from matching the live `<skill-name>.md` pattern, and the comment body injects nothing even if misrenamed), and the creation log line is emitted only when files are actually written. A new `lib/test/run.sh` coverage test derives the expected example set from `skills/*/` and fails if the scaffolder's authored list forgets a skill — the same drift guard as the SKILL.md step. (#95)
+
 ## [2.7.2] — 2026-06-02
 
 ### Added
