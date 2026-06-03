@@ -4845,6 +4845,23 @@ assert_eq "pam: --apply over numeric 1 → leaf type still number, never coerced
 assert_eq "pam: --apply over numeric 1 → file byte-for-byte unchanged (AC3)" \
   "$PAM_N1_BEFORE" "$(cat "$PAM_N1_SF")"
 
+# AC 4 (honest breadcrumb on a JSON false/null leaf): both are legal, both are non-honored,
+# and jq's `//` treats BOTH as empty — so the no-change breadcrumb read must NOT use `// empty`
+# or it blanks the preserved value ("…AUTO_MODE= (your value is preserved)…"). Assert the
+# literal value is shown (not blank) AND it is reported NOT selectable, for false and null.
+# Mutation: re-add `// empty` to the jq -c read and the "shows the literal value" cells go RED.
+for _v in false null; do
+  PAM_FN="$(mktemp -d)"; PAM_FN_SF="$PAM_FN/settings.json"
+  printf '%s' "{\"env\":{\"CLAUDE_CODE_ENABLE_AUTO_MODE\":$_v}}" > "$PAM_FN_SF"
+  PAM_FN_OUT="$(bash "$PAM" --apply "$PAM_FN_SF" 2>&1)"; PAM_FN_RC=$?
+  assert_eq "pam: --apply over $_v leaf → exit 0" "0" "$PAM_FN_RC"
+  assert_eq "pam: --apply over $_v leaf → breadcrumb says NOT selectable (AC4)" "yes" \
+    "$(printf '%s' "$PAM_FN_OUT" | grep -qi 'NOT selectable' && echo yes || echo no)"
+  assert_eq "pam: --apply over $_v leaf → breadcrumb shows the literal '$_v', not a blank value (AC4)" "yes" \
+    "$(printf '%s' "$PAM_FN_OUT" | grep -qE "CLAUDE_CODE_ENABLE_AUTO_MODE=$_v[[:space:]]" && echo yes || echo no)"
+  rm -rf "$PAM_FN"
+done
+
 # AC 3 (no-clobber): existing env + unrelated top key → auto-mode added alongside, all preserved.
 PAM_KEEP="$(mktemp -d)"; PAM_K_SF="$PAM_KEEP/settings.json"
 printf '%s' '{"env":{"OTHER":"x"},"customTopKey":123}' > "$PAM_K_SF"

@@ -214,7 +214,14 @@ if [ "$(printf '%s' "$EXISTING" | jq -S .)" = "$(printf '%s' "$MERGED" | jq -S .
   # a numeric `1` to the same `1` as the string and FALSELY report "already selectable"
   # over a value Claude Code ignores — a silent misreport. Comparing the canonical raw
   # form (`"1"` with quotes) means only the real string "1" reads as selectable.
-  PRESERVED_RAW="$(printf '%s' "$EXISTING" | jq -c '.env.CLAUDE_CODE_ENABLE_AUTO_MODE // empty')" || PRESERVED_RAW=""
+  # No `// empty` here: jq's `//` treats a JSON `false` AND `null` as empty (not just an
+  # absent key), which would blank the preserved value in the breadcrumb for those two legal
+  # leaf shapes ("…AUTO_MODE= (your value is preserved)…"). This branch is reachable only when
+  # env.CLAUDE_CODE_ENABLE_AUTO_MODE is PRESENT (an absent key makes MERGED differ from
+  # EXISTING), so the raw read is always populated and needs no absent-key fallback — the read
+  # yields the literal `false`/`null`/`1`/`"0"` so every preserved value renders honestly. The
+  # `|| PRESERVED_RAW=""` stays purely as a defensive set-e guard on a jq hiccup.
+  PRESERVED_RAW="$(printf '%s' "$EXISTING" | jq -c '.env.CLAUDE_CODE_ENABLE_AUTO_MODE')" || PRESERVED_RAW=""
   if [ "$PRESERVED_RAW" = '"1"' ]; then
     log "$SETTINGS already sets CLAUDE_CODE_ENABLE_AUTO_MODE=\"1\" — 'auto' is already selectable; nothing changed."
   else
