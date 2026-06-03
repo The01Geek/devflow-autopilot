@@ -77,6 +77,17 @@ else
     ISSUE_FROM_BODY="$(echo "$BODY" | grep -oiE '(Closes|Fixes|Resolves)[[:space:]]+#[0-9]+' | grep -oE '[0-9]+' | head -1 || true)"
     if [ -n "$ISSUE_FROM_BODY" ]; then
         ISSUE_NUMBER="$ISSUE_FROM_BODY"
+    else
+        # Final fallback: GitHub's own issue linkage (closingIssuesReferences).
+        # DevFlow's own `issue-<N>-<slug>` branches never match the `claude/issue-`
+        # pattern above, and a PR linked only via the UI carries no Closes/Fixes
+        # keyword in its body — yet such PRs are selected by the union predicate.
+        # Without this they source an EMPTY workpad (a milder form of the bug this
+        # change fixes). Use the first linked issue's number.
+        ISSUE_FROM_CLOSING="$(echo "$CLOSING_JSON" | jq -r '.[0].number // empty' 2>/dev/null || true)"
+        if [ -n "$ISSUE_FROM_CLOSING" ]; then
+            ISSUE_NUMBER="$ISSUE_FROM_CLOSING"
+        fi
     fi
 fi
 

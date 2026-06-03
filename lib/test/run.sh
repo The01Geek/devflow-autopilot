@@ -2023,6 +2023,41 @@ assert_eq "fetch #97: label/closes PR on non-prefix branch → kind=implementati
   "$([ -n "$FI_OUT" ] && jq -r '.kind' < "$FI_OUT" || echo MISSING)"
 rm -rf "$FI97"
 
+# Issue-number derivation falls back to GitHub's own linkage (#98 finding I-1):
+# a DevFlow PR on an `issue-<N>-<slug>` branch (NOT `claude/issue-<N>`) whose body
+# carries no Closes/Fixes/Resolves keyword — linked only via the UI — is selected
+# by the union predicate yet would source an EMPTY workpad without this fallback.
+# closingIssuesReferences[0].number must supply the issue number.
+FCL="$(mktemp -d)"
+cat > "$FCL/prview.json" <<'PV'
+{"number":960,"headRefName":"issue-712-foo","baseRefName":"main","headRefOid":"sha960","mergeCommit":{"oid":"m960"},"mergedAt":"2026-05-27T00:00:00Z","createdAt":"2026-05-27T00:00:00Z","author":{"login":"claude[bot]"},"title":"t","body":"no keyword linkage here","additions":1,"deletions":0,"files":[{"path":"x.txt"}],"labels":[{"name":"DevFlow"}],"closingIssuesReferences":[{"number":712}]}
+PV
+cat > "$FCL/issue.json" <<'IJ'
+{"number":712,"title":"i","body":"b","labels":[],"comments":[]}
+IJ
+cat > "$FCL/gh" <<'STUB'
+#!/usr/bin/env bash
+FX="${DEVFLOW_FX}"
+case "$*" in
+  *"repo view"*) echo "acme/example-repo" ;;
+  *"pr view"*) cat "$FX/prview.json" ;;
+  *"pr diff"*) echo 'diff --git a/x.txt b/x.txt' ;;
+  *"pulls/"*"/comments"*) echo '[]' ;;
+  *"pulls/"*"/reviews"*) echo '[]' ;;
+  *"pulls/"*"/commits"*) echo '[]' ;;
+  *"check-runs"*) echo '{"check_runs":[]}' ;;
+  *"issues/"*"/comments"*) echo '[]' ;;
+  *"issues/712"*) cat "$FX/issue.json" ;;
+  *"commits/"*) echo '{"files":[]}' ;;
+  *) echo '[]' ;;
+esac
+STUB
+chmod +x "$FCL/gh"
+FCL_OUT="$(DEVFLOW_FX="$FCL" DEVFLOW_GH="$FCL/gh" bash "$LIB/fetch-pr-context.sh" 960 2>/dev/null)"
+assert_eq "fetch I-1: issue# falls back to closingIssuesReferences when branch+body miss" "712" \
+  "$([ -n "$FCL_OUT" ] && jq -r '.issue_number' < "$FCL_OUT" || echo MISSING)"
+rm -rf "$FCL"
+
 # ── cheap-gate.jq: a non-empty reflections[] forces analysis even when clean ──
 assert_eq "gate #97: reflections non-empty → clean=false (all signals clean)" "false" \
   "$(echo "$BASE" | jq '.reflections=["friction note"]' | gate | jq -r .clean)"
