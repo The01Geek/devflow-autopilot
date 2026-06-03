@@ -984,6 +984,12 @@ assert_eq "init-memory-nudge: AGENTS.md detection is case-insensitive (prose)" "
   "$(grep -qiF 'case-insensitive' "$INIT_SKILL" && echo yes || echo no)"
 assert_eq "init-memory-nudge: case-insensitive AGENTS variant probed (agents.md)" "yes" \
   "$(grep -qF 'agents.md' "$INIT_SKILL" && echo yes || echo no)"
+# A case-insensitive filesystem (macOS) makes every AGENTS.md case-variant's `test -f`
+# match the one physical file; the step must collapse them to a single detection or it
+# would emit a duplicate @-import nudge per casing. Pin the dedup instruction so a
+# reword can't silently re-introduce the duplicate-nudge defect.
+assert_eq "init-memory-nudge: AGENTS.md case-variants deduped to one (at most once)" "yes" \
+  "$(grep -qF 'AT MOST ONCE' "$INIT_SKILL" && echo yes || echo no)"
 # The @-import reuse guidance (AC4/AC5): pin two concrete repo-root-relative paths,
 # including the dotted .github one (the easiest to get wrong).
 assert_eq "init-memory-nudge: @-import example for AGENTS.md present" "yes" \

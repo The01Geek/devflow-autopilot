@@ -107,10 +107,17 @@ Resolve the repo root and probe for the relevant files using only `git rev-parse
 ROOT="$(git rev-parse --show-toplevel)"
 # CLAUDE.md detection is repo-root only (nested package-level or ~/.claude files are out of scope).
 [ -f "$ROOT/CLAUDE.md" ] && echo "claude-md: present" || echo "claude-md: absent"
-# Detected agent-instruction files at their canonical paths. AGENTS.md is matched
-# CASE-INSENSITIVELY by testing the common forms (covers agent.md / agents.md) rather
-# than reaching for a GNU-only `find -iname`.
-for f in ".github/copilot-instructions.md" "AGENTS.md" "agents.md" "AGENT.md" "agent.md" "GEMINI.md" ".cursorrules"; do
+# AGENTS.md is matched CASE-INSENSITIVELY by testing the common forms (covers
+# agent.md / agents.md) rather than reaching for a GNU-only `find -iname`. A
+# case-insensitive filesystem (macOS) makes EVERY form's `test -f` match the one
+# physical file, so report AGENTS.md AT MOST ONCE (first matching casing wins) —
+# never one nudge per casing.
+agents_seen=
+for f in "AGENTS.md" "agents.md" "AGENT.md" "agent.md"; do
+  [ -f "$ROOT/$f" ] && { [ -n "$agents_seen" ] || echo "agent-file: $f"; agents_seen=1; }
+done
+# The remaining files have a single canonical casing — no dedup needed.
+for f in ".github/copilot-instructions.md" "GEMINI.md" ".cursorrules"; do
   [ -f "$ROOT/$f" ] && echo "agent-file: $f"
 done
 ```
@@ -126,7 +133,7 @@ done
 Compose output per this four-case matrix, and **say nothing when nothing is actionable** (so successful re-runs stay clean):
 
 - **No `CLAUDE.md`, no detected agent file** → emit exactly **one** nudge: recommend the built-in `/init` command to create a `CLAUDE.md`, noting that project memory improves DevFlow's review/implement results. (Say nothing about `@`-imports — there is nothing to reuse.)
-- **No `CLAUDE.md`, one or more detected agent files present** → the same nudge to the built-in `/init`, **plus** name each existing file and tell the user to reference it from the new `CLAUDE.md` via its `@`-import path (e.g. "you already have `AGENTS.md` — reference it with `@AGENTS.md`").
+- **No `CLAUDE.md`, one or more detected agent files present** → the same nudge to the built-in `/init`, **plus** name each existing file and tell the user to reference it from the new `CLAUDE.md` via its `@`-import path (e.g. "you already have `AGENTS.md` — reference it with `@AGENTS.md`"). Emit **one** nudge per *physical* file — the detection above already collapses AGENTS.md's case-variants to a single entry, so never cite the same file under several casings.
 - **`CLAUDE.md` present but it does not already reference an existing detected agent file** → suggest adding that file's `@`-import to `CLAUDE.md` (name the file and its `@`-path); no `/init` nudge.
 - **`CLAUDE.md` present and it already references each existing detected agent file via `@`-import (or no such files exist)** → produce **no project-memory output** at all.
 
