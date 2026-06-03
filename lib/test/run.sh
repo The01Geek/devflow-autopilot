@@ -860,10 +860,13 @@ rm -rf "$SC_PE_LV"
 # Write-failure path (best-effort / silent-failure contract): a per-file write that
 # fails must NOT abort the scaffold — it logs a breadcrumb naming the file and
 # continues (matching rewrite_config_if_changed and the jq blocks). Make the
-# prompt-extensions dir read-only so every .example write fails; assert the scaffolder
-# still exits 0, emits a "could not write" breadcrumb, and leaves no zero-byte leftover
-# (the failed redirect is rm -f'd so the [ -e ] guard retries next run, not strands the
-# skill). Root bypasses the perm bits, so skip under root (as the lpe unreadable test does).
+# prompt-extensions dir read-only so every write fails; assert the scaffolder still
+# exits 0, emits a "could not write" breadcrumb, and leaves no .example at the guarded
+# path. The scaffolder writes to a temp and mv's it into place atomically, so a failed
+# write can NEVER leave a partial/zero-byte <skill>.md.example that the [ -e ] guard
+# would then treat as present and never retry — the no-leftover assertion below holds by
+# construction (atomicity), not by hoping a failed redirect wrote nothing. Root bypasses
+# the perm bits, so skip under root (as the lpe unreadable test does).
 SC_PE_WF="$(mktemp -d)"
 mkdir -p "$SC_PE_WF/.devflow/prompt-extensions"
 chmod 555 "$SC_PE_WF/.devflow/prompt-extensions"

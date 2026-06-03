@@ -154,10 +154,16 @@ else
     # last closes `-->`. printf '%s\n' prints each argument on its own line, so the
     # static lines (single-quoted, apostrophe-free ASCII) and the two interpolated
     # lines ($pe_skill / $pe_hint, double-quoted) compose in a single call.
-    # Guard the write (same log-and-continue contract as rewrite_config_if_changed and
-    # the jq blocks below): a per-file failure must not abort the whole scaffold under
-    # `set -e`. The `if` condition exempts the redirection failure from `set -e`; the
-    # breadcrumb names the specific unwritable file.
+    #
+    # Write to a temp then `mv` into place ATOMICALLY — the same write-candidate-then-mv
+    # idiom rewrite_config_if_changed uses above. This is the log-and-continue contract
+    # (a per-file failure must not abort the whole scaffold under `set -e`: the `if`
+    # condition exempts the failure, and the breadcrumb names the file) PLUS atomicity:
+    # the final `<skill>.md.example` only ever appears complete, so a failed/partial
+    # write (read-only dir, ENOSPC mid-write) can never leave a truncated file at the
+    # guarded path that the `[ -e ]` guard above would then treat as present and never
+    # retry. On failure only the temp is removed; the guarded path is untouched.
+    pe_tmp="$pe_target.tmp"
     if printf '%s\n' \
       '<!--' \
       "DevFlow prompt-extension example for the $pe_skill skill." \
@@ -176,13 +182,14 @@ else
       'this comment with your own instructions. For the full convention and a' \
       'worked example, see the "Extending skills with prompt extensions" section' \
       'in docs/DEVFLOW_SYSTEM_OVERVIEW.md.' \
-      '-->' > "$pe_target"; then
+      '-->' > "$pe_tmp" && mv "$pe_tmp" "$pe_target"; then
       pe_created=$((pe_created + 1))
     else
-      # A failed redirect can leave a truncated/zero-byte file; the per-file [ -e ]
-      # guard above would then treat it as already-present and never retry, stranding
-      # this skill. Remove the leftover so a later re-run backfills it.
-      rm -f "$pe_target"
+      # Remove only the temp candidate — never a partial $pe_target (mv is atomic, so
+      # the guarded path was never partially written). A lingering temp is harmless: it
+      # ends in .tmp (not .md.example), so it matches neither the loader nor the
+      # backfill `[ -e "$pe_target" ]` guard, and a later re-run truncates it anew.
+      rm -f "$pe_tmp"
       log "could not write $pe_target; skipping this prompt-extension example (scaffold continues)."
     fi
   done <<'PE_SKILLS'
