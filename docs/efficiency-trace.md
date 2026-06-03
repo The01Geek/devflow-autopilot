@@ -260,9 +260,9 @@ interactive-drop failure mode so a future orchestrator does not silently skip th
 
   > **Note on this repo's `.claude/settings.json`.** Writing `.claude/` is a privileged,
   > self-modifying action that an agent is structurally barred from (it is the harness boundary that
-  > stops an agent rewriting its own hooks/permissions), so the file itself is committed by a
-  > maintainer, not by `/devflow:implement`. The `--persist` mode it calls, the cloud-tier guarantee,
-  > and this documentation all ship in the same change; only the local hook file is the human step.
+  > stops an agent rewriting its own hooks/permissions), so this hook file was committed by a
+  > maintainer, not by `/devflow:implement`. It now ships committed in this repo (`.claude/settings.json`);
+  > the `--persist` mode it calls and the cloud-tier guarantee land in the same wiring.
 - *Cloud-tier wrapper.* **`Stop` hooks are local-only**: `claude-code-action` `rm -rf`s and restores
   `.claude/` from the **base** branch before installing plugins, so a PR branch's `.claude/` hook is
   discarded for that PR's own cloud run, and the cloud guarantee must **never** depend on the hook.
@@ -272,8 +272,9 @@ interactive-drop failure mode so a future orchestrator does not silently skip th
   unconditionally (`if: always()`, best-effort) in a workflow step **after** `Run Claude Code`,
   pushing only if a recovery commit was created. (`devflow-runner.yml` is the read-only `review`
   profile — it runs no fix loop and cannot write the tree, so it is intentionally **excluded**: there
-  is nothing to persist there.) The step to add after `Run Claude Code` in each of those two
-  workflows (a GitHub App token cannot self-modify `.github/workflows/`, so a maintainer commits this):
+  is nothing to persist there.) Because a GitHub App token cannot self-modify `.github/workflows/`,
+  a maintainer committed this step after `Run Claude Code` in each of those two workflows; it now
+  ships committed in both:
 
   ```yaml
   - name: Persist review-and-fix observability artifacts (backstop)
