@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.0] — 2026-06-03
+
+### Added
+- **`/devflow:init` provisions the project `.claude/settings.json` so plugin auto-update and selectable auto mode are a one-command outcome instead of a manual settings edit.** A new bundled helper, `scripts/provision-local-settings.sh`, deep-merges three key groups into the consumer repo's project settings: `extraKnownMarketplaces["devflow-marketplace"]` (a `github` source for `The01Geek/devflow-autopilot`, `autoUpdate: true`) and `enabledPlugins["devflow@devflow-marketplace"] = true` so Claude Code keeps the plugin updated, plus `env.CLAUDE_CODE_ENABLE_AUTO_MODE = "1"`, which makes the `auto` permission mode selectable in the `Shift+Tab` cycle on Bedrock/Vertex/Foundry (a no-op on the Anthropic API). The merge is additive and non-clobbering (the user's value wins at every depth), idempotent on re-run, and never writes `permissions.defaultMode` — auto mode is made available, never the default. A malformed existing `.claude/settings.json` is left byte-for-byte unchanged with a specific breadcrumb and a non-zero exit rather than partially overwritten. The helper is invoked only from the `/devflow:init` skill flow and is deliberately kept out of the shared `scripts/scaffold-config.sh`, so a cloud-only `install.sh` run writes no `.claude/settings.json`. `skills/init/SKILL.md`, `README.md`, `docs/cloud-setup.md`, and `docs/DEVFLOW_SYSTEM_OVERVIEW.md` now describe init provisioning these settings, replacing the manual-only instructions, and a helper-level test block in `lib/test/run.sh` exercises the full existing-shape matrix (missing, empty, `{}`, other marketplaces/env vars, a user `defaultMode`, and malformed JSON) plus idempotency and the cloud-path isolation invariant. (#89)
+
 ## [2.7.2] — 2026-06-02
 
 ### Added
