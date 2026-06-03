@@ -806,6 +806,14 @@ SC_PE_EXPECTED="$(for d in "$LIB"/../skills/*/; do basename "$d"; done | sort | 
 SC_PE_GOT="$(for ex in "$SC_PE_DIR"/*.md.example; do b="$(basename "$ex")"; printf '%s\n' "${b%.md.example}"; done | sort | tr '\n' ' ')"
 assert_eq "scaffold-pe: scaffolded example set EQUALS skills/*/ (no missing, no orphan)" \
   "$SC_PE_EXPECTED" "$SC_PE_GOT"
+# Atomic-write contract: the scaffolder writes each example to `<skill>.md.example.tmp`
+# and `mv`s it into place, so a successful scaffold leaves NO `.tmp` behind (the mv
+# consumed it). Pin it — every other glob here filters to `*.md.example`, so a
+# regression (e.g. cp instead of mv, or a dropped rm -f) that stranded a temp would
+# otherwise be invisible. Glob + [ -e ] (nullglob-off leaves the literal pattern, which
+# [ -e ] rejects) rather than spawning ls.
+assert_eq "scaffold-pe: no .tmp temp survives a successful scaffold (atomic mv consumed it)" "no" \
+  "$(set -- "$SC_PE_DIR"/*.md.example.tmp; [ -e "$1" ] && echo yes || echo no)"
 # AC 9 (created half): a creation log line is emitted on a fresh scaffold. Match the
 # literal "prompt-extension example" — NOT just the dir path "prompt-extensions/",
 # which any mention would satisfy — so the assertion pins the new reporting line.
@@ -877,6 +885,8 @@ if [ "$(id -u)" -ne 0 ] && [ ! -w "$SC_PE_WF/.devflow/prompt-extensions" ]; then
     "$(printf '%s\n' "$SC_PE_WF_OUT" | grep -qF 'could not write' && echo yes || echo no)"
   assert_eq "scaffold-pe: a write failure leaves no zero-byte .example leftover" "no" \
     "$(set -- "$SC_PE_WF/.devflow/prompt-extensions/"*.md.example; [ -e "$1" ] && echo yes || echo no)"
+  assert_eq "scaffold-pe: a write failure leaves no .tmp temp behind" "no" \
+    "$(set -- "$SC_PE_WF/.devflow/prompt-extensions/"*.md.example.tmp; [ -e "$1" ] && echo yes || echo no)"
 fi
 chmod 755 "$SC_PE_WF/.devflow/prompt-extensions"
 rm -rf "$SC_PE_WF"
