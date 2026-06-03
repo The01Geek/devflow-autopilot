@@ -764,7 +764,7 @@ SC_PE_DIR="$SC_PE/.devflow/prompt-extensions"
 assert_eq "scaffold-pe: .devflow/prompt-extensions/ created" "yes" \
   "$([ -d "$SC_PE_DIR" ] && echo yes || echo no)"
 
-SC_PE_MISSING=""; SC_PE_NOTCOMMENT=""; SC_PE_NOHINT=""; SC_PE_LIVE=""; SC_PE_NOTINERT=""
+SC_PE_MISSING=""; SC_PE_NOTCOMMENT=""; SC_PE_NOHINT=""; SC_PE_EMPTYHINT=""; SC_PE_LIVE=""; SC_PE_NOTINERT=""
 for SKILL_DIR in "$LIB"/../skills/*/; do
   skill="$(basename "$SKILL_DIR")"
   f="$SC_PE_DIR/$skill.md.example"
@@ -778,6 +778,10 @@ for SKILL_DIR in "$LIB"/../skills/*/; do
     case "$last"  in *'-->')  : ;; *) SC_PE_NOTCOMMENT="$SC_PE_NOTCOMMENT $skill" ;; esac
     # AC 4: a per-skill hint line naming the skill, distinct from the boilerplate.
     grep -qF "Useful extension for $skill:" "$f" || SC_PE_NOHINT="$SC_PE_NOHINT $skill"
+    # AC 4 (strengthened): the hint must be NON-EMPTY — `Useful extension for <skill>: `
+    # with nothing after the colon-space would pass the bare presence check above but
+    # ship a hint-less example. Require at least one char after the literal prefix.
+    grep -qE "Useful extension for $skill: .+" "$f" || SC_PE_EMPTYHINT="$SC_PE_EMPTYHINT $skill"
   else
     SC_PE_MISSING="$SC_PE_MISSING $skill"   # AC 1
   fi
@@ -791,8 +795,17 @@ done
 assert_eq "scaffold-pe: an example exists for every skill (AC 1)" "" "$SC_PE_MISSING"
 assert_eq "scaffold-pe: every example body is a single HTML comment block (AC 3)" "" "$SC_PE_NOTCOMMENT"
 assert_eq "scaffold-pe: every example carries a per-skill hint line (AC 4)" "" "$SC_PE_NOHINT"
+assert_eq "scaffold-pe: every per-skill hint is non-empty (AC 4)" "" "$SC_PE_EMPTYHINT"
 assert_eq "scaffold-pe: no live <skill>.md scaffolded — only .example (AC 2)" "" "$SC_PE_LIVE"
 assert_eq "scaffold-pe: real load-prompt-extension reader is inert no-op for every skill (AC 5)" "" "$SC_PE_NOTINERT"
+# Drift guard (bidirectional): the set of scaffolded `<skill>.md.example` basenames must
+# EQUAL the set of skills under skills/*/ — catching BOTH a forgotten skill (forward
+# drift: a skills/ dir with no example) AND a stale heredoc row (reverse drift: an
+# orphan example for a renamed/removed skill that the per-skill loop above never visits).
+SC_PE_EXPECTED="$(for d in "$LIB"/../skills/*/; do basename "$d"; done | sort | tr '\n' ' ')"
+SC_PE_GOT="$(for ex in "$SC_PE_DIR"/*.md.example; do b="$(basename "$ex")"; printf '%s\n' "${b%.md.example}"; done | sort | tr '\n' ' ')"
+assert_eq "scaffold-pe: scaffolded example set EQUALS skills/*/ (no missing, no orphan)" \
+  "$SC_PE_EXPECTED" "$SC_PE_GOT"
 # AC 9 (created half): a creation log line is emitted on a fresh scaffold. Match the
 # literal "prompt-extension example" — NOT just the dir path "prompt-extensions/",
 # which any mention would satisfy — so the assertion pins the new reporting line.
@@ -810,9 +823,10 @@ assert_eq "scaffold-pe: no creation log line on an all-present no-op re-run (AC 
   "$(printf '%s\n' "$SC_PE_OUT2" | grep -qF 'prompt-extension example' && echo yes || echo no)"
 rm -rf "$SC_PE"
 
-# AC 6 + AC 8 (partial backfill): a dir that already holds ONLY create-issue.md.example
+# AC 6 (partial backfill): a dir that already holds ONLY create-issue.md.example
 # (an adopter who ran /devflow:init before issue #95) gets the other skills backfilled,
 # and the pre-existing create-issue.md.example is left byte-identical (never clobbered).
+# (AC 8 — adopter live-file safety — is asserted in the separate block further below.)
 SC_PE_BF="$(mktemp -d)"
 mkdir -p "$SC_PE_BF/.devflow/prompt-extensions"
 printf 'SENTINEL-PREEXISTING-EXAMPLE\n' > "$SC_PE_BF/.devflow/prompt-extensions/create-issue.md.example"
@@ -842,6 +856,27 @@ assert_eq "scaffold-pe: adopter's live review.md is untouched (AC 8)" \
 assert_eq "scaffold-pe: review.md.example still created alongside the live review.md (AC 8)" "yes" \
   "$([ -f "$SC_PE_LV/.devflow/prompt-extensions/review.md.example" ] && echo yes || echo no)"
 rm -rf "$SC_PE_LV"
+
+# Write-failure path (best-effort / silent-failure contract): a per-file write that
+# fails must NOT abort the scaffold — it logs a breadcrumb naming the file and
+# continues (matching rewrite_config_if_changed and the jq blocks). Make the
+# prompt-extensions dir read-only so every .example write fails; assert the scaffolder
+# still exits 0, emits a "could not write" breadcrumb, and leaves no zero-byte leftover
+# (the failed redirect is rm -f'd so the [ -e ] guard retries next run, not strands the
+# skill). Root bypasses the perm bits, so skip under root (as the lpe unreadable test does).
+SC_PE_WF="$(mktemp -d)"
+mkdir -p "$SC_PE_WF/.devflow/prompt-extensions"
+chmod 555 "$SC_PE_WF/.devflow/prompt-extensions"
+if [ "$(id -u)" -ne 0 ] && [ ! -w "$SC_PE_WF/.devflow/prompt-extensions" ]; then
+  SC_PE_WF_OUT="$(bash "$SC" "$SC_PE_WF" 2>&1)"; SC_PE_WF_RC=$?
+  assert_eq "scaffold-pe: a write failure does not abort the scaffold (exit 0)" "0" "$SC_PE_WF_RC"
+  assert_eq "scaffold-pe: a write failure emits a 'could not write' breadcrumb" "yes" \
+    "$(printf '%s\n' "$SC_PE_WF_OUT" | grep -qF 'could not write' && echo yes || echo no)"
+  assert_eq "scaffold-pe: a write failure leaves no zero-byte .example leftover" "no" \
+    "$(set -- "$SC_PE_WF/.devflow/prompt-extensions/"*.md.example; [ -e "$1" ] && echo yes || echo no)"
+fi
+chmod 755 "$SC_PE_WF/.devflow/prompt-extensions"
+rm -rf "$SC_PE_WF"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "load-prompt-extension.sh (consumer prompt-extension reader)"

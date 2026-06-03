@@ -133,41 +133,59 @@ fi
 # apostrophe in a single-quoted bash string would terminate it (shellcheck
 # SC1073/SC1011) while a curly apostrophe would trip SC1112 (see CLAUDE.md).
 EXTENSIONS_DIR="$DEST/prompt-extensions"
-mkdir -p "$EXTENSIONS_DIR"
-pe_created=0
-while IFS='|' read -r pe_skill pe_hint; do
-  [ -n "$pe_skill" ] || continue
-  pe_target="$EXTENSIONS_DIR/$pe_skill.md.example"
-  # Per-file backfill: never touch a file that already exists (an adopter's edited
-  # example, or a live <skill>.md they authored), only create absent .example files.
-  if [ -e "$pe_target" ]; then
-    continue
-  fi
-  # The body is itself one Markdown comment block: the first line opens `<!--`, the
-  # last closes `-->`. printf '%s\n' prints each argument on its own line, so the
-  # static lines (single-quoted, apostrophe-free ASCII) and the two interpolated
-  # lines ($pe_skill / $pe_hint, double-quoted) compose in a single call.
-  printf '%s\n' \
-    '<!--' \
-    "DevFlow prompt-extension example for the $pe_skill skill." \
-    '' \
-    'This directory holds consumer-owned prompt extensions for DevFlow skills.' \
-    'Drop a file named <skill-name>.md here (no .example suffix) and its contents' \
-    'are appended VERBATIM to the end of that skill prompt every time it runs. It' \
-    'is an upgrade-safe way to add repo-specific instructions without forking the' \
-    'plugin. Marketplace updates never touch this directory. When no file exists' \
-    'for a skill, that skill behaves exactly as it does today (the no-op path).' \
-    '' \
-    "Useful extension for $pe_skill: $pe_hint" \
-    '' \
-    'To activate, copy this file to the same name without the .example suffix' \
-    '(for example create-issue.md.example becomes create-issue.md) and replace' \
-    'this comment with your own instructions. For the full convention and a' \
-    'worked example, see the "Extending skills with prompt extensions" section' \
-    'in docs/DEVFLOW_SYSTEM_OVERVIEW.md.' \
-    '-->' > "$pe_target"
-  pe_created=$((pe_created + 1))
-done <<'PE_SKILLS'
+# Guard the directory create like every other write in this file: a failure
+# (read-only .devflow, ENOSPC, perms) logs-and-skips the prompt-extension scaffolding
+# rather than aborting the whole best-effort scaffold under `set -euo pipefail` (the
+# documented contract at the top of this file). `mkdir -p` on an already-present
+# directory is a success no-op, so this is idempotent.
+if ! pe_mkdir_err="$(mkdir -p "$EXTENSIONS_DIR" 2>&1)"; then
+  log "could not create $EXTENSIONS_DIR${pe_mkdir_err:+ ($pe_mkdir_err)}; skipping prompt-extension example scaffolding (scaffold continues)."
+else
+  pe_created=0
+  while IFS='|' read -r pe_skill pe_hint; do
+    [ -n "$pe_skill" ] || continue
+    pe_target="$EXTENSIONS_DIR/$pe_skill.md.example"
+    # Per-file backfill: never touch a file that already exists (an adopter's edited
+    # example, or a live <skill>.md they authored), only create absent .example files.
+    if [ -e "$pe_target" ]; then
+      continue
+    fi
+    # The body is itself one Markdown comment block: the first line opens `<!--`, the
+    # last closes `-->`. printf '%s\n' prints each argument on its own line, so the
+    # static lines (single-quoted, apostrophe-free ASCII) and the two interpolated
+    # lines ($pe_skill / $pe_hint, double-quoted) compose in a single call.
+    # Guard the write (same log-and-continue contract as rewrite_config_if_changed and
+    # the jq blocks below): a per-file failure must not abort the whole scaffold under
+    # `set -e`. The `if` condition exempts the redirection failure from `set -e`; the
+    # breadcrumb names the specific unwritable file.
+    if printf '%s\n' \
+      '<!--' \
+      "DevFlow prompt-extension example for the $pe_skill skill." \
+      '' \
+      'This directory holds consumer-owned prompt extensions for DevFlow skills.' \
+      'Drop a file named <skill-name>.md here (no .example suffix) and its contents' \
+      'are appended VERBATIM to the end of that skill prompt every time it runs. It' \
+      'is an upgrade-safe way to add repo-specific instructions without forking the' \
+      'plugin. Marketplace updates never touch this directory. When no file exists' \
+      'for a skill, that skill behaves exactly as it does today (the no-op path).' \
+      '' \
+      "Useful extension for $pe_skill: $pe_hint" \
+      '' \
+      'To activate, copy this file to the same name without the .example suffix' \
+      '(for example create-issue.md.example becomes create-issue.md) and replace' \
+      'this comment with your own instructions. For the full convention and a' \
+      'worked example, see the "Extending skills with prompt extensions" section' \
+      'in docs/DEVFLOW_SYSTEM_OVERVIEW.md.' \
+      '-->' > "$pe_target"; then
+      pe_created=$((pe_created + 1))
+    else
+      # A failed redirect can leave a truncated/zero-byte file; the per-file [ -e ]
+      # guard above would then treat it as already-present and never retry, stranding
+      # this skill. Remove the leftover so a later re-run backfills it.
+      rm -f "$pe_target"
+      log "could not write $pe_target; skipping this prompt-extension example (scaffold continues)."
+    fi
+  done <<'PE_SKILLS'
 create-issue|extend the generated issue body with links to your house tracker or test-case system
 docs|point the docs pass at extra documentation roots specific to your repo
 docs-bootstrap-external|describe your public docs-site structure so the external bootstrap matches it
@@ -185,8 +203,9 @@ retrospective-weekly|tune which authors and time window the weekly loop scans
 review|add house review rules the reviewer must enforce
 review-and-fix|add house review rules and fix-loop guardrails specific to your repo
 PE_SKILLS
-if [ "$pe_created" -gt 0 ]; then
-  log "created/backfilled $pe_created prompt-extension example(s) in $EXTENSIONS_DIR/ (rename <skill>.md.example to <skill>.md to activate)"
+  if [ "$pe_created" -gt 0 ]; then
+    log "created/backfilled $pe_created prompt-extension example(s) in $EXTENSIONS_DIR/ (rename <skill>.md.example to <skill>.md to activate)"
+  fi
 fi
 
 # Backfill newly-introduced keys into an EXISTING config.json. A recursive
