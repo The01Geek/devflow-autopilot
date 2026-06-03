@@ -1004,6 +1004,14 @@ assert_eq "init-memory-nudge: never writes/edits any agent file (advisory)" "yes
   "$(grep -qF 'never creates, writes, or edits' "$INIT_SKILL" && echo yes || echo no)"
 assert_eq "init-memory-nudge: never blocks or fails init" "yes" \
   "$(grep -qF 'never blocks or fails init' "$INIT_SKILL" && echo yes || echo no)"
+# AC6 — the silence discipline (no output when nothing is actionable) keeps successful
+# re-runs clean; pin it so a reword can't drop the quiet-when-nothing-to-say rule.
+assert_eq "init-memory-nudge: stays silent when nothing is actionable (AC6)" "yes" \
+  "$(grep -qF 'say nothing when nothing is actionable' "$INIT_SKILL" && echo yes || echo no)"
+# AC5 — the CLAUDE.md-present-but-unreferenced case (matrix case 3). Pin a block-unique
+# fragment of that bullet so dropping the 'suggest adding the @-import' branch fails here.
+assert_eq "init-memory-nudge: covers CLAUDE.md-present-but-unreferenced case (AC5)" "yes" \
+  "$(grep -qF 'does not already reference' "$INIT_SKILL" && echo yes || echo no)"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "shipped agent_overrides: deduper pins Sonnet 4.6 w/ effort; no Haiku override carries effort"

@@ -101,17 +101,21 @@ If the scaffolder exits non-zero (exit 2 = templates not found next to the scrip
 
 Config is scaffolded and the preflight has run, so init has **already succeeded** — this last step is a purely **advisory project-memory check** that **never creates, writes, or edits** `CLAUDE.md` (or any agent-instruction file) and **never blocks or fails init** regardless of what it finds. A repo with no `CLAUDE.md` gives DevFlow's automations no project memory, so `/devflow:review` and `/devflow:implement` run without the conventions, gotchas, and architecture notes that materially improve their output — and new adopters (the people running `/devflow:init`) are the ones most likely to be missing it. Surface that gap once, here, without ever touching a file.
 
-Resolve the repo root and probe for the relevant files using only `git rev-parse --show-toplevel` and POSIX `test -f` (no GNU-only flags, so macOS/BSD behave identically):
+Resolve the repo root and probe for the relevant files using only `git rev-parse --show-toplevel` and POSIX `test -f` (no GNU-only flags, so macOS/BSD behave identically). **Resolve the root defensively** — if `git rev-parse` fails (init run outside a git repo, or a corrupt/missing `.git`) it would otherwise leave `$ROOT` empty and every probe would test `/CLAUDE.md`, falsely reporting "absent" and emitting a misleading nudge; silence its stderr and **skip the whole check** (emit nothing) when the root can't be resolved — the step is advisory, so a non-repo invocation must produce no output rather than a wrong one:
 
 ```bash
-ROOT="$(git rev-parse --show-toplevel)"
-# CLAUDE.md detection is repo-root only (nested package-level or ~/.claude files are out of scope).
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || ROOT=
+# Cannot resolve the repo root → skip the advisory check entirely (never probe "/").
+[ -n "$ROOT" ] || return 0 2>/dev/null || exit 0
+# CLAUDE.md detection is repo-root only (nested package-level, ~/.claude, and the
+# gitignored personal-override CLAUDE.local.md are all deliberately out of scope —
+# the nudge is about committed, team-shared project memory).
 [ -f "$ROOT/CLAUDE.md" ] && echo "claude-md: present" || echo "claude-md: absent"
-# AGENTS.md is matched CASE-INSENSITIVELY by testing the common forms (covers
-# agent.md / agents.md) rather than reaching for a GNU-only `find -iname`. A
-# case-insensitive filesystem (macOS) makes EVERY form's `test -f` match the one
-# physical file, so report AGENTS.md AT MOST ONCE (first matching casing wins) —
-# never one nudge per casing.
+# AGENTS.md is matched against its common casings (`AGENTS.md`/`agents.md`/`AGENT.md`/
+# `agent.md`) rather than a GNU-only `find -iname`; this is case-insensitive only on a
+# case-insensitive FS (macOS) — a Linux-only casing like `Agents.md` is not probed. On a
+# case-insensitive FS EVERY form's `test -f` matches the one physical file, so report
+# AGENTS.md AT MOST ONCE (first matching casing wins) — never one nudge per casing.
 agents_seen=
 for f in "AGENTS.md" "agents.md" "AGENT.md" "agent.md"; do
   [ -f "$ROOT/$f" ] && { [ -n "$agents_seen" ] || echo "agent-file: $f"; agents_seen=1; }
@@ -125,8 +129,13 @@ done
 The `@`-import paths you cite are **repo-root-relative**, matching how Claude Code resolves `CLAUDE.md` imports — `@AGENTS.md`, `@.github/copilot-instructions.md`, `@GEMINI.md`, `@.cursorrules`. When `CLAUDE.md` is present, check **every** detected agent file the same loop-driven way (don't hand-pick one) — for each existing file, grep `CLAUDE.md` for its `@`-path and treat a miss as an unreferenced file:
 
 ```bash
+# Case-insensitive match (-i): on a case-insensitive FS the casing reported above may
+# differ from how the user actually wrote the @-import in CLAUDE.md (e.g. detected
+# `@AGENTS.md` vs a written `@agents.md`), and a case-sensitive grep would then falsely
+# flag a correctly-wired import as unreferenced. Matching case-insensitively errs toward
+# silence (the safe, advisory direction).
 for f in <each agent file detected above>; do
-  grep -qF "@$f" "$ROOT/CLAUDE.md" || echo "unreferenced: @$f"
+  grep -qiF "@$f" "$ROOT/CLAUDE.md" || echo "unreferenced: @$f"
 done
 ```
 
