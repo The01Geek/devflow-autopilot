@@ -144,31 +144,28 @@ while IFS='|' read -r pe_skill pe_hint; do
     continue
   fi
   # The body is itself one Markdown comment block: the first line opens `<!--`, the
-  # last closes `-->`, with the skill name and its hint interpolated between. The
-  # static lines are single-quoted printf args (apostrophe-free ASCII); the two
-  # interpolated lines use %s so $pe_skill / $pe_hint expand without quoting hazards.
-  {
-    printf '%s\n' '<!--'
-    printf '%s\n' "DevFlow prompt-extension example for the $pe_skill skill."
-    printf '%s\n' \
-      '' \
-      'This directory holds consumer-owned prompt extensions for DevFlow skills.' \
-      'Drop a file named <skill-name>.md here (no .example suffix) and its contents' \
-      'are appended VERBATIM to the end of that skill prompt every time it runs. It' \
-      'is an upgrade-safe way to add repo-specific instructions without forking the' \
-      'plugin. Marketplace updates never touch this directory. When no file exists' \
-      'for a skill, that skill behaves exactly as it does today (the no-op path).' \
-      ''
-    printf '%s\n' "Useful extension for $pe_skill: $pe_hint"
-    printf '%s\n' \
-      '' \
-      'To activate, copy this file to the same name without the .example suffix' \
-      '(for example create-issue.md.example becomes create-issue.md) and replace' \
-      'this comment with your own instructions. For the full convention and a' \
-      'worked example, see the "Extending skills with prompt extensions" section' \
-      'in docs/DEVFLOW_SYSTEM_OVERVIEW.md.' \
-      '-->'
-  } > "$pe_target"
+  # last closes `-->`. printf '%s\n' prints each argument on its own line, so the
+  # static lines (single-quoted, apostrophe-free ASCII) and the two interpolated
+  # lines ($pe_skill / $pe_hint, double-quoted) compose in a single call.
+  printf '%s\n' \
+    '<!--' \
+    "DevFlow prompt-extension example for the $pe_skill skill." \
+    '' \
+    'This directory holds consumer-owned prompt extensions for DevFlow skills.' \
+    'Drop a file named <skill-name>.md here (no .example suffix) and its contents' \
+    'are appended VERBATIM to the end of that skill prompt every time it runs. It' \
+    'is an upgrade-safe way to add repo-specific instructions without forking the' \
+    'plugin. Marketplace updates never touch this directory. When no file exists' \
+    'for a skill, that skill behaves exactly as it does today (the no-op path).' \
+    '' \
+    "Useful extension for $pe_skill: $pe_hint" \
+    '' \
+    'To activate, copy this file to the same name without the .example suffix' \
+    '(for example create-issue.md.example becomes create-issue.md) and replace' \
+    'this comment with your own instructions. For the full convention and a' \
+    'worked example, see the "Extending skills with prompt extensions" section' \
+    'in docs/DEVFLOW_SYSTEM_OVERVIEW.md.' \
+    '-->' > "$pe_target"
   pe_created=$((pe_created + 1))
 done <<'PE_SKILLS'
 create-issue|extend the generated issue body with links to your house tracker or test-case system

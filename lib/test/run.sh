@@ -770,9 +770,10 @@ for SKILL_DIR in "$LIB"/../skills/*/; do
   f="$SC_PE_DIR/$skill.md.example"
   if [ -f "$f" ]; then
     # AC 3: body is a SINGLE comment block — first non-blank line opens `<!--`,
-    # last non-blank line closes `-->`.
-    first="$(grep -v '^[[:space:]]*$' "$f" | head -n1)"
-    last="$(grep -v '^[[:space:]]*$' "$f" | tail -n1)"
+    # last non-blank line closes `-->`. Read the file once, then slice.
+    nonblank="$(grep -v '^[[:space:]]*$' "$f")"
+    first="$(printf '%s\n' "$nonblank" | head -n1)"
+    last="$(printf '%s\n' "$nonblank" | tail -n1)"
     case "$first" in '<!--'*) : ;; *) SC_PE_NOTCOMMENT="$SC_PE_NOTCOMMENT $skill" ;; esac
     case "$last"  in *'-->')  : ;; *) SC_PE_NOTCOMMENT="$SC_PE_NOTCOMMENT $skill" ;; esac
     # AC 4: a per-skill hint line naming the skill, distinct from the boilerplate.
