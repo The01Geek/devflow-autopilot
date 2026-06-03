@@ -84,19 +84,21 @@ if [ -f "$SETTINGS" ]; then
   fi
 fi
 
-# Which of the three DevFlow markers were ABSENT before the merge — used only to
-# word the breadcrumb. `try ... catch false` keeps a hand-corrupted non-object
-# value (e.g. env set to a string) from aborting the probe.
-PRESENT_FLAGS="$(printf '%s' "$EXISTING" | jq -r '
-  [ (try (.extraKnownMarketplaces["devflow-marketplace"] != null) catch false),
-    (try (.enabledPlugins["devflow@devflow-marketplace"] != null) catch false),
-    (try (.env.CLAUDE_CODE_ENABLE_AUTO_MODE != null) catch false) ]
-  | map(if . then "1" else "0" end) | join("")')"
-
+# Friendly labels for the DevFlow marker keys ABSENT before the merge — emitted
+# straight from jq, with each label paired to its own presence test in one
+# object, so there is no positional flag string whose bit order must track the
+# label order. Used ONLY to word the breadcrumb, never to drive the merge.
+# `try ... catch false` keeps a hand-corrupted non-object value (e.g. env set to
+# a string) from aborting a probe. `to_entries` preserves jq's key order, so the
+# absent labels list in declaration order.
 added=()
-[ "${PRESENT_FLAGS:0:1}" = "0" ] && added+=("extraKnownMarketplaces[devflow-marketplace]")
-[ "${PRESENT_FLAGS:1:1}" = "0" ] && added+=("enabledPlugins[devflow@devflow-marketplace]")
-[ "${PRESENT_FLAGS:2:1}" = "0" ] && added+=("env.CLAUDE_CODE_ENABLE_AUTO_MODE")
+while IFS= read -r label; do
+  added+=("$label")
+done < <(printf '%s' "$EXISTING" | jq -r '
+  { "extraKnownMarketplaces[devflow-marketplace]": (try (.extraKnownMarketplaces["devflow-marketplace"] != null) catch false),
+    "enabledPlugins[devflow@devflow-marketplace]":  (try (.enabledPlugins["devflow@devflow-marketplace"] != null) catch false),
+    "env.CLAUDE_CODE_ENABLE_AUTO_MODE":             (try (.env.CLAUDE_CODE_ENABLE_AUTO_MODE != null) catch false) }
+  | to_entries | map(select(.value | not) | .key) | .[]')
 
 MERGED="$(jq -n --argjson defaults "$DEFAULTS" --argjson existing "$EXISTING" '$defaults * $existing')"
 
