@@ -1,0 +1,4 @@
+{"schema_version":1,"pr_branch":"issue-105-provision-selectable-auto-mode-via-user-scope-settings","base_branch":"main","generated_at":"2026-06-03T21:00:00Z","deferrals":[
+{"agent":"pr-review-toolkit:pr-test-analyzer","severity":"Suggestion","file":"scripts/provision-auto-mode.sh","line_range":[223,236],"symbol":"mv","kind":"other","summary":"symlinked target replaced rather than written through","category":"out-of-scope","explanation":"inherited verbatim from sibling provision-local-settings.sh; established pattern, not a regression, not reachable from the /devflow:init caller"},
+{"agent":"pr-review-toolkit:silent-failure-hunter","severity":"Suggestion","file":"scripts/provision-auto-mode.sh","line_range":[126,139],"symbol":"","kind":"other","summary":"[ -f ] skips symlink-to-dir/special-file target","category":"out-of-scope","explanation":"matches sibling behavior; still fails closed via downstream write guard; breadcrumb-precision nit"}
+]}
