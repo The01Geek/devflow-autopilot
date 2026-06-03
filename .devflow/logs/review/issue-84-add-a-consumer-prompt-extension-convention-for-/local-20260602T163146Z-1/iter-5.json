@@ -1,0 +1,40 @@
+{"iter":5,"source":"review-and-fix","fix_commit_sha":"c5c59992361d37633e35ee96c13d59ff5ee901e4","fix_files":[
+  "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+  "lib/test/run.sh",
+  "scripts/load-prompt-extension.sh",
+  "skills/create-issue/SKILL.md",
+  "skills/docs-bootstrap-external/SKILL.md",
+  "skills/docs-bootstrap-internal/SKILL.md",
+  "skills/docs-release-notes/SKILL.md",
+  "skills/docs-sync-external/SKILL.md",
+  "skills/docs-sync-internal/SKILL.md",
+  "skills/docs-verify/SKILL.md",
+  "skills/docs/SKILL.md",
+  "skills/implement/SKILL.md",
+  "skills/init/SKILL.md",
+  "skills/pr-description/SKILL.md",
+  "skills/retrospective-audit/SKILL.md",
+  "skills/retrospective-weekly/SKILL.md",
+  "skills/retrospective/SKILL.md",
+  "skills/review-and-fix/SKILL.md",
+  "skills/review/SKILL.md"
+],
+"diff_profile":{"small_diff":false,"config_only":false,"has_new_types":false,"engine_self_modifying":true,"checklist_skipped":null},
+"phase3_dispatched":["pr-review-toolkit:code-reviewer","pr-review-toolkit:silent-failure-hunter","pr-review-toolkit:comment-analyzer","pr-review-toolkit:pr-test-analyzer","superpowers:requesting-code-review"],
+"phase3_findings":[
+ {"agent":"pr-review-toolkit:silent-failure-hunter","severity":"Important","description":"SKILL.md step ignored exit code → loud refusals swallowed at model layer","defect_signature":{"file":"skills/create-issue/SKILL.md","line_range":[null,null],"kind":"logic_error"},"corroboration_count":1,"fix_decision":"applied"},
+ {"agent":"pr-review-toolkit:pr-test-analyzer","severity":"Important","description":"coverage drift-guard false-passes on commented-out/prose-only mention","defect_signature":{"file":"lib/test/run.sh","line_range":[922,923],"kind":"test_gap"},"corroboration_count":1,"fix_decision":"applied"},
+ {"agent":"pr-review-toolkit:comment-analyzer","severity":"Suggestion","description":"'refused above' comment is backwards (guards are below)","defect_signature":{"file":"scripts/load-prompt-extension.sh","line_range":[66,68],"kind":"comment_drift"},"corroboration_count":1,"fix_decision":"applied"},
+ {"agent":"pr-review-toolkit:pr-test-analyzer","severity":"Suggestion","description":"symlink-to-dir case under-asserts (no breadcrumb)","defect_signature":{"file":"lib/test/run.sh","line_range":[244,249],"kind":"test_gap"},"corroboration_count":1,"fix_decision":"applied"},
+ {"agent":"pr-review-toolkit:silent-failure-hunter","severity":"Suggestion","description":"cat mid-stream partial read (race)","defect_signature":{"file":"scripts/load-prompt-extension.sh","line_range":[95,101],"kind":"race"},"corroboration_count":1,"fix_decision":"pushed_back"},
+ {"agent":"pr-review-toolkit:silent-failure-hunter","severity":"Suggestion","description":"scaffold mkdir not best-effort wrapped","defect_signature":{"file":"scripts/scaffold-config.sh","line_range":[123,149],"kind":"unhandled_exception"},"corroboration_count":1,"fix_decision":"pushed_back"}
+],
+"fix_decisions":[
+ {"finding_id":"F5-1","decision":"applied","commit":"c5c59992361d37633e35ee96c13d59ff5ee901e4"},
+ {"finding_id":"F5-2","decision":"applied","commit":"c5c59992361d37633e35ee96c13d59ff5ee901e4"},
+ {"finding_id":"F5-3","decision":"applied","commit":"c5c59992361d37633e35ee96c13d59ff5ee901e4"},
+ {"finding_id":"F5-4","decision":"applied","commit":"c5c59992361d37633e35ee96c13d59ff5ee901e4"},
+ {"finding_id":"F5-5","decision":"pushed_back","source_file":"scripts/load-prompt-extension.sh","claim_text":"cat mid-stream partial read yields truncated extension","skip_category":"claim-quality","evidence":"narrow race, POSIX-hard to fully close; no streaming caller (all 16 use $(...) full capture); set -e makes a cat failure non-zero (loud), not a silent success. Agent: 'flagging rather than insisting'. Documented residual."},
+ {"finding_id":"F5-6","decision":"pushed_back","source_file":"scripts/scaffold-config.sh","claim_text":"extension-dir mkdir/printf not wrapped in best-effort log-and-continue","skip_category":"uncategorized","evidence":"LOW; requires a pre-existing FILE named .devflow/prompt-extensions (bizarre); the mkdir/cp file-creation pattern already matches the surrounding mkdir -p $DEST / cp $SCHEMA blocks which also abort under set -e. Consistent with the file's hard-create steps, not its best-effort jq steps."}
+],
+"convergence_inputs":{"fixes_applied":4,"fix_diff_lines":43,"new_corroborated_critical_count":0,"new_corroborated_important_count":0}}

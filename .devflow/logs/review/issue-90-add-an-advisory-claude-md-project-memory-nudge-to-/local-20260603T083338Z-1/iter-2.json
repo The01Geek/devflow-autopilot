@@ -1,0 +1,164 @@
+{
+  "iter": 2,
+  "source": "review-and-fix",
+  "fix_commit_sha": "86e5f3e36de139a110a0c9665454443a999e536a",
+  "fix_files": [
+    "skills/init/SKILL.md",
+    "lib/test/run.sh"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "checklist": [
+    {
+      "id": "VC-14",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "data_format_assumption:skill.md:case-insensitive-fs-duplicate-agents",
+      "reused_from_iter_prev": false
+    }
+  ],
+  "phase3_dispatched": [
+    "pr-review-toolkit:code-reviewer",
+    "pr-review-toolkit:silent-failure-hunter",
+    "pr-review-toolkit:comment-analyzer",
+    "pr-review-toolkit:pr-test-analyzer",
+    "superpowers:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "pr-review-toolkit:silent-failure-hunter",
+      "severity": "Important",
+      "description": "unguarded git rev-parse collapses ROOT to empty, misleading nudge + stderr leak",
+      "defect_signature": {
+        "file": "skills/init/SKILL.md",
+        "line_range": [
+          107,
+          122
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "pr-review-toolkit:silent-failure-hunter",
+      "severity": "Important",
+      "description": "case-sensitive @-import reference grep yields false unreferenced nudge on casing drift",
+      "defect_signature": {
+        "file": "skills/init/SKILL.md",
+        "line_range": [
+          125,
+          131
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "pr-review-toolkit:pr-test-analyzer",
+      "severity": "Important",
+      "description": "content guard does not pin silence discipline (AC6) or matrix case 3 (AC5)",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          970,
+          1006
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "pr-review-toolkit:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "CASE-INSENSITIVELY comment overstates enumerated-casing probe",
+      "defect_signature": {
+        "file": "skills/init/SKILL.md",
+        "line_range": [
+          110,
+          114
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "checklist-generator-variance",
+      "severity": "Suggestion",
+      "description": "CHANGELOG cites (#91) PR number vs issue #90 — confirmed repo convention (cites PR), non-issue",
+      "defect_signature": {
+        "file": "CHANGELOG.md",
+        "line_range": [
+          10,
+          10
+        ],
+        "kind": "other"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "pushed_back"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "A",
+      "decision": "applied",
+      "commit": "86e5f3e36de139a110a0c9665454443a999e536a"
+    },
+    {
+      "finding_id": "B",
+      "decision": "applied",
+      "commit": "86e5f3e36de139a110a0c9665454443a999e536a"
+    },
+    {
+      "finding_id": "C",
+      "decision": "applied",
+      "commit": "86e5f3e36de139a110a0c9665454443a999e536a"
+    },
+    {
+      "finding_id": "D",
+      "decision": "applied",
+      "commit": "86e5f3e36de139a110a0c9665454443a999e536a"
+    },
+    {
+      "finding_id": "VC-20-changelog-issuenum",
+      "decision": "pushed_back",
+      "source_file": "CHANGELOG.md",
+      "claim_text": "CHANGELOG cites (#91) not (#90)",
+      "skip_category": "claim-quality",
+      "evidence": "repo convention is CHANGELOG cites the PR number, not the issue; git history shic-bump for issue #84 (#85). #91 is the PR — correct."
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 4,
+    "fix_diff_lines": 38,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "telemetry": {
+    "phase_1": {
+      "calls": 1
+    },
+    "phase_2": {
+      "calls": 1
+    },
+    "phase_3": {
+      "calls": 5
+    }
+  }
+}
