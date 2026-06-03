@@ -200,18 +200,25 @@ fi
 # (sorted) forms so formatting differences never read as a change.
 if [ "$(printf '%s' "$EXISTING" | jq -S .)" = "$(printf '%s' "$MERGED" | jq -S .)" ]; then
   # Distinguish the two no-change cases so the breadcrumb never implies "selectable"
-  # when the user's preserved value actually DISABLES it: "1" → already selectable;
-  # anything else (notably a deliberate "0") → preserved but NOT selectable. (We are in
-  # this branch only because env.CLAUDE_CODE_ENABLE_AUTO_MODE is already present — an
-  # absent key would have made MERGED differ — so the read is always populated; the
-  # `|| PRESERVED=""` fallback keeps a defensive jq hiccup from aborting under `set -e`
-  # rather than masking a real failure, since this is a cosmetic-breadcrumb read on
-  # already-validated JSON.)
-  PRESERVED="$(printf '%s' "$EXISTING" | jq -r '.env.CLAUDE_CODE_ENABLE_AUTO_MODE // empty')" || PRESERVED=""
-  if [ "$PRESERVED" = "1" ]; then
+  # when the user's preserved value actually DISABLES it: the STRING "1" → already
+  # selectable; anything else (a deliberate "0", a non-"1" string, OR a non-string leaf)
+  # → preserved but NOT selectable. (We are in this branch only because
+  # env.CLAUDE_CODE_ENABLE_AUTO_MODE is already present — an absent key would have made
+  # MERGED differ — so the read is always populated; the `|| PRESERVED_RAW=""` fallback
+  # keeps a defensive jq hiccup from aborting under `set -e` rather than masking a real
+  # failure, since this is a cosmetic-breadcrumb read on already-validated JSON.)
+  #
+  # Read the RAW JSON form (`jq -c`), NOT `jq -r`: Claude Code honors only the STRING
+  # "1" from settings; a numeric `1` (or `true`, or an object) is a legal-JSON but
+  # non-honored leaf the merge preserves as a user-wins clobber. `jq -r` would stringify
+  # a numeric `1` to the same `1` as the string and FALSELY report "already selectable"
+  # over a value Claude Code ignores — a silent misreport. Comparing the canonical raw
+  # form (`"1"` with quotes) means only the real string "1" reads as selectable.
+  PRESERVED_RAW="$(printf '%s' "$EXISTING" | jq -c '.env.CLAUDE_CODE_ENABLE_AUTO_MODE // empty')" || PRESERVED_RAW=""
+  if [ "$PRESERVED_RAW" = '"1"' ]; then
     log "$SETTINGS already sets CLAUDE_CODE_ENABLE_AUTO_MODE=\"1\" — 'auto' is already selectable; nothing changed."
   else
-    log "$SETTINGS already sets CLAUDE_CODE_ENABLE_AUTO_MODE=\"$PRESERVED\" (your value is preserved) — 'auto' is NOT selectable while this is not \"1\"; nothing changed."
+    log "$SETTINGS already sets CLAUDE_CODE_ENABLE_AUTO_MODE=$PRESERVED_RAW (your value is preserved) — 'auto' is NOT selectable while this is not the string \"1\" (settings env values must be JSON strings); nothing changed."
   fi
   exit 0
 fi

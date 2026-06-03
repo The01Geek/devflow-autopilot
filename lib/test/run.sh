@@ -4822,6 +4822,29 @@ assert_eq "pam: --apply over user 'true' → breadcrumb says NOT selectable (els
 assert_eq "pam: --apply over user 'true' → file byte-for-byte unchanged (AC3)" \
   "$PAM_NN_BEFORE" "$(cat "$PAM_NN_SF")"
 
+# AC 4 (honest breadcrumb on a non-string leaf): a JSON NUMBER 1 (legal hand-edited JSON, but
+# NOT honored by Claude Code, which honors only the string "1") must be reported "NOT
+# selectable" and preserved — never the false "already selectable". `jq -r` collapses numeric 1
+# to the same "1" as the string; the helper reads the raw `jq -c` form ('"1"' for the string,
+# '1' for the number) precisely so this misreport cannot happen. Mutation: revert the read to
+# `jq -r`/compare to "1" and this cell goes RED ("already selectable" leaks for a value Claude
+# Code ignores).
+PAM_NUM1="$(mktemp -d)"; PAM_N1_SF="$PAM_NUM1/settings.json"
+printf '%s' '{"env":{"CLAUDE_CODE_ENABLE_AUTO_MODE":1}}' > "$PAM_N1_SF"
+PAM_N1_BEFORE="$(cat "$PAM_N1_SF")"
+PAM_N1_OUT="$(bash "$PAM" --apply "$PAM_N1_SF" 2>&1)"; PAM_N1_RC=$?
+assert_eq "pam: --apply over numeric 1 → exit 0" "0" "$PAM_N1_RC"
+assert_eq "pam: --apply over numeric 1 → NOT falsely 'already selectable' (honest breadcrumb, AC4)" "no" \
+  "$(printf '%s' "$PAM_N1_OUT" | grep -qi 'already selectable' && echo yes || echo no)"
+assert_eq "pam: --apply over numeric 1 → breadcrumb says NOT selectable (non-string leaf, AC4)" "yes" \
+  "$(printf '%s' "$PAM_N1_OUT" | grep -qi 'NOT selectable' && echo yes || echo no)"
+assert_eq "pam: --apply over numeric 1 → value preserved, not clobbered (AC3)" "1" \
+  "$(jq -r '.env.CLAUDE_CODE_ENABLE_AUTO_MODE' "$PAM_N1_SF" 2>/dev/null)"
+assert_eq "pam: --apply over numeric 1 → leaf type still number, never coerced to string (AC3)" "number" \
+  "$(jq -r '.env.CLAUDE_CODE_ENABLE_AUTO_MODE | type' "$PAM_N1_SF" 2>/dev/null)"
+assert_eq "pam: --apply over numeric 1 → file byte-for-byte unchanged (AC3)" \
+  "$PAM_N1_BEFORE" "$(cat "$PAM_N1_SF")"
+
 # AC 3 (no-clobber): existing env + unrelated top key → auto-mode added alongside, all preserved.
 PAM_KEEP="$(mktemp -d)"; PAM_K_SF="$PAM_KEEP/settings.json"
 printf '%s' '{"env":{"OTHER":"x"},"customTopKey":123}' > "$PAM_K_SF"
@@ -4855,9 +4878,10 @@ assert_eq "pam: --apply malformed → exit non-zero (fail-closed, AC3)" "yes" \
 assert_eq "pam: --apply malformed → file byte-for-byte unchanged (AC3)" '{ not valid json' \
   "$(cat "$PAM_B_SF")"
 # Pin the target-unique substring 'not valid JSON', not the loose 'not valid json|malformed'
-# alternation: 'malformed' is the WRONG-SHAPE path's breadcrumb (line ~185), so the alternation
-# would also pass if a regression misrouted an invalid-JSON file into the shape-guard's generic
-# message. Same discipline the env-as-string cell below applies.
+# alternation: 'malformed' is the WRONG-SHAPE path's breadcrumb (the 'is malformed for
+# provisioning' warn in provision-auto-mode.sh), so the alternation would also pass if a
+# regression misrouted an invalid-JSON file into the shape-guard's generic message. Same
+# discipline the env-as-string cell below applies.
 assert_eq "pam: --apply malformed → specific breadcrumb says 'not valid JSON' (not the wrong-shape message)" "yes" \
   "$(printf '%s' "$PAM_B_OUT" | grep -qi 'not valid JSON' && echo yes || echo no)"
 
@@ -4968,6 +4992,16 @@ assert_eq "pam: --apply + HOME unset → exit 2 (cannot resolve user scope)" "2"
 assert_eq "pam: --apply + HOME unset → breadcrumb says HOME is unset" "yes" \
   "$(printf '%s' "$PAM_NOHOME_OUT" | grep -qi 'HOME is unset' && echo yes || echo no)"
 
+# The NO-consent + HOME-unset branch is the display-only sibling of the cell above: with no
+# --apply it must NOT hard-fail (HOME is only needed to write), but fall through to the
+# display-only '~/.claude/settings.json' literal, print the copy-paste line, and exit 0. A
+# regression that hard-failed without --apply, or that tilde-expanded the literal, would pass
+# every other cell — only this one guards the asymmetry.
+PAM_NCNOHOME_OUT="$(env -u HOME bash "$PAM" 2>&1)"; PAM_NCNOHOME_RC=$?
+assert_eq "pam: no --apply + HOME unset → exit 0 (display-only, non-fatal)" "0" "$PAM_NCNOHOME_RC"
+assert_eq "pam: no --apply + HOME unset → still prints the copy-paste env var" "yes" \
+  "$(printf '%s' "$PAM_NCNOHOME_OUT" | grep -q 'CLAUDE_CODE_ENABLE_AUTO_MODE' && echo yes || echo no)"
+
 # Present-but-unreadable existing settings → exit 2 with a distinct "not readable"
 # breadcrumb (not misattributed to invalid JSON), file untouched. Root bypasses the perm
 # bits, so assert only for an ordinary user — skip under root (same guard the pls block uses).
@@ -5002,7 +5036,7 @@ if [ "$(id -u)" -ne 0 ] && [ ! -w "$PAM_RODIR" ]; then
 fi
 chmod 755 "$PAM_RODIR"   # restore so rm -rf can clean up
 
-rm -rf "$PAM_NOCONSENT" "$PAM_NCEXIST" "$PAM_FRESH" "$PAM_ZERO" "$PAM_NONONE" "$PAM_KEEP" "$PAM_IDEM" \
+rm -rf "$PAM_NOCONSENT" "$PAM_NCEXIST" "$PAM_FRESH" "$PAM_ZERO" "$PAM_NONONE" "$PAM_NUM1" "$PAM_KEEP" "$PAM_IDEM" \
        "$PAM_BAD" "$PAM_ENVSTR" "$PAM_ENVNULL" "$PAM_ARR" "$PAM_SCALAR" "$PAM_EMPTY" "$PAM_HOME" \
        "$PAM_WS" "$PAM_UNREAD" "$PAM_RODIR"
 
