@@ -376,7 +376,7 @@ The issue is created **only after the user explicitly confirms**: a pending conf
 **The idea.** Every bot-authored PR leaves an evidence trail: review comments, post-bot human commits, CI signals, the workpad's final state, and the bot's own `## Devflow Reflection` friction notes. Once a week, `/devflow:retrospective-weekly` reads the accumulated trail, finds **patterns that recur**, and opens a **human-reviewed** PR proposing the smallest change that would prevent the next occurrence, a CLAUDE.md tweak, a skill rewrite, a missing doc, a new lint rule, a tightened issue template. Humans approve or reject.
 
 **Detection (how a PR is selected).** `lib/scan.sh` selects a merged PR for retrospection via a **union predicate** — a PR qualifies when **any** of these holds, deduplicated by number:
-- **(a) the reserved `DevFlow` provenance label** — DevFlow stamps the literal `DevFlow` label on every issue and PR it creates (`/devflow:create-issue`, `/devflow:implement`, Stage B). This path is **author- and branch-agnostic**, so it works in any repo with **zero branch-naming configuration**;
+- **(a) the reserved `DevFlow` provenance label** — DevFlow stamps the literal `DevFlow` label on every issue and PR it creates (`/devflow:create-issue`, `/devflow:implement` at PR create, Stage B), all via the idempotent best-effort `scripts/ensure-label.sh` (`/devflow:init` pre-creates the label at setup so it exists from day one). This path is **author- and branch-agnostic**, so it works in any repo with **zero branch-naming configuration**;
 - **(b) a watched author that closes an issue** — a watched-author PR with a non-empty `closingIssuesReferences`. This is the branch-naming-independent fallback that makes detection work even when the label step was skipped (e.g. DevFlow's own `issue-<N>-<slug>` branches, which match no prefix);
 - **(c) the fixed `devflow/audit-*` branch** — Stage B intervention PRs;
 - **(d) the configured `implementation_branch_prefix`** — *only* when it is set non-empty (an empty/unset prefix excludes nothing and never degrades to a match-all glob).
@@ -547,8 +547,9 @@ Thin by default (installs workflows, actions, a local marketplace, a config scaf
 └── marketplace.json     # this repo is its own marketplace
 skills/                  # one SKILL.md per skill
 agents/                  # checklist-generator / -deduper / -verifier
-scripts/                 # branch-for-issue.py, config-get.sh, file-deferrals.py,
-                         #   match-deferrals.py, parse-acs.py, workpad.py, …
+scripts/                 # branch-for-issue.py, config-get.sh, ensure-label.sh,
+                         #   file-deferrals.py, match-deferrals.py, parse-acs.py,
+                         #   workpad.py, …
 lib/                     # retrospective-loop helpers (*.sh, *.jq), preflight.sh, test/
 .github/                 # cloud tier: workflows + composite actions (incl. vendor-plugin)
 .devflow/                # config.example.json + config.schema.json (+ learnings/, logs/)
