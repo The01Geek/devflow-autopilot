@@ -1615,18 +1615,28 @@ cat > "$SCAN_TMP/gh-100" <<'STUB'
 case "$*" in
   *"repo view"*) echo "acme/example-repo" ;;
   *"api"*"retrospectives.jsonl?ref=main"*) printf '%b' "$SCAN_RESP" ;;
-  *"api"*"raw/retro.jsonl"*) printf '{"pr":1}\n{"pr":2}\n' ;;
+  *"api"*"raw/retro.jsonl"*) printf '{"pr":1}\n{"pr":2}\n' ;;   # download_url: real records
+  *"api"*"raw/nopr.jsonl"*) printf '{"notpr":1}\n' ;;           # download_url: parseable, zero pr records
+  *"api"*"raw/fail.jsonl"*) exit 1 ;;                           # download_url: fetch failure
   *"pr list"*) echo '[]' ;;
   *) echo '[]' ;;
 esac
 STUB
 chmod +x "$SCAN_TMP/gh-100"
 
-# One-line driver (house style: cf. rnc/ex/di): run scan.sh against the gh-100
-# stub with the given 200-response injected as $SCAN_RESP; $? carries scan's exit.
+# Driver (house style: cf. rnc/ex/di): run scan.sh against the gh-100 stub with
+# the given 200-response injected as $SCAN_RESP. Captures scan's stderr into the
+# global $SCAN_ERR (stdout discarded); the call's own $? carries scan's exit, so
+# a caller does `scan100 '...'; RC=$?` then asserts on $RC and $SCAN_ERR.
 scan100() {  # $1 = $SCAN_RESP value (printf %b-interpreted by the stub)
-  SCAN_RESP="$1" DEVFLOW_CONFIG_FILE="$LIB/test/fixtures/config.json" \
-    DEVFLOW_GH="$SCAN_TMP/gh-100" bash "$LIB/scan.sh" >/dev/null 2>&1
+  SCAN_ERR="$(SCAN_RESP="$1" DEVFLOW_CONFIG_FILE="$LIB/test/fixtures/config.json" \
+    DEVFLOW_GH="$SCAN_TMP/gh-100" bash "$LIB/scan.sh" 2>&1 >/dev/null)"
+}
+# Substring membership → "yes"/"no" (assert_eq is the only assertion helper), so
+# each loud-failure case can assert the SPECIFIC breadcrumb, not just exit 1 —
+# CLAUDE.md: a generic/misdirected breadcrumb is itself the bug for this code.
+have() {  # $1 = needle, $2 = haystack
+  case "$2" in *"$1"*) echo yes ;; *) echo no ;; esac
 }
 
 # Build the base64 payloads with the local base64 so the test is host-portable.
@@ -1634,26 +1644,47 @@ B64_NOPR="$(printf '{"notpr":1}\n{"other":2}\n' | base64 | tr -d '\n')"
 B64_NONJSON="$(printf 'this is not json\nat all\n' | base64 | tr -d '\n')"
 B64_PR="$(printf '{"pr":1}\n{"pr":2}\n' | base64 | tr -d '\n')"
 
-scan100 'HTTP/2.0 200 OK\r\n\r\n{"content":"'"$B64_NOPR"'"}\n'
-assert_eq "scan #100: non-empty content decoding to zero pr records exits loud (no silent backlog re-queue)" "1" "$?"
+scan100 'HTTP/2.0 200 OK\r\n\r\n{"content":"'"$B64_NOPR"'"}\n'; RC=$?
+assert_eq "scan #100: inline content with zero pr records exits loud" "1" "$RC"
+assert_eq "scan #100: zero-record breadcrumb names the collapse" "yes" "$(have 'zero pr records' "$SCAN_ERR")"
+assert_eq "scan #100: zero-record breadcrumb names the inline source" "yes" "$(have '(inline content)' "$SCAN_ERR")"
 
-scan100 'HTTP/2.0 200 OK\r\n\r\n{"content":"'"$B64_NONJSON"'"}\n'
-assert_eq "scan #100: base64-of-non-json content (jq parse miss) exits loud" "1" "$?"
+scan100 'HTTP/2.0 200 OK\r\n\r\n{"content":"'"$B64_NONJSON"'"}\n'; RC=$?
+assert_eq "scan #100: base64-of-non-json content (jq parse miss) exits loud" "1" "$RC"
+assert_eq "scan #100: parse-miss breadcrumb names parsing failure" "yes" "$(have 'parsing retrospectives.jsonl (inline content) failed' "$SCAN_ERR")"
 
-scan100 'HTTP/2.0 200 OK\r\n\r\n{"content":"@@not-valid-base64@@"}\n'
-assert_eq "scan #100: invalid base64 content (decode miss) exits loud" "1" "$?"
+scan100 'HTTP/2.0 200 OK\r\n\r\n{"content":"@@not-valid-base64@@"}\n'; RC=$?
+assert_eq "scan #100: invalid base64 content (decode miss) exits loud" "1" "$RC"
+assert_eq "scan #100: decode-miss breadcrumb names base64" "yes" "$(have 'base64 decode' "$SCAN_ERR")"
 
-scan100 'HTTP/2.0 200 OK\r\n\r\n{"content":"","foo":1}\n'
-assert_eq "scan #100: HTTP 200 with neither content nor download_url exits loud" "1" "$?"
+scan100 'HTTP/2.0 200 OK\r\n\r\n{"content":"","foo":1}\n'; RC=$?
+assert_eq "scan #100: HTTP 200 with neither content nor download_url exits loud" "1" "$RC"
+assert_eq "scan #100: no-fallback breadcrumb names the missing surfaces" "yes" "$(have 'neither inline content nor a download_url' "$SCAN_ERR")"
+
+# download_url (>1 MB) branch now shares the zero-record collapse guard: a
+# parseable body carrying zero pr records must fail loud, not silently re-queue.
+scan100 'HTTP/2.0 200 OK\r\n\r\n{"content":"","download_url":"https://example.test/raw/nopr.jsonl"}\n'; RC=$?
+assert_eq "scan #100: download_url body with zero pr records exits loud" "1" "$RC"
+assert_eq "scan #100: download_url zero-record breadcrumb names the source" "yes" "$(have '(download_url)' "$SCAN_ERR")"
+
+# download_url branch: a failed fetch of the large file exits loud with a specific cause.
+scan100 'HTTP/2.0 200 OK\r\n\r\n{"content":"","download_url":"https://example.test/raw/fail.jsonl"}\n'; RC=$?
+assert_eq "scan #100: download_url fetch failure exits loud" "1" "$RC"
+assert_eq "scan #100: download_url fetch-failure breadcrumb is specific" "yes" "$(have 'via download_url failed' "$SCAN_ERR")"
+
+# Non-200/404 HTTP status is fatal — never proceed on an empty processed-set.
+scan100 'HTTP/2.0 500 Internal Server Error\r\n\r\n{}\n'; RC=$?
+assert_eq "scan #100: HTTP 500 exits loud" "1" "$RC"
+assert_eq "scan #100: HTTP-500 breadcrumb names the status" "yes" "$(have 'HTTP 500' "$SCAN_ERR")"
 
 # Regression: the >1 MB download_url fallback path still parses cleanly (exit 0)
 # when the fetched body carries real pr records.
-scan100 'HTTP/2.0 200 OK\r\n\r\n{"content":"","download_url":"https://example.test/raw/retro.jsonl"}\n'
-assert_eq "scan #100: download_url fallback with real records succeeds (exit 0)" "0" "$?"
+scan100 'HTTP/2.0 200 OK\r\n\r\n{"content":"","download_url":"https://example.test/raw/retro.jsonl"}\n'; RC=$?
+assert_eq "scan #100: download_url fallback with real records succeeds (exit 0)" "0" "$RC"
 
 # Regression: the original happy path (valid jsonl with pr records) still exits 0.
-scan100 'HTTP/2.0 200 OK\r\n\r\n{"content":"'"$B64_PR"'"}\n'
-assert_eq "scan #100: valid jsonl with pr records still succeeds (exit 0)" "0" "$?"
+scan100 'HTTP/2.0 200 OK\r\n\r\n{"content":"'"$B64_PR"'"}\n'; RC=$?
+assert_eq "scan #100: valid jsonl with pr records still succeeds (exit 0)" "0" "$RC"
 
 rm -rf "$SCAN_TMP"
 

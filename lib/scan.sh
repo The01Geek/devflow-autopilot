@@ -164,15 +164,26 @@ fi
 
 # ── _decode_existing <jsonl-text> <source-label> ─────────────────────────────
 # Parse decoded retrospectives.jsonl text into a JSON array of processed PR
-# numbers (sets the global EXISTING). A `jq` parse failure under HTTP 200 means
-# the content was unparseable (a decode miss) — fail loud (exit 1) with a
-# breadcrumb naming the source path, rather than swallowing it into an empty
-# EXISTING that would re-queue the whole backlog and create duplicate
-# retrospectives. Called in the current shell (never via $(...)), so its exit
+# numbers (sets the global EXISTING), failing loud (exit 1) on either silent-
+# collapse mode under HTTP 200:
+#   - a jq parse failure (unparseable content — a decode miss), or
+#   - a successful parse that yields zero pr records from non-empty content
+#     (pr-less / schema-drifted / truncated-but-still-parseable content).
+# A populated retrospectives.jsonl always carries >=1 {"pr":...} record — it is
+# created by the first append, so an absent file is the 404 path above, never an
+# empty 200 — so zero records from real content is corruption, not an empty
+# backlog. Swallowing it into an empty EXISTING would re-queue the whole backlog
+# and create duplicate retrospectives. BOTH call sites (the inline <=1 MB content
+# and the >1 MB download_url body) share this guard, so neither transport can
+# collapse silently. Called in the current shell (never via $(...)), so its exit
 # terminates scan, not just a subshell.
 _decode_existing() {  # $1 = decoded jsonl text, $2 = source label for breadcrumbs
     if ! EXISTING="$(printf '%s' "$1" | jq -s 'map(.pr // empty)' 2>"$ERR")"; then
         echo "::error::scan: parsing retrospectives.jsonl ($2) failed — unparseable content under HTTP 200: $(cat "$ERR")" >&2
+        exit 1
+    fi
+    if [ "$(printf '%s' "$EXISTING" | jq 'length')" -eq 0 ]; then
+        echo "::error::scan: retrospectives.jsonl ($2) yielded zero pr records from non-empty content under HTTP 200 (a decode/parse miss, or otherwise pr-less/schema-drifted content) — refusing to treat the backlog as unprocessed (would re-queue everything and create duplicate retrospectives)" >&2
         exit 1
     fi
 }
@@ -195,16 +206,6 @@ case "$HTTP" in
                 exit 1
             fi
             _decode_existing "$DECODED" "inline content"
-            # A non-empty `content` field always carries >=1 {"pr":...} record:
-            # the file is created by the first append, so an absent file is the
-            # 404 path above, never an empty 200. A zero-record result from
-            # non-empty content is therefore a silent decode/parse collapse —
-            # fail loud rather than treat the whole backlog as unprocessed (which
-            # would re-queue everything and create duplicate retrospectives).
-            if [ "$(printf '%s' "$EXISTING" | jq 'length')" -eq 0 ]; then
-                echo "::error::scan: retrospectives.jsonl decoded to zero pr records from non-empty content under HTTP 200 — refusing to treat the backlog as unprocessed (would re-queue everything and create duplicate retrospectives)" >&2
-                exit 1
-            fi
         else
             # The Contents API base64-encodes `content` only for files <= 1 MB;
             # for larger files it returns "" and a download_url. Fall back to it
