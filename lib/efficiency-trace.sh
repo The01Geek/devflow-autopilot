@@ -174,18 +174,31 @@ do_self_check() {
 # Persist one run dir's artifacts (best-effort). Returns 0 always.
 persist_one() {
   local dir="$1" slug="$2" run_id="$3" root="$4"
-  local src durable record out cp_err newest
-  # A run dir with no iter-*.json is nothing to persist. The glob expands in
-  # sorted order, so the last element is the newest iteration — no ls|sort|tail.
-  # (Last-index form, not ${iters[-1]}: negative indexing needs bash 4.3, but
-  # these helpers must run on stock macOS bash 3.2.)
+  local src durable record out jq_rc cp_err src_probe
+  # A run dir with no iter-*.json is nothing to persist.
   local iters=("$dir"/iter-*.json)
   [ -e "${iters[0]}" ] || return 0
-  newest="${iters[$((${#iters[@]} - 1))]}"
-  # Skip standalone /devflow:review runs — they have their own Phase 4.5 record
-  # path and are out of scope for this review-and-fix backstop. A malformed
-  # newest workpad defaults to the historical producer (never "review").
-  src="$(jq -r 'if (.source | type) == "string" then .source else "review-and-fix" end' "$newest" 2>/dev/null || echo "review-and-fix")"
+  # Skip standalone /devflow:review runs (source == "review") — they have their
+  # own Phase 4.5 record path and are out of scope for this backstop. `source` is
+  # a RUN-level field, identical across a run's iterations, so any one iter is a
+  # valid probe; pick the last glob element (no ls|sort|tail). The glob sorts
+  # lexicographically (so iter-10 precedes iter-2), but which iter we read is
+  # irrelevant here — every iter carries the same run-level source. (Last-index
+  # form, not ${iters[-1]}: negative indexing needs bash 4.3, but these helpers
+  # must run on stock macOS bash 3.2.) Because the probe is single, --persist does
+  # not run warn_on_mixed_source the way --mode does; a mixed-source run is not
+  # expected here (a run is single-source by construction).
+  src_probe="${iters[$((${#iters[@]} - 1))]}"
+  # `if !` (not a bare assignment): a failing command-substitution assignment trips
+  # `set -e`, so guard the jq in a condition. An unreadable/parse-failed probe
+  # defaults to the historical producer (review-and-fix) — the SAFE direction for
+  # this issue: never skip (and thus never lose the record of) a real
+  # review-and-fix run. But leave a breadcrumb rather than swallow it silently
+  # (the project's no-silent-failure stance).
+  if ! src="$(jq -r 'if (.source | type) == "string" then .source else "review-and-fix" end' "$src_probe" 2>/dev/null)"; then
+    echo "::warning::efficiency-trace.sh --persist: could not read 'source' from ${src_probe}; assuming review-and-fix" >&2
+    src="review-and-fix"
+  fi
   [ "$src" = "review" ] && return 0
 
   # Durable workpad copy — NOT telemetry-gated (runs on every writable run).
@@ -206,12 +219,27 @@ persist_one() {
     record="${root}/.devflow/logs/efficiency/${slug}-${run_id}.json"
     if [ ! -e "$record" ]; then
       collect_valid_files "$dir"
-      out="$(emit_jq record "$slug")"
-      # emit_jq prints nothing for zero readable iterations (catastrophic case),
-      # matching the flag-off contract — only a non-empty derivation is written.
-      if [ -n "$out" ]; then
+      # `if !` guards `set -e` on a failing command-substitution assignment, and
+      # captures emit_jq's rc so a jq DERIVATION FAILURE (broken filter, jq missing,
+      # --argjson rejected) is distinguished from a benign empty derivation (rc 0,
+      # zero readable iterations → emit_jq prints nothing, matching the flag-off
+      # contract). The former is a real malfunction that would otherwise drop a
+      # recoverable record with no signal — exactly the silent hole this issue
+      # closes — so warn.
+      jq_rc=0
+      out="$(emit_jq record "$slug")" || jq_rc=$?
+      if [ "$jq_rc" -ne 0 ]; then
+        echo "::warning::efficiency-trace.sh --persist: record derivation (jq) failed (rc=${jq_rc}) for ${slug}/${run_id}; record not written" >&2
+      elif [ -n "$out" ]; then
         if mkdir -p "$(dirname "$record")" 2>/dev/null; then
-          printf '%s\n' "$out" > "$record"
+          # Check the redirection itself: a write failure after mkdir (ENOSPC,
+          # EROFS, quota, perms) must not be reported as a clean persist, and a
+          # truncated file must not be left to satisfy the `[ ! -e ]` presence
+          # check on the next run (which would lock in a corrupt record).
+          if ! printf '%s\n' "$out" > "$record"; then
+            echo "::warning::efficiency-trace.sh --persist: writing record ${record} failed (disk/permission); not persisted for ${slug}/${run_id}" >&2
+            rm -f "$record" 2>/dev/null
+          fi
         else
           echo "::warning::efficiency-trace.sh --persist: could not create $(dirname "$record"); record not written for ${slug}/${run_id}" >&2
         fi
@@ -235,7 +263,9 @@ do_persist() {
     fi
     persist_one "$WORKPAD_DIR" "$slug" "$run_id" "$root"
   else
-    # Discovery: every .devflow/tmp/review/<slug>/<run-id>/ holding iter-*.json.
+    # Discovery: every .devflow/tmp/review/<slug>/<run-id>/ holding iter-*.json
+    # (the "holding iter-*.json" filter happens one level down, in persist_one's
+    # `[ -e "${iters[0]}" ]` guard — the loop visits every <slug>/<run-id> dir).
     # The trailing slash restricts the glob to directories; an unmatched glob
     # stays literal and the `[ -d ]` guard skips it (no nullglob needed).
     for dir in "$root"/.devflow/tmp/review/*/*/; do
