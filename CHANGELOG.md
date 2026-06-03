@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.4] — 2026-06-03
+
+### Fixed
+- **The weekly retrospective scan now fails loud on a corrupt `retrospectives.jsonl` instead of silently re-queuing the whole backlog.** `lib/scan.sh`'s HTTP-200 branch decoded the Contents-API `content` field with `... | base64 -d | jq -s 'map(.pr // empty)'` and, on a decode/parse miss (HTTP 200 but unparseable or `.pr`-less content), could collapse `EXISTING` to `[]` — treating every already-processed PR as unprocessed, which re-runs the whole backlog and creates duplicate retrospectives. The `>1 MB` `download_url` fallback was guarded, but the inline decode-to-empty case was not. The decode and parse are now split with specific breadcrumbs (a `base64` decode failure and a `jq` parse failure each exit 1 with a named cause via the shared `_decode_existing` helper), and a non-empty `content` field that yields zero `pr` records is treated as a silent collapse and exits 1 — a populated file always carries ≥1 record, since an absent file is the 404 first-run path. The same loud parse helper now covers the `download_url` fallback, and an HTTP 200 carrying neither inline content nor a `download_url` exits 1 rather than proceeding on an empty processed-set. Carried forward from the #97 review as a Scope-Acknowledged deferral. (#100)
+
 ## [2.7.3] — 2026-06-03
 
 ### Changed

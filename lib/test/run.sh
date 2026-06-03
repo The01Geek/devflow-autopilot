@@ -1603,6 +1603,56 @@ assert_eq "--prs includes explicit merged retrospected PR 1" "true"  "$(echo "$P
 assert_eq "--prs drops non-retrospected branch PR 2"        "false" "$(echo "$PRS_OUT" | jq 'any(.[]; .number==2)')"
 assert_eq "--prs drops non-merged PR 3"                     "false" "$(echo "$PRS_OUT" | jq 'any(.[]; .number==3)')"
 assert_eq "--prs ignores already-processed retrospectives.jsonl (PR 1 from gh stub matches an EXISTING pr in weekly mode but here is kept)" "1" "$(echo "$PRS_OUT" | jq 'length')"
+
+# #100: retrospectives.jsonl HTTP-200 decode is loud on a decode/parse MISS, not
+# silently collapsed to [] (which would re-queue the whole backlog and create
+# duplicate retrospectives). Adversarial input-shape matrix over the 200 branch:
+#   content {valid-jsonl-no-pr, base64-of-non-json, invalid-base64, ""+download_url, ""+none}.
+# One stub serves all shapes; the per-shape response is injected via $SCAN_RESP
+# (read at runtime, so embedded quotes never traverse the stub's bash quoting).
+cat > "$SCAN_TMP/gh-100" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *"repo view"*) echo "acme/example-repo" ;;
+  *"api"*"retrospectives.jsonl?ref=main"*) printf '%b' "$SCAN_RESP" ;;
+  *"api"*"raw/retro.jsonl"*) printf '{"pr":1}\n{"pr":2}\n' ;;
+  *"pr list"*) echo '[]' ;;
+  *) echo '[]' ;;
+esac
+STUB
+chmod +x "$SCAN_TMP/gh-100"
+
+# Build the base64 payloads with the local base64 so the test is host-portable.
+B64_NOPR="$(printf '{"notpr":1}\n{"other":2}\n' | base64 | tr -d '\n')"
+B64_NONJSON="$(printf 'this is not json\nat all\n' | base64 | tr -d '\n')"
+
+SCAN_RESP='HTTP/2.0 200 OK\r\n\r\n{"content":"'"$B64_NOPR"'"}\n' \
+  DEVFLOW_CONFIG_FILE="$LIB/test/fixtures/config.json" DEVFLOW_GH="$SCAN_TMP/gh-100" bash "$LIB/scan.sh" >/dev/null 2>&1
+assert_eq "scan #100: non-empty content decoding to zero pr records exits loud (no silent backlog re-queue)" "1" "$?"
+
+SCAN_RESP='HTTP/2.0 200 OK\r\n\r\n{"content":"'"$B64_NONJSON"'"}\n' \
+  DEVFLOW_CONFIG_FILE="$LIB/test/fixtures/config.json" DEVFLOW_GH="$SCAN_TMP/gh-100" bash "$LIB/scan.sh" >/dev/null 2>&1
+assert_eq "scan #100: base64-of-non-json content (jq parse miss) exits loud" "1" "$?"
+
+SCAN_RESP='HTTP/2.0 200 OK\r\n\r\n{"content":"@@not-valid-base64@@"}\n' \
+  DEVFLOW_CONFIG_FILE="$LIB/test/fixtures/config.json" DEVFLOW_GH="$SCAN_TMP/gh-100" bash "$LIB/scan.sh" >/dev/null 2>&1
+assert_eq "scan #100: invalid base64 content (decode miss) exits loud" "1" "$?"
+
+SCAN_RESP='HTTP/2.0 200 OK\r\n\r\n{"content":"","foo":1}\n' \
+  DEVFLOW_CONFIG_FILE="$LIB/test/fixtures/config.json" DEVFLOW_GH="$SCAN_TMP/gh-100" bash "$LIB/scan.sh" >/dev/null 2>&1
+assert_eq "scan #100: HTTP 200 with neither content nor download_url exits loud" "1" "$?"
+
+# Regression: the >1 MB download_url fallback path still parses cleanly (exit 0)
+# when the fetched body carries real pr records.
+SCAN_RESP='HTTP/2.0 200 OK\r\n\r\n{"content":"","download_url":"https://example.test/raw/retro.jsonl"}\n' \
+  DEVFLOW_CONFIG_FILE="$LIB/test/fixtures/config.json" DEVFLOW_GH="$SCAN_TMP/gh-100" bash "$LIB/scan.sh" >/dev/null 2>&1
+assert_eq "scan #100: download_url fallback with real records succeeds (exit 0)" "0" "$?"
+
+# Regression: the original happy path (valid jsonl with pr records) still exits 0.
+SCAN_RESP="HTTP/2.0 200 OK\r\n\r\n{\"content\":\"$(printf '{"pr":1}\n{"pr":2}\n' | base64 | tr -d '\n')\"}\n" \
+  DEVFLOW_CONFIG_FILE="$LIB/test/fixtures/config.json" DEVFLOW_GH="$SCAN_TMP/gh-100" bash "$LIB/scan.sh" >/dev/null 2>&1
+assert_eq "scan #100: valid jsonl with pr records still succeeds (exit 0)" "0" "$?"
+
 rm -rf "$SCAN_TMP"
 
 # ────────────────────────────────────────────────────────────────────────────
