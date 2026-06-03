@@ -4,6 +4,18 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.3] — 2026-06-03
+
+Consolidated patch bump for the 2026-W23 weekly-retrospective intervention batch (one bump covers the whole set).
+
+### Added
+- **`/devflow:implement` Phase 2.3 gains sweep 2.3.0a (Peer-checkpoint completeness)** — the additive twin of the 2.3.0 changed-contract sweep. When a change *adds* a rule/clause/guard/invariant that must hold at two or more **co-equal peer sites**, the sweep requires enumerating the peer set by `git grep` of the shared marker (not from memory), applying the rule at every member (or recording a deliberate exemption with a `--note`), and reconciling any prose/CHANGELOG/docs that overclaims the rule's breadth. It homes the recurring `incomplete-edit` retrospective sub-pattern (a rule landing at only some of its peers — a read-only clause at 2 of 4 gate checkpoints, a config-leaf guard on the object path but not the scalar/array paths, a fallback in the selection predicate but not its parallel derivation) that had no home among the deletion sweeps (2.3.1/2.3.2) or the modification sweep (2.3.0). Adds the "Sweep selection" index entry, the grep-based-sweeps evidence-note list, the `docs/implement-skill.md` rationale table row + paragraph, and a drift-guard test block mirroring the 2.3.6 pins. (#115, closes #114)
+
+### Changed
+- **`CLAUDE.md` codifies the local-tier classifier friction as expected, with documented fallbacks** so runs stop re-deriving them each time (retrospective pattern `convention-violation`): the local/interactive classifier denies `bash <path>` / `shellcheck` / `ruff` / helper-by-path; it is a structural harness boundary an agent cannot self-grant (writing `.claude/` is barred), so fall back to `python3 <path>` + `jq` + the required `lib + python tests` CI job, and direct allowlist-widening to the operator (user scope or the consent-gated `provision-*` helpers) — never commit a `permissions.allow` block from an agent. (#110)
+- **`CLAUDE.md` now gives tier-aware guidance for running the suite when the `bash <path>` wrapper is denied** (retrospective pattern `review-gate-bypass`), resolving the contradiction between the Commands block and the *LEADING token* gotcha: on the **local** tier retry the direct leading-token form (`lib/test/run.sh`, `lib/preflight.sh`); in the **cloud** `/devflow:implement` and read-only `review` tiers the suite is not allowlisted by default (the `bash <path>` wrapper is deny-floored), so the `lib + python tests` CI job is the **expected** gate, not a bypass; an auditable workpad-recorded skip is reserved for a genuine permission/sandbox block, never a suite that runs and fails. (#111)
+- **`.devflow/prompt-extensions/implement.md` adds a "verification under classifier friction" policy** (retrospective pattern `unverified-assumption`): when the classifier blocks a verification, retry via the documented authorized path before assuming anything; if genuinely impossible, do the strongest reachable substitute and record the residual gap as an explicit `## Devflow Reflection` bullet ("code-verified via stub, live-unverified: …", never "impact assessed as nil"); never let a skipped verification read as a passed one. (#112)
+
 ## [2.8.2] — 2026-06-03
 
 ### Fixed

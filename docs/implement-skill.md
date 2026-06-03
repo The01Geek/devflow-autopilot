@@ -15,6 +15,7 @@ A **"Sweep selection (run first)"** preamble in the skill indexes which of these
 | Sweep | Triggers on | Closes |
 |---|---|---|
 | 2.3.0 Changed-contract | a change that **modifies** a signature, renames/moves a symbol, tightens a validator, or alters a classifying predicate | dependent sites left on the *old* contract (other predicate branches, sibling callers, fixtures/assertions) |
+| 2.3.0a Peer-checkpoint completeness | a change that **adds** a rule/clause/guard/invariant which has *co-equal peer sites* (two or more sites that must each enforce the same rule for it to hold) | the rule stated at only *some* peers — a guard applied to one config-leaf branch but not its siblings, a read-only clause present at 2 of 4 gate checkpoints, a fallback in the selection predicate but not the parallel derivation |
 | 2.3.1 Orphaned-setup | a **deletion** of code | setup lines (a dependency fetch, lookup, computed local, import) whose only consumer was the deleted code |
 | 2.3.2 Stranded-dependents | a **deletion** of a method, file, route, or page | references *outside* the diff the deletion stripped of purpose (callerless public methods, dead args, surviving inbound links) |
 | 2.3.3 Convention-compliance | any code the diff **added or modified** | `CLAUDE.md` convention violations in touched code |
@@ -29,6 +30,21 @@ siblings — a predicate corrected in one branch but not the others, one caller 
 per-request input while its sibling sharing the same object does not, or a fixture/assertion left
 encoding the old contract. **2.3.4** is orthogonal to all of the above: it is not about the diff's own
 consistency but about facts the diff *relies on* across a boundary it does not control.
+
+**2.3.0a** is the *additive* twin of 2.3.0. Where 2.3.0 watches a *modified* contract for stale
+*dependent* sites (caller→callee), 2.3.0a watches a *newly-added* rule for incomplete *co-equal peer*
+coverage: a guard, validator clause, read-only precondition, classification tripwire, or fallback that
+must hold at every member of a peer set but lands at only some. The distinction matters because the two
+fire on different diff shapes and grep different things — 2.3.0 greps for the old symbol/predicate/contract
+across dependents; 2.3.0a greps for the *shared marker* of the peers (the clause keyword, the guarded
+variable, the step heading) to enumerate the set the rule must blanket. The weekly retrospective surfaced
+this as a recurring `incomplete-edit` sub-pattern distinct from 2.3.1/2.3.2 (deletion-triggered) and
+2.3.0 (modification-triggered): a read-only clause present at 2 of 4 gate checkpoints, a config-leaf
+warning on the object path but not the scalar/array paths, a `closingIssuesReferences` fallback in the
+selection predicate but not the parallel workpad derivation — each correct in isolation, each described
+by its PR's prose as if it held everywhere, each surfacing only as a REJECT or post-bot fix. A deliberately
+exempt peer is allowed when recorded with a `--note`; only a *silent* asymmetry is the defect. It is
+numbered 2.3.0a (not renumbering 2.3.1–2.3.6) for the same presentational reason 2.3.6 sits last.
 
 **2.3.5** is different in kind from the correctness sweeps above: it front-loads the *cleanup* lenses that the Phase 3.2 `/simplify` pass (`/code-review --fix`) would otherwise be the first to catch. `/code-review` applies four cleanup lenses — reuse, simplification, efficiency, altitude. The first two of those are *design* decisions and are settled earlier, at the **2.2.4 Reuse & Altitude plan gate**, because reusing an existing helper or picking the right altitude is far cheaper before the code is written than after. Simplification and efficiency are properties of the *assembled* diff, so they belong in a post-write sweep — hence 2.3.5. Together, 2.2.4 + 2.3.5 mean the in-loop `/simplify` should find little; when it finds a lot, that is the signal those two gates were skipped or rushed. `/simplify` still earns its place as a backstop because it sees the whole diff at once and catches cross-change duplication and dead code no single in-loop sweep would.
 
