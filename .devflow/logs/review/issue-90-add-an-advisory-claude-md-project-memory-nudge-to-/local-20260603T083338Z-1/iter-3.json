@@ -1,0 +1,135 @@
+{
+  "iter": 3,
+  "source": "review-and-fix",
+  "fix_commit_sha": "beceb6addf922a611a970ec4ab7dc51c2af902fd",
+  "fix_files": [
+    "skills/init/SKILL.md",
+    "lib/test/run.sh"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "checklist": [],
+  "phase3_dispatched": [
+    "pr-review-toolkit:code-reviewer",
+    "pr-review-toolkit:silent-failure-hunter",
+    "pr-review-toolkit:comment-analyzer",
+    "pr-review-toolkit:pr-test-analyzer",
+    "superpowers:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "pr-review-toolkit:silent-failure-hunter",
+      "severity": "Important",
+      "description": "grep exit-2 (read error) conflated with exit-1 (no match) → misreport unreadable CLAUDE.md as unreferenced",
+      "defect_signature": {
+        "file": "skills/init/SKILL.md",
+        "line_range": [
+          137,
+          139
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "pr-review-toolkit:comment-analyzer",
+      "severity": "Important",
+      "description": "AGENT.md/agent.md are singular spellings, not casings of AGENTS.md — comment factually wrong",
+      "defect_signature": {
+        "file": "skills/init/SKILL.md",
+        "line_range": [
+          110,
+          122
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "pr-review-toolkit:pr-test-analyzer",
+      "severity": "Important",
+      "description": "load-bearing defensive root guard unpinned by any test assertion",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          1000,
+          1063
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "pr-review-toolkit:code-reviewer",
+      "severity": "Important",
+      "description": "CHANGELOG cites (#91) — claimed should be #90",
+      "defect_signature": {
+        "file": "CHANGELOG.md",
+        "line_range": [
+          10,
+          10
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "pushed_back"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "rc-conflation",
+      "decision": "applied",
+      "commit": "beceb6addf922a611a970ec4ab7dc51c2af902fd"
+    },
+    {
+      "finding_id": "casing-mislabel",
+      "decision": "applied",
+      "commit": "beceb6addf922a611a970ec4ab7dc51c2af902fd"
+    },
+    {
+      "finding_id": "root-guard-testgap",
+      "decision": "applied",
+      "commit": "beceb6addf922a611a970ec4ab7dc51c2af902fd"
+    },
+    {
+      "finding_id": "changelog-91-vs-90",
+      "decision": "pushed_back",
+      "source_file": "CHANGELOG.md",
+      "claim_text": "CHANGELOG cites (#91) should be (#90)",
+      "skip_category": "claim-quality",
+      "evidence": "Verified via gh: #90 is the issue, #91 is the PR (same title). Repo convention cites the PR number in CHANGELOG (git log: chore bump for issue #84 (#85); 2.7.2 entry cites (#85)). (#91) is correct. Corroborated by comment-analyzer + final-pass agreeing it is correct."
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 3,
+    "fix_diff_lines": 32,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "telemetry": {
+    "phase_1": {
+      "calls": 1
+    },
+    "phase_2": {
+      "calls": 0
+    },
+    "phase_3": {
+      "calls": 5
+    }
+  }
+}
