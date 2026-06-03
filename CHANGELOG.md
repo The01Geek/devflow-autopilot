@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.0] — 2026-06-03
+
+### Added
+- **`/devflow:create-issue` runs a mandatory independent-derivation pass before clarification, so a comprehensive-*looking* user story no longer yields a shallower issue than a terse one.** A/B testing had confirmed the inversion: when a story arrived pre-loaded with structured sections and its own acceptance-criteria list, the skill treated those items as answers it "already knew from the user story" and skipped derivation, letting the supplied list anchor the whole issue. Step 2 now opens — on **every** run, regardless of how complete the story looks — with an unconditional pass that independently re-derives the full Definition of Ready (problem/beneficiary, behavioral forks, edge/error cases, acceptance criteria) from the stated problem and the Step 1 findings, **writing that derivation down before weighing the user's supplied criteria**, then drives the clarification rounds from the **delta plus conflicts**. User-supplied acceptance criteria are treated as suspect input on two axes — **completeness** (which forks/edge-cases/factors the list omits) and **correctness** (each criterion is atomic, testable, and a genuinely resolved decision, not a disguised unresolved fork) — so a polished story earns the same scrutiny a terse one already gets. A matching Definition-of-Ready checklist item and a synced `docs/DEVFLOW_SYSTEM_OVERVIEW.md` §11 enumeration accompany it, and `references/issue-template.md`'s Acceptance Criteria guidance now states that supplied criteria are challenged, never accepted at face value. The guarantee is described honestly as **ordering-based** (a forced self-check — derive before reading the supplied answers), not subagent isolation: a blind-subagent variant was rejected to keep create-issue's no-subagent, all-inline model. No new script, dependency, or subagent. (#93)
+
 ## [2.7.2] — 2026-06-02
 
 ### Added
