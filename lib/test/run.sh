@@ -552,6 +552,13 @@ assert_eq "implement_pr_state: SKILL keeps the idempotent already-non-draft re-c
   "$(grep -qF 'gh pr view --json isDraft' "$IMPL_SKILL" && echo yes || echo no)"
 assert_eq "implement_pr_state: SKILL labels the idempotent re-run breadcrumb" "yes" \
   "$(grep -qF 'idempotent re-run' "$IMPL_SKILL" && echo yes || echo no)"
+# Couple the fail-safe construct: the re-check must redirect stderr (empty-on-error) AND
+# compare against the literal `= "false"` — so an unconfirmed/errored re-check (empty
+# substitution) is `!= "false"` and falls through to publish_failed (the conservative
+# direction). Pinning the two together catches a silent fail-safe inversion (e.g. someone
+# rewriting it as `!= "true"`, under which an empty result would wrongly read as published).
+assert_eq "implement_pr_state: SKILL idempotent re-check is fail-safe (2>/dev/null coupled to = \"false\")" "yes" \
+  "$(grep -qF '2>/dev/null)" = "false" ]' "$IMPL_SKILL" && echo yes || echo no)"
 assert_eq "implement_pr_state: SKILL has a distinct published-outcome note" "yes" \
   "$(grep -qF 'PR published (gh pr ready)' "$IMPL_SKILL" && echo yes || echo no)"
 assert_eq "implement_pr_state: draft case posts no extra PR-thread comment (AC7)" "yes" \
