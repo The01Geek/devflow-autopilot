@@ -453,6 +453,14 @@ assert_eq "implement_pr_state: unrecognized value read back verbatim (SKILL trea
   "$("$CG" .devflow_implement.implement_pr_state ready_for_review "$IPS_CFG")"
 assert_eq "implement_pr_state: missing config file → resolver default ready_for_review" "ready_for_review" \
   "$("$CG" .devflow_implement.implement_pr_state ready_for_review /no/such/config.json)"
+# Hard read failure (malformed JSON): config-get exits NON-zero with EMPTY stdout — the
+# exact contract the SKILL's `PR_STATE=$(…) || PR_STATE=ready_for_review` fallback leans
+# on. This is the headline safety property (default-to-publish on a corrupt config); pin
+# the resolver half here and the end-to-end half in the guard below.
+printf '%s' '{bad json' > "$IPS_CFG"
+IPS_OUT="$("$CG" .devflow_implement.implement_pr_state ready_for_review "$IPS_CFG" 2>/dev/null)"; IPS_RC=$?
+assert_eq "implement_pr_state: malformed config → resolver exits non-zero, empty stdout" "nonzero-empty" \
+  "$([ "$IPS_RC" -ne 0 ] && [ -z "$IPS_OUT" ] && echo nonzero-empty || echo "rc=$IPS_RC out='$IPS_OUT'")"
 rm -f "$IPS_CFG"
 
 # SKILL Phase 4.3 token pins: the gate is one piece of load-bearing inline bash in
@@ -462,18 +470,22 @@ assert_eq "implement_pr_state: SKILL reads via config-get with the ready_for_rev
   "$(grep -qF 'config-get.sh .devflow_implement.implement_pr_state ready_for_review' "$IMPL_SKILL" && echo yes || echo no)"
 assert_eq "implement_pr_state: SKILL gates publish on the literal draft" "yes" \
   "$(grep -qF '[ "$PR_STATE" = "draft" ]' "$IMPL_SKILL" && echo yes || echo no)"
-assert_eq "implement_pr_state: SKILL still runs gh pr ready (guarded, not removed)" "yes" \
-  "$(grep -qF 'gh pr ready' "$IMPL_SKILL" && echo yes || echo no)"
+# Pin the *command* form, not the bare token: a plain `grep -qF 'gh pr ready'` is also
+# satisfied by the draft-branch diagnostic echo and the explanatory prose, so it would
+# stay green even if the actual publish invocation were deleted. Pin the guarded
+# `elif gh pr ready; then` so this asserts the publish command itself survives.
+assert_eq "implement_pr_state: SKILL keeps the guarded publish invocation (elif gh pr ready)" "yes" \
+  "$(grep -qF 'elif gh pr ready; then' "$IMPL_SKILL" && echo yes || echo no)"
 assert_eq "implement_pr_state: SKILL keeps the clean-tree backstop above the gate" "yes" \
   "$(grep -qF 'git status --porcelain' "$IMPL_SKILL" && echo yes || echo no)"
 assert_eq "implement_pr_state: SKILL has draft-aware finalize wording" "yes" \
   "$(grep -qF 'left as draft' "$IMPL_SKILL" && echo yes || echo no)"
 
-# Executable publish-decision guard — mirrors the SKILL's single literal-`draft`
-# comparison so the dry-trace matrix {draft, ready_for_review, "", published} is
+# Executable publish-decision guard — logic-equivalent to the SKILL's single literal-`draft`
+# comparison (semantically mirrors `[ "$PR_STATE" = "draft" ]`; `$1` stands in for
+# `$PR_STATE`) so the dry-trace matrix {draft, ready_for_review, "", published} is
 # exercised as behavior, not just asserted as prose (the absent/default row is the
-# resolver matrix above feeding `ready_for_review` into this guard). Keep
-# byte-aligned with the SKILL's Phase 4.3 branch.
+# resolver matrix above feeding `ready_for_review` into this guard).
 ips_publishes() {
   [ "$1" = "draft" ] && { printf 'draft\n'; return; }
   printf 'publish\n'
@@ -482,6 +494,25 @@ assert_eq "implement_pr_state gate: 'draft' → leave draft"             "draft"
 assert_eq "implement_pr_state gate: 'ready_for_review' → publish"      "publish" "$(ips_publishes ready_for_review)"
 assert_eq "implement_pr_state gate: empty string → publish"           "publish" "$(ips_publishes '')"
 assert_eq "implement_pr_state gate: unrecognized 'published' → publish" "publish" "$(ips_publishes published)"
+
+# End-to-end read+guard, mirroring the SKILL's full Phase 4.3 line
+# `PR_STATE=$(config-get … ready_for_review) || PR_STATE=ready_for_review` then the
+# literal-`draft` decision. This exercises the load-bearing safety property — a hard
+# resolver failure (malformed config) falls back to PUBLISH — through the real resolver,
+# which the `ips_publishes` matrix alone does not cover.
+ips_state_decision() {
+  local st
+  st="$("$CG" .devflow_implement.implement_pr_state ready_for_review "$1" 2>/dev/null)" || st=ready_for_review
+  ips_publishes "$st"
+}
+IPS_E2E="$(mktemp)"
+printf '%s' '{"devflow_implement":{"implement_pr_state":"draft"}}' > "$IPS_E2E"
+assert_eq "implement_pr_state e2e: configured draft → leave draft"        "draft"   "$(ips_state_decision "$IPS_E2E")"
+printf '%s' '{"devflow_implement":{}}' > "$IPS_E2E"
+assert_eq "implement_pr_state e2e: absent key → publish"                  "publish" "$(ips_state_decision "$IPS_E2E")"
+printf '%s' '{bad json' > "$IPS_E2E"
+assert_eq "implement_pr_state e2e: malformed config (resolver hard-fail) → publish" "publish" "$(ips_state_decision "$IPS_E2E")"
+rm -f "$IPS_E2E"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "scaffold-config.sh"

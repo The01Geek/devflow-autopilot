@@ -65,7 +65,7 @@
         "implement_pr_state": {
           "type": "string",
           "enum": ["ready_for_review", "draft"],
-          "description": "Final state of the PR a /devflow:implement run produces. 'ready_for_review' (the default) publishes the PR in Phase 4.3 (runs `gh pr ready`), exactly as before — and so triggers the cloud review (devflow-review.yml's ready_for_review event) and CI's ready_for_review listener. 'draft' leaves the PR as the draft created in Phase 3.1: the run still finalizes the workpad with Status: Complete and emits the outcome reaction, but does NOT publish, so a human publishes it on their own cadence and the cloud review + CI ready_for_review listener do not auto-fire until then. Any other value (missing key, empty string, or an unrecognized string) resolves to 'ready_for_review' — default-to-publish is the safe direction.",
+          "description": "Final state of the PR a /devflow:implement run produces. 'ready_for_review' (the default) publishes the PR in Phase 4.3 via `gh pr ready`, exactly as before. 'draft' leaves it the draft created in Phase 3.1 (the run still finalizes with Status: Complete and the outcome reaction, but does not publish, so the cloud review and CI ready_for_review listener do not auto-fire until a human publishes). Any other value — missing key, empty string, or an unrecognized string — resolves to 'ready_for_review'; default-to-publish is the safe direction. See docs/implement-skill.md for the full Phase 4.3 behavior.",
           "default": "ready_for_review"
         },
         "allowed_tools": {

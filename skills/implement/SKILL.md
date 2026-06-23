@@ -88,7 +88,7 @@ The always-visible region (marker line, header, `Status`, links, `## Progress`, 
   - [ ] `review-and-fix`
   - [ ] acceptance-criteria gate
 - [ ] **Documentation**
-- [ ] **PR marked ready**
+- [ ] **PR finalized** (published, or left a draft per `implement_pr_state`)
 
 ## Plan
 - [ ] {step}
@@ -885,42 +885,41 @@ git status --porcelain
 
 If it is non-empty, **do not** finalize yet. The run began from a clean base-branch checkout (`origin/` + the configured `base_branch`), so anything dirty here is this run's own work an earlier phase failed to commit. Commit the part that belongs to this PR with the right prefix (`feat:`/`fix:`/`docs:`/`chore:`) and push, and record in `Devflow Reflection` which phase under-committed — surface the gap, don't paper over it. Surface (do not blindly `git add`) any unexpected untracked file. When the tree is already clean this is a no-op — create no empty commit.
 
-**Publish decision — `implement_pr_state`.** Whether the run publishes the PR or leaves it the draft created in Phase 3.1 is a per-consumer config choice. Read it (default `ready_for_review`), then publish **only** when it is not the exact literal `draft` — default-to-publish is the safe direction, so a missing key, empty string, or any unrecognized value publishes, and a hard read failure (malformed config) falls back to publishing:
+**Publish decision — `implement_pr_state`.** Whether the run publishes the PR or leaves it the draft created in Phase 3.1 is a per-consumer config choice. Read it (default `ready_for_review`), then publish **only** when it is not the exact literal `draft` — default-to-publish is the safe direction, so a missing key, empty string, or any unrecognized value publishes, and a hard read failure (malformed config) falls back to publishing. **Capture whether `gh pr ready` actually succeeded** so the finalize wording reflects the *real* end state — a bare `gh pr ready` whose failure (auth scope, GitHub 5xx, rate limit, a race that already merged/closed the PR) fell through would otherwise leave the workpad falsely claiming the PR was published when it is still a draft:
 
 ```bash
 PR_STATE=$(${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .devflow_implement.implement_pr_state ready_for_review) || PR_STATE=ready_for_review
+PR_OUTCOME=draft   # one of: draft | published | publish_failed
 if [ "$PR_STATE" = "draft" ]; then
     echo "devflow: implement_pr_state=draft — leaving PR as a draft (skipping gh pr ready)" >&2
+elif gh pr ready; then
+    PR_OUTCOME=published
 else
-    gh pr ready
+    PR_OUTCOME=publish_failed
+    echo "devflow: gh pr ready FAILED — PR is still a draft despite implement_pr_state=$PR_STATE; do NOT finalize the workpad as 'marked ready'" >&2
 fi
 ```
 
 When `PR_STATE` is `draft` the PR is **left as the draft** from Phase 3.1: no `gh pr ready`, and **no additional comment** is posted to the PR thread. The downstream consequence is documented in [`docs/implement-skill.md`](../../docs/implement-skill.md) — the cloud review (`devflow-review.yml`'s `ready_for_review` event) and CI's `ready_for_review` listener do not auto-fire until a human publishes the PR.
 
-Then finalize the workpad in one call — tick the final `## Progress` item and flip `Status` to `Complete` (the helper swaps the glyph to 🎉) in **both** cases; only the `--note` wording differs so it never falsely claims the PR was marked ready. When `PR_STATE` is `draft`:
+Then finalize the workpad in one call — tick the final `## Progress` item and flip `Status` to `Complete` (the helper swaps the glyph to 🎉) in **every** case; only the `--note` wording differs, and on a publish failure a `--reflection` is added, so the workpad never falsely claims a PR was published. Pick the `--note` by `PR_OUTCOME`:
+
+- **`PR_OUTCOME=draft`** → `--note "/devflow:implement run finished, PR left as draft per implement_pr_state=draft: <PR_URL>"`
+- **`PR_OUTCOME=published`** → `--note "/devflow:implement run finished, PR published (gh pr ready): <PR_URL>"`
+- **`PR_OUTCOME=publish_failed`** → `--note "/devflow:implement run finished, but gh pr ready FAILED — PR is still a draft: <PR_URL>"` **and** add `--reflection "gh pr ready failed at Phase 4.3 — PR left unpublished despite implement_pr_state=$PR_STATE; publish it manually (gh pr ready) so the cloud review and CI ready_for_review listener fire"`.
 
 ```bash
+# Substitute the PR_OUTCOME-specific --note (and, for publish_failed, the extra --reflection) above.
 workpad.py update $ISSUE_NUMBER \
     --status Complete \
-    --tick-progress "PR marked ready" \
-    --note "/devflow:implement run finished, PR left as draft per implement_pr_state=draft: <PR_URL>" \
+    --tick-progress "PR finalized" \
+    --note "{PR_OUTCOME-specific note above}" \
     [--reflection "{noteworthy event}" ...repeat per event]
 ```
 
-Otherwise (the default publish path):
+Add one `--reflection` flag per noteworthy event a human should know for troubleshooting: a failed step that was skipped, a subagent that returned no useful output, a permission denial, a test you couldn't run, an ambiguity you resolved with an assumption, or any deviation from the planned flow (the `publish_failed` reflection above is one such event). `--reflection` is repeatable so all events land in a single atomic update. (No separate "Notes from /devflow:implement run" comment is posted — the workpad replaces it.)
 
-```bash
-workpad.py update $ISSUE_NUMBER \
-    --status Complete \
-    --tick-progress "PR marked ready" \
-    --note "/devflow:implement run finished, PR marked ready: <PR_URL>" \
-    [--reflection "{noteworthy event}" ...repeat per event]
-```
-
-Add one `--reflection` flag per noteworthy event a human should know for troubleshooting: a failed step that was skipped, a subagent that returned no useful output, a permission denial, a test you couldn't run, an ambiguity you resolved with an assumption, or any deviation from the planned flow. `--reflection` is repeatable so all events land in a single atomic update. (No separate "Notes from /devflow:implement run" comment is posted — the workpad replaces it.)
-
-Finally, emit the 🎉 outcome reaction on the triggering comment (`REACTION=hooray`; see *Outcome reaction* in the Workpad Reference) in both cases — the run completed regardless of the publish decision — then output the PR URL and a one- or two-line summary of what was accomplished (note whether the PR was published or left a draft).
+Finally, emit the 🎉 outcome reaction on the triggering comment (`REACTION=hooray`; see *Outcome reaction* in the Workpad Reference) — the implement lifecycle completed regardless of the publish decision (`draft`, `published`, or `publish_failed`; the publish failure is surfaced via the `--reflection` above, not by suppressing the reaction) — then output the PR URL and a one- or two-line summary of what was accomplished (state whether the PR was published, left a draft, or whether `gh pr ready` failed).
 
 ---
 
