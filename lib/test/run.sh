@@ -515,28 +515,43 @@ printf '%s' '{bad json' > "$IPS_E2E"
 assert_eq "implement_pr_state e2e: malformed config (resolver hard-fail) → publish" "publish" "$(ips_state_decision "$IPS_E2E")"
 rm -f "$IPS_E2E"
 
-# Three-way outcome guard. The SKILL's gate is NOT two-way (draft/publish): the publish
-# arm splits on `gh pr ready`'s exit into `published` vs `publish_failed`, and the
-# publish_failed capture (the workpad never falsely claims a PR was published on a
-# `gh pr ready` failure) is the headline correctness property of this change. Mirror the
-# full elif chain so a refactor that dropped the `else` arm (reverting to a bare
-# failure-swallowing `gh pr ready`) is caught here. $1 = PR_STATE, $2 = simulated
-# `gh pr ready` exit (0 ok / non-0 failure).
+# Outcome guard mirroring the SKILL's FOUR-arm Phase 4.3 chain:
+#   1. PR_STATE=draft                          → draft (no gh pr ready)
+#   2. gh pr ready succeeds                     → published
+#   3. gh pr ready fails BUT PR is non-draft    → published (idempotent re-run: gh pr ready
+#                                                 returns non-zero on an already-ready PR)
+#   4. else (still draft, or state unknown)     → publish_failed (fail-safe direction)
+# The publish_failed capture (the workpad never falsely claims a PR was published on a
+# `gh pr ready` failure) and the idempotent arm (a re-run of an already-published PR is
+# NOT a failure) are the headline correctness properties of this change. Modelling all
+# four arms here — plus the token pins below for the idempotent re-check command and
+# breadcrumb — means a refactor that dropped the `else` arm OR the idempotent arm is
+# caught. $1 = PR_STATE, $2 = simulated `gh pr ready` exit (0 ok / non-0), $3 = simulated
+# `isDraft` re-check result ("true"/"false"/"" when the re-check itself errored).
 ips_outcome() {
   [ "$1" = "draft" ] && { printf 'draft\n'; return; }
-  if [ "${2:-0}" -eq 0 ]; then printf 'published\n'; else printf 'publish_failed\n'; fi
+  if [ "${2:-0}" -eq 0 ]; then printf 'published\n'; return; fi
+  [ "${3:-}" = "false" ] && { printf 'published\n'; return; }   # gh failed but PR already non-draft
+  printf 'publish_failed\n'                                     # still draft, or state unconfirmed
 }
-assert_eq "implement_pr_state outcome: draft → draft (no gh pr ready)"             "draft"          "$(ips_outcome draft 0)"
-assert_eq "implement_pr_state outcome: publish + gh pr ready ok → published"       "published"      "$(ips_outcome ready_for_review 0)"
-assert_eq "implement_pr_state outcome: publish + gh pr ready fails → publish_failed" "publish_failed" "$(ips_outcome ready_for_review 1)"
+assert_eq "implement_pr_state outcome: draft → draft (no gh pr ready)"                  "draft"          "$(ips_outcome draft 0)"
+assert_eq "implement_pr_state outcome: publish + gh pr ready ok → published"            "published"      "$(ips_outcome ready_for_review 0)"
+assert_eq "implement_pr_state outcome: gh fails + PR still draft → publish_failed"      "publish_failed" "$(ips_outcome ready_for_review 1 true)"
+assert_eq "implement_pr_state outcome: gh fails + PR already non-draft → published (idempotent)" "published" "$(ips_outcome ready_for_review 1 false)"
+assert_eq "implement_pr_state outcome: gh fails + state unconfirmed (re-check errored) → publish_failed (fail-safe)" "publish_failed" "$(ips_outcome ready_for_review 1 '')"
 
-# Token pins for the publish_failed failure-capture branch and the outcome-specific
-# finalize wording — the prior pass pinned only the draft note (`left as draft`), leaving
-# the load-bearing "never falsely claim published" path uncovered.
+# Token pins for the publish_failed failure-capture branch, the idempotent re-run arm, and
+# the outcome-specific finalize wording — the prior pass pinned only the draft note
+# (`left as draft`), leaving the load-bearing "never falsely claim published" path and the
+# idempotent re-check uncovered (a refactor dropping the isDraft arm would stay green).
 assert_eq "implement_pr_state: SKILL captures the publish_failed outcome (gh pr ready failure not swallowed)" "yes" \
   "$(grep -qF 'PR_OUTCOME=publish_failed' "$IMPL_SKILL" && echo yes || echo no)"
 assert_eq "implement_pr_state: SKILL leaves a gh-pr-ready failure breadcrumb" "yes" \
   "$(grep -qF 'gh pr ready FAILED' "$IMPL_SKILL" && echo yes || echo no)"
+assert_eq "implement_pr_state: SKILL keeps the idempotent already-non-draft re-check" "yes" \
+  "$(grep -qF 'gh pr view --json isDraft' "$IMPL_SKILL" && echo yes || echo no)"
+assert_eq "implement_pr_state: SKILL labels the idempotent re-run breadcrumb" "yes" \
+  "$(grep -qF 'idempotent re-run' "$IMPL_SKILL" && echo yes || echo no)"
 assert_eq "implement_pr_state: SKILL has a distinct published-outcome note" "yes" \
   "$(grep -qF 'PR published (gh pr ready)' "$IMPL_SKILL" && echo yes || echo no)"
 assert_eq "implement_pr_state: draft case posts no extra PR-thread comment (AC7)" "yes" \

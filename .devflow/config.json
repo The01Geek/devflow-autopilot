@@ -39,7 +39,7 @@
     "enabled": true,
     "retrospective_model": "claude-opus-4-8",
     "audit_model": "claude-opus-4-8",
-    "implementation_branch_prefix": "claude/",
+    "implementation_branch_prefix": "",
     "min_occurrences": 2,
     "cooldown_days": 3,
     "max_prs_per_run": 500

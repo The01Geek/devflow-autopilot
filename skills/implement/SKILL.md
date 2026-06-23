@@ -889,21 +889,24 @@ If it is non-empty, **do not** finalize yet. The run began from a clean base-bra
 
 ```bash
 PR_STATE=$(${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .devflow_implement.implement_pr_state ready_for_review) || PR_STATE=ready_for_review
-PR_OUTCOME=draft   # one of: draft | published | publish_failed
+PR_OUTCOME=draft   # one of: draft | published | publish_failed (overwritten below unless PR_STATE=draft)
 if [ "$PR_STATE" = "draft" ]; then
     echo "devflow: implement_pr_state=draft — leaving PR as a draft (skipping gh pr ready)" >&2
 elif gh pr ready; then
     PR_OUTCOME=published
 elif [ "$(gh pr view --json isDraft --jq '.isDraft' 2>/dev/null)" = "false" ]; then
-    # `gh pr ready` exited non-zero but the PR is NOT a draft — the benign already-ready
-    # case (a Phase 4.3 re-run after context recovery; `gh pr ready` on a non-draft PR
-    # returns non-zero). Treat as published, not a failure, so a re-run doesn't emit a
-    # spurious "publish failed" reflection contradicting reality.
+    # `gh pr ready` exited non-zero but the PR is NOT a draft — `gh pr ready` returns
+    # non-zero on any non-draft PR, so this is the already-ready case (a Phase 4.3 re-run
+    # after context recovery, or a PR a human/race already published). Treat as published,
+    # not a failure, so a re-run doesn't emit a spurious "publish failed" reflection
+    # contradicting reality. The check fails SAFE: if `gh pr view` itself errors (auth,
+    # 5xx, PR deleted by a race), the substitution is empty, `!= "false"`, so it falls to
+    # the else arm → publish_failed, the conservative direction.
     PR_OUTCOME=published
     echo "devflow: gh pr ready returned non-zero but PR is already non-draft — treating as published (idempotent re-run)" >&2
 else
     PR_OUTCOME=publish_failed
-    echo "devflow: gh pr ready FAILED — PR is still a draft despite implement_pr_state=$PR_STATE; do NOT finalize the workpad as 'marked ready'" >&2
+    echo "devflow: gh pr ready FAILED — PR is still a draft, or its state could not be confirmed (implement_pr_state=$PR_STATE); do NOT finalize the workpad as 'marked ready'" >&2
 fi
 ```
 
