@@ -875,21 +875,41 @@ gh pr view --json body --jq '.body' | grep -q "Work in progress — automated re
 ```
 
 
-### 4.3 Mark PR as Ready and Finalize Workpad
+### 4.3 Finalize the PR (publish or leave draft) and Finalize Workpad
 
-**Clean-tree backstop (before marking ready).** Assert nothing uncommitted reaches `gh pr ready`:
+**Clean-tree backstop (always, before the publish decision).** Assert nothing uncommitted survives the run — this runs **unconditionally**, independent of whether the PR will be published or left a draft:
 
 ```bash
 git status --porcelain
 ```
 
-If it is non-empty, **do not** mark the PR ready yet. The run began from a clean base-branch checkout (`origin/` + the configured `base_branch`), so anything dirty here is this run's own work an earlier phase failed to commit. Commit the part that belongs to this PR with the right prefix (`feat:`/`fix:`/`docs:`/`chore:`) and push, and record in `Devflow Reflection` which phase under-committed — surface the gap, don't paper over it. Surface (do not blindly `git add`) any unexpected untracked file. When the tree is already clean this is a no-op — create no empty commit. Only then:
+If it is non-empty, **do not** finalize yet. The run began from a clean base-branch checkout (`origin/` + the configured `base_branch`), so anything dirty here is this run's own work an earlier phase failed to commit. Commit the part that belongs to this PR with the right prefix (`feat:`/`fix:`/`docs:`/`chore:`) and push, and record in `Devflow Reflection` which phase under-committed — surface the gap, don't paper over it. Surface (do not blindly `git add`) any unexpected untracked file. When the tree is already clean this is a no-op — create no empty commit.
+
+**Publish decision — `implement_pr_state`.** Whether the run publishes the PR or leaves it the draft created in Phase 3.1 is a per-consumer config choice. Read it (default `ready_for_review`), then publish **only** when it is not the exact literal `draft` — default-to-publish is the safe direction, so a missing key, empty string, or any unrecognized value publishes, and a hard read failure (malformed config) falls back to publishing:
 
 ```bash
-gh pr ready
+PR_STATE=$(${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .devflow_implement.implement_pr_state ready_for_review) || PR_STATE=""
+[ -n "$PR_STATE" ] || PR_STATE=ready_for_review
+if [ "$PR_STATE" = "draft" ]; then
+    echo "devflow: implement_pr_state=draft — leaving PR as a draft (skipping gh pr ready)" >&2
+else
+    gh pr ready
+fi
 ```
 
-Then finalize the workpad in one call — tick the final `## Progress` item and flip `Status` to `Complete` (the helper swaps the glyph to 🎉):
+When `PR_STATE` is `draft` the PR is **left as the draft** from Phase 3.1: no `gh pr ready`, and **no additional comment** is posted to the PR thread. The downstream consequence is documented in [`docs/implement-skill.md`](../../docs/implement-skill.md) — the cloud review (`devflow-review.yml`'s `ready_for_review` event) and CI's `ready_for_review` listener do not auto-fire until a human publishes the PR.
+
+Then finalize the workpad in one call — tick the final `## Progress` item and flip `Status` to `Complete` (the helper swaps the glyph to 🎉) in **both** cases; only the `--note` wording differs so it never falsely claims the PR was marked ready. When `PR_STATE` is `draft`:
+
+```bash
+workpad.py update $ISSUE_NUMBER \
+    --status Complete \
+    --tick-progress "PR marked ready" \
+    --note "/devflow:implement run finished, PR left as draft per implement_pr_state=draft: <PR_URL>" \
+    [--reflection "{noteworthy event}" ...repeat per event]
+```
+
+Otherwise (the default publish path):
 
 ```bash
 workpad.py update $ISSUE_NUMBER \
@@ -901,7 +921,7 @@ workpad.py update $ISSUE_NUMBER \
 
 Add one `--reflection` flag per noteworthy event a human should know for troubleshooting: a failed step that was skipped, a subagent that returned no useful output, a permission denial, a test you couldn't run, an ambiguity you resolved with an assumption, or any deviation from the planned flow. `--reflection` is repeatable so all events land in a single atomic update. (No separate "Notes from /devflow:implement run" comment is posted — the workpad replaces it.)
 
-Finally, emit the 🎉 outcome reaction on the triggering comment (`REACTION=hooray`; see *Outcome reaction* in the Workpad Reference), then output the PR URL and a one- or two-line summary of what was accomplished.
+Finally, emit the 🎉 outcome reaction on the triggering comment (`REACTION=hooray`; see *Outcome reaction* in the Workpad Reference) in both cases — the run completed regardless of the publish decision — then output the PR URL and a one- or two-line summary of what was accomplished (note whether the PR was published or left a draft).
 
 ---
 
@@ -912,11 +932,11 @@ Before reporting completion, verify ALL phases executed:
 - Phase 1: issue fetched; workpad created before the branch with run link, `## Progress` checklist, and Acceptance Criteria mirrored; branch exists and the workpad `Branch` line filled; Setup ticked
 - Phase 2: reproduction signal recorded for `bug`-labelled issues; if the issue spans multiple PRs, the 2.2.5 scope-adjustment was applied and the Acceptance Criteria section holds only in-scope items; the 2.3.0 changed-contract and 2.3.4 boundary-assumption sweeps both ran over the diff, each cross-boundary claim verified or routed to `(post-merge)`; code committed and pushed
 - Phase 3: draft PR created; `/simplify` ran; `/devflow:review-and-fix` ran; acceptance-criteria gate passed (PR still draft)
-- Phase 4: follow-up issue(s) filed in 4.0 for any 2.2.5-deferred criteria; follow-up issue(s) filed in 4.0.5 and the manifest hydrated if /devflow:review-and-fix emitted a deferrals manifest; docs updated and the `Documented` label applied; PR description generated via `/pr-description`; working tree asserted clean (4.3 backstop) and any remainder committed; PR marked ready; every applicable `## Progress` item ticked; workpad finalized with `Status: Complete` (🎉) and the 🎉 outcome reaction emitted on the triggering comment
+- Phase 4: follow-up issue(s) filed in 4.0 for any 2.2.5-deferred criteria; follow-up issue(s) filed in 4.0.5 and the manifest hydrated if /devflow:review-and-fix emitted a deferrals manifest; docs updated and the `Documented` label applied; PR description generated via `/pr-description`; working tree asserted clean (4.3 backstop, runs in both publish and draft cases) and any remainder committed; PR published via `gh pr ready` **unless** `devflow_implement.implement_pr_state` is `draft` (then left as the Phase 3.1 draft, with no extra PR-thread comment); every applicable `## Progress` item ticked; workpad finalized with `Status: Complete` (🎉) — draft-aware `--note` wording — and the 🎉 outcome reaction emitted on the triggering comment
 
 Verify each `Status` PATCH actually landed at the time it was issued (see the Update protocol's "Always verify a PATCH that changes `Status` actually landed" rule). If a phase was skipped or a `Status` PATCH didn't land, go back and complete it now. In particular:
 
-- **Do not stop after the PR is created or after review approves** — the PR stays a draft until Phase 4.3.
+- **Do not stop after the PR is created or after review approves** — the PR stays a draft until Phase 4.3, which then publishes it (or, when `implement_pr_state` is `draft`, deliberately leaves it a draft after still finalizing the workpad and reaction).
 - **Do not stop because acceptance criteria are unchecked when the issue itself is multi-PR** — apply the 2.2.5 scope-adjustment rule first, then re-run the gate. The "Status: Blocked, stop the run" path in Phase 3.4 is only for genuinely-failing in-scope criteria, never for scope mismatches.
 
 ---

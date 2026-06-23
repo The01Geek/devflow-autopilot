@@ -408,6 +408,82 @@ assert_eq "base_branch guard: empty read (rc 0) → main"            "main"    "
 assert_eq "base_branch guard: hard-failure read (rc≠0, empty) → main" "main" "$(base_guard '' 2)"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "devflow_implement.implement_pr_state (schema + resolution + Phase 4.3 gate)"
+# ────────────────────────────────────────────────────────────────────────────
+# implement_pr_state gates whether /devflow:implement Phase 4.3 publishes the PR
+# (runs `gh pr ready`) or leaves it the draft created in Phase 3.1. The resolution
+# boundary is config-get.sh (a deterministic string), so it is unit-testable here;
+# the Phase 4.3 prose change (whether `gh pr ready` runs) is non-executable skill
+# instructions, pinned below by token + an executable publish-decision guard that
+# mirrors the SKILL's single literal-`draft` comparison. Default-to-publish is the
+# safe direction: only the exact literal `draft` suppresses publishing.
+IPS_SCHEMA="$LIB/../.devflow/config.schema.json"
+IPS_EXAMPLE="$LIB/../.devflow/config.example.json"
+IPS_PROP='.properties.devflow_implement.properties.implement_pr_state'
+assert_eq "implement_pr_state: schema type is string" "string" \
+  "$(jq -r "$IPS_PROP.type" "$IPS_SCHEMA")"
+assert_eq "implement_pr_state: schema enum is [ready_for_review, draft]" "ready_for_review,draft" \
+  "$(jq -r "$IPS_PROP.enum | join(\",\")" "$IPS_SCHEMA")"
+assert_eq "implement_pr_state: schema default is ready_for_review" "ready_for_review" \
+  "$(jq -r "$IPS_PROP.default" "$IPS_SCHEMA")"
+assert_eq "implement_pr_state: schema has a non-empty description" "yes" \
+  "$(jq -e "$IPS_PROP.description | type == \"string\" and (length > 0)" "$IPS_SCHEMA" >/dev/null && echo yes || echo no)"
+assert_eq "implement_pr_state: example value matches schema default" \
+  "$(jq -r "$IPS_PROP.default" "$IPS_SCHEMA")" \
+  "$(jq -r '.devflow_implement.implement_pr_state' "$IPS_EXAMPLE")"
+
+# Resolver-read behavior (the string the SKILL's Phase 4.3 reads). config-get maps an
+# absent key OR an empty-string value to the supplied default (ready_for_review); any
+# other value is returned verbatim and the SKILL treats non-`draft` as publish.
+IPS_CFG="$(mktemp)"
+printf '%s' '{"devflow_implement":{"implement_pr_state":"draft"}}' > "$IPS_CFG"
+assert_eq "implement_pr_state: configured 'draft' read back verbatim" "draft" \
+  "$("$CG" .devflow_implement.implement_pr_state ready_for_review "$IPS_CFG")"
+printf '%s' '{"devflow_implement":{"implement_pr_state":"ready_for_review"}}' > "$IPS_CFG"
+assert_eq "implement_pr_state: configured 'ready_for_review' read back verbatim" "ready_for_review" \
+  "$("$CG" .devflow_implement.implement_pr_state ready_for_review "$IPS_CFG")"
+printf '%s' '{"devflow_implement":{}}' > "$IPS_CFG"
+assert_eq "implement_pr_state: absent key → resolver default ready_for_review" "ready_for_review" \
+  "$("$CG" .devflow_implement.implement_pr_state ready_for_review "$IPS_CFG")"
+printf '%s' '{"devflow_implement":{"implement_pr_state":""}}' > "$IPS_CFG"
+assert_eq "implement_pr_state: empty-string value → resolver default ready_for_review" "ready_for_review" \
+  "$("$CG" .devflow_implement.implement_pr_state ready_for_review "$IPS_CFG")"
+printf '%s' '{"devflow_implement":{"implement_pr_state":"published"}}' > "$IPS_CFG"
+assert_eq "implement_pr_state: unrecognized value read back verbatim (SKILL treats as publish)" "published" \
+  "$("$CG" .devflow_implement.implement_pr_state ready_for_review "$IPS_CFG")"
+assert_eq "implement_pr_state: missing config file → resolver default ready_for_review" "ready_for_review" \
+  "$("$CG" .devflow_implement.implement_pr_state ready_for_review /no/such/config.json)"
+rm -f "$IPS_CFG"
+
+# SKILL Phase 4.3 token pins: the gate is one piece of load-bearing inline bash in
+# implement/SKILL.md. Pin the tokens so a refactor that drops them fails here rather
+# than silently always-publishing (or always-drafting).
+assert_eq "implement_pr_state: SKILL reads via config-get with the ready_for_review default" "yes" \
+  "$(grep -qF 'config-get.sh .devflow_implement.implement_pr_state ready_for_review' "$IMPL_SKILL" && echo yes || echo no)"
+assert_eq "implement_pr_state: SKILL gates publish on the literal draft" "yes" \
+  "$(grep -qF '[ "$PR_STATE" = "draft" ]' "$IMPL_SKILL" && echo yes || echo no)"
+assert_eq "implement_pr_state: SKILL still runs gh pr ready (guarded, not removed)" "yes" \
+  "$(grep -qF 'gh pr ready' "$IMPL_SKILL" && echo yes || echo no)"
+assert_eq "implement_pr_state: SKILL keeps the clean-tree backstop above the gate" "yes" \
+  "$(grep -qF 'git status --porcelain' "$IMPL_SKILL" && echo yes || echo no)"
+assert_eq "implement_pr_state: SKILL has draft-aware finalize wording" "yes" \
+  "$(grep -qF 'left as draft' "$IMPL_SKILL" && echo yes || echo no)"
+
+# Executable publish-decision guard — mirrors the SKILL's single literal-`draft`
+# comparison so the dry-trace matrix {draft, ready_for_review, "", published, default}
+# is exercised as behavior, not just asserted as prose. Keep byte-aligned with the
+# SKILL's Phase 4.3 branch.
+ips_publishes() {
+  [ "$1" = "draft" ] && { printf 'draft\n'; return; }
+  printf 'publish\n'
+}
+assert_eq "implement_pr_state gate: 'draft' → leave draft"             "draft"   "$(ips_publishes draft)"
+assert_eq "implement_pr_state gate: 'ready_for_review' → publish"      "publish" "$(ips_publishes ready_for_review)"
+assert_eq "implement_pr_state gate: empty string → publish"           "publish" "$(ips_publishes '')"
+assert_eq "implement_pr_state gate: unrecognized 'published' → publish" "publish" "$(ips_publishes published)"
+assert_eq "implement_pr_state gate: default ready_for_review → publish" "publish" "$(ips_publishes ready_for_review)"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "scaffold-config.sh"
 # ────────────────────────────────────────────────────────────────────────────
 # Single shared scaffolder used by BOTH install.sh and the /devflow:init skill.

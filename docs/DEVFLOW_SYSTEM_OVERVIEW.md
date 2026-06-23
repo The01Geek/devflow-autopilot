@@ -249,7 +249,7 @@ DevFlow maintains **exactly one** marker-tagged comment on the GitHub issue for 
 - **4.0.5** Merge all run-scoped deferral manifests into one slug-level aggregate, then file **one follow-up issue per source file** (via `scripts/file-deferrals.py`) for review findings deliberately deferred during the fix loop.
 - **4.1** Update internal + external docs + release notes (via the `/devflow:docs` subagent); commit (`docs:`); apply configured labels (default `Documented`).
 - **4.2** Generate the PR description (`/devflow:pr-description`).
-- **4.3** Mark the PR **ready** (`gh pr ready`); set status `Complete`; emit the 🎉 reaction.
+- **4.3** Publish the PR (`gh pr ready`) — unless `devflow_implement.implement_pr_state` is `draft`, which leaves it the Phase 3.1 draft for a human to publish; set status `Complete`; emit the 🎉 reaction (both cases).
 
 ---
 
