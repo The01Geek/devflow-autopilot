@@ -888,8 +888,7 @@ If it is non-empty, **do not** finalize yet. The run began from a clean base-bra
 **Publish decision — `implement_pr_state`.** Whether the run publishes the PR or leaves it the draft created in Phase 3.1 is a per-consumer config choice. Read it (default `ready_for_review`), then publish **only** when it is not the exact literal `draft` — default-to-publish is the safe direction, so a missing key, empty string, or any unrecognized value publishes, and a hard read failure (malformed config) falls back to publishing:
 
 ```bash
-PR_STATE=$(${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .devflow_implement.implement_pr_state ready_for_review) || PR_STATE=""
-[ -n "$PR_STATE" ] || PR_STATE=ready_for_review
+PR_STATE=$(${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .devflow_implement.implement_pr_state ready_for_review) || PR_STATE=ready_for_review
 if [ "$PR_STATE" = "draft" ]; then
     echo "devflow: implement_pr_state=draft — leaving PR as a draft (skipping gh pr ready)" >&2
 else

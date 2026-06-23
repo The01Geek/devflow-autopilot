@@ -470,9 +470,10 @@ assert_eq "implement_pr_state: SKILL has draft-aware finalize wording" "yes" \
   "$(grep -qF 'left as draft' "$IMPL_SKILL" && echo yes || echo no)"
 
 # Executable publish-decision guard — mirrors the SKILL's single literal-`draft`
-# comparison so the dry-trace matrix {draft, ready_for_review, "", published, default}
-# is exercised as behavior, not just asserted as prose. Keep byte-aligned with the
-# SKILL's Phase 4.3 branch.
+# comparison so the dry-trace matrix {draft, ready_for_review, "", published} is
+# exercised as behavior, not just asserted as prose (the absent/default row is the
+# resolver matrix above feeding `ready_for_review` into this guard). Keep
+# byte-aligned with the SKILL's Phase 4.3 branch.
 ips_publishes() {
   [ "$1" = "draft" ] && { printf 'draft\n'; return; }
   printf 'publish\n'
@@ -481,7 +482,6 @@ assert_eq "implement_pr_state gate: 'draft' → leave draft"             "draft"
 assert_eq "implement_pr_state gate: 'ready_for_review' → publish"      "publish" "$(ips_publishes ready_for_review)"
 assert_eq "implement_pr_state gate: empty string → publish"           "publish" "$(ips_publishes '')"
 assert_eq "implement_pr_state gate: unrecognized 'published' → publish" "publish" "$(ips_publishes published)"
-assert_eq "implement_pr_state gate: default ready_for_review → publish" "publish" "$(ips_publishes ready_for_review)"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "scaffold-config.sh"
