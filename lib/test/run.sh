@@ -408,6 +408,187 @@ assert_eq "base_branch guard: empty read (rc 0) → main"            "main"    "
 assert_eq "base_branch guard: hard-failure read (rc≠0, empty) → main" "main" "$(base_guard '' 2)"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "devflow_implement.implement_pr_state (schema + resolution + Phase 4.3 gate)"
+# ────────────────────────────────────────────────────────────────────────────
+# implement_pr_state gates whether /devflow:implement Phase 4.3 publishes the PR
+# (runs `gh pr ready`) or leaves it the draft created in Phase 3.1. The resolution
+# boundary is config-get.sh (a deterministic string), so it is unit-testable here;
+# the Phase 4.3 prose change (whether `gh pr ready` runs) is non-executable skill
+# instructions, pinned below by token + an executable publish-decision guard that
+# mirrors the SKILL's single literal-`draft` comparison. Default-to-publish is the
+# safe direction: only the exact literal `draft` suppresses publishing.
+IPS_SCHEMA="$LIB/../.devflow/config.schema.json"
+IPS_EXAMPLE="$LIB/../.devflow/config.example.json"
+IPS_PROP='.properties.devflow_implement.properties.implement_pr_state'
+assert_eq "implement_pr_state: schema type is string" "string" \
+  "$(jq -r "$IPS_PROP.type" "$IPS_SCHEMA")"
+assert_eq "implement_pr_state: schema enum is [ready_for_review, draft]" "ready_for_review,draft" \
+  "$(jq -r "$IPS_PROP.enum | join(\",\")" "$IPS_SCHEMA")"
+assert_eq "implement_pr_state: schema default is ready_for_review" "ready_for_review" \
+  "$(jq -r "$IPS_PROP.default" "$IPS_SCHEMA")"
+assert_eq "implement_pr_state: schema has a non-empty description" "yes" \
+  "$(jq -e "$IPS_PROP.description | type == \"string\" and (length > 0)" "$IPS_SCHEMA" >/dev/null && echo yes || echo no)"
+assert_eq "implement_pr_state: example value matches schema default" \
+  "$(jq -r "$IPS_PROP.default" "$IPS_SCHEMA")" \
+  "$(jq -r '.devflow_implement.implement_pr_state' "$IPS_EXAMPLE")"
+
+# Resolver-read behavior (the string the SKILL's Phase 4.3 reads). config-get maps an
+# absent key OR an empty-string value to the supplied default (ready_for_review); any
+# other value is returned verbatim and the SKILL treats non-`draft` as publish.
+IPS_CFG="$(mktemp)"
+printf '%s' '{"devflow_implement":{"implement_pr_state":"draft"}}' > "$IPS_CFG"
+assert_eq "implement_pr_state: configured 'draft' read back verbatim" "draft" \
+  "$("$CG" .devflow_implement.implement_pr_state ready_for_review "$IPS_CFG")"
+printf '%s' '{"devflow_implement":{"implement_pr_state":"ready_for_review"}}' > "$IPS_CFG"
+assert_eq "implement_pr_state: configured 'ready_for_review' read back verbatim" "ready_for_review" \
+  "$("$CG" .devflow_implement.implement_pr_state ready_for_review "$IPS_CFG")"
+printf '%s' '{"devflow_implement":{}}' > "$IPS_CFG"
+assert_eq "implement_pr_state: absent key → resolver default ready_for_review" "ready_for_review" \
+  "$("$CG" .devflow_implement.implement_pr_state ready_for_review "$IPS_CFG")"
+printf '%s' '{"devflow_implement":{"implement_pr_state":""}}' > "$IPS_CFG"
+assert_eq "implement_pr_state: empty-string value → resolver default ready_for_review" "ready_for_review" \
+  "$("$CG" .devflow_implement.implement_pr_state ready_for_review "$IPS_CFG")"
+printf '%s' '{"devflow_implement":{"implement_pr_state":"published"}}' > "$IPS_CFG"
+assert_eq "implement_pr_state: unrecognized value read back verbatim (SKILL treats as publish)" "published" \
+  "$("$CG" .devflow_implement.implement_pr_state ready_for_review "$IPS_CFG")"
+assert_eq "implement_pr_state: missing config file → resolver default ready_for_review" "ready_for_review" \
+  "$("$CG" .devflow_implement.implement_pr_state ready_for_review /no/such/config.json)"
+# Hard read failure (malformed JSON): config-get exits NON-zero with EMPTY stdout — the
+# exact contract the SKILL's `PR_STATE=$(…) || PR_STATE=ready_for_review` fallback leans
+# on. This is the headline safety property (default-to-publish on a corrupt config); pin
+# the resolver half here and the end-to-end half in the guard below.
+printf '%s' '{bad json' > "$IPS_CFG"
+IPS_OUT="$("$CG" .devflow_implement.implement_pr_state ready_for_review "$IPS_CFG" 2>/dev/null)"; IPS_RC=$?
+assert_eq "implement_pr_state: malformed config → resolver exits non-zero, empty stdout" "nonzero-empty" \
+  "$([ "$IPS_RC" -ne 0 ] && [ -z "$IPS_OUT" ] && echo nonzero-empty || echo "rc=$IPS_RC out='$IPS_OUT'")"
+rm -f "$IPS_CFG"
+
+# SKILL Phase 4.3 token pins: the gate is one piece of load-bearing inline bash in
+# implement/SKILL.md. Pin the tokens so a refactor that drops them fails here rather
+# than silently always-publishing (or always-drafting).
+assert_eq "implement_pr_state: SKILL reads via config-get with the ready_for_review default" "yes" \
+  "$(grep -qF 'config-get.sh .devflow_implement.implement_pr_state ready_for_review' "$IMPL_SKILL" && echo yes || echo no)"
+assert_eq "implement_pr_state: SKILL gates publish on the literal draft" "yes" \
+  "$(grep -qF '[ "$PR_STATE" = "draft" ]' "$IMPL_SKILL" && echo yes || echo no)"
+# Pin the *command* form, not the bare token: a plain `grep -qF 'gh pr ready'` is also
+# satisfied by the draft-branch diagnostic echo and the explanatory prose, so it would
+# stay green even if the actual publish invocation were deleted. Pin the guarded
+# `elif gh pr ready; then` so this asserts the publish command itself survives.
+assert_eq "implement_pr_state: SKILL keeps the guarded publish invocation (elif gh pr ready)" "yes" \
+  "$(grep -qF 'elif gh pr ready; then' "$IMPL_SKILL" && echo yes || echo no)"
+assert_eq "implement_pr_state: SKILL keeps the clean-tree backstop above the gate" "yes" \
+  "$(grep -qF 'git status --porcelain' "$IMPL_SKILL" && echo yes || echo no)"
+assert_eq "implement_pr_state: SKILL has draft-aware finalize wording" "yes" \
+  "$(grep -qF 'left as draft' "$IMPL_SKILL" && echo yes || echo no)"
+
+# Executable publish-decision guard — logic-equivalent to the SKILL's single literal-`draft`
+# comparison (semantically mirrors `[ "$PR_STATE" = "draft" ]`; `$1` stands in for
+# `$PR_STATE`) so the dry-trace matrix {draft, ready_for_review, "", published} is
+# exercised as behavior, not just asserted as prose (the absent/default row is the
+# resolver matrix above feeding `ready_for_review` into this guard; the publish arm's
+# success/failure split is modeled separately by `ips_outcome` below).
+ips_publishes() {
+  [ "$1" = "draft" ] && { printf 'draft\n'; return; }
+  printf 'publish\n'
+}
+assert_eq "implement_pr_state gate: 'draft' → leave draft"             "draft"   "$(ips_publishes draft)"
+assert_eq "implement_pr_state gate: 'ready_for_review' → publish"      "publish" "$(ips_publishes ready_for_review)"
+assert_eq "implement_pr_state gate: empty string → publish"           "publish" "$(ips_publishes '')"
+assert_eq "implement_pr_state gate: unrecognized 'published' → publish" "publish" "$(ips_publishes published)"
+
+# End-to-end read+guard, mirroring the SKILL's full Phase 4.3 line
+# `PR_STATE=$(config-get … ready_for_review) || PR_STATE=ready_for_review` then the
+# literal-`draft` decision. This exercises the load-bearing safety property — a hard
+# resolver failure (malformed config) falls back to PUBLISH — through the real resolver,
+# which the `ips_publishes` matrix alone does not cover.
+ips_state_decision() {
+  local st
+  st="$("$CG" .devflow_implement.implement_pr_state ready_for_review "$1" 2>/dev/null)" || st=ready_for_review
+  ips_publishes "$st"
+}
+IPS_E2E="$(mktemp)"
+printf '%s' '{"devflow_implement":{"implement_pr_state":"draft"}}' > "$IPS_E2E"
+assert_eq "implement_pr_state e2e: configured draft → leave draft"        "draft"   "$(ips_state_decision "$IPS_E2E")"
+printf '%s' '{"devflow_implement":{}}' > "$IPS_E2E"
+assert_eq "implement_pr_state e2e: absent key → publish"                  "publish" "$(ips_state_decision "$IPS_E2E")"
+printf '%s' '{bad json' > "$IPS_E2E"
+assert_eq "implement_pr_state e2e: malformed config (resolver hard-fail) → publish" "publish" "$(ips_state_decision "$IPS_E2E")"
+rm -f "$IPS_E2E"
+
+# Outcome guard mirroring the SKILL's FOUR-arm Phase 4.3 chain:
+#   1. PR_STATE=draft                          → draft (no gh pr ready)
+#   2. gh pr ready succeeds                     → published
+#   3. gh pr ready fails BUT PR is non-draft    → published (idempotent re-run: gh pr ready
+#                                                 returns non-zero on an already-ready PR)
+#   4. else (still draft, or state unknown)     → publish_failed (fail-safe direction)
+# The publish_failed capture (the workpad never falsely claims a PR was published on a
+# `gh pr ready` failure) and the idempotent arm (a re-run of an already-published PR is
+# NOT a failure) are the headline correctness properties of this change. Modelling all
+# four arms here — plus the token pins below for the idempotent re-check command and
+# breadcrumb — means a refactor that dropped the `else` arm OR the idempotent arm is
+# caught. $1 = PR_STATE, $2 = simulated `gh pr ready` exit (0 ok / non-0), $3 = simulated
+# `isDraft` re-check result ("true"/"false"/"" when the re-check itself errored).
+ips_outcome() {
+  [ "$1" = "draft" ] && { printf 'draft\n'; return; }
+  if [ "${2:-0}" -eq 0 ]; then printf 'published\n'; return; fi
+  [ "${3:-}" = "false" ] && { printf 'published\n'; return; }   # gh failed but PR already non-draft
+  printf 'publish_failed\n'                                     # still draft, or state unconfirmed
+}
+assert_eq "implement_pr_state outcome: draft → draft (no gh pr ready)"                  "draft"          "$(ips_outcome draft 0)"
+assert_eq "implement_pr_state outcome: publish + gh pr ready ok → published"            "published"      "$(ips_outcome ready_for_review 0)"
+assert_eq "implement_pr_state outcome: gh fails + PR still draft → publish_failed"      "publish_failed" "$(ips_outcome ready_for_review 1 true)"
+assert_eq "implement_pr_state outcome: gh fails + PR already non-draft → published (idempotent)" "published" "$(ips_outcome ready_for_review 1 false)"
+assert_eq "implement_pr_state outcome: gh fails + state unconfirmed (re-check errored) → publish_failed (fail-safe)" "publish_failed" "$(ips_outcome ready_for_review 1 '')"
+
+# Token pins for the publish_failed failure-capture branch, the idempotent re-run arm, and
+# the outcome-specific finalize wording — the prior pass pinned only the draft note
+# (`left as draft`), leaving the load-bearing "never falsely claim published" path and the
+# idempotent re-check uncovered (a refactor dropping the isDraft arm would stay green).
+assert_eq "implement_pr_state: SKILL captures the publish_failed outcome (gh pr ready failure not swallowed)" "yes" \
+  "$(grep -qF 'PR_OUTCOME=publish_failed' "$IMPL_SKILL" && echo yes || echo no)"
+assert_eq "implement_pr_state: SKILL leaves a gh-pr-ready failure breadcrumb" "yes" \
+  "$(grep -qF 'gh pr ready FAILED' "$IMPL_SKILL" && echo yes || echo no)"
+assert_eq "implement_pr_state: SKILL keeps the idempotent already-non-draft re-check" "yes" \
+  "$(grep -qF 'gh pr view --json isDraft' "$IMPL_SKILL" && echo yes || echo no)"
+assert_eq "implement_pr_state: SKILL labels the idempotent re-run breadcrumb" "yes" \
+  "$(grep -qF 'idempotent re-run' "$IMPL_SKILL" && echo yes || echo no)"
+# Couple the fail-safe construct: the re-check must redirect stderr (empty-on-error) AND
+# compare against the literal `= "false"` — so an unconfirmed/errored re-check (empty
+# substitution) is `!= "false"` and falls through to publish_failed (the conservative
+# direction). Pinning the two together catches a silent fail-safe inversion (e.g. someone
+# rewriting it as `!= "true"`, under which an empty result would wrongly read as published).
+assert_eq "implement_pr_state: SKILL idempotent re-check is fail-safe (2>/dev/null coupled to = \"false\")" "yes" \
+  "$(grep -qF '2>/dev/null)" = "false" ]' "$IMPL_SKILL" && echo yes || echo no)"
+assert_eq "implement_pr_state: SKILL has a distinct published-outcome note" "yes" \
+  "$(grep -qF 'PR published (gh pr ready)' "$IMPL_SKILL" && echo yes || echo no)"
+assert_eq "implement_pr_state: draft case posts no extra PR-thread comment (AC7)" "yes" \
+  "$(grep -qF 'no additional comment' "$IMPL_SKILL" && echo yes || echo no)"
+
+# Positional check: the clean-tree backstop must run ABOVE the publish gate (the diff's
+# behavioral change is that it runs unconditionally in BOTH publish and draft cases), not
+# merely be present somewhere. Assert line ordering, not bare presence.
+IPS_BACKSTOP_LN=$(grep -nF 'git status --porcelain' "$IMPL_SKILL" | head -1 | cut -d: -f1)
+IPS_GATE_LN=$(grep -nF '[ "$PR_STATE" = "draft" ]' "$IMPL_SKILL" | head -1 | cut -d: -f1)
+assert_eq "implement_pr_state: clean-tree backstop precedes the publish gate (runs in both cases)" "yes" \
+  "$([ -n "$IPS_BACKSTOP_LN" ] && [ -n "$IPS_GATE_LN" ] && [ "$IPS_BACKSTOP_LN" -lt "$IPS_GATE_LN" ] && echo yes || echo no)"
+
+# Cross-file Progress-label consistency. The Phase 4.3 finalize `--tick-progress` label
+# in implement/SKILL.md MUST match the `## Progress` row label that scripts/workpad.py
+# OWNS (its cmd_new_body template + _PROGRESS_PHASES tuple + _STATUS_TO_PROGRESS_PHASE
+# 'complete' map) — workpad.py both renders the row and ticks it by substring, so if the
+# two sides drift the finalize finds no matching unticked row and the Phase 4.3 update
+# ABORTS. (This guards the exact desync a mid-review rename of the row to "PR finalized"
+# introduced: SKILL renamed, workpad.py not.) Both sides are pinned to the same literal,
+# so renaming one without the other goes red here.
+WP_PY="$LIB/../scripts/workpad.py"
+# NB: `--` ends grep's option parsing — the pattern begins with `--tick-progress`, which
+# grep would otherwise treat as an (invalid) long option.
+assert_eq "implement finalize: SKILL ticks the workpad.py-owned 'PR marked ready' label" "yes" \
+  "$(grep -qF -- '--tick-progress "PR marked ready"' "$IMPL_SKILL" && echo yes || echo no)"
+assert_eq "implement finalize: workpad.py owns the 'PR marked ready' label (template + _PROGRESS_PHASES agree)" "yes" \
+  "$(grep -qF '**PR marked ready**' "$WP_PY" && grep -qF "'PR marked ready'" "$WP_PY" && echo yes || echo no)"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "scaffold-config.sh"
 # ────────────────────────────────────────────────────────────────────────────
 # Single shared scaffolder used by BOTH install.sh and the /devflow:init skill.

@@ -1,4 +1,4 @@
-# `/devflow:implement` skill — Phase 2.3 sweep discipline
+# `/devflow:implement` skill — Phase 2.3 sweep discipline and Phase 4.3 finalize
 
 **Skill:** `skills/implement/SKILL.md` (Phase 2.3, *Implement*)
 
@@ -71,6 +71,28 @@ wrong assumption — so a green run is not confirmation, and a test assertion *a
 itself an unverified claim. A boundary that genuinely cannot be verified in-environment is never
 asserted as true: it is recorded with a `--reflection` note and, only when a specific acceptance
 criterion's verification depends on it, retagged `(post-merge)`.
+
+## Phase 4.3 finalize: publish vs. draft (`implement_pr_state`)
+
+Phase 4.3 (*Finalize the PR and Finalize Workpad*) is where a run ends. It runs three things in order:
+
+1. **Clean-tree backstop (unconditional).** `git status --porcelain` must be empty before finalizing. The run started from a clean base-branch checkout, so anything dirty here is this run's own work an earlier phase failed to commit — it is committed with the right prefix and the under-committing phase is recorded in `Devflow Reflection`, never papered over. This runs in *both* the publish and draft cases; it is independent of the publish decision.
+2. **Publish decision.** By default the run publishes the draft PR created in Phase 3.1 by running `gh pr ready`.
+3. **Workpad finalization.** `Status` flips to `Complete` (🎉), the final `## Progress` item is ticked, and the 🎉 outcome reaction is emitted on the triggering comment — in both cases.
+
+The publish step is gated by a per-consumer config key, **`devflow_implement.implement_pr_state`** (string, read via `config-get.sh .devflow_implement.implement_pr_state ready_for_review`):
+
+| Value | Phase 4.3 behavior |
+|---|---|
+| `ready_for_review` (default) | Runs `gh pr ready` — the PR is published, exactly as before. |
+| `draft` | Skips `gh pr ready` — the PR is left as the Phase 3.1 draft. No extra comment is posted to the PR thread. The workpad `--note` wording states the PR was *left as a draft* rather than marked ready. |
+| missing / empty / any other value | Resolves to `ready_for_review` (publish). |
+
+**Default-to-publish is the safe direction**: only the exact literal `draft` suppresses publishing, so a typo'd or future value can never accidentally leave a PR unpublished, and a hard config read failure (malformed config) also falls back to publishing. Existing consumers and DevFlow's own runs — which do not set the key — are unaffected.
+
+**Downstream consequence of `draft`.** Publishing a PR is what fires the rest of the pipeline: the cloud review (`devflow-review.yml` triggers on the `ready_for_review` event) and CI's `ready_for_review` listener both key off the draft→ready transition. Choosing `draft` therefore *intentionally* suppresses those for that run until a human publishes the PR — this is the documented trade-off a consumer accepts, not a bug to be fixed. It lets maintainers of repos that adopt DevFlow keep bot-completed PRs out of the ready-for-review queue and publish them on their own cadence (after a manual look, on a release boundary, or to avoid auto-notifying reviewers).
+
+The gate lives once in `skills/implement/SKILL.md` Phase 4.3 — the skill body is shared by the local and cloud `/devflow:implement` paths, and both read the same `config.json` via `config-get.sh`, so no workflow change is needed and the logic is never forked.
 
 ## Scope boundary between Phase 2.3.2 and Phase 4.1
 

@@ -12,6 +12,7 @@
   },
   "devflow_implement": {
     "effort": "high",
+    "implement_pr_state": "ready_for_review",
     "allowed_tools": []
   },
   "devflow_runner": {
