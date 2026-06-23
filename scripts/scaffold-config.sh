@@ -145,9 +145,15 @@ else
   while IFS='|' read -r pe_skill pe_hint; do
     [ -n "$pe_skill" ] || continue
     pe_target="$EXTENSIONS_DIR/$pe_skill.md.example"
-    # Per-file backfill: never touch a file that already exists (an adopter's edited
-    # example, or a live <skill>.md they authored), only create absent .example files.
-    if [ -e "$pe_target" ]; then
+    pe_live="$EXTENSIONS_DIR/$pe_skill.md"
+    # Per-file backfill, two guards (issue #118): skip when the .example already exists
+    # (an adopter's edited example — never clobber it), AND skip when a LIVE <skill>.md
+    # already exists (the adopter activated this extension, so dropping a redundant
+    # <skill>.md.example beside it is just confusing clutter). Both are plain `continue`s,
+    # so neither introduces a command whose non-zero exit could abort the loop under
+    # `set -euo pipefail`; the live <skill>.md is read-only here (never created, modified,
+    # or deleted), and only absent .example files for un-activated skills are created.
+    if [ -e "$pe_target" ] || [ -e "$pe_live" ]; then
       continue
     fi
     # The body is itself one Markdown comment block: the first line opens `<!--`, the

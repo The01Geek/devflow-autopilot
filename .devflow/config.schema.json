@@ -235,6 +235,17 @@
         }
       }
     },
+    "deferred": {
+      "type": "object",
+      "description": "Settings for the follow-up issues /devflow:implement files for deferred work.",
+      "properties": {
+        "labels": {
+          "type": "string",
+          "description": "Comma-separated list of labels applied to the follow-up issues /devflow:implement files for deferred work — both Phase 4.0 deferred-acceptance-criteria issues and Phase 4.0.5 deferred-review-finding issues. Each entry is trimmed and empty entries are dropped, so \"DevFlow, Deferred\" applies both DevFlow and Deferred; an empty or whitespace-only value applies no labels. Labels are ensured to exist and applied best-effort after the issue is created, so a label hiccup never blocks filing. This is separate from the hardcoded `DevFlow` provenance label that retrospective detection (lib/scan.sh, lib/classify-pr-kind.jq) matches literally — only deferred-issue labeling is configurable here.",
+          "default": "DevFlow,Deferred"
+        }
+      }
+    },
     "devflow_retrospective": {
       "type": "object",
       "description": "DevFlow retrospective / self-improvement loop, consumed by the /devflow:retrospective-weekly orchestrator (a locally-run skill, not a GitHub Actions workflow).",

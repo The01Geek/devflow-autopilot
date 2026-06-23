@@ -710,7 +710,7 @@ For each logical chunk of deferred work (typically: one issue per remaining "pha
 - **No-options rule applies.** Observe the template's no-options discipline — no choice / hedge / deferral language (no "or", "could", "consider", "TBD", "for now", "(optional)") anywhere in the body. The deferred criteria are resolved decisions, so the gate is satisfied by construction; do not reintroduce hedging when describing the deferred scope.
 - **Autonomous-run adaptation.** Phase 4.0 runs inside an autonomous /devflow:implement execution with no user present, so the template's *interactive* elements do not apply: there is **no clarification round** and **no `## 🚫 Blocked` section** — the deferred criteria are already-decided acceptance criteria, so nothing is unresolved. Build the body inline here; do **not** invoke the full interactive `/devflow:create-issue` pipeline.
 - **GitHub autolink hygiene.** Applies to the follow-up issue body too — see *GitHub autolink hygiene* in the Workpad Reference.
-- **Posting rules.** Pass the body via a quoted-heredoc on stdin (`--body "$(cat <<'EOF' … EOF)"`) so backticks and `$` in the markdown are not expanded, and add **no** `--label` (labeling is handled separately by maintainers). Do **not** switch to `--body-file`. (This posting command is a deliberate, small departure from the template's own *example*, which pipes the body through `--body-file -`; only the body's section structure and writing discipline follow the template, not its exact posting command — the quoted-heredoc form keeps the no-expansion guarantee either way.)
+- **Posting rules.** Pass the body via a quoted-heredoc on stdin (`--body "$(cat <<'EOF' … EOF)"`) so backticks and `$` in the markdown are not expanded, and add **no** `--label` on the `gh issue create` call itself — the configured `deferred.labels` are applied best-effort *after* creation (see *Apply the deferred-issue labels* below), mirroring the post-creation `--add-label` idiom Phase 3.1 uses for the `DevFlow` provenance label and Phase 4.1 uses for `docs.labels`. Do **not** switch to `--body-file`. (This posting command is a deliberate, small departure from the template's own *example*, which pipes the body through `--body-file -`; only the body's section structure and writing discipline follow the template, not its exact posting command — the quoted-heredoc form keeps the no-expansion guarantee either way.)
 
 ```bash
 gh issue create \
@@ -745,6 +745,24 @@ Follow-up to #$ARGUMENTS. <Why this remaining work is needed and who hits the pa
 - **Potential Gotchas** — <constraints or pitfalls carried from the parent issue.>
 EOF
 )"
+```
+
+**Apply the deferred-issue labels.** Capture each created issue's number from its `gh issue create` output (the command prints the new issue URL; the trailing path segment is the number), then apply the configured `deferred.labels` to every filed issue. The labels are read from config (default `DevFlow,Deferred`) and normalized with the **same** split/trim/drop-empties idiom Phase 4.1 uses for `docs.labels`, so an empty or whitespace-only value applies no labels. Ensure each label exists first (best-effort), then apply them in a single `gh issue edit --add-label` per filed issue — best-effort and post-creation, so a label hiccup can never block or unwind the filing:
+
+```bash
+DEFERRED_LABELS=$(${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .deferred.labels DevFlow,Deferred)
+CLEAN_DEFERRED_LABELS=$(echo "$DEFERRED_LABELS" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' | paste -sd, -)
+if [ -n "$CLEAN_DEFERRED_LABELS" ]; then
+  # Ensure each configured label exists (best-effort; ensure-label.sh always exits 0).
+  echo "$CLEAN_DEFERRED_LABELS" | tr ',' '\n' | while IFS= read -r lbl; do
+    [ -n "$lbl" ] && ${CLAUDE_SKILL_DIR}/../../scripts/ensure-label.sh "$lbl"
+  done
+  # Apply to every issue filed above. Replace the list with the actual numbers you captured.
+  for n in $DEFERRED_ISSUE_NUMBERS; do
+    gh issue edit "$n" --add-label "$CLEAN_DEFERRED_LABELS" \
+      || echo "devflow: could not apply deferred labels to issue #$n (best-effort, continuing)" >&2
+  done
+fi
 ```
 
 Record the new issue numbers in the workpad: `workpad.py update $ISSUE_NUMBER --note "Filed follow-up issues for deferred work: #N (phase 2), #N+1 (phase 3), …"` before continuing to 4.0.5.
@@ -826,6 +844,22 @@ Record the filed issue numbers in the workpad:
 if [ -n "${FILED_NUMBERS:-}" ]; then
     NUMBERS_CSV=$(echo "$FILED_NUMBERS" | tr '\n' ',' | sed 's/,$//' | sed 's/,/, #/g')
     workpad.py update $ISSUE_NUMBER --note "Filed follow-up issues for deferred review findings: #${NUMBERS_CSV}"
+    # Apply the configured deferred.labels to each filed issue — same resolve/normalize/
+    # ensure/apply idiom as Phase 4.0 (default DevFlow,Deferred; empty/whitespace → none).
+    # `file-deferrals.py` itself stays out of config-reading (config is Node-resolver
+    # territory); the skill owns labeling. Best-effort and post-filing, so a label hiccup
+    # never unwinds an already-filed issue.
+    DEFERRED_LABELS=$(${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .deferred.labels DevFlow,Deferred)
+    CLEAN_DEFERRED_LABELS=$(echo "$DEFERRED_LABELS" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' | paste -sd, -)
+    if [ -n "$CLEAN_DEFERRED_LABELS" ]; then
+        echo "$CLEAN_DEFERRED_LABELS" | tr ',' '\n' | while IFS= read -r lbl; do
+            [ -n "$lbl" ] && ${CLAUDE_SKILL_DIR}/../../scripts/ensure-label.sh "$lbl"
+        done
+        echo "$FILED_NUMBERS" | while IFS= read -r n; do
+            [ -n "$n" ] && { gh issue edit "$n" --add-label "$CLEAN_DEFERRED_LABELS" \
+                || echo "devflow: could not apply deferred labels to issue #$n (best-effort, continuing)" >&2; }
+        done
+    fi
 fi
 ```
 

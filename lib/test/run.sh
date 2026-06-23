@@ -223,6 +223,71 @@ assert_eq "cg: invalid JSON → exit 2" "2" "$?"
 rm -f "$CG_BAD"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "deferred.labels (schema + example + resolution + normalization)"
+# ────────────────────────────────────────────────────────────────────────────
+# /devflow:implement applies deferred.labels (default DevFlow,Deferred) to the
+# follow-up issues it files in Phase 4.0 (deferred ACs) and Phase 4.0.5 (deferred
+# review findings). The value is read via config-get.sh and normalized with the same
+# split/trim/drop-empties idiom Phase 4.1 uses for docs.labels (issue #118). Pin (a)
+# the schema/example contract, (b) the resolver read, (c) the normalization logic via
+# a function kept byte-aligned with the SKILL block, and (d) drift guards on the SKILL.
+DEF_SCHEMA="$LIB/../.devflow/config.schema.json"
+DEF_EXAMPLE="$LIB/../.devflow/config.example.json"
+DEF_PROP='.properties.deferred.properties.labels'
+assert_eq "deferred.labels: schema type is string" "string" \
+  "$(jq -r "$DEF_PROP.type" "$DEF_SCHEMA")"
+assert_eq "deferred.labels: schema default is DevFlow,Deferred" "DevFlow,Deferred" \
+  "$(jq -r "$DEF_PROP.default" "$DEF_SCHEMA")"
+assert_eq "deferred.labels: schema has a non-empty description" "yes" \
+  "$(jq -e "$DEF_PROP.description | type == \"string\" and (length > 0)" "$DEF_SCHEMA" >/dev/null && echo yes || echo no)"
+assert_eq "deferred.labels: example value matches schema default" \
+  "$(jq -r "$DEF_PROP.default" "$DEF_SCHEMA")" \
+  "$(jq -r '.deferred.labels' "$DEF_EXAMPLE")"
+
+# Resolver-read behavior (the string the SKILL's Phase 4.0/4.0.5 read).
+DEF_CFG="$(mktemp)"
+printf '%s' '{"deferred":{"labels":"A,B,C"}}' > "$DEF_CFG"
+assert_eq "deferred.labels: configured value read back verbatim" "A,B,C" \
+  "$("$CG" .deferred.labels DevFlow,Deferred "$DEF_CFG")"
+printf '%s' '{}' > "$DEF_CFG"
+assert_eq "deferred.labels: unset key → resolver default DevFlow,Deferred" "DevFlow,Deferred" \
+  "$("$CG" .deferred.labels DevFlow,Deferred "$DEF_CFG")"
+assert_eq "deferred.labels: missing config file → resolver default DevFlow,Deferred" "DevFlow,Deferred" \
+  "$("$CG" .deferred.labels DevFlow,Deferred /no/such/config.json)"
+rm -f "$DEF_CFG"
+
+# The SKILL's inline normalization, applied to the resolver output above. Mirrors the
+# exact idiom in skills/implement/SKILL.md Phase 4.0/4.0.5 (and Phase 4.1 docs.labels)
+# so the trim / drop-empties / empty-value ACs are exercised, not just asserted in
+# prose. Keep byte-aligned with the SKILL block.
+deferred_labels_normalize() {
+  echo "$1" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' | paste -sd, -
+}
+assert_eq "deferred.labels normalize: default passed through"        "DevFlow,Deferred" "$(deferred_labels_normalize 'DevFlow,Deferred')"
+assert_eq "deferred.labels normalize: trims interior spaces"         "DevFlow,Deferred" "$(deferred_labels_normalize 'DevFlow, Deferred')"
+assert_eq "deferred.labels normalize: single label"                  "DevFlow"          "$(deferred_labels_normalize 'DevFlow')"
+assert_eq "deferred.labels normalize: drops empty entries"           "A,B"              "$(deferred_labels_normalize 'A, ,B,')"
+assert_eq "deferred.labels normalize: whitespace-only → empty (no labels)" ""           "$(deferred_labels_normalize ' , ')"
+assert_eq "deferred.labels normalize: empty string → empty (no labels)"    ""           "$(deferred_labels_normalize '')"
+
+# Drift guards: the label-resolution/apply bash is prompt markdown (not a script), so a
+# SKILL edit could silently drop it. Pin the load-bearing tokens in the real SKILL so a
+# regression fails here instead of shipping deferred issues unlabeled.
+DEF_SKILL="$LIB/../skills/implement/SKILL.md"
+assert_eq "deferred.labels: SKILL reads via config-get with the DevFlow,Deferred default" "yes" \
+  "$(grep -qF 'config-get.sh .deferred.labels DevFlow,Deferred' "$DEF_SKILL" && echo yes || echo no)"
+assert_eq "deferred.labels: SKILL ensures each label exists before applying" "yes" \
+  "$(grep -qF 'ensure-label.sh "$lbl"' "$DEF_SKILL" && echo yes || echo no)"
+assert_eq "deferred.labels: SKILL applies labels via best-effort gh issue edit --add-label" "yes" \
+  "$(grep -qF 'gh issue edit "$n" --add-label "$CLEAN_DEFERRED_LABELS"' "$DEF_SKILL" && echo yes || echo no)"
+# Both deferral channels must label: Phase 4.0 (no longer "add no --label") and Phase
+# 4.0.5. Require the resolution token to appear at least twice (once per channel).
+assert_eq "deferred.labels: SKILL resolves the labels in BOTH deferral channels (4.0 + 4.0.5)" "yes" \
+  "$([ "$(grep -cF 'config-get.sh .deferred.labels DevFlow,Deferred' "$DEF_SKILL")" -ge 2 ] && echo yes || echo no)"
+assert_eq "deferred.labels: SKILL Phase 4.0 no longer instructs 'add no --label' as a maintainer task" "no" \
+  "$(grep -qF 'add **no** `--label` (labeling is handled separately by maintainers)' "$DEF_SKILL" && echo yes || echo no)"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "devflow_review_and_fix.max_iterations (schema + resolution)"
 # ────────────────────────────────────────────────────────────────────────────
 # The /devflow:review-and-fix fix-loop cap is read from config via config-get.sh
@@ -1094,8 +1159,10 @@ assert_eq "scaffold-pe: partial backfill leaves the pre-existing example byte-id
 rm -rf "$SC_PE_BF"
 
 # AC 8 (adopter live-file safety): a real review.md the adopter authored (no .example
-# suffix → a LIVE extension) is never overwritten/deleted/shadowed, and review.md.example
-# is still created alongside it.
+# suffix → a LIVE extension) is never overwritten/deleted, and — because a live
+# extension already exists for that skill — the scaffolder does NOT drop a redundant
+# review.md.example beside it (issue #118). The guard is per-skill, so the OTHER skills
+# still get their .example backfilled.
 SC_PE_LV="$(mktemp -d)"
 mkdir -p "$SC_PE_LV/.devflow/prompt-extensions"
 printf 'ADOPTER LIVE REVIEW RULES\n' > "$SC_PE_LV/.devflow/prompt-extensions/review.md"
@@ -1103,9 +1170,28 @@ SC_PE_LV_SENT="$(cat "$SC_PE_LV/.devflow/prompt-extensions/review.md")"
 bash "$SC" "$SC_PE_LV" >/dev/null 2>&1
 assert_eq "scaffold-pe: adopter's live review.md is untouched (AC 8)" \
   "$SC_PE_LV_SENT" "$(cat "$SC_PE_LV/.devflow/prompt-extensions/review.md")"
-assert_eq "scaffold-pe: review.md.example still created alongside the live review.md (AC 8)" "yes" \
-  "$([ -f "$SC_PE_LV/.devflow/prompt-extensions/review.md.example" ] && echo yes || echo no)"
+assert_eq "scaffold-pe: NO review.md.example created when a live review.md exists (AC 8)" "no" \
+  "$([ -e "$SC_PE_LV/.devflow/prompt-extensions/review.md.example" ] && echo yes || echo no)"
+# The live-extension guard is scoped to that one skill — other skills still get examples.
+assert_eq "scaffold-pe: other skills still get .example beside a live review.md (AC 8)" "yes" \
+  "$([ -f "$SC_PE_LV/.devflow/prompt-extensions/docs.md.example" ] && echo yes || echo no)"
 rm -rf "$SC_PE_LV"
+
+# AC 8 (compose): both a live review.md AND a pre-existing review.md.example present →
+# neither is modified or deleted. The live-.md guard and the pre-existing-.example guard
+# compose; the scaffolder stays non-destructive on both.
+SC_PE_BOTH="$(mktemp -d)"
+mkdir -p "$SC_PE_BOTH/.devflow/prompt-extensions"
+printf 'ADOPTER LIVE REVIEW RULES\n' > "$SC_PE_BOTH/.devflow/prompt-extensions/review.md"
+printf 'SENTINEL-PREEXISTING-REVIEW-EXAMPLE\n' > "$SC_PE_BOTH/.devflow/prompt-extensions/review.md.example"
+SC_PE_BOTH_MD="$(cat "$SC_PE_BOTH/.devflow/prompt-extensions/review.md")"
+SC_PE_BOTH_EX="$(cat "$SC_PE_BOTH/.devflow/prompt-extensions/review.md.example")"
+bash "$SC" "$SC_PE_BOTH" >/dev/null 2>&1
+assert_eq "scaffold-pe: live review.md untouched when its .example also exists (AC 8 compose)" \
+  "$SC_PE_BOTH_MD" "$(cat "$SC_PE_BOTH/.devflow/prompt-extensions/review.md")"
+assert_eq "scaffold-pe: pre-existing review.md.example untouched beside a live review.md (AC 8 compose)" \
+  "$SC_PE_BOTH_EX" "$(cat "$SC_PE_BOTH/.devflow/prompt-extensions/review.md.example")"
+rm -rf "$SC_PE_BOTH"
 
 # Write-failure path (best-effort / silent-failure contract): a per-file write that
 # fails must NOT abort the scaffold — it logs a breadcrumb naming the file and
