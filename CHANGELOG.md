@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.4] — 2026-06-23
+
+### Added
+- **`devflow_implement.implement_pr_state` config setting controls whether `/devflow:implement` publishes its PR or leaves it a draft.** A string under `devflow_implement` (`enum: ["ready_for_review", "draft"]`, `default: "ready_for_review"`): the default publishes the PR in Phase 4.3 (`gh pr ready`) exactly as before, while `draft` leaves the PR as the draft created in Phase 3.1 — the run still finalizes the workpad with `Status: Complete` (🎉) and emits the outcome reaction, but does not publish and posts no extra PR-thread comment, so the cloud review (`devflow-review.yml`'s `ready_for_review` event) and CI's `ready_for_review` listener do not auto-fire until a human publishes. Any other value (missing key, empty string, or an unrecognized string) resolves to `ready_for_review` — default-to-publish is the safe direction. The gate lives once in the shared `skills/implement/SKILL.md` Phase 4.3 (no workflow fork); the Phase 4.3 clean-tree backstop runs in both cases. Documented in `docs/implement-skill.md`. (#117, closes #116)
+
 ## [2.8.3] — 2026-06-03
 
 Consolidated patch bump for the 2026-W23 weekly-retrospective intervention batch (one bump covers the whole set).
