@@ -514,6 +514,41 @@ printf '%s' '{bad json' > "$IPS_E2E"
 assert_eq "implement_pr_state e2e: malformed config (resolver hard-fail) → publish" "publish" "$(ips_state_decision "$IPS_E2E")"
 rm -f "$IPS_E2E"
 
+# Three-way outcome guard. The SKILL's gate is NOT two-way (draft/publish): the publish
+# arm splits on `gh pr ready`'s exit into `published` vs `publish_failed`, and the
+# publish_failed capture (the workpad never falsely claims a PR was published on a
+# `gh pr ready` failure) is the headline correctness property of this change. Mirror the
+# full elif chain so a refactor that dropped the `else` arm (reverting to a bare
+# failure-swallowing `gh pr ready`) is caught here. $1 = PR_STATE, $2 = simulated
+# `gh pr ready` exit (0 ok / non-0 failure).
+ips_outcome() {
+  [ "$1" = "draft" ] && { printf 'draft\n'; return; }
+  if [ "${2:-0}" -eq 0 ]; then printf 'published\n'; else printf 'publish_failed\n'; fi
+}
+assert_eq "implement_pr_state outcome: draft → draft (no gh pr ready)"             "draft"          "$(ips_outcome draft 0)"
+assert_eq "implement_pr_state outcome: publish + gh pr ready ok → published"       "published"      "$(ips_outcome ready_for_review 0)"
+assert_eq "implement_pr_state outcome: publish + gh pr ready fails → publish_failed" "publish_failed" "$(ips_outcome ready_for_review 1)"
+
+# Token pins for the publish_failed failure-capture branch and the outcome-specific
+# finalize wording — the prior pass pinned only the draft note (`left as draft`), leaving
+# the load-bearing "never falsely claim published" path uncovered.
+assert_eq "implement_pr_state: SKILL captures the publish_failed outcome (gh pr ready failure not swallowed)" "yes" \
+  "$(grep -qF 'PR_OUTCOME=publish_failed' "$IMPL_SKILL" && echo yes || echo no)"
+assert_eq "implement_pr_state: SKILL leaves a gh-pr-ready failure breadcrumb" "yes" \
+  "$(grep -qF 'gh pr ready FAILED' "$IMPL_SKILL" && echo yes || echo no)"
+assert_eq "implement_pr_state: SKILL has a distinct published-outcome note" "yes" \
+  "$(grep -qF 'PR published (gh pr ready)' "$IMPL_SKILL" && echo yes || echo no)"
+assert_eq "implement_pr_state: draft case posts no extra PR-thread comment (AC7)" "yes" \
+  "$(grep -qF 'no additional comment' "$IMPL_SKILL" && echo yes || echo no)"
+
+# Positional check: the clean-tree backstop must run ABOVE the publish gate (the diff's
+# behavioral change is that it runs unconditionally in BOTH publish and draft cases), not
+# merely be present somewhere. Assert line ordering, not bare presence.
+IPS_BACKSTOP_LN=$(grep -nF 'git status --porcelain' "$IMPL_SKILL" | head -1 | cut -d: -f1)
+IPS_GATE_LN=$(grep -nF '[ "$PR_STATE" = "draft" ]' "$IMPL_SKILL" | head -1 | cut -d: -f1)
+assert_eq "implement_pr_state: clean-tree backstop precedes the publish gate (runs in both cases)" "yes" \
+  "$([ -n "$IPS_BACKSTOP_LN" ] && [ -n "$IPS_GATE_LN" ] && [ "$IPS_BACKSTOP_LN" -lt "$IPS_GATE_LN" ] && echo yes || echo no)"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "scaffold-config.sh"
 # ────────────────────────────────────────────────────────────────────────────
