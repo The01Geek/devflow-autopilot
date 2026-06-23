@@ -88,7 +88,7 @@ The always-visible region (marker line, header, `Status`, links, `## Progress`, 
   - [ ] `review-and-fix`
   - [ ] acceptance-criteria gate
 - [ ] **Documentation**
-- [ ] **PR finalized** (published, or left a draft per `implement_pr_state`)
+- [ ] **PR marked ready**
 
 ## Plan
 - [ ] {step}
@@ -885,7 +885,7 @@ git status --porcelain
 
 If it is non-empty, **do not** finalize yet. The run began from a clean base-branch checkout (`origin/` + the configured `base_branch`), so anything dirty here is this run's own work an earlier phase failed to commit. Commit the part that belongs to this PR with the right prefix (`feat:`/`fix:`/`docs:`/`chore:`) and push, and record in `Devflow Reflection` which phase under-committed — surface the gap, don't paper over it. Surface (do not blindly `git add`) any unexpected untracked file. When the tree is already clean this is a no-op — create no empty commit.
 
-**Publish decision — `implement_pr_state`.** Whether the run publishes the PR or leaves it the draft created in Phase 3.1 is a per-consumer config choice. Read it (default `ready_for_review`), then publish **only** when it is not the exact literal `draft` — default-to-publish is the safe direction, so a missing key, empty string, or any unrecognized value publishes, and a hard read failure (malformed config) falls back to publishing. **Capture whether `gh pr ready` actually succeeded** so the finalize wording reflects the *real* end state — a bare `gh pr ready` whose failure (auth scope, GitHub 5xx, rate limit, a race that already merged/closed the PR) fell through would otherwise leave the workpad falsely claiming the PR was published when it is still a draft:
+**Publish decision — `implement_pr_state`.** Whether the run publishes the PR or leaves it the draft created in Phase 3.1 is a per-consumer config choice. Read it (default `ready_for_review`), then publish **only** when it is not the exact literal `draft` — default-to-publish is the safe direction, so a missing key, empty string, or any unrecognized value publishes, and a hard read failure (malformed config) falls back to publishing. **Capture whether `gh pr ready` actually succeeded** so the finalize wording reflects the *real* end state — a bare `gh pr ready` whose failure (the `else` arm catches *any* non-zero exit — e.g. auth scope, GitHub 5xx, rate limit, a race that already merged/closed the PR) fell through would otherwise leave the workpad falsely claiming the PR was published when it is still a draft:
 
 ```bash
 PR_STATE=$(${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .devflow_implement.implement_pr_state ready_for_review) || PR_STATE=ready_for_review
@@ -894,6 +894,13 @@ if [ "$PR_STATE" = "draft" ]; then
     echo "devflow: implement_pr_state=draft — leaving PR as a draft (skipping gh pr ready)" >&2
 elif gh pr ready; then
     PR_OUTCOME=published
+elif [ "$(gh pr view --json isDraft --jq '.isDraft' 2>/dev/null)" = "false" ]; then
+    # `gh pr ready` exited non-zero but the PR is NOT a draft — the benign already-ready
+    # case (a Phase 4.3 re-run after context recovery; `gh pr ready` on a non-draft PR
+    # returns non-zero). Treat as published, not a failure, so a re-run doesn't emit a
+    # spurious "publish failed" reflection contradicting reality.
+    PR_OUTCOME=published
+    echo "devflow: gh pr ready returned non-zero but PR is already non-draft — treating as published (idempotent re-run)" >&2
 else
     PR_OUTCOME=publish_failed
     echo "devflow: gh pr ready FAILED — PR is still a draft despite implement_pr_state=$PR_STATE; do NOT finalize the workpad as 'marked ready'" >&2
@@ -910,9 +917,13 @@ Then finalize the workpad in one call — tick the final `## Progress` item and 
 
 ```bash
 # Substitute the PR_OUTCOME-specific --note (and, for publish_failed, the extra --reflection) above.
+# `--tick-progress "PR marked ready"` MUST match the `## Progress` row label verbatim — that
+# label is owned by scripts/workpad.py (cmd_new_body template + _PROGRESS_PHASES +
+# _STATUS_TO_PROGRESS_PHASE); do NOT rename it here without renaming it there (and in the
+# python tests), or this tick finds no matching row and the finalize update aborts.
 workpad.py update $ISSUE_NUMBER \
     --status Complete \
-    --tick-progress "PR finalized" \
+    --tick-progress "PR marked ready" \
     --note "{PR_OUTCOME-specific note above}" \
     [--reflection "{noteworthy event}" ...repeat per event]
 ```

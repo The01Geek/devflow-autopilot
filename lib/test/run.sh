@@ -485,7 +485,8 @@ assert_eq "implement_pr_state: SKILL has draft-aware finalize wording" "yes" \
 # comparison (semantically mirrors `[ "$PR_STATE" = "draft" ]`; `$1` stands in for
 # `$PR_STATE`) so the dry-trace matrix {draft, ready_for_review, "", published} is
 # exercised as behavior, not just asserted as prose (the absent/default row is the
-# resolver matrix above feeding `ready_for_review` into this guard).
+# resolver matrix above feeding `ready_for_review` into this guard; the publish arm's
+# success/failure split is modeled separately by `ips_outcome` below).
 ips_publishes() {
   [ "$1" = "draft" ] && { printf 'draft\n'; return; }
   printf 'publish\n'
@@ -548,6 +549,22 @@ IPS_BACKSTOP_LN=$(grep -nF 'git status --porcelain' "$IMPL_SKILL" | head -1 | cu
 IPS_GATE_LN=$(grep -nF '[ "$PR_STATE" = "draft" ]' "$IMPL_SKILL" | head -1 | cut -d: -f1)
 assert_eq "implement_pr_state: clean-tree backstop precedes the publish gate (runs in both cases)" "yes" \
   "$([ -n "$IPS_BACKSTOP_LN" ] && [ -n "$IPS_GATE_LN" ] && [ "$IPS_BACKSTOP_LN" -lt "$IPS_GATE_LN" ] && echo yes || echo no)"
+
+# Cross-file Progress-label consistency. The Phase 4.3 finalize `--tick-progress` label
+# in implement/SKILL.md MUST match the `## Progress` row label that scripts/workpad.py
+# OWNS (its cmd_new_body template + _PROGRESS_PHASES tuple + _STATUS_TO_PROGRESS_PHASE
+# 'complete' map) — workpad.py both renders the row and ticks it by substring, so if the
+# two sides drift the finalize finds no matching unticked row and the Phase 4.3 update
+# ABORTS. (This guards the exact desync a mid-review rename of the row to "PR finalized"
+# introduced: SKILL renamed, workpad.py not.) Both sides are pinned to the same literal,
+# so renaming one without the other goes red here.
+WP_PY="$LIB/../scripts/workpad.py"
+# NB: `--` ends grep's option parsing — the pattern begins with `--tick-progress`, which
+# grep would otherwise treat as an (invalid) long option.
+assert_eq "implement finalize: SKILL ticks the workpad.py-owned 'PR marked ready' label" "yes" \
+  "$(grep -qF -- '--tick-progress "PR marked ready"' "$IMPL_SKILL" && echo yes || echo no)"
+assert_eq "implement finalize: workpad.py owns the 'PR marked ready' label (template + _PROGRESS_PHASES agree)" "yes" \
+  "$(grep -qF '**PR marked ready**' "$WP_PY" && grep -qF "'PR marked ready'" "$WP_PY" && echo yes || echo no)"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "scaffold-config.sh"
