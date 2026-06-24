@@ -4,6 +4,15 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.7] — 2026-06-24
+
+### Changed
+- **The `/devflow:implement` verification gate now enforces "verified before merge" rather than trusting the run's narrative.** Two engine changes close gaps a weekly retrospective surfaced. (1) Phase 3.4 gates the `(post-merge)` AC tag: it is permitted **only** when a criterion genuinely requires a runtime environment that does not exist during the run (a live deploy target, a real third-party endpoint). A criterion that is runnable on the orchestrator host — or blocked only by a local tooling/environment gap — and any criterion whose purpose is to confirm a behavioral claim the PR already asserts, is **never** retagged post-merge; it takes the existing `Blocked` escalation path instead (a genuine permission/sandbox denial of the *test suite itself* still uses the auditable CI-skip per `CLAUDE.md`, which does not tick the AC). (2) A new always-on **§2.3.4a self-authored-claim reconciliation sweep** — the output-side twin of the §2.3.4 boundary sweep — reconciles every behavioral claim the diff *authors* in internal/external docs and code comments against the shipped code path before commit, covering claims about the diff's *own* code that §2.3.4 carves out; Phase 4.2 applies the same reconciliation to the PR body. On any prose↔code divergence the code is the fact. Documented as enforced behavior in `docs/implement-skill.md` and `docs/DEVFLOW_SYSTEM_OVERVIEW.md`. (#131, closes #129)
+- **The coarse `review-gate-bypass` retrospective Stage-A slug is split into three actionable slugs** — `outstanding-reject` (merged while the chronologically-last `/devflow:review` verdict was still REJECT), `lenient-verdict` (a gate ran and returned an approve-family verdict but shipped a defect it should have caught), and `deferred-verification` (a pre-merge-runnable verification deferred past the gate). A gate-absent / human-authored PR maps to none of the three. The split is applied in lockstep across `skills/retrospective/SKILL.md`, `docs/DEVFLOW_SYSTEM_OVERVIEW.md`, `docs/shadow-review.md`, and `lib/test/run.sh` (with new aggregation fixtures and a grep-guard that fails if any tracked surface still names the removed slug); the two historical ledger entries that used it are migrated to `lenient-verdict`. (#131, closes #129)
+
+### Fixed
+- **Restored the `implement_pr_state` and `deferred` definitions in `.devflow/config.schema.json`** that an unrelated local sync commit had dropped, which left `config.example.json` referencing undefined keys and the suite red (10 failures). The schema again matches the example and the `lib/test/run.sh` assertions. (#131)
+
 ## [2.8.6] — 2026-06-24
 
 ### Fixed
