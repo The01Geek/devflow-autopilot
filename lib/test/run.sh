@@ -2763,17 +2763,22 @@ assert_eq "#126 gate: empty reflection section → reflections == [] → clean=t
   "$(jq -c -f "$LIB/cheap-gate.jq" < "$F126_OUT3" | jq -r .clean)"
 rm -rf "$F126"
 
-# SKILL.md call-site pin: every --reflection invocation in implement/SKILL.md is
-# accompanied by a --reflection-kind (AC: every call-site passes the matching
-# kind). Counts --reflection occurrences vs those on a line/region carrying a
-# --reflection-kind; the helper defaults to note, but the skill states it
-# explicitly so the situation-to-kind mapping is auditable.
-REFL_TOTAL="$(grep -c -- '--reflection ' "$LIB/../skills/implement/SKILL.md" || true)"
-REFL_KINDED="$(grep -c -- '--reflection-kind ' "$LIB/../skills/implement/SKILL.md" || true)"
+# SKILL.md call-site pin: every line that uses the executable `--reflection `
+# flag must carry a --reflection-kind on that SAME line (the AC: every call-site
+# passes the matching kind). Exclude lines that mention the flag without invoking
+# it — the markdown doc-table row (content starts with `|`) and prose comment
+# lines (content starts with `#`). REFL_UNKINDED holds any offending call-site;
+# the assert demands it be empty. This actually enforces the AC — the old
+# `--reflection-kind count >= 1` check passed as long as ONE kind appeared
+# anywhere, so a new --reflection call-site added without a kind (silently
+# degrading to the `note` default) would have slipped through.
+REFL_UNKINDED="$(grep -n -- '--reflection ' "$LIB/../skills/implement/SKILL.md" \
+  | grep -vE '^[0-9]*:[[:space:]]*[|#]' \
+  | grep -v -- '--reflection-kind' || true)"
 assert_eq "#126 pin: workpad.py documents the --reflection-kind flag" "yes" \
   "$(grep -q -- '--reflection-kind' "$WP_PY" && echo yes || echo no)"
-assert_eq "#126 pin: implement/SKILL.md introduces --reflection-kind at its call-sites" "yes" \
-  "$([ "$REFL_KINDED" -ge 1 ] && echo yes || echo no)"
+assert_eq "#126 pin: every --reflection call-site in implement/SKILL.md carries a --reflection-kind" "" \
+  "$REFL_UNKINDED"
 assert_eq "#126 pin: docs describe the grouped reflection structure + --reflection-kind" "yes" \
   "$(grep -q -- '--reflection-kind' "$LIB/../docs/implement-skill.md" && grep -q -- '--reflection-kind' "$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md" && echo yes || echo no)"
 

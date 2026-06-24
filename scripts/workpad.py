@@ -688,9 +688,19 @@ def _render_reflection_blocks(blocks: list[list]) -> str:
 def _insert_reflection_bullet(inner: str, kind: str, text: str) -> str:
     """Insert one reflection bullet of `kind` into the <details> inner body,
     under its canonical `### ` sub-section — creating the heading lazily (in
-    Action-required-before-Notes order) when absent, reusing it when present."""
+    Action-required-before-Notes order) when absent, reusing it when present.
+
+    Pre-existing un-kinded (legacy) bullets are retained verbatim as a leading
+    heading-None preamble block, *above* the lazily-created sub-sections — they
+    are never re-sorted into a sub-section."""
     glyph, label, sub_key = _REFLECTION_KINDS[kind]
-    bullet = f'- {glyph} **{label}:** {text}'
+    # Reflection bullets are single-line. Collapse any embedded newlines (e.g. a
+    # multi-line gh/jq error captured into a `dropped-failed` breadcrumb) to
+    # spaces so the whole message stays on one bullet line — the line-based
+    # parser in lib/fetch-pr-context.sh captures only a bullet's first line, so a
+    # multi-line bullet would silently drop its continuation from reflections[].
+    one_line = ' '.join(text.splitlines()) if '\n' in text else text
+    bullet = f'- {glyph} **{label}:** {one_line}'
     target_heading = _SUBSECTION_HEADINGS[sub_key]
     blocks = _parse_reflection_blocks(inner)
     for blk in blocks:
@@ -947,7 +957,13 @@ def _apply_mutations(body: str, args) -> str:
         if idx is None:
             raise _UpdateError("section '## Devflow Reflection' not found")
         heading, content = sections[idx]
-        kind = getattr(args, 'reflection_kind', None) or _DEFAULT_REFLECTION_KIND
+        # Direct attribute access (not getattr-with-default), matching the sibling
+        # args.note / args.reflection reads above: argparse always supplies
+        # reflection_kind (default=None), so a missing attribute is a wiring
+        # regression that should fail loud rather than silently file every bullet
+        # as a `note`. The `or _DEFAULT_REFLECTION_KIND` handles only the
+        # legitimate flag-omitted None case.
+        kind = args.reflection_kind or _DEFAULT_REFLECTION_KIND
         for bullet in args.reflection:
             content = _append_reflection(content, kind, bullet)
         sections[idx] = (heading, content)
@@ -1053,7 +1069,11 @@ def main():
                         'May be passed multiple times to append several bullets '
                         'in one atomic update.')
     u.add_argument('--reflection-kind',
-                   choices=['blocked', 'deferred', 'dropped-failed', 'note'],
+                   # Derive choices from the taxonomy dict so the CLI-validated
+                   # set and the `_REFLECTION_KINDS[kind]` lookup can never drift
+                   # (a kind added to one but not the other would KeyError). Dict
+                   # insertion order → blocked, deferred, dropped-failed, note.
+                   choices=list(_REFLECTION_KINDS),
                    default=None,
                    help="Kind for this update's --reflection bullet(s). "
                         'blocked/deferred/dropped-failed render under '

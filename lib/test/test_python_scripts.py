@@ -691,6 +691,25 @@ rk_mx = _reflect_seq(('note', _mx))
 assert_eq("metacharacters (backticks/$/*) survive rendering", True,
           ('- ℹ️ **Note:** ' + _mx) in rk_mx)
 
+# Canonical ordering holds regardless of call order: a `note` written BEFORE an
+# action-kind bullet still renders Action required ABOVE Notes (exercises the
+# _rank insertion branch that places a new Action block above an existing Notes
+# block — a plain-append regression would survive every action-first test).
+rk_no = _reflect_seq(('note', 'N'), ('blocked', 'B'))
+assert_eq("note-first then blocked → Action required still precedes Notes", True,
+          rk_no.index('### ⚠️ Action required') < rk_no.index('### ℹ️ Notes'))
+assert_eq("note-first then blocked → both bullets present", True,
+          '- ⛔ **Blocked:** B' in rk_no and '- ℹ️ **Note:** N' in rk_no)
+
+# Multi-line reflection text (e.g. a captured multi-line gh/jq error fed into a
+# dropped-failed breadcrumb) collapses to a single bullet line, so the line-based
+# fetch-pr-context.sh parser captures the whole message, not just its first line.
+rk_ml = _reflect_seq(('dropped-failed', 'line one\nline two\nline three'))
+assert_eq("multi-line reflection text collapses to one bullet line", True,
+          '- ❗ **Dropped/Failed:** line one line two line three' in rk_ml)
+assert_eq("multi-line reflection emits exactly one bullet (no split continuation)", 1,
+          rk_ml.count('- ❗ **Dropped/Failed:**'))
+
 # Invariants preserved: marker first line; AC section still parseable.
 out = workpad._apply_mutations(WORKPAD_V2, make_args(
     status='Reviewing', note=['n'], reflection=['r'], tick_ac=['AC one']))
