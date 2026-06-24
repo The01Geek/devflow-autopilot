@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.6] — 2026-06-24
+
+### Fixed
+- **`/devflow:implement` is now scoped to issues only — a comment on a pull request never starts an implement run.** In GitHub's API a PR comment is also an `issue_comment`, so the weekly retrospective's `devflow:audit-report` comment (which quotes the literal `/devflow:implement` phrase in prose) re-entered the implement gate and launched a spurious run against the *state PR* (the workpad header read "Issue #120", but 120 was a PR). `.github/workflows/devflow-implement.yml` now subscribes only to `issue_comment` (the `pull_request_review_comment` and `pull_request_review` subscriptions are removed), its `gate` `if:` additionally requires `github.event.issue.pull_request == null`, and `scripts/resolve-implement-trigger.sh` gains a fail-closed pull-request-context guard (driven by a new `IS_PULL_REQUEST` env signal) that declines before authorization/number resolution — a defense-in-depth backstop mirroring the existing self-trigger guard. The now-dead `issue.number || pull_request.number` fallbacks are simplified to `issue.number`. `/devflow:review` and `/devflow:pr-description` in `.github/workflows/devflow.yml` remain PR-aware and are unchanged. (#125, closes #124)
+
 ## [2.8.5] — 2026-06-23
 
 ### Added
