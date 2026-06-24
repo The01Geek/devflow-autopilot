@@ -273,9 +273,11 @@ diff that touches review/coverage/gate logic for merge — schedule the separate
 "default but waivable on a clean shadow." (This narrows nothing for ordinary product-code diffs,
 where the shared-blind-spot risk is lower and the standalone review remains the *recommended*
 default rather than a hard pre-merge gate — see the Counterfactual note this calibration was
-strengthened under.) The two sub-patterns above share the coarse `review-gate-bypass` category; this
-calibration addresses the dominant one (the engine-self-modifying clean shadow that a real gate later
-caught). It does **not** change the advisory-parking mechanics themselves — a repeatedly-flagged
+strengthened under.) The two sub-patterns above both fall under the `lenient-verdict` category (a gate ran and returned an
+approve-family verdict while a defect it should have caught shipped — for PR #62 the in-loop shadow's
+clean verdict over a Critical the standalone review later flagged; for PR #104 a repeatedly-flagged
+advisory parked and shipped unfixed); this calibration addresses the dominant one (the
+engine-self-modifying clean shadow that a real gate later caught). It does **not** change the advisory-parking mechanics themselves — a repeatedly-flagged
 advisory on an engine diff is surfaced here as a case the mandatory standalone review must catch, not
 re-litigated as a new auto-fix rule.
 

@@ -134,12 +134,58 @@ assert_eq "v1 theme_tags + v2 categories grouped together (count=2)" \
 
 # One occ + later audit fix → status "fixed"
 RESULT=$(cp_run \
-  '{"schema_version":2,"kind":"implementation","pr":1,"merged_at":"2026-04-01T00:00:00Z","verdict":"imperfect","categories":["review-gate-bypass"]}
-{"schema_version":2,"kind":"audit","pr":2,"merged_at":"2026-04-15T00:00:00Z","fixes_patterns":["review-gate-bypass"]}' \
+  '{"schema_version":2,"kind":"implementation","pr":1,"merged_at":"2026-04-01T00:00:00Z","verdict":"imperfect","categories":["lenient-verdict"]}
+{"schema_version":2,"kind":"audit","pr":2,"merged_at":"2026-04-15T00:00:00Z","fixes_patterns":["lenient-verdict"]}' \
   '{"schema_version":1,"dismissed":{}}')
 assert_eq "occ then fix → status=fixed" \
   "fixed" \
-  "$(echo "$RESULT" | jq -r '.["review-gate-bypass"].status')"
+  "$(echo "$RESULT" | jq -r '.["lenient-verdict"].status')"
+
+# Successor-slug split (#129): each of the three slugs that replaced the removed
+# coarse review/gate slug aggregates as its own pattern, and the removed slug
+# never appears.
+RESULT=$(cp_run \
+  '{"schema_version":2,"kind":"implementation","pr":1,"merged_at":"2026-05-01T00:00:00Z","verdict":"imperfect","categories":["outstanding-reject"]}
+{"schema_version":2,"kind":"implementation","pr":2,"merged_at":"2026-05-02T00:00:00Z","verdict":"imperfect","categories":["lenient-verdict"]}
+{"schema_version":2,"kind":"implementation","pr":3,"merged_at":"2026-05-03T00:00:00Z","verdict":"imperfect","categories":["deferred-verification"]}' \
+  '{"schema_version":1,"dismissed":{}}')
+assert_eq "split slug outstanding-reject aggregates (count=1)" \
+  "1" "$(echo "$RESULT" | jq -r '.["outstanding-reject"].occurrence_count')"
+assert_eq "split slug lenient-verdict aggregates (count=1)" \
+  "1" "$(echo "$RESULT" | jq -r '.["lenient-verdict"].occurrence_count')"
+assert_eq "split slug deferred-verification aggregates (count=1)" \
+  "1" "$(echo "$RESULT" | jq -r '.["deferred-verification"].occurrence_count')"
+assert_eq "removed split slug never aggregates" \
+  "null" "$(echo "$RESULT" | jq -r '.["review-gate" + "-bypass"].occurrence_count')"
+
+# Boundary case: a gate-absent / human-authored PR (no review-related slug) maps to
+# NONE of the three successor slugs.
+RESULT=$(cp_run \
+  '{"schema_version":2,"kind":"implementation","pr":9,"merged_at":"2026-05-09T00:00:00Z","verdict":"imperfect","categories":["other"]}' \
+  '{"schema_version":1,"dismissed":{}}')
+assert_eq "gate-absent PR → no outstanding-reject pattern" \
+  "null" "$(echo "$RESULT" | jq -r '.["outstanding-reject"].occurrence_count')"
+assert_eq "gate-absent PR → no lenient-verdict pattern" \
+  "null" "$(echo "$RESULT" | jq -r '.["lenient-verdict"].occurrence_count')"
+assert_eq "gate-absent PR → no deferred-verification pattern" \
+  "null" "$(echo "$RESULT" | jq -r '.["deferred-verification"].occurrence_count')"
+
+# Lockstep guard (#129): no tracked vocab surface may still reference the removed
+# slug. The search pattern is concatenated from two literals so this guard itself
+# does not contain the contiguous string (which would self-match the run.sh grep).
+RGB_PAT="review-gate""-bypass"
+RGB_ROOT="$LIB/.."
+# No `|| true` / `2>/dev/null`: run.sh is `set -u` (not `set -e`), so grep's
+# exit 1 (no match — the PASS case) is safe and leaves RGB_HITS empty. A real
+# grep error (exit 2, e.g. a tracked surface was renamed/deleted) must surface on
+# stderr rather than be masked into a falsely-passing guard.
+RGB_HITS="$(grep -rEl "$RGB_PAT" \
+  "$RGB_ROOT/skills/retrospective/SKILL.md" \
+  "$RGB_ROOT/docs/DEVFLOW_SYSTEM_OVERVIEW.md" \
+  "$RGB_ROOT/docs/shadow-review.md" \
+  "$RGB_ROOT/lib/test/run.sh")"
+assert_eq "no tracked vocab surface references the removed split slug" \
+  "" "$RGB_HITS"
 
 # Fix then later occ → status "regressed"
 RESULT=$(cp_run \
@@ -2677,11 +2723,11 @@ assert_eq "clean-entry categories=[]"       "0"     "$(echo "$E" | jq '.categori
 assert_eq "clean-entry descriptors=[]"      "0"     "$(echo "$E" | jq '.descriptors|length')"
 assert_eq "clean-entry no theme_tags field" "true"  "$(echo "$E" | jq 'has("theme_tags") | not')"
 assert_eq "clean-entry signals carried"     "0"     "$(echo "$E" | jq -r .signals.post_bot_commits)"
-CTX_AUDIT='{"pr":99,"kind":"audit-intervention","pattern_tag":"review-gate-bypass","merged_at":"2026-05-09T00:00:00Z"}'
+CTX_AUDIT='{"pr":99,"kind":"audit-intervention","pattern_tag":"deferred-verification","merged_at":"2026-05-09T00:00:00Z"}'
 A="$(echo "$CTX_AUDIT" | jq -c -f "$LIB/audit-entry.jq")"
-assert_eq "audit-entry kind=audit"        "audit"              "$(echo "$A" | jq -r .kind)"
-assert_eq "audit-entry schema_version=2"  "2"                  "$(echo "$A" | jq -r .schema_version)"
-assert_eq "audit-entry fixes_patterns"    "review-gate-bypass" "$(echo "$A" | jq -r '.fixes_patterns[0]')"
+assert_eq "audit-entry kind=audit"        "audit"                 "$(echo "$A" | jq -r .kind)"
+assert_eq "audit-entry schema_version=2"  "2"                     "$(echo "$A" | jq -r .schema_version)"
+assert_eq "audit-entry fixes_patterns"    "deferred-verification" "$(echo "$A" | jq -r '.fixes_patterns[0]')"
 # actionable-patterns: incomplete-edit 2x imperfect, doc-accuracy 1x
 AP_TMP="$(mktemp -d)"
 printf '%s\n' \
