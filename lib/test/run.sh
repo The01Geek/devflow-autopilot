@@ -3061,8 +3061,13 @@ assert_eq "rit: pull-request context → should_run=false (PR guard)" \
   "should_run=false" "$(echo "$OUT" | grep '^should_run=')"
 assert_eq "rit: pull-request context → empty number" \
   "number=" "$(echo "$OUT" | grep '^number=')"
-assert_eq "rit: pull-request context → ::warning:: names a pull request on stderr" \
-  "1" "$(grep -c 'pull-request' "$RIT_STUB_DIR/pr_err")"
+# Pin the GitHub Actions ::warning:: annotation prefix AND the disambiguating
+# pull-request-context-guard suffix together, so a regression that drops the
+# annotation prefix (losing the Actions-UI surface) or rewords the guard into a
+# generic message is caught — not merely that the substring "pull-request"
+# appears somewhere on stderr.
+assert_eq "rit: pull-request context → ::warning:: from the pull-request-context guard on stderr" \
+  "1" "$(grep -cE '::warning::.*pull-request-context guard' "$RIT_STUB_DIR/pr_err")"
 
 # 15. PR guard precedes number resolution: even an EXPLICIT /devflow:implement 42
 #     in a PR comment is declined (the guard runs before number parsing), so a
@@ -3575,6 +3580,31 @@ for f in devflow devflow-implement; do
   bad="$(grep -nE "TRIGGER_TEXT:.*github\.event\.issue\.(body|title)" "$WF/$f.yml" || true)"
   assert_eq "partition: $f.yml TRIGGER_TEXT excludes issue body/title" "" "$bad"
 done
+
+# Issues-only scoping of the HEAVY path (issue #124). The primary defense lives
+# in the workflow, not just the resolver unit tests above — so pin it here, or a
+# future workflow edit could silently reopen #124 (a PR comment is also an
+# issue_comment, so the audit-report comment self-triggers on the state PR) while
+# the resolver-only tests stay green.
+IMPL="$WF/devflow-implement.yml"
+# (a) The heavy path must NOT subscribe to the PR-only review events at all.
+assert_eq "partition: devflow-implement.yml is issues-only (no PR-review subscriptions)" \
+  "0" "$(grep -cE 'pull_request_review(_comment)?:' "$IMPL")"
+# (b) The gate if: must carry the PR-context filter (comment is on an issue, not
+#     a PR). Match the gate-conjunct form (trailing ` &&`) so the prose mention of
+#     the same expression in the header comment isn't counted.
+assert_eq "partition: devflow-implement.yml gate if: filters PR comments (issue.pull_request == null)" \
+  "1" "$(grep -cF 'github.event.issue.pull_request == null &&' "$IMPL")"
+# (c) The resolver backstop is only wired if the workflow passes IS_PULL_REQUEST
+#     from the canonical discriminator; a wrong expression (e.g. == null) would
+#     invert the guard and decline issues instead of PRs.
+assert_eq "partition: devflow-implement.yml wires IS_PULL_REQUEST from issue.pull_request != null" \
+  "1" "$(grep -cF 'IS_PULL_REQUEST: ${{ github.event.issue.pull_request != null }}' "$IMPL")"
+# (d) Complement (AC #5): the LIGHT path stays PR-aware — /devflow:review and
+#     /devflow:pr-description act on PRs, so devflow.yml MUST keep its PR-review
+#     subscriptions. Guards against an over-eager edit stripping them too.
+assert_eq "partition: devflow.yml stays PR-aware (keeps PR-review subscriptions)" \
+  "2" "$(grep -cE 'pull_request_review(_comment)?:' "$WF/devflow.yml")"
 
 # Early-ack reaction must stay correctly wired in BOTH gate jobs. These guard
 # the load-bearing properties that the react-to-trigger.sh unit tests above

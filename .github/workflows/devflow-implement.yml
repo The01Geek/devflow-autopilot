@@ -18,7 +18,7 @@ run-name: "DevFlow implement (issue ${{ github.event.issue.number }})"
 #
 # Why bare-command only: this workflow runs claude-code-action in AGENT mode
 # with an explicit, synthesised `/devflow:implement <n>` prompt (the `gate` job
-# resolves the number). Agent mode needs no trigger phrase. Every trigger below
+# resolves the number). Agent mode needs no trigger phrase. The gate `if:`
 # negates `@claude`, so an `@claude /devflow:implement` comment is ceded to
 # Anthropic's stock claude.yml (TAG mode) — an anti-pattern, since that listener
 # has no DevFlow plugin — and the two workflows can never double-fire. DevFlow
