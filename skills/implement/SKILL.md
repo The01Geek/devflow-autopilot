@@ -758,11 +758,19 @@ DEFERRED_ISSUE_NUMBERS="${DEFERRED_ISSUE_NUMBERS:-}"
 # exit 2 with empty stdout) is NOT silently indistinguishable from a deliberately-empty
 # value: both yield an empty CLEAN below, but only the failure leaves a breadcrumb. The
 # default arg covers the soft paths (missing file / unset key); rc≠0 is the hard path.
-DEFERRED_LABELS=$(${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .deferred.labels DevFlow,Deferred); DEFERRED_LABELS_RC=$?
+# The assignment runs as an `if` condition so the rc capture survives even if these
+# blocks are ever executed under `set -e` (a bare `VAR=$(cmd); RC=$?` would abort at the
+# assignment before the capture; an `if`-condition assignment is exempt from `set -e`).
+if DEFERRED_LABELS=$(${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .deferred.labels DevFlow,Deferred); then DEFERRED_LABELS_RC=0; else DEFERRED_LABELS_RC=$?; fi
 [ "$DEFERRED_LABELS_RC" -eq 0 ] || workpad.py update $ISSUE_NUMBER --reflection "Phase 4.0 could not read deferred.labels (config-get rc=$DEFERRED_LABELS_RC — corrupt config.json or node missing); deferred follow-up issues filed WITHOUT labels."
 CLEAN_DEFERRED_LABELS=$(echo "$DEFERRED_LABELS" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' | paste -sd, -)
 if [ -z "$DEFERRED_ISSUE_NUMBERS" ]; then
+  # We only reach this block because deferred work WAS filed above, so an empty list
+  # means the issue-number capture was missed — a real gap, not a benign no-op. Route it
+  # to the workpad (durable, retrospective-visible) like the rc-failure breadcrumb, not
+  # just stderr (ephemeral in an autonomous cloud run).
   echo "devflow: Phase 4.0 captured no deferred-issue numbers — deferred.labels applied to nothing (check the gh issue create captures)" >&2
+  workpad.py update $ISSUE_NUMBER --reflection "Phase 4.0 filed deferred follow-up issues but captured no issue numbers — deferred.labels applied to NONE of them; the filed issues carry no DevFlow/Deferred provenance."
 elif [ -n "$CLEAN_DEFERRED_LABELS" ]; then
   # Ensure each configured label exists (best-effort; ensure-label.sh always exits 0).
   echo "$CLEAN_DEFERRED_LABELS" | tr ',' '\n' | while IFS= read -r lbl; do
@@ -864,8 +872,10 @@ if [ -n "${FILED_NUMBERS:-}" ]; then
     # config.json / missing node → exit 2, empty stdout) yields an empty CLEAN that is
     # otherwise indistinguishable from a deliberately-empty value — leave a breadcrumb so
     # the unlabeled outcome is attributable, not silent. The default arg covers the soft
-    # paths (missing file / unset key); rc≠0 is the hard path.
-    DEFERRED_LABELS=$(${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .deferred.labels DevFlow,Deferred); DEFERRED_LABELS_RC=$?
+    # paths (missing file / unset key); rc≠0 is the hard path. The `if`-condition form
+    # keeps the rc capture alive even under `set -e` (a bare `VAR=$(cmd); RC=$?` aborts at
+    # the assignment; an `if`-condition assignment is exempt).
+    if DEFERRED_LABELS=$(${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .deferred.labels DevFlow,Deferred); then DEFERRED_LABELS_RC=0; else DEFERRED_LABELS_RC=$?; fi
     [ "$DEFERRED_LABELS_RC" -eq 0 ] || workpad.py update $ISSUE_NUMBER --reflection "Phase 4.0.5 could not read deferred.labels (config-get rc=$DEFERRED_LABELS_RC — corrupt config.json or node missing); deferred review-finding issues filed WITHOUT labels."
     CLEAN_DEFERRED_LABELS=$(echo "$DEFERRED_LABELS" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' | paste -sd, -)
     if [ -n "$CLEAN_DEFERRED_LABELS" ]; then
