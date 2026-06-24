@@ -62,6 +62,12 @@
       "type": "object",
       "properties": {
         "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"] },
+        "implement_pr_state": {
+          "type": "string",
+          "enum": ["ready_for_review", "draft"],
+          "description": "Final state of the PR a /devflow:implement run produces. 'ready_for_review' (the default) publishes the PR in Phase 4.3 via `gh pr ready`, exactly as before. 'draft' leaves it the draft created in Phase 3.1 (the run still finalizes with Status: Complete and the outcome reaction, but does not publish, so the cloud review and CI ready_for_review listener do not auto-fire until a human publishes). Any other value — missing key, empty string, or an unrecognized string — resolves to 'ready_for_review'; default-to-publish is the safe direction. See docs/implement-skill.md for the full Phase 4.3 behavior.",
+          "default": "ready_for_review"
+        },
         "allowed_tools": {
           "type": "array",
           "items": { "type": "string" },
@@ -226,6 +232,17 @@
           "type": "string",
           "description": "Comma-separated list of labels applied by /devflow:implement once its docs pass has run. Each entry is trimmed and empty entries are dropped, so \"DevFlow, Shipped\" applies both DevFlow and Shipped.",
           "default": "DevFlow"
+        }
+      }
+    },
+    "deferred": {
+      "type": "object",
+      "description": "Settings for the follow-up issues /devflow:implement files for deferred work.",
+      "properties": {
+        "labels": {
+          "type": "string",
+          "description": "Comma-separated list of labels applied to the follow-up issues /devflow:implement files for deferred work — both Phase 4.0 deferred-acceptance-criteria issues and Phase 4.0.5 deferred-review-finding issues. Each entry is trimmed and blank entries are dropped, so \"DevFlow, Deferred\" applies both DevFlow and Deferred, and a whitespace-only or all-separators value (e.g. \" , \") normalizes to none, applying no labels. (A literal empty string resolves to this default rather than meaning no-labels, matching how config defaults resolve; set a whitespace value to apply none.) Labels are ensured to exist and applied best-effort after the issue is created, so a label hiccup never blocks filing. This is separate from the hardcoded `DevFlow` provenance label that retrospective detection (lib/scan.sh, lib/classify-pr-kind.jq) matches literally — only deferred-issue labeling is configurable here.",
+          "default": "DevFlow,Deferred"
         }
       }
     },
