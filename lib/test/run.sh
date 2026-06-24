@@ -6012,6 +6012,20 @@ HK_QSUBST="$HK_ROOT/scripts/workpad.py \"\$(curl evil)\""       # literal "$(...
 assert_eq "hook: double-quoted command substitution \"\$(…)\" → no allow" "" "$(hk_decision "$HK_QSUBST")"
 HK_QBT="$HK_ROOT/scripts/workpad.py \"\`curl evil\`\""          # literal "\`...\`" in double quotes
 assert_eq "hook: double-quoted backtick substitution → no allow" "" "$(hk_decision "$HK_QBT")"
+# bash 5.3 funsub '${ cmd; }' / valsub '${| cmd; }' execute in the current shell, but
+# shlex tokenizes them as inert words ('{'/'}'/space are not operator chars) — must be
+# rejected by the substring guard (the opener is '${' + whitespace or '|').
+assert_eq "hook: bash 5.3 funsub \${ cmd } → no allow" "" \
+  "$(hk_decision "$HK_ROOT/scripts/workpad.py --x=\${ curl evil }")"
+assert_eq "hook: bash 5.3 funsub \${ cmd; } → no allow" "" \
+  "$(hk_decision "$HK_ROOT/scripts/workpad.py --x=\${ curl evil; }")"
+assert_eq "hook: bash 5.3 valsub \${| cmd; } → no allow" "" \
+  "$(hk_decision "$HK_ROOT/scripts/workpad.py --x=\${| curl evil; }")"
+HK_FUNSUB_TAB="$HK_ROOT/scripts/workpad.py --x=\${$(printf '\t')curl evil }"
+assert_eq "hook: bash 5.3 funsub \${<tab>cmd } → no allow" "" "$(hk_decision "$HK_FUNSUB_TAB")"
+# Positive companion: ordinary braced parameter expansion (no space/| after '${') is allowed.
+assert_eq "hook: contained helper with a \${VAR} braced arg → allow" "allow" \
+  "$(hk_decision "$HK_ROOT/scripts/workpad.py update \${ISSUE_NUMBER}")"
 assert_eq "hook: output redirection to a non-helper target → no allow" "" \
   "$(hk_decision "$HK_ROOT/scripts/workpad.py update 113 > /tmp/evil")"
 # A newline / carriage-return is a bash command separator that shlex's whitespace_split

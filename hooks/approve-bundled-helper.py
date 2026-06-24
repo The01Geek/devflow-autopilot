@@ -35,6 +35,7 @@ bundled helpers' fail-closed-with-a-breadcrumb discipline.
 
 import json
 import os
+import re
 import shlex
 import sys
 
@@ -49,17 +50,29 @@ def _execution_target(command):
     ``python3 <script> …``. Anything with a shell operator, a command
     substitution, or a backtick is rejected (returns ``None``).
     """
-    # Command substitution — backticks and `$(…)` — EXECUTES inside double quotes,
-    # but shlex absorbs a quoted `"$(curl evil)"` / `"\`curl evil\`"` into one inert
-    # token with no operator char, so the operator sweep below cannot see it. Guard
-    # both forms by substring before tokenizing. A newline / carriage return is a
-    # bash command separator that shlex's `whitespace_split` silently erases — a
-    # multi-line command would tokenize as one flat "simple" invocation whose first
-    # token is a helper, letting a trailing line run un-vetted. Treat any occurrence
-    # of these as disqualifying rather than trying to reason about quoting. (`;`/`|`/
-    # `&` separators are still caught later as operator tokens; substitution and the
-    # newline are the cases tokenization can't see through quotes / whitespace.)
-    if "`" in command or "$(" in command or "\n" in command or "\r" in command:
+    # Command/function substitution that EXECUTES a command but that shlex tokenizes
+    # as inert words (so the operator sweep below cannot see it) must be rejected by
+    # substring before tokenizing:
+    #   - backticks and `$(…)` execute even inside double quotes, where shlex absorbs
+    #     `"$(curl evil)"` / `"\`curl evil\`"` into one quoted token;
+    #   - the bash 5.3 funsub `${ cmd; }` / valsub `${| cmd; }` run in the current
+    #     shell, and `{`/`}`/space are not operator chars, so `${ curl evil }`
+    #     tokenizes as plain words. The opener is `${` followed by whitespace or `|`
+    #     — which never starts an ordinary `${VAR}` parameter expansion (a name char
+    #     follows `${`), so this rejects funsub/valsub without touching legit expansion.
+    # A newline / carriage return is a bash command separator that shlex's
+    # `whitespace_split` silently erases — a multi-line command would tokenize as one
+    # flat "simple" invocation whose first token is a helper, letting a trailing line
+    # run un-vetted. Treat any occurrence of these as disqualifying rather than trying
+    # to reason about quoting. (`;`/`|`/`&` separators are still caught later as
+    # operator tokens; these are the cases tokenization can't see through.)
+    if (
+        "`" in command
+        or "$(" in command
+        or re.search(r"\$\{[\s|]", command)
+        or "\n" in command
+        or "\r" in command
+    ):
         return None
 
     lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
@@ -75,11 +88,12 @@ def _execution_target(command):
         return None
 
     # Any token made up entirely of operator characters (`;` `|` `&&` `(` `>` …)
-    # means the command is not a single simple invocation — including an *unquoted*
-    # `$(…)`, whose `(`/`)` tokenize as standalone operator tokens (the quoted form
-    # is already handled by the substring guard above). Read the operator set from
-    # the lexer itself (`punctuation_chars`) so there is a single source of truth
-    # for "what shlex split out as an operator".
+    # means the command is not a single simple invocation — e.g. a bare subshell
+    # `( … )`, a pipe, a redirection, or a `;`/`&` separator. (Command substitution
+    # `$(…)` in any quoting is already rejected by the substring guard above, so it
+    # never reaches here.) Read the operator set from the lexer itself
+    # (`punctuation_chars`) so there is a single source of truth for "what shlex
+    # split out as an operator".
     operator_chars = set(lexer.punctuation_chars)
     for tok in tokens:
         if tok and all(ch in operator_chars for ch in tok):
