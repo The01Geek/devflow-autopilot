@@ -181,40 +181,53 @@ assert_eq "gate-absent PR → no deferred-verification pattern" \
 # from two literals so this guard itself does not contain the contiguous string
 # (which would self-match the git grep).
 RGB_PAT="review-gate""-bypass"
-# Capture git's rc and treat it as three-valued: 0 = hits, 1 = clean no-match (the
-# PASS case — safe under run.sh's `set -u`, not `set -e`), >1 = a real git error.
-# An errored git grep also yields empty stdout, so without this rc check it would be
-# indistinguishable from a clean no-match and the guard would fail OPEN on
-# infrastructure breakage — the very fail-open class this PR exists to close.
-# Use `git -C "$LIB/.."` rather than `cd "$LIB/.." && git grep`: a failed `cd`
-# would short-circuit `&&` and leave the substitution's rc as `cd`'s (1) with empty
-# stdout — masquerading as a clean no-match (the rc-1 PASS cell) and re-opening the
-# fail-open hole one command upstream. `git -C` makes git itself the only command
-# whose rc we read, so a bad repo root exits 128 (>1) and is caught here too.
-RGB_HITS="$(git -C "$LIB/.." grep -lF "$RGB_PAT" -- ':!CHANGELOG.md')"; RGB_RC=$?
-if [ "$RGB_RC" -gt 1 ]; then
-  # Emit the cause to stderr too, so the diagnosis survives independently of
-  # assert_eq's value-echo (a generic "guard failed" would hide an infra error
-  # behind what looks like a real slug reintroduction — two different failures).
-  RGB_HITS="git grep errored (rc=$RGB_RC) — guard did not run"
-  printf 'devflow: RGB lockstep guard could not run: %s\n' "$RGB_HITS" >&2
-fi
+# Single scan helper so the live guard AND its fail-closed contract test below
+# exercise the SAME rc-handling — not two copies. (An earlier version duplicated the
+# rc transform inline in the test, so a refactor of the live guard would have left
+# the test green while re-opening the fail-open hole; sharing one helper is what
+# actually delivers the refactor-resistance.) It echoes the matching file list on a
+# hit (git rc 0), empty on a clean no-match (rc 1 — the PASS case, safe under run.sh's
+# `set -u`, not `set -e`), or the fixed sentinel `<rgb-guard-errored>` on a real git
+# error (rc >1). `git -C "$root"` keeps git the only rc-bearing command: a failed
+# `cd "$root" && git grep` would short-circuit `&&` and leave rc 1 + empty stdout,
+# masquerading as a clean no-match and re-opening the fail-open hole one command
+# upstream — the very fail-open class this PR exists to close. On error it also prints
+# an rc-bearing breadcrumb to stderr so the cause survives independently of assert_eq's
+# value-echo (an infra error must not read as a real slug reintroduction).
+rgb_scan() {
+  local root="$1" hits rc
+  hits="$(git -C "$root" grep -lF "$RGB_PAT" -- ':!CHANGELOG.md' 2>/dev/null)"; rc=$?
+  if [ "$rc" -gt 1 ]; then
+    printf 'devflow: RGB lockstep guard could not run (git rc=%s) — guard did not run\n' "$rc" >&2
+    printf '<rgb-guard-errored>'
+    return 0
+  fi
+  printf '%s' "$hits"
+}
+# Live guard: NO tracked surface may reference the removed slug, except CHANGELOG.md
+# (append-only release history that records it by its then-name). A repo-wide
+# `git grep` auto-discovers every tracked surface, so the guard cannot drift as vocab
+# surfaces are added/renamed — unlike a hand-maintained path list, which had already
+# missed skills/retrospective-weekly/SKILL.md. Scope is git-tracked content (working-
+# tree tracked files + staged), so a reintroduction in an as-yet-untracked new file is
+# caught only once it is added — acceptable, since the retrospective/implement flow
+# commits its surfaces. RGB_PAT is split into two literals so this file does not
+# self-match the grep. A real reintroduction surfaces as the offending file list; an
+# infra error surfaces as `<rgb-guard-errored>` — both non-empty, both fail loud.
 assert_eq "no tracked surface references the removed split slug (CHANGELOG history excepted)" \
-  "" "$RGB_HITS"
+  "" "$(rgb_scan "$LIB/..")"
 
-# Fail-closed contract test (#129): the guard above PASSES only on the rc-0/rc-1
-# (hit / clean-no-match) cells; its rc>1 fail-closed branch — the whole reason the
-# guard is more than a bare grep — is never driven by a normal run. Pin it: invoke
-# `git -C` against a non-repo path (→ rc 128) through the SAME rc>1 transform and
-# assert it yields the loud non-empty diagnostic, not an empty (PASS-shaped) value.
-# Without this, a future refactor of the `[ "$RGB_RC" -gt 1 ]` check could silently
-# re-open the fail-open hole this PR closed and the suite would stay green. (This is
-# CLAUDE.md's "prove the guard fails closed on the errored operand" applied to the
-# guard itself.)
-RGB_ERR_HITS="$(git -C "$LIB/../nonexistent-rgb-probe-$$" grep -lF "$RGB_PAT" -- ':!CHANGELOG.md' 2>/dev/null)"; RGB_ERR_RC=$?
-[ "$RGB_ERR_RC" -gt 1 ] && RGB_ERR_HITS="git grep errored (rc=$RGB_ERR_RC) — guard did not run"
-assert_eq "RGB guard fails closed on a git error (rc>1 → loud non-empty, not a silent PASS)" \
-  "yes" "$([ -n "$RGB_ERR_HITS" ] && echo yes || echo no)"
+# Fail-closed contract test (#129): drive the SAME rgb_scan against a non-repo path
+# (git -C → rc 128) and assert it returns the exact error sentinel — not empty (a
+# silent PASS) and not a mere "non-empty" check (which a stray hit could also satisfy).
+# Because both this and the live guard call rgb_scan, a future refactor that re-opened
+# the rc>1 fail-open hole (e.g. reverting to `cd && git grep`, or weakening the `-gt 1`
+# test) turns THIS assertion red. (CLAUDE.md's "prove the guard fails closed on the
+# errored operand," exercising the real code rather than a transcribed copy.) The
+# probe path is PID-suffixed so it cannot exist; stderr is muted here because the
+# error is deliberate and expected (the live guard above keeps stderr visible).
+assert_eq "RGB guard fails closed on a git error (returns the error sentinel, not a silent PASS)" \
+  "<rgb-guard-errored>" "$(rgb_scan "$LIB/../nonexistent-rgb-probe-$$" 2>/dev/null)"
 
 # Fix then later occ → status "regressed"
 RESULT=$(cp_run \
