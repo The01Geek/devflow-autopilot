@@ -6003,9 +6003,14 @@ assert_eq "pam: gate precedes shape-validation → malformed file exits 0 on Ant
 assert_eq "pam: gate precedes shape-validation → malformed file left unchanged (AC5)" '{ not valid json' \
   "$(cat "$PAM_GB_SF")"
 
-# AC 4 (non-truthy → Anthropic-direct): a third-party var set to "" or "0" is treated as off →
-# the step is skipped (fresh file not created, exit 0). Covers both degenerate non-truthy values.
-for _nt in "" "0"; do
+# AC 4 (non-truthy → Anthropic-direct): a third-party var set to a non-truthy value is treated as
+# off → the step is skipped (fresh file not created, exit 0). Covers the two degenerate values
+# ("" and "0") AND an arbitrary non-"1"/non-"true" string ("yes") — is_truthy's catch-all maps
+# *any* other value to off ("any other value is OFF" per the helper's own contract), so a
+# regression that widened the truthy predicate (e.g. a glob, or adding yes/on) would provision a
+# user-global write where it must not. Mutation: broaden is_truthy's case arm and the "yes" cell
+# goes RED (it would write the key instead of skipping).
+for _nt in "" "0" "yes"; do
   PAM_NT="$(mktemp -d)"; PAM_NT_SF="$PAM_NT/settings.json"
   PAM_NT_OUT="$("${PAM_NO3P[@]}" CLAUDE_CODE_USE_BEDROCK="$_nt" bash "$PAM" --apply "$PAM_NT_SF" 2>&1)"; PAM_NT_RC=$?
   assert_eq "pam: gate BEDROCK='$_nt' (non-truthy) → treated as Anthropic-direct, exit 0 (AC4)" "0" "$PAM_NT_RC"
@@ -6018,8 +6023,11 @@ done
 
 # AC 2 + AC 4 (truthy → third-party runs): each of the three provider vars, set truthy in
 # isolation, makes the step run exactly as today (fresh file → key written, exit 0). Covers
-# the "1" and "true" honored values, and proves all three vars are checked (not just BEDROCK).
-for _spec in "CLAUDE_CODE_USE_BEDROCK=1" "CLAUDE_CODE_USE_VERTEX=1" "CLAUDE_CODE_USE_FOUNDRY=1" "CLAUDE_CODE_USE_VERTEX=true"; do
+# the "1", lowercase "true", AND mixed/upper-case "TRUE" honored values (is_truthy lowercases
+# via `tr`, so case-insensitivity is contractual — documented in the script and SKILL.md), and
+# proves all three vars are checked (not just BEDROCK). Mutation: drop the `tr` lowercasing in
+# is_truthy and the "TRUE" cell goes RED (a real third-party user setting TRUE would be skipped).
+for _spec in "CLAUDE_CODE_USE_BEDROCK=1" "CLAUDE_CODE_USE_VERTEX=1" "CLAUDE_CODE_USE_FOUNDRY=1" "CLAUDE_CODE_USE_VERTEX=true" "CLAUDE_CODE_USE_BEDROCK=TRUE"; do
   PAM_3P="$(mktemp -d)"; PAM_3P_SF="$PAM_3P/settings.json"
   PAM_3P_OUT="$("${PAM_NO3P[@]}" "env" "$_spec" bash "$PAM" --apply "$PAM_3P_SF" 2>&1)"; PAM_3P_RC=$?
   assert_eq "pam: gate $_spec (truthy) → third-party, exit 0 (AC2/AC4)" "0" "$PAM_3P_RC"
