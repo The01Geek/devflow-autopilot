@@ -234,6 +234,51 @@ the exhaustiveness check. A clean shadow *raises confidence* in that gate's outc
 criterion for *waiving* it. Treat the separate independent review as the default, not as something a
 clean shadow makes optional.
 
+### The highest-risk clean shadow: a diff that changes the review/coverage/gate logic itself
+
+The generic calibration above has a sharpest edge, and it is the one this loop keeps getting wrong:
+**when the diff is `engine_self_modifying` and what it modifies is the review engine's own
+coverage-, gate-, or shadow-pass logic, a clean in-loop shadow is the *least* trustworthy clean
+shadow there is — never read it as sufficient, and require a separate standalone `/devflow:review`
+before merge.** The "shared blind spot" of the two bullets above is not a constant here; it is
+maximal precisely on this diff shape, because the reviewers are being asked to audit the very
+gate/coverage logic the change is rewriting, using a roster that shares whatever blind spot the new
+logic is supposed to close. A fail-open hole in a new tripwire, an under-specified verdict-precedence
+rule, a coverage join that reads `"full"` over a roster that silently shrank — these are exactly the
+defects a clean shadow is structurally weakest at catching, because catching them requires reasoning
+*about* the gate rather than *through* it.
+
+This is not hypothetical and not a one-off:
+
+- **PR #62 (issue #61), the hardening spec for the shadow-coverage invariants themselves.** The
+  in-loop shadow reported clean; a subsequent standalone `/devflow:review` returned **REJECT** on a
+  Critical fail-open — the roster too-narrow tripwire keyed on the wrong persisted signal (it
+  compared `diff_profile`, which never stored the test-relevance predicate, so a narrowed
+  `pr-test-analyzer` gate read `coverage: "full"` over a shrunken roster). It took twelve substantive
+  human follow-up commits across two review cycles to actually defend `coverage: "full"`. The clean
+  shadow was honest about what it asserts (the in-loop re-sample found nothing new) and useless as a
+  merge signal for this diff shape.
+- **PR #104 (issue #100), the `scan.sh` retrospectives-decode hardening.** A finding *both* review
+  passes flagged — the `_decode_existing` zero-record breadcrumb over-claims "from non-empty content"
+  on the `download_url` transport, which has no non-empty precondition — was parked as a non-blocking
+  advisory and shipped unfixed, with no test pinning the `download_url` empty/whitespace-body shape.
+  Parking advisories is legitimate by design (see "Advisory findings" in the skill), but on an
+  engine-self-modifying diff a *repeatedly-flagged* breadcrumb-accuracy defect in the engine's own
+  best-effort parser is the bug class CLAUDE.md singles out — it warrants fixing or an explicit
+  standalone-review pass, not silent advisory carry-through.
+
+So the rule, stated operationally: **a clean in-loop shadow does not clear an `engine_self_modifying`
+diff that touches review/coverage/gate logic for merge — schedule the separate standalone
+`/devflow:review` and resolve its findings first.** The standalone review is mandatory here, not
+"default but waivable on a clean shadow." (This narrows nothing for ordinary product-code diffs,
+where the shared-blind-spot risk is lower and the standalone review remains the *recommended*
+default rather than a hard pre-merge gate — see the Counterfactual note this calibration was
+strengthened under.) The two sub-patterns above share the coarse `review-gate-bypass` category; this
+calibration addresses the dominant one (the engine-self-modifying clean shadow that a real gate later
+caught). It does **not** change the advisory-parking mechanics themselves — a repeatedly-flagged
+advisory on an engine diff is surfaced here as a case the mandatory standalone review must catch, not
+re-litigated as a new auto-fix rule.
+
 ## Cost
 
 The shadow pass roughly **doubles** the cost of a converging run — one full engine pass that does
