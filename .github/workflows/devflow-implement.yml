@@ -12,9 +12,9 @@ run-name: "DevFlow implement (issue ${{ github.event.issue.number }})"
 # `github.event.issue.pull_request == null` and the resolver re-checks via
 # IS_PULL_REQUEST, so a comment on a pull request never starts a run (this is
 # what stops the weekly audit-report comment from self-triggering on the state
-# PR). The workflow no longer subscribes to the PR-only review events at all. It does NOT trigger from an issue description body or title (the
-# phrase merely *quoted* in a description must never start a run), it does NOT
-# require `@claude`, and there is NO label trigger.
+# PR). It does NOT trigger from an issue description body or title (the phrase
+# merely *quoted* in a description must never start a run), it does NOT require
+# `@claude`, and there is NO label trigger.
 #
 # Why bare-command only: this workflow runs claude-code-action in AGENT mode
 # with an explicit, synthesised `/devflow:implement <n>` prompt (the `gate` job
