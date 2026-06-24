@@ -59,9 +59,10 @@ warn() { printf 'devflow-automode: %s\n' "$1" >&2; }
 # (Amazon Bedrock, Google Vertex AI, Microsoft Foundry). So provisioning it on
 # Anthropic-direct is a pointless user-global settings write; the --apply gate below skips it.
 # Detection reads only the documented Claude Code provider env vars (never .devflow/config.json
-# — provider is an environment concern). A var counts as third-party only when set to a value
-# Claude Code itself honors as truthy — `1` or `true` (case-insensitive); empty, `0`, and any
-# other value are treated as OFF, so a deliberately-disabled provider var never trips the gate.
+# — provider is an environment concern). A var counts as third-party only when set to a truthy
+# value: Claude Code's docs enable these vars with `1`, and we additionally accept `true`
+# (case-insensitive) defensively; empty, `0`, and any other value are treated as OFF, so a
+# deliberately-disabled provider var never trips the gate.
 is_truthy() {
   case "$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]')" in
     1|true) return 0 ;;

@@ -5974,9 +5974,13 @@ assert_eq "pam: gate Anthropic-direct --apply → file byte-for-byte unchanged (
   "$PAM_GE_BEFORE" "$(cat "$PAM_GE_SF")"
 assert_eq "pam: gate Anthropic-direct --apply → did NOT write the auto-mode key (AC1/AC3)" "false" \
   "$(jq -r '.env | has("CLAUDE_CODE_ENABLE_AUTO_MODE")' "$PAM_GE_SF" 2>/dev/null)"
-# Breadcrumb must name the provider (Anthropic) as the reason — not the generic 'nothing changed'
-# no-op breadcrumb, which would also fire on the third-party idempotent path and so can't prove
-# the GATE fired. Pin the gate-unique 'Anthropic' token.
+# Breadcrumb must be the gate's own skip-reason message — not the generic 'nothing changed' no-op
+# breadcrumb, which would also fire on the third-party idempotent path and so can't prove the GATE
+# fired. Pin the gate-UNIQUE phrase 'nothing to provision' (the bare word 'Anthropic' is weaker —
+# it could appear in a future non-gate breadcrumb; 'nothing to provision' is emitted only by the
+# gate skip path). The breadcrumb does name the provider (Anthropic API) too, as AC3 requires.
+assert_eq "pam: gate Anthropic-direct --apply → breadcrumb is the gate skip-reason (gate-unique phrase, AC3)" "yes" \
+  "$(printf '%s' "$PAM_GE_OUT" | grep -qi 'nothing to provision' && echo yes || echo no)"
 assert_eq "pam: gate Anthropic-direct --apply → breadcrumb names the provider (Anthropic) as skip reason (AC3)" "yes" \
   "$(printf '%s' "$PAM_GE_OUT" | grep -qi 'anthropic' && echo yes || echo no)"
 
@@ -5987,8 +5991,8 @@ PAM_GM_OUT="$("${PAM_NO3P[@]}" bash "$PAM" --apply "$PAM_GM_SF" 2>&1)"; PAM_GM_R
 assert_eq "pam: gate Anthropic-direct --apply missing target → exit 0 (AC3)" "0" "$PAM_GM_RC"
 assert_eq "pam: gate Anthropic-direct --apply missing target → no file created (AC1/AC3)" "no" \
   "$([ -f "$PAM_GM_SF" ] && echo yes || echo no)"
-assert_eq "pam: gate Anthropic-direct --apply missing target → breadcrumb names Anthropic (AC3)" "yes" \
-  "$(printf '%s' "$PAM_GM_OUT" | grep -qi 'anthropic' && echo yes || echo no)"
+assert_eq "pam: gate Anthropic-direct --apply missing target → breadcrumb is the gate skip-reason (gate-unique phrase, AC3)" "yes" \
+  "$(printf '%s' "$PAM_GM_OUT" | grep -qi 'nothing to provision' && echo yes || echo no)"
 
 # AC 5 (gate is FIRST, precedes shape-validation): Anthropic-direct --apply against a MALFORMED
 # settings file → exit 0 (the gate short-circuits BEFORE the parse/shape check that would exit 2
@@ -6016,16 +6020,17 @@ for _nt in "" "0" "yes"; do
   assert_eq "pam: gate BEDROCK='$_nt' (non-truthy) → treated as Anthropic-direct, exit 0 (AC4)" "0" "$PAM_NT_RC"
   assert_eq "pam: gate BEDROCK='$_nt' (non-truthy) → step skipped, no file created (AC4)" "no" \
     "$([ -f "$PAM_NT_SF" ] && echo yes || echo no)"
-  assert_eq "pam: gate BEDROCK='$_nt' (non-truthy) → breadcrumb names Anthropic (AC4)" "yes" \
-    "$(printf '%s' "$PAM_NT_OUT" | grep -qi 'anthropic' && echo yes || echo no)"
+  assert_eq "pam: gate BEDROCK='$_nt' (non-truthy) → breadcrumb is the gate skip-reason (gate-unique phrase, AC4)" "yes" \
+    "$(printf '%s' "$PAM_NT_OUT" | grep -qi 'nothing to provision' && echo yes || echo no)"
   rm -rf "$PAM_NT"
 done
 
 # AC 2 + AC 4 (truthy → third-party runs): each of the three provider vars, set truthy in
 # isolation, makes the step run exactly as today (fresh file → key written, exit 0). Covers
 # the "1", lowercase "true", AND mixed/upper-case "TRUE" honored values (is_truthy lowercases
-# via `tr`, so case-insensitivity is contractual — documented in the script and SKILL.md), and
-# proves all three vars are checked (not just BEDROCK). Mutation: drop the `tr` lowercasing in
+# via `tr`, so it accepts `true`/`TRUE` case-insensitively by design — a script-local defensive
+# superset of the `1` Claude Code's docs enable these with), and proves all three vars are
+# checked (not just BEDROCK). Mutation: drop the `tr` lowercasing in
 # is_truthy and the "TRUE" cell goes RED (a real third-party user setting TRUE would be skipped).
 for _spec in "CLAUDE_CODE_USE_BEDROCK=1" "CLAUDE_CODE_USE_VERTEX=1" "CLAUDE_CODE_USE_FOUNDRY=1" "CLAUDE_CODE_USE_VERTEX=true" "CLAUDE_CODE_USE_BEDROCK=TRUE"; do
   PAM_3P="$(mktemp -d)"; PAM_3P_SF="$PAM_3P/settings.json"
