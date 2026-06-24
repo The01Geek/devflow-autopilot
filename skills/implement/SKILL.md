@@ -747,17 +747,28 @@ EOF
 )"
 ```
 
-**Apply the deferred-issue labels.** Capture each created issue's number from its `gh issue create` output (the command prints the new issue URL; the trailing path segment is the number), then apply the configured `deferred.labels` to every filed issue. The labels are read from config (default `DevFlow,Deferred`) and normalized with the **same** split/trim/drop-empties idiom Phase 4.1 uses for `docs.labels`, so an empty or whitespace-only value applies no labels. Ensure each label exists first (best-effort), then apply them in a single `gh issue edit --add-label` per filed issue — best-effort and post-creation, so a label hiccup can never block or unwind the filing:
+**Apply the deferred-issue labels.** As you create each follow-up issue above, **capture its number** from the `gh issue create` output (the command prints the new issue URL; the trailing path segment is the number) into `DEFERRED_ISSUE_NUMBERS` — a space-separated list you assemble from the issues you actually filed (e.g. `DEFERRED_ISSUE_NUMBERS="201 202"`). Then apply the configured `deferred.labels` to every filed issue. The labels are read from config (default `DevFlow,Deferred`) and normalized with the **same** split/trim/drop-empties idiom Phase 4.1 uses for `docs.labels`, so an empty or whitespace-only value applies no labels. Ensure each label exists first (best-effort), then apply them in a single `gh issue edit --add-label` per filed issue — best-effort and post-creation, so a label hiccup can never block or unwind the filing:
 
 ```bash
-DEFERRED_LABELS=$(${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .deferred.labels DevFlow,Deferred)
+# Assemble this from the issue numbers you captured above (the gh issue create
+# outputs). It is NOT auto-populated — set it explicitly, e.g.:
+#   DEFERRED_ISSUE_NUMBERS="201 202"
+DEFERRED_ISSUE_NUMBERS="${DEFERRED_ISSUE_NUMBERS:-}"
+# Capture config-get's rc so a real read failure (corrupt config.json / missing node →
+# exit 2 with empty stdout) is NOT silently indistinguishable from a deliberately-empty
+# value: both yield an empty CLEAN below, but only the failure leaves a breadcrumb. The
+# default arg covers the soft paths (missing file / unset key); rc≠0 is the hard path.
+DEFERRED_LABELS=$(${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .deferred.labels DevFlow,Deferred); DEFERRED_LABELS_RC=$?
+[ "$DEFERRED_LABELS_RC" -eq 0 ] || workpad.py update $ISSUE_NUMBER --reflection "Phase 4.0 could not read deferred.labels (config-get rc=$DEFERRED_LABELS_RC — corrupt config.json or node missing); deferred follow-up issues filed WITHOUT labels."
 CLEAN_DEFERRED_LABELS=$(echo "$DEFERRED_LABELS" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' | paste -sd, -)
-if [ -n "$CLEAN_DEFERRED_LABELS" ]; then
+if [ -z "$DEFERRED_ISSUE_NUMBERS" ]; then
+  echo "devflow: Phase 4.0 captured no deferred-issue numbers — deferred.labels applied to nothing (check the gh issue create captures)" >&2
+elif [ -n "$CLEAN_DEFERRED_LABELS" ]; then
   # Ensure each configured label exists (best-effort; ensure-label.sh always exits 0).
   echo "$CLEAN_DEFERRED_LABELS" | tr ',' '\n' | while IFS= read -r lbl; do
     [ -n "$lbl" ] && ${CLAUDE_SKILL_DIR}/../../scripts/ensure-label.sh "$lbl"
   done
-  # Apply to every issue filed above. Replace the list with the actual numbers you captured.
+  # Apply to every issue filed above (the numbers captured into DEFERRED_ISSUE_NUMBERS).
   for n in $DEFERRED_ISSUE_NUMBERS; do
     gh issue edit "$n" --add-label "$CLEAN_DEFERRED_LABELS" \
       || echo "devflow: could not apply deferred labels to issue #$n (best-effort, continuing)" >&2
@@ -849,7 +860,13 @@ if [ -n "${FILED_NUMBERS:-}" ]; then
     # `file-deferrals.py` itself stays out of config-reading (config is Node-resolver
     # territory); the skill owns labeling. Best-effort and post-filing, so a label hiccup
     # never unwinds an already-filed issue.
-    DEFERRED_LABELS=$(${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .deferred.labels DevFlow,Deferred)
+    # Capture config-get's rc (same as Phase 4.0): a hard read failure (corrupt
+    # config.json / missing node → exit 2, empty stdout) yields an empty CLEAN that is
+    # otherwise indistinguishable from a deliberately-empty value — leave a breadcrumb so
+    # the unlabeled outcome is attributable, not silent. The default arg covers the soft
+    # paths (missing file / unset key); rc≠0 is the hard path.
+    DEFERRED_LABELS=$(${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .deferred.labels DevFlow,Deferred); DEFERRED_LABELS_RC=$?
+    [ "$DEFERRED_LABELS_RC" -eq 0 ] || workpad.py update $ISSUE_NUMBER --reflection "Phase 4.0.5 could not read deferred.labels (config-get rc=$DEFERRED_LABELS_RC — corrupt config.json or node missing); deferred review-finding issues filed WITHOUT labels."
     CLEAN_DEFERRED_LABELS=$(echo "$DEFERRED_LABELS" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' | paste -sd, -)
     if [ -n "$CLEAN_DEFERRED_LABELS" ]; then
         echo "$CLEAN_DEFERRED_LABELS" | tr ',' '\n' | while IFS= read -r lbl; do
