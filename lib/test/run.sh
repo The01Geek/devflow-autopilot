@@ -194,15 +194,33 @@ RGB_PAT="review-gate""-bypass"
 # upstream — the very fail-open class this PR exists to close. On error it also prints
 # an rc-bearing breadcrumb to stderr so the cause survives independently of assert_eq's
 # value-echo (an infra error must not read as a real slug reintroduction).
-rgb_scan() {
-  local root="$1" hits rc
-  hits="$(git -C "$root" grep -lF "$RGB_PAT" -- ':!CHANGELOG.md' 2>/dev/null)"; rc=$?
+# rgb_classify is the pure rc→verdict transform, split out from the git call so it
+# can be driven against ANY rc — not just the rc=128 a nonexistent path happens to
+# produce. It is the single owner of the three-valued contract: empty on a clean
+# no-match (git rc 1 — the PASS case, safe under run.sh's `set -u`, not `set -e`),
+# the hits string on a match (rc 0), or the fixed sentinel `<rgb-guard-errored>` on
+# ANY git error (rc >1). The `-gt 1` threshold — not `-gt 2`, not `== 128` — is what
+# makes rc 2 (a `git grep` operational error, distinct from no-match=1) fail closed;
+# the boundary tests below pin that exact threshold so an off-by-one weakening turns
+# the suite red. On error it prints an rc-bearing stderr breadcrumb so the cause
+# survives independently of assert_eq's value-echo (an infra error must not read as a
+# real slug reintroduction).
+rgb_classify() {
+  local rc="$1" hits="$2"
   if [ "$rc" -gt 1 ]; then
     printf 'devflow: RGB lockstep guard could not run (git rc=%s) — guard did not run\n' "$rc" >&2
     printf '<rgb-guard-errored>'
     return 0
   fi
   printf '%s' "$hits"
+}
+rgb_scan() {
+  local root="$1" hits rc
+  # `git -C "$root"` keeps git the only rc-bearing command: a failed
+  # `cd "$root" && git grep` would short-circuit `&&` and leave rc 1 + empty stdout,
+  # masquerading as a clean no-match and re-opening the fail-open hole one command up.
+  hits="$(git -C "$root" grep -lF "$RGB_PAT" -- ':!CHANGELOG.md' 2>/dev/null)"; rc=$?
+  rgb_classify "$rc" "$hits"
 }
 # Live guard: NO tracked surface may reference the removed slug, except CHANGELOG.md
 # (append-only release history that records it by its then-name). A repo-wide
@@ -220,14 +238,29 @@ assert_eq "no tracked surface references the removed split slug (CHANGELOG histo
 # Fail-closed contract test (#129): drive the SAME rgb_scan against a non-repo path
 # (git -C → rc 128) and assert it returns the exact error sentinel — not empty (a
 # silent PASS) and not a mere "non-empty" check (which a stray hit could also satisfy).
-# Because both this and the live guard call rgb_scan, a future refactor that re-opened
-# the rc>1 fail-open hole (e.g. reverting to `cd && git grep`, or weakening the `-gt 1`
-# test) turns THIS assertion red. (CLAUDE.md's "prove the guard fails closed on the
-# errored operand," exercising the real code rather than a transcribed copy.) The
-# probe path is PID-suffixed so it cannot exist; stderr is muted here because the
-# error is deliberate and expected (the live guard above keeps stderr visible).
+# Because both this and the live guard call rgb_scan, reverting to `cd && git grep`
+# (the rc-1 masquerade) turns THIS assertion red. The probe path is PID-suffixed so it
+# cannot exist; stderr is muted here because the error is deliberate and expected (the
+# live guard above keeps stderr visible).
 assert_eq "RGB guard fails closed on a git error (returns the error sentinel, not a silent PASS)" \
   "<rgb-guard-errored>" "$(rgb_scan "$LIB/../nonexistent-rgb-probe-$$" 2>/dev/null)"
+
+# Threshold boundary tests (#129): the contract test above only ever exercises rc 128,
+# so it pins "an errored git fails closed" but NOT the `-gt 1` THRESHOLD itself — a
+# weakening to `-gt 2` (so rc 2 falls through to the PASS path, re-opening fail-open on
+# a `git grep` operational error) would leave it green. Drive rgb_classify — the same
+# transform the live guard runs through rgb_scan — across every rc class so the exact
+# threshold is pinned: rc 0 → the hits, rc 1 → empty (PASS), and rc 2 (the boundary
+# `-gt 1` defends) and rc 128 → the sentinel. A `-gt 2`/`-ne 1`/`== 128` weakening
+# turns the rc-2 row red. stderr muted: the >1 rows print an expected breadcrumb.
+assert_eq "rgb_classify rc=0 (hit) → returns the offending file list" \
+  "skills/foo.md" "$(rgb_classify 0 "skills/foo.md" 2>/dev/null)"
+assert_eq "rgb_classify rc=1 (clean no-match) → empty (PASS)" \
+  "" "$(rgb_classify 1 "" 2>/dev/null)"
+assert_eq "rgb_classify rc=2 (git operational error) → sentinel (fails closed at the -gt 1 boundary)" \
+  "<rgb-guard-errored>" "$(rgb_classify 2 "" 2>/dev/null)"
+assert_eq "rgb_classify rc=128 (git fatal) → sentinel (fails closed)" \
+  "<rgb-guard-errored>" "$(rgb_classify 128 "" 2>/dev/null)"
 
 # Fix then later occ → status "regressed"
 RESULT=$(cp_run \
