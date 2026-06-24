@@ -710,6 +710,17 @@ assert_eq("multi-line reflection text collapses to one bullet line", True,
 assert_eq("multi-line reflection emits exactly one bullet (no split continuation)", 1,
           rk_ml.count('- ❗ **Dropped/Failed:**'))
 
+# Distinguish the UNCONDITIONAL splitlines() collapse from the old `if '\n' in
+# text` guard: a bare \r (or \v) line break — which the old guard let slip
+# through to the line-based fetch parser — must also collapse to one bullet line.
+# (A regression reverting to the `\n`-only guard would pass the \n test above but
+# fail this one.)
+rk_cr = _reflect_seq(('dropped-failed', 'cr one\rcr two'))
+assert_eq("bare \\r in reflection text also collapses to one bullet line", True,
+          '- ❗ **Dropped/Failed:** cr one cr two' in rk_cr)
+assert_eq("bare \\r reflection emits exactly one bullet (no split continuation)", 1,
+          rk_cr.count('- ❗ **Dropped/Failed:**'))
+
 # Mid-migration shape: a workpad whose reflection block already holds a
 # pre-migration un-kinded flat bullet, into which a new kinded bullet is then
 # appended (a real DevFlow workpad created before this PR and updated after it).

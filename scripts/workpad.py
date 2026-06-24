@@ -706,7 +706,7 @@ def _insert_reflection_bullet(inner: str, kind: str, text: str) -> str:
         raise _UpdateError(
             f"unknown reflection kind {kind!r}; expected one of "
             f"{', '.join(_REFLECTION_KINDS)}"
-        )
+        ) from None
     # Reflection bullets are single-line. Collapse any embedded line breaks
     # (`str.splitlines()` handles \n, \r, \v, …) to spaces — e.g. a multi-line
     # gh/jq error captured into a `dropped-failed` breadcrumb — so the whole
