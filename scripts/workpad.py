@@ -639,9 +639,8 @@ _REFLECTION_SUBSECTIONS = (
     ('action', '### ⚠️ Action required'),
     ('notes',  '### ℹ️ Notes'),
 )
-_SUBSECTION_ORDER = {key: i for i, (key, _) in enumerate(_REFLECTION_SUBSECTIONS)}
-_SUBSECTION_HEADINGS = dict(_REFLECTION_SUBSECTIONS)
-_HEADING_TO_KEY = {h: k for k, h in _REFLECTION_SUBSECTIONS}
+_SUBSECTION_HEADINGS = dict(_REFLECTION_SUBSECTIONS)            # sub-key -> heading
+_SUBSECTION_HEADING_ORDER = [h for _, h in _REFLECTION_SUBSECTIONS]  # canonical order
 _SUBSECTION_HEADING_RE = re.compile(r'^###\s')
 
 
@@ -653,15 +652,18 @@ def _parse_reflection_blocks(inner: str) -> list[list]:
     `### ` line starts a new block. An empty preamble block is dropped."""
     blocks = []
     current = [None, []]
+
+    def _flush():
+        if current[0] is not None or any(ln.strip() for ln in current[1]):
+            blocks.append(current)
+
     for line in inner.split('\n'):
         if _SUBSECTION_HEADING_RE.match(line):
-            if current[0] is not None or any(ln.strip() for ln in current[1]):
-                blocks.append(current)
+            _flush()
             current = [line.rstrip(), []]
         else:
             current[1].append(line)
-    if current[0] is not None or any(ln.strip() for ln in current[1]):
-        blocks.append(current)
+    _flush()
     return blocks
 
 
@@ -699,16 +701,16 @@ def _insert_reflection_bullet(inner: str, kind: str, text: str) -> str:
             return _render_reflection_blocks(blocks)
     # No existing sub-section for this kind: insert a new block, preserving the
     # canonical order (a None-heading preamble always stays first; an unknown
-    # heading sorts last so it is never reordered above a known one).
-    new_rank = _SUBSECTION_ORDER[sub_key]
+    # `### ` heading sorts last so it is never reordered above a known one).
+    def _rank(heading):
+        return (_SUBSECTION_HEADING_ORDER.index(heading)
+                if heading in _SUBSECTION_HEADING_ORDER
+                else len(_SUBSECTION_HEADING_ORDER))
+
+    new_rank = _rank(target_heading)
     pos = len(blocks)
     for i, blk in enumerate(blocks):
-        if blk[0] is None:
-            continue
-        blk_rank = _SUBSECTION_ORDER.get(
-            _HEADING_TO_KEY.get(blk[0]), len(_REFLECTION_SUBSECTIONS)
-        )
-        if blk_rank > new_rank:
+        if blk[0] is not None and _rank(blk[0]) > new_rank:
             pos = i
             break
     blocks.insert(pos, [target_heading, [bullet]])
