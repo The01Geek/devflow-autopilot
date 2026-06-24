@@ -773,8 +773,13 @@ if [ -z "$DEFERRED_ISSUE_NUMBERS" ]; then
   workpad.py update $ISSUE_NUMBER --reflection "Phase 4.0 filed deferred follow-up issues but captured no issue numbers — the configured deferred labels were applied to NONE of them; the filed issues carry none of the configured deferred labels."
 elif [ -n "$CLEAN_DEFERRED_LABELS" ]; then
   # Ensure each configured label exists (best-effort; ensure-label.sh always exits 0).
+  # `|| continue` (not `&& cmd`) so the body's LAST command is always rc-0: a trailing
+  # blank line would otherwise leave the loop — a pipeline tail — at rc-1 and abort the
+  # phase under `set -euo pipefail` + pipefail. CLEAN already drops blanks, so this is
+  # belt-and-suspenders, kept symmetric with the apply loop below.
   echo "$CLEAN_DEFERRED_LABELS" | tr ',' '\n' | while IFS= read -r lbl; do
-    [ -n "$lbl" ] && ${CLAUDE_SKILL_DIR}/../../scripts/ensure-label.sh "$lbl"
+    [ -n "$lbl" ] || continue
+    ${CLAUDE_SKILL_DIR}/../../scripts/ensure-label.sh "$lbl"
   done
   # Apply to every issue filed above (the numbers captured into DEFERRED_ISSUE_NUMBERS).
   # A failed --add-label is the feature's most likely real-world failure, so route it to
@@ -885,17 +890,25 @@ if [ -n "${FILED_NUMBERS:-}" ]; then
     [ "$DEFERRED_LABELS_RC" -eq 0 ] || workpad.py update $ISSUE_NUMBER --reflection "Phase 4.0.5 could not read deferred.labels (config-get rc=$DEFERRED_LABELS_RC — corrupt config.json or node missing); deferred review-finding issues filed WITHOUT labels."
     CLEAN_DEFERRED_LABELS=$(echo "$DEFERRED_LABELS" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' | paste -sd, -)
     if [ -n "$CLEAN_DEFERRED_LABELS" ]; then
+        # `|| continue` keeps the body's last command rc-0 (set-e/pipefail-safe, same as
+        # Phase 4.0); CLEAN already drops blanks so this is belt-and-suspenders.
         echo "$CLEAN_DEFERRED_LABELS" | tr ',' '\n' | while IFS= read -r lbl; do
-            [ -n "$lbl" ] && ${CLAUDE_SKILL_DIR}/../../scripts/ensure-label.sh "$lbl"
+            [ -n "$lbl" ] || continue
+            ${CLAUDE_SKILL_DIR}/../../scripts/ensure-label.sh "$lbl"
         done
         # A failed --add-label is routed to the durable workpad as well as stderr (same as
         # Phase 4.0): the unlabeled outcome is the feature's most likely failure and stderr
         # is ephemeral in an autonomous cloud run, so a stderr-only breadcrumb would leave
         # no retrospective-visible trace.
+        # `|| continue` (not `&& {…}`) keeps the body's last command rc-0 so a trailing
+        # blank line in FILED_NUMBERS cannot leave this pipeline-tail loop at rc-1 and abort
+        # the phase under `set -euo pipefail` + pipefail (Phase 4.0's `for` loop is immune
+        # because word-splitting drops blanks; this piped-`while` form is not).
         echo "$FILED_NUMBERS" | while IFS= read -r n; do
-            [ -n "$n" ] && { gh issue edit "$n" --add-label "$CLEAN_DEFERRED_LABELS" \
+            [ -n "$n" ] || continue
+            gh issue edit "$n" --add-label "$CLEAN_DEFERRED_LABELS" \
                 || { echo "devflow: could not apply deferred labels to issue #$n (best-effort, continuing)" >&2; \
-                     workpad.py update $ISSUE_NUMBER --reflection "Phase 4.0.5 could not apply the configured deferred labels ($CLEAN_DEFERRED_LABELS) to issue #$n (best-effort; the issue was filed but carries none of the configured deferred labels)."; }; }
+                     workpad.py update $ISSUE_NUMBER --reflection "Phase 4.0.5 could not apply the configured deferred labels ($CLEAN_DEFERRED_LABELS) to issue #$n (best-effort; the issue was filed but carries none of the configured deferred labels)."; }
         done
     fi
 fi
