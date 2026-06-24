@@ -1,0 +1,158 @@
+{
+  "iter": 2,
+  "source": "review-and-fix",
+  "fix_commit_sha": "217b7016622accd9aed1725f363e214560bf463f",
+  "fix_files": [
+    "skills/implement/SKILL.md",
+    "CHANGELOG.md"
+  ],
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "checklist": [
+    {
+      "id": "VC-1",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "api_contract:ci.yml:lib-python-tests-job-name",
+      "reused_from_iter_prev": true
+    },
+    {
+      "id": "VC-3",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "api_contract:workpad.py:tick-ac-note-reflection-flags",
+      "reused_from_iter_prev": true
+    },
+    {
+      "id": "VC-4",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "claim_signature": "api_contract:CHANGELOG.md:version-2.8.7-entry-present",
+      "reused_from_iter_prev": true
+    },
+    {
+      "id": "VC-5",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "api_contract:CHANGELOG.md:entry-matches-skill-change",
+      "reused_from_iter_prev": true
+    },
+    {
+      "id": "VC-6",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "claim_signature": "string_presence:CLAUDE.md:run-sh-suite-path",
+      "reused_from_iter_prev": true
+    },
+    {
+      "id": "VC-2",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "api_contract:CLAUDE.md:tier-matters-section-heading",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-7",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "dependency_interaction:workpad.py:tick-ac-substring-match",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-8",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "dependency_interaction:workpad.py:note-reflection-atomic-combine",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-9",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "claim_signature": "string_presence:CLAUDE.md:convention-violation-pattern-key",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-10",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "claim_signature": "string_presence:ci.yml:lib-python-tests-job-name-literal",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-11",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "claim_signature": "string_presence:CLAUDE.md:tier-matters-heading-literal",
+      "reused_from_iter_prev": false
+    }
+  ],
+  "phase3_dispatched": [
+    "pr-review-toolkit:code-reviewer",
+    "pr-review-toolkit:silent-failure-hunter",
+    "pr-review-toolkit:comment-analyzer",
+    "superpowers:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "pr-review-toolkit:silent-failure-hunter",
+      "severity": "Important",
+      "description": "New rule ticks a verification AC [x] on a deferred CI signal, bypassing the existing (post-merge) channel built for ship-now-verify-later",
+      "defect_signature": {
+        "file": "skills/implement/SKILL.md",
+        "line_range": [
+          671,
+          671
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "pr-review-toolkit:silent-failure-hunter",
+      "severity": "Important",
+      "description": "'(or equivalent)' makes the rule's trigger condition unbounded; self-judged scope can fail open",
+      "defect_signature": {
+        "file": "skills/implement/SKILL.md",
+        "line_range": [
+          671,
+          671
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-postmerge-bypass",
+      "decision": "applied",
+      "commit": "217b7016622accd9aed1725f363e214560bf463f",
+      "note": "User chose to incorporate. Rule now ticks only on observed-green CI (via gh), else retags (post-merge); no [x] on an unobserved CI result."
+    },
+    {
+      "finding_id": "F-or-equivalent",
+      "decision": "applied",
+      "commit": "217b7016622accd9aed1725f363e214560bf463f",
+      "note": "User chose to incorporate. Scope restated as the determinable 'any verification command you could not locally observe passing'; removed '(or equivalent)'."
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 2,
+    "fix_diff_lines": 18,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  }
+}
