@@ -6018,6 +6018,36 @@ HK_CRLF="$(printf '%s\r\nshutdown' "$HK_ROOT/scripts/workpad.py update 113")"
 assert_eq "hook: CRLF-separated second command → no allow" "" "$(hk_decision "$HK_CRLF")"
 assert_eq "hook: trailing '&' background → no allow" "" \
   "$(hk_decision "$HK_ROOT/scripts/workpad.py update 113 &")"
+# A '#' is a comment introducer to shlex (which strips it + everything after,
+# hiding a trailing ';curl evil'), but bash treats a mid-word '#' as a literal —
+# so the separator after it is live. The hook must keep '#' literal so the
+# operator sweep still sees the real separator (AC: compound).
+assert_eq "hook: '#'-comment hiding a trailing ';' command → no allow" "" \
+  "$(hk_decision "$HK_ROOT/scripts/workpad.py a#b ; curl evil")"
+assert_eq "hook: '#'-comment hiding a trailing '|' command → no allow" "" \
+  "$(hk_decision "$HK_ROOT/scripts/workpad.py a#b | sh")"
+
+# --- additional decision-branch coverage (correct today; pinned against silent regressions) ---
+# bash -c / python3 -m must NOT be treated as a contained-script invocation (the
+# script-arg-is-a-flag guard) — the security-load-bearing half of the wrapper path.
+assert_eq "hook: 'bash -c <code>' (flag, not a script) → no allow" "" \
+  "$(hk_decision "bash -c $HK_ROOT/scripts/workpad.py")"
+assert_eq "hook: 'python3 -m <module>' (flag, not a script) → no allow" "" \
+  "$(hk_decision "python3 -m http.server")"
+# A target that resolves to a real DIRECTORY (not a file) under root must defer.
+assert_eq "hook: target is a directory under root (not a file) → no allow" "" \
+  "$(hk_decision "$HK_ROOT/scripts foo")"
+# A bare command name (no path separator) is rejected before any filesystem syscall.
+assert_eq "hook: bare command name (no separator) → no allow" "" \
+  "$(hk_decision "git status")"
+# Positive companion: a contained helper with a $VAR parameter-expansion arg is
+# still allowed (the documented allowance — unlike $(…) it cannot change the program).
+assert_eq "hook: contained helper with a \$VAR arg → allow" "allow" \
+  "$(hk_decision "$HK_ROOT/scripts/workpad.py update \$ISSUE_NUMBER")"
+# Unbalanced quotes make shlex raise ValueError; _should_allow catches it → defer + exit 0.
+HK_BADQ_OUT="$(jq -n --arg c "$HK_ROOT/scripts/workpad.py 'unclosed" '{tool_name:"Bash", tool_input:{command:$c}}' | CLAUDE_PLUGIN_ROOT="$HK_ROOT" python3 "$HOOK" 2>/dev/null)"; HK_BADQ_RC=$?
+assert_eq "hook: unbalanced quotes (shlex ValueError) → no decision" "" "$(printf '%s' "$HK_BADQ_OUT" | tr -d '[:space:]')"
+assert_eq "hook: unbalanced quotes (shlex ValueError) → exit 0" "0" "$HK_BADQ_RC"
 
 # --- fail-open: malformed/empty input & unset root never decide and never block (AC: fail-open) ---
 HK_EMPTY_OUT="$(printf '' | CLAUDE_PLUGIN_ROOT="$HK_ROOT" python3 "$HOOK" 2>/dev/null)"; HK_EMPTY_RC=$?

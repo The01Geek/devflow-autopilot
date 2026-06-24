@@ -61,6 +61,12 @@ def _execution_target(command):
 
     lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
     lexer.whitespace_split = True
+    # Disable shlex's comment handling: its default `commenters='#'` strips `#` and
+    # everything after it — including a hidden `; <command>` separator — but bash
+    # only treats `#` as a comment at a word boundary, so mid-word it is a literal
+    # and the trailing separator is live. Keeping `#` literal lets the operator
+    # sweep below still see that separator (the `#`-twin of the newline guard above).
+    lexer.commenters = ""
     tokens = list(lexer)  # raises ValueError on unbalanced quotes
     if not tokens:
         return None
