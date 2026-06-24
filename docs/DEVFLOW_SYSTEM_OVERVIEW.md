@@ -242,7 +242,7 @@ DevFlow maintains **exactly one** marker-tagged comment on the GitHub issue for 
 - **3.1** Create the **draft** PR (`Resolves #{issue}`).
 - **3.2** Self-review with the built-in `/simplify` skill; commit fixes (`refactor:`).
 - **3.3** Run `/devflow:review-and-fix --push-each-iteration` (the flag propagates each iteration to remote so CI validates). Handles the loop's verdicts, including the special `APPROVE WITH UNRESOLVED SHADOW FINDINGS` (a bounded single re-review) and the `REJECT` → Blocked path.
-- **3.4 Acceptance Criteria Gate:** every **non-post-merge** AC checkbox must be ticked (via a passing test, a documented manual check, or a `file:line` reference) before the phase passes.
+- **3.4 Acceptance Criteria Gate:** every **non-post-merge** AC checkbox must be ticked (via a passing test, a documented manual check, or a `file:line` reference) before the phase passes. An AC whose verification is *running a test/lint/build command* that was **not** observed passing locally is never satisfied by CI deferral alone: after a genuine local-denial fallback, the gate reads the **`lib + python tests`** result for the current `git rev-parse HEAD` and splits three ways — observed **green** for HEAD → tick (recording the gh-resolved SHA via `--note`/`--reflection`); observed **red** for HEAD → the **Blocked** path (a red CI is a real failure, not a deferral); **not-yet-reported** or unreadable → retag `(post-merge)` so the human merger confirms it. A grep of a few SKILL-contract pins is not a substitute for the suite.
 
 ### Phase 4: Documentation
 - **4.0** File follow-up issues for deferred ACs.
