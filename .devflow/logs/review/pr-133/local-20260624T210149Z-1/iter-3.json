@@ -1,0 +1,176 @@
+{
+  "iter": 3,
+  "source": "review-and-fix",
+  "fix_commit_sha": "9ed9d86e5bf21b1bc37bdc36ac4876dcb8dd69b4",
+  "fix_files": [
+    "lib/intervention-surfaces.md"
+  ],
+  "checklist": [],
+  "phase3_dispatched": [
+    "pr-review-toolkit:code-reviewer",
+    "pr-review-toolkit:silent-failure-hunter",
+    "pr-review-toolkit:comment-analyzer",
+    "superpowers:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": true,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {
+      "agent": "superpowers:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "intervention-surfaces.md consumer-local wording diverged from §2 framing",
+      "defect_signature": {
+        "file": "lib/intervention-surfaces.md",
+        "line_range": [
+          12,
+          12
+        ],
+        "kind": "other"
+      },
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-7",
+      "decision": "applied",
+      "commit": "9ed9d86e5bf21b1bc37bdc36ac4876dcb8dd69b4"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 1,
+    "fix_diff_lines": 2,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "shadow": {
+    "ran_at": "2026-06-24T21:24:19Z",
+    "reviewed_sha": "9ed9d86e5bf21b1bc37bdc36ac4876dcb8dd69b4",
+    "verdict": "APPROVE WITH CAVEAT",
+    "coverage": "full",
+    "reviewers_dispatched": [
+      "pr-review-toolkit:code-reviewer",
+      "pr-review-toolkit:silent-failure-hunter",
+      "pr-review-toolkit:comment-analyzer",
+      "superpowers:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "pr-review-toolkit:code-reviewer",
+      "pr-review-toolkit:silent-failure-hunter",
+      "pr-review-toolkit:comment-analyzer",
+      "superpowers:requesting-code-review"
+    ],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {
+        "agent": "pr-review-toolkit:silent-failure-hunter",
+        "severity": "Suggestion",
+        "description": "route fails silently if named <skill> never invokes loader; recommend verify-invokes-loader step",
+        "defect_signature": {
+          "file": "skills/retrospective-audit/SKILL.md",
+          "line_range": [
+            45,
+            47
+          ],
+          "kind": "logic_error"
+        }
+      },
+      {
+        "agent": "pr-review-toolkit:silent-failure-hunter",
+        "severity": "Suggestion",
+        "description": "verify skills/<skill>/ exists to catch a name typo",
+        "defect_signature": {
+          "file": "skills/retrospective-audit/SKILL.md",
+          "line_range": [
+            47,
+            47
+          ],
+          "kind": "api_misuse"
+        }
+      },
+      {
+        "agent": "pr-review-toolkit:silent-failure-hunter",
+        "severity": "Suggestion",
+        "description": "add a when-in-doubt-prefer-meta-issue fail-closed tie-break",
+        "defect_signature": {
+          "file": "skills/retrospective-audit/SKILL.md",
+          "line_range": [
+            38,
+            58
+          ],
+          "kind": "logic_error"
+        }
+      },
+      {
+        "agent": "pr-review-toolkit:comment-analyzer",
+        "severity": "Suggestion",
+        "description": "condition (ii) .github enumeration slightly overstates the matcher",
+        "defect_signature": {
+          "file": "skills/retrospective-audit/SKILL.md",
+          "line_range": [
+            51,
+            51
+          ],
+          "kind": "comment_drift"
+        }
+      },
+      {
+        "agent": "pr-review-toolkit:comment-analyzer",
+        "severity": "Suggestion",
+        "description": "overview sentence is a long run-on; split for scannability",
+        "defect_signature": {
+          "file": "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+          "line_range": [
+            418,
+            418
+          ],
+          "kind": "style"
+        }
+      },
+      {
+        "agent": "pr-review-toolkit:comment-analyzer",
+        "severity": "Suggestion",
+        "description": "append-only/consumer-local stated 3x; minor redundancy",
+        "defect_signature": {
+          "file": "skills/retrospective-audit/SKILL.md",
+          "line_range": [
+            44,
+            56
+          ],
+          "kind": "style"
+        }
+      },
+      {
+        "agent": "superpowers:requesting-code-review",
+        "severity": "Suggestion",
+        "description": "pre-existing config.schema.json canonical-list drift (already deferred)",
+        "defect_signature": {
+          "file": "skills/retrospective-audit/SKILL.md",
+          "line_range": [
+            82,
+            94
+          ],
+          "kind": "comment_drift"
+        }
+      }
+    ],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 7,
+      "overlap_with_iter_N": 0,
+      "new": 7,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": false
+  }
+}
