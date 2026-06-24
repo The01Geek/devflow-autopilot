@@ -170,21 +170,18 @@ assert_eq "gate-absent PR → no lenient-verdict pattern" \
 assert_eq "gate-absent PR → no deferred-verification pattern" \
   "null" "$(echo "$RESULT" | jq -r '.["deferred-verification"].occurrence_count')"
 
-# Lockstep guard (#129): no tracked vocab surface may still reference the removed
-# slug. The search pattern is concatenated from two literals so this guard itself
-# does not contain the contiguous string (which would self-match the run.sh grep).
+# Lockstep guard (#129): NO tracked surface may reference the removed slug, except
+# CHANGELOG.md (immutable release history that records it by its then-name). A
+# repo-wide `git grep` auto-discovers every tracked surface, so this guard cannot
+# drift as vocab surfaces are added/renamed — unlike a hand-maintained path list,
+# which had already missed skills/retrospective-weekly/SKILL.md. The pattern is
+# concatenated from two literals so this guard itself does not contain the
+# contiguous string (which would self-match the git grep). No `|| true`: run.sh is
+# `set -u` (not `set -e`), so git grep's exit 1 (no match — the PASS case) is safe
+# and leaves RGB_HITS empty.
 RGB_PAT="review-gate""-bypass"
-RGB_ROOT="$LIB/.."
-# No `|| true` / `2>/dev/null`: run.sh is `set -u` (not `set -e`), so grep's
-# exit 1 (no match — the PASS case) is safe and leaves RGB_HITS empty. A real
-# grep error (exit 2, e.g. a tracked surface was renamed/deleted) must surface on
-# stderr rather than be masked into a falsely-passing guard.
-RGB_HITS="$(grep -rEl "$RGB_PAT" \
-  "$RGB_ROOT/skills/retrospective/SKILL.md" \
-  "$RGB_ROOT/docs/DEVFLOW_SYSTEM_OVERVIEW.md" \
-  "$RGB_ROOT/docs/shadow-review.md" \
-  "$RGB_ROOT/lib/test/run.sh")"
-assert_eq "no tracked vocab surface references the removed split slug" \
+RGB_HITS="$(cd "$LIB/.." && git grep -lF "$RGB_PAT" -- ':!CHANGELOG.md')"
+assert_eq "no tracked surface references the removed split slug (CHANGELOG history excepted)" \
   "" "$RGB_HITS"
 
 # Fix then later occ → status "regressed"
