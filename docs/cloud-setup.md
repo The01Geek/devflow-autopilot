@@ -119,11 +119,21 @@ gone.)
 ## Triggering `/devflow:implement`
 
 `devflow-implement.yml` runs the full implementation lifecycle when a real
-comment or review body contains a bare `/devflow:implement <#>` (no `@claude`
+comment **on an issue** contains a bare `/devflow:implement <#>` (no `@claude`
 required — and **no** `@claude`: a comment containing `@claude` is ceded to
 Anthropic's Claude GitHub App, not DevFlow). There is no label trigger — a human
 `/devflow:implement <#>` comment is the sole entry point and is itself a native
 user event, so it needs no bot comment, PAT, or GitHub App.
+
+It is **issues-only**: the workflow subscribes to `issue_comment[created]` alone,
+and because a PR comment is also an `issue_comment` in GitHub's API, the `gate`
+job's `if:` requires `github.event.issue.pull_request == null` (with the resolver
+re-checking via an `IS_PULL_REQUEST` backstop), so a comment on a pull request
+never starts a run. This is what stops the weekly retrospective's audit-report
+comment — which quotes the literal `/devflow:implement` phrase in prose on the
+state PR — from self-triggering an implement run. The light `/devflow:review` and
+`/devflow:pr-description` commands in `devflow.yml` remain PR-aware and are
+unaffected.
 
 > **Who can trigger it.** The `gate` job runs
 > `scripts/resolve-implement-trigger.sh`, which authorizes the sender only if
@@ -409,7 +419,7 @@ entries. Enabling the reviewer's build environment is then just setting
 | `ci.yml` | Runs DevFlow's own test suite | — (this repo's CI) |
 | `devflow.yml` | Light `/devflow:*` command listener (review, review-and-fix, pr-description) — event-driven only, no `workflow_call` | `CLAUDE_CODE_OAUTH_TOKEN` |
 | `devflow-runner.yml` | Reusable runner (`workflow_call`) — one read-only job called by `devflow-review.yml`; lives apart from `devflow.yml` so its permission ceiling stays a subset of the caller's grant | `CLAUDE_CODE_OAUTH_TOKEN` |
-| `devflow-implement.yml` | Runs `/devflow:implement` on a bare command in a comment/review | `CLAUDE_CODE_OAUTH_TOKEN` |
+| `devflow-implement.yml` | Runs `/devflow:implement` on a bare command in an issue comment (issues-only; PR comments never fire it) | `CLAUDE_CODE_OAUTH_TOKEN` |
 | `devflow-review.yml` | Auto-runs `/devflow:review` as a gate on PRs (calls `devflow-runner.yml`) | `CLAUDE_CODE_OAUTH_TOKEN` |
 
 DevFlow never creates or overwrites `claude.yml` — that file belongs to
