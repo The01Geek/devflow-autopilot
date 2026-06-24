@@ -3590,6 +3590,14 @@ IMPL="$WF/devflow-implement.yml"
 # (a) The heavy path must NOT subscribe to the PR-only review events at all.
 assert_eq "partition: devflow-implement.yml is issues-only (no PR-review subscriptions)" \
   "0" "$(grep -cE 'pull_request_review(_comment)?:' "$IMPL")"
+# (a+) Positive complement to (a): the heavy path MUST still subscribe to
+#      issue_comment — its SOLE event entry point now. (a) is a negative check, so
+#      without this a future edit that DELETES or renames the issue_comment
+#      subscription would make the whole heavy path silently inert
+#      (/devflow:implement never fires on any thread) while (a) still reads 0 and
+#      every other test stays green — the over-narrowing twin of the bug (a) guards.
+assert_eq "partition: devflow-implement.yml subscribes to issue_comment (sole event entry point)" \
+  "1" "$(grep -cE '^[[:space:]]*issue_comment:[[:space:]]*$' "$IMPL")"
 # (b) The gate if: must carry the PR-context filter (comment is on an issue, not
 #     a PR). Match the gate-conjunct form (trailing ` &&`) so the prose mention of
 #     the same expression in the header comment isn't counted.
