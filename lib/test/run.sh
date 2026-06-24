@@ -289,9 +289,13 @@ assert_eq "deferred.labels: SKILL Phase 4.0 no longer instructs 'add no --label'
 # Pin the normalization pipeline itself (not just the read/ensure/apply tokens): the
 # deferred_labels_normalize() helper above is a hand-copied replica, so without this pin a
 # SKILL edit to the trim/drop-empties pipeline would drift silently while the replica
-# keeps passing. Both channels (4.0 + 4.0.5) must carry the exact pipeline → expect >= 2.
+# keeps passing. Scope the count to the DEFERRED assignment (`CLEAN_DEFERRED_LABELS=$(echo
+# "$DEFERRED_LABELS" | …`) so it is deferred-unique — the identical pipeline also appears on
+# the Phase 4.1 docs.labels line (CLEAN_LABELS / DOCS_LABELS), so a bare pipeline count would
+# read 3 and a `>= 2` threshold would still pass if ONE deferred channel lost it. Both
+# channels (4.0 + 4.0.5) must carry the exact deferred pipeline → require EXACTLY 2.
 assert_eq "deferred.labels: SKILL keeps the exact normalization pipeline in BOTH channels" "yes" \
-  "$([ "$(grep -cF "tr ',' '\\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*\$//' | grep -v '^\$' | paste -sd, -" "$DEF_SKILL")" -ge 2 ] && echo yes || echo no)"
+  "$([ "$(grep -cF 'CLEAN_DEFERRED_LABELS=$(echo "$DEFERRED_LABELS" | tr '"'"','"'"' '"'"'\n'"'"' | sed '"'"'s/^[[:space:]]*//; s/[[:space:]]*$//'"'"' | grep -v '"'"'^$'"'"' | paste -sd, -)' "$DEF_SKILL")" -eq 2 ] && echo yes || echo no)"
 # Pin the rc-capture: a hard config-get read failure must be attributable, not silently
 # collapsed into the deliberately-empty-value path. The if-condition idiom keeps the
 # capture alive under set -e.
