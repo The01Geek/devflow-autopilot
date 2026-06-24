@@ -432,9 +432,9 @@ Write the code. Follow the patterns and conventions described in `CLAUDE.md`. As
 - **Deletes** code (a call site, branch, method, file, route, page, or asset) → run **2.3.1**, and **2.3.2** if it deletes a method/file/route/page.
 - **Changes a contract** (a signature, a renamed/moved symbol, a tightened validator, or a routing/branch predicate) → run **2.3.0**.
 - **Adds a rule that has peers** (a clause, guard, validator, or invariant that must hold at two or more co-equal sites for the rule to actually hold) → run **2.3.0a**.
-- **Always**, whatever the diff's shape → run **2.3.3** (convention), **2.3.4** (boundary-assumption), **2.3.5** (simplification & efficiency), **2.3.6** (error-handling & silent-failure).
+- **Always**, whatever the diff's shape → run **2.3.3** (convention), **2.3.4** (boundary-assumption), **2.3.4a** (self-authored-claim reconciliation), **2.3.5** (simplification & efficiency), **2.3.6** (error-handling & silent-failure).
 
-This narrows *ceremony*, never *coverage*, and is **fail-safe**: each sweep's heading is authoritative, so if its trigger fires you run it even when this list didn't call it out — if the index ever drifts from a heading, the heading wins (drift can only add a sweep, never skip a warranted one). An add-only diff typically runs just the four always-on sweeps. **Record the diff shape you classified and the sweeps you are running in a workpad `--note`** — the selection is then an auditable commitment a reviewer or the weekly retrospective can check, not a silent skip; a note reading "add-only" on a diff that in fact deleted a file is a visible error, where an unrecorded mental skip is not.
+This narrows *ceremony*, never *coverage*, and is **fail-safe**: each sweep's heading is authoritative, so if its trigger fires you run it even when this list didn't call it out — if the index ever drifts from a heading, the heading wins (drift can only add a sweep, never skip a warranted one). An add-only diff typically runs just the five always-on sweeps. **Record the diff shape you classified and the sweeps you are running in a workpad `--note`** — the selection is then an auditable commitment a reviewer or the weekly retrospective can check, not a silent skip; a note reading "add-only" on a diff that in fact deleted a file is a visible error, where an unrecorded mental skip is not.
 
 **Run each selected sweep after implementing and before running tests (Phase 2.4)** — that timing is the same for every sweep.
 
@@ -523,13 +523,34 @@ Do this sweep:
 1. From `git diff --staged -U0` (or `git diff -U0`), list every claim the diff depends on that falls into one of the four kinds above. The diff is the *trigger* for finding which boundaries the change now relies on — a boundary's definition site (an unchanged import, a producer module, a version pin) usually sits in context `-U0` doesn't print, so follow each claim to its actual source. Purely-internal claims (a local you just wrote, a function defined in the same diff) are **out of scope** — this sweep is only about boundaries you don't own.
 2. For each claim, verify it against the **actual source of truth** — the pinned version's installed source/changelog, the producer module, the documented supported-runtime range across *all* of it, the real host — never from memory.
 3. **A test assertion about a boundary is itself an unverified claim.** A test that asserts a wrong boundary value still passes — it encodes the bug rather than catching it — so a green run at 2.4 is not confirmation. When the diff adds or changes a test that asserts a boundary value, verify that value against the same source of truth here.
-4. If the code is wrong, fix it. If a boundary genuinely **cannot** be verified in-environment, do **not** assert it as true: always record the gap with `workpad.py update $ISSUE_NUMBER --reflection-kind note --reflection "unverified boundary: {claim} — needs {live env} to confirm"` so it is visible to review and the merger. If — and only if — a specific acceptance criterion's verification depends on that boundary, additionally retag that criterion `(post-merge)` (per Phase 1.2, via the Phase 3.4 `--rewrite-ac` retag pattern) so the 3.4 gate doesn't block on a live-only check. `(post-merge)` covers code that ships correct but can only be *verified* live — it is never a way to wave through a boundary you suspect is wrong (that is a blocker).
+4. If the code is wrong, fix it. If a boundary genuinely **cannot** be verified in-environment, do **not** assert it as true: always record the gap with `workpad.py update $ISSUE_NUMBER --reflection-kind note --reflection "unverified boundary: {claim} — needs {live env} to confirm"` so it is visible to review and the merger. If — and only if — a specific acceptance criterion's verification depends on that boundary, additionally retag that criterion `(post-merge)` (per Phase 1.2, via the Phase 3.4 `--rewrite-ac` retag pattern) so the 3.4 gate doesn't block on a live-only check. An unverifiable external *boundary* is exactly the genuinely-live runtime-environment case the Phase 3.4 gate permits a `(post-merge)` tag for; it is **not** the runnable-but-blocked tooling gap nor the self-claim confirmation that gate refuses (see §3.4). `(post-merge)` covers code that ships correct but can only be *verified* live — it is never a way to wave through a boundary you suspect is wrong (that is a blocker).
 
 Treat an unverified boundary assumption as a defect in **this** PR, not a review-engine problem to be caught downstream — if the diff depends on it, verify it here or route it to `(post-merge)` with a reflection note.
 
+#### 2.3.4a Self-authored-claim reconciliation sweep (mandatory)
+
+2.3.4 verifies the claims your diff *depends on* about boundaries it doesn't own (its inputs and preconditions). This sweep is its twin on the output side: it verifies the claims your diff *authors* — the behavioral assertions you wrote in prose — against what the shipped code actually does. The trigger is deliberately different, and that difference is the whole point: 2.3.4 starts from *the boundaries your code reads*; this sweep starts from *the prose your diff wrote*. 2.3.4 explicitly carves out claims about code defined in your own diff ("a function defined in the same diff is **out of scope**") — those are exactly the claims this sweep owns. A sentence in a doc you edited, or a comment you added, that contradicts the code path it describes ships clean: the prose reads plausibly, the code compiles, and your tests assert the prose's *intent* rather than the code's *actual behavior*, so the contradiction only surfaces as a `/devflow:review` finding or a post-merge patch. The cheapest place to catch it is here, before you commit.
+
+A **self-authored claim** is any behavioral assertion the diff introduces about what the shipped code does. The surfaces, all in scope here:
+
+- **Internal docs the diff adds or edits** (`docs/internal/…` and the like) — a described behavior, flow, "it does X then Y", or guarantee.
+- **External docs the diff adds or edits** — the same, in customer-facing prose.
+- **Code comments the diff adds or changes** — an inline claim about what the adjacent or called code does (e.g. "returns the deduped set", "never retries", "matches the reference query exactly").
+
+(The **PR-body** claims are reconciled separately in **Phase 4.2**, where the body is authored — the body does not exist at commit time. This sweep covers every claim that *does* exist before commit.)
+
+Do this sweep:
+
+1. From `git diff --staged -U0` (or `git diff -U0`), list every behavioral claim the diff **adds or changes** in the three surfaces above. A claim is any sentence or clause asserting what the code *does* — not a TODO, a rationale, or a statement of intent that makes no factual behavioral assertion.
+2. For each claim, trace the **actual shipped code path** it describes and confirm the code does what the prose says — **following dispatch into pre-existing code the diff calls but did not modify** (the claim's truth often resolves only downstream, in a helper your diff doesn't own). Unlike 2.3.4, a claim about code *defined in your own diff* is **in scope** here, not carved out — that blind spot is precisely what this sweep closes.
+3. On any prose↔code divergence, **the code is the fact.** Resolve it one of two ways and never commit the unreconciled pair: either **fix the code** so the claim becomes true, or **rewrite the claim** so it states what the code actually does. Choosing one is mandatory — "note it and move on" is not an option for a contradiction you authored.
+4. If fixing the *code* is genuinely out of scope for this PR (it would balloon the diff into an unrelated refactor), then **rewrite the claim** to the truth now — never leave false prose standing for `/devflow:review` to catch.
+
+Scope and discipline mirror the other 2.3.x sweeps: only the claims your diff added or changed are in scope — never a repo-wide doc/comment audit. Treat a self-authored claim that contradicts the shipped code as a defect in **this** PR, not a `doc-accuracy` finding to be caught downstream.
+
 #### 2.3.5 Simplification & Efficiency sweep (mandatory)
 
-2.3.0–2.3.4 keep the diff correct, dead-line-free, and convention-clean; the 2.2.4 gate already settled reuse and altitude at plan time. This sweep handles the two remaining cleanup lenses that only become visible once the code is *assembled*.
+2.3.0–2.3.4a keep the diff correct, dead-line-free, convention-clean, and consistent with the claims it makes; the 2.2.4 gate already settled reuse and altitude at plan time. This sweep handles the two remaining cleanup lenses that only become visible once the code is *assembled*.
 
 After implementing, before running tests, re-read every function your diff added or changed lines in (from `git diff --staged -U0` or `git diff -U0`) and apply both lenses:
 
@@ -682,6 +703,16 @@ Tick each criterion as you confirm it: `workpad.py update $ISSUE_NUMBER --tick-a
 
 **Post-merge criteria are exempt from the gate.** A criterion whose checkbox line ends in `(post-merge)` (tagged during Phase 1.2) does not block. The orchestrator's responsibility for a post-merge criterion ends at "the code reaches the state where the live verification *becomes possible* to run." Leave the checkbox unticked — the merger will tick it after deploy via the `## Post-Merge Verification` section that `/pr-description` adds to the PR body in Phase 4.2. Do **not** invent evidence to tick a post-merge box during /devflow:implement; the live signal is what counts.
 
+**A `(post-merge)` tag is permitted only when the criterion genuinely requires a runtime environment that does not exist during the implement run** — a live deploy target, a real third-party endpoint, a production data path, or similar. That is the *only* qualifying condition, and it is the observable test the gate applies: *would running this verification require an environment the orchestrator host can never be, no matter which tools were installed?* If yes, it is genuinely-live and `(post-merge)` is correct. If the verification could run on the orchestrator host given the right tools, it is **not** post-merge — even if those tools happen to be unavailable right now. Two cases therefore **never** qualify, and the gate must refuse the tag (or retag) for them:
+
+- **Runnable-but-blocked (local tooling/environment gap).** A criterion you *could* verify on this host but can't right now because a command was denied, a build tool is missing, a helper won't spawn, or a restore errored. A tooling gap is not a runtime-environment gap — route it to the **Blocked path** (step 4 below: `--status Blocked`), which escalates to a human; never launder it into `(post-merge)`. (A genuine permission/sandbox denial of the *test suite itself* still follows the `CLAUDE.md` tier rule — an auditable, workpad-recorded skip to the CI `lib + python tests` gate. That is a different mechanism from a `(post-merge)` retag: it does **not** tick the AC and does **not** pretend the check ran, so it is not the launder this rule forbids.)
+- **Confirmation of a self-authored claim.** A criterion whose purpose is to confirm a behavioral claim the PR already asserts as already-true (in its description, its docs, or its code). It is runnable pre-merge **by construction** — the claim is *about the shipped diff* — so deferring it would defer the one check that could falsify the claim. Refuse the tag regardless of the stated reason: verify it now, or, if it genuinely cannot be satisfied, take the Blocked path.
+
+**Red flags that you are about to launder a runnable check into `(post-merge)`** — STOP and take the Blocked path (step 4) instead:
+- "The suite/lint/helper won't run *here*, so I'll mark it post-merge and let CI catch it." → tooling gap: Blocked path, or the auditable CI-skip per `CLAUDE.md` (which does not tick the AC) — **never** a retag.
+- "This criterion just confirms what the PR already says, so it's safe to defer." → confirmation-AC: **never** post-merge.
+- "It's *basically* a live check." → if it could run on this host with the right tools, it is **not** live.
+
 If the workpad's Acceptance Criteria section reads `_(none provided in issue body)_`, the gate passes trivially.
 
 The gate applies only to criteria currently in the workpad's `## Acceptance Criteria` section. If you scoped down via the 2.2.5 rule, deferred criteria live in the workpad notes and are **not** gated here — they will be carried into a follow-up issue in Phase 4.0.
@@ -695,7 +726,7 @@ If non-post-merge criteria remain unchecked after Phase 3.3:
 
 Once the gate passes (every non-post-merge AC ticked), tick the gate **and its parent phase** in the workpad: `workpad.py update $ISSUE_NUMBER --tick-progress "acceptance-criteria gate" --tick-progress "**Review**"`.
 
-(A criterion that the orchestrator can't satisfy AND that's clearly post-merge-only should have been tagged `(post-merge)` in Phase 1.2 — if it wasn't, retroactively retag with `workpad.py update $ISSUE_NUMBER --rewrite-ac "{old text}" "{old text} (post-merge)" --note "retro-tagged as post-merge: {reason}"`, then let it pass the gate.)
+(A criterion the orchestrator can't satisfy may be retroactively tagged `(post-merge)` **only if it is genuinely-live by the rule above** — it requires a runtime environment absent during the run, it is *not* a runnable-but-blocked tooling gap, and it is *not* the confirmation of a self-authored claim. When it qualifies, retag with `workpad.py update $ISSUE_NUMBER --rewrite-ac "{old text}" "{old text} (post-merge)" --note "retro-tagged as post-merge (genuinely-live): {the runtime env it requires}"`, then let it pass the gate. If it fails that rule — runnable on this host, blocked only by local tooling, or a self-claim confirmation — do **not** retag; take the Blocked path (step 4 above) instead.)
 
 **⚠ You are NOT done. PR is still a draft and needs documentation and a proper description. Proceed to Phase 4.**
 
@@ -967,6 +998,13 @@ Verify the PR Description update landed before moving to the next step.
 gh pr view --json body --jq '.body' | grep -q "Work in progress — automated review pending" && echo "STILL PLACEHOLDER" || echo "OK"
 ```
 
+**Reconcile the PR body's behavioral claims (mandatory, before finalizing).** `/pr-description` authored the body just now, so this is the Phase 4.2 counterpart of the §2.3.4a self-authored-claim sweep — applied to the one surface that did not exist at commit time. Re-read the PR body and, for **every** behavioral claim it makes about what the shipped code does (a "this PR adds X that does Y", a described flow, a stated guarantee, or a `## Post-Merge Verification` item that on inspection actually describes *already-shipped* behavior rather than a genuinely live-only check — the same confirmation-of-self-claim case the Phase 3.4 gate refuses a `(post-merge)` tag for), trace the **actual shipped code path** — following dispatch into pre-existing code the diff calls — and confirm the code does what the body says. **The code is the fact**, under the same fix-or-rewrite rule as 2.3.4a:
+
+- If the body **overclaims** (asserts a behavior the diff doesn't deliver), correct the body to the truth via `gh pr edit --body-file <file>` — the common case, since the body was just auto-generated and can overstate.
+- If reconciliation reveals the **code** is actually wrong (the body states the intended behavior but the diff doesn't meet it), that is a real defect that escaped review: fix the code, commit with `fix:`, and push. On the default `ready_for_review` publish path that fix rides into the cloud `/devflow:review` that re-runs when Phase 4.3 publishes the PR; **but when `implement_pr_state=draft` the PR is left a draft and the cloud review does not auto-fire until a human publishes** (see §4.3), so the fix ships *unreviewed* until then. Either way, record in `Devflow Reflection` that a post-review code fix landed here so it is not mistaken for a reviewed change — and flag it more loudly on the draft path, where no automatic re-review will catch it.
+
+Never finalize a PR whose description asserts a behavior the diff does not deliver. Record the reconciliation in a workpad `--note` (claims checked; any divergence and how it was resolved).
+
 
 ### 4.3 Finalize the PR (publish or leave draft) and Finalize Workpad
 
@@ -1037,7 +1075,7 @@ Finally, emit the 🎉 outcome reaction on the triggering comment (`REACTION=hoo
 Before reporting completion, verify ALL phases executed:
 
 - Phase 1: issue fetched; workpad created before the branch with run link, `## Progress` checklist, and Acceptance Criteria mirrored; branch exists and the workpad `Branch` line filled; Setup ticked
-- Phase 2: reproduction signal recorded for `bug`-labelled issues; if the issue spans multiple PRs, the 2.2.5 scope-adjustment was applied and the Acceptance Criteria section holds only in-scope items; the 2.3.0 changed-contract and 2.3.4 boundary-assumption sweeps both ran over the diff, each cross-boundary claim verified or routed to `(post-merge)`; code committed and pushed
+- Phase 2: reproduction signal recorded for `bug`-labelled issues; if the issue spans multiple PRs, the 2.2.5 scope-adjustment was applied and the Acceptance Criteria section holds only in-scope items; the 2.3.0 changed-contract, 2.3.4 boundary-assumption, and 2.3.4a self-authored-claim sweeps all ran over the diff — each cross-boundary claim verified or routed to `(post-merge)`, and each behavioral claim the diff authored in docs/comments reconciled against the shipped code; code committed and pushed
 - Phase 3: draft PR created; `/simplify` ran; `/devflow:review-and-fix` ran; acceptance-criteria gate passed (PR still draft)
 - Phase 4: follow-up issue(s) filed in 4.0 for any 2.2.5-deferred criteria; follow-up issue(s) filed in 4.0.5 and the manifest hydrated if /devflow:review-and-fix emitted a deferrals manifest; docs updated and the `Documented` label applied; PR description generated via `/pr-description`; working tree asserted clean (4.3 backstop, runs in both publish and draft cases) and any remainder committed; PR published via `gh pr ready` **unless** `devflow_implement.implement_pr_state` is `draft` (then left as the Phase 3.1 draft, with no extra PR-thread comment); every applicable `## Progress` item ticked; workpad finalized with `Status: Complete` (🎉) — draft-aware `--note` wording — and the 🎉 outcome reaction emitted on the triggering comment
 

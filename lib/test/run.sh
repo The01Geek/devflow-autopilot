@@ -134,12 +134,178 @@ assert_eq "v1 theme_tags + v2 categories grouped together (count=2)" \
 
 # One occ + later audit fix → status "fixed"
 RESULT=$(cp_run \
-  '{"schema_version":2,"kind":"implementation","pr":1,"merged_at":"2026-04-01T00:00:00Z","verdict":"imperfect","categories":["review-gate-bypass"]}
-{"schema_version":2,"kind":"audit","pr":2,"merged_at":"2026-04-15T00:00:00Z","fixes_patterns":["review-gate-bypass"]}' \
+  '{"schema_version":2,"kind":"implementation","pr":1,"merged_at":"2026-04-01T00:00:00Z","verdict":"imperfect","categories":["lenient-verdict"]}
+{"schema_version":2,"kind":"audit","pr":2,"merged_at":"2026-04-15T00:00:00Z","fixes_patterns":["lenient-verdict"]}' \
   '{"schema_version":1,"dismissed":{}}')
 assert_eq "occ then fix → status=fixed" \
   "fixed" \
-  "$(echo "$RESULT" | jq -r '.["review-gate-bypass"].status')"
+  "$(echo "$RESULT" | jq -r '.["lenient-verdict"].status')"
+
+# Successor-slug split (#129): each of the three slugs that replaced the removed
+# coarse review/gate slug aggregates as its own pattern, and the removed slug
+# never appears.
+RESULT=$(cp_run \
+  '{"schema_version":2,"kind":"implementation","pr":1,"merged_at":"2026-05-01T00:00:00Z","verdict":"imperfect","categories":["outstanding-reject"]}
+{"schema_version":2,"kind":"implementation","pr":2,"merged_at":"2026-05-02T00:00:00Z","verdict":"imperfect","categories":["lenient-verdict"]}
+{"schema_version":2,"kind":"implementation","pr":3,"merged_at":"2026-05-03T00:00:00Z","verdict":"imperfect","categories":["deferred-verification"]}' \
+  '{"schema_version":1,"dismissed":{}}')
+assert_eq "split slug outstanding-reject aggregates (count=1)" \
+  "1" "$(echo "$RESULT" | jq -r '.["outstanding-reject"].occurrence_count')"
+assert_eq "split slug lenient-verdict aggregates (count=1)" \
+  "1" "$(echo "$RESULT" | jq -r '.["lenient-verdict"].occurrence_count')"
+assert_eq "split slug deferred-verification aggregates (count=1)" \
+  "1" "$(echo "$RESULT" | jq -r '.["deferred-verification"].occurrence_count')"
+assert_eq "removed split slug never aggregates" \
+  "null" "$(echo "$RESULT" | jq -r '.["review-gate" + "-bypass"].occurrence_count')"
+
+# Boundary case: a gate-absent / human-authored PR (no review-related slug) maps to
+# NONE of the three successor slugs.
+RESULT=$(cp_run \
+  '{"schema_version":2,"kind":"implementation","pr":9,"merged_at":"2026-05-09T00:00:00Z","verdict":"imperfect","categories":["other"]}' \
+  '{"schema_version":1,"dismissed":{}}')
+assert_eq "gate-absent PR → no outstanding-reject pattern" \
+  "null" "$(echo "$RESULT" | jq -r '.["outstanding-reject"].occurrence_count')"
+assert_eq "gate-absent PR → no lenient-verdict pattern" \
+  "null" "$(echo "$RESULT" | jq -r '.["lenient-verdict"].occurrence_count')"
+assert_eq "gate-absent PR → no deferred-verification pattern" \
+  "null" "$(echo "$RESULT" | jq -r '.["deferred-verification"].occurrence_count')"
+
+# Lockstep guard (#129): NO tracked surface may reference the removed slug, except
+# CHANGELOG.md (append-only release history that records it by its then-name). A
+# repo-wide `git grep` auto-discovers every tracked surface, so this guard cannot
+# drift as vocab surfaces are added/renamed — unlike a hand-maintained path list,
+# which had already missed skills/retrospective-weekly/SKILL.md. Scope is git's
+# tracked content (working-tree tracked files + staged), so a reintroduction in an
+# as-yet-untracked new file is caught only once it is added — acceptable, since the
+# retrospective/implement flow commits its surfaces. The pattern is concatenated
+# from two literals so this guard itself does not contain the contiguous string
+# (which would self-match the git grep).
+RGB_PAT="review-gate""-bypass"
+# Single scan helper so the live guard AND its fail-closed contract test below
+# exercise the SAME rc-handling — not two copies. (An earlier version duplicated the
+# rc transform inline in the test, so a refactor of the live guard would have left
+# the test green while re-opening the fail-open hole; sharing one helper is what
+# actually delivers the refactor-resistance.) It echoes the matching file list on a
+# hit (git rc 0), empty on a clean no-match (rc 1 — the PASS case, safe under run.sh's
+# `set -u`, not `set -e`), or the fixed sentinel `<rgb-guard-errored>` on a real git
+# error (rc >1). `git -C "$root"` keeps git the only rc-bearing command: a failed
+# `cd "$root" && git grep` would short-circuit `&&` and leave rc 1 + empty stdout,
+# masquerading as a clean no-match and re-opening the fail-open hole one command
+# upstream — the very fail-open class this PR exists to close. On error it also prints
+# an rc-bearing breadcrumb to stderr so the cause survives independently of assert_eq's
+# value-echo (an infra error must not read as a real slug reintroduction).
+# rgb_classify is the pure rc→verdict transform, split out from the git call so it
+# can be driven against ANY rc — not just the rc=128 a nonexistent path happens to
+# produce. It is the single owner of the three-valued contract: empty on a clean
+# no-match (git rc 1 — the PASS case, safe under run.sh's `set -u`, not `set -e`),
+# the hits string on a match (rc 0), or the fixed sentinel `<rgb-guard-errored>` on
+# ANY git error (rc >1). The `-gt 1` threshold — not `-gt 2`, not `== 128` — is what
+# makes the smallest error rc (rc 2, distinct from no-match=1; git itself reports
+# fatal/usage as 128/129, but the predicate must catch every rc above 1) fail closed;
+# the boundary tests below pin that exact threshold so an off-by-one weakening turns
+# the suite red. On error it prints an rc-bearing stderr breadcrumb so the cause
+# survives independently of assert_eq's value-echo (an infra error must not read as a
+# real slug reintroduction).
+rgb_classify() {
+  local rc="$1" hits="$2"
+  if [ "$rc" -gt 1 ]; then
+    printf 'devflow: RGB lockstep guard could not run (git rc=%s) — guard did not run\n' "$rc" >&2
+    printf '<rgb-guard-errored>'
+    return 0
+  fi
+  printf '%s' "$hits"
+}
+rgb_scan() {
+  local root="$1" hits rc
+  # `git -C "$root"` keeps git the only rc-bearing command: a failed
+  # `cd "$root" && git grep` would short-circuit `&&` and leave rc 1 + empty stdout,
+  # masquerading as a clean no-match and re-opening the fail-open hole one command up.
+  hits="$(git -C "$root" grep -lF "$RGB_PAT" -- ':!CHANGELOG.md' 2>/dev/null)"; rc=$?
+  rgb_classify "$rc" "$hits"
+}
+# Live guard: NO tracked surface may reference the removed slug, except CHANGELOG.md
+# (append-only release history that records it by its then-name). A repo-wide
+# `git grep` auto-discovers every tracked surface, so the guard cannot drift as vocab
+# surfaces are added/renamed — unlike a hand-maintained path list, which had already
+# missed skills/retrospective-weekly/SKILL.md. Scope is git-tracked content (working-
+# tree tracked files + staged), so a reintroduction in an as-yet-untracked new file is
+# caught only once it is added — acceptable, since the retrospective/implement flow
+# commits its surfaces. RGB_PAT is split into two literals so this file does not
+# self-match the grep. A real reintroduction surfaces as the offending file list; an
+# infra error surfaces as `<rgb-guard-errored>` — both non-empty, both fail loud.
+assert_eq "no tracked surface references the removed split slug (CHANGELOG history excepted)" \
+  "" "$(rgb_scan "$LIB/..")"
+
+# Fail-closed contract test (#129): drive the SAME rgb_scan against a non-repo path
+# (git -C → rc 128) and assert it returns the exact error sentinel — not empty (a
+# silent PASS) and not a mere "non-empty" check (which a stray hit could also satisfy).
+# Because both this and the live guard call rgb_scan, reverting to `cd && git grep`
+# (the rc-1 masquerade) turns THIS assertion red. The probe path is PID-suffixed so it
+# cannot exist; stderr is muted here because the error is deliberate and expected (the
+# live guard above keeps stderr visible).
+assert_eq "RGB guard fails closed on a git error (returns the error sentinel, not a silent PASS)" \
+  "<rgb-guard-errored>" "$(rgb_scan "$LIB/../nonexistent-rgb-probe-$$" 2>/dev/null)"
+
+# Threshold boundary tests (#129): the contract test above only ever exercises rc 128,
+# so it pins "an errored git fails closed" but NOT the `-gt 1` THRESHOLD itself — a
+# weakening to `-gt 2` (so rc 2 falls through to the PASS path, re-opening fail-open on
+# the next git error code above no-match) would leave it green. Drive rgb_classify —
+# the same transform the live guard runs through rgb_scan — across every rc class so
+# the exact `[rc -gt 1]` predicate is pinned: rc 0 → the hits, rc 1 → empty (PASS), and
+# rc 2 (the smallest error rc the threshold must catch) and rc 128 → the sentinel.
+# Each row catches a different mutation: a `-gt 2` or `== 128` weakening turns the rc-2
+# row red (rc 2 wrongly passes), while an `-ne 1`-style widening turns the rc-0 row red
+# (a real hit wrongly classified as an error). rc 2 is a representative >1 value, not a
+# code `git grep` necessarily emits (it uses 0/1 for match/no-match and 128/129 for
+# fatal/usage); the point is the predicate, not the specific producer code. stderr
+# muted: the >1 rows print an expected breadcrumb.
+assert_eq "rgb_classify rc=0 (hit) → returns the offending file list" \
+  "skills/foo.md" "$(rgb_classify 0 "skills/foo.md" 2>/dev/null)"
+assert_eq "rgb_classify rc=1 (clean no-match) → empty (PASS)" \
+  "" "$(rgb_classify 1 "" 2>/dev/null)"
+assert_eq "rgb_classify rc=2 (smallest error rc) → sentinel (fails closed at the -gt 1 boundary)" \
+  "<rgb-guard-errored>" "$(rgb_classify 2 "" 2>/dev/null)"
+assert_eq "rgb_classify rc=128 (git fatal) → sentinel (fails closed)" \
+  "<rgb-guard-errored>" "$(rgb_classify 128 "" 2>/dev/null)"
+
+# End-to-end reintroduction test (#129): the live guard above only ever observes
+# rgb_scan returning empty (the real repo is clean) and the contract test only its
+# rc-128 error path — so rgb_scan's OWN `git grep` line (the `hits=…; rc=$?` seam, the
+# `-l` flag, the `:!CHANGELOG.md` pathspec) is never seen to produce a real positive
+# hit. Drive it end-to-end against a throwaway repo that genuinely contains the slug
+# and assert rgb_scan returns the offending filename (rc 0 → non-empty → the live guard
+# would fail loud). This pins the one path the unit-level rgb_classify rc=0 row cannot:
+# a regression in rgb_scan's git invocation (dropped `-l`, mis-scoped pathspec) that
+# silently stops matching. Use the file's own name as the probe so this file does not
+# self-match; the slug is assembled from two literals for the same reason.
+# Guard the setup so a failed `mktemp` (empty $RGB_E2E under `set -u`, not `set -e`)
+# can NEVER reach the `> "$RGB_E2E/probe.md"` redirect — an unguarded empty path would
+# resolve to `> "/probe.md"`, a stray root-relative write under a root/CI runner. The
+# guard verifies a real temp dir AND that git init/add succeeded before any redirect;
+# a setup failure records a DISTINCT assertion (so it doesn't masquerade as an rgb_scan
+# regression) and skips the block. Cleanup runs on every guarded exit of the block.
+if RGB_E2E="$(mktemp -d)" && [ -n "$RGB_E2E" ] && [ -d "$RGB_E2E" ] && git -C "$RGB_E2E" init -q; then
+  printf 'has the %s%s slug\n' "review-gate" "-bypass" > "$RGB_E2E/probe.md"
+  if git -C "$RGB_E2E" add probe.md; then
+    assert_eq "rgb_scan reports a real reintroduction in a tracked file (rc 0 → filename)" \
+      "probe.md" "$(rgb_scan "$RGB_E2E")"
+    # And confirm the CHANGELOG.md pathspec exception genuinely excludes a hit there.
+    printf 'historical %s%s reference\n' "review-gate" "-bypass" > "$RGB_E2E/CHANGELOG.md"
+    if git -C "$RGB_E2E" add CHANGELOG.md; then
+      assert_eq "rgb_scan still flags probe.md but NOT CHANGELOG.md (pathspec exception holds)" \
+        "probe.md" "$(rgb_scan "$RGB_E2E")"
+    else
+      assert_eq "rgb_scan e2e setup (git add CHANGELOG.md)" "ok" "setup failed — git add errored"
+    fi
+  else
+    assert_eq "rgb_scan e2e setup (git add probe.md)" "ok" "setup failed — git add errored"
+  fi
+  rm -rf "$RGB_E2E"
+else
+  assert_eq "rgb_scan e2e setup (mktemp + git init)" "ok" "setup failed — mktemp/git init errored"
+  [ -n "${RGB_E2E:-}" ] && [ -d "${RGB_E2E:-}" ] && rm -rf "$RGB_E2E"
+fi
+rm -rf "$RGB_E2E"
 
 # Fix then later occ → status "regressed"
 RESULT=$(cp_run \
@@ -2812,11 +2978,11 @@ assert_eq "clean-entry categories=[]"       "0"     "$(echo "$E" | jq '.categori
 assert_eq "clean-entry descriptors=[]"      "0"     "$(echo "$E" | jq '.descriptors|length')"
 assert_eq "clean-entry no theme_tags field" "true"  "$(echo "$E" | jq 'has("theme_tags") | not')"
 assert_eq "clean-entry signals carried"     "0"     "$(echo "$E" | jq -r .signals.post_bot_commits)"
-CTX_AUDIT='{"pr":99,"kind":"audit-intervention","pattern_tag":"review-gate-bypass","merged_at":"2026-05-09T00:00:00Z"}'
+CTX_AUDIT='{"pr":99,"kind":"audit-intervention","pattern_tag":"deferred-verification","merged_at":"2026-05-09T00:00:00Z"}'
 A="$(echo "$CTX_AUDIT" | jq -c -f "$LIB/audit-entry.jq")"
-assert_eq "audit-entry kind=audit"        "audit"              "$(echo "$A" | jq -r .kind)"
-assert_eq "audit-entry schema_version=2"  "2"                  "$(echo "$A" | jq -r .schema_version)"
-assert_eq "audit-entry fixes_patterns"    "review-gate-bypass" "$(echo "$A" | jq -r '.fixes_patterns[0]')"
+assert_eq "audit-entry kind=audit"        "audit"                 "$(echo "$A" | jq -r .kind)"
+assert_eq "audit-entry schema_version=2"  "2"                     "$(echo "$A" | jq -r .schema_version)"
+assert_eq "audit-entry fixes_patterns"    "deferred-verification" "$(echo "$A" | jq -r '.fixes_patterns[0]')"
 # actionable-patterns: incomplete-edit 2x imperfect, doc-accuracy 1x
 AP_TMP="$(mktemp -d)"
 printf '%s\n' \

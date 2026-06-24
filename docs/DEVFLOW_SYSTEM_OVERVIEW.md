@@ -229,13 +229,16 @@ DevFlow maintains **exactly one** marker-tagged comment on the GitHub issue for 
 - **2.1** Discovery via the `feature-dev:code-explorer` subagent.
 - **2.1.5 Reproduce-First Gate** (bug-labelled only): capture a reproduction signal (failing test / error log) *before* planning; if it can't reproduce → `Blocked`.
 - **2.2** Assess complexity. **Simple** (≤5 files, clear, no architecture) → implement directly. **Complex** → `feature-dev:code-architect` produces a blueprint (held in context, never committed). Sub-gates: **2.2.4 Reuse & Altitude** (reuse existing helpers by `file:line`), **2.2.5 Scope-Adjustment** (multi-PR issues), **2.2.6 AC-Plan reconciliation**.
-- **2.3 Implement** with six mandatory post-write **sweeps** (the discipline that prevents half-finished changes):
+- **2.3 Implement** with mandatory post-write **sweeps** (the discipline that prevents half-finished changes — each heading states its own trigger; the five always-on sweeps — convention, boundary-assumption, self-authored-claim, simplification, and error-handling — run on every diff):
   - **2.3.0** Changed-contract sweep (re-run after any merge/rebase of main)
+  - **2.3.0a** Peer-checkpoint completeness sweep
   - **2.3.1** Orphaned-setup sweep
   - **2.3.2** Stranded-dependents sweep
   - **2.3.3** Convention-compliance sweep
-  - **2.3.4** Boundary-assumption verification sweep
+  - **2.3.4** Boundary-assumption verification sweep (claims the diff *depends on* about boundaries it doesn't own)
+  - **2.3.4a** Self-authored-claim reconciliation sweep (every behavioral claim the diff *authors* in internal/external docs and code comments, reconciled against the shipped code path before commit; the code is the fact)
   - **2.3.5** Simplification & efficiency sweep
+  - **2.3.6** Error-handling & silent-failure sweep
 - **2.4** Run tests + lint in parallel; fix failures.
 - **2.5** Commit (`feat:`) and push.
 
@@ -243,7 +246,7 @@ DevFlow maintains **exactly one** marker-tagged comment on the GitHub issue for 
 - **3.1** Create the **draft** PR (`Resolves #{issue}`).
 - **3.2** Self-review with the built-in `/simplify` skill; commit fixes (`refactor:`).
 - **3.3** Run `/devflow:review-and-fix --push-each-iteration` (the flag propagates each iteration to remote so CI validates). Handles the loop's verdicts, including the special `APPROVE WITH UNRESOLVED SHADOW FINDINGS` (a bounded single re-review) and the `REJECT` → Blocked path.
-- **3.4 Acceptance Criteria Gate:** every **non-post-merge** AC checkbox must be ticked (via a passing test, a documented manual check, or a `file:line` reference) before the phase passes.
+- **3.4 Acceptance Criteria Gate:** every **non-post-merge** AC checkbox must be ticked (via a passing test, a documented manual check, or a `file:line` reference) before the phase passes. A `(post-merge)` tag is allowed **only** for a criterion that genuinely needs a runtime environment absent during the run (a live deploy target, a real third-party endpoint). A criterion that is runnable on the orchestrator host — or blocked only by a local tooling/environment gap — and any criterion whose purpose is to confirm a behavioral claim the PR already asserts, is **never** retagged post-merge; it takes the existing **`Blocked`** escalation path instead. This makes the gate enforce "verified before merge" rather than trust the run's narrative.
 
 ### Phase 4: Documentation
 - **4.0** File follow-up issues for deferred ACs.
@@ -408,7 +411,7 @@ scan.sh
   → post-status.sh
 ```
 
-**Stage A** classifies each non-clean PR into a **fixed category vocabulary** (never coins new slugs): `doc-accuracy`, `fabricated-claim`, `review-gate-bypass`, `unmet-acceptance-criteria`, `incomplete-edit`, `convention-violation`, `unverified-assumption`, `issue-quality`, `tooling-gap`, `other`. Categories drive pattern detection.
+**Stage A** classifies each non-clean PR into a **fixed category vocabulary** (never coins new slugs): `doc-accuracy`, `fabricated-claim`, `outstanding-reject`, `lenient-verdict`, `deferred-verification`, `unmet-acceptance-criteria`, `incomplete-edit`, `convention-violation`, `unverified-assumption`, `issue-quality`, `tooling-gap`, `other`. Categories drive pattern detection.
 
 **Stage B** re-derives the root cause from primary sources (it does *not* trust Stage A's summary), picks the highest-leverage smallest-blast-radius single change, does a counterfactual analysis (false positives / over-broad application), makes the edits in an isolated git worktree, and returns the touched paths + PR title + body. The orchestrator commits/pushes/opens the PR.
 
