@@ -181,14 +181,24 @@ assert_eq "gate-absent PR → no deferred-verification pattern" \
 # from two literals so this guard itself does not contain the contiguous string
 # (which would self-match the git grep).
 RGB_PAT="review-gate""-bypass"
-# Capture git grep's rc and treat it as three-valued: 0 = hits, 1 = clean no-match
-# (the PASS case — safe under run.sh's `set -u`, not `set -e`), >1 = a real git
-# error (e.g. not a repo, unsupported pathspec magic). An errored git grep also
-# yields empty stdout, so without this rc check it would be indistinguishable from
-# a clean no-match and the guard would fail OPEN on infrastructure breakage — the
-# very fail-open class this PR exists to close. Surface it as a loud assertion miss.
-RGB_HITS="$(cd "$LIB/.." && git grep -lF "$RGB_PAT" -- ':!CHANGELOG.md')"; RGB_RC=$?
-[ "$RGB_RC" -gt 1 ] && RGB_HITS="git grep errored (rc=$RGB_RC) — guard did not run"
+# Capture git's rc and treat it as three-valued: 0 = hits, 1 = clean no-match (the
+# PASS case — safe under run.sh's `set -u`, not `set -e`), >1 = a real git error.
+# An errored git grep also yields empty stdout, so without this rc check it would be
+# indistinguishable from a clean no-match and the guard would fail OPEN on
+# infrastructure breakage — the very fail-open class this PR exists to close.
+# Use `git -C "$LIB/.."` rather than `cd "$LIB/.." && git grep`: a failed `cd`
+# would short-circuit `&&` and leave the substitution's rc as `cd`'s (1) with empty
+# stdout — masquerading as a clean no-match (the rc-1 PASS cell) and re-opening the
+# fail-open hole one command upstream. `git -C` makes git itself the only command
+# whose rc we read, so a bad repo root exits 128 (>1) and is caught here too.
+RGB_HITS="$(git -C "$LIB/.." grep -lF "$RGB_PAT" -- ':!CHANGELOG.md')"; RGB_RC=$?
+if [ "$RGB_RC" -gt 1 ]; then
+  # Emit the cause to stderr too, so the diagnosis survives independently of
+  # assert_eq's value-echo (a generic "guard failed" would hide an infra error
+  # behind what looks like a real slug reintroduction — two different failures).
+  RGB_HITS="git grep errored (rc=$RGB_RC) — guard did not run"
+  printf 'devflow: RGB lockstep guard could not run: %s\n' "$RGB_HITS" >&2
+fi
 assert_eq "no tracked surface references the removed split slug (CHANGELOG history excepted)" \
   "" "$RGB_HITS"
 
