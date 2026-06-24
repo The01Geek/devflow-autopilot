@@ -323,7 +323,9 @@ writes **nothing** to your `settings.json` — it does **not** depend on running
 `/devflow:init`. For each `Bash` command the hook auto-approves *only* when:
 
 - the command is a **single simple invocation** — no `&&`/`||`/`;`/`|`, no
-  command substitution (`$(…)` / backticks), no redirection, no subshell;
+  command substitution (`$(…)` / backticks), no redirection, no subshell, and no
+  newline (a bash command separator that would otherwise smuggle a trailing
+  command past tokenization);
 - the executed program is the leading token, or the script argument to `bash` /
   `python3`; and
 - that program canonicalizes (via `realpath`, **symlinks followed**) to a real

@@ -14,11 +14,17 @@ match: it emits ``permissionDecision: "allow"`` for a Bash command exactly when
 
   (a) the command is a single simple invocation — no ``&&``/``||``/``;``/``|``,
       no command substitution (``$(…)`` / backticks), no redirection, no
-      subshell;
+      subshell, and no newline (a bash command separator that would otherwise
+      slip a trailing line past tokenization);
   (b) the executed program is the leading token, or the script argument to
       ``bash`` / ``python3``; and
   (c) that program canonicalizes (via ``realpath``, symlinks followed) to a
       **real file contained under the canonical ``$CLAUDE_PLUGIN_ROOT``**.
+
+Parameter expansion (``$VAR`` / ``${VAR}``) is **not** disqualifying — unlike
+command substitution it cannot change *which* program runs, and the program
+token is independently containment-checked — so it is deliberately allowed
+through (legitimate helper calls carry ``$ISSUE_NUMBER``-style arguments).
 
 For every other command it prints nothing, leaving the normal permission flow
 untouched. It **never** emits ``deny`` and **always** exits 0: a permission hook
@@ -43,9 +49,14 @@ def _execution_target(command):
     ``python3 <script> …``. Anything with a shell operator, a command
     substitution, or a backtick is rejected (returns ``None``).
     """
-    # A backtick is command substitution even inside double quotes; treat any
-    # occurrence as disqualifying rather than trying to reason about quoting.
-    if "`" in command:
+    # A backtick is command substitution even inside double quotes. A newline or
+    # carriage return is a bash command separator that shlex's `whitespace_split`
+    # would silently erase — a multi-line command would then tokenize as one flat
+    # "simple" invocation whose first token is a helper, letting a trailing line
+    # run un-vetted. Treat any occurrence of these as disqualifying rather than
+    # trying to reason about quoting. (`;`/`|`/`&` separators are caught later as
+    # operator tokens; the newline is the one separator tokenization can't see.)
+    if "`" in command or "\n" in command or "\r" in command:
         return None
 
     lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
