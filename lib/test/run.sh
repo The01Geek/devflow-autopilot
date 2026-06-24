@@ -278,17 +278,33 @@ assert_eq "rgb_classify rc=128 (git fatal) → sentinel (fails closed)" \
 # a regression in rgb_scan's git invocation (dropped `-l`, mis-scoped pathspec) that
 # silently stops matching. Use the file's own name as the probe so this file does not
 # self-match; the slug is assembled from two literals for the same reason.
-RGB_E2E="$(mktemp -d)"
-git -C "$RGB_E2E" init -q
-printf 'has the %s%s slug\n' "review-gate" "-bypass" > "$RGB_E2E/probe.md"
-git -C "$RGB_E2E" add probe.md
-assert_eq "rgb_scan reports a real reintroduction in a tracked file (rc 0 → filename)" \
-  "probe.md" "$(rgb_scan "$RGB_E2E")"
-# And confirm the CHANGELOG.md pathspec exception genuinely excludes a hit there.
-printf 'historical %s%s reference\n' "review-gate" "-bypass" > "$RGB_E2E/CHANGELOG.md"
-git -C "$RGB_E2E" add CHANGELOG.md
-assert_eq "rgb_scan still flags probe.md but NOT CHANGELOG.md (pathspec exception holds)" \
-  "probe.md" "$(rgb_scan "$RGB_E2E")"
+# Guard the setup so a failed `mktemp` (empty $RGB_E2E under `set -u`, not `set -e`)
+# can NEVER reach the `> "$RGB_E2E/probe.md"` redirect — an unguarded empty path would
+# resolve to `> "/probe.md"`, a stray root-relative write under a root/CI runner. The
+# guard verifies a real temp dir AND that git init/add succeeded before any redirect;
+# a setup failure records a DISTINCT assertion (so it doesn't masquerade as an rgb_scan
+# regression) and skips the block. Cleanup runs on every guarded exit of the block.
+if RGB_E2E="$(mktemp -d)" && [ -n "$RGB_E2E" ] && [ -d "$RGB_E2E" ] && git -C "$RGB_E2E" init -q; then
+  printf 'has the %s%s slug\n' "review-gate" "-bypass" > "$RGB_E2E/probe.md"
+  if git -C "$RGB_E2E" add probe.md; then
+    assert_eq "rgb_scan reports a real reintroduction in a tracked file (rc 0 → filename)" \
+      "probe.md" "$(rgb_scan "$RGB_E2E")"
+    # And confirm the CHANGELOG.md pathspec exception genuinely excludes a hit there.
+    printf 'historical %s%s reference\n' "review-gate" "-bypass" > "$RGB_E2E/CHANGELOG.md"
+    if git -C "$RGB_E2E" add CHANGELOG.md; then
+      assert_eq "rgb_scan still flags probe.md but NOT CHANGELOG.md (pathspec exception holds)" \
+        "probe.md" "$(rgb_scan "$RGB_E2E")"
+    else
+      assert_eq "rgb_scan e2e setup (git add CHANGELOG.md)" "ok" "setup failed — git add errored"
+    fi
+  else
+    assert_eq "rgb_scan e2e setup (git add probe.md)" "ok" "setup failed — git add errored"
+  fi
+  rm -rf "$RGB_E2E"
+else
+  assert_eq "rgb_scan e2e setup (mktemp + git init)" "ok" "setup failed — mktemp/git init errored"
+  [ -n "${RGB_E2E:-}" ] && [ -d "${RGB_E2E:-}" ] && rm -rf "$RGB_E2E"
+fi
 rm -rf "$RGB_E2E"
 
 # Fix then later occ → status "regressed"
