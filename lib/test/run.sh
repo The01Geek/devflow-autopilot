@@ -286,6 +286,25 @@ assert_eq "deferred.labels: SKILL resolves the labels in BOTH deferral channels 
   "$([ "$(grep -cF 'config-get.sh .deferred.labels DevFlow,Deferred' "$DEF_SKILL")" -ge 2 ] && echo yes || echo no)"
 assert_eq "deferred.labels: SKILL Phase 4.0 no longer instructs 'add no --label' as a maintainer task" "no" \
   "$(grep -qF 'add **no** `--label` (labeling is handled separately by maintainers)' "$DEF_SKILL" && echo yes || echo no)"
+# Pin the normalization pipeline itself (not just the read/ensure/apply tokens): the
+# deferred_labels_normalize() helper above is a hand-copied replica, so without this pin a
+# SKILL edit to the trim/drop-empties pipeline would drift silently while the replica
+# keeps passing. Both channels (4.0 + 4.0.5) must carry the exact pipeline → expect >= 2.
+assert_eq "deferred.labels: SKILL keeps the exact normalization pipeline in BOTH channels" "yes" \
+  "$([ "$(grep -cF "tr ',' '\\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*\$//' | grep -v '^\$' | paste -sd, -" "$DEF_SKILL")" -ge 2 ] && echo yes || echo no)"
+# Pin the rc-capture: a hard config-get read failure must be attributable, not silently
+# collapsed into the deliberately-empty-value path. The if-condition idiom keeps the
+# capture alive under set -e.
+assert_eq "deferred.labels: SKILL captures config-get rc (read-failure breadcrumb, set-e-safe)" "yes" \
+  "$(grep -qF 'then DEFERRED_LABELS_RC=0; else DEFERRED_LABELS_RC=$?; fi' "$DEF_SKILL" && echo yes || echo no)"
+# Pin the durable (workpad) breadcrumb on a failed label application — the feature's most
+# likely real-world failure must not be stderr-only (ephemeral in autonomous cloud runs).
+assert_eq "deferred.labels: SKILL routes a failed label-apply to a durable workpad reflection" "yes" \
+  "$(grep -qF 'could not apply the configured deferred labels' "$DEF_SKILL" && echo yes || echo no)"
+# Pin the Phase 4.0 empty-numbers breadcrumb (the anti-silent-failure branch that fires
+# when deferred work was filed but no issue numbers were captured).
+assert_eq "deferred.labels: SKILL Phase 4.0 surfaces an empty-issue-numbers capture" "yes" \
+  "$(grep -qF 'captured no issue numbers' "$DEF_SKILL" && echo yes || echo no)"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "devflow_review_and_fix.max_iterations (schema + resolution)"

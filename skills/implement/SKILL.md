@@ -770,16 +770,22 @@ if [ -z "$DEFERRED_ISSUE_NUMBERS" ]; then
   # to the workpad (durable, retrospective-visible) like the rc-failure breadcrumb, not
   # just stderr (ephemeral in an autonomous cloud run).
   echo "devflow: Phase 4.0 captured no deferred-issue numbers — deferred.labels applied to nothing (check the gh issue create captures)" >&2
-  workpad.py update $ISSUE_NUMBER --reflection "Phase 4.0 filed deferred follow-up issues but captured no issue numbers — deferred.labels applied to NONE of them; the filed issues carry no DevFlow/Deferred provenance."
+  workpad.py update $ISSUE_NUMBER --reflection "Phase 4.0 filed deferred follow-up issues but captured no issue numbers — the configured deferred labels were applied to NONE of them; the filed issues carry none of the configured deferred labels."
 elif [ -n "$CLEAN_DEFERRED_LABELS" ]; then
   # Ensure each configured label exists (best-effort; ensure-label.sh always exits 0).
   echo "$CLEAN_DEFERRED_LABELS" | tr ',' '\n' | while IFS= read -r lbl; do
     [ -n "$lbl" ] && ${CLAUDE_SKILL_DIR}/../../scripts/ensure-label.sh "$lbl"
   done
   # Apply to every issue filed above (the numbers captured into DEFERRED_ISSUE_NUMBERS).
+  # A failed --add-label is the feature's most likely real-world failure, so route it to
+  # the durable workpad (retrospective-visible) as well as stderr — matching the breadcrumb
+  # discipline the rc-failure and empty-numbers paths above already use. stderr is ephemeral
+  # in an autonomous cloud run, so a stderr-only breadcrumb would leave an unlabeled issue
+  # with no durable trace of why.
   for n in $DEFERRED_ISSUE_NUMBERS; do
     gh issue edit "$n" --add-label "$CLEAN_DEFERRED_LABELS" \
-      || echo "devflow: could not apply deferred labels to issue #$n (best-effort, continuing)" >&2
+      || { echo "devflow: could not apply deferred labels to issue #$n (best-effort, continuing)" >&2; \
+           workpad.py update $ISSUE_NUMBER --reflection "Phase 4.0 could not apply the configured deferred labels ($CLEAN_DEFERRED_LABELS) to issue #$n (best-effort; the issue was filed but carries none of the configured deferred labels)."; }
   done
 fi
 ```
@@ -882,9 +888,14 @@ if [ -n "${FILED_NUMBERS:-}" ]; then
         echo "$CLEAN_DEFERRED_LABELS" | tr ',' '\n' | while IFS= read -r lbl; do
             [ -n "$lbl" ] && ${CLAUDE_SKILL_DIR}/../../scripts/ensure-label.sh "$lbl"
         done
+        # A failed --add-label is routed to the durable workpad as well as stderr (same as
+        # Phase 4.0): the unlabeled outcome is the feature's most likely failure and stderr
+        # is ephemeral in an autonomous cloud run, so a stderr-only breadcrumb would leave
+        # no retrospective-visible trace.
         echo "$FILED_NUMBERS" | while IFS= read -r n; do
             [ -n "$n" ] && { gh issue edit "$n" --add-label "$CLEAN_DEFERRED_LABELS" \
-                || echo "devflow: could not apply deferred labels to issue #$n (best-effort, continuing)" >&2; }
+                || { echo "devflow: could not apply deferred labels to issue #$n (best-effort, continuing)" >&2; \
+                     workpad.py update $ISSUE_NUMBER --reflection "Phase 4.0.5 could not apply the configured deferred labels ($CLEAN_DEFERRED_LABELS) to issue #$n (best-effort; the issue was filed but carries none of the configured deferred labels)."; }; }
         done
     fi
 fi
