@@ -103,9 +103,17 @@ The always-visible region (marker line, header, `Status`, links, `## Progress`, 
 <details>
 <summary>Devflow Reflection (click to expand)</summary>
 
-- {only when something was unclear, blocked, or deferred during execution}
+### ⚠️ Action required
+- ⛔ **Blocked:** {a Blocked status — see Phase 1/2.1.5/3.3/3.4}
+- ⏭️ **Deferred:** {deferred ACs/findings — Phase 4.0 / 4.0.5}
+- ❗ **Dropped/Failed:** {a dropped manifest entry, a subagent/commit/label failure}
+
+### ℹ️ Notes
+- ℹ️ **Note:** {informational — a subagent retried once, a phase under-committed but was corrected, an unverified-boundary caveat}
 </details>
 ```
+
+The `### ` sub-sections (and their bullets) are rendered by the helper from `--reflection-kind`, **not** authored by hand — `new-body` seeds an *empty* `<details>` block and each sub-heading appears only once its group has a bullet. The block above shows the shape a populated reflection takes.
 
 `{run_url}` is `$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID` (standard runner env vars; no workflow change needed). When those env vars are absent (a local-tier run outside Actions), use a plain `_(local run)_` placeholder for the `Run` line. For `bug`-labelled issues the `reproduction captured (bug issues only)` sub-item is rendered; for non-bug issues pass `--no-reproduction` to `new-body` (1.3) so it isn't. (The cloud `gate` and the resume path create the skeleton label-agnostically, so this trimming applies to the local fresh-issue path.)
 
@@ -140,7 +148,8 @@ The marker-locating subcommands (`id`, `new-body`, `update`) also accept `--mark
 | `--tick-ac TEXT` | Same, for Acceptance Criteria. **Repeatable.** |
 | `--rewrite-ac OLD NEW` | Phase 2.2.6: find an AC by OLD substring, replace its full text with NEW, keep the box state. |
 | `--note TEXT` | Append a note bullet, prefixed with a time-only `HH:MM:SS` UTC timestamp and nested under the current `Status`'s phase inside `## Progress` (Setup/Discovering/…/Complete map to the matching top-level phase row; Blocked nests under the most recent completed phase). **Repeatable** — multiple notes in one call share the same timestamp and are appended in argument order. |
-| `--reflection TEXT` | Append a bullet to Devflow Reflection (no timestamp). **Repeatable.** |
+| `--reflection TEXT` | Append a bullet to Devflow Reflection (no timestamp), grouped by kind (see `--reflection-kind`) into the `### ⚠️ Action required` / `### ℹ️ Notes` sub-sections. **Repeatable.** |
+| `--reflection-kind {blocked\|deferred\|dropped-failed\|note}` | Kind for this call's `--reflection` bullet(s). `blocked`/`deferred`/`dropped-failed` render under `### ⚠️ Action required`; `note` (the default when omitted) under `### ℹ️ Notes`. Each bullet renders with its kind's glyph + bold label (`⛔ **Blocked:**`, `⏭️ **Deferred:**`, `❗ **Dropped/Failed:**`, `ℹ️ **Note:**`). A single kind applies to every `--reflection` in the call — emit different kinds in separate `update` calls. |
 | `--replace-plan-file FILE` | Replace the Plan section content with FILE. |
 | `--replace-acs-file FILE` | Phase 2.2.5: replace Acceptance Criteria content with FILE. |
 | `--set-reproduction-file FILE` | Phase 2.1.5: set the Reproduction section to FILE; inserts the section after Acceptance Criteria if it doesn't yet exist. |
@@ -150,6 +159,7 @@ The marker-locating subcommands (`id`, `new-body`, `update`) also accept `--mark
 Helper invariants baked into the script (orchestrator doesn't need to enforce them):
 - Notes are append-only — `--note` only appends, never rewrites; each bullet nests under its lifecycle phase inside `## Progress` and carries a time-only `HH:MM:SS` prefix.
 - `--reflection` is **`<details>`-aware**: because `## Devflow Reflection` is wrapped in a `<details>` block, the new bullet is inserted *inside* the block (before `</details>`), never after — so the collapsible region stays intact and the marker-first / AC-parseable invariants hold. (`--note` writes plain bullets into the un-wrapped `## Progress` section, so this doesn't apply to it.)
+- **Reflections are grouped by kind, helper-owned.** The helper (the single chokepoint every reflection flows through) owns the glyph, bold label, and sub-section placement: `--reflection-kind` selects one of two `### ` sub-sections — the three actionable kinds (`blocked`/`deferred`/`dropped-failed`) under `### ⚠️ Action required`, `note` under `### ℹ️ Notes` — so a human scanning the run sees actionable items separated from informational notes regardless of how the orchestrator phrases the text. Sub-headings are `### ` (level-3), **never** `## `, so `lib/fetch-pr-context.sh` (which terminates the reflection parse at the first `## `) is not truncated; a sub-heading is emitted only when its group has ≥1 bullet, and a second bullet of an existing kind nests under the existing heading without duplicating it.
 - The `Status` glyph is owned by the helper — `--status` derives and prepends it, and a note's phase is resolved from the bare (glyph-stripped) Status word.
 - Devflow Reflection accumulates bullets — `--reflection` only appends.
 - `--tick-*` flags edit only the box character and preserve the rest of the line.
@@ -321,7 +331,7 @@ Write the evidence to a temp file, then: `workpad.py update $ISSUE_NUMBER --stat
 
 **Temporary proof edits are allowed** when they raise confidence in the reproduction (e.g. inserting a `console.log`, hardcoding a request payload, tweaking a build input). Every temporary proof edit MUST be reverted before the implementation commit in 2.5, and the fact that you made one must be recorded in the workpad's `Reproduction` section so reviewers can follow the evidence.
 
-**Phase 2.2 cannot start until the workpad's `Reproduction` section is populated.** If you cannot reproduce the bug: `workpad.py update $ISSUE_NUMBER --status Blocked --reflection "cannot reproduce: {obstacle}"`, then emit the 👎 outcome reaction (see *Outcome reaction* in the Workpad Reference) and stop the run — do not invent a fix.
+**Phase 2.2 cannot start until the workpad's `Reproduction` section is populated.** If you cannot reproduce the bug: `workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind blocked --reflection "cannot reproduce: {obstacle}"`, then emit the 👎 outcome reaction (see *Outcome reaction* in the Workpad Reference) and stop the run — do not invent a fix.
 
 ### 2.2 Assess Complexity & Plan
 
@@ -513,7 +523,7 @@ Do this sweep:
 1. From `git diff --staged -U0` (or `git diff -U0`), list every claim the diff depends on that falls into one of the four kinds above. The diff is the *trigger* for finding which boundaries the change now relies on — a boundary's definition site (an unchanged import, a producer module, a version pin) usually sits in context `-U0` doesn't print, so follow each claim to its actual source. Purely-internal claims (a local you just wrote, a function defined in the same diff) are **out of scope** — this sweep is only about boundaries you don't own.
 2. For each claim, verify it against the **actual source of truth** — the pinned version's installed source/changelog, the producer module, the documented supported-runtime range across *all* of it, the real host — never from memory.
 3. **A test assertion about a boundary is itself an unverified claim.** A test that asserts a wrong boundary value still passes — it encodes the bug rather than catching it — so a green run at 2.4 is not confirmation. When the diff adds or changes a test that asserts a boundary value, verify that value against the same source of truth here.
-4. If the code is wrong, fix it. If a boundary genuinely **cannot** be verified in-environment, do **not** assert it as true: always record the gap with `workpad.py update $ISSUE_NUMBER --reflection "unverified boundary: {claim} — needs {live env} to confirm"` so it is visible to review and the merger. If — and only if — a specific acceptance criterion's verification depends on that boundary, additionally retag that criterion `(post-merge)` (per Phase 1.2, via the Phase 3.4 `--rewrite-ac` retag pattern) so the 3.4 gate doesn't block on a live-only check. An unverifiable external *boundary* is exactly the genuinely-live runtime-environment case the Phase 3.4 gate permits a `(post-merge)` tag for; it is **not** the runnable-but-blocked tooling gap nor the self-claim confirmation that gate refuses (see §3.4). `(post-merge)` covers code that ships correct but can only be *verified* live — it is never a way to wave through a boundary you suspect is wrong (that is a blocker).
+4. If the code is wrong, fix it. If a boundary genuinely **cannot** be verified in-environment, do **not** assert it as true: always record the gap with `workpad.py update $ISSUE_NUMBER --reflection-kind note --reflection "unverified boundary: {claim} — needs {live env} to confirm"` so it is visible to review and the merger. If — and only if — a specific acceptance criterion's verification depends on that boundary, additionally retag that criterion `(post-merge)` (per Phase 1.2, via the Phase 3.4 `--rewrite-ac` retag pattern) so the 3.4 gate doesn't block on a live-only check. An unverifiable external *boundary* is exactly the genuinely-live runtime-environment case the Phase 3.4 gate permits a `(post-merge)` tag for; it is **not** the runnable-but-blocked tooling gap nor the self-claim confirmation that gate refuses (see §3.4). `(post-merge)` covers code that ships correct but can only be *verified* live — it is never a way to wave through a boundary you suspect is wrong (that is a blocker).
 
 Treat an unverified boundary assumption as a defect in **this** PR, not a review-engine problem to be caught downstream — if the diff depends on it, verify it here or route it to `(post-merge)` with a reflection note.
 
@@ -679,7 +689,7 @@ Then tick the `review-and-fix` gate: `workpad.py update $ISSUE_NUMBER --tick-pro
 
 **If the skill returns `REJECT`** (it could not converge — whether at the iteration cap or via a pre-cap convergence exit per that skill's Step 4.5, whose verdict is still REJECT): route straight to the Blocked path below. Like AWUSF, a REJECT must **not** be silently hand-fixed and shipped; the human gate applies.
 
-**Blocked path (any unresolved exit).** Reached when the skill exits without a clean approve-family verdict — a first-run `REJECT` (cap-hit or pre-cap convergence exit), or an `APPROVE WITH UNRESOLVED SHADOW FINDINGS` you did not resolve via the bounded re-review above: `workpad.py update $ISSUE_NUMBER --status Blocked --reflection "review-and-fix unresolved: {summary}"`, then emit the 👎 outcome reaction (see *Outcome reaction* in the Workpad Reference) and stop.
+**Blocked path (any unresolved exit).** Reached when the skill exits without a clean approve-family verdict — a first-run `REJECT` (cap-hit or pre-cap convergence exit), or an `APPROVE WITH UNRESOLVED SHADOW FINDINGS` you did not resolve via the bounded re-review above: `workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind blocked --reflection "review-and-fix unresolved: {summary}"`, then emit the 👎 outcome reaction (see *Outcome reaction* in the Workpad Reference) and stop.
 
 ### 3.4 Acceptance Criteria Gate
 
@@ -712,7 +722,7 @@ If non-post-merge criteria remain unchecked after Phase 3.3:
 1. If a criterion is satisfiable with a small follow-up edit, do it now (still inside Phase 3) — write the code, run tests, commit (using the `fix:` prefix), tick the box, and continue.
 2. If a criterion's *literal text* is now stale because /simplify or /devflow:review-and-fix refactored the structure (e.g. renamed jobs, merged files), but the *underlying behavior* the criterion verifies is preserved in the diff, apply **2.2.6** now: rewrite the AC text in the workpad with a `--note` paper trail, then tick the box.
 3. If a criterion is genuinely outside this PR's scope and you missed it during 2.2.5, **go back to 2.2.5 now**: move the item to the workpad notes (`--note`) as deferred, rewrite the Acceptance Criteria section, PATCH, and re-run this gate against the narrowed set. Then continue to Phase 4.
-4. Otherwise — i.e. the criterion is in-scope but you cannot satisfy it AND it is not tagged `(post-merge)` — `workpad.py update $ISSUE_NUMBER --status Blocked --reflection "AC unmet (in-scope, not post-merge): {AC text}"`, then emit the 👎 outcome reaction (see *Outcome reaction* in the Workpad Reference) and stop the run with a clear report to the user. Do **not** advance to Phase 4 with unmet in-scope, non-post-merge criteria.
+4. Otherwise — i.e. the criterion is in-scope but you cannot satisfy it AND it is not tagged `(post-merge)` — `workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind blocked --reflection "AC unmet (in-scope, not post-merge): {AC text}"`, then emit the 👎 outcome reaction (see *Outcome reaction* in the Workpad Reference) and stop the run with a clear report to the user. Do **not** advance to Phase 4 with unmet in-scope, non-post-merge criteria.
 
 Once the gate passes (every non-post-merge AC ticked), tick the gate **and its parent phase** in the workpad: `workpad.py update $ISSUE_NUMBER --tick-progress "acceptance-criteria gate" --tick-progress "**Review**"`.
 
@@ -793,7 +803,7 @@ DEFERRED_ISSUE_NUMBERS="${DEFERRED_ISSUE_NUMBERS:-}"
 # blocks are ever executed under `set -e` (a bare `VAR=$(cmd); RC=$?` would abort at the
 # assignment before the capture; an `if`-condition assignment is exempt from `set -e`).
 if DEFERRED_LABELS=$(${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .deferred.labels DevFlow,Deferred); then DEFERRED_LABELS_RC=0; else DEFERRED_LABELS_RC=$?; fi
-[ "$DEFERRED_LABELS_RC" -eq 0 ] || workpad.py update $ISSUE_NUMBER --reflection "Phase 4.0 could not read deferred.labels (config-get rc=$DEFERRED_LABELS_RC — corrupt config.json or node missing); deferred follow-up issues filed WITHOUT labels."
+[ "$DEFERRED_LABELS_RC" -eq 0 ] || workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0 could not read deferred.labels (config-get rc=$DEFERRED_LABELS_RC — corrupt config.json or node missing); deferred follow-up issues filed WITHOUT labels."
 CLEAN_DEFERRED_LABELS=$(echo "$DEFERRED_LABELS" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' | paste -sd, -)
 if [ -z "$DEFERRED_ISSUE_NUMBERS" ]; then
   # We only reach this block because deferred work WAS filed above, so an empty list
@@ -801,7 +811,7 @@ if [ -z "$DEFERRED_ISSUE_NUMBERS" ]; then
   # to the workpad (durable, retrospective-visible) like the rc-failure breadcrumb, not
   # just stderr (ephemeral in an autonomous cloud run).
   echo "devflow: Phase 4.0 captured no deferred-issue numbers — deferred.labels applied to nothing (check the gh issue create captures)" >&2
-  workpad.py update $ISSUE_NUMBER --reflection "Phase 4.0 filed deferred follow-up issues but captured no issue numbers — the configured deferred labels were applied to NONE of them; the filed issues carry none of the configured deferred labels."
+  workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0 filed deferred follow-up issues but captured no issue numbers — the configured deferred labels were applied to NONE of them; the filed issues carry none of the configured deferred labels."
 elif [ -n "$CLEAN_DEFERRED_LABELS" ]; then
   # Ensure each configured label exists (best-effort; ensure-label.sh always exits 0, so
   # this loop never aborts on a label that can't be created). `|| continue` just skips a
@@ -821,7 +831,7 @@ elif [ -n "$CLEAN_DEFERRED_LABELS" ]; then
   for n in $DEFERRED_ISSUE_NUMBERS; do
     gh issue edit "$n" --add-label "$CLEAN_DEFERRED_LABELS" \
       || { echo "devflow: could not apply deferred labels to issue #$n (best-effort, continuing)" >&2; \
-           workpad.py update $ISSUE_NUMBER --reflection "Phase 4.0 could not apply the configured deferred labels ($CLEAN_DEFERRED_LABELS) to issue #$n (best-effort; the issue was filed but carries none of the configured deferred labels)."; }
+           workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0 could not apply the configured deferred labels ($CLEAN_DEFERRED_LABELS) to issue #$n (best-effort; the issue was filed but carries none of the configured deferred labels)."; }
   done
 fi
 ```
@@ -865,7 +875,7 @@ if [ -n "$MANIFESTS" ]; then
         # intact, do NOT file from a half-merged temp, and surface the gap rather than
         # silently falling through to the filing guard with a stale aggregate.
         rm -f "${AGG}.tmp"
-        workpad.py update $ISSUE_NUMBER --reflection "Phase 4.0.5 deferrals merge (jq) failed over: ${MANIFESTS}; deferrals NOT filed this run — inspect the run-scoped manifests."
+        workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5 deferrals merge (jq) failed over: ${MANIFESTS}; deferrals NOT filed this run — inspect the run-scoped manifests."
         AGG=""   # make the filing guard below unambiguously false
     fi
 fi
@@ -884,13 +894,13 @@ if [ -n "$AGG" ] && [ -s "$AGG" ]; then
         # exits 0. Surface that so the dropped findings (which won't reach the PR's
         # Scope-Acknowledged block) leave a breadcrumb instead of vanishing silently.
         grep -q 'were dropped from manifest' /tmp/devflow-fd.err && \
-            workpad.py update $ISSUE_NUMBER --reflection "file-deferrals.py filed partially (rc=0): $(cat /tmp/devflow-fd.err); dropped groups will NOT appear in the PR's Scope-Acknowledged Findings block."
+            workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "file-deferrals.py filed partially (rc=0): $(cat /tmp/devflow-fd.err); dropped groups will NOT appear in the PR's Scope-Acknowledged Findings block."
     elif grep -q 'already has follow_up' /tmp/devflow-fd.err; then
         workpad.py update $ISSUE_NUMBER --note "Deferrals already filed on a prior run (idempotent re-run) — nothing new to file; the hydrated aggregate stands."
     elif grep -q 'no deferrals' /tmp/devflow-fd.err; then
         workpad.py update $ISSUE_NUMBER --note "Aggregate held no deferrals to file — nothing to do."
     else
-        workpad.py update $ISSUE_NUMBER --reflection "file-deferrals.py failed (rc=${FD_RC}): $(cat /tmp/devflow-fd.err); no follow-up issues filed this run."
+        workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "file-deferrals.py failed (rc=${FD_RC}): $(cat /tmp/devflow-fd.err); no follow-up issues filed this run."
     fi
 fi
 ```
@@ -918,7 +928,7 @@ if [ -n "${FILED_NUMBERS:-}" ]; then
     # keeps the rc capture alive even under `set -e` (a bare `VAR=$(cmd); RC=$?` aborts at
     # the assignment; an `if`-condition assignment is exempt).
     if DEFERRED_LABELS=$(${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .deferred.labels DevFlow,Deferred); then DEFERRED_LABELS_RC=0; else DEFERRED_LABELS_RC=$?; fi
-    [ "$DEFERRED_LABELS_RC" -eq 0 ] || workpad.py update $ISSUE_NUMBER --reflection "Phase 4.0.5 could not read deferred.labels (config-get rc=$DEFERRED_LABELS_RC — corrupt config.json or node missing); deferred review-finding issues filed WITHOUT labels."
+    [ "$DEFERRED_LABELS_RC" -eq 0 ] || workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5 could not read deferred.labels (config-get rc=$DEFERRED_LABELS_RC — corrupt config.json or node missing); deferred review-finding issues filed WITHOUT labels."
     CLEAN_DEFERRED_LABELS=$(echo "$DEFERRED_LABELS" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' | paste -sd, -)
     if [ -n "$CLEAN_DEFERRED_LABELS" ]; then
         # `|| continue` just skips a blank entry (CLEAN already drops blanks — symmetric
@@ -937,7 +947,7 @@ if [ -n "${FILED_NUMBERS:-}" ]; then
             [ -n "$n" ] || continue
             gh issue edit "$n" --add-label "$CLEAN_DEFERRED_LABELS" \
                 || { echo "devflow: could not apply deferred labels to issue #$n (best-effort, continuing)" >&2; \
-                     workpad.py update $ISSUE_NUMBER --reflection "Phase 4.0.5 could not apply the configured deferred labels ($CLEAN_DEFERRED_LABELS) to issue #$n (best-effort; the issue was filed but carries none of the configured deferred labels)."; }
+                     workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5 could not apply the configured deferred labels ($CLEAN_DEFERRED_LABELS) to issue #$n (best-effort; the issue was filed but carries none of the configured deferred labels)."; }
         done
     fi
 fi
@@ -966,7 +976,7 @@ git commit -m "docs: update documentation for issue #$ARGUMENTS"
 git push
 ```
 
-Then add the configured post-docs labels to mark that the docs pass ran. The labels signal "the docs pass ran and was reviewed", so apply them when the docs subagent actually ran — either it produced changes (and you committed them above), or it returned cleanly with no changes needed. Skip the labels and add a `--reflection` note to the workpad instead when the docs subagent failed, returned no useful output, or was unable to run. (Downstream docs automation, if the adopter runs any, can key off these labels to avoid double-processing the PR.)
+Then add the configured post-docs labels to mark that the docs pass ran. The labels signal "the docs pass ran and was reviewed", so apply them when the docs subagent actually ran — either it produced changes (and you committed them above), or it returned cleanly with no changes needed. Skip the labels and add a `--reflection-kind dropped-failed --reflection "…"` bullet to the workpad instead (a docs-subagent failure is actionable) when the docs subagent failed, returned no useful output, or was unable to run. (Downstream docs automation, if the adopter runs any, can key off these labels to avoid double-processing the PR.)
 
 `docs.labels` is a comma-separated list (default `Documented`). Normalize it before applying — split on commas, trim each entry, drop empties — then pass the cleaned list to a single `gh pr edit --add-label` call so every configured label is applied:
 
@@ -1004,7 +1014,7 @@ Never finalize a PR whose description asserts a behavior the diff does not deliv
 git status --porcelain
 ```
 
-If it is non-empty, **do not** finalize yet. The run began from a clean base-branch checkout (`origin/` + the configured `base_branch`), so anything dirty here is this run's own work an earlier phase failed to commit. Commit the part that belongs to this PR with the right prefix (`feat:`/`fix:`/`docs:`/`chore:`) and push, and record in `Devflow Reflection` which phase under-committed — surface the gap, don't paper over it. Surface (do not blindly `git add`) any unexpected untracked file. When the tree is already clean this is a no-op — create no empty commit.
+If it is non-empty, **do not** finalize yet. The run began from a clean base-branch checkout (`origin/` + the configured `base_branch`), so anything dirty here is this run's own work an earlier phase failed to commit. Commit the part that belongs to this PR with the right prefix (`feat:`/`fix:`/`docs:`/`chore:`) and push, and record which phase under-committed via `--reflection-kind note --reflection "…"` (a corrected under-commit is informational, not a standing failure) — surface the gap, don't paper over it. Surface (do not blindly `git add`) any unexpected untracked file. When the tree is already clean this is a no-op — create no empty commit.
 
 **Publish decision — `implement_pr_state`.** Whether the run publishes the PR or leaves it the draft created in Phase 3.1 is a per-consumer config choice. Read it (default `ready_for_review`), then publish **only** when it is not the exact literal `draft` — default-to-publish is the safe direction, so a missing key, empty string, or any unrecognized value publishes, and a hard read failure (malformed config) falls back to publishing. **Capture whether `gh pr ready` actually succeeded** so the finalize wording reflects the *real* end state — a bare `gh pr ready` whose failure (the `else` arm catches *any* non-zero exit — e.g. auth scope, GitHub 5xx, rate limit, a race that already merged/closed the PR) fell through would otherwise leave the workpad falsely claiming the PR was published when it is still a draft:
 
@@ -1033,14 +1043,16 @@ fi
 
 When `PR_STATE` is `draft` the PR is **left as the draft** from Phase 3.1: no `gh pr ready`, and **no additional comment** is posted to the PR thread. The downstream consequence is documented in [`docs/implement-skill.md`](../../docs/implement-skill.md) — the cloud review (`devflow-review.yml`'s `ready_for_review` event) and CI's `ready_for_review` listener do not auto-fire until a human publishes the PR.
 
-Then finalize the workpad in one call — tick the final `## Progress` item and flip `Status` to `Complete` (the helper swaps the glyph to 🎉) in **every** case; only the `--note` wording differs, and on a publish failure a `--reflection` is added, so the workpad never falsely claims a PR was published. Pick the `--note` by `PR_OUTCOME`:
+Then finalize the workpad — tick the final `## Progress` item and flip `Status` to `Complete` (the helper swaps the glyph to 🎉) in **every** case; only the `--note` wording differs, and on a publish failure a `dropped-failed` reflection is added (in its own `update` call, see below), so the workpad never falsely claims a PR was published. Pick the `--note` by `PR_OUTCOME`:
 
 - **`PR_OUTCOME=draft`** → `--note "/devflow:implement run finished, PR left as draft per implement_pr_state=draft: <PR_URL>"`
 - **`PR_OUTCOME=published`** → `--note "/devflow:implement run finished, PR published (gh pr ready): <PR_URL>"`
-- **`PR_OUTCOME=publish_failed`** → `--note "/devflow:implement run finished, but gh pr ready FAILED — PR is still a draft, or its state could not be confirmed: <PR_URL>"` **and** add `--reflection "gh pr ready failed at Phase 4.3 — PR left unpublished despite implement_pr_state=$PR_STATE; publish it manually (gh pr ready) so the cloud review and CI ready_for_review listener fire"` (the durable note mirrors the stderr breadcrumb's wording — it must not assert "still a draft" as fact on the unconfirmed-state path where the `isDraft` re-check itself errored).
+- **`PR_OUTCOME=publish_failed`** → `--note "/devflow:implement run finished, but gh pr ready FAILED — PR is still a draft, or its state could not be confirmed: <PR_URL>"` **and** emit a separate `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "gh pr ready failed at Phase 4.3 — PR left unpublished despite implement_pr_state=$PR_STATE; publish it manually (gh pr ready) so the cloud review and CI ready_for_review listener fire"` call (the durable note mirrors the stderr breadcrumb's wording — it must not assert "still a draft" as fact on the unconfirmed-state path where the `isDraft` re-check itself errored). It is a **`dropped-failed`** reflection (a publish failure needing human action), so it goes in its own `update` call — separate from the `note`-kind finalize below — because one `--reflection-kind` applies to the whole call.
 
 ```bash
-# Substitute the PR_OUTCOME-specific --note (and, for publish_failed, the extra --reflection) above.
+# Substitute the PR_OUTCOME-specific --note above. The general --reflection events
+# are `note`-kind (informational troubleshooting log); the publish_failed
+# `dropped-failed` reflection above is a SEPARATE update call (different kind).
 # `--tick-progress "PR marked ready"` MUST match the `## Progress` row label verbatim — that
 # label is owned by scripts/workpad.py (cmd_new_body template + _PROGRESS_PHASES +
 # _STATUS_TO_PROGRESS_PHASE); do NOT rename it here without renaming it there (and in the
@@ -1049,10 +1061,10 @@ workpad.py update $ISSUE_NUMBER \
     --status Complete \
     --tick-progress "PR marked ready" \
     --note "{PR_OUTCOME-specific note above}" \
-    [--reflection "{noteworthy event}" ...repeat per event]
+    [--reflection-kind note --reflection "{noteworthy event}" ...repeat --reflection per event]
 ```
 
-Add one `--reflection` flag per noteworthy event a human should know for troubleshooting: a failed step that was skipped, a subagent that returned no useful output, a permission denial, a test you couldn't run, an ambiguity you resolved with an assumption, or any deviation from the planned flow (the `publish_failed` reflection above is one such event). `--reflection` is repeatable so all events land in a single atomic update. (No separate "Notes from /devflow:implement run" comment is posted — the workpad replaces it.)
+Add one `--reflection` flag per noteworthy event a human should know for troubleshooting: a failed step that was skipped, a subagent that returned no useful output, a permission denial, a test you couldn't run, an ambiguity you resolved with an assumption, or any deviation from the planned flow. These are the *informational* `note` kind (`--reflection-kind note`); genuinely actionable failures (a dropped manifest entry, a publish failure) are emitted at the point they occur with `--reflection-kind dropped-failed` so they land under `### ⚠️ Action required`. `--reflection` is repeatable so all the note-kind events land in a single atomic update. (No separate "Notes from /devflow:implement run" comment is posted — the workpad replaces it.)
 
 Finally, emit the 🎉 outcome reaction on the triggering comment (`REACTION=hooray`; see *Outcome reaction* in the Workpad Reference) — the implement lifecycle completed regardless of the publish decision (`draft`, `published`, or `publish_failed`; the publish failure is surfaced via the `--reflection` above, not by suppressing the reaction) — then output the PR URL and a one- or two-line summary of what was accomplished (state whether the PR was published, left a draft, or whether `gh pr ready` failed).
 
@@ -1078,8 +1090,8 @@ Verify each `Status` PATCH actually landed at the time it was issued (see the Up
 
 - **Empty steps**: If any phase produces no file changes, skip the commit and continue. Do not create empty commits.
 - **Git conflicts**: If a push fails due to conflicts, run `git pull --rebase origin {branch}` and retry once. If it fails again, stop and report the error. After any successful rebase here, re-run the Phase 2.3.0 changed-contract sweep against the newly-arrived sites — a clean textual rebase can still surface a fixture, call site, or assertion from the base branch that the change's contract now rejects.
-- **Subagent failures**: If a subagent fails or produces no useful output, note the failure in the workpad's `Devflow Reflection` and continue to the next step. Do not retry the same subagent more than once.
+- **Subagent failures**: If a subagent fails or produces no useful output, record the failure in the workpad's `Devflow Reflection` via `--reflection-kind dropped-failed --reflection "…"` (a subagent failure is actionable) and continue to the next step. Do not retry the same subagent more than once.
 - **Permission denials**: If a Bash command is denied, note it in the workpad and continue to the next step. Never skip an entire phase because of a single denied command.
 - **Commit prefixes**: Use `docs:` for documentation, `feat:` for implementation, `fix:` for review fixes and test fixes.
 - **Context recovery**: If context was compressed and you lose track of variables, recover from `git log`, `git branch --show-current`, `gh pr list --head {branch}`, and the workpad — `${CLAUDE_SKILL_DIR}/../../scripts/workpad.py body $(${CLAUDE_SKILL_DIR}/../../scripts/workpad.py id $ISSUE_NUMBER)`. The workpad is the source of truth for plan state and every later mutation goes through `workpad.py update $ISSUE_NUMBER`, so the only variable to recover is `$ISSUE_NUMBER` itself (and it's already in `$ARGUMENTS`).
-- **Surfacing failures**: Anything you "note the failure and continue" on above goes into the workpad's `Devflow Reflection` section so a human can pick it up later. Track these as you go — by the time Phase 4.3 runs, they should already be in the workpad, and no separate end-of-run issue comment is needed.
+- **Surfacing failures**: Anything you "note the failure and continue" on above goes into the workpad's `Devflow Reflection` section (via `--reflection` with the matching `--reflection-kind` — actionable failures as `dropped-failed`, blockers as `blocked`, informational deviations as `note`) so a human can pick it up later. Track these as you go — by the time Phase 4.3 runs, they should already be in the workpad, and no separate end-of-run issue comment is needed.

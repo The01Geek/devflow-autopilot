@@ -2813,6 +2813,141 @@ assert_eq "gate #97: reflections non-empty → clean=false (all signals clean)" 
 assert_eq "gate #97: reflection reason names the signal" "workpad reflections present" \
   "$(echo "$BASE" | jq '.reflections=["friction note"]' | gate | jq -r .reason)"
 
+# ════════════════════════════════════════════════════════════════════════════
+echo "issue #126: --reflection-kind grouped Devflow Reflection rendering"
+# ════════════════════════════════════════════════════════════════════════════
+# The workpad.py rendering boundary (grouped Markdown from --reflection-kind) is
+# exercised exhaustively in lib/test/test_python_scripts.py (it drives
+# _apply_mutations directly with exact-Markdown asserts). Here we cover the OTHER
+# boundary: lib/fetch-pr-context.sh parse — the grouped shape must parse into
+# reflections[] (### sub-headings excluded, terminates at </details>), legacy flat
+# blocks parse unchanged, and the gate stays invariant — plus SKILL/docs pins.
+WP_PY="$LIB/../scripts/workpad.py"
+
+# ── fetch-pr-context.sh parse + gate invariance ──────────────────────────────
+F126="$(mktemp -d)"
+cat > "$F126/prview.json" <<'PV'
+{"number":900,"headRefName":"claude/issue-901-x","baseRefName":"main","headRefOid":"sha900","mergeCommit":{"oid":"m900"},"mergedAt":"2026-06-01T16:31:00Z","createdAt":"2026-06-01T07:00:00Z","author":{"login":"example-bot"},"title":"t","body":"Closes #901","additions":1,"deletions":0,"files":[{"path":"x.txt"}],"labels":[]}
+PV
+cat > "$F126/issue.json" <<'IJ'
+{"number":901,"title":"i","body":"b","labels":[],"comments":[]}
+IJ
+cat > "$F126/gh" <<'STUB'
+#!/usr/bin/env bash
+FX="${DEVFLOW_FX}"
+case "$*" in
+  *"repo view"*) echo "acme/example-repo" ;;
+  *"pr view"*) cat "$FX/prview.json" ;;
+  *"pr diff"*) echo 'diff --git a/x.txt b/x.txt' ;;
+  *"pulls/"*"/comments"*) echo '[]' ;;
+  *"pulls/"*"/reviews"*) echo '[]' ;;
+  *"pulls/"*"/commits"*) echo '[]' ;;
+  *"check-runs"*) echo '{"check_runs":[]}' ;;
+  *"issues/901/comments"*) cat "$FX/issuecomments.json" ;;
+  *"issues/900/comments"*) echo '[]' ;;
+  *"issues/"*"/comments"*) echo '[]' ;;
+  *"issues/901"*) cat "$FX/issue.json" ;;
+  *"commits/"*) echo '{"files":[]}' ;;
+  *) echo '[]' ;;
+esac
+STUB
+chmod +x "$F126/gh"
+
+# Grouped shape: four kind bullets across two ### sub-sections.
+cat > "$F126/workpad-grouped.md" <<'WPMD'
+<!-- devflow:workpad -->
+# DevFlow Workpad — Issue #901
+
+**Status:** 🎉 Complete
+
+## Progress
+- [x] **Setup**
+
+## Devflow Reflection
+<details>
+<summary>Devflow Reflection (click to expand)</summary>
+
+### ⚠️ Action required
+- ⛔ **Blocked:** could not reproduce
+- ⏭️ **Deferred:** part X to follow-up
+- ❗ **Dropped/Failed:** manifest group dropped
+
+### ℹ️ Notes
+- ℹ️ **Note:** subagent retried once
+</details>
+WPMD
+jq -Rs '[{user:{login:"example-bot"},body:.,created_at:"2026-06-01T10:00:00Z"}]' < "$F126/workpad-grouped.md" > "$F126/issuecomments.json"
+F126_OUT="$(DEVFLOW_FX="$F126" DEVFLOW_GH="$F126/gh" bash "$LIB/fetch-pr-context.sh" 900 2>/dev/null)"
+F126_CTX="$(cat "$F126_OUT")"
+assert_eq "#126 fetch: grouped shape → 4 kind bullets captured (### sub-headings excluded)" "4" \
+  "$(jq '.reflections | length' <<<"$F126_CTX")"
+assert_eq "#126 fetch: no captured reflection is a ### sub-heading" "0" \
+  "$(jq -r '.reflections[]' <<<"$F126_CTX" | grep -c '^###')"
+assert_eq "#126 fetch: first bullet keeps its glyph+label prefix intact" '⛔ **Blocked:** could not reproduce' \
+  "$(jq -r '.reflections[0]' <<<"$F126_CTX")"
+assert_eq "#126 gate: grouped shape with ≥1 bullet → clean=false (forces analysis)" "false" \
+  "$(jq -c -f "$LIB/cheap-gate.jq" < "$F126_OUT" | jq -r .clean)"
+
+# Legacy flat block (no kind prefix, no ### sub-headings) parses unchanged.
+cat > "$F126/workpad-legacy.md" <<'WPMD'
+<!-- devflow:workpad -->
+# DevFlow Workpad — Issue #901
+
+**Status:** 🎉 Complete
+
+## Devflow Reflection
+<details>
+<summary>Devflow Reflection (click to expand)</summary>
+
+- a flat legacy bullet
+- another flat bullet
+</details>
+WPMD
+jq -Rs '[{user:{login:"example-bot"},body:.,created_at:"2026-06-01T10:00:00Z"}]' < "$F126/workpad-legacy.md" > "$F126/issuecomments.json"
+F126_OUT2="$(DEVFLOW_FX="$F126" DEVFLOW_GH="$F126/gh" bash "$LIB/fetch-pr-context.sh" 900 2>/dev/null)"
+assert_eq "#126 fetch: legacy flat reflection block → 2 bullets, parsed unchanged" "2" \
+  "$(jq '.reflections | length' < "$F126_OUT2")"
+assert_eq "#126 gate: legacy flat block with ≥1 bullet → clean=false (gate invariant)" "false" \
+  "$(jq -c -f "$LIB/cheap-gate.jq" < "$F126_OUT2" | jq -r .clean)"
+
+# Empty reflection section → reflections == [] → gate stays clean for both shapes.
+cat > "$F126/workpad-empty.md" <<'WPMD'
+<!-- devflow:workpad -->
+# DevFlow Workpad — Issue #901
+
+**Status:** 🎉 Complete
+
+## Devflow Reflection
+<details>
+<summary>Devflow Reflection (click to expand)</summary>
+
+</details>
+WPMD
+jq -Rs '[{user:{login:"example-bot"},body:.,created_at:"2026-06-01T10:00:00Z"}]' < "$F126/workpad-empty.md" > "$F126/issuecomments.json"
+F126_OUT3="$(DEVFLOW_FX="$F126" DEVFLOW_GH="$F126/gh" bash "$LIB/fetch-pr-context.sh" 900 2>/dev/null)"
+assert_eq "#126 gate: empty reflection section → reflections == [] → clean=true" "true" \
+  "$(jq -c -f "$LIB/cheap-gate.jq" < "$F126_OUT3" | jq -r .clean)"
+rm -rf "$F126"
+
+# SKILL.md call-site pin: every line that uses the executable `--reflection `
+# flag must carry a --reflection-kind on that SAME line (the AC: every call-site
+# passes the matching kind). Exclude lines that mention the flag without invoking
+# it — the markdown doc-table row (content starts with `|`) and prose comment
+# lines (content starts with `#`). REFL_UNKINDED holds any offending call-site;
+# the assert demands it be empty. This actually enforces the AC — the old
+# `--reflection-kind count >= 1` check passed as long as ONE kind appeared
+# anywhere, so a new --reflection call-site added without a kind (silently
+# degrading to the `note` default) would have slipped through.
+REFL_UNKINDED="$(grep -n -- '--reflection ' "$LIB/../skills/implement/SKILL.md" \
+  | grep -vE '^[0-9]*:[[:space:]]*[|#]' \
+  | grep -v -- '--reflection-kind' || true)"
+assert_eq "#126 pin: workpad.py documents the --reflection-kind flag" "yes" \
+  "$(grep -q -- '--reflection-kind' "$WP_PY" && echo yes || echo no)"
+assert_eq "#126 pin: every --reflection call-site in implement/SKILL.md carries a --reflection-kind" "" \
+  "$REFL_UNKINDED"
+assert_eq "#126 pin: docs describe the grouped reflection structure + --reflection-kind" "yes" \
+  "$(grep -q -- '--reflection-kind' "$LIB/../docs/implement-skill.md" && grep -q -- '--reflection-kind' "$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md" && echo yes || echo no)"
+
 # ── SKILL.md / config contract pins (grep) ───────────────────────────────────
 assert_eq "#97 pin: ensure-label.sh exists" "yes" \
   "$([ -f "$LIB/../scripts/ensure-label.sh" ] && echo yes || echo no)"

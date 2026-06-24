@@ -95,7 +95,7 @@ def make_args(**overrides):
         tick_progress=[], tick_plan=[], tick_ac=[],
         rewrite_ac=None,
         replace_plan_file=None, replace_acs_file=None, set_reproduction_file=None,
-        note=[], reflection=[], marker=None,
+        note=[], reflection=[], reflection_kind=None, marker=None,
     )
     base.update(overrides)
     return argparse.Namespace(**base)
@@ -620,6 +620,178 @@ out = workpad._apply_mutations(WORKPAD_V2, make_args(reflection=['reflect!']))
 rf = out.split('## Devflow Reflection', 1)[1]
 assert_eq("details/reflection: bullet before </details>", True,
           'reflect!' in rf and rf.index('reflect!') < rf.index('</details>'))
+
+
+print("workpad reflection grouping by --reflection-kind (issue #126)")
+
+# Helper: apply a sequence of (kind, text) reflections as SEPARATE update calls
+# (each update carries one --reflection-kind), threading the body forward — this
+# is exactly how the orchestrator emits them and exercises the cross-call append
+# path. kind=None means --reflection-kind omitted (→ default 'note').
+def _reflect_seq(*pairs, body=WORKPAD_V2):
+    out = body
+    for kind, text in pairs:
+        out = workpad._apply_mutations(
+            out, make_args(reflection=[text], reflection_kind=kind))
+    return out.split('## Devflow Reflection', 1)[1]
+
+# Each kind renders with its glyph + bold label under the right sub-section.
+rk = _reflect_seq(('blocked', 'B'), ('deferred', 'D'), ('dropped-failed', 'F'), ('note', 'N'))
+assert_eq("kind blocked: glyph + bold label", True, '- ⛔ **Blocked:** B' in rk)
+assert_eq("kind deferred: glyph + bold label", True, '- ⏭️ **Deferred:** D' in rk)
+assert_eq("kind dropped-failed: glyph + bold label", True, '- ❗ **Dropped/Failed:** F' in rk)
+assert_eq("kind note: glyph + bold label", True, '- ℹ️ **Note:** N' in rk)
+# Exactly one of each sub-heading (the 3 actionable kinds share Action required).
+assert_eq("one Action required sub-heading (shared by 3 actionable kinds)", 1,
+          rk.count('### ⚠️ Action required'))
+assert_eq("one Notes sub-heading", 1, rk.count('### ℹ️ Notes'))
+# Action required precedes Notes; actionable bullets under it, note under Notes.
+assert_eq("Action required precedes Notes", True,
+          rk.index('### ⚠️ Action required') < rk.index('### ℹ️ Notes'))
+assert_eq("actionable bullet sits under Action required (above Notes heading)", True,
+          rk.index('### ⚠️ Action required') < rk.index('- ⛔ **Blocked:** B') < rk.index('### ℹ️ Notes'))
+assert_eq("note bullet sits under Notes (below its heading)", True,
+          rk.index('### ℹ️ Notes') < rk.index('- ℹ️ **Note:** N'))
+# Sub-headings are kept before </details> (stay inside the collapsible block).
+assert_eq("grouped sub-sections stay before </details>", True,
+          rk.index('### ℹ️ Notes') < rk.index('</details>'))
+
+# Omitted --reflection-kind → note (default), never Action required.
+rk_def = _reflect_seq((None, 'defaulted'))
+assert_eq("omitted kind renders as note", True, '- ℹ️ **Note:** defaulted' in rk_def)
+assert_eq("omitted kind → Notes heading, no Action required heading", True,
+          '### ℹ️ Notes' in rk_def and '### ⚠️ Action required' not in rk_def)
+
+# Empty group → no heading: a single blocked emits no Notes heading.
+rk_one = _reflect_seq(('blocked', 'only'))
+assert_eq("single blocked → Action required heading, no Notes heading (empty group)", True,
+          '### ⚠️ Action required' in rk_one and '### ℹ️ Notes' not in rk_one)
+
+# Append second-of-kind nests under the existing heading (no duplicate).
+rk_two = _reflect_seq(('note', 'first'), ('note', 'second'))
+assert_eq("two notes → single Notes heading (no dup)", 1, rk_two.count('### ℹ️ Notes'))
+assert_eq("two notes → both bullets present", 2, rk_two.count('- ℹ️ **Note:**'))
+assert_eq("appended bullet stays before </details>", True,
+          rk_two.index('- ℹ️ **Note:** second') < rk_two.index('</details>'))
+# Two actionable kinds also share one Action required heading.
+rk_act = _reflect_seq(('blocked', 'b1'), ('deferred', 'd1'))
+assert_eq("blocked+deferred → single shared Action required heading", 1,
+          rk_act.count('### ⚠️ Action required'))
+
+# Truncation guard: no level-2 (## ) heading is emitted inside the reflection
+# region — fetch-pr-context.sh terminates the parse at the first ## , so a level-2
+# sub-heading would truncate reflections[].
+_region = rk[:rk.index('</details>')]
+assert_eq("no level-2 (## ) heading emitted inside the reflection region", True,
+          not any(ln.startswith('## ') for ln in _region.split('\n')))
+
+# Markdown metacharacters survive rendering intact.
+_mx = 'has `code`, $VAR, and *stars*'
+rk_mx = _reflect_seq(('note', _mx))
+assert_eq("metacharacters (backticks/$/*) survive rendering", True,
+          ('- ℹ️ **Note:** ' + _mx) in rk_mx)
+
+# Canonical ordering holds regardless of call order: a `note` written BEFORE an
+# action-kind bullet still renders Action required ABOVE Notes (exercises the
+# _rank insertion branch that places a new Action block above an existing Notes
+# block — a plain-append regression would survive every action-first test).
+rk_no = _reflect_seq(('note', 'N'), ('blocked', 'B'))
+assert_eq("note-first then blocked → Action required still precedes Notes", True,
+          rk_no.index('### ⚠️ Action required') < rk_no.index('### ℹ️ Notes'))
+assert_eq("note-first then blocked → both bullets present", True,
+          '- ⛔ **Blocked:** B' in rk_no and '- ℹ️ **Note:** N' in rk_no)
+
+# Multi-line reflection text (e.g. a captured multi-line gh/jq error fed into a
+# dropped-failed breadcrumb) collapses to a single bullet line, so the line-based
+# fetch-pr-context.sh parser captures the whole message, not just its first line.
+rk_ml = _reflect_seq(('dropped-failed', 'line one\nline two\nline three'))
+assert_eq("multi-line reflection text collapses to one bullet line", True,
+          '- ❗ **Dropped/Failed:** line one line two line three' in rk_ml)
+assert_eq("multi-line reflection emits exactly one bullet (no split continuation)", 1,
+          rk_ml.count('- ❗ **Dropped/Failed:**'))
+
+# Distinguish the UNCONDITIONAL splitlines() collapse from the old `if '\n' in
+# text` guard: a bare \r (or \v) line break — which the old guard let slip
+# through to the line-based fetch parser — must also collapse to one bullet line.
+# (A regression reverting to the `\n`-only guard would pass the \n test above but
+# fail this one.)
+rk_cr = _reflect_seq(('dropped-failed', 'cr one\rcr two'))
+assert_eq("bare \\r in reflection text also collapses to one bullet line", True,
+          '- ❗ **Dropped/Failed:** cr one cr two' in rk_cr)
+assert_eq("bare \\r reflection emits exactly one bullet (no split continuation)", 1,
+          rk_cr.count('- ❗ **Dropped/Failed:**'))
+
+# Mid-migration shape: a workpad whose reflection block already holds a
+# pre-migration un-kinded flat bullet, into which a new kinded bullet is then
+# appended (a real DevFlow workpad created before this PR and updated after it).
+# The legacy bullet is retained verbatim as a leading preamble, ABOVE the
+# lazily-created sub-section (per _insert_reflection_bullet's docstring contract).
+_LEGACY_REFLECTION_BODY = """<!-- devflow:workpad -->
+# DevFlow Workpad — Issue #999
+
+**Status:** Reviewing
+**Last updated:** 2026-01-01 00:00 UTC
+
+## Progress
+- [x] **Setup**
+
+## Devflow Reflection
+<details>
+<summary>Devflow Reflection (click to expand)</summary>
+
+- a legacy flat bullet
+</details>
+"""
+_legacy_out = workpad._apply_mutations(
+    _LEGACY_REFLECTION_BODY, make_args(reflection=['boom'], reflection_kind='blocked'))
+_legacy_rf = _legacy_out.split('## Devflow Reflection', 1)[1]
+assert_eq("legacy flat bullet retained verbatim when a kinded bullet is appended", True,
+          '- a legacy flat bullet' in _legacy_rf)
+assert_eq("legacy bullet stays ABOVE the lazily-created Action required sub-section", True,
+          _legacy_rf.index('- a legacy flat bullet') < _legacy_rf.index('### ⚠️ Action required'))
+assert_eq("new kinded bullet renders correctly under Action required (mixed shape)", True,
+          '- ⛔ **Blocked:** boom' in _legacy_rf)
+assert_eq("mixed-shape output stays inside the <details> (bullet before </details>)", True,
+          _legacy_rf.index('- ⛔ **Blocked:** boom') < _legacy_rf.index('</details>'))
+
+# Un-wrapped (no <details>) reflection section — the _append_reflection
+# `head is None` branch. cmd_new_body always emits <details>, so this only fires
+# on a hand-edited / pre-<details> workpad, but the branch exists and must group
+# the bullet in place rather than dropping content.
+_UNWRAPPED_REFLECTION_BODY = """<!-- devflow:workpad -->
+# DevFlow Workpad — Issue #999
+
+**Status:** Reviewing
+**Last updated:** 2026-01-01 00:00 UTC
+
+## Progress
+- [x] **Setup**
+
+## Devflow Reflection
+"""
+_unwrapped_out = workpad._apply_mutations(
+    _UNWRAPPED_REFLECTION_BODY, make_args(reflection=['boom'], reflection_kind='dropped-failed'))
+_unwrapped_rf = _unwrapped_out.split('## Devflow Reflection', 1)[1]
+assert_eq("un-wrapped (no <details>) reflection section groups the bullet in place", True,
+          '### ⚠️ Action required' in _unwrapped_rf
+          and '- ❗ **Dropped/Failed:** boom' in _unwrapped_rf)
+
+# Mirror of the note-first test: an action block created first, then a note —
+# exercises the append-at-end insertion branch with a pre-existing earlier-ranked
+# block (a Notes-before-Action regression would survive without this).
+rk_an = _reflect_seq(('blocked', 'B'), ('note', 'N'))
+assert_eq("action-first then note → Action required still precedes Notes", True,
+          rk_an.index('### ⚠️ Action required') < rk_an.index('### ℹ️ Notes'))
+
+# A bad reflection kind from a programmatic caller is converted to a clean
+# _UpdateError (caught by cmd_update before the PATCH — no partial workpad
+# write), not a bare KeyError traceback. argparse `choices` guards the CLI path;
+# this guards the direct-_apply_mutations path the tests themselves use.
+def _bad_reflection_kind():
+    workpad._apply_mutations(
+        WORKPAD_V2, make_args(reflection=['x'], reflection_kind='bogus'))
+assert_raises("bad reflection kind raises _UpdateError (not a bare KeyError)",
+              workpad._UpdateError, _bad_reflection_kind)
 
 # Invariants preserved: marker first line; AC section still parseable.
 out = workpad._apply_mutations(WORKPAD_V2, make_args(

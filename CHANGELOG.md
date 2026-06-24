@@ -4,7 +4,7 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.8.7] — 2026-06-24
+## [2.8.8] — 2026-06-24
 
 ### Changed
 - **The `/devflow:implement` verification gate now enforces "verified before merge" rather than trusting the run's narrative.** Two engine changes close gaps a weekly retrospective surfaced. (1) Phase 3.4 gates the `(post-merge)` AC tag: it is permitted **only** when a criterion genuinely requires a runtime environment that does not exist during the run (a live deploy target, a real third-party endpoint). A criterion that is runnable on the orchestrator host — or blocked only by a local tooling/environment gap — and any criterion whose purpose is to confirm a behavioral claim the PR already asserts, is **never** retagged post-merge; it takes the existing `Blocked` escalation path instead (a genuine permission/sandbox denial of the *test suite itself* still uses the auditable CI-skip per `CLAUDE.md`, which does not tick the AC). (2) A new always-on **§2.3.4a self-authored-claim reconciliation sweep** — the output-side twin of the §2.3.4 boundary sweep — reconciles every behavioral claim the diff *authors* in internal/external docs and code comments against the shipped code path before commit, covering claims about the diff's *own* code that §2.3.4 carves out; Phase 4.2 applies the same reconciliation to the PR body. On any prose↔code divergence the code is the fact. Documented as enforced behavior in `docs/implement-skill.md` and `docs/DEVFLOW_SYSTEM_OVERVIEW.md`. (#131, closes #129)
@@ -12,6 +12,11 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 - **Restored the `implement_pr_state` and `deferred` definitions in `.devflow/config.schema.json`** that an unrelated local sync commit had dropped, which left `config.example.json` referencing undefined keys and the suite red (10 failures). The schema again matches the example and the `lib/test/run.sh` assertions. (#131)
+
+## [2.8.7] — 2026-06-24
+
+### Added
+- **`/devflow:implement`'s `## Devflow Reflection` workpad bullets are now grouped by kind, so a human triaging a DevFlow PR/issue sees actionable items at a glance.** `scripts/workpad.py update` gains a `--reflection-kind {blocked|deferred|dropped-failed|note}` flag that applies to its `--reflection` bullet(s): the three actionable kinds render under a `### ⚠️ Action required` sub-section and `note` (the default when omitted) under `### ℹ️ Notes`, both inside the existing collapsed `<details>` block, each bullet carrying its kind's glyph + bold label (`⛔ **Blocked:**`, `⏭️ **Deferred:**`, `❗ **Dropped/Failed:**`, `ℹ️ **Note:**`). The helper owns the glyph/label/placement (the caller passes a bare kind token) — the same helper-owns-the-rendering-token idiom as the `--status` glyph; a sub-heading is emitted only once its group has a bullet, a second bullet of a kind reuses the existing heading, and sub-headings are `### ` (never `## `) so `lib/fetch-pr-context.sh` does not truncate `reflections[]`. The retrospective parse stays compatible (it captures every kind bullet, excludes the `### ` headings, and parses a legacy flat block unchanged) and `lib/cheap-gate.jq` is unchanged. Every reflection call-site in `skills/implement/SKILL.md` passes the matching kind; `docs/implement-skill.md` and `docs/DEVFLOW_SYSTEM_OVERVIEW.md` document the structure. (#127, closes #126)
 
 ## [2.8.6] — 2026-06-24
 
