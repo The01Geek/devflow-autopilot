@@ -612,21 +612,119 @@ def _append_progress_note(
     return '\n'.join(new_lines) + ('\n' if content.endswith('\n') else '')
 
 
-def _append_bullet(content: str, text: str) -> str:
-    """`<details>`-aware wrapper around `_append_bullet_inner`."""
+# ── Devflow Reflection: kind taxonomy + grouped rendering ───────────────────
+#
+# Reflection bullets are grouped by KIND into two `### ` sub-sections inside the
+# `## Devflow Reflection` <details> block, so a human scanning a run sees the
+# actionable items separated from the informational notes. The helper owns the
+# glyph, bold label, and sub-section placement — the caller passes only a bare
+# kind token via `--reflection-kind` — the same "helper owns the rendering
+# token" idiom as the `--status` glyph and `--note` phase-nesting.
+#
+# Ordered: kind -> (glyph, bold label, sub-section key). The three actionable
+# kinds map to the "action" sub-section; `note` (the default) to "notes".
+_REFLECTION_KINDS = {
+    'blocked':        ('⛔', 'Blocked',        'action'),
+    'deferred':       ('⏭️', 'Deferred',       'action'),
+    'dropped-failed': ('❗', 'Dropped/Failed', 'action'),
+    'note':           ('ℹ️', 'Note',           'notes'),
+}
+_DEFAULT_REFLECTION_KIND = 'note'
+
+# Sub-section headings in canonical render order (Action required before Notes).
+# Level-3 (`### `) is mandatory: lib/fetch-pr-context.sh terminates the
+# reflection parse at the first `## ` heading, so a level-2 sub-heading would
+# truncate it — keep these `### `.
+_REFLECTION_SUBSECTIONS = (
+    ('action', '### ⚠️ Action required'),
+    ('notes',  '### ℹ️ Notes'),
+)
+_SUBSECTION_ORDER = {key: i for i, (key, _) in enumerate(_REFLECTION_SUBSECTIONS)}
+_SUBSECTION_HEADINGS = dict(_REFLECTION_SUBSECTIONS)
+_HEADING_TO_KEY = {h: k for k, h in _REFLECTION_SUBSECTIONS}
+_SUBSECTION_HEADING_RE = re.compile(r'^###\s')
+
+
+def _parse_reflection_blocks(inner: str) -> list[list]:
+    """Split the reflection <details> inner body into ordered blocks.
+
+    Each block is `[heading_line_or_None, [content_lines...]]`. A leading block
+    with heading None holds any pre-heading content (normally empty); every
+    `### ` line starts a new block. An empty preamble block is dropped."""
+    blocks = []
+    current = [None, []]
+    for line in inner.split('\n'):
+        if _SUBSECTION_HEADING_RE.match(line):
+            if current[0] is not None or any(ln.strip() for ln in current[1]):
+                blocks.append(current)
+            current = [line.rstrip(), []]
+        else:
+            current[1].append(line)
+    if current[0] is not None or any(ln.strip() for ln in current[1]):
+        blocks.append(current)
+    return blocks
+
+
+def _render_reflection_blocks(blocks: list[list]) -> str:
+    """Reassemble blocks into the reflection inner body: each `### ` sub-section
+    is its heading followed by its bullets (surrounding blank lines trimmed),
+    sub-sections separated by one blank line."""
+    parts = []
+    for heading, lines in blocks:
+        body = list(lines)
+        while body and not body[-1].strip():
+            body.pop()
+        if heading is not None:
+            while body and not body[0].strip():
+                body.pop(0)
+            parts.append(heading + ('\n' + '\n'.join(body) if body else ''))
+        elif body:
+            parts.append('\n'.join(body))
+    return '\n\n'.join(parts)
+
+
+def _insert_reflection_bullet(inner: str, kind: str, text: str) -> str:
+    """Insert one reflection bullet of `kind` into the <details> inner body,
+    under its canonical `### ` sub-section — creating the heading lazily (in
+    Action-required-before-Notes order) when absent, reusing it when present."""
+    glyph, label, sub_key = _REFLECTION_KINDS[kind]
+    bullet = f'- {glyph} **{label}:** {text}'
+    target_heading = _SUBSECTION_HEADINGS[sub_key]
+    blocks = _parse_reflection_blocks(inner)
+    for blk in blocks:
+        if blk[0] == target_heading:
+            while blk[1] and not blk[1][-1].strip():
+                blk[1].pop()
+            blk[1].append(bullet)
+            return _render_reflection_blocks(blocks)
+    # No existing sub-section for this kind: insert a new block, preserving the
+    # canonical order (a None-heading preamble always stays first; an unknown
+    # heading sorts last so it is never reordered above a known one).
+    new_rank = _SUBSECTION_ORDER[sub_key]
+    pos = len(blocks)
+    for i, blk in enumerate(blocks):
+        if blk[0] is None:
+            continue
+        blk_rank = _SUBSECTION_ORDER.get(
+            _HEADING_TO_KEY.get(blk[0]), len(_REFLECTION_SUBSECTIONS)
+        )
+        if blk_rank > new_rank:
+            pos = i
+            break
+    blocks.insert(pos, [target_heading, [bullet]])
+    return _render_reflection_blocks(blocks)
+
+
+def _append_reflection(content: str, kind: str, text: str) -> str:
+    """`<details>`-aware: insert a grouped reflection bullet *inside* the block
+    (before `</details>`), reusing _split_details/_rewrap_details so the
+    collapsible region stays intact. A legacy un-wrapped section (no <details>)
+    is grouped in place."""
     head, inner, tail = _split_details(content)
-    new_inner = _append_bullet_inner(inner, text)
+    new_inner = _insert_reflection_bullet(inner, kind, text)
     if head is None:
         return new_inner
     return _rewrap_details(head, new_inner, tail)
-
-
-def _append_bullet_inner(content: str, text: str) -> str:
-    """Append a `- {text}` bullet (no timestamp) to a bullet-list section."""
-    stripped = content.rstrip('\n')
-    if stripped and not stripped.endswith('\n'):
-        stripped += '\n'
-    return stripped + f"- {text}\n"
 
 
 def _read_section_file(path: str, flag: str) -> str:
@@ -847,8 +945,9 @@ def _apply_mutations(body: str, args) -> str:
         if idx is None:
             raise _UpdateError("section '## Devflow Reflection' not found")
         heading, content = sections[idx]
+        kind = getattr(args, 'reflection_kind', None) or _DEFAULT_REFLECTION_KIND
         for bullet in args.reflection:
-            content = _append_bullet(content, bullet)
+            content = _append_reflection(content, kind, bullet)
         sections[idx] = (heading, content)
 
     return _join_sections(preamble, sections)
@@ -951,6 +1050,14 @@ def main():
                    help='Append a bullet to Devflow Reflection (no timestamp). '
                         'May be passed multiple times to append several bullets '
                         'in one atomic update.')
+    u.add_argument('--reflection-kind',
+                   choices=['blocked', 'deferred', 'dropped-failed', 'note'],
+                   default=None,
+                   help="Kind for this update's --reflection bullet(s). "
+                        'blocked/deferred/dropped-failed render under '
+                        '"### ⚠️ Action required"; note (the default '
+                        'when omitted) under "### ℹ️ Notes". Applies '
+                        'to every --reflection bullet in the call.')
     u.add_argument('--replace-plan-file', metavar='FILE',
                    help='Replace the Plan section content with FILE contents.')
     u.add_argument('--replace-acs-file', metavar='FILE',
