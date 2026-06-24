@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.7] — 2026-06-24
+
+### Changed
+- **The `/devflow:implement` acceptance-criteria gate (Phase 3.4) now ticks a CI-deferred "suite/lint passes" criterion honestly instead of as a local green run.** When a criterion is literally "`bash lib/test/run.sh` passes" or "shellcheck/ruff pass" (or equivalent) and no locally-observed green run was possible, the gate requires first working CLAUDE.md's *"the tier matters"* tiering (retry the direct leading-token form and the `python3`/`jq` fallbacks); only on a genuine permission/sandbox **denial** of the direct form (never a suite that ran and failed) may the box be ticked on the strength of the `lib + python tests` CI job on push — and only with the deferral recorded on the same call via `--note` + `--reflection`, never as if it were a local green run. A bare grep of a few SKILL-contract pins is explicitly **not** a substitute for the suite. This closes the recurring `convention-violation` the weekly retrospective surfaced across #72/#87/#98, where a verification AC was ticked `[x]` on a CI deferral or partial grep while the workpad read as if the run went green locally. (#132, closes #121)
+
 ## [2.8.6] — 2026-06-24
 
 ### Fixed
