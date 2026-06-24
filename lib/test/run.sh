@@ -3047,6 +3047,46 @@ assert_eq "rit: no-marker command still runs (guard does not over-match)" \
 assert_eq "rit: no-marker command → parsed number" \
   "number=25" "$(echo "$OUT" | grep '^number=')"
 
+# 14. Pull-request-context guard: a comment on a PR (IS_PULL_REQUEST=true) must
+#     NOT start a run, even for an authorized bot with a resolvable context
+#     number. Reproduces the weekly audit-report shape — body quotes the literal
+#     phrase in prose with NO trailing number, and CONTEXT_NUMBER is the PR
+#     number. The guard runs BEFORE authorization/number resolution and fails
+#     closed. Covers issue #124 directly.
+OUT="$(ACTOR='claude[bot]' ALLOWED_BOTS='claude' REPO='acme/x' \
+  TRIGGER_TEXT='the report describes how /devflow:implement publishes its PR' CONTEXT_NUMBER='120' \
+  IS_PULL_REQUEST='true' \
+  PATH="$RIT_STUB_DIR:$PATH" bash "$RIT" 2>"$RIT_STUB_DIR/pr_err")"
+assert_eq "rit: pull-request context → should_run=false (PR guard)" \
+  "should_run=false" "$(echo "$OUT" | grep '^should_run=')"
+assert_eq "rit: pull-request context → empty number" \
+  "number=" "$(echo "$OUT" | grep '^number=')"
+assert_eq "rit: pull-request context → ::warning:: names a pull request on stderr" \
+  "1" "$(grep -c 'pull-request' "$RIT_STUB_DIR/pr_err")"
+
+# 15. PR guard precedes number resolution: even an EXPLICIT /devflow:implement 42
+#     in a PR comment is declined (the guard runs before number parsing), so a
+#     deliberate command on a PR thread still cannot start an implement run.
+OUT="$(ACTOR='claude[bot]' ALLOWED_BOTS='claude' REPO='acme/x' \
+  TRIGGER_TEXT='/devflow:implement 42' CONTEXT_NUMBER='120' \
+  IS_PULL_REQUEST='true' \
+  PATH="$RIT_STUB_DIR:$PATH" bash "$RIT")"
+assert_eq "rit: PR context w/ explicit number → still declined" \
+  "should_run=false" "$(echo "$OUT" | grep '^should_run=')"
+assert_eq "rit: PR context w/ explicit number → empty number" \
+  "number=" "$(echo "$OUT" | grep '^number=')"
+
+# 16. Sanity: an explicit issue-context signal (IS_PULL_REQUEST=false) does NOT
+#     decline — the guard must not over-match a genuine issue comment.
+OUT="$(ACTOR='claude[bot]' ALLOWED_BOTS='claude' REPO='acme/x' \
+  TRIGGER_TEXT='/devflow:implement 25' CONTEXT_NUMBER='25' \
+  IS_PULL_REQUEST='false' \
+  PATH="$RIT_STUB_DIR:$PATH" bash "$RIT")"
+assert_eq "rit: issue context (IS_PULL_REQUEST=false) still runs" \
+  "should_run=true" "$(echo "$OUT" | grep '^should_run=')"
+assert_eq "rit: issue context (IS_PULL_REQUEST=false) → number" \
+  "number=25" "$(echo "$OUT" | grep '^number=')"
+
 rm -rf "$RIT_STUB_DIR"
 
 # ────────────────────────────────────────────────────────────────────────────

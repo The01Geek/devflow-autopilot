@@ -1,16 +1,20 @@
 name: DevFlow (implement)
 
-# `run-name` embeds the issue/PR thread the command was posted on so the gate's
+# `run-name` embeds the issue thread the command was posted on so the gate's
 # duplicate check can recognise a second /devflow:implement on the same thread
 # while a run is in flight (see scripts/dedupe-implement-run.sh). Quoted because
 # the value contains characters YAML would otherwise mis-parse.
-run-name: "DevFlow implement (issue ${{ github.event.issue.number || github.event.pull_request.number }})"
+run-name: "DevFlow implement (issue ${{ github.event.issue.number }})"
 
 # Heavy listener for /devflow:implement. Fires ONLY on a BARE `/devflow:implement
-# <#>` real comment or review — a genuine user action. It does NOT trigger from
-# an issue/PR description body or title (the phrase merely *quoted* in a
-# description must never start a run), it does NOT require `@claude`, and there
-# is NO label trigger.
+# <#>` real comment on an ISSUE — a genuine user action. It is issues-only: a PR
+# comment is also an `issue_comment` in GitHub's API, but the gate `if:` requires
+# `github.event.issue.pull_request == null` and the resolver re-checks via
+# IS_PULL_REQUEST, so a comment on a pull request never starts a run (this is
+# what stops the weekly audit-report comment from self-triggering on the state
+# PR). The workflow no longer subscribes to the PR-only review events at all. It does NOT trigger from an issue description body or title (the
+# phrase merely *quoted* in a description must never start a run), it does NOT
+# require `@claude`, and there is NO label trigger.
 #
 # Why bare-command only: this workflow runs claude-code-action in AGENT mode
 # with an explicit, synthesised `/devflow:implement <n>` prompt (the `gate` job
@@ -34,10 +38,6 @@ run-name: "DevFlow implement (issue ${{ github.event.issue.number || github.even
 on:
   issue_comment:
     types: [created]
-  pull_request_review_comment:
-    types: [created]
-  pull_request_review:
-    types: [submitted]
 
 jobs:
   # Duplicates the config job in devflow.yml verbatim except for the
@@ -103,22 +103,21 @@ jobs:
   # (explicit prompt), which executes for ANY actor, so this job is the cost
   # control: it runs the resolver, which authorizes the sender (allowed bot OR
   # write/admin/maintain collaborator) and resolves the issue number. The
-  # `claude` job runs ONLY when should_run=true. Coarse event matching stays in
-  # this job's `if:` so irrelevant events never spin a runner.
+  # `claude` job runs ONLY when should_run=true. Coarse event/issue-context
+  # matching stays in this job's `if:` (issue_comment with no PR context) so
+  # irrelevant events — including PR comments — never spin a runner.
   gate:
     needs: config
     if: |
       needs.config.outputs.enabled == 'true' &&
-      (
-        (github.event_name == 'issue_comment' && contains(github.event.comment.body, '/devflow:implement') && !contains(github.event.comment.body, '@claude')) ||
-        (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '/devflow:implement') && !contains(github.event.comment.body, '@claude')) ||
-        (github.event_name == 'pull_request_review' && contains(github.event.review.body, '/devflow:implement') && !contains(github.event.review.body, '@claude'))
-      )
+      github.event_name == 'issue_comment' &&
+      github.event.issue.pull_request == null &&
+      contains(github.event.comment.body, '/devflow:implement') && !contains(github.event.comment.body, '@claude')
     runs-on: ubuntu-latest
     permissions:
       contents: read        # checkout the resolver script; collaborator check uses GITHUB_TOKEN
       issues: write         # react step + duplicate notice on issue comments
-      pull-requests: write  # react step: ack reaction on PR review comments
+      pull-requests: write  # parity with devflow.yml's gate (shared react-to-trigger.sh); harmless on the issues-only path
       actions: read         # dedupe step: `gh run list` to detect an in-flight run
     outputs:
       should_run: ${{ steps.resolve.outputs.should_run }}
@@ -137,19 +136,23 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          # `sender` is present on every event here and equals the actor:
-          # commenter / reviewer respectively.
+          # `sender` is present on the issue_comment event and equals the
+          # commenter (the actor).
           ACTOR: ${{ github.event.sender.login }}
           ALLOWED_BOTS: ${{ needs.config.outputs.allowed_bots }}
           ALLOWED_USERS: ${{ needs.config.outputs.allowed_users }}
-          # issue.number for issue_comment (PRs are issues); falls back to
-          # pull_request.number for the review events.
-          CONTEXT_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
-          # Only a real comment/review body contributes — never an issue/PR
+          # The issue the comment is attached to; the fallback target when
+          # TRIGGER_TEXT carries no explicit number.
+          CONTEXT_NUMBER: ${{ github.event.issue.number }}
+          # Only a real issue comment body contributes — never an issue
           # description. Passed as an env var (not interpolated into bash), so
           # arbitrary body text cannot inject.
-          TRIGGER_TEXT: ${{ github.event.comment.body || github.event.review.body }}
+          TRIGGER_TEXT: ${{ github.event.comment.body }}
           SELF_COMMENT_MARKER: ${{ needs.config.outputs.workpad_marker }}
+          # Non-null only for a comment on a PR (a PR comment is also an
+          # issue_comment). The resolver declines such a trigger — issues-only
+          # backstop for the gate `if:`'s `pull_request == null` filter.
+          IS_PULL_REQUEST: ${{ github.event.issue.pull_request != null }}
         run: |
           set -euo pipefail
           # Vendored path: install.sh copies the plugin into
@@ -180,7 +183,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          CONTEXT_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+          CONTEXT_NUMBER: ${{ github.event.issue.number }}
           RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
