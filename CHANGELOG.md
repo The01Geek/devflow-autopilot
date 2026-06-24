@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.7] — 2026-06-24
+
+### Added
+- **`/devflow:implement`'s `## Devflow Reflection` workpad bullets are now grouped by kind, so a human triaging a DevFlow PR/issue sees actionable items at a glance.** `scripts/workpad.py update` gains a `--reflection-kind {blocked|deferred|dropped-failed|note}` flag that applies to its `--reflection` bullet(s): the three actionable kinds render under a `### ⚠️ Action required` sub-section and `note` (the default when omitted) under `### ℹ️ Notes`, both inside the existing collapsed `<details>` block, each bullet carrying its kind's glyph + bold label (`⛔ **Blocked:**`, `⏭️ **Deferred:**`, `❗ **Dropped/Failed:**`, `ℹ️ **Note:**`). The helper owns the glyph/label/placement (the caller passes a bare kind token) — the same helper-owns-the-rendering-token idiom as the `--status` glyph; a sub-heading is emitted only once its group has a bullet, a second bullet of a kind reuses the existing heading, and sub-headings are `### ` (never `## `) so `lib/fetch-pr-context.sh` does not truncate `reflections[]`. The retrospective parse stays compatible (it captures every kind bullet, excludes the `### ` headings, and parses a legacy flat block unchanged) and `lib/cheap-gate.jq` is unchanged. Every reflection call-site in `skills/implement/SKILL.md` passes the matching kind; `docs/implement-skill.md` and `docs/DEVFLOW_SYSTEM_OVERVIEW.md` document the structure. (#127, closes #126)
+
 ## [2.8.6] — 2026-06-24
 
 ### Fixed
