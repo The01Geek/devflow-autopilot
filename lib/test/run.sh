@@ -202,6 +202,20 @@ fi
 assert_eq "no tracked surface references the removed split slug (CHANGELOG history excepted)" \
   "" "$RGB_HITS"
 
+# Fail-closed contract test (#129): the guard above PASSES only on the rc-0/rc-1
+# (hit / clean-no-match) cells; its rc>1 fail-closed branch — the whole reason the
+# guard is more than a bare grep — is never driven by a normal run. Pin it: invoke
+# `git -C` against a non-repo path (→ rc 128) through the SAME rc>1 transform and
+# assert it yields the loud non-empty diagnostic, not an empty (PASS-shaped) value.
+# Without this, a future refactor of the `[ "$RGB_RC" -gt 1 ]` check could silently
+# re-open the fail-open hole this PR closed and the suite would stay green. (This is
+# CLAUDE.md's "prove the guard fails closed on the errored operand" applied to the
+# guard itself.)
+RGB_ERR_HITS="$(git -C "$LIB/../nonexistent-rgb-probe-$$" grep -lF "$RGB_PAT" -- ':!CHANGELOG.md' 2>/dev/null)"; RGB_ERR_RC=$?
+[ "$RGB_ERR_RC" -gt 1 ] && RGB_ERR_HITS="git grep errored (rc=$RGB_ERR_RC) — guard did not run"
+assert_eq "RGB guard fails closed on a git error (rc>1 → loud non-empty, not a silent PASS)" \
+  "yes" "$([ -n "$RGB_ERR_HITS" ] && echo yes || echo no)"
+
 # Fix then later occ → status "regressed"
 RESULT=$(cp_run \
   '{"schema_version":2,"kind":"audit","pr":1,"merged_at":"2026-04-01T00:00:00Z","fixes_patterns":["convention-violation"]}
