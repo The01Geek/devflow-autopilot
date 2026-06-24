@@ -743,6 +743,45 @@ assert_eq("new kinded bullet renders correctly under Action required (mixed shap
 assert_eq("mixed-shape output stays inside the <details> (bullet before </details>)", True,
           _legacy_rf.index('- ⛔ **Blocked:** boom') < _legacy_rf.index('</details>'))
 
+# Un-wrapped (no <details>) reflection section — the _append_reflection
+# `head is None` branch. cmd_new_body always emits <details>, so this only fires
+# on a hand-edited / pre-<details> workpad, but the branch exists and must group
+# the bullet in place rather than dropping content.
+_UNWRAPPED_REFLECTION_BODY = """<!-- devflow:workpad -->
+# DevFlow Workpad — Issue #999
+
+**Status:** Reviewing
+**Last updated:** 2026-01-01 00:00 UTC
+
+## Progress
+- [x] **Setup**
+
+## Devflow Reflection
+"""
+_unwrapped_out = workpad._apply_mutations(
+    _UNWRAPPED_REFLECTION_BODY, make_args(reflection=['boom'], reflection_kind='dropped-failed'))
+_unwrapped_rf = _unwrapped_out.split('## Devflow Reflection', 1)[1]
+assert_eq("un-wrapped (no <details>) reflection section groups the bullet in place", True,
+          '### ⚠️ Action required' in _unwrapped_rf
+          and '- ❗ **Dropped/Failed:** boom' in _unwrapped_rf)
+
+# Mirror of the note-first test: an action block created first, then a note —
+# exercises the append-at-end insertion branch with a pre-existing earlier-ranked
+# block (a Notes-before-Action regression would survive without this).
+rk_an = _reflect_seq(('blocked', 'B'), ('note', 'N'))
+assert_eq("action-first then note → Action required still precedes Notes", True,
+          rk_an.index('### ⚠️ Action required') < rk_an.index('### ℹ️ Notes'))
+
+# A bad reflection kind from a programmatic caller is converted to a clean
+# _UpdateError (caught by cmd_update before the PATCH — no partial workpad
+# write), not a bare KeyError traceback. argparse `choices` guards the CLI path;
+# this guards the direct-_apply_mutations path the tests themselves use.
+def _bad_reflection_kind():
+    workpad._apply_mutations(
+        WORKPAD_V2, make_args(reflection=['x'], reflection_kind='bogus'))
+assert_raises("bad reflection kind raises _UpdateError (not a bare KeyError)",
+              workpad._UpdateError, _bad_reflection_kind)
+
 # Invariants preserved: marker first line; AC section still parseable.
 out = workpad._apply_mutations(WORKPAD_V2, make_args(
     status='Reviewing', note=['n'], reflection=['r'], tick_ac=['AC one']))

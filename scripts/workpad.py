@@ -670,7 +670,9 @@ def _parse_reflection_blocks(inner: str) -> list[list]:
 def _render_reflection_blocks(blocks: list[list]) -> str:
     """Reassemble blocks into the reflection inner body: each `### ` sub-section
     is its heading followed by its bullets (surrounding blank lines trimmed),
-    sub-sections separated by one blank line."""
+    sub-sections separated by one blank line. A leading heading-None block (legacy
+    un-kinded preamble bullets) renders first, before the first `### ` sub-section,
+    separated by the same blank line."""
     parts = []
     for heading, lines in blocks:
         body = list(lines)
@@ -693,13 +695,26 @@ def _insert_reflection_bullet(inner: str, kind: str, text: str) -> str:
     Pre-existing un-kinded (legacy) bullets are retained verbatim as a leading
     heading-None preamble block, *above* the lazily-created sub-sections — they
     are never re-sorted into a sub-section."""
-    glyph, label, sub_key = _REFLECTION_KINDS[kind]
-    # Reflection bullets are single-line. Collapse any embedded newlines (e.g. a
-    # multi-line gh/jq error captured into a `dropped-failed` breadcrumb) to
-    # spaces so the whole message stays on one bullet line — the line-based
-    # parser in lib/fetch-pr-context.sh captures only a bullet's first line, so a
-    # multi-line bullet would silently drop its continuation from reflections[].
-    one_line = ' '.join(text.splitlines()) if '\n' in text else text
+    try:
+        glyph, label, sub_key = _REFLECTION_KINDS[kind]
+    except KeyError:
+        # The argparse `choices=list(_REFLECTION_KINDS)` prevents a bad kind on
+        # the CLI path, but a programmatic caller (e.g. a test driving
+        # _apply_mutations directly) could pass one — convert it to the file's
+        # clean _UpdateError contract (targeted message, no partial PATCH)
+        # instead of letting a bare KeyError traceback escape.
+        raise _UpdateError(
+            f"unknown reflection kind {kind!r}; expected one of "
+            f"{', '.join(_REFLECTION_KINDS)}"
+        )
+    # Reflection bullets are single-line. Collapse any embedded line breaks
+    # (`str.splitlines()` handles \n, \r, \v, …) to spaces — e.g. a multi-line
+    # gh/jq error captured into a `dropped-failed` breadcrumb — so the whole
+    # message stays on one bullet line. The line-based parser in
+    # lib/fetch-pr-context.sh captures only a bullet's first line, so a multi-line
+    # bullet would silently drop its continuation from reflections[]. (Single-line
+    # text round-trips unchanged through splitlines+join.)
+    one_line = ' '.join(text.splitlines())
     bullet = f'- {glyph} **{label}:** {one_line}'
     target_heading = _SUBSECTION_HEADINGS[sub_key]
     blocks = _parse_reflection_blocks(inner)
