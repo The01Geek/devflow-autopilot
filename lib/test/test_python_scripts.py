@@ -710,6 +710,39 @@ assert_eq("multi-line reflection text collapses to one bullet line", True,
 assert_eq("multi-line reflection emits exactly one bullet (no split continuation)", 1,
           rk_ml.count('- ❗ **Dropped/Failed:**'))
 
+# Mid-migration shape: a workpad whose reflection block already holds a
+# pre-migration un-kinded flat bullet, into which a new kinded bullet is then
+# appended (a real DevFlow workpad created before this PR and updated after it).
+# The legacy bullet is retained verbatim as a leading preamble, ABOVE the
+# lazily-created sub-section (per _insert_reflection_bullet's docstring contract).
+_LEGACY_REFLECTION_BODY = """<!-- devflow:workpad -->
+# DevFlow Workpad — Issue #999
+
+**Status:** Reviewing
+**Last updated:** 2026-01-01 00:00 UTC
+
+## Progress
+- [x] **Setup**
+
+## Devflow Reflection
+<details>
+<summary>Devflow Reflection (click to expand)</summary>
+
+- a legacy flat bullet
+</details>
+"""
+_legacy_out = workpad._apply_mutations(
+    _LEGACY_REFLECTION_BODY, make_args(reflection=['boom'], reflection_kind='blocked'))
+_legacy_rf = _legacy_out.split('## Devflow Reflection', 1)[1]
+assert_eq("legacy flat bullet retained verbatim when a kinded bullet is appended", True,
+          '- a legacy flat bullet' in _legacy_rf)
+assert_eq("legacy bullet stays ABOVE the lazily-created Action required sub-section", True,
+          _legacy_rf.index('- a legacy flat bullet') < _legacy_rf.index('### ⚠️ Action required'))
+assert_eq("new kinded bullet renders correctly under Action required (mixed shape)", True,
+          '- ⛔ **Blocked:** boom' in _legacy_rf)
+assert_eq("mixed-shape output stays inside the <details> (bullet before </details>)", True,
+          _legacy_rf.index('- ⛔ **Blocked:** boom') < _legacy_rf.index('</details>'))
+
 # Invariants preserved: marker first line; AC section still parseable.
 out = workpad._apply_mutations(WORKPAD_V2, make_args(
     status='Reviewing', note=['n'], reflection=['r'], tick_ac=['AC one']))
