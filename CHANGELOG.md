@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.9] — 2026-06-24
+
+### Added
+- **DevFlow now ships a `PreToolUse` hook that auto-approves its own bundled helpers on the local/interactive tier.** Registered in the plugin manifest (`hooks/approve-bundled-helper.py`), the hook emits `permissionDecision: "allow"` for a Bash command only when it is a single simple invocation whose executed program — the leading token, or the script argument to `bash`/`python3` — canonicalizes (via `realpath`, symlinks followed) to a real file **contained under `$CLAUDE_PLUGIN_ROOT`**. The check is containment-only (never a substring match), it never emits `deny`, and it fails open on any error, so an adopter running `/devflow:implement` / `/devflow:review-and-fix` locally is no longer prompted on every invocation of `workpad.py`, `config-get.sh`, `parse-acs.py`, … The grant travels with the plugin, is version-matched to the installed cache path, and writes nothing to `settings.json` (no `/devflow:init` step, no `permissions.allow` entries). (#134, closes #113)
+
 ## [2.8.8] — 2026-06-24
 
 ### Changed
