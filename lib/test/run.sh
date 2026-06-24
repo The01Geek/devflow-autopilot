@@ -171,16 +171,24 @@ assert_eq "gate-absent PR → no deferred-verification pattern" \
   "null" "$(echo "$RESULT" | jq -r '.["deferred-verification"].occurrence_count')"
 
 # Lockstep guard (#129): NO tracked surface may reference the removed slug, except
-# CHANGELOG.md (immutable release history that records it by its then-name). A
+# CHANGELOG.md (append-only release history that records it by its then-name). A
 # repo-wide `git grep` auto-discovers every tracked surface, so this guard cannot
 # drift as vocab surfaces are added/renamed — unlike a hand-maintained path list,
-# which had already missed skills/retrospective-weekly/SKILL.md. The pattern is
-# concatenated from two literals so this guard itself does not contain the
-# contiguous string (which would self-match the git grep). No `|| true`: run.sh is
-# `set -u` (not `set -e`), so git grep's exit 1 (no match — the PASS case) is safe
-# and leaves RGB_HITS empty.
+# which had already missed skills/retrospective-weekly/SKILL.md. Scope is git's
+# tracked content (working-tree tracked files + staged), so a reintroduction in an
+# as-yet-untracked new file is caught only once it is added — acceptable, since the
+# retrospective/implement flow commits its surfaces. The pattern is concatenated
+# from two literals so this guard itself does not contain the contiguous string
+# (which would self-match the git grep).
 RGB_PAT="review-gate""-bypass"
-RGB_HITS="$(cd "$LIB/.." && git grep -lF "$RGB_PAT" -- ':!CHANGELOG.md')"
+# Capture git grep's rc and treat it as three-valued: 0 = hits, 1 = clean no-match
+# (the PASS case — safe under run.sh's `set -u`, not `set -e`), >1 = a real git
+# error (e.g. not a repo, unsupported pathspec magic). An errored git grep also
+# yields empty stdout, so without this rc check it would be indistinguishable from
+# a clean no-match and the guard would fail OPEN on infrastructure breakage — the
+# very fail-open class this PR exists to close. Surface it as a loud assertion miss.
+RGB_HITS="$(cd "$LIB/.." && git grep -lF "$RGB_PAT" -- ':!CHANGELOG.md')"; RGB_RC=$?
+[ "$RGB_RC" -gt 1 ] && RGB_HITS="git grep errored (rc=$RGB_RC) — guard did not run"
 assert_eq "no tracked surface references the removed split slug (CHANGELOG history excepted)" \
   "" "$RGB_HITS"
 

@@ -228,7 +228,7 @@ DevFlow maintains **exactly one** marker-tagged comment on the GitHub issue for 
 - **2.1** Discovery via the `feature-dev:code-explorer` subagent.
 - **2.1.5 Reproduce-First Gate** (bug-labelled only): capture a reproduction signal (failing test / error log) *before* planning; if it can't reproduce → `Blocked`.
 - **2.2** Assess complexity. **Simple** (≤5 files, clear, no architecture) → implement directly. **Complex** → `feature-dev:code-architect` produces a blueprint (held in context, never committed). Sub-gates: **2.2.4 Reuse & Altitude** (reuse existing helpers by `file:line`), **2.2.5 Scope-Adjustment** (multi-PR issues), **2.2.6 AC-Plan reconciliation**.
-- **2.3 Implement** with mandatory post-write **sweeps** (the discipline that prevents half-finished changes — each heading states its own trigger; the convention, boundary-assumption, self-authored-claim, simplification, and error-handling sweeps run on every diff):
+- **2.3 Implement** with mandatory post-write **sweeps** (the discipline that prevents half-finished changes — each heading states its own trigger; the five always-on sweeps — convention, boundary-assumption, self-authored-claim, simplification, and error-handling — run on every diff):
   - **2.3.0** Changed-contract sweep (re-run after any merge/rebase of main)
   - **2.3.0a** Peer-checkpoint completeness sweep
   - **2.3.1** Orphaned-setup sweep
