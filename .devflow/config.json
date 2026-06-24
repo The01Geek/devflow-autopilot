@@ -2,6 +2,7 @@
   "$schema": "./config.schema.json",
   "base_branch": "main",
   "claude_model": "claude-opus-4-8",
+  "devflow_version": "",
   "devflow": {
     "allowed_bots": "claude,dependabot",
     "allowed_users": "*",
@@ -11,15 +12,34 @@
   },
   "devflow_implement": {
     "effort": "high",
-    "implement_pr_state": "ready_for_review",
-    "allowed_tools": []
+    "allowed_tools": [],
+    "implement_pr_state": "ready_for_review"
   },
   "devflow_runner": {
-    "effort": "high"
+    "effort": "high",
+    "provision_env": false,
+    "allowed_tools": []
   },
   "devflow_review_and_fix": {
+    "max_iterations": 5,
     "efficiency_telemetry_enabled": true,
     "efficiency_cut_candidate_min_dispatch": 3
+  },
+  "devflow_review": {
+    "live_progress_comment_enabled": true,
+    "agent_overrides": {
+      "default": {
+        "effort": "high"
+      },
+      "devflow:checklist-deduper": {
+        "model": "claude-sonnet-4-6",
+        "effort": "medium"
+      },
+      "pr-review-toolkit:code-reviewer": {
+        "model": "claude-opus-4-8",
+        "effort": "high"
+      }
+    }
   },
   "setup": {
     "python_version": "3.11",
@@ -36,6 +56,9 @@
     "release_notes_file": "CHANGELOG.md",
     "labels": "Documented"
   },
+  "deferred": {
+    "labels": "DevFlow,Deferred"
+  },
   "devflow_retrospective": {
     "enabled": true,
     "retrospective_model": "claude-opus-4-8",
@@ -43,7 +66,8 @@
     "implementation_branch_prefix": "claude/",
     "min_occurrences": 2,
     "cooldown_days": 3,
-    "max_prs_per_run": 500
+    "max_prs_per_run": 500,
+    "diff_byte_cap": 204800
   },
   "workflows": {
     "devflow": true,

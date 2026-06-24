@@ -4,7 +4,10 @@
       {
         "matcher": "",
         "hooks": [
-          { "type": "command", "command": "bash lib/efficiency-trace.sh --persist || true" }
+          {
+            "type": "command",
+            "command": "bash lib/efficiency-trace.sh --persist || true"
+          }
         ]
       }
     ]
