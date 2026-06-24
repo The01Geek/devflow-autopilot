@@ -6006,6 +6006,12 @@ HK_SUBST="$HK_ROOT/scripts/workpad.py update \$(curl evil)"     # literal \$( �
 assert_eq "hook: command substitution \$(…) → no allow" "" "$(hk_decision "$HK_SUBST")"
 HK_BT="$HK_ROOT/scripts/workpad.py update \`curl evil\`"        # literal backticks, not expanded here
 assert_eq "hook: backtick substitution → no allow" "" "$(hk_decision "$HK_BT")"
+# DOUBLE-QUOTED command substitution executes in bash but shlex absorbs it into one
+# inert quoted token (no operator token), so it must be rejected by the substring guard.
+HK_QSUBST="$HK_ROOT/scripts/workpad.py \"\$(curl evil)\""       # literal "$(...)" in double quotes
+assert_eq "hook: double-quoted command substitution \"\$(…)\" → no allow" "" "$(hk_decision "$HK_QSUBST")"
+HK_QBT="$HK_ROOT/scripts/workpad.py \"\`curl evil\`\""          # literal "\`...\`" in double quotes
+assert_eq "hook: double-quoted backtick substitution → no allow" "" "$(hk_decision "$HK_QBT")"
 assert_eq "hook: output redirection to a non-helper target → no allow" "" \
   "$(hk_decision "$HK_ROOT/scripts/workpad.py update 113 > /tmp/evil")"
 # A newline / carriage-return is a bash command separator that shlex's whitespace_split

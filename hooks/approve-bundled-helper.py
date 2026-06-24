@@ -49,14 +49,17 @@ def _execution_target(command):
     ``python3 <script> …``. Anything with a shell operator, a command
     substitution, or a backtick is rejected (returns ``None``).
     """
-    # A backtick is command substitution even inside double quotes. A newline or
-    # carriage return is a bash command separator that shlex's `whitespace_split`
-    # would silently erase — a multi-line command would then tokenize as one flat
-    # "simple" invocation whose first token is a helper, letting a trailing line
-    # run un-vetted. Treat any occurrence of these as disqualifying rather than
-    # trying to reason about quoting. (`;`/`|`/`&` separators are caught later as
-    # operator tokens; the newline is the one separator tokenization can't see.)
-    if "`" in command or "\n" in command or "\r" in command:
+    # Command substitution — backticks and `$(…)` — EXECUTES inside double quotes,
+    # but shlex absorbs a quoted `"$(curl evil)"` / `"\`curl evil\`"` into one inert
+    # token with no operator char, so the operator sweep below cannot see it. Guard
+    # both forms by substring before tokenizing. A newline / carriage return is a
+    # bash command separator that shlex's `whitespace_split` silently erases — a
+    # multi-line command would tokenize as one flat "simple" invocation whose first
+    # token is a helper, letting a trailing line run un-vetted. Treat any occurrence
+    # of these as disqualifying rather than trying to reason about quoting. (`;`/`|`/
+    # `&` separators are still caught later as operator tokens; substitution and the
+    # newline are the cases tokenization can't see through quotes / whitespace.)
+    if "`" in command or "$(" in command or "\n" in command or "\r" in command:
         return None
 
     lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
@@ -72,10 +75,11 @@ def _execution_target(command):
         return None
 
     # Any token made up entirely of operator characters (`;` `|` `&&` `(` `>` …)
-    # means the command is not a single simple invocation. `$(…)` surfaces here
-    # too: the `(`/`)` tokenize as standalone operator tokens. Read the operator
-    # set from the lexer itself (`punctuation_chars`) so there is a single source
-    # of truth for "what shlex split out as an operator".
+    # means the command is not a single simple invocation — including an *unquoted*
+    # `$(…)`, whose `(`/`)` tokenize as standalone operator tokens (the quoted form
+    # is already handled by the substring guard above). Read the operator set from
+    # the lexer itself (`punctuation_chars`) so there is a single source of truth
+    # for "what shlex split out as an operator".
     operator_chars = set(lexer.punctuation_chars)
     for tok in tokens:
         if tok and all(ch in operator_chars for ch in tok):
