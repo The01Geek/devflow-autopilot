@@ -9,7 +9,7 @@ source of truth — this doc records the *why*.
 | Workflow | Commands | Listens on |
 |---|---|---|
 | `devflow.yml` (light path) | `/devflow:review`, `/devflow:review-and-fix`, `/devflow:pr-description` | `issue_comment[created]`, `pull_request_review_comment[created]`, `pull_request_review[submitted]` |
-| `devflow-implement.yml` (heavy path) | `/devflow:implement` | `issue_comment[created]`, `pull_request_review_comment[created]`, `pull_request_review[submitted]` |
+| `devflow-implement.yml` (heavy path) | `/devflow:implement` | `issue_comment[created]` |
 | `devflow-review.yml` | automated review | PR lifecycle + `check_run[rerequested]` |
 
 Both command listeners run `claude-code-action` in **agent mode** with a
@@ -18,6 +18,18 @@ also negates `@claude` and (for the light path) `/devflow:implement`, so a given
 comment routes to exactly one listener and never collides with Anthropic's stock
 `claude.yml`. This is the *partition invariant*, enforced by tests in
 `lib/test/run.sh`.
+
+**The heavy path is issues-only.** Unlike the light path — which is intentionally
+PR-aware (`/devflow:review` / `/devflow:pr-description` act on a PR) —
+`devflow-implement.yml` listens **only** on `issue_comment[created]` and never on
+the PR-only review events. Because a PR comment is *also* an `issue_comment` in
+GitHub's API, the gate `if:` additionally requires
+`github.event.issue.pull_request == null`, and `scripts/resolve-implement-trigger.sh`
+re-checks via an `IS_PULL_REQUEST` signal and declines before authorization — so a
+comment on a pull request never starts an implement run, whatever its body text.
+This is what stops the weekly retrospective's audit-report comment (which quotes
+the literal `/devflow:implement` phrase in prose) from self-triggering on the
+state PR.
 
 ## Triggers fire on real comments only — never on descriptions
 

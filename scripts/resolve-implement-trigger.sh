@@ -8,8 +8,9 @@
 # `@claude` phrase, so Anthropic's stock claude.yml (tag mode, keyed on
 # `@claude`) never double-fires on a bare `/devflow:implement <n>` comment. The
 # trade-off: agent mode runs for ANY actor, so this script is the cost/
-# authorization gate. The only trigger is a bare command in a real comment or
-# review — never an issue/PR description body — and there is no label path.
+# authorization gate. The only trigger is a bare command in a real issue comment
+# — never an issue description body, a PR comment, or a review (issues-only; see
+# the IS_PULL_REQUEST guard below) — and there is no label path.
 #
 # Inputs (env):
 #   ACTOR           triggering login (github.event.sender.login); a trailing
@@ -17,14 +18,19 @@
 #   ALLOWED_BOTS    comma-separated bare bot logins from config.
 #   ALLOWED_USERS   comma-separated human logins ('*' = any collaborator).
 #   REPO            owner/repo, for the collaborator-permission API call.
-#   TRIGGER_TEXT    the comment / review body that fired (never a description).
-#   CONTEXT_NUMBER  the issue/PR number the event is attached to: the fallback
+#   TRIGGER_TEXT    the issue-comment body that fired (never a description).
+#   CONTEXT_NUMBER  the issue number the event is attached to: the fallback
 #                   target when TRIGGER_TEXT has no explicit number.
 #   SELF_COMMENT_MARKER  the repo's effective workpad marker. When TRIGGER_TEXT
 #                   contains it (literal substring), the comment is one DevFlow
 #                   posted itself (the workpad), so we decline — a self-trigger
 #                   guard. Defaults to '<!-- devflow:workpad -->' when unset/empty
 #                   (matching scripts/workpad.py's own fallback).
+#   IS_PULL_REQUEST 'true' when the triggering thread is a pull request (the
+#                   caller wires it from `github.event.issue.pull_request != null`).
+#                   /devflow:implement is issue-only, so we decline on a PR — a
+#                   resolver-level backstop for the gate `if:`'s PR filter. Any
+#                   other value (including unset/empty) is treated as not-a-PR.
 #   GH_TOKEN        token for `gh api` (collaborator check), set by the caller.
 #
 # Output: two `key=value` lines on stdout (the caller appends them to
@@ -45,6 +51,10 @@ context_number="${CONTEXT_NUMBER:-}"
 # Effective workpad marker; defaults to workpad.py's own fallback so the guard
 # protects repos with no config just the same.
 marker="${SELF_COMMENT_MARKER:-<!-- devflow:workpad -->}"
+# Pull-request context signal; anything other than the literal 'true' (including
+# unset/empty) is treated as an issue thread, so a repo that doesn't wire it
+# behaves exactly as before.
+is_pull_request="${IS_PULL_REQUEST:-}"
 
 # --- Self-trigger guard (runs BEFORE authorization / number resolution) -----
 # DevFlow's own workpad comment quotes the literal phrase `/devflow:implement`
@@ -65,6 +75,23 @@ if [ -n "$marker" ]; then
       exit 0
       ;;
   esac
+fi
+
+# --- Pull-request-context guard (runs BEFORE authorization / number resolution)
+# In GitHub's API a PR comment IS an issue_comment, so a comment on a pull
+# request would otherwise fall back to the PR number and start a spurious run
+# (e.g. the weekly audit-report comment, which quotes the literal phrase
+# `/devflow:implement` in prose, re-entering the gate on the state PR).
+# /devflow:implement is issue-only. The gate `if:` already filters PR comments
+# (`github.event.issue.pull_request == null`); this is the fail-closed resolver
+# backstop, deliberately placed before authorization and number resolution so a
+# PR comment is declined regardless of who sent it or whether it carries an
+# explicit number. Mirrors the self-trigger guard's structure above.
+if [ "$is_pull_request" = "true" ]; then
+  echo "::warning::/devflow:implement triggered from a pull-request comment; it runs on issues only — skipping (pull-request-context guard)." >&2
+  emit should_run false
+  emit number ""
+  exit 0
 fi
 
 # --- Authorization (cost control: agent mode runs for any actor) ------------
