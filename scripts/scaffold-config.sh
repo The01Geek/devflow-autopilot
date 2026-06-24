@@ -146,13 +146,14 @@ else
     [ -n "$pe_skill" ] || continue
     pe_target="$EXTENSIONS_DIR/$pe_skill.md.example"
     pe_live="$EXTENSIONS_DIR/$pe_skill.md"
-    # Per-file backfill, two guards (issue #118): skip when the .example already exists
-    # (an adopter's edited example — never clobber it), AND skip when a LIVE <skill>.md
-    # already exists (the adopter activated this extension, so dropping a redundant
-    # <skill>.md.example beside it is just confusing clutter). Both are plain `continue`s,
-    # so neither introduces a command whose non-zero exit could abort the loop under
-    # `set -euo pipefail`; the live <skill>.md is read-only here (never created, modified,
-    # or deleted), and only absent .example files for un-activated skills are created.
+    # Per-file backfill, two skip conditions in one guard (issue #118): skip when the
+    # .example already exists (an adopter's edited example — never clobber it), OR when a
+    # LIVE <skill>.md already exists (the adopter activated this extension, so dropping a
+    # redundant <skill>.md.example beside it is just confusing clutter). Both are `[ -e ]`
+    # tests inside the `if` condition (exempt from `set -e`) leading to a single rc-0
+    # `continue`, so the guard cannot abort the loop under `set -euo pipefail`; the live
+    # <skill>.md is read-only here (never created, modified, or deleted), and only absent
+    # .example files for un-activated skills are created.
     if [ -e "$pe_target" ] || [ -e "$pe_live" ]; then
       continue
     fi

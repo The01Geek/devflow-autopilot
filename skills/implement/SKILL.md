@@ -772,11 +772,11 @@ if [ -z "$DEFERRED_ISSUE_NUMBERS" ]; then
   echo "devflow: Phase 4.0 captured no deferred-issue numbers — deferred.labels applied to nothing (check the gh issue create captures)" >&2
   workpad.py update $ISSUE_NUMBER --reflection "Phase 4.0 filed deferred follow-up issues but captured no issue numbers — the configured deferred labels were applied to NONE of them; the filed issues carry none of the configured deferred labels."
 elif [ -n "$CLEAN_DEFERRED_LABELS" ]; then
-  # Ensure each configured label exists (best-effort; ensure-label.sh always exits 0).
-  # `|| continue` (not `&& cmd`) so the body's LAST command is always rc-0: a trailing
-  # blank line would otherwise leave the loop — a pipeline tail — at rc-1 and abort the
-  # phase under `set -euo pipefail` + pipefail. CLEAN already drops blanks, so this is
-  # belt-and-suspenders, kept symmetric with the apply loop below.
+  # Ensure each configured label exists (best-effort; ensure-label.sh always exits 0, so
+  # this loop never aborts on a label that can't be created). `|| continue` just skips a
+  # blank entry; CLEAN already drops blanks, so it is belt-and-suspenders kept symmetric
+  # with the apply loop below. (These blocks run as ordinary Bash-tool invocations, not
+  # under `set -e` — the best-effort idiom matches the pre-existing docs.labels block.)
   echo "$CLEAN_DEFERRED_LABELS" | tr ',' '\n' | while IFS= read -r lbl; do
     [ -n "$lbl" ] || continue
     ${CLAUDE_SKILL_DIR}/../../scripts/ensure-label.sh "$lbl"
@@ -890,8 +890,8 @@ if [ -n "${FILED_NUMBERS:-}" ]; then
     [ "$DEFERRED_LABELS_RC" -eq 0 ] || workpad.py update $ISSUE_NUMBER --reflection "Phase 4.0.5 could not read deferred.labels (config-get rc=$DEFERRED_LABELS_RC — corrupt config.json or node missing); deferred review-finding issues filed WITHOUT labels."
     CLEAN_DEFERRED_LABELS=$(echo "$DEFERRED_LABELS" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' | paste -sd, -)
     if [ -n "$CLEAN_DEFERRED_LABELS" ]; then
-        # `|| continue` keeps the body's last command rc-0 (set-e/pipefail-safe, same as
-        # Phase 4.0); CLEAN already drops blanks so this is belt-and-suspenders.
+        # `|| continue` just skips a blank entry (CLEAN already drops blanks — symmetric
+        # with Phase 4.0); ensure-label.sh always exits 0, so the loop never aborts.
         echo "$CLEAN_DEFERRED_LABELS" | tr ',' '\n' | while IFS= read -r lbl; do
             [ -n "$lbl" ] || continue
             ${CLAUDE_SKILL_DIR}/../../scripts/ensure-label.sh "$lbl"
@@ -899,11 +899,9 @@ if [ -n "${FILED_NUMBERS:-}" ]; then
         # A failed --add-label is routed to the durable workpad as well as stderr (same as
         # Phase 4.0): the unlabeled outcome is the feature's most likely failure and stderr
         # is ephemeral in an autonomous cloud run, so a stderr-only breadcrumb would leave
-        # no retrospective-visible trace.
-        # `|| continue` (not `&& {…}`) keeps the body's last command rc-0 so a trailing
-        # blank line in FILED_NUMBERS cannot leave this pipeline-tail loop at rc-1 and abort
-        # the phase under `set -euo pipefail` + pipefail (Phase 4.0's `for` loop is immune
-        # because word-splitting drops blanks; this piped-`while` form is not).
+        # no retrospective-visible trace. `|| continue` skips a blank line (this piped-`while`
+        # reads blank lines that Phase 4.0's `for` would word-split away); the per-issue
+        # failure is caught best-effort so the loop completes.
         echo "$FILED_NUMBERS" | while IFS= read -r n; do
             [ -n "$n" ] || continue
             gh issue edit "$n" --add-label "$CLEAN_DEFERRED_LABELS" \
