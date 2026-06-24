@@ -32,10 +32,6 @@ import os
 import shlex
 import sys
 
-# Shell metacharacters that, as standalone tokens, mark a command as compound,
-# redirecting, or subshell-ing — anything but a single simple invocation.
-_OPERATOR_CHARS = set("();<>|&")
-
 _REASON = "DevFlow bundled helper resolved under $CLAUDE_PLUGIN_ROOT"
 
 
@@ -60,9 +56,12 @@ def _execution_target(command):
 
     # Any token made up entirely of operator characters (`;` `|` `&&` `(` `>` …)
     # means the command is not a single simple invocation. `$(…)` surfaces here
-    # too: the `(`/`)` tokenize as standalone operator tokens.
+    # too: the `(`/`)` tokenize as standalone operator tokens. Read the operator
+    # set from the lexer itself (`punctuation_chars`) so there is a single source
+    # of truth for "what shlex split out as an operator".
+    operator_chars = set(lexer.punctuation_chars)
     for tok in tokens:
-        if tok and all(ch in _OPERATOR_CHARS for ch in tok):
+        if tok and all(ch in operator_chars for ch in tok):
             return None
 
     prog = tokens[0]
@@ -77,7 +76,12 @@ def _execution_target(command):
 
 def _contained(target, plugin_root):
     """True iff ``target`` canonicalizes to a real file under ``plugin_root``."""
-    if not target or target.startswith("-"):
+    # A bare command name (no path separator) is resolved via $PATH, never a file
+    # under the plugin root — reject it before any filesystem syscall. The hook
+    # runs on every Bash call, so this keeps the common non-helper case (`git
+    # status`, `ls`, …) at zero realpath/stat. Legitimate helper invocations
+    # always carry an absolute cache path, so they still reach the full check.
+    if not target or target.startswith("-") or "/" not in target:
         return False
     root_real = os.path.realpath(plugin_root)
     if not os.path.isdir(root_real):
