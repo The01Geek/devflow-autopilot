@@ -200,7 +200,8 @@ RGB_PAT="review-gate""-bypass"
 # no-match (git rc 1 — the PASS case, safe under run.sh's `set -u`, not `set -e`),
 # the hits string on a match (rc 0), or the fixed sentinel `<rgb-guard-errored>` on
 # ANY git error (rc >1). The `-gt 1` threshold — not `-gt 2`, not `== 128` — is what
-# makes rc 2 (a `git grep` operational error, distinct from no-match=1) fail closed;
+# makes the smallest error rc (rc 2, distinct from no-match=1; git itself reports
+# fatal/usage as 128/129, but the predicate must catch every rc above 1) fail closed;
 # the boundary tests below pin that exact threshold so an off-by-one weakening turns
 # the suite red. On error it prints an rc-bearing stderr breadcrumb so the cause
 # survives independently of assert_eq's value-echo (an infra error must not read as a
@@ -248,19 +249,47 @@ assert_eq "RGB guard fails closed on a git error (returns the error sentinel, no
 # Threshold boundary tests (#129): the contract test above only ever exercises rc 128,
 # so it pins "an errored git fails closed" but NOT the `-gt 1` THRESHOLD itself — a
 # weakening to `-gt 2` (so rc 2 falls through to the PASS path, re-opening fail-open on
-# a `git grep` operational error) would leave it green. Drive rgb_classify — the same
-# transform the live guard runs through rgb_scan — across every rc class so the exact
-# threshold is pinned: rc 0 → the hits, rc 1 → empty (PASS), and rc 2 (the boundary
-# `-gt 1` defends) and rc 128 → the sentinel. A `-gt 2`/`-ne 1`/`== 128` weakening
-# turns the rc-2 row red. stderr muted: the >1 rows print an expected breadcrumb.
+# the next git error code above no-match) would leave it green. Drive rgb_classify —
+# the same transform the live guard runs through rgb_scan — across every rc class so
+# the exact `[rc -gt 1]` predicate is pinned: rc 0 → the hits, rc 1 → empty (PASS), and
+# rc 2 (the smallest error rc the threshold must catch) and rc 128 → the sentinel.
+# Each row catches a different mutation: a `-gt 2` or `== 128` weakening turns the rc-2
+# row red (rc 2 wrongly passes), while an `-ne 1`-style widening turns the rc-0 row red
+# (a real hit wrongly classified as an error). rc 2 is a representative >1 value, not a
+# code `git grep` necessarily emits (it uses 0/1 for match/no-match and 128/129 for
+# fatal/usage); the point is the predicate, not the specific producer code. stderr
+# muted: the >1 rows print an expected breadcrumb.
 assert_eq "rgb_classify rc=0 (hit) → returns the offending file list" \
   "skills/foo.md" "$(rgb_classify 0 "skills/foo.md" 2>/dev/null)"
 assert_eq "rgb_classify rc=1 (clean no-match) → empty (PASS)" \
   "" "$(rgb_classify 1 "" 2>/dev/null)"
-assert_eq "rgb_classify rc=2 (git operational error) → sentinel (fails closed at the -gt 1 boundary)" \
+assert_eq "rgb_classify rc=2 (smallest error rc) → sentinel (fails closed at the -gt 1 boundary)" \
   "<rgb-guard-errored>" "$(rgb_classify 2 "" 2>/dev/null)"
 assert_eq "rgb_classify rc=128 (git fatal) → sentinel (fails closed)" \
   "<rgb-guard-errored>" "$(rgb_classify 128 "" 2>/dev/null)"
+
+# End-to-end reintroduction test (#129): the live guard above only ever observes
+# rgb_scan returning empty (the real repo is clean) and the contract test only its
+# rc-128 error path — so rgb_scan's OWN `git grep` line (the `hits=…; rc=$?` seam, the
+# `-l` flag, the `:!CHANGELOG.md` pathspec) is never seen to produce a real positive
+# hit. Drive it end-to-end against a throwaway repo that genuinely contains the slug
+# and assert rgb_scan returns the offending filename (rc 0 → non-empty → the live guard
+# would fail loud). This pins the one path the unit-level rgb_classify rc=0 row cannot:
+# a regression in rgb_scan's git invocation (dropped `-l`, mis-scoped pathspec) that
+# silently stops matching. Use the file's own name as the probe so this file does not
+# self-match; the slug is assembled from two literals for the same reason.
+RGB_E2E="$(mktemp -d)"
+git -C "$RGB_E2E" init -q
+printf 'has the %s%s slug\n' "review-gate" "-bypass" > "$RGB_E2E/probe.md"
+git -C "$RGB_E2E" add probe.md
+assert_eq "rgb_scan reports a real reintroduction in a tracked file (rc 0 → filename)" \
+  "probe.md" "$(rgb_scan "$RGB_E2E")"
+# And confirm the CHANGELOG.md pathspec exception genuinely excludes a hit there.
+printf 'historical %s%s reference\n' "review-gate" "-bypass" > "$RGB_E2E/CHANGELOG.md"
+git -C "$RGB_E2E" add CHANGELOG.md
+assert_eq "rgb_scan still flags probe.md but NOT CHANGELOG.md (pathspec exception holds)" \
+  "probe.md" "$(rgb_scan "$RGB_E2E")"
+rm -rf "$RGB_E2E"
 
 # Fix then later occ → status "regressed"
 RESULT=$(cp_run \
