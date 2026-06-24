@@ -94,6 +94,19 @@ The publish step is gated by a per-consumer config key, **`devflow_implement.imp
 
 The gate lives once in `skills/implement/SKILL.md` Phase 4.3 — the skill body is shared by the local and cloud `/devflow:implement` paths, and both read the same `config.json` via `config-get.sh`, so no workflow change is needed and the logic is never forked.
 
+## Phase 4.0 / 4.0.5 deferred-issue labels (`deferred.labels`)
+
+When a run scopes itself down, it files follow-up issues for the work it deferred: Phase 4.0 files an issue per deferred *acceptance criterion* (carried verbatim from the 2.2.5 scope decision), and Phase 4.0.5 files an issue per deferred *review finding* (the Step-3 deferrals manifest). The labels applied to those follow-up issues are configurable via **`deferred.labels`** — a comma-separated string under the top-level `deferred` object (default `DevFlow,Deferred`), read by both phases with `config-get.sh .deferred.labels DevFlow,Deferred`.
+
+Both phases resolve and apply the labels with the **same idiom Phase 4.1 uses for `docs.labels`**, so there is one normalization rule to learn:
+
+- **Normalize** the raw value by splitting on `,`, trimming whitespace from each entry, and dropping empties. `"DevFlow, Deferred"` applies both labels; a whitespace-only or all-separators value (e.g. `" , "`) normalizes to *none* and applies no labels. (A literal empty string resolves to the `DevFlow,Deferred` default rather than meaning no-labels, matching how config defaults resolve.)
+- **Ensure-then-apply, best-effort, post-creation.** The issue is created with **no** `--label` on `gh issue create`; the normalized labels are then ensured to exist via `ensure-label.sh` (which always exits 0) and applied in a single `gh issue edit --add-label` per filed issue. A label hiccup is logged to stderr and a `Devflow Reflection` note, never allowed to block or unwind the filing — mirroring the post-creation `--add-label` idiom Phase 3.1 uses for the hardcoded `DevFlow` provenance label.
+
+The reason it lives in the **skill**, not in `file-deferrals.py`, is the standing config rule: config is read by the Node resolver (`config-get.sh`), never by Python — so the resolve/normalize/ensure/apply steps stay in the skill body and the deferral helper stays config-agnostic. A **hard** `config-get.sh` read failure (corrupt `config.json`, missing node) is distinguished from an empty result: its non-zero rc is captured and recorded in a reflection, and the run continues filing the issues *without* labels rather than aborting.
+
+This key controls **only** deferred-issue labeling. It is independent of the hardcoded `DevFlow` provenance label that retrospective detection matches literally (`lib/scan.sh`, `lib/classify-pr-kind.jq`) — that string is a constant no config key controls — and separate from the `docs.labels` docs-pass label.
+
 ## Scope boundary between Phase 2.3.2 and Phase 4.1
 
 The 2.3.2 stranded-dependents sweep covers references in **code, config, and routing tables** — things

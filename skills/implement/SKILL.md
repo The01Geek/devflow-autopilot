@@ -710,7 +710,7 @@ For each logical chunk of deferred work (typically: one issue per remaining "pha
 - **No-options rule applies.** Observe the template's no-options discipline — no choice / hedge / deferral language (no "or", "could", "consider", "TBD", "for now", "(optional)") anywhere in the body. The deferred criteria are resolved decisions, so the gate is satisfied by construction; do not reintroduce hedging when describing the deferred scope.
 - **Autonomous-run adaptation.** Phase 4.0 runs inside an autonomous /devflow:implement execution with no user present, so the template's *interactive* elements do not apply: there is **no clarification round** and **no `## 🚫 Blocked` section** — the deferred criteria are already-decided acceptance criteria, so nothing is unresolved. Build the body inline here; do **not** invoke the full interactive `/devflow:create-issue` pipeline.
 - **GitHub autolink hygiene.** Applies to the follow-up issue body too — see *GitHub autolink hygiene* in the Workpad Reference.
-- **Posting rules.** Pass the body via a quoted-heredoc on stdin (`--body "$(cat <<'EOF' … EOF)"`) so backticks and `$` in the markdown are not expanded, and add **no** `--label` (labeling is handled separately by maintainers). Do **not** switch to `--body-file`. (This posting command is a deliberate, small departure from the template's own *example*, which pipes the body through `--body-file -`; only the body's section structure and writing discipline follow the template, not its exact posting command — the quoted-heredoc form keeps the no-expansion guarantee either way.)
+- **Posting rules.** Pass the body via a quoted-heredoc on stdin (`--body "$(cat <<'EOF' … EOF)"`) so backticks and `$` in the markdown are not expanded, and add **no** `--label` on the `gh issue create` call itself — the configured `deferred.labels` are applied best-effort *after* creation (see *Apply the deferred-issue labels* below), mirroring the post-creation `--add-label` idiom Phase 3.1 uses for the `DevFlow` provenance label and Phase 4.1 uses for `docs.labels`. Do **not** switch to `--body-file`. (This posting command is a deliberate, small departure from the template's own *example*, which pipes the body through `--body-file -`; only the body's section structure and writing discipline follow the template, not its exact posting command — the quoted-heredoc form keeps the no-expansion guarantee either way.)
 
 ```bash
 gh issue create \
@@ -745,6 +745,54 @@ Follow-up to #$ARGUMENTS. <Why this remaining work is needed and who hits the pa
 - **Potential Gotchas** — <constraints or pitfalls carried from the parent issue.>
 EOF
 )"
+```
+
+**Apply the deferred-issue labels.** As you create each follow-up issue above, **capture its number** from the `gh issue create` output (the command prints the new issue URL; the trailing path segment is the number) into `DEFERRED_ISSUE_NUMBERS` — a space-separated list you assemble from the issues you actually filed (e.g. `DEFERRED_ISSUE_NUMBERS="201 202"`). Then apply the configured `deferred.labels` to every filed issue. The labels are read from config (default `DevFlow,Deferred`) and normalized with the **same** split/trim/drop-empties idiom Phase 4.1 uses for `docs.labels`, so an empty or whitespace-only value applies no labels. Ensure each label exists first (best-effort), then apply them in a single `gh issue edit --add-label` per filed issue — best-effort and post-creation, so a label hiccup can never block or unwind the filing:
+
+```bash
+# Assemble this from the issue numbers you captured above (the gh issue create
+# outputs). It is NOT auto-populated — set it explicitly, e.g.:
+#   DEFERRED_ISSUE_NUMBERS="201 202"
+DEFERRED_ISSUE_NUMBERS="${DEFERRED_ISSUE_NUMBERS:-}"
+# Capture config-get's rc so a real read failure (corrupt config.json / missing node →
+# exit 2 with empty stdout) is NOT silently indistinguishable from a deliberately-empty
+# value: both yield an empty CLEAN below, but only the failure leaves a breadcrumb. The
+# default arg covers the soft paths (missing file / unset key); rc≠0 is the hard path.
+# The assignment runs as an `if` condition so the rc capture survives even if these
+# blocks are ever executed under `set -e` (a bare `VAR=$(cmd); RC=$?` would abort at the
+# assignment before the capture; an `if`-condition assignment is exempt from `set -e`).
+if DEFERRED_LABELS=$(${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .deferred.labels DevFlow,Deferred); then DEFERRED_LABELS_RC=0; else DEFERRED_LABELS_RC=$?; fi
+[ "$DEFERRED_LABELS_RC" -eq 0 ] || workpad.py update $ISSUE_NUMBER --reflection "Phase 4.0 could not read deferred.labels (config-get rc=$DEFERRED_LABELS_RC — corrupt config.json or node missing); deferred follow-up issues filed WITHOUT labels."
+CLEAN_DEFERRED_LABELS=$(echo "$DEFERRED_LABELS" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' | paste -sd, -)
+if [ -z "$DEFERRED_ISSUE_NUMBERS" ]; then
+  # We only reach this block because deferred work WAS filed above, so an empty list
+  # means the issue-number capture was missed — a real gap, not a benign no-op. Route it
+  # to the workpad (durable, retrospective-visible) like the rc-failure breadcrumb, not
+  # just stderr (ephemeral in an autonomous cloud run).
+  echo "devflow: Phase 4.0 captured no deferred-issue numbers — deferred.labels applied to nothing (check the gh issue create captures)" >&2
+  workpad.py update $ISSUE_NUMBER --reflection "Phase 4.0 filed deferred follow-up issues but captured no issue numbers — the configured deferred labels were applied to NONE of them; the filed issues carry none of the configured deferred labels."
+elif [ -n "$CLEAN_DEFERRED_LABELS" ]; then
+  # Ensure each configured label exists (best-effort; ensure-label.sh always exits 0, so
+  # this loop never aborts on a label that can't be created). `|| continue` just skips a
+  # blank entry; CLEAN already drops blanks, so it is belt-and-suspenders kept symmetric
+  # with the apply loop below. (These blocks run as ordinary Bash-tool invocations, not
+  # under `set -e` — the best-effort idiom matches the pre-existing docs.labels block.)
+  echo "$CLEAN_DEFERRED_LABELS" | tr ',' '\n' | while IFS= read -r lbl; do
+    [ -n "$lbl" ] || continue
+    ${CLAUDE_SKILL_DIR}/../../scripts/ensure-label.sh "$lbl"
+  done
+  # Apply to every issue filed above (the numbers captured into DEFERRED_ISSUE_NUMBERS).
+  # A failed --add-label is the feature's most likely real-world failure, so route it to
+  # the durable workpad (retrospective-visible) as well as stderr — matching the breadcrumb
+  # discipline the rc-failure and empty-numbers paths above already use. stderr is ephemeral
+  # in an autonomous cloud run, so a stderr-only breadcrumb would leave an unlabeled issue
+  # with no durable trace of why.
+  for n in $DEFERRED_ISSUE_NUMBERS; do
+    gh issue edit "$n" --add-label "$CLEAN_DEFERRED_LABELS" \
+      || { echo "devflow: could not apply deferred labels to issue #$n (best-effort, continuing)" >&2; \
+           workpad.py update $ISSUE_NUMBER --reflection "Phase 4.0 could not apply the configured deferred labels ($CLEAN_DEFERRED_LABELS) to issue #$n (best-effort; the issue was filed but carries none of the configured deferred labels)."; }
+  done
+fi
 ```
 
 Record the new issue numbers in the workpad: `workpad.py update $ISSUE_NUMBER --note "Filed follow-up issues for deferred work: #N (phase 2), #N+1 (phase 3), …"` before continuing to 4.0.5.
@@ -826,6 +874,41 @@ Record the filed issue numbers in the workpad:
 if [ -n "${FILED_NUMBERS:-}" ]; then
     NUMBERS_CSV=$(echo "$FILED_NUMBERS" | tr '\n' ',' | sed 's/,$//' | sed 's/,/, #/g')
     workpad.py update $ISSUE_NUMBER --note "Filed follow-up issues for deferred review findings: #${NUMBERS_CSV}"
+    # Apply the configured deferred.labels to each filed issue — same resolve/normalize/
+    # ensure/apply idiom as Phase 4.0 (default DevFlow,Deferred; empty/whitespace → none).
+    # `file-deferrals.py` itself stays out of config-reading (config is Node-resolver
+    # territory); the skill owns labeling. Best-effort and post-filing, so a label hiccup
+    # never unwinds an already-filed issue.
+    # Capture config-get's rc (same as Phase 4.0): a hard read failure (corrupt
+    # config.json / missing node → exit 2, empty stdout) yields an empty CLEAN that is
+    # otherwise indistinguishable from a deliberately-empty value — leave a breadcrumb so
+    # the unlabeled outcome is attributable, not silent. The default arg covers the soft
+    # paths (missing file / unset key); rc≠0 is the hard path. The `if`-condition form
+    # keeps the rc capture alive even under `set -e` (a bare `VAR=$(cmd); RC=$?` aborts at
+    # the assignment; an `if`-condition assignment is exempt).
+    if DEFERRED_LABELS=$(${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .deferred.labels DevFlow,Deferred); then DEFERRED_LABELS_RC=0; else DEFERRED_LABELS_RC=$?; fi
+    [ "$DEFERRED_LABELS_RC" -eq 0 ] || workpad.py update $ISSUE_NUMBER --reflection "Phase 4.0.5 could not read deferred.labels (config-get rc=$DEFERRED_LABELS_RC — corrupt config.json or node missing); deferred review-finding issues filed WITHOUT labels."
+    CLEAN_DEFERRED_LABELS=$(echo "$DEFERRED_LABELS" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' | paste -sd, -)
+    if [ -n "$CLEAN_DEFERRED_LABELS" ]; then
+        # `|| continue` just skips a blank entry (CLEAN already drops blanks — symmetric
+        # with Phase 4.0); ensure-label.sh always exits 0, so the loop never aborts.
+        echo "$CLEAN_DEFERRED_LABELS" | tr ',' '\n' | while IFS= read -r lbl; do
+            [ -n "$lbl" ] || continue
+            ${CLAUDE_SKILL_DIR}/../../scripts/ensure-label.sh "$lbl"
+        done
+        # A failed --add-label is routed to the durable workpad as well as stderr (same as
+        # Phase 4.0): the unlabeled outcome is the feature's most likely failure and stderr
+        # is ephemeral in an autonomous cloud run, so a stderr-only breadcrumb would leave
+        # no retrospective-visible trace. `|| continue` skips a blank line (this piped-`while`
+        # reads blank lines that Phase 4.0's `for` would word-split away); the per-issue
+        # failure is caught best-effort so the loop completes.
+        echo "$FILED_NUMBERS" | while IFS= read -r n; do
+            [ -n "$n" ] || continue
+            gh issue edit "$n" --add-label "$CLEAN_DEFERRED_LABELS" \
+                || { echo "devflow: could not apply deferred labels to issue #$n (best-effort, continuing)" >&2; \
+                     workpad.py update $ISSUE_NUMBER --reflection "Phase 4.0.5 could not apply the configured deferred labels ($CLEAN_DEFERRED_LABELS) to issue #$n (best-effort; the issue was filed but carries none of the configured deferred labels)."; }
+        done
+    fi
 fi
 ```
 

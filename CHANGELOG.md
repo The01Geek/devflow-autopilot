@@ -4,6 +4,14 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.5] — 2026-06-23
+
+### Added
+- **`deferred.labels` config setting labels the follow-up issues `/devflow:implement` files for deferred work.** A comma-separated string under a new top-level `deferred` object (`default: "DevFlow,Deferred"`), mirroring the `docs.labels` shape: both Phase 4.0 (deferred acceptance criteria) and Phase 4.0.5 (deferred review findings, via `scripts/file-deferrals.py`) now apply every configured label best-effort *after* the issue is created, so accumulated review/scope debt is a filterable backlog and deferred issues carry `DevFlow` provenance. The value is read via `config-get.sh`, normalized with the same split/trim/drop-empties idiom Phase 4.1 uses for `docs.labels` (a whitespace-only or all-separators value normalizes to none; a literal empty string resolves to the default), and each label is ensured to exist via `scripts/ensure-label.sh` first. `file-deferrals.py` stays out of config-reading (config is Node-resolver territory); the skill owns labeling. The hardcoded `DevFlow` provenance detection in `lib/scan.sh` / `lib/classify-pr-kind.jq` is unchanged. (#119, closes #118)
+
+### Fixed
+- **`scripts/scaffold-config.sh` no longer drops a redundant `<skill>.md.example` beside an activated extension.** The per-file prompt-extension backfill guard previously checked only whether the `<skill>.md.example` was present, so re-running the installer added an `<skill>.md.example` next to a live `<skill>.md` the adopter had already activated. It now also skips when a live `<skill>.md` exists — non-destructively (the live `.md` is never modified and a pre-existing `.md.example` is never overwritten or deleted; the guard is a plain `continue` that cannot abort the loop under `set -euo pipefail`). (#119, closes #118)
+
 ## [2.8.4] — 2026-06-23
 
 ### Added

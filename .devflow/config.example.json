@@ -48,6 +48,9 @@
     "release_notes_file": "docs/external/release-notes.md",
     "labels": "Documented"
   },
+  "deferred": {
+    "labels": "DevFlow,Deferred"
+  },
   "devflow_retrospective": {
     "enabled": true,
     "retrospective_model": "claude-sonnet-4-6",
