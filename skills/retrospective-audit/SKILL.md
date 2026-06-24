@@ -42,6 +42,21 @@ Write your own one-paragraph root-cause restatement — do NOT trust the retrosp
 
 ## § 2 — Plugin self-audit FIRST
 
+**Can this fix be a prompt-extension? (ask this BEFORE the self-audit questions and the exclusion match below).** A large class of "make skill X also do Y" fixes is a purely **additive** change to a skill's behavior — extra instructions appended to what the skill already does, overriding nothing. DevFlow ships a surface built exactly for that: `scripts/load-prompt-extension.sh` loads `.devflow/prompt-extensions/<skill>.md` and the skill appends that file's contents **verbatim** to its own prompt on every run. That directory is **in scope** — it is not on the canonical exclusion list below, and `lib/check-excluded-path.sh` does not match it.
+
+So before routing any skill-behavior change to the meta-issue form, ask: **is the fix expressible as an appended instruction, and is it appropriately consumer-local?** If yes, apply it as a normal `excluded: false` edit (§ 5 / § 6) by writing or extending `.devflow/prompt-extensions/<skill>.md` — put that path in `targets[]` — instead of editing the excluded skill body or filing a meta-issue. `<skill>` is the skill's directory name under `skills/` (`create-issue`, `implement`, `review`, …). This mirrors how DevFlow already keeps its own versioning rule in `.devflow/prompt-extensions/implement.md` rather than in the `implement` skill body.
+
+Route to the **meta-issue form** (the four questions + the `excluded: true` early-exit below) when, and **only** when, the fix is one of:
+- **(i) a structural engine defect a prose append cannot express** — it must override or remove existing skill text, or correct broken logic, not merely add to it;
+- **(ii) a change to a non-prose engine file** — `lib/**`, `scripts/**`, `agents/**`, `.claude-plugin/**`, a jq filter, or `.devflow/config.json`;
+- **(iii) a fix that every consumer needs** — it must change the engine upstream, because a consumer-local extension lives only in this repo and would not propagate to adopters.
+
+Two limits bound this route, so do not over-apply it:
+- **Append-only.** A prompt extension can only *add* instructions; it cannot override or delete existing skill prose. A fix that must change what the skill already says is condition (i), not a prompt-extension.
+- **Consumer-local.** An extension lives in this repo's `.devflow/prompt-extensions/` and never reaches other adopters or the shipped engine. In DevFlow's own repo it patches only this repo's dogfooding; a fix every consumer needs is condition (iii) and must go upstream.
+
+If the fix is *not* a prompt-extension (it hits one of (i)–(iii)), fall through to the self-audit below.
+
 Before opening `intervention-surfaces.md`, check whether the pattern points at a defect in the devflow plugin itself. Ask all four questions for every occurrence:
 
 - **Retrospective hallucination?** Does the retrospective's `summary` for the occurrence PRs contradict the primary-source evidence (PR/issue bodies, comments, reviews)? If yes, the fix belongs in `skills/retrospective/SKILL.md`, not in a downstream CLAUDE.md rule.
@@ -89,10 +104,11 @@ Read `${CLAUDE_SKILL_DIR}/../../lib/intervention-surfaces.md`. From those surfac
 **Conflict check:** search the existing rules, skills, and docs for anything that contradicts your proposed change. If you find a conflict, reframe as "strengthen rule X" rather than "add rule Y" — that is always the higher-quality intervention. Document the conflict (or its explicit absence) in the PR body.
 
 Examples of valid surfaces:
+- Append an additive skill-behavior change to `.devflow/prompt-extensions/<skill>.md` (the in-scope prompt-extension surface from § 2) rather than editing the excluded skill body — for any "make skill X also do Y" fix expressible as an appended instruction and appropriately consumer-local.
 - Strengthen an existing CLAUDE.md rule with a more visible warning and a linkable example.
 - Add or tighten a linter/static-analysis rule that catches the broken pattern mechanically.
 - Edit `docs/internal/<feature>.md` to fill a gap the bot kept missing.
-- Update the `/create-issue` or `/devflow:implement` skill to require a missing check.
+- Update the `/create-issue` or `/devflow:implement` skill to require a missing check (when the change is *structural* — overriding existing prose or correcting logic; a purely additive requirement is the prompt-extension surface above).
 
 ---
 

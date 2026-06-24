@@ -9,6 +9,7 @@ When the failure pattern recurs, the highest-leverage fix could live on any of t
 
 ### Process / workflow surfaces
 
+- **Prompt extensions** (`.devflow/prompt-extensions/<skill>.md`) — the in-scope, consumer-owned surface for a purely **additive** skill-behavior change. `scripts/load-prompt-extension.sh` appends this file verbatim to skill `<skill>`'s prompt on every run, so a "make skill X also do Y" fix lands here as a normal in-scope edit instead of touching the excluded `skills/**` body or filing a meta-issue. This directory is **not** on the out-of-scope/meta-issue list below — `lib/check-excluded-path.sh` does not match it. It is bounded: extensions are **append-only** (they cannot override or delete existing skill prose) and **consumer-local** (they live only in this repo and don't reach other adopters), so a *structural* skill change or one *every consumer needs* still routes to the meta-issue.
 - **`/devflow:implement` skill** (`skills/implement/SKILL.md`) — the orchestrator that drives the four-phase lifecycle. Strengthen a phase, add a check, tighten a gate.
 - **`/create-issue` skill** (`skills/create-issue/SKILL.md`) — the issue-quality entry point. If issues themselves are the bottleneck (vague acceptance criteria, missing repro steps, ambiguous scope), this is where to fix it.
 - **`/devflow:review` and `/devflow:review-and-fix` skills** — code-review discipline. If review caught a regression too late, the gap belongs here.
