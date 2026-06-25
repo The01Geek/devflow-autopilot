@@ -89,6 +89,7 @@ DevFlow is distributed as a **Claude Code plugin**. The repository is also its o
 - **Skills**: the user-facing commands (`/devflow:implement`, `/devflow:review`, the `/devflow:docs` family, `/devflow:create-issue`, `/devflow:retrospective-weekly`, etc.). Each is a `SKILL.md` file containing a detailed procedure the model follows.
 - **Agents**: three specialized subagents (`checklist-generator`, `checklist-deduper`, `checklist-verifier`) that power the review engine.
 - **Scripts** (`scripts/`, `lib/`), deterministic helpers in Bash, `jq`, and Python that do all the mechanical work (fetching context, computing patterns, gating, git/PR mechanics) so the LLM is only invoked for genuine judgment.
+- **Hooks** (`hooks/`), a `PreToolUse(Bash)` hook (`approve-bundled-helper.py`) registered in the plugin manifest that, on the local tier, auto-approves invocations of DevFlow's *own* bundled helpers so an adopter isn't prompted on every one — see §4 and `docs/cloud-setup.md`.
 - **Cloud workflows** (`.github/`), optional GitHub Actions that make DevFlow run autonomously on issue/PR events.
 
 It declares three **companion plugins** as dependencies, all from Anthropic's official `claude-plugins-official` marketplace:
@@ -108,7 +109,7 @@ It declares three **companion plugins** as dependencies, all from Anthropic's of
 This distinction is central to every pitch, lead with it.
 
 ### Local tier (zero config, no infrastructure)
-The skills you run **inside Claude Code**. Works with **no configuration file at all**: every setting has a built-in default. You type `/devflow:implement 42` (or `/devflow:review`, etc.) in your editor and it runs in your session. Requirements: `git`, `gh` (GitHub CLI, authenticated), `jq`, and Python 3.11+ with PyYAML. A `bash lib/preflight.sh` verifies the environment. Shell helpers avoid GNU-only flags, so macOS/BSD work without GNU coreutils.
+The skills you run **inside Claude Code**. Works with **no configuration file at all**: every setting has a built-in default. You type `/devflow:implement 42` (or `/devflow:review`, etc.) in your editor and it runs in your session. Requirements: `git`, `gh` (GitHub CLI, authenticated), `jq`, and Python 3.11+ with PyYAML. A `bash lib/preflight.sh` verifies the environment. Shell helpers avoid GNU-only flags, so macOS/BSD work without GNU coreutils. The plugin's bundled `PreToolUse` hook auto-approves DevFlow's *own* helpers here (containment-checked under `$CLAUDE_PLUGIN_ROOT`, version-matched on install, no `settings.json` change), so you aren't prompted on every helper call — see "Local-tier auto-approval hook" in `docs/cloud-setup.md`.
 
 ### Cloud tier (autonomous, optional)
 GitHub Actions workflows make DevFlow run **autonomously on issue/PR events**. You comment `/devflow:implement 42` on an issue and the workflow drives the whole lifecycle without you in the editor. It needs only one secret, `CLAUDE_CODE_OAUTH_TOKEN`, and a little setup (see `docs/cloud-setup.md`). No GitHub App required.
@@ -481,6 +482,7 @@ A strong slide for security-conscious buyers, DevFlow is explicit about its thre
 - **Read-only by default.** With `provision_env` off (the default), the reviewer is byte-for-byte read-only, it inspects the diff and cannot compile/lint/test. Turning it on is a documented opt-in that accepts running untrusted PR build code under a write token.
 - **Self-trigger guard.** The implement workpad quotes the literal `/devflow:implement` phrase; the resolver declines any trigger text containing the workpad marker so DevFlow can't trigger itself in a loop.
 - **Duplicate-run dedupe.** A thread-scoped dedupe ensures only the oldest concurrent `/devflow:implement` run on a thread proceeds.
+- **Local-tier hook grants `which program`, not arbitrary commands.** The bundled `PreToolUse(Bash)` auto-approval hook (`hooks/approve-bundled-helper.py`) is **containment-only**: it approves a Bash command only when it is a single simple invocation (no `&&`/`;`/`|`, command substitution, redirection, subshell, or newline) whose executed program canonicalizes via `realpath` (symlinks followed) to a real file under `$CLAUDE_PLUGIN_ROOT`. It never matches by substring, never approves your repo's tools, **never emits `deny`**, fails open on any error, and mutates no `settings.json`. It rests on the invariant that no bundled helper `eval`/`exec`/`source`s an attacker-influenceable argument.
 
 ---
 
@@ -552,10 +554,11 @@ Thin by default (installs workflows, actions, a local marketplace, a config scaf
 
 ```text
 .claude-plugin/
-├── plugin.json          # plugin manifest (declares dependencies)
+├── plugin.json          # plugin manifest (declares dependencies + the PreToolUse hook)
 └── marketplace.json     # this repo is its own marketplace
 skills/                  # one SKILL.md per skill
 agents/                  # checklist-generator / -deduper / -verifier
+hooks/                   # approve-bundled-helper.py (local-tier helper auto-approval)
 scripts/                 # branch-for-issue.py, config-get.sh, ensure-label.sh,
                          #   file-deferrals.py, match-deferrals.py, parse-acs.py,
                          #   workpad.py, …
