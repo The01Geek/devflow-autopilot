@@ -53,6 +53,29 @@ set -euo pipefail
 log()  { printf 'devflow-automode: %s\n' "$1"; }
 warn() { printf 'devflow-automode: %s\n' "$1" >&2; }
 
+# ── Provider detection (issue #130). ────────────────────────────────────────
+# CLAUDE_CODE_ENABLE_AUTO_MODE has NO effect on the Anthropic API — `auto` mode is already
+# available there by default. The var only does anything on the third-party providers
+# (Amazon Bedrock, Google Vertex AI, Microsoft Foundry). So provisioning it on
+# Anthropic-direct is a pointless user-global settings write; the --apply gate below skips it.
+# Detection reads only the documented Claude Code provider env vars (never .devflow/config.json
+# — provider is an environment concern). A var counts as third-party only when set to a truthy
+# value: Claude Code's docs enable these vars with `1`, and we additionally accept `true`
+# (case-insensitive) defensively; empty, `0`, and any other value are treated as OFF, so a
+# deliberately-disabled provider var never trips the gate.
+is_truthy() {
+  case "$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]')" in
+    1|true) return 0 ;;
+    *)      return 1 ;;
+  esac
+}
+provider_is_third_party() {
+  is_truthy "${CLAUDE_CODE_USE_BEDROCK:-}" && return 0
+  is_truthy "${CLAUDE_CODE_USE_VERTEX:-}"  && return 0
+  is_truthy "${CLAUDE_CODE_USE_FOUNDRY:-}" && return 0
+  return 1
+}
+
 # ── Parse args: an optional --apply flag and at most one positional target. ──
 # The positional is the settings file to provision (SETTINGS); production omits it
 # and we default to user scope below.
@@ -114,6 +137,17 @@ if [ "$APPLY" -ne 1 ]; then
 fi
 
 # ── --apply (consent confirmed by the caller): perform the user-scope merge. ──
+# Provider gate (issue #130): this is the FIRST check on the --apply path — it precedes (and
+# therefore never disturbs) the read/parse/shape-validation of the settings file below. On
+# Anthropic-direct (no third-party provider env var truthy) the env var we would write is inert,
+# so we provision NOTHING, leave any existing file byte-for-byte unchanged, and exit 0 (a
+# success — the skip is "nothing to do", never the exit-2 error path) with a specific breadcrumb
+# naming the provider as the reason. The no-`--apply` consent-print path above is left unchanged.
+if ! provider_is_third_party; then
+  log "auto mode is available by default on the Anthropic API; nothing to provision (CLAUDE_CODE_ENABLE_AUTO_MODE only affects the third-party providers Bedrock/Vertex/Foundry, none of which is active — set CLAUDE_CODE_USE_BEDROCK/VERTEX/FOUNDRY truthy to provision). Left $SETTINGS unchanged."
+  exit 0
+fi
+
 SETTINGS_DIR="$(dirname "$SETTINGS")"
 
 if ! command -v jq >/dev/null 2>&1; then

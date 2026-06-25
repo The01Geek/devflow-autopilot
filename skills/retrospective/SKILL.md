@@ -135,7 +135,9 @@ explain why in `descriptors`.
 |---|---|
 | `doc-accuracy` | a doc, comment, docstring, or release-note describes code that does not match what shipped (wrong file path/symbol/CSS class, stale count, "remaining" list that isn't, behavior that isn't there). |
 | `fabricated-claim` | the PR description or release notes assert a deliverable that is **not in the diff** — a workflow, test, file, guard, or behavior that was never added. |
-| `review-gate-bypass` | the PR merged with an outstanding `/devflow:review` REJECT, or shipped a defect that an earlier lint / typecheck / review pass should have caught and didn't. |
+| `outstanding-reject` | the PR merged while its **chronologically-last** `/devflow:review` verdict was still REJECT — a review gate ran, landed a REJECT, and it was never cleared before merge. |
+| `lenient-verdict` | a review / lint / typecheck gate **ran and returned an approve-family verdict**, but the PR shipped a defect that pass should have caught — a finding flagged then demoted-and-shipped, or a defect the gate passed over. Requires a gate to have *run*: a PR with no gate or review (e.g. a purely human-authored PR) is **not** this. |
+| `deferred-verification` | a verification that was **runnable before merge** was deferred past the gate instead of run — e.g. a runnable acceptance criterion laundered into a `(post-merge)` tag, or a check punted to post-merge/CI that the orchestrator host could in fact have run. A check that genuinely needs a live runtime environment (deploy target, real third-party endpoint) is **not** this. |
 | `unmet-acceptance-criteria` | the PR merged without satisfying an explicit requirement from the linked issue. |
 | `incomplete-edit` | a partial change — an orphaned setup line after a deletion, a half-applied rename, a stale count not propagated, a leftover-after-removal artifact — i.e. the kind of thing a human had to clean up in `human_postbot_diff`. |
 | `convention-violation` | the bot broke a project convention: a `CLAUDE.md` rule, a `phpcs.xml.dist`/lint rule, a skill instruction, or a workpad invariant. |

@@ -227,7 +227,7 @@ bash $LIB/actionable-patterns.sh \
 Print a summary line to the console, for example:
 
 ```
-5 PRs: 3 clean, 2 analyzed; 2 actionable patterns: incomplete-edit (x5), review-gate-bypass (x3)
+5 PRs: 3 clean, 2 analyzed; 2 actionable patterns: incomplete-edit (x5), lenient-verdict (x3)
 ```
 
 Partition `patterns.json` into two lists:

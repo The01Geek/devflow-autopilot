@@ -134,12 +134,178 @@ assert_eq "v1 theme_tags + v2 categories grouped together (count=2)" \
 
 # One occ + later audit fix → status "fixed"
 RESULT=$(cp_run \
-  '{"schema_version":2,"kind":"implementation","pr":1,"merged_at":"2026-04-01T00:00:00Z","verdict":"imperfect","categories":["review-gate-bypass"]}
-{"schema_version":2,"kind":"audit","pr":2,"merged_at":"2026-04-15T00:00:00Z","fixes_patterns":["review-gate-bypass"]}' \
+  '{"schema_version":2,"kind":"implementation","pr":1,"merged_at":"2026-04-01T00:00:00Z","verdict":"imperfect","categories":["lenient-verdict"]}
+{"schema_version":2,"kind":"audit","pr":2,"merged_at":"2026-04-15T00:00:00Z","fixes_patterns":["lenient-verdict"]}' \
   '{"schema_version":1,"dismissed":{}}')
 assert_eq "occ then fix → status=fixed" \
   "fixed" \
-  "$(echo "$RESULT" | jq -r '.["review-gate-bypass"].status')"
+  "$(echo "$RESULT" | jq -r '.["lenient-verdict"].status')"
+
+# Successor-slug split (#129): each of the three slugs that replaced the removed
+# coarse review/gate slug aggregates as its own pattern, and the removed slug
+# never appears.
+RESULT=$(cp_run \
+  '{"schema_version":2,"kind":"implementation","pr":1,"merged_at":"2026-05-01T00:00:00Z","verdict":"imperfect","categories":["outstanding-reject"]}
+{"schema_version":2,"kind":"implementation","pr":2,"merged_at":"2026-05-02T00:00:00Z","verdict":"imperfect","categories":["lenient-verdict"]}
+{"schema_version":2,"kind":"implementation","pr":3,"merged_at":"2026-05-03T00:00:00Z","verdict":"imperfect","categories":["deferred-verification"]}' \
+  '{"schema_version":1,"dismissed":{}}')
+assert_eq "split slug outstanding-reject aggregates (count=1)" \
+  "1" "$(echo "$RESULT" | jq -r '.["outstanding-reject"].occurrence_count')"
+assert_eq "split slug lenient-verdict aggregates (count=1)" \
+  "1" "$(echo "$RESULT" | jq -r '.["lenient-verdict"].occurrence_count')"
+assert_eq "split slug deferred-verification aggregates (count=1)" \
+  "1" "$(echo "$RESULT" | jq -r '.["deferred-verification"].occurrence_count')"
+assert_eq "removed split slug never aggregates" \
+  "null" "$(echo "$RESULT" | jq -r '.["review-gate" + "-bypass"].occurrence_count')"
+
+# Boundary case: a gate-absent / human-authored PR (no review-related slug) maps to
+# NONE of the three successor slugs.
+RESULT=$(cp_run \
+  '{"schema_version":2,"kind":"implementation","pr":9,"merged_at":"2026-05-09T00:00:00Z","verdict":"imperfect","categories":["other"]}' \
+  '{"schema_version":1,"dismissed":{}}')
+assert_eq "gate-absent PR → no outstanding-reject pattern" \
+  "null" "$(echo "$RESULT" | jq -r '.["outstanding-reject"].occurrence_count')"
+assert_eq "gate-absent PR → no lenient-verdict pattern" \
+  "null" "$(echo "$RESULT" | jq -r '.["lenient-verdict"].occurrence_count')"
+assert_eq "gate-absent PR → no deferred-verification pattern" \
+  "null" "$(echo "$RESULT" | jq -r '.["deferred-verification"].occurrence_count')"
+
+# Lockstep guard (#129): NO tracked surface may reference the removed slug, except
+# CHANGELOG.md (append-only release history that records it by its then-name). A
+# repo-wide `git grep` auto-discovers every tracked surface, so this guard cannot
+# drift as vocab surfaces are added/renamed — unlike a hand-maintained path list,
+# which had already missed skills/retrospective-weekly/SKILL.md. Scope is git's
+# tracked content (working-tree tracked files + staged), so a reintroduction in an
+# as-yet-untracked new file is caught only once it is added — acceptable, since the
+# retrospective/implement flow commits its surfaces. The pattern is concatenated
+# from two literals so this guard itself does not contain the contiguous string
+# (which would self-match the git grep).
+RGB_PAT="review-gate""-bypass"
+# Single scan helper so the live guard AND its fail-closed contract test below
+# exercise the SAME rc-handling — not two copies. (An earlier version duplicated the
+# rc transform inline in the test, so a refactor of the live guard would have left
+# the test green while re-opening the fail-open hole; sharing one helper is what
+# actually delivers the refactor-resistance.) It echoes the matching file list on a
+# hit (git rc 0), empty on a clean no-match (rc 1 — the PASS case, safe under run.sh's
+# `set -u`, not `set -e`), or the fixed sentinel `<rgb-guard-errored>` on a real git
+# error (rc >1). `git -C "$root"` keeps git the only rc-bearing command: a failed
+# `cd "$root" && git grep` would short-circuit `&&` and leave rc 1 + empty stdout,
+# masquerading as a clean no-match and re-opening the fail-open hole one command
+# upstream — the very fail-open class this PR exists to close. On error it also prints
+# an rc-bearing breadcrumb to stderr so the cause survives independently of assert_eq's
+# value-echo (an infra error must not read as a real slug reintroduction).
+# rgb_classify is the pure rc→verdict transform, split out from the git call so it
+# can be driven against ANY rc — not just the rc=128 a nonexistent path happens to
+# produce. It is the single owner of the three-valued contract: empty on a clean
+# no-match (git rc 1 — the PASS case, safe under run.sh's `set -u`, not `set -e`),
+# the hits string on a match (rc 0), or the fixed sentinel `<rgb-guard-errored>` on
+# ANY git error (rc >1). The `-gt 1` threshold — not `-gt 2`, not `== 128` — is what
+# makes the smallest error rc (rc 2, distinct from no-match=1; git itself reports
+# fatal/usage as 128/129, but the predicate must catch every rc above 1) fail closed;
+# the boundary tests below pin that exact threshold so an off-by-one weakening turns
+# the suite red. On error it prints an rc-bearing stderr breadcrumb so the cause
+# survives independently of assert_eq's value-echo (an infra error must not read as a
+# real slug reintroduction).
+rgb_classify() {
+  local rc="$1" hits="$2"
+  if [ "$rc" -gt 1 ]; then
+    printf 'devflow: RGB lockstep guard could not run (git rc=%s) — guard did not run\n' "$rc" >&2
+    printf '<rgb-guard-errored>'
+    return 0
+  fi
+  printf '%s' "$hits"
+}
+rgb_scan() {
+  local root="$1" hits rc
+  # `git -C "$root"` keeps git the only rc-bearing command: a failed
+  # `cd "$root" && git grep` would short-circuit `&&` and leave rc 1 + empty stdout,
+  # masquerading as a clean no-match and re-opening the fail-open hole one command up.
+  hits="$(git -C "$root" grep -lF "$RGB_PAT" -- ':!CHANGELOG.md' 2>/dev/null)"; rc=$?
+  rgb_classify "$rc" "$hits"
+}
+# Live guard: NO tracked surface may reference the removed slug, except CHANGELOG.md
+# (append-only release history that records it by its then-name). A repo-wide
+# `git grep` auto-discovers every tracked surface, so the guard cannot drift as vocab
+# surfaces are added/renamed — unlike a hand-maintained path list, which had already
+# missed skills/retrospective-weekly/SKILL.md. Scope is git-tracked content (working-
+# tree tracked files + staged), so a reintroduction in an as-yet-untracked new file is
+# caught only once it is added — acceptable, since the retrospective/implement flow
+# commits its surfaces. RGB_PAT is split into two literals so this file does not
+# self-match the grep. A real reintroduction surfaces as the offending file list; an
+# infra error surfaces as `<rgb-guard-errored>` — both non-empty, both fail loud.
+assert_eq "no tracked surface references the removed split slug (CHANGELOG history excepted)" \
+  "" "$(rgb_scan "$LIB/..")"
+
+# Fail-closed contract test (#129): drive the SAME rgb_scan against a non-repo path
+# (git -C → rc 128) and assert it returns the exact error sentinel — not empty (a
+# silent PASS) and not a mere "non-empty" check (which a stray hit could also satisfy).
+# Because both this and the live guard call rgb_scan, reverting to `cd && git grep`
+# (the rc-1 masquerade) turns THIS assertion red. The probe path is PID-suffixed so it
+# cannot exist; stderr is muted here because the error is deliberate and expected (the
+# live guard above keeps stderr visible).
+assert_eq "RGB guard fails closed on a git error (returns the error sentinel, not a silent PASS)" \
+  "<rgb-guard-errored>" "$(rgb_scan "$LIB/../nonexistent-rgb-probe-$$" 2>/dev/null)"
+
+# Threshold boundary tests (#129): the contract test above only ever exercises rc 128,
+# so it pins "an errored git fails closed" but NOT the `-gt 1` THRESHOLD itself — a
+# weakening to `-gt 2` (so rc 2 falls through to the PASS path, re-opening fail-open on
+# the next git error code above no-match) would leave it green. Drive rgb_classify —
+# the same transform the live guard runs through rgb_scan — across every rc class so
+# the exact `[rc -gt 1]` predicate is pinned: rc 0 → the hits, rc 1 → empty (PASS), and
+# rc 2 (the smallest error rc the threshold must catch) and rc 128 → the sentinel.
+# Each row catches a different mutation: a `-gt 2` or `== 128` weakening turns the rc-2
+# row red (rc 2 wrongly passes), while an `-ne 1`-style widening turns the rc-0 row red
+# (a real hit wrongly classified as an error). rc 2 is a representative >1 value, not a
+# code `git grep` necessarily emits (it uses 0/1 for match/no-match and 128/129 for
+# fatal/usage); the point is the predicate, not the specific producer code. stderr
+# muted: the >1 rows print an expected breadcrumb.
+assert_eq "rgb_classify rc=0 (hit) → returns the offending file list" \
+  "skills/foo.md" "$(rgb_classify 0 "skills/foo.md" 2>/dev/null)"
+assert_eq "rgb_classify rc=1 (clean no-match) → empty (PASS)" \
+  "" "$(rgb_classify 1 "" 2>/dev/null)"
+assert_eq "rgb_classify rc=2 (smallest error rc) → sentinel (fails closed at the -gt 1 boundary)" \
+  "<rgb-guard-errored>" "$(rgb_classify 2 "" 2>/dev/null)"
+assert_eq "rgb_classify rc=128 (git fatal) → sentinel (fails closed)" \
+  "<rgb-guard-errored>" "$(rgb_classify 128 "" 2>/dev/null)"
+
+# End-to-end reintroduction test (#129): the live guard above only ever observes
+# rgb_scan returning empty (the real repo is clean) and the contract test only its
+# rc-128 error path — so rgb_scan's OWN `git grep` line (the `hits=…; rc=$?` seam, the
+# `-l` flag, the `:!CHANGELOG.md` pathspec) is never seen to produce a real positive
+# hit. Drive it end-to-end against a throwaway repo that genuinely contains the slug
+# and assert rgb_scan returns the offending filename (rc 0 → non-empty → the live guard
+# would fail loud). This pins the one path the unit-level rgb_classify rc=0 row cannot:
+# a regression in rgb_scan's git invocation (dropped `-l`, mis-scoped pathspec) that
+# silently stops matching. Use the file's own name as the probe so this file does not
+# self-match; the slug is assembled from two literals for the same reason.
+# Guard the setup so a failed `mktemp` (empty $RGB_E2E under `set -u`, not `set -e`)
+# can NEVER reach the `> "$RGB_E2E/probe.md"` redirect — an unguarded empty path would
+# resolve to `> "/probe.md"`, a stray root-relative write under a root/CI runner. The
+# guard verifies a real temp dir AND that git init/add succeeded before any redirect;
+# a setup failure records a DISTINCT assertion (so it doesn't masquerade as an rgb_scan
+# regression) and skips the block. Cleanup runs on every guarded exit of the block.
+if RGB_E2E="$(mktemp -d)" && [ -n "$RGB_E2E" ] && [ -d "$RGB_E2E" ] && git -C "$RGB_E2E" init -q; then
+  printf 'has the %s%s slug\n' "review-gate" "-bypass" > "$RGB_E2E/probe.md"
+  if git -C "$RGB_E2E" add probe.md; then
+    assert_eq "rgb_scan reports a real reintroduction in a tracked file (rc 0 → filename)" \
+      "probe.md" "$(rgb_scan "$RGB_E2E")"
+    # And confirm the CHANGELOG.md pathspec exception genuinely excludes a hit there.
+    printf 'historical %s%s reference\n' "review-gate" "-bypass" > "$RGB_E2E/CHANGELOG.md"
+    if git -C "$RGB_E2E" add CHANGELOG.md; then
+      assert_eq "rgb_scan still flags probe.md but NOT CHANGELOG.md (pathspec exception holds)" \
+        "probe.md" "$(rgb_scan "$RGB_E2E")"
+    else
+      assert_eq "rgb_scan e2e setup (git add CHANGELOG.md)" "ok" "setup failed — git add errored"
+    fi
+  else
+    assert_eq "rgb_scan e2e setup (git add probe.md)" "ok" "setup failed — git add errored"
+  fi
+  rm -rf "$RGB_E2E"
+else
+  assert_eq "rgb_scan e2e setup (mktemp + git init)" "ok" "setup failed — mktemp/git init errored"
+  [ -n "${RGB_E2E:-}" ] && [ -d "${RGB_E2E:-}" ] && rm -rf "$RGB_E2E"
+fi
+rm -rf "$RGB_E2E"
 
 # Fix then later occ → status "regressed"
 RESULT=$(cp_run \
@@ -2647,6 +2813,141 @@ assert_eq "gate #97: reflections non-empty → clean=false (all signals clean)" 
 assert_eq "gate #97: reflection reason names the signal" "workpad reflections present" \
   "$(echo "$BASE" | jq '.reflections=["friction note"]' | gate | jq -r .reason)"
 
+# ════════════════════════════════════════════════════════════════════════════
+echo "issue #126: --reflection-kind grouped Devflow Reflection rendering"
+# ════════════════════════════════════════════════════════════════════════════
+# The workpad.py rendering boundary (grouped Markdown from --reflection-kind) is
+# exercised exhaustively in lib/test/test_python_scripts.py (it drives
+# _apply_mutations directly with exact-Markdown asserts). Here we cover the OTHER
+# boundary: lib/fetch-pr-context.sh parse — the grouped shape must parse into
+# reflections[] (### sub-headings excluded, terminates at </details>), legacy flat
+# blocks parse unchanged, and the gate stays invariant — plus SKILL/docs pins.
+WP_PY="$LIB/../scripts/workpad.py"
+
+# ── fetch-pr-context.sh parse + gate invariance ──────────────────────────────
+F126="$(mktemp -d)"
+cat > "$F126/prview.json" <<'PV'
+{"number":900,"headRefName":"claude/issue-901-x","baseRefName":"main","headRefOid":"sha900","mergeCommit":{"oid":"m900"},"mergedAt":"2026-06-01T16:31:00Z","createdAt":"2026-06-01T07:00:00Z","author":{"login":"example-bot"},"title":"t","body":"Closes #901","additions":1,"deletions":0,"files":[{"path":"x.txt"}],"labels":[]}
+PV
+cat > "$F126/issue.json" <<'IJ'
+{"number":901,"title":"i","body":"b","labels":[],"comments":[]}
+IJ
+cat > "$F126/gh" <<'STUB'
+#!/usr/bin/env bash
+FX="${DEVFLOW_FX}"
+case "$*" in
+  *"repo view"*) echo "acme/example-repo" ;;
+  *"pr view"*) cat "$FX/prview.json" ;;
+  *"pr diff"*) echo 'diff --git a/x.txt b/x.txt' ;;
+  *"pulls/"*"/comments"*) echo '[]' ;;
+  *"pulls/"*"/reviews"*) echo '[]' ;;
+  *"pulls/"*"/commits"*) echo '[]' ;;
+  *"check-runs"*) echo '{"check_runs":[]}' ;;
+  *"issues/901/comments"*) cat "$FX/issuecomments.json" ;;
+  *"issues/900/comments"*) echo '[]' ;;
+  *"issues/"*"/comments"*) echo '[]' ;;
+  *"issues/901"*) cat "$FX/issue.json" ;;
+  *"commits/"*) echo '{"files":[]}' ;;
+  *) echo '[]' ;;
+esac
+STUB
+chmod +x "$F126/gh"
+
+# Grouped shape: four kind bullets across two ### sub-sections.
+cat > "$F126/workpad-grouped.md" <<'WPMD'
+<!-- devflow:workpad -->
+# DevFlow Workpad — Issue #901
+
+**Status:** 🎉 Complete
+
+## Progress
+- [x] **Setup**
+
+## Devflow Reflection
+<details>
+<summary>Devflow Reflection (click to expand)</summary>
+
+### ⚠️ Action required
+- ⛔ **Blocked:** could not reproduce
+- ⏭️ **Deferred:** part X to follow-up
+- ❗ **Dropped/Failed:** manifest group dropped
+
+### ℹ️ Notes
+- ℹ️ **Note:** subagent retried once
+</details>
+WPMD
+jq -Rs '[{user:{login:"example-bot"},body:.,created_at:"2026-06-01T10:00:00Z"}]' < "$F126/workpad-grouped.md" > "$F126/issuecomments.json"
+F126_OUT="$(DEVFLOW_FX="$F126" DEVFLOW_GH="$F126/gh" bash "$LIB/fetch-pr-context.sh" 900 2>/dev/null)"
+F126_CTX="$(cat "$F126_OUT")"
+assert_eq "#126 fetch: grouped shape → 4 kind bullets captured (### sub-headings excluded)" "4" \
+  "$(jq '.reflections | length' <<<"$F126_CTX")"
+assert_eq "#126 fetch: no captured reflection is a ### sub-heading" "0" \
+  "$(jq -r '.reflections[]' <<<"$F126_CTX" | grep -c '^###')"
+assert_eq "#126 fetch: first bullet keeps its glyph+label prefix intact" '⛔ **Blocked:** could not reproduce' \
+  "$(jq -r '.reflections[0]' <<<"$F126_CTX")"
+assert_eq "#126 gate: grouped shape with ≥1 bullet → clean=false (forces analysis)" "false" \
+  "$(jq -c -f "$LIB/cheap-gate.jq" < "$F126_OUT" | jq -r .clean)"
+
+# Legacy flat block (no kind prefix, no ### sub-headings) parses unchanged.
+cat > "$F126/workpad-legacy.md" <<'WPMD'
+<!-- devflow:workpad -->
+# DevFlow Workpad — Issue #901
+
+**Status:** 🎉 Complete
+
+## Devflow Reflection
+<details>
+<summary>Devflow Reflection (click to expand)</summary>
+
+- a flat legacy bullet
+- another flat bullet
+</details>
+WPMD
+jq -Rs '[{user:{login:"example-bot"},body:.,created_at:"2026-06-01T10:00:00Z"}]' < "$F126/workpad-legacy.md" > "$F126/issuecomments.json"
+F126_OUT2="$(DEVFLOW_FX="$F126" DEVFLOW_GH="$F126/gh" bash "$LIB/fetch-pr-context.sh" 900 2>/dev/null)"
+assert_eq "#126 fetch: legacy flat reflection block → 2 bullets, parsed unchanged" "2" \
+  "$(jq '.reflections | length' < "$F126_OUT2")"
+assert_eq "#126 gate: legacy flat block with ≥1 bullet → clean=false (gate invariant)" "false" \
+  "$(jq -c -f "$LIB/cheap-gate.jq" < "$F126_OUT2" | jq -r .clean)"
+
+# Empty reflection section → reflections == [] → gate stays clean for both shapes.
+cat > "$F126/workpad-empty.md" <<'WPMD'
+<!-- devflow:workpad -->
+# DevFlow Workpad — Issue #901
+
+**Status:** 🎉 Complete
+
+## Devflow Reflection
+<details>
+<summary>Devflow Reflection (click to expand)</summary>
+
+</details>
+WPMD
+jq -Rs '[{user:{login:"example-bot"},body:.,created_at:"2026-06-01T10:00:00Z"}]' < "$F126/workpad-empty.md" > "$F126/issuecomments.json"
+F126_OUT3="$(DEVFLOW_FX="$F126" DEVFLOW_GH="$F126/gh" bash "$LIB/fetch-pr-context.sh" 900 2>/dev/null)"
+assert_eq "#126 gate: empty reflection section → reflections == [] → clean=true" "true" \
+  "$(jq -c -f "$LIB/cheap-gate.jq" < "$F126_OUT3" | jq -r .clean)"
+rm -rf "$F126"
+
+# SKILL.md call-site pin: every line that uses the executable `--reflection `
+# flag must carry a --reflection-kind on that SAME line (the AC: every call-site
+# passes the matching kind). Exclude lines that mention the flag without invoking
+# it — the markdown doc-table row (content starts with `|`) and prose comment
+# lines (content starts with `#`). REFL_UNKINDED holds any offending call-site;
+# the assert demands it be empty. This actually enforces the AC — the old
+# `--reflection-kind count >= 1` check passed as long as ONE kind appeared
+# anywhere, so a new --reflection call-site added without a kind (silently
+# degrading to the `note` default) would have slipped through.
+REFL_UNKINDED="$(grep -n -- '--reflection ' "$LIB/../skills/implement/SKILL.md" \
+  | grep -vE '^[0-9]*:[[:space:]]*[|#]' \
+  | grep -v -- '--reflection-kind' || true)"
+assert_eq "#126 pin: workpad.py documents the --reflection-kind flag" "yes" \
+  "$(grep -q -- '--reflection-kind' "$WP_PY" && echo yes || echo no)"
+assert_eq "#126 pin: every --reflection call-site in implement/SKILL.md carries a --reflection-kind" "" \
+  "$REFL_UNKINDED"
+assert_eq "#126 pin: docs describe the grouped reflection structure + --reflection-kind" "yes" \
+  "$(grep -q -- '--reflection-kind' "$LIB/../docs/implement-skill.md" && grep -q -- '--reflection-kind' "$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md" && echo yes || echo no)"
+
 # ── SKILL.md / config contract pins (grep) ───────────────────────────────────
 assert_eq "#97 pin: ensure-label.sh exists" "yes" \
   "$([ -f "$LIB/../scripts/ensure-label.sh" ] && echo yes || echo no)"
@@ -2677,11 +2978,11 @@ assert_eq "clean-entry categories=[]"       "0"     "$(echo "$E" | jq '.categori
 assert_eq "clean-entry descriptors=[]"      "0"     "$(echo "$E" | jq '.descriptors|length')"
 assert_eq "clean-entry no theme_tags field" "true"  "$(echo "$E" | jq 'has("theme_tags") | not')"
 assert_eq "clean-entry signals carried"     "0"     "$(echo "$E" | jq -r .signals.post_bot_commits)"
-CTX_AUDIT='{"pr":99,"kind":"audit-intervention","pattern_tag":"review-gate-bypass","merged_at":"2026-05-09T00:00:00Z"}'
+CTX_AUDIT='{"pr":99,"kind":"audit-intervention","pattern_tag":"deferred-verification","merged_at":"2026-05-09T00:00:00Z"}'
 A="$(echo "$CTX_AUDIT" | jq -c -f "$LIB/audit-entry.jq")"
-assert_eq "audit-entry kind=audit"        "audit"              "$(echo "$A" | jq -r .kind)"
-assert_eq "audit-entry schema_version=2"  "2"                  "$(echo "$A" | jq -r .schema_version)"
-assert_eq "audit-entry fixes_patterns"    "review-gate-bypass" "$(echo "$A" | jq -r '.fixes_patterns[0]')"
+assert_eq "audit-entry kind=audit"        "audit"                 "$(echo "$A" | jq -r .kind)"
+assert_eq "audit-entry schema_version=2"  "2"                     "$(echo "$A" | jq -r .schema_version)"
+assert_eq "audit-entry fixes_patterns"    "deferred-verification" "$(echo "$A" | jq -r '.fixes_patterns[0]')"
 # actionable-patterns: incomplete-edit 2x imperfect, doc-accuracy 1x
 AP_TMP="$(mktemp -d)"
 printf '%s\n' \
@@ -5320,6 +5621,16 @@ echo "provision-auto-mode.sh (user-scope ~/.claude/settings.json auto-mode provi
 #    not-JSON}. (Issue #105, AC 1-5.)
 PAM="$LIB/../scripts/provision-auto-mode.sh"
 
+# Provider gate (issue #130): provision-auto-mode.sh --apply is a NO-OP on Anthropic-direct
+# (none of CLAUDE_CODE_USE_{BEDROCK,VERTEX,FOUNDRY} truthy) — the env var it would write only
+# affects third-party providers (Bedrock/Vertex/Foundry). Every existing --apply write /
+# idempotent / no-clobber / shape-matrix cell below exercises the path PAST that gate, so set a
+# third-party provider var for the whole block; the new gate cells (further down) override the
+# env per-case with `env -u …` / explicit non-truthy values. The no-`--apply` consent cells are
+# gate-independent (the gate is on the --apply path only) but inherit this harmlessly. We unset
+# the var at the end of the block so it cannot leak into later test blocks.
+export CLAUDE_CODE_USE_BEDROCK=1
+
 # AC 2 (consent gate): default (no --apply) writes NOTHING and surfaces the copy-paste line.
 PAM_NOCONSENT="$(mktemp -d)"; PAM_NC_SF="$PAM_NOCONSENT/settings.json"
 PAM_NC_OUT="$(bash "$PAM" "$PAM_NC_SF" 2>&1)"; PAM_NC_RC=$?
@@ -5640,9 +5951,123 @@ if [ "$(id -u)" -ne 0 ] && [ ! -w "$PAM_RODIR" ]; then
 fi
 chmod 755 "$PAM_RODIR"   # restore so rm -rf can clean up
 
+# ── Provider gate (issue #130): --apply is a NO-OP on Anthropic-direct. ──────────────
+# The env var provision-auto-mode.sh writes (CLAUDE_CODE_ENABLE_AUTO_MODE) has no effect on
+# the Anthropic API — auto mode is already available there — and only does anything on the
+# third-party providers (Bedrock/Vertex/Foundry). The gate is the FIRST check on the --apply
+# path, BEFORE any settings read/parse/shape-validation, so on Anthropic-direct the helper
+# writes nothing, leaves the file byte-for-byte unchanged, exits 0, and emits a specific
+# `devflow-automode:` breadcrumb naming the provider as the skip reason. (Issue #130, AC 1/3/4/5.)
+# The block-level `export CLAUDE_CODE_USE_BEDROCK=1` above is overridden per-case below: the
+# Anthropic-direct cells `env -u` all three vars; the third-party cells set exactly one truthy.
+PAM_NO3P=(env -u CLAUDE_CODE_USE_BEDROCK -u CLAUDE_CODE_USE_VERTEX -u CLAUDE_CODE_USE_FOUNDRY)
+
+# AC 3 (guarantee-class): Anthropic-direct --apply over a pre-existing file → byte-for-byte
+# unchanged, exit 0, provider-skip breadcrumb. This is the very path (Anthropic-direct) the
+# skill is supposed to have already skipped; the script backstop must fire here regardless.
+PAM_GATE_EXIST="$(mktemp -d)"; PAM_GE_SF="$PAM_GATE_EXIST/settings.json"
+printf '%s' '{"env":{"FOO":"bar"}}' > "$PAM_GE_SF"
+PAM_GE_BEFORE="$(cat "$PAM_GE_SF")"
+PAM_GE_OUT="$("${PAM_NO3P[@]}" bash "$PAM" --apply "$PAM_GE_SF" 2>&1)"; PAM_GE_RC=$?
+assert_eq "pam: gate Anthropic-direct --apply → exit 0 (skip is success, AC3)" "0" "$PAM_GE_RC"
+assert_eq "pam: gate Anthropic-direct --apply → file byte-for-byte unchanged (AC3)" \
+  "$PAM_GE_BEFORE" "$(cat "$PAM_GE_SF")"
+assert_eq "pam: gate Anthropic-direct --apply → did NOT write the auto-mode key (AC1/AC3)" "false" \
+  "$(jq -r '.env | has("CLAUDE_CODE_ENABLE_AUTO_MODE")' "$PAM_GE_SF" 2>/dev/null)"
+# Breadcrumb must be the gate's own skip-reason message — not the generic 'nothing changed' no-op
+# breadcrumb, which would also fire on the third-party idempotent path and so can't prove the GATE
+# fired. Pin the gate-UNIQUE phrase 'nothing to provision' (the bare word 'Anthropic' is weaker —
+# it could appear in a future non-gate breadcrumb; 'nothing to provision' is emitted only by the
+# gate skip path). The breadcrumb does name the provider (Anthropic API) too, as AC3 requires.
+assert_eq "pam: gate Anthropic-direct --apply → breadcrumb is the gate skip-reason (gate-unique phrase, AC3)" "yes" \
+  "$(printf '%s' "$PAM_GE_OUT" | grep -qi 'nothing to provision' && echo yes || echo no)"
+assert_eq "pam: gate Anthropic-direct --apply → breadcrumb names the provider (Anthropic) as skip reason (AC3)" "yes" \
+  "$(printf '%s' "$PAM_GE_OUT" | grep -qi 'anthropic' && echo yes || echo no)"
+
+# AC 3 (guarantee-class, missing target): Anthropic-direct --apply against a MISSING file →
+# no file created, exit 0, provider-skip breadcrumb.
+PAM_GATE_MISS="$(mktemp -d)"; PAM_GM_SF="$PAM_GATE_MISS/settings.json"
+PAM_GM_OUT="$("${PAM_NO3P[@]}" bash "$PAM" --apply "$PAM_GM_SF" 2>&1)"; PAM_GM_RC=$?
+assert_eq "pam: gate Anthropic-direct --apply missing target → exit 0 (AC3)" "0" "$PAM_GM_RC"
+assert_eq "pam: gate Anthropic-direct --apply missing target → no file created (AC1/AC3)" "no" \
+  "$([ -f "$PAM_GM_SF" ] && echo yes || echo no)"
+assert_eq "pam: gate Anthropic-direct --apply missing target → breadcrumb is the gate skip-reason (gate-unique phrase, AC3)" "yes" \
+  "$(printf '%s' "$PAM_GM_OUT" | grep -qi 'nothing to provision' && echo yes || echo no)"
+
+# AC 5 (gate is FIRST, precedes shape-validation): Anthropic-direct --apply against a MALFORMED
+# settings file → exit 0 (the gate short-circuits BEFORE the parse/shape check that would exit 2
+# on the third-party path), file unchanged. This is the strongest proof the gate precedes the
+# settings read: the same malformed input that exits 2 under BEDROCK=1 (the malformed cell above)
+# exits 0 here purely because the provider gate ran first. Mutation: move the gate AFTER the
+# settings read and this cell goes RED (exit 2 leaks through on Anthropic-direct).
+PAM_GATE_BAD="$(mktemp -d)"; PAM_GB_SF="$PAM_GATE_BAD/settings.json"
+printf '%s' '{ not valid json' > "$PAM_GB_SF"
+PAM_GB_OUT="$("${PAM_NO3P[@]}" bash "$PAM" --apply "$PAM_GB_SF" 2>&1)"; PAM_GB_RC=$?
+assert_eq "pam: gate precedes shape-validation → malformed file exits 0 on Anthropic-direct (AC5)" "0" "$PAM_GB_RC"
+assert_eq "pam: gate precedes shape-validation → malformed file left unchanged (AC5)" '{ not valid json' \
+  "$(cat "$PAM_GB_SF")"
+
+# AC 4 (non-truthy → Anthropic-direct): a third-party var set to a non-truthy value is treated as
+# off → the step is skipped (fresh file not created, exit 0). Covers the two degenerate values
+# ("" and "0") AND an arbitrary non-"1"/non-"true" string ("yes") — is_truthy's catch-all maps
+# *any* other value to off ("any other value is OFF" per the helper's own contract), so a
+# regression that widened the truthy predicate (e.g. a glob, or adding yes/on) would provision a
+# user-global write where it must not. Mutation: broaden is_truthy's case arm and the "yes" cell
+# goes RED (it would write the key instead of skipping).
+for _nt in "" "0" "yes"; do
+  PAM_NT="$(mktemp -d)"; PAM_NT_SF="$PAM_NT/settings.json"
+  PAM_NT_OUT="$("${PAM_NO3P[@]}" CLAUDE_CODE_USE_BEDROCK="$_nt" bash "$PAM" --apply "$PAM_NT_SF" 2>&1)"; PAM_NT_RC=$?
+  assert_eq "pam: gate BEDROCK='$_nt' (non-truthy) → treated as Anthropic-direct, exit 0 (AC4)" "0" "$PAM_NT_RC"
+  assert_eq "pam: gate BEDROCK='$_nt' (non-truthy) → step skipped, no file created (AC4)" "no" \
+    "$([ -f "$PAM_NT_SF" ] && echo yes || echo no)"
+  assert_eq "pam: gate BEDROCK='$_nt' (non-truthy) → breadcrumb is the gate skip-reason (gate-unique phrase, AC4)" "yes" \
+    "$(printf '%s' "$PAM_NT_OUT" | grep -qi 'nothing to provision' && echo yes || echo no)"
+  rm -rf "$PAM_NT"
+done
+
+# AC 2 + AC 4 (truthy → third-party runs): each of the three provider vars, set truthy in
+# isolation, makes the step run exactly as today (fresh file → key written, exit 0). Covers
+# the "1", lowercase "true", AND mixed/upper-case "TRUE" honored values (is_truthy lowercases
+# via `tr`, so it accepts `true`/`TRUE` case-insensitively by design — a script-local defensive
+# superset of the `1` Claude Code's docs enable these with), and proves all three vars are
+# checked (not just BEDROCK). Mutation: drop the `tr` lowercasing in
+# is_truthy and the "TRUE" cell goes RED (a real third-party user setting TRUE would be skipped).
+for _spec in "CLAUDE_CODE_USE_BEDROCK=1" "CLAUDE_CODE_USE_VERTEX=1" "CLAUDE_CODE_USE_FOUNDRY=1" "CLAUDE_CODE_USE_VERTEX=true" "CLAUDE_CODE_USE_BEDROCK=TRUE"; do
+  PAM_3P="$(mktemp -d)"; PAM_3P_SF="$PAM_3P/settings.json"
+  PAM_3P_OUT="$("${PAM_NO3P[@]}" "env" "$_spec" bash "$PAM" --apply "$PAM_3P_SF" 2>&1)"; PAM_3P_RC=$?
+  assert_eq "pam: gate $_spec (truthy) → third-party, exit 0 (AC2/AC4)" "0" "$PAM_3P_RC"
+  assert_eq "pam: gate $_spec (truthy) → step runs, auto-mode key written (AC2/AC4)" "1" \
+    "$(jq -r '.env.CLAUDE_CODE_ENABLE_AUTO_MODE' "$PAM_3P_SF" 2>/dev/null)"
+  assert_eq "pam: gate $_spec (truthy) → breadcrumb says 'selectable' (today's behavior, AC2)" "yes" \
+    "$(printf '%s' "$PAM_3P_OUT" | grep -qi 'selectable' && echo yes || echo no)"
+  rm -rf "$PAM_3P"
+done
+
+# AC 4 ("any one of the three set truthy" → third-party): a truthy var alongside non-truthy
+# siblings still routes to third-party (the step runs). Proves the OR, not an AND, over the three.
+PAM_MIX="$(mktemp -d)"; PAM_MIX_SF="$PAM_MIX/settings.json"
+PAM_MIX_OUT="$("${PAM_NO3P[@]}" CLAUDE_CODE_USE_BEDROCK=0 CLAUDE_CODE_USE_VERTEX="" CLAUDE_CODE_USE_FOUNDRY=1 bash "$PAM" --apply "$PAM_MIX_SF" 2>&1)"; PAM_MIX_RC=$?
+assert_eq "pam: gate one-of-three truthy (FOUNDRY=1, others off) → third-party, exit 0 (AC4)" "0" "$PAM_MIX_RC"
+assert_eq "pam: gate one-of-three truthy → step runs, auto-mode key written (AC4)" "1" \
+  "$(jq -r '.env.CLAUDE_CODE_ENABLE_AUTO_MODE' "$PAM_MIX_SF" 2>/dev/null)"
+rm -rf "$PAM_MIX"
+
+# AC 6 / regression: the no-`--apply` consent path is gate-INDEPENDENT (the gate is on the
+# --apply path only). On Anthropic-direct it still prints the copy-paste line and writes nothing.
+PAM_GATE_NC="$(mktemp -d)"; PAM_GNC_SF="$PAM_GATE_NC/settings.json"
+PAM_GNC_OUT="$("${PAM_NO3P[@]}" bash "$PAM" "$PAM_GNC_SF" 2>&1)"; PAM_GNC_RC=$?
+assert_eq "pam: gate Anthropic-direct, no --apply → exit 0 (consent path unaffected by gate, AC6)" "0" "$PAM_GNC_RC"
+assert_eq "pam: gate Anthropic-direct, no --apply → still prints the copy-paste env var (AC6)" "yes" \
+  "$(printf '%s' "$PAM_GNC_OUT" | grep -q 'CLAUDE_CODE_ENABLE_AUTO_MODE' && echo yes || echo no)"
+assert_eq "pam: gate Anthropic-direct, no --apply → file NOT created (AC6)" "no" \
+  "$([ -f "$PAM_GNC_SF" ] && echo yes || echo no)"
+
+unset CLAUDE_CODE_USE_BEDROCK   # don't leak the provider var into later test blocks
+
 rm -rf "$PAM_NOCONSENT" "$PAM_NCEXIST" "$PAM_FRESH" "$PAM_ZERO" "$PAM_NONONE" "$PAM_NUM1" "$PAM_KEEP" "$PAM_IDEM" \
        "$PAM_BAD" "$PAM_ENVSTR" "$PAM_ENVNULL" "$PAM_ARR" "$PAM_SCALAR" "$PAM_EMPTY" "$PAM_HOME" \
-       "$PAM_WS" "$PAM_UNREAD" "$PAM_RODIR"
+       "$PAM_WS" "$PAM_UNREAD" "$PAM_RODIR" \
+       "$PAM_GATE_EXIST" "$PAM_GATE_MISS" "$PAM_GATE_BAD" "$PAM_GATE_NC"
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.

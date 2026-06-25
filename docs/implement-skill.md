@@ -8,7 +8,7 @@ review because nothing is *syntactically* broken — the affected lines still co
 they are only *semantically* stale. This doc is the internal-docs counterpart of that section: it
 records *why* each sweep exists so the skill text can stay terse.
 
-A **"Sweep selection (run first)"** preamble in the skill indexes which of these sweeps a given diff's shape warrants — so an add-only diff runs just the four always-on sweeps (2.3.3/2.3.4/2.3.5/2.3.6) instead of consciously dispatching the deletion/contract sweeps as no-ops. The index is **fail-safe**: each sweep's own heading (the *Triggers on* column below) stays authoritative, so a drifted or incomplete index can only over-select, never skip a warranted sweep.
+A **"Sweep selection (run first)"** preamble in the skill indexes which of these sweeps a given diff's shape warrants — so an add-only diff runs just the five always-on sweeps (2.3.3/2.3.4/2.3.4a/2.3.5/2.3.6) instead of consciously dispatching the deletion/contract sweeps as no-ops. The index is **fail-safe**: each sweep's own heading (the *Triggers on* column below) stays authoritative, so a drifted or incomplete index can only over-select, never skip a warranted sweep.
 
 ## The sweeps
 
@@ -20,6 +20,7 @@ A **"Sweep selection (run first)"** preamble in the skill indexes which of these
 | 2.3.2 Stranded-dependents | a **deletion** of a method, file, route, or page | references *outside* the diff the deletion stripped of purpose (callerless public methods, dead args, surviving inbound links) |
 | 2.3.3 Convention-compliance | any code the diff **added or modified** | `CLAUDE.md` convention violations in touched code |
 | 2.3.4 Boundary-assumption | any diff that **depends on** a fact about something it does not own | claims about a dependency version, the supported runtime, a sibling producer's output, or the real host that were asserted from memory instead of verified |
+| 2.3.4a Self-authored-claim reconciliation | any diff that **authors** a behavioral claim in prose — internal/external docs it edits, or code comments it adds/changes | a sentence or comment that asserts what the shipped code does but contradicts the actual code path (including the diff's *own* new code, which 2.3.4 carves out) — caught by tracing each authored claim to the code, following dispatch into pre-existing helpers the diff calls |
 | 2.3.5 Simplification & Efficiency | any code the diff **added or modified** | avoidable complexity (redundant/derivable state, copy-paste variation, deep nesting, dead code) and wasted work (redundant I/O or computation, needless sequential ops, hot-path/startup cost) that only show up once the change is assembled |
 | 2.3.6 Error-handling & silent-failure | any code the diff **added or modified** | silent failures — swallowed or over-broadly-caught errors, unjustified or fail-open fallbacks, mock/stub leaks, and generic/misdirected breadcrumbs — that ship clean because the happy path works and only fire on an input the tests don't exercise |
 
@@ -70,7 +71,50 @@ The *why*: these bugs ship clean and pass the author's own tests — because the
 wrong assumption — so a green run is not confirmation, and a test assertion *about* a boundary is
 itself an unverified claim. A boundary that genuinely cannot be verified in-environment is never
 asserted as true: it is recorded with a `--reflection` note and, only when a specific acceptance
-criterion's verification depends on it, retagged `(post-merge)`.
+criterion's verification depends on it, retagged `(post-merge)` — and that retag is itself gated (see
+*Acceptance-criteria gate* below): an unverifiable external boundary is the one genuinely-live case the
+gate accepts, never a runnable-but-blocked or self-claim-confirming criterion.
+
+## Self-authored-claim sweep (2.3.4a)
+
+2.3.4a is the enforced twin of 2.3.4 on the *output* side. 2.3.4 verifies the facts the diff **depends
+on** across boundaries it doesn't own; 2.3.4a verifies the behavioral claims the diff **authors** — the
+sentences it writes into internal docs, external docs, and code comments — against what the shipped code
+actually does. The trigger is the authored prose, not the code's boundaries, and that is why it is a
+separate sweep: 2.3.4 explicitly carves out claims about *code defined in the same diff*, so a comment
+that misdescribes the diff's own new function, or a doc sentence the diff adds that overstates a
+guarantee, is precisely the blind spot 2.3.4 leaves and 2.3.4a closes. These contradictions ship clean —
+the prose reads plausibly, the code compiles, and the author's tests assert the prose's *intent* rather
+than the code's *behavior* — so the engine reconciles every authored claim before commit: it traces each
+claim to the actual code path (following dispatch into pre-existing helpers the diff calls) and, on any
+divergence, **the code is the fact** — it fixes the code or rewrites the claim, and never commits the
+unreconciled pair. The **PR body** is reconciled the same way in Phase 4.2, where the body is authored
+(it does not exist at commit time).
+
+## Acceptance-criteria gate: the gated `(post-merge)` tag (Phase 3.4)
+
+The Phase 3.4 gate requires every **non-post-merge** acceptance criterion to be verified before the run
+advances. A `(post-merge)` tag exempts a criterion from blocking, so the gate enforces — as engine
+behavior, not advisory prose — exactly **when** that tag is permitted: **only when the criterion
+genuinely requires a runtime environment that does not exist during the implement run** (a live deploy
+target, a real third-party endpoint, a production data path). The observable test is whether the
+verification could ever run on the orchestrator host given the right tools; if it could, it is not
+post-merge. Two cases are therefore never eligible and the gate refuses the tag for them:
+
+- **Runnable-but-blocked (local tooling/environment gap)** — a criterion verifiable on this host but
+  blocked right now by a denied command, a missing build tool, an un-spawnable helper, or a failed
+  restore. A tooling gap is not a runtime-environment gap; it takes the existing **`Blocked`** escalation
+  path (human handoff), never a silent post-merge pass. (A genuine permission/sandbox denial of the *test
+  suite itself* is a distinct mechanism — the auditable, workpad-recorded skip to the CI `lib + python
+  tests` gate per `CLAUDE.md`; it does not tick the AC.)
+- **Confirmation of a self-authored claim** — a criterion whose purpose is to confirm a behavioral claim
+  the PR already asserts as true. It is runnable pre-merge by construction (the claim is about the shipped
+  diff), so deferring it would defer the one check that could falsify the claim; the gate refuses the tag
+  regardless of stated reason.
+
+This is the gate enforcing "verified before merge" rather than trusting the run's narrative: a local
+tooling gap can no longer be laundered into a post-merge pass, and a self-claim confirmation can no
+longer be deferred past the one test that would catch it.
 
 ## Phase 4.3 finalize: publish vs. draft (`implement_pr_state`)
 
@@ -93,6 +137,23 @@ The publish step is gated by a per-consumer config key, **`devflow_implement.imp
 **Downstream consequence of `draft`.** Publishing a PR is what fires the rest of the pipeline: the cloud review (`devflow-review.yml` triggers on the `ready_for_review` event) and CI's `ready_for_review` listener both key off the draft→ready transition. Choosing `draft` therefore *intentionally* suppresses those for that run until a human publishes the PR — this is the documented trade-off a consumer accepts, not a bug to be fixed. It lets maintainers of repos that adopt DevFlow keep bot-completed PRs out of the ready-for-review queue and publish them on their own cadence (after a manual look, on a release boundary, or to avoid auto-notifying reviewers).
 
 The gate lives once in `skills/implement/SKILL.md` Phase 4.3 — the skill body is shared by the local and cloud `/devflow:implement` paths, and both read the same `config.json` via `config-get.sh`, so no workflow change is needed and the logic is never forked.
+
+## `## Devflow Reflection`: grouped-by-kind rendering (`--reflection-kind`)
+
+Reflection bullets are grouped by **kind** so a human triaging a DevFlow PR/issue sees the items that need follow-up separated from purely informational notes, without expanding and reading a flat list. `scripts/workpad.py update` takes a `--reflection-kind {blocked|deferred|dropped-failed|note}` flag that applies to that call's `--reflection` bullet(s); the helper — the single chokepoint every reflection flows through — owns the glyph, bold label, and sub-section placement, so the structure holds regardless of how the orchestrator phrases the text.
+
+| Kind | Glyph + label | Sub-section |
+|---|---|---|
+| `blocked` | `⛔ **Blocked:**` | `### ⚠️ Action required` |
+| `deferred` | `⏭️ **Deferred:**` | `### ⚠️ Action required` |
+| `dropped-failed` | `❗ **Dropped/Failed:**` | `### ⚠️ Action required` |
+| `note` (default when omitted) | `ℹ️ **Note:**` | `### ℹ️ Notes` |
+
+Both sub-sections live inside the existing `## Devflow Reflection` `<details>` block. Mechanics, baked into the helper:
+
+- A sub-heading is emitted **only** when its group has ≥1 bullet (an empty group produces no heading); a second bullet of an existing kind nests under the existing heading without duplicating it; appended content stays before `</details>`.
+- Sub-headings are `### ` (level-3), **never** `## ` — `lib/fetch-pr-context.sh` terminates the reflection parse at the first `## ` heading, so a level-2 sub-heading would truncate `reflections[]`. The parser captures every kind bullet (glyph + label prefix included — useful signal for the retrospective LLM, irrelevant to `cheap-gate.jq`'s non-empty check) and excludes the `### ` headings, for both the new grouped shape and a legacy flat block. The gate is unchanged: any run that left ≥1 reflection bullet is forced into LLM analysis.
+- `--reflection-kind` defaults to `note`, so un-migrated call-sites degrade to the Notes sub-section — never to Action required. A single kind applies to every `--reflection` in the call, so the orchestrator emits different kinds in separate `update` calls (this is why the Phase 4.3 `publish_failed` `dropped-failed` reflection is its own call, separate from the `note`-kind finalize). This mirrors `workpad.py`'s existing helper-owns-the-rendering-token idiom (`--status` derives and prepends the status glyph; `--note` nests under the right `## Progress` phase).
 
 ## Phase 4.0 / 4.0.5 deferred-issue labels (`deferred.labels`)
 
