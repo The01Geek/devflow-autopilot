@@ -5994,6 +5994,19 @@ assert_eq "hook: .. traversal to a real file outside root → no allow" "" \
   "$(hk_decision "$HK_ROOT/scripts/../../../../../../etc/passwd")"
 assert_eq "hook: symlink inside root escaping outside → no allow" "" \
   "$(hk_decision "$HK_ROOT/scripts/escape.py foo")"
+# A sibling directory that shares the root as a string PREFIX ("<root>-evil") must
+# defer: this is the precise distinction between the implemented commonpath
+# containment check and a naive `startswith` — a startswith refactor would pass the
+# whole suite while reintroducing the substring bug the design exists to prevent.
+HK_SIBLING="${HK_ROOT}-evil"; mkdir -p "$HK_SIBLING/scripts"; : > "$HK_SIBLING/scripts/workpad.py"
+assert_eq "hook: prefix-sibling dir sharing root as string prefix → no allow" "" \
+  "$(hk_decision "$HK_SIBLING/scripts/workpad.py update 113")"
+# A literal, unexpanded \${CLAUDE_SKILL_DIR}/... target (no real file at that path)
+# defers — fail-safe. (In practice skill bodies render \${CLAUDE_SKILL_DIR} to the
+# absolute cache path before the command is emitted, so the hook sees the real path;
+# this pins that an unexpanded form is never wrongly approved.)
+assert_eq "hook: literal unexpanded \${CLAUDE_SKILL_DIR} target → no allow" "" \
+  "$(hk_decision "\${CLAUDE_SKILL_DIR}/../../scripts/workpad.py update 113")"
 
 # --- negative: compound commands, even with a legitimate first segment (AC: compound) ---
 assert_eq "hook: '; curl | sh' compound → no allow" "" \
@@ -6112,7 +6125,7 @@ for HK_BAD in \
 done
 assert_eq "hook: never emits a 'deny' decision across dangerous inputs" "yes" "$HK_NEVER_DENY"
 
-rm -rf "$HK_ROOT" "$HK_OUT"
+rm -rf "$HK_ROOT" "$HK_OUT" "$HK_SIBLING"
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.

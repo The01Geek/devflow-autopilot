@@ -26,6 +26,14 @@ command substitution it cannot change *which* program runs, and the program
 token is independently containment-checked — so it is deliberately allowed
 through (legitimate helper calls carry ``$ISSUE_NUMBER``-style arguments).
 
+The grant covers only *which program runs* (a containment-checked file under the
+install dir); it passes that program's *arguments* through unchecked. That is safe
+because the single-simple-invocation gate above admits no separator/substitution to
+ride along, and the approved targets are DevFlow's own vetted helpers — it rests on
+the invariant that **no bundled helper may ``eval``/``exec``/``source`` an
+attacker-influenceable argument**. A future helper that did so would turn an
+approved argument into a vector; keep that invariant when adding helpers.
+
 For every other command it prints nothing, leaving the normal permission flow
 untouched. It **never** emits ``deny`` and **always** exits 0: a permission hook
 that errored or denied would degrade *every* Bash call, not just helper ones, so
