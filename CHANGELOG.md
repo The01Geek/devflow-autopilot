@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.9] — 2026-06-24
+
+### Changed
+- **`/devflow:init`'s auto-mode provisioning step now runs only on third-party providers (Bedrock/Vertex/Foundry) and is skipped on Anthropic-direct.** `env.CLAUDE_CODE_ENABLE_AUTO_MODE` has no effect on the Anthropic API — `auto` mode is already available there by default — so provisioning it for the majority of adopters was a no-op user-global `~/.claude/settings.json` write paired with a misleading "made `auto` selectable" claim. The gate is enforced in **two layers** so correctness never depends on the skill following instructions: (1) `scripts/provision-auto-mode.sh` gains a deterministic provider gate as the **first** check on the `--apply` path — before any settings-file read/parse/shape-validation — that, on Anthropic-direct, writes nothing, leaves any existing file byte-for-byte unchanged, exits 0, and emits a specific `devflow-automode:` breadcrumb naming the provider as the skip reason; (2) `skills/init/SKILL.md`'s auto-mode step gains a provider pre-check that silently skips the consent prompt and the helper on Anthropic-direct. Provider is read from the documented Claude Code env vars (`CLAUDE_CODE_USE_BEDROCK`/`CLAUDE_CODE_USE_VERTEX`/`CLAUDE_CODE_USE_FOUNDRY`), third-party iff one is truthy (the docs enable these with `1`; the backstop also accepts `true` defensively, and treats empty/`0`/anything else as off) — never from `.devflow/config.json`. The third-party path is unchanged (consent → `--apply` deep-merge, no-clobber of a deliberate `"0"`, idempotent, atomic, fail-closed). New provider-gate coverage in `lib/test/run.sh`. (#137, closes #130)
+
 ## [2.8.8] — 2026-06-24
 
 ### Changed
