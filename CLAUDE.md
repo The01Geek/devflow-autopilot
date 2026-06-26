@@ -22,7 +22,7 @@ CI (`.github/workflows/ci.yml`) runs the same suite + lint on every PR. The **re
 ## Architecture
 
 - `skills/` — one `SKILL.md` per command (`/devflow:implement`, `/devflow:review`, `/devflow:review-and-fix`, the `/devflow:docs` family, `/devflow:create-issue`, `/devflow:retrospective-weekly`, …).
-- `agents/` — review-engine subagents: `checklist-generator` (opus), `checklist-deduper` (sonnet), `checklist-verifier` (sonnet).
+- `agents/` — first-party subagents: the review-engine trio `checklist-generator` (opus), `checklist-deduper` (sonnet), `checklist-verifier` (sonnet), plus `code-explorer` and `code-architect` (the `/devflow:implement` discovery/planning agents, vendored from Anthropic's feature-dev plugin under Apache-2.0 — see `LICENSES/feature-dev-LICENSE`).
 - `scripts/` — Python + shell CLIs (`workpad.py`, `config-get.sh`, `match-deferrals.py`, `file-deferrals.py`, `parse-acs.py`, `resolve-*-trigger.sh`, …).
 - `lib/` — retrospective-loop helpers (`*.sh`, `*.jq`), `preflight.sh`, `test/`.
 - `.github/` — optional cloud tier: workflows + composite actions (incl. `vendor-plugin`).

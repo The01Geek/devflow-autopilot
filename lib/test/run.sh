@@ -6115,9 +6115,24 @@ assert_eq "#139 no tracked surface references the namespaced feature-dev agent i
 # pathspec seam) is never seen to produce a real positive. Drive it against a token that
 # genuinely exists in a known file and assert it returns that file — so a regression in
 # the git invocation (a dropped `--`, a mis-scoped pathspec) that silently stops matching
-# turns this row red. Mirrors the #129 rgb_scan rc-0 e2e row for the shared seam.
+# turns this row red. This exercises tracked_scan's rc-0 hit path the way #129's e2e row
+# pins rgb_scan's — here via an existing tracked token rather than a throwaway temp repo.
 assert_eq "#139 tracked_scan returns the matching file on a real hit (pins the git-grep hit path)" \
   "lib/test/run.sh" "$(tracked_scan "$FDROOT" "rgb_classify" 'lib/test/run.sh')"
+
+# (1c) tracked_scan fail-closed contract test: (1)/(5) only ever observe the empty (clean
+# no-match) result, and (1b) only the hit path — so tracked_scan's OWN rc-capture seam
+# (its fresh `hits=$(…); rc=$?` at the helper, a separate copy from the #129 rgb_scan that
+# the #129 contract test at the rgb_scan block pins) is never exercised on the git-ERROR
+# path. Without this row a future regression of tracked_scan's rc capture (a command
+# inserted between the git call and `rc=$?`, or a revert to `cd && git grep`) would
+# misclassify a real git error as a clean no-match, leaving (1)/(5) silently green on
+# infra failure — the exact #62/#98 "assert fail-closed but never exercise the path"
+# trap. Drive tracked_scan against a non-repo path and assert the sentinel, mirroring the
+# rgb_scan fail-closed contract row. (PID-suffixed probe path cannot exist; stderr muted
+# because the git error is deliberate and expected.)
+assert_eq "#139 tracked_scan fails closed on a git error (returns the sentinel, not a silent PASS)" \
+  "<rgb-guard-errored>" "$(tracked_scan "$FDROOT/nonexistent-fd-probe-$$" "$FD_PAT" ':!.devflow/logs' 2>/dev/null)"
 
 # (2) Vendored-files-exist: both feature-dev agents now live first-party under agents/.
 assert_eq "#139 agents/code-explorer.md exists (vendored first-party)" \
@@ -6136,10 +6151,13 @@ for fdagent in code-explorer code-architect; do
     "yes" "$(grep -qF "subagent_type: devflow:$fdagent" "$FDROOT/skills/implement/SKILL.md" && echo yes || echo no)"
   assert_eq "#139 agents/$fdagent.md frontmatter declares name: $fdagent (dispatch target resolves)" \
     "yes" "$(grep -qE "^name: $fdagent\$" "$FDROOT/agents/$fdagent.md" && echo yes || echo no)"
-  # (2c) Agent-validity: `name:` resolving is a weaker proxy than "loadable agent". A
-  # mangled vendored file (dropped frontmatter delimiter, missing model:/tools:) would
-  # still pass the name grep yet fail to load as a usable subagent at runtime. Assert each
-  # vendored agent opens with a YAML frontmatter `---` and declares model: and tools:.
+  # (2c) Agent-validity structural markers: `name:` resolving alone does not prove the
+  # frontmatter is well-formed — a file that drops the opening `---` or its model:/tools:
+  # lines still passes the name grep. This row asserts the three structural markers the
+  # cheap-to-check failure modes hit: the opening frontmatter `---` (line 1) plus a top-
+  # level model: and tools: key. (It does NOT validate the closing `---` or full YAML
+  # well-formedness — a stronger "actually loadable at runtime" check than these greps
+  # give — but it catches the common mangle a name-only grep would wave through.)
   assert_eq "#139 agents/$fdagent.md opens with YAML frontmatter declaring model: and tools:" \
     "yes" "$(head -1 "$FDROOT/agents/$fdagent.md" | grep -qx -- '---' \
             && grep -qE '^model:[[:space:]]' "$FDROOT/agents/$fdagent.md" \
