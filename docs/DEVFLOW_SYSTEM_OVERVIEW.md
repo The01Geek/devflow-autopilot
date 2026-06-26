@@ -91,13 +91,12 @@ DevFlow is distributed as a **Claude Code plugin**. The repository is also its o
 - **Scripts** (`scripts/`, `lib/`), deterministic helpers in Bash, `jq`, and Python that do all the mechanical work (fetching context, computing patterns, gating, git/PR mechanics) so the LLM is only invoked for genuine judgment.
 - **Cloud workflows** (`.github/`), optional GitHub Actions that make DevFlow run autonomously on issue/PR events.
 
-It declares one **companion plugin** as a dependency, from Anthropic's official `claude-plugins-official` marketplace:
+It declares **zero companion-plugin dependencies** — every external asset the engine once dispatched is now a first-party DevFlow file, internalized as a hard fork across three seams:
 
-| Plugin | Role in DevFlow |
-|---|---|
-| `superpowers` | Provides the final-pass reviewer (`requesting-code-review`) plus brainstorming/TDD discipline and the `receiving-code-review` principles used when fixing findings. |
+- The five Phase-3 review agents (`code-reviewer`, `silent-failure-hunter`, `comment-analyzer`, `pr-test-analyzer`, `type-design-analyzer`) and the discovery/planning subagents `code-explorer` / `code-architect` are first-party agents under `agents/` (vendored from Anthropic's `pr-review-toolkit` and `feature-dev` plugins under Apache-2.0, retained at `LICENSES/pr-review-toolkit-LICENSE` and `LICENSES/feature-dev-LICENSE`), dispatched as `devflow:<name>` — so neither `pr-review-toolkit` nor `feature-dev` is a dependency.
+- The final-pass reviewer (`requesting-code-review`), the fix-loop `receiving-code-review` principles, and the `writing-skills` authoring discipline are first-party skills under `skills/` (vendored from the `superpowers` plugin under its MIT license — Jesse Vincent — retained at `LICENSES/superpowers-LICENSE`), dispatched/invoked as `devflow:<name>` — so `superpowers` is no longer a dependency either.
 
-The five Phase-3 review agents (`code-reviewer`, `silent-failure-hunter`, `comment-analyzer`, `pr-test-analyzer`, `type-design-analyzer`) were formerly provided by the `pr-review-toolkit` companion plugin; they are now **first-party DevFlow agents** under `agents/` (a hard fork vendored from Anthropic's pr-review-toolkit plugin under Apache-2.0, retained at `LICENSES/pr-review-toolkit-LICENSE`), dispatched as `devflow:<name>`, so `pr-review-toolkit` is no longer a dependency. Likewise the discovery/planning subagents `code-explorer` and `code-architect` are first-party (vendored from Anthropic's feature-dev plugin under Apache-2.0), so `feature-dev` is no longer a dependency.
+DevFlow owns all the vendored agents and skills as a hard fork, and may modify them from this point forward. With the `superpowers` seam internalized there are **no companion-plugin install dependencies left at all** — DevFlow installs and runs on its own.
 
 `/simplify` (used for self-review) is a **built-in** Claude Code skill, intentionally *not* a dependency.
 
@@ -292,7 +291,7 @@ All launched in a single message; **always re-run every fix-loop iteration** (th
 - `devflow:code-reviewer`
 - `devflow:silent-failure-hunter`
 - `devflow:comment-analyzer`
-- a general-purpose final-pass reviewer invoking `superpowers:requesting-code-review`
+- a general-purpose final-pass reviewer invoking the first-party `devflow:requesting-code-review` skill
 
 Two **gated** reviewers:
 - `devflow:type-design-analyzer` (only if `has_new_types`)
@@ -309,7 +308,7 @@ Two **gated** reviewers:
 The `devflow_review.agent_overrides` config maps any of the **nine** review subagents (or a `default`) to a `{model, effort}`. Because five of the nine are external plugins whose frontmatter DevFlow can't edit, and effort isn't a dispatch-time parameter, DevFlow materializes a per-run `--agents` JSON block at each dispatch (via `scripts/resolve-review-overrides.py`). Effort enum: `low/medium/high/xhigh/max`.
 
 ### The fix loop (`/devflow:review-and-fix`)
-- **Maximum 4 iterations.** Each iteration runs the full engine, then fixes findings one at a time (using `superpowers:receiving-code-review` principles), runs tests, commits (`fix:`), and continues.
+- **Maximum 4 iterations.** Each iteration runs the full engine, then fixes findings one at a time (using `devflow:receiving-code-review` principles), runs tests, commits (`fix:`), and continues.
 - **Pre-fix verification gate (Step 2.5):** single-source claims about external tools are **web-verified** (cap **5 WebFetches/iteration**), Confirmed → fix; Refuted → demote to advisory. This prevents the loop from "fixing" a hallucinated problem.
 - **Pushback tracking:** when a finding is skipped, it's tagged with a `skip_category` (e.g. `claim-quality`, `out-of-scope`, `already-tracked`). The same finding skipped twice → escalate and stop.
 - **Convergence check:** exits early when fixes are small and no new corroborated Critical/Important finding appears.

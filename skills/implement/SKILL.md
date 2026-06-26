@@ -669,8 +669,8 @@ Invoke the **Skill tool** with `skill: review-and-fix` and `args: "--push-each-i
 
 This runs the four-phase review engine in your context:
 1. **Verification checklist** — generates and verifies every dependency interaction, test-mock alignment, data format assumption, and API contract claim against actual source code
-2. **Existing review agents** — runs the first-party review agents (code-reviewer, silent-failure-hunter, comment-analyzer, pr-test-analyzer) and the superpowers final-pass reviewer in parallel
-3. **Automatic fix loop** — fixes findings using receiving-code-review principles, re-runs the engine, loops until APPROVE or the configured iteration cap (`devflow_review_and_fix.max_iterations`, default 5)
+2. **Existing review agents** — runs the first-party review agents (code-reviewer, silent-failure-hunter, comment-analyzer, pr-test-analyzer) and the first-party `devflow:requesting-code-review` final-pass reviewer in parallel
+3. **Automatic fix loop** — fixes findings using `devflow:receiving-code-review` principles, re-runs the engine, loops until APPROVE or the configured iteration cap (`devflow_review_and_fix.max_iterations`, default 5)
 
 Follow the skill's instructions. It handles evaluation, fixing, testing, and re-review internally.
 

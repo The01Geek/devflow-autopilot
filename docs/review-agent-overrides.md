@@ -31,8 +31,22 @@ the `devflow:` namespace. Their `agent_overrides` keys were renamed accordingly:
 If your `.devflow/config.json` keys `agent_overrides` on any old identifier, rename it to the new
 one. A stale old key is **not** an error — the resolver's unknown-key handling ignores it with a
 `::warning::` (it is simply no longer a known review-engine subagent), so the override silently
-stops applying until you rename it. The `superpowers:requesting-code-review` and
-`devflow:checklist-*` keys are unchanged.
+stops applying until you rename it. The `devflow:checklist-*` keys are unchanged.
+
+## Migration (v2.8.13): the final-pass reviewer key was renamed
+
+**Breaking config change.** The `superpowers` plugin's `requesting-code-review` skill — the Phase-3
+final-pass reviewer — was internalized as a first-party DevFlow skill (vendored under
+`skills/requesting-code-review/`, seam 3 of the #139 internalization), so its `agent_overrides` key
+was renamed to the `devflow:` namespace:
+
+| Old key (pre-2.8.13) | New key |
+|---|---|
+| `superpowers:requesting-code-review` | `devflow:requesting-code-review` |
+
+Same rename discipline as the v2.8.12 table above — a stale old key is not an error; the resolver
+ignores it with a `::warning::`, so the override silently stops applying until renamed. With this
+seam DevFlow has **zero** companion-plugin dependencies.
 
 ## The nine configurable identifiers
 
@@ -52,7 +66,7 @@ appear in `phase3_dispatched`:
 | `devflow:comment-analyzer` | 3 | Always-on. |
 | `devflow:type-design-analyzer` | 3 | Gated — only when the diff adds/changes types. |
 | `devflow:pr-test-analyzer` | 3 | Gated — only when the test-relevance predicate matches. |
-| `superpowers:requesting-code-review` | 3 | Final pass; dispatched as a `general-purpose` Task but keyed under this identifier. |
+| `devflow:requesting-code-review` | 3 | Final pass; a first-party skill dispatched as a `general-purpose` Task but keyed under this identifier. |
 
 Plus the special `default` key (below).
 
@@ -134,10 +148,10 @@ Each value optionally sets `model` and/or `effort`:
 
 ## Mechanism
 
-Eight of the nine subagents are now **first-party DevFlow agents** (the three `devflow:checklist-*`
-and the five vendored `devflow:` review agents); only `superpowers:requesting-code-review`
-(dispatched via `general-purpose`) remains an external plugin whose frontmatter DevFlow cannot edit.
-Even so, **effort is not a dispatch-time `Agent`/`Task` parameter, and per-run operator overrides
+All nine subagents are now **first-party DevFlow assets** (the three `devflow:checklist-*` and the
+five vendored `devflow:` review agents under `agents/`, plus the vendored `devflow:requesting-code-review`
+skill under `skills/`, dispatched via `general-purpose`).
+**effort is not a dispatch-time `Agent`/`Task` parameter, and per-run operator overrides
 must not require editing committed agent frontmatter** — both model and effort must therefore ride
 on a per-run `--agents` JSON block for every subagent. The engine resolves the overrides with
 `scripts/resolve-review-overrides.py` (which reads

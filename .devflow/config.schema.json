@@ -140,7 +140,7 @@
             "devflow:comment-analyzer": { "type": "object", "additionalProperties": false, "properties": { "model": { "type": "string" }, "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"] } } },
             "devflow:type-design-analyzer": { "type": "object", "additionalProperties": false, "properties": { "model": { "type": "string" }, "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"] } } },
             "devflow:pr-test-analyzer": { "type": "object", "additionalProperties": false, "properties": { "model": { "type": "string" }, "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"] } } },
-            "superpowers:requesting-code-review": { "type": "object", "additionalProperties": false, "properties": { "model": { "type": "string" }, "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"] } } }
+            "devflow:requesting-code-review": { "type": "object", "additionalProperties": false, "properties": { "model": { "type": "string" }, "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"] } } }
           }
         }
       }

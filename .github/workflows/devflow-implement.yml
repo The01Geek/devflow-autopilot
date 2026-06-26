@@ -364,7 +364,6 @@ jobs:
 
           plugins: |
             code-review@claude-plugins-official
-            superpowers@claude-plugins-official
             claude-md-management@claude-plugins-official
             devflow@devflow-marketplace
 

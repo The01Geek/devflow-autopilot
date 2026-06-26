@@ -349,10 +349,9 @@ jobs:
             https://github.com/anthropics/claude-plugins-official.git
             ./
 
-          # Install plugins so skills like /code-review, /superpowers:*, and /devflow:* are available
+          # Install plugins so skills like /code-review and /devflow:* are available
           plugins: |
             code-review@claude-plugins-official
-            superpowers@claude-plugins-official
             claude-md-management@claude-plugins-official
             devflow@devflow-marketplace
 

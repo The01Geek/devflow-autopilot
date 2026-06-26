@@ -71,7 +71,7 @@ KNOWN_AGENTS = (
     "devflow:comment-analyzer",
     "devflow:type-design-analyzer",
     "devflow:pr-test-analyzer",
-    "superpowers:requesting-code-review",
+    "devflow:requesting-code-review",
 )
 
 

@@ -1460,7 +1460,7 @@ assert_eq("resolve: KNOWN_AGENTS is the nine review-engine identifiers",
            "devflow:comment-analyzer",
            "devflow:type-design-analyzer",
            "devflow:pr-test-analyzer",
-           "superpowers:requesting-code-review"),
+           "devflow:requesting-code-review"),
           _rro.KNOWN_AGENTS)
 
 # Migration guard (#141): the old code-reviewer override key (the pre-rename, externally

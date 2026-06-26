@@ -302,11 +302,8 @@ Each pattern gets its **own `git worktree`** under `.devflow/tmp/wt-<slug>/`
 fighting over a single working tree. The expensive part (the drafting subagent)
 parallelizes; the cheap part (exclusion check → commit → push → PR) is done
 serially afterward, one worktree at a time. Your main checkout stays on `main`
-and untouched throughout.
-
-> `superpowers:using-git-worktrees` is available if you want its conventions,
-> but raw `git worktree` is enough here — these are short-lived, machine-owned
-> branches, not your personal workspace.
+and untouched throughout. Raw `git worktree` is enough here — these are
+short-lived, machine-owned branches, not a personal workspace.
 
 #### 8a — Create one worktree per pattern + gather occurrence bundles
 

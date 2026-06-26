@@ -4102,7 +4102,7 @@ ET_GATE="$(mktemp -d)"
 cat > "$ET_GATE/iter-1.json" <<'EOF'
 {"iter":1,"diff_profile":{"small_diff":false,"config_only":true,"has_new_types":false,"engine_self_modifying":true,"checklist_skipped":null},
 "checklist":[{"verification_mode":"lite","verdict":"PASS"}],
-"phase3_dispatched":["devflow:code-reviewer","devflow:silent-failure-hunter","devflow:comment-analyzer","superpowers:requesting-code-review"],
+"phase3_dispatched":["devflow:code-reviewer","devflow:silent-failure-hunter","devflow:comment-analyzer","devflow:requesting-code-review"],
 "phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":{"phase_3":{"calls":4,"tokens":40000,"wall_clock_s":120}}}
 EOF
 # iter-2: engine_self_modifying diff that adds testable code logic → pr-test-analyzer
@@ -4110,7 +4110,7 @@ EOF
 cat > "$ET_GATE/iter-2.json" <<'EOF'
 {"iter":2,"diff_profile":{"small_diff":false,"config_only":false,"has_new_types":false,"engine_self_modifying":true,"checklist_skipped":null},
 "checklist":[{"verification_mode":"agent","verdict":"PASS"}],
-"phase3_dispatched":["devflow:code-reviewer","devflow:silent-failure-hunter","devflow:comment-analyzer","superpowers:requesting-code-review","devflow:pr-test-analyzer"],
+"phase3_dispatched":["devflow:code-reviewer","devflow:silent-failure-hunter","devflow:comment-analyzer","devflow:requesting-code-review","devflow:pr-test-analyzer"],
 "phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":{"phase_3":{"calls":5,"tokens":52000,"wall_clock_s":160}}}
 EOF
 ET_GATE_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_GATE" --slug "pr-15" --mode record)"
@@ -6199,14 +6199,13 @@ for af in "$FDROOT"/agents/*.md; do
 done
 
 # (4) Manifest contract (mirrors issue AC): plugin.json `dependencies` no longer lists
-# feature-dev. Scoped-removal guard: superpowers is the SOLE remaining companion after
-# #141 internalized pr-review-toolkit; it is STILL declared so neither this seam nor a
-# botched edit over-removes it (superpowers leaves in seam 3). pr-review-toolkit's own
-# removal is asserted in the #141 block below.
+# feature-dev. (Formerly this also asserted superpowers was STILL declared — the seam-1/2
+# scoped-removal guard. Seam 3 / #142 removed superpowers, the last companion, so that row
+# is flipped to assert its removal; the full empty-deps contract is in the #142 block.)
 assert_eq "#139 plugin.json dependencies no longer lists feature-dev" \
   "0" "$(jq '[.dependencies[]? | select(.name == "feature-dev")] | length' "$FDROOT/.claude-plugin/plugin.json")"
-assert_eq "#139 plugin.json still lists superpowers (sole remaining companion, scoped removal)" \
-  "1" "$(jq '[.dependencies[]? | select(.name == "superpowers")] | length' "$FDROOT/.claude-plugin/plugin.json")"
+assert_eq "#142 plugin.json no longer lists superpowers (last companion removed in seam 3)" \
+  "0" "$(jq '[.dependencies[]? | select(.name == "superpowers")] | length' "$FDROOT/.claude-plugin/plugin.json")"
 
 # (5) Workflow contract: no cloud workflow installs the feature-dev companion anymore
 # (the engine now dispatches the first-party devflow:code-explorer/code-architect, so the
@@ -6216,14 +6215,14 @@ WF_FD="feature-""dev@claude-plugins-official"
 assert_eq "#139 no cloud workflow installs the feature-dev companion plugin" \
   "" "$(tracked_scan "$FDROOT" "$WF_FD" '.github/workflows')"
 
-# (5b) Workflow scoped-removal guard (the workflow-axis twin of the manifest guard in (4)):
-# the absence check in (5) alone cannot tell a precise feature-dev removal from a botched
-# edit that over-removed a still-needed companion's install line. Assert each cloud
-# workflow STILL installs superpowers (the sole remaining companion after #141), so an
-# over-broad edit that silently under-provisions the cloud tier turns this row red.
+# (5b) Workflow contract for the last companion: seam 3 / #142 removed superpowers from the
+# cloud install lists too (the engine now dispatches the first-party devflow:requesting-
+# code-review final pass). (Formerly the #139 over-removal guard that asserted superpowers
+# was STILL installed; flipped now that seam 3 removes it.) Assert NO cloud workflow installs
+# superpowers anymore — a botched edit that left it behind turns this row red.
 for wf in devflow devflow-implement devflow-runner; do
-  assert_eq "#139 .github/workflows/$wf.yml still installs superpowers (no over-removal)" \
-    "yes" "$(grep -qF 'superpowers@claude-plugins-official' "$FDROOT/.github/workflows/$wf.yml" && echo yes || echo no)"
+  assert_eq "#142 .github/workflows/$wf.yml no longer installs superpowers (last companion removed)" \
+    "no" "$(grep -qF 'superpowers@claude-plugins-official' "$FDROOT/.github/workflows/$wf.yml" && echo yes || echo no)"
 done
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -6331,6 +6330,126 @@ assert_eq "#141 docs/review-agent-overrides.md operative example uses the intern
 for d in DEVFLOW_SYSTEM_OVERVIEW.md shadow-review.md; do
   assert_eq "#141 docs/$d describes the internalized first-party review roster (devflow:code-reviewer present)" \
     "yes" "$(grep -qF 'devflow:code-reviewer' "$FDROOT/docs/$d" && echo yes || echo no)"
+done
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "superpowers internalization (#142)"
+# ────────────────────────────────────────────────────────────────────────────
+# Seam 3 (final) of #139: vendors the three superpowers SKILLS — requesting-code-review
+# (the review engine's general-purpose final-pass reviewer), receiving-code-review (the
+# fix-loop principles), writing-skills (the SKILL.md authoring discipline) — as first-party
+# DevFlow skills under skills/, rewires the requesting/receiving call-sites + the final-pass
+# override key to the devflow: namespace, retires the optional using-git-worktrees reference,
+# and removes the LAST companion dependency so DevFlow ships ZERO companion-plugin install
+# dependencies. Unlike #139/#141 (which vendored AGENTS under agents/), this seam vendors
+# SKILLS under skills/, and the upstream is MIT-licensed (Jesse Vincent), NOT Apache-2.0/
+# Anthropic. These assertions are the mechanical proof the internalization is COMPLETE; they
+# reuse the same fail-closed tracked_scan seam (the #129 rgb_classify rc-handling backs them).
+SP_SKILLS="requesting-code-review receiving-code-review writing-skills"
+
+# (1) Reference contract (AC4): NO operative surface may reference the old namespaced
+# identifier for the three internalized skills (the plugin-name + colon form). Excepted:
+# .devflow/logs (append-only audit scratch), CHANGELOG.md (historical entries + the #142
+# breaking-rename entry, which necessarily names the old override key), and (for the final-
+# pass key only) docs/review-agent-overrides.md (carries the old->new migration table) —
+# mirrors the #141 migration-doc exception. Patterns are split-literal so this run.sh never
+# self-matches its own grep, and the descriptions avoid the contiguous colon form for the
+# same reason (a description literal would itself be a tracked hit).
+SP_PAT_REQ="superpowers:""requesting-code-review"
+SP_PAT_REC="superpowers:""receiving-code-review"
+SP_PAT_WRI="superpowers:""writing-skills"
+assert_eq "#142 no operative surface references the old namespaced requesting-code-review id (logs/CHANGELOG/migration-doc excepted)" \
+  "" "$(tracked_scan "$FDROOT" "$SP_PAT_REQ" ':!.devflow/logs' ':!CHANGELOG.md' ':!docs/review-agent-overrides.md')"
+assert_eq "#142 no operative surface references the old namespaced receiving-code-review id (logs/CHANGELOG excepted)" \
+  "" "$(tracked_scan "$FDROOT" "$SP_PAT_REC" ':!.devflow/logs' ':!CHANGELOG.md')"
+assert_eq "#142 no operative surface references the old namespaced writing-skills id (logs/CHANGELOG excepted)" \
+  "" "$(tracked_scan "$FDROOT" "$SP_PAT_WRI" ':!.devflow/logs' ':!CHANGELOG.md')"
+
+# (2/2b/2c) Per-skill vendoring + structural validity. For each of the three skills the file
+# exists first-party under skills/<name>/SKILL.md; its frontmatter declares name: <name> (so
+# it resolves as devflow:<name>); and the frontmatter is well-formed (open + close ---, name:,
+# bounded to the head window so a body --- horizontal rule cannot inflate the closing-fence
+# count and mask a dropped closer). These are SKILLS, so no model:/tools: key is required.
+for sk in $SP_SKILLS; do
+  assert_eq "#142 skills/$sk/SKILL.md exists (vendored first-party)" \
+    "yes" "$([ -f "$FDROOT/skills/$sk/SKILL.md" ] && echo yes || echo no)"
+  assert_eq "#142 skills/$sk/SKILL.md frontmatter declares name: $sk (resolves as devflow:$sk)" \
+    "yes" "$(grep -qE "^name: $sk\$" "$FDROOT/skills/$sk/SKILL.md" && echo yes || echo no)"
+  assert_eq "#142 skills/$sk/SKILL.md has well-formed frontmatter (open+close ---, name:)" \
+    "yes" "$(head -1 "$FDROOT/skills/$sk/SKILL.md" | grep -qx -- '---' \
+            && [ "$(head -30 "$FDROOT/skills/$sk/SKILL.md" | grep -c '^---$')" -ge 2 ] \
+            && grep -qE '^name:[[:space:]]' "$FDROOT/skills/$sk/SKILL.md" && echo yes || echo no)"
+  # (3) Attribution contract (mirrors AC2): each vendored skill retains the upstream
+  # superpowers attribution marker AND the correct upstream author. superpowers is MIT
+  # (c) Jesse Vincent — NOT Anthropic/Apache-2.0 like #139/#141 — so this asserts that author.
+  assert_eq "#142 skills/$sk/SKILL.md carries the upstream superpowers MIT attribution marker" \
+    "yes" "$(grep -q 'Vendored from the superpowers plugin' "$FDROOT/skills/$sk/SKILL.md" \
+            && grep -q 'Jesse Vincent' "$FDROOT/skills/$sk/SKILL.md" && echo yes || echo no)"
+done
+
+# (2d) Dispatch-resolves call-sites (the load-bearing invariant the absence-grep only proxies
+# for): each internalized skill's devflow: identifier must appear at its actual call-site, and
+# the resolving skill file (asserted above) exists. Pinned positively so a DROPPED devflow: id
+# — invisible to (1)'s negative scan — turns these rows red (the #62/#98 unverified-assumption
+# trap). requesting-code-review: the engine invokes it + resolver/schema allowlist its override
+# key; receiving-code-review: the fix-loop applies its principles; writing-skills: CLAUDE.md.
+assert_eq "#142 review engine dispatches /devflow:requesting-code-review (final-pass call-site rewired)" \
+  "yes" "$(grep -qF '/devflow:requesting-code-review' "$FDROOT/skills/review/SKILL.md" && echo yes || echo no)"
+assert_eq "#142 resolver allowlists devflow:requesting-code-review (override key resolves)" \
+  "yes" "$(grep -qF '"devflow:requesting-code-review"' "$FDROOT/scripts/resolve-review-overrides.py" && echo yes || echo no)"
+assert_eq "#142 config schema declares the devflow:requesting-code-review override key" \
+  "yes" "$(grep -qF '"devflow:requesting-code-review"' "$FDROOT/.devflow/config.schema.json" && echo yes || echo no)"
+assert_eq "#142 fix-loop skill applies devflow:receiving-code-review principles (call-site rewired)" \
+  "yes" "$(grep -qF 'devflow:receiving-code-review' "$FDROOT/skills/review-and-fix/SKILL.md" && echo yes || echo no)"
+assert_eq "#142 CLAUDE.md references the internalized devflow:writing-skills convention" \
+  "yes" "$(grep -qF 'devflow:writing-skills' "$FDROOT/CLAUDE.md" && echo yes || echo no)"
+
+# (3b) Property-based vendoring invariant (the skills-tree twin of the #139 agents/*.md loop):
+# ANY file under the three vendored skill dirs carrying the `Vendored from the` marker must NOT
+# carry the first-party `2026 Daniel Radman` SPDX header — the license-preservation guarantee,
+# proved mechanically over EVERY vendored file incl. companions, not just SKILL.md. The vendored
+# skill paths are alphanumeric/hyphen (no spaces), so the unquoted find word-split is safe.
+for sf in $(find "$FDROOT/skills/requesting-code-review" "$FDROOT/skills/receiving-code-review" "$FDROOT/skills/writing-skills" -type f 2>/dev/null); do
+  grep -q 'Vendored from the' "$sf" || continue
+  assert_eq "#142 vendored skill file ${sf#"$FDROOT"/} carries no first-party 2026 Daniel Radman SPDX line" \
+    "no" "$(grep -q 'SPDX-FileCopyrightText: 2026 Daniel Radman' "$sf" && echo yes || echo no)"
+done
+assert_eq "#142 LICENSES/superpowers-LICENSE retains the upstream MIT license text + copyright" \
+  "yes" "$([ -f "$FDROOT/LICENSES/superpowers-LICENSE" ] \
+          && grep -q 'MIT License' "$FDROOT/LICENSES/superpowers-LICENSE" \
+          && grep -q 'Jesse Vincent' "$FDROOT/LICENSES/superpowers-LICENSE" && echo yes || echo no)"
+
+# (4) Manifest contract (mirrors AC5): with the last companion removed, plugin.json
+# `dependencies` is now EMPTY and marketplace.json's cross-marketplace allowlist is emptied —
+# DevFlow has ZERO companion-plugin install dependencies. (The per-name superpowers-absence
+# rows live in the flipped #139 (4)/(5b) guards above.)
+assert_eq "#142 plugin.json dependencies is now empty (zero companion-plugin dependencies)" \
+  "0" "$(jq '.dependencies | length' "$FDROOT/.claude-plugin/plugin.json")"
+assert_eq "#142 marketplace.json allowCrossMarketplaceDependenciesOn is now empty" \
+  "0" "$(jq '.allowCrossMarketplaceDependenciesOn | length' "$FDROOT/.claude-plugin/marketplace.json")"
+
+# (5) Workflow contract: no cloud workflow installs the superpowers companion anymore (the
+# aggregate twin of the per-workflow #142 (5b) loop above; shares the tracked_scan seam).
+WF_SP="superpowers""@claude-plugins-official"
+assert_eq "#142 no cloud workflow installs the superpowers companion plugin" \
+  "" "$(tracked_scan "$FDROOT" "$WF_SP" '.github/workflows')"
+
+# (6) using-git-worktrees retirement (AC6): the single using-git-worktrees reference is gone
+# from retrospective-weekly (the loop uses raw git worktree). using-git-worktrees is NOT
+# internalized, so this is the only assertion about it. Pattern split-literal to avoid self-match.
+SP_PAT_WT="superpowers:""using-git-worktrees"
+assert_eq "#142 retrospective-weekly no longer references the using-git-worktrees skill (retired for raw git worktree)" \
+  "no" "$(grep -qF "$SP_PAT_WT" "$FDROOT/skills/retrospective-weekly/SKILL.md" && echo yes || echo no)"
+
+# (7) Positive roster-doc rewire (AC8): the docs that describe the final-pass reviewer must
+# name the internalized devflow:requesting-code-review id — a negative scan (1) catches a
+# leftover OLD id but not a doc that DROPPED the mention. review-agent-overrides.md (excluded
+# from (1) for its migration table) needs this most.
+assert_eq "#142 docs/review-agent-overrides.md operative table uses the internalized devflow:requesting-code-review key" \
+  "yes" "$(grep -qF 'devflow:requesting-code-review' "$FDROOT/docs/review-agent-overrides.md" && echo yes || echo no)"
+for d in DEVFLOW_SYSTEM_OVERVIEW.md shadow-review.md; do
+  assert_eq "#142 docs/$d references the internalized devflow:requesting-code-review final-pass reviewer" \
+    "yes" "$(grep -qF 'devflow:requesting-code-review' "$FDROOT/docs/$d" && echo yes || echo no)"
 done
 
 # Tally the shell assertions from the results file (authoritative — includes the

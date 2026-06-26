@@ -91,7 +91,7 @@ A degraded pass must **never** clear a PR with a clean verdict. The guard is the
   not the loop's last-iter profile):
   - the four **always-on** agents — `devflow:code-reviewer`,
     `devflow:silent-failure-hunter`, `devflow:comment-analyzer`,
-    `superpowers:requesting-code-review` — unconditionally; **plus**
+    `devflow:requesting-code-review` — unconditionally; **plus**
   - `devflow:type-design-analyzer` iff `has_new_types` is true, and
     `devflow:pr-test-analyzer` iff the test-relevance predicate matches, per
     `/devflow:review`'s Phase 3.1 gates.
@@ -100,11 +100,12 @@ A degraded pass must **never** clear a PR with a clean verdict. The guard is the
   it — so the expected roster is still "four always-on + each analyzer whose gate is true." Do not
   force the analyzers into the expected roster on an engine-self-modifying diff; that would
   manufacture a phantom shortfall.
-- **`superpowers:requesting-code-review` unavailable does NOT downgrade-and-proceed in shadow
-  mode.** `/devflow:review`'s Phase 3.1 permits falling back to the other reviewers if that skill
-  is unavailable; that graceful degradation is **overridden** in the shadow, where
-  `requesting-code-review` is an always-on roster member. Its absence is a coverage shortfall like
-  any other. The shadow never declares full coverage on a three-of-four roster.
+- **`devflow:requesting-code-review` is an always-on shadow-roster member.** The final-pass
+  reviewer is a first-party DevFlow skill, so it is always present wherever DevFlow runs — there is
+  no companion-plugin-unavailable fall-back to apply. It is an always-on roster member, so a shadow
+  pass that dispatched only the other three always-on reviewers (or whose final-pass result was lost)
+  is a coverage shortfall like any other. The shadow never declares full coverage on a three-of-four
+  roster.
 - **A structurally-valid but evidence-empty reviewer response counts as "did not return cleanly."**
   Full coverage requires that every dispatched reviewer returned a result that positively shows it
   ran (an assessment/verdict plus a `defect_signature` on every finding). A reviewer that errored
