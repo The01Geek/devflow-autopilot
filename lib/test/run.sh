@@ -6397,12 +6397,17 @@ assert_eq "#142 CLAUDE.md references the internalized devflow:writing-skills con
   "yes" "$(grep -qF 'devflow:writing-skills' "$FDROOT/CLAUDE.md" && echo yes || echo no)"
 
 # (3b) Property-based vendoring invariant (the skills-tree twin of the #139 agents/*.md loop):
-# ANY file under the three vendored skill dirs carrying the `Vendored from the` marker must NOT
-# carry the first-party `2026 Daniel Radman` SPDX header — the license-preservation guarantee,
-# proved mechanically over EVERY vendored file incl. companions, not just SKILL.md. The vendored
-# skill paths are alphanumeric/hyphen (no spaces), so the unquoted find word-split is safe.
+# EVERY file under the three vendored skill dirs MUST carry the `Vendored from the superpowers
+# plugin` attribution marker (AC2's attribution-retention half) AND must NOT carry the first-party
+# `2026 Daniel Radman` SPDX header (the license-preservation half) — proved mechanically over EVERY
+# vendored file incl. companions (requesting-code-review/code-reviewer.md, the writing-skills
+# supporting files), not just SKILL.md. Every file in these three dirs IS vendored, so the marker
+# is asserted POSITIVELY rather than via a marker-keyed `continue` skip: a supporting file that
+# LOST its attribution header fails loud here instead of silently dropping out of the loop. The
+# vendored skill paths are alphanumeric/hyphen (no spaces), so the unquoted find word-split is safe.
 for sf in $(find "$FDROOT/skills/requesting-code-review" "$FDROOT/skills/receiving-code-review" "$FDROOT/skills/writing-skills" -type f 2>/dev/null); do
-  grep -q 'Vendored from the' "$sf" || continue
+  assert_eq "#142 vendored skill file ${sf#"$FDROOT"/} carries the upstream superpowers attribution marker" \
+    "yes" "$(grep -q 'Vendored from the superpowers plugin' "$sf" && echo yes || echo no)"
   assert_eq "#142 vendored skill file ${sf#"$FDROOT"/} carries no first-party 2026 Daniel Radman SPDX line" \
     "no" "$(grep -q 'SPDX-FileCopyrightText: 2026 Daniel Radman' "$sf" && echo yes || echo no)"
 done

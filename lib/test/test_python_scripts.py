@@ -1481,6 +1481,25 @@ assert_eq("#141 migration: main() with the stale old key exits 0 (never aborts)"
 assert_eq("#141 migration: main() warns the stale old key is not a known subagent",
           True, "is not a known" in _me.getvalue())
 
+# Migration guard (#142): seam 3 renamed the final-pass reviewer override key from its
+# pre-rename superpowers-namespaced form into the devflow: namespace. The 2.8.13 CHANGELOG
+# + docs/review-agent-overrides.md migration table make the same promise as #141's rename:
+# a STALE old key is treated as UNKNOWN (resolver ignores it with a `::warning::`, the
+# override silently stops applying) rather than silently matching the internalized skill.
+# Pin that promise on the exact old string so the migration note is *tested*, not merely
+# asserted (the #62/#98 unverified-assumption class). The literal is split
+# ("superpowers:" "requesting-code-review") so neither this value nor the surrounding
+# comment reintroduces a colon-form id the run.sh #142 residual scan flags.
+_OLD_RCR_KEY = "superpowers:" "requesting-code-review"
+assert_eq("#142 migration: stale pre-rename requesting-code-review override key is NOT a known id",
+          False, _OLD_RCR_KEY in _rro.KNOWN_AGENTS)
+_ro, _re = io.StringIO(), io.StringIO()
+with contextlib.redirect_stdout(_ro), contextlib.redirect_stderr(_re):
+    _rrc = _rro.main([_OLD_RCR_KEY, "--config", "/nonexistent/c.json"])
+assert_eq("#142 migration: main() with the stale old key exits 0 (never aborts)", 0, _rrc)
+assert_eq("#142 migration: main() warns the stale old key is not a known subagent",
+          True, "is not a known" in _re.getvalue())
+
 # Characterization: pins the documented array-leaf gap so it can only change
 # deliberately. config-get.sh joins an array leaf with commas before the resolver
 # sees it, so a SINGLE-element array is indistinguishable from a scalar string.

@@ -155,9 +155,11 @@ skill under `skills/`, dispatched via `general-purpose`).
 must not require editing committed agent frontmatter** — both model and effort must therefore ride
 on a per-run `--agents` JSON block for every subagent. The engine resolves the overrides with
 `scripts/resolve-review-overrides.py` (which reads
-the config through `config-get.sh`) and materializes that block at each dispatch phase; the
-external plugins' own `description`/`prompt`/`tools` come from their installed definitions, with
-only the configured `model`/`effort` layered on. DevFlow never edits any external plugin's files.
+the config through `config-get.sh`) and materializes that block at each dispatch phase; each
+agent's own `description`/`prompt`/`tools` come from its committed first-party definition (under
+`agents/`, or `skills/` for the final-pass reviewer), with only the configured `model`/`effort`
+layered on per run. DevFlow never edits committed agent/skill frontmatter to apply an override —
+it rides on the per-run `--agents` block.
 
 The helper must be the command's **leading token** (the same cloud allow-list rule that governs
 `workpad.py`); `OVERRIDES=$(…/resolve-review-overrides.py …)` is fine — the path is the leading
