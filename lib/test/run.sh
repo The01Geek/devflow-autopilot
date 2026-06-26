@@ -6267,8 +6267,16 @@ assert_eq "#141 no operative surface references the namespaced pr-review-toolkit
 for a in $PRT_AGENTS; do
   assert_eq "#141 agents/$a.md exists (vendored first-party)" \
     "yes" "$([ -f "$FDROOT/agents/$a.md" ] && echo yes || echo no)"
-  assert_eq "#141 review engine dispatches devflow:$a (rewired call-site present)" \
-    "yes" "$(grep -qF "devflow:$a" "$FDROOT/skills/review/SKILL.md" && echo yes || echo no)"
+  # Pin the LOAD-BEARING dispatch header `**devflow:<name>**` (the bold per-agent prompt
+  # block — the actual dispatch site), NOT a bare `devflow:<name>` substring. The bare form
+  # also appears in prose (the Phase 0.5 gate table, the Phase 3.1 gate bullets, the
+  # pitfalls list) for the gated analyzers, so a bare grep would stay green even if the
+  # real dispatch block were deleted while a prose mention survived — the #62/#98
+  # unverified-assumption trap. The header form appears exactly once per agent (its
+  # dispatch block), so this tracks the dispatch, not any mention. (Twin of the #139
+  # `subagent_type: devflow:$fdagent` pin, adapted to this engine's bold-header convention.)
+  assert_eq "#141 review engine dispatches devflow:$a via its **devflow:$a** prompt block (load-bearing call-site present)" \
+    "yes" "$(grep -qF "**devflow:$a**" "$FDROOT/skills/review/SKILL.md" && echo yes || echo no)"
   # Peer-completeness (AC3 names BOTH skills): the fix-loop skill carries the same roster
   # in its phase3_dispatched / shadow-roster / reviewers_dispatched examples, and (1)'s
   # negative scan only catches a leftover OLD id — not a DROPPED devflow: id. Pin it
