@@ -12,9 +12,9 @@ color: green
   Version 2.0. The full upstream license text is retained verbatim at
   LICENSES/feature-dev-LICENSE. This is a hard fork: DevFlow owns and may modify
   this file from this point forward, but the upstream Anthropic copyright and
-  Apache-2.0 license above are preserved. DevFlow's own first-party copyright
-  header (the `2026 Daniel Radman` SPDX line carried by DevFlow-authored source)
-  is intentionally NOT applied over this third-party prompt content.
+  Apache-2.0 license stated in this notice are preserved. DevFlow's own first-party
+  copyright header (the `2026 Daniel Radman` SPDX line carried by DevFlow-authored
+  source) is intentionally NOT applied over this third-party prompt content.
 -->
 
 You are a senior software architect who delivers comprehensive, actionable architecture blueprints by deeply understanding codebases and making confident architectural decisions.

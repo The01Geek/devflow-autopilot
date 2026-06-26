@@ -6098,8 +6098,10 @@ tracked_scan() {  # root pattern pathspec...
 }
 
 # (1) Reference contract (mirrors issue AC): NO tracked surface may reference the
-# namespaced feature-dev agent identifier (the plugin name + colon form), except
-# historical .devflow/logs/ artifacts. After the rewire every dispatch is
+# namespaced feature-dev agent identifier (the plugin name + colon form). The scan
+# excludes `.devflow/logs/`, which is append-only audit scratch that may record the old
+# identifier in a future artifact (none do today; the exclusion is forward-looking, not
+# a statement that such artifacts presently exist). After the rewire every dispatch is
 # devflow:code-explorer / devflow:code-architect, so a real residual reference (a missed
 # call-site) surfaces as the offending file list; an infra/git error surfaces as the
 # <rgb-guard-errored> sentinel (fails loud, never a silent PASS). Pattern split into two
@@ -6107,6 +6109,15 @@ tracked_scan() {  # root pattern pathspec...
 FD_PAT="feature-""dev:"
 assert_eq "#139 no tracked surface references the namespaced feature-dev agent id (.devflow/logs excepted)" \
   "" "$(tracked_scan "$FDROOT" "$FD_PAT" ':!.devflow/logs')"
+
+# (1b) tracked_scan positive-hit test: assertion (1) only ever observes the clean
+# no-match (empty) path, so tracked_scan's OWN git-grep hit path (the `-lF` + `--`
+# pathspec seam) is never seen to produce a real positive. Drive it against a token that
+# genuinely exists in a known file and assert it returns that file — so a regression in
+# the git invocation (a dropped `--`, a mis-scoped pathspec) that silently stops matching
+# turns this row red. Mirrors the #129 rgb_scan rc-0 e2e row for the shared seam.
+assert_eq "#139 tracked_scan returns the matching file on a real hit (pins the git-grep hit path)" \
+  "lib/test/run.sh" "$(tracked_scan "$FDROOT" "rgb_classify" 'lib/test/run.sh')"
 
 # (2) Vendored-files-exist: both feature-dev agents now live first-party under agents/.
 assert_eq "#139 agents/code-explorer.md exists (vendored first-party)" \
@@ -6125,6 +6136,14 @@ for fdagent in code-explorer code-architect; do
     "yes" "$(grep -qF "subagent_type: devflow:$fdagent" "$FDROOT/skills/implement/SKILL.md" && echo yes || echo no)"
   assert_eq "#139 agents/$fdagent.md frontmatter declares name: $fdagent (dispatch target resolves)" \
     "yes" "$(grep -qE "^name: $fdagent\$" "$FDROOT/agents/$fdagent.md" && echo yes || echo no)"
+  # (2c) Agent-validity: `name:` resolving is a weaker proxy than "loadable agent". A
+  # mangled vendored file (dropped frontmatter delimiter, missing model:/tools:) would
+  # still pass the name grep yet fail to load as a usable subagent at runtime. Assert each
+  # vendored agent opens with a YAML frontmatter `---` and declares model: and tools:.
+  assert_eq "#139 agents/$fdagent.md opens with YAML frontmatter declaring model: and tools:" \
+    "yes" "$(head -1 "$FDROOT/agents/$fdagent.md" | grep -qx -- '---' \
+            && grep -qE '^model:[[:space:]]' "$FDROOT/agents/$fdagent.md" \
+            && grep -qE '^tools:[[:space:]]' "$FDROOT/agents/$fdagent.md" && echo yes || echo no)"
 done
 
 # (3) Attribution contract (mirrors issue AC): each vendored agent retains the upstream
@@ -6169,6 +6188,17 @@ assert_eq "#139 plugin.json still lists pr-review-toolkit + superpowers (scoped 
 WF_FD="feature-""dev@claude-plugins-official"
 assert_eq "#139 no cloud workflow installs the feature-dev companion plugin" \
   "" "$(tracked_scan "$FDROOT" "$WF_FD" '.github/workflows')"
+
+# (5b) Workflow scoped-removal guard (the workflow-axis twin of the manifest guard in (4)):
+# the absence check in (5) alone cannot tell a precise feature-dev removal from a botched
+# edit that over-removed a still-needed companion's install line. Assert each cloud
+# workflow STILL installs both not-yet-internalized companions, so an over-broad edit that
+# silently under-provisions the cloud tier turns this row red.
+for wf in devflow devflow-implement devflow-runner; do
+  assert_eq "#139 .github/workflows/$wf.yml still installs pr-review-toolkit + superpowers (no over-removal)" \
+    "yes" "$(grep -qF 'pr-review-toolkit@claude-plugins-official' "$FDROOT/.github/workflows/$wf.yml" \
+            && grep -qF 'superpowers@claude-plugins-official' "$FDROOT/.github/workflows/$wf.yml" && echo yes || echo no)"
+done
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
