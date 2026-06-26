@@ -6081,20 +6081,32 @@ echo "feature-dev internalization (#139)"
 # two string literals (like RGB_PAT) so this file never self-matches its own grep.
 FDROOT="$LIB/.."
 
+# Shared fail-closed scan seam (reuses the #129 rgb_classify rc-transform): grep the
+# tracked tree for a literal pattern under a pathspec, returning the offending file list
+# on a hit (git rc 0), empty on a clean no-match (rc 1 — the PASS case), or the
+# <rgb-guard-errored> sentinel on a git error (rc >1). `git -C "$root"` keeps git the
+# only rc-bearing command — a `cd "$root" && git grep` would short-circuit `&&` on a cd
+# failure and mask a real error as a clean no-match, re-opening the fail-open hole. Both
+# #139 reference scans below share this ONE seam instead of each re-implementing the
+# git-grep+rc line. (The pre-existing #129 rgb_scan keeps its own one-arg wrapper;
+# refactoring that already-tested helper is out of this PR's diff scope.)
+tracked_scan() {  # root pattern pathspec...
+  local root="$1" pat="$2"; shift 2
+  local hits rc
+  hits="$(git -C "$root" grep -lF "$pat" -- "$@" 2>/dev/null)"; rc=$?
+  rgb_classify "$rc" "$hits"
+}
+
 # (1) Reference contract (mirrors issue AC): NO tracked surface may reference the
 # namespaced feature-dev agent identifier (the plugin name + colon form), except
 # historical .devflow/logs/ artifacts. After the rewire every dispatch is
 # devflow:code-explorer / devflow:code-architect, so a real residual reference (a missed
 # call-site) surfaces as the offending file list; an infra/git error surfaces as the
-# <rgb-guard-errored> sentinel (fails loud, never a silent PASS).
+# <rgb-guard-errored> sentinel (fails loud, never a silent PASS). Pattern split into two
+# literals (like RGB_PAT) so this file never self-matches its own grep.
 FD_PAT="feature-""dev:"
-fd_scan() {
-  local root="$1" hits rc
-  hits="$(git -C "$root" grep -lF "$FD_PAT" -- ':!.devflow/logs' 2>/dev/null)"; rc=$?
-  rgb_classify "$rc" "$hits"
-}
 assert_eq "#139 no tracked surface references the namespaced feature-dev agent id (.devflow/logs excepted)" \
-  "" "$(fd_scan "$FDROOT")"
+  "" "$(tracked_scan "$FDROOT" "$FD_PAT" ':!.devflow/logs')"
 
 # (2) Vendored-files-exist: both feature-dev agents now live first-party under agents/.
 assert_eq "#139 agents/code-explorer.md exists (vendored first-party)" \
@@ -6102,21 +6114,44 @@ assert_eq "#139 agents/code-explorer.md exists (vendored first-party)" \
 assert_eq "#139 agents/code-architect.md exists (vendored first-party)" \
   "yes" "$([ -f "$FDROOT/agents/code-architect.md" ] && echo yes || echo no)"
 
+# (2b) Dispatch-resolves contract (the load-bearing invariant the absence-grep above only
+# proxies for): for each rewired agent, the implement skill must dispatch the devflow:
+# identifier AND a first-party agent of that exact `name:` must exist to resolve it. This
+# closes the loop the #62/#98 unverified-assumption bug class warns about — a future typo
+# in the subagent_type or a renamed agent `name:` frontmatter would pass (1) and (2) yet
+# dead-end the dispatch at runtime; this assertion catches that.
+for fdagent in code-explorer code-architect; do
+  assert_eq "#139 implement skill dispatches devflow:$fdagent (rewired call-site present)" \
+    "yes" "$(grep -qF "subagent_type: devflow:$fdagent" "$FDROOT/skills/implement/SKILL.md" && echo yes || echo no)"
+  assert_eq "#139 agents/$fdagent.md frontmatter declares name: $fdagent (dispatch target resolves)" \
+    "yes" "$(grep -qE "^name: $fdagent\$" "$FDROOT/agents/$fdagent.md" && echo yes || echo no)"
+done
+
 # (3) Attribution contract (mirrors issue AC): each vendored agent retains the upstream
 # Anthropic attribution AND does NOT carry the first-party `2026 Daniel Radman` SPDX
-# header (the license-preservation guarantee, proved mechanically). The retained
-# upstream Apache-2.0 license text lives at LICENSES/feature-dev-LICENSE.
+# header (the license-preservation guarantee, proved mechanically). The retained upstream
+# Apache-2.0 license text lives at LICENSES/feature-dev-LICENSE.
 for fdagent in code-explorer code-architect; do
   assert_eq "#139 $fdagent.md carries the upstream Anthropic attribution marker" \
     "yes" "$(grep -q 'Vendored from the feature-dev plugin' "$FDROOT/agents/$fdagent.md" \
             && grep -q 'Anthropic' "$FDROOT/agents/$fdagent.md" && echo yes || echo no)"
-  assert_eq "#139 $fdagent.md does NOT carry the 2026 Daniel Radman SPDX header" \
-    "no" "$(grep -q 'SPDX-FileCopyrightText: 2026 Daniel Radman' "$FDROOT/agents/$fdagent.md" \
-            && echo yes || echo no)"
 done
 assert_eq "#139 LICENSES/feature-dev-LICENSE retains the upstream Apache-2.0 text" \
   "yes" "$([ -f "$FDROOT/LICENSES/feature-dev-LICENSE" ] \
           && grep -q 'Apache License' "$FDROOT/LICENSES/feature-dev-LICENSE" && echo yes || echo no)"
+
+# (3b) Property-based vendoring invariant (generalizes for the pr-review-toolkit /
+# superpowers follow-up PRs, and catches a forgotten attribution): ANY agents/*.md that
+# carries a `Vendored from the ... plugin` marker must NOT carry the first-party
+# `2026 Daniel Radman` SPDX line — keyed on the vendoring property, not a hard-coded
+# filename, so a future vendored agent is covered without editing this loop. (Guarded so
+# an empty glob — no vendored agents — is a no-op, not a literal-glob false match.)
+for af in "$FDROOT"/agents/*.md; do
+  [ -f "$af" ] || continue
+  grep -q 'Vendored from the' "$af" || continue   # only vendored agents bear the invariant
+  assert_eq "#139 vendored agent $(basename "$af") carries no first-party 2026 Daniel Radman SPDX line" \
+    "no" "$(grep -q 'SPDX-FileCopyrightText: 2026 Daniel Radman' "$af" && echo yes || echo no)"
+done
 
 # (4) Manifest contract (mirrors issue AC): plugin.json `dependencies` no longer lists
 # feature-dev. Scoped-removal guard: the two not-yet-internalized companions
@@ -6128,16 +6163,12 @@ assert_eq "#139 plugin.json still lists pr-review-toolkit + superpowers (scoped 
   "2" "$(jq '[.dependencies[]? | select(.name == "pr-review-toolkit" or .name == "superpowers")] | length' "$FDROOT/.claude-plugin/plugin.json")"
 
 # (5) Workflow contract: no cloud workflow installs the feature-dev companion anymore
-# (the engine now dispatches the first-party devflow:code-explorer/code-architect, so
-# the companion install is dead). Pattern split-literal to avoid self-match.
+# (the engine now dispatches the first-party devflow:code-explorer/code-architect, so the
+# companion install is dead). Pattern split-literal to avoid self-match; shares the same
+# tracked_scan seam as (1).
 WF_FD="feature-""dev@claude-plugins-official"
-wf_scan() {
-  local root="$1" hits rc
-  hits="$(git -C "$root" grep -lF "$WF_FD" -- '.github/workflows' 2>/dev/null)"; rc=$?
-  rgb_classify "$rc" "$hits"
-}
 assert_eq "#139 no cloud workflow installs the feature-dev companion plugin" \
-  "" "$(wf_scan "$FDROOT")"
+  "" "$(tracked_scan "$FDROOT" "$WF_FD" '.github/workflows')"
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
