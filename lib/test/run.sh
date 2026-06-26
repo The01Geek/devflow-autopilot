@@ -6152,14 +6152,16 @@ for fdagent in code-explorer code-architect; do
   assert_eq "#139 agents/$fdagent.md frontmatter declares name: $fdagent (dispatch target resolves)" \
     "yes" "$(grep -qE "^name: $fdagent\$" "$FDROOT/agents/$fdagent.md" && echo yes || echo no)"
   # (2c) Agent-validity structural markers: `name:` resolving alone does not prove the
-  # frontmatter is well-formed — a file that drops the opening `---` or its model:/tools:
-  # lines still passes the name grep. This row asserts the three structural markers the
-  # cheap-to-check failure modes hit: the opening frontmatter `---` (line 1) plus a top-
-  # level model: and tools: key. (It does NOT validate the closing `---` or full YAML
-  # well-formedness — a stronger "actually loadable at runtime" check than these greps
-  # give — but it catches the common mangle a name-only grep would wave through.)
-  assert_eq "#139 agents/$fdagent.md opens with YAML frontmatter declaring model: and tools:" \
+  # frontmatter is well-formed — a file that drops the opening `---`, its closing `---`,
+  # or its model:/tools: lines still passes the name grep yet may fail to load at runtime.
+  # This row asserts the structural markers the cheap-to-check mangles hit: the opening
+  # frontmatter `---` (line 1), a CLOSING `---` (i.e. at least two `^---$` lines so the
+  # block is terminated, not merged into the body), plus top-level model: and tools: keys.
+  # (It still does not validate full YAML well-formedness, but it closes the common
+  # "passes the name grep, dead-ends at load" mangles a name-only grep would wave through.)
+  assert_eq "#139 agents/$fdagent.md has well-formed frontmatter (open+close ---, model:, tools:)" \
     "yes" "$(head -1 "$FDROOT/agents/$fdagent.md" | grep -qx -- '---' \
+            && [ "$(grep -c '^---$' "$FDROOT/agents/$fdagent.md")" -ge 2 ] \
             && grep -qE '^model:[[:space:]]' "$FDROOT/agents/$fdagent.md" \
             && grep -qE '^tools:[[:space:]]' "$FDROOT/agents/$fdagent.md" && echo yes || echo no)"
 done
