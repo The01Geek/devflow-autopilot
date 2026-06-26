@@ -1,0 +1,165 @@
+{
+  "iter": 4,
+  "source": "review-and-fix",
+  "fix_commit_sha": "849414e3fb7b8a6af6f01690d941d067fe97e501",
+  "fix_files": [
+    "skills/implement/SKILL.md"
+  ],
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "checklist": [
+    {
+      "id": "VC-1",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "api_contract:ci.yml:lib-python-tests-job-name",
+      "reused_from_iter_prev": true
+    },
+    {
+      "id": "VC-2",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "api_contract:CLAUDE.md:tier-matters-section-heading",
+      "reused_from_iter_prev": false
+    }
+  ],
+  "phase3_dispatched": [
+    "pr-review-toolkit:code-reviewer",
+    "pr-review-toolkit:silent-failure-hunter",
+    "pr-review-toolkit:comment-analyzer",
+    "superpowers:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "superpowers:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "'tier 2/3' literal mislabels a local denial (tier 1)",
+      "defect_signature": {
+        "file": "skills/implement/SKILL.md",
+        "line_range": [
+          673,
+          675
+        ],
+        "kind": "style"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "superpowers:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "prose density; optional TL;DR lead",
+      "defect_signature": {
+        "file": "skills/implement/SKILL.md",
+        "line_range": [
+          671,
+          677
+        ],
+        "kind": "style"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "advisory"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-tier-label",
+      "decision": "applied",
+      "commit": "849414e3fb7b8a6af6f01690d941d067fe97e501"
+    },
+    {
+      "finding_id": "F-density",
+      "decision": "advisory",
+      "source_file": "skills/implement/SKILL.md",
+      "claim_text": "prose density / TL;DR lead",
+      "skip_category": "advisory-parked",
+      "evidence": "Suggestion-only; density matches surrounding Phase 3.4 house style; any restructuring goes through writing-skills RED/GREEN. Non-blocking."
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 1,
+    "fix_diff_lines": 2,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "shadow": {
+    "ran_at": "2026-06-24T21:30:00Z",
+    "reviewed_sha": "849414e3fb7b8a6af6f01690d941d067fe97e501",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "reviewers_dispatched": [
+      "pr-review-toolkit:code-reviewer",
+      "pr-review-toolkit:silent-failure-hunter",
+      "pr-review-toolkit:comment-analyzer",
+      "superpowers:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "pr-review-toolkit:code-reviewer",
+      "pr-review-toolkit:silent-failure-hunter",
+      "pr-review-toolkit:comment-analyzer",
+      "superpowers:requesting-code-review"
+    ],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {
+        "agent": "pr-review-toolkit:silent-failure-hunter",
+        "severity": "Suggestion",
+        "description": "gh-unreadable (denied/errored) collapsed into the same (post-merge) deferral as not-yet-reported; suggest retry/escalate + distinct reflection",
+        "defect_signature": {
+          "file": "skills/implement/SKILL.md",
+          "line_range": [
+            675,
+            675
+          ],
+          "kind": "logic_error"
+        }
+      },
+      {
+        "agent": "pr-review-toolkit:silent-failure-hunter",
+        "severity": "Suggestion",
+        "description": "no explicit fall-closed clause for an unresolvable headSha; suggest 'cannot resolve headSha == HEAD -> treat as not-yet-reported'",
+        "defect_signature": {
+          "file": "skills/implement/SKILL.md",
+          "line_range": [
+            671,
+            673
+          ],
+          "kind": "logic_error"
+        }
+      },
+      {
+        "agent": "pr-review-toolkit:silent-failure-hunter",
+        "severity": "Suggestion",
+        "description": "denial-vs-ran-and-failed lacks a concrete discriminator; suggest anchoring to 'did the command produce its own output'",
+        "defect_signature": {
+          "file": "skills/implement/SKILL.md",
+          "line_range": [
+            671,
+            671
+          ],
+          "kind": "logic_error"
+        }
+      }
+    ],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 3,
+      "overlap_with_iter_N": 0,
+      "new": 3,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": false
+  }
+}
