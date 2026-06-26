@@ -82,12 +82,12 @@ Compute `RUN_ID` **once at loop start, before iteration 1, and hold the literal 
     }
   ],
   "phase3_dispatched": [
-    "pr-review-toolkit:code-reviewer",
-    "pr-review-toolkit:silent-failure-hunter",
-    "pr-review-toolkit:comment-analyzer",
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
     "superpowers:requesting-code-review",
-    "pr-review-toolkit:type-design-analyzer",
-    "pr-review-toolkit:pr-test-analyzer"
+    "devflow:type-design-analyzer",
+    "devflow:pr-test-analyzer"
   ],
   "diff_profile": {
     "small_diff": false,
@@ -98,7 +98,7 @@ Compute `RUN_ID` **once at loop start, before iteration 1, and hold the literal 
   },
   "phase3_findings": [
     {
-      "agent": "pr-review-toolkit:code-reviewer",
+      "agent": "devflow:code-reviewer",
       "severity": "Critical",
       "description": "...",
       "defect_signature": {"file": "src/example_pkg/foo.py", "line_range": [42, 47], "kind": "null_deref"},
@@ -195,7 +195,7 @@ Compute `RUN_ID` **once at loop start, before iteration 1, and hold the literal 
 
 `phase3_dispatched` is the array of Phase-3 agent identifiers **actually launched** this iteration, captured at Step 1's Phase 3.1 dispatch *after* Phase 0.5 gating (so a gated-out `pr-test-analyzer` / `type-design-analyzer` is absent). It is load-bearing for the Loop Exit effectiveness trace: a `null` verdict (dispatched but silent) is derived as `phase3_dispatched − (agents present in phase3_findings)`, so without this roster a silent agent is indistinguishable from one that was never launched. The field is best-effort — if it is absent on an older/partial workpad, the trace degrades to classifying only the agents that appear in `phase3_findings`. (In the example above `pr-test-analyzer` appears in `phase3_dispatched` even though `diff_profile` records only `has_new_types: true`: `pr-test-analyzer` is gated by the **test-relevance predicate**, which is not a `diff_profile` flag, so its presence cannot be cross-checked against the profile — this is the same asymmetry the too-narrow tripwire relies on when it keys off `phase3_dispatched` rather than `diff_profile`.)
 
-Use the **same identifier string** in `phase3_dispatched` that you write to each finding's `phase3_findings.agent`, so the trace can match dispatch to outcome. For the five pr-review-toolkit agents that is `pr-review-toolkit:<name>` (e.g. `pr-review-toolkit:code-reviewer`). For the sixth Phase-3 dispatch — the general-purpose final-pass reviewer launched via `Task`/`subagent_type: general-purpose` invoking `/superpowers:requesting-code-review` (see /devflow:review's Phase 3.1) — record it as **`superpowers:requesting-code-review`** in both places, so this (most expensive) dispatch is tallied consistently rather than appearing under an ad-hoc string each run.
+Use the **same identifier string** in `phase3_dispatched` that you write to each finding's `phase3_findings.agent`, so the trace can match dispatch to outcome. For the five first-party review agents that is `devflow:<name>` (e.g. `devflow:code-reviewer`). For the sixth Phase-3 dispatch — the general-purpose final-pass reviewer launched via `Task`/`subagent_type: general-purpose` invoking `/superpowers:requesting-code-review` (see /devflow:review's Phase 3.1) — record it as **`superpowers:requesting-code-review`** in both places, so this (most expensive) dispatch is tallied consistently rather than appearing under an ad-hoc string each run.
 
 `diff_profile` records the engine's Phase 0.5 classification for this iteration — the four flags (`small_diff`, `config_only`, `has_new_types`, `engine_self_modifying`) plus a nested `checklist_skipped` member (`"intentional"` when Phase 0.5 bypassed Phase 1+2 on a small_diff+config_only diff, `"failure"` when checklist generation failed, else `null`) — so the checklist-skip tripwire's `diff_profile.checklist_skipped` read resolves against the nested field shown in the schema example, not a sibling. It is load-bearing for fair cross-run analysis in two ways: (1) a `null`-verdict agent on a `config_only` diff is *correctly* silent (out of its domain), not a cut candidate — the analyzer must segment by diff shape, and this is how it learns the shape; (2) it lets the trace report the orchestrator's **verification posture** — when Phase 0.5 skips the checklist, or when every verifiable item was resolved via the cheap orchestrator-direct `lite` path instead of dispatching verifier subagents, that is a deliberate cost-saving decision and the trace says so explicitly rather than rendering a bare "0 verifiers". Best-effort: if `diff_profile` is absent, the trace labels the profile "not recorded" and the posture falls back to the raw lite/agent counts.
 
@@ -379,8 +379,8 @@ Capture `reviewers_dispatched` (the roster of Phase-3 agents you actually launch
 
 **Coverage is a positive assertion, not the default-on-no-error.** Before you may set `coverage: "full"`, compute the **expected roster** for this run and confirm `reviewers_dispatched` covers it — `"full"` is something you *prove*, never what you assume because nothing visibly broke. Record the computed roster in `expected_reviewers` **on every outcome** (including not-verified — the Coverage section needs it to explain *why* a shortfall was a shortfall). The expected roster is mechanical (so a gated-out analyzer is never confused with a dropped reviewer), and it is computed from the **shadow's own Phase 0.5 classification** — the shadow re-runs Phases 0–4.3, so it produces its *own* `diff_profile`; validate the dispatched roster against *that*, not the loop's last-iter recorded profile (a post-fix diff can legitimately flip `has_new_types` or the test predicate). The roster:
 
-- the four **always-on** agents — `pr-review-toolkit:code-reviewer`, `pr-review-toolkit:silent-failure-hunter`, `pr-review-toolkit:comment-analyzer`, `superpowers:requesting-code-review` — unconditionally; **plus**
-- `pr-review-toolkit:type-design-analyzer` iff `has_new_types` is true, and `pr-review-toolkit:pr-test-analyzer` iff the test-relevance predicate matches, both evaluated against the shadow's own `diff_profile` per /devflow:review's Phase 3.1 gates.
+- the four **always-on** agents — `devflow:code-reviewer`, `devflow:silent-failure-hunter`, `devflow:comment-analyzer`, `superpowers:requesting-code-review` — unconditionally; **plus**
+- `devflow:type-design-analyzer` iff `has_new_types` is true, and `devflow:pr-test-analyzer` iff the test-relevance predicate matches, both evaluated against the shadow's own `diff_profile` per /devflow:review's Phase 3.1 gates.
 
 **`engine_self_modifying` adds and removes nothing here.** Per /devflow:review's Phase 0.5, that override forces the full checklist and the four always-on agents on, but the two structural-applicability gates (`has_new_types`, test-relevance) *survive* it — so on an engine-self-modifying diff the expected roster is still "four always-on + each analyzer whose gate is true," exactly the rule above. Do **not** force the two analyzers into the expected roster on `engine_self_modifying`; that would manufacture a phantom shortfall.
 
@@ -458,8 +458,8 @@ After Step 2.6 completes (regardless of outcome), append a `shadow` block to the
   "verdict": "APPROVE",                                  /* the in-memory shadow_verdict; null on a not_verified (outcome 3) block */
   "coverage": "full",
   /* this example depicts a diff where neither structural gate fired (has_new_types false, no test-relevant change), hence the four always-on agents only — it is NOT the same scenario as the iter-workpad example above, whose has_new_types:true adds type-design-analyzer; the two need not match */
-  "reviewers_dispatched": ["pr-review-toolkit:code-reviewer", "pr-review-toolkit:silent-failure-hunter", "pr-review-toolkit:comment-analyzer", "superpowers:requesting-code-review"],
-  "expected_reviewers": ["pr-review-toolkit:code-reviewer", "pr-review-toolkit:silent-failure-hunter", "pr-review-toolkit:comment-analyzer", "superpowers:requesting-code-review"],
+  "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "superpowers:requesting-code-review"],
+  "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "superpowers:requesting-code-review"],
   "reason": null,
   "checklist_skipped": null,
   "phase3_findings": [/* the parsed array — persists the in-memory shadow_phase3_findings */],

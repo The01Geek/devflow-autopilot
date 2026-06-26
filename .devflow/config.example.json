@@ -30,7 +30,7 @@
     "agent_overrides": {
       "default": { "effort": "high" },
       "devflow:checklist-deduper": { "model": "claude-sonnet-4-6", "effort": "medium" },
-      "pr-review-toolkit:code-reviewer": { "model": "claude-opus-4-8", "effort": "high" }
+      "devflow:code-reviewer": { "model": "claude-opus-4-8", "effort": "high" }
     }
   },
   "setup": {

@@ -87,18 +87,17 @@ Most "AI writes your code" tools stop at the first step and hand you a diff. Dev
 DevFlow is distributed as a **Claude Code plugin**. The repository is also its own plugin **marketplace**. It bundles:
 
 - **Skills**: the user-facing commands (`/devflow:implement`, `/devflow:review`, the `/devflow:docs` family, `/devflow:create-issue`, `/devflow:retrospective-weekly`, etc.). Each is a `SKILL.md` file containing a detailed procedure the model follows.
-- **Agents**: five specialized first-party subagents — `checklist-generator`, `checklist-deduper`, `checklist-verifier` power the review engine, and `code-explorer` (codebase discovery) and `code-architect` (planning) power `/devflow:implement` (vendored from Anthropic's feature-dev plugin under Apache-2.0, retained at `LICENSES/feature-dev-LICENSE`; DevFlow now owns them as a hard fork).
+- **Agents**: ten specialized first-party subagents — `checklist-generator`, `checklist-deduper`, `checklist-verifier` power the review engine; the five Phase-3 review agents `code-reviewer`, `silent-failure-hunter`, `comment-analyzer`, `pr-test-analyzer`, `type-design-analyzer` do the bulk of `/devflow:review`'s work (vendored from Anthropic's pr-review-toolkit plugin under Apache-2.0, retained at `LICENSES/pr-review-toolkit-LICENSE`); and `code-explorer` (codebase discovery) and `code-architect` (planning) power `/devflow:implement` (vendored from Anthropic's feature-dev plugin under Apache-2.0, retained at `LICENSES/feature-dev-LICENSE`). DevFlow owns all the vendored agents as a hard fork.
 - **Scripts** (`scripts/`, `lib/`), deterministic helpers in Bash, `jq`, and Python that do all the mechanical work (fetching context, computing patterns, gating, git/PR mechanics) so the LLM is only invoked for genuine judgment.
 - **Cloud workflows** (`.github/`), optional GitHub Actions that make DevFlow run autonomously on issue/PR events.
 
-It declares two **companion plugins** as dependencies, both from Anthropic's official `claude-plugins-official` marketplace:
+It declares one **companion plugin** as a dependency, from Anthropic's official `claude-plugins-official` marketplace:
 
 | Plugin | Role in DevFlow |
 |---|---|
-| `pr-review-toolkit` | Provides the review agents: `code-reviewer`, `silent-failure-hunter`, `comment-analyzer`, `pr-test-analyzer`, `type-design-analyzer`. |
 | `superpowers` | Provides the final-pass reviewer (`requesting-code-review`) plus brainstorming/TDD discipline and the `receiving-code-review` principles used when fixing findings. |
 
-The discovery/planning subagents `code-explorer` and `code-architect` were formerly provided by the `feature-dev` companion plugin; they are now **first-party DevFlow agents** under `agents/` (a hard fork vendored from Anthropic's feature-dev plugin under Apache-2.0), so `feature-dev` is no longer a dependency.
+The five Phase-3 review agents (`code-reviewer`, `silent-failure-hunter`, `comment-analyzer`, `pr-test-analyzer`, `type-design-analyzer`) were formerly provided by the `pr-review-toolkit` companion plugin; they are now **first-party DevFlow agents** under `agents/` (a hard fork vendored from Anthropic's pr-review-toolkit plugin under Apache-2.0, retained at `LICENSES/pr-review-toolkit-LICENSE`), dispatched as `devflow:<name>`, so `pr-review-toolkit` is no longer a dependency. Likewise the discovery/planning subagents `code-explorer` and `code-architect` are first-party (vendored from Anthropic's feature-dev plugin under Apache-2.0), so `feature-dev` is no longer a dependency.
 
 `/simplify` (used for self-review) is a **built-in** Claude Code skill, intentionally *not* a dependency.
 
@@ -162,7 +161,7 @@ This is the canonical story for a demo video or "how it works" slide:
 | Skill | What it does | How it's invoked |
 |---|---|---|
 | `/devflow:implement <issue#>` | Full lifecycle: fetch issue → branch + workpad → discover/plan → implement → test → draft PR → `/simplify` → `/devflow:review-and-fix` → acceptance gate → file follow-up issues → docs → ready PR | interactively, or by commenting on an issue (cloud) |
-| `/devflow:review [PR#]` | Verification-checklist-driven review; runs `pr-review-toolkit` + `superpowers` reviewers; returns **APPROVE/REJECT** (no auto-fix) | interactively, or a bare `/devflow:review` comment on the PR |
+| `/devflow:review [PR#]` | Verification-checklist-driven review; runs the first-party `devflow:` review agents + the `superpowers` final-pass reviewer; returns **APPROVE/REJECT** (no auto-fix) | interactively, or a bare `/devflow:review` comment on the PR |
 | `/devflow:review-and-fix [PR#]` | `/devflow:review` + an automatic fix loop (max **4** iterations); writes a deferrals manifest at Loop Exit | interactively; called by `/devflow:implement` Phase 3 |
 | `/devflow:pr-description [issue#]` | Generate/update PR description from the branch diff; renders the Scope-Acknowledged Findings block | interactively; called by `/devflow:implement` Phase 4 |
 | `/devflow:docs` | Orchestrates the three doc steps in one session | interactively; called by `/devflow:implement` Phase 4 |
@@ -290,14 +289,14 @@ The `devflow:checklist-deduper` agent (model: **sonnet**) merges batches, preser
 
 ### Phase 3: Specialized review agents
 All launched in a single message; **always re-run every fix-loop iteration** (the main variance-recovery lever). Four **always-on** reviewers:
-- `pr-review-toolkit:code-reviewer`
-- `pr-review-toolkit:silent-failure-hunter`
-- `pr-review-toolkit:comment-analyzer`
+- `devflow:code-reviewer`
+- `devflow:silent-failure-hunter`
+- `devflow:comment-analyzer`
 - a general-purpose final-pass reviewer invoking `superpowers:requesting-code-review`
 
 Two **gated** reviewers:
-- `pr-review-toolkit:type-design-analyzer` (only if `has_new_types`)
-- `pr-review-toolkit:pr-test-analyzer` (only if the test-relevance predicate matches)
+- `devflow:type-design-analyzer` (only if `has_new_types`)
+- `devflow:pr-test-analyzer` (only if the test-relevance predicate matches)
 
 **Mechanical corroboration:** findings are matched by a `defect_signature` (`file` + overlapping `line_range` + identical `kind`). Corroboration across agents is a stronger calibrator than any single agent's stated confidence.
 

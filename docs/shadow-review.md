@@ -89,11 +89,11 @@ A degraded pass must **never** clear a PR with a clean verdict. The guard is the
   classification (the shadow re-runs Phases 0–4.3, producing its own `diff_profile` — a post-fix
   diff can legitimately flip `has_new_types` or the test predicate, so validate against *that*,
   not the loop's last-iter profile):
-  - the four **always-on** agents — `pr-review-toolkit:code-reviewer`,
-    `pr-review-toolkit:silent-failure-hunter`, `pr-review-toolkit:comment-analyzer`,
+  - the four **always-on** agents — `devflow:code-reviewer`,
+    `devflow:silent-failure-hunter`, `devflow:comment-analyzer`,
     `superpowers:requesting-code-review` — unconditionally; **plus**
-  - `pr-review-toolkit:type-design-analyzer` iff `has_new_types` is true, and
-    `pr-review-toolkit:pr-test-analyzer` iff the test-relevance predicate matches, per
+  - `devflow:type-design-analyzer` iff `has_new_types` is true, and
+    `devflow:pr-test-analyzer` iff the test-relevance predicate matches, per
     `/devflow:review`'s Phase 3.1 gates.
 - **`engine_self_modifying` adds and removes nothing here.** That override forces the full
   checklist and the four always-on agents on, but the two structural-applicability gates survive

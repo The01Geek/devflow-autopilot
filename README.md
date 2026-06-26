@@ -121,7 +121,7 @@ All four are used by the core skills; none is optional. Shell helpers avoid GNU-
 | Skill | What it does |
 |---|---|
 | `/devflow:implement <issue#>` | Full 4-phase lifecycle: issue → branch → plan → implement → test → draft PR → `/simplify` → `/devflow:review-and-fix` → file follow-up issues → docs → ready PR |
-| `/devflow:review [PR#]` | Comprehensive review — verification checklist + `pr-review-toolkit` & `superpowers` reviewers; returns APPROVE/REJECT |
+| `/devflow:review [PR#]` | Comprehensive review — verification checklist + the first-party `devflow:` review agents & the `superpowers` final-pass reviewer; returns APPROVE/REJECT |
 | `/devflow:review-and-fix [PR#]` | `/devflow:review` plus an automatic fix loop (default 5 iterations) that writes a deferrals manifest at exit |
 | `/devflow:pr-description [issue#]` | Generate/update the PR description from the branch diff |
 | `/devflow:docs` | Orchestrate the three doc steps in one session |
@@ -135,7 +135,7 @@ All four are used by the core skills; none is optional. Shell helpers avoid GNU-
 
 > **Namespacing matters where names collide with built-ins.** `/review`, `/init`, and `/security-review` are *built-in* Claude Code commands — always use the `/devflow:`-prefixed form to reach DevFlow's engine (a bare `/review` reaches Claude Code's reviewer, not DevFlow's). DevFlow's cloud workflows trigger on **bare** `/devflow:*` comments (no `@claude`), so they coexist with Anthropic's Claude GitHub App, which owns plain `@claude` mentions and `/security-review`.
 
-> **Companion plugins.** DevFlow declares `pr-review-toolkit` and `superpowers` (from `claude-plugins-official`) as dependencies; `/plugin install` auto-installs them **once that marketplace is added** — see [Installing & updating](docs/install.md#why-add-the-official-marketplace-first). The `code-explorer` and `code-architect` discovery/planning subagents are now first-party DevFlow agents (vendored from Anthropic's feature-dev plugin), so `feature-dev` is no longer a dependency. `/simplify` is a built-in skill. Skills degrade gracefully if an optional companion is missing.
+> **Companion plugins.** DevFlow declares `superpowers` (from `claude-plugins-official`) as its sole dependency; `/plugin install` auto-installs it **once that marketplace is added** — see [Installing & updating](docs/install.md#why-add-the-official-marketplace-first). The five `pr-review-toolkit` review agents and the `code-explorer`/`code-architect` discovery/planning subagents are now first-party DevFlow agents (vendored from Anthropic's plugins), so neither `pr-review-toolkit` nor `feature-dev` is a dependency. `/simplify` is a built-in skill. Skills degrade gracefully if an optional companion is missing.
 
 ## Project configuration
 

@@ -29,9 +29,9 @@ Then run `/reload-plugins` (or restart) to activate. That's it for the local tie
 
 ### Why add the official marketplace first?
 
-DevFlow declares two companion plugins as **dependencies**: `pr-review-toolkit` and `superpowers` (both from `claude-plugins-official`). `/plugin install` **auto-installs them itself** — no `curl`/`install.sh` needed — **but only once `claude-plugins-official` has actually been *added***. The official marketplace is *discoverable* by default, yet cross-marketplace dependencies resolve only when it is added, which is why the commands above add it first. (The `code-explorer`/`code-architect` discovery and planning subagents are first-party DevFlow agents, vendored from Anthropic's feature-dev plugin, so `feature-dev` is no longer a dependency.)
+DevFlow declares one companion plugin as a **dependency**: `superpowers` (from `claude-plugins-official`). `/plugin install` **auto-installs it itself** — no `curl`/`install.sh` needed — **but only once `claude-plugins-official` has actually been *added***. The official marketplace is *discoverable* by default, yet cross-marketplace dependencies resolve only when it is added, which is why the commands above add it first. (The five `pr-review-toolkit` review agents and the `code-explorer`/`code-architect` discovery and planning subagents are first-party DevFlow agents, vendored from Anthropic's plugins, so neither `pr-review-toolkit` nor `feature-dev` is a dependency.)
 
-On a fresh machine where it hasn't been added, DevFlow lands in the `/plugin` **Errors** tab with `dependency-unsatisfied` until you either add the marketplace (then `/reload-plugins`) or install the two plugins manually. The deps install at the same scope as DevFlow and appear in `/plugin` as their own `@claude-plugins-official` entries, not nested under DevFlow. `/simplify` is a built-in Claude Code skill and needs no installation.
+On a fresh machine where it hasn't been added, DevFlow lands in the `/plugin` **Errors** tab with `dependency-unsatisfied` until you either add the marketplace (then `/reload-plugins`) or install the plugin manually. The dependency installs at the same scope as DevFlow and appears in `/plugin` as its own `@claude-plugins-official` entry, not nested under DevFlow. `/simplify` is a built-in Claude Code skill and needs no installation.
 
 ### The step people miss: PyYAML
 

@@ -1141,17 +1141,17 @@ _rro = resolve_review_overrides
 # Specific entry wins over default; default supplies only no-entry agents.
 _raw = {
     "default": {"effort": "medium"},
-    "pr-review-toolkit:code-reviewer": {"model": "claude-opus-4-8", "effort": "high"},
+    "devflow:code-reviewer": {"model": "claude-opus-4-8", "effort": "high"},
     "devflow:checklist-deduper": {"model": "claude-haiku-4-5-20251001", "effort": "low"},
 }
 _res, _warn = _rro.resolve_overrides(
     _raw,
-    ["pr-review-toolkit:code-reviewer", "devflow:checklist-deduper",
+    ["devflow:code-reviewer", "devflow:checklist-deduper",
      "devflow:checklist-verifier"],
 )
 assert_eq("resolve: specific code-reviewer entry wins",
           {"model": "claude-opus-4-8", "effort": "high"},
-          _res["pr-review-toolkit:code-reviewer"])
+          _res["devflow:code-reviewer"])
 assert_eq("resolve: specific deduper entry wins",
           {"model": "claude-haiku-4-5-20251001", "effort": "low"},
           _res["devflow:checklist-deduper"])
@@ -1164,29 +1164,29 @@ assert_eq("resolve: specific entry does NOT inherit default fields (no warnings)
 # code-reviewer below has only a model, default has effort — effort must NOT leak in.
 _res2, _ = _rro.resolve_overrides(
     {"default": {"effort": "max"},
-     "pr-review-toolkit:code-reviewer": {"model": "m"}},
-    ["pr-review-toolkit:code-reviewer"],
+     "devflow:code-reviewer": {"model": "m"}},
+    ["devflow:code-reviewer"],
 )
 assert_eq("resolve: own entry is used whole (no default backfill of effort)",
-          {"model": "m"}, _res2["pr-review-toolkit:code-reviewer"])
+          {"model": "m"}, _res2["devflow:code-reviewer"])
 
 # No entry and no default → no override emitted for that agent.
-_res3, _ = _rro.resolve_overrides({}, ["pr-review-toolkit:code-reviewer"])
+_res3, _ = _rro.resolve_overrides({}, ["devflow:code-reviewer"])
 assert_eq("resolve: no entry + no default → empty override map", {}, _res3)
 
 # Invalid effort → warning + drop effort (fall back to session); model forwarded.
 _res4, _warn4 = _rro.resolve_overrides(
-    {"pr-review-toolkit:code-reviewer": {"model": "m", "effort": "turbo"}},
-    ["pr-review-toolkit:code-reviewer"],
+    {"devflow:code-reviewer": {"model": "m", "effort": "turbo"}},
+    ["devflow:code-reviewer"],
 )
 assert_eq("resolve: invalid effort dropped, model forwarded",
-          {"model": "m"}, _res4["pr-review-toolkit:code-reviewer"])
+          {"model": "m"}, _res4["devflow:code-reviewer"])
 assert_eq("resolve: invalid effort emits exactly one warning", 1, len(_warn4))
 
 # An entry that resolves to neither a model nor a valid effort emits no override.
 _res5, _ = _rro.resolve_overrides(
-    {"pr-review-toolkit:code-reviewer": {"effort": "bogus"}},
-    ["pr-review-toolkit:code-reviewer"],
+    {"devflow:code-reviewer": {"effort": "bogus"}},
+    ["devflow:code-reviewer"],
 )
 assert_eq("resolve: entry with only-invalid-effort emits no override", {}, _res5)
 
@@ -1210,22 +1210,22 @@ with _tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as _cf:
         '{"devflow_review":{"agent_overrides":{'
         '"default":{"effort":"high"},'
         '"devflow:checklist-verifier":{},'
-        '"pr-review-toolkit:code-reviewer":{"model":"m","effort":"low"}}}}'
+        '"devflow:code-reviewer":{"model":"m","effort":"low"}}}}'
     )
     _cfg_path = _cf.name
 try:
     _rr_raw, _rr_warn = _rro.read_raw(
-        ["devflow:checklist-verifier", "pr-review-toolkit:code-reviewer",
-         "pr-review-toolkit:comment-analyzer"],
+        ["devflow:checklist-verifier", "devflow:code-reviewer",
+         "devflow:comment-analyzer"],
         _config_get_sh, _cfg_path,
     )
     assert_eq("read_raw: present-but-empty entry is represented as {} (shadows default)",
               {}, _rr_raw.get("devflow:checklist-verifier"))
     assert_eq("read_raw: full entry's fields are read",
               {"model": "m", "effort": "low"},
-              _rr_raw.get("pr-review-toolkit:code-reviewer"))
+              _rr_raw.get("devflow:code-reviewer"))
     assert_eq("read_raw: absent agent is not added to raw",
-              False, "pr-review-toolkit:comment-analyzer" in _rr_raw)
+              False, "devflow:comment-analyzer" in _rr_raw)
     assert_eq("read_raw: default entry is read", {"effort": "high"},
               _rr_raw.get("default"))
     assert_eq("read_raw: well-formed config yields no warnings", [], _rr_warn)
@@ -1243,7 +1243,7 @@ with _tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as _bcf:
     _bad_cfg = _bcf.name
 try:
     _braw, _bwarn = _rro.read_raw(
-        ["pr-review-toolkit:code-reviewer"], _config_get_sh, _bad_cfg)
+        ["devflow:code-reviewer"], _config_get_sh, _bad_cfg)
     assert_eq("read_raw: malformed config yields no overrides", {}, _braw)
     assert_eq("read_raw: malformed config surfaces a warning (not silent)",
               True, len(_bwarn) >= 1)
@@ -1260,24 +1260,24 @@ with _tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as _nocf:
     _nocf.write(
         '{"devflow_review":{"agent_overrides":{'
         '"default":{"effort":"high"},'
-        '"pr-review-toolkit:code-reviewer":"high",'
-        '"pr-review-toolkit:comment-analyzer":["a","b"]}}}'
+        '"devflow:code-reviewer":"high",'
+        '"devflow:comment-analyzer":["a","b"]}}}'
     )
     _no_cfg = _nocf.name
 try:
     _noraw, _nowarn = _rro.read_raw(
-        ["pr-review-toolkit:code-reviewer", "pr-review-toolkit:comment-analyzer"],
+        ["devflow:code-reviewer", "devflow:comment-analyzer"],
         _config_get_sh, _no_cfg)
     assert_eq("read_raw: scalar entry is NOT coerced to {} (treated as no-entry)",
-              False, "pr-review-toolkit:code-reviewer" in _noraw)
+              False, "devflow:code-reviewer" in _noraw)
     assert_eq("read_raw: array entry is NOT coerced to {} (treated as no-entry)",
-              False, "pr-review-toolkit:comment-analyzer" in _noraw)
+              False, "devflow:comment-analyzer" in _noraw)
     assert_eq("read_raw: each non-object entry surfaces a warning",
               2, len([w for w in _nowarn if "is not an object" in w]))
     # Since the malformed entries are treated as no-entry, `default` applies.
-    _no_e2e, _ = _rro.resolve_overrides(_noraw, ["pr-review-toolkit:code-reviewer"])
+    _no_e2e, _ = _rro.resolve_overrides(_noraw, ["devflow:code-reviewer"])
     assert_eq("read_raw+resolve: non-object entry falls back to default",
-              {"effort": "high"}, _no_e2e["pr-review-toolkit:code-reviewer"])
+              {"effort": "high"}, _no_e2e["devflow:code-reviewer"])
 finally:
     _os.unlink(_no_cfg)
 
@@ -1285,36 +1285,36 @@ finally:
 # ignored with a warning, NEVER crash resolution — the engine never aborts on
 # config shape. (resolve_overrides-level guard, belt-and-suspenders for direct callers.)
 _nd_res, _nd_warn = _rro.resolve_overrides(
-    {"pr-review-toolkit:code-reviewer": "high"},
-    ["pr-review-toolkit:code-reviewer"],
+    {"devflow:code-reviewer": "high"},
+    ["devflow:code-reviewer"],
 )
 assert_eq("resolve: non-object entry is ignored (no override, no crash)",
           {}, _nd_res)
 assert_eq("resolve: non-object entry emits a warning", 1, len(_nd_warn))
 # A non-object `default` is likewise ignored, not crashed.
 _ndd_res, _ndd_warn = _rro.resolve_overrides(
-    {"default": ["not", "an", "object"]}, ["pr-review-toolkit:code-reviewer"])
+    {"default": ["not", "an", "object"]}, ["devflow:code-reviewer"])
 assert_eq("resolve: non-object default is ignored (no override)", {}, _ndd_res)
 assert_eq("resolve: non-object default emits a warning", 1, len(_ndd_warn))
 
 # A present-but-unusable model (empty/non-string) is dropped WITH a warning,
 # mirroring the invalid-effort path (no silent asymmetry).
 _bm_res, _bm_warn = _rro.resolve_overrides(
-    {"pr-review-toolkit:code-reviewer": {"model": "", "effort": "high"}},
-    ["pr-review-toolkit:code-reviewer"],
+    {"devflow:code-reviewer": {"model": "", "effort": "high"}},
+    ["devflow:code-reviewer"],
 )
 assert_eq("resolve: empty-string model dropped, effort kept",
-          {"effort": "high"}, _bm_res["pr-review-toolkit:code-reviewer"])
+          {"effort": "high"}, _bm_res["devflow:code-reviewer"])
 assert_eq("resolve: empty-string model emits a warning", 1, len(_bm_warn))
 
 # A whitespace-only model is as unusable as an empty one — dropped WITH a warning,
 # not forwarded verbatim as a bogus model id.
 _wm_res, _wm_warn = _rro.resolve_overrides(
-    {"pr-review-toolkit:code-reviewer": {"model": "   ", "effort": "high"}},
-    ["pr-review-toolkit:code-reviewer"],
+    {"devflow:code-reviewer": {"model": "   ", "effort": "high"}},
+    ["devflow:code-reviewer"],
 )
 assert_eq("resolve: whitespace-only model dropped, effort kept",
-          {"effort": "high"}, _wm_res["pr-review-toolkit:code-reviewer"])
+          {"effort": "high"}, _wm_res["devflow:code-reviewer"])
 assert_eq("resolve: whitespace-only model emits a warning", 1, len(_wm_warn))
 
 # A bad value on the shared `default` must NOT emit one warning per no-entry agent
@@ -1323,8 +1323,8 @@ assert_eq("resolve: whitespace-only model emits a warning", 1, len(_wm_warn))
 # a single line under main()'s cross-source dedup.
 _de_res, _de_warn = _rro.resolve_overrides(
     {"default": {"effort": "turbo"}},
-    ["pr-review-toolkit:code-reviewer", "pr-review-toolkit:comment-analyzer",
-     "pr-review-toolkit:silent-failure-hunter"],
+    ["devflow:code-reviewer", "devflow:comment-analyzer",
+     "devflow:silent-failure-hunter"],
 )
 assert_eq("resolve: bad default effort → no override for any no-entry agent", {}, _de_res)
 assert_eq("resolve: bad default effort warnings are identical (collapse to one)",
@@ -1345,8 +1345,8 @@ assert_eq("resolve: default-sourced warning is agent-agnostic (names the shared 
 # effort branch, which has the end-to-end main() twin below).
 _dm_res, _dm_warn = _rro.resolve_overrides(
     {"default": {"model": ""}},
-    ["pr-review-toolkit:code-reviewer", "pr-review-toolkit:comment-analyzer",
-     "pr-review-toolkit:silent-failure-hunter"],
+    ["devflow:code-reviewer", "devflow:comment-analyzer",
+     "devflow:silent-failure-hunter"],
 )
 assert_eq("resolve: bad default model → no override for any no-entry agent", {}, _dm_res)
 assert_eq("resolve: bad default model warnings collapse to one", 1, len(set(_dm_warn)))
@@ -1354,9 +1354,9 @@ assert_eq("resolve: bad default model warnings collapse to one", 1, len(set(_dm_
 # Symmetric contract: distinct OWN entries with bad values stay agent-specific (must
 # NOT collapse), so each names its own misconfigured entry.
 _oe_res, _oe_warn = _rro.resolve_overrides(
-    {"pr-review-toolkit:code-reviewer": {"effort": "turbo"},
-     "pr-review-toolkit:comment-analyzer": {"effort": "turbo"}},
-    ["pr-review-toolkit:code-reviewer", "pr-review-toolkit:comment-analyzer"],
+    {"devflow:code-reviewer": {"effort": "turbo"},
+     "devflow:comment-analyzer": {"effort": "turbo"}},
+    ["devflow:code-reviewer", "devflow:comment-analyzer"],
 )
 assert_eq("resolve: distinct own-entry bad-effort warnings stay distinct (not collapsed)",
           2, len(set(_oe_warn)))
@@ -1367,14 +1367,14 @@ assert_eq("resolve: distinct own-entry bad-effort warnings stay distinct (not co
 with _tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as _objf:
     _objf.write(
         '{"devflow_review":{"agent_overrides":{'
-        '"pr-review-toolkit:code-reviewer":{"model":{"nested":1},"effort":"high"}}}}'
+        '"devflow:code-reviewer":{"model":{"nested":1},"effort":"high"}}}}'
     )
     _obj_cfg = _objf.name
 try:
     _objraw, _objwarn = _rro.read_raw(
-        ["pr-review-toolkit:code-reviewer"], _config_get_sh, _obj_cfg)
+        ["devflow:code-reviewer"], _config_get_sh, _obj_cfg)
     assert_eq("read_raw: object-valued model is dropped (not laundered to sentinel)",
-              {"effort": "high"}, _objraw.get("pr-review-toolkit:code-reviewer"))
+              {"effort": "high"}, _objraw.get("devflow:code-reviewer"))
     assert_eq("read_raw: object-valued leaf surfaces a warning",
               1, len([w for w in _objwarn if "is an object, not a scalar" in w]))
 finally:
@@ -1385,7 +1385,7 @@ finally:
 import json  # noqa: E402
 _out, _err = io.StringIO(), io.StringIO()
 with contextlib.redirect_stdout(_out), contextlib.redirect_stderr(_err):
-    _rc = _rro.main(["pr-review-toolkit:code-reviewer", "--config", "/nonexistent/c.json"])
+    _rc = _rro.main(["devflow:code-reviewer", "--config", "/nonexistent/c.json"])
 assert_eq("main: exit 0 on absent config", 0, _rc)
 assert_eq("main: stdout is parseable JSON ({} when no overrides)",
           {}, json.loads(_out.getvalue()))
@@ -1409,8 +1409,8 @@ try:
     _od, _ed = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(_od), contextlib.redirect_stderr(_ed):
         _rc_def = _rro.main([
-            "pr-review-toolkit:code-reviewer", "pr-review-toolkit:comment-analyzer",
-            "pr-review-toolkit:silent-failure-hunter", "--config", _def_cfg])
+            "devflow:code-reviewer", "devflow:comment-analyzer",
+            "devflow:silent-failure-hunter", "--config", _def_cfg])
     assert_eq("main: bad default effort exits 0", 0, _rc_def)
     assert_eq("main: bad default effort → {} overrides", {}, json.loads(_od.getvalue()))
     _eff_lines = [ln for ln in _ed.getvalue().splitlines()
@@ -1428,7 +1428,7 @@ with _tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as _ndf:
     _nd_cfg = _ndf.name
 try:
     _ndraw, _ndwarn = _rro.read_raw(
-        ["pr-review-toolkit:code-reviewer"], _config_get_sh, _nd_cfg)
+        ["devflow:code-reviewer"], _config_get_sh, _nd_cfg)
     assert_eq("read_raw: non-object default is not added to raw",
               False, "default" in _ndraw)
     _dmsg = [w for w in _ndwarn if "[default]" in w and "is not an object" in w]
@@ -1455,11 +1455,11 @@ assert_eq("schema agent_overrides keys == KNOWN_AGENTS + 'default'",
 # The published KNOWN_AGENTS roster stays byte-identical to the nine telemetry ids.
 assert_eq("resolve: KNOWN_AGENTS is the nine review-engine identifiers",
           ("devflow:checklist-generator", "devflow:checklist-deduper",
-           "devflow:checklist-verifier", "pr-review-toolkit:code-reviewer",
-           "pr-review-toolkit:silent-failure-hunter",
-           "pr-review-toolkit:comment-analyzer",
-           "pr-review-toolkit:type-design-analyzer",
-           "pr-review-toolkit:pr-test-analyzer",
+           "devflow:checklist-verifier", "devflow:code-reviewer",
+           "devflow:silent-failure-hunter",
+           "devflow:comment-analyzer",
+           "devflow:type-design-analyzer",
+           "devflow:pr-test-analyzer",
            "superpowers:requesting-code-review"),
           _rro.KNOWN_AGENTS)
 
@@ -1469,28 +1469,28 @@ assert_eq("resolve: KNOWN_AGENTS is the nine review-engine identifiers",
 with _tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as _arrf:
     _arrf.write(
         '{"devflow_review":{"agent_overrides":{'
-        '"pr-review-toolkit:code-reviewer":{"effort":["high"]},'
-        '"pr-review-toolkit:silent-failure-hunter":{"effort":["high","low"]},'
-        '"pr-review-toolkit:pr-test-analyzer":{"model":["a","b"]}}}}'
+        '"devflow:code-reviewer":{"effort":["high"]},'
+        '"devflow:silent-failure-hunter":{"effort":["high","low"]},'
+        '"devflow:pr-test-analyzer":{"model":["a","b"]}}}}'
     )
     _arr_cfg = _arrf.name
 try:
-    _arr_dispatched = ["pr-review-toolkit:code-reviewer",
-                       "pr-review-toolkit:silent-failure-hunter",
-                       "pr-review-toolkit:pr-test-analyzer"]
+    _arr_dispatched = ["devflow:code-reviewer",
+                       "devflow:silent-failure-hunter",
+                       "devflow:pr-test-analyzer"]
     _arr_raw, _ = _rro.read_raw(_arr_dispatched, _config_get_sh, _arr_cfg)
     _arr_res, _arr_rwarn = _rro.resolve_overrides(_arr_raw, _arr_dispatched)
     # Single-element array effort → joined to a bare scalar that passes the enum.
     assert_eq("char: single-element array effort ['high'] laundered to 'high' (documented gap)",
-              {"effort": "high"}, _arr_res["pr-review-toolkit:code-reviewer"])
+              {"effort": "high"}, _arr_res["devflow:code-reviewer"])
     # Multi-element array effort → 'high,low' → fails the enum → dropped + warned.
     assert_eq("char: multi-element array effort is dropped (fails enum)",
-              None, _arr_res.get("pr-review-toolkit:silent-failure-hunter"))
+              None, _arr_res.get("devflow:silent-failure-hunter"))
     assert_eq("char: multi-element array effort warns",
               True, any("high,low" in w for w in _arr_rwarn))
     # Array model → 'a,b' → forwarded verbatim as a model id (documented gap).
     assert_eq("char: array model ['a','b'] laundered to 'a,b' (documented gap)",
-              {"model": "a,b"}, _arr_res["pr-review-toolkit:pr-test-analyzer"])
+              {"model": "a,b"}, _arr_res["devflow:pr-test-analyzer"])
 finally:
     _os.unlink(_arr_cfg)
 
@@ -1500,16 +1500,16 @@ finally:
 with _tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as _tyf:
     _tyf.write(
         '{"devflow_review":{"agent_overrides":{'
-        '"pr-review-toolkit:code-reviewter":{"effort":"high"}}}}'
+        '"devflow:code-reviewter":{"effort":"high"}}}}'
     )
     _ty_cfg = _tyf.name
 try:
     _to, _te = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(_to), contextlib.redirect_stderr(_te):
-        _trc = _rro.main(["pr-review-toolkit:code-reviewter", "--config", _ty_cfg])
+        _trc = _rro.main(["devflow:code-reviewter", "--config", _ty_cfg])
     assert_eq("main: typo'd id with a matching override still exits 0", 0, _trc)
     assert_eq("main: typo'd id override is emitted in stdout JSON",
-              {"pr-review-toolkit:code-reviewter": {"effort": "high"}},
+              {"devflow:code-reviewter": {"effort": "high"}},
               json.loads(_to.getvalue()))
     assert_eq("main: typo'd id also warns it is not a known subagent",
               True, "is not a known" in _te.getvalue())
@@ -1520,7 +1520,7 @@ finally:
 # agent, and the unknown-id warning is deduped (dict.fromkeys) to one line.
 _do, _de = io.StringIO(), io.StringIO()
 with contextlib.redirect_stdout(_do), contextlib.redirect_stderr(_de):
-    _drc = _rro.main(["pr-review-toolkit:typo", "pr-review-toolkit:typo",
+    _drc = _rro.main(["devflow:typo", "devflow:typo",
                       "--config", "/nonexistent/c.json"])
 assert_eq("main: duplicate dispatched ids exit 0", 0, _drc)
 assert_eq("main: duplicate dispatched ids yield stable JSON ({} here)",

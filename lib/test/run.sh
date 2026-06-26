@@ -998,7 +998,7 @@ SC_MIG="$(mktemp -d)"; mkdir -p "$SC_MIG/.devflow"
 # any Haiku override, not just the deduper — a regression that hard-coded the
 # deduper key would otherwise pass green), plus a non-Haiku override whose
 # effort must be left untouched.
-printf '%s' '{"devflow_review":{"agent_overrides":{"default":{"effort":"medium"},"devflow:checklist-deduper":{"model":"claude-haiku-4-5-20251001","effort":"low"},"devflow:checklist-generator":{"model":"claude-haiku-4-5-20251001","effort":"high"},"pr-review-toolkit:code-reviewer":{"model":"claude-opus-4-8","effort":"high"}}}}' \
+printf '%s' '{"devflow_review":{"agent_overrides":{"default":{"effort":"medium"},"devflow:checklist-deduper":{"model":"claude-haiku-4-5-20251001","effort":"low"},"devflow:checklist-generator":{"model":"claude-haiku-4-5-20251001","effort":"high"},"devflow:code-reviewer":{"model":"claude-opus-4-8","effort":"high"}}}}' \
   > "$SC_MIG/.devflow/config.json"
 SC_MIG_OUT="$(bash "$SC" "$SC_MIG" 2>&1)"
 assert_eq "scaffold-migration: Haiku deduper effort stripped" \
@@ -1008,7 +1008,7 @@ assert_eq "scaffold-migration: Haiku deduper model preserved" \
 assert_eq "scaffold-migration: second Haiku-pinned entry (non-deduper) also stripped" \
   "false" "$(jq '.devflow_review.agent_overrides["devflow:checklist-generator"] | has("effort")' "$SC_MIG/.devflow/config.json")"
 assert_eq "scaffold-migration: non-Haiku override effort left untouched" \
-  "high" "$(jq -r '.devflow_review.agent_overrides["pr-review-toolkit:code-reviewer"].effort' "$SC_MIG/.devflow/config.json")"
+  "high" "$(jq -r '.devflow_review.agent_overrides["devflow:code-reviewer"].effort' "$SC_MIG/.devflow/config.json")"
 # The model-less `default` entry must survive: `(.value.model // "")` yields ""
 # which fails the Haiku predicate, so its effort is kept. Asserted on the FIRST
 # run directly (not just via the idempotent no-op below, which would pass even
@@ -4003,10 +4003,10 @@ cat > "$ET_DIR/iter-1.json" <<'EOF'
     {"id":"VC-2","verification_mode":"lite","verdict":"FAIL"},
     {"id":"VC-3","verification_mode":"agent","verdict":"PASS"}
   ],
-  "phase3_dispatched": ["pr-review-toolkit:code-reviewer","pr-review-toolkit:silent-failure-hunter","pr-review-toolkit:comment-analyzer"],
+  "phase3_dispatched": ["devflow:code-reviewer","devflow:silent-failure-hunter","devflow:comment-analyzer"],
   "phase3_findings": [
-    {"agent":"pr-review-toolkit:code-reviewer","corroboration_count":1,"fix_decision":"applied"},
-    {"agent":"pr-review-toolkit:silent-failure-hunter","corroboration_count":2,"fix_decision":"applied"}
+    {"agent":"devflow:code-reviewer","corroboration_count":1,"fix_decision":"applied"},
+    {"agent":"devflow:silent-failure-hunter","corroboration_count":2,"fix_decision":"applied"}
   ],
   "convergence_inputs": {"fixes_applied": 4},
   "telemetry": {"phase_3": {"calls": 3, "tokens": 48000, "wall_clock_s": 180}}
@@ -4018,9 +4018,9 @@ cat > "$ET_DIR/iter-2.json" <<'EOF'
 {
   "iter": 2,
   "checklist": [],
-  "phase3_dispatched": ["pr-review-toolkit:code-reviewer","pr-review-toolkit:comment-analyzer"],
+  "phase3_dispatched": ["devflow:code-reviewer","devflow:comment-analyzer"],
   "phase3_findings": [
-    {"agent":"pr-review-toolkit:code-reviewer","corroboration_count":1,"fix_decision":"pushed_back"}
+    {"agent":"devflow:code-reviewer","corroboration_count":1,"fix_decision":"pushed_back"}
   ],
   "convergence_inputs": {"fixes_applied": 0},
   "telemetry": {"phase_3": {"calls": 2, "tokens": 12000, "wall_clock_s": 60}}
@@ -4029,16 +4029,16 @@ EOF
 
 ET_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_DIR" --slug "pr-15" --mode record)"
 ET_verdict() { echo "$ET_REC" | jq -r --argjson i "$1" --arg a "$2" '.per_iteration[] | select(.iter==$i) | .agent_verdicts[] | select(.agent==$a) | .verdict'; }
-assert_eq "et: applied + corroboration<2 → unique-effective" "unique-effective" "$(ET_verdict 1 'pr-review-toolkit:code-reviewer')"
-assert_eq "et: applied + corroboration>=2 → corroborating"   "corroborating"    "$(ET_verdict 1 'pr-review-toolkit:silent-failure-hunter')"
-assert_eq "et: dispatched but silent → null"                 "null"             "$(ET_verdict 1 'pr-review-toolkit:comment-analyzer')"
-assert_eq "et: only pushed_back finding → noise"             "noise"            "$(ET_verdict 2 'pr-review-toolkit:code-reviewer')"
-assert_eq "et: roster-minus-findings null on a LATER iteration" "null"          "$(ET_verdict 2 'pr-review-toolkit:comment-analyzer')"
+assert_eq "et: applied + corroboration<2 → unique-effective" "unique-effective" "$(ET_verdict 1 'devflow:code-reviewer')"
+assert_eq "et: applied + corroboration>=2 → corroborating"   "corroborating"    "$(ET_verdict 1 'devflow:silent-failure-hunter')"
+assert_eq "et: dispatched but silent → null"                 "null"             "$(ET_verdict 1 'devflow:comment-analyzer')"
+assert_eq "et: only pushed_back finding → noise"             "noise"            "$(ET_verdict 2 'devflow:code-reviewer')"
+assert_eq "et: roster-minus-findings null on a LATER iteration" "null"          "$(ET_verdict 2 'devflow:comment-analyzer')"
 # The silent-agent verdict must be JSON null, not the string "null" — so a
 # cross-run analyzer can use idiomatic `select(.verdict == null)`. `jq -r`
 # renders both as "null", so assert the JSON type explicitly.
 ET_verdict_type() { echo "$ET_REC" | jq -r --argjson i "$1" --arg a "$2" '.per_iteration[] | select(.iter==$i) | .agent_verdicts[] | select(.agent==$a) | .verdict | type'; }
-assert_eq "et: silent-agent verdict is JSON null, not string" "null" "$(ET_verdict_type 1 'pr-review-toolkit:comment-analyzer')"
+assert_eq "et: silent-agent verdict is JSON null, not string" "null" "$(ET_verdict_type 1 'devflow:comment-analyzer')"
 assert_eq "et: record carries cost telemetry forward (iter1 phase_3 tokens)" "48000" \
   "$(echo "$ET_REC" | jq -r '.telemetry[] | select(.iter==1) | .phases.phase_3.tokens')"
 assert_eq "et: record schema_version=1" "1" "$(echo "$ET_REC" | jq -r '.schema_version')"
@@ -4056,13 +4056,13 @@ ET_PROF="$(mktemp -d)"
 cat > "$ET_PROF/iter-1.json" <<'EOF'
 {"iter":1,"diff_profile":{"small_diff":false,"config_only":false,"has_new_types":false,"engine_self_modifying":true,"checklist_skipped":null},
 "checklist":[{"verification_mode":"lite","verdict":"PASS"},{"verification_mode":"lite","verdict":"PASS"}],
-"phase3_dispatched":["pr-review-toolkit:code-reviewer"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}
+"phase3_dispatched":["devflow:code-reviewer"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}
 EOF
 # iter-2: small_diff+config_only, Phase 0.5 intentionally skipped the checklist.
 cat > "$ET_PROF/iter-2.json" <<'EOF'
 {"iter":2,"diff_profile":{"small_diff":true,"config_only":true,"has_new_types":false,"engine_self_modifying":false,"checklist_skipped":"intentional"},
-"checklist":[],"phase3_dispatched":["pr-review-toolkit:code-reviewer"],
-"phase3_findings":[{"agent":"pr-review-toolkit:code-reviewer","corroboration_count":1,"fix_decision":"applied"}],
+"checklist":[],"phase3_dispatched":["devflow:code-reviewer"],
+"phase3_findings":[{"agent":"devflow:code-reviewer","corroboration_count":1,"fix_decision":"applied"}],
 "convergence_inputs":{"fixes_applied":1},"telemetry":null}
 EOF
 ET_PROF_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_PROF" --slug pr-15 --mode record)"
@@ -4102,7 +4102,7 @@ ET_GATE="$(mktemp -d)"
 cat > "$ET_GATE/iter-1.json" <<'EOF'
 {"iter":1,"diff_profile":{"small_diff":false,"config_only":true,"has_new_types":false,"engine_self_modifying":true,"checklist_skipped":null},
 "checklist":[{"verification_mode":"lite","verdict":"PASS"}],
-"phase3_dispatched":["pr-review-toolkit:code-reviewer","pr-review-toolkit:silent-failure-hunter","pr-review-toolkit:comment-analyzer","superpowers:requesting-code-review"],
+"phase3_dispatched":["devflow:code-reviewer","devflow:silent-failure-hunter","devflow:comment-analyzer","superpowers:requesting-code-review"],
 "phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":{"phase_3":{"calls":4,"tokens":40000,"wall_clock_s":120}}}
 EOF
 # iter-2: engine_self_modifying diff that adds testable code logic → pr-test-analyzer
@@ -4110,7 +4110,7 @@ EOF
 cat > "$ET_GATE/iter-2.json" <<'EOF'
 {"iter":2,"diff_profile":{"small_diff":false,"config_only":false,"has_new_types":false,"engine_self_modifying":true,"checklist_skipped":null},
 "checklist":[{"verification_mode":"agent","verdict":"PASS"}],
-"phase3_dispatched":["pr-review-toolkit:code-reviewer","pr-review-toolkit:silent-failure-hunter","pr-review-toolkit:comment-analyzer","superpowers:requesting-code-review","pr-review-toolkit:pr-test-analyzer"],
+"phase3_dispatched":["devflow:code-reviewer","devflow:silent-failure-hunter","devflow:comment-analyzer","superpowers:requesting-code-review","devflow:pr-test-analyzer"],
 "phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":{"phase_3":{"calls":5,"tokens":52000,"wall_clock_s":160}}}
 EOF
 ET_GATE_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_GATE" --slug "pr-15" --mode record)"
@@ -4121,15 +4121,15 @@ ET_GATE_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_GATE" --slug "
 # (not harness-reachable), so this guards that a gated roster survives the trace.
 ET_has() { echo "$ET_GATE_REC" | jq -r --argjson i "$1" --arg a "$2" '.per_iteration[] | select(.iter==$i) | (.phase3_dispatched | index($a) != null)'; }
 assert_eq "et(#52): engine-PR no-types/no-tests roster passthrough excludes type-design-analyzer" "false" \
-  "$(ET_has 1 'pr-review-toolkit:type-design-analyzer')"
+  "$(ET_has 1 'devflow:type-design-analyzer')"
 assert_eq "et(#52): engine-PR no-types/no-tests roster passthrough excludes pr-test-analyzer" "false" \
-  "$(ET_has 1 'pr-review-toolkit:pr-test-analyzer')"
+  "$(ET_has 1 'devflow:pr-test-analyzer')"
 assert_eq "et(#52): engine-PR no-types/no-tests dispatched count = 4 always-on" "4" \
   "$(echo "$ET_GATE_REC" | jq -r '.per_iteration[] | select(.iter==1) | .phase3_dispatched_count')"
 assert_eq "et(#52): engine-PR adding testable code roster passthrough includes pr-test-analyzer" "true" \
-  "$(ET_has 2 'pr-review-toolkit:pr-test-analyzer')"
+  "$(ET_has 2 'devflow:pr-test-analyzer')"
 assert_eq "et(#52): engine-PR adding testable code still excludes type-design-analyzer" "false" \
-  "$(ET_has 2 'pr-review-toolkit:type-design-analyzer')"
+  "$(ET_has 2 'devflow:type-design-analyzer')"
 rm -rf "$ET_GATE"
 
 # none-recorded posture remains reachable for the genuine degraded case the
@@ -4139,7 +4139,7 @@ rm -rf "$ET_GATE"
 ET_NR="$(mktemp -d)"
 cat > "$ET_NR/iter-1.json" <<'EOF'
 {"iter":1,"diff_profile":{"small_diff":false,"config_only":false,"has_new_types":false,"engine_self_modifying":false,"checklist_skipped":null},
-"checklist":[],"phase3_dispatched":["pr-review-toolkit:code-reviewer"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}
+"checklist":[],"phase3_dispatched":["devflow:code-reviewer"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}
 EOF
 ET_NR_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_NR" --slug "pr-15" --mode record)"
 assert_eq "et(#52): Phase 1+2 ran but zero checklist items → none-recorded (genuine gap)" "none-recorded" \
@@ -4377,11 +4377,11 @@ assert_eq "et: flag-off → trace empty"  "" "$ET_OFF_TRACE"
 # agents that appear in phase3_findings; the trace flags the missing roster.
 ET_DEG="$(mktemp -d)"
 cat > "$ET_DEG/iter-1.json" <<'EOF'
-{"iter":1,"checklist":[],"phase3_findings":[{"agent":"pr-review-toolkit:code-reviewer","corroboration_count":1,"fix_decision":"applied"}],"convergence_inputs":{"fixes_applied":1},"telemetry":null}
+{"iter":1,"checklist":[],"phase3_findings":[{"agent":"devflow:code-reviewer","corroboration_count":1,"fix_decision":"applied"}],"convergence_inputs":{"fixes_applied":1},"telemetry":null}
 EOF
 ET_DEG_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_DEG" --slug "branch-x" --mode record)"
 assert_eq "et: degraded (no phase3_dispatched) still classifies finding agent" "unique-effective" \
-  "$(echo "$ET_DEG_REC" | jq -r '.per_iteration[0].agent_verdicts[] | select(.agent=="pr-review-toolkit:code-reviewer") | .verdict')"
+  "$(echo "$ET_DEG_REC" | jq -r '.per_iteration[0].agent_verdicts[] | select(.agent=="devflow:code-reviewer") | .verdict')"
 assert_eq "et: degraded dispatched_count=0 (roster absent)" "0" \
   "$(echo "$ET_DEG_REC" | jq -r '.per_iteration[0].phase3_dispatched_count')"
 ET_DEG_TRACE="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_DEG" --slug "branch-x" --mode trace)"
@@ -4497,8 +4497,8 @@ ETP_RUN="$ETP_REPO/.devflow/tmp/review/pr-77/run-abc"
 mkdir -p "$ETP_RUN"
 cat > "$ETP_RUN/iter-1.json" <<'EOF'
 {"iter":1,"checklist":[{"verification_mode":"lite","verdict":"PASS"}],
-"phase3_dispatched":["pr-review-toolkit:code-reviewer"],
-"phase3_findings":[{"agent":"pr-review-toolkit:code-reviewer","corroboration_count":1,"fix_decision":"applied"}],
+"phase3_dispatched":["devflow:code-reviewer"],
+"phase3_findings":[{"agent":"devflow:code-reviewer","corroboration_count":1,"fix_decision":"applied"}],
 "convergence_inputs":{"fixes_applied":1},"telemetry":{"phase_3":{"calls":1,"tokens":1000,"wall_clock_s":10}}}
 EOF
 # A non-iter scratch sibling confirms the durable copy carries *.json siblings,
@@ -6185,8 +6185,8 @@ assert_eq "#139 LICENSES/feature-dev-LICENSE retains the upstream Apache-2.0 tex
   "yes" "$([ -f "$FDROOT/LICENSES/feature-dev-LICENSE" ] \
           && grep -q 'Apache License' "$FDROOT/LICENSES/feature-dev-LICENSE" && echo yes || echo no)"
 
-# (3b) Property-based vendoring invariant (generalizes for the pr-review-toolkit /
-# superpowers follow-up PRs, and catches a forgotten attribution): ANY agents/*.md that
+# (3b) Property-based vendoring invariant (generalizes for the superpowers follow-up PR,
+# and catches a forgotten attribution): ANY agents/*.md that
 # carries a `Vendored from the ... plugin` marker must NOT carry the first-party
 # `2026 Daniel Radman` SPDX line — keyed on the vendoring property, not a hard-coded
 # filename, so a future vendored agent is covered without editing this loop. (Guarded so
@@ -6199,13 +6199,14 @@ for af in "$FDROOT"/agents/*.md; do
 done
 
 # (4) Manifest contract (mirrors issue AC): plugin.json `dependencies` no longer lists
-# feature-dev. Scoped-removal guard: the two not-yet-internalized companions
-# (pr-review-toolkit, superpowers) are STILL declared, so this PR cannot accidentally
-# over-remove them — they leave in their own follow-up PRs.
+# feature-dev. Scoped-removal guard: superpowers is the SOLE remaining companion after
+# #141 internalized pr-review-toolkit; it is STILL declared so neither this seam nor a
+# botched edit over-removes it (superpowers leaves in seam 3). pr-review-toolkit's own
+# removal is asserted in the #141 block below.
 assert_eq "#139 plugin.json dependencies no longer lists feature-dev" \
   "0" "$(jq '[.dependencies[]? | select(.name == "feature-dev")] | length' "$FDROOT/.claude-plugin/plugin.json")"
-assert_eq "#139 plugin.json still lists pr-review-toolkit + superpowers (scoped removal)" \
-  "2" "$(jq '[.dependencies[]? | select(.name == "pr-review-toolkit" or .name == "superpowers")] | length' "$FDROOT/.claude-plugin/plugin.json")"
+assert_eq "#139 plugin.json still lists superpowers (sole remaining companion, scoped removal)" \
+  "1" "$(jq '[.dependencies[]? | select(.name == "superpowers")] | length' "$FDROOT/.claude-plugin/plugin.json")"
 
 # (5) Workflow contract: no cloud workflow installs the feature-dev companion anymore
 # (the engine now dispatches the first-party devflow:code-explorer/code-architect, so the
@@ -6218,13 +6219,97 @@ assert_eq "#139 no cloud workflow installs the feature-dev companion plugin" \
 # (5b) Workflow scoped-removal guard (the workflow-axis twin of the manifest guard in (4)):
 # the absence check in (5) alone cannot tell a precise feature-dev removal from a botched
 # edit that over-removed a still-needed companion's install line. Assert each cloud
-# workflow STILL installs both not-yet-internalized companions, so an over-broad edit that
-# silently under-provisions the cloud tier turns this row red.
+# workflow STILL installs superpowers (the sole remaining companion after #141), so an
+# over-broad edit that silently under-provisions the cloud tier turns this row red.
 for wf in devflow devflow-implement devflow-runner; do
-  assert_eq "#139 .github/workflows/$wf.yml still installs pr-review-toolkit + superpowers (no over-removal)" \
-    "yes" "$(grep -qF 'pr-review-toolkit@claude-plugins-official' "$FDROOT/.github/workflows/$wf.yml" \
-            && grep -qF 'superpowers@claude-plugins-official' "$FDROOT/.github/workflows/$wf.yml" && echo yes || echo no)"
+  assert_eq "#139 .github/workflows/$wf.yml still installs superpowers (no over-removal)" \
+    "yes" "$(grep -qF 'superpowers@claude-plugins-official' "$FDROOT/.github/workflows/$wf.yml" && echo yes || echo no)"
 done
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "pr-review-toolkit internalization (#141)"
+# ────────────────────────────────────────────────────────────────────────────
+# This PR vendors the five external pr-review-toolkit review agents (code-reviewer,
+# silent-failure-hunter, comment-analyzer, type-design-analyzer, pr-test-analyzer) as
+# first-party DevFlow agents under agents/ and rewires every call-site to the devflow:
+# namespace (seam 2 of #139). These assertions are the mechanical proof the internalization
+# is COMPLETE, not partial. They reuse the same fail-closed tracked_scan seam as the #139
+# block so the SAME #129 rgb_classify rc-handling backs them. PRT review agents:
+PRT_AGENTS="code-reviewer silent-failure-hunter comment-analyzer type-design-analyzer pr-test-analyzer"
+
+# (1) Reference contract (mirrors issue AC): NO tracked OPERATIVE surface may reference the
+# namespaced pr-review-toolkit agent id (the plugin name + colon form). After the rewire
+# every dispatch/allowlist/config/roster-doc id is devflow:<name>, so a real residual
+# reference (a missed call-site) surfaces as the offending file list; an infra/git error
+# surfaces as the <rgb-guard-errored> sentinel (fails loud, never a silent PASS). Pattern
+# split into two literals (like FD_PAT) so this file never self-matches its own grep.
+# Exclusions are append-only HISTORICAL / MIGRATION surfaces where the OLD id legitimately
+# survives and rewriting it would falsify the record:
+#   - .devflow/logs/                  audit scratch (per the issue AC).
+#   - CHANGELOG.md                    release history (past entries describing prior config
+#                                     state) PLUS the new #141 entry, which documents the
+#                                     breaking rename and so necessarily names the old id.
+#   - docs/review-agent-overrides.md  carries the migration table (old-key -> new-key) that
+#                                     tells operators what to rename; its OPERATIVE table /
+#                                     example are rewired to devflow: (asserted positively
+#                                     below), only the migration section names the old id.
+PRT_PAT="pr-review-""toolkit:"
+assert_eq "#141 no operative surface references the namespaced pr-review-toolkit agent id (logs/CHANGELOG/migration-doc excepted)" \
+  "" "$(tracked_scan "$FDROOT" "$PRT_PAT" ':!.devflow/logs' ':!CHANGELOG.md' ':!docs/review-agent-overrides.md')"
+
+# (2/2b/2c) Per-agent vendoring + dispatch-resolves + structural validity. For each of the
+# five review agents: the file exists first-party under agents/; the shared review engine
+# (skills/review/SKILL.md) dispatches the devflow: id AND a first-party agent of that exact
+# `name:` exists to resolve it (closing the #62/#98 dead-end-dispatch gap); the resolver
+# allowlists the devflow: id; and the frontmatter is well-formed. NOTE: unlike the #139
+# feature-dev agents, these carry NO `tools:` key (they inherit all tools), so 2c asserts
+# model: but NOT tools:.
+for a in $PRT_AGENTS; do
+  assert_eq "#141 agents/$a.md exists (vendored first-party)" \
+    "yes" "$([ -f "$FDROOT/agents/$a.md" ] && echo yes || echo no)"
+  assert_eq "#141 review engine dispatches devflow:$a (rewired call-site present)" \
+    "yes" "$(grep -qF "devflow:$a" "$FDROOT/skills/review/SKILL.md" && echo yes || echo no)"
+  assert_eq "#141 agents/$a.md frontmatter declares name: $a (dispatch target resolves)" \
+    "yes" "$(grep -qE "^name: $a\$" "$FDROOT/agents/$a.md" && echo yes || echo no)"
+  assert_eq "#141 resolver allowlists devflow:$a (override key resolves)" \
+    "yes" "$(grep -qF "\"devflow:$a\"" "$FDROOT/scripts/resolve-review-overrides.py" && echo yes || echo no)"
+  # Structural markers (open + close ---, model:) within the head window — bounded to
+  # head -30 so a body horizontal-rule cannot inflate the closing-fence count and mask a
+  # dropped closer. tools: is intentionally NOT required (these agents inherit all tools).
+  assert_eq "#141 agents/$a.md has well-formed frontmatter (open+close ---, model:)" \
+    "yes" "$(head -1 "$FDROOT/agents/$a.md" | grep -qx -- '---' \
+            && [ "$(head -30 "$FDROOT/agents/$a.md" | grep -c '^---$')" -ge 2 ] \
+            && grep -qE '^model:[[:space:]]' "$FDROOT/agents/$a.md" && echo yes || echo no)"
+  # (3) Attribution contract: each vendored agent retains the upstream Anthropic attribution
+  # marker (the no-SPDX half is proved by the property-based 3b loop above, keyed on the
+  # `Vendored from the` marker, which now also covers these five).
+  assert_eq "#141 agents/$a.md carries the upstream pr-review-toolkit/Anthropic attribution marker" \
+    "yes" "$(grep -q 'Vendored from the pr-review-toolkit plugin' "$FDROOT/agents/$a.md" \
+            && grep -q 'Anthropic' "$FDROOT/agents/$a.md" && echo yes || echo no)"
+done
+
+assert_eq "#141 LICENSES/pr-review-toolkit-LICENSE retains the upstream Apache-2.0 text" \
+  "yes" "$([ -f "$FDROOT/LICENSES/pr-review-toolkit-LICENSE" ] \
+          && grep -q 'Apache License' "$FDROOT/LICENSES/pr-review-toolkit-LICENSE" && echo yes || echo no)"
+
+# (4) Manifest contract (mirrors issue AC): plugin.json `dependencies` no longer lists
+# pr-review-toolkit (its agents are first-party now). superpowers staying is the #139 (4)
+# scoped-removal guard above.
+assert_eq "#141 plugin.json dependencies no longer lists pr-review-toolkit" \
+  "0" "$(jq '[.dependencies[]? | select(.name == "pr-review-toolkit")] | length' "$FDROOT/.claude-plugin/plugin.json")"
+
+# (5) Workflow contract: no cloud workflow installs the pr-review-toolkit companion anymore
+# (the engine dispatches the first-party devflow: review agents). Pattern split-literal to
+# avoid self-match; shares the tracked_scan seam as (1).
+WF_PRT="pr-review-""toolkit@claude-plugins-official"
+assert_eq "#141 no cloud workflow installs the pr-review-toolkit companion plugin" \
+  "" "$(tracked_scan "$FDROOT" "$WF_PRT" '.github/workflows')"
+
+# (6) Positive roster-doc rewire: the migration doc is excluded from (1)'s absence scan, so
+# assert POSITIVELY that its operative override example is keyed on the internalized id (a
+# stray old operative key there would otherwise be invisible to (1)).
+assert_eq "#141 docs/review-agent-overrides.md operative example uses the internalized devflow: key" \
+  "yes" "$(grep -qF '"devflow:code-reviewer": { "model"' "$FDROOT/docs/review-agent-overrides.md" && echo yes || echo no)"
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.

@@ -141,7 +141,7 @@ _(pending)_
 
 Operators can tune each review subagent's model and reasoning effort via the `devflow_review.agent_overrides` block in `.devflow/config.json` (see `docs/review-agent-overrides.md` and the schema). The block maps a subagent identifier — or the special `default` key — to a `{model?, effort?}` override. Because this engine is shared, the overrides take effect identically whether it is reached via standalone `/devflow:review` or via `/devflow:review-and-fix` (and thus `/devflow:implement`).
 
-**Five of the nine subagents are external plugins** (`pr-review-toolkit:*`, `superpowers:*` / `general-purpose`) whose frontmatter DevFlow cannot edit, and **effort is not a dispatch-time `Agent`/`Task` parameter** — both model and effort must ride on a per-run `--agents` JSON block. So at each dispatch phase you **materialize an `--agents` override block** for the subagents about to be dispatched and dispatch them through it. Subagents with no applicable override are dispatched exactly as today (no `--agents` entry, global `claude_model` + session effort).
+**Eight of the nine subagents are now first-party DevFlow agents** (the three `devflow:checklist-*` plus the five vendored `devflow:` review agents — `code-reviewer`, `silent-failure-hunter`, `comment-analyzer`, `type-design-analyzer`, `pr-test-analyzer`); **only `superpowers:requesting-code-review`** (dispatched via `general-purpose`) remains an external plugin whose frontmatter DevFlow cannot edit. Even so, **effort is not a dispatch-time `Agent`/`Task` parameter, and per-run operator overrides must not require editing committed agent frontmatter** — so both model and effort must ride on a per-run `--agents` JSON block for every subagent, first-party or not. So at each dispatch phase you **materialize an `--agents` override block** for the subagents about to be dispatched and dispatch them through it. Subagents with no applicable override are dispatched exactly as today (no `--agents` entry, global `claude_model` + session effort).
 
 **Resolve overrides with the bundled helper** — do not hand-roll the precedence/validation in prose. Before each dispatch phase, pass the identifiers about to be dispatched to `resolve-review-overrides.py`; it reads each one's `model`/`effort` (and the `default`) via `config-get.sh` (DevFlow's single config reader), applies the rules below, and prints the override map as JSON (`{}` when nothing applies). Like every DevFlow config read, the helper resolves `.devflow/config.json` **relative to the current working directory** — invoke it from the repo root (pass `--config <path>` if you must run elsewhere), or every override silently resolves to `{}`:
 
@@ -293,8 +293,8 @@ Apply the engine profile per the table below. The first row **overrides** all ot
 | Combination | Engine behavior |
 |---|---|
 | `engine_self_modifying` (any combination of the other flags) | Override the other flags' **checklist** behavior: run the **full Phase 1+2 checklist** (no skip — `checklist_skipped` stays `null`) and all four **always-on** Phase 3 agents (`code-reviewer`, `silent-failure-hunter`, `comment-analyzer`, `requesting-code-review`) unconditionally. The risk surface is "every future review breaks if this is wrong," which dwarfs the per-PR cost saving from a leaner profile. **Two structural-applicability gates survive the override** (they are about whether the agent has anything in the diff to analyze, not about cost): `type-design-analyzer` runs only when `has_new_types` is true, and `pr-test-analyzer` runs only when the **test-relevance predicate** (defined in Phase 3.1) matches. |
-| `small_diff` AND `config_only` | Skip Phase 1 + Phase 2 (checklist gen + verify) entirely. Set `checklist_skipped = "intentional"`. In Phase 3.1, skip `pr-review-toolkit:type-design-analyzer` (`has_new_types` is false on a config-only diff) and apply the unified `pr-test-analyzer` test-relevance predicate (which skips on a config-only diff). |
-| `config_only` (but not `small_diff`) | Run Phase 1+2 normally. In Phase 3.1, skip `pr-review-toolkit:type-design-analyzer` and apply the unified `pr-test-analyzer` test-relevance predicate (which skips on a config-only diff). |
+| `small_diff` AND `config_only` | Skip Phase 1 + Phase 2 (checklist gen + verify) entirely. Set `checklist_skipped = "intentional"`. In Phase 3.1, skip `devflow:type-design-analyzer` (`has_new_types` is false on a config-only diff) and apply the unified `pr-test-analyzer` test-relevance predicate (which skips on a config-only diff). |
+| `config_only` (but not `small_diff`) | Run Phase 1+2 normally. In Phase 3.1, skip `devflow:type-design-analyzer` and apply the unified `pr-test-analyzer` test-relevance predicate (which skips on a config-only diff). |
 | `small_diff` (but not `config_only`) | Run Phase 1+2 normally. In Phase 3.1, apply the `has_new_types` gate for `type-design-analyzer` and the unified `pr-test-analyzer` test-relevance predicate. |
 | neither flag set | Run the full engine. In Phase 3.1, apply the `has_new_types` gate for `type-design-analyzer` and the unified `pr-test-analyzer` test-relevance predicate. |
 
@@ -567,7 +567,7 @@ The following findings were raised by a prior review pass on this same code and 
 
 **Diff path:** Substitute the cached diff path computed in Phase 0.2 (`.devflow/tmp/review/<slug>/<run-id>/diff.patch`) into `{DIFF_PATH}` in the prompts below. Phase 3 agents Read this file directly via their `Read` tool — no shell command, no `gh` API call, no redundant re-fetches across the 4–5 parallel agents. The previous `{DIFF_CMD}` substitution (which had every agent re-run `gh pr diff $ARGUMENTS` or `git diff origin/main...HEAD`) is superseded.
 
-**Required `defect_signature` block.** Every Phase-3 finding from every Phase-3 review-agent — both the ones listed below AND any added by future maintainers — MUST carry a `defect_signature` object so corroboration (Phase 3.2) is mechanical, not interpretive. Append this paragraph verbatim to every Phase-3 review-agent prompt — it's the only way to instruct external pr-review-toolkit agents we cannot edit:
+**Required `defect_signature` block.** Every Phase-3 finding from every Phase-3 review-agent — both the ones listed below AND any added by future maintainers — MUST carry a `defect_signature` object so corroboration (Phase 3.2) is mechanical, not interpretive. Append this paragraph verbatim to every Phase-3 review-agent prompt so the corroboration contract rides on the dispatch itself, independent of each agent's own frontmatter — applying uniformly to the first-party `devflow:` review agents and the external `superpowers:requesting-code-review` final pass alike:
 
 ```
 For every finding you report, include a `defect_signature` field with the following shape:
@@ -582,35 +582,35 @@ Place this field on each finding alongside severity and description. If your nor
 
 Agents to launch:
 
-**pr-review-toolkit:code-reviewer** — prompt:
+**devflow:code-reviewer** — prompt:
 ```
 Review the code changes in this PR. Read the cached diff at `{DIFF_PATH}`. Read CLAUDE.md for project conventions. Focus on CLAUDE.md compliance, bugs, and code quality. Only report issues with confidence >= 80.
 
 {paste the defect_signature paragraph above}
 ```
 
-**pr-review-toolkit:silent-failure-hunter** — prompt:
+**devflow:silent-failure-hunter** — prompt:
 ```
 Review the error handling in the code changes. Read the cached diff at `{DIFF_PATH}`. Read the full changed files. Check for silent failures, inadequate error handling, and inappropriate fallback behavior.
 
 {paste the defect_signature paragraph above}
 ```
 
-**pr-review-toolkit:comment-analyzer** — prompt:
+**devflow:comment-analyzer** — prompt:
 ```
 Analyze the code comments in the changes. Read the cached diff at `{DIFF_PATH}`. Check that docstrings and comments are accurate, helpful, and not misleading.
 
 {paste the defect_signature paragraph above}
 ```
 
-**pr-review-toolkit:pr-test-analyzer** — prompt:
+**devflow:pr-test-analyzer** — prompt:
 ```
 Analyze test coverage for the changes. Read the cached diff at `{DIFF_PATH}`. Check if tests adequately cover new functionality and edge cases.
 
 {paste the defect_signature paragraph above}
 ```
 
-**pr-review-toolkit:type-design-analyzer** — *launched only when the `has_new_types` gate is true (see Phase 3.1 gates below), on every diff profile including `engine_self_modifying`; skipped otherwise* — prompt:
+**devflow:type-design-analyzer** — *launched only when the `has_new_types` gate is true (see Phase 3.1 gates below), on every diff profile including `engine_self_modifying`; skipped otherwise* — prompt:
 ```
 Analyze the type design in the code changes. Read the cached diff at `{DIFF_PATH}`. Evaluate the types actually introduced or modified in this diff for encapsulation, invariant expression, usefulness, and enforcement. Do not report on pre-existing types the diff does not touch.
 
@@ -640,8 +640,8 @@ Return your findings in the standard Phase-3 output format: ### Strengths / ### 
 
 These two gates decide whether `type-design-analyzer` and `pr-test-analyzer` have anything *in the diff* to analyze. They are **applicability** gates, not cost-profile gates, so they apply uniformly across all Phase 0.5 profiles — `engine_self_modifying` included. The `engine_self_modifying` override (Phase 0.5) keeps the full checklist and the four always-on agents (`code-reviewer`, `silent-failure-hunter`, `comment-analyzer`, `requesting-code-review`) firing regardless of these gates; it does **not** force-dispatch the type/test analyzers when the diff gives them nothing to do.
 
-- Skip `pr-review-toolkit:type-design-analyzer` when `has_new_types` is false. (This replaces the older "check for `class ` in the diff" predicate, which over-fired on the literal word *class* appearing in YAML / markdown / comments.) When `has_new_types` is true, it is launched — on every profile, `engine_self_modifying` included.
-- Dispatch `pr-review-toolkit:pr-test-analyzer` per the **test-relevance predicate** below; skip it when the predicate does not match.
+- Skip `devflow:type-design-analyzer` when `has_new_types` is false. (This replaces the older "check for `class ` in the diff" predicate, which over-fired on the literal word *class* appearing in YAML / markdown / comments.) When `has_new_types` is true, it is launched — on every profile, `engine_self_modifying` included.
+- Dispatch `devflow:pr-test-analyzer` per the **test-relevance predicate** below; skip it when the predicate does not match.
 
 **`pr-test-analyzer` test-relevance predicate (defined once, applied to every diff profile):** dispatch `pr-test-analyzer` when **either** branch matches —
 1. the diff **adds or modifies a test file** (a changed path matching `*test*` / `*spec*`, or a language-specific test-naming convention — e.g. `*_test.go`, `test_*.py`, `*.spec.ts`, `*Test.java`); **or**
@@ -874,7 +874,7 @@ Best-effort throughout: a telemetry/trace failure is a `::warning::`, never a do
 - Re-running Phase 1 on a config-only PR when Phase 0.5 classified it as `small_diff + config_only` — Phase 0.5 already gates this; trust the classification rather than second-guessing it.
 - Letting checklist generation failure silently degrade to a clean APPROVE — Phase 4.2 rule 4a forces APPROVE WITH CAVEAT in that case; do not skip past it because "the rest of the engine ran fine."
 - Treating an agent's verbalized confidence as load-bearing — Phase 3.2's corroboration count (mechanical, signature-based) is the stronger signal. A 95%-confident single-source finding is weaker than a 3-of-5 corroborated one.
-- Dispatching `pr-review-toolkit:type-design-analyzer` on a diff where `has_new_types` is false — the gate exists because that analyzer over-fires when the word *class* appears in YAML, markdown, or comments. Honor the gate on every profile, including `engine_self_modifying`.
+- Dispatching `devflow:type-design-analyzer` on a diff where `has_new_types` is false — the gate exists because that analyzer over-fires when the word *class* appears in YAML, markdown, or comments. Honor the gate on every profile, including `engine_self_modifying`.
 - Posting a REJECT verdict only to chat without `gh pr review --request-changes` — Phase 4.4 exists because chat-only rejections get missed and the PR ships anyway.
 - Posting a **second** comment for the **same run**, or re-discovering a **previous** run's comment and overwriting it — there is exactly one such comment **per run**, keyed by the run-keyed marker (`run=<id>-<attempt>`). `workpad.py id --marker "$MARKER"` matches only this run's comment, so resume yields this run's own comment; prior runs' comments stay untouched as history. Reconcile with `devflow-review.yml` so the workflow does not also seed one.
 - Batching Phase-3 findings into the live comment only at the end — append each agent's findings and `patch` **as that agent returns**; the real-time accrual is the whole point of the live comment.

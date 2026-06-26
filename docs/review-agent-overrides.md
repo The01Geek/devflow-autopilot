@@ -14,6 +14,26 @@ Because the engine is shared, the overrides take effect **identically** whether 
 standalone `/devflow:review` or via `/devflow:review-and-fix` (and thus the Phase-3 code-review
 pass of `/devflow:implement`).
 
+## Migration (v2.8.12): the five review-agent keys were renamed
+
+**Breaking config change.** The five Phase-3 review agents were internalized as first-party DevFlow
+agents (vendored from Anthropic's pr-review-toolkit plugin), so the engine now dispatches them under
+the `devflow:` namespace. Their `agent_overrides` keys were renamed accordingly:
+
+| Old key (pre-2.8.12) | New key |
+|---|---|
+| `pr-review-toolkit:code-reviewer` | `devflow:code-reviewer` |
+| `pr-review-toolkit:silent-failure-hunter` | `devflow:silent-failure-hunter` |
+| `pr-review-toolkit:comment-analyzer` | `devflow:comment-analyzer` |
+| `pr-review-toolkit:type-design-analyzer` | `devflow:type-design-analyzer` |
+| `pr-review-toolkit:pr-test-analyzer` | `devflow:pr-test-analyzer` |
+
+If your `.devflow/config.json` keys `agent_overrides` on any old identifier, rename it to the new
+one. A stale old key is **not** an error — the resolver's unknown-key handling ignores it with a
+`::warning::` (it is simply no longer a known review-engine subagent), so the override silently
+stops applying until you rename it. The `superpowers:requesting-code-review` and
+`devflow:checklist-*` keys are unchanged.
+
 ## The nine configurable identifiers
 
 The override keys are byte-identical to the subagent identifiers the engine dispatches under, so
@@ -27,11 +47,11 @@ appear in `phase3_dispatched`:
 | `devflow:checklist-generator` | 1 | Verification-checklist generation. |
 | `devflow:checklist-deduper` | 1.5 | Cross-batch dedup (only when >1 generator batch). |
 | `devflow:checklist-verifier` | 2 | One dispatch per agent-mode checklist item. |
-| `pr-review-toolkit:code-reviewer` | 3 | Always-on. |
-| `pr-review-toolkit:silent-failure-hunter` | 3 | Always-on. |
-| `pr-review-toolkit:comment-analyzer` | 3 | Always-on. |
-| `pr-review-toolkit:type-design-analyzer` | 3 | Gated — only when the diff adds/changes types. |
-| `pr-review-toolkit:pr-test-analyzer` | 3 | Gated — only when the test-relevance predicate matches. |
+| `devflow:code-reviewer` | 3 | Always-on. |
+| `devflow:silent-failure-hunter` | 3 | Always-on. |
+| `devflow:comment-analyzer` | 3 | Always-on. |
+| `devflow:type-design-analyzer` | 3 | Gated — only when the diff adds/changes types. |
+| `devflow:pr-test-analyzer` | 3 | Gated — only when the test-relevance predicate matches. |
 | `superpowers:requesting-code-review` | 3 | Final pass; dispatched as a `general-purpose` Task but keyed under this identifier. |
 
 Plus the special `default` key (below).
@@ -46,7 +66,7 @@ Each value optionally sets `model` and/or `effort`:
     "agent_overrides": {
       "default": { "effort": "high" },
       "devflow:checklist-deduper": { "model": "claude-sonnet-4-6", "effort": "medium" },
-      "pr-review-toolkit:code-reviewer": { "model": "claude-opus-4-8", "effort": "high" }
+      "devflow:code-reviewer": { "model": "claude-opus-4-8", "effort": "high" }
     }
   }
 }
@@ -80,7 +100,7 @@ Each value optionally sets `model` and/or `effort`:
   only for subagents that have no entry of their own. (So `code-reviewer: { model: m }` with a
   `default: { effort: high }` dispatches `code-reviewer` with model `m` and the **session** effort
   — not `high`.)
-- **Explicit empty entry opts out of `default`.** An explicit empty entry (`"pr-review-toolkit:code-reviewer": {}`) counts as "has an entry": it sets neither model nor effort **and** does not inherit `default`. Use it to deliberately exclude one subagent from a broad `default` override.
+- **Explicit empty entry opts out of `default`.** An explicit empty entry (`"devflow:code-reviewer": {}`) counts as "has an entry": it sets neither model nor effort **and** does not inherit `default`. Use it to deliberately exclude one subagent from a broad `default` override.
 - **No-entry fallback.** A subagent with **neither its own entry nor a `default`** is dispatched
   exactly as today — the global `claude_model` and the session effort — with **no `--agents`
   override emitted for it**. Existing configs (which have no `agent_overrides` block at all) are
@@ -114,10 +134,13 @@ Each value optionally sets `model` and/or `effort`:
 
 ## Mechanism
 
-Five of the nine subagents are **external plugins** (`pr-review-toolkit:*`, `superpowers:*` /
-`general-purpose`) whose frontmatter DevFlow cannot edit, and **effort is not a dispatch-time
-`Agent`/`Task` parameter**. Both model and effort must therefore ride on a per-run `--agents` JSON
-block. The engine resolves the overrides with `scripts/resolve-review-overrides.py` (which reads
+Eight of the nine subagents are now **first-party DevFlow agents** (the three `devflow:checklist-*`
+and the five vendored `devflow:` review agents); only `superpowers:requesting-code-review`
+(dispatched via `general-purpose`) remains an external plugin whose frontmatter DevFlow cannot edit.
+Even so, **effort is not a dispatch-time `Agent`/`Task` parameter, and per-run operator overrides
+must not require editing committed agent frontmatter** — both model and effort must therefore ride
+on a per-run `--agents` JSON block for every subagent. The engine resolves the overrides with
+`scripts/resolve-review-overrides.py` (which reads
 the config through `config-get.sh`) and materializes that block at each dispatch phase; the
 external plugins' own `description`/`prompt`/`tools` come from their installed definitions, with
 only the configured `model`/`effort` layered on. DevFlow never edits any external plugin's files.
