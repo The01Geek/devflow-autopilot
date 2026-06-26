@@ -18,10 +18,9 @@
 
 ## Quick start
 
-**1. Install** (three commands — run in order; works in any shell):
+**1. Install** (two commands — run in order; works in any shell):
 
 ```bash
-claude plugin marketplace add anthropics/claude-plugins-official
 claude plugin marketplace add The01Geek/devflow-autopilot
 claude plugin install devflow@devflow-marketplace
 ```

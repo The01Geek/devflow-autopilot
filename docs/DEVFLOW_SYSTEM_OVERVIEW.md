@@ -160,7 +160,7 @@ This is the canonical story for a demo video or "how it works" slide:
 | Skill | What it does | How it's invoked |
 |---|---|---|
 | `/devflow:implement <issue#>` | Full lifecycle: fetch issue → branch + workpad → discover/plan → implement → test → draft PR → `/simplify` → `/devflow:review-and-fix` → acceptance gate → file follow-up issues → docs → ready PR | interactively, or by commenting on an issue (cloud) |
-| `/devflow:review [PR#]` | Verification-checklist-driven review; runs the first-party `devflow:` review agents + the `superpowers` final-pass reviewer; returns **APPROVE/REJECT** (no auto-fix) | interactively, or a bare `/devflow:review` comment on the PR |
+| `/devflow:review [PR#]` | Verification-checklist-driven review; runs the first-party `devflow:` review agents + the first-party `devflow:requesting-code-review` final-pass reviewer; returns **APPROVE/REJECT** (no auto-fix) | interactively, or a bare `/devflow:review` comment on the PR |
 | `/devflow:review-and-fix [PR#]` | `/devflow:review` + an automatic fix loop (max **4** iterations); writes a deferrals manifest at Loop Exit | interactively; called by `/devflow:implement` Phase 3 |
 | `/devflow:pr-description [issue#]` | Generate/update PR description from the branch diff; renders the Scope-Acknowledged Findings block | interactively; called by `/devflow:implement` Phase 4 |
 | `/devflow:docs` | Orchestrates the three doc steps in one session | interactively; called by `/devflow:implement` Phase 4 |
@@ -531,11 +531,10 @@ After scaffolding and the dependency preflight, `/devflow:init` runs one final *
 
 **Local tier (one line):**
 ```bash
-claude plugin marketplace add anthropics/claude-plugins-official \
-  && claude plugin marketplace add The01Geek/devflow-autopilot \
+claude plugin marketplace add The01Geek/devflow-autopilot \
   && claude plugin install devflow@devflow-marketplace
 ```
-The two companion plugins **auto-install**: *provided `claude-plugins-official` has been added first* (cross-marketplace dependencies only resolve once it's actually added). PyYAML is a separate, manual prerequisite (`pip install -r requirements.txt`), `/plugin install` never runs `pip`.
+DevFlow declares **zero companion-plugin dependencies** (every external asset it once dispatched is now first-party — see §6), so `/plugin install` resolves on its own with no `claude-plugins-official` prerequisite. PyYAML is a separate, manual prerequisite (`pip install -r requirements.txt`); `/plugin install` never runs `pip`.
 
 **Cloud tier (one line, from repo root):**
 ```bash

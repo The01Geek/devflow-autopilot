@@ -6405,7 +6405,21 @@ assert_eq "#142 CLAUDE.md references the internalized devflow:writing-skills con
 # is asserted POSITIVELY rather than via a marker-keyed `continue` skip: a supporting file that
 # LOST its attribution header fails loud here instead of silently dropping out of the loop. The
 # vendored skill paths are alphanumeric/hyphen (no spaces), so the unquoted find word-split is safe.
-for sf in $(find "$FDROOT/skills/requesting-code-review" "$FDROOT/skills/receiving-code-review" "$FDROOT/skills/writing-skills" -type f 2>/dev/null); do
+SP_VENDORED_FILES=$(find "$FDROOT/skills/requesting-code-review" "$FDROOT/skills/receiving-code-review" "$FDROOT/skills/writing-skills" -type f 2>/dev/null)
+# Fail CLOSED on an empty iteration set: if the three vendored trees were deleted/renamed
+# wholesale, `find` returns nothing and the loop below would contribute ZERO assertions — a
+# silent pass on the exact botched-re-vendor regression this block exists to catch (the
+# loop's contract is "every file here MUST be vendored," so an empty set is a false clean,
+# not a legitimate no-op like the #139 conditional agents glob). Guard with a non-empty
+# assertion before iterating.
+assert_eq "#142 vendored skill trees are non-empty (guards the empty-find silent-pass)" \
+  "yes" "$([ -n "$SP_VENDORED_FILES" ] && echo yes || echo no)"
+# The reviewer-prompt template requesting-code-review actually dispatches is load-bearing —
+# pin its existence explicitly (the 2/2b/2c loop pins each SKILL.md, but a supporting-file
+# deletion would otherwise be invisible to the marker loop, which only iterates files that exist).
+assert_eq "#142 skills/requesting-code-review/code-reviewer.md exists (the dispatched reviewer template)" \
+  "yes" "$([ -f "$FDROOT/skills/requesting-code-review/code-reviewer.md" ] && echo yes || echo no)"
+for sf in $SP_VENDORED_FILES; do
   assert_eq "#142 vendored skill file ${sf#"$FDROOT"/} carries the upstream superpowers attribution marker" \
     "yes" "$(grep -q 'Vendored from the superpowers plugin' "$sf" && echo yes || echo no)"
   assert_eq "#142 vendored skill file ${sf#"$FDROOT"/} carries no first-party 2026 Daniel Radman SPDX line" \
@@ -6438,6 +6452,17 @@ assert_eq "#142 no cloud workflow installs the superpowers companion plugin" \
 SP_PAT_WT="superpowers:""using-git-worktrees"
 assert_eq "#142 retrospective-weekly no longer references the using-git-worktrees skill (retired for raw git worktree)" \
   "no" "$(grep -qF "$SP_PAT_WT" "$FDROOT/skills/retrospective-weekly/SKILL.md" && echo yes || echo no)"
+
+# (6b) Removed-behavior pin (negative-removal, twin of (6)): the final-pass reviewer is now a
+# first-party skill that is ALWAYS present wherever DevFlow runs, so the old companion-unavailable
+# graceful-degradation framing ("this dispatch assumes the superpowers plugin is installed... fall
+# back to the other reviewers if unavailable") was removed from skills/review/SKILL.md — its
+# survival is load-bearing for the shadow's always-on-roster invariant (a three-of-four roster is
+# never full coverage). A future edit that reintroduces a companion-install assumption would pass
+# every other #142 row while silently regressing that invariant, so pin its absence on the
+# target-unique phrase. (The phrase appears nowhere else in the file, so this is not vacuous.)
+assert_eq "#142 review engine no longer assumes the final-pass reviewer is an installed companion plugin" \
+  "no" "$(grep -qF 'plugin is installed in the executing environment' "$FDROOT/skills/review/SKILL.md" && echo yes || echo no)"
 
 # (7) Positive roster-doc rewire (AC8): the docs that describe the final-pass reviewer must
 # name the internalized devflow:requesting-code-review id — a negative scan (1) catches a
