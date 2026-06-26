@@ -1463,6 +1463,24 @@ assert_eq("resolve: KNOWN_AGENTS is the nine review-engine identifiers",
            "superpowers:requesting-code-review"),
           _rro.KNOWN_AGENTS)
 
+# Migration guard (#141): the old code-reviewer override key (the pre-rename, externally
+# namespaced form) was renamed into the devflow: namespace. docs/review-agent-overrides.md
+# + CHANGELOG promise that a STALE old key is treated as UNKNOWN (the resolver ignores it
+# with a `::warning::`; the override silently stops applying) rather than silently matching
+# the renamed agent. Pin that promise on the exact old string so the migration note is
+# *tested*, not merely asserted — the unverified-assumption bug class CLAUDE.md flags
+# (#62/#98). The literal is split ("pr-review-" "toolkit:...") so neither this value nor any
+# comment/description here reintroduces a colon-form id the run.sh #141 residual scan flags.
+_OLD_CR_KEY = "pr-review-" "toolkit:code-reviewer"
+assert_eq("#141 migration: stale pre-rename code-reviewer override key is NOT a known id",
+          False, _OLD_CR_KEY in _rro.KNOWN_AGENTS)
+_mo, _me = io.StringIO(), io.StringIO()
+with contextlib.redirect_stdout(_mo), contextlib.redirect_stderr(_me):
+    _mrc = _rro.main([_OLD_CR_KEY, "--config", "/nonexistent/c.json"])
+assert_eq("#141 migration: main() with the stale old key exits 0 (never aborts)", 0, _mrc)
+assert_eq("#141 migration: main() warns the stale old key is not a known subagent",
+          True, "is not a known" in _me.getvalue())
+
 # Characterization: pins the documented array-leaf gap so it can only change
 # deliberately. config-get.sh joins an array leaf with commas before the resolver
 # sees it, so a SINGLE-element array is indistinguishable from a scalar string.

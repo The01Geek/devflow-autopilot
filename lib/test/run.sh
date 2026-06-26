@@ -6269,6 +6269,13 @@ for a in $PRT_AGENTS; do
     "yes" "$([ -f "$FDROOT/agents/$a.md" ] && echo yes || echo no)"
   assert_eq "#141 review engine dispatches devflow:$a (rewired call-site present)" \
     "yes" "$(grep -qF "devflow:$a" "$FDROOT/skills/review/SKILL.md" && echo yes || echo no)"
+  # Peer-completeness (AC3 names BOTH skills): the fix-loop skill carries the same roster
+  # in its phase3_dispatched / shadow-roster / reviewers_dispatched examples, and (1)'s
+  # negative scan only catches a leftover OLD id — not a DROPPED devflow: id. Pin it
+  # positively so a future edit that desyncs review-and-fix's example roster from the
+  # engine's actual dispatch set turns this row red instead of shipping silently.
+  assert_eq "#141 fix-loop skill references devflow:$a (review-and-fix roster rewired)" \
+    "yes" "$(grep -qF "devflow:$a" "$FDROOT/skills/review-and-fix/SKILL.md" && echo yes || echo no)"
   assert_eq "#141 agents/$a.md frontmatter declares name: $a (dispatch target resolves)" \
     "yes" "$(grep -qE "^name: $a\$" "$FDROOT/agents/$a.md" && echo yes || echo no)"
   assert_eq "#141 resolver allowlists devflow:$a (override key resolves)" \
@@ -6305,11 +6312,18 @@ WF_PRT="pr-review-""toolkit@claude-plugins-official"
 assert_eq "#141 no cloud workflow installs the pr-review-toolkit companion plugin" \
   "" "$(tracked_scan "$FDROOT" "$WF_PRT" '.github/workflows')"
 
-# (6) Positive roster-doc rewire: the migration doc is excluded from (1)'s absence scan, so
-# assert POSITIVELY that its operative override example is keyed on the internalized id (a
-# stray old operative key there would otherwise be invisible to (1)).
+# (6) Positive roster-doc rewire (AC8 names three docs that must describe the internalized
+# roster). The absence scan (1) catches a leftover OLD id but not a doc that DROPPED the
+# roster mention entirely, so pin each AC8 doc positively. review-agent-overrides.md needs
+# this most — it is EXCLUDED from (1) (it carries the old-id migration table), so its
+# operative override example would otherwise be unguarded; the other two are inside (1)'s
+# scan but a dropped-mention regression is still invisible to a negative scan.
 assert_eq "#141 docs/review-agent-overrides.md operative example uses the internalized devflow: key" \
   "yes" "$(grep -qF '"devflow:code-reviewer": { "model"' "$FDROOT/docs/review-agent-overrides.md" && echo yes || echo no)"
+for d in DEVFLOW_SYSTEM_OVERVIEW.md shadow-review.md; do
+  assert_eq "#141 docs/$d describes the internalized first-party review roster (devflow:code-reviewer present)" \
+    "yes" "$(grep -qF 'devflow:code-reviewer' "$FDROOT/docs/$d" && echo yes || echo no)"
+done
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
