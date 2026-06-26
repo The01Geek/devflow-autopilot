@@ -42,6 +42,23 @@ Write your own one-paragraph root-cause restatement — do NOT trust the retrosp
 
 ## § 2 — Plugin self-audit FIRST
 
+**Can this fix be a prompt-extension? (ask this BEFORE the self-audit questions and the exclusion match below).** A large class of "make skill X also do Y" fixes is a purely **additive** change to a skill's behavior — extra instructions appended to what the skill already does, overriding nothing. DevFlow ships a surface built exactly for that: `scripts/load-prompt-extension.sh` prints `.devflow/prompt-extensions/<skill>.md` and the skill is instructed to append that file's contents **verbatim** to its own prompt (every skill that calls the loader honors this; an absent or empty file is a silent no-op — while a *present-but-undeliverable* file (unreadable, a broken symlink, not a regular file) fails **loud** with exit 2 — so the fix is live only when the named `<skill>` actually invokes the loader). That directory is **in scope** — it is not on the canonical exclusion list below, and `lib/check-excluded-path.sh` does not match it.
+
+So before routing any skill-behavior change to the meta-issue form, ask: **is the fix expressible as an appended instruction, and is it appropriately consumer-local?** If yes, **first verify the route is actually live**: confirm `skills/<skill>/SKILL.md` exists and genuinely invokes `scripts/load-prompt-extension.sh <skill>` (`git grep -n load-prompt-extension.sh skills/<skill>/`). If the skill directory is absent, the `<skill>` name is wrong, or that skill never calls the loader, an extension file would be written but never read — a silent inert no-op that *looks* applied (file committed, PR merged) yet never executes, so the pattern recurs — therefore treat the fix as **structural** and fall through to condition (i) (the meta-issue) instead. When the route is live, apply it as a normal `excluded: false` edit (§ 5 / § 6) by writing or extending `.devflow/prompt-extensions/<skill>.md` — put that path in `targets[]` — instead of editing the excluded skill body or filing a meta-issue. `<skill>` is the skill's directory name under `skills/` (`create-issue`, `implement`, `review`, …). This mirrors how DevFlow already keeps its own versioning rule in `.devflow/prompt-extensions/implement.md` rather than in the `implement` skill body.
+
+Route to the **meta-issue form** (the four questions + the `excluded: true` early-exit below) when, and **only** when, the fix is one of:
+- **(i) a structural engine defect a prose append cannot express** — it must override or remove existing skill text, or correct broken logic, not merely add to it. Rewording or replacing an existing skill step is condition (i), not an additive append. So is any behavior that must hold across *two* skills through one file — most notably the **shared review engine** (`skills/review/SKILL.md` Phases 0–4.3, executed verbatim by both `/devflow:review` and `/devflow:review-and-fix`): each wrapper loads only *its own* extension (`/devflow:review` loads `review.md`, `/devflow:review-and-fix` loads `review-and-fix.md`), so no single extension file can carry a behavior the shared engine must exhibit under *both* — and duplicating it into two extension files would drift. A behavior that must reach both is structural — change the engine, don't append to either wrapper.
+- **(ii) a change to a non-prose engine file** — any path `lib/check-excluded-path.sh` treats as excluded (`lib/**`, `scripts/**`, `agents/**`, `.claude-plugin/**`, `.github/actions/**` and the `claude*`/`devflow-*` workflows — note `.github/ISSUE_TEMPLATE/` stays a valid additive surface — `.devflow/learnings/**`, `.devflow/config.json` and its `.example` / `.schema` siblings) or a jq filter / embedded program — anything a skill-prose append cannot carry. (This is the gating *question*, not a second exclusion list: `lib/check-excluded-path.sh` is the authoritative matcher for the exact paths — defer to it, not to any prose copy, which can drift.)
+- **(iii) a fix every consumer needs that must propagate to adopters** — it changes shipped engine behavior consumers rely on (including adopters who never run the retrospective loop), so it must land in the engine upstream where a consumer-local extension cannot reach.
+
+Two limits bound this route, so do not over-apply it:
+- **Append-only.** A prompt extension can only *add* instructions; it cannot override or delete existing skill prose. A fix that must change what the skill already says is condition (i), not a prompt-extension.
+- **Consumer-local.** "Consumer-local" here means *applied via the repo-local extension surface rather than the shipped skill body* — **not** "only this one repo benefits." In DevFlow's own repo an additive fix derived from the loop's findings lands here as dogfooding even when adopters would also benefit; the maintainer can later promote it upstream. Route to condition (iii) only when the fix *must* ship in the engine to take effect for adopters, since an extension lives in this repo's `.devflow/prompt-extensions/` and never reaches them.
+
+**When the additive-vs-structural call is genuinely ambiguous, default to the meta-issue.** The meta-issue route fails *loudly* to a human reviewer; an inert, mis-routed, or subtly-overriding extension fails *silently* and the pattern simply recurs next cycle. So under real uncertainty the safe tie-break is the human-reviewed route, not the autonomous one.
+
+If the fix is *not* a prompt-extension (it hits one of (i)–(iii)), fall through to the self-audit below.
+
 Before opening `intervention-surfaces.md`, check whether the pattern points at a defect in the devflow plugin itself. Ask all four questions for every occurrence:
 
 - **Retrospective hallucination?** Does the retrospective's `summary` for the occurrence PRs contradict the primary-source evidence (PR/issue bodies, comments, reviews)? If yes, the fix belongs in `skills/retrospective/SKILL.md`, not in a downstream CLAUDE.md rule.
@@ -89,10 +106,11 @@ Read `${CLAUDE_SKILL_DIR}/../../lib/intervention-surfaces.md`. From those surfac
 **Conflict check:** search the existing rules, skills, and docs for anything that contradicts your proposed change. If you find a conflict, reframe as "strengthen rule X" rather than "add rule Y" — that is always the higher-quality intervention. Document the conflict (or its explicit absence) in the PR body.
 
 Examples of valid surfaces:
+- Append an additive skill-behavior change to `.devflow/prompt-extensions/<skill>.md` (the in-scope prompt-extension surface from § 2) rather than editing the excluded skill body — for any "make skill X also do Y" fix expressible as an appended instruction and appropriately consumer-local.
 - Strengthen an existing CLAUDE.md rule with a more visible warning and a linkable example.
 - Add or tighten a linter/static-analysis rule that catches the broken pattern mechanically.
 - Edit `docs/internal/<feature>.md` to fill a gap the bot kept missing.
-- Update the `/create-issue` or `/devflow:implement` skill to require a missing check.
+- Update the `/create-issue` or `/devflow:implement` skill to require a missing check (when the change is *structural* — overriding existing prose or correcting logic; a purely additive requirement is the prompt-extension surface above).
 
 ---
 
