@@ -87,17 +87,18 @@ Most "AI writes your code" tools stop at the first step and hand you a diff. Dev
 DevFlow is distributed as a **Claude Code plugin**. The repository is also its own plugin **marketplace**. It bundles:
 
 - **Skills**: the user-facing commands (`/devflow:implement`, `/devflow:review`, the `/devflow:docs` family, `/devflow:create-issue`, `/devflow:retrospective-weekly`, etc.). Each is a `SKILL.md` file containing a detailed procedure the model follows.
-- **Agents**: three specialized subagents (`checklist-generator`, `checklist-deduper`, `checklist-verifier`) that power the review engine.
+- **Agents**: five specialized first-party subagents — `checklist-generator`, `checklist-deduper`, `checklist-verifier` power the review engine, and `code-explorer` (codebase discovery) and `code-architect` (planning) power `/devflow:implement` (vendored from Anthropic's feature-dev plugin under Apache-2.0, retained at `LICENSES/feature-dev-LICENSE`; DevFlow now owns them as a hard fork).
 - **Scripts** (`scripts/`, `lib/`), deterministic helpers in Bash, `jq`, and Python that do all the mechanical work (fetching context, computing patterns, gating, git/PR mechanics) so the LLM is only invoked for genuine judgment.
 - **Cloud workflows** (`.github/`), optional GitHub Actions that make DevFlow run autonomously on issue/PR events.
 
-It declares three **companion plugins** as dependencies, all from Anthropic's official `claude-plugins-official` marketplace:
+It declares two **companion plugins** as dependencies, both from Anthropic's official `claude-plugins-official` marketplace:
 
 | Plugin | Role in DevFlow |
 |---|---|
-| `feature-dev` | Provides `code-explorer` (codebase discovery) and `code-architect` (planning) subagents used by `/devflow:implement`. |
 | `pr-review-toolkit` | Provides the review agents: `code-reviewer`, `silent-failure-hunter`, `comment-analyzer`, `pr-test-analyzer`, `type-design-analyzer`. |
 | `superpowers` | Provides the final-pass reviewer (`requesting-code-review`) plus brainstorming/TDD discipline and the `receiving-code-review` principles used when fixing findings. |
+
+The discovery/planning subagents `code-explorer` and `code-architect` were formerly provided by the `feature-dev` companion plugin; they are now **first-party DevFlow agents** under `agents/` (a hard fork vendored from Anthropic's feature-dev plugin under Apache-2.0), so `feature-dev` is no longer a dependency.
 
 `/simplify` (used for self-review) is a **built-in** Claude Code skill, intentionally *not* a dependency.
 
@@ -226,9 +227,9 @@ DevFlow maintains **exactly one** marker-tagged comment on the GitHub issue for 
 - **1.5** Push the branch.
 
 ### Phase 2: Discover, Plan & Implement
-- **2.1** Discovery via the `feature-dev:code-explorer` subagent.
+- **2.1** Discovery via the first-party `devflow:code-explorer` subagent.
 - **2.1.5 Reproduce-First Gate** (bug-labelled only): capture a reproduction signal (failing test / error log) *before* planning; if it can't reproduce → `Blocked`.
-- **2.2** Assess complexity. **Simple** (≤5 files, clear, no architecture) → implement directly. **Complex** → `feature-dev:code-architect` produces a blueprint (held in context, never committed). Sub-gates: **2.2.4 Reuse & Altitude** (reuse existing helpers by `file:line`), **2.2.5 Scope-Adjustment** (multi-PR issues), **2.2.6 AC-Plan reconciliation**.
+- **2.2** Assess complexity. **Simple** (≤5 files, clear, no architecture) → implement directly. **Complex** → the first-party `devflow:code-architect` produces a blueprint (held in context, never committed). Sub-gates: **2.2.4 Reuse & Altitude** (reuse existing helpers by `file:line`), **2.2.5 Scope-Adjustment** (multi-PR issues), **2.2.6 AC-Plan reconciliation**.
 - **2.3 Implement** with mandatory post-write **sweeps** (the discipline that prevents half-finished changes — each heading states its own trigger; the five always-on sweeps — convention, boundary-assumption, self-authored-claim, simplification, and error-handling — run on every diff):
   - **2.3.0** Changed-contract sweep (re-run after any merge/rebase of main)
   - **2.3.0a** Peer-checkpoint completeness sweep
@@ -370,7 +371,7 @@ The skill exists to prevent "option-listing" issues. Steps:
 
 The issue is created **only after the user explicitly confirms**: a pending confirmation is a valid waiting state, not a reason to create.
 
-**Code exploration, yes, just not the `code-explorer` subagent.** `/devflow:create-issue` *does* explore the codebase, that's precisely what lets it ask deep, well-grounded questions instead of generic ones. Step 1's `/devflow:docs-verify --report-only` surfaces current behavior and the **relevant files**, and the Step 2 clarification reads those (and adjacent code) to find **similar existing patterns and features** and understand **how the new feature would fit**: which is exactly how it surfaces real implementation forks ("where the codebase admits more than one way to build it") and recommends the best option. What it does **not** do is dispatch the heavyweight `feature-dev:code-explorer` subagent; the exploration is done inline by the orchestrator. The "do not re-explore the whole codebase" rule in Step 3 is a *draft-time* discipline, by then it works from what it already learned, doing only targeted confirming reads. The dedicated `code-explorer` deep dive is reserved for `/devflow:implement` **Phase 2.1**, where the goal shifts from *what/why* to *how*.
+**Code exploration, yes, just not the `code-explorer` subagent.** `/devflow:create-issue` *does* explore the codebase, that's precisely what lets it ask deep, well-grounded questions instead of generic ones. Step 1's `/devflow:docs-verify --report-only` surfaces current behavior and the **relevant files**, and the Step 2 clarification reads those (and adjacent code) to find **similar existing patterns and features** and understand **how the new feature would fit**: which is exactly how it surfaces real implementation forks ("where the codebase admits more than one way to build it") and recommends the best option. What it does **not** do is dispatch the heavyweight `devflow:code-explorer` subagent; the exploration is done inline by the orchestrator. The "do not re-explore the whole codebase" rule in Step 3 is a *draft-time* discipline, by then it works from what it already learned, doing only targeted confirming reads. The dedicated `code-explorer` deep dive is reserved for `/devflow:implement` **Phase 2.1**, where the goal shifts from *what/why* to *how*.
 
 ---
 
@@ -536,7 +537,7 @@ claude plugin marketplace add anthropics/claude-plugins-official \
   && claude plugin marketplace add The01Geek/devflow-autopilot \
   && claude plugin install devflow@devflow-marketplace
 ```
-The three companion plugins **auto-install**: *provided `claude-plugins-official` has been added first* (cross-marketplace dependencies only resolve once it's actually added). PyYAML is a separate, manual prerequisite (`pip install -r requirements.txt`), `/plugin install` never runs `pip`.
+The two companion plugins **auto-install**: *provided `claude-plugins-official` has been added first* (cross-marketplace dependencies only resolve once it's actually added). PyYAML is a separate, manual prerequisite (`pip install -r requirements.txt`), `/plugin install` never runs `pip`.
 
 **Cloud tier (one line, from repo root):**
 ```bash

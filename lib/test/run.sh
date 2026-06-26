@@ -6069,6 +6069,76 @@ rm -rf "$PAM_NOCONSENT" "$PAM_NCEXIST" "$PAM_FRESH" "$PAM_ZERO" "$PAM_NONONE" "$
        "$PAM_WS" "$PAM_UNREAD" "$PAM_RODIR" \
        "$PAM_GATE_EXIST" "$PAM_GATE_MISS" "$PAM_GATE_BAD" "$PAM_GATE_NC"
 
+# ────────────────────────────────────────────────────────────────────────────
+echo "feature-dev internalization (#139)"
+# ────────────────────────────────────────────────────────────────────────────
+# This PR vendors the two external feature-dev agents (code-explorer, code-architect)
+# as first-party DevFlow agents under agents/ and rewires every call-site to the
+# devflow: namespace. The assertions below are the mechanical proof the internalization
+# is COMPLETE, not partial. They reuse the #129 rgb_classify rc-transform so the SAME
+# fail-closed git rc-handling backs these scans too — a refactor that re-opens fail-open
+# turns the #129 boundary rows red, not just these. The scan patterns are assembled from
+# two string literals (like RGB_PAT) so this file never self-matches its own grep.
+FDROOT="$LIB/.."
+
+# (1) Reference contract (mirrors issue AC): NO tracked surface may reference the
+# namespaced feature-dev agent identifier (the plugin name + colon form), except
+# historical .devflow/logs/ artifacts. After the rewire every dispatch is
+# devflow:code-explorer / devflow:code-architect, so a real residual reference (a missed
+# call-site) surfaces as the offending file list; an infra/git error surfaces as the
+# <rgb-guard-errored> sentinel (fails loud, never a silent PASS).
+FD_PAT="feature-""dev:"
+fd_scan() {
+  local root="$1" hits rc
+  hits="$(git -C "$root" grep -lF "$FD_PAT" -- ':!.devflow/logs' 2>/dev/null)"; rc=$?
+  rgb_classify "$rc" "$hits"
+}
+assert_eq "#139 no tracked surface references the namespaced feature-dev agent id (.devflow/logs excepted)" \
+  "" "$(fd_scan "$FDROOT")"
+
+# (2) Vendored-files-exist: both feature-dev agents now live first-party under agents/.
+assert_eq "#139 agents/code-explorer.md exists (vendored first-party)" \
+  "yes" "$([ -f "$FDROOT/agents/code-explorer.md" ] && echo yes || echo no)"
+assert_eq "#139 agents/code-architect.md exists (vendored first-party)" \
+  "yes" "$([ -f "$FDROOT/agents/code-architect.md" ] && echo yes || echo no)"
+
+# (3) Attribution contract (mirrors issue AC): each vendored agent retains the upstream
+# Anthropic attribution AND does NOT carry the first-party `2026 Daniel Radman` SPDX
+# header (the license-preservation guarantee, proved mechanically). The retained
+# upstream Apache-2.0 license text lives at LICENSES/feature-dev-LICENSE.
+for fdagent in code-explorer code-architect; do
+  assert_eq "#139 $fdagent.md carries the upstream Anthropic attribution marker" \
+    "yes" "$(grep -q 'Vendored from the feature-dev plugin' "$FDROOT/agents/$fdagent.md" \
+            && grep -q 'Anthropic' "$FDROOT/agents/$fdagent.md" && echo yes || echo no)"
+  assert_eq "#139 $fdagent.md does NOT carry the 2026 Daniel Radman SPDX header" \
+    "no" "$(grep -q 'SPDX-FileCopyrightText: 2026 Daniel Radman' "$FDROOT/agents/$fdagent.md" \
+            && echo yes || echo no)"
+done
+assert_eq "#139 LICENSES/feature-dev-LICENSE retains the upstream Apache-2.0 text" \
+  "yes" "$([ -f "$FDROOT/LICENSES/feature-dev-LICENSE" ] \
+          && grep -q 'Apache License' "$FDROOT/LICENSES/feature-dev-LICENSE" && echo yes || echo no)"
+
+# (4) Manifest contract (mirrors issue AC): plugin.json `dependencies` no longer lists
+# feature-dev. Scoped-removal guard: the two not-yet-internalized companions
+# (pr-review-toolkit, superpowers) are STILL declared, so this PR cannot accidentally
+# over-remove them — they leave in their own follow-up PRs.
+assert_eq "#139 plugin.json dependencies no longer lists feature-dev" \
+  "0" "$(jq '[.dependencies[]? | select(.name == "feature-dev")] | length' "$FDROOT/.claude-plugin/plugin.json")"
+assert_eq "#139 plugin.json still lists pr-review-toolkit + superpowers (scoped removal)" \
+  "2" "$(jq '[.dependencies[]? | select(.name == "pr-review-toolkit" or .name == "superpowers")] | length' "$FDROOT/.claude-plugin/plugin.json")"
+
+# (5) Workflow contract: no cloud workflow installs the feature-dev companion anymore
+# (the engine now dispatches the first-party devflow:code-explorer/code-architect, so
+# the companion install is dead). Pattern split-literal to avoid self-match.
+WF_FD="feature-""dev@claude-plugins-official"
+wf_scan() {
+  local root="$1" hits rc
+  hits="$(git -C "$root" grep -lF "$WF_FD" -- '.github/workflows' 2>/dev/null)"; rc=$?
+  rgb_classify "$rc" "$hits"
+}
+assert_eq "#139 no cloud workflow installs the feature-dev companion plugin" \
+  "" "$(wf_scan "$FDROOT")"
+
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)

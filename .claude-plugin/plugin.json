@@ -24,10 +24,6 @@
   ],
   "dependencies": [
     {
-      "name": "feature-dev",
-      "marketplace": "claude-plugins-official"
-    },
-    {
       "name": "pr-review-toolkit",
       "marketplace": "claude-plugins-official"
     },

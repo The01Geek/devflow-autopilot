@@ -135,7 +135,7 @@ All four are used by the core skills; none is optional. Shell helpers avoid GNU-
 
 > **Namespacing matters where names collide with built-ins.** `/review`, `/init`, and `/security-review` are *built-in* Claude Code commands — always use the `/devflow:`-prefixed form to reach DevFlow's engine (a bare `/review` reaches Claude Code's reviewer, not DevFlow's). DevFlow's cloud workflows trigger on **bare** `/devflow:*` comments (no `@claude`), so they coexist with Anthropic's Claude GitHub App, which owns plain `@claude` mentions and `/security-review`.
 
-> **Companion plugins.** DevFlow declares `feature-dev`, `pr-review-toolkit`, and `superpowers` (from `claude-plugins-official`) as dependencies; `/plugin install` auto-installs them **once that marketplace is added** — see [Installing & updating](docs/install.md#why-add-the-official-marketplace-first). `/simplify` is a built-in skill. Skills degrade gracefully if an optional companion is missing.
+> **Companion plugins.** DevFlow declares `pr-review-toolkit` and `superpowers` (from `claude-plugins-official`) as dependencies; `/plugin install` auto-installs them **once that marketplace is added** — see [Installing & updating](docs/install.md#why-add-the-official-marketplace-first). The `code-explorer` and `code-architect` discovery/planning subagents are now first-party DevFlow agents (vendored from Anthropic's feature-dev plugin), so `feature-dev` is no longer a dependency. `/simplify` is a built-in skill. Skills degrade gracefully if an optional companion is missing.
 
 ## Project configuration
 

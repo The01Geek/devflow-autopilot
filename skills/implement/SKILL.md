@@ -305,7 +305,7 @@ Update the workpad: `workpad.py update $ISSUE_NUMBER --status Discovering --note
 
 ### 2.1 Discovery
 
-Use the **Agent tool** with `subagent_type: feature-dev:code-explorer` to explore the codebase and understand the system as it relates to the issue.
+Use the **Agent tool** with `subagent_type: devflow:code-explorer` to explore the codebase and understand the system as it relates to the issue.
 
 **The issue body is a starting point, not the source of truth.** Treat its problem framing, any stated root cause, and its Technical Context as a strong lead to *verify* — never fact to implement on faith. The explorer (and the architect in Path B) confirm the issue's claims against the actual code; where they diverge, **the code wins**: surface the divergence in the workpad and plan from what the code shows, rather than implementing a claim the code contradicts.
 
@@ -359,7 +359,7 @@ Plan the implementation inline using the explorer's findings. Identify which fil
 
 #### Path B: Complex issue
 
-Use the **Agent tool** with `subagent_type: feature-dev:code-architect` to design the implementation.
+Use the **Agent tool** with `subagent_type: devflow:code-architect` to design the implementation.
 
 Pass it:
 - The full GitHub issue content (title, body, labels)
