@@ -6155,13 +6155,19 @@ for fdagent in code-explorer code-architect; do
   # frontmatter is well-formed — a file that drops the opening `---`, its closing `---`,
   # or its model:/tools: lines still passes the name grep yet may fail to load at runtime.
   # This row asserts the structural markers the cheap-to-check mangles hit: the opening
-  # frontmatter `---` (line 1), a CLOSING `---` (i.e. at least two `^---$` lines so the
-  # block is terminated, not merged into the body), plus top-level model: and tools: keys.
-  # (It still does not validate full YAML well-formedness, but it closes the common
-  # "passes the name grep, dead-ends at load" mangles a name-only grep would wave through.)
+  # frontmatter `---` (line 1), a CLOSING `---` (a second `^---$` so the block is
+  # terminated, not merged into the body), plus top-level model: and tools: keys. The
+  # closing-fence count is bounded to the head window (`head -30`), NOT the whole file:
+  # an unbounded `grep -c '^---$'` would let a `---` markdown horizontal-rule anywhere in
+  # the prompt BODY inflate the count and mask a genuinely-dropped closer (the weak-proxy
+  # / #62/#98 trap — the guard would read an operand that does not prove the invariant).
+  # Frontmatter + the vendor attribution comment is well under 30 lines, so the closer is
+  # always in-window while a body rule below it cannot satisfy the count once the real
+  # closer is gone. (It still does not validate full YAML well-formedness, but it closes
+  # the common "passes the name grep, dead-ends at load" mangles within that window.)
   assert_eq "#139 agents/$fdagent.md has well-formed frontmatter (open+close ---, model:, tools:)" \
     "yes" "$(head -1 "$FDROOT/agents/$fdagent.md" | grep -qx -- '---' \
-            && [ "$(grep -c '^---$' "$FDROOT/agents/$fdagent.md")" -ge 2 ] \
+            && [ "$(head -30 "$FDROOT/agents/$fdagent.md" | grep -c '^---$')" -ge 2 ] \
             && grep -qE '^model:[[:space:]]' "$FDROOT/agents/$fdagent.md" \
             && grep -qE '^tools:[[:space:]]' "$FDROOT/agents/$fdagent.md" && echo yes || echo no)"
 done
