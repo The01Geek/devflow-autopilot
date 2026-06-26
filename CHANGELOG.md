@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.11] — 2026-06-26
+
+### Changed
+- **The `feature-dev` companion-plugin agents `code-explorer` and `code-architect` are now first-party DevFlow agents**, vendored under `agents/` as a hard fork (DevFlow owns and may modify them from here forward). They keep their upstream Anthropic copyright and Apache-2.0 license, retained verbatim at `LICENSES/feature-dev-LICENSE`; no first-party `2026 Daniel Radman` SPDX header is applied over the third-party prompt content. `/devflow:implement` Phase 2.1/2.2 now dispatch the internalized `devflow:code-explorer` / `devflow:code-architect` identifiers; `feature-dev` is dropped from `.claude-plugin/plugin.json` dependencies and from the cloud-workflow install lists, and the docs (`DEVFLOW_SYSTEM_OVERVIEW.md`, `README.md`, `install.md`) describe the discovery/planning subagents as first-party. New `lib/test/run.sh` contracts (reusing the #129 `rgb_classify` fail-closed transform) prove the internalization is complete: zero residual namespaced `feature-dev` agent references, a scoped manifest check (the still-pending `pr-review-toolkit` / `superpowers` companions remain declared), the no-`feature-dev`-install workflow guard, and the per-file attribution/license markers. This is the first of three seams in the internalization; `pr-review-toolkit` and `superpowers` follow in their own PRs. (#140, closes #139 in part)
+
 ## [2.8.10] — 2026-06-24
 
 ### Changed
