@@ -3073,6 +3073,31 @@ assert_eq "mixed all-allowed → exit 1"    "1" "$(ex "CLAUDE.md" ".claude/skill
 assert_eq "prints the excluded path"      ".devflow/learnings/x.json" "$(bash "$LIB/check-excluded-path.sh" "CLAUDE.md" ".devflow/learnings/x.json")"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "exclusion-list sync: SKILL.md §2 canonical block ⇄ check-excluded-path.sh (config siblings)"
+# ────────────────────────────────────────────────────────────────────────────
+# CLAUDE.md mandates the §2 canonical exclusion list in skills/retrospective-audit/
+# SKILL.md stay in sync with lib/check-excluded-path.sh. The drift-prone part is the
+# exact .devflow/config*.json sibling set — three literals enumerated in BOTH places in
+# identical format, so an exact-string guard is precise (no glob */** normalization). The
+# set is derived from the helper at test time, so a new sibling added to one place but not
+# the other fails here (issue #136: config.schema.json was matched by the helper but
+# missing from the SKILL.md block — a doc/code drift no test caught).
+RA_SKILL="$LIB/../skills/retrospective-audit/SKILL.md"
+EXCL_HELPER="$LIB/check-excluded-path.sh"
+# Helper siblings: every .devflow/config*.json literal in the case arms (the char class
+# stops each token at the `|`/`)`/space that delimits it inside the case pattern).
+HELPER_CFG=$(grep -oE '\.devflow/config[^|) ]*\.json' "$EXCL_HELPER" | sort -u)
+# SKILL.md siblings: the same literals as bare lines inside the canonical fenced block.
+# Anchoring at ^ excludes the mid-line/backticked prose mentions (§2 lines), matching only
+# the fenced-block enumeration.
+SKILL_CFG=$(grep -oE '^\.devflow/config[^ ]*\.json' "$RA_SKILL" | sort -u)
+assert_eq "exclusion-sync: SKILL.md config siblings match the helper" "$HELPER_CFG" "$SKILL_CFG"
+# Non-vacuity: guard a future refactor that drops the literals (which would make BOTH
+# sides empty and the equality pass blindly).
+assert_eq "exclusion-sync: helper enumerates config siblings (non-vacuous)" "yes" \
+  "$([ -n "$HELPER_CFG" ] && echo yes || echo no)"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "meta-issue.sh"
 # ────────────────────────────────────────────────────────────────────────────
 MI_TMP="$(mktemp -d)"

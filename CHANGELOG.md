@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.11] — 2026-06-26
+
+### Fixed
+- **Synced the §2 canonical exclusion-list block in `skills/retrospective-audit/SKILL.md` with `lib/check-excluded-path.sh`.** The block omitted `.devflow/config.schema.json`, which the helper already matches and the §2 gating prose already names — a doc/code drift that no test caught. Added the missing entry, plus a `lib/test/run.sh` drift-guard that derives the helper's `.devflow/config*.json` sibling set at test time and asserts the SKILL.md block lists exactly the same siblings, so the `CLAUDE.md` must-stay-in-sync invariant is now enforced mechanically rather than by review alone. (#138, closes #136)
+
 ## [2.8.10] — 2026-06-24
 
 ### Changed
