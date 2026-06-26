@@ -6414,10 +6414,12 @@ SP_VENDORED_FILES=$(find "$FDROOT/skills/requesting-code-review" "$FDROOT/skills
 # assertion before iterating.
 assert_eq "#142 vendored skill trees are non-empty (guards the empty-find silent-pass)" \
   "yes" "$([ -n "$SP_VENDORED_FILES" ] && echo yes || echo no)"
-# The reviewer-prompt template requesting-code-review actually dispatches is load-bearing —
-# pin its existence explicitly (the 2/2b/2c loop pins each SKILL.md, but a supporting-file
-# deletion would otherwise be invisible to the marker loop, which only iterates files that exist).
-assert_eq "#142 skills/requesting-code-review/code-reviewer.md exists (the dispatched reviewer template)" \
+# The reviewer-prompt template the requesting-code-review skill renders (review/SKILL.md
+# dispatches /devflow:requesting-code-review, which renders this template — it is not inlined) is
+# load-bearing — pin its existence explicitly (the 2/2b/2c loop pins each SKILL.md, but a
+# supporting-file deletion would otherwise be invisible to the marker loop, which only iterates
+# files that exist).
+assert_eq "#142 skills/requesting-code-review/code-reviewer.md exists (the rendered reviewer template)" \
   "yes" "$([ -f "$FDROOT/skills/requesting-code-review/code-reviewer.md" ] && echo yes || echo no)"
 for sf in $SP_VENDORED_FILES; do
   assert_eq "#142 vendored skill file ${sf#"$FDROOT"/} carries the upstream superpowers attribution marker" \
