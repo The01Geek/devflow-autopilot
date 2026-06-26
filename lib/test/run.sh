@@ -6185,12 +6185,12 @@ assert_eq "#139 LICENSES/feature-dev-LICENSE retains the upstream Apache-2.0 tex
   "yes" "$([ -f "$FDROOT/LICENSES/feature-dev-LICENSE" ] \
           && grep -q 'Apache License' "$FDROOT/LICENSES/feature-dev-LICENSE" && echo yes || echo no)"
 
-# (3b) Property-based vendoring invariant (generalizes for the superpowers follow-up PR,
-# and catches a forgotten attribution): ANY agents/*.md that
-# carries a `Vendored from the ... plugin` marker must NOT carry the first-party
+# (3b) Property-based vendoring invariant (catches a forgotten attribution): ANY agents/*.md
+# that carries a `Vendored from the ... plugin` marker must NOT carry the first-party
 # `2026 Daniel Radman` SPDX line — keyed on the vendoring property, not a hard-coded
 # filename, so a future vendored agent is covered without editing this loop. (Guarded so
-# an empty glob — no vendored agents — is a no-op, not a literal-glob false match.)
+# an empty glob — no vendored agents — is a no-op, not a literal-glob false match.) The
+# skills/ tree's vendored files are covered by the #142 block's own property loop (3b).
 for af in "$FDROOT"/agents/*.md; do
   [ -f "$af" ] || continue
   grep -q 'Vendored from the' "$af" || continue   # only vendored agents bear the invariant
@@ -6214,16 +6214,8 @@ assert_eq "#142 plugin.json no longer lists superpowers (last companion removed 
 WF_FD="feature-""dev@claude-plugins-official"
 assert_eq "#139 no cloud workflow installs the feature-dev companion plugin" \
   "" "$(tracked_scan "$FDROOT" "$WF_FD" '.github/workflows')"
-
-# (5b) Workflow contract for the last companion: seam 3 / #142 removed superpowers from the
-# cloud install lists too (the engine now dispatches the first-party devflow:requesting-
-# code-review final pass). (Formerly the #139 over-removal guard that asserted superpowers
-# was STILL installed; flipped now that seam 3 removes it.) Assert NO cloud workflow installs
-# superpowers anymore — a botched edit that left it behind turns this row red.
-for wf in devflow devflow-implement devflow-runner; do
-  assert_eq "#142 .github/workflows/$wf.yml no longer installs superpowers (last companion removed)" \
-    "no" "$(grep -qF 'superpowers@claude-plugins-official' "$FDROOT/.github/workflows/$wf.yml" && echo yes || echo no)"
-done
+# (The seam-3 superpowers removal is the same workflow-axis shape — see the #142 (5)
+# tracked_scan aggregate below; no per-workflow loop is needed for either companion.)
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "pr-review-toolkit internalization (#141)"
@@ -6422,14 +6414,15 @@ assert_eq "#142 LICENSES/superpowers-LICENSE retains the upstream MIT license te
 # (4) Manifest contract (mirrors AC5): with the last companion removed, plugin.json
 # `dependencies` is now EMPTY and marketplace.json's cross-marketplace allowlist is emptied —
 # DevFlow has ZERO companion-plugin install dependencies. (The per-name superpowers-absence
-# rows live in the flipped #139 (4)/(5b) guards above.)
+# row in plugin.json lives in the flipped #139 (4) guard above; the workflow axis is (5) below.)
 assert_eq "#142 plugin.json dependencies is now empty (zero companion-plugin dependencies)" \
   "0" "$(jq '.dependencies | length' "$FDROOT/.claude-plugin/plugin.json")"
 assert_eq "#142 marketplace.json allowCrossMarketplaceDependenciesOn is now empty" \
   "0" "$(jq '.allowCrossMarketplaceDependenciesOn | length' "$FDROOT/.claude-plugin/marketplace.json")"
 
-# (5) Workflow contract: no cloud workflow installs the superpowers companion anymore (the
-# aggregate twin of the per-workflow #142 (5b) loop above; shares the tracked_scan seam).
+# (5) Workflow contract: no cloud workflow installs the superpowers companion anymore — the
+# same tracked_scan-aggregate shape as the #139 (5) feature-dev guard, and it fails loud on a
+# git error via the rgb sentinel (returns the offending workflow file on a real hit).
 WF_SP="superpowers""@claude-plugins-official"
 assert_eq "#142 no cloud workflow installs the superpowers companion plugin" \
   "" "$(tracked_scan "$FDROOT" "$WF_SP" '.github/workflows')"
