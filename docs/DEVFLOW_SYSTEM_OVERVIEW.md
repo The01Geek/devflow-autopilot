@@ -607,7 +607,7 @@ Skills reference bundled helpers via `${CLAUDE_SKILL_DIR}` so they resolve from 
 - Shadow review, *it audits its own audit*, with honest calibration (narrows the gap, never closes it).
 - Self-improvement loop with an LLM/heuristic split (LLM only at two judgment points; everything else is zero-token deterministic).
 - Two tiers: works locally with **zero config**, scales to **autonomous** cloud automation with one secret.
-- Built on Claude Code's plugin system; ships its full review/discovery/authoring toolchain first-party (hard-forked from Anthropic's `pr-review-toolkit` + `feature-dev` and the `superpowers` skills, upstream licenses retained) — **zero companion-plugin dependencies**.
+- Built on Claude Code's plugin system; ships its full review/discovery/authoring toolchain first-party (hard-forked from Anthropic's `pr-review-toolkit` + `feature-dev` agents and the `superpowers` skills, upstream licenses retained) — **zero companion-plugin dependencies**.
 - Security-explicit: base-ref trust boundary, deny-list floor, read-only-by-default reviewer.
 
 **The sales narrative (the argument arc, use it in a pitch, a landing page, or a talk):**
