@@ -1,0 +1,145 @@
+{
+  "iter": 1,
+  "source": "review-and-fix",
+  "fix_commit_sha": "50daba23e68fafb916b1e3bf4076911288a98cf7",
+  "fix_files": [
+    "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+    "lib/intervention-surfaces.md",
+    "skills/retrospective-audit/SKILL.md"
+  ],
+  "checklist": [
+    {
+      "id": "VC-1",
+      "verification_mode": "agent",
+      "verdict": "PASS"
+    },
+    {
+      "id": "VC-2",
+      "verification_mode": "agent",
+      "verdict": "PASS"
+    },
+    {
+      "id": "VC-3",
+      "verification_mode": "agent",
+      "verdict": "PASS"
+    },
+    {
+      "id": "VC-4",
+      "verification_mode": "agent",
+      "verdict": "PASS"
+    },
+    {
+      "id": "VC-5",
+      "verification_mode": "agent",
+      "verdict": "PASS"
+    },
+    {
+      "id": "VC-6",
+      "verification_mode": "lite",
+      "verdict": "PASS"
+    },
+    {
+      "id": "VC-7",
+      "verification_mode": "agent",
+      "verdict": "PASS"
+    },
+    {
+      "id": "VC-8",
+      "verification_mode": "agent",
+      "verdict": "PASS"
+    },
+    {
+      "id": "VC-9",
+      "verification_mode": "agent",
+      "verdict": "PASS"
+    },
+    {
+      "id": "VC-10",
+      "verification_mode": "agent",
+      "verdict": "PASS"
+    }
+  ],
+  "phase3_dispatched": [
+    "pr-review-toolkit:code-reviewer",
+    "pr-review-toolkit:silent-failure-hunter",
+    "pr-review-toolkit:comment-analyzer",
+    "superpowers:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": true,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {
+      "agent": "pr-review-toolkit:silent-failure-hunter",
+      "severity": "Important",
+      "description": "shared review engine: single prompt-extension reaches only one of two consumers",
+      "defect_signature": {
+        "file": "skills/retrospective-audit/SKILL.md",
+        "line_range": [
+          45,
+          56
+        ],
+        "kind": "logic_error"
+      },
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "pr-review-toolkit:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "condition (ii) partial subset of canonical list; consumer-local framing tension",
+      "defect_signature": {
+        "file": "skills/retrospective-audit/SKILL.md",
+        "line_range": [
+          49,
+          52
+        ],
+        "kind": "comment_drift"
+      },
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "pr-review-toolkit:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "verbatim-append overstates loader (per-skill convention, empty-file no-op)",
+      "defect_signature": {
+        "file": "lib/intervention-surfaces.md",
+        "line_range": [
+          12,
+          12
+        ],
+        "kind": "comment_drift"
+      },
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "50daba23e68fafb916b1e3bf4076911288a98cf7"
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "applied",
+      "commit": "50daba23e68fafb916b1e3bf4076911288a98cf7"
+    },
+    {
+      "finding_id": "F-3",
+      "decision": "applied",
+      "commit": "50daba23e68fafb916b1e3bf4076911288a98cf7"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 5,
+    "fix_diff_lines": 12,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "pr_branch": "issue-128-teach-retrospective-stage-b-to-use-prompt",
+  "base_branch": "main",
+  "generated_at": "2026-06-24T21:16:00Z",
+  "deferrals": [
+    {
+      "agent": "pr-review-toolkit:silent-failure-hunter",
+      "severity": "Suggestion",
+      "file": "skills/retrospective-audit/SKILL.md",
+      "line_range": [
+        82,
+        94
+      ],
+      "symbol": ".devflow/config.schema.json",
+      "kind": "comment_drift",
+      "summary": "The §2 canonical exclusion-list block omits .devflow/config.schema.json, which lib/check-excluded-path.sh does match — a pre-existing doc/code drift in the prose copy. (This PR points condition (ii) at the authoritative matcher instead, so it does not rely on the stale list.)",
+      "category": "out-of-scope",
+      "explanation": "Pre-existing: the canonical list block was last edited 2026-05-22 (commit 5d94ff5), before this PR; AC 7 explicitly forbids altering the §2 list (byte-for-byte-in-sync invariant). Reconciling the list belongs in a separate change."
+    }
+  ]
+}
