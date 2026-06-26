@@ -5621,6 +5621,16 @@ echo "provision-auto-mode.sh (user-scope ~/.claude/settings.json auto-mode provi
 #    not-JSON}. (Issue #105, AC 1-5.)
 PAM="$LIB/../scripts/provision-auto-mode.sh"
 
+# Provider gate (issue #130): provision-auto-mode.sh --apply is a NO-OP on Anthropic-direct
+# (none of CLAUDE_CODE_USE_{BEDROCK,VERTEX,FOUNDRY} truthy) — the env var it would write only
+# affects third-party providers (Bedrock/Vertex/Foundry). Every existing --apply write /
+# idempotent / no-clobber / shape-matrix cell below exercises the path PAST that gate, so set a
+# third-party provider var for the whole block; the new gate cells (further down) override the
+# env per-case with `env -u …` / explicit non-truthy values. The no-`--apply` consent cells are
+# gate-independent (the gate is on the --apply path only) but inherit this harmlessly. We unset
+# the var at the end of the block so it cannot leak into later test blocks.
+export CLAUDE_CODE_USE_BEDROCK=1
+
 # AC 2 (consent gate): default (no --apply) writes NOTHING and surfaces the copy-paste line.
 PAM_NOCONSENT="$(mktemp -d)"; PAM_NC_SF="$PAM_NOCONSENT/settings.json"
 PAM_NC_OUT="$(bash "$PAM" "$PAM_NC_SF" 2>&1)"; PAM_NC_RC=$?
@@ -5941,9 +5951,123 @@ if [ "$(id -u)" -ne 0 ] && [ ! -w "$PAM_RODIR" ]; then
 fi
 chmod 755 "$PAM_RODIR"   # restore so rm -rf can clean up
 
+# ── Provider gate (issue #130): --apply is a NO-OP on Anthropic-direct. ──────────────
+# The env var provision-auto-mode.sh writes (CLAUDE_CODE_ENABLE_AUTO_MODE) has no effect on
+# the Anthropic API — auto mode is already available there — and only does anything on the
+# third-party providers (Bedrock/Vertex/Foundry). The gate is the FIRST check on the --apply
+# path, BEFORE any settings read/parse/shape-validation, so on Anthropic-direct the helper
+# writes nothing, leaves the file byte-for-byte unchanged, exits 0, and emits a specific
+# `devflow-automode:` breadcrumb naming the provider as the skip reason. (Issue #130, AC 1/3/4/5.)
+# The block-level `export CLAUDE_CODE_USE_BEDROCK=1` above is overridden per-case below: the
+# Anthropic-direct cells `env -u` all three vars; the third-party cells set exactly one truthy.
+PAM_NO3P=(env -u CLAUDE_CODE_USE_BEDROCK -u CLAUDE_CODE_USE_VERTEX -u CLAUDE_CODE_USE_FOUNDRY)
+
+# AC 3 (guarantee-class): Anthropic-direct --apply over a pre-existing file → byte-for-byte
+# unchanged, exit 0, provider-skip breadcrumb. This is the very path (Anthropic-direct) the
+# skill is supposed to have already skipped; the script backstop must fire here regardless.
+PAM_GATE_EXIST="$(mktemp -d)"; PAM_GE_SF="$PAM_GATE_EXIST/settings.json"
+printf '%s' '{"env":{"FOO":"bar"}}' > "$PAM_GE_SF"
+PAM_GE_BEFORE="$(cat "$PAM_GE_SF")"
+PAM_GE_OUT="$("${PAM_NO3P[@]}" bash "$PAM" --apply "$PAM_GE_SF" 2>&1)"; PAM_GE_RC=$?
+assert_eq "pam: gate Anthropic-direct --apply → exit 0 (skip is success, AC3)" "0" "$PAM_GE_RC"
+assert_eq "pam: gate Anthropic-direct --apply → file byte-for-byte unchanged (AC3)" \
+  "$PAM_GE_BEFORE" "$(cat "$PAM_GE_SF")"
+assert_eq "pam: gate Anthropic-direct --apply → did NOT write the auto-mode key (AC1/AC3)" "false" \
+  "$(jq -r '.env | has("CLAUDE_CODE_ENABLE_AUTO_MODE")' "$PAM_GE_SF" 2>/dev/null)"
+# Breadcrumb must be the gate's own skip-reason message — not the generic 'nothing changed' no-op
+# breadcrumb, which would also fire on the third-party idempotent path and so can't prove the GATE
+# fired. Pin the gate-UNIQUE phrase 'nothing to provision' (the bare word 'Anthropic' is weaker —
+# it could appear in a future non-gate breadcrumb; 'nothing to provision' is emitted only by the
+# gate skip path). The breadcrumb does name the provider (Anthropic API) too, as AC3 requires.
+assert_eq "pam: gate Anthropic-direct --apply → breadcrumb is the gate skip-reason (gate-unique phrase, AC3)" "yes" \
+  "$(printf '%s' "$PAM_GE_OUT" | grep -qi 'nothing to provision' && echo yes || echo no)"
+assert_eq "pam: gate Anthropic-direct --apply → breadcrumb names the provider (Anthropic) as skip reason (AC3)" "yes" \
+  "$(printf '%s' "$PAM_GE_OUT" | grep -qi 'anthropic' && echo yes || echo no)"
+
+# AC 3 (guarantee-class, missing target): Anthropic-direct --apply against a MISSING file →
+# no file created, exit 0, provider-skip breadcrumb.
+PAM_GATE_MISS="$(mktemp -d)"; PAM_GM_SF="$PAM_GATE_MISS/settings.json"
+PAM_GM_OUT="$("${PAM_NO3P[@]}" bash "$PAM" --apply "$PAM_GM_SF" 2>&1)"; PAM_GM_RC=$?
+assert_eq "pam: gate Anthropic-direct --apply missing target → exit 0 (AC3)" "0" "$PAM_GM_RC"
+assert_eq "pam: gate Anthropic-direct --apply missing target → no file created (AC1/AC3)" "no" \
+  "$([ -f "$PAM_GM_SF" ] && echo yes || echo no)"
+assert_eq "pam: gate Anthropic-direct --apply missing target → breadcrumb is the gate skip-reason (gate-unique phrase, AC3)" "yes" \
+  "$(printf '%s' "$PAM_GM_OUT" | grep -qi 'nothing to provision' && echo yes || echo no)"
+
+# AC 5 (gate is FIRST, precedes shape-validation): Anthropic-direct --apply against a MALFORMED
+# settings file → exit 0 (the gate short-circuits BEFORE the parse/shape check that would exit 2
+# on the third-party path), file unchanged. This is the strongest proof the gate precedes the
+# settings read: the same malformed input that exits 2 under BEDROCK=1 (the malformed cell above)
+# exits 0 here purely because the provider gate ran first. Mutation: move the gate AFTER the
+# settings read and this cell goes RED (exit 2 leaks through on Anthropic-direct).
+PAM_GATE_BAD="$(mktemp -d)"; PAM_GB_SF="$PAM_GATE_BAD/settings.json"
+printf '%s' '{ not valid json' > "$PAM_GB_SF"
+PAM_GB_OUT="$("${PAM_NO3P[@]}" bash "$PAM" --apply "$PAM_GB_SF" 2>&1)"; PAM_GB_RC=$?
+assert_eq "pam: gate precedes shape-validation → malformed file exits 0 on Anthropic-direct (AC5)" "0" "$PAM_GB_RC"
+assert_eq "pam: gate precedes shape-validation → malformed file left unchanged (AC5)" '{ not valid json' \
+  "$(cat "$PAM_GB_SF")"
+
+# AC 4 (non-truthy → Anthropic-direct): a third-party var set to a non-truthy value is treated as
+# off → the step is skipped (fresh file not created, exit 0). Covers the two degenerate values
+# ("" and "0") AND an arbitrary non-"1"/non-"true" string ("yes") — is_truthy's catch-all maps
+# *any* other value to off ("any other value is OFF" per the helper's own contract), so a
+# regression that widened the truthy predicate (e.g. a glob, or adding yes/on) would provision a
+# user-global write where it must not. Mutation: broaden is_truthy's case arm and the "yes" cell
+# goes RED (it would write the key instead of skipping).
+for _nt in "" "0" "yes"; do
+  PAM_NT="$(mktemp -d)"; PAM_NT_SF="$PAM_NT/settings.json"
+  PAM_NT_OUT="$("${PAM_NO3P[@]}" CLAUDE_CODE_USE_BEDROCK="$_nt" bash "$PAM" --apply "$PAM_NT_SF" 2>&1)"; PAM_NT_RC=$?
+  assert_eq "pam: gate BEDROCK='$_nt' (non-truthy) → treated as Anthropic-direct, exit 0 (AC4)" "0" "$PAM_NT_RC"
+  assert_eq "pam: gate BEDROCK='$_nt' (non-truthy) → step skipped, no file created (AC4)" "no" \
+    "$([ -f "$PAM_NT_SF" ] && echo yes || echo no)"
+  assert_eq "pam: gate BEDROCK='$_nt' (non-truthy) → breadcrumb is the gate skip-reason (gate-unique phrase, AC4)" "yes" \
+    "$(printf '%s' "$PAM_NT_OUT" | grep -qi 'nothing to provision' && echo yes || echo no)"
+  rm -rf "$PAM_NT"
+done
+
+# AC 2 + AC 4 (truthy → third-party runs): each of the three provider vars, set truthy in
+# isolation, makes the step run exactly as today (fresh file → key written, exit 0). Covers
+# the "1", lowercase "true", AND mixed/upper-case "TRUE" honored values (is_truthy lowercases
+# via `tr`, so it accepts `true`/`TRUE` case-insensitively by design — a script-local defensive
+# superset of the `1` Claude Code's docs enable these with), and proves all three vars are
+# checked (not just BEDROCK). Mutation: drop the `tr` lowercasing in
+# is_truthy and the "TRUE" cell goes RED (a real third-party user setting TRUE would be skipped).
+for _spec in "CLAUDE_CODE_USE_BEDROCK=1" "CLAUDE_CODE_USE_VERTEX=1" "CLAUDE_CODE_USE_FOUNDRY=1" "CLAUDE_CODE_USE_VERTEX=true" "CLAUDE_CODE_USE_BEDROCK=TRUE"; do
+  PAM_3P="$(mktemp -d)"; PAM_3P_SF="$PAM_3P/settings.json"
+  PAM_3P_OUT="$("${PAM_NO3P[@]}" "env" "$_spec" bash "$PAM" --apply "$PAM_3P_SF" 2>&1)"; PAM_3P_RC=$?
+  assert_eq "pam: gate $_spec (truthy) → third-party, exit 0 (AC2/AC4)" "0" "$PAM_3P_RC"
+  assert_eq "pam: gate $_spec (truthy) → step runs, auto-mode key written (AC2/AC4)" "1" \
+    "$(jq -r '.env.CLAUDE_CODE_ENABLE_AUTO_MODE' "$PAM_3P_SF" 2>/dev/null)"
+  assert_eq "pam: gate $_spec (truthy) → breadcrumb says 'selectable' (today's behavior, AC2)" "yes" \
+    "$(printf '%s' "$PAM_3P_OUT" | grep -qi 'selectable' && echo yes || echo no)"
+  rm -rf "$PAM_3P"
+done
+
+# AC 4 ("any one of the three set truthy" → third-party): a truthy var alongside non-truthy
+# siblings still routes to third-party (the step runs). Proves the OR, not an AND, over the three.
+PAM_MIX="$(mktemp -d)"; PAM_MIX_SF="$PAM_MIX/settings.json"
+PAM_MIX_OUT="$("${PAM_NO3P[@]}" CLAUDE_CODE_USE_BEDROCK=0 CLAUDE_CODE_USE_VERTEX="" CLAUDE_CODE_USE_FOUNDRY=1 bash "$PAM" --apply "$PAM_MIX_SF" 2>&1)"; PAM_MIX_RC=$?
+assert_eq "pam: gate one-of-three truthy (FOUNDRY=1, others off) → third-party, exit 0 (AC4)" "0" "$PAM_MIX_RC"
+assert_eq "pam: gate one-of-three truthy → step runs, auto-mode key written (AC4)" "1" \
+  "$(jq -r '.env.CLAUDE_CODE_ENABLE_AUTO_MODE' "$PAM_MIX_SF" 2>/dev/null)"
+rm -rf "$PAM_MIX"
+
+# AC 6 / regression: the no-`--apply` consent path is gate-INDEPENDENT (the gate is on the
+# --apply path only). On Anthropic-direct it still prints the copy-paste line and writes nothing.
+PAM_GATE_NC="$(mktemp -d)"; PAM_GNC_SF="$PAM_GATE_NC/settings.json"
+PAM_GNC_OUT="$("${PAM_NO3P[@]}" bash "$PAM" "$PAM_GNC_SF" 2>&1)"; PAM_GNC_RC=$?
+assert_eq "pam: gate Anthropic-direct, no --apply → exit 0 (consent path unaffected by gate, AC6)" "0" "$PAM_GNC_RC"
+assert_eq "pam: gate Anthropic-direct, no --apply → still prints the copy-paste env var (AC6)" "yes" \
+  "$(printf '%s' "$PAM_GNC_OUT" | grep -q 'CLAUDE_CODE_ENABLE_AUTO_MODE' && echo yes || echo no)"
+assert_eq "pam: gate Anthropic-direct, no --apply → file NOT created (AC6)" "no" \
+  "$([ -f "$PAM_GNC_SF" ] && echo yes || echo no)"
+
+unset CLAUDE_CODE_USE_BEDROCK   # don't leak the provider var into later test blocks
+
 rm -rf "$PAM_NOCONSENT" "$PAM_NCEXIST" "$PAM_FRESH" "$PAM_ZERO" "$PAM_NONONE" "$PAM_NUM1" "$PAM_KEEP" "$PAM_IDEM" \
        "$PAM_BAD" "$PAM_ENVSTR" "$PAM_ENVNULL" "$PAM_ARR" "$PAM_SCALAR" "$PAM_EMPTY" "$PAM_HOME" \
-       "$PAM_WS" "$PAM_UNREAD" "$PAM_RODIR"
+       "$PAM_WS" "$PAM_UNREAD" "$PAM_RODIR" \
+       "$PAM_GATE_EXIST" "$PAM_GATE_MISS" "$PAM_GATE_BAD" "$PAM_GATE_NC"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "approve-bundled-helper.py (PreToolUse local-tier auto-approve hook, issue #113)"
