@@ -1,14 +1,3 @@
-<!--
-  Vendored from the superpowers plugin (claude-plugins-official), authored by
-  Jesse Vincent and licensed under the MIT License. The full upstream license
-  text (including the original copyright notice) is retained verbatim at
-  LICENSES/superpowers-LICENSE. This is a hard fork: DevFlow maintains and may
-  modify this file from this point forward, but the upstream copyright and MIT
-  license stated in this notice are preserved. DevFlow's own first-party copyright
-  header (the `2026 Daniel Radman` SPDX line carried by DevFlow-authored source)
-  is intentionally NOT applied over this third-party prompt content.
--->
-
 # Skill authoring best practices
 
 > Learn how to write effective Skills that agents can discover and use successfully.

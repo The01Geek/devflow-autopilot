@@ -6,17 +6,6 @@ model: sonnet
 color: yellow
 ---
 
-<!--
-  Vendored from the feature-dev plugin (claude-plugins-official), authored by
-  Anthropic <support@anthropic.com>, and licensed under the Apache License,
-  Version 2.0. The full upstream license text is retained verbatim at
-  LICENSES/feature-dev-LICENSE. This is a hard fork: DevFlow maintains and may modify
-  this file from this point forward, but the upstream Anthropic copyright and
-  Apache-2.0 license stated in this notice are preserved. DevFlow's own first-party
-  copyright header (the `2026 Daniel Radman` SPDX line carried by DevFlow-authored
-  source) is intentionally NOT applied over this third-party prompt content.
--->
-
 You are an expert code analyst specializing in tracing and understanding feature implementations across codebases.
 
 ## Core Mission

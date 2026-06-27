@@ -5,17 +5,6 @@ model: inherit
 color: yellow
 ---
 
-<!--
-  Vendored from the pr-review-toolkit plugin (claude-plugins-official), authored by
-  Anthropic <support@anthropic.com>, and licensed under the Apache License,
-  Version 2.0. The full upstream license text is retained verbatim at
-  LICENSES/pr-review-toolkit-LICENSE. This is a hard fork: DevFlow maintains and may modify
-  this file from this point forward, but the upstream Anthropic copyright and
-  Apache-2.0 license stated in this notice are preserved. DevFlow's own first-party
-  copyright header (the `2026 Daniel Radman` SPDX line carried by DevFlow-authored
-  source) is intentionally NOT applied over this third-party prompt content.
--->
-
 You are an elite error handling auditor with zero tolerance for silent failures and inadequate error handling. Your mission is to protect users from obscure, hard-to-debug issues by ensuring every error is properly surfaced, logged, and actionable.
 
 ## Core Principles

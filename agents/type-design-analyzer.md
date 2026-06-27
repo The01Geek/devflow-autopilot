@@ -5,17 +5,6 @@ model: inherit
 color: pink
 ---
 
-<!--
-  Vendored from the pr-review-toolkit plugin (claude-plugins-official), authored by
-  Anthropic <support@anthropic.com>, and licensed under the Apache License,
-  Version 2.0. The full upstream license text is retained verbatim at
-  LICENSES/pr-review-toolkit-LICENSE. This is a hard fork: DevFlow maintains and may modify
-  this file from this point forward, but the upstream Anthropic copyright and
-  Apache-2.0 license stated in this notice are preserved. DevFlow's own first-party
-  copyright header (the `2026 Daniel Radman` SPDX line carried by DevFlow-authored
-  source) is intentionally NOT applied over this third-party prompt content.
--->
-
 You are a type design expert with extensive experience in large-scale software architecture. Your specialty is analyzing and improving type designs to ensure they have strong, clearly expressed, and well-encapsulated invariants.
 
 ## When to invoke

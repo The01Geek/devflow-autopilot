@@ -3,17 +3,6 @@ name: writing-skills
 description: Use when creating new skills, editing existing skills, or verifying skills work before deployment
 ---
 
-<!--
-  Vendored from the superpowers plugin (claude-plugins-official), authored by
-  Jesse Vincent and licensed under the MIT License. The full upstream license
-  text (including the original copyright notice) is retained verbatim at
-  LICENSES/superpowers-LICENSE. This is a hard fork: DevFlow maintains and may
-  modify this file from this point forward, but the upstream copyright and MIT
-  license stated in this notice are preserved. DevFlow's own first-party copyright
-  header (the `2026 Daniel Radman` SPDX line carried by DevFlow-authored source)
-  is intentionally NOT applied over this third-party prompt content.
--->
-
 # Writing Skills
 
 **Consumer prompt extension (load first).** Before doing this skill's work, load any consumer-supplied prompt extension for this skill and honor it. From the repo root, run:
