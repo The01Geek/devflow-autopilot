@@ -306,7 +306,7 @@ Two **gated** reviewers:
 - **4.4** (PR mode only, `/devflow:review`) records a formal GitHub review: **REJECT → `--request-changes`** (blocks merge), clean → `--approve`.
 
 ### Per-subagent model & effort overrides
-The `devflow_review.agent_overrides` config maps any of the **nine** review subagents (or a `default`) to a `{model, effort}`. Because five of the nine are external plugins whose frontmatter DevFlow can't edit, and effort isn't a dispatch-time parameter, DevFlow materializes a per-run `--agents` JSON block at each dispatch (via `scripts/resolve-review-overrides.py`). Effort enum: `low/medium/high/xhigh/max`.
+The `devflow_review.agent_overrides` config maps any of the **nine** review subagents (or a `default`) to a `{model, effort}`. Because effort isn't a dispatch-time parameter and per-run overrides must not require editing committed agent frontmatter (and one of the nine, `superpowers:requesting-code-review`, is still an external plugin whose frontmatter DevFlow can't edit anyway), DevFlow materializes a per-run `--agents` JSON block at each dispatch (via `scripts/resolve-review-overrides.py`). Effort enum: `low/medium/high/xhigh/max`.
 
 ### The fix loop (`/devflow:review-and-fix`)
 - **Maximum 4 iterations.** Each iteration runs the full engine, then fixes findings one at a time (using `superpowers:receiving-code-review` principles), runs tests, commits (`fix:`), and continues.

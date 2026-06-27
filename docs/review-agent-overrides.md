@@ -29,10 +29,12 @@ the `devflow:` namespace. Their `agent_overrides` keys were renamed accordingly:
 | `pr-review-toolkit:pr-test-analyzer` | `devflow:pr-test-analyzer` |
 
 If your `.devflow/config.json` keys `agent_overrides` on any old identifier, rename it to the new
-one. A stale old key is **not** an error — the resolver's unknown-key handling ignores it with a
-`::warning::` (it is simply no longer a known review-engine subagent), so the override silently
-stops applying until you rename it. The `superpowers:requesting-code-review` and
-`devflow:checklist-*` keys are unchanged.
+one. A stale old key does **not** abort a run, but it silently stops applying: the engine only ever
+dispatches the new `devflow:` identifier, so the resolver only ever reads the new key — it never
+reads (and therefore never warns about) a stale `pr-review-toolkit:` key. Renaming is the only way
+to make the override take effect again. (If you validate `.devflow/config.json` against
+`config.schema.json`, the stale key is rejected outright by `additionalProperties: false`.) The
+`superpowers:requesting-code-review` and `devflow:checklist-*` keys are unchanged.
 
 ## The nine configurable identifiers
 
