@@ -6357,6 +6357,18 @@ assert_eq "#142 no operative surface references the old namespaced receiving-cod
 assert_eq "#142 no operative surface references the old namespaced writing-skills id (logs/CHANGELOG excepted)" \
   "" "$(tracked_scan "$FDROOT" "$SP_PAT_WRI" ':!.devflow/logs' ':!CHANGELOG.md')"
 
+# (1d) Broadened residual contract: beyond the three internalized ids, NO operative surface
+# may carry ANY bare `superpowers:` namespaced identifier. (1)'s three split-literal scans
+# only catch the internalized ids; this fails closed on a stray reference to a *non*-
+# internalized superpowers skill too (the dangling `superpowers:test-driven-development` /
+# `superpowers:systematic-debugging` refs the vendored writing-skills prose once carried,
+# now inlined). Same history/migration exceptions as (1), PLUS lib/test — this suite's own
+# scaffolding necessarily names the forbidden pattern to assert its absence, and a guard
+# cannot scan itself. Pattern split-literal so this run.sh never self-matches outside lib/test.
+SP_PAT_NS="superpowers"":"
+assert_eq "#142 no operative surface carries any bare superpowers: namespaced id (non-internalized refs incl.; test scaffolding + history/migration excepted)" \
+  "" "$(tracked_scan "$FDROOT" "$SP_PAT_NS" ':!.devflow/logs' ':!CHANGELOG.md' ':!docs/review-agent-overrides.md' ':!lib/test')"
+
 # (2/2b/2c) Per-skill vendoring + structural validity. For each of the three skills the file
 # exists first-party under skills/<name>/SKILL.md; its frontmatter declares name: <name> (so
 # it resolves as devflow:<name>); and the frontmatter is well-formed (open + close ---, name:,
@@ -6377,6 +6389,12 @@ for sk in $SP_SKILLS; do
   assert_eq "#142 skills/$sk/SKILL.md carries the upstream superpowers MIT attribution marker" \
     "yes" "$(grep -q 'Vendored from the superpowers plugin' "$FDROOT/skills/$sk/SKILL.md" \
             && grep -q 'Jesse Vincent' "$FDROOT/skills/$sk/SKILL.md" && echo yes || echo no)"
+  # (2e) scaffold-config.sh registers a prompt-extension example row for this internalized
+  # skill, and that row names a skill that actually exists (the skills/$sk/SKILL.md asserted
+  # above) — pins the PE row to a real skill dir so a typo'd/renamed scaffold row fails loud
+  # instead of scaffolding a <skill>.md.example that resolves to nothing.
+  assert_eq "#142 scaffold-config.sh has a PE_SKILLS row for the internalized $sk skill" \
+    "yes" "$(grep -qE "^$sk\|" "$FDROOT/scripts/scaffold-config.sh" && echo yes || echo no)"
 done
 
 # (2d) Dispatch-resolves call-sites (the load-bearing invariant the absence-grep only proxies
@@ -6448,12 +6466,16 @@ WF_SP="superpowers""@claude-plugins-official"
 assert_eq "#142 no cloud workflow installs the superpowers companion plugin" \
   "" "$(tracked_scan "$FDROOT" "$WF_SP" '.github/workflows')"
 
-# (6) using-git-worktrees retirement (AC6): the single using-git-worktrees reference is gone
-# from retrospective-weekly (the loop uses raw git worktree). using-git-worktrees is NOT
-# internalized, so this is the only assertion about it. Pattern split-literal to avoid self-match.
+# (6) using-git-worktrees retirement (AC6): the using-git-worktrees reference is gone (the
+# loop uses raw git worktree). using-git-worktrees is NOT internalized. Scoped REPO-WIDE via
+# the fail-closed tracked_scan (not a single-file grep): a single-file `grep ... || echo no`
+# asserting "no" would pass falsely if the target file were renamed/deleted (the grep miss
+# yields the expected "no"), and would miss a reference that migrated to another file. The
+# tracked_scan returns the offending path on a real hit and the rgb sentinel on a git error.
+# Pattern split-literal to avoid self-match.
 SP_PAT_WT="superpowers:""using-git-worktrees"
-assert_eq "#142 retrospective-weekly no longer references the using-git-worktrees skill (retired for raw git worktree)" \
-  "no" "$(grep -qF "$SP_PAT_WT" "$FDROOT/skills/retrospective-weekly/SKILL.md" && echo yes || echo no)"
+assert_eq "#142 no operative surface references the retired using-git-worktrees skill (repo-wide; raw git worktree used instead)" \
+  "" "$(tracked_scan "$FDROOT" "$SP_PAT_WT" ':!.devflow/logs' ':!CHANGELOG.md')"
 
 # (6b) Removed-behavior pin (negative-removal, twin of (6)): the final-pass reviewer is now a
 # first-party skill that is ALWAYS present wherever DevFlow runs, so the old companion-unavailable
@@ -6463,8 +6485,13 @@ assert_eq "#142 retrospective-weekly no longer references the using-git-worktree
 # never full coverage). A future edit that reintroduces a companion-install assumption would pass
 # every other #142 row while silently regressing that invariant, so pin its absence on the
 # target-unique phrase. (The phrase appears nowhere else in the file, so this is not vacuous.)
+# Existence-guarded so this fails CLOSED: a bare `grep ... || echo no` asserting "no" would
+# pass falsely if skills/review/SKILL.md were renamed/deleted (the grep miss yields "no").
+# A missing file returns the distinct MISSING-FILE sentinel, which is != "no" and fails loud.
 assert_eq "#142 review engine no longer assumes the final-pass reviewer is an installed companion plugin" \
-  "no" "$(grep -qF 'plugin is installed in the executing environment' "$FDROOT/skills/review/SKILL.md" && echo yes || echo no)"
+  "no" "$([ -f "$FDROOT/skills/review/SKILL.md" ] \
+          && { grep -qF 'plugin is installed in the executing environment' "$FDROOT/skills/review/SKILL.md" && echo yes || echo no; } \
+          || echo MISSING-FILE)"
 
 # (7) Positive roster-doc rewire (AC8): the docs that describe the final-pass reviewer must
 # name the internalized devflow:requesting-code-review id — a negative scan (1) catches a
