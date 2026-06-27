@@ -6504,6 +6504,16 @@ for d in DEVFLOW_SYSTEM_OVERVIEW.md shadow-review.md; do
     "yes" "$(grep -qF 'devflow:requesting-code-review' "$FDROOT/docs/$d" && echo yes || echo no)"
 done
 
+# (8) Positive pin for the implement skill's Phase-3 review-roster line (PR #143 review,
+# Minor #2). skills/implement/SKILL.md names the five first-party review agents by BARE
+# name (no namespace) in its Phase-3 prose. The absence scan (1) only catches a leftover
+# OLD id, not a DROPPED bare name, so the same dropped-mention asymmetry already defended
+# for skills/review (the **devflow:<name>** header pin) and skills/review-and-fix (the
+# devflow:<name> roster pin) applies here too. Pin the whole parenthesized roster so a
+# future edit that drops an agent turns this row red instead of shipping silently.
+assert_eq "#141 implement skill names all five review agents in its Phase-3 roster line" \
+  "yes" "$(grep -qF '(code-reviewer, silent-failure-hunter, comment-analyzer, type-design-analyzer, pr-test-analyzer)' "$FDROOT/skills/implement/SKILL.md" && echo yes || echo no)"
+
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)

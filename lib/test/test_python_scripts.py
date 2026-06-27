@@ -1452,6 +1452,42 @@ _schema_keys = set(
 assert_eq("schema agent_overrides keys == KNOWN_AGENTS + 'default'",
           set(_rro.KNOWN_AGENTS) | {"default"}, _schema_keys)
 
+# Migration: the documented schema-rejection of a stale externally-namespaced override key
+# (PR #143 review, Major #1 + Minor #1). CHANGELOG/migration-doc prose promise that a stale
+# pre-rename key is REJECTED by config validation; that promise rests entirely on
+# agent_overrides being additionalProperties:false (an undeclared key is invalid). Pin that
+# property directly — flip it to true and a stale key would silently validate, falsifying the
+# migration note. Then assert no stale key (the externally-namespaced colon form) survives in
+# either the schema's properties OR config.example.json: the set-equality above already
+# catches a stale key ADDED ALONGSIDE the new ones in the schema, but this names the exact old
+# ids so an additive regression fails with a legible message rather than an opaque set diff,
+# and extends the guard to config.example.json (which the schema set-equality does not cover).
+# Literal split ("pr-review-" "toolkit:") so neither this value nor any comment reintroduces a
+# colon-form id the run.sh #141 residual scan flags.
+_ao_schema = (
+    _schema["properties"]["devflow_review"]["properties"]["agent_overrides"]
+)
+assert_eq("#141 migration: schema agent_overrides is additionalProperties:false "
+          "(a stale override key is REJECTED, not silently validated)",
+          False, _ao_schema.get("additionalProperties"))
+_PRT_PREFIX = "pr-review-" "toolkit:"
+_PRT_OLD_KEYS = [
+    _PRT_PREFIX + n for n in (
+        "code-reviewer", "silent-failure-hunter", "comment-analyzer",
+        "type-design-analyzer", "pr-test-analyzer",
+    )
+]
+assert_eq("#141 migration: no stale pre-rename override key survives in config.schema.json",
+          [], [k for k in _PRT_OLD_KEYS if k in _schema_keys])
+_example_path = SCRIPTS.parent / '.devflow' / 'config.example.json'
+with open(_example_path) as _exf:
+    _example = json.load(_exf)
+_example_ao = (
+    _example.get("devflow_review", {}).get("agent_overrides", {})
+)
+assert_eq("#141 migration: no stale pre-rename override key survives in config.example.json",
+          [], [k for k in _PRT_OLD_KEYS if k in _example_ao])
+
 # The published KNOWN_AGENTS roster stays byte-identical to the nine telemetry ids.
 assert_eq("resolve: KNOWN_AGENTS is the nine review-engine identifiers",
           ("devflow:checklist-generator", "devflow:checklist-deduper",
@@ -1483,12 +1519,13 @@ assert_eq("#141 migration: main() warns the stale old key is not a known subagen
 
 # Migration guard (#142): seam 3 renamed the final-pass reviewer override key from its
 # pre-rename superpowers-namespaced form into the devflow: namespace. The 2.8.13 CHANGELOG
-# + docs/review-agent-overrides.md migration table make the same promise as #141's rename:
-# a STALE old key is treated as UNKNOWN (resolver ignores it with a `::warning::`, the
-# override silently stops applying) rather than silently matching the internalized skill.
-# Pin that promise on the exact old string so the migration note is *tested*, not merely
-# asserted (the #62/#98 unverified-assumption class). The literal is split
-# ("superpowers:" "requesting-code-review") so neither this value nor the surrounding
+# + docs/review-agent-overrides.md migration table make the same promise as #141's rename.
+# This block pins the DISPATCHED-unknown path: a stale old key passed as a dispatched id is
+# UNKNOWN, so main() warns it is not a known subagent and exits 0 (never aborts). (The
+# config-layer silent-drop half — a stale override key left in agent_overrides — is pinned
+# separately below.) Pin the promise on the exact old string so the migration note is
+# *tested*, not merely asserted (the #62/#98 unverified-assumption class). The literal is
+# split ("superpowers:" "requesting-code-review") so neither this value nor the surrounding
 # comment reintroduces a colon-form id the run.sh #142 residual scan flags.
 _OLD_RCR_KEY = "superpowers:" "requesting-code-review"
 assert_eq("#142 migration: stale pre-rename requesting-code-review override key is NOT a known id",
@@ -1499,6 +1536,62 @@ with contextlib.redirect_stdout(_ro), contextlib.redirect_stderr(_re):
 assert_eq("#142 migration: main() with the stale old key exits 0 (never aborts)", 0, _rrc)
 assert_eq("#142 migration: main() warns the stale old key is not a known subagent",
           True, "is not a known" in _re.getvalue())
+
+# Migration (config layer): the OTHER half of the stale-key story (PR #143 review, Major #1).
+# The block above proves the DISPATCHED-unknown path (a stale id passed as a dispatched
+# agent warns). The real operator scenario is the inverse: a stale override key is left in
+# agent_overrides CONFIG while the engine dispatches only the renamed devflow: ids. The
+# resolver reads overrides per DISPATCHED agent (+ "default"), so it never probes the stale
+# key — the override silently stops applying with NO override and NO warning. That silent
+# drop is the documented, honest behavior; pin it so a future resolver change that started
+# (mis)matching or warning on the stale key would turn this red. Reuses the split-literal
+# old key from the dispatched-unknown block above.
+with _tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as _stalef:
+    _stalef.write(
+        '{"devflow_review":{"agent_overrides":{'
+        '"' + _OLD_CR_KEY + '":{"model":"claude-opus-4-8","effort":"high"}}}}'
+    )
+    _stale_cfg = _stalef.name
+try:
+    _stale_dispatched = ["devflow:code-reviewer"]
+    _stale_raw, _stale_rwarn = _rro.read_raw(
+        _stale_dispatched, _config_get_sh, _stale_cfg)
+    _stale_res, _stale_reswarn = _rro.resolve_overrides(_stale_raw, _stale_dispatched)
+    assert_eq("#141 migration (config layer): stale override key yields NO override for the "
+              "renamed agent (silently stops applying)",
+              {}, _stale_res)
+    assert_eq("#141 migration (config layer): stale override key drop emits no reader warning",
+              [], _stale_rwarn)
+    assert_eq("#141 migration (config layer): stale override key drop emits no resolver warning",
+              [], _stale_reswarn)
+finally:
+    _os.unlink(_stale_cfg)
+
+# Migration (config layer), seam 3: the same inverse scenario for the requesting-code-review
+# rename. A stale superpowers: override key left in agent_overrides while the engine
+# dispatches only the renamed devflow:requesting-code-review id — the resolver never probes
+# the stale key, so the override silently stops applying (no override, no warning). Mirrors
+# the #141 config-layer block above so seam 3's rename gets the same honest-behavior pin.
+with _tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as _stalerf:
+    _stalerf.write(
+        '{"devflow_review":{"agent_overrides":{'
+        '"' + _OLD_RCR_KEY + '":{"model":"claude-opus-4-8","effort":"high"}}}}'
+    )
+    _stale_rcfg = _stalerf.name
+try:
+    _stale_rdispatched = ["devflow:requesting-code-review"]
+    _stale_rraw, _stale_rrwarn = _rro.read_raw(
+        _stale_rdispatched, _config_get_sh, _stale_rcfg)
+    _stale_rres, _stale_rreswarn = _rro.resolve_overrides(_stale_rraw, _stale_rdispatched)
+    assert_eq("#142 migration (config layer): stale override key yields NO override for the "
+              "renamed final-pass reviewer (silently stops applying)",
+              {}, _stale_rres)
+    assert_eq("#142 migration (config layer): stale override key drop emits no reader warning",
+              [], _stale_rrwarn)
+    assert_eq("#142 migration (config layer): stale override key drop emits no resolver warning",
+              [], _stale_rreswarn)
+finally:
+    _os.unlink(_stale_rcfg)
 
 # Characterization: pins the documented array-leaf gap so it can only change
 # deliberately. config-get.sh joins an array leaf with commas before the resolver
