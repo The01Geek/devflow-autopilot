@@ -58,3 +58,54 @@ run is denied, do this in order — do not skip to the last rung:
 
 The standard is *evidence before assertion*: a claim that something works must point to a
 command you actually ran and its observed output, or be explicitly flagged unverified.
+
+## Reconcile every descriptive surface after a late change of direction
+
+The recurring `doc-accuracy` failure in this repo is not a typo in fresh prose — it is
+**stale text that survives a late-stage change of direction**. When you revert a commit,
+narrow a scope, remove a marker, rename a key, or otherwise change *what the code does*
+after you first wrote about it, the code edit lands but the surrounding text that *describes*
+that code keeps asserting the old behavior. Past occurrences:
+
+- **#144** — `writing-skills` was hard-forked, then **reverted** to stay external, but the
+  issue workpad's Plan + Acceptance-Criteria still claimed it was vendored (AC1/AC2 ticked,
+  "retains upstream copyright"); and CHANGELOG/README/`DEVFLOW_SYSTEM_OVERVIEW.md` prose still
+  advertised attribution markers that a later commit had **removed**. The workpad and the
+  marketing prose were never re-walked after the revert.
+- **#125** — `/devflow:implement` was scoped to issues only, but stale "issue/PR" wording
+  survived in now-issues-only inline comments (dedupe-step comment, duplicate-notice comment,
+  the number-resolution comment whose own function header was already updated to "issue").
+- **#64** — a telemetry-id equality **overclaim** shipped in docs and had to be corrected by
+  the human; an inline guard comment called itself "fail-closed" while the value it reads
+  fails **open**.
+
+So when a change of direction happens mid-run, before declaring the work done, **re-walk every
+surface that describes the thing you changed and reconcile it with the shipped state**:
+
+1. **The issue workpad** (Plan, Acceptance-Criteria checkboxes + their wording, status). If a
+   revert/scope-narrowing made an AC line or a Plan step no longer match what shipped, update
+   the workpad text — do not leave it asserting the abandoned approach. A ticked AC whose
+   wording describes work you reverted is a `doc-accuracy` defect.
+2. **Code comments and docstrings that *self-describe behavior*** — especially a comment that
+   names a contract ("fail-closed", "always", "issue/PR", "vendored"). After you change the
+   behavior, grep the touched files (and their callers) for the old contract words and fix the
+   ones that now misdescribe the code. A comment is wrong the moment the code it annotates
+   changes underneath it.
+3. **Repo prose that advertises the change** — `CHANGELOG.md`, `README.md`,
+   `DEVFLOW_SYSTEM_OVERVIEW.md`, and any `docs/**` page describing the feature. Reconcile any
+   claim that now overstates or misstates the shipped reality (an attribution model, an
+   equality/identity claim, a removed/renamed surface).
+
+Treat this as a deliberate pass triggered by a *change of direction*, not a blanket re-read of
+all docs: the trigger is "I just made the code do something different from what I — or the
+issue — earlier said it would do." For each such change, name in a `## Devflow Reflection`
+bullet which descriptive surfaces you reconciled (or, if you intentionally left a reference
+verbatim — e.g. vendored upstream prose out of AC scope — say so and why, so a later
+retrospective does not re-flag it as a surprise).
+
+*Scope note (other `doc-accuracy` sub-patterns this rule does not address):* the coarse
+`doc-accuracy` category also lumped non-prose items — a deferred E402/lint finding left in,
+a self-inflicted CI-red revert that stripped test-required attribution markers without
+reconciling the asserting tests in the same commit, and an inert cloud-allow-list omission.
+Those are reconcile-the-*tests*/CI and engine-allow-list problems, not descriptive-text
+drift; this extension fixes the dominant descriptive-text-drift sub-pattern only.
