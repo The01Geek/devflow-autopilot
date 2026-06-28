@@ -3261,6 +3261,37 @@ DRY_URL="$(DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --dry-run --tag dry
 assert_eq "meta-issue --dry-run prints the DRYRUN sentinel" "https://example.invalid/issues/DRYRUN" "$DRY_URL"
 assert_eq "meta-issue --dry-run invokes no gh create/edit" "true" \
   "$([ ! -f "$MI_TMP/calls" ] && echo true || echo false)"
+# #152: de-dup HIT path also fails closed on a garbage url/number (gh --json drift
+# emitting a null number/url) — mirrors the create-path guard.
+cat > "$MI_TMP/gh" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *"issue list"*) echo '{"number":null,"url":null}' ;;   # contract drift: nulls
+  *) echo '' ;;
+esac
+STUB
+chmod +x "$MI_TMP/gh"
+DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --tag dedup-null --slug dedup-null --title "x" --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov2.json" >/dev/null 2>&1; DEDUP_RC=$?
+assert_eq "meta-issue fails closed on a de-dup hit with null url/number" "true" \
+  "$([ "$DEDUP_RC" -ne 0 ] && echo true || echo false)"
+# #152: overrides-write failure fails closed AFTER a successful create — a corrupt
+# overrides file makes the jq write exit non-zero, so the orchestrator records a
+# blocker (the issue exists but its cooldown could not be recorded → re-surfaced).
+printf 'not json{' > "$MI_TMP/ov-corrupt.json"
+cat > "$MI_TMP/gh" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *"issue list"*) echo '' ;;
+  *"issue create"*) echo 'https://github.com/acme/example-repo/issues/7777' ;;
+  *"issue edit"*) : ;;
+  *"label create"*) echo 'created' ;;
+  *) echo '' ;;
+esac
+STUB
+chmod +x "$MI_TMP/gh"
+DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --tag ov-fail --slug ov-fail --title "x" --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov-corrupt.json" >/dev/null 2>&1; OVFAIL_RC=$?
+assert_eq "meta-issue fails closed on a corrupt overrides write" "true" \
+  "$([ "$OVFAIL_RC" -ne 0 ] && echo true || echo false)"
 rm -rf "$MI_TMP"
 
 # ────────────────────────────────────────────────────────────────────────────

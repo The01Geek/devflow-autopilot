@@ -82,9 +82,15 @@ fi
 # cooldown — don't re-file it this run. (The permanent overrides.json dismissal
 # meta-issue.sh writes is the cross-run guard; this is the within-window one,
 # meaningful when a maintainer has cleared the dismissal to allow re-filing.)
+# Split the fetch from the jq so a gh failure (auth/rate-limit/network) and a
+# non-JSON body each get a SPECIFIC breadcrumb naming the cause — the same
+# fail-loud discipline meta-issue.sh's de-dupe lookup uses — instead of an opaque
+# set -e/pipefail abort that points at neither the cooldown step nor its cause.
+_OPEN_ISSUES_RAW="$("$DEVFLOW_GH" issue list --search "[devflow-retrospective] meta: in:title" \
+    --state open --json number,title,createdAt --limit 200)" \
+  || { echo "::error::actionable-patterns: open-issue cooldown lookup failed (gh issue list)" >&2; exit 1; }
 OPEN_ISSUE_MAP="$(
-  "$DEVFLOW_GH" issue list --search "[devflow-retrospective] meta: in:title" \
-    --state open --json number,title,createdAt --limit 200 \
+  printf '%s' "$_OPEN_ISSUES_RAW" \
   | jq '
       [ .[]
         # Parse the slug token from the de-dup title prefix; drop any issue whose
@@ -102,7 +108,7 @@ OPEN_ISSUE_MAP="$(
           end
         )
     '
-)"
+)" || { echo "::error::actionable-patterns: could not parse the open-issue list as JSON (gh returned non-JSON?): $(printf '%s' "$_OPEN_ISSUES_RAW" | head -c 200)" >&2; exit 1; }
 
 # ── Cooldown boundary (epoch seconds for COOLDOWN days ago) ─────────────────
 # Portable date math via python3 (GNU `date -d` is unavailable on macOS/BSD).

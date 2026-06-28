@@ -81,6 +81,12 @@ EXISTING="$("$DEVFLOW_GH" issue list \
 if [[ -n "$EXISTING" ]]; then
     URL="$(printf '%s' "$EXISTING" | jq -r '.url')"
     NUMBER="$(printf '%s' "$EXISTING" | jq -r '.number')"
+    # Fail CLOSED on a de-dup hit that yielded no usable url/number (a gh --json
+    # contract drift would make jq -r emit the literal "null"). Mirrors the
+    # create-path URL guard below — without it a "null" url/number would flow into
+    # the recurrence comment, the labels, and the overrides cooldown.
+    case "$URL" in https://*/issues/[0-9]*) : ;; *) echo "::error::meta-issue: de-dupe hit returned no usable issue URL for tag '${TAG}' (got: '${URL}')" >&2; exit 1 ;; esac
+    case "$NUMBER" in ''|*[!0-9]*) echo "::error::meta-issue: de-dupe hit returned no numeric issue number for tag '${TAG}' (got: '${NUMBER}')" >&2; exit 1 ;; esac
     if [[ "$DRY_RUN" -eq 0 ]]; then
         "$DEVFLOW_GH" issue comment "$NUMBER" \
             --body "Pattern \`${TAG}\` recurred again — see the latest retrospective-weekly run." \

@@ -135,13 +135,15 @@ There is no `excluded` field, no `targets[]`, no PR. You return a spec; you do n
 
 ## § 6 — Construct the JSON with `jq -n`
 
-Never hand-write or heredoc the output JSON — character-escaping errors in multi-line issue bodies are the most common breakage. Write the body to `.devflow/tmp/issue-body.md` first (plain `Write` tool call), then build the object:
+Never hand-write or heredoc the output JSON — character-escaping errors in multi-line issue bodies are the most common breakage. Write the body to a **unique** scratch file first (plain `Write` tool call) — the orchestrator dispatches every pattern's Stage B subagent concurrently, so a fixed shared path like `.devflow/tmp/issue-body.md` would let two subagents clobber each other; use a `$(mktemp)` path or one that embeds your pattern's slug (e.g. `.devflow/tmp/issue-body-<slug>.md`). Then build the object:
 
 ```bash
+BODY_SCRATCH="$(mktemp)"   # unique per subagent — never a fixed shared path
+# ... write the issue body to "$BODY_SCRATCH" with the Write tool ...
 jq -n \
   --arg title "<action-oriented issue title>" \
-  --arg body "$(cat .devflow/tmp/issue-body.md)" \
+  --arg body "$(cat "$BODY_SCRATCH")" \
   '{title: $title, body: $body}'
 ```
 
-Print the `jq` output and stop.
+This scratch file is only a within-subagent buffer; the body travels back to the orchestrator via the stdout `{title, body}` JSON, which the orchestrator re-extracts to its own slug-suffixed file. Print the `jq` output and stop.
