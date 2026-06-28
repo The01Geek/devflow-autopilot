@@ -3116,6 +3116,21 @@ STUB
 chmod +x "$AP_TMP/gh"
 AP3="$(DEVFLOW_GH="$AP_TMP/gh" bash "$LIB/actionable-patterns.sh" "$AP_TMP/r.jsonl" "$AP_TMP/o.json")"
 assert_eq "incomplete-edit cooldown_active=false when filed issue is older than cooldown_days" "false" "$(echo "$AP3" | jq '.[] | select(.tag=="incomplete-edit") | .cooldown_active')"
+# #152: a gh contract drift emitting an open issue with a null / malformed
+# `createdAt` (empty, fractional seconds, non-Z offset) must be DROPPED at the
+# cooldown-map producer (so it never reaches strptime and aborts the final jq),
+# not crash the run. The drifted row is dropped → no open issue for the slug →
+# cooldown_active=false, exit 0. Guards the createdAt shape filter.
+cat > "$AP_TMP/gh" <<STUB
+#!/usr/bin/env bash
+case "\$*" in *"issue list"*) echo '[{"number":502,"title":"[devflow-retrospective] meta: incomplete-edit — x","createdAt":null},{"number":503,"title":"[devflow-retrospective] meta: incomplete-edit — x","createdAt":"2026-06-28T12:00:00.5Z"}]' ;; *) echo '[]' ;; esac
+STUB
+chmod +x "$AP_TMP/gh"
+AP4="$(DEVFLOW_GH="$AP_TMP/gh" bash "$LIB/actionable-patterns.sh" "$AP_TMP/r.jsonl" "$AP_TMP/o.json")"; AP4_RC=$?
+assert_eq "actionable: malformed createdAt rows are dropped, not crashed-on (exit 0)" "true" \
+  "$([ "$AP4_RC" -eq 0 ] && echo true || echo false)"
+assert_eq "actionable: malformed-createdAt open issue does not set cooldown_active" "false" \
+  "$(echo "$AP4" | jq '.[] | select(.tag=="incomplete-edit") | .cooldown_active')"
 # Missing overrides.json → should still emit the actionable array, not error
 AP_NOOV="$(DEVFLOW_GH="$AP_TMP/gh" bash "$LIB/actionable-patterns.sh" "$AP_TMP/r.jsonl" "/tmp/devflow-nonexistent-overrides-$$-$RANDOM.json")" \
   && assert_eq "actionable: missing overrides → incomplete-edit still present" "true" "$(echo "$AP_NOOV" | jq 'any(.[]; .tag=="incomplete-edit")')" \
@@ -3306,6 +3321,21 @@ chmod +x "$MI_TMP/gh"
 DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --tag lookup-fail --slug lookup-fail --title "x" --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov2.json" >/dev/null 2>&1; LOOKUP_RC=$?
 assert_eq "meta-issue fails closed on de-dup lookup error (non-zero exit)" "true" \
   "$([ "$LOOKUP_RC" -ne 0 ] && echo true || echo false)"
+# #152: de-dup lookup that exits 0 with a NON-JSON body (auth/upgrade warning on
+# stdout, HTML error page) must fail CLOSED at the jq parse, not flow on as "no
+# existing issue" and re-file a duplicate. Mirrors actionable-patterns.sh's
+# non-JSON cooldown guard (the sibling consumer of the same gh contract).
+cat > "$MI_TMP/gh" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *"issue list"*) echo 'gh: not authenticated' ;;   # exit 0 but non-JSON
+  *) echo '' ;;
+esac
+STUB
+chmod +x "$MI_TMP/gh"
+DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --tag nonjson-lookup --slug nonjson-lookup --title "x" --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov2.json" >/dev/null 2>&1; NONJSON_RC=$?
+assert_eq "meta-issue fails closed on a non-JSON de-dup body (non-zero exit)" "true" \
+  "$([ "$NONJSON_RC" -ne 0 ] && echo true || echo false)"
 # --dry-run: records the DRYRUN sentinel, invokes NO issue create / issue edit
 echo '{"schema_version":1,"dismissed":{}}' > "$MI_TMP/ov3.json"
 cat > "$MI_TMP/gh" <<'STUB'

@@ -95,13 +95,20 @@ OPEN_ISSUE_MAP="$(
       [ .[]
         # Parse the slug token from the de-dup title prefix; drop any issue whose
         # title does not carry it (foreign issue that matched the search loosely).
-        | (.title | capture("\\[devflow-retrospective\\] meta: (?<slug>[A-Za-z0-9_-]+)") | .slug) as $slug
+        # The capture()? + // {} chain tolerates a non-string OR non-matching
+        # title by yielding {} (then dropped), mirroring the meta-issue.sh de-dupe
+        # re-parse exactly — so a foreign row is dropped, never an opaque abort.
+        | (((.title | capture("\\[devflow-retrospective\\] meta: (?<slug>[A-Za-z0-9_-]+)")?) // {}) | .slug) as $slug
         | select($slug != null and $slug != "")
-        # Guard the operand the cooldown comparison will feed to strptime below:
-        # drop a row with a null/non-string createdAt (consistent with how an
-        # unparseable slug is dropped) so a gh contract drift can never reach
-        # `strptime` and abort the final jq with an opaque, unattributed error.
-        | select((.createdAt | type) == "string")
+        # Guard the operand the cooldown comparison feeds to strptime below: keep
+        # ONLY a createdAt that matches the exact `%Y-%m-%dT%H:%M:%SZ` shape
+        # strptime accepts. A bare `type=="string"` is not enough — "", a
+        # fractional-seconds value, or a non-Z offset are all strings yet abort
+        # strptime, so a gh contract drift to any of those would reach the final
+        # jq and abort it. Dropping the row here (like an unparseable slug) keeps
+        # the cooldown comparison total; the breadcrumb on the OUTPUT block below
+        # is the belt-and-suspenders fail-loud for anything else.
+        | select(((.createdAt | type) == "string") and (.createdAt | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")))
         | { slug: $slug, createdAt: .createdAt }
       ]
       | reduce .[] as $item (
@@ -124,7 +131,8 @@ OPEN_ISSUE_MAP="$(
 _DROPPED_COUNT="$(
   printf '%s' "$_OPEN_ISSUES_RAW" \
   | jq '[ .[]
-          | select((.title | test("\\[devflow-retrospective\\] meta: "))
+          | select(((.title | type) == "string")
+                   and (.title | test("\\[devflow-retrospective\\] meta: "))
                    and ((.title | test("\\[devflow-retrospective\\] meta: [A-Za-z0-9_-]+")) | not)) ]
         | length'
 )" || { echo "::error::actionable-patterns: the slug-drift drop-counter failed to evaluate the open-issue list" >&2; exit 1; }
@@ -176,6 +184,6 @@ OUTPUT="$(
         }
     ]
   '
-)"
+)" || { echo "::error::actionable-patterns: failed to build the actionable-pattern output (cooldown comparison aborted?)" >&2; exit 1; }
 
 printf '%s\n' "$OUTPUT"
