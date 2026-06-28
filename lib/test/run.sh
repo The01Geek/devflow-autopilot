@@ -37,10 +37,17 @@ assert_eq() {
 # Count the occurrences of a fixed-string LITERAL in FILE (substring, not whole-line).
 # Pure predicate — no RESULTS_FILE side effect — so mutation proofs can assert on the
 # raw count against a mutated temp copy without polluting the suite tally. grep -cF
-# treats LITERAL as a fixed string (regex metacharacters are literal); a missing/
-# unreadable file yields 0 (the helper below then fails it as non-unique, not as a pass).
-pin_count() {  # literal file -> prints occurrence count
-  grep -cF "$1" "$2" 2>/dev/null || echo 0
+# treats LITERAL as a fixed string (regex metacharacters are literal). Always prints a
+# SINGLE canonical integer: a present-file-but-absent-literal (grep prints "0", exit 1),
+# a missing/unreadable file (grep prints nothing, exit 2), and a match all collapse to one
+# line — the assignment captures grep's count and `|| n=0` only fires when the assignment
+# itself failed, so the old `grep … || echo 0` double-"0" on the absent-in-present-file
+# path is gone. An absent literal therefore yields a clean 0 (the helper below then fails
+# it as non-unique, not as a pass), and the FAIL diagnostic prints an accurate count.
+pin_count() {  # literal file -> prints occurrence count (always a single integer)
+  local n
+  n="$(grep -cF "$1" "$2" 2>/dev/null)" || n=0
+  printf '%s\n' "${n:-0}"
 }
 
 # Drift-guard helper: assert LITERAL occurs EXACTLY ONCE in FILE. This is the
@@ -69,7 +76,11 @@ assert_pin_unique() {  # name literal file
 # a function call sets the var only for that call's environment (functions are not special
 # builtins), so the global RESULTS_FILE is untouched.
 probe_assert() {  # assertion-fn args... -> prints PASS or FAIL (the probed verdict)
-  local probe; probe="$(mktemp)"
+  # Guard mktemp (harness is `set -u` without `set -e`, so a bare failure would not abort):
+  # an empty $probe would make `tail ""` error and the probe echo empty, surfacing as a
+  # MISLEADING wrong-verdict mismatch instead of an environment failure. Emit a distinct
+  # breadcrumb token so the cause is unambiguous.
+  local probe; probe="$(mktemp)" || { echo "PROBE_MKTEMP_FAILED"; return 0; }
   RESULTS_FILE="$probe" "$@" >/dev/null 2>&1
   tail -n 1 "$probe"
   rm -f "$probe"
@@ -661,20 +672,39 @@ assert_pin_unique "mutation-check: implement skill test-writing phase references
 # only — see the SCOPE note on the region above; it does not police raw guards elsewhere.
 PARKCAL_BMARK="PARKCAL_GUARD_REGION_""BEGIN"
 PARKCAL_EMARK="PARKCAL_GUARD_REGION_""END"
-# Print every line between the BEGIN and END markers of FILE that is a raw SKILL drift
-# guard — a `grep -qF` paired with a `_SKILL` path var (the exact shape assert_pin_unique
-# replaces). A correctly-routed region yields 0. `|| true` keeps grep's no-match exit 1
-# from tripping the `set -u`/pipefail-free harness into a spurious non-zero.
+# Print every line between the BEGIN and END markers of FILE that is a raw `grep`-based
+# SKILL drift guard — ANY `grep ` command referencing a `_SKILL` path var. The pattern is
+# deliberately broader than the `grep -qF` spelling assert_pin_unique replaced: it also
+# catches `grep -Fq`, `grep -qE`, and a count-based `grep -cF … "$…_SKILL"`, so a future
+# author cannot dodge the helper by re-spelling the flags (a narrowness the review of this
+# very PR flagged). A correctly-routed region routes every pin through assert_pin_unique —
+# those lines carry no `grep` — so it yields 0. `|| true` keeps grep's no-match exit 1 from
+# tripping the `set -u`/pipefail-free harness into a spurious non-zero.
 count_raw_skill_guards_in_region() {  # file -> prints count of offending lines
   awk -v b="$PARKCAL_BMARK" -v e="$PARKCAL_EMARK" '
     index($0, b) { inreg=1; next }
     index($0, e) { inreg=0 }
     inreg { print }
-  ' "$1" | grep -cE 'grep -qF.*_SKILL' || true
+  ' "$1" | grep -cE 'grep[[:space:]].*_SKILL' || true
 }
 SELF_SRC="$LIB/test/run.sh"
 assert_eq "meta(AC2): park-calibration region routes every SKILL pin through assert_pin_unique (0 raw guards)" \
   "0" "$(count_raw_skill_guards_in_region "$SELF_SRC")"
+# Positive controls — close the meta-test's OWN fail-open (the recursion the review of this
+# PR caught): count_raw_skill_guards_in_region returns 0 BOTH when the region is clean AND
+# when the BEGIN/END markers are absent (awk then scans nothing) OR the region was emptied
+# of pins. Without these, deleting a marker or moving the pins out would pass the AC2 scan
+# vacuously — the exact vacuous-guard class this whole change exists to kill, recursed one
+# level up. Assert each marker is present exactly once (via the split-built var, so this
+# assertion line adds no second contiguous marker) and that the region still holds pins.
+assert_eq "meta(AC2): region BEGIN marker present exactly once (else the scan fails OPEN)" \
+  "1" "$(pin_count "$PARKCAL_BMARK" "$SELF_SRC")"
+assert_eq "meta(AC2): region END marker present exactly once (else the scan fails OPEN)" \
+  "1" "$(pin_count "$PARKCAL_EMARK" "$SELF_SRC")"
+PARKCAL_REGION_PINS=$(awk -v b="$PARKCAL_BMARK" -v e="$PARKCAL_EMARK" \
+  'index($0,b){inreg=1;next} index($0,e){inreg=0} inreg' "$SELF_SRC" | grep -cF 'assert_pin_unique')
+assert_eq "meta(AC2): park-calibration region is non-empty (routed pins present, not an emptied region)" \
+  "yes" "$([ "${PARKCAL_REGION_PINS:-0}" -ge 1 ] && echo yes || echo no)"
 
 # ── AC3 mutation proofs: each deterministic guard above must demonstrably go RED on the
 # defect it exists to catch, then GREEN is the real (unmutated) state. We exercise the
@@ -702,6 +732,37 @@ awk -v b="$PARKCAL_BMARK" -v inj='  grep -qF INJECTED_RAW_GUARD "$MAXI_SKILL"' \
 assert_eq "AC3(b): meta-test detects a raw SKILL guard injected into the region (RED)" \
   "1" "$(count_raw_skill_guards_in_region "$PINPROBE_RAW")"
 rm -f "$PINPROBE_RAW"
+#
+# AC3(b2): the broadened detector also catches a VARIANT spelling (`grep -Fq` instead of
+# `grep -qF`), proving the meta-test is not pinned to one exact flag order (the narrowness
+# flagged in review). Same injection mechanism, different flag order.
+PINPROBE_RAW2="$(mktemp)"
+awk -v b="$PARKCAL_BMARK" -v inj='  grep -Fq INJECTED_VARIANT "$MAXI_SKILL"' \
+  '{ print } index($0, b) { print inj }' "$SELF_SRC" > "$PINPROBE_RAW2"
+assert_eq "AC3(b2): meta-test detects a variant-spelled raw SKILL guard (grep -Fq) in the region (RED)" \
+  "1" "$(count_raw_skill_guards_in_region "$PINPROBE_RAW2")"
+rm -f "$PINPROBE_RAW2"
+#
+# AC3(e): the marker-presence positive control fails CLOSED when a region marker is deleted —
+# the meta-test's own anti-vacuity proof. Strip the BEGIN marker line from a temp copy and
+# confirm its presence count goes to 0 (so the assert_eq "1" control above would turn RED),
+# meaning a marker deletion can no longer silently pass AC2 over an unscanned region.
+PINPROBE_NOMARK="$(mktemp)"
+grep -vF "$PARKCAL_BMARK" "$SELF_SRC" > "$PINPROBE_NOMARK"
+assert_eq "AC3(e): deleting the region BEGIN marker turns its presence control RED (no vacuous AC2 pass)" \
+  "0" "$(pin_count "$PARKCAL_BMARK" "$PINPROBE_NOMARK")"
+rm -f "$PINPROBE_NOMARK"
+#
+# AC3(f): the region-non-empty positive control fails CLOSED if the routed pins are stripped
+# from the region (markers kept, pins moved out) — proving that emptied-region shape RED too.
+PINPROBE_EMPTY="$(mktemp)"
+awk -v b="$PARKCAL_BMARK" -v e="$PARKCAL_EMARK" \
+  'index($0,b){inreg=1} index($0,e){inreg=0} inreg && /assert_pin_unique/ {next} {print}' "$SELF_SRC" > "$PINPROBE_EMPTY"
+PINPROBE_EMPTY_PINS=$(awk -v b="$PARKCAL_BMARK" -v e="$PARKCAL_EMARK" \
+  'index($0,b){inreg=1;next} index($0,e){inreg=0} inreg' "$PINPROBE_EMPTY" | grep -cF 'assert_pin_unique')
+assert_eq "AC3(f): emptying the region of routed pins turns the non-empty control RED" \
+  "0" "$PINPROBE_EMPTY_PINS"
+rm -f "$PINPROBE_EMPTY"
 #
 # AC3(c)/(d): removing a pinned MAXI_SKILL contract literal turns its pin RED. Both cases
 # share the "strip the literal from a temp copy, confirm the real pin goes RED" shape, so
