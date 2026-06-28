@@ -3008,6 +3008,15 @@ PRUNE_SCAN=$( cd "$LIB/.." && git grep -lFe 'audit-intervention' -e 'devflow/aud
     'CLAUDE.md' '.devflow/config.schema.json' 'lib/intervention-surfaces.md' \
     ':(exclude)lib/test/' 2>/dev/null || true )
 assert_eq "#152: no operative file references audit-intervention / devflow-audit" "" "$PRUNE_SCAN"
+# Coupled site: the de-dup title meta-issue.sh writes is re-parsed by
+# actionable-patterns.sh's cooldown map. Pin the round-trip so a format drift on
+# either side goes red here, before cooldown silently stops matching.
+RT_SLUG="incomplete-edit"
+RT_TITLE="[devflow-retrospective] meta: ${RT_SLUG} — strengthen the gate"
+RT_PARSED="$(jq -rn --arg t "$RT_TITLE" '$t | capture("\\[devflow-retrospective\\] meta: (?<slug>[A-Za-z0-9_-]+)") | .slug')"
+assert_eq "#152: meta-issue title round-trips through the cooldown slug regex" "$RT_SLUG" "$RT_PARSED"
+assert_eq "#152: actionable-patterns carries the meta-title slug regex" "yes" \
+  "$(grep -qF 'meta: (?<slug>' "$LIB/actionable-patterns.sh" && echo yes || echo no)"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "clean-entry.jq / actionable-patterns.sh"

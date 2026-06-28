@@ -35,6 +35,14 @@
 #   - any occurrence.ts > last(fix_history).ts   → "regressed"
 #   - fix_history is non-empty                   → "fixed"
 #   - otherwise                                  → "open"
+#
+# `audit`-kind entries (and thus the fix_history / "fixed" / "regressed" arms
+# below) are now a LEGACY-DATA-ONLY read path: since #152 the loop files an issue
+# per pattern and no longer opens autonomous audit PRs, so nothing produces new
+# `audit` entries — `lib/audit-entry.jq` was removed. Historical `audit` rows in
+# retrospectives.jsonl still parse here (so old fix_history is preserved); for
+# new patterns, closure is via the `overrides.json` dismissal an issue filing
+# records (→ "dismissed"), not a "fixed" transition.
 
 # slugify — canonical slug used by the audit pipeline (the output object is
 # keyed by this slug, so downstream consumers never re-derive it).

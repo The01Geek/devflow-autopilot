@@ -113,10 +113,10 @@ COOLDOWN_EPOCH="$(python3 -c "import datetime as d; print(int((d.datetime.now(d.
 # and occurrence_count >= MIN, emit an entry with cooldown_active resolved.
 
 OUTPUT="$(
-  jq -n --argjson pattern_view   "$PATTERN_VIEW" \
-        --argjson open_pr_map    "$OPEN_ISSUE_MAP" \
-        --argjson min            "$MIN" \
-        --argjson cooldown_epoch "$COOLDOWN_EPOCH" '
+  jq -n --argjson pattern_view    "$PATTERN_VIEW" \
+        --argjson open_issue_map  "$OPEN_ISSUE_MAP" \
+        --argjson min             "$MIN" \
+        --argjson cooldown_epoch  "$COOLDOWN_EPOCH" '
     [
       $pattern_view
       | to_entries[]
@@ -126,10 +126,10 @@ OUTPUT="$(
       | .value as $v
       # keys from compute-patterns.jq are already canonical slugs
       | $tag as $slug
-      | ($open_pr_map | has($slug)) as $has_pr
+      | ($open_issue_map | has($slug)) as $has_issue
       | (
-          if $has_pr then
-            (($open_pr_map[$slug]
+          if $has_issue then
+            (($open_issue_map[$slug]
               | strptime("%Y-%m-%dT%H:%M:%SZ")
               | mktime) >= $cooldown_epoch)
           else false

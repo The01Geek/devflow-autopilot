@@ -88,6 +88,10 @@ else
         # Step-1 search matches on (keep it verbatim); the caller's --title is
         # appended so the issue carries a human-readable summary too. The body
         # is the Stage-B-authored issue spec, filed verbatim.
+        # COUPLED SITE: lib/actionable-patterns.sh re-parses the slug back out of
+        # this exact title (its cooldown map captures the token after "meta: ") —
+        # change this format and update that regex in lockstep (a run.sh
+        # round-trip assertion pins the two together).
         URL="$("$DEVFLOW_GH" issue create \
             --title "[devflow-retrospective] meta: ${TAG} — ${TITLE}" \
             --body-file "$BODY_FILE")"
