@@ -559,6 +559,34 @@ assert_eq "max_iterations clamp: SKILL keeps the below-1 floor" "yes" \
 assert_eq "max_iterations clamp: SKILL keeps the default-5 fallback" "yes" \
   "$(grep -qF 'MAX_ITERS=5' "$MAXI_SKILL" && echo yes || echo no)"
 
+# Drift guard: the park-calibration gate is the lenient-verdict catch — it re-reads
+# parked findings against three generic under-grade shapes before the review-and-fix
+# loop concludes on an APPROVE-family verdict, so every review-and-fix-engine consumer
+# benefits (standalone /devflow:review is untouched by construction). Each phrase below
+# must be gate-unique: grep -qF scans the whole file, so a literal that also appears
+# outside the gate would stay GREEN even with the gate deleted. Pin (1) the heading,
+# (2) the gate-unique extension-point sentence, and (3) the load-bearing body routing,
+# so a paraphrase that guts the gate fails here instead of silently reverting the catch.
+assert_eq "park-calibration: engine gate heading present in review-and-fix SKILL" "yes" \
+  "$(grep -qF '#### Park-calibration gate (before any APPROVE-family conclusion)' "$MAXI_SKILL" && echo yes || echo no)"
+assert_eq "park-calibration: engine gate documents the prompt-extension sharpening point" "yes" \
+  "$(grep -qF 'the extension does not replace this gate' "$MAXI_SKILL" && echo yes || echo no)"
+assert_eq "park-calibration: engine gate keeps the Step 2.5 → Step 3 re-routing of a mis-graded finding" "yes" \
+  "$(grep -qF 'route the finding back through Step 2.5 → Step 3 as a promoted iteration' "$MAXI_SKILL" && echo yes || echo no)"
+# The heading + extension + routing pins above do not cover the gate's load-bearing
+# body: the firing condition and the three under-grade shapes. A paraphrase that keeps
+# those three literals byte-identical while gutting WHEN the gate fires or dropping a
+# shape would ship GREEN. Pin the firing line and each of the three shapes (gate-unique,
+# apostrophe-free sub-phrases) so a silent revert of the catch's substance fails here.
+assert_eq "park-calibration: engine gate keeps its firing condition (Decide outcome 1 + Step 4.5 early-exit)" "yes" \
+  "$(grep -qF 'on the Step 4.5 early-exit path when non-REJECT' "$MAXI_SKILL" && echo yes || echo no)"
+assert_eq "park-calibration: engine gate keeps under-grade shape 1 (fail-open guard / coverage hole)" "yes" \
+  "$(grep -qF 'Fail-open guard / coverage hole in this' "$MAXI_SKILL" && echo yes || echo no)"
+assert_eq "park-calibration: engine gate keeps under-grade shape 2 (overclaiming breadcrumb/error)" "yes" \
+  "$(grep -qF 'A breadcrumb/error that overclaims vs. the path emitting it' "$MAXI_SKILL" && echo yes || echo no)"
+assert_eq "park-calibration: engine gate keeps under-grade shape 3 (deferral the matcher will not honor)" "yes" \
+  "$(grep -qF 'is inert: the finding flows through at full severity' "$MAXI_SKILL" && echo yes || echo no)"
+
 # Drift guard: the Phase 2.3 sweep list lives in three places that must stay in
 # sync — the sweep body in implement/SKILL.md, the "Sweep selection" always-run
 # index in the same file, and the rationale table in docs/implement-skill.md. The
@@ -2999,6 +3027,18 @@ assert_eq "#152: orchestrator posts no gh issue/pr comment (no auto-trigger)" "y
   "$(grep -qE 'gh (issue|pr) comment' "$RW_SKILL" && echo no || echo yes)"
 assert_eq "#152: orchestrator states filed issues await human triage" "yes" \
   "$(grep -qi 'await human triage' "$RW_SKILL" && echo yes || echo no)"
+# #152: the load-bearing "never report a pattern as filed when it was not"
+# invariant — a malformed Stage B result OR a meta-issue.sh non-zero exit must
+# record a blocker and file NOTHING. Pin BOTH failure branches' concrete blocker
+# appends so a refactor cannot silently drop the file-nothing path (the orchestrator
+# glue the standalone review flagged as untested). The malformed branch keys on the
+# "malformed JSON" blocker; the exit-non-zero branch keys on "failed to file".
+assert_eq "#152: orchestrator records a blocker on a malformed Stage B result" "yes" \
+  "$(grep -q 'blockers+=.*malformed JSON' "$RW_SKILL" && echo yes || echo no)"
+assert_eq "#152: orchestrator records a blocker (files nothing) on meta-issue.sh failure" "yes" \
+  "$(grep -q 'blockers+=.*failed to file the issue' "$RW_SKILL" && echo yes || echo no)"
+assert_eq "#152: orchestrator pins the never-report-unfiled-as-filed invariant" "yes" \
+  "$(grep -qi 'Never report a pattern as filed when it was not' "$RW_SKILL" && echo yes || echo no)"
 # Prune: no operative engine surface references the removed audit-intervention
 # kind or the devflow/audit-* branch convention (CHANGELOG history + this test
 # suite's own classify-input strings are intentionally excluded — note git
@@ -3067,6 +3107,42 @@ assert_eq "incomplete-edit cooldown_active=true after recent filed issue" "true"
 AP_NOOV="$(DEVFLOW_GH="$AP_TMP/gh" bash "$LIB/actionable-patterns.sh" "$AP_TMP/r.jsonl" "/tmp/devflow-nonexistent-overrides-$$-$RANDOM.json")" \
   && assert_eq "actionable: missing overrides → incomplete-edit still present" "true" "$(echo "$AP_NOOV" | jq 'any(.[]; .tag=="incomplete-edit")')" \
   || { echo FAIL >> "$RESULTS_FILE"; printf '  FAIL  actionable: missing overrides → script errored\n'; }
+# #152: the open-issue cooldown lookup must FAIL CLOSED, not fail open. A `gh issue
+# list` error (auth/rate-limit/network) that silently yielded an empty cooldown map
+# would re-file a duplicate for every pattern — the fail-open-where-it-claims-closed
+# class CLAUDE.md flags (#62/#98). The lookup-failure and non-JSON-body guards must
+# each exit non-zero with a SPECIFIC breadcrumb naming the cooldown step.
+cat > "$AP_TMP/gh-listfail" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in *"issue list"*) exit 1 ;; *) echo '[]' ;; esac
+STUB
+chmod +x "$AP_TMP/gh-listfail"
+DEVFLOW_GH="$AP_TMP/gh-listfail" bash "$LIB/actionable-patterns.sh" "$AP_TMP/r.jsonl" "$AP_TMP/o.json" >/dev/null 2>"$AP_TMP/listfail.err"; AP_LF_RC=$?
+assert_eq "actionable: gh issue-list failure fails closed (non-zero exit)" "true" \
+  "$([ "$AP_LF_RC" -ne 0 ] && echo true || echo false)"
+assert_eq "actionable: gh issue-list failure leaves a cooldown-lookup breadcrumb" "true" \
+  "$(grep -q 'cooldown lookup failed' "$AP_TMP/listfail.err" && echo true || echo false)"
+cat > "$AP_TMP/gh-nonjson" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in *"issue list"*) echo 'gh: not authenticated' ;; *) echo '[]' ;; esac
+STUB
+chmod +x "$AP_TMP/gh-nonjson"
+DEVFLOW_GH="$AP_TMP/gh-nonjson" bash "$LIB/actionable-patterns.sh" "$AP_TMP/r.jsonl" "$AP_TMP/o.json" >/dev/null 2>"$AP_TMP/nonjson.err"; AP_NJ_RC=$?
+assert_eq "actionable: non-JSON open-issue body fails closed (non-zero exit)" "true" \
+  "$([ "$AP_NJ_RC" -ne 0 ] && echo true || echo false)"
+assert_eq "actionable: non-JSON open-issue body leaves a parse breadcrumb" "true" \
+  "$(grep -q 'could not parse the open-issue list as JSON' "$AP_TMP/nonjson.err" && echo true || echo false)"
+# #152: a drifted-slug title (carries the de-dup prefix but the slug token does not
+# match the capture grammar) must be COUNTED and surfaced via ::warning::, not
+# silently dropped from the cooldown map — a silent drop would re-file duplicates.
+cat > "$AP_TMP/gh-drift" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in *"issue list"*) echo '[{"number":7,"title":"[devflow-retrospective] meta: !!bad — x","createdAt":"2026-04-01T00:00:00Z"}]' ;; *) echo '[]' ;; esac
+STUB
+chmod +x "$AP_TMP/gh-drift"
+DEVFLOW_GH="$AP_TMP/gh-drift" bash "$LIB/actionable-patterns.sh" "$AP_TMP/r.jsonl" "$AP_TMP/o.json" >/dev/null 2>"$AP_TMP/drift.err"
+assert_eq "actionable: unparseable-slug open issue surfaces a drift ::warning::" "true" \
+  "$(grep -q 'unparseable slug' "$AP_TMP/drift.err" && echo true || echo false)"
 rm -rf "$AP_TMP"
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -3295,6 +3371,25 @@ assert_eq "meta-issue --dry-run writes NO cooldown to overrides" "false" \
 DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --tag 'foo in:body' --slug foo --title "x" --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov-dry.json" >/dev/null 2>&1; BADTAG_RC=$?
 assert_eq "meta-issue rejects a non-slug --tag (non-zero exit)" "true" \
   "$([ "$BADTAG_RC" -ne 0 ] && echo true || echo false)"
+# #152: the overrides `dismissed_at` records WHEN the pattern was first dismissed
+# (a permanent cross-run exclusion an auditor reads). The Step-1 de-dupe re-runs
+# the Step-2 write on every recurrence, so the ORIGINAL stamp must be PRESERVED,
+# never bumped to "now" — otherwise the dismissal age drifts perpetually forward.
+echo '{"schema_version":1,"dismissed":{"recur":{"dismissed_at":"2020-01-01T00:00:00Z","dismissed_by":"retrospective-weekly","reason":"meta-plugin-issue","meta_issue":"https://github.com/acme/example-repo/issues/55"}}}' > "$MI_TMP/ov-recur.json"
+cat > "$MI_TMP/gh" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *"issue list"*) echo '{"number":55,"url":"https://github.com/acme/example-repo/issues/55"}' ;;  # de-dup HIT
+  *"issue comment"*) echo 'commented' ;;
+  *"issue edit"*) : ;;
+  *"label create"*) echo 'created' ;;
+  *) echo '' ;;
+esac
+STUB
+chmod +x "$MI_TMP/gh"
+DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --tag recur --slug recur --title "x" --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov-recur.json" >/dev/null 2>&1
+assert_eq "meta-issue preserves the original dismissed_at on a recurrence" "2020-01-01T00:00:00Z" \
+  "$(jq -r '.dismissed["recur"].dismissed_at' "$MI_TMP/ov-recur.json")"
 rm -rf "$MI_TMP"
 
 # ────────────────────────────────────────────────────────────────────────────

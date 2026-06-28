@@ -4,10 +4,15 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.8.14] — 2026-06-28
+## [2.8.15] — 2026-06-28
 
 ### Changed
 - **The weekly retrospective loop now files one GitHub issue per actionable pattern instead of opening an autonomous intervention PR.** Stage B (`skills/retrospective-audit/SKILL.md`) is now a pure `{title, body}` issue-spec generator — it makes **no** working-tree edits and creates **no** worktree — and the orchestrator (`skills/retrospective-weekly/SKILL.md` Step 8) files exactly one issue per pattern via `lib/meta-issue.sh`, stamped with the `DevFlow` provenance label and a fixed `Retrospective` marker (best-effort, never blocking) and recording the `overrides.json` cooldown so a pattern is not re-filed the following week. Loop-proposed changes now flow through the same `/devflow:implement` → review pipeline every other change gets; the loop **proposes, it does not dispose** and never auto-starts implementation. The old `audit-intervention` retrospection kind and the `devflow/audit-*` scan/classify arm are removed across `lib/scan.sh`, `lib/classify-pr-kind.jq`, `lib/audit-entry.jq` (deleted), `lib/render-report.sh`, `lib/fetch-pr-context.sh`, `lib/actionable-patterns.sh` (its cooldown now keys on an open filed issue), and both retrospective skills; the system overview, `README.md`, `CLAUDE.md`, `.devflow/config.schema.json`, `lib/intervention-surfaces.md`, and `CONTRIBUTING.md` are reconciled to "one issue per pattern", and `lib/test/run.sh` asserts the issue-filing path (verbatim body, both labels, cooldown) and the absence of the pruned audit path. Because the loop no longer auto-edits, the exclusion-list safety net that gated those edits is obsolete: `lib/check-excluded-path.sh` and its tests are removed. (#152)
+
+## [2.8.14] — 2026-06-28
+
+### Added
+- **`/devflow:review-and-fix` now runs a park-calibration gate before any APPROVE-family conclusion** (new Step 2.6 subsection in `skills/review-and-fix/SKILL.md`). The gate re-reads every parked finding (advisory-parked rows, unactioned Suggestion/Minor, Yes-downgrade deferrals) against the shadow's findings and three generic under-grade shapes — a fail-open guard/coverage hole in the PR's own diff, a breadcrumb/error that overclaims vs. its emitting path, and a deferral the Phase 4.0 matcher will not honor — and re-routes a mis-graded finding through Step 2.5 → Step 3 as a promoted iteration instead of shipping it as a silent note. This lifts the recurring `lenient-verdict` fix (PRs #62, #104, #133) out of a repo-local prompt extension and into the shared engine, so every DevFlow consumer benefits, not just this repo's own dogfooding runs; `/devflow:review`'s verdict computation is unchanged (the gate is review-and-fix-only by construction). `lib/test/run.sh` pins the gate heading, its extension-point sentence, the Step 2.5 → Step 3 routing, the firing condition, and each of the three under-grade shapes with gate-unique, mutation-checked drift guards so a paraphrase that guts the catch fails the suite. (#154)
 
 ## [2.8.13] — 2026-06-28
 

@@ -359,8 +359,11 @@ else
     # 3. File exactly one issue. meta-issue.sh stamps DevFlow + Retrospective
     #    (best-effort), records the overrides.json cooldown, is idempotent (an
     #    open issue for this pattern → recurrence comment, not a duplicate), and
-    #    fails CLOSED (non-zero exit) on a de-dup-lookup error, a create that
-    #    returned no usable issue URL, or an overrides write failure.
+    #    fails CLOSED (non-zero exit) on a de-dup-lookup error or a create that
+    #    returned no usable issue URL. An overrides-write failure AFTER a
+    #    successful create is the one exception: the issue genuinely exists, so it
+    #    reports FILED (exit 0 + URL + a loud ::error:: breadcrumb), not blocked —
+    #    the next run's de-dupe recovers the missing cooldown.
     if ISSUE_URL="$(bash $LIB/meta-issue.sh \
             --tag "$TAG" \
             --slug "$SLUG" \
@@ -370,9 +373,10 @@ else
         # Success: record {tag, url} in intervention_issues.
         intervention_issues+=("$(jq -nc --arg tag "$TAG" --arg url "$ISSUE_URL" '{tag:$tag,url:$url}')")
     else
-        # meta-issue.sh exited non-zero (de-dup lookup / create-returned-no-URL /
-        # overrides write). Record a blocker and file NOTHING — the pattern stays
-        # absent from intervention_issues. Concrete append, same reason as above.
+        # meta-issue.sh exited non-zero (de-dup lookup / create-returned-no-URL;
+        # an overrides-write failure does NOT land here — it reports FILED).
+        # Record a blocker and file NOTHING — the pattern stays absent from
+        # intervention_issues. Concrete append, same reason as above.
         blockers+=("Pattern ${SLUG}: meta-issue.sh failed to file the issue — not filed")
     fi
 fi

@@ -80,7 +80,7 @@ _apply_labels() {  # $1 = issue number
     # Capture the gh stderr into the breadcrumb (mirroring ensure-label.sh's
     # discipline) so a real failure names its cause instead of a generic warning.
     _err="$("$DEVFLOW_GH" issue edit "$_num" --add-label DevFlow --add-label Retrospective 2>&1 >/dev/null)" \
-      || echo "::warning::meta-issue: could not apply DevFlow/Retrospective labels to #${_num} (best-effort, continuing): ${_err}" >&2
+      || echo "::warning::meta-issue: could not apply one or both of the DevFlow/Retrospective labels to #${_num} (best-effort, continuing): ${_err}" >&2
 }
 
 # ── Step 1: de-dupe — find or create the issue ──────────────────────────────
@@ -157,12 +157,18 @@ if [[ "$DRY_RUN" -eq 0 ]]; then
 
     NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     OVERRIDES_TMP="$(mktemp)"
+    # PRESERVE the original dismissed_at on a recurrence: this entry records WHEN
+    # the pattern was first dismissed (a permanent cross-run exclusion an auditor
+    # reads to see how long it has been parked). The Step-1 de-dupe re-runs this
+    # write on every recurrence, so writing $now unconditionally would drift the
+    # timestamp perpetually forward and mislead that audit. Only a brand-new entry
+    # (no prior dismissed_at) gets $now; an existing one keeps its first stamp.
     if jq \
         --arg tag "$SLUG" \
         --arg now "$NOW" \
         --arg url "$URL" \
         '.dismissed[$tag] = {
-            dismissed_at: $now,
+            dismissed_at: (.dismissed[$tag].dismissed_at // $now),
             dismissed_by: "retrospective-weekly",
             reason: "meta-plugin-issue",
             meta_issue: $url
@@ -173,9 +179,10 @@ if [[ "$DRY_RUN" -eq 0 ]]; then
         # The issue WAS filed (URL is on stdout below); only the cooldown record
         # failed. Do NOT report this as "not filed" — that would misstate the
         # state and lose the real issue. Exit 0 with the URL so the orchestrator
-        # records the filing; the open-issue de-dupe (Step 1) self-heals the
-        # missing cooldown by finding the issue and commenting instead of
-        # re-filing on the next run.
+        # records the filing; on the next run the open-issue de-dupe (Step 1) is
+        # the best-effort, single-layered recovery — it finds the still-open issue
+        # and comments instead of re-filing, recovering the missing cooldown only
+        # if that lookup itself succeeds (not a guarantee).
         rm -f "$OVERRIDES_TMP"
         echo "::error::meta-issue: issue WAS filed (${URL}) but its cooldown could not be recorded in ${OVERRIDES} — de-dupe will prevent a duplicate next run" >&2
     fi

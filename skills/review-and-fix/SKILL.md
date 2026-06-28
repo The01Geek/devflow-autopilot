@@ -489,6 +489,24 @@ The shadow pass roughly doubles the cost of a converging run — one full engine
 2. It addresses the empirically-observed "review finds things review-and-fix missed" pattern — the entire reason this step exists.
 3. The independence guarantee (each reviewer agent runs in a fresh context with the loop's prior findings withheld from its prompt) is what makes shadow a credible audit rather than a self-check that re-derives the same answer. The parent runs the fan-out so the full reviewer set actually launches; blinding lives in the prompts, not in a subagent context that could not have dispatched the fan-out in the first place.
 
+#### Park-calibration gate (before any APPROVE-family conclusion)
+
+The shadow checks *independence*; this gate checks *calibration* — whether the loop **under-graded its own findings and parked work it should have fixed**. A parked advisory/Suggestion never enters the per-iteration verdict, so a shadow that merely agrees with the loop's too-lenient grade still concludes clean while a substantive finding rides out as a note — then a later standalone `/devflow:review`, grading at full severity, re-raises it and forces a human follow-up commit. Review-and-fix-only by construction (standalone `/devflow:review` parks nothing — that asymmetry is the recurrence); it leaves `/devflow:review`'s verdict computation untouched.
+
+**Fires** before committing to **Decide outcome 1**, and on the Step 4.5 early-exit path when non-REJECT. Not on a REJECT or outcome 2.
+
+Re-read every finding that survived unfixed — `fix_decisions` rows with `skip_category: "advisory-parked"`, any unactioned Suggestion/Minor, and every Yes-downgrade deferral (`claim-quality` / `out-of-scope` / `already-tracked`). A parked finding is **mis-graded (treat as Important)** if the shadow re-raised it at any severity, or it matches:
+
+1. **Fail-open guard / coverage hole in this PR's own diff** — a guard/tripwire/contract clause whose comparand can be absent, is keyed on the wrong signal, or is under-specified vs. the issue's ACs, so it passes on the inputs it was added to catch (the `unverified-assumption` class). A new guard in this diff is in-scope by definition — never park it as "pre-existing."
+2. **A breadcrumb/error that overclaims vs. the path emitting it** — states a precondition that path doesn't guarantee, so a real input fails with a misdirected message. Engine pass **and** shadow both naming it disqualifies parking.
+3. **A deferral the matcher won't honor** — a Scope-Acknowledged deferral `/devflow:review`'s Phase 4.0 matcher would reject (`untrusted-filer`, or no matching AC) is inert: the finding flows through at full severity, so claiming it honored is false convergence. Not honorable ⇒ not deferrable — fix or push back.
+
+**On a match**, route the finding back through Step 2.5 → Step 3 as a promoted iteration (Decide outcome 2's machinery — it re-shadows, so the fix is reviewed). The existing valves apply unchanged (Step 2.5 re-verification, `skip_category` pushback, the `$MAX_ITERS` cap, twice-skipped→escalate), so a wrong finding is re-demoted with evidence and work can't spin. At the iteration cap, surface re-graded findings via the `APPROVE WITH UNRESOLVED SHADOW FINDINGS` path, never as silent notes.
+
+Record one `## Devflow Reflection` bullet — each re-graded finding and where it routed, or `park-calibration gate clean: no parked finding matched`. State a re-grade plainly in the verdict; never present a re-graded run as clean all along.
+
+A consumer repo sharpens these generic shapes with local instances via `.devflow/prompt-extensions/review-and-fix.md` (`scripts/load-prompt-extension.sh review-and-fix`); the extension does not replace this gate.
+
 ### Step 3: Fix Findings
 
 Apply the `devflow:receiving-code-review` principles. After Step 2.5, the findings reaching Step 3 are: Phase 2 checklist FAILs, corroborated Phase 3 findings, confirmed-by-web findings, and codebase-claim findings. Refuted and inconclusive findings have been demoted to advisory and are not in this list; they stay parked.

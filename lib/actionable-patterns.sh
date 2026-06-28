@@ -16,7 +16,7 @@
 #   Compact JSON array of actionable pattern objects, each shaped as:
 #     {
 #       "tag":              <string>,          # category slug (== slug)
-#       "slug":             <string>,          # URL/branch-safe; the audit branch slug
+#       "slug":             <string>,          # URL-safe issue-filing slug (== tag)
 #       "occurrence_count": <int>,
 #       "status":           "open"|"regressed",
 #       "first_seen":       <iso8601|null>,
