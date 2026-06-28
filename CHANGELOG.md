@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.14] — 2026-06-28
+
+### Changed
+- **The weekly retrospective loop now files one GitHub issue per actionable pattern instead of opening an autonomous intervention PR.** Stage B (`skills/retrospective-audit/SKILL.md`) is now a pure `{title, body}` issue-spec generator — it makes **no** working-tree edits and creates **no** worktree — and the orchestrator (`skills/retrospective-weekly/SKILL.md` Step 8) files exactly one issue per pattern via `lib/meta-issue.sh`, stamped with the `DevFlow` provenance label and a fixed `Retrospective` marker (best-effort, never blocking) and recording the `overrides.json` cooldown so a pattern is not re-filed the following week. Loop-proposed changes now flow through the same `/devflow:implement` → review pipeline every other change gets; the loop **proposes, it does not dispose** and never auto-starts implementation. The old `audit-intervention` retrospection kind and the `devflow/audit-*` scan/classify arm are removed across `lib/scan.sh`, `lib/classify-pr-kind.jq`, `lib/audit-entry.jq` (deleted), `lib/render-report.sh`, `lib/fetch-pr-context.sh`, `lib/actionable-patterns.sh` (its cooldown now keys on an open filed issue), and both retrospective skills; the system overview, `CLAUDE.md`, `.devflow/config.schema.json`, `lib/intervention-surfaces.md`, and `CONTRIBUTING.md` are reconciled to "one issue per pattern", and `lib/test/run.sh` asserts the issue-filing path (verbatim body, both labels, cooldown) and the absence of the pruned audit path. (#152)
+
 ## [2.8.13] — 2026-06-28
 
 ### Changed
