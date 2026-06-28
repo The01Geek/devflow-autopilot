@@ -36,14 +36,14 @@ to make the override take effect again. (If you validate `.devflow/config.json` 
 `config.schema.json`, the stale key is rejected outright by `additionalProperties: false`.) The
 `devflow:checklist-*` keys are unchanged.
 
-## Migration (v2.8.13): the final-pass reviewer key was renamed
+## Migration (v2.8.12): the final-pass reviewer key was renamed
 
 **Breaking config change.** The `superpowers` plugin's `requesting-code-review` skill — the Phase-3
 final-pass reviewer — was internalized as a first-party DevFlow skill (vendored under
 `skills/requesting-code-review/`, seam 3 of the #139 internalization), so its `agent_overrides` key
 was renamed to the `devflow:` namespace:
 
-| Old key (pre-2.8.13) | New key |
+| Old key (pre-2.8.12) | New key |
 |---|---|
 | `superpowers:requesting-code-review` | `devflow:requesting-code-review` |
 

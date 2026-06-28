@@ -93,6 +93,7 @@ scripts/**
 .github/actions/**
 .devflow/config.json
 .devflow/config.example.json
+.devflow/config.schema.json
 ```
 
 The exclusion limit is **design-review**, not writability. Locally all paths are writable; these route to a meta GitHub issue because they need a human to think about second-order effects on the self-improvement loop.

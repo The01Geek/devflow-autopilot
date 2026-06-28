@@ -1518,7 +1518,7 @@ assert_eq("#141 migration: main() warns the stale old key is not a known subagen
           True, "is not a known" in _me.getvalue())
 
 # Migration guard (#142): seam 3 renamed the final-pass reviewer override key from its
-# pre-rename superpowers-namespaced form into the devflow: namespace. The 2.8.13 CHANGELOG
+# pre-rename superpowers-namespaced form into the devflow: namespace. The 2.8.12 CHANGELOG
 # + docs/review-agent-overrides.md migration table make the same promise as #141's rename.
 # This block pins the DISPATCHED-unknown path: a stale old key passed as a dispatched id is
 # UNKNOWN, so main() warns it is not a known subagent and exits 0 (never aborts). (The
