@@ -548,6 +548,13 @@ Do this sweep:
 
 Scope and discipline mirror the other 2.3.x sweeps: only the claims your diff added or changed are in scope — never a repo-wide doc/comment audit. Treat a self-authored claim that contradicts the shipped code as a defect in **this** PR, not a `doc-accuracy` finding to be caught downstream.
 
+**When this run changed direction, the sweep extends past the diff.** If you **reverted, narrowed scope, removed a marker, or renamed a contract** after you or the issue already described the original intent, two surfaces hold a now-false description that the reverting commit's own `git diff` doesn't contain — so steps 1–2 above can't reach them. On a change of direction only, also reconcile:
+
+- **The issue workpad** — a ticked AC or Plan step whose wording still describes the reverted approach. Rewrite it to the shipped reality via `workpad.py update` (`--rewrite-ac` / `--replace-plan-file` / re-tick).
+- **Earlier-authored prose naming the changed contract** — comments, docstrings, and docs that asserted the old behavior with a contract word ("always", "never retries", "fail-closed", a removed/renamed key) in an earlier commit. Grep the touched files **and their callers** for those words; fix the ones that now misdescribe the code.
+
+Record the reconciled surfaces — or an intentional verbatim carve-out, with the reason — in a `## Devflow Reflection` bullet.
+
 #### 2.3.5 Simplification & Efficiency sweep (mandatory)
 
 2.3.0–2.3.4a keep the diff correct, dead-line-free, convention-clean, and consistent with the claims it makes; the 2.2.4 gate already settled reuse and altitude at plan time. This sweep handles the two remaining cleanup lenses that only become visible once the code is *assembled*.
