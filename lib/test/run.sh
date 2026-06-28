@@ -571,6 +571,19 @@ assert_eq "park-calibration: engine gate documents the prompt-extension sharpeni
   "$(grep -qF 'the extension does not replace this gate' "$MAXI_SKILL" && echo yes || echo no)"
 assert_eq "park-calibration: engine gate keeps the Step 2.5 → Step 3 re-routing of a mis-graded finding" "yes" \
   "$(grep -qF 'route the finding back through Step 2.5 → Step 3 as a promoted iteration' "$MAXI_SKILL" && echo yes || echo no)"
+# The heading + extension + routing pins above do not cover the gate's load-bearing
+# body: the firing condition and the three under-grade shapes. A paraphrase that keeps
+# those three literals byte-identical while gutting WHEN the gate fires or dropping a
+# shape would ship GREEN. Pin the firing line and each of the three shapes (gate-unique,
+# apostrophe-free sub-phrases) so a silent revert of the catch's substance fails here.
+assert_eq "park-calibration: engine gate keeps its firing condition (Decide outcome 1 + Step 4.5 early-exit)" "yes" \
+  "$(grep -qF 'on the Step 4.5 early-exit path when non-REJECT' "$MAXI_SKILL" && echo yes || echo no)"
+assert_eq "park-calibration: engine gate keeps under-grade shape 1 (fail-open guard / coverage hole)" "yes" \
+  "$(grep -qF 'Fail-open guard / coverage hole in this' "$MAXI_SKILL" && echo yes || echo no)"
+assert_eq "park-calibration: engine gate keeps under-grade shape 2 (overclaiming breadcrumb/error)" "yes" \
+  "$(grep -qF 'A breadcrumb/error that overclaims vs. the path emitting it' "$MAXI_SKILL" && echo yes || echo no)"
+assert_eq "park-calibration: engine gate keeps under-grade shape 3 (deferral the matcher will not honor)" "yes" \
+  "$(grep -qF 'is inert: the finding flows through at full severity' "$MAXI_SKILL" && echo yes || echo no)"
 
 # Drift guard: the Phase 2.3 sweep list lives in three places that must stay in
 # sync — the sweep body in implement/SKILL.md, the "Sweep selection" always-run
