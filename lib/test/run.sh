@@ -3235,7 +3235,7 @@ cat > "$MI_TMP/gh" <<'STUB'
 #!/usr/bin/env bash
 D="$(dirname "$0")"
 case "$*" in
-  *"issue list"*) echo '{"number":99,"url":"https://github.com/acme/example-repo/issues/99"}' ;;
+  *"issue list"*) echo '[{"number":99,"url":"https://github.com/acme/example-repo/issues/99","title":"[devflow-retrospective] meta: t-existing — x"}]' ;;
   *"issue comment"*) echo 'commented' ;;
   *"issue edit"*) printf '%s' "$*" > "$D/edit-args" ;;
   *"label create"*) echo 'created' ;;
@@ -3316,7 +3316,7 @@ assert_eq "meta-issue --dry-run invokes no gh create/edit" "true" \
 cat > "$MI_TMP/gh" <<'STUB'
 #!/usr/bin/env bash
 case "$*" in
-  *"issue list"*) echo '{"number":null,"url":null}' ;;   # contract drift: nulls
+  *"issue list"*) echo '[{"number":null,"url":null,"title":"[devflow-retrospective] meta: dedup-null — x"}]' ;;   # contract drift: nulls
   *) echo '' ;;
 esac
 STUB
@@ -3324,6 +3324,26 @@ chmod +x "$MI_TMP/gh"
 DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --tag dedup-null --slug dedup-null --title "x" --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov2.json" >/dev/null 2>&1; DEDUP_RC=$?
 assert_eq "meta-issue fails closed on a de-dup hit with null url/number" "true" \
   "$([ "$DEDUP_RC" -ne 0 ] && echo true || echo false)"
+# #152: the tokenized GitHub --search can surface an issue whose title does NOT
+# literally carry `meta: ${TAG}` (a loose token hit). meta-issue.sh must STRICTLY
+# re-parse the slug and reject the loose match — filing a NEW issue (create path)
+# rather than commenting on / pinning the cooldown to the wrong issue. Here the
+# only open issue's slug is `widget-foobar`; the requested tag is `widget` →
+# no exact match → create path (returns the freshly created URL, not #88).
+echo '{"schema_version":1,"dismissed":{}}' > "$MI_TMP/ov-loose.json"
+cat > "$MI_TMP/gh" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *"issue list"*) echo '[{"number":88,"url":"https://github.com/acme/example-repo/issues/88","title":"[devflow-retrospective] meta: widget-foobar — loose"}]' ;;
+  *"issue create"*) echo 'https://github.com/acme/example-repo/issues/4343' ;;
+  *"issue edit"*) : ;;
+  *"label create"*) echo 'created' ;;
+  *) echo '' ;;
+esac
+STUB
+chmod +x "$MI_TMP/gh"
+LOOSE_URL="$(DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --tag widget --slug widget --title "x" --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov-loose.json" 2>/dev/null)"
+assert_eq "meta-issue strict-rejects a loose --search slug match (files new, not #88)" "https://github.com/acme/example-repo/issues/4343" "$LOOSE_URL"
 # #152: overrides-write failure AFTER a successful create reports FILED, not
 # blocked — a corrupt overrides file makes the jq cooldown write fail, but the
 # issue genuinely exists, so meta-issue.sh must exit 0 with the URL on stdout
@@ -3379,7 +3399,7 @@ echo '{"schema_version":1,"dismissed":{"recur":{"dismissed_at":"2020-01-01T00:00
 cat > "$MI_TMP/gh" <<'STUB'
 #!/usr/bin/env bash
 case "$*" in
-  *"issue list"*) echo '{"number":55,"url":"https://github.com/acme/example-repo/issues/55"}' ;;  # de-dup HIT
+  *"issue list"*) echo '[{"number":55,"url":"https://github.com/acme/example-repo/issues/55","title":"[devflow-retrospective] meta: recur — x"}]' ;;  # de-dup HIT
   *"issue comment"*) echo 'commented' ;;
   *"issue edit"*) : ;;
   *"label create"*) echo 'created' ;;

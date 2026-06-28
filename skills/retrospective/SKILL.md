@@ -142,7 +142,7 @@ explain why in `descriptors`.
 | `convention-violation` | the bot broke a project convention: a `CLAUDE.md` rule, a `phpcs.xml.dist`/lint rule, a skill instruction, or a workpad invariant. |
 | `unverified-assumption` | the bot claimed something without checking it — a phantom symbol/class, "X already inherits Y so no edit needed", an unverified parent-component behavior, a wrong API rationale. |
 | `issue-quality` | the bottleneck was upstream of implementation — the issue was vague, missing acceptance criteria, missing repro steps, or out of scope. |
-| `tooling-gap` | the failure exposes a defect in the **devflow plugin itself**, its CI workflows, or the composite actions they consume (e.g. the clean-gate let an unclean PR through, a primary source was missing from the bundle, a workflow step is wrong). Patterns in this category route to a meta GitHub issue at Stage B rather than an automated fix. |
+| `tooling-gap` | the failure exposes a defect in the **devflow plugin itself**, its CI workflows, or the composite actions they consume (e.g. the clean-gate let an unclean PR through, a primary source was missing from the bundle, a workflow step is wrong). |
 | `other` | none of the above fits; `descriptors` must say what the failure actually is. |
 
 ### descriptors

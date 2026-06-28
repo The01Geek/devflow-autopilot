@@ -84,12 +84,24 @@ _apply_labels() {  # $1 = issue number
 }
 
 # ── Step 1: de-dupe — find or create the issue ──────────────────────────────
-EXISTING="$("$DEVFLOW_GH" issue list \
+# The GitHub `--search` is TOKENIZED, so it can return an issue whose title does
+# not literally carry `meta: ${TAG}` (a loose token hit, or search-index lag).
+# Fetch the candidates and STRICTLY re-parse each title's slug, selecting only an
+# exact `${TAG}` match — mirroring actionable-patterns.sh's cooldown re-parse — so
+# the recurrence comment and the cooldown URL can never pin to the wrong issue.
+# `--limit 200` matches the cooldown fetch (the gh default is only 30). A non-JSON
+# body fails CLOSED (same discipline as the cooldown lookup), not silently empty.
+_EXISTING_RAW="$("$DEVFLOW_GH" issue list \
     --search "[devflow-retrospective] meta: ${TAG} in:title" \
     --state open \
-    --json number,url \
-    --jq '.[0] // empty')" \
+    --limit 200 \
+    --json number,url,title)" \
   || { echo "::error::meta-issue: de-dupe lookup failed for tag '${TAG}'" >&2; exit 1; }
+EXISTING="$(printf '%s' "$_EXISTING_RAW" | jq -c --arg tag "$TAG" '
+    [ .[]
+      | select(((((.title | capture("\\[devflow-retrospective\\] meta: (?<slug>[A-Za-z0-9_-]+)")?) // {}) | .slug) // "") == $tag)
+    ] | .[0] // empty')" \
+  || { echo "::error::meta-issue: could not parse the de-dupe list as JSON for tag '${TAG}' (gh returned non-JSON?)" >&2; exit 1; }
 
 if [[ -n "$EXISTING" ]]; then
     URL="$(printf '%s' "$EXISTING" | jq -r '.url')"

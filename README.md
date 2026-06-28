@@ -45,7 +45,7 @@ The local tier runs **with zero configuration** — every value already has a bu
 - **Ships the whole PR, not a fragment** — grounded in *your* architecture and patterns, with the tests the change actually needs, on production code. [How it's different →](#how-its-different)
 - **Review that fixes what it finds — and audits itself** — the review-and-fix loop applies fixes and re-reviews until it approves, then a structurally-independent **shadow pass** re-checks the approval. [Skills and agents →](#skills-and-agents)
 - **Docs stay in sync** — internal docs, external docs, and release notes kept aligned with the code in the same run.
-- **It learns every week** — a [retrospective loop](#the-self-improving-loop) reads the trail of merged PRs and opens human-reviewed PRs that prevent the next recurring failure.
+- **It learns every week** — a [retrospective loop](#the-self-improving-loop) reads the trail of merged PRs and files human-reviewed issues that prevent the next recurring failure.
 - **Zero-config to start** — the local tier runs entirely inside Claude Code with no infrastructure; an optional [cloud tier](docs/cloud-setup.md) runs it autonomously on GitHub.
 
 > ▶ **[See the full loop in the interactive one-pager →](https://the01geek.github.io/devflow-autopilot/)**
@@ -144,7 +144,7 @@ Common keys the skills read: documentation paths (`docs.internal`, `docs.externa
 
 ## The self-improving loop
 
-Every bot-authored PR leaves evidence — review comments, post-bot commits, CI signals, workpad state. Once a week, **`/devflow:retrospective-weekly`** reads the accumulated trail, finds failure patterns that recur, and opens a **human-reviewed** PR proposing the smallest change that would prevent the next occurrence (a CLAUDE.md tweak, a skill rewrite, a missing doc, a new lint rule). You approve or reject.
+Every bot-authored PR leaves evidence — review comments, post-bot commits, CI signals, workpad state. Once a week, **`/devflow:retrospective-weekly`** reads the accumulated trail, finds failure patterns that recur, and files a **human-reviewed** issue proposing the smallest change that would prevent the next occurrence (a CLAUDE.md tweak, a skill rewrite, a missing doc, a new lint rule). You triage it, and it runs through the normal implement → review pipeline like any other change.
 
 ```text
 /devflow:retrospective-weekly

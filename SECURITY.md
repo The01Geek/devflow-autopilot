@@ -23,7 +23,8 @@ workflows. A few areas warrant care:
 - **Skills run shell commands.** DevFlow's skills execute `git`, `gh`, `jq`, and
   bundled Python helpers. Review the skills you install, as you would any plugin.
 - **The retrospective loop opens PRs/issues** on the configured repository. It
-  never auto-merges; every intervention PR is opened for human review.
+  never auto-merges and never auto-edits the repo; each recurring pattern is filed
+  as an issue for human triage, and the weekly state PR awaits human review.
 
 ## Supported versions
 
