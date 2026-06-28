@@ -557,6 +557,16 @@ assert_eq "max_iterations clamp: SKILL keeps the below-1 floor" "yes" \
 assert_eq "max_iterations clamp: SKILL keeps the default-5 fallback" "yes" \
   "$(grep -qF 'MAX_ITERS=5' "$MAXI_SKILL" && echo yes || echo no)"
 
+# Drift guard: the park-calibration gate is the lenient-verdict catch — it re-reads
+# parked findings against three generic under-grade shapes before the loop concludes
+# on an APPROVE-family verdict, so every consumer benefits. Pin the heading and the
+# extension-point reference so a paraphrase that guts the gate fails here instead of
+# silently reverting the catch.
+assert_eq "park-calibration: engine gate heading present in review-and-fix SKILL" "yes" \
+  "$(grep -qF '#### Park-calibration gate (before any APPROVE-family conclusion)' "$MAXI_SKILL" && echo yes || echo no)"
+assert_eq "park-calibration: engine gate documents the prompt-extension sharpening point" "yes" \
+  "$(grep -qF 'load-prompt-extension.sh review-and-fix' "$MAXI_SKILL" && echo yes || echo no)"
+
 # Drift guard: the Phase 2.3 sweep list lives in three places that must stay in
 # sync — the sweep body in implement/SKILL.md, the "Sweep selection" always-run
 # index in the same file, and the rationale table in docs/implement-skill.md. The
