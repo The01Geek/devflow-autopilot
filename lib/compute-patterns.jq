@@ -44,7 +44,7 @@
 # new patterns, closure is via the `overrides.json` dismissal an issue filing
 # records (→ "dismissed"), not a "fixed" transition.
 
-# slugify — canonical slug used by the audit pipeline (the output object is
+# slugify — canonical slug used by the retrospective pipeline (the output object is
 # keyed by this slug, so downstream consumers never re-derive it).
 #   lowercase → kebab → truncate 40 → trim trailing dash
 def slugify:

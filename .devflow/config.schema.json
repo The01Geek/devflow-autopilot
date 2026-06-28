@@ -265,7 +265,7 @@
         },
         "cooldown_days": {
           "type": "integer",
-          "description": "Skip audit if the youngest audit PR is younger than this (createdAt-based).",
+          "description": "Skip re-filing a pattern's retrospective issue if its youngest open filed issue is younger than this (createdAt-based).",
           "default": 3
         },
         "max_prs_per_run": {

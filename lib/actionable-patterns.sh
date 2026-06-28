@@ -110,6 +110,23 @@ OPEN_ISSUE_MAP="$(
     '
 )" || { echo "::error::actionable-patterns: could not parse the open-issue list as JSON (gh returned non-JSON?): $(printf '%s' "$_OPEN_ISSUES_RAW" | head -c 200)" >&2; exit 1; }
 
+# Defense-in-depth: the map above silently drops any open issue whose title
+# carries the de-dup prefix but whose slug token does not match the capture. A
+# slug-grammar drift between meta-issue.sh's title format and this capture would
+# make every drifted issue invisible to the cooldown and re-file duplicates with
+# no breadcrumb — so count the drops and surface them (the round-trip test pins
+# the canonical case; this catches a future drift in the field).
+_DROPPED_COUNT="$(
+  printf '%s' "$_OPEN_ISSUES_RAW" \
+  | jq '[ .[]
+          | select((.title | test("\\[devflow-retrospective\\] meta: "))
+                   and ((.title | test("\\[devflow-retrospective\\] meta: [A-Za-z0-9_-]+")) | not)) ]
+        | length' 2>/dev/null || echo 0
+)"
+if [ "${_DROPPED_COUNT:-0}" -gt 0 ]; then
+    echo "::warning::actionable-patterns: ${_DROPPED_COUNT} open '[devflow-retrospective] meta:' issue(s) had an unparseable slug and were skipped for cooldown — possible slug-grammar drift vs meta-issue.sh" >&2
+fi
+
 # ── Cooldown boundary (epoch seconds for COOLDOWN days ago) ─────────────────
 # Portable date math via python3 (GNU `date -d` is unavailable on macOS/BSD).
 COOLDOWN_EPOCH="$(python3 -c "import datetime as d; print(int((d.datetime.now(d.timezone.utc)-d.timedelta(days=${COOLDOWN})).timestamp()))")"

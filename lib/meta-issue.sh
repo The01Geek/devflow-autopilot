@@ -2,10 +2,12 @@
 # SPDX-FileCopyrightText: 2026 Daniel Radman
 # SPDX-License-Identifier: MIT
 # meta-issue.sh — the retrospective loop's issue filer: file (or update) one
-# GitHub issue for a devflow pattern and record a cooldown dismissal in
-# overrides.json. The body is authored by Stage B (retrospective-audit) to
-# create-issue quality and is filed verbatim, so the issue can later be executed
-# through the normal /devflow:implement -> review pipeline.
+# GitHub issue for a devflow pattern and record a permanent cross-run exclusion
+# in overrides.json (a `dismissed` entry that holds until a human clears it —
+# distinct from the within-window open-issue cooldown in actionable-patterns.sh).
+# The body is authored by Stage B (retrospective-audit) to create-issue quality
+# and is filed verbatim, so the issue can later be executed through the normal
+# /devflow:implement -> review pipeline.
 #
 # Usage:
 #   meta-issue.sh --tag <theme-tag> --slug <sanitized-tag> \
@@ -42,6 +44,17 @@ for var in TAG SLUG TITLE BODY_FILE OVERRIDES; do
     fi
 done
 
+# Validate TAG before it is interpolated into the de-dupe `--search` string: a TAG
+# carrying a GitHub search qualifier (e.g. `in:body`, `label:foo`) or whitespace
+# could mis-route the lookup and make the de-dupe silently miss, re-filing a
+# duplicate. TAG is canonical (a compute-patterns.jq slug) in practice; reject
+# anything that is not the slug grammar so a drift fails loud at the boundary.
+case "$TAG" in
+    *[!A-Za-z0-9_-]*|'')
+        echo "meta-issue: invalid --tag '${TAG}' (expected [A-Za-z0-9_-]+)" >&2
+        exit 1 ;;
+esac
+
 # ── gh binary (allow injection for tests) ────────────────────────────────────
 : "${DEVFLOW_GH:=gh}"
 
@@ -58,7 +71,7 @@ _apply_labels() {  # $1 = issue number
     # but a label we could not even attempt should say why.
     case "$_num" in
         ''|*[!0-9]*)
-            echo "::warning::meta-issue: could not derive a numeric issue number from '${URL}' — DevFlow/Retrospective labels NOT applied" >&2
+            echo "::warning::meta-issue: could not derive a numeric issue number (got: '${_num}') — DevFlow/Retrospective labels NOT applied" >&2
             return 0 ;;
     esac
     for _lbl in DevFlow Retrospective; do
@@ -133,25 +146,40 @@ else
 fi
 
 # ── Step 2: update overrides.json ────────────────────────────────────────────
-if [[ ! -f "$OVERRIDES" ]] || [[ ! -s "$OVERRIDES" ]]; then
-    printf '{"schema_version":1,"dismissed":{}}' > "$OVERRIDES"
-fi
+# Skip the real mutation on a dry run — a dry run must observe, never alter the
+# cross-run state. Otherwise it would record a `dismissed` entry pointing at the
+# DRYRUN sentinel and a later live run would treat the slug as already filed and
+# skip the real filing.
+if [[ "$DRY_RUN" -eq 0 ]]; then
+    if [[ ! -f "$OVERRIDES" ]] || [[ ! -s "$OVERRIDES" ]]; then
+        printf '{"schema_version":1,"dismissed":{}}' > "$OVERRIDES"
+    fi
 
-NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-OVERRIDES_TMP="$(mktemp)"
-jq \
-    --arg tag "$SLUG" \
-    --arg now "$NOW" \
-    --arg url "$URL" \
-    '.dismissed[$tag] = {
-        dismissed_at: $now,
-        dismissed_by: "retrospective-weekly",
-        reason: "meta-plugin-issue",
-        meta_issue: $url
-    }' \
-    "$OVERRIDES" > "$OVERRIDES_TMP" \
-  || { rm -f "$OVERRIDES_TMP"; echo "::error::meta-issue: failed to update ${OVERRIDES}" >&2; exit 1; }
-mv "$OVERRIDES_TMP" "$OVERRIDES"
+    NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    OVERRIDES_TMP="$(mktemp)"
+    if jq \
+        --arg tag "$SLUG" \
+        --arg now "$NOW" \
+        --arg url "$URL" \
+        '.dismissed[$tag] = {
+            dismissed_at: $now,
+            dismissed_by: "retrospective-weekly",
+            reason: "meta-plugin-issue",
+            meta_issue: $url
+        }' \
+        "$OVERRIDES" > "$OVERRIDES_TMP"; then
+        mv "$OVERRIDES_TMP" "$OVERRIDES"
+    else
+        # The issue WAS filed (URL is on stdout below); only the cooldown record
+        # failed. Do NOT report this as "not filed" — that would misstate the
+        # state and lose the real issue. Exit 0 with the URL so the orchestrator
+        # records the filing; the open-issue de-dupe (Step 1) self-heals the
+        # missing cooldown by finding the issue and commenting instead of
+        # re-filing on the next run.
+        rm -f "$OVERRIDES_TMP"
+        echo "::error::meta-issue: issue WAS filed (${URL}) but its cooldown could not be recorded in ${OVERRIDES} — de-dupe will prevent a duplicate next run" >&2
+    fi
+fi
 
 # ── Step 3: print URL to stdout ───────────────────────────────────────────────
 printf '%s\n' "$URL"

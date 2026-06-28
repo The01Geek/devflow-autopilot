@@ -3248,9 +3248,12 @@ chmod +x "$MI_TMP/gh"
 DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --tag dedup-null --slug dedup-null --title "x" --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov2.json" >/dev/null 2>&1; DEDUP_RC=$?
 assert_eq "meta-issue fails closed on a de-dup hit with null url/number" "true" \
   "$([ "$DEDUP_RC" -ne 0 ] && echo true || echo false)"
-# #152: overrides-write failure fails closed AFTER a successful create — a corrupt
-# overrides file makes the jq write exit non-zero, so the orchestrator records a
-# blocker (the issue exists but its cooldown could not be recorded → re-surfaced).
+# #152: overrides-write failure AFTER a successful create reports FILED, not
+# blocked — a corrupt overrides file makes the jq cooldown write fail, but the
+# issue genuinely exists, so meta-issue.sh must exit 0 with the URL on stdout
+# (the orchestrator records the filing) and leave a loud ::error:: breadcrumb;
+# the open-issue de-dupe self-heals the missing cooldown next run. Reporting
+# "not filed" here would lose a real issue.
 printf 'not json{' > "$MI_TMP/ov-corrupt.json"
 cat > "$MI_TMP/gh" <<'STUB'
 #!/usr/bin/env bash
@@ -3263,9 +3266,35 @@ case "$*" in
 esac
 STUB
 chmod +x "$MI_TMP/gh"
-DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --tag ov-fail --slug ov-fail --title "x" --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov-corrupt.json" >/dev/null 2>&1; OVFAIL_RC=$?
-assert_eq "meta-issue fails closed on a corrupt overrides write" "true" \
-  "$([ "$OVFAIL_RC" -ne 0 ] && echo true || echo false)"
+OVFAIL_OUT="$(DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --tag ov-fail --slug ov-fail --title "x" --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov-corrupt.json" 2>"$MI_TMP/ov-fail.err")"; OVFAIL_RC=$?
+assert_eq "meta-issue reports FILED on a cooldown-write failure (exit 0)" "true" \
+  "$([ "$OVFAIL_RC" -eq 0 ] && echo true || echo false)"
+assert_eq "meta-issue still prints the filed URL on a cooldown-write failure" "https://github.com/acme/example-repo/issues/7777" "$OVFAIL_OUT"
+assert_eq "meta-issue leaves a 'WAS filed' breadcrumb on a cooldown-write failure" "true" \
+  "$(grep -q 'issue WAS filed' "$MI_TMP/ov-fail.err" && echo true || echo false)"
+
+# #152: --dry-run must NOT mutate the real overrides.json — a dry run that records
+# the DRYRUN sentinel as a dismissal would make a later live run skip the real
+# filing. The dismissed map must stay empty after a dry run.
+echo '{"schema_version":1,"dismissed":{}}' > "$MI_TMP/ov-dry.json"
+cat > "$MI_TMP/gh" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *"issue list"*) echo '' ;;
+  *) echo '' ;;
+esac
+STUB
+chmod +x "$MI_TMP/gh"
+DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --dry-run --tag dry-ov --slug dry-ov --title "x" --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov-dry.json" >/dev/null 2>&1
+assert_eq "meta-issue --dry-run writes NO cooldown to overrides" "false" \
+  "$(jq -e '.dismissed | has("dry-ov")' "$MI_TMP/ov-dry.json" >/dev/null 2>&1 && echo true || echo false)"
+
+# #152: TAG carrying a GitHub search qualifier / whitespace is rejected at
+# arg-parse (before it reaches the de-dupe --search), so a drift fails loud
+# instead of mis-routing the lookup and re-filing a duplicate.
+DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --tag 'foo in:body' --slug foo --title "x" --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov-dry.json" >/dev/null 2>&1; BADTAG_RC=$?
+assert_eq "meta-issue rejects a non-slug --tag (non-zero exit)" "true" \
+  "$([ "$BADTAG_RC" -ne 0 ] && echo true || echo false)"
 rm -rf "$MI_TMP"
 
 # ────────────────────────────────────────────────────────────────────────────
