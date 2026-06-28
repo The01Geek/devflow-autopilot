@@ -615,7 +615,6 @@ assert_eq "max_iterations clamp: SKILL keeps the default-5 fallback" "yes" \
 # routes through assert_pin_unique. A new park-calibration guard belongs in this region and
 # must use the helper; widening the meta-test to other families is deliberately out of
 # scope for issue #155 (converting non-unique literals elsewhere risks unrelated RED).
-IMPL_SKILL_REF="$LIB/../skills/implement/SKILL.md"
 # PARKCAL_GUARD_REGION_BEGIN — every SKILL pin until the END marker MUST use assert_pin_unique (meta-tested below)
 assert_pin_unique "park-calibration: engine gate heading present in review-and-fix SKILL" \
   '#### Park-calibration gate (before any APPROVE-family conclusion)' "$MAXI_SKILL"
@@ -652,7 +651,7 @@ assert_pin_unique "park-calibration: Step 4.5 early-exit carries the explicit ga
 assert_pin_unique "mutation-check: review-and-fix rule covers any added or edited test guard in the diff" \
   'any added or edited test guard in the diff' "$MAXI_SKILL"
 assert_pin_unique "mutation-check: implement skill test-writing phase references the discipline" \
-  'Mutation-check any test guard you add here' "$IMPL_SKILL_REF"
+  'Mutation-check any test guard you add here' "$DEF_SKILL"
 # PARKCAL_GUARD_REGION_END — end of the assert_pin_unique-only park-calibration pin region
 
 # ── Meta-test (AC2): no raw drift guard may bypass assert_pin_unique inside the region.
