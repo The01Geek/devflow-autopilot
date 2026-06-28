@@ -58,29 +58,3 @@ run is denied, do this in order — do not skip to the last rung:
 
 The standard is *evidence before assertion*: a claim that something works must point to a
 command you actually ran and its observed output, or be explicitly flagged unverified.
-
-## Reconcile every descriptive surface after a late change of direction
-
-The base skill's **Phase 2.3.4a** sweep now reconciles, after a *change of direction* (revert /
-scope-narrowing / marker removal / rename), the **issue workpad** and **earlier-authored prose**
-naming the changed contract. This is the dominant `doc-accuracy` failure in *this* repo; the
-surfaces and examples below make that rule operational here.
-
-**Add these repo surfaces to the 2.3.4a re-walk:** `CHANGELOG.md`, `README.md`,
-`DEVFLOW_SYSTEM_OVERVIEW.md`, and any `docs/**` feature page — reconcile any claim that now
-overstates the shipped reality (an attribution model, an equality/identity claim, a
-removed/renamed surface).
-
-**Past failures the rule stops:**
-
-- **#144** — after `writing-skills` was reverted to stay external, the workpad's ACs still claimed
-  it was vendored and CHANGELOG/README/`DEVFLOW_SYSTEM_OVERVIEW.md` still advertised removed
-  attribution markers.
-- **#125** — after `/devflow:implement` was scoped to issues only, stale "issue/PR" wording survived
-  in now-issues-only comments.
-- **#64** — a telemetry-id equality overclaim shipped in docs; a guard comment said "fail-closed"
-  over a value that fails open.
-
-*Not covered:* the non-prose `doc-accuracy` siblings (a deferred E402/lint finding, a CI-red revert
-that didn't reconcile its asserting tests, an inert cloud-allow-list omission) — those are
-tests/CI and engine-allow-list problems, not descriptive-text drift.
