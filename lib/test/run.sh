@@ -1660,6 +1660,33 @@ assert_eq "init-memory-nudge: covers CLAUDE.md-present-but-unreferenced case (AC
   "$(grep -qF 'does not already reference' "$INIT_SKILL" && echo yes || echo no)"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "retrospective-audit operative-only rule + upstream-promotion re-weighting (issue #150)"
+# ────────────────────────────────────────────────────────────────────────────
+# Content / drift guard (issue #150). The deliverable is LLM-directing prose in a
+# SKILL.md — there is no runtime code path to exercise — so the repo's established
+# stand-in (mirroring the lpe-coverage and init-memory-nudge grep guards above) is a
+# content guard pinning the load-bearing instruction tokens. Each fragment below is
+# BLOCK-UNIQUE to the new/changed prose (verified absent from the rest of the SKILL),
+# so a match means the rule itself is present, not some unrelated text.
+RETRO_AUDIT_SKILL="$LIB/../skills/retrospective-audit/SKILL.md"
+# Part A — § 5 carries the operative-only form rule: write only the operative recipe,
+# route provenance to the PR body, not the edited file.
+assert_eq "retro-audit-operative: § 5 operative-only form rule present" "yes" \
+  "$(grep -qF 'Write prose interventions operative-only' "$RETRO_AUDIT_SKILL" && echo yes || echo no)"
+assert_eq "retro-audit-operative: provenance routed to the PR body (maxim)" "yes" \
+  "$(grep -qF 'The file gets the rule; the PR gets the why.' "$RETRO_AUDIT_SKILL" && echo yes || echo no)"
+# The do-not-copy list is the operative core — pin a block-unique token from it so a
+# reword that drops the provenance-exclusion clause fails here.
+assert_eq "retro-audit-operative: provenance-exclusion clause present" "yes" \
+  "$(grep -qF 'motivating-PR post-mortems' "$RETRO_AUDIT_SKILL" && echo yes || echo no)"
+# Part B — § 2 condition (iii) re-weighted to fire on adopter-benefit + engine-prose
+# expressibility (prefer upstream promotion), not only "must ship in the engine." The
+# fragment appears in both (iii) and the reconciled Consumer-local note; the guard goes
+# red only if Part B is fully reverted at both sites.
+assert_eq "retro-audit-operative: § 2 (iii) re-weighted toward upstream promotion" "yes" \
+  "$(grep -qF 'materially benefit adopters and is expressible as engine prose' "$RETRO_AUDIT_SKILL" && echo yes || echo no)"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "shipped agent_overrides: deduper pins Sonnet 4.6 w/ effort; no Haiku override carries effort"
 # ────────────────────────────────────────────────────────────────────────────
 # The shipped checklist-deduper override pins Claude Sonnet 4.6 (which DOES
