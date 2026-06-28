@@ -1680,11 +1680,17 @@ assert_eq "retro-audit-operative: provenance routed to the PR body (maxim)" "yes
 assert_eq "retro-audit-operative: provenance-exclusion clause present" "yes" \
   "$(grep -qF 'motivating-PR post-mortems' "$RETRO_AUDIT_SKILL" && echo yes || echo no)"
 # Part B — § 2 condition (iii) re-weighted to fire on adopter-benefit + engine-prose
-# expressibility (prefer upstream promotion), not only "must ship in the engine." The
-# fragment appears in both (iii) and the reconciled Consumer-local note; the guard goes
-# red only if Part B is fully reverted at both sites.
+# expressibility (prefer upstream promotion), not only "must ship in the engine." Part B
+# is a COUPLED edit: condition (iii) AND the Consumer-local note must BOTH carry the
+# re-weighting, or the two sites silently disagree. Pin a SITE-UNIQUE fragment for each
+# (not one fragment shared across both) so a ONE-SIDED revert — the coupled-site-desync
+# class CLAUDE.md flags as DevFlow's dominant convention-violation — goes red, not only a
+# full two-site revert. 'a fix that would …' is unique to (iii); 'Keep a fix repo-local …'
+# is unique to the Consumer-local note.
 assert_eq "retro-audit-operative: § 2 (iii) re-weighted toward upstream promotion" "yes" \
-  "$(grep -qF 'materially benefit adopters and is expressible as engine prose' "$RETRO_AUDIT_SKILL" && echo yes || echo no)"
+  "$(grep -qF 'a fix that would materially benefit adopters and is expressible as engine prose' "$RETRO_AUDIT_SKILL" && echo yes || echo no)"
+assert_eq "retro-audit-operative: § 2 Consumer-local note reconciled with the re-weighting" "yes" \
+  "$(grep -qF 'Keep a fix repo-local only when it is genuinely specific to this repo' "$RETRO_AUDIT_SKILL" && echo yes || echo no)"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "shipped agent_overrides: deduper pins Sonnet 4.6 w/ effort; no Haiku override carries effort"
