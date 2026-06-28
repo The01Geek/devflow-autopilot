@@ -125,7 +125,7 @@ Write a short paragraph (3–5 sentences): what could go wrong if this rule is a
 
 Use `Edit`/`Write` to apply the intervention directly in the working tree. Keep the diff minimal and surgical — touch only the files you intended to change and nothing else.
 
-**Write prose interventions operative-only.** When the intervention is prose appended to a skill body, a prompt-extension, or a CLAUDE.md rule, write **only** the instruction a future agent must act on — the smallest recipe that changes behavior (trigger → action → surfaces). Do **not** copy the root cause, the motivating-PR post-mortems, the counterfactual, or a "not covered" note into the edited file: those belong in the PR body (§ 6) and git history, and every word here is re-read on every future run for zero operative gain. Add a worked example only when the rule is genuinely ambiguous without one — a single tightened example, never per-occurrence narration. **The file gets the rule; the PR gets the why.**
+**Write prose interventions operative-only.** When the intervention is prose appended to a skill body, a prompt-extension, or a CLAUDE.md rule, write **only** the instruction a future agent must act on — the smallest recipe that changes behavior (trigger → action → surfaces). Do **not** copy the root cause, the motivating-PR post-mortems, the counterfactual, or a "not covered" note into the edited file — those belong in the PR body (§ 6) and git history. Add a worked example only when the rule is genuinely ambiguous without one — a single tightened example, never per-occurrence narration. **The file gets the rule; the PR gets the why.**
 
 Do NOT touch:
 - Any file on the exclusion list (§ 2).
