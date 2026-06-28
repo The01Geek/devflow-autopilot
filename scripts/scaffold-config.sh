@@ -211,6 +211,8 @@ docs-verify|name the topics whose internal docs your team treats as load-bearing
 implement|add repo-specific implementation constraints the orchestrator must honor
 init|add post-scaffold setup steps unique to your repo
 pr-description|enforce your PR-description template sections and required labels
+receiving-code-review|add house rules for how review feedback is evaluated, verified, and pushed back on
+requesting-code-review|tune what the internalized final-pass reviewer prioritizes for your codebase
 retrospective|add house criteria for what counts as a clean PR in the retrospective
 retrospective-audit|name the intervention patterns your team prioritizes when auditing
 retrospective-weekly|tune which authors and time window the weekly loop scans

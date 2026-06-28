@@ -998,7 +998,7 @@ SC_MIG="$(mktemp -d)"; mkdir -p "$SC_MIG/.devflow"
 # any Haiku override, not just the deduper — a regression that hard-coded the
 # deduper key would otherwise pass green), plus a non-Haiku override whose
 # effort must be left untouched.
-printf '%s' '{"devflow_review":{"agent_overrides":{"default":{"effort":"medium"},"devflow:checklist-deduper":{"model":"claude-haiku-4-5-20251001","effort":"low"},"devflow:checklist-generator":{"model":"claude-haiku-4-5-20251001","effort":"high"},"pr-review-toolkit:code-reviewer":{"model":"claude-opus-4-8","effort":"high"}}}}' \
+printf '%s' '{"devflow_review":{"agent_overrides":{"default":{"effort":"medium"},"devflow:checklist-deduper":{"model":"claude-haiku-4-5-20251001","effort":"low"},"devflow:checklist-generator":{"model":"claude-haiku-4-5-20251001","effort":"high"},"devflow:code-reviewer":{"model":"claude-opus-4-8","effort":"high"}}}}' \
   > "$SC_MIG/.devflow/config.json"
 SC_MIG_OUT="$(bash "$SC" "$SC_MIG" 2>&1)"
 assert_eq "scaffold-migration: Haiku deduper effort stripped" \
@@ -1008,7 +1008,7 @@ assert_eq "scaffold-migration: Haiku deduper model preserved" \
 assert_eq "scaffold-migration: second Haiku-pinned entry (non-deduper) also stripped" \
   "false" "$(jq '.devflow_review.agent_overrides["devflow:checklist-generator"] | has("effort")' "$SC_MIG/.devflow/config.json")"
 assert_eq "scaffold-migration: non-Haiku override effort left untouched" \
-  "high" "$(jq -r '.devflow_review.agent_overrides["pr-review-toolkit:code-reviewer"].effort' "$SC_MIG/.devflow/config.json")"
+  "high" "$(jq -r '.devflow_review.agent_overrides["devflow:code-reviewer"].effort' "$SC_MIG/.devflow/config.json")"
 # The model-less `default` entry must survive: `(.value.model // "")` yields ""
 # which fails the Haiku predicate, so its effort is kept. Asserted on the FIRST
 # run directly (not just via the idempotent no-op below, which would pass even
@@ -4028,10 +4028,10 @@ cat > "$ET_DIR/iter-1.json" <<'EOF'
     {"id":"VC-2","verification_mode":"lite","verdict":"FAIL"},
     {"id":"VC-3","verification_mode":"agent","verdict":"PASS"}
   ],
-  "phase3_dispatched": ["pr-review-toolkit:code-reviewer","pr-review-toolkit:silent-failure-hunter","pr-review-toolkit:comment-analyzer"],
+  "phase3_dispatched": ["devflow:code-reviewer","devflow:silent-failure-hunter","devflow:comment-analyzer"],
   "phase3_findings": [
-    {"agent":"pr-review-toolkit:code-reviewer","corroboration_count":1,"fix_decision":"applied"},
-    {"agent":"pr-review-toolkit:silent-failure-hunter","corroboration_count":2,"fix_decision":"applied"}
+    {"agent":"devflow:code-reviewer","corroboration_count":1,"fix_decision":"applied"},
+    {"agent":"devflow:silent-failure-hunter","corroboration_count":2,"fix_decision":"applied"}
   ],
   "convergence_inputs": {"fixes_applied": 4},
   "telemetry": {"phase_3": {"calls": 3, "tokens": 48000, "wall_clock_s": 180}}
@@ -4043,9 +4043,9 @@ cat > "$ET_DIR/iter-2.json" <<'EOF'
 {
   "iter": 2,
   "checklist": [],
-  "phase3_dispatched": ["pr-review-toolkit:code-reviewer","pr-review-toolkit:comment-analyzer"],
+  "phase3_dispatched": ["devflow:code-reviewer","devflow:comment-analyzer"],
   "phase3_findings": [
-    {"agent":"pr-review-toolkit:code-reviewer","corroboration_count":1,"fix_decision":"pushed_back"}
+    {"agent":"devflow:code-reviewer","corroboration_count":1,"fix_decision":"pushed_back"}
   ],
   "convergence_inputs": {"fixes_applied": 0},
   "telemetry": {"phase_3": {"calls": 2, "tokens": 12000, "wall_clock_s": 60}}
@@ -4054,16 +4054,16 @@ EOF
 
 ET_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_DIR" --slug "pr-15" --mode record)"
 ET_verdict() { echo "$ET_REC" | jq -r --argjson i "$1" --arg a "$2" '.per_iteration[] | select(.iter==$i) | .agent_verdicts[] | select(.agent==$a) | .verdict'; }
-assert_eq "et: applied + corroboration<2 → unique-effective" "unique-effective" "$(ET_verdict 1 'pr-review-toolkit:code-reviewer')"
-assert_eq "et: applied + corroboration>=2 → corroborating"   "corroborating"    "$(ET_verdict 1 'pr-review-toolkit:silent-failure-hunter')"
-assert_eq "et: dispatched but silent → null"                 "null"             "$(ET_verdict 1 'pr-review-toolkit:comment-analyzer')"
-assert_eq "et: only pushed_back finding → noise"             "noise"            "$(ET_verdict 2 'pr-review-toolkit:code-reviewer')"
-assert_eq "et: roster-minus-findings null on a LATER iteration" "null"          "$(ET_verdict 2 'pr-review-toolkit:comment-analyzer')"
+assert_eq "et: applied + corroboration<2 → unique-effective" "unique-effective" "$(ET_verdict 1 'devflow:code-reviewer')"
+assert_eq "et: applied + corroboration>=2 → corroborating"   "corroborating"    "$(ET_verdict 1 'devflow:silent-failure-hunter')"
+assert_eq "et: dispatched but silent → null"                 "null"             "$(ET_verdict 1 'devflow:comment-analyzer')"
+assert_eq "et: only pushed_back finding → noise"             "noise"            "$(ET_verdict 2 'devflow:code-reviewer')"
+assert_eq "et: roster-minus-findings null on a LATER iteration" "null"          "$(ET_verdict 2 'devflow:comment-analyzer')"
 # The silent-agent verdict must be JSON null, not the string "null" — so a
 # cross-run analyzer can use idiomatic `select(.verdict == null)`. `jq -r`
 # renders both as "null", so assert the JSON type explicitly.
 ET_verdict_type() { echo "$ET_REC" | jq -r --argjson i "$1" --arg a "$2" '.per_iteration[] | select(.iter==$i) | .agent_verdicts[] | select(.agent==$a) | .verdict | type'; }
-assert_eq "et: silent-agent verdict is JSON null, not string" "null" "$(ET_verdict_type 1 'pr-review-toolkit:comment-analyzer')"
+assert_eq "et: silent-agent verdict is JSON null, not string" "null" "$(ET_verdict_type 1 'devflow:comment-analyzer')"
 assert_eq "et: record carries cost telemetry forward (iter1 phase_3 tokens)" "48000" \
   "$(echo "$ET_REC" | jq -r '.telemetry[] | select(.iter==1) | .phases.phase_3.tokens')"
 assert_eq "et: record schema_version=1" "1" "$(echo "$ET_REC" | jq -r '.schema_version')"
@@ -4081,13 +4081,13 @@ ET_PROF="$(mktemp -d)"
 cat > "$ET_PROF/iter-1.json" <<'EOF'
 {"iter":1,"diff_profile":{"small_diff":false,"config_only":false,"has_new_types":false,"engine_self_modifying":true,"checklist_skipped":null},
 "checklist":[{"verification_mode":"lite","verdict":"PASS"},{"verification_mode":"lite","verdict":"PASS"}],
-"phase3_dispatched":["pr-review-toolkit:code-reviewer"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}
+"phase3_dispatched":["devflow:code-reviewer"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}
 EOF
 # iter-2: small_diff+config_only, Phase 0.5 intentionally skipped the checklist.
 cat > "$ET_PROF/iter-2.json" <<'EOF'
 {"iter":2,"diff_profile":{"small_diff":true,"config_only":true,"has_new_types":false,"engine_self_modifying":false,"checklist_skipped":"intentional"},
-"checklist":[],"phase3_dispatched":["pr-review-toolkit:code-reviewer"],
-"phase3_findings":[{"agent":"pr-review-toolkit:code-reviewer","corroboration_count":1,"fix_decision":"applied"}],
+"checklist":[],"phase3_dispatched":["devflow:code-reviewer"],
+"phase3_findings":[{"agent":"devflow:code-reviewer","corroboration_count":1,"fix_decision":"applied"}],
 "convergence_inputs":{"fixes_applied":1},"telemetry":null}
 EOF
 ET_PROF_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_PROF" --slug pr-15 --mode record)"
@@ -4127,7 +4127,7 @@ ET_GATE="$(mktemp -d)"
 cat > "$ET_GATE/iter-1.json" <<'EOF'
 {"iter":1,"diff_profile":{"small_diff":false,"config_only":true,"has_new_types":false,"engine_self_modifying":true,"checklist_skipped":null},
 "checklist":[{"verification_mode":"lite","verdict":"PASS"}],
-"phase3_dispatched":["pr-review-toolkit:code-reviewer","pr-review-toolkit:silent-failure-hunter","pr-review-toolkit:comment-analyzer","superpowers:requesting-code-review"],
+"phase3_dispatched":["devflow:code-reviewer","devflow:silent-failure-hunter","devflow:comment-analyzer","devflow:requesting-code-review"],
 "phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":{"phase_3":{"calls":4,"tokens":40000,"wall_clock_s":120}}}
 EOF
 # iter-2: engine_self_modifying diff that adds testable code logic → pr-test-analyzer
@@ -4135,7 +4135,7 @@ EOF
 cat > "$ET_GATE/iter-2.json" <<'EOF'
 {"iter":2,"diff_profile":{"small_diff":false,"config_only":false,"has_new_types":false,"engine_self_modifying":true,"checklist_skipped":null},
 "checklist":[{"verification_mode":"agent","verdict":"PASS"}],
-"phase3_dispatched":["pr-review-toolkit:code-reviewer","pr-review-toolkit:silent-failure-hunter","pr-review-toolkit:comment-analyzer","superpowers:requesting-code-review","pr-review-toolkit:pr-test-analyzer"],
+"phase3_dispatched":["devflow:code-reviewer","devflow:silent-failure-hunter","devflow:comment-analyzer","devflow:requesting-code-review","devflow:pr-test-analyzer"],
 "phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":{"phase_3":{"calls":5,"tokens":52000,"wall_clock_s":160}}}
 EOF
 ET_GATE_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_GATE" --slug "pr-15" --mode record)"
@@ -4146,15 +4146,15 @@ ET_GATE_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_GATE" --slug "
 # (not harness-reachable), so this guards that a gated roster survives the trace.
 ET_has() { echo "$ET_GATE_REC" | jq -r --argjson i "$1" --arg a "$2" '.per_iteration[] | select(.iter==$i) | (.phase3_dispatched | index($a) != null)'; }
 assert_eq "et(#52): engine-PR no-types/no-tests roster passthrough excludes type-design-analyzer" "false" \
-  "$(ET_has 1 'pr-review-toolkit:type-design-analyzer')"
+  "$(ET_has 1 'devflow:type-design-analyzer')"
 assert_eq "et(#52): engine-PR no-types/no-tests roster passthrough excludes pr-test-analyzer" "false" \
-  "$(ET_has 1 'pr-review-toolkit:pr-test-analyzer')"
+  "$(ET_has 1 'devflow:pr-test-analyzer')"
 assert_eq "et(#52): engine-PR no-types/no-tests dispatched count = 4 always-on" "4" \
   "$(echo "$ET_GATE_REC" | jq -r '.per_iteration[] | select(.iter==1) | .phase3_dispatched_count')"
 assert_eq "et(#52): engine-PR adding testable code roster passthrough includes pr-test-analyzer" "true" \
-  "$(ET_has 2 'pr-review-toolkit:pr-test-analyzer')"
+  "$(ET_has 2 'devflow:pr-test-analyzer')"
 assert_eq "et(#52): engine-PR adding testable code still excludes type-design-analyzer" "false" \
-  "$(ET_has 2 'pr-review-toolkit:type-design-analyzer')"
+  "$(ET_has 2 'devflow:type-design-analyzer')"
 rm -rf "$ET_GATE"
 
 # none-recorded posture remains reachable for the genuine degraded case the
@@ -4164,7 +4164,7 @@ rm -rf "$ET_GATE"
 ET_NR="$(mktemp -d)"
 cat > "$ET_NR/iter-1.json" <<'EOF'
 {"iter":1,"diff_profile":{"small_diff":false,"config_only":false,"has_new_types":false,"engine_self_modifying":false,"checklist_skipped":null},
-"checklist":[],"phase3_dispatched":["pr-review-toolkit:code-reviewer"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}
+"checklist":[],"phase3_dispatched":["devflow:code-reviewer"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}
 EOF
 ET_NR_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_NR" --slug "pr-15" --mode record)"
 assert_eq "et(#52): Phase 1+2 ran but zero checklist items → none-recorded (genuine gap)" "none-recorded" \
@@ -4402,11 +4402,11 @@ assert_eq "et: flag-off → trace empty"  "" "$ET_OFF_TRACE"
 # agents that appear in phase3_findings; the trace flags the missing roster.
 ET_DEG="$(mktemp -d)"
 cat > "$ET_DEG/iter-1.json" <<'EOF'
-{"iter":1,"checklist":[],"phase3_findings":[{"agent":"pr-review-toolkit:code-reviewer","corroboration_count":1,"fix_decision":"applied"}],"convergence_inputs":{"fixes_applied":1},"telemetry":null}
+{"iter":1,"checklist":[],"phase3_findings":[{"agent":"devflow:code-reviewer","corroboration_count":1,"fix_decision":"applied"}],"convergence_inputs":{"fixes_applied":1},"telemetry":null}
 EOF
 ET_DEG_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_DEG" --slug "branch-x" --mode record)"
 assert_eq "et: degraded (no phase3_dispatched) still classifies finding agent" "unique-effective" \
-  "$(echo "$ET_DEG_REC" | jq -r '.per_iteration[0].agent_verdicts[] | select(.agent=="pr-review-toolkit:code-reviewer") | .verdict')"
+  "$(echo "$ET_DEG_REC" | jq -r '.per_iteration[0].agent_verdicts[] | select(.agent=="devflow:code-reviewer") | .verdict')"
 assert_eq "et: degraded dispatched_count=0 (roster absent)" "0" \
   "$(echo "$ET_DEG_REC" | jq -r '.per_iteration[0].phase3_dispatched_count')"
 ET_DEG_TRACE="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$ET_DEG" --slug "branch-x" --mode trace)"
@@ -4522,8 +4522,8 @@ ETP_RUN="$ETP_REPO/.devflow/tmp/review/pr-77/run-abc"
 mkdir -p "$ETP_RUN"
 cat > "$ETP_RUN/iter-1.json" <<'EOF'
 {"iter":1,"checklist":[{"verification_mode":"lite","verdict":"PASS"}],
-"phase3_dispatched":["pr-review-toolkit:code-reviewer"],
-"phase3_findings":[{"agent":"pr-review-toolkit:code-reviewer","corroboration_count":1,"fix_decision":"applied"}],
+"phase3_dispatched":["devflow:code-reviewer"],
+"phase3_findings":[{"agent":"devflow:code-reviewer","corroboration_count":1,"fix_decision":"applied"}],
 "convergence_inputs":{"fixes_applied":1},"telemetry":{"phase_3":{"calls":1,"tokens":1000,"wall_clock_s":10}}}
 EOF
 # A non-iter scratch sibling confirms the durable copy carries *.json siblings,
@@ -6093,6 +6093,479 @@ rm -rf "$PAM_NOCONSENT" "$PAM_NCEXIST" "$PAM_FRESH" "$PAM_ZERO" "$PAM_NONONE" "$
        "$PAM_BAD" "$PAM_ENVSTR" "$PAM_ENVNULL" "$PAM_ARR" "$PAM_SCALAR" "$PAM_EMPTY" "$PAM_HOME" \
        "$PAM_WS" "$PAM_UNREAD" "$PAM_RODIR" \
        "$PAM_GATE_EXIST" "$PAM_GATE_MISS" "$PAM_GATE_BAD" "$PAM_GATE_NC"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "feature-dev internalization (#139)"
+# ────────────────────────────────────────────────────────────────────────────
+# This PR vendors the two external feature-dev agents (code-explorer, code-architect)
+# as first-party DevFlow agents under agents/ and rewires every call-site to the
+# devflow: namespace. The assertions below are the mechanical proof the internalization
+# is COMPLETE, not partial. They reuse the #129 rgb_classify rc-transform so the SAME
+# fail-closed git rc-handling backs these scans too — a refactor that re-opens fail-open
+# turns the #129 boundary rows red, not just these. The scan patterns are assembled from
+# two string literals (like RGB_PAT) so this file never self-matches its own grep.
+FDROOT="$LIB/.."
+
+# Shared fail-closed scan seam (reuses the #129 rgb_classify rc-transform): grep the
+# tracked tree for a literal pattern under a pathspec, returning the offending file list
+# on a hit (git rc 0), empty on a clean no-match (rc 1 — the PASS case), or the
+# <rgb-guard-errored> sentinel on a git error (rc >1). `git -C "$root"` keeps git the
+# only rc-bearing command — a `cd "$root" && git grep` would short-circuit `&&` on a cd
+# failure and mask a real error as a clean no-match, re-opening the fail-open hole. Both
+# #139 reference scans below share this ONE seam instead of each re-implementing the
+# git-grep+rc line. (The pre-existing #129 rgb_scan keeps its own one-arg wrapper;
+# refactoring that already-tested helper is out of this PR's diff scope.)
+tracked_scan() {  # root pattern pathspec...
+  local root="$1" pat="$2"; shift 2
+  local hits rc
+  hits="$(git -C "$root" grep -lF "$pat" -- "$@" 2>/dev/null)"; rc=$?
+  rgb_classify "$rc" "$hits"
+}
+
+# (1) Reference contract (mirrors issue AC): NO tracked surface may reference the
+# namespaced feature-dev agent identifier (the plugin name + colon form). The scan
+# excludes `.devflow/logs/`, which is append-only audit scratch that may record the old
+# identifier in a future artifact (none do today; the exclusion is forward-looking, not
+# a statement that such artifacts presently exist). After the rewire every dispatch is
+# devflow:code-explorer / devflow:code-architect, so a real residual reference (a missed
+# call-site) surfaces as the offending file list; an infra/git error surfaces as the
+# <rgb-guard-errored> sentinel (fails loud, never a silent PASS). Pattern split into two
+# literals (like RGB_PAT) so this file never self-matches its own grep.
+FD_PAT="feature-""dev:"
+assert_eq "#139 no tracked surface references the namespaced feature-dev agent id (.devflow/logs excepted)" \
+  "" "$(tracked_scan "$FDROOT" "$FD_PAT" ':!.devflow/logs')"
+
+# (1b) tracked_scan positive-hit test: assertion (1) only ever observes the clean
+# no-match (empty) path, so tracked_scan's OWN git-grep hit path (the `-lF` + `--`
+# pathspec seam) is never seen to produce a real positive. Drive it against a token that
+# genuinely exists in a known file and assert it returns that file — so a regression in
+# the git invocation (a dropped `--`, a mis-scoped pathspec) that silently stops matching
+# turns this row red. This exercises tracked_scan's rc-0 hit path the way #129's e2e row
+# pins rgb_scan's — here via an existing tracked token rather than a throwaway temp repo.
+assert_eq "#139 tracked_scan returns the matching file on a real hit (pins the git-grep hit path)" \
+  "lib/test/run.sh" "$(tracked_scan "$FDROOT" "rgb_classify" 'lib/test/run.sh')"
+
+# (1c) tracked_scan fail-closed contract test: (1)/(5) only ever observe the empty (clean
+# no-match) result, and (1b) only the hit path — so tracked_scan's OWN rc-capture seam
+# (its fresh `hits=$(…); rc=$?` at the helper, a separate copy from the #129 rgb_scan that
+# the #129 contract test at the rgb_scan block pins) is never exercised on the git-ERROR
+# path. Without this row a future regression of tracked_scan's rc capture (a command
+# inserted between the git call and `rc=$?`, or a revert to `cd && git grep`) would
+# misclassify a real git error as a clean no-match, leaving (1)/(5) silently green on
+# infra failure — the exact #62/#98 "assert fail-closed but never exercise the path"
+# trap. Drive tracked_scan against a non-repo path and assert the sentinel, mirroring the
+# rgb_scan fail-closed contract row. (PID-suffixed probe path cannot exist; stderr muted
+# because the git error is deliberate and expected.)
+assert_eq "#139 tracked_scan fails closed on a git error (returns the sentinel, not a silent PASS)" \
+  "<rgb-guard-errored>" "$(tracked_scan "$FDROOT/nonexistent-fd-probe-$$" "$FD_PAT" ':!.devflow/logs' 2>/dev/null)"
+
+# (2) Vendored-files-exist: both feature-dev agents now live first-party under agents/.
+assert_eq "#139 agents/code-explorer.md exists (vendored first-party)" \
+  "yes" "$([ -f "$FDROOT/agents/code-explorer.md" ] && echo yes || echo no)"
+assert_eq "#139 agents/code-architect.md exists (vendored first-party)" \
+  "yes" "$([ -f "$FDROOT/agents/code-architect.md" ] && echo yes || echo no)"
+
+# (2b) Dispatch-resolves contract (the load-bearing invariant the absence-grep above only
+# proxies for): for each rewired agent, the implement skill must dispatch the devflow:
+# identifier AND a first-party agent of that exact `name:` must exist to resolve it. This
+# closes the loop the #62/#98 unverified-assumption bug class warns about — a future typo
+# in the subagent_type or a renamed agent `name:` frontmatter would pass (1) and (2) yet
+# dead-end the dispatch at runtime; this assertion catches that.
+for fdagent in code-explorer code-architect; do
+  assert_eq "#139 implement skill dispatches devflow:$fdagent (rewired call-site present)" \
+    "yes" "$(grep -qF "subagent_type: devflow:$fdagent" "$FDROOT/skills/implement/SKILL.md" && echo yes || echo no)"
+  assert_eq "#139 agents/$fdagent.md frontmatter declares name: $fdagent (dispatch target resolves)" \
+    "yes" "$(grep -qE "^name: $fdagent\$" "$FDROOT/agents/$fdagent.md" && echo yes || echo no)"
+  # (2c) Agent-validity structural markers: `name:` resolving alone does not prove the
+  # frontmatter is well-formed — a file that drops the opening `---`, its closing `---`,
+  # or its model:/tools: lines still passes the name grep yet may fail to load at runtime.
+  # This row asserts the structural markers the cheap-to-check mangles hit: the opening
+  # frontmatter `---` (line 1), a CLOSING `---` (a second `^---$` so the block is
+  # terminated, not merged into the body), plus top-level model: and tools: keys. The
+  # closing-fence count is bounded to the head window (`head -30`), NOT the whole file:
+  # an unbounded `grep -c '^---$'` would let a `---` markdown horizontal-rule anywhere in
+  # the prompt BODY inflate the count and mask a genuinely-dropped closer (the weak-proxy
+  # / #62/#98 trap — the guard would read an operand that does not prove the invariant).
+  # Frontmatter + the vendor attribution comment is well under 30 lines, so the closer is
+  # always in-window while a body rule below it cannot satisfy the count once the real
+  # closer is gone. (It still does not validate full YAML well-formedness, but it closes
+  # the common "passes the name grep, dead-ends at load" mangles within that window.)
+  assert_eq "#139 agents/$fdagent.md has well-formed frontmatter (open+close ---, model:, tools:)" \
+    "yes" "$(head -1 "$FDROOT/agents/$fdagent.md" | grep -qx -- '---' \
+            && [ "$(head -30 "$FDROOT/agents/$fdagent.md" | grep -c '^---$')" -ge 2 ] \
+            && grep -qE '^model:[[:space:]]' "$FDROOT/agents/$fdagent.md" \
+            && grep -qE '^tools:[[:space:]]' "$FDROOT/agents/$fdagent.md" && echo yes || echo no)"
+done
+
+# (3) Attribution contract (mirrors issue AC): the vendored agents' upstream Anthropic
+# attribution is recorded in LICENSES/feature-dev-LICENSE — the per-file `Vendored from`
+# marker comments were removed (commit e398332) to avoid spending context tokens on every
+# invocation, so attribution is asserted via the retained LICENSES/ file, not an in-file
+# marker. The no-first-party-SPDX-header half is proved by the (3b) property loop below.
+assert_eq "#139 LICENSES/feature-dev-LICENSE retains the upstream Apache-2.0 text" \
+  "yes" "$([ -f "$FDROOT/LICENSES/feature-dev-LICENSE" ] \
+          && grep -q 'Apache License' "$FDROOT/LICENSES/feature-dev-LICENSE" && echo yes || echo no)"
+
+# (3b) Property-based vendoring invariant (catches a forgotten attribution): every VENDORED
+# agent must NOT carry the first-party `2026 Daniel Radman` SPDX line. Since the in-file
+# `Vendored from` marker was removed (e398332), the vendored set can no longer be detected by
+# an in-file property — it is enumerated explicitly here (feature-dev #139 + pr-review-toolkit
+# #141, which this loop also covers). The first-party agents (checklist-generator/deduper/
+# verifier) are intentionally NOT in this list — they SHOULD carry the SPDX header. Each row
+# fails CLOSED on a missing/renamed file via the MISSING-FILE sentinel (!= "no").
+for af in code-explorer code-architect code-reviewer silent-failure-hunter comment-analyzer type-design-analyzer pr-test-analyzer; do
+  assert_eq "#139 vendored agent $af.md carries no first-party 2026 Daniel Radman SPDX line" \
+    "no" "$([ -f "$FDROOT/agents/$af.md" ] \
+            && { grep -q 'SPDX-FileCopyrightText: 2026 Daniel Radman' "$FDROOT/agents/$af.md" && echo yes || echo no; } \
+            || echo MISSING-FILE)"
+done
+
+# (4) Manifest contract (mirrors issue AC): plugin.json `dependencies` no longer lists
+# feature-dev. (Formerly this also asserted superpowers was STILL declared — the seam-1/2
+# scoped-removal guard. Seam 3 / #142 removed superpowers, the last companion, so that row
+# is flipped to assert its removal; the full empty-deps contract is in the #142 block.)
+assert_eq "#139 plugin.json dependencies no longer lists feature-dev" \
+  "0" "$(jq '[.dependencies[]? | select(.name == "feature-dev")] | length' "$FDROOT/.claude-plugin/plugin.json")"
+assert_eq "#142 plugin.json no longer lists superpowers (last companion removed in seam 3)" \
+  "0" "$(jq '[.dependencies[]? | select(.name == "superpowers")] | length' "$FDROOT/.claude-plugin/plugin.json")"
+
+# (5) Workflow contract: no cloud workflow installs the feature-dev companion anymore
+# (the engine now dispatches the first-party devflow:code-explorer/code-architect, so the
+# companion install is dead). Pattern split-literal to avoid self-match; shares the same
+# tracked_scan seam as (1).
+WF_FD="feature-""dev@claude-plugins-official"
+assert_eq "#139 no cloud workflow installs the feature-dev companion plugin" \
+  "" "$(tracked_scan "$FDROOT" "$WF_FD" '.github/workflows')"
+# (The seam-3 superpowers removal is the same workflow-axis shape — see the #142 (5)
+# tracked_scan aggregate below; no per-workflow loop is needed for either companion.)
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "pr-review-toolkit internalization (#141)"
+# ────────────────────────────────────────────────────────────────────────────
+# This PR vendors the five external pr-review-toolkit review agents (code-reviewer,
+# silent-failure-hunter, comment-analyzer, type-design-analyzer, pr-test-analyzer) as
+# first-party DevFlow agents under agents/ and rewires every call-site to the devflow:
+# namespace (seam 2 of #139). These assertions are the mechanical proof the internalization
+# is COMPLETE, not partial. They reuse the same fail-closed tracked_scan seam as the #139
+# block so the SAME #129 rgb_classify rc-handling backs them. PRT review agents:
+PRT_AGENTS="code-reviewer silent-failure-hunter comment-analyzer type-design-analyzer pr-test-analyzer"
+
+# (1) Reference contract (mirrors issue AC): NO tracked OPERATIVE surface may reference the
+# namespaced pr-review-toolkit agent id (the plugin name + colon form). After the rewire
+# every dispatch/allowlist/config/roster-doc id is devflow:<name>, so a real residual
+# reference (a missed call-site) surfaces as the offending file list; an infra/git error
+# surfaces as the <rgb-guard-errored> sentinel (fails loud, never a silent PASS). Pattern
+# split into two literals (like FD_PAT) so this file never self-matches its own grep.
+# Exclusions are append-only HISTORICAL / MIGRATION surfaces where the OLD id legitimately
+# survives and rewriting it would falsify the record:
+#   - .devflow/logs/                  audit scratch (per the issue AC).
+#   - CHANGELOG.md                    release history (past entries describing prior config
+#                                     state) PLUS the new #141 entry, which documents the
+#                                     breaking rename and so necessarily names the old id.
+#   - docs/review-agent-overrides.md  carries the migration table (old-key -> new-key) that
+#                                     tells operators what to rename; its OPERATIVE table /
+#                                     example are rewired to devflow: (asserted positively
+#                                     below), only the migration section names the old id.
+PRT_PAT="pr-review-""toolkit:"
+assert_eq "#141 no operative surface references the namespaced pr-review-toolkit agent id (logs/CHANGELOG/migration-doc excepted)" \
+  "" "$(tracked_scan "$FDROOT" "$PRT_PAT" ':!.devflow/logs' ':!CHANGELOG.md' ':!docs/review-agent-overrides.md')"
+
+# (2/2b/2c) Per-agent vendoring + dispatch-resolves + structural validity. For each of the
+# five review agents: the file exists first-party under agents/; the shared review engine
+# (skills/review/SKILL.md) dispatches the devflow: id AND a first-party agent of that exact
+# `name:` exists to resolve it (closing the #62/#98 dead-end-dispatch gap); the resolver
+# allowlists the devflow: id; and the frontmatter is well-formed. NOTE: unlike the #139
+# feature-dev agents, these carry NO `tools:` key (they inherit all tools), so 2c asserts
+# model: but NOT tools:.
+for a in $PRT_AGENTS; do
+  assert_eq "#141 agents/$a.md exists (vendored first-party)" \
+    "yes" "$([ -f "$FDROOT/agents/$a.md" ] && echo yes || echo no)"
+  # Pin the LOAD-BEARING dispatch header `**devflow:<name>**` (the bold per-agent prompt
+  # block — the actual dispatch site), NOT a bare `devflow:<name>` substring. The bare form
+  # also appears in prose (the Phase 0.5 gate table, the Phase 3.1 gate bullets, the
+  # pitfalls list) for the gated analyzers, so a bare grep would stay green even if the
+  # real dispatch block were deleted while a prose mention survived — the #62/#98
+  # unverified-assumption trap. The header form appears exactly once per agent (its
+  # dispatch block), so this tracks the dispatch, not any mention. (Twin of the #139
+  # `subagent_type: devflow:$fdagent` pin, adapted to this engine's bold-header convention.)
+  assert_eq "#141 review engine dispatches devflow:$a via its **devflow:$a** prompt block (load-bearing call-site present)" \
+    "yes" "$(grep -qF "**devflow:$a**" "$FDROOT/skills/review/SKILL.md" && echo yes || echo no)"
+  # Peer-completeness (AC3 names BOTH skills): the fix-loop skill carries the same roster
+  # in its phase3_dispatched / shadow-roster / reviewers_dispatched examples, and (1)'s
+  # negative scan only catches a leftover OLD id — not a DROPPED devflow: id. Pin it
+  # positively so a future edit that desyncs review-and-fix's example roster from the
+  # engine's actual dispatch set turns this row red instead of shipping silently.
+  assert_eq "#141 fix-loop skill references devflow:$a (review-and-fix roster rewired)" \
+    "yes" "$(grep -qF "devflow:$a" "$FDROOT/skills/review-and-fix/SKILL.md" && echo yes || echo no)"
+  assert_eq "#141 agents/$a.md frontmatter declares name: $a (dispatch target resolves)" \
+    "yes" "$(grep -qE "^name: $a\$" "$FDROOT/agents/$a.md" && echo yes || echo no)"
+  assert_eq "#141 resolver allowlists devflow:$a (override key resolves)" \
+    "yes" "$(grep -qF "\"devflow:$a\"" "$FDROOT/scripts/resolve-review-overrides.py" && echo yes || echo no)"
+  # Structural markers (open + close ---, model:) within the head window — bounded to
+  # head -30 so a body horizontal-rule cannot inflate the closing-fence count and mask a
+  # dropped closer. tools: is intentionally NOT required (these agents inherit all tools).
+  assert_eq "#141 agents/$a.md has well-formed frontmatter (open+close ---, model:)" \
+    "yes" "$(head -1 "$FDROOT/agents/$a.md" | grep -qx -- '---' \
+            && [ "$(head -30 "$FDROOT/agents/$a.md" | grep -c '^---$')" -ge 2 ] \
+            && grep -qE '^model:[[:space:]]' "$FDROOT/agents/$a.md" && echo yes || echo no)"
+  # (3) Attribution contract: the vendored agents' upstream Anthropic attribution is recorded
+  # in LICENSES/pr-review-toolkit-LICENSE (asserted below) — the per-file `Vendored from`
+  # marker was removed in e398332. The no-first-party-SPDX half is proved by the #139 (3b)
+  # property loop, which enumerates these five explicitly.
+done
+
+assert_eq "#141 LICENSES/pr-review-toolkit-LICENSE retains the upstream Apache-2.0 text" \
+  "yes" "$([ -f "$FDROOT/LICENSES/pr-review-toolkit-LICENSE" ] \
+          && grep -q 'Apache License' "$FDROOT/LICENSES/pr-review-toolkit-LICENSE" && echo yes || echo no)"
+
+# (4) Manifest contract (mirrors issue AC): plugin.json `dependencies` no longer lists
+# pr-review-toolkit (its agents are first-party now). superpowers staying is the #139 (4)
+# scoped-removal guard above.
+assert_eq "#141 plugin.json dependencies no longer lists pr-review-toolkit" \
+  "0" "$(jq '[.dependencies[]? | select(.name == "pr-review-toolkit")] | length' "$FDROOT/.claude-plugin/plugin.json")"
+
+# (5) Workflow contract: no cloud workflow installs the pr-review-toolkit companion anymore
+# (the engine dispatches the first-party devflow: review agents). Pattern split-literal to
+# avoid self-match; shares the tracked_scan seam as (1).
+WF_PRT="pr-review-""toolkit@claude-plugins-official"
+assert_eq "#141 no cloud workflow installs the pr-review-toolkit companion plugin" \
+  "" "$(tracked_scan "$FDROOT" "$WF_PRT" '.github/workflows')"
+
+# (6) Positive roster-doc rewire (AC8 names three docs that must describe the internalized
+# roster). The absence scan (1) catches a leftover OLD id but not a doc that DROPPED the
+# roster mention entirely, so pin each AC8 doc positively. review-agent-overrides.md needs
+# this most — it is EXCLUDED from (1) (it carries the old-id migration table), so its
+# operative override example would otherwise be unguarded; the other two are inside (1)'s
+# scan but a dropped-mention regression is still invisible to a negative scan.
+assert_eq "#141 docs/review-agent-overrides.md operative example uses the internalized devflow: key" \
+  "yes" "$(grep -qF '"devflow:code-reviewer": { "model"' "$FDROOT/docs/review-agent-overrides.md" && echo yes || echo no)"
+for d in DEVFLOW_SYSTEM_OVERVIEW.md shadow-review.md; do
+  assert_eq "#141 docs/$d describes the internalized first-party review roster (devflow:code-reviewer present)" \
+    "yes" "$(grep -qF 'devflow:code-reviewer' "$FDROOT/docs/$d" && echo yes || echo no)"
+done
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "superpowers internalization (#142)"
+# ────────────────────────────────────────────────────────────────────────────
+# Seam 3 (final) of #139: vendors the TWO runtime-dispatched superpowers SKILLS —
+# requesting-code-review (the review engine's general-purpose final-pass reviewer) and
+# receiving-code-review (the fix-loop principles) — as first-party DevFlow skills under
+# skills/, rewires their call-sites + the final-pass override key to the devflow: namespace,
+# retires the optional using-git-worktrees reference, and removes the LAST companion
+# dependency so DevFlow ships ZERO companion-plugin install dependencies. writing-skills is
+# DELIBERATELY NOT vendored: it is a development-time SKILL.md-authoring discipline DevFlow's
+# own contributors invoke, never something the engine dispatches at runtime, so it stays the
+# EXTERNAL superpowers:writing-skills skill (referenced only in CLAUDE.md's conventions) — the
+# (1c) un-fork assertions below pin that. Unlike #139/#141 (which vendored AGENTS under
+# agents/), this seam vendors SKILLS under skills/, and the upstream is MIT-licensed (Jesse
+# Vincent), NOT Apache-2.0/Anthropic. These assertions are the mechanical proof the
+# internalization is COMPLETE; they reuse the same fail-closed tracked_scan seam (the #129
+# rgb_classify rc-handling backs them).
+SP_SKILLS="requesting-code-review receiving-code-review"
+
+# (1) Reference contract (AC4): NO operative surface may reference the old namespaced
+# identifier for the two internalized skills (the plugin-name + colon form). Excepted:
+# .devflow/logs (append-only audit scratch), CHANGELOG.md (historical entries + the #142
+# breaking-rename entry, which necessarily names the old override key), and (for the final-
+# pass key only) docs/review-agent-overrides.md (carries the old->new migration table) —
+# mirrors the #141 migration-doc exception. Patterns are split-literal so this run.sh never
+# self-matches its own grep, and the descriptions avoid the contiguous colon form for the
+# same reason (a description literal would itself be a tracked hit). writing-skills is NOT
+# here: it stays external, so superpowers:writing-skills is EXPECTED on CLAUDE.md (pinned
+# positively in (1c)), not forbidden.
+SP_PAT_REQ="superpowers:""requesting-code-review"
+SP_PAT_REC="superpowers:""receiving-code-review"
+assert_eq "#142 no operative surface references the old namespaced requesting-code-review id (logs/CHANGELOG/migration-doc excepted)" \
+  "" "$(tracked_scan "$FDROOT" "$SP_PAT_REQ" ':!.devflow/logs' ':!CHANGELOG.md' ':!docs/review-agent-overrides.md')"
+assert_eq "#142 no operative surface references the old namespaced receiving-code-review id (logs/CHANGELOG excepted)" \
+  "" "$(tracked_scan "$FDROOT" "$SP_PAT_REC" ':!.devflow/logs' ':!CHANGELOG.md')"
+
+# (1c) writing-skills un-fork contract: writing-skills is a development-time discipline, NOT a
+# DevFlow runtime skill, so it must NOT be vendored first-party — the skills/writing-skills/
+# tree is absent — and CLAUDE.md's "invoke writing-skills before editing a SKILL.md" convention
+# must reference the EXTERNAL superpowers:writing-skills id (a dev-time tool, not a consumer/
+# runtime plugin dependency, so the zero-companion-dependency claim is unaffected). Pin both
+# directions so a future re-fork — re-adding skills/writing-skills/ or flipping the CLAUDE.md
+# reference back to devflow:writing-skills — fails loud here. Split-literal so this run.sh
+# never self-matches its own grep.
+SP_PAT_WRI_DEV="superpowers:""writing-skills"
+assert_eq "#142 writing-skills is NOT vendored first-party (skills/writing-skills/ absent — dev-time tool, not a runtime skill)" \
+  "no" "$([ -d "$FDROOT/skills/writing-skills" ] && echo yes || echo no)"
+assert_eq "#142 CLAUDE.md references the EXTERNAL superpowers:writing-skills authoring convention (not a vendored devflow: id)" \
+  "yes" "$(grep -qF "$SP_PAT_WRI_DEV" "$FDROOT/CLAUDE.md" && echo yes || echo no)"
+assert_eq "#142 CLAUDE.md does NOT claim a vendored first-party devflow:writing-skills skill" \
+  "no" "$(grep -qF 'devflow:writing-skills' "$FDROOT/CLAUDE.md" && echo yes || echo no)"
+
+# (1d) Broadened residual contract: beyond the two internalized ids, NO operative surface
+# may carry ANY bare `superpowers:` namespaced identifier. (1)'s two split-literal scans
+# only catch the internalized ids; this fails closed on a stray reference to a *non*-
+# internalized superpowers skill too. CLAUDE.md is excepted because it intentionally carries
+# the one legitimate external reference — superpowers:writing-skills, the dev-time authoring
+# discipline pinned in (1c); the internalized requesting/receiving ids are still covered on
+# CLAUDE.md by (1)'s repo-wide scans, and using-git-worktrees by (6), so excepting CLAUDE.md
+# here only narrows this net to "no OTHER stray superpowers: ref outside CLAUDE.md." Same
+# history/migration exceptions as (1), PLUS lib/test — this suite's own scaffolding
+# necessarily names the forbidden pattern to assert its absence, and a guard cannot scan
+# itself. Excepting all of lib/test leaves a narrow blind spot: a stray *non-internalized*
+# superpowers: id introduced into a non-scaffolding test helper would slip THIS broad scan.
+# That residual is mitigated because (1)'s targeted requesting/receiving scans are NOT path-
+# scoped (they would still catch the two internalized ids anywhere in lib/test); only a brand-
+# new reference to some OTHER superpowers skill, placed in lib/test, would evade detection.
+# Pattern split-literal so this run.sh never self-matches outside lib/test.
+SP_PAT_NS="superpowers"":"
+assert_eq "#142 no operative surface outside CLAUDE.md carries any bare superpowers: namespaced id (non-internalized refs incl.; CLAUDE.md/test scaffolding/history/migration excepted)" \
+  "" "$(tracked_scan "$FDROOT" "$SP_PAT_NS" ':!.devflow/logs' ':!CHANGELOG.md' ':!docs/review-agent-overrides.md' ':!lib/test' ':!CLAUDE.md')"
+
+# (2/2b/2c) Per-skill vendoring + structural validity. For each of the two skills the file
+# exists first-party under skills/<name>/SKILL.md; its frontmatter declares name: <name> (so
+# it resolves as devflow:<name>); and the frontmatter is well-formed (open + close ---, name:,
+# bounded to the head window so a body --- horizontal rule cannot inflate the closing-fence
+# count and mask a dropped closer). These are SKILLS, so no model:/tools: key is required.
+for sk in $SP_SKILLS; do
+  assert_eq "#142 skills/$sk/SKILL.md exists (vendored first-party)" \
+    "yes" "$([ -f "$FDROOT/skills/$sk/SKILL.md" ] && echo yes || echo no)"
+  assert_eq "#142 skills/$sk/SKILL.md frontmatter declares name: $sk (resolves as devflow:$sk)" \
+    "yes" "$(grep -qE "^name: $sk\$" "$FDROOT/skills/$sk/SKILL.md" && echo yes || echo no)"
+  assert_eq "#142 skills/$sk/SKILL.md has well-formed frontmatter (open+close ---, name:)" \
+    "yes" "$(head -1 "$FDROOT/skills/$sk/SKILL.md" | grep -qx -- '---' \
+            && [ "$(head -30 "$FDROOT/skills/$sk/SKILL.md" | grep -c '^---$')" -ge 2 ] \
+            && grep -qE '^name:[[:space:]]' "$FDROOT/skills/$sk/SKILL.md" && echo yes || echo no)"
+  # (3) Attribution contract (mirrors AC2): the vendored skills' upstream superpowers
+  # attribution lives in LICENSES/superpowers-LICENSE (MIT (c) Jesse Vincent — NOT Anthropic/
+  # Apache-2.0 like #139/#141), asserted once below — the per-file `Vendored from` marker was
+  # removed in e398332. The no-first-party-SPDX half is proved by the (3b) property loop.
+  # (2e) scaffold-config.sh registers a prompt-extension example row for this internalized
+  # skill, and that row names a skill that actually exists (the skills/$sk/SKILL.md asserted
+  # above) — pins the PE row to a real skill dir so a typo'd/renamed scaffold row fails loud
+  # instead of scaffolding a <skill>.md.example that resolves to nothing.
+  assert_eq "#142 scaffold-config.sh has a PE_SKILLS row for the internalized $sk skill" \
+    "yes" "$(grep -qE "^$sk\|" "$FDROOT/scripts/scaffold-config.sh" && echo yes || echo no)"
+done
+
+# (2d) Dispatch-resolves call-sites (the load-bearing invariant the absence-grep only proxies
+# for): each internalized skill's devflow: identifier must appear at its actual call-site, and
+# the resolving skill file (asserted above) exists. Pinned positively so a DROPPED devflow: id
+# — invisible to (1)'s negative scan — turns these rows red (the #62/#98 unverified-assumption
+# trap). requesting-code-review: the engine invokes it + resolver/schema allowlist its override
+# key; receiving-code-review: the fix-loop applies its principles. (writing-skills has no call-
+# site here — it is external; its CLAUDE.md reference is pinned in (1c).)
+assert_eq "#142 review engine dispatches /devflow:requesting-code-review (final-pass call-site rewired)" \
+  "yes" "$(grep -qF '/devflow:requesting-code-review' "$FDROOT/skills/review/SKILL.md" && echo yes || echo no)"
+assert_eq "#142 resolver allowlists devflow:requesting-code-review (override key resolves)" \
+  "yes" "$(grep -qF '"devflow:requesting-code-review"' "$FDROOT/scripts/resolve-review-overrides.py" && echo yes || echo no)"
+assert_eq "#142 config schema declares the devflow:requesting-code-review override key" \
+  "yes" "$(grep -qF '"devflow:requesting-code-review"' "$FDROOT/.devflow/config.schema.json" && echo yes || echo no)"
+assert_eq "#142 fix-loop skill applies devflow:receiving-code-review principles (call-site rewired)" \
+  "yes" "$(grep -qF 'devflow:receiving-code-review' "$FDROOT/skills/review-and-fix/SKILL.md" && echo yes || echo no)"
+
+# (3b) Property-based vendoring invariant (the skills-tree twin of the #139 agents/*.md loop):
+# EVERY file under the two vendored skill dirs must NOT carry the first-party `2026 Daniel Radman`
+# SPDX header (the license-preservation half) — proved mechanically over EVERY vendored file incl.
+# the requesting-code-review/code-reviewer.md companion, not just SKILL.md. The per-file
+# `Vendored from the superpowers plugin` attribution marker was removed (e398332) to save context
+# tokens, so attribution is now proved once via LICENSES/superpowers-LICENSE (asserted below), not
+# per-file here. NOTE: the per-file loop alone is NOT fail-closed — over an empty find result it
+# contributes zero assertions and silently passes; the SP_VENDORED_FILES non-empty assertion
+# directly below is what closes that hole, so the two must stay paired. The vendored skill paths
+# are alphanumeric/hyphen (no spaces), so the unquoted find word-split is safe.
+SP_VENDORED_FILES=$(find "$FDROOT/skills/requesting-code-review" "$FDROOT/skills/receiving-code-review" -type f 2>/dev/null)
+# Fail CLOSED on an empty iteration set: if the two vendored trees were deleted/renamed
+# wholesale, `find` returns nothing and the loop below would contribute ZERO assertions — a
+# silent pass on the exact botched-re-vendor regression this block exists to catch (the
+# loop's contract is "every file here MUST be vendored," so an empty set is a false clean,
+# not a legitimate no-op like the #139 conditional agents glob). Guard with a non-empty
+# assertion before iterating.
+assert_eq "#142 vendored skill trees are non-empty (guards the empty-find silent-pass)" \
+  "yes" "$([ -n "$SP_VENDORED_FILES" ] && echo yes || echo no)"
+# The reviewer-prompt template the requesting-code-review skill renders (review/SKILL.md
+# dispatches /devflow:requesting-code-review, which renders this template — it is not inlined) is
+# load-bearing — pin its existence explicitly (the 2/2b/2c loop pins each SKILL.md, but a
+# supporting-file deletion would otherwise be invisible to the loop, which only iterates
+# files that exist).
+assert_eq "#142 skills/requesting-code-review/code-reviewer.md exists (the rendered reviewer template)" \
+  "yes" "$([ -f "$FDROOT/skills/requesting-code-review/code-reviewer.md" ] && echo yes || echo no)"
+# ...AND the SKILL.md still LINKS that template. Existence alone is insufficient: a future edit
+# that drops/renames the `[code-reviewer.md](code-reviewer.md)` link would ORPHAN the template —
+# the final-pass reviewer renders an empty prompt — while the existence pin above and every other
+# #142 row stay green (the dropped-mention asymmetry the 2d/7/8 pins defend elsewhere, and the
+# #62/#98 unverified-assumption class). Pin the link positively. Fails CLOSED via the MISSING-FILE
+# sentinel if the SKILL.md is renamed/deleted (!= "yes").
+assert_eq "#142 skills/requesting-code-review/SKILL.md links its code-reviewer.md template (not orphaned)" \
+  "yes" "$([ -f "$FDROOT/skills/requesting-code-review/SKILL.md" ] \
+          && { grep -qF '(code-reviewer.md)' "$FDROOT/skills/requesting-code-review/SKILL.md" && echo yes || echo no; } \
+          || echo MISSING-FILE)"
+for sf in $SP_VENDORED_FILES; do
+  assert_eq "#142 vendored skill file ${sf#"$FDROOT"/} carries no first-party 2026 Daniel Radman SPDX line" \
+    "no" "$(grep -q 'SPDX-FileCopyrightText: 2026 Daniel Radman' "$sf" && echo yes || echo no)"
+done
+assert_eq "#142 LICENSES/superpowers-LICENSE retains the upstream MIT license text + copyright" \
+  "yes" "$([ -f "$FDROOT/LICENSES/superpowers-LICENSE" ] \
+          && grep -q 'MIT License' "$FDROOT/LICENSES/superpowers-LICENSE" \
+          && grep -q 'Jesse Vincent' "$FDROOT/LICENSES/superpowers-LICENSE" && echo yes || echo no)"
+
+# (4) Manifest contract (mirrors AC5): with the last companion removed, plugin.json
+# `dependencies` is now EMPTY and marketplace.json's cross-marketplace allowlist is emptied —
+# DevFlow has ZERO companion-plugin install dependencies. (The per-name superpowers-absence
+# row in plugin.json lives in the flipped #139 (4) guard above; the workflow axis is (5) below.)
+assert_eq "#142 plugin.json dependencies is now empty (zero companion-plugin dependencies)" \
+  "0" "$(jq '.dependencies | length' "$FDROOT/.claude-plugin/plugin.json")"
+assert_eq "#142 marketplace.json allowCrossMarketplaceDependenciesOn is now empty" \
+  "0" "$(jq '.allowCrossMarketplaceDependenciesOn | length' "$FDROOT/.claude-plugin/marketplace.json")"
+
+# (5) Workflow contract: no cloud workflow installs the superpowers companion anymore — the
+# same tracked_scan-aggregate shape as the #139 (5) feature-dev guard, and it fails loud on a
+# git error via the rgb sentinel (returns the offending workflow file on a real hit).
+WF_SP="superpowers""@claude-plugins-official"
+assert_eq "#142 no cloud workflow installs the superpowers companion plugin" \
+  "" "$(tracked_scan "$FDROOT" "$WF_SP" '.github/workflows')"
+
+# (6) using-git-worktrees retirement (AC6): the using-git-worktrees reference is gone (the
+# loop uses raw git worktree). using-git-worktrees is NOT internalized. Scoped REPO-WIDE via
+# the fail-closed tracked_scan (not a single-file grep): a single-file `grep ... || echo no`
+# asserting "no" would pass falsely if the target file were renamed/deleted (the grep miss
+# yields the expected "no"), and would miss a reference that migrated to another file. The
+# tracked_scan returns the offending path on a real hit and the rgb sentinel on a git error.
+# Pattern split-literal to avoid self-match.
+SP_PAT_WT="superpowers:""using-git-worktrees"
+assert_eq "#142 no operative surface references the retired using-git-worktrees skill (repo-wide; raw git worktree used instead)" \
+  "" "$(tracked_scan "$FDROOT" "$SP_PAT_WT" ':!.devflow/logs' ':!CHANGELOG.md')"
+
+# (6b) Removed-behavior pin (negative-removal, twin of (6)): the final-pass reviewer is now a
+# first-party skill that is ALWAYS present wherever DevFlow runs, so the old companion-unavailable
+# graceful-degradation framing ("this dispatch assumes the superpowers plugin is installed... fall
+# back to the other reviewers if unavailable") was removed from skills/review/SKILL.md — its
+# survival is load-bearing for the shadow's always-on-roster invariant (a three-of-four roster is
+# never full coverage). A future edit that reintroduces a companion-install assumption would pass
+# every other #142 row while silently regressing that invariant, so pin its absence on the
+# target-unique phrase. (The phrase appears nowhere else in the file, so this is not vacuous.)
+# Existence-guarded so this fails CLOSED: a bare `grep ... || echo no` asserting "no" would
+# pass falsely if skills/review/SKILL.md were renamed/deleted (the grep miss yields "no").
+# A missing file returns the distinct MISSING-FILE sentinel, which is != "no" and fails loud.
+assert_eq "#142 review engine no longer assumes the final-pass reviewer is an installed companion plugin" \
+  "no" "$([ -f "$FDROOT/skills/review/SKILL.md" ] \
+          && { grep -qF 'plugin is installed in the executing environment' "$FDROOT/skills/review/SKILL.md" && echo yes || echo no; } \
+          || echo MISSING-FILE)"
+
+# (7) Positive roster-doc rewire (AC8): the docs that describe the final-pass reviewer must
+# name the internalized devflow:requesting-code-review id — a negative scan (1) catches a
+# leftover OLD id but not a doc that DROPPED the mention. review-agent-overrides.md (excluded
+# from (1) for its migration table) needs this most.
+assert_eq "#142 docs/review-agent-overrides.md operative table uses the internalized devflow:requesting-code-review key" \
+  "yes" "$(grep -qF 'devflow:requesting-code-review' "$FDROOT/docs/review-agent-overrides.md" && echo yes || echo no)"
+for d in DEVFLOW_SYSTEM_OVERVIEW.md shadow-review.md; do
+  assert_eq "#142 docs/$d references the internalized devflow:requesting-code-review final-pass reviewer" \
+    "yes" "$(grep -qF 'devflow:requesting-code-review' "$FDROOT/docs/$d" && echo yes || echo no)"
+done
+
+# (8) Positive pin for the implement skill's Phase-3 review-roster line (PR #143 review,
+# Minor #2). skills/implement/SKILL.md names the five first-party review agents by BARE
+# name (no namespace) in its Phase-3 prose. The absence scan (1) only catches a leftover
+# OLD id, not a DROPPED bare name, so the same dropped-mention asymmetry already defended
+# for skills/review (the **devflow:<name>** header pin) and skills/review-and-fix (the
+# devflow:<name> roster pin) applies here too. Pin the whole parenthesized roster so a
+# future edit that drops an agent turns this row red instead of shipping silently.
+assert_eq "#141 implement skill names all five review agents in its Phase-3 roster line" \
+  "yes" "$(grep -qF '(code-reviewer, silent-failure-hunter, comment-analyzer, type-design-analyzer, pr-test-analyzer)' "$FDROOT/skills/implement/SKILL.md" && echo yes || echo no)"
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.

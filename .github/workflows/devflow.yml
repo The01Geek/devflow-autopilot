@@ -349,12 +349,14 @@ jobs:
             https://github.com/anthropics/claude-plugins-official.git
             ./
 
-          # Install plugins so skills like /pr-review-toolkit and /devflow:* are available
+          # Install plugins so the ambient /code-review and /revise-claude-md commands
+          # (and /devflow:*) are available in the runner. NOTE: code-review@ and
+          # claude-md-management@ are ambient-command conveniences, NOT engine dependencies
+          # — DevFlow's review/implement engine dispatches neither (the "zero companion-plugin
+          # dependencies" claim is scoped to the consumer install + what the engine dispatches;
+          # see docs/DEVFLOW_SYSTEM_OVERVIEW.md §6). devflow@ is DevFlow itself.
           plugins: |
-            pr-review-toolkit@claude-plugins-official
             code-review@claude-plugins-official
-            feature-dev@claude-plugins-official
-            superpowers@claude-plugins-official
             claude-md-management@claude-plugins-official
             devflow@devflow-marketplace
 

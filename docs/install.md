@@ -1,15 +1,14 @@
 # Installing & updating DevFlow
 
-The [README quick start](../README.md#quick-start) gets you running in one line. This page is the full reference: every install path, the dependency-resolution gotcha, and how updates work for both tiers.
+The [README quick start](../README.md#quick-start) gets you running in one line. This page is the full reference: every install path, the now-zero companion-plugin dependency set, and how updates work for both tiers.
 
 ## Local tier
 
 DevFlow is published as a Claude Code plugin from this repository, which is also its own marketplace.
 
-**In your terminal** (three commands — run them in order; works in any shell, including PowerShell and fish that don't support `&&` chaining):
+**In your terminal** (two commands — run them in order; works in any shell, including PowerShell and fish that don't support `&&` chaining):
 
 ```bash
-claude plugin marketplace add anthropics/claude-plugins-official
 claude plugin marketplace add The01Geek/devflow-autopilot
 claude plugin install devflow@devflow-marketplace
 ```
@@ -17,8 +16,7 @@ claude plugin install devflow@devflow-marketplace
 **Or from inside Claude Code:**
 
 ```text
-# Add the marketplaces
-/plugin marketplace add anthropics/claude-plugins-official
+# Add the marketplace
 /plugin marketplace add The01Geek/devflow-autopilot
 
 # Install plugin
@@ -27,11 +25,9 @@ claude plugin install devflow@devflow-marketplace
 
 Then run `/reload-plugins` (or restart) to activate. That's it for the local tier — it needs **zero configuration**.
 
-### Why add the official marketplace first?
+### No companion plugins to add
 
-DevFlow declares three companion plugins as **dependencies**: `feature-dev`, `pr-review-toolkit`, and `superpowers` (all from `claude-plugins-official`). `/plugin install` **auto-installs them itself** — no `curl`/`install.sh` needed — **but only once `claude-plugins-official` has actually been *added***. The official marketplace is *discoverable* by default, yet cross-marketplace dependencies resolve only when it is added, which is why the commands above add it first.
-
-On a fresh machine where it hasn't been added, DevFlow lands in the `/plugin` **Errors** tab with `dependency-unsatisfied` until you either add the marketplace (then `/reload-plugins`) or install the three plugins manually. The deps install at the same scope as DevFlow and appear in `/plugin` as their own `@claude-plugins-official` entries, not nested under DevFlow. `/simplify` is a built-in Claude Code skill and needs no installation.
+DevFlow declares **zero companion-plugin dependencies** — every external asset its engine once dispatched is now a first-party DevFlow file: the `pr-review-toolkit` review agents and the `feature-dev` `code-explorer`/`code-architect` discovery/planning subagents live under `agents/`, and the `superpowers` final-pass reviewer (`requesting-code-review`) and fix-loop `receiving-code-review` principles live under `skills/` — all hard-forked with their upstream licenses retained verbatim under `LICENSES/`. So `/plugin install devflow@devflow-marketplace` resolves with **nothing else to add**: no `claude-plugins-official` marketplace prerequisite, and none of the old `/plugin` **Errors**-tab `dependency-unsatisfied` friction that a missing cross-marketplace dependency used to cause. `/simplify` is a built-in Claude Code skill and needs no installation.
 
 ### The step people miss: PyYAML
 

@@ -36,7 +36,7 @@ Usage:
     resolve-review-overrides.py AGENT [AGENT ...] [--config FILE] [--config-get PATH]
 
 Prints the override map as JSON to stdout, e.g.
-    {"pr-review-toolkit:code-reviewer": {"model": "claude-opus-4-8", "effort": "high"}}
+    {"devflow:code-reviewer": {"model": "claude-opus-4-8", "effort": "high"}}
 Prints `{}` when no dispatched subagent has an applicable override (the engine
 then emits no --agents block). Warnings go to stderr; `main()` always returns 0
 on any config shape. Invalid CLI arguments never reach `main()` — argparse exits
@@ -66,12 +66,12 @@ KNOWN_AGENTS = (
     "devflow:checklist-generator",
     "devflow:checklist-deduper",
     "devflow:checklist-verifier",
-    "pr-review-toolkit:code-reviewer",
-    "pr-review-toolkit:silent-failure-hunter",
-    "pr-review-toolkit:comment-analyzer",
-    "pr-review-toolkit:type-design-analyzer",
-    "pr-review-toolkit:pr-test-analyzer",
-    "superpowers:requesting-code-review",
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:type-design-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review",
 )
 
 

@@ -504,11 +504,13 @@ jobs:
             https://github.com/anthropics/claude-plugins-official.git
             ./
 
+          # code-review@ and claude-md-management@ are ambient-command conveniences (the
+          # /code-review and /revise-claude-md slash commands), NOT engine dependencies —
+          # DevFlow's engine dispatches neither. The "zero companion-plugin dependencies"
+          # claim is scoped to the consumer install + what the engine dispatches; see
+          # docs/DEVFLOW_SYSTEM_OVERVIEW.md §6. devflow@ is DevFlow itself.
           plugins: |
-            pr-review-toolkit@claude-plugins-official
             code-review@claude-plugins-official
-            feature-dev@claude-plugins-official
-            superpowers@claude-plugins-official
             claude-md-management@claude-plugins-official
             devflow@devflow-marketplace
 

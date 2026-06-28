@@ -18,10 +18,9 @@
 
 ## Quick start
 
-**1. Install** (three commands — run in order; works in any shell):
+**1. Install** (two commands — run in order; works in any shell):
 
 ```bash
-claude plugin marketplace add anthropics/claude-plugins-official
 claude plugin marketplace add The01Geek/devflow-autopilot
 claude plugin install devflow@devflow-marketplace
 ```
@@ -39,7 +38,7 @@ claude /devflow:init   # launches Claude Code and scaffolds your config
 /devflow:implement <issue_number>
 ```
 
-The local tier runs **with zero configuration** — every value already has a built-in default. `/devflow:init` is recommended: it keeps the plugin auto-updated and writes a `.devflow/config.json` you can tweak. See **[Installing & updating](docs/install.md)** for the full options (companion-plugin resolution, PyYAML, the cloud tier) and [Requirements](#requirements) for the handful of tools it expects on your PATH.
+The local tier runs **with zero configuration** — every value already has a built-in default. `/devflow:init` is recommended: it keeps the plugin auto-updated and writes a `.devflow/config.json` you can tweak. See **[Installing & updating](docs/install.md)** for the full options (the zero-dependency install, PyYAML, the cloud tier) and [Requirements](#requirements) for the handful of tools it expects on your PATH.
 
 ## Why DevFlow
 
@@ -121,7 +120,7 @@ All four are used by the core skills; none is optional. Shell helpers avoid GNU-
 | Skill | What it does |
 |---|---|
 | `/devflow:implement <issue#>` | Full 4-phase lifecycle: issue → branch → plan → implement → test → draft PR → `/simplify` → `/devflow:review-and-fix` → file follow-up issues → docs → ready PR |
-| `/devflow:review [PR#]` | Comprehensive review — verification checklist + `pr-review-toolkit` & `superpowers` reviewers; returns APPROVE/REJECT |
+| `/devflow:review [PR#]` | Comprehensive review — verification checklist + the first-party `devflow:` review agents & the first-party `devflow:requesting-code-review` final-pass reviewer; returns APPROVE/REJECT |
 | `/devflow:review-and-fix [PR#]` | `/devflow:review` plus an automatic fix loop (default 5 iterations) that writes a deferrals manifest at exit |
 | `/devflow:pr-description [issue#]` | Generate/update the PR description from the branch diff |
 | `/devflow:docs` | Orchestrate the three doc steps in one session |
@@ -135,7 +134,7 @@ All four are used by the core skills; none is optional. Shell helpers avoid GNU-
 
 > **Namespacing matters where names collide with built-ins.** `/review`, `/init`, and `/security-review` are *built-in* Claude Code commands — always use the `/devflow:`-prefixed form to reach DevFlow's engine (a bare `/review` reaches Claude Code's reviewer, not DevFlow's). DevFlow's cloud workflows trigger on **bare** `/devflow:*` comments (no `@claude`), so they coexist with Anthropic's Claude GitHub App, which owns plain `@claude` mentions and `/security-review`.
 
-> **Companion plugins.** DevFlow declares `feature-dev`, `pr-review-toolkit`, and `superpowers` (from `claude-plugins-official`) as dependencies; `/plugin install` auto-installs them **once that marketplace is added** — see [Installing & updating](docs/install.md#why-add-the-official-marketplace-first). `/simplify` is a built-in skill. Skills degrade gracefully if an optional companion is missing.
+> **No companion plugins.** DevFlow declares **zero** companion-plugin dependencies — `/plugin install devflow@devflow-marketplace` resolves on its own, with no `claude-plugins-official` prerequisite and none of the old `dependency-unsatisfied` Errors-tab friction. Every external asset its engine once dispatched is now a first-party DevFlow file: the `pr-review-toolkit` review agents and the `feature-dev` `code-explorer`/`code-architect` subagents under `agents/`, and the `superpowers` final-pass reviewer (`requesting-code-review`) and fix-loop `receiving-code-review` skills under `skills/` — all hard-forked with upstream licenses retained verbatim under `LICENSES/`. See [Installing & updating](docs/install.md#no-companion-plugins-to-add). `/simplify` is a built-in Claude Code skill.
 
 ## Project configuration
 

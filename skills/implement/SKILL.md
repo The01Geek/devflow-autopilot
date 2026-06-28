@@ -305,7 +305,7 @@ Update the workpad: `workpad.py update $ISSUE_NUMBER --status Discovering --note
 
 ### 2.1 Discovery
 
-Use the **Agent tool** with `subagent_type: feature-dev:code-explorer` to explore the codebase and understand the system as it relates to the issue.
+Use the **Agent tool** with `subagent_type: devflow:code-explorer` to explore the codebase and understand the system as it relates to the issue.
 
 **The issue body is a starting point, not the source of truth.** Treat its problem framing, any stated root cause, and its Technical Context as a strong lead to *verify* — never fact to implement on faith. The explorer (and the architect in Path B) confirm the issue's claims against the actual code; where they diverge, **the code wins**: surface the divergence in the workpad and plan from what the code shows, rather than implementing a claim the code contradicts.
 
@@ -359,7 +359,7 @@ Plan the implementation inline using the explorer's findings. Identify which fil
 
 #### Path B: Complex issue
 
-Use the **Agent tool** with `subagent_type: feature-dev:code-architect` to design the implementation.
+Use the **Agent tool** with `subagent_type: devflow:code-architect` to design the implementation.
 
 Pass it:
 - The full GitHub issue content (title, body, labels)
@@ -669,8 +669,8 @@ Invoke the **Skill tool** with `skill: review-and-fix` and `args: "--push-each-i
 
 This runs the four-phase review engine in your context:
 1. **Verification checklist** — generates and verifies every dependency interaction, test-mock alignment, data format assumption, and API contract claim against actual source code
-2. **Existing review agents** — runs pr-review-toolkit (code-reviewer, silent-failure-hunter, comment-analyzer, pr-test-analyzer) and superpowers code-reviewer in parallel
-3. **Automatic fix loop** — fixes findings using receiving-code-review principles, re-runs the engine, loops until APPROVE or the configured iteration cap (`devflow_review_and_fix.max_iterations`, default 5)
+2. **Existing review agents** — runs the first-party review agents (code-reviewer, silent-failure-hunter, comment-analyzer, type-design-analyzer, pr-test-analyzer) and the first-party `devflow:requesting-code-review` final-pass reviewer in parallel
+3. **Automatic fix loop** — fixes findings using `devflow:receiving-code-review` principles, re-runs the engine, loops until APPROVE or the configured iteration cap (`devflow_review_and_fix.max_iterations`, default 5)
 
 Follow the skill's instructions. It handles evaluation, fixing, testing, and re-review internally.
 

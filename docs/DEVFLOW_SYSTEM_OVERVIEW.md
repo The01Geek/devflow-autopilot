@@ -87,17 +87,18 @@ Most "AI writes your code" tools stop at the first step and hand you a diff. Dev
 DevFlow is distributed as a **Claude Code plugin**. The repository is also its own plugin **marketplace**. It bundles:
 
 - **Skills**: the user-facing commands (`/devflow:implement`, `/devflow:review`, the `/devflow:docs` family, `/devflow:create-issue`, `/devflow:retrospective-weekly`, etc.). Each is a `SKILL.md` file containing a detailed procedure the model follows.
-- **Agents**: three specialized subagents (`checklist-generator`, `checklist-deduper`, `checklist-verifier`) that power the review engine.
+- **Agents**: ten specialized first-party subagents — `checklist-generator`, `checklist-deduper`, `checklist-verifier` power the review engine; the five Phase-3 review agents `code-reviewer`, `silent-failure-hunter`, `comment-analyzer`, `pr-test-analyzer`, `type-design-analyzer` do the bulk of `/devflow:review`'s work (vendored from Anthropic's pr-review-toolkit plugin under Apache-2.0, retained at `LICENSES/pr-review-toolkit-LICENSE`); and `code-explorer` (codebase discovery) and `code-architect` (planning) power `/devflow:implement` (vendored from Anthropic's feature-dev plugin under Apache-2.0, retained at `LICENSES/feature-dev-LICENSE`). DevFlow owns all the vendored agents as a hard fork.
 - **Scripts** (`scripts/`, `lib/`), deterministic helpers in Bash, `jq`, and Python that do all the mechanical work (fetching context, computing patterns, gating, git/PR mechanics) so the LLM is only invoked for genuine judgment.
 - **Cloud workflows** (`.github/`), optional GitHub Actions that make DevFlow run autonomously on issue/PR events.
 
-It declares three **companion plugins** as dependencies, all from Anthropic's official `claude-plugins-official` marketplace:
+It declares **zero companion-plugin dependencies** — every external asset the engine once dispatched is now a first-party DevFlow file, internalized as a hard fork across three seams:
 
-| Plugin | Role in DevFlow |
-|---|---|
-| `feature-dev` | Provides `code-explorer` (codebase discovery) and `code-architect` (planning) subagents used by `/devflow:implement`. |
-| `pr-review-toolkit` | Provides the review agents: `code-reviewer`, `silent-failure-hunter`, `comment-analyzer`, `pr-test-analyzer`, `type-design-analyzer`. |
-| `superpowers` | Provides the final-pass reviewer (`requesting-code-review`) plus brainstorming/TDD discipline and the `receiving-code-review` principles used when fixing findings. |
+- The five Phase-3 review agents (`code-reviewer`, `silent-failure-hunter`, `comment-analyzer`, `pr-test-analyzer`, `type-design-analyzer`) and the discovery/planning subagents `code-explorer` / `code-architect` are first-party agents under `agents/` (vendored from Anthropic's `pr-review-toolkit` and `feature-dev` plugins under Apache-2.0, retained at `LICENSES/pr-review-toolkit-LICENSE` and `LICENSES/feature-dev-LICENSE`), dispatched as `devflow:<name>` — so neither `pr-review-toolkit` nor `feature-dev` is a dependency.
+- The final-pass reviewer (`requesting-code-review`) and the fix-loop `receiving-code-review` principles are first-party skills under `skills/` (vendored from the `superpowers` plugin under its MIT license — Jesse Vincent — retained at `LICENSES/superpowers-LICENSE`), dispatched/invoked as `devflow:<name>` — so `superpowers` is no longer a runtime dependency. (The `writing-skills` authoring discipline is **not** vendored — it remains the external `superpowers` skill, a development-time tool DevFlow's own contributors use, not something the engine dispatches.)
+
+DevFlow owns all the vendored agents and skills as a hard fork, and may modify them from this point forward. With the `superpowers` seam internalized there are **no companion-plugin install dependencies left at all** — DevFlow installs and runs on its own.
+
+The "zero companion-plugin dependencies" claim is scoped precisely: it means the **consumer `/plugin install`** resolves with no `claude-plugins-official` prerequisite, and DevFlow's **engine** (everything under `skills/` + `agents/`) dispatches no companion plugin. It is *not* a claim that the cloud workflows install nothing else — `devflow.yml`, `devflow-implement.yml`, and `devflow-runner.yml` still install `code-review@claude-plugins-official` and `claude-md-management@claude-plugins-official` to make the **ambient** `/code-review` and `/revise-claude-md` slash commands available inside the runner. Those are convenience commands the engine never dispatches as part of a review or implementation, so they are not engine dependencies and do not affect the consumer install.
 
 `/simplify` (used for self-review) is a **built-in** Claude Code skill, intentionally *not* a dependency.
 
@@ -161,7 +162,7 @@ This is the canonical story for a demo video or "how it works" slide:
 | Skill | What it does | How it's invoked |
 |---|---|---|
 | `/devflow:implement <issue#>` | Full lifecycle: fetch issue → branch + workpad → discover/plan → implement → test → draft PR → `/simplify` → `/devflow:review-and-fix` → acceptance gate → file follow-up issues → docs → ready PR | interactively, or by commenting on an issue (cloud) |
-| `/devflow:review [PR#]` | Verification-checklist-driven review; runs `pr-review-toolkit` + `superpowers` reviewers; returns **APPROVE/REJECT** (no auto-fix) | interactively, or a bare `/devflow:review` comment on the PR |
+| `/devflow:review [PR#]` | Verification-checklist-driven review; runs the first-party `devflow:` review agents + the first-party `devflow:requesting-code-review` final-pass reviewer; returns **APPROVE/REJECT** (no auto-fix) | interactively, or a bare `/devflow:review` comment on the PR |
 | `/devflow:review-and-fix [PR#]` | `/devflow:review` + an automatic fix loop (max **4** iterations); writes a deferrals manifest at Loop Exit | interactively; called by `/devflow:implement` Phase 3 |
 | `/devflow:pr-description [issue#]` | Generate/update PR description from the branch diff; renders the Scope-Acknowledged Findings block | interactively; called by `/devflow:implement` Phase 4 |
 | `/devflow:docs` | Orchestrates the three doc steps in one session | interactively; called by `/devflow:implement` Phase 4 |
@@ -226,9 +227,9 @@ DevFlow maintains **exactly one** marker-tagged comment on the GitHub issue for 
 - **1.5** Push the branch.
 
 ### Phase 2: Discover, Plan & Implement
-- **2.1** Discovery via the `feature-dev:code-explorer` subagent.
+- **2.1** Discovery via the first-party `devflow:code-explorer` subagent.
 - **2.1.5 Reproduce-First Gate** (bug-labelled only): capture a reproduction signal (failing test / error log) *before* planning; if it can't reproduce → `Blocked`.
-- **2.2** Assess complexity. **Simple** (≤5 files, clear, no architecture) → implement directly. **Complex** → `feature-dev:code-architect` produces a blueprint (held in context, never committed). Sub-gates: **2.2.4 Reuse & Altitude** (reuse existing helpers by `file:line`), **2.2.5 Scope-Adjustment** (multi-PR issues), **2.2.6 AC-Plan reconciliation**.
+- **2.2** Assess complexity. **Simple** (≤5 files, clear, no architecture) → implement directly. **Complex** → the first-party `devflow:code-architect` produces a blueprint (held in context, never committed). Sub-gates: **2.2.4 Reuse & Altitude** (reuse existing helpers by `file:line`), **2.2.5 Scope-Adjustment** (multi-PR issues), **2.2.6 AC-Plan reconciliation**.
 - **2.3 Implement** with mandatory post-write **sweeps** (the discipline that prevents half-finished changes — each heading states its own trigger; the five always-on sweeps — convention, boundary-assumption, self-authored-claim, simplification, and error-handling — run on every diff):
   - **2.3.0** Changed-contract sweep (re-run after any merge/rebase of main)
   - **2.3.0a** Peer-checkpoint completeness sweep
@@ -289,14 +290,14 @@ The `devflow:checklist-deduper` agent (model: **sonnet**) merges batches, preser
 
 ### Phase 3: Specialized review agents
 All launched in a single message; **always re-run every fix-loop iteration** (the main variance-recovery lever). Four **always-on** reviewers:
-- `pr-review-toolkit:code-reviewer`
-- `pr-review-toolkit:silent-failure-hunter`
-- `pr-review-toolkit:comment-analyzer`
-- a general-purpose final-pass reviewer invoking `superpowers:requesting-code-review`
+- `devflow:code-reviewer`
+- `devflow:silent-failure-hunter`
+- `devflow:comment-analyzer`
+- a general-purpose final-pass reviewer invoking the first-party `devflow:requesting-code-review` skill
 
 Two **gated** reviewers:
-- `pr-review-toolkit:type-design-analyzer` (only if `has_new_types`)
-- `pr-review-toolkit:pr-test-analyzer` (only if the test-relevance predicate matches)
+- `devflow:type-design-analyzer` (only if `has_new_types`)
+- `devflow:pr-test-analyzer` (only if the test-relevance predicate matches)
 
 **Mechanical corroboration:** findings are matched by a `defect_signature` (`file` + overlapping `line_range` + identical `kind`). Corroboration across agents is a stronger calibrator than any single agent's stated confidence.
 
@@ -306,10 +307,10 @@ Two **gated** reviewers:
 - **4.4** (PR mode only, `/devflow:review`) records a formal GitHub review: **REJECT → `--request-changes`** (blocks merge), clean → `--approve`.
 
 ### Per-subagent model & effort overrides
-The `devflow_review.agent_overrides` config maps any of the **nine** review subagents (or a `default`) to a `{model, effort}`. Because five of the nine are external plugins whose frontmatter DevFlow can't edit, and effort isn't a dispatch-time parameter, DevFlow materializes a per-run `--agents` JSON block at each dispatch (via `scripts/resolve-review-overrides.py`). Effort enum: `low/medium/high/xhigh/max`.
+The `devflow_review.agent_overrides` config maps any of the **nine** review subagents (or a `default`) to a `{model, effort}`. Because effort isn't a dispatch-time parameter and per-run overrides must not require editing committed agent/skill frontmatter, DevFlow materializes a per-run `--agents` JSON block at each dispatch (via `scripts/resolve-review-overrides.py`). Effort enum: `low/medium/high/xhigh/max`.
 
 ### The fix loop (`/devflow:review-and-fix`)
-- **Maximum 4 iterations.** Each iteration runs the full engine, then fixes findings one at a time (using `superpowers:receiving-code-review` principles), runs tests, commits (`fix:`), and continues.
+- **Maximum 4 iterations.** Each iteration runs the full engine, then fixes findings one at a time (using `devflow:receiving-code-review` principles), runs tests, commits (`fix:`), and continues.
 - **Pre-fix verification gate (Step 2.5):** single-source claims about external tools are **web-verified** (cap **5 WebFetches/iteration**), Confirmed → fix; Refuted → demote to advisory. This prevents the loop from "fixing" a hallucinated problem.
 - **Pushback tracking:** when a finding is skipped, it's tagged with a `skip_category` (e.g. `claim-quality`, `out-of-scope`, `already-tracked`). The same finding skipped twice → escalate and stop.
 - **Convergence check:** exits early when fixes are small and no new corroborated Critical/Important finding appears.
@@ -370,7 +371,7 @@ The skill exists to prevent "option-listing" issues. Steps:
 
 The issue is created **only after the user explicitly confirms**: a pending confirmation is a valid waiting state, not a reason to create.
 
-**Code exploration, yes, just not the `code-explorer` subagent.** `/devflow:create-issue` *does* explore the codebase, that's precisely what lets it ask deep, well-grounded questions instead of generic ones. Step 1's `/devflow:docs-verify --report-only` surfaces current behavior and the **relevant files**, and the Step 2 clarification reads those (and adjacent code) to find **similar existing patterns and features** and understand **how the new feature would fit**: which is exactly how it surfaces real implementation forks ("where the codebase admits more than one way to build it") and recommends the best option. What it does **not** do is dispatch the heavyweight `feature-dev:code-explorer` subagent; the exploration is done inline by the orchestrator. The "do not re-explore the whole codebase" rule in Step 3 is a *draft-time* discipline, by then it works from what it already learned, doing only targeted confirming reads. The dedicated `code-explorer` deep dive is reserved for `/devflow:implement` **Phase 2.1**, where the goal shifts from *what/why* to *how*.
+**Code exploration, yes, just not the `code-explorer` subagent.** `/devflow:create-issue` *does* explore the codebase, that's precisely what lets it ask deep, well-grounded questions instead of generic ones. Step 1's `/devflow:docs-verify --report-only` surfaces current behavior and the **relevant files**, and the Step 2 clarification reads those (and adjacent code) to find **similar existing patterns and features** and understand **how the new feature would fit**: which is exactly how it surfaces real implementation forks ("where the codebase admits more than one way to build it") and recommends the best option. What it does **not** do is dispatch the heavyweight `devflow:code-explorer` subagent; the exploration is done inline by the orchestrator. The "do not re-explore the whole codebase" rule in Step 3 is a *draft-time* discipline, by then it works from what it already learned, doing only targeted confirming reads. The dedicated `code-explorer` deep dive is reserved for `/devflow:implement` **Phase 2.1**, where the goal shifts from *what/why* to *how*.
 
 ---
 
@@ -532,11 +533,10 @@ After scaffolding and the dependency preflight, `/devflow:init` runs one final *
 
 **Local tier (one line):**
 ```bash
-claude plugin marketplace add anthropics/claude-plugins-official \
-  && claude plugin marketplace add The01Geek/devflow-autopilot \
+claude plugin marketplace add The01Geek/devflow-autopilot \
   && claude plugin install devflow@devflow-marketplace
 ```
-The three companion plugins **auto-install**: *provided `claude-plugins-official` has been added first* (cross-marketplace dependencies only resolve once it's actually added). PyYAML is a separate, manual prerequisite (`pip install -r requirements.txt`), `/plugin install` never runs `pip`.
+DevFlow declares **zero companion-plugin dependencies** (every external asset it once dispatched is now first-party — see §6), so `/plugin install` resolves on its own with no `claude-plugins-official` prerequisite. PyYAML is a separate, manual prerequisite (`pip install -r requirements.txt`); `/plugin install` never runs `pip`.
 
 **Cloud tier (one line, from repo root):**
 ```bash
@@ -609,7 +609,7 @@ Skills reference bundled helpers via `${CLAUDE_SKILL_DIR}` so they resolve from 
 - Shadow review, *it audits its own audit*, with honest calibration (narrows the gap, never closes it).
 - Self-improvement loop with an LLM/heuristic split (LLM only at two judgment points; everything else is zero-token deterministic).
 - Two tiers: works locally with **zero config**, scales to **autonomous** cloud automation with one secret.
-- Built on Claude Code's plugin system; composes Anthropic's official companion plugins.
+- Built on Claude Code's plugin system; ships its full review/discovery/authoring toolchain first-party (hard-forked from Anthropic's `pr-review-toolkit` + `feature-dev` agents and the `superpowers` skills, upstream licenses retained) — **zero companion-plugin dependencies**.
 - Security-explicit: base-ref trust boundary, deny-list floor, read-only-by-default reviewer.
 
 **The sales narrative (the argument arc, use it in a pitch, a landing page, or a talk):**

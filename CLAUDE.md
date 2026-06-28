@@ -21,8 +21,8 @@ CI (`.github/workflows/ci.yml`) runs the same suite + lint on every PR. The **re
 
 ## Architecture
 
-- `skills/` — one `SKILL.md` per command (`/devflow:implement`, `/devflow:review`, `/devflow:review-and-fix`, the `/devflow:docs` family, `/devflow:create-issue`, `/devflow:retrospective-weekly`, …).
-- `agents/` — review-engine subagents: `checklist-generator` (opus), `checklist-deduper` (sonnet), `checklist-verifier` (sonnet).
+- `skills/` — one `SKILL.md` per command (`/devflow:implement`, `/devflow:review`, `/devflow:review-and-fix`, the `/devflow:docs` family, `/devflow:create-issue`, `/devflow:retrospective-weekly`, …), plus the two skills vendored from the `superpowers` plugin (`requesting-code-review` — the review engine's final-pass reviewer, dispatched as a `general-purpose` Task; `receiving-code-review` — the fix-loop principles) under their upstream MIT license (Jesse Vincent — see `LICENSES/superpowers-LICENSE`). Both are *runtime-dispatched* by DevFlow's engine; the `superpowers:writing-skills` authoring discipline is **not** vendored — it is a development-time tool, referenced as the external skill in the Conventions below.
+- `agents/` — first-party subagents: the review-engine trio `checklist-generator` (opus), `checklist-deduper` (sonnet), `checklist-verifier` (sonnet), plus `code-explorer` and `code-architect` (the `/devflow:implement` discovery/planning agents, vendored from Anthropic's feature-dev plugin under Apache-2.0 — see `LICENSES/feature-dev-LICENSE`).
 - `scripts/` — Python + shell CLIs (`workpad.py`, `config-get.sh`, `match-deferrals.py`, `file-deferrals.py`, `parse-acs.py`, `resolve-*-trigger.sh`, …).
 - `lib/` — retrospective-loop helpers (`*.sh`, `*.jq`), `preflight.sh`, `test/`.
 - `.github/` — optional cloud tier: workflows + composite actions (incl. `vendor-plugin`).
