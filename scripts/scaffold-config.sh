@@ -218,7 +218,6 @@ retrospective-audit|name the intervention patterns your team prioritizes when au
 retrospective-weekly|tune which authors and time window the weekly loop scans
 review|add house review rules the reviewer must enforce
 review-and-fix|add house review rules and fix-loop guardrails specific to your repo
-writing-skills|add the SKILL.md authoring conventions and house style your team follows
 PE_SKILLS
   if [ "$pe_created" -gt 0 ]; then
     log "created/backfilled $pe_created prompt-extension example(s) in $EXTENSIONS_DIR/ (rename <skill>.md.example to <skill>.md to activate)"

@@ -6327,47 +6327,69 @@ done
 # ────────────────────────────────────────────────────────────────────────────
 echo "superpowers internalization (#142)"
 # ────────────────────────────────────────────────────────────────────────────
-# Seam 3 (final) of #139: vendors the three superpowers SKILLS — requesting-code-review
-# (the review engine's general-purpose final-pass reviewer), receiving-code-review (the
-# fix-loop principles), writing-skills (the SKILL.md authoring discipline) — as first-party
-# DevFlow skills under skills/, rewires the requesting/receiving call-sites + the final-pass
-# override key to the devflow: namespace, retires the optional using-git-worktrees reference,
-# and removes the LAST companion dependency so DevFlow ships ZERO companion-plugin install
-# dependencies. Unlike #139/#141 (which vendored AGENTS under agents/), this seam vendors
-# SKILLS under skills/, and the upstream is MIT-licensed (Jesse Vincent), NOT Apache-2.0/
-# Anthropic. These assertions are the mechanical proof the internalization is COMPLETE; they
-# reuse the same fail-closed tracked_scan seam (the #129 rgb_classify rc-handling backs them).
-SP_SKILLS="requesting-code-review receiving-code-review writing-skills"
+# Seam 3 (final) of #139: vendors the TWO runtime-dispatched superpowers SKILLS —
+# requesting-code-review (the review engine's general-purpose final-pass reviewer) and
+# receiving-code-review (the fix-loop principles) — as first-party DevFlow skills under
+# skills/, rewires their call-sites + the final-pass override key to the devflow: namespace,
+# retires the optional using-git-worktrees reference, and removes the LAST companion
+# dependency so DevFlow ships ZERO companion-plugin install dependencies. writing-skills is
+# DELIBERATELY NOT vendored: it is a development-time SKILL.md-authoring discipline DevFlow's
+# own contributors invoke, never something the engine dispatches at runtime, so it stays the
+# EXTERNAL superpowers:writing-skills skill (referenced only in CLAUDE.md's conventions) — the
+# (1c) un-fork assertions below pin that. Unlike #139/#141 (which vendored AGENTS under
+# agents/), this seam vendors SKILLS under skills/, and the upstream is MIT-licensed (Jesse
+# Vincent), NOT Apache-2.0/Anthropic. These assertions are the mechanical proof the
+# internalization is COMPLETE; they reuse the same fail-closed tracked_scan seam (the #129
+# rgb_classify rc-handling backs them).
+SP_SKILLS="requesting-code-review receiving-code-review"
 
 # (1) Reference contract (AC4): NO operative surface may reference the old namespaced
-# identifier for the three internalized skills (the plugin-name + colon form). Excepted:
+# identifier for the two internalized skills (the plugin-name + colon form). Excepted:
 # .devflow/logs (append-only audit scratch), CHANGELOG.md (historical entries + the #142
 # breaking-rename entry, which necessarily names the old override key), and (for the final-
 # pass key only) docs/review-agent-overrides.md (carries the old->new migration table) —
 # mirrors the #141 migration-doc exception. Patterns are split-literal so this run.sh never
 # self-matches its own grep, and the descriptions avoid the contiguous colon form for the
-# same reason (a description literal would itself be a tracked hit).
+# same reason (a description literal would itself be a tracked hit). writing-skills is NOT
+# here: it stays external, so superpowers:writing-skills is EXPECTED on CLAUDE.md (pinned
+# positively in (1c)), not forbidden.
 SP_PAT_REQ="superpowers:""requesting-code-review"
 SP_PAT_REC="superpowers:""receiving-code-review"
-SP_PAT_WRI="superpowers:""writing-skills"
 assert_eq "#142 no operative surface references the old namespaced requesting-code-review id (logs/CHANGELOG/migration-doc excepted)" \
   "" "$(tracked_scan "$FDROOT" "$SP_PAT_REQ" ':!.devflow/logs' ':!CHANGELOG.md' ':!docs/review-agent-overrides.md')"
 assert_eq "#142 no operative surface references the old namespaced receiving-code-review id (logs/CHANGELOG excepted)" \
   "" "$(tracked_scan "$FDROOT" "$SP_PAT_REC" ':!.devflow/logs' ':!CHANGELOG.md')"
-assert_eq "#142 no operative surface references the old namespaced writing-skills id (logs/CHANGELOG excepted)" \
-  "" "$(tracked_scan "$FDROOT" "$SP_PAT_WRI" ':!.devflow/logs' ':!CHANGELOG.md')"
 
-# (1d) Broadened residual contract: beyond the three internalized ids, NO operative surface
-# may carry ANY bare `superpowers:` namespaced identifier. (1)'s three split-literal scans
+# (1c) writing-skills un-fork contract: writing-skills is a development-time discipline, NOT a
+# DevFlow runtime skill, so it must NOT be vendored first-party — the skills/writing-skills/
+# tree is absent — and CLAUDE.md's "invoke writing-skills before editing a SKILL.md" convention
+# must reference the EXTERNAL superpowers:writing-skills id (a dev-time tool, not a consumer/
+# runtime plugin dependency, so the zero-companion-dependency claim is unaffected). Pin both
+# directions so a future re-fork — re-adding skills/writing-skills/ or flipping the CLAUDE.md
+# reference back to devflow:writing-skills — fails loud here. Split-literal so this run.sh
+# never self-matches its own grep.
+SP_PAT_WRI_DEV="superpowers:""writing-skills"
+assert_eq "#142 writing-skills is NOT vendored first-party (skills/writing-skills/ absent — dev-time tool, not a runtime skill)" \
+  "no" "$([ -d "$FDROOT/skills/writing-skills" ] && echo yes || echo no)"
+assert_eq "#142 CLAUDE.md references the EXTERNAL superpowers:writing-skills authoring convention (not a vendored devflow: id)" \
+  "yes" "$(grep -qF "$SP_PAT_WRI_DEV" "$FDROOT/CLAUDE.md" && echo yes || echo no)"
+assert_eq "#142 CLAUDE.md does NOT claim a vendored first-party devflow:writing-skills skill" \
+  "no" "$(grep -qF 'devflow:writing-skills' "$FDROOT/CLAUDE.md" && echo yes || echo no)"
+
+# (1d) Broadened residual contract: beyond the two internalized ids, NO operative surface
+# may carry ANY bare `superpowers:` namespaced identifier. (1)'s two split-literal scans
 # only catch the internalized ids; this fails closed on a stray reference to a *non*-
-# internalized superpowers skill too (the dangling `superpowers:test-driven-development` /
-# `superpowers:systematic-debugging` refs the vendored writing-skills prose once carried,
-# now inlined). Same history/migration exceptions as (1), PLUS lib/test — this suite's own
-# scaffolding necessarily names the forbidden pattern to assert its absence, and a guard
-# cannot scan itself. Pattern split-literal so this run.sh never self-matches outside lib/test.
+# internalized superpowers skill too. CLAUDE.md is excepted because it intentionally carries
+# the one legitimate external reference — superpowers:writing-skills, the dev-time authoring
+# discipline pinned in (1c); the internalized requesting/receiving ids are still covered on
+# CLAUDE.md by (1)'s repo-wide scans, and using-git-worktrees by (6), so excepting CLAUDE.md
+# here only narrows this net to "no OTHER stray superpowers: ref outside CLAUDE.md." Same
+# history/migration exceptions as (1), PLUS lib/test — this suite's own scaffolding
+# necessarily names the forbidden pattern to assert its absence, and a guard cannot scan
+# itself. Pattern split-literal so this run.sh never self-matches outside lib/test.
 SP_PAT_NS="superpowers"":"
-assert_eq "#142 no operative surface carries any bare superpowers: namespaced id (non-internalized refs incl.; test scaffolding + history/migration excepted)" \
-  "" "$(tracked_scan "$FDROOT" "$SP_PAT_NS" ':!.devflow/logs' ':!CHANGELOG.md' ':!docs/review-agent-overrides.md' ':!lib/test')"
+assert_eq "#142 no operative surface outside CLAUDE.md carries any bare superpowers: namespaced id (non-internalized refs incl.; CLAUDE.md/test scaffolding/history/migration excepted)" \
+  "" "$(tracked_scan "$FDROOT" "$SP_PAT_NS" ':!.devflow/logs' ':!CHANGELOG.md' ':!docs/review-agent-overrides.md' ':!lib/test' ':!CLAUDE.md')"
 
 # (2/2b/2c) Per-skill vendoring + structural validity. For each of the three skills the file
 # exists first-party under skills/<name>/SKILL.md; its frontmatter declares name: <name> (so
@@ -6402,7 +6424,8 @@ done
 # the resolving skill file (asserted above) exists. Pinned positively so a DROPPED devflow: id
 # — invisible to (1)'s negative scan — turns these rows red (the #62/#98 unverified-assumption
 # trap). requesting-code-review: the engine invokes it + resolver/schema allowlist its override
-# key; receiving-code-review: the fix-loop applies its principles; writing-skills: CLAUDE.md.
+# key; receiving-code-review: the fix-loop applies its principles. (writing-skills has no call-
+# site here — it is external; its CLAUDE.md reference is pinned in (1c).)
 assert_eq "#142 review engine dispatches /devflow:requesting-code-review (final-pass call-site rewired)" \
   "yes" "$(grep -qF '/devflow:requesting-code-review' "$FDROOT/skills/review/SKILL.md" && echo yes || echo no)"
 assert_eq "#142 resolver allowlists devflow:requesting-code-review (override key resolves)" \
@@ -6411,20 +6434,18 @@ assert_eq "#142 config schema declares the devflow:requesting-code-review overri
   "yes" "$(grep -qF '"devflow:requesting-code-review"' "$FDROOT/.devflow/config.schema.json" && echo yes || echo no)"
 assert_eq "#142 fix-loop skill applies devflow:receiving-code-review principles (call-site rewired)" \
   "yes" "$(grep -qF 'devflow:receiving-code-review' "$FDROOT/skills/review-and-fix/SKILL.md" && echo yes || echo no)"
-assert_eq "#142 CLAUDE.md references the internalized devflow:writing-skills convention" \
-  "yes" "$(grep -qF 'devflow:writing-skills' "$FDROOT/CLAUDE.md" && echo yes || echo no)"
 
 # (3b) Property-based vendoring invariant (the skills-tree twin of the #139 agents/*.md loop):
-# EVERY file under the three vendored skill dirs MUST carry the `Vendored from the superpowers
+# EVERY file under the two vendored skill dirs MUST carry the `Vendored from the superpowers
 # plugin` attribution marker (AC2's attribution-retention half) AND must NOT carry the first-party
 # `2026 Daniel Radman` SPDX header (the license-preservation half) — proved mechanically over EVERY
-# vendored file incl. companions (requesting-code-review/code-reviewer.md, the writing-skills
-# supporting files), not just SKILL.md. Every file in these three dirs IS vendored, so the marker
-# is asserted POSITIVELY rather than via a marker-keyed `continue` skip: a supporting file that
-# LOST its attribution header fails loud here instead of silently dropping out of the loop. The
-# vendored skill paths are alphanumeric/hyphen (no spaces), so the unquoted find word-split is safe.
-SP_VENDORED_FILES=$(find "$FDROOT/skills/requesting-code-review" "$FDROOT/skills/receiving-code-review" "$FDROOT/skills/writing-skills" -type f 2>/dev/null)
-# Fail CLOSED on an empty iteration set: if the three vendored trees were deleted/renamed
+# vendored file incl. the requesting-code-review/code-reviewer.md companion, not just SKILL.md.
+# Every file in these two dirs IS vendored, so the marker is asserted POSITIVELY rather than via a
+# marker-keyed `continue` skip: a supporting file that LOST its attribution header fails loud here
+# instead of silently dropping out of the loop. The vendored skill paths are alphanumeric/hyphen
+# (no spaces), so the unquoted find word-split is safe.
+SP_VENDORED_FILES=$(find "$FDROOT/skills/requesting-code-review" "$FDROOT/skills/receiving-code-review" -type f 2>/dev/null)
+# Fail CLOSED on an empty iteration set: if the two vendored trees were deleted/renamed
 # wholesale, `find` returns nothing and the loop below would contribute ZERO assertions — a
 # silent pass on the exact botched-re-vendor regression this block exists to catch (the
 # loop's contract is "every file here MUST be vendored," so an empty set is a false clean,
