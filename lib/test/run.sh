@@ -6172,30 +6172,27 @@ for fdagent in code-explorer code-architect; do
             && grep -qE '^tools:[[:space:]]' "$FDROOT/agents/$fdagent.md" && echo yes || echo no)"
 done
 
-# (3) Attribution contract (mirrors issue AC): each vendored agent retains the upstream
-# Anthropic attribution AND does NOT carry the first-party `2026 Daniel Radman` SPDX
-# header (the license-preservation guarantee, proved mechanically). The retained upstream
-# Apache-2.0 license text lives at LICENSES/feature-dev-LICENSE.
-for fdagent in code-explorer code-architect; do
-  assert_eq "#139 $fdagent.md carries the upstream Anthropic attribution marker" \
-    "yes" "$(grep -q 'Vendored from the feature-dev plugin' "$FDROOT/agents/$fdagent.md" \
-            && grep -q 'Anthropic' "$FDROOT/agents/$fdagent.md" && echo yes || echo no)"
-done
+# (3) Attribution contract (mirrors issue AC): the vendored agents' upstream Anthropic
+# attribution is recorded in LICENSES/feature-dev-LICENSE — the per-file `Vendored from`
+# marker comments were removed (commit e398332) to avoid spending context tokens on every
+# invocation, so attribution is asserted via the retained LICENSES/ file, not an in-file
+# marker. The no-first-party-SPDX-header half is proved by the (3b) property loop below.
 assert_eq "#139 LICENSES/feature-dev-LICENSE retains the upstream Apache-2.0 text" \
   "yes" "$([ -f "$FDROOT/LICENSES/feature-dev-LICENSE" ] \
           && grep -q 'Apache License' "$FDROOT/LICENSES/feature-dev-LICENSE" && echo yes || echo no)"
 
-# (3b) Property-based vendoring invariant (catches a forgotten attribution): ANY agents/*.md
-# that carries a `Vendored from the ... plugin` marker must NOT carry the first-party
-# `2026 Daniel Radman` SPDX line — keyed on the vendoring property, not a hard-coded
-# filename, so a future vendored agent is covered without editing this loop. (Guarded so
-# an empty glob — no vendored agents — is a no-op, not a literal-glob false match.) The
-# skills/ tree's vendored files are covered by the #142 block's own property loop (3b).
-for af in "$FDROOT"/agents/*.md; do
-  [ -f "$af" ] || continue
-  grep -q 'Vendored from the' "$af" || continue   # only vendored agents bear the invariant
-  assert_eq "#139 vendored agent $(basename "$af") carries no first-party 2026 Daniel Radman SPDX line" \
-    "no" "$(grep -q 'SPDX-FileCopyrightText: 2026 Daniel Radman' "$af" && echo yes || echo no)"
+# (3b) Property-based vendoring invariant (catches a forgotten attribution): every VENDORED
+# agent must NOT carry the first-party `2026 Daniel Radman` SPDX line. Since the in-file
+# `Vendored from` marker was removed (e398332), the vendored set can no longer be detected by
+# an in-file property — it is enumerated explicitly here (feature-dev #139 + pr-review-toolkit
+# #141, which this loop also covers). The first-party agents (checklist-generator/deduper/
+# verifier) are intentionally NOT in this list — they SHOULD carry the SPDX header. Each row
+# fails CLOSED on a missing/renamed file via the MISSING-FILE sentinel (!= "no").
+for af in code-explorer code-architect code-reviewer silent-failure-hunter comment-analyzer type-design-analyzer pr-test-analyzer; do
+  assert_eq "#139 vendored agent $af.md carries no first-party 2026 Daniel Radman SPDX line" \
+    "no" "$([ -f "$FDROOT/agents/$af.md" ] \
+            && { grep -q 'SPDX-FileCopyrightText: 2026 Daniel Radman' "$FDROOT/agents/$af.md" && echo yes || echo no; } \
+            || echo MISSING-FILE)"
 done
 
 # (4) Manifest contract (mirrors issue AC): plugin.json `dependencies` no longer lists
@@ -6286,12 +6283,10 @@ for a in $PRT_AGENTS; do
     "yes" "$(head -1 "$FDROOT/agents/$a.md" | grep -qx -- '---' \
             && [ "$(head -30 "$FDROOT/agents/$a.md" | grep -c '^---$')" -ge 2 ] \
             && grep -qE '^model:[[:space:]]' "$FDROOT/agents/$a.md" && echo yes || echo no)"
-  # (3) Attribution contract: each vendored agent retains the upstream Anthropic attribution
-  # marker (the no-SPDX half is proved by the property-based 3b loop above, keyed on the
-  # `Vendored from the` marker, which now also covers these five).
-  assert_eq "#141 agents/$a.md carries the upstream pr-review-toolkit/Anthropic attribution marker" \
-    "yes" "$(grep -q 'Vendored from the pr-review-toolkit plugin' "$FDROOT/agents/$a.md" \
-            && grep -q 'Anthropic' "$FDROOT/agents/$a.md" && echo yes || echo no)"
+  # (3) Attribution contract: the vendored agents' upstream Anthropic attribution is recorded
+  # in LICENSES/pr-review-toolkit-LICENSE (asserted below) — the per-file `Vendored from`
+  # marker was removed in e398332. The no-first-party-SPDX half is proved by the #139 (3b)
+  # property loop, which enumerates these five explicitly.
 done
 
 assert_eq "#141 LICENSES/pr-review-toolkit-LICENSE retains the upstream Apache-2.0 text" \
@@ -6405,12 +6400,10 @@ for sk in $SP_SKILLS; do
     "yes" "$(head -1 "$FDROOT/skills/$sk/SKILL.md" | grep -qx -- '---' \
             && [ "$(head -30 "$FDROOT/skills/$sk/SKILL.md" | grep -c '^---$')" -ge 2 ] \
             && grep -qE '^name:[[:space:]]' "$FDROOT/skills/$sk/SKILL.md" && echo yes || echo no)"
-  # (3) Attribution contract (mirrors AC2): each vendored skill retains the upstream
-  # superpowers attribution marker AND the correct upstream author. superpowers is MIT
-  # (c) Jesse Vincent — NOT Anthropic/Apache-2.0 like #139/#141 — so this asserts that author.
-  assert_eq "#142 skills/$sk/SKILL.md carries the upstream superpowers MIT attribution marker" \
-    "yes" "$(grep -q 'Vendored from the superpowers plugin' "$FDROOT/skills/$sk/SKILL.md" \
-            && grep -q 'Jesse Vincent' "$FDROOT/skills/$sk/SKILL.md" && echo yes || echo no)"
+  # (3) Attribution contract (mirrors AC2): the vendored skills' upstream superpowers
+  # attribution lives in LICENSES/superpowers-LICENSE (MIT (c) Jesse Vincent — NOT Anthropic/
+  # Apache-2.0 like #139/#141), asserted once below — the per-file `Vendored from` marker was
+  # removed in e398332. The no-first-party-SPDX half is proved by the (3b) property loop.
   # (2e) scaffold-config.sh registers a prompt-extension example row for this internalized
   # skill, and that row names a skill that actually exists (the skills/$sk/SKILL.md asserted
   # above) — pins the PE row to a real skill dir so a typo'd/renamed scaffold row fails loud
@@ -6436,14 +6429,13 @@ assert_eq "#142 fix-loop skill applies devflow:receiving-code-review principles 
   "yes" "$(grep -qF 'devflow:receiving-code-review' "$FDROOT/skills/review-and-fix/SKILL.md" && echo yes || echo no)"
 
 # (3b) Property-based vendoring invariant (the skills-tree twin of the #139 agents/*.md loop):
-# EVERY file under the two vendored skill dirs MUST carry the `Vendored from the superpowers
-# plugin` attribution marker (AC2's attribution-retention half) AND must NOT carry the first-party
-# `2026 Daniel Radman` SPDX header (the license-preservation half) — proved mechanically over EVERY
-# vendored file incl. the requesting-code-review/code-reviewer.md companion, not just SKILL.md.
-# Every file in these two dirs IS vendored, so the marker is asserted POSITIVELY rather than via a
-# marker-keyed `continue` skip: a supporting file that LOST its attribution header fails loud here
-# instead of silently dropping out of the loop. The vendored skill paths are alphanumeric/hyphen
-# (no spaces), so the unquoted find word-split is safe.
+# EVERY file under the two vendored skill dirs must NOT carry the first-party `2026 Daniel Radman`
+# SPDX header (the license-preservation half) — proved mechanically over EVERY vendored file incl.
+# the requesting-code-review/code-reviewer.md companion, not just SKILL.md. The per-file
+# `Vendored from the superpowers plugin` attribution marker was removed (e398332) to save context
+# tokens, so attribution is now proved once via LICENSES/superpowers-LICENSE (asserted below), not
+# per-file here. The vendored skill paths are alphanumeric/hyphen (no spaces), so the unquoted find
+# word-split is safe.
 SP_VENDORED_FILES=$(find "$FDROOT/skills/requesting-code-review" "$FDROOT/skills/receiving-code-review" -type f 2>/dev/null)
 # Fail CLOSED on an empty iteration set: if the two vendored trees were deleted/renamed
 # wholesale, `find` returns nothing and the loop below would contribute ZERO assertions — a
@@ -6461,8 +6453,6 @@ assert_eq "#142 vendored skill trees are non-empty (guards the empty-find silent
 assert_eq "#142 skills/requesting-code-review/code-reviewer.md exists (the rendered reviewer template)" \
   "yes" "$([ -f "$FDROOT/skills/requesting-code-review/code-reviewer.md" ] && echo yes || echo no)"
 for sf in $SP_VENDORED_FILES; do
-  assert_eq "#142 vendored skill file ${sf#"$FDROOT"/} carries the upstream superpowers attribution marker" \
-    "yes" "$(grep -q 'Vendored from the superpowers plugin' "$sf" && echo yes || echo no)"
   assert_eq "#142 vendored skill file ${sf#"$FDROOT"/} carries no first-party 2026 Daniel Radman SPDX line" \
     "no" "$(grep -q 'SPDX-FileCopyrightText: 2026 Daniel Radman' "$sf" && echo yes || echo no)"
 done
