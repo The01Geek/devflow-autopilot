@@ -1691,6 +1691,18 @@ assert_eq "retro-audit-operative: § 2 (iii) re-weighted toward upstream promoti
   "$(grep -qF 'a fix that would materially benefit adopters and is expressible as engine prose' "$RETRO_AUDIT_SKILL" && echo yes || echo no)"
 assert_eq "retro-audit-operative: § 2 Consumer-local note reconciled with the re-weighting" "yes" \
   "$(grep -qF 'Keep a fix repo-local only when it is genuinely specific to this repo' "$RETRO_AUDIT_SKILL" && echo yes || echo no)"
+# Part B's re-weighting is mirrored at two further co-equal sites: lib/intervention-surfaces.md
+# (an OPERATIVE input the audit bot reads at § 3, not pure prose) and the system-overview doc.
+# Pin a site-unique fragment in each so a one-sided revert of a mirror — re-introducing the old
+# "must ship in the engine" framing in one place while § 2 stays re-weighted — goes red. This
+# closes the FULL four-site Part B coupled set, matching the exclusion-list sync guard's
+# discipline (CLAUDE.md's dominant convention-violation is coupled-site desync).
+RETRO_AUDIT_SURFACES="$LIB/../lib/intervention-surfaces.md"
+RETRO_AUDIT_OVERVIEW="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
+assert_eq "retro-audit-operative: intervention-surfaces.md mirror carries the re-weighting" "yes" \
+  "$(grep -qF 'routes to the meta-issue for upstream promotion rather than a repo-local extension' "$RETRO_AUDIT_SURFACES" && echo yes || echo no)"
+assert_eq "retro-audit-operative: system-overview mirror carries the re-weighting" "yes" \
+  "$(grep -qF 'those land upstream rather than as a repo-local extension' "$RETRO_AUDIT_OVERVIEW" && echo yes || echo no)"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "shipped agent_overrides: deduper pins Sonnet 4.6 w/ effort; no Haiku override carries effort"
