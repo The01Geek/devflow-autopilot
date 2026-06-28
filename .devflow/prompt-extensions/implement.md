@@ -61,34 +61,26 @@ command you actually ran and its observed output, or be explicitly flagged unver
 
 ## Reconcile every descriptive surface after a late change of direction
 
-The base `/devflow:implement` skill's **Phase 2.3.4a** sweep now carries the general rule: after
-a *change of direction* (a revert, scope-narrowing, marker removal, or rename) it extends the
-self-authored-claim sweep beyond the current diff to reconcile the **issue workpad** (Plan, AC
-wording, Status) and **earlier-authored prose** that names the changed contract. This is the
-single dominant `doc-accuracy` failure in *this* repo, so the repo-specific surfaces and the
-worked examples below make that rule operational here — they do not restate it.
+The base skill's **Phase 2.3.4a** sweep now reconciles, after a *change of direction* (revert /
+scope-narrowing / marker removal / rename), the **issue workpad** and **earlier-authored prose**
+naming the changed contract. This is the dominant `doc-accuracy` failure in *this* repo; the
+surfaces and examples below make that rule operational here.
 
-**This repo's advertise-the-change surfaces** to add to the 2.3.4a re-walk when a change of
-direction lands: `CHANGELOG.md`, `README.md`, `DEVFLOW_SYSTEM_OVERVIEW.md`, and any `docs/**`
-page describing the feature. Reconcile any claim that now overstates the shipped reality — an
-attribution model, an equality/identity claim, a removed or renamed surface.
+**Add these repo surfaces to the 2.3.4a re-walk:** `CHANGELOG.md`, `README.md`,
+`DEVFLOW_SYSTEM_OVERVIEW.md`, and any `docs/**` feature page — reconcile any claim that now
+overstates the shipped reality (an attribution model, an equality/identity claim, a
+removed/renamed surface).
 
-**Worked examples** (the production failures the rule exists to stop):
+**Past failures the rule stops:**
 
-- **#144** — `writing-skills` was hard-forked, then **reverted** to stay external, but the issue
-  workpad's Plan + Acceptance-Criteria still claimed it was vendored (AC1/AC2 ticked, "retains
-  upstream copyright"); and CHANGELOG/README/`DEVFLOW_SYSTEM_OVERVIEW.md` prose still advertised
-  attribution markers a later commit had **removed**. The workpad and the marketing prose were
-  never re-walked after the revert.
-- **#125** — `/devflow:implement` was scoped to issues only, but stale "issue/PR" wording survived
-  in now-issues-only inline comments (dedupe-step comment, duplicate-notice comment, the
-  number-resolution comment whose own function header was already updated to "issue").
-- **#64** — a telemetry-id equality **overclaim** shipped in docs and had to be corrected by the
-  human; an inline guard comment called itself "fail-closed" while the value it reads fails **open**.
+- **#144** — after `writing-skills` was reverted to stay external, the workpad's ACs still claimed
+  it was vendored and CHANGELOG/README/`DEVFLOW_SYSTEM_OVERVIEW.md` still advertised removed
+  attribution markers.
+- **#125** — after `/devflow:implement` was scoped to issues only, stale "issue/PR" wording survived
+  in now-issues-only comments.
+- **#64** — a telemetry-id equality overclaim shipped in docs; a guard comment said "fail-closed"
+  over a value that fails open.
 
-*Scope note (other `doc-accuracy` sub-patterns this rule does not address):* the coarse
-`doc-accuracy` category also lumped non-prose items — a deferred E402/lint finding left in,
-a self-inflicted CI-red revert that stripped test-required attribution markers without
-reconciling the asserting tests in the same commit, and an inert cloud-allow-list omission.
-Those are reconcile-the-*tests*/CI and engine-allow-list problems, not descriptive-text
-drift; this extension covers the dominant descriptive-text-drift sub-pattern only.
+*Not covered:* the non-prose `doc-accuracy` siblings (a deferred E402/lint finding, a CI-red revert
+that didn't reconcile its asserting tests, an inert cloud-allow-list omission) — those are
+tests/CI and engine-allow-list problems, not descriptive-text drift.
