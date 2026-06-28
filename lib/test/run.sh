@@ -3103,6 +3103,19 @@ STUB
 chmod +x "$AP_TMP/gh"
 AP2="$(DEVFLOW_GH="$AP_TMP/gh" bash "$LIB/actionable-patterns.sh" "$AP_TMP/r.jsonl" "$AP_TMP/o.json")"
 assert_eq "incomplete-edit cooldown_active=true after recent filed issue" "true" "$(echo "$AP2" | jq '.[] | select(.tag=="incomplete-edit") | .cooldown_active')"
+# #152: cooldown EXPIRY boundary — an open filed issue OLDER than cooldown_days
+# (default 3) → cooldown_active=false, so the pattern is re-filed. Guards the
+# createdAt>=cooldown_epoch comparison (a flipped operator / epoch-sign bug would
+# pin the pattern in permanent cooldown or never honor it, and the today/never
+# fixtures above cannot catch it). Use 30 days ago — safely past any default.
+_AP_OLD="$(python3 -c "import datetime as d; print((d.datetime.now(d.timezone.utc)-d.timedelta(days=30)).strftime('%Y-%m-%dT%H:%M:%SZ'))")"
+cat > "$AP_TMP/gh" <<STUB
+#!/usr/bin/env bash
+case "\$*" in *"issue list"*) echo '[{"number":501,"title":"[devflow-retrospective] meta: incomplete-edit — strengthen the gate","createdAt":"${_AP_OLD}"}]' ;; *) echo '[]' ;; esac
+STUB
+chmod +x "$AP_TMP/gh"
+AP3="$(DEVFLOW_GH="$AP_TMP/gh" bash "$LIB/actionable-patterns.sh" "$AP_TMP/r.jsonl" "$AP_TMP/o.json")"
+assert_eq "incomplete-edit cooldown_active=false when filed issue is older than cooldown_days" "false" "$(echo "$AP3" | jq '.[] | select(.tag=="incomplete-edit") | .cooldown_active')"
 # Missing overrides.json → should still emit the actionable array, not error
 AP_NOOV="$(DEVFLOW_GH="$AP_TMP/gh" bash "$LIB/actionable-patterns.sh" "$AP_TMP/r.jsonl" "/tmp/devflow-nonexistent-overrides-$$-$RANDOM.json")" \
   && assert_eq "actionable: missing overrides → incomplete-edit still present" "true" "$(echo "$AP_NOOV" | jq 'any(.[]; .tag=="incomplete-edit")')" \

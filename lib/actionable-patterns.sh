@@ -97,6 +97,11 @@ OPEN_ISSUE_MAP="$(
         # title does not carry it (foreign issue that matched the search loosely).
         | (.title | capture("\\[devflow-retrospective\\] meta: (?<slug>[A-Za-z0-9_-]+)") | .slug) as $slug
         | select($slug != null and $slug != "")
+        # Guard the operand the cooldown comparison will feed to strptime below:
+        # drop a row with a null/non-string createdAt (consistent with how an
+        # unparseable slug is dropped) so a gh contract drift can never reach
+        # `strptime` and abort the final jq with an opaque, unattributed error.
+        | select((.createdAt | type) == "string")
         | { slug: $slug, createdAt: .createdAt }
       ]
       | reduce .[] as $item (
@@ -121,8 +126,8 @@ _DROPPED_COUNT="$(
   | jq '[ .[]
           | select((.title | test("\\[devflow-retrospective\\] meta: "))
                    and ((.title | test("\\[devflow-retrospective\\] meta: [A-Za-z0-9_-]+")) | not)) ]
-        | length' 2>/dev/null || echo 0
-)"
+        | length'
+)" || { echo "::error::actionable-patterns: the slug-drift drop-counter failed to evaluate the open-issue list" >&2; exit 1; }
 if [ "${_DROPPED_COUNT:-0}" -gt 0 ]; then
     echo "::warning::actionable-patterns: ${_DROPPED_COUNT} open '[devflow-retrospective] meta:' issue(s) had an unparseable slug and were skipped for cooldown — possible slug-grammar drift vs meta-issue.sh" >&2
 fi

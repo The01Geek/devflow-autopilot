@@ -4,7 +4,8 @@
 # meta-issue.sh — the retrospective loop's issue filer: file (or update) one
 # GitHub issue for a devflow pattern and record a permanent cross-run exclusion
 # in overrides.json (a `dismissed` entry that holds until a human clears it —
-# distinct from the within-window open-issue cooldown in actionable-patterns.sh).
+# distinct from the within-window open-issue cooldown in actionable-patterns.sh;
+# the overrides write is skipped entirely on --dry-run, which observes only).
 # The body is authored by Stage B (retrospective-audit) to create-issue quality
 # and is filed verbatim, so the issue can later be executed through the normal
 # /devflow:implement -> review pipeline.
