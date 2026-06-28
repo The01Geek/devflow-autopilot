@@ -1544,7 +1544,7 @@ echo "load-prompt-extension.sh: every skills/*/SKILL.md carries the standardized
 # ────────────────────────────────────────────────────────────────────────────
 # Coverage / drift guard (issue #84, AC 6 + AC 7). The standardized step spans
 # every skill's SKILL.md; this enumeration is the enforcement that keeps them in
-# sync (same drift hazard as the exclusion-list-sync requirement). Pin BOTH the
+# sync (a cross-file drift hazard). Pin BOTH the
 # canonical helper path-suffix AND the skill's own directory name so a copy-paste
 # of the wrong skill name, a half-applied removal, or a path drift all fail here
 # rather than shipping silently. Fails when a future skill omits the step.
@@ -2724,7 +2724,7 @@ rm -rf "$F97"
 
 # S-1 (review, corroborated x4): the inline glyph set in fetch-pr-context.sh must
 # stay in sync with workpad.py's _STATUS_GLYPHS (the single source of truth that
-# WRITES the glyph). Mirrors the check-excluded-path.sh sync-test discipline:
+# WRITES the glyph). Same derive-one-side-from-the-other sync-test discipline:
 # assert the two glyph sets are equal, so a glyph added to workpad.py without
 # updating the strip (which would silently stop stripping it) fails CI.
 GLYPH_SYNC="$(python3 - "$LIB/../scripts/workpad.py" "$LIB/fetch-pr-context.sh" <<'PY'
@@ -3097,32 +3097,6 @@ assert_eq "materialize: missing new-entries → appended 0, replaced 0" "materia
 assert_eq "materialize: missing new-entries → target untouched" "1" "$(wc -l < "$M_NOFILE_TMP/existing.jsonl" | tr -d ' ')"
 rm -rf "$M_NOFILE_TMP"
 rm -rf "$M_TMP"
-
-# ────────────────────────────────────────────────────────────────────────────
-echo "check-excluded-path.sh"
-# ────────────────────────────────────────────────────────────────────────────
-ex() { bash "$LIB/check-excluded-path.sh" "$@" >/dev/null 2>&1; echo $?; }
-assert_eq "adopter .claude/skills file allowed" "1" "$(ex ".claude/skills/example/SKILL.md")"
-assert_eq "CLAUDE.md allowed"             "1" "$(ex "CLAUDE.md")"
-assert_eq "docs allowed"                  "1" "$(ex "docs/internal/foo.md")"
-assert_eq "app source allowed"            "1" "$(ex "src/app.py")"
-assert_eq "engine skill path excluded"    "0" "$(ex "skills/retrospective/SKILL.md")"
-assert_eq "engine lib path excluded"      "0" "$(ex "lib/scan.sh")"
-assert_eq "engine agents path excluded"   "0" "$(ex "agents/checklist-generator.md")"
-assert_eq "engine scripts path excluded"  "0" "$(ex "scripts/workpad.py")"
-assert_eq "plugin manifest excluded"      "0" "$(ex ".claude-plugin/plugin.json")"
-assert_eq "devflow workflow excluded"     "0" "$(ex ".github/workflows/devflow-doc-audit.yml")"
-assert_eq "claude.yml excluded"           "0" "$(ex ".github/workflows/claude.yml")"
-assert_eq "claude-runner.yml excluded"    "0" "$(ex ".github/workflows/claude-runner.yml")"
-assert_eq "non-engine workflow allowed"   "1" "$(ex ".github/workflows/release.yml")"
-assert_eq "config.json excluded"          "0" "$(ex ".devflow/config.json")"
-assert_eq "config.example excluded"       "0" "$(ex ".devflow/config.example.json")"
-assert_eq "config.schema excluded"        "0" "$(ex ".devflow/config.schema.json")"
-assert_eq "learnings data excluded"       "0" "$(ex ".devflow/learnings/overrides.json")"
-assert_eq "composite action excluded"     "0" "$(ex ".github/actions/read-project-config/action.yml")"
-assert_eq "stdin mode works"              "0" "$(printf '%s\n' 'CLAUDE.md' '.devflow/learnings/x.json' | bash "$LIB/check-excluded-path.sh" >/dev/null 2>&1; echo $?)"
-assert_eq "mixed all-allowed → exit 1"    "1" "$(ex "CLAUDE.md" ".claude/skills/x/SKILL.md")"
-assert_eq "prints the excluded path"      ".devflow/learnings/x.json" "$(bash "$LIB/check-excluded-path.sh" "CLAUDE.md" ".devflow/learnings/x.json")"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "meta-issue.sh"

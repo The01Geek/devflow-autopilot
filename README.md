@@ -150,9 +150,9 @@ Every bot-authored PR leaves evidence — review comments, post-bot commits, CI 
 /devflow:retrospective-weekly
 ```
 
-Run it interactively from the repo root, ideally weekly; it confirms a clean default branch, runs the full pipeline, and prints a status report with the PRs to review. Deterministic scripts handle all scanning, gating, and git/PR mechanics — the LLM is invoked **only** at the two genuine-judgment points (per-PR retrospective and per-pattern intervention drafting). When a fix would touch DevFlow's own engine files, it files a meta-issue instead of editing.
+Run it interactively from the repo root, ideally weekly; it confirms a clean default branch, runs the full pipeline, and prints a status report with the issues to triage. Deterministic scripts handle all scanning, gating, and git/issue mechanics — the LLM is invoked **only** at the two genuine-judgment points (per-PR retrospective and per-pattern issue-spec drafting). The loop **proposes, it does not dispose**: it files one well-formed GitHub issue per actionable pattern and lets the normal implement → review pipeline execute it, rather than auto-editing the repo.
 
-Full mechanics — the pipeline, the data files, the design-review exclusion list: **[System overview §12](docs/DEVFLOW_SYSTEM_OVERVIEW.md#12-deep-dive-the-retrospective-loop)**.
+Full mechanics — the pipeline, the data files, how patterns become issues: **[System overview §12](docs/DEVFLOW_SYSTEM_OVERVIEW.md#12-deep-dive-the-retrospective-loop)**.
 
 ## Learn more
 
