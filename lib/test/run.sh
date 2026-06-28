@@ -34,6 +34,47 @@ assert_eq() {
   fi
 }
 
+# Count the occurrences of a fixed-string LITERAL in FILE (substring, not whole-line).
+# Pure predicate — no RESULTS_FILE side effect — so mutation proofs can assert on the
+# raw count against a mutated temp copy without polluting the suite tally. grep -cF
+# treats LITERAL as a fixed string (regex metacharacters are literal); a missing/
+# unreadable file yields 0 (the helper below then fails it as non-unique, not as a pass).
+pin_count() {  # literal file -> prints occurrence count
+  grep -cF "$1" "$2" 2>/dev/null || echo 0
+}
+
+# Drift-guard helper: assert LITERAL occurs EXACTLY ONCE in FILE. This is the
+# deterministic (guarantee-class) form of the prose "pin a target-unique phrase" rule —
+# it closes the PR #154 vacuous-guard hole where a raw `grep -qF` whole-file scan stayed
+# GREEN even with the guarded content deleted, because the pinned literal also appeared
+# elsewhere in the file. A non-unique (count >= 2) OR absent (count 0) literal FAILs:
+# both mean the pin no longer uniquely identifies the guarded content.
+assert_pin_unique() {  # name literal file
+  local name="$1" literal="$2" file="$3" count
+  count="$(pin_count "$literal" "$file")"
+  if [ "$count" = "1" ]; then
+    echo PASS >> "$RESULTS_FILE"
+    printf '  PASS  %s\n' "$name"
+  else
+    echo FAIL >> "$RESULTS_FILE"
+    printf '  FAIL  %s\n         expected exactly 1 occurrence, got: %s\n         literal: %s\n         file: %s\n' \
+      "$name" "$count" "$literal" "$file"
+  fi
+}
+
+# Run a single assertion function against an ISOLATED results file and echo its verdict
+# (PASS/FAIL) instead of recording it in the suite tally. Used by the AC3 mutation proofs
+# to actually exercise assert_pin_unique against a mutated target and confirm it goes RED,
+# without that intentional RED counting as a suite failure. The `RESULTS_FILE=…` prefix on
+# a function call sets the var only for that call's environment (functions are not special
+# builtins), so the global RESULTS_FILE is untouched.
+probe_assert() {  # assertion-fn args... -> prints PASS or FAIL (the probed verdict)
+  local probe; probe="$(mktemp)"
+  RESULTS_FILE="$probe" "$@" >/dev/null 2>&1
+  tail -n 1 "$probe"
+  rm -f "$probe"
+}
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "classify-pr-kind.jq"
 # ────────────────────────────────────────────────────────────────────────────
@@ -561,29 +602,121 @@ assert_eq "max_iterations clamp: SKILL keeps the default-5 fallback" "yes" \
 # parked findings against three generic under-grade shapes before the review-and-fix
 # loop concludes on an APPROVE-family verdict, so every review-and-fix-engine consumer
 # benefits (standalone /devflow:review is untouched by construction). Each phrase below
-# must be gate-unique: grep -qF scans the whole file, so a literal that also appears
-# outside the gate would stay GREEN even with the gate deleted. Pin (1) the heading,
-# (2) the gate-unique extension-point sentence, and (3) the load-bearing body routing,
-# so a paraphrase that guts the gate fails here instead of silently reverting the catch.
-assert_eq "park-calibration: engine gate heading present in review-and-fix SKILL" "yes" \
-  "$(grep -qF '#### Park-calibration gate (before any APPROVE-family conclusion)' "$MAXI_SKILL" && echo yes || echo no)"
-assert_eq "park-calibration: engine gate documents the prompt-extension sharpening point" "yes" \
-  "$(grep -qF 'the extension does not replace this gate' "$MAXI_SKILL" && echo yes || echo no)"
-assert_eq "park-calibration: engine gate keeps the Step 2.5 → Step 3 re-routing of a mis-graded finding" "yes" \
-  "$(grep -qF 'route the finding back through Step 2.5 → Step 3 as a promoted iteration' "$MAXI_SKILL" && echo yes || echo no)"
-# The heading + extension + routing pins above do not cover the gate's load-bearing
-# body: the firing condition and the three under-grade shapes. A paraphrase that keeps
-# those three literals byte-identical while gutting WHEN the gate fires or dropping a
-# shape would ship GREEN. Pin the firing line and each of the three shapes (gate-unique,
-# apostrophe-free sub-phrases) so a silent revert of the catch's substance fails here.
-assert_eq "park-calibration: engine gate keeps its firing condition (Decide outcome 1 + Step 4.5 early-exit)" "yes" \
-  "$(grep -qF 'on the Step 4.5 early-exit path when non-REJECT' "$MAXI_SKILL" && echo yes || echo no)"
-assert_eq "park-calibration: engine gate keeps under-grade shape 1 (fail-open guard / coverage hole)" "yes" \
-  "$(grep -qF 'Fail-open guard / coverage hole in this' "$MAXI_SKILL" && echo yes || echo no)"
-assert_eq "park-calibration: engine gate keeps under-grade shape 2 (overclaiming breadcrumb/error)" "yes" \
-  "$(grep -qF 'A breadcrumb/error that overclaims vs. the path emitting it' "$MAXI_SKILL" && echo yes || echo no)"
-assert_eq "park-calibration: engine gate keeps under-grade shape 3 (deferral the matcher will not honor)" "yes" \
-  "$(grep -qF 'is inert: the finding flows through at full severity' "$MAXI_SKILL" && echo yes || echo no)"
+# must be gate-unique: a whole-file scan would stay GREEN even with the gate deleted if
+# the literal also appeared elsewhere (the PR #154 vacuous-guard hole). assert_pin_unique
+# (PR #155) makes that mechanical — it FAILs unless the literal occurs EXACTLY ONCE in
+# the resolved SKILL — so a paraphrase that guts the gate, OR a duplicated literal that
+# would re-open the whole-file-scan hole, fails here instead of silently reverting.
+#
+# SCOPE (stated honestly, not over-claimed): the meta-test further below enforces
+# helper-routing ONLY for the SKILL pins inside the PARKCAL_GUARD_REGION delimiters — it
+# is a bounded guarantee over the park-calibration guard family, NOT a repo-wide claim
+# that every raw SKILL guard (the maxi_clamp pins above, the DEF_SKILL/INIT_SKILL families)
+# routes through assert_pin_unique. A new park-calibration guard belongs in this region and
+# must use the helper; widening the meta-test to other families is deliberately out of
+# scope for issue #155 (converting non-unique literals elsewhere risks unrelated RED).
+IMPL_SKILL_REF="$LIB/../skills/implement/SKILL.md"
+# PARKCAL_GUARD_REGION_BEGIN — every SKILL pin until the END marker MUST use assert_pin_unique (meta-tested below)
+assert_pin_unique "park-calibration: engine gate heading present in review-and-fix SKILL" \
+  '#### Park-calibration gate (before any APPROVE-family conclusion)' "$MAXI_SKILL"
+assert_pin_unique "park-calibration: engine gate documents the prompt-extension sharpening point" \
+  'the extension does not replace this gate' "$MAXI_SKILL"
+assert_pin_unique "park-calibration: engine gate keeps the Step 2.5 → Step 3 re-routing of a mis-graded finding" \
+  'route the finding back through Step 2.5 → Step 3 as a promoted iteration' "$MAXI_SKILL"
+assert_pin_unique "park-calibration: engine gate keeps its firing condition (Decide outcome 1 + Step 4.5 early-exit)" \
+  'on the Step 4.5 early-exit path when non-REJECT' "$MAXI_SKILL"
+assert_pin_unique "park-calibration: engine gate keeps under-grade shape 1 (fail-open guard / coverage hole)" \
+  'Fail-open guard / coverage hole in this' "$MAXI_SKILL"
+assert_pin_unique "park-calibration: engine gate keeps under-grade shape 2 (overclaiming breadcrumb/error)" \
+  'A breadcrumb/error that overclaims vs. the path emitting it' "$MAXI_SKILL"
+assert_pin_unique "park-calibration: engine gate keeps under-grade shape 3 (deferral the matcher will not honor)" \
+  'is inert: the finding flows through at full severity' "$MAXI_SKILL"
+# AC4: the Step 2.6 mandatory sentinel string — its presence is the gate's required-bullet
+# contract; deleting it from SKILL.md turns this RED.
+assert_pin_unique "park-calibration: engine gate keeps its mandatory clean-run sentinel contract" \
+  'park-calibration gate clean: no parked finding matched' "$MAXI_SKILL"
+# AC5: Loop-Exit machinery treats an APPROVE-family conclusion with no sentinel/re-grade
+# bullet as non-convergence (the gate did not run to completion).
+assert_pin_unique "park-calibration: Loop-Exit treats a missing sentinel bullet as non-convergence" \
+  'An APPROVE-family conclusion that carries no park-calibration sentinel or re-grade bullet is treated as non-convergence' "$MAXI_SKILL"
+# AC6: explicit firing-site handoffs route the executor into the gate from each declared
+# firing site, so a prose-driven loop reaches it by an explicit transition (not only via
+# the gate's own "Fires before…" self-declaration).
+assert_pin_unique "park-calibration: Decide outcome 1 carries the explicit gate handoff" \
+  'first run the Park-calibration gate (it fires before this outcome commits)' "$MAXI_SKILL"
+assert_pin_unique "park-calibration: Step 4.5 early-exit carries the explicit gate handoff" \
+  'first run the Park-calibration gate on this early-exit path' "$MAXI_SKILL"
+# AC7: the mutation-check rule is re-scoped to ANY added/edited test guard, and the
+# implement skill's test-writing phase references that discipline. Pin both coupled sites
+# so a paraphrase that narrows the rule back to fix-loop-only fails here.
+assert_pin_unique "mutation-check: review-and-fix rule covers any added or edited test guard in the diff" \
+  'any added or edited test guard in the diff' "$MAXI_SKILL"
+assert_pin_unique "mutation-check: implement skill test-writing phase references the discipline" \
+  'Mutation-check any test guard you add here' "$IMPL_SKILL_REF"
+# PARKCAL_GUARD_REGION_END — end of the assert_pin_unique-only park-calibration pin region
+
+# ── Meta-test (AC2): no raw drift guard may bypass assert_pin_unique inside the region.
+# The region markers are matched by SPLIT-built literals so this scanner's own source never
+# contains the contiguous marker string (otherwise it would mis-delimit when scanning the
+# very file it lives in). This is a BOUNDED guarantee over the park-calibration guard family
+# only — see the SCOPE note on the region above; it does not police raw guards elsewhere.
+PARKCAL_BMARK="PARKCAL_GUARD_REGION_""BEGIN"
+PARKCAL_EMARK="PARKCAL_GUARD_REGION_""END"
+# Print every line between the BEGIN and END markers of FILE that is a raw SKILL drift
+# guard — a `grep -qF` paired with a `_SKILL` path var (the exact shape assert_pin_unique
+# replaces). A correctly-routed region yields 0. `|| true` keeps grep's no-match exit 1
+# from tripping the `set -u`/pipefail-free harness into a spurious non-zero.
+count_raw_skill_guards_in_region() {  # file -> prints count of offending lines
+  awk -v b="$PARKCAL_BMARK" -v e="$PARKCAL_EMARK" '
+    index($0, b) { inreg=1; next }
+    index($0, e) { inreg=0 }
+    inreg { print }
+  ' "$1" | grep -cE 'grep -qF.*_SKILL' || true
+}
+SELF_SRC="$LIB/test/run.sh"
+assert_eq "meta(AC2): park-calibration region routes every SKILL pin through assert_pin_unique (0 raw guards)" \
+  "0" "$(count_raw_skill_guards_in_region "$SELF_SRC")"
+
+# ── AC3 mutation proofs: each deterministic guard above must demonstrably go RED on the
+# defect it exists to catch, then GREEN is the real (unmutated) state. We exercise the
+# REAL assert_pin_unique / meta-test against a mutated TEMP copy via probe_assert, so the
+# intentional RED never pollutes the suite tally.
+#
+# AC3(a): assert_pin_unique is GREEN on a unique literal and RED on a non-unique or absent
+# one (the PR #154 duplicate-literal shape is the non-unique case).
+PINPROBE_ONE="$(mktemp)"; printf 'PINPROBE_LITERAL\n' > "$PINPROBE_ONE"
+PINPROBE_DUP="$(mktemp)"; printf 'PINPROBE_LITERAL\nPINPROBE_LITERAL\n' > "$PINPROBE_DUP"
+assert_eq "AC3(a): assert_pin_unique GREEN on a unique literal" \
+  "PASS" "$(probe_assert assert_pin_unique 'probe-unique' 'PINPROBE_LITERAL' "$PINPROBE_ONE")"
+assert_eq "AC3(a): assert_pin_unique RED on a non-unique (duplicate) literal" \
+  "FAIL" "$(probe_assert assert_pin_unique 'probe-dup' 'PINPROBE_LITERAL' "$PINPROBE_DUP")"
+assert_eq "AC3(a): assert_pin_unique RED on an absent literal" \
+  "FAIL" "$(probe_assert assert_pin_unique 'probe-absent' 'PINPROBE_ABSENT' "$PINPROBE_ONE")"
+rm -f "$PINPROBE_ONE" "$PINPROBE_DUP"
+#
+# AC3(b): the meta-test detects a raw SKILL guard injected into the region. Inject a line
+# carrying `grep -qF` + a `_SKILL` var right after the BEGIN marker of a temp copy; the
+# injected text is passed via awk -v (no \x escapes) to stay portable to BSD/mawk.
+PINPROBE_RAW="$(mktemp)"
+awk -v b="$PARKCAL_BMARK" -v inj='  grep -qF INJECTED_RAW_GUARD "$MAXI_SKILL"' \
+  '{ print } index($0, b) { print inj }' "$SELF_SRC" > "$PINPROBE_RAW"
+assert_eq "AC3(b): meta-test detects a raw SKILL guard injected into the region (RED)" \
+  "1" "$(count_raw_skill_guards_in_region "$PINPROBE_RAW")"
+rm -f "$PINPROBE_RAW"
+#
+# AC3(c)/(d): removing a pinned MAXI_SKILL contract literal turns its pin RED. Both cases
+# share the "strip the literal from a temp copy, confirm the real pin goes RED" shape, so
+# route them through one helper (the literal is the only variable).
+assert_pin_red_on_removal() {  # name literal
+  local t; t="$(mktemp)"
+  grep -vF "$2" "$MAXI_SKILL" > "$t"
+  assert_eq "$1" "FAIL" "$(probe_assert assert_pin_unique 'probe-removal' "$2" "$t")"
+  rm -f "$t"
+}
+assert_pin_red_on_removal "AC3(c): deleting the Step 2.6 sentinel contract turns its pin RED" \
+  'park-calibration gate clean: no parked finding matched'
+assert_pin_red_on_removal "AC3(d): narrowing the mutation-check rule back to fix-only turns its pin RED" \
+  'any added or edited test guard in the diff'
 
 # Drift guard: the Phase 2.3 sweep list lives in three places that must stay in
 # sync — the sweep body in implement/SKILL.md, the "Sweep selection" always-run

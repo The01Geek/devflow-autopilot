@@ -282,6 +282,36 @@ engine-self-modifying clean shadow that a real gate later caught). It does **not
 advisory on an engine diff is surfaced here as a case the mandatory standalone review must catch, not
 re-litigated as a new auto-fix rule.
 
+### The mechanical layer beneath this calibration (issue #155)
+
+The calibration above is a *judgment* rule — read a clean shadow skeptically on an
+engine-self-modifying diff, and route to a standalone review. PR #154 showed why judgment alone is
+not enough: its in-loop shadow agreed with full coverage, and it *still* shipped a **vacuous drift
+guard** — a `grep -qF` whole-file scan pinned to a literal that also appeared outside the gate, so the
+guard stayed GREEN even with the gate it claimed to protect deleted. Wherever a deterministic check is
+possible, the defense is now **mechanical**, enforced by `lib/test/run.sh` regardless of whether the
+loop is driven by the skill or by hand:
+
+- **Target-uniqueness guard (`assert_pin_unique`).** Every park-calibration SKILL pin now asserts its
+  literal occurs *exactly once* in the resolved SKILL — a duplicated or absent literal fails the suite,
+  closing the whole-file-scan hole that let PR #154's guard pass. A bounded self-scanning meta-test
+  fails if a new raw `grep -qF` SKILL guard is added to the park-calibration region without routing
+  through the helper. Both are mutation-proven: the suite goes RED on a deliberately non-unique pin and
+  on a raw bypass guard.
+- **Sentinel-completeness signal.** The park-calibration gate (Step 2.6) records a mandatory
+  `## Devflow Reflection` bullet on every run — a re-grade routing or the gate-clean sentinel.
+  `lib/test/run.sh` pins that sentinel contract, and the `/devflow:review-and-fix` Loop-Exit machinery
+  now treats an APPROVE-family conclusion with **no** sentinel/re-grade bullet as *non-convergence* (the
+  gate did not run to completion). Combined with the explicit firing-site handoffs at Decide outcome 1
+  and the Step 4.5 early-exit, a manually-driven loop can no longer reach an APPROVE-family verdict while
+  silently skipping the gate.
+
+These are a *backstop beneath* the prose calibration, not a replacement for it: the mechanical guards
+catch a vacuous guard or a skipped gate deterministically, but the judgment rule above — read a clean
+engine-self-modifying shadow skeptically and run the standalone review — still governs the cases no
+local check can decide. The target-uniqueness guard is also the deterministic, guarantee-class form of
+the prose "pin a *target-unique* phrase" advice in the mutation-check rule.
+
 ## Cost
 
 The shadow pass roughly **doubles** the cost of a converging run — one full engine pass that does
