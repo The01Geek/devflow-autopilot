@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.13] — 2026-06-28
+
+### Changed
+- **`/devflow:retrospective-audit` now writes prose interventions operative-only and prefers upstream promotion for engine-general rules.** Two gaps a human kept cleaning up after the audit bot (both observed on #148): (1) the bot copied its root cause, motivating-PR post-mortems, counterfactual, and "not covered" notes into the *edited* file (a skill body / prompt-extension / CLAUDE.md rule) — provenance that already belongs in the PR body (§6) and git history, re-read on every future run for zero operative gain; (2) engine-general rules adopters would benefit from landed repo-local (a prompt-extension) and needed a manual promotion into the shipped engine. **Part A** adds an operative-only form rule to §5 of `skills/retrospective-audit/SKILL.md`: a prose intervention carries only the instruction a future agent must act on (trigger → action → surfaces), with the why going to the PR body — *the file gets the rule; the PR gets the why*. **Part B** (adopted, not declined) re-weights §2 condition (iii) to route a fix upstream — via the meta-issue — whenever it *would materially benefit adopters and is expressible as engine prose*, rather than only when it *must* ship in the engine; the coupled Consumer-local note, `lib/intervention-surfaces.md`, and `docs/DEVFLOW_SYSTEM_OVERVIEW.md` are reconciled in lockstep. A new `lib/test/run.sh` content/drift guard (the #90 init-nudge idiom) pins both rules so they can't silently regress. Deliberate tradeoff of Part B: engine-general additive fixes now go through the heavier cloud-tier review instead of first proving themselves in this repo's low-blast-radius dogfooding stage. (#151, closes #150)
+
 ## [2.8.12] — 2026-06-26
 
 ### Changed
