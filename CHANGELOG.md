@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.13] — 2026-06-28
+
+### Changed
+- **`/devflow:implement` Phase 2.3.4a now reconciles descriptive surfaces after a mid-run *change of direction*.** The self-authored-claim sweep was strictly diff-scoped, so a revert / scope-narrowing / marker removal / rename could leave a now-false description standing in a surface the *current* commit's diff never touches — prose authored in an earlier commit of the same run, or the issue workpad (Plan + Acceptance-Criteria written before the change). The sweep now extends, **only** when the run changed direction, to reconcile the issue workpad (Plan, AC checkbox wording, `Status`) and earlier-authored prose naming the changed contract, with the reconciled surfaces (or an intentional verbatim carve-out) recorded in a `## Devflow Reflection` bullet. This promotes the kernel of DevFlow's repo-local `doc-accuracy` rule into the shipped engine so adopters benefit; `.devflow/prompt-extensions/implement.md` is slimmed to the repo-specific advertise-the-change surfaces and worked examples (#144/#125/#64) that make the engine rule operational here. (#148)
+
 ## [2.8.12] — 2026-06-26
 
 ### Changed
