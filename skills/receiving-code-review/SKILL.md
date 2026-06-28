@@ -13,6 +13,8 @@ ${CLAUDE_SKILL_DIR}/../../scripts/load-prompt-extension.sh receiving-code-review
 
 If the helper exits non-zero, a consumer extension exists but could not be loaded — surface its stderr message and do not silently proceed as if none existed. If it exits 0 and prints text, treat that text as additional instructions appended to the end of this skill's own prompt for this run — it is upgrade-safe, consumer-owned customization committed under `.devflow/prompt-extensions/`. If it exits 0 and prints nothing, proceed unchanged.
 
+**DevFlow context.** This skill is vendored verbatim from `superpowers`, where its examples address a "human partner" you converse with and "report to." Inside DevFlow's *autonomous* `/devflow:review-and-fix` fix loop there is no interactive human in the turn: read every "your human partner" / "report to me" framing below as the loop's own escalation channels — the deferrals manifest, the pushback/decision tracking recorded in the workpad, and the PR/issue trail a human reviews later. The technical-rigor principle (verify before implementing, push back when wrong) is identical; only the audience for the pushback differs.
+
 ## Overview
 
 Code review requires technical evaluation, not emotional performance.

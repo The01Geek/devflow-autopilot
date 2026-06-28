@@ -6381,12 +6381,17 @@ assert_eq "#142 CLAUDE.md does NOT claim a vendored first-party devflow:writing-
 # here only narrows this net to "no OTHER stray superpowers: ref outside CLAUDE.md." Same
 # history/migration exceptions as (1), PLUS lib/test — this suite's own scaffolding
 # necessarily names the forbidden pattern to assert its absence, and a guard cannot scan
-# itself. Pattern split-literal so this run.sh never self-matches outside lib/test.
+# itself. Excepting all of lib/test leaves a narrow blind spot: a stray *non-internalized*
+# superpowers: id introduced into a non-scaffolding test helper would slip THIS broad scan.
+# That residual is mitigated because (1)'s targeted requesting/receiving scans are NOT path-
+# scoped (they would still catch the two internalized ids anywhere in lib/test); only a brand-
+# new reference to some OTHER superpowers skill, placed in lib/test, would evade detection.
+# Pattern split-literal so this run.sh never self-matches outside lib/test.
 SP_PAT_NS="superpowers"":"
 assert_eq "#142 no operative surface outside CLAUDE.md carries any bare superpowers: namespaced id (non-internalized refs incl.; CLAUDE.md/test scaffolding/history/migration excepted)" \
   "" "$(tracked_scan "$FDROOT" "$SP_PAT_NS" ':!.devflow/logs' ':!CHANGELOG.md' ':!docs/review-agent-overrides.md' ':!lib/test' ':!CLAUDE.md')"
 
-# (2/2b/2c) Per-skill vendoring + structural validity. For each of the three skills the file
+# (2/2b/2c) Per-skill vendoring + structural validity. For each of the two skills the file
 # exists first-party under skills/<name>/SKILL.md; its frontmatter declares name: <name> (so
 # it resolves as devflow:<name>); and the frontmatter is well-formed (open + close ---, name:,
 # bounded to the head window so a body --- horizontal rule cannot inflate the closing-fence
@@ -6434,8 +6439,10 @@ assert_eq "#142 fix-loop skill applies devflow:receiving-code-review principles 
 # the requesting-code-review/code-reviewer.md companion, not just SKILL.md. The per-file
 # `Vendored from the superpowers plugin` attribution marker was removed (e398332) to save context
 # tokens, so attribution is now proved once via LICENSES/superpowers-LICENSE (asserted below), not
-# per-file here. The vendored skill paths are alphanumeric/hyphen (no spaces), so the unquoted find
-# word-split is safe.
+# per-file here. NOTE: the per-file loop alone is NOT fail-closed — over an empty find result it
+# contributes zero assertions and silently passes; the SP_VENDORED_FILES non-empty assertion
+# directly below is what closes that hole, so the two must stay paired. The vendored skill paths
+# are alphanumeric/hyphen (no spaces), so the unquoted find word-split is safe.
 SP_VENDORED_FILES=$(find "$FDROOT/skills/requesting-code-review" "$FDROOT/skills/receiving-code-review" -type f 2>/dev/null)
 # Fail CLOSED on an empty iteration set: if the two vendored trees were deleted/renamed
 # wholesale, `find` returns nothing and the loop below would contribute ZERO assertions — a
@@ -6448,10 +6455,20 @@ assert_eq "#142 vendored skill trees are non-empty (guards the empty-find silent
 # The reviewer-prompt template the requesting-code-review skill renders (review/SKILL.md
 # dispatches /devflow:requesting-code-review, which renders this template — it is not inlined) is
 # load-bearing — pin its existence explicitly (the 2/2b/2c loop pins each SKILL.md, but a
-# supporting-file deletion would otherwise be invisible to the marker loop, which only iterates
+# supporting-file deletion would otherwise be invisible to the loop, which only iterates
 # files that exist).
 assert_eq "#142 skills/requesting-code-review/code-reviewer.md exists (the rendered reviewer template)" \
   "yes" "$([ -f "$FDROOT/skills/requesting-code-review/code-reviewer.md" ] && echo yes || echo no)"
+# ...AND the SKILL.md still LINKS that template. Existence alone is insufficient: a future edit
+# that drops/renames the `[code-reviewer.md](code-reviewer.md)` link would ORPHAN the template —
+# the final-pass reviewer renders an empty prompt — while the existence pin above and every other
+# #142 row stay green (the dropped-mention asymmetry the 2d/7/8 pins defend elsewhere, and the
+# #62/#98 unverified-assumption class). Pin the link positively. Fails CLOSED via the MISSING-FILE
+# sentinel if the SKILL.md is renamed/deleted (!= "yes").
+assert_eq "#142 skills/requesting-code-review/SKILL.md links its code-reviewer.md template (not orphaned)" \
+  "yes" "$([ -f "$FDROOT/skills/requesting-code-review/SKILL.md" ] \
+          && { grep -qF '(code-reviewer.md)' "$FDROOT/skills/requesting-code-review/SKILL.md" && echo yes || echo no; } \
+          || echo MISSING-FILE)"
 for sf in $SP_VENDORED_FILES; do
   assert_eq "#142 vendored skill file ${sf#"$FDROOT"/} carries no first-party 2026 Daniel Radman SPDX line" \
     "no" "$(grep -q 'SPDX-FileCopyrightText: 2026 Daniel Radman' "$sf" && echo yes || echo no)"
