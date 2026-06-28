@@ -255,7 +255,7 @@
         "audit_model": { "type": "string", "description": "Optional --model override for the audit subagent." },
         "implementation_branch_prefix": {
           "type": "string",
-          "description": "Branch prefix your implementation bot uses for its PRs. The loop only processes PRs on this prefix (plus DevFlow's own devflow/audit-* branches).",
+          "description": "Branch prefix your implementation bot uses for its PRs. The loop processes a PR matching this prefix, or any PR carrying the DevFlow label or closing an issue.",
           "default": "claude/"
         },
         "min_occurrences": {

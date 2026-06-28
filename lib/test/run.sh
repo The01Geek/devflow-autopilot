@@ -48,9 +48,15 @@ assert_eq "claude/ branch is implementation" \
   "implementation" \
   "$(classify "claude/issue-123-fix-thing" "true")"
 
-assert_eq "devflow/audit- branch is audit-intervention" \
-  "audit-intervention" \
+# #152: the audit-intervention path is pruned. A devflow/audit-* branch is no
+# longer special-cased — it classifies like any other branch (implementation iff
+# it carries the DevFlow label or closes an issue; otherwise skip).
+assert_eq "#152: devflow/audit- branch is no longer audit-intervention (no label → skip)" \
+  "skip" \
   "$(classify "devflow/audit-foo-2026-05-01-abc1234" "true")"
+assert_eq "#152: DevFlow-labelled devflow/audit- branch is implementation" \
+  "implementation" \
+  "$(classify "devflow/audit-foo-2026-05-01-abc1234" "true" "claude/" '[{"name":"DevFlow"}]' '[]')"
 
 assert_eq "claude/ branch with watched=false is skip" \
   "skip" \
@@ -81,15 +87,11 @@ assert_eq "#97 classify: empty prefix is not match-all (unrelated branch → ski
 assert_eq "#97 classify: empty prefix still selects via closes-issue" \
   "implementation" \
   "$(classify "issue-97-foo" "true" "" '[]' '[{"number":97}]')"
-# Arm-ordering precedence: a devflow/audit-* branch that ALSO carries the DevFlow
-# label must classify as audit-intervention (audit arm precedes the label arm),
-# never get mis-routed to the implementation variant.
-assert_eq "#97 classify: DevFlow-labelled audit branch stays audit-intervention" \
-  "audit-intervention" \
-  "$(classify "devflow/audit-foo-2026-05-01-abc1234" "true" "claude/" '[{"name":"DevFlow"}]' '[{"number":97}]')"
-assert_eq "#97 classify: audit branch with watched=false is skip (label/closes do not override)" \
+# #152: a devflow/audit-* branch with watched=false and no label/closes → skip
+# (the pruned audit arm no longer forces it onto a retrospected path).
+assert_eq "#152 classify: audit branch with watched=false and no label/closes is skip" \
   "skip" \
-  "$(classify "devflow/audit-foo-2026-05-01-abc1234" "false" "claude/" '[{"name":"DevFlow"}]' '[{"number":97}]')"
+  "$(classify "devflow/audit-foo-2026-05-01-abc1234" "false" "claude/" '[]' '[]')"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "compute-patterns.jq"
@@ -2955,8 +2957,8 @@ assert_eq "#97 pin: create-issue ensures+applies DevFlow label" "yes" \
   "$(grep -q 'ensure-label.sh DevFlow' "$LIB/../skills/create-issue/SKILL.md" && grep -q -- '--add-label DevFlow' "$LIB/../skills/create-issue/SKILL.md" && echo yes || echo no)"
 assert_eq "#97 pin: implement applies DevFlow label at PR create" "yes" \
   "$(grep -q 'ensure-label.sh DevFlow' "$LIB/../skills/implement/SKILL.md" && grep -q -- '--add-label DevFlow' "$LIB/../skills/implement/SKILL.md" && echo yes || echo no)"
-assert_eq "#97 pin: retrospective-weekly Stage B applies DevFlow label" "yes" \
-  "$(grep -q 'ensure-label.sh DevFlow' "$LIB/../skills/retrospective-weekly/SKILL.md" && grep -q -- '--add-label DevFlow' "$LIB/../skills/retrospective-weekly/SKILL.md" && echo yes || echo no)"
+assert_eq "#152 pin: meta-issue.sh ensures+applies DevFlow and Retrospective labels" "yes" \
+  "$(grep -q 'ensure-label.sh' "$LIB/meta-issue.sh" && grep -q -- '--add-label DevFlow' "$LIB/meta-issue.sh" && grep -q -- '--add-label Retrospective' "$LIB/meta-issue.sh" && echo yes || echo no)"
 assert_eq "#97 pin: init creates the reserved DevFlow provenance label" "yes" \
   "$(grep -q 'ensure-label.sh DevFlow' "$LIB/../skills/init/SKILL.md" && grep -qi 'provenance' "$LIB/../skills/init/SKILL.md" && echo yes || echo no)"
 assert_eq "#97 pin: retrospective Stage A consumes reflections" "yes" \
@@ -2966,8 +2968,49 @@ assert_eq "#97 pin: cheap-gate carries the reflection reason string" "yes" \
 assert_eq "#97 pin: config.example.json docs.labels reverted to Documented" "Documented" \
   "$(jq -r '.docs.labels' "$LIB/../.devflow/config.example.json")"
 
+# ── #152: propose-not-dispose contract pins (grep) ───────────────────────────
+# Stage B (retrospective-audit) is now a pure {title, body} spec generator: zero
+# worktrees, zero edits, no two-form excluded/targets contract.
+RA_SKILL="$LIB/../skills/retrospective-audit/SKILL.md"
+assert_eq "#152: Stage B emits the {title, body} contract" "yes" \
+  "$(grep -qF '{title, body}' "$RA_SKILL" && echo yes || echo no)"
+assert_eq "#152: Stage B runs no git worktree" "yes" \
+  "$(grep -q 'git worktree' "$RA_SKILL" && echo no || echo yes)"
+assert_eq "#152: Stage B drops the targets[] return field" "yes" \
+  "$(grep -qF '"targets"' "$RA_SKILL" && echo no || echo yes)"
+assert_eq "#152: Stage B drops the excluded return field" "yes" \
+  "$(grep -qF '"excluded"' "$RA_SKILL" && echo no || echo yes)"
+# Orchestrator (retrospective-weekly) Step 8 files issues, opens zero PRs, runs no
+# worktrees, and never auto-posts /devflow:implement.
+RW_SKILL="$LIB/../skills/retrospective-weekly/SKILL.md"
+assert_eq "#152: orchestrator invokes meta-issue.sh" "yes" \
+  "$(grep -q 'meta-issue.sh' "$RW_SKILL" && echo yes || echo no)"
+assert_eq "#152: orchestrator accumulates intervention_issues" "yes" \
+  "$(grep -q 'intervention_issues' "$RW_SKILL" && echo yes || echo no)"
+assert_eq "#152: orchestrator opens no PR (no gh pr create)" "yes" \
+  "$(grep -q 'gh pr create' "$RW_SKILL" && echo no || echo yes)"
+assert_eq "#152: orchestrator runs no git worktree" "yes" \
+  "$(grep -q 'git worktree' "$RW_SKILL" && echo no || echo yes)"
+# AC6: the loop never auto-triggers implementation. The orchestrator posts NO
+# comment to a filed issue (it may reference the pipeline by name in prose, which
+# is fine) — the structural guard is the absence of any gh issue/pr comment that
+# would carry an auto-trigger.
+assert_eq "#152: orchestrator posts no gh issue/pr comment (no auto-trigger)" "yes" \
+  "$(grep -qE 'gh (issue|pr) comment' "$RW_SKILL" && echo no || echo yes)"
+assert_eq "#152: orchestrator states filed issues await human triage" "yes" \
+  "$(grep -qi 'await human triage' "$RW_SKILL" && echo yes || echo no)"
+# Prune: no operative engine surface references the removed audit-intervention
+# kind or the devflow/audit-* branch convention (CHANGELOG history + this test
+# suite's own classify-input strings are intentionally excluded — note git
+# pathspec `*` crosses `/`, so lib/test/ is excluded explicitly).
+PRUNE_SCAN=$( cd "$LIB/.." && git grep -lFe 'audit-intervention' -e 'devflow/audit' -- \
+    'lib/*.sh' 'lib/*.jq' 'skills/*/SKILL.md' 'docs/DEVFLOW_SYSTEM_OVERVIEW.md' \
+    'CLAUDE.md' '.devflow/config.schema.json' 'lib/intervention-surfaces.md' \
+    ':(exclude)lib/test/' 2>/dev/null || true )
+assert_eq "#152: no operative file references audit-intervention / devflow-audit" "" "$PRUNE_SCAN"
+
 # ────────────────────────────────────────────────────────────────────────────
-echo "clean-entry.jq / audit-entry.jq / actionable-patterns.sh"
+echo "clean-entry.jq / actionable-patterns.sh"
 # ────────────────────────────────────────────────────────────────────────────
 CTX_CLEAN='{"pr":42,"kind":"implementation","issue_number":40,"merged_at":"2026-05-01T00:00:00Z","branch":"claude/issue-40-x","head_sha":"abc","merge_commit_sha":"def","signals":{"review_comments_count":0,"post_bot_commits":0,"ci_failures_during_pr":0,"workpad_final_status":"Complete","review_reject_outstanding":false}}'
 E="$(echo "$CTX_CLEAN" | jq -c -f "$LIB/clean-entry.jq")"
@@ -2978,11 +3021,9 @@ assert_eq "clean-entry categories=[]"       "0"     "$(echo "$E" | jq '.categori
 assert_eq "clean-entry descriptors=[]"      "0"     "$(echo "$E" | jq '.descriptors|length')"
 assert_eq "clean-entry no theme_tags field" "true"  "$(echo "$E" | jq 'has("theme_tags") | not')"
 assert_eq "clean-entry signals carried"     "0"     "$(echo "$E" | jq -r .signals.post_bot_commits)"
-CTX_AUDIT='{"pr":99,"kind":"audit-intervention","pattern_tag":"deferred-verification","merged_at":"2026-05-09T00:00:00Z"}'
-A="$(echo "$CTX_AUDIT" | jq -c -f "$LIB/audit-entry.jq")"
-assert_eq "audit-entry kind=audit"        "audit"                 "$(echo "$A" | jq -r .kind)"
-assert_eq "audit-entry schema_version=2"  "2"                     "$(echo "$A" | jq -r .schema_version)"
-assert_eq "audit-entry fixes_patterns"    "deferred-verification" "$(echo "$A" | jq -r '.fixes_patterns[0]')"
+# #152: audit-entry.jq is pruned along with the audit-intervention path.
+assert_eq "#152: audit-entry.jq is removed" "true" \
+  "$([ ! -f "$LIB/audit-entry.jq" ] && echo true || echo false)"
 # actionable-patterns: incomplete-edit 2x imperfect, doc-accuracy 1x
 AP_TMP="$(mktemp -d)"
 printf '%s\n' \
@@ -3003,14 +3044,16 @@ assert_eq "incomplete-edit occurrence_count=2"         "2"     "$(echo "$AP" | j
 assert_eq "incomplete-edit descriptors passed through" "orphaned fetch left after deletion|stale count not propagated" \
   "$(echo "$AP" | jq -r '.[] | select(.tag=="incomplete-edit") | .descriptors | sort | join("|")')"
 assert_eq "incomplete-edit cooldown_active=false"      "false" "$(echo "$AP" | jq '.[] | select(.tag=="incomplete-edit") | .cooldown_active')"
-# now an open audit PR for incomplete-edit created today → cooldown_active true
+# #152: cooldown is now driven by an open FILED retrospective issue (not an audit
+# PR). An open "[devflow-retrospective] meta: incomplete-edit — …" issue created
+# today → cooldown_active true.
 cat > "$AP_TMP/gh" <<STUB
 #!/usr/bin/env bash
-case "\$*" in *"pr list"*) echo '[{"number":500,"headRefName":"devflow/audit-incomplete-edit-'"$(date -u +%F)"'-abc1234","createdAt":"'"$(date -u +%FT%TZ)"'"}]' ;; *) echo '[]' ;; esac
+case "\$*" in *"issue list"*) echo '[{"number":500,"title":"[devflow-retrospective] meta: incomplete-edit — strengthen the gate","createdAt":"'"$(date -u +%FT%TZ)"'"}]' ;; *) echo '[]' ;; esac
 STUB
 chmod +x "$AP_TMP/gh"
 AP2="$(DEVFLOW_GH="$AP_TMP/gh" bash "$LIB/actionable-patterns.sh" "$AP_TMP/r.jsonl" "$AP_TMP/o.json")"
-assert_eq "incomplete-edit cooldown_active=true after recent audit PR" "true" "$(echo "$AP2" | jq '.[] | select(.tag=="incomplete-edit") | .cooldown_active')"
+assert_eq "incomplete-edit cooldown_active=true after recent filed issue" "true" "$(echo "$AP2" | jq '.[] | select(.tag=="incomplete-edit") | .cooldown_active')"
 # Missing overrides.json → should still emit the actionable array, not error
 AP_NOOV="$(DEVFLOW_GH="$AP_TMP/gh" bash "$LIB/actionable-patterns.sh" "$AP_TMP/r.jsonl" "/tmp/devflow-nonexistent-overrides-$$-$RANDOM.json")" \
   && assert_eq "actionable: missing overrides → incomplete-edit still present" "true" "$(echo "$AP_NOOV" | jq 'any(.[]; .tag=="incomplete-edit")')" \
@@ -3073,42 +3116,33 @@ assert_eq "mixed all-allowed → exit 1"    "1" "$(ex "CLAUDE.md" ".claude/skill
 assert_eq "prints the excluded path"      ".devflow/learnings/x.json" "$(bash "$LIB/check-excluded-path.sh" "CLAUDE.md" ".devflow/learnings/x.json")"
 
 # ────────────────────────────────────────────────────────────────────────────
-echo "exclusion-list sync: SKILL.md §2 canonical block ⇄ check-excluded-path.sh (config siblings)"
-# ────────────────────────────────────────────────────────────────────────────
-# CLAUDE.md mandates the §2 canonical exclusion list in skills/retrospective-audit/
-# SKILL.md stay in sync with lib/check-excluded-path.sh. The drift-prone part is the
-# exact .devflow/config*.json sibling set — three literals enumerated in BOTH places in
-# identical format, so an exact-string guard is precise (no glob */** normalization). The
-# set is derived from the helper at test time, so a new sibling added to one place but not
-# the other fails here (issue #136: config.schema.json was matched by the helper but
-# missing from the SKILL.md block — a doc/code drift no test caught).
-RA_SKILL="$LIB/../skills/retrospective-audit/SKILL.md"
-EXCL_HELPER="$LIB/check-excluded-path.sh"
-# Helper siblings: every .devflow/config*.json literal in the case arms (the char class
-# stops each token at the `|`/`)`/space that delimits it inside the case pattern).
-HELPER_CFG=$(grep -oE '\.devflow/config[^|) ]*\.json' "$EXCL_HELPER" | sort -u)
-# SKILL.md siblings: the same literals as bare lines inside the canonical fenced block.
-# Anchoring at ^ excludes the mid-line/backticked prose mentions (§2 lines), matching only
-# the fenced-block enumeration.
-SKILL_CFG=$(grep -oE '^\.devflow/config[^ ]*\.json' "$RA_SKILL" | sort -u)
-assert_eq "exclusion-sync: SKILL.md config siblings match the helper" "$HELPER_CFG" "$SKILL_CFG"
-# Non-vacuity: guard a future refactor that drops the literals (which would make BOTH
-# sides empty and the equality pass blindly).
-assert_eq "exclusion-sync: helper enumerates config siblings (non-vacuous)" "yes" \
-  "$([ -n "$HELPER_CFG" ] && echo yes || echo no)"
-
-# ────────────────────────────────────────────────────────────────────────────
 echo "meta-issue.sh"
 # ────────────────────────────────────────────────────────────────────────────
 MI_TMP="$(mktemp -d)"
 echo '{"schema_version":1,"dismissed":{}}' > "$MI_TMP/ov.json"
-echo 'Proposed: strengthen the cheap gate.' > "$MI_TMP/body.md"
-cat > "$MI_TMP/gh" <<STUB
+# #152: the body is the Stage-B-authored issue spec, filed VERBATIM. Use a body
+# with backticks, $, and newlines to prove it round-trips unmangled (written to a
+# file, never inlined into shell) and is NOT wrapped in any prepend/append.
+printf '## Problem Statement\nStrengthen `cheap-gate.jq` so $VAR shapes do not slip.\n\nMulti-line.\n' > "$MI_TMP/body.md"
+# Stub writes its capture files into its own dir ($MI_TMP) so a quoted heredoc can
+# stay free of run.sh shell-var interpolation. Handles label create / issue edit
+# (the best-effort label stamping) in addition to list/create/comment.
+cat > "$MI_TMP/gh" <<'STUB'
 #!/usr/bin/env bash
-case "\$*" in
+D="$(dirname "$0")"
+case "$*" in
   *"issue list"*) echo '' ;;                                # no existing issue
-  *"issue create"*) printf '%s' "\$*" > "$MI_TMP/create-args"; echo 'https://github.com/acme/example-repo/issues/4242' ;;
+  *"issue create"*)
+     printf '%s' "$*" > "$D/create-args"
+     prev=""
+     for a in "$@"; do
+       [ "$prev" = "--body-file" ] && cat "$a" > "$D/created-body.md"
+       prev="$a"
+     done
+     echo 'https://github.com/acme/example-repo/issues/4242' ;;
   *"issue comment"*) echo 'commented' ;;
+  *"issue edit"*) printf '%s' "$*" > "$D/edit-args" ;;
+  *"label create"*) echo 'created' ;;
   *) echo '' ;;
 esac
 STUB
@@ -3121,39 +3155,66 @@ assert_eq "create title keeps the de-dup key" "true" \
   "$(grep -qF -- '--title [devflow-retrospective] meta: review-reject-bypassed' "$MI_TMP/create-args" && echo true || echo false)"
 assert_eq "create title carries the caller --title" "true" \
   "$(grep -qF -- 'audit(devflow): x' "$MI_TMP/create-args" && echo true || echo false)"
+# #152: the filed body equals the input verbatim — no `## Pattern:` prepend, no
+# "can't be an auto-opened PR" boilerplate, backticks/$/newlines intact.
+assert_eq "meta-issue files the body verbatim" "true" \
+  "$(diff -q "$MI_TMP/body.md" "$MI_TMP/created-body.md" >/dev/null 2>&1 && echo true || echo false)"
+# #152: both the DevFlow provenance label and the Retrospective marker are stamped
+# (best-effort) on the freshly filed issue (#4242, derived from the created URL).
+assert_eq "meta-issue stamps DevFlow label" "true" \
+  "$(grep -qF -- '--add-label DevFlow' "$MI_TMP/edit-args" && echo true || echo false)"
+assert_eq "meta-issue stamps Retrospective label" "true" \
+  "$(grep -qF -- '--add-label Retrospective' "$MI_TMP/edit-args" && echo true || echo false)"
+assert_eq "meta-issue edits the filed issue #4242" "true" \
+  "$(grep -qF -- 'issue edit 4242' "$MI_TMP/edit-args" && echo true || echo false)"
 assert_eq "override recorded with url"     "https://github.com/acme/example-repo/issues/4242" "$(jq -r '.dismissed["review-reject-bypassed"].meta_issue' "$MI_TMP/ov.json")"
 assert_eq "override reason"                "meta-plugin-issue" "$(jq -r '.dismissed["review-reject-bypassed"].reason' "$MI_TMP/ov.json")"
 assert_eq "override dismissed_by"          "retrospective-weekly"    "$(jq -r '.dismissed["review-reject-bypassed"].dismissed_by' "$MI_TMP/ov.json")"
-# existing-issue path
+# existing-issue path (de-dup): comments instead of re-filing, still stamps labels
+rm -f "$MI_TMP/edit-args"
 cat > "$MI_TMP/gh" <<'STUB'
 #!/usr/bin/env bash
+D="$(dirname "$0")"
 case "$*" in
   *"issue list"*) echo '{"number":99,"url":"https://github.com/acme/example-repo/issues/99"}' ;;
   *"issue comment"*) echo 'commented' ;;
+  *"issue edit"*) printf '%s' "$*" > "$D/edit-args" ;;
+  *"label create"*) echo 'created' ;;
   *) echo '' ;;
 esac
 STUB
 chmod +x "$MI_TMP/gh"
 URL2="$(DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --tag t-existing --slug t-existing --title "x" --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov.json" 2>/dev/null)"
 assert_eq "meta-issue reuses existing URL" "https://github.com/acme/example-repo/issues/99" "$URL2"
+assert_eq "meta-issue stamps labels on the existing issue #99" "true" \
+  "$(grep -qF -- 'issue edit 99' "$MI_TMP/edit-args" && echo true || echo false)"
 rm -rf "$MI_TMP"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "render-report.sh / open-state-pr.sh / post-status.sh"
 # ────────────────────────────────────────────────────────────────────────────
 ( . "$LIB/render-report.sh"
-  SUM='{"prs_scanned":8,"clean_count":3,"analyzed_count":5,"intervention_prs":[{"number":901,"tag":"implement-review-miss"}],"meta_issues":[{"tag":"review-reject-bypassed","url":"https://x/issues/9"}],"cooldown_skipped":["doc-inventory-inaccuracy"],"blockers":[],"state_pr":900}'
+  # #152: the loop files issues, not PRs — a single intervention_issues[] list
+  # ({tag, url}) replaces the old intervention_prs[] + meta_issues[] split.
+  SUM='{"prs_scanned":8,"clean_count":3,"analyzed_count":5,"intervention_issues":[{"tag":"implement-review-miss","url":"https://x/issues/901"},{"tag":"review-reject-bypassed","url":"https://x/issues/9"}],"cooldown_skipped":["doc-inventory-inaccuracy"],"blockers":[],"state_pr":900}'
   REPORT="$(devflow_render_report "$SUM")"
   assert_eq "report has marker"        "true" "$(echo "$REPORT" | head -1 | grep -qF '<!-- devflow:audit-report -->' && echo true || echo false)"
   assert_eq "report shows prs_scanned"  "true" "$(echo "$REPORT" | grep -q '8' && echo true || echo false)"
-  assert_eq "report lists PR 901"       "true" "$(echo "$REPORT" | grep -q 'PR #901' && echo true || echo false)"
-  assert_eq "report lists meta tag"     "true" "$(echo "$REPORT" | grep -q 'review-reject-bypassed' && echo true || echo false)"
+  assert_eq "report has Issues filed section" "true" "$(echo "$REPORT" | grep -q '## Issues filed' && echo true || echo false)"
+  assert_eq "report lists filed issue tag" "true" "$(echo "$REPORT" | grep -q 'implement-review-miss' && echo true || echo false)"
+  assert_eq "report lists second filed tag" "true" "$(echo "$REPORT" | grep -q 'review-reject-bypassed' && echo true || echo false)"
   assert_eq "report lists cooldown tag" "true" "$(echo "$REPORT" | grep -q 'doc-inventory-inaccuracy' && echo true || echo false)"
+  # #152: the pruned audit path leaves no "Intervention PRs" / "Meta-issues" headers
+  assert_eq "no Intervention PRs section" "false" "$(echo "$REPORT" | grep -q '## Intervention PRs' && echo true || echo false)"
+  assert_eq "no Meta-issues section"      "false" "$(echo "$REPORT" | grep -q '## Meta-issues filed' && echo true || echo false)"
+  # empty filed list → explicit "_None filed._"
+  SUM_NONE='{"prs_scanned":1,"clean_count":1,"analyzed_count":0,"intervention_issues":[],"cooldown_skipped":[],"blockers":[],"state_pr":1}'
+  assert_eq "empty Issues filed shows None" "true" "$(devflow_render_report "$SUM_NONE" | grep -qF '_None filed._' && echo true || echo false)"
   # #7c: omit the new sections when the keys aren't supplied
   assert_eq "no Analyzed section without data" "false" "$(echo "$REPORT" | grep -q '### Analyzed PRs' && echo true || echo false)"
   assert_eq "no Patterns section without data" "false" "$(echo "$REPORT" | grep -q '## Patterns this run' && echo true || echo false)"
   # #7c: render them when supplied
-  SUM2='{"prs_scanned":2,"clean_count":0,"analyzed_count":2,"analyzed":[{"pr":771,"verdict":"imperfect","summary":"merged over an outstanding /review REJECT"},{"pr":789,"verdict":"imperfect","summary":"internal doc listed files that no longer match"}],"patterns":[{"tag":"merged-over-review-reject","slug":"merged-over-review-reject","occurrence_count":2,"status":"open","cooldown_active":false},{"tag":"old-pattern","slug":"old-pattern","occurrence_count":3,"status":"open","cooldown_active":true}],"intervention_prs":[],"meta_issues":[],"cooldown_skipped":["old-pattern"],"blockers":[],"state_pr":810}'
+  SUM2='{"prs_scanned":2,"clean_count":0,"analyzed_count":2,"analyzed":[{"pr":771,"verdict":"imperfect","summary":"merged over an outstanding /review REJECT"},{"pr":789,"verdict":"imperfect","summary":"internal doc listed files that no longer match"}],"patterns":[{"tag":"merged-over-review-reject","slug":"merged-over-review-reject","occurrence_count":2,"status":"open","cooldown_active":false},{"tag":"old-pattern","slug":"old-pattern","occurrence_count":3,"status":"open","cooldown_active":true}],"intervention_issues":[],"cooldown_skipped":["old-pattern"],"blockers":[],"state_pr":810}'
   REPORT2="$(devflow_render_report "$SUM2")"
   assert_eq "Analyzed section present"        "true" "$(echo "$REPORT2" | grep -q '### Analyzed PRs' && echo true || echo false)"
   assert_eq "Analyzed line for PR 771"        "true" "$(echo "$REPORT2" | grep -q '#771 — imperfect: merged over an outstanding' && echo true || echo false)"

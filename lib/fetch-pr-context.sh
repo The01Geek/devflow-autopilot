@@ -37,7 +37,7 @@ DELETIONS="$(echo "$PR_JSON" | jq -r .deletions)"
 CHANGED_FILES="$(echo "$PR_JSON" | jq '[.files[].path]')"
 
 # ── 2. Classify retrospection kind ───────────────────────────────────────────
-# Mirror lib/scan.sh's union predicate (label / closes-issue / audit / prefix) so
+# Mirror lib/scan.sh's union predicate (label / closes-issue / prefix) so
 # a PR scan selected on the label or closes-issue path — e.g. DevFlow's own
 # issue-<N>-<slug> branches that match no prefix — is not then dropped here.
 IMPL_PREFIX="$(devflow_conf '.devflow_retrospective.implementation_branch_prefix' 'claude/')"
@@ -50,23 +50,7 @@ if [ "$KIND" = "skip" ]; then
     exit 2
 fi
 
-# ── 3. Pattern tag (audit-intervention only) ─────────────────────────────────
-PATTERN_TAG="null"
-if [ "$KIND" = "audit-intervention" ]; then
-    # Try "Fixes pattern: <tag>" from body
-    TAG_FROM_BODY="$(echo "$BODY" | sed -nE 's/.*[Ff]ixes pattern:[[:space:]]*([A-Za-z0-9_-]+).*/\1/p' | head -1 || true)"
-    if [ -n "$TAG_FROM_BODY" ]; then
-        PATTERN_TAG="\"$TAG_FROM_BODY\""
-    else
-        # Fallback: parse devflow/audit-<tag>-YYYY-MM-DD-<sha>
-        TAG_FROM_BRANCH="$(echo "$BRANCH" | sed -nE 's|^devflow/audit-(.+)-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9a-f]+$|\1|p' || true)"
-        if [ -n "$TAG_FROM_BRANCH" ]; then
-            PATTERN_TAG="\"$TAG_FROM_BRANCH\""
-        fi
-    fi
-fi
-
-# ── 4. Issue number ──────────────────────────────────────────────────────────
+# ── 3. Issue number ──────────────────────────────────────────────────────────
 ISSUE_NUMBER="null"
 # Try branch name first: claude/issue-<N>-...
 ISSUE_FROM_BRANCH="$(sed -nE 's|^claude/issue-([0-9]+)-.*$|\1|p' <<<"$BRANCH" || true)"
@@ -456,7 +440,6 @@ printf '%s' "$IMPLEMENT_SUMMARY_JSON"   > "$_JQ_TMP/implement_summary_comment.js
 jq -n \
     --argjson pr "$PR" \
     --arg kind "$KIND" \
-    --argjson pattern_tag "$PATTERN_TAG" \
     --arg branch "$BRANCH" \
     --arg base_ref "$BASE_REF" \
     --arg head_sha "$HEAD_SHA" \
@@ -493,7 +476,6 @@ jq -n \
     '{
         pr: $pr,
         kind: $kind,
-        pattern_tag: $pattern_tag,
         branch: $branch,
         base_ref: $base_ref,
         head_sha: $head_sha,

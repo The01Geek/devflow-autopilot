@@ -1,14 +1,19 @@
 #!/usr/bin/env bash
 # SPDX-FileCopyrightText: 2026 Daniel Radman
 # SPDX-License-Identifier: MIT
-# meta-issue.sh — file/update a GitHub meta-issue for a devflow pattern that
-# touches an exclusion-list path, and record a dismissal in overrides.json.
+# meta-issue.sh — the retrospective loop's issue filer: file (or update) one
+# GitHub issue for a devflow pattern and record a cooldown dismissal in
+# overrides.json. The body is authored by Stage B (retrospective-audit) to
+# create-issue quality and is filed verbatim, so the issue can later be executed
+# through the normal /devflow:implement -> review pipeline.
 #
 # Usage:
 #   meta-issue.sh --tag <theme-tag> --slug <sanitized-tag> \
-#                 --title <pr-title> --body-file <path> \
+#                 --title <issue-title> --body-file <path> \
 #                 --overrides <path> [--dry-run]
 set -euo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ── Argument parsing ─────────────────────────────────────────────────────────
 TAG=
@@ -40,7 +45,23 @@ done
 # ── gh binary (allow injection for tests) ────────────────────────────────────
 : "${DEVFLOW_GH:=gh}"
 
-# ── Step 1: de-dupe — find or create the meta-issue ─────────────────────────
+# The reserved DevFlow provenance label plus a fixed Retrospective marker stamped
+# on every filed issue. Both are hardcoded constants — no config key controls
+# them (DevFlow is the scan/classify provenance string; Retrospective marks the
+# loop's own filings). Application is best-effort and never aborts the filing.
+_apply_labels() {  # $1 = issue number
+    local _num="$1" _lbl
+    [[ "$DRY_RUN" -eq 1 ]] && return 0
+    [[ -n "$_num" ]] || return 0
+    for _lbl in DevFlow Retrospective; do
+        DEVFLOW_GH="$DEVFLOW_GH" "$HERE/../scripts/ensure-label.sh" "$_lbl" || true
+    done
+    "$DEVFLOW_GH" issue edit "$_num" --add-label DevFlow --add-label Retrospective \
+        >/dev/null 2>&1 \
+      || echo "::warning::meta-issue: could not apply DevFlow/Retrospective labels to #${_num} (best-effort, continuing)" >&2
+}
+
+# ── Step 1: de-dupe — find or create the issue ──────────────────────────────
 EXISTING="$("$DEVFLOW_GH" issue list \
     --search "[devflow-retrospective] meta: ${TAG} in:title" \
     --state open \
@@ -57,34 +78,24 @@ if [[ -n "$EXISTING" ]]; then
             >/dev/null \
           || echo "::warning::meta-issue: failed to add recurrence comment to #${NUMBER}" >&2
     fi
+    _apply_labels "$NUMBER"
     echo "meta-issue: updated ${URL}" >&2
 else
-    # Compose the issue body in a temp file
-    COMPOSED_BODY="$(mktemp)"
-    # shellcheck disable=SC2064
-    trap "rm -f '$COMPOSED_BODY'" EXIT
-
-    {
-        printf '## Pattern: `%s`\n\n' "$TAG"
-        cat "$BODY_FILE"
-        printf '\n\n### Why this can'\''t be an auto-opened intervention PR\n\n'
-        printf 'This pattern'\''s best fix lives on an exclusion-list path '
-        printf '(plugin, data file, or critical-infra config). Auto-opening a '
-        printf 'PR on these paths risks unintended side-effects and needs '
-        printf 'human design review before any automated change is applied.\n'
-    } > "$COMPOSED_BODY"
-
     if [[ "$DRY_RUN" -eq 1 ]]; then
         URL="https://example.invalid/issues/DRYRUN"
     else
         # The "[devflow-retrospective] meta: ${TAG}" prefix is the de-dupe key the
         # Step-1 search matches on (keep it verbatim); the caller's --title is
-        # appended so the issue carries a human-readable summary too.
+        # appended so the issue carries a human-readable summary too. The body
+        # is the Stage-B-authored issue spec, filed verbatim.
         URL="$("$DEVFLOW_GH" issue create \
             --title "[devflow-retrospective] meta: ${TAG} — ${TITLE}" \
-            --body-file "$COMPOSED_BODY")"
+            --body-file "$BODY_FILE")"
         URL="$(printf '%s' "$URL" | tr -d '[:space:]')"
     fi
+    # Derive the issue number from the created URL (trailing path segment) so the
+    # labels land on the issue we just filed.
+    _apply_labels "${URL##*/}"
     echo "meta-issue: created ${URL}" >&2
 fi
 

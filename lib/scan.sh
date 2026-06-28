@@ -4,9 +4,9 @@
 # scan.sh — emit JSON array of unprocessed PRs matching the retrospection predicate.
 #
 # A PR qualifies when ANY of: it carries the reserved DevFlow label
-# (author/branch-agnostic), it is by a watched author and closes >=1 issue, its
-# branch is devflow/audit-*, or implementation_branch_prefix is set non-empty and
-# its branch matches it. See the RETRO_PREDICATE block below.
+# (author/branch-agnostic), it is by a watched author and closes >=1 issue, or
+# implementation_branch_prefix is set non-empty and its branch matches it. See
+# the RETRO_PREDICATE block below.
 #
 # Usage:
 #   scan.sh                       weekly mode: PRs matching the predicate merged
@@ -39,8 +39,7 @@ done
 
 REPO="$("$DEVFLOW_GH" repo view --json nameWithOwner -q .nameWithOwner)"
 MAX_PRS="$(devflow_conf '.devflow_retrospective.max_prs_per_run' 500)"
-# Adopter's implementation-bot branch prefix (default "claude/"). devflow/audit-
-# is DevFlow's own internal convention and is intentionally fixed. An EMPTY
+# Adopter's implementation-bot branch prefix (default "claude/"). An EMPTY
 # prefix is honoured as "disable the prefix path" — it must NOT degrade to a
 # `*`-glob that matches every branch (the old `${IMPL_PREFIX}*` bug).
 IMPL_PREFIX="$(devflow_conf '.devflow_retrospective.implementation_branch_prefix' 'claude/')"
@@ -53,9 +52,8 @@ WATCHED="$(devflow_watched_authors)"
 # A merged PR qualifies for retrospection when ANY of these holds:
 #   (a) it carries the reserved DevFlow provenance label   (author/branch-agnostic)
 #   (b) $watched is true AND it closes >=1 issue (closingIssuesReferences non-empty)
-#   (c) its branch is a devflow/audit-* intervention branch
-#   (d) implementation_branch_prefix is set non-empty AND its branch matches it
-# Inputs: $impl (prefix string, "" disables path d), $watched (bool).
+#   (c) implementation_branch_prefix is set non-empty AND its branch matches it
+# Inputs: $impl (prefix string, "" disables path c), $watched (bool).
 # Operates on one PR object carrying .labels, .closingIssuesReferences,
 # .headRefName (each defaulted, so a missing field never aborts the filter).
 # .labels entries may be objects ({name}) or bare strings depending on the gh
@@ -63,7 +61,6 @@ WATCHED="$(devflow_watched_authors)"
 RETRO_PREDICATE='
   ((.labels // []) | map(if type == "object" then (.name // "") else . end) | any(. == "DevFlow"))
   or ($watched and (((.closingIssuesReferences // []) | length) > 0))
-  or (((.headRefName // "") | startswith("devflow/audit-")))
   or (($impl != "") and ((.headRefName // "") | startswith($impl)))
 '
 
@@ -176,7 +173,7 @@ else
 fi
 _add_candidates "$LABEL_BATCH"
 
-# ── Paths (b)–(d): watched-author search ─────────────────────────────────────
+# ── Paths (b)–(c): watched-author search ─────────────────────────────────────
 # Skipped (not fatal) when no watched authors are configured — the label pass
 # above still stands on its own.
 if [ -z "$WATCHED" ]; then

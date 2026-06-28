@@ -3,8 +3,8 @@ name: retrospective-weekly
 description: >
   Run the weekly devflow self-improvement loop locally: scan freshly-merged
   watched-author PRs, write per-PR retrospective entries (LLM only for PRs
-  that fail the mechanical clean-gate), derive recurring patterns, and open
-  one human-reviewed intervention PR per actionable pattern. Use when running
+  that fail the mechanical clean-gate), derive recurring patterns, and file
+  one human-reviewed GitHub issue per actionable pattern. Use when running
   the weekly devflow retrospective + audit.
 ---
 
@@ -14,9 +14,11 @@ This skill is the single entry point the maintainer invokes once a week (or
 on demand). It is a *conductor*: it runs deterministic bash/jq scripts from
 `lib/` at every mechanical step and dispatches LLM subagents only at the two
 genuine-judgment points — per-PR retrospective analysis (Stage A) and
-per-pattern intervention drafting (Stage B). Everything else — fetching,
-signal computation, gating, pattern math, and git/PR mechanics — is done by
-plain scripts with no LLM tokens.
+per-pattern issue-spec drafting (Stage B). Everything else — fetching,
+signal computation, gating, pattern math, and git/issue mechanics — is done by
+plain scripts with no LLM tokens. The loop **proposes, it does not dispose**:
+each actionable pattern is filed as **one GitHub issue** for the normal
+implement → review pipeline, not landed as an autonomous PR.
 
 ```
 LIB="${CLAUDE_SKILL_DIR}/../../lib"
@@ -142,16 +144,12 @@ Outputs `{"clean": <bool>, "reason": "<string>"}`.
 
 **If `clean == true`:**
 
-Check the kind of the PR:
+Emit a clean entry (every retrospected PR is an `implementation` PR now — the
+old audit-kind path is retired along with autonomous intervention PRs):
 
 ```bash
-KIND=$(jq -r .kind < "$CTX")
+jq -c -f $LIB/clean-entry.jq < "$CTX" >> .devflow/tmp/new-entries.jsonl
 ```
-
-- If `KIND` is `audit-intervention`: emit a deterministic audit entry —
-  `jq -c -f $LIB/audit-entry.jq < "$CTX" >> .devflow/tmp/new-entries.jsonl`
-- Otherwise (normal `implementation` PR): emit a clean entry —
-  `jq -c -f $LIB/clean-entry.jq < "$CTX" >> .devflow/tmp/new-entries.jsonl`
 
 Increment `clean_count`.
 
@@ -244,10 +242,9 @@ Record `cooldown_skipped` tags for the final report.
 ### Step 7 — State PR
 
 **Open the state PR now, before Stage B**, so that the learnings files are
-committed onto their own branch. This prevents Stage B's
-`git checkout -B <audit-branch> main` (or a discard operation) from carrying
-or reverting the unstaged changes that Steps 5–6 wrote to
-`.devflow/learnings/`.
+committed onto their own branch. This captures the unstaged changes Steps 5–6
+wrote to `.devflow/learnings/` before any issue is filed, so this run's
+retrospective data survives even if Stage B or the filing step fails partway.
 
 Ensure you are on `main`:
 
@@ -288,45 +285,25 @@ git checkout main
 Initialize Stage B counters:
 
 ```bash
-intervention_prs=()   # will hold {number, tag} objects
-meta_issues=()        # will hold {tag, url} objects
-blockers=()           # will hold strings
+intervention_issues=()   # will hold {tag, url} objects — one per filed pattern
+blockers=()              # will hold strings
 ```
 
 ---
 
-### Step 8 — Stage B: Per-pattern intervention (parallel via worktrees)
+### Step 8 — Stage B: File one issue per actionable pattern
 
-Each pattern gets its **own `git worktree`** under `.devflow/tmp/wt-<slug>/`
-(gitignored), so the per-pattern subagents run **concurrently** without
-fighting over a single working tree. The expensive part (the drafting subagent)
-parallelizes; the cheap part (exclusion check → commit → push → PR) is done
-serially afterward, one worktree at a time. Your main checkout stays on `main`
-and untouched throughout. Raw `git worktree` is enough here — these are
-short-lived, machine-owned branches, not a personal workspace.
+For each actionable pattern, a Stage B subagent drafts a `{title, body}` issue
+spec and the orchestrator files **exactly one GitHub issue** from it via
+`meta-issue.sh`. **No worktrees, no commits, no PRs** — the loop proposes; a
+human triages each issue and runs it through the normal `/devflow:implement` →
+review pipeline. Your main checkout stays on `main` and is never edited. The
+drafting subagents (8b) parallelize; the cheap filing (8c) is done serially.
 
-#### 8a — Create one worktree per pattern + gather occurrence bundles
+#### 8a — Gather occurrence bundles
 
-For each `pattern` in `to_act`:
-
-```bash
-SLUG=$(jq -r .slug <<< "$pattern")
-SHORT_SHA=$(git rev-parse --short=7 main)
-BRANCH="devflow/audit-${SLUG}-$(date -u +%F)-${SHORT_SHA}"
-WT=".devflow/tmp/wt-${SLUG}"
-git worktree remove --force "$WT" 2>/dev/null || true   # clear any stale worktree from a crashed run
-
-if git ls-remote --exit-code --heads origin "$BRANCH" > /dev/null 2>&1; then
-    git fetch origin "$BRANCH"
-    git worktree add -B "$BRANCH" "$WT" "origin/$BRANCH"   # idempotent re-run: reuse the remote branch
-else
-    git worktree add -B "$BRANCH" "$WT" main
-fi
-```
-
-Then make sure every occurrence bundle is on disk (fetch the ones not already
-fetched this run — run `fetch-pr-context.sh` from the **main** checkout, not the
-worktree, so all bundles land in the single shared `.devflow/tmp/`):
+For each `pattern` in `to_act`, make sure every occurrence bundle is on disk
+(fetch the ones not already fetched this run):
 
 ```bash
 for n in $(jq -r '.occurrences[].pr' <<< "$pattern"); do
@@ -334,153 +311,81 @@ for n in $(jq -r '.occurrences[].pr' <<< "$pattern"); do
 done
 ```
 
-Record, per pattern: `SLUG`, `BRANCH`, `WT` (absolute path —
-`"$(pwd)/$WT"`), the JSON array of absolute bundle paths, and the `pattern`
-object.
+Record, per pattern: `SLUG` (`jq -r .slug <<< "$pattern"`), `TAG`
+(`jq -r .tag <<< "$pattern"`), the JSON array of absolute bundle paths, and the
+`pattern` object.
 
 #### 8b — Dispatch all Stage B subagents concurrently
 
 Issue **one Agent call per pattern, all in a single message** so they run in
-parallel. Each subagent's prompt:
+parallel. No worktree is created or passed — the subagent makes no edits. Each
+subagent's prompt:
 
 > Read and follow
 > `${CLAUDE_SKILL_DIR}/../retrospective-audit/SKILL.md`
 > exactly.
 >
-> **Your worktree is `<absolute WT path>`** — branch `<BRANCH>` is already
-> checked out there. `cd` into it first; every file you read, every `git`
-> command you run, and every edit you make happens inside that directory.
->
 > Occurrence-PR context bundle paths (absolute): `<json array of paths>`
 >
 > Pattern metadata: `<the pattern json object>`
 >
-> Make your edits in the worktree and print exactly one JSON object (the return
-> contract from § 6 of that skill) and **nothing else** on stdout.
+> Make **no** edits and **no** worktree. Print exactly one JSON object (the
+> `{title, body}` return contract from § 5 of that skill) and **nothing else**
+> on stdout.
 
 Wait for **all** subagents to finish. Pair each result JSON with its pattern.
 
-#### 8c — Process results, one worktree at a time (serial)
+#### 8c — File one issue per pattern (serial)
 
 For each `(pattern, result)` pair, in any order:
 
-**Worktree teardown helper.** When you finish with a pattern — success, skip,
-or failure — remove its worktree (`--force` covers an uncommitted/dirty tree):
+Write the subagent's raw result to `.devflow/tmp/result-${SLUG}.json` with the
+**Write tool** (it can contain quotes, backticks, newlines, and `$` — never
+interpolate it inline into a shell command), then:
 
 ```bash
-git worktree remove --force "$WT"
+# 1. Parse + validate the {title, body} contract. Malformed → blocker, continue.
+if ! jq -e '.title and .body' < ".devflow/tmp/result-${SLUG}.json" >/dev/null 2>&1; then
+    # record blocker "Pattern <SLUG>: Stage B subagent returned malformed JSON
+    # (missing title/body)"; do NOT file anything; continue to the next pattern
+    :
+else
+    # 2. Extract the body to a file (via jq, so backticks/$/newlines never hit
+    #    the shell) and the title to a shell var.
+    jq -r '.body' < ".devflow/tmp/result-${SLUG}.json" > ".devflow/tmp/issue-body-${SLUG}.md"
+    TITLE="$(jq -r '.title' < ".devflow/tmp/result-${SLUG}.json")"
+
+    # 3. File exactly one issue. meta-issue.sh stamps DevFlow + Retrospective
+    #    (best-effort), records the overrides.json cooldown, and is idempotent
+    #    (an open issue for this pattern → recurrence comment, not a duplicate).
+    if ISSUE_URL="$(bash $LIB/meta-issue.sh \
+            --tag "$TAG" \
+            --slug "$SLUG" \
+            --title "$TITLE" \
+            --body-file ".devflow/tmp/issue-body-${SLUG}.md" \
+            --overrides .devflow/learnings/overrides.json)"; then
+        # record {tag: "$TAG", url: "$ISSUE_URL"} in intervention_issues
+        intervention_issues+=("$(jq -nc --arg tag "$TAG" --arg url "$ISSUE_URL" '{tag:$tag,url:$url}')")
+    else
+        # meta-issue.sh failed (de-dup lookup / create / overrides write). Record
+        # a blocker "Pattern <SLUG>: meta-issue.sh failed to file the issue" and
+        # continue — NEVER record this pattern as filed.
+        :
+    fi
+fi
 ```
 
-A targeted in-worktree discard (`git -C "$WT" checkout -- <path>` /
-`git -C "$WT" clean -fd -- <path>`) is rarely needed now — `git worktree
-remove --force` discards the whole disposable tree at once, and it cannot touch
-files outside `.devflow/tmp/wt-<slug>/`, so there is no risk to user files.
+**Never report a pattern as filed when it was not.** A malformed Stage B result
+or a `meta-issue.sh` non-zero exit records a per-pattern blocker and the run
+continues to the next pattern; the pattern is absent from `intervention_issues`.
 
----
+**Do not** post `/devflow:implement` (or any auto-trigger comment) on a filed
+issue — filed issues await human triage.
 
-Parse `result` as JSON. On parse failure → record a blocker
-(`"Pattern <SLUG>: Stage B subagent returned malformed JSON"`), tear down the
-worktree, continue.
-
-**If `result.excluded == true`** (the fix targets an exclusion-list path):
-
-Write the subagent's `result.proposed_change` to `.devflow/tmp/meta-body-${SLUG}.md` with the **Write tool** (it may contain quotes, backticks, or newlines — never inline it into the shell), then:
-
-```bash
-ISSUE_URL=$(bash $LIB/meta-issue.sh \
-  --tag "<pattern.tag>" \
-  --slug "$SLUG" \
-  --title "<result.title>" \
-  --body-file .devflow/tmp/meta-body-${SLUG}.md \
-  --overrides .devflow/learnings/overrides.json)
-```
-
-Record `{tag: "<pattern.tag>", url: "$ISSUE_URL"}` in `meta_issues`, tear down
-the worktree, continue.
-
-(`meta-issue.sh` mutates `.devflow/learnings/overrides.json` in your main
+(`meta-issue.sh` mutates `.devflow/learnings/overrides.json` in your `main`
 checkout's working tree. That happens **after** the Step 7 state PR was opened,
-so it lands in next week's state PR — see § Notes for the optional follow-up
-commit if you want it in this run's PR.)
-
-**If `result.excluded == false`** (edits are safe to commit):
-
-Safety-net exclusion check on the returned targets:
-
-```bash
-printf '%s\n' <each path in result.targets[]> | bash $LIB/check-excluded-path.sh
-EXIT=$?   # 0 = something excluded slipped through; 1 = all clear
-```
-
-If `EXIT == 0`, treat exactly as `excluded == true` above (file a meta-issue,
-tear down, continue).
-
-Otherwise stage exactly the returned targets **in the worktree** and assert
-nothing else is dirty there:
-
-```bash
-for t in <result.targets[]>; do git -C "$WT" add -- "$t"; done
-git -C "$WT" status --porcelain    # must show only the staged targets
-```
-
-If extra paths are dirty → record a blocker
-(`"Pattern <SLUG>: unexpected dirty files in worktree after Stage B edits"`),
-tear down the worktree, continue.
-
-Commit, push (force-with-lease when the remote branch already exists), and open
-or update the PR — all against the worktree's checkout:
-
-First write the subagent's `result.title` and `result.body` to temp files with
-the **Write tool** — `.devflow/tmp/pr-title-${SLUG}.txt` and
-`.devflow/tmp/pr-body-${SLUG}.md` — so titles/bodies containing quotes,
-backticks, newlines, or `$` never traverse shell quoting. Then:
-
-```bash
-TITLE=$(cat .devflow/tmp/pr-title-${SLUG}.txt)
-git -C "$WT" commit -F - <<EOF
-$TITLE
-
-Fixes pattern: $SLUG
-EOF
-
-if git ls-remote --exit-code --heads origin "$BRANCH" > /dev/null 2>&1; then
-    git -C "$WT" push --force-with-lease origin "$BRANCH"
-else
-    git -C "$WT" push -u origin "$BRANCH"
-fi
-
-EXISTING_PR=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
-if [ -n "$EXISTING_PR" ]; then
-    gh pr edit "$EXISTING_PR" --title "$TITLE" --body-file .devflow/tmp/pr-body-${SLUG}.md
-    PR_NUMBER="$EXISTING_PR"
-else
-    gh pr create --base main --head "$BRANCH" --title "$TITLE" --body-file .devflow/tmp/pr-body-${SLUG}.md
-    PR_NUMBER=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
-fi
-
-# Stamp the reserved DevFlow provenance label on the intervention PR (best-effort).
-# DevFlow is a hardcoded provenance constant (no config key); applying it after
-# creation mirrors the /devflow:implement Phase 4 docs-label idiom so a label
-# hiccup never aborts the Stage B run.
-${CLAUDE_SKILL_DIR}/../../scripts/ensure-label.sh DevFlow
-[ -n "$PR_NUMBER" ] && { gh pr edit "$PR_NUMBER" --add-label DevFlow \
-    || echo "devflow: could not apply the DevFlow label to PR #$PR_NUMBER (best-effort, continuing)" >&2; }
-```
-
-Record `{number: $PR_NUMBER, tag: "<pattern.tag>"}` in `intervention_prs`, then
-tear down the worktree.
-
-#### 8d — Final cleanup
-
-After all patterns are processed:
-
-```bash
-git worktree prune
-git worktree list   # confirm no devflow/audit-* worktrees remain
-```
-
-Your main checkout is still on `main` (you never left it). If `meta-issue.sh`
-ran and you want this run's state PR to include the new overrides, see § Notes.
+so the new cooldown lands in next week's state PR — see § Notes for the optional
+follow-up commit if you want it in this run's PR.)
 
 ---
 
@@ -500,19 +405,18 @@ Build the summary JSON and assign it to `$SUMMARY_JSON`:
 
 ```bash
 SUMMARY_JSON="$(jq -nc \
-  --argjson prs_scanned      "$prs_scanned" \
-  --argjson clean_count      "$clean_count" \
-  --argjson analyzed_count   "$analyzed_count" \
-  --argjson analyzed         "$ANALYZED_JSON" \
-  --argjson patterns         "$PATTERNS_JSON" \
-  --argjson intervention_prs "$(printf '%s\n' "${intervention_prs[@]:-}" | jq -sc '.')" \
-  --argjson meta_issues      "$(printf '%s\n' "${meta_issues[@]:-}"      | jq -sc '.')" \
-  --argjson cooldown_skipped "$(printf '%s\n' "${cooldown_skipped[@]:-}" | jq -sc '.')" \
-  --argjson blockers         "$(printf '%s\n' "${blockers[@]:-}"         | jq -sc '.')" \
-  --argjson state_pr         "$STATE_PR" \
+  --argjson prs_scanned         "$prs_scanned" \
+  --argjson clean_count         "$clean_count" \
+  --argjson analyzed_count      "$analyzed_count" \
+  --argjson analyzed            "$ANALYZED_JSON" \
+  --argjson patterns            "$PATTERNS_JSON" \
+  --argjson intervention_issues "$(printf '%s\n' "${intervention_issues[@]:-}" | jq -sc '.')" \
+  --argjson cooldown_skipped    "$(printf '%s\n' "${cooldown_skipped[@]:-}"    | jq -sc '.')" \
+  --argjson blockers            "$(printf '%s\n' "${blockers[@]:-}"            | jq -sc '.')" \
+  --argjson state_pr            "$STATE_PR" \
   '{prs_scanned:$prs_scanned,clean_count:$clean_count,analyzed_count:$analyzed_count,
     analyzed:$analyzed,patterns:$patterns,
-    intervention_prs:$intervention_prs,meta_issues:$meta_issues,
+    intervention_issues:$intervention_issues,
     cooldown_skipped:$cooldown_skipped,blockers:$blockers,state_pr:$state_pr}')"
 ```
 
@@ -537,32 +441,33 @@ Print the rendered report (`cat .devflow/tmp/report.md`) to the console.
 Then list each item that needs human action:
 
 - **State PR** (contains the updated retrospectives): `https://github.com/<repo>/pull/<state_pr>`
-- **Intervention PRs** (one per actionable pattern, ready for review and merge):
-  list each as `PR #<n> — <tag>: <url>`
-- **Meta-issues** (patterns that touch exclusion-list paths, need design
-  review before any automated change): list each as `<tag>: <url>`
+- **Filed issues** (one per actionable pattern, awaiting human triage): list
+  each as `<tag>: <url>`
 
 If there are any **blockers**, list them explicitly.
 
 Tell the user:
 
-> Review and merge the state PR once CI passes, then merge the intervention
-> PRs in any order. The loop is idempotent — re-running next week will only
-> process new PRs not yet in `retrospectives.jsonl` on `main`.
+> Review and merge the state PR once CI passes. Each filed issue awaits human
+> triage — pick the ones worth acting on and run them through the normal
+> implement → review pipeline; the loop never starts that for you. The loop is
+> idempotent — re-running next week will only process new PRs not yet in
+> `retrospectives.jsonl` on `main`, and a pattern already filed this cycle is
+> not re-filed.
 
-Do **not** run `gh pr merge --auto` on anything. The maintainer merges
-manually after reviewing.
+Do **not** run `gh pr merge --auto` on anything, and do **not** auto-start
+implementation on a filed issue. The maintainer triages and merges manually
+after reviewing.
 
 ---
 
 ## § Cron / headless variant
 
 `claude -p "/devflow:retrospective-weekly" --permission-mode acceptEdits` handles steps
-1–9 unattended, except that Stage B edits to `.claude/**` paths (made inside
-the per-pattern worktrees under `.devflow/tmp/wt-<slug>/`) will trigger
-permission prompts. For fully unattended runs, add
-`--dangerously-skip-permissions`. The recommended mode is the interactive
-run where you approve edits as they appear.
+1–9 unattended. Stage B makes **no** working-tree edits (it only drafts issue
+specs) and the orchestrator only files issues and writes `.devflow/learnings/`,
+so the loop is well-suited to an unattended run. For a fully unattended run, add
+`--dangerously-skip-permissions`.
 
 ---
 
@@ -570,47 +475,41 @@ run where you approve edits as they appear.
 
 - **Clean working tree required.** The loop modifies `.devflow/learnings/`
   in-place on `main`'s working tree; starting dirty risks mixing pre-existing
-  changes into the state PR commit. (The Stage B worktrees live under
-  `.devflow/tmp/wt-<slug>/`, which is gitignored, so they never show up as
-  changes to `main`.)
+  changes into the state PR commit.
 - **State PR before Stage B.** Opening the state PR (Step 7) before Stage B is
   intentional: it commits the learnings files onto `devflow/learnings-<date>`
-  before any Stage B worktree exists, so a torn-down worktree can never revert
-  or clobber that run's retrospective data — and your `main` checkout is never
-  touched by Stage B at all.
-- **Worktree-per-pattern.** Stage B creates one `git worktree` per actionable
-  pattern under `.devflow/tmp/wt-<slug>/`, dispatches all drafting subagents
-  concurrently, then serially commits/pushes/PRs each one and tears its
-  worktree down. To abandon a pattern, `git worktree remove --force` the whole
-  disposable tree — it physically cannot touch anything outside its own
-  directory, so there is no `git clean -fd` foot-gun and no need for targeted
-  reverts. End the step with `git worktree prune`.
-- **Overrides after Stage B.** `meta-issue.sh` (called on the excluded path)
-  modifies `.devflow/learnings/overrides.json` in your `main` working tree
+  before any issue is filed, so this run's retrospective data is captured even
+  if Stage B or the filing step fails partway. Stage B never touches your `main`
+  checkout — it makes no edits at all.
+- **Issue-per-pattern.** Stage B dispatches one drafting subagent per actionable
+  pattern concurrently (each returns a `{title, body}` spec, no edits), then the
+  orchestrator files exactly one GitHub issue per pattern via `meta-issue.sh`.
+  No worktrees, no commits, no PRs — the loop proposes; a human implements.
+- **Overrides after Stage B.** `meta-issue.sh` records each filed pattern's
+  cooldown in `.devflow/learnings/overrides.json` in your `main` working tree
   **after** the Step 7 state PR was opened, so the change lands in next week's
-  state PR automatically. If you want it in *this* run's PR, after Step 8 push
-  a follow-up commit onto the same `devflow/learnings-<date>` branch — without
-  leaving `main`, using a throwaway worktree:
+  state PR automatically. If you want it in *this* run's PR, after Step 8 push a
+  follow-up commit onto the same `devflow/learnings-<date>` branch:
 
   ```bash
   if ! git diff --quiet HEAD -- .devflow/learnings/overrides.json 2>/dev/null; then
       LB="devflow/learnings-$(date -u +%F)"
       git fetch origin "$LB"
-      git worktree add ".devflow/tmp/wt-learnings" "$LB"
-      cp .devflow/learnings/overrides.json ".devflow/tmp/wt-learnings/.devflow/learnings/overrides.json"
-      git -C ".devflow/tmp/wt-learnings" add .devflow/learnings/overrides.json
-      git -C ".devflow/tmp/wt-learnings" commit -m "chore(devflow): add overrides from Stage B meta-issues"
-      git -C ".devflow/tmp/wt-learnings" push --force-with-lease origin "$LB"
-      git worktree remove --force ".devflow/tmp/wt-learnings"
+      git checkout "$LB"
+      git add .devflow/learnings/overrides.json
+      git commit -m "chore(devflow): add overrides from Stage B filed issues"
+      git push --force-with-lease origin "$LB"
+      git checkout main
   fi
   ```
-- **Idempotent.** Re-running re-processes only PRs whose number is not
-  already in `retrospectives.jsonl` on `main`. Stage B reuses existing
-  `devflow/audit-*` branches (the worktree is created with `git worktree add
-  -B "$BRANCH" "$WT" "origin/$BRANCH"` and pushed `--force-with-lease`) so
-  intervention PRs are updated rather than duplicated.
-- **Never auto-merge.** The maintainer merges the state PR and every
-  intervention PR manually after CI passes and after human review.
+- **Idempotent.** Re-running re-processes only PRs whose number is not already
+  in `retrospectives.jsonl` on `main`. A pattern already filed this cycle is not
+  re-filed: `meta-issue.sh` finds the open issue and adds a recurrence comment
+  instead of a duplicate, and the `overrides.json` cooldown excludes the pattern
+  on subsequent runs.
+- **Never auto-merge, never auto-implement.** The maintainer merges the state PR
+  manually after CI, and triages each filed issue manually — the loop never
+  starts an implement run for you.
 - **`materialize-retrospectives.sh` signature:** takes two explicit positional
   args — `<new-entries-file>` and `<jsonl-path>`. Always pass both.
 - **`actionable-patterns.sh` signature:** takes two explicit positional args

@@ -39,8 +39,7 @@ Schema of `.devflow/tmp/pr-<n>.context.json` produced by `fetch-pr-context.sh`:
 | Key | Type | Description |
 |-----|------|-------------|
 | `pr` | number | PR number |
-| `kind` | string | `"implementation"` or `"audit-intervention"` |
-| `pattern_tag` | string\|null | Audit PRs only — the pattern being fixed |
+| `kind` | string | `"implementation"` |
 | `branch` | string | Head branch name |
 | `base_ref` | string | Base branch name |
 | `head_sha` | string | Head commit SHA |
@@ -202,28 +201,6 @@ blind spot that let the failure through.
 
 These suggestions are advisory. The orchestrator re-derives interventions from
 primary sources for any pattern that hits the recurrence threshold.
-
----
-
-## § Audit-PR variant
-
-When `bundle.kind == "audit-intervention"`, you do not analyze. Return:
-
-```json
-{
-  "schema_version": 2,
-  "kind": "audit",
-  "pr": <bundle.pr>,
-  "merged_at": "<bundle.merged_at>",
-  "fixes_patterns": ["<bundle.pattern_tag>"]
-}
-```
-
-Use `[]` for `fixes_patterns` when `bundle.pattern_tag` is null.
-
-Note: the orchestrator normally builds this entry deterministically via
-`lib/audit-entry.jq`. This branch is a fallback for when an audit PR is
-dispatched to you anyway.
 
 ---
 

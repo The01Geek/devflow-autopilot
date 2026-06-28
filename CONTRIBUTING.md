@@ -48,8 +48,6 @@ auth is required to run them.
   # SPDX-FileCopyrightText: 2026 Daniel Radman
   # SPDX-License-Identifier: MIT
   ```
-- The exclusion list in `lib/check-excluded-path.sh` and the copy in
-  `skills/retrospective-audit/SKILL.md` must stay in sync.
 - **Every `skills/*/SKILL.md` carries the standardized consumer prompt-extension
   step.** As a preflight, each skill invokes
   `${CLAUDE_SKILL_DIR}/../../scripts/load-prompt-extension.sh <skill-name>` and honors

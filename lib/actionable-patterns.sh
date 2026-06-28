@@ -2,7 +2,8 @@
 # SPDX-FileCopyrightText: 2026 Daniel Radman
 # SPDX-License-Identifier: MIT
 # actionable-patterns.sh — emit the list of patterns that currently warrant
-# an audit intervention, honouring min_occurrences and cooldown_days config.
+# being filed as a retrospective issue, honouring min_occurrences and
+# cooldown_days config.
 #
 # Usage:
 #   bash lib/actionable-patterns.sh <retrospectives.jsonl> <overrides.json>
@@ -24,8 +25,9 @@
 #       "descriptors":      [<string>, ...],   # union of the occurrences' free-text
 #                                              #   descriptors — Stage B reads these to
 #                                              #   decide if the cluster is one fix or many
-#       "cooldown_active":  <bool>             # true if an open audit PR for this slug
-#                                              #   was created within cooldown_days
+#       "cooldown_active":  <bool>             # true if an open filed retrospective
+#                                              #   issue for this slug was created
+#                                              #   within cooldown_days
 #     }
 #
 # Environment:
@@ -73,20 +75,23 @@ else
   )"
 fi
 
-# ── Fetch open audit PRs and build slug→createdAt map ───────────────────────
-OPEN_AUDIT_PR_MAP="$(
-  "$DEVFLOW_GH" pr list --state open --json number,headRefName,createdAt --limit 200 \
+# ── Fetch open filed retrospective issues and build slug→createdAt map ───────
+# Each pattern the loop files becomes an open issue titled
+# "[devflow-retrospective] meta: <slug> — <title>" (see lib/meta-issue.sh). A
+# pattern with such an issue still open and created within cooldown_days is in
+# cooldown — don't re-file it this run. (The permanent overrides.json dismissal
+# meta-issue.sh writes is the cross-run guard; this is the within-window one,
+# meaningful when a maintainer has cleared the dismissal to allow re-filing.)
+OPEN_ISSUE_MAP="$(
+  "$DEVFLOW_GH" issue list --search "[devflow-retrospective] meta: in:title" \
+    --state open --json number,title,createdAt --limit 200 \
   | jq '
       [ .[]
-        | select(.headRefName | startswith("devflow/audit-"))
-        | {
-            slug: (
-              .headRefName
-              | ltrimstr("devflow/audit-")
-              | gsub("^(?<p>.*)-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9a-f]+$"; "\(.p)")
-            ),
-            createdAt: .createdAt
-          }
+        # Parse the slug token from the de-dup title prefix; drop any issue whose
+        # title does not carry it (foreign issue that matched the search loosely).
+        | (.title | capture("\\[devflow-retrospective\\] meta: (?<slug>[A-Za-z0-9_-]+)") | .slug) as $slug
+        | select($slug != null and $slug != "")
+        | { slug: $slug, createdAt: .createdAt }
       ]
       | reduce .[] as $item (
           {};
@@ -109,7 +114,7 @@ COOLDOWN_EPOCH="$(python3 -c "import datetime as d; print(int((d.datetime.now(d.
 
 OUTPUT="$(
   jq -n --argjson pattern_view   "$PATTERN_VIEW" \
-        --argjson open_pr_map    "$OPEN_AUDIT_PR_MAP" \
+        --argjson open_pr_map    "$OPEN_ISSUE_MAP" \
         --argjson min            "$MIN" \
         --argjson cooldown_epoch "$COOLDOWN_EPOCH" '
     [

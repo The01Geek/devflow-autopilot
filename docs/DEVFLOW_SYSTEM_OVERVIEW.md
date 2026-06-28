@@ -176,7 +176,7 @@ This is the canonical story for a demo video or "how it works" slide:
 | `/devflow:init` | One-time setup: scaffold `.devflow/config.json` + refresh schema | interactively |
 | `/devflow:retrospective-weekly` | The weekly self-improvement loop orchestrator | interactively / headless |
 | `/devflow:retrospective` | Stage A: per-PR retrospective analysis | subagent only |
-| `/devflow:retrospective-audit` | Stage B: per-pattern intervention drafting | subagent only |
+| `/devflow:retrospective-audit` | Stage B: per-pattern issue-spec drafting | subagent only |
 
 **Agents** (`agents/`): `checklist-generator`, `checklist-deduper`, `checklist-verifier`.
 
@@ -384,8 +384,7 @@ The issue is created **only after the user explicitly confirms**: a pending conf
 **Detection (how a PR is selected).** `lib/scan.sh` selects a merged PR for retrospection via a **union predicate** — a PR qualifies when **any** of these holds, deduplicated by number:
 - **(a) the reserved `DevFlow` provenance label** — DevFlow stamps the literal `DevFlow` label on every issue and PR it creates (`/devflow:create-issue`, `/devflow:implement` at PR create, Stage B), all via the idempotent best-effort `scripts/ensure-label.sh` (`/devflow:init` pre-creates the label at setup so it exists from day one). This path is **author- and branch-agnostic**, so it works in any repo with **zero branch-naming configuration**;
 - **(b) a watched author that closes an issue** — a watched-author PR with a non-empty `closingIssuesReferences`. This is the branch-naming-independent fallback that makes detection work even when the label step was skipped (e.g. DevFlow's own `issue-<N>-<slug>` branches, which match no prefix);
-- **(c) the fixed `devflow/audit-*` branch** — Stage B intervention PRs;
-- **(d) the configured `implementation_branch_prefix`** — *only* when it is set non-empty (an empty/unset prefix excludes nothing and never degrades to a match-all glob).
+- **(c) the configured `implementation_branch_prefix`** — *only* when it is set non-empty (an empty/unset prefix excludes nothing and never degrades to a match-all glob).
 
 The label (a) and closes-issue (b) paths mean the loop can no longer silently no-op when an adopter's bot uses an unrecognized branch prefix.
 
@@ -395,35 +394,34 @@ If any candidate-source fetch or jq-reshape hard-fails while assembling the week
 
 **The LLM/heuristic split (a key efficiency claim).** Deterministic scripts handle *all* scanning, fetching, signal computation, gating, pattern math, and git/PR/issue mechanics. The LLM is invoked at **only two genuine-judgment points**:
 - **Stage A** (`/devflow:retrospective`), a per-PR retrospective, **only for PRs that fail a mechanical "clean gate."** Clean PRs are processed deterministically at **zero LLM cost.**
-- **Stage B** (`/devflow:retrospective-audit`), per-pattern intervention drafting.
+- **Stage B** (`/devflow:retrospective-audit`), per-pattern issue-spec drafting.
 
 ```
 scan.sh
   → fetch-pr-context.sh  (per PR)
     → cheap-gate.jq
-      [clean]  → clean-entry.jq / audit-entry.jq   (deterministic, no LLM)
+      [clean]  → clean-entry.jq   (deterministic, no LLM)
       [not clean] → Stage A: retrospective subagents (≤3–4 concurrent)
   → materialize-retrospectives.sh
   → actionable-patterns.sh  (uses compute-patterns.jq)
-    → Stage B: retrospective-audit subagents
-      [excluded path] → meta-issue.sh + overrides.json dismissal
-      [safe path]     → git commit + push + gh pr create
+    → Stage B: retrospective-audit subagents (return {title, body} specs)
+      → meta-issue.sh  (one issue per pattern + overrides.json cooldown)
   → open-state-pr.sh
   → post-status.sh
 ```
 
 **Stage A** classifies each non-clean PR into a **fixed category vocabulary** (never coins new slugs): `doc-accuracy`, `fabricated-claim`, `outstanding-reject`, `lenient-verdict`, `deferred-verification`, `unmet-acceptance-criteria`, `incomplete-edit`, `convention-violation`, `unverified-assumption`, `issue-quality`, `tooling-gap`, `other`. Categories drive pattern detection.
 
-**Stage B** re-derives the root cause from primary sources (it does *not* trust Stage A's summary), picks the highest-leverage smallest-blast-radius single change, does a counterfactual analysis (false positives / over-broad application), makes the edits in an isolated git worktree, and returns the touched paths + PR title + body. The orchestrator commits/pushes/opens the PR.
+**Stage B** re-derives the root cause from primary sources (it does *not* trust Stage A's summary), picks the highest-leverage smallest-blast-radius single change to **propose**, does a counterfactual analysis (false positives / over-broad application), and returns a single `{title, body}` issue spec — it makes **no** edits and runs **no** worktree. The orchestrator files exactly one GitHub issue per pattern via `meta-issue.sh` (stamping the `DevFlow` and `Retrospective` labels and recording an `overrides.json` cooldown). A human triages each filed issue and runs it through the normal `/devflow:implement` → review pipeline.
 
-**The exclusion list (a self-governance safeguard).** When a pattern's best fix would touch DevFlow's **own engine files** (`skills/**`, `agents/**`, `lib/**`, `scripts/**`, `.claude-plugin/**`, the workflows, etc.), Stage B refuses to auto-edit and instead files a `[devflow-retrospective] meta:` issue + records a dismissal, those changes need human design review. One bridge to the prompt-extension mechanism above keeps this from being a dead end for additive skill tweaks: when the fix is a purely **additive** skill-behavior change, Stage B lands it as an in-scope edit to `.devflow/prompt-extensions/<skill>.md` (append-only, consumer-local) instead of a meta-issue; only **structural** engine changes — those that must override existing skill text, touch a non-prose engine file, or propagate to every consumer — still route to the meta-issue for human design review.
+**Propose, don't dispose (a self-governance safeguard).** Stage B never edits the repo. Every actionable pattern — whatever surface its fix would touch (a skill, an agent, `lib/`, `scripts/`, docs, CLAUDE.md, config, or application code) — becomes **one GitHub issue** filed via `meta-issue.sh`, carrying the `DevFlow` and `Retrospective` labels and a re-derived spec of create-issue quality. A human triages it and runs it through the same `/devflow:implement` → review pipeline every other change gets, so loop-proposed engine changes get the same review — not a weaker autonomous-edit path. (Earlier versions auto-opened intervention PRs on a fixed audit branch for "safe" surfaces and only filed issues for engine files; that split, its worktrees, and the old audit retrospection kind are all retired — #152.)
 
 **Data (all in git, append-only ground truth):**
 - `.devflow/learnings/retrospectives.jsonl`, one JSON object per processed PR (every record carries a `pr` field).
 - `.devflow/learnings/overrides.json`, human-editable map of dismissed patterns.
 - Pattern status (`open`/`regressed`/`fixed`/`dismissed`) is computed **on demand** by `lib/compute-patterns.jq`.
 
-**Idempotent:** re-running processes only PRs not already recorded — `lib/scan.sh` reads `retrospectives.jsonl` from the base branch via the GitHub Contents API and subtracts the already-processed PR numbers from the candidate set. A `404` is the legitimate first-run case (the file isn't on the base branch yet) and leaves the processed set empty. Any *other* failure to decode the processed set under `HTTP 200` — an unparseable Contents-API envelope, a base64 decode miss, a `jq` parse failure, a body carrying neither inline content nor a `download_url`, a failed `download_url` fetch, or content that parses but yields zero `pr` records — **fails loud (exit 1) with a specific breadcrumb** rather than collapsing the processed set to empty. A silent collapse would re-queue the entire backlog and create duplicate retrospectives, so genuinely-corrupt state aborts the scan instead. The same guard (`_decode_existing`) covers both the inline `≤ 1 MB` content transport and the `> 1 MB` `download_url` fallback. **Never auto-merges**: the maintainer merges intervention PRs manually.
+**Idempotent:** re-running processes only PRs not already recorded — `lib/scan.sh` reads `retrospectives.jsonl` from the base branch via the GitHub Contents API and subtracts the already-processed PR numbers from the candidate set. A `404` is the legitimate first-run case (the file isn't on the base branch yet) and leaves the processed set empty. Any *other* failure to decode the processed set under `HTTP 200` — an unparseable Contents-API envelope, a base64 decode miss, a `jq` parse failure, a body carrying neither inline content nor a `download_url`, a failed `download_url` fetch, or content that parses but yields zero `pr` records — **fails loud (exit 1) with a specific breadcrumb** rather than collapsing the processed set to empty. A silent collapse would re-queue the entire backlog and create duplicate retrospectives, so genuinely-corrupt state aborts the scan instead. The same guard (`_decode_existing`) covers both the inline `≤ 1 MB` content transport and the `> 1 MB` `download_url` fallback. **Never auto-merges and never auto-implements**: the maintainer merges the state PR manually and triages each filed issue manually — the loop never starts an implement run on its own filings.
 
 ---
 
@@ -633,5 +631,5 @@ Skills reference bundled helpers via `${CLAUDE_SKILL_DIR}` so they resolve from 
 - **Security/platform teams:** explicit threat model, base-ref trust boundary, read-only-by-default automation, one secret.
 - **AI/ML audience:** the evaluator/optimizer architecture, independent verification, structural-independence in self-review.
 
-**Demo beats for a video (in order):** rough idea → `/devflow:create-issue` interview → confirmed issue #42 → comment `/devflow:implement 42` → watch the workpad update live (🚀) → draft PR appears → review-and-fix loop + shadow pass → docs updated → PR flips to ready (🎉) → the review-gate check posts APPROVE → human merges. Optionally close with a `/devflow:retrospective-weekly` run opening an intervention PR, "it just got better."
+**Demo beats for a video (in order):** rough idea → `/devflow:create-issue` interview → confirmed issue #42 → comment `/devflow:implement 42` → watch the workpad update live (🚀) → draft PR appears → review-and-fix loop + shadow pass → docs updated → PR flips to ready (🎉) → the review-gate check posts APPROVE → human merges. Optionally close with a `/devflow:retrospective-weekly` run filing an improvement issue for the next cycle, "it just got better."
 ```
