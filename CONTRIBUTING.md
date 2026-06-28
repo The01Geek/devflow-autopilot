@@ -61,8 +61,7 @@ auth is required to run them.
   coverage tests in `lib/test/run.sh` enforce both halves: one enumerates every
   `skills/*/SKILL.md` and fails if a skill omits the standardized step, and the
   prompt-extension scaffold test derives the expected example set from `skills/*/` and
-  fails if the scaffolder's list forgets one — the same drift guard as the exclusion-list
-  sync above.
+  fails if the scaffolder's list forgets one.
 
 ## Cloud-tier workflows
 

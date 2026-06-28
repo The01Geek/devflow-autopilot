@@ -346,9 +346,10 @@ interpolate it inline into a shell command), then:
 ```bash
 # 1. Parse + validate the {title, body} contract. Malformed → blocker, continue.
 if ! jq -e '.title and .body' < ".devflow/tmp/result-${SLUG}.json" >/dev/null 2>&1; then
-    # record blocker "Pattern <SLUG>: Stage B subagent returned malformed JSON
-    # (missing title/body)"; do NOT file anything; continue to the next pattern
-    :
+    # Malformed: record a blocker and file NOTHING. The append below is the
+    # load-bearing failure path — it MUST run (the run reports this pattern as a
+    # blocker, never as filed), so it is concrete shell, not a comment.
+    blockers+=("Pattern ${SLUG}: Stage B subagent returned malformed JSON (missing title/body) — not filed")
 else
     # 2. Extract the body to a file (via jq, so backticks/$/newlines never hit
     #    the shell) and the title to a shell var.
@@ -356,21 +357,23 @@ else
     TITLE="$(jq -r '.title' < ".devflow/tmp/result-${SLUG}.json")"
 
     # 3. File exactly one issue. meta-issue.sh stamps DevFlow + Retrospective
-    #    (best-effort), records the overrides.json cooldown, and is idempotent
-    #    (an open issue for this pattern → recurrence comment, not a duplicate).
+    #    (best-effort), records the overrides.json cooldown, is idempotent (an
+    #    open issue for this pattern → recurrence comment, not a duplicate), and
+    #    fails CLOSED (non-zero exit) on a de-dup-lookup error, a create that
+    #    returned no usable issue URL, or an overrides write failure.
     if ISSUE_URL="$(bash $LIB/meta-issue.sh \
             --tag "$TAG" \
             --slug "$SLUG" \
             --title "$TITLE" \
             --body-file ".devflow/tmp/issue-body-${SLUG}.md" \
             --overrides .devflow/learnings/overrides.json)"; then
-        # record {tag: "$TAG", url: "$ISSUE_URL"} in intervention_issues
+        # Success: record {tag, url} in intervention_issues.
         intervention_issues+=("$(jq -nc --arg tag "$TAG" --arg url "$ISSUE_URL" '{tag:$tag,url:$url}')")
     else
-        # meta-issue.sh failed (de-dup lookup / create / overrides write). Record
-        # a blocker "Pattern <SLUG>: meta-issue.sh failed to file the issue" and
-        # continue — NEVER record this pattern as filed.
-        :
+        # meta-issue.sh exited non-zero (de-dup lookup / create-returned-no-URL /
+        # overrides write). Record a blocker and file NOTHING — the pattern stays
+        # absent from intervention_issues. Concrete append, same reason as above.
+        blockers+=("Pattern ${SLUG}: meta-issue.sh failed to file the issue — not filed")
     fi
 fi
 ```

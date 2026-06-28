@@ -3,6 +3,13 @@
 # SPDX-License-Identifier: MIT
 # check-excluded-path.sh — check repo-relative paths against the exclusion list.
 #
+# NOTE (#152): this helper is RETAINED-BUT-UNWIRED. Its former operative caller —
+# the retrospective loop's Stage B safety net, which gated autonomous engine
+# edits — was removed when the loop switched to filing an issue per pattern
+# (it now proposes, never auto-edits, so there is nothing to gate). It is kept as
+# a standalone, tested path-classifier utility; lib/test/run.sh still exercises
+# it. Don't assume an operative consumer exists.
+#
 # Usage:
 #   bash check-excluded-path.sh path1 path2 ...   # positional args
 #   echo "path" | bash check-excluded-path.sh      # stdin (one path per line)

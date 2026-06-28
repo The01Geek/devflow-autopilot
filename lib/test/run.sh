@@ -3197,6 +3197,70 @@ URL2="$(DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --tag t-existing --slu
 assert_eq "meta-issue reuses existing URL" "https://github.com/acme/example-repo/issues/99" "$URL2"
 assert_eq "meta-issue stamps labels on the existing issue #99" "true" \
   "$(grep -qF -- 'issue edit 99' "$MI_TMP/edit-args" && echo true || echo false)"
+# #152: fail CLOSED on a create that returns no usable issue URL. `gh issue create`
+# can exit 0 with empty/garbage stdout; without the URL-shape guard meta-issue.sh
+# would report a phantom filing AND write a permanent overrides.json cooldown for
+# an issue that never existed (the "never report unfiled as filed" invariant). The
+# guard must exit non-zero so the orchestrator records a blocker, and must NOT have
+# written a dismissal for the slug.
+echo '{"schema_version":1,"dismissed":{}}' > "$MI_TMP/ov2.json"
+cat > "$MI_TMP/gh" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *"issue list"*) echo '' ;;            # no existing issue → create path
+  *"issue create"*) echo '' ;;          # exit 0 but NO url
+  *) echo '' ;;
+esac
+STUB
+chmod +x "$MI_TMP/gh"
+DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --tag empty-url --slug empty-url --title "x" --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov2.json" >/dev/null 2>&1; EMPTY_RC=$?
+assert_eq "meta-issue fails closed on empty create URL (non-zero exit)" "true" \
+  "$([ "$EMPTY_RC" -ne 0 ] && echo true || echo false)"
+assert_eq "meta-issue wrote NO cooldown on empty create URL" "false" \
+  "$(jq -e '.dismissed | has("empty-url")' "$MI_TMP/ov2.json" >/dev/null 2>&1 && echo true || echo false)"
+# garbage (non-URL) stdout → same fail-closed
+cat > "$MI_TMP/gh" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *"issue list"*) echo '' ;;
+  *"issue create"*) echo 'could not create issue: HTTP 403' ;;
+  *) echo '' ;;
+esac
+STUB
+chmod +x "$MI_TMP/gh"
+DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --tag garbage-url --slug garbage-url --title "x" --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov2.json" >/dev/null 2>&1; GARBAGE_RC=$?
+assert_eq "meta-issue fails closed on garbage create stdout (non-zero exit)" "true" \
+  "$([ "$GARBAGE_RC" -ne 0 ] && echo true || echo false)"
+# de-dup lookup failure (gh issue list non-zero) → exit 1 (orchestrator blocker trigger)
+cat > "$MI_TMP/gh" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *"issue list"*) exit 1 ;;
+  *) echo '' ;;
+esac
+STUB
+chmod +x "$MI_TMP/gh"
+DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --tag lookup-fail --slug lookup-fail --title "x" --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov2.json" >/dev/null 2>&1; LOOKUP_RC=$?
+assert_eq "meta-issue fails closed on de-dup lookup error (non-zero exit)" "true" \
+  "$([ "$LOOKUP_RC" -ne 0 ] && echo true || echo false)"
+# --dry-run: records the DRYRUN sentinel, invokes NO issue create / issue edit
+echo '{"schema_version":1,"dismissed":{}}' > "$MI_TMP/ov3.json"
+cat > "$MI_TMP/gh" <<'STUB'
+#!/usr/bin/env bash
+D="$(dirname "$0")"
+case "$*" in
+  *"issue list"*) echo '' ;;
+  *"issue create"*) echo "CREATE_CALLED" >> "$D/calls" ; echo '' ;;
+  *"issue edit"*) echo "EDIT_CALLED" >> "$D/calls" ;;
+  *) echo '' ;;
+esac
+STUB
+chmod +x "$MI_TMP/gh"
+rm -f "$MI_TMP/calls"
+DRY_URL="$(DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --dry-run --tag dry --slug dry --title "x" --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov3.json" 2>/dev/null)"
+assert_eq "meta-issue --dry-run prints the DRYRUN sentinel" "https://example.invalid/issues/DRYRUN" "$DRY_URL"
+assert_eq "meta-issue --dry-run invokes no gh create/edit" "true" \
+  "$([ ! -f "$MI_TMP/calls" ] && echo true || echo false)"
 rm -rf "$MI_TMP"
 
 # ────────────────────────────────────────────────────────────────────────────

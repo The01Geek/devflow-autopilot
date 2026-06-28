@@ -50,15 +50,24 @@ done
 # them (DevFlow is the scan/classify provenance string; Retrospective marks the
 # loop's own filings). Application is best-effort and never aborts the filing.
 _apply_labels() {  # $1 = issue number
-    local _num="$1" _lbl
+    local _num="$1" _lbl _err
     [[ "$DRY_RUN" -eq 1 ]] && return 0
-    [[ -n "$_num" ]] || return 0
+    # Guard the number's shape: an empty or non-numeric token (e.g. a gh warning
+    # line that leaked into the URL the caller derived ${URL##*/} from) must leave
+    # a SPECIFIC breadcrumb, never a silent skip — label stamping is best-effort,
+    # but a label we could not even attempt should say why.
+    case "$_num" in
+        ''|*[!0-9]*)
+            echo "::warning::meta-issue: could not derive a numeric issue number from '${URL}' — DevFlow/Retrospective labels NOT applied" >&2
+            return 0 ;;
+    esac
     for _lbl in DevFlow Retrospective; do
         DEVFLOW_GH="$DEVFLOW_GH" "$HERE/../scripts/ensure-label.sh" "$_lbl" || true
     done
-    "$DEVFLOW_GH" issue edit "$_num" --add-label DevFlow --add-label Retrospective \
-        >/dev/null 2>&1 \
-      || echo "::warning::meta-issue: could not apply DevFlow/Retrospective labels to #${_num} (best-effort, continuing)" >&2
+    # Capture the gh stderr into the breadcrumb (mirroring ensure-label.sh's
+    # discipline) so a real failure names its cause instead of a generic warning.
+    _err="$("$DEVFLOW_GH" issue edit "$_num" --add-label DevFlow --add-label Retrospective 2>&1 >/dev/null)" \
+      || echo "::warning::meta-issue: could not apply DevFlow/Retrospective labels to #${_num} (best-effort, continuing): ${_err}" >&2
 }
 
 # ── Step 1: de-dupe — find or create the issue ──────────────────────────────
@@ -96,9 +105,23 @@ else
             --title "[devflow-retrospective] meta: ${TAG} — ${TITLE}" \
             --body-file "$BODY_FILE")"
         URL="$(printf '%s' "$URL" | tr -d '[:space:]')"
+        # Fail CLOSED on a non-issue-URL: `gh issue create` can exit 0 yet emit
+        # empty/garbage stdout (URL printed to stderr, an auth/upgrade warning on
+        # stdout, a swallowed transient error). Without this guard an empty/garbage
+        # URL would flow on as a "success" — the orchestrator would record the
+        # pattern as FILED and write a permanent overrides.json cooldown for an
+        # issue that does not exist (the exact "never report unfiled as filed"
+        # invariant this loop must hold). Exit non-zero so the orchestrator's
+        # `if ISSUE_URL=$(...meta-issue.sh...)` catches it and records a blocker.
+        case "$URL" in
+            https://*/issues/[0-9]*) : ;;
+            *) echo "::error::meta-issue: 'gh issue create' returned no usable issue URL for tag '${TAG}' (got: '${URL}')" >&2; exit 1 ;;
+        esac
     fi
     # Derive the issue number from the created URL (trailing path segment) so the
-    # labels land on the issue we just filed.
+    # labels land on the issue we just filed. The URL-shape guard above guarantees
+    # a numeric tail on the create path; the _apply_labels numeric guard is the
+    # belt-and-suspenders for the existing-issue path's parsed number.
     _apply_labels "${URL##*/}"
     echo "meta-issue: created ${URL}" >&2
 fi
