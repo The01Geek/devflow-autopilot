@@ -711,6 +711,17 @@ assert_pin_unique "mutation-check: implement skill test-writing phase references
 # only — see the SCOPE note on the region above; it does not police raw guards elsewhere.
 PARKCAL_BMARK="PARKCAL_GUARD_REGION_""BEGIN"
 PARKCAL_EMARK="PARKCAL_GUARD_REGION_""END"
+# Print the lines strictly INSIDE the PARKCAL region of FILE (both markers excluded:
+# BEGIN via `next`, END because `inreg` is already cleared when the default-print rule
+# runs). The single source of truth for region extraction — every region scanner below
+# (#155's count_raw_skill_guards_in_region / count_region_pins and #157's
+# count_region_nonhelper_stmts) pipes through this, so the region-delimiting semantics
+# live in ONE place instead of a copy per scanner (the coupled-mirror drift this very
+# suite exists to catch).
+region_lines() {  # file -> the lines strictly inside the PARKCAL region
+  awk -v b="$PARKCAL_BMARK" -v e="$PARKCAL_EMARK" \
+    'index($0,b){inreg=1;next} index($0,e){inreg=0} inreg' "$1"
+}
 # Print every line between the BEGIN and END markers of FILE that is a raw `grep`-based
 # SKILL drift guard — ANY `grep ` command referencing a SKILL target, written EITHER as a
 # `$..._SKILL` path var OR as a literal `…/SKILL.md` path. The pattern is deliberately
@@ -722,11 +733,7 @@ PARKCAL_EMARK="PARKCAL_GUARD_REGION_""END"
 # through assert_pin_unique — those lines carry no `grep` — so it yields 0. `|| true` keeps
 # grep's no-match exit 1 from tripping the `set -u`/pipefail-free harness into a non-zero.
 count_raw_skill_guards_in_region() {  # file -> prints count of offending lines
-  awk -v b="$PARKCAL_BMARK" -v e="$PARKCAL_EMARK" '
-    index($0, b) { inreg=1; next }
-    index($0, e) { inreg=0 }
-    inreg { print }
-  ' "$1" | grep -cE 'grep[[:space:]].*(_SKILL|SKILL\.md)' || true
+  region_lines "$1" | grep -cE 'grep[[:space:]].*(_SKILL|SKILL\.md)' || true
 }
 # Count the routed assert_pin_unique pins strictly INSIDE the region of FILE (markers
 # excluded by `next` on BEGIN). Shared by the live region-non-empty control AND its AC3(f)
@@ -737,8 +744,7 @@ count_region_pins() {  # file -> prints count of in-region assert_pin_unique lin
   # (an emptied region prints 0, exit 1) so the helper stays inert under a future
   # `set -e`/`pipefail` hardening of the harness, matching its sibling rather than aborting
   # the whole script on the legitimate empty-region case AC3(f) deliberately exercises.
-  awk -v b="$PARKCAL_BMARK" -v e="$PARKCAL_EMARK" \
-    'index($0,b){inreg=1;next} index($0,e){inreg=0} inreg' "$1" | grep -cF 'assert_pin_unique' || true
+  region_lines "$1" | grep -cF 'assert_pin_unique' || true
 }
 SELF_SRC="$LIB/test/run.sh"
 assert_eq "meta(AC2): park-calibration region routes every SKILL pin through assert_pin_unique (0 raw guards)" \
@@ -961,7 +967,11 @@ assert_pin_unique "over-grade: severity-calibrated record carries no skip_catego
 # Scope is deliberately the GUARD shape: a SKILL-targeted fixed/regex match whose
 # yes/no outcome drives an echo. Count asserts, line-number lookups, the inverting
 # strip, and computed-value greps are not presence guards and are out of scope by
-# construction (their matched line carries no echo).
+# construction (their matched line carries no echo). A guard whose grep is computed on a
+# PRIOR line into a var (`X=$(grep … "$SKILL")` then a bare `assert_eq … "$X"`) likewise
+# carries no echo on the grep line and is non-idiomatic in this suite; that exact shape IS
+# caught — positively, not by content match — inside the park-calibration region by the
+# AC3 control below, where new park-calibration guards actually land.
 #
 # Anti-self-match: the literal token "echo" is sourced from a split-built var so this
 # scanner's OWN grep line carries no contiguous SKILL+echo and is not counted when it
@@ -976,7 +986,7 @@ count_unallowlisted_raw_skill_guards() {  # file -> count of raw SKILL guard pin
     | grep -vF "$RGOK_MARK" \
     | grep -c . || true
 }
-assert_eq "meta(#157 AC2): no raw SKILL guard pin escapes assert_pin_unique or an allowlist marker (repo-wide)" \
+assert_eq "meta(#157 AC2): no single-line echo-driven raw SKILL guard pin escapes assert_pin_unique or an allowlist marker (repo-wide)" \
   "0" "$(count_unallowlisted_raw_skill_guards "$SELF_SRC")"
 # AC4 mutation proof: an UNMARKED raw guard written anywhere is detected (RED); the
 # SAME line carrying the allowlist marker is exempted (0). The fixture SOURCE lines
@@ -999,8 +1009,7 @@ rm -f "$RWPROBE"
 # routing allowed there). Both the grep-computing assignment and its assert_eq consumer
 # are non-helper statement-starts, so either one trips this.
 count_region_nonhelper_stmts() {  # file -> region statement-start lines not routed through assert_pin_unique
-  awk -v b="$PARKCAL_BMARK" -v e="$PARKCAL_EMARK" \
-    'index($0,b){inreg=1;next} index($0,e){inreg=0} inreg' "$1" \
+  region_lines "$1" \
     | grep -E '^[A-Za-z_]' \
     | grep -vc '^assert_pin_unique ' || true
 }
