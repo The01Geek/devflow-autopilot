@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.25] — 2026-06-29
+
+### Added
+- **`/devflow:implement` now audits verifiable factual claims in the issue body before Phase 2 begins (new Phase 1.6).** Three sequential passes check the claim types that caused missed scope in PR #85 and a policy contradiction in PR #163: (a) count/enumeration claims about codebase entities (file counts, skill counts, directory counts) verified against HEAD via `git ls-files`/grep, (b) negative-scope claims that explicitly exclude a surface ("no workflow change required", "no runtime change") traced against the actual proposed change — with a mandatory cloud-tier allowlist check when any `skills/*/SKILL.md` is being modified, covering `.github/workflows/devflow-runner.yml` and any vendored consumer copy — and (c) policy-referencing claims in ACs (versioning rules, process requirements) verified verbatim against `.devflow/prompt-extensions/implement.md` and `CLAUDE.md`. A confirmed claim is recorded as a `--reflection-kind note` bullet; a discrepancy updates the working assumption before Phase 2 begins; a policy contradiction raises `--reflection-kind blocked`, stops the run, and emits the 👎 reaction before any code edit. `lib/test/run.sh` gains four `assert_pin_unique` + four `assert_pin_red_on_removal` mutation-proven drift guards covering the audit heading and each claim-type literal. (#188)
+
 ## [2.8.24] — 2026-06-29
 
 ### Added
