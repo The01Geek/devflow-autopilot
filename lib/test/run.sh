@@ -146,6 +146,12 @@ probe_assert() {  # assertion-fn args... -> prints PASS or FAIL (the probed verd
 # conversion a one-line change rather than wrapping every fixture in a guard. (`rgb_scan`
 # guards explicitly only because it also needs to branch on `git init` success and clean
 # up its dir; that extra guard is about cleanup, not safety.)
+#
+# Dependency: like assert_eq / probe_tmp, the failure path writes the FAIL via
+# `echo FAIL >> "$RESULTS_FILE"`, so callers must have RESULTS_FILE in scope — it is set
+# globally (the suite tally file) and never unset, so every call site qualifies. The AC3
+# probes deliberately override it per-call (`RESULTS_FILE=… git_sandbox …`) to divert the
+# intentional FAIL into an isolated file; that is the only supported reason to rebind it.
 git_sandbox() {  # assertion-name -> prints an isolated temp dir (rc 0); on mktemp -d
                  # failure records a suite FAIL, prints the breadcrumb to stderr, and
                  # prints the /dev/null-rooted sentinel (rc 1) so a downstream
@@ -493,12 +499,14 @@ assert_eq "rgb_classify rc=128 (git fatal) → sentinel (fails closed)" \
 # a regression in rgb_scan's git invocation (dropped `-l`, mis-scoped pathspec) that
 # silently stops matching. Use the file's own name as the probe so this file does not
 # self-match; the slug is assembled from two literals for the same reason.
-# Guard the setup so a failed `mktemp` (empty $RGB_E2E under `set -u`, not `set -e`)
-# can NEVER reach the `> "$RGB_E2E/probe.md"` redirect — an unguarded empty path would
-# resolve to `> "/probe.md"`, a stray root-relative write under a root/CI runner. The
-# guard verifies a real temp dir AND that git init/add succeeded before any redirect;
-# a setup failure records a DISTINCT assertion (so it doesn't masquerade as an rgb_scan
-# regression) and skips the block. Cleanup runs on every guarded exit of the block.
+# Guard the setup so a failed `mktemp -d` can NEVER reach the `> "$RGB_E2E/probe.md"`
+# redirect. git_sandbox returns the `/dev/null/…` sentinel (not an empty string) on
+# failure and records the suite FAIL itself, so `git -C "$RGB_E2E" init -q` fails closed
+# with ENOTDIR and the `&&` short-circuits into the else branch before any redirect runs —
+# no stray root-relative `> "/probe.md"` write is even reachable. The else branch records
+# only the DISTINCT git-init-failure case (gated on `[ -d ]` so it doesn't double-count the
+# mktemp FAIL git_sandbox already logged) and skips the block. Cleanup runs on every
+# guarded exit of the block, always gated on `[ -d ]` so the sentinel never reaches `rm -rf`.
 if RGB_E2E="$(git_sandbox "rgb_scan e2e setup")" && git -C "$RGB_E2E" init -q; then
   printf 'has the %s%s slug\n' "review-gate" "-bypass" > "$RGB_E2E/probe.md"
   if git -C "$RGB_E2E" add probe.md; then
@@ -5898,6 +5906,14 @@ assert_eq "vendor: self branch copies the .devflow templates" "yes" "$(vexists "
 
 # fetch branch — no plugin in cwd; clone a local fixture remote (offline) and
 # copy its slice in. Exercises the clone-by-ref + copy path without the network.
+# Only VS_REMOTE routes through git_sandbox: it is the one site this block git-init/commits
+# into, so an empty-mktemp leak there would land a fixture commit on the real branch — the
+# exact bug #161 targets. The sibling `$(mktemp -d)/dest` clone DESTINATIONS and the
+# `( cd "$(mktemp -d)" && … bash "$VENDOR" )` cwd dirs below stay on bare `mktemp -d` on
+# purpose: `vendor-slice.sh` clones into its OWN internal temp tree and copies into
+# DEVFLOW_DEST — it never `git`-mutates its cwd — so a failed mktemp there cannot leak a
+# commit to the real repo (it is out of #161's git-mutation scope). Converting a clone dest
+# to git_sandbox would also break `git clone`, which requires its target to NOT pre-exist.
 VS_REMOTE="$(git_sandbox "vendor fetch fixture remote")"
 mkdir -p "$VS_REMOTE"/.claude-plugin "$VS_REMOTE"/agents "$VS_REMOTE"/docs \
         "$VS_REMOTE"/lib "$VS_REMOTE"/scripts "$VS_REMOTE"/skills "$VS_REMOTE"/.devflow
