@@ -112,6 +112,11 @@ def apply_mut(body, args, failed_ticks=None):
     return workpad._apply_mutations(body, args, failed_ticks if failed_ticks is not None else [])
 
 
+def _statusline(out):
+    """The workpad's `**Status:**` line, for asserting a status mutation landed."""
+    return next(ln for ln in out.splitlines() if ln.startswith('**Status:'))
+
+
 WORKPAD_BODY = """<!-- devflow:workpad -->
 # DevFlow Workpad — Issue #999
 
@@ -394,14 +399,14 @@ PRE_TICKED = WORKPAD_BODY.replace('- [ ] Step alpha', '- [x] Step alpha')
 _ft = []
 out = apply_mut(PRE_TICKED, make_args(status='Reviewing', tick_plan=['alpha']), _ft)
 assert_eq("already-ticked --tick-plan: status still applied (not discarded)", True,
-          '🚀 Reviewing' in [ln for ln in out.splitlines() if ln.startswith('**Status:')][0])
+          '🚀 Reviewing' in _statusline(out))
 assert_eq("already-ticked --tick-plan: collected as a volatile miss", 1, len(_ft))
 
 # Ambiguous substring: multiple matches → volatile miss, not an abort.
 _ft = []
 out = apply_mut(WORKPAD_BODY, make_args(status='Reviewing', tick_plan=['Step']), _ft)
 assert_eq("ambiguous --tick-plan: status still applied", True,
-          '🚀 Reviewing' in [ln for ln in out.splitlines() if ln.startswith('**Status:')][0])
+          '🚀 Reviewing' in _statusline(out))
 assert_eq("ambiguous --tick-plan: collected as a volatile miss", 1, len(_ft))
 assert_eq("ambiguous --tick-plan: miss descriptor names the flag + value", True,
           _ft and _ft[0].startswith("--tick-plan 'Step'"))
@@ -424,10 +429,6 @@ assert_eq("case-insensitive heading: AC one ticked under lowercase heading",
 
 
 print("issue #169: failure-isolation + index-based ticking")
-
-
-def _statusline(out):
-    return next(ln for ln in out.splitlines() if ln.startswith('**Status:'))
 
 
 # Fixture with a pre-ticked first AC row, so a naive unticked-only index count
@@ -736,7 +737,7 @@ assert_eq("tick-progress: nested sub-item ticked", True,
 _ft = []
 out = apply_mut(WORKPAD_V2, make_args(status='Blocked', tick_progress=['**']), _ft)
 assert_eq("ambiguous --tick-progress: status still applied (volatile, not abort)", True,
-          '👎 Blocked' in [ln for ln in out.splitlines() if ln.startswith('**Status:')][0])
+          '👎 Blocked' in _statusline(out))
 assert_eq("ambiguous --tick-progress: collected as a volatile miss", 1, len(_ft))
 
 # Legacy resume: WORKPAD_V2 still carries a pre-change separate ## Decisions /

@@ -297,6 +297,11 @@ _RUN_RE = re.compile(r'^\*\*Run:\*\*\s+.*$', re.MULTILINE)
 _PR_RE = re.compile(r'^\*\*PR:\*\*\s+.*$', re.MULTILINE)
 _LAST_UPDATED_RE = re.compile(r'^\*\*Last updated:\*\*\s+.*$', re.MULTILINE)
 _SECTION_RE = re.compile(r'^(##\s+.+)$', re.MULTILINE)
+# Single source for the checkbox-row grammar shared by `_rewrite_checkbox` and
+# `_tick_checkbox_by_index` (groups: indent+bullet, `[ xX]` state, gap, text).
+# `_tick_checkbox` keeps its own `[ ]`-only variant because it filters to unticked
+# rows. Hoisted to a constant so the row grammar can't drift between call sites.
+_CHECKBOX_ROW_RE = re.compile(r'^(\s*[-*]\s+)(\[[ xX]\])(\s+)(.*)$')
 
 # Canonical status glyphs (reaction-compatible). The Status line always begins
 # with one; `_status_glyph` derives it from the status word so the orchestrator
@@ -482,6 +487,12 @@ def _insert_section_after(
     return new_sections
 
 
+def _join_preserving_newline(new_lines, content: str) -> str:
+    """Re-join section lines, preserving whether the original `content` ended in a
+    newline. The shared tail of every in-place line-rewrite helper in this file."""
+    return '\n'.join(new_lines) + ('\n' if content.endswith('\n') else '')
+
+
 def _tick_checkbox(content: str, text_substr: str, section_label: str) -> str:
     """Tick exactly one matching unticked `- [ ]`/`* [ ]` checkbox in the section.
 
@@ -511,7 +522,7 @@ def _tick_checkbox(content: str, text_substr: str, section_label: str) -> str:
         )
     line_idx, m = candidates[0]
     new_lines[line_idx] = f"{m.group(1)}[x]{m.group(2)}{m.group(3)}"
-    return '\n'.join(new_lines) + ('\n' if content.endswith('\n') else '')
+    return _join_preserving_newline(new_lines, content)
 
 
 def _tick_checkbox_by_index(content: str, n: int, section_label: str) -> str:
@@ -526,7 +537,7 @@ def _tick_checkbox_by_index(content: str, n: int, section_label: str) -> str:
     rows = []  # (line_idx, match) for every checkbox row, ticked or not
     new_lines = []
     for line in content.splitlines():
-        m = re.match(r'^(\s*[-*]\s+)(\[[ xX]\])(\s+)(.*)$', line)
+        m = _CHECKBOX_ROW_RE.match(line)
         if m:
             rows.append((len(new_lines), m))
         new_lines.append(line)
@@ -541,7 +552,7 @@ def _tick_checkbox_by_index(content: str, n: int, section_label: str) -> str:
             f"{section_label} checkbox {n} is already ticked"
         )
     new_lines[line_idx] = f"{m.group(1)}[x]{m.group(3)}{m.group(4)}"
-    return '\n'.join(new_lines) + ('\n' if content.endswith('\n') else '')
+    return _join_preserving_newline(new_lines, content)
 
 
 def _rewrite_checkbox(
@@ -552,7 +563,7 @@ def _rewrite_checkbox(
     matched = []
     new_lines = []
     for line in content.splitlines():
-        m = re.match(r'^(\s*[-*]\s+)(\[[ xX]\])(\s+)(.*)$', line)
+        m = _CHECKBOX_ROW_RE.match(line)
         if m and old_substr.lower() in m.group(4).lower():
             matched.append((len(new_lines), m))
         new_lines.append(line)
@@ -567,7 +578,7 @@ def _rewrite_checkbox(
         )
     line_idx, m = matched[0]
     new_lines[line_idx] = f"{m.group(1)}{m.group(2)}{m.group(3)}{new_text}"
-    return '\n'.join(new_lines) + ('\n' if content.endswith('\n') else '')
+    return _join_preserving_newline(new_lines, content)
 
 
 def _split_details(content: str) -> tuple[str | None, str, str | None]:
@@ -644,7 +655,7 @@ def _append_progress_note(
     while end > start + 1 and not lines[end - 1].strip():
         end -= 1
     new_lines = lines[:end] + [f"  - {timestamp} — {note}"] + lines[end:]
-    return '\n'.join(new_lines) + ('\n' if content.endswith('\n') else '')
+    return _join_preserving_newline(new_lines, content)
 
 
 # ── Devflow Reflection: kind taxonomy + grouped rendering ───────────────────
