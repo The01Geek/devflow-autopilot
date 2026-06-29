@@ -275,15 +275,16 @@ Now decide. Set `USE_CURRENT=1` to mean "reuse `$CUR`, skip creation":
 ```bash
 USE_CURRENT=
 # Resolve the git-dir layout ONCE, in ABSOLUTE form (`--path-format=absolute`) so the
-# worktree test reflects directory *identity*, not path *representation* — a
-# harness-injected GIT_DIR / GIT_COMMON_DIR (or a non-root cwd) could otherwise print
-# the same directory two different ways and false-positive "linked worktree". A hard
-# `git rev-parse` failure (corrupt repo, broken git) yields an empty string: that fails
-# CLOSED to the create path below, but leave an attributable breadcrumb (mirroring the
-# `git fetch` breadcrumb later) instead of silently degrading.
+# worktree comparison is byte-consistent regardless of how the caller's cwd was spelled —
+# a harness-injected GIT_DIR / GIT_COMMON_DIR (or a non-root cwd) could otherwise print
+# the same directory two different ways and false-positive "linked worktree". Note:
+# --path-format=absolute normalizes relative vs. absolute output but does NOT canonicalize
+# symlinks, `..`, or trailing slashes. A hard `git rev-parse` failure (corrupt repo,
+# broken git, or git < 2.31 which lacks --path-format) yields an empty string: that fails
+# CLOSED to the create path below with an attributable breadcrumb.
 COMMON_DIR=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || COMMON_DIR=""
 GIT_DIR_PATH=$(git rev-parse --path-format=absolute --git-dir 2>/dev/null) || GIT_DIR_PATH=""
-[ -n "$COMMON_DIR" ] && [ -n "$GIT_DIR_PATH" ] || echo "devflow: could not resolve the git-dir layout (git rev-parse failed) — linked-worktree detection (Signal 1) disabled; if this is actually a worktree, detection failed (check repo integrity)" >&2
+[ -n "$COMMON_DIR" ] && [ -n "$GIT_DIR_PATH" ] || echo "devflow: git rev-parse --path-format=absolute failed (repo corrupt, git < 2.31, or broken env) — linked-worktree detection (Signal 1) disabled; if this is actually a worktree, check git version and repo integrity" >&2
 # Reuse $CUR ONLY when it is a real branch (non-empty — not a detached HEAD) and NOT the
 # base branch (never build directly on trunk, even in a worktree). These two guards
 # apply to BOTH reuse signals, so they sit out here once — a base branch that happens to
@@ -317,7 +318,8 @@ Write the issue title (from the `gh issue view` above) to a temp file with the *
 # attributable here, not a bare git error downstream — most importantly when the
 # fallback 'main' isn't the consumer's real trunk (a master/develop repo).
 git fetch origin "$BASE" || { echo "devflow: could not fetch base branch 'origin/$BASE' — if the base is correct, check network/auth; otherwise set base_branch in .devflow/config.json to the repo's real trunk (master/develop/…)" >&2; exit 1; }
-BRANCH=$(${CLAUDE_SKILL_DIR}/../../scripts/branch-for-issue.py $ARGUMENTS --title-file /tmp/devflow-issue-$ARGUMENTS-title.txt)
+BRANCH=$(${CLAUDE_SKILL_DIR}/../../scripts/branch-for-issue.py $ARGUMENTS --title-file /tmp/devflow-issue-$ARGUMENTS-title.txt) || { echo "devflow: branch-for-issue.py failed — could not derive a branch name for issue #$ARGUMENTS; check that the issue title file exists and the issue number is valid" >&2; exit 1; }
+[ -n "$BRANCH" ] || { echo "devflow: branch-for-issue.py returned an empty branch name for issue #$ARGUMENTS — cannot create a branch" >&2; exit 1; }
 git checkout -b "$BRANCH" "origin/$BASE"
 ```
 

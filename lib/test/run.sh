@@ -1541,6 +1541,10 @@ assert_pin_unique "base_branch read: SKILL guards the empty read" '[ -n "$BASE" 
 assert_pin_unique "base_branch read: SKILL fetches origin/\$BASE (not hard-coded main)" 'git fetch origin "$BASE"' "$IMPL_SKILL"
 assert_pin_unique "base_branch read: SKILL checks out origin/\$BASE" 'git checkout -b "$BRANCH" "origin/$BASE"' "$IMPL_SKILL"
 assert_pin_unique "base_branch read: SKILL keeps the attributable fetch-failure breadcrumb" 'could not fetch base branch' "$IMPL_SKILL"
+assert_pin_unique "#168 create-path: SKILL guards branch-for-issue.py exit status" \
+  'branch-for-issue.py failed' "$IMPL_SKILL"
+assert_pin_unique "#168 create-path: SKILL guards against an empty BRANCH name" \
+  '[ -n "$BRANCH" ]' "$IMPL_SKILL"
 
 # Versioning is per-repo policy, not the engine's job: implement/SKILL.md must carry NO
 # version-bump step. A repo that wants version management opts in via its consumer prompt
@@ -1609,7 +1613,7 @@ assert_pin_unique "#168 worktree detect: SKILL guards reuse against the base bra
 # so a base branch named like a feature branch (base_branch=issue-next) still CREATEs.
 # Pin the rev-parse-failure breadcrumb so the silent-degrade path stays attributable.
 assert_pin_unique "#168 worktree detect: SKILL leaves a breadcrumb when git rev-parse fails" \
-  'could not resolve the git-dir layout' "$IMPL_SKILL"
+  'git rev-parse --path-format=absolute failed' "$IMPL_SKILL"
 assert_eq "#168 worktree detect: SKILL names the linked-worktree signal" "yes" \
   "$(grep -qF 'linked worktree' "$IMPL_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: token appears in both prose and code (4 occurrences)
 assert_pin_unique "#168 worktree detect: SKILL keeps the cloud-tier name match as a second skip condition" \
@@ -1621,6 +1625,10 @@ assert_pin_unique "#168 worktree detect: SKILL keeps the cloud-tier name match a
 # use CUR) or "create" (fall through to branch-for-issue.py). The non-empty + != base
 # guards wrap BOTH signals exactly as the SKILL hoists them; an empty common==gitdir
 # (rev-parse failed) collapses Signal 1 to "not a worktree" → create (fail-closed).
+# Source of truth: SKILL Phase 1.4 (F-8 deferred: token pins catch removal but not a
+# predicate-shape change; F-9 deferred: --path-format=absolute normalization is not
+# exercised here — the mirror receives pre-resolved strings; a real-git integration test
+# would be needed to cover the rev-parse call itself).
 #   decide_branch <git-common-dir> <git-dir> <CUR> <BASE>
 decide_branch() {
   local common="$1" gitdir="$2" cur="$3" base="$4"
