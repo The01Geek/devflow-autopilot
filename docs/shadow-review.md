@@ -300,14 +300,16 @@ suite/CI time no matter whether the loop that produced the diff was driven by th
   presence-pins throughout `lib/test/run.sh` were converted to `assert_pin_unique`, and the guards that
   genuinely can't route through it (non-unique-by-design count assertions, absence pins, case-insensitive
   or loop-variable targets, `--`-leading literals) each carry a `# raw-guard-ok: <reason>` allowlist
-  marker. A repo-wide self-scanning meta-test (`count_unallowlisted_raw_skill_guards`) fails if *any* raw
-  `grep`-based SKILL guard — any flag spelling, against a `$..._SKILL` var or a literal `…/SKILL.md`
-  path — exists anywhere in the suite without either routing through the helper or carrying a
-  properly-formatted allowlist marker. An in-region control (`count_region_nonhelper_stmts`) and the
-  shared `region_lines()` helper keep the original park-calibration positive controls fail-closed if the
-  region markers are deleted, so the scan itself cannot go vacuous. All are mutation-proven: the suite
-  goes RED on a deliberately non-unique pin, on an unallowlisted raw bypass guard anywhere in the suite,
-  and on a deleted region marker.
+  marker. A repo-wide self-scanning meta-test (`count_unallowlisted_raw_skill_guards`) fails if a
+  *single-line, echo-driven* raw `grep`-based SKILL guard — any flag spelling, against a `_SKILL` var, a
+  `SKILL_`-suffixed loop var, or a literal `…/SKILL.md` path — exists anywhere in the suite without either
+  routing through the helper or carrying a properly-formatted allowlist marker. An in-region control
+  (`count_region_nonhelper_stmts`) additionally requires every park-calibration region statement to route
+  through the helper. The scan itself cannot go vacuous because the pre-existing #155 marker-presence pins
+  (the `PARKCAL_GUARD_REGION` BEGIN/END `pin_count == 1` asserts) fail closed if the region markers are
+  deleted — `region_lines()` is merely the shared extractor, not the fail-closed control. All are
+  mutation-proven: the suite goes RED on a deliberately non-unique pin, on an unallowlisted raw bypass
+  guard anywhere in the suite, and on a deleted region marker.
 - **Sentinel-completeness signal.** The park-calibration gate (Step 2.6) records a mandatory
   `## Devflow Reflection` bullet on every run — a re-grade routing or the gate-clean sentinel.
   `lib/test/run.sh` pins that sentinel contract, and the `/devflow:review-and-fix` Loop-Exit machinery

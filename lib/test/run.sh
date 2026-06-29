@@ -723,17 +723,19 @@ region_lines() {  # file -> the lines strictly inside the PARKCAL region
     'index($0,b){inreg=1;next} index($0,e){inreg=0} inreg' "$1"
 }
 # Print every line between the BEGIN and END markers of FILE that is a raw `grep`-based
-# SKILL drift guard — ANY `grep ` command referencing a SKILL target, written EITHER as a
-# `$..._SKILL` path var OR as a literal `…/SKILL.md` path. The pattern is deliberately
-# broad on two axes the review of this very PR flagged in turn: (1) flag spelling — it
-# catches `grep -qF`, `grep -Fq`, `grep -qE`, and a count-based `grep -cF`, so re-ordering
-# the flags cannot dodge it; (2) target spelling — the `SKILL\.md` arm catches the
-# literal-path convention used elsewhere in this file (`"$LIB/../skills/.../SKILL.md"`),
-# which the `_SKILL`-only pattern missed. A correctly-routed region routes every pin
-# through assert_pin_unique — those lines carry no `grep` — so it yields 0. `|| true` keeps
-# grep's no-match exit 1 from tripping the `set -u`/pipefail-free harness into a non-zero.
+# SKILL drift guard — ANY `grep ` command referencing a SKILL target. The pattern is
+# deliberately broad on two axes the review of this very PR flagged in turn: (1) flag
+# spelling — it catches `grep -qF`, `grep -Fq`, `grep -qE`, and a count-based `grep -cF`,
+# so re-ordering the flags cannot dodge it; (2) target spelling — THREE alternations cover
+# every SKILL-target convention in this file: `_SKILL` (a `$DEF_SKILL`/`$MAXI_SKILL`/… var
+# or `${CLAUDE_SKILL_DIR}`), `SKILL_` (a `$SKILL_FILE`/`$SKILL_NAME`/`$SKILL_DIR` loop var,
+# whose underscore is AFTER `SKILL` so the `_SKILL` arm misses it — the #164-review gap),
+# and `SKILL\.md` (a literal `"$LIB/../skills/.../SKILL.md"` path). A correctly-routed
+# region routes every pin through assert_pin_unique — those lines carry no `grep` — so it
+# yields 0. `|| true` keeps grep's no-match exit 1 from tripping the `set -u`/pipefail-free
+# harness into a non-zero.
 count_raw_skill_guards_in_region() {  # file -> prints count of offending lines
-  region_lines "$1" | grep -cE 'grep[[:space:]].*(_SKILL|SKILL\.md)' || true
+  region_lines "$1" | grep -cE 'grep[[:space:]].*(_SKILL|SKILL_|SKILL\.md)' || true
 }
 # Count the routed assert_pin_unique pins strictly INSIDE the region of FILE (markers
 # excluded by `next` on BEGIN). Shared by the live region-non-empty control AND its AC3(f)
@@ -964,14 +966,18 @@ assert_pin_unique "over-grade: severity-calibrated record carries no skip_catego
 # assert_pin_unique (so it carries no bare grep) OR carry an explicit per-line
 # allowlist marker `# raw-guard-ok: <reason>`.
 #
-# Scope is deliberately the GUARD shape: a SKILL-targeted fixed/regex match whose
-# yes/no outcome drives an echo. Count asserts, line-number lookups, the inverting
-# strip, and computed-value greps are not presence guards and are out of scope by
-# construction (their matched line carries no echo). A guard whose grep is computed on a
-# PRIOR line into a var (`X=$(grep … "$SKILL")` then a bare `assert_eq … "$X"`) likewise
-# carries no echo on the grep line and is non-idiomatic in this suite; that exact shape IS
-# caught — positively, not by content match — inside the park-calibration region by the
-# AC3 control below, where new park-calibration guards actually land.
+# Scope is deliberately the GUARD shape: a SKILL-targeted match whose yes/no outcome drives
+# an `echo` ON THE SAME LINE. Two things are therefore out of scope *by construction* —
+# their matched line carries no `echo`: a bare `grep -c`/`grep -n` whose count/line-number is
+# the assert comparand directly (e.g. lines 947/949), and the inverting `grep -vF` strip. NOT
+# every count guard is exempt this way, though: a `[ "$(grep -cF … "$DEF_SKILL")" -ge 2 ] &&
+# echo yes` count guard (lines 548/560) DOES carry `echo` and a `_SKILL` target, so the scanner
+# matches it and it is exempted by its `# raw-guard-ok: count-based` marker, not "by
+# construction." A guard whose grep is computed on a PRIOR line into a var (`X=$(grep …
+# "$SKILL")` then a bare `assert_eq … "$X"`) likewise carries no echo on the grep line and is
+# non-idiomatic in this suite; that exact shape IS caught — positively, not by content match —
+# inside the park-calibration region by the AC3 control below, where new park-calibration
+# guards actually land.
 #
 # Anti-self-match: the scanner's pattern needs the literal `echo`, but its grep line
 # references it as `$ECHO_TOK` (a variable) instead of spelling `echo` inline — so the
@@ -981,10 +987,12 @@ assert_pin_unique "over-grade: severity-calibrated record carries no skip_catego
 # pattern would self-match). Token-rot is the fragile spot: if `$ECHO_TOK` is typo'd to a
 # non-matching value the pattern matches NOTHING and the SELF scan passes vacuously (a
 # fail-OPEN), so the value is pinned by an explicit assert below rather than trusted —
-# token-rot then fails RED at that pin, not silently. (Marker-rot is the symmetric case:
-# `RGOK_MARK` empty would make `grep -vF` exempt every line → SELF reads 0, but the AC2
-# mutation proof's marked/unmarked fixtures still expect 1 there → RED; that path keeps
-# its own positive control. The token-value pin closes the ECHO_TOK leg the proofs miss.)
+# token-rot then fails RED at that pin, not silently. Marker-rot is the symmetric case and is
+# caught by the SAME pin: a typo'd or emptied `RGOK_MARK` diverges from the pinned literal
+# `raw-guard-ok` → the token assert goes RED directly. (Note the exclusion is `grep -vF "#
+# $RGOK_MARK:"`, so an EMPTY `RGOK_MARK` yields the literal `# :`, NOT the empty string — it
+# would not exempt every line; the token-value pin is what makes marker-rot loud, not any
+# property of the exclusion on an empty token.)
 ECHO_TOK="echo"                 # the scanner pattern's trailing token; referenced as $ECHO_TOK so no literal echo sits on the grep line
 RGOK_MARK='raw-guard-ok'        # the per-line allowlist token; format is `# raw-guard-ok: <reason>`
 # Pin both scanner tokens to their intended values: a typo in either — the rot the comment
@@ -996,7 +1004,7 @@ count_unallowlisted_raw_skill_guards() {  # file -> count of raw SKILL guard pin
   # Exclude only a PROPERLY-FORMATTED `# raw-guard-ok:` marker comment (not a bare substring
   # `raw-guard-ok` anywhere on the line), so a malformed/typo'd marker no longer silently
   # exempts its guard — it falls through to RED, strengthening the rot-guard above.
-  grep -nE "grep[[:space:]].*(_SKILL|SKILL\.md).*$ECHO_TOK" "$1" \
+  grep -nE "grep[[:space:]].*(_SKILL|SKILL_|SKILL\.md).*$ECHO_TOK" "$1" \
     | grep -vF "# $RGOK_MARK:" \
     | grep -c . || true
 }
@@ -1013,6 +1021,15 @@ assert_eq "#157 AC2 mutation: an unmarked raw SKILL guard pin anywhere is detect
 printf '%s\n' '  "$(grep -qF MARKED_RAW "$MAXI_SKILL" && echo yes || echo no)"  # raw-guard-ok: proof' > "$RWPROBE"  # raw-guard-ok: fixture writes a MARKED guard to a temp file to prove the allowlist is honored
 assert_eq "#157 AC2 mutation: the allowlist marker exempts a raw guard pin (GREEN, count 0)" \
   "0" "$(count_unallowlisted_raw_skill_guards "$RWPROBE")"
+# #164-review gap: a guard targeting a `SKILL_`-suffixed loop var ($SKILL_FILE/$SKILL_NAME/
+# $SKILL_DIR) carries no `_SKILL` substring (the underscore is AFTER `SKILL`), so the original
+# two-arm pattern was BLIND to it (e.g. the live loop guard now marked `# raw-guard-ok: loop
+# body`). Prove the broadened `SKILL_` arm catches it: an UNMARKED $SKILL_FILE guard → count 1.
+# Under the old `(_SKILL|SKILL\.md)`-only pattern this fixture would read 0 (the regression this
+# binds). The SOURCE line carries the marker so the live SELF scan above stays 0.
+printf '%s\n' '  "$([ -f "$SKILL_FILE" ] && grep -qF LOOPVAR_RAW "$SKILL_FILE" && echo yes || echo no)"' > "$RWPROBE"  # raw-guard-ok: fixture writes an UNMARKED $SKILL_FILE guard to prove the broadened SKILL_ arm detects it
+assert_eq "#157 AC2 mutation: broadened SKILL_ arm catches a \$SKILL_FILE-suffixed-var guard (not just _SKILL/SKILL.md)" \
+  "1" "$(count_unallowlisted_raw_skill_guards "$RWPROBE")"
 rm -f "$RWPROBE"
 
 # ── Meta-test (#157, AC3): a STRICTER in-region control. count_raw_skill_guards_in_region
@@ -1025,6 +1042,11 @@ rm -f "$RWPROBE"
 # region's continuation-arg lines start with a quote and its comments with `#`, so neither
 # is a statement-start — broadening stays 0 on a clean region). Both the grep-computing
 # assignment and its assert_eq consumer are non-helper statement-starts, so either trips this.
+# Anti-vacuity is DELEGATED, not standalone: this control reads 0 on a clean region AND on an
+# emptied/marker-less one, so it relies on the pre-existing #155 marker-presence pins (the
+# `pin_count "$PARKCAL_BMARK"/"$PARKCAL_EMARK" == 1` asserts) + the region-non-empty control to
+# fail closed if the BEGIN/END markers are deleted. Do not remove those sibling pins — without
+# them a vanished region would let this `== 0` assert pass vacuously.
 count_region_nonhelper_stmts() {  # file -> region statement-start lines (any indent) not routed through assert_pin_unique
   region_lines "$1" \
     | grep -E '^[[:space:]]*[A-Za-z_]' \
@@ -2039,7 +2061,7 @@ for SKILL_DIR in "$LIB"/../skills/*/; do
   # own exit-code prose were deleted. This fragment appears ONLY in the block, so
   # the guard goes red iff the block's exit-code handling is actually removed.
   assert_eq "lpe-coverage: $SKILL_NAME/SKILL.md honors the helper exit code (prose)" "yes" \
-    "$([ -f "$SKILL_FILE" ] && grep -qF 'a consumer extension exists but could not be loaded' "$SKILL_FILE" && echo yes || echo no)"
+    "$([ -f "$SKILL_FILE" ] && grep -qF 'a consumer extension exists but could not be loaded' "$SKILL_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body — $SKILL_FILE is the per-skill loop target, not a static target-unique pin
 done
 # The two strict-JSON-stdout subagents carry an EXTRA caveat (absent from the other
 # 14) that a consumer extension must not break their one-JSON-object contract. Pin
