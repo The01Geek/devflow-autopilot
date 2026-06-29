@@ -315,6 +315,17 @@ engine-self-modifying shadow skeptically and run the standalone review — still
 local check can decide. The target-uniqueness guard is also the deterministic, guarantee-class form of
 the prose "pin a *target-unique* phrase" advice in the mutation-check rule.
 
+### Calibration is symmetric: the under-grade gate and the over-grade gate are two halves of one defense
+
+The calibration above is about the loop grading a finding **too low** (a real defect parked as a note that a later standalone review re-raises). That is one direction; the loop can also grade a finding **too high**, and the engine defends both directions with a matched pair of gates in `skills/review-and-fix/SKILL.md` that share one root idea — *never trust an emitted severity without a recorded technical evaluation against the finding's observable fail-direction and impact*:
+
+- **Under-grade — the park-calibration gate**, on the **approve** path (before a Decide outcome-1 / Step 4.5 early-exit conclusion). It re-reads parked findings against the under-grade shapes and **promotes** any it catches back through Step 2.5 → Step 3, so a substantive finding cannot ride out as a note.
+- **Over-grade — the over-grade calibration gate**, on the **promote** path (before a Decide outcome-2 promotion fires on an emitted `Critical`/`Important` shadow finding). It **flags** a suspected over-grade against *observable* shapes — a defect that fails closed or that the suite catches RED, and a diagnostic-or-cosmetic-only finding with no behavioral fail-direction — so the loop does not spend a full extra engine pass (a promoted iteration plus a re-shadow) on an unexamined label.
+
+The two gates are deliberately **asymmetric in action but symmetric in intent**. The under-grade gate *promotes*; the over-grade gate **flags and requires a recorded technical evaluation — it never auto-demotes**, because silently demoting a wrongly-suspected over-grade would re-open the lenient-verdict hole the rest of the engine exists to close. The shared mechanism that makes both auditable is **recording the per-finding technical evaluation as evidence**: the over-grade gate's required artifact is a structured `fix_decisions` entry (`decision: "severity-calibrated"`, citing the observable fail-direction/impact and the calibrated grade), and a flagged promote-path finding with no such recorded evaluation is treated as **non-convergence** at Loop Exit — so a run that skipped the calibration discipline is detectable by the absence of the evidence rather than dependent on actor diligence. This mechanizes the `receiving-code-review` **symmetric-severity-calibration principle** (a genuine finding can be over-graded; calibrate severity against observable fail-direction/impact in both directions): the principle *states* the discipline engine-agnostically, the gate *enforces* it.
+
+Empirically (issue #155 / PR #156), a high-verbosity reviewer — `silent-failure-hunter` — repeatedly over-graded fail-closed, diagnostic-only defects `Critical`/`Important` in a single run; the over-grade gate makes the technical evaluation that catches such labels a recorded, detectable engine step rather than a matter of actor diligence.
+
 ## Cost
 
 The shadow pass roughly **doubles** the cost of a converging run — one full engine pass that does

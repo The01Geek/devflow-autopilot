@@ -35,10 +35,12 @@
 #   null             — dispatched but raised nothing, or nothing that survived
 #                      to an applied fix or a noise classification. A finding
 #                      whose only outcome is `deferred` (real, but out-of-scope
-#                      / already-tracked) is deliberately `null`, NOT `noise`:
-#                      `noise` is reserved for `pushed_back` / `advisory`
-#                      (false-positive / web-refuted). Any future `fix_decision`
-#                      value also defaults to `null` unless `verdict_for` is updated.
+#                      / already-tracked) or `severity-calibrated` (real, but
+#                      over-graded and calibrated down — not a false positive) is
+#                      deliberately `null`, NOT `noise`: `noise` is reserved for
+#                      `pushed_back` / `advisory` (false-positive / web-refuted).
+#                      Any future `fix_decision` value also defaults to `null`
+#                      unless `verdict_for` is updated.
 #
 # The four buckets above are written in `fix_decision` (review-and-fix) terms.
 # `verdict_for` has a SECOND derivation for standalone-/devflow:review records

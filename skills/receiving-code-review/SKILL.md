@@ -138,6 +138,18 @@ Push back when:
 
 **If you're uncomfortable pushing back out loud:** Name that tension, then tell your partner about the issue you've seen. They'll appreciate your honesty.
 
+## Symmetric Severity Calibration
+
+Pushing back on a *wrong* finding is only half of technical reception. The other half is that a finding can be **correct and still over-graded** — a genuine defect labelled `Critical`/`Important` whose observable fail-direction and impact are milder than the label claims. Evaluating severity is not just "is this real?"; it is "what does the code *observably do* on the bad input, and does that match the grade?"
+
+Severity must be **calibrated against the observable fail-direction and impact in both directions**, not only pushed back when a finding is wrong on correctness. Calibrate against what the code observably does, not the reviewer's stated label:
+
+- A defect that **fails closed** (aborts, refuses, or returns the safe value on the bad input) or whose failure mode the **test suite already catches** has a loud, bounded blast radius — a visible stop, not a silent corruption. Real and worth fixing, but rarely the top severity.
+- A **diagnostic-or-cosmetic-only** finding — the wording of a message, log line, breadcrumb, or comment, with no wrong output, no corrupted state, and no skipped guard — has no behavioral fail-direction. Real and worth fixing, but not a high-severity blast radius.
+- A defect that **fails open** (admits a wrong value, corrupts state, or skips a guard silently) is the one whose observable impact actually supports a high severity.
+
+The discipline is **symmetric**: do not silently inflate a mild finding into a blocker, and do not silently *deflate* a severe one to dodge work. When you calibrate a severity — in either direction — record the observable evidence for the new grade (which fail-direction the code takes, what the suite catches, what the real blast radius is). A severity you change but cannot evidence is just a different guess; a severity you can evidence is a calibration. Never down-calibrate to avoid the fix — calibrate only to the impact you can demonstrate, and when in doubt about a genuine defect, keep the higher grade.
+
 ## Acknowledging Correct Feedback
 
 When feedback IS correct:

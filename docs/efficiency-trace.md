@@ -50,10 +50,11 @@ Each dispatched subagent is assigned **exactly one** verdict per iteration, by t
 | **null** | Dispatched but raised nothing, or nothing that survived to an applied fix or a noise classification. | Everything else, including no findings at all. |
 
 A finding whose only outcome is `deferred` (the defect is real but out-of-scope / already-tracked)
-is deliberately classified **null**, *not* noise — `noise` is reserved for `pushed_back` / `advisory`
-(false-positive / web-refuted). The agent wasn't wrong, but it added no fix to *this* run, so it does
-not count against it as noise. Any future `fix_decision` value also defaults to `null` until
-`verdict_for` is taught about it.
+or `severity-calibrated` (the defect is real but was over-graded and calibrated down by the over-grade
+calibration gate — not a false positive) is deliberately classified **null**, *not* noise — `noise` is
+reserved for `pushed_back` / `advisory` (false-positive / web-refuted). The agent wasn't wrong, but it
+added no fix to *this* run, so it does not count against it as noise. Any future `fix_decision` value
+also defaults to `null` until `verdict_for` is taught about it.
 
 `corroboration_count` is sourced from `phase3_findings`; a missing value is treated as `1`
 (single-source / unique). The verdict reads `fix_decision` directly off each finding, so the
