@@ -1912,6 +1912,18 @@ assert_eq "#169: implement/SKILL.md tells callers to check the tick exit code, n
 # gate now ticks with (`--tick-ac-n`), not the superseded substring `--tick-ac`.
 assert_eq "#169: implement/SKILL.md 2.2.6 note references the index gate-tick flag (no stale '--tick-ac later')" "yes" \
   "$(grep -qF 'will tick via `--tick-ac` later' "$IMPL_SKILL" && echo no || echo yes)"
+# Shadow Finding 2 (review): the SKILL must tell callers a volatile miss already
+# PATCHed the status/notes, so on a non-zero exit they re-tick ONLY the row(s) and do
+# not re-send the whole call (which would double-write append-only notes). Coupled with
+# workpad.py's breadcrumb wording, which test_python_scripts.py shadow-F2 pins.
+assert_eq "#169: implement/SKILL.md warns re-tick-only (don't re-send the whole call on a volatile miss)" "yes" \
+  "$(grep -qF 'do not blindly re-send the whole call' "$IMPL_SKILL" && echo yes || echo no)"
+# Shadow Finding 1 (review): workpad.py reports volatile misses on the gh-PATCH-failure
+# path too (not just the structural-abort and clean-PATCH paths), via the single
+# _report_failed_ticks chokepoint — so a miss collected before a 5xx/auth PATCH failure
+# is never silently dropped. test_python_scripts.py shadow-F1 pins the behavior.
+assert_eq "#169: workpad.py routes volatile misses through _report_failed_ticks (PATCH-failure echo)" "yes" \
+  "$(grep -qF 'def _report_failed_ticks' "$WP_PY" && grep -qF 'NO workpad change was persisted' "$WP_PY" && echo yes || echo no)"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "scaffold-config.sh"

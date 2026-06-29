@@ -569,7 +569,7 @@ assert_eq("#169 TD-1: _TickMatchError is still an Exception",
 # list (one marker-matching comment), the body fetch (--jq .body → the fixture body),
 # and the PATCH (read the -F body=@<tmp> file back so the test sees the patched body).
 # Returns (exit_code, stderr, patched_body); patched_body is None when no PATCH ran.
-def _drive_cmd_update(body, **arg_overrides):
+def _drive_cmd_update(body, patch_fails=False, **arg_overrides):
     marker = '<!-- devflow:workpad -->'
     saved = (workpad._run, workpad._repo_full, workpad._workpad_marker)
     workpad._repo_full = lambda: 'owner/repo'
@@ -580,6 +580,8 @@ def _drive_cmd_update(body, **arg_overrides):
         if '/comments?' in joined or joined.endswith('/comments'):
             return _FakeRun(_json.dumps([{'id': 7, 'body': marker + '\n'}]))
         if '-X' in cmd and 'PATCH' in cmd:
+            if patch_fails:  # simulate a gh-api PATCH failure (network/auth/5xx)
+                raise _subprocess.CalledProcessError(1, cmd, stderr='gh: 503 Service Unavailable')
             for tok in cmd:
                 if tok.startswith('body=@'):
                     with open(tok[len('body=@'):]) as fh:
@@ -639,8 +641,12 @@ assert_eq("#169 F1: the volatile tick miss collected before the abort is ALSO ec
 assert_eq("#169 F1: the structural abort made no PATCH", True, _patched is None)
 
 # Finding 3 (review): missing-front-matter structural abort (AC 3) — a body lacking
-# the **Last updated:** line aborts with no return even when a volatile tick is also
-# requested in the same call (the structural path wins over the volatile collector).
+# the **Last updated:** line aborts with no return. The front-matter check raises
+# BEFORE the section-tick loop runs, so the `--tick-ac` here is never even evaluated
+# (failed_ticks stays empty); this test pins only "missing Last-updated → structural
+# abort". The *combined* invariant (a volatile tick collected before a LATER structural
+# fault is preserved/echoed) is owned by the #169 F1 / shadow-F1 tests, where the tick
+# genuinely runs first.
 NO_LASTUPDATED = IDX_BODY.replace('**Last updated:** 2026-05-15T00:00:00Z\n', '')
 def _missing_lastupdated():
     apply_mut(NO_LASTUPDATED, make_args(tick_ac=['NO_SUCH_AC']), [])
@@ -678,6 +684,91 @@ assert_eq("#169 (c): an out-of-range --tick-plan-n is volatile (status still app
 assert_eq("#169 (c): the out-of-range --tick-plan-n miss is collected, not raised", 1, len(_ft))
 assert_eq("#169 (c): the Plan miss descriptor names the index flag", True,
           _ft and _ft[0].startswith('--tick-plan-n 5'))
+
+
+print("issue #169 (shadow): PATCH-failure echo + structural/test-completeness")
+
+# Shadow Finding 1 (silent-failure-hunter, HIGH): a volatile tick miss collected
+# before the gh PATCH itself fails must NOT be silently dropped. Previously the
+# PATCH-failure path reported only the PATCH error and exited, discarding the
+# collected misses — the very no-silent-loss invariant this command establishes,
+# re-opened on the API-failure path. Now cmd_update echoes them before _fail exits.
+_code, _err, _patched = _drive_cmd_update(
+    IDX_BODY, patch_fails=True, status='Reviewing', tick_ac=['NO_SUCH_AC'])
+assert_eq("#169 shadow-F1: a PATCH failure still exits non-zero", 1, _code)
+assert_eq("#169 shadow-F1: the PATCH-failure path echoes the collected volatile tick miss", True,
+          'NO_SUCH_AC' in _err)
+assert_eq("#169 shadow-F1: the PATCH-failure breadcrumb says nothing was persisted", True,
+          'NO workpad change was persisted' in _err)
+assert_eq("#169 shadow-F1: no body was persisted (PATCH failed)", True, _patched is None)
+# A PATCH failure with NO pending tick miss still reports the PATCH error (and does
+# not fabricate a tick report) — the echo is gated on a non-empty failed_ticks.
+_code, _err, _patched = _drive_cmd_update(IDX_BODY, patch_fails=True, tick_ac_n=[2])
+assert_eq("#169 shadow-F1: a clean PATCH failure (no tick miss) still exits non-zero", 1, _code)
+assert_eq("#169 shadow-F1: a clean PATCH failure emits no spurious tick report", False,
+          'did not resolve' in _err or 'had also not resolved' in _err)
+
+# The volatile-PATCHed breadcrumb tells the caller to re-tick only the row(s), NOT
+# re-send the whole call (Finding 2 — re-sending would double-write append-only notes).
+_code, _err, _patched = _drive_cmd_update(IDX_BODY, note=['n'], tick_ac=['NO_SUCH_AC'])
+assert_eq("#169 shadow-F2: the volatile-PATCHed breadcrumb says re-tick only, do not re-send", True,
+          'do not' in _err and 're-tick only' in _err and _patched is not None)
+
+# Shadow Finding 3 (silent-failure-hunter, LOW): an index tick against a PRESENT but
+# EMPTY section (zero checkbox rows) is a VOLATILE out-of-range miss, NOT a structural
+# abort — pins the volatile/structural boundary on the section-shape axis (TD-1 pins
+# the class-hierarchy axis). A future edit raising _UpdateError for an empty section
+# would silently re-introduce batch-discard for that shape; this guards against it.
+EMPTY_PLAN = """<!-- devflow:workpad -->
+# DevFlow Workpad — Issue #999
+
+**Status:** 🚀 Setup
+**Last updated:** 2026-05-15T00:00:00Z
+
+## Plan
+
+## Acceptance Criteria
+- [ ] AC one
+"""
+_ft = []
+out = apply_mut(EMPTY_PLAN, make_args(status='Blocked', tick_plan_n=[1]), _ft)
+assert_eq("#169 shadow-F3: index tick on an empty (zero-row) section is volatile, not a structural abort", True,
+          '👎 Blocked' in _statusline(out))
+assert_eq("#169 shadow-F3: the empty-section index miss is collected (out-of-range)", 1, len(_ft))
+assert_eq("#169 shadow-F3: the empty-section descriptor reports the 0-row count", True,
+          'section has 0 checkbox row(s)' in _ft[0])
+
+# Shadow pr-test 3a: the --tick-ac-n/--tick-plan-n argparse wiring (type=int) is
+# exercised at the PARSE level, not just via pre-built Namespaces. A non-integer is
+# rejected by argparse (exit 2) before any gh call — guarding a `type=int` regression
+# the make_args-based tests (which bypass argparse) cannot catch.
+def _tick_ac_n_noninteger_code():
+    saved = (sys.argv[:], workpad._run, workpad._repo_full, workpad._workpad_marker)
+    sys.argv = ['workpad.py', 'update', '1', '--tick-ac-n', 'notanint']
+    def _boom(cmd, **kw):
+        raise _subprocess.CalledProcessError(1, cmd, stderr='gh stubbed out')
+    workpad._run = _boom
+    workpad._repo_full = lambda: 'owner/repo'
+    workpad._workpad_marker = lambda explicit=None: '<!-- devflow:workpad -->'
+    try:
+        with contextlib.redirect_stderr(io.StringIO()):
+            workpad.main()
+        return None
+    except SystemExit as e:
+        return e.code
+    finally:
+        sys.argv, workpad._run, workpad._repo_full, workpad._workpad_marker = saved
+assert_eq("#169 shadow-3a: --tick-ac-n with a non-integer is rejected by argparse (type=int, exit 2)",
+          2, _tick_ac_n_noninteger_code())
+
+# Shadow type-design: the _CHECKBOX_ROW_RE group-order contract (group 2 = state cell,
+# preserved by _rewrite_checkbox / overwritten by _tick_checkbox_by_index) is pinned
+# structurally, so a group reshuffle that happens to keep the index tests green but
+# breaks _rewrite_checkbox's group-2 preservation is caught directly.
+_m = workpad._CHECKBOX_ROW_RE.match('  - [x] hello world')
+assert_eq("#169 group-order: group 1 is indent+bullet", '  - ', _m.group(1))
+assert_eq("#169 group-order: group 2 is the [ xX] state cell", '[x]', _m.group(2))
+assert_eq("#169 group-order: group 4 is the row text", 'hello world', _m.group(4))
 
 
 print("workpad notes: compact timestamp + nesting under ## Progress phase")

@@ -833,6 +833,20 @@ class _TickMatchError(Exception):
     PATCH, and `cmd_update` then exits non-zero naming each failed tick."""
 
 
+def _report_failed_ticks(failed_ticks, preamble):
+    """Write the collected volatile tick misses to stderr under `preamble`.
+
+    The single chokepoint every `cmd_update` exit path routes its `failed_ticks`
+    through, so a collected miss is reported on ALL three: the structural-abort
+    path, the PATCH-failure path, and the clean-PATCH-but-ticks-missed path. The
+    `preamble` states whether a PATCH was persisted, so the caller can tell
+    'nothing landed, re-send the whole call' from 'the body PATCHed, re-tick only
+    the unresolved row(s)' without re-sending the already-applied status/notes."""
+    sys.stderr.write(f"workpad.py update: {preamble}:\n")
+    for ft in failed_ticks:
+        sys.stderr.write(f"  - {ft}\n")
+
+
 def cmd_update(args):
     # Resolve comment ID from the issue. update is stateless for callers.
     # cmd_id prints + sys.exits; we inline the lookup to capture the ID.
@@ -898,12 +912,11 @@ def cmd_update(args):
         # output entirely. Echo them too so a combined call (a tick miss + a later
         # structural fault) reports BOTH faults, not just the structural one.
         if failed_ticks:
-            sys.stderr.write(
-                f"workpad.py update: additionally, {len(failed_ticks)} tick(s) "
-                f"did not resolve before the abort (no PATCH was made):\n"
+            _report_failed_ticks(
+                failed_ticks,
+                f"additionally, {len(failed_ticks)} tick(s) did not resolve before "
+                f"the abort (no PATCH was made — re-send the whole call)",
             )
-            for ft in failed_ticks:
-                sys.stderr.write(f"  - {ft}\n")
         sys.exit(1)
 
     # Write to a temp file and PATCH (same path as cmd_patch). The body always
@@ -921,6 +934,17 @@ def cmd_update(args):
             '--jq', '.body',
         ])
     except subprocess.CalledProcessError as e:
+        # The PATCH itself failed, so NO workpad change was persisted. Report any
+        # volatile tick misses collected before the failure too — otherwise this
+        # third exit path silently drops them (the very no-silent-loss invariant
+        # this command establishes), leaving the operator unable to tell a clean
+        # PATCH failure from one that also had unresolvable ticks.
+        if failed_ticks:
+            _report_failed_ticks(
+                failed_ticks,
+                f"the PATCH itself failed, so NO workpad change was persisted; "
+                f"these {len(failed_ticks)} tick(s) had also not resolved",
+            )
         _fail('update patch', e)
     finally:
         Path(tmp_path).unlink(missing_ok=True)
@@ -928,14 +952,16 @@ def cmd_update(args):
 
     # Volatile tick failures: the PATCH landed (other mutations applied), but
     # report each unresolved tick to stderr and exit non-zero so the orchestrator
-    # sees exactly which tick(s) failed.
+    # sees exactly which tick(s) failed. The body PATCHed, so the caller must
+    # re-tick ONLY the named row(s) — NOT re-send the whole call (its --status/
+    # --note/--reflection already landed; re-sending would double-write notes).
     if failed_ticks:
-        sys.stderr.write(
-            f"workpad.py update: PATCHed, but {len(failed_ticks)} tick(s) did not "
-            f"resolve (the call's other mutations were applied):\n"
+        _report_failed_ticks(
+            failed_ticks,
+            f"PATCHed, but {len(failed_ticks)} tick(s) did not resolve (the call's "
+            f"other mutations were applied — re-tick only these row(s), do not "
+            f"re-send the call)",
         )
-        for ft in failed_ticks:
-            sys.stderr.write(f"  - {ft}\n")
         sys.exit(1)
 
 
