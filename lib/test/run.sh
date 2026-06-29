@@ -1519,6 +1519,16 @@ assert_pin_unique "sweep selection: implement SKILL qualifies the five-always-on
 assert_pin_unique "sweep selection: docs/implement-skill.md mirror qualifies the five-always-on sentence (coupled invariant)" \
   "still runs the contract-completeness sweeps (2.3.0 / 2.3.0a / 2.3.0b)" \
   "$IMPL_DOC"
+# Cross-site enumeration check: both sites must name the SAME contract-sweep set.
+# Each per-site pin above only checks its own local literal — a site could silently
+# drop 2.3.0b while the other keeps it and both pins still pass. Extract the sweep
+# IDs (strip markdown bold markers) from each qualifying sentence and assert equality.
+_skill_sweeps=$(grep -oE 'still trips the contract-completeness sweeps \([^)]+\)' "$IMPL_SKILL" \
+  | grep -oE '[0-9]+\.[0-9]+\.[0-9]+[a-z]*' | sort | tr '\n' ' ' | sed 's/ $//')
+_docs_sweeps=$(grep -oE 'still runs the contract-completeness sweeps \([^)]+\)' "$IMPL_DOC" \
+  | grep -oE '[0-9]+\.[0-9]+\.[0-9]+[a-z]*' | sort | tr '\n' ' ' | sed 's/ $//')
+assert_eq "sweep selection: SKILL and docs enumerate the same contract-sweep set (cross-site)" \
+  "$_skill_sweeps" "$_docs_sweeps"
 
 # Drift guard: the base_branch read in implement/SKILL.md Phase 1.4 is the skill's
 # one piece of load-bearing inline bash — like the max_iterations clamp above, the
