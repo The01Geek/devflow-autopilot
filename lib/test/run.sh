@@ -1492,7 +1492,7 @@ assert_eq "sweep 2.3.0b: DEVFLOW_SYSTEM_OVERVIEW keeps the sweep-list entry" "ye
 # must state that its trigger shapes apply to prose/SKILL/doc/config as much as to code,
 # so an add-only prose/doc/config diff that replicates a peer rule, an enumerated-set
 # member, or a mirrored contract literal across sites still trips the contract-completeness
-# sweeps (2.3.0 / 2.3.0a) rather than falling through to "just the five always-on sweeps".
+# sweeps (2.3.0 / 2.3.0a / 2.3.0b) rather than falling through to "just the five always-on sweeps".
 # Coupled invariant: the re-anchor lives in BOTH the SKILL preamble and its
 # docs/implement-skill.md mirror, so pin BOTH sites — a one-sided revert of either back to
 # the code-only framing then fails closed (the dominant convention-violation half-revert
@@ -1500,7 +1500,7 @@ assert_eq "sweep 2.3.0b: DEVFLOW_SYSTEM_OVERVIEW keeps the sweep-list entry" "ye
 # on removal (count 0) AND on accidental duplication (count > 1) — stronger than a bare grep.
 # Both literals are ASCII + apostrophe-free per the embedded-jq/SC11xx single-quote trap.
 # The mutation property is proven by the assert_pin_unique removal semantics (meta-tested
-# elsewhere in this suite) plus the orchestrator per-run mutation-check (revert -> RED).
+# elsewhere in this suite).
 assert_pin_unique "sweep selection: implement SKILL re-anchors classification on cross-site replication (substrate-agnostic)" \
   "classify by what the change replicates across sites, not by whether it is code" \
   "$IMPL_SKILL"
