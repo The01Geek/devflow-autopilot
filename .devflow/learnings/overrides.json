@@ -12,6 +12,36 @@
       "dismissed_by": "retrospective-weekly",
       "reason": "meta-plugin-issue",
       "meta_issue": "https://github.com/The01Geek/devflow-autopilot/issues/114"
+    },
+    "convention-violation": {
+      "dismissed_at": "2026-06-29T21:52:52Z",
+      "dismissed_by": "retrospective-weekly",
+      "reason": "meta-plugin-issue",
+      "meta_issue": "https://github.com/The01Geek/devflow-autopilot/issues/182"
+    },
+    "doc-accuracy": {
+      "dismissed_at": "2026-06-29T21:52:56Z",
+      "dismissed_by": "retrospective-weekly",
+      "reason": "meta-plugin-issue",
+      "meta_issue": "https://github.com/The01Geek/devflow-autopilot/issues/183"
+    },
+    "issue-quality": {
+      "dismissed_at": "2026-06-29T21:53:01Z",
+      "dismissed_by": "retrospective-weekly",
+      "reason": "meta-plugin-issue",
+      "meta_issue": "https://github.com/The01Geek/devflow-autopilot/issues/184"
+    },
+    "lenient-verdict": {
+      "dismissed_at": "2026-06-29T21:53:05Z",
+      "dismissed_by": "retrospective-weekly",
+      "reason": "meta-plugin-issue",
+      "meta_issue": "https://github.com/The01Geek/devflow-autopilot/issues/185"
+    },
+    "unverified-assumption": {
+      "dismissed_at": "2026-06-29T21:53:10Z",
+      "dismissed_by": "retrospective-weekly",
+      "reason": "meta-plugin-issue",
+      "meta_issue": "https://github.com/The01Geek/devflow-autopilot/issues/186"
     }
   }
 }
