@@ -359,7 +359,7 @@ Supporting skills:
 - **`docs-bootstrap-internal`**: stands up an internal-docs tree from scratch, organized **domain-first** (`orders/`, `customers/`) not code-layer-first, flat (one level), quality over quantity (5–10 thorough seed docs, not 50 stubs).
 - **`docs-bootstrap-external`**: generates the initial external docs from the internal source of truth.
 
-Doc paths are configurable (`docs.internal`, `docs.external`, `docs.release_notes_file`); internal/external steps can be toggled off (`docs.internal_enabled`, `docs.external_enabled`).
+Doc paths are configurable (`docs.internal`, `docs.external`, `docs.release_notes_file`, `docs.changelog_file`); internal/external steps can be toggled off (`docs.internal_enabled`, `docs.external_enabled`).
 
 **Consistent discipline across all docs skills:** branch diffs use `git diff origin/main...HEAD` (three dots, branch-only changes); bare source paths only (no line numbers, which rot); the generation skills leave committing to the caller.
 
