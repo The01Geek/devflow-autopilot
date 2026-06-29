@@ -135,6 +135,17 @@ probe_assert() {  # assertion-fn args... -> prints PASS or FAIL (the probed verd
 # instead of falling back to the cwd. The recorded FAIL makes the suite go RED whether or
 # not the caller checks the rc 1 — fail-closed either way (mirrors probe_tmp's /dev/null
 # safe-sink discipline, applied to directories).
+#
+# Caller contract: callers do NOT each need to guard the return — routing the temp-dir
+# allocation through this helper is sufficient. On `mktemp -d` failure the helper records
+# ONE per-site suite FAIL with a site-named breadcrumb (that pair is the authoritative
+# signal), and the sentinel makes every downstream `git -C`/`cd`/`mkdir` at an unguarded
+# call site fail closed (ENOTDIR) on its own. An unguarded site's *subsequent* assertions
+# may then go RED too (their setup didn't run) — that secondary cascade is harmless extra
+# RED, never a real-repo mutation, and is the deliberate trade for keeping each call-site
+# conversion a one-line change rather than wrapping every fixture in a guard. (`rgb_scan`
+# guards explicitly only because it also needs to branch on `git init` success and clean
+# up its dir; that extra guard is about cleanup, not safety.)
 git_sandbox() {  # assertion-name -> prints an isolated temp dir (rc 0); on mktemp -d
                  # failure records a suite FAIL, prints the breadcrumb to stderr, and
                  # prints the /dev/null-rooted sentinel (rc 1) so a downstream
@@ -183,11 +194,47 @@ assert_eq "#161 git_sandbox: forced mktemp failure leaves the real-repo HEAD unc
   "$GS_HEAD_BEFORE" "$(git -C "$GS_REPO_ROOT" rev-parse HEAD 2>/dev/null)"
 assert_eq "#161 git_sandbox: forced mktemp failure adds no commit to the real repo" \
   "$GS_COUNT_BEFORE" "$(git -C "$GS_REPO_ROOT" rev-list --count HEAD 2>/dev/null)"
-# Happy path: a normal call returns a real, isolated directory (NOT the sentinel).
+# Pin the fail-closed CONTRACT directly at the helper boundary (not only via the absence
+# of a downstream mutation above): each rejection arm must (a) return a /dev/null-rooted
+# sentinel and (b) record a suite FAIL. Capture git_sandbox's stdout under three distinct
+# `mktemp` shadows that each hit a different guard in `d="$(mktemp -d)" && [ -n ] && [ -d ]`:
+#   1. rc≠0           — the `mktemp -d` failure arm
+#   2. rc 0, empty out — the `[ -n "$d" ]` arm (the exact set-u-without-set-e empty-var hazard)
+#   3. rc 0, non-dir   — the `[ -d "$d" ]` arm
+# Without 2 and 3, a future edit dropping the -n/-d checks would pass unnoticed (the rc≠0
+# proof above wouldn't catch it). The probes capture only the return value — no git ops —
+# so they cannot mutate anything regardless of outcome.
+# The non-directory shadow emits `/dev/null` itself: it is a guaranteed non-directory
+# (a char device) AND does NOT match the `/dev/null/*` sentinel glob, so BOTH the
+# sentinel-shape and the FAIL-recorded assertions stay non-vacuous if `[ -d ]` is dropped.
+for GS_ARM in "rc-nonzero:mktemp() { return 1; }" \
+              "empty-output:mktemp() { printf '\\n'; return 0; }" \
+              "non-directory:mktemp() { printf '/dev/null\\n'; return 0; }"; do
+  GS_ARM_NAME="${GS_ARM%%:*}"; GS_ARM_SHADOW="${GS_ARM#*:}"
+  GS_ARM_PROBE="$(mktemp)"
+  GS_ARM_OUT="$( eval "$GS_ARM_SHADOW"; RESULTS_FILE="$GS_ARM_PROBE" git_sandbox "AC3 ${GS_ARM_NAME} arm" )"
+  GS_ARM_VERDICT=no
+  case "$GS_ARM_OUT" in /dev/null/*) GS_ARM_VERDICT=yes ;; esac
+  assert_eq "#161 git_sandbox: ${GS_ARM_NAME} arm returns a /dev/null-rooted sentinel (fail-closed)" \
+    "yes" "$GS_ARM_VERDICT"
+  assert_eq "#161 git_sandbox: ${GS_ARM_NAME} arm records the suite FAIL" \
+    "FAIL" "$(tail -n 1 "$GS_ARM_PROBE")"
+  rm -f "$GS_ARM_PROBE"
+done
+# Happy path: a normal call returns a real, isolated directory that is NEITHER the sentinel
+# NOR the repo root. The repo-root check is the success-side twin of the sentinel pin: it
+# catches a regression where git_sandbox echoed `.` / "" on the SUCCESS path, which `[ -d ]`
+# alone would accept and silently resolve to the real repo (a git-mutating caller would then
+# hit the real branch on a *passing* suite).
 GS_OK_DIR="$(git_sandbox "#161 git_sandbox happy-path")"
 GS_OK_VERDICT=no
-[ -d "$GS_OK_DIR" ] && case "$GS_OK_DIR" in /dev/null/*) ;; *) GS_OK_VERDICT=yes ;; esac
-assert_eq "#161 git_sandbox: a normal call returns a real isolated dir (not the sentinel)" \
+if [ -d "$GS_OK_DIR" ]; then
+  case "$GS_OK_DIR" in
+    /dev/null/*) ;;
+    *) [ "$(cd "$GS_OK_DIR" && pwd)" != "$GS_REPO_ROOT" ] && GS_OK_VERDICT=yes ;;
+  esac
+fi
+assert_eq "#161 git_sandbox: a normal call returns a real isolated dir (not the sentinel, not the repo root)" \
   "yes" "$GS_OK_VERDICT"
 [ -d "$GS_OK_DIR" ] && rm -rf "$GS_OK_DIR"
 # ────────────────────────────────────────────────────────────────────────────

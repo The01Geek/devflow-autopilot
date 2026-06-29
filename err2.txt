@@ -1,0 +1,1 @@
+mkdir: cannot create directory ‘/dev/null’: Not a directory
