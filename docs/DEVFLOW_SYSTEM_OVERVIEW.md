@@ -303,6 +303,8 @@ Two **gated** reviewers:
 - `devflow:type-design-analyzer` (only if `has_new_types`)
 - `devflow:pr-test-analyzer` (only if the test-relevance predicate matches)
 
+**Completeness-critic pass (Phase 3.1.5, forced when `detect_all_audit` is set):** when Phase 0.5 flags the diff as adding/changing a "detect-all" audit, the engine runs an extra pass that independently re-enumerates the audit's target population *by a signal other than the audit's own pattern* and emits a finding for any uncovered member (folded into the Phase 3 findings set with a `defect_signature` like any other). It **narrows, but does not close**, the circular-completeness gap — the independent enumeration is itself judgment and can share a blind spot. See `docs/shadow-review.md`.
+
 **Mechanical corroboration:** findings are matched by a `defect_signature` (`file` + overlapping `line_range` + identical `kind`). Corroboration across agents is a stronger calibrator than any single agent's stated confidence.
 
 ### Phase 4: Aggregation & verdict
@@ -316,6 +318,7 @@ The `devflow_review.agent_overrides` config maps any of the **nine** review suba
 ### The fix loop (`/devflow:review-and-fix`)
 - **Maximum 4 iterations.** Each iteration runs the full engine, then fixes findings one at a time (using `devflow:receiving-code-review` principles), runs tests, commits (`fix:`), and continues.
 - **Pre-fix verification gate (Step 2.5):** single-source claims about external tools are **web-verified** (cap **5 WebFetches/iteration**), Confirmed → fix; Refuted → demote to advisory. This prevents the loop from "fixing" a hallucinated problem.
+- **Mechanism-scoped self-authored-claim re-sweep (Step 3 item 3a):** after a fix changes a *mechanism* (a guard, predicate, exclusion, or helper that comments describe), the loop re-dispatches the existing `devflow:comment-analyzer` (no new agent) over every comment describing that mechanism — located by the mechanism's identifiers across the touched files, not limited to the fix's own diff hunks — and treats a comment that still describes the pre-change mechanism as a finding. It covers the changed mechanism within touched files; it is **not** a repo-wide comment audit. See `docs/shadow-review.md`.
 - **Pushback tracking:** when a finding is skipped, it's tagged with a `skip_category` (e.g. `claim-quality`, `out-of-scope`, `already-tracked`). The same finding skipped twice → escalate and stop.
 - **Fix-delta verification gate (Step 3.5):** after **every** iteration's fix commit, a **blinded subagent** re-reviews **only that iteration's cumulative fix delta** (prior findings/fix decisions/fixer reasoning withheld) to catch a fix-introduced regression — most often a #62/#98 guard whose accepted-input set is wider than its consumer's contract — in the **same** iteration. A surviving Critical/Important finding (after over-grade calibration) routes back into that iteration's fix step (capped at 2 inner attempts, then promoted); the gate and its inner attempts do **not** count toward the cap. Complements the shadow (which audits the whole diff at convergence); the shadow + post-shadow gate are unchanged by it.
 - **Convergence check:** exits early when fixes are small and no new corroborated Critical/Important finding appears.
