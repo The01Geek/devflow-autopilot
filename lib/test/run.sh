@@ -1006,12 +1006,13 @@ assert_eq "sweep 2.3.0a: docs/implement-skill.md keeps the rationale table row" 
 assert_eq "sweep 2.3.0a: implement SKILL keeps the enumerate-by-grep step" "yes" \
   "$(grep -qF 'Enumerate the peer set by grep, not from memory' "$IMPL_SKILL" && echo yes || echo no)"
 
-# Issue #165 Part C: same three-mirror-site drift guard for the new 2.3.0b
+# Issue #165 Part C: four-mirror-site drift guard for the new 2.3.0b
 # enum-enumeration reconciliation sweep — the sibling of 2.3.0a for "a value was
-# added to an enumerated set". It lives in the same three places (sweep body,
-# "Sweep selection" index, rationale table) and must stay in sync; if any of the
-# three loses it, the catch for a stale doc/comment enumeration or fall-through
-# consumer reverts to a shadow-review finding or a post-bot fix.
+# added to an enumerated set". It lives in four places (sweep body, "Sweep
+# selection" index, rationale table, and the DEVFLOW_SYSTEM_OVERVIEW.md sweep-list
+# entry pinned below) and must stay in sync; if any loses it, the catch for a
+# stale doc/comment enumeration or fall-through consumer reverts to a shadow-review
+# finding or a post-bot fix.
 assert_eq "sweep 2.3.0b: implement SKILL keeps the sweep body" "yes" \
   "$(grep -qF '#### 2.3.0b Enum-enumeration reconciliation sweep' "$IMPL_SKILL" && echo yes || echo no)"
 assert_eq "sweep 2.3.0b: implement SKILL lists it in the always-run index" "yes" \
