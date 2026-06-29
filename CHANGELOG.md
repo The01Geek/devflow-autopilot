@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.25] — 2026-06-29
+
+### Added
+- **The implement skill's test-first mutation-check now carries a sharper sub-rule for behavioral-fix pins** — when a guard is added *specifically because* removing the pinned text would re-introduce a named bug or regression (a coupled-invariant pin, the operative qualifier of a sweep rule, a regression guard), the implementer must pin the **operative sentence** (the minimal text whose removal *alone* re-introduces the bug), not an adjacent **framing clause** that a targeted half-revert would leave GREEN — the recurring framing-only-pin gap from PRs #62 and #173. The instruction adds a three-step check (name the operative sentence; confirm the pin targets it, not the framing; counterfactually half-revert and confirm the pin goes RED), scopes itself to behavioral-fix pins only (not literal constants, token names, count guards, absence pins, or token-rot guards, where no operative-vs-framing split exists), and requires at least one pin per operative sentence for multi-sentence properties. Pinned mutation-proven in `lib/test/run.sh`. (#189)
+
 ## [2.8.24] — 2026-06-29
 
 ### Added
