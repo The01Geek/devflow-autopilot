@@ -973,17 +973,31 @@ assert_pin_unique "over-grade: severity-calibrated record carries no skip_catego
 # caught — positively, not by content match — inside the park-calibration region by the
 # AC3 control below, where new park-calibration guards actually land.
 #
-# Anti-self-match: the literal token "echo" is sourced from a split-built var so this
-# scanner's OWN grep line carries no contiguous SKILL+echo and is not counted when it
-# scans this very file (the same split-marker discipline the region markers use).
-# The marker is also the rot-guard: a typo'd marker is no longer recognized, so its
-# guard line is counted and the live SELF assert below goes RED — and if the scanner's
-# token itself rots, all 44 real markers stop being excluded and SELF goes RED too.
-ECHO_TOK="ech"o                 # = echo, split so the scanner grep line shows no literal echo
+# Anti-self-match: the scanner's pattern needs the literal `echo`, but its grep line
+# references it as `$ECHO_TOK` (a variable) instead of spelling `echo` inline — so the
+# scanner's OWN source line never carries a contiguous `grep…SKILL…echo` and is not
+# counted when it scans this very file. It is the *variable indirection* that buys this,
+# NOT the token's value (a plain `echo` value works; an inline literal `echo` in the
+# pattern would self-match). Token-rot is the fragile spot: if `$ECHO_TOK` is typo'd to a
+# non-matching value the pattern matches NOTHING and the SELF scan passes vacuously (a
+# fail-OPEN), so the value is pinned by an explicit assert below rather than trusted —
+# token-rot then fails RED at that pin, not silently. (Marker-rot is the symmetric case:
+# `RGOK_MARK` empty would make `grep -vF` exempt every line → SELF reads 0, but the AC2
+# mutation proof's marked/unmarked fixtures still expect 1 there → RED; that path keeps
+# its own positive control. The token-value pin closes the ECHO_TOK leg the proofs miss.)
+ECHO_TOK="echo"                 # the scanner pattern's trailing token; referenced as $ECHO_TOK so no literal echo sits on the grep line
 RGOK_MARK='raw-guard-ok'        # the per-line allowlist token; format is `# raw-guard-ok: <reason>`
+# Pin both scanner tokens to their intended values: a typo in either — the rot the comment
+# warns about — turns THIS assert RED, converting ECHO_TOK token-rot from a silent fail-open
+# into a loud failure (the property the comment claims, now mechanically guaranteed).
+assert_eq "meta(#157 AC2): scanner tokens are intact (ECHO_TOK/RGOK_MARK rot fails RED, not open)" \
+  "echo|raw-guard-ok" "$ECHO_TOK|$RGOK_MARK"
 count_unallowlisted_raw_skill_guards() {  # file -> count of raw SKILL guard pins neither routed nor allowlisted
+  # Exclude only a PROPERLY-FORMATTED `# raw-guard-ok:` marker comment (not a bare substring
+  # `raw-guard-ok` anywhere on the line), so a malformed/typo'd marker no longer silently
+  # exempts its guard — it falls through to RED, strengthening the rot-guard above.
   grep -nE "grep[[:space:]].*(_SKILL|SKILL\.md).*$ECHO_TOK" "$1" \
-    | grep -vF "$RGOK_MARK" \
+    | grep -vF "# $RGOK_MARK:" \
     | grep -c . || true
 }
 assert_eq "meta(#157 AC2): no single-line echo-driven raw SKILL guard pin escapes assert_pin_unique or an allowlist marker (repo-wide)" \
@@ -1005,26 +1019,31 @@ rm -f "$RWPROBE"
 # only catches a bare `grep … SKILL` ON a region line; it misses a pin whose grep is
 # computed on a PRIOR line into a var (e.g. `X=$(grep … "$F")` then `assert_eq … "$X"`)
 # — the bypass the #155 shadow pr-test-analyzer flagged. Close it positively: every
-# statement-start line inside the region must BEGIN with `assert_pin_unique` (the only
-# routing allowed there). Both the grep-computing assignment and its assert_eq consumer
-# are non-helper statement-starts, so either one trips this.
-count_region_nonhelper_stmts() {  # file -> region statement-start lines not routed through assert_pin_unique
+# statement-start line inside the region — at ANY indentation — must BEGIN with
+# `assert_pin_unique` (the only routing allowed there). The `^[[:space:]]*` lead on both
+# greps catches an INDENTED `  X=$(grep …)` assignment too, not just a column-0 one (the
+# region's continuation-arg lines start with a quote and its comments with `#`, so neither
+# is a statement-start — broadening stays 0 on a clean region). Both the grep-computing
+# assignment and its assert_eq consumer are non-helper statement-starts, so either trips this.
+count_region_nonhelper_stmts() {  # file -> region statement-start lines (any indent) not routed through assert_pin_unique
   region_lines "$1" \
-    | grep -E '^[A-Za-z_]' \
-    | grep -vc '^assert_pin_unique ' || true
+    | grep -E '^[[:space:]]*[A-Za-z_]' \
+    | grep -vc '^[[:space:]]*assert_pin_unique ' || true
 }
 assert_eq "meta(#157 AC3): every park-calibration region statement routes through assert_pin_unique (no grep-on-prior-line bypass)" \
   "0" "$(count_region_nonhelper_stmts "$SELF_SRC")"
-# AC4 mutation proof: inject the two-line bypass shape (a grep-computed var assignment
-# AND its assert_eq consumer) at the top of a temp copy's region; both are non-helper
-# statement-starts, so the control must read 2 (RED). The injected awk strings carry no
-# SKILL/echo so they do not perturb the repo-wide AC2 scan of this source.
+# AC4 mutation proof: inject the two-line bypass shape — an INDENTED grep-computed var
+# assignment AND its (column-0) assert_eq consumer — at the top of a temp copy's region;
+# both are non-helper statement-starts, so the control must read 2 (RED). The indented inj1
+# specifically binds the `^[[:space:]]*` broadening: under the old column-0-only anchor it
+# would escape and the count would read 1, turning this proof RED. The injected awk strings
+# carry no SKILL/echo so they do not perturb the repo-wide AC2 scan of this source.
 NHPROBE="$(probe_tmp '#157 AC3 region-bypass injection')"
 awk -v b="$PARKCAL_BMARK" \
-    -v inj1='BYPASS_VAR=$(grep -c X /dev/null)' \
-    -v inj2='assert_eq "bypass" "yes" "$BYPASS_VAR"' \
+    -v inj1='  INDENTED_BYPASS=$(grep -c X /dev/null)' \
+    -v inj2='assert_eq "bypass" "yes" "$INDENTED_BYPASS"' \
     '{ print } index($0,b){ print inj1; print inj2 }' "$SELF_SRC" > "$NHPROBE"
-assert_eq "#157 AC3 mutation: a grep-on-prior-line bypass in the region is detected (RED, count 2)" \
+assert_eq "#157 AC3 mutation: an (indented) grep-on-prior-line bypass in the region is detected (RED, count 2)" \
   "2" "$(count_region_nonhelper_stmts "$NHPROBE")"
 rm -f "$NHPROBE"
 
