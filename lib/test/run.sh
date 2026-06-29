@@ -856,6 +856,13 @@ assert_pin_unique "mutation-check: implement skill test-writing phase references
 # paraphrase that drops the operative-vs-framing distinction fails here.
 assert_pin_unique "mutation-check: implement skill scopes behavioral-fix pins to the operative sentence" \
   'pin the operative sentence, not an adjacent framing clause' "$DEF_SKILL"
+# The instruction is itself a multi-sentence behavioral property, and its own rule is "at
+# least one pin per operative sentence". The headline slogan above is one operative
+# sentence; the (a)/(b)/(c) counterfactual procedure is the other (arguably the MORE
+# operative one — it is the actual check). Pin it too, so a half-revert that deletes the
+# procedure while leaving the slogan stays RED — the PR practicing its own rule.
+assert_pin_unique "mutation-check: implement skill pins the operative counterfactual half-revert procedure" \
+  'counterfactually half-revert' "$DEF_SKILL"
 
 # ── Meta-test (AC2): no raw drift guard may bypass assert_pin_unique inside the region.
 # The region markers are matched by SPLIT-built literals so this scanner's own source never
