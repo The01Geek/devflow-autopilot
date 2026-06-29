@@ -1458,6 +1458,10 @@ assert_pin_unique "#167 critic: pass asserts the audit matched set is a SUPERSET
 # paraphrased into the fix-loop skill — the pass heading must be absent from review-and-fix.
 assert_pin_unique "#167 critic: shared engine states both skills apply it without a fix-loop paraphrase" \
   'apply it without any paraphrase in the fix-loop skill' "$REVIEW_SKILL"
+# Guard the two absence pins below against vacuous-pass (pin_count returns 0 on a missing
+# file): prove $MAXI_SKILL is readable and non-empty before asserting absence of a literal.
+assert_eq "#167 critic: MAXI_SKILL file is readable (sentinel for absence-pin vacuity guard)" \
+  "1" "$(pin_count 'Mechanism-scoped self-authored-claim re-sweep' "$MAXI_SKILL")"
 assert_eq "#167 critic: completeness-critic pass heading is NOT paraphrased into review-and-fix SKILL" \
   "0" "$(pin_count '### 3.1.5 Completeness-critic pass (forced when' "$MAXI_SKILL")"
 # The exact-heading absence above catches only a verbatim heading copy; a genuine reworded
@@ -1501,6 +1505,16 @@ assert_pin_unique "#167 critic: the critic finding is collected in Phase 3.2 (fl
   'completeness-critic pass ran and produced a finding' "$REVIEW_SKILL"
 assert_pin_unique "#167 re-sweep: the comment-analyzer dispatch is advisory (analyzes and reports only)" \
   'analyzes and reports only' "$MAXI_SKILL"
+assert_pin_unique "#167 re-sweep: the advisory dispatch does not violate the no-subagent-fix rule (reconciliation clause)" \
+  'does not violate the rule that fixes are applied directly and never delegated to a subagent' "$MAXI_SKILL"
+# Suggestion S1 (PR #175 review): pin the two critic procedure steps that were unpinned —
+# step 1 (name the target population) and step 4 (not-a-proof-of-exhaustiveness caveat).
+# A rewrite that drops step 1 would silently remove the explicit population-naming mandate;
+# a rewrite that drops step 4 would let the clean-critic note overclaim exhaustiveness.
+assert_pin_unique "#167 critic: step 1 requires naming the target population and completeness property" \
+  'Name the audit'\''s target population and its completeness property' "$REVIEW_SKILL"
+assert_pin_unique "#167 critic: step 4 caveat — a clean result is not a proof of exhaustiveness" \
+  'This is **not** a proof of exhaustiveness' "$REVIEW_SKILL"
 # (d) the Phase 0.5 *table row* is the operative dispatch contract an orchestrator reads to
 #     decide the profile — pin the ROW itself, not only its prose restatement
 #     (the `additive, never suppressed` pin above). A revert that demoted the row to an
@@ -1538,6 +1552,14 @@ assert_pin_red_on_removal "#167 core-mp: deleting the Phase 0.5 table-row dispat
   'a *forced extra pass*, not a checklist or cost override' "$REVIEW_SKILL"
 assert_pin_red_on_removal "#167 core-mp: deleting the false-positive-shape exclusion turns its pin RED" \
   'a check over a fixed hand-listed set is **not** this shape' "$REVIEW_SKILL"
+# Coupled-invariant drift guard: the "detect_all_audit is intentionally not persisted
+# into diff_profile" contract spans two mirror sites — the SKILL.md schema comment and
+# docs/efficiency-trace.md. Both must agree; pin each with its stable site-specific phrase.
+TRACE_DOC="$LIB/../docs/efficiency-trace.md"
+assert_pin_unique "#167 coupled-site: SKILL.md states detect_all_audit is intentionally not persisted" \
+  'detect_all_audit`, is intentionally **not** persisted here' "$MAXI_SKILL"
+assert_pin_unique "#167 coupled-site: efficiency-trace.md states detect_all_audit only forces the critic pass (never shapes the profile)" \
+  'it only forces the completeness-critic pass and never shapes the profile' "$TRACE_DOC"
 
 # Drift guard: the Phase 2.3 sweep list lives in three places that must stay in
 # sync — the sweep body in implement/SKILL.md, the "Sweep selection" always-run
