@@ -293,14 +293,25 @@ possible, the defense is now **mechanical**: it lives in `lib/test/run.sh` and f
 runs (CI on every push, or locally) — not in real time mid-loop — so it catches the regression at
 suite/CI time no matter whether the loop that produced the diff was driven by the skill or by hand:
 
-- **Target-uniqueness guard (`assert_pin_unique`).** Every park-calibration SKILL pin now asserts its
-  literal occurs *exactly once* in the resolved SKILL — a duplicated or absent literal fails the suite,
-  closing the whole-file-scan hole that let PR #154's guard pass. A bounded self-scanning meta-test
-  (scoped to the park-calibration region, not repo-wide) fails if a new raw `grep`-based SKILL guard —
-  any flag spelling, against a `$..._SKILL` var or a literal `…/SKILL.md` path — is added to that
-  region without routing through the helper, and positive controls
-  fail it closed if the region markers are deleted so the scan itself cannot go vacuous. Both are
-  mutation-proven: the suite goes RED on a deliberately non-unique pin and on a raw bypass guard.
+- **Target-uniqueness guard (`assert_pin_unique`).** Every SKILL presence-pin across the suite now
+  asserts its literal occurs *exactly once* in the resolved SKILL — a duplicated or absent literal fails
+  the suite, closing the whole-file-scan hole that let PR #154's guard pass. Originally scoped to the
+  park-calibration region, the enforcement is now **repo-wide** (issue #157): the raw `grep -qF`
+  presence-pins throughout `lib/test/run.sh` were converted to `assert_pin_unique`, and the guards that
+  genuinely can't route through it (non-unique-by-design count assertions, absence pins, case-insensitive
+  or loop-variable targets, `--`-leading literals) each carry a `# raw-guard-ok: <reason>` allowlist
+  marker. A repo-wide self-scanning meta-test (`count_unallowlisted_raw_skill_guards`) fails if a
+  *single-line, echo-driven* raw `grep`-based SKILL guard — any flag spelling, against a `_SKILL` var, a
+  `SKILL_`-suffixed loop var, or a literal `…/SKILL.md` path — exists anywhere in the suite without either
+  routing through the helper or carrying a properly-formatted allowlist marker. An in-region control
+  (`count_region_nonhelper_stmts`) additionally requires every park-calibration region statement to route
+  through the helper. The scan itself cannot go vacuous because the pre-existing #155 marker-presence pins
+  (the `PARKCAL_GUARD_REGION` BEGIN/END `pin_count == 1` asserts) fail closed if the region markers are
+  deleted — `region_lines()` is merely the shared extractor, not the fail-closed control. All are
+  mutation-proven: the suite goes RED on a deliberately non-unique pin, on an unallowlisted raw bypass
+  guard anywhere in the suite, and on a deleted region marker. Scope caveat: the audit covers
+  SKILL-*targeted* guards (a grep against a `_SKILL`/`SKILL_` var or a `…/SKILL.md` path); an identical
+  vacuous-whole-file-presence guard against a non-SKILL target is out of scope.
 - **Sentinel-completeness signal.** The park-calibration gate (Step 2.6) records a mandatory
   `## Devflow Reflection` bullet on every run — a re-grade routing or the gate-clean sentinel.
   `lib/test/run.sh` pins that sentinel contract, and the `/devflow:review-and-fix` Loop-Exit machinery
@@ -325,6 +336,14 @@ The calibration above is about the loop grading a finding **too low** (a real de
 The two gates are deliberately **asymmetric in action but symmetric in intent**. The under-grade gate *promotes*; the over-grade gate **flags and requires a recorded technical evaluation — it never auto-demotes**, because silently demoting a wrongly-suspected over-grade would re-open the lenient-verdict hole the rest of the engine exists to close. The shared mechanism that makes both auditable is **recording the per-finding technical evaluation as evidence**: the over-grade gate's required artifact is a structured `fix_decisions` entry (`decision: "severity-calibrated"`, citing the observable fail-direction/impact and the calibrated grade), and a flagged promote-path finding with no such recorded evaluation is treated as **non-convergence** at Loop Exit — so a run that skipped the calibration discipline is detectable by the absence of the evidence rather than dependent on actor diligence. This mechanizes the `receiving-code-review` **symmetric-severity-calibration principle** (a genuine finding can be over-graded; calibrate severity against observable fail-direction/impact in both directions): the principle *states* the discipline engine-agnostically, the gate *enforces* it.
 
 Empirically (issue #155 / PR #156), a high-verbosity reviewer — `silent-failure-hunter` — repeatedly over-graded fail-closed, diagnostic-only defects `Critical`/`Important` in a single run; the over-grade gate makes the technical evaluation that catches such labels a recorded, detectable engine step rather than a matter of actor diligence.
+
+## The fix-delta verification gate (Step 3.5) — a complementary, per-iteration check (issue #159)
+
+The shadow pass audits the **whole diff** once, at **convergence**. That leaves one gap it cannot close cheaply: a regression introduced by **a fix itself**, in the iteration that produced it. A fix is new code; it can ship a fresh `unverified-assumption` / #62/#98 instance — a guard whose accepted-input set is **wider than its downstream consumer's contract**, so it fails open exactly where it claims to fail closed. Caught only by the end-of-loop shadow, such a regression forces the shadow to *promote* a costly extra iteration (PR #153 took three iterations for one issue because iterations 1–2 each re-introduced a weaker-contract guard in their own fix). **Step 3.5** front-loads that detection: after each iteration's fix commit — **every iteration, unconditionally** — the parent dispatches a **blinded subagent** that re-reviews **only that iteration's cumulative fix delta** (`git diff <iter_fix_base>..HEAD`, the iteration's first-fix parent through HEAD, so an inner re-fix can't split the fix across separately-reviewed commits) plus the consumer code it touches, with the loop's prior findings/fix decisions/fixer reasoning withheld — the same blinding model as the shadow's per-reviewer prompts. Its checks include the #62/#98 operand-contract check (the fix's guard accepted-input set must be a *subset* of its consumer's contract — see the **share-the-contract / parse-don't-validate** principle in `receiving-code-review`) and an adversarial input-shape matrix. A new Critical/Important gate finding first passes the over-grade calibration gate (flag + recorded `severity-calibrated` evaluation, never auto-demote), and a re-affirmed one routes back into the same iteration's fix step (capped at 2 inner attempts, then promoted to a cap-counting iteration; at the cap it rides into the shadow's whole-diff audit and a `## Devflow Reflection` bullet). Like the shadow, the gate and its inner attempts do **not** count toward `max_iterations`, and a gate-subagent failure gets one bounded re-dispatch before the loop records `fix-delta not verified` and proceeds (a deterministic delta-base failure gets a distinct breadcrumb, no retry). The Step 2.6 shadow pass and the post-shadow edit gate are **unchanged** by Step 3.5.
+
+## Non-blocking severity-aware exit in `/devflow:implement` (issue #159)
+
+`/devflow:implement`'s Phase 3.3 used to treat `APPROVE WITH UNRESOLVED SHADOW FINDINGS` (and a non-clean bounded re-review) as a hard **Blocked** stop — aborting the whole lifecycle after the "two consecutive non-clean passes" of the capped run plus its one bounded re-review. That was too aggressive: it discarded a review-ready PR over findings that, after over-grade calibration, are frequently advisory. Phase 3.3 is now **severity-aware**: only a *genuine unresolved Critical* (or an unparseable/ungradeable verdict, fail-closed) takes the Blocked path; a residual of only advisory / Suggestion / `severity-calibrated`-down / deferrable-Important findings **soft-proceeds** — surfaced durably (workpad `### ⚠️ Action required` reflections, and the PR body where a deferrals manifest exists) while the run continues to Phase 4. The PR ships review-ready, not auto-merged; the human merger decides. This preserves the human gate without throwing away completed work over diminishing-returns nits.
 
 ## Cost
 

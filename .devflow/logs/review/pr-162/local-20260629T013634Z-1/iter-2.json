@@ -1,0 +1,10 @@
+{"iter":2,"fix_commit_sha":"d873d174075a5131a75e3730203854c6e83f94f1","fix_files":["skills/review-and-fix/SKILL.md","lib/test/run.sh","docs/DEVFLOW_SYSTEM_OVERVIEW.md"],
+"diff_profile":{"small_diff":false,"config_only":false,"has_new_types":false,"engine_self_modifying":true,"checklist_skipped":null},
+"phase3_dispatched":["devflow:code-reviewer","devflow:silent-failure-hunter","devflow:comment-analyzer","devflow:pr-test-analyzer","devflow:requesting-code-review"],
+"phase3_findings":[
+ {"agent":"devflow:comment-analyzer","severity":"Important","description":"run.sh comment enumeration of fix-delta-not-verified occurrences wrong","defect_signature":{"file":"lib/test/run.sh","line_range":[143,147],"kind":"comment_drift"},"fix_decision":"applied"},
+ {"agent":"devflow:pr-test-analyzer","severity":"Important","description":"no-fix carve-out unpinned","defect_signature":{"file":"lib/test/run.sh","line_range":[106,153],"kind":"test_gap"},"fix_decision":"applied"},
+ {"agent":"devflow:pr-test-analyzer","severity":"Suggestion","description":"input-shape matrix check unpinned","defect_signature":{"file":"lib/test/run.sh","line_range":[106,153],"kind":"test_gap"},"fix_decision":"applied"},
+ {"agent":"devflow:silent-failure-hunter","severity":"Important","description":"at-cap promoted-finding disposition implicit","defect_signature":{"file":"skills/review-and-fix/SKILL.md","line_range":[574,574],"kind":"logic_error"},"fix_decision":"applied"},
+ {"agent":"devflow:comment-analyzer","severity":"Suggestion","description":"pre-existing Maximum 4 iterations doc error (default 5)","defect_signature":{"file":"docs/DEVFLOW_SYSTEM_OVERVIEW.md","line_range":[313,313],"kind":"comment_drift"},"fix_decision":"applied"}],
+"convergence_inputs":{"fixes_applied":5,"fix_diff_lines":25,"new_corroborated_critical_count":0}}

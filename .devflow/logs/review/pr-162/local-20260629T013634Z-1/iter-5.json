@@ -1,0 +1,6 @@
+{"iter":5,"fix_commit_sha":"ab2218e4abbcd192ff318102b74e4c33958f45ed","fix_files":["lib/test/run.sh"],
+"diff_profile":{"small_diff":false,"config_only":false,"has_new_types":false,"engine_self_modifying":true,"checklist_skipped":null},
+"phase3_dispatched":["devflow:code-reviewer","devflow:pr-test-analyzer","devflow:requesting-code-review"],
+"phase3_findings":[
+ {"agent":"devflow:pr-test-analyzer","severity":"Important","description":"mainline clean-path reflection-bullet output contract unpinned","defect_signature":{"file":"lib/test/run.sh","line_range":[882,978],"kind":"test_gap"},"fix_decision":"applied"}],
+"convergence_inputs":{"fixes_applied":1,"fix_diff_lines":8,"new_corroborated_critical_count":0}}
