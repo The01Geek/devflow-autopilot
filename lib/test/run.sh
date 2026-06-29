@@ -961,6 +961,12 @@ assert_pin_unique "verify-step: review-and-fix Step 3 verifies a reclassificatio
   'verify the prescription against its cited source of truth' "$MAXI_SKILL"
 assert_pin_unique "verify-step: names the receiving-code-review verify-before-implementing principle" \
   'receiving-code-review verify-before-implementing principle' "$MAXI_SKILL"
+# Pin Part B's load-bearing CONSEQUENCE clause too, not just the verify trigger:
+# a revert that keeps "verify against source of truth" but drops the
+# contradiction->pushback (not-applied) routing would otherwise stay GREEN, gutting
+# the fail-safe. (pr-test-analyzer, PR #166 review.)
+assert_pin_unique "verify-step: a contradicting prescription is pushed back, not applied" \
+  'the source of truth is recorded as a pushback' "$MAXI_SKILL"
 
 # Drift guard: the Phase 2.3 sweep list lives in three places that must stay in
 # sync — the sweep body in implement/SKILL.md, the "Sweep selection" always-run

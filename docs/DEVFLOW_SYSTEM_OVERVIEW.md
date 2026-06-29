@@ -233,6 +233,7 @@ DevFlow maintains **exactly one** marker-tagged comment on the GitHub issue for 
 - **2.3 Implement** with mandatory post-write **sweeps** (the discipline that prevents half-finished changes — each heading states its own trigger; the five always-on sweeps — convention, boundary-assumption, self-authored-claim, simplification, and error-handling — run on every diff):
   - **2.3.0** Changed-contract sweep (re-run after any merge/rebase of main)
   - **2.3.0a** Peer-checkpoint completeness sweep
+  - **2.3.0b** Enum-enumeration reconciliation sweep (added value to an enumerated set → reconcile every enumerating site, incl. doc/comment enumerations and fall-through consumers)
   - **2.3.1** Orphaned-setup sweep
   - **2.3.2** Stranded-dependents sweep
   - **2.3.3** Convention-compliance sweep
