@@ -32,7 +32,7 @@ WHEN receiving code review feedback:
 4. EVALUATE: Technically sound for THIS codebase?
 5. RESPOND: Technical acknowledgment or reasoned pushback
 6. IMPLEMENT: One item at a time, test each
-7. VERIFY BEFORE DONE: Review diff + run test suite — only then claim completion
+7. VERIFY BEFORE DONE: Review diff against addressed findings + run test suite — only then claim completion
 ```
 
 ## Verification Gate (Step 7)
@@ -41,10 +41,10 @@ WHEN receiving code review feedback:
 
 Before declaring the review findings addressed:
 1. Review the diff of your changes against the addressed findings.
-2. Run `lib/test/run.sh` (or fall back to CI `lib + python tests` when the suite is denied locally, per the CLAUDE.md tiered-runner convention).
+2. Run `lib/test/run.sh` (or fall back to CI `lib + python tests` when even the direct-path form is denied locally, per the CLAUDE.md tiered-runner convention). When CI is the fallback, do not claim completion until CI confirms green.
 3. Only after both pass, claim completion.
 
-This gate applies in both interactive sessions and the autonomous `/devflow:review-and-fix` fix loop.
+This gate applies in both interactive sessions and the autonomous `/devflow:review-and-fix` fix loop. In the loop, Step 3 (item 4) satisfies the test-suite requirement before each fix commit and Step 3.5's fix-delta review satisfies the diff-review requirement — no additional step 7 invocation is needed at the APPROVE claim.
 
 ## Forbidden Responses
 

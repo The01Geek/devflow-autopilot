@@ -1380,6 +1380,14 @@ assert_pin_unique "fix-delta gate: share-the-contract principle in receiving-cod
   'prefer using that consumer as the guard itself' "$RCR_SKILL"
 # FIXDELTA_GUARD_REGION_END — end of the assert_pin_unique-only fix-delta pin region
 
+# Drift guard: the step 7 Verification Gate (issue #178) — the Iron Law and its scope
+# sentence are the gate's two load-bearing contracts; either can be silently deleted or
+# paraphrased without breaking any other pin. assert_pin_unique makes that RED.
+assert_pin_unique "step7: verification gate Iron Law heading present" \
+  'NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE' "$RECV_SKILL"
+assert_pin_unique "step7: verification gate applies in both interactive and fix-loop contexts" \
+  'applies in both interactive sessions and the autonomous' "$RECV_SKILL"
+
 # Drift guard: the Phase 2.3 sweep list lives in three places that must stay in
 # sync — the sweep body in implement/SKILL.md, the "Sweep selection" always-run
 # index in the same file, and the rationale table in docs/implement-skill.md. The
