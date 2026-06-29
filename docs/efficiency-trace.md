@@ -128,7 +128,13 @@ path, so a run is never recorded twice. The record carries:
 - `per_iteration[]` — dispatch counts, `diff_profile` (Phase 0.5 flags — segment cut decisions by
   this), `verification_posture`, checklist lite/agent split, fixes applied, the `added_nothing` flag,
   `phase3_dispatched_present` (so the analyzer can tell a genuinely zero-dispatch iteration from one
-  degraded by an absent roster — both show count 0), and the `agent_verdicts` roster.
+  degraded by an absent roster — both show count 0), the `agent_verdicts` roster, and `loop_role`
+  (`fix` | `promoted`) — each iteration's role in the fix loop, **derived here** from the prior
+  iteration's shadow block (iteration 1 → `fix`; iteration N → `promoted` when iteration N−1's
+  `shadow.promoted_to_iter_next` is set, else `fix`), preserving any non-empty value the orchestrator
+  already persisted into the iter workpad. This derivation is the field's real consumer: the
+  per-iteration `loop_role` in `iter-<N>.json` is legibility the orchestrator writes best-effort, and
+  the record surfaces it reliably whether or not that write happened.
 - `telemetry[]` — the existing per-phase / per-iteration cost telemetry (calls / tokens /
   wall-clock) lifted out of each workpad, so cost data is no longer lost with `.devflow/tmp/`.
   Each entry's `phases` mirrors the workpad's `telemetry` block **verbatim** (unnormalized; `null`
@@ -220,9 +226,15 @@ interactive-drop failure mode so a future orchestrator does not silently skip th
   Exit on a converged writable run. If the run wrote **zero** `iter-*.json` workpads, or produced no
   effectiveness record at `.devflow/logs/efficiency/<slug>-<run-id>.json`, it emits a loud
   `::warning::` naming exactly what was not persisted (and points at `--persist` as the recovery).
+  It **additionally validates each `iter-<N>.json`'s field set**: for every iter workpad missing a
+  field in the single-source `ITER_EXPECTED_FIELDS` set (the iter schema's top-level fields minus
+  `shadow`, which Step 2.6 appends later and is legitimately absent), it emits a `::warning::` naming
+  the field and the iter file — turning a silently-dropped inline-persist field into a visible signal.
   It **warns, never blocks** — it never writes, never commits, never changes the verdict, and always
-  exits 0. It is **silent** when telemetry is disabled (no record is expected) and on a read-only
-  run (the cloud `review` profile, where SKILL.md never invokes it — there is no Loop Exit there).
+  exits 0 (a malformed/unparseable/unreadable iter file is skipped rather than aborting the pass; that
+  case is breadcrumbed by the `--persist`/`--mode` parse paths). It is **silent** when telemetry is
+  disabled (no record is expected) and on a read-only run (the cloud `review` profile, where SKILL.md
+  never invokes it — there is no Loop Exit there).
 
 **Layer 3 — deterministic backstop (harness-executed, the actual guarantee).**
 - *`lib/efficiency-trace.sh --persist`.* Derives the effectiveness record **and** stages+commits it +
