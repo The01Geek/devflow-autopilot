@@ -1388,10 +1388,12 @@ assert_pin_unique "step7: verification gate Iron Law heading present" \
   'NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE' "$RECV_SKILL"
 assert_pin_unique "step7: verification gate applies in both interactive and fix-loop contexts" \
   'applies in both interactive sessions and the autonomous' "$RECV_SKILL"
-assert_pin_unique "step7: code-fence step 7 entry present in Response Pattern" \
-  'only then claim completion' "$RECV_SKILL"
+assert_pin_unique "step7: code-fence step 7 entry anchors both mandated actions (diff review + test suite)" \
+  'Review diff against addressed findings + run test suite — only then claim completion' "$RECV_SKILL"
 assert_pin_unique "step7: loop satisfies diff-review via Phase 3 re-run (not Step 3.5)" \
   'Phase 3 re-runs the review engine each iteration' "$RECV_SKILL"
+assert_pin_unique "step7: CI-fallback clause requires waiting for green before claiming completion" \
+  'do not claim completion until CI confirms green' "$RECV_SKILL"
 assert_pin_unique "step7: forbidden-responses entry prohibits claiming done before step 7" \
   'before step 7 (VERIFY BEFORE DONE) is complete' "$RECV_SKILL"
 
