@@ -71,5 +71,79 @@
       "tokens": 287013,
       "wall_clock_s": 177
     }
+  },
+  "shadow": {
+    "ran_at": "2026-06-29T10:56:00Z",
+    "reviewed_sha": "b6b8fc5afbfa0d105e0e421431a0b54592c3f9ff",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {
+        "agent": "devflow:comment-analyzer",
+        "severity": "Suggestion",
+        "description": "stale rgb_scan leading comment 496-501 describes the old empty-var failure mode, not the sentinel",
+        "defect_signature": {
+          "file": "lib/test/run.sh",
+          "line_range": [
+            496,
+            501
+          ],
+          "kind": "comment_drift"
+        }
+      },
+      {
+        "agent": "devflow:silent-failure-hunter",
+        "severity": "Suggestion",
+        "description": "adjacent unconverted vendor mktemp -d sites lack an exemption comment (calibrated from MEDIUM: out-of-scope, vendor clones to own tmp)",
+        "defect_signature": {
+          "file": "lib/test/run.sh",
+          "line_range": [
+            5929,
+            5944
+          ],
+          "kind": "test_gap"
+        },
+        "original_severity": "Important",
+        "calibrated_severity": "Suggestion"
+      },
+      {
+        "agent": "devflow:requesting-code-review",
+        "severity": "Suggestion",
+        "description": "RESULTS_FILE in-scope dependency not noted in caller-contract comment",
+        "defect_signature": {
+          "file": "lib/test/run.sh",
+          "line_range": [
+            149,
+            159
+          ],
+          "kind": "unverified-assumption"
+        }
+      }
+    ],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 3,
+      "overlap_with_iter_N": 0,
+      "new": 3,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": true
   }
 }
