@@ -1188,7 +1188,8 @@ def main():
     u.add_argument('--tick-plan-n', metavar='N', type=int, action='append',
                    default=[],
                    help='Tick the Nth Plan checkbox (1-based, counting every '
-                        '[ ] and [x] row in document order). Repeatable; '
+                        '[ ] and [x] row within the ## Plan section, in document '
+                        'order; section-scoped, not whole-document). Repeatable; '
                         'combinable with --tick-plan and every other flag. An '
                         'out-of-range or already-ticked N is a volatile failure '
                         '(reported, non-zero exit, other mutations applied).')
@@ -1199,7 +1200,9 @@ def main():
     u.add_argument('--tick-ac-n', metavar='N', type=int, action='append',
                    default=[],
                    help='Tick the Nth Acceptance Criteria checkbox (1-based, '
-                        'counting every [ ] and [x] row in document order). '
+                        'counting every [ ] and [x] row within the ## Acceptance '
+                        'Criteria section, in document order; section-scoped, not '
+                        'whole-document). '
                         'Repeatable; combinable with --tick-ac and every other '
                         'flag. An out-of-range or already-ticked N is a volatile '
                         'failure (reported, non-zero exit, other mutations '

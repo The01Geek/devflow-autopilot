@@ -524,16 +524,24 @@ assert_eq("#169 substring unchanged: unique --tick-ac still ticks its row", True
           '- [x] AC three' in out)
 
 # Progress has no index form (AC 7): --tick-progress-n is an unknown argparse flag.
-def _progress_no_index_form():
+# Assert the exit CODE is 2 (argparse's usage-error code), not merely that *some*
+# SystemExit fired — if Progress accidentally GAINED a --tick-progress-n flag,
+# main() would parse cleanly and then exit 1 ("no workpad found", gh unstubbed), so
+# a bare `assert_raises(SystemExit)` would stay green on the very regression this
+# guards. Code 2 uniquely identifies "argparse rejected the unknown flag."
+def _progress_no_index_form_code():
     saved_argv = sys.argv[:]
     sys.argv = ['workpad.py', 'update', '1', '--tick-progress-n', '1']
     try:
         with contextlib.redirect_stderr(io.StringIO()):
             workpad.main()  # argparse rejects the unknown flag before any gh call
+        return None
+    except SystemExit as e:
+        return e.code
     finally:
         sys.argv = saved_argv
-assert_raises("#169 AC7: --tick-progress-n is rejected as an unknown flag",
-              SystemExit, _progress_no_index_form)
+assert_eq("#169 AC7: --tick-progress-n is rejected by argparse (exit code 2, not a later exit)",
+          2, _progress_no_index_form_code())
 
 
 print("issue #169 (review): cmd_update CLI contract + structural-abort completeness")
