@@ -289,8 +289,9 @@ engine-self-modifying diff, and route to a standalone review. PR #154 showed why
 not enough: its in-loop shadow agreed with full coverage, and it *still* shipped a **vacuous drift
 guard** — a `grep -qF` whole-file scan pinned to a literal that also appeared outside the gate, so the
 guard stayed GREEN even with the gate it claimed to protect deleted. Wherever a deterministic check is
-possible, the defense is now **mechanical**, enforced by `lib/test/run.sh` regardless of whether the
-loop is driven by the skill or by hand:
+possible, the defense is now **mechanical**: it lives in `lib/test/run.sh` and fires whenever the suite
+runs (CI on every push, or locally) — not in real time mid-loop — so it catches the regression at
+suite/CI time no matter whether the loop that produced the diff was driven by the skill or by hand:
 
 - **Target-uniqueness guard (`assert_pin_unique`).** Every park-calibration SKILL pin now asserts its
   literal occurs *exactly once* in the resolved SKILL — a duplicated or absent literal fails the suite,

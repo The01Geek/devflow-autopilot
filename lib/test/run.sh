@@ -105,7 +105,9 @@ probe_assert() {  # assertion-fn args... -> prints PASS or FAIL (the probed verd
   # Guard mktemp (harness is `set -u` without `set -e`, so a bare failure would not abort):
   # an empty $probe would make `tail ""` error and the probe echo empty, surfacing as a
   # MISLEADING wrong-verdict mismatch instead of an environment failure. Emit a distinct
-  # breadcrumb token so the cause is unambiguous.
+  # breadcrumb token so the cause is unambiguous — note it surfaces as an `assert_eq` mismatch
+  # (expected PASS/FAIL, got PROBE_MKTEMP_FAILED), not a recorded suite FAIL, so the proof
+  # still goes RED but via the comparison rather than the tally.
   local probe; probe="$(mktemp)" || { echo "PROBE_MKTEMP_FAILED"; return 0; }
   RESULTS_FILE="$probe" "$@" >/dev/null 2>&1
   tail -n 1 "$probe"
@@ -762,6 +764,32 @@ assert_eq "AC3(a): assert_pin_unique RED on an absent literal" \
   "FAIL" "$(probe_assert assert_pin_unique 'probe-absent' 'PINPROBE_ABSENT' "$PINPROBE_ONE")"
 rm -f "$PINPROBE_ONE" "$PINPROBE_DUP"
 #
+# AC3(a2): pin_count counts OCCURRENCES, not matching lines — the load-bearing
+# `grep -oF | grep -c .` choice (over `grep -cF`). A same-LINE duplicate is the only
+# discriminating fixture: `grep -cF` reports it as 1 matching line (letting a non-unique pin
+# pass vacuously), while the occurrence counter returns 2 so assert_pin_unique fails it. The
+# separate-line AC3(a) dup does not discriminate (both spellings count 2), so a refactor back
+# to `grep -cF` would keep AC3(a) GREEN; this case pins the choice.
+PINPROBE_SAMELINE="$(probe_tmp 'AC3(a2) same-line-dup setup')"
+printf 'PINPROBE_LITERAL PINPROBE_LITERAL\n' > "$PINPROBE_SAMELINE"
+assert_eq "AC3(a2): pin_count counts same-line occurrences (2), not matching lines (1)" \
+  "2" "$(pin_count 'PINPROBE_LITERAL' "$PINPROBE_SAMELINE")"
+rm -f "$PINPROBE_SAMELINE"
+#
+# AC3(a3): pin_count matches the literal as a FIXED string (the `-F` flag), per issue #155's
+# Testing Strategy. A literal carrying a regex metacharacter must match itself only, never act
+# as a wildcard: against a line that satisfies the REGEX `a.c` (here `axc`) but not the literal
+# `a.c`, the count must be 0 — dropping `-F` would mis-count it as 1. The live pins' only
+# metachar is `.` (which matches itself), so without this fixture nothing would catch a lost `-F`.
+PINPROBE_RE="$(probe_tmp 'AC3(a3) regex-metachar setup')"
+printf 'axc\n' > "$PINPROBE_RE"
+assert_eq "AC3(a3): pin_count treats the literal as fixed (-F): a regex metachar does not wildcard" \
+  "0" "$(pin_count 'a.c' "$PINPROBE_RE")"
+printf 'a.c\n' > "$PINPROBE_RE"
+assert_eq "AC3(a3): pin_count still matches the exact metachar literal as a fixed string" \
+  "1" "$(pin_count 'a.c' "$PINPROBE_RE")"
+rm -f "$PINPROBE_RE"
+#
 # AC3(b): the meta-test detects a raw SKILL guard injected into the region. Inject a line
 # carrying `grep -qF` + a `_SKILL` var right after the BEGIN marker of a temp copy; the
 # injected text is passed via awk -v (no \x escapes) to stay portable to BSD/mawk.
@@ -793,6 +821,18 @@ assert_eq "AC3(b3): meta-test detects a literal-path raw SKILL guard (…/SKILL.
   "1" "$(count_raw_skill_guards_in_region "$PINPROBE_RAW3")"
 rm -f "$PINPROBE_RAW3"
 #
+# AC3(b4): NEGATIVE-direction scoping proof — a raw SKILL guard injected OUTSIDE the region
+# (after the END marker) must yield 0, proving the awk range logic is genuinely region-scoped
+# and not a whole-file scan. The AC3(b*) injections all sit after BEGIN (inside the region), so
+# a regression widening the scan to the whole file would still pass them while silently flagging
+# the many legitimate raw guards elsewhere in this file. Inject after the END marker; expect 0.
+PINPROBE_OUTREG="$(probe_tmp 'AC3(b4) out-of-region injection setup')"
+awk -v e="$PARKCAL_EMARK" -v inj='  grep -qF INJECTED_OUTOFREGION "$MAXI_SKILL"' \
+  '{ print } index($0, e) { print inj }' "$SELF_SRC" > "$PINPROBE_OUTREG"
+assert_eq "AC3(b4): meta-test ignores a raw SKILL guard injected OUTSIDE the region (scoped, not whole-file)" \
+  "0" "$(count_raw_skill_guards_in_region "$PINPROBE_OUTREG")"
+rm -f "$PINPROBE_OUTREG"
+#
 # AC3(e): the marker-presence positive control fails CLOSED when a region marker is deleted —
 # the meta-test's own anti-vacuity proof. Strip the BEGIN marker line from a temp copy and
 # confirm its presence count goes to 0 (so the assert_eq "1" control above would turn RED),
@@ -801,6 +841,12 @@ PINPROBE_NOMARK="$(probe_tmp 'AC3(e) marker-strip setup')"
 grep -vF "$PARKCAL_BMARK" "$SELF_SRC" > "$PINPROBE_NOMARK"
 assert_eq "AC3(e): deleting the region BEGIN marker turns its presence control RED (no vacuous AC2 pass)" \
   "0" "$(pin_count "$PARKCAL_BMARK" "$PINPROBE_NOMARK")"
+# Self-protect AC3(e) against its own vacuity: prove the strip removed ONLY the BEGIN marker —
+# the END marker must still count 1. Otherwise an empty/unreadable temp copy (pin_count folds a
+# grep error into 0) would satisfy the "0" above for the wrong reason, making this proof vacuous
+# in isolation rather than relying on the suite-level AC2 marker-presence controls to catch it.
+assert_eq "AC3(e): the strip removed ONLY the BEGIN marker (END marker still present — copy not emptied)" \
+  "1" "$(pin_count "$PARKCAL_EMARK" "$PINPROBE_NOMARK")"
 rm -f "$PINPROBE_NOMARK"
 #
 # AC3(f): the region-non-empty positive control fails CLOSED if the routed pins are stripped
