@@ -1488,6 +1488,48 @@ assert_pin_unique "sweep 2.3.0b: implement SKILL keeps the enumerate-every-site 
 assert_eq "sweep 2.3.0b: DEVFLOW_SYSTEM_OVERVIEW keeps the sweep-list entry" "yes" \
   "$(grep -qF '**2.3.0b** Enum-enumeration reconciliation sweep (added value to an enumerated set' "$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md" && echo yes || echo no)"
 
+# Substrate-agnostic re-anchor (issue #171): the "Sweep selection (run first)" preamble
+# must state that its trigger shapes apply to prose/SKILL/doc/config as much as to code,
+# so an add-only prose/doc/config diff that replicates a peer rule, an enumerated-set
+# member, or a mirrored contract literal across sites still trips the contract-completeness
+# sweeps (2.3.0 / 2.3.0a / 2.3.0b) rather than falling through to "just the five always-on sweeps".
+# Coupled invariant: the re-anchor lives in BOTH the SKILL preamble and its
+# docs/implement-skill.md mirror, so pin BOTH sites — a one-sided revert of either back to
+# the code-only framing then fails closed (the dominant convention-violation half-revert
+# pattern). assert_pin_unique asserts the literal occurs EXACTLY once, so each pin goes RED
+# on removal (count 0) AND on accidental duplication (count > 1) — stronger than a bare grep.
+# Both literals are ASCII + apostrophe-free per the embedded-jq/SC11xx single-quote trap.
+# The mutation property is proven by the assert_pin_unique removal semantics (meta-tested
+# elsewhere in this suite).
+assert_pin_unique "sweep selection: implement SKILL re-anchors classification on cross-site replication (substrate-agnostic)" \
+  "classify by what the change replicates across sites, not by whether it is code" \
+  "$IMPL_SKILL"
+assert_pin_unique "sweep selection: docs/implement-skill.md mirror carries the substrate-agnostic re-anchor (coupled invariant)" \
+  "so the preamble classifies by *what the change replicates across sites*, not by whether it is code" \
+  "$IMPL_DOC"
+# Pin the OPERATIVE qualifier too, not just the framing clause above: the behavioral fix
+# is the sentence that says an add-only prose/doc/config diff still trips 2.3.0/2.3.0a/2.3.0b
+# (exactly the PR #166 regression). Reverting only that qualifier back to the unconditional
+# "just the five always-on sweeps" — while leaving the pinned re-anchor clause intact — is a
+# half-revert that ships the regression; the framing pins above do not catch it. Pin the
+# qualifier at BOTH coupled sites so that half-revert fails closed.
+assert_pin_unique "sweep selection: implement SKILL qualifies the five-always-on sentence so a replicating prose/doc/config diff still trips the contract sweeps" \
+  "still trips the contract-completeness sweeps (**2.3.0** / **2.3.0a** / **2.3.0b**), not just the five" \
+  "$IMPL_SKILL"
+assert_pin_unique "sweep selection: docs/implement-skill.md mirror qualifies the five-always-on sentence (coupled invariant)" \
+  "still runs the contract-completeness sweeps (2.3.0 / 2.3.0a / 2.3.0b)" \
+  "$IMPL_DOC"
+# Cross-site enumeration check: both sites must name the SAME contract-sweep set.
+# Each per-site pin above only checks its own local literal — a site could silently
+# drop 2.3.0b while the other keeps it and both pins still pass. Extract the sweep
+# IDs (strip markdown bold markers) from each qualifying sentence and assert equality.
+_skill_sweeps=$(grep -oE 'still trips the contract-completeness sweeps \([^)]+\)' "$IMPL_SKILL" \
+  | grep -oE '[0-9]+\.[0-9]+\.[0-9]+[a-z]*' | sort | tr '\n' ' ' | sed 's/ $//')
+_docs_sweeps=$(grep -oE 'still runs the contract-completeness sweeps \([^)]+\)' "$IMPL_DOC" \
+  | grep -oE '[0-9]+\.[0-9]+\.[0-9]+[a-z]*' | sort | tr '\n' ' ' | sed 's/ $//')
+assert_eq "sweep selection: SKILL and docs enumerate the same contract-sweep set (cross-site)" \
+  "$_skill_sweeps" "$_docs_sweeps"
+
 # Drift guard: the base_branch read in implement/SKILL.md Phase 1.4 is the skill's
 # one piece of load-bearing inline bash — like the max_iterations clamp above, the
 # tokens it relies on can be silently broken by a SKILL edit (drop the `|| BASE=""`

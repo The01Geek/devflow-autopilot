@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.20] — 2026-06-29
+
+### Changed
+- **`/devflow:implement`'s Phase 2.3 "Sweep selection (run first)" index is now substrate-agnostic.** The preamble keyed every trigger on code-shaped exemplars and closed with "an add-only diff typically runs just the five always-on sweeps," so an add-only **prose / `SKILL.md` / doc / config** diff that nonetheless replicated a rule, an enumerated-set member, or a contract literal across sites could fall through and skip the contract-completeness sweeps (2.3.0 / 2.3.0a / 2.3.0b) — exactly what happened on PR #166. The closing paragraph in `skills/implement/SKILL.md` now states that the trigger shapes are substrate-agnostic (a contract, a peer-replicated rule, or an enumerated-set membership can live in prose just as in code) and re-anchors classification on *what the change replicates across sites, not whether it is code*; the "five always-on sweeps" sentence is qualified in place so a replicating prose/doc/config diff still runs 2.3.0 / 2.3.0a. The coupled mirror in `docs/implement-skill.md` is reconciled to the same framing, and `lib/test/run.sh` pins the re-anchor with a mutation-proven `assert_pin_unique` so a revert to the code-only framing turns the suite RED. Also adds a cross-site enumeration-set assertion so SKILL and docs mirror cannot silently diverge on which contract sweeps are listed; pins the operative "five always-on" qualifier at both coupled sites; drops the spurious orchestrator clause from a pin-block comment; and fixes a preamble comment that omitted 2.3.0b. (#173)
+
 ## [2.8.19] — 2026-06-29
 
 ### Added
@@ -20,6 +25,7 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Note
 - Issue #159's originally-scoped over-grade calibration (Part B item 1) was **superseded by the over-grade calibration gate merged in 2.8.16 (#163 / issue #160)**; this PR defers to that merged gate and adds only the fix-delta gate, the non-blocking severity-aware exit, and the pin-discipline generalization on top of it.
+
 ## [2.8.17] — 2026-06-29
 
 ### Added

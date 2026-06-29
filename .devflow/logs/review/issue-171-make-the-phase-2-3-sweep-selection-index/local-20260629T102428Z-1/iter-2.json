@@ -1,0 +1,47 @@
+{
+  "iter": 2,
+  "source": "review-and-fix",
+  "started_at": "2026-06-29T10:48:00Z",
+  "promoted_from_shadow": true,
+  "fix_commit_sha": "38e0060",
+  "fix_files": ["skills/implement/SKILL.md", "lib/test/run.sh", "CHANGELOG.md"],
+  "diff_profile": {"small_diff": false, "config_only": false, "has_new_types": false, "engine_self_modifying": true, "checklist_skipped": null},
+  "checklist": [],
+  "phase3_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+  "phase3_findings": [
+    {"agent": "devflow:comment-analyzer", "severity": "Important", "description": "SKILL.md parenthetical 'entirely about prose mirror sites' factually wrong + self-undercutting (promoted from shadow-1)", "defect_signature": {"file": "skills/implement/SKILL.md", "line_range": [439, 439], "kind": "comment_drift"}, "original_severity": "Critical", "calibrated_severity": "Important", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "docs mirror unpinned — coupled-invariant half-revert gap (promoted from shadow-1)", "defect_signature": {"file": "lib/test/run.sh", "line_range": [981, 991], "kind": "test_gap"}, "fix_decision": "applied"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "F2-1", "decision": "severity-calibrated", "source_file": "skills/implement/SKILL.md", "claim_text": "parenthetical 'entirely about prose mirror sites'", "original_severity": "Critical", "calibrated_severity": "Important", "evidence": "over-grade shape 2: diagnostic/prose-only, no behavioral fail-direction/suite signal; blast radius is instruction-fidelity. Real defect, FIXED (not demoted away)."},
+    {"finding_id": "F2-1b", "decision": "applied", "commit": "38e0060"},
+    {"finding_id": "F2-2", "decision": "applied", "commit": "38e0060", "source_file": "lib/test/run.sh", "claim_text": "pin docs/implement-skill.md mirror (coupled invariant)"},
+    {"finding_id": "F2-3", "decision": "applied", "commit": "38e0060", "source_file": "lib/test/run.sh", "claim_text": "refine pin comment: count==1, no per-literal-probe over-claim"},
+    {"finding_id": "F2-4", "decision": "pushed_back", "source_file": "CHANGELOG.md", "claim_text": "#173 vs #171 issue/PR number", "skip_category": "claim-quality", "evidence": "False positive: #173 is the PR number (CHANGELOG cites PR per convention, e.g. 2.8.16 cited #163 for issue #160). git log + code-reviewer + final-pass confirm."},
+    {"finding_id": "F2-5", "decision": "advisory", "source_file": "skills/implement/SKILL.md", "claim_text": "enumerated-set/mirrored-literal mapped to 2.3.0 vs 2.3.0a (attribution nuance)", "skip_category": "advisory-parked", "evidence": "Suggestion; 2 agents (comment-analyzer + final-pass) called it 'not wrong', fail-safe over-select absorbs it."}
+  ],
+  "convergence_inputs": {"fixes_applied": 3, "fix_diff_lines": 16, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "shadow": {
+    "ran_at": "2026-06-29T11:05:00Z",
+    "reviewed_sha": "38e0060",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "AC2 qualification clause not itself pinned (defense-in-depth vs partial revert)", "defect_signature": {"file": "lib/test/run.sh", "line_range": [63, 68], "kind": "test_gap"}, "original_severity": "Important", "calibrated_severity": "Suggestion"}
+    ],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 3, "overlap_with_iter_N": 0, "new": 1, "new_critical": 0, "new_important": 0},
+    "promoted_to_iter_next": false
+  },
+  "telemetry": {
+    "phase_1": {"calls": 1, "tokens": 49507, "wall_clock_s": 79},
+    "phase_2": {"calls": 0, "tokens": 0, "wall_clock_s": 5},
+    "phase_3": {"calls": 5, "tokens": 244929, "wall_clock_s": 186},
+    "step_2_6": {"calls": 10, "tokens": 480000, "wall_clock_s": 400}
+  }
+}
