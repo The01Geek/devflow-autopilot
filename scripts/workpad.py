@@ -298,7 +298,10 @@ _PR_RE = re.compile(r'^\*\*PR:\*\*\s+.*$', re.MULTILINE)
 _LAST_UPDATED_RE = re.compile(r'^\*\*Last updated:\*\*\s+.*$', re.MULTILINE)
 _SECTION_RE = re.compile(r'^(##\s+.+)$', re.MULTILINE)
 # Single source for the checkbox-row grammar shared by `_rewrite_checkbox` and
-# `_tick_checkbox_by_index` (groups: indent+bullet, `[ xX]` state, gap, text).
+# `_tick_checkbox_by_index` (4 groups: 1=indent+bullet, 2=`[ xX]` state cell,
+# 3=gap, 4=text). The state cell (group 2) is *preserved* by `_rewrite_checkbox`
+# and *overwritten* with `[x]` by `_tick_checkbox_by_index` — the two writers index
+# the same grammar differently, so keep the group order stable if you edit it.
 # `_tick_checkbox` keeps its own `[ ]`-only variant because it filters to unticked
 # rows. Hoisted to a constant so the row grammar can't drift between call sites.
 _CHECKBOX_ROW_RE = re.compile(r'^(\s*[-*]\s+)(\[[ xX]\])(\s+)(.*)$')
@@ -890,6 +893,17 @@ def cmd_update(args):
         body = _apply_mutations(body, args, failed_ticks)
     except _UpdateError as e:
         sys.stderr.write(f"workpad.py update: {e}\n")
+        # A structural failure aborts before any PATCH — but volatile tick misses
+        # collected before the abort would otherwise be dropped from this call's
+        # output entirely. Echo them too so a combined call (a tick miss + a later
+        # structural fault) reports BOTH faults, not just the structural one.
+        if failed_ticks:
+            sys.stderr.write(
+                f"workpad.py update: additionally, {len(failed_ticks)} tick(s) "
+                f"did not resolve before the abort (no PATCH was made):\n"
+            )
+            for ft in failed_ticks:
+                sys.stderr.write(f"  - {ft}\n")
         sys.exit(1)
 
     # Write to a temp file and PATCH (same path as cmd_patch). The body always
@@ -928,14 +942,17 @@ def cmd_update(args):
 def _apply_section_ticks(
     sections, section_name, flag_base, substr_texts, index_ns, failed_ticks,
 ):
-    """Tick rows in `## {section_name}` from the substring and index requests.
+    """Tick rows in the named section (`## Progress`/`## Plan`/`## Acceptance
+    Criteria`) from the substring and index requests.
 
     Structural failure (the section is absent while ticks were requested) raises
     `_UpdateError` to abort the whole call. A per-row miss (substring zero/multiple,
     out-of-range/already-ticked index) is *volatile*: it is appended to
     `failed_ticks` as a flag-named descriptor and the remaining ticks still apply.
     Substring ticks are processed before index ticks; index positions count every
-    `[ ]`/`[x]` row, so a prior substring tick never shifts an index target."""
+    `[ ]`/`[x]` row, so a prior substring tick never shifts an index target — though
+    a substring tick that lands on the *same* row a later index targets makes that
+    index report a benign "already ticked" volatile miss."""
     if not substr_texts and not index_ns:
         return
     idx = _find_section(sections, section_name)

@@ -536,6 +536,135 @@ assert_raises("#169 AC7: --tick-progress-n is rejected as an unknown flag",
               SystemExit, _progress_no_index_form)
 
 
+print("issue #169 (review): cmd_update CLI contract + structural-abort completeness")
+
+# TD-1 (type-design review): the design's single load-bearing invariant — that
+# _TickMatchError is a SIBLING of _UpdateError, never a subclass — guarded by name,
+# so an accidental re-subclassing (which would silently restore the pre-#169
+# batch-discard data loss) names its cause instead of cascading confusingly through
+# the isolation tests.
+assert_eq("#169 TD-1: _TickMatchError is a sibling, NOT a subclass, of _UpdateError",
+          False, issubclass(workpad._TickMatchError, workpad._UpdateError))
+assert_eq("#169 TD-1: _TickMatchError is still an Exception",
+          True, issubclass(workpad._TickMatchError, Exception))
+
+
+# cmd_update-level harness: stub _repo_full / _workpad_marker / _run so cmd_update
+# runs end-to-end with no gh. _run serves three call shapes — the paginated comments
+# list (one marker-matching comment), the body fetch (--jq .body → the fixture body),
+# and the PATCH (read the -F body=@<tmp> file back so the test sees the patched body).
+# Returns (exit_code, stderr, patched_body); patched_body is None when no PATCH ran.
+def _drive_cmd_update(body, **arg_overrides):
+    marker = '<!-- devflow:workpad -->'
+    saved = (workpad._run, workpad._repo_full, workpad._workpad_marker)
+    workpad._repo_full = lambda: 'owner/repo'
+    workpad._workpad_marker = lambda explicit=None: marker
+    state = {'patched': None}
+    def _run(cmd, **kw):
+        joined = ' '.join(cmd)
+        if '/comments?' in joined or joined.endswith('/comments'):
+            return _FakeRun(_json.dumps([{'id': 7, 'body': marker + '\n'}]))
+        if '-X' in cmd and 'PATCH' in cmd:
+            for tok in cmd:
+                if tok.startswith('body=@'):
+                    with open(tok[len('body=@'):]) as fh:
+                        state['patched'] = fh.read()
+            return _FakeRun(state['patched'] or '')
+        return _FakeRun(body)   # the body fetch
+    workpad._run = _run
+    err = io.StringIO()
+    code = None
+    try:
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            workpad.cmd_update(make_args(issue=999, **arg_overrides))
+    except SystemExit as e:
+        code = e.code
+    finally:
+        workpad._run, workpad._repo_full, workpad._workpad_marker = saved
+    return code, err.getvalue(), state['patched']
+
+
+# Finding 2/(a) (review): the volatile-failure TAIL of cmd_update — the non-zero
+# exit + stderr report — is the observable contract ACs 2/5 promise the orchestrator.
+# The isolation tests above assert the failed_ticks LIST is populated; these assert
+# the process-level exit code and stderr the orchestrator actually consumes.
+_code, _err, _patched = _drive_cmd_update(IDX_BODY, status='Reviewing', tick_ac=['NO_SUCH_AC'])
+assert_eq("#169 cmd_update: a volatile tick miss exits non-zero (AC 2)", 1, _code)
+assert_eq("#169 cmd_update: the volatile-miss stderr names the failed tick (AC 2)", True,
+          'NO_SUCH_AC' in _err and 'did not resolve' in _err)
+assert_eq("#169 cmd_update: the PATCH still landed (status applied despite the miss)", True,
+          _patched is not None and '🚀 Reviewing' in _patched)
+
+# A fully-resolving tick call exits 0 — the gate's evidence-based pass condition.
+_code, _err, _patched = _drive_cmd_update(IDX_BODY, tick_ac_n=[2])
+assert_eq("#169 cmd_update: a fully-resolving tick call exits 0", None, _code)
+assert_eq("#169 cmd_update: the resolving index ticked its row", True,
+          _patched is not None and '- [x] AC two' in _patched)
+
+# Finding F1 (silent-failure-hunter): a volatile tick miss collected BEFORE a later
+# structural abort is echoed on the abort path, not dropped. F1_BODY has ## Acceptance
+# Criteria (so --tick-ac can miss-collect) but NO ## Progress (so the later --note
+# raises a structural _UpdateError) — the exact combined call the finding describes.
+F1_BODY = """<!-- devflow:workpad -->
+# DevFlow Workpad — Issue #999
+
+**Status:** 🚀 Implementing
+**Last updated:** 2026-05-15T00:00:00Z
+
+## Acceptance Criteria
+- [ ] AC one
+- [ ] AC two
+"""
+_code, _err, _patched = _drive_cmd_update(F1_BODY, tick_ac=['NO_SUCH_AC'], note=['n'])
+assert_eq("#169 F1: a structural abort after a volatile miss still exits non-zero", 1, _code)
+assert_eq("#169 F1: the structural-abort message is reported", True,
+          "section '## Progress' not found" in _err)
+assert_eq("#169 F1: the volatile tick miss collected before the abort is ALSO echoed", True,
+          'NO_SUCH_AC' in _err)
+assert_eq("#169 F1: the structural abort made no PATCH", True, _patched is None)
+
+# Finding 3 (review): missing-front-matter structural abort (AC 3) — a body lacking
+# the **Last updated:** line aborts with no return even when a volatile tick is also
+# requested in the same call (the structural path wins over the volatile collector).
+NO_LASTUPDATED = IDX_BODY.replace('**Last updated:** 2026-05-15T00:00:00Z\n', '')
+def _missing_lastupdated():
+    apply_mut(NO_LASTUPDATED, make_args(tick_ac=['NO_SUCH_AC']), [])
+assert_raises("#169 AC3: missing **Last updated:** line aborts (structural, not volatile)",
+              workpad._UpdateError, _missing_lastupdated)
+
+# Finding (b) (review): Plan and Progress structural aborts route through the same
+# shared helper (AC 3 across all three sections, not only Acceptance Criteria).
+NO_PLAN = """<!-- devflow:workpad -->
+# DevFlow Workpad — Issue #999
+
+**Status:** 🚀 Setup
+**Last updated:** 2026-05-15T00:00:00Z
+
+## Progress
+- [ ] **Setup**
+"""
+def _missing_plan_section():
+    apply_mut(NO_PLAN, make_args(tick_plan_n=[1]), [])
+assert_raises("#169 AC3: missing ## Plan section aborts a --tick-plan-n (structural)",
+              workpad._UpdateError, _missing_plan_section)
+def _missing_progress_section():
+    apply_mut(NO_PLAN.replace('## Progress\n- [ ] **Setup**\n', ''),
+              make_args(tick_progress=['Setup']), [])
+assert_raises("#169 AC3: missing ## Progress section aborts a --tick-progress (structural)",
+              workpad._UpdateError, _missing_progress_section)
+
+# Finding (c) (review): a --tick-plan-n out-of-range miss is collected as VOLATILE
+# (reported, other mutations applied), not a structural abort — for the Plan section
+# specifically, not just Acceptance Criteria. IDX_BODY's ## Plan has 2 rows.
+_ft = []
+out = apply_mut(IDX_BODY, make_args(status='Blocked', tick_plan_n=[5]), _ft)
+assert_eq("#169 (c): an out-of-range --tick-plan-n is volatile (status still applied)", True,
+          '👎 Blocked' in _statusline(out))
+assert_eq("#169 (c): the out-of-range --tick-plan-n miss is collected, not raised", 1, len(_ft))
+assert_eq("#169 (c): the Plan miss descriptor names the index flag", True,
+          _ft and _ft[0].startswith('--tick-plan-n 5'))
+
+
 print("workpad notes: compact timestamp + nesting under ## Progress phase")
 
 # Compact timestamp: note bullet renders `  - HH:MM:SS — {note}` (no date/T/Z),

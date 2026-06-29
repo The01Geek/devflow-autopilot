@@ -1896,10 +1896,22 @@ assert_eq "#169: implement/SKILL.md documents --tick-ac-n (index AC tick)" "yes"
   "$(grep -qF -- '--tick-ac-n' "$IMPL_SKILL" && echo yes || echo no)"
 assert_eq "#169: implement/SKILL.md documents --tick-plan-n (index Plan tick)" "yes" \
   "$(grep -qF -- '--tick-plan-n' "$IMPL_SKILL" && echo yes || echo no)"
-assert_eq "#169: implement/SKILL.md flag-table carries the volatile failure-isolation contract" "yes" \
-  "$(grep -qiF 'volatile' "$IMPL_SKILL" && echo yes || echo no)"
+# Tighten the contract pin to a target-unique phrase (a bare 'volatile' grep would
+# stay green if the contract paragraph were deleted but the word survived elsewhere).
+assert_eq "#169: implement/SKILL.md carries the named volatile-vs-structural failure-isolation contract" "yes" \
+  "$(grep -qF 'Failure-isolation contract (volatile vs. structural)' "$IMPL_SKILL" && echo yes || echo no)"
 assert_eq "#169: Phase 3.4 AC-tick uses the index form (no hand-picked '{substring of AC text}')" "yes" \
   "$(grep -qF -- '--tick-ac "{substring of AC text}"' "$IMPL_SKILL" && echo no || echo yes)"
+# Finding 1 (review): the gate must CONSUME the new non-zero-exit contract, not just
+# run the tick and advance. The SKILL must tell callers a tick's non-zero exit means
+# the tick did not land — re-resolve/re-tick or take the Blocked path — never advance
+# on the stdout body alone (which PATCHes even when a tick missed).
+assert_eq "#169: implement/SKILL.md tells callers to check the tick exit code, not the stdout body alone" "yes" \
+  "$(grep -qF 'never advance on the stdout body alone' "$IMPL_SKILL" && echo yes || echo no)"
+# Finding 4 (review): the 2.2.6 reconciliation note must reference the index form the
+# gate now ticks with (`--tick-ac-n`), not the superseded substring `--tick-ac`.
+assert_eq "#169: implement/SKILL.md 2.2.6 note references the index gate-tick flag (no stale '--tick-ac later')" "yes" \
+  "$(grep -qF 'will tick via `--tick-ac` later' "$IMPL_SKILL" && echo no || echo yes)"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "scaffold-config.sh"
