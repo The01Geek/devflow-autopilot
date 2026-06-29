@@ -255,7 +255,7 @@
         "audit_model": { "type": "string", "description": "Optional --model override for the audit subagent." },
         "implementation_branch_prefix": {
           "type": "string",
-          "description": "Branch prefix your implementation bot uses for its PRs. The loop only processes PRs on this prefix (plus DevFlow's own devflow/audit-* branches).",
+          "description": "Branch prefix your implementation bot uses for its PRs. The loop processes a PR matching this prefix, or any PR carrying the DevFlow label or closing an issue.",
           "default": "claude/"
         },
         "min_occurrences": {
@@ -265,7 +265,7 @@
         },
         "cooldown_days": {
           "type": "integer",
-          "description": "Skip audit if the youngest audit PR is younger than this (createdAt-based).",
+          "description": "Skip re-filing a pattern's retrospective issue if its youngest open filed issue is younger than this (createdAt-based).",
           "default": 3
         },
         "max_prs_per_run": {

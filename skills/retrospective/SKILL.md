@@ -39,8 +39,7 @@ Schema of `.devflow/tmp/pr-<n>.context.json` produced by `fetch-pr-context.sh`:
 | Key | Type | Description |
 |-----|------|-------------|
 | `pr` | number | PR number |
-| `kind` | string | `"implementation"` or `"audit-intervention"` |
-| `pattern_tag` | string\|null | Audit PRs only — the pattern being fixed |
+| `kind` | string | `"implementation"` |
 | `branch` | string | Head branch name |
 | `base_ref` | string | Base branch name |
 | `head_sha` | string | Head commit SHA |
@@ -143,7 +142,7 @@ explain why in `descriptors`.
 | `convention-violation` | the bot broke a project convention: a `CLAUDE.md` rule, a `phpcs.xml.dist`/lint rule, a skill instruction, or a workpad invariant. |
 | `unverified-assumption` | the bot claimed something without checking it — a phantom symbol/class, "X already inherits Y so no edit needed", an unverified parent-component behavior, a wrong API rationale. |
 | `issue-quality` | the bottleneck was upstream of implementation — the issue was vague, missing acceptance criteria, missing repro steps, or out of scope. |
-| `tooling-gap` | the failure exposes a defect in the **devflow plugin itself**, its CI workflows, or the composite actions they consume (e.g. the clean-gate let an unclean PR through, a primary source was missing from the bundle, a workflow step is wrong). Patterns in this category route to a meta GitHub issue at Stage B rather than an automated fix. |
+| `tooling-gap` | the failure exposes a defect in the **devflow plugin itself**, its CI workflows, or the composite actions they consume (e.g. the clean-gate let an unclean PR through, a primary source was missing from the bundle, a workflow step is wrong). |
 | `other` | none of the above fits; `descriptors` must say what the failure actually is. |
 
 ### descriptors
@@ -202,28 +201,6 @@ blind spot that let the failure through.
 
 These suggestions are advisory. The orchestrator re-derives interventions from
 primary sources for any pattern that hits the recurrence threshold.
-
----
-
-## § Audit-PR variant
-
-When `bundle.kind == "audit-intervention"`, you do not analyze. Return:
-
-```json
-{
-  "schema_version": 2,
-  "kind": "audit",
-  "pr": <bundle.pr>,
-  "merged_at": "<bundle.merged_at>",
-  "fixes_patterns": ["<bundle.pattern_tag>"]
-}
-```
-
-Use `[]` for `fixes_patterns` when `bundle.pattern_tag` is null.
-
-Note: the orchestrator normally builds this entry deterministically via
-`lib/audit-entry.jq`. This branch is a fallback for when an audit PR is
-dispatched to you anyway.
 
 ---
 
