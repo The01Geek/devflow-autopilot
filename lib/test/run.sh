@@ -5133,7 +5133,7 @@ cat > "$ET_PREC/iter-1.json" <<'EOF'
 {
   "iter": 1,
   "checklist": [],
-  "phase3_dispatched": ["agent-mixed-unique","agent-mixed-corr","agent-advisory","agent-deferred","agent-nocorr"],
+  "phase3_dispatched": ["agent-mixed-unique","agent-mixed-corr","agent-advisory","agent-deferred","agent-sevcal","agent-nocorr"],
   "phase3_findings": [
     {"agent":"agent-mixed-unique","corroboration_count":1,"fix_decision":"applied"},
     {"agent":"agent-mixed-unique","corroboration_count":1,"fix_decision":"pushed_back"},
@@ -5141,6 +5141,7 @@ cat > "$ET_PREC/iter-1.json" <<'EOF'
     {"agent":"agent-mixed-corr","corroboration_count":1,"fix_decision":"advisory"},
     {"agent":"agent-advisory","corroboration_count":1,"fix_decision":"advisory"},
     {"agent":"agent-deferred","corroboration_count":1,"fix_decision":"deferred"},
+    {"agent":"agent-sevcal","corroboration_count":1,"fix_decision":"severity-calibrated"},
     {"agent":"agent-nocorr","fix_decision":"applied"}
   ],
   "convergence_inputs": {"fixes_applied": 3},
@@ -5153,6 +5154,12 @@ assert_eq "et: precedence applied(corr1)+pushed_back → unique-effective" "uniq
 assert_eq "et: precedence applied(corr3)+advisory → corroborating (applied dominates noise)" "corroborating" "$(ET_pv 'agent-mixed-corr')"
 assert_eq "et: advisory-only finding → noise" "noise" "$(ET_pv 'agent-advisory')"
 assert_eq "et: deferred-only finding → null (not noise)" "null" "$(ET_pv 'agent-deferred')"
+# severity-calibrated is a real-but-not-applied outcome (over-graded, calibrated down) — like
+# deferred it must classify null, NOT noise (noise is reserved for pushed_back/advisory
+# false-positives). This behaviorally locks the verdict_for `else null` fall-through so a
+# future edit that adds severity-calibrated to the noise any() set goes RED instead of
+# silently mis-bucketing a calibrated finding as reviewer noise (#160).
+assert_eq "et: severity-calibrated-only finding → null (not noise)" "null" "$(ET_pv 'agent-sevcal')"
 assert_eq "et: applied with missing corroboration_count → unique-effective (// 1 default)" "unique-effective" "$(ET_pv 'agent-nocorr')"
 rm -rf "$ET_PREC"
 
