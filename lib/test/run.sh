@@ -851,8 +851,8 @@ assert_pin_unique "mutation-check: implement skill test-writing phase references
 
 # Issue #186: the test-first mutation-check carries a sharper sub-rule for a behavioral-fix
 # pin — pin the OPERATIVE sentence (the minimal text whose removal alone re-introduces the
-# bug), never an adjacent framing clause that a half-revert would leave GREEN (the PR
-# #62/#173 framing-only-pin gap). Pin the operative phrase of that instruction so a
+# bug), never an adjacent framing clause that a half-revert would leave GREEN (the recurring
+# framing-only-pin sub-pattern behind PRs #62/#173, most precisely #173). Pin the operative phrase of that instruction so a
 # paraphrase that drops the operative-vs-framing distinction fails here.
 assert_pin_unique "mutation-check: implement skill scopes behavioral-fix pins to the operative sentence" \
   'pin the operative sentence, not an adjacent framing clause' "$DEF_SKILL"
