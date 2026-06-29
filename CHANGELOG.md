@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.19] — 2026-06-29
+
+### Added
+- **`devflow:receiving-code-review` now mandates a verification gate (step 7) before any completion claim.** `skills/receiving-code-review/SKILL.md` gains a numbered step 7 — `VERIFY BEFORE DONE` — in the Response Pattern block, an adjacent Iron Law ("NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE"), and a Forbidden Responses entry prohibiting satisfaction claims before step 7 completes. Applies in both interactive sessions and the autonomous `/devflow:review-and-fix` fix loop. (#179)
+
 ## [2.8.18] — 2026-06-29
 
 ### Added
