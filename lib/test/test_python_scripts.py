@@ -770,6 +770,57 @@ assert_eq("#169 group-order: group 1 is indent+bullet", '  - ', _m.group(1))
 assert_eq("#169 group-order: group 2 is the [ xX] state cell", '[x]', _m.group(2))
 assert_eq("#169 group-order: group 4 is the row text", 'hello world', _m.group(4))
 
+# Re-shadow pr-test Finding 1: the index form counts NESTED (indented) checkbox rows
+# and skips interleaved non-checkbox lines — `_CHECKBOX_ROW_RE`'s `\s*` indent group is
+# load-bearing for the docstring's "every [ ]/[x] row in document order" claim. Every
+# other index fixture is flat+contiguous; this one interleaves a nested sub-item and a
+# prose line so a regression anchoring the row regex at column 0 (or counting only
+# top-level rows) would mis-address rather than stay green.
+NESTED_PLAN = """<!-- devflow:workpad -->
+# DevFlow Workpad — Issue #999
+
+**Status:** 🚀 Setup
+**Last updated:** 2026-05-15T00:00:00Z
+
+## Plan
+- [ ] top one
+  - [ ] nested two
+- [ ] top three
+
+## Acceptance Criteria
+- [ ] AC one
+"""
+_ft = []
+out = apply_mut(NESTED_PLAN, make_args(tick_plan_n=[2]), _ft)
+assert_eq("#169 nested-index: -n 2 ticks the NESTED row (counted in document order)", True,
+          '  - [x] nested two' in out)
+assert_eq("#169 nested-index: the top rows are untouched", True,
+          '- [ ] top one' in out and '- [ ] top three' in out)
+assert_eq("#169 nested-index: -n 3 ticks the row AFTER the nested one (no row skipped)", True,
+          '- [x] top three' in apply_mut(NESTED_PLAN, make_args(tick_plan_n=[3]), []))
+# -n 4 is out of range: the section has exactly 3 checkbox rows (top, nested, top),
+# so the nested row IS counted (a top-level-only count would make 4 in range here).
+_nf = []
+apply_mut(NESTED_PLAN, make_args(tick_plan_n=[4]), _nf)
+assert_eq("#169 nested-index: -n 4 is out of range (nested fixture has exactly 3 rows)",
+          1, len(_nf))
+assert_eq("#169 nested-index: the out-of-range descriptor reports the 3-row count", True,
+          'section has 3 checkbox row(s)' in _nf[0])
+
+# Re-shadow pr-test Finding 2: the documented substring→index same-row interaction —
+# a substring tick processed first makes a later index targeting that SAME row report a
+# benign "already ticked" volatile miss (pins both the interaction and the intra-call
+# substring-before-index ordering it depends on).
+_ft = []
+out = apply_mut(IDX_BODY, make_args(status='Reviewing', tick_ac=['AC two'], tick_ac_n=[2]), _ft)
+assert_eq("#169 same-row: the substring tick (processed first) ticks AC two", True,
+          '- [x] AC two' in out)
+assert_eq("#169 same-row: the index targeting the now-ticked same row is a volatile miss", 1, len(_ft))
+assert_eq("#169 same-row: the miss is reported as 'already ticked'", True,
+          'already ticked' in _ft[0])
+assert_eq("#169 same-row: --status still applied (volatile, not abort)", True,
+          '🚀 Reviewing' in _statusline(out))
+
 
 print("workpad notes: compact timestamp + nesting under ## Progress phase")
 
