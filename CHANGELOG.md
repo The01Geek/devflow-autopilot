@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.22] — 2026-06-29
+
+### Changed
+- **`--self-check` field-validation test coverage hardened (PR #177 review findings).** Three new `lib/test/run.sh` tests lock gaps identified in the code review: (11) `--self-check` is silent (no field-validation `::warning::`) on a fully-complete iter carrying all 13 `ITER_EXPECTED_FIELDS` with no `shadow` key — guards against an inverted set-difference operand; (12) mid-chain double-promotion (`fix/promoted/promoted` from two consecutive `promoted_to_iter_next: true`) asserts the positional-prior indexing is off-by-one-safe; (13) a persisted `"fix"` value suppresses a derived promotion — the mirror of test (8)'s persisted-`"promoted"` case. A stale `path:line` reference in the test comment (violating the project "never `path:line`" convention) is replaced with a textual description.
+
 ## [2.8.19] — 2026-06-29
 
 ### Changed

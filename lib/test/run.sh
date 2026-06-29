@@ -1306,8 +1306,8 @@ assert_pin_unique "loop_role: Step 3 item 7 persist rule writes it every iterati
 # DERIVES + SURFACES loop_role per iteration, so SKILL.md no longer claims it is
 # "legibility-only" (that became false the moment the jq surfaced the field). The
 # now-false phrasing is gone from BOTH the note and Step 3 item 7 ("legibility-only"
-# is unique to those two loop_role sites; line 647's "no consumer reads it" is the
-# unrelated deferrals-manifest note and must stay), and the corrected note names
+# is unique to those two loop_role sites; the deferrals-manifest note "no consumer reads it" is the
+# unrelated surviving occurrence and must stay), and the corrected note names
 # efficiency-trace.jq as the deriving/surfacing consumer. Mutation proof =
 # reintroduce "legibility-only" or drop the consumer mention → RED.
 assert_eq "loop_role #170: SKILL.md no longer claims 'legibility-only' (note + Step 3 item 7 corrected)" "0" \
@@ -6220,6 +6220,55 @@ LR_N_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$LR_N" --slug pr-79 -
 assert_eq "loop_role #170: non-string persisted loop_role (numeric) falls back to derivation (type guard)" "promoted" \
   "$(printf '%s' "$LR_N_REC" | jq -r '.per_iteration[] | select(.iter==2) | .loop_role')"
 rm -rf "$LR_N"
+
+# (11) --self-check emits NO field-validation ::warning:: on a fully-complete iter
+#      (all 13 expected fields present; no shadow key — shadow is exempt from
+#      ITER_EXPECTED_FIELDS, so a complete iter lacking shadow must still produce
+#      no field warnings). The effectiveness-record warning is suppressed by
+#      pre-creating the record so only field-validation output can appear. Guards
+#      against an inverted set-difference operand that would pass missing-field
+#      assertions while being wrong for the clean case.
+LR_CLEAN="$(mktemp -d)"
+git -C "$LR_CLEAN" init -q
+LR_CLEAN_RUN="$LR_CLEAN/.devflow/tmp/review/pr-80/run-n"
+mkdir -p "$LR_CLEAN_RUN"
+# Pre-create the effectiveness record so the "was NOT persisted" warning is suppressed;
+# only field-validation output can then appear.
+mkdir -p "$LR_CLEAN/.devflow/logs/efficiency"
+printf '{}' > "$LR_CLEAN/.devflow/logs/efficiency/pr-80-run-n.json"
+# All 13 ITER_EXPECTED_FIELDS present; no shadow key (shadow is exempt).
+printf '%s' '{"iter":1,"started_at":"t","fix_commit_sha":"abc","fix_files":[],"loop_role":"fix","checklist":[],"phase3_dispatched":3,"diff_profile":"x","phase3_findings":[],"fix_decisions":[],"convergence_inputs":{},"cap_drops":[],"telemetry":{}}' \
+  > "$LR_CLEAN_RUN/iter-1.json"
+LR_CLEAN_OUT="$( ( cd "$LR_CLEAN" && bash "$LIB/efficiency-trace.sh" --self-check --workpad-dir "$LR_CLEAN_RUN" --slug pr-80 ) 2>&1 )"; LR_CLEAN_RC=$?
+assert_eq "loop_role #177: --self-check exits 0 on a complete iter (all fields present)" "0" "$LR_CLEAN_RC"
+assert_eq "loop_role #177: --self-check emits no field-validation warning on a complete iter (no ::warning:: on fields)" "0" \
+  "$(printf '%s' "$LR_CLEAN_OUT" | grep -F '::warning::' | grep -cvF 'was NOT persisted' || true)"
+rm -rf "$LR_CLEAN"
+
+# (12) Mid-chain promotion: two consecutive promotions (iter-1 promotes, iter-2
+#      also promotes, iter-3 follows). Expected roles: fix/promoted/promoted.
+#      Locks the positional-prior indexing — an off-by-one (taking iter-1 as
+#      prior for iter-3) would incorrectly derive promoted for iter-3.
+LR_PP="$(mktemp -d)"
+printf '{"iter":1,"phase3_findings":[],"shadow":{"promoted_to_iter_next":true}}'  > "$LR_PP/iter-1.json"
+printf '{"iter":2,"phase3_findings":[],"shadow":{"promoted_to_iter_next":true}}'  > "$LR_PP/iter-2.json"
+printf '{"iter":3,"phase3_findings":[]}'                                           > "$LR_PP/iter-3.json"
+LR_PP_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$LR_PP" --slug pr-81 --mode record)"
+assert_eq "loop_role #177: mid-chain double-promotion yields fix/promoted/promoted" "fix promoted promoted" \
+  "$(printf '%s' "$LR_PP_REC" | jq -r '[.per_iteration[] | .loop_role] | join(" ")')"
+rm -rf "$LR_PP"
+
+# (13) Persisted "fix" suppresses a derived promotion: iter-2 has loop_role:"fix"
+#      persisted AND a prior shadow_promoted=true — the persisted-wins rule must
+#      honour the stored "fix", not override it with the derived "promoted". Mirror
+#      of test (8) (persisted "promoted" survives a non-promoting prior).
+LR_PF="$(mktemp -d)"
+printf '{"iter":1,"phase3_findings":[],"shadow":{"promoted_to_iter_next":true}}' > "$LR_PF/iter-1.json"
+printf '{"iter":2,"phase3_findings":[],"loop_role":"fix"}'                       > "$LR_PF/iter-2.json"
+LR_PF_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$LR_PF" --slug pr-82 --mode record)"
+assert_eq "loop_role #177: persisted 'fix' suppresses derived promotion (persisted-wins)" "fix" \
+  "$(printf '%s' "$LR_PF_REC" | jq -r '.per_iteration[] | select(.iter==2) | .loop_role')"
+rm -rf "$LR_PF"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "devflow-runner.yml: opt-in environment provisioning (issues #18, #21)"
