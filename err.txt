@@ -1,1 +1,0 @@
-/bin/bash: line 22: cd: /dev/null/devflow-git-sandbox-unavailable: Not a directory

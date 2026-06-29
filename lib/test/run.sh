@@ -195,24 +195,34 @@ assert_eq "#161 git_sandbox: forced mktemp failure leaves the real-repo HEAD unc
 assert_eq "#161 git_sandbox: forced mktemp failure adds no commit to the real repo" \
   "$GS_COUNT_BEFORE" "$(git -C "$GS_REPO_ROOT" rev-list --count HEAD 2>/dev/null)"
 # Pin the fail-closed CONTRACT directly at the helper boundary (not only via the absence
-# of a downstream mutation above): each rejection arm must (a) return a /dev/null-rooted
-# sentinel and (b) record a suite FAIL. Capture git_sandbox's stdout under three distinct
-# `mktemp` shadows that each hit a different guard in `d="$(mktemp -d)" && [ -n ] && [ -d ]`:
-#   1. rc≠0           — the `mktemp -d` failure arm
-#   2. rc 0, empty out — the `[ -n "$d" ]` arm (the exact set-u-without-set-e empty-var hazard)
-#   3. rc 0, non-dir   — the `[ -d "$d" ]` arm
-# Without 2 and 3, a future edit dropping the -n/-d checks would pass unnoticed (the rc≠0
-# proof above wouldn't catch it). The probes capture only the return value — no git ops —
-# so they cannot mutate anything regardless of outcome.
-# The non-directory shadow emits `/dev/null` itself: it is a guaranteed non-directory
-# (a char device) AND does NOT match the `/dev/null/*` sentinel glob, so BOTH the
-# sentinel-shape and the FAIL-recorded assertions stay non-vacuous if `[ -d ]` is dropped.
+# of a downstream mutation above): for each of the three BAD `mktemp -d` outcomes the guard
+# `d="$(mktemp -d)" && [ -n "$d" ] && [ -d "$d" ]` must reject, the helper must (a) return a
+# /dev/null-rooted sentinel and (b) record a suite FAIL. Drive git_sandbox under three
+# `mktemp` shadows, one per bad outcome:
+#   1. rc≠0            — mktemp itself failed
+#   2. rc 0, empty out — the set-u-without-set-e empty-var hazard (the bug this whole change targets)
+#   3. rc 0, non-dir   — mktemp printed a path that is not a directory
+# These pin the rejection BEHAVIOR, not a specific operator. `[ -n "$d" ]` is belt-and-
+# suspenders redundant with `[ -d "$d" ]` here (`[ -d "" ]` is already false), kept only to
+# match the file's established `[ -n ] && [ -d ]` fail-closed idiom. Verified mutation
+# sensitivity of the resulting arms: dropping `[ -d "$d" ]` turns the non-directory arm RED;
+# dropping BOTH guards additionally turns the empty-output arm RED; dropping `[ -n "$d" ]`
+# alone turns NO arm RED (it is fully subsumed by `[ -d ]`). So no arm isolates `[ -n ]` —
+# the arms guard the observable contract (a bad mktemp output is rejected), which is what
+# matters, not the identity of the operator that rejects it. The probes capture only the return value
+# (no git ops), so they cannot mutate anything regardless of outcome, and git_sandbox's
+# intentional breadcrumb is suppressed (`2>/dev/null`) so a passing run leaves a clean
+# stderr — matching the forced-fail proof block above, whose breadcrumb is likewise hidden.
+# The non-directory shadow emits `/dev/null` itself: a guaranteed non-directory (char device)
+# that does NOT match the `/dev/null/*` sentinel glob, so BOTH its assertions stay non-vacuous
+# when `[ -d ]` is dropped (the helper would then echo `/dev/null` → sentinel-shape RED → and
+# return 0 without recording FAIL → FAIL-recorded RED).
 for GS_ARM in "rc-nonzero:mktemp() { return 1; }" \
               "empty-output:mktemp() { printf '\\n'; return 0; }" \
               "non-directory:mktemp() { printf '/dev/null\\n'; return 0; }"; do
   GS_ARM_NAME="${GS_ARM%%:*}"; GS_ARM_SHADOW="${GS_ARM#*:}"
   GS_ARM_PROBE="$(mktemp)"
-  GS_ARM_OUT="$( eval "$GS_ARM_SHADOW"; RESULTS_FILE="$GS_ARM_PROBE" git_sandbox "AC3 ${GS_ARM_NAME} arm" )"
+  GS_ARM_OUT="$( eval "$GS_ARM_SHADOW"; RESULTS_FILE="$GS_ARM_PROBE" git_sandbox "AC3 ${GS_ARM_NAME} arm" 2>/dev/null )"
   GS_ARM_VERDICT=no
   case "$GS_ARM_OUT" in /dev/null/*) GS_ARM_VERDICT=yes ;; esac
   assert_eq "#161 git_sandbox: ${GS_ARM_NAME} arm returns a /dev/null-rooted sentinel (fail-closed)" \
