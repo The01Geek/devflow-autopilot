@@ -230,7 +230,7 @@
         },
         "changelog_file": {
           "type": "string",
-          "description": "Repository CHANGELOG file reconciled by /devflow:docs-release-notes Step 4b. The step reads the `## [version]` entry written by the most recent version-bump commit and corrects any factual claims made stale by Phase 3.3 review-and-fix corrections.",
+          "description": "Repository CHANGELOG file reconciled by /devflow:docs-release-notes Step 4b. The step reads the `## [version]` entry written by the most recent version-bump commit and corrects any factual claims made stale by post-commit review corrections.",
           "default": "CHANGELOG.md"
         },
         "labels": {

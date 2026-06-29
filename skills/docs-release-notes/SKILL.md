@@ -120,13 +120,13 @@ This step runs regardless of the Step 2 customer-visibility decision — after a
 ```
 git log --oneline origin/main..HEAD
 ```
-Find the most recent commit whose message begins with `chore: bump version` and extract its version string (e.g., `2.8.19`). Read `[[CHANGELOG_FILE]]` and search for the section heading `## [2.8.19]` (replacing the version with the one extracted above). If no version-bump entry is found in CHANGELOG, this step is a no-op — log "no version-bump entry found" and proceed to Step 5.
+Find the most recent commit whose message begins with `chore: bump version` and extract its version string (e.g., `2.8.19`). If no such commit exists on this branch, log "no version-bump commit found on branch" and proceed to Step 5. Otherwise, read `[[CHANGELOG_FILE]]` and search for the section heading `## [2.8.19]` (replacing the version with the one extracted above). If no version-bump entry is found in CHANGELOG, this step is a no-op — log "no CHANGELOG section found for version X" and proceed to Step 5.
 
 **Enumerate every factual claim.** Re-read the body of the located `## [version]` section. A factual claim is any concrete assertion: coverage counts, enumerated sites, completeness phrases ("all X were done", "Y and Z are now..."), named identifiers (file paths, key names, step or phase numbers, agent names), or specific behavioral guarantees. This CHANGELOG entry was written at Phase 3 commit time — before Phase 3.3 review-and-fix corrections — so its specific assertions may be stale relative to the final shipped diff.
 
 **Trace each claim against the Step-1 diff.** For each enumerated claim, confirm it against the diff already read in Step 1. Do not re-run `git diff`. A claim is accurate if every concrete detail (count, identifier, behavioral guarantee) matches the shipped code exactly. A claim is stale if the diff shows a different count, a renamed identifier, a reverted piece of scope, or a corrected approach.
 
-**Correct stale claims in place.** Rewrite only the specific sentence or clause that is stale, using the same tense, format, and surrounding context as the rest of the entry. If all claims are accurate, make no changes to `[[CHANGELOG_FILE]]`. Do not commit — leave committing to the caller, consistent with Step 5.
+**Correct stale claims in place.** Rewrite only the specific sentence or clause that is stale, using the same tense, format, and surrounding context as the rest of the entry. If all claims are accurate, make no changes to `[[CHANGELOG_FILE]]`. In all cases, log a brief summary — for example: "Step 4b: enumerated N claims; M corrected, N−M confirmed accurate." Do not commit — leave committing to the caller, consistent with Step 5.
 
 ### Step 5: Do Not Commit
 
