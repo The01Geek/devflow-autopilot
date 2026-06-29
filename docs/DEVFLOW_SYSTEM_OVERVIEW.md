@@ -269,13 +269,14 @@ DevFlow maintains **exactly one** marker-tagged comment on the GitHub issue for 
 > **The thesis (good for a technical-deck slide):** don't trust a single review pass. Build an *independent, evidence-based* checklist of every claim the diff makes, verify each claim against the actual source, run a panel of specialized reviewers, and use cross-reviewer corroboration to *calibrate confidence* in each finding, a single-source finding is flagged for extra human scrutiny, never silently dropped.
 
 ### Phase 0: Setup & diff classification
-Caches the diff to a run-scoped path. **Phase 0.5** classifies the diff with four flags that decide the engine profile:
+Caches the diff to a run-scoped path. **Phase 0.5** classifies the diff with five flags that decide the engine profile:
 - `small_diff` (<100 changed lines AND ≤3 files)
 - `config_only` (all changed files are config/docs extensions)
 - `has_new_types` (added code defines classes/interfaces/types/enums/structs/traits)
 - `engine_self_modifying` (touches `skills/**`, `agents/**`, or `lib/**`)
+- `detect_all_audit` (the diff adds/changes a "detect-all" scanner/audit/coverage-invariant — code that *enumerates a population* AND *asserts a completeness property* over it)
 
-A `small_diff AND config_only` change skips the checklist phases (intentional). An `engine_self_modifying` change forces the **full** checklist + all four always-on reviewers.
+A `small_diff AND config_only` change skips the checklist phases (intentional). An `engine_self_modifying` change forces the **full** checklist + all four always-on reviewers. `detect_all_audit` is additive (it never suppresses the other flags' profile): it forces a **Phase 3.1.5 completeness-critic pass** that independently re-enumerates the audit's target population by a signal *other than the audit's own pattern* and records any uncovered member as a finding — the engine's guard against a vacuous or self-certified "detect-all" audit.
 
 ### Phase 1: Verification checklist generation
 The `devflow:checklist-generator` agent (model: **opus**) reads full file contents and enumerates **every verifiable claim** the diff makes, in four categories: **dependency interactions, test-mock alignment, data-format assumptions, API contracts**. Output is a JSON checklist. Key points:

@@ -1066,10 +1066,19 @@ rm -f "$PINPROBE_EMPTY"
 # AC3(c)/(d): removing a pinned MAXI_SKILL contract literal turns its pin RED. Both cases
 # share the "strip the literal from a temp copy, confirm the real pin goes RED" shape, so
 # route them through one helper (the literal is the only variable).
+# SELF-CONTAINED mutation proof: assert the full PASS->FAIL transition — the literal is
+# present-and-unique on the REAL file (probe PASS) AND goes RED once stripped (probe FAIL).
+# Asserting the transition, not just the post-strip FAIL, closes the vacuity a bare
+# post-strip check has: a literal that was never present yields FAIL on a no-op strip
+# (count 0->0), so the proof would pass vacuously. Checking the `before` PASS too means the
+# proof no longer depends on a paired assert_pin_unique to notice a literal that drifted out
+# of the target file — each proof stands on its own.
 assert_pin_red_on_removal() {  # name literal [file]   (file defaults to $MAXI_SKILL)
-  local t file="${3:-$MAXI_SKILL}"; t="$(probe_tmp "$1 (removal setup)")" || return 0
+  local t file="${3:-$MAXI_SKILL}" before after; t="$(probe_tmp "$1 (removal setup)")" || return 0
+  before="$(probe_assert assert_pin_unique 'probe-present' "$2" "$file")"
   grep -vF "$2" "$file" > "$t"
-  assert_eq "$1" "FAIL" "$(probe_assert assert_pin_unique 'probe-removal' "$2" "$t")"
+  after="$(probe_assert assert_pin_unique 'probe-removal' "$2" "$t")"
+  assert_eq "$1" "PASS->FAIL" "$before->$after"
   rm -f "$t"
 }
 assert_pin_red_on_removal "AC3(c): deleting the Step 2.6 sentinel contract turns its pin RED" \
@@ -1440,12 +1449,24 @@ assert_pin_unique "#167 critic: pass re-enumerates by an INDEPENDENT signal (not
   're-enumerate that population by a signal OTHER than the' "$REVIEW_SKILL"
 assert_pin_unique "#167 critic: an uncovered member of the independent set is a review finding" \
   'Every member of the independent set that the audit does not cover is a review finding' "$REVIEW_SKILL"
+# Pin the superset-comparison FRAMING itself (the verdict step), not only its finding
+# clause: a reword to a weaker check (e.g. "spot-check a few members") that left the
+# finding sentence intact would otherwise stay GREEN.
+assert_pin_unique "#167 critic: pass asserts the audit matched set is a SUPERSET of the independent enumeration" \
+  '⊇ your independent enumeration' "$REVIEW_SKILL"
 # AC3: the critic lives in the shared engine (reachable from both skills) AND is not
 # paraphrased into the fix-loop skill — the pass heading must be absent from review-and-fix.
 assert_pin_unique "#167 critic: shared engine states both skills apply it without a fix-loop paraphrase" \
   'apply it without any paraphrase in the fix-loop skill' "$REVIEW_SKILL"
-assert_eq "#167 critic: completeness-critic pass is NOT paraphrased into review-and-fix SKILL" \
+assert_eq "#167 critic: completeness-critic pass heading is NOT paraphrased into review-and-fix SKILL" \
   "0" "$(pin_count '### 3.1.5 Completeness-critic pass (forced when' "$MAXI_SKILL")"
+# The exact-heading absence above catches only a verbatim heading copy; a genuine reworded
+# paraphrase of the critic PROCEDURE would slip it. Add a paraphrase-resistant negative
+# pin: the critic's distinctive independent-enumeration clause must also be absent from the
+# fix-loop skill (it is procedure text, not a by-name reference, so a legitimate pointer to
+# "the completeness-critic pass" does not trip it — only a copied procedure would).
+assert_eq "#167 critic: critic PROCEDURE (independent-enumeration clause) is NOT paraphrased into review-and-fix SKILL" \
+  "0" "$(pin_count 're-enumerate that population by a signal OTHER than the' "$MAXI_SKILL")"
 # AC4: the fix loop (Step 3) specifies the mechanism-scoped re-sweep, located by the
 # mechanism's identifiers across the touched files (identifier-located, not hunk-located).
 assert_pin_unique "#167 re-sweep: Step 3 names the mechanism-scoped self-authored-claim re-sweep" \
@@ -1479,6 +1500,8 @@ assert_pin_red_on_removal "#167 AC3-mp: deleting the re-sweep identifier-located
   'identifier-located, not hunk-located'
 assert_pin_red_on_removal "#167 AC3-mp: deleting the stale-comment-is-a-finding clause turns its pin RED" \
   'A comment that still describes the pre-change mechanism is a finding'
+assert_pin_red_on_removal "#167 AC2-mp: deleting the superset-comparison framing turns its pin RED" \
+  '⊇ your independent enumeration' "$REVIEW_SKILL"
 
 # Drift guard: the Phase 2.3 sweep list lives in three places that must stay in
 # sync — the sweep body in implement/SKILL.md, the "Sweep selection" always-run
