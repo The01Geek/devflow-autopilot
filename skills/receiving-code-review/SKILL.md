@@ -44,7 +44,7 @@ Before declaring the review findings addressed:
 2. Run `lib/test/run.sh` (or fall back to CI `lib + python tests` when even the direct-path form is denied locally, per the CLAUDE.md tiered-runner convention). When CI is the fallback, do not claim completion until CI confirms green.
 3. Only after both pass, claim completion.
 
-This gate applies in both interactive sessions and the autonomous `/devflow:review-and-fix` fix loop. In the loop, Step 3 (item 4) satisfies the test-suite requirement before each fix commit and Step 3.5's fix-delta review satisfies the diff-review requirement — no additional step 7 invocation is needed at the APPROVE claim.
+This gate applies in both interactive sessions and the autonomous `/devflow:review-and-fix` fix loop. In the loop, Step 3 (item 4) satisfies the test-suite requirement, and Phase 3 re-runs the review engine each iteration to re-check whether every finding is resolved — no additional step 7 invocation is needed at the APPROVE claim.
 
 ## Forbidden Responses
 
@@ -52,7 +52,7 @@ This gate applies in both interactive sessions and the autonomous `/devflow:revi
 - "You're absolutely right!" (explicit instruction-file violation)
 - "Great point!" / "Excellent feedback!" (performative)
 - "Let me implement that now" (before verification)
-- Claiming done / expressing satisfaction before step 7 (VERIFY BEFORE DONE) is complete
+- Claiming done / expressing satisfaction before step 7 (VERIFY BEFORE DONE) is complete (see Verification Gate above for the loop pipeline)
 
 **INSTEAD:**
 - Restate the technical requirement
