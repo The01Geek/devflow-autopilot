@@ -42,9 +42,11 @@ assert_eq() {
 # without polluting the suite tally. `-F` treats LITERAL as a fixed string (regex
 # metacharacters are literal). Always prints a SINGLE canonical integer: a present-file-
 # but-absent-literal, a missing/unreadable file, and a match all collapse to one line —
-# `grep -c .` counts the match lines `grep -oF` emitted (0 when none), and `|| n=0` only
-# fires when the pipeline failed, so there is no double-"0". An absent literal yields a
-# clean 0 (the helper below then fails it as non-unique, not as a pass).
+# `grep -c .` counts the match lines `grep -oF` emitted (0 when none). On an absent literal
+# `grep -c .` both prints `0` and exits 1, so `|| n=0` DOES fire and reassigns the same `0` —
+# the captured value and the fallback coincide, so the result is a single clean `0` either
+# way (no double-"0"). An absent literal thus yields a clean 0 (the helper below then fails
+# it as non-unique, not as a pass).
 pin_count() {  # literal file -> prints occurrence count (always a single integer)
   local n
   n="$(grep -oF "$1" "$2" 2>/dev/null | grep -c .)" || n=0
@@ -57,12 +59,20 @@ pin_count() {  # literal file -> prints occurrence count (always a single intege
 # that then reads an empty path silently degrades to its EXPECTED value (e.g. grep over ""
 # prints 0, which a "expected 0" control accepts) — the anti-vacuity proof itself going
 # vacuous, the exact class this change exists to kill. On mktemp failure this records a
-# suite FAIL under NAME and returns non-zero with no path, so the proof cannot pass quietly.
-probe_tmp() {  # assertion-name -> prints temp path (rc 0), or records a suite FAIL (rc 1)
+# suite FAIL under NAME, prints the human breadcrumb to STDERR (so it reaches the operator
+# instead of being captured into the caller's `$(…)`), and prints the safe sink path
+# `/dev/null` to STDOUT. The `/dev/null` is deliberate: an unguarded caller that then does
+# `printf … > "$path"` or greps "$path" causes NO working-tree pollution and no spurious
+# redirect error (an earlier form printed the breadcrumb itself, which a `> "$breadcrumb"`
+# turned into a junk file in the repo cwd). The recorded FAIL still makes the suite go RED,
+# so the proof remains fail-closed whether or not the caller checks the rc 1.
+probe_tmp() {  # assertion-name -> prints a temp path (rc 0); on mktemp failure records a
+               # suite FAIL, prints the breadcrumb to stderr, and prints /dev/null (rc 1)
   local t
   t="$(mktemp)" && { printf '%s\n' "$t"; return 0; }
   echo FAIL >> "$RESULTS_FILE"
-  printf '  FAIL  %s — mktemp failed (mutation proof could not run; not a vacuous pass)\n' "$1"
+  printf '  FAIL  %s — mktemp failed (mutation proof could not run; not a vacuous pass)\n' "$1" >&2
+  printf '/dev/null\n'
   return 1
 }
 
@@ -710,8 +720,12 @@ count_raw_skill_guards_in_region() {  # file -> prints count of offending lines
 # mutation proof, so the proof binds to the SAME expression the control runs (not a parallel
 # re-derivation that a refactor of one side could silently desync from the other).
 count_region_pins() {  # file -> prints count of in-region assert_pin_unique lines
+  # `|| true` mirrors count_raw_skill_guards_in_region: it absorbs grep's no-match exit 1
+  # (an emptied region prints 0, exit 1) so the helper stays inert under a future
+  # `set -e`/`pipefail` hardening of the harness, matching its sibling rather than aborting
+  # the whole script on the legitimate empty-region case AC3(f) deliberately exercises.
   awk -v b="$PARKCAL_BMARK" -v e="$PARKCAL_EMARK" \
-    'index($0,b){inreg=1;next} index($0,e){inreg=0} inreg' "$1" | grep -cF 'assert_pin_unique'
+    'index($0,b){inreg=1;next} index($0,e){inreg=0} inreg' "$1" | grep -cF 'assert_pin_unique' || true
 }
 SELF_SRC="$LIB/test/run.sh"
 assert_eq "meta(AC2): park-calibration region routes every SKILL pin through assert_pin_unique (0 raw guards)" \
