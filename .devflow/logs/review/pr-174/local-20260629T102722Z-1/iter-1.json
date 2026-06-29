@@ -1,0 +1,240 @@
+{
+  "iter": 1,
+  "source": "review-and-fix",
+  "started_at": "2026-06-29T10:27:00Z",
+  "fix_commit_sha": "e2808e2e112ce8810113e076d7c32a467e511fcb",
+  "fix_files": [
+    "err.txt",
+    "err2.txt",
+    "lib/test/run.sh"
+  ],
+  "checklist": [
+    {
+      "id": "VC-1",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "data_format_assumption:run.sh:devnull-sentinel-fails-closed"
+    },
+    {
+      "id": "VC-2",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "dependency_interaction:run.sh:all-git-mutating-tests-routed"
+    },
+    {
+      "id": "VC-3",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "dependency_interaction:run.sh:vendor-cwd-not-git-mutating"
+    },
+    {
+      "id": "VC-4",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "test_mock_alignment:run.sh:mktemp-shadow-reaches-helper"
+    },
+    {
+      "id": "VC-5",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "test_mock_alignment:run.sh:ac3-fail-diverted-to-probe"
+    },
+    {
+      "id": "VC-6",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "dependency_interaction:run.sh:rgb-e2e-setup-guard-equiv"
+    },
+    {
+      "id": "VC-7",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "dependency_interaction:run.sh:results-file-defined-at-callsites"
+    },
+    {
+      "id": "VC-8",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "claim_signature": "string_presence:run.sh:spdx-header-present"
+    },
+    {
+      "id": "VC-9",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "dependency_interaction:run.sh:happy-path-no-spurious-fail"
+    },
+    {
+      "id": "VC-10",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "dependency_interaction:run.sh:ac3-repo-root-resolution"
+    }
+  ],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "unguarded migrated sites cascade secondary asserts on mktemp failure",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          5285,
+          5475
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "severity-calibrated"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "vendor 2>/dev/null could hide a future fail-open",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          5844,
+          5860
+        ],
+        "kind": "api_misuse"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "severity-calibrated"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "AC3 proof does not pin sentinel shape directly",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          62,
+          69
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 2,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "happy-path assertion cannot distinguish real dir from cwd",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          187,
+          191
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 2,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "no test pins the empty/non-dir rejection arm",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          142,
+          148
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 2,
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "PTA-I2",
+      "decision": "applied",
+      "commit": "e2808e2e112ce8810113e076d7c32a467e511fcb"
+    },
+    {
+      "finding_id": "PTA-I1",
+      "decision": "applied",
+      "commit": "e2808e2e112ce8810113e076d7c32a467e511fcb"
+    },
+    {
+      "finding_id": "SFH-F3",
+      "decision": "applied",
+      "commit": "e2808e2e112ce8810113e076d7c32a467e511fcb"
+    },
+    {
+      "finding_id": "SFH-F1",
+      "decision": "severity-calibrated",
+      "source_file": "lib/test/run.sh",
+      "claim_text": "unguarded migrated sites cascade secondary assertion failures on mktemp failure",
+      "original_severity": "Important",
+      "calibrated_severity": "Suggestion",
+      "evidence": "over-grade shape 2 (diagnostic-only, no behavioral fail-direction): mutation-safety holds (sentinel ENOTDIR verified by 3 other agents; AC1/AC2/AC3 met). On mktemp failure each git_sandbox call records ONE per-site suite FAIL with a site-named stderr breadcrumb (authoritative); the secondary RED asserts are harmless extra RED, never a mutation. Wrapping 10 blocks in guards is disproportionate and fights the altitude win; addressed by documenting the caller contract."
+    },
+    {
+      "finding_id": "SFH-F2",
+      "decision": "severity-calibrated",
+      "source_file": "lib/test/run.sh",
+      "claim_text": "vendor 2>/dev/null could hide a future fail-open if the cd guard regressed",
+      "original_severity": "Important",
+      "calibrated_severity": "Suggestion",
+      "evidence": "over-grade shape 1/2: current code is DOUBLY fail-closed (mkdir -p ENOTDIR at 5845 + cd ENOTDIR at 5859, both verified). The 2>/dev/null is pre-existing (offline-clone noise), not added by this diff. Concern is hypothetical (one-refactor-away), no current fail-open; addressed by documenting the sentinel is the fail-closed mechanism."
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 3,
+    "fix_diff_lines": 0,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "telemetry": {
+    "phase_0": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 5
+    },
+    "phase_1": {
+      "calls": 1,
+      "tokens": 58861,
+      "wall_clock_s": 96
+    },
+    "phase_2": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 10
+    },
+    "phase_3": {
+      "calls": 5,
+      "tokens": 307552,
+      "wall_clock_s": 187
+    },
+    "step_2_5": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 2
+    },
+    "step_3": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 300
+    }
+  }
+}

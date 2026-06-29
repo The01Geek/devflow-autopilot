@@ -1,0 +1,136 @@
+{
+  "iter": 4,
+  "source": "review-and-fix",
+  "started_at": "2026-06-29T10:56:00Z",
+  "fix_commit_sha": "6d9635bfe1b900821b0ed4d9dc41d2a36fb55971",
+  "fix_files": [
+    "lib/test/run.sh"
+  ],
+  "checklist": [],
+  "phase3_dispatched": [],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {
+      "agent": "shadow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "rgb_scan leading comment stale (sentinel vs empty-var) — FIXED",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          496,
+          501
+        ],
+        "kind": "comment_drift"
+      },
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "shadow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "vendor-site exemption comment — FIXED",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          5909,
+          5916
+        ],
+        "kind": "test_gap"
+      },
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "shadow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "RESULTS_FILE in-scope note — FIXED",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          149,
+          159
+        ],
+        "kind": "unverified-assumption"
+      },
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "SH-comment-drift",
+      "decision": "applied",
+      "commit": "6d9635bfe1b900821b0ed4d9dc41d2a36fb55971"
+    },
+    {
+      "finding_id": "SH-vendor-exempt",
+      "decision": "applied",
+      "commit": "6d9635bfe1b900821b0ed4d9dc41d2a36fb55971"
+    },
+    {
+      "finding_id": "SH-resultsfile-note",
+      "decision": "applied",
+      "commit": "6d9635bfe1b900821b0ed4d9dc41d2a36fb55971"
+    },
+    {
+      "finding_id": "DR-comment-precision",
+      "decision": "advisory",
+      "source_file": "lib/test/run.sh",
+      "claim_text": "RESULTS_FILE override example shows env-prefix form only (one of two AC3 sites)",
+      "skip_category": "advisory-parked",
+      "evidence": "delta-review comment-analyzer: representative example, accurate enough, explicitly NOT a defect; parked as advisory per Suggestion-level convergence discipline (not a prose↔code contradiction, unlike the rgb drift it fixed)"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 3,
+    "fix_diff_lines": 28,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "shadow": {
+    "ran_at": "2026-06-29T11:02:00Z",
+    "reviewed_sha": "199aeee99c611f4a43605071a5c4f7393767bcb0",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "reviewers_dispatched": [
+      "devflow:comment-analyzer",
+      "devflow:code-reviewer",
+      "devflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "devflow:comment-analyzer",
+      "devflow:code-reviewer",
+      "devflow:requesting-code-review"
+    ],
+    "reason": "bounded delta-review over comment-only iter-4 delta (post-shadow-edit gate); error-handling/test-coverage reviewers omitted — delta is provably comment-only with no error-handling or test-logic surface",
+    "checklist_skipped": null,
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 1,
+      "overlap_with_iter_N": 0,
+      "new": 1,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": false
+  },
+  "telemetry": {
+    "phase_3": {
+      "calls": 3,
+      "tokens": 147912,
+      "wall_clock_s": 72
+    },
+    "step_3": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 200
+    }
+  }
+}
