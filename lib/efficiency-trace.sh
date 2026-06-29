@@ -178,16 +178,20 @@ do_self_check() {
   # Per-iteration field validation (issue #170): warn — best-effort, never writes,
   # never aborts — for each iter-<N>.json missing an expected field, naming the
   # field and the iter file so a silently-dropped inline-persist field becomes a
-  # visible warning. A malformed (non-object) iter file is a different, already-
-  # degraded case, not a missing-field one, so it is skipped (same object-gate as
-  # the derivation path); --persist/--mode already breadcrumb the malformed case.
-  local iter field
+  # visible warning. One jq per file computes the missing set as a set difference
+  # (expected fields − the object's keys); a non-object iter file yields no output
+  # (the object-gate folds into the same filter), so the already-degraded malformed
+  # case is skipped here — consistent with the derivation path; --persist/--mode
+  # already breadcrumb the malformed case. Field names are bare identifiers, so the
+  # `for field in $missing` word-split is safe (and emits one warning line each).
+  local iter field missing
   for iter in "$WORKPAD_DIR"/iter-*.json; do
     [ -e "$iter" ] || continue
-    jq -e 'type == "object"' "$iter" >/dev/null 2>&1 || continue
-    for field in $ITER_EXPECTED_FIELDS; do
-      jq -e --arg f "$field" 'has($f)' "$iter" >/dev/null 2>&1 || \
-        echo "::warning::devflow review-and-fix self-check: iter workpad '$(basename "$iter")' is missing expected field '${field}'" >&2
+    missing="$(jq -r --arg fields "$ITER_EXPECTED_FIELDS" \
+                 'if type == "object" then (($fields | split(" ")) - keys)[] else empty end' \
+                 "$iter" 2>/dev/null)"
+    for field in $missing; do
+      echo "::warning::devflow review-and-fix self-check: iter workpad '$(basename "$iter")' is missing expected field '${field}'" >&2
     done
   done
   return 0
