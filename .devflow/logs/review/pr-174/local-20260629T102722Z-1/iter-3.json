@@ -1,0 +1,75 @@
+{
+  "iter": 3,
+  "source": "review-and-fix",
+  "started_at": "2026-06-29T10:48:00Z",
+  "fix_commit_sha": "3fcddbf57eca09a4cc7cf126333e428b64037fa5",
+  "fix_files": [],
+  "checklist": [
+    {
+      "id": "VC-15",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "data_format_assumption:run.sh:comment-mutation-matrix-accurate"
+    },
+    {
+      "id": "VC-16",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "dependency_interaction:run.sh:arm-loop-2devnull-not-mask-fail-record"
+    },
+    {
+      "id": "VC-17",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "data_format_assumption:run.sh:devnull-literal-not-match-sentinel-glob"
+    },
+    {
+      "id": "VC-18",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "dependency_interaction:run.sh:forced-fail-subshell-2devnull-preserves-fail-record"
+    }
+  ],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [],
+  "fix_decisions": [],
+  "convergence_inputs": {
+    "fixes_applied": 0,
+    "fix_diff_lines": 0,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "telemetry": {
+    "phase_1": {
+      "calls": 1,
+      "tokens": 51112,
+      "wall_clock_s": 53
+    },
+    "phase_2": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 5
+    },
+    "phase_3": {
+      "calls": 5,
+      "tokens": 287013,
+      "wall_clock_s": 177
+    }
+  }
+}
