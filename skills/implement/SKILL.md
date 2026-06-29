@@ -434,13 +434,14 @@ Write the code. Follow the patterns and conventions described in `CLAUDE.md`. As
 - **Deletes** code (a call site, branch, method, file, route, page, or asset) → run **2.3.1**, and **2.3.2** if it deletes a method/file/route/page.
 - **Changes a contract** (a signature, a renamed/moved symbol, a tightened validator, or a routing/branch predicate) → run **2.3.0**.
 - **Adds a rule that has peers** (a clause, guard, validator, or invariant that must hold at two or more co-equal sites for the rule to actually hold) → run **2.3.0a**.
+- **Adds a value to an enumerated set** (a new enum/string-union member, status, kind, or verdict value) → run **2.3.0b**.
 - **Always**, whatever the diff's shape → run **2.3.3** (convention), **2.3.4** (boundary-assumption), **2.3.4a** (self-authored-claim reconciliation), **2.3.5** (simplification & efficiency), **2.3.6** (error-handling & silent-failure).
 
 This narrows *ceremony*, never *coverage*, and is **fail-safe**: each sweep's heading is authoritative, so if its trigger fires you run it even when this list didn't call it out — if the index ever drifts from a heading, the heading wins (drift can only add a sweep, never skip a warranted one). An add-only diff typically runs just the five always-on sweeps. **Record the diff shape you classified and the sweeps you are running in a workpad `--note`** — the selection is then an auditable commitment a reviewer or the weekly retrospective can check, not a silent skip; a note reading "add-only" on a diff that in fact deleted a file is a visible error, where an unrecorded mental skip is not.
 
 **Run each selected sweep after implementing and before running tests (Phase 2.4)** — that timing is the same for every sweep.
 
-For the grep-based sweeps (**2.3.0**, **2.3.0a**, **2.3.2**), don't merely attest you grepped: run the actual `git grep -n` / `grep -rnE` the sweep describes and record a **concise** result via `--note` (the match count plus "all intended", or the specific offending sites) — evidence, not a claim.
+For the grep-based sweeps (**2.3.0**, **2.3.0a**, **2.3.0b**, **2.3.2**), don't merely attest you grepped: run the actual `git grep -n` / `grep -rnE` the sweep describes and record a **concise** result via `--note` (the match count plus "all intended", or the specific offending sites) — evidence, not a claim.
 
 #### 2.3.0 Changed-contract sweep (mandatory whenever the change modifies a signature, renames/moves a symbol, tightens a validator, or changes a routing/branch predicate)
 
@@ -463,6 +464,16 @@ A modify / rename / reroute is not done until grepping for the old symbol, predi
 3. **Reconcile prose that overclaims the rule's breadth.** Grep the diff's own prose, CHANGELOG, and docs for any statement that describes the rule as universal ("every checkpoint", "all branches", "always"). Either make it true at every peer or narrow the prose to match reality — an overclaiming sentence on a half-applied rule is itself a defect.
 
 The rule is not done until grepping the shared marker returns the rule present at every peer in the set (or an explicit `--note` for each exemption).
+
+#### 2.3.0b Enum-enumeration reconciliation sweep (mandatory whenever the change adds a value to an enumerated value set)
+
+2.3.0a catches a rule added at only *some* of its co-equal peer sites. This sweep catches the sibling defect for a different shape of addition: you **add a value to an enumerated value set** — a new enum/string-union member, a status, a kind, a verdict, a `fix_decision` — update the code call-sites that branch on it, and leave a *doc/comment enumeration* of the value set, or a *fall-through consumer* (an `else` / `default` / `// null` arm that silently absorbs the new value), stale. The runtime can even be *correct* — the new value rides an intended fall-through — while a prose enumeration of the set and a `case`-less consumer go quietly out of date, surfacing only as a shadow-review finding or a human patch. "Consistent behavior" is not "reconciled enumeration." The 2.3.0 (changed-contract) and 2.3.0a (peer-checkpoint) sweeps grep *code* call-sites; this one explicitly adds the **doc/comment enumerations and fall-through consumers** they miss. After adding any value to an enumerated set, before running tests:
+
+1. **Enumerate every site that names a member of the set, by grep — not from memory.** Grep the repo for the *existing* member literals of the value set (not just the new one): `git grep -n` each known value across code call-sites, jq/py/sh consumers, **doc/comment enumerations** (a prose list of the values, a docstring taxonomy, an inline `// one of: …` comment), **and fall-through consumers** (an `else` / `default` / `// null` arm whose behavior now depends on whether the new value should reach it). Working from the new value alone misses exactly the sites that enumerate the *old* set.
+2. **Reconcile each site, or record an explicit exemption.** Add the new value to every enumeration meant to be exhaustive, and confirm every fall-through consumer treats the new value the way the design intends — verify the *intended* arm; do not assume the `else` is correct just because the suite is green. A site deliberately left out (a fall-through that *should* absorb the value) is allowed, but the exemption must be recorded with a `--note` (which site, why) — a *silent* stale enumeration is the defect; a *documented* one is a decision.
+3. **Record the grep result as evidence.** Per the "Sweep selection" grep-evidence rule, record the match count plus "all reconciled" (or the specific stale sites you fixed) via `--note` — evidence, not a claim.
+
+The addition is not done until grepping each member literal of the value set returns every enumerating site reconciled (or an explicit `--note` for each exemption).
 
 #### 2.3.1 Orphaned-setup sweep (mandatory whenever the change deletes code)
 
