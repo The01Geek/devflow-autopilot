@@ -1488,6 +1488,18 @@ assert_pin_unique "sweep 2.3.0b: implement SKILL keeps the enumerate-every-site 
 assert_eq "sweep 2.3.0b: DEVFLOW_SYSTEM_OVERVIEW keeps the sweep-list entry" "yes" \
   "$(grep -qF '**2.3.0b** Enum-enumeration reconciliation sweep (added value to an enumerated set' "$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md" && echo yes || echo no)"
 
+# Substrate-agnostic re-anchor (issue #171): the "Sweep selection (run first)" preamble
+# must state that its trigger shapes apply to prose/SKILL/doc/config as much as to code,
+# so an add-only prose/doc/config diff that replicates a peer rule, an enumerated-set
+# member, or a mirrored contract literal across sites still trips the contract-completeness
+# sweeps (2.3.0 / 2.3.0a) rather than falling through to "just the five always-on sweeps".
+# Pin the re-anchor phrase so a revert to the code-only framing turns the suite RED.
+# Literal is ASCII + apostrophe-free per the embedded-jq/SC11xx single-quote trap.
+# Mutation-proven: delete the re-anchor sentence and this assertion FAILs (count 0).
+assert_pin_unique "sweep selection: implement SKILL re-anchors classification on cross-site replication (substrate-agnostic)" \
+  "classify by what the change replicates across sites, not by whether it is code" \
+  "$IMPL_SKILL"
+
 # Drift guard: the base_branch read in implement/SKILL.md Phase 1.4 is the skill's
 # one piece of load-bearing inline bash — like the max_iterations clamp above, the
 # tokens it relies on can be silently broken by a SKILL edit (drop the `|| BASE=""`

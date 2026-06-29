@@ -8,7 +8,7 @@ review because nothing is *syntactically* broken — the affected lines still co
 they are only *semantically* stale. This doc is the internal-docs counterpart of that section: it
 records *why* each sweep exists so the skill text can stay terse.
 
-A **"Sweep selection (run first)"** preamble in the skill indexes which of these sweeps a given diff's shape warrants — so an add-only diff runs just the five always-on sweeps (2.3.3/2.3.4/2.3.4a/2.3.5/2.3.6) instead of consciously dispatching the deletion/contract sweeps as no-ops. The index is **fail-safe**: each sweep's own heading (the *Triggers on* column below) stays authoritative, so a drifted or incomplete index can only over-select, never skip a warranted sweep.
+A **"Sweep selection (run first)"** preamble in the skill indexes which of these sweeps a given diff's shape warrants. Its trigger shapes are **substrate-agnostic** — a contract, a peer-replicated rule, or an enumerated-set membership can live in prose/`SKILL.md`/doc/config as much as in code, so the preamble classifies by *what the change replicates across sites*, not by whether it is code: an add-only diff that replicates nothing across sites runs just the five always-on sweeps (2.3.3/2.3.4/2.3.4a/2.3.5/2.3.6) instead of consciously dispatching the deletion/contract sweeps as no-ops, but an add-only prose/doc/config diff that adds a peer-replicated rule, an enumerated-set member, or a mirrored contract literal still runs the contract-completeness sweeps (2.3.0 / 2.3.0a). The index is **fail-safe**: each sweep's own heading (the *Triggers on* column below) stays authoritative, so a drifted or incomplete index can only over-select, never skip a warranted sweep.
 
 ## The sweeps
 
