@@ -370,11 +370,11 @@ git ls-files 'skills/*/SKILL.md' | wc -l   # skill count
 ls -d agents/*/                              # agent enumeration
 ```
 
-Record: `--reflection-kind note --reflection "issue-claim audit (count): claimed '{N} X', verified '{M}' at HEAD"`. Use the verified count as the working assumption from Phase 2 onward; discard the issue body count when they differ.
+Record: `--reflection-kind note --reflection "issue-claim audit (count): claimed '{N} X', verified '{M}' at HEAD"`. Use the verified count as the working assumption from Phase 2 onward; discard the issue body count when they differ. If no count or enumeration claims are found in the issue body, record: `--reflection-kind note --reflection "issue-claim audit (count): no count or enumeration claims found — pass complete"`.
 
 #### Pass 2 — Negative-scope claims (explicit surface exclusions)
 
-Scan the issue body's Technical Context for claims that explicitly exclude a surface from scope — "no X is required", "no workflow change", "no runtime change", "no agent modification". For each exclusion, trace whether the proposed change could affect that surface.
+Scan the issue body's Technical Context for claims that explicitly exclude a surface from scope — "no X is required", "no workflow change", "no runtime change", "no agent modification". For each exclusion, trace whether the change the issue proposes to make could affect that surface.
 
 **Cloud-tier workflow impact check (mandatory when editing any `skills/*/SKILL.md`).** When any `skills/*/SKILL.md` is being added or modified, check whether any new shell helper it invokes is present in the cloud profile allowlist in `.github/workflows/devflow-runner.yml` and any vendored consumer copy:
 
@@ -383,7 +383,7 @@ grep -n 'TOOLS=' .github/workflows/devflow-runner.yml
 grep 'TOOLS=' .devflow/vendor/devflow/.github/workflows/devflow-runner.yml 2>/dev/null
 ```
 
-If the trace finds a required change the issue excluded, record: `--reflection-kind note --reflection "issue-claim audit (negative-scope): issue excluded '{surface}' but trace requires it — adding to plan"`, then add the missed surface to the working plan before 2.2 begins.
+If the trace finds a required change the issue excluded, record: `--reflection-kind note --reflection "issue-claim audit (negative-scope): issue excluded '{surface}' but trace requires it — adding to plan"`, then add the missed surface to the working plan before 2.2 begins. If the trace confirms the exclusion is correct (no impact on that surface), record: `--reflection-kind note --reflection "issue-claim audit (negative-scope): issue excluded '{surface}'; trace confirms no impact"`. If the issue body contains no scope-exclusion claims, record: `--reflection-kind note --reflection "issue-claim audit (negative-scope): no scope-exclusion claims found — pass complete"`.
 
 #### Pass 3 — Policy-referencing claims in ACs
 
