@@ -2092,6 +2092,19 @@ assert_pin_unique "#169: implement/SKILL.md warns re-tick-only (don't re-send th
 assert_eq "#169: workpad.py routes volatile misses through _report_failed_ticks (PATCH-failure echo)" "yes" \
   "$(grep -qF 'def _report_failed_ticks' "$WP_PY" && grep -qF 'NO workpad change was persisted' "$WP_PY" && echo yes || echo no)"
 
+# ── issue #185: Phase 4.1 Documentation Needed cross-check ──────────────────
+# Phase 4.1 now cross-checks file paths named in the issue body "Documentation
+# Needed" section against the diff before ticking Documentation. Pin the
+# load-bearing tokens: the condition/self-heal phrase, the git diff range, and
+# the Blocked-path arm. Two pins cover the "keeps-heading-guts-body" removal
+# shape (A + B); pin C guards the Blocked arm specifically.
+assert_pin_unique "#185: Phase 4.1 keeps the absent-file self-heal condition (A)" \
+  'absent from the diff, perform the missing update' "$IMPL_SKILL"
+assert_pin_unique "#185: Phase 4.1 uses the three-dot origin/\$BASE...HEAD diff range (B)" \
+  'git diff --name-only "origin/$BASE...HEAD"' "$IMPL_SKILL"
+assert_pin_unique "#185: Phase 4.1 Blocked arm names the missing-content condition (C)" \
+  'Documentation Needed file content cannot be determined' "$IMPL_SKILL"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "scaffold-config.sh"
 # ────────────────────────────────────────────────────────────────────────────

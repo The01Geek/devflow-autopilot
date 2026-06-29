@@ -1087,6 +1087,20 @@ CLEAN_LABELS=$(echo "$DOCS_LABELS" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:
 [ -n "$CLEAN_LABELS" ] && gh pr edit --add-label "$CLEAN_LABELS"
 ```
 
+**Documentation Needed cross-check (mandatory when the issue names specific files).** After the docs-subagent commit and before ticking `Documentation`, verify that every file path the issue body explicitly names has been touched:
+
+1. **Extract named paths.** Scan the issue body (held in context since Phase 1.1) for a `**Documentation Needed**` bullet — it is a sub-bullet of `## Implementation Notes` in the issue template. Collect every token that looks like a file path (contains `/` or ends in a recognizable extension: `.md`, `.sh`, `.json`, `.py`, etc.) from that bullet's text and any sub-bullets beneath it, up to the next `- **` bullet or section heading. If no paths are extractable (the section is absent or contains no path-like tokens), this cross-check is a no-op — proceed directly to `--tick-progress "Documentation"` below.
+
+2. **Compare against the diff.** For each extracted path, check whether it appears in the PR's cumulative diff (`$BASE` is the base branch from Phase 1.4; re-read via `config-get.sh` if no longer in scope):
+   ```bash
+   git diff --name-only "origin/$BASE...HEAD"
+   ```
+   A path is satisfied when its basename or its exact path appears in the diff output (a basename match counts — e.g. `DEVFLOW_SYSTEM_OVERVIEW.md` satisfies `docs/DEVFLOW_SYSTEM_OVERVIEW.md`).
+
+3. **Self-heal any absent path.** For each named path absent from the diff, perform the missing update yourself using the issue body's `**Documentation Needed**` prose as the specification, then commit (`docs:` prefix) and push.
+
+4. **Route to Blocked when content cannot be determined.** If a named path is absent from the diff and the correct update cannot be derived from context (the issue body's prose is insufficient), do not tick `Documentation`. Route to the Blocked path: `workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind blocked --reflection "Phase 4.1: Documentation Needed file content cannot be determined for <path> — the docs subagent did not update this file and the correct content cannot be derived from the issue body; update manually and re-run Phase 4.1"`, then emit the 👎 outcome reaction (see *Outcome reaction* in the Workpad Reference) and stop.
+
 Then tick the Documentation phase in the workpad: `workpad.py update $ISSUE_NUMBER --tick-progress "Documentation"`.
 
 ### 4.2 Generate PR Description
