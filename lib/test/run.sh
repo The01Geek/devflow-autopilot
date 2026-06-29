@@ -852,6 +852,21 @@ assert_eq "AC3(b4): meta-test ignores a raw SKILL guard injected OUTSIDE the reg
   "0" "$(count_raw_skill_guards_in_region "$PINPROBE_OUTREG")"
 rm -f "$PINPROBE_OUTREG"
 #
+# AC3(b5): the broadened SKILL_ arm applies to the IN-REGION scanner too (#164-review) — a raw
+# guard targeting a `SKILL_`-suffixed loop var ($SKILL_FILE) injected into the region is caught,
+# the in-region twin of the repo-wide SKILL_ proof. Under the old `(_SKILL|SKILL\.md)`-only
+# pattern this would read 0 (the regression this binds). The in-region scanner has no `.*echo`
+# requirement, so the injected guard needs no echo.
+# The injected LITERAL must contain no `_SKILL`/`SKILL_`/`SKILL.md` substring, so the ONLY token
+# matching the pattern is the `$SKILL_FILE` target via the new SKILL_ arm — otherwise the fixture
+# would match under the old pattern too (via the literal) and prove nothing (a vacuous guard).
+PINPROBE_RAW5="$(probe_tmp 'AC3(b5) SKILL_ injection setup')"
+awk -v b="$PARKCAL_BMARK" -v inj='  grep -qF INJECTED_LOOPVAR_RAW "$SKILL_FILE"' \
+  '{ print } index($0, b) { print inj }' "$SELF_SRC" > "$PINPROBE_RAW5"
+assert_eq "AC3(b5): meta-test detects a SKILL_-suffixed-var raw SKILL guard (\$SKILL_FILE) in the region (RED)" \
+  "1" "$(count_raw_skill_guards_in_region "$PINPROBE_RAW5")"
+rm -f "$PINPROBE_RAW5"
+#
 # AC3(e): the marker-presence positive control fails CLOSED when a region marker is deleted —
 # the meta-test's own anti-vacuity proof. Strip the BEGIN marker line from a temp copy and
 # confirm its presence count goes to 0 (so the assert_eq "1" control above would turn RED),
@@ -969,11 +984,12 @@ assert_pin_unique "over-grade: severity-calibrated record carries no skip_catego
 # Scope is deliberately the GUARD shape: a SKILL-targeted match whose yes/no outcome drives
 # an `echo` ON THE SAME LINE. Two things are therefore out of scope *by construction* —
 # their matched line carries no `echo`: a bare `grep -c`/`grep -n` whose count/line-number is
-# the assert comparand directly (e.g. lines 947/949), and the inverting `grep -vF` strip. NOT
-# every count guard is exempt this way, though: a `[ "$(grep -cF … "$DEF_SKILL")" -ge 2 ] &&
-# echo yes` count guard (lines 548/560) DOES carry `echo` and a `_SKILL` target, so the scanner
-# matches it and it is exempted by its `# raw-guard-ok: count-based` marker, not "by
-# construction." A guard whose grep is computed on a PRIOR line into a var (`X=$(grep …
+# the assert comparand directly (a bare `grep -cE` whose count IS the comparand, with no `echo`
+# on the line — the version/changelog section-count asserts), and the inverting `grep -vF` strip.
+# NOT every count guard is exempt this way, though: a `[ "$(grep -cF … "$DEF_SKILL")" -ge 2 ] &&
+# echo yes` count guard (the deferred.labels `# raw-guard-ok: count-based` guards) DOES carry
+# `echo` and a `_SKILL` target, so the scanner matches it and it is exempted by its
+# `# raw-guard-ok: count-based` marker, not "by construction." A guard whose grep is computed on a PRIOR line into a var (`X=$(grep …
 # "$SKILL")` then a bare `assert_eq … "$X"`) likewise carries no echo on the grep line and is
 # non-idiomatic in this suite; that exact shape IS caught — positively, not by content match —
 # inside the park-calibration region by the AC3 control below, where new park-calibration
@@ -1030,7 +1046,22 @@ assert_eq "#157 AC2 mutation: the allowlist marker exempts a raw guard pin (GREE
 printf '%s\n' '  "$([ -f "$SKILL_FILE" ] && grep -qF LOOPVAR_RAW "$SKILL_FILE" && echo yes || echo no)"' > "$RWPROBE"  # raw-guard-ok: fixture writes an UNMARKED $SKILL_FILE guard to prove the broadened SKILL_ arm detects it
 assert_eq "#157 AC2 mutation: broadened SKILL_ arm catches a \$SKILL_FILE-suffixed-var guard (not just _SKILL/SKILL.md)" \
   "1" "$(count_unallowlisted_raw_skill_guards "$RWPROBE")"
+# #164-review: the THIRD arm — the literal `…/SKILL.md` path — also needs its own echo-driven
+# fixture. The _SKILL and SKILL_ arms are proven above; without this, a regression specific to
+# the SKILL\.md arm under the `.*echo` requirement could ship green. Unmarked literal-path guard
+# with a trailing echo → count 1.
+printf '%s\n' '  "$(grep -qF PATHLIT_RAW "$LIB/../skills/review-and-fix/SKILL.md" && echo yes || echo no)"' > "$RWPROBE"  # raw-guard-ok: fixture writes an UNMARKED literal-path …/SKILL.md guard to prove the SKILL.md arm detects it
+assert_eq "#157 AC2 mutation: SKILL.md literal-path arm catches an unmarked …/SKILL.md guard (echo-driven)" \
+  "1" "$(count_unallowlisted_raw_skill_guards "$RWPROBE")"
 rm -f "$RWPROBE"
+# #164-review: grep_present is an audit-bypass channel — its call site carries no bare `grep`
+# token so the AC2 scanner skips it, and it asserts nothing about uniqueness. Pin the call-site
+# count so a future edit cannot quietly route a NEW (possibly unique) pin through it to dodge
+# assert_pin_unique; a third call site trips this until consciously bumped. The search token is
+# split (concatenated) so THIS counting line does not itself self-match.
+GP_CALL_TOK="grep_pres""ent '"
+assert_eq "grep_present: invoked at exactly the 2 known compound MISSING-FILE call sites (audit-bypass channel pinned)" \
+  "2" "$(grep -cF "$GP_CALL_TOK" "$SELF_SRC")"
 
 # ── Meta-test (#157, AC3): a STRICTER in-region control. count_raw_skill_guards_in_region
 # only catches a bare `grep … SKILL` ON a region line; it misses a pin whose grep is

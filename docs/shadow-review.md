@@ -309,7 +309,9 @@ suite/CI time no matter whether the loop that produced the diff was driven by th
   (the `PARKCAL_GUARD_REGION` BEGIN/END `pin_count == 1` asserts) fail closed if the region markers are
   deleted — `region_lines()` is merely the shared extractor, not the fail-closed control. All are
   mutation-proven: the suite goes RED on a deliberately non-unique pin, on an unallowlisted raw bypass
-  guard anywhere in the suite, and on a deleted region marker.
+  guard anywhere in the suite, and on a deleted region marker. Scope caveat: the audit covers
+  SKILL-*targeted* guards (a grep against a `_SKILL`/`SKILL_` var or a `…/SKILL.md` path); an identical
+  vacuous-whole-file-presence guard against a non-SKILL target is out of scope.
 - **Sentinel-completeness signal.** The park-calibration gate (Step 2.6) records a mandatory
   `## Devflow Reflection` bullet on every run — a re-grade routing or the gate-clean sentinel.
   `lib/test/run.sh` pins that sentinel contract, and the `/devflow:review-and-fix` Loop-Exit machinery
