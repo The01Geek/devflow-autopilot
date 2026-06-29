@@ -1066,9 +1066,9 @@ rm -f "$PINPROBE_EMPTY"
 # AC3(c)/(d): removing a pinned MAXI_SKILL contract literal turns its pin RED. Both cases
 # share the "strip the literal from a temp copy, confirm the real pin goes RED" shape, so
 # route them through one helper (the literal is the only variable).
-assert_pin_red_on_removal() {  # name literal
-  local t; t="$(probe_tmp "$1 (removal setup)")" || return 0
-  grep -vF "$2" "$MAXI_SKILL" > "$t"
+assert_pin_red_on_removal() {  # name literal [file]   (file defaults to $MAXI_SKILL)
+  local t file="${3:-$MAXI_SKILL}"; t="$(probe_tmp "$1 (removal setup)")" || return 0
+  grep -vF "$2" "$file" > "$t"
   assert_eq "$1" "FAIL" "$(probe_assert assert_pin_unique 'probe-removal' "$2" "$t")"
   rm -f "$t"
 }
@@ -1418,6 +1418,67 @@ assert_pin_unique "step7: CI-fallback local-skip requires an auditable recorded 
   'Record the local-skip reason as an auditable note' "$RECV_SKILL"
 assert_pin_unique "step7: CI-fallback: submitting a push is not the same as observing green" \
   'submitting a push is not the same as observing green' "$RECV_SKILL"
+
+# ── Drift guards (issue #167): the completeness-critic pass (shared engine) and the
+# mechanism-scoped self-authored-claim re-sweep (fix loop). Both are SKILL-prose engine
+# behaviors; pin the load-bearing contract literals so a silent paraphrase or deletion that
+# guts either check fails the suite. Each literal is target-unique and apostrophe-free (the
+# CLAUDE.md single-quote gotcha), so assert_pin_unique fails closed on a deleted OR
+# duplicated literal. REVIEW_SKILL is the shared engine; the two checks must NOT be
+# paraphrased across the two skills (the fix loop inherits the engine by reference).
+REVIEW_SKILL="$LIB/../skills/review/SKILL.md"
+SHADOW_DOC="$LIB/../docs/shadow-review.md"
+# AC1: Phase 0.5 classifies the detect-all-audit shape with a concrete, twice-applicable rule
+# (the enumerate-a-population AND assert-completeness combination is the load-bearing signal).
+assert_pin_unique "#167 critic: Phase 0.5 states the detect-all-audit classification rule concretely" \
+  'enumerate-a-population* AND *assert-it-is-complete' "$REVIEW_SKILL"
+# AC2: the forced completeness-critic pass exists, re-enumerates INDEPENDENTLY of the audit's
+# own pattern, and records an uncovered member as a review finding.
+assert_pin_unique "#167 critic: Phase 3.1.5 completeness-critic pass heading present" \
+  '### 3.1.5 Completeness-critic pass (forced when' "$REVIEW_SKILL"
+assert_pin_unique "#167 critic: pass re-enumerates by an INDEPENDENT signal (not the audit's pattern)" \
+  're-enumerate that population by a signal OTHER than the' "$REVIEW_SKILL"
+assert_pin_unique "#167 critic: an uncovered member of the independent set is a review finding" \
+  'Every member of the independent set that the audit does not cover is a review finding' "$REVIEW_SKILL"
+# AC3: the critic lives in the shared engine (reachable from both skills) AND is not
+# paraphrased into the fix-loop skill — the pass heading must be absent from review-and-fix.
+assert_pin_unique "#167 critic: shared engine states both skills apply it without a fix-loop paraphrase" \
+  'apply it without any paraphrase in the fix-loop skill' "$REVIEW_SKILL"
+assert_eq "#167 critic: completeness-critic pass is NOT paraphrased into review-and-fix SKILL" \
+  "0" "$(pin_count '### 3.1.5 Completeness-critic pass (forced when' "$MAXI_SKILL")"
+# AC4: the fix loop (Step 3) specifies the mechanism-scoped re-sweep, located by the
+# mechanism's identifiers across the touched files (identifier-located, not hunk-located).
+assert_pin_unique "#167 re-sweep: Step 3 names the mechanism-scoped self-authored-claim re-sweep" \
+  'Mechanism-scoped self-authored-claim re-sweep' "$MAXI_SKILL"
+assert_pin_unique "#167 re-sweep: located by identifiers across touched files, not the fix's hunks" \
+  'identifier-located, not hunk-located' "$MAXI_SKILL"
+# AC5: the re-sweep is the existing comment-analyzer dispatch (no new agent), and a comment
+# still describing the pre-change mechanism is a finding.
+assert_pin_unique "#167 re-sweep: re-dispatches the existing devflow:comment-analyzer agent" \
+  'Re-dispatch `devflow:comment-analyzer`' "$MAXI_SKILL"
+assert_pin_unique "#167 re-sweep: no new agent is introduced" \
+  'no new agent is introduced' "$MAXI_SKILL"
+assert_pin_unique "#167 re-sweep: a comment still describing the pre-change mechanism is a finding" \
+  'A comment that still describes the pre-change mechanism is a finding' "$MAXI_SKILL"
+# AC6: docs/shadow-review.md describes both checks at the guarantee level they provide — and
+# does NOT overstate (the two guarantee-scope caveats are the no-catch-all anchors).
+assert_pin_unique "#167 docs: completeness-critic guarantee-scope caveat (not exhaustive)" \
+  'It does not prove the audit is exhaustive' "$SHADOW_DOC"
+assert_pin_unique "#167 docs: re-sweep guarantee-scope caveat (not a repo-wide audit)" \
+  'It is not a repo-wide comment audit' "$SHADOW_DOC"
+# Mutation proofs (AC2/AC7 guarantee-class): deleting a load-bearing contract literal turns
+# its pin RED. The third arg routes the removal through the relevant file (the generalized
+# helper defaults to $MAXI_SKILL when omitted). These exercise the engine-prose pins above on
+# the path each is meant to catch — a paraphrase that drops the independence requirement, the
+# finding clause, or the re-sweep contract goes RED, not silently GREEN.
+assert_pin_red_on_removal "#167 AC3-mp: deleting the independent-enumeration requirement turns its critic pin RED" \
+  're-enumerate that population by a signal OTHER than the' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#167 AC3-mp: deleting the uncovered-member-is-a-finding clause turns its critic pin RED" \
+  'Every member of the independent set that the audit does not cover is a review finding' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#167 AC3-mp: deleting the re-sweep identifier-located clause turns its pin RED" \
+  'identifier-located, not hunk-located'
+assert_pin_red_on_removal "#167 AC3-mp: deleting the stale-comment-is-a-finding clause turns its pin RED" \
+  'A comment that still describes the pre-change mechanism is a finding'
 
 # Drift guard: the Phase 2.3 sweep list lives in three places that must stay in
 # sync — the sweep body in implement/SKILL.md, the "Sweep selection" always-run
