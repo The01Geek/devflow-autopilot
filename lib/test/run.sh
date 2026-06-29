@@ -2076,6 +2076,10 @@ assert_eq "#169: workpad.py routes volatile misses through _report_failed_ticks 
 # Four mutation-proven drift guards: assert_pin_red_on_removal verifies both
 # presence+uniqueness (its PASS-before probe) and deletion (its FAIL-after
 # probe), satisfying AC7 without a separate assert_pin_unique per literal.
+# The fifth pin guards the behavioral contract: Pass 3's contradiction path
+# must carry --status Blocked (not just --reflection-kind blocked).
+assert_pin_unique "#184: Phase 1.6 blocked path carries --status Blocked on the policy-contradiction call" \
+  'update $ISSUE_NUMBER --status Blocked --reflection-kind blocked --reflection "issue-claim audit (policy)' "$IMPL_SKILL"
 assert_pin_red_on_removal "#184: deleting the audit heading turns its pin RED" \
   '### 1.6 Issue-Claim Audit' "$IMPL_SKILL"
 assert_pin_red_on_removal "#184: deleting the count-claim type literal turns its pin RED" \
