@@ -53,22 +53,15 @@ devflow_render_report() {
               + (if (.cooldown_active // false) then " — cooldown, skipped this run" else "" end)'
     fi
 
-    # Intervention PRs
-    printf '\n## Intervention PRs\n\n'
-    local intervention_count
-    intervention_count="$(echo "$summary_json" | jq -r '(.intervention_prs // []) | length')"
-    if [ "$intervention_count" -eq 0 ]; then
-        printf '_None opened._\n'
+    # Issues filed — one per actionable pattern (the loop proposes, not disposes:
+    # each pattern becomes a GitHub issue for the normal implement -> review pipeline)
+    printf '\n## Issues filed\n\n'
+    local issues_count
+    issues_count="$(echo "$summary_json" | jq -r '(.intervention_issues // []) | length')"
+    if [ "$issues_count" -eq 0 ]; then
+        printf '_None filed._\n'
     else
-        echo "$summary_json" | jq -r '(.intervention_prs // [])[] | "- PR #\(.number) — `\(.tag)`"'
-    fi
-
-    # Meta-issues filed (omit section if empty)
-    local meta_count
-    meta_count="$(echo "$summary_json" | jq -r '(.meta_issues // []) | length')"
-    if [ "$meta_count" -gt 0 ]; then
-        printf '\n## Meta-issues filed\n\n'
-        echo "$summary_json" | jq -r '(.meta_issues // [])[] | "- `\(.tag)` — \(.url)"'
+        echo "$summary_json" | jq -r '(.intervention_issues // [])[] | "- `\(.tag)` — \(.url)"'
     fi
 
     # Cooldown-skipped patterns (omit section if empty)

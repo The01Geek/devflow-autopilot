@@ -2,7 +2,8 @@
 # SPDX-FileCopyrightText: 2026 Daniel Radman
 # SPDX-License-Identifier: MIT
 # actionable-patterns.sh — emit the list of patterns that currently warrant
-# an audit intervention, honouring min_occurrences and cooldown_days config.
+# being filed as a retrospective issue, honouring min_occurrences and
+# cooldown_days config.
 #
 # Usage:
 #   bash lib/actionable-patterns.sh <retrospectives.jsonl> <overrides.json>
@@ -15,7 +16,7 @@
 #   Compact JSON array of actionable pattern objects, each shaped as:
 #     {
 #       "tag":              <string>,          # category slug (== slug)
-#       "slug":             <string>,          # URL/branch-safe; the audit branch slug
+#       "slug":             <string>,          # URL-safe issue-filing slug (== tag)
 #       "occurrence_count": <int>,
 #       "status":           "open"|"regressed",
 #       "first_seen":       <iso8601|null>,
@@ -24,8 +25,9 @@
 #       "descriptors":      [<string>, ...],   # union of the occurrences' free-text
 #                                              #   descriptors — Stage B reads these to
 #                                              #   decide if the cluster is one fix or many
-#       "cooldown_active":  <bool>             # true if an open audit PR for this slug
-#                                              #   was created within cooldown_days
+#       "cooldown_active":  <bool>             # true if an open filed retrospective
+#                                              #   issue for this slug was created
+#                                              #   within cooldown_days
 #     }
 #
 # Environment:
@@ -73,20 +75,43 @@ else
   )"
 fi
 
-# ── Fetch open audit PRs and build slug→createdAt map ───────────────────────
-OPEN_AUDIT_PR_MAP="$(
-  "$DEVFLOW_GH" pr list --state open --json number,headRefName,createdAt --limit 200 \
+# ── Fetch open filed retrospective issues and build slug→createdAt map ───────
+# Each pattern the loop files becomes an open issue titled
+# "[devflow-retrospective] meta: <slug> — <title>" (see lib/meta-issue.sh). A
+# pattern with such an issue still open and created within cooldown_days is in
+# cooldown — don't re-file it this run. (The permanent overrides.json dismissal
+# meta-issue.sh writes is the cross-run guard; this is the within-window one,
+# meaningful when a maintainer has cleared the dismissal to allow re-filing.)
+# Split the fetch from the jq so a gh failure (auth/rate-limit/network) and a
+# non-JSON body each get a SPECIFIC breadcrumb naming the cause — the same
+# fail-loud discipline meta-issue.sh's de-dupe lookup uses — instead of an opaque
+# set -e/pipefail abort that points at neither the cooldown step nor its cause.
+_OPEN_ISSUES_RAW="$("$DEVFLOW_GH" issue list --search "[devflow-retrospective] meta: in:title" \
+    --state open --json number,title,createdAt --limit 200)" \
+  || { echo "::error::actionable-patterns: open-issue cooldown lookup failed (gh issue list)" >&2; exit 1; }
+OPEN_ISSUE_MAP="$(
+  printf '%s' "$_OPEN_ISSUES_RAW" \
   | jq '
       [ .[]
-        | select(.headRefName | startswith("devflow/audit-"))
-        | {
-            slug: (
-              .headRefName
-              | ltrimstr("devflow/audit-")
-              | gsub("^(?<p>.*)-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9a-f]+$"; "\(.p)")
-            ),
-            createdAt: .createdAt
-          }
+        # Parse the slug token from the de-dup title prefix; drop any issue whose
+        # title does not carry it (foreign issue that matched the search loosely).
+        # The capture()? + // {} chain tolerates a non-string OR non-matching
+        # title by yielding {} (then dropped), mirroring the meta-issue.sh de-dupe
+        # re-parse exactly — so a foreign row is dropped, never an opaque abort.
+        | (((.title | capture("\\[devflow-retrospective\\] meta: (?<slug>[A-Za-z0-9_-]+)")?) // {}) | .slug) as $slug
+        | select($slug != null and $slug != "")
+        # Guard the operand the cooldown comparison feeds to strptime below by
+        # parsing it with the SAME strptime contract here and dropping the row if
+        # it fails. A shape regex is a SUPERSET of what strptime accepts (it
+        # admits out-of-range fields like month 13 / hour 99 that strptime
+        # range-rejects and aborts on), so the guard and the consumer would not
+        # share one contract; parsing with strptime itself makes the drop total —
+        # every row that survives here is guaranteed to parse in the OUTPUT block.
+        # `try ... catch null` also subsumes the non-string and "" / fractional /
+        # non-Z cases. Dropping the row (like an unparseable slug) keeps the
+        # cooldown comparison total; the OUTPUT breadcrumb is the fail-loud backstop.
+        | select(((.createdAt | type) == "string") and ((.createdAt | (try strptime("%Y-%m-%dT%H:%M:%SZ") catch null)) != null))
+        | { slug: $slug, createdAt: .createdAt }
       ]
       | reduce .[] as $item (
           {};
@@ -97,7 +122,25 @@ OPEN_AUDIT_PR_MAP="$(
           end
         )
     '
-)"
+)" || { echo "::error::actionable-patterns: could not parse the open-issue list as JSON (gh returned non-JSON?): $(printf '%s' "$_OPEN_ISSUES_RAW" | head -c 200)" >&2; exit 1; }
+
+# Defense-in-depth: the map above silently drops any open issue whose title
+# carries the de-dup prefix but whose slug token does not match the capture. A
+# slug-grammar drift between meta-issue.sh's title format and this capture would
+# make every drifted issue invisible to the cooldown and re-file duplicates with
+# no breadcrumb — so count the drops and surface them (the round-trip test pins
+# the canonical case; this catches a future drift in the field).
+_DROPPED_COUNT="$(
+  printf '%s' "$_OPEN_ISSUES_RAW" \
+  | jq '[ .[]
+          | select(((.title | type) == "string")
+                   and (.title | test("\\[devflow-retrospective\\] meta: "))
+                   and ((.title | test("\\[devflow-retrospective\\] meta: [A-Za-z0-9_-]+")) | not)) ]
+        | length'
+)" || { echo "::error::actionable-patterns: the slug-drift drop-counter failed to evaluate the open-issue list" >&2; exit 1; }
+if [ "${_DROPPED_COUNT:-0}" -gt 0 ]; then
+    echo "::warning::actionable-patterns: ${_DROPPED_COUNT} open '[devflow-retrospective] meta:' issue(s) had an unparseable slug and were skipped for cooldown — possible slug-grammar drift vs meta-issue.sh" >&2
+fi
 
 # ── Cooldown boundary (epoch seconds for COOLDOWN days ago) ─────────────────
 # Portable date math via python3 (GNU `date -d` is unavailable on macOS/BSD).
@@ -108,10 +151,10 @@ COOLDOWN_EPOCH="$(python3 -c "import datetime as d; print(int((d.datetime.now(d.
 # and occurrence_count >= MIN, emit an entry with cooldown_active resolved.
 
 OUTPUT="$(
-  jq -n --argjson pattern_view   "$PATTERN_VIEW" \
-        --argjson open_pr_map    "$OPEN_AUDIT_PR_MAP" \
-        --argjson min            "$MIN" \
-        --argjson cooldown_epoch "$COOLDOWN_EPOCH" '
+  jq -n --argjson pattern_view    "$PATTERN_VIEW" \
+        --argjson open_issue_map  "$OPEN_ISSUE_MAP" \
+        --argjson min             "$MIN" \
+        --argjson cooldown_epoch  "$COOLDOWN_EPOCH" '
     [
       $pattern_view
       | to_entries[]
@@ -121,10 +164,10 @@ OUTPUT="$(
       | .value as $v
       # keys from compute-patterns.jq are already canonical slugs
       | $tag as $slug
-      | ($open_pr_map | has($slug)) as $has_pr
+      | ($open_issue_map | has($slug)) as $has_issue
       | (
-          if $has_pr then
-            (($open_pr_map[$slug]
+          if $has_issue then
+            (($open_issue_map[$slug]
               | strptime("%Y-%m-%dT%H:%M:%SZ")
               | mktime) >= $cooldown_epoch)
           else false
@@ -143,6 +186,6 @@ OUTPUT="$(
         }
     ]
   '
-)"
+)" || { echo "::error::actionable-patterns: failed to build the actionable-pattern output (cooldown comparison aborted?)" >&2; exit 1; }
 
 printf '%s\n' "$OUTPUT"
