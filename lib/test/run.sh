@@ -1597,23 +1597,23 @@ assert_eq "base_branch guard: hard-failure read (rc≠0, empty) → main" "main"
 # (the main repo's .git) differs from its --git-dir (.git/worktrees/<name>); in the
 # main working tree they are equal. Token pins so a SKILL refactor that drops the
 # mechanism fails HERE rather than silently regressing to a second branch.
-assert_eq "#168 worktree detect: SKILL captures CUR via git branch --show-current" "yes" \
-  "$(grep -qF 'CUR=$(git branch --show-current)' "$IMPL_SKILL" && echo yes || echo no)"
-assert_eq "#168 worktree detect: SKILL reads --git-common-dir in absolute form" "yes" \
-  "$(grep -qF 'git rev-parse --path-format=absolute --git-common-dir' "$IMPL_SKILL" && echo yes || echo no)"
-assert_eq "#168 worktree detect: SKILL reads --git-dir in absolute form" "yes" \
-  "$(grep -qF 'git rev-parse --path-format=absolute --git-dir' "$IMPL_SKILL" && echo yes || echo no)"
-assert_eq "#168 worktree detect: SKILL guards reuse against the base branch (never builds on trunk)" "yes" \
-  "$(grep -qF '"$CUR" != "$BASE"' "$IMPL_SKILL" && echo yes || echo no)"
+assert_pin_unique "#168 worktree detect: SKILL captures CUR via git branch --show-current" \
+  'CUR=$(git branch --show-current)' "$IMPL_SKILL"
+assert_pin_unique "#168 worktree detect: SKILL reads --git-common-dir in absolute form" \
+  'git rev-parse --path-format=absolute --git-common-dir' "$IMPL_SKILL"
+assert_pin_unique "#168 worktree detect: SKILL reads --git-dir in absolute form" \
+  'git rev-parse --path-format=absolute --git-dir' "$IMPL_SKILL"
+assert_pin_unique "#168 worktree detect: SKILL guards reuse against the base branch (never builds on trunk)" \
+  '"$CUR" != "$BASE"' "$IMPL_SKILL"
 # The base/detached-HEAD guard must wrap BOTH reuse signals (Signal 2's name match too),
 # so a base branch named like a feature branch (base_branch=issue-next) still CREATEs.
 # Pin the rev-parse-failure breadcrumb so the silent-degrade path stays attributable.
-assert_eq "#168 worktree detect: SKILL leaves a breadcrumb when git rev-parse fails" "yes" \
-  "$(grep -qF 'could not resolve the git-dir layout' "$IMPL_SKILL" && echo yes || echo no)"
+assert_pin_unique "#168 worktree detect: SKILL leaves a breadcrumb when git rev-parse fails" \
+  'could not resolve the git-dir layout' "$IMPL_SKILL"
 assert_eq "#168 worktree detect: SKILL names the linked-worktree signal" "yes" \
-  "$(grep -qiF 'linked worktree' "$IMPL_SKILL" && echo yes || echo no)"
-assert_eq "#168 worktree detect: SKILL keeps the cloud-tier name match as a second skip condition" "yes" \
-  "$(grep -qF 'claude/issue-*|issue-*)' "$IMPL_SKILL" && echo yes || echo no)"
+  "$(grep -qF 'linked worktree' "$IMPL_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: token appears in both prose and code (4 occurrences)
+assert_pin_unique "#168 worktree detect: SKILL keeps the cloud-tier name match as a second skip condition" \
+  'claude/issue-*|issue-*) USE_CURRENT=1' "$IMPL_SKILL"
 
 # Behavioral coverage: mirror Phase 1.4's reuse-vs-create decision and exercise the
 # whole matrix. Keep behaviorally aligned with the SKILL block (it is a restructured
