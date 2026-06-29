@@ -293,14 +293,21 @@ possible, the defense is now **mechanical**: it lives in `lib/test/run.sh` and f
 runs (CI on every push, or locally) — not in real time mid-loop — so it catches the regression at
 suite/CI time no matter whether the loop that produced the diff was driven by the skill or by hand:
 
-- **Target-uniqueness guard (`assert_pin_unique`).** Every park-calibration SKILL pin now asserts its
-  literal occurs *exactly once* in the resolved SKILL — a duplicated or absent literal fails the suite,
-  closing the whole-file-scan hole that let PR #154's guard pass. A bounded self-scanning meta-test
-  (scoped to the park-calibration region, not repo-wide) fails if a new raw `grep`-based SKILL guard —
-  any flag spelling, against a `$..._SKILL` var or a literal `…/SKILL.md` path — is added to that
-  region without routing through the helper, and positive controls
-  fail it closed if the region markers are deleted so the scan itself cannot go vacuous. Both are
-  mutation-proven: the suite goes RED on a deliberately non-unique pin and on a raw bypass guard.
+- **Target-uniqueness guard (`assert_pin_unique`).** Every SKILL presence-pin across the suite now
+  asserts its literal occurs *exactly once* in the resolved SKILL — a duplicated or absent literal fails
+  the suite, closing the whole-file-scan hole that let PR #154's guard pass. Originally scoped to the
+  park-calibration region, the enforcement is now **repo-wide** (issue #157): the raw `grep -qF`
+  presence-pins throughout `lib/test/run.sh` were converted to `assert_pin_unique`, and the guards that
+  genuinely can't route through it (non-unique-by-design count assertions, absence pins, case-insensitive
+  or loop-variable targets, `--`-leading literals) each carry a `# raw-guard-ok: <reason>` allowlist
+  marker. A repo-wide self-scanning meta-test (`count_unallowlisted_raw_skill_guards`) fails if *any* raw
+  `grep`-based SKILL guard — any flag spelling, against a `$..._SKILL` var or a literal `…/SKILL.md`
+  path — exists anywhere in the suite without either routing through the helper or carrying a
+  properly-formatted allowlist marker. An in-region control (`count_region_nonhelper_stmts`) and the
+  shared `region_lines()` helper keep the original park-calibration positive controls fail-closed if the
+  region markers are deleted, so the scan itself cannot go vacuous. All are mutation-proven: the suite
+  goes RED on a deliberately non-unique pin, on an unallowlisted raw bypass guard anywhere in the suite,
+  and on a deleted region marker.
 - **Sentinel-completeness signal.** The park-calibration gate (Step 2.6) records a mandatory
   `## Devflow Reflection` bullet on every run — a re-grade routing or the gate-clean sentinel.
   `lib/test/run.sh` pins that sentinel contract, and the `/devflow:review-and-fix` Loop-Exit machinery
