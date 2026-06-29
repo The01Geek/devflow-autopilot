@@ -1591,6 +1591,67 @@ assert_eq "base_branch guard: configured value honored"            "develop" "$(
 assert_eq "base_branch guard: empty read (rc 0) → main"            "main"    "$(base_guard '')"
 assert_eq "base_branch guard: hard-failure read (rc≠0, empty) → main" "main" "$(base_guard '' 2)"
 
+# Worktree-branch detection (#168): Phase 1.4 must reuse the branch a linked git
+# worktree was pre-created on (whatever its name) instead of creating a SECOND
+# branch. The signal is naming-independent — a linked worktree's --git-common-dir
+# (the main repo's .git) differs from its --git-dir (.git/worktrees/<name>); in the
+# main working tree they are equal. Token pins so a SKILL refactor that drops the
+# mechanism fails HERE rather than silently regressing to a second branch.
+assert_eq "#168 worktree detect: SKILL captures CUR via git branch --show-current" "yes" \
+  "$(grep -qF 'CUR=$(git branch --show-current)' "$IMPL_SKILL" && echo yes || echo no)"
+assert_eq "#168 worktree detect: SKILL reads --git-common-dir" "yes" \
+  "$(grep -qF 'git rev-parse --git-common-dir' "$IMPL_SKILL" && echo yes || echo no)"
+assert_eq "#168 worktree detect: SKILL reads --git-dir" "yes" \
+  "$(grep -qF 'git rev-parse --git-dir' "$IMPL_SKILL" && echo yes || echo no)"
+assert_eq "#168 worktree detect: SKILL guards reuse against the base branch (never builds on trunk)" "yes" \
+  "$(grep -qF '"$CUR" != "$BASE"' "$IMPL_SKILL" && echo yes || echo no)"
+assert_eq "#168 worktree detect: SKILL names the linked-worktree signal" "yes" \
+  "$(grep -qiF 'linked worktree' "$IMPL_SKILL" && echo yes || echo no)"
+assert_eq "#168 worktree detect: SKILL keeps the cloud-tier name match as a second skip condition" "yes" \
+  "$(grep -qF 'claude/issue-*|issue-*)' "$IMPL_SKILL" && echo yes || echo no)"
+
+# Behavioral coverage: mirror Phase 1.4's reuse-vs-create decision and exercise the
+# whole matrix. Keep byte-aligned with the SKILL block. Echoes "reuse" (skip
+# creation, use CUR) or "create" (fall through to branch-for-issue.py).
+#   decide_branch <git-common-dir> <git-dir> <CUR> <BASE>
+decide_branch() {
+  local common="$1" gitdir="$2" cur="$3" base="$4"
+  # Linked-worktree signal: common-dir != git-dir. Reuse ONLY when CUR is a real
+  # branch (non-empty, not a detached HEAD) and NOT the base branch.
+  if [ "$common" != "$gitdir" ] && [ -n "$cur" ] && [ "$cur" != "$base" ]; then
+    echo reuse; return
+  fi
+  # Cloud-tier name match (GitHub Action path; not a worktree).
+  case "$cur" in
+    claude/issue-*|issue-*) echo reuse; return ;;
+  esac
+  echo create
+}
+# AC1+AC2: in a linked worktree, a harness branch whose name matches NEITHER pattern
+# is still reused via the worktree signal — exactly the case that used to create a
+# second branch.
+assert_eq "#168 worktree detect: worktree + worktree-issue-165 (name matches neither) → reuse" "reuse" \
+  "$(decide_branch /repo/.git /repo/.git/worktrees/issue-165 worktree-issue-165 main)"
+# AC3: cloud-tier name detection still skips creation, in the main working tree (no worktree).
+assert_eq "#168 worktree detect: main tree + issue-5 → reuse (name match)" "reuse" \
+  "$(decide_branch /repo/.git /repo/.git issue-5 main)"
+assert_eq "#168 worktree detect: main tree + claude/issue-5 → reuse (name match)" "reuse" \
+  "$(decide_branch /repo/.git /repo/.git claude/issue-5 main)"
+# AC4 (fail-closed): inside a worktree but ON the base branch → CREATE, never reuse —
+# the change must never build directly on trunk.
+assert_eq "#168 worktree detect: worktree + base branch (main) → create [fail-closed]" "create" \
+  "$(decide_branch /repo/.git /repo/.git/worktrees/x main main)"
+assert_eq "#168 worktree detect: worktree + base branch (develop) → create [fail-closed]" "create" \
+  "$(decide_branch /repo/.git /repo/.git/worktrees/x develop develop)"
+# Fail-closed: detached HEAD inside a worktree (empty CUR) → CREATE, never reuse an empty branch.
+assert_eq "#168 worktree detect: worktree + detached HEAD (empty CUR) → create [fail-closed]" "create" \
+  "$(decide_branch /repo/.git /repo/.git/worktrees/x '' main)"
+# AC5: not in a worktree and not a recognized feature branch → CREATE (branch-for-issue.py path).
+assert_eq "#168 worktree detect: main tree + feature-x (no worktree, no name match) → create" "create" \
+  "$(decide_branch /repo/.git /repo/.git feature-x main)"
+assert_eq "#168 worktree detect: main tree + base branch → create" "create" \
+  "$(decide_branch /repo/.git /repo/.git main main)"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "devflow_implement.implement_pr_state (schema + resolution + Phase 4.3 gate)"
 # ────────────────────────────────────────────────────────────────────────────
