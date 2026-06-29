@@ -267,7 +267,7 @@ The base branch is **read from config** (`base_branch` in `.devflow/config.json`
 # value or nothing, never a partial/garbage string.
 BASE=$(${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .base_branch main) || BASE=""
 [ -n "$BASE" ] || { echo "devflow: base_branch read failed (malformed config or missing node); falling back to 'main'" >&2; BASE=main; }
-CUR=$(git branch --show-current)
+CUR=$(git branch --show-current 2>/dev/null) || CUR=""
 ```
 
 Now decide. Set `USE_CURRENT=1` to mean "reuse `$CUR`, skip creation":
@@ -283,7 +283,7 @@ USE_CURRENT=
 # `git fetch` breadcrumb later) instead of silently degrading.
 COMMON_DIR=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || COMMON_DIR=""
 GIT_DIR_PATH=$(git rev-parse --path-format=absolute --git-dir 2>/dev/null) || GIT_DIR_PATH=""
-[ -n "$COMMON_DIR" ] && [ -n "$GIT_DIR_PATH" ] || echo "devflow: could not resolve the git-dir layout (git rev-parse failed) — treating as the main working tree and creating a branch; if this is actually a worktree, detection failed (check repo integrity)" >&2
+[ -n "$COMMON_DIR" ] && [ -n "$GIT_DIR_PATH" ] || echo "devflow: could not resolve the git-dir layout (git rev-parse failed) — linked-worktree detection (Signal 1) disabled; if this is actually a worktree, detection failed (check repo integrity)" >&2
 # Reuse $CUR ONLY when it is a real branch (non-empty — not a detached HEAD) and NOT the
 # base branch (never build directly on trunk, even in a worktree). These two guards
 # apply to BOTH reuse signals, so they sit out here once — a base branch that happens to

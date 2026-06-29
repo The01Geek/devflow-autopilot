@@ -223,7 +223,7 @@ DevFlow maintains **exactly one** marker-tagged comment on the GitHub issue for 
 - **1.1** Fetch the issue (`gh issue view`), note a `bug` label.
 - **1.2** Parse Acceptance Criteria via `scripts/parse-acs.py`; tag post-merge items.
 - **1.3** Initialize or resume the workpad; if `Status: Blocked`, surface the reflection and pause.
-- **1.4** Create or detect the branch (`scripts/branch-for-issue.py`, off `origin/main`).
+- **1.4** Create or detect the branch (`scripts/branch-for-issue.py`, off the config-driven `base_branch`). Branch creation is skipped when the run is already in a linked git worktree (naming-independent harness signal) or when the current branch matches a recognized feature-branch pattern — the existing branch is reused as-is.
 - **1.5** Push the branch.
 
 ### Phase 2: Discover, Plan & Implement
