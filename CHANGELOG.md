@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.26] — 2026-06-29
+
+### Added
+- **Phase 4.1 now enforces that every file path named in the issue body's "Documentation Needed" section appears in the PR diff before ticking `Documentation`.** After the `devflow:docs` subagent commits its changes, the orchestrator scans the issue body for a `**Documentation Needed**` bullet, extracts every file-path token from its text and sub-bullets, and cross-checks each against `git diff --name-only "origin/$BASE...HEAD"`. A named path absent from the diff triggers a self-heal: the orchestrator performs the missing update itself (using the issue body's prose as the specification) and commits. When the correct content cannot be derived from context, Phase 4.1 routes to the Blocked path with a `--reflection-kind blocked` reflection naming the absent path. A path with no extractable file paths (or an absent section) is a no-op. Three `assert_pin_unique` token guards in `lib/test/run.sh` lock the self-heal condition, the three-dot diff range, and the Blocked arm — written RED-first against the unmodified skill. (#190, closes #185)
+
 ## [2.8.25] — 2026-06-29
 
 ### Added
