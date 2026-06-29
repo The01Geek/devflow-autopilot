@@ -2093,15 +2093,23 @@ assert_eq "#169: workpad.py routes volatile misses through _report_failed_ticks 
   "$(grep -qF 'def _report_failed_ticks' "$WP_PY" && grep -qF 'NO workpad change was persisted' "$WP_PY" && echo yes || echo no)"
 
 # ── issue #185: Phase 4.1 Documentation Needed cross-check ──────────────────
-# Phase 4.1 now cross-checks file paths named in the issue body "Documentation
-# Needed" section against the diff before ticking Documentation. Pin the
-# load-bearing tokens: the condition/self-heal phrase, the git diff range, and
-# the Blocked-path arm.
-assert_pin_unique "#185: Phase 4.1 keeps the absent-file self-heal condition (A)" \
+# Phase 4.1 adds a two-stage enforcement to the docs pass:
+#   Stage 1 pre-flight: extract Documentation Needed paths and inject them
+#     into the docs subagent dispatch instruction as required deliverables.
+#   Stage 2 post-hoc: cross-check each path against the PR diff; self-heal or
+#     route to Blocked for absent paths.
+# Pin the load-bearing tokens across both stages.
+assert_pin_unique "#185: Phase 4.1 Stage 1 requires docs subagent to treat named paths as mandatory (D)" \
+  'treat each as a mandatory deliverable' "$IMPL_SKILL"
+assert_pin_unique "#185: Phase 4.1 Stage 2 no-op escape hatch when no paths extracted (E)" \
+  'this cross-check is a no-op' "$IMPL_SKILL"
+assert_pin_unique "#185: Phase 4.1 Stage 2 bare-filename matching rule (F)" \
+  'bare filename (contains no' "$IMPL_SKILL"
+assert_pin_unique "#185: Phase 4.1 Stage 2 keeps the absent-file self-heal condition (A)" \
   'absent from the diff, perform the missing update' "$IMPL_SKILL"
-assert_pin_unique "#185: Phase 4.1 uses the three-dot origin/\$BASE...HEAD diff range (B)" \
+assert_pin_unique "#185: Phase 4.1 Stage 2 uses the three-dot origin/\$BASE...HEAD diff range (B)" \
   'git diff --name-only "origin/$BASE...HEAD"' "$IMPL_SKILL"
-assert_pin_unique "#185: Phase 4.1 Blocked arm names the missing-content condition (C)" \
+assert_pin_unique "#185: Phase 4.1 Stage 2 Blocked arm names the missing-content condition (C)" \
   'Documentation Needed file content cannot be determined' "$IMPL_SKILL"
 
 # ────────────────────────────────────────────────────────────────────────────

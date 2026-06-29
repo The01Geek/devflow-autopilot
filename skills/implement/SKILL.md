@@ -1058,9 +1058,11 @@ The rc handling above distinguishes three cases: a clean filing (rc 0), the beni
 
 ### 4.1 Update Documentation
 
+**Stage 1 — Pre-flight briefing (before dispatch).** Scan the issue body (held in context since Phase 1.1; re-read via `gh issue view $ISSUE_NUMBER --json body --jq '.body'` if no longer in scope) for a `**Documentation Needed**` bullet — it is a sub-bullet of `## Implementation Notes` in the issue template. Extract every token that looks like a file path (contains `/` or ends in a recognizable extension: `.md`, `.sh`, `.json`, `.py`, `.yml`, `.yaml`, etc.) from that bullet's text and any sub-bullets beneath it, up to the next `- **` bullet or section heading. Note these as required deliverables for Stage 2. If one or more paths are found, append to the subagent's dispatch instruction: *"The issue requires the following files to be updated; treat each as a mandatory deliverable: `<path1>`, `<path2>`, …"* If no paths are extractable (the section is absent or contains no path-like tokens), Stage 1 is a no-op and the subagent is dispatched with its normal instruction unchanged.
+
 Spawn a **subagent** (using the Agent tool) and instruct it to invoke the `devflow:docs` skill. Pass it:
 - The GitHub issue title, body, and number
-- Instruction: "Invoke the `devflow:docs` skill to update all documentation (internal docs, external docs, release notes). The issue context is provided for release notes generation."
+- Instruction: "Invoke the `devflow:docs` skill to update all documentation (internal docs, external docs, release notes). The issue context is provided for release notes generation." (Append the Stage 1 required-deliverables list if any paths were extracted.)
 
 After the subagent completes, commit any documentation changes. Read the docs paths from `.devflow/config.json`:
 
@@ -1087,15 +1089,15 @@ CLEAN_LABELS=$(echo "$DOCS_LABELS" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:
 [ -n "$CLEAN_LABELS" ] && gh pr edit --add-label "$CLEAN_LABELS"
 ```
 
-**Documentation Needed cross-check (mandatory when the issue names specific files).** After the docs-subagent commit and before ticking `Documentation`, verify that every file path the issue body explicitly names has been touched:
+**Stage 2 — Post-hoc diff gate (mandatory when Stage 1 found named paths).** After the docs-subagent commit and before ticking `Documentation`, verify that every required-deliverable path from Stage 1 has been touched:
 
-1. **Extract named paths.** Scan the issue body (held in context since Phase 1.1) for a `**Documentation Needed**` bullet — it is a sub-bullet of `## Implementation Notes` in the issue template. Collect every token that looks like a file path (contains `/` or ends in a recognizable extension: `.md`, `.sh`, `.json`, `.py`, etc.) from that bullet's text and any sub-bullets beneath it, up to the next `- **` bullet or section heading. If no paths are extractable (the section is absent or contains no path-like tokens), this cross-check is a no-op — proceed directly to `--tick-progress "Documentation"` below.
+1. **Use the paths from Stage 1.** If Stage 1 extracted no paths, this cross-check is a no-op — proceed directly to `--tick-progress "Documentation"` below. Otherwise use those paths (re-extract if no longer in context: scan the issue body using the same rule as Stage 1, re-reading from GitHub if needed).
 
 2. **Compare against the diff.** For each extracted path, check whether it appears in the PR's cumulative diff (`$BASE` is the base branch from Phase 1.4; re-read via `config-get.sh` if no longer in scope):
    ```bash
    git diff --name-only "origin/$BASE...HEAD"
    ```
-   A path is satisfied when its basename or its exact path appears in the diff output (a basename match counts — e.g. `DEVFLOW_SYSTEM_OVERVIEW.md` satisfies `docs/DEVFLOW_SYSTEM_OVERVIEW.md`).
+   A path is satisfied as follows: if it is a bare filename (contains no `/`), any diff entry whose basename matches it counts as satisfied (e.g. the diff entry `docs/DEVFLOW_SYSTEM_OVERVIEW.md` satisfies the named path `DEVFLOW_SYSTEM_OVERVIEW.md`); if it contains a `/`, it must appear as an exact match in the diff output.
 
 3. **Self-heal or block for each absent path.** For each named path absent from the diff, perform the missing update: if the correct update can be derived from the issue body's `**Documentation Needed**` prose, perform the missing update yourself, record a workpad note (`workpad.py update $ISSUE_NUMBER --note "Phase 4.1 self-heal: <path> absent from diff; performed update from Documentation Needed prose"`), commit (`docs:` prefix), and push. If the correct update cannot be derived from context (the prose is insufficient), do not tick `Documentation` — route to the Blocked path: `workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind blocked --reflection "Phase 4.1: Documentation Needed file content cannot be determined for <path> — the docs subagent did not update this file and the correct content cannot be derived from the issue body; update manually and re-run Phase 4.1"`, then emit the 👎 outcome reaction (see *Outcome reaction* in the Workpad Reference) and stop.
 
