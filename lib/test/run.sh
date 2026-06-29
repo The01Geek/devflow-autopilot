@@ -1892,32 +1892,37 @@ assert_eq "implement finalize: workpad.py owns the 'PR marked ready' label (temp
 # exhaustively in lib/test/test_python_scripts.py; these are the doc-mirror pins.)
 assert_eq "#169: workpad.py defines the --tick-ac-n / --tick-plan-n index flags" "yes" \
   "$(grep -qF -- '--tick-ac-n' "$WP_PY" && grep -qF -- '--tick-plan-n' "$WP_PY" && echo yes || echo no)"
-assert_eq "#169: implement/SKILL.md documents --tick-ac-n (index AC tick)" "yes" \
-  "$(grep -qF -- '--tick-ac-n' "$IMPL_SKILL" && echo yes || echo no)"
-assert_eq "#169: implement/SKILL.md documents --tick-plan-n (index Plan tick)" "yes" \
-  "$(grep -qF -- '--tick-plan-n' "$IMPL_SKILL" && echo yes || echo no)"
-# Tighten the contract pin to a target-unique phrase (a bare 'volatile' grep would
-# stay green if the contract paragraph were deleted but the word survived elsewhere).
-assert_eq "#169: implement/SKILL.md carries the named volatile-vs-structural failure-isolation contract" "yes" \
-  "$(grep -qF 'Failure-isolation contract (volatile vs. structural)' "$IMPL_SKILL" && echo yes || echo no)"
+# SKILL-targeted pins route through assert_pin_unique (#157 AC2 raw-guard rule): the
+# flag-table ROW literal is target-unique (count 1), so it pins exactly the doc row —
+# stronger than a bare flag mention (which recurs across the table + call sites).
+assert_pin_unique "#169: implement/SKILL.md flag-table documents --tick-ac-n (index AC tick)" \
+  '| `--tick-ac-n N`' "$IMPL_SKILL"
+assert_pin_unique "#169: implement/SKILL.md flag-table documents --tick-plan-n (index Plan tick)" \
+  '| `--tick-plan-n N`' "$IMPL_SKILL"
+# The named contract heading is target-unique (a bare 'volatile' grep would stay green
+# if the contract paragraph were deleted but the word survived elsewhere).
+assert_pin_unique "#169: implement/SKILL.md carries the named volatile-vs-structural failure-isolation contract" \
+  'Failure-isolation contract (volatile vs. structural)' "$IMPL_SKILL"
+# ABSENCE pin (the hand-picked substring example must be GONE) — assert_pin_unique
+# (count==1) cannot express absence, so it carries an explicit #157 allowlist marker.
 assert_eq "#169: Phase 3.4 AC-tick uses the index form (no hand-picked '{substring of AC text}')" "yes" \
-  "$(grep -qF -- '--tick-ac "{substring of AC text}"' "$IMPL_SKILL" && echo no || echo yes)"
-# Finding 1 (review): the gate must CONSUME the new non-zero-exit contract, not just
-# run the tick and advance. The SKILL must tell callers a tick's non-zero exit means
-# the tick did not land — re-resolve/re-tick or take the Blocked path — never advance
-# on the stdout body alone (which PATCHes even when a tick missed).
-assert_eq "#169: implement/SKILL.md tells callers to check the tick exit code, not the stdout body alone" "yes" \
-  "$(grep -qF 'never advance on the stdout body alone' "$IMPL_SKILL" && echo yes || echo no)"
-# Finding 4 (review): the 2.2.6 reconciliation note must reference the index form the
-# gate now ticks with (`--tick-ac-n`), not the superseded substring `--tick-ac`.
+  "$(grep -qF -- '--tick-ac "{substring of AC text}"' "$IMPL_SKILL" && echo no || echo yes)"  # raw-guard-ok: absence pin — the superseded substring example must be GONE
+# Finding 1 (review): the gate must CONSUME the new non-zero-exit contract — the SKILL
+# tells callers a tick's non-zero exit means it did not land (never advance on the
+# stdout body alone). Target-unique phrase → assert_pin_unique.
+assert_pin_unique "#169: implement/SKILL.md tells callers to check the tick exit code, not the stdout body alone" \
+  'never advance on the stdout body alone' "$IMPL_SKILL"
+# Finding 4 (review): ABSENCE pin — the stale '--tick-ac later' note must be gone
+# (replaced by '--tick-ac-n'); allowlist marker per #157 (absence is not expressible
+# via assert_pin_unique).
 assert_eq "#169: implement/SKILL.md 2.2.6 note references the index gate-tick flag (no stale '--tick-ac later')" "yes" \
-  "$(grep -qF 'will tick via `--tick-ac` later' "$IMPL_SKILL" && echo no || echo yes)"
-# Shadow Finding 2 (review): the SKILL must tell callers a volatile miss already
-# PATCHed the status/notes, so on a non-zero exit they re-tick ONLY the row(s) and do
-# not re-send the whole call (which would double-write append-only notes). Coupled with
-# workpad.py's breadcrumb wording, which test_python_scripts.py shadow-F2 pins.
-assert_eq "#169: implement/SKILL.md warns re-tick-only (don't re-send the whole call on a volatile miss)" "yes" \
-  "$(grep -qF 'do not blindly re-send the whole call' "$IMPL_SKILL" && echo yes || echo no)"
+  "$(grep -qF 'will tick via `--tick-ac` later' "$IMPL_SKILL" && echo no || echo yes)"  # raw-guard-ok: absence pin — the superseded '--tick-ac later' note must be GONE
+# Shadow Finding 2 (review): the SKILL tells callers a volatile miss already PATCHed the
+# status/notes, so on a non-zero exit they re-tick ONLY the row(s) and do not re-send the
+# whole call (which would double-write append-only notes). Coupled with workpad.py's
+# breadcrumb wording, which test_python_scripts.py shadow-F2 pins. Target-unique phrase.
+assert_pin_unique "#169: implement/SKILL.md warns re-tick-only (don't re-send the whole call on a volatile miss)" \
+  'do not blindly re-send the whole call' "$IMPL_SKILL"
 # Shadow Finding 1 (review): workpad.py reports volatile misses on the gh-PATCH-failure
 # path too (not just the structural-abort and clean-PATCH paths), via the single
 # _report_failed_ticks chokepoint — so a miss collected before a 5xx/auth PATCH failure
