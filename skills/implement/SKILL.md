@@ -295,7 +295,7 @@ if [ -n "$CUR" ] && [ "$CUR" != "$BASE" ]; then
   # whatever the harness named the worktree branch, fixing the case where a
   # `worktree-issue-<N>` branch (matching neither name pattern below) used to fall
   # through and create a SECOND branch.
-  if [ "$COMMON_DIR" != "$GIT_DIR_PATH" ]; then
+  if [ -n "$COMMON_DIR" ] && [ -n "$GIT_DIR_PATH" ] && [ "$COMMON_DIR" != "$GIT_DIR_PATH" ]; then
     echo "devflow: in a linked worktree on '$CUR' (≠ base '$BASE') — using it as the feature branch, skipping creation" >&2
     USE_CURRENT=1
   fi

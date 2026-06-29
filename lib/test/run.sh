@@ -1627,8 +1627,8 @@ decide_branch() {
   # Guards apply to BOTH reuse signals: never reuse a detached HEAD (empty CUR) or the
   # base branch (build on trunk), regardless of which signal would otherwise match.
   if [ -n "$cur" ] && [ "$cur" != "$base" ]; then
-    # Signal 1 — linked worktree: common-dir != git-dir (both absolute).
-    [ "$common" != "$gitdir" ] && { echo reuse; return; }
+    # Signal 1 — linked worktree: common-dir != git-dir (both absolute, both non-empty).
+    [ -n "$common" ] && [ -n "$gitdir" ] && [ "$common" != "$gitdir" ] && { echo reuse; return; }
     # Signal 2 — cloud-tier name match (GitHub Action path; not a worktree).
     case "$cur" in
       claude/issue-*|issue-*) echo reuse; return ;;
@@ -1670,6 +1670,13 @@ assert_eq "#168 worktree detect: worktree + detached HEAD (empty CUR) → create
 # to "not a worktree"; a non-matching name then CREATEs (with the SKILL breadcrumb).
 assert_eq "#168 worktree detect: rev-parse failure (empty dirs) + worktree-issue-165 → create [fail-closed]" "create" \
   "$(decide_branch '' '' worktree-issue-165 main)"
+# Asymmetric rev-parse (one empty, one populated — injected GIT_DIR or transient failure)
+# must also create, not false-positive-reuse via Signal 1 (the != inequality is vacuously
+# true when one operand is empty; the non-empty guard closes this).
+assert_eq "#168 worktree detect: asymmetric rev-parse (common empty, gitdir set) → create [fail-closed]" "create" \
+  "$(decide_branch '' '/repo/.git/worktrees/x' worktree-issue-165 main)"
+assert_eq "#168 worktree detect: asymmetric rev-parse (common set, gitdir empty) → create [fail-closed]" "create" \
+  "$(decide_branch '/repo/.git' '' worktree-issue-165 main)"
 # AC5: not in a worktree and not a recognized feature branch → CREATE (branch-for-issue.py path).
 assert_eq "#168 worktree detect: main tree + feature-x (no worktree, no name match) → create" "create" \
   "$(decide_branch /repo/.git /repo/.git feature-x main)"
