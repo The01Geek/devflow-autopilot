@@ -1,0 +1,13 @@
+{"iter":4,"fix_commit_sha":"108963ba8bd01d25f93d5b9ebf71b1953a2293ef","fix_files":["skills/review-and-fix/SKILL.md","lib/test/run.sh"],"promoted_from_shadow":true,
+"diff_profile":{"small_diff":false,"config_only":false,"has_new_types":false,"engine_self_modifying":true,"checklist_skipped":null},
+"phase3_dispatched":["devflow:code-reviewer","devflow:silent-failure-hunter","devflow:comment-analyzer","devflow:pr-test-analyzer","devflow:requesting-code-review"],
+"phase3_findings":[
+ {"agent":"devflow:silent-failure-hunter","severity":"Important","description":"fix-delta range ~1..sha multi-commit ambiguity","defect_signature":{"file":"skills/review-and-fix/SKILL.md","line_range":[565,565],"kind":"logic_error"},"fix_decision":"applied"},
+ {"agent":"devflow:pr-test-analyzer","severity":"Important","description":"promoted-counts-toward-cap half unpinned","defect_signature":{"file":"lib/test/run.sh","line_range":[909,909],"kind":"test_gap"},"fix_decision":"applied"},
+ {"agent":"devflow:pr-test-analyzer","severity":"Important","description":"degrade-to-shadow fail-open clause unpinned","defect_signature":{"file":"lib/test/run.sh","line_range":[938,938],"kind":"test_gap"},"fix_decision":"applied"},
+ {"agent":"devflow:pr-test-analyzer","severity":"Suggestion","description":"operational blinding list + delta operand unpinned","defect_signature":{"file":"lib/test/run.sh","line_range":[901,901],"kind":"test_gap"},"fix_decision":"applied"},
+ {"agent":"devflow:silent-failure-hunter","severity":"Suggestion","description":"at-cap relies on shadow rediscovery","defect_signature":{"file":"skills/review-and-fix/SKILL.md","line_range":[574,574],"kind":"other"},"fix_decision":"applied"},
+ {"agent":"devflow:silent-failure-hunter","severity":"Suggestion","description":"gate-failure surfaced only via reflection not verdict surface","defect_signature":{"file":"skills/review-and-fix/SKILL.md","line_range":[577,577],"kind":"other"},"fix_decision":"deferred"}],
+"fix_decisions":[
+ {"finding_id":"i4-F6","decision":"deferred","source_file":"skills/review-and-fix/SKILL.md","claim_text":"surface fix-delta-not-verified on the verdict/Coverage surface, not only a reflection bullet","skip_category":"uncategorized","evidence":"exceeds issue #159 AC (which specifies record + proceed) and would expand the Loop Exit Coverage surface; reflection bullet already forces downstream LLM analysis per CLAUDE.md. Reasonable future enhancement, not a defect."}],
+"convergence_inputs":{"fixes_applied":5,"fix_diff_lines":35,"new_corroborated_critical_count":0}}

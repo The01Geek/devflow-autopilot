@@ -718,9 +718,13 @@ PARKCAL_EMARK="PARKCAL_GUARD_REGION_""END"
 # count_region_nonhelper_stmts) pipes through this, so the region-delimiting semantics
 # live in ONE place instead of a copy per scanner (the coupled-mirror drift this very
 # suite exists to catch).
-region_lines() {  # file -> the lines strictly inside the PARKCAL region
-  awk -v b="$PARKCAL_BMARK" -v e="$PARKCAL_EMARK" \
-    'index($0,b){inreg=1;next} index($0,e){inreg=0} inreg' "$1"
+region_lines() {  # file [bmark] [emark] -> the lines strictly inside the region (default PARKCAL)
+  # Markers default to the park-calibration region (back-compat for the single-arg callers),
+  # but accept an explicit BEGIN/END pair so the SAME delimiter polices every registered
+  # region (issue #159 B3 generalization — park-calibration AND fix-delta).
+  local file="$1" b="${2:-$PARKCAL_BMARK}" e="${3:-$PARKCAL_EMARK}"
+  awk -v b="$b" -v e="$e" \
+    'index($0,b){inreg=1;next} index($0,e){inreg=0} inreg' "$file"
 }
 # Print every line between the BEGIN and END markers of FILE that is a raw `grep`-based
 # SKILL drift guard — ANY `grep ` command referencing a SKILL target. The pattern is
@@ -732,39 +736,53 @@ region_lines() {  # file -> the lines strictly inside the PARKCAL region
 # whose underscore is AFTER `SKILL` so the `_SKILL` arm misses it — the #164-review gap),
 # and `SKILL\.md` (a literal `"$LIB/../skills/.../SKILL.md"` path). A correctly-routed
 # region routes every pin through assert_pin_unique — those lines carry no `grep` — so it
-# yields 0. `|| true` keeps grep's no-match exit 1 from tripping the `set -u`/pipefail-free
-# harness into a non-zero.
-count_raw_skill_guards_in_region() {  # file -> prints count of offending lines
-  region_lines "$1" | grep -cE 'grep[[:space:]].*(_SKILL|SKILL_|SKILL\.md)' || true
+# yields 0. Markers default to the park-calibration region (back-compat for the AC3 proofs,
+# which call file-only), but accept an explicit BEGIN/END pair so the SAME helper polices
+# every registered region (issue #159 B3 generalization — park-calibration AND fix-delta).
+# `|| true` keeps grep's no-match exit 1 from tripping the `set -u`/pipefail-free harness.
+count_raw_skill_guards_in_region() {  # file [bmark] [emark] -> prints count of offending lines
+  region_lines "$1" "${2:-$PARKCAL_BMARK}" "${3:-$PARKCAL_EMARK}" \
+    | grep -cE 'grep[[:space:]].*(_SKILL|SKILL_|SKILL\.md)' || true
 }
 # Count the routed assert_pin_unique pins strictly INSIDE the region of FILE (markers
 # excluded by `next` on BEGIN). Shared by the live region-non-empty control AND its AC3(f)
 # mutation proof, so the proof binds to the SAME expression the control runs (not a parallel
 # re-derivation that a refactor of one side could silently desync from the other).
-count_region_pins() {  # file -> prints count of in-region assert_pin_unique lines
+count_region_pins() {  # file [bmark] [emark] -> prints count of in-region assert_pin_unique lines
   # `|| true` mirrors count_raw_skill_guards_in_region: it absorbs grep's no-match exit 1
   # (an emptied region prints 0, exit 1) so the helper stays inert under a future
   # `set -e`/`pipefail` hardening of the harness, matching its sibling rather than aborting
   # the whole script on the legitimate empty-region case AC3(f) deliberately exercises.
-  region_lines "$1" | grep -cF 'assert_pin_unique' || true
+  # Markers default to the park-calibration region (back-compat for AC3); accept an explicit
+  # pair so it counts pins in any registered region (issue #159 B3 generalization).
+  region_lines "$1" "${2:-$PARKCAL_BMARK}" "${3:-$PARKCAL_EMARK}" | grep -cF 'assert_pin_unique' || true
 }
 SELF_SRC="$LIB/test/run.sh"
-assert_eq "meta(AC2): park-calibration region routes every SKILL pin through assert_pin_unique (0 raw guards)" \
-  "0" "$(count_raw_skill_guards_in_region "$SELF_SRC")"
-# Positive controls — close the meta-test's OWN fail-open (the recursion the review of this
-# PR caught): count_raw_skill_guards_in_region returns 0 BOTH when the region is clean AND
-# when the BEGIN/END markers are absent (awk then scans nothing) OR the region was emptied
-# of pins. Without these, deleting a marker or moving the pins out would pass the AC2 scan
-# vacuously — the exact vacuous-guard class this whole change exists to kill, recursed one
-# level up. Assert each marker is present exactly once (via the split-built var, so this
-# assertion line adds no second contiguous marker) and that the region still holds pins.
-assert_eq "meta(AC2): region BEGIN marker present exactly once (else the scan fails OPEN)" \
-  "1" "$(pin_count "$PARKCAL_BMARK" "$SELF_SRC")"
-assert_eq "meta(AC2): region END marker present exactly once (else the scan fails OPEN)" \
-  "1" "$(pin_count "$PARKCAL_EMARK" "$SELF_SRC")"
-PARKCAL_REGION_PINS=$(count_region_pins "$SELF_SRC")
-assert_eq "meta(AC2): park-calibration region is non-empty (routed pins present, not an emptied region)" \
-  "yes" "$([ "${PARKCAL_REGION_PINS:-0}" -ge 1 ] && echo yes || echo no)"
+# Issue #159 B3: the assert_pin_unique-only invariant is now enforced for EVERY registered
+# pin region, not just park-calibration. The fix-delta region (defined with the pins below)
+# uses split-built markers so the definition lines carry no contiguous marker string.
+FIXDELTA_BMARK="FIXDELTA_GUARD_REGION_""BEGIN"
+FIXDELTA_EMARK="FIXDELTA_GUARD_REGION_""END"
+# Parametrized per-region discipline check — the four meta(AC2) controls for one region:
+# (1) zero raw SKILL guards in-region, (2) BEGIN present exactly once, (3) END present
+# exactly once, (4) region non-empty. The marker-presence + non-empty controls close the
+# meta-test's OWN fail-open (markers absent → awk scans nothing → raw-guard count is a
+# vacuous 0; region emptied of pins → also a vacuous 0). Running it per-region means a new
+# region inherits the full anti-vacuity guarantee for free — the B3 generalization.
+assert_region_pin_discipline() {  # label bmark emark
+  local label="$1" b="$2" e="$3" n
+  assert_eq "meta(AC2): $label region routes every SKILL pin through assert_pin_unique (0 raw guards)" \
+    "0" "$(count_raw_skill_guards_in_region "$SELF_SRC" "$b" "$e")"
+  assert_eq "meta(AC2): $label region BEGIN marker present exactly once (else the scan fails OPEN)" \
+    "1" "$(pin_count "$b" "$SELF_SRC")"
+  assert_eq "meta(AC2): $label region END marker present exactly once (else the scan fails OPEN)" \
+    "1" "$(pin_count "$e" "$SELF_SRC")"
+  n=$(count_region_pins "$SELF_SRC" "$b" "$e")
+  assert_eq "meta(AC2): $label region is non-empty (routed pins present, not an emptied region)" \
+    "yes" "$([ "${n:-0}" -ge 1 ] && echo yes || echo no)"
+}
+assert_region_pin_discipline "park-calibration" "$PARKCAL_BMARK" "$PARKCAL_EMARK"
+assert_region_pin_discipline "fix-delta" "$FIXDELTA_BMARK" "$FIXDELTA_EMARK"
 
 # ── AC3 mutation proofs: each deterministic guard above must demonstrably go RED on the
 # defect it exists to catch, then GREEN is the real (unmutated) state. We exercise the
@@ -913,6 +931,23 @@ assert_pin_red_on_removal "AC3(c): deleting the Step 2.6 sentinel contract turns
   'park-calibration gate clean: no parked finding matched'
 assert_pin_red_on_removal "AC3(d): narrowing the mutation-check rule back to fix-only turns its pin RED" \
   'any added or edited test guard in the diff'
+#
+# AC3(g): the GENERALIZED (issue #159 B3) region meta-test detects a raw SKILL guard injected
+# into EACH registered region — proving the parametrized helper is not silently inert for the
+# fix-delta region, only proven for park-calibration by AC3(b). For each region: inject a raw
+# `grep -qF … "$MAXI_SKILL"` line right after that region's BEGIN marker of a temp copy, then
+# confirm count_raw_skill_guards_in_region — invoked with THAT region's markers — reports 1
+# (RED). A region whose markers the helper could not see would report 0, so a non-zero proves
+# the parametrization actually scopes to the named region.
+for _rg in "park-calibration:$PARKCAL_BMARK:$PARKCAL_EMARK" "fix-delta:$FIXDELTA_BMARK:$FIXDELTA_EMARK"; do
+  _rglabel="${_rg%%:*}"; _rgrest="${_rg#*:}"; _rgb="${_rgrest%%:*}"; _rge="${_rgrest#*:}"
+  _rgtmp="$(probe_tmp "AC3(g) $_rglabel injection setup")"
+  awk -v b="$_rgb" -v inj='  grep -qF INJECTED_AC3G "$MAXI_SKILL"' \
+    '{ print } index($0, b) { print inj }' "$SELF_SRC" > "$_rgtmp"
+  assert_eq "AC3(g): generalized meta-test detects a raw SKILL guard injected into the $_rglabel region (RED)" \
+    "1" "$(count_raw_skill_guards_in_region "$_rgtmp" "$_rgb" "$_rge")"
+  rm -f "$_rgtmp"
+done
 
 # Drift guard: the over-grade calibration gate is the park-calibration gate's mirror on
 # the PROMOTE path — it flags a suspected over-graded Critical/Important finding before it
@@ -1140,6 +1175,66 @@ assert_pin_unique "verify-step: names the receiving-code-review verify-before-im
 assert_pin_unique "verify-step: a contradicting prescription is pushed back, not applied" \
   'the source of truth is recorded as a pushback' "$MAXI_SKILL"
 
+# Drift guard: issue #159's Step 3.5 fix-delta verification gate is the in-iteration
+# delta-regression catch — after each iteration's fix commit a blinded subagent re-reviews
+# ONLY the cumulative fix delta (with the loop's prior findings/fix-decisions/fixer reasoning
+# withheld), so a fix-introduced #62/#98-class regression is caught in the SAME iteration
+# instead of riding out to the end-of-loop shadow. Per issue #159 B3, every pin below routes
+# through assert_pin_unique inside the FIXDELTA region (the meta-test above enforces the
+# assert_pin_unique-only invariant for this region too), so a non-gate-unique literal FAILS
+# by construction. Needles are apostrophe-free (the asserts single-quote them).
+RCR_SKILL="$LIB/../skills/receiving-code-review/SKILL.md"
+# FIXDELTA_GUARD_REGION_BEGIN — every SKILL pin until the END marker MUST use assert_pin_unique (meta-tested above)
+assert_pin_unique "fix-delta gate: Step 3.5 heading present in review-and-fix SKILL" \
+  '### Step 3.5: Fix-delta verification gate' "$MAXI_SKILL"
+assert_pin_unique "fix-delta gate: fires on every iteration unconditionally" \
+  'on **every iteration unconditionally**' "$MAXI_SKILL"
+assert_pin_unique "fix-delta gate: blinded subagent reviews only the cumulative fix delta" \
+  're-reviews **only the cumulative fix delta of this iteration**' "$MAXI_SKILL"
+assert_pin_unique "fix-delta gate: delta is the cumulative iteration fix span (first-fix parent)" \
+  'first** fix commit' "$MAXI_SKILL"
+assert_pin_unique "fix-delta gate: operand-contract check (accepted-input subset of consumer)" \
+  'accepted-input set that is a *subset* of its downstream consumer' "$MAXI_SKILL"
+assert_pin_unique "fix-delta gate: surviving Critical/Important routes to same-iteration re-fix" \
+  'routes back into the **same-iteration Step 3**' "$MAXI_SKILL"
+assert_pin_unique "fix-delta gate: capped at 2 inner attempts" \
+  'capped at 2 inner attempts' "$MAXI_SKILL"
+assert_pin_unique "fix-delta gate: promote-on-cap to a normal iteration" \
+  'promoted to a normal iteration' "$MAXI_SKILL"
+assert_pin_unique "fix-delta gate: promoted iteration still terminates under the cap" \
+  'still terminates under the cap' "$MAXI_SKILL"
+assert_pin_unique "fix-delta gate: at-cap unresolved finding carried into the shadow (fail-closed)" \
+  'the unresolved finding is **not** dropped' "$MAXI_SKILL"
+assert_pin_unique "fix-delta gate: Suggestion/Minor recorded as advisory, no re-fix" \
+  'recorded as advisory and does not trigger a re-fix' "$MAXI_SKILL"
+assert_pin_unique "fix-delta gate: not counted toward the cap (verification of current iteration)" \
+  'Step 3.5 and its inner attempts are verification of the current iteration' "$MAXI_SKILL"
+assert_pin_unique "fix-delta gate: blinded subagent withholds prior findings/decisions/reasoning" \
+  'fix decisions, and fixer reasoning' "$MAXI_SKILL"
+assert_pin_unique "fix-delta gate: operational blinding withholds fix_decisions rows + rationale" \
+  'do **NOT** include any' "$MAXI_SKILL"
+assert_pin_unique "fix-delta gate: subagent-failure triggers exactly one bounded re-dispatch" \
+  'triggers **exactly one bounded re-dispatch**' "$MAXI_SKILL"
+assert_pin_unique "fix-delta gate: subagent-failure then records and proceeds to Step 4" \
+  'and **proceed** to Step 4' "$MAXI_SKILL"
+assert_pin_unique "fix-delta gate: deterministic delta-base failure gets a distinct breadcrumb" \
+  'gate disabled this run, shadow is the backstop' "$MAXI_SKILL"
+assert_pin_unique "fix-delta gate: whole-run failure degrades to the shadow (fail-open, no deadlock)" \
+  'degrades to the Step 2.6 shadow as the safety net' "$MAXI_SKILL"
+assert_pin_unique "fix-delta gate: no-fix iteration skips the gate (no delta to review)" \
+  'skip the gate for that iteration' "$MAXI_SKILL"
+assert_pin_unique "fix-delta gate: adversarial input-shape matrix check present" \
+  'for hand-corruptible inputs' "$MAXI_SKILL"
+assert_pin_unique "fix-delta gate: input-shape matrix pins the five-shape set" \
+  '{object, array, scalar, missing, wrong-type}' "$MAXI_SKILL"
+assert_pin_unique "fix-delta gate: input-shape matrix asserts fail-closed direction (not open)" \
+  'not open, on each' "$MAXI_SKILL"
+assert_pin_unique "fix-delta gate: per-iteration result recorded as a Devflow Reflection bullet" \
+  'fix-delta gate clean' "$MAXI_SKILL"
+assert_pin_unique "fix-delta gate: share-the-contract principle in receiving-code-review" \
+  'prefer using that consumer as the guard itself' "$RCR_SKILL"
+# FIXDELTA_GUARD_REGION_END — end of the assert_pin_unique-only fix-delta pin region
+
 # Drift guard: the Phase 2.3 sweep list lives in three places that must stay in
 # sync — the sweep body in implement/SKILL.md, the "Sweep selection" always-run
 # index in the same file, and the rationale table in docs/implement-skill.md. The
@@ -1158,6 +1253,29 @@ assert_eq "sweep 2.3.6: docs/implement-skill.md keeps the rationale table row" "
 # Pin one step token unique to the 2.3.6 procedure (the false-success rule) so a
 # reviewer who guts the steps but keeps the heading still trips the suite.
 assert_pin_unique "sweep 2.3.6: implement SKILL keeps the false-success step rule" "never prints success for work that didn't happen" "$IMPL_SKILL"
+
+# Drift guard: issue #159 B2's severity-aware exit in Phase 3.3 — the implement run must NOT
+# fully Block after the AWUSF + bounded-re-review "two consecutive fails"; it soft-proceeds
+# (PR review-ready, residual surfaced) UNLESS a genuine unresolved Critical (or ungradeable/
+# unparseable verdict) remains. Pinned via assert_pin_unique so each clause is mutation-checked
+# exactly-once. A paraphrase reverting to the old hard-block (or widening the block back past
+# genuine-Critical, or letting an ungradeable residual fall through to soft-proceed) fails here.
+assert_pin_unique "phase 3.3: severity-aware exit (does not fully block on diminishing-returns)" \
+  'Severity-aware exit (do not fully block on diminishing-returns)' "$IMPL_SKILL"
+assert_pin_unique "phase 3.3: soft-proceed keeps the PR review-ready, not auto-merged" \
+  'soft-proceeded on non-Critical residual findings' "$IMPL_SKILL"
+assert_pin_unique "phase 3.3: only a genuine unresolved Critical takes the Blocked path" \
+  'Blocked path (genuine unresolved Critical only)' "$IMPL_SKILL"
+assert_pin_unique "phase 3.3: non-Critical residual routes to soft-proceed, not Block" \
+  'the residual is only advisory / Suggestion / `severity-calibrated`-down' "$IMPL_SKILL"
+assert_pin_unique "phase 3.3: an ungradeable residual fails closed to Blocked (not soft-proceed)" \
+  'an ungradeable residual fails **closed** to the Blocked path' "$IMPL_SKILL"
+assert_pin_unique "phase 3.3: option-2 / first-run-REJECT applies over-grade calibration itself" \
+  'apply the same flag-and-evaluate calibration yourself' "$IMPL_SKILL"
+assert_pin_unique "phase 3.3: REJECT routes through the severity-aware exit (Critical still Blocks)" \
+  'a REJECT whose unresolved triggers are all non-Critical' "$IMPL_SKILL"
+assert_pin_unique "phase 3.3: soft-proceed records each residual finding durably in the workpad" \
+  'unresolved after bounded re-review (non-Critical, surfaced for human review)' "$IMPL_SKILL"
 
 # Same drift guard for the 2.3.0a peer-checkpoint-completeness sweep: the additive
 # twin of 2.3.0 lives in the same three places (sweep body, "Sweep selection" index,
