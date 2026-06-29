@@ -1502,7 +1502,7 @@ assert_pin_unique "#167 critic: the critic finding is collected in Phase 3.2 (fl
 assert_pin_unique "#167 re-sweep: the comment-analyzer dispatch is advisory (analyzes and reports only)" \
   'analyzes and reports only' "$MAXI_SKILL"
 # (d) the Phase 0.5 *table row* is the operative dispatch contract an orchestrator reads to
-#     decide the profile — pin the ROW itself, not only its prose restatement at line 307
+#     decide the profile — pin the ROW itself, not only its prose restatement
 #     (the `additive, never suppressed` pin above). A revert that demoted the row to an
 #     override (re-opening the "detect-all audit on a lean diff escapes review" defect) would
 #     leave the prose pin GREEN while the actual lookup table no longer forces the pass.
