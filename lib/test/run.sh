@@ -6143,7 +6143,36 @@ LR_SCM_OUT="$( ( cd "$LR_SCM_REPO" && bash "$LIB/efficiency-trace.sh" --self-che
 assert_eq "loop_role #170: --self-check exits 0 with an unparseable iter present (never aborts under set -e)" "0" "$LR_SCM_RC"
 assert_eq "loop_role #170: --self-check still warns on the VALID iter's missing fields despite a malformed sibling" "yes" \
   "$(printf '%s' "$LR_SCM_OUT" | grep -F '::warning::' | grep -F 'telemetry' | grep -qF 'iter-1.json' && echo yes || echo no)"
+# (6a) PR #177 review: an unparseable/unreadable iter must NOT pass silently in a
+#      standalone --self-check (the --persist/--mode breadcrumb paths have not run).
+#      The malformed iter-2.json above must itself draw a distinct warning naming it.
+assert_eq "loop_role #170: --self-check WARNS on the unparseable iter (not silent corruption)" "yes" \
+  "$(printf '%s' "$LR_SCM_OUT" | grep -F '::warning::' | grep -F 'iter-2.json' | grep -qF 'not valid JSON' && echo yes || echo no)"
 rm -rf "$LR_SCM_REPO"
+
+# (6b) PR #177 review: a parsed-but-NON-OBJECT iter (valid JSON [], null, "x") must
+#      NOT masquerade as a complete workpad — it takes a distinct sentinel warning,
+#      never the silent "no missing fields" arm. Exit 0 preserved (warn-only).
+LR_SCN_REPO="$(mktemp -d)"
+git -C "$LR_SCN_REPO" init -q
+LR_SCN_RUN="$LR_SCN_REPO/.devflow/tmp/review/pr-77/run-n"
+mkdir -p "$LR_SCN_RUN"
+printf '[]'                              > "$LR_SCN_RUN/iter-1.json"   # valid JSON, wrong shape (array)
+printf '"a bare string"'                 > "$LR_SCN_RUN/iter-2.json"   # valid JSON, wrong shape (string)
+printf '{"iter":3,"loop_role":"fix"}'    > "$LR_SCN_RUN/iter-3.json"   # valid object — fields missing
+LR_SCN_OUT="$( ( cd "$LR_SCN_REPO" && bash "$LIB/efficiency-trace.sh" --self-check --workpad-dir "$LR_SCN_RUN" --slug pr-77 ) 2>&1 )"; LR_SCN_RC=$?
+assert_eq "loop_role #170: --self-check exits 0 on a non-object iter (never aborts)" "0" "$LR_SCN_RC"
+assert_eq "loop_role #170: --self-check WARNS the non-object array iter is not an object" "yes" \
+  "$(printf '%s' "$LR_SCN_OUT" | grep -F '::warning::' | grep -F 'iter-1.json' | grep -qF 'not an object' && echo yes || echo no)"
+assert_eq "loop_role #170: --self-check WARNS the non-object string iter is not an object" "yes" \
+  "$(printf '%s' "$LR_SCN_OUT" | grep -F '::warning::' | grep -F 'iter-2.json' | grep -qF 'not an object' && echo yes || echo no)"
+# the non-object arm must NOT be misreported as a missing-field list
+assert_eq "loop_role #170: --self-check does NOT emit a 'missing expected field' line for a non-object iter" "no" \
+  "$(printf '%s' "$LR_SCN_OUT" | grep -F 'iter-1.json' | grep -qF 'missing expected field' && echo yes || echo no)"
+# the valid object sibling still gets its real missing-field validation
+assert_eq "loop_role #170: --self-check still validates the valid object sibling's fields" "yes" \
+  "$(printf '%s' "$LR_SCN_OUT" | grep -F '::warning::' | grep -F 'iter-3.json' | grep -qF 'missing expected field' && echo yes || echo no)"
+rm -rf "$LR_SCN_REPO"
 
 # (7) Promotion does NOT propagate/latch: in a 3-iter chain where iter-1 promotes
 #     but iter-2 does not, the derived roles are fix, promoted, fix — each iter's

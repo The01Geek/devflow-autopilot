@@ -183,19 +183,29 @@ do_self_check() {
   # bare `missing=$(...)` assignment, which under `set -e` would abort the whole
   # self-check (non-zero `exit`, not exit 0) the moment jq fails to *parse* or *open*
   # one iter file — mirroring how collect_valid_files and --persist guard their jq.
-  # So a malformed, unparseable, or unreadable iter file makes jq fail, yields an
-  # empty `missing`, and is skipped here with exit 0 preserved; that already-degraded
-  # case is breadcrumbed by the --persist/--mode parse paths, not this warn-only pass.
-  # A parsed-but-non-object iter file likewise yields no output (the object-gate
-  # returns empty). Field names are bare identifiers, so the `for field in $missing`
-  # word-split is safe (and emits one warning line each).
+  #
+  # Two wrong-shape cases that must NOT pass silently (this is the exact corruption
+  # the self-check exists to surface, and in a STANDALONE --self-check run the
+  # --persist/--mode parse paths have not run to breadcrumb the bad file first):
+  #   (a) jq fails to *parse* or *open* the file (malformed/unreadable) → non-zero
+  #       exit → the `if !` arm WARNS and skips the file (no field validation).
+  #   (b) the file is valid JSON but NOT an object (e.g. [], null, "x") → jq emits
+  #       the `__non_object__` sentinel (no real field is named that), which WARNS
+  #       and skips — otherwise a wrong-shape workpad masquerades as complete.
+  # An object yields its missing-field names; field names are bare identifiers, so
+  # the `for field in $missing` word-split is safe (and emits one warning line each).
   local iter field missing
   for iter in "$WORKPAD_DIR"/iter-*.json; do
     [ -e "$iter" ] || continue
     if ! missing="$(jq -r --arg fields "$ITER_EXPECTED_FIELDS" \
-                      'if type == "object" then (($fields | split(" ")) - keys)[] else empty end' \
+                      'if type == "object" then (($fields | split(" ")) - keys)[] else "__non_object__" end' \
                       "$iter" 2>/dev/null)"; then
-      missing=""
+      echo "::warning::devflow review-and-fix self-check: iter workpad '$(basename "$iter")' is unreadable or not valid JSON — cannot validate its fields" >&2
+      continue
+    fi
+    if [ "$missing" = "__non_object__" ]; then
+      echo "::warning::devflow review-and-fix self-check: iter workpad '$(basename "$iter")' is valid JSON but not an object — cannot validate its fields" >&2
+      continue
     fi
     for field in $missing; do
       echo "::warning::devflow review-and-fix self-check: iter workpad '$(basename "$iter")' is missing expected field '${field}'" >&2
