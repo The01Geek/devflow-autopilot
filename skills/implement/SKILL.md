@@ -1058,11 +1058,9 @@ The rc handling above distinguishes three cases: a clean filing (rc 0), the beni
 
 ### 4.1 Update Documentation
 
-**Stage 1 — Pre-flight briefing (before dispatch).** Scan the issue body (held in context since Phase 1.1; re-read via `gh issue view $ISSUE_NUMBER --json body --jq '.body'` if no longer in scope) for a `**Documentation Needed**` bullet — it is a sub-bullet of `## Implementation Notes` in the issue template. Extract every token that looks like a file path (contains `/` or ends in a recognizable extension: `.md`, `.sh`, `.json`, `.py`, `.yml`, `.yaml`, etc.) from that bullet's text and any sub-bullets beneath it, up to the next `- **` bullet or section heading. Note these as required deliverables for Stage 2. If one or more paths are found, append to the subagent's dispatch instruction: *"The issue requires the following files to be updated; treat each as a mandatory deliverable: `<path1>`, `<path2>`, …"* If no paths are extractable (the section is absent or contains no path-like tokens), Stage 1 is a no-op and the subagent is dispatched with its normal instruction unchanged.
+**Stage 1 — Pre-flight briefing (before dispatch).** Scan the issue body (held in context since Phase 1.1; re-read via `gh issue view $ISSUE_NUMBER --json body --jq '.body'` if no longer in scope) for a `**Documentation Needed**` bullet — it is a sub-bullet of `## Implementation Notes` in the issue template. Extract every token that looks like a file path (contains `/` or ends in a recognizable extension: `.md`, `.sh`, `.json`, `.py`, `.yml`, `.yaml`, etc.) from that bullet's text and any sub-bullets beneath it, up to the next `- **` bullet or section heading. Note these as required deliverables. If no paths are extractable (the section is absent or contains no path-like tokens), Stage 1 is a no-op and the subagent is dispatched with its normal instruction unchanged.
 
-Spawn a **subagent** (using the Agent tool) and instruct it to invoke the `devflow:docs` skill. Pass it:
-- The GitHub issue title, body, and number
-- Instruction: "Invoke the `devflow:docs` skill to update all documentation (internal docs, external docs, release notes). The issue context is provided for release notes generation." (Append the Stage 1 required-deliverables list if any paths were extracted.)
+Spawn a **subagent** (using the Agent tool) and instruct it to invoke the `devflow:docs` skill. Compose the dispatch instruction: begin with "Invoke the `devflow:docs` skill to update all documentation (internal docs, external docs, release notes). The issue context is provided for release notes generation." If Stage 1 extracted one or more paths, append: " The issue requires the following files to be updated; treat each as a mandatory deliverable: `<path1>`, `<path2>`, …" Send this composed instruction along with the issue title, body, and number to the subagent.
 
 After the subagent completes, commit any documentation changes. Read the docs paths from `.devflow/config.json`:
 
@@ -1091,7 +1089,7 @@ CLEAN_LABELS=$(echo "$DOCS_LABELS" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:
 
 **Stage 2 — Post-hoc diff gate (mandatory when Stage 1 found named paths).** After the docs-subagent commit and before ticking `Documentation`, verify that every required-deliverable path from Stage 1 has been touched:
 
-1. **Use the paths from Stage 1.** If Stage 1 extracted no paths, this cross-check is a no-op — proceed directly to `--tick-progress "Documentation"` below. Otherwise use those paths (re-extract if no longer in context: scan the issue body using the same rule as Stage 1, re-reading from GitHub if needed).
+1. **Use the paths from Stage 1.** If Stage 1 extracted no paths, this cross-check is a no-op — proceed directly to `--tick-progress "Documentation"` below. Otherwise, re-extract now using the same rule as Stage 1 (re-read the issue body via `gh issue view $ISSUE_NUMBER --json body --jq '.body'` if not in scope) — do not rely on remembered Stage 1 output. Use these freshly extracted paths for the diff gate.
 
 2. **Compare against the diff.** For each extracted path, check whether it appears in the PR's cumulative diff (`$BASE` is the base branch from Phase 1.4; re-read via `config-get.sh` if no longer in scope):
    ```bash
