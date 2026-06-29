@@ -41,10 +41,10 @@ WHEN receiving code review feedback:
 
 Before declaring the review findings addressed:
 1. Review the diff of your changes against the addressed findings.
-2. Run `lib/test/run.sh` (or fall back to CI `lib + python tests` when even the direct-path form is denied locally, per the CLAUDE.md tiered-runner convention). When CI is the fallback, do not claim completion until CI confirms green.
+2. Run the project's test suite. If it cannot be run locally (sandbox or permission block), fall back to CI — but do not claim completion until CI confirms green.
 3. Only after both pass, claim completion.
 
-This gate applies in both interactive sessions and the autonomous `/devflow:review-and-fix` fix loop. In the loop, Step 3 (item 4) satisfies the test-suite requirement, and Phase 3 re-runs the review engine each iteration to re-check whether every finding is resolved — no additional step 7 invocation is needed at the APPROVE claim.
+This gate applies in both interactive sessions and the autonomous `/devflow:review-and-fix` fix loop. In the loop, the fix step runs tests and Phase 3 re-runs the review engine each iteration to re-check whether every finding is resolved — no additional step 7 invocation is needed at the APPROVE claim.
 
 ## Forbidden Responses
 
