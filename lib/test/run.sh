@@ -1598,7 +1598,7 @@ assert_eq "base_branch guard: hard-failure read (rc≠0, empty) → main" "main"
 # main working tree they are equal. Token pins so a SKILL refactor that drops the
 # mechanism fails HERE rather than silently regressing to a second branch.
 assert_pin_unique "#168 worktree detect: SKILL captures CUR via git branch --show-current" \
-  'CUR=$(git branch --show-current)' "$IMPL_SKILL"
+  'CUR=$(git branch --show-current 2>/dev/null) || CUR=""' "$IMPL_SKILL"
 assert_pin_unique "#168 worktree detect: SKILL reads --git-common-dir in absolute form" \
   'git rev-parse --path-format=absolute --git-common-dir' "$IMPL_SKILL"
 assert_pin_unique "#168 worktree detect: SKILL reads --git-dir in absolute form" \
