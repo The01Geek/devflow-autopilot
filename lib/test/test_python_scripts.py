@@ -4,8 +4,11 @@
 """Pure-function tests for the devflow Python scripts.
 
 Covers areas that are silent-failure-class regressions if they drift:
-- `workpad._apply_mutations` — batch tick/note atomicity, and the "duplicate
-  tick inside one batched --tick-* call surfaces an error" invariant.
+- `workpad._apply_mutations` — batch tick/note application, the structural-failure
+  abort (missing section aborts with no PATCH), and the issue #169 failure-isolation
+  contract: a per-row tick miss inside a present section is collected (the call's
+  other mutations still apply) rather than discarding the batch, plus index-based
+  ticking (`--tick-ac-n`/`--tick-plan-n`).
 - `parse_acs._is_post_merge` — the new workflow/bot-trigger phrases plus
   documented false-positive cases (`monitoring` substring, generic
   "errors swallowed" prose, `click` substring, `workflow runner` vs
@@ -92,13 +95,26 @@ def make_args(**overrides):
     """Build an argparse.Namespace matching cmd_update's expected shape."""
     base = dict(
         status=None, branch=None, run_link=None, pr_link=None,
-        tick_progress=[], tick_plan=[], tick_ac=[],
+        tick_progress=[], tick_plan=[], tick_plan_n=[], tick_ac=[], tick_ac_n=[],
         rewrite_ac=None,
         replace_plan_file=None, replace_acs_file=None, set_reproduction_file=None,
         note=[], reflection=[], reflection_kind=None, marker=None,
     )
     base.update(overrides)
     return argparse.Namespace(**base)
+
+
+def apply_mut(body, args, failed_ticks=None):
+    """Test wrapper for `_apply_mutations`, whose production signature now takes a
+    required `failed_ticks` out-list (volatile per-row tick misses are appended
+    there instead of raising). Most tests pass no list (a throwaway is created);
+    failure-isolation tests pass their own list to inspect the collected misses."""
+    return workpad._apply_mutations(body, args, failed_ticks if failed_ticks is not None else [])
+
+
+def _statusline(out):
+    """The workpad's `**Status:**` line, for asserting a status mutation landed."""
+    return next(ln for ln in out.splitlines() if ln.startswith('**Status:'))
 
 
 WORKPAD_BODY = """<!-- devflow:workpad -->
@@ -346,14 +362,14 @@ print("workpad._apply_mutations")
 
 # Batch tick: multiple --tick-plan in one call ticks all of them.
 args = make_args(tick_plan=['alpha', 'beta'])
-out = workpad._apply_mutations(WORKPAD_BODY, args)
+out = apply_mut(WORKPAD_BODY, args)
 assert_eq("batch tick-plan: alpha ticked", True, '- [x] Step alpha' in out)
 assert_eq("batch tick-plan: beta ticked",  True, '- [x] Step beta'  in out)
 assert_eq("batch tick-plan: gamma untouched", True, '- [ ] Step gamma' in out)
 
 # Mixed batch: tick-plan + tick-ac + note in one atomic call.
 args = make_args(tick_plan=['gamma'], tick_ac=['AC one'], note=['decision A', 'decision B'])
-out = workpad._apply_mutations(WORKPAD_BODY, args)
+out = apply_mut(WORKPAD_BODY, args)
 assert_eq("mixed batch: gamma ticked", True, '- [x] Step gamma' in out)
 assert_eq("mixed batch: AC one ticked", True, '- [x] AC one' in out)
 assert_eq("mixed batch: note A present", True, '— decision A' in out)
@@ -364,49 +380,453 @@ ts_a = note_lines[0].split(' — ')[0]
 ts_b = note_lines[1].split(' — ')[0]
 assert_eq("multi-note: shared timestamp", ts_a, ts_b)
 
-# Duplicate tick in one batched call raises _UpdateError (no silent no-op).
-def _dup_tick():
-    args = make_args(tick_plan=['alpha', 'alpha'])
-    workpad._apply_mutations(WORKPAD_BODY, args)
-assert_raises("duplicate --tick-plan in one batch raises _UpdateError",
-              workpad._UpdateError, _dup_tick)
+# Issue #169 failure-isolation: a per-row tick miss inside a present section is
+# now a *volatile* failure — `_apply_mutations` collects it into the caller's
+# `failed_ticks` list and returns the body with every other mutation applied,
+# instead of raising `_UpdateError`. (Pre-#169 these four cases aborted the call.)
 
-# Substring matching only an already-ticked row raises _UpdateError.
+# Duplicate tick in one batched call: the first ticks; the second is a volatile
+# miss (the row it would match is now ticked), collected, not raised.
+_ft = []
+out = apply_mut(WORKPAD_BODY, make_args(tick_plan=['alpha', 'alpha']), _ft)
+assert_eq("dup --tick-plan: first occurrence ticks the row", True,
+          '- [x] Step alpha' in out)
+assert_eq("dup --tick-plan: second occurrence collected as one volatile miss",
+          1, len(_ft))
+
+# Substring matching only an already-ticked row: volatile miss, body still returns.
 PRE_TICKED = WORKPAD_BODY.replace('- [ ] Step alpha', '- [x] Step alpha')
-def _already_ticked():
-    args = make_args(tick_plan=['alpha'])
-    workpad._apply_mutations(PRE_TICKED, args)
-assert_raises("--tick-plan vs already-ticked row raises _UpdateError",
-              workpad._UpdateError, _already_ticked)
+_ft = []
+out = apply_mut(PRE_TICKED, make_args(status='Reviewing', tick_plan=['alpha']), _ft)
+assert_eq("already-ticked --tick-plan: status still applied (not discarded)", True,
+          '🚀 Reviewing' in _statusline(out))
+assert_eq("already-ticked --tick-plan: collected as a volatile miss", 1, len(_ft))
 
-# Ambiguous substring still raises (regression check).
-def _ambiguous():
-    args = make_args(tick_plan=['Step'])
-    workpad._apply_mutations(WORKPAD_BODY, args)
-assert_raises("ambiguous --tick-plan raises _UpdateError",
-              workpad._UpdateError, _ambiguous)
+# Ambiguous substring: multiple matches → volatile miss, not an abort.
+_ft = []
+out = apply_mut(WORKPAD_BODY, make_args(status='Reviewing', tick_plan=['Step']), _ft)
+assert_eq("ambiguous --tick-plan: status still applied", True,
+          '🚀 Reviewing' in _statusline(out))
+assert_eq("ambiguous --tick-plan: collected as a volatile miss", 1, len(_ft))
+assert_eq("ambiguous --tick-plan: miss descriptor names the flag + value", True,
+          _ft and _ft[0].startswith("--tick-plan 'Step'"))
 
-# Atomicity: a failure in the second mutation leaves no partial update —
-# _apply_mutations raises before returning, so the caller never PATCHes.
-def _atomic():
-    args = make_args(tick_plan=['alpha', 'does-not-exist'])
-    workpad._apply_mutations(WORKPAD_BODY, args)
-assert_raises("batch tick with one missing match raises (atomic-update guarantee)",
-              workpad._UpdateError, _atomic)
+# Isolation in a batch: one resolving tick + one non-matching tick. The resolving
+# box is ticked in the returned body; the miss is collected (no abort, no rollback).
+_ft = []
+out = apply_mut(WORKPAD_BODY, make_args(tick_plan=['alpha', 'does-not-exist']), _ft)
+assert_eq("partial batch: the resolving tick is applied", True,
+          '- [x] Step alpha' in out)
+assert_eq("partial batch: the non-matching tick is the only collected miss",
+          1, len(_ft))
 
 # Heading match is case-insensitive: a differently-cased section heading is
 # still found and mutated (not a silent "section not found" error).
 LOWER_HEADING = WORKPAD_BODY.replace('## Acceptance Criteria', '## acceptance criteria')
-out = workpad._apply_mutations(LOWER_HEADING, make_args(tick_ac=['AC one']))
+out = apply_mut(LOWER_HEADING, make_args(tick_ac=['AC one']))
 assert_eq("case-insensitive heading: AC one ticked under lowercase heading",
           True, '- [x] AC one' in out)
+
+
+print("issue #169: failure-isolation + index-based ticking")
+
+
+# Fixture with a pre-ticked first AC row, so a naive unticked-only index count
+# would address the WRONG row (index counts every [ ] AND [x] in document order).
+IDX_BODY = """<!-- devflow:workpad -->
+# DevFlow Workpad — Issue #999
+
+**Status:** 🚀 Implementing
+**Last updated:** 2026-05-15T00:00:00Z
+
+## Progress
+- [ ] **Setup**
+
+## Plan
+- [ ] Plan step one
+- [ ] Plan step two
+
+## Acceptance Criteria
+- [x] AC one
+- [ ] AC two
+- [ ] AC three
+"""
+
+# Failure isolation (AC 1, 2): a non-matching --tick-ac in a present section does
+# NOT discard the batched --status/--note; the body carries them and the miss is
+# collected with a flag-named descriptor.
+_ft = []
+out = apply_mut(IDX_BODY, make_args(
+    status='Reviewing', note=['keep me'], tick_ac=['NO_SUCH_AC']), _ft)
+assert_eq("#169 isolation: --status survives a non-matching --tick-ac", True,
+          '🚀 Reviewing' in _statusline(out))
+assert_eq("#169 isolation: --note survives a non-matching --tick-ac", True,
+          '— keep me' in out)
+assert_eq("#169 isolation: the failed tick is collected (exactly one)", 1, len(_ft))
+assert_eq("#169 isolation: the descriptor names the flag and value", True,
+          _ft[0].startswith("--tick-ac 'NO_SUCH_AC' —"))
+
+# Structural still aborts (AC 3): no ## Acceptance Criteria section → _UpdateError
+# raised before returning, so the caller never PATCHes and --status never applies.
+# (Proving the isolation path did not swallow a structural error.)
+NO_AC = """<!-- devflow:workpad -->
+# DevFlow Workpad — Issue #999
+
+**Status:** 🚀 Setup
+**Last updated:** 2026-05-15T00:00:00Z
+
+## Progress
+- [ ] **Setup**
+"""
+def _structural_abort():
+    apply_mut(NO_AC, make_args(status='Reviewing', tick_ac=['anything']), [])
+assert_raises("#169 structural: missing AC section aborts (no isolation)",
+              workpad._UpdateError, _structural_abort)
+
+# Index happy path (AC 4): --tick-ac-n 2 ticks the SECOND checkbox counting the
+# already-ticked first row — i.e. "AC two", not "AC three".
+_ft = []
+out = apply_mut(IDX_BODY, make_args(tick_ac_n=[2]), _ft)
+assert_eq("#169 index: -n 2 ticks the 2nd row (counting the ticked 1st row)", True,
+          '- [x] AC two' in out)
+assert_eq("#169 index: -n 2 leaves the 3rd row untouched", True,
+          '- [ ] AC three' in out)
+assert_eq("#169 index: happy path collects no failure", 0, len(_ft))
+
+# Index + substring + status in one call (AC 4): all apply, body returns once.
+_ft = []
+out = apply_mut(IDX_BODY, make_args(
+    status='Reviewing', tick_ac=['AC two'], tick_ac_n=[3], tick_plan_n=[1]), _ft)
+assert_eq("#169 combined: substring --tick-ac applied", True, '- [x] AC two' in out)
+assert_eq("#169 combined: index --tick-ac-n applied", True, '- [x] AC three' in out)
+assert_eq("#169 combined: index --tick-plan-n applied", True, '- [x] Plan step one' in out)
+assert_eq("#169 combined: --status applied", True, '🚀 Reviewing' in _statusline(out))
+assert_eq("#169 combined: no failures collected", 0, len(_ft))
+
+# Index boundary/degenerate (AC 5): N=0, N>count, and N on an already-ticked row
+# are all volatile failures — reported, non-zero (here: collected), --status still
+# applied. The AC section has 3 checkbox rows; row 1 is already [x].
+_ft = []
+out = apply_mut(IDX_BODY, make_args(status='Blocked', tick_ac_n=[0, 4, 1]), _ft)
+assert_eq("#169 boundary: --status applied despite all three index misses", True,
+          '👎 Blocked' in _statusline(out))
+assert_eq("#169 boundary: three index misses collected (N<1, N>count, already-ticked)",
+          3, len(_ft))
+assert_eq("#169 boundary: already-ticked descriptor is reported", True,
+          any('already ticked' in f for f in _ft))
+assert_eq("#169 boundary: out-of-range descriptor is reported", True,
+          any('out of range' in f for f in _ft))
+
+# Substring forms unchanged (AC 6): an existing unique --tick-ac still ticks that
+# exact row, additively (no behavior removed).
+out = apply_mut(IDX_BODY, make_args(tick_ac=['AC three']))
+assert_eq("#169 substring unchanged: unique --tick-ac still ticks its row", True,
+          '- [x] AC three' in out)
+
+# Progress has no index form (AC 7): --tick-progress-n is an unknown argparse flag.
+# Assert the exit CODE is 2 (argparse's usage-error code), not merely that *some*
+# SystemExit fired — if Progress accidentally GAINED a --tick-progress-n flag,
+# main() would parse cleanly and then exit 1 ("no workpad found"), so a bare
+# `assert_raises(SystemExit)` would stay green on the very regression this guards.
+# Code 2 uniquely identifies "argparse rejected the unknown flag." `_run` is stubbed
+# to raise so that, IF a future refactor let the flag parse, the post-argparse path
+# fails deterministically here (→ exit 1 ≠ 2) instead of shelling out to a real `gh`.
+def _progress_no_index_form_code():
+    saved = (sys.argv[:], workpad._run, workpad._repo_full, workpad._workpad_marker)
+    sys.argv = ['workpad.py', 'update', '1', '--tick-progress-n', '1']
+    def _boom(cmd, **kw):
+        raise _subprocess.CalledProcessError(1, cmd, stderr='gh stubbed out')
+    workpad._run = _boom
+    workpad._repo_full = lambda: 'owner/repo'
+    workpad._workpad_marker = lambda explicit=None: '<!-- devflow:workpad -->'
+    try:
+        with contextlib.redirect_stderr(io.StringIO()):
+            workpad.main()  # argparse rejects the unknown flag before any gh call
+        return None
+    except SystemExit as e:
+        return e.code
+    finally:
+        sys.argv, workpad._run, workpad._repo_full, workpad._workpad_marker = saved
+assert_eq("#169 AC7: --tick-progress-n is rejected by argparse (exit code 2, not a later exit)",
+          2, _progress_no_index_form_code())
+
+
+print("issue #169 (review): cmd_update CLI contract + structural-abort completeness")
+
+# TD-1 (type-design review): the design's single load-bearing invariant — that
+# _TickMatchError is a SIBLING of _UpdateError, never a subclass — guarded by name,
+# so an accidental re-subclassing (which would silently restore the pre-#169
+# batch-discard data loss) names its cause instead of cascading confusingly through
+# the isolation tests.
+assert_eq("#169 TD-1: _TickMatchError is a sibling, NOT a subclass, of _UpdateError",
+          False, issubclass(workpad._TickMatchError, workpad._UpdateError))
+assert_eq("#169 TD-1: _TickMatchError is still an Exception",
+          True, issubclass(workpad._TickMatchError, Exception))
+
+
+# cmd_update-level harness: stub _repo_full / _workpad_marker / _run so cmd_update
+# runs end-to-end with no gh. _run serves three call shapes — the paginated comments
+# list (one marker-matching comment), the body fetch (--jq .body → the fixture body),
+# and the PATCH (read the -F body=@<tmp> file back so the test sees the patched body).
+# Returns (exit_code, stderr, patched_body); patched_body is None when no PATCH ran.
+def _drive_cmd_update(body, patch_fails=False, **arg_overrides):
+    marker = '<!-- devflow:workpad -->'
+    saved = (workpad._run, workpad._repo_full, workpad._workpad_marker)
+    workpad._repo_full = lambda: 'owner/repo'
+    workpad._workpad_marker = lambda explicit=None: marker
+    state = {'patched': None}
+    def _run(cmd, **kw):
+        joined = ' '.join(cmd)
+        if '/comments?' in joined or joined.endswith('/comments'):
+            return _FakeRun(_json.dumps([{'id': 7, 'body': marker + '\n'}]))
+        if '-X' in cmd and 'PATCH' in cmd:
+            if patch_fails:  # simulate a gh-api PATCH failure (network/auth/5xx)
+                raise _subprocess.CalledProcessError(1, cmd, stderr='gh: 503 Service Unavailable')
+            for tok in cmd:
+                if tok.startswith('body=@'):
+                    with open(tok[len('body=@'):]) as fh:
+                        state['patched'] = fh.read()
+            return _FakeRun(state['patched'] or '')
+        return _FakeRun(body)   # the body fetch
+    workpad._run = _run
+    err = io.StringIO()
+    code = None
+    try:
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            workpad.cmd_update(make_args(issue=999, **arg_overrides))
+    except SystemExit as e:
+        code = e.code
+    finally:
+        workpad._run, workpad._repo_full, workpad._workpad_marker = saved
+    return code, err.getvalue(), state['patched']
+
+
+# Finding 2/(a) (review): the volatile-failure TAIL of cmd_update — the non-zero
+# exit + stderr report — is the observable contract ACs 2/5 promise the orchestrator.
+# The isolation tests above assert the failed_ticks LIST is populated; these assert
+# the process-level exit code and stderr the orchestrator actually consumes.
+_code, _err, _patched = _drive_cmd_update(IDX_BODY, status='Reviewing', tick_ac=['NO_SUCH_AC'])
+assert_eq("#169 cmd_update: a volatile tick miss exits non-zero (AC 2)", 1, _code)
+assert_eq("#169 cmd_update: the volatile-miss stderr names the failed tick (AC 2)", True,
+          'NO_SUCH_AC' in _err and 'did not resolve' in _err)
+assert_eq("#169 cmd_update: the PATCH still landed (status applied despite the miss)", True,
+          _patched is not None and '🚀 Reviewing' in _patched)
+
+# A fully-resolving tick call exits 0 — the gate's evidence-based pass condition.
+_code, _err, _patched = _drive_cmd_update(IDX_BODY, tick_ac_n=[2])
+assert_eq("#169 cmd_update: a fully-resolving tick call exits 0", None, _code)
+assert_eq("#169 cmd_update: the resolving index ticked its row", True,
+          _patched is not None and '- [x] AC two' in _patched)
+
+# Finding F1 (silent-failure-hunter): a volatile tick miss collected BEFORE a later
+# structural abort is echoed on the abort path, not dropped. F1_BODY has ## Acceptance
+# Criteria (so --tick-ac can miss-collect) but NO ## Progress (so the later --note
+# raises a structural _UpdateError) — the exact combined call the finding describes.
+F1_BODY = """<!-- devflow:workpad -->
+# DevFlow Workpad — Issue #999
+
+**Status:** 🚀 Implementing
+**Last updated:** 2026-05-15T00:00:00Z
+
+## Acceptance Criteria
+- [ ] AC one
+- [ ] AC two
+"""
+_code, _err, _patched = _drive_cmd_update(F1_BODY, tick_ac=['NO_SUCH_AC'], note=['n'])
+assert_eq("#169 F1: a structural abort after a volatile miss still exits non-zero", 1, _code)
+assert_eq("#169 F1: the structural-abort message is reported", True,
+          "section '## Progress' not found" in _err)
+assert_eq("#169 F1: the volatile tick miss collected before the abort is ALSO echoed", True,
+          'NO_SUCH_AC' in _err)
+assert_eq("#169 F1: the structural abort made no PATCH", True, _patched is None)
+
+# Finding 3 (review): missing-front-matter structural abort (AC 3) — a body lacking
+# the **Last updated:** line aborts with no return. The front-matter check raises
+# BEFORE the section-tick loop runs, so the `--tick-ac` here is never even evaluated
+# (failed_ticks stays empty); this test pins only "missing Last-updated → structural
+# abort". The *combined* invariant (a volatile tick collected before a LATER structural
+# fault is preserved/echoed) is owned by the #169 F1 / shadow-F1 tests, where the tick
+# genuinely runs first.
+NO_LASTUPDATED = IDX_BODY.replace('**Last updated:** 2026-05-15T00:00:00Z\n', '')
+def _missing_lastupdated():
+    apply_mut(NO_LASTUPDATED, make_args(tick_ac=['NO_SUCH_AC']), [])
+assert_raises("#169 AC3: missing **Last updated:** line aborts (structural, not volatile)",
+              workpad._UpdateError, _missing_lastupdated)
+
+# Finding (b) (review): Plan and Progress structural aborts route through the same
+# shared helper (AC 3 across all three sections, not only Acceptance Criteria).
+NO_PLAN = """<!-- devflow:workpad -->
+# DevFlow Workpad — Issue #999
+
+**Status:** 🚀 Setup
+**Last updated:** 2026-05-15T00:00:00Z
+
+## Progress
+- [ ] **Setup**
+"""
+def _missing_plan_section():
+    apply_mut(NO_PLAN, make_args(tick_plan_n=[1]), [])
+assert_raises("#169 AC3: missing ## Plan section aborts a --tick-plan-n (structural)",
+              workpad._UpdateError, _missing_plan_section)
+def _missing_progress_section():
+    apply_mut(NO_PLAN.replace('## Progress\n- [ ] **Setup**\n', ''),
+              make_args(tick_progress=['Setup']), [])
+assert_raises("#169 AC3: missing ## Progress section aborts a --tick-progress (structural)",
+              workpad._UpdateError, _missing_progress_section)
+
+# Finding (c) (review): a --tick-plan-n out-of-range miss is collected as VOLATILE
+# (reported, other mutations applied), not a structural abort — for the Plan section
+# specifically, not just Acceptance Criteria. IDX_BODY's ## Plan has 2 rows.
+_ft = []
+out = apply_mut(IDX_BODY, make_args(status='Blocked', tick_plan_n=[5]), _ft)
+assert_eq("#169 (c): an out-of-range --tick-plan-n is volatile (status still applied)", True,
+          '👎 Blocked' in _statusline(out))
+assert_eq("#169 (c): the out-of-range --tick-plan-n miss is collected, not raised", 1, len(_ft))
+assert_eq("#169 (c): the Plan miss descriptor names the index flag", True,
+          _ft and _ft[0].startswith('--tick-plan-n 5'))
+
+
+print("issue #169 (shadow): PATCH-failure echo + structural/test-completeness")
+
+# Shadow Finding 1 (silent-failure-hunter, HIGH): a volatile tick miss collected
+# before the gh PATCH itself fails must NOT be silently dropped. Previously the
+# PATCH-failure path reported only the PATCH error and exited, discarding the
+# collected misses — the very no-silent-loss invariant this command establishes,
+# re-opened on the API-failure path. Now cmd_update echoes them before _fail exits.
+_code, _err, _patched = _drive_cmd_update(
+    IDX_BODY, patch_fails=True, status='Reviewing', tick_ac=['NO_SUCH_AC'])
+assert_eq("#169 shadow-F1: a PATCH failure still exits non-zero", 1, _code)
+assert_eq("#169 shadow-F1: the PATCH-failure path echoes the collected volatile tick miss", True,
+          'NO_SUCH_AC' in _err)
+assert_eq("#169 shadow-F1: the PATCH-failure breadcrumb says nothing was persisted", True,
+          'NO workpad change was persisted' in _err)
+assert_eq("#169 shadow-F1: no body was persisted (PATCH failed)", True, _patched is None)
+# A PATCH failure with NO pending tick miss still reports the PATCH error (and does
+# not fabricate a tick report) — the echo is gated on a non-empty failed_ticks.
+_code, _err, _patched = _drive_cmd_update(IDX_BODY, patch_fails=True, tick_ac_n=[2])
+assert_eq("#169 shadow-F1: a clean PATCH failure (no tick miss) still exits non-zero", 1, _code)
+assert_eq("#169 shadow-F1: a clean PATCH failure emits no spurious tick report", False,
+          'did not resolve' in _err or 'had also not resolved' in _err)
+
+# The volatile-PATCHed breadcrumb tells the caller to re-tick only the row(s), NOT
+# re-send the whole call (Finding 2 — re-sending would double-write append-only notes).
+_code, _err, _patched = _drive_cmd_update(IDX_BODY, note=['n'], tick_ac=['NO_SUCH_AC'])
+assert_eq("#169 shadow-F2: the volatile-PATCHed breadcrumb says re-tick only, do not re-send", True,
+          'do not' in _err and 're-tick only' in _err and _patched is not None)
+
+# Shadow Finding 3 (silent-failure-hunter, LOW): an index tick against a PRESENT but
+# EMPTY section (zero checkbox rows) is a VOLATILE out-of-range miss, NOT a structural
+# abort — pins the volatile/structural boundary on the section-shape axis (TD-1 pins
+# the class-hierarchy axis). A future edit raising _UpdateError for an empty section
+# would silently re-introduce batch-discard for that shape; this guards against it.
+EMPTY_PLAN = """<!-- devflow:workpad -->
+# DevFlow Workpad — Issue #999
+
+**Status:** 🚀 Setup
+**Last updated:** 2026-05-15T00:00:00Z
+
+## Plan
+
+## Acceptance Criteria
+- [ ] AC one
+"""
+_ft = []
+out = apply_mut(EMPTY_PLAN, make_args(status='Blocked', tick_plan_n=[1]), _ft)
+assert_eq("#169 shadow-F3: index tick on an empty (zero-row) section is volatile, not a structural abort", True,
+          '👎 Blocked' in _statusline(out))
+assert_eq("#169 shadow-F3: the empty-section index miss is collected (out-of-range)", 1, len(_ft))
+assert_eq("#169 shadow-F3: the empty-section descriptor reports the 0-row count", True,
+          'section has 0 checkbox row(s)' in _ft[0])
+
+# Shadow pr-test 3a: the --tick-ac-n/--tick-plan-n argparse wiring (type=int) is
+# exercised at the PARSE level, not just via pre-built Namespaces. A non-integer is
+# rejected by argparse (exit 2) before any gh call — guarding a `type=int` regression
+# the make_args-based tests (which bypass argparse) cannot catch.
+def _tick_ac_n_noninteger_code():
+    saved = (sys.argv[:], workpad._run, workpad._repo_full, workpad._workpad_marker)
+    sys.argv = ['workpad.py', 'update', '1', '--tick-ac-n', 'notanint']
+    def _boom(cmd, **kw):
+        raise _subprocess.CalledProcessError(1, cmd, stderr='gh stubbed out')
+    workpad._run = _boom
+    workpad._repo_full = lambda: 'owner/repo'
+    workpad._workpad_marker = lambda explicit=None: '<!-- devflow:workpad -->'
+    try:
+        with contextlib.redirect_stderr(io.StringIO()):
+            workpad.main()
+        return None
+    except SystemExit as e:
+        return e.code
+    finally:
+        sys.argv, workpad._run, workpad._repo_full, workpad._workpad_marker = saved
+assert_eq("#169 shadow-3a: --tick-ac-n with a non-integer is rejected by argparse (type=int, exit 2)",
+          2, _tick_ac_n_noninteger_code())
+
+# Shadow type-design: the _CHECKBOX_ROW_RE group-order contract (group 2 = state cell,
+# preserved by _rewrite_checkbox / overwritten by _tick_checkbox_by_index) is pinned
+# structurally, so a group reshuffle that happens to keep the index tests green but
+# breaks _rewrite_checkbox's group-2 preservation is caught directly.
+_m = workpad._CHECKBOX_ROW_RE.match('  - [x] hello world')
+assert_eq("#169 group-order: group 1 is indent+bullet", '  - ', _m.group(1))
+assert_eq("#169 group-order: group 2 is the [ xX] state cell", '[x]', _m.group(2))
+assert_eq("#169 group-order: group 4 is the row text", 'hello world', _m.group(4))
+
+# Re-shadow pr-test Finding 1: the index form counts NESTED (indented) checkbox rows
+# and skips interleaved non-checkbox lines — `_CHECKBOX_ROW_RE`'s `\s*` indent group is
+# load-bearing for the docstring's "every [ ]/[x] row in document order" claim. Every
+# other index fixture is flat+contiguous; this one interleaves a nested sub-item and a
+# prose line so a regression anchoring the row regex at column 0 (or counting only
+# top-level rows) would mis-address rather than stay green.
+NESTED_PLAN = """<!-- devflow:workpad -->
+# DevFlow Workpad — Issue #999
+
+**Status:** 🚀 Setup
+**Last updated:** 2026-05-15T00:00:00Z
+
+## Plan
+- [ ] top one
+  - [ ] nested two
+- [ ] top three
+
+## Acceptance Criteria
+- [ ] AC one
+"""
+_ft = []
+out = apply_mut(NESTED_PLAN, make_args(tick_plan_n=[2]), _ft)
+assert_eq("#169 nested-index: -n 2 ticks the NESTED row (counted in document order)", True,
+          '  - [x] nested two' in out)
+assert_eq("#169 nested-index: the top rows are untouched", True,
+          '- [ ] top one' in out and '- [ ] top three' in out)
+assert_eq("#169 nested-index: -n 3 ticks the row AFTER the nested one (no row skipped)", True,
+          '- [x] top three' in apply_mut(NESTED_PLAN, make_args(tick_plan_n=[3]), []))
+# -n 4 is out of range: the section has exactly 3 checkbox rows (top, nested, top),
+# so the nested row IS counted (a top-level-only count would make 4 in range here).
+_nf = []
+apply_mut(NESTED_PLAN, make_args(tick_plan_n=[4]), _nf)
+assert_eq("#169 nested-index: -n 4 is out of range (nested fixture has exactly 3 rows)",
+          1, len(_nf))
+assert_eq("#169 nested-index: the out-of-range descriptor reports the 3-row count", True,
+          'section has 3 checkbox row(s)' in _nf[0])
+
+# Re-shadow pr-test Finding 2: the documented substring→index same-row interaction —
+# a substring tick processed first makes a later index targeting that SAME row report a
+# benign "already ticked" volatile miss (pins both the interaction and the intra-call
+# substring-before-index ordering it depends on).
+_ft = []
+out = apply_mut(IDX_BODY, make_args(status='Reviewing', tick_ac=['AC two'], tick_ac_n=[2]), _ft)
+assert_eq("#169 same-row: the substring tick (processed first) ticks AC two", True,
+          '- [x] AC two' in out)
+assert_eq("#169 same-row: the index targeting the now-ticked same row is a volatile miss", 1, len(_ft))
+assert_eq("#169 same-row: the miss is reported as 'already ticked'", True,
+          'already ticked' in _ft[0])
+assert_eq("#169 same-row: --status still applied (volatile, not abort)", True,
+          '🚀 Reviewing' in _statusline(out))
 
 
 print("workpad notes: compact timestamp + nesting under ## Progress phase")
 
 # Compact timestamp: note bullet renders `  - HH:MM:SS — {note}` (no date/T/Z),
 # nested (indented) under its phase.
-out = workpad._apply_mutations(WORKPAD_BODY, make_args(note=['narrowed AC']))
+out = apply_mut(WORKPAD_BODY, make_args(note=['narrowed AC']))
 note_line = next(ln for ln in out.splitlines() if '— narrowed AC' in ln)
 assert_eq("note: bullet is indented (nested under its phase)", True,
           note_line.startswith('  - '))
@@ -431,7 +851,7 @@ assert_eq("note: Last updated is friendly UTC (no ISO T-separator / Z)", True,
           and not re.search(r'\dT\d', lu) and not re.search(r'\dZ', lu))
 
 # Second same-phase note follows the first, still under Implement.
-out2 = workpad._apply_mutations(out, make_args(note=['second note']))
+out2 = apply_mut(out, make_args(note=['second note']))
 prog2 = out2.split('## Plan', 1)[0]
 assert_eq("note: second same-phase note follows the first chronologically", True,
           prog2.index('narrowed AC') < prog2.index('second note'))
@@ -439,14 +859,14 @@ assert_eq("note: second same-phase note still before next phase", True,
           prog2.index('second note') < prog2.index('**Review**'))
 
 # Combined --status + --note nests under the POST-mutation Status's phase.
-out3 = workpad._apply_mutations(WORKPAD_BODY, make_args(status='Reviewing', note=['x']))
+out3 = apply_mut(WORKPAD_BODY, make_args(status='Reviewing', note=['x']))
 prog3 = out3.split('## Plan', 1)[0]
 assert_eq("note: combined --status/--note nests under NEW status's phase (Review)", True,
           prog3.index('**Review**') < prog3.index('— x')
           and prog3.index('— x') < prog3.index('**Documentation**'))
 
 # Two notes in one call: argument order preserved, both under Implement.
-out4 = workpad._apply_mutations(WORKPAD_BODY, make_args(note=['alpha note', 'beta note']))
+out4 = apply_mut(WORKPAD_BODY, make_args(note=['alpha note', 'beta note']))
 prog4 = out4.split('## Plan', 1)[0]
 assert_eq("note: two notes in one call preserve argument order", True,
           prog4.index('alpha note') < prog4.index('beta note'))
@@ -543,29 +963,29 @@ assert_eq("glyph: Blocked → 👎", '👎', workpad._status_glyph('Blocked'))
 assert_eq("glyph: strips an existing leading glyph", 'Implementing',
           workpad._strip_status_glyph('🚀 Implementing'))
 
-out = workpad._apply_mutations(WORKPAD_V2, make_args(status='Complete'))
+out = apply_mut(WORKPAD_V2, make_args(status='Complete'))
 assert_eq("status: glyph applied to Status line", True,
           '**Status:** 🎉 Complete' in out)
 # Idempotent: passing a glyph-prefixed status doesn't double up.
-out_idem = workpad._apply_mutations(WORKPAD_V2, make_args(status='🎉 Complete'))
+out_idem = apply_mut(WORKPAD_V2, make_args(status='🎉 Complete'))
 assert_eq("status: re-applying a glyph-prefixed status is idempotent", 1,
           out_idem.count('🎉'))
 # A status transition while a note is added nests the note under the matching
 # ## Progress phase (Reviewing → Review), keyed on the bare (glyph-stripped)
 # post-mutation Status.
-out_note = workpad._apply_mutations(WORKPAD_V2, make_args(status='Reviewing', note=['x']))
+out_note = apply_mut(WORKPAD_V2, make_args(status='Reviewing', note=['x']))
 prog_note = out_note.split('## Plan', 1)[0]
 assert_eq("status+note: note nests under the new status's phase (Review)", True,
           prog_note.index('**Review**') < prog_note.index('— x')
           and prog_note.index('— x') < prog_note.index('**Documentation**'))
 
 # Run / PR links: replace when present.
-out = workpad._apply_mutations(WORKPAD_V2, make_args(
+out = apply_mut(WORKPAD_V2, make_args(
     run_link='[logs](https://example/run/2)', pr_link='[#5](https://example/pr/5)'))
 assert_eq("run-link: replaced", True, '**Run:** [logs](https://example/run/2)' in out)
 assert_eq("pr-link: replaced", True, '**PR:** [#5](https://example/pr/5)' in out)
 assert_eq("run-link: regex-special chars in URL kept literal", True,
-          '?a=1&b=2' in workpad._apply_mutations(
+          '?a=1&b=2' in apply_mut(
               WORKPAD_V2, make_args(run_link='https://e/r?a=1&b=2')))
 
 # Run / PR links: inserted after Branch when absent (legacy workpad resume).
@@ -573,7 +993,7 @@ LEGACY = WORKPAD_V2.replace('**Run:** [View run](https://example/run/1)\n', '') 
                    .replace('**PR:** _not yet created_\n', '')
 assert_eq("legacy: no Run/PR lines in fixture", False,
           '**Run:**' in LEGACY or '**PR:**' in LEGACY)
-out = workpad._apply_mutations(LEGACY, make_args(run_link='R', pr_link='P'))
+out = apply_mut(LEGACY, make_args(run_link='R', pr_link='P'))
 assert_eq("run-link: inserted after Branch when absent", True, '**Run:** R' in out)
 assert_eq("pr-link: inserted after Branch when absent", True, '**PR:** P' in out)
 assert_eq("inserted links sit between Branch and Last updated", True,
@@ -585,28 +1005,32 @@ assert_eq("both-absent insert keeps Run before PR", True,
 # Resume case: Run already present, only PR inserted → PR lands after Run, not
 # above it (regression guard for the insert-after-Branch ordering bug).
 RUN_ONLY = WORKPAD_V2.replace('**PR:** _not yet created_\n', '')
-out = workpad._apply_mutations(RUN_ONLY, make_args(pr_link='[#9](u)'))
+out = apply_mut(RUN_ONLY, make_args(pr_link='[#9](u)'))
 assert_eq("pr-link inserted after an existing Run line (not above it)", True,
           out.index('**Run:**') < out.index('**PR:** [#9](u)')
           and out.index('**PR:** [#9](u)') < out.index('**Last updated:**'))
 
-# ## Progress ticks (incl. a nested sub-item), with the same failure modes as --tick-*.
-out = workpad._apply_mutations(WORKPAD_V2, make_args(
+# ## Progress ticks (incl. a nested sub-item). Progress shares the substring
+# failure-isolation contract (issue #169) but has NO index form (AC 7).
+out = apply_mut(WORKPAD_V2, make_args(
     tick_progress=['**Setup**', 'code + sweeps']))
 assert_eq("tick-progress: top-level Setup ticked", True,
           '- [x] **Setup**' in out)
 assert_eq("tick-progress: nested sub-item ticked", True,
           '- [x] code + sweeps' in out)
-def _amb_progress():
-    workpad._apply_mutations(WORKPAD_V2, make_args(tick_progress=['**']))
-assert_raises("ambiguous --tick-progress raises _UpdateError",
-              workpad._UpdateError, _amb_progress)
+# Ambiguous --tick-progress is a volatile miss too: the batched --status survives
+# and the miss is collected (pre-#169 this aborted the whole call).
+_ft = []
+out = apply_mut(WORKPAD_V2, make_args(status='Blocked', tick_progress=['**']), _ft)
+assert_eq("ambiguous --tick-progress: status still applied (volatile, not abort)", True,
+          '👎 Blocked' in _statusline(out))
+assert_eq("ambiguous --tick-progress: collected as a volatile miss", 1, len(_ft))
 
 # Legacy resume: WORKPAD_V2 still carries a pre-change separate ## Decisions /
 # Notes section. --note now writes into ## Progress, must NOT error, and must
 # leave that legacy section (and its existing bullets) intact (AC: resuming a
 # pre-change workpad doesn't error or drop note content).
-out = workpad._apply_mutations(WORKPAD_V2, make_args(status='Implementing', note=['fresh note']))
+out = apply_mut(WORKPAD_V2, make_args(status='Implementing', note=['fresh note']))
 prog = out.split('## Plan', 1)[0]
 assert_eq("legacy-resume: new note nests under ## Progress (Implement phase)", True,
           '— fresh note' in prog
@@ -616,7 +1040,7 @@ assert_eq("legacy-resume: legacy ## Decisions / Notes section preserved", True,
 assert_eq("legacy-resume: existing legacy note content not dropped", True,
           'run started' in out)
 # <details>: --reflection appends inside the (initially empty) Reflection block.
-out = workpad._apply_mutations(WORKPAD_V2, make_args(reflection=['reflect!']))
+out = apply_mut(WORKPAD_V2, make_args(reflection=['reflect!']))
 rf = out.split('## Devflow Reflection', 1)[1]
 assert_eq("details/reflection: bullet before </details>", True,
           'reflect!' in rf and rf.index('reflect!') < rf.index('</details>'))
@@ -631,7 +1055,7 @@ print("workpad reflection grouping by --reflection-kind (issue #126)")
 def _reflect_seq(*pairs, body=WORKPAD_V2):
     out = body
     for kind, text in pairs:
-        out = workpad._apply_mutations(
+        out = apply_mut(
             out, make_args(reflection=[text], reflection_kind=kind))
     return out.split('## Devflow Reflection', 1)[1]
 
@@ -742,7 +1166,7 @@ _LEGACY_REFLECTION_BODY = """<!-- devflow:workpad -->
 - a legacy flat bullet
 </details>
 """
-_legacy_out = workpad._apply_mutations(
+_legacy_out = apply_mut(
     _LEGACY_REFLECTION_BODY, make_args(reflection=['boom'], reflection_kind='blocked'))
 _legacy_rf = _legacy_out.split('## Devflow Reflection', 1)[1]
 assert_eq("legacy flat bullet retained verbatim when a kinded bullet is appended", True,
@@ -769,7 +1193,7 @@ _UNWRAPPED_REFLECTION_BODY = """<!-- devflow:workpad -->
 
 ## Devflow Reflection
 """
-_unwrapped_out = workpad._apply_mutations(
+_unwrapped_out = apply_mut(
     _UNWRAPPED_REFLECTION_BODY, make_args(reflection=['boom'], reflection_kind='dropped-failed'))
 _unwrapped_rf = _unwrapped_out.split('## Devflow Reflection', 1)[1]
 assert_eq("un-wrapped (no <details>) reflection section groups the bullet in place", True,
@@ -788,13 +1212,13 @@ assert_eq("action-first then note → Action required still precedes Notes", Tru
 # write), not a bare KeyError traceback. argparse `choices` guards the CLI path;
 # this guards the direct-_apply_mutations path the tests themselves use.
 def _bad_reflection_kind():
-    workpad._apply_mutations(
+    apply_mut(
         WORKPAD_V2, make_args(reflection=['x'], reflection_kind='bogus'))
 assert_raises("bad reflection kind raises _UpdateError (not a bare KeyError)",
               workpad._UpdateError, _bad_reflection_kind)
 
 # Invariants preserved: marker first line; AC section still parseable.
-out = workpad._apply_mutations(WORKPAD_V2, make_args(
+out = apply_mut(WORKPAD_V2, make_args(
     status='Reviewing', note=['n'], reflection=['r'], tick_ac=['AC one']))
 assert_eq("invariant: marker is still the first line", True,
           out.startswith('<!-- devflow:workpad -->'))
@@ -842,7 +1266,7 @@ for _ph in workpad._PROGRESS_PHASES:
               any(_ph.lower() in _r.lower() for _r in _nb_rows))
 # The skeleton round-trips through the mutation engine (gate creates it, the
 # claude job then mutates the same comment).
-_rt = workpad._apply_mutations(_nb, make_args(tick_progress=['**Setup**'], note=['go']))
+_rt = apply_mut(_nb, make_args(tick_progress=['**Setup**'], note=['go']))
 assert_eq("new-body: skeleton accepts --tick-progress + --note", True,
           '- [x] **Setup**' in _rt and '— go' in _rt)
 # --branch fills the Branch line in backticks instead of the placeholder.

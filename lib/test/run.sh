@@ -1881,6 +1881,55 @@ assert_eq "implement finalize: SKILL ticks the workpad.py-owned 'PR marked ready
 assert_eq "implement finalize: workpad.py owns the 'PR marked ready' label (template + _PROGRESS_PHASES agree)" "yes" \
   "$(grep -qF '**PR marked ready**' "$WP_PY" && grep -qF "'PR marked ready'" "$WP_PY" && echo yes || echo no)"
 
+# ── issue #169: workpad.py tick failure-isolation + index ticking ─────────────
+# Coupled contract across three files: scripts/workpad.py (the volatile-vs-structural
+# behavior + the new --tick-ac-n/--tick-plan-n flags) ↔ implement/SKILL.md (the
+# `workpad.py update` flag-table AND the Phase 3.4 AC-tick call sites) ↔ this suite.
+# The SKILL flag-table must document the index flags and the failure-isolation
+# contract, and the Phase 3.4 gate must tick ACs by index rather than hand-picked
+# substrings (the eight-fragile-substring foot-gun this issue removes). Editing one
+# side without the others goes red here. (workpad.py's runtime behavior is pinned
+# exhaustively in lib/test/test_python_scripts.py; these are the doc-mirror pins.)
+assert_eq "#169: workpad.py defines the --tick-ac-n / --tick-plan-n index flags" "yes" \
+  "$(grep -qF -- '--tick-ac-n' "$WP_PY" && grep -qF -- '--tick-plan-n' "$WP_PY" && echo yes || echo no)"
+# SKILL-targeted pins route through assert_pin_unique (#157 AC2 raw-guard rule): the
+# flag-table ROW literal is target-unique (count 1), so it pins exactly the doc row —
+# stronger than a bare flag mention (which recurs across the table + call sites).
+assert_pin_unique "#169: implement/SKILL.md flag-table documents --tick-ac-n (index AC tick)" \
+  '| `--tick-ac-n N`' "$IMPL_SKILL"
+assert_pin_unique "#169: implement/SKILL.md flag-table documents --tick-plan-n (index Plan tick)" \
+  '| `--tick-plan-n N`' "$IMPL_SKILL"
+# The named contract heading is target-unique (a bare 'volatile' grep would stay green
+# if the contract paragraph were deleted but the word survived elsewhere).
+assert_pin_unique "#169: implement/SKILL.md carries the named volatile-vs-structural failure-isolation contract" \
+  'Failure-isolation contract (volatile vs. structural)' "$IMPL_SKILL"
+# ABSENCE pin (the hand-picked substring example must be GONE) — assert_pin_unique
+# (count==1) cannot express absence, so it carries an explicit #157 allowlist marker.
+assert_eq "#169: Phase 3.4 AC-tick uses the index form (no hand-picked '{substring of AC text}')" "yes" \
+  "$(grep -qF -- '--tick-ac "{substring of AC text}"' "$IMPL_SKILL" && echo no || echo yes)"  # raw-guard-ok: absence pin — the superseded substring example must be GONE
+# Finding 1 (review): the gate must CONSUME the new non-zero-exit contract — the SKILL
+# tells callers a tick's non-zero exit means it did not land (never advance on the
+# stdout body alone). Target-unique phrase → assert_pin_unique.
+assert_pin_unique "#169: implement/SKILL.md tells callers to check the tick exit code, not the stdout body alone" \
+  'never advance on the stdout body alone' "$IMPL_SKILL"
+# Finding 4 (review): ABSENCE pin — the stale '--tick-ac later' note must be gone
+# (replaced by '--tick-ac-n'); allowlist marker per #157 (absence is not expressible
+# via assert_pin_unique).
+assert_eq "#169: implement/SKILL.md 2.2.6 note references the index gate-tick flag (no stale '--tick-ac later')" "yes" \
+  "$(grep -qF 'will tick via `--tick-ac` later' "$IMPL_SKILL" && echo no || echo yes)"  # raw-guard-ok: absence pin — the superseded '--tick-ac later' note must be GONE
+# Shadow Finding 2 (review): the SKILL tells callers a volatile miss already PATCHed the
+# status/notes, so on a non-zero exit they re-tick ONLY the row(s) and do not re-send the
+# whole call (which would double-write append-only notes). Coupled with workpad.py's
+# breadcrumb wording, which test_python_scripts.py shadow-F2 pins. Target-unique phrase.
+assert_pin_unique "#169: implement/SKILL.md warns re-tick-only (don't re-send the whole call on a volatile miss)" \
+  'do not blindly re-send the whole call' "$IMPL_SKILL"
+# Shadow Finding 1 (review): workpad.py reports volatile misses on the gh-PATCH-failure
+# path too (not just the structural-abort and clean-PATCH paths), via the single
+# _report_failed_ticks chokepoint — so a miss collected before a 5xx/auth PATCH failure
+# is never silently dropped. test_python_scripts.py shadow-F1 pins the behavior.
+assert_eq "#169: workpad.py routes volatile misses through _report_failed_ticks (PATCH-failure echo)" "yes" \
+  "$(grep -qF 'def _report_failed_ticks' "$WP_PY" && grep -qF 'NO workpad change was persisted' "$WP_PY" && echo yes || echo no)"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "scaffold-config.sh"
 # ────────────────────────────────────────────────────────────────────────────

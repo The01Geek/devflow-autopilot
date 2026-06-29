@@ -136,7 +136,7 @@ Phase 4.3 (*Finalize the PR and Finalize Workpad*) is where a run ends. It runs 
 
 1. **Clean-tree backstop (unconditional).** `git status --porcelain` must be empty before finalizing. The run started from a clean base-branch checkout, so anything dirty here is this run's own work an earlier phase failed to commit — it is committed with the right prefix and the under-committing phase is recorded in `Devflow Reflection`, never papered over. This runs in *both* the publish and draft cases; it is independent of the publish decision.
 2. **Publish decision.** By default the run publishes the draft PR created in Phase 3.1 by running `gh pr ready`.
-3. **Workpad finalization.** `Status` flips to `Complete` (🎉), the final `## Progress` item is ticked, and the 🎉 outcome reaction is emitted on the triggering comment — in both cases.
+3. **Workpad finalization.** `Status` flips to `Complete` (🎉), the final `## Progress` item is ticked, and the 🎉 outcome reaction is emitted on the triggering comment — in both cases. The final-item tick is a `--tick-progress` substring match against the `## Progress` "PR marked ready" row; if that label has drifted (or was already ticked on a resumed run) the tick is a *volatile* miss — the `## Progress` section is still present, so the call still flips `Status` to `Complete` and writes its note but **exits non-zero** rather than aborting. The finalize must consume that exit code (per the failure-isolation contract below): a non-zero finalize means the box is still `- [ ]` and the row must be re-resolved and re-ticked before the run is treated as cleanly Complete.
 
 The publish step is gated by a per-consumer config key, **`devflow_implement.implement_pr_state`** (string, read via `config-get.sh .devflow_implement.implement_pr_state ready_for_review`):
 
@@ -151,6 +151,19 @@ The publish step is gated by a per-consumer config key, **`devflow_implement.imp
 **Downstream consequence of `draft`.** Publishing a PR is what fires the rest of the pipeline: the cloud review (`devflow-review.yml` triggers on the `ready_for_review` event) and CI's `ready_for_review` listener both key off the draft→ready transition. Choosing `draft` therefore *intentionally* suppresses those for that run until a human publishes the PR — this is the documented trade-off a consumer accepts, not a bug to be fixed. It lets maintainers of repos that adopt DevFlow keep bot-completed PRs out of the ready-for-review queue and publish them on their own cadence (after a manual look, on a release boundary, or to avoid auto-notifying reviewers).
 
 The gate lives once in `skills/implement/SKILL.md` Phase 4.3 — the skill body is shared by the local and cloud `/devflow:implement` paths, and both read the same `config.json` via `config-get.sh`, so no workflow change is needed and the logic is never forked.
+
+## Workpad ticking: failure-isolation contract and index-based ticking
+
+`workpad.py update` PATCHes the workpad once per call, and it distinguishes two failure classes so a batch of mutations is not lost to a single bad checkbox tick:
+
+- **Structural failures abort the whole call before any PATCH** (exit 1, clear stderr): `gh` cannot resolve the repo, the API call fails, a target section (`## Progress`/`## Plan`/`## Acceptance Criteria`) is absent, the `Last updated` line is missing (or the `Status` line when `--status` is supplied), a `--rewrite-ac` substring matches zero or multiple rows, or a `--replace-*-file`/`--set-reproduction-file` is unreadable. A structural failure persists nothing — all-or-nothing, as it always was.
+- **Volatile per-row tick misses are isolated, not aborted.** A `--tick-*`/`--tick-*-n` flag that does not resolve to exactly one tickable row *inside a present section* — a substring matching zero or multiple unticked rows, or a `-n` index that is out of range or lands on an already-ticked row — does **not** discard the call. Every other mutation (`--status`, `--note`, `--reflection`, and every tick that *did* resolve) is applied and PATCHed, and the call then **exits non-zero** with a stderr report naming each tick that did not land. So one bad tick in a batch no longer silently loses the accompanying status/notes.
+
+A single `_report_failed_ticks` chokepoint in `scripts/workpad.py` writes the collected misses on all three exit paths — the structural-abort path, the `gh`-PATCH-failure path, and the clean-PATCH-but-ticks-missed path — so a miss is never silently dropped, and the stderr preamble states whether a PATCH was persisted so the caller can distinguish "nothing landed, re-send the whole call" from "the body PATCHed, re-tick only the named row(s)."
+
+**Callers must check the exit code of any tick call — the printed body alone is not a success signal.** Because a volatile miss still PATCHes (and prints) the body while leaving its target row `- [ ]`, a non-zero exit from any `update` carrying a `--tick-*`/`--tick-*-n` means at least one tick did not land. This is why the Phase 3.4 gate and the Phase 4.3 finalize both gate on the exit code, not the stdout body.
+
+**Ticking is addressable by substring or by index.** Besides the substring flags (`--tick-progress`/`--tick-plan`/`--tick-ac`), Plan and Acceptance Criteria accept a **1-based index** form (`--tick-plan-n`/`--tick-ac-n`) that counts every `[ ]` and `[x]` row within that section in document order (the index is section-scoped, not whole-document; Progress has no index form). The Phase 3.4 AC gate ticks confirmed criteria by index — repeatable and combinable in one call — so it no longer depends on hand-picking a unique prose substring per AC.
 
 ## `## Devflow Reflection`: grouped-by-kind rendering (`--reflection-kind`)
 
