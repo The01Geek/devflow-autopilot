@@ -16,6 +16,7 @@ A **"Sweep selection (run first)"** preamble in the skill indexes which of these
 |---|---|---|
 | 2.3.0 Changed-contract | a change that **modifies** a signature, renames/moves a symbol, tightens a validator, or alters a classifying predicate | dependent sites left on the *old* contract (other predicate branches, sibling callers, fixtures/assertions) |
 | 2.3.0a Peer-checkpoint completeness | a change that **adds** a rule/clause/guard/invariant which has *co-equal peer sites* (two or more sites that must each enforce the same rule for it to hold) | the rule stated at only *some* peers — a guard applied to one config-leaf branch but not its siblings, a read-only clause present at 2 of 4 gate checkpoints, a fallback in the selection predicate but not the parallel derivation |
+| 2.3.0b Enum-enumeration reconciliation | a change that **adds a value to an enumerated value set** (a new enum/string-union member, status, kind, verdict, or `fix_decision`) | enumerating sites left stale — a doc/comment list of the value set, or a fall-through consumer (an `else`/`default`/`// null` arm) — that the *code*-call-site sweeps (2.3.0/2.3.0a) miss, even when the runtime stays correct because the new value rides an intended fall-through |
 | 2.3.1 Orphaned-setup | a **deletion** of code | setup lines (a dependency fetch, lookup, computed local, import) whose only consumer was the deleted code |
 | 2.3.2 Stranded-dependents | a **deletion** of a method, file, route, or page | references *outside* the diff the deletion stripped of purpose (callerless public methods, dead args, surviving inbound links) |
 | 2.3.3 Convention-compliance | any code the diff **added or modified** | `CLAUDE.md` convention violations in touched code |
@@ -46,6 +47,19 @@ selection predicate but not the parallel workpad derivation — each correct in 
 by its PR's prose as if it held everywhere, each surfacing only as a REJECT or post-bot fix. A deliberately
 exempt peer is allowed when recorded with a `--note`; only a *silent* asymmetry is the defect. It is
 numbered 2.3.0a (not renumbering 2.3.1–2.3.6) for the same presentational reason 2.3.6 sits last.
+
+**2.3.0b** is a second sibling in the 2.3.0 family, for a different additive shape: *adding a value to an
+enumerated value set*. Where 2.3.0a watches a newly-added rule for incomplete peer coverage, 2.3.0b watches
+a newly-added enum/status/kind/verdict value for *stale enumerating sites* — and, critically, it greps a
+class the code-call-site sweeps do not: **doc/comment enumerations** of the value set and **fall-through
+consumers** (an `else`/`default`/`// null` arm). The motivating case (#160) is the worked example: adding
+`fix_decision: "severity-calibrated"` was behaviorally correct because the value rode an intended `else null`
+fall-through in `verdict_for`, yet `lib/efficiency-trace.jq`'s and `docs/efficiency-trace.md`'s prose
+enumerations of the value set went stale until a shadow reviewer flagged them — "consistent behavior" is not
+"reconciled enumeration." 2.3.0 and 2.3.0a grep *code* sites; 2.3.0b keys on the *observable* member literals
+of the set (grep each known value, not a re-judgment) so the doc/comment and fall-through sites are caught at
+implement time. A site deliberately exempt (a fall-through that *should* absorb the value) is allowed when
+recorded with a `--note`; only a *silent* stale enumeration is the defect.
 
 **2.3.5** is different in kind from the correctness sweeps above: it front-loads the *cleanup* lenses that the Phase 3.2 `/simplify` pass (`/code-review --fix`) would otherwise be the first to catch. `/code-review` applies four cleanup lenses — reuse, simplification, efficiency, altitude. The first two of those are *design* decisions and are settled earlier, at the **2.2.4 Reuse & Altitude plan gate**, because reusing an existing helper or picking the right altitude is far cheaper before the code is written than after. Simplification and efficiency are properties of the *assembled* diff, so they belong in a post-write sweep — hence 2.3.5. Together, 2.2.4 + 2.3.5 mean the in-loop `/simplify` should find little; when it finds a lot, that is the signal those two gates were skipped or rushed. `/simplify` still earns its place as a backstop because it sees the whole diff at once and catches cross-change duplication and dead code no single in-loop sweep would.
 
