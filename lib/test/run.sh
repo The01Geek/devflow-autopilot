@@ -2096,8 +2096,7 @@ assert_eq "#169: workpad.py routes volatile misses through _report_failed_ticks 
 # Phase 4.1 now cross-checks file paths named in the issue body "Documentation
 # Needed" section against the diff before ticking Documentation. Pin the
 # load-bearing tokens: the condition/self-heal phrase, the git diff range, and
-# the Blocked-path arm. Two pins cover the "keeps-heading-guts-body" removal
-# shape (A + B); pin C guards the Blocked arm specifically.
+# the Blocked-path arm.
 assert_pin_unique "#185: Phase 4.1 keeps the absent-file self-heal condition (A)" \
   'absent from the diff, perform the missing update' "$IMPL_SKILL"
 assert_pin_unique "#185: Phase 4.1 uses the three-dot origin/\$BASE...HEAD diff range (B)" \
