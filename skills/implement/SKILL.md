@@ -129,7 +129,7 @@ Subcommand reference:
 | `workpad.py body COMMENT_ID` | Print the full body of an existing workpad. |
 | `workpad.py create ISSUE BODY_FILE` | Create the workpad on a fresh issue from a body file and print the new comment ID. Use at most once per issue (the cloud `gate` job already does this; the local fresh-issue path does it in 1.3). |
 | `workpad.py new-body ISSUE [--run-link V] [--branch V] [--marker M]` | Print the lean initial workpad skeleton to stdout (Status/links/timestamp + empty `## Progress`, placeholder Plan/AC). Pipe to a temp file, then `create`. |
-| `workpad.py update ISSUE [mutations...] [--marker M]` | Apply atomic mutations and PATCH. **This is the mutation entry point used at every phase boundary after creation.** See the flags below. |
+| `workpad.py update ISSUE [mutations...] [--marker M]` | Apply mutations and PATCH (structural failures are all-or-nothing; a volatile tick miss isolates — see the failure-isolation contract). **This is the mutation entry point used at every phase boundary after creation.** See the flags below. |
 | `workpad.py now` | Canonical UTC ISO-8601 timestamp. (`update` already refreshes `Last updated` automatically; use `now` only when you need a timestamp in some other string, e.g. a follow-up issue body.) |
 | `workpad.py patch COMMENT_ID BODY_FILE` | Low-level body-file PATCH. Prefer `update`; only use this for bulk-rewrite cases the `update` flags don't cover. |
 

@@ -526,12 +526,19 @@ assert_eq("#169 substring unchanged: unique --tick-ac still ticks its row", True
 # Progress has no index form (AC 7): --tick-progress-n is an unknown argparse flag.
 # Assert the exit CODE is 2 (argparse's usage-error code), not merely that *some*
 # SystemExit fired — if Progress accidentally GAINED a --tick-progress-n flag,
-# main() would parse cleanly and then exit 1 ("no workpad found", gh unstubbed), so
-# a bare `assert_raises(SystemExit)` would stay green on the very regression this
-# guards. Code 2 uniquely identifies "argparse rejected the unknown flag."
+# main() would parse cleanly and then exit 1 ("no workpad found"), so a bare
+# `assert_raises(SystemExit)` would stay green on the very regression this guards.
+# Code 2 uniquely identifies "argparse rejected the unknown flag." `_run` is stubbed
+# to raise so that, IF a future refactor let the flag parse, the post-argparse path
+# fails deterministically here (→ exit 1 ≠ 2) instead of shelling out to a real `gh`.
 def _progress_no_index_form_code():
-    saved_argv = sys.argv[:]
+    saved = (sys.argv[:], workpad._run, workpad._repo_full, workpad._workpad_marker)
     sys.argv = ['workpad.py', 'update', '1', '--tick-progress-n', '1']
+    def _boom(cmd, **kw):
+        raise _subprocess.CalledProcessError(1, cmd, stderr='gh stubbed out')
+    workpad._run = _boom
+    workpad._repo_full = lambda: 'owner/repo'
+    workpad._workpad_marker = lambda explicit=None: '<!-- devflow:workpad -->'
     try:
         with contextlib.redirect_stderr(io.StringIO()):
             workpad.main()  # argparse rejects the unknown flag before any gh call
@@ -539,7 +546,7 @@ def _progress_no_index_form_code():
     except SystemExit as e:
         return e.code
     finally:
-        sys.argv = saved_argv
+        sys.argv, workpad._run, workpad._repo_full, workpad._workpad_marker = saved
 assert_eq("#169 AC7: --tick-progress-n is rejected by argparse (exit code 2, not a later exit)",
           2, _progress_no_index_form_code())
 
