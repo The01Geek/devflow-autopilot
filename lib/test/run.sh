@@ -6127,6 +6127,47 @@ LR_SCHEMA="$(sed -n '/^### Schema$/,/^```$/p' "$MAXI_SKILL" | grep -E '^  "[A-Za
 assert_eq "loop_role #170: ITER_EXPECTED_FIELDS single-source == SKILL.md schema top-level minus shadow" \
   "$LR_SCHEMA" "$LR_CONST"
 
+# (6) --self-check NEVER ABORTS on an unparseable iter file (issue #170 AC: every
+#     new path exits 0 on an unparseable iter-N.json). The script runs under
+#     `set -euo pipefail`, so a bare `missing=$(jq ...)` assignment would trip set -e
+#     when jq fails to parse — this asserts the `if !`-guarded assignment keeps the
+#     contract. A valid iter alongside the malformed one still gets its missing-field
+#     warnings. (Regression test for a /simplify-introduced abort.)
+LR_SCM_REPO="$(mktemp -d)"
+git -C "$LR_SCM_REPO" init -q
+LR_SCM_RUN="$LR_SCM_REPO/.devflow/tmp/review/pr-75/run-w"
+mkdir -p "$LR_SCM_RUN"
+printf '{"iter":1,"loop_role":"fix"}'   > "$LR_SCM_RUN/iter-1.json"   # valid object, many fields missing
+printf 'not json at all'                > "$LR_SCM_RUN/iter-2.json"   # unparseable — must NOT abort the pass
+LR_SCM_OUT="$( ( cd "$LR_SCM_REPO" && bash "$LIB/efficiency-trace.sh" --self-check --workpad-dir "$LR_SCM_RUN" --slug pr-75 ) 2>&1 )"; LR_SCM_RC=$?
+assert_eq "loop_role #170: --self-check exits 0 with an unparseable iter present (never aborts under set -e)" "0" "$LR_SCM_RC"
+assert_eq "loop_role #170: --self-check still warns on the VALID iter's missing fields despite a malformed sibling" "yes" \
+  "$(printf '%s' "$LR_SCM_OUT" | grep -F '::warning::' | grep -F 'telemetry' | grep -qF 'iter-1.json' && echo yes || echo no)"
+rm -rf "$LR_SCM_REPO"
+
+# (7) Promotion does NOT propagate/latch: in a 3-iter chain where iter-1 promotes
+#     but iter-2 does not, the derived roles are fix, promoted, fix — each iter's
+#     role keys only on its IMMEDIATELY-preceding iter's shadow_promoted.
+LR_3="$(mktemp -d)"
+printf '{"iter":1,"phase3_findings":[],"shadow":{"promoted_to_iter_next":true}}'  > "$LR_3/iter-1.json"
+printf '{"iter":2,"phase3_findings":[],"shadow":{"promoted_to_iter_next":false}}' > "$LR_3/iter-2.json"
+printf '{"iter":3,"phase3_findings":[]}'                                          > "$LR_3/iter-3.json"
+LR_3_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$LR_3" --slug pr-76 --mode record)"
+assert_eq "loop_role #170: 3-iter chain role sequence is fix/promoted/fix (no latch/propagation)" "fix promoted fix" \
+  "$(printf '%s' "$LR_3_REC" | jq -r '[.per_iteration[] | .loop_role] | join(" ")')"
+rm -rf "$LR_3"
+
+# (8) An empty-string persisted loop_role falls back to derivation (the `length > 0`
+#     half of the type-guard) — iter 2 with loop_role:"" and a prior promotion derives
+#     "promoted", not the persisted empty string.
+LR_E="$(mktemp -d)"
+printf '{"iter":1,"phase3_findings":[],"shadow":{"promoted_to_iter_next":true}}' > "$LR_E/iter-1.json"
+printf '{"iter":2,"phase3_findings":[],"loop_role":""}'                          > "$LR_E/iter-2.json"
+LR_E_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$LR_E" --slug pr-77 --mode record)"
+assert_eq "loop_role #170: empty-string persisted loop_role falls back to derivation (not preserved)" "promoted" \
+  "$(printf '%s' "$LR_E_REC" | jq -r '.per_iteration[] | select(.iter==2) | .loop_role')"
+rm -rf "$LR_E"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "devflow-runner.yml: opt-in environment provisioning (issues #18, #21)"
 # ────────────────────────────────────────────────────────────────────────────

@@ -201,9 +201,12 @@ def iter_view:
       # workpad's own value when present and non-empty — it wins over derivation.
       # shadow_promoted is THIS iter's shadow.promoted_to_iter_next, read by the
       # NEXT iter to decide promoted-vs-fix. Both type-guarded so a malformed
-      # shadow block or a non-string loop_role never aborts the filter.
+      # shadow block or a non-string loop_role never aborts the filter. Coerced to
+      # a strict boolean (`== true`): a non-object shadow, an absent/null field, or
+      # a malformed non-boolean value (e.g. the string "yes") all become false, so a
+      # malformed producer value can never over-classify the next iter as promoted.
       loop_role_persisted: (($it.loop_role) | if (type == "string" and (length > 0)) then . else null end),
-      shadow_promoted: (($it.shadow | objects | .promoted_to_iter_next) // false)
+      shadow_promoted: ((($it.shadow | objects | .promoted_to_iter_next) // false) == true)
     };
 
 # ── Build the ordered per-iteration array ───────────────────────────────────

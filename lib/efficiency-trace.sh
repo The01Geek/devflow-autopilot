@@ -179,17 +179,24 @@ do_self_check() {
   # never aborts — for each iter-<N>.json missing an expected field, naming the
   # field and the iter file so a silently-dropped inline-persist field becomes a
   # visible warning. One jq per file computes the missing set as a set difference
-  # (expected fields − the object's keys); a non-object iter file yields no output
-  # (the object-gate folds into the same filter), so the already-degraded malformed
-  # case is skipped here — consistent with the derivation path; --persist/--mode
-  # already breadcrumb the malformed case. Field names are bare identifiers, so the
-  # `for field in $missing` word-split is safe (and emits one warning line each).
+  # (expected fields − the object's keys). The jq call is guarded by `if !` — NOT a
+  # bare `missing=$(...)` assignment, which under `set -e` would abort the whole
+  # self-check (non-zero `exit`, not exit 0) the moment jq fails to *parse* or *open*
+  # one iter file — mirroring how collect_valid_files and --persist guard their jq.
+  # So a malformed, unparseable, or unreadable iter file makes jq fail, yields an
+  # empty `missing`, and is skipped here with exit 0 preserved; that already-degraded
+  # case is breadcrumbed by the --persist/--mode parse paths, not this warn-only pass.
+  # A parsed-but-non-object iter file likewise yields no output (the object-gate
+  # returns empty). Field names are bare identifiers, so the `for field in $missing`
+  # word-split is safe (and emits one warning line each).
   local iter field missing
   for iter in "$WORKPAD_DIR"/iter-*.json; do
     [ -e "$iter" ] || continue
-    missing="$(jq -r --arg fields "$ITER_EXPECTED_FIELDS" \
-                 'if type == "object" then (($fields | split(" ")) - keys)[] else empty end' \
-                 "$iter" 2>/dev/null)"
+    if ! missing="$(jq -r --arg fields "$ITER_EXPECTED_FIELDS" \
+                      'if type == "object" then (($fields | split(" ")) - keys)[] else empty end' \
+                      "$iter" 2>/dev/null)"; then
+      missing=""
+    fi
     for field in $missing; do
       echo "::warning::devflow review-and-fix self-check: iter workpad '$(basename "$iter")' is missing expected field '${field}'" >&2
     done
