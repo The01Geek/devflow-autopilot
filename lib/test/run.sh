@@ -1501,6 +1501,18 @@ assert_pin_unique "#167 critic: the critic finding is collected in Phase 3.2 (fl
   'completeness-critic pass ran and produced a finding' "$REVIEW_SKILL"
 assert_pin_unique "#167 re-sweep: the comment-analyzer dispatch is advisory (analyzes and reports only)" \
   'analyzes and reports only' "$MAXI_SKILL"
+# (d) the Phase 0.5 *table row* is the operative dispatch contract an orchestrator reads to
+#     decide the profile — pin the ROW itself, not only its prose restatement at line 307
+#     (the `additive, never suppressed` pin above). A revert that demoted the row to an
+#     override (re-opening the "detect-all audit on a lean diff escapes review" defect) would
+#     leave the prose pin GREEN while the actual lookup table no longer forces the pass.
+# (e) the Phase 0.5 rule's negative-shape exclusion — a paraphrase that dropped it would
+#     silently WIDEN detect_all_audit to fire on every grep (forcing the critic on ordinary
+#     diffs), and stay green.
+assert_pin_unique "#167 critic: Phase 0.5 TABLE ROW forces the pass (a forced extra pass, never an override)" \
+  'a *forced extra pass*, not a checklist or cost override' "$REVIEW_SKILL"
+assert_pin_unique "#167 critic: Phase 0.5 rule excludes the false-positive shapes (single-target grep / fixed list)" \
+  'a check over a fixed hand-listed set is **not** this shape' "$REVIEW_SKILL"
 # Mutation proofs (AC2/AC7 guarantee-class): deleting a load-bearing contract literal turns
 # its pin RED. The third arg routes the removal through the relevant file (the generalized
 # helper defaults to $MAXI_SKILL when omitted). These exercise the engine-prose pins above on
@@ -1522,6 +1534,10 @@ assert_pin_red_on_removal "#167 core-mp: deleting the Phase 3.2 critic-finding i
   'completeness-critic pass ran and produced a finding' "$REVIEW_SKILL"
 assert_pin_red_on_removal "#167 core-mp: deleting the re-sweep advisory-only clause turns its pin RED" \
   'analyzes and reports only'
+assert_pin_red_on_removal "#167 core-mp: deleting the Phase 0.5 table-row dispatch contract turns its pin RED" \
+  'a *forced extra pass*, not a checklist or cost override' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#167 core-mp: deleting the false-positive-shape exclusion turns its pin RED" \
+  'a check over a fixed hand-listed set is **not** this shape' "$REVIEW_SKILL"
 
 # Drift guard: the Phase 2.3 sweep list lives in three places that must stay in
 # sync — the sweep body in implement/SKILL.md, the "Sweep selection" always-run
