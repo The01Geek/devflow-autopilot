@@ -1179,16 +1179,19 @@ assert_pin_unique "sweep 2.3.0a: implement SKILL keeps the enumerate-by-grep ste
 # entry pinned below) and must stay in sync; if any loses it, the catch for a
 # stale doc/comment enumeration or fall-through consumer reverts to a shadow-review
 # finding or a post-bot fix.
-assert_eq "sweep 2.3.0b: implement SKILL keeps the sweep body" "yes" \
-  "$(grep -qF '#### 2.3.0b Enum-enumeration reconciliation sweep' "$IMPL_SKILL" && echo yes || echo no)"
-assert_eq "sweep 2.3.0b: implement SKILL lists it in the always-run index" "yes" \
-  "$(grep -qF 'run **2.3.0b**' "$IMPL_SKILL" && echo yes || echo no)"
+# The three SKILL-body pins use assert_pin_unique (exactly-once), matching the 2.3.0a/2.3.6
+# sibling sweep-body pins above — not the raw single-line presence form, which #157 AC2's
+# repo-wide scanner flags as an un-routed raw SKILL guard. (#166 landed them in the raw form;
+# this is the cross-PR reconciliation to #157's widened rule.) The IMPL_DOC / OVERVIEW mirrors
+# below stay in presence form like their sibling doc-row pins — the AC2 scanner does not cover
+# non-SKILL files.
+assert_pin_unique "sweep 2.3.0b: implement SKILL keeps the sweep body" '#### 2.3.0b Enum-enumeration reconciliation sweep' "$IMPL_SKILL"
+assert_pin_unique "sweep 2.3.0b: implement SKILL lists it in the Sweep-selection index" 'run **2.3.0b**' "$IMPL_SKILL"
 assert_eq "sweep 2.3.0b: docs/implement-skill.md keeps the rationale table row" "yes" \
   "$(grep -qF '| 2.3.0b Enum-enumeration reconciliation |' "$IMPL_DOC" && echo yes || echo no)"
 # Pin one step token unique to the 2.3.0b procedure (the grep-every-enumerating-site
 # rule) so a reviewer who guts the steps but keeps the heading still trips the suite.
-assert_eq "sweep 2.3.0b: implement SKILL keeps the enumerate-every-site step" "yes" \
-  "$(grep -qF 'Enumerate every site that names a member of the set, by grep' "$IMPL_SKILL" && echo yes || echo no)"
+assert_pin_unique "sweep 2.3.0b: implement SKILL keeps the enumerate-every-site step" 'Enumerate every site that names a member of the set, by grep' "$IMPL_SKILL"
 # Fourth mirror site (unique to 2.3.0b — 2.3.0a/2.3.6 have no OVERVIEW entry): Part C
 # added a sweep-list line in docs/DEVFLOW_SYSTEM_OVERVIEW.md. This PR's own iteration-1
 # review caught that line stale, proving it is a coupled mirror — so pin it too, or a
