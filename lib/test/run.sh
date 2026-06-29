@@ -113,6 +113,83 @@ probe_assert() {  # assertion-fn args... -> prints PASS or FAIL (the probed verd
   tail -n 1 "$probe"
   rm -f "$probe"
 }
+
+# Allocate a verified-isolated temp DIRECTORY for a git-mutating test, failing the
+# SUITE (not vacuously, and NEVER in the real repo) if `mktemp -d` fails. The
+# directory twin of probe_tmp: several tests below run `git init/add/commit` — or a
+# helper that commits via `git -C "$root"` — inside a throwaway repo. Under this
+# harness's `set -u` WITHOUT `set -e`, a bare `DIR="$(mktemp -d)"` failure leaves DIR
+# the empty string (set, not unset, so `set -u` does not abort), and BOTH `cd "$DIR"`
+# AND `git -C "$DIR"` then silently operate on the CURRENT directory — the real repo —
+# so the test's commit lands on the real branch. (`git -C ""` leaves the cwd unchanged
+# per git(1)'s -C semantics; it is NOT safer than `cd ""`, which is why this guard
+# protects the `git -C` sites too, not only the `cd` ones.)
+#
+# On `mktemp -d` failure (or an empty / non-directory result) this records a suite FAIL
+# under NAME, prints the breadcrumb to STDERR (so it never lands in the caller's `$(…)`),
+# and prints a guaranteed-non-directory sentinel path ROOTED AT /dev/null to STDOUT. The
+# sentinel is the load-bearing safety: `cd`, `git -C`, and `mkdir -p` on any path under
+# /dev/null all fail with ENOTDIR (kernel-enforced — even as root, since /dev/null can
+# never become a directory), so an unguarded caller that then runs `git -C "$DIR" …`,
+# `( cd "$DIR" && … )`, or `mkdir -p "$DIR/…"` fails CLOSED with ZERO real-repo mutation
+# instead of falling back to the cwd. The recorded FAIL makes the suite go RED whether or
+# not the caller checks the rc 1 — fail-closed either way (mirrors probe_tmp's /dev/null
+# safe-sink discipline, applied to directories).
+git_sandbox() {  # assertion-name -> prints an isolated temp dir (rc 0); on mktemp -d
+                 # failure records a suite FAIL, prints the breadcrumb to stderr, and
+                 # prints the /dev/null-rooted sentinel (rc 1) so a downstream
+                 # git -C / cd / mkdir fails CLOSED rather than hitting the real repo
+  local d
+  d="$(mktemp -d)" && [ -n "$d" ] && [ -d "$d" ] && { printf '%s\n' "$d"; return 0; }
+  echo FAIL >> "$RESULTS_FILE"
+  printf '  FAIL  %s — mktemp -d failed (git sandbox unavailable; git work aborted, not run in the real repo)\n' "$1" >&2
+  printf '/dev/null/devflow-git-sandbox-unavailable\n'
+  return 1
+}
+# ────────────────────────────────────────────────────────────────────────────
+echo "git_sandbox (test-isolation guard for git-mutating tests)"
+# ────────────────────────────────────────────────────────────────────────────
+# AC3 (#161): with `mktemp -d` forced to fail, git_sandbox must (a) record a suite FAIL
+# (RED, not a vacuous pass) and (b) hand back a sentinel that fails EVERY downstream
+# git / cd / mkdir CLOSED, so a git-mutating test produces ZERO commits, branch changes,
+# or working-tree mutations in the REAL repo. Mutation-proven: shadow `mktemp` to fail
+# inside a subshell, drive git_sandbox plus a representative `git init` + `commit`
+# (both the `git -C "$DIR"` and the `( cd "$DIR" && git … )` idioms) through it, and
+# assert the real repo is byte-for-byte unchanged. The recorded FAIL is diverted to an
+# ISOLATED results file (like probe_assert) so this intentional RED is not added to the
+# suite tally; a SEPARATE assert_eq then confirms that FAIL was recorded.
+GS_REPO_ROOT="$(cd "$LIB/.." && pwd)"
+GS_STATUS_BEFORE="$(git -C "$GS_REPO_ROOT" status --porcelain 2>/dev/null)"
+GS_HEAD_BEFORE="$(git -C "$GS_REPO_ROOT" rev-parse HEAD 2>/dev/null)"
+GS_COUNT_BEFORE="$(git -C "$GS_REPO_ROOT" rev-list --count HEAD 2>/dev/null)"
+GS_PROBE="$(mktemp)"   # real mktemp, captured BEFORE the shadow below
+(
+  mktemp() { return 1; }            # shadow mktemp (incl. `mktemp -d`) for this subshell only
+  RESULTS_FILE="$GS_PROBE"          # divert git_sandbox's recorded FAIL away from the suite tally
+  d="$(git_sandbox "AC3 forced-mktemp-fail proof")"   # records FAIL to $GS_PROBE, returns the sentinel
+  # Representative git-mutating sequence a real test would run — every one must fail
+  # CLOSED on the sentinel (ENOTDIR), touching nothing in the real repo:
+  git -C "$d" init -q 2>/dev/null
+  git -C "$d" -c user.email=t@t -c user.name=t commit --allow-empty -qm "leak attempt (git -C)" 2>/dev/null
+  ( cd "$d" 2>/dev/null && git init -q && git -c user.email=t@t -c user.name=t commit --allow-empty -qm "leak attempt (cd)" ) 2>/dev/null
+  mkdir -p "$d/.devflow/tmp" 2>/dev/null
+) 2>/dev/null
+assert_eq "#161 git_sandbox: forced mktemp failure records a suite FAIL (RED, not vacuous)" \
+  "FAIL" "$(tail -n 1 "$GS_PROBE")"
+rm -f "$GS_PROBE"
+assert_eq "#161 git_sandbox: forced mktemp failure leaves the real-repo working tree unchanged" \
+  "$GS_STATUS_BEFORE" "$(git -C "$GS_REPO_ROOT" status --porcelain 2>/dev/null)"
+assert_eq "#161 git_sandbox: forced mktemp failure leaves the real-repo HEAD unchanged" \
+  "$GS_HEAD_BEFORE" "$(git -C "$GS_REPO_ROOT" rev-parse HEAD 2>/dev/null)"
+assert_eq "#161 git_sandbox: forced mktemp failure adds no commit to the real repo" \
+  "$GS_COUNT_BEFORE" "$(git -C "$GS_REPO_ROOT" rev-list --count HEAD 2>/dev/null)"
+# Happy path: a normal call returns a real, isolated directory (NOT the sentinel).
+GS_OK_DIR="$(git_sandbox "#161 git_sandbox happy-path")"
+GS_OK_VERDICT=no
+[ -d "$GS_OK_DIR" ] && case "$GS_OK_DIR" in /dev/null/*) ;; *) GS_OK_VERDICT=yes ;; esac
+assert_eq "#161 git_sandbox: a normal call returns a real isolated dir (not the sentinel)" \
+  "yes" "$GS_OK_VERDICT"
+[ -d "$GS_OK_DIR" ] && rm -rf "$GS_OK_DIR"
 # ────────────────────────────────────────────────────────────────────────────
 echo "classify-pr-kind.jq"
 # ────────────────────────────────────────────────────────────────────────────
@@ -365,7 +442,7 @@ assert_eq "rgb_classify rc=128 (git fatal) → sentinel (fails closed)" \
 # guard verifies a real temp dir AND that git init/add succeeded before any redirect;
 # a setup failure records a DISTINCT assertion (so it doesn't masquerade as an rgb_scan
 # regression) and skips the block. Cleanup runs on every guarded exit of the block.
-if RGB_E2E="$(mktemp -d)" && [ -n "$RGB_E2E" ] && [ -d "$RGB_E2E" ] && git -C "$RGB_E2E" init -q; then
+if RGB_E2E="$(git_sandbox "rgb_scan e2e setup")" && git -C "$RGB_E2E" init -q; then
   printf 'has the %s%s slug\n' "review-gate" "-bypass" > "$RGB_E2E/probe.md"
   if git -C "$RGB_E2E" add probe.md; then
     assert_eq "rgb_scan reports a real reintroduction in a tracked file (rc 0 → filename)" \
@@ -383,10 +460,14 @@ if RGB_E2E="$(mktemp -d)" && [ -n "$RGB_E2E" ] && [ -d "$RGB_E2E" ] && git -C "$
   fi
   rm -rf "$RGB_E2E"
 else
-  assert_eq "rgb_scan e2e setup (mktemp + git init)" "ok" "setup failed — mktemp/git init errored"
-  [ -n "${RGB_E2E:-}" ] && [ -d "${RGB_E2E:-}" ] && rm -rf "$RGB_E2E"
+  # git_sandbox already recorded a suite FAIL on an mktemp failure (RGB_E2E is then the
+  # /dev/null sentinel, not a directory). Only record the distinct git-init-failure case
+  # here — gated on RGB_E2E being a real dir — so a single mktemp failure is not
+  # double-counted, and the sentinel never reaches a redirect or `rm -rf`.
+  [ -d "${RGB_E2E:-}" ] && assert_eq "rgb_scan e2e setup (git init)" "ok" "setup failed — git init errored"
+  [ -d "${RGB_E2E:-}" ] && rm -rf "$RGB_E2E"
 fi
-rm -rf "$RGB_E2E"
+[ -d "${RGB_E2E:-}" ] && rm -rf "$RGB_E2E"
 
 # Fix then later occ → status "regressed"
 RESULT=$(cp_run \
@@ -5202,7 +5283,7 @@ echo "efficiency-trace.sh --persist / --self-check (issue #80)"
 
 # A throwaway git repo so --persist's add/commit have somewhere real to land
 # (the helper resolves the repo root and commits via `git -C "$root"`).
-ETP_REPO="$(mktemp -d)"
+ETP_REPO="$(git_sandbox "et-persist repo")"
 git -C "$ETP_REPO" init -q
 git -C "$ETP_REPO" config user.email devflow-test@example.com
 git -C "$ETP_REPO" config user.name "devflow test"
@@ -5245,7 +5326,7 @@ assert_eq "et-persist: re-run creates NO new commit (idempotent, no empty commit
 
 # --persist telemetry OFF: no record derived, but the durable copy still persists
 # (the durable copy is writable-run-gated, not telemetry-gated — mirrors SKILL.md).
-ETP_OFF_REPO="$(mktemp -d)"
+ETP_OFF_REPO="$(git_sandbox "et-persist telemetry-off repo")"
 git -C "$ETP_OFF_REPO" init -q
 git -C "$ETP_OFF_REPO" config user.email t@e.com; git -C "$ETP_OFF_REPO" config user.name t
 mkdir -p "$ETP_OFF_REPO/.devflow/tmp/review/pr-9/run-x"
@@ -5259,7 +5340,7 @@ assert_eq "et-persist: telemetry off → durable copy STILL made" "yes" \
 rm -f "$ETP_OFF_CFG"; rm -rf "$ETP_OFF_REPO"
 
 # --persist review-mode run (source=="review") is out of scope → skipped entirely.
-ETP_REV_REPO="$(mktemp -d)"
+ETP_REV_REPO="$(git_sandbox "et-persist review-mode repo")"
 git -C "$ETP_REV_REPO" init -q
 git -C "$ETP_REV_REPO" config user.email t@e.com; git -C "$ETP_REV_REPO" config user.name t
 mkdir -p "$ETP_REV_REPO/.devflow/tmp/review/pr-5/run-r"
@@ -5273,7 +5354,7 @@ assert_eq "et-persist: review-mode run skipped → no durable copy" "no" \
 rm -rf "$ETP_REV_REPO"
 
 # --persist malformed-only workpad (non-object) → exit 0, no record written.
-ETP_BAD_REPO="$(mktemp -d)"
+ETP_BAD_REPO="$(git_sandbox "et-persist malformed-workpad repo")"
 git -C "$ETP_BAD_REPO" init -q
 git -C "$ETP_BAD_REPO" config user.email t@e.com; git -C "$ETP_BAD_REPO" config user.name t
 mkdir -p "$ETP_BAD_REPO/.devflow/tmp/review/pr-3/run-b"
@@ -5285,7 +5366,7 @@ assert_eq "et-persist: malformed-only workpad → no record (empty derivation)" 
 rm -rf "$ETP_BAD_REPO"
 
 # --persist with no review activity at all → clean no-op (no commit).
-ETP_EMPTY_REPO="$(mktemp -d)"
+ETP_EMPTY_REPO="$(git_sandbox "et-persist no-activity repo")"
 git -C "$ETP_EMPTY_REPO" init -q
 git -C "$ETP_EMPTY_REPO" config user.email t@e.com; git -C "$ETP_EMPTY_REPO" config user.name t
 ( cd "$ETP_EMPTY_REPO" && bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1; ETP_EMPTY_RC=$?
@@ -5297,7 +5378,7 @@ rm -rf "$ETP_EMPTY_REPO"
 # --self-check (warn-only). Telemetry-off silence is the shell-enforceable half
 # of the AC's "silent when telemetry disabled / read-only"; read-only silence is
 # structural — SKILL.md only invokes the self-check on writable runs.
-ETSC_REPO="$(mktemp -d)"
+ETSC_REPO="$(git_sandbox "et-selfcheck repo")"
 git -C "$ETSC_REPO" init -q
 ETSC_RUN="$ETSC_REPO/.devflow/tmp/review/pr-12/run-y"
 mkdir -p "$ETSC_RUN"
@@ -5330,7 +5411,7 @@ ETP_ITER='{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergence_
 # --persist TARGETED mode (--workpad-dir/--slug): exercises do_persist's first
 # branch (slug from --slug, run-id from the workpad-dir basename) — discovery
 # never reaches it.
-ETPT_REPO="$(mktemp -d)"
+ETPT_REPO="$(git_sandbox "et-persist targeted repo")"
 git -C "$ETPT_REPO" init -q
 git -C "$ETPT_REPO" config user.email t@e.com; git -C "$ETPT_REPO" config user.name t
 mkdir -p "$ETPT_REPO/.devflow/tmp/review/pr-22/run-t"
@@ -5350,7 +5431,7 @@ rm -rf "$ETPT_REPO"
 # the malformed one: the source probe fails, defaults to review-and-fix (the safe
 # direction — the run is NOT wrongly skipped), leaves a breadcrumb, and the record
 # is still derived from the surviving valid iter.
-ETMX_REPO="$(mktemp -d)"
+ETMX_REPO="$(git_sandbox "et-persist mixed-iters repo")"
 git -C "$ETMX_REPO" init -q
 git -C "$ETMX_REPO" config user.email t@e.com; git -C "$ETMX_REPO" config user.name t
 mkdir -p "$ETMX_REPO/.devflow/tmp/review/pr-40/run-m"
@@ -5368,7 +5449,7 @@ rm -rf "$ETMX_REPO"
 # review-mode sibling that must be skipped (makes the review-skip discriminating:
 # the two review-and-fix dirs persist while the review dir does not, in the SAME
 # repo, so the skip can't pass merely because the whole copy step is broken).
-ETMD_REPO="$(mktemp -d)"
+ETMD_REPO="$(git_sandbox "et-persist multi-dir repo")"
 git -C "$ETMD_REPO" init -q
 git -C "$ETMD_REPO" config user.email t@e.com; git -C "$ETMD_REPO" config user.name t
 mkdir -p "$ETMD_REPO/.devflow/tmp/review/pr-30/run-a" "$ETMD_REPO/.devflow/tmp/review/pr-31/run-b" "$ETMD_REPO/.devflow/tmp/review/pr-32/run-c"
@@ -5389,7 +5470,7 @@ rm -rf "$ETMD_REPO"
 # Durable-copy refresh: the record is presence-frozen, but a NEW iter appearing
 # after the first persist must still be copied into the durable tree and produce
 # a new commit — proving the copy is not gated by the frozen record.
-ETDR_REPO="$(mktemp -d)"
+ETDR_REPO="$(git_sandbox "et-persist durable-refresh repo")"
 git -C "$ETDR_REPO" init -q
 git -C "$ETDR_REPO" config user.email t@e.com; git -C "$ETDR_REPO" config user.name t
 mkdir -p "$ETDR_REPO/.devflow/tmp/review/pr-50/run-d"
@@ -5761,7 +5842,7 @@ assert_eq "vendor: self branch copies the .devflow templates" "yes" "$(vexists "
 
 # fetch branch — no plugin in cwd; clone a local fixture remote (offline) and
 # copy its slice in. Exercises the clone-by-ref + copy path without the network.
-VS_REMOTE="$(mktemp -d)"
+VS_REMOTE="$(git_sandbox "vendor fetch fixture remote")"
 mkdir -p "$VS_REMOTE"/.claude-plugin "$VS_REMOTE"/agents "$VS_REMOTE"/docs \
         "$VS_REMOTE"/lib "$VS_REMOTE"/scripts "$VS_REMOTE"/skills "$VS_REMOTE"/.devflow
 printf '{}' > "$VS_REMOTE/.claude-plugin/plugin.json"
