@@ -1022,6 +1022,12 @@ assert_eq "sweep 2.3.0b: docs/implement-skill.md keeps the rationale table row" 
 # rule) so a reviewer who guts the steps but keeps the heading still trips the suite.
 assert_eq "sweep 2.3.0b: implement SKILL keeps the enumerate-every-site step" "yes" \
   "$(grep -qF 'Enumerate every site that names a member of the set, by grep' "$IMPL_SKILL" && echo yes || echo no)"
+# Fourth mirror site (unique to 2.3.0b — 2.3.0a/2.3.6 have no OVERVIEW entry): Part C
+# added a sweep-list line in docs/DEVFLOW_SYSTEM_OVERVIEW.md. This PR's own iteration-1
+# review caught that line stale, proving it is a coupled mirror — so pin it too, or a
+# later edit could silently drop 2.3.0b from the OVERVIEW and the suite would stay green.
+assert_eq "sweep 2.3.0b: DEVFLOW_SYSTEM_OVERVIEW keeps the sweep-list entry" "yes" \
+  "$(grep -qF '**2.3.0b** Enum-enumeration reconciliation sweep (added value to an enumerated set' "$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md" && echo yes || echo no)"
 
 # Drift guard: the base_branch read in implement/SKILL.md Phase 1.4 is the skill's
 # one piece of load-bearing inline bash — like the max_iterations clamp above, the
