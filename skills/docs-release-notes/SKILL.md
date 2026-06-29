@@ -103,7 +103,7 @@ Issue bodies, PR descriptions, and plans describe *intent*; they routinely state
 - **Scope of the change** — if the diff removed or added more than one user-visible thing (e.g. two files removed, two settings deleted), the release note must account for each one, or you must consciously decide one is not customer-visible and say so in the Step-3 reasoning. A release note covering only the first of two shipped removals is a half-edit.
 - **Described behavior** — confirm the "what changed and why it matters" sentence matches the post-change implementation, not a draft of it.
 
-If any drafted assertion cannot be confirmed against the changed code, rewrite the entry until it can — never ship a customer-facing claim on faith. If verification reveals the change is *not* actually customer-visible after all, discard the draft release note, skip Steps 4, and proceed directly to Step 4b (per Step 2).
+If any drafted assertion cannot be confirmed against the changed code, rewrite the entry until it can — never ship a customer-facing claim on faith. If verification reveals the change is *not* actually customer-visible after all, discard the draft release note, skip Step 4, and proceed directly to Step 4b (per Step 2).
 
 ### Step 4: Append to Release Notes File
 
@@ -114,11 +114,11 @@ Read `[[RELEASE_NOTES_FILE]]`. Determine today's date and format it as `## Month
 
 ### Step 4b: Reconcile the CHANGELOG Entry
 
-This step runs regardless of the Step 2 customer-visibility decision — after appending a release note (Step 4) or after the non-customer-visible stop in Step 2, proceed here.
+This step runs regardless of the Step 2 customer-visibility decision — after appending a release note (Step 4) or after the non-customer-visible skip in Step 2, proceed here.
 
 **Locate the version-bump entry.** Run:
 ```
-git log --oneline origin/main...HEAD
+git log --oneline origin/main..HEAD
 ```
 Find the most recent commit whose message begins with `chore: bump version` and extract its version string (e.g., `2.8.19`). Read `[[CHANGELOG_FILE]]` and search for the section heading `## [2.8.19]` (replacing the version with the one extracted above). If no version-bump entry is found in CHANGELOG, this step is a no-op — log "no version-bump entry found" and proceed to Step 5.
 
