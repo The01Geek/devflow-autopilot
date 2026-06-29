@@ -1062,6 +1062,18 @@ rm -f "$RWPROBE"
 GP_CALL_TOK="grep_pres""ent '"
 assert_eq "grep_present: invoked at exactly the 2 known compound MISSING-FILE call sites (audit-bypass channel pinned)" \
   "2" "$(grep -cF "$GP_CALL_TOK" "$SELF_SRC")"
+# #164 re-review (finding #1): the count pin above stops a THIRD call site, but a future
+# edit could repurpose one of the two existing calls to a different (possibly non-unique)
+# presence pin — count stays 2, the AC2 scanner still skips it (no bare `grep` token), and a
+# vacuous whole-file presence check ships through the bypass channel. Close it by also pinning
+# each call's SHAPE — the exact literal it searches for — so neither call can be silently
+# re-aimed. Tokens are split (concatenated) so these counting lines do not self-match.
+GP_TOK_A="grep_pres""ent '(code-reviewer.md)'"
+GP_TOK_B="grep_pres""ent 'plugin is installed in the executing environment'"
+assert_eq "grep_present: call site A keeps the code-reviewer.md template literal (shape, not just count)" \
+  "1" "$(grep -cF "$GP_TOK_A" "$SELF_SRC")"
+assert_eq "grep_present: call site B keeps the review-SKILL presence literal (shape, not just count)" \
+  "1" "$(grep -cF "$GP_TOK_B" "$SELF_SRC")"
 
 # ── Meta-test (#157, AC3): a STRICTER in-region control. count_raw_skill_guards_in_region
 # only catches a bare `grep … SKILL` ON a region line; it misses a pin whose grep is
