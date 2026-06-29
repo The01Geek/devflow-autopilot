@@ -95,6 +95,20 @@ assert_pin_unique() {  # name literal file
   fi
 }
 
+# Presence-or-absence check echoing yes/no — for the COMPOUND fail-closed guards
+# (`[ -f FILE ] && { … } || echo MISSING-FILE`) where assert_pin_unique cannot apply:
+# the pin is either legitimately NON-UNIQUE in the target (a `yes` presence pin whose
+# literal recurs) or an ABSENCE pin (expects `no`), and the guard also wraps an
+# existence check with a MISSING-FILE sentinel that a uniqueness-only check would
+# discard. These two live on a backslash-continuation line that cannot carry an inline
+# allowlist comment, so routing them through this NAMED helper (no bare `grep ` token
+# on the call site) keeps them out of the repo-wide raw-guard audit below without an
+# inline marker. A deliberate, documented escape hatch — NOT a substitute for
+# assert_pin_unique on a plain unique presence pin.
+grep_present() {  # literal file -> echoes yes if present, no otherwise
+  grep -qF "$1" "$2" && echo yes || echo no
+}
+
 # Run a single assertion function against an ISOLATED results file and echo its verdict
 # (PASS/FAIL) instead of recording it in the suite tally. Used by the AC3 mutation proofs
 # to actually exercise assert_pin_unique against a mutated target and confirm it goes RED,
@@ -522,17 +536,17 @@ assert_eq "deferred.labels normalize: empty string → empty (no labels)"    "" 
 # regression fails here instead of shipping deferred issues unlabeled.
 DEF_SKILL="$LIB/../skills/implement/SKILL.md"
 assert_eq "deferred.labels: SKILL reads via config-get with the DevFlow,Deferred default" "yes" \
-  "$(grep -qF 'config-get.sh .deferred.labels DevFlow,Deferred' "$DEF_SKILL" && echo yes || echo no)"
+  "$(grep -qF 'config-get.sh .deferred.labels DevFlow,Deferred' "$DEF_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: token appears in BOTH deferral channels (4.0+4.0.5)
 assert_eq "deferred.labels: SKILL ensures each label exists before applying" "yes" \
-  "$(grep -qF 'ensure-label.sh "$lbl"' "$DEF_SKILL" && echo yes || echo no)"
+  "$(grep -qF 'ensure-label.sh "$lbl"' "$DEF_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: token appears in BOTH deferral channels (4.0+4.0.5)
 assert_eq "deferred.labels: SKILL applies labels via best-effort gh issue edit --add-label" "yes" \
-  "$(grep -qF 'gh issue edit "$n" --add-label "$CLEAN_DEFERRED_LABELS"' "$DEF_SKILL" && echo yes || echo no)"
+  "$(grep -qF 'gh issue edit "$n" --add-label "$CLEAN_DEFERRED_LABELS"' "$DEF_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: token appears in BOTH deferral channels (4.0+4.0.5)
 # Both deferral channels must label: Phase 4.0 (no longer "add no --label") and Phase
 # 4.0.5. Require the resolution token to appear at least twice (once per channel).
 assert_eq "deferred.labels: SKILL resolves the labels in BOTH deferral channels (4.0 + 4.0.5)" "yes" \
-  "$([ "$(grep -cF 'config-get.sh .deferred.labels DevFlow,Deferred' "$DEF_SKILL")" -ge 2 ] && echo yes || echo no)"
+  "$([ "$(grep -cF 'config-get.sh .deferred.labels DevFlow,Deferred' "$DEF_SKILL")" -ge 2 ] && echo yes || echo no)"  # raw-guard-ok: count-based: asserts >=2 occurrences (both channels), not single-presence
 assert_eq "deferred.labels: SKILL Phase 4.0 no longer instructs 'add no --label' as a maintainer task" "no" \
-  "$(grep -qF 'add **no** `--label` (labeling is handled separately by maintainers)' "$DEF_SKILL" && echo yes || echo no)"
+  "$(grep -qF 'add **no** `--label` (labeling is handled separately by maintainers)' "$DEF_SKILL" && echo yes || echo no)"  # raw-guard-ok: absence pin: asserts the removed 'add no --label' instruction is GONE (expected no)
 # Pin the normalization pipeline itself (not just the read/ensure/apply tokens): the
 # deferred_labels_normalize() helper above is a hand-copied replica, so without this pin a
 # SKILL edit to the trim/drop-empties pipeline would drift silently while the replica
@@ -542,20 +556,19 @@ assert_eq "deferred.labels: SKILL Phase 4.0 no longer instructs 'add no --label'
 # read 3 and a `>= 2` threshold would still pass if ONE deferred channel lost it. Both
 # channels (4.0 + 4.0.5) must carry the exact deferred pipeline → require EXACTLY 2.
 assert_eq "deferred.labels: SKILL keeps the exact normalization pipeline in BOTH channels" "yes" \
-  "$([ "$(grep -cF 'CLEAN_DEFERRED_LABELS=$(echo "$DEFERRED_LABELS" | tr '"'"','"'"' '"'"'\n'"'"' | sed '"'"'s/^[[:space:]]*//; s/[[:space:]]*$//'"'"' | grep -v '"'"'^$'"'"' | paste -sd, -)' "$DEF_SKILL")" -eq 2 ] && echo yes || echo no)"
+  "$([ "$(grep -cF 'CLEAN_DEFERRED_LABELS=$(echo "$DEFERRED_LABELS" | tr '"'"','"'"' '"'"'\n'"'"' | sed '"'"'s/^[[:space:]]*//; s/[[:space:]]*$//'"'"' | grep -v '"'"'^$'"'"' | paste -sd, -)' "$DEF_SKILL")" -eq 2 ] && echo yes || echo no)"  # raw-guard-ok: count-based: asserts ==2 occurrences (both channels), not single-presence
 # Pin the rc-capture: a hard config-get read failure must be attributable, not silently
 # collapsed into the deliberately-empty-value path. The if-condition idiom keeps the
 # capture alive under set -e.
 assert_eq "deferred.labels: SKILL captures config-get rc (read-failure breadcrumb, set-e-safe)" "yes" \
-  "$(grep -qF 'then DEFERRED_LABELS_RC=0; else DEFERRED_LABELS_RC=$?; fi' "$DEF_SKILL" && echo yes || echo no)"
+  "$(grep -qF 'then DEFERRED_LABELS_RC=0; else DEFERRED_LABELS_RC=$?; fi' "$DEF_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: token appears in BOTH deferral channels (4.0+4.0.5)
 # Pin the durable (workpad) breadcrumb on a failed label application — the feature's most
 # likely real-world failure must not be stderr-only (ephemeral in autonomous cloud runs).
 assert_eq "deferred.labels: SKILL routes a failed label-apply to a durable workpad reflection" "yes" \
-  "$(grep -qF 'could not apply the configured deferred labels' "$DEF_SKILL" && echo yes || echo no)"
+  "$(grep -qF 'could not apply the configured deferred labels' "$DEF_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: token appears in BOTH deferral channels (4.0+4.0.5)
 # Pin the Phase 4.0 empty-numbers breadcrumb (the anti-silent-failure branch that fires
 # when deferred work was filed but no issue numbers were captured).
-assert_eq "deferred.labels: SKILL Phase 4.0 surfaces an empty-issue-numbers capture" "yes" \
-  "$(grep -qF 'captured no issue numbers' "$DEF_SKILL" && echo yes || echo no)"
+assert_pin_unique "deferred.labels: SKILL Phase 4.0 surfaces an empty-issue-numbers capture" 'captured no issue numbers' "$DEF_SKILL"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "devflow_review_and_fix.max_iterations (schema + resolution)"
@@ -631,12 +644,9 @@ assert_eq "max_iterations clamp: resolver failure (rc≠0) → 5"  "5"  "$(maxi_
 # the regex (negative-aware), the below-1 floor, or the default-5 fallback fails here
 # instead of silently passing against the copy.
 MAXI_SKILL="$LIB/../skills/review-and-fix/SKILL.md"
-assert_eq "max_iterations clamp: SKILL keeps the negative-aware integer regex" "yes" \
-  "$(grep -qF "'^-?[0-9]+\$'" "$MAXI_SKILL" && echo yes || echo no)"
-assert_eq "max_iterations clamp: SKILL keeps the below-1 floor" "yes" \
-  "$(grep -qF '"$MAX_ITERS" -lt 1' "$MAXI_SKILL" && echo yes || echo no)"
-assert_eq "max_iterations clamp: SKILL keeps the default-5 fallback" "yes" \
-  "$(grep -qF 'MAX_ITERS=5' "$MAXI_SKILL" && echo yes || echo no)"
+assert_pin_unique "max_iterations clamp: SKILL keeps the negative-aware integer regex" "'^-?[0-9]+\$'" "$MAXI_SKILL"
+assert_pin_unique "max_iterations clamp: SKILL keeps the below-1 floor" '"$MAX_ITERS" -lt 1' "$MAXI_SKILL"
+assert_pin_unique "max_iterations clamp: SKILL keeps the default-5 fallback" 'MAX_ITERS=5' "$MAXI_SKILL"
 
 # Drift guard: the park-calibration gate is the lenient-verdict catch — it re-reads
 # parked findings against three generic under-grade shapes before the review-and-fix
@@ -701,22 +711,31 @@ assert_pin_unique "mutation-check: implement skill test-writing phase references
 # only — see the SCOPE note on the region above; it does not police raw guards elsewhere.
 PARKCAL_BMARK="PARKCAL_GUARD_REGION_""BEGIN"
 PARKCAL_EMARK="PARKCAL_GUARD_REGION_""END"
+# Print the lines strictly INSIDE the PARKCAL region of FILE (both markers excluded:
+# BEGIN via `next`, END because `inreg` is already cleared when the default-print rule
+# runs). The single source of truth for region extraction — every region scanner below
+# (#155's count_raw_skill_guards_in_region / count_region_pins and #157's
+# count_region_nonhelper_stmts) pipes through this, so the region-delimiting semantics
+# live in ONE place instead of a copy per scanner (the coupled-mirror drift this very
+# suite exists to catch).
+region_lines() {  # file -> the lines strictly inside the PARKCAL region
+  awk -v b="$PARKCAL_BMARK" -v e="$PARKCAL_EMARK" \
+    'index($0,b){inreg=1;next} index($0,e){inreg=0} inreg' "$1"
+}
 # Print every line between the BEGIN and END markers of FILE that is a raw `grep`-based
-# SKILL drift guard — ANY `grep ` command referencing a SKILL target, written EITHER as a
-# `$..._SKILL` path var OR as a literal `…/SKILL.md` path. The pattern is deliberately
-# broad on two axes the review of this very PR flagged in turn: (1) flag spelling — it
-# catches `grep -qF`, `grep -Fq`, `grep -qE`, and a count-based `grep -cF`, so re-ordering
-# the flags cannot dodge it; (2) target spelling — the `SKILL\.md` arm catches the
-# literal-path convention used elsewhere in this file (`"$LIB/../skills/.../SKILL.md"`),
-# which the `_SKILL`-only pattern missed. A correctly-routed region routes every pin
-# through assert_pin_unique — those lines carry no `grep` — so it yields 0. `|| true` keeps
-# grep's no-match exit 1 from tripping the `set -u`/pipefail-free harness into a non-zero.
+# SKILL drift guard — ANY `grep ` command referencing a SKILL target. The pattern is
+# deliberately broad on two axes the review of this very PR flagged in turn: (1) flag
+# spelling — it catches `grep -qF`, `grep -Fq`, `grep -qE`, and a count-based `grep -cF`,
+# so re-ordering the flags cannot dodge it; (2) target spelling — THREE alternations cover
+# every SKILL-target convention in this file: `_SKILL` (a `$DEF_SKILL`/`$MAXI_SKILL`/… var
+# or `${CLAUDE_SKILL_DIR}`), `SKILL_` (a `$SKILL_FILE`/`$SKILL_NAME`/`$SKILL_DIR` loop var,
+# whose underscore is AFTER `SKILL` so the `_SKILL` arm misses it — the #164-review gap),
+# and `SKILL\.md` (a literal `"$LIB/../skills/.../SKILL.md"` path). A correctly-routed
+# region routes every pin through assert_pin_unique — those lines carry no `grep` — so it
+# yields 0. `|| true` keeps grep's no-match exit 1 from tripping the `set -u`/pipefail-free
+# harness into a non-zero.
 count_raw_skill_guards_in_region() {  # file -> prints count of offending lines
-  awk -v b="$PARKCAL_BMARK" -v e="$PARKCAL_EMARK" '
-    index($0, b) { inreg=1; next }
-    index($0, e) { inreg=0 }
-    inreg { print }
-  ' "$1" | grep -cE 'grep[[:space:]].*(_SKILL|SKILL\.md)' || true
+  region_lines "$1" | grep -cE 'grep[[:space:]].*(_SKILL|SKILL_|SKILL\.md)' || true
 }
 # Count the routed assert_pin_unique pins strictly INSIDE the region of FILE (markers
 # excluded by `next` on BEGIN). Shared by the live region-non-empty control AND its AC3(f)
@@ -727,8 +746,7 @@ count_region_pins() {  # file -> prints count of in-region assert_pin_unique lin
   # (an emptied region prints 0, exit 1) so the helper stays inert under a future
   # `set -e`/`pipefail` hardening of the harness, matching its sibling rather than aborting
   # the whole script on the legitimate empty-region case AC3(f) deliberately exercises.
-  awk -v b="$PARKCAL_BMARK" -v e="$PARKCAL_EMARK" \
-    'index($0,b){inreg=1;next} index($0,e){inreg=0} inreg' "$1" | grep -cF 'assert_pin_unique' || true
+  region_lines "$1" | grep -cF 'assert_pin_unique' || true
 }
 SELF_SRC="$LIB/test/run.sh"
 assert_eq "meta(AC2): park-calibration region routes every SKILL pin through assert_pin_unique (0 raw guards)" \
@@ -833,6 +851,21 @@ awk -v e="$PARKCAL_EMARK" -v inj='  grep -qF INJECTED_OUTOFREGION "$MAXI_SKILL"'
 assert_eq "AC3(b4): meta-test ignores a raw SKILL guard injected OUTSIDE the region (scoped, not whole-file)" \
   "0" "$(count_raw_skill_guards_in_region "$PINPROBE_OUTREG")"
 rm -f "$PINPROBE_OUTREG"
+#
+# AC3(b5): the broadened SKILL_ arm applies to the IN-REGION scanner too (#164-review) — a raw
+# guard targeting a `SKILL_`-suffixed loop var ($SKILL_FILE) injected into the region is caught,
+# the in-region twin of the repo-wide SKILL_ proof. Under the old `(_SKILL|SKILL\.md)`-only
+# pattern this would read 0 (the regression this binds). The in-region scanner has no `.*echo`
+# requirement, so the injected guard needs no echo.
+# The injected LITERAL must contain no `_SKILL`/`SKILL_`/`SKILL.md` substring, so the ONLY token
+# matching the pattern is the `$SKILL_FILE` target via the new SKILL_ arm — otherwise the fixture
+# would match under the old pattern too (via the literal) and prove nothing (a vacuous guard).
+PINPROBE_RAW5="$(probe_tmp 'AC3(b5) SKILL_ injection setup')"
+awk -v b="$PARKCAL_BMARK" -v inj='  grep -qF INJECTED_LOOPVAR_RAW "$SKILL_FILE"' \
+  '{ print } index($0, b) { print inj }' "$SELF_SRC" > "$PINPROBE_RAW5"
+assert_eq "AC3(b5): meta-test detects a SKILL_-suffixed-var raw SKILL guard (\$SKILL_FILE) in the region (RED)" \
+  "1" "$(count_raw_skill_guards_in_region "$PINPROBE_RAW5")"
+rm -f "$PINPROBE_RAW5"
 #
 # AC3(e): the marker-presence positive control fails CLOSED when a region marker is deleted —
 # the meta-test's own anti-vacuity proof. Strip the BEGIN marker line from a temp copy and
@@ -939,6 +972,145 @@ assert_pin_unique "over-grade: Step 3 item 2 produces the recorded severity-cali
   'Also calibrate its severity, not just its validity' "$MAXI_SKILL"
 assert_pin_unique "over-grade: severity-calibrated record carries no skip_category (Loop-Exit gates ignore it)" \
   'it is a calibration record, not a skip' "$MAXI_SKILL"
+# ── Meta-test (#157, AC2): widen the raw-guard audit from the park-calibration
+# region fence to the WHOLE suite. #155 enforced helper-routing ONLY inside the
+# PARKCAL_GUARD_REGION; the maxi_clamp / DEF_SKILL / IMPL_SKILL / INIT_SKILL /
+# RA_SKILL / RW_SKILL / FDROOT guard families outside it could still ship a vacuous
+# whole-file presence check (the PR #154 hole) with nothing to catch it. Now every
+# raw presence/absence GUARD pin anywhere in this file must EITHER route through
+# assert_pin_unique (so it carries no bare grep) OR carry an explicit per-line
+# allowlist marker `# raw-guard-ok: <reason>`.
+#
+# Scope is deliberately the GUARD shape: a SKILL-targeted match whose yes/no outcome drives
+# an `echo` ON THE SAME LINE. Two things are therefore out of scope *by construction* —
+# their matched line carries no `echo`: a bare `grep -c`/`grep -n` whose count/line-number is
+# the assert comparand directly (a bare `grep -cE` whose count IS the comparand, with no `echo`
+# on the line — the version/changelog section-count asserts), and the inverting `grep -vF` strip.
+# NOT every count guard is exempt this way, though: a `[ "$(grep -cF … "$DEF_SKILL")" -ge 2 ] &&
+# echo yes` count guard (the deferred.labels `# raw-guard-ok: count-based` guards) DOES carry
+# `echo` and a `_SKILL` target, so the scanner matches it and it is exempted by its
+# `# raw-guard-ok: count-based` marker, not "by construction." A guard whose grep is computed on a PRIOR line into a var (`X=$(grep …
+# "$SKILL")` then a bare `assert_eq … "$X"`) likewise carries no echo on the grep line and is
+# non-idiomatic in this suite; that exact shape IS caught — positively, not by content match —
+# inside the park-calibration region by the AC3 control below, where new park-calibration
+# guards actually land.
+#
+# Anti-self-match: the scanner's pattern needs the literal `echo`, but its grep line
+# references it as `$ECHO_TOK` (a variable) instead of spelling `echo` inline — so the
+# scanner's OWN source line never carries a contiguous `grep…SKILL…echo` and is not
+# counted when it scans this very file. It is the *variable indirection* that buys this,
+# NOT the token's value (a plain `echo` value works; an inline literal `echo` in the
+# pattern would self-match). Token-rot is the fragile spot: if `$ECHO_TOK` is typo'd to a
+# non-matching value the pattern matches NOTHING and the SELF scan passes vacuously (a
+# fail-OPEN), so the value is pinned by an explicit assert below rather than trusted —
+# token-rot then fails RED at that pin, not silently. Marker-rot is the symmetric case and is
+# caught by the SAME pin: a typo'd or emptied `RGOK_MARK` diverges from the pinned literal
+# `raw-guard-ok` → the token assert goes RED directly. (Note the exclusion is `grep -vF "#
+# $RGOK_MARK:"`, so an EMPTY `RGOK_MARK` yields the literal `# :`, NOT the empty string — it
+# would not exempt every line; the token-value pin is what makes marker-rot loud, not any
+# property of the exclusion on an empty token.)
+ECHO_TOK="echo"                 # the scanner pattern's trailing token; referenced as $ECHO_TOK so no literal echo sits on the grep line
+RGOK_MARK='raw-guard-ok'        # the per-line allowlist token; format is `# raw-guard-ok: <reason>`
+# Pin both scanner tokens to their intended values: a typo in either — the rot the comment
+# warns about — turns THIS assert RED, converting ECHO_TOK token-rot from a silent fail-open
+# into a loud failure (the property the comment claims, now mechanically guaranteed).
+assert_eq "meta(#157 AC2): scanner tokens are intact (ECHO_TOK/RGOK_MARK rot fails RED, not open)" \
+  "echo|raw-guard-ok" "$ECHO_TOK|$RGOK_MARK"
+count_unallowlisted_raw_skill_guards() {  # file -> count of raw SKILL guard pins neither routed nor allowlisted
+  # Exclude only a PROPERLY-FORMATTED `# raw-guard-ok:` marker comment (not a bare substring
+  # `raw-guard-ok` anywhere on the line), so a malformed/typo'd marker no longer silently
+  # exempts its guard — it falls through to RED, strengthening the rot-guard above.
+  grep -nE "grep[[:space:]].*(_SKILL|SKILL_|SKILL\.md).*$ECHO_TOK" "$1" \
+    | grep -vF "# $RGOK_MARK:" \
+    | grep -c . || true
+}
+assert_eq "meta(#157 AC2): no single-line echo-driven raw SKILL guard pin escapes assert_pin_unique or an allowlist marker (repo-wide)" \
+  "0" "$(count_unallowlisted_raw_skill_guards "$SELF_SRC")"
+# AC4 mutation proof: an UNMARKED raw guard written anywhere is detected (RED); the
+# SAME line carrying the allowlist marker is exempted (0). The fixture SOURCE lines
+# below carry the marker so the LIVE scan above skips them, while the string each
+# writes to the temp file is what is actually scanned.
+RWPROBE="$(probe_tmp '#157 AC2 unmarked-guard injection')"
+printf '%s\n' '  "$(grep -qF UNMARKED_RAW "$MAXI_SKILL" && echo yes || echo no)"' > "$RWPROBE"  # raw-guard-ok: fixture writes an UNMARKED guard to a temp file to prove repo-wide detection
+assert_eq "#157 AC2 mutation: an unmarked raw SKILL guard pin anywhere is detected (RED)" \
+  "1" "$(count_unallowlisted_raw_skill_guards "$RWPROBE")"
+printf '%s\n' '  "$(grep -qF MARKED_RAW "$MAXI_SKILL" && echo yes || echo no)"  # raw-guard-ok: proof' > "$RWPROBE"  # raw-guard-ok: fixture writes a MARKED guard to a temp file to prove the allowlist is honored
+assert_eq "#157 AC2 mutation: the allowlist marker exempts a raw guard pin (GREEN, count 0)" \
+  "0" "$(count_unallowlisted_raw_skill_guards "$RWPROBE")"
+# #164-review gap: a guard targeting a `SKILL_`-suffixed loop var ($SKILL_FILE/$SKILL_NAME/
+# $SKILL_DIR) carries no `_SKILL` substring (the underscore is AFTER `SKILL`), so the original
+# two-arm pattern was BLIND to it (e.g. the live loop guard now marked `# raw-guard-ok: loop
+# body`). Prove the broadened `SKILL_` arm catches it: an UNMARKED $SKILL_FILE guard → count 1.
+# Under the old `(_SKILL|SKILL\.md)`-only pattern this fixture would read 0 (the regression this
+# binds). The SOURCE line carries the marker so the live SELF scan above stays 0.
+printf '%s\n' '  "$([ -f "$SKILL_FILE" ] && grep -qF LOOPVAR_RAW "$SKILL_FILE" && echo yes || echo no)"' > "$RWPROBE"  # raw-guard-ok: fixture writes an UNMARKED $SKILL_FILE guard to prove the broadened SKILL_ arm detects it
+assert_eq "#157 AC2 mutation: broadened SKILL_ arm catches a \$SKILL_FILE-suffixed-var guard (not just _SKILL/SKILL.md)" \
+  "1" "$(count_unallowlisted_raw_skill_guards "$RWPROBE")"
+# #164-review: the THIRD arm — the literal `…/SKILL.md` path — also needs its own echo-driven
+# fixture. The _SKILL and SKILL_ arms are proven above; without this, a regression specific to
+# the SKILL\.md arm under the `.*echo` requirement could ship green. Unmarked literal-path guard
+# with a trailing echo → count 1.
+printf '%s\n' '  "$(grep -qF PATHLIT_RAW "$LIB/../skills/review-and-fix/SKILL.md" && echo yes || echo no)"' > "$RWPROBE"  # raw-guard-ok: fixture writes an UNMARKED literal-path …/SKILL.md guard to prove the SKILL.md arm detects it
+assert_eq "#157 AC2 mutation: SKILL.md literal-path arm catches an unmarked …/SKILL.md guard (echo-driven)" \
+  "1" "$(count_unallowlisted_raw_skill_guards "$RWPROBE")"
+rm -f "$RWPROBE"
+# #164-review: grep_present is an audit-bypass channel — its call site carries no bare `grep`
+# token so the AC2 scanner skips it, and it asserts nothing about uniqueness. Pin the call-site
+# count so a future edit cannot quietly route a NEW (possibly unique) pin through it to dodge
+# assert_pin_unique; a third call site trips this until consciously bumped. The search token is
+# split (concatenated) so THIS counting line does not itself self-match.
+GP_CALL_TOK="grep_pres""ent '"
+assert_eq "grep_present: invoked at exactly the 2 known compound MISSING-FILE call sites (audit-bypass channel pinned)" \
+  "2" "$(grep -cF "$GP_CALL_TOK" "$SELF_SRC")"
+# #164 re-review (finding #1): the count pin above stops a THIRD call site, but a future
+# edit could repurpose one of the two existing calls to a different (possibly non-unique)
+# presence pin — count stays 2, the AC2 scanner still skips it (no bare `grep` token), and a
+# vacuous whole-file presence check ships through the bypass channel. Close it by also pinning
+# each call's SHAPE — the exact literal it searches for — so neither call can be silently
+# re-aimed. Tokens are split (concatenated) so these counting lines do not self-match.
+GP_TOK_A="grep_pres""ent '(code-reviewer.md)'"
+GP_TOK_B="grep_pres""ent 'plugin is installed in the executing environment'"
+assert_eq "grep_present: call site A keeps the code-reviewer.md template literal (shape, not just count)" \
+  "1" "$(grep -cF "$GP_TOK_A" "$SELF_SRC")"
+assert_eq "grep_present: call site B keeps the review-SKILL presence literal (shape, not just count)" \
+  "1" "$(grep -cF "$GP_TOK_B" "$SELF_SRC")"
+
+# ── Meta-test (#157, AC3): a STRICTER in-region control. count_raw_skill_guards_in_region
+# only catches a bare `grep … SKILL` ON a region line; it misses a pin whose grep is
+# computed on a PRIOR line into a var (e.g. `X=$(grep … "$F")` then `assert_eq … "$X"`)
+# — the bypass the #155 shadow pr-test-analyzer flagged. Close it positively: every
+# statement-start line inside the region — at ANY indentation — must BEGIN with
+# `assert_pin_unique` (the only routing allowed there). The `^[[:space:]]*` lead on both
+# greps catches an INDENTED `  X=$(grep …)` assignment too, not just a column-0 one (the
+# region's continuation-arg lines start with a quote and its comments with `#`, so neither
+# is a statement-start — broadening stays 0 on a clean region). Both the grep-computing
+# assignment and its assert_eq consumer are non-helper statement-starts, so either trips this.
+# Anti-vacuity is DELEGATED, not standalone: this control reads 0 on a clean region AND on an
+# emptied/marker-less one, so it relies on the pre-existing #155 marker-presence pins (the
+# `pin_count "$PARKCAL_BMARK"/"$PARKCAL_EMARK" == 1` asserts) + the region-non-empty control to
+# fail closed if the BEGIN/END markers are deleted. Do not remove those sibling pins — without
+# them a vanished region would let this `== 0` assert pass vacuously.
+count_region_nonhelper_stmts() {  # file -> region statement-start lines (any indent) not routed through assert_pin_unique
+  region_lines "$1" \
+    | grep -E '^[[:space:]]*[A-Za-z_]' \
+    | grep -vc '^[[:space:]]*assert_pin_unique ' || true
+}
+assert_eq "meta(#157 AC3): every park-calibration region statement routes through assert_pin_unique (no grep-on-prior-line bypass)" \
+  "0" "$(count_region_nonhelper_stmts "$SELF_SRC")"
+# AC4 mutation proof: inject the two-line bypass shape — an INDENTED grep-computed var
+# assignment AND its (column-0) assert_eq consumer — at the top of a temp copy's region;
+# both are non-helper statement-starts, so the control must read 2 (RED). The indented inj1
+# specifically binds the `^[[:space:]]*` broadening: under the old column-0-only anchor it
+# would escape and the count would read 1, turning this proof RED. The injected awk strings
+# carry no SKILL/echo so they do not perturb the repo-wide AC2 scan of this source.
+NHPROBE="$(probe_tmp '#157 AC3 region-bypass injection')"
+awk -v b="$PARKCAL_BMARK" \
+    -v inj1='  INDENTED_BYPASS=$(grep -c X /dev/null)' \
+    -v inj2='assert_eq "bypass" "yes" "$INDENTED_BYPASS"' \
+    '{ print } index($0,b){ print inj1; print inj2 }' "$SELF_SRC" > "$NHPROBE"
+assert_eq "#157 AC3 mutation: an (indented) grep-on-prior-line bypass in the region is detected (RED, count 2)" \
+  "2" "$(count_region_nonhelper_stmts "$NHPROBE")"
+rm -f "$NHPROBE"
 
 # Issue #165 Part A: the iter-<N>.json workpad carries a per-iteration loop_role
 # field (fix | promoted) for loop-state legibility — no consumer reads it, so a
@@ -977,34 +1149,28 @@ assert_pin_unique "verify-step: a contradicting prescription is pushed back, not
 # half-applied removal fails here instead of silently shipping.
 IMPL_SKILL="$LIB/../skills/implement/SKILL.md"
 IMPL_DOC="$LIB/../docs/implement-skill.md"
-assert_eq "sweep 2.3.6: implement SKILL keeps the sweep body" "yes" \
-  "$(grep -qF '#### 2.3.6 Error-handling & silent-failure sweep' "$IMPL_SKILL" && echo yes || echo no)"
-assert_eq "sweep 2.3.6: implement SKILL lists it in the always-run index" "yes" \
-  "$(grep -qF '**2.3.6** (error-handling & silent-failure)' "$IMPL_SKILL" && echo yes || echo no)"
+assert_pin_unique "sweep 2.3.6: implement SKILL keeps the sweep body" '#### 2.3.6 Error-handling & silent-failure sweep' "$IMPL_SKILL"
+assert_pin_unique "sweep 2.3.6: implement SKILL lists it in the always-run index" '**2.3.6** (error-handling & silent-failure)' "$IMPL_SKILL"
 assert_eq "sweep 2.3.6: docs/implement-skill.md keeps the rationale table row" "yes" \
   "$(grep -qF '| 2.3.6 Error-handling & silent-failure |' "$IMPL_DOC" && echo yes || echo no)"
 # Heading/index/table pins above catch a half-applied *removal* but not a semantic
 # gutting that leaves the heading while deleting the sweep's load-bearing steps.
 # Pin one step token unique to the 2.3.6 procedure (the false-success rule) so a
 # reviewer who guts the steps but keeps the heading still trips the suite.
-assert_eq "sweep 2.3.6: implement SKILL keeps the false-success step rule" "yes" \
-  "$(grep -qF "never prints success for work that didn't happen" "$IMPL_SKILL" && echo yes || echo no)"
+assert_pin_unique "sweep 2.3.6: implement SKILL keeps the false-success step rule" "never prints success for work that didn't happen" "$IMPL_SKILL"
 
 # Same drift guard for the 2.3.0a peer-checkpoint-completeness sweep: the additive
 # twin of 2.3.0 lives in the same three places (sweep body, "Sweep selection" index,
 # rationale table) and must stay in sync. It homes the recurring incomplete-edit
 # sub-pattern (a rule added at only some of its co-equal peer sites); if any of the
 # three loses it, that catch reverts to a review REJECT or a post-bot fix.
-assert_eq "sweep 2.3.0a: implement SKILL keeps the sweep body" "yes" \
-  "$(grep -qF '#### 2.3.0a Peer-checkpoint completeness sweep' "$IMPL_SKILL" && echo yes || echo no)"
-assert_eq "sweep 2.3.0a: implement SKILL lists it in the always-run index" "yes" \
-  "$(grep -qF 'run **2.3.0a**' "$IMPL_SKILL" && echo yes || echo no)"
+assert_pin_unique "sweep 2.3.0a: implement SKILL keeps the sweep body" '#### 2.3.0a Peer-checkpoint completeness sweep' "$IMPL_SKILL"
+assert_pin_unique "sweep 2.3.0a: implement SKILL lists it in the always-run index" 'run **2.3.0a**' "$IMPL_SKILL"
 assert_eq "sweep 2.3.0a: docs/implement-skill.md keeps the rationale table row" "yes" \
   "$(grep -qF '| 2.3.0a Peer-checkpoint completeness |' "$IMPL_DOC" && echo yes || echo no)"
 # Pin one step token unique to the 2.3.0a procedure (the grep-the-peer-set rule) so a
 # reviewer who guts the steps but keeps the heading still trips the suite.
-assert_eq "sweep 2.3.0a: implement SKILL keeps the enumerate-by-grep step" "yes" \
-  "$(grep -qF 'Enumerate the peer set by grep, not from memory' "$IMPL_SKILL" && echo yes || echo no)"
+assert_pin_unique "sweep 2.3.0a: implement SKILL keeps the enumerate-by-grep step" 'Enumerate the peer set by grep, not from memory' "$IMPL_SKILL"
 
 # Issue #165 Part C: four-mirror-site drift guard for the new 2.3.0b
 # enum-enumeration reconciliation sweep — the sibling of 2.3.0a for "a value was
@@ -1013,16 +1179,19 @@ assert_eq "sweep 2.3.0a: implement SKILL keeps the enumerate-by-grep step" "yes"
 # entry pinned below) and must stay in sync; if any loses it, the catch for a
 # stale doc/comment enumeration or fall-through consumer reverts to a shadow-review
 # finding or a post-bot fix.
-assert_eq "sweep 2.3.0b: implement SKILL keeps the sweep body" "yes" \
-  "$(grep -qF '#### 2.3.0b Enum-enumeration reconciliation sweep' "$IMPL_SKILL" && echo yes || echo no)"
-assert_eq "sweep 2.3.0b: implement SKILL lists it in the always-run index" "yes" \
-  "$(grep -qF 'run **2.3.0b**' "$IMPL_SKILL" && echo yes || echo no)"
+# The three SKILL-body pins use assert_pin_unique (exactly-once), matching the 2.3.0a/2.3.6
+# sibling sweep-body pins above — not the raw single-line presence form, which #157 AC2's
+# repo-wide scanner flags as an un-routed raw SKILL guard. (#166 landed them in the raw form;
+# this is the cross-PR reconciliation to #157's widened rule.) The IMPL_DOC / OVERVIEW mirrors
+# below stay in presence form like their sibling doc-row pins — the AC2 scanner does not cover
+# non-SKILL files.
+assert_pin_unique "sweep 2.3.0b: implement SKILL keeps the sweep body" '#### 2.3.0b Enum-enumeration reconciliation sweep' "$IMPL_SKILL"
+assert_pin_unique "sweep 2.3.0b: implement SKILL lists it in the Sweep-selection index" 'run **2.3.0b**' "$IMPL_SKILL"
 assert_eq "sweep 2.3.0b: docs/implement-skill.md keeps the rationale table row" "yes" \
   "$(grep -qF '| 2.3.0b Enum-enumeration reconciliation |' "$IMPL_DOC" && echo yes || echo no)"
 # Pin one step token unique to the 2.3.0b procedure (the grep-every-enumerating-site
 # rule) so a reviewer who guts the steps but keeps the heading still trips the suite.
-assert_eq "sweep 2.3.0b: implement SKILL keeps the enumerate-every-site step" "yes" \
-  "$(grep -qF 'Enumerate every site that names a member of the set, by grep' "$IMPL_SKILL" && echo yes || echo no)"
+assert_pin_unique "sweep 2.3.0b: implement SKILL keeps the enumerate-every-site step" 'Enumerate every site that names a member of the set, by grep' "$IMPL_SKILL"
 # Fourth mirror site (unique to 2.3.0b — 2.3.0a/2.3.6 have no OVERVIEW entry): Part C
 # added a sweep-list line in docs/DEVFLOW_SYSTEM_OVERVIEW.md. This PR's own iteration-1
 # review caught that line stale, proving it is a coupled mirror — so pin it too, or a
@@ -1036,16 +1205,11 @@ assert_eq "sweep 2.3.0b: DEVFLOW_SYSTEM_OVERVIEW keeps the sweep-list entry" "ye
 # and `git fetch origin ""` runs; drop the fetch guard and a bad base fails with a
 # bare git error instead of an attributable DevFlow breadcrumb). Pin the tokens so
 # a refactor of the block fails here rather than shipping a silent regression.
-assert_eq "base_branch read: SKILL reads via config-get with the main default" "yes" \
-  "$(grep -qF 'config-get.sh .base_branch main' "$IMPL_SKILL" && echo yes || echo no)"
-assert_eq "base_branch read: SKILL guards the empty read" "yes" \
-  "$(grep -qF '[ -n "$BASE" ]' "$IMPL_SKILL" && echo yes || echo no)"
-assert_eq "base_branch read: SKILL fetches origin/\$BASE (not hard-coded main)" "yes" \
-  "$(grep -qF 'git fetch origin "$BASE"' "$IMPL_SKILL" && echo yes || echo no)"
-assert_eq "base_branch read: SKILL checks out origin/\$BASE" "yes" \
-  "$(grep -qF 'git checkout -b "$BRANCH" "origin/$BASE"' "$IMPL_SKILL" && echo yes || echo no)"
-assert_eq "base_branch read: SKILL keeps the attributable fetch-failure breadcrumb" "yes" \
-  "$(grep -qF 'could not fetch base branch' "$IMPL_SKILL" && echo yes || echo no)"
+assert_pin_unique "base_branch read: SKILL reads via config-get with the main default" 'config-get.sh .base_branch main' "$IMPL_SKILL"
+assert_pin_unique "base_branch read: SKILL guards the empty read" '[ -n "$BASE" ]' "$IMPL_SKILL"
+assert_pin_unique "base_branch read: SKILL fetches origin/\$BASE (not hard-coded main)" 'git fetch origin "$BASE"' "$IMPL_SKILL"
+assert_pin_unique "base_branch read: SKILL checks out origin/\$BASE" 'git checkout -b "$BRANCH" "origin/$BASE"' "$IMPL_SKILL"
+assert_pin_unique "base_branch read: SKILL keeps the attributable fetch-failure breadcrumb" 'could not fetch base branch' "$IMPL_SKILL"
 
 # Versioning is per-repo policy, not the engine's job: implement/SKILL.md must carry NO
 # version-bump step. A repo that wants version management opts in via its consumer prompt
@@ -1155,20 +1319,15 @@ rm -f "$IPS_CFG"
 # SKILL Phase 4.3 token pins: the gate is one piece of load-bearing inline bash in
 # implement/SKILL.md. Pin the tokens so a refactor that drops them fails here rather
 # than silently always-publishing (or always-drafting).
-assert_eq "implement_pr_state: SKILL reads via config-get with the ready_for_review default" "yes" \
-  "$(grep -qF 'config-get.sh .devflow_implement.implement_pr_state ready_for_review' "$IMPL_SKILL" && echo yes || echo no)"
-assert_eq "implement_pr_state: SKILL gates publish on the literal draft" "yes" \
-  "$(grep -qF '[ "$PR_STATE" = "draft" ]' "$IMPL_SKILL" && echo yes || echo no)"
+assert_pin_unique "implement_pr_state: SKILL reads via config-get with the ready_for_review default" 'config-get.sh .devflow_implement.implement_pr_state ready_for_review' "$IMPL_SKILL"
+assert_pin_unique "implement_pr_state: SKILL gates publish on the literal draft" '[ "$PR_STATE" = "draft" ]' "$IMPL_SKILL"
 # Pin the *command* form, not the bare token: a plain `grep -qF 'gh pr ready'` is also
 # satisfied by the draft-branch diagnostic echo and the explanatory prose, so it would
 # stay green even if the actual publish invocation were deleted. Pin the guarded
 # `elif gh pr ready; then` so this asserts the publish command itself survives.
-assert_eq "implement_pr_state: SKILL keeps the guarded publish invocation (elif gh pr ready)" "yes" \
-  "$(grep -qF 'elif gh pr ready; then' "$IMPL_SKILL" && echo yes || echo no)"
-assert_eq "implement_pr_state: SKILL keeps the clean-tree backstop above the gate" "yes" \
-  "$(grep -qF 'git status --porcelain' "$IMPL_SKILL" && echo yes || echo no)"
-assert_eq "implement_pr_state: SKILL has draft-aware finalize wording" "yes" \
-  "$(grep -qF 'left as draft' "$IMPL_SKILL" && echo yes || echo no)"
+assert_pin_unique "implement_pr_state: SKILL keeps the guarded publish invocation (elif gh pr ready)" 'elif gh pr ready; then' "$IMPL_SKILL"
+assert_pin_unique "implement_pr_state: SKILL keeps the clean-tree backstop above the gate" 'git status --porcelain' "$IMPL_SKILL"
+assert_pin_unique "implement_pr_state: SKILL has draft-aware finalize wording" 'left as draft' "$IMPL_SKILL"
 
 # Executable publish-decision guard — logic-equivalent to the SKILL's single literal-`draft`
 # comparison (semantically mirrors `[ "$PR_STATE" = "draft" ]`; `$1` stands in for
@@ -1234,24 +1393,20 @@ assert_eq "implement_pr_state outcome: gh fails + state unconfirmed (re-check er
 # (`left as draft`), leaving the load-bearing "never falsely claim published" path and the
 # idempotent re-check uncovered (a refactor dropping the isDraft arm would stay green).
 assert_eq "implement_pr_state: SKILL captures the publish_failed outcome (gh pr ready failure not swallowed)" "yes" \
-  "$(grep -qF 'PR_OUTCOME=publish_failed' "$IMPL_SKILL" && echo yes || echo no)"
+  "$(grep -qF 'PR_OUTCOME=publish_failed' "$IMPL_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: appears twice in implement SKILL (publish-failed paths)
 assert_eq "implement_pr_state: SKILL leaves a gh-pr-ready failure breadcrumb" "yes" \
-  "$(grep -qF 'gh pr ready FAILED' "$IMPL_SKILL" && echo yes || echo no)"
-assert_eq "implement_pr_state: SKILL keeps the idempotent already-non-draft re-check" "yes" \
-  "$(grep -qF 'gh pr view --json isDraft' "$IMPL_SKILL" && echo yes || echo no)"
+  "$(grep -qF 'gh pr ready FAILED' "$IMPL_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: appears twice in implement SKILL (publish-failed paths)
+assert_pin_unique "implement_pr_state: SKILL keeps the idempotent already-non-draft re-check" 'gh pr view --json isDraft' "$IMPL_SKILL"
 assert_eq "implement_pr_state: SKILL labels the idempotent re-run breadcrumb" "yes" \
-  "$(grep -qF 'idempotent re-run' "$IMPL_SKILL" && echo yes || echo no)"
+  "$(grep -qF 'idempotent re-run' "$IMPL_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: 'idempotent re-run' appears twice in implement SKILL
 # Couple the fail-safe construct: the re-check must redirect stderr (empty-on-error) AND
 # compare against the literal `= "false"` — so an unconfirmed/errored re-check (empty
 # substitution) is `!= "false"` and falls through to publish_failed (the conservative
 # direction). Pinning the two together catches a silent fail-safe inversion (e.g. someone
 # rewriting it as `!= "true"`, under which an empty result would wrongly read as published).
-assert_eq "implement_pr_state: SKILL idempotent re-check is fail-safe (2>/dev/null coupled to = \"false\")" "yes" \
-  "$(grep -qF '2>/dev/null)" = "false" ]' "$IMPL_SKILL" && echo yes || echo no)"
-assert_eq "implement_pr_state: SKILL has a distinct published-outcome note" "yes" \
-  "$(grep -qF 'PR published (gh pr ready)' "$IMPL_SKILL" && echo yes || echo no)"
-assert_eq "implement_pr_state: draft case posts no extra PR-thread comment (AC7)" "yes" \
-  "$(grep -qF 'no additional comment' "$IMPL_SKILL" && echo yes || echo no)"
+assert_pin_unique "implement_pr_state: SKILL idempotent re-check is fail-safe (2>/dev/null coupled to = \"false\")" '2>/dev/null)" = "false" ]' "$IMPL_SKILL"
+assert_pin_unique "implement_pr_state: SKILL has a distinct published-outcome note" 'PR published (gh pr ready)' "$IMPL_SKILL"
+assert_pin_unique "implement_pr_state: draft case posts no extra PR-thread comment (AC7)" 'no additional comment' "$IMPL_SKILL"
 
 # Positional check: the clean-tree backstop must run ABOVE the publish gate (the diff's
 # behavioral change is that it runs unconditionally in BOTH publish and draft cases), not
@@ -1273,7 +1428,7 @@ WP_PY="$LIB/../scripts/workpad.py"
 # NB: `--` ends grep's option parsing — the pattern begins with `--tick-progress`, which
 # grep would otherwise treat as an (invalid) long option.
 assert_eq "implement finalize: SKILL ticks the workpad.py-owned 'PR marked ready' label" "yes" \
-  "$(grep -qF -- '--tick-progress "PR marked ready"' "$IMPL_SKILL" && echo yes || echo no)"
+  "$(grep -qF -- '--tick-progress "PR marked ready"' "$IMPL_SKILL" && echo yes || echo no)"  # raw-guard-ok: literal begins with --; incompatible with pin_count's unguarded grep -oF
 assert_eq "implement finalize: workpad.py owns the 'PR marked ready' label (template + _PROGRESS_PHASES agree)" "yes" \
   "$(grep -qF '**PR marked ready**' "$WP_PY" && grep -qF "'PR marked ready'" "$WP_PY" && echo yes || echo no)"
 
@@ -1994,7 +2149,7 @@ for SKILL_DIR in "$LIB"/../skills/*/; do
   # HTML-comment-wrapped reference — only a live, exact invocation line passes, so
   # a future edit that comments out the step (leaving a stale reference) fails here.
   assert_eq "lpe-coverage: $SKILL_NAME/SKILL.md invokes the helper for its own name" "yes" \
-    "$([ -f "$SKILL_FILE" ] && grep -Fxq '${CLAUDE_SKILL_DIR}/../../scripts/load-prompt-extension.sh '"$SKILL_NAME" "$SKILL_FILE" && echo yes || echo no)"
+    "$([ -f "$SKILL_FILE" ] && grep -Fxq '${CLAUDE_SKILL_DIR}/../../scripts/load-prompt-extension.sh '"$SKILL_NAME" "$SKILL_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body: SKILL target is the $SKILL_FILE loop variable, not a static pin
   # The invocation line alone is half the contract — the step must also tell the
   # model to HONOR the helper's exit code (surface a non-zero exit, don't silently
   # proceed). Pin a BLOCK-UNIQUE fragment of that prose, NOT a generic one: the
@@ -2004,14 +2159,14 @@ for SKILL_DIR in "$LIB"/../skills/*/; do
   # own exit-code prose were deleted. This fragment appears ONLY in the block, so
   # the guard goes red iff the block's exit-code handling is actually removed.
   assert_eq "lpe-coverage: $SKILL_NAME/SKILL.md honors the helper exit code (prose)" "yes" \
-    "$([ -f "$SKILL_FILE" ] && grep -qF 'a consumer extension exists but could not be loaded' "$SKILL_FILE" && echo yes || echo no)"
+    "$([ -f "$SKILL_FILE" ] && grep -qF 'a consumer extension exists but could not be loaded' "$SKILL_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body — $SKILL_FILE is the per-skill loop target, not a static target-unique pin
 done
 # The two strict-JSON-stdout subagents carry an EXTRA caveat (absent from the other
 # 14) that a consumer extension must not break their one-JSON-object contract. Pin
 # it so a copy-paste of the generic block over them can't silently erase it.
 for SUB in retrospective retrospective-audit; do
   assert_eq "lpe-coverage: $SUB keeps the strict-JSON-contract caveat" "yes" \
-    "$(grep -qF 'must not break that contract' "$LIB/../skills/$SUB/SKILL.md" && echo yes || echo no)"
+    "$(grep -qF 'must not break that contract' "$LIB/../skills/$SUB/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: loop body: SKILL target is the $SUB loop variable, not a static pin
 done
 # Guard against the loop becoming a vacuous no-op: if the skills/*/ glob ever
 # matched nothing (a path typo, a restructure, a wrong CWD), the loop above would
@@ -2035,12 +2190,12 @@ echo "init project-memory nudge: skills/init/SKILL.md carries the advisory CLAUD
 # so a match means the step itself is present, not some unrelated prose.
 INIT_SKILL="$LIB/../skills/init/SKILL.md"
 assert_eq "init-memory-nudge: advisory step heading present" "yes" \
-  "$(grep -qF 'advisory project-memory check' "$INIT_SKILL" && echo yes || echo no)"
+  "$(grep -qF 'advisory project-memory check' "$INIT_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: 'advisory project-memory check' appears twice in init SKILL
 # Every detected agent-instruction filename (AC3) plus the CLAUDE.md target itself
 # must be named, or the four-case behavior matrix can't be followed.
 for FN in 'CLAUDE.md' '.github/copilot-instructions.md' 'AGENTS.md' 'GEMINI.md' '.cursorrules'; do
   assert_eq "init-memory-nudge: names detected file token ($FN)" "yes" \
-    "$(grep -qF "$FN" "$INIT_SKILL" && echo yes || echo no)"
+    "$(grep -qF "$FN" "$INIT_SKILL" && echo yes || echo no)"  # raw-guard-ok: loop body: literal is the $FN loop variable, not a static pin
 done
 # AGENTS.md is matched across common spellings — case-insensitive (agents.md) plus
 # the singular form (agent.md) — AC3. Pin BOTH the prose claim AND a behavioral token
@@ -2048,51 +2203,42 @@ done
 # survive a regression that trims the variant list down to just `AGENTS.md`, so the
 # lowercase form is what proves the spelling/case handling is really there.
 assert_eq "init-memory-nudge: AGENTS.md detection is case-insensitive (prose)" "yes" \
-  "$(grep -qiF 'case-insensitive' "$INIT_SKILL" && echo yes || echo no)"
+  "$(grep -qiF 'case-insensitive' "$INIT_SKILL" && echo yes || echo no)"  # raw-guard-ok: case-insensitive (grep -qi); pin_count is case-sensitive -F
 assert_eq "init-memory-nudge: case-insensitive AGENTS variant probed (agents.md)" "yes" \
-  "$(grep -qF 'agents.md' "$INIT_SKILL" && echo yes || echo no)"
+  "$(grep -qF 'agents.md' "$INIT_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: 'agents.md' appears 3x in init SKILL
 # The AGENTS.md spelling/case variants denote one logical convention; on a case-insensitive
 # filesystem (macOS) a file's case-variants all match `test -f`, so the step must collapse
 # them to a single detection or it would emit a duplicate @-import nudge. Pin the dedup
 # instruction so a reword can't silently re-introduce the duplicate-nudge defect.
-assert_eq "init-memory-nudge: AGENTS.md case-variants deduped to one (at most once)" "yes" \
-  "$(grep -qF 'AT MOST ONCE' "$INIT_SKILL" && echo yes || echo no)"
+assert_pin_unique "init-memory-nudge: AGENTS.md case-variants deduped to one (at most once)" 'AT MOST ONCE' "$INIT_SKILL"
 # The defensive repo-root guard is the one piece of load-bearing executable shell in the
 # step: without it an unresolvable root collapses $ROOT to empty and every probe tests
 # "/CLAUDE.md", emitting a misleading nudge. Pin the guard prose so a reword/deletion fails.
-assert_eq "init-memory-nudge: defends against an unresolvable repo root" "yes" \
-  "$(grep -qF 'Resolve the root defensively' "$INIT_SKILL" && echo yes || echo no)"
+assert_pin_unique "init-memory-nudge: defends against an unresolvable repo root" 'Resolve the root defensively' "$INIT_SKILL"
 # Case 2 (no CLAUDE.md, agent files present) must not re-expand the deduped detection
 # into per-spelling nudges — pin the consumer-side one-nudge-per-physical-file rule so a
 # reword can't undo the dedup on the agent-files-present path.
-assert_eq "init-memory-nudge: case 2 emits one nudge per physical file" "yes" \
-  "$(grep -qF 'nudge per *physical* file' "$INIT_SKILL" && echo yes || echo no)"
+assert_pin_unique "init-memory-nudge: case 2 emits one nudge per physical file" 'nudge per *physical* file' "$INIT_SKILL"
 # The unreferenced-import check must distinguish a grep read error (rc>=2) from a genuine
 # no-match (rc 1) so a vanished/unreadable CLAUDE.md is not misreported as unreferenced.
-assert_eq "init-memory-nudge: grep read-error path stays silent (rc>=2)" "yes" \
-  "$(grep -qF 'grep read error' "$INIT_SKILL" && echo yes || echo no)"
+assert_pin_unique "init-memory-nudge: grep read-error path stays silent (rc>=2)" 'grep read error' "$INIT_SKILL"
 # The @-import reuse guidance (AC4/AC5): pin two concrete repo-root-relative paths,
 # including the dotted .github one (the easiest to get wrong).
 assert_eq "init-memory-nudge: @-import example for AGENTS.md present" "yes" \
-  "$(grep -qF '@AGENTS.md' "$INIT_SKILL" && echo yes || echo no)"
-assert_eq "init-memory-nudge: @-import path for copilot-instructions present" "yes" \
-  "$(grep -qF '@.github/copilot-instructions.md' "$INIT_SKILL" && echo yes || echo no)"
+  "$(grep -qF '@AGENTS.md' "$INIT_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: '@AGENTS.md' appears 3x in init SKILL
+assert_pin_unique "init-memory-nudge: @-import path for copilot-instructions present" '@.github/copilot-instructions.md' "$INIT_SKILL"
 # AC2: the absent-everything case nudges toward the BUILT-IN /init.
 assert_eq "init-memory-nudge: recommends the built-in /init" "yes" \
-  "$(grep -qF 'built-in `/init`' "$INIT_SKILL" && echo yes || echo no)"
+  "$(grep -qF 'built-in `/init`' "$INIT_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: 'built-in /init' appears 3x in init SKILL
 # AC7: strictly advisory — never writes any file, never blocks/fails init.
-assert_eq "init-memory-nudge: never writes/edits any agent file (advisory)" "yes" \
-  "$(grep -qF 'never creates, writes, or edits' "$INIT_SKILL" && echo yes || echo no)"
-assert_eq "init-memory-nudge: never blocks or fails init" "yes" \
-  "$(grep -qF 'never blocks or fails init' "$INIT_SKILL" && echo yes || echo no)"
+assert_pin_unique "init-memory-nudge: never writes/edits any agent file (advisory)" 'never creates, writes, or edits' "$INIT_SKILL"
+assert_pin_unique "init-memory-nudge: never blocks or fails init" 'never blocks or fails init' "$INIT_SKILL"
 # AC6 — the silence discipline (no output when nothing is actionable) keeps successful
 # re-runs clean; pin it so a reword can't drop the quiet-when-nothing-to-say rule.
-assert_eq "init-memory-nudge: stays silent when nothing is actionable (AC6)" "yes" \
-  "$(grep -qF 'say nothing when nothing is actionable' "$INIT_SKILL" && echo yes || echo no)"
+assert_pin_unique "init-memory-nudge: stays silent when nothing is actionable (AC6)" 'say nothing when nothing is actionable' "$INIT_SKILL"
 # AC5 — the CLAUDE.md-present-but-unreferenced case (matrix case 3). Pin a block-unique
 # fragment of that bullet so dropping the 'suggest adding the @-import' branch fails here.
-assert_eq "init-memory-nudge: covers CLAUDE.md-present-but-unreferenced case (AC5)" "yes" \
-  "$(grep -qF 'does not already reference' "$INIT_SKILL" && echo yes || echo no)"
+assert_pin_unique "init-memory-nudge: covers CLAUDE.md-present-but-unreferenced case (AC5)" 'does not already reference' "$INIT_SKILL"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "shipped agent_overrides: deduper pins Sonnet 4.6 w/ effort; no Haiku override carries effort"
@@ -3387,15 +3533,15 @@ assert_eq "#126 pin: docs describe the grouped reflection structure + --reflecti
 assert_eq "#97 pin: ensure-label.sh exists" "yes" \
   "$([ -f "$LIB/../scripts/ensure-label.sh" ] && echo yes || echo no)"
 assert_eq "#97 pin: create-issue ensures+applies DevFlow label" "yes" \
-  "$(grep -q 'ensure-label.sh DevFlow' "$LIB/../skills/create-issue/SKILL.md" && grep -q -- '--add-label DevFlow' "$LIB/../skills/create-issue/SKILL.md" && echo yes || echo no)"
+  "$(grep -q 'ensure-label.sh DevFlow' "$LIB/../skills/create-issue/SKILL.md" && grep -q -- '--add-label DevFlow' "$LIB/../skills/create-issue/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: compound: two greps && on one line (provenance: ensure-label + add-label)
 assert_eq "#97 pin: implement applies DevFlow label at PR create" "yes" \
-  "$(grep -q 'ensure-label.sh DevFlow' "$LIB/../skills/implement/SKILL.md" && grep -q -- '--add-label DevFlow' "$LIB/../skills/implement/SKILL.md" && echo yes || echo no)"
+  "$(grep -q 'ensure-label.sh DevFlow' "$LIB/../skills/implement/SKILL.md" && grep -q -- '--add-label DevFlow' "$LIB/../skills/implement/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: compound: two greps && on one line (provenance: ensure-label + add-label)
 assert_eq "#152 pin: meta-issue.sh ensures+applies DevFlow and Retrospective labels" "yes" \
   "$(grep -q 'ensure-label.sh' "$LIB/meta-issue.sh" && grep -q -- '--add-label DevFlow' "$LIB/meta-issue.sh" && grep -q -- '--add-label Retrospective' "$LIB/meta-issue.sh" && echo yes || echo no)"
 assert_eq "#97 pin: init creates the reserved DevFlow provenance label" "yes" \
-  "$(grep -q 'ensure-label.sh DevFlow' "$LIB/../skills/init/SKILL.md" && grep -qi 'provenance' "$LIB/../skills/init/SKILL.md" && echo yes || echo no)"
+  "$(grep -q 'ensure-label.sh DevFlow' "$LIB/../skills/init/SKILL.md" && grep -qi 'provenance' "$LIB/../skills/init/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: compound: two greps && on one line (provenance: ensure-label + provenance)
 assert_eq "#97 pin: retrospective Stage A consumes reflections" "yes" \
-  "$(grep -qi 'reflection' "$LIB/../skills/retrospective/SKILL.md" && echo yes || echo no)"
+  "$(grep -qi 'reflection' "$LIB/../skills/retrospective/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: case-insensitive (grep -qi); pin_count is case-sensitive -F
 assert_eq "#97 pin: cheap-gate carries the reflection reason string" "yes" \
   "$(grep -q 'workpad reflections present' "$LIB/cheap-gate.jq" && echo yes || echo no)"
 assert_eq "#97 pin: config.example.json docs.labels reverted to Documented" "Documented" \
@@ -3406,32 +3552,32 @@ assert_eq "#97 pin: config.example.json docs.labels reverted to Documented" "Doc
 # worktrees, zero edits, no two-form excluded/targets contract.
 RA_SKILL="$LIB/../skills/retrospective-audit/SKILL.md"
 assert_eq "#152: Stage B emits the {title, body} contract" "yes" \
-  "$(grep -qF '{title, body}' "$RA_SKILL" && echo yes || echo no)"
+  "$(grep -qF '{title, body}' "$RA_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: '{title, body}' appears 4x in retrospective-audit SKILL
 assert_eq "#152: Stage B runs no git worktree" "yes" \
-  "$(grep -q 'git worktree' "$RA_SKILL" && echo no || echo yes)"
+  "$(grep -q 'git worktree' "$RA_SKILL" && echo no || echo yes)"  # raw-guard-ok: absence pin: asserts Stage B runs no git worktree (expected absent)
 assert_eq "#152: Stage B drops the targets[] return field" "yes" \
-  "$(grep -qF '"targets"' "$RA_SKILL" && echo no || echo yes)"
+  "$(grep -qF '"targets"' "$RA_SKILL" && echo no || echo yes)"  # raw-guard-ok: absence pin: asserts Stage B drops the targets[] field (expected absent)
 assert_eq "#152: Stage B drops the excluded return field" "yes" \
-  "$(grep -qF '"excluded"' "$RA_SKILL" && echo no || echo yes)"
+  "$(grep -qF '"excluded"' "$RA_SKILL" && echo no || echo yes)"  # raw-guard-ok: absence pin: asserts Stage B drops the excluded field (expected absent)
 # Orchestrator (retrospective-weekly) Step 8 files issues, opens zero PRs, runs no
 # worktrees, and never auto-posts /devflow:implement.
 RW_SKILL="$LIB/../skills/retrospective-weekly/SKILL.md"
 assert_eq "#152: orchestrator invokes meta-issue.sh" "yes" \
-  "$(grep -q 'meta-issue.sh' "$RW_SKILL" && echo yes || echo no)"
+  "$(grep -q 'meta-issue.sh' "$RW_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: 'meta-issue.sh' appears many times in retrospective-weekly SKILL
 assert_eq "#152: orchestrator accumulates intervention_issues" "yes" \
-  "$(grep -q 'intervention_issues' "$RW_SKILL" && echo yes || echo no)"
+  "$(grep -q 'intervention_issues' "$RW_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: 'intervention_issues' appears many times in retrospective-weekly SKILL
 assert_eq "#152: orchestrator opens no PR (no gh pr create)" "yes" \
-  "$(grep -q 'gh pr create' "$RW_SKILL" && echo no || echo yes)"
+  "$(grep -q 'gh pr create' "$RW_SKILL" && echo no || echo yes)"  # raw-guard-ok: absence pin: asserts the orchestrator opens no PR (expected absent)
 assert_eq "#152: orchestrator runs no git worktree" "yes" \
-  "$(grep -q 'git worktree' "$RW_SKILL" && echo no || echo yes)"
+  "$(grep -q 'git worktree' "$RW_SKILL" && echo no || echo yes)"  # raw-guard-ok: absence pin: asserts the orchestrator runs no git worktree (expected absent)
 # AC6: the loop never auto-triggers implementation. The orchestrator posts NO
 # comment to a filed issue (it may reference the pipeline by name in prose, which
 # is fine) — the structural guard is the absence of any gh issue/pr comment that
 # would carry an auto-trigger.
 assert_eq "#152: orchestrator posts no gh issue/pr comment (no auto-trigger)" "yes" \
-  "$(grep -qE 'gh (issue|pr) comment' "$RW_SKILL" && echo no || echo yes)"
+  "$(grep -qE 'gh (issue|pr) comment' "$RW_SKILL" && echo no || echo yes)"  # raw-guard-ok: absence pin: asserts no auto-trigger gh issue/pr comment (expected absent)
 assert_eq "#152: orchestrator states filed issues await human triage" "yes" \
-  "$(grep -qi 'await human triage' "$RW_SKILL" && echo yes || echo no)"
+  "$(grep -qi 'await human triage' "$RW_SKILL" && echo yes || echo no)"  # raw-guard-ok: case-insensitive (grep -qi); pin_count is case-sensitive -F
 # #152: the load-bearing "never report a pattern as filed when it was not"
 # invariant — a malformed Stage B result OR a meta-issue.sh non-zero exit must
 # record a blocker and file NOTHING. Pin BOTH failure branches' concrete blocker
@@ -3439,11 +3585,11 @@ assert_eq "#152: orchestrator states filed issues await human triage" "yes" \
 # glue the standalone review flagged as untested). The malformed branch keys on the
 # "malformed JSON" blocker; the exit-non-zero branch keys on "failed to file".
 assert_eq "#152: orchestrator records a blocker on a malformed Stage B result" "yes" \
-  "$(grep -q 'blockers+=.*malformed JSON' "$RW_SKILL" && echo yes || echo no)"
+  "$(grep -q 'blockers+=.*malformed JSON' "$RW_SKILL" && echo yes || echo no)"  # raw-guard-ok: regex grep (no -F): asserts a regex match (blockers+=.*), not a fixed literal
 assert_eq "#152: orchestrator records a blocker (files nothing) on meta-issue.sh failure" "yes" \
-  "$(grep -q 'blockers+=.*failed to file the issue' "$RW_SKILL" && echo yes || echo no)"
+  "$(grep -q 'blockers+=.*failed to file the issue' "$RW_SKILL" && echo yes || echo no)"  # raw-guard-ok: regex grep (no -F): asserts a regex match (blockers+=.*), not a fixed literal
 assert_eq "#152: orchestrator pins the never-report-unfiled-as-filed invariant" "yes" \
-  "$(grep -qi 'Never report a pattern as filed when it was not' "$RW_SKILL" && echo yes || echo no)"
+  "$(grep -qi 'Never report a pattern as filed when it was not' "$RW_SKILL" && echo yes || echo no)"  # raw-guard-ok: case-insensitive (grep -qi); pin_count is case-sensitive -F
 # Prune: no operative engine surface references the removed audit-intervention
 # kind or the devflow/audit-* branch convention (CHANGELOG history + this test
 # suite's own classify-input strings are intentionally excluded — note git
@@ -6913,7 +7059,7 @@ assert_eq "#139 agents/code-architect.md exists (vendored first-party)" \
 # dead-end the dispatch at runtime; this assertion catches that.
 for fdagent in code-explorer code-architect; do
   assert_eq "#139 implement skill dispatches devflow:$fdagent (rewired call-site present)" \
-    "yes" "$(grep -qF "subagent_type: devflow:$fdagent" "$FDROOT/skills/implement/SKILL.md" && echo yes || echo no)"
+    "yes" "$(grep -qF "subagent_type: devflow:$fdagent" "$FDROOT/skills/implement/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: loop body: literal interpolates the $fdagent loop variable, not a static pin
   assert_eq "#139 agents/$fdagent.md frontmatter declares name: $fdagent (dispatch target resolves)" \
     "yes" "$(grep -qE "^name: $fdagent\$" "$FDROOT/agents/$fdagent.md" && echo yes || echo no)"
   # (2c) Agent-validity structural markers: `name:` resolving alone does not prove the
@@ -7029,14 +7175,14 @@ for a in $PRT_AGENTS; do
   # dispatch block), so this tracks the dispatch, not any mention. (Twin of the #139
   # `subagent_type: devflow:$fdagent` pin, adapted to this engine's bold-header convention.)
   assert_eq "#141 review engine dispatches devflow:$a via its **devflow:$a** prompt block (load-bearing call-site present)" \
-    "yes" "$(grep -qF "**devflow:$a**" "$FDROOT/skills/review/SKILL.md" && echo yes || echo no)"
+    "yes" "$(grep -qF "**devflow:$a**" "$FDROOT/skills/review/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: loop body: literal interpolates the $a loop variable, not a static pin
   # Peer-completeness (AC3 names BOTH skills): the fix-loop skill carries the same roster
   # in its phase3_dispatched / shadow-roster / reviewers_dispatched examples, and (1)'s
   # negative scan only catches a leftover OLD id — not a DROPPED devflow: id. Pin it
   # positively so a future edit that desyncs review-and-fix's example roster from the
   # engine's actual dispatch set turns this row red instead of shipping silently.
   assert_eq "#141 fix-loop skill references devflow:$a (review-and-fix roster rewired)" \
-    "yes" "$(grep -qF "devflow:$a" "$FDROOT/skills/review-and-fix/SKILL.md" && echo yes || echo no)"
+    "yes" "$(grep -qF "devflow:$a" "$FDROOT/skills/review-and-fix/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: loop body: literal interpolates the $a loop variable, not a static pin
   assert_eq "#141 agents/$a.md frontmatter declares name: $a (dispatch target resolves)" \
     "yes" "$(grep -qE "^name: $a\$" "$FDROOT/agents/$a.md" && echo yes || echo no)"
   assert_eq "#141 resolver allowlists devflow:$a (override key resolves)" \
@@ -7165,11 +7311,11 @@ for sk in $SP_SKILLS; do
   assert_eq "#142 skills/$sk/SKILL.md exists (vendored first-party)" \
     "yes" "$([ -f "$FDROOT/skills/$sk/SKILL.md" ] && echo yes || echo no)"
   assert_eq "#142 skills/$sk/SKILL.md frontmatter declares name: $sk (resolves as devflow:$sk)" \
-    "yes" "$(grep -qE "^name: $sk\$" "$FDROOT/skills/$sk/SKILL.md" && echo yes || echo no)"
+    "yes" "$(grep -qE "^name: $sk\$" "$FDROOT/skills/$sk/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: loop body: SKILL target/literal interpolate the $sk loop variable, not a static pin
   assert_eq "#142 skills/$sk/SKILL.md has well-formed frontmatter (open+close ---, name:)" \
     "yes" "$(head -1 "$FDROOT/skills/$sk/SKILL.md" | grep -qx -- '---' \
             && [ "$(head -30 "$FDROOT/skills/$sk/SKILL.md" | grep -c '^---$')" -ge 2 ] \
-            && grep -qE '^name:[[:space:]]' "$FDROOT/skills/$sk/SKILL.md" && echo yes || echo no)"
+            && grep -qE '^name:[[:space:]]' "$FDROOT/skills/$sk/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: loop body: SKILL target interpolates the $sk loop variable, not a static pin
   # (3) Attribution contract (mirrors AC2): the vendored skills' upstream superpowers
   # attribution lives in LICENSES/superpowers-LICENSE (MIT (c) Jesse Vincent — NOT Anthropic/
   # Apache-2.0 like #139/#141), asserted once below — the per-file `Vendored from` marker was
@@ -7190,13 +7336,13 @@ done
 # key; receiving-code-review: the fix-loop applies its principles. (writing-skills has no call-
 # site here — it is external; its CLAUDE.md reference is pinned in (1c).)
 assert_eq "#142 review engine dispatches /devflow:requesting-code-review (final-pass call-site rewired)" \
-  "yes" "$(grep -qF '/devflow:requesting-code-review' "$FDROOT/skills/review/SKILL.md" && echo yes || echo no)"
+  "yes" "$(grep -qF '/devflow:requesting-code-review' "$FDROOT/skills/review/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: non-unique: '/devflow:requesting-code-review' appears twice in the target SKILL
 assert_eq "#142 resolver allowlists devflow:requesting-code-review (override key resolves)" \
   "yes" "$(grep -qF '"devflow:requesting-code-review"' "$FDROOT/scripts/resolve-review-overrides.py" && echo yes || echo no)"
 assert_eq "#142 config schema declares the devflow:requesting-code-review override key" \
   "yes" "$(grep -qF '"devflow:requesting-code-review"' "$FDROOT/.devflow/config.schema.json" && echo yes || echo no)"
 assert_eq "#142 fix-loop skill applies devflow:receiving-code-review principles (call-site rewired)" \
-  "yes" "$(grep -qF 'devflow:receiving-code-review' "$FDROOT/skills/review-and-fix/SKILL.md" && echo yes || echo no)"
+  "yes" "$(grep -qF 'devflow:receiving-code-review' "$FDROOT/skills/review-and-fix/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: non-unique: 'devflow:receiving-code-review' appears twice in the target SKILL
 
 # (3b) Property-based vendoring invariant (the skills-tree twin of the #139 agents/*.md loop):
 # EVERY file under the two vendored skill dirs must NOT carry the first-party `2026 Daniel Radman`
@@ -7232,7 +7378,7 @@ assert_eq "#142 skills/requesting-code-review/code-reviewer.md exists (the rende
 # sentinel if the SKILL.md is renamed/deleted (!= "yes").
 assert_eq "#142 skills/requesting-code-review/SKILL.md links its code-reviewer.md template (not orphaned)" \
   "yes" "$([ -f "$FDROOT/skills/requesting-code-review/SKILL.md" ] \
-          && { grep -qF '(code-reviewer.md)' "$FDROOT/skills/requesting-code-review/SKILL.md" && echo yes || echo no; } \
+          && grep_present '(code-reviewer.md)' "$FDROOT/skills/requesting-code-review/SKILL.md" \
           || echo MISSING-FILE)"
 for sf in $SP_VENDORED_FILES; do
   assert_eq "#142 vendored skill file ${sf#"$FDROOT"/} carries no first-party 2026 Daniel Radman SPDX line" \
@@ -7283,7 +7429,7 @@ assert_eq "#142 no operative surface references the retired using-git-worktrees 
 # A missing file returns the distinct MISSING-FILE sentinel, which is != "no" and fails loud.
 assert_eq "#142 review engine no longer assumes the final-pass reviewer is an installed companion plugin" \
   "no" "$([ -f "$FDROOT/skills/review/SKILL.md" ] \
-          && { grep -qF 'plugin is installed in the executing environment' "$FDROOT/skills/review/SKILL.md" && echo yes || echo no; } \
+          && grep_present 'plugin is installed in the executing environment' "$FDROOT/skills/review/SKILL.md" \
           || echo MISSING-FILE)"
 
 # (7) Positive roster-doc rewire (AC8): the docs that describe the final-pass reviewer must
@@ -7304,8 +7450,7 @@ done
 # for skills/review (the **devflow:<name>** header pin) and skills/review-and-fix (the
 # devflow:<name> roster pin) applies here too. Pin the whole parenthesized roster so a
 # future edit that drops an agent turns this row red instead of shipping silently.
-assert_eq "#141 implement skill names all five review agents in its Phase-3 roster line" \
-  "yes" "$(grep -qF '(code-reviewer, silent-failure-hunter, comment-analyzer, type-design-analyzer, pr-test-analyzer)' "$FDROOT/skills/implement/SKILL.md" && echo yes || echo no)"
+assert_pin_unique "#141 implement skill names all five review agents in its Phase-3 roster line" '(code-reviewer, silent-failure-hunter, comment-analyzer, type-design-analyzer, pr-test-analyzer)' "$FDROOT/skills/implement/SKILL.md"
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
