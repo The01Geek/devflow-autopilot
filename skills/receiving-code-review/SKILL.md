@@ -32,7 +32,19 @@ WHEN receiving code review feedback:
 4. EVALUATE: Technically sound for THIS codebase?
 5. RESPOND: Technical acknowledgment or reasoned pushback
 6. IMPLEMENT: One item at a time, test each
+7. VERIFY BEFORE DONE: Review diff + run test suite — only then claim completion
 ```
+
+## Verification Gate (Step 7)
+
+**Iron Law: NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE**
+
+Before declaring the review findings addressed:
+1. Review the diff of your changes against the addressed findings.
+2. Run `lib/test/run.sh` (or fall back to CI `lib + python tests` when the suite is denied locally, per the CLAUDE.md tiered-runner convention).
+3. Only after both pass, claim completion.
+
+This gate applies in both interactive sessions and the autonomous `/devflow:review-and-fix` fix loop.
 
 ## Forbidden Responses
 
@@ -40,6 +52,7 @@ WHEN receiving code review feedback:
 - "You're absolutely right!" (explicit instruction-file violation)
 - "Great point!" / "Excellent feedback!" (performative)
 - "Let me implement that now" (before verification)
+- Claiming done / expressing satisfaction before step 7 (VERIFY BEFORE DONE) is complete
 
 **INSTEAD:**
 - Restate the technical requirement
