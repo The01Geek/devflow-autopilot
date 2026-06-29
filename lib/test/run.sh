@@ -1611,9 +1611,14 @@ assert_pin_unique "#168 worktree detect: SKILL guards reuse against the base bra
   '"$CUR" != "$BASE"' "$IMPL_SKILL"
 # The base/detached-HEAD guard must wrap BOTH reuse signals (Signal 2's name match too),
 # so a base branch named like a feature branch (base_branch=issue-next) still CREATEs.
-# Pin the rev-parse-failure breadcrumb so the silent-degrade path stays attributable.
-assert_pin_unique "#168 worktree detect: SKILL leaves a breadcrumb when git rev-parse fails" \
-  'git rev-parse --path-format=absolute failed' "$IMPL_SKILL"
+# Pin the breadcrumb so the silent-degrade path stays attributable.
+# Wording covers both symmetric (both-empty) and asymmetric (one-empty) trigger cases.
+assert_pin_unique "#168 worktree detect: SKILL leaves a breadcrumb when git-dir paths are empty" \
+  'one or both git-dir path values are empty' "$IMPL_SKILL"
+assert_pin_unique "#168 worktree detect: SKILL breadcrumb names asymmetric env-override as a cause" \
+  'injected GIT_DIR/GIT_COMMON_DIR env override' "$IMPL_SKILL"
+assert_pin_unique "#168 create-path: SKILL gates create block on USE_CURRENT being unset" \
+  '[ -z "$USE_CURRENT" ]' "$IMPL_SKILL"
 assert_eq "#168 worktree detect: SKILL names the linked-worktree signal" "yes" \
   "$(grep -qF 'linked worktree' "$IMPL_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: token appears in both prose and code (4 occurrences)
 assert_pin_unique "#168 worktree detect: SKILL keeps the cloud-tier name match as a second skip condition" \

@@ -284,7 +284,7 @@ USE_CURRENT=
 # CLOSED to the create path below with an attributable breadcrumb.
 COMMON_DIR=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || COMMON_DIR=""
 GIT_DIR_PATH=$(git rev-parse --path-format=absolute --git-dir 2>/dev/null) || GIT_DIR_PATH=""
-[ -n "$COMMON_DIR" ] && [ -n "$GIT_DIR_PATH" ] || echo "devflow: git rev-parse --path-format=absolute failed (repo corrupt, git < 2.31, or broken env) — linked-worktree detection (Signal 1) disabled; if this is actually a worktree, check git version and repo integrity" >&2
+[ -n "$COMMON_DIR" ] && [ -n "$GIT_DIR_PATH" ] || echo "devflow: one or both git-dir path values are empty (git < 2.31 lacking --path-format, repo corrupt, or injected GIT_DIR/GIT_COMMON_DIR env override) — linked-worktree detection (Signal 1) disabled; if this is actually a worktree, check git version, repo integrity, and env" >&2
 # Reuse $CUR ONLY when it is a real branch (non-empty — not a detached HEAD) and NOT the
 # base branch (never build directly on trunk, even in a worktree). These two guards
 # apply to BOTH reuse signals, so they sit out here once — a base branch that happens to
@@ -314,13 +314,15 @@ Otherwise, create a new branch. The canonical branch name is computed by the hel
 Write the issue title (from the `gh issue view` above) to a temp file with the **Write tool** — `/tmp/devflow-issue-$ARGUMENTS-title.txt` — then derive the branch from it. Using `--title-file` instead of passing the title as a positional shell argument avoids breakage when the title contains quotes, backticks, or `$`.
 
 ```bash
-# Fetch the base explicitly with a DevFlow breadcrumb so a bad/offline base is
-# attributable here, not a bare git error downstream — most importantly when the
-# fallback 'main' isn't the consumer's real trunk (a master/develop repo).
-git fetch origin "$BASE" || { echo "devflow: could not fetch base branch 'origin/$BASE' — if the base is correct, check network/auth; otherwise set base_branch in .devflow/config.json to the repo's real trunk (master/develop/…)" >&2; exit 1; }
-BRANCH=$(${CLAUDE_SKILL_DIR}/../../scripts/branch-for-issue.py $ARGUMENTS --title-file /tmp/devflow-issue-$ARGUMENTS-title.txt) || { echo "devflow: branch-for-issue.py failed — could not derive a branch name for issue #$ARGUMENTS; check that the issue title file exists and the issue number is valid" >&2; exit 1; }
-[ -n "$BRANCH" ] || { echo "devflow: branch-for-issue.py returned an empty branch name for issue #$ARGUMENTS — cannot create a branch" >&2; exit 1; }
-git checkout -b "$BRANCH" "origin/$BASE"
+if [ -z "$USE_CURRENT" ]; then
+  # Fetch the base explicitly with a DevFlow breadcrumb so a bad/offline base is
+  # attributable here, not a bare git error downstream — most importantly when the
+  # fallback 'main' isn't the consumer's real trunk (a master/develop repo).
+  git fetch origin "$BASE" || { echo "devflow: could not fetch base branch 'origin/$BASE' — if the base is correct, check network/auth; otherwise set base_branch in .devflow/config.json to the repo's real trunk (master/develop/…)" >&2; exit 1; }
+  BRANCH=$(${CLAUDE_SKILL_DIR}/../../scripts/branch-for-issue.py $ARGUMENTS --title-file /tmp/devflow-issue-$ARGUMENTS-title.txt) || { echo "devflow: branch-for-issue.py failed — could not derive a branch name for issue #$ARGUMENTS; check that the issue title file exists and the issue number is valid" >&2; exit 1; }
+  [ -n "$BRANCH" ] || { echo "devflow: branch-for-issue.py returned an empty branch name for issue #$ARGUMENTS — cannot create a branch" >&2; exit 1; }
+  git checkout -b "$BRANCH" "origin/$BASE"
+fi
 ```
 
 **Immediately fill the workpad's `Branch` line** (so the placeholder from 1.3 is never left on a completed run):
