@@ -100,15 +100,17 @@ OPEN_ISSUE_MAP="$(
         # re-parse exactly — so a foreign row is dropped, never an opaque abort.
         | (((.title | capture("\\[devflow-retrospective\\] meta: (?<slug>[A-Za-z0-9_-]+)")?) // {}) | .slug) as $slug
         | select($slug != null and $slug != "")
-        # Guard the operand the cooldown comparison feeds to strptime below: keep
-        # ONLY a createdAt that matches the exact `%Y-%m-%dT%H:%M:%SZ` shape
-        # strptime accepts. A bare `type=="string"` is not enough — "", a
-        # fractional-seconds value, or a non-Z offset are all strings yet abort
-        # strptime, so a gh contract drift to any of those would reach the final
-        # jq and abort it. Dropping the row here (like an unparseable slug) keeps
-        # the cooldown comparison total; the breadcrumb on the OUTPUT block below
-        # is the belt-and-suspenders fail-loud for anything else.
-        | select(((.createdAt | type) == "string") and (.createdAt | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")))
+        # Guard the operand the cooldown comparison feeds to strptime below by
+        # parsing it with the SAME strptime contract here and dropping the row if
+        # it fails. A shape regex is a SUPERSET of what strptime accepts (it
+        # admits out-of-range fields like month 13 / hour 99 that strptime
+        # range-rejects and aborts on), so the guard and the consumer would not
+        # share one contract; parsing with strptime itself makes the drop total —
+        # every row that survives here is guaranteed to parse in the OUTPUT block.
+        # `try ... catch null` also subsumes the non-string and "" / fractional /
+        # non-Z cases. Dropping the row (like an unparseable slug) keeps the
+        # cooldown comparison total; the OUTPUT breadcrumb is the fail-loud backstop.
+        | select(((.createdAt | type) == "string") and ((.createdAt | (try strptime("%Y-%m-%dT%H:%M:%SZ") catch null)) != null))
         | { slug: $slug, createdAt: .createdAt }
       ]
       | reduce .[] as $item (

@@ -3117,13 +3117,15 @@ chmod +x "$AP_TMP/gh"
 AP3="$(DEVFLOW_GH="$AP_TMP/gh" bash "$LIB/actionable-patterns.sh" "$AP_TMP/r.jsonl" "$AP_TMP/o.json")"
 assert_eq "incomplete-edit cooldown_active=false when filed issue is older than cooldown_days" "false" "$(echo "$AP3" | jq '.[] | select(.tag=="incomplete-edit") | .cooldown_active')"
 # #152: a gh contract drift emitting an open issue with a null / malformed
-# `createdAt` (empty, fractional seconds, non-Z offset) must be DROPPED at the
-# cooldown-map producer (so it never reaches strptime and aborts the final jq),
-# not crash the run. The drifted row is dropped → no open issue for the slug →
-# cooldown_active=false, exit 0. Guards the createdAt shape filter.
+# `createdAt` must be DROPPED at the cooldown-map producer (so it never reaches
+# strptime and aborts the final jq), not crash the run. The producer parses with
+# strptime itself, so the drop is total against strptime's real contract — the
+# adversarial matrix here spans null, empty, fractional-seconds, non-Z offset,
+# AND in-shape-but-out-of-range (month 13 / hour 99), which a mere shape regex
+# would admit. Every drifted row is dropped → no open issue → cooldown_active=false.
 cat > "$AP_TMP/gh" <<STUB
 #!/usr/bin/env bash
-case "\$*" in *"issue list"*) echo '[{"number":502,"title":"[devflow-retrospective] meta: incomplete-edit — x","createdAt":null},{"number":503,"title":"[devflow-retrospective] meta: incomplete-edit — x","createdAt":"2026-06-28T12:00:00.5Z"}]' ;; *) echo '[]' ;; esac
+case "\$*" in *"issue list"*) echo '[{"number":502,"title":"[devflow-retrospective] meta: incomplete-edit — x","createdAt":null},{"number":503,"title":"[devflow-retrospective] meta: incomplete-edit — x","createdAt":"2026-06-28T12:00:00.5Z"},{"number":504,"title":"[devflow-retrospective] meta: incomplete-edit — x","createdAt":""},{"number":505,"title":"[devflow-retrospective] meta: incomplete-edit — x","createdAt":"2026-06-28T12:00:00+00:00"},{"number":506,"title":"[devflow-retrospective] meta: incomplete-edit — x","createdAt":"2026-13-99T99:99:99Z"}]' ;; *) echo '[]' ;; esac
 STUB
 chmod +x "$AP_TMP/gh"
 AP4="$(DEVFLOW_GH="$AP_TMP/gh" bash "$LIB/actionable-patterns.sh" "$AP_TMP/r.jsonl" "$AP_TMP/o.json")"; AP4_RC=$?
