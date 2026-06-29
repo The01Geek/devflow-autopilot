@@ -195,11 +195,40 @@ def iter_view:
       # vs the default review-and-fix loop. Carried so a cross-run analyzer can
       # segment effectiveness by originating skill (both write into the same
       # .devflow/logs/efficiency/ store; the filename does not disambiguate them).
-      source: ($it.source // null)
+      source: ($it.source // null),
+      # Carried for the loop_role derivation resolved in the top-level pass below
+      # (where the full sorted array is in scope). loop_role_persisted is the
+      # workpad's own value when present and non-empty — it wins over derivation.
+      # shadow_promoted is THIS iter's shadow.promoted_to_iter_next, read by the
+      # NEXT iter to decide promoted-vs-fix. Both type-guarded so a malformed
+      # shadow block or a non-string loop_role never aborts the filter. Coerced to
+      # a strict boolean (`== true`): a non-object shadow, an absent/null field, or
+      # a malformed non-boolean value (e.g. the string "yes") all become false, so a
+      # malformed producer value can never over-classify the next iter as promoted.
+      loop_role_persisted: (($it.loop_role) | if (type == "string" and (length > 0)) then . else null end),
+      shadow_promoted: ((($it.shadow | objects | .promoted_to_iter_next) // false) == true)
     };
 
 # ── Build the ordered per-iteration array ───────────────────────────────────
 (. | map(iter_view) | sort_by(.iter // 0)) as $iters
+
+# ── Derive loop_role per iteration (issue #170) ─────────────────────────────
+# A persisted non-empty loop_role wins; otherwise the first iteration (in order)
+# is "fix" and a later iteration is "promoted" when its immediately-preceding
+# iteration recorded a Decide-outcome-2 shadow promotion (shadow.promoted_to_iter_next
+# == true), else "fix". Positional (sorted) prior is used because .iter is
+# best-effort; on any degenerate input the rule degrades to "fix". This gives the
+# field a real consumer in the per-run record below, so it is no longer left to be
+# reconstructed by inference from the prior iter's shadow block.
+| ([ range(0; ($iters | length)) as $i
+     | $iters[$i]
+     | .loop_role = (
+         if   (.loop_role_persisted != null)   then .loop_role_persisted
+         elif $i == 0                          then "fix"
+         elif ($iters[$i - 1].shadow_promoted) then "promoted"
+         else "fix"
+         end)
+   ]) as $iters
 
 # ── record mode: the single per-run JSON record ─────────────────────────────
 # With zero readable iterations (catastrophic early failure) emit nothing, not a
@@ -225,6 +254,9 @@ def iter_view:
       iterations: ($iters | length),
       per_iteration: ($iters | map({
         iter: .iter,
+        # Each iteration's role in the fix loop (fix | promoted), derived above
+        # (issue #170) — the real consumer of the iter workpad's loop_role field.
+        loop_role: .loop_role,
         phase3_dispatched: .phase3_dispatched,
         phase3_dispatched_count: .phase3_dispatched_count,
         # Carried into the durable record so the cross-run analyzer can tell a

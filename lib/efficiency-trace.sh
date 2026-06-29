@@ -143,6 +143,15 @@ emit_jq() {
 # `git rev-parse --show-toplevel || pwd` once, so a non-repo tree falls back to
 # cwd and a non-repo commit simply fails best-effort with a breadcrumb.
 
+# Single source of truth for the iter-<N>.json expected field set (issue #170).
+# Kept in sync with the iter-<N>.json schema block in skills/review-and-fix/SKILL.md;
+# a lib/test/run.sh assertion FAILs if the two diverge. `shadow` is intentionally
+# excluded — Step 2.6 appends it later, so it is legitimately absent on iters that
+# ran no shadow pass. --self-check warns (best-effort) when any of these is missing
+# from a persisted iter workpad. Plain (non-readonly) single-line assignment so the
+# run.sh divergence guard can grep `^ITER_EXPECTED_FIELDS=` to extract it.
+ITER_EXPECTED_FIELDS="iter started_at fix_commit_sha fix_files loop_role checklist phase3_dispatched diff_profile phase3_findings fix_decisions convergence_inputs cap_drops telemetry"
+
 # ── --self-check (Layer 2): warn-only, never writes, never fails ─────────────
 do_self_check() {
   # Silent when telemetry is disabled — there is no record to expect, so a
@@ -166,6 +175,42 @@ do_self_check() {
   if [ ! -e "$record" ]; then
     echo "::warning::devflow review-and-fix self-check: effectiveness record '.devflow/logs/efficiency/${SLUG}-${run_id}.json' was NOT persisted for run ${SLUG}/${run_id} — recover it with 'lib/efficiency-trace.sh --persist'." >&2
   fi
+  # Per-iteration field validation (issue #170): warn — best-effort, never writes,
+  # never aborts — for each iter-<N>.json missing an expected field, naming the
+  # field and the iter file so a silently-dropped inline-persist field becomes a
+  # visible warning. One jq per file computes the missing set as a set difference
+  # (expected fields − the object's keys). The jq call is guarded by `if !` — NOT a
+  # bare `missing=$(...)` assignment, which under `set -e` would abort the whole
+  # self-check (non-zero `exit`, not exit 0) the moment jq fails to *parse* or *open*
+  # one iter file — mirroring how collect_valid_files and --persist guard their jq.
+  #
+  # Two wrong-shape cases that must NOT pass silently (this is the exact corruption
+  # the self-check exists to surface, and in a STANDALONE --self-check run the
+  # --persist/--mode parse paths have not run to breadcrumb the bad file first):
+  #   (a) jq fails to *parse* or *open* the file (malformed/unreadable) → non-zero
+  #       exit → the `if !` arm WARNS and skips the file (no field validation).
+  #   (b) the file is valid JSON but NOT an object (e.g. [], null, "x") → jq emits
+  #       the `__non_object__` sentinel (no real field is named that), which WARNS
+  #       and skips — otherwise a wrong-shape workpad masquerades as complete.
+  # An object yields its missing-field names; field names are bare identifiers, so
+  # the `for field in $missing` word-split is safe (and emits one warning line each).
+  local iter field missing
+  for iter in "$WORKPAD_DIR"/iter-*.json; do
+    [ -e "$iter" ] || continue
+    if ! missing="$(jq -r --arg fields "$ITER_EXPECTED_FIELDS" \
+                      'if type == "object" then (($fields | split(" ")) - keys)[] else "__non_object__" end' \
+                      "$iter" 2>/dev/null)"; then
+      echo "::warning::devflow review-and-fix self-check: iter workpad '$(basename "$iter")' is unreadable or not valid JSON — cannot validate its fields" >&2
+      continue
+    fi
+    if [ "$missing" = "__non_object__" ]; then
+      echo "::warning::devflow review-and-fix self-check: iter workpad '$(basename "$iter")' is valid JSON but not an object — cannot validate its fields" >&2
+      continue
+    fi
+    for field in $missing; do
+      echo "::warning::devflow review-and-fix self-check: iter workpad '$(basename "$iter")' is missing expected field '${field}'" >&2
+    done
+  done
   return 0
 }
 

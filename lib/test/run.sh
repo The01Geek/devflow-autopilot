@@ -1292,15 +1292,28 @@ assert_eq "#157 AC3 mutation: an (indented) grep-on-prior-line bypass in the reg
   "2" "$(count_region_nonhelper_stmts "$NHPROBE")"
 rm -f "$NHPROBE"
 
-# Issue #165 Part A: the iter-<N>.json workpad carries a per-iteration loop_role
-# field (fix | promoted) for loop-state legibility — no consumer reads it, so a
-# silent drop would never surface behaviorally. Pin the field at its schema
+# Issue #165 Part A + #170: the iter-<N>.json workpad carries a per-iteration
+# loop_role field (fix | promoted). #170 gave it a real consumer —
+# lib/efficiency-trace.jq derives AND surfaces it per iteration — so the field is
+# no longer "legibility-only: no consumer reads it". Pin the field at its schema
 # source-of-truth line and the Step 3 item 7 persist rule that writes it every
 # iteration; mutation proof = delete either and the suite goes RED.
 assert_pin_unique "loop_role: field + value set pinned at iter-N json schema source-of-truth" \
   '"loop_role": "fix | promoted"' "$MAXI_SKILL"
 assert_pin_unique "loop_role: Step 3 item 7 persist rule writes it every iteration" \
   'the iteration role from the schema: fix for a normal fix iteration, promoted for a Decide-outcome-2 shadow-promoted iter' "$MAXI_SKILL"
+# Issue #170: the loop_role legibility win is realized — efficiency-trace.jq now
+# DERIVES + SURFACES loop_role per iteration, so SKILL.md no longer claims it is
+# "legibility-only" (that became false the moment the jq surfaced the field). The
+# now-false phrasing is gone from BOTH the note and Step 3 item 7 ("legibility-only"
+# is unique to those two loop_role sites; the deferrals-manifest note "no consumer reads it" is the
+# unrelated surviving occurrence and must stay), and the corrected note names
+# efficiency-trace.jq as the deriving/surfacing consumer. Mutation proof =
+# reintroduce "legibility-only" or drop the consumer mention → RED.
+assert_eq "loop_role #170: SKILL.md no longer claims 'legibility-only' (note + Step 3 item 7 corrected)" "0" \
+  "$(pin_count 'legibility-only' "$MAXI_SKILL")"
+assert_pin_unique "loop_role #170: SKILL.md note names efficiency-trace.jq as the deriving/surfacing consumer" \
+  'derives and surfaces it per iteration' "$MAXI_SKILL"
 
 # Issue #165 Part B: Step 3 carries a recorded source-of-truth verify-step — a
 # Phase-3 finding that prescribes changing existing documented behavior must be
@@ -6042,6 +6055,220 @@ assert_eq "et-persist: durable refresh produces a new commit (record frozen, cop
 assert_eq "et-persist: frozen record was NOT re-derived (iterations stays 1)" "1" \
   "$(jq -r '.iterations' "$ETDR_REPO/.devflow/logs/efficiency/pr-50-run-d.json")"
 rm -rf "$ETDR_REPO"
+
+# ── Issue #170: loop_role derivation + --self-check field validation ─────────
+# (1) efficiency-trace.jq DERIVES loop_role per iteration of the per-run record:
+#     iter 1 → fix; iter N → promoted when iter N-1's shadow.promoted_to_iter_next
+#     is true. The fixtures OMIT loop_role entirely, proving the derivation holds
+#     on the dropped-persist path (the reason the backstop exists).
+LR_DIR="$(mktemp -d)"
+printf '{"iter":1,"phase3_findings":[],"shadow":{"promoted_to_iter_next":true}}' > "$LR_DIR/iter-1.json"
+printf '{"iter":2,"phase3_findings":[]}'                                         > "$LR_DIR/iter-2.json"
+LR_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$LR_DIR" --slug pr-70 --mode record)"; LR_RC=$?
+assert_eq "loop_role #170: record mode exits 0" "0" "$LR_RC"
+assert_eq "loop_role #170: per-run record surfaces loop_role per iteration (real consumer)" "true" \
+  "$(printf '%s' "$LR_REC" | jq -r '[.per_iteration[] | has("loop_role")] | all')"
+assert_eq "loop_role #170: iter 1 derives fix (dropped-persist path: field omitted in fixture)" "fix" \
+  "$(printf '%s' "$LR_REC" | jq -r '.per_iteration[] | select(.iter==1) | .loop_role')"
+assert_eq "loop_role #170: iter 2 derives promoted (prior shadow.promoted_to_iter_next=true)" "promoted" \
+  "$(printf '%s' "$LR_REC" | jq -r '.per_iteration[] | select(.iter==2) | .loop_role')"
+rm -rf "$LR_DIR"
+
+# (2) A persisted non-empty loop_role is PRESERVED over the derived value.
+LR_P="$(mktemp -d)"
+printf '{"iter":1,"phase3_findings":[],"shadow":{"promoted_to_iter_next":false}}' > "$LR_P/iter-1.json"
+printf '{"iter":2,"phase3_findings":[],"loop_role":"promoted"}'                    > "$LR_P/iter-2.json"
+LR_P_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$LR_P" --slug pr-71 --mode record)"
+assert_eq "loop_role #170: persisted loop_role preserved (derived would be fix, persisted=promoted wins)" "promoted" \
+  "$(printf '%s' "$LR_P_REC" | jq -r '.per_iteration[] | select(.iter==2) | .loop_role')"
+rm -rf "$LR_P"
+
+# (3) Graceful degradation: lone iter 1 with no shadow + no loop_role → fix; an
+#     unparseable iter is dropped (object-gate) yet the record still derives,
+#     exit 0; a missing run dir → exit 0. Never aborts (the efficiency-trace
+#     "every mode never aborts" contract).
+LR_D="$(mktemp -d)"
+printf '{"iter":1,"phase3_findings":[]}' > "$LR_D/iter-1.json"
+printf 'not json'                        > "$LR_D/iter-2.json"
+LR_D_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$LR_D" --slug pr-72 --mode record)"; LR_D_RC=$?
+assert_eq "loop_role #170: unparseable iter present → record mode still exits 0" "0" "$LR_D_RC"
+assert_eq "loop_role #170: lone iter 1, no shadow/no loop_role → fix default" "fix" \
+  "$(printf '%s' "$LR_D_REC" | jq -r '.per_iteration[] | select(.iter==1) | .loop_role')"
+rm -rf "$LR_D"
+LR_MISS="$(mktemp -d)"; rmdir "$LR_MISS"
+bash "$LIB/efficiency-trace.sh" --workpad-dir "$LR_MISS" --slug pr-73 --mode record >/dev/null 2>&1; LR_MISS_RC=$?
+assert_eq "loop_role #170: missing run dir → record mode exits 0" "0" "$LR_MISS_RC"
+
+# (4) --self-check WARNS (best-effort, exit 0, no writes) when an iter workpad is
+#     missing an expected field — naming the field + the iter file — and leaves
+#     the iter file byte-identical. Fixture carries every expected field EXCEPT
+#     telemetry (a non-derivable expected field).
+LR_SC_REPO="$(mktemp -d)"
+git -C "$LR_SC_REPO" init -q
+LR_SC_RUN="$LR_SC_REPO/.devflow/tmp/review/pr-74/run-z"
+mkdir -p "$LR_SC_RUN"
+printf '{"iter":1,"started_at":"x","fix_commit_sha":"x","fix_files":[],"loop_role":"fix","checklist":[],"phase3_dispatched":[],"diff_profile":{},"phase3_findings":[],"fix_decisions":[],"convergence_inputs":{},"cap_drops":{}}' > "$LR_SC_RUN/iter-1.json"
+cp "$LR_SC_RUN/iter-1.json" "$LR_SC_REPO/iter-1.bak"
+LR_SC_OUT="$( ( cd "$LR_SC_REPO" && bash "$LIB/efficiency-trace.sh" --self-check --workpad-dir "$LR_SC_RUN" --slug pr-74 ) 2>&1 )"; LR_SC_RC=$?
+assert_eq "loop_role #170: --self-check exits 0 on a missing field" "0" "$LR_SC_RC"
+assert_eq "loop_role #170: --self-check ::warning:: names the missing field + iter file on one line" "yes" \
+  "$(printf '%s' "$LR_SC_OUT" | grep -F '::warning::' | grep -F 'telemetry' | grep -qF 'iter-1.json' && echo yes || echo no)"
+assert_eq "loop_role #170: --self-check never mutates the iter file (byte-identical)" "yes" \
+  "$(cmp -s "$LR_SC_REPO/iter-1.bak" "$LR_SC_RUN/iter-1.json" && echo yes || echo no)"
+rm -rf "$LR_SC_REPO"
+
+# (5) Single-source field set ↔ SKILL.md schema divergence guard (AC #6).
+#     ITER_EXPECTED_FIELDS in efficiency-trace.sh is the ONE place the expected
+#     iter-field set is defined; it MUST equal the iter-<N>.json schema's
+#     top-level fields in SKILL.md minus `shadow` (appended later by Step 2.6,
+#     legitimately absent). FAILs if a field is added/removed on either side.
+LR_CONST="$(grep -E '^ITER_EXPECTED_FIELDS=' "$LIB/efficiency-trace.sh" | sed -E 's/^ITER_EXPECTED_FIELDS=//; s/"//g' | tr ' ' '\n' | grep -v '^$' | sort -u)"
+LR_SCHEMA="$(sed -n '/^### Schema$/,/^```$/p' "$MAXI_SKILL" | grep -E '^  "[A-Za-z0-9_]+":' | sed -E 's/^  "([A-Za-z0-9_]+)":.*/\1/' | grep -v '^shadow$' | sort -u)"
+assert_eq "loop_role #170: ITER_EXPECTED_FIELDS single-source == SKILL.md schema top-level minus shadow" \
+  "$LR_SCHEMA" "$LR_CONST"
+
+# (6) --self-check NEVER ABORTS on an unparseable iter file (issue #170 AC: every
+#     new path exits 0 on an unparseable iter-N.json). The script runs under
+#     `set -euo pipefail`, so a bare `missing=$(jq ...)` assignment would trip set -e
+#     when jq fails to parse — this asserts the `if !`-guarded assignment keeps the
+#     contract. A valid iter alongside the malformed one still gets its missing-field
+#     warnings. (Regression test for a /simplify-introduced abort.)
+LR_SCM_REPO="$(mktemp -d)"
+git -C "$LR_SCM_REPO" init -q
+LR_SCM_RUN="$LR_SCM_REPO/.devflow/tmp/review/pr-75/run-w"
+mkdir -p "$LR_SCM_RUN"
+printf '{"iter":1,"loop_role":"fix"}'   > "$LR_SCM_RUN/iter-1.json"   # valid object, many fields missing
+printf 'not json at all'                > "$LR_SCM_RUN/iter-2.json"   # unparseable — must NOT abort the pass
+LR_SCM_OUT="$( ( cd "$LR_SCM_REPO" && bash "$LIB/efficiency-trace.sh" --self-check --workpad-dir "$LR_SCM_RUN" --slug pr-75 ) 2>&1 )"; LR_SCM_RC=$?
+assert_eq "loop_role #170: --self-check exits 0 with an unparseable iter present (never aborts under set -e)" "0" "$LR_SCM_RC"
+assert_eq "loop_role #170: --self-check still warns on the VALID iter's missing fields despite a malformed sibling" "yes" \
+  "$(printf '%s' "$LR_SCM_OUT" | grep -F '::warning::' | grep -F 'telemetry' | grep -qF 'iter-1.json' && echo yes || echo no)"
+# (6a) PR #177 review: an unparseable/unreadable iter must NOT pass silently in a
+#      standalone --self-check (the --persist/--mode breadcrumb paths have not run).
+#      The malformed iter-2.json above must itself draw a distinct warning naming it.
+assert_eq "loop_role #170: --self-check WARNS on the unparseable iter (not silent corruption)" "yes" \
+  "$(printf '%s' "$LR_SCM_OUT" | grep -F '::warning::' | grep -F 'iter-2.json' | grep -qF 'not valid JSON' && echo yes || echo no)"
+rm -rf "$LR_SCM_REPO"
+
+# (6b) PR #177 review: a parsed-but-NON-OBJECT iter (valid JSON [], null, "x") must
+#      NOT masquerade as a complete workpad — it takes a distinct sentinel warning,
+#      never the silent "no missing fields" arm. Exit 0 preserved (warn-only).
+LR_SCN_REPO="$(mktemp -d)"
+git -C "$LR_SCN_REPO" init -q
+LR_SCN_RUN="$LR_SCN_REPO/.devflow/tmp/review/pr-77/run-n"
+mkdir -p "$LR_SCN_RUN"
+printf '[]'                              > "$LR_SCN_RUN/iter-1.json"   # valid JSON, wrong shape (array)
+printf '"a bare string"'                 > "$LR_SCN_RUN/iter-2.json"   # valid JSON, wrong shape (string)
+printf '{"iter":3,"loop_role":"fix"}'    > "$LR_SCN_RUN/iter-3.json"   # valid object — fields missing
+LR_SCN_OUT="$( ( cd "$LR_SCN_REPO" && bash "$LIB/efficiency-trace.sh" --self-check --workpad-dir "$LR_SCN_RUN" --slug pr-77 ) 2>&1 )"; LR_SCN_RC=$?
+assert_eq "loop_role #170: --self-check exits 0 on a non-object iter (never aborts)" "0" "$LR_SCN_RC"
+assert_eq "loop_role #170: --self-check WARNS the non-object array iter is not an object" "yes" \
+  "$(printf '%s' "$LR_SCN_OUT" | grep -F '::warning::' | grep -F 'iter-1.json' | grep -qF 'not an object' && echo yes || echo no)"
+assert_eq "loop_role #170: --self-check WARNS the non-object string iter is not an object" "yes" \
+  "$(printf '%s' "$LR_SCN_OUT" | grep -F '::warning::' | grep -F 'iter-2.json' | grep -qF 'not an object' && echo yes || echo no)"
+# the non-object arm must NOT be misreported as a missing-field list
+assert_eq "loop_role #170: --self-check does NOT emit a 'missing expected field' line for a non-object iter" "no" \
+  "$(printf '%s' "$LR_SCN_OUT" | grep -F 'iter-1.json' | grep -qF 'missing expected field' && echo yes || echo no)"
+# the valid object sibling still gets its real missing-field validation
+assert_eq "loop_role #170: --self-check still validates the valid object sibling's fields" "yes" \
+  "$(printf '%s' "$LR_SCN_OUT" | grep -F '::warning::' | grep -F 'iter-3.json' | grep -qF 'missing expected field' && echo yes || echo no)"
+rm -rf "$LR_SCN_REPO"
+
+# (7) Promotion does NOT propagate/latch: in a 3-iter chain where iter-1 promotes
+#     but iter-2 does not, the derived roles are fix, promoted, fix — each iter's
+#     role keys only on its IMMEDIATELY-preceding iter's shadow_promoted.
+LR_3="$(mktemp -d)"
+printf '{"iter":1,"phase3_findings":[],"shadow":{"promoted_to_iter_next":true}}'  > "$LR_3/iter-1.json"
+printf '{"iter":2,"phase3_findings":[],"shadow":{"promoted_to_iter_next":false}}' > "$LR_3/iter-2.json"
+printf '{"iter":3,"phase3_findings":[]}'                                          > "$LR_3/iter-3.json"
+LR_3_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$LR_3" --slug pr-76 --mode record)"
+assert_eq "loop_role #170: 3-iter chain role sequence is fix/promoted/fix (no latch/propagation)" "fix promoted fix" \
+  "$(printf '%s' "$LR_3_REC" | jq -r '[.per_iteration[] | .loop_role] | join(" ")')"
+rm -rf "$LR_3"
+
+# (8) An empty-string persisted loop_role falls back to derivation (the `length > 0`
+#     half of the type-guard) — iter 2 with loop_role:"" and a prior promotion derives
+#     "promoted", not the persisted empty string.
+LR_E="$(mktemp -d)"
+printf '{"iter":1,"phase3_findings":[],"shadow":{"promoted_to_iter_next":true}}' > "$LR_E/iter-1.json"
+printf '{"iter":2,"phase3_findings":[],"loop_role":""}'                          > "$LR_E/iter-2.json"
+LR_E_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$LR_E" --slug pr-77 --mode record)"
+assert_eq "loop_role #170: empty-string persisted loop_role falls back to derivation (not preserved)" "promoted" \
+  "$(printf '%s' "$LR_E_REC" | jq -r '.per_iteration[] | select(.iter==2) | .loop_role')"
+rm -rf "$LR_E"
+
+# (9) shadow_promoted is a STRICT boolean: a malformed non-boolean
+#     promoted_to_iter_next (e.g. the string "yes") must NOT over-classify the next
+#     iter as promoted — it coerces to false, so iter 2 derives fix. Locks the
+#     `== true` guard the comment promises (mutation: drop `== true` → iter 2 flips
+#     to promoted, RED).
+LR_B="$(mktemp -d)"
+printf '{"iter":1,"phase3_findings":[],"shadow":{"promoted_to_iter_next":"yes"}}' > "$LR_B/iter-1.json"
+printf '{"iter":2,"phase3_findings":[]}'                                          > "$LR_B/iter-2.json"
+LR_B_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$LR_B" --slug pr-78 --mode record)"
+assert_eq "loop_role #170: malformed non-boolean promoted_to_iter_next ('yes') does NOT over-classify next iter (strict == true)" "fix" \
+  "$(printf '%s' "$LR_B_REC" | jq -r '.per_iteration[] | select(.iter==2) | .loop_role')"
+rm -rf "$LR_B"
+
+# (10) A non-STRING persisted loop_role (the `type == "string"` half of the guard,
+#      vs the length>0 half in test 8) falls back to derivation — a numeric
+#      loop_role:5 on iter 2 with a prior promotion derives "promoted", not 5.
+LR_N="$(mktemp -d)"
+printf '{"iter":1,"phase3_findings":[],"shadow":{"promoted_to_iter_next":true}}' > "$LR_N/iter-1.json"
+printf '{"iter":2,"phase3_findings":[],"loop_role":5}'                           > "$LR_N/iter-2.json"
+LR_N_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$LR_N" --slug pr-79 --mode record)"
+assert_eq "loop_role #170: non-string persisted loop_role (numeric) falls back to derivation (type guard)" "promoted" \
+  "$(printf '%s' "$LR_N_REC" | jq -r '.per_iteration[] | select(.iter==2) | .loop_role')"
+rm -rf "$LR_N"
+
+# (11) --self-check emits NO field-validation ::warning:: on a fully-complete iter
+#      (all 13 expected fields present; no shadow key — shadow is exempt from
+#      ITER_EXPECTED_FIELDS, so a complete iter lacking shadow must still produce
+#      no field warnings). The effectiveness-record warning is suppressed by
+#      pre-creating the record so only field-validation output can appear. Guards
+#      against an inverted set-difference operand that would pass missing-field
+#      assertions while being wrong for the clean case.
+LR_CLEAN="$(mktemp -d)"
+git -C "$LR_CLEAN" init -q
+LR_CLEAN_RUN="$LR_CLEAN/.devflow/tmp/review/pr-80/run-n"
+mkdir -p "$LR_CLEAN_RUN"
+# Pre-create the effectiveness record so the "was NOT persisted" warning is suppressed;
+# only field-validation output can then appear.
+mkdir -p "$LR_CLEAN/.devflow/logs/efficiency"
+printf '{}' > "$LR_CLEAN/.devflow/logs/efficiency/pr-80-run-n.json"
+# All 13 ITER_EXPECTED_FIELDS present; no shadow key (shadow is exempt).
+printf '%s' '{"iter":1,"started_at":"t","fix_commit_sha":"abc","fix_files":[],"loop_role":"fix","checklist":[],"phase3_dispatched":3,"diff_profile":"x","phase3_findings":[],"fix_decisions":[],"convergence_inputs":{},"cap_drops":[],"telemetry":{}}' \
+  > "$LR_CLEAN_RUN/iter-1.json"
+LR_CLEAN_OUT="$( ( cd "$LR_CLEAN" && bash "$LIB/efficiency-trace.sh" --self-check --workpad-dir "$LR_CLEAN_RUN" --slug pr-80 ) 2>&1 )"; LR_CLEAN_RC=$?
+assert_eq "loop_role #177: --self-check exits 0 on a complete iter (all fields present)" "0" "$LR_CLEAN_RC"
+assert_eq "loop_role #177: --self-check emits no field-validation warning on a complete iter (no ::warning:: on fields)" "0" \
+  "$(printf '%s' "$LR_CLEAN_OUT" | grep -F '::warning::' | grep -cvF 'was NOT persisted' || true)"
+rm -rf "$LR_CLEAN"
+
+# (12) Mid-chain promotion: two consecutive promotions (iter-1 promotes, iter-2
+#      also promotes, iter-3 follows). Expected roles: fix/promoted/promoted.
+#      Locks the positional-prior indexing — an off-by-one (taking iter-1 as
+#      prior for iter-3) would incorrectly derive promoted for iter-3.
+LR_PP="$(mktemp -d)"
+printf '{"iter":1,"phase3_findings":[],"shadow":{"promoted_to_iter_next":true}}'  > "$LR_PP/iter-1.json"
+printf '{"iter":2,"phase3_findings":[],"shadow":{"promoted_to_iter_next":true}}'  > "$LR_PP/iter-2.json"
+printf '{"iter":3,"phase3_findings":[]}'                                           > "$LR_PP/iter-3.json"
+LR_PP_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$LR_PP" --slug pr-81 --mode record)"
+assert_eq "loop_role #177: mid-chain double-promotion yields fix/promoted/promoted" "fix promoted promoted" \
+  "$(printf '%s' "$LR_PP_REC" | jq -r '[.per_iteration[] | .loop_role] | join(" ")')"
+rm -rf "$LR_PP"
+
+# (13) Persisted "fix" suppresses a derived promotion: iter-2 has loop_role:"fix"
+#      persisted AND a prior shadow_promoted=true — the persisted-wins rule must
+#      honour the stored "fix", not override it with the derived "promoted". Mirror
+#      of test (8) (persisted "promoted" survives a non-promoting prior).
+LR_PF="$(mktemp -d)"
+printf '{"iter":1,"phase3_findings":[],"shadow":{"promoted_to_iter_next":true}}' > "$LR_PF/iter-1.json"
+printf '{"iter":2,"phase3_findings":[],"loop_role":"fix"}'                       > "$LR_PF/iter-2.json"
+LR_PF_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$LR_PF" --slug pr-82 --mode record)"
+assert_eq "loop_role #177: persisted 'fix' suppresses derived promotion (persisted-wins)" "fix" \
+  "$(printf '%s' "$LR_PF_REC" | jq -r '.per_iteration[] | select(.iter==2) | .loop_role')"
+rm -rf "$LR_PF"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "devflow-runner.yml: opt-in environment provisioning (issues #18, #21)"
