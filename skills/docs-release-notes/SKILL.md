@@ -6,11 +6,12 @@ description: Use when a PR has customer-visible changes (new features, bug fixes
 > - Internal docs: `${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .docs.internal docs/internal/`
 > - External docs: `${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .docs.external docs/external/`
 > - Release notes file: `${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .docs.release_notes_file docs/external/release-notes.md`
+> - CHANGELOG file: `${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .docs.changelog_file CHANGELOG.md`
 > - PR number: `gh pr view --json number -q '.number'` (resolves from current branch)
 >
 > The `config-get.sh` helper falls back to the default value when the config file is missing or the key is absent.
 >
-> Use these values wherever `[[INTERNAL_DOC_LOCATION]]`, `[[EXTERNAL_DOC_LOCATION]]`, `[[RELEASE_NOTES_FILE]]`, and `[[PR_NUMBER]]` appear below.
+> Use these values wherever `[[INTERNAL_DOC_LOCATION]]`, `[[EXTERNAL_DOC_LOCATION]]`, `[[RELEASE_NOTES_FILE]]`, `[[CHANGELOG_FILE]]`, and `[[PR_NUMBER]]` appear below.
 
 **Consumer prompt extension (load first).** Before doing this skill's work, load any consumer-supplied prompt extension for this skill and honor it. From the repo root, run:
 
@@ -74,7 +75,7 @@ Ask yourself: **Would a customer notice this change?**
 - Developer tooling changes
 - Dependency updates with no behavior change
 
-If the PR is **not customer-visible**, stop here. Do not modify any files.
+If the PR is **not customer-visible**, skip Steps 3, 3b, and 4 — do not write a release note or modify `[[RELEASE_NOTES_FILE]]`. Proceed directly to Step 4b.
 
 ### Step 3: Draft the Release Note Entry
 
@@ -111,9 +112,25 @@ Read `[[RELEASE_NOTES_FILE]]`. Determine today's date and format it as `## Month
 - If the date heading **does not exist**, add it at the top of the file directly below the first H1 heading (e.g., `# Release Notes`), with a blank line before and after. If the file is empty or has no H1 heading, add `# Release Notes` as the first line, then the date heading below it.
 - If the date heading **already exists**, append the new entry under it (after any existing entries for that date).
 
+### Step 4b: Reconcile the CHANGELOG Entry
+
+This step runs regardless of the Step 2 customer-visibility decision — after appending a release note (Step 4) or after the non-customer-visible stop in Step 2, proceed here.
+
+**Locate the version-bump entry.** Run:
+```
+git log --oneline origin/main...HEAD
+```
+Find the most recent commit whose message begins with `chore: bump version` and extract its version string (e.g., `2.8.19`). Read `[[CHANGELOG_FILE]]` and search for the section heading `## [2.8.19]` (replacing the version with the one extracted above). If no version-bump entry is found in CHANGELOG, this step is a no-op — log "no version-bump entry found" and proceed to Step 5.
+
+**Enumerate every factual claim.** Re-read the body of the located `## [version]` section. A factual claim is any concrete assertion: coverage counts, enumerated sites, completeness phrases ("all X were done", "Y and Z are now..."), named identifiers (file paths, key names, step or phase numbers, agent names), or specific behavioral guarantees. This CHANGELOG entry was written at Phase 3 commit time — before Phase 3.3 review-and-fix corrections — so its specific assertions may be stale relative to the final shipped diff.
+
+**Trace each claim against the Step-1 diff.** For each enumerated claim, confirm it against the diff already read in Step 1. Do not re-run `git diff`. A claim is accurate if every concrete detail (count, identifier, behavioral guarantee) matches the shipped code exactly. A claim is stale if the diff shows a different count, a renamed identifier, a reverted piece of scope, or a corrected approach.
+
+**Correct stale claims in place.** Rewrite only the specific sentence or clause that is stale, using the same tense, format, and surrounding context as the rest of the entry. If all claims are accurate, make no changes to `[[CHANGELOG_FILE]]`. Do not commit — leaving committing to the caller, consistent with Step 5.
+
 ### Step 5: Do Not Commit
 
-Do **not** commit the changes. Leave committing to the caller.
+Do **not** commit any files modified above. Leave committing to the caller.
 
 ---
 

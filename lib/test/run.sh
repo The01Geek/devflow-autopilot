@@ -8334,6 +8334,14 @@ done
 # future edit that drops an agent turns this row red instead of shipping silently.
 assert_pin_unique "#141 implement skill names all five review agents in its Phase-3 roster line" '(code-reviewer, silent-failure-hunter, comment-analyzer, type-design-analyzer, pr-test-analyzer)' "$FDROOT/skills/implement/SKILL.md"
 
+# (#183) CHANGELOG reconciliation step contract pin. The docs-release-notes skill must
+# contain a CHANGELOG reconciliation step (Step 4b) that is a no-op when no version-bump
+# entry is found. Pinned before the skill prose existed (RED) and turned GREEN once
+# Step 4b was added — removing or softening the step turns the suite RED again.
+RELNOTES_SKILL="$FDROOT/skills/docs-release-notes/SKILL.md"
+assert_pin_unique "#183 docs-release-notes SKILL contains CHANGELOG reconciliation step with no-op condition" \
+  'no version-bump entry is found in CHANGELOG, this step is a no-op' "$RELNOTES_SKILL"
+
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
