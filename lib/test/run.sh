@@ -1380,9 +1380,10 @@ assert_pin_unique "fix-delta gate: share-the-contract principle in receiving-cod
   'prefer using that consumer as the guard itself' "$RCR_SKILL"
 # FIXDELTA_GUARD_REGION_END — end of the assert_pin_unique-only fix-delta pin region
 
-# Drift guard: the step 7 Verification Gate (issue #178) — the Iron Law and its scope
-# sentence are the gate's two load-bearing contracts; either can be silently deleted or
-# paraphrased without breaking any other pin. assert_pin_unique makes that RED.
+# Drift guard: the step 7 Verification Gate (issue #178) — the Iron Law, its scope
+# sentence, the code-fence step 7 entry, the Phase 3 re-run attribution, and the
+# Forbidden Responses entry are the gate's load-bearing contracts; any can be silently
+# deleted or paraphrased without breaking any other pin. assert_pin_unique makes that RED.
 assert_pin_unique "step7: verification gate Iron Law heading present" \
   'NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE' "$RECV_SKILL"
 assert_pin_unique "step7: verification gate applies in both interactive and fix-loop contexts" \
@@ -1391,6 +1392,8 @@ assert_pin_unique "step7: code-fence step 7 entry present in Response Pattern" \
   'only then claim completion' "$RECV_SKILL"
 assert_pin_unique "step7: loop satisfies diff-review via Phase 3 re-run (not Step 3.5)" \
   'Phase 3 re-runs the review engine each iteration' "$RECV_SKILL"
+assert_pin_unique "step7: forbidden-responses entry prohibits claiming done before step 7" \
+  'before step 7 (VERIFY BEFORE DONE) is complete' "$RECV_SKILL"
 
 # Drift guard: the Phase 2.3 sweep list lives in three places that must stay in
 # sync — the sweep body in implement/SKILL.md, the "Sweep selection" always-run
