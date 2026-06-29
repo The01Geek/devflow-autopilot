@@ -849,6 +849,14 @@ assert_pin_unique "mutation-check: implement skill test-writing phase references
   'Mutation-check any test guard you add here' "$DEF_SKILL"
 # PARKCAL_GUARD_REGION_END — end of the assert_pin_unique-only park-calibration pin region
 
+# Issue #186: the test-first mutation-check carries a sharper sub-rule for a behavioral-fix
+# pin — pin the OPERATIVE sentence (the minimal text whose removal alone re-introduces the
+# bug), never an adjacent framing clause that a half-revert would leave GREEN (the PR
+# #62/#173 framing-only-pin gap). Pin the operative phrase of that instruction so a
+# paraphrase that drops the operative-vs-framing distinction fails here.
+assert_pin_unique "mutation-check: implement skill scopes behavioral-fix pins to the operative sentence" \
+  'pin the operative sentence, not an adjacent framing clause' "$DEF_SKILL"
+
 # ── Meta-test (AC2): no raw drift guard may bypass assert_pin_unique inside the region.
 # The region markers are matched by SPLIT-built literals so this scanner's own source never
 # contains the contiguous marker string (otherwise it would mis-delimit when scanning the
