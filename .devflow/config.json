@@ -7,16 +7,16 @@
     "allowed_bots": "claude,dependabot",
     "allowed_users": "*",
     "workpad_marker": "<!-- devflow:workpad -->",
-    "effort": "medium",
+    "effort": "low",
     "allowed_tools": []
   },
   "devflow_implement": {
-    "effort": "medium",
+    "effort": "low",
     "allowed_tools": [],
     "implement_pr_state": "ready_for_review"
   },
   "devflow_runner": {
-    "effort": "medium",
+    "effort": "low",
     "provision_env": false,
     "allowed_tools": []
   },
@@ -29,15 +29,15 @@
     "live_progress_comment_enabled": true,
     "agent_overrides": {
       "default": {
-        "effort": "medium"
+        "effort": "low"
       },
       "devflow:checklist-deduper": {
         "model": "claude-sonnet-4-6",
-        "effort": "medium"
+        "effort": "low"
       },
       "devflow:code-reviewer": {
         "model": "claude-opus-4-8",
-        "effort": "medium"
+        "effort": "low"
       }
     }
   },

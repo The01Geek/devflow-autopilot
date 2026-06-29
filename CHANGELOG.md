@@ -4,6 +4,14 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.21] — 2026-06-29
+
+### Fixed
+- **`/devflow:implement` Phase 1.4 now reuses the branch a local harness pre-created in a linked git worktree instead of creating a second branch.** Detection previously matched only the `claude/issue-*` / `issue-*` name patterns (the cloud-tier GitHub Action path), so a harness worktree branch like `worktree-issue-165` — matching neither — fell through to the create path and Phase 1.4 built a redundant branch on top of it, landing the implementation, commits, and PR on a branch the harness never provisioned. Phase 1.4 now resolves `BASE` first and adds a deterministic, **naming-independent** signal — a linked worktree's `git rev-parse --git-common-dir` (the main repo's `.git`) differs from its `--git-dir` (`.git/worktrees/<name>`); in the main working tree they are equal, compared in **absolute form** (`--path-format=absolute`) so the comparison is byte-consistent regardless of how the caller's cwd was spelled (`--path-format=absolute` normalizes relative vs. absolute output but does not canonicalize symlinks or `..`) — to reuse the current branch. The non-empty (not a detached HEAD) and not-the-base-branch guards wrap **both** reuse signals, so the run never builds directly on trunk even when the base branch is itself named like a feature branch (`base_branch=issue-next`). The `claude/issue-*` / `issue-*` name match is kept as a second skip condition so the cloud-tier path is unchanged. A hard `git rev-parse` failure (or asymmetric empty result) fails closed to the create path with an attributable breadcrumb. The create path now guards `branch-for-issue.py` exit status and empty branch name, each with a DevFlow breadcrumb. A coupled `lib/test/run.sh` guard (token pins on the SKILL mechanism plus a `decide_branch` behavioral matrix asserting the fail-closed base-branch — `main`/`develop`/`issue-*`-named — detached-HEAD, symmetric, and asymmetric rev-parse-failure cases) lands in the same change. (#172)
+
+### Changed
+- **`devflow:receiving-code-review` step 7 (verification gate) now requires verifying each fix is correct for all inputs and conditions, not only the case the reviewer described.** Fixing one problem while introducing a new inaccuracy on adjacent inputs is a common failure mode the test suite may not catch. (#172)
+
 ## [2.8.20] — 2026-06-29
 
 ### Changed

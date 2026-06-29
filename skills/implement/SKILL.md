@@ -247,18 +247,14 @@ After this step, every later phase boundary touches the workpad via `workpad.py 
 
 ### 1.4 Create or Detect Feature Branch
 
-Check if you're already on a feature branch (the GitHub Action creates one automatically):
-```bash
-git branch --show-current
-```
+Decide whether you are **already on the branch to use** or must **create one**. Two independent signals mean "already on it — skip creation":
 
-If the current branch matches `claude/issue-*` or `issue-*`, use it — skip branch creation.
+1. **A linked git worktree** — the local harness pre-creates a worktree and checks out a branch for you (e.g. `worktree-issue-165`), whatever its name. This is the deterministic, **naming-independent** signal: a linked worktree's `--git-common-dir` (the main repo's `.git`) differs from its `--git-dir` (`.git/worktrees/<name>`); in the main working tree they are equal. The two are compared in **absolute form** (`--path-format=absolute`) so the test reflects directory identity rather than path representation.
+2. **A recognized feature-branch name** — `claude/issue-*` / `issue-*`, the cloud-tier GitHub Action path (the Action checks out such a branch; it is not a worktree).
 
-Otherwise, create a new branch. The canonical branch name is computed by the helper (handles slugification, unicode, length truncation, and collision suffixing deterministically):
+Otherwise, create a fresh feature branch off the base.
 
-Write the issue title (from the `gh issue view` above) to a temp file with the **Write tool** — `/tmp/devflow-issue-$ARGUMENTS-title.txt` — then derive the branch from it. Using `--title-file` instead of passing the title as a positional shell argument avoids breakage when the title contains quotes, backticks, or `$`.
-
-The base branch is **read from config** (`base_branch` in `.devflow/config.json`, default `main`) — never hard-code `main`, so the run branches off whatever trunk the consumer repo actually uses (`master`, `develop`, …):
+The base branch is **read from config** (`base_branch` in `.devflow/config.json`, default `main`) — never hard-code `main`, so the run branches off whatever trunk the consumer repo actually uses (`master`, `develop`, …). Resolve it **first**, because the worktree check needs it (it must never reuse the base branch itself — never build directly on trunk, even inside a worktree):
 
 ```bash
 # config-get.sh itself falls back to the supplied `main` default — printing it,
@@ -271,12 +267,62 @@ The base branch is **read from config** (`base_branch` in `.devflow/config.json`
 # value or nothing, never a partial/garbage string.
 BASE=$(${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .base_branch main) || BASE=""
 [ -n "$BASE" ] || { echo "devflow: base_branch read failed (malformed config or missing node); falling back to 'main'" >&2; BASE=main; }
-# Fetch the base explicitly with a DevFlow breadcrumb so a bad/offline base is
-# attributable here, not a bare git error downstream — most importantly when the
-# fallback 'main' isn't the consumer's real trunk (a master/develop repo).
-git fetch origin "$BASE" || { echo "devflow: could not fetch base branch 'origin/$BASE' — if the base is correct, check network/auth; otherwise set base_branch in .devflow/config.json to the repo's real trunk (master/develop/…)" >&2; exit 1; }
-BRANCH=$(${CLAUDE_SKILL_DIR}/../../scripts/branch-for-issue.py $ARGUMENTS --title-file /tmp/devflow-issue-$ARGUMENTS-title.txt)
-git checkout -b "$BRANCH" "origin/$BASE"
+CUR=$(git branch --show-current 2>/dev/null) || CUR=""
+```
+
+Now decide. Set `USE_CURRENT=1` to mean "reuse `$CUR`, skip creation":
+
+```bash
+USE_CURRENT=
+# Resolve the git-dir layout ONCE, in ABSOLUTE form (`--path-format=absolute`) so the
+# worktree comparison is byte-consistent regardless of how the caller's cwd was spelled —
+# a harness-injected GIT_DIR / GIT_COMMON_DIR (or a non-root cwd) could otherwise print
+# the same directory two different ways and false-positive "linked worktree". Note:
+# --path-format=absolute normalizes relative vs. absolute output but does NOT canonicalize
+# symlinks, `..`, or trailing slashes. A hard `git rev-parse` failure (corrupt repo,
+# broken git, or git < 2.31 which lacks --path-format) yields an empty string: that fails
+# CLOSED to the create path below with an attributable breadcrumb.
+COMMON_DIR=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || COMMON_DIR=""
+GIT_DIR_PATH=$(git rev-parse --path-format=absolute --git-dir 2>/dev/null) || GIT_DIR_PATH=""
+[ -n "$COMMON_DIR" ] && [ -n "$GIT_DIR_PATH" ] || echo "devflow: one or both git-dir path values are empty (git < 2.31 lacking --path-format, repo corrupt, or injected GIT_DIR/GIT_COMMON_DIR env override) — linked-worktree detection (Signal 1) disabled; if this is actually a worktree, check git version, repo integrity, and env" >&2
+# Reuse $CUR ONLY when it is a real branch (non-empty — not a detached HEAD) and NOT the
+# base branch (never build directly on trunk, even in a worktree). These two guards
+# apply to BOTH reuse signals, so they sit out here once — a base branch that happens to
+# be named like a feature branch (`base_branch` = `issue-next`) must still create, not
+# reuse, via Signal 2.
+if [ -n "$CUR" ] && [ "$CUR" != "$BASE" ]; then
+  # Signal 1 — linked worktree (naming-independent): the worktree's --git-common-dir
+  # differs from its --git-dir; in the main working tree they are equal. This fires
+  # whatever the harness named the worktree branch, fixing the case where a
+  # `worktree-issue-<N>` branch (matching neither name pattern below) used to fall
+  # through and create a SECOND branch.
+  if [ -n "$COMMON_DIR" ] && [ -n "$GIT_DIR_PATH" ] && [ "$COMMON_DIR" != "$GIT_DIR_PATH" ]; then
+    echo "devflow: in a linked worktree on '$CUR' (≠ base '$BASE') — using it as the feature branch, skipping creation" >&2
+    USE_CURRENT=1
+  fi
+  # Signal 2 — cloud-tier recognized name (kept as a second skip condition).
+  case "$CUR" in
+    claude/issue-*|issue-*) USE_CURRENT=1 ;;
+  esac
+fi
+```
+
+**If `USE_CURRENT` is set, skip branch creation entirely** — `$CUR` is the feature branch; jump straight to filling the workpad `Branch` line below.
+
+Otherwise, create a new branch. The canonical branch name is computed by the helper (handles slugification, unicode, length truncation, and collision suffixing deterministically):
+
+Write the issue title (from the `gh issue view` above) to a temp file with the **Write tool** — `/tmp/devflow-issue-$ARGUMENTS-title.txt` — then derive the branch from it. Using `--title-file` instead of passing the title as a positional shell argument avoids breakage when the title contains quotes, backticks, or `$`.
+
+```bash
+if [ -z "$USE_CURRENT" ]; then
+  # Fetch the base explicitly with a DevFlow breadcrumb so a bad/offline base is
+  # attributable here, not a bare git error downstream — most importantly when the
+  # fallback 'main' isn't the consumer's real trunk (a master/develop repo).
+  git fetch origin "$BASE" || { echo "devflow: could not fetch base branch 'origin/$BASE' — if the base is correct, check network/auth; otherwise set base_branch in .devflow/config.json to the repo's real trunk (master/develop/…)" >&2; exit 1; }
+  BRANCH=$(${CLAUDE_SKILL_DIR}/../../scripts/branch-for-issue.py $ARGUMENTS --title-file /tmp/devflow-issue-$ARGUMENTS-title.txt) || { echo "devflow: branch-for-issue.py failed — could not derive a branch name for issue #$ARGUMENTS; check that the issue title file exists and the issue number is valid" >&2; exit 1; }
+  [ -n "$BRANCH" ] || { echo "devflow: branch-for-issue.py returned an empty branch name for issue #$ARGUMENTS — cannot create a branch" >&2; exit 1; }
+  git checkout -b "$BRANCH" "origin/$BASE"
+fi
 ```
 
 **Immediately fill the workpad's `Branch` line** (so the placeholder from 1.3 is never left on a completed run):
