@@ -1493,12 +1493,20 @@ assert_eq "sweep 2.3.0b: DEVFLOW_SYSTEM_OVERVIEW keeps the sweep-list entry" "ye
 # so an add-only prose/doc/config diff that replicates a peer rule, an enumerated-set
 # member, or a mirrored contract literal across sites still trips the contract-completeness
 # sweeps (2.3.0 / 2.3.0a) rather than falling through to "just the five always-on sweeps".
-# Pin the re-anchor phrase so a revert to the code-only framing turns the suite RED.
-# Literal is ASCII + apostrophe-free per the embedded-jq/SC11xx single-quote trap.
-# Mutation-proven: delete the re-anchor sentence and this assertion FAILs (count 0).
+# Coupled invariant: the re-anchor lives in BOTH the SKILL preamble and its
+# docs/implement-skill.md mirror, so pin BOTH sites — a one-sided revert of either back to
+# the code-only framing then fails closed (the dominant convention-violation half-revert
+# pattern). assert_pin_unique asserts the literal occurs EXACTLY once, so each pin goes RED
+# on removal (count 0) AND on accidental duplication (count > 1) — stronger than a bare grep.
+# Both literals are ASCII + apostrophe-free per the embedded-jq/SC11xx single-quote trap.
+# The mutation property is proven by the assert_pin_unique removal semantics (meta-tested
+# elsewhere in this suite) plus the orchestrator per-run mutation-check (revert -> RED).
 assert_pin_unique "sweep selection: implement SKILL re-anchors classification on cross-site replication (substrate-agnostic)" \
   "classify by what the change replicates across sites, not by whether it is code" \
   "$IMPL_SKILL"
+assert_pin_unique "sweep selection: docs/implement-skill.md mirror carries the substrate-agnostic re-anchor (coupled invariant)" \
+  "so the preamble classifies by *what the change replicates across sites*, not by whether it is code" \
+  "$IMPL_DOC"
 
 # Drift guard: the base_branch read in implement/SKILL.md Phase 1.4 is the skill's
 # one piece of load-bearing inline bash — like the max_iterations clamp above, the
