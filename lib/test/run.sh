@@ -467,7 +467,6 @@ else
   [ -d "${RGB_E2E:-}" ] && assert_eq "rgb_scan e2e setup (git init)" "ok" "setup failed — git init errored"
   [ -d "${RGB_E2E:-}" ] && rm -rf "$RGB_E2E"
 fi
-[ -d "${RGB_E2E:-}" ] && rm -rf "$RGB_E2E"
 
 # Fix then later occ → status "regressed"
 RESULT=$(cp_run \
