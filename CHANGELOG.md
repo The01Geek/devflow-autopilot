@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.16] — 2026-06-28
+
+### Added
+- **`/devflow:review-and-fix` now runs an over-grade calibration gate before any Decide-outcome-2 promotion** (new Step 2.6 subsection in `skills/review-and-fix/SKILL.md`) — the symmetric mirror of the park-calibration (under-grade) gate added in 2.8.14. Where the park gate catches a finding graded *too low* on the approve path, this gate catches one graded *too high* on the promote path: before a `Critical`/`Important` shadow finding drives a promoted iteration, it **flags** a suspected over-grade against two observable shapes — a defect the suite catches RED on / that fails closed, and a diagnostic-or-cosmetic-only finding with no behavioral fail-direction — and **requires a recorded per-finding technical evaluation** (a `fix_decisions` entry with the new `decision: "severity-calibrated"`, citing the observable fail-direction/impact) before the finding may drive the promotion or be demoted. It **never auto-demotes**; a flagged-but-unevaluated finding is treated as **non-convergence** at Loop Exit, so a run that skipped the calibration discipline is detectable by the absence of the evidence. `skills/receiving-code-review/SKILL.md` gains a first-class, engine-agnostic **symmetric-severity-calibration principle** the gate mechanizes by name; `lib/test/run.sh` pins the gate definition, its integration points (call site + Loop-Exit clause), the enum value, the cross-skill principle, and the producer with mutation-proven `assert_pin_unique` drift guards; and `docs/shadow-review.md` documents the calibration as symmetric (the `severity-calibrated` outcome is classified `null`, not `noise`, by `lib/efficiency-trace.jq` — a real-but-not-applied finding, not a false positive). (#163)
+
 ## [2.8.15] — 2026-06-28
 
 ### Changed

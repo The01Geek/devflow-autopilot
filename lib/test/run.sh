@@ -113,7 +113,6 @@ probe_assert() {  # assertion-fn args... -> prints PASS or FAIL (the probed verd
   tail -n 1 "$probe"
   rm -f "$probe"
 }
-
 # ────────────────────────────────────────────────────────────────────────────
 echo "classify-pr-kind.jq"
 # ────────────────────────────────────────────────────────────────────────────
@@ -881,6 +880,65 @@ assert_pin_red_on_removal "AC3(c): deleting the Step 2.6 sentinel contract turns
   'park-calibration gate clean: no parked finding matched'
 assert_pin_red_on_removal "AC3(d): narrowing the mutation-check rule back to fix-only turns its pin RED" \
   'any added or edited test guard in the diff'
+
+# Drift guard: the over-grade calibration gate is the park-calibration gate's mirror on
+# the PROMOTE path — it flags a suspected over-graded Critical/Important finding before it
+# drives a Decide-outcome-2 promotion and requires a recorded per-finding technical
+# evaluation (it never auto-demotes), mechanizing the receiving-code-review
+# symmetric-severity-calibration principle. The two gates are halves of one symmetric
+# calibration defense, so a silent revert of EITHER half must fail here. These pins use the
+# shared assert_pin_unique (name literal file) → exactly one occurrence in the target file:
+# unlike a bare grep -qF they also fail closed if the literal is deleted (mutation proof) or
+# duplicated by a paraphrase. Each literal is gate-unique and apostrophe-free.
+RECV_SKILL="$LIB/../skills/receiving-code-review/SKILL.md"
+assert_pin_unique "over-grade: engine gate heading present in review-and-fix SKILL" \
+  '#### Over-grade calibration gate (before any Decide outcome 2 promotion)' "$MAXI_SKILL"
+assert_pin_unique "over-grade: engine gate keeps its mandatory reflection sentinel" \
+  'over-grade calibration gate clean: no promote-path finding flagged' "$MAXI_SKILL"
+assert_pin_unique "over-grade: engine gate keeps the never-auto-demote contract (flag + recorded evaluation)" \
+  'flags and requires a recorded technical evaluation; it never auto-demotes' "$MAXI_SKILL"
+assert_pin_unique "over-grade: engine gate keeps over-grade shape 1 (suite-RED / fail-closed above blast radius)" \
+  'Suite-RED or fail-closed defect graded above its blast radius' "$MAXI_SKILL"
+assert_pin_unique "over-grade: engine gate keeps over-grade shape 2 (diagnostic-or-cosmetic-only)" \
+  'Diagnostic-or-cosmetic-only finding with no behavioral fail-direction' "$MAXI_SKILL"
+assert_pin_unique "over-grade: engine gate names the receiving-code-review principle it mechanizes" \
+  'mechanizes the receiving-code-review symmetric-severity-calibration principle' "$MAXI_SKILL"
+# Cross-skill coupling: the principle the gate mechanizes must actually exist in the
+# vendored receiving-code-review skill (engine-agnostic, no DevFlow machinery named there).
+assert_pin_unique "over-grade: receiving-code-review states the symmetric-severity-calibration principle heading" \
+  '## Symmetric Severity Calibration' "$RECV_SKILL"
+assert_pin_unique "over-grade: receiving-code-review calibrates severity in both directions" \
+  'calibrated against the observable fail-direction and impact in both directions' "$RECV_SKILL"
+# Pin the gate's two INTEGRATION points, not just its definition. The six pins above
+# guard the gate body (heading/shapes/sentinel/contract/principle reference); but a gate
+# is dead text unless something invokes it and enforces its block. Both wiring sentences
+# can revert while every body pin stays GREEN — the coupled-invariant half-revert CLAUDE.md
+# flags as the dominant convention-violation pattern. Pin (1) the Decide-outcome-2 call
+# site that fires the gate and (2) the Loop-Exit clause that makes a flagged-but-unevaluated
+# finding non-convergence (the fail-closed enforcement, AC3).
+assert_pin_unique "over-grade: Decide outcome 2 wires in the gate (call site)" \
+  'run the "Over-grade calibration gate" below' "$MAXI_SKILL"
+assert_pin_unique "over-grade: Loop-Exit treats a flagged-but-unevaluated finding as non-convergence" \
+  'Over-grade gate non-convergence (fail-closed).' "$MAXI_SKILL"
+# Pin the new fix_decisions decision value at its enum source-of-truth line: the gate's
+# required evidence is unrepresentable in the workpad if this enum drops the value, yet
+# every gate-body pin would stay GREEN.
+assert_pin_unique "over-grade: severity-calibrated is in the fix_decision enum" \
+  'applied | pushed_back | deferred | advisory | severity-calibrated' "$MAXI_SKILL"
+# Pin the principle's anti-abuse half in receiving-code-review: the symmetric-direction
+# sentence (pinned above) without this clause would let calibration become a
+# severity-laundering loophole — it mirrors the engine's pinned never-auto-demote contract.
+assert_pin_unique "over-grade: receiving-code-review forbids down-calibrating to dodge the fix" \
+  'Never down-calibrate to avoid the fix' "$RECV_SKILL"
+# Pin the PRODUCER of severity-calibrated records (Step 3 item 2) and its no-skip_category
+# persist invariant (Step 3 item 7). The gate only FLAGS; item 2 is the only place the
+# required `decision: "severity-calibrated"` evidence is written, and the "no skip_category"
+# property is what keeps the Loop-Exit skip_category-keyed gates from misreading a
+# calibration as a skip. Both can revert while every gate-body pin stays GREEN.
+assert_pin_unique "over-grade: Step 3 item 2 produces the recorded severity-calibration evidence" \
+  'Also calibrate its severity, not just its validity' "$MAXI_SKILL"
+assert_pin_unique "over-grade: severity-calibrated record carries no skip_category (Loop-Exit gates ignore it)" \
+  'it is a calibration record, not a skip' "$MAXI_SKILL"
 
 # Drift guard: the Phase 2.3 sweep list lives in three places that must stay in
 # sync — the sweep body in implement/SKILL.md, the "Sweep selection" always-run
@@ -5075,7 +5133,7 @@ cat > "$ET_PREC/iter-1.json" <<'EOF'
 {
   "iter": 1,
   "checklist": [],
-  "phase3_dispatched": ["agent-mixed-unique","agent-mixed-corr","agent-advisory","agent-deferred","agent-nocorr"],
+  "phase3_dispatched": ["agent-mixed-unique","agent-mixed-corr","agent-advisory","agent-deferred","agent-sevcal","agent-nocorr"],
   "phase3_findings": [
     {"agent":"agent-mixed-unique","corroboration_count":1,"fix_decision":"applied"},
     {"agent":"agent-mixed-unique","corroboration_count":1,"fix_decision":"pushed_back"},
@@ -5083,6 +5141,7 @@ cat > "$ET_PREC/iter-1.json" <<'EOF'
     {"agent":"agent-mixed-corr","corroboration_count":1,"fix_decision":"advisory"},
     {"agent":"agent-advisory","corroboration_count":1,"fix_decision":"advisory"},
     {"agent":"agent-deferred","corroboration_count":1,"fix_decision":"deferred"},
+    {"agent":"agent-sevcal","corroboration_count":1,"fix_decision":"severity-calibrated"},
     {"agent":"agent-nocorr","fix_decision":"applied"}
   ],
   "convergence_inputs": {"fixes_applied": 3},
@@ -5095,6 +5154,12 @@ assert_eq "et: precedence applied(corr1)+pushed_back → unique-effective" "uniq
 assert_eq "et: precedence applied(corr3)+advisory → corroborating (applied dominates noise)" "corroborating" "$(ET_pv 'agent-mixed-corr')"
 assert_eq "et: advisory-only finding → noise" "noise" "$(ET_pv 'agent-advisory')"
 assert_eq "et: deferred-only finding → null (not noise)" "null" "$(ET_pv 'agent-deferred')"
+# severity-calibrated is a real-but-not-applied outcome (over-graded, calibrated down) — like
+# deferred it must classify null, NOT noise (noise is reserved for pushed_back/advisory
+# false-positives). This behaviorally locks the verdict_for `else null` fall-through so a
+# future edit that adds severity-calibrated to the noise any() set goes RED instead of
+# silently mis-bucketing a calibrated finding as reviewer noise (#160).
+assert_eq "et: severity-calibrated-only finding → null (not noise)" "null" "$(ET_pv 'agent-sevcal')"
 assert_eq "et: applied with missing corroboration_count → unique-effective (// 1 default)" "unique-effective" "$(ET_pv 'agent-nocorr')"
 rm -rf "$ET_PREC"
 
