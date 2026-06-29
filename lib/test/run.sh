@@ -6168,6 +6168,30 @@ assert_eq "loop_role #170: empty-string persisted loop_role falls back to deriva
   "$(printf '%s' "$LR_E_REC" | jq -r '.per_iteration[] | select(.iter==2) | .loop_role')"
 rm -rf "$LR_E"
 
+# (9) shadow_promoted is a STRICT boolean: a malformed non-boolean
+#     promoted_to_iter_next (e.g. the string "yes") must NOT over-classify the next
+#     iter as promoted — it coerces to false, so iter 2 derives fix. Locks the
+#     `== true` guard the comment promises (mutation: drop `== true` → iter 2 flips
+#     to promoted, RED).
+LR_B="$(mktemp -d)"
+printf '{"iter":1,"phase3_findings":[],"shadow":{"promoted_to_iter_next":"yes"}}' > "$LR_B/iter-1.json"
+printf '{"iter":2,"phase3_findings":[]}'                                          > "$LR_B/iter-2.json"
+LR_B_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$LR_B" --slug pr-78 --mode record)"
+assert_eq "loop_role #170: malformed non-boolean promoted_to_iter_next ('yes') does NOT over-classify next iter (strict == true)" "fix" \
+  "$(printf '%s' "$LR_B_REC" | jq -r '.per_iteration[] | select(.iter==2) | .loop_role')"
+rm -rf "$LR_B"
+
+# (10) A non-STRING persisted loop_role (the `type == "string"` half of the guard,
+#      vs the length>0 half in test 8) falls back to derivation — a numeric
+#      loop_role:5 on iter 2 with a prior promotion derives "promoted", not 5.
+LR_N="$(mktemp -d)"
+printf '{"iter":1,"phase3_findings":[],"shadow":{"promoted_to_iter_next":true}}' > "$LR_N/iter-1.json"
+printf '{"iter":2,"phase3_findings":[],"loop_role":5}'                           > "$LR_N/iter-2.json"
+LR_N_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$LR_N" --slug pr-79 --mode record)"
+assert_eq "loop_role #170: non-string persisted loop_role (numeric) falls back to derivation (type guard)" "promoted" \
+  "$(printf '%s' "$LR_N_REC" | jq -r '.per_iteration[] | select(.iter==2) | .loop_role')"
+rm -rf "$LR_N"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "devflow-runner.yml: opt-in environment provisioning (issues #18, #21)"
 # ────────────────────────────────────────────────────────────────────────────
