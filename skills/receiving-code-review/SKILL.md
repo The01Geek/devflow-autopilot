@@ -226,6 +226,22 @@ You understand 1,2,3,6. Unclear on 4,5.
 
 When replying to inline review comments on GitHub, reply in the comment thread (`gh api repos/{owner}/{repo}/pulls/{pr}/comments/{id}/replies`), not as a top-level PR comment.
 
+## Share the Contract: Parse, Don't Validate
+
+When a fix adds a guard or validator protecting a **downstream consumer** (a parser, a `strptime`, a JSON decode, a type-narrowing op), **prefer using that consumer as the guard itself** rather than writing a separate validator that *approximates* the consumer's contract.
+
+```
+IF a fix needs to guard input before a downstream operation:
+  prefer:  try <the_consumer_operation> catch  → reject on failure
+  avoid:   a separate regex / shape check that RE-DERIVES the consumer's contract
+```
+
+**Why:** a separate validator's accepted-input set is almost never an exact match for the consumer's — it is usually a **superset**, so inputs the validator waves through still break the consumer. This is the `unverified-assumption` / #62/#98 bug class (see CLAUDE.md, *"Adding a guard, predicate, or coverage-invariant…"*): a guard whose comparand can be absent, or whose accepted set is wider than its consumer's contract, **fails open exactly where it claims to fail closed**.
+
+**Worked example (PR #153):** a fix guarding a `strptime` call shipped first a `type == "string"` check, then a date-shape regex — each a *superset* of `strptime`'s real contract, each surviving its own self-review. The guard that worked was `try strptime catch`: it shares the consumer's contract by construction, so the accepted-input sets are identical and cannot drift.
+
+When you apply a reviewer's "add a guard here" feedback, reach for the consumer's own operation first. `/devflow:review-and-fix`'s Step 3.5 fix-delta gate verifies exactly this (the guard's accepted-input set must be a subset of its consumer's contract), so a re-derived validator will be caught there — write it right the first time.
+
 ## The Bottom Line
 
 **External feedback = suggestions to evaluate, not orders to follow.**
