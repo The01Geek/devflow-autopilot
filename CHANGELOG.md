@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.23] — 2026-06-29
+
+### Changed
+- **`workpad.py update` now isolates volatile tick-match failures instead of discarding the whole batch, and can tick checkboxes by 1-based index.** Previously a single ambiguous or non-matching `--tick-plan`/`--tick-ac`/`--tick-progress` substring raised inside `_apply_mutations`, so the call's accompanying `--status`/`--note`/`--reflection` (and any tick that *did* resolve) were rolled back with no PATCH — the exact data-loss the Phase 3.4 acceptance-criteria gate and the Phase 4.3 finalize hit when one of several batched ticks missed. The helper now splits a **volatile** per-row tick miss (a `--tick-*`/`--tick-*-n` that does not resolve to exactly one tickable row *inside a present section*) from a **structural** failure (a missing target section, a missing `Status`/`Last updated` line, an unreadable `--*-file`): volatile misses are collected, every other mutation is applied and PATCHed, and the call exits non-zero with a stderr report naming each tick that did not land; structural failures still abort the whole call before any PATCH, exactly as before. New repeatable `--tick-ac-n N`/`--tick-plan-n N` flags address a checkbox by position (1-based, counting every `[ ]`/`[x]` row in document order), so the Phase 3.4 gate ticks acceptance criteria by index rather than hand-picking unique, apostrophe-free, backtick-free prose substrings; `--tick-progress` keeps no index form. `skills/implement/SKILL.md`'s `workpad.py update` flag-table and Phase 3.4 AC-tick call sites, and the coupled `lib/test/run.sh` / `lib/test/test_python_scripts.py` assertions, are reconciled in the same change. (#176)
+
 ## [2.8.22] — 2026-06-29
 
 ### Changed
