@@ -68,7 +68,8 @@ engine-self-modifying jq/docs change, the *same* silence is correct — that rev
 wasn't in the diff. Aggregating raw `null`-rate across diff shapes would systematically recommend
 cutting the generalist agents, which is backwards. So each iteration carries a `diff_profile`: the
 engine's Phase 0.5 classification (`small_diff`, `config_only`, `has_new_types`,
-`engine_self_modifying`, and `checklist_skipped`). The cross-run analyzer **must segment by
+`engine_self_modifying`, and `checklist_skipped`; Phase 0.5's fifth flag `detect_all_audit` is
+not persisted — it only forces the completeness-critic pass and never shapes the profile). The cross-run analyzer **must segment by
 `diff_profile`** before drawing any cut conclusion — a `null` on a diff outside the agent's domain is
 not a cut signal.
 

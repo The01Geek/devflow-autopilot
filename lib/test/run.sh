@@ -1487,6 +1487,20 @@ assert_pin_unique "#167 docs: completeness-critic guarantee-scope caveat (not ex
   'It does not prove the audit is exhaustive' "$SHADOW_DOC"
 assert_pin_unique "#167 docs: re-sweep guarantee-scope caveat (not a repo-wide audit)" \
   'It is not a repo-wide comment audit' "$SHADOW_DOC"
+# Core-invariant pins (the contracts that make the new behavior actually fire/aggregate):
+# (a) detect_all_audit is ADDITIVE — a revert that demoted it to an override (or let a lean
+#     profile suppress the critic pass) would silently re-open the exact "detect-all audit on
+#     a small diff escapes review" defect #167 exists to close, with the suite still green;
+# (b) the critic finding is COLLECTED in Phase 3.2 (the bridge into Phase 4 aggregation) —
+#     drop it and the pass runs but its finding never enters the graded set (inert);
+# (c) the re-sweep's comment-analyzer dispatch is ADVISORY-only — the clause reconciling it
+#     with the fix-loop "fixes are never delegated to a subagent" rule.
+assert_pin_unique "#167 critic: detect_all_audit is additive (never suppressed by a lean profile)" \
+  'additive, never suppressed' "$REVIEW_SKILL"
+assert_pin_unique "#167 critic: the critic finding is collected in Phase 3.2 (flows into aggregation)" \
+  'completeness-critic pass ran and produced a finding' "$REVIEW_SKILL"
+assert_pin_unique "#167 re-sweep: the comment-analyzer dispatch is advisory (analyzes and reports only)" \
+  'analyzes and reports only' "$MAXI_SKILL"
 # Mutation proofs (AC2/AC7 guarantee-class): deleting a load-bearing contract literal turns
 # its pin RED. The third arg routes the removal through the relevant file (the generalized
 # helper defaults to $MAXI_SKILL when omitted). These exercise the engine-prose pins above on
@@ -1502,6 +1516,12 @@ assert_pin_red_on_removal "#167 AC3-mp: deleting the stale-comment-is-a-finding 
   'A comment that still describes the pre-change mechanism is a finding'
 assert_pin_red_on_removal "#167 AC2-mp: deleting the superset-comparison framing turns its pin RED" \
   '⊇ your independent enumeration' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#167 core-mp: deleting the additive/never-suppressed rule turns its pin RED" \
+  'additive, never suppressed' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#167 core-mp: deleting the Phase 3.2 critic-finding inclusion clause turns its pin RED" \
+  'completeness-critic pass ran and produced a finding' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#167 core-mp: deleting the re-sweep advisory-only clause turns its pin RED" \
+  'analyzes and reports only'
 
 # Drift guard: the Phase 2.3 sweep list lives in three places that must stay in
 # sync — the sweep body in implement/SKILL.md, the "Sweep selection" always-run
