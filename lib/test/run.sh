@@ -2073,19 +2073,9 @@ assert_eq "#169: workpad.py routes volatile misses through _report_failed_ticks 
   "$(grep -qF 'def _report_failed_ticks' "$WP_PY" && grep -qF 'NO workpad change was persisted' "$WP_PY" && echo yes || echo no)"
 
 # ── Issue #184: Phase 1.6 Issue-Claim Audit ──────────────────────────────
-# Four drift guards: the audit heading and the three claim-type coverage
-# literals. Each is target-unique in the SKILL (apostrophe-free, count=1),
-# so assert_pin_unique catches both deletion (count=0) and paraphrase drift
-# (count>=2). assert_pin_red_on_removal proves the full PASS->FAIL transition
-# explicitly for each, satisfying AC7 mutation-proven requirement.
-assert_pin_unique "#184: Phase 1.6 audit heading present in implement SKILL" \
-  '### 1.6 Issue-Claim Audit' "$IMPL_SKILL"
-assert_pin_unique "#184: Phase 1.6 covers count or enumeration claims (claim type a)" \
-  'Count or enumeration claims' "$IMPL_SKILL"
-assert_pin_unique "#184: Phase 1.6 covers explicit surface exclusions (claim type b)" \
-  'explicit surface exclusions' "$IMPL_SKILL"
-assert_pin_unique "#184: Phase 1.6 covers policy-referencing claims in ACs (claim type c)" \
-  'Policy-referencing claims in ACs' "$IMPL_SKILL"
+# Four mutation-proven drift guards: assert_pin_red_on_removal verifies both
+# presence+uniqueness (its PASS-before probe) and deletion (its FAIL-after
+# probe), satisfying AC7 without a separate assert_pin_unique per literal.
 assert_pin_red_on_removal "#184: deleting the audit heading turns its pin RED" \
   '### 1.6 Issue-Claim Audit' "$IMPL_SKILL"
 assert_pin_red_on_removal "#184: deleting the count-claim type literal turns its pin RED" \

@@ -356,7 +356,7 @@ workpad.py update $ISSUE_NUMBER --tick-progress "branch & workpad"
 
 ### 1.6 Issue-Claim Audit
 
-Before Phase 2 begins, audit verifiable factual claims in the issue body's Technical Context and Acceptance Criteria against the current codebase. Three sequential passes, run after the issue data from 1.1 is in hand. Record each finding immediately via `workpad.py update $ISSUE_NUMBER --reflection-kind note --reflection "issue-claim audit ({type}): {finding}"`. A claim that confirms correctly is still worth a one-line note — it proves the assumption was checked, not inherited.
+Before Phase 2 begins, operationalise the Phase 2.1 principle that "the issue body is a starting point, not the source of truth" with three targeted pre-checks that catch wrong scope and policy assumptions before any code edit. Run after the issue data from 1.1 is in hand; passes are independent (read their sources in any order or in a single batch). Record each finding immediately via `workpad.py update $ISSUE_NUMBER --reflection-kind note --reflection "issue-claim audit ({type}): {finding}"`. A claim that confirms correctly is still worth a one-line note — it proves the assumption was checked, not inherited.
 
 **Scope:** the three explicitly-defined claim types below only. Do not attempt to verify every sentence in the issue body — open-ended verification creates a runaway discovery loop and produces false-positive discrepancies on subjective or aspirational claims.
 
@@ -380,8 +380,7 @@ Scan the issue body's Technical Context for claims that explicitly exclude a sur
 
 ```bash
 grep -n 'TOOLS=' .github/workflows/devflow-runner.yml
-ls .devflow/vendor/devflow/.github/workflows/devflow-runner.yml 2>/dev/null && \
-  grep 'TOOLS=' .devflow/vendor/devflow/.github/workflows/devflow-runner.yml
+grep 'TOOLS=' .devflow/vendor/devflow/.github/workflows/devflow-runner.yml 2>/dev/null
 ```
 
 If the trace finds a required change the issue excluded, record: `--reflection-kind note --reflection "issue-claim audit (negative-scope): issue excluded '{surface}' but trace requires it — adding to plan"`, then add the missed surface to the working plan before 2.2 begins.
