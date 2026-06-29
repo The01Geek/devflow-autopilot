@@ -1066,10 +1066,19 @@ rm -f "$PINPROBE_EMPTY"
 # AC3(c)/(d): removing a pinned MAXI_SKILL contract literal turns its pin RED. Both cases
 # share the "strip the literal from a temp copy, confirm the real pin goes RED" shape, so
 # route them through one helper (the literal is the only variable).
-assert_pin_red_on_removal() {  # name literal
-  local t; t="$(probe_tmp "$1 (removal setup)")" || return 0
-  grep -vF "$2" "$MAXI_SKILL" > "$t"
-  assert_eq "$1" "FAIL" "$(probe_assert assert_pin_unique 'probe-removal' "$2" "$t")"
+# SELF-CONTAINED mutation proof: assert the full PASS->FAIL transition — the literal is
+# present-and-unique on the REAL file (probe PASS) AND goes RED once stripped (probe FAIL).
+# Asserting the transition, not just the post-strip FAIL, closes the vacuity a bare
+# post-strip check has: a literal that was never present yields FAIL on a no-op strip
+# (count 0->0), so the proof would pass vacuously. Checking the `before` PASS too means the
+# proof no longer depends on a paired assert_pin_unique to notice a literal that drifted out
+# of the target file — each proof stands on its own.
+assert_pin_red_on_removal() {  # name literal [file]   (file defaults to $MAXI_SKILL)
+  local t file="${3:-$MAXI_SKILL}" before after; t="$(probe_tmp "$1 (removal setup)")" || return 0
+  before="$(probe_assert assert_pin_unique 'probe-present' "$2" "$file")"
+  grep -vF "$2" "$file" > "$t"
+  after="$(probe_assert assert_pin_unique 'probe-removal' "$2" "$t")"
+  assert_eq "$1" "PASS->FAIL" "$before->$after"
   rm -f "$t"
 }
 assert_pin_red_on_removal "AC3(c): deleting the Step 2.6 sentinel contract turns its pin RED" \
@@ -1418,6 +1427,139 @@ assert_pin_unique "step7: CI-fallback local-skip requires an auditable recorded 
   'Record the local-skip reason as an auditable note' "$RECV_SKILL"
 assert_pin_unique "step7: CI-fallback: submitting a push is not the same as observing green" \
   'submitting a push is not the same as observing green' "$RECV_SKILL"
+
+# ── Drift guards (issue #167): the completeness-critic pass (shared engine) and the
+# mechanism-scoped self-authored-claim re-sweep (fix loop). Both are SKILL-prose engine
+# behaviors; pin the load-bearing contract literals so a silent paraphrase or deletion that
+# guts either check fails the suite. Each literal is target-unique and apostrophe-free (the
+# CLAUDE.md single-quote gotcha), so assert_pin_unique fails closed on a deleted OR
+# duplicated literal. REVIEW_SKILL is the shared engine; the two checks must NOT be
+# paraphrased across the two skills (the fix loop inherits the engine by reference).
+REVIEW_SKILL="$LIB/../skills/review/SKILL.md"
+SHADOW_DOC="$LIB/../docs/shadow-review.md"
+# AC1: Phase 0.5 classifies the detect-all-audit shape with a concrete, twice-applicable rule
+# (the enumerate-a-population AND assert-completeness combination is the load-bearing signal).
+assert_pin_unique "#167 critic: Phase 0.5 states the detect-all-audit classification rule concretely" \
+  'enumerate-a-population* AND *assert-it-is-complete' "$REVIEW_SKILL"
+# AC2: the forced completeness-critic pass exists, re-enumerates INDEPENDENTLY of the audit's
+# own pattern, and records an uncovered member as a review finding.
+assert_pin_unique "#167 critic: Phase 3.1.5 completeness-critic pass heading present" \
+  '### 3.1.5 Completeness-critic pass (forced when' "$REVIEW_SKILL"
+assert_pin_unique "#167 critic: pass re-enumerates by an INDEPENDENT signal (not the audit's pattern)" \
+  're-enumerate that population by a signal OTHER than the' "$REVIEW_SKILL"
+assert_pin_unique "#167 critic: an uncovered member of the independent set is a review finding" \
+  'Every member of the independent set that the audit does not cover is a review finding' "$REVIEW_SKILL"
+# Pin the superset-comparison FRAMING itself (the verdict step), not only its finding
+# clause: a reword to a weaker check (e.g. "spot-check a few members") that left the
+# finding sentence intact would otherwise stay GREEN.
+assert_pin_unique "#167 critic: pass asserts the audit matched set is a SUPERSET of the independent enumeration" \
+  '⊇ your independent enumeration' "$REVIEW_SKILL"
+# AC3: the critic lives in the shared engine (reachable from both skills) AND is not
+# paraphrased into the fix-loop skill — the pass heading must be absent from review-and-fix.
+assert_pin_unique "#167 critic: shared engine states both skills apply it without a fix-loop paraphrase" \
+  'apply it without any paraphrase in the fix-loop skill' "$REVIEW_SKILL"
+# Guard the two absence pins below against vacuous-pass (pin_count returns 0 on a missing
+# file): prove $MAXI_SKILL is readable and non-empty before asserting absence of a literal.
+assert_eq "#167 critic: MAXI_SKILL file is readable (sentinel for absence-pin vacuity guard)" \
+  "1" "$(pin_count 'Mechanism-scoped self-authored-claim re-sweep' "$MAXI_SKILL")"
+assert_eq "#167 critic: completeness-critic pass heading is NOT paraphrased into review-and-fix SKILL" \
+  "0" "$(pin_count '### 3.1.5 Completeness-critic pass (forced when' "$MAXI_SKILL")"
+# The exact-heading absence above catches only a verbatim heading copy; a genuine reworded
+# paraphrase of the critic PROCEDURE would slip it. Add a paraphrase-resistant negative
+# pin: the critic's distinctive independent-enumeration clause must also be absent from the
+# fix-loop skill (it is procedure text, not a by-name reference, so a legitimate pointer to
+# "the completeness-critic pass" does not trip it — only a copied procedure would).
+assert_eq "#167 critic: critic PROCEDURE (independent-enumeration clause) is NOT paraphrased into review-and-fix SKILL" \
+  "0" "$(pin_count 're-enumerate that population by a signal OTHER than the' "$MAXI_SKILL")"
+# AC4: the fix loop (Step 3) specifies the mechanism-scoped re-sweep, located by the
+# mechanism's identifiers across the touched files (identifier-located, not hunk-located).
+assert_pin_unique "#167 re-sweep: Step 3 names the mechanism-scoped self-authored-claim re-sweep" \
+  'Mechanism-scoped self-authored-claim re-sweep' "$MAXI_SKILL"
+assert_pin_unique "#167 re-sweep: located by identifiers across touched files, not the fix's hunks" \
+  'identifier-located, not hunk-located' "$MAXI_SKILL"
+# AC5: the re-sweep is the existing comment-analyzer dispatch (no new agent), and a comment
+# still describing the pre-change mechanism is a finding.
+assert_pin_unique "#167 re-sweep: re-dispatches the existing devflow:comment-analyzer agent" \
+  'Re-dispatch `devflow:comment-analyzer`' "$MAXI_SKILL"
+assert_pin_unique "#167 re-sweep: no new agent is introduced" \
+  'no new agent is introduced' "$MAXI_SKILL"
+assert_pin_unique "#167 re-sweep: a comment still describing the pre-change mechanism is a finding" \
+  'A comment that still describes the pre-change mechanism is a finding' "$MAXI_SKILL"
+# AC6: docs/shadow-review.md describes both checks at the guarantee level they provide — and
+# does NOT overstate (the two guarantee-scope caveats are the no-catch-all anchors).
+assert_pin_unique "#167 docs: completeness-critic guarantee-scope caveat (not exhaustive)" \
+  'It does not prove the audit is exhaustive' "$SHADOW_DOC"
+assert_pin_unique "#167 docs: re-sweep guarantee-scope caveat (not a repo-wide audit)" \
+  'It is not a repo-wide comment audit' "$SHADOW_DOC"
+# Core-invariant pins (the contracts that make the new behavior actually fire/aggregate):
+# (a) detect_all_audit is ADDITIVE — a revert that demoted it to an override (or let a lean
+#     profile suppress the critic pass) would silently re-open the exact "detect-all audit on
+#     a small diff escapes review" defect #167 exists to close, with the suite still green;
+# (b) the critic finding is COLLECTED in Phase 3.2 (the bridge into Phase 4 aggregation) —
+#     drop it and the pass runs but its finding never enters the graded set (inert);
+# (c) the re-sweep's comment-analyzer dispatch is ADVISORY-only — the clause reconciling it
+#     with the fix-loop "fixes are never delegated to a subagent" rule.
+assert_pin_unique "#167 critic: detect_all_audit is additive (never suppressed by a lean profile)" \
+  'additive, never suppressed' "$REVIEW_SKILL"
+assert_pin_unique "#167 critic: the critic finding is collected in Phase 3.2 (flows into aggregation)" \
+  'completeness-critic pass ran and produced a finding' "$REVIEW_SKILL"
+assert_pin_unique "#167 re-sweep: the comment-analyzer dispatch is advisory (analyzes and reports only)" \
+  'analyzes and reports only' "$MAXI_SKILL"
+assert_pin_unique "#167 re-sweep: the advisory dispatch does not violate the no-subagent-fix rule (reconciliation clause)" \
+  'does not violate the rule that fixes are applied directly and never delegated to a subagent' "$MAXI_SKILL"
+# Suggestion S1 (PR #175 review): pin the two critic procedure steps that were unpinned —
+# step 1 (name the target population) and step 4 (not-a-proof-of-exhaustiveness caveat).
+# A rewrite that drops step 1 would silently remove the explicit population-naming mandate;
+# a rewrite that drops step 4 would let the clean-critic note overclaim exhaustiveness.
+assert_pin_unique "#167 critic: step 1 requires naming the target population and completeness property" \
+  'Name the audit'\''s target population and its completeness property' "$REVIEW_SKILL"
+assert_pin_unique "#167 critic: step 4 caveat — a clean result is not a proof of exhaustiveness" \
+  'This is **not** a proof of exhaustiveness' "$REVIEW_SKILL"
+# (d) the Phase 0.5 *table row* is the operative dispatch contract an orchestrator reads to
+#     decide the profile — pin the ROW itself, not only its prose restatement
+#     (the `additive, never suppressed` pin above). A revert that demoted the row to an
+#     override (re-opening the "detect-all audit on a lean diff escapes review" defect) would
+#     leave the prose pin GREEN while the actual lookup table no longer forces the pass.
+# (e) the Phase 0.5 rule's negative-shape exclusion — a paraphrase that dropped it would
+#     silently WIDEN detect_all_audit to fire on every grep (forcing the critic on ordinary
+#     diffs), and stay green.
+assert_pin_unique "#167 critic: Phase 0.5 TABLE ROW forces the pass (a forced extra pass, never an override)" \
+  'a *forced extra pass*, not a checklist or cost override' "$REVIEW_SKILL"
+assert_pin_unique "#167 critic: Phase 0.5 rule excludes the false-positive shapes (single-target grep / fixed list)" \
+  'a check over a fixed hand-listed set is **not** this shape' "$REVIEW_SKILL"
+# Mutation proofs (AC2/AC7 guarantee-class): deleting a load-bearing contract literal turns
+# its pin RED. The third arg routes the removal through the relevant file (the generalized
+# helper defaults to $MAXI_SKILL when omitted). These exercise the engine-prose pins above on
+# the path each is meant to catch — a paraphrase that drops the independence requirement, the
+# finding clause, or the re-sweep contract goes RED, not silently GREEN.
+assert_pin_red_on_removal "#167 AC3-mp: deleting the independent-enumeration requirement turns its critic pin RED" \
+  're-enumerate that population by a signal OTHER than the' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#167 AC3-mp: deleting the uncovered-member-is-a-finding clause turns its critic pin RED" \
+  'Every member of the independent set that the audit does not cover is a review finding' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#167 AC3-mp: deleting the re-sweep identifier-located clause turns its pin RED" \
+  'identifier-located, not hunk-located'
+assert_pin_red_on_removal "#167 AC3-mp: deleting the stale-comment-is-a-finding clause turns its pin RED" \
+  'A comment that still describes the pre-change mechanism is a finding'
+assert_pin_red_on_removal "#167 AC2-mp: deleting the superset-comparison framing turns its pin RED" \
+  '⊇ your independent enumeration' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#167 core-mp: deleting the additive/never-suppressed rule turns its pin RED" \
+  'additive, never suppressed' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#167 core-mp: deleting the Phase 3.2 critic-finding inclusion clause turns its pin RED" \
+  'completeness-critic pass ran and produced a finding' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#167 core-mp: deleting the re-sweep advisory-only clause turns its pin RED" \
+  'analyzes and reports only'
+assert_pin_red_on_removal "#167 core-mp: deleting the Phase 0.5 table-row dispatch contract turns its pin RED" \
+  'a *forced extra pass*, not a checklist or cost override' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#167 core-mp: deleting the false-positive-shape exclusion turns its pin RED" \
+  'a check over a fixed hand-listed set is **not** this shape' "$REVIEW_SKILL"
+# Coupled-invariant drift guard: the "detect_all_audit is intentionally not persisted
+# into diff_profile" contract spans two mirror sites — the SKILL.md schema comment and
+# docs/efficiency-trace.md. Both must agree; pin each with its stable site-specific phrase.
+TRACE_DOC="$LIB/../docs/efficiency-trace.md"
+assert_pin_unique "#167 coupled-site: SKILL.md states detect_all_audit is intentionally not persisted" \
+  'detect_all_audit`, is intentionally **not** persisted here' "$MAXI_SKILL"
+assert_pin_unique "#167 coupled-site: efficiency-trace.md states detect_all_audit only forces the critic pass (never shapes the profile)" \
+  'it only forces the completeness-critic pass and never shapes the profile' "$TRACE_DOC"
 
 # Drift guard: the Phase 2.3 sweep list lives in three places that must stay in
 # sync — the sweep body in implement/SKILL.md, the "Sweep selection" always-run

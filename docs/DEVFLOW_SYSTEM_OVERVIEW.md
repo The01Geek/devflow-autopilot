@@ -269,13 +269,14 @@ DevFlow maintains **exactly one** marker-tagged comment on the GitHub issue for 
 > **The thesis (good for a technical-deck slide):** don't trust a single review pass. Build an *independent, evidence-based* checklist of every claim the diff makes, verify each claim against the actual source, run a panel of specialized reviewers, and use cross-reviewer corroboration to *calibrate confidence* in each finding, a single-source finding is flagged for extra human scrutiny, never silently dropped.
 
 ### Phase 0: Setup & diff classification
-Caches the diff to a run-scoped path. **Phase 0.5** classifies the diff with four flags that decide the engine profile:
+Caches the diff to a run-scoped path. **Phase 0.5** classifies the diff with five flags that decide the engine profile:
 - `small_diff` (<100 changed lines AND ≤3 files)
 - `config_only` (all changed files are config/docs extensions)
 - `has_new_types` (added code defines classes/interfaces/types/enums/structs/traits)
 - `engine_self_modifying` (touches `skills/**`, `agents/**`, or `lib/**`)
+- `detect_all_audit` (the diff adds/changes a "detect-all" scanner/audit/coverage-invariant — code that *enumerates a population* AND *asserts a completeness property* over it)
 
-A `small_diff AND config_only` change skips the checklist phases (intentional). An `engine_self_modifying` change forces the **full** checklist + all four always-on reviewers.
+A `small_diff AND config_only` change skips the checklist phases (intentional). An `engine_self_modifying` change forces the **full** checklist + all four always-on reviewers. `detect_all_audit` is additive (it never suppresses the other flags' profile): it forces a **Phase 3.1.5 completeness-critic pass** that independently re-enumerates the audit's target population by a signal *other than the audit's own pattern* and records any uncovered member as a finding — the engine's guard against a vacuous or self-certified "detect-all" audit.
 
 ### Phase 1: Verification checklist generation
 The `devflow:checklist-generator` agent (model: **opus**) reads full file contents and enumerates **every verifiable claim** the diff makes, in four categories: **dependency interactions, test-mock alignment, data-format assumptions, API contracts**. Output is a JSON checklist. Key points:
@@ -302,6 +303,8 @@ Two **gated** reviewers:
 - `devflow:type-design-analyzer` (only if `has_new_types`)
 - `devflow:pr-test-analyzer` (only if the test-relevance predicate matches)
 
+**Completeness-critic pass (Phase 3.1.5, forced when `detect_all_audit` is set):** when Phase 0.5 flags the diff as adding/changing a "detect-all" audit, the engine runs an extra pass that independently re-enumerates the audit's target population *by a signal other than the audit's own pattern* and emits a finding for any uncovered member (folded into the Phase 3 findings set with a `defect_signature` like any other). It **narrows, but does not close**, the circular-completeness gap — the independent enumeration is itself judgment and can share a blind spot. See `docs/shadow-review.md`.
+
 **Mechanical corroboration:** findings are matched by a `defect_signature` (`file` + overlapping `line_range` + identical `kind`). Corroboration across agents is a stronger calibrator than any single agent's stated confidence.
 
 ### Phase 4: Aggregation & verdict
@@ -315,6 +318,7 @@ The `devflow_review.agent_overrides` config maps any of the **nine** review suba
 ### The fix loop (`/devflow:review-and-fix`)
 - **Maximum 4 iterations.** Each iteration runs the full engine, then fixes findings one at a time (using `devflow:receiving-code-review` principles), runs tests, commits (`fix:`), and continues.
 - **Pre-fix verification gate (Step 2.5):** single-source claims about external tools are **web-verified** (cap **5 WebFetches/iteration**), Confirmed → fix; Refuted → demote to advisory. This prevents the loop from "fixing" a hallucinated problem.
+- **Mechanism-scoped self-authored-claim re-sweep (Step 3 item 3a):** after a fix changes a *mechanism* (a guard, predicate, exclusion, or helper that comments describe), the loop re-dispatches the existing `devflow:comment-analyzer` (no new agent) over every comment describing that mechanism — located by the mechanism's identifiers across the touched files, not limited to the fix's own diff hunks — and treats a comment that still describes the pre-change mechanism as a finding. It covers the changed mechanism within touched files; it is **not** a repo-wide comment audit. See `docs/shadow-review.md`.
 - **Pushback tracking:** when a finding is skipped, it's tagged with a `skip_category` (e.g. `claim-quality`, `out-of-scope`, `already-tracked`). The same finding skipped twice → escalate and stop.
 - **Fix-delta verification gate (Step 3.5):** after **every** iteration's fix commit, a **blinded subagent** re-reviews **only that iteration's cumulative fix delta** (prior findings/fix decisions/fixer reasoning withheld) to catch a fix-introduced regression — most often a #62/#98 guard whose accepted-input set is wider than its consumer's contract — in the **same** iteration. A surviving Critical/Important finding (after over-grade calibration) routes back into that iteration's fix step (capped at 2 inner attempts, then promoted); the gate and its inner attempts do **not** count toward the cap. Complements the shadow (which audits the whole diff at convergence); the shadow + post-shadow gate are unchanged by it.
 - **Convergence check:** exits early when fixes are small and no new corroborated Critical/Important finding appears.
