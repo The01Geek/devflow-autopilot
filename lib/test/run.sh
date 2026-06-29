@@ -1507,6 +1507,18 @@ assert_pin_unique "sweep selection: implement SKILL re-anchors classification on
 assert_pin_unique "sweep selection: docs/implement-skill.md mirror carries the substrate-agnostic re-anchor (coupled invariant)" \
   "so the preamble classifies by *what the change replicates across sites*, not by whether it is code" \
   "$IMPL_DOC"
+# Pin the OPERATIVE qualifier too, not just the framing clause above: the behavioral fix
+# is the sentence that says an add-only prose/doc/config diff still trips 2.3.0/2.3.0a/2.3.0b
+# (exactly the PR #166 regression). Reverting only that qualifier back to the unconditional
+# "just the five always-on sweeps" — while leaving the pinned re-anchor clause intact — is a
+# half-revert that ships the regression; the framing pins above do not catch it. Pin the
+# qualifier at BOTH coupled sites so that half-revert fails closed.
+assert_pin_unique "sweep selection: implement SKILL qualifies the five-always-on sentence so a replicating prose/doc/config diff still trips the contract sweeps" \
+  "still trips the contract-completeness sweeps (**2.3.0** / **2.3.0a** / **2.3.0b**), not just the five" \
+  "$IMPL_SKILL"
+assert_pin_unique "sweep selection: docs/implement-skill.md mirror qualifies the five-always-on sentence (coupled invariant)" \
+  "still runs the contract-completeness sweeps (2.3.0 / 2.3.0a / 2.3.0b)" \
+  "$IMPL_DOC"
 
 # Drift guard: the base_branch read in implement/SKILL.md Phase 1.4 is the skill's
 # one piece of load-bearing inline bash — like the max_iterations clamp above, the
