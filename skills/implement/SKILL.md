@@ -249,7 +249,7 @@ After this step, every later phase boundary touches the workpad via `workpad.py 
 
 Decide whether you are **already on the branch to use** or must **create one**. Two independent signals mean "already on it — skip creation":
 
-1. **A linked git worktree** — the local harness pre-creates a worktree and checks out a branch for you (e.g. `worktree-issue-165`), whatever its name. This is the deterministic, **naming-independent** signal: a linked worktree's `--git-common-dir` (the main repo's `.git`) differs from its `--git-dir` (`.git/worktrees/<name>`); in the main working tree they are equal.
+1. **A linked git worktree** — the local harness pre-creates a worktree and checks out a branch for you (e.g. `worktree-issue-165`), whatever its name. This is the deterministic, **naming-independent** signal: a linked worktree's `--git-common-dir` (the main repo's `.git`) differs from its `--git-dir` (`.git/worktrees/<name>`); in the main working tree they are equal. The two are compared in **absolute form** (`--path-format=absolute`) so the test reflects directory identity rather than path representation.
 2. **A recognized feature-branch name** — `claude/issue-*` / `issue-*`, the cloud-tier GitHub Action path (the Action checks out such a branch; it is not a worktree).
 
 Otherwise, create a fresh feature branch off the base.
@@ -274,19 +274,36 @@ Now decide. Set `USE_CURRENT=1` to mean "reuse `$CUR`, skip creation":
 
 ```bash
 USE_CURRENT=
-# Signal 1 — linked worktree. Reuse $CUR ONLY when it is a real branch (non-empty —
-# not a detached HEAD) and NOT the base branch (never build directly on trunk, even
-# in a worktree). This is naming-independent: it fires whatever the harness named the
-# worktree branch, fixing the case where a `worktree-issue-<N>` branch (matching
-# neither name pattern below) used to fall through and create a SECOND branch.
-if [ "$(git rev-parse --git-common-dir)" != "$(git rev-parse --git-dir)" ] && [ -n "$CUR" ] && [ "$CUR" != "$BASE" ]; then
-  echo "devflow: in a linked worktree on '$CUR' (≠ base '$BASE') — using it as the feature branch, skipping creation" >&2
-  USE_CURRENT=1
+# Resolve the git-dir layout ONCE, in ABSOLUTE form (`--path-format=absolute`) so the
+# worktree test reflects directory *identity*, not path *representation* — a
+# harness-injected GIT_DIR / GIT_COMMON_DIR (or a non-root cwd) could otherwise print
+# the same directory two different ways and false-positive "linked worktree". A hard
+# `git rev-parse` failure (corrupt repo, broken git) yields an empty string: that fails
+# CLOSED to the create path below, but leave an attributable breadcrumb (mirroring the
+# `git fetch` breadcrumb later) instead of silently degrading.
+COMMON_DIR=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || COMMON_DIR=""
+GIT_DIR_PATH=$(git rev-parse --path-format=absolute --git-dir 2>/dev/null) || GIT_DIR_PATH=""
+[ -n "$COMMON_DIR" ] && [ -n "$GIT_DIR_PATH" ] || echo "devflow: could not resolve the git-dir layout (git rev-parse failed) — treating as the main working tree and creating a branch; if this is actually a worktree, detection failed (check repo integrity)" >&2
+# Reuse $CUR ONLY when it is a real branch (non-empty — not a detached HEAD) and NOT the
+# base branch (never build directly on trunk, even in a worktree). These two guards
+# apply to BOTH reuse signals, so they sit out here once — a base branch that happens to
+# be named like a feature branch (`base_branch` = `issue-next`) must still create, not
+# reuse, via Signal 2.
+if [ -n "$CUR" ] && [ "$CUR" != "$BASE" ]; then
+  # Signal 1 — linked worktree (naming-independent): the worktree's --git-common-dir
+  # differs from its --git-dir; in the main working tree they are equal. This fires
+  # whatever the harness named the worktree branch, fixing the case where a
+  # `worktree-issue-<N>` branch (matching neither name pattern below) used to fall
+  # through and create a SECOND branch.
+  if [ "$COMMON_DIR" != "$GIT_DIR_PATH" ]; then
+    echo "devflow: in a linked worktree on '$CUR' (≠ base '$BASE') — using it as the feature branch, skipping creation" >&2
+    USE_CURRENT=1
+  fi
+  # Signal 2 — cloud-tier recognized name (kept as a second skip condition).
+  case "$CUR" in
+    claude/issue-*|issue-*) USE_CURRENT=1 ;;
+  esac
 fi
-# Signal 2 — cloud-tier recognized name (kept as a second skip condition).
-case "$CUR" in
-  claude/issue-*|issue-*) USE_CURRENT=1 ;;
-esac
 ```
 
 **If `USE_CURRENT` is set, skip branch creation entirely** — `$CUR` is the feature branch; jump straight to filling the workpad `Branch` line below.

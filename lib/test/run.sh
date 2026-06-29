@@ -1599,32 +1599,41 @@ assert_eq "base_branch guard: hard-failure read (rc≠0, empty) → main" "main"
 # mechanism fails HERE rather than silently regressing to a second branch.
 assert_eq "#168 worktree detect: SKILL captures CUR via git branch --show-current" "yes" \
   "$(grep -qF 'CUR=$(git branch --show-current)' "$IMPL_SKILL" && echo yes || echo no)"
-assert_eq "#168 worktree detect: SKILL reads --git-common-dir" "yes" \
-  "$(grep -qF 'git rev-parse --git-common-dir' "$IMPL_SKILL" && echo yes || echo no)"
-assert_eq "#168 worktree detect: SKILL reads --git-dir" "yes" \
-  "$(grep -qF 'git rev-parse --git-dir' "$IMPL_SKILL" && echo yes || echo no)"
+assert_eq "#168 worktree detect: SKILL reads --git-common-dir in absolute form" "yes" \
+  "$(grep -qF 'git rev-parse --path-format=absolute --git-common-dir' "$IMPL_SKILL" && echo yes || echo no)"
+assert_eq "#168 worktree detect: SKILL reads --git-dir in absolute form" "yes" \
+  "$(grep -qF 'git rev-parse --path-format=absolute --git-dir' "$IMPL_SKILL" && echo yes || echo no)"
 assert_eq "#168 worktree detect: SKILL guards reuse against the base branch (never builds on trunk)" "yes" \
   "$(grep -qF '"$CUR" != "$BASE"' "$IMPL_SKILL" && echo yes || echo no)"
+# The base/detached-HEAD guard must wrap BOTH reuse signals (Signal 2's name match too),
+# so a base branch named like a feature branch (base_branch=issue-next) still CREATEs.
+# Pin the rev-parse-failure breadcrumb so the silent-degrade path stays attributable.
+assert_eq "#168 worktree detect: SKILL leaves a breadcrumb when git rev-parse fails" "yes" \
+  "$(grep -qF 'could not resolve the git-dir layout' "$IMPL_SKILL" && echo yes || echo no)"
 assert_eq "#168 worktree detect: SKILL names the linked-worktree signal" "yes" \
   "$(grep -qiF 'linked worktree' "$IMPL_SKILL" && echo yes || echo no)"
 assert_eq "#168 worktree detect: SKILL keeps the cloud-tier name match as a second skip condition" "yes" \
   "$(grep -qF 'claude/issue-*|issue-*)' "$IMPL_SKILL" && echo yes || echo no)"
 
 # Behavioral coverage: mirror Phase 1.4's reuse-vs-create decision and exercise the
-# whole matrix. Keep byte-aligned with the SKILL block. Echoes "reuse" (skip
-# creation, use CUR) or "create" (fall through to branch-for-issue.py).
+# whole matrix. Keep behaviorally aligned with the SKILL block (it is a restructured
+# mirror — early-return form — not a byte-for-byte copy). Echoes "reuse" (skip creation,
+# use CUR) or "create" (fall through to branch-for-issue.py). The non-empty + != base
+# guards wrap BOTH signals exactly as the SKILL hoists them; an empty common==gitdir
+# (rev-parse failed) collapses Signal 1 to "not a worktree" → create (fail-closed).
 #   decide_branch <git-common-dir> <git-dir> <CUR> <BASE>
 decide_branch() {
   local common="$1" gitdir="$2" cur="$3" base="$4"
-  # Linked-worktree signal: common-dir != git-dir. Reuse ONLY when CUR is a real
-  # branch (non-empty, not a detached HEAD) and NOT the base branch.
-  if [ "$common" != "$gitdir" ] && [ -n "$cur" ] && [ "$cur" != "$base" ]; then
-    echo reuse; return
+  # Guards apply to BOTH reuse signals: never reuse a detached HEAD (empty CUR) or the
+  # base branch (build on trunk), regardless of which signal would otherwise match.
+  if [ -n "$cur" ] && [ "$cur" != "$base" ]; then
+    # Signal 1 — linked worktree: common-dir != git-dir (both absolute).
+    [ "$common" != "$gitdir" ] && { echo reuse; return; }
+    # Signal 2 — cloud-tier name match (GitHub Action path; not a worktree).
+    case "$cur" in
+      claude/issue-*|issue-*) echo reuse; return ;;
+    esac
   fi
-  # Cloud-tier name match (GitHub Action path; not a worktree).
-  case "$cur" in
-    claude/issue-*|issue-*) echo reuse; return ;;
-  esac
   echo create
 }
 # AC1+AC2: in a linked worktree, a harness branch whose name matches NEITHER pattern
@@ -1632,6 +1641,10 @@ decide_branch() {
 # second branch.
 assert_eq "#168 worktree detect: worktree + worktree-issue-165 (name matches neither) → reuse" "reuse" \
   "$(decide_branch /repo/.git /repo/.git/worktrees/issue-165 worktree-issue-165 main)"
+# Overlap: worktree AND a name-matching branch (both signals true) → reuse (locks the
+# both-true path so a future refactor can't make the signals mutually exclusive).
+assert_eq "#168 worktree detect: worktree + issue-9 (both signals true) → reuse" "reuse" \
+  "$(decide_branch /repo/.git /repo/.git/worktrees/x issue-9 main)"
 # AC3: cloud-tier name detection still skips creation, in the main working tree (no worktree).
 assert_eq "#168 worktree detect: main tree + issue-5 → reuse (name match)" "reuse" \
   "$(decide_branch /repo/.git /repo/.git issue-5 main)"
@@ -1643,9 +1656,20 @@ assert_eq "#168 worktree detect: worktree + base branch (main) → create [fail-
   "$(decide_branch /repo/.git /repo/.git/worktrees/x main main)"
 assert_eq "#168 worktree detect: worktree + base branch (develop) → create [fail-closed]" "create" \
   "$(decide_branch /repo/.git /repo/.git/worktrees/x develop develop)"
+# AC4 (peer completeness): the base guard wraps Signal 2 too — a base branch NAMED like a
+# feature branch (base_branch=issue-5) must still CREATE, not reuse via the name match,
+# in the main tree AND inside a worktree.
+assert_eq "#168 worktree detect: main tree + base named issue-5 (CUR==BASE) → create [fail-closed]" "create" \
+  "$(decide_branch /repo/.git /repo/.git issue-5 issue-5)"
+assert_eq "#168 worktree detect: worktree + base named issue-5 (CUR==BASE) → create [fail-closed]" "create" \
+  "$(decide_branch /repo/.git /repo/.git/worktrees/x issue-5 issue-5)"
 # Fail-closed: detached HEAD inside a worktree (empty CUR) → CREATE, never reuse an empty branch.
 assert_eq "#168 worktree detect: worktree + detached HEAD (empty CUR) → create [fail-closed]" "create" \
   "$(decide_branch /repo/.git /repo/.git/worktrees/x '' main)"
+# Fail-closed: git rev-parse FAILED (empty common == empty gitdir) → Signal 1 collapses
+# to "not a worktree"; a non-matching name then CREATEs (with the SKILL breadcrumb).
+assert_eq "#168 worktree detect: rev-parse failure (empty dirs) + worktree-issue-165 → create [fail-closed]" "create" \
+  "$(decide_branch '' '' worktree-issue-165 main)"
 # AC5: not in a worktree and not a recognized feature branch → CREATE (branch-for-issue.py path).
 assert_eq "#168 worktree detect: main tree + feature-x (no worktree, no name match) → create" "create" \
   "$(decide_branch /repo/.git /repo/.git feature-x main)"
