@@ -940,6 +940,28 @@ assert_pin_unique "over-grade: Step 3 item 2 produces the recorded severity-cali
 assert_pin_unique "over-grade: severity-calibrated record carries no skip_category (Loop-Exit gates ignore it)" \
   'it is a calibration record, not a skip' "$MAXI_SKILL"
 
+# Issue #165 Part A: the iter-<N>.json workpad carries a per-iteration loop_role
+# field (fix | promoted) for loop-state legibility — no consumer reads it, so a
+# silent drop would never surface behaviorally. Pin the field at its schema
+# source-of-truth line and the Step 3 item 7 persist rule that writes it every
+# iteration; mutation proof = delete either and the suite goes RED.
+assert_pin_unique "loop_role: field + value set pinned at iter-N json schema source-of-truth" \
+  '"loop_role": "fix | promoted"' "$MAXI_SKILL"
+assert_pin_unique "loop_role: Step 3 item 7 persist rule writes it every iteration" \
+  'the iteration role from the schema: fix for a normal fix iteration, promoted for a Decide-outcome-2 shadow-promoted iter' "$MAXI_SKILL"
+
+# Issue #165 Part B: Step 3 carries a recorded source-of-truth verify-step — a
+# Phase-3 finding that prescribes changing existing documented behavior must be
+# verified against its cited source of truth before it is applied, and a
+# prescription that contradicts it is pushed back through the item-5 structured
+# flow, not applied. Pin the load-bearing contract phrase and the by-name
+# reference to the receiving-code-review principle it applies; mutation proof =
+# paraphrase-gut either and the suite goes RED.
+assert_pin_unique "verify-step: review-and-fix Step 3 verifies a reclassification against its cited source of truth" \
+  'verify the prescription against its cited source of truth' "$MAXI_SKILL"
+assert_pin_unique "verify-step: names the receiving-code-review verify-before-implementing principle" \
+  'receiving-code-review verify-before-implementing principle' "$MAXI_SKILL"
+
 # Drift guard: the Phase 2.3 sweep list lives in three places that must stay in
 # sync — the sweep body in implement/SKILL.md, the "Sweep selection" always-run
 # index in the same file, and the rationale table in docs/implement-skill.md. The
@@ -977,6 +999,23 @@ assert_eq "sweep 2.3.0a: docs/implement-skill.md keeps the rationale table row" 
 # reviewer who guts the steps but keeps the heading still trips the suite.
 assert_eq "sweep 2.3.0a: implement SKILL keeps the enumerate-by-grep step" "yes" \
   "$(grep -qF 'Enumerate the peer set by grep, not from memory' "$IMPL_SKILL" && echo yes || echo no)"
+
+# Issue #165 Part C: same three-mirror-site drift guard for the new 2.3.0b
+# enum-enumeration reconciliation sweep — the sibling of 2.3.0a for "a value was
+# added to an enumerated set". It lives in the same three places (sweep body,
+# "Sweep selection" index, rationale table) and must stay in sync; if any of the
+# three loses it, the catch for a stale doc/comment enumeration or fall-through
+# consumer reverts to a shadow-review finding or a post-bot fix.
+assert_eq "sweep 2.3.0b: implement SKILL keeps the sweep body" "yes" \
+  "$(grep -qF '#### 2.3.0b Enum-enumeration reconciliation sweep' "$IMPL_SKILL" && echo yes || echo no)"
+assert_eq "sweep 2.3.0b: implement SKILL lists it in the always-run index" "yes" \
+  "$(grep -qF 'run **2.3.0b**' "$IMPL_SKILL" && echo yes || echo no)"
+assert_eq "sweep 2.3.0b: docs/implement-skill.md keeps the rationale table row" "yes" \
+  "$(grep -qF '| 2.3.0b Enum-enumeration reconciliation |' "$IMPL_DOC" && echo yes || echo no)"
+# Pin one step token unique to the 2.3.0b procedure (the grep-every-enumerating-site
+# rule) so a reviewer who guts the steps but keeps the heading still trips the suite.
+assert_eq "sweep 2.3.0b: implement SKILL keeps the enumerate-every-site step" "yes" \
+  "$(grep -qF 'Enumerate every site that names a member of the set, by grep' "$IMPL_SKILL" && echo yes || echo no)"
 
 # Drift guard: the base_branch read in implement/SKILL.md Phase 1.4 is the skill's
 # one piece of load-bearing inline bash — like the max_iterations clamp above, the
