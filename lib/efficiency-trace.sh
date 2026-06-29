@@ -143,6 +143,15 @@ emit_jq() {
 # `git rev-parse --show-toplevel || pwd` once, so a non-repo tree falls back to
 # cwd and a non-repo commit simply fails best-effort with a breadcrumb.
 
+# Single source of truth for the iter-<N>.json expected field set (issue #170).
+# Kept in sync with the iter-<N>.json schema block in skills/review-and-fix/SKILL.md;
+# a lib/test/run.sh assertion FAILs if the two diverge. `shadow` is intentionally
+# excluded — Step 2.6 appends it later, so it is legitimately absent on iters that
+# ran no shadow pass. --self-check warns (best-effort) when any of these is missing
+# from a persisted iter workpad. Plain (non-readonly) single-line assignment so the
+# run.sh divergence guard can grep `^ITER_EXPECTED_FIELDS=` to extract it.
+ITER_EXPECTED_FIELDS="iter started_at fix_commit_sha fix_files loop_role checklist phase3_dispatched diff_profile phase3_findings fix_decisions convergence_inputs cap_drops telemetry"
+
 # ── --self-check (Layer 2): warn-only, never writes, never fails ─────────────
 do_self_check() {
   # Silent when telemetry is disabled — there is no record to expect, so a
@@ -166,6 +175,21 @@ do_self_check() {
   if [ ! -e "$record" ]; then
     echo "::warning::devflow review-and-fix self-check: effectiveness record '.devflow/logs/efficiency/${SLUG}-${run_id}.json' was NOT persisted for run ${SLUG}/${run_id} — recover it with 'lib/efficiency-trace.sh --persist'." >&2
   fi
+  # Per-iteration field validation (issue #170): warn — best-effort, never writes,
+  # never aborts — for each iter-<N>.json missing an expected field, naming the
+  # field and the iter file so a silently-dropped inline-persist field becomes a
+  # visible warning. A malformed (non-object) iter file is a different, already-
+  # degraded case, not a missing-field one, so it is skipped (same object-gate as
+  # the derivation path); --persist/--mode already breadcrumb the malformed case.
+  local iter field
+  for iter in "$WORKPAD_DIR"/iter-*.json; do
+    [ -e "$iter" ] || continue
+    jq -e 'type == "object"' "$iter" >/dev/null 2>&1 || continue
+    for field in $ITER_EXPECTED_FIELDS; do
+      jq -e --arg f "$field" 'has($f)' "$iter" >/dev/null 2>&1 || \
+        echo "::warning::devflow review-and-fix self-check: iter workpad '$(basename "$iter")' is missing expected field '${field}'" >&2
+    done
+  done
   return 0
 }
 

@@ -1292,15 +1292,28 @@ assert_eq "#157 AC3 mutation: an (indented) grep-on-prior-line bypass in the reg
   "2" "$(count_region_nonhelper_stmts "$NHPROBE")"
 rm -f "$NHPROBE"
 
-# Issue #165 Part A: the iter-<N>.json workpad carries a per-iteration loop_role
-# field (fix | promoted) for loop-state legibility — no consumer reads it, so a
-# silent drop would never surface behaviorally. Pin the field at its schema
+# Issue #165 Part A + #170: the iter-<N>.json workpad carries a per-iteration
+# loop_role field (fix | promoted). #170 gave it a real consumer —
+# lib/efficiency-trace.jq derives AND surfaces it per iteration — so the field is
+# no longer "legibility-only: no consumer reads it". Pin the field at its schema
 # source-of-truth line and the Step 3 item 7 persist rule that writes it every
 # iteration; mutation proof = delete either and the suite goes RED.
 assert_pin_unique "loop_role: field + value set pinned at iter-N json schema source-of-truth" \
   '"loop_role": "fix | promoted"' "$MAXI_SKILL"
 assert_pin_unique "loop_role: Step 3 item 7 persist rule writes it every iteration" \
   'the iteration role from the schema: fix for a normal fix iteration, promoted for a Decide-outcome-2 shadow-promoted iter' "$MAXI_SKILL"
+# Issue #170: the loop_role legibility win is realized — efficiency-trace.jq now
+# DERIVES + SURFACES loop_role per iteration, so SKILL.md no longer claims it is
+# "legibility-only" (that became false the moment the jq surfaced the field). The
+# now-false phrasing is gone from BOTH the note and Step 3 item 7 ("legibility-only"
+# is unique to those two loop_role sites; line 647's "no consumer reads it" is the
+# unrelated deferrals-manifest note and must stay), and the corrected note names
+# efficiency-trace.jq as the deriving/surfacing consumer. Mutation proof =
+# reintroduce "legibility-only" or drop the consumer mention → RED.
+assert_eq "loop_role #170: SKILL.md no longer claims 'legibility-only' (note + Step 3 item 7 corrected)" "0" \
+  "$(pin_count 'legibility-only' "$MAXI_SKILL")"
+assert_pin_unique "loop_role #170: SKILL.md note names efficiency-trace.jq as the deriving/surfacing consumer" \
+  'derives and surfaces it per iteration' "$MAXI_SKILL"
 
 # Issue #165 Part B: Step 3 carries a recorded source-of-truth verify-step — a
 # Phase-3 finding that prescribes changing existing documented behavior must be
@@ -6042,6 +6055,77 @@ assert_eq "et-persist: durable refresh produces a new commit (record frozen, cop
 assert_eq "et-persist: frozen record was NOT re-derived (iterations stays 1)" "1" \
   "$(jq -r '.iterations' "$ETDR_REPO/.devflow/logs/efficiency/pr-50-run-d.json")"
 rm -rf "$ETDR_REPO"
+
+# ── Issue #170: loop_role derivation + --self-check field validation ─────────
+# (1) efficiency-trace.jq DERIVES loop_role per iteration of the per-run record:
+#     iter 1 → fix; iter N → promoted when iter N-1's shadow.promoted_to_iter_next
+#     is true. The fixtures OMIT loop_role entirely, proving the derivation holds
+#     on the dropped-persist path (the reason the backstop exists).
+LR_DIR="$(mktemp -d)"
+printf '{"iter":1,"phase3_findings":[],"shadow":{"promoted_to_iter_next":true}}' > "$LR_DIR/iter-1.json"
+printf '{"iter":2,"phase3_findings":[]}'                                         > "$LR_DIR/iter-2.json"
+LR_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$LR_DIR" --slug pr-70 --mode record)"; LR_RC=$?
+assert_eq "loop_role #170: record mode exits 0" "0" "$LR_RC"
+assert_eq "loop_role #170: per-run record surfaces loop_role per iteration (real consumer)" "true" \
+  "$(printf '%s' "$LR_REC" | jq -r '[.per_iteration[] | has("loop_role")] | all')"
+assert_eq "loop_role #170: iter 1 derives fix (dropped-persist path: field omitted in fixture)" "fix" \
+  "$(printf '%s' "$LR_REC" | jq -r '.per_iteration[] | select(.iter==1) | .loop_role')"
+assert_eq "loop_role #170: iter 2 derives promoted (prior shadow.promoted_to_iter_next=true)" "promoted" \
+  "$(printf '%s' "$LR_REC" | jq -r '.per_iteration[] | select(.iter==2) | .loop_role')"
+rm -rf "$LR_DIR"
+
+# (2) A persisted non-empty loop_role is PRESERVED over the derived value.
+LR_P="$(mktemp -d)"
+printf '{"iter":1,"phase3_findings":[],"shadow":{"promoted_to_iter_next":false}}' > "$LR_P/iter-1.json"
+printf '{"iter":2,"phase3_findings":[],"loop_role":"promoted"}'                    > "$LR_P/iter-2.json"
+LR_P_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$LR_P" --slug pr-71 --mode record)"
+assert_eq "loop_role #170: persisted loop_role preserved (derived would be fix, persisted=promoted wins)" "promoted" \
+  "$(printf '%s' "$LR_P_REC" | jq -r '.per_iteration[] | select(.iter==2) | .loop_role')"
+rm -rf "$LR_P"
+
+# (3) Graceful degradation: lone iter 1 with no shadow + no loop_role → fix; an
+#     unparseable iter is dropped (object-gate) yet the record still derives,
+#     exit 0; a missing run dir → exit 0. Never aborts (the efficiency-trace
+#     "every mode never aborts" contract).
+LR_D="$(mktemp -d)"
+printf '{"iter":1,"phase3_findings":[]}' > "$LR_D/iter-1.json"
+printf 'not json'                        > "$LR_D/iter-2.json"
+LR_D_REC="$(bash "$LIB/efficiency-trace.sh" --workpad-dir "$LR_D" --slug pr-72 --mode record)"; LR_D_RC=$?
+assert_eq "loop_role #170: unparseable iter present → record mode still exits 0" "0" "$LR_D_RC"
+assert_eq "loop_role #170: lone iter 1, no shadow/no loop_role → fix default" "fix" \
+  "$(printf '%s' "$LR_D_REC" | jq -r '.per_iteration[] | select(.iter==1) | .loop_role')"
+rm -rf "$LR_D"
+LR_MISS="$(mktemp -d)"; rmdir "$LR_MISS"
+bash "$LIB/efficiency-trace.sh" --workpad-dir "$LR_MISS" --slug pr-73 --mode record >/dev/null 2>&1; LR_MISS_RC=$?
+assert_eq "loop_role #170: missing run dir → record mode exits 0" "0" "$LR_MISS_RC"
+
+# (4) --self-check WARNS (best-effort, exit 0, no writes) when an iter workpad is
+#     missing an expected field — naming the field + the iter file — and leaves
+#     the iter file byte-identical. Fixture carries every expected field EXCEPT
+#     telemetry (a non-derivable expected field).
+LR_SC_REPO="$(mktemp -d)"
+git -C "$LR_SC_REPO" init -q
+LR_SC_RUN="$LR_SC_REPO/.devflow/tmp/review/pr-74/run-z"
+mkdir -p "$LR_SC_RUN"
+printf '{"iter":1,"started_at":"x","fix_commit_sha":"x","fix_files":[],"loop_role":"fix","checklist":[],"phase3_dispatched":[],"diff_profile":{},"phase3_findings":[],"fix_decisions":[],"convergence_inputs":{},"cap_drops":{}}' > "$LR_SC_RUN/iter-1.json"
+cp "$LR_SC_RUN/iter-1.json" "$LR_SC_REPO/iter-1.bak"
+LR_SC_OUT="$( ( cd "$LR_SC_REPO" && bash "$LIB/efficiency-trace.sh" --self-check --workpad-dir "$LR_SC_RUN" --slug pr-74 ) 2>&1 )"; LR_SC_RC=$?
+assert_eq "loop_role #170: --self-check exits 0 on a missing field" "0" "$LR_SC_RC"
+assert_eq "loop_role #170: --self-check ::warning:: names the missing field + iter file on one line" "yes" \
+  "$(printf '%s' "$LR_SC_OUT" | grep -F '::warning::' | grep -F 'telemetry' | grep -qF 'iter-1.json' && echo yes || echo no)"
+assert_eq "loop_role #170: --self-check never mutates the iter file (byte-identical)" "yes" \
+  "$(cmp -s "$LR_SC_REPO/iter-1.bak" "$LR_SC_RUN/iter-1.json" && echo yes || echo no)"
+rm -rf "$LR_SC_REPO"
+
+# (5) Single-source field set ↔ SKILL.md schema divergence guard (AC #6).
+#     ITER_EXPECTED_FIELDS in efficiency-trace.sh is the ONE place the expected
+#     iter-field set is defined; it MUST equal the iter-<N>.json schema's
+#     top-level fields in SKILL.md minus `shadow` (appended later by Step 2.6,
+#     legitimately absent). FAILs if a field is added/removed on either side.
+LR_CONST="$(grep -E '^ITER_EXPECTED_FIELDS=' "$LIB/efficiency-trace.sh" | sed -E 's/^ITER_EXPECTED_FIELDS=//; s/"//g' | tr ' ' '\n' | grep -v '^$' | sort -u)"
+LR_SCHEMA="$(sed -n '/^### Schema$/,/^```$/p' "$MAXI_SKILL" | grep -E '^  "[A-Za-z0-9_]+":' | sed -E 's/^  "([A-Za-z0-9_]+)":.*/\1/' | grep -v '^shadow$' | sort -u)"
+assert_eq "loop_role #170: ITER_EXPECTED_FIELDS single-source == SKILL.md schema top-level minus shadow" \
+  "$LR_SCHEMA" "$LR_CONST"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "devflow-runner.yml: opt-in environment provisioning (issues #18, #21)"
