@@ -1881,6 +1881,26 @@ assert_eq "implement finalize: SKILL ticks the workpad.py-owned 'PR marked ready
 assert_eq "implement finalize: workpad.py owns the 'PR marked ready' label (template + _PROGRESS_PHASES agree)" "yes" \
   "$(grep -qF '**PR marked ready**' "$WP_PY" && grep -qF "'PR marked ready'" "$WP_PY" && echo yes || echo no)"
 
+# ── issue #169: workpad.py tick failure-isolation + index ticking ─────────────
+# Coupled contract across three files: scripts/workpad.py (the volatile-vs-structural
+# behavior + the new --tick-ac-n/--tick-plan-n flags) ↔ implement/SKILL.md (the
+# `workpad.py update` flag-table AND the Phase 3.4 AC-tick call sites) ↔ this suite.
+# The SKILL flag-table must document the index flags and the failure-isolation
+# contract, and the Phase 3.4 gate must tick ACs by index rather than hand-picked
+# substrings (the eight-fragile-substring foot-gun this issue removes). Editing one
+# side without the others goes red here. (workpad.py's runtime behavior is pinned
+# exhaustively in lib/test/test_python_scripts.py; these are the doc-mirror pins.)
+assert_eq "#169: workpad.py defines the --tick-ac-n / --tick-plan-n index flags" "yes" \
+  "$(grep -qF -- '--tick-ac-n' "$WP_PY" && grep -qF -- '--tick-plan-n' "$WP_PY" && echo yes || echo no)"
+assert_eq "#169: implement/SKILL.md documents --tick-ac-n (index AC tick)" "yes" \
+  "$(grep -qF -- '--tick-ac-n' "$IMPL_SKILL" && echo yes || echo no)"
+assert_eq "#169: implement/SKILL.md documents --tick-plan-n (index Plan tick)" "yes" \
+  "$(grep -qF -- '--tick-plan-n' "$IMPL_SKILL" && echo yes || echo no)"
+assert_eq "#169: implement/SKILL.md flag-table carries the volatile failure-isolation contract" "yes" \
+  "$(grep -qiF 'volatile' "$IMPL_SKILL" && echo yes || echo no)"
+assert_eq "#169: Phase 3.4 AC-tick uses the index form (no hand-picked '{substring of AC text}')" "yes" \
+  "$(grep -qF -- '--tick-ac "{substring of AC text}"' "$IMPL_SKILL" && echo no || echo yes)"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "scaffold-config.sh"
 # ────────────────────────────────────────────────────────────────────────────

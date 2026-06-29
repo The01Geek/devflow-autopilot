@@ -37,7 +37,10 @@ run" (which would post a duplicate comment).
 
 `update` is the high-level mutation entry point used by /implement at every
 phase boundary. It re-fetches the workpad body, applies the requested
-mutations atomically, auto-updates `Last updated`, and PATCHes the result.
+mutations, auto-updates `Last updated`, and PATCHes the result. A *structural*
+failure (missing section/front-matter line) aborts the call before any PATCH; a
+*volatile* per-row tick miss (a `--tick-*`/`--tick-*-n` that does not resolve)
+is reported and exits non-zero, but the call's other mutations still PATCH.
 Notes (`--note`) are append-only and nest under their lifecycle phase inside
 the ## Progress section; Devflow Reflection accumulates bullets; checkbox
 sections are mutated in place rather than rewritten. See `workpad.py update
@@ -483,10 +486,12 @@ def _tick_checkbox(content: str, text_substr: str, section_label: str) -> str:
     """Tick exactly one matching unticked `- [ ]`/`* [ ]` checkbox in the section.
 
     Only `[ ]` rows are considered candidates; already-ticked rows are ignored.
-    This means a duplicate `--tick-plan`/`--tick-ac` value (or a substring that
-    only matches an already-ticked row) raises `_UpdateError` instead of
-    silently no-op'ing — repeated calls in a batch loop are surfaced as errors
-    rather than swallowed."""
+    A duplicate `--tick-plan`/`--tick-ac` value (or a substring that only matches
+    an already-ticked row, or that matches nothing, or that matches multiple rows)
+    raises `_TickMatchError` — a *volatile* per-row failure that `_apply_mutations`
+    collects and `cmd_update` reports without discarding the call's other
+    mutations. This is distinct from a structural `_UpdateError` (a missing
+    section), which still aborts the whole call before any PATCH."""
     candidates = []
     new_lines = []
     for line in content.splitlines():
@@ -495,17 +500,47 @@ def _tick_checkbox(content: str, text_substr: str, section_label: str) -> str:
             candidates.append((len(new_lines), m))
         new_lines.append(line)
     if not candidates:
-        raise _UpdateError(
+        raise _TickMatchError(
             f"no unticked {section_label} checkbox matched substring "
             f"{text_substr!r} (already ticked, or no match)"
         )
     if len(candidates) > 1:
-        raise _UpdateError(
+        raise _TickMatchError(
             f"{len(candidates)} {section_label} checkboxes match {text_substr!r}; "
             f"be more specific"
         )
     line_idx, m = candidates[0]
     new_lines[line_idx] = f"{m.group(1)}[x]{m.group(2)}{m.group(3)}"
+    return '\n'.join(new_lines) + ('\n' if content.endswith('\n') else '')
+
+
+def _tick_checkbox_by_index(content: str, n: int, section_label: str) -> str:
+    """Tick the Nth checkbox (1-based) in the section, counting *every*
+    `- [ ]`/`* [ ]` and `- [x]`/`* [x]` row in document order.
+
+    Addressing by position avoids the fragile, hand-picked unique-substring
+    requirement of `_tick_checkbox` for batched ticks. An out-of-range N, or an N
+    that lands on an already-ticked row, is a *volatile* `_TickMatchError` (same
+    class the substring path raises) — collected and reported, never a structural
+    abort. Mirrors the `_rewrite_checkbox` row-walk (`[ xX]` state class)."""
+    rows = []  # (line_idx, match) for every checkbox row, ticked or not
+    new_lines = []
+    for line in content.splitlines():
+        m = re.match(r'^(\s*[-*]\s+)(\[[ xX]\])(\s+)(.*)$', line)
+        if m:
+            rows.append((len(new_lines), m))
+        new_lines.append(line)
+    if n < 1 or n > len(rows):
+        raise _TickMatchError(
+            f"index {n} out of range for {section_label} (section has "
+            f"{len(rows)} checkbox row(s), valid 1..{len(rows)})"
+        )
+    line_idx, m = rows[n - 1]
+    if m.group(2) != '[ ]':
+        raise _TickMatchError(
+            f"{section_label} checkbox {n} is already ticked"
+        )
+    new_lines[line_idx] = f"{m.group(1)}[x]{m.group(3)}{m.group(4)}"
     return '\n'.join(new_lines) + ('\n' if content.endswith('\n') else '')
 
 
@@ -766,11 +801,22 @@ def _read_section_file(path: str, flag: str) -> str:
 
 
 class _UpdateError(Exception):
-    """Raised by mutation helpers in `_apply_mutations` to signal a recoverable
-    error (no matching section, ambiguous checkbox, missing front-matter line,
-    ...). Caught only in `cmd_update`, where it prints the message and exits
-    1 *before* the PATCH call — so a failed mutation guarantees no partial
-    workpad update."""
+    """Raised by mutation helpers in `_apply_mutations` to signal a *structural*
+    failure — a missing target section, a missing `Status`/`Last updated` line, an
+    unreadable `--*-file`. Caught only in `cmd_update`, where it prints the message
+    and exits 1 *before* the PATCH call, so a structural failure guarantees no
+    partial workpad update. Contrast `_TickMatchError`, a per-row tick miss that is
+    collected and reported without aborting the call's other mutations."""
+
+
+class _TickMatchError(Exception):
+    """Raised by the tick helpers (`_tick_checkbox`, `_tick_checkbox_by_index`)
+    for a *volatile* per-row failure: a substring matching zero/multiple rows, an
+    out-of-range index, or an index landing on an already-ticked row, *inside a
+    present section*. Deliberately NOT a subclass of `_UpdateError` so the
+    structural `except _UpdateError` in `cmd_update` never captures it. Collected
+    per-tick in `_apply_mutations`; the call's other mutations still apply and
+    PATCH, and `cmd_update` then exits non-zero naming each failed tick."""
 
 
 def cmd_update(args):
@@ -824,13 +870,20 @@ def cmd_update(args):
         _fail('update body-fetch', e)
     body = r.stdout
 
+    # `failed_ticks` collects *volatile* per-row tick misses (see _TickMatchError):
+    # the call still applies and PATCHes every other mutation, then exits non-zero
+    # naming the ticks that did not land. A *structural* _UpdateError still aborts
+    # before any PATCH.
+    failed_ticks = []
     try:
-        body = _apply_mutations(body, args)
+        body = _apply_mutations(body, args, failed_ticks)
     except _UpdateError as e:
         sys.stderr.write(f"workpad.py update: {e}\n")
         sys.exit(1)
 
-    # Write to a temp file and PATCH (same path as cmd_patch).
+    # Write to a temp file and PATCH (same path as cmd_patch). The body always
+    # carries at least the refreshed `Last updated`, so the PATCH is never a
+    # no-op even when every requested tick was volatile.
     import tempfile
     with tempfile.NamedTemporaryFile('w', suffix='.md', delete=False) as tf:
         tf.write(body)
@@ -848,10 +901,59 @@ def cmd_update(args):
         Path(tmp_path).unlink(missing_ok=True)
     sys.stdout.write(r.stdout)
 
+    # Volatile tick failures: the PATCH landed (other mutations applied), but
+    # report each unresolved tick to stderr and exit non-zero so the orchestrator
+    # sees exactly which tick(s) failed.
+    if failed_ticks:
+        sys.stderr.write(
+            f"workpad.py update: PATCHed, but {len(failed_ticks)} tick(s) did not "
+            f"resolve (the call's other mutations were applied):\n"
+        )
+        for ft in failed_ticks:
+            sys.stderr.write(f"  - {ft}\n")
+        sys.exit(1)
 
-def _apply_mutations(body: str, args) -> str:
-    """Apply all mutations from args atomically. Raises _UpdateError on any
-    failure; caller should not patch on failure."""
+
+def _apply_section_ticks(
+    sections, section_name, flag_base, substr_texts, index_ns, failed_ticks,
+):
+    """Tick rows in `## {section_name}` from the substring and index requests.
+
+    Structural failure (the section is absent while ticks were requested) raises
+    `_UpdateError` to abort the whole call. A per-row miss (substring zero/multiple,
+    out-of-range/already-ticked index) is *volatile*: it is appended to
+    `failed_ticks` as a flag-named descriptor and the remaining ticks still apply.
+    Substring ticks are processed before index ticks; index positions count every
+    `[ ]`/`[x]` row, so a prior substring tick never shifts an index target."""
+    if not substr_texts and not index_ns:
+        return
+    idx = _find_section(sections, section_name)
+    if idx is None:
+        raise _UpdateError(f"section '## {section_name}' not found")
+    heading, content = sections[idx]
+    for text in substr_texts:
+        try:
+            content = _tick_checkbox(content, text, section_name)
+        except _TickMatchError as e:
+            failed_ticks.append(f"--tick-{flag_base} {text!r} — {e}")
+    for n in index_ns:
+        try:
+            content = _tick_checkbox_by_index(content, n, section_name)
+        except _TickMatchError as e:
+            failed_ticks.append(f"--tick-{flag_base}-n {n} — {e}")
+    sections[idx] = (heading, content)
+
+
+def _apply_mutations(body: str, args, failed_ticks) -> str:
+    """Apply all mutations from args and return the new body.
+
+    Structural failures (missing section / front-matter line / unreadable file)
+    raise `_UpdateError` before returning — the caller must not PATCH. Volatile
+    per-row tick misses are appended to the caller-provided `failed_ticks` list
+    (a flat list of descriptor strings) and do NOT abort: the body returned still
+    carries every other mutation, and the caller PATCHes it then reports the
+    failed ticks. `failed_ticks` is a required out-parameter (no silent-swallow
+    default); `cmd_update` is the production caller and always supplies one."""
     now_dt = datetime.datetime.now(datetime.timezone.utc)
     # Friendly UTC for the human-facing `Last updated` line (the `now`
     # subcommand still prints full ISO-8601 for machine uses like follow-up
@@ -898,32 +1000,18 @@ def _apply_mutations(body: str, args) -> str:
     # Section-level mutations.
     preamble, sections = _split_sections(body)
 
-    if args.tick_progress:
-        idx = _find_section(sections, 'Progress')
-        if idx is None:
-            raise _UpdateError("section '## Progress' not found")
-        heading, content = sections[idx]
-        for text in args.tick_progress:
-            content = _tick_checkbox(content, text, 'Progress')
-        sections[idx] = (heading, content)
-
-    if args.tick_plan:
-        idx = _find_section(sections, 'Plan')
-        if idx is None:
-            raise _UpdateError("section '## Plan' not found")
-        heading, content = sections[idx]
-        for text in args.tick_plan:
-            content = _tick_checkbox(content, text, 'Plan')
-        sections[idx] = (heading, content)
-
-    if args.tick_ac:
-        idx = _find_section(sections, 'Acceptance Criteria')
-        if idx is None:
-            raise _UpdateError("section '## Acceptance Criteria' not found")
-        heading, content = sections[idx]
-        for text in args.tick_ac:
-            content = _tick_checkbox(content, text, 'Acceptance Criteria')
-        sections[idx] = (heading, content)
+    # Progress has no index form (Progress checkboxes stay substring-addressed);
+    # Plan/AC accept both the substring and `-n` index forms in one call.
+    _apply_section_ticks(
+        sections, 'Progress', 'progress', args.tick_progress, [], failed_ticks,
+    )
+    _apply_section_ticks(
+        sections, 'Plan', 'plan', args.tick_plan, args.tick_plan_n, failed_ticks,
+    )
+    _apply_section_ticks(
+        sections, 'Acceptance Criteria', 'ac', args.tick_ac, args.tick_ac_n,
+        failed_ticks,
+    )
 
     if args.rewrite_ac:
         old, new = args.rewrite_ac
@@ -1044,8 +1132,10 @@ def main():
 
     u = sub.add_parser(
         'update',
-        help='Apply atomic mutations to the workpad and PATCH. Re-fetches the '
-             'body internally; Last updated is refreshed automatically.',
+        help='Apply mutations to the workpad and PATCH. Re-fetches the body '
+             'internally; Last updated is refreshed automatically. Structural '
+             'failures abort with no PATCH; a per-row tick miss is reported and '
+             'exits non-zero but still PATCHes the call\'s other mutations.',
     )
     u.add_argument('issue', type=int)
     u.add_argument('--status', help='Replace the Status line value. A canonical '
@@ -1060,16 +1150,32 @@ def main():
                         'Inserted after Branch if the line is absent.')
     u.add_argument('--tick-progress', metavar='TEXT', action='append', default=[],
                    help='Tick one ## Progress checkbox matching TEXT (substring). '
-                        'May be passed multiple times to tick several boxes in '
-                        'one atomic update.')
+                        'Repeatable. A zero/multiple-match miss is a volatile '
+                        'failure: the call PATCHes its other mutations and exits '
+                        'non-zero naming the miss (no index form for Progress).')
     u.add_argument('--tick-plan', metavar='TEXT', action='append', default=[],
                    help='Tick one Plan checkbox matching TEXT (substring). '
-                        'May be passed multiple times to tick several boxes '
-                        'in one atomic update.')
+                        'Repeatable. A zero/multiple-match miss is volatile (see '
+                        '--tick-progress).')
+    u.add_argument('--tick-plan-n', metavar='N', type=int, action='append',
+                   default=[],
+                   help='Tick the Nth Plan checkbox (1-based, counting every '
+                        '[ ] and [x] row in document order). Repeatable; '
+                        'combinable with --tick-plan and every other flag. An '
+                        'out-of-range or already-ticked N is a volatile failure '
+                        '(reported, non-zero exit, other mutations applied).')
     u.add_argument('--tick-ac', metavar='TEXT', action='append', default=[],
                    help='Tick one Acceptance Criteria checkbox matching TEXT '
-                        '(substring). May be passed multiple times to tick '
-                        'several boxes in one atomic update.')
+                        '(substring). Repeatable. A zero/multiple-match miss is '
+                        'volatile (see --tick-progress).')
+    u.add_argument('--tick-ac-n', metavar='N', type=int, action='append',
+                   default=[],
+                   help='Tick the Nth Acceptance Criteria checkbox (1-based, '
+                        'counting every [ ] and [x] row in document order). '
+                        'Repeatable; combinable with --tick-ac and every other '
+                        'flag. An out-of-range or already-ticked N is a volatile '
+                        'failure (reported, non-zero exit, other mutations '
+                        'applied).')
     u.add_argument('--rewrite-ac', nargs=2, metavar=('OLD', 'NEW'),
                    help='Find one AC matching OLD; replace its text with NEW. '
                         'Preserves the checkbox state. For Phase 2.2.6.')
