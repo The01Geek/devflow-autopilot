@@ -394,7 +394,7 @@ Scan the issue's Acceptance Criteria for explicit policy directives — versioni
 
 When an AC claim contradicts the operative policy, do not proceed to Phase 2. Record the contradiction: `workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind blocked --reflection "issue-claim audit (policy): AC claims '{AC text}' but operative policy in {file} states '{policy text}' — contradiction requires user resolution before Phase 2"`, then emit the 👎 outcome reaction (see *Outcome reaction* in the Workpad Reference) and stop the run.
 
-When the AC claim matches the policy, record the confirmation: `--reflection-kind note --reflection "issue-claim audit (policy): AC aligns with {file}"`.
+When the AC claim matches the policy, record the confirmation: `--reflection-kind note --reflection "issue-claim audit (policy): AC aligns with {file}"`. If the issue's ACs contain no explicit policy directives, record: `--reflection-kind note --reflection "issue-claim audit (policy): no policy-referencing AC claims found — pass complete"`.
 
 ---
 
