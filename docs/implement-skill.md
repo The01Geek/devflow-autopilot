@@ -59,8 +59,7 @@ enumerations of the value set went stale until a shadow reviewer flagged them �
 "reconciled enumeration." 2.3.0 and 2.3.0a grep *code* sites; 2.3.0b keys on the *observable* member literals
 of the set (grep each known value, not a re-judgment) so the doc/comment and fall-through sites are caught at
 implement time. A site deliberately exempt (a fall-through that *should* absorb the value) is allowed when
-recorded with a `--note`; only a *silent* stale enumeration is the defect. It is numbered 2.3.0b for the same
-presentational reason 2.3.0a is not renumbered into 2.3.1–2.3.6.
+recorded with a `--note`; only a *silent* stale enumeration is the defect.
 
 **2.3.5** is different in kind from the correctness sweeps above: it front-loads the *cleanup* lenses that the Phase 3.2 `/simplify` pass (`/code-review --fix`) would otherwise be the first to catch. `/code-review` applies four cleanup lenses — reuse, simplification, efficiency, altitude. The first two of those are *design* decisions and are settled earlier, at the **2.2.4 Reuse & Altitude plan gate**, because reusing an existing helper or picking the right altitude is far cheaper before the code is written than after. Simplification and efficiency are properties of the *assembled* diff, so they belong in a post-write sweep — hence 2.3.5. Together, 2.2.4 + 2.3.5 mean the in-loop `/simplify` should find little; when it finds a lot, that is the signal those two gates were skipped or rushed. `/simplify` still earns its place as a backstop because it sees the whole diff at once and catches cross-change duplication and dead code no single in-loop sweep would.
 
