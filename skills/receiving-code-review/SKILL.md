@@ -40,7 +40,7 @@ WHEN receiving code review feedback:
 **Iron Law: NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE**
 
 Before declaring the review findings addressed:
-1. Review the diff of your changes against the addressed findings.
+1. Review the diff of your changes against the addressed findings. For each fix, verify the fix is correct for *all* inputs and conditions — not only the case the reviewer described. Fixing one problem while introducing a new inaccuracy is a common failure mode the test suite may not catch (e.g. a breadcrumb that fires on `|| VAR=""` emptiness rephrased to say "failed", implying a non-zero exit, missing the asymmetric-empty case).
 2. Run the project's test suite. Attempt the direct/local invocation first; restrict the CI fallback to a genuine sandbox or permission denial — never when the suite runs but fails. When using the CI fallback, actively wait to observe CI go green (submitting a push is not the same as observing green); do not claim completion until CI confirms green. Record the local-skip reason as an auditable note.
 3. Only after both pass, claim completion.
 
