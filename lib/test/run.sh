@@ -10065,6 +10065,41 @@ EOF
   assert_eq "#225 preflight: no provisioner pointer when python3 resolves (AC10)" "no" \
     "$(printf '%s' "$PF10_OUT" | grep -q 'provision-python3-shim.sh' && echo yes || echo no)"
 
+  # ── AC6 (python3-present-but-too-old): a real python3 <3.11 takes preflight's python3 branch
+  #    (NOT the resolved-alternate path) and must fail with the specific version message from the
+  #    version re-check — a distinct code path from the `python`(alternate)-too-old case above. ──
+  TOLD="$(mktemp -d)"; build_stub_bin "$TOLD"; make_fake_python "$TOLD/python3" "3.10.9" 3 10
+  PF_OLD3_OUT="$(PATH="$TOLD" bash "$PREFLIGHT_SH" 2>&1)"; PF_OLD3_RC=$?
+  assert_eq "#225 preflight: python3 present but <3.11 → exit non-zero (AC6)" "yes" \
+    "$([ "$PF_OLD3_RC" -ne 0 ] && echo yes || echo no)"
+  assert_eq "#225 preflight: python3 <3.11 → 'Python 3.11+ required (found ...)' from the version re-check (AC6)" "yes" \
+    "$(printf '%s' "$PF_OLD3_OUT" | grep -q 'Python 3.11+ required (found' && echo yes || echo no)"
+  assert_eq "#225 preflight: python3 <3.11 → NOT the resolved-alternate 'no python3 on PATH' message (AC6)" "no" \
+    "$(printf '%s' "$PF_OLD3_OUT" | grep -q 'no python3 on PATH' && echo yes || echo no)"
+
+  # ── Default target-dir selection (the PRODUCTION path — no explicit TARGET_DIR). ──
+  # (a) A writable dir on PATH → the shim lands in the first writable PATH dir, no PATH note.
+  TDEF="$(mktemp -d)"; build_stub_bin "$TDEF"; make_fake_python "$TDEF/python" "3.11.3" 3 11
+  PPS_DEF2_OUT="$(PATH="$TDEF" bash "$PPS" --apply 2>&1)"; PPS_DEF2_RC=$?
+  assert_eq "#225 pps: default target — no TARGET_DIR, writable PATH dir → exit 0" "0" "$PPS_DEF2_RC"
+  assert_eq "#225 pps: default target — shim written into the first writable PATH dir" "yes" \
+    "$([ -f "$TDEF/python3" ] && echo yes || echo no)"
+  assert_eq "#225 pps: default target — no PATH note when the chosen dir is on PATH" "no" \
+    "$(printf '%s' "$PPS_DEF2_OUT" | grep -qi 'may not be on your PATH' && echo yes || echo no)"
+  # (b) No writable dir on PATH AND HOME unset → refuse with exit 2 + the HOME-unset breadcrumb.
+  #     Root bypasses the -w bit (the read-only dir would read writable), so skip under root.
+  if [ "$(id -u)" -ne 0 ]; then
+    TRO="$(mktemp -d)"; build_stub_bin "$TRO"; make_fake_python "$TRO/python" "3.11.3" 3 11
+    chmod 0555 "$TRO"
+    if [ ! -w "$TRO" ]; then
+      PPS_NH_OUT="$(env -u HOME PATH="$TRO" bash "$PPS" --apply 2>&1)"; PPS_NH_RC=$?
+      assert_eq "#225 pps: default target — no writable PATH dir + HOME unset → exit 2" "2" "$PPS_NH_RC"
+      assert_eq "#225 pps: default target — HOME-unset breadcrumb names the cause" "yes" \
+        "$(printf '%s' "$PPS_NH_OUT" | grep -qi 'HOME is unset' && echo yes || echo no)"
+    fi
+    chmod 0755 "$TRO"   # restore so cleanup can remove it
+  fi
+
   # ── AC8: install.sh delegates to the provisioner on the no-python3/alternate path; not when python3 works. ──
   INSTALL_SH="$LIB/../install.sh"
   REPO_ROOT="$(cd "$LIB/.." && pwd)"
