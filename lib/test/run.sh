@@ -793,6 +793,15 @@ assert_pin_unique "max_iterations clamp: SKILL keeps the negative-aware integer 
 assert_pin_unique "max_iterations clamp: SKILL keeps the below-1 floor" '"$MAX_ITERS" -lt 1' "$MAXI_SKILL"
 assert_pin_unique "max_iterations clamp: SKILL keeps the default-5 fallback" 'MAX_ITERS=5' "$MAXI_SKILL"
 
+# Issue #182 (convention-violation / unscoped-staging): the review-and-fix fix-commit step
+# (Step 3 item 6) must stage only the specific files the fix touched, never `git add -A` /
+# `git add .` — an unscoped stage sweeps unrelated working-tree state (a local config edit,
+# stray capture files) onto the feature branch (PRs #117, #174). Pin the operative
+# prohibition sentence (not a framing clause) so a future simplification/rewrite that drops
+# it goes RED. The literal is apostrophe-free and target-unique in the SKILL.
+assert_pin_unique "unscoped-staging: review-and-fix fix-commit step prohibits git add -A / git add ." \
+  'Never use `git add -A` or `git add .` at the fix-commit step' "$MAXI_SKILL"
+
 # Drift guard: the park-calibration gate is the lenient-verdict catch — it re-reads
 # parked findings against three generic under-grade shapes before the review-and-fix
 # loop concludes on an APPROVE-family verdict, so every review-and-fix-engine consumer
