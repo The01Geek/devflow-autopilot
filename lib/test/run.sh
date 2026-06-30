@@ -2098,19 +2098,47 @@ assert_eq "#169: workpad.py routes volatile misses through _report_failed_ticks 
 #     into the docs subagent dispatch instruction as required deliverables.
 #   Stage 2 post-hoc: cross-check each path against the PR diff; self-heal or
 #     route to Blocked for absent paths.
-# Pin the load-bearing tokens across both stages.
+# The pin set below is asymmetric by design: two guards lock Stage 1 (the
+# mandatory-deliverable dispatch phrase and the broadened extraction superset),
+# the rest lock Stage 2's behavioral arms. The PR #190 fix-loop added four
+# fail-open / completeness guards on top of the original six (self-heal re-check,
+# $BASE non-empty fallback, diff-command rc check, extraction superset).
+# Pin the load-bearing operative sentences across both stages.
 assert_pin_unique "#185: Phase 4.1 Stage 1 requires docs subagent to treat named paths as mandatory (D)" \
   'treat each as a mandatory deliverable' "$IMPL_SKILL"
+# #190 finding 4: Stage 1 extraction must be a superset of doc-deliverable shapes
+# — a backtick-quoted bare token counts even with no slash and no extension, so
+# extension-less deliverables (Makefile, LICENSE, README) do not silently no-op
+# the gate. Pin the operative sentence whose removal re-opens the vacuous-gate hole.
+assert_pin_unique "#190: Phase 4.1 Stage 1 extraction superset includes backtick-quoted bare tokens (G)" \
+  'a backtick-quoted token is a path even with no' "$IMPL_SKILL"
+# #190 suggestion 1: a present-but-empty Documentation Needed bullet must leave an
+# auditable breadcrumb rather than silently disabling enforcement.
+assert_pin_unique "#190: Phase 4.1 Stage 1 records a note when the bullet yields zero tokens (H)" \
+  'present but yields zero path tokens, record a workpad note' "$IMPL_SKILL"
 assert_pin_unique "#185: Phase 4.1 Stage 2 no-op escape hatch when no paths extracted (E)" \
   'this cross-check is a no-op' "$IMPL_SKILL"
+# #190 suggestion 3: Pin F was truncated mid-parenthetical (a trivial reword
+# false-REDs it); pin the complete operative phrase instead.
 assert_pin_unique "#185: Phase 4.1 Stage 2 bare-filename matching rule (F)" \
-  'bare filename (contains no' "$IMPL_SKILL"
+  'whose basename matches it counts as satisfied' "$IMPL_SKILL"
 assert_pin_unique "#185: Phase 4.1 Stage 2 keeps the absent-file self-heal condition (A)" \
   'absent from the diff, perform the missing update' "$IMPL_SKILL"
 assert_pin_unique "#185: Phase 4.1 Stage 2 uses the three-dot origin/\$BASE...HEAD diff range (B)" \
   'git diff --name-only "origin/$BASE...HEAD"' "$IMPL_SKILL"
 assert_pin_unique "#185: Phase 4.1 Stage 2 Blocked arm names the missing-content condition (C)" \
   'Documentation Needed file content cannot be determined' "$IMPL_SKILL"
+# #190 finding 2: $BASE-empty recovery must mirror the Phase 1.4 fallback, not
+# just the config-get.sh read (the read alone returns nothing on malformed config).
+assert_pin_unique "#190: Phase 4.1 Stage 2 \$BASE recovery mirrors the Phase 1.4 fallback (I)" \
+  'applying its non-empty fallback and not just the config read' "$IMPL_SKILL"
+# #190 finding 3: a failed/empty diff command must not be read as "all paths absent".
+assert_pin_unique "#190: Phase 4.1 Stage 2 guards a failed/empty diff command (J)" \
+  'never treat a failed or empty diff command as evidence' "$IMPL_SKILL"
+# #190 finding 1: the self-heal recovery arm must re-verify the path landed and
+# the commit/push succeeded before ticking Documentation — else fall to Blocked.
+assert_pin_unique "#190: Phase 4.1 Stage 2 self-heal re-checks the path and commit/push rc (K)" \
+  're-run the per-path diff check for that path and confirm the commit and push both succeeded' "$IMPL_SKILL"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "scaffold-config.sh"
