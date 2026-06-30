@@ -86,9 +86,14 @@ def _fail(msg, code=2):
 
 
 def _run(cmd, *, check=True):
+    # `encoding="utf-8"` pins the gh-output decode: this wrapper reads PR and
+    # issue *bodies* (`gh pr view --json body`, `gh issue view --json body`),
+    # which are routinely non-ASCII, so decoding through the locale codec would
+    # raise UnicodeDecodeError under a non-UTF-8 ambient codec (Windows' cp1252).
+    # Implies text mode, so `text=True` is dropped (passing both is redundant).
     return subprocess.run(
         cmd, check=check,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8",
     )
 
 
@@ -250,7 +255,21 @@ def _match_finding_to_deferral(finding: dict, deferral: dict) -> bool:
     )
 
 
+def _force_utf8_streams():
+    """Force stdout/stderr to UTF-8, idempotently and defensively, in the CLI
+    entry path only (not at import — so unit-test imports don't mutate the
+    importer's global streams). Harmless where this script emits only ASCII, but
+    keeps every first-party helper self-defending against a non-UTF-8 ambient
+    codec (Windows' cp1252). The guard tolerates a non-`TextIOWrapper` stream."""
+    for _stream in (sys.stdout, sys.stderr):
+        try:
+            _stream.reconfigure(encoding="utf-8")
+        except (AttributeError, ValueError):
+            pass
+
+
 def main(argv=None):
+    _force_utf8_streams()
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--pr", type=int, required=True,
                    help="PR number whose body holds the deferrals block.")

@@ -41,6 +41,26 @@ auth is required to run them.
   in a skill (the cloud-tier *workflows* are the one exception — see below).
 - **Portability:** avoid GNU-only flags. Use `python3` for date math (not `date -d`)
   and ERE / `sed -E` (not `grep -P`).
+- **Windows / non-UTF-8 hosts.** The helpers self-defend at two layers: a committed
+  `.gitattributes` pins every `*.sh`/`*.py`/`*.jq` to `eol=lf` on checkout (so
+  `core.autocrlf=true` can't turn a shebang into `bash\r`), and every first-party
+  `scripts/*.py` forces its own `stdout`/`stderr` and `gh` I/O to UTF-8 (so an em-dash
+  or emoji can't trip a cp1252 codec). Two caller-side traps remain the contributor's
+  responsibility on Windows, because they corrupt output **after** the helper ran
+  cleanly:
+  - **bash file-association.** Invoking a `.sh` via the `git-bash.exe --no-cd "%L"`
+    file association (e.g. from PowerShell) can capture no stdout while exiting 0 —
+    invoke `bash` explicitly with a POSIX path (`bash scripts/foo.sh`), never rely on
+    the `.sh` double-click / file-association launcher.
+  - **PowerShell 5.1 `>` / `Out-File`.** These re-encode captured stdout to UTF-16LE
+    (a `FF FE` BOM + interleaved null bytes), which was the original cause of
+    workpad-comment corruption. Capture helper output from a UTF-8 shell (Git Bash,
+    WSL, `pwsh` 6+), or use `cmd /c "... > file"` / an explicit UTF-8-no-BOM write —
+    **never** PowerShell 5.1 `>` or `Out-File`.
+
+  If you already checked out the tree under `core.autocrlf=true` before `.gitattributes`
+  existed, renormalize once with `git add --renormalize .` (or re-clone) — `.gitattributes`
+  governs future checkout/normalization, not a tree that is already CRLF on disk.
 - **No secrets, owner-specific IDs, or product names** in committed files. Config
   lives in `.devflow/config.json` (created from the example), which is gitignored.
 - New `.py`/`.sh` files carry an SPDX header:

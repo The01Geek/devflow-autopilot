@@ -2505,14 +2505,19 @@ _docs_sweeps=$(grep -oE 'still runs the contract-completeness sweeps \([^)]+\)' 
 assert_eq "sweep selection: SKILL and docs enumerate the same contract-sweep set (cross-site)" \
   "$_skill_sweeps" "$_docs_sweeps"
 
-# Drift guard: the base_branch read in the implement skill (phases/phase-1-setup.md) Phase 1.4 is the skill's
-# one piece of load-bearing inline bash — like the max_iterations clamp above, the
+# Drift guard: the base_branch read in the implement skill (phases/phase-1-setup.md) Phase 1.4 is
+# a load-bearing inline-bash block in the skill (Phase 3.1's §3.1 re-derivation below is another) — like the max_iterations clamp above, the
 # tokens it relies on can be silently broken by a SKILL edit (drop the `|| BASE=""`
 # and `git fetch origin ""` runs; drop the fetch guard and a bad base fails with a
 # bare git error instead of an attributable DevFlow breadcrumb). Pin the tokens so
 # a refactor of the block fails here rather than shipping a silent regression.
-assert_pin_unique "base_branch read: SKILL reads via config-get with the main default" 'config-get.sh .base_branch main' "$IMPL_SKILL"
-assert_pin_unique "base_branch read: SKILL guards the empty read" '[ -n "$BASE" ]' "$IMPL_SKILL"
+# NOTE: the two read+guard literals below (`config-get.sh .base_branch main` and
+# `[ -n "$BASE" ]`) now ALSO appear in phases/phase-3-review.md §3.1, which re-derives
+# BASE before `gh pr create` (issue #224). So these two pins are scoped to the
+# phase-1-setup.md file (where Phase 1.4 lives) rather than the whole bundle, keeping
+# them unique-per-file; the phase-3 re-derivation has its own pins further below.
+assert_pin_unique "base_branch read: Phase 1.4 reads via config-get with the main default" 'config-get.sh .base_branch main' "$IMPL_PHASES_DIR/phase-1-setup.md"
+assert_pin_unique "base_branch read: Phase 1.4 guards the empty read" '[ -n "$BASE" ]' "$IMPL_PHASES_DIR/phase-1-setup.md"
 assert_pin_unique "base_branch read: SKILL fetches origin/\$BASE (not hard-coded main)" 'git fetch origin "$BASE"' "$IMPL_SKILL"
 assert_pin_unique "base_branch read: SKILL checks out origin/\$BASE" 'git checkout -b "$BRANCH" "origin/$BASE"' "$IMPL_SKILL"
 assert_pin_unique "base_branch read: SKILL keeps the attributable fetch-failure breadcrumb" 'could not fetch base branch' "$IMPL_SKILL"
@@ -2520,6 +2525,61 @@ assert_pin_unique "#168 create-path: SKILL guards branch-for-issue.py exit statu
   'branch-for-issue.py failed' "$IMPL_SKILL"
 assert_pin_unique "#168 create-path: SKILL guards against an empty BRANCH name" \
   '[ -n "$BRANCH" ]' "$IMPL_SKILL"
+
+# Issue #224: Phase 3.1 (phases/phase-3-review.md) opens the draft PR against the
+# CONFIGURED base_branch, not the GitHub default branch. Because each phase's bash
+# block is a SEPARATE shell, Phase 1.4's $BASE is out of scope at 3.1, so 3.1 must
+# RE-DERIVE it (same config-get read + fail-closed guard) and pass --base "$BASE" to
+# `gh pr create`. Pin both halves against the phase-3 file specifically: dropping the
+# --base flag OR the re-derivation guard turns the suite RED (the operand-traceability
+# pin ensures the --base pin can't pass with an empty $BASE — the exact bug class).
+P3_REVIEW="$IMPL_PHASES_DIR/phase-3-review.md"
+# Include the leading `create ` so the pinned literal does not start with `--`
+# (pin_count's `grep -oF` would otherwise parse a `--base…` pattern as grep options
+# and match nothing): this pins the flag ON the `gh pr create` invocation specifically.
+assert_pin_unique "#224 Phase 3.1: gh pr create passes --base \"\$BASE\"" 'create --base "$BASE"' "$P3_REVIEW"
+assert_pin_unique "#224 Phase 3.1: re-derives BASE via config-get with the main default" 'config-get.sh .base_branch main' "$P3_REVIEW"
+assert_pin_unique "#224 Phase 3.1: re-derives BASE with the fail-closed empty-read guard" '[ -n "$BASE" ]' "$P3_REVIEW"
+# The guard PREDICATE `[ -n "$BASE" ]` is only half the fail-closed contract; its
+# CONSEQUENT — the `BASE=main` fallback assignment — is what actually keeps `--base`
+# from going out empty. Pin it too: a refactor that keeps the predicate but drops the
+# `|| { …; BASE=main; }` action would ship `gh pr create --base ""` (the silent
+# mistarget this PR exists to prevent) while every predicate/ordering pin stayed GREEN.
+assert_pin_unique "#224 Phase 3.1: empty-read guard falls back to main (fail-closed consequent)" 'BASE=main' "$P3_REVIEW"
+# Ordering/same-block guard (issue #224 iter 2): the pins above prove the tokens EXIST
+# but are positionally independent — a refactor that put `gh pr create --base "$BASE"`
+# BEFORE the re-derivation, or split them into separate ```bash fences, would leave them
+# all GREEN while $BASE is empty/unset at create time: the exact shell-boundary
+# mistarget (`--base ""`) §3.1's prose forbids. Assert the full producer→guard→fallback
+# →consumer order WITHIN ONE fenced bash block: the producer (config-get read `d`), the
+# fail-closed empty-read guard `[ -n "$BASE" ]` (`g`), AND its `BASE=main` fallback
+# action (`f`) all precede the consumer `gh pr create --base "$BASE"` (`c`), in the order
+# d < g < f < c. Pinning the fallback action's position too (not just the predicate's)
+# catches a refactor that relocates the guard OR drops the fallback action out of the
+# create-block — the "guard whose comparand can be absent fails open" class CLAUDE.md
+# flags. RED if reordered, split across blocks, or the guard/fallback is moved out of /
+# after the create.
+assert_eq "#224 Phase 3.1: re-derivation + empty-read guard + main-fallback precede gh pr create in the SAME bash block" "yes" \
+  "$(python3 -c '
+import sys, re
+t = open(sys.argv[1]).read()
+ok = "no"
+for m in re.finditer(r"```bash\n(.*?)```", t, re.S):
+    b = m.group(1)
+    if "gh pr create --base \"$BASE\"" in b:
+        d = b.find("config-get.sh .base_branch main")
+        g = b.find("[ -n \"$BASE\" ]")
+        f = b.find("BASE=main")
+        c = b.find("gh pr create --base \"$BASE\"")
+        if -1 not in (d, g, f, c) and d < g < f < c:
+            ok = "yes"
+        break
+print(ok)
+' "$P3_REVIEW")"
+# Deferred (issue #224 review, Suggestion): we do NOT pin that §3.1 OMITS --head.
+# Low value — `gh pr create` defaults --head to the checked-out branch, which is the
+# correct feature branch at Phase 3.1; a future edit adding --head would not corrupt
+# the base targeting this fix protects. Revisit only if --head is ever passed here.
 
 # Versioning is per-repo policy, not the engine's job: implement/SKILL.md must carry NO
 # version-bump step. A repo that wants version management opts in via its consumer prompt
@@ -9715,6 +9775,135 @@ assert_pin_unique "#181 filter: review/SKILL.md documents why .devflow/logs/ hun
 # Phase 1 agent — closing the one downstream path the single 0.2 filter wouldn't.
 assert_pin_unique "#181 filter: Phase 0.3 derives the changed-file list from the filtered diff.patch (peer-completeness)" \
   'deriving the file list from it excludes them by construction' "$REVIEW_SKILL"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "issue #222: .gitattributes eol=lf + UTF-8 stream self-defense"
+# ────────────────────────────────────────────────────────────────────────────
+# The helper toolchain must self-defend on Windows / non-UTF-8 hosts: LF line
+# endings forced by .gitattributes (so a shebang never becomes `bash\r`) and
+# scripts/*.py forcing their own streams + gh I/O to UTF-8 (so emoji/em-dashes
+# never trip cp1252). These assert the .gitattributes contract, the no-CR-in-.sh
+# index invariant, and the cp1252 RED->GREEN behavior by SUBPROCESS (the harness
+# imports the modules in-process, so the entry-path reconfigure is only
+# observable when the script is RUN as a CLI — test_python_scripts.py proves the
+# complementary import-no-side-effect half).
+U8_ROOT="$LIB/.."
+U8_SCRIPTS="$U8_ROOT/scripts"
+
+# AC1: .gitattributes exists and `git check-attr eol` resolves to `lf` for a
+# sample *.sh, *.py, and *.jq file.
+assert_eq "#222: .gitattributes exists at repo root" "yes" \
+  "$( [ -f "$U8_ROOT/.gitattributes" ] && echo yes || echo no )"
+for _u8f in scripts/config-get.sh scripts/workpad.py lib/classify-pr-kind.jq; do
+  assert_eq "#222: git check-attr eol=lf for $_u8f" "lf" \
+    "$(git -C "$U8_ROOT" check-attr eol -- "$_u8f" | sed -E 's/.*: eol: //')"
+done
+
+# AC2: no tracked *.sh file carries a CR byte in the index (i/lf for every entry).
+# `git ls-files --eol` prints `i/<index-eol> w/<worktree-eol> attr/<attr> <path>`;
+# a crlf/mixed in the i/ column is a defect. grep -c prints 0 + exits 1 on no
+# match, so `|| true` keeps the clean `0`.
+assert_eq "#222: no tracked *.sh has crlf/mixed line endings in the index" "0" \
+  "$(git -C "$U8_ROOT" ls-files --eol -- '*.sh' | grep -cE 'i/(crlf|mixed)' || true)"
+
+# AC3/AC5: workpad.py new-body is a pure offline formatter whose default --branch
+# carries an ellipsis and whose Status carries the rocket glyph, so non-ASCII
+# fires with no flags. Under PYTHONIOENCODING=cp1252 today's UNHARDENED code
+# raises UnicodeEncodeError (the reported defect); the hardened code exits 0 with
+# valid UTF-8 and NO BOM (closing the UTF-16LE-corruption root).
+U8_NB="$(mktemp)"
+PYTHONIOENCODING=cp1252 python3 "$U8_SCRIPTS/workpad.py" new-body 1 > "$U8_NB" 2>/dev/null
+U8_NB_RC=$?
+assert_eq "#222 RED->GREEN: workpad.py new-body exits 0 under cp1252" "0" "$U8_NB_RC"
+assert_eq "#222: new-body output contains the UTF-8 rocket glyph (did not crash)" "yes" \
+  "$(grep -qF '🚀' "$U8_NB" && echo yes || echo no)"
+assert_eq "#222: new-body output carries no BOM (UTF-8-no-BOM, not UTF-16LE)" "yes" \
+  "$(head -c3 "$U8_NB" | od -An -tx1 | tr -d ' \n' | grep -qE '^(efbbbf|fffe|feff)' && echo no || echo yes)"
+rm -f "$U8_NB"
+
+# parse-acs.py emits non-ASCII only as the em-dash in its near-miss breadcrumb
+# (a trailing-colon heading triggers it). NOTE: em-dash (U+2014) and ellipsis
+# (U+2026) ARE encodable in cp1252 (0x97 / 0x85), so a cp1252 test of em-dash
+# content is VACUOUS — it passes even against the unhardened code. The strictly-
+# non-UTF-8 codec under which this content genuinely raises without the fix (a
+# real RED->GREEN) is `ascii` (em-dash is outside both ascii and latin-1). The
+# reconfigure overrides PYTHONIOENCODING, so the hardened script exits 0.
+U8_PAB="$(mktemp)"; printf '## Acceptance Criteria:\n- [ ] x\n' > "$U8_PAB"
+U8_PAE="$(mktemp)"
+PYTHONIOENCODING=ascii python3 "$U8_SCRIPTS/parse-acs.py" --body-file "$U8_PAB" >/dev/null 2>"$U8_PAE"
+U8_PA_RC=$?
+assert_eq "#222 RED->GREEN: parse-acs.py exits 0 emitting its em-dash breadcrumb under ascii" "0" "$U8_PA_RC"
+assert_eq "#222: parse-acs.py emits the em-dash breadcrumb as UTF-8 (did not crash)" "yes" \
+  "$(grep -qF '—' "$U8_PAE" && echo yes || echo no)"
+rm -f "$U8_PAB" "$U8_PAE"
+
+# AC7 (write-side encode): file-deferrals.py --dry-run writes the issue TITLE and
+# a body preview to stderr. We inject a ROCKET (U+1F680, outside cp1252) into the
+# manifest `file` so it lands in the derived title. The RED->GREEN discriminates
+# on emitted CONTENT, not on a crash: stderr defaults to the backslashreplace
+# error handler, so the unhardened code does NOT raise under cp1252 — it exits 0
+# but renders the escaped `\U0001f680` instead of the rocket, so the rocket-present
+# assertion below fails RED. The hardened stream-forcing emits the real UTF-8
+# rocket (GREEN). (Do NOT "simplify" this to an exit-code/crash check — both the
+# hardened and unhardened paths exit 0, so a crash check would be vacuous.) The
+# em-dash case would be doubly vacuous (em-dash is cp1252-encodable AND stderr
+# never raises), which is why the rocket + content-assert is used here.
+U8_MAN="$(mktemp)"
+cat > "$U8_MAN" <<'JSON'
+{"schema_version": 1, "deferrals": [
+  {"file": "src/🚀mod.py", "symbol": "fn", "kind": "perf", "summary": "loop",
+   "severity": "Medium", "agent": "a", "category": "scope", "explanation": "deferred"}
+]}
+JSON
+PYTHONIOENCODING=cp1252 python3 "$U8_SCRIPTS/file-deferrals.py" \
+  --source-issue 1 --pr 2 --manifest "$U8_MAN" --dry-run >/dev/null 2>"$U8_MAN.err"
+U8_FD_RC=$?
+assert_eq "#222 RED->GREEN: file-deferrals.py --dry-run exits 0 under cp1252 (write-side encode)" "0" "$U8_FD_RC"
+assert_eq "#222: file-deferrals.py --dry-run emits its rocket-bearing title as UTF-8" "yes" \
+  "$(grep -qF '🚀' "$U8_MAN.err" && echo yes || echo no)"
+rm -f "$U8_MAN" "$U8_MAN.err"
+
+# AC6/AC7 (gh decode + temp-file/stdin encode): these are pinned STATICALLY, not
+# by a runtime crash, on purpose. On Linux, CPython's UTF-8 Mode (PEP 540) coerces
+# the C/POSIX locale to UTF-8, so a subprocess `text=True` DECODE never raises
+# here — the UnicodeDecodeError is genuinely Windows-only (cp1252 ANSI codepage,
+# no UTF-8-mode coercion). The portable, deterministic guarantee is that the code
+# PINS `encoding="utf-8"` at every gh-I/O and temp-file site, so the codec is
+# UTF-8 regardless of the host locale. Removing any pin makes these fail (a real
+# mutation check), where a runtime test would pass vacuously on the Linux runner.
+assert_eq "#222 AC6: workpad.py _run gh wrapper pins encoding=utf-8 (gh decode/encode)" "yes" \
+  "$(grep -qF 'stderr=subprocess.PIPE, encoding="utf-8",' "$U8_SCRIPTS/workpad.py" && echo yes || echo no)"
+assert_eq "#222 AC7: workpad.py NamedTemporaryFile body write pins encoding=utf-8" "yes" \
+  "$(grep -qF "'w', suffix='.md', delete=False, encoding=\"utf-8\"," "$U8_SCRIPTS/workpad.py" && echo yes || echo no)"
+assert_eq "#222 AC6: file-deferrals.py _run gh wrapper pins encoding=utf-8" "yes" \
+  "$(grep -qF 'stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8",' "$U8_SCRIPTS/file-deferrals.py" && echo yes || echo no)"
+assert_eq "#222 AC7: file-deferrals.py gh issue create pins input encoding=utf-8" "yes" \
+  "$(grep -qF 'input=body, check=False, encoding="utf-8",' "$U8_SCRIPTS/file-deferrals.py" && echo yes || echo no)"
+assert_eq "#222 AC6: parse-acs.py _fetch_body pins gh decode encoding=utf-8" "yes" \
+  "$(grep -qF 'check=True, capture_output=True, encoding="utf-8",' "$U8_SCRIPTS/parse-acs.py" && echo yes || echo no)"
+# match-deferrals.py's _run also reads gh PR/issue *bodies* (routinely non-ASCII),
+# so its decode is pinned too — closing the same Windows decode-crash path.
+assert_eq "#222 AC6: match-deferrals.py _run pins gh body-decode encoding=utf-8" "yes" \
+  "$(grep -qF 'stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8",' "$U8_SCRIPTS/match-deferrals.py" && echo yes || echo no)"
+
+# Smoke (not RED->GREEN): a gh stub returns a comment body containing a rocket;
+# workpad.py id must still decode it and print the matched id. On the Linux runner
+# this passes with or without the pin (UTF-8 Mode), so it is a round-trip smoke
+# test that the non-ASCII body doesn't break id resolution — NOT the AC6 proof
+# (that is the static pin above).
+U8_GHD="$(mktemp -d)"
+cat > "$U8_GHD/gh" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *"repo view"*) echo "acme/example-repo" ;;
+  *"comments"*) printf '%s\n' '[{"id":42,"body":"<!-- devflow:workpad --> 🚀 status"}]' ;;
+  *) echo '[]' ;;
+esac
+STUB
+chmod +x "$U8_GHD/gh"
+U8_ID_OUT="$(PATH="$U8_GHD:$PATH" python3 "$U8_SCRIPTS/workpad.py" id 1 2>/dev/null)"
+assert_eq "#222 smoke: workpad.py id resolves a comment with a non-ASCII body" "42" "$U8_ID_OUT"
+rm -rf "$U8_GHD"
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.

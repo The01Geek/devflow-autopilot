@@ -30,6 +30,7 @@ Exits 2 on bad arguments.
 import argparse
 import re
 import subprocess
+import sys
 import unicodedata
 from datetime import date
 
@@ -67,7 +68,21 @@ def _branch_exists(name: str) -> bool:
     return False
 
 
+def _force_utf8_streams():
+    """Force stdout/stderr to UTF-8, idempotently and defensively, in the CLI
+    entry path only (not at import — so unit-test imports don't mutate the
+    importer's global streams). Harmless where this script emits only ASCII, but
+    keeps every first-party helper self-defending against a non-UTF-8 ambient
+    codec (Windows' cp1252). The guard tolerates a non-`TextIOWrapper` stream."""
+    for _stream in (sys.stdout, sys.stderr):
+        try:
+            _stream.reconfigure(encoding="utf-8")
+        except (AttributeError, ValueError):
+            pass
+
+
 def main():
+    _force_utf8_streams()
     # argparse mutex groups misbehave with `nargs='?'` positionals (passing
     # `999 --title-file PATH` raises "argument title: not allowed with
     # argument --title-file" even when no title was provided), so we declare

@@ -40,10 +40,28 @@ ID_PREFIX = "dfr-"
 ID_HEX_LEN = 6
 
 
+def _force_utf8_streams():
+    """Force stdout/stderr to UTF-8, idempotently and defensively. Called from
+    the CLI entry path only (not at import) so importing this module for unit
+    tests never mutates the importer's global streams. The em-dash/ellipsis this
+    script emits (issue-body lines, the dry-run preview) would otherwise raise
+    `UnicodeEncodeError` under a non-UTF-8 ambient codec (Windows' cp1252).
+    Reconfigure overrides even a hostile `PYTHONIOENCODING`; the guard tolerates
+    a non-`TextIOWrapper` stream (e.g. a test's `io.StringIO`)."""
+    for _stream in (sys.stdout, sys.stderr):
+        try:
+            _stream.reconfigure(encoding="utf-8")
+        except (AttributeError, ValueError):
+            pass
+
+
 def _run(cmd, *, stdin=None, check=True):
+    # `encoding="utf-8"` pins both directions of the gh pipe (decode of output,
+    # encode of stdin) so neither raises under a non-UTF-8 ambient codec. Implies
+    # text mode, so `text=True` is dropped (passing both is redundant).
     return subprocess.run(
         cmd, check=check, stdin=stdin,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8",
     )
 
 
@@ -208,9 +226,12 @@ def _create_issue(title: str, body: str, dry_run: bool) -> tuple[int, str]:
         )
         return (0, "https://example.invalid/dry-run")
 
+    # `encoding="utf-8"` pins the stdin pipe so a non-ASCII issue body (em-dash,
+    # ellipsis) is encoded as UTF-8 rather than through the locale codec. Implies
+    # text mode, so `text=True` is dropped.
     r = subprocess.run(
         ["gh", "issue", "create", "--title", title, "--body-file", "-"],
-        input=body, check=False, text=True,
+        input=body, check=False, encoding="utf-8",
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
     )
     if r.returncode != 0:
@@ -229,6 +250,7 @@ def _write_manifest_atomic(path: Path, data: dict) -> None:
 
 
 def main(argv=None):
+    _force_utf8_streams()
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--source-issue", type=int, required=True,
                    help="Issue number that triggered the /implement run.")
