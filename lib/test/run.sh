@@ -2540,6 +2540,28 @@ P3_REVIEW="$IMPL_PHASES_DIR/phase-3-review.md"
 assert_pin_unique "#224 Phase 3.1: gh pr create passes --base \"\$BASE\"" 'create --base "$BASE"' "$P3_REVIEW"
 assert_pin_unique "#224 Phase 3.1: re-derives BASE via config-get with the main default" 'config-get.sh .base_branch main' "$P3_REVIEW"
 assert_pin_unique "#224 Phase 3.1: re-derives BASE with the fail-closed empty-read guard" '[ -n "$BASE" ]' "$P3_REVIEW"
+# Ordering/same-block guard (issue #224 iter 2): the three pins above prove the tokens
+# EXIST but are positionally independent — a refactor that put `gh pr create --base
+# "$BASE"` BEFORE the re-derivation, or split them into separate ```bash fences, would
+# leave all three GREEN while $BASE is empty/unset at create time: the exact
+# shell-boundary mistarget (`--base ""`) §3.1's prose forbids. Assert the producer
+# (config-get read) precedes the consumer (`gh pr create --base "$BASE"`) WITHIN ONE
+# fenced bash block. RED if reordered or split across blocks.
+assert_eq "#224 Phase 3.1: re-derivation precedes gh pr create in the SAME bash block" "yes" \
+  "$(python3 -c '
+import sys, re
+t = open(sys.argv[1]).read()
+ok = "no"
+for m in re.finditer(r"```bash\n(.*?)```", t, re.S):
+    b = m.group(1)
+    if "gh pr create --base \"$BASE\"" in b:
+        d = b.find("config-get.sh .base_branch main")
+        c = b.find("gh pr create --base \"$BASE\"")
+        if d != -1 and c != -1 and d < c:
+            ok = "yes"
+        break
+print(ok)
+' "$P3_REVIEW")"
 
 # Versioning is per-repo policy, not the engine's job: implement/SKILL.md must carry NO
 # version-bump step. A repo that wants version management opts in via its consumer prompt
