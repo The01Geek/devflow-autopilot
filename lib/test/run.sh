@@ -21,30 +21,40 @@ RESULTS_FILE="$(mktemp)"
 trap 'rm -f "$RESULTS_FILE"' EXIT   # protect RESULTS_FILE immediately; widened below once the bundle temp exists
 
 # issue #218: the /devflow:implement skill is split into a thin orchestrator
-# (skills/implement/SKILL.md) plus four phases/phase-N-*.md reference files read
-# on-demand at phase entry. The ~120 load-bearing IMPL_SKILL/DEF_SKILL pins below — and
-# the raw presence/absence/count/line-ordering guards that bypass pin_count — target the
-# WHOLE implement skill, not one file. Concatenate the five files into one temp "bundle"
-# view (newline-separated, so a file's last line cannot merge with the next file's first)
-# and point IMPL_SKILL/DEF_SKILL at it, so every existing call site keeps working
-# UNCHANGED while now asserting over the relocated content; "exactly one occurrence"
-# becomes a global uniqueness check across the whole implement skill. Built FAIL-CLOSED: a
-# failed mktemp hard-exits, and a missing/empty member records a suite FAIL — never a
-# silent empty bundle, which would turn the absence/zero-expecting guards (which assert a
-# literal is GONE or a count is 0) into vacuous passes.
+# (skills/implement/SKILL.md) plus the four phases/<stem>.md reference files named in
+# IMPL_PHASE_STEMS, read on-demand at phase entry. The ~120 load-bearing IMPL_SKILL/
+# DEF_SKILL pins below — and the raw presence/absence/count guards that bypass pin_count —
+# target the WHOLE implement skill, not one file. Concatenate the orchestrator + the four
+# phase files into one temp "bundle" view (newline-separated, so a file's last line cannot
+# merge with the next file's first) and point IMPL_SKILL/DEF_SKILL at it, so every
+# content-presence/uniqueness/count call site that reads $IMPL_SKILL/$DEF_SKILL keeps
+# working UNCHANGED while now asserting over the relocated content; "exactly one occurrence"
+# becomes a global uniqueness check across the whole implement skill. (A *positional* /
+# line-ordering guard must NOT use the bundle — it must grep the single owning phase file,
+# because the multi-file bundle has no single coordinate space; see the IPS_BACKSTOP_LN /
+# IPS_GATE_LN guard for why a bundle `head -1` would pass vacuously.) IMPL_PHASE_STEMS is the
+# single source of the phase set: the bundle members, the per-phase structural assertions,
+# AND the directory-reconciliation assertion all derive from it, so a phase file can never
+# be registered in one place and silently dropped from another. Built FAIL-CLOSED: a failed
+# mktemp hard-exits, and a missing / empty / UNREADABLE member (a stripped read bit, a `cat`
+# that errors) records a suite FAIL — never a silent partial bundle, which would turn the
+# absence/zero-expecting guards (which assert a literal is GONE or a count is 0) into
+# vacuous passes.
+IMPL_PHASE_STEMS="phase-1-setup phase-2-implement phase-3-review phase-4-documentation"
 IMPL_SKILL_BUNDLE="$(mktemp)" || { echo "run.sh: could not allocate the implement-skill bundle temp" >&2; exit 1; }
 trap 'rm -f "$RESULTS_FILE" "$IMPL_SKILL_BUNDLE"' EXIT
-for _m in \
-  "$LIB/../skills/implement/SKILL.md" \
-  "$LIB/../skills/implement/phases/phase-1-setup.md" \
-  "$LIB/../skills/implement/phases/phase-2-implement.md" \
-  "$LIB/../skills/implement/phases/phase-3-review.md" \
-  "$LIB/../skills/implement/phases/phase-4-documentation.md"; do
-  if [ -s "$_m" ]; then
-    cat "$_m" >> "$IMPL_SKILL_BUNDLE"
+_bundle_members="$LIB/../skills/implement/SKILL.md"
+for _s in $IMPL_PHASE_STEMS; do
+  _bundle_members="$_bundle_members $LIB/../skills/implement/phases/${_s}.md"
+done
+for _m in $_bundle_members; do
+  # `[ -r ]` + `[ -s ]` + the `cat` exit status together: a member that is missing, empty,
+  # OR unreadable (or whose read errors mid-stream) records a FAIL instead of silently
+  # contributing nothing — the fail-closed property the header comment promises.
+  if [ -r "$_m" ] && [ -s "$_m" ] && cat "$_m" >> "$IMPL_SKILL_BUNDLE"; then
     printf '\n' >> "$IMPL_SKILL_BUNDLE"
   else
-    printf '  FAIL  implement-skill bundle member missing or empty: %s\n' "$_m"
+    printf '  FAIL  implement-skill bundle member missing, empty, or unreadable: %s\n' "$_m"
     echo FAIL >> "$RESULTS_FILE"
   fi
 done
@@ -2157,15 +2167,33 @@ IMPL_DOC="$LIB/../docs/implement-skill.md"
 # phase's load step (which would make the engine improvise that phase from its thin stub).
 IMPL_ORCH="$LIB/../skills/implement/SKILL.md"
 IMPL_PHASES_DIR="$LIB/../skills/implement/phases"
-# One loop over the single phase-stem list checks both per-phase invariants: the phase file
-# exists & is non-empty, and the orchestrator names its entry-gate read EXACTLY ONCE (in its
-# stub's mandatory-read gate) — assert_pin_unique, not bare presence, so a dropped or
-# duplicated gate fails here. One loop header → one place the stem list is maintained.
-for _pf in phase-1-setup phase-2-implement phase-3-review phase-4-documentation; do
+# Directory-reconciliation: the actual phases/*.md files must equal IMPL_PHASE_STEMS — the
+# single registered phase set the bundle members and the per-phase loop both derive from. A
+# future phase file added to the directory (and wired into the orchestrator) WITHOUT being
+# registered in IMPL_PHASE_STEMS would otherwise be silently dropped from the bundle and the
+# per-phase coverage (its content pins/guards would under-cover it with zero RED); this fails
+# RED instead. Reconciling against the directory, not just hand-listing, is what closes the
+# coupled-site hazard of two hand-maintained mirrors. (`-maxdepth 1`: phases/ is flat; the
+# misregistration guard below separately forbids a nested SKILL.md.)
+_actual_phase_stems=$(find "$IMPL_PHASES_DIR" -maxdepth 1 -name '*.md' -type f -exec basename {} .md \; | sort | tr '\n' ' ' | sed 's/ *$//')
+_registered_phase_stems=$(printf '%s\n' $IMPL_PHASE_STEMS | sort | tr '\n' ' ' | sed 's/ *$//')
+assert_eq "implement split: phases/ dir holds exactly the registered phase set (no unregistered / missing phase file)" \
+  "$_registered_phase_stems" "$_actual_phase_stems"
+# One loop over the single phase-stem list checks each per-phase invariant: the phase file
+# exists & is non-empty; the orchestrator names its entry-gate read EXACTLY ONCE; AND the
+# orchestrator carries the entry-gate's fail-closed *imperative* (the "halt … with an
+# attributable breadcrumb" clause) — pinning only the path string would stay GREEN if a
+# future edit downgraded the mandatory-read gate to an inert "see also phases/…" mention,
+# losing the deferral semantics the split depends on. One loop header → one place the stem
+# list is maintained.
+for _pf in $IMPL_PHASE_STEMS; do
+  _n="${_pf#phase-}"; _n="${_n%%-*}"   # phase-1-setup -> 1
   assert_eq "implement split: phases/${_pf}.md exists and is non-empty" "yes" \
     "$([ -s "$IMPL_PHASES_DIR/${_pf}.md" ] && echo yes || echo no)"
   assert_pin_unique "implement split: orchestrator names the ${_pf}.md entry-gate read" \
     "phases/${_pf}.md" "$IMPL_ORCH"
+  assert_pin_unique "implement split: orchestrator carries the fail-closed entry-gate halt for Phase ${_n}" \
+    "halt Phase ${_n} with an attributable breadcrumb" "$IMPL_ORCH"
 done
 # Misregistration guard: a present-but-empty stdout from find means NO SKILL.md under
 # phases/. find over a missing dir also prints nothing (2>/dev/null), but the existence
