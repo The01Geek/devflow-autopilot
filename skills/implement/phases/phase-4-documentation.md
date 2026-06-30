@@ -183,9 +183,10 @@ if [ -n "${FILED_NUMBERS:-}" ]; then
     workpad.py update $ISSUE_NUMBER --note "Filed follow-up issues for deferred review findings: #${NUMBERS_CSV}"
     # Apply the configured deferred.labels to each filed issue — same resolve/normalize/
     # ensure/apply idiom as Phase 4.0 (default DevFlow,Deferred; empty/whitespace → none).
-    # `file-deferrals.py` itself stays out of config-reading (config is Node-resolver
-    # territory); the skill owns labeling. Best-effort and post-filing, so a label hiccup
-    # never unwinds an already-filed issue.
+    # `file-deferrals.py` itself stays out of config-reading (config is resolver
+    # territory — read through config-get.sh, not re-parsed ad hoc); the skill owns
+    # labeling. Best-effort and post-filing, so a label hiccup never unwinds an
+    # already-filed issue.
     # Capture config-get's rc (same as Phase 4.0): a hard read failure (corrupt
     # config.json / missing python3 → exit 2, empty stdout) yields an empty CLEAN that is
     # otherwise indistinguishable from a deliberately-empty value — leave a breadcrumb so
