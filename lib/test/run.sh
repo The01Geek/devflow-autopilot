@@ -2228,8 +2228,13 @@ for _pf in $IMPL_PHASE_STEMS; do
   # phase-3-review.md bodies accidentally exchanged) would leave them green — the tokens are
   # still present somewhere in the bundle. Grep the OWNING FILE directly (not the bundle) for
   # its own phase heading, the one thing that must live in THAT file and no other.
+  # Anchored to the START of the line (`^`), not a bare substring match (fix-delta gate
+  # finding): an unanchored match would false-PASS a swap whose real heading was lost but
+  # whose phase number still happened to appear elsewhere in the body (a stray prose
+  # cross-reference, a TOC entry) — the predicate must match the structural heading
+  # position, not just "the digit appears somewhere in the file".
   assert_eq "implement split: phases/${_pf}.md carries its own Phase ${_n} heading (not a cross-phase swap)" "yes" \
-    "$(grep -qF "## Phase ${_n}:" "$IMPL_PHASES_DIR/${_pf}.md" && echo yes || echo no)"
+    "$(grep -qE "^## Phase ${_n}:" "$IMPL_PHASES_DIR/${_pf}.md" && echo yes || echo no)"
 done
 # Misregistration guard: a present-but-empty stdout from find means NO SKILL.md under
 # phases/. find over a missing dir also prints nothing (2>/dev/null), but the existence
