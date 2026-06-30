@@ -726,15 +726,17 @@ elif [ "$GIT_STATUS_AFTER" != "$GIT_STATUS_BEFORE" ]; then
     # silently dropped; it is left to the human + the Step 2.6 shadow (porcelain's inherent limit).
     # The aggregate line below says "attempting" — each restorable path's actual outcome is its own warning.
     echo "::warning::devflow review: a Phase 3.1 review-agent dispatch modified the working tree (advisory review agents must never mutate it); affected paths: ${CHANGED_PATHS//$'\n'/ }; recording an Important finding and attempting best-effort restore of the snapshot delta (per-path outcome in the warnings below)" >&2
-    while IFS= read -r p; do
+    # Feed paths via `printf '%s\n' | while read` rather than an unquoted heredoc: an
+    # unquoted heredoc would shell-expand a `$`/backtick/backslash in a pathname before
+    # the loop sees it. `printf '%s'` emits the bytes verbatim. (The pipe runs the loop in
+    # a subshell, which is fine — it only emits breadcrumbs and restores; no state escapes.)
+    printf '%s\n' "$CHANGED_PATHS" | while IFS= read -r p; do
       [ -n "$p" ] || continue
       restore_err=$(git checkout HEAD -- "$p" 2>&1)
       if [ -n "$(git status --porcelain -- "$p")" ]; then
         echo "::warning::devflow review: path '$p' still dirty after restore attempt (e.g. an untracked or staged-new file the agent created — never auto-deleted — or a renamed/quoted path git could not restore; git said: ${restore_err:-none}) — left as-is for human inspection" >&2
       fi
-    done <<EOF
-$CHANGED_PATHS
-EOF
+    done
   fi
 fi
 ```

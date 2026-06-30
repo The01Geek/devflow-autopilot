@@ -1647,6 +1647,14 @@ assert_pin_red_on_removal "#192 backstop: deleting the post-restore tree-state r
   'git status --porcelain -- "$p"' "$REVIEW_SKILL"
 assert_pin_red_on_removal "#192 backstop: deleting the empty-delta already-dirty breadcrumb turns its pin RED" \
   'changed the status of an already-dirty path' "$REVIEW_SKILL"
+# The fail-closed sentinel is a COUPLED two-site invariant — armed at the 3.1 before-snapshot
+# failure (the set site) and read at the 3.2 short-circuit (the guard that skips the destructive
+# restore). assert_pin_red_on_removal can't apply (the literal appears twice, by design); pin the
+# COUPLING with a count==2 guard so a rename/drop at EITHER site drifts the count and goes RED —
+# else a one-sided edit would leave the 3.2 guard unable to recognize the armed sentinel, falling
+# through to a restore that diffs a real AFTER against the sentinel string and clobbers live edits.
+assert_eq "#192 backstop: fail-closed sentinel stays coupled across its set (3.1) and read (3.2) sites" "yes" \
+  "$([ "$(grep -cF '__DIRTY_TREE_BACKSTOP_DISABLED__' "$REVIEW_SKILL")" -eq 2 ] && echo yes || echo no)"  # raw-guard-ok: count-based: asserts ==2 occurrences (the sentinel set site in 3.1 + the read/short-circuit site in 3.2 must stay coupled)
 # Coupled-invariant drift guard: the "detect_all_audit is intentionally not persisted
 # into diff_profile" contract spans two mirror sites — the SKILL.md schema comment and
 # docs/efficiency-trace.md. Both must agree; pin each with its stable site-specific phrase.
