@@ -318,9 +318,11 @@ gh pr view --json body --jq '.body' | grep -q "Work in progress — automated re
 - If the body **overclaims** (asserts a behavior the diff doesn't deliver), correct the body to the truth via REST (repo-scope only, unlike `gh pr edit`'s org-scoped GraphQL resolution): write the corrected body to a file, resolve the PR number (guarding the empty case so a `gh pr view` hiccup doesn't build a malformed `pulls/` path), and PATCH it. The `-F body=@<file>` form reads the field value literally from the file, preserving backticks and `$` exactly as `--body-file` did. This is the common case, since the body was just auto-generated and can overstate:
   ```bash
   OVERCLAIM_PR_NUM=$(gh pr view --json number --jq '.number')
-  [ -n "$OVERCLAIM_PR_NUM" ] \
-    && gh api --method PATCH "repos/{owner}/{repo}/pulls/$OVERCLAIM_PR_NUM" -F body=@<file> \
-    || echo "devflow: Phase 4.2 could not resolve the PR number to correct an overclaiming body (best-effort, continuing)" >&2
+  if [ -n "$OVERCLAIM_PR_NUM" ]; then
+    gh api --method PATCH "repos/{owner}/{repo}/pulls/$OVERCLAIM_PR_NUM" -F body=@<file>
+  else
+    echo "devflow: Phase 4.2 could not resolve the PR number to correct an overclaiming body (best-effort, continuing)" >&2
+  fi
   ```
 - If reconciliation reveals the **code** is actually wrong (the body states the intended behavior but the diff doesn't meet it), that is a real defect that escaped review: fix the code, commit with `fix:`, and push. On the default `ready_for_review` publish path that fix rides into the cloud `/devflow:review` that re-runs when Phase 4.3 publishes the PR; **but when `implement_pr_state=draft` the PR is left a draft and the cloud review does not auto-fire until a human publishes** (see §4.3), so the fix ships *unreviewed* until then. Either way, record in `Devflow Reflection` that a post-review code fix landed here so it is not mistaken for a reviewed change — and flag it more loudly on the draft path, where no automatic re-review will catch it.
 
