@@ -2023,6 +2023,68 @@ assert_eq "sweep 2.3.6: docs/implement-skill.md keeps the rationale table row" "
 # reviewer who guts the steps but keeps the heading still trips the suite.
 assert_pin_unique "sweep 2.3.6: implement SKILL keeps the false-success step rule" "never prints success for work that didn't happen" "$IMPL_SKILL"
 
+# Issue #200 / PR #202: silent-failure-hunter gains a prompt-instruction-artifact lens for
+# inert guards (a guard that reads as handled but fails open as written). Pin the operative
+# text of each new detection so a later edit that silently guts the lens trips here. Each
+# literal is an operative clause of the new lens, pinned through assert_pin_red_on_removal
+# so the suite ITSELF demonstrates the PASS->FAIL mutation proof (present-and-unique now,
+# RED once the LINE carrying the clause is stripped) — not just a manual one-off —
+# satisfying the issue AC that each pin be shown to flip RED on removal. (Removal is
+# line-granular: the fail-open and proportional-severity clauses share one source line, so
+# stripping that line trips both their pins; each pin still independently observes PASS->FAIL.)
+SFH_AGENT="$LIB/../agents/silent-failure-hunter.md"
+assert_pin_red_on_removal "#200 SFH: keeps the policy-without-mechanism detection (no detection mechanism supplied)" \
+  'supplies no executable mechanism to observe that condition' "$SFH_AGENT"
+assert_pin_red_on_removal "#200 SFH: keeps the guard-ordered-after-its-exit detection" \
+  'positioned after the early-exit, no-op, or "proceed" short-circuit it is meant to gate' "$SFH_AGENT"
+assert_pin_red_on_removal "#200 SFH: keeps the repo-agnostic scope clause (lens applies only to prompt-instruction artifacts)" \
+  'Apply the two detections in this step **only to prompt-instruction artifacts**' "$SFH_AGENT"
+assert_pin_red_on_removal "#200 SFH: keeps the explicit fail-open direction for an inert prompt guard" \
+  'An inert prompt guard **fails open**' "$SFH_AGENT"
+assert_pin_red_on_removal "#200 SFH: keeps the proportional-severity calibration clause (no single fixed severity)" \
+  'Do not assign a single fixed severity.' "$SFH_AGENT"
+assert_pin_red_on_removal "#200 SFH: output format labels the inert-guard finding's sub-class" \
+  'which sub-class it is — policy-without-mechanism, or ordered-after-exit' "$SFH_AGENT"
+# PR #202 review (Important): the positive scope clause was pinned above, but the NEGATIVE
+# exclusion ("ordinary code/config/README/descriptive-markdown is out of scope") was not —
+# a future edit could soften the exclusion while keeping the positive half and no pin would
+# trip, re-opening the false-positive surface the exclusion guards. Pin the exclusion too.
+assert_pin_red_on_removal "#200 SFH: keeps the negative scope-exclusion clause (ordinary code/config/README/descriptive-markdown out of scope)" \
+  'an ordinary code, config, README, or descriptive-markdown change' "$SFH_AGENT"
+# PR #202 review (Suggestion): the operative diagnostic prompts and the silent-failure
+# classification phrase share source lines with already-pinned literals but carry distinct
+# behavior; pin them so a surgical reword that guts the diagnostic while keeping the headline
+# trips the suite. The (a)/(b) "Ask:" prompts are the agent's actual detection procedure.
+assert_pin_red_on_removal "#200 SFH: keeps the policy-without-mechanism diagnostic prompt" \
+  'did the same artifact give the agent a concrete way to *detect* the failure it must react to?' "$SFH_AGENT"
+assert_pin_red_on_removal "#200 SFH: keeps the ordered-after-exit diagnostic prompt" \
+  'does any guard in this artifact sit downstream of a short-circuit it is supposed to control?' "$SFH_AGENT"
+assert_pin_red_on_removal "#200 SFH: keeps the silent-failure classification of an inert prompt guard" \
+  'so treat it as a silent failure' "$SFH_AGENT"
+# PR #202 shadow review (Important): the scope clauses (positive + negative) state the in/out
+# BOUNDARY, but the operative DISCRIMINATOR the agent applies to classify a changed file —
+# "addresses an agent in the imperative" — was unpinned, so a future edit could gut the lens's
+# actual classification test while both boundary pins still PASS. Pin the discriminator too.
+assert_pin_red_on_removal "#200 SFH: keeps the imperative-vs-descriptive scope discriminator" \
+  'addresses an agent in the imperative' "$SFH_AGENT"
+# PR #202 shadow review (Suggestion): the sub-class slug DEFINITION sites (a)/(b) are the
+# source of truth for the slugs the output-format label (already pinned) tells the reader to
+# use; an in-place rename at a definition site would desync from the label without tripping any
+# pin (the detection pins on those lines target other substrings). Pin each slug definition so
+# the definition<->label pair is guarded as one coupled site (CLAUDE.md coupled-invariant rule).
+assert_pin_red_on_removal "#200 SFH: keeps the policy-without-mechanism slug definition" \
+  'sub-class slug `policy-without-mechanism`' "$SFH_AGENT"
+assert_pin_red_on_removal "#200 SFH: keeps the ordered-after-exit slug definition" \
+  'sub-class slug `ordered-after-exit`' "$SFH_AGENT"
+# PR #202 shadow review iter 2 (Important): the output-format severity ladder reconciliation
+# is a TWO-SIDED coupled invariant — step 5's 'Do not assign a single fixed severity.' (pinned
+# above) is only ONE half; the other half lives in the "## Your Output Format" item-2 carve-out.
+# Without pinning that half, a future edit could strip the carve-out and silently revert an
+# inert-guard finding to the fixed 'silent failure -> CRITICAL' rung, re-opening the contradiction
+# this PR closed, with no pin tripping. Pin the output-format half so the pair is guarded as one.
+assert_pin_red_on_removal "#200 SFH: keeps the output-format CRITICAL-de-escalation carve-out" \
+  'do not auto-escalate to CRITICAL merely because it is a silent failure' "$SFH_AGENT"
+
 # Issue #198: the two observability sub-checks added to 2.3.4a and 2.3.6. Each pin
 # targets the OPERATIVE instruction (the minimal text whose removal alone re-opens the
 # gap, per #186), NOT a framing clause — gut the sub-check while keeping its heading and

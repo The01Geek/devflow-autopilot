@@ -295,7 +295,7 @@ The `devflow:checklist-deduper` agent (model: **sonnet**) merges batches, preser
 ### Phase 3: Specialized review agents
 All launched in a single message; **always re-run every fix-loop iteration** (the main variance-recovery lever). Four **always-on** reviewers:
 - `devflow:code-reviewer`
-- `devflow:silent-failure-hunter`
+- `devflow:silent-failure-hunter` (swallowed/over-broadly-caught errors and fail-open fallbacks; also audits **prompt-instruction artifacts** for inert guards — sub-classes `policy-without-mechanism` and `ordered-after-exit`)
 - `devflow:comment-analyzer`
 - a general-purpose final-pass reviewer invoking the first-party `devflow:requesting-code-review` skill
 
