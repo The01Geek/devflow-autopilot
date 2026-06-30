@@ -4,7 +4,7 @@
   "claude_model": "claude-opus-4-8",
   "devflow_version": "",
   "devflow": {
-    "allowed_bots": "claude,dependabot",
+    "allowed_bots": "claude,dependabot,devflow-autopilot",
     "allowed_users": "*",
     "workpad_marker": "<!-- devflow:workpad -->",
     "effort": "low",
