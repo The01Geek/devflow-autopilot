@@ -1940,6 +1940,21 @@ assert_pin_red_on_removal "#200 SFH: keeps the ordered-after-exit diagnostic pro
   'does any guard in this artifact sit downstream of a short-circuit it is supposed to control?' "$SFH_AGENT"
 assert_pin_red_on_removal "#200 SFH: keeps the silent-failure classification of an inert prompt guard" \
   'so treat it as a silent failure' "$SFH_AGENT"
+# PR #202 shadow review (Important): the scope clauses (positive + negative) state the in/out
+# BOUNDARY, but the operative DISCRIMINATOR the agent applies to classify a changed file —
+# "addresses an agent in the imperative" — was unpinned, so a future edit could gut the lens's
+# actual classification test while both boundary pins still PASS. Pin the discriminator too.
+assert_pin_red_on_removal "#200 SFH: keeps the imperative-vs-descriptive scope discriminator" \
+  'addresses an agent in the imperative' "$SFH_AGENT"
+# PR #202 shadow review (Suggestion): the sub-class slug DEFINITION sites (a)/(b) are the
+# source of truth for the slugs the output-format label (already pinned) tells the reader to
+# use; an in-place rename at a definition site would desync from the label without tripping any
+# pin (the detection pins on those lines target other substrings). Pin each slug definition so
+# the definition<->label pair is guarded as one coupled site (CLAUDE.md coupled-invariant rule).
+assert_pin_red_on_removal "#200 SFH: keeps the policy-without-mechanism slug definition" \
+  'sub-class slug `policy-without-mechanism`' "$SFH_AGENT"
+assert_pin_red_on_removal "#200 SFH: keeps the ordered-after-exit slug definition" \
+  'sub-class slug `ordered-after-exit`' "$SFH_AGENT"
 
 # Issue #198: the two observability sub-checks added to 2.3.4a and 2.3.6. Each pin
 # targets the OPERATIVE instruction (the minimal text whose removal alone re-opens the
