@@ -286,7 +286,19 @@ Once every named path is satisfied (or Stage 1 found no paths), apply the deferr
 DOCS_LABELS=$(${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .docs.labels Documented)
 CLEAN_LABELS=$(echo "$DOCS_LABELS" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' | paste -sd, -)
 DOCS_PR_NUM=$(gh pr view --json number --jq '.number')
-[ -n "$CLEAN_LABELS" ] && [ -n "$DOCS_PR_NUM" ] && ${CLAUDE_SKILL_DIR}/../../scripts/apply-labels.sh "$DOCS_PR_NUM" "$CLEAN_LABELS"
+# The REST endpoint needs the PR number, which the old `gh pr edit` form resolved
+# implicitly — so an empty $DOCS_PR_NUM (gh error / warning-corrupted output) is a NEW
+# failure point the migration introduced. Don't let it skip the apply silently and then
+# tick Documentation complete: route it to the durable workpad (same discipline the 4.0/
+# 4.0.5 deferral channels use, since stderr is ephemeral in an autonomous cloud run).
+if [ -n "$CLEAN_LABELS" ]; then
+  if [ -n "$DOCS_PR_NUM" ]; then
+    ${CLAUDE_SKILL_DIR}/../../scripts/apply-labels.sh "$DOCS_PR_NUM" "$CLEAN_LABELS"
+  else
+    echo "devflow: Phase 4.1 could not resolve the PR number (gh pr view returned empty); docs labels ($CLEAN_LABELS) NOT applied" >&2
+    workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.1 could not resolve the PR number to apply docs labels ($CLEAN_LABELS); the PR carries none of the configured docs labels."
+  fi
+fi
 ```
 
 Then tick the Documentation phase in the workpad: `workpad.py update $ISSUE_NUMBER --tick-progress "Documentation"`.

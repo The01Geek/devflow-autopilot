@@ -26,11 +26,13 @@ NAME="${1:?Usage: ensure-label.sh <name>}"
 # Capture both streams so we can distinguish "already exists" (benign) from a
 # genuine failure (no auth / network / API error) and emit the right breadcrumb.
 # An existing label comes back as an HTTP 422 whose response body carries the
-# specific error code `already_exists` (verified against the live API), rather than
-# `gh label create`'s plain-text message — so the benign-outcome match keys on that
-# code. It deliberately does NOT match a bare `HTTP 422`: a 422 for a *different*
-# validation reason (e.g. a malformed label name) must route to the failure
-# breadcrumb, not be silently swallowed as "already exists".
+# specific error code `already_exists`, rather than `gh label create`'s plain-text
+# message — so the REST-era benign-outcome signal is that `already_exists` token. The
+# match below keeps the two legacy plain-text phrases (`already exists` / `already
+# been taken`) as defense-in-depth, but `already_exists` is the load-bearing one for
+# the REST body. It deliberately does NOT match a bare `HTTP 422`: a 422 for a
+# *different* validation reason (e.g. a malformed label name) must route to the
+# failure breadcrumb, not be silently swallowed as "already exists".
 ERR_OUT="$("$DEVFLOW_GH" api --method POST "repos/{owner}/{repo}/labels" -f "name=$NAME" -f "description=Created by DevFlow automation" 2>&1)"
 RC=$?
 

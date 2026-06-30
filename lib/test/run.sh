@@ -4660,6 +4660,8 @@ assert_eq "ensure-label: targets REST POST repos/{owner}/{repo}/labels (not gh l
   "$(grep -qF -- 'api --method POST repos/{owner}/{repo}/labels' "$EL_TMP/create-args" && echo yes || echo no)"
 assert_eq "ensure-label: passes the label name as a -f field" "yes" \
   "$(grep -qF -- 'name=DevFlow' "$EL_TMP/create-args" && echo yes || echo no)"
+assert_eq "ensure-label: passes the description as a -f field" "yes" \
+  "$(grep -qF -- 'description=Created by DevFlow automation' "$EL_TMP/create-args" && echo yes || echo no)"
 assert_eq "ensure-label: first run breadcrumb says created" "yes" \
   "$(printf '%s' "$EL_E1" | grep -qiF 'created label' && echo yes || echo no)"
 assert_eq "ensure-label: second run breadcrumb says already exists (HTTP 422)" "yes" \
@@ -4728,16 +4730,28 @@ DEVFLOW_GH="$AL_TMP/gh" bash "$LIB/../scripts/apply-labels.sh" 42 "   " >/dev/nu
 assert_eq "apply-labels: whitespace-only label set exits 0" "0" "$AL_RE"
 assert_eq "apply-labels: whitespace-only label set makes no POST" "yes" \
   "$([ ! -s "$AL_TMP/apply-args" ] && echo yes || echo no)"
-# Best-effort: a failing gh still exits 0 and leaves a specific breadcrumb.
+# Label value with a space/metachar rides as ONE literal labels[] field (no word-split,
+# no shell expansion) — proves the "passed literally" contract the helper comment promises.
+: > "$AL_TMP/apply-args"
+DEVFLOW_GH="$AL_TMP/gh" bash "$LIB/../scripts/apply-labels.sh" 42 "needs review" >/dev/null 2>&1
+assert_eq "apply-labels: a space-containing label is one literal labels[] field (no word-split)" "yes" \
+  "$(grep -qF -- 'labels[]=needs review' "$AL_TMP/apply-args" && echo yes || echo no)"
+# Best-effort: a failing gh still exits 0 and leaves a specific breadcrumb. The failure
+# stub RECORDS its argv so "no porcelain fallback" is proven on the FAILURE path too — a
+# future `|| gh issue edit …` retry on the RC≠0 branch would land here and trip the pin.
 cat > "$AL_TMP/ghfail" <<'STUB'
 #!/usr/bin/env bash
+printf '%s\n' "$*" >> "$(dirname "$0")/fail-args"
 echo "HTTP 500: server error" >&2; exit 1
 STUB
 chmod +x "$AL_TMP/ghfail"
+: > "$AL_TMP/fail-args"
 AL_EF="$(DEVFLOW_GH="$AL_TMP/ghfail" bash "$LIB/../scripts/apply-labels.sh" 42 DevFlow 2>&1 >/dev/null)"; AL_RF=$?
 assert_eq "apply-labels: hard gh failure still exits 0 (best-effort)" "0" "$AL_RF"
 assert_eq "apply-labels: failure breadcrumb names the target and label(s)" "yes" \
   "$(printf '%s' "$AL_EF" | grep -qF '#42' && printf '%s' "$AL_EF" | grep -qF 'DevFlow' && echo yes || echo no)"
+assert_eq "apply-labels: no porcelain fallback on the FAILURE path (no gh issue/pr edit retry)" "yes" \
+  "$(! grep -qE 'issue edit|pr edit' "$AL_TMP/fail-args" && echo yes || echo no)"
 rm -rf "$AL_TMP"
 
 # ── scan.sh: union detection predicate (label / closes-issue / audit / prefix) ─
@@ -5285,6 +5299,8 @@ assert_eq "#228: phase-4 removed the gh issue edit --add-label deferred command"
   "$(! grep -qF 'gh issue edit "$n" --add-label "$CLEAN_DEFERRED_LABELS"' "$IMPL_SKILL_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: absence pin — asserts the removed porcelain command literal is GONE (negated grep, not a presence pin)
 assert_eq "#228: phase-4 removed the gh pr edit --add-label docs-label command" "yes" \
   "$(! grep -qF 'gh pr edit --add-label "$CLEAN_LABELS"' "$IMPL_SKILL_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: absence pin — asserts the removed porcelain command literal is GONE (negated grep, not a presence pin)
+assert_eq "#228: phase-4 docs-label routes through apply-labels.sh (symmetric presence pin)" "yes" \
+  "$(grep -qF 'apply-labels.sh "$DOCS_PR_NUM" "$CLEAN_LABELS"' "$IMPL_SKILL_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: presence pin pairs with the docs-label absence pin above so a typo'd new invocation can't pass all phase-4 pins
 assert_eq "#228: pr-description edits the body via REST gh api PATCH, not gh pr edit --body" "yes" \
   "$(grep -qF 'api --method PATCH' "$LIB/../skills/pr-description/SKILL.md" && ! grep -qF 'gh pr edit $PR_NUMBER --body' "$LIB/../skills/pr-description/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: compound presence+absence pin (REST PATCH present AND old porcelain gone), not a single target-unique pin
 assert_eq "#97 pin: retrospective Stage A consumes reflections" "yes" \
