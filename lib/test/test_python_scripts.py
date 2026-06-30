@@ -2112,10 +2112,14 @@ assert_eq("#222: importing a hardened module leaves stream encodings unchanged",
           _enc_before,
           (getattr(sys.stdout, "encoding", None), getattr(sys.stderr, "encoding", None)))
 # Each hardened module DOES expose the entry-path helper (so main() can call it).
+# branch-for-issue.py is loaded here (it is not used elsewhere in this file) so all
+# six hardened scripts are covered, not five.
+_branch_for_issue = _load('branch_for_issue', SCRIPTS / 'branch-for-issue.py')
 for _modname, _mod in (
     ('workpad', workpad), ('parse_acs', parse_acs), ('file_deferrals', file_deferrals),
     ('match_deferrals', match_deferrals),
     ('resolve_review_overrides', resolve_review_overrides),
+    ('branch_for_issue', _branch_for_issue),
 ):
     assert_eq(f"#222: {_modname} defines _force_utf8_streams (entry-path helper)",
               True, hasattr(_mod, '_force_utf8_streams'))

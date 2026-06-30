@@ -86,9 +86,14 @@ def _fail(msg, code=2):
 
 
 def _run(cmd, *, check=True):
+    # `encoding="utf-8"` pins the gh-output decode: this wrapper reads PR and
+    # issue *bodies* (`gh pr view --json body`, `gh issue view --json body`),
+    # which are routinely non-ASCII, so decoding through the locale codec would
+    # raise UnicodeDecodeError under a non-UTF-8 ambient codec (Windows' cp1252).
+    # Implies text mode, so `text=True` is dropped (passing both is redundant).
     return subprocess.run(
         cmd, check=check,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8",
     )
 
 
