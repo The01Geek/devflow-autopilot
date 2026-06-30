@@ -184,7 +184,7 @@ manage_vendor_gitignore() {
 offer_python3_shim() {
   local src="$1" prov
   if command -v python3 >/dev/null 2>&1; then
-    return 0   # python3 works → nothing to offer.
+    return 0   # python3 is present → nothing to offer here (preflight still enforces the >=3.11 check).
   fi
   prov="$src/scripts/provision-python3-shim.sh"
   if [ ! -f "$prov" ]; then

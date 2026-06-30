@@ -32,7 +32,8 @@ _need gh      "install the GitHub CLI (https://cli.github.com) and run 'gh auth 
 _need jq      "install jq (https://jqlang.github.io/jq/)"
 
 # Python resolution. `python3` is the preferred command and the normal macOS/Linux path
-# (a real python3 >=3.11 is selected first, output is unchanged). On a stock Windows Python
+# (it is taken on mere presence here; its >=3.11 version is confirmed by the check below, not
+# in this branch — output is unchanged on a real python3 >=3.11). On a stock Windows Python
 # install there is no `python3` on PATH — Python is reachable only as `python` / `py -3` —
 # so instead of the bare "missing python3" dead end, point the user at the consent-gated
 # shim provisioner and run the PyYAML/version checks against whatever interpreter resolves.

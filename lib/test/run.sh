@@ -9972,6 +9972,47 @@ EOF
   assert_eq "#225 resolve: python2-only → echoes the first runnable invocation" "python" "$SEL2"
   assert_eq "#225 resolve: python2-only → rc 1 (too old, distinct from 'none')" "1" "$SEL2_RC"
 
+  # ── AC2/AC3/AC4: `py -3`-resolved host writes a TWO-WORD `exec py -3 "$@"` shim and forwards
+  #    end-to-end. Guards the SC2086 word-split hazard: a regression collapsing "py -3" into a
+  #    single quoted token (`exec "py -3" "$@"`) would pass every `python`-form assertion above. ──
+  TPY3="$(mktemp -d)"; build_stub_bin "$TPY3"
+  make_fake_python "$TPY3/_py3delegate" "3.11.4" 3 11
+  make_fake_py "$TPY3/py" "$TPY3/_py3delegate"
+  TPY3BIN="$(mktemp -d)"
+  PPS_PY3_OUT="$(PATH="$TPY3" bash "$PPS" --apply "$TPY3BIN" 2>&1)"; PPS_PY3_RC=$?
+  assert_eq "#225 pps: py -3 host, no python3 → exit 0 (AC4)" "0" "$PPS_PY3_RC"
+  assert_eq "#225 pps: py -3 host → shim written (AC2)" "yes" "$([ -f "$TPY3BIN/python3" ] && echo yes || echo no)"
+  assert_eq "#225 pps: py -3 host → shim body is the two-word 'exec py -3 \"\$@\"' (AC3)" "yes" \
+    "$(grep -q '^exec py -3 "\$@"' "$TPY3BIN/python3" && echo yes || echo no)"
+  printf 'import sys\nprint("pyargs:" + " ".join(sys.argv[1:]))\nsys.exit(5)\n' > "$TPY3BIN/pcheck.py"
+  PY3_FWD_OUT="$(PATH="$TPY3BIN:$TPY3" python3 "$TPY3BIN/pcheck.py" world 2>&1)"; PY3_FWD_RC=$?
+  assert_eq "#225 pps: py -3 shim forwards exit code (AC3)" "5" "$PY3_FWD_RC"
+  assert_eq "#225 pps: py -3 shim forwards args (AC3)" "pyargs:world" "$PY3_FWD_OUT"
+
+  # ── Clobber guard (SHIM_MARKER): refuse to overwrite a foreign python3; rewrite a DevFlow shim. ──
+  # Foreign (non-DevFlow) python3 already at the target → refuse with exit 2, leave it byte-for-byte.
+  TCF="$(mktemp -d)"; build_stub_bin "$TCF"; make_fake_python "$TCF/python" "3.11.9" 3 11
+  TCFBIN="$(mktemp -d)"; printf '#!/bin/sh\necho FOREIGN\n' > "$TCFBIN/python3"; chmod +x "$TCFBIN/python3"
+  PPS_CF_OUT="$(PATH="$TCF" bash "$PPS" --apply "$TCFBIN" 2>&1)"; PPS_CF_RC=$?
+  assert_eq "#225 pps: foreign python3 at target → refuse exit 2 (no clobber)" "2" "$PPS_CF_RC"
+  assert_eq "#225 pps: foreign python3 → breadcrumb says 'did not create' (refuse to overwrite)" "yes" \
+    "$(printf '%s' "$PPS_CF_OUT" | grep -qi 'did not create' && echo yes || echo no)"
+  assert_eq "#225 pps: foreign python3 left byte-for-byte unchanged" "yes" \
+    "$(grep -q 'echo FOREIGN' "$TCFBIN/python3" && echo yes || echo no)"
+  # A DevFlow shim a prior run wrote (carries the marker) → re-apply is an idempotent rewrite (exit 0).
+  TCRBIN="$(mktemp -d)"
+  PATH="$TCF" bash "$PPS" --apply "$TCRBIN" >/dev/null 2>&1   # first apply writes the marked shim
+  PPS_RE_OUT="$(PATH="$TCF" bash "$PPS" --apply "$TCRBIN" 2>&1)"; PPS_RE_RC=$?
+  assert_eq "#225 pps: re-apply over DevFlow's own shim → exit 0 (idempotent rewrite, AC9)" "0" "$PPS_RE_RC"
+  assert_eq "#225 pps: re-applied shim still present and still the alternate exec" "yes" \
+    "$(grep -q '^exec python "\$@"' "$TCRBIN/python3" && echo yes || echo no)"
+
+  # ── Malformed invocation: unknown option and extra positional both refuse with exit 2. ──
+  PPS_OPT_RC=0; PATH="$TCF" bash "$PPS" --bogus "$(mktemp -d)" >/dev/null 2>&1 || PPS_OPT_RC=$?
+  assert_eq "#225 pps: unknown option → exit 2" "2" "$PPS_OPT_RC"
+  PPS_XTRA_RC=0; PATH="$TCF" bash "$PPS" "$(mktemp -d)" "$(mktemp -d)" >/dev/null 2>&1 || PPS_XTRA_RC=$?
+  assert_eq "#225 pps: extra positional argument → exit 2" "2" "$PPS_XTRA_RC"
+
   # ── AC4/AC6: provisioner refuses (non-zero, specific version msg) on a too-old-only host. ──
   T6T="$(mktemp -d)"
   PPS_OLD_OUT="$(PATH="$T4B" bash "$PPS" --apply "$T6T" 2>&1)"; PPS_OLD_RC=$?
@@ -10040,6 +10081,11 @@ EOF
   if git -C "$REPO_ROOT" rev-parse --verify origin/main >/dev/null 2>&1; then
     GH_CHANGED="$(git -C "$REPO_ROOT" diff --name-only origin/main -- .github 2>/dev/null)"
     assert_eq "#225 no .github/ path modified vs origin/main (AC11)" "" "$GH_CHANGED"
+  else
+    # origin/main is not resolvable (shallow/detached checkout) — record an explicit skip
+    # breadcrumb rather than silently passing AC11 (the silent-skip anti-pattern the REAL_PY
+    # guard above avoids). CI fetches origin/main, so the assertion runs there.
+    printf '  SKIP  #225 AC11 (.github no-diff): origin/main not resolvable in this checkout — verified in CI\n'
   fi
 
   # ── AC12: the three docs document the Windows interpreter-resolution path. ──
