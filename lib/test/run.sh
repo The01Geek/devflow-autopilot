@@ -8900,6 +8900,38 @@ assert_eq "#181 filter: mixed diff retains both real code hunks in original orde
   "diff --git a/src/a.py b/src/a.py|diff --git a/src/b.py b/src/b.py" \
   "$(printf '%s\n' "$F181_MIXED_OUT" | grep '^diff --git' | paste -sd'|' -)"
 
+# Fixture: a single logs file carrying TWO @@ hunks (the realistic accreting-telemetry shape),
+# followed by a real code hunk (#209 review hardening). The filter's stickiness rides the
+# `diff --git` header, NOT the @@ line, so EVERY hunk of a logs file is suppressed. A regression
+# that reset in_logs per @@ (instead of per diff --git header) would leak the SECOND hunk's
+# content while still passing every single-hunk fixture above — this fixture is the regression catch.
+F181_MULTIHUNK="$(printf '%s\n' \
+  'diff --git a/.devflow/logs/review/pr-1/run-1/iter-1.json b/.devflow/logs/review/pr-1/run-1/iter-1.json' \
+  'index 1111111..2222222 100644' \
+  '--- a/.devflow/logs/review/pr-1/run-1/iter-1.json' \
+  '+++ b/.devflow/logs/review/pr-1/run-1/iter-1.json' \
+  '@@ -1,1 +1,1 @@' \
+  '-{"LOGHUNKONE_old":1}' \
+  '+{"LOGHUNKONE_new":1}' \
+  '@@ -10,1 +10,1 @@' \
+  '-{"LOGHUNKTWO_old":2}' \
+  '+{"LOGHUNKTWO_new":2}' \
+  'diff --git a/src/c.py b/src/c.py' \
+  'index 5555555..6666666 100644' \
+  '--- a/src/c.py' \
+  '+++ b/src/c.py' \
+  '@@ -1 +1 @@' \
+  '-old c' \
+  '+new c')"
+F181_MULTIHUNK_OUT="$(printf '%s\n' "$F181_MULTIHUNK" | awk "${F181_AWK:-NONEXTRACTED}" 2>/dev/null)"
+# The discriminating assertion: the SECOND logs hunk is dropped too (in_logs sticks across @@).
+assert_eq "#181 filter: a logs file's SECOND @@ hunk is also dropped (in_logs sticks across hunks)" \
+  "absent" "$(case "$F181_MULTIHUNK_OUT" in *LOGHUNKTWO*) echo present;; *) echo absent;; esac)"
+# …and the trailing real code hunk after the multi-hunk logs file still survives intact.
+assert_eq "#181 filter: real code hunk after a multi-hunk logs file survives" \
+  "diff --git a/src/c.py b/src/c.py" \
+  "$(printf '%s\n' "$F181_MULTIHUNK_OUT" | grep '^diff --git' | paste -sd'|' -)"
+
 # Fixture: ONLY a telemetry-log hunk.
 F181_LOGS_ONLY="$(printf '%s\n' \
   'diff --git a/.devflow/logs/review/pr-1/run-1/iter-1.json b/.devflow/logs/review/pr-1/run-1/iter-1.json' \
