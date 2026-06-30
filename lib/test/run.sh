@@ -3021,6 +3021,13 @@ assert_pin_unique "#230: phase-2 §2.1 scopes 'code wins' so it never overrides 
 # #230 bug class) yet stay GREEN. Pin the scoping clause itself so its removal goes RED.
 assert_pin_unique "#230: phase-2 §2.1 keeps the 'code wins' scoping qualifier (descriptive-only) (AC2 discriminator)" \
   'applies to **descriptive** claims only' "$P2_FILE"
+# AC1's operational meaning of "non-authoritative" is the 'narrow or suppress' clause — the
+# direct encoding of the #230 fix (a contradictory narrative must not talk a phase out of
+# warranted work). The 'non-authoritative starting point to verify' label pin above guards
+# the term; this guards what the term *operationally forbids*, so a reword collapsing it back
+# to "ignore it" goes RED.
+assert_pin_unique "#230: phase-2 §2.1 keeps the operational 'narrow or suppress' prohibition (AC1 meaning)" \
+  'narrow or suppress' "$P2_FILE"
 assert_pin_unique "#230: phase-4 §4.1 narrative never suppresses the routine doc pass (AC3)" \
   'suppresses the routine documentation pass' "$P4_FILE"
 # AC3's regression-specific discriminator is the absent/empty/contradictory trigger list —
@@ -3031,6 +3038,12 @@ assert_pin_unique "#230: phase-4 §4.1 keeps the absent/empty/contradictory trig
   'absent, empty, or contradictory' "$P4_FILE"
 assert_pin_unique "#230: phase-4 §4.1 Documentation Needed is a floor, never a ceiling (AC4)" \
   'never a ceiling that authorizes skipping otherwise-warranted documentation' "$P4_FILE"
+# §2.1 and §4.1 are coupled mirror sites of one authority hierarchy; §4.1 ties back via the
+# 'mirrors the §2.1 authority hierarchy' anchor. Pin that anchor so a reword that desyncs the
+# two files' framing (the dominant CLAUDE.md coupled-invariant bug class) goes RED rather than
+# leaving the mirror sites silently disagreeing.
+assert_pin_unique "#230: phase-4 §4.1 keeps the §2.1 cross-reference anchor (mirror-site coupling)" \
+  'mirrors the §2.1 authority hierarchy' "$P4_FILE"
 
 # ── issue #185 Addendum: deterministic extraction helper (fixture matrix) ────
 # The helper is the deterministic boundary the Addendum mandates; test its
