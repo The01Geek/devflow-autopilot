@@ -9729,9 +9729,15 @@ rm -f "$U8_PAB" "$U8_PAE"
 
 # AC7 (write-side encode): file-deferrals.py --dry-run writes the issue TITLE and
 # a body preview to stderr. We inject a ROCKET (U+1F680, outside cp1252) into the
-# manifest `file` so it lands in the derived title — a genuine RED->GREEN under
-# cp1252 (the unhardened code raises UnicodeEncodeError encoding the title), not
-# the vacuous em-dash case. The hardened stream-forcing makes it exit 0.
+# manifest `file` so it lands in the derived title. The RED->GREEN discriminates
+# on emitted CONTENT, not on a crash: stderr defaults to the backslashreplace
+# error handler, so the unhardened code does NOT raise under cp1252 — it exits 0
+# but renders the escaped `\U0001f680` instead of the rocket, so the rocket-present
+# assertion below fails RED. The hardened stream-forcing emits the real UTF-8
+# rocket (GREEN). (Do NOT "simplify" this to an exit-code/crash check — both the
+# hardened and unhardened paths exit 0, so a crash check would be vacuous.) The
+# em-dash case would be doubly vacuous (em-dash is cp1252-encodable AND stderr
+# never raises), which is why the rocket + content-assert is used here.
 U8_MAN="$(mktemp)"
 cat > "$U8_MAN" <<'JSON'
 {"schema_version": 1, "deferrals": [
