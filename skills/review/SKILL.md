@@ -705,23 +705,31 @@ elif [ "$GIT_STATUS_AFTER" != "$GIT_STATUS_BEFORE" ]; then
   CHANGED_PATHS=$(comm -13 \
     <(printf '%s\n' "$GIT_STATUS_BEFORE" | sed 's/^...//' | sort -u) \
     <(printf '%s\n' "$GIT_STATUS_AFTER"  | sed 's/^...//' | sort -u))
-  echo "::warning::devflow review: a Phase 3.1 review-agent dispatch modified the working tree (advisory review agents must never mutate it); affected paths: ${CHANGED_PATHS//$'\n'/ }; recording an Important finding and restoring the snapshot delta" >&2
-  # Restore only the snapshot-delta tracked paths; an untracked file the agent created is
-  # surfaced via the breadcrumb + finding but is never auto-deleted (it could be a legitimate
-  # orchestrator artifact). Each restore is best-effort with its own breadcrumb; a renamed or
-  # space-containing path that `git status` quoted/escaped fails the checkout into that same
-  # breadcrumb (surfaced, not silently dropped) rather than restoring.
-  while IFS= read -r p; do
-    [ -n "$p" ] || continue
-    git checkout -- "$p" 2>/dev/null \
-      || echo "::warning::devflow review: could not restore agent-modified path '$p' (e.g. an untracked file the agent created, or a renamed/quoted path git status escaped — left as-is for human inspection)" >&2
-  done <<EOF
+  if [ -z "$CHANGED_PATHS" ]; then
+    # Divergence with an EMPTY restore set: an already-dirty path's status byte changed during
+    # the dispatch window (its path is in BOTH snapshots, so the by-path set-difference excludes
+    # it). Surface it accurately — nothing is auto-restored — rather than claiming a restore.
+    echo "::warning::devflow review: a Phase 3.1 review-agent dispatch changed the status of an already-dirty path (status byte only, no clean path newly dirtied); nothing auto-restored — left for the Step 2.6 shadow and the human" >&2
+  else
+    # CHANGED_PATHS is the snapshot delta (paths clean at snapshot, now dirty). Restore is
+    # best-effort and per-path: a tracked path is reverted; an untracked file the agent created
+    # is surfaced but is never auto-deleted (it could be a legitimate orchestrator artifact),
+    # and a renamed or space-containing path that `git status` quoted/escaped fails the checkout
+    # into that same per-path breadcrumb (surfaced, not silently dropped) rather than restoring.
+    # The aggregate line below says "attempting" — each path's actual outcome is its own warning.
+    echo "::warning::devflow review: a Phase 3.1 review-agent dispatch modified the working tree (advisory review agents must never mutate it); affected paths: ${CHANGED_PATHS//$'\n'/ }; recording an Important finding and attempting best-effort restore of the snapshot delta (per-path outcome in the warnings below)" >&2
+    while IFS= read -r p; do
+      [ -n "$p" ] || continue
+      git checkout -- "$p" 2>/dev/null \
+        || echo "::warning::devflow review: could not restore agent-modified path '$p' (e.g. an untracked file the agent created, or a renamed/quoted path git status escaped — left as-is for human inspection)" >&2
+    done <<EOF
 $CHANGED_PATHS
 EOF
+  fi
 fi
 ```
 
-When this fires, add an **Important** finding to the Phase 3 findings set — attributed to the Phase 3.1 review-agent dispatch, naming the affected paths (`CHANGED_PATHS`) it restored (best-effort; any path it could not restore is named in its own per-path warning above) — carrying a `defect_signature` (`kind: "other"`, `file` the first affected path) so it flows through Phase 4 aggregation like any other finding. The attributable breadcrumb plus the finding mean a dropped restore is caught and recorded, never silently swallowed.
+When this fires (the non-empty-`CHANGED_PATHS` branch), add an **Important** finding to the Phase 3 findings set — attributed to the Phase 3.1 review-agent dispatch, naming the affected paths (`CHANGED_PATHS`) it **attempted** to restore (best-effort; any path it could not restore — e.g. an untracked file the agent created or a renamed/quoted path — is named in its own per-path warning above, not silently dropped) — carrying a `defect_signature` (`kind: "other"`, `file` the first affected path) so it flows through Phase 4 aggregation like any other finding. The attributable breadcrumb plus the finding mean a dropped restore is caught and recorded, never silently swallowed.
 
 Collect all agent responses. Extract findings, their severity labels (Critical, Important/Major, Suggestion/Minor), and their `defect_signature` blocks. **If the Phase 3.1.5 completeness-critic pass ran and produced a finding, include it here** as a single-source finding (flag it single-source like any N=1 finding); it carries a `defect_signature`, so it corroborates mechanically with any agent that independently flagged the same coverage gap.
 

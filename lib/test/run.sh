@@ -1583,12 +1583,21 @@ assert_pin_red_on_removal "#186 behavioral-fix-pin: deleting the behavioral-fix-
 # The operative agent-mandate literal is identical across all six definition files, so the
 # same literal pins each (assert_pin_unique requires it appear exactly once PER FILE).
 REVIEW_AGENT_MANDATE='on a temporary copy made with `mktemp`, never in place'
+# The PRIMARY write-prohibition (AC1's core contract) is a distinct operative sentence from
+# the mktemp clause — pin it too, else the prohibition could be deleted while the mktemp pin
+# stays GREEN. The five first-party agents share this exact sentence; the vendored final-pass
+# carries the equivalent prohibition in its own pre-existing wording, pinned separately below.
+REVIEW_AGENT_PROHIBITION='modify working-tree source files, the index, HEAD, or branch state'
 for review_agent in code-reviewer silent-failure-hunter comment-analyzer type-design-analyzer pr-test-analyzer; do
   assert_pin_red_on_removal "#192 agent-mandate: deleting the never-mutate/mktemp-copy mandate from $review_agent turns its pin RED" \
     "$REVIEW_AGENT_MANDATE" "$LIB/../agents/$review_agent.md"
+  assert_pin_red_on_removal "#192 agent-mandate: deleting the primary write-prohibition from $review_agent turns its pin RED" \
+    "$REVIEW_AGENT_PROHIBITION" "$LIB/../agents/$review_agent.md"
 done
 assert_pin_red_on_removal "#192 agent-mandate: deleting the never-mutate/mktemp-copy mandate from the requesting-code-review final-pass turns its pin RED" \
   "$REVIEW_AGENT_MANDATE" "$LIB/../skills/requesting-code-review/code-reviewer.md"
+assert_pin_red_on_removal "#192 agent-mandate: deleting the primary write-prohibition from the requesting-code-review final-pass turns its pin RED" \
+  'Do not mutate the working tree, the index, HEAD, or branch state in any way' "$LIB/../skills/requesting-code-review/code-reviewer.md"
 # Backstop operative sentences — one pin per operative directive (operative-vs-framing rule):
 assert_pin_red_on_removal "#192 backstop: deleting the pre-dispatch working-tree snapshot turns its pin RED" \
   'GIT_STATUS_BEFORE=$(git status --porcelain)' "$REVIEW_SKILL"
@@ -1609,6 +1618,18 @@ assert_pin_red_on_removal "#192 backstop: deleting the Phase-3-aggregation findi
   'add an **Important** finding to the Phase 3 findings set' "$REVIEW_SKILL"
 assert_pin_red_on_removal "#192 backstop: deleting the untracked-file-never-auto-deleted safety rule turns its pin RED" \
   'never auto-deleted' "$REVIEW_SKILL"
+# The restore set MUST be computed by path column (status prefix stripped from each snapshot)
+# — regressing to a whole-porcelain-line compare reintroduces the already-dirty-path clobber.
+# Pin the BEFORE operand's path-strip (the operative by-path element), and the two fail-closed
+# snapshot breadcrumbs (before-fail disables the backstop; after-fail is surfaced as NOT a
+# mutation rather than misattributed). All chosen apostrophe-free so the single-quoted run.sh
+# arg is safe (the `sed 's/^...//'` token carries apostrophes and cannot be pinned directly).
+assert_pin_red_on_removal "#192 backstop: regressing the by-path restore-set computation to a whole-line compare turns its pin RED" \
+  '"$GIT_STATUS_BEFORE" | sed' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#192 backstop: deleting the fail-closed before-snapshot disable turns its pin RED" \
+  'dirty-tree backstop DISABLED for this dispatch' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#192 backstop: deleting the after-snapshot fail-distinct breadcrumb turns its pin RED" \
+  'this is NOT an agent mutation' "$REVIEW_SKILL"
 # Coupled-invariant drift guard: the "detect_all_audit is intentionally not persisted
 # into diff_profile" contract spans two mirror sites — the SKILL.md schema comment and
 # docs/efficiency-trace.md. Both must agree; pin each with its stable site-specific phrase.
