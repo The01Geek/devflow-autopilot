@@ -113,10 +113,54 @@ variables → Actions**:
 | `CLAUDE_CODE_OAUTH_TOKEN` | Authenticates the Claude Code action (`/devflow:implement`, `/devflow:review` runners) | From your Anthropic account. |
 | `GITHUB_TOKEN` | (built in — no action needed) | Provided automatically to workflows. |
 
-That's it — no GitHub App is required. (Earlier versions needed one purely so a
-bot-authored "implement this" comment could re-trigger the workflow; a human
-`/devflow:implement <#>` comment is itself a native user event, so that need is
-gone.)
+That's the whole default — **no GitHub App is required**. (Earlier versions needed
+one purely so a bot-authored "implement this" comment could re-trigger the
+workflow; a human `/devflow:implement <#>` comment is itself a native user event,
+so that need is gone.)
+
+### Optional: a GitHub App to edit `.github/workflows/` files
+
+DevFlow's cloud writers — `/devflow:implement` (`devflow-implement.yml`) and the
+write-capable `/devflow:review-and-fix` path (`devflow.yml`'s `command` job) — push
+to the feature branch using the built-in `GITHUB_TOKEN`. GitHub **hard-blocks**
+`GITHUB_TOKEN` from creating or updating any file under `.github/workflows/`
+(the push is refused: *"refusing to allow … to create or update workflow … without
+`workflows` permission"*), and `actions: write` does not lift it. So a ticket whose
+change legitimately edits a workflow file cannot be completed by the cloud tier on
+the default credential.
+
+This is **opt-in** and unlocks exactly that. When it is **not** configured, behavior
+is byte-for-byte unchanged — no new secret or variable is required. To enable it,
+create a GitHub App, install it on the repo, and configure:
+
+| Kind | Name | Value |
+|---|---|---|
+| Repository **variable** | `DEVFLOW_APP_ID` | The App's ID (or client ID). |
+| Repository **secret** | `DEVFLOW_APP_PRIVATE_KEY` | The App's PEM private key. |
+
+The App must be **installed on the repo** with both **`Contents: write`** and
+**`Workflows: write`** permissions — `Workflows: write` alone cannot commit, and
+`Contents: write` alone hits the original `workflows`-permission refusal, so both are
+required. Set the variable + secret under **Settings → Secrets and variables →
+Actions** (the App ID is a *variable*, the private key a *secret*).
+
+With `DEVFLOW_APP_ID` set, each write workflow mints a short-lived App installation
+token (via `actions/create-github-app-token`) carrying those permissions and uses it
+for git operations, so workflow-file pushes succeed. The mint step is gated on
+`vars.DEVFLOW_APP_ID != ''`, so it is skipped when the variable is unset and
+`github_token` falls back to `GITHUB_TOKEN`. A configured-but-broken App (invalid or
+rotated key) **fails the job at the mint step** — there is no silent fall-back to
+`GITHUB_TOKEN`. The read-only reviewer (`devflow-runner.yml`) is untouched: it never
+edits files and keeps the plain `GITHUB_TOKEN`.
+
+> **Loop-safety note.** Unlike `GITHUB_TOKEN` pushes (which GitHub suppresses from
+> re-triggering workflows), an **App-token push re-triggers workflows**. For DevFlow
+> this is mostly desirable (a push to a non-draft PR re-runs `Devflow Review` on its
+> own). Loop-safety does **not** rest on the push-suppression: it rests on the
+> `@claude`-negation **partition invariant** (every DevFlow trigger negates `@claude`,
+> so DevFlow and Anthropic's stock `claude.yml` never double-fire) and on
+> `/devflow:implement` triggering from an `issue_comment` (a human action) rather than
+> from `push`. Do not weaken those `if:` clauses.
 
 ## Triggering `/devflow:implement`
 

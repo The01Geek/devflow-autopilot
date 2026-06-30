@@ -5722,6 +5722,82 @@ for f in devflow devflow-implement; do
 done
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "opt-in GitHub App workflow-capable token (issue #201)"
+# ────────────────────────────────────────────────────────────────────────────
+# DevFlow's two CLOUD WRITERS — devflow-implement.yml (/devflow:implement) and the
+# write-capable `command` job in devflow.yml (/devflow:review-and-fix) — push to the
+# feature branch with the built-in GITHUB_TOKEN, which GitHub hard-blocks from
+# editing .github/workflows/ files. An OPT-IN GitHub App credential lets those pushes
+# succeed: each writer mints a short-lived App installation token (Contents: write +
+# Workflows: write), gated on `vars.DEVFLOW_APP_ID != ''` so it is inert unless an
+# operator configures it, and falls back to GITHUB_TOKEN when unset — byte-for-byte
+# unchanged for consumers who do not opt in. The READ-ONLY runner (devflow-runner.yml)
+# never edits files and MUST NOT receive a write-capable token, so it carries no mint
+# step. These assertions pin the opt-in contract for all three workflows; they are the
+# change's observable boundary (the issue's Testing Strategy maps each to an AC).
+for f in devflow-implement devflow; do
+  WFF="$WF/$f.yml"
+  # (1) The conditional mint step exists, gated on the opt-in variable (AC 1, AC 3).
+  assert_eq "app-token: $f.yml mints via actions/create-github-app-token" "1" \
+    "$(grep -cE 'uses:[[:space:]]*actions/create-github-app-token@' "$WFF")"
+  assert_eq "app-token: $f.yml mint step is gated on vars.DEVFLOW_APP_ID != ''" "1" \
+    "$(grep -cF "vars.DEVFLOW_APP_ID != ''" "$WFF")"
+  # (2) The mint step wires app-id from the variable and private-key from the secret
+  #     (the coupled var/secret literals carried identically across .yml/.md/.sh).
+  assert_eq "app-token: $f.yml mint step reads app-id from vars.DEVFLOW_APP_ID" "1" \
+    "$(grep -cF 'app-id: ${{ vars.DEVFLOW_APP_ID }}' "$WFF")"
+  assert_eq "app-token: $f.yml mint step reads private-key from secrets.DEVFLOW_APP_PRIVATE_KEY" "1" \
+    "$(grep -cF 'private-key: ${{ secrets.DEVFLOW_APP_PRIVATE_KEY }}' "$WFF")"
+  # (3) The claude-code-action step consumes the minted token with the GITHUB_TOKEN
+  #     fallback — this fallback IS the unset-opt-in path that keeps behavior identical
+  #     for non-adopters (AC 2, AC 5).
+  assert_eq "app-token: $f.yml github_token falls back to secrets.GITHUB_TOKEN" "1" \
+    "$(grep -cF 'github_token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}' "$WFF")"
+  # (4) Fail-loud (AC 6): the mint step must NOT carry continue-on-error, so a
+  #     configured-but-broken App fails the job rather than silently degrading.
+  blk="$(awk '/name: Mint workflow-capable token/{f=1} f{print} f&&/^      - name:/&&!/Mint workflow-capable/{exit}' "$WFF")"
+  assert_eq "app-token: $f.yml mint step is fail-loud (no continue-on-error)" "" \
+    "$(printf '%s\n' "$blk" | grep -E 'continue-on-error' || true)"
+  # (4a) The step-id ↔ output-reference coupling (AC 2). The mint step MUST carry
+  #      `id: app-token`, because the github_token expression consumes
+  #      `steps.app-token.outputs.token`. Renaming the id (leaving the consumer line
+  #      untouched) would resolve the output to empty on every run and silently and
+  #      permanently fall the opt-in back to GITHUB_TOKEN — the exact silent
+  #      degradation AC 6 exists to prevent, reached via a wiring typo. Pin the id
+  #      inside the extracted mint-step block so the two coupled sites can't drift
+  #      apart while the suite stays green.
+  assert_eq "app-token: $f.yml mint step carries id: app-token (couples to steps.app-token.outputs.token)" "1" \
+    "$(printf '%s\n' "$blk" | grep -cE '^[[:space:]]*id:[[:space:]]*app-token[[:space:]]*$')"
+done
+# (5) The read-only runner stays untouched: NO App-token mint step, and it keeps its
+#     plain GITHUB_TOKEN (AC 4, AC 10).
+assert_eq "app-token: devflow-runner.yml has NO create-github-app-token mint step" "0" \
+  "$(grep -cE 'uses:[[:space:]]*actions/create-github-app-token@' "$WF/devflow-runner.yml")"
+assert_eq "app-token: devflow-runner.yml mentions no DEVFLOW_APP_ID opt-in" "0" \
+  "$(grep -cF 'DEVFLOW_APP_ID' "$WF/devflow-runner.yml")"
+# (6) Docs carry the opt-in contract: the var, the secret, and BOTH required App
+#     permissions (AC 7, AC 8, AC 9).
+CS="$LIB/../docs/cloud-setup.md"
+for tok in 'DEVFLOW_APP_ID' 'DEVFLOW_APP_PRIVATE_KEY'; do
+  assert_eq "app-token: cloud-setup.md documents $tok" "yes" \
+    "$(grep -qF "$tok" "$CS" && echo yes || echo no)"
+done
+assert_eq "app-token: cloud-setup.md documents Contents: write App permission" "yes" \
+  "$(grep -qiE 'Contents:[[:space:]]*write' "$CS" && echo yes || echo no)"
+assert_eq "app-token: cloud-setup.md documents Workflows: write App permission" "yes" \
+  "$(grep -qiE 'Workflows:[[:space:]]*write' "$CS" && echo yes || echo no)"
+# §15 of the overview must no longer claim a bare "No GitHub App" without the
+# required/optional qualifier (AC 8).
+OV="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
+assert_eq "app-token: overview §15 no longer asserts a bare 'No GitHub App.'" "0" \
+  "$(grep -cF 'No GitHub App.' "$OV")"
+# Positive complement to the negative check above (AC 8): the §15 reframe must
+# actually mention the optional App by its opt-in variable, so the bullet can't lose
+# all mention of the optional App and still pass on the old-string-absent check alone.
+assert_eq "app-token: overview §15 positively documents the optional App (DEVFLOW_APP_ID)" "yes" \
+  "$(grep -qF 'DEVFLOW_APP_ID' "$OV" && echo yes || echo no)"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "devflow-review.yml first-ready gate invariant"
 # ────────────────────────────────────────────────────────────────────────────
 # The first-ready gate counts pre-existing `Devflow Review` check-runs to enforce
