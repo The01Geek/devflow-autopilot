@@ -2511,8 +2511,13 @@ assert_eq "sweep selection: SKILL and docs enumerate the same contract-sweep set
 # and `git fetch origin ""` runs; drop the fetch guard and a bad base fails with a
 # bare git error instead of an attributable DevFlow breadcrumb). Pin the tokens so
 # a refactor of the block fails here rather than shipping a silent regression.
-assert_pin_unique "base_branch read: SKILL reads via config-get with the main default" 'config-get.sh .base_branch main' "$IMPL_SKILL"
-assert_pin_unique "base_branch read: SKILL guards the empty read" '[ -n "$BASE" ]' "$IMPL_SKILL"
+# NOTE: the two read+guard literals below (`config-get.sh .base_branch main` and
+# `[ -n "$BASE" ]`) now ALSO appear in phases/phase-3-review.md §3.1, which re-derives
+# BASE before `gh pr create` (issue #224). So these two pins are scoped to the
+# phase-1-setup.md file (where Phase 1.4 lives) rather than the whole bundle, keeping
+# them unique-per-file; the phase-3 re-derivation has its own pins further below.
+assert_pin_unique "base_branch read: Phase 1.4 reads via config-get with the main default" 'config-get.sh .base_branch main' "$IMPL_PHASES_DIR/phase-1-setup.md"
+assert_pin_unique "base_branch read: Phase 1.4 guards the empty read" '[ -n "$BASE" ]' "$IMPL_PHASES_DIR/phase-1-setup.md"
 assert_pin_unique "base_branch read: SKILL fetches origin/\$BASE (not hard-coded main)" 'git fetch origin "$BASE"' "$IMPL_SKILL"
 assert_pin_unique "base_branch read: SKILL checks out origin/\$BASE" 'git checkout -b "$BRANCH" "origin/$BASE"' "$IMPL_SKILL"
 assert_pin_unique "base_branch read: SKILL keeps the attributable fetch-failure breadcrumb" 'could not fetch base branch' "$IMPL_SKILL"
@@ -2520,6 +2525,21 @@ assert_pin_unique "#168 create-path: SKILL guards branch-for-issue.py exit statu
   'branch-for-issue.py failed' "$IMPL_SKILL"
 assert_pin_unique "#168 create-path: SKILL guards against an empty BRANCH name" \
   '[ -n "$BRANCH" ]' "$IMPL_SKILL"
+
+# Issue #224: Phase 3.1 (phases/phase-3-review.md) opens the draft PR against the
+# CONFIGURED base_branch, not the GitHub default branch. Because each phase's bash
+# block is a SEPARATE shell, Phase 1.4's $BASE is out of scope at 3.1, so 3.1 must
+# RE-DERIVE it (same config-get read + fail-closed guard) and pass --base "$BASE" to
+# `gh pr create`. Pin both halves against the phase-3 file specifically: dropping the
+# --base flag OR the re-derivation guard turns the suite RED (the operand-traceability
+# pin ensures the --base pin can't pass with an empty $BASE — the exact bug class).
+P3_REVIEW="$IMPL_PHASES_DIR/phase-3-review.md"
+# Include the leading `create ` so the pinned literal does not start with `--`
+# (pin_count's `grep -oF` would otherwise parse a `--base…` pattern as grep options
+# and match nothing): this pins the flag ON the `gh pr create` invocation specifically.
+assert_pin_unique "#224 Phase 3.1: gh pr create passes --base \"\$BASE\"" 'create --base "$BASE"' "$P3_REVIEW"
+assert_pin_unique "#224 Phase 3.1: re-derives BASE via config-get with the main default" 'config-get.sh .base_branch main' "$P3_REVIEW"
+assert_pin_unique "#224 Phase 3.1: re-derives BASE with the fail-closed empty-read guard" '[ -n "$BASE" ]' "$P3_REVIEW"
 
 # Versioning is per-repo policy, not the engine's job: implement/SKILL.md must carry NO
 # version-bump step. A repo that wants version management opts in via its consumer prompt

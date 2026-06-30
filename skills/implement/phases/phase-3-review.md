@@ -6,8 +6,17 @@ Output: `Phase 3/4: Review & Fix — creating PR and running review...`
 
 ### 3.1 Create Draft PR
 
+Re-derive the base branch first. Each phase's bash block runs as a **separate** shell, so the `$BASE` resolved in Phase 1.4 is **not** in scope here — re-read it (behaviorally identical to Phase 1.4: the `config-get.sh` read plus the fail-closed empty-read fallback to `main`) so `gh pr create` targets the **configured** `base_branch` rather than the repo default branch:
+
 ```bash
-gh pr create --draft --title "{issue title}" --body "$(cat <<'EOF'
+BASE=$(${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .base_branch main) || BASE=""
+[ -n "$BASE" ] || { echo "devflow: base_branch read failed (malformed config or missing python3); falling back to 'main'" >&2; BASE=main; }
+```
+
+Then open the draft PR against `$BASE` by passing the re-derived base as the `--base` flag; do **not** pass `--head` — Phase 3.1 runs on the checked-out feature branch, so `gh pr create` defaults `--head` to it correctly:
+
+```bash
+gh pr create --base "$BASE" --draft --title "{issue title}" --body "$(cat <<'EOF'
 Work in progress — automated review pending.
 
 Resolves #{issue_number}
