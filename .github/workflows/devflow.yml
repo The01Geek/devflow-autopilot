@@ -321,11 +321,32 @@ jobs:
         with:
           config_json: ${{ steps.cfg.outputs.json }}
 
+      # Optional, opt-in: mint a GitHub App installation token carrying
+      # Contents: write + Workflows: write so the /devflow:review-and-fix push can
+      # edit .github/workflows/ files (which the built-in GITHUB_TOKEN is
+      # hard-blocked from). Gated on the DEVFLOW_APP_ID repository VARIABLE:
+      # unset/empty → the step is skipped and github_token below falls back to
+      # GITHUB_TOKEN, leaving behavior byte-for-byte unchanged for consumers who
+      # do not opt in. NO continue-on-error: a configured-but-broken App
+      # (invalid/rotated key) fails the job here rather than silently degrading.
+      # Kept in sync with the same step in devflow-implement.yml.
+      - name: Mint workflow-capable token (optional)
+        id: app-token
+        if: ${{ vars.DEVFLOW_APP_ID != '' }}
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.DEVFLOW_APP_ID }}
+          private-key: ${{ secrets.DEVFLOW_APP_PRIVATE_KEY }}
+
       - name: Run Claude Code
         id: claude
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Use the minted App token for git auth when the opt-in App is
+          # configured; otherwise fall back to the built-in GITHUB_TOKEN (the
+          # skipped-step path, identical to pre-change behavior).
+          github_token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
           allowed_bots: ${{ needs.config.outputs.allowed_bots }}
 
           # AGENT mode: the gate resolved which /devflow:* command + number to
