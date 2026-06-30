@@ -8867,11 +8867,28 @@ assert_eq "#181 filter: leading logs hunk dropped, trailing code hunk survives" 
 assert_eq "#181 filter: a code line embedding '.devflow/logs/' is retained, not eaten" \
   "yes" "$(case "$F181_EDGE_OUT" in *'print(".devflow/logs/ mentioned in source")'*) echo yes;; *) echo no;; esac)"
 
+# AC-1 anchoring: the regex is anchored to the a//b/ diff-prefix boundary, so it
+# strips only paths that START WITH .devflow/logs/ (AC #1's exact wording), never a
+# non-root path that merely contains that substring (a test fixture or a dir named
+# *.devflow/logs/). Both header paths below must SURVIVE — a regression to an
+# unanchored /\.devflow\/logs\// would drop them and hide real code from review.
+F181_NESTED="$(printf '%s\n' \
+  'diff --git a/tests/fixtures/.devflow/logs/sample.json b/tests/fixtures/.devflow/logs/sample.json' \
+  '@@ -1 +1 @@' \
+  '+{"fixture":1}' \
+  'diff --git a/src/foo.devflow/logs/bar.py b/src/foo.devflow/logs/bar.py' \
+  '@@ -1 +1 @@' \
+  '+code')"
+F181_NESTED_OUT="$(printf '%s\n' "$F181_NESTED" | awk "${F181_AWK:-NONEXTRACTED}" 2>/dev/null)"
+assert_eq "#181 filter: non-root paths containing '.devflow/logs/' are NOT stripped (anchored to 'starts with')" \
+  "diff --git a/tests/fixtures/.devflow/logs/sample.json b/tests/fixtures/.devflow/logs/sample.json|diff --git a/src/foo.devflow/logs/bar.py b/src/foo.devflow/logs/bar.py" \
+  "$(printf '%s\n' "$F181_NESTED_OUT" | grep '^diff --git' | paste -sd'|' -)"
+
 # AC-1 / peer-completeness (2.3.0a): the awk filter is present in EVERY diff-source
 # variant of the Phase 0.2 tee pipeline (PR mode, current-branch mode, and the
 # head_override=local fix-loop variant) — three occurrences, one per variant.
 assert_eq "#181 filter: awk log-hunk filter present in all three Phase 0.2 diff-source variants" \
-  "3" "$(pin_count '{in_logs=/\.devflow\/logs\//} !in_logs' "$REVIEW_SKILL")"
+  "3" "$(pin_count '{in_logs=/ [ab]\/\.devflow\/logs\//} !in_logs' "$REVIEW_SKILL")"
 # AC-4: the SKILL documents WHY the hunks are filtered (intentional telemetry, not
 # code-review subjects).
 assert_pin_unique "#181 filter: review/SKILL.md documents why .devflow/logs/ hunks are filtered" \
