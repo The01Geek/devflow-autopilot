@@ -1423,23 +1423,23 @@ assert_pin_unique "fix-delta gate: share-the-contract principle in receiving-cod
 # distinction are the gate's load-bearing contracts (9 pins); any can be silently
 # deleted or paraphrased without breaking any other pin.
 # assert_pin_unique makes that RED.
-assert_pin_unique "step7: verification gate Iron Law heading present" \
+assert_pin_unique "step8: verification gate Iron Law heading present" \
   'NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE' "$RECV_SKILL"
-assert_pin_unique "step7: verification gate applies in both interactive and fix-loop contexts" \
+assert_pin_unique "step8: verification gate applies in both interactive and fix-loop contexts" \
   'applies in both interactive sessions and the autonomous' "$RECV_SKILL"
-assert_pin_unique "step7: code-fence step 7 entry anchors both mandated actions (diff review + test suite)" \
+assert_pin_unique "step8: code-fence step 8 entry anchors both mandated actions (diff review + test suite)" \
   'Review diff against addressed findings + run test suite — only then claim completion' "$RECV_SKILL"
-assert_pin_unique "step7: loop satisfies diff-review via engine re-run (not Step 3.5)" \
+assert_pin_unique "step8: loop satisfies diff-review via engine re-run (not Step 3.5)" \
   'the review engine re-runs each iteration' "$RECV_SKILL"
-assert_pin_unique "step7: CI-fallback clause requires waiting for green before claiming completion" \
+assert_pin_unique "step8: CI-fallback clause requires waiting for green before claiming completion" \
   'do not claim completion until CI confirms green' "$RECV_SKILL"
-assert_pin_unique "step7: CI-fallback trigger restricted to genuine denial, not suite failures" \
+assert_pin_unique "step8: CI-fallback trigger restricted to genuine denial, not suite failures" \
   'never when the suite runs but fails' "$RECV_SKILL"
-assert_pin_unique "step7: forbidden-responses entry prohibits claiming done before step 8" \
+assert_pin_unique "step8: forbidden-responses entry prohibits claiming done before step 8" \
   'before step 8 (VERIFY BEFORE DONE) is complete' "$RECV_SKILL"
-assert_pin_unique "step7: CI-fallback local-skip requires an auditable recorded note" \
+assert_pin_unique "step8: CI-fallback local-skip requires an auditable recorded note" \
   'Record the local-skip reason as an auditable note' "$RECV_SKILL"
-assert_pin_unique "step7: CI-fallback: submitting a push is not the same as observing green" \
+assert_pin_unique "step8: CI-fallback: submitting a push is not the same as observing green" \
   'submitting a push is not the same as observing green' "$RECV_SKILL"
 
 # Drift guards (issue #196): the convergence-discipline additions to the vendored
