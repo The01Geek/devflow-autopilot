@@ -726,6 +726,12 @@ else
     # surfaced separately and never auto-restored (index surgery needed).
     # devflow:dirty-tree-restore BEGIN (self-contained given $GIT_SNAP_BEFORE/$GIT_SNAP_AFTER and
     # cwd=repo; extracted + exercised by the #216 git_sandbox integration test in lib/test/run.sh)
+    # NOTE (runtime assumption): the NUL-mode sort/grep operands below are GNU coreutils
+    # extensions — this region runs in the review engine's own GNU/Linux agent runtime (the
+    # same env as CI), NOT as a committed macOS/BSD helper, so the no-GNU-flags portability
+    # convention (which governs lib/ + scripts/) does not bind it. On a non-GNU host those flags
+    # error, which routes through the fail-closed branches below (restore nothing + a breadcrumb)
+    # — a degradation, never a clobber.
     if ! BEFORE_PATHS=$(mktemp) || ! CHANGED_PATHS_FILE=$(mktemp) || ! RENAMED_PATHS_FILE=$(mktemp); then
       # Temp-file allocation failed (TMPDIR exhaustion/quota/perms). Do NOT proceed: an empty
       # BEFORE_PATHS would make every membership test error and fail OPEN (every dirty path,
@@ -739,7 +745,7 @@ else
       before_orig=0
       while IFS= read -r -d '' rec; do
         if [ "$before_orig" = 1 ]; then before_orig=0; printf '%s\0' "$rec"; continue; fi
-        case "${rec:0:2}" in *[RC]*) before_orig=1 ;; esac
+        case "${rec:0:1}" in [RC]) before_orig=1 ;; esac   # index column (X) only: the two-record shape is emitted iff X is R/C
         printf '%s\0' "${rec:3}"
       done < "$GIT_SNAP_BEFORE" | sort -z -u > "$BEFORE_PATHS"
       # 2. AFTER: rename/copy → surfaced-not-restored (routed to RENAMED_PATHS_FILE); a normal
@@ -754,8 +760,8 @@ else
       after_orig=0
       while IFS= read -r -d '' rec; do
         if [ "$after_orig" = 1 ]; then after_orig=0; continue; fi
-        case "${rec:0:2}" in
-          *[RC]*) printf '%s\0' "${rec:3}" >> "$RENAMED_PATHS_FILE"; after_orig=1; continue ;;
+        case "${rec:0:1}" in   # index column (X) only: a rename/copy (X = R/C) emits the two-record shape
+          [RC]) printf '%s\0' "${rec:3}" >> "$RENAMED_PATHS_FILE"; after_orig=1; continue ;;
         esac
         if grep -qzxF -- "${rec:3}" "$BEFORE_PATHS"; then
           : # present in BEFORE (already dirty) → never restore
