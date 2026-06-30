@@ -1715,6 +1715,22 @@ assert_pin_unique "phase 3.3: REJECT routes through the severity-aware exit (Cri
 assert_pin_unique "phase 3.3: soft-proceed records each residual finding durably in the workpad" \
   'unresolved after bounded re-review (non-Critical, surfaced for human review)' "$IMPL_SKILL"
 
+# Drift guard: issue #193 — Phase 3.2 must triage each /simplify finding against the
+# issue's in-scope ACs before applying it, skipping AC-conflicting findings with a
+# recorded rationale. The OPERATIVE pin is the skip+record sentence (the behavioral fix):
+# deleting it alone re-introduces the bug where AC-violating cleanups get applied silently.
+# Per the behavioral-fix-pin convention (#186/#192/#194), the operative pin uses
+# assert_pin_red_on_removal — the suite itself half-reverts the sentence and confirms the
+# pin goes RED, baking the mutation-proof into CI rather than relying on a one-time dev check.
+# The scope pin (issue-context-only) and the stale-AC carve-out pin (Phase 2.2.6, not a silent
+# skip) stay assert_pin_unique presence guards — they are framing/scope, not the behavioral fix.
+assert_pin_red_on_removal "phase 3.2: /simplify findings triaged — operative skip+record sentence (mutation-proven)" \
+  'skip the finding and record the AC conflict as the skip rationale' "$IMPL_SKILL"
+assert_pin_unique "phase 3.2: triage scoped to the issue-context /devflow:implement path only" \
+  'exists only on the issue-context' "$IMPL_SKILL"
+assert_pin_unique "phase 3.2: stale-AC conflict routes to Phase 2.2.6, not a silent skip" \
+  'that is Phase 2.2.6 AC-rewrite territory' "$IMPL_SKILL"
+
 # Same drift guard for the 2.3.0a peer-checkpoint-completeness sweep: the additive
 # twin of 2.3.0 lives in the same three places (sweep body, "Sweep selection" index,
 # rationale table) and must stay in sync. It homes the recurring incomplete-edit
