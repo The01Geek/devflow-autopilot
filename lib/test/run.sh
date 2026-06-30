@@ -1600,6 +1600,23 @@ assert_eq "sweep 2.3.6: docs/implement-skill.md keeps the rationale table row" "
 # reviewer who guts the steps but keeps the heading still trips the suite.
 assert_pin_unique "sweep 2.3.6: implement SKILL keeps the false-success step rule" "never prints success for work that didn't happen" "$IMPL_SKILL"
 
+# Issue #200: silent-failure-hunter gains a prompt-instruction-artifact lens for inert
+# guards (a guard that reads as handled but fails open as written). Pin the operative text
+# of each new detection so a later edit that silently guts the lens trips here. Each literal
+# is the minimal operative clause whose removal alone re-introduces the gap (mutation-proven:
+# delete the clause and the matching pin flips RED), not an adjacent framing phrase.
+SFH_AGENT="$LIB/../agents/silent-failure-hunter.md"
+assert_pin_unique "#200 SFH: keeps the policy-without-mechanism detection (no detection mechanism supplied)" \
+  'supplies no executable mechanism to observe that condition' "$SFH_AGENT"
+assert_pin_unique "#200 SFH: keeps the guard-ordered-after-its-exit detection" \
+  'positioned after the early-exit, no-op, or "proceed" short-circuit it is meant to gate' "$SFH_AGENT"
+assert_pin_unique "#200 SFH: keeps the repo-agnostic scope clause (lens applies only to prompt-instruction artifacts)" \
+  'Apply the two detections in this step **only to prompt-instruction artifacts**' "$SFH_AGENT"
+assert_pin_unique "#200 SFH: keeps the explicit fail-open direction for an inert prompt guard" \
+  'An inert prompt guard **fails open**' "$SFH_AGENT"
+assert_pin_unique "#200 SFH: output format labels the inert-guard finding's sub-class" \
+  'which sub-class it is — policy-without-mechanism, or ordered-after-exit' "$SFH_AGENT"
+
 # Drift guard: issue #159 B2's severity-aware exit in Phase 3.3 — the implement run must NOT
 # fully Block after the AWUSF + bounded-re-review "two consecutive fails"; it soft-proceeds
 # (PR review-ready, residual surfaced) UNLESS a genuine unresolved Critical (or ungradeable/

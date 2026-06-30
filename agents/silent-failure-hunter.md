@@ -85,7 +85,17 @@ Look for patterns that hide errors:
 - Fallback chains that try multiple approaches without explaining why
 - Retry logic that exhausts attempts without informing the user
 
-### 5. Validate Against Project Standards
+### 5. Audit Prompt-Instruction Artifacts for Inert Guards
+
+Some diffs change not executable code but **prompt-instruction artifacts** — a skill instruction file, a prompt-extension, or an agent prompt body — where the "error handling" is *prose instructing an LLM agent how to react to a failure*. Apply the two detections in this step **only to prompt-instruction artifacts** in the diff; an ordinary code, config, README, or descriptive-markdown change (prose that merely *describes* error handling without *instructing an agent* to perform it) is out of scope for this step and must not trip it. Within such an artifact, a guard can read as handled yet be **inert as written**, so it fails open exactly where it claims to fail closed. Hunt for two sub-classes:
+
+**(a) Policy without mechanism.** The prose states a failure *policy* — "fail loud", "treat an unreadable file as an error", "do not fold a failed command into a no-op" — that depends on the agent detecting a condition (a command failed, a value is absent/`null`/malformed, an operand is missing), but **supplies no executable mechanism to observe that condition** (it never tells the agent to capture the command's exit status, check stderr, or test the value's shape). The agent is told to react to a signal it was never told to read. Ask: for every failure policy this artifact states, did the same artifact give the agent a concrete way to *detect* the failure it must react to?
+
+**(b) Guard ordered after its exit.** The failure-discrimination instruction is **positioned after the early-exit, no-op, or "proceed" short-circuit it is meant to gate**, so an agent executing the prose sequentially takes the exit before it ever reaches the guard. Ask: does any guard in this artifact sit downstream of a short-circuit it is supposed to control?
+
+**Fail direction and severity.** An inert prompt guard **fails open** — it silently skips the thing it guards rather than stopping — so treat it as a silent failure and calibrate the finding's severity to *what the skipped guard protects* (per the symmetric-severity discipline above): an inert guard over a data-loss/corruption path is more severe than one over a fail-toward-no-change path. Do not assign a single fixed severity.
+
+### 6. Validate Against Project Standards
 
 Ensure compliance with the project's error handling requirements:
 - Never silently fail in production code
@@ -107,6 +117,8 @@ For each issue you find, provide:
 5. **User Impact**: How this affects the user experience and debugging
 6. **Recommendation**: Specific code changes needed to fix the issue
 7. **Example**: Show what the corrected code should look like
+
+For a finding about an inert prompt-instruction guard (from the prompt-instruction-artifact audit above), also state **which sub-class it is — policy-without-mechanism, or ordered-after-exit** — so the reader knows whether the fix is to add the missing detection mechanism or to reorder the guard ahead of its short-circuit.
 
 ## Your Tone
 
