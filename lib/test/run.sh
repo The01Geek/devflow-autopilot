@@ -1485,6 +1485,22 @@ assert_pin_unique "early-shadow #199: no-double-run guard vs the convergence-tim
   'only when the convergence-time trigger did not already run on iteration 1' "$MAXI_SKILL"
 assert_pin_unique "early-shadow #199: promoted iteration 2 counts toward the cap; early pass uncounted (AC3)" \
   'promoted iteration 2 it spawns DOES count toward the cap' "$MAXI_SKILL"
+# AC2 (review F2): the non-engine contract is carried by the Step 2.6 intro bullet — a
+# SEPARATE, independently-revertible sentence from the fire-condition pin above. Without
+# its own pin, an edit that broadens the early trigger to all PRs (deleting this clause
+# while leaving the gated fire-condition intact) re-introduces the AC2 regression with the
+# pins above still green. Pin the operative non-engine sentence.
+assert_pin_unique "early-shadow #199: non-engine PR keeps convergence-time-only (AC2)" \
+  'never runs the early trigger and keeps the convergence-time trigger only' "$MAXI_SKILL"
+# Review F1 (silent-failure-hunter, Important): the early-trigger gate reads a best-effort
+# iter-1.json flag whose schema default is false; without an explicit absent-flag rule a
+# dropped iter-1 write would silently skip the early audit on exactly the engine PR it
+# protects (fail-OPEN). The fix re-derives engine_self_modifying from the diff and trips
+# rather than defaulting to false. This is a behavioral fail-open fix, so mutation-prove it.
+assert_pin_unique "early-shadow #199: absent flag fails closed (re-derive, do not default false)" \
+  're-derive `engine_self_modifying` from the diff itself' "$MAXI_SKILL"
+assert_pin_red_on_removal "early-shadow #199: deleting the absent-flag fail-closed rule turns its pin RED" \
+  're-derive `engine_self_modifying` from the diff itself'
 
 # Drift guard: the step 8 Verification Gate (issue #178; renumbered from step 7 by #196,
 # which inserted a RECORD DEFERRALS step before it) — the Iron Law, its scope
