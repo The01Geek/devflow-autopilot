@@ -93,7 +93,7 @@ Some diffs change not executable code but **prompt-instruction artifacts** — a
 
 **(b) Guard ordered after its exit.** The failure-discrimination instruction is **positioned after the early-exit, no-op, or "proceed" short-circuit it is meant to gate**, so an agent executing the prose sequentially takes the exit before it ever reaches the guard. Ask: does any guard in this artifact sit downstream of a short-circuit it is supposed to control?
 
-**Fail direction and severity.** An inert prompt guard **fails open** — it silently skips the thing it guards rather than stopping — so treat it as a silent failure and calibrate the finding's severity to *what the skipped guard protects* — the same proportional-severity judgment you apply to every other finding (the `## Your Output Format` severity ladder below), not a fixed level: an inert guard over a data-loss/corruption path is more severe than one over a fail-toward-no-change path. Do not assign a single fixed severity.
+**Fail direction and severity.** An inert prompt guard **fails open** — it silently skips the thing it guards rather than stopping — so treat it as a silent failure and calibrate the finding's severity to *what the skipped guard protects* — proportional to that blast radius, the same way you grade every other finding, not a fixed level: an inert guard over a data-loss/corruption path is more severe than one over a fail-toward-no-change path. Do not assign a single fixed severity.
 
 ### 6. Validate Against Project Standards
 

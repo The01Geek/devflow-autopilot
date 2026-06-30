@@ -1603,10 +1603,12 @@ assert_pin_unique "sweep 2.3.6: implement SKILL keeps the false-success step rul
 # Issue #200 / PR #202: silent-failure-hunter gains a prompt-instruction-artifact lens for
 # inert guards (a guard that reads as handled but fails open as written). Pin the operative
 # text of each new detection so a later edit that silently guts the lens trips here. Each
-# literal is the minimal operative clause whose removal alone re-introduces the gap, pinned
-# through assert_pin_red_on_removal so the suite ITSELF demonstrates the PASS->FAIL mutation
-# proof per clause (present-and-unique now, RED once the clause is stripped) — not just a
-# manual one-off — satisfying the issue AC that each pin be shown to flip RED on removal.
+# literal is an operative clause of the new lens, pinned through assert_pin_red_on_removal
+# so the suite ITSELF demonstrates the PASS->FAIL mutation proof (present-and-unique now,
+# RED once the LINE carrying the clause is stripped) — not just a manual one-off —
+# satisfying the issue AC that each pin be shown to flip RED on removal. (Removal is
+# line-granular: the fail-open and proportional-severity clauses share one source line, so
+# stripping that line trips both their pins; each pin still independently observes PASS->FAIL.)
 SFH_AGENT="$LIB/../agents/silent-failure-hunter.md"
 assert_pin_red_on_removal "#200 SFH: keeps the policy-without-mechanism detection (no detection mechanism supplied)" \
   'supplies no executable mechanism to observe that condition' "$SFH_AGENT"
