@@ -1705,6 +1705,22 @@ assert_pin_red_on_removal "#186 behavioral-fix-pin: deleting the at-least-one-pi
   'at least one pin per operative sentence' "$DEF_SKILL"
 assert_pin_red_on_removal "#186 behavioral-fix-pin: deleting the behavioral-fix-pin scope limiter turns its pin RED" \
   'literal constants, token names, count-based guards, absence pins' "$DEF_SKILL"
+# #194: two additions HARDEN the #186 mutation-check guidance — each is its own operative
+# DIRECTIVE sentence, so each gets a removal-proof pin (the rule pins itself). (A) bake the
+# half-revert into the suite via the framework's removal-proof assertion, not a one-time manual
+# act; (B) confirm a newly-added guard REGISTERED — its named assertion appears as PASS and the
+# assertion count rose — because a green suite alone does not prove a guard ran. Both additions
+# are COUPLED across the two skills (implement = $DEF_SKILL, review-and-fix = $MAXI_SKILL), so the
+# same operative literal pins each file; assert_pin_red_on_removal requires it appear exactly once
+# per file. Pinning (B)'s sentence with a *registering* assertion dogfoods the rule it states.
+assert_pin_red_on_removal "#194 (A) implement: deleting the bake-via-removal-proof-assertion directive turns its pin RED" \
+  "your framework's removal-proof assertion" "$DEF_SKILL"
+assert_pin_red_on_removal "#194 (B) implement: deleting the confirm-guard-registered directive turns its pin RED" \
+  'confirm the guard registered' "$DEF_SKILL"
+assert_pin_red_on_removal "#194 (A) review-and-fix: deleting the bake-via-removal-proof-assertion directive turns its pin RED" \
+  "your framework's removal-proof assertion" "$MAXI_SKILL"
+assert_pin_red_on_removal "#194 (B) review-and-fix: deleting the confirm-guard-registered directive turns its pin RED" \
+  'confirm the guard registered' "$MAXI_SKILL"
 # ── #192: review/analysis agents must never mutate the live working tree ──────────────
 # Two coupled layers, each pinned with a mutation-proven assert_pin_red_on_removal so a
 # half-applied removal of the contract turns the suite RED (issue #192 AC4):
