@@ -331,6 +331,20 @@ engine-self-modifying shadow skeptically and run the standalone review — still
 local check can decide. The target-uniqueness guard is also the deterministic, guarantee-class form of
 the prose "pin a *target-unique* phrase" advice in the mutation-check rule.
 
+The prose mutation-check rule itself carries two further requirements beyond "break it and watch it go
+RED," shared verbatim between the implement test-first gate (`skills/implement/SKILL.md`) and the fix
+loop (`skills/review-and-fix/SKILL.md` Step 3). First, **bake the half-revert into the suite**: a
+mutation-check run once by hand proves the pin caught the regression only at authoring time, so the pin
+must instead be expressed through the framework's *removal-proof assertion* — the assertion form that
+itself proves *PASS with the pinned text → FAIL without it* — so the check re-runs on every suite
+execution (`assert_pin_red_on_removal` is this repo's removal-proof form — it drives an
+`assert_pin_unique` probe over the text-removed file and asserts the PASS→FAIL transition). Second, **confirm the guard
+registered**: a green suite is not evidence a guard *ran*, so after adding any guard, confirm its named
+assertion appears in the run as a PASS *and* that the suite's assertion count rose by what was added — a
+guard that silently no-ops (an assertion helper invoked before it is defined, a test file the runner
+never sources, a setup probe that returns success on failure) asserts nothing while the suite stays
+green.
+
 ### Calibration is symmetric: the under-grade gate and the over-grade gate are two halves of one defense
 
 The calibration above is about the loop grading a finding **too low** (a real defect parked as a note that a later standalone review re-raises). That is one direction; the loop can also grade a finding **too high**, and the engine defends both directions with a matched pair of gates in `skills/review-and-fix/SKILL.md` that share one root idea — *never trust an emitted severity without a recorded technical evaluation against the finding's observable fail-direction and impact*:

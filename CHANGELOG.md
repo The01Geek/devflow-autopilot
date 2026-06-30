@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.39] — 2026-06-30
+
+### Changed
+- **`/devflow:implement`'s test-first mutation-check guidance now mandates the removal-proof *mechanism* and an explicit guard-*registration* check, closing two fail-open classes that shipped GREEN on the engine's own PR #189.** The #186 behavioral-fix-pin block taught the *principle* of mutation-checking a guard ("half-revert and confirm RED") but not the *mechanism*, and had no step confirming the guard actually *ran*. Two coupled, repo-agnostic additions fix this: (A) the behavioral-fix-pin procedure gains a step (d) directing the implementer to **bake the half-revert into the suite via the framework's removal-proof assertion** (the assertion form that itself proves *PASS-with-the-pinned-text → FAIL-without-it*) rather than relying on a one-time manual half-revert, so step (c) re-runs on every suite execution; and (B) the general mutation-check rule gains an explicit **"confirm the guard registered"** step — after adding any guard, confirm its named assertion appears in the run as a PASS *and* the suite's assertion count rose, because a green suite alone does not prove a guard ran (an assertion helper invoked before it is defined → command-not-found, a test file the runner never sources, or a setup probe that returns success on failure all no-op silently while the suite stays green). The coupled mutation-check rule in `skills/review-and-fix/SKILL.md` Step 3 is reconciled with the same two additions in the same change. New text is repo-agnostic (no `lib/test/run.sh`, helper, or CI-job names) so it ships safely to consumer repos; each new operative directive is pinned per-file with a mutation-proven removal-proof assertion in `lib/test/run.sh` (the registration check dogfoods itself — the new pins raised the assertion count 1978→1986). (#213, closes #194)
+
 ## [2.8.38] — 2026-06-30
 
 ### Added
