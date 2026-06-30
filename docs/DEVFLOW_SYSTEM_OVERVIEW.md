@@ -352,7 +352,7 @@ DevFlow treats documentation as part of "done." `/devflow:docs` orchestrates thr
 
 1. **`docs-sync-internal`**: ensures every code change on the branch has a corresponding internal-doc update (goal: 100% alignment). Proportional: major changes → comprehensive, trivial → none. Mandatory final step: **verify every factual claim against the codebase** (the single most common cause of inaccurate docs).
 2. **`docs-sync-external`**: aligns customer-facing docs against the internal docs (the source of truth), removing confidential/internal-only content. Follows a detailed style guide (AP style, term conventions, etc.).
-3. **`docs-release-notes`**: if the change is customer-visible, appends a brief entry (`- **[Category] Short Title**: description. (#PR)`); otherwise skips the release note. Either way, reconciles the CHANGELOG entry for the current version (Step 4b).
+3. **`docs-release-notes`**: if the change is customer-visible, appends a brief entry (`- **[Category] Short Title**: description. (#PR)`); otherwise skips the release note. Either way, if the branch bumped the version, it reconciles that version's CHANGELOG entry — taking the version from `.claude-plugin/plugin.json` (not the bump commit's subject) and no-opping if no matching `## [version]` section exists (Step 4b).
 
 Supporting skills:
 - **`docs-verify <topic>`**: verifies internal docs for one topic against code (codebase = source of truth). Has a `--report-only` mode (no writes) used by `/devflow:create-issue`. Verdicts: `DOCS ACCURATE` / `DRIFT FOUND` / `DOCS MISSING`.

@@ -116,15 +116,21 @@ Read `[[RELEASE_NOTES_FILE]]`. Determine today's date and format it as `## Month
 
 This step runs regardless of the Step 2 customer-visibility decision — after appending a release note (Step 4) or after the non-customer-visible skip in Step 2, proceed here.
 
-**Locate the version-bump entry.** Run:
+**Confirm a version bump happened, then read the version from the manifest — not the commit subject.** Run:
 ```
 git log --oneline origin/main..HEAD
 ```
-Find the most recent commit whose message begins with `chore: bump version` and extract its version string (e.g., `2.8.19`). If no such commit exists on this branch, log "no version-bump commit found on branch" and proceed to Step 5. Otherwise, read `[[CHANGELOG_FILE]]` and search for the section heading `## [2.8.19]` (replacing the version with the one extracted above). If no version-bump entry is found in CHANGELOG, this step is a no-op — log "no CHANGELOG section found for version X" and proceed to Step 5.
+Look for a commit whose message begins with `chore: bump version`. This commit's only role here is to **confirm that this branch bumped the version** — do not read the version string from its free-text subject. The subject is not in lockstep with what actually shipped: a rebase or a version collision can re-version `.claude-plugin/plugin.json` in a *later* commit without re-wording the bump commit, so the subject can name a stale, already-released version. Reconciling that stale section would silently correct the wrong (prior, already-shipped) entry and leave the entry this PR ships untouched — a fail-*wrong*, not a clean no-op. If no `chore: bump version` commit exists on this branch, this PR did not bump the version — log "no version-bump commit found on branch" and proceed to Step 5.
+
+Read the **authoritative shipped version** from the manifest (the bump, and any later re-version, both update it):
+```
+jq -r .version .claude-plugin/plugin.json
+```
+Then read `[[CHANGELOG_FILE]]` and search for the bracketed Keep-a-Changelog heading `## [<version>]` for that manifest version (e.g., `## [2.8.26]`). If the CHANGELOG has no section heading matching the manifest version, this step is a no-op — log "no CHANGELOG section found for version X" and proceed to Step 5.
 
 **Enumerate every factual claim.** Re-read the body of the located `## [version]` section. A factual claim is any concrete assertion: coverage counts, enumerated sites, completeness phrases ("all X were done", "Y and Z are now..."), named identifiers (file paths, key names, step or phase numbers, agent names), or specific behavioral guarantees. This CHANGELOG entry was written at Phase 3 commit time — before Phase 3.3 review-and-fix corrections — so its specific assertions may be stale relative to the final shipped diff.
 
-**Trace each claim against the Step-1 diff.** For each enumerated claim, confirm it against the diff already read in Step 1. Do not re-run `git diff`. A claim is accurate if every concrete detail (count, identifier, behavioral guarantee) matches the shipped code exactly. A claim is stale if the diff shows a different count, a renamed identifier, a reverted piece of scope, or a corrected approach.
+**Trace each claim against the Step-1 diff.** For each enumerated claim, confirm it against the diff already read in Step 1. Do not re-run `git diff`. (Step 1 runs unconditionally at the top of every invocation — *before* the Step 2 customer-visibility branch — so the Step-1 diff is always available here, including on the non-customer-visible path that skipped Steps 3–4.) A claim is accurate if every concrete detail (count, identifier, behavioral guarantee) matches the shipped code exactly. A claim is stale if the diff shows a different count, a renamed identifier, a reverted piece of scope, or a corrected approach.
 
 **Correct stale claims in place.** Rewrite only the specific sentence or clause that is stale, using the same tense, format, and surrounding context as the rest of the entry. If all claims are accurate, make no changes to `[[CHANGELOG_FILE]]`. In all cases, log a brief summary — for example: "Step 4b: enumerated N claims; M corrected, N−M confirmed accurate." Do not commit — leave committing to the caller, consistent with Step 5.
 

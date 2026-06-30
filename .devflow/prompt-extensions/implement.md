@@ -32,12 +32,13 @@ that the bump never ends up uncommitted.
 
 **Commit-message contract (load-bearing — do not drift).** Commit the bump with a subject
 that begins with the literal `chore: bump version`. This prefix is not cosmetic: the
-release-notes reconciliation step (`skills/docs-release-notes/SKILL.md` Step 4b) locates the
-CHANGELOG entry to reconcile by finding the most recent commit whose message begins with
-exactly that string, then no-ops if it cannot. Renaming the prefix (e.g. to
-`chore(release): …`) silently disables that reconciliation. The two sites are kept in
-lockstep by a coupling pin in `lib/test/run.sh`; change one and the suite goes RED until the
-other matches.
+release-notes reconciliation step (`skills/docs-release-notes/SKILL.md` Step 4b) uses this
+prefix to **confirm a version bump happened on the branch** — it then reads the authoritative
+version from `.claude-plugin/plugin.json` (never from the commit subject, which a later
+re-version can leave stale) and reconciles that version's CHANGELOG entry, or no-ops if no
+such commit exists. Renaming the prefix (e.g. to `chore(release): …`) makes Step 4b see no
+bump and silently disables that reconciliation. The two sites are kept in lockstep by a
+coupling pin in `lib/test/run.sh`; change one and the suite goes RED until the other matches.
 
 ## Verification under classifier friction — never ship an unverified assumption
 

@@ -8341,7 +8341,7 @@ assert_pin_unique "#141 implement skill names all five review agents in its Phas
 assert_pin_unique "#183 docs-release-notes SKILL Step 4b runs regardless of customer-visibility decision" \
   'This step runs regardless of the Step 2 customer-visibility decision' "$FDROOT/skills/docs-release-notes/SKILL.md"
 assert_pin_unique "#183 docs-release-notes SKILL contains CHANGELOG reconciliation step with no-op condition" \
-  'no version-bump entry is found in CHANGELOG, this step is a no-op' "$FDROOT/skills/docs-release-notes/SKILL.md"
+  'section heading matching the manifest version, this step is a no-op' "$FDROOT/skills/docs-release-notes/SKILL.md"
 assert_pin_unique "#183 docs-release-notes SKILL Step 4b does not commit" \
   'Do not commit — leave committing to the caller, consistent with Step 5' "$FDROOT/skills/docs-release-notes/SKILL.md"
 assert_pin_unique "#183 docs-release-notes SKILL resolves changelog_file via config-get.sh" \
@@ -8357,6 +8357,24 @@ assert_pin_unique "#187 docs-release-notes Step 4b matches the chore: bump versi
   'message begins with `chore: bump version`' "$FDROOT/skills/docs-release-notes/SKILL.md"
 assert_pin_unique "#187 implement prompt-extension mandates the chore: bump version prefix" \
   'begins with the literal `chore: bump version`' "$FDROOT/.devflow/prompt-extensions/implement.md"
+
+# (PR #187 review round 2 — Critical + Important hardening) Step 4b's version-selection and
+# section-locator contract. The Critical the review caught: deriving the version from the bump
+# commit's free-text *subject* reconciles the wrong (already-shipped) section when a later
+# re-version leaves that subject stale — a silent fail-*wrong*. The version MUST come from the
+# authoritative manifest, with the bump commit used only to confirm a bump happened. Pin (a) the
+# manifest-sourced version read, (b) the two-dot scan range (prior churn: commit 7a28b51 already
+# corrected this exact line once), and (c) the bracketed `## [version]` heading the consumer
+# searches, coupled to the implement extension's `## [x.y.z]` producer so a heading-convention
+# drift cannot silently no-op reconciliation on one side only.
+assert_pin_unique "#187 docs-release-notes Step 4b reads the shipped version from the plugin.json manifest (not the commit subject)" \
+  'jq -r .version .claude-plugin/plugin.json' "$FDROOT/skills/docs-release-notes/SKILL.md"
+assert_pin_unique "#187 docs-release-notes Step 4b scans the origin/main..HEAD two-dot commit range" \
+  'git log --oneline origin/main..HEAD' "$FDROOT/skills/docs-release-notes/SKILL.md"
+assert_pin_unique "#187 docs-release-notes Step 4b searches the bracketed Keep-a-Changelog heading (consumer side)" \
+  'bracketed Keep-a-Changelog heading `## [<version>]`' "$FDROOT/skills/docs-release-notes/SKILL.md"
+assert_pin_unique "#187 implement prompt-extension mandates the bracketed ## [x.y.z] CHANGELOG heading (producer side)" \
+  '`## [x.y.z]` entry to `CHANGELOG.md`' "$FDROOT/.devflow/prompt-extensions/implement.md"
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
