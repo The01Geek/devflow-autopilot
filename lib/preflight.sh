@@ -69,10 +69,12 @@ if [ -n "$PYTHON" ]; then
     printf "devflow preflight: Python package PyYAML not found — run '%s -m pip install pyyaml'\n" "$PYTHON" >&2
     missing=1
   fi
-  # shellcheck disable=SC2086
-  if ! $PYTHON -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' >/dev/null 2>&1; then
-    # shellcheck disable=SC2086
-    printf 'devflow preflight: Python 3.11+ required (found %s)\n' "$($PYTHON -V 2>&1)" >&2
+  # Version check only for the `python3` happy path — that branch above did NOT call
+  # devflow_resolve_python, so python3's version is still unverified here. The resolved
+  # ALTERNATE path is already version-verified (devflow_resolve_python returns rc 0 only
+  # for a >=3.11 invocation), so re-checking it would be a guaranteed-pass, redundant spawn.
+  if [ "$PYTHON" = "python3" ] && ! python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' >/dev/null 2>&1; then
+    printf 'devflow preflight: Python 3.11+ required (found %s)\n' "$(python3 -V 2>&1)" >&2
     missing=1
   fi
 fi
