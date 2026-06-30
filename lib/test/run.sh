@@ -1170,6 +1170,23 @@ assert_pin_unique "over-grade: engine keeps the annotation template citing the o
   'suspected over-grade: shape {n} — observable fail-direction is {X}, milder than the {severity} label' "$OG_REVIEW_SKILL"
 assert_pin_unique "over-grade: Phase 4.1 report wires in the 4.1.5 annotation (attach-point, not inert)" \
   "append its advisory annotation to that finding's line here" "$OG_REVIEW_SKILL"
+# AC3 fail-CLOSED against a re-fork (not only the positive reference pins above): the shape
+# literals must be ABSENT from review-and-fix. If a future edit re-inlines a shape copy while
+# leaving the reference sentence in place, the positive pins stay GREEN but these go RED — the
+# coupled-invariant / single-source discipline CLAUDE.md flags as the dominant violation.
+assert_eq "over-grade: shape 1 is NOT re-forked into review-and-fix (AC3 fail-closed)" \
+  "0" "$(pin_count 'Suite-RED or fail-closed defect graded above its blast radius' "$MAXI_SKILL")"
+assert_eq "over-grade: shape 2 is NOT re-forked into review-and-fix (AC3 fail-closed)" \
+  "0" "$(pin_count 'Diagnostic-or-cosmetic-only finding with no behavioral fail-direction' "$MAXI_SKILL")"
+# AC2's load-bearing clause (the #189 motivating case): an over-graded Critical must STILL REJECT.
+# Pinned distinctly from the broader "verdict computation unchanged" so a rewrite that weakens
+# only this clause cannot ride out GREEN.
+assert_pin_unique "over-grade: annotation never clears or downgrades a REJECT (AC2, #189 case)" \
+  'never clears or downgrades a REJECT' "$OG_REVIEW_SKILL"
+# Shape 3's discriminating predicate (not just its heading): the 'no Phase-2 FAIL' qualifier is
+# what keeps it from firing on a corroborated finding; pin it so a future loosening goes RED.
+assert_pin_unique "over-grade: shape 3 keeps its 'no Phase-2 FAIL' discriminating qualifier" \
+  'no Phase-2 verification-checklist FAIL covering the same defect' "$OG_REVIEW_SKILL"
 assert_pin_unique "over-grade: engine gate names the receiving-code-review principle it mechanizes" \
   'mechanizes the receiving-code-review symmetric-severity-calibration principle' "$MAXI_SKILL"
 # Cross-skill coupling: the principle the gate mechanizes must actually exist in the
