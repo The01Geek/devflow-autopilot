@@ -9666,6 +9666,135 @@ assert_pin_unique "#181 filter: review/SKILL.md documents why .devflow/logs/ hun
 assert_pin_unique "#181 filter: Phase 0.3 derives the changed-file list from the filtered diff.patch (peer-completeness)" \
   'deriving the file list from it excludes them by construction' "$REVIEW_SKILL"
 
+# ────────────────────────────────────────────────────────────────────────────
+echo "issue #222: .gitattributes eol=lf + UTF-8 stream self-defense"
+# ────────────────────────────────────────────────────────────────────────────
+# The helper toolchain must self-defend on Windows / non-UTF-8 hosts: LF line
+# endings forced by .gitattributes (so a shebang never becomes `bash\r`) and
+# scripts/*.py forcing their own streams + gh I/O to UTF-8 (so emoji/em-dashes
+# never trip cp1252). These assert the .gitattributes contract, the no-CR-in-.sh
+# index invariant, and the cp1252 RED->GREEN behavior by SUBPROCESS (the harness
+# imports the modules in-process, so the entry-path reconfigure is only
+# observable when the script is RUN as a CLI — test_python_scripts.py proves the
+# complementary import-no-side-effect half).
+U8_ROOT="$LIB/.."
+U8_SCRIPTS="$U8_ROOT/scripts"
+
+# AC1: .gitattributes exists and `git check-attr eol` resolves to `lf` for a
+# sample *.sh, *.py, and *.jq file.
+assert_eq "#222: .gitattributes exists at repo root" "yes" \
+  "$( [ -f "$U8_ROOT/.gitattributes" ] && echo yes || echo no )"
+for _u8f in scripts/config-get.sh scripts/workpad.py lib/classify-pr-kind.jq; do
+  assert_eq "#222: git check-attr eol=lf for $_u8f" "lf" \
+    "$(git -C "$U8_ROOT" check-attr eol -- "$_u8f" | sed -E 's/.*: eol: //')"
+done
+
+# AC2: no tracked *.sh file carries a CR byte in the index (i/lf for every entry).
+# `git ls-files --eol` prints `i/<index-eol> w/<worktree-eol> attr/<attr> <path>`;
+# a crlf/mixed in the i/ column is a defect. grep -c prints 0 + exits 1 on no
+# match, so `|| true` keeps the clean `0`.
+assert_eq "#222: no tracked *.sh has crlf/mixed line endings in the index" "0" \
+  "$(git -C "$U8_ROOT" ls-files --eol -- '*.sh' | grep -cE 'i/(crlf|mixed)' || true)"
+
+# AC3/AC5: workpad.py new-body is a pure offline formatter whose default --branch
+# carries an ellipsis and whose Status carries the rocket glyph, so non-ASCII
+# fires with no flags. Under PYTHONIOENCODING=cp1252 today's UNHARDENED code
+# raises UnicodeEncodeError (the reported defect); the hardened code exits 0 with
+# valid UTF-8 and NO BOM (closing the UTF-16LE-corruption root).
+U8_NB="$(mktemp)"
+PYTHONIOENCODING=cp1252 python3 "$U8_SCRIPTS/workpad.py" new-body 1 > "$U8_NB" 2>/dev/null
+U8_NB_RC=$?
+assert_eq "#222 RED->GREEN: workpad.py new-body exits 0 under cp1252" "0" "$U8_NB_RC"
+assert_eq "#222: new-body output contains the UTF-8 rocket glyph (did not crash)" "yes" \
+  "$(grep -qF '🚀' "$U8_NB" && echo yes || echo no)"
+assert_eq "#222: new-body output carries no BOM (UTF-8-no-BOM, not UTF-16LE)" "yes" \
+  "$(head -c3 "$U8_NB" | od -An -tx1 | tr -d ' \n' | grep -qE '^(efbbbf|fffe|feff)' && echo no || echo yes)"
+rm -f "$U8_NB"
+
+# parse-acs.py emits non-ASCII only as the em-dash in its near-miss breadcrumb
+# (a trailing-colon heading triggers it). NOTE: em-dash (U+2014) and ellipsis
+# (U+2026) ARE encodable in cp1252 (0x97 / 0x85), so a cp1252 test of em-dash
+# content is VACUOUS — it passes even against the unhardened code. The strictly-
+# non-UTF-8 codec under which this content genuinely raises without the fix (a
+# real RED->GREEN) is `ascii` (em-dash is outside both ascii and latin-1). The
+# reconfigure overrides PYTHONIOENCODING, so the hardened script exits 0.
+U8_PAB="$(mktemp)"; printf '## Acceptance Criteria:\n- [ ] x\n' > "$U8_PAB"
+U8_PAE="$(mktemp)"
+PYTHONIOENCODING=ascii python3 "$U8_SCRIPTS/parse-acs.py" --body-file "$U8_PAB" >/dev/null 2>"$U8_PAE"
+U8_PA_RC=$?
+assert_eq "#222 RED->GREEN: parse-acs.py exits 0 emitting its em-dash breadcrumb under ascii" "0" "$U8_PA_RC"
+assert_eq "#222: parse-acs.py emits the em-dash breadcrumb as UTF-8 (did not crash)" "yes" \
+  "$(grep -qF '—' "$U8_PAE" && echo yes || echo no)"
+rm -f "$U8_PAB" "$U8_PAE"
+
+# AC7 (write-side encode): file-deferrals.py --dry-run writes the issue TITLE and
+# a body preview to stderr. We inject a ROCKET (U+1F680, outside cp1252) into the
+# manifest `file` so it lands in the derived title. The RED->GREEN discriminates
+# on emitted CONTENT, not on a crash: stderr defaults to the backslashreplace
+# error handler, so the unhardened code does NOT raise under cp1252 — it exits 0
+# but renders the escaped `\U0001f680` instead of the rocket, so the rocket-present
+# assertion below fails RED. The hardened stream-forcing emits the real UTF-8
+# rocket (GREEN). (Do NOT "simplify" this to an exit-code/crash check — both the
+# hardened and unhardened paths exit 0, so a crash check would be vacuous.) The
+# em-dash case would be doubly vacuous (em-dash is cp1252-encodable AND stderr
+# never raises), which is why the rocket + content-assert is used here.
+U8_MAN="$(mktemp)"
+cat > "$U8_MAN" <<'JSON'
+{"schema_version": 1, "deferrals": [
+  {"file": "src/🚀mod.py", "symbol": "fn", "kind": "perf", "summary": "loop",
+   "severity": "Medium", "agent": "a", "category": "scope", "explanation": "deferred"}
+]}
+JSON
+PYTHONIOENCODING=cp1252 python3 "$U8_SCRIPTS/file-deferrals.py" \
+  --source-issue 1 --pr 2 --manifest "$U8_MAN" --dry-run >/dev/null 2>"$U8_MAN.err"
+U8_FD_RC=$?
+assert_eq "#222 RED->GREEN: file-deferrals.py --dry-run exits 0 under cp1252 (write-side encode)" "0" "$U8_FD_RC"
+assert_eq "#222: file-deferrals.py --dry-run emits its rocket-bearing title as UTF-8" "yes" \
+  "$(grep -qF '🚀' "$U8_MAN.err" && echo yes || echo no)"
+rm -f "$U8_MAN" "$U8_MAN.err"
+
+# AC6/AC7 (gh decode + temp-file/stdin encode): these are pinned STATICALLY, not
+# by a runtime crash, on purpose. On Linux, CPython's UTF-8 Mode (PEP 540) coerces
+# the C/POSIX locale to UTF-8, so a subprocess `text=True` DECODE never raises
+# here — the UnicodeDecodeError is genuinely Windows-only (cp1252 ANSI codepage,
+# no UTF-8-mode coercion). The portable, deterministic guarantee is that the code
+# PINS `encoding="utf-8"` at every gh-I/O and temp-file site, so the codec is
+# UTF-8 regardless of the host locale. Removing any pin makes these fail (a real
+# mutation check), where a runtime test would pass vacuously on the Linux runner.
+assert_eq "#222 AC6: workpad.py _run gh wrapper pins encoding=utf-8 (gh decode/encode)" "yes" \
+  "$(grep -qF 'stderr=subprocess.PIPE, encoding="utf-8",' "$U8_SCRIPTS/workpad.py" && echo yes || echo no)"
+assert_eq "#222 AC7: workpad.py NamedTemporaryFile body write pins encoding=utf-8" "yes" \
+  "$(grep -qF "'w', suffix='.md', delete=False, encoding=\"utf-8\"," "$U8_SCRIPTS/workpad.py" && echo yes || echo no)"
+assert_eq "#222 AC6: file-deferrals.py _run gh wrapper pins encoding=utf-8" "yes" \
+  "$(grep -qF 'stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8",' "$U8_SCRIPTS/file-deferrals.py" && echo yes || echo no)"
+assert_eq "#222 AC7: file-deferrals.py gh issue create pins input encoding=utf-8" "yes" \
+  "$(grep -qF 'input=body, check=False, encoding="utf-8",' "$U8_SCRIPTS/file-deferrals.py" && echo yes || echo no)"
+assert_eq "#222 AC6: parse-acs.py _fetch_body pins gh decode encoding=utf-8" "yes" \
+  "$(grep -qF 'check=True, capture_output=True, encoding="utf-8",' "$U8_SCRIPTS/parse-acs.py" && echo yes || echo no)"
+# match-deferrals.py's _run also reads gh PR/issue *bodies* (routinely non-ASCII),
+# so its decode is pinned too — closing the same Windows decode-crash path.
+assert_eq "#222 AC6: match-deferrals.py _run pins gh body-decode encoding=utf-8" "yes" \
+  "$(grep -qF 'stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8",' "$U8_SCRIPTS/match-deferrals.py" && echo yes || echo no)"
+
+# Smoke (not RED->GREEN): a gh stub returns a comment body containing a rocket;
+# workpad.py id must still decode it and print the matched id. On the Linux runner
+# this passes with or without the pin (UTF-8 Mode), so it is a round-trip smoke
+# test that the non-ASCII body doesn't break id resolution — NOT the AC6 proof
+# (that is the static pin above).
+U8_GHD="$(mktemp -d)"
+cat > "$U8_GHD/gh" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *"repo view"*) echo "acme/example-repo" ;;
+  *"comments"*) printf '%s\n' '[{"id":42,"body":"<!-- devflow:workpad --> 🚀 status"}]' ;;
+  *) echo '[]' ;;
+esac
+STUB
+chmod +x "$U8_GHD/gh"
+U8_ID_OUT="$(PATH="$U8_GHD:$PATH" python3 "$U8_SCRIPTS/workpad.py" id 1 2>/dev/null)"
+assert_eq "#222 smoke: workpad.py id resolves a comment with a non-ASCII body" "42" "$U8_ID_OUT"
+rm -rf "$U8_GHD"
+
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)

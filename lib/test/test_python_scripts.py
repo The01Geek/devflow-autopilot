@@ -2095,6 +2095,36 @@ assert_eq("_config_get: OSError on bogus helper path surfaces a warning",
           True, any("cannot run" in w for w in _oserr_warn))
 
 
+# ── issue #222: UTF-8 stream-forcing is entry-path-scoped, not import-time ────
+# Every hardened scripts/*.py reconfigures sys.stdout/sys.stderr to UTF-8 inside
+# its main() (the CLI entry path), NOT at module top-level — so importing the
+# module for these in-process tests must leave the importer's streams untouched.
+# (The cp1252 RED->GREEN behavior when run AS a CLI is proven by subprocess in
+# lib/test/run.sh; this asserts the complementary no-side-effect-on-import half.)
+_stdout_before, _stderr_before = sys.stdout, sys.stderr
+_enc_before = (getattr(sys.stdout, "encoding", None), getattr(sys.stderr, "encoding", None))
+_reimported = _load('workpad_reimport', SCRIPTS / 'workpad.py')
+assert_eq("#222: importing a hardened module leaves sys.stdout object unchanged",
+          True, sys.stdout is _stdout_before)
+assert_eq("#222: importing a hardened module leaves sys.stderr object unchanged",
+          True, sys.stderr is _stderr_before)
+assert_eq("#222: importing a hardened module leaves stream encodings unchanged",
+          _enc_before,
+          (getattr(sys.stdout, "encoding", None), getattr(sys.stderr, "encoding", None)))
+# Each hardened module DOES expose the entry-path helper (so main() can call it).
+# branch-for-issue.py is loaded here (it is not used elsewhere in this file) so all
+# six hardened scripts are covered, not five.
+_branch_for_issue = _load('branch_for_issue', SCRIPTS / 'branch-for-issue.py')
+for _modname, _mod in (
+    ('workpad', workpad), ('parse_acs', parse_acs), ('file_deferrals', file_deferrals),
+    ('match_deferrals', match_deferrals),
+    ('resolve_review_overrides', resolve_review_overrides),
+    ('branch_for_issue', _branch_for_issue),
+):
+    assert_eq(f"#222: {_modname} defines _force_utf8_streams (entry-path helper)",
+              True, hasattr(_mod, '_force_utf8_streams'))
+
+
 print()
 print(f"{PASS} passed, {FAIL} failed")
 sys.exit(0 if FAIL == 0 else 1)
