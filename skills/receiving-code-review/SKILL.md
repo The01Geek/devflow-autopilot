@@ -42,8 +42,9 @@ WHEN receiving code review feedback:
 
 Before declaring the review findings addressed:
 1. Review the diff of your changes against the addressed findings. For each fix, verify the fix is correct for *all* inputs and conditions — not only the case the reviewer described. Fixing one problem while introducing a new inaccuracy is a common failure mode the test suite may not catch (e.g. a breadcrumb that fires on `|| VAR=""` emptiness rephrased to say "failed", implying a non-zero exit, missing the asymmetric-empty case).
-2. Run the project's test suite. Attempt the direct/local invocation first; restrict the CI fallback to a genuine sandbox or permission denial — never when the suite runs but fails. When using the CI fallback, actively wait to observe CI go green (submitting a push is not the same as observing green); do not claim completion until CI confirms green. Record the local-skip reason as an auditable note.
-3. Only after both pass, claim completion.
+2. Verify your own diff's claims against HEAD. Treat every documentation, comment, changelog, or PR-body assertion the change adds or relies on as a claim to verify against HEAD before declaring done — especially "X remains unscoped / is still broken / is unhandled" claims, and anything another file in the same change contradicts. A documented falsehood is a correctness defect in the deliverable, not a cosmetic nit: `git log -S` / grep the symbol at HEAD, then fix the prose (or, if the code is the thing that is wrong, fix the code).
+3. Run the project's test suite. Attempt the direct/local invocation first; restrict the CI fallback to a genuine sandbox or permission denial — never when the suite runs but fails. When using the CI fallback, actively wait to observe CI go green (submitting a push is not the same as observing green); do not claim completion until CI confirms green. Record the local-skip reason as an auditable note.
+4. Only after all three pass, claim completion.
 
 This gate applies in both interactive sessions and the autonomous `/devflow:review-and-fix` fix loop. In the loop, the fix step runs tests and the review engine re-runs each iteration to re-check whether every finding is resolved — no additional step 8 invocation is needed at the APPROVE claim.
 
@@ -54,6 +55,7 @@ A review engine that re-runs after every edit is *exhaustive*: each pass surface
 Once the verdict is already non-blocking (an APPROVE, or any approve-with-notes verdict), the bar for re-opening the diff changes:
 
 - **Re-open only for** a Critical / blocking finding, or a demonstrable correctness defect (one that cites a concrete failing input). These still get fixed immediately.
+- **A finding that a claim is stale, contradicts HEAD, or contradicts another part of this change is blocking** — never advisory. A documented falsehood is a correctness defect, so it re-opens the diff even on an otherwise already-passing verdict. Verify it against HEAD (`git log -S` / grep the symbol), then fix the prose or correct the reviewer.
 - **Everything else is recorded or deferred** (see Record Every Deferral below), not implemented. A Suggestion- or advisory-level note on an already-passing verdict does not, by itself, re-open the diff.
 - **Bound any advisory re-open to a concrete, pre-agreed set.** If advisory notes *are* worth one more pass, name the specific bounded set of them before you start — never "address all the notes," which guarantees the next run produces a new batch and the loop never settles.
 
@@ -106,9 +108,15 @@ BEFORE implementing:
   3. Check: Reason for current implementation?
   4. Check: Works on all platforms/versions?
   5. Check: Does reviewer understand full context?
+  6. Check: Does the note appeal to a "convention" / "standard" / "canonical pattern"?
+           grep the repo to confirm that convention actually exists before reshaping code to match it.
 
 IF suggestion seems wrong:
   Push back with technical reasoning
+
+IF a cited convention / canonical pattern does not actually exist in the repo:
+  Push back, citing the file's real, uniform pattern as evidence.
+  Do not reshape code to match an aspirational or non-existent standard — that makes the code LESS consistent, not more.
 
 IF can't easily verify:
   Say so: "I can't verify this without [X]. Should I [investigate/ask/proceed]?"

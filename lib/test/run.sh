@@ -1476,6 +1476,28 @@ assert_pin_unique "convergence #196: union does not retire a finding a later run
 assert_pin_unique "convergence #196: push-back reinforcement records the pushback as a deferral" \
   'an un-recorded pushback is re-raised identically next run' "$RECV_SKILL"
 
+# ── Drift guards (issue #197): the symmetric premise-verification additions to the vendored
+# receiving-code-review skill — (outward) verify a reviewer's cited convention before
+# reshaping code to match it, and (inward) verify your own diff's claims against HEAD, with a
+# stale-claim/contradicts-HEAD finding classed as blocking. Each is SKILL prose with no
+# behavioral test surface (the skill ships to consumer repos), so an assert_pin_unique on the
+# operative sentence is the mutation-proven drift guard: deleting or paraphrasing the
+# load-bearing clause drops the count to 0 and fails closed. Literals are gate-unique,
+# apostrophe-free ASCII, and engine-agnostic (no DevFlow machinery named in the pinned text).
+# AC1 (outward): the External-Reviewers checklist greps for a cited convention before honoring it.
+assert_pin_unique "premise #197: External-Reviewers checklist greps to confirm a cited convention exists" \
+  'grep the repo to confirm that convention actually exists before reshaping code to match it' "$RECV_SKILL"
+assert_pin_unique "premise #197: push back on a non-existent convention with the file real pattern" \
+  'Do not reshape code to match an aspirational or non-existent standard' "$RECV_SKILL"
+# AC2 (inward): the Verification Gate verifies the diff own claims against HEAD before done.
+assert_pin_unique "premise #197: Verification Gate verifies own diff claims against HEAD" \
+  'Treat every documentation, comment, changelog, or PR-body assertion the change adds or relies on as a claim to verify against HEAD' "$RECV_SKILL"
+assert_pin_unique "premise #197: own-claim gate calls out the remains-unscoped/still-broken/unhandled shape" \
+  'X remains unscoped / is still broken / is unhandled' "$RECV_SKILL"
+# AC3 (triage): a stale-claim/contradicts-HEAD/contradicts-this-change finding is blocking, never advisory.
+assert_pin_unique "premise #197: triage classes a stale/contradicts-HEAD claim finding as blocking" \
+  'contradicts another part of this change is blocking' "$RECV_SKILL"
+
 # ── Drift guards (issue #167): the completeness-critic pass (shared engine) and the
 # mechanism-scoped self-authored-claim re-sweep (fix loop). Both are SKILL-prose engine
 # behaviors; pin the load-bearing contract literals so a silent paraphrase or deletion that
