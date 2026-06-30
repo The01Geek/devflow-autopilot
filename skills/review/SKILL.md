@@ -685,7 +685,7 @@ The completeness critic is a **finding-producing pass, not a verdict override**:
 
 ### 3.2 Collect results
 
-**Dirty-tree backstop — compare after dispatch (mandatory).** Before extracting findings, confirm the Phase 3.1 review-agent batch left the working tree unchanged. Compare against the `GIT_STATUS_BEFORE` snapshot taken before dispatch; on any divergence the dispatch violated the advisory contract, so record it as a finding (never discard it silently) and restore only the snapshot-delta paths — those that were **clean at snapshot time** and became dirty during the dispatch window. The guarantee is scoped to exactly those paths: a path the orchestrator had **already** modified before dispatch is left to the human (its `git checkout` is never run, so a concurrent legitimate edit is not clobbered), and — the converse limitation of a porcelain-line compare — a same-status further edit to such an already-dirty path produces an identical porcelain line and is therefore **not** detected. (The Step 2.6 shadow + the post-shadow edit gate are the backstop for that residual case.)
+**Dirty-tree backstop — compare after dispatch (mandatory).** Before extracting findings, confirm the Phase 3.1 review-agent batch left the working tree unchanged. Compare against the `GIT_STATUS_BEFORE` snapshot taken before dispatch; on any divergence the dispatch violated the advisory contract, so record it as a finding (never discard it silently) and restore only the snapshot-delta paths — those whose **path** was clean at snapshot time and became dirty during the dispatch window. The restore set is computed by **path column** (not whole porcelain line), so the guarantee is exact: any path the orchestrator had **already** modified before dispatch is left to the human — its `git checkout` is never run even if an agent changes its status byte further — so a concurrent legitimate edit is never clobbered. The one residual the compare cannot *detect* (as opposed to *restore*) is an agent's further edit to an already-dirty path that does not change its status byte: it produces an identical porcelain line, so the divergence test does not fire. That path is intentionally never auto-restored regardless; the Step 2.6 shadow + the post-shadow edit gate are the backstop for that undetected residual.
 
 ```bash
 if [ "$GIT_STATUS_BEFORE" = $'\x01__DIRTY_TREE_BACKSTOP_DISABLED__' ]; then
@@ -695,8 +695,16 @@ elif ! GIT_STATUS_AFTER=$(git status --porcelain); then
   # run any restore off an empty AFTER — surface a DISTINCT, attributable breadcrumb instead.
   echo "::warning::devflow review: could not snapshot the working tree after the Phase 3.1 dispatch (git status failed); dirty-tree verification SKIPPED this dispatch — this is NOT an agent mutation" >&2
 elif [ "$GIT_STATUS_AFTER" != "$GIT_STATUS_BEFORE" ]; then
-  # Paths dirtied during the dispatch window only (present in AFTER, absent from BEFORE).
-  CHANGED_PATHS=$(comm -13 <(printf '%s\n' "$GIT_STATUS_BEFORE" | sort) <(printf '%s\n' "$GIT_STATUS_AFTER" | sort) | sed 's/^...//')
+  # Restore set = paths CLEAN at snapshot time that became dirty during the dispatch window.
+  # Compare the PATH column (status prefix stripped), NOT the whole porcelain line: a path the
+  # orchestrator had ALREADY modified before dispatch must never be checked out even if an
+  # agent changed its status byte further (` M f` -> `MM f`) — a whole-line compare would put
+  # such a path in the delta and clobber a concurrent legitimate edit. By-path set-difference
+  # leaves every already-dirty path out of CHANGED_PATHS (left to the human); its further
+  # mutation is still surfaced by the divergence breadcrumb, just never auto-restored.
+  CHANGED_PATHS=$(comm -13 \
+    <(printf '%s\n' "$GIT_STATUS_BEFORE" | sed 's/^...//' | sort -u) \
+    <(printf '%s\n' "$GIT_STATUS_AFTER"  | sed 's/^...//' | sort -u))
   echo "::warning::devflow review: a Phase 3.1 review-agent dispatch modified the working tree (advisory review agents must never mutate it); affected paths: ${CHANGED_PATHS//$'\n'/ }; recording an Important finding and restoring the snapshot delta" >&2
   # Restore only the snapshot-delta tracked paths; an untracked file the agent created is
   # surfaced via the breadcrumb + finding but is never auto-deleted (it could be a legitimate
