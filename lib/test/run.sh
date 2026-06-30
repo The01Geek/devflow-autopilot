@@ -1481,7 +1481,7 @@ assert_pin_unique "convergence #196: push-back reinforcement records the pushbac
 # reshaping code to match it, and (inward) verify your own diff's claims against HEAD, with a
 # stale-claim/contradicts-HEAD finding classed as blocking. Each is SKILL prose with no
 # behavioral test surface (the skill ships to consumer repos), so an assert_pin_unique on the
-# operative sentence is the mutation-proven drift guard: deleting or paraphrasing the
+# operative clause is the mutation-proven drift guard: deleting or paraphrasing the
 # load-bearing clause drops the count to 0 and fails closed. Literals are gate-unique,
 # apostrophe-free ASCII, and engine-agnostic (no DevFlow machinery named in the pinned text).
 # AC1 (outward): the External-Reviewers checklist greps for a cited convention before honoring it.
@@ -1495,8 +1495,11 @@ assert_pin_unique "premise #197: Verification Gate verifies own diff claims agai
 assert_pin_unique "premise #197: own-claim gate calls out the remains-unscoped/still-broken/unhandled shape" \
   'X remains unscoped / is still broken / is unhandled' "$RECV_SKILL"
 # AC3 (triage): a stale-claim/contradicts-HEAD/contradicts-this-change finding is blocking, never advisory.
+# Pin the FULL three-arm enumeration (stale / contradicts HEAD / contradicts another part)
+# together with the blocking classification, so dropping ANY arm — not just the tail — fails
+# the pin RED (AC3 enumerates all three arms; a tail-only pin would under-cover the contract).
 assert_pin_unique "premise #197: triage classes a stale/contradicts-HEAD claim finding as blocking" \
-  'contradicts another part of this change is blocking' "$RECV_SKILL"
+  'stale, contradicts HEAD, or contradicts another part of this change is blocking' "$RECV_SKILL"
 
 # ── Drift guards (issue #167): the completeness-critic pass (shared engine) and the
 # mechanism-scoped self-authored-claim re-sweep (fix loop). Both are SKILL-prose engine
