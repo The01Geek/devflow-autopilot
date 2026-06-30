@@ -1455,6 +1455,8 @@ assert_pin_unique "convergence #196: stopping rule re-opens only for Critical/bl
   'or a demonstrable correctness defect (one that cites a concrete failing input)' "$RECV_SKILL"
 assert_pin_unique "convergence #196: stopping rule bounds advisory re-opens, never address-all-the-notes" \
   'never "address all the notes," which guarantees' "$RECV_SKILL"
+assert_pin_unique "convergence #196: stopping rule parks everything else (advisory note does not by itself re-open)" \
+  'does not, by itself, re-open the diff' "$RECV_SKILL"
 assert_pin_unique "convergence #196: Record Every Deferral section heading present" \
   '## Record Every Deferral' "$RECV_SKILL"
 assert_pin_unique "convergence #196: deferral record names WHAT/WHY/revisit-condition" \
