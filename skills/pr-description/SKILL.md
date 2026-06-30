@@ -193,11 +193,10 @@ deferrals:
 
 ## Step 3: Apply the Description
 
-- **If an existing PR was found (Mode B):** Update it directly:
+- **If an existing PR was found (Mode B):** Update it directly via REST (repo-scope only — `gh pr edit --body` resolves the repo through org-scoped GraphQL and fails under a repo-scoped token). The `-F body=@-` form reads the field value literally from stdin, so the quoted-heredoc's no-expansion guarantee (backticks and `$` preserved) holds exactly as `gh pr edit --body` did:
   ```bash
-  gh pr edit $PR_NUMBER --body "$(cat <<'EOF'
+  gh api --method PATCH "repos/{owner}/{repo}/pulls/$PR_NUMBER" -F body=@- <<'EOF'
   [full output including any pre/post-marker content]
   EOF
-  )"
   ```
 - **If no existing PR (Mode A):** Output the description as plain text for the caller to use when creating the PR.

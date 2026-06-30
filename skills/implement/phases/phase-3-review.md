@@ -24,13 +24,12 @@ PR_NUM=$(gh pr view --json number --jq '.number')
 workpad.py update $ISSUE_NUMBER --pr-link "[#$PR_NUM]($PR_URL)"
 ```
 
-Then stamp the reserved `DevFlow` **provenance** label on the PR (best-effort). `DevFlow` is a hardcoded provenance constant (no config key controls it) — it is the branch-naming-independent signal the weekly retrospective uses to detect DevFlow-authored PRs. Apply it via `--add-label` after creation (mirroring the Phase 4.1 docs-label idiom) so a label hiccup can never block the run:
+Then stamp the reserved `DevFlow` **provenance** label on the PR (best-effort). `DevFlow` is a hardcoded provenance constant (no config key controls it) — it is the branch-naming-independent signal the weekly retrospective uses to detect DevFlow-authored PRs. Apply it through the shared REST label-apply helper after creation (a PR is an issue, so the same `POST .../issues/{n}/labels` endpoint serves it) so a label hiccup can never block the run:
 ```bash
 ${CLAUDE_SKILL_DIR}/../../scripts/ensure-label.sh DevFlow
-gh pr edit "$PR_NUM" --add-label DevFlow \
-  || echo "devflow: could not apply the DevFlow label to PR #$PR_NUM (best-effort, continuing)" >&2
+${CLAUDE_SKILL_DIR}/../../scripts/apply-labels.sh "$PR_NUM" DevFlow
 ```
-`ensure-label.sh` always exits 0 (it logs whether it created the label, found it present, or hit a `gh` error), and a failed `--add-label` is logged and ignored — continue regardless of the label outcome.
+Both helpers always exit 0 and need only the `repo` scope: `ensure-label.sh` logs whether the label was created / present / hit a `gh` error, and `apply-labels.sh` applies via REST `POST .../issues/{n}/labels` (not `gh pr edit --add-label`, which resolves the repo via org-scoped GraphQL and fails under a repo-scoped token), logging its own breadcrumb on failure — continue regardless of the label outcome.
 
 ### 3.2 Self-Review with /simplify
 
