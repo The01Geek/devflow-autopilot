@@ -1,0 +1,16 @@
+{
+  "iter": 1,
+  "fix_commit_sha": "e436304",
+  "fix_files": ["CHANGELOG.md"],
+  "loop_role": "fix",
+  "diff_profile": {"small_diff": true, "config_only": false, "has_new_types": false, "engine_self_modifying": true, "checklist_skipped": null},
+  "phase3_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer"],
+  "phase3_findings": [
+    {"agent": "devflow:comment-analyzer", "severity": "Important", "description": "CHANGELOG claimed requesting-code-review inherits the new behavior transitively, but the final-pass reviewer renders a separate vendored template skills/requesting-code-review/code-reviewer.md that was not edited", "defect_signature": {"file": "CHANGELOG.md", "line_range": [11, 11], "kind": "doc-accuracy"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-1", "decision": "applied", "commit": "e436304"}
+  ],
+  "convergence_inputs": {"fixes_applied": 1, "fix_diff_lines": 1, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}}
+}

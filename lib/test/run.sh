@@ -793,6 +793,15 @@ assert_pin_unique "max_iterations clamp: SKILL keeps the negative-aware integer 
 assert_pin_unique "max_iterations clamp: SKILL keeps the below-1 floor" '"$MAX_ITERS" -lt 1' "$MAXI_SKILL"
 assert_pin_unique "max_iterations clamp: SKILL keeps the default-5 fallback" 'MAX_ITERS=5' "$MAXI_SKILL"
 
+# Issue #182 (convention-violation / unscoped-staging): the review-and-fix fix-commit step
+# (Step 3 item 6) must stage only the specific files the fix touched, never `git add -A` /
+# `git add .` — an unscoped stage sweeps unrelated working-tree state (a local config edit,
+# stray capture files) onto the feature branch (PRs #117, #174). Pin the operative
+# prohibition sentence (not a framing clause) so a future simplification/rewrite that drops
+# it goes RED. The literal is apostrophe-free and target-unique in the SKILL.
+assert_pin_unique "unscoped-staging: review-and-fix fix-commit step prohibits git add -A / git add ." \
+  'Never use `git add -A` or `git add .` at the fix-commit step' "$MAXI_SKILL"
+
 # Drift guard: the park-calibration gate is the lenient-verdict catch — it re-reads
 # parked findings against three generic under-grade shapes before the review-and-fix
 # loop concludes on an APPROVE-family verdict, so every review-and-fix-engine consumer
@@ -1123,10 +1132,61 @@ assert_pin_unique "over-grade: engine gate keeps its mandatory reflection sentin
   'over-grade calibration gate clean: no promote-path finding flagged' "$MAXI_SKILL"
 assert_pin_unique "over-grade: engine gate keeps the never-auto-demote contract (flag + recorded evaluation)" \
   'flags and requires a recorded technical evaluation; it never auto-demotes' "$MAXI_SKILL"
-assert_pin_unique "over-grade: engine gate keeps over-grade shape 1 (suite-RED / fail-closed above blast radius)" \
-  'Suite-RED or fail-closed defect graded above its blast radius' "$MAXI_SKILL"
-assert_pin_unique "over-grade: engine gate keeps over-grade shape 2 (diagnostic-or-cosmetic-only)" \
-  'Diagnostic-or-cosmetic-only finding with no behavioral fail-direction' "$MAXI_SKILL"
+# The over-grade SHAPE DEFINITIONS now have a single source of truth in the shared engine
+# (/devflow:review Phase 4.1.5) — issue #195. Pin the canonical shapes against review/SKILL.md,
+# pin that review-and-fix REFERENCES (does NOT fork) them, and pin the advisory-annotation
+# contract (advisory only; verdict unchanged; never auto-demote).
+OG_REVIEW_SKILL="$LIB/../skills/review/SKILL.md"
+assert_pin_unique "over-grade: shared engine carries the single-source annotation heading" \
+  '### 4.1.5 Over-grade advisory annotation (advisory only — never changes the verdict)' "$OG_REVIEW_SKILL"
+assert_pin_unique "over-grade: shared engine declares itself the single source of truth for the shapes" \
+  'single source of truth for the over-grade shape definitions' "$OG_REVIEW_SKILL"
+assert_pin_unique "over-grade: shared engine carries over-grade shape 1 (suite-RED / fail-closed above blast radius)" \
+  'Suite-RED or fail-closed defect graded above its blast radius' "$OG_REVIEW_SKILL"
+assert_pin_unique "over-grade: shared engine carries over-grade shape 2 (diagnostic-or-cosmetic-only)" \
+  'Diagnostic-or-cosmetic-only finding with no behavioral fail-direction' "$OG_REVIEW_SKILL"
+assert_pin_unique "over-grade: shared engine carries over-grade shape 3 (uncorroborated single-source from an empirical over-grader)" \
+  'Uncorroborated single-source finding from an empirical over-grader' "$OG_REVIEW_SKILL"
+assert_pin_unique "over-grade: standalone annotation is advisory — verdict computation unchanged (AC2)" \
+  '**The verdict computation in 4.2 is unchanged**' "$OG_REVIEW_SKILL"
+assert_pin_unique "over-grade: standalone annotation never auto-demotes (advisory by construction, AC2)" \
+  'it MUST **not auto-demote**' "$OG_REVIEW_SKILL"
+assert_pin_unique "over-grade: shared engine clean-scan sentinel present" \
+  'over-grade annotation: no finding flagged' "$OG_REVIEW_SKILL"
+# No-fork coupling (AC3): review-and-fix's Step 2.6 gate must REFERENCE the canonical shapes,
+# not restate them — these pins go RED if the dereference is reverted to an inline copy.
+assert_pin_unique "over-grade: review-and-fix gate references the single shared shape definition (no fork, AC3)" \
+  'this gate consumes that canonical list and does not restate it here' "$MAXI_SKILL"
+assert_pin_unique "over-grade: review-and-fix gate explicitly forbids forking the shapes (AC3)" \
+  'Do not fork or re-define the shapes here.' "$MAXI_SKILL"
+# AC4: docs/shadow-review.md must scope the standalone annotation as advisory / verdict-untouched.
+# AC1: the human-facing annotation template (cites the observable fail-direction) must keep its shape.
+# Attach-point: the Phase 4.1 report-injection line that actually wires 4.1.5 into the report
+# (without it 4.1.5 is defined-but-inert). Each is a distinct AC-required contract surface.
+OG_SHADOW_DOC="$LIB/../docs/shadow-review.md"
+assert_pin_unique "over-grade: docs/shadow-review.md scopes the annotation as verdict-untouched (AC4)" \
+  'leaves the verdict computation untouched' "$OG_SHADOW_DOC"
+assert_pin_unique "over-grade: engine keeps the annotation template citing the observable fail-direction (AC1)" \
+  'suspected over-grade: shape {n} — observable fail-direction is {X}, milder than the {severity} label' "$OG_REVIEW_SKILL"
+assert_pin_unique "over-grade: Phase 4.1 report wires in the 4.1.5 annotation (attach-point, not inert)" \
+  "append its advisory annotation to that finding's line here" "$OG_REVIEW_SKILL"
+# AC3 fail-CLOSED against a re-fork (not only the positive reference pins above): the shape
+# literals must be ABSENT from review-and-fix. If a future edit re-inlines a shape copy while
+# leaving the reference sentence in place, the positive pins stay GREEN but these go RED — the
+# coupled-invariant / single-source discipline CLAUDE.md flags as the dominant violation.
+assert_eq "over-grade: shape 1 is NOT re-forked into review-and-fix (AC3 fail-closed)" \
+  "0" "$(pin_count 'Suite-RED or fail-closed defect graded above its blast radius' "$MAXI_SKILL")"
+assert_eq "over-grade: shape 2 is NOT re-forked into review-and-fix (AC3 fail-closed)" \
+  "0" "$(pin_count 'Diagnostic-or-cosmetic-only finding with no behavioral fail-direction' "$MAXI_SKILL")"
+# AC2's load-bearing clause (the #189 motivating case): an over-graded Critical must STILL REJECT.
+# Pinned distinctly from the broader "verdict computation unchanged" so a rewrite that weakens
+# only this clause cannot ride out GREEN.
+assert_pin_unique "over-grade: annotation never clears or downgrades a REJECT (AC2, #189 case)" \
+  'never clears or downgrades a REJECT' "$OG_REVIEW_SKILL"
+# Shape 3's discriminating predicate (not just its heading): the 'no Phase-2 FAIL' qualifier is
+# what keeps it from firing on a corroborated finding; pin it so a future loosening goes RED.
+assert_pin_unique "over-grade: shape 3 keeps its 'no Phase-2 FAIL' discriminating qualifier" \
+  'no Phase-2 verification-checklist FAIL covering the same defect' "$OG_REVIEW_SKILL"
 assert_pin_unique "over-grade: engine gate names the receiving-code-review principle it mechanizes" \
   'mechanizes the receiving-code-review symmetric-severity-calibration principle' "$MAXI_SKILL"
 # Cross-skill coupling: the principle the gate mechanizes must actually exist in the
@@ -1406,31 +1466,153 @@ assert_pin_unique "fix-delta gate: share-the-contract principle in receiving-cod
   'prefer using that consumer as the guard itself' "$RCR_SKILL"
 # FIXDELTA_GUARD_REGION_END — end of the assert_pin_unique-only fix-delta pin region
 
-# Drift guard: the step 7 Verification Gate (issue #178) — the Iron Law, its scope
-# sentence, the code-fence step 7 entry, the engine re-run attribution, the
+# Drift guard (issue #199): the Step 2.6 EARLY shadow trigger. On an
+# `engine_self_modifying` PR the shadow fan-out runs once after iteration 1
+# regardless of that iteration's verdict (including REJECT), feeding new blinded
+# findings into iteration 2 — the convergence-time trigger is unchanged for all
+# PRs and a non-engine PR keeps convergence-time-only. The contract has three
+# load-bearing, independently-revertible sentences, each pinned below: (1) the
+# fire condition (after-iteration-1, verdict-agnostic, gated on engine_self_modifying);
+# (2) the no-double-run guard vs the convergence-time trigger; (3) the iteration
+# accounting (early pass uncounted, the promoted iteration 2 counts). These use
+# assert_pin_unique (one occurrence) so a deletion or paraphrase fails closed; the
+# fire-condition sentence is additionally mutation-proven via assert_pin_red_on_removal.
+assert_pin_unique "early-shadow #199: fire condition (after-iter-1, verdict-agnostic, engine_self_modifying-gated)" \
+  'run the early shadow once after iteration 1 regardless of that iteration verdict, gated on engine_self_modifying' "$MAXI_SKILL"
+assert_pin_red_on_removal "early-shadow #199: deleting the early-trigger fire condition turns its pin RED" \
+  'run the early shadow once after iteration 1 regardless of that iteration verdict, gated on engine_self_modifying'
+assert_pin_unique "early-shadow #199: no-double-run guard vs the convergence-time trigger (AC3)" \
+  'only when the convergence-time trigger did not already run on iteration 1' "$MAXI_SKILL"
+assert_pin_unique "early-shadow #199: promoted iteration 2 counts toward the cap; early pass uncounted (AC3)" \
+  'promoted iteration 2 it spawns DOES count toward the cap' "$MAXI_SKILL"
+# AC2 (review F2): the non-engine contract is carried by the Step 2.6 intro bullet — a
+# SEPARATE, independently-revertible sentence from the fire-condition pin above. Without
+# its own pin, an edit that broadens the early trigger to all PRs (deleting this clause
+# while leaving the gated fire-condition intact) re-introduces the AC2 regression with the
+# pins above still green. Pin the operative non-engine sentence.
+assert_pin_unique "early-shadow #199: non-engine PR keeps convergence-time-only (AC2)" \
+  'never runs the early trigger and keeps the convergence-time trigger only' "$MAXI_SKILL"
+# Review F1 (silent-failure-hunter, Important): the early-trigger gate reads a best-effort
+# iter-1.json flag whose schema default is false; without an explicit absent-flag rule a
+# dropped iter-1 write would silently skip the early audit on exactly the engine PR it
+# protects (fail-OPEN). The fix re-derives engine_self_modifying from the diff and trips
+# rather than defaulting to false. This is a behavioral fail-open fix, so mutation-prove it.
+assert_pin_unique "early-shadow #199: absent flag fails closed (re-derive, do not default false)" \
+  're-derive `engine_self_modifying` from the diff itself' "$MAXI_SKILL"
+assert_pin_red_on_removal "early-shadow #199: deleting the absent-flag fail-closed rule turns its pin RED" \
+  're-derive `engine_self_modifying` from the diff itself'
+# Shadow finding A (Important): the Step 4.5 sentence is the ONLY control-flow site that
+# INVOKES the early trigger — every pin above guards the declarative subsection, not the
+# call site. Reverting just the Step 4.5 wiring (e.g. a future Step 4.5 refactor) ships the
+# feature DEAD with all the pins above still green. Pin the invocation site, mutation-proven.
+assert_pin_unique "early-shadow #199: Step 4.5 invocation site wires the early trigger into the loop" \
+  'run the Step 2.6 *early shadow trigger* first' "$MAXI_SKILL"
+assert_pin_red_on_removal "early-shadow #199: deleting the Step 4.5 invocation site turns its pin RED" \
+  'run the Step 2.6 *early shadow trigger* first'
+# Shadow finding B: the $MAX_ITERS=1 edge clause (collapse to convergence-time-only, no
+# orphan promotion) is a named contract clause in the CHANGELOG; pin it so a deletion that
+# would let the early trigger promote a non-existent iteration 2 at cap=1 fails closed.
+assert_pin_unique "early-shadow #199: \$MAX_ITERS=1 edge collapses to convergence-time-only" \
+  'never spawns a pass it has nowhere to feed' "$MAXI_SKILL"
+
+# Drift guard: the step 8 Verification Gate (issue #178; renumbered from step 7 by #196,
+# which inserted a RECORD DEFERRALS step before it) — the Iron Law, its scope
+# sentence, the code-fence verify entry, the engine re-run attribution, the
 # CI-fallback consequence clause, the CI-fallback trigger restriction, the
 # Forbidden Responses entry, the local-skip audit note, and the push-vs-observe
 # distinction are the gate's load-bearing contracts (9 pins); any can be silently
 # deleted or paraphrased without breaking any other pin.
 # assert_pin_unique makes that RED.
-assert_pin_unique "step7: verification gate Iron Law heading present" \
+assert_pin_unique "step8: verification gate Iron Law heading present" \
   'NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE' "$RECV_SKILL"
-assert_pin_unique "step7: verification gate applies in both interactive and fix-loop contexts" \
+assert_pin_unique "step8: verification gate applies in both interactive and fix-loop contexts" \
   'applies in both interactive sessions and the autonomous' "$RECV_SKILL"
-assert_pin_unique "step7: code-fence step 7 entry anchors both mandated actions (diff review + test suite)" \
+assert_pin_unique "step8: code-fence step 8 entry anchors both mandated actions (diff review + test suite)" \
   'Review diff against addressed findings + run test suite — only then claim completion' "$RECV_SKILL"
-assert_pin_unique "step7: loop satisfies diff-review via engine re-run (not Step 3.5)" \
+assert_pin_unique "step8: loop satisfies diff-review via engine re-run (not Step 3.5)" \
   'the review engine re-runs each iteration' "$RECV_SKILL"
-assert_pin_unique "step7: CI-fallback clause requires waiting for green before claiming completion" \
+assert_pin_unique "step8: CI-fallback clause requires waiting for green before claiming completion" \
   'do not claim completion until CI confirms green' "$RECV_SKILL"
-assert_pin_unique "step7: CI-fallback trigger restricted to genuine denial, not suite failures" \
+assert_pin_unique "step8: CI-fallback trigger restricted to genuine denial, not suite failures" \
   'never when the suite runs but fails' "$RECV_SKILL"
-assert_pin_unique "step7: forbidden-responses entry prohibits claiming done before step 7" \
-  'before step 7 (VERIFY BEFORE DONE) is complete' "$RECV_SKILL"
-assert_pin_unique "step7: CI-fallback local-skip requires an auditable recorded note" \
+assert_pin_unique "step8: forbidden-responses entry prohibits claiming done before step 8" \
+  'before step 8 (VERIFY BEFORE DONE) is complete' "$RECV_SKILL"
+assert_pin_unique "step8: CI-fallback local-skip requires an auditable recorded note" \
   'Record the local-skip reason as an auditable note' "$RECV_SKILL"
-assert_pin_unique "step7: CI-fallback: submitting a push is not the same as observing green" \
+assert_pin_unique "step8: CI-fallback: submitting a push is not the same as observing green" \
   'submitting a push is not the same as observing green' "$RECV_SKILL"
+
+# Drift guards (issue #196): the convergence-discipline additions to the vendored
+# receiving-code-review skill — a stopping rule, a Record-Every-Deferral contract, the
+# Response-Pattern RECORD DEFERRALS step, and the cross-iteration finding union. Each is
+# SKILL prose with no behavioral test surface (the skill ships to consumer repos), so an
+# assert_pin_unique on the operative sentence is the drift guard: deleting or paraphrasing
+# the load-bearing clause drops the count to 0 and fails closed. Literals are gate-unique,
+# apostrophe-free ASCII, and engine-agnostic (no DevFlow machinery named in the pinned text).
+assert_pin_unique "convergence #196: stopping-rule section heading present" \
+  '## Stop When the Verdict Is Already Non-Blocking' "$RECV_SKILL"
+assert_pin_unique "convergence #196: stopping rule re-opens only for Critical/blocking/demonstrable defects" \
+  'or a demonstrable correctness defect (one that cites a concrete failing input)' "$RECV_SKILL"
+assert_pin_unique "convergence #196: stopping rule bounds advisory re-opens, never address-all-the-notes" \
+  'never "address all the notes," which guarantees' "$RECV_SKILL"
+assert_pin_unique "convergence #196: stopping rule parks everything else (advisory note does not by itself re-open)" \
+  'does not, by itself, re-open the diff' "$RECV_SKILL"
+assert_pin_unique "convergence #196: Record Every Deferral section heading present" \
+  '## Record Every Deferral' "$RECV_SKILL"
+assert_pin_unique "convergence #196: deferral record names WHAT/WHY/revisit-condition" \
+  'naming WHAT was deferred, WHY, and the condition that would make it worth revisiting' "$RECV_SKILL"
+assert_pin_unique "convergence #196: deferral has a preference-ordered list of trace locations" \
+  'in order of preference, to the first channel available' "$RECV_SKILL"
+assert_pin_unique "convergence #196: a successful pushback is itself a recorded deferral" \
+  'A successful pushback is itself a deferral' "$RECV_SKILL"
+assert_pin_unique "convergence #196: Response Pattern gains a RECORD DEFERRALS step before verify/done" \
+  '7. RECORD DEFERRALS: For every finding you did NOT fix' "$RECV_SKILL"
+assert_pin_unique "convergence #196: cross-iteration union section heading present" \
+  '## Union Findings Across Review Iterations' "$RECV_SKILL"
+assert_pin_unique "convergence #196: union treats raised-before-never-resolved-still-true as escalating" \
+  'raised in a prior run and never resolved, still true' "$RECV_SKILL"
+assert_pin_unique "convergence #196: union does not retire a finding a later run ranked lower" \
+  'it does not retire just because a later run happened to rank it lower' "$RECV_SKILL"
+assert_pin_unique "convergence #196: push-back reinforcement records the pushback as a deferral" \
+  'an un-recorded pushback is re-raised identically next run' "$RECV_SKILL"
+
+# ── Drift guards (issue #197): the symmetric premise-verification additions to the vendored
+# receiving-code-review skill — (outward) verify a reviewer's cited convention before
+# reshaping code to match it, and (inward) verify your own diff's claims against HEAD, with a
+# stale-claim/contradicts-HEAD finding classed as blocking. Each is SKILL prose with no
+# behavioral test surface (the skill ships to consumer repos), so an assert_pin_unique on the
+# operative clause is the mutation-proven drift guard: deleting or paraphrasing the
+# load-bearing clause drops the count to 0 and fails closed. Literals are gate-unique,
+# apostrophe-free ASCII, and engine-agnostic (no DevFlow machinery named in the pinned text).
+# AC1 (outward): the External-Reviewers checklist greps for a cited convention before honoring it.
+assert_pin_unique "premise #197: External-Reviewers checklist greps to confirm a cited convention exists" \
+  'grep the repo to confirm that convention actually exists before reshaping code to match it' "$RECV_SKILL"
+assert_pin_unique "premise #197: push back on a non-existent convention with the file real pattern" \
+  'Do not reshape code to match an aspirational or non-existent standard' "$RECV_SKILL"
+# AC1 requires the push-back to CITE the file's real pattern as evidence, not merely to
+# refuse the reshape — pin that evidence clause too, so a regression dropping it fails RED.
+assert_pin_unique "premise #197: push-back cites the file real pattern as evidence" \
+  'real, uniform pattern as evidence' "$RECV_SKILL"
+# AC2 (inward): the Verification Gate verifies the diff own claims against HEAD before done.
+assert_pin_unique "premise #197: Verification Gate verifies own diff claims against HEAD" \
+  'Treat every documentation, comment, changelog, or PR-body assertion the change adds or relies on as a claim to verify against HEAD' "$RECV_SKILL"
+assert_pin_unique "premise #197: own-claim gate calls out the remains-unscoped/still-broken/unhandled shape" \
+  'X remains unscoped / is still broken / is unhandled' "$RECV_SKILL"
+# AC3 (triage): a stale-claim/contradicts-HEAD/contradicts-this-change finding is blocking, never advisory.
+# Pin the FULL three-arm enumeration (stale / contradicts HEAD / contradicts another part)
+# together with the blocking classification, so dropping ANY arm — not just the tail — fails
+# the pin RED (AC3 enumerates all three arms; a tail-only pin would under-cover the contract).
+assert_pin_unique "premise #197: triage classes a stale/contradicts-HEAD claim finding as blocking" \
+  'stale, contradicts HEAD, or contradicts another part of this change is blocking' "$RECV_SKILL"
+# PR #211 review notes: pin the two operative CONSEQUENCE clauses that make the contract
+# actionable — a paraphrase keeping the framing while softening these would gut the contract
+# with the pins above still GREEN. (1) AC3's re-open consequence (the tail that forces the diff
+# back open on an already-passing verdict); (2) AC2's severity framing (what makes a documented
+# falsehood actionable rather than cosmetic).
+assert_pin_unique "premise #197: stale-claim finding re-opens the diff even on an already-passing verdict" \
+  'it re-opens the diff even on an otherwise already-passing verdict' "$RECV_SKILL"
+assert_pin_unique "premise #197: own-claim gate frames a documented falsehood as a correctness defect, not cosmetic" \
+  'A documented falsehood is a correctness defect in the deliverable, not a cosmetic nit' "$RECV_SKILL"
 
 # ── Drift guards (issue #167): the completeness-critic pass (shared engine) and the
 # mechanism-scoped self-authored-claim re-sweep (fix loop). Both are SKILL-prose engine
@@ -1572,6 +1754,126 @@ assert_pin_red_on_removal "#186 behavioral-fix-pin: deleting the at-least-one-pi
   'at least one pin per operative sentence' "$DEF_SKILL"
 assert_pin_red_on_removal "#186 behavioral-fix-pin: deleting the behavioral-fix-pin scope limiter turns its pin RED" \
   'literal constants, token names, count-based guards, absence pins' "$DEF_SKILL"
+# #194: two additions HARDEN the #186 mutation-check guidance — each is its own operative
+# DIRECTIVE sentence, so each gets a removal-proof pin (the rule pins itself). (A) bake the
+# half-revert into the suite via the framework's removal-proof assertion, not a one-time manual
+# act; (B) confirm a newly-added guard REGISTERED — its named assertion appears as PASS and the
+# assertion count rose — because a green suite alone does not prove a guard ran. Both additions
+# are COUPLED across the two skills (implement = $DEF_SKILL, review-and-fix = $MAXI_SKILL), so the
+# same operative literal pins each file; assert_pin_red_on_removal requires it appear exactly once
+# per file. Pinning (B)'s sentence with a *registering* assertion dogfoods the rule it states.
+assert_pin_red_on_removal "#194 (A) implement: deleting the bake-via-removal-proof-assertion directive turns its pin RED" \
+  "your framework's removal-proof assertion" "$DEF_SKILL"
+assert_pin_red_on_removal "#194 (B) implement: deleting the confirm-guard-registered directive turns its pin RED" \
+  'confirm the guard registered' "$DEF_SKILL"
+assert_pin_red_on_removal "#194 (A) review-and-fix: deleting the bake-via-removal-proof-assertion directive turns its pin RED" \
+  "your framework's removal-proof assertion" "$MAXI_SKILL"
+assert_pin_red_on_removal "#194 (B) review-and-fix: deleting the confirm-guard-registered directive turns its pin RED" \
+  'confirm the guard registered' "$MAXI_SKILL"
+# (B) is a two-conjunct directive ("named assertion appears as PASS" AND "the assertion
+# count rose") — by the rule's own "at least one pin per operative sentence", the count-rose
+# conjunct is a distinct operative clause (the anti-vacuity signal a guard actually REGISTERED,
+# not merely that some PASS line is present), so it carries its own pin literal: a future edit that
+# drops only that clause makes the literal absent, turning this pin RED on the next suite run, rather
+# than leaving (B) silently weakened to a presence-only check. (The helper's grep -vF strips the whole
+# physical line; what each pin proves is its own literal's present->absent => PASS->FAIL transition.)
+assert_pin_red_on_removal "#194 (B) implement: deleting the assertion-count-rose conjunct turns its pin RED" \
+  "the suite's assertion count rose" "$DEF_SKILL"
+assert_pin_red_on_removal "#194 (B) review-and-fix: deleting the assertion-count-rose conjunct turns its pin RED" \
+  "the suite's assertion count rose" "$MAXI_SKILL"
+# (B)'s OTHER conjunct — "its named assertion appears in the run as a PASS" — is operatively
+# distinct from count-rose (it catches the case where the count rose but the assertion that
+# passed is not the one you added; count-rose catches the case where nothing new ran), so by
+# the same one-pin-per-operative-sentence rule it gets its own per-file pin. The two skills word
+# the clause slightly differently (implement: "actually appears"; review-and-fix: "appears"),
+# so the per-file literals differ — each verified to appear exactly once in its own file.
+assert_pin_red_on_removal "#194 (B) implement: deleting the named-assertion-appears-as-PASS conjunct turns its pin RED" \
+  'its named assertion actually appears in the run as a PASS' "$DEF_SKILL"
+assert_pin_red_on_removal "#194 (B) review-and-fix: deleting the named-assertion-appears-as-PASS conjunct turns its pin RED" \
+  'its named assertion appears in the run as a PASS' "$MAXI_SKILL"
+# ── #192: review/analysis agents must never mutate the live working tree ──────────────
+# Two coupled layers, each pinned with a mutation-proven assert_pin_red_on_removal so a
+# half-applied removal of the contract turns the suite RED (issue #192 AC4):
+#   (1) each first-party review/analysis agent definition carries the never-mutate /
+#       use-`mktemp`-copy mandate, and
+#   (2) skills/review/SKILL.md's shared Phase 3.1/3.2 dirty-tree backstop snapshots the
+#       tree before dispatch, compares after, surfaces the divergence as a finding with an
+#       attributable breadcrumb, and restores only the snapshot delta.
+# The operative agent-mandate literal is identical across all six definition files, so the
+# same literal pins each (assert_pin_unique requires it appear exactly once PER FILE).
+REVIEW_AGENT_MANDATE='on a temporary copy made with `mktemp`, never in place'
+# The PRIMARY write-prohibition (AC1's core contract) is a distinct operative sentence from
+# the mktemp clause — pin it too, else the prohibition could be deleted while the mktemp pin
+# stays GREEN. The five first-party agents share this exact sentence; the vendored final-pass
+# carries the equivalent prohibition in its own pre-existing wording, pinned separately below.
+REVIEW_AGENT_PROHIBITION='modify working-tree source files, the index, HEAD, or branch state'
+for review_agent in code-reviewer silent-failure-hunter comment-analyzer type-design-analyzer pr-test-analyzer; do
+  assert_pin_red_on_removal "#192 agent-mandate: deleting the never-mutate/mktemp-copy mandate from $review_agent turns its pin RED" \
+    "$REVIEW_AGENT_MANDATE" "$LIB/../agents/$review_agent.md"
+  assert_pin_red_on_removal "#192 agent-mandate: deleting the primary write-prohibition from $review_agent turns its pin RED" \
+    "$REVIEW_AGENT_PROHIBITION" "$LIB/../agents/$review_agent.md"
+done
+assert_pin_red_on_removal "#192 agent-mandate: deleting the never-mutate/mktemp-copy mandate from the requesting-code-review final-pass turns its pin RED" \
+  "$REVIEW_AGENT_MANDATE" "$LIB/../skills/requesting-code-review/code-reviewer.md"
+assert_pin_red_on_removal "#192 agent-mandate: deleting the primary write-prohibition from the requesting-code-review final-pass turns its pin RED" \
+  'Do not mutate the working tree, the index, HEAD, or branch state in any way' "$LIB/../skills/requesting-code-review/code-reviewer.md"
+# Backstop operative sentences — one pin per operative directive (operative-vs-framing rule):
+assert_pin_red_on_removal "#192 backstop: deleting the pre-dispatch working-tree snapshot turns its pin RED" \
+  'GIT_STATUS_BEFORE=$(git status --porcelain)' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#192 backstop: deleting the attributable dirty-tree breadcrumb turns its pin RED" \
+  'a Phase 3.1 review-agent dispatch modified the working tree' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#192 backstop: deleting the snapshot-delta-scoped restore turns its pin RED" \
+  'restore only the snapshot-delta paths' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#192 backstop: deleting the surface-as-a-finding fail-safe clause turns its pin RED" \
+  'record it as a finding (never discard it silently)' "$REVIEW_SKILL"
+# The fail-safe intro clause above is framing; pin the OPERATIVE directives too (one each):
+# the compare-after divergence test that actually fires the backstop, the finding-injection
+# sentence that wires the divergence into Phase 4 aggregation (not the intro promise), and
+# the untracked-not-deleted safety rule that keeps the restore from destroying a legitimate
+# new file. Removing any of these is the half-revert AC4 (#192) exists to catch.
+assert_pin_red_on_removal "#192 backstop: deleting the compare-after divergence trigger turns its pin RED" \
+  'if [ "$GIT_STATUS_AFTER" != "$GIT_STATUS_BEFORE" ]' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#192 backstop: deleting the Phase-3-aggregation finding-injection sentence turns its pin RED" \
+  'add an **Important** finding to the Phase 3 findings set' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#192 backstop: deleting the untracked-file-never-auto-deleted safety rule turns its pin RED" \
+  'never auto-deleted' "$REVIEW_SKILL"
+# The restore set MUST be computed by path column (status prefix stripped from each snapshot)
+# — regressing to a whole-porcelain-line compare reintroduces the already-dirty-path clobber.
+# Pin the BEFORE operand's path-strip (the operative by-path element), and the two fail-closed
+# snapshot breadcrumbs (before-fail disables the backstop; after-fail is surfaced as NOT a
+# mutation rather than misattributed). All chosen apostrophe-free so the single-quoted run.sh
+# arg is safe (the `sed 's/^...//'` token carries apostrophes and cannot be pinned directly).
+assert_pin_red_on_removal "#192 backstop: regressing the by-path restore-set computation to a whole-line compare turns its pin RED" \
+  '"$GIT_STATUS_BEFORE" | sed' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#192 backstop: deleting the fail-closed before-snapshot disable turns its pin RED" \
+  'dirty-tree backstop DISABLED for this dispatch' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#192 backstop: deleting the after-snapshot fail-distinct breadcrumb turns its pin RED" \
+  'this is NOT an agent mutation' "$REVIEW_SKILL"
+# Pin the EXECUTABLE restore action, not just the restore policy: deleting the checkout loop
+# would downgrade the backstop from "detect AND restore" to "detect only" while every prose
+# pin stayed GREEN. The literal also encodes the fail-open fix — restore from HEAD (not the
+# INDEX), so a staged agent mutation is undone rather than re-materialized.
+assert_pin_red_on_removal "#192 backstop: deleting the restore-from-HEAD checkout action turns its pin RED" \
+  'git checkout HEAD -- "$p"' "$REVIEW_SKILL"
+# Pin the remaining operative directives the full shadow flagged as AC4 gaps: the comm -13
+# DIRECTION (swapping to comm -23 would restore BEFORE-only paths and clobber the orchestrator's
+# own concurrent edits), the post-restore tree-state RE-CHECK (the trust-tree-state-not-exit-code
+# fix that surfaces an unrestorable/untracked path instead of falsely reporting it restored), and
+# the empty-delta already-dirty breadcrumb (the surfacing for a status-byte-only change).
+assert_pin_red_on_removal "#192 backstop: flipping the comm -13 restore-set direction turns its pin RED" \
+  'comm -13' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#192 backstop: deleting the post-restore tree-state re-check turns its pin RED" \
+  'git status --porcelain -- "$p"' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#192 backstop: deleting the empty-delta already-dirty breadcrumb turns its pin RED" \
+  'changed the status of an already-dirty path' "$REVIEW_SKILL"
+# The fail-closed sentinel is a COUPLED two-site invariant — armed at the 3.1 before-snapshot
+# failure (the set site) and read at the 3.2 short-circuit (the guard that skips the destructive
+# restore). assert_pin_red_on_removal can't apply (the literal appears twice, by design); pin the
+# COUPLING with a count==2 guard so a rename/drop at EITHER site drifts the count and goes RED —
+# else a one-sided edit would leave the 3.2 guard unable to recognize the armed sentinel, falling
+# through to a restore that diffs a real AFTER against the sentinel string and clobbers live edits.
+assert_eq "#192 backstop: fail-closed sentinel stays coupled across its set (3.1) and read (3.2) sites" "yes" \
+  "$([ "$(grep -cF '__DIRTY_TREE_BACKSTOP_DISABLED__' "$REVIEW_SKILL")" -eq 2 ] && echo yes || echo no)"  # raw-guard-ok: count-based: asserts ==2 occurrences (the sentinel set site in 3.1 + the read/short-circuit site in 3.2 must stay coupled)
 # Coupled-invariant drift guard: the "detect_all_audit is intentionally not persisted
 # into diff_profile" contract spans two mirror sites — the SKILL.md schema comment and
 # docs/efficiency-trace.md. Both must agree; pin each with its stable site-specific phrase.
@@ -1622,6 +1924,41 @@ assert_pin_red_on_removal "#200 SFH: keeps the proportional-severity calibration
   'Do not assign a single fixed severity.' "$SFH_AGENT"
 assert_pin_red_on_removal "#200 SFH: output format labels the inert-guard finding's sub-class" \
   'which sub-class it is — policy-without-mechanism, or ordered-after-exit' "$SFH_AGENT"
+# PR #202 review (Important): the positive scope clause was pinned above, but the NEGATIVE
+# exclusion ("ordinary code/config/README/descriptive-markdown is out of scope") was not —
+# a future edit could soften the exclusion while keeping the positive half and no pin would
+# trip, re-opening the false-positive surface the exclusion guards. Pin the exclusion too.
+assert_pin_red_on_removal "#200 SFH: keeps the negative scope-exclusion clause (ordinary code/config/README/descriptive-markdown out of scope)" \
+  'an ordinary code, config, README, or descriptive-markdown change' "$SFH_AGENT"
+# PR #202 review (Suggestion): the operative diagnostic prompts and the silent-failure
+# classification phrase share source lines with already-pinned literals but carry distinct
+# behavior; pin them so a surgical reword that guts the diagnostic while keeping the headline
+# trips the suite. The (a)/(b) "Ask:" prompts are the agent's actual detection procedure.
+assert_pin_red_on_removal "#200 SFH: keeps the policy-without-mechanism diagnostic prompt" \
+  'did the same artifact give the agent a concrete way to *detect* the failure it must react to?' "$SFH_AGENT"
+assert_pin_red_on_removal "#200 SFH: keeps the ordered-after-exit diagnostic prompt" \
+  'does any guard in this artifact sit downstream of a short-circuit it is supposed to control?' "$SFH_AGENT"
+assert_pin_red_on_removal "#200 SFH: keeps the silent-failure classification of an inert prompt guard" \
+  'so treat it as a silent failure' "$SFH_AGENT"
+
+# Issue #198: the two observability sub-checks added to 2.3.4a and 2.3.6. Each pin
+# targets the OPERATIVE instruction (the minimal text whose removal alone re-opens the
+# gap, per #186), NOT a framing clause — gut the sub-check while keeping its heading and
+# these go RED. 2.3.4a clean-path evidence: a step claiming to enumerate/verify/scan must
+# log a summary even on the clean path. 2.3.6 per-branch breadcrumb: each branch of a
+# multi-branch no-op path must emit a distinct, condition-naming diagnostic.
+assert_pin_unique "sweep 2.3.4a: implement SKILL keeps the clean-path-evidence sub-check" \
+  "log a summary (the count checked, the result) even on the clean path where nothing needs changing" "$IMPL_SKILL"
+assert_pin_unique "sweep 2.3.6: implement SKILL keeps the per-branch-breadcrumb sub-check" \
+  "confirm each branch emits a distinct diagnostic naming which condition fired" "$IMPL_SKILL"
+# Coupled-invariant: the same two sub-checks are mirrored in docs/implement-skill.md
+# (the SKILL <-> docs pair CLAUDE.md names as a coupled invariant). Pin the doc half too
+# so a one-sided revert/gutting of either mirror clause trips the suite instead of letting
+# the SKILL and its doc rationale silently desync.
+assert_pin_unique "sweep 2.3.4a: docs/implement-skill.md mirrors the clean-path-evidence sub-check" \
+  "(count, result) even when nothing needs changing" "$IMPL_DOC"
+assert_pin_unique "sweep 2.3.6: docs/implement-skill.md mirrors the per-branch-breadcrumb sub-check" \
+  "it confirms each branch emits a distinct diagnostic naming which condition fired" "$IMPL_DOC"
 
 # Drift guard: issue #159 B2's severity-aware exit in Phase 3.3 — the implement run must NOT
 # fully Block after the AWUSF + bounded-re-review "two consecutive fails"; it soft-proceeds
@@ -1645,6 +1982,22 @@ assert_pin_unique "phase 3.3: REJECT routes through the severity-aware exit (Cri
   'a REJECT whose unresolved triggers are all non-Critical' "$IMPL_SKILL"
 assert_pin_unique "phase 3.3: soft-proceed records each residual finding durably in the workpad" \
   'unresolved after bounded re-review (non-Critical, surfaced for human review)' "$IMPL_SKILL"
+
+# Drift guard: issue #193 — Phase 3.2 must triage each /simplify finding against the
+# issue's in-scope ACs before applying it, skipping AC-conflicting findings with a
+# recorded rationale. The OPERATIVE pin is the skip+record sentence (the behavioral fix):
+# deleting it alone re-introduces the bug where AC-violating cleanups get applied silently.
+# Per the behavioral-fix-pin convention (#186/#192/#194), the operative pin uses
+# assert_pin_red_on_removal — the suite itself half-reverts the sentence and confirms the
+# pin goes RED, baking the mutation-proof into CI rather than relying on a one-time dev check.
+# The scope pin (issue-context-only) and the stale-AC carve-out pin (Phase 2.2.6, not a silent
+# skip) stay assert_pin_unique presence guards — they are framing/scope, not the behavioral fix.
+assert_pin_red_on_removal "phase 3.2: /simplify findings triaged — operative skip+record sentence (mutation-proven)" \
+  'skip the finding and record the AC conflict as the skip rationale' "$IMPL_SKILL"
+assert_pin_unique "phase 3.2: triage scoped to the issue-context /devflow:implement path only" \
+  'exists only on the issue-context' "$IMPL_SKILL"
+assert_pin_unique "phase 3.2: stale-AC conflict routes to Phase 2.2.6, not a silent skip" \
+  'that is Phase 2.2.6 AC-rewrite territory' "$IMPL_SKILL"
 
 # Same drift guard for the 2.3.0a peer-checkpoint-completeness sweep: the additive
 # twin of 2.3.0 lives in the same three places (sweep body, "Sweep selection" index,
@@ -2114,6 +2467,183 @@ assert_pin_unique "#169: implement/SKILL.md warns re-tick-only (don't re-send th
 # is never silently dropped. test_python_scripts.py shadow-F1 pins the behavior.
 assert_eq "#169: workpad.py routes volatile misses through _report_failed_ticks (PATCH-failure echo)" "yes" \
   "$(grep -qF 'def _report_failed_ticks' "$WP_PY" && grep -qF 'NO workpad change was persisted' "$WP_PY" && echo yes || echo no)"
+
+# ── Issue #184: Phase 1.6 Issue-Claim Audit ──────────────────────────────
+# Five assert_pin_red_on_removal guards + five assert_pin_unique pins.
+# assert_pin_red_on_removal: presence+uniqueness (PASS-before) + deletion
+# (FAIL-after) in one probe, satisfying AC7 — it guards the audit heading,
+# the three claim-type literals (count/negative-scope/policy-referencing),
+# and the mandatory cloud-tier check. assert_pin_unique guards five
+# behavioral contracts: the --status Blocked contract on the Pass 3
+# contradiction path, the cloud-tier vendored-copy existence test and its
+# absent-vs-no-impact disambiguation (no fail-open), the use of the verified
+# count as the working assumption, and the plan-expansion action.
+assert_pin_unique "#184: Phase 1.6 blocked path carries --status Blocked on the policy-contradiction call" \
+  'update $ISSUE_NUMBER --status Blocked --reflection-kind blocked --reflection "issue-claim audit (policy)' "$IMPL_SKILL"
+assert_pin_red_on_removal "#184: deleting the cloud-tier mandatory check turns its pin RED" \
+  'Cloud-tier workflow impact check (mandatory when editing any' "$IMPL_SKILL"
+# Review (1/5 agents): the vendored-copy grep must NOT fail open — an absent vendored
+# file (commonly absent) must be distinguishable from "helper missing from TOOLS=".
+# Pin the existence-test guard + the explicit "NOT a no-impact result" disambiguation
+# so a regression back to a stderr-suppressed `grep … 2>/dev/null` goes RED here.
+assert_pin_unique "#184: cloud-tier check tests the vendored copy for existence (no fail-open on absent file)" \
+  'if [ -f "$VENDORED" ]; then' "$IMPL_SKILL"
+assert_pin_unique "#184: cloud-tier check disambiguates absent-vendored-file from a no-impact result" \
+  'absent — check not applicable (NOT a no-impact result)' "$IMPL_SKILL"
+assert_pin_unique "#184: Pass 1 discrepancy uses verified count as working assumption (not issue body count)" \
+  'Use the verified count as the working assumption from Phase 2 onward' "$IMPL_SKILL"
+assert_pin_unique "#184: Pass 2 discrepancy adds missed surface to working plan (not just records a note)" \
+  'add the missed surface to the working plan before 2.2 begins' "$IMPL_SKILL"
+assert_pin_red_on_removal "#184: deleting the audit heading turns its pin RED" \
+  '### 1.6 Issue-Claim Audit' "$IMPL_SKILL"
+assert_pin_red_on_removal "#184: deleting the count-claim type literal turns its pin RED" \
+  'Count or enumeration claims' "$IMPL_SKILL"
+assert_pin_red_on_removal "#184: deleting the negative-scope type literal turns its pin RED" \
+  'explicit surface exclusions' "$IMPL_SKILL"
+assert_pin_red_on_removal "#184: deleting the policy-referencing type literal turns its pin RED" \
+  'Policy-referencing claims in ACs' "$IMPL_SKILL"
+# ── issue #185 (+ Addendum): Phase 4.1 Documentation Needed cross-check ─────
+# Phase 4.1 enforces named documentation deliverables in two stages:
+#   Stage 1 pre-flight: extract the Documentation Needed paths and inject them
+#     into the docs subagent dispatch instruction as required deliverables.
+#   Stage 2 post-hoc: cross-check each path against the PR diff; self-heal or
+#     route to Blocked for absent paths.
+# The Addendum (2026-06-29) SUPERSEDES LLM prose-extraction: a deterministic
+# helper (scripts/extract-doc-needed-paths.sh) is the single extraction boundary
+# BOTH stages consume, and its behavior is verified by the fixture matrix below
+# (not by prose pins). The prose pins here lock the load-bearing operative
+# sentences of each stage's control flow; they are intentionally NOT a tally,
+# so this comment names them structurally rather than by count (a hardcoded
+# count drifts the moment an arm is added or removed):
+#   Stage 1 — deterministic-extraction mandate + mandatory-deliverable dispatch
+#             phrase + present-bullet-but-no-paths audit note.
+#   Stage 2 — single-source-of-truth re-run, no-op escape, bare-filename match,
+#             self-heal condition, three-dot diff range, Blocked arm, $BASE
+#             non-empty fallback, rc-vs-empty-stdout distinction, broken-command
+#             fail-closed floor, and remote-anchored self-heal re-check.
+assert_pin_unique "#185: Phase 4.1 Stage 1 requires docs subagent to treat named paths as mandatory (D)" \
+  'treat each as a mandatory deliverable' "$IMPL_SKILL"
+# Addendum: Stage 1 extraction is deterministic (helper), not LLM prose-reading.
+assert_pin_unique "#185A: Phase 4.1 Stage 1 mandates deterministic (not LLM) extraction" \
+  'do not interpret the prose yourself' "$IMPL_SKILL"
+# Addendum: both stages consume the SAME deterministic helper (not re-derived).
+assert_eq "#185A: Phase 4.1 calls extract-doc-needed-paths.sh in BOTH stages" \
+  "2" "$(pin_count 'extract-doc-needed-paths.sh' "$IMPL_SKILL")"
+assert_pin_unique "#185A: Phase 4.1 Stage 2 re-runs the helper as the single source of truth" \
+  're-running the helper is the single source of truth' "$IMPL_SKILL"
+# #190 suggestion 1: a present-but-empty Documentation Needed bullet must leave an
+# auditable breadcrumb rather than silently disabling enforcement.
+assert_pin_unique "#190: Phase 4.1 Stage 1 records a note when the bullet has no extractable paths (H)" \
+  'the extractor found no file paths' "$IMPL_SKILL"
+assert_pin_unique "#185: Phase 4.1 Stage 2 no-op escape hatch when no paths extracted (E)" \
+  'this cross-check is a no-op' "$IMPL_SKILL"
+assert_pin_unique "#185: Phase 4.1 Stage 2 bare-filename matching rule (F)" \
+  'whose basename matches it counts as satisfied' "$IMPL_SKILL"
+assert_pin_unique "#185: Phase 4.1 Stage 2 keeps the absent-file self-heal condition (A)" \
+  'absent from the diff, perform the missing update' "$IMPL_SKILL"
+assert_pin_unique "#185: Phase 4.1 Stage 2 uses the three-dot origin/\$BASE...HEAD diff range (B)" \
+  'git diff --name-only "origin/$BASE...HEAD"' "$IMPL_SKILL"
+assert_pin_unique "#185: Phase 4.1 Stage 2 Blocked arm names the missing-content condition (C)" \
+  'Documentation Needed file content cannot be determined' "$IMPL_SKILL"
+# #190 finding 2: $BASE-empty recovery must mirror the Phase 1.4 fallback, not
+# just the config-get.sh read (the read alone returns nothing on malformed config).
+assert_pin_unique "#190: Phase 4.1 Stage 2 \$BASE recovery mirrors the Phase 1.4 fallback (I)" \
+  'applying its non-empty fallback and not just the config read' "$IMPL_SKILL"
+# #190 finding 3 (re-stated per review Critical #2): the FAILURE signal is the exit
+# status, never stdout emptiness — an rc-0 empty diff is a genuine all-absent result.
+assert_pin_unique "#190: Phase 4.1 Stage 2 distinguishes rc-0 empty stdout from a command failure (J)" \
+  'an rc-0 result with empty stdout is NOT a failure' "$IMPL_SKILL"
+# Review suggestion 1: a re-fetch that itself fails must fail CLOSED (Blocked),
+# never fall through to a path-absent verdict on a broken command.
+assert_pin_unique "#190: Phase 4.1 Stage 2 fails closed when the diff command stays broken" \
+  'never fall through to a path-absent verdict on a broken command' "$IMPL_SKILL"
+# #190 finding 1 (re-stated per review Important #3): the self-heal re-check is
+# remote-anchored — HEAD must match @{u}, so a no-op/rejected push cannot satisfy
+# the gate off a still-local commit.
+assert_pin_unique "#190: Phase 4.1 Stage 2 self-heal re-check is remote-anchored (K)" \
+  'the local branch is in sync with its upstream' "$IMPL_SKILL"
+# PR #190 fix-loop: the EXTRACTION side (gh issue view | helper) must read the
+# exit status, not stdout emptiness — a failed gh issue view (auth/network/wrong
+# number) emits empty stdout indistinguishable from a genuinely empty bullet and
+# would silently disable the whole gate. Both stages capture GH_RC/HELPER_RC and
+# fail closed; assert the shared contract appears in BOTH stages (coupled site).
+assert_eq "#190 fix-loop: Phase 4.1 captures GH_RC on the extraction read in BOTH stages" \
+  "2" "$(pin_count 'GH_RC=$?' "$IMPL_SKILL")"
+assert_eq "#190 fix-loop: Phase 4.1 fail-closed extraction contract pinned in BOTH stages" \
+  "2" "$(pin_count 'never treat its empty stdout as a no-op' "$IMPL_SKILL")"
+
+# ── issue #185 Addendum: deterministic extraction helper (fixture matrix) ────
+# The helper is the deterministic boundary the Addendum mandates; test its
+# BEHAVIOR over the required input-shape matrix (bullet-with-paths, no-paths,
+# absent, path-in-another-section-NOT-extracted) rather than relying on the
+# shadow review to catch extraction misses. This is the adversarial input-shape
+# sweep the CLAUDE.md best-effort-parser convention calls for.
+EXTRACT_HELPER="$LIB/../scripts/extract-doc-needed-paths.sh"
+assert_eq "#185A helper exists and is executable" "yes" \
+  "$([ -x "$EXTRACT_HELPER" ] && echo yes || echo no)"
+
+# Case 1: a bullet naming paths emits exactly those paths — and ONLY those:
+# a path in another bullet (Approach/Potential Gotchas) and a non-path skill
+# token (devflow:docs) inside the bullet are both excluded.
+fx_paths="## Implementation Notes
+
+- **Approach** — edit \`scripts/foo.sh\`.
+- **Documentation Needed** — update \`docs/DEVFLOW_SYSTEM_OVERVIEW.md\` and docs/implement-skill.md; also \`README.md\` via the \`devflow:docs\` subagent.
+- **Potential Gotchas** — see path/to/ignored.py"
+assert_eq "#185A matrix: bullet-with-paths emits exactly the named paths (scoped, no skill token)" \
+  "$(printf 'README.md\ndocs/DEVFLOW_SYSTEM_OVERVIEW.md\ndocs/implement-skill.md')" \
+  "$(printf '%s\n' "$fx_paths" | bash "$EXTRACT_HELPER")"
+
+# Case 2: a bullet with no file paths is a no-op (empty output).
+fx_none="## Implementation Notes
+
+- **Documentation Needed** — No external or customer docs affected."
+assert_eq "#185A matrix: bullet-with-no-paths emits nothing" "" \
+  "$(printf '%s\n' "$fx_none" | bash "$EXTRACT_HELPER")"
+
+# Case 3: an absent Documentation Needed bullet is a no-op (empty output).
+fx_absent="## Technical Context
+
+- references docs/should-not.md"
+assert_eq "#185A matrix: absent Documentation Needed bullet emits nothing" "" \
+  "$(printf '%s\n' "$fx_absent" | bash "$EXTRACT_HELPER")"
+
+# Case 4: a path mentioned in ANOTHER section must NOT be extracted (scope).
+fx_other="## Current Behavior
+
+refs docs/should-not-extract.md
+
+## Implementation Notes
+
+- **Documentation Needed** — update \`docs/yes.md\`."
+assert_eq "#185A matrix: a path in another section is NOT extracted" "docs/yes.md" \
+  "$(printf '%s\n' "$fx_other" | bash "$EXTRACT_HELPER")"
+
+# Case 5 (regression — caught dogfooding the real issue #185 body): a LATER
+# bullet whose prose MENTIONS "**Documentation Needed**" (the issue template's
+# own Potential Gotchas bullet does exactly this) must close the scope, not
+# re-open it. The open-match is anchored to the bullet label; only docs/real.md
+# (named in the actual Documentation Needed bullet) is extracted, and a bare
+# extension reference (\`.md\`) in the mentioning bullet is not.
+fx_mention="## Implementation Notes
+
+- **Documentation Needed** — update \`docs/real.md\`.
+- **Potential Gotchas** — the \`**Documentation Needed**\` bullet lives within \`## Implementation Notes\`; do not extract \`other/leak.md\` named here, and ignore bare \`.md\` / \`.sh\` tokens."
+assert_eq "#185A matrix: a later bullet mentioning the label in prose does NOT re-open scope" \
+  "docs/real.md" \
+  "$(printf '%s\n' "$fx_mention" | bash "$EXTRACT_HELPER")"
+
+# Case 6 (PR #190 fix-loop): a bare, un-backticked filename at a sentence
+# boundary must still be extracted. The tokenizer glues the trailing sentence
+# period (`CHANGELOG.md.`); the helper trims it so the extension test matches.
+# Without the trim the deliverable is silently dropped — under-enforcing in the
+# gate's own lenient basename-match domain.
+fx_period="## Implementation Notes
+
+- **Documentation Needed** — update CHANGELOG.md."
+assert_eq "#190 fix-loop: un-backticked filename with a trailing sentence period IS extracted" \
+  "CHANGELOG.md" \
+  "$(printf '%s\n' "$fx_period" | bash "$EXTRACT_HELPER")"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "scaffold-config.sh"
@@ -5531,6 +6061,82 @@ for f in devflow devflow-implement; do
 done
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "opt-in GitHub App workflow-capable token (issue #201)"
+# ────────────────────────────────────────────────────────────────────────────
+# DevFlow's two CLOUD WRITERS — devflow-implement.yml (/devflow:implement) and the
+# write-capable `command` job in devflow.yml (/devflow:review-and-fix) — push to the
+# feature branch with the built-in GITHUB_TOKEN, which GitHub hard-blocks from
+# editing .github/workflows/ files. An OPT-IN GitHub App credential lets those pushes
+# succeed: each writer mints a short-lived App installation token (Contents: write +
+# Workflows: write), gated on `vars.DEVFLOW_APP_ID != ''` so it is inert unless an
+# operator configures it, and falls back to GITHUB_TOKEN when unset — byte-for-byte
+# unchanged for consumers who do not opt in. The READ-ONLY runner (devflow-runner.yml)
+# never edits files and MUST NOT receive a write-capable token, so it carries no mint
+# step. These assertions pin the opt-in contract for all three workflows; they are the
+# change's observable boundary (the issue's Testing Strategy maps each to an AC).
+for f in devflow-implement devflow; do
+  WFF="$WF/$f.yml"
+  # (1) The conditional mint step exists, gated on the opt-in variable (AC 1, AC 3).
+  assert_eq "app-token: $f.yml mints via actions/create-github-app-token" "1" \
+    "$(grep -cE 'uses:[[:space:]]*actions/create-github-app-token@' "$WFF")"
+  assert_eq "app-token: $f.yml mint step is gated on vars.DEVFLOW_APP_ID != ''" "1" \
+    "$(grep -cF "vars.DEVFLOW_APP_ID != ''" "$WFF")"
+  # (2) The mint step wires app-id from the variable and private-key from the secret
+  #     (the coupled var/secret literals carried identically across .yml/.md/.sh).
+  assert_eq "app-token: $f.yml mint step reads app-id from vars.DEVFLOW_APP_ID" "1" \
+    "$(grep -cF 'app-id: ${{ vars.DEVFLOW_APP_ID }}' "$WFF")"
+  assert_eq "app-token: $f.yml mint step reads private-key from secrets.DEVFLOW_APP_PRIVATE_KEY" "1" \
+    "$(grep -cF 'private-key: ${{ secrets.DEVFLOW_APP_PRIVATE_KEY }}' "$WFF")"
+  # (3) The claude-code-action step consumes the minted token with the GITHUB_TOKEN
+  #     fallback — this fallback IS the unset-opt-in path that keeps behavior identical
+  #     for non-adopters (AC 2, AC 5).
+  assert_eq "app-token: $f.yml github_token falls back to secrets.GITHUB_TOKEN" "1" \
+    "$(grep -cF 'github_token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}' "$WFF")"
+  # (4) Fail-loud (AC 6): the mint step must NOT carry continue-on-error, so a
+  #     configured-but-broken App fails the job rather than silently degrading.
+  blk="$(awk '/name: Mint workflow-capable token/{f=1} f{print} f&&/^      - name:/&&!/Mint workflow-capable/{exit}' "$WFF")"
+  assert_eq "app-token: $f.yml mint step is fail-loud (no continue-on-error)" "" \
+    "$(printf '%s\n' "$blk" | grep -E 'continue-on-error' || true)"
+  # (4a) The step-id ↔ output-reference coupling (AC 2). The mint step MUST carry
+  #      `id: app-token`, because the github_token expression consumes
+  #      `steps.app-token.outputs.token`. Renaming the id (leaving the consumer line
+  #      untouched) would resolve the output to empty on every run and silently and
+  #      permanently fall the opt-in back to GITHUB_TOKEN — the exact silent
+  #      degradation AC 6 exists to prevent, reached via a wiring typo. Pin the id
+  #      inside the extracted mint-step block so the two coupled sites can't drift
+  #      apart while the suite stays green.
+  assert_eq "app-token: $f.yml mint step carries id: app-token (couples to steps.app-token.outputs.token)" "1" \
+    "$(printf '%s\n' "$blk" | grep -cE '^[[:space:]]*id:[[:space:]]*app-token[[:space:]]*$')"
+done
+# (5) The read-only runner stays untouched: NO App-token mint step, and it keeps its
+#     plain GITHUB_TOKEN (AC 4, AC 10).
+assert_eq "app-token: devflow-runner.yml has NO create-github-app-token mint step" "0" \
+  "$(grep -cE 'uses:[[:space:]]*actions/create-github-app-token@' "$WF/devflow-runner.yml")"
+assert_eq "app-token: devflow-runner.yml mentions no DEVFLOW_APP_ID opt-in" "0" \
+  "$(grep -cF 'DEVFLOW_APP_ID' "$WF/devflow-runner.yml")"
+# (6) Docs carry the opt-in contract: the var, the secret, and BOTH required App
+#     permissions (AC 7, AC 8, AC 9).
+CS="$LIB/../docs/cloud-setup.md"
+for tok in 'DEVFLOW_APP_ID' 'DEVFLOW_APP_PRIVATE_KEY'; do
+  assert_eq "app-token: cloud-setup.md documents $tok" "yes" \
+    "$(grep -qF "$tok" "$CS" && echo yes || echo no)"
+done
+assert_eq "app-token: cloud-setup.md documents Contents: write App permission" "yes" \
+  "$(grep -qiE 'Contents:[[:space:]]*write' "$CS" && echo yes || echo no)"
+assert_eq "app-token: cloud-setup.md documents Workflows: write App permission" "yes" \
+  "$(grep -qiE 'Workflows:[[:space:]]*write' "$CS" && echo yes || echo no)"
+# §15 of the overview must no longer claim a bare "No GitHub App" without the
+# required/optional qualifier (AC 8).
+OV="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
+assert_eq "app-token: overview §15 no longer asserts a bare 'No GitHub App.'" "0" \
+  "$(grep -cF 'No GitHub App.' "$OV")"
+# Positive complement to the negative check above (AC 8): the §15 reframe must
+# actually mention the optional App by its opt-in variable, so the bullet can't lose
+# all mention of the optional App and still pass on the old-string-absent check alone.
+assert_eq "app-token: overview §15 positively documents the optional App (DEVFLOW_APP_ID)" "yes" \
+  "$(grep -qF 'DEVFLOW_APP_ID' "$OV" && echo yes || echo no)"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "devflow-review.yml first-ready gate invariant"
 # ────────────────────────────────────────────────────────────────────────────
 # The first-ready gate counts pre-existing `Devflow Review` check-runs to enforce
@@ -8115,6 +8721,35 @@ assert_eq "#141 LICENSES/pr-review-toolkit-LICENSE retains the upstream Apache-2
 assert_eq "#141 plugin.json dependencies no longer lists pr-review-toolkit" \
   "0" "$(jq '[.dependencies[]? | select(.name == "pr-review-toolkit")] | length' "$FDROOT/.claude-plugin/plugin.json")"
 
+# --- #191: Phase 3 review agents enumerate every occurrence of a flagged stale phrase ---
+# The code-reviewer and comment-analyzer agents must, before submitting a stale-wording /
+# semantic-contradiction (resp. repeated stale-comment) finding, exhaustively search the
+# affected file and list EVERY matching line number — so the fix step corrects all sites in
+# one edit instead of leaving secondary instances for a shadow round. The agent behavior
+# fires at LLM-inference time (no deterministic boundary), so the automated gate is a
+# mutation-proven assert_pin_unique on the operative imperative in each agent file. Each
+# literal pins the operative clause (search-all + enumerate-every-line-number), not a
+# framing sentence: deleting it alone re-opens the report-only-the-first-instance defect.
+assert_pin_unique "#191 code-reviewer enumerates all occurrences of a flagged stale phrase before submitting" \
+  'search the affected file for all occurrences of the flagged phrase, enumerate every matching line number,' "$FDROOT/agents/code-reviewer.md"
+assert_pin_unique "#191 comment-analyzer enumerates all occurrences of a repeated stale comment before submitting" \
+  'search the affected file for every occurrence of the flagged comment wording, enumerate every matching line number,' "$FDROOT/agents/comment-analyzer.md"
+# Pin the secondary semantic-equivalents refinement too — it is a distinct behavioral
+# clause from the search-all+enumerate imperative above (a trim to verbatim-only matching
+# would leave the pins above GREEN), so it needs its own gate to fail closed on removal.
+assert_pin_unique "#191 code-reviewer requires semantic-equivalent matches, not just verbatim" \
+  'semantic equivalents of the phrase you can identify from context, not just verbatim matches' "$FDROOT/agents/code-reviewer.md"
+assert_pin_unique "#191 comment-analyzer requires semantic-equivalent matches, not just verbatim" \
+  'semantic equivalents of the wording you can identify from context, not just verbatim matches' "$FDROOT/agents/comment-analyzer.md"
+# Pin the operative DELIVERABLE clause separately (PR #205 review note): a trim that kept the
+# search-all + semantic-equivalents pins above but dropped "include the complete location set in
+# the finding body" would leave those GREEN while removing the very output #191 exists to produce
+# (the full site list the fix step consumes). Per the operative-vs-framing rule it earns its own gate.
+assert_pin_unique "#191 code-reviewer includes the complete location set in the finding body before submitting" \
+  'include the complete location set in the finding body before submitting' "$FDROOT/agents/code-reviewer.md"
+assert_pin_unique "#191 comment-analyzer includes the complete location set in the finding body before submitting" \
+  'include the complete location set in the finding body before submitting' "$FDROOT/agents/comment-analyzer.md"
+
 # (5) Workflow contract: no cloud workflow installs the pr-review-toolkit companion anymore
 # (the engine dispatches the first-party devflow: review agents). Pattern split-literal to
 # avoid self-match; shares the tracked_scan seam as (1).
@@ -8444,6 +9079,171 @@ assert_pin_unique "#187 docs-release-notes Step 4b corrects stale claims in plac
   'Rewrite only the specific sentence or clause that is stale' "$FDROOT/skills/docs-release-notes/SKILL.md"
 assert_pin_unique "#187 docs-release-notes Step 4b no-bump-commit no-op branch (parity with the no-section branch)" \
   'no version-bump commit found on branch' "$FDROOT/skills/docs-release-notes/SKILL.md"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "#181 review-engine Phase 0.2 .devflow/logs/** diff-hunk filter"
+# ────────────────────────────────────────────────────────────────────────────
+# Phase 0.2 of skills/review/SKILL.md strips .devflow/logs/** hunks from the
+# cached diff.patch (intentional DevFlow telemetry commits, not code-review
+# subjects) BEFORE any Phase 1/2/3 agent sees the diff. The filter is an inline
+# awk stage in the existing `… | tee diff.patch` pipeline (it rides the
+# allowlisted `gh pr diff`/`git diff` leading token, so the read-only `review`
+# profile permits it without a workflow allowlist change — no standalone `mv`).
+#
+# These assertions EXTRACT the actual awk program from the SKILL and run it
+# against synthetic-diff fixtures, so they go RED if the SKILL's filter is
+# missing or wrong (not a vacuous re-implementation). The contract pin below
+# couples the SKILL text to that behavior.
+F181_AWK="$(grep -oE "awk '[^']+'" "$REVIEW_SKILL" 2>/dev/null | grep -F 'in_logs' | head -1 | sed "s/^awk '//; s/'$//")"
+# Precondition (RED until the filter is added): the awk program must be
+# extractable from the SKILL. Guards every behavioral assertion below against an
+# empty-program (`awk ''`) vacuous pass.
+assert_eq "#181 filter: awk log-hunk filter program is present/extractable in review/SKILL.md Phase 0.2" \
+  "yes" "$([ -n "$F181_AWK" ] && echo yes || echo no)"
+
+# Fixture: a real code hunk, a telemetry-log hunk, then another code hunk.
+F181_MIXED="$(printf '%s\n' \
+  'diff --git a/src/a.py b/src/a.py' \
+  'index 1111111..2222222 100644' \
+  '--- a/src/a.py' \
+  '+++ b/src/a.py' \
+  '@@ -1 +1 @@' \
+  '-old a' \
+  '+new a' \
+  'diff --git a/.devflow/logs/efficiency/pr-1.json b/.devflow/logs/efficiency/pr-1.json' \
+  'index 3333333..4444444 100644' \
+  '--- a/.devflow/logs/efficiency/pr-1.json' \
+  '+++ b/.devflow/logs/efficiency/pr-1.json' \
+  '@@ -1 +1 @@' \
+  '-{"old":1}' \
+  '+{"new":1}' \
+  'diff --git a/src/b.py b/src/b.py' \
+  'index 5555555..6666666 100644' \
+  '--- a/src/b.py' \
+  '+++ b/src/b.py' \
+  '@@ -1 +1 @@' \
+  '-old b' \
+  '+new b')"
+F181_MIXED_OUT="$(printf '%s\n' "$F181_MIXED" | awk "${F181_AWK:-NONEXTRACTED}" 2>/dev/null)"
+# AC-2: the telemetry hunk is gone…
+assert_eq "#181 filter: mixed diff drops the .devflow/logs/ hunk" \
+  "absent" "$(case "$F181_MIXED_OUT" in *'.devflow/logs/'*) echo present;; *) echo absent;; esac)"
+# …and BOTH real code hunks survive, in their original order (a before b).
+assert_eq "#181 filter: mixed diff retains both real code hunks in original order" \
+  "diff --git a/src/a.py b/src/a.py|diff --git a/src/b.py b/src/b.py" \
+  "$(printf '%s\n' "$F181_MIXED_OUT" | grep '^diff --git' | paste -sd'|' -)"
+
+# Fixture: a single logs file carrying TWO @@ hunks (the realistic accreting-telemetry shape),
+# followed by a real code hunk (#209 review hardening). The filter's stickiness rides the
+# `diff --git` header, NOT the @@ line, so EVERY hunk of a logs file is suppressed. A regression
+# that reset in_logs per @@ (instead of per diff --git header) would leak the SECOND hunk's
+# content while still passing every single-hunk fixture above — this fixture is the regression catch.
+F181_MULTIHUNK="$(printf '%s\n' \
+  'diff --git a/.devflow/logs/review/pr-1/run-1/iter-1.json b/.devflow/logs/review/pr-1/run-1/iter-1.json' \
+  'index 1111111..2222222 100644' \
+  '--- a/.devflow/logs/review/pr-1/run-1/iter-1.json' \
+  '+++ b/.devflow/logs/review/pr-1/run-1/iter-1.json' \
+  '@@ -1,1 +1,1 @@' \
+  '-{"LOGHUNKONE_old":1}' \
+  '+{"LOGHUNKONE_new":1}' \
+  '@@ -10,1 +10,1 @@' \
+  '-{"LOGHUNKTWO_old":2}' \
+  '+{"LOGHUNKTWO_new":2}' \
+  'diff --git a/src/c.py b/src/c.py' \
+  'index 5555555..6666666 100644' \
+  '--- a/src/c.py' \
+  '+++ b/src/c.py' \
+  '@@ -1 +1 @@' \
+  '-old c' \
+  '+new c')"
+F181_MULTIHUNK_OUT="$(printf '%s\n' "$F181_MULTIHUNK" | awk "${F181_AWK:-NONEXTRACTED}" 2>/dev/null)"
+# The discriminating assertion: the SECOND logs hunk is dropped too (in_logs sticks across @@).
+assert_eq "#181 filter: a logs file's SECOND @@ hunk is also dropped (in_logs sticks across hunks)" \
+  "absent" "$(case "$F181_MULTIHUNK_OUT" in *LOGHUNKTWO*) echo present;; *) echo absent;; esac)"
+# …and the trailing real code hunk after the multi-hunk logs file still survives intact.
+assert_eq "#181 filter: real code hunk after a multi-hunk logs file survives" \
+  "diff --git a/src/c.py b/src/c.py" \
+  "$(printf '%s\n' "$F181_MULTIHUNK_OUT" | grep '^diff --git' | paste -sd'|' -)"
+
+# Fixture: ONLY a telemetry-log hunk.
+F181_LOGS_ONLY="$(printf '%s\n' \
+  'diff --git a/.devflow/logs/review/pr-1/run-1/iter-1.json b/.devflow/logs/review/pr-1/run-1/iter-1.json' \
+  'index 7777777..8888888 100644' \
+  '--- a/.devflow/logs/review/pr-1/run-1/iter-1.json' \
+  '+++ b/.devflow/logs/review/pr-1/run-1/iter-1.json' \
+  '@@ -1 +1 @@' \
+  '-{"a":1}' \
+  '+{"a":2}')"
+F181_LOGS_OUT="$(printf '%s\n' "$F181_LOGS_ONLY" | awk "${F181_AWK:-NONEXTRACTED}" 2>/dev/null)"
+# AC-3: a logs-only diff filters to no `diff --git` headers (empty effective diff).
+# Non-vacuous as a pair with the mixed test above (which proves the filter passes
+# code hunks through rather than deleting everything).
+assert_eq "#181 filter: logs-only diff yields no diff --git headers (empty effective diff)" \
+  "0" "$(printf '%s\n' "$F181_LOGS_OUT" | grep -c '^diff --git')"
+
+# Fixture: the FIRST hunk is a logs hunk (flag-initialization edge), and the
+# surviving code hunk's body embeds the literal '.devflow/logs/' on a content
+# line (the false-positive-immunity edge — the filter keys ONLY on `^diff --git`
+# headers, so a source line mentioning the path must NOT be eaten). This pins the
+# exact regression a careless future edit would introduce (dropping the
+# `/^diff --git/` guard so `in_logs` recomputes per line).
+F181_EDGE="$(printf '%s\n' \
+  'diff --git a/.devflow/logs/efficiency/pr-2.json b/.devflow/logs/efficiency/pr-2.json' \
+  'index aaaaaaa..bbbbbbb 100644' \
+  '--- a/.devflow/logs/efficiency/pr-2.json' \
+  '+++ b/.devflow/logs/efficiency/pr-2.json' \
+  '@@ -1 +1 @@' \
+  '-{"x":1}' \
+  '+{"x":2}' \
+  'diff --git a/src/c.py b/src/c.py' \
+  'index ccccccc..ddddddd 100644' \
+  '--- a/src/c.py' \
+  '+++ b/src/c.py' \
+  '@@ -1 +1,2 @@' \
+  ' LOG_DIR = ".devflow/logs/efficiency"' \
+  '+print(".devflow/logs/ mentioned in source")')"
+F181_EDGE_OUT="$(printf '%s\n' "$F181_EDGE" | awk "${F181_AWK:-NONEXTRACTED}" 2>/dev/null)"
+# Gap A: a leading logs hunk is dropped; only the code header survives.
+assert_eq "#181 filter: leading logs hunk dropped, trailing code hunk survives" \
+  "diff --git a/src/c.py b/src/c.py" \
+  "$(printf '%s\n' "$F181_EDGE_OUT" | grep '^diff --git' | paste -sd'|' -)"
+# Gap B (false-positive immunity): a source CONTENT line embedding '.devflow/logs/'
+# is NOT filtered — the filter toggles only on `^diff --git` headers.
+assert_eq "#181 filter: a code line embedding '.devflow/logs/' is retained, not eaten" \
+  "yes" "$(case "$F181_EDGE_OUT" in *'print(".devflow/logs/ mentioned in source")'*) echo yes;; *) echo no;; esac)"
+
+# AC-1 anchoring: the regex is anchored to the a//b/ diff-prefix boundary, so it
+# strips only paths that START WITH .devflow/logs/ (AC #1's exact wording), never a
+# non-root path that merely contains that substring (a test fixture or a dir named
+# *.devflow/logs/). Both header paths below must SURVIVE — a regression to an
+# unanchored /\.devflow\/logs\// would drop them and hide real code from review.
+F181_NESTED="$(printf '%s\n' \
+  'diff --git a/tests/fixtures/.devflow/logs/sample.json b/tests/fixtures/.devflow/logs/sample.json' \
+  '@@ -1 +1 @@' \
+  '+{"fixture":1}' \
+  'diff --git a/src/foo.devflow/logs/bar.py b/src/foo.devflow/logs/bar.py' \
+  '@@ -1 +1 @@' \
+  '+code')"
+F181_NESTED_OUT="$(printf '%s\n' "$F181_NESTED" | awk "${F181_AWK:-NONEXTRACTED}" 2>/dev/null)"
+assert_eq "#181 filter: non-root paths containing '.devflow/logs/' are NOT stripped (anchored to 'starts with')" \
+  "diff --git a/tests/fixtures/.devflow/logs/sample.json b/tests/fixtures/.devflow/logs/sample.json|diff --git a/src/foo.devflow/logs/bar.py b/src/foo.devflow/logs/bar.py" \
+  "$(printf '%s\n' "$F181_NESTED_OUT" | grep '^diff --git' | paste -sd'|' -)"
+
+# AC-1 / peer-completeness (2.3.0a): the awk filter is present in EVERY diff-source
+# variant of the Phase 0.2 tee pipeline (PR mode, current-branch mode, and the
+# head_override=local fix-loop variant) — three occurrences, one per variant.
+assert_eq "#181 filter: awk log-hunk filter present in all three Phase 0.2 diff-source variants" \
+  "3" "$(pin_count '{in_logs=/ [ab]\/\.devflow\/logs\//} !in_logs' "$REVIEW_SKILL")"
+# AC-4: the SKILL documents WHY the hunks are filtered (intentional telemetry, not
+# code-review subjects).
+assert_pin_unique "#181 filter: review/SKILL.md documents why .devflow/logs/ hunks are filtered" \
+  'intentional DevFlow telemetry commits, not code-review subjects' "$REVIEW_SKILL"
+# AC-1 peer-completeness: the Phase 0.3 changed-file list must derive from the
+# FILTERED diff.patch (not an independent --name-only), so Phase 1.1's >10-file
+# per-file batch slicing never re-fetches a .devflow/logs/ hunk and feeds it to a
+# Phase 1 agent — closing the one downstream path the single 0.2 filter wouldn't.
+assert_pin_unique "#181 filter: Phase 0.3 derives the changed-file list from the filtered diff.patch (peer-completeness)" \
+  'deriving the file list from it excludes them by construction' "$REVIEW_SKILL"
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.

@@ -217,16 +217,18 @@ If the diff is empty, report: "No changes to review. Branch is identical to main
 
 and `<run-id>` per "Caller run-id" above (caller-provided when wrapped, else computed once here).
 
-Combine the initial fetch with the cache write in one shot using `tee` so the diff is captured exactly once and stdout remains available for Phase 1 consumption:
+Combine the initial fetch with the cache write in one shot using `tee` so the diff is captured exactly once and stdout remains available for Phase 1 consumption. **Filter `.devflow/logs/**` hunks out as the diff streams to disk** — interpose an `awk` stage between the fetch and `tee` so the cached `diff.patch` (and the stdout Phase 1 consumes) never contains a telemetry-log hunk:
 
 ```bash
 mkdir -p .devflow/tmp/review/<slug>/<run-id>
-gh pr diff $ARGUMENTS | tee .devflow/tmp/review/<slug>/<run-id>/diff.patch
+gh pr diff $ARGUMENTS | awk '/^diff --git/{in_logs=/ [ab]\/\.devflow\/logs\//} !in_logs' | tee .devflow/tmp/review/<slug>/<run-id>/diff.patch
 # or, in current-branch mode:
-# git diff origin/main...HEAD | tee .devflow/tmp/review/<slug>/<run-id>/diff.patch
+# git diff origin/main...HEAD | awk '/^diff --git/{in_logs=/ [ab]\/\.devflow\/logs\//} !in_logs' | tee .devflow/tmp/review/<slug>/<run-id>/diff.patch
 # or, in PR mode with head_override=local (fix-loop reuse — see "Caller head-override"):
-# git diff "$PR_BASE_SHA...HEAD" | tee .devflow/tmp/review/<slug>/<run-id>/diff.patch
+# git diff "$PR_BASE_SHA...HEAD" | awk '/^diff --git/{in_logs=/ [ab]\/\.devflow\/logs\//} !in_logs' | tee .devflow/tmp/review/<slug>/<run-id>/diff.patch
 ```
+
+**Why the `awk` filter — and why here.** A DevFlow fix loop (`/devflow:review-and-fix`) persists durable telemetry by committing `.devflow/logs/efficiency/*.json` and `.devflow/logs/review/**/*.json` to the feature branch (intentional behavior that survives ephemeral runner teardown). Those `chore:` commits are **intentional DevFlow telemetry commits, not code-review subjects** — but they still appear as hunks in the PR diff, where Phase 1/2/3 agents would otherwise flag them as accreting hygiene artifacts with stale line ranges. The filter strips them once, at the single cache-write point every downstream phase reads from, so agents never see a hunk they should not review. The `awk` program sets `in_logs` on each `diff --git` header (true when the header's path **starts with** `.devflow/logs/` — the regex is anchored to the `a/`/`b/` diff-prefix boundary (` [ab]/.devflow/logs/`) so it matches only paths *rooted* at `.devflow/logs/`, never a non-telemetry path that merely contains that substring elsewhere, e.g. `tests/fixtures/.devflow/logs/…`) and suppresses every line while `in_logs` holds — so all of a logs file's hunk lines are dropped together, and the next non-logs header resets `in_logs` to visible. A logs-only diff filters the cached `diff.patch` to empty — note the upstream "No changes to review" stop tests the *raw* fetched diff (before this filter), so it does **not** fire here; instead every downstream phase reads the now-empty `diff.patch` and finds nothing reviewable (Phase 0.3 derives an empty changed-file list, and the Phase 3 agents receive an empty diff), so a telemetry-only PR is correctly reviewed as having nothing to flag. A mixed diff keeps its real code hunks in their original order. The telemetry commits themselves remain on the branch unchanged — only the review engine's view of the diff is filtered. The `awk` stage rides the allow-listed `gh pr diff` / `git diff` leading token (no standalone `mv`/`tee` head), so the read-only `review` profile permits it without any workflow allowlist change.
 
 This replaces the bare `gh pr diff` / `git diff` invocation at the top of Phase 0.2 — use the `tee` form instead. Store `<slug>`, `<run-id>`, and the resolved diff path (e.g. `.devflow/tmp/review/pr-863/<run-id>/diff.patch`) so Phase 3 can substitute it into its agent prompts via `{DIFF_PATH}`. The directory creation is harmless if it already exists; the file is overwritten on every run *within the same run-id*, never across runs.
 
@@ -234,7 +236,7 @@ This replaces the bare `gh pr diff` / `git diff` invocation at the top of Phase 
 
 ### 0.3 Get changed file list
 
-From the diff, extract the list of changed files (use `--name-only` output or parse from PR diff). Store this list — it's needed for Phase 1 and Phase 3.
+Extract the list of changed files **by parsing the filtered `diff.patch` cached in 0.2** (read its `diff --git a/<path> b/<path>` headers), **not** from an independent `git diff --name-only` / `gh pr diff --name-only`. This matters: `.devflow/logs/**` paths were stripped from `diff.patch` in 0.2, so deriving the file list from it excludes them by construction — which is what keeps Phase 1.1's per-file batch slicing (`git diff … -- <file>`) and Phase 3's per-file slicing from ever re-fetching a `.devflow/logs/` hunk and feeding it to an agent (an independent `--name-only` would re-introduce those paths and defeat the 0.2 filter on the `>10`-file batching path). Store this list — it's needed for Phase 1 and Phase 3.
 
 ### 0.3.5 Seed the live progress comment (PR mode)
 
@@ -550,6 +552,22 @@ Output: `Phase 3/4: Running review agents...`
 
 ### 3.1 Launch existing review agents in parallel
 
+**Dirty-tree backstop — snapshot before dispatch (mandatory).** Review/analysis agents are advisory and must never modify the working tree (their definitions forbid it; any mutation/half-revert check goes on a `mktemp` copy). Independently of agent compliance, snapshot the working tree immediately before launching the Phase 3.1 batch so a dropped in-place restore is caught deterministically rather than incidentally — Phase 3.2 compares against this snapshot after the batch returns and restores any agent-introduced modification:
+
+```bash
+if ! GIT_STATUS_BEFORE=$(git status --porcelain); then
+  # The snapshot itself failed (held .git/index.lock, corrupt index, FS/OOM error). Do NOT
+  # fall through with an empty baseline — an empty BEFORE would later read every dirtied path
+  # as "agent-introduced" and authorize `git checkout` against the orchestrator's OWN live
+  # edits. Fail closed: disable the backstop for this dispatch (3.2 short-circuits on the
+  # sentinel) with an attributable breadcrumb, rather than risk a destructive restore.
+  echo "::warning::devflow review: could not snapshot the working tree before dispatch (git status failed); dirty-tree backstop DISABLED for this dispatch — no after-compare, no auto-restore" >&2
+  GIT_STATUS_BEFORE=$'\x01__DIRTY_TREE_BACKSTOP_DISABLED__'
+fi
+```
+
+This scopes the assertion to the agent-dispatch window only, so it never flags the orchestrator's own legitimate edits made outside it. (In the read-only `/devflow:review` profile the agents have no write tools, so the snapshots match and the restore below never fires; the backstop earns its keep in the write-enabled `/devflow:review-and-fix` and `/devflow:implement` tiers, where it also runs verbatim — including the Step 2.6 shadow pass, which re-executes these same Phases 0–4.3.)
+
 Launch all agents in a single message using multiple Agent tool calls. For each agent, pass a prompt telling it to review the changes.
 
 **Resolve overrides for the Phase-3 roster first.** After the Phase 3.1 applicability gates decide which agents actually launch this run, pass that exact roster (the always-on four — `code-reviewer`, `silent-failure-hunter`, `comment-analyzer`, and the final-pass `devflow:requesting-code-review` dispatched as a `general-purpose` Task — plus any gated-in `type-design-analyzer` / `pr-test-analyzer`) to `resolve-review-overrides.py` per **Per-Subagent Model/Effort Overrides** above. Materialize one `--agents` block from its output and dispatch each Phase-3 agent through it; do **not** request overrides for a gated-out agent (only emit overrides for agents actually dispatched). The final-pass reviewer's override is keyed under `devflow:requesting-code-review` even though it is dispatched as a `general-purpose` Task (see its dispatch note below).
@@ -669,6 +687,64 @@ The completeness critic is a **finding-producing pass, not a verdict override**:
 
 ### 3.2 Collect results
 
+**Dirty-tree backstop — compare after dispatch (mandatory).** Before extracting findings, confirm the Phase 3.1 review-agent batch left the working tree unchanged. Compare against the `GIT_STATUS_BEFORE` snapshot taken before dispatch; on any divergence the dispatch violated the advisory contract, so record it as a finding (never discard it silently) and restore only the snapshot-delta paths — those whose **path** was clean at snapshot time and became dirty during the dispatch window. The restore set is computed by **path column** (not whole porcelain line), so the guarantee is exact: any path the orchestrator had **already** modified before dispatch is left to the human — its `git checkout` is never run even if an agent changes its status byte further — so a concurrent legitimate edit is never clobbered. The one residual the compare cannot *detect* (as opposed to *restore*) is an agent's further edit to an already-dirty path that does not change its status byte: it produces an identical porcelain line, so the divergence test does not fire. That path is intentionally never auto-restored regardless; the Step 2.6 shadow + the post-shadow edit gate are the backstop for that undetected residual.
+
+```bash
+if [ "$GIT_STATUS_BEFORE" = $'\x01__DIRTY_TREE_BACKSTOP_DISABLED__' ]; then
+  : # before-snapshot failed in 3.1 (already surfaced there); backstop disabled this dispatch
+elif ! GIT_STATUS_AFTER=$(git status --porcelain); then
+  # After-snapshot failed. Do NOT misattribute a git failure as an agent mutation, and do NOT
+  # run any restore off an empty AFTER — surface a DISTINCT, attributable breadcrumb instead.
+  echo "::warning::devflow review: could not snapshot the working tree after the Phase 3.1 dispatch (git status failed); dirty-tree verification SKIPPED this dispatch — this is NOT an agent mutation" >&2
+elif [ "$GIT_STATUS_AFTER" != "$GIT_STATUS_BEFORE" ]; then
+  # Restore set = paths CLEAN at snapshot time that became dirty during the dispatch window.
+  # Compare the PATH column (status prefix stripped), NOT the whole porcelain line: a path the
+  # orchestrator had ALREADY modified before dispatch must never be checked out even if an
+  # agent changed its status byte further (` M f` -> `MM f`) — a whole-line compare would put
+  # such a path in the delta and clobber a concurrent legitimate edit. By-path set-difference
+  # leaves every already-dirty path out of CHANGED_PATHS (left to the human); its further
+  # mutation is still surfaced by the divergence breadcrumb, just never auto-restored.
+  CHANGED_PATHS=$(comm -13 \
+    <(printf '%s\n' "$GIT_STATUS_BEFORE" | sed 's/^...//' | sort -u) \
+    <(printf '%s\n' "$GIT_STATUS_AFTER"  | sed 's/^...//' | sort -u))
+  if [ -z "$CHANGED_PATHS" ]; then
+    # Divergence with an EMPTY restore set: an already-dirty path's status byte changed during
+    # the dispatch window (its path is in BOTH snapshots, so the by-path set-difference excludes
+    # it). Surface it accurately — nothing is auto-restored — rather than claiming a restore.
+    echo "::warning::devflow review: a Phase 3.1 review-agent dispatch changed the status of an already-dirty path (status byte only, no clean path newly dirtied); nothing auto-restored — left for the Step 2.6 shadow and the human" >&2
+  else
+    # CHANGED_PATHS is the snapshot delta (paths clean at snapshot, now dirty). Restore is
+    # best-effort and per-path. Restore from HEAD (NOT `git checkout -- "$p"`, which restores
+    # the worktree from the INDEX and so re-materializes a STAGED agent mutation while exiting
+    # 0 — a fail-open that reports a clobber as restored). The `git checkout HEAD --` form (used
+    # below) undoes a staged or unstaged tracked-file modification. Then trust the TREE STATE, not the exit
+    # code: re-run `git status --porcelain` for the path and emit the per-path breadcrumb iff it
+    # is STILL dirty — so an untracked or staged-new file the agent created (not auto-deleted; it
+    # could be a legitimate orchestrator artifact) is surfaced per-path and never falsely reported
+    # as restored. LIMITATION: a renamed/quoted/special-char path that porcelain escaped is a
+    # mangled token (e.g. `old -> new`), not a real pathspec, so its per-path re-check matches
+    # nothing and its individual line may not fire and it is not auto-restored — but it is still
+    # named in the AGGREGATE divergence breadcrumb + the Important finding below, so it is not
+    # silently dropped; it is left to the human + the Step 2.6 shadow (porcelain's inherent limit).
+    # The aggregate line below says "attempting" — each restorable path's actual outcome is its own warning.
+    echo "::warning::devflow review: a Phase 3.1 review-agent dispatch modified the working tree (advisory review agents must never mutate it); affected paths: ${CHANGED_PATHS//$'\n'/ }; recording an Important finding and attempting best-effort restore of the snapshot delta (per-path outcome in the warnings below)" >&2
+    # Feed paths via `printf '%s\n' | while read` rather than an unquoted heredoc: an
+    # unquoted heredoc would shell-expand a `$`/backtick/backslash in a pathname before
+    # the loop sees it. `printf '%s'` emits the bytes verbatim. (The pipe runs the loop in
+    # a subshell, which is fine — it only emits breadcrumbs and restores; no state escapes.)
+    printf '%s\n' "$CHANGED_PATHS" | while IFS= read -r p; do
+      [ -n "$p" ] || continue
+      restore_err=$(git checkout HEAD -- "$p" 2>&1)
+      if [ -n "$(git status --porcelain -- "$p")" ]; then
+        echo "::warning::devflow review: path '$p' still dirty after restore attempt (e.g. an untracked or staged-new file the agent created — never auto-deleted — or a renamed/quoted path git could not restore; git said: ${restore_err:-none}) — left as-is for human inspection" >&2
+      fi
+    done
+  fi
+fi
+```
+
+When this fires (the non-empty-`CHANGED_PATHS` branch), add an **Important** finding to the Phase 3 findings set — attributed to the Phase 3.1 review-agent dispatch, naming the affected paths (`CHANGED_PATHS`) it **attempted** to restore (best-effort; an untracked or staged-new file it could not restore is named in its own per-path warning above, while a renamed/quoted/special-char path that porcelain escaped — whose mangled token is not a real pathspec — is named here in the aggregate path list rather than a per-path line, never silently dropped) — carrying a `defect_signature` (`kind: "other"`, `file` the first affected path) so it flows through Phase 4 aggregation like any other finding. The attributable breadcrumb plus the finding mean a dropped restore is caught and recorded, never silently swallowed.
+
 Collect all agent responses. Extract findings, their severity labels (Critical, Important/Major, Suggestion/Minor), and their `defect_signature` blocks. **If the Phase 3.1.5 completeness-critic pass ran and produced a finding, include it here** as a single-source finding (flag it single-source like any N=1 finding); it carries a `defect_signature`, so it corroborates mechanically with any agent that independently flagged the same coverage gap.
 
 For each finding, compute a **corroboration count** — the number of Phase 3 agents that raised the same defect. Corroboration is now **mechanical**, not interpretive:
@@ -758,6 +834,7 @@ FAIL and INCONCLUSIVE items stay listed outside the `<details>` block so they re
 {Within each group render each finding as a numbered-list item with NO icon, NO agent-name prefix, and NO severity-word prefix: "1. description (raised by N/{total Phase 3 agents that returned results} agents)", numbering restarting from 1 within each sub-heading. The severity is conveyed by the sub-heading alone — never repeat the icon or the severity word ("Critical:", "Important:", "Suggestion:") on the list items.}
 {for findings whose index appears in the matcher's honored[] list, append " [Deferred → #{follow_up_issue}]" to the line and place it under the "### ℹ️ Informational — Deferred" sub-heading rather than under its original severity bucket.}
 {Within each severity, list corroborated findings (N≥2) before single-source ones (N=1) so the highest-confidence items lead.}
+{If Phase 4.1.5 flags a finding as a suspected over-grade, append its advisory annotation to that finding's line here — see 4.1.5. The annotation never changes the verdict.}
 
 ## Deferrals
 {Omit this section entirely when 4.0 was skipped (current-branch mode) or block_present was false. Otherwise render:}
@@ -776,6 +853,22 @@ FAIL and INCONCLUSIVE items stay listed outside the `<details>` block so they re
 - Only Important/Suggestion findings → APPROVE with notes
 - No findings → APPROVE
 ```
+
+### 4.1.5 Over-grade advisory annotation (advisory only — never changes the verdict)
+
+**This subsection is the single source of truth for the over-grade shape definitions.** `/devflow:review-and-fix`'s Step 2.6 *Over-grade calibration gate* consumes this same shape list (the fix loop reads this engine file at runtime) rather than forking its own copy — keep the shapes defined **here only**, so the standalone-engine annotation and the fix-loop gate can never drift apart.
+
+After building the report (4.1) and **before** computing the verdict (4.2), scan the Phase-3 findings the verdict will weigh (the `Critical` / `Important` / `Major` findings not deferral-demoted in 4.0). **Flag** a finding as a *suspected over-grade* when it matches one of these **observable** over-grade shapes (keyed on observable signals — what the suite catches, which direction the code fails, how many agents corroborated — never on a re-judgment of the finding's merits, or the annotation just relocates the calibration problem it exists to surface):
+
+1. **Suite-RED or fail-closed defect graded above its blast radius** — the defect's own failure mode is one the project's test suite catches **RED**, or the code **fails closed** on the bad input (it aborts / refuses / returns the safe value rather than admitting a wrong one). A fenced or fail-closed defect is real and worth fixing, but its observable blast radius is a loud, bounded stop — not the silent corruption a `Critical`/`Important` grade asserts.
+2. **Diagnostic-or-cosmetic-only finding with no behavioral fail-direction** — the finding's entire observable impact is the wording of a message / breadcrumb / log / comment or another purely-diagnostic surface, with no wrong output, no corrupted state, and no skipped guard. Real and worth fixing, but not a high-severity blast radius.
+3. **Uncorroborated single-source finding from an empirical over-grader** — the finding is graded `Critical`/`Important` but is **single-source** (corroboration count 1 from Phase 3.2) from `silent-failure-hunter` or `pr-test-analyzer`, with **no** corroboration from any other Phase-3 agent **and** no Phase-2 verification-checklist FAIL covering the same defect. Empirically this uncorroborated-single-source-from-an-empirical-over-grader signal is the highest-probability over-grade.
+
+**On a flag, standalone `/devflow:review` adds an advisory annotation and nothing else.** Because standalone review has **no fixer** to record a technical evaluation, it MUST **not auto-demote** — append a parenthetical to the flagged finding's line in 4.1's `## Code Review Findings` (alongside the existing `(raised by N/M agents)` clause) of the form `[suspected over-grade: shape {n} — observable fail-direction is {X}, milder than the {severity} label]`, naming the matched shape and the observable fail-direction. **The verdict computation in 4.2 is unchanged** — the annotation never demotes a finding, never alters its severity, and never clears or downgrades a REJECT. A flagged `Critical` still drives REJECT exactly as before; the annotation only tells a human reading the verdict that the grade is *suspect*, so they can distinguish a genuine blocker from a diminishing-returns over-grade without re-deriving the calibration themselves.
+
+If no finding matches, add the line `over-grade annotation: no finding flagged` to the report so a clean scan is visible rather than ambiguous with a skipped step.
+
+The full **flag-and-record** gate — which *requires* a recorded `severity-calibrated` technical evaluation before a flagged finding may drive a shadow-promotion, and which still never auto-demotes — lives in `/devflow:review-and-fix` Step 2.6, because the fix loop has a fixer to record that evaluation. Standalone review is **advisory by construction**: do not port the gate's recording requirement here, and never let the annotation change what 4.2 computes. A consumer repo sharpens these shapes with local instances via `.devflow/prompt-extensions/review.md`; the extension sharpens the shapes but never makes the annotation change the verdict.
 
 ### 4.2 Determine verdict
 

@@ -16,6 +16,10 @@ Three representative scenarios:
 - **Pre-PR sanity check.** The user signals they're ready to open a pull request. Run a review of the full diff first to avoid round-trips on the PR itself.
 
 
+## Working-tree policy (read-only, advisory)
+
+You are advisory only: never modify working-tree source files, the index, HEAD, or branch state. Your job is to report findings, not to apply them. If verifying a finding would benefit from a mutation or half-revert check (delete a pinned line, flip a condition, then run the suite to confirm a guard goes RED), perform any mutation or half-revert verification on a temporary copy made with `mktemp`, never in place. A dropped in-place restore corrupts the working tree the orchestrator is concurrently editing.
+
 ## Review Scope
 
 By default, review unstaged changes from `git diff`. The user may specify different files or scope to review.
@@ -39,6 +43,10 @@ Rate each issue from 0-100:
 - **91-100**: Critical bug or explicit CLAUDE.md violation
 
 **Only report issues with confidence ≥ 80**
+
+## Stale-wording findings: enumerate every occurrence before submitting
+
+Before you report a finding that a specific phrase or behavioral claim in a file conflicts with the current implementation — a stale-wording or semantic-contradiction finding — you MUST first search the affected file for all occurrences of the flagged phrase, enumerate every matching line number, and include the complete location set in the finding body before submitting. Include any semantic equivalents of the phrase you can identify from context, not just verbatim matches. Do not report only the first instance you happened to notice: an identical stale claim that survives elsewhere in the same file forces an extra review round to catch. This applies whenever the same outdated phrase or claim could appear more than once — repeated behavioral claims in SKILL.md files, schema descriptions, or README-style docs are the common case.
 
 ## Output Format
 
