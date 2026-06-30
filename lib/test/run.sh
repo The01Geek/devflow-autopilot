@@ -8381,7 +8381,10 @@ assert_pin_unique "#187 implement prompt-extension mandates the bracketed ## [x.
 # bump-commit confirm) but not that the manifest is the version's *sole authority* — a future
 # edit could re-add subject-reading alongside the manifest read and every round-2 pin stays
 # GREEN (the additive-regression two review agents corroborated). Pin the **negative invariant**
-# (the discriminating clause that carries the fix), the **producer-side Step-2 routing** that
+# (the discriminating clause that carries the fix) so a revert that *drops or softens* the
+# explicit prohibition trips RED — a presence pin cannot catch a purely additive re-add that
+# leaves the clause intact, but that would leave a self-contradicting skill body for review to
+# catch. Also pin the **producer-side Step-2 routing** that
 # makes the all-PRs contract reachable (a Step-2 revert to "stop" would silently strip the only
 # path to Step 4b on the non-customer-visible branch), and the **fail-loud breadcrumb** that
 # keeps a failed determination from masquerading as a clean no-op.
