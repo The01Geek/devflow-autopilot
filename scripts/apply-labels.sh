@@ -54,7 +54,9 @@ for _lbl in "${LABELS[@]}"; do
     FIELDS+=(-f "labels[]=${_lbl}")
 done
 
-# Capture combined output so a genuine failure names its cause in the breadcrumb.
+# Capture stderr only (stdout → /dev/null) so a genuine failure names its cause in
+# the breadcrumb without the success-body output polluting it. The `2>&1 >/dev/null`
+# order redirects stderr to the captured stream first, then stdout to /dev/null.
 ERR_OUT="$("$DEVFLOW_GH" api --method POST "repos/{owner}/{repo}/issues/${NUMBER}/labels" "${FIELDS[@]}" 2>&1 >/dev/null)"
 RC=$?
 

@@ -5303,6 +5303,12 @@ assert_eq "#228: phase-4 docs-label routes through apply-labels.sh (symmetric pr
   "$(grep -qF 'apply-labels.sh "$DOCS_PR_NUM" "$CLEAN_LABELS"' "$IMPL_SKILL_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: presence pin pairs with the docs-label absence pin above so a typo'd new invocation can't pass all phase-4 pins
 assert_eq "#228: pr-description edits the body via REST gh api PATCH, not gh pr edit --body" "yes" \
   "$(grep -qF 'api --method PATCH' "$LIB/../skills/pr-description/SKILL.md" && ! grep -qF 'gh pr edit $PR_NUMBER --body' "$LIB/../skills/pr-description/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: compound presence+absence pin (REST PATCH present AND old porcelain gone), not a single target-unique pin
+# Positively pin the migrated body-write SHAPE: `-F body=@-` reads the field literally
+# from stdin (the heredoc), the form that replaced `--body-file`'s no-expansion guarantee.
+# Distinguishable from the contrastive prose (which says bare `gh pr edit --body`), so this
+# is the real tripwire a porcelain reintroduction would have to defeat.
+assert_eq "#228: pr-description body PATCH uses the literal -F body=@- stdin form" "yes" \
+  "$(grep -qF -- '-F body=@-' "$LIB/../skills/pr-description/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: presence pin on the migrated literal-read body-write form
 assert_eq "#97 pin: retrospective Stage A consumes reflections" "yes" \
   "$(grep -qi 'reflection' "$LIB/../skills/retrospective/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: case-insensitive (grep -qi); pin_count is case-sensitive -F
 assert_eq "#97 pin: cheap-gate carries the reflection reason string" "yes" \
