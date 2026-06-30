@@ -380,10 +380,18 @@ Scan the issue body's Technical Context for claims that explicitly exclude a sur
 
 ```bash
 grep -n 'TOOLS=' .github/workflows/devflow-runner.yml
-grep 'TOOLS=' .devflow/vendor/devflow/.github/workflows/devflow-runner.yml 2>/dev/null
+# The vendored consumer copy is commonly absent. Test for it first so an absent
+# file is NOT conflated with "helper missing from TOOLS=" — a fail-open that would
+# silently record "no impact" when the guard never ran. Treat the two as distinct:
+VENDORED=.devflow/vendor/devflow/.github/workflows/devflow-runner.yml
+if [ -f "$VENDORED" ]; then
+  grep -n 'TOOLS=' "$VENDORED"   # present: empty result here means a real allowlist gap
+else
+  echo "vendored copy absent — check not applicable (NOT a no-impact result)"
+fi
 ```
 
-If the trace finds a required change the issue excluded, record: `--reflection-kind note --reflection "issue-claim audit (negative-scope): issue excluded '{surface}' but trace requires it — adding to plan"`, then add the missed surface to the working plan before 2.2 begins. If the trace confirms the exclusion is correct (no impact on that surface), record: `--reflection-kind note --reflection "issue-claim audit (negative-scope): issue excluded '{surface}'; trace confirms no impact"`. If the issue body contains no scope-exclusion claims, record: `--reflection-kind note --reflection "issue-claim audit (negative-scope): no scope-exclusion claims found — pass complete"`.
+A present-but-no-match grep on either file is a real allowlist gap (the helper is missing from `TOOLS=`); an absent vendored file is "check not applicable" — never read it as confirmation of no impact. If the trace finds a required change the issue excluded, record: `--reflection-kind note --reflection "issue-claim audit (negative-scope): issue excluded '{surface}' but trace requires it — adding to plan"`, then add the missed surface to the working plan before 2.2 begins. If the trace confirms the exclusion is correct (no impact on that surface), record: `--reflection-kind note --reflection "issue-claim audit (negative-scope): issue excluded '{surface}'; trace confirms no impact"`. If the issue body contains no scope-exclusion claims, record: `--reflection-kind note --reflection "issue-claim audit (negative-scope): no scope-exclusion claims found — pass complete"`.
 
 #### Pass 3 — Policy-referencing claims in ACs
 
