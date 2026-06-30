@@ -8334,7 +8334,7 @@ done
 # future edit that drops an agent turns this row red instead of shipping silently.
 assert_pin_unique "#141 implement skill names all five review agents in its Phase-3 roster line" '(code-reviewer, silent-failure-hunter, comment-analyzer, type-design-analyzer, pr-test-analyzer)' "$FDROOT/skills/implement/SKILL.md"
 
-# (issue #183 / PR #187) CHANGELOG reconciliation step contract pins. Guards three
+# (issue #183 / PR #187) CHANGELOG reconciliation step contract pins. Guards four
 # load-bearing clauses in docs-release-notes SKILL.md: (a) the all-PRs routing
 # contract, (b) the no-op condition, (c) the no-commit clause, and (d) the config-key
 # resolution line. Removing or softening any of these turns the suite RED.
