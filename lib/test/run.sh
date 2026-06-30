@@ -41,6 +41,12 @@ trap 'rm -f "$RESULTS_FILE"' EXIT   # protect RESULTS_FILE immediately; widened 
 # absence/zero-expecting guards (which assert a literal is GONE or a count is 0) into
 # vacuous passes.
 IMPL_PHASE_STEMS="phase-1-setup phase-2-implement phase-3-review phase-4-documentation"
+# Fail-closed bundle-member predicate, FACTORED so the bundle build below AND the F1
+# standing anti-vacuity proofs (in the structural-assertions block) exercise the EXACT same
+# logic — a replica would risk drifting from the real check. A member must be readable AND
+# non-empty to contribute; the `cat` exit status (read errors mid-stream) is checked
+# separately at the call site since it performs the actual append.
+_impl_bundle_member_usable() { [ -r "$1" ] && [ -s "$1" ]; }
 IMPL_SKILL_BUNDLE="$(mktemp)" || { echo "run.sh: could not allocate the implement-skill bundle temp" >&2; exit 1; }
 trap 'rm -f "$RESULTS_FILE" "$IMPL_SKILL_BUNDLE"' EXIT
 # Build the member list as an ARRAY (not a space-joined string) so a checkout path
@@ -51,10 +57,11 @@ for _s in $IMPL_PHASE_STEMS; do
   _bundle_members+=("$LIB/../skills/implement/phases/${_s}.md")
 done
 for _m in "${_bundle_members[@]}"; do
-  # `[ -r ]` + `[ -s ]` + the `cat` exit status together: a member that is missing, empty,
-  # OR unreadable (or whose read errors mid-stream) records a FAIL instead of silently
-  # contributing nothing — the fail-closed property the header comment promises.
-  if [ -r "$_m" ] && [ -s "$_m" ] && cat "$_m" >> "$IMPL_SKILL_BUNDLE"; then
+  # A member that is missing, empty, OR unreadable (or whose read errors mid-stream) records
+  # a FAIL instead of silently contributing nothing — the fail-closed property the header
+  # comment promises. The predicate covers missing/empty/unreadable; `&& cat` covers a
+  # mid-stream read error.
+  if _impl_bundle_member_usable "$_m" && cat "$_m" >> "$IMPL_SKILL_BUNDLE"; then
     printf '\n' >> "$IMPL_SKILL_BUNDLE"
   else
     printf '  FAIL  implement-skill bundle member missing, empty, or unreadable: %s\n' "$_m"
@@ -2149,7 +2156,7 @@ assert_pin_unique "#167 coupled-site: efficiency-trace.md states detect_all_audi
   'it only forces the completeness-critic pass and never shapes the profile' "$TRACE_DOC"
 
 # Drift guard: the Phase 2.3 sweep list lives in three places that must stay in
-# sync — the sweep body in implement/SKILL.md, the "Sweep selection" always-run
+# sync — the sweep body in the implement skill (phases/phase-2-implement.md), the "Sweep selection" always-run
 # index in the same file, and the rationale table in docs/implement-skill.md. The
 # error-handling & silent-failure sweep (2.3.6) front-loads the Phase 3.3
 # silent-failure-hunter agent; if any of the three loses it the catch reverts to
@@ -2178,7 +2185,7 @@ IMPL_PHASES_DIR="$LIB/../skills/implement/phases"
 # RED instead. Reconciling against the directory, not just hand-listing, is what closes the
 # coupled-site hazard of two hand-maintained mirrors. (`-maxdepth 1`: phases/ is flat; the
 # misregistration guard below separately forbids a nested SKILL.md.)
-_actual_phase_stems=$(find "$IMPL_PHASES_DIR" -maxdepth 1 -name '*.md' -type f -exec basename {} .md \; | sort | tr '\n' ' ' | sed 's/ *$//')
+_actual_phase_stems=$(find "$IMPL_PHASES_DIR" -maxdepth 1 -name '*.md' -type f -exec basename {} .md \; 2>/dev/null | sort | tr '\n' ' ' | sed 's/ *$//')
 _registered_phase_stems=$(printf '%s\n' $IMPL_PHASE_STEMS | sort | tr '\n' ' ' | sed 's/ *$//')
 assert_eq "implement split: phases/ dir holds exactly the registered phase set (no unregistered / missing phase file)" \
   "$_registered_phase_stems" "$_actual_phase_stems"
@@ -2187,7 +2194,7 @@ assert_eq "implement split: phases/ dir holds exactly the registered phase set (
 # orchestrator carries the entry-gate's fail-closed *imperative* (the "halt … with an
 # attributable breadcrumb" clause) — pinning only the path string would stay GREEN if a
 # future edit downgraded the mandatory-read gate to an inert "see also phases/…" mention,
-# losing the deferral semantics the split depends on. One loop header → one place the stem
+# losing the mandatory-read / fail-closed semantics the split depends on. One loop header → one place the stem
 # list is maintained.
 for _pf in $IMPL_PHASE_STEMS; do
   _n="${_pf#phase-}"; _n="${_n%%-*}"   # phase-1-setup -> 1
@@ -2195,6 +2202,12 @@ for _pf in $IMPL_PHASE_STEMS; do
     "$([ -s "$IMPL_PHASES_DIR/${_pf}.md" ] && echo yes || echo no)"
   assert_pin_unique "implement split: orchestrator names the ${_pf}.md entry-gate read" \
     "phases/${_pf}.md" "$IMPL_ORCH"
+  # Pin the mandatory-read framing token AND the fail-closed halt, not just the path: with all
+  # three pinned per phase, a future edit cannot downgrade the gate to an inert "see also
+  # phases/…" mention (which would drop "before any Phase N action" and the halt clause) while
+  # keeping any single literal — closing the co-location gap a path-only pin left open.
+  assert_pin_unique "implement split: orchestrator carries the mandatory-read framing for Phase ${_n}" \
+    "before any Phase ${_n} action" "$IMPL_ORCH"
   assert_pin_unique "implement split: orchestrator carries the fail-closed entry-gate halt for Phase ${_n}" \
     "halt Phase ${_n} with an attributable breadcrumb" "$IMPL_ORCH"
 done
@@ -2204,6 +2217,49 @@ done
 # is non-vacuous once the split exists (mutation-proven by transiently adding phases/SKILL.md).
 assert_eq "implement split: no SKILL.md under phases/ (no nested auto-discovered skill)" "" \
   "$(find "$IMPL_PHASES_DIR" -name SKILL.md 2>/dev/null)"
+
+# ── F1 (review): STANDING anti-vacuity proofs for the new fail-closed guards ───────────────
+# The guards above are non-vacuous by construction, but the project discipline (the
+# git_sandbox AC3 probes, "bake the half-revert into the suite — do not leave it a one-time
+# manual act") requires that fail-closed property to be a STANDING test, not a one-time
+# manual mutation. Each proof exercises the guard's real predicate/pipeline on a synthetic
+# mutated input and asserts the fail-closed DIRECTION, so a future refactor that weakens a
+# guard (drops the `[ -r ]`/`[ -s ]` clause, breaks the reconciliation comparison, or
+# narrows the SKILL.md find) turns the suite RED here instead of silently passing.
+# (a) the FACTORED bundle-member predicate (the EXACT function the bundle build calls, so no
+#     replica drift) fails CLOSED on missing / empty / unreadable, and PASSES on a real file.
+_f1_missing="$IMPL_PHASES_DIR/.f1-nonexistent-$$"
+assert_eq "F1: bundle-member predicate fails closed on a MISSING member" "no" \
+  "$(_impl_bundle_member_usable "$_f1_missing" && echo yes || echo no)"
+_f1_empty=$(probe_tmp "F1 empty-member proof"); : > "$_f1_empty"
+assert_eq "F1: bundle-member predicate fails closed on an EMPTY member" "no" \
+  "$(_impl_bundle_member_usable "$_f1_empty" && echo yes || echo no)"
+assert_eq "F1: bundle-member predicate PASSES on a real readable non-empty phase file (not trivially false)" "yes" \
+  "$(_impl_bundle_member_usable "$IMPL_PHASES_DIR/phase-1-setup.md" && echo yes || echo no)"
+# the unreadable arm (S1's specific case) only when non-root — `[ -r ]` is always true as root.
+if [ "$(id -u)" != 0 ]; then
+  _f1_unreadable=$(probe_tmp "F1 unreadable-member proof"); printf 'x\n' > "$_f1_unreadable"; chmod a-r "$_f1_unreadable"
+  assert_eq "F1: bundle-member predicate fails closed on an UNREADABLE member" "no" \
+    "$(_impl_bundle_member_usable "$_f1_unreadable" && echo yes || echo no)"
+  chmod u+rw "$_f1_unreadable" 2>/dev/null || true
+fi
+# (b) the directory-reconciliation pipeline detects an unregistered stem — a synthetic dir
+#     holding a rogue phase file yields an actual set != the registered set (RED). Exercises
+#     the same find|sort|tr|sed pipeline shape the real reconciliation uses.
+if _f1_recon=$(mktemp -d); then
+  : > "$_f1_recon/phase-1-setup.md"; : > "$_f1_recon/phase-9-rogue.md"
+  _f1_actual=$(find "$_f1_recon" -maxdepth 1 -name '*.md' -type f -exec basename {} .md \; 2>/dev/null | sort | tr '\n' ' ' | sed 's/ *$//')
+  assert_eq "F1: reconciliation pipeline detects an unregistered phase stem (synthetic dir != registered)" "no" \
+    "$([ "$_f1_actual" = "phase-1-setup" ] && echo yes || echo no)"
+  rm -rf "$_f1_recon"
+fi
+# (c) the no-SKILL.md misregistration guard detects an injected SKILL.md (find non-empty → != "").
+if _f1_skilldir=$(mktemp -d); then
+  : > "$_f1_skilldir/SKILL.md"
+  assert_eq "F1: misregistration guard detects an injected SKILL.md (find non-empty → RED)" "no" \
+    "$([ -z "$(find "$_f1_skilldir" -name SKILL.md 2>/dev/null)" ] && echo yes || echo no)"
+  rm -rf "$_f1_skilldir"
+fi
 # ── end issue #218 structural assertions ──
 assert_pin_unique "sweep 2.3.6: implement SKILL keeps the sweep body" '#### 2.3.6 Error-handling & silent-failure sweep' "$IMPL_SKILL"
 assert_pin_unique "sweep 2.3.6: implement SKILL lists it in the always-run index" '**2.3.6** (error-handling & silent-failure)' "$IMPL_SKILL"
@@ -2417,7 +2473,7 @@ _docs_sweeps=$(grep -oE 'still runs the contract-completeness sweeps \([^)]+\)' 
 assert_eq "sweep selection: SKILL and docs enumerate the same contract-sweep set (cross-site)" \
   "$_skill_sweeps" "$_docs_sweeps"
 
-# Drift guard: the base_branch read in implement/SKILL.md Phase 1.4 is the skill's
+# Drift guard: the base_branch read in the implement skill (phases/phase-1-setup.md) Phase 1.4 is the skill's
 # one piece of load-bearing inline bash — like the max_iterations clamp above, the
 # tokens it relies on can be silently broken by a SKILL edit (drop the `|| BASE=""`
 # and `git fetch origin ""` runs; drop the fetch guard and a bad base fails with a
@@ -2640,7 +2696,7 @@ assert_eq "implement_pr_state: malformed config → resolver exits non-zero, emp
 rm -f "$IPS_CFG"
 
 # SKILL Phase 4.3 token pins: the gate is one piece of load-bearing inline bash in
-# implement/SKILL.md. Pin the tokens so a refactor that drops them fails here rather
+# the implement skill (phases/phase-4-documentation.md). Pin the tokens so a refactor that drops them fails here rather
 # than silently always-publishing (or always-drafting).
 assert_pin_unique "implement_pr_state: SKILL reads via config-get with the ready_for_review default" 'config-get.sh .devflow_implement.implement_pr_state ready_for_review' "$IMPL_SKILL"
 assert_pin_unique "implement_pr_state: SKILL gates publish on the literal draft" '[ "$PR_STATE" = "draft" ]' "$IMPL_SKILL"
@@ -5081,7 +5137,7 @@ REFL_UNKINDED="$(grep -n -- '--reflection ' "$IMPL_SKILL_BUNDLE" \
   | grep -v -- '--reflection-kind' || true)"
 assert_eq "#126 pin: workpad.py documents the --reflection-kind flag" "yes" \
   "$(grep -q -- '--reflection-kind' "$WP_PY" && echo yes || echo no)"
-assert_eq "#126 pin: every --reflection call-site in implement/SKILL.md carries a --reflection-kind" "" \
+assert_eq "#126 pin: every --reflection call-site in the implement skill carries a --reflection-kind" "" \
   "$REFL_UNKINDED"
 assert_eq "#126 pin: docs describe the grouped reflection structure + --reflection-kind" "yes" \
   "$(grep -q -- '--reflection-kind' "$LIB/../docs/implement-skill.md" && grep -q -- '--reflection-kind' "$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md" && echo yes || echo no)"
