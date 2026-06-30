@@ -2249,8 +2249,12 @@ fi
 if _f1_recon=$(mktemp -d); then
   : > "$_f1_recon/phase-1-setup.md"; : > "$_f1_recon/phase-9-rogue.md"
   _f1_actual=$(find "$_f1_recon" -maxdepth 1 -name '*.md' -type f -exec basename {} .md \; 2>/dev/null | sort | tr '\n' ' ' | sed 's/ *$//')
-  assert_eq "F1: reconciliation pipeline detects an unregistered phase stem (synthetic dir != registered)" "no" \
-    "$([ "$_f1_actual" = "phase-1-setup" ] && echo yes || echo no)"
+  # POSITIVE assertion (not "!= single-stem", which an empty/garbled pipeline output would
+  # also satisfy vacuously): the pipeline must enumerate EXACTLY the synthetic two-stem set,
+  # proving the enumeration works AND that the rogue stem makes the set differ from any
+  # 4-stem registered set — so the real reconciliation's assert_eq would go RED.
+  assert_eq "F1: reconciliation pipeline enumerates a synthetic dir's exact stem set (incl. the rogue, differs from registered)" \
+    "phase-1-setup phase-9-rogue" "$_f1_actual"
   rm -rf "$_f1_recon"
 fi
 # (c) the no-SKILL.md misregistration guard detects an injected SKILL.md (find non-empty → != "").
