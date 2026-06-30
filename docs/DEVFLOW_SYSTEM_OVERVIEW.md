@@ -523,7 +523,7 @@ The local tier needs **no config**. To customize, `/devflow:init` scaffolds `.de
 | `devflow_review.live_progress_comment_enabled` / `agent_overrides` | Review engine: live comment + per-subagent model/effort. |
 | `devflow_review_and_fix.efficiency_telemetry_enabled` / `efficiency_cut_candidate_min_dispatch` | Telemetry. |
 | `setup.*` | Cloud-tier runtime provisioning (versions, services, install lines). |
-| `docs.*` | Doc paths, enable flags, release-notes file, labels. |
+| `docs.*` | Doc paths, enable flags, release-notes file, CHANGELOG file, labels. |
 | `devflow_retrospective.*` | Weekly loop settings (watched authors, min occurrences, cooldown, etc.). Detection is by the reserved `DevFlow` label + a closes-issue fallback (see §12); `implementation_branch_prefix` is an **optional** extra match path, not the detection mechanism, and may be left empty. |
 | `workflows.*` | Per-workflow enable/disable toggles. |
 

@@ -8350,10 +8350,12 @@ assert_pin_unique "#183 docs-release-notes SKILL resolves changelog_file via con
 
 # (PR #187 review hardening) Couple the `chore: bump version` commit-message prefix across
 # its producer and its consumer so the convention cannot drift on one side only. The
-# consumer (docs-release-notes Step 4b) locates the CHANGELOG entry by matching this exact
-# prefix; the producer (implement prompt-extension) mandates emitting it. If either renames
-# the prefix without the other, Step 4b silently no-ops the reconciliation it exists to
-# perform (the fail-open the PR #187 review flagged). Pin the literal in both files.
+# consumer (docs-release-notes Step 4b) uses this exact prefix ONLY to confirm a version bump
+# happened on the branch — it then selects the CHANGELOG section by the `## [version]` heading
+# whose version is read from the manifest, never from the commit subject; the producer
+# (implement prompt-extension) mandates emitting it. If either renames the prefix without the
+# other, Step 4b sees no bump and silently no-ops the reconciliation it exists to perform (the
+# fail-open the PR #187 review flagged). Pin the literal in both files.
 assert_pin_unique "#187 docs-release-notes Step 4b matches the chore: bump version prefix" \
   'message begins with `chore: bump version`' "$FDROOT/skills/docs-release-notes/SKILL.md"
 assert_pin_unique "#187 implement prompt-extension mandates the chore: bump version prefix" \
@@ -8385,14 +8387,21 @@ assert_pin_unique "#187 implement prompt-extension mandates the bracketed ## [x.
 # (the discriminating clause that carries the fix) so a revert that *drops or softens* the
 # explicit prohibition trips RED — a presence pin cannot catch a purely additive re-add that
 # leaves the clause intact, but that would leave a self-contradicting skill body for review to
-# catch. Also pin the **producer-side Step-2 routing** that
-# makes the all-PRs contract reachable (a Step-2 revert to "stop" would silently strip the only
-# path to Step 4b on the non-customer-visible branch), and the **fail-loud breadcrumb** that
-# keeps a failed determination from masquerading as a clean no-op.
+# catch. Also pin the all-PRs reachability contract on BOTH the Objective restatement AND the
+# operative Step-2 decision body: the Objective clause (`CHANGELOG reconciliation still runs for
+# all PRs`) states the intent, but the site the agent actually obeys mid-Step-2 is the line that
+# flips the non-customer-visible exit to "skip Steps 3/3b/4, proceed to Step 4b" (pre-PR it read
+# "stop here. Do not modify any files."). Pinning ONLY the Objective restatement would let a
+# single-site revert of that operative decision strip the only path to Step 4b on the
+# non-customer-visible branch while the suite stayed GREEN (the framing-pinned-not-behavior
+# fail-open a review pass flagged). Pin both. Plus the **fail-loud breadcrumb** that keeps a
+# failed determination from masquerading as a clean no-op.
 assert_pin_unique "#187 docs-release-notes Step 4b pins the negative invariant (version NOT read from the commit subject)" \
   'do not read the version string from its free-text subject' "$FDROOT/skills/docs-release-notes/SKILL.md"
-assert_pin_unique "#187 docs-release-notes Step 2 routes the non-customer-visible path to Step 4b (all-PRs reachability, producer side)" \
+assert_pin_unique "#187 docs-release-notes Objective restates the all-PRs reconciliation contract" \
   'CHANGELOG reconciliation still runs for all PRs' "$FDROOT/skills/docs-release-notes/SKILL.md"
+assert_pin_unique "#187 docs-release-notes Step 2 operative decision routes non-customer-visible to Step 4b (not 'stop')" \
+  'If the PR is **not customer-visible**, skip Steps 3, 3b, and 4' "$FDROOT/skills/docs-release-notes/SKILL.md"
 assert_pin_unique "#187 docs-release-notes Step 4b fails loud on a failed determination (not a masked no-op)" \
   'CHANGELOG reconciliation NOT performed' "$FDROOT/skills/docs-release-notes/SKILL.md"
 
@@ -8404,6 +8413,10 @@ assert_pin_unique "#187 docs-release-notes Step 4b fails loud on a failed determ
 # diff is the operand Step 4b's trace consumes, and Step 1 runs before the Step 2 branch so the
 # operand is reachable on every path — and (b) the correct-in-place mutation clause. Also pin
 # the no-bump-commit no-op branch for parity with the no-section branch already pinned above.
+assert_pin_unique "#187 docs-release-notes Step 4b traces each claim against the Step-1 diff (operative payload)" \
+  'confirm it against the diff already read in Step 1. Do not re-run' "$FDROOT/skills/docs-release-notes/SKILL.md"
+assert_pin_unique "#187 docs-release-notes Step 4b enumerates every factual claim (operative payload, parity with trace/correct)" \
+  'Enumerate every factual claim' "$FDROOT/skills/docs-release-notes/SKILL.md"
 assert_pin_unique "#187 docs-release-notes Step 4b traces each claim against the Step-1 diff (operative payload)" \
   'confirm it against the diff already read in Step 1. Do not re-run' "$FDROOT/skills/docs-release-notes/SKILL.md"
 assert_pin_unique "#187 docs-release-notes Step 4b corrects stale claims in place (operative payload)" \
