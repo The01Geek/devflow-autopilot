@@ -1466,6 +1466,26 @@ assert_pin_unique "fix-delta gate: share-the-contract principle in receiving-cod
   'prefer using that consumer as the guard itself' "$RCR_SKILL"
 # FIXDELTA_GUARD_REGION_END — end of the assert_pin_unique-only fix-delta pin region
 
+# Drift guard (issue #199): the Step 2.6 EARLY shadow trigger. On an
+# `engine_self_modifying` PR the shadow fan-out runs once after iteration 1
+# regardless of that iteration's verdict (including REJECT), feeding new blinded
+# findings into iteration 2 — the convergence-time trigger is unchanged for all
+# PRs and a non-engine PR keeps convergence-time-only. The contract has three
+# load-bearing, independently-revertible sentences, each pinned below: (1) the
+# fire condition (after-iteration-1, verdict-agnostic, gated on engine_self_modifying);
+# (2) the no-double-run guard vs the convergence-time trigger; (3) the iteration
+# accounting (early pass uncounted, the promoted iteration 2 counts). These use
+# assert_pin_unique (one occurrence) so a deletion or paraphrase fails closed; the
+# fire-condition sentence is additionally mutation-proven via assert_pin_red_on_removal.
+assert_pin_unique "early-shadow #199: fire condition (after-iter-1, verdict-agnostic, engine_self_modifying-gated)" \
+  'run the early shadow once after iteration 1 regardless of that iteration verdict, gated on engine_self_modifying' "$MAXI_SKILL"
+assert_pin_red_on_removal "early-shadow #199: deleting the early-trigger fire condition turns its pin RED" \
+  'run the early shadow once after iteration 1 regardless of that iteration verdict, gated on engine_self_modifying'
+assert_pin_unique "early-shadow #199: no-double-run guard vs the convergence-time trigger (AC3)" \
+  'only when the convergence-time trigger did not already run on iteration 1' "$MAXI_SKILL"
+assert_pin_unique "early-shadow #199: promoted iteration 2 counts toward the cap; early pass uncounted (AC3)" \
+  'promoted iteration 2 it spawns DOES count toward the cap' "$MAXI_SKILL"
+
 # Drift guard: the step 8 Verification Gate (issue #178; renumbered from step 7 by #196,
 # which inserted a RECORD DEFERRALS step before it) — the Iron Law, its scope
 # sentence, the code-fence verify entry, the engine re-run attribution, the
