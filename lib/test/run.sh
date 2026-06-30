@@ -3015,8 +3015,20 @@ assert_pin_unique "#230: phase-2 §2.1 names the narrative as a non-authoritativ
   'non-authoritative starting point to verify' "$P2_FILE"
 assert_pin_unique "#230: phase-2 §2.1 scopes 'code wins' so it never overrides the decided spec (AC2)" \
   'never overrides Desired Behavior or Acceptance Criteria' "$P2_FILE"
+# AC2's load-bearing discriminator is the SCOPING word `descriptive`, not the consequence
+# clause above: a reword that drops "applies to descriptive claims only" while keeping the
+# "never overrides …" tail would re-broaden "code wins" over the decided spec (the exact
+# #230 bug class) yet stay GREEN. Pin the scoping clause itself so its removal goes RED.
+assert_pin_unique "#230: phase-2 §2.1 keeps the 'code wins' scoping qualifier (descriptive-only) (AC2 discriminator)" \
+  'applies to **descriptive** claims only' "$P2_FILE"
 assert_pin_unique "#230: phase-4 §4.1 narrative never suppresses the routine doc pass (AC3)" \
   'suppresses the routine documentation pass' "$P4_FILE"
+# AC3's regression-specific discriminator is the absent/empty/contradictory trigger list —
+# the three bullet shapes #230 exploited. The general "never suppresses" pin above does not
+# guard it: dropping the enumeration would re-open the exact suppression path while staying
+# GREEN. Pin the trigger enumeration so its removal goes RED.
+assert_pin_unique "#230: phase-4 §4.1 keeps the absent/empty/contradictory trigger enumeration (AC3 discriminator)" \
+  'absent, empty, or contradictory' "$P4_FILE"
 assert_pin_unique "#230: phase-4 §4.1 Documentation Needed is a floor, never a ceiling (AC4)" \
   'never a ceiling that authorizes skipping otherwise-warranted documentation' "$P4_FILE"
 
