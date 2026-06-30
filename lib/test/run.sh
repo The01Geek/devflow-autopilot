@@ -18,7 +18,36 @@ LIB="$(cd "$(dirname "$0")/.." && pwd)"
 # render-report.sh blocks, sourced in subshells to contain their `set -e` — are
 # counted in the final tally too. Counting in-memory would silently drop them.
 RESULTS_FILE="$(mktemp)"
-trap 'rm -f "$RESULTS_FILE"' EXIT
+
+# issue #218: the /devflow:implement skill is split into a thin orchestrator
+# (skills/implement/SKILL.md) plus four phases/phase-N-*.md reference files read
+# on-demand at phase entry. The ~120 load-bearing IMPL_SKILL/DEF_SKILL pins below — and
+# the raw presence/absence/count/line-ordering guards that bypass pin_count — target the
+# WHOLE implement skill, not one file. Concatenate the five files into one temp "bundle"
+# view (newline-separated, so a file's last line cannot merge with the next file's first)
+# and point IMPL_SKILL/DEF_SKILL at it, so every existing call site keeps working
+# UNCHANGED while now asserting over the relocated content; "exactly one occurrence"
+# becomes a global uniqueness check across the whole implement skill. Built FAIL-CLOSED: a
+# failed mktemp hard-exits, and a missing/empty member records a suite FAIL — never a
+# silent empty bundle, which would turn the absence/zero-expecting guards (which assert a
+# literal is GONE or a count is 0) into vacuous passes.
+IMPL_SKILL_BUNDLE="$(mktemp)" || { echo "run.sh: could not allocate the implement-skill bundle temp" >&2; exit 1; }
+trap 'rm -f "$RESULTS_FILE" "$IMPL_SKILL_BUNDLE"' EXIT
+for _m in \
+  "$LIB/../skills/implement/SKILL.md" \
+  "$LIB/../skills/implement/phases/phase-1-setup.md" \
+  "$LIB/../skills/implement/phases/phase-2-implement.md" \
+  "$LIB/../skills/implement/phases/phase-3-review.md" \
+  "$LIB/../skills/implement/phases/phase-4-documentation.md"; do
+  if [ -s "$_m" ]; then
+    cat "$_m" >> "$IMPL_SKILL_BUNDLE"
+    printf '\n' >> "$IMPL_SKILL_BUNDLE"
+  else
+    printf '  FAIL  implement-skill bundle member missing or empty: %s\n' "$_m"
+    echo FAIL >> "$RESULTS_FILE"
+  fi
+done
+
 PASS=0
 FAIL=0
 
@@ -743,7 +772,8 @@ assert_eq "deferred.labels: missing config file → resolver default DevFlow,Def
 rm -f "$DEF_CFG"
 
 # The SKILL's inline normalization, applied to the resolver output above. Mirrors the
-# exact idiom in skills/implement/SKILL.md Phase 4.0/4.0.5 (and Phase 4.1 docs.labels)
+# exact idiom in the implement skill's Phase 4.0/4.0.5 (phases/phase-4-documentation.md;
+# and Phase 4.1 docs.labels)
 # so the trim / drop-empties / empty-value ACs are exercised, not just asserted in
 # prose. Keep byte-aligned with the SKILL block.
 deferred_labels_normalize() {
@@ -759,7 +789,10 @@ assert_eq "deferred.labels normalize: empty string → empty (no labels)"    "" 
 # Drift guards: the label-resolution/apply bash is prompt markdown (not a script), so a
 # SKILL edit could silently drop it. Pin the load-bearing tokens in the real SKILL so a
 # regression fails here instead of shipping deferred issues unlabeled.
-DEF_SKILL="$LIB/../skills/implement/SKILL.md"
+# issue #218: search the whole implement-skill bundle (orchestrator + phase files), not
+# a single file — the deferred.labels idiom these guards pin lives in the Phase 4.0/4.0.5
+# detail that relocated to phases/phase-4-documentation.md.
+DEF_SKILL="$IMPL_SKILL_BUNDLE"
 assert_eq "deferred.labels: SKILL reads via config-get with the DevFlow,Deferred default" "yes" \
   "$(grep -qF 'config-get.sh .deferred.labels DevFlow,Deferred' "$DEF_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: token appears in BOTH deferral channels (4.0+4.0.5)
 assert_eq "deferred.labels: SKILL ensures each label exists before applying" "yes" \
@@ -2108,8 +2141,39 @@ assert_pin_unique "#167 coupled-site: efficiency-trace.md states detect_all_audi
 # silent-failure-hunter agent; if any of the three loses it the catch reverts to
 # the contingent, inconsistent homing the baseline showed. Pin all three so a
 # half-applied removal fails here instead of silently shipping.
-IMPL_SKILL="$LIB/../skills/implement/SKILL.md"
+IMPL_SKILL="$IMPL_SKILL_BUNDLE"   # issue #218: the whole implement-skill bundle (orchestrator + 4 phase files)
 IMPL_DOC="$LIB/../docs/implement-skill.md"
+
+# ── issue #218: implement skill split into orchestrator + per-phase reference files ──
+# The implement skill is now a thin orchestrator (skills/implement/SKILL.md) plus four
+# phases/phase-N-*.md reference files read on-demand at phase entry; IMPL_SKILL/DEF_SKILL
+# above point at the CONCATENATED bundle of all five so the content pins are
+# location-agnostic within the implement skill. These structural assertions guard the
+# split itself, against the real orchestrator file and phases/ dir (NOT the bundle): the
+# phase files exist & are non-empty; no phase file can be mistaken for an auto-discovered
+# nested skill (none named SKILL.md under phases/); and the orchestrator carries an
+# entry-gate read-instruction for each phase file, so a future edit cannot silently drop a
+# phase's load step (which would make the engine improvise that phase from its thin stub).
+IMPL_ORCH="$LIB/../skills/implement/SKILL.md"
+IMPL_PHASES_DIR="$LIB/../skills/implement/phases"
+for _pf in phase-1-setup phase-2-implement phase-3-review phase-4-documentation; do
+  assert_eq "implement split: phases/${_pf}.md exists and is non-empty" "yes" \
+    "$([ -s "$IMPL_PHASES_DIR/${_pf}.md" ] && echo yes || echo no)"
+done
+# Misregistration guard: a present-but-empty stdout from find means NO SKILL.md under
+# phases/. find over a missing dir also prints nothing (2>/dev/null), but the existence
+# assertions above independently fail closed when the dir/files are absent, so this guard
+# is non-vacuous once the split exists (mutation-proven by transiently adding phases/SKILL.md).
+assert_eq "implement split: no SKILL.md under phases/ (no nested auto-discovered skill)" "" \
+  "$(find "$IMPL_PHASES_DIR" -name SKILL.md 2>/dev/null)"
+# Entry-gate presence: each concrete phase path appears EXACTLY ONCE in the orchestrator
+# (in its stub's mandatory-read gate) — assert_pin_unique, not bare presence, so a dropped
+# or duplicated gate fails here.
+for _pf in phase-1-setup phase-2-implement phase-3-review phase-4-documentation; do
+  assert_pin_unique "implement split: orchestrator names the ${_pf}.md entry-gate read" \
+    "phases/${_pf}.md" "$IMPL_ORCH"
+done
+# ── end issue #218 structural assertions ──
 assert_pin_unique "sweep 2.3.6: implement SKILL keeps the sweep body" '#### 2.3.6 Error-handling & silent-failure sweep' "$IMPL_SKILL"
 assert_pin_unique "sweep 2.3.6: implement SKILL lists it in the always-run index" '**2.3.6** (error-handling & silent-failure)' "$IMPL_SKILL"
 assert_eq "sweep 2.3.6: docs/implement-skill.md keeps the rationale table row" "yes" \
@@ -4973,7 +5037,10 @@ rm -rf "$F126"
 # `--reflection-kind count >= 1` check passed as long as ONE kind appeared
 # anywhere, so a new --reflection call-site added without a kind (silently
 # degrading to the `note` default) would have slipped through.
-REFL_UNKINDED="$(grep -n -- '--reflection ' "$LIB/../skills/implement/SKILL.md" \
+# issue #218: grep the BUNDLE, not the thin orchestrator — most --reflection call-sites
+# moved into the phase files, so checking SKILL.md alone would silently under-cover
+# (this coverage guard would pass vacuously on the call-sites it must police).
+REFL_UNKINDED="$(grep -n -- '--reflection ' "$IMPL_SKILL_BUNDLE" \
   | grep -vE '^[0-9]*:[[:space:]]*[|#]' \
   | grep -v -- '--reflection-kind' || true)"
 assert_eq "#126 pin: workpad.py documents the --reflection-kind flag" "yes" \
@@ -4989,7 +5056,7 @@ assert_eq "#97 pin: ensure-label.sh exists" "yes" \
 assert_eq "#97 pin: create-issue ensures+applies DevFlow label" "yes" \
   "$(grep -q 'ensure-label.sh DevFlow' "$LIB/../skills/create-issue/SKILL.md" && grep -q -- '--add-label DevFlow' "$LIB/../skills/create-issue/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: compound: two greps && on one line (provenance: ensure-label + add-label)
 assert_eq "#97 pin: implement applies DevFlow label at PR create" "yes" \
-  "$(grep -q 'ensure-label.sh DevFlow' "$LIB/../skills/implement/SKILL.md" && grep -q -- '--add-label DevFlow' "$LIB/../skills/implement/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: compound: two greps && on one line (provenance: ensure-label + add-label)
+  "$(grep -q 'ensure-label.sh DevFlow' "$IMPL_SKILL_BUNDLE" && grep -q -- '--add-label DevFlow' "$IMPL_SKILL_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: compound: two greps && on one line (provenance: ensure-label + add-label); issue #218: bundle (label idiom moved to phases/phase-3-review.md)
 assert_eq "#152 pin: meta-issue.sh ensures+applies DevFlow and Retrospective labels" "yes" \
   "$(grep -q 'ensure-label.sh' "$LIB/meta-issue.sh" && grep -q -- '--add-label DevFlow' "$LIB/meta-issue.sh" && grep -q -- '--add-label Retrospective' "$LIB/meta-issue.sh" && echo yes || echo no)"
 assert_eq "#97 pin: init creates the reserved DevFlow provenance label" "yes" \
@@ -8799,7 +8866,7 @@ assert_eq "#139 agents/code-architect.md exists (vendored first-party)" \
 # dead-end the dispatch at runtime; this assertion catches that.
 for fdagent in code-explorer code-architect; do
   assert_eq "#139 implement skill dispatches devflow:$fdagent (rewired call-site present)" \
-    "yes" "$(grep -qF "subagent_type: devflow:$fdagent" "$FDROOT/skills/implement/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: loop body: literal interpolates the $fdagent loop variable, not a static pin
+    "yes" "$(grep -qF "subagent_type: devflow:$fdagent" "$IMPL_SKILL_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: loop body: literal interpolates the $fdagent loop variable, not a static pin; issue #218: bundle (the agent dispatches moved to phases/phase-2-implement.md)
   assert_eq "#139 agents/$fdagent.md frontmatter declares name: $fdagent (dispatch target resolves)" \
     "yes" "$(grep -qE "^name: $fdagent\$" "$FDROOT/agents/$fdagent.md" && echo yes || echo no)"
   # (2c) Agent-validity structural markers: `name:` resolving alone does not prove the
@@ -9213,13 +9280,13 @@ for d in DEVFLOW_SYSTEM_OVERVIEW.md shadow-review.md; do
 done
 
 # (8) Positive pin for the implement skill's Phase-3 review-roster line (PR #143 review,
-# Minor #2). skills/implement/SKILL.md names the five first-party review agents by BARE
-# name (no namespace) in its Phase-3 prose. The absence scan (1) only catches a leftover
+# Minor #2). The implement skill (phases/phase-3-review.md) names the five first-party
+# review agents by BARE name (no namespace) in its Phase-3 prose. The absence scan (1) only catches a leftover
 # OLD id, not a DROPPED bare name, so the same dropped-mention asymmetry already defended
 # for skills/review (the **devflow:<name>** header pin) and skills/review-and-fix (the
 # devflow:<name> roster pin) applies here too. Pin the whole parenthesized roster so a
 # future edit that drops an agent turns this row red instead of shipping silently.
-assert_pin_unique "#141 implement skill names all five review agents in its Phase-3 roster line" '(code-reviewer, silent-failure-hunter, comment-analyzer, type-design-analyzer, pr-test-analyzer)' "$FDROOT/skills/implement/SKILL.md"
+assert_pin_unique "#141 implement skill names all five review agents in its Phase-3 roster line" '(code-reviewer, silent-failure-hunter, comment-analyzer, type-design-analyzer, pr-test-analyzer)' "$IMPL_SKILL_BUNDLE"  # issue #218: bundle (roster moved to phases/phase-3-review.md)
 
 # (issue #183 / PR #187) CHANGELOG reconciliation step contract pins. Guards four
 # load-bearing clauses in docs-release-notes SKILL.md: (a) the all-PRs routing

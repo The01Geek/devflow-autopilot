@@ -1,6 +1,6 @@
 # `/devflow:implement` skill — Phase 2.3 sweep discipline and Phase 4.3 finalize
 
-**Skill:** `skills/implement/SKILL.md` (Phase 2.3, *Implement*)
+**Skill:** `skills/implement/phases/phase-2-implement.md` (Phase 2.3, *Implement*) — the detailed phase procedure read at phase entry by the thin `skills/implement/SKILL.md` orchestrator
 
 The `/devflow:implement` orchestrator runs a set of mandatory **sweeps** in Phase 2.3, after writing the
 code and before running tests. Each sweep closes a class of blast-radius bug that survives `git diff`
@@ -153,7 +153,7 @@ The publish step is gated by a per-consumer config key, **`devflow_implement.imp
 
 **Downstream consequence of `draft`.** Publishing a PR is what fires the rest of the pipeline: the cloud review (`devflow-review.yml` triggers on the `ready_for_review` event) and CI's `ready_for_review` listener both key off the draft→ready transition. Choosing `draft` therefore *intentionally* suppresses those for that run until a human publishes the PR — this is the documented trade-off a consumer accepts, not a bug to be fixed. It lets maintainers of repos that adopt DevFlow keep bot-completed PRs out of the ready-for-review queue and publish them on their own cadence (after a manual look, on a release boundary, or to avoid auto-notifying reviewers).
 
-The gate lives once in `skills/implement/SKILL.md` Phase 4.3 — the skill body is shared by the local and cloud `/devflow:implement` paths, and both read the same `config.json` via `config-get.sh`, so no workflow change is needed and the logic is never forked.
+The gate lives once in `skills/implement/phases/phase-4-documentation.md` (Phase 4.3, read at phase entry by the `skills/implement/SKILL.md` orchestrator) — the skill body is shared by the local and cloud `/devflow:implement` paths, and both read the same `config.json` via `config-get.sh`, so no workflow change is needed and the logic is never forked.
 
 ## Workpad ticking: failure-isolation contract and index-based ticking
 
