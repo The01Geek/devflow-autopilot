@@ -1,0 +1,178 @@
+{
+  "iter": 2,
+  "source": "review-and-fix",
+  "loop_role": "promoted",
+  "fix_commit_sha": "1dc1b39",
+  "fix_files": [
+    "agents/silent-failure-hunter.md",
+    "lib/test/run.sh"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {
+      "agent": "shadow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "carve-out wording too blunt; full ladder availability unclear",
+      "defect_signature": {
+        "file": "agents/silent-failure-hunter.md",
+        "line_range": [
+          100,
+          118
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "shadow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "output-format reconciliation half (line 118) unpinned — two-sided coupled invariant",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          86,
+          142
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "SH1",
+      "decision": "applied",
+      "commit": "1dc1b39"
+    },
+    {
+      "finding_id": "SH2",
+      "decision": "applied",
+      "commit": "1dc1b39"
+    },
+    {
+      "finding_id": "SH1",
+      "decision": "severity-calibrated",
+      "source_file": "agents/silent-failure-hunter.md",
+      "claim_text": "carve-out wording too blunt",
+      "original_severity": "Important",
+      "calibrated_severity": "Important",
+      "evidence": "over-grade gate: single-source from empirical over-grader (silent-failure-hunter), but a genuine precision defect in the headline feature wording; fail-direction under-severity (bounded); kept Important and fixed"
+    },
+    {
+      "finding_id": "SH2",
+      "decision": "severity-calibrated",
+      "source_file": "lib/test/run.sh",
+      "claim_text": "line-118 reconciliation clause unpinned",
+      "original_severity": "Important",
+      "calibrated_severity": "Important",
+      "evidence": "over-grade gate: single-source from pr-test-analyzer, but a genuine two-sided coupled-invariant gap (CLAUDE.md dominant anti-pattern); kept Important and fixed"
+    }
+  ],
+  "shadow": {
+    "ran_at": "2026-06-30T14:05:00Z",
+    "reviewed_sha": "a6072924",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {
+        "agent": "shadow:comment-analyzer",
+        "severity": "Suggestion",
+        "description": "CHANGELOG narrates .devflow/ genericization absent from net diff",
+        "defect_signature": {
+          "file": "CHANGELOG.md",
+          "line_range": [
+            10,
+            10
+          ],
+          "kind": "comment_drift"
+        },
+        "fix_decision": "applied-iter3"
+      },
+      {
+        "agent": "shadow:pr-test-analyzer",
+        "severity": "Suggestion",
+        "description": "human-README carve-out sub-clause unpinned (line 94)",
+        "defect_signature": {
+          "file": "agents/silent-failure-hunter.md",
+          "line_range": [
+            94,
+            94
+          ],
+          "kind": "test_gap"
+        },
+        "fix_decision": "parked"
+      },
+      {
+        "agent": "shadow:final-pass",
+        "severity": "Suggestion",
+        "description": "full-ladder-available claim (line 118) unpinned; LLM-executor tightening unpinned",
+        "defect_signature": {
+          "file": "agents/silent-failure-hunter.md",
+          "line_range": [
+            94,
+            118
+          ],
+          "kind": "test_gap"
+        },
+        "fix_decision": "parked"
+      },
+      {
+        "agent": "shadow:silent-failure-hunter",
+        "severity": "Suggestion",
+        "description": "Core Principle 1 critical-defect framing (line 14, pre-existing) unreconciled",
+        "defect_signature": {
+          "file": "agents/silent-failure-hunter.md",
+          "line_range": [
+            14,
+            14
+          ],
+          "kind": "other"
+        },
+        "fix_decision": "parked-out-of-scope"
+      }
+    ],
+    "comparison": {
+      "shadow_total": 5,
+      "overlap_with_iter_N": 0,
+      "new": 4,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": false,
+    "delta_review": {
+      "base": "1dc1b39",
+      "head": "a6072924",
+      "result": "clean",
+      "reviewers": [
+        "devflow:comment-analyzer",
+        "devflow:requesting-code-review"
+      ]
+    }
+  }
+}
