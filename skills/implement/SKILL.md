@@ -354,6 +354,56 @@ Then tick the Setup phase in the workpad's `## Progress` checklist:
 workpad.py update $ISSUE_NUMBER --tick-progress "branch & workpad"
 ```
 
+### 1.6 Issue-Claim Audit
+
+Before Phase 2 begins, operationalise the Phase 2.1 principle that "the issue body is a starting point, not the source of truth" with three targeted pre-checks that catch wrong scope and policy assumptions before any code edit. Run after the issue data from 1.1 is in hand; passes are independent (read their sources in any order or in a single batch). Record each finding immediately via `workpad.py update $ISSUE_NUMBER --reflection-kind note --reflection "issue-claim audit ({type}): {finding}"`. A claim that confirms correctly is still worth a one-line note — it proves the assumption was checked, not inherited.
+
+**Scope:** the three explicitly-defined claim types below only. Do not attempt to verify every sentence in the issue body — open-ended verification creates a runaway discovery loop and produces false-positive discrepancies on subjective or aspirational claims.
+
+#### Pass 1 — Count or enumeration claims
+
+Scan the issue body's Technical Context and Implementation Notes for numeric claims about codebase entities — file counts, skill counts, directory counts, item lists (e.g. "N skill directories", "four agents", "the five validators"). For each, verify against the actual codebase via `git ls-files`, `ls`, or grep:
+
+```bash
+# Adapt to the specific entity the issue names:
+git ls-files 'skills/*/SKILL.md' | wc -l   # skill count
+ls -d agents/*/                              # agent enumeration
+```
+
+Record: `--reflection-kind note --reflection "issue-claim audit (count): claimed '{N} X', verified '{M}' at HEAD"`. Use the verified count as the working assumption from Phase 2 onward; discard the issue body count when they differ. If no count or enumeration claims are found in the issue body, record: `--reflection-kind note --reflection "issue-claim audit (count): no count or enumeration claims found — pass complete"`.
+
+#### Pass 2 — Negative-scope claims (explicit surface exclusions)
+
+Scan the issue body's Technical Context for claims that explicitly exclude a surface from scope — "no X is required", "no workflow change", "no runtime change", "no agent modification". For each exclusion, trace whether the change the issue proposes to make could affect that surface.
+
+**Cloud-tier workflow impact check (mandatory when editing any `skills/*/SKILL.md`).** When any `skills/*/SKILL.md` is being added or modified, check whether any new shell helper it invokes is present in the cloud profile allowlist in `.github/workflows/devflow-runner.yml` and any vendored consumer copy:
+
+```bash
+grep -n 'TOOLS=' .github/workflows/devflow-runner.yml
+# The vendored consumer copy is commonly absent. Test for it first so an absent
+# file is NOT conflated with "helper missing from TOOLS=" — a fail-open that would
+# silently record "no impact" when the guard never ran. Treat the two as distinct:
+VENDORED=.devflow/vendor/devflow/.github/workflows/devflow-runner.yml
+if [ -f "$VENDORED" ]; then
+  grep -n 'TOOLS=' "$VENDORED"   # present: empty result here means a real allowlist gap
+else
+  echo "vendored copy absent — check not applicable (NOT a no-impact result)"
+fi
+```
+
+A present-but-no-match grep on either file is a real allowlist gap (the helper is missing from `TOOLS=`); an absent vendored file is "check not applicable" — never read it as confirmation of no impact. If the trace finds a required change the issue excluded, record: `--reflection-kind note --reflection "issue-claim audit (negative-scope): issue excluded '{surface}' but trace requires it — adding to plan"`, then add the missed surface to the working plan before 2.2 begins. If the trace confirms the exclusion is correct (no impact on that surface), record: `--reflection-kind note --reflection "issue-claim audit (negative-scope): issue excluded '{surface}'; trace confirms no impact"`. If the issue body contains no scope-exclusion claims, record: `--reflection-kind note --reflection "issue-claim audit (negative-scope): no scope-exclusion claims found — pass complete"`.
+
+#### Pass 3 — Policy-referencing claims in ACs
+
+Scan the issue's Acceptance Criteria for explicit policy directives — versioning rules ("default no version bump"), testing process requirements, or any AC that names a policy file as the authority. For each, read the operative policy source verbatim:
+
+- `.devflow/prompt-extensions/implement.md` — versioning and bump increment rules
+- `CLAUDE.md` — repo conventions
+
+When an AC claim contradicts the operative policy, do not proceed to Phase 2. Record the contradiction: `workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind blocked --reflection "issue-claim audit (policy): AC claims '{AC text}' but operative policy in {file} states '{policy text}' — contradiction requires user resolution before Phase 2"`, then emit the 👎 outcome reaction (see *Outcome reaction* in the Workpad Reference) and stop the run.
+
+When the AC claim matches the policy, record the confirmation: `--reflection-kind note --reflection "issue-claim audit (policy): AC aligns with {file}"`. If the issue's ACs contain no explicit policy directives, record: `--reflection-kind note --reflection "issue-claim audit (policy): no policy-referencing AC claims found — pass complete"`.
+
 ---
 
 ## Phase 2: Discover, Plan & Implement

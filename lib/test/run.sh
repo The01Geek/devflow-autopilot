@@ -2092,6 +2092,40 @@ assert_pin_unique "#169: implement/SKILL.md warns re-tick-only (don't re-send th
 assert_eq "#169: workpad.py routes volatile misses through _report_failed_ticks (PATCH-failure echo)" "yes" \
   "$(grep -qF 'def _report_failed_ticks' "$WP_PY" && grep -qF 'NO workpad change was persisted' "$WP_PY" && echo yes || echo no)"
 
+# ── Issue #184: Phase 1.6 Issue-Claim Audit ──────────────────────────────
+# Five assert_pin_red_on_removal guards + five assert_pin_unique pins.
+# assert_pin_red_on_removal: presence+uniqueness (PASS-before) + deletion
+# (FAIL-after) in one probe, satisfying AC7 — it guards the audit heading,
+# the three claim-type literals (count/negative-scope/policy-referencing),
+# and the mandatory cloud-tier check. assert_pin_unique guards five
+# behavioral contracts: the --status Blocked contract on the Pass 3
+# contradiction path, the cloud-tier vendored-copy existence test and its
+# absent-vs-no-impact disambiguation (no fail-open), the use of the verified
+# count as the working assumption, and the plan-expansion action.
+assert_pin_unique "#184: Phase 1.6 blocked path carries --status Blocked on the policy-contradiction call" \
+  'update $ISSUE_NUMBER --status Blocked --reflection-kind blocked --reflection "issue-claim audit (policy)' "$IMPL_SKILL"
+assert_pin_red_on_removal "#184: deleting the cloud-tier mandatory check turns its pin RED" \
+  'Cloud-tier workflow impact check (mandatory when editing any' "$IMPL_SKILL"
+# Review (1/5 agents): the vendored-copy grep must NOT fail open — an absent vendored
+# file (commonly absent) must be distinguishable from "helper missing from TOOLS=".
+# Pin the existence-test guard + the explicit "NOT a no-impact result" disambiguation
+# so a regression back to a stderr-suppressed `grep … 2>/dev/null` goes RED here.
+assert_pin_unique "#184: cloud-tier check tests the vendored copy for existence (no fail-open on absent file)" \
+  'if [ -f "$VENDORED" ]; then' "$IMPL_SKILL"
+assert_pin_unique "#184: cloud-tier check disambiguates absent-vendored-file from a no-impact result" \
+  'absent — check not applicable (NOT a no-impact result)' "$IMPL_SKILL"
+assert_pin_unique "#184: Pass 1 discrepancy uses verified count as working assumption (not issue body count)" \
+  'Use the verified count as the working assumption from Phase 2 onward' "$IMPL_SKILL"
+assert_pin_unique "#184: Pass 2 discrepancy adds missed surface to working plan (not just records a note)" \
+  'add the missed surface to the working plan before 2.2 begins' "$IMPL_SKILL"
+assert_pin_red_on_removal "#184: deleting the audit heading turns its pin RED" \
+  '### 1.6 Issue-Claim Audit' "$IMPL_SKILL"
+assert_pin_red_on_removal "#184: deleting the count-claim type literal turns its pin RED" \
+  'Count or enumeration claims' "$IMPL_SKILL"
+assert_pin_red_on_removal "#184: deleting the negative-scope type literal turns its pin RED" \
+  'explicit surface exclusions' "$IMPL_SKILL"
+assert_pin_red_on_removal "#184: deleting the policy-referencing type literal turns its pin RED" \
+  'Policy-referencing claims in ACs' "$IMPL_SKILL"
 # ── issue #185 (+ Addendum): Phase 4.1 Documentation Needed cross-check ─────
 # Phase 4.1 enforces named documentation deliverables in two stages:
 #   Stage 1 pre-flight: extract the Documentation Needed paths and inject them
