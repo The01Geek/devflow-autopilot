@@ -382,7 +382,7 @@ local check can decide. The target-uniqueness guard is also the deterministic, g
 the prose "pin a *target-unique* phrase" advice in the mutation-check rule.
 
 The prose mutation-check rule itself carries two further requirements beyond "break it and watch it go
-RED," shared verbatim between the implement test-first gate (`skills/implement/SKILL.md`) and the fix
+RED," shared verbatim between the implement test-first gate (`skills/implement/phases/phase-2-implement.md`) and the fix
 loop (`skills/review-and-fix/SKILL.md` Step 3). First, **bake the half-revert into the suite**: a
 mutation-check run once by hand proves the pin caught the regression only at authoring time, so the pin
 must instead be expressed through the framework's *removal-proof assertion* — the assertion form that
