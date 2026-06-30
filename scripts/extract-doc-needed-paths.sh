@@ -53,15 +53,33 @@ block="$(printf '%s\n' "$body" | awk '
 # Stage B — pull path-like tokens out of the scoped block. Split on every
 # character that cannot appear in a path token (so backticks, commas, quotes,
 # parentheses, and whitespace are delimiters — backticks are stripped for free),
-# then keep only tokens that are actually paths. `|| true` keeps a zero-match
-# grep from aborting under `set -e`/`pipefail`; `LC_ALL=C sort` makes the output
+# then keep only tokens that are actually paths. `LC_ALL=C sort` makes the output
 # order locale-independent so callers and fixtures see one canonical ordering.
-tokens="$(printf '%s\n' "$block" | grep -oE '[A-Za-z0-9._/-]+' || true)"
+#
+# Distinguish the grep exit codes instead of swallowing them all with `|| true`:
+# rc 1 is the legitimate "no path-like token in the bullet" no-op (exit 0 below),
+# but rc >= 2 is a real grep error (e.g. a read failure) that must NOT be
+# laundered into an empty-output no-op — that would silently disable the gate the
+# same way an upstream failure on the caller side would. Fail closed: propagate
+# the non-zero rc so the caller routes to Blocked rather than "no paths named".
+grep_rc=0
+tokens="$(printf '%s\n' "$block" | grep -oE '[A-Za-z0-9._/-]+')" || grep_rc=$?
+if [ "$grep_rc" -ge 2 ]; then
+  printf '%s\n' "extract-doc-needed-paths.sh: token scan failed (grep rc=$grep_rc)" >&2
+  exit "$grep_rc"
+fi
 [ -n "$tokens" ] || exit 0
 
 printf '%s\n' "$tokens" \
   | while IFS= read -r tok; do
       tok="${tok#./}"          # strip a leading ./
+      # Strip a trailing run of dots the tokenizer glues on at a sentence
+      # boundary (the char class includes `.`, so prose like "update
+      # CHANGELOG.md." yields the token `CHANGELOG.md.`). A real filename never
+      # ends in `.`, so this only ever recovers the intended basename; without it
+      # the extension test below rejects `CHANGELOG.md.` and the deliverable is
+      # silently dropped — under-enforcing in the gate's own domain.
+      tok="${tok%"${tok##*[!.]}"}"
       case "$tok" in
         */) continue ;;        # trailing slash => directory, not a file
         '' ) continue ;;

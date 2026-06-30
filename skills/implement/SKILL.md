@@ -1061,9 +1061,12 @@ The rc handling above distinguishes three cases: a clean filing (rc 0), the beni
 **Stage 1 — Pre-flight briefing (before dispatch).** Extract the issue's required documentation deliverables **deterministically — do not interpret the prose yourself.** Run the bundled helper, which scopes to the `**Documentation Needed**` bullet under `## Implementation Notes` and emits the recognizable file paths one per line:
 
 ```bash
-DOC_NEEDED_PATHS=$(gh issue view $ISSUE_NUMBER --json body --jq '.body' \
-  | ${CLAUDE_SKILL_DIR}/../../scripts/extract-doc-needed-paths.sh)
+ISSUE_BODY=$(gh issue view $ISSUE_NUMBER --json body --jq '.body'); GH_RC=$?
+DOC_NEEDED_PATHS=$(printf '%s' "$ISSUE_BODY" \
+  | ${CLAUDE_SKILL_DIR}/../../scripts/extract-doc-needed-paths.sh); HELPER_RC=$?
 ```
+
+**Read `GH_RC`/`HELPER_RC`, never stdout emptiness, as the failure signal.** A non-zero `GH_RC` (auth, network, rate-limit, or a wrong issue number) or a non-zero `HELPER_RC` (the extractor's own token scan failed) is a *command failure* that says nothing about which paths the issue names — **never treat its empty stdout as a no-op**, the way an empty `DOC_NEEDED_PATHS` would be treated below. That is the exact fail-open this gate exists to close, moved one stage upstream. Retry the read once; if it still fails, fail closed — route to the Blocked path (`workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind dropped-failed --reflection "Phase 4.1: could not read the issue body to extract Documentation Needed deliverables (gh/extractor command failure); the deliverable cross-check could not run — retry when GitHub is reachable"`), emit the 👎 outcome reaction, and stop. Only an rc-0 read with empty `DOC_NEEDED_PATHS` is the legitimate empty signal handled below.
 
 These paths are the required deliverables. Stage 2 re-runs the **same helper** rather than re-deriving them, so the two passes can never disagree about which files were named. If `DOC_NEEDED_PATHS` is empty (the bullet is absent, names no file paths, or holds only non-path prose), Stage 1 is a no-op and the subagent is dispatched with its normal instruction unchanged. If the helper emits nothing **but** the issue body still contains a `**Documentation Needed**` bullet (`gh issue view $ISSUE_NUMBER --json body --jq '.body' | grep -q '\*\*Documentation Needed\*\*'`), record a workpad note (`workpad.py update $ISSUE_NUMBER --note "Phase 4.1: **Documentation Needed** bullet present but the extractor found no file paths; the deliverable cross-check is skipped this run"`) so the skipped enforcement is auditable.
 
@@ -1089,9 +1092,12 @@ Then decide whether the docs pass succeeded: it succeeded if the docs subagent a
 **Stage 2 — Post-hoc diff gate (mandatory when Stage 1 found named paths).** After the docs-subagent commit and before ticking `Documentation`, verify that every required-deliverable path has been touched. Re-run the **same deterministic helper** as Stage 1 — re-running the helper is the single source of truth; do not rely on remembered Stage 1 output:
 
 ```bash
-DOC_NEEDED_PATHS=$(gh issue view $ISSUE_NUMBER --json body --jq '.body' \
-  | ${CLAUDE_SKILL_DIR}/../../scripts/extract-doc-needed-paths.sh)
+ISSUE_BODY=$(gh issue view $ISSUE_NUMBER --json body --jq '.body'); GH_RC=$?
+DOC_NEEDED_PATHS=$(printf '%s' "$ISSUE_BODY" \
+  | ${CLAUDE_SKILL_DIR}/../../scripts/extract-doc-needed-paths.sh); HELPER_RC=$?
 ```
+
+**Read `GH_RC`/`HELPER_RC`, never stdout emptiness, as the failure signal** — symmetric to the diff side below. A non-zero `GH_RC` (auth, network, rate-limit, or a wrong issue number) or a non-zero `HELPER_RC` (the extractor's own token scan failed) is a *command failure* that says nothing about which paths the issue names — **never treat its empty stdout as a no-op** (the step-1 escape hatch below), which would silently wave the gate through exactly when the deliverable list could not be read. Retry the read once; if it still fails, fail closed — route to the Blocked path (`workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind dropped-failed --reflection "Phase 4.1: could not read the issue body to extract Documentation Needed deliverables (gh/extractor command failure); the deliverable cross-check could not run — retry when GitHub is reachable"`), emit the 👎 outcome reaction, and stop. Only an rc-0 read with empty `DOC_NEEDED_PATHS` is the legitimate empty signal step 1 treats as a no-op.
 
 1. **No-op when empty.** If `DOC_NEEDED_PATHS` is empty, this cross-check is a no-op — proceed directly to the post-docs-labels + `--tick-progress "Documentation"` step below.
 

@@ -2152,6 +2152,15 @@ assert_pin_unique "#190: Phase 4.1 Stage 2 fails closed when the diff command st
 # the gate off a still-local commit.
 assert_pin_unique "#190: Phase 4.1 Stage 2 self-heal re-check is remote-anchored (K)" \
   'the local branch is in sync with its upstream' "$IMPL_SKILL"
+# PR #190 fix-loop: the EXTRACTION side (gh issue view | helper) must read the
+# exit status, not stdout emptiness — a failed gh issue view (auth/network/wrong
+# number) emits empty stdout indistinguishable from a genuinely empty bullet and
+# would silently disable the whole gate. Both stages capture GH_RC/HELPER_RC and
+# fail closed; assert the shared contract appears in BOTH stages (coupled site).
+assert_eq "#190 fix-loop: Phase 4.1 captures GH_RC on the extraction read in BOTH stages" \
+  "2" "$(pin_count 'GH_RC=$?' "$IMPL_SKILL")"
+assert_eq "#190 fix-loop: Phase 4.1 fail-closed extraction contract pinned in BOTH stages" \
+  "2" "$(pin_count 'never treat its empty stdout as a no-op' "$IMPL_SKILL")"
 
 # ── issue #185 Addendum: deterministic extraction helper (fixture matrix) ────
 # The helper is the deterministic boundary the Addendum mandates; test its
@@ -2213,6 +2222,18 @@ fx_mention="## Implementation Notes
 assert_eq "#185A matrix: a later bullet mentioning the label in prose does NOT re-open scope" \
   "docs/real.md" \
   "$(printf '%s\n' "$fx_mention" | bash "$EXTRACT_HELPER")"
+
+# Case 6 (PR #190 fix-loop): a bare, un-backticked filename at a sentence
+# boundary must still be extracted. The tokenizer glues the trailing sentence
+# period (`CHANGELOG.md.`); the helper trims it so the extension test matches.
+# Without the trim the deliverable is silently dropped — under-enforcing in the
+# gate's own lenient basename-match domain.
+fx_period="## Implementation Notes
+
+- **Documentation Needed** — update CHANGELOG.md."
+assert_eq "#190 fix-loop: un-backticked filename with a trailing sentence period IS extracted" \
+  "CHANGELOG.md" \
+  "$(printf '%s\n' "$fx_period" | bash "$EXTRACT_HELPER")"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "scaffold-config.sh"
