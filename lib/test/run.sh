@@ -1159,6 +1159,17 @@ assert_pin_unique "over-grade: review-and-fix gate references the single shared 
   'this gate consumes that canonical list and does not restate it here' "$MAXI_SKILL"
 assert_pin_unique "over-grade: review-and-fix gate explicitly forbids forking the shapes (AC3)" \
   'Do not fork or re-define the shapes here.' "$MAXI_SKILL"
+# AC4: docs/shadow-review.md must scope the standalone annotation as advisory / verdict-untouched.
+# AC1: the human-facing annotation template (cites the observable fail-direction) must keep its shape.
+# Attach-point: the Phase 4.1 report-injection line that actually wires 4.1.5 into the report
+# (without it 4.1.5 is defined-but-inert). Each is a distinct AC-required contract surface.
+OG_SHADOW_DOC="$LIB/../docs/shadow-review.md"
+assert_pin_unique "over-grade: docs/shadow-review.md scopes the annotation as verdict-untouched (AC4)" \
+  'leaves the verdict computation untouched' "$OG_SHADOW_DOC"
+assert_pin_unique "over-grade: engine keeps the annotation template citing the observable fail-direction (AC1)" \
+  'suspected over-grade: shape {n} — observable fail-direction is {X}, milder than the {severity} label' "$OG_REVIEW_SKILL"
+assert_pin_unique "over-grade: Phase 4.1 report wires in the 4.1.5 annotation (attach-point, not inert)" \
+  "append its advisory annotation to that finding's line here" "$OG_REVIEW_SKILL"
 assert_pin_unique "over-grade: engine gate names the receiving-code-review principle it mechanizes" \
   'mechanizes the receiving-code-review symmetric-severity-calibration principle' "$MAXI_SKILL"
 # Cross-skill coupling: the principle the gate mechanizes must actually exist in the
