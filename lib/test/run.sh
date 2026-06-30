@@ -10036,6 +10036,22 @@ EOF
   assert_eq "#225 preflight: alt python → NOT the bare \"missing required tool 'python3'\" dead end (AC5)" "no" \
     "$(printf '%s' "$PF5_OUT" | grep -q "missing required tool 'python3'" && echo yes || echo no)"
 
+  # ── Broken-but-present python3 (dangling symlink / corrupt install / missing DLL — the
+  #    broken-Windows-interpreter class this provisioner targets): preflight's happy path now
+  #    probes runnability (`python3 -c 'pass'`), so a python3 that is on PATH but does not
+  #    execute must NOT short-circuit into a misleading PyYAML/version message; it falls
+  #    through to the resolver, which skips it and points at the provisioner via the >=3.11
+  #    `python` alternate. (Important review finding: lib/preflight.sh happy-path runnability.)
+  T5B="$(mktemp -d)"; build_stub_bin "$T5B"; make_fake_python "$T5B/python" "3.11.7" 3 11
+  printf '#!/bin/sh\nexit 127\n' > "$T5B/python3"; chmod +x "$T5B/python3"  # present but never runs
+  PF5B_OUT="$(PATH="$T5B" bash "$PREFLIGHT_SH" 2>&1)"; PF5B_RC=$?
+  assert_eq "#225 preflight: broken python3 + alt → exit non-zero" "yes" \
+    "$([ "$PF5B_RC" -ne 0 ] && echo yes || echo no)"
+  assert_eq "#225 preflight: broken-but-present python3 falls through to the resolver → provisioner pointer" "yes" \
+    "$(printf '%s' "$PF5B_OUT" | grep -q 'provision-python3-shim.sh' && echo yes || echo no)"
+  assert_eq "#225 preflight: broken python3 → NOT a misleading 'PyYAML not found' message" "no" \
+    "$(printf '%s' "$PF5B_OUT" | grep -qi 'PyYAML not found' && echo yes || echo no)"
+
   # ── AC7: preflight runs the PyYAML check against the RESOLVED interpreter (not a hardcoded python3). ──
   T7="$(mktemp -d)"; build_stub_bin "$T7"; make_fake_python "$T7/python" "3.11.2" 3 11 noyaml
   PF7_OUT="$(PATH="$T7" bash "$PREFLIGHT_SH" 2>&1)"

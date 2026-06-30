@@ -39,10 +39,11 @@
 #   0  printed the plan (no --apply); provisioned the shim (--apply); or a no-op because
 #      `python3 >=3.11` already resolves.
 #   2  a malformed invocation (unknown option / extra arg / empty target); OR no >=3.11
-#      interpreter exists (refuse — never write a broken shim); OR (--apply) the chosen
-#      shim path is an existing non-DevFlow `python3`, or the directory/file could not be
-#      created or written. In every exit-2 case nothing is written and a specific
-#      `devflow-python:` breadcrumb names the cause.
+#      interpreter exists (refuse — never write a broken shim); OR (--apply) no writable
+#      directory on PATH and HOME is unset, so no shim location can be chosen; OR (--apply)
+#      the chosen shim path is an existing non-DevFlow `python3`, or the directory/file
+#      could not be created or written. In every exit-2 case nothing is written and a
+#      specific `devflow-python:` breadcrumb names the cause.
 set -euo pipefail
 
 log()  { printf 'devflow-python: %s\n' "$1"; }

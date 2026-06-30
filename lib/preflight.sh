@@ -31,15 +31,20 @@ _need git     "install git"
 _need gh      "install the GitHub CLI (https://cli.github.com) and run 'gh auth login'"
 _need jq      "install jq (https://jqlang.github.io/jq/)"
 
-# Python resolution. `python3` is the preferred command and the normal macOS/Linux path
-# (it is taken on mere presence here; its >=3.11 version is confirmed by the check below, not
-# in this branch — output is unchanged on a real python3 >=3.11). On a stock Windows Python
+# Python resolution. `python3` is the preferred command and the normal macOS/Linux path. It
+# is taken only when it is both present AND actually runs (`-c 'pass'`) — the same runnability
+# probe devflow_resolve_python applies to every alternate — so a present-but-broken `python3`
+# (a dangling symlink, a corrupt install, a missing runtime DLL — the broken-Windows-interpreter
+# class this provisioner targets) does NOT short-circuit here into a misleading "PyYAML not
+# found" / wrong-version message with no pointer to the remedy; it falls through to the resolver,
+# which skips it and tries `py -3` / `python`. Its >=3.11 version is confirmed by the check below,
+# not in this branch — output is unchanged on a real python3 >=3.11. On a stock Windows Python
 # install there is no `python3` on PATH — Python is reachable only as `python` / `py -3` —
 # so instead of the bare "missing python3" dead end, point the user at the consent-gated
 # shim provisioner and run the PyYAML/version checks against whatever interpreter resolves.
 # PYTHON holds the invocation the checks below run against ("" when none is usable).
 PYTHON=""
-if command -v python3 >/dev/null 2>&1; then
+if command -v python3 >/dev/null 2>&1 && python3 -c 'pass' >/dev/null 2>&1; then
   PYTHON="python3"
 else
   _resolved=""
