@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.31] — 2026-06-30
+
+### Added
+- **`/devflow:implement` Phase 3.2 now triages each `/simplify` finding against the issue's acceptance criteria before applying it.** The built-in `/simplify` cleanup agents see only the diff — never the issue's `## Acceptance Criteria` or any Phase 2.2.5 scope decisions — so a cleanup that reads as correct against the diff alone can directly violate the issue's deliberate scope (the `/devflow:implement 186` run surfaced three such findings, each of which would have broken an AC and had to be caught by orchestrator vigilance alone). `skills/implement/SKILL.md` Phase 3.2 now instructs the orchestrator, before applying each finding, to evaluate it against the workpad's in-scope `## Acceptance Criteria` and Phase 2.2.5 scope-decision notes; a finding whose fix would violate an acceptance criterion or the decided scope is skipped and the AC conflict is recorded as the skip rationale via a `workpad.py --note`, while non-conflicting findings apply as before. The triage is the apply-time analogue of the Phase 3.4 AC gate and is scoped to the issue-context `/devflow:implement` path only — standalone `/simplify` / `/code-review` (no issue/AC context) is unchanged — with an explicit carve-out that a finding conflicting with a now-*stale* AC a legitimate refactor superseded is Phase 2.2.6 AC-rewrite territory, not a silent skip. `lib/test/run.sh` pins the new instruction with three mutation-proven `assert_pin_unique` drift guards — the operative skip+record sentence (proven RED on a targeted half-revert while the framing pins stay GREEN), the issue-context-only scope clause, and the stale-AC carve-out. (#206, closes #193)
+
 ## [2.8.30] — 2026-06-30
 
 ### Added
