@@ -43,11 +43,14 @@ trap 'rm -f "$RESULTS_FILE"' EXIT   # protect RESULTS_FILE immediately; widened 
 IMPL_PHASE_STEMS="phase-1-setup phase-2-implement phase-3-review phase-4-documentation"
 IMPL_SKILL_BUNDLE="$(mktemp)" || { echo "run.sh: could not allocate the implement-skill bundle temp" >&2; exit 1; }
 trap 'rm -f "$RESULTS_FILE" "$IMPL_SKILL_BUNDLE"' EXIT
-_bundle_members="$LIB/../skills/implement/SKILL.md"
+# Build the member list as an ARRAY (not a space-joined string) so a checkout path
+# containing a space is preserved rather than word-split — the stems in IMPL_PHASE_STEMS
+# are space-free identifiers, but $LIB (the checkout dir) is not guaranteed to be.
+_bundle_members=("$LIB/../skills/implement/SKILL.md")
 for _s in $IMPL_PHASE_STEMS; do
-  _bundle_members="$_bundle_members $LIB/../skills/implement/phases/${_s}.md"
+  _bundle_members+=("$LIB/../skills/implement/phases/${_s}.md")
 done
-for _m in $_bundle_members; do
+for _m in "${_bundle_members[@]}"; do
   # `[ -r ]` + `[ -s ]` + the `cat` exit status together: a member that is missing, empty,
   # OR unreadable (or whose read errors mid-stream) records a FAIL instead of silently
   # contributing nothing — the fail-closed property the header comment promises.
