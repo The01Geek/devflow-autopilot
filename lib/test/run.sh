@@ -1504,6 +1504,15 @@ assert_pin_unique "premise #197: own-claim gate calls out the remains-unscoped/s
 # the pin RED (AC3 enumerates all three arms; a tail-only pin would under-cover the contract).
 assert_pin_unique "premise #197: triage classes a stale/contradicts-HEAD claim finding as blocking" \
   'stale, contradicts HEAD, or contradicts another part of this change is blocking' "$RECV_SKILL"
+# PR #211 review notes: pin the two operative CONSEQUENCE clauses that make the contract
+# actionable — a paraphrase keeping the framing while softening these would gut the contract
+# with the pins above still GREEN. (1) AC3's re-open consequence (the tail that forces the diff
+# back open on an already-passing verdict); (2) AC2's severity framing (what makes a documented
+# falsehood actionable rather than cosmetic).
+assert_pin_unique "premise #197: stale-claim finding re-opens the diff even on an already-passing verdict" \
+  'it re-opens the diff even on an otherwise already-passing verdict' "$RECV_SKILL"
+assert_pin_unique "premise #197: own-claim gate frames a documented falsehood as a correctness defect, not cosmetic" \
+  'A documented falsehood is a correctness defect in the deliverable, not a cosmetic nit' "$RECV_SKILL"
 
 # ── Drift guards (issue #167): the completeness-critic pass (shared engine) and the
 # mechanism-scoped self-authored-claim re-sweep (fix loop). Both are SKILL-prose engine
