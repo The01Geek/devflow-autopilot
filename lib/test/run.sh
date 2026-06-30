@@ -668,6 +668,46 @@ assert_eq "cg(python3-absent): python3-specific breadcrumb on stderr" "yes" \
   "$(grep -qF "'python3' is required" "$CG_PYERR" && echo yes || echo no)"
 rm -f "$CG_PYERR"
 
+# coerce() parity on the python3 backend (issue #220): the hand-written coerce()
+# reproduces node String()/Array.join byte-for-byte. The shared fixture has no null,
+# no object value, and only string arrays, so exercise the divergence-prone arms with
+# an inline config rather than mutating the fixture (which other tests read). Each
+# expected value is what node's String()/Array.prototype.join produced.
+CG_COERCE="$(mktemp)"
+printf '%s' '{"arr":["a",true,2,null,["x","y"],{}],"nul":null,"obj":{"k":1},"flag":false,"num":7}' > "$CG_COERCE"
+# Array of mixed element types — coerce() recurses per element: bool→true, null→"",
+# nested array→comma-joined, object→[object Object]. Matches JS [..].join(",").
+assert_eq "cg(coerce): mixed array joins with node element-coercion parity" "a,true,2,,x,y,[object Object]" \
+  "$("$CG" .arr '' "$CG_COERCE")"
+# Boolean INSIDE an array emits lowercase (not Python True) — the array-recursion parity.
+# Top-level boolean false → lowercase 'false'.
+assert_eq "cg(coerce): top-level boolean false → lowercase" "false" \
+  "$("$CG" .flag '' "$CG_COERCE")"
+# A dot-path terminating on an OBJECT → '[object Object]' — load-bearing: scripts/
+# resolve-review-overrides.py keys on this exact literal (_OBJECT_SENTINEL) to tell a
+# present-but-empty object apart from a scalar/array. Parity here keeps that consumer working.
+assert_eq "cg(coerce): object value → [object Object] sentinel (resolve-review-overrides consumer)" "[object Object]" \
+  "$("$CG" .obj '' "$CG_COERCE")"
+assert_eq "cg(coerce): nested scalar under an object resolves" "1" \
+  "$("$CG" .obj.k '' "$CG_COERCE")"
+# null value → empty → default applied (the coerce None arm + the cur-is-None exit).
+assert_eq "cg(coerce): explicit null value → default applied" "dfl" \
+  "$("$CG" .nul dfl "$CG_COERCE")"
+# Descend INTO an array element (non-dict intermediate) → empty → default. The python
+# 'not isinstance(cur, dict)' mirrors node's Array.isArray short-circuit.
+assert_eq "cg(coerce): descend into array intermediate → default" "dfl" \
+  "$("$CG" .arr.0 dfl "$CG_COERCE")"
+assert_eq "cg(coerce): bare numeric → digits" "7" \
+  "$("$CG" .num '' "$CG_COERCE")"
+# Malformed JSON → exit 2 WITH a non-empty 'config-get.sh:' breadcrumb on stderr (AC4;
+# the pre-existing exit-2 test asserts only the code, not the python-backend breadcrumb).
+CG_PARSEERR="$(mktemp)"
+printf '%s' '{ not valid json' > "$CG_COERCE"
+"$CG" .a fallback "$CG_COERCE" >/dev/null 2>"$CG_PARSEERR"
+assert_eq "cg(coerce): malformed JSON breadcrumb on stderr (python backend)" "yes" \
+  "$(grep -qF 'config-get.sh:' "$CG_PARSEERR" && echo yes || echo no)"
+rm -f "$CG_COERCE" "$CG_PARSEERR"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "deferred.labels (schema + example + resolution + normalization)"
 # ────────────────────────────────────────────────────────────────────────────
