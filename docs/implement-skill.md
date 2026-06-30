@@ -201,39 +201,42 @@ Phase 4.1 (*Update Documentation*) dispatches a `devflow:docs` subagent. When th
 specific files in its `**Documentation Needed**` bullet (a sub-bullet of `## Implementation Notes`
 in the issue template), Phase 4.1 enforces delivery through a two-stage gate.
 
-**Stage 1 — Pre-flight briefing (before dispatch).** The orchestrator scans the issue body for the
-`**Documentation Needed**` bullet and extracts every token that names a file. A token is a candidate
-path if it (a) is wrapped in backticks, **or** (b) contains `/`, **or** (c) ends in a recognized
-extension (`.md`, `.sh`, `.json`, `.py`, `.yml`, `.yaml`, `.rst`, `.txt`, `.adoc`, `.mdx`, etc.). The
-backtick arm keeps the extraction a *superset* of real doc-deliverable shapes: a backtick-quoted token
-counts as a path even with no `/` and no extension, so an extension-less deliverable named bare
-(`` `Makefile` ``, `` `LICENSE` ``, `` `README` ``, `` `CHANGELOG` ``) is caught rather than silently
-waved through — without it the "detect-all" gate would no-op on such a deliverable and the guarantee
-would be vacuous. It strips surrounding backticks, filters out tokens that end with `/` (directory
-names, not files), and strips any leading `./` from each remaining token. These paths become *required
-deliverables*: the dispatch instruction sent to the `devflow:docs` subagent is extended with "The issue
-requires the following files to be updated; treat each as a mandatory deliverable: `<path1>`,
-`<path2>`, …". If the `**Documentation Needed**` bullet is present but yields zero path tokens, the
+Path extraction is **deterministic, not LLM-interpreted** (issue #185 Addendum): a bundled helper,
+`scripts/extract-doc-needed-paths.sh`, is the single extraction boundary both stages consume. It reads
+the issue body, scopes strictly to the `**Documentation Needed**` bullet under `## Implementation
+Notes`, and emits the recognizable file paths one per line — a token counts as a path only if it
+contains `/` or ends in a recognized extension, so prose, skill names (`devflow:docs`), and paths named
+in *other* sections or bullets are excluded by construction (no judgement call, and none of the
+LLM-extraction drift that earlier incarnations of this gate suffered). Its behavior is verified by a
+fixture-based input-shape matrix in `lib/test/run.sh` (bullet-with-paths, no-paths, absent section,
+path-in-another-section-not-extracted) rather than by the shadow review.
+
+**Stage 1 — Pre-flight briefing (before dispatch).** The orchestrator runs the helper over the issue
+body and treats its output as the required deliverables. If the helper emits one or more paths, the
+dispatch instruction sent to the `devflow:docs` subagent is extended with "The issue requires the
+following files to be updated; treat each as a mandatory deliverable: `<path1>`, `<path2>`, …". If the
+helper emits nothing **but** the issue body still contains a `**Documentation Needed**` bullet, the
 orchestrator records an auditable workpad note (the skipped enforcement is logged rather than silently
-disabled) and proceeds as a no-op. If the section is absent entirely, Stage 1 is a silent no-op. Either
-way, when no paths are extractable the subagent receives the normal instruction unchanged.
+disabled). When no paths are extractable the subagent receives the normal instruction unchanged.
 
 **Stage 2 — Post-hoc diff gate (after the subagent commits).** After the subagent completes and before
-ticking `Documentation`, the orchestrator re-extracts the required-deliverable paths from the issue
-body using the same rule as Stage 1 (it does not rely on remembered Stage 1 output). For each path,
-it checks whether the path appears in the PR's cumulative diff:
+ticking `Documentation`, the orchestrator **re-runs the same helper** — the single source of truth, so
+the two passes can never disagree about which files were named — and checks each path against the PR's
+cumulative diff:
 
 ```bash
-git diff --name-only "origin/$BASE...HEAD"
+DIFF_OUT=$(git diff --name-only "origin/$BASE...HEAD"); DIFF_RC=$?
 ```
 
-Before trusting that output the orchestrator guards two fail-open inputs: it ensures `$BASE` is
+Before trusting that output the orchestrator guards two fail-open inputs. It ensures `$BASE` is
 non-empty by re-deriving it exactly as Phase 1.4 does — **applying Phase 1.4's non-empty fallback, not
 just the config read** (the read alone returns nothing on malformed config, which would collapse the
-range to `origin/...HEAD` and judge every path absent) — and it never treats a failed or empty diff
-command as evidence that a path is absent. If the diff command fails or `origin/$BASE` is not fetched
-locally (git errors to stderr with empty stdout), it re-fetches the base branch and retries rather
-than reading the empty output as "every path absent".
+range to `origin/...HEAD` and judge every path absent). And it reads the **exit status, never stdout
+emptiness**, as the failure signal: a non-zero `DIFF_RC` (or an unfetched `origin/$BASE`) is a command
+failure that says nothing about any path — the orchestrator re-fetches and retries, and if the re-fetch
+itself fails it routes to Blocked rather than falling through to a path-absent verdict on a broken
+command. An rc-0 result with empty stdout, by contrast, is the legitimate "none of these files were
+touched" signal (the genuine absence the gate exists to catch) and is acted on as real.
 
 Bare-filename paths (containing no `/`) are considered satisfied if any diff entry's basename matches
 — for example, the diff entry `docs/DEVFLOW_SYSTEM_OVERVIEW.md` satisfies the named path
@@ -248,10 +251,11 @@ applying the post-docs labels and ticking `Documentation`.
 - **Self-heal:** if the correct update can be derived from the issue body's `**Documentation Needed**`
   prose, the orchestrator performs the missing update itself, records a workpad note (`Phase 4.1
   self-heal: <path> absent from diff; performed update from Documentation Needed prose`), commits with
-  a `docs:` prefix, and pushes. It then **re-verifies the self-heal landed** — re-running the per-path
-  diff check and confirming the commit and push both succeeded — so a no-op edit or a failed
-  commit/push (nothing staged, or a rejected push) falls through to *Blocked* rather than ticking
-  `Documentation` over a still-absent file.
+  a `docs:` prefix, and pushes. It then **re-verifies the self-heal landed and reached the remote** —
+  re-running the per-path diff check and confirming the commit and push both succeeded *and* that the
+  local branch is in sync with its upstream (`git rev-parse HEAD` equals `@{u}`), so a no-op edit, a
+  failed commit, or a no-op/rejected push (which leaves a still-local commit) falls through to *Blocked*
+  rather than ticking `Documentation` over a deliverable that never reached the PR.
 - **Blocked:** if the correct content cannot be derived from the prose (the note is insufficient), or
   the self-heal did not land per the re-check, the orchestrator does *not* tick `Documentation`. It
   routes to `--status Blocked --reflection-kind blocked` with a reflection naming the missing path
