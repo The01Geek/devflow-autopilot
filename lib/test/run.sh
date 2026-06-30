@@ -3002,6 +3002,24 @@ assert_eq "#190 fix-loop: Phase 4.1 captures GH_RC on the extraction read in BOT
 assert_eq "#190 fix-loop: Phase 4.1 fail-closed extraction contract pinned in BOTH stages" \
   "2" "$(pin_count 'never treat its empty stdout as a no-op' "$IMPL_SKILL")"
 
+# ── issue #230: narrative is a starting point; only Desired Behavior + ACs are ──
+# authoritative downstream, and the Documentation Needed bullet is a floor-not-a-
+# ceiling. These are load-bearing guidance prose, so pin their operative sentences
+# in the OWNING phase file directly (not the merged bundle) — AC7 requires a
+# presence pin in EACH edited phase file. Each pinned literal is the operative
+# sentence whose removal alone re-introduces the gap, not an adjacent framing
+# clause: assert_pin_unique's count==1 contract is the standing removal-proof.
+P2_FILE="$IMPL_PHASES_DIR/phase-2-implement.md"
+P4_FILE="$IMPL_PHASES_DIR/phase-4-documentation.md"
+assert_pin_unique "#230: phase-2 §2.1 names the narrative as a non-authoritative starting point (AC1)" \
+  'non-authoritative starting point to verify' "$P2_FILE"
+assert_pin_unique "#230: phase-2 §2.1 scopes 'code wins' so it never overrides the decided spec (AC2)" \
+  'never overrides Desired Behavior or Acceptance Criteria' "$P2_FILE"
+assert_pin_unique "#230: phase-4 §4.1 narrative never suppresses the routine doc pass (AC3)" \
+  'suppresses the routine documentation pass' "$P4_FILE"
+assert_pin_unique "#230: phase-4 §4.1 Documentation Needed is a floor, never a ceiling (AC4)" \
+  'never a ceiling that authorizes skipping otherwise-warranted documentation' "$P4_FILE"
+
 # ── issue #185 Addendum: deterministic extraction helper (fixture matrix) ────
 # The helper is the deterministic boundary the Addendum mandates; test its
 # BEHAVIOR over the required input-shape matrix (bullet-with-paths, no-paths,
