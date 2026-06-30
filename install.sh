@@ -179,8 +179,8 @@ manage_vendor_gitignore() {
 # provisioner so `install.sh` users hit it regardless of install method. It DELEGATES to the
 # one provisioner (scripts/provision-python3-shim.sh in the cloned source) — install.sh never
 # re-implements interpreter detection — and is a no-op when `python3` already resolves (native
-# marketplace installs that bypass install.sh remain covered by the /devflow:init + preflight
-# pointer). Best-effort: a missing provisioner or a refusal never aborts the install.
+# marketplace installs that bypass install.sh remain covered by the preflight pointer, which
+# /devflow:init relays). Best-effort: a missing provisioner or a refusal never aborts the install.
 offer_python3_shim() {
   local src="$1" prov
   if command -v python3 >/dev/null 2>&1; then
@@ -193,7 +193,7 @@ offer_python3_shim() {
   fi
   log "no 'python3' on PATH — surfacing DevFlow's consent-gated Python interpreter resolver:"
   # Default (no --apply) prints the plan + manual instructions and writes nothing; the user
-  # opts into the write by re-running with --apply (or via /devflow:init's consent step).
+  # opts into the write by re-running the provisioner with --apply.
   bash "$prov" || true
 }
 

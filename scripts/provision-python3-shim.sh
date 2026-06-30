@@ -18,8 +18,10 @@
 #
 # CONSENT: writing a shim into a user PATH directory mutates the user's environment, so
 # (mirroring scripts/provision-auto-mode.sh) the DEFAULT (no --apply) prints exactly what
-# it WOULD do and writes NOTHING; --apply performs the write. /devflow:init and install.sh
-# pass --apply only after the user opts in.
+# it WOULD do and writes NOTHING; --apply performs the write. The user re-runs with --apply
+# to opt in. install.sh surfaces this provisioner in plan-only mode (no --apply); /devflow:init
+# surfaces it indirectly by relaying preflight's pointer (preflight.sh emits it when python3 is
+# absent but a >=3.11 alternate exists).
 #
 # Idempotent: when a working `python3 >=3.11` already resolves (including via a shim a
 # previous run installed), it is a no-op that exits 0 with a "nothing to do" breadcrumb.
