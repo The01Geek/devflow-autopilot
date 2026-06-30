@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.29] — 2026-06-30
+
+### Added
+- **Review/analysis agents are now contractually forbidden from mutating the live working tree, with a deterministic dirty-tree backstop around review-agent dispatch.** Two coupled layers close the silent-corruption hole observed in the `/devflow:implement 186` run (a review agent ran a live half-revert on a tracked file and never restored it, flipping the orchestrator's own `assert_pin_unique` to a phantom RED). (1) Each first-party review/analysis agent definition — `code-reviewer`, `silent-failure-hunter`, `comment-analyzer`, `type-design-analyzer`, `pr-test-analyzer`, and the vendored `requesting-code-review` final-pass — now states the agent must never modify working-tree source files, the index, HEAD, or branch state, and that any mutation/half-revert verification is performed on a temporary copy made with `mktemp`, never in place. (2) The shared review engine (`skills/review/SKILL.md` Phase 3.1/3.2, executed verbatim by `/devflow:review-and-fix` including its Step 2.6 shadow pass) snapshots the working tree with `git status --porcelain` before the review-agent batch and compares after it returns; on divergence it records an Important finding with an attributable breadcrumb naming the dispatch (never silently discarded) and restores only the snapshot-delta paths so a concurrent legitimate edit is never clobbered. In the read-only `/devflow:review` profile the agents have no write tools, so the snapshots match and the restore never fires. `lib/test/run.sh` pins both layers with ten mutation-proven `assert_pin_red_on_removal` drift guards (the six agent mandates plus the four backstop operative sentences), so removing any contract text turns the suite RED. (#204, closes #192)
+
 ## [2.8.28] — 2026-06-29
 
 ### Added
