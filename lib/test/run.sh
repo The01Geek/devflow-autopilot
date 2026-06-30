@@ -2246,24 +2246,27 @@ fi
 # (b) the directory-reconciliation pipeline detects an unregistered stem — a synthetic dir
 #     holding a rogue phase file yields an actual set != the registered set (RED). Exercises
 #     the same find|sort|tr|sed pipeline shape the real reconciliation uses.
-if _f1_recon=$(mktemp -d); then
-  : > "$_f1_recon/phase-1-setup.md"; : > "$_f1_recon/phase-9-rogue.md"
-  _f1_actual=$(find "$_f1_recon" -maxdepth 1 -name '*.md' -type f -exec basename {} .md \; 2>/dev/null | sort | tr '\n' ' ' | sed 's/ *$//')
-  # POSITIVE assertion (not "!= single-stem", which an empty/garbled pipeline output would
-  # also satisfy vacuously): the pipeline must enumerate EXACTLY the synthetic two-stem set,
-  # proving the enumeration works AND that the rogue stem makes the set differ from any
-  # 4-stem registered set — so the real reconciliation's assert_eq would go RED.
-  assert_eq "F1: reconciliation pipeline enumerates a synthetic dir's exact stem set (incl. the rogue, differs from registered)" \
-    "phase-1-setup phase-9-rogue" "$_f1_actual"
-  rm -rf "$_f1_recon"
-fi
+# Allocate via git_sandbox (not a bare `if mktemp -d`): a denied `mktemp -d` must FAIL the
+# suite, not silently skip the proof — the exact fail-open this anti-vacuity block exists to
+# prevent. git_sandbox records a suite FAIL and returns a /dev/null-rooted sentinel, so the
+# `: >`/`find` below fail closed (ENOTDIR) with zero real-repo mutation.
+_f1_recon=$(git_sandbox "F1 reconciliation-pipeline anti-vacuity proof")
+: > "$_f1_recon/phase-1-setup.md"; : > "$_f1_recon/phase-9-rogue.md"
+_f1_actual=$(find "$_f1_recon" -maxdepth 1 -name '*.md' -type f -exec basename {} .md \; 2>/dev/null | sort | tr '\n' ' ' | sed 's/ *$//')
+# POSITIVE assertion (not "!= single-stem", which an empty/garbled pipeline output would
+# also satisfy vacuously): the pipeline must enumerate EXACTLY the synthetic two-stem set,
+# proving the enumeration works AND that the rogue stem makes the set differ from any
+# 4-stem registered set — so the real reconciliation's assert_eq would go RED.
+assert_eq "F1: reconciliation pipeline enumerates a synthetic dir's exact stem set (incl. the rogue, differs from registered)" \
+  "phase-1-setup phase-9-rogue" "$_f1_actual"
+rm -rf "$_f1_recon"
 # (c) the no-SKILL.md misregistration guard detects an injected SKILL.md (find non-empty → != "").
-if _f1_skilldir=$(mktemp -d); then
-  : > "$_f1_skilldir/SKILL.md"
-  assert_eq "F1: misregistration guard detects an injected SKILL.md (find non-empty → RED)" "no" \
-    "$([ -z "$(find "$_f1_skilldir" -name SKILL.md 2>/dev/null)" ] && echo yes || echo no)"
-  rm -rf "$_f1_skilldir"
-fi
+#     Same fail-closed allocation discipline as (b).
+_f1_skilldir=$(git_sandbox "F1 misregistration-guard anti-vacuity proof")
+: > "$_f1_skilldir/SKILL.md"
+assert_eq "F1: misregistration guard detects an injected SKILL.md (find non-empty → RED)" "no" \
+  "$([ -z "$(find "$_f1_skilldir" -name SKILL.md 2>/dev/null)" ] && echo yes || echo no)"
+rm -rf "$_f1_skilldir"
 # ── end issue #218 structural assertions ──
 assert_pin_unique "sweep 2.3.6: implement SKILL keeps the sweep body" '#### 2.3.6 Error-handling & silent-failure sweep' "$IMPL_SKILL"
 assert_pin_unique "sweep 2.3.6: implement SKILL lists it in the always-run index" '**2.3.6** (error-handling & silent-failure)' "$IMPL_SKILL"
@@ -2805,7 +2808,7 @@ assert_eq "implement_pr_state: clean-tree backstop precedes the publish gate (ru
   "$([ -n "$IPS_BACKSTOP_LN" ] && [ -n "$IPS_GATE_LN" ] && [ "$IPS_BACKSTOP_LN" -lt "$IPS_GATE_LN" ] && echo yes || echo no)"
 
 # Cross-file Progress-label consistency. The Phase 4.3 finalize `--tick-progress` label
-# in implement/SKILL.md MUST match the `## Progress` row label that scripts/workpad.py
+# in phases/phase-4-documentation.md MUST match the `## Progress` row label that scripts/workpad.py
 # OWNS (its cmd_new_body template + _PROGRESS_PHASES tuple + _STATUS_TO_PROGRESS_PHASE
 # 'complete' map) — workpad.py both renders the row and ticks it by substring, so if the
 # two sides drift the finalize finds no matching unticked row and the Phase 4.3 update
@@ -2822,9 +2825,10 @@ assert_eq "implement finalize: workpad.py owns the 'PR marked ready' label (temp
 
 # ── issue #169: workpad.py tick failure-isolation + index ticking ─────────────
 # Coupled contract across three files: scripts/workpad.py (the volatile-vs-structural
-# behavior + the new --tick-ac-n/--tick-plan-n flags) ↔ implement/SKILL.md (the
-# `workpad.py update` flag-table AND the Phase 3.4 AC-tick call sites) ↔ this suite.
-# The SKILL flag-table must document the index flags and the failure-isolation
+# behavior + the new --tick-ac-n/--tick-plan-n flags) ↔ the implement-skill bundle (the
+# `workpad.py update` flag-table in the orchestrator SKILL.md AND the Phase 3.4 AC-tick
+# call sites in phases/phase-3-review.md) ↔ this suite.
+# The flag-table must document the index flags and the failure-isolation
 # contract, and the Phase 3.4 gate must tick ACs by index rather than hand-picked
 # substrings (the eight-fragile-substring foot-gun this issue removes). Editing one
 # side without the others goes red here. (workpad.py's runtime behavior is pinned
