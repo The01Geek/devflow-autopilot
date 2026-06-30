@@ -8428,6 +8428,20 @@ assert_eq "#141 LICENSES/pr-review-toolkit-LICENSE retains the upstream Apache-2
 assert_eq "#141 plugin.json dependencies no longer lists pr-review-toolkit" \
   "0" "$(jq '[.dependencies[]? | select(.name == "pr-review-toolkit")] | length' "$FDROOT/.claude-plugin/plugin.json")"
 
+# --- #191: Phase 3 review agents enumerate every occurrence of a flagged stale phrase ---
+# The code-reviewer and comment-analyzer agents must, before submitting a stale-wording /
+# semantic-contradiction (resp. repeated stale-comment) finding, exhaustively search the
+# affected file and list EVERY matching line number — so the fix step corrects all sites in
+# one edit instead of leaving secondary instances for a shadow round. The agent behavior
+# fires at LLM-inference time (no deterministic boundary), so the automated gate is a
+# mutation-proven assert_pin_unique on the operative imperative in each agent file. Each
+# literal pins the operative clause (search-all + enumerate-every-line-number), not a
+# framing sentence: deleting it alone re-opens the report-only-the-first-instance defect.
+assert_pin_unique "#191 code-reviewer enumerates all occurrences of a flagged stale phrase before submitting" \
+  'search the affected file for all occurrences of the flagged phrase, enumerate every matching line number,' "$FDROOT/agents/code-reviewer.md"
+assert_pin_unique "#191 comment-analyzer enumerates all occurrences of a repeated stale comment before submitting" \
+  'search the affected file for every occurrence of the flagged comment wording, enumerate every matching line number,' "$FDROOT/agents/comment-analyzer.md"
+
 # (5) Workflow contract: no cloud workflow installs the pr-review-toolkit companion anymore
 # (the engine dispatches the first-party devflow: review agents). Pattern split-literal to
 # avoid self-match; shares the tracked_scan seam as (1).
