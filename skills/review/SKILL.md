@@ -712,16 +712,22 @@ elif [ "$GIT_STATUS_AFTER" != "$GIT_STATUS_BEFORE" ]; then
     echo "::warning::devflow review: a Phase 3.1 review-agent dispatch changed the status of an already-dirty path (status byte only, no clean path newly dirtied); nothing auto-restored — left for the Step 2.6 shadow and the human" >&2
   else
     # CHANGED_PATHS is the snapshot delta (paths clean at snapshot, now dirty). Restore is
-    # best-effort and per-path: a tracked path is reverted; an untracked file the agent created
-    # is surfaced but is never auto-deleted (it could be a legitimate orchestrator artifact),
-    # and a renamed or space-containing path that `git status` quoted/escaped fails the checkout
-    # into that same per-path breadcrumb (surfaced, not silently dropped) rather than restoring.
+    # best-effort and per-path. Restore from HEAD (NOT `git checkout -- "$p"`, which restores
+    # the worktree from the INDEX and so re-materializes a STAGED agent mutation while exiting
+    # 0 — a fail-open that reports a clobber as restored). The `git checkout HEAD --` form (used
+    # below) undoes a staged or unstaged tracked-file modification. Then trust the TREE STATE, not the exit
+    # code: re-run `git status --porcelain` for the path and emit the per-path breadcrumb iff it
+    # is STILL dirty — so an untracked file the agent created (not auto-deleted; it could be a
+    # legitimate orchestrator artifact), a staged-new file, or a renamed/quoted path git could
+    # not restore is surfaced (not silently dropped) and is never falsely reported as restored.
     # The aggregate line below says "attempting" — each path's actual outcome is its own warning.
     echo "::warning::devflow review: a Phase 3.1 review-agent dispatch modified the working tree (advisory review agents must never mutate it); affected paths: ${CHANGED_PATHS//$'\n'/ }; recording an Important finding and attempting best-effort restore of the snapshot delta (per-path outcome in the warnings below)" >&2
     while IFS= read -r p; do
       [ -n "$p" ] || continue
-      git checkout -- "$p" 2>/dev/null \
-        || echo "::warning::devflow review: could not restore agent-modified path '$p' (e.g. an untracked file the agent created, or a renamed/quoted path git status escaped — left as-is for human inspection)" >&2
+      restore_err=$(git checkout HEAD -- "$p" 2>&1)
+      if [ -n "$(git status --porcelain -- "$p")" ]; then
+        echo "::warning::devflow review: path '$p' still dirty after restore attempt (e.g. an untracked or staged-new file the agent created — never auto-deleted — or a renamed/quoted path git could not restore; git said: ${restore_err:-none}) — left as-is for human inspection" >&2
+      fi
     done <<EOF
 $CHANGED_PATHS
 EOF

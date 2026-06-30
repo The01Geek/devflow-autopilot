@@ -1630,6 +1630,12 @@ assert_pin_red_on_removal "#192 backstop: deleting the fail-closed before-snapsh
   'dirty-tree backstop DISABLED for this dispatch' "$REVIEW_SKILL"
 assert_pin_red_on_removal "#192 backstop: deleting the after-snapshot fail-distinct breadcrumb turns its pin RED" \
   'this is NOT an agent mutation' "$REVIEW_SKILL"
+# Pin the EXECUTABLE restore action, not just the restore policy: deleting the checkout loop
+# would downgrade the backstop from "detect AND restore" to "detect only" while every prose
+# pin stayed GREEN. The literal also encodes the fail-open fix — restore from HEAD (not the
+# INDEX), so a staged agent mutation is undone rather than re-materialized.
+assert_pin_red_on_removal "#192 backstop: deleting the restore-from-HEAD checkout action turns its pin RED" \
+  'git checkout HEAD -- "$p"' "$REVIEW_SKILL"
 # Coupled-invariant drift guard: the "detect_all_audit is intentionally not persisted
 # into diff_profile" contract spans two mirror sites — the SKILL.md schema comment and
 # docs/efficiency-trace.md. Both must agree; pin each with its stable site-specific phrase.
