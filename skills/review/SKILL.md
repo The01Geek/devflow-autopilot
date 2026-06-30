@@ -706,81 +706,113 @@ elif ! GIT_SNAP_AFTER=$(mktemp) || ! git status --porcelain -z > "$GIT_SNAP_AFTE
   # run any restore off an empty AFTER — surface a DISTINCT, attributable breadcrumb instead.
   echo "::warning::devflow review: could not snapshot the working tree after the Phase 3.1 dispatch (git status failed); dirty-tree verification SKIPPED this dispatch — this is NOT an agent mutation" >&2
   rm -f "$GIT_SNAP_AFTER" 2>/dev/null
-elif ! cmp -s "$GIT_SNAP_BEFORE" "$GIT_SNAP_AFTER"; then
-  # The two NUL-delimited (`-z`) snapshots differ — something changed the tree during the
-  # dispatch window. The restore set is computed BY PATH COLUMN (status prefix stripped from
-  # each `-z` record), NOT by whole record: a path the orchestrator had ALREADY modified
-  # before dispatch must never be checked out even if an agent changed its status byte further
-  # (` M f` -> `MM f`). Each `-z` record is `XY <path>` (NUL-terminated, UNQUOTED); a
-  # rename/copy emits TWO records — `R  <new>` then a bare `<old>` continuation — so the read
-  # loops below consume that continuation rather than mis-stripping a prefix off it. The
-  # restore set is `paths in AFTER, not present in BEFORE, that are NOT rename/copy entries`;
-  # rename/copy entries are surfaced separately and never auto-restored (index surgery needed).
-  # devflow:dirty-tree-restore BEGIN (self-contained given $GIT_SNAP_BEFORE/$GIT_SNAP_AFTER and
-  # cwd=repo; extracted + exercised by the #216 git_sandbox integration test in lib/test/run.sh)
-  BEFORE_PATHS=$(mktemp); CHANGED_PATHS_FILE=$(mktemp); RENAMED_PATHS_FILE=$(mktemp)
-  # 1. BEFORE membership set: every path (incl. rename new + orig), prefix stripped, NUL,
-  #    sorted-unique. `read -r -d ''` reads NUL records so a spaced/special path never splits.
-  before_orig=0
-  while IFS= read -r -d '' rec; do
-    if [ "$before_orig" = 1 ]; then before_orig=0; printf '%s\0' "$rec"; continue; fi
-    case "${rec:0:2}" in *[RC]*) before_orig=1 ;; esac
-    printf '%s\0' "${rec:3}"
-  done < "$GIT_SNAP_BEFORE" | sort -z -u > "$BEFORE_PATHS"
-  # 2. AFTER: rename/copy → surfaced-not-restored (routed to RENAMED_PATHS_FILE); a normal
-  #    entry whose path is NOT in the BEFORE set → newly dirtied → restore set. The membership
-  #    test reads NUL records (`grep -z`); `! grep` keeps the direction "in AFTER, not in
-  #    BEFORE" (flipping it would restore already-dirty paths and clobber live orchestrator edits).
-  after_orig=0
-  while IFS= read -r -d '' rec; do
-    if [ "$after_orig" = 1 ]; then after_orig=0; continue; fi
-    case "${rec:0:2}" in
-      *[RC]*) printf '%s\0' "${rec:3}" >> "$RENAMED_PATHS_FILE"; after_orig=1; continue ;;
-    esac
-    if ! grep -qzxF -- "${rec:3}" "$BEFORE_PATHS"; then printf '%s\0' "${rec:3}"; fi
-  done < "$GIT_SNAP_AFTER" | sort -z -u > "$CHANGED_PATHS_FILE"
-  RENAMED_NAMES=$(tr '\0' ' ' < "$RENAMED_PATHS_FILE")
-  if [ ! -s "$CHANGED_PATHS_FILE" ]; then
-    if [ -n "$RENAMED_NAMES" ]; then
-      # The only divergence is a rename/copy: surfaced, never auto-restored (a staged rename
-      # needs index surgery to undo safely) — left for the Step 2.6 shadow and the human.
-      echo "::warning::devflow review: a Phase 3.1 review-agent dispatch renamed/copied tracked path(s) [ ${RENAMED_NAMES}]; not auto-restored (a staged rename needs index surgery) — left for the Step 2.6 shadow and the human" >&2
+else
+  # Compare the two NUL-delimited (`-z`) snapshots. `cmp` rc: 0 identical, 1 differ, >=2 ERROR.
+  # An error (unreadable file, mid-run FS failure) must NOT be read as "the tree diverged" and
+  # drive a restore off a comparison that never succeeded — fail closed with a distinct,
+  # attributable breadcrumb, exactly as the after-snapshot failure branch above does.
+  cmp -s "$GIT_SNAP_BEFORE" "$GIT_SNAP_AFTER"; cmp_rc=$?
+  if [ "$cmp_rc" -ge 2 ]; then
+    echo "::warning::devflow review: could not compare the before/after working-tree snapshots (cmp errored, rc=$cmp_rc); dirty-tree comparison SKIPPED this dispatch — this is NOT an agent mutation, nothing auto-restored" >&2
+  elif [ "$cmp_rc" -eq 1 ]; then
+    # The two snapshots differ — something changed the tree during the dispatch window. The
+    # restore set is computed BY PATH COLUMN (status prefix stripped from each `-z` record),
+    # NOT by whole record: a path the orchestrator had ALREADY modified before dispatch must
+    # never be checked out even if an agent changed its status byte further (` M f` -> `MM f`).
+    # Each `-z` record is `XY <path>` (NUL-terminated, UNQUOTED); a rename/copy emits TWO
+    # records — `R  <new>` then a bare `<old>` continuation — so the read loops below consume
+    # that continuation rather than mis-stripping a prefix off it. The restore set is `paths in
+    # AFTER, not present in BEFORE, that are NOT rename/copy entries`; rename/copy entries are
+    # surfaced separately and never auto-restored (index surgery needed).
+    # devflow:dirty-tree-restore BEGIN (self-contained given $GIT_SNAP_BEFORE/$GIT_SNAP_AFTER and
+    # cwd=repo; extracted + exercised by the #216 git_sandbox integration test in lib/test/run.sh)
+    if ! BEFORE_PATHS=$(mktemp) || ! CHANGED_PATHS_FILE=$(mktemp) || ! RENAMED_PATHS_FILE=$(mktemp); then
+      # Temp-file allocation failed (TMPDIR exhaustion/quota/perms). Do NOT proceed: an empty
+      # BEFORE_PATHS would make every membership test error and fail OPEN (every dirty path,
+      # incl. the orchestrator's own edits, treated as newly-dirty and restored). Fail closed
+      # with a distinct breadcrumb and restore nothing — mirroring the snapshot-failure branches.
+      echo "::warning::devflow review: could not allocate temp files for the dirty-tree restore (mktemp failed); dirty-tree restore SKIPPED this dispatch — this is NOT an agent mutation, nothing auto-restored" >&2
+      rm -f "$BEFORE_PATHS" "$CHANGED_PATHS_FILE" "$RENAMED_PATHS_FILE" 2>/dev/null
     else
-      # Divergence with an EMPTY restore set and no rename. The cause is NOT asserted: an
-      # empty by-path delta is consistent with an already-dirty path whose status byte changed
-      # (its path is in BOTH snapshots) OR a dirty->clean / removed-path transition — `cmp`
-      # cannot distinguish them, so the cause cannot be determined here. Nothing auto-restored.
-      echo "::warning::devflow review: a Phase 3.1 review-agent dispatch diverged the working tree but the by-path restore set is empty (an already-dirty path's status byte changed, or a dirty->clean transition — the cause cannot be determined here); nothing auto-restored — left for the Step 2.6 shadow and the human" >&2
-    fi
-  else
-    # CHANGED_PATHS_FILE holds the snapshot delta (paths clean at snapshot, now dirty, non-rename),
-    # NUL-delimited and UNQUOTED so a spaced/special path is a real pathspec. Restore is best-effort
-    # and per-path, fed via `read -r -d ''` so a `$`/space/backtick/newline in a pathname never
-    # word-splits or shell-expands. Restore from HEAD (NOT `git checkout -- "$p"`, which restores
-    # the worktree from the INDEX and so re-materializes a STAGED agent mutation while exiting 0 — a
-    # fail-open that reports a clobber as restored). Then trust the TREE STATE, not the exit code:
-    # re-run `git status --porcelain -- "$p"` and emit the per-path breadcrumb iff it is STILL dirty,
-    # so an untracked or staged-new file the agent created (never auto-deleted; it could be a
-    # legitimate orchestrator artifact) is surfaced per-path and never falsely reported as restored.
-    CHANGED_NAMES=$(tr '\0' ' ' < "$CHANGED_PATHS_FILE")
-    echo "::warning::devflow review: a Phase 3.1 review-agent dispatch modified the working tree (advisory review agents must never mutate it); affected paths: [ ${CHANGED_NAMES}]${RENAMED_NAMES:+ (plus surfaced-not-restored rename/copy: [ ${RENAMED_NAMES}])}; recording an Important finding and attempting best-effort restore of the snapshot delta (per-path outcome in the warnings below)" >&2
-    while IFS= read -r -d '' p; do
-      [ -n "$p" ] || continue
-      restore_err=$(git checkout HEAD -- "$p" 2>&1)
-      if [ -n "$(git status --porcelain -- "$p")" ]; then
-        echo "::warning::devflow review: path '$p' still dirty after restore attempt (e.g. an untracked or staged-new file the agent created — never auto-deleted; git said: ${restore_err:-none}) — left as-is for human inspection" >&2
+      # 1. BEFORE membership set: every path (incl. rename new + orig), prefix stripped, NUL,
+      #    sorted-unique. `read -r -d ''` reads NUL records so a spaced/special path never splits.
+      before_orig=0
+      while IFS= read -r -d '' rec; do
+        if [ "$before_orig" = 1 ]; then before_orig=0; printf '%s\0' "$rec"; continue; fi
+        case "${rec:0:2}" in *[RC]*) before_orig=1 ;; esac
+        printf '%s\0' "${rec:3}"
+      done < "$GIT_SNAP_BEFORE" | sort -z -u > "$BEFORE_PATHS"
+      # 2. AFTER: rename/copy → surfaced-not-restored (routed to RENAMED_PATHS_FILE); a normal
+      #    entry classified by its BEFORE membership. Membership reads NUL records (`grep -z`),
+      #    and the THREE grep outcomes are handled distinctly so an error never clobbers:
+      #      rc 0  = present in BEFORE (already dirty) → never restore (left to the human);
+      #      rc 1  = absent from BEFORE → newly dirtied → restore set;
+      #      rc>=2 = grep ERROR → fail closed (do NOT restore — an error must not be read as
+      #              "absent → restore", which would clobber a live orchestrator edit).
+      #    (Flipping rc 1 to restore-on-present would restore already-dirty paths and clobber
+      #    live edits — the direction this guard protects.)
+      after_orig=0
+      while IFS= read -r -d '' rec; do
+        if [ "$after_orig" = 1 ]; then after_orig=0; continue; fi
+        case "${rec:0:2}" in
+          *[RC]*) printf '%s\0' "${rec:3}" >> "$RENAMED_PATHS_FILE"; after_orig=1; continue ;;
+        esac
+        if grep -qzxF -- "${rec:3}" "$BEFORE_PATHS"; then
+          : # present in BEFORE (already dirty) → never restore
+        else
+          gmrc=$?
+          if [ "$gmrc" -eq 1 ]; then
+            printf '%s\0' "${rec:3}"   # absent from BEFORE → newly dirtied → restore set
+          else
+            echo "::warning::devflow review: membership test errored (grep rc=$gmrc) for a dispatch-window path; NOT auto-restoring it (fail-closed) — left for the human" >&2
+          fi
+        fi
+      done < "$GIT_SNAP_AFTER" | sort -z -u > "$CHANGED_PATHS_FILE"
+      RENAMED_NAMES=$(tr '\0' ' ' < "$RENAMED_PATHS_FILE")
+      if [ ! -s "$CHANGED_PATHS_FILE" ]; then
+        if [ -n "$RENAMED_NAMES" ]; then
+          # The only divergence is a rename/copy: surfaced, never auto-restored (a staged rename
+          # needs index surgery to undo safely) — left for the Step 2.6 shadow and the human.
+          echo "::warning::devflow review: a Phase 3.1 review-agent dispatch renamed/copied tracked path(s) [ ${RENAMED_NAMES}]; not auto-restored (a staged rename needs index surgery) — left for the Step 2.6 shadow and the human" >&2
+        else
+          # Divergence with an EMPTY restore set and no rename. The cause is NOT asserted: an
+          # empty by-path delta is consistent with an already-dirty path whose status byte changed
+          # (its path is in BOTH snapshots) OR a dirty->clean / removed-path transition — `cmp`
+          # cannot distinguish them, so the cause cannot be determined here. Nothing auto-restored.
+          echo "::warning::devflow review: a Phase 3.1 review-agent dispatch diverged the working tree but the by-path restore set is empty (an already-dirty path's status byte changed, or a dirty->clean transition — the cause cannot be determined here); nothing auto-restored — left for the Step 2.6 shadow and the human" >&2
+        fi
+      else
+        # CHANGED_PATHS_FILE holds the snapshot delta (paths clean at snapshot, now dirty, non-rename),
+        # NUL-delimited and UNQUOTED so a spaced/special path is a real pathspec. Restore is best-effort
+        # and per-path, fed via `read -r -d ''` so a `$`/space/backtick/newline in a pathname never
+        # word-splits or shell-expands. Restore from HEAD (NOT `git checkout -- "$p"`, which restores
+        # the worktree from the INDEX and so re-materializes a STAGED agent mutation while exiting 0 — a
+        # fail-open that reports a clobber as restored). Then trust the TREE STATE, not the exit code:
+        # re-run `git status --porcelain -- "$p"` and emit the per-path breadcrumb iff it is STILL dirty,
+        # so an untracked or staged-new file the agent created (never auto-deleted; it could be a
+        # legitimate orchestrator artifact) is surfaced per-path and never falsely reported as restored.
+        CHANGED_NAMES=$(tr '\0' ' ' < "$CHANGED_PATHS_FILE")
+        echo "::warning::devflow review: a Phase 3.1 review-agent dispatch modified the working tree (advisory review agents must never mutate it); affected paths: [ ${CHANGED_NAMES}]${RENAMED_NAMES:+ (plus surfaced-not-restored rename/copy: [ ${RENAMED_NAMES}])}; recording an Important finding and attempting best-effort restore of the snapshot delta (per-path outcome in the warnings below)" >&2
+        while IFS= read -r -d '' p; do
+          [ -n "$p" ] || continue
+          restore_err=$(git checkout HEAD -- "$p" 2>&1)
+          if [ -n "$(git status --porcelain -- "$p")" ]; then
+            echo "::warning::devflow review: path '$p' still dirty after restore attempt (e.g. an untracked or staged-new file the agent created — never auto-deleted; git said: ${restore_err:-none}) — left as-is for human inspection" >&2
+          fi
+        done < "$CHANGED_PATHS_FILE"
       fi
-    done < "$CHANGED_PATHS_FILE"
+      rm -f "$BEFORE_PATHS" "$CHANGED_PATHS_FILE" "$RENAMED_PATHS_FILE" 2>/dev/null
+    fi
+    # devflow:dirty-tree-restore END
   fi
-  rm -f "$BEFORE_PATHS" "$CHANGED_PATHS_FILE" "$RENAMED_PATHS_FILE" 2>/dev/null
-  # devflow:dirty-tree-restore END
+  # cmp_rc == 0: the snapshots are identical — nothing changed during the dispatch window.
   rm -f "$GIT_SNAP_AFTER" 2>/dev/null
 fi
 # Clean up the before-snapshot temp file (skip when the sentinel string is held instead of a path).
 [ "$GIT_SNAP_BEFORE" = $'\x01__DIRTY_TREE_BACKSTOP_DISABLED__' ] || rm -f "$GIT_SNAP_BEFORE" 2>/dev/null
 ```
 
-When this fires (the non-empty-`CHANGED_PATHS_FILE` branch), add an **Important** finding to the Phase 3 findings set — attributed to the Phase 3.1 review-agent dispatch, naming the affected paths (`CHANGED_NAMES`) it **attempted** to restore (best-effort; an untracked or staged-new file it could not restore is named in its own per-path warning above) — carrying a `defect_signature` (`kind: "other"`, `file` the first affected path) so it flows through Phase 4 aggregation like any other finding. A **true rename/copy** (status `R`/`C`) is surfaced-not-restored: it is named in the aggregate breadcrumb's `surfaced-not-restored rename/copy` list (`RENAMED_NAMES`), left for the human rather than auto-undone, and is the only remaining documented restore limitation. The attributable breadcrumb plus the finding mean a dropped restore is caught and recorded, never silently swallowed.
+When this fires (the non-empty-`CHANGED_PATHS_FILE` branch), add an **Important** finding to the Phase 3 findings set — attributed to the Phase 3.1 review-agent dispatch, naming the affected paths (`CHANGED_NAMES`) it **attempted** to restore (best-effort; an untracked or staged-new file it could not restore is named in its own per-path warning above) — carrying a `defect_signature` (`kind: "other"`, `file` the first affected path) so it flows through Phase 4 aggregation like any other finding. A **true rename/copy** (status `R`/`C`) is surfaced-not-restored: it is named in the aggregate breadcrumb's `surfaced-not-restored rename/copy` list (`RENAMED_NAMES`), left for the human rather than auto-undone. It is the only residual the backstop *detects but deliberately does not restore* — distinct from the other residual noted above (an already-dirty path whose status byte does not change), which is a *detection* limit, not a restore choice. The attributable breadcrumb plus the finding mean a dropped restore is caught and recorded, never silently swallowed.
 
 Collect all agent responses. Extract findings, their severity labels (Critical, Important/Major, Suggestion/Minor), and their `defect_signature` blocks. **If the Phase 3.1.5 completeness-critic pass ran and produced a finding, include it here** as a single-source finding (flag it single-source like any N=1 finding); it carries a `defect_signature`, so it corroborates mechanically with any agent that independently flagged the same coverage gap.
 

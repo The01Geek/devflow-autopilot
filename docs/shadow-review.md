@@ -92,7 +92,8 @@ special character (`"my file.txt"`); that quoted token is not a real pathspec, s
 matches nothing and the restore is a **silent no-op** while reporting success. `git status
 --porcelain -z` emits the path **unquoted and NUL-delimited**, so a spaced/special filename is
 restored correctly. A rename/copy under `-z` is a two-record shape (`R  <new>\0<old>\0`); the
-restore loop consumes the bare orig-path continuation rather than mis-parsing it.
+snapshot read loops consume the bare orig-path continuation rather than mis-parsing it
+(the final restore loop only ever sees the rename-free delta set).
 
 **Fail-closed and read-only-profile no-op.** Both snapshots are rc-checked: a failed before-snapshot
 **disables** the backstop for that dispatch (it never restores off an empty baseline, which would

@@ -1846,18 +1846,40 @@ assert_pin_red_on_removal "#192 backstop: deleting the untracked-file-never-auto
 # paths) would clobber the orchestrator's own concurrent edits — the hazard the old `comm -13`
 # direction guarded. (The pin line carries `grep` but no `echo`, so the repo-wide raw-guard
 # scanner — which keys on a `grep…SKILL…echo` line — does not match it.)
-assert_pin_red_on_removal "#216 backstop: flipping the by-path set-difference direction turns its pin RED" \
-  '! grep -qzxF -- "${rec:3}" "$BEFORE_PATHS"' "$REVIEW_SKILL"
+# The membership test is `grep -qzxF <path> BEFORE_PATHS`, and the restore DIRECTION is
+# "restore only on grep rc 1 (absent from BEFORE → newly dirty)". Pin BOTH the membership
+# probe and the rc-1 restore branch: dropping the probe, or flipping the direction to
+# restore-on-present (rc 0), would restore already-dirty paths and clobber live orchestrator
+# edits — the hazard the old `comm -13` direction guarded. (Each pin line carries `grep`/no
+# `echo`, so the repo-wide raw-guard scanner — which keys on a `grep…SKILL…echo` line — misses it.)
+assert_pin_red_on_removal "#216 backstop: deleting the by-path BEFORE-membership probe turns its pin RED" \
+  'grep -qzxF -- "${rec:3}" "$BEFORE_PATHS"' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#216 backstop: flipping the restore direction off the grep-rc-1 (absent) branch turns its pin RED" \
+  '[ "$gmrc" -eq 1 ]' "$REVIEW_SKILL"
+# Fail-closed guards added when hardening the restore (each must NOT read an error as a
+# restorable divergence): grep-membership ERROR (rc>=2) must not be treated as "absent →
+# restore"; a failed temp-file alloc must skip the restore; a `cmp` ERROR must not be read as
+# divergence. Pin each breadcrumb so deleting a fail-closed guard turns its pin RED.
+assert_pin_red_on_removal "#216 backstop: deleting the grep-membership-error fail-closed guard turns its pin RED" \
+  'NOT auto-restoring it (fail-closed)' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#216 backstop: deleting the temp-alloc-failure fail-closed breadcrumb turns its pin RED" \
+  'could not allocate temp files for the dirty-tree restore' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#216 backstop: deleting the cmp-error fail-closed breadcrumb turns its pin RED" \
+  'dirty-tree comparison SKIPPED this dispatch' "$REVIEW_SKILL"
 # Rename/copy two-path `-z` entries are surfaced-not-restored — routed to a separate file,
 # never into the auto-restore set. Deleting the routing or the breadcrumb silently drops them.
 assert_pin_red_on_removal "#216 backstop: deleting the rename surfaced-not-restored routing turns its pin RED" \
   '>> "$RENAMED_PATHS_FILE"' "$REVIEW_SKILL"
 assert_pin_red_on_removal "#216 backstop: deleting the rename surfaced-not-restored breadcrumb turns its pin RED" \
   'not auto-restored (a staged rename needs index surgery)' "$REVIEW_SKILL"
+# The empty-restore-set branch is the OPERATIVE directive (the breadcrumb pin below is its
+# message); pin the `[ ! -s ... ]` condition too so inverting/removing it can't stay GREEN.
+assert_pin_red_on_removal "#216 backstop: deleting the empty-restore-set branch condition turns its pin RED" \
+  '[ ! -s "$CHANGED_PATHS_FILE" ]' "$REVIEW_SKILL"
 assert_pin_red_on_removal "#192 backstop: deleting the fail-closed before-snapshot disable turns its pin RED" \
   'dirty-tree backstop DISABLED for this dispatch' "$REVIEW_SKILL"
 assert_pin_red_on_removal "#192 backstop: deleting the after-snapshot fail-distinct breadcrumb turns its pin RED" \
-  'this is NOT an agent mutation' "$REVIEW_SKILL"
+  'could not snapshot the working tree after the Phase 3.1 dispatch' "$REVIEW_SKILL"
 # Pin the EXECUTABLE restore action (restore from HEAD, not the INDEX) and the post-restore
 # tree-state RE-CHECK (trust the tree, not the exit code) — deleting either downgrades the
 # backstop from "detect AND restore (verified)" to "detect only" while every prose pin stays GREEN.
@@ -1877,9 +1899,11 @@ assert_pin_red_on_removal "#216 backstop: deleting the empty-delta no-single-cau
 #    AFTER extract, restore loop) — a regression to a newline `read -r` at any site drops the count;
 #  - the `sort -z` operand at BOTH extraction sorts — dropping `-z` collapses NUL data to one line;
 #  - the `\x01`-prefixed fail-closed sentinel VALUE at all THREE sites (set in 3.1, the 3.2
-#    short-circuit read, the 3.2 cleanup guard). The bare-name count below couples the NAME but
-#    NOT the `\x01` byte that makes the sites compare equal (#216), so this pins the FULL value
-#    `\x01__DIRTY_TREE_BACKSTOP_DISABLED__` — a one-sided `\x01` drop then drifts the count RED.
+#    short-circuit read, the 3.2 cleanup guard). A bare-NAME count (matching just
+#    `__DIRTY_TREE_BACKSTOP_DISABLED__`) would couple the NAME but NOT the `\x01` byte that
+#    makes the sites compare equal (#216), so this guard pins the FULL value
+#    `\x01__DIRTY_TREE_BACKSTOP_DISABLED__` instead — a one-sided `\x01` drop then drifts the
+#    count RED (a bare-name count would stay GREEN on exactly that regression).
 assert_eq "#216 backstop: the pathname-safe NUL read loop is present at all three sites" "yes" \
   "$([ "$(grep -cF 'IFS= read -r -d' "$REVIEW_SKILL")" -eq 3 ] && echo yes || echo no)"  # raw-guard-ok: count-based: asserts ==3 NUL read loops (BEFORE/AFTER extract + restore)
 assert_eq "#216 backstop: the sort -z operand is present at both extraction sorts" "yes" \
@@ -1949,6 +1973,26 @@ if [ -d "$DT_C" ]; then
   assert_eq "#216 backstop: a true rename leaves the original path removed (not auto-recreated)" \
     "no" "$([ -e "$DT_C/plain.txt" ] && echo yes || echo no)"
   rm -rf "$DT_C" "$DT_C_B" "$DT_C_AF"
+fi
+# Case D — the CENTRAL by-path safety property end-to-end: a path the orchestrator had
+# ALREADY modified before dispatch is left untouched (NOT clobbered) while a DIFFERENT path an
+# agent newly dirtied during the window IS restored. This exercises the `! grep`/rc-1
+# membership direction against a non-empty BEFORE set — the one scenario cases A/B/C don't
+# build — so a subtle regression in BEFORE-set construction or the membership direction that
+# clobbers a concurrent edit fails here, not only at the literal-presence direction pin.
+DT_D="$(dt_make_repo)"
+if [ -d "$DT_D" ]; then
+  DT_D_B="$(probe_tmp "#216 case-D before")"; DT_D_AF="$(probe_tmp "#216 case-D after")"
+  printf 'concurrent edit' > "$DT_D/my file.txt"   # orchestrator's OWN edit — dirty BEFORE dispatch
+  git -C "$DT_D" status --porcelain -z > "$DT_D_B"
+  printf 'agent edit' > "$DT_D/plain.txt"          # a DIFFERENT path an agent dirties DURING the window
+  git -C "$DT_D" status --porcelain -z > "$DT_D_AF"
+  ( cd "$DT_D" && GIT_SNAP_BEFORE="$DT_D_B" GIT_SNAP_AFTER="$DT_D_AF" bash "$DT_REGION" ) >/dev/null 2>&1
+  assert_eq "#216 backstop: an already-dirty path (clean->dirty BEFORE dispatch) is NOT clobbered by the restore" \
+    "concurrent edit" "$(cat "$DT_D/my file.txt" 2>/dev/null)"
+  assert_eq "#216 backstop: a newly-dirtied path (dirtied DURING the window) IS restored to HEAD" \
+    "plain" "$(cat "$DT_D/plain.txt" 2>/dev/null)"
+  rm -rf "$DT_D" "$DT_D_B" "$DT_D_AF"
 fi
 rm -f "$DT_REGION"
 # Coupled-invariant drift guard: the "detect_all_audit is intentionally not persisted
