@@ -195,6 +195,83 @@ The reason it lives in the **skill**, not in `file-deferrals.py`, is the standin
 
 This key controls **only** deferred-issue labeling. It is independent of the hardcoded `DevFlow` provenance label that retrospective detection matches literally (`lib/scan.sh`, `lib/classify-pr-kind.jq`) — that string is a constant no config key controls — and separate from the `docs.labels` docs-pass label.
 
+## Phase 4.1 Documentation Needed enforcement: two-stage gate
+
+Phase 4.1 (*Update Documentation*) dispatches a `devflow:docs` subagent. When the issue body names
+specific files in its `**Documentation Needed**` bullet (a sub-bullet of `## Implementation Notes`
+in the issue template), Phase 4.1 enforces delivery through a two-stage gate.
+
+Path extraction is **deterministic, not LLM-interpreted** (issue #185 Addendum): a bundled helper,
+`scripts/extract-doc-needed-paths.sh`, is the single extraction boundary both stages consume. It reads
+the issue body, scopes strictly to the `**Documentation Needed**` bullet under `## Implementation
+Notes`, and emits the recognizable file paths one per line — a token counts as a path only if it
+contains `/` or ends in a recognized extension, so prose, skill names (`devflow:docs`), and paths named
+in *other* sections or bullets are excluded by construction (no judgement call, and none of the
+LLM-extraction drift that earlier incarnations of this gate suffered). Its behavior is verified by a
+fixture-based input-shape matrix in `lib/test/run.sh` (bullet-with-paths, no-paths, absent section,
+path-in-another-section-not-extracted) rather than by the shadow review.
+
+**Stage 1 — Pre-flight briefing (before dispatch).** The orchestrator runs the helper over the issue
+body and treats its output as the required deliverables. If the helper emits one or more paths, the
+dispatch instruction sent to the `devflow:docs` subagent is extended with "The issue requires the
+following files to be updated; treat each as a mandatory deliverable: `<path1>`, `<path2>`, …". If the
+helper emits nothing **but** the issue body still contains a `**Documentation Needed**` bullet, the
+orchestrator records an auditable workpad note (the skipped enforcement is logged rather than silently
+disabled). When no paths are extractable the subagent receives the normal instruction unchanged.
+
+**Stage 2 — Post-hoc diff gate (after the subagent commits).** After the subagent completes and before
+ticking `Documentation`, the orchestrator **re-runs the same helper** — the single source of truth, so
+the two passes can never disagree about which files were named — and checks each path against the PR's
+cumulative diff:
+
+```bash
+DIFF_OUT=$(git diff --name-only "origin/$BASE...HEAD"); DIFF_RC=$?
+```
+
+Before trusting that output the orchestrator guards two fail-open inputs. It ensures `$BASE` is
+non-empty by re-deriving it exactly as Phase 1.4 does — **applying Phase 1.4's non-empty fallback, not
+just the config read** (the read alone returns nothing on malformed config, which would collapse the
+range to `origin/...HEAD` and judge every path absent). And it reads the **exit status, never stdout
+emptiness**, as the failure signal: a non-zero `DIFF_RC` (or an unfetched `origin/$BASE`) is a command
+failure that says nothing about any path — the orchestrator re-fetches and retries, and if the re-fetch
+itself fails it routes to Blocked rather than falling through to a path-absent verdict on a broken
+command. An rc-0 result with empty stdout, by contrast, is the legitimate "none of these files were
+touched" signal (the genuine absence the gate exists to catch) and is acted on as real.
+
+Bare-filename paths (containing no `/`) are considered satisfied if any diff entry's basename matches
+— for example, the diff entry `docs/DEVFLOW_SYSTEM_OVERVIEW.md` satisfies the named path
+`DEVFLOW_SYSTEM_OVERVIEW.md`. (Because basename matching is intentionally lenient, issue authors should
+use a qualified path — e.g. `docs/README.md` rather than bare `README.md` — when a specific file, not
+any same-named file, is the deliverable.) Paths containing a `/` must appear as an exact match. If
+Stage 1 extracted no paths, this cross-check is a no-op and the orchestrator proceeds directly to
+applying the post-docs labels and ticking `Documentation`.
+
+**For each absent path the orchestrator either self-heals or blocks:**
+
+- **Self-heal:** if the correct update can be derived from the issue body's `**Documentation Needed**`
+  prose, the orchestrator performs the missing update itself, records a workpad note (`Phase 4.1
+  self-heal: <path> absent from diff; performed update from Documentation Needed prose`), commits with
+  a `docs:` prefix, and pushes. It then **re-verifies the self-heal landed and reached the remote** —
+  re-running the per-path diff check and confirming the commit and push both succeeded *and* that the
+  local branch is in sync with its upstream (`git rev-parse HEAD` equals `@{u}`), so a no-op edit, a
+  failed commit, or a no-op/rejected push (which leaves a still-local commit) falls through to *Blocked*
+  rather than ticking `Documentation` over a deliverable that never reached the PR.
+- **Blocked:** if the correct content cannot be derived from the prose (the note is insufficient), or
+  the self-heal did not land per the re-check, the orchestrator does *not* tick `Documentation`. It
+  routes to `--status Blocked --reflection-kind blocked` with a reflection naming the missing path
+  (`Phase 4.1: Documentation Needed file content cannot be determined for <path> — the docs subagent
+  did not update this file and the correct content cannot be derived from the issue body; update
+  manually and re-run Phase 4.1`) and emits the 👎 outcome reaction.
+
+The post-docs labels (`docs.labels`, default `Documented`) are applied only after Stage 2's gate has
+passed — every named deliverable satisfied, or Stage 1 found no paths — and only when the docs pass
+itself succeeded. A run that routes to Blocked stops before this point, so a Blocked PR never carries
+the `Documented` label that would mislead downstream docs automation.
+
+The two-stage gate closes a silent-miss class: prior to this change, if a docs subagent missed a
+named deliverable, Phase 4.1 ticked `Documentation` without any cross-check and the gap was only
+visible to a human reading the PR diff.
+
 ## Scope boundary between Phase 2.3.2 and Phase 4.1
 
 The 2.3.2 stranded-dependents sweep covers references in **code, config, and routing tables** — things

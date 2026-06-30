@@ -849,6 +849,10 @@ assert_pin_unique "mutation-check: implement skill test-writing phase references
   'Mutation-check any test guard you add here' "$DEF_SKILL"
 # PARKCAL_GUARD_REGION_END — end of the assert_pin_unique-only park-calibration pin region
 
+# Issue #186 behavioral-fix-pin coverage lives with the other SKILL-prose removal-proof pins
+# below (after assert_pin_red_on_removal is defined) — see the "#186" block near the #167
+# cluster. (assert_pin_red_on_removal is defined further down, so it cannot be called here.)
+
 # ── Meta-test (AC2): no raw drift guard may bypass assert_pin_unique inside the region.
 # The region markers are matched by SPLIT-built literals so this scanner's own source never
 # contains the contiguous marker string (otherwise it would mis-delimit when scanning the
@@ -1552,6 +1556,22 @@ assert_pin_red_on_removal "#167 core-mp: deleting the Phase 0.5 table-row dispat
   'a *forced extra pass*, not a checklist or cost override' "$REVIEW_SKILL"
 assert_pin_red_on_removal "#167 core-mp: deleting the false-positive-shape exclusion turns its pin RED" \
   'a check over a fixed hand-listed set is **not** this shape' "$REVIEW_SKILL"
+# #186: the implement skill's behavioral-fix-pin sub-rule is itself a multi-sentence behavioral
+# property, so by its own "at least one pin per operative sentence" rule each DIRECTIVE sentence
+# (the text that tells the implementer what to DO) gets its own removal-proof pin; the
+# definitions/rationale/history that merely elaborate them stay unpinned (pinning every clause
+# is the over-pinning treadmill the issue warns against). assert_pin_red_on_removal (not bare
+# assert_pin_unique) bakes step (c) of the rule — "half-revert and confirm RED" — into the
+# suite permanently, instead of leaving it a one-time authoring act. ($DEF_SKILL = the implement
+# SKILL.md; defined at the top of this file.)
+assert_pin_red_on_removal "#186 behavioral-fix-pin: deleting 'pin the operative sentence, not framing' turns its pin RED" \
+  'pin the operative sentence, not an adjacent framing clause' "$DEF_SKILL"
+assert_pin_red_on_removal "#186 behavioral-fix-pin: deleting the (a)/(b)/(c) counterfactual procedure turns its pin RED" \
+  'counterfactually half-revert' "$DEF_SKILL"
+assert_pin_red_on_removal "#186 behavioral-fix-pin: deleting the at-least-one-pin-per-operative-sentence rule turns its pin RED" \
+  'at least one pin per operative sentence' "$DEF_SKILL"
+assert_pin_red_on_removal "#186 behavioral-fix-pin: deleting the behavioral-fix-pin scope limiter turns its pin RED" \
+  'literal constants, token names, count-based guards, absence pins' "$DEF_SKILL"
 # Coupled-invariant drift guard: the "detect_all_audit is intentionally not persisted
 # into diff_profile" contract spans two mirror sites — the SKILL.md schema comment and
 # docs/efficiency-trace.md. Both must agree; pin each with its stable site-specific phrase.
@@ -2106,6 +2126,148 @@ assert_pin_red_on_removal "#184: deleting the negative-scope type literal turns 
   'explicit surface exclusions' "$IMPL_SKILL"
 assert_pin_red_on_removal "#184: deleting the policy-referencing type literal turns its pin RED" \
   'Policy-referencing claims in ACs' "$IMPL_SKILL"
+# ── issue #185 (+ Addendum): Phase 4.1 Documentation Needed cross-check ─────
+# Phase 4.1 enforces named documentation deliverables in two stages:
+#   Stage 1 pre-flight: extract the Documentation Needed paths and inject them
+#     into the docs subagent dispatch instruction as required deliverables.
+#   Stage 2 post-hoc: cross-check each path against the PR diff; self-heal or
+#     route to Blocked for absent paths.
+# The Addendum (2026-06-29) SUPERSEDES LLM prose-extraction: a deterministic
+# helper (scripts/extract-doc-needed-paths.sh) is the single extraction boundary
+# BOTH stages consume, and its behavior is verified by the fixture matrix below
+# (not by prose pins). The prose pins here lock the load-bearing operative
+# sentences of each stage's control flow; they are intentionally NOT a tally,
+# so this comment names them structurally rather than by count (a hardcoded
+# count drifts the moment an arm is added or removed):
+#   Stage 1 — deterministic-extraction mandate + mandatory-deliverable dispatch
+#             phrase + present-bullet-but-no-paths audit note.
+#   Stage 2 — single-source-of-truth re-run, no-op escape, bare-filename match,
+#             self-heal condition, three-dot diff range, Blocked arm, $BASE
+#             non-empty fallback, rc-vs-empty-stdout distinction, broken-command
+#             fail-closed floor, and remote-anchored self-heal re-check.
+assert_pin_unique "#185: Phase 4.1 Stage 1 requires docs subagent to treat named paths as mandatory (D)" \
+  'treat each as a mandatory deliverable' "$IMPL_SKILL"
+# Addendum: Stage 1 extraction is deterministic (helper), not LLM prose-reading.
+assert_pin_unique "#185A: Phase 4.1 Stage 1 mandates deterministic (not LLM) extraction" \
+  'do not interpret the prose yourself' "$IMPL_SKILL"
+# Addendum: both stages consume the SAME deterministic helper (not re-derived).
+assert_eq "#185A: Phase 4.1 calls extract-doc-needed-paths.sh in BOTH stages" \
+  "2" "$(pin_count 'extract-doc-needed-paths.sh' "$IMPL_SKILL")"
+assert_pin_unique "#185A: Phase 4.1 Stage 2 re-runs the helper as the single source of truth" \
+  're-running the helper is the single source of truth' "$IMPL_SKILL"
+# #190 suggestion 1: a present-but-empty Documentation Needed bullet must leave an
+# auditable breadcrumb rather than silently disabling enforcement.
+assert_pin_unique "#190: Phase 4.1 Stage 1 records a note when the bullet has no extractable paths (H)" \
+  'the extractor found no file paths' "$IMPL_SKILL"
+assert_pin_unique "#185: Phase 4.1 Stage 2 no-op escape hatch when no paths extracted (E)" \
+  'this cross-check is a no-op' "$IMPL_SKILL"
+assert_pin_unique "#185: Phase 4.1 Stage 2 bare-filename matching rule (F)" \
+  'whose basename matches it counts as satisfied' "$IMPL_SKILL"
+assert_pin_unique "#185: Phase 4.1 Stage 2 keeps the absent-file self-heal condition (A)" \
+  'absent from the diff, perform the missing update' "$IMPL_SKILL"
+assert_pin_unique "#185: Phase 4.1 Stage 2 uses the three-dot origin/\$BASE...HEAD diff range (B)" \
+  'git diff --name-only "origin/$BASE...HEAD"' "$IMPL_SKILL"
+assert_pin_unique "#185: Phase 4.1 Stage 2 Blocked arm names the missing-content condition (C)" \
+  'Documentation Needed file content cannot be determined' "$IMPL_SKILL"
+# #190 finding 2: $BASE-empty recovery must mirror the Phase 1.4 fallback, not
+# just the config-get.sh read (the read alone returns nothing on malformed config).
+assert_pin_unique "#190: Phase 4.1 Stage 2 \$BASE recovery mirrors the Phase 1.4 fallback (I)" \
+  'applying its non-empty fallback and not just the config read' "$IMPL_SKILL"
+# #190 finding 3 (re-stated per review Critical #2): the FAILURE signal is the exit
+# status, never stdout emptiness — an rc-0 empty diff is a genuine all-absent result.
+assert_pin_unique "#190: Phase 4.1 Stage 2 distinguishes rc-0 empty stdout from a command failure (J)" \
+  'an rc-0 result with empty stdout is NOT a failure' "$IMPL_SKILL"
+# Review suggestion 1: a re-fetch that itself fails must fail CLOSED (Blocked),
+# never fall through to a path-absent verdict on a broken command.
+assert_pin_unique "#190: Phase 4.1 Stage 2 fails closed when the diff command stays broken" \
+  'never fall through to a path-absent verdict on a broken command' "$IMPL_SKILL"
+# #190 finding 1 (re-stated per review Important #3): the self-heal re-check is
+# remote-anchored — HEAD must match @{u}, so a no-op/rejected push cannot satisfy
+# the gate off a still-local commit.
+assert_pin_unique "#190: Phase 4.1 Stage 2 self-heal re-check is remote-anchored (K)" \
+  'the local branch is in sync with its upstream' "$IMPL_SKILL"
+# PR #190 fix-loop: the EXTRACTION side (gh issue view | helper) must read the
+# exit status, not stdout emptiness — a failed gh issue view (auth/network/wrong
+# number) emits empty stdout indistinguishable from a genuinely empty bullet and
+# would silently disable the whole gate. Both stages capture GH_RC/HELPER_RC and
+# fail closed; assert the shared contract appears in BOTH stages (coupled site).
+assert_eq "#190 fix-loop: Phase 4.1 captures GH_RC on the extraction read in BOTH stages" \
+  "2" "$(pin_count 'GH_RC=$?' "$IMPL_SKILL")"
+assert_eq "#190 fix-loop: Phase 4.1 fail-closed extraction contract pinned in BOTH stages" \
+  "2" "$(pin_count 'never treat its empty stdout as a no-op' "$IMPL_SKILL")"
+
+# ── issue #185 Addendum: deterministic extraction helper (fixture matrix) ────
+# The helper is the deterministic boundary the Addendum mandates; test its
+# BEHAVIOR over the required input-shape matrix (bullet-with-paths, no-paths,
+# absent, path-in-another-section-NOT-extracted) rather than relying on the
+# shadow review to catch extraction misses. This is the adversarial input-shape
+# sweep the CLAUDE.md best-effort-parser convention calls for.
+EXTRACT_HELPER="$LIB/../scripts/extract-doc-needed-paths.sh"
+assert_eq "#185A helper exists and is executable" "yes" \
+  "$([ -x "$EXTRACT_HELPER" ] && echo yes || echo no)"
+
+# Case 1: a bullet naming paths emits exactly those paths — and ONLY those:
+# a path in another bullet (Approach/Potential Gotchas) and a non-path skill
+# token (devflow:docs) inside the bullet are both excluded.
+fx_paths="## Implementation Notes
+
+- **Approach** — edit \`scripts/foo.sh\`.
+- **Documentation Needed** — update \`docs/DEVFLOW_SYSTEM_OVERVIEW.md\` and docs/implement-skill.md; also \`README.md\` via the \`devflow:docs\` subagent.
+- **Potential Gotchas** — see path/to/ignored.py"
+assert_eq "#185A matrix: bullet-with-paths emits exactly the named paths (scoped, no skill token)" \
+  "$(printf 'README.md\ndocs/DEVFLOW_SYSTEM_OVERVIEW.md\ndocs/implement-skill.md')" \
+  "$(printf '%s\n' "$fx_paths" | bash "$EXTRACT_HELPER")"
+
+# Case 2: a bullet with no file paths is a no-op (empty output).
+fx_none="## Implementation Notes
+
+- **Documentation Needed** — No external or customer docs affected."
+assert_eq "#185A matrix: bullet-with-no-paths emits nothing" "" \
+  "$(printf '%s\n' "$fx_none" | bash "$EXTRACT_HELPER")"
+
+# Case 3: an absent Documentation Needed bullet is a no-op (empty output).
+fx_absent="## Technical Context
+
+- references docs/should-not.md"
+assert_eq "#185A matrix: absent Documentation Needed bullet emits nothing" "" \
+  "$(printf '%s\n' "$fx_absent" | bash "$EXTRACT_HELPER")"
+
+# Case 4: a path mentioned in ANOTHER section must NOT be extracted (scope).
+fx_other="## Current Behavior
+
+refs docs/should-not-extract.md
+
+## Implementation Notes
+
+- **Documentation Needed** — update \`docs/yes.md\`."
+assert_eq "#185A matrix: a path in another section is NOT extracted" "docs/yes.md" \
+  "$(printf '%s\n' "$fx_other" | bash "$EXTRACT_HELPER")"
+
+# Case 5 (regression — caught dogfooding the real issue #185 body): a LATER
+# bullet whose prose MENTIONS "**Documentation Needed**" (the issue template's
+# own Potential Gotchas bullet does exactly this) must close the scope, not
+# re-open it. The open-match is anchored to the bullet label; only docs/real.md
+# (named in the actual Documentation Needed bullet) is extracted, and a bare
+# extension reference (\`.md\`) in the mentioning bullet is not.
+fx_mention="## Implementation Notes
+
+- **Documentation Needed** — update \`docs/real.md\`.
+- **Potential Gotchas** — the \`**Documentation Needed**\` bullet lives within \`## Implementation Notes\`; do not extract \`other/leak.md\` named here, and ignore bare \`.md\` / \`.sh\` tokens."
+assert_eq "#185A matrix: a later bullet mentioning the label in prose does NOT re-open scope" \
+  "docs/real.md" \
+  "$(printf '%s\n' "$fx_mention" | bash "$EXTRACT_HELPER")"
+
+# Case 6 (PR #190 fix-loop): a bare, un-backticked filename at a sentence
+# boundary must still be extracted. The tokenizer glues the trailing sentence
+# period (`CHANGELOG.md.`); the helper trims it so the extension test matches.
+# Without the trim the deliverable is silently dropped — under-enforcing in the
+# gate's own lenient basename-match domain.
+fx_period="## Implementation Notes
+
+- **Documentation Needed** — update CHANGELOG.md."
+assert_eq "#190 fix-loop: un-backticked filename with a trailing sentence period IS extracted" \
+  "CHANGELOG.md" \
+  "$(printf '%s\n' "$fx_period" | bash "$EXTRACT_HELPER")"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "scaffold-config.sh"
@@ -8348,6 +8510,94 @@ done
 # devflow:<name> roster pin) applies here too. Pin the whole parenthesized roster so a
 # future edit that drops an agent turns this row red instead of shipping silently.
 assert_pin_unique "#141 implement skill names all five review agents in its Phase-3 roster line" '(code-reviewer, silent-failure-hunter, comment-analyzer, type-design-analyzer, pr-test-analyzer)' "$FDROOT/skills/implement/SKILL.md"
+
+# (issue #183 / PR #187) CHANGELOG reconciliation step contract pins. Guards four
+# load-bearing clauses in docs-release-notes SKILL.md: (a) the all-PRs routing
+# contract, (b) the no-op condition, (c) the no-commit clause, and (d) the config-key
+# resolution line. Removing or rewording any of these pinned clauses turns the suite RED
+# (a presence pin catches deletion/reword, not a purely additive edit that leaves the clause).
+assert_pin_unique "#183 docs-release-notes SKILL Step 4b runs regardless of customer-visibility decision" \
+  'This step runs regardless of the Step 2 customer-visibility decision' "$FDROOT/skills/docs-release-notes/SKILL.md"
+assert_pin_unique "#183 docs-release-notes SKILL contains CHANGELOG reconciliation step with no-op condition" \
+  'section heading matching the manifest version, this step is a no-op' "$FDROOT/skills/docs-release-notes/SKILL.md"
+assert_pin_unique "#183 docs-release-notes SKILL Step 4b does not commit" \
+  'Do not commit — leave committing to the caller, consistent with Step 5' "$FDROOT/skills/docs-release-notes/SKILL.md"
+assert_pin_unique "#183 docs-release-notes SKILL resolves changelog_file via config-get.sh" \
+  'config-get.sh .docs.changelog_file CHANGELOG.md' "$FDROOT/skills/docs-release-notes/SKILL.md"
+
+# (PR #187 review hardening) Couple the `chore: bump version` commit-message prefix across
+# its producer and its consumer so the convention cannot drift on one side only. The
+# consumer (docs-release-notes Step 4b) uses this exact prefix ONLY to confirm a version bump
+# happened on the branch — it then selects the CHANGELOG section by the `## [version]` heading
+# whose version is read from the manifest, never from the commit subject; the producer
+# (implement prompt-extension) mandates emitting it. If either renames the prefix without the
+# other, Step 4b sees no bump and silently no-ops the reconciliation it exists to perform (the
+# fail-open the PR #187 review flagged). Pin the literal in both files.
+assert_pin_unique "#187 docs-release-notes Step 4b matches the chore: bump version prefix" \
+  'message begins with `chore: bump version`' "$FDROOT/skills/docs-release-notes/SKILL.md"
+assert_pin_unique "#187 implement prompt-extension mandates the chore: bump version prefix" \
+  'begins with the literal `chore: bump version`' "$FDROOT/.devflow/prompt-extensions/implement.md"
+
+# (PR #187 review round 2 — Critical + Important hardening) Step 4b's version-selection and
+# section-locator contract. The Critical the review caught: deriving the version from the bump
+# commit's free-text *subject* reconciles the wrong (already-shipped) section when a later
+# re-version leaves that subject stale — a silent fail-*wrong*. The version MUST come from the
+# authoritative manifest, with the bump commit used only to confirm a bump happened. Pin (a) the
+# manifest-sourced version read, (b) the two-dot scan range (this exact line has regressed before
+# — the two-dot vs three-dot distinction is load-bearing), and (c) the bracketed `## [version]` heading the consumer
+# searches, coupled to the implement extension's `## [x.y.z]` producer so a heading-convention
+# drift cannot silently no-op reconciliation on one side only.
+assert_pin_unique "#187 docs-release-notes Step 4b reads the shipped version from the plugin.json manifest (not the commit subject)" \
+  'jq -r .version .claude-plugin/plugin.json' "$FDROOT/skills/docs-release-notes/SKILL.md"
+assert_pin_unique "#187 docs-release-notes Step 4b scans the origin/main..HEAD two-dot commit range" \
+  'git log --oneline origin/main..HEAD' "$FDROOT/skills/docs-release-notes/SKILL.md"
+assert_pin_unique "#187 docs-release-notes Step 4b searches the bracketed Keep-a-Changelog heading (consumer side)" \
+  'bracketed Keep-a-Changelog heading `## [<version>]`' "$FDROOT/skills/docs-release-notes/SKILL.md"
+assert_pin_unique "#187 implement prompt-extension mandates the bracketed ## [x.y.z] CHANGELOG heading (producer side)" \
+  '`## [x.y.z]` entry to `CHANGELOG.md`' "$FDROOT/.devflow/prompt-extensions/implement.md"
+
+# (PR #187 review round 3 — corroborated test_gap + silent-failure hardening) The round-2
+# pins above prove the version-from-manifest *mechanism* exists (the `jq` read, the scan, the
+# bump-commit confirm) but not that the manifest is the version's *sole authority* — a future
+# edit could re-add subject-reading alongside the manifest read and every round-2 pin stays
+# GREEN (the additive-regression two review agents corroborated). Pin the **negative invariant**
+# (the discriminating clause that carries the fix) so a revert that *drops or softens* the
+# explicit prohibition trips RED — a presence pin cannot catch a purely additive re-add that
+# leaves the clause intact, but that would leave a self-contradicting skill body for review to
+# catch. Also pin the all-PRs reachability contract on BOTH the Objective restatement AND the
+# operative Step-2 decision body: the Objective clause (`CHANGELOG reconciliation still runs for
+# all PRs`) states the intent, but the site the agent actually obeys mid-Step-2 is the line that
+# flips the non-customer-visible exit to "skip Steps 3/3b/4, proceed to Step 4b" (pre-PR it read
+# "stop here. Do not modify any files."). Pinning ONLY the Objective restatement would let a
+# single-site revert of that operative decision strip the only path to Step 4b on the
+# non-customer-visible branch while the suite stayed GREEN (the framing-pinned-not-behavior
+# fail-open a review pass flagged). Pin both. Plus the **fail-loud breadcrumb** that keeps a
+# failed determination from masquerading as a clean no-op.
+assert_pin_unique "#187 docs-release-notes Step 4b pins the negative invariant (version NOT read from the commit subject)" \
+  'do not read the version string from its free-text subject' "$FDROOT/skills/docs-release-notes/SKILL.md"
+assert_pin_unique "#187 docs-release-notes Objective restates the all-PRs reconciliation contract" \
+  'CHANGELOG reconciliation still runs for all PRs' "$FDROOT/skills/docs-release-notes/SKILL.md"
+assert_pin_unique "#187 docs-release-notes Step 2 operative decision routes non-customer-visible to Step 4b (not 'stop')" \
+  'If the PR is **not customer-visible**, skip Steps 3, 3b, and 4' "$FDROOT/skills/docs-release-notes/SKILL.md"
+assert_pin_unique "#187 docs-release-notes Step 4b fails loud on a failed determination (not a masked no-op)" \
+  'CHANGELOG reconciliation NOT performed' "$FDROOT/skills/docs-release-notes/SKILL.md"
+
+# (PR #187 review round 4 — pin the reconciliation PAYLOAD, not only its guards) The pins
+# above guard Step 4b's control-flow guards (routing, version source, no-op, fail-loud) but
+# left the operative *action* unpinned — a half-revert could hollow out the enumerate→trace→
+# correct payload and the suite would stay GREEN (the recurring framing-pinned-not-behavior
+# class). Pin (a) the trace-against-the-Step-1-diff clause — load-bearing because the Step-1
+# diff is the operand Step 4b's trace consumes, and Step 1 runs before the Step 2 branch so the
+# operand is reachable on every path — and (b) the correct-in-place mutation clause. Also pin
+# the no-bump-commit no-op branch for parity with the no-section branch already pinned above.
+assert_pin_unique "#187 docs-release-notes Step 4b traces each claim against the Step-1 diff (operative payload)" \
+  'confirm it against the diff already read in Step 1. Do not re-run' "$FDROOT/skills/docs-release-notes/SKILL.md"
+assert_pin_unique "#187 docs-release-notes Step 4b enumerates every factual claim (operative payload, parity with trace/correct)" \
+  'Enumerate every factual claim' "$FDROOT/skills/docs-release-notes/SKILL.md"
+assert_pin_unique "#187 docs-release-notes Step 4b corrects stale claims in place (operative payload)" \
+  'Rewrite only the specific sentence or clause that is stale' "$FDROOT/skills/docs-release-notes/SKILL.md"
+assert_pin_unique "#187 docs-release-notes Step 4b no-bump-commit no-op branch (parity with the no-section branch)" \
+  'no version-bump commit found on branch' "$FDROOT/skills/docs-release-notes/SKILL.md"
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.

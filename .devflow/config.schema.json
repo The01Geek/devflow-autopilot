@@ -228,6 +228,11 @@
           "description": "Customer-facing release-notes file maintained by /devflow:docs-release-notes.",
           "default": "docs/external/release-notes.md"
         },
+        "changelog_file": {
+          "type": "string",
+          "description": "Repository CHANGELOG file reconciled by /devflow:docs-release-notes Step 4b. The step reads the `## [version]` entry for the version in `.claude-plugin/plugin.json` (a `chore: bump version` commit only confirms a bump occurred; the version is never taken from its subject) and corrects any factual claims made stale by post-commit review corrections.",
+          "default": "CHANGELOG.md"
+        },
         "labels": {
           "type": "string",
           "description": "Comma-separated list of labels applied by /devflow:implement once its docs pass has run. Each entry is trimmed and empty entries are dropped, so \"DevFlow, Shipped\" applies both DevFlow and Shipped.",
