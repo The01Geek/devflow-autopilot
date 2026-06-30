@@ -5721,6 +5721,16 @@ for f in devflow-implement devflow; do
   blk="$(awk '/name: Mint workflow-capable token/{f=1} f{print} f&&/^      - name:/&&!/Mint workflow-capable/{exit}' "$WFF")"
   assert_eq "app-token: $f.yml mint step is fail-loud (no continue-on-error)" "" \
     "$(printf '%s\n' "$blk" | grep -E 'continue-on-error' || true)"
+  # (4a) The step-id ↔ output-reference coupling (AC 2). The mint step MUST carry
+  #      `id: app-token`, because the github_token expression consumes
+  #      `steps.app-token.outputs.token`. Renaming the id (leaving the consumer line
+  #      untouched) would resolve the output to empty on every run and silently and
+  #      permanently fall the opt-in back to GITHUB_TOKEN — the exact silent
+  #      degradation AC 6 exists to prevent, reached via a wiring typo. Pin the id
+  #      inside the extracted mint-step block so the two coupled sites can't drift
+  #      apart while the suite stays green.
+  assert_eq "app-token: $f.yml mint step carries id: app-token (couples to steps.app-token.outputs.token)" "1" \
+    "$(printf '%s\n' "$blk" | grep -cE '^[[:space:]]*id:[[:space:]]*app-token[[:space:]]*$')"
 done
 # (5) The read-only runner stays untouched: NO App-token mint step, and it keeps its
 #     plain GITHUB_TOKEN (AC 4, AC 10).
@@ -5744,6 +5754,11 @@ assert_eq "app-token: cloud-setup.md documents Workflows: write App permission" 
 OV="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
 assert_eq "app-token: overview §15 no longer asserts a bare 'No GitHub App.'" "0" \
   "$(grep -cF 'No GitHub App.' "$OV")"
+# Positive complement to the negative check above (AC 8): the §15 reframe must
+# actually mention the optional App by its opt-in variable, so the bullet can't lose
+# all mention of the optional App and still pass on the old-string-absent check alone.
+assert_eq "app-token: overview §15 positively documents the optional App (DEVFLOW_APP_ID)" "yes" \
+  "$(grep -qF 'DEVFLOW_APP_ID' "$OV" && echo yes || echo no)"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "devflow-review.yml first-ready gate invariant"
