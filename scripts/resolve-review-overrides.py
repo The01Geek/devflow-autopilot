@@ -149,7 +149,7 @@ def _config_get(config_get, config_file, dotted_key, warnings):
 
     We always pass a default ("") to config-get.sh, so an absent key/file is a
     clean exit 0 with empty stdout — NOT an error. A non-zero exit therefore
-    signals a genuine failure (malformed config.json → exit 2, missing `node` →
+    signals a genuine failure (malformed config.json → exit 2, missing `python3` →
     exit 2, bad args → exit 2), which we surface as a warning rather than
     silently collapsing to "absent" (a fat-fingered config would otherwise drop
     every override with no diagnostic). Appends to `warnings`; never raises.
