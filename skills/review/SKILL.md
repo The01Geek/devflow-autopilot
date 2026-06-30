@@ -550,6 +550,22 @@ Output: `Phase 3/4: Running review agents...`
 
 ### 3.1 Launch existing review agents in parallel
 
+**Dirty-tree backstop — snapshot before dispatch (mandatory).** Review/analysis agents are advisory and must never modify the working tree (their definitions forbid it; any mutation/half-revert check goes on a `mktemp` copy). Independently of agent compliance, snapshot the working tree immediately before launching the Phase 3.1 batch so a dropped in-place restore is caught deterministically rather than incidentally — Phase 3.2 compares against this snapshot after the batch returns and restores any agent-introduced modification:
+
+```bash
+if ! GIT_STATUS_BEFORE=$(git status --porcelain); then
+  # The snapshot itself failed (held .git/index.lock, corrupt index, FS/OOM error). Do NOT
+  # fall through with an empty baseline — an empty BEFORE would later read every dirtied path
+  # as "agent-introduced" and authorize `git checkout` against the orchestrator's OWN live
+  # edits. Fail closed: disable the backstop for this dispatch (3.2 short-circuits on the
+  # sentinel) with an attributable breadcrumb, rather than risk a destructive restore.
+  echo "::warning::devflow review: could not snapshot the working tree before dispatch (git status failed); dirty-tree backstop DISABLED for this dispatch — no after-compare, no auto-restore" >&2
+  GIT_STATUS_BEFORE=$'\x01__DIRTY_TREE_BACKSTOP_DISABLED__'
+fi
+```
+
+This scopes the assertion to the agent-dispatch window only, so it never flags the orchestrator's own legitimate edits made outside it. (In the read-only `/devflow:review` profile the agents have no write tools, so the snapshots match and the restore below never fires; the backstop earns its keep in the write-enabled `/devflow:review-and-fix` and `/devflow:implement` tiers, where it also runs verbatim — including the Step 2.6 shadow pass, which re-executes these same Phases 0–4.3.)
+
 Launch all agents in a single message using multiple Agent tool calls. For each agent, pass a prompt telling it to review the changes.
 
 **Resolve overrides for the Phase-3 roster first.** After the Phase 3.1 applicability gates decide which agents actually launch this run, pass that exact roster (the always-on four — `code-reviewer`, `silent-failure-hunter`, `comment-analyzer`, and the final-pass `devflow:requesting-code-review` dispatched as a `general-purpose` Task — plus any gated-in `type-design-analyzer` / `pr-test-analyzer`) to `resolve-review-overrides.py` per **Per-Subagent Model/Effort Overrides** above. Materialize one `--agents` block from its output and dispatch each Phase-3 agent through it; do **not** request overrides for a gated-out agent (only emit overrides for agents actually dispatched). The final-pass reviewer's override is keyed under `devflow:requesting-code-review` even though it is dispatched as a `general-purpose` Task (see its dispatch note below).
@@ -668,6 +684,64 @@ Run these steps and add any finding to the Phase 3 findings set (it is collected
 The completeness critic is a **finding-producing pass, not a verdict override**: it injects findings into the set Phase 4.2 already grades by severity. It adds **no** new Phase 4.2 rule. Because it lives here in the shared Phases 0–4.3, both standalone `/devflow:review` and the `/devflow:review-and-fix` fix loop apply it without any paraphrase in the fix-loop skill.
 
 ### 3.2 Collect results
+
+**Dirty-tree backstop — compare after dispatch (mandatory).** Before extracting findings, confirm the Phase 3.1 review-agent batch left the working tree unchanged. Compare against the `GIT_STATUS_BEFORE` snapshot taken before dispatch; on any divergence the dispatch violated the advisory contract, so record it as a finding (never discard it silently) and restore only the snapshot-delta paths — those whose **path** was clean at snapshot time and became dirty during the dispatch window. The restore set is computed by **path column** (not whole porcelain line), so the guarantee is exact: any path the orchestrator had **already** modified before dispatch is left to the human — its `git checkout` is never run even if an agent changes its status byte further — so a concurrent legitimate edit is never clobbered. The one residual the compare cannot *detect* (as opposed to *restore*) is an agent's further edit to an already-dirty path that does not change its status byte: it produces an identical porcelain line, so the divergence test does not fire. That path is intentionally never auto-restored regardless; the Step 2.6 shadow + the post-shadow edit gate are the backstop for that undetected residual.
+
+```bash
+if [ "$GIT_STATUS_BEFORE" = $'\x01__DIRTY_TREE_BACKSTOP_DISABLED__' ]; then
+  : # before-snapshot failed in 3.1 (already surfaced there); backstop disabled this dispatch
+elif ! GIT_STATUS_AFTER=$(git status --porcelain); then
+  # After-snapshot failed. Do NOT misattribute a git failure as an agent mutation, and do NOT
+  # run any restore off an empty AFTER — surface a DISTINCT, attributable breadcrumb instead.
+  echo "::warning::devflow review: could not snapshot the working tree after the Phase 3.1 dispatch (git status failed); dirty-tree verification SKIPPED this dispatch — this is NOT an agent mutation" >&2
+elif [ "$GIT_STATUS_AFTER" != "$GIT_STATUS_BEFORE" ]; then
+  # Restore set = paths CLEAN at snapshot time that became dirty during the dispatch window.
+  # Compare the PATH column (status prefix stripped), NOT the whole porcelain line: a path the
+  # orchestrator had ALREADY modified before dispatch must never be checked out even if an
+  # agent changed its status byte further (` M f` -> `MM f`) — a whole-line compare would put
+  # such a path in the delta and clobber a concurrent legitimate edit. By-path set-difference
+  # leaves every already-dirty path out of CHANGED_PATHS (left to the human); its further
+  # mutation is still surfaced by the divergence breadcrumb, just never auto-restored.
+  CHANGED_PATHS=$(comm -13 \
+    <(printf '%s\n' "$GIT_STATUS_BEFORE" | sed 's/^...//' | sort -u) \
+    <(printf '%s\n' "$GIT_STATUS_AFTER"  | sed 's/^...//' | sort -u))
+  if [ -z "$CHANGED_PATHS" ]; then
+    # Divergence with an EMPTY restore set: an already-dirty path's status byte changed during
+    # the dispatch window (its path is in BOTH snapshots, so the by-path set-difference excludes
+    # it). Surface it accurately — nothing is auto-restored — rather than claiming a restore.
+    echo "::warning::devflow review: a Phase 3.1 review-agent dispatch changed the status of an already-dirty path (status byte only, no clean path newly dirtied); nothing auto-restored — left for the Step 2.6 shadow and the human" >&2
+  else
+    # CHANGED_PATHS is the snapshot delta (paths clean at snapshot, now dirty). Restore is
+    # best-effort and per-path. Restore from HEAD (NOT `git checkout -- "$p"`, which restores
+    # the worktree from the INDEX and so re-materializes a STAGED agent mutation while exiting
+    # 0 — a fail-open that reports a clobber as restored). The `git checkout HEAD --` form (used
+    # below) undoes a staged or unstaged tracked-file modification. Then trust the TREE STATE, not the exit
+    # code: re-run `git status --porcelain` for the path and emit the per-path breadcrumb iff it
+    # is STILL dirty — so an untracked or staged-new file the agent created (not auto-deleted; it
+    # could be a legitimate orchestrator artifact) is surfaced per-path and never falsely reported
+    # as restored. LIMITATION: a renamed/quoted/special-char path that porcelain escaped is a
+    # mangled token (e.g. `old -> new`), not a real pathspec, so its per-path re-check matches
+    # nothing and its individual line may not fire and it is not auto-restored — but it is still
+    # named in the AGGREGATE divergence breadcrumb + the Important finding below, so it is not
+    # silently dropped; it is left to the human + the Step 2.6 shadow (porcelain's inherent limit).
+    # The aggregate line below says "attempting" — each restorable path's actual outcome is its own warning.
+    echo "::warning::devflow review: a Phase 3.1 review-agent dispatch modified the working tree (advisory review agents must never mutate it); affected paths: ${CHANGED_PATHS//$'\n'/ }; recording an Important finding and attempting best-effort restore of the snapshot delta (per-path outcome in the warnings below)" >&2
+    # Feed paths via `printf '%s\n' | while read` rather than an unquoted heredoc: an
+    # unquoted heredoc would shell-expand a `$`/backtick/backslash in a pathname before
+    # the loop sees it. `printf '%s'` emits the bytes verbatim. (The pipe runs the loop in
+    # a subshell, which is fine — it only emits breadcrumbs and restores; no state escapes.)
+    printf '%s\n' "$CHANGED_PATHS" | while IFS= read -r p; do
+      [ -n "$p" ] || continue
+      restore_err=$(git checkout HEAD -- "$p" 2>&1)
+      if [ -n "$(git status --porcelain -- "$p")" ]; then
+        echo "::warning::devflow review: path '$p' still dirty after restore attempt (e.g. an untracked or staged-new file the agent created — never auto-deleted — or a renamed/quoted path git could not restore; git said: ${restore_err:-none}) — left as-is for human inspection" >&2
+      fi
+    done
+  fi
+fi
+```
+
+When this fires (the non-empty-`CHANGED_PATHS` branch), add an **Important** finding to the Phase 3 findings set — attributed to the Phase 3.1 review-agent dispatch, naming the affected paths (`CHANGED_PATHS`) it **attempted** to restore (best-effort; an untracked or staged-new file it could not restore is named in its own per-path warning above, while a renamed/quoted/special-char path that porcelain escaped — whose mangled token is not a real pathspec — is named here in the aggregate path list rather than a per-path line, never silently dropped) — carrying a `defect_signature` (`kind: "other"`, `file` the first affected path) so it flows through Phase 4 aggregation like any other finding. The attributable breadcrumb plus the finding mean a dropped restore is caught and recorded, never silently swallowed.
 
 Collect all agent responses. Extract findings, their severity labels (Critical, Important/Major, Suggestion/Minor), and their `defect_signature` blocks. **If the Phase 3.1.5 completeness-critic pass ran and produced a finding, include it here** as a single-source finding (flag it single-source like any N=1 finding); it carries a `defect_signature`, so it corroborates mechanically with any agent that independently flagged the same coverage gap.
 

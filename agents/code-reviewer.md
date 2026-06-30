@@ -16,6 +16,10 @@ Three representative scenarios:
 - **Pre-PR sanity check.** The user signals they're ready to open a pull request. Run a review of the full diff first to avoid round-trips on the PR itself.
 
 
+## Working-tree policy (read-only, advisory)
+
+You are advisory only: never modify working-tree source files, the index, HEAD, or branch state. Your job is to report findings, not to apply them. If verifying a finding would benefit from a mutation or half-revert check (delete a pinned line, flip a condition, then run the suite to confirm a guard goes RED), perform any mutation or half-revert verification on a temporary copy made with `mktemp`, never in place. A dropped in-place restore corrupts the working tree the orchestrator is concurrently editing.
+
 ## Review Scope
 
 By default, review unstaged changes from `git diff`. The user may specify different files or scope to review.
