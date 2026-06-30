@@ -1730,6 +1730,16 @@ assert_pin_red_on_removal "#194 (B) implement: deleting the assertion-count-rose
   "the suite's assertion count rose" "$DEF_SKILL"
 assert_pin_red_on_removal "#194 (B) review-and-fix: deleting the assertion-count-rose conjunct turns its pin RED" \
   "the suite's assertion count rose" "$MAXI_SKILL"
+# (B)'s OTHER conjunct — "its named assertion appears in the run as a PASS" — is operatively
+# distinct from count-rose (it catches the case where the count rose but the assertion that
+# passed is not the one you added; count-rose catches the case where nothing new ran), so by
+# the same one-pin-per-operative-sentence rule it gets its own per-file pin. The two skills word
+# the clause slightly differently (implement: "actually appears"; review-and-fix: "appears"),
+# so the per-file literals differ — each verified to appear exactly once in its own file.
+assert_pin_red_on_removal "#194 (B) implement: deleting the named-assertion-appears-as-PASS conjunct turns its pin RED" \
+  'its named assertion actually appears in the run as a PASS' "$DEF_SKILL"
+assert_pin_red_on_removal "#194 (B) review-and-fix: deleting the named-assertion-appears-as-PASS conjunct turns its pin RED" \
+  'its named assertion appears in the run as a PASS' "$MAXI_SKILL"
 # ── #192: review/analysis agents must never mutate the live working tree ──────────────
 # Two coupled layers, each pinned with a mutation-proven assert_pin_red_on_removal so a
 # half-applied removal of the contract turns the suite RED (issue #192 AC4):
