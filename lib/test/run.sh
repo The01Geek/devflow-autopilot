@@ -1702,6 +1702,14 @@ assert_pin_unique "sweep 2.3.4a: implement SKILL keeps the clean-path-evidence s
   "log a summary (the count checked, the result) even on the clean path where nothing needs changing" "$IMPL_SKILL"
 assert_pin_unique "sweep 2.3.6: implement SKILL keeps the per-branch-breadcrumb sub-check" \
   "confirm each branch emits a distinct diagnostic naming which condition fired" "$IMPL_SKILL"
+# Coupled-invariant: the same two sub-checks are mirrored in docs/implement-skill.md
+# (the SKILL <-> docs pair CLAUDE.md names as a coupled invariant). Pin the doc half too
+# so a one-sided revert/gutting of either mirror clause trips the suite instead of letting
+# the SKILL and its doc rationale silently desync.
+assert_pin_unique "sweep 2.3.4a: docs/implement-skill.md mirrors the clean-path-evidence sub-check" \
+  "(count, result) even when nothing needs changing" "$IMPL_DOC"
+assert_pin_unique "sweep 2.3.6: docs/implement-skill.md mirrors the per-branch-breadcrumb sub-check" \
+  "it confirms each branch emits a distinct diagnostic naming which condition fired" "$IMPL_DOC"
 
 # Drift guard: issue #159 B2's severity-aware exit in Phase 3.3 — the implement run must NOT
 # fully Block after the AWUSF + bounded-re-review "two consecutive fails"; it soft-proceeds
