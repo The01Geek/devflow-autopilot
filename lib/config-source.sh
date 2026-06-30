@@ -5,8 +5,9 @@
 #   devflow_conf '.devflow_retrospective.min_occurrences' 2
 #
 # This is an ergonomic shell wrapper; the actual parsing is delegated to
-# scripts/config-get.sh (the ONE config-reading implementation, Node-based —
-# no Python/PyYAML/yq). config-source.sh never aborts the sourcing chain.
+# scripts/config-get.sh (the ONE config-reading implementation, python3-based —
+# no PyYAML/yq, since config is JSON). config-source.sh never aborts the
+# sourcing chain.
 set -euo pipefail
 # Repo root via git; fall back to cwd when not in a git tree (don't abort the
 # sourcing chain under `set -e`).
@@ -19,9 +20,9 @@ _DEVFLOW_CONF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _DEVFLOW_CONFIG_GET="${_DEVFLOW_CONF_DIR}/../scripts/config-get.sh"
 
 # Read a dot-path, returning $default when the key/file is absent or the
-# resolver fails (so a parse error or missing `node` never aborts the caller).
+# resolver fails (so a parse error or missing `python3` never aborts the caller).
 # config-get.sh exit codes: 0 = value/default printed; 1 = key absent and no
-# default; 2 = bad args / missing node / JSON parse error. Only exit 2 is a
+# default; 2 = bad args / missing python3 / JSON parse error. Only exit 2 is a
 # genuine failure — re-emit it as a ::warning:: so a malformed config.json
 # doesn't silently degrade every value to its default with no breadcrumb.
 devflow_conf() {

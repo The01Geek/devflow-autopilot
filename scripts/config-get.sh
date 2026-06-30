@@ -11,15 +11,17 @@
 #                empty string ("") to explicitly request empty-on-missing.
 #   CONFIG_FILE  defaults to .devflow/config.json
 #
-# Parses with Node (`node`), which is guaranteed wherever the DevFlow plugin
-# runs (Claude Code is a Node CLI) and preinstalled on GitHub runners — no
-# Python, PyYAML, or yq required. This is the ONE config-reading implementation
-# in DevFlow; lib/config-source.sh delegates here.
+# Parses with python3, which is a hard DevFlow prerequisite (lib/preflight.sh
+# requires python3 >= 3.11; the whole scripts/*.py surface depends on it) and so
+# is guaranteed on every host where DevFlow runs — including non-Node hosts where
+# `node` is absent. Uses only the stdlib `json` module; no PyYAML or yq required
+# (config is JSON). This is the ONE config-reading implementation in DevFlow;
+# lib/config-source.sh delegates here.
 #
 # Exit codes:
 #   0  value (or default) printed to stdout
 #   1  key not found and no default given
-#   2  bad arguments, missing `node`, or JSON parse error
+#   2  bad arguments, missing `python3`, or JSON parse error
 
 set -euo pipefail
 
@@ -53,32 +55,46 @@ if [ ! -f "$config_file" ]; then
     exit 1
 fi
 
-if ! command -v node >/dev/null 2>&1; then
-    echo "config-get.sh: 'node' is required to read $config_file" >&2
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "config-get.sh: 'python3' is required to read $config_file" >&2
     exit 2
 fi
 
 # Walk the dot-path. Missing/null → empty stdout (caller applies default).
 # Lists join with ',' (matches prior behavior, e.g. allowed_bots/watched_authors).
-value=$(DEVFLOW_KEY="${key#.}" DEVFLOW_CONFIG="$config_file" node -e '
-  const fs = require("fs");
-  let data;
-  try {
-    data = JSON.parse(fs.readFileSync(process.env.DEVFLOW_CONFIG, "utf8"));
-  } catch (e) {
-    process.stderr.write("config-get.sh: " + e.message + "\n");
-    process.exit(2);
-  }
-  let cur = data;
-  for (const part of process.env.DEVFLOW_KEY.split(".")) {
-    if (cur === null || typeof cur !== "object" || Array.isArray(cur) || !(part in cur)) {
-      process.exit(0);
-    }
-    cur = cur[part];
-  }
-  if (cur === null || cur === undefined) process.exit(0);
-  if (Array.isArray(cur)) process.stdout.write(cur.join(","));
-  else process.stdout.write(String(cur));
+# coerce() reproduces the prior Node String()/Array.join semantics byte-for-byte:
+# booleans emit lowercase true/false (NOT Python's True/False), null → empty,
+# arrays comma-join their coerced elements, an object → "[object Object]".
+value=$(DEVFLOW_KEY="${key#.}" DEVFLOW_CONFIG="$config_file" python3 -c '
+import json, os, sys
+try:
+    with open(os.environ["DEVFLOW_CONFIG"], encoding="utf-8") as f:
+        data = json.load(f)
+except Exception as e:
+    sys.stderr.write("config-get.sh: " + str(e) + "\n")
+    sys.exit(2)
+
+
+def coerce(v):
+    if v is None:
+        return ""
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, list):
+        return ",".join(coerce(x) for x in v)
+    if isinstance(v, dict):
+        return "[object Object]"
+    return str(v)
+
+
+cur = data
+for part in os.environ["DEVFLOW_KEY"].split("."):
+    if not isinstance(cur, dict) or part not in cur:
+        sys.exit(0)
+    cur = cur[part]
+if cur is None:
+    sys.exit(0)
+sys.stdout.write(coerce(cur))
 ')
 
 if [ -z "$value" ]; then

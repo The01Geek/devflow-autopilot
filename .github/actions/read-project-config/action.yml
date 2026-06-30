@@ -1,10 +1,10 @@
 name: 'Read project config'
 description: |
   Emit the contents of `.devflow/config.json` as a single JSON string output.
-  The config is already JSON, so this validates it with Node (preinstalled on
-  runners) and passes it through — no yq, no PyYAML. Consumers read fields with
-  `fromJSON(steps.<id>.outputs.json).path.to.field`. Repository must already be
-  checked out (typically via `actions/checkout@v6`).
+  The config is already JSON, so this validates it with python3 (a hard DevFlow
+  prerequisite) and passes it through — no yq, no PyYAML, no Node. Consumers read
+  fields with `fromJSON(steps.<id>.outputs.json).path.to.field`. Repository must
+  already be checked out (typically via `actions/checkout@v6`).
 
 outputs:
   json:
@@ -25,16 +25,18 @@ runs:
           exit 1
         fi
         # Validate + re-emit compactly so the output is guaranteed-valid JSON.
-        JSON=$(DEVFLOW_CONFIG="$CONFIG" node -e '
-          const fs = require("fs");
-          try {
-            process.stdout.write(JSON.stringify(JSON.parse(
-              fs.readFileSync(process.env.DEVFLOW_CONFIG, "utf8"))));
-          } catch (e) {
-            process.stderr.write("::error::invalid JSON in " +
-              process.env.DEVFLOW_CONFIG + ": " + e.message + "\n");
-            process.exit(1);
-          }')
+        # The python lines below are indented to the `run: |` block indent (8
+        # spaces); YAML strips that, so python receives column-0 source.
+        JSON=$(DEVFLOW_CONFIG="$CONFIG" python3 -c '
+        import json, os, sys
+        cfg = os.environ["DEVFLOW_CONFIG"]
+        try:
+            with open(cfg, encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception as e:
+            sys.stderr.write("::error::invalid JSON in " + cfg + ": " + str(e) + "\n")
+            sys.exit(1)
+        sys.stdout.write(json.dumps(data, separators=(",", ":"), ensure_ascii=False))')
         # Multiline GITHUB_OUTPUT heredoc — robust to any future config content.
         delim="EOF_$(date +%s%N)_$$"
         {

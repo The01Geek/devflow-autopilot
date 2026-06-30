@@ -255,7 +255,7 @@ DevFlow maintains **exactly one** marker-tagged comment on the GitHub issue for 
 ### Phase 4: Documentation
 - **4.0** File follow-up issues for deferred ACs.
 - **4.0.5** Merge all run-scoped deferral manifests into one slug-level aggregate, then file **one follow-up issue per source file** (via `scripts/file-deferrals.py`) for review findings deliberately deferred during the fix loop.
-- Both deferral channels (4.0 and 4.0.5) label the follow-up issues they file with the configured **`deferred.labels`** (comma-separated, default `DevFlow,Deferred`) — resolved via `config-get.sh`, normalized like `docs.labels`, ensured via `ensure-label.sh`, and applied best-effort after creation so a label hiccup never blocks filing (an empty/whitespace-only value applies none). Labeling lives in the skill, not `file-deferrals.py` (config stays Node-resolver territory); it is independent of the hardcoded `DevFlow` provenance label the retrospective scan matches.
+- Both deferral channels (4.0 and 4.0.5) label the follow-up issues they file with the configured **`deferred.labels`** (comma-separated, default `DevFlow,Deferred`) — resolved via `config-get.sh`, normalized like `docs.labels`, ensured via `ensure-label.sh`, and applied best-effort after creation so a label hiccup never blocks filing (an empty/whitespace-only value applies none). Labeling lives in the skill, not `file-deferrals.py` (config stays resolver territory — read through `config-get.sh`, not from Python); it is independent of the hardcoded `DevFlow` provenance label the retrospective scan matches.
 - **4.1** Update internal + external docs + release notes (via the `/devflow:docs` subagent); commit (`docs:`); apply configured labels (default `Documented`).
 - **4.2** Generate the PR description (`/devflow:pr-description`).
 - **4.3** Publish the PR (`gh pr ready`) — unless `devflow_implement.implement_pr_state` is `draft`, which leaves it the Phase 3.1 draft for a human to publish; set status `Complete`; emit the 🎉 reaction (both cases).
@@ -511,7 +511,7 @@ All telemetry is gated by config (`devflow_review_and_fix.efficiency_telemetry_e
 
 ## 17. Configuration reference
 
-The local tier needs **no config**. To customize, `/devflow:init` scaffolds `.devflow/config.json` (JSON, read by a single Node-based resolver, no `yq`/PyYAML prerequisite for config) and a `config.schema.json` your editor uses for autocomplete. Top-level keys:
+The local tier needs **no config**. To customize, `/devflow:init` scaffolds `.devflow/config.json` (JSON, read by a single python3-based resolver, no `yq`/PyYAML/Node prerequisite for config) and a `config.schema.json` your editor uses for autocomplete. Top-level keys:
 
 | Key | Purpose |
 |---|---|
