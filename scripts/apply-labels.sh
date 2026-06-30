@@ -29,18 +29,15 @@ set -uo pipefail
 NUMBER="${1:?Usage: apply-labels.sh <issue-or-pr-number> <label…>}"
 shift
 
-# Normalize the remaining args into a clean label list: split each arg on commas,
-# trim surrounding whitespace, drop empties. Accepts both `DevFlow Retrospective`
-# (separate args) and `"DevFlow,Deferred"` (one comma-separated arg), or a mix.
+# Normalize the args into a clean label list using the same split-on-commas / trim /
+# drop-empties pipeline the `docs.labels` / `deferred.labels` consumers use. Accepts
+# both `DevFlow Retrospective` (separate args) and `"DevFlow,Deferred"` (one
+# comma-separated arg), or a mix: `printf '%s\n' "$@"` already puts each arg on its
+# own line, so one pipe handles every arg.
 LABELS=()
-for _raw in "$@"; do
-    while IFS= read -r _lbl; do
-        # Trim leading/trailing whitespace.
-        _lbl="${_lbl#"${_lbl%%[![:space:]]*}"}"
-        _lbl="${_lbl%"${_lbl##*[![:space:]]}"}"
-        [ -n "$_lbl" ] && LABELS+=("$_lbl")
-    done < <(printf '%s\n' "$_raw" | tr ',' '\n')
-done
+while IFS= read -r _lbl; do
+    LABELS+=("$_lbl")
+done < <(printf '%s\n' "$@" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$')
 
 # Empty/whitespace-only label set → apply nothing (no POST), exit 0. This mirrors
 # the `[ -n "$CLEAN_LABELS" ] && …` guard the docs.labels/deferred.labels call

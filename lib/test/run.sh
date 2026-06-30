@@ -4646,7 +4646,7 @@ printf '%s' "$*" > "$(dirname "$0")/create-args"
 MARK="$(dirname "$0")/.created"
 case "$*" in
   *"--method POST"*"/labels"*)
-    if [ -f "$MARK" ]; then echo "gh: Validation Failed (HTTP 422): name already_exists" >&2; exit 1; fi
+    if [ -f "$MARK" ]; then echo '{"message":"Validation Failed","errors":[{"resource":"Label","code":"already_exists","field":"name"}],"status":"422"}' >&2; echo "gh: Validation Failed (HTTP 422)" >&2; exit 1; fi
     touch "$MARK"; echo '{}'; exit 0 ;;
   *) exit 0 ;;
 esac
@@ -4673,6 +4673,19 @@ EL_E3="$(DEVFLOW_GH="$EL_TMP/ghfail" bash "$LIB/../scripts/ensure-label.sh" DevF
 assert_eq "ensure-label: hard gh failure still exits 0 (best-effort)" "0" "$EL_R3"
 assert_eq "ensure-label: hard-failure breadcrumb names the failure" "yes" \
   "$(printf '%s' "$EL_E3" | grep -qiF 'could not ensure label' && echo yes || echo no)"
+# A 422 for a DIFFERENT validation reason (no `already_exists` code) must NOT be
+# swallowed as "already exists" — it routes to the failure breadcrumb. Guards the
+# /simplify narrowing that dropped the over-broad bare `HTTP 422` match.
+cat > "$EL_TMP/gh422" <<'STUB'
+#!/usr/bin/env bash
+echo '{"message":"Validation Failed","errors":[{"resource":"Label","code":"invalid","field":"name"}],"status":"422"}' >&2
+echo "gh: Validation Failed (HTTP 422)" >&2; exit 1
+STUB
+chmod +x "$EL_TMP/gh422"
+EL_E4="$(DEVFLOW_GH="$EL_TMP/gh422" bash "$LIB/../scripts/ensure-label.sh" DevFlow 2>&1 >/dev/null)"; EL_R4=$?
+assert_eq "ensure-label: non-already_exists 422 still exits 0 (best-effort)" "0" "$EL_R4"
+assert_eq "ensure-label: non-already_exists 422 is NOT swallowed as already-exists" "yes" \
+  "$(printf '%s' "$EL_E4" | grep -qiF 'could not ensure label' && ! printf '%s' "$EL_E4" | grep -qiF 'already exists' && echo yes || echo no)"
 rm -rf "$EL_TMP"
 
 # ── apply-labels.sh: REST label-apply helper (best-effort, always exit 0) ─────
