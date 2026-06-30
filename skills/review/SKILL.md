@@ -717,10 +717,14 @@ elif [ "$GIT_STATUS_AFTER" != "$GIT_STATUS_BEFORE" ]; then
     # 0 — a fail-open that reports a clobber as restored). The `git checkout HEAD --` form (used
     # below) undoes a staged or unstaged tracked-file modification. Then trust the TREE STATE, not the exit
     # code: re-run `git status --porcelain` for the path and emit the per-path breadcrumb iff it
-    # is STILL dirty — so an untracked file the agent created (not auto-deleted; it could be a
-    # legitimate orchestrator artifact), a staged-new file, or a renamed/quoted path git could
-    # not restore is surfaced (not silently dropped) and is never falsely reported as restored.
-    # The aggregate line below says "attempting" — each path's actual outcome is its own warning.
+    # is STILL dirty — so an untracked or staged-new file the agent created (not auto-deleted; it
+    # could be a legitimate orchestrator artifact) is surfaced per-path and never falsely reported
+    # as restored. LIMITATION: a renamed/quoted/special-char path that porcelain escaped is a
+    # mangled token (e.g. `old -> new`), not a real pathspec, so its per-path re-check matches
+    # nothing and its individual line may not fire and it is not auto-restored — but it is still
+    # named in the AGGREGATE divergence breadcrumb + the Important finding below, so it is not
+    # silently dropped; it is left to the human + the Step 2.6 shadow (porcelain's inherent limit).
+    # The aggregate line below says "attempting" — each restorable path's actual outcome is its own warning.
     echo "::warning::devflow review: a Phase 3.1 review-agent dispatch modified the working tree (advisory review agents must never mutate it); affected paths: ${CHANGED_PATHS//$'\n'/ }; recording an Important finding and attempting best-effort restore of the snapshot delta (per-path outcome in the warnings below)" >&2
     while IFS= read -r p; do
       [ -n "$p" ] || continue
@@ -735,7 +739,7 @@ EOF
 fi
 ```
 
-When this fires (the non-empty-`CHANGED_PATHS` branch), add an **Important** finding to the Phase 3 findings set — attributed to the Phase 3.1 review-agent dispatch, naming the affected paths (`CHANGED_PATHS`) it **attempted** to restore (best-effort; any path it could not restore — e.g. an untracked file the agent created or a renamed/quoted path — is named in its own per-path warning above, not silently dropped) — carrying a `defect_signature` (`kind: "other"`, `file` the first affected path) so it flows through Phase 4 aggregation like any other finding. The attributable breadcrumb plus the finding mean a dropped restore is caught and recorded, never silently swallowed.
+When this fires (the non-empty-`CHANGED_PATHS` branch), add an **Important** finding to the Phase 3 findings set — attributed to the Phase 3.1 review-agent dispatch, naming the affected paths (`CHANGED_PATHS`) it **attempted** to restore (best-effort; an untracked or staged-new file it could not restore is named in its own per-path warning above, while a renamed/quoted/special-char path that porcelain escaped — whose mangled token is not a real pathspec — is named here in the aggregate path list rather than a per-path line, never silently dropped) — carrying a `defect_signature` (`kind: "other"`, `file` the first affected path) so it flows through Phase 4 aggregation like any other finding. The attributable breadcrumb plus the finding mean a dropped restore is caught and recorded, never silently swallowed.
 
 Collect all agent responses. Extract findings, their severity labels (Critical, Important/Major, Suggestion/Minor), and their `defect_signature` blocks. **If the Phase 3.1.5 completeness-critic pass ran and produced a finding, include it here** as a single-source finding (flag it single-source like any N=1 finding); it carries a `defect_signature`, so it corroborates mechanically with any agent that independently flagged the same coverage gap.
 

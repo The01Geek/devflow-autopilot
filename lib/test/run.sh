@@ -1636,6 +1636,17 @@ assert_pin_red_on_removal "#192 backstop: deleting the after-snapshot fail-disti
 # INDEX), so a staged agent mutation is undone rather than re-materialized.
 assert_pin_red_on_removal "#192 backstop: deleting the restore-from-HEAD checkout action turns its pin RED" \
   'git checkout HEAD -- "$p"' "$REVIEW_SKILL"
+# Pin the remaining operative directives the full shadow flagged as AC4 gaps: the comm -13
+# DIRECTION (swapping to comm -23 would restore BEFORE-only paths and clobber the orchestrator's
+# own concurrent edits), the post-restore tree-state RE-CHECK (the trust-tree-state-not-exit-code
+# fix that surfaces an unrestorable/untracked path instead of falsely reporting it restored), and
+# the empty-delta already-dirty breadcrumb (the surfacing for a status-byte-only change).
+assert_pin_red_on_removal "#192 backstop: flipping the comm -13 restore-set direction turns its pin RED" \
+  'comm -13' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#192 backstop: deleting the post-restore tree-state re-check turns its pin RED" \
+  'git status --porcelain -- "$p"' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#192 backstop: deleting the empty-delta already-dirty breadcrumb turns its pin RED" \
+  'changed the status of an already-dirty path' "$REVIEW_SKILL"
 # Coupled-invariant drift guard: the "detect_all_audit is intentionally not persisted
 # into diff_profile" contract spans two mirror sites — the SKILL.md schema comment and
 # docs/efficiency-trace.md. Both must agree; pin each with its stable site-specific phrase.
