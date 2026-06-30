@@ -690,8 +690,8 @@ if [ "$GIT_STATUS_AFTER" != "$GIT_STATUS_BEFORE" ]; then
   # orchestrator artifact). Each restore is best-effort with its own breadcrumb.
   while IFS= read -r p; do
     [ -n "$p" ] || continue
-    git checkout -- "$p" 2>/dev/null || git restore -- "$p" 2>/dev/null \
-      || echo "::warning::devflow review: could not restore agent-modified path '$p' (left as-is for human inspection)" >&2
+    git checkout -- "$p" 2>/dev/null \
+      || echo "::warning::devflow review: could not restore agent-modified path '$p' (e.g. an untracked file the agent created — left as-is for human inspection)" >&2
   done <<EOF
 $CHANGED_PATHS
 EOF
