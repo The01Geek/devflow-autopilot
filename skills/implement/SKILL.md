@@ -273,13 +273,13 @@ The base branch is **read from config** (`base_branch` in `.devflow/config.json`
 # config-get.sh itself falls back to the supplied `main` default — printing it,
 # exit 0 — on the ordinary SOFT paths: a missing config file or an absent/empty
 # key. It does NOT apply the default on a HARD failure — a malformed/unreadable
-# .devflow/config.json, or a missing `node` (the resolver runtime) — which exits
+# .devflow/config.json, or a missing `python3` (the resolver runtime) — which exits
 # non-zero with empty stdout. So this guard exists only for those two hard paths:
 # catch the empty read and supply `main` here (config-get already handled the
 # soft paths). It trusts config-get's contract that it prints a fully-resolved
 # value or nothing, never a partial/garbage string.
 BASE=$(${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .base_branch main) || BASE=""
-[ -n "$BASE" ] || { echo "devflow: base_branch read failed (malformed config or missing node); falling back to 'main'" >&2; BASE=main; }
+[ -n "$BASE" ] || { echo "devflow: base_branch read failed (malformed config or missing python3); falling back to 'main'" >&2; BASE=main; }
 CUR=$(git branch --show-current 2>/dev/null) || CUR=""
 ```
 
@@ -950,7 +950,7 @@ EOF
 # outputs). It is NOT auto-populated — set it explicitly, e.g.:
 #   DEFERRED_ISSUE_NUMBERS="201 202"
 DEFERRED_ISSUE_NUMBERS="${DEFERRED_ISSUE_NUMBERS:-}"
-# Capture config-get's rc so a real read failure (corrupt config.json / missing node →
+# Capture config-get's rc so a real read failure (corrupt config.json / missing python3 →
 # exit 2 with empty stdout) is NOT silently indistinguishable from a deliberately-empty
 # value: both yield an empty CLEAN below, but only the failure leaves a breadcrumb. The
 # default arg covers the soft paths (missing file / unset key); rc≠0 is the hard path.
@@ -958,7 +958,7 @@ DEFERRED_ISSUE_NUMBERS="${DEFERRED_ISSUE_NUMBERS:-}"
 # blocks are ever executed under `set -e` (a bare `VAR=$(cmd); RC=$?` would abort at the
 # assignment before the capture; an `if`-condition assignment is exempt from `set -e`).
 if DEFERRED_LABELS=$(${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .deferred.labels DevFlow,Deferred); then DEFERRED_LABELS_RC=0; else DEFERRED_LABELS_RC=$?; fi
-[ "$DEFERRED_LABELS_RC" -eq 0 ] || workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0 could not read deferred.labels (config-get rc=$DEFERRED_LABELS_RC — corrupt config.json or node missing); deferred follow-up issues filed WITHOUT labels."
+[ "$DEFERRED_LABELS_RC" -eq 0 ] || workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0 could not read deferred.labels (config-get rc=$DEFERRED_LABELS_RC — corrupt config.json or python3 missing); deferred follow-up issues filed WITHOUT labels."
 CLEAN_DEFERRED_LABELS=$(echo "$DEFERRED_LABELS" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' | paste -sd, -)
 if [ -z "$DEFERRED_ISSUE_NUMBERS" ]; then
   # We only reach this block because deferred work WAS filed above, so an empty list
@@ -1072,18 +1072,19 @@ if [ -n "${FILED_NUMBERS:-}" ]; then
     workpad.py update $ISSUE_NUMBER --note "Filed follow-up issues for deferred review findings: #${NUMBERS_CSV}"
     # Apply the configured deferred.labels to each filed issue — same resolve/normalize/
     # ensure/apply idiom as Phase 4.0 (default DevFlow,Deferred; empty/whitespace → none).
-    # `file-deferrals.py` itself stays out of config-reading (config is Node-resolver
-    # territory); the skill owns labeling. Best-effort and post-filing, so a label hiccup
-    # never unwinds an already-filed issue.
+    # `file-deferrals.py` itself stays out of config-reading (config is resolver
+    # territory — read through config-get.sh, not re-parsed ad hoc); the skill owns
+    # labeling. Best-effort and post-filing, so a label hiccup never unwinds an
+    # already-filed issue.
     # Capture config-get's rc (same as Phase 4.0): a hard read failure (corrupt
-    # config.json / missing node → exit 2, empty stdout) yields an empty CLEAN that is
+    # config.json / missing python3 → exit 2, empty stdout) yields an empty CLEAN that is
     # otherwise indistinguishable from a deliberately-empty value — leave a breadcrumb so
     # the unlabeled outcome is attributable, not silent. The default arg covers the soft
     # paths (missing file / unset key); rc≠0 is the hard path. The `if`-condition form
     # keeps the rc capture alive even under `set -e` (a bare `VAR=$(cmd); RC=$?` aborts at
     # the assignment; an `if`-condition assignment is exempt).
     if DEFERRED_LABELS=$(${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .deferred.labels DevFlow,Deferred); then DEFERRED_LABELS_RC=0; else DEFERRED_LABELS_RC=$?; fi
-    [ "$DEFERRED_LABELS_RC" -eq 0 ] || workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5 could not read deferred.labels (config-get rc=$DEFERRED_LABELS_RC — corrupt config.json or node missing); deferred review-finding issues filed WITHOUT labels."
+    [ "$DEFERRED_LABELS_RC" -eq 0 ] || workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5 could not read deferred.labels (config-get rc=$DEFERRED_LABELS_RC — corrupt config.json or python3 missing); deferred review-finding issues filed WITHOUT labels."
     CLEAN_DEFERRED_LABELS=$(echo "$DEFERRED_LABELS" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' | paste -sd, -)
     if [ -n "$CLEAN_DEFERRED_LABELS" ]; then
         # `|| continue` just skips a blank entry (CLEAN already drops blanks — symmetric

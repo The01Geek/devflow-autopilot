@@ -628,6 +628,86 @@ CG_BAD="$(mktemp)"; printf '{ not valid json' > "$CG_BAD"
 assert_eq "cg: invalid JSON → exit 2" "2" "$?"
 rm -f "$CG_BAD"
 
+# node-absent path (issue #220): the resolver now reads config with python3, not
+# node. Prove it resolves correctly with `node` OFF PATH (python3 present) — the
+# Codex/WSL non-Node-host case the change targets. A curated bin dir holds only
+# what config-get.sh needs to run (its `#!/usr/bin/env bash` shebang → env + bash,
+# plus python3); node is deliberately omitted. PATH is set per-invocation so the
+# mutation can't leak into later assertions (run.sh uses set -u, not set -e).
+CG_NABIN="$(mktemp -d)/bin"; mkdir -p "$CG_NABIN"
+for _c in env bash python3 mktemp; do
+  _p="$(command -v "$_c")" && ln -sf "$_p" "$CG_NABIN/$_c"
+done
+# Guard: the sandbox must genuinely LACK node, else these assertions prove nothing.
+assert_eq "cg(node-absent): node is off the sandbox PATH" "yes" \
+  "$(PATH="$CG_NABIN" command -v node >/dev/null 2>&1 && echo no || echo yes)"
+assert_eq "cg(node-absent): present scalar resolves" "claude,example-bot" \
+  "$(PATH="$CG_NABIN" "$CG" .devflow.allowed_bots '' "$FIX")"
+assert_eq "cg(node-absent): array → comma-join resolves" "claude,example-bot" \
+  "$(PATH="$CG_NABIN" "$CG" .devflow_retrospective.watched_authors '' "$FIX")"
+assert_eq "cg(node-absent): nested int resolves" "2" \
+  "$(PATH="$CG_NABIN" "$CG" .devflow_retrospective.min_occurrences '' "$FIX")"
+# Boolean PARITY — the one place a python backend could diverge from node: emit
+# lowercase true/false, NOT Python's True/False. This gets its own named assertion.
+assert_eq "cg(node-absent): boolean emits lowercase 'true' (parity, not Python 'True')" "true" \
+  "$(PATH="$CG_NABIN" "$CG" .devflow_retrospective.enabled '' "$FIX")"
+assert_eq "cg(node-absent): missing key → default applied" "dfl" \
+  "$(PATH="$CG_NABIN" "$CG" .a.b.c dfl "$FIX")"
+
+# python3-absent (symmetric with the old node-absent behavior): exit 2 with a
+# python3-specific breadcrumb. config-source.sh's rc==2 handling (below) then
+# surfaces it as a ::warning:: and falls back to the default (AC: python3 absent).
+CG_PYBIN="$(mktemp -d)/bin"; mkdir -p "$CG_PYBIN"
+for _c in env bash mktemp; do
+  _p="$(command -v "$_c")" && ln -sf "$_p" "$CG_PYBIN/$_c"   # python3 deliberately omitted
+done
+CG_PYERR="$(mktemp)"
+PATH="$CG_PYBIN" "$CG" .x dfl "$FIX" >/dev/null 2>"$CG_PYERR"
+assert_eq "cg(python3-absent): exits 2" "2" "$?"
+assert_eq "cg(python3-absent): python3-specific breadcrumb on stderr" "yes" \
+  "$(grep -qF "'python3' is required" "$CG_PYERR" && echo yes || echo no)"
+rm -f "$CG_PYERR"
+
+# coerce() parity on the python3 backend (issue #220): the hand-written coerce()
+# reproduces node String()/Array.join byte-for-byte. The shared fixture has no null,
+# no object value, and only string arrays, so exercise the divergence-prone arms with
+# an inline config rather than mutating the fixture (which other tests read). Each
+# expected value is what node's String()/Array.prototype.join produced.
+CG_COERCE="$(mktemp)"
+printf '%s' '{"arr":["a",true,2,null,["x","y"],{}],"nul":null,"obj":{"k":1},"flag":false,"num":7}' > "$CG_COERCE"
+# Array of mixed element types — coerce() recurses per element: bool→true, null→"",
+# nested array→comma-joined, object→[object Object]. Matches JS [..].join(",").
+assert_eq "cg(coerce): mixed array joins with node element-coercion parity" "a,true,2,,x,y,[object Object]" \
+  "$("$CG" .arr '' "$CG_COERCE")"
+# Boolean INSIDE an array emits lowercase (not Python True) — the array-recursion parity.
+# Top-level boolean false → lowercase 'false'.
+assert_eq "cg(coerce): top-level boolean false → lowercase" "false" \
+  "$("$CG" .flag '' "$CG_COERCE")"
+# A dot-path terminating on an OBJECT → '[object Object]' — load-bearing: scripts/
+# resolve-review-overrides.py keys on this exact literal (_OBJECT_SENTINEL) to tell a
+# present-but-empty object apart from a scalar/array. Parity here keeps that consumer working.
+assert_eq "cg(coerce): object value → [object Object] sentinel (resolve-review-overrides consumer)" "[object Object]" \
+  "$("$CG" .obj '' "$CG_COERCE")"
+assert_eq "cg(coerce): nested scalar under an object resolves" "1" \
+  "$("$CG" .obj.k '' "$CG_COERCE")"
+# null value → empty → default applied (the coerce None arm + the cur-is-None exit).
+assert_eq "cg(coerce): explicit null value → default applied" "dfl" \
+  "$("$CG" .nul dfl "$CG_COERCE")"
+# Descend INTO an array element (non-dict intermediate) → empty → default. The python
+# 'not isinstance(cur, dict)' mirrors node's Array.isArray short-circuit.
+assert_eq "cg(coerce): descend into array intermediate → default" "dfl" \
+  "$("$CG" .arr.0 dfl "$CG_COERCE")"
+assert_eq "cg(coerce): bare numeric → digits" "7" \
+  "$("$CG" .num '' "$CG_COERCE")"
+# Malformed JSON → exit 2 WITH a non-empty 'config-get.sh:' breadcrumb on stderr (AC4;
+# the pre-existing exit-2 test asserts only the code, not the python-backend breadcrumb).
+CG_PARSEERR="$(mktemp)"
+printf '%s' '{ not valid json' > "$CG_COERCE"
+"$CG" .a fallback "$CG_COERCE" >/dev/null 2>"$CG_PARSEERR"
+assert_eq "cg(coerce): malformed JSON breadcrumb on stderr (python backend)" "yes" \
+  "$(grep -qF 'config-get.sh:' "$CG_PARSEERR" && echo yes || echo no)"
+rm -f "$CG_COERCE" "$CG_PARSEERR"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "deferred.labels (schema + example + resolution + normalization)"
 # ────────────────────────────────────────────────────────────────────────────
@@ -7877,9 +7957,10 @@ if command -v jq >/dev/null 2>&1; then
 fi
 
 # set_config_version cross-language backends: jq is selected first on CI, so the
-# node and python3 arms never run under the block above. Force the lower backends
-# by shadowing the higher tools off PATH — a curated bin dir holding only the
-# tools that backend needs (jq, and for python3 also node, deliberately omitted).
+# python3 arm never runs under the block above. Force the lower backend by
+# shadowing jq off PATH — a curated bin dir holding only the tools python3 needs
+# (jq deliberately omitted). The `node` arm was removed (node is no longer a
+# DevFlow config dependency), so the cascade is now jq → python3.
 # Scoped to a subshell so the PATH mutation can't leak into later assertions.
 SCV_INSTALL="$LIB/../install.sh"
 scv_mkbin() {  # $1=dest bin dir; rest=command names to symlink from the real PATH
@@ -7893,23 +7974,10 @@ scv_mkbin() {  # $1=dest bin dir; rest=command names to symlink from the real PA
     ln -sf "$p" "$d/$c"
   done
 }
-# node backend — jq absent, node present.
-if command -v node >/dev/null 2>&1; then
-  SCV_NODE_BIN="$(mktemp -d)/bin"
-  scv_mkbin "$SCV_NODE_BIN" node mktemp mv rm   # jq deliberately omitted
-  SCV_NODE_CFG="$(mktemp)"; printf '{"base_branch":"main","devflow":{"effort":"high"}}' > "$SCV_NODE_CFG"
-  # shellcheck disable=SC1090
-  ( PATH="$SCV_NODE_BIN"; DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" \
-      && set_config_version "$SCV_NODE_CFG" "node-sha" ) >/dev/null 2>&1
-  assert_eq "scv(node): pins devflow_version" "node-sha" "$(jq -r '.devflow_version' "$SCV_NODE_CFG")"
-  assert_eq "scv(node): preserves sibling top-level key" "main" "$(jq -r '.base_branch' "$SCV_NODE_CFG")"
-  assert_eq "scv(node): preserves nested key" "high" "$(jq -r '.devflow.effort' "$SCV_NODE_CFG")"
-  rm -f "$SCV_NODE_CFG"
-fi
-# python3 backend — jq AND node absent, python3 present.
+# python3 backend — jq absent, python3 present (node arm removed entirely).
 if command -v python3 >/dev/null 2>&1; then
   SCV_PY_BIN="$(mktemp -d)/bin"
-  scv_mkbin "$SCV_PY_BIN" python3 mktemp mv rm   # jq AND node deliberately omitted
+  scv_mkbin "$SCV_PY_BIN" python3 mktemp mv rm   # jq deliberately omitted
   SCV_PY_CFG="$(mktemp)"; printf '{"base_branch":"main","devflow":{"effort":"high"}}' > "$SCV_PY_CFG"
   # shellcheck disable=SC1090
   ( PATH="$SCV_PY_BIN"; DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" \

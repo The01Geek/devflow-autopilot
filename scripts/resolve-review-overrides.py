@@ -51,8 +51,9 @@ import sys
 
 VALID_EFFORTS = ("low", "medium", "high", "xhigh", "max")
 
-# config-get.sh stringifies a non-array config value via Node's String(); a JSON
-# object yields this sentinel. (Arrays take config-get.sh's separate join(",")
+# config-get.sh stringifies a non-array config value the way JS String() does (the
+# format config-get.sh's python3 coerce() reproduces for parity); a JSON object
+# yields this sentinel. (Arrays take config-get.sh's separate join(",")
 # branch, so they do NOT stringify to this sentinel — see read_raw's array-leaf
 # note.) read_raw uses it to tell a present-but-empty object entry ({}) from a
 # scalar/array entry the operator hand-edited in.
@@ -149,7 +150,7 @@ def _config_get(config_get, config_file, dotted_key, warnings):
 
     We always pass a default ("") to config-get.sh, so an absent key/file is a
     clean exit 0 with empty stdout — NOT an error. A non-zero exit therefore
-    signals a genuine failure (malformed config.json → exit 2, missing `node` →
+    signals a genuine failure (malformed config.json → exit 2, missing `python3` →
     exit 2, bad args → exit 2), which we surface as a warning rather than
     silently collapsing to "absent" (a fat-fingered config would otherwise drop
     every override with no diagnostic). Appends to `warnings`; never raises.
@@ -165,7 +166,7 @@ def _config_get(config_get, config_file, dotted_key, warnings):
         warnings.append(f"cannot run {config_get}: {exc}")
         return ""
     if out.returncode != 0:
-        # Cause-focused (no per-key detail): a parse error / missing-node /
+        # Cause-focused (no per-key detail): a parse error / missing-python3 /
         # bad-args failure is the same root cause for every key we probe, so an
         # identical message dedupes to one actionable line in read_raw rather
         # than one per agent×field.
@@ -210,7 +211,7 @@ def read_raw(dispatched, config_get, config_file):
         # `default` (entry-level precedence). The leaf reads can't distinguish it
         # from an absent key, so probe the entry object itself. config-get.sh
         # stringifies the value: a JSON object prints the sentinel
-        # "[object Object]" (Node's String({})), a scalar/array prints its own
+        # "[object Object]" (the JS String({}) format coerce() preserves), a scalar/array prints its own
         # stringification, and an absent key prints nothing. So:
         #   - sentinel       → present object, no model/effort → {} (shadows default)
         #   - other non-empty → a non-object entry (hand-edited config bypassing

@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.42] — 2026-06-30
+
+### Changed
+- **DevFlow's config resolver no longer requires `node` — `.devflow/config.json` is now read with python3, a hard preflight prerequisite.** `node` was never one of DevFlow's declared prerequisites (`lib/preflight.sh` requires only `git`, `gh`, `jq`, and `python3 ≥ 3.11`), yet `scripts/config-get.sh` hard-required it and exited 2 when absent; `lib/config-source.sh` then degraded **every** config value to its default on a non-Node host (notably Codex/WSL), silently ignoring the user's config. `config-get.sh`'s dot-path resolver is ported 1:1 to a python3 `json` read with byte-for-byte output parity (dot-path walk; missing/`null`/non-object-or-array intermediate → empty stdout; array → comma-joined; **booleans emitted lowercase `true`/`false`**, not Python's `True`/`False`; malformed JSON → exit 2 with a breadcrumb); the `command -v node` guard becomes `command -v python3` with a python3-specific message. `.github/actions/read-project-config/action.yml` validates/compacts config via python3 (`json.dumps` with compact separators + `ensure_ascii=False`, byte-parity with the prior `JSON.stringify`); `install.sh`'s `set_config_version` drops the `node` arm (cascade is now `jq → python3`). Every prose mirror site that described the resolver as Node-based is reconciled (`CLAUDE.md`, `docs/DEVFLOW_SYSTEM_OVERVIEW.md`, `docs/implement-skill.md`, `skills/review-and-fix/SKILL.md`, the header comments of `config-get.sh`/`config-source.sh`). `lib/test/run.sh` gains a config-get node-absent test (python3 present, `node` off a sandbox PATH) with an explicit boolean-parity assertion, and the `scv(node)` backend test is removed (the cascade no longer has a node arm). Consumer-language Node detection (`detect-project-tools.sh`, `resolve-node-cache.sh`, the `init` skill) is out of scope and unchanged. (#221, closes #220)
+
 ## [2.8.41] — 2026-06-30
 
 ### Changed

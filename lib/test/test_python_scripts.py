@@ -2084,7 +2084,7 @@ assert_eq("main: duplicate unknown id warns exactly once (deduped)",
 
 # _config_get OSError branch: a bogus helper path makes subprocess.run raise
 # OSError; it must be caught (warned, returns "") rather than propagated. The
-# non-zero-exit branch (e.g. parse error / missing node) is covered above by the
+# non-zero-exit branch (e.g. parse error / missing python3) is covered above by the
 # malformed-config read_raw test.
 _oserr_warn = []
 _oserr_out = _rro._config_get(

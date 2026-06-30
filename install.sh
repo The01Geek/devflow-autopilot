@@ -51,13 +51,15 @@ die() { printf 'devflow-install: %s\n' "$1" >&2; exit 1; }
 # Pin .devflow/config.json's devflow_version to the ref we installed, so the
 # runtime fetch (vendor-plugin) never tracks mutable main. Adds or updates the
 # single key without clobbering the rest of the config — using the FIRST
-# available of jq, node, or python3 (whichever is installed; all are JSON-safe),
+# available of jq or python3 (whichever is installed; both are JSON-safe),
 # each writing to a temp file and renaming so a failure can never truncate the
 # config in place. This is tool SELECTION, not a retry cascade: the `command -v`
-# checks are `if`/`elif` conditions, so once a tool is found the other arms are
+# checks are `if`/`elif` conditions, so once a tool is found the other arm is
 # skipped — a present-but-failing tool does NOT fall through to the next one.
 # That is fine: the realistic failure (a malformed config.json, a read-only
-# .devflow/) would defeat node/python3 too.
+# .devflow/) would defeat python3 too. (python3 is a hard DevFlow prerequisite;
+# `node` was dropped from this cascade — it is no longer required anywhere in
+# DevFlow's config path.)
 # NEVER aborts the install: a missing tool OR a present-but-failing tool (e.g. a
 # pre-existing config.json that isn't valid JSON, a read-only .devflow/) both
 # degrade to a warning telling the user to set the key by hand. The success-path
@@ -69,10 +71,6 @@ set_config_version() {
   tmp="$(mktemp)" || { log "warning: mktemp failed; add \"devflow_version\": \"$version\" to $cfg by hand."; return 0; }
   if command -v jq >/dev/null 2>&1; then
     if jq --arg v "$version" '.devflow_version = $v' "$cfg" > "$tmp" 2>/dev/null && mv "$tmp" "$cfg"; then
-      log "pinned devflow_version=$version in $cfg"; return 0
-    fi
-  elif command -v node >/dev/null 2>&1; then
-    if DEVFLOW_CFG="$cfg" DEVFLOW_VER="$version" DEVFLOW_OUT="$tmp" node -e 'const fs=require("fs");const c=JSON.parse(fs.readFileSync(process.env.DEVFLOW_CFG,"utf8"));c.devflow_version=process.env.DEVFLOW_VER;fs.writeFileSync(process.env.DEVFLOW_OUT,JSON.stringify(c,null,2)+"\n");' 2>/dev/null && mv "$tmp" "$cfg"; then
       log "pinned devflow_version=$version in $cfg"; return 0
     fi
   elif command -v python3 >/dev/null 2>&1; then
