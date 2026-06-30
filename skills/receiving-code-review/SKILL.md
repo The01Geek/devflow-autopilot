@@ -32,10 +32,11 @@ WHEN receiving code review feedback:
 4. EVALUATE: Technically sound for THIS codebase?
 5. RESPOND: Technical acknowledgment or reasoned pushback
 6. IMPLEMENT: One item at a time, test each
-7. VERIFY BEFORE DONE: Review diff against addressed findings + run test suite — only then claim completion
+7. RECORD DEFERRALS: For every finding you did NOT fix, write a durable trace (WHAT/WHY/revisit-condition) before claiming done — see Record Every Deferral
+8. VERIFY BEFORE DONE: Review diff against addressed findings + run test suite — only then claim completion
 ```
 
-## Verification Gate (Step 7)
+## Verification Gate (Step 8)
 
 **Iron Law: NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE**
 
@@ -44,7 +45,19 @@ Before declaring the review findings addressed:
 2. Run the project's test suite. Attempt the direct/local invocation first; restrict the CI fallback to a genuine sandbox or permission denial — never when the suite runs but fails. When using the CI fallback, actively wait to observe CI go green (submitting a push is not the same as observing green); do not claim completion until CI confirms green. Record the local-skip reason as an auditable note.
 3. Only after both pass, claim completion.
 
-This gate applies in both interactive sessions and the autonomous `/devflow:review-and-fix` fix loop. In the loop, the fix step runs tests and the review engine re-runs each iteration to re-check whether every finding is resolved — no additional step 7 invocation is needed at the APPROVE claim.
+This gate applies in both interactive sessions and the autonomous `/devflow:review-and-fix` fix loop. In the loop, the fix step runs tests and the review engine re-runs each iteration to re-check whether every finding is resolved — no additional step 8 invocation is needed at the APPROVE claim.
+
+## Stop When the Verdict Is Already Non-Blocking
+
+A review engine that re-runs after every edit is *exhaustive*: each pass surfaces a fresh batch of advisory notes. That is the engine working, not a regression — expecting an already-clean run to produce zero new notes is the mistake that puts the loop on an advisory treadmill, where every edit spawns the next batch and nothing ever converges.
+
+Once the verdict is already non-blocking (an APPROVE, or any approve-with-notes verdict), the bar for re-opening the diff changes:
+
+- **Re-open only for** a Critical / blocking finding, or a demonstrable correctness defect (one that cites a concrete failing input). These still get fixed immediately.
+- **Everything else is recorded or deferred** (see Record Every Deferral below), not implemented. A Suggestion- or advisory-level note on an already-passing verdict does not, by itself, re-open the diff.
+- **Bound any advisory re-open to a concrete, pre-agreed set.** If advisory notes *are* worth one more pass, name the specific bounded set of them before you start — never "address all the notes," which guarantees the next run produces a new batch and the loop never settles.
+
+Expect the next review to produce new advisory notes after your edit. Treat that as the engine working as designed, not a signal to keep re-opening the diff.
 
 ## Forbidden Responses
 
@@ -52,7 +65,7 @@ This gate applies in both interactive sessions and the autonomous `/devflow:revi
 - "You're absolutely right!" (explicit instruction-file violation)
 - "Great point!" / "Excellent feedback!" (performative)
 - "Let me implement that now" (before verification)
-- Claiming done / expressing satisfaction before step 7 (VERIFY BEFORE DONE) is complete (see Verification Gate above for the loop pipeline)
+- Claiming done / expressing satisfaction before step 8 (VERIFY BEFORE DONE) is complete (see Verification Gate above for the loop pipeline)
 
 **INSTEAD:**
 - Restate the technical requirement
@@ -133,6 +146,12 @@ FOR multi-item feedback:
   4. Verify no regressions
 ```
 
+## Union Findings Across Review Iterations
+
+When review output spans more than one run, do not act only on the latest batch. **Union the findings across iterations.** A genuine finding can surface as Important in one run, fade to a footnote in the next, and escalate again in a third; acting only on the most prominent current list lets a real defect slip away between batches.
+
+Treat a finding **raised in a prior run and never resolved, still true** as *escalating* priority — it does not retire just because a later run happened to rank it lower. (This presupposes prior-iteration findings are handed to you. When they are, fold them into the current set. If your project's review engine does not surface them, union across the findings you are actually given and note the gap rather than assuming the prior set was complete.)
+
 ## When To Push Back
 
 Push back when:
@@ -148,6 +167,7 @@ Push back when:
 - Ask specific questions
 - Reference working tests/code
 - Involve your human partner if architectural
+- Record the pushback as a deferral (see Record Every Deferral) — an un-recorded pushback is re-raised identically next run
 
 **If you're uncomfortable pushing back out loud:** Name that tension, then tell your partner about the issue you've seen. They'll appreciate your honesty.
 
@@ -162,6 +182,19 @@ Severity must be **calibrated against the observable fail-direction and impact i
 - A defect that **fails open** (admits a wrong value, corrupts state, or skips a guard silently) is the one whose observable impact actually supports a high severity.
 
 The discipline is **symmetric**: do not silently inflate a mild finding into a blocker, and do not silently *deflate* a severe one to dodge work. When you calibrate a severity — in either direction — record the observable evidence for the new grade (which fail-direction the code takes, what the suite catches, what the real blast radius is). A severity you change but cannot evidence is just a different guess; a severity you can evidence is a calibration. Never down-calibrate to avoid the fix — calibrate only to the impact you can demonstrate, and when in doubt about a genuine defect, keep the higher grade.
+
+## Record Every Deferral
+
+Every finding you do **not** fix must leave a durable, traceable record the next review pass can see — naming WHAT was deferred, WHY, and the condition that would make it worth revisiting. Without that record the next run rediscovers the finding from scratch and re-raises it at full severity; with it, the next run can downgrade it ("already deferred with justification — not blocking") instead of re-litigating it every pass.
+
+Write the deferral, in order of preference, to the first channel available:
+
+1. the loop's deferral / decision record (the durable findings-tracking your project's review engine carries across runs),
+2. a code comment at the finding's site,
+3. a reply on the PR review thread, or
+4. a linked follow-up issue.
+
+**A successful pushback is itself a deferral** — record it the same way, with the technical reason you declined. To the next run, an un-recorded "the reviewer was wrong" is indistinguishable from "nobody ever looked at it," so it comes back identically every pass. Writing down WHY you declined is what makes the decision stick.
 
 ## Acknowledging Correct Feedback
 
