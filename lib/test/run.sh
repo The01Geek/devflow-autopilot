@@ -8767,6 +8767,91 @@ assert_pin_unique "#187 docs-release-notes Step 4b corrects stale claims in plac
 assert_pin_unique "#187 docs-release-notes Step 4b no-bump-commit no-op branch (parity with the no-section branch)" \
   'no version-bump commit found on branch' "$FDROOT/skills/docs-release-notes/SKILL.md"
 
+# ────────────────────────────────────────────────────────────────────────────
+echo "#181 review-engine Phase 0.2 .devflow/logs/** diff-hunk filter"
+# ────────────────────────────────────────────────────────────────────────────
+# Phase 0.2 of skills/review/SKILL.md strips .devflow/logs/** hunks from the
+# cached diff.patch (intentional DevFlow telemetry commits, not code-review
+# subjects) BEFORE any Phase 1/2/3 agent sees the diff. The filter is an inline
+# awk stage in the existing `… | tee diff.patch` pipeline (it rides the
+# allowlisted `gh pr diff`/`git diff` leading token, so the read-only `review`
+# profile permits it without a workflow allowlist change — no standalone `mv`).
+#
+# These assertions EXTRACT the actual awk program from the SKILL and run it
+# against synthetic-diff fixtures, so they go RED if the SKILL's filter is
+# missing or wrong (not a vacuous re-implementation). The contract pin below
+# couples the SKILL text to that behavior.
+F181_AWK="$(grep -oE "awk '[^']+'" "$REVIEW_SKILL" 2>/dev/null | grep -F 'in_logs' | head -1 | sed "s/^awk '//; s/'$//")"
+# Precondition (RED until the filter is added): the awk program must be
+# extractable from the SKILL. Guards every behavioral assertion below against an
+# empty-program (`awk ''`) vacuous pass.
+assert_eq "#181 filter: awk log-hunk filter program is present/extractable in review/SKILL.md Phase 0.2" \
+  "yes" "$([ -n "$F181_AWK" ] && echo yes || echo no)"
+
+# Fixture: a real code hunk, a telemetry-log hunk, then another code hunk.
+F181_MIXED="$(printf '%s\n' \
+  'diff --git a/src/a.py b/src/a.py' \
+  'index 1111111..2222222 100644' \
+  '--- a/src/a.py' \
+  '+++ b/src/a.py' \
+  '@@ -1 +1 @@' \
+  '-old a' \
+  '+new a' \
+  'diff --git a/.devflow/logs/efficiency/pr-1.json b/.devflow/logs/efficiency/pr-1.json' \
+  'index 3333333..4444444 100644' \
+  '--- a/.devflow/logs/efficiency/pr-1.json' \
+  '+++ b/.devflow/logs/efficiency/pr-1.json' \
+  '@@ -1 +1 @@' \
+  '-{"old":1}' \
+  '+{"new":1}' \
+  'diff --git a/src/b.py b/src/b.py' \
+  'index 5555555..6666666 100644' \
+  '--- a/src/b.py' \
+  '+++ b/src/b.py' \
+  '@@ -1 +1 @@' \
+  '-old b' \
+  '+new b')"
+F181_MIXED_OUT="$(printf '%s\n' "$F181_MIXED" | awk "${F181_AWK:-NONEXTRACTED}" 2>/dev/null)"
+# AC-2: the telemetry hunk is gone…
+assert_eq "#181 filter: mixed diff drops the .devflow/logs/ hunk" \
+  "absent" "$(case "$F181_MIXED_OUT" in *'.devflow/logs/'*) echo present;; *) echo absent;; esac)"
+# …and BOTH real code hunks survive, in their original order (a before b).
+assert_eq "#181 filter: mixed diff retains both real code hunks in original order" \
+  "diff --git a/src/a.py b/src/a.py|diff --git a/src/b.py b/src/b.py" \
+  "$(printf '%s\n' "$F181_MIXED_OUT" | grep '^diff --git' | paste -sd'|' -)"
+
+# Fixture: ONLY a telemetry-log hunk.
+F181_LOGS_ONLY="$(printf '%s\n' \
+  'diff --git a/.devflow/logs/review/pr-1/run-1/iter-1.json b/.devflow/logs/review/pr-1/run-1/iter-1.json' \
+  'index 7777777..8888888 100644' \
+  '--- a/.devflow/logs/review/pr-1/run-1/iter-1.json' \
+  '+++ b/.devflow/logs/review/pr-1/run-1/iter-1.json' \
+  '@@ -1 +1 @@' \
+  '-{"a":1}' \
+  '+{"a":2}')"
+F181_LOGS_OUT="$(printf '%s\n' "$F181_LOGS_ONLY" | awk "${F181_AWK:-NONEXTRACTED}" 2>/dev/null)"
+# AC-3: a logs-only diff filters to no `diff --git` headers (empty effective diff).
+# Non-vacuous as a pair with the mixed test above (which proves the filter passes
+# code hunks through rather than deleting everything).
+assert_eq "#181 filter: logs-only diff yields no diff --git headers (empty effective diff)" \
+  "0" "$(printf '%s\n' "$F181_LOGS_OUT" | grep -c '^diff --git')"
+
+# AC-1 / peer-completeness (2.3.0a): the awk filter is present in EVERY diff-source
+# variant of the Phase 0.2 tee pipeline (PR mode, current-branch mode, and the
+# head_override=local fix-loop variant) — three occurrences, one per variant.
+assert_eq "#181 filter: awk log-hunk filter present in all three Phase 0.2 diff-source variants" \
+  "3" "$(pin_count '{in_logs=/\.devflow\/logs\//} !in_logs' "$REVIEW_SKILL")"
+# AC-4: the SKILL documents WHY the hunks are filtered (intentional telemetry, not
+# code-review subjects).
+assert_pin_unique "#181 filter: review/SKILL.md documents why .devflow/logs/ hunks are filtered" \
+  'intentional DevFlow telemetry commits, not code-review subjects' "$REVIEW_SKILL"
+# AC-1 peer-completeness: the Phase 0.3 changed-file list must derive from the
+# FILTERED diff.patch (not an independent --name-only), so Phase 1.1's >10-file
+# per-file batch slicing never re-fetches a .devflow/logs/ hunk and feeds it to a
+# Phase 1 agent — closing the one downstream path the single 0.2 filter wouldn't.
+assert_pin_unique "#181 filter: Phase 0.3 derives the changed-file list from the filtered diff.patch (peer-completeness)" \
+  'deriving the file list from it excludes them by construction' "$REVIEW_SKILL"
+
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)

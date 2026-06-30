@@ -217,16 +217,18 @@ If the diff is empty, report: "No changes to review. Branch is identical to main
 
 and `<run-id>` per "Caller run-id" above (caller-provided when wrapped, else computed once here).
 
-Combine the initial fetch with the cache write in one shot using `tee` so the diff is captured exactly once and stdout remains available for Phase 1 consumption:
+Combine the initial fetch with the cache write in one shot using `tee` so the diff is captured exactly once and stdout remains available for Phase 1 consumption. **Filter `.devflow/logs/**` hunks out as the diff streams to disk** — interpose an `awk` stage between the fetch and `tee` so the cached `diff.patch` (and the stdout Phase 1 consumes) never contains a telemetry-log hunk:
 
 ```bash
 mkdir -p .devflow/tmp/review/<slug>/<run-id>
-gh pr diff $ARGUMENTS | tee .devflow/tmp/review/<slug>/<run-id>/diff.patch
+gh pr diff $ARGUMENTS | awk '/^diff --git/{in_logs=/\.devflow\/logs\//} !in_logs' | tee .devflow/tmp/review/<slug>/<run-id>/diff.patch
 # or, in current-branch mode:
-# git diff origin/main...HEAD | tee .devflow/tmp/review/<slug>/<run-id>/diff.patch
+# git diff origin/main...HEAD | awk '/^diff --git/{in_logs=/\.devflow\/logs\//} !in_logs' | tee .devflow/tmp/review/<slug>/<run-id>/diff.patch
 # or, in PR mode with head_override=local (fix-loop reuse — see "Caller head-override"):
-# git diff "$PR_BASE_SHA...HEAD" | tee .devflow/tmp/review/<slug>/<run-id>/diff.patch
+# git diff "$PR_BASE_SHA...HEAD" | awk '/^diff --git/{in_logs=/\.devflow\/logs\//} !in_logs' | tee .devflow/tmp/review/<slug>/<run-id>/diff.patch
 ```
+
+**Why the `awk` filter — and why here.** A DevFlow fix loop (`/devflow:review-and-fix`) persists durable telemetry by committing `.devflow/logs/efficiency/*.json` and `.devflow/logs/review/**/*.json` to the feature branch (intentional behavior that survives ephemeral runner teardown). Those `chore:` commits are **intentional DevFlow telemetry commits, not code-review subjects** — but they still appear as hunks in the PR diff, where Phase 1/2/3 agents would otherwise flag them as accreting hygiene artifacts with stale line ranges. The filter strips them once, at the single cache-write point every downstream phase reads from, so agents never see a hunk they should not review. The `awk` program sets `in_logs` on each `diff --git` header (true when the path contains `.devflow/logs/`, false otherwise) and suppresses every line while `in_logs` holds — so all of a logs file's hunk lines are dropped together, and the next non-logs header resets `in_logs` to visible. A logs-only diff filters to empty (the "No changes to review" path above then fires); a mixed diff keeps its real code hunks in their original order. The telemetry commits themselves remain on the branch unchanged — only the review engine's view of the diff is filtered. The `awk` stage rides the allow-listed `gh pr diff` / `git diff` leading token (no standalone `mv`/`tee` head), so the read-only `review` profile permits it without any workflow allowlist change.
 
 This replaces the bare `gh pr diff` / `git diff` invocation at the top of Phase 0.2 — use the `tee` form instead. Store `<slug>`, `<run-id>`, and the resolved diff path (e.g. `.devflow/tmp/review/pr-863/<run-id>/diff.patch`) so Phase 3 can substitute it into its agent prompts via `{DIFF_PATH}`. The directory creation is harmless if it already exists; the file is overwritten on every run *within the same run-id*, never across runs.
 
@@ -234,7 +236,7 @@ This replaces the bare `gh pr diff` / `git diff` invocation at the top of Phase 
 
 ### 0.3 Get changed file list
 
-From the diff, extract the list of changed files (use `--name-only` output or parse from PR diff). Store this list — it's needed for Phase 1 and Phase 3.
+Extract the list of changed files **by parsing the filtered `diff.patch` cached in 0.2** (read its `diff --git a/<path> b/<path>` headers), **not** from an independent `git diff --name-only` / `gh pr diff --name-only`. This matters: `.devflow/logs/**` paths were stripped from `diff.patch` in 0.2, so deriving the file list from it excludes them by construction — which is what keeps Phase 1.1's per-file batch slicing (`git diff … -- <file>`) and Phase 3's per-file slicing from ever re-fetching a `.devflow/logs/` hunk and feeding it to an agent (an independent `--name-only` would re-introduce those paths and defeat the 0.2 filter on the `>10`-file batching path). Store this list — it's needed for Phase 1 and Phase 3.
 
 ### 0.3.5 Seed the live progress comment (PR mode)
 
