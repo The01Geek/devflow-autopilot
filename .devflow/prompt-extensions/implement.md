@@ -30,6 +30,15 @@ can cite the PR number and the version + `CHANGELOG` land inside the diff that `
 and `/devflow:review-and-fix` review. The Phase 4.3 clean-tree backstop is the final guard
 that the bump never ends up uncommitted.
 
+**Commit-message contract (load-bearing — do not drift).** Commit the bump with a subject
+that begins with the literal `chore: bump version`. This prefix is not cosmetic: the
+release-notes reconciliation step (`skills/docs-release-notes/SKILL.md` Step 4b) locates the
+CHANGELOG entry to reconcile by finding the most recent commit whose message begins with
+exactly that string, then no-ops if it cannot. Renaming the prefix (e.g. to
+`chore(release): …`) silently disables that reconciliation. The two sites are kept in
+lockstep by a coupling pin in `lib/test/run.sh`; change one and the suite goes RED until the
+other matches.
+
 ## Verification under classifier friction — never ship an unverified assumption
 
 The sandbox permission classifier in this repo frequently denies the very commands that

@@ -8347,6 +8347,17 @@ assert_pin_unique "#183 docs-release-notes SKILL Step 4b does not commit" \
 assert_pin_unique "#183 docs-release-notes SKILL resolves changelog_file via config-get.sh" \
   'config-get.sh .docs.changelog_file CHANGELOG.md' "$FDROOT/skills/docs-release-notes/SKILL.md"
 
+# (PR #187 review hardening) Couple the `chore: bump version` commit-message prefix across
+# its producer and its consumer so the convention cannot drift on one side only. The
+# consumer (docs-release-notes Step 4b) locates the CHANGELOG entry by matching this exact
+# prefix; the producer (implement prompt-extension) mandates emitting it. If either renames
+# the prefix without the other, Step 4b silently no-ops the reconciliation it exists to
+# perform (the fail-open the PR #187 review flagged). Pin the literal in both files.
+assert_pin_unique "#187 docs-release-notes Step 4b matches the chore: bump version prefix" \
+  'message begins with `chore: bump version`' "$FDROOT/skills/docs-release-notes/SKILL.md"
+assert_pin_unique "#187 implement prompt-extension mandates the chore: bump version prefix" \
+  'begins with the literal `chore: bump version`' "$FDROOT/.devflow/prompt-extensions/implement.md"
+
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
