@@ -8376,6 +8376,22 @@ assert_pin_unique "#187 docs-release-notes Step 4b searches the bracketed Keep-a
 assert_pin_unique "#187 implement prompt-extension mandates the bracketed ## [x.y.z] CHANGELOG heading (producer side)" \
   '`## [x.y.z]` entry to `CHANGELOG.md`' "$FDROOT/.devflow/prompt-extensions/implement.md"
 
+# (PR #187 review round 3 — corroborated test_gap + silent-failure hardening) The round-2
+# pins above prove the version-from-manifest *mechanism* exists (the `jq` read, the scan, the
+# bump-commit confirm) but not that the manifest is the version's *sole authority* — a future
+# edit could re-add subject-reading alongside the manifest read and every round-2 pin stays
+# GREEN (the additive-regression two review agents corroborated). Pin the **negative invariant**
+# (the discriminating clause that carries the fix), the **producer-side Step-2 routing** that
+# makes the all-PRs contract reachable (a Step-2 revert to "stop" would silently strip the only
+# path to Step 4b on the non-customer-visible branch), and the **fail-loud breadcrumb** that
+# keeps a failed determination from masquerading as a clean no-op.
+assert_pin_unique "#187 docs-release-notes Step 4b pins the negative invariant (version NOT read from the commit subject)" \
+  'do not read the version string from its free-text subject' "$FDROOT/skills/docs-release-notes/SKILL.md"
+assert_pin_unique "#187 docs-release-notes Step 2 routes the non-customer-visible path to Step 4b (all-PRs reachability, producer side)" \
+  'CHANGELOG reconciliation still runs for all PRs' "$FDROOT/skills/docs-release-notes/SKILL.md"
+assert_pin_unique "#187 docs-release-notes Step 4b fails loud on a failed determination (not a masked no-op)" \
+  'CHANGELOG reconciliation NOT performed' "$FDROOT/skills/docs-release-notes/SKILL.md"
+
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
