@@ -102,12 +102,29 @@ _POST_MERGE_RES = tuple(
 )
 
 
+def _force_utf8_streams():
+    """Force stdout/stderr to UTF-8, idempotently and defensively. Called from
+    the CLI entry path only (not at import) so importing this module for unit
+    tests never mutates the importer's global streams. The em-dash this script
+    emits in its near-miss error message would otherwise raise
+    `UnicodeEncodeError` under a non-UTF-8 ambient codec (Windows' cp1252).
+    Reconfigure overrides even a hostile `PYTHONIOENCODING`; the guard tolerates
+    a non-`TextIOWrapper` stream (e.g. a test's `io.StringIO`)."""
+    for _stream in (sys.stdout, sys.stderr):
+        try:
+            _stream.reconfigure(encoding="utf-8")
+        except (AttributeError, ValueError):
+            pass
+
+
 def _fetch_body(issue: int) -> str:
     """Fetch an issue's body via gh."""
     try:
+        # `encoding="utf-8"` so DECODING the issue body (routinely non-ASCII)
+        # does not raise under a non-UTF-8 ambient codec. Implies text mode.
         r = subprocess.run(
             ['gh', 'issue', 'view', str(issue), '--json', 'body', '-q', '.body'],
-            check=True, capture_output=True, text=True,
+            check=True, capture_output=True, encoding="utf-8",
         )
     except subprocess.CalledProcessError as e:
         sys.stderr.write(f"parse-acs.py: gh issue view failed: {e.stderr.strip()}\n")
@@ -193,6 +210,7 @@ def _render_md_line(item: dict) -> str:
 
 
 def main():
+    _force_utf8_streams()
     p = argparse.ArgumentParser(prog='parse-acs.py')
     src = p.add_mutually_exclusive_group(required=True)
     src.add_argument('--issue', type=int, help='Fetch the issue body via gh.')

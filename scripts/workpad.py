@@ -57,10 +57,29 @@ import sys
 from pathlib import Path
 
 
+def _force_utf8_streams():
+    """Force stdout/stderr to UTF-8, idempotently and defensively. Called from
+    the CLI entry path only (not at import) so importing this module for unit
+    tests never mutates the importer's global streams. Windows' default codec is
+    cp1252, so the rocket/em-dash this script emits would otherwise raise
+    `UnicodeEncodeError`; reconfigure overrides even a hostile `PYTHONIOENCODING`.
+    The guard tolerates a stream replaced with a non-`TextIOWrapper` (e.g. a
+    test's `io.StringIO`), which has no `reconfigure`."""
+    for _stream in (sys.stdout, sys.stderr):
+        try:
+            _stream.reconfigure(encoding="utf-8")
+        except (AttributeError, ValueError):
+            pass
+
+
 def _run(cmd, *, stdout=subprocess.PIPE, stdin=None):
+    # `encoding="utf-8"` pins both directions of the gh pipe: DECODING gh's
+    # output (issue/comment bodies, titles — routinely non-ASCII) and ENCODING
+    # any stdin, so neither raises under a non-UTF-8 ambient codec. Implies text
+    # mode, so `text=True` is dropped (passing both is redundant/conflicting).
     return subprocess.run(
         cmd, check=True, stdin=stdin, stdout=stdout,
-        stderr=subprocess.PIPE, text=True,
+        stderr=subprocess.PIPE, encoding="utf-8",
     )
 
 
@@ -923,7 +942,9 @@ def cmd_update(args):
     # carries at least the refreshed `Last updated`, so the PATCH is never a
     # no-op even when every requested tick was volatile.
     import tempfile
-    with tempfile.NamedTemporaryFile('w', suffix='.md', delete=False) as tf:
+    with tempfile.NamedTemporaryFile(
+        'w', suffix='.md', delete=False, encoding="utf-8",
+    ) as tf:
         tf.write(body)
         tmp_path = tf.name
     try:
@@ -1129,6 +1150,7 @@ def _apply_mutations(body: str, args, failed_ticks) -> str:
 
 
 def main():
+    _force_utf8_streams()
     p = argparse.ArgumentParser(prog='workpad.py')
     sub = p.add_subparsers(dest='cmd', required=True)
 

@@ -1,0 +1,20 @@
+# Force LF line endings on checkout for every text file, regardless of the
+# user's core.autocrlf. Without this, a Windows checkout under
+# core.autocrlf=true (the Git-for-Windows installer default) rewrites LF files
+# to CRLF, turning a `#!/usr/bin/env bash` shebang into `bash\r` — which fails
+# with `/usr/bin/env: 'bash\r': No such file or directory`. `text=auto` lets
+# git's binary detection auto-exclude binary blobs (e.g. docs/ship-pr.png, the
+# demo GIF), so they are never line-ending-normalized.
+* text=auto eol=lf
+
+# Execution-critical files: pin LF explicitly so a shebang or interpreter never
+# sees a CR, even if a future `* text=auto` heuristic misclassifies one.
+*.sh  text eol=lf
+*.py  text eol=lf
+*.jq  text eol=lf
+
+# Reserved exception: a future test fixture that must keep literal CRLF or raw
+# bytes (e.g. a CRLF-diff fixture under lib/test/fixtures/) would otherwise be
+# silently normalized to LF by `* text=auto`. When that case arises, add an
+# explicit `-text` line for it here, e.g.:
+#   lib/test/fixtures/crlf-sample.txt -text
