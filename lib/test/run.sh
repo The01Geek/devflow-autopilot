@@ -18,6 +18,7 @@ LIB="$(cd "$(dirname "$0")/.." && pwd)"
 # render-report.sh blocks, sourced in subshells to contain their `set -e` — are
 # counted in the final tally too. Counting in-memory would silently drop them.
 RESULTS_FILE="$(mktemp)"
+trap 'rm -f "$RESULTS_FILE"' EXIT   # protect RESULTS_FILE immediately; widened below once the bundle temp exists
 
 # issue #218: the /devflow:implement skill is split into a thin orchestrator
 # (skills/implement/SKILL.md) plus four phases/phase-N-*.md reference files read
@@ -2156,9 +2157,15 @@ IMPL_DOC="$LIB/../docs/implement-skill.md"
 # phase's load step (which would make the engine improvise that phase from its thin stub).
 IMPL_ORCH="$LIB/../skills/implement/SKILL.md"
 IMPL_PHASES_DIR="$LIB/../skills/implement/phases"
+# One loop over the single phase-stem list checks both per-phase invariants: the phase file
+# exists & is non-empty, and the orchestrator names its entry-gate read EXACTLY ONCE (in its
+# stub's mandatory-read gate) — assert_pin_unique, not bare presence, so a dropped or
+# duplicated gate fails here. One loop header → one place the stem list is maintained.
 for _pf in phase-1-setup phase-2-implement phase-3-review phase-4-documentation; do
   assert_eq "implement split: phases/${_pf}.md exists and is non-empty" "yes" \
     "$([ -s "$IMPL_PHASES_DIR/${_pf}.md" ] && echo yes || echo no)"
+  assert_pin_unique "implement split: orchestrator names the ${_pf}.md entry-gate read" \
+    "phases/${_pf}.md" "$IMPL_ORCH"
 done
 # Misregistration guard: a present-but-empty stdout from find means NO SKILL.md under
 # phases/. find over a missing dir also prints nothing (2>/dev/null), but the existence
@@ -2166,13 +2173,6 @@ done
 # is non-vacuous once the split exists (mutation-proven by transiently adding phases/SKILL.md).
 assert_eq "implement split: no SKILL.md under phases/ (no nested auto-discovered skill)" "" \
   "$(find "$IMPL_PHASES_DIR" -name SKILL.md 2>/dev/null)"
-# Entry-gate presence: each concrete phase path appears EXACTLY ONCE in the orchestrator
-# (in its stub's mandatory-read gate) — assert_pin_unique, not bare presence, so a dropped
-# or duplicated gate fails here.
-for _pf in phase-1-setup phase-2-implement phase-3-review phase-4-documentation; do
-  assert_pin_unique "implement split: orchestrator names the ${_pf}.md entry-gate read" \
-    "phases/${_pf}.md" "$IMPL_ORCH"
-done
 # ── end issue #218 structural assertions ──
 assert_pin_unique "sweep 2.3.6: implement SKILL keeps the sweep body" '#### 2.3.6 Error-handling & silent-failure sweep' "$IMPL_SKILL"
 assert_pin_unique "sweep 2.3.6: implement SKILL lists it in the always-run index" '**2.3.6** (error-handling & silent-failure)' "$IMPL_SKILL"
@@ -2703,8 +2703,13 @@ assert_pin_unique "implement_pr_state: draft case posts no extra PR-thread comme
 # Positional check: the clean-tree backstop must run ABOVE the publish gate (the diff's
 # behavioral change is that it runs unconditionally in BOTH publish and draft cases), not
 # merely be present somewhere. Assert line ordering, not bare presence.
-IPS_BACKSTOP_LN=$(grep -nF 'git status --porcelain' "$IMPL_SKILL" | head -1 | cut -d: -f1)
-IPS_GATE_LN=$(grep -nF '[ "$PR_STATE" = "draft" ]' "$IMPL_SKILL" | head -1 | cut -d: -f1)
+# issue #218: grep the OWNING phase file, NOT the bundle. Both literals live in Phase 4.3
+# (phases/phase-4-documentation.md). A POSITIONAL guard needs a single coordinate space with
+# both endpoints unique; on the multi-file bundle, `head -1` of the generic `git status
+# --porcelain` idiom could grab a future earlier-phase occurrence (lower bundle line number),
+# making `-lt` pass vacuously. The owning file is the only space where both endpoints stay unique.
+IPS_BACKSTOP_LN=$(grep -nF 'git status --porcelain' "$IMPL_PHASES_DIR/phase-4-documentation.md" | head -1 | cut -d: -f1)
+IPS_GATE_LN=$(grep -nF '[ "$PR_STATE" = "draft" ]' "$IMPL_PHASES_DIR/phase-4-documentation.md" | head -1 | cut -d: -f1)
 assert_eq "implement_pr_state: clean-tree backstop precedes the publish gate (runs in both cases)" "yes" \
   "$([ -n "$IPS_BACKSTOP_LN" ] && [ -n "$IPS_GATE_LN" ] && [ "$IPS_BACKSTOP_LN" -lt "$IPS_GATE_LN" ] && echo yes || echo no)"
 
