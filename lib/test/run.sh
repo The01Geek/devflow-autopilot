@@ -5733,7 +5733,7 @@ assert_eq "app-token: devflow-runner.yml mentions no DEVFLOW_APP_ID opt-in" "0" 
 CS="$LIB/../docs/cloud-setup.md"
 for tok in 'DEVFLOW_APP_ID' 'DEVFLOW_APP_PRIVATE_KEY'; do
   assert_eq "app-token: cloud-setup.md documents $tok" "yes" \
-    "$([ "$(grep -cF "$tok" "$CS")" -ge 1 ] && echo yes || echo no)"
+    "$(grep -qF "$tok" "$CS" && echo yes || echo no)"
 done
 assert_eq "app-token: cloud-setup.md documents Contents: write App permission" "yes" \
   "$(grep -qiE 'Contents:[[:space:]]*write' "$CS" && echo yes || echo no)"
