@@ -550,6 +550,14 @@ Output: `Phase 3/4: Running review agents...`
 
 ### 3.1 Launch existing review agents in parallel
 
+**Dirty-tree backstop — snapshot before dispatch (mandatory).** Review/analysis agents are advisory and must never modify the working tree (their definitions forbid it; any mutation/half-revert check goes on a `mktemp` copy). Independently of agent compliance, snapshot the working tree immediately before launching the Phase 3.1 batch so a dropped in-place restore is caught deterministically rather than incidentally — Phase 3.2 compares against this snapshot after the batch returns and restores any agent-introduced modification:
+
+```bash
+GIT_STATUS_BEFORE=$(git status --porcelain)
+```
+
+This scopes the assertion to the agent-dispatch window only, so it never flags the orchestrator's own legitimate edits made outside it. (In the read-only `/devflow:review` profile the agents have no write tools, so the snapshots match and the restore below never fires; the backstop earns its keep in the write-enabled `/devflow:review-and-fix` and `/devflow:implement` tiers, where it also runs verbatim — including the Step 2.6 shadow pass, which re-executes these same Phases 0–4.3.)
+
 Launch all agents in a single message using multiple Agent tool calls. For each agent, pass a prompt telling it to review the changes.
 
 **Resolve overrides for the Phase-3 roster first.** After the Phase 3.1 applicability gates decide which agents actually launch this run, pass that exact roster (the always-on four — `code-reviewer`, `silent-failure-hunter`, `comment-analyzer`, and the final-pass `devflow:requesting-code-review` dispatched as a `general-purpose` Task — plus any gated-in `type-design-analyzer` / `pr-test-analyzer`) to `resolve-review-overrides.py` per **Per-Subagent Model/Effort Overrides** above. Materialize one `--agents` block from its output and dispatch each Phase-3 agent through it; do **not** request overrides for a gated-out agent (only emit overrides for agents actually dispatched). The final-pass reviewer's override is keyed under `devflow:requesting-code-review` even though it is dispatched as a `general-purpose` Task (see its dispatch note below).
@@ -668,6 +676,29 @@ Run these steps and add any finding to the Phase 3 findings set (it is collected
 The completeness critic is a **finding-producing pass, not a verdict override**: it injects findings into the set Phase 4.2 already grades by severity. It adds **no** new Phase 4.2 rule. Because it lives here in the shared Phases 0–4.3, both standalone `/devflow:review` and the `/devflow:review-and-fix` fix loop apply it without any paraphrase in the fix-loop skill.
 
 ### 3.2 Collect results
+
+**Dirty-tree backstop — compare after dispatch (mandatory).** Before extracting findings, confirm the Phase 3.1 review-agent batch left the working tree unchanged. Compare against the `GIT_STATUS_BEFORE` snapshot taken before dispatch; on any divergence the dispatch violated the advisory contract, so record it as a finding (never discard it silently) and restore only the snapshot-delta paths — never the orchestrator's own concurrent edits:
+
+```bash
+GIT_STATUS_AFTER=$(git status --porcelain)
+if [ "$GIT_STATUS_AFTER" != "$GIT_STATUS_BEFORE" ]; then
+  # Paths dirtied during the dispatch window only (present in AFTER, absent from BEFORE).
+  CHANGED_PATHS=$(comm -13 <(printf '%s\n' "$GIT_STATUS_BEFORE" | sort) <(printf '%s\n' "$GIT_STATUS_AFTER" | sort) | sed 's/^...//')
+  echo "::warning::devflow review: a Phase 3.1 review-agent dispatch modified the working tree (advisory review agents must never mutate it); affected paths: ${CHANGED_PATHS//$'\n'/ }; recording an Important finding and restoring the snapshot delta" >&2
+  # Restore only the snapshot-delta tracked paths; an untracked file the agent created is
+  # surfaced via the breadcrumb + finding but NOT auto-deleted (it could be a legitimate
+  # orchestrator artifact). Each restore is best-effort with its own breadcrumb.
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    git checkout -- "$p" 2>/dev/null || git restore -- "$p" 2>/dev/null \
+      || echo "::warning::devflow review: could not restore agent-modified path '$p' (left as-is for human inspection)" >&2
+  done <<EOF
+$CHANGED_PATHS
+EOF
+fi
+```
+
+When this fires, add an **Important** finding to the Phase 3 findings set — attributed to the Phase 3.1 review-agent dispatch, naming the affected paths (`CHANGED_PATHS`) and that they were restored — carrying a `defect_signature` (`kind: "other"`, `file` the first affected path) so it flows through Phase 4 aggregation like any other finding. The attributable breadcrumb plus the finding mean a dropped restore is caught and recorded, never silently swallowed.
 
 Collect all agent responses. Extract findings, their severity labels (Critical, Important/Major, Suggestion/Minor), and their `defect_signature` blocks. **If the Phase 3.1.5 completeness-critic pass ran and produced a finding, include it here** as a single-source finding (flag it single-source like any N=1 finding); it carries a `defect_signature`, so it corroborates mechanically with any agent that independently flagged the same coverage gap.
 

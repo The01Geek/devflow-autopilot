@@ -1572,6 +1572,32 @@ assert_pin_red_on_removal "#186 behavioral-fix-pin: deleting the at-least-one-pi
   'at least one pin per operative sentence' "$DEF_SKILL"
 assert_pin_red_on_removal "#186 behavioral-fix-pin: deleting the behavioral-fix-pin scope limiter turns its pin RED" \
   'literal constants, token names, count-based guards, absence pins' "$DEF_SKILL"
+# ── #192: review/analysis agents must never mutate the live working tree ──────────────
+# Two coupled layers, each pinned with a mutation-proven assert_pin_red_on_removal so a
+# half-applied removal of the contract turns the suite RED (issue #192 AC4):
+#   (1) each first-party review/analysis agent definition carries the never-mutate /
+#       use-`mktemp`-copy mandate, and
+#   (2) skills/review/SKILL.md's shared Phase 3.1/3.2 dirty-tree backstop snapshots the
+#       tree before dispatch, compares after, surfaces the divergence as a finding with an
+#       attributable breadcrumb, and restores only the snapshot delta.
+# The operative agent-mandate literal is identical across all six definition files, so the
+# same literal pins each (assert_pin_unique requires it appear exactly once PER FILE).
+REVIEW_AGENT_MANDATE='on a temporary copy made with `mktemp`, never in place'
+for review_agent in code-reviewer silent-failure-hunter comment-analyzer type-design-analyzer pr-test-analyzer; do
+  assert_pin_red_on_removal "#192 agent-mandate: deleting the never-mutate/mktemp-copy mandate from $review_agent turns its pin RED" \
+    "$REVIEW_AGENT_MANDATE" "$LIB/../agents/$review_agent.md"
+done
+assert_pin_red_on_removal "#192 agent-mandate: deleting the never-mutate/mktemp-copy mandate from the requesting-code-review final-pass turns its pin RED" \
+  "$REVIEW_AGENT_MANDATE" "$LIB/../skills/requesting-code-review/code-reviewer.md"
+# Backstop operative sentences — one pin per operative directive (operative-vs-framing rule):
+assert_pin_red_on_removal "#192 backstop: deleting the pre-dispatch working-tree snapshot turns its pin RED" \
+  'GIT_STATUS_BEFORE=$(git status --porcelain)' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#192 backstop: deleting the attributable dirty-tree breadcrumb turns its pin RED" \
+  'a Phase 3.1 review-agent dispatch modified the working tree' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#192 backstop: deleting the snapshot-delta-scoped restore turns its pin RED" \
+  'restore only the snapshot-delta paths' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#192 backstop: deleting the surface-as-a-finding fail-safe clause turns its pin RED" \
+  'record it as a finding (never discard it silently)' "$REVIEW_SKILL"
 # Coupled-invariant drift guard: the "detect_all_audit is intentionally not persisted
 # into diff_profile" contract spans two mirror sites — the SKILL.md schema comment and
 # docs/efficiency-trace.md. Both must agree; pin each with its stable site-specific phrase.
