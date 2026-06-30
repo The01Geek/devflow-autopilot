@@ -8417,8 +8417,6 @@ assert_pin_unique "#187 docs-release-notes Step 4b traces each claim against the
   'confirm it against the diff already read in Step 1. Do not re-run' "$FDROOT/skills/docs-release-notes/SKILL.md"
 assert_pin_unique "#187 docs-release-notes Step 4b enumerates every factual claim (operative payload, parity with trace/correct)" \
   'Enumerate every factual claim' "$FDROOT/skills/docs-release-notes/SKILL.md"
-assert_pin_unique "#187 docs-release-notes Step 4b traces each claim against the Step-1 diff (operative payload)" \
-  'confirm it against the diff already read in Step 1. Do not re-run' "$FDROOT/skills/docs-release-notes/SKILL.md"
 assert_pin_unique "#187 docs-release-notes Step 4b corrects stale claims in place (operative payload)" \
   'Rewrite only the specific sentence or clause that is stale' "$FDROOT/skills/docs-release-notes/SKILL.md"
 assert_pin_unique "#187 docs-release-notes Step 4b no-bump-commit no-op branch (parity with the no-section branch)" \
