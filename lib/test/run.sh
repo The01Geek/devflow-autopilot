@@ -8441,6 +8441,13 @@ assert_pin_unique "#191 code-reviewer enumerates all occurrences of a flagged st
   'search the affected file for all occurrences of the flagged phrase, enumerate every matching line number,' "$FDROOT/agents/code-reviewer.md"
 assert_pin_unique "#191 comment-analyzer enumerates all occurrences of a repeated stale comment before submitting" \
   'search the affected file for every occurrence of the flagged comment wording, enumerate every matching line number,' "$FDROOT/agents/comment-analyzer.md"
+# Pin the secondary semantic-equivalents refinement too — it is a distinct behavioral
+# clause from the search-all+enumerate imperative above (a trim to verbatim-only matching
+# would leave the pins above GREEN), so it needs its own gate to fail closed on removal.
+assert_pin_unique "#191 code-reviewer requires semantic-equivalent matches, not just verbatim" \
+  'semantic equivalents of the phrase you can identify from context, not just verbatim matches' "$FDROOT/agents/code-reviewer.md"
+assert_pin_unique "#191 comment-analyzer requires semantic-equivalent matches, not just verbatim" \
+  'semantic equivalents of the wording you can identify from context, not just verbatim matches' "$FDROOT/agents/comment-analyzer.md"
 
 # (5) Workflow contract: no cloud workflow installs the pr-review-toolkit companion anymore
 # (the engine dispatches the first-party devflow: review agents). Pattern split-literal to
