@@ -1897,7 +1897,9 @@ assert_eq "#216 backstop: the byte-prefixed fail-closed sentinel value stays cou
 DT_REGION="$(probe_tmp "#216 backstop region extraction")"
 DT_BEGIN="devflow:dirty-tree-restore ""BEGIN"
 DT_END="devflow:dirty-tree-restore ""END"
-awk -v b="$DT_BEGIN" -v e="$DT_END" 'index($0,b){f=1;next} index($0,e){f=0} f' "$REVIEW_SKILL" > "$DT_REGION"
+# Reuse the single-source-of-truth region extractor (markers excluded the same way every
+# other region scanner excludes them) rather than re-rolling the region awk inline.
+region_lines "$REVIEW_SKILL" "$DT_BEGIN" "$DT_END" > "$DT_REGION"
 assert_eq "#216 backstop: restore region extracted from SKILL.md is non-empty" "yes" \
   "$([ -s "$DT_REGION" ] && echo yes || echo no)"
 # Build a fresh sandbox repo with a committed spaced-path file + a plain file (fail-closed on
