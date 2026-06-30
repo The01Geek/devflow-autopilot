@@ -1721,6 +1721,15 @@ assert_pin_red_on_removal "#194 (A) review-and-fix: deleting the bake-via-remova
   "your framework's removal-proof assertion" "$MAXI_SKILL"
 assert_pin_red_on_removal "#194 (B) review-and-fix: deleting the confirm-guard-registered directive turns its pin RED" \
   'confirm the guard registered' "$MAXI_SKILL"
+# (B) is a two-conjunct directive ("named assertion appears as PASS" AND "the assertion
+# count rose") — by the rule's own "at least one pin per operative sentence", the count-rose
+# conjunct is a distinct operative clause (the anti-vacuity signal a guard actually REGISTERED,
+# not merely that some PASS line is present), so a surgical inline deletion of it alone must
+# also turn a pin RED rather than leaving (B) silently weakened to a presence-only check.
+assert_pin_red_on_removal "#194 (B) implement: deleting the assertion-count-rose conjunct turns its pin RED" \
+  "the suite's assertion count rose" "$DEF_SKILL"
+assert_pin_red_on_removal "#194 (B) review-and-fix: deleting the assertion-count-rose conjunct turns its pin RED" \
+  "the suite's assertion count rose" "$MAXI_SKILL"
 # ── #192: review/analysis agents must never mutate the live working tree ──────────────
 # Two coupled layers, each pinned with a mutation-proven assert_pin_red_on_removal so a
 # half-applied removal of the contract turns the suite RED (issue #192 AC4):
