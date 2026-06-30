@@ -12,6 +12,12 @@
 # does not matter — but the four tools above are required.
 set -u
 
+# Share the interpreter-selection contract with scripts/provision-python3-shim.sh so the
+# two can never disagree on which Python DevFlow uses (see lib/resolve-python.sh).
+_PREFLIGHT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=resolve-python.sh
+. "$_PREFLIGHT_DIR/resolve-python.sh"
+
 missing=0
 
 _need() {  # $1=command  $2=how-to-install hint
@@ -24,15 +30,49 @@ _need() {  # $1=command  $2=how-to-install hint
 _need git     "install git"
 _need gh      "install the GitHub CLI (https://cli.github.com) and run 'gh auth login'"
 _need jq      "install jq (https://jqlang.github.io/jq/)"
-_need python3 "install Python 3.11 or newer"
 
+# Python resolution. `python3` is the preferred command and the normal macOS/Linux path
+# (a real python3 >=3.11 is selected first, output is unchanged). On a stock Windows Python
+# install there is no `python3` on PATH — Python is reachable only as `python` / `py -3` —
+# so instead of the bare "missing python3" dead end, point the user at the consent-gated
+# shim provisioner and run the PyYAML/version checks against whatever interpreter resolves.
+# PYTHON holds the invocation the checks below run against ("" when none is usable).
+PYTHON=""
 if command -v python3 >/dev/null 2>&1; then
-  if ! python3 -c 'import yaml' >/dev/null 2>&1; then
-    printf "devflow preflight: Python package PyYAML not found — run 'python3 -m pip install pyyaml'\n" >&2
+  PYTHON="python3"
+else
+  _resolved=""
+  _rc=0
+  _resolved="$(devflow_resolve_python)" || _rc=$?
+  if [ "$_rc" -eq 0 ]; then
+    # A >=3.11 alternate exists but `python3` does not. The toolchain's literal `python3`
+    # calls still fail until a shim is in place, so this is still a missing dependency —
+    # but an actionable one: direct the user to the provisioner instead of a dead end.
+    printf "devflow preflight: 'python3' is not on PATH, but a compatible Python (>=3.11) is available as '%s'. Run scripts/provision-python3-shim.sh to install a 'python3' shim so the toolchain resolves it (Windows/Git-Bash); see docs/install.md.\n" "$_resolved" >&2
+    PYTHON="$_resolved"
+    missing=1
+  elif [ "$_rc" -eq 1 ]; then
+    # A Python exists but is older than 3.11: give the specific version failure, never the
+    # misleading "missing" message. $_resolved is the first runnable (too-old) invocation.
+    # shellcheck disable=SC2086  # $_resolved may be the two words "py -3"
+    printf 'devflow preflight: Python 3.11+ required (no python3 on PATH; the available Python is older: %s)\n' "$($_resolved -V 2>&1)" >&2
+    missing=1
+  else
+    printf "devflow preflight: missing required tool 'python3' — install Python 3.11 or newer\n" >&2
     missing=1
   fi
-  if ! python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' >/dev/null 2>&1; then
-    printf 'devflow preflight: Python 3.11+ required (found %s)\n' "$(python3 -V 2>&1)" >&2
+fi
+
+if [ -n "$PYTHON" ]; then
+  # shellcheck disable=SC2086  # $PYTHON may be the two words "py -3"
+  if ! $PYTHON -c 'import yaml' >/dev/null 2>&1; then
+    printf "devflow preflight: Python package PyYAML not found — run '%s -m pip install pyyaml'\n" "$PYTHON" >&2
+    missing=1
+  fi
+  # shellcheck disable=SC2086
+  if ! $PYTHON -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' >/dev/null 2>&1; then
+    # shellcheck disable=SC2086
+    printf 'devflow preflight: Python 3.11+ required (found %s)\n' "$($PYTHON -V 2>&1)" >&2
     missing=1
   fi
 fi

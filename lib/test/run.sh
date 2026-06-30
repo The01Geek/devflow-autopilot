@@ -9855,6 +9855,200 @@ U8_ID_OUT="$(PATH="$U8_GHD:$PATH" python3 "$U8_SCRIPTS/workpad.py" id 1 2>/dev/n
 assert_eq "#222 smoke: workpad.py id resolves a comment with a non-ASCII body" "42" "$U8_ID_OUT"
 rm -rf "$U8_GHD"
 
+# ────────────────────────────────────────────────────────────────────────────
+echo "python3 interpreter resolution: resolve-python.sh / provision-python3-shim.sh / preflight.sh (issue #225)"
+# ────────────────────────────────────────────────────────────────────────────
+# Stock Windows Python (python.org / winget) ships `python` + the `py -3` launcher and NO
+# `python3` on PATH, so every literal `python3` call fails. These assertions exercise the
+# shared selection contract (lib/resolve-python.sh), the consent-gated shim provisioner, the
+# preflight resolution path, and install.sh delegation — using fake-interpreter PATH stubs
+# (the suite is offline/gh-stubbed, so a temp-dir PATH with fake `python`/`py` fits the
+# harness). The fakes pattern-match the exact `-c` probes resolve-python.sh runs and exec the
+# REAL interpreter for a script argument, so the shim's arg/exit-code forwarding is exercised
+# end-to-end rather than mocked.
+PPS="$LIB/../scripts/provision-python3-shim.sh"
+PREFLIGHT_SH="$LIB/preflight.sh"
+RESOLVE_SH="$LIB/resolve-python.sh"
+REAL_PY="$(command -v python3 2>/dev/null || true)"
+
+if [ -z "$REAL_PY" ]; then
+  # No real python3 to back the fakes — the whole suite already requires python3 (the python
+  # section below runs under it), so this is unreachable in practice; record a FAIL rather
+  # than silently skipping coverage if it ever happens.
+  echo FAIL >> "$RESULTS_FILE"
+  printf '  FAIL  #225: no python3 available to back the fake-interpreter stubs (cannot run resolution tests)\n'
+else
+  # Populate DIR with coreutils symlinks + no-op git/gh/jq stubs, but deliberately NO python*
+  # (so `command -v python3` fails inside the stub PATH); callers then drop in fake interpreters.
+  build_stub_bin() {  # $1=dir
+    local d="$1" t src
+    for t in bash sh env dirname mktemp grep mkdir chmod mv rm ln cat sed cut tr id head wc sort cp printf; do
+      src="$(command -v "$t" 2>/dev/null)" && [ -n "$src" ] && ln -s "$src" "$d/$t" 2>/dev/null
+    done
+    for t in git gh jq; do
+      printf '#!/bin/sh\nexit 0\n' > "$d/$t" && chmod +x "$d/$t"
+    done
+  }
+  # Write a fake Python interpreter at $1 reporting version $2 (major $3, minor $4). It honors
+  # -V/--version, the `-c 'pass'` runnability probe, the resolve-python version probe, and
+  # `import yaml` (present unless $5 == noyaml); any other args (a script path) exec the REAL
+  # python3 so behavior is genuine. Args of the generated script are escaped (\$); $2/$3/$4/$5
+  # and $REAL_PY expand now, at generation time.
+  make_fake_python() {  # $1=path $2=verstring $3=maj $4=min [$5=noyaml]
+    local yaml_rc=0
+    [ "${5:-}" = "noyaml" ] && yaml_rc=1
+    cat > "$1" <<EOF
+#!/usr/bin/env bash
+case "\$1" in
+  -V|--version) echo "Python $2"; exit 0 ;;
+esac
+if [ "\$1" = "-c" ]; then
+  case "\$2" in
+    *"version_info >= (3, 11)"*)
+      if [ "$3" -gt 3 ] || { [ "$3" -eq 3 ] && [ "$4" -ge 11 ]; }; then exit 0; else exit 1; fi ;;
+    pass) exit 0 ;;
+    *"import yaml"*) exit $yaml_rc ;;
+    *) exit 0 ;;
+  esac
+fi
+exec "$REAL_PY" "\$@"
+EOF
+    chmod +x "$1"
+  }
+  # Write a fake `py` launcher at $1 that supports only `-3` and delegates to the fake python at $2.
+  make_fake_py() {  # $1=path $2=delegate
+    cat > "$1" <<EOF
+#!/usr/bin/env bash
+if [ "\$1" = "-3" ]; then shift; exec "$2" "\$@"; fi
+echo "py: only -3 supported in this stub" >&2; exit 1
+EOF
+    chmod +x "$1"
+  }
+
+  # ── AC1: provisioner exists, SPDX header, consent-gated, stable breadcrumb. ──
+  assert_eq "#225 pps: provisioner file exists (AC1)" "yes" "$([ -f "$PPS" ] && echo yes || echo no)"
+  assert_eq "#225 pps: SPDX header present (AC1)" "yes" "$(grep -q 'SPDX-License-Identifier: MIT' "$PPS" && echo yes || echo no)"
+  assert_eq "#225 pps: consent-gated via --apply (AC1)" "yes" "$(grep -q -- '--apply' "$PPS" && echo yes || echo no)"
+  assert_eq "#225 pps: stable devflow-python: breadcrumb prefix (AC1)" "yes" "$(grep -q 'devflow-python:' "$PPS" && echo yes || echo no)"
+  assert_eq "#225 resolve-python.sh: SPDX header present" "yes" "$(grep -q 'SPDX-License-Identifier: MIT' "$RESOLVE_SH" && echo yes || echo no)"
+
+  # ── AC2/AC3: alternate `python` (>=3.11), no python3 → shim installed; forwards args+exit. ──
+  T1="$(mktemp -d)"; build_stub_bin "$T1"; make_fake_python "$T1/python" "3.11.5" 3 11
+  T1BIN="$(mktemp -d)"
+  PPS_OUT="$(PATH="$T1" bash "$PPS" --apply "$T1BIN" 2>&1)"; PPS_RC=$?
+  assert_eq "#225 pps: alternate python, no python3 → exit 0 (AC2)" "0" "$PPS_RC"
+  assert_eq "#225 pps: shim created at target dir (AC2)" "yes" "$([ -f "$T1BIN/python3" ] && echo yes || echo no)"
+  assert_eq "#225 pps: shim execs the alternate, NEVER python3 (no recursion) (AC3)" "yes" \
+    "$(grep -q '^exec python "\$@"' "$T1BIN/python3" && echo yes || echo no)"
+  assert_eq "#225 pps: shim body does not exec python3 (AC3)" "no" \
+    "$(grep -q 'exec python3 ' "$T1BIN/python3" && echo yes || echo no)"
+  assert_eq "#225 pps: python3 --version via shim reports the >=3.11 interpreter (AC2)" "Python 3.11.5" \
+    "$(PATH="$T1BIN:$T1" python3 --version 2>&1)"
+  # Arg + exit-code forwarding through the shim → fake python → real python3.
+  printf 'import sys\nprint("args:" + " ".join(sys.argv[1:]))\nsys.exit(7)\n' > "$T1BIN/check.py"
+  FWD_OUT="$(PATH="$T1BIN:$T1" python3 "$T1BIN/check.py" hello 2>&1)"; FWD_RC=$?
+  assert_eq "#225 pps: shim forwards exit code (AC3)" "7" "$FWD_RC"
+  assert_eq "#225 pps: shim forwards args (AC3)" "args:hello" "$FWD_OUT"
+
+  # Default (no --apply) is consent-respecting: prints the plan, writes NOTHING.
+  T1D="$(mktemp -d)"
+  PPS_DEF_OUT="$(PATH="$T1" bash "$PPS" "$T1D" 2>&1)"; PPS_DEF_RC=$?
+  assert_eq "#225 pps: default (no --apply) → exit 0" "0" "$PPS_DEF_RC"
+  assert_eq "#225 pps: default (no --apply) writes NOTHING (consent)" "no" "$([ -f "$T1D/python3" ] && echo yes || echo no)"
+  assert_eq "#225 pps: default prints --apply guidance" "yes" "$(printf '%s' "$PPS_DEF_OUT" | grep -q -- '--apply' && echo yes || echo no)"
+
+  # ── AC4: selection picks the FIRST >=3.11 (py -3 over a Python-2 `python`); Python-2 rejected. ──
+  T4="$(mktemp -d)"; build_stub_bin "$T4"
+  make_fake_python "$T4/python" "2.7.18" 2 7           # `python` → Python 2 (must be rejected)
+  make_fake_python "$T4/_py3delegate" "3.11.0" 3 11
+  make_fake_py "$T4/py" "$T4/_py3delegate"
+  SEL="$(PATH="$T4" bash -c ". \"$RESOLVE_SH\"; devflow_resolve_python")"; SEL_RC=$?
+  assert_eq "#225 resolve: picks 'py -3' over a Python-2 'python' (AC4)" "py -3" "$SEL"
+  assert_eq "#225 resolve: rc 0 when a >=3.11 alternate exists (AC4)" "0" "$SEL_RC"
+
+  # Python-2 only → rc 1 (a runnable interpreter exists but too old), echoes the runnable one.
+  T4B="$(mktemp -d)"; build_stub_bin "$T4B"; make_fake_python "$T4B/python" "2.7.18" 2 7
+  SEL2="$(PATH="$T4B" bash -c ". \"$RESOLVE_SH\"; devflow_resolve_python")"; SEL2_RC=$?
+  assert_eq "#225 resolve: python2-only → echoes the first runnable invocation" "python" "$SEL2"
+  assert_eq "#225 resolve: python2-only → rc 1 (too old, distinct from 'none')" "1" "$SEL2_RC"
+
+  # ── AC4/AC6: provisioner refuses (non-zero, specific version msg) on a too-old-only host. ──
+  T6T="$(mktemp -d)"
+  PPS_OLD_OUT="$(PATH="$T4B" bash "$PPS" --apply "$T6T" 2>&1)"; PPS_OLD_RC=$?
+  assert_eq "#225 pps: too-old-only python → refuse exit 2 (AC6)" "2" "$PPS_OLD_RC"
+  assert_eq "#225 pps: too-old → specific 'older than 3.11' message, not 'missing' (AC6)" "yes" \
+    "$(printf '%s' "$PPS_OLD_OUT" | grep -qi 'older than 3.11' && echo yes || echo no)"
+  assert_eq "#225 pps: too-old → no shim written (AC6)" "no" "$([ -f "$T6T/python3" ] && echo yes || echo no)"
+
+  # ── AC5: preflight, no python3 but a >=3.11 alternate → provisioner pointer, NOT dead end. ──
+  T5="$(mktemp -d)"; build_stub_bin "$T5"; make_fake_python "$T5/python" "3.11.7" 3 11
+  PF5_OUT="$(PATH="$T5" bash "$PREFLIGHT_SH" 2>&1)"; PF5_RC=$?
+  assert_eq "#225 preflight: alt python, no python3 → exit non-zero (literal python3 still missing) (AC5)" "yes" \
+    "$([ "$PF5_RC" -ne 0 ] && echo yes || echo no)"
+  assert_eq "#225 preflight: alt python → points to provision-python3-shim.sh (AC5)" "yes" \
+    "$(printf '%s' "$PF5_OUT" | grep -q 'provision-python3-shim.sh' && echo yes || echo no)"
+  assert_eq "#225 preflight: alt python → NOT the bare \"missing required tool 'python3'\" dead end (AC5)" "no" \
+    "$(printf '%s' "$PF5_OUT" | grep -q "missing required tool 'python3'" && echo yes || echo no)"
+
+  # ── AC7: preflight runs the PyYAML check against the RESOLVED interpreter (not a hardcoded python3). ──
+  T7="$(mktemp -d)"; build_stub_bin "$T7"; make_fake_python "$T7/python" "3.11.2" 3 11 noyaml
+  PF7_OUT="$(PATH="$T7" bash "$PREFLIGHT_SH" 2>&1)"
+  assert_eq "#225 preflight: PyYAML checked against the resolved interpreter (AC7)" "yes" \
+    "$(printf '%s' "$PF7_OUT" | grep -qi 'PyYAML not found' && echo yes || echo no)"
+  assert_eq "#225 preflight: PyYAML hint names the resolved interpreter, not hardcoded python3 (AC7)" "yes" \
+    "$(printf '%s' "$PF7_OUT" | grep -q "'python -m pip install pyyaml'" && echo yes || echo no)"
+
+  # ── AC6 (preflight half): too-old-only → specific <3.11 message, never 'missing'. ──
+  PF6_OUT="$(PATH="$T4B" bash "$PREFLIGHT_SH" 2>&1)"; PF6_RC=$?
+  assert_eq "#225 preflight: too-old python → exit non-zero (AC6)" "yes" "$([ "$PF6_RC" -ne 0 ] && echo yes || echo no)"
+  assert_eq "#225 preflight: too-old → specific 'Python 3.11+ required' message (AC6)" "yes" \
+    "$(printf '%s' "$PF6_OUT" | grep -q 'Python 3.11+ required' && echo yes || echo no)"
+  assert_eq "#225 preflight: too-old → NOT the bare \"missing required tool 'python3'\" message (AC6)" "no" \
+    "$(printf '%s' "$PF6_OUT" | grep -q "missing required tool 'python3'" && echo yes || echo no)"
+
+  # ── AC9: idempotent no-op when a working python3 >=3.11 already resolves. ──
+  T9="$(mktemp -d)"; build_stub_bin "$T9"; make_fake_python "$T9/python3" "3.12.3" 3 12
+  T9T="$(mktemp -d)"
+  PPS9_OUT="$(PATH="$T9" bash "$PPS" --apply "$T9T" 2>&1)"; PPS9_RC=$?
+  assert_eq "#225 pps: python3 already works → exit 0 (AC9)" "0" "$PPS9_RC"
+  assert_eq "#225 pps: python3 already works → 'nothing to do' breadcrumb (AC9)" "yes" \
+    "$(printf '%s' "$PPS9_OUT" | grep -qi 'nothing to do' && echo yes || echo no)"
+  assert_eq "#225 pps: python3 already works → no shim written (AC9/AC10)" "no" "$([ -f "$T9T/python3" ] && echo yes || echo no)"
+
+  # ── AC10: real python3 >=3.11 + deps present → byte-identical pass line, no provisioner pointer. ──
+  T10="$(mktemp -d)"; build_stub_bin "$T10"; make_fake_python "$T10/python3" "3.12.1" 3 12
+  PF10_OUT="$(PATH="$T10" bash "$PREFLIGHT_SH" 2>&1)"; PF10_RC=$?
+  assert_eq "#225 preflight: python3 present + deps → exit 0 (AC10)" "0" "$PF10_RC"
+  assert_eq "#225 preflight: byte-identical pass line on python3-present path (AC10)" \
+    "devflow preflight: all dependencies present." "$(printf '%s\n' "$PF10_OUT" | tail -1)"
+  assert_eq "#225 preflight: no provisioner pointer when python3 resolves (AC10)" "no" \
+    "$(printf '%s' "$PF10_OUT" | grep -q 'provision-python3-shim.sh' && echo yes || echo no)"
+
+  # ── AC8: install.sh delegates to the provisioner on the no-python3/alternate path; not when python3 works. ──
+  INSTALL_SH="$LIB/../install.sh"
+  REPO_ROOT="$(cd "$LIB/.." && pwd)"
+  T8="$(mktemp -d)"; build_stub_bin "$T8"; make_fake_python "$T8/python" "3.11.0" 3 11
+  OFFER_OUT="$(PATH="$T8" bash -c "DEVFLOW_SELFTEST=1 . \"$INSTALL_SH\"; offer_python3_shim \"$REPO_ROOT\"" 2>&1)"
+  assert_eq "#225 install.sh: no python3 → delegates to provision-python3-shim.sh (AC8)" "yes" \
+    "$(printf '%s' "$OFFER_OUT" | grep -q 'devflow-python:' && echo yes || echo no)"
+  T8B="$(mktemp -d)"; build_stub_bin "$T8B"; make_fake_python "$T8B/python3" "3.12.0" 3 12
+  OFFER_OUT_B="$(PATH="$T8B" bash -c "DEVFLOW_SELFTEST=1 . \"$INSTALL_SH\"; offer_python3_shim \"$REPO_ROOT\"" 2>&1)"
+  assert_eq "#225 install.sh: python3 present → NO delegation (AC8)" "no" \
+    "$(printf '%s' "$OFFER_OUT_B" | grep -q 'devflow-python:' && echo yes || echo no)"
+
+  # ── AC11: no .github/ workflow, action, or allowlist entry is modified by this change. ──
+  if git -C "$REPO_ROOT" rev-parse --verify origin/main >/dev/null 2>&1; then
+    GH_CHANGED="$(git -C "$REPO_ROOT" diff --name-only origin/main -- .github 2>/dev/null)"
+    assert_eq "#225 no .github/ path modified vs origin/main (AC11)" "" "$GH_CHANGED"
+  fi
+
+  # ── AC12: the three docs document the Windows interpreter-resolution path. ──
+  for _doc in CONTRIBUTING.md docs/install.md docs/DEVFLOW_SYSTEM_OVERVIEW.md; do
+    assert_eq "#225 docs: $_doc documents the python3 resolution path (AC12)" "yes" \
+      "$(grep -q 'provision-python3-shim.sh' "$REPO_ROOT/$_doc" && echo yes || echo no)"
+  done
+fi
+
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
