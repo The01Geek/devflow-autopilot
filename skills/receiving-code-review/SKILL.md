@@ -57,8 +57,6 @@ Once the verdict is already non-blocking (an APPROVE, or any approve-with-notes 
 - **Everything else is recorded or deferred** (see Record Every Deferral below), not implemented. A Suggestion- or advisory-level note on an already-passing verdict does not, by itself, re-open the diff.
 - **Bound any advisory re-open to a concrete, pre-agreed set.** If advisory notes *are* worth one more pass, name the specific bounded set of them before you start — never "address all the notes," which guarantees the next run produces a new batch and the loop never settles.
 
-Expect the next review to produce new advisory notes after your edit. Treat that as the engine working as designed, not a signal to keep re-opening the diff.
-
 ## Forbidden Responses
 
 **NEVER:**
