@@ -168,7 +168,7 @@ This is the canonical story for a demo video or "how it works" slide:
 | `/devflow:docs` | Orchestrates the three doc steps in one session | interactively; called by `/devflow:implement` Phase 4 |
 | `/devflow:docs-sync-internal` | Update internal docs to match branch code changes | called by `/docs` |
 | `/devflow:docs-sync-external` | Align external/customer docs with internal docs | called by `/docs` |
-| `/devflow:docs-release-notes` | Generate a release-note entry for customer-visible changes; reconcile the CHANGELOG entry for any PR | called by `/docs` |
+| `/devflow:docs-release-notes` | Generate a release-note entry for customer-visible changes; on a version-bump branch, also reconcile that version's CHANGELOG entry (any PR, not just customer-visible) | called by `/docs` |
 | `/devflow:docs-verify <topic>` | Verify/refresh internal docs for one topic (has `--report-only` mode) | interactively; sub-step of `/devflow:create-issue` |
 | `/devflow:docs-bootstrap-internal` | Stand up an internal-docs structure from scratch | interactively |
 | `/devflow:docs-bootstrap-external` | Generate initial external docs from internal docs | interactively |

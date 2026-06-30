@@ -8337,7 +8337,8 @@ assert_pin_unique "#141 implement skill names all five review agents in its Phas
 # (issue #183 / PR #187) CHANGELOG reconciliation step contract pins. Guards four
 # load-bearing clauses in docs-release-notes SKILL.md: (a) the all-PRs routing
 # contract, (b) the no-op condition, (c) the no-commit clause, and (d) the config-key
-# resolution line. Removing or softening any of these turns the suite RED.
+# resolution line. Removing or rewording any of these pinned clauses turns the suite RED
+# (a presence pin catches deletion/reword, not a purely additive edit that leaves the clause).
 assert_pin_unique "#183 docs-release-notes SKILL Step 4b runs regardless of customer-visibility decision" \
   'This step runs regardless of the Step 2 customer-visibility decision' "$FDROOT/skills/docs-release-notes/SKILL.md"
 assert_pin_unique "#183 docs-release-notes SKILL contains CHANGELOG reconciliation step with no-op condition" \
@@ -8363,8 +8364,8 @@ assert_pin_unique "#187 implement prompt-extension mandates the chore: bump vers
 # commit's free-text *subject* reconciles the wrong (already-shipped) section when a later
 # re-version leaves that subject stale — a silent fail-*wrong*. The version MUST come from the
 # authoritative manifest, with the bump commit used only to confirm a bump happened. Pin (a) the
-# manifest-sourced version read, (b) the two-dot scan range (prior churn: commit 7a28b51 already
-# corrected this exact line once), and (c) the bracketed `## [version]` heading the consumer
+# manifest-sourced version read, (b) the two-dot scan range (this exact line has regressed before
+# — the two-dot vs three-dot distinction is load-bearing), and (c) the bracketed `## [version]` heading the consumer
 # searches, coupled to the implement extension's `## [x.y.z]` producer so a heading-convention
 # drift cannot silently no-op reconciliation on one side only.
 assert_pin_unique "#187 docs-release-notes Step 4b reads the shipped version from the plugin.json manifest (not the commit subject)" \
@@ -8394,6 +8395,21 @@ assert_pin_unique "#187 docs-release-notes Step 2 routes the non-customer-visibl
   'CHANGELOG reconciliation still runs for all PRs' "$FDROOT/skills/docs-release-notes/SKILL.md"
 assert_pin_unique "#187 docs-release-notes Step 4b fails loud on a failed determination (not a masked no-op)" \
   'CHANGELOG reconciliation NOT performed' "$FDROOT/skills/docs-release-notes/SKILL.md"
+
+# (PR #187 review round 4 — pin the reconciliation PAYLOAD, not only its guards) The pins
+# above guard Step 4b's control-flow guards (routing, version source, no-op, fail-loud) but
+# left the operative *action* unpinned — a half-revert could hollow out the enumerate→trace→
+# correct payload and the suite would stay GREEN (the recurring framing-pinned-not-behavior
+# class). Pin (a) the trace-against-the-Step-1-diff clause — load-bearing because the Step-1
+# diff is the operand Step 4b's trace consumes, and Step 1 runs before the Step 2 branch so the
+# operand is reachable on every path — and (b) the correct-in-place mutation clause. Also pin
+# the no-bump-commit no-op branch for parity with the no-section branch already pinned above.
+assert_pin_unique "#187 docs-release-notes Step 4b traces each claim against the Step-1 diff (operative payload)" \
+  'confirm it against the diff already read in Step 1. Do not re-run' "$FDROOT/skills/docs-release-notes/SKILL.md"
+assert_pin_unique "#187 docs-release-notes Step 4b corrects stale claims in place (operative payload)" \
+  'Rewrite only the specific sentence or clause that is stale' "$FDROOT/skills/docs-release-notes/SKILL.md"
+assert_pin_unique "#187 docs-release-notes Step 4b no-bump-commit no-op branch (parity with the no-section branch)" \
+  'no version-bump commit found on branch' "$FDROOT/skills/docs-release-notes/SKILL.md"
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
