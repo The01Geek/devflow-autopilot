@@ -1489,6 +1489,10 @@ assert_pin_unique "premise #197: External-Reviewers checklist greps to confirm a
   'grep the repo to confirm that convention actually exists before reshaping code to match it' "$RECV_SKILL"
 assert_pin_unique "premise #197: push back on a non-existent convention with the file real pattern" \
   'Do not reshape code to match an aspirational or non-existent standard' "$RECV_SKILL"
+# AC1 requires the push-back to CITE the file's real pattern as evidence, not merely to
+# refuse the reshape — pin that evidence clause too, so a regression dropping it fails RED.
+assert_pin_unique "premise #197: push-back cites the file real pattern as evidence" \
+  'real, uniform pattern as evidence' "$RECV_SKILL"
 # AC2 (inward): the Verification Gate verifies the diff own claims against HEAD before done.
 assert_pin_unique "premise #197: Verification Gate verifies own diff claims against HEAD" \
   'Treat every documentation, comment, changelog, or PR-body assertion the change adds or relies on as a claim to verify against HEAD' "$RECV_SKILL"
