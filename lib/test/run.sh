@@ -2189,6 +2189,19 @@ _actual_phase_stems=$(find "$IMPL_PHASES_DIR" -maxdepth 1 -name '*.md' -type f -
 _registered_phase_stems=$(printf '%s\n' $IMPL_PHASE_STEMS | sort | tr '\n' ' ' | sed 's/ *$//')
 assert_eq "implement split: phases/ dir holds exactly the registered phase set (no unregistered / missing phase file)" \
   "$_registered_phase_stems" "$_actual_phase_stems"
+# The resolve-once preamble above the per-phase loop carries its OWN fail-closed contract
+# (the ${CLAUDE_SKILL_DIR}-empty stop, and "the stubs are deliberately non-actionable" —
+# the imperative that a phase must never run from its thin stub alone). Each per-phase gate
+# below is independently pinned (path + mandatory-read framing + halt clause), so a future
+# edit that weakens ONLY this shared preamble has a narrower blast radius than losing a
+# phase gate — but it is still a real, locatable coverage gap (this is the same
+# "pin only the path, not the imperative" hole the per-phase loop's own comment calls out,
+# applied to the preamble it doesn't cover). Pin both load-bearing clauses here, once, since
+# the preamble itself appears once in the orchestrator (not once per phase).
+assert_pin_unique "implement split: orchestrator preamble fails closed when \${CLAUDE_SKILL_DIR} does not resolve" \
+  "did not resolve" "$IMPL_ORCH"
+assert_pin_unique "implement split: orchestrator preamble states the stubs are deliberately non-actionable" \
+  "the stubs are deliberately non-actionable" "$IMPL_ORCH"
 # One loop over the single phase-stem list checks each per-phase invariant: the phase file
 # exists & is non-empty; the orchestrator names its entry-gate read EXACTLY ONCE; AND the
 # orchestrator carries the entry-gate's fail-closed *imperative* (the "halt … with an
