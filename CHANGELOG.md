@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.38] — 2026-06-30
+
+### Added
+- **`/devflow:review-and-fix`'s Step 2.6 shadow review now also fires *early* — once after iteration 1 — on `engine_self_modifying` PRs, instead of only at convergence.** On engine-self-modifying diffs (`skills/**`, `agents/**`, `lib/**`) the blinded shadow empirically surfaces new Important findings in every iteration, yet the convergence-time trigger withholds that independent audit until the in-loop passes have already stopped finding things (and it never fires at all on a REJECT, exactly when the audit matters most). The new **early trigger** runs the *same* parent-orchestrated blinded fan-out — same expected-roster, coverage positive-assertion, 1:1-join, Over-grade calibration gate, and single-bounded transient re-dispatch budget, with nothing about the fan-out paraphrased — once after iteration 1, **regardless of that iteration's verdict (including REJECT)**, feeding any new blinded findings into iteration 2 via the existing Decide-outcome-2 promotion machinery. It is **scoped to `engine_self_modifying`** (gated on iteration 1's own `diff_profile`): a non-engine PR keeps the convergence-time trigger only, unchanged. A **no-double-run guard** suppresses the early trigger when iteration 1 already reached the convergence-time shadow via Step 2's non-REJECT path, and the iteration accounting is unchanged — the early pass is itself uncounted toward `$MAX_ITERS` (like the convergence-time shadow) while the promoted iteration 2 it spawns counts, with no double-count (and a `$MAX_ITERS = 1` edge that collapses back to the convergence-time trigger). `docs/shadow-review.md` documents both triggers; `lib/test/run.sh` pins the fire condition (mutation-proven RED-on-removal), the no-double-run guard, and the cap-accounting contract. (#214, closes #199)
+
 ## [2.8.37] — 2026-06-30
 
 ### Added

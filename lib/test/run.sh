@@ -1466,6 +1466,55 @@ assert_pin_unique "fix-delta gate: share-the-contract principle in receiving-cod
   'prefer using that consumer as the guard itself' "$RCR_SKILL"
 # FIXDELTA_GUARD_REGION_END — end of the assert_pin_unique-only fix-delta pin region
 
+# Drift guard (issue #199): the Step 2.6 EARLY shadow trigger. On an
+# `engine_self_modifying` PR the shadow fan-out runs once after iteration 1
+# regardless of that iteration's verdict (including REJECT), feeding new blinded
+# findings into iteration 2 — the convergence-time trigger is unchanged for all
+# PRs and a non-engine PR keeps convergence-time-only. The contract has three
+# load-bearing, independently-revertible sentences, each pinned below: (1) the
+# fire condition (after-iteration-1, verdict-agnostic, gated on engine_self_modifying);
+# (2) the no-double-run guard vs the convergence-time trigger; (3) the iteration
+# accounting (early pass uncounted, the promoted iteration 2 counts). These use
+# assert_pin_unique (one occurrence) so a deletion or paraphrase fails closed; the
+# fire-condition sentence is additionally mutation-proven via assert_pin_red_on_removal.
+assert_pin_unique "early-shadow #199: fire condition (after-iter-1, verdict-agnostic, engine_self_modifying-gated)" \
+  'run the early shadow once after iteration 1 regardless of that iteration verdict, gated on engine_self_modifying' "$MAXI_SKILL"
+assert_pin_red_on_removal "early-shadow #199: deleting the early-trigger fire condition turns its pin RED" \
+  'run the early shadow once after iteration 1 regardless of that iteration verdict, gated on engine_self_modifying'
+assert_pin_unique "early-shadow #199: no-double-run guard vs the convergence-time trigger (AC3)" \
+  'only when the convergence-time trigger did not already run on iteration 1' "$MAXI_SKILL"
+assert_pin_unique "early-shadow #199: promoted iteration 2 counts toward the cap; early pass uncounted (AC3)" \
+  'promoted iteration 2 it spawns DOES count toward the cap' "$MAXI_SKILL"
+# AC2 (review F2): the non-engine contract is carried by the Step 2.6 intro bullet — a
+# SEPARATE, independently-revertible sentence from the fire-condition pin above. Without
+# its own pin, an edit that broadens the early trigger to all PRs (deleting this clause
+# while leaving the gated fire-condition intact) re-introduces the AC2 regression with the
+# pins above still green. Pin the operative non-engine sentence.
+assert_pin_unique "early-shadow #199: non-engine PR keeps convergence-time-only (AC2)" \
+  'never runs the early trigger and keeps the convergence-time trigger only' "$MAXI_SKILL"
+# Review F1 (silent-failure-hunter, Important): the early-trigger gate reads a best-effort
+# iter-1.json flag whose schema default is false; without an explicit absent-flag rule a
+# dropped iter-1 write would silently skip the early audit on exactly the engine PR it
+# protects (fail-OPEN). The fix re-derives engine_self_modifying from the diff and trips
+# rather than defaulting to false. This is a behavioral fail-open fix, so mutation-prove it.
+assert_pin_unique "early-shadow #199: absent flag fails closed (re-derive, do not default false)" \
+  're-derive `engine_self_modifying` from the diff itself' "$MAXI_SKILL"
+assert_pin_red_on_removal "early-shadow #199: deleting the absent-flag fail-closed rule turns its pin RED" \
+  're-derive `engine_self_modifying` from the diff itself'
+# Shadow finding A (Important): the Step 4.5 sentence is the ONLY control-flow site that
+# INVOKES the early trigger — every pin above guards the declarative subsection, not the
+# call site. Reverting just the Step 4.5 wiring (e.g. a future Step 4.5 refactor) ships the
+# feature DEAD with all the pins above still green. Pin the invocation site, mutation-proven.
+assert_pin_unique "early-shadow #199: Step 4.5 invocation site wires the early trigger into the loop" \
+  'run the Step 2.6 *early shadow trigger* first' "$MAXI_SKILL"
+assert_pin_red_on_removal "early-shadow #199: deleting the Step 4.5 invocation site turns its pin RED" \
+  'run the Step 2.6 *early shadow trigger* first'
+# Shadow finding B: the $MAX_ITERS=1 edge clause (collapse to convergence-time-only, no
+# orphan promotion) is a named contract clause in the CHANGELOG; pin it so a deletion that
+# would let the early trigger promote a non-existent iteration 2 at cap=1 fails closed.
+assert_pin_unique "early-shadow #199: \$MAX_ITERS=1 edge collapses to convergence-time-only" \
+  'never spawns a pass it has nowhere to feed' "$MAXI_SKILL"
+
 # Drift guard: the step 8 Verification Gate (issue #178; renumbered from step 7 by #196,
 # which inserted a RECORD DEFERRALS step before it) — the Iron Law, its scope
 # sentence, the code-fence verify entry, the engine re-run attribution, the
