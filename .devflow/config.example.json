@@ -46,6 +46,7 @@
     "internal_enabled": true,
     "external_enabled": true,
     "release_notes_file": "docs/external/release-notes.md",
+    "changelog_file": "CHANGELOG.md",
     "labels": "Documented"
   },
   "deferred": {

@@ -6,11 +6,12 @@ description: Use when a PR has customer-visible changes (new features, bug fixes
 > - Internal docs: `${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .docs.internal docs/internal/`
 > - External docs: `${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .docs.external docs/external/`
 > - Release notes file: `${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .docs.release_notes_file docs/external/release-notes.md`
+> - CHANGELOG file: `${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .docs.changelog_file CHANGELOG.md`
 > - PR number: `gh pr view --json number -q '.number'` (resolves from current branch)
 >
 > The `config-get.sh` helper falls back to the default value when the config file is missing or the key is absent.
 >
-> Use these values wherever `[[INTERNAL_DOC_LOCATION]]`, `[[EXTERNAL_DOC_LOCATION]]`, `[[RELEASE_NOTES_FILE]]`, and `[[PR_NUMBER]]` appear below.
+> Use these values wherever `[[INTERNAL_DOC_LOCATION]]`, `[[EXTERNAL_DOC_LOCATION]]`, `[[RELEASE_NOTES_FILE]]`, `[[CHANGELOG_FILE]]`, and `[[PR_NUMBER]]` appear below.
 
 **Consumer prompt extension (load first).** Before doing this skill's work, load any consumer-supplied prompt extension for this skill and honor it. From the repo root, run:
 
@@ -25,9 +26,9 @@ If the helper exits non-zero, a consumer extension exists but could not be loade
 ## Objective
 
 You are an **AI Release Notes Agent** for a code repository.
-Your task is to review the code changes in a pull request and, if they have **customer-visible impact**, draft a brief customer-facing release note entry and append it to `[[RELEASE_NOTES_FILE]]`.
+Your task is to review the code changes in a pull request and, if they have **customer-visible impact**, draft a brief customer-facing release note entry and append it to `[[RELEASE_NOTES_FILE]]`. Independently of customer-visibility, if the branch bumped the version you also reconcile that version's CHANGELOG entry against the shipped diff (Step 4b) — a second, always-on output that writes a different file (`[[CHANGELOG_FILE]]`).
 
-If the PR has **no customer-visible impact** (e.g., refactors, CI changes, documentation-only, test-only, internal tooling), **do nothing** — make no file changes and stop.
+If the PR has **no customer-visible impact** (e.g., refactors, CI changes, documentation-only, test-only, internal tooling), skip Steps 3, 3b, and 4 — do not write a release note or modify `[[RELEASE_NOTES_FILE]]` — and proceed directly to Step 4b (CHANGELOG reconciliation still runs for all PRs).
 
 ## Execution Steps
 
@@ -66,7 +67,7 @@ Ask yourself: **Would a customer notice this change?**
 - Performance improvements customers would notice
 - New configuration options or settings
 
-**Not customer-visible** (stop, make no changes):
+**Not customer-visible** (skip Steps 3, 3b, and 4; proceed to Step 4b):
 - Code refactors with no behavior change
 - CI/CD pipeline changes
 - Internal documentation updates
@@ -74,7 +75,7 @@ Ask yourself: **Would a customer notice this change?**
 - Developer tooling changes
 - Dependency updates with no behavior change
 
-If the PR is **not customer-visible**, stop here. Do not modify any files.
+If the PR is **not customer-visible**, skip Steps 3, 3b, and 4 — do not write a release note or modify `[[RELEASE_NOTES_FILE]]`. Proceed directly to Step 4b.
 
 ### Step 3: Draft the Release Note Entry
 
@@ -102,7 +103,7 @@ Issue bodies, PR descriptions, and plans describe *intent*; they routinely state
 - **Scope of the change** — if the diff removed or added more than one user-visible thing (e.g. two files removed, two settings deleted), the release note must account for each one, or you must consciously decide one is not customer-visible and say so in the Step-3 reasoning. A release note covering only the first of two shipped removals is a half-edit.
 - **Described behavior** — confirm the "what changed and why it matters" sentence matches the post-change implementation, not a draft of it.
 
-If any drafted assertion cannot be confirmed against the changed code, rewrite the entry until it can — never ship a customer-facing claim on faith. If verification reveals the change is *not* actually customer-visible after all, stop and make no file changes (per Step 2).
+If any drafted assertion cannot be confirmed against the changed code, rewrite the entry until it can — never ship a customer-facing claim on faith. If verification reveals the change is *not* actually customer-visible after all, discard the draft release note, skip Step 4, and proceed directly to Step 4b (per Step 2).
 
 ### Step 4: Append to Release Notes File
 
@@ -111,9 +112,33 @@ Read `[[RELEASE_NOTES_FILE]]`. Determine today's date and format it as `## Month
 - If the date heading **does not exist**, add it at the top of the file directly below the first H1 heading (e.g., `# Release Notes`), with a blank line before and after. If the file is empty or has no H1 heading, add `# Release Notes` as the first line, then the date heading below it.
 - If the date heading **already exists**, append the new entry under it (after any existing entries for that date).
 
+### Step 4b: Reconcile the CHANGELOG Entry
+
+This step runs regardless of the Step 2 customer-visibility decision — after appending a release note (Step 4) or after the non-customer-visible skip in Step 2, proceed here.
+
+**Confirm a version bump happened, then read the version from the manifest — not the commit subject.** Run:
+```
+git log --oneline origin/main..HEAD
+```
+Look for a commit whose message begins with `chore: bump version`. This commit's only role here is to **confirm that this branch bumped the version** — do not read the version string from its free-text subject. The subject is not in lockstep with what actually shipped: a rebase or a version collision can re-version `.claude-plugin/plugin.json` in a *later* commit without re-wording the bump commit, so the subject can name a stale, already-released version. Reconciling that stale section would silently correct the wrong (prior, already-shipped) entry and leave the entry this PR ships untouched — a fail-*wrong*, not a clean no-op. First confirm the scan itself **succeeded**: if `git log` exits non-zero, or `origin/main` will not resolve (not fetched, detached state), that is a **failed determination** (the fail-loud path below) — never read its empty output as "no bump commit". Only when the scan ran cleanly **and** shows no `chore: bump version` commit did this PR not bump the version — log "no version-bump commit found on branch" and proceed to Step 5.
+
+Read the **authoritative shipped version** from the manifest (the bump, and any later re-version, both update it):
+```
+jq -r .version .claude-plugin/plugin.json
+```
+Inspect the result: a non-zero `jq` exit, empty output, or a value that is not an `N.N.N` version string (e.g. `null` from an absent key) — **while a bump commit is present** — is a **failed determination** (the fail-loud path below), not a clean version; only a well-formed `N.N.N` value continues. Then read `[[CHANGELOG_FILE]]` and search for the bracketed Keep-a-Changelog heading `## [<version>]` for that manifest version (e.g., `## [2.8.26]`). If `[[CHANGELOG_FILE]]` itself cannot be read (missing, permission, IO) while a bump commit and a valid manifest version are both present, that too is a **failed determination**, not "no matching section". If the file reads cleanly but has no section heading matching the manifest version, this step is a no-op — log "no CHANGELOG section found for version X" and proceed to Step 5; CHANGELOG *presence* on a bump is separately enforced by the Phase 3 review gate, not here.
+
+**Distinguish a failed determination from a legitimate no-op.** The two no-op logs above ("no version-bump commit found", "no CHANGELOG section found") are for *legitimately empty* results — a branch that genuinely did not bump, or a bump whose CHANGELOG entry is genuinely absent. They are **not** a catch-all for a *failed* command. If the `jq` manifest read errors, prints empty, or prints `null` / a non-version string **while a `chore: bump version` commit IS present**, or if `git log` / `origin/main` cannot be resolved, do **not** fold that into a reassuring no-op log — that would silently skip reconciliation on exactly the inputs it exists to catch. Log a distinct error ("Step 4b: could not determine the shipped version / scan the branch — CHANGELOG reconciliation NOT performed") and surface it to the caller, so a swallowed failure is never indistinguishable from a clean no-op.
+
+**Enumerate every factual claim.** Re-read the body of the located `## [version]` section. A factual claim is any concrete assertion: coverage counts, enumerated sites, completeness phrases ("all X were done", "Y and Z are now..."), named identifiers (file paths, key names, step or phase numbers, agent names), or specific behavioral guarantees. This CHANGELOG entry was written at Phase 3 commit time — before Phase 3.3 review-and-fix corrections — so its specific assertions may be stale relative to the final shipped diff.
+
+**Trace each claim against the Step-1 diff.** For each enumerated claim, confirm it against the diff already read in Step 1. Do not re-run `git diff`. (Step 1 runs unconditionally at the top of every invocation — *before* the Step 2 customer-visibility branch — so the Step-1 diff is always available here, including on the non-customer-visible path that skipped Steps 3–4.) A claim is accurate if every concrete detail (count, identifier, behavioral guarantee) matches the shipped code exactly. A claim is stale if the diff shows a different count, a renamed identifier, a reverted piece of scope, or a corrected approach. **Distinguish *stale* from *unconfirmable*, and never rewrite on a missing operand.** "Stale" means the diff *positively shows a different value*; "unconfirmable" means the Step-1 diff is empty, or does not cover the file the claim names, so it neither confirms nor contradicts the claim. Correct only the *positively-contradicted* claims; leave an unconfirmable claim **unchanged** and log it — an empty or truncated Step-1 diff must never turn an accurate claim into a "correction" (that would be a fail-*wrong* CHANGELOG edit). If the Step-1 diff is empty while a CHANGELOG section was located, treat that as a failed determination — log it and make no edits.
+
+**Correct stale claims in place.** Rewrite only the specific sentence or clause that is stale, using the same tense, format, and surrounding context as the rest of the entry. If all claims are accurate, make no changes to `[[CHANGELOG_FILE]]`. In all cases, log a brief summary — for example: "Step 4b: enumerated N claims; M corrected, N−M confirmed accurate." Do not commit — leave committing to the caller, consistent with Step 5.
+
 ### Step 5: Do Not Commit
 
-Do **not** commit the changes. Leave committing to the caller.
+Do **not** commit any files modified above. Leave committing to the caller.
 
 ---
 

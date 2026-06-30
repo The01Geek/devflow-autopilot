@@ -168,7 +168,7 @@ This is the canonical story for a demo video or "how it works" slide:
 | `/devflow:docs` | Orchestrates the three doc steps in one session | interactively; called by `/devflow:implement` Phase 4 |
 | `/devflow:docs-sync-internal` | Update internal docs to match branch code changes | called by `/docs` |
 | `/devflow:docs-sync-external` | Align external/customer docs with internal docs | called by `/docs` |
-| `/devflow:docs-release-notes` | Generate a release-note entry for customer-visible changes | called by `/docs` |
+| `/devflow:docs-release-notes` | Generate a release-note entry for customer-visible changes; on a version-bump branch, also reconcile that version's CHANGELOG entry (any PR, not just customer-visible) | called by `/docs` |
 | `/devflow:docs-verify <topic>` | Verify/refresh internal docs for one topic (has `--report-only` mode) | interactively; sub-step of `/devflow:create-issue` |
 | `/devflow:docs-bootstrap-internal` | Stand up an internal-docs structure from scratch | interactively |
 | `/devflow:docs-bootstrap-external` | Generate initial external docs from internal docs | interactively |
@@ -352,14 +352,14 @@ DevFlow treats documentation as part of "done." `/devflow:docs` orchestrates thr
 
 1. **`docs-sync-internal`**: ensures every code change on the branch has a corresponding internal-doc update (goal: 100% alignment). Proportional: major changes → comprehensive, trivial → none. Mandatory final step: **verify every factual claim against the codebase** (the single most common cause of inaccurate docs).
 2. **`docs-sync-external`**: aligns customer-facing docs against the internal docs (the source of truth), removing confidential/internal-only content. Follows a detailed style guide (AP style, term conventions, etc.).
-3. **`docs-release-notes`**: if the change is customer-visible, appends a brief entry (`- **[Category] Short Title**: description. (#PR)`); otherwise does nothing.
+3. **`docs-release-notes`**: if the change is customer-visible, appends a brief entry (`- **[Category] Short Title**: description. (#PR)`); otherwise skips the release note. Either way, if the branch bumped the version, it reconciles that version's CHANGELOG entry — taking the version from `.claude-plugin/plugin.json` (not the bump commit's subject) and no-opping if no matching `## [version]` section exists (Step 4b).
 
 Supporting skills:
 - **`docs-verify <topic>`**: verifies internal docs for one topic against code (codebase = source of truth). Has a `--report-only` mode (no writes) used by `/devflow:create-issue`. Verdicts: `DOCS ACCURATE` / `DRIFT FOUND` / `DOCS MISSING`.
 - **`docs-bootstrap-internal`**: stands up an internal-docs tree from scratch, organized **domain-first** (`orders/`, `customers/`) not code-layer-first, flat (one level), quality over quantity (5–10 thorough seed docs, not 50 stubs).
 - **`docs-bootstrap-external`**: generates the initial external docs from the internal source of truth.
 
-Doc paths are configurable (`docs.internal`, `docs.external`, `docs.release_notes_file`); internal/external steps can be toggled off (`docs.internal_enabled`, `docs.external_enabled`).
+Doc paths are configurable (`docs.internal`, `docs.external`, `docs.release_notes_file`, `docs.changelog_file`); internal/external steps can be toggled off (`docs.internal_enabled`, `docs.external_enabled`).
 
 **Consistent discipline across all docs skills:** branch diffs use `git diff origin/main...HEAD` (three dots, branch-only changes); bare source paths only (no line numbers, which rot); the generation skills leave committing to the caller.
 
@@ -523,7 +523,7 @@ The local tier needs **no config**. To customize, `/devflow:init` scaffolds `.de
 | `devflow_review.live_progress_comment_enabled` / `agent_overrides` | Review engine: live comment + per-subagent model/effort. |
 | `devflow_review_and_fix.efficiency_telemetry_enabled` / `efficiency_cut_candidate_min_dispatch` | Telemetry. |
 | `setup.*` | Cloud-tier runtime provisioning (versions, services, install lines). |
-| `docs.*` | Doc paths, enable flags, release-notes file, labels. |
+| `docs.*` | Doc paths, enable flags, release-notes file, CHANGELOG file, labels. |
 | `devflow_retrospective.*` | Weekly loop settings (watched authors, min occurrences, cooldown, etc.). Detection is by the reserved `DevFlow` label + a closes-issue fallback (see §12); `implementation_branch_prefix` is an **optional** extra match path, not the detection mechanism, and may be left empty. |
 | `workflows.*` | Per-workflow enable/disable toggles. |
 

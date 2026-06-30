@@ -140,7 +140,7 @@ All four are used by the core skills; none is optional. Shell helpers avoid GNU-
 
 The local tier needs **no config** — every value has a built-in default. To customize, run `/devflow:init` to scaffold `.devflow/config.json` from DevFlow's shipped template (it never clobbers a config you've filled in) and refresh `.devflow/config.schema.json` (your editor reads it for autocomplete + field descriptions).
 
-Common keys the skills read: documentation paths (`docs.internal`, `docs.external`, `docs.release_notes_file`, `docs.labels`), the workpad marker (`devflow.workpad_marker`), the bot allowlist (`devflow.allowed_bots`), the review base (`base_branch`), retrospective settings (`devflow_retrospective.*`), and — cloud tier only — runtime provisioning (`setup.*`) and the plugin ref (`devflow_version`). Full reference: **[System overview §17](docs/DEVFLOW_SYSTEM_OVERVIEW.md#17-configuration-reference)**.
+Common keys the skills read: documentation paths (`docs.internal`, `docs.external`, `docs.release_notes_file`, `docs.changelog_file`, `docs.labels`), the workpad marker (`devflow.workpad_marker`), the bot allowlist (`devflow.allowed_bots`), the review base (`base_branch`), retrospective settings (`devflow_retrospective.*`), and — cloud tier only — runtime provisioning (`setup.*`) and the plugin ref (`devflow_version`). Full reference: **[System overview §17](docs/DEVFLOW_SYSTEM_OVERVIEW.md#17-configuration-reference)**.
 
 ## The self-improving loop
 
