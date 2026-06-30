@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.27] — 2026-06-30
+
+### Added
+- **`agents/silent-failure-hunter.md` gains a prompt-instruction-artifact lens for inert guards** — the agent previously audited only *executable* error handling, so a guard written as *prose instructing an LLM agent* (a `SKILL.md`, a prompt-extension, or an agent prompt body) could read as handled yet be **inert as written** and fail open exactly where it claims to fail closed. A new review-process step scopes two detections to prompt-instruction artifacts only: **policy-without-mechanism** (the prose states a failure policy but supplies no executable mechanism — exit-status capture, stderr check, value-shape test — for the agent to observe the condition it must react to) and **guard-ordered-after-its-exit** (a guard positioned after the early-exit/no-op/"proceed" short-circuit it is meant to gate, so a sequential agent takes the exit before reaching the guard). The step states the fail direction explicitly (an inert prompt guard fails open) and calibrates severity to what the skipped guard protects, per the agent's existing symmetric-severity discipline; the output-format guidance is extended so a prompt-guard finding labels its sub-class. The instruction is repo-agnostic (generic terms, no DevFlow-internal step numbers/file names) since the agent is vendored into consumer repos and dispatched by the shared review engine on every full review and shadow pass with no dispatch change. `lib/test/run.sh` pins each operative clause (the two detections, the repo-agnostic scope clause, the explicit fail-open direction, and the output-format sub-class label) with mutation-proven `assert_pin_unique` guards. (#202)
+
 ## [2.8.26] — 2026-06-29
 
 ### Added
