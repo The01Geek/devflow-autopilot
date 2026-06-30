@@ -849,6 +849,10 @@ assert_pin_unique "mutation-check: implement skill test-writing phase references
   'Mutation-check any test guard you add here' "$DEF_SKILL"
 # PARKCAL_GUARD_REGION_END — end of the assert_pin_unique-only park-calibration pin region
 
+# Issue #186 behavioral-fix-pin coverage lives with the other SKILL-prose removal-proof pins
+# below (after assert_pin_red_on_removal is defined) — see the "#186" block near the #167
+# cluster. (assert_pin_red_on_removal is defined further down, so it cannot be called here.)
+
 # ── Meta-test (AC2): no raw drift guard may bypass assert_pin_unique inside the region.
 # The region markers are matched by SPLIT-built literals so this scanner's own source never
 # contains the contiguous marker string (otherwise it would mis-delimit when scanning the
@@ -1552,6 +1556,22 @@ assert_pin_red_on_removal "#167 core-mp: deleting the Phase 0.5 table-row dispat
   'a *forced extra pass*, not a checklist or cost override' "$REVIEW_SKILL"
 assert_pin_red_on_removal "#167 core-mp: deleting the false-positive-shape exclusion turns its pin RED" \
   'a check over a fixed hand-listed set is **not** this shape' "$REVIEW_SKILL"
+# #186: the implement skill's behavioral-fix-pin sub-rule is itself a multi-sentence behavioral
+# property, so by its own "at least one pin per operative sentence" rule each DIRECTIVE sentence
+# (the text that tells the implementer what to DO) gets its own removal-proof pin; the
+# definitions/rationale/history that merely elaborate them stay unpinned (pinning every clause
+# is the over-pinning treadmill the issue warns against). assert_pin_red_on_removal (not bare
+# assert_pin_unique) bakes step (c) of the rule — "half-revert and confirm RED" — into the
+# suite permanently, instead of leaving it a one-time authoring act. ($DEF_SKILL = the implement
+# SKILL.md; defined at the top of this file.)
+assert_pin_red_on_removal "#186 behavioral-fix-pin: deleting 'pin the operative sentence, not framing' turns its pin RED" \
+  'pin the operative sentence, not an adjacent framing clause' "$DEF_SKILL"
+assert_pin_red_on_removal "#186 behavioral-fix-pin: deleting the (a)/(b)/(c) counterfactual procedure turns its pin RED" \
+  'counterfactually half-revert' "$DEF_SKILL"
+assert_pin_red_on_removal "#186 behavioral-fix-pin: deleting the at-least-one-pin-per-operative-sentence rule turns its pin RED" \
+  'at least one pin per operative sentence' "$DEF_SKILL"
+assert_pin_red_on_removal "#186 behavioral-fix-pin: deleting the behavioral-fix-pin scope limiter turns its pin RED" \
+  'literal constants, token names, count-based guards, absence pins' "$DEF_SKILL"
 # Coupled-invariant drift guard: the "detect_all_audit is intentionally not persisted
 # into diff_profile" contract spans two mirror sites — the SKILL.md schema comment and
 # docs/efficiency-trace.md. Both must agree; pin each with its stable site-specific phrase.
