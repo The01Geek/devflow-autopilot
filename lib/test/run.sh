@@ -1598,6 +1598,17 @@ assert_pin_red_on_removal "#192 backstop: deleting the snapshot-delta-scoped res
   'restore only the snapshot-delta paths' "$REVIEW_SKILL"
 assert_pin_red_on_removal "#192 backstop: deleting the surface-as-a-finding fail-safe clause turns its pin RED" \
   'record it as a finding (never discard it silently)' "$REVIEW_SKILL"
+# The fail-safe intro clause above is framing; pin the OPERATIVE directives too (one each):
+# the compare-after divergence test that actually fires the backstop, the finding-injection
+# sentence that wires the divergence into Phase 4 aggregation (not the intro promise), and
+# the untracked-not-deleted safety rule that keeps the restore from destroying a legitimate
+# new file. Removing any of these is the half-revert AC4 (#192) exists to catch.
+assert_pin_red_on_removal "#192 backstop: deleting the compare-after divergence trigger turns its pin RED" \
+  'if [ "$GIT_STATUS_AFTER" != "$GIT_STATUS_BEFORE" ]' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#192 backstop: deleting the Phase-3-aggregation finding-injection sentence turns its pin RED" \
+  'add an **Important** finding to the Phase 3 findings set' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#192 backstop: deleting the untracked-file-never-auto-deleted safety rule turns its pin RED" \
+  'never auto-deleted' "$REVIEW_SKILL"
 # Coupled-invariant drift guard: the "detect_all_audit is intentionally not persisted
 # into diff_profile" contract spans two mirror sites — the SKILL.md schema comment and
 # docs/efficiency-trace.md. Both must agree; pin each with its stable site-specific phrase.
