@@ -31,7 +31,7 @@ WHEN receiving code review feedback:
 3. VERIFY: Check against codebase reality
 4. EVALUATE: Technically sound for THIS codebase?
 5. RESPOND: Technical acknowledgment or reasoned pushback
-6. IMPLEMENT: One item at a time, test each
+6. IMPLEMENT: One item at a time, test each — treat each fix as new code (see A Fix Is New Code)
 7. RECORD DEFERRALS: For every finding you did NOT fix, write a durable trace (WHAT/WHY/revisit-condition) before claiming done — see Record Every Deferral
 8. VERIFY BEFORE DONE: Review diff against addressed findings + run test suite — only then claim completion
 ```
@@ -278,6 +278,17 @@ You understand 1,2,3,6. Unclear on 4,5.
 
 When replying to inline review comments on GitHub, reply in the comment thread (`gh api repos/{owner}/{repo}/pulls/{pr}/comments/{id}/replies`), not as a top-level PR comment.
 
+## A Fix Is New Code
+
+A fix is not a lower-stakes edit than the code it corrects — it is fresh code, written under time pressure by the one context least able to see its own blind spot. That is exactly how a fix closes the reported defect while quietly introducing a new one. Before the verification gate, give the fix delta the same scrutiny you would give any new code you wrote, matched to what the fix actually did:
+
+- **A deletion** strands what fed the removed code — a now-unused local, import, or lookup — and can leave callers, links, or references pointing at something that is gone. Re-read the whole surrounding unit and grep for references to anything you removed.
+- **A contract change** (a renamed symbol, an altered signature, a tightened validator, a moved output stream) is only half-done at the line you edited: it ripples to every dependent caller, fixture, and assertion. Grep for the old shape — a dependent that still compiles can still be semantically stale.
+- **A new error path or fallback** can swallow the very failure it was added to surface. Confirm it leaves a specific, actionable account and never defaults an error into a success-shaped value.
+- **A new guard** must accept no more than its downstream consumer — see *Share the Contract* below.
+
+The reason to do this *now*, before claiming done, is cost: a defect you catch in your own fix delta costs nothing, one that reaches the next review pass costs a whole iteration, and one that slips the pass ships. Don't lean on a later review — or on an automated fix-delta gate, if your loop has one — to find a defect your fix introduced. Write it right the first time.
+
 ## Share the Contract: Parse, Don't Validate
 
 When a fix adds a guard or validator protecting a **downstream consumer** (a parser, a `strptime`, a JSON decode, a type-narrowing op), **prefer using that consumer as the guard itself** rather than writing a separate validator that *approximates* the consumer's contract.
@@ -292,7 +303,7 @@ IF a fix needs to guard input before a downstream operation:
 
 **Worked example (PR #153):** a fix guarding a `strptime` call shipped first a `type == "string"` check, then a date-shape regex — each a *superset* of `strptime`'s real contract, each surviving its own self-review. The guard that worked was `try strptime catch`: it shares the consumer's contract by construction, so the accepted-input sets are identical and cannot drift.
 
-When you apply a reviewer's "add a guard here" feedback, reach for the consumer's own operation first. `/devflow:review-and-fix`'s Step 3.5 fix-delta gate verifies exactly this (the guard's accepted-input set must be a subset of its consumer's contract), so a re-derived validator will be caught there — write it right the first time.
+When you apply a reviewer's "add a guard here" feedback, reach for the consumer's own operation first. If your review loop runs a fix-delta check, it verifies exactly this — the guard's accepted-input set must be a subset of its consumer's contract — so a re-derived validator gets caught there; write it right the first time anyway.
 
 ## The Bottom Line
 

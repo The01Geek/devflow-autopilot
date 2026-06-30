@@ -1614,6 +1614,23 @@ assert_pin_unique "premise #197: stale-claim finding re-opens the diff even on a
 assert_pin_unique "premise #197: own-claim gate frames a documented falsehood as a correctness defect, not cosmetic" \
   'A documented falsehood is a correctness defect in the deliverable, not a cosmetic nit' "$RECV_SKILL"
 
+# ── Drift guards: the "A Fix Is New Code" section in the vendored receiving-code-review
+# skill — generalizes the "treat your fix as new code; do not punt a fix-introduced defect
+# to the next pass" disposition beyond the Share-the-Contract guard case to the deletion-strands,
+# contract-ripple, and silent-failure classes. SKILL prose with no behavioral test surface (the
+# skill ships to consumer repos), so an assert_pin_unique on each operative clause is the
+# mutation-proven drift guard: deleting or paraphrasing it drops the count to 0 and fails closed.
+# Literals are gate-unique, apostrophe-free ASCII, and engine-agnostic (no DevFlow machinery in
+# the pinned text — the section keeps "an automated fix-delta gate, if your loop has one" generic).
+assert_pin_unique "fix-as-new-code: section heading present in receiving-code-review" \
+  '## A Fix Is New Code' "$RECV_SKILL"
+assert_pin_unique "fix-as-new-code: core disposition scrutinizes the fix delta as new code" \
+  'give the fix delta the same scrutiny you would give any new code you wrote' "$RECV_SKILL"
+assert_pin_unique "fix-as-new-code: deletion class re-reads the unit and greps for stranded references" \
+  'grep for references to anything you removed' "$RECV_SKILL"
+assert_pin_unique "fix-as-new-code: anti-punt clause (do not lean on a later pass to find a fix-introduced defect)" \
+  'to find a defect your fix introduced' "$RECV_SKILL"
+
 # ── Drift guards (issue #167): the completeness-critic pass (shared engine) and the
 # mechanism-scoped self-authored-claim re-sweep (fix loop). Both are SKILL-prose engine
 # behaviors; pin the load-bearing contract literals so a silent paraphrase or deletion that
