@@ -2092,6 +2092,149 @@ assert_pin_unique "#169: implement/SKILL.md warns re-tick-only (don't re-send th
 assert_eq "#169: workpad.py routes volatile misses through _report_failed_ticks (PATCH-failure echo)" "yes" \
   "$(grep -qF 'def _report_failed_ticks' "$WP_PY" && grep -qF 'NO workpad change was persisted' "$WP_PY" && echo yes || echo no)"
 
+# ── issue #185 (+ Addendum): Phase 4.1 Documentation Needed cross-check ─────
+# Phase 4.1 enforces named documentation deliverables in two stages:
+#   Stage 1 pre-flight: extract the Documentation Needed paths and inject them
+#     into the docs subagent dispatch instruction as required deliverables.
+#   Stage 2 post-hoc: cross-check each path against the PR diff; self-heal or
+#     route to Blocked for absent paths.
+# The Addendum (2026-06-29) SUPERSEDES LLM prose-extraction: a deterministic
+# helper (scripts/extract-doc-needed-paths.sh) is the single extraction boundary
+# BOTH stages consume, and its behavior is verified by the fixture matrix below
+# (not by prose pins). The prose pins here lock the load-bearing operative
+# sentences of each stage's control flow; they are intentionally NOT a tally,
+# so this comment names them structurally rather than by count (a hardcoded
+# count drifts the moment an arm is added or removed):
+#   Stage 1 — deterministic-extraction mandate + mandatory-deliverable dispatch
+#             phrase + present-bullet-but-no-paths audit note.
+#   Stage 2 — single-source-of-truth re-run, no-op escape, bare-filename match,
+#             self-heal condition, three-dot diff range, Blocked arm, $BASE
+#             non-empty fallback, rc-vs-empty-stdout distinction, broken-command
+#             fail-closed floor, and remote-anchored self-heal re-check.
+assert_pin_unique "#185: Phase 4.1 Stage 1 requires docs subagent to treat named paths as mandatory (D)" \
+  'treat each as a mandatory deliverable' "$IMPL_SKILL"
+# Addendum: Stage 1 extraction is deterministic (helper), not LLM prose-reading.
+assert_pin_unique "#185A: Phase 4.1 Stage 1 mandates deterministic (not LLM) extraction" \
+  'do not interpret the prose yourself' "$IMPL_SKILL"
+# Addendum: both stages consume the SAME deterministic helper (not re-derived).
+assert_eq "#185A: Phase 4.1 calls extract-doc-needed-paths.sh in BOTH stages" \
+  "2" "$(pin_count 'extract-doc-needed-paths.sh' "$IMPL_SKILL")"
+assert_pin_unique "#185A: Phase 4.1 Stage 2 re-runs the helper as the single source of truth" \
+  're-running the helper is the single source of truth' "$IMPL_SKILL"
+# #190 suggestion 1: a present-but-empty Documentation Needed bullet must leave an
+# auditable breadcrumb rather than silently disabling enforcement.
+assert_pin_unique "#190: Phase 4.1 Stage 1 records a note when the bullet has no extractable paths (H)" \
+  'the extractor found no file paths' "$IMPL_SKILL"
+assert_pin_unique "#185: Phase 4.1 Stage 2 no-op escape hatch when no paths extracted (E)" \
+  'this cross-check is a no-op' "$IMPL_SKILL"
+assert_pin_unique "#185: Phase 4.1 Stage 2 bare-filename matching rule (F)" \
+  'whose basename matches it counts as satisfied' "$IMPL_SKILL"
+assert_pin_unique "#185: Phase 4.1 Stage 2 keeps the absent-file self-heal condition (A)" \
+  'absent from the diff, perform the missing update' "$IMPL_SKILL"
+assert_pin_unique "#185: Phase 4.1 Stage 2 uses the three-dot origin/\$BASE...HEAD diff range (B)" \
+  'git diff --name-only "origin/$BASE...HEAD"' "$IMPL_SKILL"
+assert_pin_unique "#185: Phase 4.1 Stage 2 Blocked arm names the missing-content condition (C)" \
+  'Documentation Needed file content cannot be determined' "$IMPL_SKILL"
+# #190 finding 2: $BASE-empty recovery must mirror the Phase 1.4 fallback, not
+# just the config-get.sh read (the read alone returns nothing on malformed config).
+assert_pin_unique "#190: Phase 4.1 Stage 2 \$BASE recovery mirrors the Phase 1.4 fallback (I)" \
+  'applying its non-empty fallback and not just the config read' "$IMPL_SKILL"
+# #190 finding 3 (re-stated per review Critical #2): the FAILURE signal is the exit
+# status, never stdout emptiness — an rc-0 empty diff is a genuine all-absent result.
+assert_pin_unique "#190: Phase 4.1 Stage 2 distinguishes rc-0 empty stdout from a command failure (J)" \
+  'an rc-0 result with empty stdout is NOT a failure' "$IMPL_SKILL"
+# Review suggestion 1: a re-fetch that itself fails must fail CLOSED (Blocked),
+# never fall through to a path-absent verdict on a broken command.
+assert_pin_unique "#190: Phase 4.1 Stage 2 fails closed when the diff command stays broken" \
+  'never fall through to a path-absent verdict on a broken command' "$IMPL_SKILL"
+# #190 finding 1 (re-stated per review Important #3): the self-heal re-check is
+# remote-anchored — HEAD must match @{u}, so a no-op/rejected push cannot satisfy
+# the gate off a still-local commit.
+assert_pin_unique "#190: Phase 4.1 Stage 2 self-heal re-check is remote-anchored (K)" \
+  'the local branch is in sync with its upstream' "$IMPL_SKILL"
+# PR #190 fix-loop: the EXTRACTION side (gh issue view | helper) must read the
+# exit status, not stdout emptiness — a failed gh issue view (auth/network/wrong
+# number) emits empty stdout indistinguishable from a genuinely empty bullet and
+# would silently disable the whole gate. Both stages capture GH_RC/HELPER_RC and
+# fail closed; assert the shared contract appears in BOTH stages (coupled site).
+assert_eq "#190 fix-loop: Phase 4.1 captures GH_RC on the extraction read in BOTH stages" \
+  "2" "$(pin_count 'GH_RC=$?' "$IMPL_SKILL")"
+assert_eq "#190 fix-loop: Phase 4.1 fail-closed extraction contract pinned in BOTH stages" \
+  "2" "$(pin_count 'never treat its empty stdout as a no-op' "$IMPL_SKILL")"
+
+# ── issue #185 Addendum: deterministic extraction helper (fixture matrix) ────
+# The helper is the deterministic boundary the Addendum mandates; test its
+# BEHAVIOR over the required input-shape matrix (bullet-with-paths, no-paths,
+# absent, path-in-another-section-NOT-extracted) rather than relying on the
+# shadow review to catch extraction misses. This is the adversarial input-shape
+# sweep the CLAUDE.md best-effort-parser convention calls for.
+EXTRACT_HELPER="$LIB/../scripts/extract-doc-needed-paths.sh"
+assert_eq "#185A helper exists and is executable" "yes" \
+  "$([ -x "$EXTRACT_HELPER" ] && echo yes || echo no)"
+
+# Case 1: a bullet naming paths emits exactly those paths — and ONLY those:
+# a path in another bullet (Approach/Potential Gotchas) and a non-path skill
+# token (devflow:docs) inside the bullet are both excluded.
+fx_paths="## Implementation Notes
+
+- **Approach** — edit \`scripts/foo.sh\`.
+- **Documentation Needed** — update \`docs/DEVFLOW_SYSTEM_OVERVIEW.md\` and docs/implement-skill.md; also \`README.md\` via the \`devflow:docs\` subagent.
+- **Potential Gotchas** — see path/to/ignored.py"
+assert_eq "#185A matrix: bullet-with-paths emits exactly the named paths (scoped, no skill token)" \
+  "$(printf 'README.md\ndocs/DEVFLOW_SYSTEM_OVERVIEW.md\ndocs/implement-skill.md')" \
+  "$(printf '%s\n' "$fx_paths" | bash "$EXTRACT_HELPER")"
+
+# Case 2: a bullet with no file paths is a no-op (empty output).
+fx_none="## Implementation Notes
+
+- **Documentation Needed** — No external or customer docs affected."
+assert_eq "#185A matrix: bullet-with-no-paths emits nothing" "" \
+  "$(printf '%s\n' "$fx_none" | bash "$EXTRACT_HELPER")"
+
+# Case 3: an absent Documentation Needed bullet is a no-op (empty output).
+fx_absent="## Technical Context
+
+- references docs/should-not.md"
+assert_eq "#185A matrix: absent Documentation Needed bullet emits nothing" "" \
+  "$(printf '%s\n' "$fx_absent" | bash "$EXTRACT_HELPER")"
+
+# Case 4: a path mentioned in ANOTHER section must NOT be extracted (scope).
+fx_other="## Current Behavior
+
+refs docs/should-not-extract.md
+
+## Implementation Notes
+
+- **Documentation Needed** — update \`docs/yes.md\`."
+assert_eq "#185A matrix: a path in another section is NOT extracted" "docs/yes.md" \
+  "$(printf '%s\n' "$fx_other" | bash "$EXTRACT_HELPER")"
+
+# Case 5 (regression — caught dogfooding the real issue #185 body): a LATER
+# bullet whose prose MENTIONS "**Documentation Needed**" (the issue template's
+# own Potential Gotchas bullet does exactly this) must close the scope, not
+# re-open it. The open-match is anchored to the bullet label; only docs/real.md
+# (named in the actual Documentation Needed bullet) is extracted, and a bare
+# extension reference (\`.md\`) in the mentioning bullet is not.
+fx_mention="## Implementation Notes
+
+- **Documentation Needed** — update \`docs/real.md\`.
+- **Potential Gotchas** — the \`**Documentation Needed**\` bullet lives within \`## Implementation Notes\`; do not extract \`other/leak.md\` named here, and ignore bare \`.md\` / \`.sh\` tokens."
+assert_eq "#185A matrix: a later bullet mentioning the label in prose does NOT re-open scope" \
+  "docs/real.md" \
+  "$(printf '%s\n' "$fx_mention" | bash "$EXTRACT_HELPER")"
+
+# Case 6 (PR #190 fix-loop): a bare, un-backticked filename at a sentence
+# boundary must still be extracted. The tokenizer glues the trailing sentence
+# period (`CHANGELOG.md.`); the helper trims it so the extension test matches.
+# Without the trim the deliverable is silently dropped — under-enforcing in the
+# gate's own lenient basename-match domain.
+fx_period="## Implementation Notes
+
+- **Documentation Needed** — update CHANGELOG.md."
+assert_eq "#190 fix-loop: un-backticked filename with a trailing sentence period IS extracted" \
+  "CHANGELOG.md" \
+  "$(printf '%s\n' "$fx_period" | bash "$EXTRACT_HELPER")"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "scaffold-config.sh"
 # ────────────────────────────────────────────────────────────────────────────
