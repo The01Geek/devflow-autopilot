@@ -1724,8 +1724,10 @@ assert_pin_red_on_removal "#194 (B) review-and-fix: deleting the confirm-guard-r
 # (B) is a two-conjunct directive ("named assertion appears as PASS" AND "the assertion
 # count rose") — by the rule's own "at least one pin per operative sentence", the count-rose
 # conjunct is a distinct operative clause (the anti-vacuity signal a guard actually REGISTERED,
-# not merely that some PASS line is present), so a surgical inline deletion of it alone must
-# also turn a pin RED rather than leaving (B) silently weakened to a presence-only check.
+# not merely that some PASS line is present), so it carries its own pin literal: a future edit that
+# drops only that clause makes the literal absent, turning this pin RED on the next suite run, rather
+# than leaving (B) silently weakened to a presence-only check. (The helper's grep -vF strips the whole
+# physical line; what each pin proves is its own literal's present->absent => PASS->FAIL transition.)
 assert_pin_red_on_removal "#194 (B) implement: deleting the assertion-count-rose conjunct turns its pin RED" \
   "the suite's assertion count rose" "$DEF_SKILL"
 assert_pin_red_on_removal "#194 (B) review-and-fix: deleting the assertion-count-rose conjunct turns its pin RED" \
