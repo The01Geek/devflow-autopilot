@@ -8836,6 +8836,37 @@ F181_LOGS_OUT="$(printf '%s\n' "$F181_LOGS_ONLY" | awk "${F181_AWK:-NONEXTRACTED
 assert_eq "#181 filter: logs-only diff yields no diff --git headers (empty effective diff)" \
   "0" "$(printf '%s\n' "$F181_LOGS_OUT" | grep -c '^diff --git')"
 
+# Fixture: the FIRST hunk is a logs hunk (flag-initialization edge), and the
+# surviving code hunk's body embeds the literal '.devflow/logs/' on a content
+# line (the false-positive-immunity edge — the filter keys ONLY on `^diff --git`
+# headers, so a source line mentioning the path must NOT be eaten). This pins the
+# exact regression a careless future edit would introduce (dropping the
+# `/^diff --git/` guard so `in_logs` recomputes per line).
+F181_EDGE="$(printf '%s\n' \
+  'diff --git a/.devflow/logs/efficiency/pr-2.json b/.devflow/logs/efficiency/pr-2.json' \
+  'index aaaaaaa..bbbbbbb 100644' \
+  '--- a/.devflow/logs/efficiency/pr-2.json' \
+  '+++ b/.devflow/logs/efficiency/pr-2.json' \
+  '@@ -1 +1 @@' \
+  '-{"x":1}' \
+  '+{"x":2}' \
+  'diff --git a/src/c.py b/src/c.py' \
+  'index ccccccc..ddddddd 100644' \
+  '--- a/src/c.py' \
+  '+++ b/src/c.py' \
+  '@@ -1 +1,2 @@' \
+  ' LOG_DIR = ".devflow/logs/efficiency"' \
+  '+print(".devflow/logs/ mentioned in source")')"
+F181_EDGE_OUT="$(printf '%s\n' "$F181_EDGE" | awk "${F181_AWK:-NONEXTRACTED}" 2>/dev/null)"
+# Gap A: a leading logs hunk is dropped; only the code header survives.
+assert_eq "#181 filter: leading logs hunk dropped, trailing code hunk survives" \
+  "diff --git a/src/c.py b/src/c.py" \
+  "$(printf '%s\n' "$F181_EDGE_OUT" | grep '^diff --git' | paste -sd'|' -)"
+# Gap B (false-positive immunity): a source CONTENT line embedding '.devflow/logs/'
+# is NOT filtered — the filter toggles only on `^diff --git` headers.
+assert_eq "#181 filter: a code line embedding '.devflow/logs/' is retained, not eaten" \
+  "yes" "$(case "$F181_EDGE_OUT" in *'print(".devflow/logs/ mentioned in source")'*) echo yes;; *) echo no;; esac)"
+
 # AC-1 / peer-completeness (2.3.0a): the awk filter is present in EVERY diff-source
 # variant of the Phase 0.2 tee pipeline (PR mode, current-branch mode, and the
 # head_override=local fix-loop variant) — three occurrences, one per variant.
