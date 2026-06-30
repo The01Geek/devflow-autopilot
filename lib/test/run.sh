@@ -1955,6 +1955,14 @@ assert_pin_red_on_removal "#200 SFH: keeps the policy-without-mechanism slug def
   'sub-class slug `policy-without-mechanism`' "$SFH_AGENT"
 assert_pin_red_on_removal "#200 SFH: keeps the ordered-after-exit slug definition" \
   'sub-class slug `ordered-after-exit`' "$SFH_AGENT"
+# PR #202 shadow review iter 2 (Important): the output-format severity ladder reconciliation
+# is a TWO-SIDED coupled invariant — step 5's 'Do not assign a single fixed severity.' (pinned
+# above) is only ONE half; the other half lives in the "## Your Output Format" item-2 carve-out.
+# Without pinning that half, a future edit could strip the carve-out and silently revert an
+# inert-guard finding to the fixed 'silent failure -> CRITICAL' rung, re-opening the contradiction
+# this PR closed, with no pin tripping. Pin the output-format half so the pair is guarded as one.
+assert_pin_red_on_removal "#200 SFH: keeps the output-format CRITICAL-de-escalation carve-out" \
+  'do not auto-escalate to CRITICAL merely because it is a silent failure' "$SFH_AGENT"
 
 # Issue #198: the two observability sub-checks added to 2.3.4a and 2.3.6. Each pin
 # targets the OPERATIVE instruction (the minimal text whose removal alone re-opens the

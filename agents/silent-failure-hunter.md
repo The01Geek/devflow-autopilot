@@ -115,7 +115,7 @@ Ensure compliance with the project's error handling requirements:
 For each issue you find, provide:
 
 1. **Location**: File path and line number(s)
-2. **Severity**: CRITICAL (silent failure, broad catch), HIGH (poor error message, unjustified fallback), MEDIUM (missing context, could be more specific). This fixed mapping does **not** apply to a finding from the prompt-instruction-artifact audit above: although an inert prompt guard is itself a silent failure, its severity is calibrated *proportionally to what the skipped guard protects* per that step's "Fail direction and severity" rule — do not auto-assign CRITICAL from this ladder.
+2. **Severity**: CRITICAL (silent failure, broad catch), HIGH (poor error message, unjustified fallback), MEDIUM (missing context, could be more specific). The fixed `silent failure → CRITICAL` shortcut does **not** apply to a finding from the prompt-instruction-artifact audit above: although an inert prompt guard is itself a silent failure, grade it across these *same* CRITICAL/HIGH/MEDIUM bands by *what the skipped guard protects* per that step's "Fail direction and severity" rule — the full ladder stays available (a data-loss-scoped inert guard can still warrant CRITICAL); only do not auto-escalate to CRITICAL merely because it is a silent failure.
 3. **Issue Description**: What's wrong and why it's problematic
 4. **Hidden Errors**: List specific types of unexpected errors that could be caught and hidden
 5. **User Impact**: How this affects the user experience and debugging
