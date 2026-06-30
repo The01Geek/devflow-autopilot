@@ -55,7 +55,7 @@ A review engine that re-runs after every edit is *exhaustive*: each pass surface
 Once the verdict is already non-blocking (an APPROVE, or any approve-with-notes verdict), the bar for re-opening the diff changes:
 
 - **Re-open only for** a Critical / blocking finding, or a demonstrable correctness defect (one that cites a concrete failing input). These still get fixed immediately.
-- **A finding that a claim is stale, contradicts HEAD, or contradicts another part of this change is blocking** — never advisory. A documented falsehood is a correctness defect, so it re-opens the diff even on an otherwise already-passing verdict. Verify it against HEAD (`git log -S` / grep the symbol), then fix the prose or correct the reviewer.
+- **A finding that a claim is stale, contradicts HEAD, or contradicts another part of this change is blocking** — never advisory. A documented falsehood is *itself* a demonstrable correctness defect (the case above), so it re-opens the diff even on an otherwise already-passing verdict. Verify it against HEAD (`git log -S` / grep the symbol), then fix the prose or correct the reviewer.
 - **Everything else is recorded or deferred** (see Record Every Deferral below), not implemented. A Suggestion- or advisory-level note on an already-passing verdict does not, by itself, re-open the diff.
 - **Bound any advisory re-open to a concrete, pre-agreed set.** If advisory notes *are* worth one more pass, name the specific bounded set of them before you start — never "address all the notes," which guarantees the next run produces a new batch and the loop never settles.
 
