@@ -1415,31 +1415,66 @@ assert_pin_unique "fix-delta gate: share-the-contract principle in receiving-cod
   'prefer using that consumer as the guard itself' "$RCR_SKILL"
 # FIXDELTA_GUARD_REGION_END — end of the assert_pin_unique-only fix-delta pin region
 
-# Drift guard: the step 7 Verification Gate (issue #178) — the Iron Law, its scope
-# sentence, the code-fence step 7 entry, the engine re-run attribution, the
+# Drift guard: the step 8 Verification Gate (issue #178; renumbered from step 7 by #196,
+# which inserted a RECORD DEFERRALS step before it) — the Iron Law, its scope
+# sentence, the code-fence verify entry, the engine re-run attribution, the
 # CI-fallback consequence clause, the CI-fallback trigger restriction, the
 # Forbidden Responses entry, the local-skip audit note, and the push-vs-observe
 # distinction are the gate's load-bearing contracts (9 pins); any can be silently
 # deleted or paraphrased without breaking any other pin.
 # assert_pin_unique makes that RED.
-assert_pin_unique "step7: verification gate Iron Law heading present" \
+assert_pin_unique "step8: verification gate Iron Law heading present" \
   'NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE' "$RECV_SKILL"
-assert_pin_unique "step7: verification gate applies in both interactive and fix-loop contexts" \
+assert_pin_unique "step8: verification gate applies in both interactive and fix-loop contexts" \
   'applies in both interactive sessions and the autonomous' "$RECV_SKILL"
-assert_pin_unique "step7: code-fence step 7 entry anchors both mandated actions (diff review + test suite)" \
+assert_pin_unique "step8: code-fence step 8 entry anchors both mandated actions (diff review + test suite)" \
   'Review diff against addressed findings + run test suite — only then claim completion' "$RECV_SKILL"
-assert_pin_unique "step7: loop satisfies diff-review via engine re-run (not Step 3.5)" \
+assert_pin_unique "step8: loop satisfies diff-review via engine re-run (not Step 3.5)" \
   'the review engine re-runs each iteration' "$RECV_SKILL"
-assert_pin_unique "step7: CI-fallback clause requires waiting for green before claiming completion" \
+assert_pin_unique "step8: CI-fallback clause requires waiting for green before claiming completion" \
   'do not claim completion until CI confirms green' "$RECV_SKILL"
-assert_pin_unique "step7: CI-fallback trigger restricted to genuine denial, not suite failures" \
+assert_pin_unique "step8: CI-fallback trigger restricted to genuine denial, not suite failures" \
   'never when the suite runs but fails' "$RECV_SKILL"
-assert_pin_unique "step7: forbidden-responses entry prohibits claiming done before step 7" \
-  'before step 7 (VERIFY BEFORE DONE) is complete' "$RECV_SKILL"
-assert_pin_unique "step7: CI-fallback local-skip requires an auditable recorded note" \
+assert_pin_unique "step8: forbidden-responses entry prohibits claiming done before step 8" \
+  'before step 8 (VERIFY BEFORE DONE) is complete' "$RECV_SKILL"
+assert_pin_unique "step8: CI-fallback local-skip requires an auditable recorded note" \
   'Record the local-skip reason as an auditable note' "$RECV_SKILL"
-assert_pin_unique "step7: CI-fallback: submitting a push is not the same as observing green" \
+assert_pin_unique "step8: CI-fallback: submitting a push is not the same as observing green" \
   'submitting a push is not the same as observing green' "$RECV_SKILL"
+
+# Drift guards (issue #196): the convergence-discipline additions to the vendored
+# receiving-code-review skill — a stopping rule, a Record-Every-Deferral contract, the
+# Response-Pattern RECORD DEFERRALS step, and the cross-iteration finding union. Each is
+# SKILL prose with no behavioral test surface (the skill ships to consumer repos), so an
+# assert_pin_unique on the operative sentence is the drift guard: deleting or paraphrasing
+# the load-bearing clause drops the count to 0 and fails closed. Literals are gate-unique,
+# apostrophe-free ASCII, and engine-agnostic (no DevFlow machinery named in the pinned text).
+assert_pin_unique "convergence #196: stopping-rule section heading present" \
+  '## Stop When the Verdict Is Already Non-Blocking' "$RECV_SKILL"
+assert_pin_unique "convergence #196: stopping rule re-opens only for Critical/blocking/demonstrable defects" \
+  'or a demonstrable correctness defect (one that cites a concrete failing input)' "$RECV_SKILL"
+assert_pin_unique "convergence #196: stopping rule bounds advisory re-opens, never address-all-the-notes" \
+  'never "address all the notes," which guarantees' "$RECV_SKILL"
+assert_pin_unique "convergence #196: stopping rule parks everything else (advisory note does not by itself re-open)" \
+  'does not, by itself, re-open the diff' "$RECV_SKILL"
+assert_pin_unique "convergence #196: Record Every Deferral section heading present" \
+  '## Record Every Deferral' "$RECV_SKILL"
+assert_pin_unique "convergence #196: deferral record names WHAT/WHY/revisit-condition" \
+  'naming WHAT was deferred, WHY, and the condition that would make it worth revisiting' "$RECV_SKILL"
+assert_pin_unique "convergence #196: deferral has a preference-ordered list of trace locations" \
+  'in order of preference, to the first channel available' "$RECV_SKILL"
+assert_pin_unique "convergence #196: a successful pushback is itself a recorded deferral" \
+  'A successful pushback is itself a deferral' "$RECV_SKILL"
+assert_pin_unique "convergence #196: Response Pattern gains a RECORD DEFERRALS step before verify/done" \
+  '7. RECORD DEFERRALS: For every finding you did NOT fix' "$RECV_SKILL"
+assert_pin_unique "convergence #196: cross-iteration union section heading present" \
+  '## Union Findings Across Review Iterations' "$RECV_SKILL"
+assert_pin_unique "convergence #196: union treats raised-before-never-resolved-still-true as escalating" \
+  'raised in a prior run and never resolved, still true' "$RECV_SKILL"
+assert_pin_unique "convergence #196: union does not retire a finding a later run ranked lower" \
+  'it does not retire just because a later run happened to rank it lower' "$RECV_SKILL"
+assert_pin_unique "convergence #196: push-back reinforcement records the pushback as a deferral" \
+  'an un-recorded pushback is re-raised identically next run' "$RECV_SKILL"
 
 # ── Drift guards (issue #167): the completeness-critic pass (shared engine) and the
 # mechanism-scoped self-authored-claim re-sweep (fix loop). Both are SKILL-prose engine
