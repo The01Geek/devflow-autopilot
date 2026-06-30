@@ -1415,31 +1415,66 @@ assert_pin_unique "fix-delta gate: share-the-contract principle in receiving-cod
   'prefer using that consumer as the guard itself' "$RCR_SKILL"
 # FIXDELTA_GUARD_REGION_END — end of the assert_pin_unique-only fix-delta pin region
 
-# Drift guard: the step 7 Verification Gate (issue #178) — the Iron Law, its scope
-# sentence, the code-fence step 7 entry, the engine re-run attribution, the
+# Drift guard: the step 8 Verification Gate (issue #178; renumbered from step 7 by #196,
+# which inserted a RECORD DEFERRALS step before it) — the Iron Law, its scope
+# sentence, the code-fence verify entry, the engine re-run attribution, the
 # CI-fallback consequence clause, the CI-fallback trigger restriction, the
 # Forbidden Responses entry, the local-skip audit note, and the push-vs-observe
 # distinction are the gate's load-bearing contracts (9 pins); any can be silently
 # deleted or paraphrased without breaking any other pin.
 # assert_pin_unique makes that RED.
-assert_pin_unique "step7: verification gate Iron Law heading present" \
+assert_pin_unique "step8: verification gate Iron Law heading present" \
   'NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE' "$RECV_SKILL"
-assert_pin_unique "step7: verification gate applies in both interactive and fix-loop contexts" \
+assert_pin_unique "step8: verification gate applies in both interactive and fix-loop contexts" \
   'applies in both interactive sessions and the autonomous' "$RECV_SKILL"
-assert_pin_unique "step7: code-fence step 7 entry anchors both mandated actions (diff review + test suite)" \
+assert_pin_unique "step8: code-fence step 8 entry anchors both mandated actions (diff review + test suite)" \
   'Review diff against addressed findings + run test suite — only then claim completion' "$RECV_SKILL"
-assert_pin_unique "step7: loop satisfies diff-review via engine re-run (not Step 3.5)" \
+assert_pin_unique "step8: loop satisfies diff-review via engine re-run (not Step 3.5)" \
   'the review engine re-runs each iteration' "$RECV_SKILL"
-assert_pin_unique "step7: CI-fallback clause requires waiting for green before claiming completion" \
+assert_pin_unique "step8: CI-fallback clause requires waiting for green before claiming completion" \
   'do not claim completion until CI confirms green' "$RECV_SKILL"
-assert_pin_unique "step7: CI-fallback trigger restricted to genuine denial, not suite failures" \
+assert_pin_unique "step8: CI-fallback trigger restricted to genuine denial, not suite failures" \
   'never when the suite runs but fails' "$RECV_SKILL"
-assert_pin_unique "step7: forbidden-responses entry prohibits claiming done before step 7" \
-  'before step 7 (VERIFY BEFORE DONE) is complete' "$RECV_SKILL"
-assert_pin_unique "step7: CI-fallback local-skip requires an auditable recorded note" \
+assert_pin_unique "step8: forbidden-responses entry prohibits claiming done before step 8" \
+  'before step 8 (VERIFY BEFORE DONE) is complete' "$RECV_SKILL"
+assert_pin_unique "step8: CI-fallback local-skip requires an auditable recorded note" \
   'Record the local-skip reason as an auditable note' "$RECV_SKILL"
-assert_pin_unique "step7: CI-fallback: submitting a push is not the same as observing green" \
+assert_pin_unique "step8: CI-fallback: submitting a push is not the same as observing green" \
   'submitting a push is not the same as observing green' "$RECV_SKILL"
+
+# Drift guards (issue #196): the convergence-discipline additions to the vendored
+# receiving-code-review skill — a stopping rule, a Record-Every-Deferral contract, the
+# Response-Pattern RECORD DEFERRALS step, and the cross-iteration finding union. Each is
+# SKILL prose with no behavioral test surface (the skill ships to consumer repos), so an
+# assert_pin_unique on the operative sentence is the drift guard: deleting or paraphrasing
+# the load-bearing clause drops the count to 0 and fails closed. Literals are gate-unique,
+# apostrophe-free ASCII, and engine-agnostic (no DevFlow machinery named in the pinned text).
+assert_pin_unique "convergence #196: stopping-rule section heading present" \
+  '## Stop When the Verdict Is Already Non-Blocking' "$RECV_SKILL"
+assert_pin_unique "convergence #196: stopping rule re-opens only for Critical/blocking/demonstrable defects" \
+  'or a demonstrable correctness defect (one that cites a concrete failing input)' "$RECV_SKILL"
+assert_pin_unique "convergence #196: stopping rule bounds advisory re-opens, never address-all-the-notes" \
+  'never "address all the notes," which guarantees' "$RECV_SKILL"
+assert_pin_unique "convergence #196: stopping rule parks everything else (advisory note does not by itself re-open)" \
+  'does not, by itself, re-open the diff' "$RECV_SKILL"
+assert_pin_unique "convergence #196: Record Every Deferral section heading present" \
+  '## Record Every Deferral' "$RECV_SKILL"
+assert_pin_unique "convergence #196: deferral record names WHAT/WHY/revisit-condition" \
+  'naming WHAT was deferred, WHY, and the condition that would make it worth revisiting' "$RECV_SKILL"
+assert_pin_unique "convergence #196: deferral has a preference-ordered list of trace locations" \
+  'in order of preference, to the first channel available' "$RECV_SKILL"
+assert_pin_unique "convergence #196: a successful pushback is itself a recorded deferral" \
+  'A successful pushback is itself a deferral' "$RECV_SKILL"
+assert_pin_unique "convergence #196: Response Pattern gains a RECORD DEFERRALS step before verify/done" \
+  '7. RECORD DEFERRALS: For every finding you did NOT fix' "$RECV_SKILL"
+assert_pin_unique "convergence #196: cross-iteration union section heading present" \
+  '## Union Findings Across Review Iterations' "$RECV_SKILL"
+assert_pin_unique "convergence #196: union treats raised-before-never-resolved-still-true as escalating" \
+  'raised in a prior run and never resolved, still true' "$RECV_SKILL"
+assert_pin_unique "convergence #196: union does not retire a finding a later run ranked lower" \
+  'it does not retire just because a later run happened to rank it lower' "$RECV_SKILL"
+assert_pin_unique "convergence #196: push-back reinforcement records the pushback as a deferral" \
+  'an un-recorded pushback is re-raised identically next run' "$RECV_SKILL"
 
 # ── Drift guards (issue #167): the completeness-critic pass (shared engine) and the
 # mechanism-scoped self-authored-claim re-sweep (fix loop). Both are SKILL-prose engine
@@ -8830,6 +8865,171 @@ assert_pin_unique "#187 docs-release-notes Step 4b corrects stale claims in plac
   'Rewrite only the specific sentence or clause that is stale' "$FDROOT/skills/docs-release-notes/SKILL.md"
 assert_pin_unique "#187 docs-release-notes Step 4b no-bump-commit no-op branch (parity with the no-section branch)" \
   'no version-bump commit found on branch' "$FDROOT/skills/docs-release-notes/SKILL.md"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "#181 review-engine Phase 0.2 .devflow/logs/** diff-hunk filter"
+# ────────────────────────────────────────────────────────────────────────────
+# Phase 0.2 of skills/review/SKILL.md strips .devflow/logs/** hunks from the
+# cached diff.patch (intentional DevFlow telemetry commits, not code-review
+# subjects) BEFORE any Phase 1/2/3 agent sees the diff. The filter is an inline
+# awk stage in the existing `… | tee diff.patch` pipeline (it rides the
+# allowlisted `gh pr diff`/`git diff` leading token, so the read-only `review`
+# profile permits it without a workflow allowlist change — no standalone `mv`).
+#
+# These assertions EXTRACT the actual awk program from the SKILL and run it
+# against synthetic-diff fixtures, so they go RED if the SKILL's filter is
+# missing or wrong (not a vacuous re-implementation). The contract pin below
+# couples the SKILL text to that behavior.
+F181_AWK="$(grep -oE "awk '[^']+'" "$REVIEW_SKILL" 2>/dev/null | grep -F 'in_logs' | head -1 | sed "s/^awk '//; s/'$//")"
+# Precondition (RED until the filter is added): the awk program must be
+# extractable from the SKILL. Guards every behavioral assertion below against an
+# empty-program (`awk ''`) vacuous pass.
+assert_eq "#181 filter: awk log-hunk filter program is present/extractable in review/SKILL.md Phase 0.2" \
+  "yes" "$([ -n "$F181_AWK" ] && echo yes || echo no)"
+
+# Fixture: a real code hunk, a telemetry-log hunk, then another code hunk.
+F181_MIXED="$(printf '%s\n' \
+  'diff --git a/src/a.py b/src/a.py' \
+  'index 1111111..2222222 100644' \
+  '--- a/src/a.py' \
+  '+++ b/src/a.py' \
+  '@@ -1 +1 @@' \
+  '-old a' \
+  '+new a' \
+  'diff --git a/.devflow/logs/efficiency/pr-1.json b/.devflow/logs/efficiency/pr-1.json' \
+  'index 3333333..4444444 100644' \
+  '--- a/.devflow/logs/efficiency/pr-1.json' \
+  '+++ b/.devflow/logs/efficiency/pr-1.json' \
+  '@@ -1 +1 @@' \
+  '-{"old":1}' \
+  '+{"new":1}' \
+  'diff --git a/src/b.py b/src/b.py' \
+  'index 5555555..6666666 100644' \
+  '--- a/src/b.py' \
+  '+++ b/src/b.py' \
+  '@@ -1 +1 @@' \
+  '-old b' \
+  '+new b')"
+F181_MIXED_OUT="$(printf '%s\n' "$F181_MIXED" | awk "${F181_AWK:-NONEXTRACTED}" 2>/dev/null)"
+# AC-2: the telemetry hunk is gone…
+assert_eq "#181 filter: mixed diff drops the .devflow/logs/ hunk" \
+  "absent" "$(case "$F181_MIXED_OUT" in *'.devflow/logs/'*) echo present;; *) echo absent;; esac)"
+# …and BOTH real code hunks survive, in their original order (a before b).
+assert_eq "#181 filter: mixed diff retains both real code hunks in original order" \
+  "diff --git a/src/a.py b/src/a.py|diff --git a/src/b.py b/src/b.py" \
+  "$(printf '%s\n' "$F181_MIXED_OUT" | grep '^diff --git' | paste -sd'|' -)"
+
+# Fixture: a single logs file carrying TWO @@ hunks (the realistic accreting-telemetry shape),
+# followed by a real code hunk (#209 review hardening). The filter's stickiness rides the
+# `diff --git` header, NOT the @@ line, so EVERY hunk of a logs file is suppressed. A regression
+# that reset in_logs per @@ (instead of per diff --git header) would leak the SECOND hunk's
+# content while still passing every single-hunk fixture above — this fixture is the regression catch.
+F181_MULTIHUNK="$(printf '%s\n' \
+  'diff --git a/.devflow/logs/review/pr-1/run-1/iter-1.json b/.devflow/logs/review/pr-1/run-1/iter-1.json' \
+  'index 1111111..2222222 100644' \
+  '--- a/.devflow/logs/review/pr-1/run-1/iter-1.json' \
+  '+++ b/.devflow/logs/review/pr-1/run-1/iter-1.json' \
+  '@@ -1,1 +1,1 @@' \
+  '-{"LOGHUNKONE_old":1}' \
+  '+{"LOGHUNKONE_new":1}' \
+  '@@ -10,1 +10,1 @@' \
+  '-{"LOGHUNKTWO_old":2}' \
+  '+{"LOGHUNKTWO_new":2}' \
+  'diff --git a/src/c.py b/src/c.py' \
+  'index 5555555..6666666 100644' \
+  '--- a/src/c.py' \
+  '+++ b/src/c.py' \
+  '@@ -1 +1 @@' \
+  '-old c' \
+  '+new c')"
+F181_MULTIHUNK_OUT="$(printf '%s\n' "$F181_MULTIHUNK" | awk "${F181_AWK:-NONEXTRACTED}" 2>/dev/null)"
+# The discriminating assertion: the SECOND logs hunk is dropped too (in_logs sticks across @@).
+assert_eq "#181 filter: a logs file's SECOND @@ hunk is also dropped (in_logs sticks across hunks)" \
+  "absent" "$(case "$F181_MULTIHUNK_OUT" in *LOGHUNKTWO*) echo present;; *) echo absent;; esac)"
+# …and the trailing real code hunk after the multi-hunk logs file still survives intact.
+assert_eq "#181 filter: real code hunk after a multi-hunk logs file survives" \
+  "diff --git a/src/c.py b/src/c.py" \
+  "$(printf '%s\n' "$F181_MULTIHUNK_OUT" | grep '^diff --git' | paste -sd'|' -)"
+
+# Fixture: ONLY a telemetry-log hunk.
+F181_LOGS_ONLY="$(printf '%s\n' \
+  'diff --git a/.devflow/logs/review/pr-1/run-1/iter-1.json b/.devflow/logs/review/pr-1/run-1/iter-1.json' \
+  'index 7777777..8888888 100644' \
+  '--- a/.devflow/logs/review/pr-1/run-1/iter-1.json' \
+  '+++ b/.devflow/logs/review/pr-1/run-1/iter-1.json' \
+  '@@ -1 +1 @@' \
+  '-{"a":1}' \
+  '+{"a":2}')"
+F181_LOGS_OUT="$(printf '%s\n' "$F181_LOGS_ONLY" | awk "${F181_AWK:-NONEXTRACTED}" 2>/dev/null)"
+# AC-3: a logs-only diff filters to no `diff --git` headers (empty effective diff).
+# Non-vacuous as a pair with the mixed test above (which proves the filter passes
+# code hunks through rather than deleting everything).
+assert_eq "#181 filter: logs-only diff yields no diff --git headers (empty effective diff)" \
+  "0" "$(printf '%s\n' "$F181_LOGS_OUT" | grep -c '^diff --git')"
+
+# Fixture: the FIRST hunk is a logs hunk (flag-initialization edge), and the
+# surviving code hunk's body embeds the literal '.devflow/logs/' on a content
+# line (the false-positive-immunity edge — the filter keys ONLY on `^diff --git`
+# headers, so a source line mentioning the path must NOT be eaten). This pins the
+# exact regression a careless future edit would introduce (dropping the
+# `/^diff --git/` guard so `in_logs` recomputes per line).
+F181_EDGE="$(printf '%s\n' \
+  'diff --git a/.devflow/logs/efficiency/pr-2.json b/.devflow/logs/efficiency/pr-2.json' \
+  'index aaaaaaa..bbbbbbb 100644' \
+  '--- a/.devflow/logs/efficiency/pr-2.json' \
+  '+++ b/.devflow/logs/efficiency/pr-2.json' \
+  '@@ -1 +1 @@' \
+  '-{"x":1}' \
+  '+{"x":2}' \
+  'diff --git a/src/c.py b/src/c.py' \
+  'index ccccccc..ddddddd 100644' \
+  '--- a/src/c.py' \
+  '+++ b/src/c.py' \
+  '@@ -1 +1,2 @@' \
+  ' LOG_DIR = ".devflow/logs/efficiency"' \
+  '+print(".devflow/logs/ mentioned in source")')"
+F181_EDGE_OUT="$(printf '%s\n' "$F181_EDGE" | awk "${F181_AWK:-NONEXTRACTED}" 2>/dev/null)"
+# Gap A: a leading logs hunk is dropped; only the code header survives.
+assert_eq "#181 filter: leading logs hunk dropped, trailing code hunk survives" \
+  "diff --git a/src/c.py b/src/c.py" \
+  "$(printf '%s\n' "$F181_EDGE_OUT" | grep '^diff --git' | paste -sd'|' -)"
+# Gap B (false-positive immunity): a source CONTENT line embedding '.devflow/logs/'
+# is NOT filtered — the filter toggles only on `^diff --git` headers.
+assert_eq "#181 filter: a code line embedding '.devflow/logs/' is retained, not eaten" \
+  "yes" "$(case "$F181_EDGE_OUT" in *'print(".devflow/logs/ mentioned in source")'*) echo yes;; *) echo no;; esac)"
+
+# AC-1 anchoring: the regex is anchored to the a//b/ diff-prefix boundary, so it
+# strips only paths that START WITH .devflow/logs/ (AC #1's exact wording), never a
+# non-root path that merely contains that substring (a test fixture or a dir named
+# *.devflow/logs/). Both header paths below must SURVIVE — a regression to an
+# unanchored /\.devflow\/logs\// would drop them and hide real code from review.
+F181_NESTED="$(printf '%s\n' \
+  'diff --git a/tests/fixtures/.devflow/logs/sample.json b/tests/fixtures/.devflow/logs/sample.json' \
+  '@@ -1 +1 @@' \
+  '+{"fixture":1}' \
+  'diff --git a/src/foo.devflow/logs/bar.py b/src/foo.devflow/logs/bar.py' \
+  '@@ -1 +1 @@' \
+  '+code')"
+F181_NESTED_OUT="$(printf '%s\n' "$F181_NESTED" | awk "${F181_AWK:-NONEXTRACTED}" 2>/dev/null)"
+assert_eq "#181 filter: non-root paths containing '.devflow/logs/' are NOT stripped (anchored to 'starts with')" \
+  "diff --git a/tests/fixtures/.devflow/logs/sample.json b/tests/fixtures/.devflow/logs/sample.json|diff --git a/src/foo.devflow/logs/bar.py b/src/foo.devflow/logs/bar.py" \
+  "$(printf '%s\n' "$F181_NESTED_OUT" | grep '^diff --git' | paste -sd'|' -)"
+
+# AC-1 / peer-completeness (2.3.0a): the awk filter is present in EVERY diff-source
+# variant of the Phase 0.2 tee pipeline (PR mode, current-branch mode, and the
+# head_override=local fix-loop variant) — three occurrences, one per variant.
+assert_eq "#181 filter: awk log-hunk filter present in all three Phase 0.2 diff-source variants" \
+  "3" "$(pin_count '{in_logs=/ [ab]\/\.devflow\/logs\//} !in_logs' "$REVIEW_SKILL")"
+# AC-4: the SKILL documents WHY the hunks are filtered (intentional telemetry, not
+# code-review subjects).
+assert_pin_unique "#181 filter: review/SKILL.md documents why .devflow/logs/ hunks are filtered" \
+  'intentional DevFlow telemetry commits, not code-review subjects' "$REVIEW_SKILL"
+# AC-1 peer-completeness: the Phase 0.3 changed-file list must derive from the
+# FILTERED diff.patch (not an independent --name-only), so Phase 1.1's >10-file
+# per-file batch slicing never re-fetches a .devflow/logs/ hunk and feeds it to a
+# Phase 1 agent — closing the one downstream path the single 0.2 filter wouldn't.
+assert_pin_unique "#181 filter: Phase 0.3 derives the changed-file list from the filtered diff.patch (peer-completeness)" \
+  'deriving the file list from it excludes them by construction' "$REVIEW_SKILL"
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
