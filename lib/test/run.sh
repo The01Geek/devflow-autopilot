@@ -1501,6 +1501,19 @@ assert_pin_unique "early-shadow #199: absent flag fails closed (re-derive, do no
   're-derive `engine_self_modifying` from the diff itself' "$MAXI_SKILL"
 assert_pin_red_on_removal "early-shadow #199: deleting the absent-flag fail-closed rule turns its pin RED" \
   're-derive `engine_self_modifying` from the diff itself'
+# Shadow finding A (Important): the Step 4.5 sentence is the ONLY control-flow site that
+# INVOKES the early trigger — every pin above guards the declarative subsection, not the
+# call site. Reverting just the Step 4.5 wiring (e.g. a future Step 4.5 refactor) ships the
+# feature DEAD with all the pins above still green. Pin the invocation site, mutation-proven.
+assert_pin_unique "early-shadow #199: Step 4.5 invocation site wires the early trigger into the loop" \
+  'run the Step 2.6 *early shadow trigger* first' "$MAXI_SKILL"
+assert_pin_red_on_removal "early-shadow #199: deleting the Step 4.5 invocation site turns its pin RED" \
+  'run the Step 2.6 *early shadow trigger* first'
+# Shadow finding B: the $MAX_ITERS=1 edge clause (collapse to convergence-time-only, no
+# orphan promotion) is a named contract clause in the CHANGELOG; pin it so a deletion that
+# would let the early trigger promote a non-existent iteration 2 at cap=1 fails closed.
+assert_pin_unique "early-shadow #199: \$MAX_ITERS=1 edge collapses to convergence-time-only" \
+  'never spawns a pass it has nowhere to feed' "$MAXI_SKILL"
 
 # Drift guard: the step 8 Verification Gate (issue #178; renumbered from step 7 by #196,
 # which inserted a RECORD DEFERRALS step before it) — the Iron Law, its scope
