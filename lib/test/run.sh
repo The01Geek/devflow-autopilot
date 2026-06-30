@@ -1817,63 +1817,138 @@ assert_pin_red_on_removal "#192 agent-mandate: deleting the never-mutate/mktemp-
   "$REVIEW_AGENT_MANDATE" "$LIB/../skills/requesting-code-review/code-reviewer.md"
 assert_pin_red_on_removal "#192 agent-mandate: deleting the primary write-prohibition from the requesting-code-review final-pass turns its pin RED" \
   'Do not mutate the working tree, the index, HEAD, or branch state in any way' "$LIB/../skills/requesting-code-review/code-reviewer.md"
-# Backstop operative sentences — one pin per operative directive (operative-vs-framing rule):
-assert_pin_red_on_removal "#192 backstop: deleting the pre-dispatch working-tree snapshot turns its pin RED" \
-  'GIT_STATUS_BEFORE=$(git status --porcelain)' "$REVIEW_SKILL"
+# Backstop operative sentences — one pin per operative directive (operative-vs-framing rule).
+# The Phase 3.1/3.2 backstop now snapshots with `git status --porcelain -z` into temp FILES
+# (NUL-delimited, UNQUOTED paths — a bash $(...) var cannot hold the NUL bytes), so a
+# spaced/special path is a real pathspec the restore can act on; only a true rename/copy
+# remains surfaced-not-restored (#216). Each pinned literal is target-unique and contains no
+# ASCII single-quote delimiters, so the single-quoted run.sh arg stays intact (the older
+# `sed 's/^...//'` pin had to be avoided because its program is wrapped in single-quote
+# delimiters that the literal cannot carry — the `-z` rework removes that `sed` entirely).
+assert_pin_red_on_removal "#216 backstop: deleting the pre-dispatch -z snapshot capture turns its pin RED" \
+  'git status --porcelain -z > "$GIT_SNAP_BEFORE"' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#216 backstop: deleting the after-dispatch -z snapshot capture turns its pin RED" \
+  'git status --porcelain -z > "$GIT_SNAP_AFTER"' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#216 backstop: deleting the cmp-based compare-after divergence trigger turns its pin RED" \
+  'cmp -s "$GIT_SNAP_BEFORE" "$GIT_SNAP_AFTER"' "$REVIEW_SKILL"
 assert_pin_red_on_removal "#192 backstop: deleting the attributable dirty-tree breadcrumb turns its pin RED" \
   'a Phase 3.1 review-agent dispatch modified the working tree' "$REVIEW_SKILL"
 assert_pin_red_on_removal "#192 backstop: deleting the snapshot-delta-scoped restore turns its pin RED" \
   'restore only the snapshot-delta paths' "$REVIEW_SKILL"
 assert_pin_red_on_removal "#192 backstop: deleting the surface-as-a-finding fail-safe clause turns its pin RED" \
   'record it as a finding (never discard it silently)' "$REVIEW_SKILL"
-# The fail-safe intro clause above is framing; pin the OPERATIVE directives too (one each):
-# the compare-after divergence test that actually fires the backstop, the finding-injection
-# sentence that wires the divergence into Phase 4 aggregation (not the intro promise), and
-# the untracked-not-deleted safety rule that keeps the restore from destroying a legitimate
-# new file. Removing any of these is the half-revert AC4 (#192) exists to catch.
-assert_pin_red_on_removal "#192 backstop: deleting the compare-after divergence trigger turns its pin RED" \
-  'if [ "$GIT_STATUS_AFTER" != "$GIT_STATUS_BEFORE" ]' "$REVIEW_SKILL"
 assert_pin_red_on_removal "#192 backstop: deleting the Phase-3-aggregation finding-injection sentence turns its pin RED" \
   'add an **Important** finding to the Phase 3 findings set' "$REVIEW_SKILL"
 assert_pin_red_on_removal "#192 backstop: deleting the untracked-file-never-auto-deleted safety rule turns its pin RED" \
-  'never auto-deleted' "$REVIEW_SKILL"
-# The restore set MUST be computed by path column (status prefix stripped from each snapshot)
-# — regressing to a whole-porcelain-line compare reintroduces the already-dirty-path clobber.
-# Pin the BEFORE operand's path-strip (the operative by-path element), and the two fail-closed
-# snapshot breadcrumbs (before-fail disables the backstop; after-fail is surfaced as NOT a
-# mutation rather than misattributed). All chosen apostrophe-free so the single-quoted run.sh
-# arg is safe (the `sed 's/^...//'` token carries apostrophes and cannot be pinned directly).
-assert_pin_red_on_removal "#192 backstop: regressing the by-path restore-set computation to a whole-line compare turns its pin RED" \
-  '"$GIT_STATUS_BEFORE" | sed' "$REVIEW_SKILL"
+  'never auto-deleted; git said' "$REVIEW_SKILL"
+# Set-difference DIRECTION: the restore set is paths in AFTER NOT present in BEFORE (`! grep`
+# membership against the BEFORE set). Flipping to a positive `grep` (restore BEFORE-present
+# paths) would clobber the orchestrator's own concurrent edits — the hazard the old `comm -13`
+# direction guarded. (The pin line carries `grep` but no `echo`, so the repo-wide raw-guard
+# scanner — which keys on a `grep…SKILL…echo` line — does not match it.)
+assert_pin_red_on_removal "#216 backstop: flipping the by-path set-difference direction turns its pin RED" \
+  '! grep -qzxF -- "${rec:3}" "$BEFORE_PATHS"' "$REVIEW_SKILL"
+# Rename/copy two-path `-z` entries are surfaced-not-restored — routed to a separate file,
+# never into the auto-restore set. Deleting the routing or the breadcrumb silently drops them.
+assert_pin_red_on_removal "#216 backstop: deleting the rename surfaced-not-restored routing turns its pin RED" \
+  '>> "$RENAMED_PATHS_FILE"' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#216 backstop: deleting the rename surfaced-not-restored breadcrumb turns its pin RED" \
+  'not auto-restored (a staged rename needs index surgery)' "$REVIEW_SKILL"
 assert_pin_red_on_removal "#192 backstop: deleting the fail-closed before-snapshot disable turns its pin RED" \
   'dirty-tree backstop DISABLED for this dispatch' "$REVIEW_SKILL"
 assert_pin_red_on_removal "#192 backstop: deleting the after-snapshot fail-distinct breadcrumb turns its pin RED" \
   'this is NOT an agent mutation' "$REVIEW_SKILL"
-# Pin the EXECUTABLE restore action, not just the restore policy: deleting the checkout loop
-# would downgrade the backstop from "detect AND restore" to "detect only" while every prose
-# pin stayed GREEN. The literal also encodes the fail-open fix — restore from HEAD (not the
-# INDEX), so a staged agent mutation is undone rather than re-materialized.
+# Pin the EXECUTABLE restore action (restore from HEAD, not the INDEX) and the post-restore
+# tree-state RE-CHECK (trust the tree, not the exit code) — deleting either downgrades the
+# backstop from "detect AND restore (verified)" to "detect only" while every prose pin stays GREEN.
 assert_pin_red_on_removal "#192 backstop: deleting the restore-from-HEAD checkout action turns its pin RED" \
   'git checkout HEAD -- "$p"' "$REVIEW_SKILL"
-# Pin the remaining operative directives the full shadow flagged as AC4 gaps: the comm -13
-# DIRECTION (swapping to comm -23 would restore BEFORE-only paths and clobber the orchestrator's
-# own concurrent edits), the post-restore tree-state RE-CHECK (the trust-tree-state-not-exit-code
-# fix that surfaces an unrestorable/untracked path instead of falsely reporting it restored), and
-# the empty-delta already-dirty breadcrumb (the surfacing for a status-byte-only change).
-assert_pin_red_on_removal "#192 backstop: flipping the comm -13 restore-set direction turns its pin RED" \
-  'comm -13' "$REVIEW_SKILL"
 assert_pin_red_on_removal "#192 backstop: deleting the post-restore tree-state re-check turns its pin RED" \
-  'git status --porcelain -- "$p"' "$REVIEW_SKILL"
-assert_pin_red_on_removal "#192 backstop: deleting the empty-delta already-dirty breadcrumb turns its pin RED" \
-  'changed the status of an already-dirty path' "$REVIEW_SKILL"
-# The fail-closed sentinel is a COUPLED two-site invariant — armed at the 3.1 before-snapshot
-# failure (the set site) and read at the 3.2 short-circuit (the guard that skips the destructive
-# restore). assert_pin_red_on_removal can't apply (the literal appears twice, by design); pin the
-# COUPLING with a count==2 guard so a rename/drop at EITHER site drifts the count and goes RED —
-# else a one-sided edit would leave the 3.2 guard unable to recognize the armed sentinel, falling
-# through to a restore that diffs a real AFTER against the sentinel string and clobbers live edits.
-assert_eq "#192 backstop: fail-closed sentinel stays coupled across its set (3.1) and read (3.2) sites" "yes" \
-  "$([ "$(grep -cF '__DIRTY_TREE_BACKSTOP_DISABLED__' "$REVIEW_SKILL")" -eq 2 ] && echo yes || echo no)"  # raw-guard-ok: count-based: asserts ==2 occurrences (the sentinel set site in 3.1 + the read/short-circuit site in 3.2 must stay coupled)
+  '[ -n "$(git status --porcelain -- "$p")" ]' "$REVIEW_SKILL"
+# AC4 (#216): the empty-delta breadcrumb no longer asserts a single cause it cannot prove —
+# it states the divergence + empty restore set and names BOTH possible causes (a status-byte
+# change OR a dirty->clean transition), since `cmp` cannot distinguish them.
+assert_pin_red_on_removal "#216 backstop: deleting the empty-delta no-single-cause breadcrumb turns its pin RED" \
+  'the by-path restore set is empty (an already-dirty path' "$REVIEW_SKILL"
+# AC3 (#216) drift guards — coupled multi-site operative directives, pinned by occurrence
+# count so dropping any one site drifts the count RED (assert_pin_red_on_removal cannot apply
+# to a literal that appears more than once by design):
+#  - the pathname-safe NUL read loop `IFS= read -r -d ''` at all THREE sites (BEFORE extract,
+#    AFTER extract, restore loop) — a regression to a newline `read -r` at any site drops the count;
+#  - the `sort -z` operand at BOTH extraction sorts — dropping `-z` collapses NUL data to one line;
+#  - the `\x01`-prefixed fail-closed sentinel VALUE at all THREE sites (set in 3.1, the 3.2
+#    short-circuit read, the 3.2 cleanup guard). The bare-name count below couples the NAME but
+#    NOT the `\x01` byte that makes the sites compare equal (#216), so this pins the FULL value
+#    `\x01__DIRTY_TREE_BACKSTOP_DISABLED__` — a one-sided `\x01` drop then drifts the count RED.
+assert_eq "#216 backstop: the pathname-safe NUL read loop is present at all three sites" "yes" \
+  "$([ "$(grep -cF 'IFS= read -r -d' "$REVIEW_SKILL")" -eq 3 ] && echo yes || echo no)"  # raw-guard-ok: count-based: asserts ==3 NUL read loops (BEFORE/AFTER extract + restore)
+assert_eq "#216 backstop: the sort -z operand is present at both extraction sorts" "yes" \
+  "$([ "$(grep -cF 'sort -z' "$REVIEW_SKILL")" -eq 2 ] && echo yes || echo no)"  # raw-guard-ok: count-based: asserts ==2 sort -z operands
+assert_eq "#216 backstop: the byte-prefixed fail-closed sentinel value stays coupled across its three sites" "yes" \
+  "$([ "$(grep -cF '\x01__DIRTY_TREE_BACKSTOP_DISABLED__' "$REVIEW_SKILL")" -eq 3 ] && echo yes || echo no)"  # raw-guard-ok: count-based: asserts ==3 occurrences of the FULL \x01-prefixed sentinel (3.1 set + 3.2 read + 3.2 cleanup)
+# ── #216: dirty-tree backstop -z rework — git_sandbox integration proof ────────────────
+# AC2 (#216): a spaced-path agent mutation is correctly RESTORED (no silent no-op), a true
+# rename is SURFACED-not-restored, and the spaced-path restore is COUPLED to the `-z` rework
+# (RED with quoted plain-porcelain snapshots, GREEN with `-z`). The proof EXTRACTS the
+# self-contained restore region from skills/review/SKILL.md and runs it against a real
+# throwaway git repo (git_sandbox), so a regression of the region's NUL-handling back to the
+# quoting-vulnerable shape turns this RED. The markers are referenced via vars so this source
+# line never carries the contiguous marker string the extractor scans for.
+DT_REGION="$(probe_tmp "#216 backstop region extraction")"
+DT_BEGIN="devflow:dirty-tree-restore ""BEGIN"
+DT_END="devflow:dirty-tree-restore ""END"
+awk -v b="$DT_BEGIN" -v e="$DT_END" 'index($0,b){f=1;next} index($0,e){f=0} f' "$REVIEW_SKILL" > "$DT_REGION"
+assert_eq "#216 backstop: restore region extracted from SKILL.md is non-empty" "yes" \
+  "$([ -s "$DT_REGION" ] && echo yes || echo no)"
+# Build a fresh sandbox repo with a committed spaced-path file + a plain file (fail-closed on
+# mktemp -d failure via git_sandbox's /dev/null sentinel — a caller's `[ -d ]` guard then skips).
+dt_make_repo() {  # -> prints repo dir
+  local d; d="$(git_sandbox "#216 backstop fixture")" || { printf '%s\n' "$d"; return 1; }
+  git -C "$d" init -q; git -C "$d" config user.email t@t; git -C "$d" config user.name t
+  printf orig > "$d/my file.txt"; printf plain > "$d/plain.txt"
+  git -C "$d" add -A; git -C "$d" commit -qm init
+  printf '%s\n' "$d"
+}
+# Case A — spaced-path modify with `-z` snapshots: RESTORED (GREEN).
+DT_A="$(dt_make_repo)"
+if [ -d "$DT_A" ]; then
+  DT_A_B="$(probe_tmp "#216 case-A before")"; DT_A_AF="$(probe_tmp "#216 case-A after")"
+  git -C "$DT_A" status --porcelain -z > "$DT_A_B"
+  printf changed > "$DT_A/my file.txt"
+  git -C "$DT_A" status --porcelain -z > "$DT_A_AF"
+  ( cd "$DT_A" && GIT_SNAP_BEFORE="$DT_A_B" GIT_SNAP_AFTER="$DT_A_AF" bash "$DT_REGION" ) >/dev/null 2>&1
+  assert_eq "#216 backstop: a spaced-path agent modification is restored (-z snapshots)" \
+    "orig" "$(cat "$DT_A/my file.txt" 2>/dev/null)"
+  rm -rf "$DT_A" "$DT_A_B" "$DT_A_AF"
+fi
+# Case B — SAME mutation but QUOTED plain-porcelain snapshots: NOT restored. This is the
+# pre-rework (RED) state — it proves the `-z` capture is load-bearing, not incidental.
+DT_BR="$(dt_make_repo)"
+if [ -d "$DT_BR" ]; then
+  DT_BR_B="$(probe_tmp "#216 case-B before")"; DT_BR_AF="$(probe_tmp "#216 case-B after")"
+  git -C "$DT_BR" status --porcelain > "$DT_BR_B"     # no -z: the spaced path is C-quoted
+  printf changed > "$DT_BR/my file.txt"
+  git -C "$DT_BR" status --porcelain > "$DT_BR_AF"
+  ( cd "$DT_BR" && GIT_SNAP_BEFORE="$DT_BR_B" GIT_SNAP_AFTER="$DT_BR_AF" bash "$DT_REGION" ) >/dev/null 2>&1
+  assert_eq "#216 backstop: quoted (non--z) snapshots do NOT restore the spaced path (why -z is required)" \
+    "changed" "$(cat "$DT_BR/my file.txt" 2>/dev/null)"
+  rm -rf "$DT_BR" "$DT_BR_B" "$DT_BR_AF"
+fi
+# Case C — true staged rename: SURFACED, NOT auto-restored (the file stays renamed).
+DT_C="$(dt_make_repo)"
+if [ -d "$DT_C" ]; then
+  DT_C_B="$(probe_tmp "#216 case-C before")"; DT_C_AF="$(probe_tmp "#216 case-C after")"
+  git -C "$DT_C" status --porcelain -z > "$DT_C_B"
+  git -C "$DT_C" mv "plain.txt" "renamed plain.txt"
+  git -C "$DT_C" status --porcelain -z > "$DT_C_AF"
+  ( cd "$DT_C" && GIT_SNAP_BEFORE="$DT_C_B" GIT_SNAP_AFTER="$DT_C_AF" bash "$DT_REGION" ) >/dev/null 2>&1
+  assert_eq "#216 backstop: a true rename is surfaced-not-restored (renamed file remains)" \
+    "plain" "$(cat "$DT_C/renamed plain.txt" 2>/dev/null)"
+  assert_eq "#216 backstop: a true rename leaves the original path removed (not auto-recreated)" \
+    "no" "$([ -e "$DT_C/plain.txt" ] && echo yes || echo no)"
+  rm -rf "$DT_C" "$DT_C_B" "$DT_C_AF"
+fi
+rm -f "$DT_REGION"
 # Coupled-invariant drift guard: the "detect_all_audit is intentionally not persisted
 # into diff_profile" contract spans two mirror sites — the SKILL.md schema comment and
 # docs/efficiency-trace.md. Both must agree; pin each with its stable site-specific phrase.

@@ -59,6 +59,55 @@ GitHub post, and the loop is silent on GitHub by design. The shadow stops before
 Because it reuses Phase 3.1's launch list and per-agent prompts verbatim, the shadow exercises the
 **same reviewer set** a standalone `/devflow:review` would on this diff.
 
+## The dirty-tree backstop: review agents never mutate the working tree
+
+The fan-out the parent runs (and the shadow re-runs verbatim) dispatches advisory reviewers over a
+diff. Those agents must be **read-only with respect to the working tree** — a reviewer that edits a
+tracked file, runs a live half-revert and forgets to restore it, or stages a change leaves the
+orchestrator's tree silently corrupted, which can flip the orchestrator's *own* `assert_pin_unique`
+checks to a phantom RED (the failure observed in the `/devflow:implement 186` run). Two coupled
+layers close that hole.
+
+**The contract.** Every first-party review/analysis agent definition — `code-reviewer`,
+`silent-failure-hunter`, `comment-analyzer`, `type-design-analyzer`, `pr-test-analyzer`, and the
+vendored `requesting-code-review` final pass — states the agent must never modify working-tree
+source files, the index, HEAD, or branch state, and that any mutation/half-revert verification is
+done **on a temporary copy made with `mktemp`, never in place**.
+
+**The deterministic backstop (`skills/review/SKILL.md` Phase 3.1/3.2).** Independently of agent
+compliance, the shared engine snapshots the tree with `git status --porcelain -z` immediately
+**before** the Phase 3.1 batch (into a temp file — `-z` output carries NUL bytes a bash `$(...)`
+variable cannot hold) and compares **after** it returns. On divergence it records an Important
+finding with an attributable breadcrumb (never silently discarded) and **restores only the snapshot
+delta** — paths clean at snapshot time that became dirty during the dispatch window — computed *by
+path column* (status prefix stripped from each `-z` record), so a path the orchestrator had already
+modified is left to the human rather than clobbered. The restore is `git checkout HEAD -- <path>`
+(from **HEAD**, so a *staged* agent mutation is undone rather than re-materialized from the index),
+followed by a tree-state re-check that trusts the re-checked status, not the exit code: a path still
+dirty afterward (an untracked or staged-new file) is surfaced per-path, never falsely reported as
+restored.
+
+**Why `-z` matters.** Plain `git status --porcelain` **C-quotes** a path containing a space or
+special character (`"my file.txt"`); that quoted token is not a real pathspec, so `git checkout`
+matches nothing and the restore is a **silent no-op** while reporting success. `git status
+--porcelain -z` emits the path **unquoted and NUL-delimited**, so a spaced/special filename is
+restored correctly. A rename/copy under `-z` is a two-record shape (`R  <new>\0<old>\0`); the
+restore loop consumes the bare orig-path continuation rather than mis-parsing it.
+
+**Fail-closed and read-only-profile no-op.** Both snapshots are rc-checked: a failed before-snapshot
+**disables** the backstop for that dispatch (it never restores off an empty baseline, which would
+authorize `git checkout` against the orchestrator's own live edits), and a failed after-snapshot is
+surfaced as a *distinct* breadcrumb rather than misattributed as an agent mutation. In the read-only
+`/devflow:review` profile the agents have **no write tools**, so the snapshots match and the restore
+never fires; the backstop earns its keep in the write-enabled `/devflow:review-and-fix` and
+`/devflow:implement` tiers — including the shadow pass, which re-runs these phases verbatim.
+
+**Residuals it does NOT auto-restore.** (1) A **true rename/copy** (status `R`/`C`) — undoing a
+staged rename safely needs index surgery, so it is *surfaced* (named in a breadcrumb) and left for
+the human + the shadow. (2) An agent's further edit to an **already-dirty path that does not change
+its status byte** — it produces an identical `-z` record, so the divergence test cannot detect it.
+Both residuals fall to the shadow pass + the post-shadow edit gate.
+
 ## Where independence comes from: per-reviewer prompt blinding, not subagent-context isolation
 
 The old design's independence story was "the shadow subagent's fresh context window has no access
