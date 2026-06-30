@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.33] — 2026-06-30
+
+### Added
+- **`/devflow:implement`'s Phase 2.3.x self-review sweeps gain two observability sub-checks.** Phase 2.3.4a (self-authored-claim reconciliation) now carries a **clean-path-evidence** sub-check: for any step the diff adds that claims to enumerate, verify, or scan a set, the orchestrator confirms the step instructs its producer to log a summary (the count checked, the result) even on the clean path where nothing needs changing — a "make no changes if all accurate" step with no trailing log is flagged, because a silent no-op is indistinguishable from a step that never ran. Phase 2.3.6 (error-handling & silent-failure) now carries a **per-branch-breadcrumb** sub-check: for any multi-branch no-op path the diff adds (e.g. "if A, stop; else find B; if B absent, stop"), the orchestrator confirms each branch emits a distinct diagnostic naming which condition fired — two failure modes converging on one shared breadcrumb is flagged as a variant of the misdirected/generic-breadcrumb kind. Both additions are scoped to diff-touched sites (no repo-wide audit), consistent with the other 2.3.x sweeps, and are lenses on the existing sweeps rather than new gates. `docs/implement-skill.md` mirrors both sub-checks in the 2.3.4a and 2.3.6 rationale prose, and `lib/test/run.sh` pins each new operative instruction with a mutation-proven `assert_pin_unique` (the operative step sentence, not its framing per #186 — confirmed RED on a counterfactual half-revert that deletes only the operative line while the section heading survives). (#210, closes #198)
+
 ## [2.8.32] — 2026-06-30
 
 ### Added
