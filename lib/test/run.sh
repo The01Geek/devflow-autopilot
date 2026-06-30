@@ -1718,11 +1718,13 @@ assert_pin_unique "phase 3.3: soft-proceed records each residual finding durably
 # Drift guard: issue #193 — Phase 3.2 must triage each /simplify finding against the
 # issue's in-scope ACs before applying it, skipping AC-conflicting findings with a
 # recorded rationale. The OPERATIVE pin is the skip+record sentence (the behavioral fix):
-# deleting it alone re-introduces the bug where AC-violating cleanups get applied silently,
-# so the pin goes RED on that targeted half-revert while every framing clause stays intact
-# (mutation-proven in dev). The scope pin (issue-context-only) and the stale-AC carve-out
-# pin (Phase 2.2.6, not a silent skip) are the two other necessary sentences of the rule.
-assert_pin_unique "phase 3.2: /simplify findings triaged — operative skip+record sentence" \
+# deleting it alone re-introduces the bug where AC-violating cleanups get applied silently.
+# Per the behavioral-fix-pin convention (#186/#192/#194), the operative pin uses
+# assert_pin_red_on_removal — the suite itself half-reverts the sentence and confirms the
+# pin goes RED, baking the mutation-proof into CI rather than relying on a one-time dev check.
+# The scope pin (issue-context-only) and the stale-AC carve-out pin (Phase 2.2.6, not a silent
+# skip) stay assert_pin_unique presence guards — they are framing/scope, not the behavioral fix.
+assert_pin_red_on_removal "phase 3.2: /simplify findings triaged — operative skip+record sentence (mutation-proven)" \
   'skip the finding and record the AC conflict as the skip rationale' "$IMPL_SKILL"
 assert_pin_unique "phase 3.2: triage scoped to the issue-context /devflow:implement path only" \
   'exists only on the issue-context' "$IMPL_SKILL"
