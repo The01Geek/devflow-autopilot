@@ -580,9 +580,10 @@ Apply the `devflow:receiving-code-review` principles — including the **share-t
 
    If the same `(source_file, claim_text)` pair was also skipped in the previous iteration, escalate to the user: "Finding persists after pushback: {claim}. Manual review needed." and stop the loop.
 
-6. **Commit fixes** before re-running the review:
+6. **Commit fixes** before re-running the review. **Stage only the specific files this iteration's fix touched, by explicit path** — `git add <file1> <file2> …` listing exactly the files you changed (the same set Step 3 item 7 records as `fix_files` via `git diff --name-only HEAD~1 HEAD`, the machine-derived authoritative scope). **Never use `git add -A` or `git add .` at the fix-commit step:** an unscoped stage sweeps unrelated working-tree state — a local `.devflow/config.json` edit, stray debug-capture files, leftover temp artifacts — onto the feature branch, where the blinded shadow then flags it as a Critical that costs an extra fix iteration to revert. Explicit multi-file staging covering every file the fix touched is fully correct and remains allowed; only the unscoped catch-all forms are prohibited.
    ```bash
-   git add -A && git commit -m "fix: address review findings (iteration {N})"
+   git add <file1> <file2> …   # the specific files this fix touched — never `git add -A` / `git add .`
+   git commit -m "fix: address review findings (iteration {N})"
    ```
    Capture the resulting SHA (`git rev-parse HEAD`) and write it to the iter-N workpad as `fix_commit_sha` — Step 0.9 of iter-(N+1) reads it.
 
