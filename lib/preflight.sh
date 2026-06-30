@@ -35,7 +35,7 @@ _need jq      "install jq (https://jqlang.github.io/jq/)"
 # is taken only when it is both present AND actually runs (`-c 'pass'`) — the same runnability
 # probe devflow_resolve_python applies to every alternate — so a present-but-broken `python3`
 # (a dangling symlink, a corrupt install, a missing runtime DLL — the broken-Windows-interpreter
-# class this provisioner targets) does NOT short-circuit here into a misleading "PyYAML not
+# class the shim provisioner targets) does NOT short-circuit here into a misleading "PyYAML not
 # found" / wrong-version message with no pointer to the remedy; it falls through to the resolver,
 # which skips it and tries `py -3` / `python`. Its >=3.11 version is confirmed by the check below,
 # not in this branch — output is unchanged on a real python3 >=3.11. On a stock Windows Python
@@ -51,17 +51,21 @@ else
   _rc=0
   _resolved="$(devflow_resolve_python)" || _rc=$?
   if [ "$_rc" -eq 0 ]; then
-    # A >=3.11 alternate exists but `python3` does not. The toolchain's literal `python3`
-    # calls still fail until a shim is in place, so this is still a missing dependency —
-    # but an actionable one: direct the user to the provisioner instead of a dead end.
-    printf "devflow preflight: 'python3' is not on PATH, but a compatible Python (>=3.11) is available as '%s'. Run scripts/provision-python3-shim.sh to install a 'python3' shim so the toolchain resolves it (Windows/Git-Bash); see docs/install.md.\n" "$_resolved" >&2
+    # A >=3.11 alternate exists but `python3` does not (it is either absent, or present-but-broken
+    # and rejected by the runnability probe above — hence "no working python3", not "not on PATH",
+    # which would read as contradictory to a user whose `command -v python3` resolves). The
+    # toolchain's literal `python3` calls still fail until a shim is in place, so this is still a
+    # missing dependency — but an actionable one: direct the user to the provisioner, not a dead end.
+    printf "devflow preflight: no working 'python3' on PATH, but a compatible Python (>=3.11) is available as '%s'. Run scripts/provision-python3-shim.sh to install a 'python3' shim so the toolchain resolves it (Windows/Git-Bash); see docs/install.md.\n" "$_resolved" >&2
     PYTHON="$_resolved"
     missing=1
   elif [ "$_rc" -eq 1 ]; then
     # A Python exists but is older than 3.11: give the specific version failure, never the
     # misleading "missing" message. $_resolved is the first runnable (too-old) invocation.
+    # "no working python3" (not "no python3 on PATH") because python3 may be present-but-broken
+    # and rejected by the runnability probe above, not strictly absent.
     # shellcheck disable=SC2086  # $_resolved may be the two words "py -3"
-    printf 'devflow preflight: Python 3.11+ required (no python3 on PATH; the available Python is older: %s)\n' "$($_resolved -V 2>&1)" >&2
+    printf 'devflow preflight: Python 3.11+ required (no working python3 on PATH; the available Python is older: %s)\n' "$($_resolved -V 2>&1)" >&2
     missing=1
   else
     printf "devflow preflight: missing required tool 'python3' — install Python 3.11 or newer\n" >&2

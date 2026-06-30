@@ -10067,10 +10067,12 @@ EOF
     "$(printf '%s' "$PF6_OUT" | grep -q 'Python 3.11+ required' && echo yes || echo no)"
   assert_eq "#225 preflight: too-old → NOT the bare \"missing required tool 'python3'\" message (AC6)" "no" \
     "$(printf '%s' "$PF6_OUT" | grep -q "missing required tool 'python3'" && echo yes || echo no)"
-  # Positively pin the rc-1 ALTERNATE branch (python2-only host): its message names 'no python3
-  # on PATH', distinguishing it from the python3-present-<3.11 version-recheck branch (TOLD above).
-  assert_eq "#225 preflight: alternate-too-old → rc-1 branch message names 'no python3 on PATH' (AC6)" "yes" \
-    "$(printf '%s' "$PF6_OUT" | grep -q 'no python3 on PATH' && echo yes || echo no)"
+  # Positively pin the rc-1 ALTERNATE branch (python2-only host): its message names 'no working
+  # python3 on PATH', distinguishing it from the python3-present-<3.11 version-recheck branch
+  # (TOLD below). "no working python3" (not "no python3 on PATH") because python3 may be
+  # present-but-broken and rejected by preflight's runnability probe, not strictly absent.
+  assert_eq "#225 preflight: alternate-too-old → rc-1 branch message names 'no working python3 on PATH' (AC6)" "yes" \
+    "$(printf '%s' "$PF6_OUT" | grep -q 'no working python3 on PATH' && echo yes || echo no)"
 
   # ── AC9: idempotent no-op when a working python3 >=3.11 already resolves. ──
   T9="$(mktemp -d)"; build_stub_bin "$T9"; make_fake_python "$T9/python3" "3.12.3" 3 12
@@ -10099,8 +10101,32 @@ EOF
     "$([ "$PF_OLD3_RC" -ne 0 ] && echo yes || echo no)"
   assert_eq "#225 preflight: python3 <3.11 → 'Python 3.11+ required (found ...)' from the version re-check (AC6)" "yes" \
     "$(printf '%s' "$PF_OLD3_OUT" | grep -q 'Python 3.11+ required (found' && echo yes || echo no)"
-  assert_eq "#225 preflight: python3 <3.11 → NOT the resolved-alternate 'no python3 on PATH' message (AC6)" "no" \
-    "$(printf '%s' "$PF_OLD3_OUT" | grep -q 'no python3 on PATH' && echo yes || echo no)"
+  assert_eq "#225 preflight: python3 <3.11 → NOT the resolved-alternate 'no working python3 on PATH' message (AC6)" "no" \
+    "$(printf '%s' "$PF_OLD3_OUT" | grep -q 'no working python3 on PATH' && echo yes || echo no)"
+
+  # ── rc-3 "no usable Python interpreter at all" (no python3, no py, no python). build_stub_bin
+  #    yields a python-free PATH, so this exercises the resolver's rc-3 return end-to-end through
+  #    BOTH consumers: the provisioner refuses (exit 2, "no Python interpreter found") and preflight
+  #    hits its rc-3 `else` dead-end ("missing required tool 'python3'") — NOT the rc-0 provisioner
+  #    pointer (there is no alternate to point at). This is the user's only guidance when they have
+  #    no Python at all; without it a regression that mis-routed rc-3 to rc-0/rc-1 would ship green. ──
+  TNONE="$(mktemp -d)"; build_stub_bin "$TNONE"     # git/gh/jq + coreutils only — no python/python3/py
+  # Provisioner: rc-3 → exit 2 + specific breadcrumb, writes nothing.
+  TNONE_T="$(mktemp -d)"
+  PPS_NONE_OUT="$(PATH="$TNONE" bash "$PPS" --apply "$TNONE_T" 2>&1)"; PPS_NONE_RC=$?
+  assert_eq "#225 pps: no interpreter at all → exit 2 (rc-3)" "2" "$PPS_NONE_RC"
+  assert_eq "#225 pps: no interpreter at all → 'no Python interpreter found' breadcrumb (rc-3)" "yes" \
+    "$(printf '%s' "$PPS_NONE_OUT" | grep -q 'no Python interpreter found' && echo yes || echo no)"
+  assert_eq "#225 pps: no interpreter at all → no shim written (rc-3)" "no" "$([ -f "$TNONE_T/python3" ] && echo yes || echo no)"
+  # Preflight: rc-3 → exit non-zero + the bare dead-end message, NOT the rc-0 provisioner pointer.
+  PF_NONE_OUT="$(PATH="$TNONE" bash "$PREFLIGHT_SH" 2>&1)"; PF_NONE_RC=$?
+  assert_eq "#225 preflight: no interpreter at all → exit non-zero (rc-3)" "yes" \
+    "$([ "$PF_NONE_RC" -ne 0 ] && echo yes || echo no)"
+  assert_eq "#225 preflight: no interpreter at all → bare \"missing required tool 'python3'\" dead end (rc-3)" "yes" \
+    "$(printf '%s' "$PF_NONE_OUT" | grep -q "missing required tool 'python3'" && echo yes || echo no)"
+  assert_eq "#225 preflight: no interpreter at all → NOT the provisioner pointer (no alternate to point at) (rc-3)" "no" \
+    "$(printf '%s' "$PF_NONE_OUT" | grep -q 'provision-python3-shim.sh' && echo yes || echo no)"
+  rm -rf "$TNONE" "$TNONE_T"
 
   # ── Default target-dir selection (the PRODUCTION path — no explicit TARGET_DIR). ──
   # (a) A writable dir on PATH → the shim lands in the first writable PATH dir, no PATH note.
@@ -10136,6 +10162,17 @@ EOF
   OFFER_OUT_B="$(PATH="$T8B" bash -c "DEVFLOW_SELFTEST=1 . \"$INSTALL_SH\"; offer_python3_shim \"$REPO_ROOT\"" 2>&1)"
   assert_eq "#225 install.sh: python3 present → NO delegation (AC8)" "no" \
     "$(printf '%s' "$OFFER_OUT_B" | grep -q 'devflow-python:' && echo yes || echo no)"
+  # Broken-but-present python3 + a >=3.11 alternate: offer_python3_shim probes RUNNABILITY
+  # (`python3 -c 'pass'`), mirroring preflight's happy-path gate, so a python3 that is on PATH
+  # but does not execute must NOT short-circuit the offer — it falls through and delegates to
+  # the provisioner. A bare `command -v python3` would wrongly skip the offer on exactly the
+  # broken-Windows-interpreter class this change targets. (Review finding: install.sh symmetry.)
+  T8C="$(mktemp -d)"; build_stub_bin "$T8C"; make_fake_python "$T8C/python" "3.11.4" 3 11
+  printf '#!/bin/sh\nexit 127\n' > "$T8C/python3"; chmod +x "$T8C/python3"  # present but never runs
+  OFFER_OUT_C="$(PATH="$T8C" bash -c "DEVFLOW_SELFTEST=1 . \"$INSTALL_SH\"; offer_python3_shim \"$REPO_ROOT\"" 2>&1)"
+  assert_eq "#225 install.sh: broken-but-present python3 → still delegates to the provisioner" "yes" \
+    "$(printf '%s' "$OFFER_OUT_C" | grep -q 'devflow-python:' && echo yes || echo no)"
+  rm -rf "$T8C"
 
   # ── AC11: no .github/ workflow, action, or allowlist entry is modified by this change. ──
   if git -C "$REPO_ROOT" rev-parse --verify origin/main >/dev/null 2>&1; then
