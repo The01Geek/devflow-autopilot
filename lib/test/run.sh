@@ -1132,10 +1132,33 @@ assert_pin_unique "over-grade: engine gate keeps its mandatory reflection sentin
   'over-grade calibration gate clean: no promote-path finding flagged' "$MAXI_SKILL"
 assert_pin_unique "over-grade: engine gate keeps the never-auto-demote contract (flag + recorded evaluation)" \
   'flags and requires a recorded technical evaluation; it never auto-demotes' "$MAXI_SKILL"
-assert_pin_unique "over-grade: engine gate keeps over-grade shape 1 (suite-RED / fail-closed above blast radius)" \
-  'Suite-RED or fail-closed defect graded above its blast radius' "$MAXI_SKILL"
-assert_pin_unique "over-grade: engine gate keeps over-grade shape 2 (diagnostic-or-cosmetic-only)" \
-  'Diagnostic-or-cosmetic-only finding with no behavioral fail-direction' "$MAXI_SKILL"
+# The over-grade SHAPE DEFINITIONS now have a single source of truth in the shared engine
+# (/devflow:review Phase 4.1.5) — issue #195. Pin the canonical shapes against review/SKILL.md,
+# pin that review-and-fix REFERENCES (does NOT fork) them, and pin the advisory-annotation
+# contract (advisory only; verdict unchanged; never auto-demote).
+OG_REVIEW_SKILL="$LIB/../skills/review/SKILL.md"
+assert_pin_unique "over-grade: shared engine carries the single-source annotation heading" \
+  '### 4.1.5 Over-grade advisory annotation (advisory only — never changes the verdict)' "$OG_REVIEW_SKILL"
+assert_pin_unique "over-grade: shared engine declares itself the single source of truth for the shapes" \
+  'single source of truth for the over-grade shape definitions' "$OG_REVIEW_SKILL"
+assert_pin_unique "over-grade: shared engine carries over-grade shape 1 (suite-RED / fail-closed above blast radius)" \
+  'Suite-RED or fail-closed defect graded above its blast radius' "$OG_REVIEW_SKILL"
+assert_pin_unique "over-grade: shared engine carries over-grade shape 2 (diagnostic-or-cosmetic-only)" \
+  'Diagnostic-or-cosmetic-only finding with no behavioral fail-direction' "$OG_REVIEW_SKILL"
+assert_pin_unique "over-grade: shared engine carries over-grade shape 3 (uncorroborated single-source from an empirical over-grader)" \
+  'Uncorroborated single-source finding from an empirical over-grader' "$OG_REVIEW_SKILL"
+assert_pin_unique "over-grade: standalone annotation is advisory — verdict computation unchanged (AC2)" \
+  '**The verdict computation in 4.2 is unchanged**' "$OG_REVIEW_SKILL"
+assert_pin_unique "over-grade: standalone annotation never auto-demotes (advisory by construction, AC2)" \
+  'it MUST **not auto-demote**' "$OG_REVIEW_SKILL"
+assert_pin_unique "over-grade: shared engine clean-scan sentinel present" \
+  'over-grade annotation: no finding flagged' "$OG_REVIEW_SKILL"
+# No-fork coupling (AC3): review-and-fix's Step 2.6 gate must REFERENCE the canonical shapes,
+# not restate them — these pins go RED if the dereference is reverted to an inline copy.
+assert_pin_unique "over-grade: review-and-fix gate references the single shared shape definition (no fork, AC3)" \
+  'this gate consumes that canonical list and does not restate it here' "$MAXI_SKILL"
+assert_pin_unique "over-grade: review-and-fix gate explicitly forbids forking the shapes (AC3)" \
+  'Do not fork or re-define the shapes here.' "$MAXI_SKILL"
 assert_pin_unique "over-grade: engine gate names the receiving-code-review principle it mechanizes" \
   'mechanizes the receiving-code-review symmetric-severity-calibration principle' "$MAXI_SKILL"
 # Cross-skill coupling: the principle the gate mechanizes must actually exist in the

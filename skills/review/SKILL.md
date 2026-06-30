@@ -834,6 +834,7 @@ FAIL and INCONCLUSIVE items stay listed outside the `<details>` block so they re
 {Within each group render each finding as a numbered-list item with NO icon, NO agent-name prefix, and NO severity-word prefix: "1. description (raised by N/{total Phase 3 agents that returned results} agents)", numbering restarting from 1 within each sub-heading. The severity is conveyed by the sub-heading alone — never repeat the icon or the severity word ("Critical:", "Important:", "Suggestion:") on the list items.}
 {for findings whose index appears in the matcher's honored[] list, append " [Deferred → #{follow_up_issue}]" to the line and place it under the "### ℹ️ Informational — Deferred" sub-heading rather than under its original severity bucket.}
 {Within each severity, list corroborated findings (N≥2) before single-source ones (N=1) so the highest-confidence items lead.}
+{If Phase 4.1.5 flags a finding as a suspected over-grade, append its advisory annotation to that finding's line here — see 4.1.5. The annotation never changes the verdict.}
 
 ## Deferrals
 {Omit this section entirely when 4.0 was skipped (current-branch mode) or block_present was false. Otherwise render:}
@@ -852,6 +853,22 @@ FAIL and INCONCLUSIVE items stay listed outside the `<details>` block so they re
 - Only Important/Suggestion findings → APPROVE with notes
 - No findings → APPROVE
 ```
+
+### 4.1.5 Over-grade advisory annotation (advisory only — never changes the verdict)
+
+**This subsection is the single source of truth for the over-grade shape definitions.** `/devflow:review-and-fix`'s Step 2.6 *Over-grade calibration gate* consumes this same shape list (the fix loop reads this engine file at runtime) rather than forking its own copy — keep the shapes defined **here only**, so the standalone-engine annotation and the fix-loop gate can never drift apart.
+
+After building the report (4.1) and **before** computing the verdict (4.2), scan the Phase-3 findings the verdict will weigh (the `Critical` / `Important` / `Major` findings not deferral-demoted in 4.0). **Flag** a finding as a *suspected over-grade* when it matches one of these **observable** over-grade shapes (keyed on observable signals — what the suite catches, which direction the code fails, how many agents corroborated — never on a re-judgment of the finding's merits, or the annotation just relocates the calibration problem it exists to surface):
+
+1. **Suite-RED or fail-closed defect graded above its blast radius** — the defect's own failure mode is one the project's test suite catches **RED**, or the code **fails closed** on the bad input (it aborts / refuses / returns the safe value rather than admitting a wrong one). A fenced or fail-closed defect is real and worth fixing, but its observable blast radius is a loud, bounded stop — not the silent corruption a `Critical`/`Important` grade asserts.
+2. **Diagnostic-or-cosmetic-only finding with no behavioral fail-direction** — the finding's entire observable impact is the wording of a message / breadcrumb / log / comment or another purely-diagnostic surface, with no wrong output, no corrupted state, and no skipped guard. Real and worth fixing, but not a high-severity blast radius.
+3. **Uncorroborated single-source finding from an empirical over-grader** — the finding is graded `Critical`/`Important` but is **single-source** (corroboration count 1 from Phase 3.2) from `silent-failure-hunter` or `pr-test-analyzer`, with **no** corroboration from any other Phase-3 agent **and** no Phase-2 verification-checklist FAIL covering the same defect. Empirically this uncorroborated-single-source-from-an-empirical-over-grader signal is the highest-probability over-grade.
+
+**On a flag, standalone `/devflow:review` adds an advisory annotation and nothing else.** Because standalone review has **no fixer** to record a technical evaluation, it MUST **not auto-demote** — append a parenthetical to the flagged finding's line in 4.1's `## Code Review Findings` (alongside the existing `(raised by N/M agents)` clause) of the form `[suspected over-grade: shape {n} — observable fail-direction is {X}, milder than the {severity} label]`, naming the matched shape and the observable fail-direction. **The verdict computation in 4.2 is unchanged** — the annotation never demotes a finding, never alters its severity, and never clears or downgrades a REJECT. A flagged `Critical` still drives REJECT exactly as before; the annotation only tells a human reading the verdict that the grade is *suspect*, so they can distinguish a genuine blocker from a diminishing-returns over-grade without re-deriving the calibration themselves.
+
+If no finding matches, add the line `over-grade annotation: no finding flagged` to the report so a clean scan is visible rather than ambiguous with a skipped step.
+
+The full **flag-and-record** gate — which *requires* a recorded `severity-calibrated` technical evaluation before a flagged finding may drive a shadow-promotion, and which still never auto-demotes — lives in `/devflow:review-and-fix` Step 2.6, because the fix loop has a fixer to record that evaluation. Standalone review is **advisory by construction**: do not port the gate's recording requirement here, and never let the annotation change what 4.2 computes. A consumer repo sharpens these shapes with local instances via `.devflow/prompt-extensions/review.md`; the extension sharpens the shapes but never makes the annotation change the verdict.
 
 ### 4.2 Determine verdict
 
