@@ -2505,8 +2505,8 @@ _docs_sweeps=$(grep -oE 'still runs the contract-completeness sweeps \([^)]+\)' 
 assert_eq "sweep selection: SKILL and docs enumerate the same contract-sweep set (cross-site)" \
   "$_skill_sweeps" "$_docs_sweeps"
 
-# Drift guard: the base_branch read in the implement skill (phases/phase-1-setup.md) Phase 1.4 is the skill's
-# one piece of load-bearing inline bash — like the max_iterations clamp above, the
+# Drift guard: the base_branch read in the implement skill (phases/phase-1-setup.md) Phase 1.4 is
+# a load-bearing inline-bash block in the skill (Phase 3.1's §3.1 re-derivation below is another) — like the max_iterations clamp above, the
 # tokens it relies on can be silently broken by a SKILL edit (drop the `|| BASE=""`
 # and `git fetch origin ""` runs; drop the fetch guard and a bad base fails with a
 # bare git error instead of an attributable DevFlow breadcrumb). Pin the tokens so
