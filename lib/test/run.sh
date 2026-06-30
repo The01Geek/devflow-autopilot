@@ -1415,31 +1415,66 @@ assert_pin_unique "fix-delta gate: share-the-contract principle in receiving-cod
   'prefer using that consumer as the guard itself' "$RCR_SKILL"
 # FIXDELTA_GUARD_REGION_END — end of the assert_pin_unique-only fix-delta pin region
 
-# Drift guard: the step 7 Verification Gate (issue #178) — the Iron Law, its scope
-# sentence, the code-fence step 7 entry, the engine re-run attribution, the
+# Drift guard: the step 8 Verification Gate (issue #178; renumbered from step 7 by #196,
+# which inserted a RECORD DEFERRALS step before it) — the Iron Law, its scope
+# sentence, the code-fence verify entry, the engine re-run attribution, the
 # CI-fallback consequence clause, the CI-fallback trigger restriction, the
 # Forbidden Responses entry, the local-skip audit note, and the push-vs-observe
 # distinction are the gate's load-bearing contracts (9 pins); any can be silently
 # deleted or paraphrased without breaking any other pin.
 # assert_pin_unique makes that RED.
-assert_pin_unique "step7: verification gate Iron Law heading present" \
+assert_pin_unique "step8: verification gate Iron Law heading present" \
   'NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE' "$RECV_SKILL"
-assert_pin_unique "step7: verification gate applies in both interactive and fix-loop contexts" \
+assert_pin_unique "step8: verification gate applies in both interactive and fix-loop contexts" \
   'applies in both interactive sessions and the autonomous' "$RECV_SKILL"
-assert_pin_unique "step7: code-fence step 7 entry anchors both mandated actions (diff review + test suite)" \
+assert_pin_unique "step8: code-fence step 8 entry anchors both mandated actions (diff review + test suite)" \
   'Review diff against addressed findings + run test suite — only then claim completion' "$RECV_SKILL"
-assert_pin_unique "step7: loop satisfies diff-review via engine re-run (not Step 3.5)" \
+assert_pin_unique "step8: loop satisfies diff-review via engine re-run (not Step 3.5)" \
   'the review engine re-runs each iteration' "$RECV_SKILL"
-assert_pin_unique "step7: CI-fallback clause requires waiting for green before claiming completion" \
+assert_pin_unique "step8: CI-fallback clause requires waiting for green before claiming completion" \
   'do not claim completion until CI confirms green' "$RECV_SKILL"
-assert_pin_unique "step7: CI-fallback trigger restricted to genuine denial, not suite failures" \
+assert_pin_unique "step8: CI-fallback trigger restricted to genuine denial, not suite failures" \
   'never when the suite runs but fails' "$RECV_SKILL"
-assert_pin_unique "step7: forbidden-responses entry prohibits claiming done before step 7" \
-  'before step 7 (VERIFY BEFORE DONE) is complete' "$RECV_SKILL"
-assert_pin_unique "step7: CI-fallback local-skip requires an auditable recorded note" \
+assert_pin_unique "step8: forbidden-responses entry prohibits claiming done before step 8" \
+  'before step 8 (VERIFY BEFORE DONE) is complete' "$RECV_SKILL"
+assert_pin_unique "step8: CI-fallback local-skip requires an auditable recorded note" \
   'Record the local-skip reason as an auditable note' "$RECV_SKILL"
-assert_pin_unique "step7: CI-fallback: submitting a push is not the same as observing green" \
+assert_pin_unique "step8: CI-fallback: submitting a push is not the same as observing green" \
   'submitting a push is not the same as observing green' "$RECV_SKILL"
+
+# Drift guards (issue #196): the convergence-discipline additions to the vendored
+# receiving-code-review skill — a stopping rule, a Record-Every-Deferral contract, the
+# Response-Pattern RECORD DEFERRALS step, and the cross-iteration finding union. Each is
+# SKILL prose with no behavioral test surface (the skill ships to consumer repos), so an
+# assert_pin_unique on the operative sentence is the drift guard: deleting or paraphrasing
+# the load-bearing clause drops the count to 0 and fails closed. Literals are gate-unique,
+# apostrophe-free ASCII, and engine-agnostic (no DevFlow machinery named in the pinned text).
+assert_pin_unique "convergence #196: stopping-rule section heading present" \
+  '## Stop When the Verdict Is Already Non-Blocking' "$RECV_SKILL"
+assert_pin_unique "convergence #196: stopping rule re-opens only for Critical/blocking/demonstrable defects" \
+  'or a demonstrable correctness defect (one that cites a concrete failing input)' "$RECV_SKILL"
+assert_pin_unique "convergence #196: stopping rule bounds advisory re-opens, never address-all-the-notes" \
+  'never "address all the notes," which guarantees' "$RECV_SKILL"
+assert_pin_unique "convergence #196: stopping rule parks everything else (advisory note does not by itself re-open)" \
+  'does not, by itself, re-open the diff' "$RECV_SKILL"
+assert_pin_unique "convergence #196: Record Every Deferral section heading present" \
+  '## Record Every Deferral' "$RECV_SKILL"
+assert_pin_unique "convergence #196: deferral record names WHAT/WHY/revisit-condition" \
+  'naming WHAT was deferred, WHY, and the condition that would make it worth revisiting' "$RECV_SKILL"
+assert_pin_unique "convergence #196: deferral has a preference-ordered list of trace locations" \
+  'in order of preference, to the first channel available' "$RECV_SKILL"
+assert_pin_unique "convergence #196: a successful pushback is itself a recorded deferral" \
+  'A successful pushback is itself a deferral' "$RECV_SKILL"
+assert_pin_unique "convergence #196: Response Pattern gains a RECORD DEFERRALS step before verify/done" \
+  '7. RECORD DEFERRALS: For every finding you did NOT fix' "$RECV_SKILL"
+assert_pin_unique "convergence #196: cross-iteration union section heading present" \
+  '## Union Findings Across Review Iterations' "$RECV_SKILL"
+assert_pin_unique "convergence #196: union treats raised-before-never-resolved-still-true as escalating" \
+  'raised in a prior run and never resolved, still true' "$RECV_SKILL"
+assert_pin_unique "convergence #196: union does not retire a finding a later run ranked lower" \
+  'it does not retire just because a later run happened to rank it lower' "$RECV_SKILL"
+assert_pin_unique "convergence #196: push-back reinforcement records the pushback as a deferral" \
+  'an un-recorded pushback is re-raised identically next run' "$RECV_SKILL"
 
 # ── Drift guards (issue #167): the completeness-critic pass (shared engine) and the
 # mechanism-scoped self-authored-claim re-sweep (fix loop). Both are SKILL-prose engine
@@ -1714,6 +1749,22 @@ assert_pin_unique "phase 3.3: REJECT routes through the severity-aware exit (Cri
   'a REJECT whose unresolved triggers are all non-Critical' "$IMPL_SKILL"
 assert_pin_unique "phase 3.3: soft-proceed records each residual finding durably in the workpad" \
   'unresolved after bounded re-review (non-Critical, surfaced for human review)' "$IMPL_SKILL"
+
+# Drift guard: issue #193 — Phase 3.2 must triage each /simplify finding against the
+# issue's in-scope ACs before applying it, skipping AC-conflicting findings with a
+# recorded rationale. The OPERATIVE pin is the skip+record sentence (the behavioral fix):
+# deleting it alone re-introduces the bug where AC-violating cleanups get applied silently.
+# Per the behavioral-fix-pin convention (#186/#192/#194), the operative pin uses
+# assert_pin_red_on_removal — the suite itself half-reverts the sentence and confirms the
+# pin goes RED, baking the mutation-proof into CI rather than relying on a one-time dev check.
+# The scope pin (issue-context-only) and the stale-AC carve-out pin (Phase 2.2.6, not a silent
+# skip) stay assert_pin_unique presence guards — they are framing/scope, not the behavioral fix.
+assert_pin_red_on_removal "phase 3.2: /simplify findings triaged — operative skip+record sentence (mutation-proven)" \
+  'skip the finding and record the AC conflict as the skip rationale' "$IMPL_SKILL"
+assert_pin_unique "phase 3.2: triage scoped to the issue-context /devflow:implement path only" \
+  'exists only on the issue-context' "$IMPL_SKILL"
+assert_pin_unique "phase 3.2: stale-AC conflict routes to Phase 2.2.6, not a silent skip" \
+  'that is Phase 2.2.6 AC-rewrite territory' "$IMPL_SKILL"
 
 # Same drift guard for the 2.3.0a peer-checkpoint-completeness sweep: the additive
 # twin of 2.3.0 lives in the same three places (sweep body, "Sweep selection" index,
@@ -8436,6 +8487,35 @@ assert_eq "#141 LICENSES/pr-review-toolkit-LICENSE retains the upstream Apache-2
 # scoped-removal guard above.
 assert_eq "#141 plugin.json dependencies no longer lists pr-review-toolkit" \
   "0" "$(jq '[.dependencies[]? | select(.name == "pr-review-toolkit")] | length' "$FDROOT/.claude-plugin/plugin.json")"
+
+# --- #191: Phase 3 review agents enumerate every occurrence of a flagged stale phrase ---
+# The code-reviewer and comment-analyzer agents must, before submitting a stale-wording /
+# semantic-contradiction (resp. repeated stale-comment) finding, exhaustively search the
+# affected file and list EVERY matching line number — so the fix step corrects all sites in
+# one edit instead of leaving secondary instances for a shadow round. The agent behavior
+# fires at LLM-inference time (no deterministic boundary), so the automated gate is a
+# mutation-proven assert_pin_unique on the operative imperative in each agent file. Each
+# literal pins the operative clause (search-all + enumerate-every-line-number), not a
+# framing sentence: deleting it alone re-opens the report-only-the-first-instance defect.
+assert_pin_unique "#191 code-reviewer enumerates all occurrences of a flagged stale phrase before submitting" \
+  'search the affected file for all occurrences of the flagged phrase, enumerate every matching line number,' "$FDROOT/agents/code-reviewer.md"
+assert_pin_unique "#191 comment-analyzer enumerates all occurrences of a repeated stale comment before submitting" \
+  'search the affected file for every occurrence of the flagged comment wording, enumerate every matching line number,' "$FDROOT/agents/comment-analyzer.md"
+# Pin the secondary semantic-equivalents refinement too — it is a distinct behavioral
+# clause from the search-all+enumerate imperative above (a trim to verbatim-only matching
+# would leave the pins above GREEN), so it needs its own gate to fail closed on removal.
+assert_pin_unique "#191 code-reviewer requires semantic-equivalent matches, not just verbatim" \
+  'semantic equivalents of the phrase you can identify from context, not just verbatim matches' "$FDROOT/agents/code-reviewer.md"
+assert_pin_unique "#191 comment-analyzer requires semantic-equivalent matches, not just verbatim" \
+  'semantic equivalents of the wording you can identify from context, not just verbatim matches' "$FDROOT/agents/comment-analyzer.md"
+# Pin the operative DELIVERABLE clause separately (PR #205 review note): a trim that kept the
+# search-all + semantic-equivalents pins above but dropped "include the complete location set in
+# the finding body" would leave those GREEN while removing the very output #191 exists to produce
+# (the full site list the fix step consumes). Per the operative-vs-framing rule it earns its own gate.
+assert_pin_unique "#191 code-reviewer includes the complete location set in the finding body before submitting" \
+  'include the complete location set in the finding body before submitting' "$FDROOT/agents/code-reviewer.md"
+assert_pin_unique "#191 comment-analyzer includes the complete location set in the finding body before submitting" \
+  'include the complete location set in the finding body before submitting' "$FDROOT/agents/comment-analyzer.md"
 
 # (5) Workflow contract: no cloud workflow installs the pr-review-toolkit companion anymore
 # (the engine dispatches the first-party devflow: review agents). Pattern split-literal to

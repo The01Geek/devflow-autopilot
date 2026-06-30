@@ -44,6 +44,10 @@ Rate each issue from 0-100:
 
 **Only report issues with confidence ≥ 80**
 
+## Stale-wording findings: enumerate every occurrence before submitting
+
+Before you report a finding that a specific phrase or behavioral claim in a file conflicts with the current implementation — a stale-wording or semantic-contradiction finding — you MUST first search the affected file for all occurrences of the flagged phrase, enumerate every matching line number, and include the complete location set in the finding body before submitting. Include any semantic equivalents of the phrase you can identify from context, not just verbatim matches. Do not report only the first instance you happened to notice: an identical stale claim that survives elsewhere in the same file forces an extra review round to catch. This applies whenever the same outdated phrase or claim could appear more than once — repeated behavioral claims in SKILL.md files, schema descriptions, or README-style docs are the common case.
+
 ## Output Format
 
 Start by listing what you're reviewing. For each high-confidence issue provide:

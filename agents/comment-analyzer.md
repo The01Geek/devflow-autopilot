@@ -54,6 +54,8 @@ When analyzing comments, you will:
    - Clear rationale for why comments should be removed
    - Alternative approaches for conveying the same information
 
+Before you submit a stale-comment finding — an outdated phrase or behavioral claim in a comment that contradicts the current code — where that same outdated wording could appear in more than one place, you MUST first search the affected file for every occurrence of the flagged comment wording, enumerate every matching line number, and include the complete location set in the finding body before submitting. Include any semantic equivalents of the wording you can identify from context, not just verbatim matches. Do not report only the first instance you happened to notice: identical stale comments that survive elsewhere in the same file force an extra review round to catch.
+
 Your analysis output should be structured as:
 
 **Summary**: Brief overview of the comment analysis scope and findings
