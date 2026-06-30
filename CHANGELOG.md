@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.31] — 2026-06-30
+
+### Added
+- **Phase 3 review agents now enumerate every occurrence of a flagged stale phrase before submitting a finding.** When `code-reviewer` surfaces a stale-wording or semantic-contradiction finding (a phrase or behavioral claim in a file that conflicts with the current implementation), and when `comment-analyzer` surfaces a repeated stale-comment finding, the agent must now first search the affected file for all occurrences of the flagged wording — including semantic equivalents identifiable from context — enumerate every matching line number, and include the complete location set in the finding body before submitting, instead of reporting only the first instance it happened to notice. This closes the gap observed in PR #187 (issue #183), where two of four identical stale phrases in `skills/docs-release-notes/SKILL.md` slipped past the main review pass and required an extra blinded shadow iteration to catch, adding avoidable loop cost; the fix step now receives the full site list and corrects every instance in one edit. The agent behavior fires at LLM-inference time, so the automated gate is a set of mutation-proven `assert_pin_unique` guards in `lib/test/run.sh` for each agent file — separately pinning the operative search-all + enumerate-every-line imperative, the semantic-equivalents refinement, and the include-the-complete-location-set-in-the-finding-body deliverable clause (each RED with its phrase absent, GREEN once present), so a trim that drops any one operative clause turns the suite RED. No workflow, config, orchestrator, or documentation surface changes. The shared review engine (`skills/review/SKILL.md`) dispatches the first-party `devflow:code-reviewer` / `devflow:comment-analyzer` subagents directly, so they carry the new behavior; the separate general-purpose final-pass reviewer renders its own distinct, vendored template (`skills/requesting-code-review/code-reviewer.md`), which is left unchanged per the issue's scope and does **not** inherit the new sub-step. (#205, closes #191)
+
 ## [2.8.30] — 2026-06-30
 
 ### Added

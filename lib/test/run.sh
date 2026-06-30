@@ -8437,6 +8437,35 @@ assert_eq "#141 LICENSES/pr-review-toolkit-LICENSE retains the upstream Apache-2
 assert_eq "#141 plugin.json dependencies no longer lists pr-review-toolkit" \
   "0" "$(jq '[.dependencies[]? | select(.name == "pr-review-toolkit")] | length' "$FDROOT/.claude-plugin/plugin.json")"
 
+# --- #191: Phase 3 review agents enumerate every occurrence of a flagged stale phrase ---
+# The code-reviewer and comment-analyzer agents must, before submitting a stale-wording /
+# semantic-contradiction (resp. repeated stale-comment) finding, exhaustively search the
+# affected file and list EVERY matching line number — so the fix step corrects all sites in
+# one edit instead of leaving secondary instances for a shadow round. The agent behavior
+# fires at LLM-inference time (no deterministic boundary), so the automated gate is a
+# mutation-proven assert_pin_unique on the operative imperative in each agent file. Each
+# literal pins the operative clause (search-all + enumerate-every-line-number), not a
+# framing sentence: deleting it alone re-opens the report-only-the-first-instance defect.
+assert_pin_unique "#191 code-reviewer enumerates all occurrences of a flagged stale phrase before submitting" \
+  'search the affected file for all occurrences of the flagged phrase, enumerate every matching line number,' "$FDROOT/agents/code-reviewer.md"
+assert_pin_unique "#191 comment-analyzer enumerates all occurrences of a repeated stale comment before submitting" \
+  'search the affected file for every occurrence of the flagged comment wording, enumerate every matching line number,' "$FDROOT/agents/comment-analyzer.md"
+# Pin the secondary semantic-equivalents refinement too — it is a distinct behavioral
+# clause from the search-all+enumerate imperative above (a trim to verbatim-only matching
+# would leave the pins above GREEN), so it needs its own gate to fail closed on removal.
+assert_pin_unique "#191 code-reviewer requires semantic-equivalent matches, not just verbatim" \
+  'semantic equivalents of the phrase you can identify from context, not just verbatim matches' "$FDROOT/agents/code-reviewer.md"
+assert_pin_unique "#191 comment-analyzer requires semantic-equivalent matches, not just verbatim" \
+  'semantic equivalents of the wording you can identify from context, not just verbatim matches' "$FDROOT/agents/comment-analyzer.md"
+# Pin the operative DELIVERABLE clause separately (PR #205 review note): a trim that kept the
+# search-all + semantic-equivalents pins above but dropped "include the complete location set in
+# the finding body" would leave those GREEN while removing the very output #191 exists to produce
+# (the full site list the fix step consumes). Per the operative-vs-framing rule it earns its own gate.
+assert_pin_unique "#191 code-reviewer includes the complete location set in the finding body before submitting" \
+  'include the complete location set in the finding body before submitting' "$FDROOT/agents/code-reviewer.md"
+assert_pin_unique "#191 comment-analyzer includes the complete location set in the finding body before submitting" \
+  'include the complete location set in the finding body before submitting' "$FDROOT/agents/comment-analyzer.md"
+
 # (5) Workflow contract: no cloud workflow installs the pr-review-toolkit companion anymore
 # (the engine dispatches the first-party devflow: review agents). Pattern split-literal to
 # avoid self-match; shares the tracked_scan seam as (1).
