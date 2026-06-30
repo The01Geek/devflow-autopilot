@@ -2223,6 +2223,13 @@ for _pf in $IMPL_PHASE_STEMS; do
     "before any Phase ${_n} action" "$IMPL_ORCH"
   assert_pin_unique "implement split: orchestrator carries the fail-closed entry-gate halt for Phase ${_n}" \
     "halt Phase ${_n} with an attributable breadcrumb" "$IMPL_ORCH"
+  # Phase-identity check (shadow-pass finding): every other pin above is content-presence
+  # ANYWHERE in the bundle, so a same-length cross-phase swap (e.g. phase-2-implement.md and
+  # phase-3-review.md bodies accidentally exchanged) would leave them green — the tokens are
+  # still present somewhere in the bundle. Grep the OWNING FILE directly (not the bundle) for
+  # its own phase heading, the one thing that must live in THAT file and no other.
+  assert_eq "implement split: phases/${_pf}.md carries its own Phase ${_n} heading (not a cross-phase swap)" "yes" \
+    "$(grep -qF "## Phase ${_n}:" "$IMPL_PHASES_DIR/${_pf}.md" && echo yes || echo no)"
 done
 # Misregistration guard: a present-but-empty stdout from find means NO SKILL.md under
 # phases/. find over a missing dir also prints nothing (2>/dev/null), but the existence
