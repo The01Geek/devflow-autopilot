@@ -1476,6 +1476,44 @@ assert_pin_unique "convergence #196: union does not retire a finding a later run
 assert_pin_unique "convergence #196: push-back reinforcement records the pushback as a deferral" \
   'an un-recorded pushback is re-raised identically next run' "$RECV_SKILL"
 
+# ── Drift guards (issue #197): the symmetric premise-verification additions to the vendored
+# receiving-code-review skill — (outward) verify a reviewer's cited convention before
+# reshaping code to match it, and (inward) verify your own diff's claims against HEAD, with a
+# stale-claim/contradicts-HEAD finding classed as blocking. Each is SKILL prose with no
+# behavioral test surface (the skill ships to consumer repos), so an assert_pin_unique on the
+# operative clause is the mutation-proven drift guard: deleting or paraphrasing the
+# load-bearing clause drops the count to 0 and fails closed. Literals are gate-unique,
+# apostrophe-free ASCII, and engine-agnostic (no DevFlow machinery named in the pinned text).
+# AC1 (outward): the External-Reviewers checklist greps for a cited convention before honoring it.
+assert_pin_unique "premise #197: External-Reviewers checklist greps to confirm a cited convention exists" \
+  'grep the repo to confirm that convention actually exists before reshaping code to match it' "$RECV_SKILL"
+assert_pin_unique "premise #197: push back on a non-existent convention with the file real pattern" \
+  'Do not reshape code to match an aspirational or non-existent standard' "$RECV_SKILL"
+# AC1 requires the push-back to CITE the file's real pattern as evidence, not merely to
+# refuse the reshape — pin that evidence clause too, so a regression dropping it fails RED.
+assert_pin_unique "premise #197: push-back cites the file real pattern as evidence" \
+  'real, uniform pattern as evidence' "$RECV_SKILL"
+# AC2 (inward): the Verification Gate verifies the diff own claims against HEAD before done.
+assert_pin_unique "premise #197: Verification Gate verifies own diff claims against HEAD" \
+  'Treat every documentation, comment, changelog, or PR-body assertion the change adds or relies on as a claim to verify against HEAD' "$RECV_SKILL"
+assert_pin_unique "premise #197: own-claim gate calls out the remains-unscoped/still-broken/unhandled shape" \
+  'X remains unscoped / is still broken / is unhandled' "$RECV_SKILL"
+# AC3 (triage): a stale-claim/contradicts-HEAD/contradicts-this-change finding is blocking, never advisory.
+# Pin the FULL three-arm enumeration (stale / contradicts HEAD / contradicts another part)
+# together with the blocking classification, so dropping ANY arm — not just the tail — fails
+# the pin RED (AC3 enumerates all three arms; a tail-only pin would under-cover the contract).
+assert_pin_unique "premise #197: triage classes a stale/contradicts-HEAD claim finding as blocking" \
+  'stale, contradicts HEAD, or contradicts another part of this change is blocking' "$RECV_SKILL"
+# PR #211 review notes: pin the two operative CONSEQUENCE clauses that make the contract
+# actionable — a paraphrase keeping the framing while softening these would gut the contract
+# with the pins above still GREEN. (1) AC3's re-open consequence (the tail that forces the diff
+# back open on an already-passing verdict); (2) AC2's severity framing (what makes a documented
+# falsehood actionable rather than cosmetic).
+assert_pin_unique "premise #197: stale-claim finding re-opens the diff even on an already-passing verdict" \
+  'it re-opens the diff even on an otherwise already-passing verdict' "$RECV_SKILL"
+assert_pin_unique "premise #197: own-claim gate frames a documented falsehood as a correctness defect, not cosmetic" \
+  'A documented falsehood is a correctness defect in the deliverable, not a cosmetic nit' "$RECV_SKILL"
+
 # ── Drift guards (issue #167): the completeness-critic pass (shared engine) and the
 # mechanism-scoped self-authored-claim re-sweep (fix loop). Both are SKILL-prose engine
 # behaviors; pin the load-bearing contract literals so a silent paraphrase or deletion that
