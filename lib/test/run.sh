@@ -8457,6 +8457,14 @@ assert_pin_unique "#191 code-reviewer requires semantic-equivalent matches, not 
   'semantic equivalents of the phrase you can identify from context, not just verbatim matches' "$FDROOT/agents/code-reviewer.md"
 assert_pin_unique "#191 comment-analyzer requires semantic-equivalent matches, not just verbatim" \
   'semantic equivalents of the wording you can identify from context, not just verbatim matches' "$FDROOT/agents/comment-analyzer.md"
+# Pin the operative DELIVERABLE clause separately (PR #205 review note): a trim that kept the
+# search-all + semantic-equivalents pins above but dropped "include the complete location set in
+# the finding body" would leave those GREEN while removing the very output #191 exists to produce
+# (the full site list the fix step consumes). Per the operative-vs-framing rule it earns its own gate.
+assert_pin_unique "#191 code-reviewer includes the complete location set in the finding body before submitting" \
+  'include the complete location set in the finding body before submitting' "$FDROOT/agents/code-reviewer.md"
+assert_pin_unique "#191 comment-analyzer includes the complete location set in the finding body before submitting" \
+  'include the complete location set in the finding body before submitting' "$FDROOT/agents/comment-analyzer.md"
 
 # (5) Workflow contract: no cloud workflow installs the pr-review-toolkit companion anymore
 # (the engine dispatches the first-party devflow: review agents). Pattern split-literal to
