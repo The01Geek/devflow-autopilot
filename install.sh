@@ -77,27 +77,23 @@ set_config_version() {
   [ -f "$cfg" ] || return 0
   tmp="$(mktemp)" || { log "warning: mktemp failed; add \"devflow_version\": \"$version\" to $cfg by hand."; return 0; }
   if command -v jq >/dev/null 2>&1; then
-    if jq --arg v "$version" \
-        '(.devflow_version // "") as $cur
-         | if ($cur == "" or ($cur | test("^[0-9a-f]{7,40}$")))
-           then .devflow_version = $v
-           else . end' \
-        "$cfg" > "$tmp" 2>/dev/null; then
-      if jq -e '(.devflow_version // "") as $cur | ($cur == "" or ($cur | test("^[0-9a-f]{7,40}$")))' \
+    if jq -e '(.devflow_version // "") as $cur | ($cur == "" or ($cur | test("^[0-9a-f]{7,40}$")))' \
         "$cfg" >/dev/null 2>&1; then
+      if jq --arg v "$version" '.devflow_version = $v' "$cfg" > "$tmp" 2>/dev/null; then
         if mv "$tmp" "$cfg"; then
           log "pinned devflow_version=$version in $cfg"; return 0
         fi
-      else
-        local rc=$?
-        if [ "$rc" -eq 1 ]; then
-          rm -f "$tmp"
-          log "kept existing devflow_version in $cfg (looks like a deliberate pin, not a previous SHA stamp) — not overwriting."
-          return 0
-        fi
-        # rc > 1: jq itself errored on the recheck (not a genuine false/null result) — fall
-        # through to the generic warning rather than misreport it as a deliberate pin.
       fi
+    else
+      local rc=$?
+      if [ "$rc" -eq 1 ]; then
+        rm -f "$tmp"
+        log "kept existing devflow_version in $cfg (looks like a deliberate pin, not a previous SHA stamp) — not overwriting."
+        return 0
+      fi
+      # rc > 1: jq itself errored on the eligibility check (not a genuine false/null
+      # result) — fall through to the generic warning rather than misreport it as a
+      # deliberate pin.
     fi
   elif command -v python3 >/dev/null 2>&1; then
     if DEVFLOW_CFG="$cfg" DEVFLOW_VER="$version" DEVFLOW_OUT="$tmp" python3 -c 'import json,os,re,sys

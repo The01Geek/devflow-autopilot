@@ -8420,6 +8420,20 @@ if command -v jq >/dev/null 2>&1; then
   assert_eq "scv: idempotent same-SHA re-run logs 'pinned', not 'kept as deliberate pin'" "yes" \
     "$(printf '%s' "$SCV_SAME_OUT" | grep -q 'pinned devflow_version=deadbeef1234' && echo yes || echo no)"
   rm -f "$SCV_SAME"
+
+  # First-install shape: devflow_version present but EXPLICITLY an empty string
+  # (as opposed to the absent-key case already covered above by SCV_CFG) — the
+  # `$cur == ""` arm of the eligibility predicate. Assert the log message too,
+  # not just the on-disk value, so a regression that skips this arm can't hide
+  # behind "the value happened to end up right anyway".
+  SCV_EMPTY="$(mktemp)"; printf '{"devflow_version":""}' > "$SCV_EMPTY"
+  # shellcheck disable=SC1090
+  SCV_EMPTY_OUT="$( ( DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" && set_config_version "$SCV_EMPTY" "deadbeef1234" ) 2>&1 )"
+  assert_eq "scv: empty-string devflow_version is stamped" "deadbeef1234" \
+    "$(jq -r '.devflow_version' "$SCV_EMPTY")"
+  assert_eq "scv: empty-string devflow_version stamp logs 'pinned'" "yes" \
+    "$(printf '%s' "$SCV_EMPTY_OUT" | grep -q 'pinned devflow_version=deadbeef1234' && echo yes || echo no)"
+  rm -f "$SCV_EMPTY"
 fi
 
 # set_config_version cross-language backends: jq is selected first on CI, so the
@@ -8488,6 +8502,18 @@ if command -v python3 >/dev/null 2>&1; then
   assert_eq "scv(python3): idempotent same-SHA re-run logs 'pinned', not 'kept as deliberate pin'" "yes" \
     "$(printf '%s' "$SCV_PY_SAME_OUT" | grep -q 'pinned devflow_version=deadbeef1234' && echo yes || echo no)"
   rm -f "$SCV_PY_SAME"
+
+  # python3 mirror of the jq "empty-string devflow_version" coverage above —
+  # the `cur == ""` arm lives only in this backend once jq is shadowed off PATH.
+  SCV_PY_EMPTY="$(mktemp)"; printf '{"devflow_version":""}' > "$SCV_PY_EMPTY"
+  # shellcheck disable=SC1090
+  SCV_PY_EMPTY_OUT="$( ( PATH="$SCV_PY_BIN"; DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" \
+      && set_config_version "$SCV_PY_EMPTY" "deadbeef1234" ) 2>&1 )"
+  assert_eq "scv(python3): empty-string devflow_version is stamped" "deadbeef1234" \
+    "$(jq -r '.devflow_version' "$SCV_PY_EMPTY")"
+  assert_eq "scv(python3): empty-string devflow_version stamp logs 'pinned'" "yes" \
+    "$(printf '%s' "$SCV_PY_EMPTY_OUT" | grep -q 'pinned devflow_version=deadbeef1234' && echo yes || echo no)"
+  rm -f "$SCV_PY_EMPTY"
 fi
 
 # ── Critical regression guard: a failed mv must not report false success ────
@@ -8540,14 +8566,16 @@ if command -v python3 >/dev/null 2>&1; then
   rm -f "$SCV_PY_MVFAIL_CFG"
 fi
 
-# ── Important regression guard: a genuine jq error on the recheck must not be
-# misreported as "kept as a deliberate pin" ──────────────────────────────────
+# ── Important regression guard: a genuine jq error on the eligibility check
+# must not be misreported as "kept as a deliberate pin" ──────────────────────
 # jq -e returns exit 1 for a legitimate false/null result but a HIGHER exit
-# code (observed: 5) for a parse/runtime error. The recheck must distinguish
-# these — an actual jq error must fall through to the generic warning, not be
-# folded into the "deliberate pin" message meant only for genuine ineligible
-# values. Force the error deterministically: a stub `jq` runs the real binary
-# for the write-filter call but fault-injects an error for the `-e` recheck.
+# code (observed: 5) for a parse/runtime error. The eligibility check must
+# distinguish these — an actual jq error must fall through to the generic
+# warning, not be folded into the "deliberate pin" message meant only for
+# genuine ineligible values. Force the error deterministically: a stub `jq`
+# fault-injects an error for any `-e` invocation (the eligibility check, which
+# runs before the write-filter, so the write-filter call is never reached here)
+# and otherwise runs the real binary.
 if command -v jq >/dev/null 2>&1; then
   SCV_REALJQ="$(command -v jq)"
   SCV_JQERR_BIN="$(mktemp -d)/bin"; mkdir -p "$SCV_JQERR_BIN"
@@ -8568,12 +8596,12 @@ STUBJQ
   SCV_JQERR_OUT="$( ( PATH="$SCV_JQERR_BIN"; DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" \
       && set_config_version "$SCV_JQERR_CFG" "deadbeef1234" ) 2>&1 )"
   SCV_JQERR_RC=$?
-  assert_eq "scv: jq recheck error still returns 0 (degrades, never aborts)" "0" "$SCV_JQERR_RC"
-  assert_eq "scv: jq recheck error falls through to the generic warning" "yes" \
+  assert_eq "scv: jq eligibility-check error still returns 0 (degrades, never aborts)" "0" "$SCV_JQERR_RC"
+  assert_eq "scv: jq eligibility-check error falls through to the generic warning" "yes" \
     "$(printf '%s' "$SCV_JQERR_OUT" | grep -q 'warning: could not set devflow_version' && echo yes || echo no)"
-  assert_eq "scv: jq recheck error is NOT misreported as 'kept ... deliberate pin'" "no" \
+  assert_eq "scv: jq eligibility-check error is NOT misreported as 'kept ... deliberate pin'" "no" \
     "$(printf '%s' "$SCV_JQERR_OUT" | grep -q 'kept existing devflow_version' && echo yes || echo no)"
-  assert_eq "scv: jq recheck error leaves the on-disk value untouched" "abc1234" \
+  assert_eq "scv: jq eligibility-check error leaves the on-disk value untouched" "abc1234" \
     "$(jq -r '.devflow_version' "$SCV_JQERR_CFG")"
   rm -f "$SCV_JQERR_CFG"
 fi
