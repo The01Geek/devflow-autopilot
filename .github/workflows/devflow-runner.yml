@@ -482,6 +482,9 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # TEMPORARY DIAGNOSTIC — revert before merge: surface the SDK error
+          # text for the instant is_error:true failures observed 2026-07-01.
+          show_full_output: true
           # Pass the workflow's own GITHUB_TOKEN so the action skips its
           # OIDC → app-token exchange, which 401s for jobs running inside a
           # reusable workflow_call from pull_request_target (anthropics/
