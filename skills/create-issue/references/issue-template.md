@@ -56,7 +56,8 @@ it during the no-options check:
 > list. Before implementing, trace the change through the codebase to find every affected
 > call site, consumer, and layer — this issue maps the work, it does not bound it.
 
-- **Relevant Classes/Files** — specific files from the findings (verify before citing).
+- **Relevant Classes/Files** — specific files from the findings (see load-bearing-premise
+  verification below).
 - **Architecture Alignment** — how this fits existing patterns.
 - **Dependencies** — the specific service/module/library this depends on. If a library is
   needed, name the **one** chosen (decided in Step 2), not a shortlist.
@@ -76,9 +77,11 @@ cannot be verified is written as an explicitly flagged assumption for the implem
 confirm — stated inline as a declarative fact tagged `— assumption, confirm before
 implementing` (a factual premise-to-confirm, so the no-options gate's hedge/deferral ban does
 not apply to it and it is not a `## 🚫 Blocked` item, which is for undecided *decisions*), and
-never baked into a prescriptive `Approach`. Verification is **proportional** (cheap in-repo reads for most claims, live-data
-only for population claims) and scoped to **load-bearing** premises, so incidental context
-bullets stay light and drafting is never blocked in a data-less authoring context.
+never baked into a prescriptive `Approach`.
+
+Verification is **proportional**: cheap in-repo reads for most claims, live-data only for
+population claims. It is scoped to **load-bearing** premises, so incidental context bullets
+stay light and drafting is never blocked in a data-less authoring context.
 
 ### Acceptance Criteria
 Checkbox items (`- [ ]`), each a **single unconditional, testable assertion**:
