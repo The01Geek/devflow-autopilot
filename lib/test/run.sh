@@ -5541,6 +5541,12 @@ assert_pin_unique "#241 pin (A2b): create-issue invokes ensure-label.sh through 
   '"$SKILL_DIR"/../../scripts/ensure-label.sh DevFlow' "$LIB/../skills/create-issue/SKILL.md"
 assert_pin_unique "#241 pin (A2b): create-issue invokes apply-labels.sh through the resolved anchor" \
   '"$SKILL_DIR"/../../scripts/apply-labels.sh <issue_number> DevFlow' "$LIB/../skills/create-issue/SKILL.md"
+# A2b (traceability companion): the third migrated call site — the preamble
+# load-prompt-extension.sh invocation — is also pinned HERE so all three positive
+# call-site pins live in one block; the lpe-coverage loop (issue #97/#218 region)
+# independently enforces the same line as create-issue's expected LPE form.
+assert_pin_unique "#241 pin (A2b): create-issue invokes load-prompt-extension.sh through the resolved anchor" \
+  '"$SKILL_DIR"/../../scripts/load-prompt-extension.sh create-issue' "$LIB/../skills/create-issue/SKILL.md"
 # A3 (review PR #243 Important note): sub-step 5a carries the same anchor-resolution-vs-
 # helper-outcome discrimination guard the preamble has, so a broken-anchor "No such file"
 # (the helper never ran; the always-exit-0 contract never engaged) is not swallowed by
