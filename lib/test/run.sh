@@ -3973,8 +3973,17 @@ for SKILL_DIR in "$LIB"/../skills/*/; do
   # cannot vacuously match, and (b) rejects a prose mention or a commented-out /
   # HTML-comment-wrapped reference — only a live, exact invocation line passes, so
   # a future edit that comments out the step (leaving a stale reference) fails here.
+  # create-issue (issue #241) resolves a portable anchor ($SKILL_DIR) once, near the
+  # top, instead of the bare ${CLAUDE_SKILL_DIR} expansion, so its invocation line uses
+  # the "$SKILL_DIR"/../../ form; every other skill still carries the canonical bare
+  # form. Both are pinned whole-line (grep -Fx), so a name/path drift still fails here.
+  if [ "$SKILL_NAME" = "create-issue" ]; then
+    LPE_EXPECT_LINE='"$SKILL_DIR"/../../scripts/load-prompt-extension.sh '"$SKILL_NAME"
+  else
+    LPE_EXPECT_LINE='${CLAUDE_SKILL_DIR}/../../scripts/load-prompt-extension.sh '"$SKILL_NAME"
+  fi
   assert_eq "lpe-coverage: $SKILL_NAME/SKILL.md invokes the helper for its own name" "yes" \
-    "$([ -f "$SKILL_FILE" ] && grep -Fxq '${CLAUDE_SKILL_DIR}/../../scripts/load-prompt-extension.sh '"$SKILL_NAME" "$SKILL_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body: SKILL target is the $SKILL_FILE loop variable, not a static pin
+    "$([ -f "$SKILL_FILE" ] && grep -Fxq "$LPE_EXPECT_LINE" "$SKILL_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body: SKILL target is the $SKILL_FILE loop variable, not a static pin
   # The invocation line alone is half the contract — the step must also tell the
   # model to HONOR the helper's exit code (surface a non-zero exit, don't silently
   # proceed). Pin a BLOCK-UNIQUE fragment of that prose, NOT a generic one: the
@@ -5508,6 +5517,61 @@ assert_eq "#97 pin: ensure-label.sh exists" "yes" \
   "$([ -f "$LIB/../scripts/ensure-label.sh" ] && echo yes || echo no)"
 assert_eq "#97 pin: create-issue ensures+applies DevFlow label via REST helper" "yes" \
   "$(grep -q 'ensure-label.sh DevFlow' "$LIB/../skills/create-issue/SKILL.md" && grep -qF 'apply-labels.sh <issue_number> DevFlow' "$LIB/../skills/create-issue/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: compound: two greps && on one line (provenance: ensure-label + REST apply-labels)
+# ── #241: create-issue resolves its helper-scripts anchor portably across runners ──
+# A1 (AC1, AC5): the portable-resolution recipe is present — the anchor is set to
+# $CLAUDE_SKILL_DIR when non-empty (the `:-` expansion also covers the empty case, AC3)
+# and otherwise the runner-reported skill base dir. The literal recurs by design: each
+# helper's bash fence re-establishes the anchor (fresh-shell-safe), so this is a `yes`
+# presence pin whose literal legitimately appears at more than one site, not a
+# uniqueness pin.
+assert_eq "#241 pin (A1): create-issue resolves a portable helper anchor (\$CLAUDE_SKILL_DIR-preferred, runner-base-dir fallback)" "yes" \
+  "$(grep -qF 'SKILL_DIR="${CLAUDE_SKILL_DIR:-' "$LIB/../skills/create-issue/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: presence pin — literal recurs across the self-contained helper fences by design (not unique)
+# A1b (review PR #243 Important note): the anchor must be RE-ESTABLISHED in BOTH bash
+# fences (each Bash call is a fresh shell). A1 alone is satisfied by one occurrence, so
+# a future edit that trims the "redundant" second assignment would keep every pin green
+# while that fence's helpers run with an unset $SKILL_DIR — a regression strictly worse
+# than #241 (it breaks on Claude Code too). Mutation-verified: deleting either fence's
+# assignment line drops the count to 1 and fails this pin.
+assert_eq "#241 pin (A1b): the anchor assignment appears exactly twice (one per bash fence)" "2" \
+  "$(grep -cF 'SKILL_DIR="${CLAUDE_SKILL_DIR:-' "$LIB/../skills/create-issue/SKILL.md")"  # raw-guard-ok: count pin — exactly one anchor re-establishment per fence
+# A2 (AC2): the regression-reproducing absence pin — NO bare (braced OR unbraced)
+# $CLAUDE_SKILL_DIR/../../scripts expansion may remain. RED provenance: three braced
+# occurrences existed in the pre-#241 file; the pin was authored failing against that
+# state and went GREEN when every call site was routed through the resolved anchor.
+# The ERE also catches the unbraced form ($CLAUDE_SKILL_DIR/../../scripts), which
+# collapses identically on empty-var runners but the old -F braced literal missed.
+# The inner grep must find NO bare expansion; the leading `!` negates it, so the
+# assert_eq passes with `yes` when the pattern is absent (do not misread this as an
+# assert_eq expecting `no`).
+assert_eq "#241 pin (A2): create-issue has no bare braced-or-unbraced \$CLAUDE_SKILL_DIR/../../scripts expansion" "yes" \
+  "$(! grep -qE '\$\{?CLAUDE_SKILL_DIR\}?/\.\./\.\./scripts' "$LIB/../skills/create-issue/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: absence pin — the broken expansion (either brace form) must be GONE
+# A2b (AC2, positive companion to A2): A2 proves NO bare expansion remains file-wide, but
+# that is a negative fact — it would still pass if the Step-4 label helpers were dropped
+# entirely. Pin each label call site POSITIVELY through the resolved anchor so "every
+# helper invocation uses that single resolved anchor" (AC2) is asserted, not just implied.
+assert_pin_unique "#241 pin (A2b): create-issue invokes ensure-label.sh through the resolved anchor" \
+  '"$SKILL_DIR"/../../scripts/ensure-label.sh DevFlow' "$LIB/../skills/create-issue/SKILL.md"
+assert_pin_unique "#241 pin (A2b): create-issue invokes apply-labels.sh through the resolved anchor" \
+  '"$SKILL_DIR"/../../scripts/apply-labels.sh <issue_number> DevFlow' "$LIB/../skills/create-issue/SKILL.md"
+# A2b (traceability companion): the third migrated call site — the preamble
+# load-prompt-extension.sh invocation — is also pinned HERE so all three positive
+# call-site pins live in one block; the lpe-coverage loop (issue #97/#218 region)
+# independently enforces the same line as create-issue's expected LPE form.
+assert_pin_unique "#241 pin (A2b): create-issue invokes load-prompt-extension.sh through the resolved anchor" \
+  '"$SKILL_DIR"/../../scripts/load-prompt-extension.sh create-issue' "$LIB/../skills/create-issue/SKILL.md"
+# A3 (review PR #243 Important note): sub-step 5a carries the same anchor-resolution-vs-
+# helper-outcome discrimination guard the preamble has, so a broken-anchor "No such file"
+# (the helper never ran; the always-exit-0 contract never engaged) is not swallowed by
+# the "continue regardless of the label outcome" prose as a benign label hiccup.
+assert_pin_unique "#241 pin (A3): sub-step 5a discriminates anchor-resolution failure from a benign label outcome" \
+  'The always-exit-0 contract applies only once a helper actually runs' "$LIB/../skills/create-issue/SKILL.md"
+# A3b (review PR #243 Important note): when the anchor is genuinely UNRESOLVABLE on a
+# runner (neither $CLAUDE_SKILL_DIR nor a runner-reported base dir), the guard must not
+# fail open into "Continue to sub-step 6 regardless" — sub-step 5a surfaces the
+# degradation explicitly (issue created, provenance label NOT applied) so the silently
+# dropped DevFlow label never vanishes from the retrospective detection unnoticed.
+assert_pin_unique "#241 pin (A3b): sub-step 5a surfaces an unresolvable anchor as an explicit degradation, not a silent skip" \
+  'provenance label NOT applied' "$LIB/../skills/create-issue/SKILL.md"
 assert_eq "#97 pin: implement applies DevFlow label at PR create via REST helper" "yes" \
   "$(grep -q 'ensure-label.sh DevFlow' "$IMPL_SKILL_BUNDLE" && grep -qF 'apply-labels.sh "$PR_NUM" DevFlow' "$IMPL_SKILL_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: compound: two greps && on one line (provenance: ensure-label + REST apply-labels); issue #218: bundle (label idiom in phases/phase-3-review.md)
 assert_eq "#152 pin: meta-issue.sh ensures+applies DevFlow and Retrospective labels via REST helper" "yes" \
