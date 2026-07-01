@@ -63,6 +63,19 @@ it during the no-options check:
 - **Data/Schema Considerations** — schema changes, queries, or data-access patterns.
 - **Cross-layer Impact** — which layers are affected (frontend, backend, API, database).
 
+**Verify every load-bearing premise before drafting — not only file paths.** Any premise the
+issue relies on as fact, and any premise that seeds the Implementation Notes `Approach`, is
+checked with a method matched to its class: **data-source / data-model** claims ("column X
+holds the role name") against the schema definitions or the code that reads and writes that
+data; **"parent PR or commit already did X"** claims at HEAD (read the file, `git log -p` /
+`git log -S<symbol>`), never taken from the parent issue's narrative; **data-coverage /
+population** claims ("column X is set for most users") against live data when it is available.
+A load-bearing premise that cannot be verified (e.g. live data unavailable) is written as an
+explicitly flagged assumption for the implementer to confirm — never baked into a prescriptive
+`Approach`. Verification is **proportional** (cheap in-repo reads for most claims, live-data
+only for population claims) and scoped to **load-bearing** premises, so incidental context
+bullets stay light and drafting is never blocked in a data-less authoring context.
+
 ### Acceptance Criteria
 Checkbox items (`- [ ]`), each a **single unconditional, testable assertion**:
 - **Supplied criteria are challenged, never accepted at face value.** When the user's story
@@ -188,6 +201,7 @@ incomplete issues.
 - [ ] Desired Behavior is stated as one decided behavior, not a menu
 - [ ] Technical Context opens with the standardized scope note, included verbatim
 - [ ] Technical context cites real file paths / class names from this project
+- [ ] Load-bearing Technical Context premises (data-source/model, coverage/population, "already-done") are verified — not just file paths — or written as flagged assumptions to confirm
 - [ ] Acceptance criteria are measurable, testable, and unconditional
 - [ ] Implementation notes describe a single chosen approach
 - [ ] Testing Strategy classifies the boundary + level, walks the coverage dimensions (boundary/error/adversarial/state/scale/security as they apply), and gives test-first assertions with every AC mapped to ≥1 assertion and no orphan assertions — bug fixes reproduce the defect first; guarantee-class changes test the skipped-step path; or it names a reproducible stand-in verification when no automated test applies
