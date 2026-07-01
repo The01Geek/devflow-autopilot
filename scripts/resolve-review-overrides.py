@@ -244,7 +244,21 @@ def read_raw(dispatched, config_get, config_file):
     return raw, deduped
 
 
+def _force_utf8_streams():
+    """Force stdout/stderr to UTF-8, idempotently and defensively, in the CLI
+    entry path only (not at import — so unit-test imports don't mutate the
+    importer's global streams). Harmless where this script emits only ASCII, but
+    keeps every first-party helper self-defending against a non-UTF-8 ambient
+    codec (Windows' cp1252). The guard tolerates a non-`TextIOWrapper` stream."""
+    for _stream in (sys.stdout, sys.stderr):
+        try:
+            _stream.reconfigure(encoding="utf-8")
+        except (AttributeError, ValueError):
+            pass
+
+
 def main(argv=None):
+    _force_utf8_streams()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("agents", nargs="+", help="subagent ids about to be dispatched")
     parser.add_argument("--config", default=None, help="config file (passed to config-get.sh)")

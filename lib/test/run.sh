@@ -2505,14 +2505,19 @@ _docs_sweeps=$(grep -oE 'still runs the contract-completeness sweeps \([^)]+\)' 
 assert_eq "sweep selection: SKILL and docs enumerate the same contract-sweep set (cross-site)" \
   "$_skill_sweeps" "$_docs_sweeps"
 
-# Drift guard: the base_branch read in the implement skill (phases/phase-1-setup.md) Phase 1.4 is the skill's
-# one piece of load-bearing inline bash — like the max_iterations clamp above, the
+# Drift guard: the base_branch read in the implement skill (phases/phase-1-setup.md) Phase 1.4 is
+# a load-bearing inline-bash block in the skill (Phase 3.1's §3.1 re-derivation below is another) — like the max_iterations clamp above, the
 # tokens it relies on can be silently broken by a SKILL edit (drop the `|| BASE=""`
 # and `git fetch origin ""` runs; drop the fetch guard and a bad base fails with a
 # bare git error instead of an attributable DevFlow breadcrumb). Pin the tokens so
 # a refactor of the block fails here rather than shipping a silent regression.
-assert_pin_unique "base_branch read: SKILL reads via config-get with the main default" 'config-get.sh .base_branch main' "$IMPL_SKILL"
-assert_pin_unique "base_branch read: SKILL guards the empty read" '[ -n "$BASE" ]' "$IMPL_SKILL"
+# NOTE: the two read+guard literals below (`config-get.sh .base_branch main` and
+# `[ -n "$BASE" ]`) now ALSO appear in phases/phase-3-review.md §3.1, which re-derives
+# BASE before `gh pr create` (issue #224). So these two pins are scoped to the
+# phase-1-setup.md file (where Phase 1.4 lives) rather than the whole bundle, keeping
+# them unique-per-file; the phase-3 re-derivation has its own pins further below.
+assert_pin_unique "base_branch read: Phase 1.4 reads via config-get with the main default" 'config-get.sh .base_branch main' "$IMPL_PHASES_DIR/phase-1-setup.md"
+assert_pin_unique "base_branch read: Phase 1.4 guards the empty read" '[ -n "$BASE" ]' "$IMPL_PHASES_DIR/phase-1-setup.md"
 assert_pin_unique "base_branch read: SKILL fetches origin/\$BASE (not hard-coded main)" 'git fetch origin "$BASE"' "$IMPL_SKILL"
 assert_pin_unique "base_branch read: SKILL checks out origin/\$BASE" 'git checkout -b "$BRANCH" "origin/$BASE"' "$IMPL_SKILL"
 assert_pin_unique "base_branch read: SKILL keeps the attributable fetch-failure breadcrumb" 'could not fetch base branch' "$IMPL_SKILL"
@@ -2520,6 +2525,61 @@ assert_pin_unique "#168 create-path: SKILL guards branch-for-issue.py exit statu
   'branch-for-issue.py failed' "$IMPL_SKILL"
 assert_pin_unique "#168 create-path: SKILL guards against an empty BRANCH name" \
   '[ -n "$BRANCH" ]' "$IMPL_SKILL"
+
+# Issue #224: Phase 3.1 (phases/phase-3-review.md) opens the draft PR against the
+# CONFIGURED base_branch, not the GitHub default branch. Because each phase's bash
+# block is a SEPARATE shell, Phase 1.4's $BASE is out of scope at 3.1, so 3.1 must
+# RE-DERIVE it (same config-get read + fail-closed guard) and pass --base "$BASE" to
+# `gh pr create`. Pin both halves against the phase-3 file specifically: dropping the
+# --base flag OR the re-derivation guard turns the suite RED (the operand-traceability
+# pin ensures the --base pin can't pass with an empty $BASE — the exact bug class).
+P3_REVIEW="$IMPL_PHASES_DIR/phase-3-review.md"
+# Include the leading `create ` so the pinned literal does not start with `--`
+# (pin_count's `grep -oF` would otherwise parse a `--base…` pattern as grep options
+# and match nothing): this pins the flag ON the `gh pr create` invocation specifically.
+assert_pin_unique "#224 Phase 3.1: gh pr create passes --base \"\$BASE\"" 'create --base "$BASE"' "$P3_REVIEW"
+assert_pin_unique "#224 Phase 3.1: re-derives BASE via config-get with the main default" 'config-get.sh .base_branch main' "$P3_REVIEW"
+assert_pin_unique "#224 Phase 3.1: re-derives BASE with the fail-closed empty-read guard" '[ -n "$BASE" ]' "$P3_REVIEW"
+# The guard PREDICATE `[ -n "$BASE" ]` is only half the fail-closed contract; its
+# CONSEQUENT — the `BASE=main` fallback assignment — is what actually keeps `--base`
+# from going out empty. Pin it too: a refactor that keeps the predicate but drops the
+# `|| { …; BASE=main; }` action would ship `gh pr create --base ""` (the silent
+# mistarget this PR exists to prevent) while every predicate/ordering pin stayed GREEN.
+assert_pin_unique "#224 Phase 3.1: empty-read guard falls back to main (fail-closed consequent)" 'BASE=main' "$P3_REVIEW"
+# Ordering/same-block guard (issue #224 iter 2): the pins above prove the tokens EXIST
+# but are positionally independent — a refactor that put `gh pr create --base "$BASE"`
+# BEFORE the re-derivation, or split them into separate ```bash fences, would leave them
+# all GREEN while $BASE is empty/unset at create time: the exact shell-boundary
+# mistarget (`--base ""`) §3.1's prose forbids. Assert the full producer→guard→fallback
+# →consumer order WITHIN ONE fenced bash block: the producer (config-get read `d`), the
+# fail-closed empty-read guard `[ -n "$BASE" ]` (`g`), AND its `BASE=main` fallback
+# action (`f`) all precede the consumer `gh pr create --base "$BASE"` (`c`), in the order
+# d < g < f < c. Pinning the fallback action's position too (not just the predicate's)
+# catches a refactor that relocates the guard OR drops the fallback action out of the
+# create-block — the "guard whose comparand can be absent fails open" class CLAUDE.md
+# flags. RED if reordered, split across blocks, or the guard/fallback is moved out of /
+# after the create.
+assert_eq "#224 Phase 3.1: re-derivation + empty-read guard + main-fallback precede gh pr create in the SAME bash block" "yes" \
+  "$(python3 -c '
+import sys, re
+t = open(sys.argv[1]).read()
+ok = "no"
+for m in re.finditer(r"```bash\n(.*?)```", t, re.S):
+    b = m.group(1)
+    if "gh pr create --base \"$BASE\"" in b:
+        d = b.find("config-get.sh .base_branch main")
+        g = b.find("[ -n \"$BASE\" ]")
+        f = b.find("BASE=main")
+        c = b.find("gh pr create --base \"$BASE\"")
+        if -1 not in (d, g, f, c) and d < g < f < c:
+            ok = "yes"
+        break
+print(ok)
+' "$P3_REVIEW")"
+# Deferred (issue #224 review, Suggestion): we do NOT pin that §3.1 OMITS --head.
+# Low value — `gh pr create` defaults --head to the checked-out branch, which is the
+# correct feature branch at Phase 3.1; a future edit adding --head would not corrupt
+# the base targeting this fix protects. Revisit only if --head is ever passed here.
 
 # Versioning is per-repo policy, not the engine's job: implement/SKILL.md must carry NO
 # version-bump step. A repo that wants version management opts in via its consumer prompt
@@ -3001,6 +3061,56 @@ assert_eq "#190 fix-loop: Phase 4.1 captures GH_RC on the extraction read in BOT
   "2" "$(pin_count 'GH_RC=$?' "$IMPL_SKILL")"
 assert_eq "#190 fix-loop: Phase 4.1 fail-closed extraction contract pinned in BOTH stages" \
   "2" "$(pin_count 'never treat its empty stdout as a no-op' "$IMPL_SKILL")"
+
+# ── issue #230: narrative is a starting point; only Desired Behavior + ACs are ──
+# authoritative downstream, and the Documentation Needed bullet is a floor-not-a-
+# ceiling. These are load-bearing guidance prose, so pin their operative sentences
+# in the OWNING phase file directly (not the merged bundle) — AC7 requires a
+# presence pin in EACH edited phase file. Each pinned literal is the operative
+# sentence whose removal alone re-introduces the gap, not an adjacent framing
+# clause: assert_pin_unique's count==1 contract is the standing removal-proof.
+P2_FILE="$IMPL_PHASES_DIR/phase-2-implement.md"
+P4_FILE="$IMPL_PHASES_DIR/phase-4-documentation.md"
+assert_pin_unique "#230: phase-2 §2.1 names the narrative as a non-authoritative starting point (AC1)" \
+  'non-authoritative starting point to verify' "$P2_FILE"
+assert_pin_unique "#230: phase-2 §2.1 scopes 'code wins' so it never overrides the decided spec (AC2)" \
+  'never overrides Desired Behavior or Acceptance Criteria' "$P2_FILE"
+# AC2's load-bearing discriminator is the SCOPING word `descriptive`, not the consequence
+# clause above: a reword that drops "applies to descriptive claims only" while keeping the
+# "never overrides …" tail would re-broaden "code wins" over the decided spec (the exact
+# #230 bug class) yet stay GREEN. Pin the scoping clause itself so its removal goes RED.
+assert_pin_unique "#230: phase-2 §2.1 keeps the 'code wins' scoping qualifier (descriptive-only) (AC2 discriminator)" \
+  'applies to **descriptive** claims only' "$P2_FILE"
+# AC1's operational meaning of "non-authoritative" is the 'narrow or suppress' clause — the
+# direct encoding of the #230 fix (a contradictory narrative must not talk a phase out of
+# warranted work). The 'non-authoritative starting point to verify' label pin above guards
+# the term; this guards what the term *operationally forbids*, so a reword collapsing it back
+# to "ignore it" goes RED.
+assert_pin_unique "#230: phase-2 §2.1 keeps the operational 'narrow or suppress' prohibition (AC1 meaning)" \
+  'narrow or suppress' "$P2_FILE"
+assert_pin_unique "#230: phase-4 §4.1 narrative never suppresses the routine doc pass (AC3)" \
+  'suppresses the routine documentation pass' "$P4_FILE"
+# AC3's regression-specific discriminator is the absent/empty/contradictory trigger list —
+# the three bullet shapes #230 exploited. The general "never suppresses" pin above does not
+# guard it: dropping the enumeration would re-open the exact suppression path while staying
+# GREEN. Pin the trigger enumeration so its removal goes RED.
+assert_pin_unique "#230: phase-4 §4.1 keeps the absent/empty/contradictory trigger enumeration (AC3 discriminator)" \
+  'absent, empty, or contradictory' "$P4_FILE"
+assert_pin_unique "#230: phase-4 §4.1 Documentation Needed is a floor, never a ceiling (AC4)" \
+  'never a ceiling that authorizes skipping otherwise-warranted documentation' "$P4_FILE"
+# §2.1 and §4.1 are coupled mirror sites of one authority hierarchy; §4.1 ties back via the
+# 'mirrors the §2.1 authority hierarchy' anchor. Pin that anchor so a reword that desyncs the
+# two files' framing (the dominant CLAUDE.md coupled-invariant bug class) goes RED rather than
+# leaving the mirror sites silently disagreeing.
+assert_pin_unique "#230: phase-4 §4.1 keeps the §2.1 cross-reference anchor (mirror-site coupling)" \
+  'mirrors the §2.1 authority hierarchy' "$P4_FILE"
+# docs/implement-skill.md is the THIRD coupled mirror site (AC6 requires its Phase 4.1
+# section carry the floor-not-ceiling framing). Pin its operative clause so a future edit
+# that reverts/contradicts the doc while the phase files stay intact goes RED — the same
+# coupled-mirror discipline the phase-file pins above apply, extended to the doc (precedent:
+# the docs/implement-skill.md mirrors already pinned earlier in this file via $IMPL_DOC).
+assert_pin_unique "#230: docs/implement-skill.md mirrors the floor-not-ceiling framing (AC6)" \
+  'never read as a ceiling that authorizes' "$IMPL_DOC"
 
 # ── issue #185 Addendum: deterministic extraction helper (fixture matrix) ────
 # The helper is the deterministic boundary the Addendum mandates; test its
@@ -9788,6 +9898,567 @@ assert_pin_unique "#181 filter: review/SKILL.md documents why .devflow/logs/ hun
 # Phase 1 agent — closing the one downstream path the single 0.2 filter wouldn't.
 assert_pin_unique "#181 filter: Phase 0.3 derives the changed-file list from the filtered diff.patch (peer-completeness)" \
   'deriving the file list from it excludes them by construction' "$REVIEW_SKILL"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "issue #222: .gitattributes eol=lf + UTF-8 stream self-defense"
+# ────────────────────────────────────────────────────────────────────────────
+# The helper toolchain must self-defend on Windows / non-UTF-8 hosts: LF line
+# endings forced by .gitattributes (so a shebang never becomes `bash\r`) and
+# scripts/*.py forcing their own streams + gh I/O to UTF-8 (so emoji/em-dashes
+# never trip cp1252). These assert the .gitattributes contract, the no-CR-in-.sh
+# index invariant, and the cp1252 RED->GREEN behavior by SUBPROCESS (the harness
+# imports the modules in-process, so the entry-path reconfigure is only
+# observable when the script is RUN as a CLI — test_python_scripts.py proves the
+# complementary import-no-side-effect half).
+U8_ROOT="$LIB/.."
+U8_SCRIPTS="$U8_ROOT/scripts"
+
+# AC1: .gitattributes exists and `git check-attr eol` resolves to `lf` for a
+# sample *.sh, *.py, and *.jq file.
+assert_eq "#222: .gitattributes exists at repo root" "yes" \
+  "$( [ -f "$U8_ROOT/.gitattributes" ] && echo yes || echo no )"
+for _u8f in scripts/config-get.sh scripts/workpad.py lib/classify-pr-kind.jq; do
+  assert_eq "#222: git check-attr eol=lf for $_u8f" "lf" \
+    "$(git -C "$U8_ROOT" check-attr eol -- "$_u8f" | sed -E 's/.*: eol: //')"
+done
+
+# AC2: no tracked *.sh file carries a CR byte in the index (i/lf for every entry).
+# `git ls-files --eol` prints `i/<index-eol> w/<worktree-eol> attr/<attr> <path>`;
+# a crlf/mixed in the i/ column is a defect. grep -c prints 0 + exits 1 on no
+# match, so `|| true` keeps the clean `0`.
+assert_eq "#222: no tracked *.sh has crlf/mixed line endings in the index" "0" \
+  "$(git -C "$U8_ROOT" ls-files --eol -- '*.sh' | grep -cE 'i/(crlf|mixed)' || true)"
+
+# AC3/AC5: workpad.py new-body is a pure offline formatter whose default --branch
+# carries an ellipsis and whose Status carries the rocket glyph, so non-ASCII
+# fires with no flags. Under PYTHONIOENCODING=cp1252 today's UNHARDENED code
+# raises UnicodeEncodeError (the reported defect); the hardened code exits 0 with
+# valid UTF-8 and NO BOM (closing the UTF-16LE-corruption root).
+U8_NB="$(mktemp)"
+PYTHONIOENCODING=cp1252 python3 "$U8_SCRIPTS/workpad.py" new-body 1 > "$U8_NB" 2>/dev/null
+U8_NB_RC=$?
+assert_eq "#222 RED->GREEN: workpad.py new-body exits 0 under cp1252" "0" "$U8_NB_RC"
+assert_eq "#222: new-body output contains the UTF-8 rocket glyph (did not crash)" "yes" \
+  "$(grep -qF '🚀' "$U8_NB" && echo yes || echo no)"
+assert_eq "#222: new-body output carries no BOM (UTF-8-no-BOM, not UTF-16LE)" "yes" \
+  "$(head -c3 "$U8_NB" | od -An -tx1 | tr -d ' \n' | grep -qE '^(efbbbf|fffe|feff)' && echo no || echo yes)"
+rm -f "$U8_NB"
+
+# parse-acs.py emits non-ASCII only as the em-dash in its near-miss breadcrumb
+# (a trailing-colon heading triggers it). NOTE: em-dash (U+2014) and ellipsis
+# (U+2026) ARE encodable in cp1252 (0x97 / 0x85), so a cp1252 test of em-dash
+# content is VACUOUS — it passes even against the unhardened code. The strictly-
+# non-UTF-8 codec under which this content genuinely raises without the fix (a
+# real RED->GREEN) is `ascii` (em-dash is outside both ascii and latin-1). The
+# reconfigure overrides PYTHONIOENCODING, so the hardened script exits 0.
+U8_PAB="$(mktemp)"; printf '## Acceptance Criteria:\n- [ ] x\n' > "$U8_PAB"
+U8_PAE="$(mktemp)"
+PYTHONIOENCODING=ascii python3 "$U8_SCRIPTS/parse-acs.py" --body-file "$U8_PAB" >/dev/null 2>"$U8_PAE"
+U8_PA_RC=$?
+assert_eq "#222 RED->GREEN: parse-acs.py exits 0 emitting its em-dash breadcrumb under ascii" "0" "$U8_PA_RC"
+assert_eq "#222: parse-acs.py emits the em-dash breadcrumb as UTF-8 (did not crash)" "yes" \
+  "$(grep -qF '—' "$U8_PAE" && echo yes || echo no)"
+rm -f "$U8_PAB" "$U8_PAE"
+
+# AC7 (write-side encode): file-deferrals.py --dry-run writes the issue TITLE and
+# a body preview to stderr. We inject a ROCKET (U+1F680, outside cp1252) into the
+# manifest `file` so it lands in the derived title. The RED->GREEN discriminates
+# on emitted CONTENT, not on a crash: stderr defaults to the backslashreplace
+# error handler, so the unhardened code does NOT raise under cp1252 — it exits 0
+# but renders the escaped `\U0001f680` instead of the rocket, so the rocket-present
+# assertion below fails RED. The hardened stream-forcing emits the real UTF-8
+# rocket (GREEN). (Do NOT "simplify" this to an exit-code/crash check — both the
+# hardened and unhardened paths exit 0, so a crash check would be vacuous.) The
+# em-dash case would be doubly vacuous (em-dash is cp1252-encodable AND stderr
+# never raises), which is why the rocket + content-assert is used here.
+U8_MAN="$(mktemp)"
+cat > "$U8_MAN" <<'JSON'
+{"schema_version": 1, "deferrals": [
+  {"file": "src/🚀mod.py", "symbol": "fn", "kind": "perf", "summary": "loop",
+   "severity": "Medium", "agent": "a", "category": "scope", "explanation": "deferred"}
+]}
+JSON
+PYTHONIOENCODING=cp1252 python3 "$U8_SCRIPTS/file-deferrals.py" \
+  --source-issue 1 --pr 2 --manifest "$U8_MAN" --dry-run >/dev/null 2>"$U8_MAN.err"
+U8_FD_RC=$?
+assert_eq "#222 RED->GREEN: file-deferrals.py --dry-run exits 0 under cp1252 (write-side encode)" "0" "$U8_FD_RC"
+assert_eq "#222: file-deferrals.py --dry-run emits its rocket-bearing title as UTF-8" "yes" \
+  "$(grep -qF '🚀' "$U8_MAN.err" && echo yes || echo no)"
+rm -f "$U8_MAN" "$U8_MAN.err"
+
+# AC6/AC7 (gh decode + temp-file/stdin encode): these are pinned STATICALLY, not
+# by a runtime crash, on purpose. On Linux, CPython's UTF-8 Mode (PEP 540) coerces
+# the C/POSIX locale to UTF-8, so a subprocess `text=True` DECODE never raises
+# here — the UnicodeDecodeError is genuinely Windows-only (cp1252 ANSI codepage,
+# no UTF-8-mode coercion). The portable, deterministic guarantee is that the code
+# PINS `encoding="utf-8"` at every gh-I/O and temp-file site, so the codec is
+# UTF-8 regardless of the host locale. Removing any pin makes these fail (a real
+# mutation check), where a runtime test would pass vacuously on the Linux runner.
+assert_eq "#222 AC6: workpad.py _run gh wrapper pins encoding=utf-8 (gh decode/encode)" "yes" \
+  "$(grep -qF 'stderr=subprocess.PIPE, encoding="utf-8",' "$U8_SCRIPTS/workpad.py" && echo yes || echo no)"
+assert_eq "#222 AC7: workpad.py NamedTemporaryFile body write pins encoding=utf-8" "yes" \
+  "$(grep -qF "'w', suffix='.md', delete=False, encoding=\"utf-8\"," "$U8_SCRIPTS/workpad.py" && echo yes || echo no)"
+assert_eq "#222 AC6: file-deferrals.py _run gh wrapper pins encoding=utf-8" "yes" \
+  "$(grep -qF 'stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8",' "$U8_SCRIPTS/file-deferrals.py" && echo yes || echo no)"
+assert_eq "#222 AC7: file-deferrals.py gh issue create pins input encoding=utf-8" "yes" \
+  "$(grep -qF 'input=body, check=False, encoding="utf-8",' "$U8_SCRIPTS/file-deferrals.py" && echo yes || echo no)"
+assert_eq "#222 AC6: parse-acs.py _fetch_body pins gh decode encoding=utf-8" "yes" \
+  "$(grep -qF 'check=True, capture_output=True, encoding="utf-8",' "$U8_SCRIPTS/parse-acs.py" && echo yes || echo no)"
+# match-deferrals.py's _run also reads gh PR/issue *bodies* (routinely non-ASCII),
+# so its decode is pinned too — closing the same Windows decode-crash path.
+assert_eq "#222 AC6: match-deferrals.py _run pins gh body-decode encoding=utf-8" "yes" \
+  "$(grep -qF 'stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8",' "$U8_SCRIPTS/match-deferrals.py" && echo yes || echo no)"
+
+# Smoke (not RED->GREEN): a gh stub returns a comment body containing a rocket;
+# workpad.py id must still decode it and print the matched id. On the Linux runner
+# this passes with or without the pin (UTF-8 Mode), so it is a round-trip smoke
+# test that the non-ASCII body doesn't break id resolution — NOT the AC6 proof
+# (that is the static pin above).
+U8_GHD="$(mktemp -d)"
+cat > "$U8_GHD/gh" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *"repo view"*) echo "acme/example-repo" ;;
+  *"comments"*) printf '%s\n' '[{"id":42,"body":"<!-- devflow:workpad --> 🚀 status"}]' ;;
+  *) echo '[]' ;;
+esac
+STUB
+chmod +x "$U8_GHD/gh"
+U8_ID_OUT="$(PATH="$U8_GHD:$PATH" python3 "$U8_SCRIPTS/workpad.py" id 1 2>/dev/null)"
+assert_eq "#222 smoke: workpad.py id resolves a comment with a non-ASCII body" "42" "$U8_ID_OUT"
+rm -rf "$U8_GHD"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "python3 interpreter resolution: resolve-python.sh / provision-python3-shim.sh / preflight.sh (issue #225)"
+# ────────────────────────────────────────────────────────────────────────────
+# Stock Windows Python (python.org / winget) ships `python` + the `py -3` launcher and NO
+# `python3` on PATH, so every literal `python3` call fails. These assertions exercise the
+# shared selection contract (lib/resolve-python.sh), the consent-gated shim provisioner, the
+# preflight resolution path, and install.sh delegation — using fake-interpreter PATH stubs
+# (the suite is offline/gh-stubbed, so a temp-dir PATH with fake `python`/`py` fits the
+# harness). The fakes pattern-match the exact `-c` probes resolve-python.sh runs and exec the
+# REAL interpreter for a script argument, so the shim's arg/exit-code forwarding is exercised
+# end-to-end rather than mocked.
+PPS="$LIB/../scripts/provision-python3-shim.sh"
+PREFLIGHT_SH="$LIB/preflight.sh"
+RESOLVE_SH="$LIB/resolve-python.sh"
+REAL_PY="$(command -v python3 2>/dev/null || true)"
+
+if [ -z "$REAL_PY" ]; then
+  # No real python3 to back the fakes — the whole suite already requires python3 (the python
+  # section below runs under it), so this is unreachable in practice; record a FAIL rather
+  # than silently skipping coverage if it ever happens.
+  echo FAIL >> "$RESULTS_FILE"
+  printf '  FAIL  #225: no python3 available to back the fake-interpreter stubs (cannot run resolution tests)\n'
+else
+  # Populate DIR with coreutils symlinks + no-op git/gh/jq stubs, but deliberately NO python*
+  # (so `command -v python3` fails inside the stub PATH); callers then drop in fake interpreters.
+  build_stub_bin() {  # $1=dir
+    local d="$1" t src
+    for t in bash sh env dirname mktemp grep mkdir chmod mv rm ln cat sed cut tr id head wc sort cp printf; do
+      src="$(command -v "$t" 2>/dev/null)" && [ -n "$src" ] && ln -s "$src" "$d/$t" 2>/dev/null
+    done
+    for t in git gh jq; do
+      printf '#!/bin/sh\nexit 0\n' > "$d/$t" && chmod +x "$d/$t"
+    done
+  }
+  # Write a fake Python interpreter at $1 reporting version $2 (major $3, minor $4). It honors
+  # -V/--version, the `-c 'pass'` runnability probe, the resolve-python version probe, and
+  # `import yaml` (present unless $5 == noyaml); any other args (a script path) exec the REAL
+  # python3 so behavior is genuine. Args of the generated script are escaped (\$); $2/$3/$4/$5
+  # and $REAL_PY expand now, at generation time.
+  make_fake_python() {  # $1=path $2=verstring $3=maj $4=min [$5=noyaml]
+    local yaml_rc=0
+    [ "${5:-}" = "noyaml" ] && yaml_rc=1
+    cat > "$1" <<EOF
+#!/usr/bin/env bash
+case "\$1" in
+  -V|--version) echo "Python $2"; exit 0 ;;
+esac
+if [ "\$1" = "-c" ]; then
+  case "\$2" in
+    *"version_info >= (3, 11)"*)
+      if [ "$3" -gt 3 ] || { [ "$3" -eq 3 ] && [ "$4" -ge 11 ]; }; then exit 0; else exit 1; fi ;;
+    pass) exit 0 ;;
+    *"import yaml"*) exit $yaml_rc ;;
+    *) exit 0 ;;
+  esac
+fi
+exec "$REAL_PY" "\$@"
+EOF
+    chmod +x "$1"
+  }
+  # Write a fake `py` launcher at $1 that supports only `-3` and delegates to the fake python at $2.
+  make_fake_py() {  # $1=path $2=delegate
+    cat > "$1" <<EOF
+#!/usr/bin/env bash
+if [ "\$1" = "-3" ]; then shift; exec "$2" "\$@"; fi
+echo "py: only -3 supported in this stub" >&2; exit 1
+EOF
+    chmod +x "$1"
+  }
+
+  # ── AC1: provisioner exists, SPDX header, consent-gated, stable breadcrumb. ──
+  assert_eq "#225 pps: provisioner file exists (AC1)" "yes" "$([ -f "$PPS" ] && echo yes || echo no)"
+  assert_eq "#225 pps: SPDX header present (AC1)" "yes" "$(grep -q 'SPDX-License-Identifier: MIT' "$PPS" && echo yes || echo no)"
+  assert_eq "#225 pps: consent-gated via --apply (AC1)" "yes" "$(grep -q -- '--apply' "$PPS" && echo yes || echo no)"
+  assert_eq "#225 pps: stable devflow-python: breadcrumb prefix (AC1)" "yes" "$(grep -q 'devflow-python:' "$PPS" && echo yes || echo no)"
+  assert_eq "#225 resolve-python.sh: SPDX header present" "yes" "$(grep -q 'SPDX-License-Identifier: MIT' "$RESOLVE_SH" && echo yes || echo no)"
+
+  # ── AC2/AC3: alternate `python` (>=3.11), no python3 → shim installed; forwards args+exit. ──
+  T1="$(mktemp -d)"; build_stub_bin "$T1"; make_fake_python "$T1/python" "3.11.5" 3 11
+  T1BIN="$(mktemp -d)"
+  PPS_OUT="$(PATH="$T1" bash "$PPS" --apply "$T1BIN" 2>&1)"; PPS_RC=$?
+  assert_eq "#225 pps: alternate python, no python3 → exit 0 (AC2)" "0" "$PPS_RC"
+  assert_eq "#225 pps: shim created at target dir (AC2)" "yes" "$([ -f "$T1BIN/python3" ] && echo yes || echo no)"
+  assert_eq "#225 pps: shim execs the alternate, NEVER python3 (no recursion) (AC3)" "yes" \
+    "$(grep -q '^exec python "\$@"' "$T1BIN/python3" && echo yes || echo no)"
+  assert_eq "#225 pps: shim body does not exec python3 (AC3)" "no" \
+    "$(grep -q 'exec python3 ' "$T1BIN/python3" && echo yes || echo no)"
+  assert_eq "#225 pps: python3 --version via shim reports the >=3.11 interpreter (AC2)" "Python 3.11.5" \
+    "$(PATH="$T1BIN:$T1" python3 --version 2>&1)"
+  # The shim carries the DevFlow marker line — the clobber guard's recognition signal, so a
+  # regression that wrote a working-but-unmarked shim (which would make re-apply refuse its own
+  # shim) is caught directly here, not only transitively via the idempotent-rewrite test.
+  assert_eq "#225 pps: written shim carries the DevFlow SHIM_MARKER line" "yes" \
+    "$(grep -q 'Generated by DevFlow scripts/provision-python3-shim.sh' "$T1BIN/python3" && echo yes || echo no)"
+  # Arg + exit-code forwarding through the shim → fake python → real python3.
+  printf 'import sys\nprint("args:" + " ".join(sys.argv[1:]))\nsys.exit(7)\n' > "$T1BIN/check.py"
+  FWD_OUT="$(PATH="$T1BIN:$T1" python3 "$T1BIN/check.py" hello 2>&1)"; FWD_RC=$?
+  assert_eq "#225 pps: shim forwards exit code (AC3)" "7" "$FWD_RC"
+  assert_eq "#225 pps: shim forwards args (AC3)" "args:hello" "$FWD_OUT"
+
+  # Default (no --apply) is consent-respecting: prints the plan, writes NOTHING.
+  T1D="$(mktemp -d)"
+  PPS_DEF_OUT="$(PATH="$T1" bash "$PPS" "$T1D" 2>&1)"; PPS_DEF_RC=$?
+  assert_eq "#225 pps: default (no --apply) → exit 0" "0" "$PPS_DEF_RC"
+  assert_eq "#225 pps: default (no --apply) writes NOTHING (consent)" "no" "$([ -f "$T1D/python3" ] && echo yes || echo no)"
+  assert_eq "#225 pps: default prints --apply guidance" "yes" "$(printf '%s' "$PPS_DEF_OUT" | grep -q -- '--apply' && echo yes || echo no)"
+
+  # ── AC4: selection picks the FIRST >=3.11 (py -3 over a Python-2 `python`); Python-2 rejected. ──
+  T4="$(mktemp -d)"; build_stub_bin "$T4"
+  make_fake_python "$T4/python" "2.7.18" 2 7           # `python` → Python 2 (must be rejected)
+  make_fake_python "$T4/_py3delegate" "3.11.0" 3 11
+  make_fake_py "$T4/py" "$T4/_py3delegate"
+  SEL="$(PATH="$T4" bash -c ". \"$RESOLVE_SH\"; devflow_resolve_python")"; SEL_RC=$?
+  assert_eq "#225 resolve: picks 'py -3' over a Python-2 'python' (AC4)" "py -3" "$SEL"
+  assert_eq "#225 resolve: rc 0 when a >=3.11 alternate exists (AC4)" "0" "$SEL_RC"
+
+  # Python-2 only → rc 1 (a runnable interpreter exists but too old), echoes the runnable one.
+  T4B="$(mktemp -d)"; build_stub_bin "$T4B"; make_fake_python "$T4B/python" "2.7.18" 2 7
+  SEL2="$(PATH="$T4B" bash -c ". \"$RESOLVE_SH\"; devflow_resolve_python")"; SEL2_RC=$?
+  assert_eq "#225 resolve: python2-only → echoes the first runnable invocation" "python" "$SEL2"
+  assert_eq "#225 resolve: python2-only → rc 1 (too old, distinct from 'none')" "1" "$SEL2_RC"
+
+  # ── AC2/AC3/AC4: `py -3`-resolved host writes a TWO-WORD `exec py -3 "$@"` shim and forwards
+  #    end-to-end. Guards the SC2086 word-split hazard: a regression collapsing "py -3" into a
+  #    single quoted token (`exec "py -3" "$@"`) would pass every `python`-form assertion above. ──
+  TPY3="$(mktemp -d)"; build_stub_bin "$TPY3"
+  make_fake_python "$TPY3/_py3delegate" "3.11.4" 3 11
+  make_fake_py "$TPY3/py" "$TPY3/_py3delegate"
+  TPY3BIN="$(mktemp -d)"
+  PPS_PY3_OUT="$(PATH="$TPY3" bash "$PPS" --apply "$TPY3BIN" 2>&1)"; PPS_PY3_RC=$?
+  assert_eq "#225 pps: py -3 host, no python3 → exit 0 (AC4)" "0" "$PPS_PY3_RC"
+  assert_eq "#225 pps: py -3 host → shim written (AC2)" "yes" "$([ -f "$TPY3BIN/python3" ] && echo yes || echo no)"
+  assert_eq "#225 pps: py -3 host → shim body is the two-word 'exec py -3 \"\$@\"' (AC3)" "yes" \
+    "$(grep -q '^exec py -3 "\$@"' "$TPY3BIN/python3" && echo yes || echo no)"
+  printf 'import sys\nprint("pyargs:" + " ".join(sys.argv[1:]))\nsys.exit(5)\n' > "$TPY3BIN/pcheck.py"
+  PY3_FWD_OUT="$(PATH="$TPY3BIN:$TPY3" python3 "$TPY3BIN/pcheck.py" world 2>&1)"; PY3_FWD_RC=$?
+  assert_eq "#225 pps: py -3 shim forwards exit code (AC3)" "5" "$PY3_FWD_RC"
+  assert_eq "#225 pps: py -3 shim forwards args (AC3)" "pyargs:world" "$PY3_FWD_OUT"
+
+  # ── Clobber guard (SHIM_MARKER): refuse to overwrite a foreign python3; rewrite a DevFlow shim. ──
+  # Foreign (non-DevFlow) python3 already at the target → refuse with exit 2, leave it byte-for-byte.
+  TCF="$(mktemp -d)"; build_stub_bin "$TCF"; make_fake_python "$TCF/python" "3.11.9" 3 11
+  TCFBIN="$(mktemp -d)"; printf '#!/bin/sh\necho FOREIGN\n' > "$TCFBIN/python3"; chmod +x "$TCFBIN/python3"
+  PPS_CF_OUT="$(PATH="$TCF" bash "$PPS" --apply "$TCFBIN" 2>&1)"; PPS_CF_RC=$?
+  assert_eq "#225 pps: foreign python3 at target → refuse exit 2 (no clobber)" "2" "$PPS_CF_RC"
+  assert_eq "#225 pps: foreign python3 → breadcrumb says 'did not create' (refuse to overwrite)" "yes" \
+    "$(printf '%s' "$PPS_CF_OUT" | grep -qi 'did not create' && echo yes || echo no)"
+  assert_eq "#225 pps: foreign python3 left byte-for-byte unchanged" "yes" \
+    "$(grep -q 'echo FOREIGN' "$TCFBIN/python3" && echo yes || echo no)"
+  # A DANGLING python3 symlink at the target: `-e` follows symlinks and reports it non-existent,
+  # so the clobber guard's `-L` arm is load-bearing — without it the guard would skip and `mv`
+  # would silently replace a symlink DevFlow did not create (and a broken python3 symlink is
+  # exactly the corrupt-interpreter class this targets). Assert the guard still refuses (exit 2)
+  # and leaves the symlink in place. (Review finding: clobber guard fail-open on dangling links.)
+  TCDBIN="$(mktemp -d)"; ln -s /nonexistent-python-target "$TCDBIN/python3"
+  PPS_CD_OUT="$(PATH="$TCF" bash "$PPS" --apply "$TCDBIN" 2>&1)"; PPS_CD_RC=$?
+  assert_eq "#225 pps: dangling python3 symlink at target → refuse exit 2 (no clobber via -L arm)" "2" "$PPS_CD_RC"
+  assert_eq "#225 pps: dangling symlink → breadcrumb says 'did not create'" "yes" \
+    "$(printf '%s' "$PPS_CD_OUT" | grep -qi 'did not create' && echo yes || echo no)"
+  assert_eq "#225 pps: dangling symlink left in place (still a symlink, not overwritten)" "yes" \
+    "$([ -L "$TCDBIN/python3" ] && echo yes || echo no)"
+  rm -rf "$TCDBIN"
+  # A DevFlow shim a prior run wrote (carries the marker) → re-apply is an idempotent rewrite (exit 0).
+  TCRBIN="$(mktemp -d)"
+  PATH="$TCF" bash "$PPS" --apply "$TCRBIN" >/dev/null 2>&1   # first apply writes the marked shim
+  PPS_RE_OUT="$(PATH="$TCF" bash "$PPS" --apply "$TCRBIN" 2>&1)"; PPS_RE_RC=$?
+  assert_eq "#225 pps: re-apply over DevFlow's own shim → exit 0 (idempotent rewrite, AC9)" "0" "$PPS_RE_RC"
+  assert_eq "#225 pps: re-applied shim still present and still the alternate exec" "yes" \
+    "$(grep -q '^exec python "\$@"' "$TCRBIN/python3" && echo yes || echo no)"
+
+  # ── Malformed invocation: unknown option and extra positional both refuse with exit 2. ──
+  PPS_OPT_RC=0; PATH="$TCF" bash "$PPS" --bogus "$(mktemp -d)" >/dev/null 2>&1 || PPS_OPT_RC=$?
+  assert_eq "#225 pps: unknown option → exit 2" "2" "$PPS_OPT_RC"
+  PPS_XTRA_RC=0; PATH="$TCF" bash "$PPS" "$(mktemp -d)" "$(mktemp -d)" >/dev/null 2>&1 || PPS_XTRA_RC=$?
+  assert_eq "#225 pps: extra positional argument → exit 2" "2" "$PPS_XTRA_RC"
+
+  # ── AC4/AC6: provisioner refuses (non-zero, specific version msg) on a too-old-only host. ──
+  T6T="$(mktemp -d)"
+  PPS_OLD_OUT="$(PATH="$T4B" bash "$PPS" --apply "$T6T" 2>&1)"; PPS_OLD_RC=$?
+  assert_eq "#225 pps: too-old-only python → refuse exit 2 (AC6)" "2" "$PPS_OLD_RC"
+  assert_eq "#225 pps: too-old → specific 'older than 3.11' message, not 'missing' (AC6)" "yes" \
+    "$(printf '%s' "$PPS_OLD_OUT" | grep -qi 'older than 3.11' && echo yes || echo no)"
+  assert_eq "#225 pps: too-old → no shim written (AC6)" "no" "$([ -f "$T6T/python3" ] && echo yes || echo no)"
+
+  # ── AC5: preflight, no python3 but a >=3.11 alternate → provisioner pointer, NOT dead end. ──
+  T5="$(mktemp -d)"; build_stub_bin "$T5"; make_fake_python "$T5/python" "3.11.7" 3 11
+  PF5_OUT="$(PATH="$T5" bash "$PREFLIGHT_SH" 2>&1)"; PF5_RC=$?
+  assert_eq "#225 preflight: alt python, no python3 → exit non-zero (literal python3 still missing) (AC5)" "yes" \
+    "$([ "$PF5_RC" -ne 0 ] && echo yes || echo no)"
+  assert_eq "#225 preflight: alt python → points to provision-python3-shim.sh (AC5)" "yes" \
+    "$(printf '%s' "$PF5_OUT" | grep -q 'provision-python3-shim.sh' && echo yes || echo no)"
+  assert_eq "#225 preflight: alt python → NOT the bare \"missing required tool 'python3'\" dead end (AC5)" "no" \
+    "$(printf '%s' "$PF5_OUT" | grep -q "missing required tool 'python3'" && echo yes || echo no)"
+
+  # ── Broken-but-present python3 (dangling symlink / corrupt install / missing DLL — the
+  #    broken-Windows-interpreter class this provisioner targets): preflight's happy path now
+  #    probes runnability (`python3 -c 'pass'`), so a python3 that is on PATH but does not
+  #    execute must NOT short-circuit into a misleading PyYAML/version message; it falls
+  #    through to the resolver, which skips it and points at the provisioner via the >=3.11
+  #    `python` alternate. (Important review finding: lib/preflight.sh happy-path runnability.)
+  T5B="$(mktemp -d)"; build_stub_bin "$T5B"; make_fake_python "$T5B/python" "3.11.7" 3 11
+  printf '#!/bin/sh\nexit 127\n' > "$T5B/python3"; chmod +x "$T5B/python3"  # present but never runs
+  PF5B_OUT="$(PATH="$T5B" bash "$PREFLIGHT_SH" 2>&1)"; PF5B_RC=$?
+  assert_eq "#225 preflight: broken python3 + alt → exit non-zero" "yes" \
+    "$([ "$PF5B_RC" -ne 0 ] && echo yes || echo no)"
+  assert_eq "#225 preflight: broken-but-present python3 falls through to the resolver → provisioner pointer" "yes" \
+    "$(printf '%s' "$PF5B_OUT" | grep -q 'provision-python3-shim.sh' && echo yes || echo no)"
+  assert_eq "#225 preflight: broken python3 → NOT a misleading 'PyYAML not found' message" "no" \
+    "$(printf '%s' "$PF5B_OUT" | grep -qi 'PyYAML not found' && echo yes || echo no)"
+
+  # ── AC7: preflight runs the PyYAML check against the RESOLVED interpreter (not a hardcoded python3). ──
+  T7="$(mktemp -d)"; build_stub_bin "$T7"; make_fake_python "$T7/python" "3.11.2" 3 11 noyaml
+  PF7_OUT="$(PATH="$T7" bash "$PREFLIGHT_SH" 2>&1)"
+  assert_eq "#225 preflight: PyYAML checked against the resolved interpreter (AC7)" "yes" \
+    "$(printf '%s' "$PF7_OUT" | grep -qi 'PyYAML not found' && echo yes || echo no)"
+  assert_eq "#225 preflight: PyYAML hint names the resolved interpreter, not hardcoded python3 (AC7)" "yes" \
+    "$(printf '%s' "$PF7_OUT" | grep -q "'python -m pip install pyyaml'" && echo yes || echo no)"
+
+  # ── AC6 (preflight half): too-old-only → specific <3.11 message, never 'missing'. ──
+  PF6_OUT="$(PATH="$T4B" bash "$PREFLIGHT_SH" 2>&1)"; PF6_RC=$?
+  assert_eq "#225 preflight: too-old python → exit non-zero (AC6)" "yes" "$([ "$PF6_RC" -ne 0 ] && echo yes || echo no)"
+  assert_eq "#225 preflight: too-old → specific 'Python 3.11+ required' message (AC6)" "yes" \
+    "$(printf '%s' "$PF6_OUT" | grep -q 'Python 3.11+ required' && echo yes || echo no)"
+  assert_eq "#225 preflight: too-old → NOT the bare \"missing required tool 'python3'\" message (AC6)" "no" \
+    "$(printf '%s' "$PF6_OUT" | grep -q "missing required tool 'python3'" && echo yes || echo no)"
+  # Positively pin the rc-1 ALTERNATE branch (python2-only host): its message names 'no working
+  # python3 on PATH', distinguishing it from the python3-present-<3.11 version-recheck branch
+  # (TOLD below). "no working python3" (not "no python3 on PATH") because python3 may be
+  # present-but-broken and rejected by preflight's runnability probe, not strictly absent.
+  assert_eq "#225 preflight: alternate-too-old → rc-1 branch message names 'no working python3 on PATH' (AC6)" "yes" \
+    "$(printf '%s' "$PF6_OUT" | grep -q 'no working python3 on PATH' && echo yes || echo no)"
+
+  # ── AC9: idempotent no-op when a working python3 >=3.11 already resolves. ──
+  T9="$(mktemp -d)"; build_stub_bin "$T9"; make_fake_python "$T9/python3" "3.12.3" 3 12
+  T9T="$(mktemp -d)"
+  PPS9_OUT="$(PATH="$T9" bash "$PPS" --apply "$T9T" 2>&1)"; PPS9_RC=$?
+  assert_eq "#225 pps: python3 already works → exit 0 (AC9)" "0" "$PPS9_RC"
+  assert_eq "#225 pps: python3 already works → 'nothing to do' breadcrumb (AC9)" "yes" \
+    "$(printf '%s' "$PPS9_OUT" | grep -qi 'nothing to do' && echo yes || echo no)"
+  assert_eq "#225 pps: python3 already works → no shim written (AC9/AC10)" "no" "$([ -f "$T9T/python3" ] && echo yes || echo no)"
+
+  # ── AC10: real python3 >=3.11 + deps present → byte-identical pass line, no provisioner pointer. ──
+  T10="$(mktemp -d)"; build_stub_bin "$T10"; make_fake_python "$T10/python3" "3.12.1" 3 12
+  PF10_OUT="$(PATH="$T10" bash "$PREFLIGHT_SH" 2>&1)"; PF10_RC=$?
+  assert_eq "#225 preflight: python3 present + deps → exit 0 (AC10)" "0" "$PF10_RC"
+  assert_eq "#225 preflight: byte-identical pass line on python3-present path (AC10)" \
+    "devflow preflight: all dependencies present." "$(printf '%s\n' "$PF10_OUT" | tail -1)"
+  assert_eq "#225 preflight: no provisioner pointer when python3 resolves (AC10)" "no" \
+    "$(printf '%s' "$PF10_OUT" | grep -q 'provision-python3-shim.sh' && echo yes || echo no)"
+
+  # ── AC6 (python3-present-but-too-old): a real python3 <3.11 takes preflight's python3 branch
+  #    (NOT the resolved-alternate path) and must fail with the specific version message from the
+  #    version re-check — a distinct code path from the `python`(alternate)-too-old case above. ──
+  TOLD="$(mktemp -d)"; build_stub_bin "$TOLD"; make_fake_python "$TOLD/python3" "3.10.9" 3 10
+  PF_OLD3_OUT="$(PATH="$TOLD" bash "$PREFLIGHT_SH" 2>&1)"; PF_OLD3_RC=$?
+  assert_eq "#225 preflight: python3 present but <3.11 → exit non-zero (AC6)" "yes" \
+    "$([ "$PF_OLD3_RC" -ne 0 ] && echo yes || echo no)"
+  assert_eq "#225 preflight: python3 <3.11 → 'Python 3.11+ required (found ...)' from the version re-check (AC6)" "yes" \
+    "$(printf '%s' "$PF_OLD3_OUT" | grep -q 'Python 3.11+ required (found' && echo yes || echo no)"
+  assert_eq "#225 preflight: python3 <3.11 → NOT the resolved-alternate 'no working python3 on PATH' message (AC6)" "no" \
+    "$(printf '%s' "$PF_OLD3_OUT" | grep -q 'no working python3 on PATH' && echo yes || echo no)"
+
+  # ── rc-3 "no usable Python interpreter at all" (no python3, no py, no python). build_stub_bin
+  #    yields a python-free PATH, so this exercises the resolver's rc-3 return end-to-end through
+  #    BOTH consumers: the provisioner refuses (exit 2, "no Python interpreter found") and preflight
+  #    hits its rc-3 `else` dead-end ("missing required tool 'python3'") — NOT the rc-0 provisioner
+  #    pointer (there is no alternate to point at). This is the user's only guidance when they have
+  #    no Python at all; without it a regression that mis-routed rc-3 to rc-0/rc-1 would ship green. ──
+  TNONE="$(mktemp -d)"; build_stub_bin "$TNONE"     # git/gh/jq + coreutils only — no python/python3/py
+  # Provisioner: rc-3 → exit 2 + specific breadcrumb, writes nothing.
+  TNONE_T="$(mktemp -d)"
+  PPS_NONE_OUT="$(PATH="$TNONE" bash "$PPS" --apply "$TNONE_T" 2>&1)"; PPS_NONE_RC=$?
+  assert_eq "#225 pps: no interpreter at all → exit 2 (rc-3)" "2" "$PPS_NONE_RC"
+  assert_eq "#225 pps: no interpreter at all → 'no Python interpreter found' breadcrumb (rc-3)" "yes" \
+    "$(printf '%s' "$PPS_NONE_OUT" | grep -q 'no Python interpreter found' && echo yes || echo no)"
+  assert_eq "#225 pps: no interpreter at all → no shim written (rc-3)" "no" "$([ -f "$TNONE_T/python3" ] && echo yes || echo no)"
+  # Preflight: rc-3 → exit non-zero + the bare dead-end message, NOT the rc-0 provisioner pointer.
+  PF_NONE_OUT="$(PATH="$TNONE" bash "$PREFLIGHT_SH" 2>&1)"; PF_NONE_RC=$?
+  assert_eq "#225 preflight: no interpreter at all → exit non-zero (rc-3)" "yes" \
+    "$([ "$PF_NONE_RC" -ne 0 ] && echo yes || echo no)"
+  assert_eq "#225 preflight: no interpreter at all → bare \"missing required tool 'python3'\" dead end (rc-3)" "yes" \
+    "$(printf '%s' "$PF_NONE_OUT" | grep -q "missing required tool 'python3'" && echo yes || echo no)"
+  assert_eq "#225 preflight: no interpreter at all → NOT the provisioner pointer (no alternate to point at) (rc-3)" "no" \
+    "$(printf '%s' "$PF_NONE_OUT" | grep -q 'provision-python3-shim.sh' && echo yes || echo no)"
+  rm -rf "$TNONE" "$TNONE_T"
+
+  # ── Default target-dir selection (the PRODUCTION path — no explicit TARGET_DIR). ──
+  # (a) A writable dir on PATH → the shim lands in the first writable PATH dir, no PATH note.
+  TDEF="$(mktemp -d)"; build_stub_bin "$TDEF"; make_fake_python "$TDEF/python" "3.11.3" 3 11
+  PPS_DEF2_OUT="$(PATH="$TDEF" bash "$PPS" --apply 2>&1)"; PPS_DEF2_RC=$?
+  assert_eq "#225 pps: default target — no TARGET_DIR, writable PATH dir → exit 0" "0" "$PPS_DEF2_RC"
+  assert_eq "#225 pps: default target — shim written into the first writable PATH dir" "yes" \
+    "$([ -f "$TDEF/python3" ] && echo yes || echo no)"
+  assert_eq "#225 pps: default target — no PATH note when the chosen dir is on PATH" "no" \
+    "$(printf '%s' "$PPS_DEF2_OUT" | grep -qi 'may not be on your PATH' && echo yes || echo no)"
+  # (b) No writable dir on PATH AND HOME unset → refuse with exit 2 + the HOME-unset breadcrumb.
+  #     Root bypasses the -w bit (the read-only dir would read writable), so skip under root.
+  if [ "$(id -u)" -ne 0 ]; then
+    TRO="$(mktemp -d)"; build_stub_bin "$TRO"; make_fake_python "$TRO/python" "3.11.3" 3 11
+    chmod 0555 "$TRO"
+    if [ ! -w "$TRO" ]; then
+      PPS_NH_OUT="$(env -u HOME PATH="$TRO" bash "$PPS" --apply 2>&1)"; PPS_NH_RC=$?
+      assert_eq "#225 pps: default target — no writable PATH dir + HOME unset → exit 2" "2" "$PPS_NH_RC"
+      assert_eq "#225 pps: default target — HOME-unset breadcrumb names the cause" "yes" \
+        "$(printf '%s' "$PPS_NH_OUT" | grep -qi 'HOME is unset' && echo yes || echo no)"
+    fi
+    chmod 0755 "$TRO"   # restore so cleanup can remove it
+  else
+    printf '  SKIP  #225 pps: default target — HOME-unset refusal (root bypasses the -w bit; verified on non-root CI)\n'
+  fi
+  # (a2) POSITIVE pin of the post-write resolution check on the auto-selected-PATH-dir success
+  #      path: when the chosen writable dir IS on PATH and nothing shadows the shim, python3 now
+  #      resolves to it, so the breadcrumb claims 'now resolves'. (TDEF above had no other python3
+  #      on PATH, so command -v python3 finds the shim.)
+  assert_eq "#225 pps: default target — success breadcrumb confirms 'now resolves' (post-write check)" "yes" \
+    "$(printf '%s' "$PPS_DEF2_OUT" | grep -q 'now resolves' && echo yes || echo no)"
+
+  # (c) SHADOWED shim: the shim is written to a later writable PATH dir, but an EARLIER PATH
+  #     entry holds a broken `python3` that still wins `command -v` — so the provisioner must NOT
+  #     claim 'now resolves'; it warns that the shim is shadowed and exits 3 (distinct from the
+  #     exit-2 "wrote nothing" refusals — the shim WAS written). This is the fail-open the
+  #     unconditional success breadcrumb had. Root bypasses the -w bit (the read-only earlier dir
+  #     would read writable, so auto-select would land there and clobber-refuse instead), so skip
+  #     under root. (Review finding: provisioner success-overclaim vs PATH shadowing.)
+  if [ "$(id -u)" -ne 0 ]; then
+    TSHADOW_E="$(mktemp -d)"                                  # earlier PATH dir: a broken python3
+    printf '#!/bin/sh\nexit 127\n' > "$TSHADOW_E/python3"; chmod +x "$TSHADOW_E/python3"
+    chmod 0555 "$TSHADOW_E"                                   # non-writable → auto-select skips it
+    TSHADOW_W="$(mktemp -d)"; build_stub_bin "$TSHADOW_W"; make_fake_python "$TSHADOW_W/python" "3.11.6" 3 11
+    if [ ! -w "$TSHADOW_E" ]; then
+      PPS_SH_OUT="$(PATH="$TSHADOW_E:$TSHADOW_W" bash "$PPS" --apply 2>&1)"; PPS_SH_RC=$?
+      assert_eq "#225 pps: shadowed shim (earlier broken python3 wins) → exit 3 (shim written but does not win)" "3" "$PPS_SH_RC"
+      assert_eq "#225 pps: shadowed shim → breadcrumb names the shadow, does NOT claim 'now resolves'" "yes" \
+        "$(printf '%s' "$PPS_SH_OUT" | grep -q 'shadows the shim' && ! printf '%s' "$PPS_SH_OUT" | grep -q 'now resolves' && echo yes || echo no)"
+      assert_eq "#225 pps: shadowed shim → the shim WAS written to the later writable dir" "yes" \
+        "$([ -f "$TSHADOW_W/python3" ] && echo yes || echo no)"
+    fi
+    chmod 0755 "$TSHADOW_E"   # restore so cleanup can remove it
+    rm -rf "$TSHADOW_E" "$TSHADOW_W"
+  else
+    printf '  SKIP  #225 pps: shadowed-shim exit-3 path (root bypasses the -w bit; verified on non-root CI)\n'
+  fi
+
+  # (d) PATH_NOTE ~/bin fallback SUCCESS path: no writable dir on PATH but HOME set → the shim is
+  #     written into $HOME/bin, PATH_NOTE fires, exit 0, and the 'may not be on your PATH' note is
+  #     emitted. The only prior coverage of the fallback was the HOME-unset *refusal*; this pins
+  #     the success half. Skip under root (the read-only PATH dir would read writable).
+  if [ "$(id -u)" -ne 0 ]; then
+    TPN_RO="$(mktemp -d)"; build_stub_bin "$TPN_RO"; make_fake_python "$TPN_RO/python" "3.11.8" 3 11
+    chmod 0555 "$TPN_RO"
+    TPN_HOME="$(mktemp -d)"
+    if [ ! -w "$TPN_RO" ]; then
+      PPS_PN_OUT="$(HOME="$TPN_HOME" PATH="$TPN_RO" bash "$PPS" --apply 2>&1)"; PPS_PN_RC=$?
+      assert_eq "#225 pps: ~/bin fallback success → exit 0" "0" "$PPS_PN_RC"
+      assert_eq "#225 pps: ~/bin fallback success → shim written into \$HOME/bin" "yes" \
+        "$([ -f "$TPN_HOME/bin/python3" ] && echo yes || echo no)"
+      assert_eq "#225 pps: ~/bin fallback success → 'may not be on your PATH' note emitted" "yes" \
+        "$(printf '%s' "$PPS_PN_OUT" | grep -qi 'may not be on your PATH' && echo yes || echo no)"
+    fi
+    chmod 0755 "$TPN_RO"
+    rm -rf "$TPN_RO" "$TPN_HOME"
+  else
+    printf '  SKIP  #225 pps: ~/bin fallback success path (root bypasses the -w bit; verified on non-root CI)\n'
+  fi
+
+  # ── preflight resolves to a two-word `py -3` alternate: the SC2086 word-split hazard on
+  #    preflight's unquoted $PYTHON must be exercised on the PREFLIGHT side too (the provisioner
+  #    side has TPY3, but a regression that quoted "$PYTHON" would break `py -3` in preflight while
+  #    passing the provisioner test). A py-3-only host (fake `py -3` delegate, no python3/python)
+  #    with noyaml drives $PYTHON="py -3" through the PyYAML hint printf. (Review finding.) ──
+  TPYPRE="$(mktemp -d)"; build_stub_bin "$TPYPRE"
+  make_fake_python "$TPYPRE/_py3delegate" "3.11.1" 3 11 noyaml   # noyaml → PyYAML check fails → hint fires
+  make_fake_py "$TPYPRE/py" "$TPYPRE/_py3delegate"               # `py -3` resolves; no python3, no python
+  PF_PY3_OUT="$(PATH="$TPYPRE" bash "$PREFLIGHT_SH" 2>&1)"
+  assert_eq "#225 preflight: py-3-only host → provisioner pointer fires (alternate resolved)" "yes" \
+    "$(printf '%s' "$PF_PY3_OUT" | grep -q 'provision-python3-shim.sh' && echo yes || echo no)"
+  assert_eq "#225 preflight: py-3-only host → PyYAML hint names the resolved 'py -3' (unquoted \$PYTHON word-splits)" "yes" \
+    "$(printf '%s' "$PF_PY3_OUT" | grep -qF "'py -3 -m pip install pyyaml'" && echo yes || echo no)"
+  rm -rf "$TPYPRE"
+
+  # ── AC8: install.sh delegates to the provisioner on the no-python3/alternate path; not when python3 works. ──
+  INSTALL_SH="$LIB/../install.sh"
+  REPO_ROOT="$(cd "$LIB/.." && pwd)"
+  T8="$(mktemp -d)"; build_stub_bin "$T8"; make_fake_python "$T8/python" "3.11.0" 3 11
+  OFFER_OUT="$(PATH="$T8" bash -c "DEVFLOW_SELFTEST=1 . \"$INSTALL_SH\"; offer_python3_shim \"$REPO_ROOT\"" 2>&1)"
+  assert_eq "#225 install.sh: no python3 → delegates to provision-python3-shim.sh (AC8)" "yes" \
+    "$(printf '%s' "$OFFER_OUT" | grep -q 'devflow-python:' && echo yes || echo no)"
+  T8B="$(mktemp -d)"; build_stub_bin "$T8B"; make_fake_python "$T8B/python3" "3.12.0" 3 12
+  OFFER_OUT_B="$(PATH="$T8B" bash -c "DEVFLOW_SELFTEST=1 . \"$INSTALL_SH\"; offer_python3_shim \"$REPO_ROOT\"" 2>&1)"
+  assert_eq "#225 install.sh: python3 present → NO delegation (AC8)" "no" \
+    "$(printf '%s' "$OFFER_OUT_B" | grep -q 'devflow-python:' && echo yes || echo no)"
+  # Broken-but-present python3 + a >=3.11 alternate: offer_python3_shim probes RUNNABILITY
+  # (`python3 -c 'pass'`), mirroring preflight's happy-path gate, so a python3 that is on PATH
+  # but does not execute must NOT short-circuit the offer — it falls through and delegates to
+  # the provisioner. A bare `command -v python3` would wrongly skip the offer on exactly the
+  # broken-Windows-interpreter class this change targets. (Review finding: install.sh symmetry.)
+  T8C="$(mktemp -d)"; build_stub_bin "$T8C"; make_fake_python "$T8C/python" "3.11.4" 3 11
+  printf '#!/bin/sh\nexit 127\n' > "$T8C/python3"; chmod +x "$T8C/python3"  # present but never runs
+  OFFER_OUT_C="$(PATH="$T8C" bash -c "DEVFLOW_SELFTEST=1 . \"$INSTALL_SH\"; offer_python3_shim \"$REPO_ROOT\"" 2>&1)"
+  assert_eq "#225 install.sh: broken-but-present python3 → still delegates to the provisioner" "yes" \
+    "$(printf '%s' "$OFFER_OUT_C" | grep -q 'devflow-python:' && echo yes || echo no)"
+  rm -rf "$T8C"
+  # A provisioner REFUSAL (non-zero rc) must be surfaced with its rc and NOT abort the install —
+  # the `bash "$prov" || { rc=$?; log "...rc $rc..." }` branch. Every other install test runs a
+  # >=3.11 host where the plan-mode provisioner exits 0, so this branch was untested. Use a
+  # too-old-only host ($T4B: python2/too-old, no python3) → offer delegates (plan-only), the
+  # provisioner exits 2 (too-old refusal, before the plan/apply split), the offer surfaces the
+  # rc and returns 0. (Review finding: rc-surfaced-continues contract untested.)
+  OFFER_OUT_R="$(PATH="$T4B" bash -c "DEVFLOW_SELFTEST=1 . \"$INSTALL_SH\"; offer_python3_shim \"$REPO_ROOT\"; echo \"ret=\$?\"" 2>&1)"
+  assert_eq "#225 install.sh: provisioner refusal (rc≠0) → surfaced with the rc, install continues" "yes" \
+    "$(printf '%s' "$OFFER_OUT_R" | grep -q 'exited non-zero (rc' && echo yes || echo no)"
+  assert_eq "#225 install.sh: provisioner refusal → offer_python3_shim still returns 0 (non-aborting)" "yes" \
+    "$(printf '%s' "$OFFER_OUT_R" | grep -q 'ret=0' && echo yes || echo no)"
+
+  # ── AC11: no .github/ workflow, action, or allowlist entry is modified by this change. ──
+  if git -C "$REPO_ROOT" rev-parse --verify origin/main >/dev/null 2>&1; then
+    GH_CHANGED="$(git -C "$REPO_ROOT" diff --name-only origin/main -- .github 2>/dev/null)"
+    assert_eq "#225 no .github/ path modified vs origin/main (AC11)" "" "$GH_CHANGED"
+  else
+    # origin/main is not resolvable (shallow/detached checkout) — record an explicit skip
+    # breadcrumb rather than silently passing AC11 (the silent-skip anti-pattern the REAL_PY
+    # guard above avoids). CI fetches origin/main, so the assertion runs there.
+    printf '  SKIP  #225 AC11 (.github no-diff): origin/main not resolvable in this checkout — verified in CI\n'
+  fi
+
+  # ── AC12: the three docs document the Windows interpreter-resolution path. ──
+  for _doc in CONTRIBUTING.md docs/install.md docs/DEVFLOW_SYSTEM_OVERVIEW.md; do
+    assert_eq "#225 docs: $_doc documents the python3 resolution path (AC12)" "yes" \
+      "$(grep -q 'provision-python3-shim.sh' "$REPO_ROOT/$_doc" && echo yes || echo no)"
+  done
+fi
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.

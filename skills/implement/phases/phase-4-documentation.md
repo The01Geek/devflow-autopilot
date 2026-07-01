@@ -229,6 +229,8 @@ The rc handling above distinguishes three cases: a clean filing (rc 0), the beni
 
 ### 4.1 Update Documentation
 
+**The routine doc pass always runs — narrative never suppresses it.** A narrative claim that documentation is unnecessary — including an **absent, empty, or contradictory** `**Documentation Needed**` bullet — **never** suppresses the routine documentation pass: the `devflow:docs` subagent still runs and updates the documentation warranted by the shipped behavior change. The `**Documentation Needed**` bullet is an **additive floor** of mandatory deliverables (it can only *add* required files), **never a ceiling that authorizes skipping otherwise-warranted documentation**. This mirrors the §2.1 authority hierarchy — the Implementation Notes narrative, `Documentation Needed` included, is a non-authoritative starting point, so it can never narrow or suppress the doc work the shipped diff warrants. The deterministic two-stage gate below is **unchanged in behavior**: it enforces the floor (every named deliverable must ship); it does not decide whether the doc pass runs.
+
 **Stage 1 — Pre-flight briefing (before dispatch).** Extract the issue's required documentation deliverables **deterministically — do not interpret the prose yourself.** Run the bundled helper, which scopes to the `**Documentation Needed**` bullet under `## Implementation Notes` and emits the recognizable file paths one per line:
 
 ```bash

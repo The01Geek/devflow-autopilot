@@ -204,6 +204,16 @@ Phase 4.1 (*Update Documentation*) dispatches a `devflow:docs` subagent. When th
 specific files in its `**Documentation Needed**` bullet (a sub-bullet of `## Implementation Notes`
 in the issue template), Phase 4.1 enforces delivery through a two-stage gate.
 
+**The bullet is a floor, not a ceiling.** The `Documentation Needed` bullet is an *additive* floor of
+mandatory deliverables — it can only *add* required files. A narrative claim that documentation is
+unnecessary — including an absent, empty, or contradictory `Documentation Needed` bullet — never
+suppresses the routine doc pass: the `devflow:docs` subagent still runs and updates documentation
+warranted by the shipped behavior change, and the bullet is never read as a ceiling that authorizes
+skipping otherwise-warranted documentation. This mirrors the Phase 2.1 authority hierarchy (the issue
+narrative is a non-authoritative starting point; only Desired Behavior and Acceptance Criteria are the
+decided spec). The two-stage gate described below is unchanged by this framing — it enforces the floor
+of named deliverables; it does not decide whether the doc pass runs.
+
 Path extraction is **deterministic, not LLM-interpreted** (issue #185 Addendum): a bundled helper,
 `scripts/extract-doc-needed-paths.sh`, is the single extraction boundary both stages consume. It reads
 the issue body, scopes strictly to the `**Documentation Needed**` bullet under `## Implementation
