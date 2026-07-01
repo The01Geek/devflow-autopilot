@@ -5541,6 +5541,12 @@ assert_pin_unique "#241 pin (A2b): create-issue invokes ensure-label.sh through 
   '"$SKILL_DIR"/../../scripts/ensure-label.sh DevFlow' "$LIB/../skills/create-issue/SKILL.md"
 assert_pin_unique "#241 pin (A2b): create-issue invokes apply-labels.sh through the resolved anchor" \
   '"$SKILL_DIR"/../../scripts/apply-labels.sh <issue_number> DevFlow' "$LIB/../skills/create-issue/SKILL.md"
+# A3 (review PR #243 Important note): sub-step 5a carries the same anchor-resolution-vs-
+# helper-outcome discrimination guard the preamble has, so a broken-anchor "No such file"
+# (the helper never ran; the always-exit-0 contract never engaged) is not swallowed by
+# the "continue regardless of the label outcome" prose as a benign label hiccup.
+assert_pin_unique "#241 pin (A3): sub-step 5a discriminates anchor-resolution failure from a benign label outcome" \
+  'The always-exit-0 contract applies only once a helper actually runs' "$LIB/../skills/create-issue/SKILL.md"
 assert_eq "#97 pin: implement applies DevFlow label at PR create via REST helper" "yes" \
   "$(grep -q 'ensure-label.sh DevFlow' "$IMPL_SKILL_BUNDLE" && grep -qF 'apply-labels.sh "$PR_NUM" DevFlow' "$IMPL_SKILL_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: compound: two greps && on one line (provenance: ensure-label + REST apply-labels); issue #218: bundle (label idiom in phases/phase-3-review.md)
 assert_eq "#152 pin: meta-issue.sh ensures+applies DevFlow and Retrospective labels via REST helper" "yes" \
