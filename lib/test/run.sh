@@ -2177,6 +2177,9 @@ IMPL_DOC="$LIB/../docs/implement-skill.md"
 # phase's load step (which would make the engine improvise that phase from its thin stub).
 IMPL_ORCH="$LIB/../skills/implement/SKILL.md"
 IMPL_PHASES_DIR="$LIB/../skills/implement/phases"
+# Shared phase-file path, colocated with its parent IMPL_PHASES_DIR so the #232 and #230
+# pin blocks below reference one source of truth for the path (not two differently-named locals).
+P4_FILE="$IMPL_PHASES_DIR/phase-4-documentation.md"
 # Directory-reconciliation: the actual phases/*.md files must equal IMPL_PHASE_STEMS — the
 # single registered phase set the bundle members and the per-phase loop both derive from. A
 # future phase file added to the directory (and wired into the orchestrator) WITHOUT being
@@ -2299,7 +2302,7 @@ rm -rf "$_f1_skilldir"
 # draft PR). Coupled to the skill clauses: removing either clause turns the suite RED.
 # Presence via assert_pin_unique (exactly-once); non-vacuity via assert_pin_red_on_removal
 # (the suite ITSELF demonstrates PASS->FAIL on removal), per the issue's PASS->FAIL->PASS AC.
-P4_DOC="$IMPL_PHASES_DIR/phase-4-documentation.md"
+# (P4_FILE is the shared phase-file path hoisted next to IMPL_PHASES_DIR above.)
 # (1) SKILL.md terminal-status self-check — AC1 (must not end on an in-progress Status) +
 #     AC2 (keyed on workpad Status, explicitly not PR draft state).
 assert_pin_unique "#232: SKILL terminal-status self-check heading present" \
@@ -2316,13 +2319,13 @@ assert_pin_red_on_removal "#232: SKILL Status-not-draft clause flips RED on remo
 #     file before §4.2 after the docs subagent returns) + AC4 (scoped to the Phase 4.1
 #     docs subagent return only, not the Phase 2/3 subagent returns).
 assert_pin_unique "#232: phase-4 re-anchor operative clause present (re-read before §4.2)" \
-  're-anchoring the remaining §4.2 (PR description) and §4.3 (finalize) procedure' "$P4_DOC"
+  're-anchoring the remaining §4.2 (PR description) and §4.3 (finalize) procedure' "$P4_FILE"
 assert_pin_unique "#232: phase-4 re-anchor scoped to the Phase 4.1 docs subagent return only (AC4)" \
-  'scoped to the Phase 4.1 docs subagent return **only**' "$P4_DOC"
+  'scoped to the Phase 4.1 docs subagent return **only**' "$P4_FILE"
 assert_pin_red_on_removal "#232: phase-4 re-anchor operative clause flips RED on removal" \
-  're-anchoring the remaining §4.2 (PR description) and §4.3 (finalize) procedure' "$P4_DOC"
+  're-anchoring the remaining §4.2 (PR description) and §4.3 (finalize) procedure' "$P4_FILE"
 assert_pin_red_on_removal "#232: phase-4 re-anchor scope clause flips RED on removal" \
-  'scoped to the Phase 4.1 docs subagent return **only**' "$P4_DOC"
+  'scoped to the Phase 4.1 docs subagent return **only**' "$P4_FILE"
 assert_pin_unique "sweep 2.3.6: implement SKILL keeps the sweep body" '#### 2.3.6 Error-handling & silent-failure sweep' "$IMPL_SKILL"
 assert_pin_unique "sweep 2.3.6: implement SKILL lists it in the always-run index" '**2.3.6** (error-handling & silent-failure)' "$IMPL_SKILL"
 assert_eq "sweep 2.3.6: docs/implement-skill.md keeps the rationale table row" "yes" \
@@ -3100,7 +3103,7 @@ assert_eq "#190 fix-loop: Phase 4.1 fail-closed extraction contract pinned in BO
 # sentence whose removal alone re-introduces the gap, not an adjacent framing
 # clause: assert_pin_unique's count==1 contract is the standing removal-proof.
 P2_FILE="$IMPL_PHASES_DIR/phase-2-implement.md"
-P4_FILE="$IMPL_PHASES_DIR/phase-4-documentation.md"
+# P4_FILE is defined once next to IMPL_PHASES_DIR above (shared by the #232 and #230 blocks).
 assert_pin_unique "#230: phase-2 §2.1 names the narrative as a non-authoritative starting point (AC1)" \
   'non-authoritative starting point to verify' "$P2_FILE"
 assert_pin_unique "#230: phase-2 §2.1 scopes 'code wins' so it never overrides the decided spec (AC2)" \
