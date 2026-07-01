@@ -62,8 +62,7 @@ emit() { printf '%s=%s\n' "$1" "$2"; }
 # an explicit DEVFLOW_GH still wins, so test stubs are untouched.
 # shellcheck source=../lib/resolve-gh.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/resolve-gh.sh"
-: "${DEVFLOW_GH:=$(devflow_resolve_gh)}"
-GH="$DEVFLOW_GH"
+GH="${DEVFLOW_GH:=$(devflow_resolve_gh)}"
 repo="${REPO:-}"
 target="${CONTEXT_NUMBER:-}"
 run_id="${RUN_ID:-}"
