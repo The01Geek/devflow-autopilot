@@ -10928,6 +10928,122 @@ EOF
   done
 fi
 
+# ────────────────────────────────────────────────────────────────────────────
+echo "gh binary resolution: resolve-gh.sh / preflight.sh gh path (issue #245)"
+# ────────────────────────────────────────────────────────────────────────────
+# The sibling of the #225 python-resolution block, for `gh`. On Windows/WSL a
+# non-executable `gh` shim (a Python-provided `gh` with a Windows shebang) can
+# shadow the real GitHub CLI: `command -v gh` succeeds but `gh --version` fails
+# at exec time. devflow_resolve_gh verifies EXECUTION, not presence, so it rejects
+# the shim in favor of a runnable `gh.exe`. Fixtures below use bad-shebang scripts
+# (exec bit set, cannot run) to reproduce the #3493 break faithfully.
+RESOLVE_GH_SH="$LIB/resolve-gh.sh"
+PREFLIGHT_SH="$LIB/preflight.sh"
+
+# Static/source hygiene (mirrors the resolve-python.sh checks).
+assert_eq "#245 resolve-gh.sh: file exists" "yes" "$([ -f "$RESOLVE_GH_SH" ] && echo yes || echo no)"
+assert_eq "#245 resolve-gh.sh: SPDX header present" "yes" \
+  "$(grep -q 'SPDX-License-Identifier: MIT' "$RESOLVE_GH_SH" && echo yes || echo no)"
+assert_eq "#245 resolve-gh.sh: defines devflow_resolve_gh" "yes" \
+  "$(grep -q 'devflow_resolve_gh()' "$RESOLVE_GH_SH" && echo yes || echo no)"
+assert_eq "#245 resolve-gh.sh: probes with '--version' only (network/auth-free)" "yes" \
+  "$(grep -q -- '--version' "$RESOLVE_GH_SH" && echo yes || echo no)"
+assert_eq "#245 resolve-gh.sh: sets no 'set -e'/'set -u' (safe to source)" "no" \
+  "$(grep -qE '^\s*set -[eu]' "$RESOLVE_GH_SH" && echo yes || echo no)"
+# AC3: the gh.exe fallback candidate is referenced by name only — no absolute or
+# owner-specific install path is hardcoded.
+assert_eq "#245 resolve-gh.sh: gh.exe candidate referenced by name only (no path separator)" "yes" \
+  "$(grep -qE '(^|[^/])gh\.exe' "$RESOLVE_GH_SH" && ! grep -qE '/[^ ]*gh\.exe' "$RESOLVE_GH_SH" && echo yes || echo no)"
+
+# ── T1 (AC1, AC2) — defect reproduction: a non-executable (bad-shebang) `gh`
+#    earlier on PATH plus a runnable `gh.exe` resolves to `gh.exe`. ──
+GHT1="$(mktemp -d)"
+printf '#!/nonexistent/devflow-test-interpreter\necho nope\n' > "$GHT1/gh"; chmod +x "$GHT1/gh"
+cat > "$GHT1/gh.exe" <<'STUB'
+#!/usr/bin/env bash
+[ "$1" = "--version" ] && { echo "gh version 2.stub (stub)"; exit 0; }
+exit 0
+STUB
+chmod +x "$GHT1/gh.exe"
+T1_SEL="$(PATH="$GHT1:$PATH" bash -c ". \"$RESOLVE_GH_SH\"; devflow_resolve_gh")"
+assert_eq "#245 T1: bad-shebang gh rejected, runnable gh.exe chosen (execution-verified)" "gh.exe" "$T1_SEL"
+
+# ── T2 (AC4) — DEVFLOW_GH override wins and never probes `gh --version`. ──
+GHT2="$(mktemp -d)"
+cat > "$GHT2/gh-stub" <<'STUB'
+#!/usr/bin/env bash
+touch "$(dirname "$0")/.probed"
+[ "$1" = "--version" ] && { echo "gh version stub"; exit 0; }
+exit 0
+STUB
+chmod +x "$GHT2/gh-stub"
+T2_SEL="$(DEVFLOW_GH="$GHT2/gh-stub" bash -c ". \"$RESOLVE_GH_SH\"; devflow_resolve_gh")"
+assert_eq "#245 T2: DEVFLOW_GH override returned verbatim (highest precedence)" "$GHT2/gh-stub" "$T2_SEL"
+assert_eq "#245 T2: override path never probes gh --version (stub not invoked)" "no" \
+  "$([ -f "$GHT2/.probed" ] && echo yes || echo no)"
+
+# ── T3 (AC8) — a runnable `gh` on PATH resolves to `gh` on the first probe. ──
+GHT3="$(mktemp -d)"
+cat > "$GHT3/gh" <<'STUB'
+#!/usr/bin/env bash
+[ "$1" = "--version" ] && { echo "gh version 2.stub (stub)"; exit 0; }
+exit 0
+STUB
+chmod +x "$GHT3/gh"
+T3_SEL="$(PATH="$GHT3:$PATH" bash -c ". \"$RESOLVE_GH_SH\"; devflow_resolve_gh")"
+assert_eq "#245 T3: runnable gh on PATH resolves to 'gh' (no behavior change on Linux/macOS/cloud)" "gh" "$T3_SEL"
+
+# ── Degenerate (AC1 tail) — no runnable candidate → bare `gh` so the caller's
+#    best-effort warning path still fires (rc 0 preserved). ──
+GHTD="$(mktemp -d)"; ln -s "$(command -v bash)" "$GHTD/bash"
+TD_SEL="$(PATH="$GHTD" "$GHTD/bash" -c ". \"$RESOLVE_GH_SH\"; devflow_resolve_gh")"; TD_RC=$?
+assert_eq "#245 degenerate: no runnable gh/gh.exe → falls back to bare 'gh'" "gh" "$TD_SEL"
+assert_eq "#245 degenerate: fallback still exits 0 (best-effort warning path preserved)" "0" "$TD_RC"
+
+# ── AC5 / preflight — a present-but-unrunnable `gh` is reported at preflight with
+#    a remedy (execution-verified), not silently passed. Shadow the real gh with a
+#    bad-shebang gh (no gh.exe present) so the resolver returns bare gh and
+#    preflight's re-probe fails. git/jq/python3 stay real (only gh is broken). ──
+GHTP="$(mktemp -d)"
+printf '#!/nonexistent/devflow-test-interpreter\necho nope\n' > "$GHTP/gh"; chmod +x "$GHTP/gh"
+PF_GH_OUT="$(PATH="$GHTP:$PATH" bash "$PREFLIGHT_SH" 2>&1)"; PF_GH_RC=$?
+assert_eq "#245 preflight: unrunnable gh shim → exit non-zero (AC5)" "yes" \
+  "$([ "$PF_GH_RC" -ne 0 ] && echo yes || echo no)"
+assert_eq "#245 preflight: unrunnable gh shim → \"no working 'gh'\" remedy, not silent pass (AC5)" "yes" \
+  "$(printf '%s' "$PF_GH_OUT" | grep -q "no working 'gh'" && echo yes || echo no)"
+
+# ── T4 (AC6) — a Python helper run with DEVFLOW_GH pointing at a stub invokes the
+#    stub, not bare `gh`. parse-acs.py shells `gh issue view … --json body`. ──
+GHT4="$(mktemp -d)"
+cat > "$GHT4/gh" <<'STUB'
+#!/usr/bin/env bash
+touch "$(dirname "$0")/.called"
+# parse-acs.py calls: gh issue view N --json body -q .body
+cat <<'BODY'
+## Acceptance Criteria
+- [ ] devflow-gh-stub-marker criterion
+BODY
+exit 0
+STUB
+chmod +x "$GHT4/gh"
+PARSE_ACS="$LIB/../scripts/parse-acs.py"
+T4_OUT="$(DEVFLOW_GH="$GHT4/gh" python3 "$PARSE_ACS" --issue 1 2>/dev/null)"
+assert_eq "#245 T4: Python helper routes gh through DEVFLOW_GH stub (stub invoked)" "yes" \
+  "$([ -f "$GHT4/.called" ] && echo yes || echo no)"
+assert_eq "#245 T4: Python helper consumed the stub's output (not bare gh)" "yes" \
+  "$(printf '%s' "$T4_OUT" | grep -q 'devflow-gh-stub-marker' && echo yes || echo no)"
+
+# ── Peer-completeness pin (2.3.0a): every gh-calling shell helper routes through
+#    the resolver — no helper retains the bare `: "${DEVFLOW_GH:=gh}"` default, and
+#    no non-comment bare `gh api`/`gh pr`/… call survives outside the resolver. ──
+DGH_ROOT="$(cd "$LIB/.." && pwd)"
+DGH_HARDCODE="$(grep -rlF 'DEVFLOW_GH:=gh}' "$DGH_ROOT/scripts" "$DGH_ROOT/lib" --include='*.sh' 2>/dev/null | grep -v '/test/' | grep -c . || true)"
+assert_eq "#245 peer-completeness: no shell helper retains the bare DEVFLOW_GH:=gh default" "0" "$DGH_HARDCODE"
+DGH_SOURCED="$(grep -rlF 'resolve-gh.sh' "$DGH_ROOT/scripts" "$DGH_ROOT/lib" --include='*.sh' 2>/dev/null | grep -v '/test/' | grep -c . || true)"
+assert_eq "#245 peer-completeness: >=13 helpers source resolve-gh.sh (all gh-callers converted)" "yes" \
+  "$([ "$DGH_SOURCED" -ge 13 ] && echo yes || echo no)"
+rm -rf "$GHT1" "$GHT2" "$GHT3" "$GHTD" "$GHTP" "$GHT4"
+
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)

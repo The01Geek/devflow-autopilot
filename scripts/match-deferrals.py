@@ -57,10 +57,15 @@ Exit codes:
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
 from pathlib import Path
+
+# The gh binary to shell out to. `DEVFLOW_GH` (the documented override the shell
+# helpers resolve via lib/resolve-gh.sh) wins when set and non-empty; else `gh`.
+GH = os.environ.get("DEVFLOW_GH") or "gh"
 
 LINE_DRIFT_TOLERANCE = 25
 WIDENS_SURFACE_TOLERANCE = 10
@@ -166,7 +171,7 @@ def _parse_yaml_payload(block: str) -> dict:
 
 def _get_pr_body_and_author(pr_number: int) -> tuple[str, str]:
     r = _run(
-        ["gh", "pr", "view", str(pr_number),
+        [GH, "pr", "view", str(pr_number),
          "--json", "body,author", "--jq",
          "[.body, (.author.login // \"\")] | @json"],
         check=False,
@@ -180,7 +185,7 @@ def _get_pr_body_and_author(pr_number: int) -> tuple[str, str]:
 def _check_issue_cross_link(issue_number: int, pr_number: int) -> str | None:
     """Returns None if valid, else a rejection reason string."""
     r = _run(
-        ["gh", "issue", "view", str(issue_number),
+        [GH, "issue", "view", str(issue_number),
          "--json", "body,state", "--jq",
          "[.body, .state] | @json"],
         check=False,

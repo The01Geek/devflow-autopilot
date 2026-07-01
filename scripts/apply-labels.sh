@@ -25,7 +25,11 @@
 # retried via `gh issue edit`/`gh pr edit`.
 set -uo pipefail
 
-: "${DEVFLOW_GH:=gh}"
+# gh binary: resolved once via the single-source resolver (execution-verified);
+# an explicit DEVFLOW_GH still wins, so test stubs are untouched.
+# shellcheck source=../lib/resolve-gh.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/resolve-gh.sh"
+: "${DEVFLOW_GH:=$(devflow_resolve_gh)}"
 NUMBER="${1:?Usage: apply-labels.sh <issue-or-pr-number> <label…>}"
 shift
 

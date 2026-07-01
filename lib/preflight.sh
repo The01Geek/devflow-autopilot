@@ -17,6 +17,10 @@ set -u
 _PREFLIGHT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=resolve-python.sh
 . "$_PREFLIGHT_DIR/resolve-python.sh"
+# Share the gh-selection contract with every gh-calling helper (see lib/resolve-gh.sh)
+# so preflight DETECTS with the same execution-verified probe the helpers USE.
+# shellcheck source=resolve-gh.sh
+. "$_PREFLIGHT_DIR/resolve-gh.sh"
 
 missing=0
 
@@ -28,8 +32,22 @@ _need() {  # $1=command  $2=how-to-install hint
 }
 
 _need git     "install git"
-_need gh      "install the GitHub CLI (https://cli.github.com) and run 'gh auth login'"
 _need jq      "install jq (https://jqlang.github.io/jq/)"
+
+# gh resolution — mirror the Python resolver path: use the execution-verified
+# single-source resolver, not a bare presence check. On a stock Windows/WSL host a
+# non-executable `gh` shim (a Python-provided `gh` with a Windows shebang) can
+# shadow the real GitHub CLI: `command -v gh` succeeds but the binary cannot run,
+# so a plain presence check would pass preflight while every gh-calling helper
+# breaks. devflow_resolve_gh probes candidates with a network/auth-free
+# `gh --version` and returns the first runnable one (or bare `gh` when none runs);
+# we re-probe the chosen invocation here so an unrunnable gh is reported with a
+# remedy instead of silently passing.
+_GH="$(devflow_resolve_gh)"
+if ! "$_GH" --version >/dev/null 2>&1; then
+  printf "devflow preflight: no working 'gh' on PATH (the resolved '%s' does not execute — e.g. a non-executable shim shadowing the real GitHub CLI on Windows/WSL). Install the GitHub CLI (https://cli.github.com) and run 'gh auth login', or set DEVFLOW_GH to a working gh/gh.exe.\n" "$_GH" >&2
+  missing=1
+fi
 
 # Python resolution. `python3` is the preferred command and the normal macOS/Linux path. It
 # is taken only when it is both present AND actually runs (`-c 'pass'`) — the same runnability

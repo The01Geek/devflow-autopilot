@@ -56,8 +56,12 @@ case "$TAG" in
         exit 1 ;;
 esac
 
-# ── gh binary (allow injection for tests) ────────────────────────────────────
-: "${DEVFLOW_GH:=gh}"
+# ── gh binary: resolved once via the single-source resolver (execution-verified);
+# an explicit DEVFLOW_GH still wins (injection for tests) and is exported to the
+# child helpers below so they inherit the resolved binary ─────────────────────
+# shellcheck source=resolve-gh.sh
+. "$HERE/resolve-gh.sh"
+: "${DEVFLOW_GH:=$(devflow_resolve_gh)}"
 
 # The reserved DevFlow provenance label plus a fixed Retrospective marker stamped
 # on every filed issue. Both are hardcoded constants — no config key controls

@@ -56,6 +56,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+# The gh binary to shell out to. `DEVFLOW_GH` (the documented override the shell
+# helpers resolve via lib/resolve-gh.sh) wins when set and non-empty; otherwise
+# bare `gh`. Read once at import so every subprocess call uses the same binary.
+GH = os.environ.get("DEVFLOW_GH") or "gh"
+
 
 def _force_utf8_streams():
     """Force stdout/stderr to UTF-8, idempotently and defensively. Called from
@@ -91,7 +96,7 @@ def _fail(prefix, exc):
 
 def _repo_full():
     try:
-        r = _run(['gh', 'repo', 'view', '--json', 'nameWithOwner',
+        r = _run([GH, 'repo', 'view', '--json', 'nameWithOwner',
                   '-q', '.nameWithOwner'])
     except subprocess.CalledProcessError as e:
         _fail('repo lookup', e)
@@ -134,7 +139,7 @@ def cmd_id(args):
     while True:
         try:
             r = _run([
-                'gh', 'api',
+                GH, 'api',
                 f'/repos/{repo}/issues/{args.issue}/comments'
                 f'?page={page}&per_page=100',
             ])
@@ -164,7 +169,7 @@ def cmd_body(args):
     repo = _repo_full()
     try:
         r = _run([
-            'gh', 'api',
+            GH, 'api',
             f'/repos/{repo}/issues/comments/{args.comment_id}',
             '--jq', '.body',
         ])
@@ -183,7 +188,7 @@ def cmd_patch(args):
         sys.exit(1)
     try:
         r = _run([
-            'gh', 'api', '-X', 'PATCH',
+            GH, 'api', '-X', 'PATCH',
             f'/repos/{repo}/issues/comments/{args.comment_id}',
             '-F', f'body=@{body_path}',
             '--jq', '.body',
@@ -205,7 +210,7 @@ def cmd_create(args):
         sys.exit(1)
     try:
         r = _run([
-            'gh', 'issue', 'comment', str(args.issue),
+            GH, 'issue', 'comment', str(args.issue),
             '--body-file', str(body_path),
         ])
     except subprocess.CalledProcessError as e:
@@ -876,7 +881,7 @@ def cmd_update(args):
     while True:
         try:
             r = _run([
-                'gh', 'api',
+                GH, 'api',
                 f'/repos/{repo}/issues/{args.issue}/comments'
                 f'?page={page}&per_page=100',
             ])
@@ -909,7 +914,7 @@ def cmd_update(args):
     # Fetch live body (re-fetch invariant).
     try:
         r = _run([
-            'gh', 'api',
+            GH, 'api',
             f'/repos/{repo}/issues/comments/{comment_id}',
             '--jq', '.body',
         ])
@@ -949,7 +954,7 @@ def cmd_update(args):
         tmp_path = tf.name
     try:
         r = _run([
-            'gh', 'api', '-X', 'PATCH',
+            GH, 'api', '-X', 'PATCH',
             f'/repos/{repo}/issues/comments/{comment_id}',
             '-F', f'body=@{tmp_path}',
             '--jq', '.body',
