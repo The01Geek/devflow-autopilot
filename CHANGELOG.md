@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.46] — 2026-06-30
+
+### Added
+- **`/devflow:implement` now guards against a run that stops before Phase 4 finalization — a workpad frozen at an in-progress `Status` with an un-described draft PR.** A run could silently under-complete Phase 4: it committed the Phase 4.1 documentation but then stopped before Phase 4.2 (`/pr-description`) and Phase 4.3 (finalize), exiting `success` with the workpad stuck at `🚀 Documenting`, the draft PR still carrying the `Work in progress` placeholder body, and no terminal outcome reaction (observed on issue #228 / PR #229). Two agent-side guards, both in the shared skill body so the local and cloud `/devflow:implement` tiers get them with no workflow change, close the gap: (1) a cross-phase **terminal-status self-check** in `skills/implement/SKILL.md` (near the Completion Checklist) forbids the orchestrator from emitting its run-final message while the workpad `Status` is any in-progress value — it must first reach a terminal `Status` (`Complete` 🎉 or `Blocked` 👎); the check keys on the workpad `Status`, **not** on PR draft state, so the intended `implement_pr_state=draft` path (which still reaches `Status: Complete`) is never a false positive; and (2) a **Phase 4.1 post-subagent re-anchor** in `skills/implement/phases/phase-4-documentation.md` that, after the `devflow:docs` subagent returns and its docs are committed, re-`Read`s the phase file before §4.2 — re-anchoring the remaining §4.2/§4.3 procedure a long context-isolated subagent return may have evicted (aggravated by the #218 split that moved each phase's procedure into an on-demand `Read`); scoped to the Phase 4.1 docs subagent return only. No new status value, dependency, config key, or workflow change. Both prose contracts are pinned in `lib/test/run.sh` via `assert_pin_unique` + `assert_pin_red_on_removal` (each clause proven to flip RED against the un-pinned source), and `docs/implement-skill.md` describes both guards. (#233, closes #232)
+
 ## [2.8.45] — 2026-06-30
 
 ### Added
