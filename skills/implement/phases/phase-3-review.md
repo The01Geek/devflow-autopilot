@@ -86,6 +86,10 @@ ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 # --persist had nothing to derive from and this run's effectiveness telemetry is genuinely
 # lost — surface it, do not swallow. (A persist that DID find inputs but failed to write
 # still leaves efficiency-trace.sh's own ::warning:: on the run log, surfaced above.)
+# This detector counts ANY iter-*.json and does not replicate --persist's source=="review"
+# skip (standalone /devflow:review runs have their own record path); that is correct here
+# because at THIS seam the review-and-fix loop just driven inline is what writes this tree,
+# so a foreign review-sourced dir being the sole occupant is not a reachable in-flow shape.
 if ! compgen -G "$ROOT/.devflow/tmp/review/*/*/iter-*.json" >/dev/null 2>&1; then
   workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "review-and-fix inline loop wrote no iter-*.json this run; lib/efficiency-trace.sh --persist had no inputs, so this run's effectiveness telemetry (.devflow/logs/efficiency/) is missing"
 fi

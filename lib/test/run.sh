@@ -2129,6 +2129,13 @@ assert_pin_unique "#235 (B) phase-3.3: the no-inputs detector glob is repo-root-
   'compgen -G "$ROOT/.devflow/tmp/review/*/*/iter-*.json"' "$DEF_SKILL"
 assert_pin_unique "#235 (B) phase-3.3: the no-inputs case emits the dropped-failed telemetry-lost reflection" \
   'lib/efficiency-trace.sh --persist had no inputs' "$DEF_SKILL"
+# The detector glob pin above references $ROOT literally, so it stays GREEN even if the
+# $ROOT *derivation* were reverted to a cwd-relative form (e.g. `ROOT=$(pwd)`), silently
+# defeating the repo-root anchoring that keeps the detector congruent with --persist. Pin
+# the derivation itself so that half-revert turns the suite RED — the same framing-vs-fix
+# lesson this whole block is about, applied to the load-bearing producer line.
+assert_pin_unique "#235 (B) phase-3.3: the no-inputs detector root is derived from the git toplevel (not cwd)" \
+  'ROOT=$(git rev-parse --show-toplevel' "$DEF_SKILL"
 # ── #192: review/analysis agents must never mutate the live working tree ──────────────
 # Two coupled layers, each pinned with a mutation-proven assert_pin_red_on_removal so a
 # half-applied removal of the contract turns the suite RED (issue #192 AC4):
