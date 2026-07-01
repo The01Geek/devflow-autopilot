@@ -305,6 +305,8 @@ fi
 
 Then tick the Documentation phase in the workpad: `workpad.py update $ISSUE_NUMBER --tick-progress "Documentation"`.
 
+**Re-anchor before §4.2 (mandatory, after the Phase 4.1 `devflow:docs` subagent returns and its docs are committed).** Phase 4.1 above dispatched a context-isolated `devflow:docs` subagent (Stage 1/Stage 2); a long subagent return can evict this phase file from your working set, which is exactly how a run stops at "documentation done" before reaching §4.2/§4.3. So now that the docs subagent has returned and its docs are committed, before proceeding to §4.2, **`Read` `${CLAUDE_SKILL_DIR}/phases/phase-4-documentation.md` again and follow it exactly** — re-anchoring the remaining §4.2 (PR description) and §4.3 (finalize) procedure, never relying on the earlier entry-gate read. This re-anchor is scoped to the Phase 4.1 docs subagent return **only** — do not apply it to the Phase 2 or Phase 3 subagent returns, whose phases carry their own entry-gate reads.
+
 ### 4.2 Generate PR Description
 
 Invoke the **Skill tool** with `skill: "pr-description"` and `args: "$ARGUMENTS"` (the issue number). The skill detects the existing PR and updates its body directly.
