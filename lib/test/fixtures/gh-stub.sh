@@ -19,6 +19,23 @@ case "$ARGS" in
   *"pr diff"*)
     cat "$FX/${SET}-diff.txt"
     ;;
+  *"issues/"*"/labels"*)
+    # REST label-apply: POST repos/{owner}/{repo}/issues/{n}/labels (apply-labels.sh).
+    # Matched BEFORE the generic issues/ arms so a labels POST isn't misrouted to the
+    # issue-view fixture. Echo the applied-labels array shape on success.
+    echo '[]'
+    ;;
+  *"--method PATCH"*"pulls/"*)
+    # REST PR-body edit: PATCH repos/{owner}/{repo}/pulls/{n} (pr-description / overclaim
+    # correction). Matched before the pulls/ sub-resource arms; return the updated PR object.
+    echo '{}'
+    ;;
+  *"--method POST"*"/labels"*)
+    # REST label-create: POST repos/{owner}/{repo}/labels (ensure-label.sh). The
+    # issues/{n}/labels apply arm above already claimed the apply path, so this only
+    # catches the create path. Return the created-label object on success.
+    echo '{}'
+    ;;
   *"pulls/"*"/comments"*)
     # inline review comments
     cat "$FX/${SET}-reviewcomments.json"

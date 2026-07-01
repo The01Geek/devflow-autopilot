@@ -818,8 +818,8 @@ assert_eq "deferred.labels: SKILL reads via config-get with the DevFlow,Deferred
   "$(grep -qF 'config-get.sh .deferred.labels DevFlow,Deferred' "$DEF_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: token appears in BOTH deferral channels (4.0+4.0.5)
 assert_eq "deferred.labels: SKILL ensures each label exists before applying" "yes" \
   "$(grep -qF 'ensure-label.sh "$lbl"' "$DEF_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: token appears in BOTH deferral channels (4.0+4.0.5)
-assert_eq "deferred.labels: SKILL applies labels via best-effort gh issue edit --add-label" "yes" \
-  "$(grep -qF 'gh issue edit "$n" --add-label "$CLEAN_DEFERRED_LABELS"' "$DEF_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: token appears in BOTH deferral channels (4.0+4.0.5)
+assert_eq "deferred.labels: SKILL applies labels via best-effort REST apply-labels.sh helper" "yes" \
+  "$(grep -qF 'apply-labels.sh "$n" "$CLEAN_DEFERRED_LABELS"' "$DEF_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: token appears in BOTH deferral channels (4.0+4.0.5)
 # Both deferral channels must label: Phase 4.0 (no longer "add no --label") and Phase
 # 4.0.5. Require the resolution token to appear at least twice (once per channel).
 assert_eq "deferred.labels: SKILL resolves the labels in BOTH deferral channels (4.0 + 4.0.5)" "yes" \
@@ -4814,32 +4814,127 @@ assert_eq "workpad null → clean=true"         "true"  "$(echo "$BASE" | jq '.s
 echo "issue #97: reserved DevFlow label + issue-workpad reflection ingestion"
 # ────────────────────────────────────────────────────────────────────────────
 
-# ── ensure-label.sh: idempotent, always exit 0 (best-effort) ─────────────────
+# ── ensure-label.sh: REST create, idempotent, always exit 0 (best-effort) ────
+# The helper now creates via `gh api --method POST repos/{owner}/{repo}/labels`
+# (repo-scope only) rather than `gh label create` (org-scoped GraphQL). The stub
+# matches the REST POST: first call succeeds (created); a marker makes the second
+# report HTTP 422 / already_exists (the REST already-exists shape); a separate
+# stub forces a hard failure. Each run still exits 0 with its own breadcrumb.
 EL_TMP="$(mktemp -d)"
 cat > "$EL_TMP/gh" <<'STUB'
 #!/usr/bin/env bash
-# First create succeeds; a marker makes the second call report "already exists".
+# Record argv so the test can assert the REST endpoint + fields are targeted.
+printf '%s' "$*" > "$(dirname "$0")/create-args"
 MARK="$(dirname "$0")/.created"
 case "$*" in
-  *"label create"*)
-    if [ -f "$MARK" ]; then echo "label already exists" >&2; exit 1; fi
-    touch "$MARK"; exit 0 ;;
+  *"--method POST"*"/labels"*)
+    if [ -f "$MARK" ]; then echo '{"message":"Validation Failed","errors":[{"resource":"Label","code":"already_exists","field":"name"}],"status":"422"}' >&2; echo "gh: Validation Failed (HTTP 422)" >&2; exit 1; fi
+    touch "$MARK"; echo '{}'; exit 0 ;;
   *) exit 0 ;;
 esac
 STUB
 chmod +x "$EL_TMP/gh"
-DEVFLOW_GH="$EL_TMP/gh" bash "$LIB/../scripts/ensure-label.sh" DevFlow >/dev/null 2>&1; EL_R1=$?
-DEVFLOW_GH="$EL_TMP/gh" bash "$LIB/../scripts/ensure-label.sh" DevFlow >/dev/null 2>&1; EL_R2=$?
+EL_E1="$(DEVFLOW_GH="$EL_TMP/gh" bash "$LIB/../scripts/ensure-label.sh" DevFlow 2>&1 >/dev/null)"; EL_R1=$?
+EL_E2="$(DEVFLOW_GH="$EL_TMP/gh" bash "$LIB/../scripts/ensure-label.sh" DevFlow 2>&1 >/dev/null)"; EL_R2=$?
 assert_eq "ensure-label: first run exits 0 (created)"            "0" "$EL_R1"
 assert_eq "ensure-label: second run exits 0 (already exists)"    "0" "$EL_R2"
+assert_eq "ensure-label: targets REST POST repos/{owner}/{repo}/labels (not gh label create)" "yes" \
+  "$(grep -qF -- 'api --method POST repos/{owner}/{repo}/labels' "$EL_TMP/create-args" && echo yes || echo no)"
+assert_eq "ensure-label: passes the label name as a -f field" "yes" \
+  "$(grep -qF -- 'name=DevFlow' "$EL_TMP/create-args" && echo yes || echo no)"
+assert_eq "ensure-label: passes the description as a -f field" "yes" \
+  "$(grep -qF -- 'description=Created by DevFlow automation' "$EL_TMP/create-args" && echo yes || echo no)"
+assert_eq "ensure-label: first run breadcrumb says created" "yes" \
+  "$(printf '%s' "$EL_E1" | grep -qiF 'created label' && echo yes || echo no)"
+assert_eq "ensure-label: second run breadcrumb says already exists (HTTP 422)" "yes" \
+  "$(printf '%s' "$EL_E2" | grep -qiF 'already exists' && echo yes || echo no)"
 cat > "$EL_TMP/ghfail" <<'STUB'
 #!/usr/bin/env bash
 echo "HTTP 500: server error" >&2; exit 1
 STUB
 chmod +x "$EL_TMP/ghfail"
-DEVFLOW_GH="$EL_TMP/ghfail" bash "$LIB/../scripts/ensure-label.sh" DevFlow >/dev/null 2>&1; EL_R3=$?
+EL_E3="$(DEVFLOW_GH="$EL_TMP/ghfail" bash "$LIB/../scripts/ensure-label.sh" DevFlow 2>&1 >/dev/null)"; EL_R3=$?
 assert_eq "ensure-label: hard gh failure still exits 0 (best-effort)" "0" "$EL_R3"
+assert_eq "ensure-label: hard-failure breadcrumb names the failure" "yes" \
+  "$(printf '%s' "$EL_E3" | grep -qiF 'could not ensure label' && echo yes || echo no)"
+# A 422 for a DIFFERENT validation reason (no `already_exists` code) must NOT be
+# swallowed as "already exists" — it routes to the failure breadcrumb. Guards the
+# /simplify narrowing that dropped the over-broad bare `HTTP 422` match.
+cat > "$EL_TMP/gh422" <<'STUB'
+#!/usr/bin/env bash
+echo '{"message":"Validation Failed","errors":[{"resource":"Label","code":"invalid","field":"name"}],"status":"422"}' >&2
+echo "gh: Validation Failed (HTTP 422)" >&2; exit 1
+STUB
+chmod +x "$EL_TMP/gh422"
+EL_E4="$(DEVFLOW_GH="$EL_TMP/gh422" bash "$LIB/../scripts/ensure-label.sh" DevFlow 2>&1 >/dev/null)"; EL_R4=$?
+assert_eq "ensure-label: non-already_exists 422 still exits 0 (best-effort)" "0" "$EL_R4"
+assert_eq "ensure-label: non-already_exists 422 is NOT swallowed as already-exists" "yes" \
+  "$(printf '%s' "$EL_E4" | grep -qiF 'could not ensure label' && ! printf '%s' "$EL_E4" | grep -qiF 'already exists' && echo yes || echo no)"
 rm -rf "$EL_TMP"
+
+# ── apply-labels.sh: REST label-apply helper (best-effort, always exit 0) ─────
+# Applies via POST repos/{owner}/{repo}/issues/{n}/labels (repo-scope only). The
+# stub records argv so we can assert the endpoint + labels[] fields; a failing
+# stub proves the best-effort exit-0 + breadcrumb contract; an empty label set
+# proves no POST is made.
+AL_TMP="$(mktemp -d)"
+cat > "$AL_TMP/gh" <<'STUB'
+#!/usr/bin/env bash
+printf '%s' "$*" >> "$(dirname "$0")/apply-args"
+echo '[]'; exit 0
+STUB
+chmod +x "$AL_TMP/gh"
+: > "$AL_TMP/apply-args"
+DEVFLOW_GH="$AL_TMP/gh" bash "$LIB/../scripts/apply-labels.sh" 42 DevFlow >/dev/null 2>&1; AL_R1=$?
+assert_eq "apply-labels: exits 0 on success" "0" "$AL_R1"
+assert_eq "apply-labels: targets REST POST issues/{n}/labels (not gh issue/pr edit)" "yes" \
+  "$(grep -qF -- 'api --method POST repos/{owner}/{repo}/issues/42/labels' "$AL_TMP/apply-args" && echo yes || echo no)"
+assert_eq "apply-labels: single label rides as a labels[] field" "yes" \
+  "$(grep -qF -- 'labels[]=DevFlow' "$AL_TMP/apply-args" && echo yes || echo no)"
+assert_eq "apply-labels: never falls back to gh issue/pr edit porcelain" "yes" \
+  "$(grep -qF -- 'issue edit' "$AL_TMP/apply-args" || grep -qF -- 'pr edit' "$AL_TMP/apply-args" ; [ $? -ne 0 ] && echo yes || echo no)"
+# Multi-label (separate args) and comma-separated single arg both expand every label.
+: > "$AL_TMP/apply-args"
+DEVFLOW_GH="$AL_TMP/gh" bash "$LIB/../scripts/apply-labels.sh" 42 DevFlow Retrospective >/dev/null 2>&1
+assert_eq "apply-labels: multi-arg applies every label (DevFlow)" "yes" \
+  "$(grep -qF -- 'labels[]=DevFlow' "$AL_TMP/apply-args" && echo yes || echo no)"
+assert_eq "apply-labels: multi-arg applies every label (Retrospective)" "yes" \
+  "$(grep -qF -- 'labels[]=Retrospective' "$AL_TMP/apply-args" && echo yes || echo no)"
+: > "$AL_TMP/apply-args"
+DEVFLOW_GH="$AL_TMP/gh" bash "$LIB/../scripts/apply-labels.sh" 42 "DevFlow,Deferred" >/dev/null 2>&1
+assert_eq "apply-labels: comma-separated arg splits into every label (DevFlow)" "yes" \
+  "$(grep -qF -- 'labels[]=DevFlow' "$AL_TMP/apply-args" && echo yes || echo no)"
+assert_eq "apply-labels: comma-separated arg splits into every label (Deferred)" "yes" \
+  "$(grep -qF -- 'labels[]=Deferred' "$AL_TMP/apply-args" && echo yes || echo no)"
+# Empty / whitespace-only label set → no POST at all.
+: > "$AL_TMP/apply-args"
+DEVFLOW_GH="$AL_TMP/gh" bash "$LIB/../scripts/apply-labels.sh" 42 "   " >/dev/null 2>&1; AL_RE=$?
+assert_eq "apply-labels: whitespace-only label set exits 0" "0" "$AL_RE"
+assert_eq "apply-labels: whitespace-only label set makes no POST" "yes" \
+  "$([ ! -s "$AL_TMP/apply-args" ] && echo yes || echo no)"
+# Label value with a space/metachar rides as ONE literal labels[] field (no word-split,
+# no shell expansion) — proves the "passed literally" contract the helper comment promises.
+: > "$AL_TMP/apply-args"
+DEVFLOW_GH="$AL_TMP/gh" bash "$LIB/../scripts/apply-labels.sh" 42 "needs review" >/dev/null 2>&1
+assert_eq "apply-labels: a space-containing label is one literal labels[] field (no word-split)" "yes" \
+  "$(grep -qF -- 'labels[]=needs review' "$AL_TMP/apply-args" && echo yes || echo no)"
+# Best-effort: a failing gh still exits 0 and leaves a specific breadcrumb. The failure
+# stub RECORDS its argv so "no porcelain fallback" is proven on the FAILURE path too — a
+# future `|| gh issue edit …` retry on the RC≠0 branch would land here and trip the pin.
+cat > "$AL_TMP/ghfail" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$(dirname "$0")/fail-args"
+echo "HTTP 500: server error" >&2; exit 1
+STUB
+chmod +x "$AL_TMP/ghfail"
+: > "$AL_TMP/fail-args"
+AL_EF="$(DEVFLOW_GH="$AL_TMP/ghfail" bash "$LIB/../scripts/apply-labels.sh" 42 DevFlow 2>&1 >/dev/null)"; AL_RF=$?
+assert_eq "apply-labels: hard gh failure still exits 0 (best-effort)" "0" "$AL_RF"
+assert_eq "apply-labels: failure breadcrumb names the target and label(s)" "yes" \
+  "$(printf '%s' "$AL_EF" | grep -qF '#42' && printf '%s' "$AL_EF" | grep -qF 'DevFlow' && echo yes || echo no)"
+assert_eq "apply-labels: no porcelain fallback on the FAILURE path (no gh issue/pr edit retry)" "yes" \
+  "$(! grep -qE 'issue edit|pr edit' "$AL_TMP/fail-args" && echo yes || echo no)"
+rm -rf "$AL_TMP"
 
 # ── scan.sh: union detection predicate (label / closes-issue / audit / prefix) ─
 S97="$(mktemp -d)"
@@ -5360,14 +5455,42 @@ assert_eq "#126 pin: docs describe the grouped reflection structure + --reflecti
 # ── SKILL.md / config contract pins (grep) ───────────────────────────────────
 assert_eq "#97 pin: ensure-label.sh exists" "yes" \
   "$([ -f "$LIB/../scripts/ensure-label.sh" ] && echo yes || echo no)"
-assert_eq "#97 pin: create-issue ensures+applies DevFlow label" "yes" \
-  "$(grep -q 'ensure-label.sh DevFlow' "$LIB/../skills/create-issue/SKILL.md" && grep -q -- '--add-label DevFlow' "$LIB/../skills/create-issue/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: compound: two greps && on one line (provenance: ensure-label + add-label)
-assert_eq "#97 pin: implement applies DevFlow label at PR create" "yes" \
-  "$(grep -q 'ensure-label.sh DevFlow' "$IMPL_SKILL_BUNDLE" && grep -q -- '--add-label DevFlow' "$IMPL_SKILL_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: compound: two greps && on one line (provenance: ensure-label + add-label); issue #218: bundle (label idiom moved to phases/phase-3-review.md)
-assert_eq "#152 pin: meta-issue.sh ensures+applies DevFlow and Retrospective labels" "yes" \
-  "$(grep -q 'ensure-label.sh' "$LIB/meta-issue.sh" && grep -q -- '--add-label DevFlow' "$LIB/meta-issue.sh" && grep -q -- '--add-label Retrospective' "$LIB/meta-issue.sh" && echo yes || echo no)"
+assert_eq "#97 pin: create-issue ensures+applies DevFlow label via REST helper" "yes" \
+  "$(grep -q 'ensure-label.sh DevFlow' "$LIB/../skills/create-issue/SKILL.md" && grep -qF 'apply-labels.sh <issue_number> DevFlow' "$LIB/../skills/create-issue/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: compound: two greps && on one line (provenance: ensure-label + REST apply-labels)
+assert_eq "#97 pin: implement applies DevFlow label at PR create via REST helper" "yes" \
+  "$(grep -q 'ensure-label.sh DevFlow' "$IMPL_SKILL_BUNDLE" && grep -qF 'apply-labels.sh "$PR_NUM" DevFlow' "$IMPL_SKILL_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: compound: two greps && on one line (provenance: ensure-label + REST apply-labels); issue #218: bundle (label idiom in phases/phase-3-review.md)
+assert_eq "#152 pin: meta-issue.sh ensures+applies DevFlow and Retrospective labels via REST helper" "yes" \
+  "$(grep -q 'ensure-label.sh' "$LIB/meta-issue.sh" && grep -qF 'apply-labels.sh' "$LIB/meta-issue.sh" && grep -qF 'DevFlow Retrospective' "$LIB/meta-issue.sh" && echo yes || echo no)"
 assert_eq "#97 pin: init creates the reserved DevFlow provenance label" "yes" \
   "$(grep -q 'ensure-label.sh DevFlow' "$LIB/../skills/init/SKILL.md" && grep -qi 'provenance' "$LIB/../skills/init/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: compound: two greps && on one line (provenance: ensure-label + provenance)
+# ── #228: REST migration — no org-scoped GraphQL porcelain on any migrated path ──
+# The removed invocation LITERALS (command + their args) must be gone. These exact
+# forms never appear in the now-present contrastive prose (which references the bare
+# `gh issue edit --add-label` without args), so an absence pin here cannot false-match.
+assert_eq "#228: ensure-label.sh creates via REST gh api, not gh label create" "yes" \
+  "$(grep -qF 'api --method POST' "$LIB/../scripts/ensure-label.sh" && ! grep -qF 'label create "$NAME"' "$LIB/../scripts/ensure-label.sh" && echo yes || echo no)"
+assert_eq "#228: apply-labels.sh applies via REST gh api, never gh issue/pr edit" "yes" \
+  "$(grep -qF 'api --method POST' "$LIB/../scripts/apply-labels.sh" && ! grep -qE '"\$DEVFLOW_GH" (issue|pr) edit' "$LIB/../scripts/apply-labels.sh" && echo yes || echo no)"
+assert_eq "#228: meta-issue.sh no longer invokes 'gh issue edit' for labels" "yes" \
+  "$(! grep -qF '"$DEVFLOW_GH" issue edit' "$LIB/meta-issue.sh" && echo yes || echo no)"
+assert_eq "#228: create-issue removed the gh issue edit --add-label command" "yes" \
+  "$(! grep -qF 'gh issue edit <issue_number> --add-label DevFlow' "$LIB/../skills/create-issue/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: absence pin — asserts the removed porcelain command literal is GONE (negated grep, not a presence pin)
+assert_eq "#228: phase-3 removed the gh pr edit --add-label command" "yes" \
+  "$(! grep -qF 'gh pr edit "$PR_NUM" --add-label DevFlow' "$IMPL_SKILL_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: absence pin — asserts the removed porcelain command literal is GONE (negated grep, not a presence pin)
+assert_eq "#228: phase-4 removed the gh issue edit --add-label deferred command" "yes" \
+  "$(! grep -qF 'gh issue edit "$n" --add-label "$CLEAN_DEFERRED_LABELS"' "$IMPL_SKILL_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: absence pin — asserts the removed porcelain command literal is GONE (negated grep, not a presence pin)
+assert_eq "#228: phase-4 removed the gh pr edit --add-label docs-label command" "yes" \
+  "$(! grep -qF 'gh pr edit --add-label "$CLEAN_LABELS"' "$IMPL_SKILL_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: absence pin — asserts the removed porcelain command literal is GONE (negated grep, not a presence pin)
+assert_eq "#228: phase-4 docs-label routes through apply-labels.sh (symmetric presence pin)" "yes" \
+  "$(grep -qF 'apply-labels.sh "$DOCS_PR_NUM" "$CLEAN_LABELS"' "$IMPL_SKILL_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: presence pin pairs with the docs-label absence pin above so a typo'd new invocation can't pass all phase-4 pins
+assert_eq "#228: pr-description edits the body via REST gh api PATCH, not gh pr edit --body" "yes" \
+  "$(grep -qF 'api --method PATCH' "$LIB/../skills/pr-description/SKILL.md" && ! grep -qF 'gh pr edit $PR_NUMBER --body' "$LIB/../skills/pr-description/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: compound presence+absence pin (REST PATCH present AND old porcelain gone), not a single target-unique pin
+# Positively pin the migrated body-write SHAPE: `-F body=@-` reads the field literally
+# from stdin (the heredoc), the form that replaced `--body-file`'s no-expansion guarantee.
+# Distinguishable from the contrastive prose (which says bare `gh pr edit --body`), so this
+# is the real tripwire a porcelain reintroduction would have to defeat.
+assert_eq "#228: pr-description body PATCH uses the literal -F body=@- stdin form" "yes" \
+  "$(grep -qF -- '-F body=@-' "$LIB/../skills/pr-description/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: presence pin on the migrated literal-read body-write form
 assert_eq "#97 pin: retrospective Stage A consumes reflections" "yes" \
   "$(grep -qi 'reflection' "$LIB/../skills/retrospective/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: case-insensitive (grep -qi); pin_count is case-sensitive -F
 assert_eq "#97 pin: cheap-gate carries the reflection reason string" "yes" \
@@ -5609,8 +5732,8 @@ case "$*" in
      done
      echo 'https://github.com/acme/example-repo/issues/4242' ;;
   *"issue comment"*) echo 'commented' ;;
-  *"issue edit"*) printf '%s' "$*" > "$D/edit-args" ;;
-  *"label create"*) echo 'created' ;;
+  *"issues/"*"/labels"*) printf '%s' "$*" > "$D/edit-args" ;;   # REST label apply (apply-labels.sh)
+  *"--method POST"*"/labels"*) echo '{}' ;;                       # REST label create (ensure-label.sh)
   *) echo '' ;;
 esac
 STUB
@@ -5629,12 +5752,12 @@ assert_eq "meta-issue files the body verbatim" "true" \
   "$(diff -q "$MI_TMP/body.md" "$MI_TMP/created-body.md" >/dev/null 2>&1 && echo true || echo false)"
 # #152: both the DevFlow provenance label and the Retrospective marker are stamped
 # (best-effort) on the freshly filed issue (#4242, derived from the created URL).
-assert_eq "meta-issue stamps DevFlow label" "true" \
-  "$(grep -qF -- '--add-label DevFlow' "$MI_TMP/edit-args" && echo true || echo false)"
-assert_eq "meta-issue stamps Retrospective label" "true" \
-  "$(grep -qF -- '--add-label Retrospective' "$MI_TMP/edit-args" && echo true || echo false)"
-assert_eq "meta-issue edits the filed issue #4242" "true" \
-  "$(grep -qF -- 'issue edit 4242' "$MI_TMP/edit-args" && echo true || echo false)"
+assert_eq "meta-issue stamps DevFlow label (REST labels[] field)" "true" \
+  "$(grep -qF -- 'labels[]=DevFlow' "$MI_TMP/edit-args" && echo true || echo false)"
+assert_eq "meta-issue stamps Retrospective label (REST labels[] field)" "true" \
+  "$(grep -qF -- 'labels[]=Retrospective' "$MI_TMP/edit-args" && echo true || echo false)"
+assert_eq "meta-issue applies via REST issues/4242/labels (not gh issue edit)" "true" \
+  "$(grep -qF -- 'issues/4242/labels' "$MI_TMP/edit-args" && echo true || echo false)"
 assert_eq "override recorded with url"     "https://github.com/acme/example-repo/issues/4242" "$(jq -r '.dismissed["review-reject-bypassed"].meta_issue' "$MI_TMP/ov.json")"
 assert_eq "override reason"                "meta-plugin-issue" "$(jq -r '.dismissed["review-reject-bypassed"].reason' "$MI_TMP/ov.json")"
 assert_eq "override dismissed_by"          "retrospective-weekly"    "$(jq -r '.dismissed["review-reject-bypassed"].dismissed_by' "$MI_TMP/ov.json")"
@@ -5646,16 +5769,16 @@ D="$(dirname "$0")"
 case "$*" in
   *"issue list"*) echo '[{"number":99,"url":"https://github.com/acme/example-repo/issues/99","title":"[devflow-retrospective] meta: t-existing — x"}]' ;;
   *"issue comment"*) echo 'commented' ;;
-  *"issue edit"*) printf '%s' "$*" > "$D/edit-args" ;;
-  *"label create"*) echo 'created' ;;
+  *"issues/"*"/labels"*) printf '%s' "$*" > "$D/edit-args" ;;   # REST label apply (apply-labels.sh)
+  *"--method POST"*"/labels"*) echo '{}' ;;                       # REST label create (ensure-label.sh)
   *) echo '' ;;
 esac
 STUB
 chmod +x "$MI_TMP/gh"
 URL2="$(DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --tag t-existing --slug t-existing --title "x" --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov.json" 2>/dev/null)"
 assert_eq "meta-issue reuses existing URL" "https://github.com/acme/example-repo/issues/99" "$URL2"
-assert_eq "meta-issue stamps labels on the existing issue #99" "true" \
-  "$(grep -qF -- 'issue edit 99' "$MI_TMP/edit-args" && echo true || echo false)"
+assert_eq "meta-issue stamps labels on the existing issue #99 (REST issues/99/labels)" "true" \
+  "$(grep -qF -- 'issues/99/labels' "$MI_TMP/edit-args" && echo true || echo false)"
 # #152: fail CLOSED on a create that returns no usable issue URL. `gh issue create`
 # can exit 0 with empty/garbage stdout; without the URL-shape guard meta-issue.sh
 # would report a phantom filing AND write a permanent overrides.json cooldown for

@@ -64,7 +64,7 @@ esac
 # them (DevFlow is the scan/classify provenance string; Retrospective marks the
 # loop's own filings). Application is best-effort and never aborts the filing.
 _apply_labels() {  # $1 = issue number
-    local _num="$1" _lbl _err
+    local _num="$1" _lbl
     [[ "$DRY_RUN" -eq 1 ]] && return 0
     # Guard the number's shape: an empty or non-numeric token (e.g. a gh warning
     # line that leaked into the URL the caller derived ${URL##*/} from) must leave
@@ -78,10 +78,12 @@ _apply_labels() {  # $1 = issue number
     for _lbl in DevFlow Retrospective; do
         DEVFLOW_GH="$DEVFLOW_GH" "$HERE/../scripts/ensure-label.sh" "$_lbl" || true
     done
-    # Capture the gh stderr into the breadcrumb (mirroring ensure-label.sh's
-    # discipline) so a real failure names its cause instead of a generic warning.
-    _err="$("$DEVFLOW_GH" issue edit "$_num" --add-label DevFlow --add-label Retrospective 2>&1 >/dev/null)" \
-      || echo "::warning::meta-issue: could not apply one or both of the DevFlow/Retrospective labels to #${_num} (best-effort, continuing): ${_err}" >&2
+    # Apply via the shared REST label-apply helper (POST .../issues/{n}/labels),
+    # which needs only the `repo` scope — `gh issue edit --add-label` would resolve
+    # the repo via org-scoped GraphQL and fail under a repo-scoped token. The helper
+    # is best-effort (always exits 0) and leaves its own specific stderr breadcrumb
+    # naming the target + labels on failure, mirroring ensure-label.sh's discipline.
+    DEVFLOW_GH="$DEVFLOW_GH" "$HERE/../scripts/apply-labels.sh" "$_num" DevFlow Retrospective || true
 }
 
 # ── Step 1: de-dupe — find or create the issue ──────────────────────────────

@@ -17,7 +17,7 @@ For each logical chunk of deferred work (typically: one issue per remaining "pha
 - **No-options rule applies.** Observe the template's no-options discipline — no choice / hedge / deferral language (no "or", "could", "consider", "TBD", "for now", "(optional)") anywhere in the body. The deferred criteria are resolved decisions, so the gate is satisfied by construction; do not reintroduce hedging when describing the deferred scope.
 - **Autonomous-run adaptation.** Phase 4.0 runs inside an autonomous /devflow:implement execution with no user present, so the template's *interactive* elements do not apply: there is **no clarification round** and **no `## 🚫 Blocked` section** — the deferred criteria are already-decided acceptance criteria, so nothing is unresolved. Build the body inline here; do **not** invoke the full interactive `/devflow:create-issue` pipeline.
 - **GitHub autolink hygiene.** Applies to the follow-up issue body too — see *GitHub autolink hygiene* in the Workpad Reference.
-- **Posting rules.** Pass the body via a quoted-heredoc on stdin (`--body "$(cat <<'EOF' … EOF)"`) so backticks and `$` in the markdown are not expanded, and add **no** `--label` on the `gh issue create` call itself — the configured `deferred.labels` are applied best-effort *after* creation (see *Apply the deferred-issue labels* below), mirroring the post-creation `--add-label` idiom Phase 3.1 uses for the `DevFlow` provenance label and Phase 4.1 uses for `docs.labels`. Do **not** switch to `--body-file`. (This posting command is a deliberate, small departure from the template's own *example*, which pipes the body through `--body-file -`; only the body's section structure and writing discipline follow the template, not its exact posting command — the quoted-heredoc form keeps the no-expansion guarantee either way.)
+- **Posting rules.** Pass the body via a quoted-heredoc on stdin (`--body "$(cat <<'EOF' … EOF)"`) so backticks and `$` in the markdown are not expanded, and add **no** `--label` on the `gh issue create` call itself — the configured `deferred.labels` are applied best-effort *after* creation (see *Apply the deferred-issue labels* below), mirroring the post-creation label-apply idiom Phase 3.1 uses for the `DevFlow` provenance label and Phase 4.1 uses for `docs.labels`. Do **not** switch to `--body-file`. (This posting command is a deliberate, small departure from the template's own *example*, which pipes the body through `--body-file -`; only the body's section structure and writing discipline follow the template, not its exact posting command — the quoted-heredoc form keeps the no-expansion guarantee either way.)
 
 ```bash
 gh issue create \
@@ -54,7 +54,7 @@ EOF
 )"
 ```
 
-**Apply the deferred-issue labels.** As you create each follow-up issue above, **capture its number** from the `gh issue create` output (the command prints the new issue URL; the trailing path segment is the number) into `DEFERRED_ISSUE_NUMBERS` — a space-separated list you assemble from the issues you actually filed (e.g. `DEFERRED_ISSUE_NUMBERS="201 202"`). Then apply the configured `deferred.labels` to every filed issue. The labels are read from config (default `DevFlow,Deferred`) and normalized with the **same** split/trim/drop-empties idiom Phase 4.1 uses for `docs.labels`, so an empty or whitespace-only value applies no labels. Ensure each label exists first (best-effort), then apply them in a single `gh issue edit --add-label` per filed issue — best-effort and post-creation, so a label hiccup can never block or unwind the filing:
+**Apply the deferred-issue labels.** As you create each follow-up issue above, **capture its number** from the `gh issue create` output (the command prints the new issue URL; the trailing path segment is the number) into `DEFERRED_ISSUE_NUMBERS` — a space-separated list you assemble from the issues you actually filed (e.g. `DEFERRED_ISSUE_NUMBERS="201 202"`). Then apply the configured `deferred.labels` to every filed issue. The labels are read from config (default `DevFlow,Deferred`) and normalized with the **same** split/trim/drop-empties idiom Phase 4.1 uses for `docs.labels`, so an empty or whitespace-only value applies no labels. Ensure each label exists first (best-effort), then apply them through the shared REST `apply-labels.sh` helper (`POST .../issues/{n}/labels` — repo-scope only, unlike `gh issue edit --add-label`'s org-scoped GraphQL resolution) per filed issue — best-effort and post-creation, so a label hiccup can never block or unwind the filing:
 
 ```bash
 # Assemble this from the issue numbers you captured above (the gh issue create
@@ -88,16 +88,18 @@ elif [ -n "$CLEAN_DEFERRED_LABELS" ]; then
     [ -n "$lbl" ] || continue
     ${CLAUDE_SKILL_DIR}/../../scripts/ensure-label.sh "$lbl"
   done
-  # Apply to every issue filed above (the numbers captured into DEFERRED_ISSUE_NUMBERS).
-  # A failed --add-label is the feature's most likely real-world failure, so route it to
-  # the durable workpad (retrospective-visible) as well as stderr — matching the breadcrumb
-  # discipline the rc-failure and empty-numbers paths above already use. stderr is ephemeral
-  # in an autonomous cloud run, so a stderr-only breadcrumb would leave an unlabeled issue
-  # with no durable trace of why.
+  # Apply to every issue filed above (the numbers captured into DEFERRED_ISSUE_NUMBERS)
+  # through the shared REST label-apply helper (POST .../issues/{n}/labels — repo-scope
+  # only; `gh issue edit --add-label` resolves the repo via org-scoped GraphQL and fails
+  # under a repo-scoped token). The helper is best-effort (always exits 0) and emits a
+  # specific breadcrumb to stderr ONLY on failure, so capture that stderr: a failed apply
+  # is the feature's most likely real-world failure, so route it to the durable workpad
+  # (retrospective-visible) as well as stderr — stderr is ephemeral in an autonomous cloud
+  # run, so a stderr-only breadcrumb would leave an unlabeled issue with no durable trace.
   for n in $DEFERRED_ISSUE_NUMBERS; do
-    gh issue edit "$n" --add-label "$CLEAN_DEFERRED_LABELS" \
-      || { echo "devflow: could not apply deferred labels to issue #$n (best-effort, continuing)" >&2; \
-           workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0 could not apply the configured deferred labels ($CLEAN_DEFERRED_LABELS) to issue #$n (best-effort; the issue was filed but carries none of the configured deferred labels)."; }
+    LBL_ERR="$(${CLAUDE_SKILL_DIR}/../../scripts/apply-labels.sh "$n" "$CLEAN_DEFERRED_LABELS" 2>&1)"
+    [ -n "$LBL_ERR" ] && { echo "$LBL_ERR" >&2; \
+      workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0 could not apply the configured deferred labels ($CLEAN_DEFERRED_LABELS) to issue #$n (best-effort; the issue was filed but carries none of the configured deferred labels)."; }
   done
 fi
 ```
@@ -204,17 +206,20 @@ if [ -n "${FILED_NUMBERS:-}" ]; then
             [ -n "$lbl" ] || continue
             ${CLAUDE_SKILL_DIR}/../../scripts/ensure-label.sh "$lbl"
         done
-        # A failed --add-label is routed to the durable workpad as well as stderr (same as
-        # Phase 4.0): the unlabeled outcome is the feature's most likely failure and stderr
-        # is ephemeral in an autonomous cloud run, so a stderr-only breadcrumb would leave
-        # no retrospective-visible trace. `|| continue` skips a blank line (this piped-`while`
-        # reads blank lines that Phase 4.0's `for` would word-split away); the per-issue
-        # failure is caught best-effort so the loop completes.
+        # Apply via the shared REST label-apply helper (POST .../issues/{n}/labels — repo-scope
+        # only; `gh issue edit --add-label` resolves the repo via org-scoped GraphQL and fails
+        # under a repo-scoped token). The helper is best-effort (always exits 0) and emits a
+        # breadcrumb to stderr ONLY on failure, so capture that stderr and route it to the
+        # durable workpad as well (same as Phase 4.0): the unlabeled outcome is the feature's
+        # most likely failure and stderr is ephemeral in an autonomous cloud run, so a
+        # stderr-only breadcrumb would leave no retrospective-visible trace. `|| continue`
+        # skips a blank line (this piped-`while` reads blank lines that Phase 4.0's `for`
+        # would word-split away); the per-issue failure is caught best-effort so the loop completes.
         echo "$FILED_NUMBERS" | while IFS= read -r n; do
             [ -n "$n" ] || continue
-            gh issue edit "$n" --add-label "$CLEAN_DEFERRED_LABELS" \
-                || { echo "devflow: could not apply deferred labels to issue #$n (best-effort, continuing)" >&2; \
-                     workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5 could not apply the configured deferred labels ($CLEAN_DEFERRED_LABELS) to issue #$n (best-effort; the issue was filed but carries none of the configured deferred labels)."; }
+            LBL_ERR="$(${CLAUDE_SKILL_DIR}/../../scripts/apply-labels.sh "$n" "$CLEAN_DEFERRED_LABELS" 2>&1)"
+            [ -n "$LBL_ERR" ] && { echo "$LBL_ERR" >&2; \
+                workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5 could not apply the configured deferred labels ($CLEAN_DEFERRED_LABELS) to issue #$n (best-effort; the issue was filed but carries none of the configured deferred labels)."; }
         done
     fi
 fi
@@ -277,12 +282,25 @@ DOC_NEEDED_PATHS=$(printf '%s' "$ISSUE_BODY" \
 
 3. **Self-heal or block for each absent path.** For each named path absent from the diff, perform the missing update when you can: if the correct update can be derived from the issue body's `**Documentation Needed**` prose, perform the missing update yourself, record a workpad note (`workpad.py update $ISSUE_NUMBER --note "Phase 4.1 self-heal: <path> absent from diff; performed update from Documentation Needed prose"`), commit (`docs:` prefix), and push. **Then re-verify the self-heal landed and reached the remote:** confirm the commit and push both succeeded *and* that the local branch is in sync with its upstream — `git rev-parse HEAD` must equal `git rev-parse @{u}` (a no-op `Everything up-to-date` push or a rejected non-fast-forward leaves them unequal, so a re-diff of the still-local commit would falsely satisfy the gate) — then re-run the helper-driven diff check for that path. A non-zero rc on commit/push, an upstream that does not match HEAD, or the path still absent from the re-checked diff all mean the self-heal did not land. Only a path now present in the re-checked diff **and** whose commit and push both reached the remote counts as satisfied. If the correct update cannot be derived from context (the prose is insufficient), **or** the self-heal did not land per the re-check, do not tick `Documentation` — route to the Blocked path: `workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind blocked --reflection "Phase 4.1: Documentation Needed file content cannot be determined for <path> — the docs subagent did not update this file and the correct content cannot be derived from the issue body; update manually and re-run Phase 4.1"`, then emit the 👎 outcome reaction (see *Outcome reaction* in the Workpad Reference) and stop.
 
-Once every named path is satisfied (or Stage 1 found no paths), apply the deferred post-docs labels — only when the docs pass succeeded per the Stage-1 decision above; a run that routed to Blocked never reaches this point, so a Blocked PR never carries them. `docs.labels` is a comma-separated list (default `Documented`); normalize it (split on commas, trim each entry, drop empties) and apply with a single `gh pr edit --add-label` call:
+Once every named path is satisfied (or Stage 1 found no paths), apply the deferred post-docs labels — only when the docs pass succeeded per the Stage-1 decision above; a run that routed to Blocked never reaches this point, so a Blocked PR never carries them. `docs.labels` is a comma-separated list (default `Documented`); normalize it (split on commas, trim each entry, drop empties) and apply through the shared REST label-apply helper (a PR is an issue, so `POST .../issues/{n}/labels` serves it — repo-scope only, unlike `gh pr edit --add-label`'s org-scoped GraphQL resolution). The REST path needs the PR number explicitly, so resolve it first from the current branch:
 
 ```bash
 DOCS_LABELS=$(${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .docs.labels Documented)
 CLEAN_LABELS=$(echo "$DOCS_LABELS" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' | paste -sd, -)
-[ -n "$CLEAN_LABELS" ] && gh pr edit --add-label "$CLEAN_LABELS"
+DOCS_PR_NUM=$(gh pr view --json number --jq '.number')
+# The REST endpoint needs the PR number, which the old `gh pr edit` form resolved
+# implicitly — so an empty $DOCS_PR_NUM (gh error / warning-corrupted output) is a NEW
+# failure point the migration introduced. Don't let it skip the apply silently and then
+# tick Documentation complete: route it to the durable workpad (same discipline the 4.0/
+# 4.0.5 deferral channels use, since stderr is ephemeral in an autonomous cloud run).
+if [ -n "$CLEAN_LABELS" ]; then
+  if [ -n "$DOCS_PR_NUM" ]; then
+    ${CLAUDE_SKILL_DIR}/../../scripts/apply-labels.sh "$DOCS_PR_NUM" "$CLEAN_LABELS"
+  else
+    echo "devflow: Phase 4.1 could not resolve the PR number (gh pr view returned empty); docs labels ($CLEAN_LABELS) NOT applied" >&2
+    workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.1 could not resolve the PR number to apply docs labels ($CLEAN_LABELS); the PR carries none of the configured docs labels."
+  fi
+fi
 ```
 
 Then tick the Documentation phase in the workpad: `workpad.py update $ISSUE_NUMBER --tick-progress "Documentation"`.
@@ -301,7 +319,15 @@ gh pr view --json body --jq '.body' | grep -q "Work in progress — automated re
 
 **Reconcile the PR body's behavioral claims (mandatory, before finalizing).** `/pr-description` authored the body just now, so this is the Phase 4.2 counterpart of the §2.3.4a self-authored-claim sweep — applied to the one surface that did not exist at commit time. Re-read the PR body and, for **every** behavioral claim it makes about what the shipped code does (a "this PR adds X that does Y", a described flow, a stated guarantee, or a `## Post-Merge Verification` item that on inspection actually describes *already-shipped* behavior rather than a genuinely live-only check — the same confirmation-of-self-claim case the Phase 3.4 gate refuses a `(post-merge)` tag for), trace the **actual shipped code path** — following dispatch into pre-existing code the diff calls — and confirm the code does what the body says. **The code is the fact**, under the same fix-or-rewrite rule as 2.3.4a:
 
-- If the body **overclaims** (asserts a behavior the diff doesn't deliver), correct the body to the truth via `gh pr edit --body-file <file>` — the common case, since the body was just auto-generated and can overstate.
+- If the body **overclaims** (asserts a behavior the diff doesn't deliver), correct the body to the truth via REST (repo-scope only, unlike `gh pr edit`'s org-scoped GraphQL resolution): write the corrected body to a file, resolve the PR number (guarding the empty case so a `gh pr view` hiccup doesn't build a malformed `pulls/` path), and PATCH it. The `-F body=@<file>` form reads the field value literally from the file, preserving backticks and `$` exactly as `--body-file` did. This is the common case, since the body was just auto-generated and can overstate:
+  ```bash
+  OVERCLAIM_PR_NUM=$(gh pr view --json number --jq '.number')
+  if [ -n "$OVERCLAIM_PR_NUM" ]; then
+    gh api --method PATCH "repos/{owner}/{repo}/pulls/$OVERCLAIM_PR_NUM" -F body=@<file>
+  else
+    echo "devflow: Phase 4.2 could not resolve the PR number to correct an overclaiming body (best-effort, continuing)" >&2
+  fi
+  ```
 - If reconciliation reveals the **code** is actually wrong (the body states the intended behavior but the diff doesn't meet it), that is a real defect that escaped review: fix the code, commit with `fix:`, and push. On the default `ready_for_review` publish path that fix rides into the cloud `/devflow:review` that re-runs when Phase 4.3 publishes the PR; **but when `implement_pr_state=draft` the PR is left a draft and the cloud review does not auto-fire until a human publishes** (see §4.3), so the fix ships *unreviewed* until then. Either way, record in `Devflow Reflection` that a post-review code fix landed here so it is not mistaken for a reviewed change — and flag it more loudly on the draft path, where no automatic re-review will catch it.
 
 Never finalize a PR whose description asserts a behavior the diff does not deliver. Record the reconciliation in a workpad `--note` (claims checked; any divergence and how it was resolved).
