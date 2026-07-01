@@ -56,12 +56,32 @@ it during the no-options check:
 > list. Before implementing, trace the change through the codebase to find every affected
 > call site, consumer, and layer — this issue maps the work, it does not bound it.
 
-- **Relevant Classes/Files** — specific files from the findings (verify before citing).
+- **Relevant Classes/Files** — specific files from the findings (see load-bearing-premise
+  verification below).
 - **Architecture Alignment** — how this fits existing patterns.
 - **Dependencies** — the specific service/module/library this depends on. If a library is
   needed, name the **one** chosen (decided in Step 2), not a shortlist.
 - **Data/Schema Considerations** — schema changes, queries, or data-access patterns.
 - **Cross-layer Impact** — which layers are affected (frontend, backend, API, database).
+
+**Verify every load-bearing premise before drafting — not only file paths.** Any premise the
+issue relies on as fact, and any premise that seeds the Implementation Notes `Approach`, is
+checked with a method matched to its class: **data-source / data-model** claims ("column X
+holds the role name") against the schema definitions or the code that reads and writes that
+data; **"parent PR or commit already did X"** claims at HEAD (read the file, `git log -p` /
+`git log -S<symbol>`), never taken from the parent issue's narrative; **data-coverage /
+population** claims ("column X is set for most users") against live data when it is available.
+Treat an empty or inconclusive result (no matching commit, no matching column/schema, data
+unavailable) as **unverified** — never as silent confirmation. A load-bearing premise that
+cannot be verified is written as an explicitly flagged assumption for the implementer to
+confirm — stated inline as a declarative fact tagged `— assumption, confirm before
+implementing` (a factual premise-to-confirm, so the no-options gate's hedge/deferral ban does
+not apply to it and it is not a `## 🚫 Blocked` item, which is for undecided *decisions*), and
+never baked into a prescriptive `Approach`.
+
+Verification is **proportional**: cheap in-repo reads for most claims, live-data only for
+population claims. It is scoped to **load-bearing** premises, so incidental context bullets
+stay light and drafting is never blocked in a data-less authoring context.
 
 ### Acceptance Criteria
 Checkbox items (`- [ ]`), each a **single unconditional, testable assertion**:
@@ -188,6 +208,7 @@ incomplete issues.
 - [ ] Desired Behavior is stated as one decided behavior, not a menu
 - [ ] Technical Context opens with the standardized scope note, included verbatim
 - [ ] Technical context cites real file paths / class names from this project
+- [ ] Load-bearing Technical Context premises (data-source/model, coverage/population, "already-done") are verified — not just file paths — or written as flagged assumptions to confirm
 - [ ] Acceptance criteria are measurable, testable, and unconditional
 - [ ] Implementation notes describe a single chosen approach
 - [ ] Testing Strategy classifies the boundary + level, walks the coverage dimensions (boundary/error/adversarial/state/scale/security as they apply), and gives test-first assertions with every AC mapped to ≥1 assertion and no orphan assertions — bug fixes reproduce the defect first; guarantee-class changes test the skipped-step path; or it names a reproducible stand-in verification when no automated test applies
