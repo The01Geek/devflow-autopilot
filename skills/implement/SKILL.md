@@ -227,6 +227,8 @@ Orientation only (the phase file is authoritative): open the draft PR; run the s
 
 Orientation only (the phase file is authoritative): file follow-up issues for any deferred work; update the documentation; generate the PR description; then finalize the PR (publish or leave a draft per config) and the workpad.
 
+**Mid-phase re-anchor (always-loaded trigger).** After the Phase 4.1 `devflow:docs` subagent returns and its docs are committed, re-`Read` the phase file before continuing to §4.2 (resume from §4.2; do not re-dispatch the §4.1 docs subagent). The phase file carries this same instruction, but a long context-isolated subagent return can evict it along with the §4.2/§4.3 procedure — so the *trigger* is repeated here in the always-resident orchestrator, where the eviction cannot reach it. (This re-anchor is scoped to the Phase 4.1 docs subagent return only, not the Phase 2/3 returns.)
+
 ---
 
 ## Completion Checklist
@@ -242,6 +244,12 @@ Verify each `Status` PATCH actually landed at the time it was issued (see the Up
 
 - **Do not stop after the PR is created or after review approves** — the PR stays a draft until Phase 4.3, which then publishes it (or, when `implement_pr_state` is `draft`, deliberately leaves it a draft after still finalizing the workpad and reaction).
 - **Do not stop because acceptance criteria are unchecked when the issue itself is multi-PR** — apply the 2.2.5 scope-adjustment rule first, then re-run the gate. The "Status: Blocked, stop the run" path in Phase 3.4 is only for genuinely-failing in-scope criteria, never for scope mismatches.
+
+### Terminal-status self-check (before your run-final message)
+
+**Do not emit your run-final message while the workpad `Status` is an in-progress value.** Before you conclude the run, read the workpad `Status` line and confirm it is a **terminal** value — `Complete` (🎉) or `Blocked` (👎). If it is still any in-progress value (`Setup`/`Discovering`/`Reproducing`/`Planning`/`Implementing`/`Reviewing`/`Documenting`, glyph 🚀), the run is not finished — return to the phase that owns the remaining work and drive the `Status` to a terminal value before ending. This guard binds **every** way the run can end, not only a deliberate wrap-up: if you are about to stop for **any** reason — including believing the work is already complete — and the workpad `Status` is still in-progress, treat that as the violation and resume, because the failure this catches is precisely a run that halts *without* recognizing it never finalized. The commonest way to trip it is stopping at "documentation done": Phase 4.1 commits its docs but the run then must still reach Phase 4.2 (`/pr-description`) and Phase 4.3 (finalize → `Status: Complete` 🎉 + outcome reaction). This self-check is a **backstop**: the primary prevention is the Phase 4.1 re-anchor (in the Phase 4 section above), which keeps the §4.2/§4.3 procedure resident so the run is less likely to stop unaware in the first place — the check catches the residual case where it stops anyway.
+
+This self-check keys on the workpad `Status`, not on PR draft state — a run that deliberately finishes with a draft PR (`implement_pr_state=draft`) still reaches `Status: Complete`, so it is never a false positive; conversely a published PR whose workpad is still `Documenting` does trip it. (Same discipline as the "Always verify a Status PATCH actually landed" rule in the Workpad Reference: the `Status` line is the source of truth for whether the run finished, so read it before asserting completion.)
 
 ---
 

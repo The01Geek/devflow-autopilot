@@ -2177,6 +2177,9 @@ IMPL_DOC="$LIB/../docs/implement-skill.md"
 # phase's load step (which would make the engine improvise that phase from its thin stub).
 IMPL_ORCH="$LIB/../skills/implement/SKILL.md"
 IMPL_PHASES_DIR="$LIB/../skills/implement/phases"
+# Shared phase-file path, colocated with its parent IMPL_PHASES_DIR so the #232 and #230
+# pin blocks below reference one source of truth for the path (not two differently-named locals).
+P4_FILE="$IMPL_PHASES_DIR/phase-4-documentation.md"
 # Directory-reconciliation: the actual phases/*.md files must equal IMPL_PHASE_STEMS — the
 # single registered phase set the bundle members and the per-phase loop both derive from. A
 # future phase file added to the directory (and wired into the orchestrator) WITHOUT being
@@ -2293,6 +2296,75 @@ assert_eq "F1: misregistration guard detects an injected SKILL.md (find non-empt
   "$([ -z "$(find "$_f1_skilldir" -name SKILL.md 2>/dev/null)" ] && echo yes || echo no)"
 rm -rf "$_f1_skilldir"
 # ── end issue #218 structural assertions ──
+# ── issue #232: terminal-status self-check (SKILL.md orchestrator) + Phase 4.1 post-subagent
+# re-anchor (phase-4-documentation.md) — two halves of one guard family against a run that
+# stops before Phase 4 finalization (workpad frozen at an in-progress Status, un-described
+# draft PR). Coupled to the skill clauses: removing either clause turns the suite RED.
+# Presence via assert_pin_unique (exactly-once); non-vacuity via assert_pin_red_on_removal
+# (the suite ITSELF demonstrates PASS->FAIL on removal), per the issue's PASS->FAIL->PASS AC.
+# (P4_FILE is the shared phase-file path hoisted next to IMPL_PHASES_DIR above.)
+# (1) SKILL.md terminal-status self-check — AC1 (must not end on an in-progress Status) +
+#     AC2 (keyed on workpad Status, explicitly not PR draft state).
+assert_pin_unique "#232: SKILL terminal-status self-check heading present" \
+  '### Terminal-status self-check (before your run-final message)' "$IMPL_ORCH"
+assert_pin_unique "#232: SKILL self-check forbids ending on an in-progress Status (operative)" \
+  'the run is not finished — return to the phase that owns the remaining work' "$IMPL_ORCH"
+assert_pin_unique "#232: SKILL self-check keys on workpad Status, not PR draft state (AC2)" \
+  'keys on the workpad `Status`, not on PR draft state' "$IMPL_ORCH"
+assert_pin_red_on_removal "#232: SKILL self-check operative clause flips RED on removal" \
+  'the run is not finished — return to the phase that owns the remaining work' "$IMPL_ORCH"
+assert_pin_red_on_removal "#232: SKILL Status-not-draft clause flips RED on removal" \
+  'keys on the workpad `Status`, not on PR draft state' "$IMPL_ORCH"
+# (2) phase-4-documentation.md Phase 4.1 post-subagent re-anchor — AC3 (re-read the phase
+#     file before §4.2 after the docs subagent returns) + AC4 (scoped to the Phase 4.1
+#     docs subagent return only, not the Phase 2/3 subagent returns).
+assert_pin_unique "#232: phase-4 re-anchor operative clause present (re-read before §4.2)" \
+  're-anchoring the remaining §4.2 (PR description) and §4.3 (finalize) procedure' "$P4_FILE"
+assert_pin_unique "#232: phase-4 re-anchor scoped to the Phase 4.1 docs subagent return only (AC4)" \
+  'scoped to the Phase 4.1 docs subagent return **only**' "$P4_FILE"
+assert_pin_red_on_removal "#232: phase-4 re-anchor operative clause flips RED on removal" \
+  're-anchoring the remaining §4.2 (PR description) and §4.3 (finalize) procedure' "$P4_FILE"
+assert_pin_red_on_removal "#232: phase-4 re-anchor scope clause flips RED on removal" \
+  'scoped to the Phase 4.1 docs subagent return **only**' "$P4_FILE"
+# review iter-1 (pr-test-analyzer): pin the OPERATIVE directives, not only their framing —
+# a same-line surgical edit that drops the actual instruction while keeping the descriptive
+# appendix would otherwise ship GREEN (the recurring framing-only-pin hole).
+# AC3 operative: the mandatory re-`Read` directive itself (not the "re-anchoring …" appendix).
+assert_pin_unique "#232: phase-4 re-anchor keeps the operative re-Read directive" \
+  'again and follow it exactly' "$P4_FILE"
+assert_pin_red_on_removal "#232: phase-4 operative re-Read directive flips RED on removal" \
+  'again and follow it exactly' "$P4_FILE"
+# AC1 operative: the normative prohibition sentence (not only its corrective consequence).
+assert_pin_unique "#232: SKILL self-check keeps the run-final-message prohibition (operative)" \
+  'Do not emit your run-final message while the workpad' "$IMPL_ORCH"
+assert_pin_red_on_removal "#232: SKILL run-final-message prohibition flips RED on removal" \
+  'Do not emit your run-final message while the workpad' "$IMPL_ORCH"
+# review iter-1 (silent-failure-hunter F1/F2): the two robustness hardenings — the self-check
+# binds EVERY termination path (not only a deliberate wrap-up), and the Phase 4.1 re-anchor
+# TRIGGER is repeated in the always-loaded orchestrator so a subagent-return eviction cannot
+# remove it. Pin both so a later edit cannot silently drop the hardening.
+assert_pin_unique "#232: SKILL self-check binds every termination path (SFH F1)" \
+  'This guard binds **every** way the run can end' "$IMPL_ORCH"
+assert_pin_red_on_removal "#232: SKILL every-termination-path clause flips RED on removal" \
+  'This guard binds **every** way the run can end' "$IMPL_ORCH"
+assert_pin_unique "#232: orchestrator repeats the Phase 4.1 re-anchor trigger in the always-loaded body (SFH F2)" \
+  'repeated here in the always-resident orchestrator' "$IMPL_ORCH"
+assert_pin_red_on_removal "#232: always-loaded re-anchor trigger flips RED on removal" \
+  'repeated here in the always-resident orchestrator' "$IMPL_ORCH"
+# review iter-2 (shadow pr-test-analyzer): the F2 pin above sits on the JUSTIFICATION clause;
+# pin the OPERATIVE instruction sentence itself so a surgical edit dropping the re-Read
+# directive (while keeping "…repeated here…") can't ship GREEN — the framing-only hole,
+# one clause over from the phase file it was first closed on.
+assert_pin_unique "#232: orchestrator keeps the OPERATIVE always-loaded re-Read directive (SFH F2)" \
+  'the phase file before continuing to §4.2 (resume from §4.2' "$IMPL_ORCH"
+assert_pin_red_on_removal "#232: orchestrator operative always-loaded re-Read directive flips RED on removal" \
+  'the phase file before continuing to §4.2 (resume from §4.2' "$IMPL_ORCH"
+# AC4 scope constraint is mirrored in the always-loaded orchestrator too; pin that copy so the
+# "not the Phase 2/3 returns" guardrail can't be dropped from the resident mirror unnoticed.
+assert_pin_unique "#232: orchestrator mirror keeps the AC4 Phase-4.1-only scope (SFH F2 mirror)" \
+  'scoped to the Phase 4.1 docs subagent return only, not the Phase 2/3 returns' "$IMPL_ORCH"
+assert_pin_red_on_removal "#232: orchestrator AC4 scope mirror flips RED on removal" \
+  'scoped to the Phase 4.1 docs subagent return only, not the Phase 2/3 returns' "$IMPL_ORCH"
 assert_pin_unique "sweep 2.3.6: implement SKILL keeps the sweep body" '#### 2.3.6 Error-handling & silent-failure sweep' "$IMPL_SKILL"
 assert_pin_unique "sweep 2.3.6: implement SKILL lists it in the always-run index" '**2.3.6** (error-handling & silent-failure)' "$IMPL_SKILL"
 assert_eq "sweep 2.3.6: docs/implement-skill.md keeps the rationale table row" "yes" \
@@ -3070,7 +3142,7 @@ assert_eq "#190 fix-loop: Phase 4.1 fail-closed extraction contract pinned in BO
 # sentence whose removal alone re-introduces the gap, not an adjacent framing
 # clause: assert_pin_unique's count==1 contract is the standing removal-proof.
 P2_FILE="$IMPL_PHASES_DIR/phase-2-implement.md"
-P4_FILE="$IMPL_PHASES_DIR/phase-4-documentation.md"
+# P4_FILE is defined once next to IMPL_PHASES_DIR above (shared by the #232 and #230 blocks).
 assert_pin_unique "#230: phase-2 §2.1 names the narrative as a non-authoritative starting point (AC1)" \
   'non-authoritative starting point to verify' "$P2_FILE"
 assert_pin_unique "#230: phase-2 §2.1 scopes 'code wins' so it never overrides the decided spec (AC2)" \
