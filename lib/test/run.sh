@@ -11057,6 +11057,50 @@ assert_eq "#245 T4: Python helper routes gh through DEVFLOW_GH stub (stub invoke
 assert_eq "#245 T4: Python helper consumed the stub's output (not bare gh)" "yes" \
   "$(printf '%s' "$T4_OUT" | grep -q 'devflow-gh-stub-marker' && echo yes || echo no)"
 
+# ── T7 (AC4 integration) — a REAL converted shell helper, run with DEVFLOW_GH
+#    UNSET under a crafted PATH (bad-shebang gh + runnable gh.exe), actually
+#    consults the resolver and invokes gh.exe. Guards a helper that sources the
+#    resolver but still hardcodes literal `gh` at its call site — the static
+#    peer-completeness grep below would stay green on that regression. ──
+GHT7="$(mktemp -d)"
+printf '#!/nonexistent/devflow-test-interpreter\necho nope\n' > "$GHT7/gh"; chmod +x "$GHT7/gh"
+cat > "$GHT7/gh.exe" <<'STUB'
+#!/usr/bin/env bash
+case "$1" in
+  --version) echo "gh version 2.stub (stub-exe)"; exit 0 ;;
+esac
+# ensure-label.sh calls `<gh> api --method POST .../labels` — record that gh.exe
+# (not bare gh) was the binary invoked, then report the benign already-exists shape.
+touch "$(dirname "$0")/.exe-called"
+echo '{"errors":[{"code":"already_exists"}]}' >&2; exit 1
+STUB
+chmod +x "$GHT7/gh.exe"
+env -u DEVFLOW_GH PATH="$GHT7:$PATH" bash "$LIB/../scripts/ensure-label.sh" DevFlow >/dev/null 2>&1; T7_RC=$?
+assert_eq "#245 T7: unset-DEVFLOW_GH helper consults the resolver and invokes gh.exe (not bare gh)" "yes" \
+  "$([ -f "$GHT7/.exe-called" ] && echo yes || echo no)"
+assert_eq "#245 T7: helper preserves its best-effort exit 0 under the resolved gh.exe" "0" "$T7_RC"
+
+# ── T8 (AC6 negative) — the Python empty-DEVFLOW_GH fallback: `os.environ.get(
+#    "DEVFLOW_GH") or "gh"` treats an EMPTY override as fall-through-to-gh (the
+#    Python analogue of T5). A regression to `os.environ.get("DEVFLOW_GH","gh")`
+#    would echo "" and break every Python gh-caller while T4 stays green. ──
+GHT8="$(mktemp -d)"
+cat > "$GHT8/gh" <<'STUB'
+#!/usr/bin/env bash
+touch "$(dirname "$0")/.called"
+cat <<'BODY'
+## Acceptance Criteria
+- [ ] devflow-gh-empty-marker criterion
+BODY
+exit 0
+STUB
+chmod +x "$GHT8/gh"
+T8_OUT="$(DEVFLOW_GH="" PATH="$GHT8:$PATH" python3 "$LIB/../scripts/parse-acs.py" --issue 1 2>/dev/null)"
+assert_eq "#245 T8: empty DEVFLOW_GH in a Python helper falls back to 'gh' (stub invoked)" "yes" \
+  "$([ -f "$GHT8/.called" ] && echo yes || echo no)"
+assert_eq "#245 T8: empty-override Python helper consumed the stub's output (not an empty argv0)" "yes" \
+  "$(printf '%s' "$T8_OUT" | grep -q 'devflow-gh-empty-marker' && echo yes || echo no)"
+
 # ── Peer-completeness pin (2.3.0a): every gh-calling shell helper routes through
 #    the resolver — no helper retains the bare `: "${DEVFLOW_GH:=gh}"` default, and
 #    no non-comment bare `gh api`/`gh pr`/… call survives outside the resolver. ──
@@ -11066,7 +11110,7 @@ assert_eq "#245 peer-completeness: no shell helper retains the bare DEVFLOW_GH:=
 DGH_SOURCED="$(grep -rlF 'resolve-gh.sh' "$DGH_ROOT/scripts" "$DGH_ROOT/lib" --include='*.sh' 2>/dev/null | grep -v '/test/' | grep -c . || true)"
 assert_eq "#245 peer-completeness: >=13 helpers source resolve-gh.sh (all gh-callers converted)" "yes" \
   "$([ "$DGH_SOURCED" -ge 13 ] && echo yes || echo no)"
-rm -rf "$GHT1" "$GHT2" "$GHT3" "$GHTD" "$GHTP" "$GHT4" "$GHT6"
+rm -rf "$GHT1" "$GHT2" "$GHT3" "$GHTD" "$GHTP" "$GHT4" "$GHT6" "$GHT7" "$GHT8"
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
