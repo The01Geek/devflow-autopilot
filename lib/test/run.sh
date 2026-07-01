@@ -1786,6 +1786,23 @@ assert_pin_unique "#167 critic: pass re-enumerates by an INDEPENDENT signal (not
   're-enumerate that population by a signal OTHER than the' "$REVIEW_SKILL"
 assert_pin_unique "#167 critic: an uncovered member of the independent set is a review finding" \
   'Every member of the independent set that the audit does not cover is a review finding' "$REVIEW_SKILL"
+# --- issue #239: in-scope Important/Major findings are blocking (Phase 4.2 rule 3a) ---
+# Behavioral-fix pins (removal-proof). The operative sentence of the fix is "an in-scope,
+# unresolved Important finding REJECTs" — removing it re-opens the lenient-verdict gap the
+# retrospective flagged. Each literal is target-unique and apostrophe-free (CLAUDE.md gotcha).
+assert_pin_red_on_removal "#239: Phase 4.2 rule 3a REJECTs an unresolved in-scope Important finding" \
+  'finding (per the *in-scope test* below; excluding deferral-demoted ones) that is **not resolved** → **REJECT**' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#239: rule 3a blocking is NOT conditioned on corroboration count" \
+  'This blocking is **not** conditioned on the Phase 3.2 corroboration count' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#239: a self-contradicting-diff finding is fix-only (defer path excluded)" \
+  'the **defer path does not apply**: only the **fix** path satisfies rule 3a' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#239: Phase 4.1 Verdict Criteria summary mirrors rule 3a" \
+  'Any in-scope Important/Major finding not resolved (fixed in-run or deferred) → REJECT' "$REVIEW_SKILL"
+# Coupled mirror in review-and-fix (MAXI_SKILL default): the Step-3-evaluated REJECT-downgrade
+# gate must enumerate the in-scope Important finding as a downgrade-eligible REJECT trigger, or
+# AC8 (standalone review-and-fix converging on a deferred in-scope Important) regresses.
+assert_pin_red_on_removal "#239: review-and-fix downgrade gate lists in-scope Important as a REJECT trigger" \
+  'checklist FAILs, Critical Phase 3 findings, and in-scope Important/Major Phase 3 findings'
 # Pin the superset-comparison FRAMING itself (the verdict step), not only its finding
 # clause: a reword to a weaker check (e.g. "spot-check a few members") that left the
 # finding sentence intact would otherwise stay GREEN.

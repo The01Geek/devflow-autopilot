@@ -923,9 +923,10 @@ FAIL and INCONCLUSIVE items stay listed outside the `<details>` block so they re
 - Any FAIL in verification checklist → REJECT
 - Any INCONCLUSIVE in verification checklist → REJECT (manual check needed)
 - Any Critical finding from review agents → REJECT (excluding findings demoted to Informational via Phase 4.0's deferral match)
+- Any in-scope Important/Major finding not resolved (fixed in-run or deferred) → REJECT (not conditioned on corroboration count; excluding deferral-demoted ones)
 - Checklist generation failed → max APPROVE WITH CAVEAT
 - 2+ review agents failed → partial review coverage
-- Only Important/Suggestion findings → APPROVE with notes
+- Only out-of-scope/pre-existing Important and/or Suggestion findings → APPROVE with notes
 - No findings → APPROVE
 ```
 
@@ -952,11 +953,14 @@ Apply these rules in order (first match wins). For every rule that counts findin
 1. Any verification checklist item with verdict FAIL → **REJECT**
 2. Any verification checklist item with verdict INCONCLUSIVE → **REJECT** (add "manual check needed" note)
 3. Any Critical finding from existing review agents (excluding deferral-demoted ones) → **REJECT**
+3a. Any **in-scope** Important/Major finding (per the *in-scope test* below; excluding deferral-demoted ones) that is **not resolved** → **REJECT**. *Resolved* means **either** fixed in-run **or** deferred via the engine's existing deferral disposition — a Phase 4.0 Scope-Acknowledged Findings match (which demotes it to Informational, so it never reaches this rule), or, in a `/devflow:review-and-fix` run, a `deferrals.json` entry with a valid, surviving `skip_category` (recognized at Loop Exit by the *Step-3-evaluated REJECT downgrade* gate). An in-scope Important/Major finding that is neither fixed nor deferred yields **REJECT**. This blocking is **not** conditioned on the Phase 3.2 corroboration count — a single-source in-scope Important finding blocks exactly like a corroborated one. (Out-of-scope / pre-existing Important findings do **not** trigger this rule; they fall through to rule 6 and keep their current non-blocking disposition. The Phase 4.1.5 over-grade advisory annotation is unchanged and never demotes a finding out of this rule.)
 4a. If Phase 1+2 were skipped **because checklist generation failed** (`checklist_skipped = "failure"`) → maximum verdict is **APPROVE WITH CAVEAT** — verification checklist not generated (never a clean APPROVE)
 4b. If Phase 1+2 were skipped **intentionally by Phase 0.5** (`checklist_skipped = "intentional"`, i.e. small_diff AND config_only) → no caveat; the verdict follows the remaining rules normally. The skip was a deliberate engine-profile choice for a low-risk diff, not a failure.
 5. If 2 or more Phase 3 agents failed to return results → add "partial review coverage" note to the verdict
-6. Only Important or Suggestion findings (excluding deferral-demoted ones) → **APPROVE with notes**
+6. Only **out-of-scope / pre-existing** Important findings (never in-scope ones — those are caught by rule 3a) and/or Suggestion findings, excluding deferral-demoted ones → **APPROVE with notes**
 7. No findings (excluding deferral-demoted ones) → **APPROVE**
+
+**In-scope test for rule 3a (operational).** An Important/Major finding is **in-scope** unless it is genuinely pre-existing behavior the diff does not touch — the same carve-out `type-design-analyzer` already applies in this file ("Do not report on pre-existing types the diff does not touch"), lifted to the verdict. Operationally: a finding is **out-of-scope** only when the code, doc, test, comment, or behavior it names is left **untouched** by this PR's diff (it can be cited to lines the diff did not add or change); otherwise it is **in-scope**. **Mandatory-in-scope carve-out — self-contradicting diff.** A finding that **contradicts an artifact the PR's own diff changed** — a doc/release-note line, a comment, or a test the diff edited — is **always in-scope** and may **not** be demoted to "pre-existing / out of scope / Informational". For such a self-contradicting finding the **defer path does not apply**: only the **fix** path satisfies rule 3a, because a self-contradicting diff is never shippable. (This carve-out is the one case where the "untouched code" out-of-scope test above cannot be invoked to demote a finding.)
 
 ### 4.3 Present the report
 
@@ -964,7 +968,7 @@ Output the full report to the user.
 
 ### 4.4 Record the verdict as a formal GitHub review (PR mode only)
 
-**If — and only if — `$ARGUMENTS` is a PR number** (you are reviewing an actual PR, not the current branch), you MUST also submit the verdict as a formal GitHub Pull Request review so it becomes a visible merge signal. A REJECT verdict that lives only in a comment or in chat output is routinely missed — the PR gets marked ready and merged with the rejection still outstanding. A `--request-changes` review blocks the merge button (or, at minimum, forces an explicit dismissal), which is the behavior we want.
+**If — and only if — `$ARGUMENTS` is a PR number** (you are reviewing an actual PR, not the current branch), you MUST also submit the verdict as a formal GitHub Pull Request review so it becomes a visible merge signal. A REJECT verdict that lives only in a comment or in chat output is routinely missed — the PR gets marked ready and merged with the rejection still outstanding. A `--request-changes` review blocks the merge button (or, at minimum, forces an explicit dismissal), which is the behavior we want. This covers the Phase 4.2 rule 3a outcome without a new branch: an unresolved in-scope Important/Major finding produces a **REJECT**, and the table below already maps **REJECT (any form)** to `--request-changes` — so a rule-3a block lands as a merge-blocking changes-request exactly like a Critical REJECT.
 
 Map the verdict to a `gh pr review` action. **What goes in `--body` depends on whether a progress comment already carries the full report** — set `$BODY` accordingly. The discriminator is *"does a progress comment carrying the full report exist for this run?"* — i.e. **did the skill author the live progress comment this run (`$WP` set)?** — NOT `$GITHUB_ACTIONS`. The skill is now the **sole** author of that comment in every context: `devflow-review.yml` no longer seeds one (it defers to Phase 0.3.5), and the skill authors it even in a standalone local PR-mode run. So keying on `$GITHUB_ACTIONS` would be wrong in two directions — it would double-post locally (where it is false but the skill seeded), and, worse, in a cloud run with `live_progress_comment_enabled = false` (or where the Phase 0.3.5 seed failed) it would be *true* while **no** comment carries the report, leaving the stub pointing at a comment that does not exist and the full report posted nowhere. `$WP` is the single authoritative signal.
 
