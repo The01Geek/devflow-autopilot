@@ -2293,6 +2293,36 @@ assert_eq "F1: misregistration guard detects an injected SKILL.md (find non-empt
   "$([ -z "$(find "$_f1_skilldir" -name SKILL.md 2>/dev/null)" ] && echo yes || echo no)"
 rm -rf "$_f1_skilldir"
 # ── end issue #218 structural assertions ──
+# ── issue #232: terminal-status self-check (SKILL.md orchestrator) + Phase 4.1 post-subagent
+# re-anchor (phase-4-documentation.md) — two halves of one guard family against a run that
+# stops before Phase 4 finalization (workpad frozen at an in-progress Status, un-described
+# draft PR). Coupled to the skill clauses: removing either clause turns the suite RED.
+# Presence via assert_pin_unique (exactly-once); non-vacuity via assert_pin_red_on_removal
+# (the suite ITSELF demonstrates PASS->FAIL on removal), per the issue's PASS->FAIL->PASS AC.
+P4_DOC="$IMPL_PHASES_DIR/phase-4-documentation.md"
+# (1) SKILL.md terminal-status self-check — AC1 (must not end on an in-progress Status) +
+#     AC2 (keyed on workpad Status, explicitly not PR draft state).
+assert_pin_unique "#232: SKILL terminal-status self-check heading present" \
+  '### Terminal-status self-check (before your run-final message)' "$IMPL_ORCH"
+assert_pin_unique "#232: SKILL self-check forbids ending on an in-progress Status (operative)" \
+  'the run is not finished — return to the phase that owns the remaining work' "$IMPL_ORCH"
+assert_pin_unique "#232: SKILL self-check keys on workpad Status, not PR draft state (AC2)" \
+  'keys on the workpad `Status`, not on PR draft state' "$IMPL_ORCH"
+assert_pin_red_on_removal "#232: SKILL self-check operative clause flips RED on removal" \
+  'the run is not finished — return to the phase that owns the remaining work' "$IMPL_ORCH"
+assert_pin_red_on_removal "#232: SKILL Status-not-draft clause flips RED on removal" \
+  'keys on the workpad `Status`, not on PR draft state' "$IMPL_ORCH"
+# (2) phase-4-documentation.md Phase 4.1 post-subagent re-anchor — AC3 (re-read the phase
+#     file before §4.2 after the docs subagent returns) + AC4 (scoped to the Phase 4.1
+#     docs subagent return only, not the Phase 2/3 subagent returns).
+assert_pin_unique "#232: phase-4 re-anchor operative clause present (re-read before §4.2)" \
+  're-anchoring the remaining §4.2 (PR description) and §4.3 (finalize) procedure' "$P4_DOC"
+assert_pin_unique "#232: phase-4 re-anchor scoped to the Phase 4.1 docs subagent return only (AC4)" \
+  'scoped to the Phase 4.1 docs subagent return **only**' "$P4_DOC"
+assert_pin_red_on_removal "#232: phase-4 re-anchor operative clause flips RED on removal" \
+  're-anchoring the remaining §4.2 (PR description) and §4.3 (finalize) procedure' "$P4_DOC"
+assert_pin_red_on_removal "#232: phase-4 re-anchor scope clause flips RED on removal" \
+  'scoped to the Phase 4.1 docs subagent return **only**' "$P4_DOC"
 assert_pin_unique "sweep 2.3.6: implement SKILL keeps the sweep body" '#### 2.3.6 Error-handling & silent-failure sweep' "$IMPL_SKILL"
 assert_pin_unique "sweep 2.3.6: implement SKILL lists it in the always-run index" '**2.3.6** (error-handling & silent-failure)' "$IMPL_SKILL"
 assert_eq "sweep 2.3.6: docs/implement-skill.md keeps the rationale table row" "yes" \

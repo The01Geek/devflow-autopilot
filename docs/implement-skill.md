@@ -155,6 +155,15 @@ The publish step is gated by a per-consumer config key, **`devflow_implement.imp
 
 The gate lives once in `skills/implement/phases/phase-4-documentation.md` (Phase 4.3, read at phase entry by the `skills/implement/SKILL.md` orchestrator) — the skill body is shared by the local and cloud `/devflow:implement` paths, and both read the same `config.json` via `config-get.sh`, so no workflow change is needed and the logic is never forked.
 
+## Terminal-status self-check and Phase 4.1 re-anchor (guarding against an early run stop)
+
+A `/devflow:implement` run can *under-complete* Phase 4: it commits the Phase 4.1 documentation, then stops before Phase 4.2 (`/pr-description`) and Phase 4.3 (finalize). The run exits `success`, so nothing signals the shortfall — the workpad is frozen at an in-progress `Status` (`Documenting` 🚀), the draft PR stays un-described, and no terminal outcome reaction is emitted. Two agent-side guards, both in the shared skill body (so local and cloud `/devflow:implement` get them with no workflow change), close this:
+
+- **Terminal-status self-check (`skills/implement/SKILL.md`).** A cross-phase invariant near the Completion Checklist forbids the orchestrator from emitting its run-final message while the workpad `Status` is any in-progress value; it must first have reached a terminal `Status` — `Complete` (🎉) or `Blocked` (👎). The check keys on the workpad `Status`, **not** on PR draft state, so the intended `implement_pr_state=draft` path (which still reaches `Status: Complete`) is never a false positive, while a published PR whose workpad is still `Documenting` does trip it. It reuses the existing `🚀`/`🎉`/`👎` status vocabulary from `scripts/workpad.py` — no new status value.
+- **Phase 4.1 post-subagent re-anchor (`skills/implement/phases/phase-4-documentation.md`).** After the Phase 4.1 `devflow:docs` subagent returns and its docs are committed, the orchestrator re-`Read`s `phases/phase-4-documentation.md` (via the same `${CLAUDE_SKILL_DIR}` anchor the entry-gate uses) before §4.2, re-anchoring the remaining §4.2/§4.3 procedure that a long context-isolated subagent return may have evicted from the working set. It is scoped to the Phase 4.1 docs subagent return only — the Phase 2 and Phase 3 subagent returns carry their own phase entry-gate reads.
+
+Both are prose contracts, so their automated boundary is a coupled pin assertion in `lib/test/run.sh` (the same RED/GREEN mechanism the engine uses for skill contracts): one pin per clause, each proven to flip RED against the un-pinned source via `assert_pin_red_on_removal`.
+
 ## Workpad ticking: failure-isolation contract and index-based ticking
 
 `workpad.py update` PATCHes the workpad once per call, and it distinguishes two failure classes so a batch of mutations is not lost to a single bad checkbox tick:
