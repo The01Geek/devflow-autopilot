@@ -27,6 +27,9 @@
 #   rc 1  echoes the FIRST runnable invocation found — a Python exists but every candidate
 #         is older than 3.11 (lets the caller report its version in the failure message).
 #   rc 3  echoes nothing — no candidate interpreter runs at all.
+# (rc 2 is intentionally unused here so it stays reserved for the provisioner's user-facing
+# exit-2 refusal codes — the provisioner captures this function's rc and must not confuse a
+# resolver result with its own exit-2 semantics.)
 devflow_resolve_python() {
   local first_runnable="" spec
   for spec in "python3" "py -3" "python"; do

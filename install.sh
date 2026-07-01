@@ -198,12 +198,14 @@ offer_python3_shim() {
   fi
   log "no working 'python3' on PATH — surfacing DevFlow's consent-gated Python interpreter resolver:"
   # Default (no --apply) prints the plan + manual instructions and writes nothing; the user
-  # opts into the write by re-running the provisioner with --apply. A non-zero exit is EXPECTED
-  # for the designed plan-mode refusals (rc 2: no >=3.11 interpreter / too-old), and the
-  # provisioner's own `devflow-python:` breadcrumb already names that cause on stderr — so do
-  # not abort the install. But do NOT launder an UNEXPECTED failure (a broken provisioner: a
-  # missing lib/resolve-python.sh source, a syntax error, an unexpected set -e abort) into
-  # apparent success: log a distinct breadcrumb naming the rc so it is diagnosable.
+  # opts into the write by re-running the provisioner with --apply. ANY non-zero exit — the
+  # designed plan-mode refusals (rc 2: no >=3.11 interpreter / too-old) and genuine provisioner
+  # breakage (a missing lib/resolve-python.sh source, a syntax error, an unexpected set -e
+  # abort) alike — is surfaced with the rc rather than swallowed, and never aborts the install.
+  # The single breadcrumb covers both cases (this is intentional — one unconditional log, not a
+  # branch): for a benign rc-2 refusal the provisioner's own `devflow-python:` breadcrumb on
+  # stderr already names the specific cause; for genuine breakage the rc here makes it
+  # diagnosable rather than laundered into apparent success.
   bash "$prov" || { rc=$?; log "the Python interpreter resolver exited non-zero (rc $rc); install continues — re-run 'bash $prov' to see its diagnostics."; }
 }
 

@@ -44,6 +44,10 @@
 #      the chosen shim path is an existing non-DevFlow `python3`, or the directory/file
 #      could not be created or written. In every exit-2 case nothing is written and a
 #      specific `devflow-python:` breadcrumb names the cause.
+#   3  (--apply, auto-selected PATH dir) the shim WAS written, but an earlier PATH entry holds
+#      a foreign/broken/older `python3` that shadows it, so `python3` still does not resolve to
+#      the shim. Distinct from exit 2 (which writes nothing): here the shim exists but does not
+#      yet win on PATH; the breadcrumb names the shadowing path and the remedy.
 set -euo pipefail
 
 log()  { printf 'devflow-python: %s\n' "$1"; }
@@ -117,7 +121,13 @@ fi
 PATH_NOTE=0
 if [ -z "$TARGET_DIR" ]; then
   # Prefer the first WRITABLE directory already on PATH — a shim there needs no PATH note.
+  # `set -f` disables pathname (glob) expansion for the split: without it, a PATH entry
+  # containing a glob metacharacter (`*`/`?`/`[`) would be expanded against the filesystem
+  # and select the wrong TARGET_DIR (or, on no match, the literal). We want the split to
+  # depend only on the literal PATH contents. Restore the prior glob state afterward.
   _oldifs="$IFS"
+  case "$-" in *f*) _hadf=1 ;; *) _hadf=0 ;; esac
+  set -f
   IFS=':'
   for d in $PATH; do
     [ -n "$d" ] || continue
@@ -127,6 +137,7 @@ if [ -z "$TARGET_DIR" ]; then
     fi
   done
   IFS="$_oldifs"
+  [ "$_hadf" -eq 1 ] || set +f
   if [ -z "$TARGET_DIR" ]; then
     # Fall back to the standard Git-Bash ~/bin (its default profile adds ~/bin to PATH when
     # the directory exists). Surface a PATH note since we cannot confirm it is on PATH.
@@ -168,8 +179,37 @@ chmod +x "$TMP" || { warn "could not make the shim executable; wrote no shim."; 
 mv "$TMP" "$SHIM" || { warn "could not place the shim at $SHIM; wrote no shim."; exit 2; }
 trap - EXIT
 
-log "provisioned $SHIM (exec $RESOLVED \"\$@\"): the literal 'python3' command now resolves to your >=3.11 Python."
-if [ "$PATH_NOTE" -eq 1 ]; then
-  log "NOTE: $TARGET_DIR may not be on your PATH. Git-Bash's default profile adds ~/bin when it exists; if 'python3 --version' still fails, add $TARGET_DIR to your PATH (e.g. add 'export PATH=\"\$HOME/bin:\$PATH\"' to ~/.bashrc) and reopen the shell."
+# Report the outcome. We only CLAIM "python3 now resolves" when we can actually confirm it —
+# i.e. when we AUTO-SELECTED a writable directory already on this shell's PATH (TARGET_GIVEN=0
+# and no ~/bin fallback). In that case the write path was reached precisely in the broken/too-
+# old-`python3`-present case (the alternate resolved, RESOLVED != python3), so a non-working
+# `python3` may still sit in an EARLIER PATH directory and shadow the shim we just wrote into a
+# later writable dir — in which case `python3` still resolves to the broken/old interpreter and
+# an unconditional success claim would be false (the most confusing outcome: the tool says
+# "fixed", the user re-runs preflight and hits the same failure). Verify the postcondition
+# before asserting it; `hash -r` first so the lookup reflects the on-disk PATH, not a candidate
+# the resolver may have hashed earlier.
+if [ "$TARGET_GIVEN" -eq 0 ] && [ "$PATH_NOTE" -eq 0 ]; then
+  hash -r 2>/dev/null || true
+  _resolved_now="$(command -v python3 2>/dev/null || true)"
+  if [ "$_resolved_now" = "$SHIM" ]; then
+    log "provisioned $SHIM (exec $RESOLVED \"\$@\"): the literal 'python3' command now resolves to your >=3.11 Python."
+  else
+    # The shim went into a writable PATH dir, but `python3` still resolves elsewhere (or
+    # nowhere): an earlier PATH entry holds a foreign/broken/older `python3` that shadows it.
+    # Do NOT claim "now resolves" — name the shadowing path and the remedy, and exit non-zero
+    # (distinct code 3: the shim WAS written, unlike the exit-2 "wrote nothing" refusals) so a
+    # caller and the user can tell the provision did not achieve its goal.
+    warn "provisioned $SHIM, but 'python3' still resolves to '${_resolved_now:-nothing}' — an earlier PATH entry shadows the shim. Remove or repair that python3, or move $TARGET_DIR earlier on your PATH, then re-run 'bash lib/preflight.sh'."
+    exit 3
+  fi
+else
+  # Explicit TARGET_DIR, or the ~/bin fallback: we cannot confirm the dir is on THIS shell's
+  # PATH, so we do not claim "now resolves" — we report the write and (on the fallback) how to
+  # activate it. The user's preflight re-run is the real confirmation.
+  log "provisioned $SHIM (exec $RESOLVED \"\$@\")."
+  if [ "$PATH_NOTE" -eq 1 ]; then
+    log "NOTE: $TARGET_DIR may not be on your PATH. Git-Bash's default profile adds ~/bin when it exists; if 'python3 --version' still fails, add $TARGET_DIR to your PATH (e.g. add 'export PATH=\"\$HOME/bin:\$PATH\"' to ~/.bashrc) and reopen the shell."
+  fi
 fi
 exit 0

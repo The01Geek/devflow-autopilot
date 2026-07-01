@@ -10150,6 +10150,71 @@ EOF
     fi
     chmod 0755 "$TRO"   # restore so cleanup can remove it
   fi
+  # (a2) POSITIVE pin of the post-write resolution check on the auto-selected-PATH-dir success
+  #      path: when the chosen writable dir IS on PATH and nothing shadows the shim, python3 now
+  #      resolves to it, so the breadcrumb claims 'now resolves'. (TDEF above had no other python3
+  #      on PATH, so command -v python3 finds the shim.)
+  assert_eq "#225 pps: default target — success breadcrumb confirms 'now resolves' (post-write check)" "yes" \
+    "$(printf '%s' "$PPS_DEF2_OUT" | grep -q 'now resolves' && echo yes || echo no)"
+
+  # (c) SHADOWED shim: the shim is written to a later writable PATH dir, but an EARLIER PATH
+  #     entry holds a broken `python3` that still wins `command -v` — so the provisioner must NOT
+  #     claim 'now resolves'; it warns that the shim is shadowed and exits 3 (distinct from the
+  #     exit-2 "wrote nothing" refusals — the shim WAS written). This is the fail-open the
+  #     unconditional success breadcrumb had. Root bypasses the -w bit (the read-only earlier dir
+  #     would read writable, so auto-select would land there and clobber-refuse instead), so skip
+  #     under root. (Review finding: provisioner success-overclaim vs PATH shadowing.)
+  if [ "$(id -u)" -ne 0 ]; then
+    TSHADOW_E="$(mktemp -d)"                                  # earlier PATH dir: a broken python3
+    printf '#!/bin/sh\nexit 127\n' > "$TSHADOW_E/python3"; chmod +x "$TSHADOW_E/python3"
+    chmod 0555 "$TSHADOW_E"                                   # non-writable → auto-select skips it
+    TSHADOW_W="$(mktemp -d)"; build_stub_bin "$TSHADOW_W"; make_fake_python "$TSHADOW_W/python" "3.11.6" 3 11
+    if [ ! -w "$TSHADOW_E" ]; then
+      PPS_SH_OUT="$(PATH="$TSHADOW_E:$TSHADOW_W" bash "$PPS" --apply 2>&1)"; PPS_SH_RC=$?
+      assert_eq "#225 pps: shadowed shim (earlier broken python3 wins) → exit 3 (shim written but does not win)" "3" "$PPS_SH_RC"
+      assert_eq "#225 pps: shadowed shim → breadcrumb names the shadow, does NOT claim 'now resolves'" "yes" \
+        "$(printf '%s' "$PPS_SH_OUT" | grep -q 'shadows the shim' && ! printf '%s' "$PPS_SH_OUT" | grep -q 'now resolves' && echo yes || echo no)"
+      assert_eq "#225 pps: shadowed shim → the shim WAS written to the later writable dir" "yes" \
+        "$([ -f "$TSHADOW_W/python3" ] && echo yes || echo no)"
+    fi
+    chmod 0755 "$TSHADOW_E"   # restore so cleanup can remove it
+    rm -rf "$TSHADOW_E" "$TSHADOW_W"
+  fi
+
+  # (d) PATH_NOTE ~/bin fallback SUCCESS path: no writable dir on PATH but HOME set → the shim is
+  #     written into $HOME/bin, PATH_NOTE fires, exit 0, and the 'may not be on your PATH' note is
+  #     emitted. The only prior coverage of the fallback was the HOME-unset *refusal*; this pins
+  #     the success half. Skip under root (the read-only PATH dir would read writable).
+  if [ "$(id -u)" -ne 0 ]; then
+    TPN_RO="$(mktemp -d)"; build_stub_bin "$TPN_RO"; make_fake_python "$TPN_RO/python" "3.11.8" 3 11
+    chmod 0555 "$TPN_RO"
+    TPN_HOME="$(mktemp -d)"
+    if [ ! -w "$TPN_RO" ]; then
+      PPS_PN_OUT="$(HOME="$TPN_HOME" PATH="$TPN_RO" bash "$PPS" --apply 2>&1)"; PPS_PN_RC=$?
+      assert_eq "#225 pps: ~/bin fallback success → exit 0" "0" "$PPS_PN_RC"
+      assert_eq "#225 pps: ~/bin fallback success → shim written into \$HOME/bin" "yes" \
+        "$([ -f "$TPN_HOME/bin/python3" ] && echo yes || echo no)"
+      assert_eq "#225 pps: ~/bin fallback success → 'may not be on your PATH' note emitted" "yes" \
+        "$(printf '%s' "$PPS_PN_OUT" | grep -qi 'may not be on your PATH' && echo yes || echo no)"
+    fi
+    chmod 0755 "$TPN_RO"
+    rm -rf "$TPN_RO" "$TPN_HOME"
+  fi
+
+  # ── preflight resolves to a two-word `py -3` alternate: the SC2086 word-split hazard on
+  #    preflight's unquoted $PYTHON must be exercised on the PREFLIGHT side too (the provisioner
+  #    side has TPY3, but a regression that quoted "$PYTHON" would break `py -3` in preflight while
+  #    passing the provisioner test). A py-3-only host (fake `py -3` delegate, no python3/python)
+  #    with noyaml drives $PYTHON="py -3" through the PyYAML hint printf. (Review finding.) ──
+  TPYPRE="$(mktemp -d)"; build_stub_bin "$TPYPRE"
+  make_fake_python "$TPYPRE/_py3delegate" "3.11.1" 3 11 noyaml   # noyaml → PyYAML check fails → hint fires
+  make_fake_py "$TPYPRE/py" "$TPYPRE/_py3delegate"               # `py -3` resolves; no python3, no python
+  PF_PY3_OUT="$(PATH="$TPYPRE" bash "$PREFLIGHT_SH" 2>&1)"
+  assert_eq "#225 preflight: py-3-only host → provisioner pointer fires (alternate resolved)" "yes" \
+    "$(printf '%s' "$PF_PY3_OUT" | grep -q 'provision-python3-shim.sh' && echo yes || echo no)"
+  assert_eq "#225 preflight: py-3-only host → PyYAML hint names the resolved 'py -3' (unquoted \$PYTHON word-splits)" "yes" \
+    "$(printf '%s' "$PF_PY3_OUT" | grep -qF "'py -3 -m pip install pyyaml'" && echo yes || echo no)"
+  rm -rf "$TPYPRE"
 
   # ── AC8: install.sh delegates to the provisioner on the no-python3/alternate path; not when python3 works. ──
   INSTALL_SH="$LIB/../install.sh"
