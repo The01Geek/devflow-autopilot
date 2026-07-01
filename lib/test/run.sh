@@ -10004,6 +10004,19 @@ EOF
     "$(printf '%s' "$PPS_CF_OUT" | grep -qi 'did not create' && echo yes || echo no)"
   assert_eq "#225 pps: foreign python3 left byte-for-byte unchanged" "yes" \
     "$(grep -q 'echo FOREIGN' "$TCFBIN/python3" && echo yes || echo no)"
+  # A DANGLING python3 symlink at the target: `-e` follows symlinks and reports it non-existent,
+  # so the clobber guard's `-L` arm is load-bearing — without it the guard would skip and `mv`
+  # would silently replace a symlink DevFlow did not create (and a broken python3 symlink is
+  # exactly the corrupt-interpreter class this targets). Assert the guard still refuses (exit 2)
+  # and leaves the symlink in place. (Review finding: clobber guard fail-open on dangling links.)
+  TCDBIN="$(mktemp -d)"; ln -s /nonexistent-python-target "$TCDBIN/python3"
+  PPS_CD_OUT="$(PATH="$TCF" bash "$PPS" --apply "$TCDBIN" 2>&1)"; PPS_CD_RC=$?
+  assert_eq "#225 pps: dangling python3 symlink at target → refuse exit 2 (no clobber via -L arm)" "2" "$PPS_CD_RC"
+  assert_eq "#225 pps: dangling symlink → breadcrumb says 'did not create'" "yes" \
+    "$(printf '%s' "$PPS_CD_OUT" | grep -qi 'did not create' && echo yes || echo no)"
+  assert_eq "#225 pps: dangling symlink left in place (still a symlink, not overwritten)" "yes" \
+    "$([ -L "$TCDBIN/python3" ] && echo yes || echo no)"
+  rm -rf "$TCDBIN"
   # A DevFlow shim a prior run wrote (carries the marker) → re-apply is an idempotent rewrite (exit 0).
   TCRBIN="$(mktemp -d)"
   PATH="$TCF" bash "$PPS" --apply "$TCRBIN" >/dev/null 2>&1   # first apply writes the marked shim
@@ -10149,6 +10162,8 @@ EOF
         "$(printf '%s' "$PPS_NH_OUT" | grep -qi 'HOME is unset' && echo yes || echo no)"
     fi
     chmod 0755 "$TRO"   # restore so cleanup can remove it
+  else
+    printf '  SKIP  #225 pps: default target — HOME-unset refusal (root bypasses the -w bit; verified on non-root CI)\n'
   fi
   # (a2) POSITIVE pin of the post-write resolution check on the auto-selected-PATH-dir success
   #      path: when the chosen writable dir IS on PATH and nothing shadows the shim, python3 now
@@ -10179,6 +10194,8 @@ EOF
     fi
     chmod 0755 "$TSHADOW_E"   # restore so cleanup can remove it
     rm -rf "$TSHADOW_E" "$TSHADOW_W"
+  else
+    printf '  SKIP  #225 pps: shadowed-shim exit-3 path (root bypasses the -w bit; verified on non-root CI)\n'
   fi
 
   # (d) PATH_NOTE ~/bin fallback SUCCESS path: no writable dir on PATH but HOME set → the shim is
@@ -10199,6 +10216,8 @@ EOF
     fi
     chmod 0755 "$TPN_RO"
     rm -rf "$TPN_RO" "$TPN_HOME"
+  else
+    printf '  SKIP  #225 pps: ~/bin fallback success path (root bypasses the -w bit; verified on non-root CI)\n'
   fi
 
   # ── preflight resolves to a two-word `py -3` alternate: the SC2086 word-split hazard on
@@ -10238,6 +10257,17 @@ EOF
   assert_eq "#225 install.sh: broken-but-present python3 → still delegates to the provisioner" "yes" \
     "$(printf '%s' "$OFFER_OUT_C" | grep -q 'devflow-python:' && echo yes || echo no)"
   rm -rf "$T8C"
+  # A provisioner REFUSAL (non-zero rc) must be surfaced with its rc and NOT abort the install —
+  # the `bash "$prov" || { rc=$?; log "...rc $rc..." }` branch. Every other install test runs a
+  # >=3.11 host where the plan-mode provisioner exits 0, so this branch was untested. Use a
+  # too-old-only host ($T4B: python2/too-old, no python3) → offer delegates (plan-only), the
+  # provisioner exits 2 (too-old refusal, before the plan/apply split), the offer surfaces the
+  # rc and returns 0. (Review finding: rc-surfaced-continues contract untested.)
+  OFFER_OUT_R="$(PATH="$T4B" bash -c "DEVFLOW_SELFTEST=1 . \"$INSTALL_SH\"; offer_python3_shim \"$REPO_ROOT\"; echo \"ret=\$?\"" 2>&1)"
+  assert_eq "#225 install.sh: provisioner refusal (rc≠0) → surfaced with the rc, install continues" "yes" \
+    "$(printf '%s' "$OFFER_OUT_R" | grep -q 'exited non-zero (rc' && echo yes || echo no)"
+  assert_eq "#225 install.sh: provisioner refusal → offer_python3_shim still returns 0 (non-aborting)" "yes" \
+    "$(printf '%s' "$OFFER_OUT_R" | grep -q 'ret=0' && echo yes || echo no)"
 
   # ── AC11: no .github/ workflow, action, or allowlist entry is modified by this change. ──
   if git -C "$REPO_ROOT" rev-parse --verify origin/main >/dev/null 2>&1; then

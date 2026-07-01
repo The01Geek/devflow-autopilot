@@ -155,8 +155,13 @@ SHIM="$TARGET_DIR/$SHIM_NAME"
 # Never clobber a `python3` DevFlow did not create. (A real working python3 would have
 # short-circuited above; this guards the edge where a <3.11 `python3` lives in the chosen
 # dir, or the user placed their own wrapper there.) A DevFlow shim from a prior run is
-# safe to rewrite — recognized by the marker line.
-if [ -e "$SHIM" ] && ! grep -q "$SHIM_MARKER" "$SHIM" 2>/dev/null; then
+# safe to rewrite — recognized by the marker line. The `-L` arm is load-bearing: `-e`
+# follows symlinks and reports a DANGLING `python3` symlink as non-existent, so without it
+# the guard would skip and `mv` would silently replace a symlink DevFlow did not create —
+# and a dangling/broken `python3` symlink is exactly the corrupt-interpreter class this
+# targets, so it must hit the refuse branch (the marker grep on a dangling link fails to
+# read → `! grep` true → refuse), not fall through.
+if { [ -e "$SHIM" ] || [ -L "$SHIM" ]; } && ! grep -q "$SHIM_MARKER" "$SHIM" 2>/dev/null; then
   warn "refusing to overwrite an existing $SHIM that DevFlow did not create; remove it yourself or pass a different TARGET_DIR on your PATH."
   exit 2
 fi
@@ -181,14 +186,15 @@ trap - EXIT
 
 # Report the outcome. We only CLAIM "python3 now resolves" when we can actually confirm it —
 # i.e. when we AUTO-SELECTED a writable directory already on this shell's PATH (TARGET_GIVEN=0
-# and no ~/bin fallback). In that case the write path was reached precisely in the broken/too-
-# old-`python3`-present case (the alternate resolved, RESOLVED != python3), so a non-working
-# `python3` may still sit in an EARLIER PATH directory and shadow the shim we just wrote into a
-# later writable dir — in which case `python3` still resolves to the broken/old interpreter and
-# an unconditional success claim would be false (the most confusing outcome: the tool says
-# "fixed", the user re-runs preflight and hits the same failure). Verify the postcondition
-# before asserting it; `hash -r` first so the lookup reflects the on-disk PATH, not a candidate
-# the resolver may have hashed earlier.
+# and no ~/bin fallback). The write path is reached whenever no working `python3 >=3.11`
+# resolves (it is absent, present-but-broken, or too old — RESOLVED is then an alternate). The
+# EXIT-3 shadow outcome is the subset where a non-working `python3` still sits in an EARLIER
+# PATH directory and shadows the shim we wrote into a later writable dir — in which case
+# `python3` still resolves to the broken/old interpreter and an unconditional success claim
+# would be false (the most confusing outcome: the tool says "fixed", the user re-runs preflight
+# and hits the same failure). When `python3` was fully absent, nothing shadows the shim and it
+# wins. Verify the postcondition before asserting it; `hash -r` first so the lookup reflects the
+# on-disk PATH, not a candidate the resolver may have hashed earlier.
 if [ "$TARGET_GIVEN" -eq 0 ] && [ "$PATH_NOTE" -eq 0 ]; then
   hash -r 2>/dev/null || true
   _resolved_now="$(command -v python3 2>/dev/null || true)"
