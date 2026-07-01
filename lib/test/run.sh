@@ -5528,7 +5528,9 @@ assert_eq "#241 pin (A1): create-issue resolves a portable helper anchor (\$CLAU
   "$(grep -qF 'SKILL_DIR="${CLAUDE_SKILL_DIR:-' "$LIB/../skills/create-issue/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: presence pin — literal recurs across the self-contained helper fences by design (not unique)
 # A2 (AC2): the regression-reproducing absence pin — NO bare ${CLAUDE_SKILL_DIR}/../../scripts
 # expansion may remain (three such occurrences exist against today's file; this fails RED
-# until every call site routes through the resolved anchor). Absence pin => expects `no`.
+# until every call site routes through the resolved anchor). The inner grep must find NO
+# bare expansion; the leading `!` negates it, so the assert_eq passes with `yes` when the
+# literal is absent (do not misread this as an assert_eq expecting `no`).
 assert_eq "#241 pin (A2): create-issue has no bare \${CLAUDE_SKILL_DIR}/../../scripts expansion" "yes" \
   "$(! grep -qF '${CLAUDE_SKILL_DIR}/../../scripts' "$LIB/../skills/create-issue/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: absence pin — the exact broken expansion literal must be GONE
 # A2b (AC2, positive companion to A2): A2 proves NO bare expansion remains file-wide, but

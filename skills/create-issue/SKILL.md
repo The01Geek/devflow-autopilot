@@ -12,7 +12,7 @@ SKILL_DIR="${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner report
 "$SKILL_DIR"/../../scripts/load-prompt-extension.sh create-issue
 ```
 
-If the helper exits non-zero, a consumer extension exists but could not be loaded — surface its stderr message and do not silently proceed as if none existed. If it exits 0 and prints text, treat that text as additional instructions appended to the end of this skill's own prompt for this run — it is upgrade-safe, consumer-owned customization committed under `.devflow/prompt-extensions/`. If it exits 0 and prints nothing, proceed unchanged.
+If the invocation fails with a `No such file` naming `load-prompt-extension.sh` itself, that is the best-effort **anchor-resolution** failure noted above (an empty/unsubstituted `$SKILL_DIR`), not a consumer-extension problem — fix the anchor, don't report a missing extension. Otherwise, if the helper runs but exits non-zero, a consumer extension exists but could not be loaded — surface its stderr message and do not silently proceed as if none existed. If it exits 0 and prints text, treat that text as additional instructions appended to the end of this skill's own prompt for this run — it is upgrade-safe, consumer-owned customization committed under `.devflow/prompt-extensions/`. If it exits 0 and prints nothing, proceed unchanged.
 
 ## Prerequisites
 
