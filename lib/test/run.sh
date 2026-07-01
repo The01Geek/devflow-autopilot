@@ -2116,6 +2116,19 @@ assert_pin_red_on_removal "#235 (B) phase-3.3: deleting the run-the-persist-back
   'run the efficiency-trace persist backstop when they are missing' "$DEF_SKILL"
 assert_pin_red_on_removal "#235 (B) phase-3.3: deleting the dropped-failed-reflection directive turns its pin RED" \
   'reflection naming the observability gap' "$DEF_SKILL"
+# #235 (finding B, executable surface): the two prose pins above pin the DIRECTIVE; a
+# half-revert could break the actual bash code block that IMPLEMENTS the backstop while the
+# prose stays intact (the exact framing-only-pin class this PR closes, applied to code). So
+# pin the three executable tokens the backstop stands on — the --persist invocation, the
+# repo-root-anchored no-inputs detector glob, and the dropped-failed reflection emission.
+# These are literal-constant/token pins (not operative-sentence pins), so assert_pin_unique
+# is the right form and no operative-vs-framing note is required (the finding-A carve-out).
+assert_pin_unique "#235 (B) phase-3.3: the --persist backstop command is actually invoked" \
+  '"$LIB/efficiency-trace.sh" --persist' "$DEF_SKILL"
+assert_pin_unique "#235 (B) phase-3.3: the no-inputs detector glob is repo-root-anchored (matches --persist)" \
+  'compgen -G "$ROOT/.devflow/tmp/review/*/*/iter-*.json"' "$DEF_SKILL"
+assert_pin_unique "#235 (B) phase-3.3: the no-inputs case emits the dropped-failed telemetry-lost reflection" \
+  'lib/efficiency-trace.sh --persist had no inputs' "$DEF_SKILL"
 # ── #192: review/analysis agents must never mutate the live working tree ──────────────
 # Two coupled layers, each pinned with a mutation-proven assert_pin_red_on_removal so a
 # half-applied removal of the contract turns the suite RED (issue #192 AC4):

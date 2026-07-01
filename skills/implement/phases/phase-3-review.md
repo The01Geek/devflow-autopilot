@@ -68,6 +68,11 @@ Follow the skill's instructions. It handles evaluation, fixing, testing, and re-
 **Observability-persistence backstop (after `review-and-fix` returns, before the verdict branches below).** `review-and-fix`'s Loop Exit is what normally derives this run's effectiveness record (`.devflow/logs/efficiency/<slug>-<run-id>.json`) and durable workpad copy from its per-iteration `iter-*.json`. But this phase drives that loop **inline in your context**, so a dropped Loop Exit leaves those artifacts unpersisted and the run contributes nothing to `.devflow/logs/efficiency/` — the skill's own #1 documented "Common Mistake," unguarded at this seam. So regardless of the verdict, first **verify this run's observability artifacts were persisted and run the efficiency-trace persist backstop when they are missing**; the backstop is idempotent (it never re-derives an existing record), so running it unconditionally is safe. **When even that backstop has no `iter-*.json` inputs** — the inline loop wrote no per-iteration workpad this run — **record a `dropped-failed` reflection naming the observability gap** so the lost telemetry is visible rather than silently absent:
 ```bash
 LIB="${CLAUDE_SKILL_DIR}/../../lib"
+# Anchor on the repo root the SAME way efficiency-trace.sh does (git toplevel), so the
+# "no inputs" detector below reads the exact .devflow/tmp/review tree --persist scans —
+# never a cwd-relative path that could diverge from the wrapper and fire a false
+# "telemetry lost" reflection (or mask a real loss) when cwd is not the repo root.
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 # Idempotent Layer-3 persist: derives + commits the effectiveness record and durable
 # workpad copy from whatever iter-*.json this run left under .devflow/tmp/review/; no-op
 # if already persisted or if the inline loop wrote no per-iter workpad. Best-effort
@@ -75,11 +80,13 @@ LIB="${CLAUDE_SKILL_DIR}/../../lib"
 # dir on disk, which is exactly the "the orchestrator does not hold review-and-fix's
 # internal slug/run-id" case at this inline seam.
 "$LIB/efficiency-trace.sh" --persist || true   # best-effort; let its ::warning:: breadcrumbs surface to the run log (never swallow to a write-only file)
-# Detect the "no inputs" case directly: .devflow/tmp/ is gitignored ephemeral scratch
-# destroyed with the runner, so any iter-*.json present belongs to this run. Zero of them
-# means the inline loop wrote no per-iteration workpad, so --persist had nothing to derive
-# from and this run's effectiveness telemetry is genuinely lost — surface it, do not swallow.
-if ! compgen -G ".devflow/tmp/review/*/*/iter-*.json" >/dev/null 2>&1; then
+# Detect the "no inputs" case directly, anchored on $ROOT (matching --persist): .devflow/tmp
+# is gitignored ephemeral scratch destroyed with the runner, so any iter-*.json present
+# belongs to this run. Zero of them means the inline loop wrote no per-iteration workpad, so
+# --persist had nothing to derive from and this run's effectiveness telemetry is genuinely
+# lost — surface it, do not swallow. (A persist that DID find inputs but failed to write
+# still leaves efficiency-trace.sh's own ::warning:: on the run log, surfaced above.)
+if ! compgen -G "$ROOT/.devflow/tmp/review/*/*/iter-*.json" >/dev/null 2>&1; then
   workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "review-and-fix inline loop wrote no iter-*.json this run; lib/efficiency-trace.sh --persist had no inputs, so this run's effectiveness telemetry (.devflow/logs/efficiency/) is missing"
 fi
 ```
