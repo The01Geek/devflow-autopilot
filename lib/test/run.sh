@@ -3973,8 +3973,17 @@ for SKILL_DIR in "$LIB"/../skills/*/; do
   # cannot vacuously match, and (b) rejects a prose mention or a commented-out /
   # HTML-comment-wrapped reference — only a live, exact invocation line passes, so
   # a future edit that comments out the step (leaving a stale reference) fails here.
+  # create-issue (issue #241) resolves a portable anchor ($SKILL_DIR) once, near the
+  # top, instead of the bare ${CLAUDE_SKILL_DIR} expansion, so its invocation line uses
+  # the "$SKILL_DIR"/../../ form; every other skill still carries the canonical bare
+  # form. Both are pinned whole-line (grep -Fx), so a name/path drift still fails here.
+  if [ "$SKILL_NAME" = "create-issue" ]; then
+    LPE_EXPECT_LINE='"$SKILL_DIR"/../../scripts/load-prompt-extension.sh '"$SKILL_NAME"
+  else
+    LPE_EXPECT_LINE='${CLAUDE_SKILL_DIR}/../../scripts/load-prompt-extension.sh '"$SKILL_NAME"
+  fi
   assert_eq "lpe-coverage: $SKILL_NAME/SKILL.md invokes the helper for its own name" "yes" \
-    "$([ -f "$SKILL_FILE" ] && grep -Fxq '${CLAUDE_SKILL_DIR}/../../scripts/load-prompt-extension.sh '"$SKILL_NAME" "$SKILL_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body: SKILL target is the $SKILL_FILE loop variable, not a static pin
+    "$([ -f "$SKILL_FILE" ] && grep -Fxq "$LPE_EXPECT_LINE" "$SKILL_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body: SKILL target is the $SKILL_FILE loop variable, not a static pin
   # The invocation line alone is half the contract — the step must also tell the
   # model to HONOR the helper's exit code (surface a non-zero exit, don't silently
   # proceed). Pin a BLOCK-UNIQUE fragment of that prose, NOT a generic one: the
@@ -5508,6 +5517,20 @@ assert_eq "#97 pin: ensure-label.sh exists" "yes" \
   "$([ -f "$LIB/../scripts/ensure-label.sh" ] && echo yes || echo no)"
 assert_eq "#97 pin: create-issue ensures+applies DevFlow label via REST helper" "yes" \
   "$(grep -q 'ensure-label.sh DevFlow' "$LIB/../skills/create-issue/SKILL.md" && grep -qF 'apply-labels.sh <issue_number> DevFlow' "$LIB/../skills/create-issue/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: compound: two greps && on one line (provenance: ensure-label + REST apply-labels)
+# ── #241: create-issue resolves its helper-scripts anchor portably across runners ──
+# A1 (AC1, AC5): the portable-resolution recipe is present — the anchor is set to
+# $CLAUDE_SKILL_DIR when non-empty (the `:-` expansion also covers the empty case, AC3)
+# and otherwise the runner-reported skill base dir. The literal recurs by design: each
+# helper's bash fence re-establishes the anchor (fresh-shell-safe), so this is a `yes`
+# presence pin whose literal legitimately appears at more than one site, not a
+# uniqueness pin.
+assert_eq "#241 pin (A1): create-issue resolves a portable helper anchor (\$CLAUDE_SKILL_DIR-preferred, runner-base-dir fallback)" "yes" \
+  "$(grep -qF 'SKILL_DIR="${CLAUDE_SKILL_DIR:-' "$LIB/../skills/create-issue/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: presence pin — literal recurs across the self-contained helper fences by design (not unique)
+# A2 (AC2): the regression-reproducing absence pin — NO bare ${CLAUDE_SKILL_DIR}/../../scripts
+# expansion may remain (three such occurrences exist against today's file; this fails RED
+# until every call site routes through the resolved anchor). Absence pin => expects `no`.
+assert_eq "#241 pin (A2): create-issue has no bare \${CLAUDE_SKILL_DIR}/../../scripts expansion" "yes" \
+  "$(! grep -qF '${CLAUDE_SKILL_DIR}/../../scripts' "$LIB/../skills/create-issue/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: absence pin — the exact broken expansion literal must be GONE
 assert_eq "#97 pin: implement applies DevFlow label at PR create via REST helper" "yes" \
   "$(grep -q 'ensure-label.sh DevFlow' "$IMPL_SKILL_BUNDLE" && grep -qF 'apply-labels.sh "$PR_NUM" DevFlow' "$IMPL_SKILL_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: compound: two greps && on one line (provenance: ensure-label + REST apply-labels); issue #218: bundle (label idiom in phases/phase-3-review.md)
 assert_eq "#152 pin: meta-issue.sh ensures+applies DevFlow and Retrospective labels via REST helper" "yes" \

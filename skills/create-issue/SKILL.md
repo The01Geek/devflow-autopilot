@@ -3,10 +3,13 @@ name: create-issue
 description: Use when you have a rough user story, bug report, or feature idea that needs to become a well-structured GitHub issue.
 argument-hint: <user-story>
 ---
+**Resolve the bundled-helper anchor once (portable across runners).** This skill invokes helper scripts bundled beside it (`load-prompt-extension.sh` below; `ensure-label.sh` / `apply-labels.sh` in Step 4 sub-step 5a). Every call routes through a single resolved anchor `$SKILL_DIR`, invoked as `"$SKILL_DIR"/../../scripts/…`. The anchor prefers `$CLAUDE_SKILL_DIR` when it is set **and non-empty**; otherwise it falls back to the skill's base directory this runner reports in context — Claude Code exports `$CLAUDE_SKILL_DIR`, while other runners (Copilot CLI, Cursor, Codex CLI, Gemini CLI, …) print a `Base directory for this skill:` line instead. The `:-` expansion treats an **empty** `$CLAUDE_SKILL_DIR` exactly like unset — engaging the fallback — because the observed failure on non-Claude-Code runners is *empty* expansion, not an unset variable. On Claude Code the resolved value equals today's `$CLAUDE_SKILL_DIR`-based path, so behavior there is unchanged. The recipe names no skill-specific value, so it lifts unchanged into any other skill sharing this pattern; it is best-effort — if neither source yields a usable directory the skill proceeds and the natural underlying "No such file" error surfaces, no worse than before. Because each Bash call runs in a fresh shell, re-establish the anchor at the top of every bash block that uses it, exactly as the fences below do.
+
 **Consumer prompt extension (load first).** Before doing this skill's work, load any consumer-supplied prompt extension for this skill and honor it. From the repo root, run:
 
 ```bash
-${CLAUDE_SKILL_DIR}/../../scripts/load-prompt-extension.sh create-issue
+SKILL_DIR="${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"
+"$SKILL_DIR"/../../scripts/load-prompt-extension.sh create-issue
 ```
 
 If the helper exits non-zero, a consumer extension exists but could not be loaded — surface its stderr message and do not silently proceed as if none existed. If it exits 0 and prints text, treat that text as additional instructions appended to the end of this skill's own prompt for this run — it is upgrade-safe, consumer-owned customization committed under `.devflow/prompt-extensions/`. If it exits 0 and prints nothing, proceed unchanged.
@@ -106,8 +109,9 @@ Drafting produces a candidate issue **in your message only** — nothing is post
 5. **Create only on explicit approval.** Once the user clearly says to create it (e.g. "yes", "create it", "looks good, file it"), create the issue **directly via `gh issue create`**, piping the body through stdin — not from the draft file. The `.devflow/tmp/issue-draft-<slug>.md` copy is a gitignored preview, never the `--body-file` source and never committed; the issue body still goes through the stdin heredoc. **Do not pass `--label` on `gh issue create`.** Report the issue URL that `gh` prints on success, and capture the new issue's number from the trailing path segment of that URL (e.g. `…/issues/42` → `42`) — sub-steps 5a and 6 need it. See `references/issue-template.md` for the exact invocation.
 5a. **Stamp the reserved `DevFlow` provenance label (best-effort).** After a successful `gh issue create`, ensure the reserved label exists and apply it to the new issue. The label `DevFlow` is a hardcoded provenance constant (no config key controls it) — it is the branch-naming-independent signal the weekly retrospective uses to detect DevFlow-authored work. Apply it *after* creation (mirroring the `/devflow:implement` Phase 4 docs-label idiom) so a label hiccup can never block the issue from being created:
    ```bash
-   ${CLAUDE_SKILL_DIR}/../../scripts/ensure-label.sh DevFlow
-   ${CLAUDE_SKILL_DIR}/../../scripts/apply-labels.sh <issue_number> DevFlow
+   SKILL_DIR="${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"
+   "$SKILL_DIR"/../../scripts/ensure-label.sh DevFlow
+   "$SKILL_DIR"/../../scripts/apply-labels.sh <issue_number> DevFlow
    ```
    Both steps are best-effort and need only the `repo` scope: `ensure-label.sh` and `apply-labels.sh` each always exit 0 (logging whether the label was created / already present / hit a `gh` error, and whether the apply landed). Application goes through `apply-labels.sh`'s REST `POST .../issues/{n}/labels` rather than `gh issue edit --add-label` (which resolves the repo via org-scoped GraphQL and fails under a repo-scoped token). Continue to sub-step 6 regardless of the label outcome.
 6. **Offer to start implementation.** This sub-step runs **only after `gh issue create` succeeds** (it exits zero and prints an issue URL) and the URL has been reported. If creation failed (non-zero exit, or no URL printed), stop here and surface `gh`'s error output verbatim — do **not** show this prompt. After a successful creation, **always** present a yes/no prompt via the runner's user-question tool (`AskUserQuestion` on Claude Code, as used in Step 2) asking whether to start implementation now by commenting `/devflow:implement <issue_number>` on the newly created issue.
