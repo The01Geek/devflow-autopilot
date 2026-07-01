@@ -8379,6 +8379,25 @@ if command -v jq >/dev/null 2>&1; then
   ( DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" && set_config_version "$SCV_BAD" "abc123" ) >/dev/null 2>&1 || SCV_RC=$?
   assert_eq "scv: malformed config → returns 0 (degrades, never aborts)" "0" "$SCV_RC"
   rm -f "$SCV_CFG" "$SCV_BAD"
+
+  # A hand-set devflow_version that does NOT look like a commit SHA (e.g. "main"
+  # to deliberately track the branch, or a tag) is a user pin, not a previous
+  # auto-stamp — re-running the installer must not clobber it back to a SHA.
+  SCV_MAIN="$(mktemp)"; printf '{"devflow_version":"main"}' > "$SCV_MAIN"
+  # shellcheck disable=SC1090
+  ( DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" && set_config_version "$SCV_MAIN" "deadbeef1234" ) >/dev/null 2>&1
+  assert_eq "scv: hand-set non-SHA devflow_version (main) is preserved, not re-stamped" "main" \
+    "$(jq -r '.devflow_version' "$SCV_MAIN")"
+  rm -f "$SCV_MAIN"
+
+  # A previously auto-stamped SHA-like devflow_version IS re-stamped on re-run —
+  # that's the whole point of pinning to the newly-installed commit.
+  SCV_SHA="$(mktemp)"; printf '{"devflow_version":"abc1234"}' > "$SCV_SHA"
+  # shellcheck disable=SC1090
+  ( DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" && set_config_version "$SCV_SHA" "deadbeef1234" ) >/dev/null 2>&1
+  assert_eq "scv: previously auto-stamped SHA devflow_version IS re-stamped" "deadbeef1234" \
+    "$(jq -r '.devflow_version' "$SCV_SHA")"
+  rm -f "$SCV_SHA"
 fi
 
 # set_config_version cross-language backends: jq is selected first on CI, so the

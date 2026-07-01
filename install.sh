@@ -65,20 +65,50 @@ die() { printf 'devflow-install: %s\n' "$1" >&2; exit 1; }
 # degrade to a warning telling the user to set the key by hand. The success-path
 # `return 0`s live inside the `if` conditions so `set -e` can't fire on a tool
 # failure.
+#
+# Only re-stamps when the EXISTING devflow_version is absent/empty or already
+# looks like a commit SHA (7-40 lowercase hex) — i.e. it was itself set by a
+# previous run of this function. A value that does NOT match that pattern (a
+# branch name like "main", a tag like "v1.2.0") was set by hand, so it is a
+# deliberate pin/tracking choice and is left untouched — re-running the
+# installer must never silently convert "track main" into "pinned to a SHA".
 set_config_version() {
   local cfg="$1" version="$2" tmp
   [ -f "$cfg" ] || return 0
   tmp="$(mktemp)" || { log "warning: mktemp failed; add \"devflow_version\": \"$version\" to $cfg by hand."; return 0; }
   if command -v jq >/dev/null 2>&1; then
-    if jq --arg v "$version" '.devflow_version = $v' "$cfg" > "$tmp" 2>/dev/null && mv "$tmp" "$cfg"; then
-      log "pinned devflow_version=$version in $cfg"; return 0
+    if jq --arg v "$version" \
+        '(.devflow_version // "") as $cur
+         | if ($cur == "" or ($cur | test("^[0-9a-f]{7,40}$")))
+           then .devflow_version = $v
+           else . end' \
+        "$cfg" > "$tmp" 2>/dev/null; then
+      if [ "$(jq -r '.devflow_version // ""' "$tmp" 2>/dev/null)" = "$version" ] \
+        && [ "$(jq -r '.devflow_version // ""' "$cfg" 2>/dev/null)" != "$version" ]; then
+        mv "$tmp" "$cfg"; log "pinned devflow_version=$version in $cfg"; return 0
+      else
+        rm -f "$tmp"
+        log "kept existing devflow_version in $cfg (looks like a deliberate pin, not a previous SHA stamp) — not overwriting."
+        return 0
+      fi
     fi
   elif command -v python3 >/dev/null 2>&1; then
-    if DEVFLOW_CFG="$cfg" DEVFLOW_VER="$version" DEVFLOW_OUT="$tmp" python3 -c 'import json,os
+    if DEVFLOW_CFG="$cfg" DEVFLOW_VER="$version" DEVFLOW_OUT="$tmp" python3 -c 'import json,os,re,sys
 c=json.load(open(os.environ["DEVFLOW_CFG"]))
-c["devflow_version"]=os.environ["DEVFLOW_VER"]
-open(os.environ["DEVFLOW_OUT"],"w").write(json.dumps(c,indent=2)+"\n")' 2>/dev/null && mv "$tmp" "$cfg"; then
-      log "pinned devflow_version=$version in $cfg"; return 0
+cur=c.get("devflow_version") or ""
+if cur == "" or re.match(r"^[0-9a-f]{7,40}$", cur):
+    c["devflow_version"]=os.environ["DEVFLOW_VER"]
+    open(os.environ["DEVFLOW_OUT"],"w").write(json.dumps(c,indent=2)+"\n")
+    sys.exit(0)
+sys.exit(3)' 2>/dev/null; then
+      mv "$tmp" "$cfg"; log "pinned devflow_version=$version in $cfg"; return 0
+    else
+      local rc=$?
+      rm -f "$tmp"
+      if [ "$rc" -eq 3 ]; then
+        log "kept existing devflow_version in $cfg (looks like a deliberate pin, not a previous SHA stamp) — not overwriting."
+        return 0
+      fi
     fi
   fi
   rm -f "$tmp"

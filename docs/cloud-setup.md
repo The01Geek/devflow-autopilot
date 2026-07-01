@@ -34,6 +34,14 @@ new features; values you've already set are preserved and your arrays (e.g.
 `allowed_tools`) are left untouched. Because the pin is explicit, your CI never
 silently tracks a moving `main`.
 
+`devflow_version` gets one narrow exception to "existing values are preserved":
+the installer re-stamps it to the commit it just installed from **only when the
+current value already looks like a commit SHA** (i.e. it was itself written by
+a previous run of the installer) or is empty. If you hand-set `devflow_version`
+to something that isn't a SHA — `"main"` to deliberately track the moving
+branch, or a tag like `"v1.2.0"` — that is treated as a deliberate pin and is
+left untouched on re-run.
+
 > **Prefer to commit the plugin instead?** Run `DEVFLOW_VENDOR=1 … | bash`. That
 > vendors the full tree into `.devflow/vendor/devflow/` so nothing is fetched at
 > runtime — self-hosting, fully auditable in your repo, at the cost of a large
