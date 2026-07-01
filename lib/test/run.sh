@@ -8502,6 +8502,61 @@ if command -v jq >/dev/null 2>&1; then
   ( DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" && set_config_version "$SCV_BAD" "abc123" ) >/dev/null 2>&1 || SCV_RC=$?
   assert_eq "scv: malformed config → returns 0 (degrades, never aborts)" "0" "$SCV_RC"
   rm -f "$SCV_CFG" "$SCV_BAD"
+
+  # A hand-set devflow_version that does NOT look like a commit SHA (e.g. "main"
+  # to deliberately track the branch, or a tag) is a user pin, not a previous
+  # auto-stamp — re-running the installer must not clobber it back to a SHA.
+  SCV_MAIN="$(mktemp)"; printf '{"devflow_version":"main"}' > "$SCV_MAIN"
+  # shellcheck disable=SC1090
+  SCV_MAIN_OUT="$( ( DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" && set_config_version "$SCV_MAIN" "deadbeef1234" ) 2>&1 )"
+  SCV_MAIN_RC=$?
+  assert_eq "scv: hand-set non-SHA devflow_version (main) is preserved, not re-stamped" "main" \
+    "$(jq -r '.devflow_version' "$SCV_MAIN")"
+  # Value-unchanged alone can't distinguish "correctly detected a deliberate pin"
+  # from "aborted early for an unrelated reason" (a set -e trap would leave the
+  # value unchanged too, while returning non-zero and never logging "kept").
+  assert_eq "scv: hand-set non-SHA (main) preserve returns 0 (never aborts)" "0" "$SCV_MAIN_RC"
+  assert_eq "scv: hand-set non-SHA (main) preserve logs 'kept existing...deliberate pin'" "yes" \
+    "$(printf '%s' "$SCV_MAIN_OUT" | grep -q 'kept existing devflow_version' && echo yes || echo no)"
+  rm -f "$SCV_MAIN"
+
+  # A previously auto-stamped SHA-like devflow_version IS re-stamped on re-run —
+  # that's the whole point of pinning to the newly-installed commit.
+  SCV_SHA="$(mktemp)"; printf '{"devflow_version":"abc1234"}' > "$SCV_SHA"
+  # shellcheck disable=SC1090
+  ( DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" && set_config_version "$SCV_SHA" "deadbeef1234" ) >/dev/null 2>&1
+  assert_eq "scv: previously auto-stamped SHA devflow_version IS re-stamped" "deadbeef1234" \
+    "$(jq -r '.devflow_version' "$SCV_SHA")"
+  rm -f "$SCV_SHA"
+
+  # Idempotent re-run: the existing value is ALREADY the SHA being installed.
+  # The classification must key off whether the existing value looks like a
+  # SHA (eligible), not off whether the write changed anything — otherwise
+  # this exact case logs the "kept as a deliberate pin" message even though
+  # it's a SHA stamp, contradicting the python3 backend's "pinned" message
+  # for the identical input.
+  SCV_SAME="$(mktemp)"; printf '{"devflow_version":"deadbeef1234"}' > "$SCV_SAME"
+  # shellcheck disable=SC1090
+  SCV_SAME_OUT="$( ( DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" && set_config_version "$SCV_SAME" "deadbeef1234" ) 2>&1 )"
+  assert_eq "scv: idempotent same-SHA re-run leaves the value unchanged" "deadbeef1234" \
+    "$(jq -r '.devflow_version' "$SCV_SAME")"
+  assert_eq "scv: idempotent same-SHA re-run logs 'pinned', not 'kept as deliberate pin'" "yes" \
+    "$(printf '%s' "$SCV_SAME_OUT" | grep -q 'pinned devflow_version=deadbeef1234' && echo yes || echo no)"
+  rm -f "$SCV_SAME"
+
+  # First-install shape: devflow_version present but EXPLICITLY an empty string
+  # (as opposed to the absent-key case already covered above by SCV_CFG) — the
+  # `$cur == ""` arm of the eligibility predicate. Assert the log message too,
+  # not just the on-disk value, so a regression that skips this arm can't hide
+  # behind "the value happened to end up right anyway".
+  SCV_EMPTY="$(mktemp)"; printf '{"devflow_version":""}' > "$SCV_EMPTY"
+  # shellcheck disable=SC1090
+  SCV_EMPTY_OUT="$( ( DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" && set_config_version "$SCV_EMPTY" "deadbeef1234" ) 2>&1 )"
+  assert_eq "scv: empty-string devflow_version is stamped" "deadbeef1234" \
+    "$(jq -r '.devflow_version' "$SCV_EMPTY")"
+  assert_eq "scv: empty-string devflow_version stamp logs 'pinned'" "yes" \
+    "$(printf '%s' "$SCV_EMPTY_OUT" | grep -q 'pinned devflow_version=deadbeef1234' && echo yes || echo no)"
+  rm -f "$SCV_EMPTY"
 fi
 
 # set_config_version cross-language backends: jq is selected first on CI, so the
@@ -8534,6 +8589,232 @@ if command -v python3 >/dev/null 2>&1; then
   assert_eq "scv(python3): preserves sibling top-level key" "main" "$(jq -r '.base_branch' "$SCV_PY_CFG")"
   assert_eq "scv(python3): preserves nested key" "high" "$(jq -r '.devflow.effort' "$SCV_PY_CFG")"
   rm -f "$SCV_PY_CFG"
+
+  # Mirror the jq preserve/re-stamp assertions above for the python3 backend —
+  # both arms of the empty/SHA/non-SHA branch live only in the untested python3
+  # code path once jq is shadowed off PATH, so a regression there would pass CI.
+  SCV_PY_MAIN="$(mktemp)"; printf '{"devflow_version":"main"}' > "$SCV_PY_MAIN"
+  # shellcheck disable=SC1090
+  SCV_PY_MAIN_OUT="$( ( PATH="$SCV_PY_BIN"; DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" \
+      && set_config_version "$SCV_PY_MAIN" "deadbeef1234" ) 2>&1 )"
+  SCV_PY_MAIN_RC=$?
+  assert_eq "scv(python3): hand-set non-SHA devflow_version (main) is preserved, not re-stamped" "main" \
+    "$(jq -r '.devflow_version' "$SCV_PY_MAIN")"
+  assert_eq "scv(python3): hand-set non-SHA (main) preserve returns 0 (never aborts)" "0" "$SCV_PY_MAIN_RC"
+  assert_eq "scv(python3): hand-set non-SHA (main) preserve logs 'kept existing...deliberate pin'" "yes" \
+    "$(printf '%s' "$SCV_PY_MAIN_OUT" | grep -q 'kept existing devflow_version' && echo yes || echo no)"
+  rm -f "$SCV_PY_MAIN"
+
+  SCV_PY_SHA="$(mktemp)"; printf '{"devflow_version":"abc1234"}' > "$SCV_PY_SHA"
+  # shellcheck disable=SC1090
+  ( PATH="$SCV_PY_BIN"; DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" \
+      && set_config_version "$SCV_PY_SHA" "deadbeef1234" ) >/dev/null 2>&1
+  assert_eq "scv(python3): previously auto-stamped SHA devflow_version IS re-stamped" "deadbeef1234" \
+    "$(jq -r '.devflow_version' "$SCV_PY_SHA")"
+  rm -f "$SCV_PY_SHA"
+
+  # jq/python3 parity for the idempotent same-SHA re-run (see the "scv: idempotent
+  # same-SHA re-run" jq assertions above) — both backends must log "pinned" for
+  # the identical input.
+  SCV_PY_SAME="$(mktemp)"; printf '{"devflow_version":"deadbeef1234"}' > "$SCV_PY_SAME"
+  # shellcheck disable=SC1090
+  SCV_PY_SAME_OUT="$( ( PATH="$SCV_PY_BIN"; DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" \
+      && set_config_version "$SCV_PY_SAME" "deadbeef1234" ) 2>&1 )"
+  assert_eq "scv(python3): idempotent same-SHA re-run leaves the value unchanged" "deadbeef1234" \
+    "$(jq -r '.devflow_version' "$SCV_PY_SAME")"
+  assert_eq "scv(python3): idempotent same-SHA re-run logs 'pinned', not 'kept as deliberate pin'" "yes" \
+    "$(printf '%s' "$SCV_PY_SAME_OUT" | grep -q 'pinned devflow_version=deadbeef1234' && echo yes || echo no)"
+  rm -f "$SCV_PY_SAME"
+
+  # python3 mirror of the jq "empty-string devflow_version" coverage above —
+  # the `cur == ""` arm lives only in this backend once jq is shadowed off PATH.
+  SCV_PY_EMPTY="$(mktemp)"; printf '{"devflow_version":""}' > "$SCV_PY_EMPTY"
+  # shellcheck disable=SC1090
+  SCV_PY_EMPTY_OUT="$( ( PATH="$SCV_PY_BIN"; DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" \
+      && set_config_version "$SCV_PY_EMPTY" "deadbeef1234" ) 2>&1 )"
+  assert_eq "scv(python3): empty-string devflow_version is stamped" "deadbeef1234" \
+    "$(jq -r '.devflow_version' "$SCV_PY_EMPTY")"
+  assert_eq "scv(python3): empty-string devflow_version stamp logs 'pinned'" "yes" \
+    "$(printf '%s' "$SCV_PY_EMPTY_OUT" | grep -q 'pinned devflow_version=deadbeef1234' && echo yes || echo no)"
+  rm -f "$SCV_PY_EMPTY"
+fi
+
+# ── Critical regression guard: a failed mv must not report false success ────
+# A failed `mv "$tmp" "$cfg"` (read-only destination dir, ENOSPC, cross-device
+# rename failure) must fall through to the generic warning + return 0, never
+# log "pinned" while leaving the config unpinned. Force the failure
+# deterministically via a stub `mv` that always exits 1 — portable across
+# root/non-root CI, unlike relying on filesystem permission bits.
+scv_mkfailbin() {  # $1=dest bin dir; $2=command to force-fail; rest=commands to pass through for real
+  local d="$1" failcmd="$2" c p; shift 2; mkdir -p "$d"
+  printf '#!/bin/sh\nexit 1\n' > "$d/$failcmd"
+  chmod +x "$d/$failcmd"
+  for c in "$@"; do
+    p="$(command -v "$c")" || { echo "scv_mkfailbin: required command not found: $c" >&2; return 1; }
+    ln -sf "$p" "$d/$c"
+  done
+}
+if command -v jq >/dev/null 2>&1; then
+  SCV_MVFAIL_BIN="$(mktemp -d)/bin"
+  scv_mkfailbin "$SCV_MVFAIL_BIN" mv jq mktemp rm
+  SCV_MVFAIL_CFG="$(mktemp)"; printf '{"devflow_version":"abc1234"}' > "$SCV_MVFAIL_CFG"
+  # shellcheck disable=SC1090
+  SCV_MVFAIL_OUT="$( ( PATH="$SCV_MVFAIL_BIN"; DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" \
+      && set_config_version "$SCV_MVFAIL_CFG" "deadbeef1234" ) 2>&1 )"
+  SCV_MVFAIL_RC=$?
+  assert_eq "scv: failed mv still returns 0 (degrades, never aborts) (jq)" "0" "$SCV_MVFAIL_RC"
+  assert_eq "scv: failed mv falls through to the generic warning (jq)" "yes" \
+    "$(printf '%s' "$SCV_MVFAIL_OUT" | grep -q 'warning: could not set devflow_version' && echo yes || echo no)"
+  assert_eq "scv: failed mv never logs 'pinned' (jq)" "no" \
+    "$(printf '%s' "$SCV_MVFAIL_OUT" | grep -q 'pinned devflow_version=' && echo yes || echo no)"
+  assert_eq "scv: failed mv leaves the on-disk value untouched (jq)" "abc1234" \
+    "$(jq -r '.devflow_version' "$SCV_MVFAIL_CFG")"
+  rm -f "$SCV_MVFAIL_CFG"
+  rm -rf "$(dirname "$SCV_MVFAIL_BIN")"
+fi
+if command -v python3 >/dev/null 2>&1; then
+  SCV_PY_MVFAIL_BIN="$(mktemp -d)/bin"
+  scv_mkfailbin "$SCV_PY_MVFAIL_BIN" mv python3 mktemp rm   # jq deliberately omitted
+  SCV_PY_MVFAIL_CFG="$(mktemp)"; printf '{"devflow_version":"abc1234"}' > "$SCV_PY_MVFAIL_CFG"
+  # shellcheck disable=SC1090
+  SCV_PY_MVFAIL_OUT="$( ( PATH="$SCV_PY_MVFAIL_BIN"; DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" \
+      && set_config_version "$SCV_PY_MVFAIL_CFG" "deadbeef1234" ) 2>&1 )"
+  SCV_PY_MVFAIL_RC=$?
+  assert_eq "scv(python3): failed mv still returns 0 (degrades, never aborts)" "0" "$SCV_PY_MVFAIL_RC"
+  assert_eq "scv(python3): failed mv falls through to the generic warning" "yes" \
+    "$(printf '%s' "$SCV_PY_MVFAIL_OUT" | grep -q 'warning: could not set devflow_version' && echo yes || echo no)"
+  assert_eq "scv(python3): failed mv never logs 'pinned'" "no" \
+    "$(printf '%s' "$SCV_PY_MVFAIL_OUT" | grep -q 'pinned devflow_version=' && echo yes || echo no)"
+  assert_eq "scv(python3): failed mv leaves the on-disk value untouched" "abc1234" \
+    "$(jq -r '.devflow_version' "$SCV_PY_MVFAIL_CFG")"
+  rm -f "$SCV_PY_MVFAIL_CFG"
+  rm -rf "$(dirname "$SCV_PY_MVFAIL_BIN")"
+fi
+
+# ── Important regression guard: a genuine jq error on the eligibility check
+# must not be misreported as "kept as a deliberate pin" ──────────────────────
+# jq -e returns exit 1 for a legitimate false/null result but a HIGHER exit
+# code (observed: 5) for a parse/runtime error. The eligibility check must
+# distinguish these — an actual jq error must fall through to the generic
+# warning, not be folded into the "deliberate pin" message meant only for
+# genuine ineligible values. Force the error deterministically: a stub `jq`
+# fault-injects an error for any `-e` invocation (the eligibility check, which
+# runs before the write-filter, so the write-filter call is never reached here)
+# and otherwise runs the real binary.
+if command -v jq >/dev/null 2>&1; then
+  SCV_REALJQ="$(command -v jq)"
+  SCV_JQERR_BIN="$(mktemp -d)/bin"; mkdir -p "$SCV_JQERR_BIN"
+  cat > "$SCV_JQERR_BIN/jq" <<STUBJQ
+#!/bin/sh
+for a in "\$@"; do
+  if [ "\$a" = "-e" ]; then
+    echo "jq: error (fault injected for test)" >&2
+    exit 5
+  fi
+done
+exec "$SCV_REALJQ" "\$@"
+STUBJQ
+  chmod +x "$SCV_JQERR_BIN/jq"
+  scv_mkbin "$SCV_JQERR_BIN" mktemp mv rm
+  SCV_JQERR_CFG="$(mktemp)"; printf '{"devflow_version":"abc1234"}' > "$SCV_JQERR_CFG"
+  # shellcheck disable=SC1090
+  SCV_JQERR_OUT="$( ( PATH="$SCV_JQERR_BIN"; DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" \
+      && set_config_version "$SCV_JQERR_CFG" "deadbeef1234" ) 2>&1 )"
+  SCV_JQERR_RC=$?
+  assert_eq "scv: jq eligibility-check error still returns 0 (degrades, never aborts)" "0" "$SCV_JQERR_RC"
+  assert_eq "scv: jq eligibility-check error falls through to the generic warning" "yes" \
+    "$(printf '%s' "$SCV_JQERR_OUT" | grep -q 'warning: could not set devflow_version' && echo yes || echo no)"
+  assert_eq "scv: jq eligibility-check error is NOT misreported as 'kept ... deliberate pin'" "no" \
+    "$(printf '%s' "$SCV_JQERR_OUT" | grep -q 'kept existing devflow_version' && echo yes || echo no)"
+  assert_eq "scv: jq eligibility-check error leaves the on-disk value untouched" "abc1234" \
+    "$(jq -r '.devflow_version' "$SCV_JQERR_CFG")"
+  rm -f "$SCV_JQERR_CFG"
+  rm -rf "$(dirname "$SCV_JQERR_BIN")"
+fi
+
+# ── Important regression guard: non-string/JSON-falsy devflow_version values
+# (0, [], {}, true) must degrade safely on BOTH backends, not just jq ───────
+# jq's `.devflow_version // ""` treats ONLY false/null as "absent" (0/[]/{}/
+# true are all truthy-or-non-substituted in jq), so a non-string value like
+# `0` reaches `test()`, which errors on a non-string input (rc>1) and falls
+# through to the generic warning. The python3 backend previously used
+# `c.get("devflow_version") or ""`, where Python's `or` treats ANY falsy
+# value (0, [], {}, "") as "absent" — silently coercing 0/[]/{} to "" and
+# overwriting them as if they were legitimately empty. Both backends must
+# agree: only null/false count as absent; any other non-string value
+# (including `true`, the boolean sibling of the special-cased `false`) falls
+# through to the generic warning with the config untouched — never silently
+# overwritten. `true` is a deliberate inclusion here, not an oversight: it is
+# the one shape a future edit to the `cur is None or cur is False` identity
+# check (e.g. widening it to an `isinstance(cur, bool)` check) could silently
+# start treating as absent too.
+scv_assert_nonstring() {  # $1=test-name suffix $2=PATH override (empty=default) $3=JSON value
+  local suffix="$1" pathenv="$2" jsonval="$3" cfg out rc
+  cfg="$(mktemp)"; printf '{"devflow_version":%s}' "$jsonval" > "$cfg"
+  # shellcheck disable=SC1090
+  out="$( ( [ -n "$pathenv" ] && PATH="$pathenv"; DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" \
+      && set_config_version "$cfg" "deadbeef1234" ) 2>&1 )"
+  rc=$?
+  assert_eq "scv$suffix: devflow_version=$jsonval still returns 0 (degrades, never aborts)" "0" "$rc"
+  assert_eq "scv$suffix: devflow_version=$jsonval falls through to the generic warning" "yes" \
+    "$(printf '%s' "$out" | grep -q 'warning: could not set devflow_version' && echo yes || echo no)"
+  assert_eq "scv$suffix: devflow_version=$jsonval never logs 'pinned'" "no" \
+    "$(printf '%s' "$out" | grep -q 'pinned devflow_version=' && echo yes || echo no)"
+  assert_eq "scv$suffix: devflow_version=$jsonval on-disk value untouched" "$jsonval" \
+    "$(jq -c '.devflow_version' "$cfg")"
+  rm -f "$cfg"
+}
+if command -v jq >/dev/null 2>&1; then
+  for SCV_NS_VAL in 0 '[]' '{}' true; do
+    scv_assert_nonstring "" "" "$SCV_NS_VAL"
+  done
+fi
+if command -v python3 >/dev/null 2>&1; then
+  for SCV_NS_VAL in 0 '[]' '{}' true; do
+    scv_assert_nonstring "(python3)" "$SCV_PY_BIN" "$SCV_NS_VAL"
+  done
+
+  # The jq backend's malformed-config degrade path is covered above (SCV_BAD,
+  # gated on `command -v jq`); that guard never exercises the python3 backend's
+  # own `json.load()` failure path. Mirror it here with jq shadowed off PATH so
+  # a python3-side regression (e.g. an uncaught exception no longer degrading
+  # cleanly) doesn't hide behind the jq-only guard on any jq-installed host.
+  SCV_PY_BAD="$(mktemp)"; printf '{ not valid json' > "$SCV_PY_BAD"
+  SCV_PY_BAD_RC=0
+  # shellcheck disable=SC1090
+  ( PATH="$SCV_PY_BIN"; DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" \
+      && set_config_version "$SCV_PY_BAD" "abc123" ) >/dev/null 2>&1 || SCV_PY_BAD_RC=$?
+  assert_eq "scv(python3): malformed config → returns 0 (degrades, never aborts)" "0" "$SCV_PY_BAD_RC"
+  rm -f "$SCV_PY_BAD"
+fi
+
+# ── devflow_version: false (JSON boolean) — the one falsy-JSON shape whose
+# behavior is the OPPOSITE of the 0/[]/{} matrix above: both backends
+# explicitly treat null/false (not just any falsy value) as "absent", so
+# false must be silently re-stamped, not fall through to the generic warning.
+# The python3 fix comment names `cur is False` explicitly as load-bearing;
+# assert both sides of that branch so a future edit that narrows or widens
+# the null/false special-case is caught on both backends.
+if command -v jq >/dev/null 2>&1; then
+  SCV_FALSE="$(mktemp)"; printf '{"devflow_version":false}' > "$SCV_FALSE"
+  # shellcheck disable=SC1090
+  SCV_FALSE_OUT="$( ( DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" && set_config_version "$SCV_FALSE" "deadbeef1234" ) 2>&1 )"
+  assert_eq "scv: devflow_version=false is stamped (treated as absent)" "deadbeef1234" \
+    "$(jq -r '.devflow_version' "$SCV_FALSE")"
+  assert_eq "scv: devflow_version=false stamp logs 'pinned'" "yes" \
+    "$(printf '%s' "$SCV_FALSE_OUT" | grep -q 'pinned devflow_version=deadbeef1234' && echo yes || echo no)"
+  rm -f "$SCV_FALSE"
+fi
+if command -v python3 >/dev/null 2>&1; then
+  SCV_PY_FALSE="$(mktemp)"; printf '{"devflow_version":false}' > "$SCV_PY_FALSE"
+  # shellcheck disable=SC1090
+  SCV_PY_FALSE_OUT="$( ( PATH="$SCV_PY_BIN"; DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" \
+      && set_config_version "$SCV_PY_FALSE" "deadbeef1234" ) 2>&1 )"
+  assert_eq "scv(python3): devflow_version=false is stamped (treated as absent)" "deadbeef1234" \
+    "$(jq -r '.devflow_version' "$SCV_PY_FALSE")"
+  assert_eq "scv(python3): devflow_version=false stamp logs 'pinned'" "yes" \
+    "$(printf '%s' "$SCV_PY_FALSE_OUT" | grep -q 'pinned devflow_version=deadbeef1234' && echo yes || echo no)"
+  rm -f "$SCV_PY_FALSE"
 fi
 
 rm -rf "$VS_COMMIT" "$VS_SELF" "$VS_REMOTE" "$VS_FETCH" "$VS_FETCH_SHA" \

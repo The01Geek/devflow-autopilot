@@ -12,6 +12,7 @@
 #   - .github/actions/*               the composite actions they use
 #   - .devflow/config.json            scaffolded from the template ONLY if absent;
 #                                     devflow_version pinned to the installed commit
+#                                     (unless already hand-pinned to a non-SHA value)
 #   - .devflow/config.schema.json     refreshed every run (editor autocomplete)
 #   - .devflow/.gitignore             scoped ignore for ephemeral tmp/ scratch
 #                                     (created if absent; keeps config.json +
@@ -65,20 +66,65 @@ die() { printf 'devflow-install: %s\n' "$1" >&2; exit 1; }
 # degrade to a warning telling the user to set the key by hand. The success-path
 # `return 0`s live inside the `if` conditions so `set -e` can't fire on a tool
 # failure.
+#
+# Only re-stamps when the EXISTING devflow_version is absent/empty or already
+# looks like a commit SHA (7-40 lowercase hex). This is a SHAPE heuristic, not
+# true provenance detection: it cannot distinguish a SHA this function itself
+# previously wrote from a SHA the user hand-set to pin to one specific commit,
+# so a hand-pinned exact SHA is not guaranteed to survive a re-run. A value
+# that does NOT match that pattern (a branch name like "main", a tag like
+# "v1.2.0") was set by hand, so it IS guaranteed to be treated as a deliberate
+# pin/tracking choice and left untouched — re-running the installer must never
+# silently convert "track main" into "pinned to a SHA".
 set_config_version() {
   local cfg="$1" version="$2" tmp
   [ -f "$cfg" ] || return 0
   tmp="$(mktemp)" || { log "warning: mktemp failed; add \"devflow_version\": \"$version\" to $cfg by hand."; return 0; }
   if command -v jq >/dev/null 2>&1; then
-    if jq --arg v "$version" '.devflow_version = $v' "$cfg" > "$tmp" 2>/dev/null && mv "$tmp" "$cfg"; then
-      log "pinned devflow_version=$version in $cfg"; return 0
+    if jq -e '(.devflow_version // "") as $cur | ($cur == "" or ($cur | test("^[0-9a-f]{7,40}$")))' \
+        "$cfg" >/dev/null 2>&1; then
+      if jq --arg v "$version" '.devflow_version = $v' "$cfg" > "$tmp" 2>/dev/null; then
+        if mv "$tmp" "$cfg"; then
+          log "pinned devflow_version=$version in $cfg"; return 0
+        fi
+      fi
+    else
+      local rc=$?
+      if [ "$rc" -eq 1 ]; then
+        rm -f "$tmp"
+        log "kept existing devflow_version in $cfg (looks like a deliberate pin, not a previous SHA stamp) — not overwriting."
+        return 0
+      fi
+      # rc > 1: jq itself errored on the eligibility check (not a genuine false/null
+      # result) — fall through to the generic warning rather than misreport it as a
+      # deliberate pin.
     fi
   elif command -v python3 >/dev/null 2>&1; then
-    if DEVFLOW_CFG="$cfg" DEVFLOW_VER="$version" DEVFLOW_OUT="$tmp" python3 -c 'import json,os
+    if DEVFLOW_CFG="$cfg" DEVFLOW_VER="$version" DEVFLOW_OUT="$tmp" python3 -c 'import json,os,re,sys
 c=json.load(open(os.environ["DEVFLOW_CFG"]))
-c["devflow_version"]=os.environ["DEVFLOW_VER"]
-open(os.environ["DEVFLOW_OUT"],"w").write(json.dumps(c,indent=2)+"\n")' 2>/dev/null && mv "$tmp" "$cfg"; then
-      log "pinned devflow_version=$version in $cfg"; return 0
+cur=c.get("devflow_version")
+# Only null/false count as "absent", mirroring jq'"'"'s `// ""` exactly (jq'"'"'s // only
+# substitutes on false/null, never on other falsy JSON values like 0/[]/{}). A
+# non-string, non-null/false value (e.g. 0) then fails the re.match below with an
+# uncaught TypeError -> exit 1 -> the generic warning, matching jq'"'"'s test/1 runtime
+# error on the same input (rc>1) rather than python silently coercing it to "".
+if cur is None or cur is False:
+    cur=""
+if cur == "" or re.match(r"^[0-9a-f]{7,40}$", cur):
+    c["devflow_version"]=os.environ["DEVFLOW_VER"]
+    open(os.environ["DEVFLOW_OUT"],"w").write(json.dumps(c,indent=2)+"\n")
+    sys.exit(0)
+sys.exit(3)' 2>/dev/null; then
+      if mv "$tmp" "$cfg"; then
+        log "pinned devflow_version=$version in $cfg"; return 0
+      fi
+    else
+      local rc=$?
+      rm -f "$tmp"
+      if [ "$rc" -eq 3 ]; then
+        log "kept existing devflow_version in $cfg (looks like a deliberate pin, not a previous SHA stamp) — not overwriting."
+        return 0
+      fi
     fi
   fi
   rm -f "$tmp"
@@ -317,8 +363,10 @@ manage_vendor_gitignore
 
 # 6. Pin devflow_version to the exact commit we installed from, so the runtime
 #    fetch is reproducible and never tracks mutable main. Re-running the
-#    installer re-stamps it; a maintainer can also bump it by hand to any tag,
-#    branch, or SHA. The clone+checkout above gives $SRC a resolvable HEAD, so
+#    installer re-stamps it when eligible (see set_config_version above for the
+#    empty/SHA-shape rule — a hand-set non-SHA value is preserved, not
+#    re-stamped); a maintainer can also bump it by hand to any tag, branch, or
+#    SHA. The clone+checkout above gives $SRC a resolvable HEAD, so
 #    this essentially always yields a SHA; only a broken clone falls back to
 #    $REF — warn there, since $REF may be a mutable branch (the very thing the
 #    pin exists to avoid).
