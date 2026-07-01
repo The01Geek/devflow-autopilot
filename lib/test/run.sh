@@ -1803,6 +1803,18 @@ assert_pin_red_on_removal "#239: Phase 4.1 Verdict Criteria summary mirrors rule
 # AC8 (standalone review-and-fix converging on a deferred in-scope Important) regresses.
 assert_pin_red_on_removal "#239: review-and-fix downgrade gate lists in-scope Important as a REJECT trigger" \
   'checklist FAILs, Critical Phase 3 findings, and in-scope Important/Major Phase 3 findings'
+# The in-scope *test* is the actual selector rule 3a hinges on — pin its operative
+# discriminator (the "untouched by the diff" out-of-scope definition) and the
+# mandatory-in-scope trigger, not just the rule sentence that invokes them, so a widening
+# reword of the test itself (e.g. re-adding a corroboration/severity carve-out) cannot
+# silence the blocking behavior while the rule-3a pin above stays GREEN. Plus the rule-6
+# narrowing clause, the coupled other-half of rule 3a (in-scope blocks ⇄ only out-of-scope notes).
+assert_pin_red_on_removal "#239: in-scope test out-of-scope discriminator (untouched-by-diff) pinned" \
+  'is left **untouched** by this PR' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#239: self-contradicting-diff finding is always in-scope and not demotable (trigger)" \
+  'is **always in-scope** and may **not** be demoted' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#239: rule 6 narrowed to never-in-scope (coupled half of rule 3a)" \
+  'never in-scope ones — those are caught by rule 3a' "$REVIEW_SKILL"
 # Pin the superset-comparison FRAMING itself (the verdict step), not only its finding
 # clause: a reword to a weaker check (e.g. "spot-check a few members") that left the
 # finding sentence intact would otherwise stay GREEN.
