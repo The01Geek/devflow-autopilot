@@ -67,11 +67,14 @@ die() { printf 'devflow-install: %s\n' "$1" >&2; exit 1; }
 # failure.
 #
 # Only re-stamps when the EXISTING devflow_version is absent/empty or already
-# looks like a commit SHA (7-40 lowercase hex) — i.e. it was itself set by a
-# previous run of this function. A value that does NOT match that pattern (a
-# branch name like "main", a tag like "v1.2.0") was set by hand, so it is a
-# deliberate pin/tracking choice and is left untouched — re-running the
-# installer must never silently convert "track main" into "pinned to a SHA".
+# looks like a commit SHA (7-40 lowercase hex). This is a SHAPE heuristic, not
+# true provenance detection: it cannot distinguish a SHA this function itself
+# previously wrote from a SHA the user hand-set to pin to one specific commit,
+# so a hand-pinned exact SHA is not guaranteed to survive a re-run. A value
+# that does NOT match that pattern (a branch name like "main", a tag like
+# "v1.2.0") was set by hand, so it IS guaranteed to be treated as a deliberate
+# pin/tracking choice and left untouched — re-running the installer must never
+# silently convert "track main" into "pinned to a SHA".
 set_config_version() {
   local cfg="$1" version="$2" tmp
   [ -f "$cfg" ] || return 0
@@ -98,7 +101,14 @@ set_config_version() {
   elif command -v python3 >/dev/null 2>&1; then
     if DEVFLOW_CFG="$cfg" DEVFLOW_VER="$version" DEVFLOW_OUT="$tmp" python3 -c 'import json,os,re,sys
 c=json.load(open(os.environ["DEVFLOW_CFG"]))
-cur=c.get("devflow_version") or ""
+cur=c.get("devflow_version")
+# Only null/false count as "absent", mirroring jq'"'"'s `// ""` exactly (jq'"'"'s // only
+# substitutes on false/null, never on other falsy JSON values like 0/[]/{}). A
+# non-string, non-null/false value (e.g. 0) then fails the re.match below with an
+# uncaught TypeError -> exit 1 -> the generic warning, matching jq'"'"'s test/1 runtime
+# error on the same input (rc>1) rather than python silently coercing it to "".
+if cur is None or cur is False:
+    cur=""
 if cur == "" or re.match(r"^[0-9a-f]{7,40}$", cur):
     c["devflow_version"]=os.environ["DEVFLOW_VER"]
     open(os.environ["DEVFLOW_OUT"],"w").write(json.dumps(c,indent=2)+"\n")

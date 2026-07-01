@@ -36,11 +36,13 @@ silently tracks a moving `main`.
 
 `devflow_version` gets one narrow exception to "existing values are preserved":
 the installer re-stamps it to the commit it just installed from **only when the
-current value already looks like a commit SHA** (i.e. it was itself written by
-a previous run of the installer) or is empty. If you hand-set `devflow_version`
-to something that isn't a SHA — `"main"` to deliberately track the moving
-branch, or a tag like `"v1.2.0"` — that is treated as a deliberate pin and is
-left untouched on re-run.
+current value already looks like a commit SHA** (7-40 lowercase hex chars) or
+is empty. This is a **shape heuristic, not true provenance detection** — the
+installer cannot tell a SHA it auto-stamped on a previous run apart from a SHA
+you hand-set yourself (e.g. to pin to one specific commit for reproducibility),
+so a hand-pinned exact SHA is *not* guaranteed to survive a re-run. Only a
+**non-SHA-shaped** hand pin — `"main"` to deliberately track the moving branch,
+or a tag like `"v1.2.0"` — is guaranteed protected and left untouched on re-run.
 
 > **Prefer to commit the plugin instead?** Run `DEVFLOW_VENDOR=1 … | bash`. That
 > vendors the full tree into `.devflow/vendor/devflow/` so nothing is fetched at

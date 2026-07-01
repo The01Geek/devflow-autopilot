@@ -8547,6 +8547,7 @@ if command -v jq >/dev/null 2>&1; then
   assert_eq "scv: failed mv leaves the on-disk value untouched (jq)" "abc1234" \
     "$(jq -r '.devflow_version' "$SCV_MVFAIL_CFG")"
   rm -f "$SCV_MVFAIL_CFG"
+  rm -rf "$(dirname "$SCV_MVFAIL_BIN")"
 fi
 if command -v python3 >/dev/null 2>&1; then
   SCV_PY_MVFAIL_BIN="$(mktemp -d)/bin"
@@ -8564,6 +8565,7 @@ if command -v python3 >/dev/null 2>&1; then
   assert_eq "scv(python3): failed mv leaves the on-disk value untouched" "abc1234" \
     "$(jq -r '.devflow_version' "$SCV_PY_MVFAIL_CFG")"
   rm -f "$SCV_PY_MVFAIL_CFG"
+  rm -rf "$(dirname "$SCV_PY_MVFAIL_BIN")"
 fi
 
 # ── Important regression guard: a genuine jq error on the eligibility check
@@ -8604,6 +8606,58 @@ STUBJQ
   assert_eq "scv: jq eligibility-check error leaves the on-disk value untouched" "abc1234" \
     "$(jq -r '.devflow_version' "$SCV_JQERR_CFG")"
   rm -f "$SCV_JQERR_CFG"
+  rm -rf "$(dirname "$SCV_JQERR_BIN")"
+fi
+
+# ── Important regression guard: non-string/JSON-falsy devflow_version values
+# (0, [], {}) must degrade safely on BOTH backends, not just jq ─────────────
+# jq's `.devflow_version // ""` treats ONLY false/null as "absent" (0/[]/{}
+# are truthy in jq), so a non-string value like `0` reaches `test()`, which
+# errors on a non-string input (rc>1) and falls through to the generic
+# warning. The python3 backend previously used `c.get("devflow_version") or
+# ""`, where Python's `or` treats ANY falsy value (0, [], {}, "") as "absent"
+# — silently coercing 0/[]/{} to "" and overwriting them as if they were
+# legitimately empty. Both backends must agree: only null/false count as
+# absent; any other non-string value falls through to the generic warning
+# with the config untouched — never silently overwritten.
+scv_assert_nonstring() {  # $1=test-name suffix $2=PATH override (empty=default) $3=JSON value
+  local suffix="$1" pathenv="$2" jsonval="$3" cfg out rc
+  cfg="$(mktemp)"; printf '{"devflow_version":%s}' "$jsonval" > "$cfg"
+  # shellcheck disable=SC1090
+  out="$( ( [ -n "$pathenv" ] && PATH="$pathenv"; DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" \
+      && set_config_version "$cfg" "deadbeef1234" ) 2>&1 )"
+  rc=$?
+  assert_eq "scv$suffix: devflow_version=$jsonval still returns 0 (degrades, never aborts)" "0" "$rc"
+  assert_eq "scv$suffix: devflow_version=$jsonval falls through to the generic warning" "yes" \
+    "$(printf '%s' "$out" | grep -q 'warning: could not set devflow_version' && echo yes || echo no)"
+  assert_eq "scv$suffix: devflow_version=$jsonval never logs 'pinned'" "no" \
+    "$(printf '%s' "$out" | grep -q 'pinned devflow_version=' && echo yes || echo no)"
+  assert_eq "scv$suffix: devflow_version=$jsonval on-disk value untouched" "$jsonval" \
+    "$(jq -c '.devflow_version' "$cfg")"
+  rm -f "$cfg"
+}
+if command -v jq >/dev/null 2>&1; then
+  for SCV_NS_VAL in 0 '[]' '{}'; do
+    scv_assert_nonstring "" "" "$SCV_NS_VAL"
+  done
+fi
+if command -v python3 >/dev/null 2>&1; then
+  for SCV_NS_VAL in 0 '[]' '{}'; do
+    scv_assert_nonstring "(python3)" "$SCV_PY_BIN" "$SCV_NS_VAL"
+  done
+
+  # The jq backend's malformed-config degrade path is covered above (SCV_BAD,
+  # gated on `command -v jq`); that guard never exercises the python3 backend's
+  # own `json.load()` failure path. Mirror it here with jq shadowed off PATH so
+  # a python3-side regression (e.g. an uncaught exception no longer degrading
+  # cleanly) doesn't hide behind the jq-only guard on any jq-installed host.
+  SCV_PY_BAD="$(mktemp)"; printf '{ not valid json' > "$SCV_PY_BAD"
+  SCV_PY_BAD_RC=0
+  # shellcheck disable=SC1090
+  ( PATH="$SCV_PY_BIN"; DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" \
+      && set_config_version "$SCV_PY_BAD" "abc123" ) >/dev/null 2>&1 || SCV_PY_BAD_RC=$?
+  assert_eq "scv(python3): malformed config → returns 0 (degrades, never aborts)" "0" "$SCV_PY_BAD_RC"
+  rm -f "$SCV_PY_BAD"
 fi
 
 rm -rf "$VS_COMMIT" "$VS_SELF" "$VS_REMOTE" "$VS_FETCH" "$VS_FETCH_SHA" \
