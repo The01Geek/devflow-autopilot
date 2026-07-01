@@ -8610,16 +8610,21 @@ STUBJQ
 fi
 
 # ── Important regression guard: non-string/JSON-falsy devflow_version values
-# (0, [], {}) must degrade safely on BOTH backends, not just jq ─────────────
-# jq's `.devflow_version // ""` treats ONLY false/null as "absent" (0/[]/{}
-# are truthy in jq), so a non-string value like `0` reaches `test()`, which
-# errors on a non-string input (rc>1) and falls through to the generic
-# warning. The python3 backend previously used `c.get("devflow_version") or
-# ""`, where Python's `or` treats ANY falsy value (0, [], {}, "") as "absent"
-# — silently coercing 0/[]/{} to "" and overwriting them as if they were
-# legitimately empty. Both backends must agree: only null/false count as
-# absent; any other non-string value falls through to the generic warning
-# with the config untouched — never silently overwritten.
+# (0, [], {}, true) must degrade safely on BOTH backends, not just jq ───────
+# jq's `.devflow_version // ""` treats ONLY false/null as "absent" (0/[]/{}/
+# true are all truthy-or-non-substituted in jq), so a non-string value like
+# `0` reaches `test()`, which errors on a non-string input (rc>1) and falls
+# through to the generic warning. The python3 backend previously used
+# `c.get("devflow_version") or ""`, where Python's `or` treats ANY falsy
+# value (0, [], {}, "") as "absent" — silently coercing 0/[]/{} to "" and
+# overwriting them as if they were legitimately empty. Both backends must
+# agree: only null/false count as absent; any other non-string value
+# (including `true`, the boolean sibling of the special-cased `false`) falls
+# through to the generic warning with the config untouched — never silently
+# overwritten. `true` is a deliberate inclusion here, not an oversight: it is
+# the one shape a future edit to the `cur is None or cur is False` identity
+# check (e.g. widening it to an `isinstance(cur, bool)` check) could silently
+# start treating as absent too.
 scv_assert_nonstring() {  # $1=test-name suffix $2=PATH override (empty=default) $3=JSON value
   local suffix="$1" pathenv="$2" jsonval="$3" cfg out rc
   cfg="$(mktemp)"; printf '{"devflow_version":%s}' "$jsonval" > "$cfg"
@@ -8637,12 +8642,12 @@ scv_assert_nonstring() {  # $1=test-name suffix $2=PATH override (empty=default)
   rm -f "$cfg"
 }
 if command -v jq >/dev/null 2>&1; then
-  for SCV_NS_VAL in 0 '[]' '{}'; do
+  for SCV_NS_VAL in 0 '[]' '{}' true; do
     scv_assert_nonstring "" "" "$SCV_NS_VAL"
   done
 fi
 if command -v python3 >/dev/null 2>&1; then
-  for SCV_NS_VAL in 0 '[]' '{}'; do
+  for SCV_NS_VAL in 0 '[]' '{}' true; do
     scv_assert_nonstring "(python3)" "$SCV_PY_BIN" "$SCV_NS_VAL"
   done
 
