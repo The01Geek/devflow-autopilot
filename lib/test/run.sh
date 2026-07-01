@@ -2351,6 +2351,20 @@ assert_pin_unique "#232: orchestrator repeats the Phase 4.1 re-anchor trigger in
   'repeated here in the always-resident orchestrator' "$IMPL_ORCH"
 assert_pin_red_on_removal "#232: always-loaded re-anchor trigger flips RED on removal" \
   'repeated here in the always-resident orchestrator' "$IMPL_ORCH"
+# review iter-2 (shadow pr-test-analyzer): the F2 pin above sits on the JUSTIFICATION clause;
+# pin the OPERATIVE instruction sentence itself so a surgical edit dropping the re-Read
+# directive (while keeping "…repeated here…") can't ship GREEN — the framing-only hole,
+# one clause over from the phase file it was first closed on.
+assert_pin_unique "#232: orchestrator keeps the OPERATIVE always-loaded re-Read directive (SFH F2)" \
+  'the phase file before continuing to §4.2 (resume from §4.2' "$IMPL_ORCH"
+assert_pin_red_on_removal "#232: orchestrator operative always-loaded re-Read directive flips RED on removal" \
+  'the phase file before continuing to §4.2 (resume from §4.2' "$IMPL_ORCH"
+# AC4 scope constraint is mirrored in the always-loaded orchestrator too; pin that copy so the
+# "not the Phase 2/3 returns" guardrail can't be dropped from the resident mirror unnoticed.
+assert_pin_unique "#232: orchestrator mirror keeps the AC4 Phase-4.1-only scope (SFH F2 mirror)" \
+  'scoped to the Phase 4.1 docs subagent return only, not the Phase 2/3 returns' "$IMPL_ORCH"
+assert_pin_red_on_removal "#232: orchestrator AC4 scope mirror flips RED on removal" \
+  'scoped to the Phase 4.1 docs subagent return only, not the Phase 2/3 returns' "$IMPL_ORCH"
 assert_pin_unique "sweep 2.3.6: implement SKILL keeps the sweep body" '#### 2.3.6 Error-handling & silent-failure sweep' "$IMPL_SKILL"
 assert_pin_unique "sweep 2.3.6: implement SKILL lists it in the always-run index" '**2.3.6** (error-handling & silent-failure)' "$IMPL_SKILL"
 assert_eq "sweep 2.3.6: docs/implement-skill.md keeps the rationale table row" "yes" \
