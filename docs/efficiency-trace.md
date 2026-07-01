@@ -308,6 +308,24 @@ interactive-drop failure mode so a future orchestrator does not silently skip th
       exit 0
   ```
 
+- *`/devflow:implement` Phase 3.3 inline backstop (agent-executed).* `/devflow:implement` drives
+  `/devflow:review-and-fix` **inline in the orchestrator's own context** (Phase 3.3), so its Loop Exit
+  runs in-context and can be dropped exactly like any other interactive/inline drive. To close that
+  seam without waiting for a harness-tier caller, `phase-3-review.md` runs `--persist` directly
+  (resolved as `${CLAUDE_SKILL_DIR}/../../lib/efficiency-trace.sh`, best-effort `|| true`) the moment
+  the inline loop returns — regardless of verdict, before the verdict branches. It passes **no**
+  `--workpad-dir`/`--slug` (the orchestrator does not hold the loop's internal slug/run-id), so
+  `--persist` falls back to its disk-discovery mode and picks up whatever run-scoped
+  `iter-*.json` this run left behind. When even `--persist` finds **no** `iter-*.json` inputs — the
+  inline loop wrote no per-iteration workpad, so the telemetry is genuinely lost — Phase 3.3 records a
+  `dropped-failed` reflection naming the gap rather than letting it vanish. The phase anchors its
+  "no inputs" detector on the git top-level the **same** way `efficiency-trace.sh` does, so it scans
+  the exact `.devflow/tmp/review/` tree `--persist` scans and never fires a false "telemetry lost"
+  reflection from a cwd-relative divergence. The detector counts **any** `iter-*.json` and does not
+  replicate `--persist`'s `source == "review"` skip: at this inline seam the review-and-fix loop just
+  driven is what writes the tree, so a foreign review-sourced dir being the sole occupant is not a
+  reachable in-flow shape.
+
 This guarantees **persistence of whatever telemetry was captured**. It does **not** guarantee
 *capture* of `tokens` / `wall_clock_s` — those come from `<usage>` blocks the agent reads live and no
 post-hoc tool can recover them if the agent never recorded them (the incremental writes + the
