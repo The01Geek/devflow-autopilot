@@ -5481,6 +5481,16 @@ assert_pin_unique "#242 AC5: drafting-precondition anchor references the first-c
 # other pin would still pass, silently regressing the Claude-Code-unchanged guarantee.
 assert_pin_unique "#242 AC6: Claude-Code path still batches 2–4 questions per call (positive arm)" \
   'batch 2–4 related questions per call' "$CI_SKILL_242"
+# AC1 completeness: the other three reworded user-question sites (disengagement push-back,
+# truncation warning, Step 4 sub-step 6 implement-offer) also carry removal-proof pins, so a
+# partial revert of any one back to a hard-coded AskUserQuestion mandate is caught — without
+# these, a revert of just one site passes every other pin, silently regressing AC1.
+assert_pin_unique "#242 AC1: disengagement push-back uses the runner's user-question tool" \
+  'one batch where it batches, sequentially where it is one-question-per-call' "$CI_SKILL_242"
+assert_pin_unique "#242 AC1: truncation warning uses the runner's user-question tool" \
+  'or its runner equivalent) to stand in for showing the body' "$CI_SKILL_242"
+assert_pin_unique "#242 AC1: Step 4 implement-offer prompt uses the runner's user-question tool" \
+  'on Claude Code, as used in Step 2' "$CI_SKILL_242"
 # A2 (regression, AC1/AC5/AC6/AC7): the skill no longer MANDATES AskUserQuestion as the
 # sole user-question tool, no longer anchors the gate on the literal "AskUserQuestion call",
 # and no longer states the round-based "~6 rounds" cap. Absence pins (the literals are GONE).
