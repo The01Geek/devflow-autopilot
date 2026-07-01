@@ -5531,6 +5531,14 @@ assert_eq "#241 pin (A1): create-issue resolves a portable helper anchor (\$CLAU
 # until every call site routes through the resolved anchor). Absence pin => expects `no`.
 assert_eq "#241 pin (A2): create-issue has no bare \${CLAUDE_SKILL_DIR}/../../scripts expansion" "yes" \
   "$(! grep -qF '${CLAUDE_SKILL_DIR}/../../scripts' "$LIB/../skills/create-issue/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: absence pin — the exact broken expansion literal must be GONE
+# A2b (AC2, positive companion to A2): A2 proves NO bare expansion remains file-wide, but
+# that is a negative fact — it would still pass if the Step-4 label helpers were dropped
+# entirely. Pin each label call site POSITIVELY through the resolved anchor so "every
+# helper invocation uses that single resolved anchor" (AC2) is asserted, not just implied.
+assert_pin_unique "#241 pin (A2b): create-issue invokes ensure-label.sh through the resolved anchor" \
+  '"$SKILL_DIR"/../../scripts/ensure-label.sh DevFlow' "$LIB/../skills/create-issue/SKILL.md"
+assert_pin_unique "#241 pin (A2b): create-issue invokes apply-labels.sh through the resolved anchor" \
+  '"$SKILL_DIR"/../../scripts/apply-labels.sh <issue_number> DevFlow' "$LIB/../skills/create-issue/SKILL.md"
 assert_eq "#97 pin: implement applies DevFlow label at PR create via REST helper" "yes" \
   "$(grep -q 'ensure-label.sh DevFlow' "$IMPL_SKILL_BUNDLE" && grep -qF 'apply-labels.sh "$PR_NUM" DevFlow' "$IMPL_SKILL_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: compound: two greps && on one line (provenance: ensure-label + REST apply-labels); issue #218: bundle (label idiom in phases/phase-3-review.md)
 assert_eq "#152 pin: meta-issue.sh ensures+applies DevFlow and Retrospective labels via REST helper" "yes" \
