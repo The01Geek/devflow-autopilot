@@ -8385,9 +8385,16 @@ if command -v jq >/dev/null 2>&1; then
   # auto-stamp — re-running the installer must not clobber it back to a SHA.
   SCV_MAIN="$(mktemp)"; printf '{"devflow_version":"main"}' > "$SCV_MAIN"
   # shellcheck disable=SC1090
-  ( DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" && set_config_version "$SCV_MAIN" "deadbeef1234" ) >/dev/null 2>&1
+  SCV_MAIN_OUT="$( ( DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" && set_config_version "$SCV_MAIN" "deadbeef1234" ) 2>&1 )"
+  SCV_MAIN_RC=$?
   assert_eq "scv: hand-set non-SHA devflow_version (main) is preserved, not re-stamped" "main" \
     "$(jq -r '.devflow_version' "$SCV_MAIN")"
+  # Value-unchanged alone can't distinguish "correctly detected a deliberate pin"
+  # from "aborted early for an unrelated reason" (a set -e trap would leave the
+  # value unchanged too, while returning non-zero and never logging "kept").
+  assert_eq "scv: hand-set non-SHA (main) preserve returns 0 (never aborts)" "0" "$SCV_MAIN_RC"
+  assert_eq "scv: hand-set non-SHA (main) preserve logs 'kept existing...deliberate pin'" "yes" \
+    "$(printf '%s' "$SCV_MAIN_OUT" | grep -q 'kept existing devflow_version' && echo yes || echo no)"
   rm -f "$SCV_MAIN"
 
   # A previously auto-stamped SHA-like devflow_version IS re-stamped on re-run —
@@ -8451,10 +8458,14 @@ if command -v python3 >/dev/null 2>&1; then
   # code path once jq is shadowed off PATH, so a regression there would pass CI.
   SCV_PY_MAIN="$(mktemp)"; printf '{"devflow_version":"main"}' > "$SCV_PY_MAIN"
   # shellcheck disable=SC1090
-  ( PATH="$SCV_PY_BIN"; DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" \
-      && set_config_version "$SCV_PY_MAIN" "deadbeef1234" ) >/dev/null 2>&1
+  SCV_PY_MAIN_OUT="$( ( PATH="$SCV_PY_BIN"; DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" \
+      && set_config_version "$SCV_PY_MAIN" "deadbeef1234" ) 2>&1 )"
+  SCV_PY_MAIN_RC=$?
   assert_eq "scv(python3): hand-set non-SHA devflow_version (main) is preserved, not re-stamped" "main" \
     "$(jq -r '.devflow_version' "$SCV_PY_MAIN")"
+  assert_eq "scv(python3): hand-set non-SHA (main) preserve returns 0 (never aborts)" "0" "$SCV_PY_MAIN_RC"
+  assert_eq "scv(python3): hand-set non-SHA (main) preserve logs 'kept existing...deliberate pin'" "yes" \
+    "$(printf '%s' "$SCV_PY_MAIN_OUT" | grep -q 'kept existing devflow_version' && echo yes || echo no)"
   rm -f "$SCV_PY_MAIN"
 
   SCV_PY_SHA="$(mktemp)"; printf '{"devflow_version":"abc1234"}' > "$SCV_PY_SHA"
