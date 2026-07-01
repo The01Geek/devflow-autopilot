@@ -45,7 +45,15 @@ _need jq      "install jq (https://jqlang.github.io/jq/)"
 # remedy instead of silently passing.
 _GH="$(devflow_resolve_gh)"
 if ! "$_GH" --version >/dev/null 2>&1; then
-  printf "devflow preflight: no working 'gh' on PATH (the resolved '%s' does not execute — e.g. a non-executable shim shadowing the real GitHub CLI on Windows/WSL). Install the GitHub CLI (https://cli.github.com) and run 'gh auth login', or set DEVFLOW_GH to a working gh/gh.exe.\n" "$_GH" >&2
+  # Two accurate diagnoses instead of one hedged one: when gh is simply not
+  # installed (nothing named gh/gh.exe on PATH and no override), say so plainly;
+  # the shim wording applies only when something IS present but does not run.
+  # Both branches keep the literal "no working 'gh'" (the AC5 test pins it).
+  if [ -z "${DEVFLOW_GH:-}" ] && ! command -v gh >/dev/null 2>&1 && ! command -v gh.exe >/dev/null 2>&1; then
+    printf "devflow preflight: no working 'gh' — the GitHub CLI is not installed (nothing named gh/gh.exe on PATH). Install it (https://cli.github.com) and run 'gh auth login'.\n" >&2
+  else
+    printf "devflow preflight: no working 'gh' on PATH (the resolved '%s' does not execute — e.g. a non-executable shim shadowing the real GitHub CLI on Windows/WSL). Install the GitHub CLI (https://cli.github.com) and run 'gh auth login', or set DEVFLOW_GH to a working gh/gh.exe.\n" "$_GH" >&2
+  fi
   missing=1
 fi
 

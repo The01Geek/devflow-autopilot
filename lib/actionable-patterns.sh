@@ -31,8 +31,8 @@
 #     }
 #
 # Environment:
-#   DEVFLOW_GH  override the gh binary. Used by tests for stubbing; when unset it
-#               is resolved (execution-verified) via lib/resolve-gh.sh.
+#   DEVFLOW_GH  override the gh binary. Used by tests for stubbing; when unset
+#               or empty it is resolved (execution-verified) via lib/resolve-gh.sh.
 
 set -euo pipefail
 

@@ -6621,7 +6621,13 @@ printf 'HTTP 403: Resource not accessible by integration\n(check issues/pull-req
 exit 1
 STUB
 chmod +x "$FAIL_STUB/gh"
-react_err="$(PATH="$FAIL_STUB:$PATH" GH_TOKEN=x EVENT_NAME=issue_comment REPO=o/r COMMENT_ID=1 bash "$RT" 2>&1 >/dev/null)"
+# DEVFLOW_GH points at the stub EXPLICITLY: the stub fails `--version` (it exits 1
+# for every arg), so with DEVFLOW_GH unset the resolver would reject it and — on a
+# WSL host with Windows gh.exe interop — fall through to the REAL gh.exe, making a
+# live network call and failing this test. The override path exists precisely to
+# keep test stubs untouched; any PATH-only gh stub that does not answer
+# `--version` with rc 0 must set DEVFLOW_GH the same way.
+react_err="$(DEVFLOW_GH="$FAIL_STUB/gh" PATH="$FAIL_STUB:$PATH" GH_TOKEN=x EVENT_NAME=issue_comment REPO=o/r COMMENT_ID=1 bash "$RT" 2>&1 >/dev/null)"
 assert_eq "react: gh failure still exits 0 (best-effort, never blocks the run)" "0" "$?"
 assert_eq "react: gh failure warns to stderr" \
   "1" "$(printf '%s\n' "$react_err" | grep -c '::warning::react: could not add')"
@@ -11025,16 +11031,31 @@ T6_SEL="$(PATH="$GHT6:$PATH" bash -c ". \"$RESOLVE_GH_SH\"; devflow_resolve_gh")
 assert_eq "#245 T6: both runnable → gh chosen over gh.exe (candidate order preserved)" "gh" "$T6_SEL"
 
 # ── AC5 / preflight — a present-but-unrunnable `gh` is reported at preflight with
-#    a remedy (execution-verified), not silently passed. Shadow the real gh with a
-#    bad-shebang gh (no gh.exe present) so the resolver returns bare gh and
-#    preflight's re-probe fails. git/jq/python3 stay real (only gh is broken). ──
+#    a remedy (execution-verified), not silently passed. Shadow BOTH candidates —
+#    bad-shebang gh AND bad-shebang gh.exe — so the resolver's degenerate path is
+#    forced on every host. Shadowing only `gh` is NOT hermetic: on a WSL host with
+#    Windows gh.exe interop the resolver would find the real /mnt/c/.../gh.exe and
+#    preflight would (correctly) pass, failing this test on the very platform the
+#    resolver targets. git/jq/python3 stay real (only gh is broken). ──
 GHTP="$(mktemp -d)"
 printf '#!/nonexistent/devflow-test-interpreter\necho nope\n' > "$GHTP/gh"; chmod +x "$GHTP/gh"
+printf '#!/nonexistent/devflow-test-interpreter\necho nope\n' > "$GHTP/gh.exe"; chmod +x "$GHTP/gh.exe"
 PF_GH_OUT="$(PATH="$GHTP:$PATH" bash "$PREFLIGHT_SH" 2>&1)"; PF_GH_RC=$?
 assert_eq "#245 preflight: unrunnable gh shim → exit non-zero (AC5)" "yes" \
   "$([ "$PF_GH_RC" -ne 0 ] && echo yes || echo no)"
 assert_eq "#245 preflight: unrunnable gh shim → \"no working 'gh'\" remedy, not silent pass (AC5)" "yes" \
   "$(printf '%s' "$PF_GH_OUT" | grep -q "no working 'gh'" && echo yes || echo no)"
+
+# ── AC5b / preflight — DEVFLOW_GH set to a BROKEN binary: the resolver echoes the
+#    override with no probe (by contract), but preflight's re-probe of the chosen
+#    invocation must still catch it and name the resolved string in the remedy. A
+#    refactor that skips the re-probe when DEVFLOW_GH is set would fail open
+#    silently — this pins the override-wins → re-probe-catches interaction. ──
+PF_OVR_OUT="$(DEVFLOW_GH="$GHTP/gh" bash "$PREFLIGHT_SH" 2>&1)"; PF_OVR_RC=$?
+assert_eq "#245 preflight: broken DEVFLOW_GH override → exit non-zero (re-probe catches it)" "yes" \
+  "$([ "$PF_OVR_RC" -ne 0 ] && echo yes || echo no)"
+assert_eq "#245 preflight: broken DEVFLOW_GH override → remedy names the resolved binary" "yes" \
+  "$(printf '%s' "$PF_OVR_OUT" | grep -q "no working 'gh'.*$GHTP/gh" && echo yes || echo no)"
 
 # ── T4 (AC6) — a Python helper run with DEVFLOW_GH pointing at a stub invokes the
 #    stub, not bare `gh`. parse-acs.py shells `gh issue view … --json body`. ──
@@ -11102,14 +11123,39 @@ assert_eq "#245 T8: empty-override Python helper consumed the stub's output (not
   "$(printf '%s' "$T8_OUT" | grep -q 'devflow-gh-empty-marker' && echo yes || echo no)"
 
 # ── Peer-completeness pin (2.3.0a): every gh-calling shell helper routes through
-#    the resolver — no helper retains the bare `: "${DEVFLOW_GH:=gh}"` default, and
-#    no non-comment bare `gh api`/`gh pr`/… call survives outside the resolver. ──
+#    the resolver — no helper retains the bare `: "${DEVFLOW_GH:=gh}"` default, no
+#    non-comment bare `gh <subcommand>` call survives outside the resolver (the
+#    grep below — best-effort: diagnostic echo/printf lines are excluded, so a
+#    call sharing a line with a diagnostic is not covered; T7 is the dynamic
+#    backstop), and every Python gh-caller reads DEVFLOW_GH with no argv0 "gh"
+#    literal left behind. ──
 DGH_ROOT="$(cd "$LIB/.." && pwd)"
 DGH_HARDCODE="$(grep -rlF 'DEVFLOW_GH:=gh}' "$DGH_ROOT/scripts" "$DGH_ROOT/lib" --include='*.sh' 2>/dev/null | grep -v '/test/' | grep -c . || true)"
 assert_eq "#245 peer-completeness: no shell helper retains the bare DEVFLOW_GH:=gh default" "0" "$DGH_HARDCODE"
-DGH_SOURCED="$(grep -rlF 'resolve-gh.sh' "$DGH_ROOT/scripts" "$DGH_ROOT/lib" --include='*.sh' 2>/dev/null | grep -v '/test/' | grep -c . || true)"
-assert_eq "#245 peer-completeness: >=13 helpers source resolve-gh.sh (all gh-callers converted)" "yes" \
+# Exclude the resolver itself from the sourcing count (its own header contains the
+# literal 'resolve-gh.sh'); without the exclusion the count self-matches to 14 and
+# one converted helper could silently drop the sourcing while >=13 stays green.
+DGH_SOURCED="$(grep -rlF 'resolve-gh.sh' "$DGH_ROOT/scripts" "$DGH_ROOT/lib" --include='*.sh' 2>/dev/null | grep -v '/test/' | grep -v 'lib/resolve-gh\.sh$' | grep -c . || true)"
+assert_eq "#245 peer-completeness: >=13 helpers source resolve-gh.sh (all gh-callers converted, resolver excluded from its own count)" "yes" \
   "$([ "$DGH_SOURCED" -ge 13 ] && echo yes || echo no)"
+# The bare-call grep the block comment promises: no non-comment, non-diagnostic
+# `gh <subcommand>` invocation outside the resolver. Catches a helper that sources
+# the resolver but hardcodes `gh` at a call site (the pre-conversion shape of
+# authorize-actor.sh / react-to-trigger.sh) — the two pins above stay green on it.
+DGH_BARE="$(grep -rnE '(^|[[:space:]`;|&(])gh[[:space:]]+(api|pr|issue|label|repo|auth|search|run|workflow)([[:space:]]|$)' \
+  "$DGH_ROOT/scripts" "$DGH_ROOT/lib" --include='*.sh' 2>/dev/null \
+  | grep -v '/test/' | grep -v 'resolve-gh\.sh:' | grep -vE ':[[:space:]]*#' | grep -vE '(echo|printf) ' | grep -c . || true)"
+assert_eq "#245 peer-completeness: no non-comment bare gh <subcommand> call survives outside the resolver" "0" "$DGH_BARE"
+# Per-script Python routing pins: each of the four Python gh-callers reads the
+# documented DEVFLOW_GH override and keeps no bare-"gh" argv0 literal. T4/T8
+# exercise parse-acs.py dynamically; these static pins keep a revert in any of
+# the other three (the silent-label-loss regression of #3493) from staying green.
+for DGH_PY in workpad.py file-deferrals.py match-deferrals.py parse-acs.py; do
+  assert_eq "#245 python routing: $DGH_PY reads DEVFLOW_GH (or-\"gh\" form)" "1" \
+    "$(grep -cF 'os.environ.get("DEVFLOW_GH") or "gh"' "$DGH_ROOT/scripts/$DGH_PY" || true)"
+  assert_eq "#245 python routing: $DGH_PY keeps no bare-\"gh\" argv0 literal" "0" \
+    "$(grep -cE '\[[[:space:]]*['"'"'\"]gh['"'"'\"][[:space:]]*,' "$DGH_ROOT/scripts/$DGH_PY" || true)"
+done
 rm -rf "$GHT1" "$GHT2" "$GHT3" "$GHTD" "$GHTP" "$GHT4" "$GHT6" "$GHT7" "$GHT8"
 
 # Tally the shell assertions from the results file (authoritative — includes the

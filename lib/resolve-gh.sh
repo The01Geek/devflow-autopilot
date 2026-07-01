@@ -18,7 +18,8 @@
 #
 # Defines a function only; it deliberately does NOT set -e/-u so it is safe to
 # source into a caller with its own shell options (preflight runs `set -u`, the
-# helpers run `set -euo pipefail` / `set -uo pipefail`).
+# helpers run `set -euo pipefail` / `set -uo pipefail`, and
+# scripts/authorize-actor.sh — sourced itself — sets no options at all).
 
 # devflow_resolve_gh — echo the `gh` invocation DevFlow should use.
 #
@@ -31,9 +32,10 @@
 #     `gh` shim is rejected in favor of a runnable `gh.exe`. The probe is
 #     `gh --version` only: no network, no authentication, so it cannot hang or
 #     fail on an unauthenticated host.
-#   * If neither candidate runs, bare `gh` is echoed so the caller's existing
-#     best-effort warning path still fires (behavior identical to the old
-#     bare-`gh` helper default in that degenerate case).
+#   * If neither candidate runs, bare `gh` is echoed (with a one-line stderr
+#     breadcrumb naming the probe failure and the DEVFLOW_GH remedy) so the
+#     caller's existing best-effort warning path still fires (echoed value
+#     identical to the old bare-`gh` helper default in that degenerate case).
 #
 # On Linux/macOS/cloud, where a bare `gh` runs, the first probe succeeds and the
 # function returns `gh` — no behavior change and no extra network/auth. Candidate
@@ -56,7 +58,11 @@ devflow_resolve_gh() {
     return 0
   done
   # No runnable candidate: fall back to bare `gh` so the caller's best-effort
-  # warning path still fires (unchanged degenerate behavior).
+  # warning path still fires (unchanged degenerate behavior). Leave a stderr
+  # breadcrumb so the downstream "cannot execute" failure is self-explanatory
+  # (stderr only — command substitution captures stdout, so the echoed value
+  # stays clean).
+  printf 'devflow: no runnable gh or gh.exe found on PATH; falling back to bare "gh" — set DEVFLOW_GH to a working GitHub CLI\n' >&2
   printf 'gh\n'
   return 0
 }

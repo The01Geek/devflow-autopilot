@@ -96,10 +96,19 @@ def _run(cmd, *, check=True):
     # which are routinely non-ASCII, so decoding through the locale codec would
     # raise UnicodeDecodeError under a non-UTF-8 ambient codec (Windows' cp1252).
     # Implies text mode, so `text=True` is dropped (passing both is redundant).
-    return subprocess.run(
-        cmd, check=check,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8",
-    )
+    # An OSError (ENOEXEC from a non-executable `gh` shim, or gh absent — the
+    # host class DEVFLOW_GH exists for) is converted into the same structured
+    # surface as a non-zero exit, so callers get a breadcrumb, not a traceback.
+    try:
+        return subprocess.run(
+            cmd, check=check,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8",
+        )
+    except OSError as e:
+        if check:
+            _fail(f"could not execute {cmd[0]!r}: {e} "
+                  f"(set DEVFLOW_GH to a working GitHub CLI)")
+        return subprocess.CompletedProcess(cmd, 127, stdout="", stderr=str(e))
 
 
 def _config_get(key: str, default: str = "", config_path: str = DEFAULT_CONFIG) -> str:

@@ -98,7 +98,7 @@ def _repo_full():
     try:
         r = _run([GH, 'repo', 'view', '--json', 'nameWithOwner',
                   '-q', '.nameWithOwner'])
-    except subprocess.CalledProcessError as e:
+    except (subprocess.CalledProcessError, OSError) as e:
         _fail('repo lookup', e)
     return r.stdout.strip()
 
@@ -143,7 +143,7 @@ def cmd_id(args):
                 f'/repos/{repo}/issues/{args.issue}/comments'
                 f'?page={page}&per_page=100',
             ])
-        except subprocess.CalledProcessError as e:
+        except (subprocess.CalledProcessError, OSError) as e:
             _fail('id', e)
         try:
             items = json.loads(r.stdout)
@@ -173,7 +173,7 @@ def cmd_body(args):
             f'/repos/{repo}/issues/comments/{args.comment_id}',
             '--jq', '.body',
         ])
-    except subprocess.CalledProcessError as e:
+    except (subprocess.CalledProcessError, OSError) as e:
         _fail('body', e)
     sys.stdout.write(r.stdout)
 
@@ -193,7 +193,7 @@ def cmd_patch(args):
             '-F', f'body=@{body_path}',
             '--jq', '.body',
         ])
-    except subprocess.CalledProcessError as e:
+    except (subprocess.CalledProcessError, OSError) as e:
         _fail('patch', e)
     sys.stdout.write(r.stdout)
 
@@ -213,7 +213,7 @@ def cmd_create(args):
             GH, 'issue', 'comment', str(args.issue),
             '--body-file', str(body_path),
         ])
-    except subprocess.CalledProcessError as e:
+    except (subprocess.CalledProcessError, OSError) as e:
         _fail('create', e)
     m = _COMMENT_URL_RE.search(r.stdout)
     if m:
@@ -885,7 +885,7 @@ def cmd_update(args):
                 f'/repos/{repo}/issues/{args.issue}/comments'
                 f'?page={page}&per_page=100',
             ])
-        except subprocess.CalledProcessError as e:
+        except (subprocess.CalledProcessError, OSError) as e:
             _fail('update id-lookup', e)
         try:
             items = json.loads(r.stdout)
@@ -918,7 +918,7 @@ def cmd_update(args):
             f'/repos/{repo}/issues/comments/{comment_id}',
             '--jq', '.body',
         ])
-    except subprocess.CalledProcessError as e:
+    except (subprocess.CalledProcessError, OSError) as e:
         _fail('update body-fetch', e)
     body = r.stdout
 
@@ -959,7 +959,7 @@ def cmd_update(args):
             '-F', f'body=@{tmp_path}',
             '--jq', '.body',
         ])
-    except subprocess.CalledProcessError as e:
+    except (subprocess.CalledProcessError, OSError) as e:
         # The PATCH itself failed, so NO workpad change was persisted. Report any
         # volatile tick misses collected before the failure too — otherwise this
         # third exit path silently drops them (the very no-silent-loss invariant

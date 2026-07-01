@@ -233,11 +233,20 @@ def _create_issue(title: str, body: str, dry_run: bool) -> tuple[int, str]:
     # `encoding="utf-8"` pins the stdin pipe so a non-ASCII issue body (em-dash,
     # ellipsis) is encoded as UTF-8 rather than through the locale codec. Implies
     # text mode, so `text=True` is dropped.
-    r = subprocess.run(
-        [GH, "issue", "create", "--title", title, "--body-file", "-"],
-        input=body, check=False, encoding="utf-8",
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-    )
+    # An OSError (ENOEXEC from a non-executable `gh` shim, or gh absent) is
+    # routed through the caller's existing RuntimeError surface rather than
+    # escaping as a raw traceback.
+    try:
+        r = subprocess.run(
+            [GH, "issue", "create", "--title", title, "--body-file", "-"],
+            input=body, check=False, encoding="utf-8",
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+    except OSError as e:
+        raise RuntimeError(
+            f"could not execute {GH!r}: {e} "
+            f"(set DEVFLOW_GH to a working GitHub CLI)"
+        ) from e
     if r.returncode != 0:
         raise RuntimeError(r.stderr.strip() or r.stdout.strip())
     url = r.stdout.strip().splitlines()[-1].strip()

@@ -43,8 +43,8 @@
 #                   the monotonic tie-break boundary).
 #   GH_TOKEN        token for `gh`, set by the caller.
 #   WORKFLOW        workflow file to scope the run list (default devflow-implement.yml).
-#   DEVFLOW_GH      gh executable override for tests; when unset it is resolved
-#                   (execution-verified) via lib/resolve-gh.sh.
+#   DEVFLOW_GH      gh executable override for tests; when unset or empty it is
+#                   resolved (execution-verified) via lib/resolve-gh.sh.
 #
 # Output: one `key=value` line on stdout (the caller appends to $GITHUB_OUTPUT;
 # tests assert it directly):
@@ -62,7 +62,8 @@ emit() { printf '%s=%s\n' "$1" "$2"; }
 # an explicit DEVFLOW_GH still wins, so test stubs are untouched.
 # shellcheck source=../lib/resolve-gh.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/resolve-gh.sh"
-GH="${DEVFLOW_GH:=$(devflow_resolve_gh)}"
+: "${DEVFLOW_GH:=$(devflow_resolve_gh)}"
+GH="$DEVFLOW_GH"
 repo="${REPO:-}"
 target="${CONTEXT_NUMBER:-}"
 run_id="${RUN_ID:-}"
