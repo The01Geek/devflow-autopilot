@@ -8479,6 +8479,94 @@ if command -v python3 >/dev/null 2>&1; then
   rm -f "$SCV_PY_SAME"
 fi
 
+# ── Critical regression guard: a failed mv must not report false success ────
+# A failed `mv "$tmp" "$cfg"` (read-only destination dir, ENOSPC, cross-device
+# rename failure) must fall through to the generic warning + return 0, never
+# log "pinned" while leaving the config unpinned. Force the failure
+# deterministically via a stub `mv` that always exits 1 — portable across
+# root/non-root CI, unlike relying on filesystem permission bits.
+scv_mkfailbin() {  # $1=dest bin dir; $2=command to force-fail; rest=commands to pass through for real
+  local d="$1" failcmd="$2" c p; shift 2; mkdir -p "$d"
+  printf '#!/bin/sh\nexit 1\n' > "$d/$failcmd"
+  chmod +x "$d/$failcmd"
+  for c in "$@"; do
+    p="$(command -v "$c")" || { echo "scv_mkfailbin: required command not found: $c" >&2; return 1; }
+    ln -sf "$p" "$d/$c"
+  done
+}
+if command -v jq >/dev/null 2>&1; then
+  SCV_MVFAIL_BIN="$(mktemp -d)/bin"
+  scv_mkfailbin "$SCV_MVFAIL_BIN" mv jq mktemp rm
+  SCV_MVFAIL_CFG="$(mktemp)"; printf '{"devflow_version":"abc1234"}' > "$SCV_MVFAIL_CFG"
+  # shellcheck disable=SC1090
+  SCV_MVFAIL_OUT="$( ( PATH="$SCV_MVFAIL_BIN"; DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" \
+      && set_config_version "$SCV_MVFAIL_CFG" "deadbeef1234" ) 2>&1 )"
+  SCV_MVFAIL_RC=$?
+  assert_eq "scv: failed mv still returns 0 (degrades, never aborts) (jq)" "0" "$SCV_MVFAIL_RC"
+  assert_eq "scv: failed mv falls through to the generic warning (jq)" "yes" \
+    "$(printf '%s' "$SCV_MVFAIL_OUT" | grep -q 'warning: could not set devflow_version' && echo yes || echo no)"
+  assert_eq "scv: failed mv never logs 'pinned' (jq)" "no" \
+    "$(printf '%s' "$SCV_MVFAIL_OUT" | grep -q 'pinned devflow_version=' && echo yes || echo no)"
+  assert_eq "scv: failed mv leaves the on-disk value untouched (jq)" "abc1234" \
+    "$(jq -r '.devflow_version' "$SCV_MVFAIL_CFG")"
+  rm -f "$SCV_MVFAIL_CFG"
+fi
+if command -v python3 >/dev/null 2>&1; then
+  SCV_PY_MVFAIL_BIN="$(mktemp -d)/bin"
+  scv_mkfailbin "$SCV_PY_MVFAIL_BIN" mv python3 mktemp rm   # jq deliberately omitted
+  SCV_PY_MVFAIL_CFG="$(mktemp)"; printf '{"devflow_version":"abc1234"}' > "$SCV_PY_MVFAIL_CFG"
+  # shellcheck disable=SC1090
+  SCV_PY_MVFAIL_OUT="$( ( PATH="$SCV_PY_MVFAIL_BIN"; DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" \
+      && set_config_version "$SCV_PY_MVFAIL_CFG" "deadbeef1234" ) 2>&1 )"
+  SCV_PY_MVFAIL_RC=$?
+  assert_eq "scv(python3): failed mv still returns 0 (degrades, never aborts)" "0" "$SCV_PY_MVFAIL_RC"
+  assert_eq "scv(python3): failed mv falls through to the generic warning" "yes" \
+    "$(printf '%s' "$SCV_PY_MVFAIL_OUT" | grep -q 'warning: could not set devflow_version' && echo yes || echo no)"
+  assert_eq "scv(python3): failed mv never logs 'pinned'" "no" \
+    "$(printf '%s' "$SCV_PY_MVFAIL_OUT" | grep -q 'pinned devflow_version=' && echo yes || echo no)"
+  assert_eq "scv(python3): failed mv leaves the on-disk value untouched" "abc1234" \
+    "$(jq -r '.devflow_version' "$SCV_PY_MVFAIL_CFG")"
+  rm -f "$SCV_PY_MVFAIL_CFG"
+fi
+
+# ── Important regression guard: a genuine jq error on the recheck must not be
+# misreported as "kept as a deliberate pin" ──────────────────────────────────
+# jq -e returns exit 1 for a legitimate false/null result but a HIGHER exit
+# code (observed: 5) for a parse/runtime error. The recheck must distinguish
+# these — an actual jq error must fall through to the generic warning, not be
+# folded into the "deliberate pin" message meant only for genuine ineligible
+# values. Force the error deterministically: a stub `jq` runs the real binary
+# for the write-filter call but fault-injects an error for the `-e` recheck.
+if command -v jq >/dev/null 2>&1; then
+  SCV_REALJQ="$(command -v jq)"
+  SCV_JQERR_BIN="$(mktemp -d)/bin"; mkdir -p "$SCV_JQERR_BIN"
+  cat > "$SCV_JQERR_BIN/jq" <<STUBJQ
+#!/bin/sh
+for a in "\$@"; do
+  if [ "\$a" = "-e" ]; then
+    echo "jq: error (fault injected for test)" >&2
+    exit 5
+  fi
+done
+exec "$SCV_REALJQ" "\$@"
+STUBJQ
+  chmod +x "$SCV_JQERR_BIN/jq"
+  scv_mkbin "$SCV_JQERR_BIN" mktemp mv rm
+  SCV_JQERR_CFG="$(mktemp)"; printf '{"devflow_version":"abc1234"}' > "$SCV_JQERR_CFG"
+  # shellcheck disable=SC1090
+  SCV_JQERR_OUT="$( ( PATH="$SCV_JQERR_BIN"; DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" \
+      && set_config_version "$SCV_JQERR_CFG" "deadbeef1234" ) 2>&1 )"
+  SCV_JQERR_RC=$?
+  assert_eq "scv: jq recheck error still returns 0 (degrades, never aborts)" "0" "$SCV_JQERR_RC"
+  assert_eq "scv: jq recheck error falls through to the generic warning" "yes" \
+    "$(printf '%s' "$SCV_JQERR_OUT" | grep -q 'warning: could not set devflow_version' && echo yes || echo no)"
+  assert_eq "scv: jq recheck error is NOT misreported as 'kept ... deliberate pin'" "no" \
+    "$(printf '%s' "$SCV_JQERR_OUT" | grep -q 'kept existing devflow_version' && echo yes || echo no)"
+  assert_eq "scv: jq recheck error leaves the on-disk value untouched" "abc1234" \
+    "$(jq -r '.devflow_version' "$SCV_JQERR_CFG")"
+  rm -f "$SCV_JQERR_CFG"
+fi
+
 rm -rf "$VS_COMMIT" "$VS_SELF" "$VS_REMOTE" "$VS_FETCH" "$VS_FETCH_SHA" \
        "$VS_PREC" "$VS_DECOY" "$VS_DECOY_DEST"
 

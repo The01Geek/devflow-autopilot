@@ -85,11 +85,18 @@ set_config_version() {
         "$cfg" > "$tmp" 2>/dev/null; then
       if jq -e '(.devflow_version // "") as $cur | ($cur == "" or ($cur | test("^[0-9a-f]{7,40}$")))' \
         "$cfg" >/dev/null 2>&1; then
-        mv "$tmp" "$cfg"; log "pinned devflow_version=$version in $cfg"; return 0
+        if mv "$tmp" "$cfg"; then
+          log "pinned devflow_version=$version in $cfg"; return 0
+        fi
       else
-        rm -f "$tmp"
-        log "kept existing devflow_version in $cfg (looks like a deliberate pin, not a previous SHA stamp) — not overwriting."
-        return 0
+        local rc=$?
+        if [ "$rc" -eq 1 ]; then
+          rm -f "$tmp"
+          log "kept existing devflow_version in $cfg (looks like a deliberate pin, not a previous SHA stamp) — not overwriting."
+          return 0
+        fi
+        # rc > 1: jq itself errored on the recheck (not a genuine false/null result) — fall
+        # through to the generic warning rather than misreport it as a deliberate pin.
       fi
     fi
   elif command -v python3 >/dev/null 2>&1; then
@@ -101,7 +108,9 @@ if cur == "" or re.match(r"^[0-9a-f]{7,40}$", cur):
     open(os.environ["DEVFLOW_OUT"],"w").write(json.dumps(c,indent=2)+"\n")
     sys.exit(0)
 sys.exit(3)' 2>/dev/null; then
-      mv "$tmp" "$cfg"; log "pinned devflow_version=$version in $cfg"; return 0
+      if mv "$tmp" "$cfg"; then
+        log "pinned devflow_version=$version in $cfg"; return 0
+      fi
     else
       local rc=$?
       rm -f "$tmp"
