@@ -108,6 +108,40 @@ step the diff adds that claims to enumerate, verify, or scan a set, it confirms 
 (count, result) even when nothing needs changing — a silent no-op step is indistinguishable from one that
 never ran, so the human reviewing the run cannot tell it executed.
 
+## Review-engine hardening: forced operative-sentence pin note + inline-review observability backstop
+
+Two guards close gaps the review surface let ship "green" and only a blinded shadow pass (or nothing) caught.
+
+**Forced operative-sentence pin note (Phase 2.3 + review-and-fix Step 3).** The behavioral-fix-pin
+discipline — pin the *operative* sentence whose removal *alone* re-introduces the bug, never an adjacent
+*framing/justification* clause — was advice a fix-iteration author could quietly violate by pinning the
+nearest unique literal instead (the recurring framing-only-pin class behind PRs #173/#171/#167). It is now
+a **forced auditable artifact**: before writing any behavioral-fix pin, the author records a one-line
+workpad `--note` **naming the operative sentence and asserting the pin literal is a substring of it** —
+the same auditable-commitment idiom as the Phase 2.3 sweep-selection and test-first notes, so a
+framing-only pin becomes a visible error a reviewer or the weekly retrospective can catch instead of a
+silent slip. The requirement lives at both co-equal author sites — `phase-2-implement.md` §2.3 (the
+implement-path author) and `skills/review-and-fix/SKILL.md`'s Step 3 mutation-check step (the fix-loop
+author) — and is scoped to **behavioral-fix** pins only, never to literal-constant, token-name,
+count-based, or absence pins where no operative-vs-framing distinction exists. "Operative sentence" is a
+semantic property a grep cannot derive, so a true deterministic detector is infeasible; the recorded note
+plus the existing `assert_pin_red_on_removal` removal-proof is the strongest *viable* guard, and each new
+clause is itself pinned by a coupled `lib/test/run.sh` removal-proof assertion (#235 finding A).
+
+**Inline-review observability backstop (Phase 3.3).** `review-and-fix`'s Loop Exit is what normally
+persists a run's effectiveness record (`.devflow/logs/efficiency/<slug>-<run-id>.json`) and durable
+workpad copy, derived from its per-iteration `iter-*.json`. But Phase 3.3 drives that loop **inline in the
+orchestrator's context**, and a dropped Loop Exit then leaves those artifacts unwritten — the run
+contributes nothing to `.devflow/logs/efficiency/`, which is `review-and-fix`'s own #1 documented "Common
+Mistake," unguarded at this seam. So after the inline `review-and-fix` invocation returns — regardless of
+verdict — the orchestrator deterministically runs the existing `lib/efficiency-trace.sh --persist` Layer-3
+backstop (idempotent: it never re-derives an existing record, and with no `--workpad-dir`/`--slug` it
+scans every run-scoped dir, which is exactly the "the orchestrator does not hold the loop's internal
+slug/run-id" case). When even `--persist` has no `iter-*.json` inputs — the inline loop wrote no
+per-iteration workpad this run, so the telemetry is genuinely lost — the orchestrator records a
+`dropped-failed` reflection naming the gap rather than letting it vanish silently. The new §3.3 clause is
+pinned by two coupled `lib/test/run.sh` removal-proof assertions (#235 finding B).
+
 ## Acceptance-criteria gate: the gated `(post-merge)` tag (Phase 3.4)
 
 The Phase 3.4 gate requires every **non-post-merge** acceptance criterion to be verified before the run

@@ -2093,6 +2093,29 @@ assert_pin_red_on_removal "#194 (B) implement: deleting the named-assertion-appe
   'its named assertion actually appears in the run as a PASS' "$DEF_SKILL"
 assert_pin_red_on_removal "#194 (B) review-and-fix: deleting the named-assertion-appears-as-PASS conjunct turns its pin RED" \
   'its named assertion appears in the run as a PASS' "$MAXI_SKILL"
+# #235 (finding A): the forced per-behavioral-fix-pin operative-sentence NOTE — before writing
+# a behavioral-fix pin the author records a one-line workpad --note naming the operative
+# sentence and asserting the pin literal is a substring of it (the same auditable-commitment
+# idiom as the sweep-selection / test-first notes). COUPLED across the implement skill's Phase
+# 2.3 (phase-2-implement.md, inside $DEF_SKILL) and the review-and-fix fix loop's Step 3 item 4
+# ($MAXI_SKILL), so the same operative literal pins each — a half-revert that drops the
+# directive from either file turns its pin RED. This clause is itself a behavioral-fix pin, so
+# per finding A's own rule the literal targets the operative NOTE directive, not its framing.
+assert_pin_red_on_removal "#235 (A) implement: deleting the forced operative-sentence-note directive turns its pin RED" \
+  'naming the operative sentence and asserting the pin literal is a substring of it' "$DEF_SKILL"
+assert_pin_red_on_removal "#235 (A) review-and-fix: deleting the forced operative-sentence-note directive turns its pin RED" \
+  'naming the operative sentence and asserting the pin literal is a substring of it' "$MAXI_SKILL"
+# #235 (finding B): the Phase 3.3 observability-persistence backstop — after the inline
+# review-and-fix loop returns, verify the run's telemetry artifacts were persisted, run
+# lib/efficiency-trace.sh --persist when they are missing, and record a dropped-failed
+# reflection when even --persist has no iter-*.json inputs. Two operative DIRECTIVE sentences
+# (run-the-backstop / record-the-gap), so one removal-proof pin each (per finding A's own
+# "at least one pin per operative sentence" rule the new clause must obey). Both sentences
+# live in phases/phase-3-review.md, i.e. inside $DEF_SKILL (the implement bundle).
+assert_pin_red_on_removal "#235 (B) phase-3.3: deleting the run-the-persist-backstop directive turns its pin RED" \
+  'run the efficiency-trace persist backstop when they are missing' "$DEF_SKILL"
+assert_pin_red_on_removal "#235 (B) phase-3.3: deleting the dropped-failed-reflection directive turns its pin RED" \
+  'reflection naming the observability gap' "$DEF_SKILL"
 # ── #192: review/analysis agents must never mutate the live working tree ──────────────
 # Two coupled layers, each pinned with a mutation-proven assert_pin_red_on_removal so a
 # half-applied removal of the contract turns the suite RED (issue #192 AC4):
