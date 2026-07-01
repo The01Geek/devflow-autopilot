@@ -1815,6 +1815,16 @@ assert_pin_red_on_removal "#239: self-contradicting-diff finding is always in-sc
   'is **always in-scope** and may **not** be demoted' "$REVIEW_SKILL"
 assert_pin_red_on_removal "#239: rule 6 narrowed to never-in-scope (coupled half of rule 3a)" \
   'never in-scope ones — those are caught by rule 3a' "$REVIEW_SKILL"
+# Shadow-review iter-2 hardening: the self-contradicting carve-out is enforced by the
+# orchestrator's mandatory-in-scope FLAG at every demotion site (Phase 4.0 match AND the
+# review-and-fix skip/downgrade gate), NOT by the review-and-fix widens-surface guard —
+# which fires only on non-comment hunks and so misses the comment/doc/release-note artifacts
+# the carve-out protects. Pin the "no demotion path defers it" rule and the gate's
+# by-rule (not by-overlap) REJECT so a regression back to the overlap-derived claim fails RED.
+assert_pin_red_on_removal "#239: self-contradicting finding non-demotable at EVERY demotion site (not via overlap)" \
+  'no** demotion path defers a finding flagged mandatory-in-scope' "$REVIEW_SKILL"
+assert_pin_red_on_removal "#239: review-and-fix gate keeps self-contradicting REJECT by rule, not widens-surface overlap" \
+  'non-downgradable REJECT trigger by rule'
 # Pin the superset-comparison FRAMING itself (the verdict step), not only its finding
 # clause: a reword to a weaker check (e.g. "spot-check a few members") that left the
 # finding sentence intact would otherwise stay GREEN.
