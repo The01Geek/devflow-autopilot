@@ -5526,13 +5526,25 @@ assert_eq "#97 pin: create-issue ensures+applies DevFlow label via REST helper" 
 # uniqueness pin.
 assert_eq "#241 pin (A1): create-issue resolves a portable helper anchor (\$CLAUDE_SKILL_DIR-preferred, runner-base-dir fallback)" "yes" \
   "$(grep -qF 'SKILL_DIR="${CLAUDE_SKILL_DIR:-' "$LIB/../skills/create-issue/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: presence pin — literal recurs across the self-contained helper fences by design (not unique)
-# A2 (AC2): the regression-reproducing absence pin — NO bare ${CLAUDE_SKILL_DIR}/../../scripts
-# expansion may remain (three such occurrences exist against today's file; this fails RED
-# until every call site routes through the resolved anchor). The inner grep must find NO
-# bare expansion; the leading `!` negates it, so the assert_eq passes with `yes` when the
-# literal is absent (do not misread this as an assert_eq expecting `no`).
-assert_eq "#241 pin (A2): create-issue has no bare \${CLAUDE_SKILL_DIR}/../../scripts expansion" "yes" \
-  "$(! grep -qF '${CLAUDE_SKILL_DIR}/../../scripts' "$LIB/../skills/create-issue/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: absence pin — the exact broken expansion literal must be GONE
+# A1b (review PR #243 Important note): the anchor must be RE-ESTABLISHED in BOTH bash
+# fences (each Bash call is a fresh shell). A1 alone is satisfied by one occurrence, so
+# a future edit that trims the "redundant" second assignment would keep every pin green
+# while that fence's helpers run with an unset $SKILL_DIR — a regression strictly worse
+# than #241 (it breaks on Claude Code too). Mutation-verified: deleting either fence's
+# assignment line drops the count to 1 and fails this pin.
+assert_eq "#241 pin (A1b): the anchor assignment appears exactly twice (one per bash fence)" "2" \
+  "$(grep -cF 'SKILL_DIR="${CLAUDE_SKILL_DIR:-' "$LIB/../skills/create-issue/SKILL.md")"  # raw-guard-ok: count pin — exactly one anchor re-establishment per fence
+# A2 (AC2): the regression-reproducing absence pin — NO bare (braced OR unbraced)
+# $CLAUDE_SKILL_DIR/../../scripts expansion may remain. RED provenance: three braced
+# occurrences existed in the pre-#241 file; the pin was authored failing against that
+# state and went GREEN when every call site was routed through the resolved anchor.
+# The ERE also catches the unbraced form ($CLAUDE_SKILL_DIR/../../scripts), which
+# collapses identically on empty-var runners but the old -F braced literal missed.
+# The inner grep must find NO bare expansion; the leading `!` negates it, so the
+# assert_eq passes with `yes` when the pattern is absent (do not misread this as an
+# assert_eq expecting `no`).
+assert_eq "#241 pin (A2): create-issue has no bare braced-or-unbraced \$CLAUDE_SKILL_DIR/../../scripts expansion" "yes" \
+  "$(! grep -qE '\$\{?CLAUDE_SKILL_DIR\}?/\.\./\.\./scripts' "$LIB/../skills/create-issue/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: absence pin — the broken expansion (either brace form) must be GONE
 # A2b (AC2, positive companion to A2): A2 proves NO bare expansion remains file-wide, but
 # that is a negative fact — it would still pass if the Step-4 label helpers were dropped
 # entirely. Pin each label call site POSITIVELY through the resolved anchor so "every
@@ -5553,6 +5565,13 @@ assert_pin_unique "#241 pin (A2b): create-issue invokes load-prompt-extension.sh
 # the "continue regardless of the label outcome" prose as a benign label hiccup.
 assert_pin_unique "#241 pin (A3): sub-step 5a discriminates anchor-resolution failure from a benign label outcome" \
   'The always-exit-0 contract applies only once a helper actually runs' "$LIB/../skills/create-issue/SKILL.md"
+# A3b (review PR #243 Important note): when the anchor is genuinely UNRESOLVABLE on a
+# runner (neither $CLAUDE_SKILL_DIR nor a runner-reported base dir), the guard must not
+# fail open into "Continue to sub-step 6 regardless" — sub-step 5a surfaces the
+# degradation explicitly (issue created, provenance label NOT applied) so the silently
+# dropped DevFlow label never vanishes from the retrospective detection unnoticed.
+assert_pin_unique "#241 pin (A3b): sub-step 5a surfaces an unresolvable anchor as an explicit degradation, not a silent skip" \
+  'provenance label NOT applied' "$LIB/../skills/create-issue/SKILL.md"
 assert_eq "#97 pin: implement applies DevFlow label at PR create via REST helper" "yes" \
   "$(grep -q 'ensure-label.sh DevFlow' "$IMPL_SKILL_BUNDLE" && grep -qF 'apply-labels.sh "$PR_NUM" DevFlow' "$IMPL_SKILL_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: compound: two greps && on one line (provenance: ensure-label + REST apply-labels); issue #218: bundle (label idiom in phases/phase-3-review.md)
 assert_eq "#152 pin: meta-issue.sh ensures+applies DevFlow and Retrospective labels via REST helper" "yes" \
