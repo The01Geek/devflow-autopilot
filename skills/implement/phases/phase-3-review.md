@@ -74,7 +74,7 @@ LIB="${CLAUDE_SKILL_DIR}/../../lib"
 # (always exits 0). No --workpad-dir/--slug: with no args --persist scans every run-scoped
 # dir on disk, which is exactly the "the orchestrator does not hold review-and-fix's
 # internal slug/run-id" case at this inline seam.
-"$LIB/efficiency-trace.sh" --persist 2>/tmp/devflow-et-persist.err || true
+"$LIB/efficiency-trace.sh" --persist || true   # best-effort; let its ::warning:: breadcrumbs surface to the run log (never swallow to a write-only file)
 # Detect the "no inputs" case directly: .devflow/tmp/ is gitignored ephemeral scratch
 # destroyed with the runner, so any iter-*.json present belongs to this run. Zero of them
 # means the inline loop wrote no per-iteration workpad, so --persist had nothing to derive
