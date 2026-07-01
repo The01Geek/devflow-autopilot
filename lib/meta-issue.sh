@@ -57,8 +57,8 @@ case "$TAG" in
 esac
 
 # ── gh binary: resolved once via the single-source resolver (execution-verified);
-# an explicit DEVFLOW_GH still wins (injection for tests) and is exported to the
-# child helpers below so they inherit the resolved binary ─────────────────────
+# an explicit DEVFLOW_GH still wins (injection for tests) and is passed explicitly
+# as a per-command env prefix to each child helper invocation below ────────────
 # shellcheck source=resolve-gh.sh
 . "$HERE/resolve-gh.sh"
 : "${DEVFLOW_GH:=$(devflow_resolve_gh)}"

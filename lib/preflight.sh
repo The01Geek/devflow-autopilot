@@ -34,8 +34,8 @@ _need() {  # $1=command  $2=how-to-install hint
 _need git     "install git"
 _need jq      "install jq (https://jqlang.github.io/jq/)"
 
-# gh resolution — mirror the Python resolver path: use the execution-verified
-# single-source resolver, not a bare presence check. On a stock Windows/WSL host a
+# gh resolution — mirror the resolve-python.sh sibling's detect-and-verify path:
+# use the execution-verified single-source resolver, not a bare presence check. On a stock Windows/WSL host a
 # non-executable `gh` shim (a Python-provided `gh` with a Windows shebang) can
 # shadow the real GitHub CLI: `command -v gh` succeeds but the binary cannot run,
 # so a plain presence check would pass preflight while every gh-calling helper

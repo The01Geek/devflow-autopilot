@@ -11000,6 +11000,30 @@ TD_SEL="$(PATH="$GHTD" "$GHTD/bash" -c ". \"$RESOLVE_GH_SH\"; devflow_resolve_gh
 assert_eq "#245 degenerate: no runnable gh/gh.exe → falls back to bare 'gh'" "gh" "$TD_SEL"
 assert_eq "#245 degenerate: fallback still exits 0 (best-effort warning path preserved)" "0" "$TD_RC"
 
+# ── T5 (AC4 tail) — an EMPTY DEVFLOW_GH is NOT an override: it falls through to
+#    probing (empty ≠ match-all, the CLAUDE.md bug class). Guards a regression of
+#    the `[ -n "${DEVFLOW_GH:-}" ]` guard to a set-but-empty test, which would echo
+#    the empty string and break every gh-caller while staying green. ──
+T5_SEL="$(DEVFLOW_GH="" PATH="$GHT3:$PATH" bash -c ". \"$RESOLVE_GH_SH\"; devflow_resolve_gh")"
+assert_eq "#245 T5: empty DEVFLOW_GH falls through to the probe (not echoed verbatim)" "gh" "$T5_SEL"
+
+# ── T6 (AC1 ordering) — when BOTH gh and gh.exe are runnable, gh wins (candidate
+#    order gh→gh.exe). T1/T3 both pass under a reversed loop order; this pins it. ──
+GHT6="$(mktemp -d)"
+cat > "$GHT6/gh" <<'STUB'
+#!/usr/bin/env bash
+[ "$1" = "--version" ] && { echo "gh version 2.stub (stub)"; exit 0; }
+exit 0
+STUB
+cat > "$GHT6/gh.exe" <<'STUB'
+#!/usr/bin/env bash
+[ "$1" = "--version" ] && { echo "gh version 2.stub (stub-exe)"; exit 0; }
+exit 0
+STUB
+chmod +x "$GHT6/gh" "$GHT6/gh.exe"
+T6_SEL="$(PATH="$GHT6:$PATH" bash -c ". \"$RESOLVE_GH_SH\"; devflow_resolve_gh")"
+assert_eq "#245 T6: both runnable → gh chosen over gh.exe (candidate order preserved)" "gh" "$T6_SEL"
+
 # ── AC5 / preflight — a present-but-unrunnable `gh` is reported at preflight with
 #    a remedy (execution-verified), not silently passed. Shadow the real gh with a
 #    bad-shebang gh (no gh.exe present) so the resolver returns bare gh and
@@ -11042,7 +11066,7 @@ assert_eq "#245 peer-completeness: no shell helper retains the bare DEVFLOW_GH:=
 DGH_SOURCED="$(grep -rlF 'resolve-gh.sh' "$DGH_ROOT/scripts" "$DGH_ROOT/lib" --include='*.sh' 2>/dev/null | grep -v '/test/' | grep -c . || true)"
 assert_eq "#245 peer-completeness: >=13 helpers source resolve-gh.sh (all gh-callers converted)" "yes" \
   "$([ "$DGH_SOURCED" -ge 13 ] && echo yes || echo no)"
-rm -rf "$GHT1" "$GHT2" "$GHT3" "$GHTD" "$GHTP" "$GHT4"
+rm -rf "$GHT1" "$GHT2" "$GHT3" "$GHTD" "$GHTP" "$GHT4" "$GHT6"
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
