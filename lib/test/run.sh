@@ -5453,6 +5453,41 @@ assert_eq "#126 pin: docs describe the grouped reflection structure + --reflecti
   "$(grep -q -- '--reflection-kind' "$LIB/../docs/implement-skill.md" && grep -q -- '--reflection-kind' "$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md" && echo yes || echo no)"
 
 # ── SKILL.md / config contract pins (grep) ───────────────────────────────────
+# ── #242: create-issue clarification step is portable across runners' user-question tools ──
+# A1 (AC1–AC4): the clarification step names the runner's user-question tool generically
+# (AskUserQuestion as canonical example), makes batching conditional, states a
+# runner-neutral total-question budget, and enumerates options in-text when the tool has
+# no structured-choice affordance. Removal-proof presence pins (assert_pin_unique fails
+# closed if the literal is deleted or paraphrased). Literals are apostrophe-free + unique.
+CI_SKILL_242="$LIB/../skills/create-issue/SKILL.md"
+CI_OVERVIEW_242="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
+assert_pin_unique "#242 A1: create-issue names AskUserQuestion as the canonical example (runner-neutral)" \
+  '`AskUserQuestion` (Claude Code, the canonical example)' "$CI_SKILL_242"
+assert_pin_unique "#242 A1: create-issue makes batching conditional (one-question-per-call → sequential)" \
+  'where it is one-question-per-call, ask them sequentially' "$CI_SKILL_242"
+assert_pin_unique "#242 A1: create-issue caps clarification with a runner-neutral total-question budget" \
+  'runner-neutral total-clarifying-question budget' "$CI_SKILL_242"
+assert_pin_unique "#242 A1: create-issue enumerates options in-text when the tool has no structured choices" \
+  'Where the tool cannot present structured choices' "$CI_SKILL_242"
+# AC5: both derivation-gate timing anchors reworded off the literal tool while preserving
+# gate semantics (fires before the first clarification question AND before Step 3 drafting).
+assert_pin_unique "#242 AC5: gate anchor 1 fires before the first clarification question" \
+  'Before the first clarification question' "$CI_SKILL_242"
+assert_pin_unique "#242 AC5: drafting-precondition anchor references the first-clarification-question trigger" \
+  'first-clarification-question trigger' "$CI_SKILL_242"
+# A2 (regression, AC1/AC5/AC6/AC7): the skill no longer MANDATES AskUserQuestion as the
+# sole user-question tool, no longer anchors the gate on the literal "AskUserQuestion call",
+# and no longer states the round-based "~6 rounds" cap. Absence pins (the literals are GONE).
+assert_eq "#242 A2: create-issue dropped the sole-mandate + literal-tool gate anchor + round cap" "yes" \
+  "$(! grep -qF 'Use the **AskUserQuestion** tool' "$CI_SKILL_242" \
+    && ! grep -qF 'Before the first `AskUserQuestion` call' "$CI_SKILL_242" \
+    && ! grep -qF 'Cap at ~6 rounds' "$CI_SKILL_242" \
+    && echo yes || echo no)"  # raw-guard-ok: compound absence pin — three removed literals must all be GONE
+# AC (docs): the overview's create-issue sentence is runner-neutral, not "Uses AskUserQuestion, capped at ~6 rounds".
+assert_pin_unique "#242 docs: overview states the runner-neutral total-question budget" \
+  'runner-neutral total-clarifying-question budget' "$CI_OVERVIEW_242"
+assert_eq "#242 docs: overview dropped the round-based cap phrasing" "yes" \
+  "$(! grep -qF 'capped at ~6 rounds' "$CI_OVERVIEW_242" && echo yes || echo no)"  # raw-guard-ok: absence pin — old round-cap phrasing GONE
 assert_eq "#97 pin: ensure-label.sh exists" "yes" \
   "$([ -f "$LIB/../scripts/ensure-label.sh" ] && echo yes || echo no)"
 assert_eq "#97 pin: create-issue ensures+applies DevFlow label via REST helper" "yes" \
