@@ -174,6 +174,41 @@ manage_vendor_gitignore() {
   fi
 }
 
+# On a host with no `python3` on PATH (a stock Windows / Git-Bash install, where Python is
+# reachable only as `python` / `py -3`), surface DevFlow's consent-gated Python shim
+# provisioner so `install.sh` users hit it regardless of install method. It DELEGATES to the
+# one provisioner (scripts/provision-python3-shim.sh in the cloned source) — install.sh never
+# re-implements interpreter detection — and is a no-op when `python3` already resolves (native
+# marketplace installs that bypass install.sh remain covered by the preflight pointer, which
+# /devflow:init relays). Best-effort: a missing provisioner or a refusal never aborts the install.
+offer_python3_shim() {
+  local src="$1" prov rc
+  # Probe RUNNABILITY, not mere presence — mirror lib/preflight.sh's happy-path gate. A
+  # `python3` that is on PATH but does not execute (dangling symlink, corrupt install,
+  # missing runtime DLL — the broken-Windows-interpreter class this provisioner targets)
+  # must NOT short-circuit the offer here; it falls through so the resolver/provisioner can
+  # surface the remedy. A bare `command -v python3` would skip the offer on exactly that case.
+  if command -v python3 >/dev/null 2>&1 && python3 -c 'pass' >/dev/null 2>&1; then
+    return 0   # a WORKING python3 is present → nothing to offer here (preflight still enforces the >=3.11 check).
+  fi
+  prov="$src/scripts/provision-python3-shim.sh"
+  if [ ! -f "$prov" ]; then
+    log "no working 'python3' on PATH and the shim provisioner is unavailable in the source tree; see docs/install.md to resolve a Python 3 interpreter."
+    return 0
+  fi
+  log "no working 'python3' on PATH — surfacing DevFlow's consent-gated Python interpreter resolver:"
+  # Default (no --apply) prints the plan + manual instructions and writes nothing; the user
+  # opts into the write by re-running the provisioner with --apply. ANY non-zero exit — the
+  # designed plan-mode refusals (rc 2: no >=3.11 interpreter / too-old) and genuine provisioner
+  # breakage (a missing lib/resolve-python.sh source, a syntax error, an unexpected set -e
+  # abort) alike — is surfaced with the rc rather than swallowed, and never aborts the install.
+  # The single breadcrumb covers both cases (this is intentional — one unconditional log, not a
+  # branch): for a benign rc-2 refusal the provisioner's own `devflow-python:` breadcrumb on
+  # stderr already names the specific cause; for genuine breakage the rc here makes it
+  # diagnosable rather than laundered into apparent success.
+  bash "$prov" || { rc=$?; log "the Python interpreter resolver exited non-zero (rc $rc); install continues — re-run 'bash $prov' to see its diagnostics."; }
+}
+
 # When sourced by the test harness (DEVFLOW_SELFTEST=1), define the functions
 # above and stop — the installer body below (which clones + writes files) does
 # not run. `return` only executes on the sourced path; `|| true` keeps `set -e`
@@ -292,5 +327,9 @@ if PIN="$(git -C "$SRC" rev-parse HEAD 2>/dev/null)"; then :; else
   log "warning: could not resolve the installed commit SHA; pinning devflow_version=$PIN (if that is a mutable branch, set it to a tag or SHA by hand to freeze the runtime fetch)."
 fi
 set_config_version ".devflow/config.json" "$PIN"
+
+# 7. On a host with no `python3` (stock Windows / Git-Bash), offer the consent-gated shim
+#    provisioner so the toolchain can resolve a Python 3 interpreter. No-op where python3 works.
+offer_python3_shim "$SRC"
 
 log "done (from ${REPO}@${REF}). Review with 'git status' / 'git diff' and commit."

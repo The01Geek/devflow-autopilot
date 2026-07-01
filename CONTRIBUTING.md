@@ -23,6 +23,14 @@ docs/             cloud-setup guide and other docs
 
 Run `bash lib/preflight.sh` to verify your environment.
 
+**Windows (stock Python): resolving `python3`.** A stock Windows Python install (python.org / `winget install python`) puts Python on PATH as `python` and the `py -3` launcher — there is **no `python3`**, so every DevFlow helper and the agent-typed `python3 <path>` calls fail. When `python3` is absent but a `>=3.11` Python is reachable as `python` or `py -3`, run the consent-gated provisioner to install a small `python3` shim onto your PATH:
+
+```bash
+bash scripts/provision-python3-shim.sh --apply
+```
+
+It picks the first of `python3`/`py -3`/`python` reporting `>=3.11`, writes a `python3` that forwards to it (a no-op when a real `python3 >=3.11` already resolves), and prints a `devflow-python:` breadcrumb. macOS/Linux already have a real `python3`, so this is a no-op there. `bash lib/preflight.sh` points you here when it detects the no-`python3`/has-alternate state.
+
 ## Running the tests
 
 ```bash
