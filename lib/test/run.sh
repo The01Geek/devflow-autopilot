@@ -8660,6 +8660,35 @@ if command -v python3 >/dev/null 2>&1; then
   rm -f "$SCV_PY_BAD"
 fi
 
+# ── devflow_version: false (JSON boolean) — the one falsy-JSON shape whose
+# behavior is the OPPOSITE of the 0/[]/{} matrix above: both backends
+# explicitly treat null/false (not just any falsy value) as "absent", so
+# false must be silently re-stamped, not fall through to the generic warning.
+# The python3 fix comment names `cur is False` explicitly as load-bearing;
+# assert both sides of that branch so a future edit that narrows or widens
+# the null/false special-case is caught on both backends.
+if command -v jq >/dev/null 2>&1; then
+  SCV_FALSE="$(mktemp)"; printf '{"devflow_version":false}' > "$SCV_FALSE"
+  # shellcheck disable=SC1090
+  SCV_FALSE_OUT="$( ( DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" && set_config_version "$SCV_FALSE" "deadbeef1234" ) 2>&1 )"
+  assert_eq "scv: devflow_version=false is stamped (treated as absent)" "deadbeef1234" \
+    "$(jq -r '.devflow_version' "$SCV_FALSE")"
+  assert_eq "scv: devflow_version=false stamp logs 'pinned'" "yes" \
+    "$(printf '%s' "$SCV_FALSE_OUT" | grep -q 'pinned devflow_version=deadbeef1234' && echo yes || echo no)"
+  rm -f "$SCV_FALSE"
+fi
+if command -v python3 >/dev/null 2>&1; then
+  SCV_PY_FALSE="$(mktemp)"; printf '{"devflow_version":false}' > "$SCV_PY_FALSE"
+  # shellcheck disable=SC1090
+  SCV_PY_FALSE_OUT="$( ( PATH="$SCV_PY_BIN"; DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" \
+      && set_config_version "$SCV_PY_FALSE" "deadbeef1234" ) 2>&1 )"
+  assert_eq "scv(python3): devflow_version=false is stamped (treated as absent)" "deadbeef1234" \
+    "$(jq -r '.devflow_version' "$SCV_PY_FALSE")"
+  assert_eq "scv(python3): devflow_version=false stamp logs 'pinned'" "yes" \
+    "$(printf '%s' "$SCV_PY_FALSE_OUT" | grep -q 'pinned devflow_version=deadbeef1234' && echo yes || echo no)"
+  rm -f "$SCV_PY_FALSE"
+fi
+
 rm -rf "$VS_COMMIT" "$VS_SELF" "$VS_REMOTE" "$VS_FETCH" "$VS_FETCH_SHA" \
        "$VS_PREC" "$VS_DECOY" "$VS_DECOY_DEST"
 

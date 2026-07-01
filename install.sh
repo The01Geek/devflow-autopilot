@@ -12,6 +12,7 @@
 #   - .github/actions/*               the composite actions they use
 #   - .devflow/config.json            scaffolded from the template ONLY if absent;
 #                                     devflow_version pinned to the installed commit
+#                                     (unless already hand-pinned to a non-SHA value)
 #   - .devflow/config.schema.json     refreshed every run (editor autocomplete)
 #   - .devflow/.gitignore             scoped ignore for ephemeral tmp/ scratch
 #                                     (created if absent; keeps config.json +
@@ -362,8 +363,10 @@ manage_vendor_gitignore
 
 # 6. Pin devflow_version to the exact commit we installed from, so the runtime
 #    fetch is reproducible and never tracks mutable main. Re-running the
-#    installer re-stamps it; a maintainer can also bump it by hand to any tag,
-#    branch, or SHA. The clone+checkout above gives $SRC a resolvable HEAD, so
+#    installer re-stamps it when eligible (see set_config_version above for the
+#    empty/SHA-shape rule — a hand-set non-SHA value is preserved, not
+#    re-stamped); a maintainer can also bump it by hand to any tag, branch, or
+#    SHA. The clone+checkout above gives $SRC a resolvable HEAD, so
 #    this essentially always yields a SHA; only a broken clone falls back to
 #    $REF — warn there, since $REF may be a mutable branch (the very thing the
 #    pin exists to avoid).
