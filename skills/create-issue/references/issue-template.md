@@ -70,10 +70,13 @@ holds the role name") against the schema definitions or the code that reads and 
 data; **"parent PR or commit already did X"** claims at HEAD (read the file, `git log -p` /
 `git log -S<symbol>`), never taken from the parent issue's narrative; **data-coverage /
 population** claims ("column X is set for most users") against live data when it is available.
-A load-bearing premise that cannot be verified (e.g. live data unavailable) is written as an
-explicitly flagged assumption for the implementer to confirm — stated inline as a factual
-premise-to-confirm (it is not a no-options deferral bound for `## 🚫 Blocked`, which is for
-undecided *decisions*), and never baked into a prescriptive `Approach`. Verification is **proportional** (cheap in-repo reads for most claims, live-data
+Treat an empty or inconclusive result (no matching commit, no matching column/schema, data
+unavailable) as **unverified** — never as silent confirmation. A load-bearing premise that
+cannot be verified is written as an explicitly flagged assumption for the implementer to
+confirm — stated inline as a declarative fact tagged `— assumption, confirm before
+implementing` (a factual premise-to-confirm, so the no-options gate's hedge/deferral ban does
+not apply to it and it is not a `## 🚫 Blocked` item, which is for undecided *decisions*), and
+never baked into a prescriptive `Approach`. Verification is **proportional** (cheap in-repo reads for most claims, live-data
 only for population claims) and scoped to **load-bearing** premises, so incidental context
 bullets stay light and drafting is never blocked in a data-less authoring context.
 
