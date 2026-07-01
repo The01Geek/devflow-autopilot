@@ -2326,6 +2326,31 @@ assert_pin_red_on_removal "#232: phase-4 re-anchor operative clause flips RED on
   're-anchoring the remaining §4.2 (PR description) and §4.3 (finalize) procedure' "$P4_FILE"
 assert_pin_red_on_removal "#232: phase-4 re-anchor scope clause flips RED on removal" \
   'scoped to the Phase 4.1 docs subagent return **only**' "$P4_FILE"
+# review iter-1 (pr-test-analyzer): pin the OPERATIVE directives, not only their framing —
+# a same-line surgical edit that drops the actual instruction while keeping the descriptive
+# appendix would otherwise ship GREEN (the recurring framing-only-pin hole).
+# AC3 operative: the mandatory re-`Read` directive itself (not the "re-anchoring …" appendix).
+assert_pin_unique "#232: phase-4 re-anchor keeps the operative re-Read directive" \
+  'again and follow it exactly' "$P4_FILE"
+assert_pin_red_on_removal "#232: phase-4 operative re-Read directive flips RED on removal" \
+  'again and follow it exactly' "$P4_FILE"
+# AC1 operative: the normative prohibition sentence (not only its corrective consequence).
+assert_pin_unique "#232: SKILL self-check keeps the run-final-message prohibition (operative)" \
+  'Do not emit your run-final message while the workpad' "$IMPL_ORCH"
+assert_pin_red_on_removal "#232: SKILL run-final-message prohibition flips RED on removal" \
+  'Do not emit your run-final message while the workpad' "$IMPL_ORCH"
+# review iter-1 (silent-failure-hunter F1/F2): the two robustness hardenings — the self-check
+# binds EVERY termination path (not only a deliberate wrap-up), and the Phase 4.1 re-anchor
+# TRIGGER is repeated in the always-loaded orchestrator so a subagent-return eviction cannot
+# remove it. Pin both so a later edit cannot silently drop the hardening.
+assert_pin_unique "#232: SKILL self-check binds every termination path (SFH F1)" \
+  'This guard binds **every** way the run can end' "$IMPL_ORCH"
+assert_pin_red_on_removal "#232: SKILL every-termination-path clause flips RED on removal" \
+  'This guard binds **every** way the run can end' "$IMPL_ORCH"
+assert_pin_unique "#232: orchestrator repeats the Phase 4.1 re-anchor trigger in the always-loaded body (SFH F2)" \
+  'repeated here in the always-resident orchestrator' "$IMPL_ORCH"
+assert_pin_red_on_removal "#232: always-loaded re-anchor trigger flips RED on removal" \
+  'repeated here in the always-resident orchestrator' "$IMPL_ORCH"
 assert_pin_unique "sweep 2.3.6: implement SKILL keeps the sweep body" '#### 2.3.6 Error-handling & silent-failure sweep' "$IMPL_SKILL"
 assert_pin_unique "sweep 2.3.6: implement SKILL lists it in the always-run index" '**2.3.6** (error-handling & silent-failure)' "$IMPL_SKILL"
 assert_eq "sweep 2.3.6: docs/implement-skill.md keeps the rationale table row" "yes" \
