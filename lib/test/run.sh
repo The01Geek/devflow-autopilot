@@ -8398,6 +8398,21 @@ if command -v jq >/dev/null 2>&1; then
   assert_eq "scv: previously auto-stamped SHA devflow_version IS re-stamped" "deadbeef1234" \
     "$(jq -r '.devflow_version' "$SCV_SHA")"
   rm -f "$SCV_SHA"
+
+  # Idempotent re-run: the existing value is ALREADY the SHA being installed.
+  # The classification must key off whether the existing value looks like a
+  # SHA (eligible), not off whether the write changed anything — otherwise
+  # this exact case logs the "kept as a deliberate pin" message even though
+  # it's a SHA stamp, contradicting the python3 backend's "pinned" message
+  # for the identical input.
+  SCV_SAME="$(mktemp)"; printf '{"devflow_version":"deadbeef1234"}' > "$SCV_SAME"
+  # shellcheck disable=SC1090
+  SCV_SAME_OUT="$( ( DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" && set_config_version "$SCV_SAME" "deadbeef1234" ) 2>&1 )"
+  assert_eq "scv: idempotent same-SHA re-run leaves the value unchanged" "deadbeef1234" \
+    "$(jq -r '.devflow_version' "$SCV_SAME")"
+  assert_eq "scv: idempotent same-SHA re-run logs 'pinned', not 'kept as deliberate pin'" "yes" \
+    "$(printf '%s' "$SCV_SAME_OUT" | grep -q 'pinned devflow_version=deadbeef1234' && echo yes || echo no)"
+  rm -f "$SCV_SAME"
 fi
 
 # set_config_version cross-language backends: jq is selected first on CI, so the
@@ -8430,6 +8445,38 @@ if command -v python3 >/dev/null 2>&1; then
   assert_eq "scv(python3): preserves sibling top-level key" "main" "$(jq -r '.base_branch' "$SCV_PY_CFG")"
   assert_eq "scv(python3): preserves nested key" "high" "$(jq -r '.devflow.effort' "$SCV_PY_CFG")"
   rm -f "$SCV_PY_CFG"
+
+  # Mirror the jq preserve/re-stamp assertions above for the python3 backend —
+  # both arms of the empty/SHA/non-SHA branch live only in the untested python3
+  # code path once jq is shadowed off PATH, so a regression there would pass CI.
+  SCV_PY_MAIN="$(mktemp)"; printf '{"devflow_version":"main"}' > "$SCV_PY_MAIN"
+  # shellcheck disable=SC1090
+  ( PATH="$SCV_PY_BIN"; DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" \
+      && set_config_version "$SCV_PY_MAIN" "deadbeef1234" ) >/dev/null 2>&1
+  assert_eq "scv(python3): hand-set non-SHA devflow_version (main) is preserved, not re-stamped" "main" \
+    "$(jq -r '.devflow_version' "$SCV_PY_MAIN")"
+  rm -f "$SCV_PY_MAIN"
+
+  SCV_PY_SHA="$(mktemp)"; printf '{"devflow_version":"abc1234"}' > "$SCV_PY_SHA"
+  # shellcheck disable=SC1090
+  ( PATH="$SCV_PY_BIN"; DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" \
+      && set_config_version "$SCV_PY_SHA" "deadbeef1234" ) >/dev/null 2>&1
+  assert_eq "scv(python3): previously auto-stamped SHA devflow_version IS re-stamped" "deadbeef1234" \
+    "$(jq -r '.devflow_version' "$SCV_PY_SHA")"
+  rm -f "$SCV_PY_SHA"
+
+  # jq/python3 parity for the idempotent same-SHA re-run (see the "scv: idempotent
+  # same-SHA re-run" jq assertions above) — both backends must log "pinned" for
+  # the identical input.
+  SCV_PY_SAME="$(mktemp)"; printf '{"devflow_version":"deadbeef1234"}' > "$SCV_PY_SAME"
+  # shellcheck disable=SC1090
+  SCV_PY_SAME_OUT="$( ( PATH="$SCV_PY_BIN"; DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" \
+      && set_config_version "$SCV_PY_SAME" "deadbeef1234" ) 2>&1 )"
+  assert_eq "scv(python3): idempotent same-SHA re-run leaves the value unchanged" "deadbeef1234" \
+    "$(jq -r '.devflow_version' "$SCV_PY_SAME")"
+  assert_eq "scv(python3): idempotent same-SHA re-run logs 'pinned', not 'kept as deliberate pin'" "yes" \
+    "$(printf '%s' "$SCV_PY_SAME_OUT" | grep -q 'pinned devflow_version=deadbeef1234' && echo yes || echo no)"
+  rm -f "$SCV_PY_SAME"
 fi
 
 rm -rf "$VS_COMMIT" "$VS_SELF" "$VS_REMOTE" "$VS_FETCH" "$VS_FETCH_SHA" \

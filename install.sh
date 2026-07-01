@@ -83,8 +83,8 @@ set_config_version() {
            then .devflow_version = $v
            else . end' \
         "$cfg" > "$tmp" 2>/dev/null; then
-      if [ "$(jq -r '.devflow_version // ""' "$tmp" 2>/dev/null)" = "$version" ] \
-        && [ "$(jq -r '.devflow_version // ""' "$cfg" 2>/dev/null)" != "$version" ]; then
+      if jq -e '(.devflow_version // "") as $cur | ($cur == "" or ($cur | test("^[0-9a-f]{7,40}$")))' \
+        "$cfg" >/dev/null 2>&1; then
         mv "$tmp" "$cfg"; log "pinned devflow_version=$version in $cfg"; return 0
       else
         rm -f "$tmp"
