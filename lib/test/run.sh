@@ -5527,8 +5527,19 @@ assert_pin_unique "#256 AC2: create-issue requires re-asking the unanswered ques
   'pause and re-ask that question in your final chat message' "$CI_SKILL_256"
 assert_pin_unique "#256 AC3: only an explicit reply engages the draft-from-decided / Blocked path" \
   'engages the disengagement / draft-from-decided / Blocked path below' "$CI_SKILL_256"
+# AC3 exclusivity head — anchor the "Only an **explicit** reply" token itself, not just the
+# sentence tail above: a paraphrase like "A silent non-response can also engage … the
+# … Blocked path below" would keep the tail pin GREEN while reintroducing #256's bug.
+assert_pin_unique "#256 AC3: the exclusivity head pins 'Only an explicit reply' (silence cannot engage)" \
+  'Only an **explicit** reply from the user' "$CI_SKILL_256"
+# AC3 second operative site — the disengagement-list header's exclusivity clause.
+assert_pin_unique "#256 AC3: the disengagement-list header scopes triggers to explicit user replies" \
+  'these three explicit replies are the *only* user-reply disengagement triggers' "$CI_SKILL_256"
 assert_pin_unique "#256 AC4: a silent timeout never counts toward or trips the disengagement budget" \
   'never counts toward the budget and never trips' "$CI_SKILL_256"
+# AC5 — the new rule reconciles with the Step 4 confirmation gate (stay paused on no response).
+assert_pin_unique "#256 AC5: the silent-non-response rule mirrors the Step 4 confirmation gate" \
+  'This mirrors the Step 4 confirmation gate' "$CI_SKILL_256"
 # AC1 (regression): "goes quiet" is GONE — silence is no longer a disengagement trigger.
 assert_eq "#256 AC1: create-issue removed the goes-quiet disengagement trigger" "yes" \
   "$(! grep -qF 'goes quiet' "$CI_SKILL_256" && echo yes || echo no)"  # raw-guard-ok: absence pin — the removed trigger literal must be GONE
