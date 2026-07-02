@@ -408,7 +408,7 @@ jobs:
           RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
-          SUMMARY='/devflow:review is executing. This is a required status check that encodes the verdict: it PASSES on APPROVE and FAILS on REJECT (a REJECT blocks merge). The full verdict is also posted as a formal PR review.'
+          SUMMARY='/devflow:review is executing. This is a required status check that encodes the verdict for the current HEAD: it PASSES only on a positively-observed APPROVE, and FAILS on a REJECT (blocks merge) or on an incomplete/unverifiable review (Re-run needed). The full verdict is also posted as a formal PR review.'
           ID=$(gh api -X POST "repos/$REPO/check-runs" \
             -f name='Devflow Review' \
             -f head_sha="$HEAD_SHA" \
@@ -594,25 +594,44 @@ jobs:
           CHECK_RUN_ID: ${{ needs.create_check.outputs.check_run_id }}
           REVIEW_RESULT: ${{ needs.review.result }}
           PR_NUMBER: ${{ needs.precheck.outputs.pr_number }}
+          # HEAD SHA the check is being finalized for. Compare the review's
+          # commit_id against THIS (needs.precheck.outputs.head_sha), never
+          # github.event.check_run.head_sha which can be stale after a push.
+          HEAD_SHA: ${{ needs.precheck.outputs.head_sha }}
+          # "true" when the review engine execution ended in error (is_error)
+          # even though the review JOB reported success — treated as no verdict
+          # for HEAD. Empty (cancelled/skipped review) reads as "false"; those
+          # results take the neutral arm below, not this success path.
+          ENGINE_ERROR: ${{ needs.review.outputs.engine_is_error }}
         run: |
           set -euo pipefail
           # The `Devflow Review` check conclusion encodes the review
           # *verdict*, not merely whether the review *process* completed.
           # This check is a REQUIRED status check (ruleset main-protected;
-          # see CLAUDE.md), so a REJECT must conclude `failure` to actually
-          # block auto-merge — historically a `--request-changes` review
-          # was advisory only (no required-review rule) and a rejected PR
-          # still auto-merged. Mapping:
+          # see CLAUDE.md), so it must conclude `success` ONLY on a
+          # positively-observed APPROVE for the current HEAD; everything else
+          # fails closed so an un-reviewed HEAD never merges (issue #249).
+          # Mapping:
           #   review job failed            -> failure  (process broke; Re-run)
           #   review job cancelled/skipped -> neutral  (superseded Re-run or
           #         intentionally-not-run; a *neutral* required check does
           #         NOT block, so a cancelled Re-run never looks like REJECT)
-          #   review job success + REJECT  -> failure  (blocks the merge)
-          #   review job success + APPROVE -> success
-          # REJECT is read from the formal artifact Phase 4.4 of the skill
-          # posts: a `--request-changes` review (state CHANGES_REQUESTED)
-          # or, on the documented gh-pr-review permission-failure fallback,
-          # a PR comment whose body carries the `## Verdict: REJECT` line.
+          #   review job success, verdict = approve      -> success
+          #   review job success, verdict = reject       -> failure (blocks)
+          #   review job success, verdict = incomplete   -> failure, distinct
+          #         "re-run needed" title. This covers a HEAD with no verdict
+          #         (empty reviews, or only older-commit reviews), an engine
+          #         that ended is_error, an empty PR_NUMBER, and an
+          #         unverifiable reviews-API query — all fail closed, never a
+          #         defaulted APPROVE nor a resurrected stale REJECT.
+          # The verdict itself is derived by derive-review-verdict.sh (the
+          # small, unit-tested unit — HEAD-SHA scoping, the fail-closed arms,
+          # and the run-keyed comment fallback all live there). Phase 4.4 of
+          # the skill posts the artifact it reads: a `--request-changes`
+          # review (CHANGES_REQUESTED) / `--approve` review (APPROVED) /
+          # `--comment` approve-with-notes (COMMENTED + `## Verdict: APPROVE`
+          # body), or the run-keyed progress comment carrying the `## Verdict:`
+          # line on the same-identity self-review fallback.
           SUMMARY='See the formal review verdict on the PR. Click Re-run on this check to re-review the current HEAD.'
           case "$REVIEW_RESULT" in
             cancelled|skipped)
@@ -620,55 +639,49 @@ jobs:
               TITLE="Devflow review not run ($REVIEW_RESULT)"
               ;;
             success)
-              if [ -z "${PR_NUMBER:-}" ]; then
-                # should_run=true always emits pr_number; never fabricate a
-                # REJECT we cannot substantiate.
-                echo "::warning::finalize_check: empty PR_NUMBER on a successful review; defaulting to success."
-                CONCLUSION=success
-                TITLE='Devflow review: APPROVE'
-              else
-                VERDICT=approve
-                # VERDICT_DETERMINED gates the irreversible dismissal below.
-                # The conclusion still defaults to success on a swallowed
-                # lookup error (changing that is out of scope and could
-                # itself wedge PRs), but a verdict reached by DEFAULT under
-                # a failed query must NOT trigger dismissal of a possibly-
-                # still-valid REJECT. Only a POSITIVELY observed APPROVE
-                # dismisses.
+              # Derive the verdict for the current HEAD via the unit-tested
+              # helper (see lib/test/run.sh). It prints `verdict=` +
+              # `verdict_determined=`, emits a specific breadcrumb on every
+              # fail-closed path, and always exits 0 — the empty-PR,
+              # engine-error, no-HEAD-verdict, and unverifiable-query arms all
+              # resolve to `incomplete` inside it, so there is no default-to-
+              # success arm here anymore.
+              DERIVE=.devflow/vendor/devflow/scripts/derive-review-verdict.sh
+              [ -f "$DERIVE" ] || DERIVE=scripts/derive-review-verdict.sh
+              if [ ! -f "$DERIVE" ]; then
+                # Vendoring never materialized the deriver (committed -> self ->
+                # fetch all missed). Cannot derive a verdict -> fail closed;
+                # never fabricate an APPROVE we cannot substantiate.
+                echo "::warning::finalize_check: derive-review-verdict.sh absent at $DERIVE; failing closed as incomplete (Re-run once the plugin vendors)."
+                VERDICT=incomplete
                 VERDICT_DETERMINED=false
-                if REVIEWS_JSON=$(gh api "repos/$REPO/pulls/$PR_NUMBER/reviews?per_page=100" 2>/dev/null); then
-                  VERDICT_DETERMINED=true
-                  STATE=$(echo "$REVIEWS_JSON" | jq -r 'last.state // ""' 2>/dev/null || echo "")
-                  RBODY=$(echo "$REVIEWS_JSON" | jq -r 'last.body // ""' 2>/dev/null || echo "")
-                  if [ "$STATE" = "CHANGES_REQUESTED" ]; then
-                    VERDICT=reject
-                  elif printf '%s\n' "$RBODY" | grep -qE '^##[[:space:]]+Verdict:[[:space:]]*REJECT'; then
-                    VERDICT=reject
-                  elif [ -z "$STATE" ]; then
-                    # gh pr review unavailable (e.g. same-identity self-review):
-                    # the skill falls back to `gh pr comment` with the report.
-                    if COMMENTS=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments?per_page=100" \
-                                    --jq '.[].body' 2>/dev/null); then
-                      printf '%s\n' "$COMMENTS" \
-                        | grep -qE '^##[[:space:]]+Verdict:[[:space:]]*REJECT' \
-                        && VERDICT=reject
-                    else
-                      # Fallback was REQUIRED (no review state) but its query
-                      # failed: verdict is unknown, not a positive APPROVE.
-                      VERDICT_DETERMINED=false
-                    fi
-                  fi
-                else
-                  echo "::warning::finalize_check: reviews API query failed for PR #$PR_NUMBER; verdict not positively determined — concluding success but NOT dismissing any review."
-                fi
-                if [ "$VERDICT" = reject ]; then
-                  CONCLUSION=failure
-                  TITLE='Devflow review: REJECT — changes requested'
-                else
+              else
+                DERIVED=$(HEAD_SHA="$HEAD_SHA" ENGINE_ERROR="${ENGINE_ERROR:-false}" \
+                          PR_NUMBER="$PR_NUMBER" REPO="$REPO" GITHUB_RUN_ID="$GITHUB_RUN_ID" \
+                          bash "$DERIVE" 2>&1 1>/tmp/derived_verdict) || true
+                # The helper's stdout carries the machine-readable result; its
+                # stderr breadcrumbs are echoed into the job log for diagnosis.
+                [ -n "$DERIVED" ] && printf '%s\n' "$DERIVED" >&2
+                VERDICT=$(sed -n 's/^verdict=//p' /tmp/derived_verdict)
+                VERDICT_DETERMINED=$(sed -n 's/^verdict_determined=//p' /tmp/derived_verdict)
+                VERDICT="${VERDICT:-incomplete}"
+                VERDICT_DETERMINED="${VERDICT_DETERMINED:-false}"
+              fi
+              case "$VERDICT" in
+                approve)
                   CONCLUSION=success
                   TITLE='Devflow review: APPROVE'
-                fi
-              fi
+                  ;;
+                reject)
+                  CONCLUSION=failure
+                  TITLE='Devflow review: REJECT — changes requested'
+                  ;;
+                *)  # incomplete, or any unexpected token -> fail closed
+                  CONCLUSION=failure
+                  TITLE='Devflow review incomplete — re-run needed'
+                  SUMMARY='No positively-observed APPROVE for the current HEAD (the engine stopped short, produced no verdict for this commit, or the verdict could not be verified). Click Re-run on this check to re-review the current HEAD.'
+                  ;;
+              esac
               ;;
             *)
               CONCLUSION=failure

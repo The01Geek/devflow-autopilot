@@ -6346,6 +6346,129 @@ assert_eq "dismissal failure → exit 1" "1" "$DSR_RC"
 rm -f "$DSR_STUB"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "derive-review-verdict.sh (#249 HEAD-scoped, fail-closed verdict deriver)"
+# ────────────────────────────────────────────────────────────────────────────
+# The unit finalize_check's success) branch calls to decide the required-check
+# conclusion. `success` requires a POSITIVELY-observed APPROVE for the current
+# HEAD; everything else fails closed to `incomplete` (a blocking failure). The
+# reproduction cases (stale-reject-on-older-commit, verdict-less-approve, the
+# unverifiable arms) are exactly the ones the OLD inline logic got wrong: it read
+# `jq -r 'last.state'` (so a CHANGES_REQUESTED on an OLDER commit mapped to
+# REJECT) and defaulted VERDICT=approve/success on empty reviews or a swallowed
+# query error. This deriver returns `incomplete` for all of them.
+DRV="$LIB/../scripts/derive-review-verdict.sh"
+DRV_NEW="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"   # current HEAD SHA
+DRV_OLD="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"   # a superseded commit SHA
+DRV_STUB="/tmp/devflow-gh-stub-drv.$$.sh"
+cat > "$DRV_STUB" <<'EOS'
+#!/usr/bin/env bash
+# Echo raw JSON (the deriver pipes it through jq itself). DRV_*_FAIL=1 forces a
+# query failure so the fail-closed arms can be exercised.
+case "$*" in
+  *"repo view"*)           echo "o/r"; exit 0 ;;
+  *"pulls/"*"/reviews"*)   [ "${DRV_REVIEWS_FAIL:-0}" = 0 ] || { echo "HTTP 500" >&2; exit 1; }; printf '%s' "${DRV_REVIEWS:-[]}"; exit 0 ;;
+  *"issues/"*"/comments"*) [ "${DRV_COMMENTS_FAIL:-0}" = 0 ] || { echo "HTTP 500" >&2; exit 1; }; printf '%s' "${DRV_COMMENTS:-[]}"; exit 0 ;;
+esac
+echo '[]'; exit 0
+EOS
+chmod +x "$DRV_STUB"
+
+# Runs the deriver (env is set by the caller's prefix, exported to the function
+# body), collapses its two stdout lines to "<verdict> <verdict_determined>".
+drv() {  # $1=description  $2=expected "<verdict> <determined>"
+  local out v d
+  out="$(bash "$DRV" 2>/dev/null)"
+  v="$(printf '%s\n' "$out" | sed -n 's/^verdict=//p')"
+  d="$(printf '%s\n' "$out" | sed -n 's/^verdict_determined=//p')"
+  assert_eq "$1" "$2" "$v $d"
+}
+
+# --- reproduction cases (OLD logic returned the WRONG answer) ---------------
+# stale-reject-on-older-commit: CHANGES_REQUESTED on OLD, HEAD=NEW. OLD logic:
+# last.state==CHANGES_REQUESTED -> REJECT (Direction-1 defect, PR #246).
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"CHANGES_REQUESTED\",\"commit_id\":\"$DRV_OLD\",\"body\":\"## Verdict: REJECT stale\"}]" \
+  drv "#249 stale-reject-on-older-commit -> incomplete (not a resurrected REJECT)" "incomplete false"
+
+# verdict-less-approve: empty reviews, engine subtype success. OLD logic:
+# VERDICT defaulted to approve -> success (Direction-2 defect, PR #250).
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[]" \
+  drv "#249 verdict-less-approve (empty reviews) -> incomplete (not a fabricated APPROVE)" "incomplete false"
+
+# empty-PR-number: OLD logic warned and defaulted to success.
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER="" REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  drv "#249 empty PR_NUMBER -> incomplete (fail closed)" "incomplete false"
+
+# reviews-API-query-failure: OLD logic warned and defaulted to success (this is
+# the deliberate reversal in issue #249's ACs).
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS_FAIL=1 \
+  drv "#249 reviews-API query failure -> incomplete (fail closed, deliberate reversal)" "incomplete false"
+
+# --- engine-error path -----------------------------------------------------
+# engine-errored-no-verdict: is_error=true short-circuits BEFORE any reviews
+# query, even when a (stale) reject exists.
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=true PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"CHANGES_REQUESTED\",\"commit_id\":\"$DRV_OLD\"}]" \
+  drv "#249 engine-errored-no-verdict -> incomplete (no dismissal)" "incomplete false"
+
+# --- fresh verdicts ON HEAD (still block / still pass) ----------------------
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"CHANGES_REQUESTED\",\"commit_id\":\"$DRV_NEW\",\"body\":\"## Verdict: REJECT now\"}]" \
+  drv "#249 fresh-reject-on-HEAD -> reject (still blocks)" "reject true"
+
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"APPROVED\",\"commit_id\":\"$DRV_NEW\",\"body\":\"## Verdict: APPROVE\"}]" \
+  drv "#249 fresh-approve-on-HEAD (APPROVED) -> approve + determined (dismiss gate)" "approve true"
+
+# approve-with-notes is a COMMENTED review (Phase 4.4 producer contract) whose
+# body carries the APPROVE marker — the second positive-APPROVE signal.
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"COMMENTED\",\"commit_id\":\"$DRV_NEW\",\"body\":\"## Verdict: APPROVE with notes (ok)\"}]" \
+  drv "#249 approve-with-notes COMMENTED-on-HEAD -> approve (body marker)" "approve true"
+
+# A later NEW-commit review supersedes an earlier OLD-commit one (last-on-HEAD).
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"CHANGES_REQUESTED\",\"commit_id\":\"$DRV_OLD\"},{\"state\":\"APPROVED\",\"commit_id\":\"$DRV_NEW\"}]" \
+  drv "#249 approve-on-HEAD after stale reject-on-OLD -> approve" "approve true"
+
+# --- comment fallback (same-identity self-review), scoped to THIS run -------
+# No HEAD review; the run-keyed devflow:review-progress comment embeds the verdict.
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[]" \
+  DRV_COMMENTS='[{"body":"<!-- devflow:review-progress run=100-1 -->\n## Verdict: REJECT via comment"}]' \
+  drv "#249 comment-fallback run-keyed REJECT on HEAD -> reject" "reject true"
+
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[]" \
+  DRV_COMMENTS='[{"body":"<!-- devflow:review-progress run=100-1 -->\n## Verdict: APPROVE via comment"}]' \
+  drv "#249 comment-fallback run-keyed APPROVE on HEAD -> approve" "approve true"
+
+# A verdict comment from a PRIOR run (different run id) is NOT this HEAD's verdict.
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[]" \
+  DRV_COMMENTS='[{"body":"<!-- devflow:review-progress run=999-1 -->\n## Verdict: REJECT from an old run"}]' \
+  drv "#249 prior-run verdict comment NOT treated as HEAD verdict -> incomplete" "incomplete false"
+
+# A run-keyed progress comment frozen at "Verdict: (pending)" (the PR #250 stall
+# shape) carries no REJECT/APPROVE marker -> incomplete.
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[]" \
+  DRV_COMMENTS='[{"body":"<!-- devflow:review-progress run=100-1 -->\nStatus: Reviewing\nVerdict: (pending)"}]' \
+  drv "#249 pending progress comment (no verdict marker) -> incomplete" "incomplete false"
+
+# comment-query failure with no HEAD review -> fail closed.
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[]" DRV_COMMENTS_FAIL=1 \
+  drv "#249 comment-fallback query failure -> incomplete (fail closed)" "incomplete false"
+
+# always exits 0 (best-effort; caller reads the verdict, not the exit code).
+( HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER="" GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" bash "$DRV" >/dev/null 2>&1 ); DRV_RC=$?
+assert_eq "#249 deriver always exits 0 (best-effort)" "0" "$DRV_RC"
+rm -f "$DRV_STUB"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "resolve-implement-trigger.sh"
 # ────────────────────────────────────────────────────────────────────────────
 # The implement trigger runs the action in AGENT mode (explicit prompt), which
@@ -11175,9 +11298,16 @@ EOF
     "$(printf '%s' "$OFFER_OUT_R" | grep -q 'ret=0' && echo yes || echo no)"
 
   # ── AC11: no .github/ workflow, action, or allowlist entry is modified by this change. ──
+  # EXEMPTION (issue #249): devflow-review.yml + devflow-runner.yml are the
+  # authorized deliverable of #249 (the finalize_check positive-APPROVE-on-HEAD
+  # fix + the runner's engine is_error output). Those two files are excluded from
+  # this freeze; every OTHER .github/ path (incl. devflow-implement.yml, which
+  # the #253/#266 deferral notes reference) stays guarded, so an unrelated
+  # self-modifying run still trips on a casual .github change.
   if git -C "$REPO_ROOT" rev-parse --verify origin/main >/dev/null 2>&1; then
-    GH_CHANGED="$(git -C "$REPO_ROOT" diff --name-only origin/main -- .github 2>/dev/null)"
-    assert_eq "#225 no .github/ path modified vs origin/main (AC11)" "" "$GH_CHANGED"
+    GH_CHANGED="$(git -C "$REPO_ROOT" diff --name-only origin/main -- .github 2>/dev/null \
+      | grep -vE '^\.github/workflows/devflow-(review|runner)\.yml$' || true)"
+    assert_eq "#225 no non-exempt .github/ path modified vs origin/main (AC11; #249 exempts devflow-review/runner.yml)" "" "$GH_CHANGED"
   else
     # origin/main is not resolvable (shallow/detached checkout) — record an explicit skip
     # breadcrumb rather than silently passing AC11 (the silent-skip anti-pattern the REAL_PY

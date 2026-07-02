@@ -66,6 +66,18 @@ on:
         type: string
         required: false
         default: ''
+    outputs:
+      engine_is_error:
+        description: |
+          "true" when the Claude execution ended with is_error (the review
+          engine hit a fatal/permission cut-off before finishing), else
+          "false". The review JOB result stays `success` even in that case
+          (the action step wraps the errored execution), so callers that must
+          distinguish "review reached a verdict" from "engine stopped short"
+          read THIS output, not `needs.<job>.result`. Defaults "false" on any
+          absent/unparseable execution log (fail-safe; the consumer's HEAD-SHA
+          verdict scoping remains the primary staleness guard).
+        value: ${{ jobs.run.outputs.engine_is_error }}
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN:
         description: 'Anthropic Claude Code OAuth token. Pass via `secrets: inherit` from callers.'
@@ -85,6 +97,8 @@ permissions:
 jobs:
   run:
     runs-on: ubuntu-latest
+    outputs:
+      engine_is_error: ${{ steps.engine.outputs.is_error }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -525,3 +539,35 @@ jobs:
             --effort ${{ steps.effort.outputs.value }}
             --permission-mode acceptEdits
             --allowed-tools "${{ steps.tools.outputs.tools }}"
+
+      # Surface whether the Claude execution ended in error so a caller's
+      # finalize step can distinguish "review completed to a verdict" from
+      # "engine stopped short" — the review JOB result is `success` in BOTH
+      # cases (claude-code-action wraps the errored execution), so the job
+      # result alone hides an incomplete review (issue #249). always() so this
+      # runs even when the review step reports failure; the value is only
+      # consumed on the success path, where a `true` here means the job
+      # succeeded yet the engine never reached a verdict.
+      - name: Surface review-engine execution result
+        id: engine
+        if: always()
+        env:
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          set -uo pipefail
+          IS_ERROR=false
+          if [ -n "${EXECUTION_FILE:-}" ] && [ -f "$EXECUTION_FILE" ]; then
+            # claude-code-action@v1 writes the execution log to execution_file.
+            # Parse both documented shapes defensively: a stream-json ARRAY whose
+            # final type=="result" element carries is_error, or a single result
+            # OBJECT carrying it. Any absent/unparseable field defaults to false
+            # (fail-safe — the consumer's HEAD-SHA scoping is the primary guard).
+            PARSED=$(jq -r '
+              (if type=="array" then (map(select(.type=="result")) | last | .is_error)
+               elif type=="object" then .is_error
+               else null end) // false' "$EXECUTION_FILE" 2>/dev/null || echo "")
+            if [ "$PARSED" = "true" ]; then IS_ERROR=true; fi
+          else
+            echo "::notice::execution_file absent or empty; treating engine is_error as false (fail-safe)."
+          fi
+          echo "is_error=$IS_ERROR" >> "$GITHUB_OUTPUT"
