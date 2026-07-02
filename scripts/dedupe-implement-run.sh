@@ -56,6 +56,13 @@
 
 set -euo pipefail
 
+# jq binary: resolved once via the resolver sourced from the sibling lib/ directory (issue #247);
+# best-effort — a copied/vendored deployment without lib/ falls back to bare
+# `jq` with a breadcrumb rather than aborting under set -e.
+# shellcheck source=../lib/resolve-jq.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/resolve-jq.sh" \
+  || { echo "devflow: resolve-jq.sh could not be sourced from ../lib relative to ${BASH_SOURCE[0]} — using bare 'jq' (set DEVFLOW_JQ to override)" >&2; : "${DEVFLOW_JQ:=jq}"; }
+
 emit() { printf '%s=%s\n' "$1" "$2"; }
 
 # gh binary: resolved once via the single-source resolver (execution-verified);
@@ -94,7 +101,7 @@ fi
 # same diagnostic discipline as react-to-trigger.sh's gh-stderr capture. Without
 # it, a missing jq would silently disable dedupe forever behind a generic message.
 jq_err="$(mktemp)"
-count="$(printf '%s' "$runs_json" | jq -r --argjson run "$run_id" --arg target "$target" '
+count="$(printf '%s' "$runs_json" | "$DEVFLOW_JQ" -r --argjson run "$run_id" --arg target "$target" '
   [ .[]
     | select(.status as $s | ["in_progress","queued","requested","waiting","pending"] | index($s))
     | select(.databaseId < $run)

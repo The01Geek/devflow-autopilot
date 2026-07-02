@@ -45,6 +45,13 @@
 
 set -euo pipefail
 
+# jq binary: resolved once via the sourced sibling resolver (issue #247);
+# best-effort — a copied/vendored deployment without lib/ falls back to bare
+# `jq` with a breadcrumb rather than aborting under set -e.
+# shellcheck source=resolve-jq.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/resolve-jq.sh" \
+  || { echo "devflow: resolve-jq.sh could not be sourced beside ${BASH_SOURCE[0]} — using bare 'jq' (set DEVFLOW_JQ to override)" >&2; : "${DEVFLOW_JQ:=jq}"; }
+
 HERE="$(cd "$(dirname "$0")" && pwd)"
 
 # shellcheck source=lib/config-source.sh
@@ -93,7 +100,7 @@ collect_valid_files() {
       # workpad as an object (.phase3_findings etc.), so a valid-but-non-object
       # file (stray array/number/string from a partial write) would crash jq and
       # abort the wrapper under set -e. Skip it instead, honoring best-effort.
-      if jq -e 'type == "object"' "$f" >/dev/null 2>&1; then
+      if "$DEVFLOW_JQ" -e 'type == "object"' "$f" >/dev/null 2>&1; then
         VALID_FILES+=("$f")
       else
         echo "::warning::efficiency-trace.sh: skipping unreadable/malformed workpad '$f'" >&2
@@ -112,7 +119,7 @@ warn_on_mixed_source() {
   # (array/number/bool from a malformed write) is bucketed as the default, mirroring
   # verdict_for's `== "review"` gate — otherwise its JSON rendering would inflate the
   # distinct count into a false-positive "mixed source" warning.
-  if [ "$(jq -r 'if (.source | type) == "string" then .source else "review-and-fix" end' "${VALID_FILES[@]}" | sort -u | wc -l)" -gt 1 ]; then
+  if [ "$("$DEVFLOW_JQ" -r 'if (.source | type) == "string" then .source else "review-and-fix" end' "${VALID_FILES[@]}" | sort -u | wc -l)" -gt 1 ]; then
     echo "::warning::efficiency-trace.sh: workpads carry mixed 'source' values; record collapses to the first non-null (a run should be single-source)" >&2
   fi
 }
@@ -125,12 +132,12 @@ emit_jq() {
   # jq -s over zero files yields null, not []; feed an explicit empty array so the
   # filter (which expects an array) degrades to an empty trace / empty record.
   if [ "${#VALID_FILES[@]}" -eq 0 ]; then
-    printf '[]\n' | jq --raw-output -f "$HERE/efficiency-trace.jq" \
+    printf '[]\n' | "$DEVFLOW_JQ" --raw-output -f "$HERE/efficiency-trace.jq" \
       --arg mode "$mode" --arg slug "$slug" \
       --arg generated_at "$generated_at" \
       --argjson cut_candidate_min_dispatch "$THRESHOLD"
   else
-    jq --raw-output --slurp -f "$HERE/efficiency-trace.jq" \
+    "$DEVFLOW_JQ" --raw-output --slurp -f "$HERE/efficiency-trace.jq" \
       --arg mode "$mode" --arg slug "$slug" \
       --arg generated_at "$generated_at" \
       --argjson cut_candidate_min_dispatch "$THRESHOLD" \
@@ -197,7 +204,7 @@ do_self_check() {
   local iter field missing
   for iter in "$WORKPAD_DIR"/iter-*.json; do
     [ -e "$iter" ] || continue
-    if ! missing="$(jq -r --arg fields "$ITER_EXPECTED_FIELDS" \
+    if ! missing="$("$DEVFLOW_JQ" -r --arg fields "$ITER_EXPECTED_FIELDS" \
                       'if type == "object" then (($fields | split(" ")) - keys)[] else "__non_object__" end' \
                       "$iter" 2>/dev/null)"; then
       echo "::warning::devflow review-and-fix self-check: iter workpad '$(basename "$iter")' is unreadable or not valid JSON — cannot validate its fields" >&2
@@ -240,7 +247,7 @@ persist_one() {
   # this issue: never skip (and thus never lose the record of) a real
   # review-and-fix run. But leave a breadcrumb rather than swallow it silently
   # (the project's no-silent-failure stance).
-  if ! src="$(jq -r 'if (.source | type) == "string" then .source else "review-and-fix" end' "$src_probe" 2>/dev/null)"; then
+  if ! src="$("$DEVFLOW_JQ" -r 'if (.source | type) == "string" then .source else "review-and-fix" end' "$src_probe" 2>/dev/null)"; then
     echo "::warning::efficiency-trace.sh --persist: could not read 'source' from ${src_probe}; assuming review-and-fix" >&2
     src="review-and-fix"
   fi

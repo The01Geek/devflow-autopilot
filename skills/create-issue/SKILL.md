@@ -3,12 +3,31 @@ name: create-issue
 description: Use when you have a rough user story, bug report, or feature idea that needs to become a well-structured GitHub issue.
 argument-hint: <user-story>
 ---
-**Resolve the bundled-helper anchor once (portable across runners).** This skill invokes helper scripts bundled beside it (`load-prompt-extension.sh` below; `ensure-label.sh` / `apply-labels.sh` in Step 4 sub-step 5a). Every call routes through a single resolved anchor `$SKILL_DIR`, invoked as `"$SKILL_DIR"/../../scripts/…`. The anchor prefers `$CLAUDE_SKILL_DIR` when it is set **and non-empty**; otherwise it falls back to the skill's base directory this runner reports in context — Claude Code exports `$CLAUDE_SKILL_DIR`, while other runners typically report the skill's install path in context instead — e.g. a `Base directory for this skill:` line, observed on Copilot CLI; use whatever skill base path this runner reports (empty `$CLAUDE_SKILL_DIR` confirmed on Copilot CLI v1.0.67; expected on Cursor, Codex CLI, Gemini CLI, …). The `:-` expansion treats an **empty** `$CLAUDE_SKILL_DIR` exactly like unset — engaging the fallback — because the observed failure on a non-Claude-Code runner is *empty* expansion, not an unset variable. On Claude Code the resolved value equals today's `$CLAUDE_SKILL_DIR`-based path, so behavior there is unchanged. The recipe names no skill-specific value, so it lifts unchanged into any other skill sharing this pattern; it is best-effort — if neither source yields a usable directory the skill proceeds and the natural underlying "No such file" error surfaces, no worse than before. Because each Bash call runs in a fresh shell, re-establish the anchor at the top of every bash block that uses it, exactly as the fences below do.
+**Resolve the bundled-helper anchor once (portable across runners).** This skill invokes helper scripts bundled beside it (`load-prompt-extension.sh` below; `ensure-label.sh` / `apply-labels.sh` in Step 4 sub-step 5a). Every call routes through a single resolved anchor `$SKILL_DIR`, invoked as `"$SKILL_DIR"/../../scripts/…`. The anchor prefers `$CLAUDE_SKILL_DIR` when it is set **and non-empty**; otherwise it falls back to the skill's base directory this runner reports in context — Claude Code exports `$CLAUDE_SKILL_DIR`, while other runners typically report the skill's install path in context instead — e.g. a `Base directory for this skill:` line, observed on Copilot CLI; use whatever skill base path this runner reports (empty `$CLAUDE_SKILL_DIR` confirmed on Copilot CLI v1.0.67; expected on Cursor, Codex CLI, Gemini CLI, …). The `:-` expansion treats an **empty** `$CLAUDE_SKILL_DIR` exactly like unset — engaging the fallback — because the observed failure on a non-Claude-Code runner is *empty* expansion, not an unset variable. On Claude Code the resolved value equals today's `$CLAUDE_SKILL_DIR`-based path, so behavior there is unchanged. The recipe names no skill-specific value, so it lifts unchanged into any other skill sharing this pattern; it is best-effort — if neither source yields a usable directory the skill proceeds and the natural underlying "No such file" error surfaces, no worse than before. After resolving, the recipe **normalizes a Windows-form anchor inline** (issue #247): a non-Claude-Code runner on Windows can report the base directory as `C:\...`, which a POSIX shell (WSL bash, Git Bash) cannot use as-is — the inline block converts it to the running shell's POSIX form, and passes every already-POSIX anchor through untouched. The normalization is inline (not a sourced helper) by necessity: the anchor is what *locates* the bundled helpers, so nothing is locatable before it resolves. Because each Bash call runs in a fresh shell, re-establish the anchor (and its normalization) at the top of every bash block that uses it, exactly as the fences below do.
 
 **Consumer prompt extension (load first).** Before doing this skill's work, load any consumer-supplied prompt extension for this skill and honor it. From the repo root, run:
 
 ```bash
 SKILL_DIR="${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"
+# Windows-form anchor normalization (#247): a runner can report the anchor in
+# Windows form (C:\... or C:/...), which a POSIX shell cannot use. Convert it
+# to this shell's form — wslpath/cygpath when present, else env-detected
+# (/mnt/c under WSL, /c under MSYS), else unchanged with a breadcrumb. Inline
+# mirror of lib/normalize-path.sh, kept in lockstep (bootstrap constraint: the
+# anchor is what locates lib/, so it cannot source the helper).
+if [[ "$SKILL_DIR" =~ ^[A-Za-z]:[\\/] ]]; then
+  if command -v wslpath >/dev/null 2>&1 && _np="$(wslpath -u "$SKILL_DIR" 2>/dev/null)" && [ -n "$_np" ]; then SKILL_DIR="$_np"
+  elif command -v cygpath >/dev/null 2>&1 && _np="$(cygpath -u "$SKILL_DIR" 2>/dev/null)" && [ -n "$_np" ]; then SKILL_DIR="$_np"
+  else
+    _d="$(printf '%s' "${SKILL_DIR%%:*}" | tr '[:upper:]' '[:lower:]' 2>/dev/null)" || _d=""; _r="${SKILL_DIR#?:}"; _r="${_r//\\//}"
+    if [ -z "$_d" ]; then echo "devflow: could not normalize Windows-form skill anchor '$SKILL_DIR' (tr unavailable?) — using it unchanged" >&2
+    elif uname -r 2>/dev/null | grep -qi microsoft; then SKILL_DIR="/mnt/${_d}${_r}"
+    elif [ -n "${MSYSTEM:-}" ]; then SKILL_DIR="/${_d}${_r}"
+    else echo "devflow: could not normalize Windows-form skill anchor '$SKILL_DIR' — using it unchanged" >&2
+    fi
+  fi
+  unset _d _np _r
+fi
 "$SKILL_DIR"/../../scripts/load-prompt-extension.sh create-issue
 ```
 
@@ -110,6 +129,25 @@ Drafting produces a candidate issue **in your message only** — nothing is post
 5a. **Stamp the reserved `DevFlow` provenance label (best-effort).** After a successful `gh issue create`, ensure the reserved label exists and apply it to the new issue. The label `DevFlow` is a hardcoded provenance constant (no config key controls it) — it is the branch-naming-independent signal the weekly retrospective uses to detect DevFlow-authored work. Apply it *after* creation (mirroring the `/devflow:implement` Phase 4 docs-label idiom) so a label hiccup can never block the issue from being created:
    ```bash
    SKILL_DIR="${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"
+   # Windows-form anchor normalization (#247): a runner can report the anchor in
+   # Windows form (C:\... or C:/...), which a POSIX shell cannot use. Convert it
+   # to this shell's form — wslpath/cygpath when present, else env-detected
+   # (/mnt/c under WSL, /c under MSYS), else unchanged with a breadcrumb. Inline
+   # mirror of lib/normalize-path.sh, kept in lockstep (bootstrap constraint: the
+   # anchor is what locates lib/, so it cannot source the helper).
+   if [[ "$SKILL_DIR" =~ ^[A-Za-z]:[\\/] ]]; then
+     if command -v wslpath >/dev/null 2>&1 && _np="$(wslpath -u "$SKILL_DIR" 2>/dev/null)" && [ -n "$_np" ]; then SKILL_DIR="$_np"
+     elif command -v cygpath >/dev/null 2>&1 && _np="$(cygpath -u "$SKILL_DIR" 2>/dev/null)" && [ -n "$_np" ]; then SKILL_DIR="$_np"
+     else
+       _d="$(printf '%s' "${SKILL_DIR%%:*}" | tr '[:upper:]' '[:lower:]' 2>/dev/null)" || _d=""; _r="${SKILL_DIR#?:}"; _r="${_r//\\//}"
+       if [ -z "$_d" ]; then echo "devflow: could not normalize Windows-form skill anchor '$SKILL_DIR' (tr unavailable?) — using it unchanged" >&2
+       elif uname -r 2>/dev/null | grep -qi microsoft; then SKILL_DIR="/mnt/${_d}${_r}"
+       elif [ -n "${MSYSTEM:-}" ]; then SKILL_DIR="/${_d}${_r}"
+       else echo "devflow: could not normalize Windows-form skill anchor '$SKILL_DIR' — using it unchanged" >&2
+       fi
+     fi
+     unset _d _np _r
+   fi
    "$SKILL_DIR"/../../scripts/ensure-label.sh DevFlow
    "$SKILL_DIR"/../../scripts/apply-labels.sh <issue_number> DevFlow
    ```

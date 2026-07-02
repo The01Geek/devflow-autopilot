@@ -36,6 +36,13 @@
 
 set -euo pipefail
 
+# jq binary: resolved once via the sourced sibling resolver (issue #247);
+# best-effort — a copied/vendored deployment without lib/ falls back to bare
+# `jq` with a breadcrumb rather than aborting under set -e.
+# shellcheck source=resolve-jq.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/resolve-jq.sh" \
+  || { echo "devflow: resolve-jq.sh could not be sourced beside ${BASH_SOURCE[0]} — using bare 'jq' (set DEVFLOW_JQ to override)" >&2; : "${DEVFLOW_JQ:=jq}"; }
+
 HERE="$(cd "$(dirname "$0")" && pwd)"
 
 # Source config helpers.
@@ -69,13 +76,13 @@ fi
 # pipe an empty stream to jq rather than letting it error on a missing file.
 if [ -f "$RETRO_FILE" ] && [ -s "$RETRO_FILE" ]; then
   PATTERN_VIEW="$(
-    jq -s --slurpfile overrides "$_OVERRIDES_ACTUAL" \
+    "$DEVFLOW_JQ" -s --slurpfile overrides "$_OVERRIDES_ACTUAL" \
        -f "$HERE/compute-patterns.jq" \
        "$RETRO_FILE"
   )"
 else
   PATTERN_VIEW="$(
-    printf '' | jq -s --slurpfile overrides "$_OVERRIDES_ACTUAL" \
+    printf '' | "$DEVFLOW_JQ" -s --slurpfile overrides "$_OVERRIDES_ACTUAL" \
        -f "$HERE/compute-patterns.jq"
   )"
 fi
@@ -96,7 +103,7 @@ _OPEN_ISSUES_RAW="$("$DEVFLOW_GH" issue list --search "[devflow-retrospective] m
   || { echo "::error::actionable-patterns: open-issue cooldown lookup failed (gh issue list)" >&2; exit 1; }
 OPEN_ISSUE_MAP="$(
   printf '%s' "$_OPEN_ISSUES_RAW" \
-  | jq '
+  | "$DEVFLOW_JQ" '
       [ .[]
         # Parse the slug token from the de-dup title prefix; drop any issue whose
         # title does not carry it (foreign issue that matched the search loosely).
@@ -137,7 +144,7 @@ OPEN_ISSUE_MAP="$(
 # the canonical case; this catches a future drift in the field).
 _DROPPED_COUNT="$(
   printf '%s' "$_OPEN_ISSUES_RAW" \
-  | jq '[ .[]
+  | "$DEVFLOW_JQ" '[ .[]
           | select(((.title | type) == "string")
                    and (.title | test("\\[devflow-retrospective\\] meta: "))
                    and ((.title | test("\\[devflow-retrospective\\] meta: [A-Za-z0-9_-]+")) | not)) ]
@@ -156,7 +163,7 @@ COOLDOWN_EPOCH="$(python3 -c "import datetime as d; print(int((d.datetime.now(d.
 # and occurrence_count >= MIN, emit an entry with cooldown_active resolved.
 
 OUTPUT="$(
-  jq -n --argjson pattern_view    "$PATTERN_VIEW" \
+  "$DEVFLOW_JQ" -n --argjson pattern_view    "$PATTERN_VIEW" \
         --argjson open_issue_map  "$OPEN_ISSUE_MAP" \
         --argjson min             "$MIN" \
         --argjson cooldown_epoch  "$COOLDOWN_EPOCH" '

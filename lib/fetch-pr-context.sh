@@ -7,6 +7,13 @@
 # Exit 2 if the PR branch is not a retrospected branch (kind == "skip").
 set -euo pipefail
 
+# jq binary: resolved once via the sourced sibling resolver (issue #247);
+# best-effort — a copied/vendored deployment without lib/ falls back to bare
+# `jq` with a breadcrumb rather than aborting under set -e.
+# shellcheck source=resolve-jq.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/resolve-jq.sh" \
+  || { echo "devflow: resolve-jq.sh could not be sourced beside ${BASH_SOURCE[0]} — using bare 'jq' (set DEVFLOW_JQ to override)" >&2; : "${DEVFLOW_JQ:=jq}"; }
+
 PR="${1:?Usage: fetch-pr-context.sh <pr-number>}"
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -26,28 +33,28 @@ REPO="$("$DEVFLOW_GH" repo view --json nameWithOwner -q .nameWithOwner)" \
 PR_JSON="$("$DEVFLOW_GH" pr view "$PR" --json number,headRefName,baseRefName,headRefOid,mergeCommit,mergedAt,createdAt,author,title,body,additions,deletions,files,labels,closingIssuesReferences)" \
   || { echo "::error::fetch-pr-context: failed to fetch PR metadata for PR ${PR}" >&2; exit 1; }
 
-BRANCH="$(echo "$PR_JSON" | jq -r .headRefName)"
-BASE_REF="$(echo "$PR_JSON" | jq -r .baseRefName)"
-HEAD_SHA="$(echo "$PR_JSON" | jq -r .headRefOid)"
-MERGE_COMMIT_SHA="$(echo "$PR_JSON" | jq -r '.mergeCommit.oid // ""')"
-MERGED_AT="$(echo "$PR_JSON" | jq -r .mergedAt)"
-CREATED_AT="$(echo "$PR_JSON" | jq -r .createdAt)"
-AUTHOR_RAW="$(echo "$PR_JSON" | jq -r '.author.login')"
+BRANCH="$(echo "$PR_JSON" | "$DEVFLOW_JQ" -r .headRefName)"
+BASE_REF="$(echo "$PR_JSON" | "$DEVFLOW_JQ" -r .baseRefName)"
+HEAD_SHA="$(echo "$PR_JSON" | "$DEVFLOW_JQ" -r .headRefOid)"
+MERGE_COMMIT_SHA="$(echo "$PR_JSON" | "$DEVFLOW_JQ" -r '.mergeCommit.oid // ""')"
+MERGED_AT="$(echo "$PR_JSON" | "$DEVFLOW_JQ" -r .mergedAt)"
+CREATED_AT="$(echo "$PR_JSON" | "$DEVFLOW_JQ" -r .createdAt)"
+AUTHOR_RAW="$(echo "$PR_JSON" | "$DEVFLOW_JQ" -r '.author.login')"
 AUTHOR="${AUTHOR_RAW%\[bot\]}"
-TITLE="$(echo "$PR_JSON" | jq -r .title)"
-BODY="$(echo "$PR_JSON" | jq -r .body)"
-ADDITIONS="$(echo "$PR_JSON" | jq -r .additions)"
-DELETIONS="$(echo "$PR_JSON" | jq -r .deletions)"
-CHANGED_FILES="$(echo "$PR_JSON" | jq '[.files[].path]')"
+TITLE="$(echo "$PR_JSON" | "$DEVFLOW_JQ" -r .title)"
+BODY="$(echo "$PR_JSON" | "$DEVFLOW_JQ" -r .body)"
+ADDITIONS="$(echo "$PR_JSON" | "$DEVFLOW_JQ" -r .additions)"
+DELETIONS="$(echo "$PR_JSON" | "$DEVFLOW_JQ" -r .deletions)"
+CHANGED_FILES="$(echo "$PR_JSON" | "$DEVFLOW_JQ" '[.files[].path]')"
 
 # ── 2. Classify retrospection kind ───────────────────────────────────────────
 # Mirror lib/scan.sh's union predicate (label / closes-issue / prefix) so
 # a PR scan selected on the label or closes-issue path — e.g. DevFlow's own
 # issue-<N>-<slug> branches that match no prefix — is not then dropped here.
 IMPL_PREFIX="$(devflow_conf '.devflow_retrospective.implementation_branch_prefix' 'claude/')"
-LABELS_JSON="$(echo "$PR_JSON" | jq -c '.labels // []')"
-CLOSING_JSON="$(echo "$PR_JSON" | jq -c '.closingIssuesReferences // []')"
-KIND="$(jq -rn --arg branch "$BRANCH" --argjson watched true --arg impl_prefix "$IMPL_PREFIX" \
+LABELS_JSON="$(echo "$PR_JSON" | "$DEVFLOW_JQ" -c '.labels // []')"
+CLOSING_JSON="$(echo "$PR_JSON" | "$DEVFLOW_JQ" -c '.closingIssuesReferences // []')"
+KIND="$("$DEVFLOW_JQ" -rn --arg branch "$BRANCH" --argjson watched true --arg impl_prefix "$IMPL_PREFIX" \
     --argjson labels "$LABELS_JSON" --argjson closing "$CLOSING_JSON" -f "$HERE/classify-pr-kind.jq")"
 if [ "$KIND" = "skip" ]; then
     echo "fetch-pr-context: branch $BRANCH is not a retrospected branch" >&2
@@ -72,7 +79,7 @@ else
         # keyword in its body — yet such PRs are selected by the union predicate.
         # Without this they source an EMPTY workpad (a milder form of the bug this
         # change fixes). Use the first linked issue's number.
-        ISSUE_FROM_CLOSING="$(echo "$CLOSING_JSON" | jq -r '.[0].number // empty' 2>/dev/null || true)"
+        ISSUE_FROM_CLOSING="$(echo "$CLOSING_JSON" | "$DEVFLOW_JQ" -r '.[0].number // empty' 2>/dev/null || true)"
         if [ -n "$ISSUE_FROM_CLOSING" ]; then
             ISSUE_NUMBER="$ISSUE_FROM_CLOSING"
         fi
@@ -91,10 +98,10 @@ if [ "$ISSUE_NUMBER" != "null" ]; then
       || { echo "::error::fetch-pr-context: failed to fetch issue ${ISSUE_NUMBER} for PR ${PR}" >&2; exit 1; }
     _ISSUE_COMMENTS_RAW="$("$DEVFLOW_GH" api "repos/${REPO}/issues/${ISSUE_NUMBER}/comments" --paginate)" \
       || { echo "::error::fetch-pr-context: failed to fetch issue comments for issue ${ISSUE_NUMBER}" >&2; exit 1; }
-    ISSUE_COMMENTS_RAW="$(printf '%s' "$_ISSUE_COMMENTS_RAW" | jq -s 'add // []')"
+    ISSUE_COMMENTS_RAW="$(printf '%s' "$_ISSUE_COMMENTS_RAW" | "$DEVFLOW_JQ" -s 'add // []')"
     # Normalize issue comments to {author, body, createdAt}
-    ISSUE_COMMENTS_NORM="$(echo "$ISSUE_COMMENTS_RAW" | jq '[.[] | {author: (.user.login // ""), body: (.body // ""), createdAt: (.created_at // "")}]')"
-    ISSUE_JSON="$(echo "$ISSUE_RAW" | jq \
+    ISSUE_COMMENTS_NORM="$(echo "$ISSUE_COMMENTS_RAW" | "$DEVFLOW_JQ" '[.[] | {author: (.user.login // ""), body: (.body // ""), createdAt: (.created_at // "")}]')"
+    ISSUE_JSON="$(echo "$ISSUE_RAW" | "$DEVFLOW_JQ" \
         --slurpfile comments <(printf '%s' "$ISSUE_COMMENTS_NORM") \
         '{title: (.title // ""), body: (.body // ""), labels: ([.labels[]?.name] // []), comments: $comments[0]}')"
 fi
@@ -102,26 +109,26 @@ fi
 # ── 6. Review comments (inline diff comments) ────────────────────────────────
 _REVIEW_COMMENTS_RAW="$("$DEVFLOW_GH" api "repos/${REPO}/pulls/${PR}/comments" --paginate)" \
   || { echo "::error::fetch-pr-context: failed to fetch review comments for PR ${PR}" >&2; exit 1; }
-REVIEW_COMMENTS_RAW="$(printf '%s' "$_REVIEW_COMMENTS_RAW" | jq -s 'add // []')"
-REVIEW_COMMENTS="$(echo "$REVIEW_COMMENTS_RAW" | jq '[.[] | {author: (.user.login // ""), body: (.body // ""), path: (.path // ""), line: (.line // null), createdAt: (.created_at // "")}]')"
+REVIEW_COMMENTS_RAW="$(printf '%s' "$_REVIEW_COMMENTS_RAW" | "$DEVFLOW_JQ" -s 'add // []')"
+REVIEW_COMMENTS="$(echo "$REVIEW_COMMENTS_RAW" | "$DEVFLOW_JQ" '[.[] | {author: (.user.login // ""), body: (.body // ""), path: (.path // ""), line: (.line // null), createdAt: (.created_at // "")}]')"
 
 # ── 7. PR conversation comments ───────────────────────────────────────────────
 _PR_COMMENTS_RAW="$("$DEVFLOW_GH" api "repos/${REPO}/issues/${PR}/comments" --paginate)" \
   || { echo "::error::fetch-pr-context: failed to fetch PR conversation comments for PR ${PR}" >&2; exit 1; }
-PR_COMMENTS_RAW="$(printf '%s' "$_PR_COMMENTS_RAW" | jq -s 'add // []')"
-PR_COMMENTS="$(echo "$PR_COMMENTS_RAW" | jq '[.[] | {author: (.user.login // ""), body: (.body // ""), createdAt: (.created_at // "")}]')"
+PR_COMMENTS_RAW="$(printf '%s' "$_PR_COMMENTS_RAW" | "$DEVFLOW_JQ" -s 'add // []')"
+PR_COMMENTS="$(echo "$PR_COMMENTS_RAW" | "$DEVFLOW_JQ" '[.[] | {author: (.user.login // ""), body: (.body // ""), createdAt: (.created_at // "")}]')"
 
 # ── 8. PR reviews ─────────────────────────────────────────────────────────────
 _PR_REVIEWS_RAW="$("$DEVFLOW_GH" api "repos/${REPO}/pulls/${PR}/reviews" --paginate)" \
   || { echo "::error::fetch-pr-context: failed to fetch PR reviews for PR ${PR}" >&2; exit 1; }
-PR_REVIEWS_RAW="$(printf '%s' "$_PR_REVIEWS_RAW" | jq -s 'add // []')"
-PR_REVIEWS="$(echo "$PR_REVIEWS_RAW" | jq '[.[] | {author: (.user.login // ""), state: (.state // ""), body: (.body // ""), submittedAt: (.submitted_at // "")}]')"
+PR_REVIEWS_RAW="$(printf '%s' "$_PR_REVIEWS_RAW" | "$DEVFLOW_JQ" -s 'add // []')"
+PR_REVIEWS="$(echo "$PR_REVIEWS_RAW" | "$DEVFLOW_JQ" '[.[] | {author: (.user.login // ""), state: (.state // ""), body: (.body // ""), submittedAt: (.submitted_at // "")}]')"
 
 # ── 9. Commits ────────────────────────────────────────────────────────────────
 _COMMITS_RAW="$("$DEVFLOW_GH" api "repos/${REPO}/pulls/${PR}/commits" --paginate)" \
   || { echo "::error::fetch-pr-context: failed to fetch commits for PR ${PR}" >&2; exit 1; }
-COMMITS_RAW="$(printf '%s' "$_COMMITS_RAW" | jq -s 'add // []')"
-COMMITS="$(echo "$COMMITS_RAW" | jq '[.[] | {sha: .sha, author_login: (.author.login // ""), committer_login: (.committer.login // ""), committed_at: (.commit.committer.date // ""), message: (.commit.message // ""), parents_count: ((.parents // []) | length)}]')"
+COMMITS_RAW="$(printf '%s' "$_COMMITS_RAW" | "$DEVFLOW_JQ" -s 'add // []')"
+COMMITS="$(echo "$COMMITS_RAW" | "$DEVFLOW_JQ" '[.[] | {sha: .sha, author_login: (.author.login // ""), committer_login: (.committer.login // ""), committed_at: (.commit.committer.date // ""), message: (.commit.message // ""), parents_count: ((.parents // []) | length)}]')"
 
 # ── 10. Diff ──────────────────────────────────────────────────────────────────
 DIFF_BYTE_CAP="$(devflow_conf '.devflow_retrospective.diff_byte_cap' 204800)"
@@ -175,18 +182,18 @@ if [ "$DIFF_FETCH_OK" -ne 0 ] || [ "$DIFF_LEN" -gt "$DIFF_BYTE_CAP" ]; then
     DIFF_JSON="null"
     DIFF_TRUNCATED="true"
 else
-    DIFF_JSON="$(printf '%s' "$DIFF_RAW" | jq -Rs '.')"
+    DIFF_JSON="$(printf '%s' "$DIFF_RAW" | "$DEVFLOW_JQ" -Rs '.')"
     DIFF_TRUNCATED="false"
 fi
 
 # diffstat: simple "<n> files changed, +A -D" summary
-NUM_FILES="$(echo "$CHANGED_FILES" | jq 'length')"
+NUM_FILES="$(echo "$CHANGED_FILES" | "$DEVFLOW_JQ" 'length')"
 DIFFSTAT="${NUM_FILES} files changed, +${ADDITIONS} -${DELETIONS}"
 
 # ── 11. Signals ───────────────────────────────────────────────────────────────
 
 # review_comments_count
-REVIEW_COMMENTS_COUNT="$(echo "$REVIEW_COMMENTS" | jq 'length')"
+REVIEW_COMMENTS_COUNT="$(echo "$REVIEW_COMMENTS" | "$DEVFLOW_JQ" 'length')"
 
 # post_bot_commits: count *substantive* commits AFTER the last bot/PR-author
 # commit. A commit is "bot-authored" if author_login or committer_login ends
@@ -197,7 +204,7 @@ REVIEW_COMMENTS_COUNT="$(echo "$REVIEW_COMMENTS" | jq 'length')"
 # nothing actionable came out of. (Trivial *non-merge* fixups — a one-line
 # typo/lint commit — ARE still counted: a small human correction is a real,
 # if minor, "the bot shipped something slightly off" signal.)
-POST_BOT_COMMITS="$(echo "$COMMITS" | jq --arg author "$AUTHOR" '
+POST_BOT_COMMITS="$(echo "$COMMITS" | "$DEVFLOW_JQ" --arg author "$AUTHOR" '
     to_entries
     | [.[] | select(
         (.value.author_login | endswith("[bot]"))
@@ -225,7 +232,7 @@ if [ $_CI_EXIT -ne 0 ] || [ -z "$_CI_RUNS_JSON" ]; then
     CI_STATUS_UNKNOWN="true"
     CI_FAILURES="1"
 else
-    _CI_COUNT="$(echo "$_CI_RUNS_JSON" | jq '[.check_runs[] | select(.conclusion != null and .conclusion != "success" and .conclusion != "neutral" and .conclusion != "skipped")] | length' 2>/dev/null || true)"
+    _CI_COUNT="$(echo "$_CI_RUNS_JSON" | "$DEVFLOW_JQ" '[.check_runs[] | select(.conclusion != null and .conclusion != "success" and .conclusion != "neutral" and .conclusion != "skipped")] | length' 2>/dev/null || true)"
     if [ -z "$_CI_COUNT" ] || ! [[ "$_CI_COUNT" =~ ^[0-9]+$ ]]; then
         CI_STATUS_UNKNOWN="true"
         CI_FAILURES="1"
@@ -238,7 +245,7 @@ fi
 # The workpad lives on the ISSUE thread (ISSUE_COMMENTS_RAW), not the PR
 # conversation thread — reading it from the PR thread (the old bug) left it
 # ~always empty, so the workpad signal in cheap-gate.jq was inert.
-WORKPAD_BODY="$(echo "$ISSUE_COMMENTS_RAW" | jq -r '[.[] | select((.body // "") | test("<!-- devflow:workpad -->"; "i"))] | first | .body // ""')"
+WORKPAD_BODY="$(echo "$ISSUE_COMMENTS_RAW" | "$DEVFLOW_JQ" -r '[.[] | select((.body // "") | test("<!-- devflow:workpad -->"; "i"))] | first | .body // ""')"
 WORKPAD_FINAL_STATUS=""
 REFLECTIONS="[]"
 if [ -n "$WORKPAD_BODY" ]; then
@@ -302,7 +309,7 @@ PYEOF
 )"
     # Guard against a python hiccup leaving an empty/invalid value that would
     # break the later `--slurpfile reflections`.
-    if ! printf '%s' "$REFLECTIONS" | jq -e . >/dev/null 2>&1; then
+    if ! printf '%s' "$REFLECTIONS" | "$DEVFLOW_JQ" -e . >/dev/null 2>&1; then
         echo "::warning::fetch-pr-context: reflection parse produced no valid JSON for PR ${PR}; defaulting to []" >&2
         REFLECTIONS="[]"
     fi
@@ -338,7 +345,7 @@ PYEOF
 # APPROVE|REJECT token. `APPROVE WITH CAVEAT` / `APPROVE with notes` are recorded
 # as APPROVE (they are not a REJECT, which is all review_reject_outstanding cares
 # about). Case-insensitive; trailing `\r` from CRLF bodies is stripped first.
-REVIEW_VERDICTS="$(echo "$PR_COMMENTS_RAW" | jq '
+REVIEW_VERDICTS="$(echo "$PR_COMMENTS_RAW" | "$DEVFLOW_JQ" '
     [
         .[] |
         . as $c |
@@ -352,19 +359,19 @@ REVIEW_VERDICTS="$(echo "$PR_COMMENTS_RAW" | jq '
 ')"
 
 # review_reject_outstanding: last verdict is REJECT?
-REVIEW_REJECT_OUTSTANDING="$(echo "$REVIEW_VERDICTS" | jq 'if length == 0 then false else (last.verdict == "REJECT") end')"
+REVIEW_REJECT_OUTSTANDING="$(echo "$REVIEW_VERDICTS" | "$DEVFLOW_JQ" 'if length == 0 then false else (last.verdict == "REJECT") end')"
 
 # workpad_body as JSON string (null if empty)
 if [ -n "$WORKPAD_BODY" ]; then
-    WORKPAD_BODY_JSON="$(jq -Rs '.' <<<"$WORKPAD_BODY")"
+    WORKPAD_BODY_JSON="$("$DEVFLOW_JQ" -Rs '.' <<<"$WORKPAD_BODY")"
 else
     WORKPAD_BODY_JSON="null"
 fi
 
 # implement_summary_comment: best-effort
-IMPLEMENT_SUMMARY="$(echo "$PR_COMMENTS_RAW" | jq -r '[.[] | select(.body | test("Claude finished|/implement #"; "i"))] | first | .body // ""')"
+IMPLEMENT_SUMMARY="$(echo "$PR_COMMENTS_RAW" | "$DEVFLOW_JQ" -r '[.[] | select(.body | test("Claude finished|/implement #"; "i"))] | first | .body // ""')"
 if [ -n "$IMPLEMENT_SUMMARY" ]; then
-    IMPLEMENT_SUMMARY_JSON="$(jq -Rs '.' <<<"$IMPLEMENT_SUMMARY")"
+    IMPLEMENT_SUMMARY_JSON="$("$DEVFLOW_JQ" -Rs '.' <<<"$IMPLEMENT_SUMMARY")"
 else
     IMPLEMENT_SUMMARY_JSON="null"
 fi
@@ -375,7 +382,7 @@ fi
 # which is noise, not the human's actual fixup) and fetch their patches.
 HUMAN_POSTBOT_DIFF="null"
 if [ "$POST_BOT_COMMITS" -gt 0 ]; then
-    POSTBOT_SHAS="$(echo "$COMMITS" | jq --arg author "$AUTHOR" '
+    POSTBOT_SHAS="$(echo "$COMMITS" | "$DEVFLOW_JQ" --arg author "$AUTHOR" '
         to_entries
         | [.[] | select(
             (.value.author_login | endswith("[bot]"))
@@ -399,13 +406,13 @@ if [ "$POST_BOT_COMMITS" -gt 0 ]; then
             continue
         fi
         # .files[].patch is legitimately absent for binary or empty files — skip those per-file
-        PATCH="$(echo "$_PATCH_JSON" | jq -r '[.files[] | select(has("patch")) | .patch] | join("\n")')"
+        PATCH="$(echo "$_PATCH_JSON" | "$DEVFLOW_JQ" -r '[.files[] | select(has("patch")) | .patch] | join("\n")')"
         if [ -n "$PATCH" ]; then
             PATCHES="${PATCHES}${PATCH}"$'\n'
         fi
-    done < <(echo "$POSTBOT_SHAS" | jq -r '.[]')
+    done < <(echo "$POSTBOT_SHAS" | "$DEVFLOW_JQ" -r '.[]')
     if [ -n "$PATCHES" ]; then
-        HUMAN_POSTBOT_DIFF="$(jq -Rs '.' <<<"$PATCHES")"
+        HUMAN_POSTBOT_DIFF="$("$DEVFLOW_JQ" -Rs '.' <<<"$PATCHES")"
     fi
 fi
 
@@ -441,7 +448,7 @@ printf '%s' "$WORKPAD_BODY_JSON"        > "$_JQ_TMP/workpad_body.json"
 printf '%s' "$REFLECTIONS"              > "$_JQ_TMP/reflections.json"
 printf '%s' "$IMPLEMENT_SUMMARY_JSON"   > "$_JQ_TMP/implement_summary_comment.json"
 
-jq -n \
+"$DEVFLOW_JQ" -n \
     --argjson pr "$PR" \
     --arg kind "$KIND" \
     --arg branch "$BRANCH" \

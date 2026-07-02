@@ -113,7 +113,7 @@ The intended way to drive DevFlow — from a feature request to a reviewed pull 
 
 All four are used by the core skills; none is optional. Shell helpers avoid GNU-only flags, so macOS/BSD work without GNU coreutils.
 
-On **Windows (WSL-bash / Git Bash)** a non-executable `gh` shim can shadow the real GitHub CLI on `PATH`; DevFlow resolves the first `gh`/`gh.exe` that actually runs (execution-verified), and you can force a specific binary by setting **`DEVFLOW_GH`** to the working `gh` / `gh.exe`. See [Windows: resolving `gh`](docs/install.md#windows-resolving-gh).
+On **Windows (WSL-bash / Git Bash)** a non-executable `gh` or `jq` shim can shadow the real binary on `PATH`; DevFlow resolves the first `gh`/`gh.exe` (and `jq`/`jq.exe`) that actually runs (execution-verified via the shared `lib/resolve-bin.sh` resolver), and you can force a specific binary by setting **`DEVFLOW_GH`** / **`DEVFLOW_JQ`** to the working one. Windows-form paths are normalized to the running shell's POSIX form by `lib/normalize-path.sh`. See [Windows: resolving `gh`](docs/install.md#windows-resolving-gh) and [Windows: resolving `jq`](docs/install.md#windows-resolving-jq).
 
 **Cloud tier** — nothing to install on your machine; the GitHub Actions runner provisions its own toolchain. See [`docs/cloud-setup.md`](docs/cloud-setup.md).
 
