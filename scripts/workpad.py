@@ -143,35 +143,47 @@ def _workpad_marker(explicit=None):
     return marker or _DEFAULT_WORKPAD_MARKER
 
 
-def cmd_id(args):
-    marker = _workpad_marker(args.marker)
-    repo = _repo_full()
+def _find_workpad_comment(cmd, repo, issue, marker):
+    """Scan an issue's comments (paginated) and return the first whose body
+    starts with `marker`, or None when the scan completed and none matched.
+
+    Single source for the marker-scan that `cmd_id` and `cmd_status` share — the
+    `per_page=100`/`< 100` pagination boundary and the API/parse error handling
+    live here once. A `gh api` or JSON-parse failure exits 1 via `_fail(cmd, …)`
+    (so the caller's error prefix is preserved); a clean scan with no match
+    returns None so the caller can apply its own "not found" contract (exit 2)."""
     page = 1
     while True:
         try:
             r = _run([
                 GH, 'api',
-                f'/repos/{repo}/issues/{args.issue}/comments'
+                f'/repos/{repo}/issues/{issue}/comments'
                 f'?page={page}&per_page=100',
             ])
         except (subprocess.CalledProcessError, OSError) as e:
-            _fail('id', e)
+            _fail(cmd, e)
         try:
             items = json.loads(r.stdout)
         except json.JSONDecodeError as e:
-            _fail('id', f"could not parse gh comments response: {e}")
+            _fail(cmd, f"could not parse gh comments response: {e}")
         for c in items:
-            body = c.get('body') or ''
-            if body.startswith(marker):
-                print(c['id'])
-                return
+            if (c.get('body') or '').startswith(marker):
+                return c
         if len(items) < 100:
-            break
+            return None
         page += 1
+
+
+def cmd_id(args):
+    marker = _workpad_marker(args.marker)
+    c = _find_workpad_comment('id', _repo_full(), args.issue, marker)
+    if c is not None:
+        print(c['id'])
+        return
     # Exit 2 (distinct from _fail's exit 1) means "scanned successfully, no
     # matching comment" — i.e. first run / not yet seeded. A real `gh api` or
-    # parse failure above exits 1 via _fail. Callers can thus tell a benign
-    # "create it" from a transient API error and avoid posting a duplicate
+    # parse failure exits 1 via _fail inside the scan. Callers can thus tell a
+    # benign "create it" from a transient API error and avoid posting a duplicate
     # workpad comment on a failure they mistook for "not found".
     sys.exit(2)
 
@@ -204,31 +216,11 @@ def cmd_status(args):
     decision class (fail closed), while a healthy run prints a class it can act
     on."""
     marker = _workpad_marker(args.marker)
-    repo = _repo_full()
-    page = 1
-    body = None
-    while body is None:
-        try:
-            r = _run([
-                GH, 'api',
-                f'/repos/{repo}/issues/{args.issue}/comments'
-                f'?page={page}&per_page=100',
-            ])
-        except (subprocess.CalledProcessError, OSError) as e:
-            _fail('status', e)
-        try:
-            items = json.loads(r.stdout)
-        except json.JSONDecodeError as e:
-            _fail('status', f"could not parse gh comments response: {e}")
-        for c in items:
-            b = c.get('body') or ''
-            if b.startswith(marker):
-                body = b
-                break
-        if body is None and len(items) < 100:
-            # Scanned every page, no workpad — same benign exit 2 as `id`.
-            sys.exit(2)
-        page += 1
+    c = _find_workpad_comment('status', _repo_full(), args.issue, marker)
+    if c is None:
+        # Scanned every page, no workpad — same benign exit 2 as `id`.
+        sys.exit(2)
+    body = c.get('body') or ''
     m = _STATUS_VALUE_RE.search(body)
     if not m:
         sys.stderr.write(

@@ -68,13 +68,11 @@ case "$cls" in
       echo resume
     fi
     ;;
-  unreadable)
-    echo fail-unreadable
-    ;;
-  *)
-    # An unexpected class token is itself an unknown state — fail closed with the
-    # diagnostic decision rather than silently no-op'ing on something we can't
-    # classify (never pass on an unknown status).
+  unreadable|*)
+    # 'unreadable' is the workflow's explicit "no workpad / unparseable Status"
+    # token; any OTHER unexpected class is an unknown state treated the same way
+    # — fail closed rather than silently no-op'ing on something we can't classify
+    # (never pass on an unknown status).
     echo fail-unreadable
     ;;
 esac
