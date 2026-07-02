@@ -139,4 +139,13 @@ Once the gate passes (every non-post-merge AC ticked), tick the gate **and its p
 
 (A criterion the orchestrator can't satisfy may be retroactively tagged `(post-merge)` **only if it is genuinely-live by the rule above** — it requires a runtime environment absent during the run, it is *not* a runnable-but-blocked tooling gap, and it is *not* the confirmation of a self-authored claim. When it qualifies, retag with `workpad.py update $ISSUE_NUMBER --rewrite-ac "{old text}" "{old text} (post-merge)" --note "retro-tagged as post-merge (genuinely-live): {the runtime env it requires}"`, then let it pass the gate. If it fails that rule — runnable on this host, blocked only by local tooling, or a self-claim confirmation — do **not** retag; take the Blocked path (step 4 above) instead.)
 
+### 3.5 Tick Phase-3-completed Plan steps
+
+Two kinds of `## Plan` step routinely **complete in Phase 3**, not Phase 2, so the Phase 2 "tick plan steps as they complete" loop never reaches them — leaving their rows falsely `- [ ]` on a finished run. Tick each **at the point its work completes here**, so the terminal Phase 4.3 `--status Complete` self-record gate's non-blocking `## Plan` warning fires only on a genuinely dropped/superseded step (that gate: a non-post-merge unticked **AC** row hard-fails the Complete write, while an unticked **Plan** row only warns — see the finalize call in Phase 4.3):
+
+- **The version-bump / `CHANGELOG` step** (where repo policy bumps a version — e.g. this repo's, per `.devflow/prompt-extensions/implement.md`, applied after the draft PR exists but before the review pass): once the bump + matching `CHANGELOG` entry are committed, tick its Plan row — `workpad.py update $ISSUE_NUMBER --tick-plan "{substring of the version-bump plan step}"`.
+- **The final full-suite / `shellcheck` / `ruff` run**: once you have observed it green (or recorded the auditable CI-gate skip per `CLAUDE.md`'s tier rule), tick its Plan row — `workpad.py update $ISSUE_NUMBER --tick-plan "{substring of the final-suite plan step}"`.
+
+Only tick a step your plan actually lists (a `--tick-plan` that matches nothing is a volatile miss); if this run's plan carries no such step — a consumer repo with no version policy, say — skip its tick. Consume the tick call's exit code as everywhere else (a non-zero exit means the substring did not resolve to exactly one unticked row — re-resolve and re-tick).
+
 **⚠ You are NOT done. PR is still a draft and needs documentation and a proper description. Proceed to Phase 4.**

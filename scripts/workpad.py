@@ -299,6 +299,18 @@ def cmd_now(_args):
     print(now.strftime('%Y-%m-%dT%H:%M:%SZ'))
 
 
+# The un-mirrored `## Acceptance Criteria` placeholder — the SINGLE SOURCE seeded by
+# `cmd_new_body`'s template below AND matched by the terminal Complete gate. Keeping
+# both the producer and the guard on this one constant means a reword (e.g. the ASCII
+# vs em-dash trap) can never silently drift them apart and disarm the gate's warning.
+# If it survives to a terminal `--status Complete` write, Phase 1.2/1.3 AC-mirroring
+# never ran, so the gate's checkbox scan has nothing to check — the "self-record
+# matches reality" guarantee would be vacuously satisfied. The gate warns (non-blocking)
+# on this exact placeholder; a genuinely AC-less issue carries the DISTINCT sentinel
+# `_(none provided in issue body)_` parse-acs.py emits, so no warning fires there.
+_AC_PENDING_PLACEHOLDER = '_(pending — mirrored from the issue when the run begins)_'
+
+
 def cmd_new_body(args):
     """Print the lean initial workpad skeleton to stdout, for piping into a file
     and `create`. Deliberately minimal — only what's available before the run
@@ -348,7 +360,7 @@ def cmd_new_body(args):
 - [ ] _(planning in progress)_
 
 ## Acceptance Criteria
-_(pending — mirrored from the issue when the run begins)_
+{_AC_PENDING_PLACEHOLDER}
 
 ## Devflow Reflection
 <details>
@@ -1084,6 +1096,73 @@ def _apply_section_ticks(
     sections[idx] = (heading, content)
 
 
+# The marker parse-acs.py appends to a post-merge criterion, and the byte-for-byte
+# token the Phase 3.4 AC gate excludes ("a criterion whose checkbox line ends in
+# `(post-merge)`"). The terminal Complete gate reuses the same exclusion so its
+# hard-fail set matches the gate's blocking set exactly.
+_POST_MERGE_MARKER = '(post-merge)'
+
+
+def _unticked_rows(content: str) -> tuple[list[str], list[str]]:
+    """Split a checkbox section's still-unticked `- [ ]` rows into
+    (non_post_merge, post_merge) by whether the row text ends in the
+    `(post-merge)` marker (the Phase 3.4 exclusion). Non-checkbox lines
+    (placeholders, prose) are ignored. Read-only — never mutates a row."""
+    non_pm, pm = [], []
+    for line in content.splitlines():
+        m = _CHECKBOX_ROW_RE.match(line)
+        if not m or m.group(2) != '[ ]':
+            continue
+        text = m.group(4)
+        (pm if text.rstrip().endswith(_POST_MERGE_MARKER) else non_pm).append(text)
+    return non_pm, pm
+
+
+def _terminal_complete_gate(sections) -> list[str]:
+    """Reconcile the workpad self-record on a terminal `--status Complete` write.
+
+    Hard-fail (a *structural* `_UpdateError`, so `cmd_update` aborts before any
+    PATCH and the Status is never flipped) when any NON-post-merge `## Acceptance
+    Criteria` row is still `- [ ]`, naming each offending row on stderr. Post-merge
+    AC rows are excluded (byte-for-byte the Phase 3.4 exclusion). Returns the
+    still-unticked `## Plan` rows for the caller to emit a NON-blocking warning on
+    (a genuinely dropped/superseded plan step may honestly stay unticked, so Plan
+    is not hard-failed). Also emits a NON-blocking warning when the AC section still
+    holds the un-mirrored `new-body` placeholder (mirroring never ran — a vacuously
+    satisfied hard-fail), so a Complete over an unpopulated self-record is surfaced.
+    NEVER modifies a row; an absent section contributes nothing. Called only for
+    `--status Complete`, over the post-mutation sections."""
+    ac_idx = _find_section(sections, 'Acceptance Criteria')
+    if ac_idx is not None:
+        ac_content = sections[ac_idx][1]
+        non_pm, _pm = _unticked_rows(ac_content)
+        if non_pm:
+            rows = '\n'.join(f'    - [ ] {t}' for t in non_pm)
+            raise _UpdateError(
+                "refusing to finalize Status: Complete — "
+                f"{len(non_pm)} non-post-merge Acceptance Criteria row(s) still "
+                "unticked (tick each once its work is real, or route the run to "
+                f"Blocked, before finalizing):\n{rows}"
+            )
+        # Fail-open guard: no unticked rows can mean the section was never mirrored
+        # (still the `new-body` placeholder), not that every AC is satisfied. Warn
+        # (non-blocking) so a Complete finalize over an un-mirrored self-record is
+        # surfaced rather than passing silently. A genuinely AC-less issue carries
+        # the DISTINCT `_(none provided in issue body)_` sentinel, so it is unaffected.
+        if _AC_PENDING_PLACEHOLDER in ac_content:
+            sys.stderr.write(
+                "workpad.py update: warning: finalizing Status: Complete but the "
+                "## Acceptance Criteria section still holds the un-mirrored placeholder "
+                "— the self-record was never populated from the issue; verify the "
+                "acceptance criteria were mirrored before relying on this Complete.\n"
+            )
+    plan_idx = _find_section(sections, 'Plan')
+    if plan_idx is None:
+        return []
+    non_pm, pm = _unticked_rows(sections[plan_idx][1])
+    return non_pm + pm  # Plan has no post-merge concept; warn on every unticked row
+
+
 def _apply_mutations(body: str, args, failed_ticks) -> str:
     """Apply all mutations from args and return the new body.
 
@@ -1210,6 +1289,24 @@ def _apply_mutations(body: str, args, failed_ticks) -> str:
         for bullet in args.reflection:
             content = _append_reflection(content, kind, bullet)
         sections[idx] = (heading, content)
+
+    # Terminal self-record gate (issue #258): a `--status Complete` write is the
+    # deterministic chokepoint that guarantees the workpad's Plan/AC self-record
+    # matches reality. It runs LAST, over the *post-mutation* sections, so a call
+    # that ticks the final AC row and flips to Complete in one shot still passes.
+    # Detection reuses `_status_glyph` (the single source of truth for the
+    # Complete/🎉 vocabulary), so a non-Complete status (Blocked/👎, any in-progress
+    # 🚀) and a status-less update are never gated.
+    if args.status and _status_glyph(args.status) == '🎉':
+        unticked_plan = _terminal_complete_gate(sections)  # AC hard-fail raises here
+        if unticked_plan:
+            rows = '; '.join(t.strip() for t in unticked_plan)
+            sys.stderr.write(
+                "workpad.py update: warning: finalizing Status: Complete with "
+                f"{len(unticked_plan)} unticked ## Plan row(s) — a genuinely "
+                "dropped/superseded step may honestly stay unticked, but verify: "
+                f"{rows}\n"
+            )
 
     return _join_sections(preamble, sections)
 

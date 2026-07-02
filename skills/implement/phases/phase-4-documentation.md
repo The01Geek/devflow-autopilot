@@ -389,6 +389,22 @@ Then finalize the workpad — tick the final `## Progress` item and flip `Status
 # contract, consume that exit code: a non-zero finalize means the "PR marked ready" box
 # is still `- [ ]`, so re-resolve and re-tick it (or take the publish/clean-tree Blocked
 # handling) rather than treating the run as cleanly Complete.
+#
+# TWO distinct non-zero exits are now possible here — read the stderr to tell them apart:
+#   (1) a *volatile* tick miss (above): the body WAS PATCHed (Status flipped, note written),
+#       only the "PR marked ready" row is still `- [ ]` — re-tick just that row.
+#   (2) the terminal self-record gate (issue #258) *structurally aborts* this Complete write
+#       — NO PATCH, Status NOT flipped — when a non-post-merge `## Acceptance Criteria` row
+#       is still `- [ ]` (stderr: "refusing to finalize Status: Complete — … Acceptance
+#       Criteria row(s) still unticked"). The Phase 3.4 gate should have ticked every
+#       non-post-merge AC, so this fires only on a drift; do NOT retry the finalize verbatim.
+#       Resolve the outstanding AC the same way Phase 3.4 does — tick it once its work is
+#       real (`--tick-ac-n {N}`), or take the Blocked path if it genuinely cannot be met —
+#       THEN re-issue the finalize. (post-merge AC rows never trip this; an unticked `## Plan`
+#       row — or an `## Acceptance Criteria` section still holding the un-mirrored placeholder,
+#       i.e. AC-mirroring never ran — only prints a non-blocking warning and the finalize still
+#       succeeds. If that AC-placeholder warning fires, the self-record was never populated from
+#       the issue: investigate the mirroring, do not just re-run the finalize.)
 workpad.py update $ISSUE_NUMBER \
     --status Complete \
     --tick-progress "PR marked ready" \
