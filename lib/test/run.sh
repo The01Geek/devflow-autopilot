@@ -6365,7 +6365,7 @@ cat > "$DRV_STUB" <<'EOS'
 # Echo raw JSON (the deriver pipes it through jq itself). DRV_*_FAIL=1 forces a
 # query failure so the fail-closed arms can be exercised.
 case "$*" in
-  *"repo view"*)           echo "o/r"; exit 0 ;;
+  *"repo view"*)           [ "${DRV_REPO_FAIL:-0}" = 0 ] && echo "o/r"; exit 0 ;;   # DRV_REPO_FAIL=1 -> empty stdout (unresolvable REPO)
   *"pulls/"*"/reviews"*)   [ "${DRV_REVIEWS_FAIL:-0}" = 0 ] || { echo "HTTP 500" >&2; exit 1; }; printf '%s' "${DRV_REVIEWS:-[]}"; exit 0 ;;
   *"issues/"*"/comments"*) [ "${DRV_COMMENTS_FAIL:-0}" = 0 ] || { echo "HTTP 500" >&2; exit 1; }; printf '%s' "${DRV_COMMENTS:-[]}"; exit 0 ;;
 esac
@@ -6463,10 +6463,78 @@ HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DE
   DRV_REVIEWS="[]" DRV_COMMENTS_FAIL=1 \
   drv "#249 comment-fallback query failure -> incomplete (fail closed)" "incomplete false"
 
+# --- additional fail-closed / positive guards (review coverage gaps) ---------
+# empty HEAD_SHA -> cannot scope to the current commit -> fail closed. Without
+# this guard an empty $h makes select(.commit_id=="") match nothing and a
+# comment-derived verdict could be emitted for an UNKNOWN head.
+HEAD_SHA="" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"APPROVED\",\"commit_id\":\"\"}]" \
+  drv "#249 empty HEAD_SHA -> incomplete (fail closed, cannot HEAD-scope)" "incomplete false"
+
+# A COMMENTED review ON HEAD with NO verdict marker is NOT an approve — this is
+# the false-APPROVE regression guard: state==COMMENTED alone must never approve
+# (only APPROVED state or a `## Verdict: APPROVE` body marker does).
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"COMMENTED\",\"commit_id\":\"$DRV_NEW\",\"body\":\"just a note, no verdict here\"}]" \
+  DRV_COMMENTS="[]" \
+  drv "#249 COMMENTED-on-HEAD WITHOUT a verdict marker -> incomplete (no false APPROVE)" "incomplete false"
+
+# REPO auto-derivation: empty REPO is resolved via `gh repo view` (positive path)...
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO="" GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"APPROVED\",\"commit_id\":\"$DRV_NEW\"}]" \
+  drv "#249 empty REPO resolved via 'gh repo view' -> approve" "approve true"
+# ...and when `gh repo view` yields nothing, REPO is unresolvable -> fail closed.
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO="" GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" DRV_REPO_FAIL=1 \
+  drv "#249 unresolvable REPO ('gh repo view' empty) -> incomplete (fail closed)" "incomplete false"
+
+# No HEAD review + empty GITHUB_RUN_ID -> cannot scope the comment fallback to
+# this run -> fail closed BEFORE querying comments.
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID="" DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[]" \
+  DRV_COMMENTS='[{"body":"<!-- devflow:review-progress run=100-1 -->\n## Verdict: APPROVE"}]' \
+  drv "#249 no HEAD review + empty GITHUB_RUN_ID -> incomplete (cannot run-scope the comment fallback)" "incomplete false"
+
+# Marker precedence: REJECT is checked before APPROVE (fail toward blocking) even
+# when a HEAD review's body somehow carries both markers.
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"COMMENTED\",\"commit_id\":\"$DRV_NEW\",\"body\":\"## Verdict: REJECT\n## Verdict: APPROVE\"}]" \
+  drv "#249 both markers on HEAD review -> reject (REJECT precedence, fail toward blocking)" "reject true"
+
 # always exits 0 (best-effort; caller reads the verdict, not the exit code).
 ( HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER="" GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" bash "$DRV" >/dev/null 2>&1 ); DRV_RC=$?
 assert_eq "#249 deriver always exits 0 (best-effort)" "0" "$DRV_RC"
 rm -f "$DRV_STUB"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "parse-engine-error.sh (#249 execution-log is_error parser feeding engine_is_error)"
+# ────────────────────────────────────────────────────────────────────────────
+# The producer of devflow-runner.yml's engine_is_error output (extracted from the
+# inline workflow jq so its array/object/fail-safe branches are verified). Fail-safe:
+# any absent/unparseable field yields "false" (is_error is defense-in-depth; the
+# deriver's HEAD-SHA scoping is the primary guard).
+PEE="$LIB/../scripts/parse-engine-error.sh"
+PEE_TMP="$(mktemp -d)"
+# stream-json ARRAY whose final type==result element carries is_error
+printf '%s' '[{"type":"system"},{"type":"result","is_error":true}]'  > "$PEE_TMP/arr_true.json"
+printf '%s' '[{"type":"assistant"},{"type":"result","is_error":false}]' > "$PEE_TMP/arr_false.json"
+# a single result OBJECT
+printf '%s' '{"type":"result","is_error":true}'  > "$PEE_TMP/obj_true.json"
+printf '%s' '{"type":"result","is_error":false}' > "$PEE_TMP/obj_false.json"
+# absent is_error field, empty array (no result element), and unparseable -> false
+printf '%s' '{"type":"result"}'  > "$PEE_TMP/obj_missing.json"
+printf '%s' '[]'                 > "$PEE_TMP/empty_arr.json"
+printf '%s' 'not json {{'        > "$PEE_TMP/garbage.json"
+assert_eq "#249 parse-engine-error: array w/ final result is_error=true -> true"  "true"  "$(bash "$PEE" "$PEE_TMP/arr_true.json")"
+assert_eq "#249 parse-engine-error: array w/ final result is_error=false -> false" "false" "$(bash "$PEE" "$PEE_TMP/arr_false.json")"
+assert_eq "#249 parse-engine-error: single result object is_error=true -> true"   "true"  "$(bash "$PEE" "$PEE_TMP/obj_true.json")"
+assert_eq "#249 parse-engine-error: single result object is_error=false -> false" "false" "$(bash "$PEE" "$PEE_TMP/obj_false.json")"
+assert_eq "#249 parse-engine-error: absent is_error field -> false (fail-safe)"   "false" "$(bash "$PEE" "$PEE_TMP/obj_missing.json")"
+assert_eq "#249 parse-engine-error: empty array (no result) -> false (fail-safe)" "false" "$(bash "$PEE" "$PEE_TMP/empty_arr.json")"
+assert_eq "#249 parse-engine-error: unparseable log -> false (fail-safe)"         "false" "$(bash "$PEE" "$PEE_TMP/garbage.json")"
+assert_eq "#249 parse-engine-error: missing file arg -> false (fail-safe)"        "false" "$(bash "$PEE" "$PEE_TMP/does-not-exist.json")"
+assert_eq "#249 parse-engine-error: empty arg -> false (fail-safe)"               "false" "$(bash "$PEE" "")"
+( bash "$PEE" "$PEE_TMP/arr_true.json" >/dev/null 2>&1 ); assert_eq "#249 parse-engine-error: always exits 0 (best-effort)" "0" "$?"
+rm -rf "$PEE_TMP"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "resolve-implement-trigger.sh"

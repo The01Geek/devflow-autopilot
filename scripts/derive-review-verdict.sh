@@ -29,10 +29,13 @@
 #     body first line `## Verdict: APPROVE ...`  (so a positive APPROVE is NOT
 #     always state APPROVED — the body marker is the second signal)
 #   APPROVE (clean) -> `gh pr review --approve` -> state APPROVED
-#   Same-identity self-review fallback -> `gh pr comment` whose body (the full
-#     report embedded in the run-keyed `devflow:review-progress` comment) carries
-#     the `## Verdict:` line. Issue comments have no commit_id, so that fallback
-#     is scoped to THIS run via the run-keyed marker, never to a historical one.
+#   Same-identity self-review fallback (`gh pr review` fails) -> the verdict is
+#     recovered from THIS run's run-keyed `devflow:review-progress` PROGRESS
+#     comment, which embeds the full report + the `## Verdict:` line (that is the
+#     marker-bearing artifact this helper matches in step 6). Issue comments carry
+#     no commit_id, so it is scoped to THIS run via the progress comment's
+#     run-keyed marker, never a historical one. (The separate, marker-LESS
+#     `gh pr comment` self-review fallback comment is NOT matched.)
 #
 # Inputs (environment; all optional, absence fails closed where it matters):
 #   HEAD_SHA       current HEAD SHA (needs.precheck.outputs.head_sha)

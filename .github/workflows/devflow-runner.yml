@@ -555,19 +555,19 @@ jobs:
           EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
         run: |
           set -uo pipefail
-          IS_ERROR=false
-          if [ -n "${EXECUTION_FILE:-}" ] && [ -f "$EXECUTION_FILE" ]; then
-            # claude-code-action@v1 writes the execution log to execution_file.
-            # Parse both documented shapes defensively: a stream-json ARRAY whose
-            # final type=="result" element carries is_error, or a single result
-            # OBJECT carrying it. Any absent/unparseable field defaults to false
-            # (fail-safe — the consumer's HEAD-SHA scoping is the primary guard).
-            PARSED=$(jq -r '
-              (if type=="array" then (map(select(.type=="result")) | last | .is_error)
-               elif type=="object" then .is_error
-               else null end) // false' "$EXECUTION_FILE" 2>/dev/null || echo "")
-            if [ "$PARSED" = "true" ]; then IS_ERROR=true; fi
+          # Parse is_error from claude-code-action's execution log via the
+          # extracted, unit-tested helper (lib/test/run.sh) rather than an inline
+          # jq, so the array/object/fail-safe branches are actually verified.
+          # Prefer the vendored copy (present in this job after vendor-plugin ran);
+          # fall back to the repo path for a self-repo checkout. If neither
+          # resolves, default false (fail-safe — finalize_check's HEAD-SHA scoping
+          # is the primary staleness guard).
+          PEE=.devflow/vendor/devflow/scripts/parse-engine-error.sh
+          [ -f "$PEE" ] || PEE=scripts/parse-engine-error.sh
+          if [ -f "$PEE" ]; then
+            IS_ERROR=$(bash "$PEE" "${EXECUTION_FILE:-}" 2>/dev/null || echo false)
           else
-            echo "::notice::execution_file absent or empty; treating engine is_error as false (fail-safe)."
+            echo "::notice::parse-engine-error.sh absent; treating engine is_error as false (fail-safe)."
+            IS_ERROR=false
           fi
           echo "is_error=$IS_ERROR" >> "$GITHUB_OUTPUT"
