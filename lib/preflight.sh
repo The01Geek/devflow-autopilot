@@ -12,6 +12,30 @@
 # does not matter — but the four tools above are required.
 set -u
 
+# Running-bash diagnostic (issue #248) — a DIAGNOSTIC, not a selector.
+#
+# DevFlow's helpers are `.sh` scripts, so the shell that RUNS them is chosen at
+# the invocation boundary (the agent/runner that shells into bash), BEFORE any
+# `.sh` executes — a sourced resolver cannot pick it (bootstrap: the resolver
+# would itself need a chosen bash to run). So `DEVFLOW_BASH` is honored THERE,
+# not here; this block only reports which POSIX bash won, mirroring the
+# detect-not-select posture of the python3/gh/jq reporting below.
+#
+# It MUST sit above the first bash-only construct (`${BASH_SOURCE[0]}` just
+# below): under a non-bash POSIX shell (sh/dash) `$BASH_VERSION` is empty, and we
+# fail CLOSED here with an actionable remedy before that array reference would
+# abort with a cryptic "Bad substitution". On Linux/macOS/cloud (a real bash)
+# this prints one informational breadcrumb to stderr and changes nothing else —
+# an unset DEVFLOW_BASH is a no-op.
+if [ -n "${BASH_VERSION:-}" ]; then
+  _dfb_msg="devflow-bash: running under bash ${BASH:-unknown} ($BASH_VERSION)"
+  [ -n "${DEVFLOW_BASH:-}" ] && _dfb_msg="$_dfb_msg; DEVFLOW_BASH=$DEVFLOW_BASH"
+  printf '%s\n' "$_dfb_msg" >&2
+else
+  printf '%s\n' "devflow-bash: not running under a POSIX bash (no \$BASH_VERSION). DevFlow shell (.sh) helpers require a POSIX bash — on Windows use WSL bash, Git Bash, or MSYS2 bash, and point DevFlow at it with the DEVFLOW_BASH override (e.g. DEVFLOW_BASH=/path/to/bash). See docs/install.md." >&2
+  exit 1
+fi
+
 # Share the interpreter-selection contract with scripts/provision-python3-shim.sh so the
 # two can never disagree on which Python DevFlow uses (see lib/resolve-python.sh).
 _PREFLIGHT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

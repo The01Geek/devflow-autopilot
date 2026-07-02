@@ -81,6 +81,20 @@ export DEVFLOW_JQ=jq.exe   # or an absolute path to the working jq
 
 Relatedly, DevFlow ships `lib/normalize-path.sh` (`devflow_normalize_path`), a sourced helper that converts a Windows-form path (`C:\...`) to the running shell's POSIX form — `wslpath` when present, else `cygpath`, else an environment-detected translation (`/mnt/c/...` under WSL, `/c/...` under MSYS/Git Bash) — echoing an already-POSIX path through unchanged. Runner-reported Windows-form paths (like a skill's base directory on a non-Claude-Code runner) are normalized with the same chain.
 
+### Windows: choosing the bash DevFlow runs under (`DEVFLOW_BASH`)
+
+DevFlow's helpers are `.sh` scripts, so they need a **POSIX bash** to run. On Linux/macOS/cloud that is the default shell and there is nothing to do. On Windows the *default* shell may be PowerShell, and the working bash is whichever of **WSL bash**, **Git Bash**, or **MSYS2 bash** you have — **any of them works**; DevFlow does not mandate a specific one.
+
+Unlike `gh`/`jq` (tools a *running* bash calls, resolved by a sourced `resolve-*.sh` helper), the bash that *runs* the scripts is chosen one layer up — at the **invocation boundary**, before any `.sh` executes — so a sourced resolver cannot select it (it would itself need a chosen bash to run). That layer (the agent or runner that shells into bash) honors the **`DEVFLOW_BASH`** environment variable: set it to the POSIX bash you want DevFlow's helpers to run under.
+
+```bash
+export DEVFLOW_BASH=/path/to/bash   # e.g. a WSL, Git Bash, or MSYS2 bash
+```
+
+`bash lib/preflight.sh` prints a `devflow-bash:` breadcrumb naming the bash it is running under (interpreter path + `$BASH_VERSION`) and surfaces `DEVFLOW_BASH` when set, so you can confirm the intended bash took effect. If preflight finds it is **not** running under a POSIX bash (empty `$BASH_VERSION` — e.g. when the `.sh` is executed by `sh`/`dash` rather than bash), it prints a remedy naming the three supported bashes and the `DEVFLOW_BASH` override, and exits non-zero. On Linux/macOS/cloud the running `bash` is used unchanged and an unset `DEVFLOW_BASH` is a no-op.
+
+**Known non-goal.** A host with **no POSIX bash at all** (PowerShell-only, with no WSL, Git Bash, or MSYS2 installed) cannot run the `.sh` helpers regardless — that irreducible case is out of scope. Install any one of the three supported bashes; that is the fix, not a `DEVFLOW_BASH` value.
+
 ## Cloud tier (optional, autonomous)
 
 For autonomous GitHub Actions automation, run this from your repo root — the same command installs and later updates it:
