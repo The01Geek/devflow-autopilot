@@ -237,7 +237,7 @@ Print the object and stop.
 Example construction:
 
 ```bash
-bash ${CLAUDE_SKILL_DIR}/../../scripts/run-jq.sh -nc \
+${CLAUDE_SKILL_DIR}/../../scripts/run-jq.sh -nc \
   --argjson bundle "$BUNDLE" \
   --arg verdict "$VERDICT" \
   --argjson categories "$CATEGORIES_JSON" \

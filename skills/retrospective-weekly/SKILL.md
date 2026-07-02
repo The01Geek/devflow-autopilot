@@ -25,7 +25,7 @@ LIB="${CLAUDE_SKILL_DIR}/../../lib"
 ```
 
 Every `jq` in this skill is invoked through the execution-verified wrapper
-`bash $LIB/../scripts/run-jq.sh` (`$LIB/../scripts` is the `scripts/` dir beside
+`$LIB/../scripts/run-jq.sh` (`$LIB/../scripts` is the `scripts/` dir beside
 `lib/`), never bare `jq` — so a shim-shadowed Windows/WSL host resolves a
 runnable jq the same way the `.sh` helper tier does (issue #253, the agent-tier
 sibling of #247). `DEVFLOW_JQ` is not exported to agent shells, so the wrapper
@@ -110,7 +110,7 @@ use `--prs` for the scheduled weekly run.
 the output array is empty:
 
 ```bash
-bash $LIB/../scripts/run-jq.sh 'length == 0' .devflow/tmp/scan.json
+$LIB/../scripts/run-jq.sh 'length == 0' .devflow/tmp/scan.json
 ```
 
 → `true`: report **"Nothing to process — no unprocessed watched-author PRs
@@ -129,7 +129,7 @@ analyzed_count=0
 needs_analysis=()   # array of bundle paths
 ```
 
-For each PR number in `scan.json` (iterate via `bash $LIB/../scripts/run-jq.sh -r '.[].number'`):
+For each PR number in `scan.json` (iterate via `$LIB/../scripts/run-jq.sh -r '.[].number'`):
 
 ```bash
 number=<the pr number>
@@ -144,7 +144,7 @@ bundle content.
 Run the cheap gate against the bundle content:
 
 ```bash
-GATE=$(bash $LIB/../scripts/run-jq.sh -c -f $LIB/cheap-gate.jq < "$CTX")
+GATE=$($LIB/../scripts/run-jq.sh -c -f $LIB/cheap-gate.jq < "$CTX")
 ```
 
 Outputs `{"clean": <bool>, "reason": "<string>"}`.
@@ -155,7 +155,7 @@ Emit a clean entry (every retrospected PR is an `implementation` PR now — the
 old audit-kind path is retired along with autonomous intervention PRs):
 
 ```bash
-bash $LIB/../scripts/run-jq.sh -c -f $LIB/clean-entry.jq < "$CTX" >> .devflow/tmp/new-entries.jsonl
+$LIB/../scripts/run-jq.sh -c -f $LIB/clean-entry.jq < "$CTX" >> .devflow/tmp/new-entries.jsonl
 ```
 
 Increment `clean_count`.
@@ -196,12 +196,12 @@ interpolate it inline into a shell command. **Write each subagent's raw result
 to a temp file with the Write tool** (e.g. `.devflow/tmp/result-<n>.json`), then
 operate on the file. For each result:
 
-1. Attempt to parse it: `bash $LIB/../scripts/run-jq.sh -c . < .devflow/tmp/result-<n>.json`
+1. Attempt to parse it: `$LIB/../scripts/run-jq.sh -c . < .devflow/tmp/result-<n>.json`
 2. If parsing fails or the object has an `"error"` key, **retry the
    subagent once** with the same prompt.
 3. If still malformed after one retry, record a blocker:
    `"PR #<n>: retrospective analysis failed"` and skip that PR.
-4. If valid, append: `bash $LIB/../scripts/run-jq.sh -c . < .devflow/tmp/result-<n>.json >> .devflow/tmp/new-entries.jsonl`
+4. If valid, append: `$LIB/../scripts/run-jq.sh -c . < .devflow/tmp/result-<n>.json >> .devflow/tmp/new-entries.jsonl`
 
 ---
 
@@ -238,8 +238,8 @@ Print a summary line to the console, for example:
 Partition `patterns.json` into two lists:
 
 ```bash
-to_act=$(bash $LIB/../scripts/run-jq.sh '[.[] | select(.cooldown_active == false)]' .devflow/tmp/patterns.json)
-cooldown_skipped=$(bash $LIB/../scripts/run-jq.sh '[.[] | select(.cooldown_active == true) | .tag]' .devflow/tmp/patterns.json)
+to_act=$($LIB/../scripts/run-jq.sh '[.[] | select(.cooldown_active == false)]' .devflow/tmp/patterns.json)
+cooldown_skipped=$($LIB/../scripts/run-jq.sh '[.[] | select(.cooldown_active == true) | .tag]' .devflow/tmp/patterns.json)
 ```
 
 Record `cooldown_skipped` tags for the final report.
@@ -313,13 +313,13 @@ For each `pattern` in `to_act`, make sure every occurrence bundle is on disk
 (fetch the ones not already fetched this run):
 
 ```bash
-for n in $(bash $LIB/../scripts/run-jq.sh -r '.occurrences[].pr' <<< "$pattern"); do
+for n in $($LIB/../scripts/run-jq.sh -r '.occurrences[].pr' <<< "$pattern"); do
     [ -f ".devflow/tmp/pr-${n}.context.json" ] || bash $LIB/fetch-pr-context.sh "$n" >/dev/null
 done
 ```
 
-Record, per pattern: `SLUG` (`bash $LIB/../scripts/run-jq.sh -r .slug <<< "$pattern"`), `TAG`
-(`bash $LIB/../scripts/run-jq.sh -r .tag <<< "$pattern"`), the JSON array of absolute bundle paths, and the
+Record, per pattern: `SLUG` (`$LIB/../scripts/run-jq.sh -r .slug <<< "$pattern"`), `TAG`
+(`$LIB/../scripts/run-jq.sh -r .tag <<< "$pattern"`), the JSON array of absolute bundle paths, and the
 `pattern` object.
 
 #### 8b — Dispatch all Stage B subagents concurrently
@@ -352,7 +352,7 @@ interpolate it inline into a shell command), then:
 
 ```bash
 # 1. Parse + validate the {title, body} contract. Malformed → blocker, continue.
-if ! bash $LIB/../scripts/run-jq.sh -e '.title and .body' < ".devflow/tmp/result-${SLUG}.json" >/dev/null 2>&1; then
+if ! $LIB/../scripts/run-jq.sh -e '.title and .body' < ".devflow/tmp/result-${SLUG}.json" >/dev/null 2>&1; then
     # Malformed: record a blocker and file NOTHING. The append below is the
     # load-bearing failure path — it MUST run (the run reports this pattern as a
     # blocker, never as filed), so it is concrete shell, not a comment.
@@ -360,8 +360,8 @@ if ! bash $LIB/../scripts/run-jq.sh -e '.title and .body' < ".devflow/tmp/result
 else
     # 2. Extract the body to a file (via jq, so backticks/$/newlines never hit
     #    the shell) and the title to a shell var.
-    bash $LIB/../scripts/run-jq.sh -r '.body' < ".devflow/tmp/result-${SLUG}.json" > ".devflow/tmp/issue-body-${SLUG}.md"
-    TITLE="$(bash $LIB/../scripts/run-jq.sh -r '.title' < ".devflow/tmp/result-${SLUG}.json")"
+    $LIB/../scripts/run-jq.sh -r '.body' < ".devflow/tmp/result-${SLUG}.json" > ".devflow/tmp/issue-body-${SLUG}.md"
+    TITLE="$($LIB/../scripts/run-jq.sh -r '.title' < ".devflow/tmp/result-${SLUG}.json")"
 
     # 3. File exactly one issue. meta-issue.sh stamps DevFlow + Retrospective
     #    (best-effort), records the overrides.json cooldown, is idempotent (an
@@ -378,7 +378,7 @@ else
             --body-file ".devflow/tmp/issue-body-${SLUG}.md" \
             --overrides .devflow/learnings/overrides.json)"; then
         # Success: record {tag, url} in intervention_issues.
-        intervention_issues+=("$(bash $LIB/../scripts/run-jq.sh -nc --arg tag "$TAG" --arg url "$ISSUE_URL" '{tag:$tag,url:$url}')")
+        intervention_issues+=("$($LIB/../scripts/run-jq.sh -nc --arg tag "$TAG" --arg url "$ISSUE_URL" '{tag:$tag,url:$url}')")
     else
         # meta-issue.sh exited non-zero (de-dup lookup / create-returned-no-URL;
         # an overrides-write failure does NOT land here — it reports FILED).
@@ -411,22 +411,22 @@ the same `patterns.json` from Step 6) so the report shows the whole picture, not
 just the PRs that produced an intervention:
 
 ```bash
-ANALYZED_JSON="$(bash $LIB/../scripts/run-jq.sh -sc '[.[] | select(.verdict == "imperfect" or .verdict == "blocked") | {pr, verdict, summary}]' .devflow/tmp/new-entries.jsonl)"
+ANALYZED_JSON="$($LIB/../scripts/run-jq.sh -sc '[.[] | select(.verdict == "imperfect" or .verdict == "blocked") | {pr, verdict, summary}]' .devflow/tmp/new-entries.jsonl)"
 PATTERNS_JSON="$(cat .devflow/tmp/patterns.json)"
 ```
 
 Build the summary JSON and assign it to `$SUMMARY_JSON`:
 
 ```bash
-SUMMARY_JSON="$(bash $LIB/../scripts/run-jq.sh -nc \
+SUMMARY_JSON="$($LIB/../scripts/run-jq.sh -nc \
   --argjson prs_scanned         "$prs_scanned" \
   --argjson clean_count         "$clean_count" \
   --argjson analyzed_count      "$analyzed_count" \
   --argjson analyzed            "$ANALYZED_JSON" \
   --argjson patterns            "$PATTERNS_JSON" \
-  --argjson intervention_issues "$(printf '%s\n' "${intervention_issues[@]:-}" | bash $LIB/../scripts/run-jq.sh -sc '.')" \
-  --argjson cooldown_skipped    "$(printf '%s\n' "${cooldown_skipped[@]:-}"    | bash $LIB/../scripts/run-jq.sh -sc '.')" \
-  --argjson blockers            "$(printf '%s\n' "${blockers[@]:-}"            | bash $LIB/../scripts/run-jq.sh -sc '.')" \
+  --argjson intervention_issues "$(printf '%s\n' "${intervention_issues[@]:-}" | $LIB/../scripts/run-jq.sh -sc '.')" \
+  --argjson cooldown_skipped    "$(printf '%s\n' "${cooldown_skipped[@]:-}"    | $LIB/../scripts/run-jq.sh -sc '.')" \
+  --argjson blockers            "$(printf '%s\n' "${blockers[@]:-}"            | $LIB/../scripts/run-jq.sh -sc '.')" \
   --argjson state_pr            "$STATE_PR" \
   '{prs_scanned:$prs_scanned,clean_count:$clean_count,analyzed_count:$analyzed_count,
     analyzed:$analyzed,patterns:$patterns,
@@ -534,5 +534,5 @@ so the loop is well-suited to an unattended run. For a fully unattended run, add
 - **`fetch-pr-context.sh` return value:** echoes the bundle *file path* to
   stdout; the bundle content is on disk at `.devflow/tmp/pr-<n>.context.json`.
 - **`cheap-gate.jq` invocation:** reads from stdin (the bundle content, not
-  the path) — use `bash $LIB/../scripts/run-jq.sh -c -f $LIB/cheap-gate.jq < "$CTX"` where `$CTX` is
+  the path) — use `$LIB/../scripts/run-jq.sh -c -f $LIB/cheap-gate.jq < "$CTX"` where `$CTX` is
   the path.
