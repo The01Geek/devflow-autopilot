@@ -11273,9 +11273,9 @@ cat > "$JQT0/jq" <<'STUB'
 exit 0
 STUB
 chmod +x "$JQT0/jq"
-T0_SEL="$(PATH="$JQT0:$PATH" bash -c ". \"$RESOLVE_BIN_SH\"; devflow_resolve_bin jq")"
+T0_SEL="$(env -u DEVFLOW_JQ PATH="$JQT0:$PATH" bash -c ". \"$RESOLVE_BIN_SH\"; devflow_resolve_bin jq")"
 assert_eq "#247 T0: runnable jq on PATH resolves to 'jq' (no behavior change on Linux/macOS/cloud)" "jq" "$T0_SEL"
-T0B_SEL="$(PATH="$JQT0:$PATH" bash -c "set -euo pipefail; . \"$RESOLVE_JQ_SH\"; printf %s \"\$DEVFLOW_JQ\"")"
+T0B_SEL="$(env -u DEVFLOW_JQ PATH="$JQT0:$PATH" bash -c "set -euo pipefail; . \"$RESOLVE_JQ_SH\"; printf %s \"\$DEVFLOW_JQ\"")"
 assert_eq "#247 T0b: sourcing resolve-jq.sh under set -euo pipefail sets DEVFLOW_JQ" "jq" "$T0B_SEL"
 
 # ── T1 (defect reproduction) — a non-executable (bad-shebang) `jq` earlier on
@@ -11288,7 +11288,7 @@ cat > "$JQT1/jq.exe" <<'STUB'
 exit 0
 STUB
 chmod +x "$JQT1/jq.exe"
-T1_JQ_SEL="$(PATH="$JQT1:$PATH" bash -c ". \"$RESOLVE_BIN_SH\"; devflow_resolve_bin jq")"
+T1_JQ_SEL="$(env -u DEVFLOW_JQ PATH="$JQT1:$PATH" bash -c ". \"$RESOLVE_BIN_SH\"; devflow_resolve_bin jq")"
 assert_eq "#247 T1: bad-shebang jq rejected, runnable jq.exe chosen (execution-verified)" "jq.exe" "$T1_JQ_SEL"
 
 # ── T2 — DEVFLOW_JQ override wins verbatim and never probes `--version`. ──
@@ -11313,7 +11313,7 @@ assert_eq "#247 T2b: empty DEVFLOW_JQ falls through to the probe (not echoed ver
 #    contract preserved: existing error paths downstream stay unchanged). ──
 JQTD="$(mktemp -d)"; ln -s "$(command -v bash)" "$JQTD/bash"
 ln -s "$(command -v tr)" "$JQTD/tr" 2>/dev/null
-TD_JQ_SEL="$(PATH="$JQTD" "$JQTD/bash" -c ". \"$RESOLVE_BIN_SH\"; devflow_resolve_bin jq")"; TD_JQ_RC=$?
+TD_JQ_SEL="$(env -u DEVFLOW_JQ PATH="$JQTD" "$JQTD/bash" -c ". \"$RESOLVE_BIN_SH\"; devflow_resolve_bin jq")"; TD_JQ_RC=$?
 assert_eq "#247 degenerate: no runnable jq/jq.exe → falls back to bare 'jq'" "jq" "$TD_JQ_SEL"
 assert_eq "#247 degenerate: fallback still exits 0 (best-effort contract preserved)" "0" "$TD_JQ_RC"
 
@@ -11475,7 +11475,7 @@ assert_eq "#247 T4h: forward-slash Windows form normalizes identically (env-dete
 #    leave DEVFLOW_JQ empty (jq) or abort set -e callers at source time (gh). ──
 JQT7="$(mktemp -d)"
 cp "$RESOLVE_JQ_SH" "$JQT7/resolve-jq.sh"
-T7_OUT="$(bash -c "set -euo pipefail; . \"$JQT7/resolve-jq.sh\"; printf %s \"\$DEVFLOW_JQ\"" 2>"$JQT7/err")"
+T7_OUT="$(env -u DEVFLOW_JQ bash -c "set -euo pipefail; . \"$JQT7/resolve-jq.sh\"; printf %s \"\$DEVFLOW_JQ\"" 2>"$JQT7/err")"
 assert_eq "#247 T7: partial copy (no resolve-bin.sh) → DEVFLOW_JQ falls back to bare 'jq', not empty" "jq" "$T7_OUT"
 assert_eq "#247 T7: partial copy → breadcrumb names the missing resolve-bin.sh" "yes" \
   "$(grep -q 'resolve-bin.sh not found beside resolve-jq.sh' "$JQT7/err" && echo yes || echo no)"
@@ -11484,6 +11484,8 @@ T7B_OUT="$(DEVFLOW_GH=/stub/gh bash -c "set -euo pipefail; . \"$JQT7/resolve-gh.
 assert_eq "#247 T7b: partial copy (no resolve-bin.sh) → devflow_resolve_gh degrades to DEVFLOW_GH-or-bare-gh" "/stub/gh" "$T7B_OUT"
 assert_eq "#247 T7b: partial copy → gh breadcrumb emitted (no raw set -e abort)" "yes" \
   "$(grep -q 'resolve-bin.sh not found beside resolve-gh.sh' "$JQT7/err-gh" && echo yes || echo no)"
+T7C_OUT="$(env -u DEVFLOW_GH bash -c "set -euo pipefail; . \"$JQT7/resolve-gh.sh\"; devflow_resolve_gh" 2>/dev/null)"
+assert_eq "#247 T7c: partial copy, no override → degraded devflow_resolve_gh defaults to bare 'gh' (set -u safe)" "gh" "$T7C_OUT"
 
 # ── T8 — a converted helper COPIED without lib/ entirely: the call-site `||`
 #    fallback fires (breadcrumb + bare jq) and the helper still honors its

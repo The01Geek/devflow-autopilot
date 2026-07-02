@@ -100,7 +100,7 @@ set_config_version() {
   # runtime helpers honor DEVFLOW_JQ verbatim (never probed), so without this
   # breadcrumb the misconfiguration first detonates far from its cause.
   if [ -n "${DEVFLOW_JQ:-}" ] && ! "$jqbin" --version >/dev/null 2>&1; then
-    log "warning: DEVFLOW_JQ is set to '$jqbin' but it does not execute; using another tool for this step — fix DEVFLOW_JQ before running DevFlow."
+    log "warning: DEVFLOW_JQ is set to '$jqbin' but it does not execute; falling back for this step — fix DEVFLOW_JQ before running DevFlow."
   fi
   if [ -n "$jqbin" ] && "$jqbin" --version >/dev/null 2>&1; then
     if "$jqbin" -e '(.devflow_version // "") as $cur | ($cur == "" or ($cur | test("^[0-9a-f]{7,40}$")))' \
