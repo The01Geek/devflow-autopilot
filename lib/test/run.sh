@@ -1078,6 +1078,54 @@ assert_eq "sev(rcv): re-open threshold falls back to 'critical' on both arms" "2
 assert_eq "sev(rcv): vendored body has no repo-specific test path (lib/test/run.sh)" "no" "$(grep -qF 'lib/test/run.sh' "$ST_RCV" && echo yes || echo no)"
 assert_eq "sev(rcv): vendored body has no repo-specific CI job name (lib + python tests)" "no" "$(grep -qF 'lib + python tests' "$ST_RCV" && echo yes || echo no)"
 
+# ────────────────────────────────────────────────────────────────────────────
+echo "self-contradicting-diff verdict carve-out (Phase 4.2, threshold-independent) (#263)"
+# ────────────────────────────────────────────────────────────────────────────
+# #263 adds a threshold- AND severity-independent carve-out to the shared review
+# engine's verdict (skills/review/SKILL.md): a finding that a doc/comment/test the
+# PR's own diff added or modified is untrue drives REJECT at every
+# verdict_severity_threshold value and regardless of severity chip, is non-demotable
+# (Phase 4.0), and is corroboration-independent. Rule 3 gains an in-scope qualifier
+# (mirroring type-design-analyzer's "diff does not touch" phrasing) that the carve-out
+# overrides. The deliverable is LLM-executed skill prose — no automated verdict boundary —
+# so these are operative-sentence pins (PASS→FAIL on removal), a coupled-site mirror pin
+# (summary ↔ 4.2), a lockstep pin against receiving-code-review's shared definitional
+# phrase, and a no-new-key pin. Same idiom as the #251 threshold pins above.
+
+# A1 (carve-out AC): the Phase 4.2 operative sentence carrying "every threshold value /
+# regardless of severity chip" — its removal alone re-opens the mechanical escape.
+assert_pin_unique "263(A1): Phase 4.2 self-contradicting carve-out is threshold- and severity-independent" \
+  'drives **REJECT** at **every** `verdict_severity_threshold` value' "$ST_REV"
+# A2 (demotion-exclusion AC): the Phase 4.0 operative sentence — a matched deferral may
+# not demote a self-contradicting finding; only a fix clears the REJECT.
+assert_pin_unique "263(A2): Phase 4.0 excludes self-contradicting findings from deferral-demotion" \
+  'may **not** be demoted to Informational / pre-existing / out-of-scope' "$ST_REV"
+# A3 (in-scope qualifier AC): rule 3's "diff does not touch" qualifier AND the override
+# clause (the carve-out always wins) — two operative sentences, one pin each.
+assert_pin_unique "263(A3): rule 3 gains the 'diff does not touch' in-scope qualifier" \
+  'Do not report on pre-existing types the diff does not touch" carve-out' "$ST_REV"
+assert_pin_unique "263(A3): the carve-out overrides the in-scope qualifier (always in-scope)" \
+  'can never be classified pre-existing' "$ST_REV"
+# A4 (summary-match AC): the Phase 4.1 "Verdict Criteria" summary carries its own carve-out
+# bullet (its literal is summary-unique), AND the shared definitional phrase occurs at
+# exactly 3 sites in the engine (Phase 4.0 exclusion, Phase 4.2 carve-out, Phase 4.1
+# summary) — if the summary desyncs from 4.2 and drops the clause, the count falls → RED.
+assert_pin_unique "263(A4): Phase 4.1 summary carries the self-contradicting carve-out bullet" \
+  'is untrue → REJECT at every threshold value and regardless of severity chip' "$ST_REV"
+assert_eq "263(A4): carve-out definitional phrase mirrored across 4.0 + 4.2 + summary (coupled sites)" \
+  "3" "$(pin_count 'stale, contradicts HEAD, or contradicts another part of this change' "$ST_REV")"
+# A5 (lockstep + repo-agnostic AC): the verdict-engine carve-out and receiving-code-review's
+# documented-falsehood carve-out share the SAME definition of "contradicts the diff" — pin
+# the definitional phrase in receiving-code-review too, so a divergent redefinition of the
+# term on either side goes RED. (The vendored body's repo-agnostic pins are the two above.)
+assert_pin_unique "263(A5): receiving-code-review carries the shared 'contradicts the diff' definitional phrase" \
+  'stale, contradicts HEAD, or contradicts another part of this change' "$ST_RCV"
+# A6 (no-new-key AC): the carve-out is unconditional, not a knob — config.schema.json's
+# devflow_review.properties key set is unchanged from #251 (no new threshold property).
+assert_eq "263(A6): devflow_review schema gains no new property (carve-out adds no config key)" \
+  "agent_overrides live_progress_comment_enabled verdict_severity_threshold" \
+  "$(jq -r '.properties.devflow_review.properties | keys | join(" ")' "$ST_SCHEMA")"
+
 # Issue #182 (convention-violation / unscoped-staging): the review-and-fix fix-commit step
 # (Step 3 item 6) must stage only the specific files the fix touched, never `git add -A` /
 # `git add .` — an unscoped stage sweeps unrelated working-tree state (a local config edit,

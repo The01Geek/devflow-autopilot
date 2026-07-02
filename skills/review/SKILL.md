@@ -873,6 +873,8 @@ The matcher always exits 0 when it ran (any result, including no block found). R
 - For each entry in `honored[]`: the finding at `findings[finding_index]` is **demoted to Informational** for the rest of Phase 4. Record the `deferral_id` + `follow_up_issue` so the 4.1 line annotation can cite them.
 - For each entry in `rejected_deferrals[]`: the deferral did not apply (issue closed, missing cross-link, widens-surface re-check failed, or no matching current finding). The corresponding current finding (if any) is **not** demoted — flag it explicitly in 4.1's `## Deferrals` section with the reason.
 
+**A self-contradicting-diff finding is never demotable.** The demotion above does **not** apply to a *self-contradicting-diff* finding — a review-agent finding that a doc/release-note line, a code comment, or a test **the PR's own diff added or modified** is untrue (same definition of contradicting the diff as `skills/receiving-code-review/SKILL.md`'s documented-falsehood carve-out: **a claim that is stale, contradicts HEAD, or contradicts another part of this change**). Even when a validated deferral entry in `honored[]` matches such a finding, it may **not** be demoted to Informational / pre-existing / out-of-scope, and the deferral path does **not** satisfy the Phase 4.2 gate for it — only a **fix** (correct the prose, or the code the prose describes) clears the REJECT it drives (Phase 4.2's self-contradicting-diff carve-out). Leave the finding at its original severity bucket in the 4.1 report (not under "Informational — Deferred") with the "deferral not honored — self-contradicting diff" annotation described in 4.1, and let Phase 4.2 REJECT on it.
+
 If the matcher itself errors out (exit code 2), log the failure (`Deferral matcher failed: {stderr}; proceeding without demotions.`) and continue to 4.1 with all findings intact. Never block the review on a matcher failure — the safe default is to surface findings, not hide them.
 
 **Caching note.** The matcher hits the GitHub API once for the PR body + author and once per `follow_up.issue` for the cross-link guard. For a PR with N deferrals, this is N+1 API calls. Tolerable; if it ever becomes a bottleneck, batch the issue reads via `gh api graphql`.
@@ -907,7 +909,7 @@ FAIL and INCONCLUSIVE items stay listed outside the `<details>` block so they re
 ## Code Review Findings
 {Group findings by severity under a sub-heading that carries the severity icon — "### 🔴 Critical", "### 🟠 Important / Major", "### 🟡 Suggestion / Minor", "### ℹ️ Informational — Deferred". Emit the sub-headings in that order and omit any whose group has no findings.}
 {Within each group render each finding as a numbered-list item with NO icon, NO agent-name prefix, and NO severity-word prefix: "1. description (raised by N/{total Phase 3 agents that returned results} agents)", numbering restarting from 1 within each sub-heading. The severity is conveyed by the sub-heading alone — never repeat the icon or the severity word ("Critical:", "Important:", "Suggestion:") on the list items.}
-{for findings whose index appears in the matcher's honored[] list, append " [Deferred → #{follow_up_issue}]" to the line and place it under the "### ℹ️ Informational — Deferred" sub-heading rather than under its original severity bucket.}
+{for findings whose index appears in the matcher's honored[] list, append " [Deferred → #{follow_up_issue}]" to the line and place it under the "### ℹ️ Informational — Deferred" sub-heading rather than under its original severity bucket — **except a self-contradicting-diff finding (Phase 4.0), which is never demoted**: keep it under its original severity bucket and append " [Deferral not honored — self-contradicting diff; only a fix clears it]" instead, so Phase 4.2 still REJECTs on it.}
 {Within each severity, list corroborated findings (N≥2) before single-source ones (N=1) so the highest-confidence items lead.}
 {If Phase 4.1.5 flags a finding as a suspected over-grade, append its advisory annotation to that finding's line here — see 4.1.5. The annotation never changes the verdict.}
 
@@ -922,7 +924,8 @@ FAIL and INCONCLUSIVE items stay listed outside the `<details>` block so they re
 ## Verdict Criteria
 - Any FAIL in verification checklist → REJECT
 - Any INCONCLUSIVE in verification checklist → REJECT (manual check needed)
-- Any finding from review agents at or above the configured verdict threshold ({VERDICT_THRESHOLD}) → REJECT (excluding findings demoted to Informational via Phase 4.0's deferral match)
+- Any finding that a doc/release-note line, comment, or test **the diff added or modified** is untrue → REJECT at every threshold value and regardless of severity chip (self-contradicting-diff carve-out — a claim that is stale, contradicts HEAD, or contradicts another part of this change; non-demotable, corroboration-independent)
+- Any finding from review agents at or above the configured verdict threshold ({VERDICT_THRESHOLD}) → REJECT (excluding findings demoted to Informational via Phase 4.0's deferral match; when the threshold admits Important, an admitted finding does not REJECT if it is genuinely pre-existing behavior the diff does not touch — the carve-out above overrides this)
 - Checklist generation failed → max APPROVE WITH CAVEAT
 - 2+ review agents failed → partial review coverage
 - Only findings below the verdict threshold → APPROVE with notes
@@ -967,11 +970,13 @@ esac
 
 Severity ordering: `critical` > `important` > `suggestion`; "at or above `$VERDICT_THRESHOLD`" reads down that ladder. This threshold moves **only the REJECT line (rule 3)** below; every other rule and verdict label is unchanged. At the default `critical` (or an absent key) rule 3 fires on exactly the Critical findings it always has, so **verdict computation is byte-identical to today**.
 
+**Threshold-independent self-contradicting-diff carve-out (evaluated before the numbered rules — a correctness principle, not a severity grade).** A review-agent finding that a doc/release-note line, a code comment, or a test **the PR's own diff added or modified** is untrue drives **REJECT** at **every** `verdict_severity_threshold` value — including the default `critical` — and **regardless of the severity chip** the agent assigned it (a Suggestion-graded self-contradiction still REJECTs). This mirrors the documented-falsehood carve-out in `skills/receiving-code-review/SKILL.md` and shares its definition of contradicting the diff: **a claim that is stale, contradicts HEAD, or contradicts another part of this change**. It is **not demotable** — Phase 4.0's deferral match may not demote such a finding, and the deferral path does not satisfy this gate for it; only a **fix** clears the REJECT. It is **not** conditioned on the Phase 3.2 corroboration count — a single-source self-contradicting finding blocks exactly like a corroborated one. Because it is always in-scope, the rule 3 in-scope qualifier below never reclassifies it as pre-existing.
+
 Apply these rules in order (first match wins). For every rule that counts findings by severity, **exclude findings demoted to Informational by Phase 4.0's deferral match** — they appear in the report under the "Informational — Deferred" sub-heading but do not contribute to verdict computation. (Rejected-deferral entries do *not* demote their corresponding finding; those flow through at their original severity.)
 
 1. Any verification checklist item with verdict FAIL → **REJECT**
 2. Any verification checklist item with verdict INCONCLUSIVE → **REJECT** (add "manual check needed" note)
-3. Any finding from existing review agents at or above `$VERDICT_THRESHOLD` (excluding deferral-demoted ones) → **REJECT**
+3. Any finding from existing review agents at or above `$VERDICT_THRESHOLD` (excluding deferral-demoted ones) → **REJECT** — with one in-scope qualifier: when `$VERDICT_THRESHOLD` admits Important (i.e. is set to `important` or `suggestion`), an admitted finding drives REJECT **unless it is genuinely pre-existing behavior the diff does not touch** (mirroring the `type-design-analyzer` "Do not report on pre-existing types the diff does not touch" carve-out). The self-contradicting-diff carve-out above overrides this qualifier: a finding that contradicts the diff is **always** in-scope and can never be classified pre-existing. At the default `critical`, this qualifier is inert (only Critical findings reach rule 3), so verdict computation stays byte-identical to today.
 4a. If Phase 1+2 were skipped **because checklist generation failed** (`checklist_skipped = "failure"`) → maximum verdict is **APPROVE WITH CAVEAT** — verification checklist not generated (never a clean APPROVE)
 4b. If Phase 1+2 were skipped **intentionally by Phase 0.5** (`checklist_skipped = "intentional"`, i.e. small_diff AND config_only) → no caveat; the verdict follows the remaining rules normally. The skip was a deliberate engine-profile choice for a low-risk diff, not a failure.
 5. If 2 or more Phase 3 agents failed to return results → add "partial review coverage" note to the verdict
@@ -1006,6 +1011,8 @@ where `{VERDICT}` is the actual verdict line (e.g. `APPROVE`, `APPROVE with note
 | **REJECT** (any form) | `gh pr review $ARGUMENTS --request-changes --body "$BODY"` |
 | **APPROVE WITH CAVEAT** / **APPROVE with notes** | `gh pr review $ARGUMENTS --comment --body "$BODY"` |
 | **APPROVE** (clean, no findings) | `gh pr review $ARGUMENTS --approve --body "$BODY"` |
+
+A REJECT driven by the Phase 4.2 self-contradicting-diff carve-out is a **REJECT (any form)** like any other, so it maps to `gh pr review $ARGUMENTS --request-changes` via the first row above — there is no separate branch for it.
 
 If `gh pr review` fails (e.g. you cannot review your own PR as the same GitHub identity, or the token lacks permission), fall back to `gh pr comment $ARGUMENTS --body "$REPORT"` — use the full `$REPORT` here (not `$STUB`), since this fallback comment is the only artifact in that path. Note in your chat output that the formal review could not be posted. **Never silently skip this step on a REJECT** — the whole point is that the rejection must be impossible to miss.
 
