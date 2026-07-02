@@ -200,6 +200,18 @@ def _check_issue_cross_link(issue_number: int, pr_number: int) -> str | None:
         check=False,
     )
     if r.returncode != 0:
+        # rc=127 with empty stdout is _run's OSError sentinel (gh could not execute
+        # at all — e.g. an unrunnable shim), not a genuine gh/GitHub failure (404,
+        # permission, rate limit). An unusable gh invalidates the whole matching
+        # run, not just this one deferral, so fail loudly instead of silently
+        # misclassifying it as "issue unreadable" and discarding the diagnostic.
+        if r.returncode == 127 and not r.stdout:
+            _fail(f"could not execute {GH!r} while checking issue #{issue_number}: "
+                  f"{r.stderr.strip()} (set DEVFLOW_GH to a working GitHub CLI)")
+        sys.stderr.write(
+            f"match-deferrals.py: could not read issue #{issue_number} "
+            f"({r.stderr.strip()}); treating as unreadable\n"
+        )
         return REASON_ISSUE_UNREADABLE
     body, state = json.loads(r.stdout.strip())
     if state.upper() != "OPEN":

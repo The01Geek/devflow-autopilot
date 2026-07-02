@@ -11122,6 +11122,61 @@ assert_eq "#245 T8: empty DEVFLOW_GH in a Python helper falls back to 'gh' (stub
 assert_eq "#245 T8: empty-override Python helper consumed the stub's output (not an empty argv0)" "yes" \
   "$(printf '%s' "$T8_OUT" | grep -q 'devflow-gh-empty-marker' && echo yes || echo no)"
 
+# ── T9 (AC6 negative) — the headline #3493 fix, exercised end-to-end: pointing
+#    DEVFLOW_GH at a non-executable file makes subprocess.run raise OSError
+#    (ENOEXEC), which parse-acs.py's `except (subprocess.CalledProcessError,
+#    OSError)` must convert into a structured stderr breadcrumb + non-zero exit —
+#    never a raw Python traceback. A regression dropping OSError from that except
+#    tuple (or from any of the other three Python gh-callers, per the static
+#    per-script pins below) would let a raw traceback escape while every other
+#    #245 test — which only ever points DEVFLOW_GH at a *runnable* stub — stays
+#    green. ──
+GHT9="$(mktemp -d)"
+printf '#!/nonexistent/devflow-test-interpreter\necho nope\n' > "$GHT9/gh-broken"; chmod +x "$GHT9/gh-broken"
+T9_OUT="$(DEVFLOW_GH="$GHT9/gh-broken" python3 "$LIB/../scripts/parse-acs.py" --issue 1 2>&1 >/dev/null)"; T9_RC=$?
+assert_eq "#245 T9: unrunnable DEVFLOW_GH override → non-zero exit (OSError converted, not swallowed)" "yes" \
+  "$([ "$T9_RC" -ne 0 ] && echo yes || echo no)"
+assert_eq "#245 T9: unrunnable DEVFLOW_GH override → structured breadcrumb, not a raw Python traceback" "yes" \
+  "$(printf '%s' "$T9_OUT" | grep -q 'gh issue view failed' && ! printf '%s' "$T9_OUT" | grep -q 'Traceback (most recent call last)' && echo yes || echo no)"
+
+# ── T9b — same OSError-conversion class as T9, but for workpad.py's `_repo_full`
+#    (every workpad.py subcommand's first gh call, hence the highest-traffic call
+#    site of the four Python gh-callers — flagged separately because a class-level
+#    fix for T9 alone would leave this specific, highest-traffic site unverified). ──
+T9B_OUT="$(DEVFLOW_GH="$GHT9/gh-broken" python3 "$LIB/../scripts/workpad.py" id 1 2>&1 >/dev/null)"; T9B_RC=$?
+assert_eq "#245 T9b: workpad.py _repo_full, unrunnable DEVFLOW_GH override → non-zero exit" "yes" \
+  "$([ "$T9B_RC" -ne 0 ] && echo yes || echo no)"
+assert_eq "#245 T9b: workpad.py _repo_full, unrunnable DEVFLOW_GH override → structured breadcrumb, not a raw Python traceback" "yes" \
+  "$(printf '%s' "$T9B_OUT" | grep -q 'repo lookup' && ! printf '%s' "$T9B_OUT" | grep -q 'Traceback (most recent call last)' && echo yes || echo no)"
+
+# ── T10 (AC5 complement) — preflight's "gh not installed" branch, distinct from
+#    the AC5 shim branch above. AC5's fixture always plants a bad-shebang gh/
+#    gh.exe, so `command -v gh` always succeeds and preflight's if/else always
+#    takes the shim (else) branch — the "nothing named gh/gh.exe on PATH" if
+#    branch is never actually exercised, even though both branches share the
+#    pinned "no working 'gh'" literal and a broken if-branch message would stay
+#    invisible to AC5 alone. Curate a PATH with only the other required tools
+#    (no gh/gh.exe anywhere) so `command -v gh` and `command -v gh.exe` both
+#    genuinely fail. ──
+GHT10="$(mktemp -d)"
+for _t10_bin in git jq python3 dirname cat grep sed cut tr head; do
+  _t10_path="$(command -v "$_t10_bin" 2>/dev/null)"
+  [ -n "$_t10_path" ] && ln -sf "$_t10_path" "$GHT10/$_t10_bin"
+done
+# `env PATH=<restricted> bash …` execs "bash" by searching the NEW (restricted)
+# PATH, not the caller's current one — so bash itself must be resolved to its
+# full path first, or the restricted PATH (which deliberately excludes real
+# gh) would also make `bash` unresolvable and the test would spuriously fail
+# on an `env` error rather than exercising preflight at all.
+_T10_BASH_BIN="$(command -v bash)"
+PF_NI_OUT="$(env -u DEVFLOW_GH PATH="$GHT10" "$_T10_BASH_BIN" "$PREFLIGHT_SH" 2>&1)"; PF_NI_RC=$?
+assert_eq "#245 T10: preflight, gh genuinely absent (no gh/gh.exe on PATH) → exit non-zero" "yes" \
+  "$([ "$PF_NI_RC" -ne 0 ] && echo yes || echo no)"
+assert_eq "#245 T10: preflight, gh genuinely absent → \"not installed\" wording (not the shim wording)" "yes" \
+  "$(printf '%s' "$PF_NI_OUT" | grep -q "no working 'gh' — the GitHub CLI is not installed" && echo yes || echo no)"
+assert_eq "#245 T10: preflight, gh genuinely absent → does NOT emit the shim-specific remedy" "no" \
+  "$(printf '%s' "$PF_NI_OUT" | grep -q 'does not execute' && echo yes || echo no)"
+
 # ── Peer-completeness pin (2.3.0a): every gh-calling shell helper routes through
 #    the resolver — no helper retains the bare `: "${DEVFLOW_GH:=gh}"` default, no
 #    non-comment bare `gh <subcommand>` call survives outside the resolver (the
