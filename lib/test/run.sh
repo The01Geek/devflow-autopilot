@@ -12280,6 +12280,36 @@ assert_eq "#266 config example+schema carry coupled stall_backstop keys (types/d
 assert_eq "#266 workpad.py: status subcommand registered (func=cmd_status)" "yes" \
   "$(grep -q 'func=cmd_status' "$REPO_ROOT/scripts/workpad.py" && echo yes || echo no)"
 
+# Behavioral: workpad.py status class derivation (mirrors the #222 gh-stub
+# pattern at the top of this file). A glyph-set regression (dropping 👎 from the
+# terminal tuple, or inverting terminal/interim) would misclassify a healthy
+# terminal run as a stall — the CLASS token is fed verbatim to
+# stall-backstop-decide.sh — so pin the mapping and the exit-code contract
+# behaviorally, not just the argparse registration. RED pre-change: the `status`
+# subcommand didn't exist, so the glyph assertions get argparse's empty stdout.
+WP266_GHD="$(mktemp -d)"
+cat > "$WP266_GHD/gh" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *"repo view"*) echo "acme/example-repo" ;;
+  *"comments"*) if [ -n "${STUB_COMMENTS:-}" ]; then printf '%s\n' "$STUB_COMMENTS"; else echo '[]'; fi ;;
+  *) echo '[]' ;;
+esac
+STUB
+chmod +x "$WP266_GHD/gh"
+WP266_PY="$REPO_ROOT/scripts/workpad.py"
+WP266_OUT="$(PATH="$WP266_GHD:$PATH" STUB_COMMENTS='[{"id":1,"body":"<!-- devflow:workpad -->\n**Status:** 🎉 Complete"}]' python3 "$WP266_PY" status 5 2>/dev/null)"
+assert_eq "#266 workpad.py status: Complete -> 'terminal 🎉 Complete'" "terminal 🎉 Complete" "$WP266_OUT"
+WP266_OUT="$(PATH="$WP266_GHD:$PATH" STUB_COMMENTS='[{"id":1,"body":"<!-- devflow:workpad -->\n**Status:** 👎 Blocked"}]' python3 "$WP266_PY" status 5 2>/dev/null)"
+assert_eq "#266 workpad.py status: Blocked -> 'terminal 👎 Blocked'" "terminal 👎 Blocked" "$WP266_OUT"
+WP266_OUT="$(PATH="$WP266_GHD:$PATH" STUB_COMMENTS='[{"id":1,"body":"<!-- devflow:workpad -->\n**Status:** 🚀 Reviewing"}]' python3 "$WP266_PY" status 5 2>/dev/null)"
+assert_eq "#266 workpad.py status: Reviewing -> 'interim 🚀 Reviewing'" "interim 🚀 Reviewing" "$WP266_OUT"
+PATH="$WP266_GHD:$PATH" STUB_COMMENTS='[]' python3 "$WP266_PY" status 5 >/dev/null 2>&1
+assert_eq "#266 workpad.py status: no workpad -> exit 2" "2" "$?"
+PATH="$WP266_GHD:$PATH" STUB_COMMENTS='[{"id":1,"body":"<!-- devflow:workpad -->\nno status line here"}]' python3 "$WP266_PY" status 5 >/dev/null 2>&1
+assert_eq "#266 workpad.py status: present but unreadable Status -> exit 1" "1" "$?"
+rm -rf "$WP266_GHD"
+
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
