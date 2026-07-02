@@ -11544,7 +11544,7 @@ assert_eq "#247 T7e: unreadable resolve-bin.sh → gh fallback breadcrumb fires"
 cp "$LIB/preflight.sh" "$LIB/resolve-python.sh" "$JQT7D/"
 T7F_ERR="$(env -u DEVFLOW_JQ -u DEVFLOW_GH bash "$JQT7D/preflight.sh" 2>&1)"; T7F_RC=$?
 assert_eq "#247 T7f: preflight beside unreadable resolve-bin.sh → degraded breadcrumb, no phantom-shim wording" "yes" \
-  "$(printf '%s' "$T7F_ERR" | grep -q 'missing or not sourceable beside preflight.sh' && printf '%s' "$T7F_ERR" | grep -vq "the resolved '' does not execute" && echo yes || echo no)"
+  "$(printf '%s' "$T7F_ERR" | grep -q 'missing or not sourceable beside preflight.sh' && ! printf '%s' "$T7F_ERR" | grep -q "the resolved '' does not execute" && echo yes || echo no)"
 assert_eq "#247 T7f: preflight degraded mode still exits 0 on a healthy host" "0" "$T7F_RC"
 chmod 600 "$JQT7D/resolve-bin.sh"
 
@@ -11723,7 +11723,7 @@ assert_eq "#247 peer-completeness: >=15 helpers reference the shared resolver (a
 # reintroductions go RED too.
 DJQ_BARE="$(grep -rnE '(^|[[:space:]|&;(`])jq[[:space:]]+(-|'"'"'|"|\.|empty|length|keys|type|to_entries)' \
   "$DJQ_ROOT/scripts" "$DJQ_ROOT/lib" "$DJQ_ROOT/install.sh" --include='*.sh' 2>/dev/null \
-  | grep -v '/test/' | grep -v 'resolve-bin\.sh:' | grep -vE ':[[:space:]]*#' | grep -vE 'jq(\.exe)? --version' | grep -c . || true)"
+  | grep -v '/test/' | grep -v 'resolve-bin\.sh:' | grep -vE '^[^:]+:[0-9]+:[[:space:]]*#' | grep -vE 'jq(\.exe)? --version' | grep -c . || true)"
 assert_eq "#247 peer-completeness: no bare invocation-position jq call survives outside the resolver" "0" "$DJQ_BARE"
 
 rm -rf "$JQT0" "$JQT1" "$JQT2" "$JQT2D" "$JQTD" "$NPT4" "$NPT4B" "$NPT4C" "$NPT4D" "$NPT4E" "$NPT4G" "$NPT4I" "$JQTP" "$JQT10" "$JQT6" "$JQT7" "$JQT8" "$SCVJ" "$SCVO" "$PFPC" "$T5D" "$T5DM" "$JQT7D" "$JQNEG" "$GENTR"
