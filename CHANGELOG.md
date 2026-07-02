@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.51] — 2026-07-02
+
+### Changed
+- **`/devflow:create-issue` no longer treats a silent no-response as disengagement — a question-tool timeout is a pause, not a hand-off.** The runner's user-question tool (Claude Code's `AskUserQuestion`) returns `No response after 60s` when the user does not answer within a hardcoded, non-configurable 60-second window (confirmed against the Claude Code settings docs and upstream `anthropics/claude-code#30740`, closed "not planned"). Because the Step 2 disengagement rule listed **"goes quiet"** alongside the explicit hand-off signals, a mere timeout was classified as disengagement, so the agent stopped waiting and proceeded to draft, guess a default, or route items to Blocked — discarding the user's real answer, which often arrives seconds later. `skills/create-issue/SKILL.md` now removes "goes quiet" from the disengagement-trigger list and adds an explicit rule that a silent non-response (a question-tool timeout / `No response after 60s` / the user stepping away) is **not** disengagement: the agent pauses and re-asks the unanswered question in its final chat message and must not proceed, draft, guess a default, or route the item to Blocked on that basis. Only the explicit signals "just create it", "you decide", and "I don't know" engage the draft-from-decided / Blocked path. The ~18-question clarification budget is reconciled to count **answered** questions, so a silent timeout never counts toward — or trips — "treat the remainder as disengagement." The change reads consistently with the existing Step 4 confirmation gate (stay paused until the user explicitly confirms). Confined to `skills/create-issue/SKILL.md`; `lib/test/run.sh` gains removal-proof `assert_pin_unique` pins on the operative sentences (silent-non-response-is-not-disengagement, re-ask-in-final-message, explicit-only trigger path, budget counts answered questions) plus an absence pin that "goes quiet" is gone. (#257, closes #256)
+
 ## [2.8.50] — 2026-07-01
 
 ### Added
