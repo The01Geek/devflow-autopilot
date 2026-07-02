@@ -534,3 +534,85 @@ jobs:
             git push || echo "::warning::observability backstop: push of persisted artifacts failed; commit is local-only"
           fi
           exit 0
+
+      # ── Stall backstop (issue #268; primitives from #266) ──────────────────
+      # A headless single-shot claude-code-action run can end mid-lifecycle yet
+      # report success (the SDK ends the session on a tool-call-free turn), so
+      # this deterministic post-run step keys on the issue workpad Status —
+      # never PR draft state — and acts on the pure decision helper's verdict:
+      # terminal → no-op; interim → audit comment + re-dispatch (bounded by
+      # stall_backstop.max_resume_attempts); cap exhausted or unreadable →
+      # distinct comment + non-zero exit (the job goes honestly red).
+      #
+      # Two live-run boundaries (documented in docs/implement-skill.md): a
+      # re-dispatch comment authored by the built-in GITHUB_TOKEN does NOT
+      # re-trigger the workflow (GitHub suppresses recursive GITHUB_TOKEN
+      # events), so auto-resume needs the optional DEVFLOW_APP_ID App token —
+      # and that App's bot login must be in devflow.allowed_bots or the gate's
+      # authorization declines the resume comment. Fail-loud + audit comments
+      # work under either token.
+      - name: Stall backstop
+        if: ${{ always() }}
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ needs.gate.outputs.number }}
+        run: |
+          set +e
+          V=.devflow/vendor/devflow/scripts
+          [ -d "$V" ] || { echo "::warning::stall backstop: vendored scripts dir '$V' missing; skipped"; exit 0; }
+          # Master switch first: disabled → fully skipped (no status read, no
+          # comment, no resume, no fail). Unrecognized/missing resolves to true.
+          ENABLED="$("$V/config-get.sh" .devflow_implement.stall_backstop.enabled true)" || ENABLED=true
+          [ -n "$ENABLED" ] || ENABLED=true
+          if [ "$ENABLED" = "false" ]; then
+            echo "stall backstop: disabled via stall_backstop.enabled=false; skipping (no status read)"
+            exit 0
+          fi
+          MAX="$("$V/config-get.sh" .devflow_implement.stall_backstop.max_resume_attempts 2)" || MAX=2
+          # Workpad Status read: exit 2 (no workpad) and exit 1 (unparseable
+          # Status) both map to the decision helper's 'unreadable' class.
+          STATUS_OUT="$(python3 "$V/workpad.py" status "$ISSUE_NUMBER" 2>/dev/null)"
+          if [ $? -eq 0 ] && [ -n "$STATUS_OUT" ]; then
+            CLASS="${STATUS_OUT%% *}"
+          else
+            CLASS=unreadable
+            STATUS_OUT="(unreadable: workpad missing or Status unparseable)"
+          fi
+          # Prior auto-resume attempts = audit comments carrying the marker
+          # below. The marker is written into each resume comment AND counted
+          # here through this single variable (coupled with the lib/test/run.sh
+          # pin). A gh/network failure counts 0 — failing toward one more
+          # resume attempt, never toward a spurious exhaustion.
+          MARKER='<!-- devflow:stall-backstop-audit -->'
+          ATTEMPTS="$(gh api --paginate "repos/{owner}/{repo}/issues/${ISSUE_NUMBER}/comments?per_page=100" --jq '.[].body' 2>/dev/null | grep -cF "$MARKER")"
+          [[ "$ATTEMPTS" =~ ^[0-9]+$ ]] || ATTEMPTS=0
+          DECISION="$(bash "$V/stall-backstop-decide.sh" "$ENABLED" "$CLASS" "$ATTEMPTS" "$MAX")"
+          echo "stall backstop: status='${STATUS_OUT}' class=${CLASS} attempts=${ATTEMPTS} max=${MAX} decision=${DECISION}"
+          if [ "$DECISION" = "skip" ] || [ "$DECISION" = "noop" ]; then
+            exit 0
+          fi
+          BODY="$(mktemp)" || { echo "::warning::stall backstop: mktemp failed; cannot post the ${DECISION} comment"; [ "$DECISION" = "resume" ] && exit 0 || exit 1; }
+          FAIL=1
+          case "$DECISION" in
+            resume)
+              FAIL=0
+              K=$((ATTEMPTS + 1))
+              # The ONLY comment that may carry the trigger phrase. It must not
+              # embed the workpad marker (the gate's self-trigger guard declines
+              # any comment containing it).
+              {
+                printf '%s\n\n' "$MARKER"
+                printf '**DevFlow stall backstop** — this cloud run ended while the workpad Status was still in-progress (`%s`). Auto-resume attempt %s of %s:\n\n' "$STATUS_OUT" "$K" "$MAX"
+                printf '/devflow:implement %s\n' "$ISSUE_NUMBER"
+              } > "$BODY"
+              ;;
+            fail-exhausted)
+              printf '**DevFlow stall backstop** — this cloud run ended while the workpad Status was still in-progress (`%s`), and the auto-resume cap (max_resume_attempts=%s, attempts already made: %s) is exhausted. The job has been failed so the stall is visible; to retry, post a fresh implement trigger comment naming this issue number.\n' "$STATUS_OUT" "$MAX" "$ATTEMPTS" > "$BODY"
+              ;;
+            *)
+              # fail-unreadable (or any unknown/empty decision token — fail closed).
+              printf '**DevFlow stall backstop** — could not classify this run'"'"'s outcome: the issue workpad Status was unreadable (workpad comment missing, or its Status line unparseable), or the backstop decision could not be computed (decision token: `%s`). The job has been failed so this is visible; inspect the run log and the workpad, then post a fresh implement trigger comment to retry.\n' "${DECISION:-none}" > "$BODY"
+              ;;
+          esac
+          bash "$V/post-issue-comment.sh" "$ISSUE_NUMBER" "$BODY"
+          exit "$FAIL"

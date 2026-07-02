@@ -12901,16 +12901,36 @@ PY
 )"
 assert_eq "#266 config example+schema carry coupled stall_backstop keys (types/defaults/additionalProperties)" "yes" "$CFG266"
 
-# NOTE: the stall-backstop workflow-wiring pins (the step in
-# devflow-implement.yml that reads the config keys, calls the decision helper, and
-# re-dispatches) are DEFERRED to a follow-up issue: pushing a `.github/workflows/`
-# edit needs a token carrying `workflows:write` (the optional DEVFLOW_APP_ID App),
-# which #266's run lacked. The reusable primitives below (decision helper, REST
-# comment helper, workpad status read, config keys) ship and are fully pinned here;
-# the thin workflow caller lands with the follow-up. See the parent issue's Phase 4.0
-# follow-up for the exact workflow step + its pins. (The AC11 (#225) `.github`-freeze
-# reconciliation this note originally also deferred is no longer pending — #271
-# retired that over-broad freeze; see the "AC11 (#225) RETIRED by #271" block above.)
+# ── #268 workflow wiring: the thin caller step in devflow-implement.yml that
+# composes the #266 primitives (deferred from #266; needed a workflows:write
+# token). Content pins over the literal YAML — RED pre-change (the step did not
+# exist, so every literal below was absent). assert_pin_unique doubles as the
+# removal-proof: PASS with the pinned text present exactly once, FAIL without it.
+WF268="$REPO_ROOT/.github/workflows/devflow-implement.yml"
+assert_pin_unique "#268 wiring: 'Stall backstop' step present in devflow-implement.yml" \
+  "name: Stall backstop" "$WF268"
+assert_eq "#268 wiring: stall-backstop step is gated if: always() (runs on action failure too)" "yes" \
+  "$(grep -A1 'name: Stall backstop' "$WF268" | grep -q 'if: \${{ always() }}' && echo yes || echo no)"
+assert_pin_unique "#268 wiring: step reads stall_backstop.enabled via vendored config-get.sh" \
+  ".devflow_implement.stall_backstop.enabled" "$WF268"
+assert_pin_unique "#268 wiring: step reads stall_backstop.max_resume_attempts via vendored config-get.sh" \
+  ".devflow_implement.stall_backstop.max_resume_attempts" "$WF268"
+assert_pin_unique "#268 wiring: step calls the vendored decision helper" \
+  "stall-backstop-decide.sh" "$WF268"
+assert_pin_unique "#268 wiring: step reads the workpad Status via workpad.py status" \
+  'workpad.py" status' "$WF268"
+assert_pin_unique "#268 wiring: step posts comments via the vendored best-effort REST helper (single funnel)" \
+  "post-issue-comment.sh" "$WF268"
+# Coupled literal: the resume-audit comment marker. The workflow both WRITES it
+# (into each auto-resume comment) and COUNTS it (gh api --paginate + grep) to
+# derive ATTEMPTS, via one shell variable — so the literal must appear exactly
+# once in the YAML. Renaming it there without updating this pin goes RED.
+assert_pin_unique "#268 wiring: resume-audit marker literal (written + counted via one variable)" \
+  "devflow:stall-backstop-audit" "$WF268"
+# The re-dispatch body is the ONLY comment carrying the trigger phrase, and it
+# targets the run's own issue number.
+assert_pin_unique "#268 wiring: re-dispatch body carries the /devflow:implement trigger phrase" \
+  '/devflow:implement %s' "$WF268"
 
 # workpad.py status subcommand is registered (the backstop's status read path).
 assert_eq "#266 workpad.py: status subcommand registered (func=cmd_status)" "yes" \
