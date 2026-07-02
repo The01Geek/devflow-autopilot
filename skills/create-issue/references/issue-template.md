@@ -39,12 +39,18 @@ Exception: if the scope-split decision is itself unresolved because the user dis
 it honestly reflects the unresolved scope. Do not silently pick one feature to satisfy the
 title rule; that would be inventing a default the skill forbids.
 
-### Description
-- **Problem Statement** — why is this needed? Which user hits what pain.
-- **Current Behavior** — for a bug, what happens today; for a feature, what's missing.
-- **Desired Behavior** — the single decided behavior after implementation. State it
-  declaratively ("Owners export results as PDF"), never as a menu.
-- **User Impact** — who benefits and how.
+### Problem Statement
+Why is this needed? Which user hits what pain.
+
+### Current Behavior
+For a bug, what happens today; for a feature, what's missing.
+
+### Desired Behavior
+The single decided behavior after implementation. State it declaratively ("Owners
+export results as PDF"), never as a menu.
+
+### User Impact
+Who benefits and how.
 
 ### Technical Context
 Ground this in the documentation findings passed by the caller. Open the section with this
@@ -239,7 +245,25 @@ Step 4 is for the user's eyes only — never the posting source):
 ```bash
 gh issue create --title "Action-oriented title here" --body-file - <<'BODY'
 ## Problem Statement
-...full rendered issue markdown...
+...
+
+## Current Behavior
+...
+
+## Desired Behavior
+...
+
+## User Impact
+...
+
+## Technical Context
+...
+
+## Acceptance Criteria
+...
+
+## Implementation Notes
+...
 BODY
 ```
 
