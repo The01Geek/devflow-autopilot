@@ -12023,6 +12023,15 @@ assert_eq "#248 preflight: emits the devflow-bash breadcrumb naming the running 
   "$(printf '%s' "$PF248_OUT" | grep -q 'devflow-bash: running under bash ' && echo yes || echo no)"
 assert_eq "#248 preflight: breadcrumb carries the live \$BASH_VERSION (AC2/T1)" "yes" \
   "$(printf '%s' "$PF248_OUT" | grep -qF "$BASH_VERSION" && echo yes || echo no)"
+# Pin the OTHER AC2 breadcrumb component — the interpreter path (${BASH:-unknown}).
+# Assert a non-empty path token sits between "running under bash " and " (": a
+# regression that dropped ${BASH:-unknown} (reformatting to "running under bash
+# ($BASH_VERSION)") leaves "(" immediately after the prefix and goes RED. Pins the
+# FIELD's presence without hardcoding the (test-temp, per-run) path value, so it is
+# robust rather than fragile. The `unknown` fallback still satisfies it (a present
+# field), which is the intended AC2 semantics.
+assert_eq "#248 preflight: breadcrumb carries a non-empty interpreter path (AC2/T1)" "yes" \
+  "$(printf '%s' "$PF248_OUT" | grep -Eq 'devflow-bash: running under bash [^ (]' && echo yes || echo no)"
 assert_eq "#248 preflight: byte-identical pass line still last with the breadcrumb added (AC4)" \
   "devflow preflight: all dependencies present." "$(printf '%s\n' "$PF248_OUT" | tail -1)"
 assert_eq "#248 preflight: no DEVFLOW_BASH= in breadcrumb when unset (AC4 no-op)" "no" \
