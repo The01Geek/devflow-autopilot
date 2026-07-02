@@ -11997,6 +11997,87 @@ assert_eq "#247 peer-completeness: no bare invocation-position jq call survives 
 
 rm -rf "$JQT0" "$JQT1" "$JQT2" "$JQT2D" "$JQTD" "$NPT4" "$NPT4B" "$NPT4C" "$NPT4D" "$NPT4E" "$NPT4G" "$NPT4I" "$JQTP" "$JQT10" "$JQT6" "$JQT7" "$JQT8" "$SCVJ" "$SCVO" "$PFPC" "$T5D" "$T5DM" "$JQT7D" "$JQNEG" "$GENTR"
 
+# ────────────────────────────────────────────────────────────────────────────
+echo "running-bash diagnostic: preflight.sh devflow-bash breadcrumb + remedy (issue #248)"
+# ────────────────────────────────────────────────────────────────────────────
+# preflight.sh emits a `devflow-bash:` breadcrumb naming the POSIX bash its .sh
+# helpers run under (interpreter path + $BASH_VERSION) and surfaces DEVFLOW_BASH
+# when it is set, so a user can confirm the intended bash took effect. When it is
+# NOT running under a POSIX bash (empty $BASH_VERSION under sh/dash) it prints a
+# remedy naming WSL/Git Bash/MSYS2 bash + the DEVFLOW_BASH override and exits
+# non-zero BEFORE the first bash-only construct (`${BASH_SOURCE[0]}`) would abort.
+# The breadcrumb goes to stderr; tests capture 2>&1. DEVFLOW_BASH is honored at
+# the invocation layer (the agent/runner that shells into bash), NOT selected by
+# preflight — so these tests cover the diagnostic, and V1 (the invocation-layer
+# behavior) is a documented manual verification, not automatable here.
+PF248="$LIB/preflight.sh"
+
+# ── T1 (AC2/AC4): under bash, the breadcrumb names the running bash + the LIVE
+#    $BASH_VERSION, the exit-0 contract and byte-identical pass line are unchanged,
+#    and an unset DEVFLOW_BASH adds nothing (no-op). Stub PATH + fake python3 so
+#    preflight reaches its normal exit 0. ──
+T248="$(mktemp -d)"; build_stub_bin "$T248"; make_fake_python "$T248/python3" "3.12.4" 3 12
+PF248_OUT="$(PATH="$T248" bash "$PF248" 2>&1)"; PF248_RC=$?
+assert_eq "#248 preflight: bash run → exit 0 (AC4 unchanged)" "0" "$PF248_RC"
+assert_eq "#248 preflight: emits the devflow-bash breadcrumb naming the running bash (AC2/T1)" "yes" \
+  "$(printf '%s' "$PF248_OUT" | grep -q 'devflow-bash: running under bash ' && echo yes || echo no)"
+assert_eq "#248 preflight: breadcrumb carries the live \$BASH_VERSION (AC2/T1)" "yes" \
+  "$(printf '%s' "$PF248_OUT" | grep -qF "$BASH_VERSION" && echo yes || echo no)"
+assert_eq "#248 preflight: byte-identical pass line still last with the breadcrumb added (AC4)" \
+  "devflow preflight: all dependencies present." "$(printf '%s\n' "$PF248_OUT" | tail -1)"
+assert_eq "#248 preflight: no DEVFLOW_BASH= in breadcrumb when unset (AC4 no-op)" "no" \
+  "$(printf '%s' "$PF248_OUT" | grep -q 'DEVFLOW_BASH=' && echo yes || echo no)"
+
+# ── T2 (AC2 override surfacing): DEVFLOW_BASH set is reflected verbatim in the
+#    breadcrumb, and preflight still exits 0. ──
+PF248O_OUT="$(DEVFLOW_BASH=/opt/devflow-marker/bash PATH="$T248" bash "$PF248" 2>&1)"; PF248O_RC=$?
+assert_eq "#248 preflight: DEVFLOW_BASH set → still exit 0 (AC4)" "0" "$PF248O_RC"
+assert_eq "#248 preflight: breadcrumb surfaces the DEVFLOW_BASH value (AC2/T2)" "yes" \
+  "$(printf '%s' "$PF248O_OUT" | grep -qF 'DEVFLOW_BASH=/opt/devflow-marker/bash' && echo yes || echo no)"
+
+# ── T3 (AC3 remedy): under a NON-bash POSIX shell (empty $BASH_VERSION) preflight
+#    prints the remedy naming the supported bashes + DEVFLOW_BASH and exits non-zero,
+#    BEFORE the bash-only `${BASH_SOURCE[0]}` would abort with a cryptic error.
+#    Exercised with a real non-bash sh when one exists (dash/busybox, invoked by
+#    absolute path so the stub PATH can't hide it); on a bash-only host the dynamic
+#    arm is skipped (recorded, never silently green) and the static pins below still
+#    guarantee the remedy strings ship. ──
+NONBASH=""
+if command -v dash >/dev/null 2>&1; then NONBASH="$(command -v dash)"
+elif command -v busybox >/dev/null 2>&1; then NONBASH="$(command -v busybox) sh"
+fi
+if [ -n "$NONBASH" ]; then
+  # shellcheck disable=SC2086  # $NONBASH may be the two words "<path>/busybox sh"
+  PF248R_OUT="$($NONBASH "$PF248" 2>&1)"; PF248R_RC=$?
+  assert_eq "#248 preflight: non-bash shell → exit non-zero (fail closed, AC3)" "yes" \
+    "$([ "$PF248R_RC" -ne 0 ] && echo yes || echo no)"
+  assert_eq "#248 preflight: non-bash → 'not running under a POSIX bash' remedy (AC3)" "yes" \
+    "$(printf '%s' "$PF248R_OUT" | grep -q 'devflow-bash: not running under a POSIX bash' && echo yes || echo no)"
+  assert_eq "#248 preflight: remedy names WSL + Git Bash + MSYS2 (AC3)" "yes" \
+    "$(printf '%s' "$PF248R_OUT" | grep -q 'WSL bash' && printf '%s' "$PF248R_OUT" | grep -q 'Git Bash' && printf '%s' "$PF248R_OUT" | grep -q 'MSYS2 bash' && echo yes || echo no)"
+  assert_eq "#248 preflight: remedy names the DEVFLOW_BASH override (AC3)" "yes" \
+    "$(printf '%s' "$PF248R_OUT" | grep -q 'DEVFLOW_BASH' && echo yes || echo no)"
+  assert_eq "#248 preflight: remedy fires BEFORE the bash-only \${BASH_SOURCE[0]} (no array-syntax error leaks)" "no" \
+    "$(printf '%s' "$PF248R_OUT" | grep -qi 'bad substitution\|BASH_SOURCE' && echo yes || echo no)"
+else
+  # No non-bash sh on this host: record an explicit skip so the missing dynamic
+  # coverage is visible (never a silent green); the static pins below still fire.
+  echo PASS >> "$RESULTS_FILE"
+  printf '  PASS  #248 preflight: non-bash remedy dynamic arm SKIPPED (no dash/busybox on host) — static pins below cover the remedy strings\n'
+fi
+
+# ── Static pins (AC2/AC3/AC7): the breadcrumb + remedy literals ship in the source,
+#    so coverage never silently no-ops on a bash-only host. assert_pin_unique doubles
+#    as the removal-proof — deleting either pinned line goes RED on every run. ──
+assert_pin_unique "#248 pin: devflow-bash breadcrumb literal present in preflight.sh (AC2)" \
+  "devflow-bash: running under bash" "$PF248"
+assert_pin_unique "#248 pin: non-bash remedy literal present in preflight.sh (AC3)" \
+  "devflow-bash: not running under a POSIX bash" "$PF248"
+assert_eq "#248 pin: remedy names all three supported bashes + the DEVFLOW_BASH override (AC3)" "yes" \
+  "$(grep -q 'WSL bash' "$PF248" && grep -q 'Git Bash' "$PF248" && grep -q 'MSYS2 bash' "$PF248" && grep -q 'DEVFLOW_BASH' "$PF248" && echo yes || echo no)"
+
+rm -rf "$T248"
+
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
