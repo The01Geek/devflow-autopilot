@@ -1045,6 +1045,15 @@ assert_pin_unique "sev(rcv): carve-out re-opens at every threshold value" 're-op
 assert_pin_unique "sev(raf): out-of-enum fallback breadcrumb" "is not one of critical/important/suggestion; using default 'important'" "$ST_RAF"
 assert_pin_unique "sev(rev): out-of-enum fallback breadcrumb" "is not one of critical/important/suggestion; using default 'critical'" "$ST_REV"
 assert_pin_unique "sev(rcv): out-of-enum fallback breadcrumb" "is not one of critical/important/suggestion; using default 'critical'" "$ST_RCV"
+# the DISTINCT resolver-failure (rc≠0) breadcrumb is a design point (a malformed config /
+# missing python3 must not be misreported as a bad enum value) — pin it too, else deleting
+# the rc≠0 echo would silence that path while the out-of-enum pin stayed green
+assert_pin_unique "sev(raf): resolver-failure breadcrumb" 'could not read .devflow_review_and_fix.fix_severity_threshold' "$ST_RAF"
+assert_pin_unique "sev(rev): resolver-failure breadcrumb" 'could not read .devflow_review.verdict_severity_threshold' "$ST_REV"
+assert_pin_unique "sev(rcv): resolver-failure breadcrumb" 'could not read .receiving_review.fix_severity_threshold' "$ST_RCV"
+# verdict rule 6 is the coupled partner of rule 3 (below-threshold → APPROVE with notes);
+# pin it so it can't desync from the threshold-driven rule 3 into a contradictory partition
+assert_pin_unique "sev(rev): rule 6 is threshold-driven (coupled with rule 3)" 'Only findings below `$VERDICT_THRESHOLD` present (excluding deferral-demoted ones) → **APPROVE with notes**' "$ST_REV"
 # each SKILL falls back to its OWN key's default on BOTH fallback arms (out-of-enum +
 # resolver-failure) — a wrong default here would silently loosen/tighten the policy while
 # the case-label pin stayed green. Count is 2 (one assignment per fallback arm).
