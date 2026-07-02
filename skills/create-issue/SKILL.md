@@ -77,6 +77,7 @@ This verifies internal docs against the code and **returns a findings report** �
 - [ ] **Solution-space expansion before convergence (do this BEFORE the implementation-approach fork below).** The user's proposed mechanism is an *input*, not the menu. Before asking the user to pick an approach, independently generate the full space of mechanisms that could solve the stated problem — and in particular ask: *is there a categorically STRONGER class of mechanism than what the user proposed?* Mechanisms differ in **strength of guarantee**, not just shape. A useful ladder, weakest→strongest: (a) documentation/wording that asks a human or agent to remember; (b) an in-process self-check that *warns* when the thing was skipped; (c) a *deterministic* mechanism that runs regardless of the actor's choices (a harness/hook/wrapper that fires after-the-fact, an enforced gate, an idempotent backstop that re-does the work). If the user proposed only (a) and/or (b), you MUST generate at least one (c)-class candidate and put it on the menu. Name the strongest viable mechanism even if the user did not think of it — surfacing it is your job, not theirs. If after genuine effort no stronger class exists (or the stronger classes don't apply to this problem — e.g. a harness fires at the wrong point), say so explicitly in the question rationale rather than silently omitting it.
 - [ ] **One implementation approach** — present the expanded mechanism menu (including the strongest class found above), and the user has picked one. You surface each option's **guarantee-strength** and trade-offs *in the question*, not in the issue.
 - [ ] **Concrete acceptance criteria** — you can state each as a single unconditional, testable assertion. If an AC would need a conditional ("if links are public…"), the underlying fork isn't resolved yet — go ask.
+- [ ] **Visual specification (user-visible UI changes only)** — for an issue you infer involves user-visible UI, either a screenshot/mockup is recorded or the visual details are verbally verified with the user (placement & layout, visual states, responsive behavior, design-system match, plus any task-specific dimension). A screenshot is preferred but not mandatory. This item is **skipped entirely for non-UI issues** and adds no questions to them. See the *Visual-specification guidance* below.
 
 **Independent-derivation pass (mandatory, before any clarification round — runs on every run regardless of how complete the story looks).**
 
@@ -87,6 +88,22 @@ A story that *looks* fully baked — structured sections, its own acceptance-cri
 3. **Drive the clarification rounds from the delta.** Diff your independently-derived list against the story and clarify from the **delta plus any conflicts** — the forks, edge cases, and factors you derived that the story left unresolved; the supplied criteria that fail the correctness test; and anywhere the two lists disagree. The supplied criteria are one of the two inputs to that diff, never a shortcut past it.
 
 This pass **feeds** the clarification rounds; the no-options gate (Step 3) still governs the final body. Its output is a working derivation to clarify against — never a place to park options in the issue itself.
+
+**Visual-specification guidance (user-visible UI changes only — skipped entirely otherwise).**
+
+Some issues change what the user sees, and for those a text-only description leaves the visual
+intent ambiguous. Handle the visual specification as part of this Step 2 clarification — as
+**prose guidance you follow, not a new hard gate** (it adds no enforcement mechanism; an
+unresolved item lands in the existing Blocked section like any other):
+
+1. **Infer whether the issue involves user-visible UI changes** as part of your normal scope assessment above — an inference, not a dedicated "is this UI?" question. When the issue is obviously non-UI (a script, a config key, an internal doc, a CLI-only change), **the whole path below is skipped and adds no new questions**; a false positive here is the failure to avoid, so do not ask visual questions on a non-UI issue.
+2. **On a UI change, check the user-provided resources/context** — pasted images, attached files, URLs, and design-tool links such as Figma — for an existing screenshot or mockup before asking for anything.
+3. **If a screenshot/mockup is present, record it** in the issue's Visual Specification section (see `references/issue-template.md`): embed it when a hosted URL is available, otherwise reference it with a one-line note on how the implementer can obtain it. Do not then ask the user for one they already supplied.
+4. **If none is present, ask the user to provide a screenshot or mockup** via the runner's user-question tool (the same tool Step 2 uses elsewhere).
+5. **If the user has none, verify the visual details with the user before finalizing the draft** — pinning down, as applicable to the specific task: placement & layout, visual states (hover/focus/error/empty/loading/disabled), responsive behavior across breakpoints, and design-system/style match, plus any further visual dimension the task makes relevant. This checklist is a **non-exhaustive prompt**, not a fixed form: add task-specific dimensions and skip inapplicable ones.
+6. **Write the screenshot reference and/or the verified placement description into the Visual Specification section** of the drafted issue.
+
+A screenshot/mockup is **preferred, not mandatory** — verbal verification is an accepted substitute, so a UI issue is never blocked solely for lacking an image. If a UI-placement detail is still unresolved when the user disengages, it **flows to the existing `## 🚫 Blocked` section like any other unresolved decision** (the existing mechanism from the disengagement rule below — not a new gate).
 
 **How to ask:**
 

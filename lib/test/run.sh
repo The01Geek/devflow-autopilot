@@ -5809,6 +5809,43 @@ assert_pin_unique "#256 AC5: the silent-non-response rule mirrors the Step 4 con
 # AC1 (regression): "goes quiet" is GONE — silence is no longer a disengagement trigger.
 assert_eq "#256 AC1: create-issue removed the goes-quiet disengagement trigger" "yes" \
   "$(! grep -qF 'goes quiet' "$CI_SKILL_256" && echo yes || echo no)"  # raw-guard-ok: absence pin — the removed trigger literal must be GONE
+# ── #272: create-issue gains UI-change visual-specification awareness ──
+# The change is prose guidance (Step 2 of the skill) + a template section + a docs
+# mirror — a coupled trio (SKILL.md ↔ references/issue-template.md ↔ SYSTEM_OVERVIEW
+# §11) that must stay mutually consistent (AC10). These are removal-proof presence
+# pins (assert_pin_unique fails closed if the literal is deleted or paraphrased);
+# literals are apostrophe-free + unique per file, per the issue's testing strategy:
+# pin the template section heading + its Quality-checklist line (coupled-pin, so a
+# half-edit goes RED), and the SKILL.md Step 2 UI-visual guidance — orchestrator-inferred
+# UI detection (AC1), screenshot-resource check (AC2), verbal-verification fallback
+# (AC5/AC7), the non-UI false-positive guard (AC8), and the Blocked-section route (AC9).
+CI_SKILL_272="$LIB/../skills/create-issue/SKILL.md"
+CI_TEMPLATE_272="$LIB/../skills/create-issue/references/issue-template.md"
+CI_OVERVIEW_272="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
+# AC6: the template carries the new Visual Specification section heading …
+assert_pin_unique "#272 AC6: issue-template has the Visual Specification section heading" \
+  '## Visual Specification' "$CI_TEMPLATE_272"
+# … and its matching Quality-checklist line (coupled-pin — a half-edit goes RED).
+assert_pin_unique "#272 AC6: issue-template Quality-checklist line for the Visual Specification section" \
+  'the Visual Specification section records a screenshot/mockup or a verbally-verified placement spec' "$CI_TEMPLATE_272"
+# AC1: orchestrator-inferred UI detection (not a dedicated is-this-UI question).
+assert_pin_unique "#272 AC1: create-issue Step 2 infers UI changes as part of scope assessment" \
+  'Infer whether the issue involves user-visible UI changes' "$CI_SKILL_272"
+# AC2: on a UI change, check the user-provided resources for a screenshot/mockup.
+assert_pin_unique "#272 AC2: create-issue Step 2 checks user-provided resources for a screenshot/mockup" \
+  'On a UI change, check the user-provided resources/context' "$CI_SKILL_272"
+# AC7: a screenshot is preferred, not mandatory — verbal verification substitutes.
+assert_pin_unique "#272 AC7: create-issue Step 2 treats a screenshot as preferred, verbal verification as substitute" \
+  'preferred, not mandatory** — verbal verification is an accepted substitute' "$CI_SKILL_272"
+# AC8 false-positive guard: non-UI issues skip the whole path and gain no new questions.
+assert_pin_unique "#272 AC8: create-issue Step 2 skips the whole path for non-UI issues (no new questions)" \
+  'the whole path below is skipped and adds no new questions' "$CI_SKILL_272"
+# AC9: an unresolved UI-placement detail routes to the existing Blocked section (no new gate).
+assert_pin_unique "#272 AC9: unresolved UI-placement detail flows to the existing Blocked section" \
+  'flows to the existing `## 🚫 Blocked` section like any other unresolved decision' "$CI_SKILL_272"
+# AC10 (coupled trio): SYSTEM_OVERVIEW §11 mirrors the new visual-specification behavior.
+assert_pin_unique "#272 AC10: overview §11 mirrors the visual-specification behavior" \
+  'infers an issue involves user-visible UI changes' "$CI_OVERVIEW_272"
 assert_eq "#97 pin: ensure-label.sh exists" "yes" \
   "$([ -f "$LIB/../scripts/ensure-label.sh" ] && echo yes || echo no)"
 assert_eq "#97 pin: create-issue ensures+applies DevFlow label via REST helper" "yes" \
