@@ -11,10 +11,16 @@
 # success is treated as no-verdict-for-HEAD).
 #
 # claude-code-action@v1 writes the execution log to the file named by
-# steps.claude.outputs.execution_file. Two documented shapes are parsed
-# defensively:
-#   - a stream-json ARRAY whose final `type=="result"` element carries is_error;
-#   - a single result OBJECT carrying is_error.
+# steps.claude.outputs.execution_file. The exact on-disk shape is not pinned by a
+# public contract, so all three plausible stream-json encodings are handled with
+# one slurp-based jq filter:
+#   - a single JSON ARRAY whose elements are the stream events (a final
+#     `type=="result"` element carries is_error);
+#   - a single result OBJECT carrying is_error;
+#   - JSONL — one JSON object per line, no enclosing array (`jq -s` slurps every
+#     line into an array; without `-s` a JSONL log would emit one bool per line
+#     and an embedded is_error=true could be missed — the gap a blinded shadow
+#     review surfaced).
 # Any absent/unparseable/missing field yields "false" — the fail-safe direction:
 # is_error is defense-in-depth, and finalize_check's HEAD-SHA verdict scoping
 # remains the primary staleness guard (issue #249). Always exits 0 (best-effort,
@@ -30,8 +36,13 @@
 set -uo pipefail
 
 _PEE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Guarded source (matches the documented partial-copy posture — see CLAUDE.md and
+# scripts/detect-project-tools.sh): a deployment carrying this file without its
+# sibling lib/resolve-jq.sh must degrade to bare `jq` with a breadcrumb, never
+# leave DEVFLOW_JQ unbound and abort the next reference under `set -u`.
 # shellcheck source=../lib/resolve-jq.sh
-. "$_PEE_DIR/../lib/resolve-jq.sh"  # assigns DEVFLOW_JQ
+. "$_PEE_DIR/../lib/resolve-jq.sh" \
+  || { echo "devflow: resolve-jq.sh could not be sourced from ../lib relative to ${BASH_SOURCE[0]} — using bare 'jq' (set DEVFLOW_JQ to override)" >&2; : "${DEVFLOW_JQ:=jq}"; }
 
 FILE="${1:-}"
 if [ -z "$FILE" ] || [ ! -f "$FILE" ]; then
@@ -39,13 +50,15 @@ if [ -z "$FILE" ] || [ ! -f "$FILE" ]; then
   exit 0
 fi
 
-# `// false` collapses a null/absent/false is_error (and an empty result set:
-# [] | last -> null) to a literal false; a parse error routes through the
-# `|| echo ""` and is likewise not "true", so IS_ERROR stays false.
-PARSED=$("$DEVFLOW_JQ" -r '
-  (if type == "array" then (map(select(.type == "result")) | last | .is_error)
-   elif type == "object" then .is_error
-   else null end) // false' "$FILE" 2>/dev/null || echo "")
+# Slurp (`-s`) every input value into one array so JSONL, a single array, and a
+# single object all normalize the same way; `.. | objects` then reaches every
+# result object regardless of nesting depth. `any(. == true)` returns true iff a
+# result carries is_error==true and false otherwise (empty set, absent field,
+# null → false — the fail-safe default). A parse error routes through the
+# `|| echo ""` and is likewise not "true".
+PARSED=$("$DEVFLOW_JQ" -rs \
+  '[.. | objects | select(.type == "result") | .is_error] | any(. == true)' \
+  "$FILE" 2>/dev/null || echo "")
 
 if [ "$PARSED" = "true" ]; then
   echo true

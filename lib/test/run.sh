@@ -6382,6 +6382,16 @@ drv() {  # $1=description  $2=expected "<verdict> <determined>"
   d="$(printf '%s\n' "$out" | sed -n 's/^verdict_determined=//p')"
   assert_eq "$1" "$2" "$v $d"
 }
+# Asserts the deriver emitted a SPECIFIC stderr breadcrumb. Used to pin the
+# fail-closed guards whose VERDICT is guard-invariant (an empty PR / empty
+# RUN_ID marker matches nothing downstream anyway, so the verdict alone cannot
+# tell a present guard from a removed one — the distinctive breadcrumb can:
+# delete the guard and the breadcrumb disappears, so this is non-vacuous).
+drv_stderr() {  # $1=description  $2=expected stderr substring
+  local err
+  err="$(bash "$DRV" 2>&1 1>/dev/null)"
+  assert_eq "$1" "yes" "$(printf '%s' "$err" | grep -qF -- "$2" && echo yes || echo no)"
+}
 
 # --- reproduction cases (OLD logic returned the WRONG answer) ---------------
 # stale-reject-on-older-commit: CHANGES_REQUESTED on OLD, HEAD=NEW. OLD logic:
@@ -6396,22 +6406,31 @@ HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DE
   DRV_REVIEWS="[]" \
   drv "#249 verdict-less-approve (empty reviews) -> incomplete (not a fabricated APPROVE)" "incomplete false"
 
-# empty-PR-number: OLD logic warned and defaulted to success.
+# empty-PR-number: OLD logic warned and defaulted to success. The verdict is
+# guard-invariant here (an empty PR can't reach a real query), so ALSO pin the
+# guard's distinctive breadcrumb — non-vacuous: remove the guard, lose the line.
 HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER="" REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
   drv "#249 empty PR_NUMBER -> incomplete (fail closed)" "incomplete false"
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER="" REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  drv_stderr "#249 empty PR_NUMBER emits the specific 'empty PR_NUMBER' breadcrumb" "empty PR_NUMBER"
 
 # reviews-API-query-failure: OLD logic warned and defaulted to success (this is
-# the deliberate reversal in issue #249's ACs).
+# the deliberate reversal in issue #249's ACs). A run-keyed APPROVE comment sits
+# BEHIND the fail-closed arm, so removing it would fall through to the comment
+# fallback and return approve (non-vacuous) — the guard forces incomplete.
 HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
   DRV_REVIEWS_FAIL=1 \
-  drv "#249 reviews-API query failure -> incomplete (fail closed, deliberate reversal)" "incomplete false"
+  DRV_COMMENTS='[{"body":"<!-- devflow:review-progress run=100-1 -->\n## Verdict: APPROVE"}]' \
+  drv "#249 reviews-API query failure -> incomplete (fail closed; overrides a would-be APPROVE comment)" "incomplete false"
 
 # --- engine-error path -----------------------------------------------------
-# engine-errored-no-verdict: is_error=true short-circuits BEFORE any reviews
-# query, even when a (stale) reject exists.
+# engine-errored: is_error=true short-circuits BEFORE any reviews query. The
+# payload is a would-be APPROVE ON HEAD, so this is `incomplete` ONLY because the
+# engine-error branch overrides it — non-vacuous: remove the short-circuit and it
+# returns approve (the marquee PR #250 signal is now actually protected).
 HEAD_SHA="$DRV_NEW" ENGINE_ERROR=true PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
-  DRV_REVIEWS="[{\"state\":\"CHANGES_REQUESTED\",\"commit_id\":\"$DRV_OLD\"}]" \
-  drv "#249 engine-errored-no-verdict -> incomplete (no dismissal)" "incomplete false"
+  DRV_REVIEWS="[{\"state\":\"APPROVED\",\"commit_id\":\"$DRV_NEW\",\"body\":\"## Verdict: APPROVE\"}]" \
+  drv "#249 engine-errored overrides a would-be APPROVE-on-HEAD -> incomplete (no dismissal)" "incomplete false"
 
 # --- fresh verdicts ON HEAD (still block / still pass) ----------------------
 HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
@@ -6484,15 +6503,32 @@ HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO="" GITHUB_RUN_ID=100 DEV
   DRV_REVIEWS="[{\"state\":\"APPROVED\",\"commit_id\":\"$DRV_NEW\"}]" \
   drv "#249 empty REPO resolved via 'gh repo view' -> approve" "approve true"
 # ...and when `gh repo view` yields nothing, REPO is unresolvable -> fail closed.
+# The APPROVED-on-HEAD payload sits behind the guard: without it, the empty REPO
+# would flow into the reviews query and return approve — non-vacuous.
 HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO="" GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" DRV_REPO_FAIL=1 \
-  drv "#249 unresolvable REPO ('gh repo view' empty) -> incomplete (fail closed)" "incomplete false"
+  DRV_REVIEWS="[{\"state\":\"APPROVED\",\"commit_id\":\"$DRV_NEW\"}]" \
+  drv "#249 unresolvable REPO ('gh repo view' empty) -> incomplete (fail closed; overrides a would-be APPROVE)" "incomplete false"
+
+# Multiple reviews on the SAME HEAD commit -> last-on-HEAD wins (a dismiss +
+# re-request, or a re-review, produces two HEAD reviews). Both orderings pinned.
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"CHANGES_REQUESTED\",\"commit_id\":\"$DRV_NEW\"},{\"state\":\"APPROVED\",\"commit_id\":\"$DRV_NEW\"}]" \
+  drv "#249 two reviews on HEAD [reject,approve] -> approve (last-on-HEAD wins)" "approve true"
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"APPROVED\",\"commit_id\":\"$DRV_NEW\"},{\"state\":\"CHANGES_REQUESTED\",\"commit_id\":\"$DRV_NEW\"}]" \
+  drv "#249 two reviews on HEAD [approve,reject] -> reject (last-on-HEAD wins)" "reject true"
 
 # No HEAD review + empty GITHUB_RUN_ID -> cannot scope the comment fallback to
-# this run -> fail closed BEFORE querying comments.
+# this run -> fail closed BEFORE querying comments. The verdict is guard-invariant
+# (an empty-run-id marker matches no real comment), so ALSO pin the distinctive
+# breadcrumb — non-vacuous: remove the guard, lose the line.
 HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID="" DEVFLOW_GH="$DRV_STUB" \
   DRV_REVIEWS="[]" \
   DRV_COMMENTS='[{"body":"<!-- devflow:review-progress run=100-1 -->\n## Verdict: APPROVE"}]' \
   drv "#249 no HEAD review + empty GITHUB_RUN_ID -> incomplete (cannot run-scope the comment fallback)" "incomplete false"
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID="" DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[]" \
+  drv_stderr "#249 empty GITHUB_RUN_ID emits the specific 'GITHUB_RUN_ID is empty' breadcrumb" "GITHUB_RUN_ID is empty"
 
 # Marker precedence: REJECT is checked before APPROVE (fail toward blocking) even
 # when a HEAD review's body somehow carries both markers.
@@ -6520,15 +6556,23 @@ printf '%s' '[{"type":"assistant"},{"type":"result","is_error":false}]' > "$PEE_
 # a single result OBJECT
 printf '%s' '{"type":"result","is_error":true}'  > "$PEE_TMP/obj_true.json"
 printf '%s' '{"type":"result","is_error":false}' > "$PEE_TMP/obj_false.json"
-# absent is_error field, empty array (no result element), and unparseable -> false
+# JSONL (one object per line, no enclosing array) — the shape a bare `jq` without
+# -s would mis-handle; the -s slurp normalizes it.
+printf '{"type":"system"}\n{"type":"assistant"}\n{"type":"result","is_error":true}\n'  > "$PEE_TMP/jsonl_true.json"
+printf '{"type":"system"}\n{"type":"result","is_error":false}\n'                       > "$PEE_TMP/jsonl_false.json"
+# absent is_error field (object AND array-result), empty array, and unparseable -> false
 printf '%s' '{"type":"result"}'  > "$PEE_TMP/obj_missing.json"
+printf '%s' '[{"type":"system"},{"type":"result"}]' > "$PEE_TMP/arr_missing.json"
 printf '%s' '[]'                 > "$PEE_TMP/empty_arr.json"
 printf '%s' 'not json {{'        > "$PEE_TMP/garbage.json"
 assert_eq "#249 parse-engine-error: array w/ final result is_error=true -> true"  "true"  "$(bash "$PEE" "$PEE_TMP/arr_true.json")"
 assert_eq "#249 parse-engine-error: array w/ final result is_error=false -> false" "false" "$(bash "$PEE" "$PEE_TMP/arr_false.json")"
 assert_eq "#249 parse-engine-error: single result object is_error=true -> true"   "true"  "$(bash "$PEE" "$PEE_TMP/obj_true.json")"
 assert_eq "#249 parse-engine-error: single result object is_error=false -> false" "false" "$(bash "$PEE" "$PEE_TMP/obj_false.json")"
-assert_eq "#249 parse-engine-error: absent is_error field -> false (fail-safe)"   "false" "$(bash "$PEE" "$PEE_TMP/obj_missing.json")"
+assert_eq "#249 parse-engine-error: JSONL w/ final result is_error=true -> true"  "true"  "$(bash "$PEE" "$PEE_TMP/jsonl_true.json")"
+assert_eq "#249 parse-engine-error: JSONL w/ final result is_error=false -> false" "false" "$(bash "$PEE" "$PEE_TMP/jsonl_false.json")"
+assert_eq "#249 parse-engine-error: absent is_error field (object) -> false (fail-safe)" "false" "$(bash "$PEE" "$PEE_TMP/obj_missing.json")"
+assert_eq "#249 parse-engine-error: absent is_error field (array result) -> false (fail-safe)" "false" "$(bash "$PEE" "$PEE_TMP/arr_missing.json")"
 assert_eq "#249 parse-engine-error: empty array (no result) -> false (fail-safe)" "false" "$(bash "$PEE" "$PEE_TMP/empty_arr.json")"
 assert_eq "#249 parse-engine-error: unparseable log -> false (fail-safe)"         "false" "$(bash "$PEE" "$PEE_TMP/garbage.json")"
 assert_eq "#249 parse-engine-error: missing file arg -> false (fail-safe)"        "false" "$(bash "$PEE" "$PEE_TMP/does-not-exist.json")"

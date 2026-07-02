@@ -31,11 +31,15 @@
 #   APPROVE (clean) -> `gh pr review --approve` -> state APPROVED
 #   Same-identity self-review fallback (`gh pr review` fails) -> the verdict is
 #     recovered from THIS run's run-keyed `devflow:review-progress` PROGRESS
-#     comment, which embeds the full report + the `## Verdict:` line (that is the
-#     marker-bearing artifact this helper matches in step 6). Issue comments carry
-#     no commit_id, so it is scoped to THIS run via the progress comment's
-#     run-keyed marker, never a historical one. (The separate, marker-LESS
-#     `gh pr comment` self-review fallback comment is NOT matched.)
+#     comment, which embeds the full report + the `## Verdict:` line and is the
+#     only artifact this helper matches in step 6 (it carries the run-keyed
+#     `<!-- devflow:review-progress run=<id>- -->` marker). Issue comments carry
+#     no commit_id, so scoping is by that run-keyed marker, never a historical
+#     comment. NOTE: the separate `gh pr comment` self-review fallback comment
+#     the skill posts DOES carry a `## Verdict:` line, but it lacks the run-keyed
+#     progress marker, so this helper does NOT read it — matching it un-scoped
+#     (by `## Verdict:` alone, across all issue comments) is exactly the stale-/
+#     prior-run-verdict resurrection this HEAD-scoping fix removes.
 #
 # Inputs (environment; all optional, absence fails closed where it matters):
 #   HEAD_SHA       current HEAD SHA (needs.precheck.outputs.head_sha)
@@ -63,8 +67,13 @@ _DRV_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../lib/resolve-gh.sh
 . "$_DRV_DIR/../lib/resolve-gh.sh"
 : "${DEVFLOW_GH:=$(devflow_resolve_gh)}"
+# Guarded source (documented partial-copy posture — see CLAUDE.md): a deployment
+# carrying this file without its sibling lib/resolve-jq.sh must degrade to bare
+# `jq` with a breadcrumb, never leave DEVFLOW_JQ unbound and abort the next
+# reference under `set -u`.
 # shellcheck source=../lib/resolve-jq.sh
-. "$_DRV_DIR/../lib/resolve-jq.sh"  # assigns DEVFLOW_JQ
+. "$_DRV_DIR/../lib/resolve-jq.sh" \
+  || { echo "devflow: resolve-jq.sh could not be sourced from ../lib relative to ${BASH_SOURCE[0]} — using bare 'jq' (set DEVFLOW_JQ to override)" >&2; : "${DEVFLOW_JQ:=jq}"; }
 
 HEAD_SHA="${HEAD_SHA:-}"
 ENGINE_ERROR="${ENGINE_ERROR:-false}"
