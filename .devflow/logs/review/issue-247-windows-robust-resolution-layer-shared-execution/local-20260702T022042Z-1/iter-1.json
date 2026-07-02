@@ -1,0 +1,824 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-02T02:20:42Z",
+  "fix_commit_sha": "dac5766b6bf208608001efb1ea748e233c31877b",
+  "fix_files": [
+    "CHANGELOG.md",
+    "install.sh",
+    "lib/normalize-path.sh",
+    "lib/resolve-bin.sh",
+    "lib/resolve-gh.sh",
+    "lib/resolve-jq.sh",
+    "lib/test/run.sh",
+    "scripts/dedupe-implement-run.sh",
+    "scripts/detect-project-tools.sh",
+    "scripts/provision-auto-mode.sh",
+    "scripts/provision-local-settings.sh",
+    "scripts/scaffold-config.sh",
+    "skills/init/SKILL.md"
+  ],
+  "loop_role": "fix",
+  "checklist": [
+    {
+      "id": "VC-1",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "sig:VC-1",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-2",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "sig:VC-2",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-3",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "sig:VC-3",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-4",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "sig:VC-4",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-5",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "sig:VC-5",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-6",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "sig:VC-6",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-7",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "sig:VC-7",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-8",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "sig:VC-8",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-9",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "claim_signature": "sig:VC-9",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-10",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "sig:VC-10",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-11",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "sig:VC-11",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-12",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "sig:VC-12",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-13",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "claim_signature": "sig:VC-13",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-14",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "claim_signature": "sig:VC-14",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-15",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "sig:VC-15",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-16",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "sig:VC-16",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-17",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "sig:VC-17",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-18",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "claim_signature": "sig:VC-18",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-19",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "sig:VC-19",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-20",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "sig:VC-20",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-21",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "sig:VC-21",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-22",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "sig:VC-22",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-23",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "claim_signature": "sig:VC-23",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-24",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "claim_signature": "sig:VC-24",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-25",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "claim_signature": "sig:VC-25",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-26",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "claim_signature": "sig:VC-26",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-27",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "sig:VC-27",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-28",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "sig:VC-28",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-29",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "sig:VC-29",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-30",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "sig:VC-30",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-31",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "sig:VC-31",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-32",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "sig:VC-32",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-33",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "sig:VC-33",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-34",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "sig:VC-34",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-35",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "claim_signature": "sig:VC-35",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-36",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "sig:VC-36",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-37",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "sig:VC-37",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-38",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "sig:VC-38",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-39",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "sig:VC-39",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-40",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "sig:VC-40",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-41",
+      "verification_mode": "agent",
+      "verdict": "FAIL",
+      "claim_signature": "sig:VC-41",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-42",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "sig:VC-42",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-43",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "sig:VC-43",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-44",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "claim_signature": "sig:VC-44",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-45",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "claim_signature": "sig:VC-45",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-46",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "sig:VC-46",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-47",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "sig:VC-47",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-48",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "sig:VC-48",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-49",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "sig:VC-49",
+      "reused_from_iter_prev": false
+    }
+  ],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "detect_all_audit": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "resolve-jq.sh unguarded sibling source: partial deployment leaves DEVFLOW_JQ empty; advertised bare-jq fallback never fires",
+      "defect_signature": {
+        "file": "lib/resolve-jq.sh",
+        "line_range": [
+          24,
+          25
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "normalize-path: present-but-failing wslpath falls through with uncaptured stdout contaminating result",
+      "defect_signature": {
+        "file": "lib/normalize-path.sh",
+        "line_range": [
+          43,
+          48
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "install.sh inline jq adaptation untested (shim-rejection/broken-override/python3 routing)",
+      "defect_signature": {
+        "file": "install.sh",
+        "line_range": [
+          91,
+          116
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Important",
+      "description": "skills/init/SKILL.md stale 'jq not found' relay literals at 3 sites (coupled-site desync with reworded gate breadcrumbs)",
+      "defect_signature": {
+        "file": "skills/init/SKILL.md",
+        "line_range": [
+          85,
+          140
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "DJQ_BARE guard holes: blanket echo/printf exclusion masks printf|jq idiom; bareword filters evade suffix (also Phase-2 VC-41 FAIL + completeness critic)",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          11418,
+          11423
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 3,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "resolve-gh.sh unguarded resolve-bin source: partial copy aborts gh callers with raw bash error",
+      "defect_signature": {
+        "file": "lib/resolve-gh.sh",
+        "line_range": [
+          34,
+          34
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "install.sh silently routes broken DEVFLOW_JQ override to python3 with no breadcrumb",
+      "defect_signature": {
+        "file": "install.sh",
+        "line_range": [
+          92,
+          98
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "scripts/* fallback breadcrumb says 'beside' but resolver is at ../lib (5 copies)",
+      "defect_signature": {
+        "file": "scripts/dedupe-implement-run.sh",
+        "line_range": [
+          59,
+          64
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "resolve-bin idempotence-guard comment teaches wrong set -e model; resolve-gh degenerate-env comment overclaims pure-bash; CHANGELOG 'inline mirror' overclaims fidelity",
+      "defect_signature": {
+        "file": "lib/resolve-bin.sh",
+        "line_range": [
+          28,
+          31
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "normalize-path forward-slash form untested; resolve-jq source-failure fallback untested; lib-SKILL lockstep unpinned; T6 comment oversells",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          11424,
+          11434
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "normalize-path: no breadcrumb when a present tool fails and chain falls through to env-detection (tool-refused signal lost)",
+      "defect_signature": {
+        "file": "lib/normalize-path.sh",
+        "line_range": [
+          43,
+          48
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "pushed_back"
+    },
+    {
+      "agent": "devflow:checklist-verifier",
+      "severity": "Suggestion",
+      "description": "DJQ_SOURCED >=15 count threshold has zero slack; an unrelated matching file could mask a de-converted helper (set-vs-count design)",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          11460,
+          11467
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "dac5766"
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "applied",
+      "commit": "dac5766"
+    },
+    {
+      "finding_id": "F-3",
+      "decision": "applied",
+      "commit": "dac5766"
+    },
+    {
+      "finding_id": "F-4",
+      "decision": "applied",
+      "commit": "dac5766"
+    },
+    {
+      "finding_id": "F-5",
+      "decision": "applied",
+      "commit": "dac5766"
+    },
+    {
+      "finding_id": "F-6",
+      "decision": "applied",
+      "commit": "dac5766"
+    },
+    {
+      "finding_id": "F-7",
+      "decision": "applied",
+      "commit": "dac5766"
+    },
+    {
+      "finding_id": "F-8",
+      "decision": "applied",
+      "commit": "dac5766"
+    },
+    {
+      "finding_id": "F-9",
+      "decision": "applied",
+      "commit": "dac5766"
+    },
+    {
+      "finding_id": "F-10",
+      "decision": "applied",
+      "commit": "dac5766"
+    },
+    {
+      "finding_id": "F-11",
+      "decision": "pushed_back",
+      "source_file": "lib/normalize-path.sh",
+      "claim_text": "emit breadcrumb when a present tool fails and the chain falls through",
+      "skip_category": "claim-quality",
+      "evidence": "the tool-first chain with silent fall-through is the documented design in both the lib helper and the SKILL.md mirror (resolution-order comment); adding a breadcrumb would require lockstep edits at 3 mirror sites for a diagnostic-only gain, and the garbage-output half of the corroborated finding IS fixed (capture form); the last-resort branch already breadcrumbs"
+    },
+    {
+      "finding_id": "F-12",
+      "decision": "deferred",
+      "source_file": "lib/test/run.sh",
+      "claim_text": "DJQ_SOURCED count threshold could mask a de-converted helper if an unrelated file matches",
+      "skip_category": "uncategorized",
+      "evidence": "real but minor guard-design nit inherited from the #245 DGH_SOURCED pattern (same shape, documented as best-effort with the dynamic T6/T8 backstops); a set-equality assertion would make every future consumer addition a test edit \u2014 parked as a retrospective candidate rather than churning the shared pattern mid-PR"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 10,
+    "fix_diff_lines": 209,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "telemetry": {
+    "phase_0": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 20
+    },
+    "phase_0_5": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 5
+    },
+    "phase_1": {
+      "calls": 3,
+      "tokens": 328246,
+      "wall_clock_s": 205
+    },
+    "phase_1_5": {
+      "calls": 1,
+      "tokens": 60641,
+      "wall_clock_s": 105
+    },
+    "phase_2": {
+      "calls": 38,
+      "tokens": 1900000,
+      "wall_clock_s": 700
+    },
+    "phase_3": {
+      "calls": 5,
+      "tokens": 541800,
+      "wall_clock_s": 465
+    },
+    "step_2_5": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 10,
+      "webfetches": 0
+    },
+    "phase_4_x": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 60
+    }
+  },
+  "shadow": {
+    "ran_at": "2026-07-02T04:10:00Z",
+    "reviewed_sha": "93bbf48a2afdfb5046205b125fa2c57a9e198d38",
+    "verdict": "APPROVE with notes",
+    "coverage": "full",
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "reason": null,
+    "checklist_skipped": null,
+    "trigger": "early (engine_self_modifying, after iteration 1)",
+    "phase3_findings": [
+      {
+        "agent": "devflow:silent-failure-hunter",
+        "severity": "Important",
+        "description": "tr-dependent override derivation silently drops DEVFLOW_<TOOL> when tr absent (reproduced)",
+        "defect_signature": {
+          "file": "lib/resolve-bin.sh",
+          "line_range": [
+            59,
+            62
+          ],
+          "kind": "logic_error"
+        },
+        "corroboration_count": 2
+      },
+      {
+        "agent": "devflow:silent-failure-hunter",
+        "severity": "Important",
+        "description": "normalize-path accepts empty-but-successful converter output \u2192 empty path, no breadcrumb (reproduced)",
+        "defect_signature": {
+          "file": "lib/normalize-path.sh",
+          "line_range": [
+            47,
+            54
+          ],
+          "kind": "logic_error"
+        },
+        "corroboration_count": 1
+      },
+      {
+        "agent": "devflow:silent-failure-hunter",
+        "severity": "Suggestion",
+        "description": "preflight unguarded resolve-bin source \u2192 misdirected shim diagnosis on partial copy (calibrated down: fails closed, diagnostic-only impact)",
+        "defect_signature": {
+          "file": "lib/preflight.sh",
+          "line_range": [
+            18,
+            24
+          ],
+          "kind": "logic_error"
+        },
+        "corroboration_count": 1
+      },
+      {
+        "agent": "devflow:pr-test-analyzer",
+        "severity": "Important",
+        "description": "install.sh broken-DEVFLOW_JQ re-probe path untested; preflight broken-override branch untested",
+        "defect_signature": {
+          "file": "install.sh",
+          "line_range": [
+            100,
+            122
+          ],
+          "kind": "test_gap"
+        },
+        "corroboration_count": 1
+      },
+      {
+        "agent": "devflow:pr-test-analyzer",
+        "severity": "Important",
+        "description": "lib\u2194SKILL.md lockstep pinned only by regex literal; translation body can drift green",
+        "defect_signature": {
+          "file": "lib/normalize-path.sh",
+          "line_range": [
+            645,
+            679
+          ],
+          "kind": "test_gap"
+        },
+        "corroboration_count": 2
+      },
+      {
+        "agent": "devflow:requesting-code-review",
+        "severity": "Suggestion",
+        "description": "skill bodies still instruct bare jq on the local tier (agent-composed commands) \u2014 scope boundary vs issue's .sh call-site scope",
+        "defect_signature": {
+          "file": "skills/review/SKILL.md",
+          "line_range": null,
+          "kind": "test_gap"
+        },
+        "corroboration_count": 1
+      },
+      {
+        "agent": "devflow:comment-analyzer",
+        "severity": "Suggestion",
+        "description": "docs/install.md overclaims 'every jq-calling helper routes through resolver' (install.sh carve-out); resolve-bin idempotence comment imprecise",
+        "defect_signature": {
+          "file": "docs/install.md",
+          "line_range": [
+            72,
+            72
+          ],
+          "kind": "comment_drift"
+        },
+        "corroboration_count": 1
+      }
+    ],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 7,
+      "overlap_with_iter_N": 0,
+      "new": 7,
+      "new_critical": 0,
+      "new_important": 4
+    },
+    "promoted_to_iter_next": true
+  }
+}
