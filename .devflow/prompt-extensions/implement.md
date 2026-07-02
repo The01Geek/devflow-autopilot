@@ -68,3 +68,55 @@ run is denied, do this in order — do not skip to the last rung:
 
 The standard is *evidence before assertion*: a claim that something works must point to a
 command you actually ran and its observed output, or be explicitly flagged unverified.
+
+## Dogfood every run — capture process-improvement signal (standing side task)
+
+This repository runs `/devflow:implement` under DevFlow's **own** engine, so every run
+here is a live test of that engine. Treat improving DevFlow as a standing **side task** of
+this run, second only to shipping the issue itself: while you work the four phases, actively
+watch the process and record what you learn so future implement runs are better. The weekly
+`/devflow:retrospective-weekly` loop mines exactly these notes — a `## Devflow Reflection`
+bullet is the mechanism by which a friction you hit today becomes a fix tomorrow.
+
+**What to capture** (in the `## Devflow Reflection` section, as you go — do not batch to the
+end, where context compaction will have dropped the detail):
+
+- **Bugs** in any DevFlow skill, script, workflow, or agent you exercised — a helper that
+  failed, a wrong breadcrumb, a gate that fired incorrectly, a doc that contradicted behavior.
+- **Friction** — steps that were confusing, redundant, ordered awkwardly, or missing; a
+  classifier/permission denial that forced a workaround; anything that made the run harder
+  than it should have been.
+- **Problematic dependencies** — a coupled-site pair that was easy to desync, a silent-fail
+  consumer, a fragile assumption, a resolver/anchor that behaved unexpectedly on this runtime.
+- **Improvement ideas** the run surfaced, even if you did not act on them.
+
+**How to record it.** Append each observation with
+`scripts/workpad.py update <WORKPAD_ID> --reflection-kind note --reflection "<observation>"`
+— process-improvement signal is a `note` (it lands under `### ℹ️ Notes`). Reserve the
+actionable kinds for what they mean: `blocked` (a hard stop), `deferred` (punted work),
+`dropped-failed` (a subagent/step that failed and you continued past). Name the **concrete
+surface** — the file, skill, or step — and the specific improvement, so the retrospective can
+act without re-deriving what you already saw. This is **additive** to the verification-gap
+reflections above and to the reflections the base skill already writes (deferrals, reverts,
+post-review code fixes); it does not replace any of them.
+
+**Before finalizing (Phase 4.3), confirm the side task ran — and record the confirmation on
+the *right* surface, because the surface carries a cost.** `lib/cheap-gate.jq` forces an LLM
+retrospective pass on any run that left **even one** `## Devflow Reflection` bullet, so a
+reflection is the expensive-but-loud surface and a `## Progress` note is the cheap-but-quiet
+one. Route by whether the run actually had signal:
+
+- **The run hit real friction / a bug / a hazard** → it is already a `## Devflow Reflection`
+  `note` bullet (per *How to record it* above). That is exactly the signal the retrospective
+  must be forced to read; the gate tripping here is correct, not waste.
+- **The run was genuinely frictionless end-to-end** → do **not** file a `--reflection` bullet
+  for it. Record the confirmation as a `## Progress` note instead:
+  `scripts/workpad.py update <WORKPAD_ID> --note "dogfood side task ran: frictionless, nothing to capture"`.
+  A `--note` writes to `## Progress`, which does **not** feed `reflections[]`, so `## Devflow
+  Reflection` stays empty and `cheap-gate.jq` still skips the clean PR cheaply — while the
+  Progress note still proves the side task was run, not silently skipped.
+
+An implement run that shipped the issue, hit no friction, and left **neither** a Reflection
+bullet nor this Progress note has skipped the side task; empty-and-silent is not done. Never
+invent findings to fill Reflection — the frictionless *Progress note* is the honest terminal
+state for a clean run, precisely so you never have to.
