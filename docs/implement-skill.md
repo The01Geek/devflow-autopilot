@@ -307,11 +307,16 @@ Path extraction is **deterministic, not LLM-interpreted** (issue #185 Addendum):
 `scripts/extract-doc-needed-paths.sh`, is the single extraction boundary both stages consume. It reads
 the issue body, scopes strictly to the `**Documentation Needed**` bullet under `## Implementation
 Notes`, and emits the recognizable file paths one per line — a token counts as a path only if it
-contains `/` or ends in a recognized extension, so prose, skill names (`devflow:docs`), and paths named
-in *other* sections or bullets are excluded by construction (no judgement call, and none of the
-LLM-extraction drift that earlier incarnations of this gate suffered). Its behavior is verified by a
-fixture-based input-shape matrix in `lib/test/run.sh` (bullet-with-paths, no-paths, absent section,
-path-in-another-section-not-extracted) rather than by the shadow review.
+ends in a recognized doc/source extension **or** names an in-tree tracked regular file (the
+`[ -f ] && git ls-files --error-unmatch` rescue for extensionless real files like `Makefile`/`LICENSE`).
+A bare "contains `/`" test is deliberately **not** sufficient — it wrongly emitted directory tokens
+(`docs/internal`) and rooted skill-invocation refs (`/claude-md-management`, from colon-splitting); rooted
+(`/…`), parent-dir-escaping (`../…`), and trailing-slash directory tokens are dropped outright (issue #254). So prose, skill names
+(`devflow:docs`), directories, and paths named in *other* sections or bullets are excluded by
+construction (no judgement call, and none of the LLM-extraction drift that earlier incarnations of this
+gate suffered). Its behavior is verified by a fixture-based input-shape matrix in `lib/test/run.sh`
+(bullet-with-paths, no-paths, absent section, path-in-another-section-not-extracted, directory-token and
+rooted-token rejection) rather than by the shadow review.
 
 **Stage 1 — Pre-flight briefing (before dispatch).** The orchestrator runs the helper over the issue
 body and treats its output as the required deliverables. If the helper emits one or more paths, the

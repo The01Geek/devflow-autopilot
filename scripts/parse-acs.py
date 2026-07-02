@@ -166,18 +166,33 @@ def _extract_section(body: str, name: str) -> list[str]:
 
 
 def _parse_checkboxes(section_lines: list[str]) -> list[dict]:
+    """Parse checkbox items, joining hard-wrapped continuation lines.
+
+    A criterion emitted by /devflow:create-issue at ~80 columns wraps across
+    several physical lines: the checkbox line followed by indented continuation
+    lines. Accumulate each item's continuation lines (indented, non-blank, and
+    not themselves a checkbox) into one criterion string so a wrapped criterion
+    round-trips verbatim — and so the post-merge scan sees a trigger phrase that
+    landed past the wrap. A blank line or a non-indented, non-checkbox line ends
+    the current item. (`_extract_section` already excludes heading lines.)
+    """
     items = []
+    current = None
     for line in section_lines:
         m = _CHECKBOX_RE.match(line)
-        if not m:
-            continue
-        ticked = m.group(1).lower() == 'x'
-        text = m.group(2).strip()
-        items.append({
-            'text': text,
-            'ticked': ticked,
-            'post_merge': _is_post_merge(text),
-        })
+        if m:
+            current = {'text': m.group(2).strip(), 'ticked': m.group(1).lower() == 'x'}
+            items.append(current)
+        elif current is not None and line[:1] in (' ', '\t') and line.strip():
+            # Indented, non-blank, non-checkbox line → continuation of `current`.
+            current['text'] = f"{current['text']} {line.strip()}".strip()
+        else:
+            # Blank line or a non-indented non-checkbox line closes the item.
+            current = None
+    # Classify on the fully-joined text so a trigger phrase anywhere in the
+    # wrapped criterion — not just its first physical line — is caught.
+    for item in items:
+        item['post_merge'] = _is_post_merge(item['text'])
     return items
 
 

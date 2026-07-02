@@ -1087,6 +1087,43 @@ assert_eq "sev(rcv): vendored body has no repo-specific CI job name (lib + pytho
 assert_pin_unique "unscoped-staging: review-and-fix fix-commit step prohibits git add -A / git add ." \
   'Never use `git add -A` or `git add .` at the fix-commit step' "$MAXI_SKILL"
 
+# ── issue #254: post-shadow edit gate logs-only exemption. The Loop Exit persist step
+# commits the observability artifacts (`.devflow/logs/**`) AFTER the shadow captured
+# reviewed_sha, so on every writable converging run HEAD legitimately advances past
+# reviewed_sha by exactly that logs-only commit — which formerly tripped the gate's own
+# HEAD==reviewed_sha assertion. The gate now exempts a post-shadow commit whose diff
+# touches ONLY `.devflow/logs/**`, while any commit touching other paths still trips it.
+# Pin the operative exemption sentence removal-proof, plus the counter-assertion that a
+# non-logs path still trips the gate (so a half-edit dropping the counter goes RED).
+assert_pin_unique "#254: post-shadow gate exempts a logs-only post-shadow commit (operative)" \
+  'a post-shadow commit whose diff touches only `.devflow/logs/**` does not constitute an unreviewed edit' "$MAXI_SKILL"
+assert_pin_unique "#254: post-shadow gate keeps the counter — a non-logs path still trips the gate" \
+  'Any commit touching a path outside `.devflow/logs/**` still trips the gate' "$MAXI_SKILL"
+# Review iter 3 (finding: exemption fails OPEN on empty/errored diff — the vacuous-true hole):
+# require the changed-path list be NON-EMPTY and treat empty/errored output as non-exempt so
+# the gate fails closed, never open. Pin the operative fail-closed sentence removal-proof.
+assert_pin_unique "#254: post-shadow gate fails closed on empty/errored diff (non-empty required)" \
+  'An empty or errored `git diff` output is NOT exempt' "$MAXI_SKILL"
+# (The removal-proof counterparts for both operative sentences live below, after
+# assert_pin_red_on_removal is defined — see the "#254 post-shadow gate removal-proofs" block.)
+
+# ── issue #254: the consumer prompt extension carries the two fail-open guard-class
+# shapes (existence-vs-sourceability + tr-dependence), each with its #247 reproduction.
+# The extension sharpens but never supplants the engine gates — assert the file exists and
+# carries both shapes so a future edit that drops a shape (or the local instance that makes
+# it actionable) fails here.
+RAF_EXT="$LIB/../.devflow/prompt-extensions/review-and-fix.md"
+assert_eq "#254: review-and-fix prompt extension exists" "yes" \
+  "$([ -f "$RAF_EXT" ] && echo yes || echo no)"
+assert_pin_unique "#254: extension carries the existence-vs-sourceability guard shape" \
+  'Guard-class shape 1 — existence-vs-sourceability' "$RAF_EXT"
+assert_pin_unique "#254: existence-vs-sourceability fix verifies the outcome (type <fn>), not the precondition" \
+  'type <fn> >/dev/null 2>&1' "$RAF_EXT"
+assert_pin_unique "#254: extension carries the tr-dependence guard shape" \
+  'Guard-class shape 2 — tr-dependence' "$RAF_EXT"
+assert_pin_unique "#254: tr-dependence shape names its #247 reproduction (derived-through-tr slug degrades)" \
+  'degrades on a `PATH` without `tr`' "$RAF_EXT"
+
 # Drift guard: the park-calibration gate is the lenient-verdict catch — it re-reads
 # parked findings against three generic under-grade shapes before the review-and-fix
 # loop concludes on an APPROVE-family verdict, so every review-and-fix-engine consumer
@@ -1383,6 +1420,12 @@ assert_pin_red_on_removal "AC3(c): deleting the Step 2.6 sentinel contract turns
   'park-calibration gate clean: no parked finding matched'
 assert_pin_red_on_removal "AC3(d): narrowing the mutation-check rule back to fix-only turns its pin RED" \
   'any added or edited test guard in the diff'
+# #254 post-shadow gate removal-proofs (the assert_pin_unique presence pins are up in the
+# max_iterations/review-and-fix block; these removal-proofs must sit below the helper def).
+assert_pin_red_on_removal "#254: post-shadow gate logs-only exemption flips RED on removal" \
+  'a post-shadow commit whose diff touches only `.devflow/logs/**` does not constitute an unreviewed edit'
+assert_pin_red_on_removal "#254: post-shadow gate non-logs counter-assertion flips RED on removal" \
+  'Any commit touching a path outside `.devflow/logs/**` still trips the gate'
 #
 # AC3(g): the GENERALIZED (issue #159 B3) region meta-test detects a raw SKILL guard injected
 # into EACH registered region — proving the parametrized helper is not silently inert for the
@@ -2682,6 +2725,32 @@ assert_pin_unique "#232: orchestrator mirror keeps the AC4 Phase-4.1-only scope 
   'scoped to the Phase 4.1 docs subagent return only, not the Phase 2/3 returns' "$IMPL_ORCH"
 assert_pin_red_on_removal "#232: orchestrator AC4 scope mirror flips RED on removal" \
   'scoped to the Phase 4.1 docs subagent return only, not the Phase 2/3 returns' "$IMPL_ORCH"
+# ── issue #254: Phase 4.0.5 deferrals-manifest discovery must search BOTH the pr-<N>
+# slug dir and the sanitized-current-branch slug dir — a current-branch-mode
+# /devflow:review-and-fix run writes its manifest under the branch slug, so a
+# pr-<N>-only find silently misses those deferrals. The operative arm is the one that
+# actually adds the branch-slug dir to the search set; pin it removal-proof so deleting
+# the branch-slug arm goes RED. Also pin the BRANCH_SLUG derivation (its producer).
+assert_pin_unique "#254: Phase 4.0.5 reads the current branch once into CUR_BRANCH" \
+  'CUR_BRANCH=$(git branch --show-current)' "$P4_FILE"
+assert_pin_unique "#254: Phase 4.0.5 derives the sanitized branch slug from CUR_BRANCH" \
+  'BRANCH_SLUG=$(printf '"'"'%s'"'"' "$CUR_BRANCH" | tr' "$P4_FILE"
+assert_pin_unique "#254: Phase 4.0.5 adds the branch-slug dir to the manifest search set (operative)" \
+  'SEARCH_DIRS="$SLUG_DIR $BRANCH_DIR"' "$P4_FILE"
+assert_pin_red_on_removal "#254: Phase 4.0.5 branch-slug discovery arm flips RED on removal" \
+  'SEARCH_DIRS="$SLUG_DIR $BRANCH_DIR"' "$P4_FILE"
+# The aggregate must still be written at pr-<N>/deferrals.json (the path /pr-description reads).
+assert_pin_unique "#254: Phase 4.0.5 keeps the aggregate at the pr-<N> slug path" \
+  'AGG="${SLUG_DIR}/deferrals.json"' "$P4_FILE"
+# tr-dependence observability (this repo's review-and-fix guard-class 2): BRANCH_SLUG is
+# derived through `tr` on PATH, so a `tr`-degraded host yields an empty slug and the branch-
+# slug arm is silently dropped. The extension MANDATES making that degradation observable,
+# so the empty-slug breadcrumb must not be droppable unnoticed — pin it removal-proof (the
+# existing SEARCH_DIRS pin covers the arm's RHS only, not this guard/breadcrumb).
+assert_pin_red_on_removal "#254: Phase 4.0.5 tr-degraded empty-slug breadcrumb flips RED on removal" \
+  'current branch produced an empty slug' "$P4_FILE"
+assert_pin_unique "#254: Phase 4.0.5 guards the branch-slug arm on a non-empty slug" \
+  '[ -n "$BRANCH_SLUG" ] && [ "$BRANCH_DIR" != "$SLUG_DIR" ]' "$P4_FILE"
 assert_pin_unique "sweep 2.3.6: implement SKILL keeps the sweep body" '#### 2.3.6 Error-handling & silent-failure sweep' "$IMPL_SKILL"
 assert_pin_unique "sweep 2.3.6: implement SKILL lists it in the always-run index" '**2.3.6** (error-handling & silent-failure)' "$IMPL_SKILL"
 assert_eq "sweep 2.3.6: docs/implement-skill.md keeps the rationale table row" "yes" \
@@ -3487,6 +3556,29 @@ assert_pin_red_on_removal "#184: deleting the negative-scope type literal turns 
   'explicit surface exclusions' "$IMPL_SKILL"
 assert_pin_red_on_removal "#184: deleting the policy-referencing type literal turns its pin RED" \
   'Policy-referencing claims in ACs' "$IMPL_SKILL"
+# ── issue #254: Phase 1.6 gains Pass 4 — declared sequencing-dependency claims.
+# An issue stating it "must merge after #N" is verified deterministically: each
+# declared dependency's state is read via gh issue view; all-closed records a
+# confirmation note, an OPEN (or unresolvable) dependency routes to the Blocked
+# path with the 👎 outcome reaction. Pin the pass heading removal-proof, and the
+# two operative contracts (the state read and the Blocked-on-open path).
+assert_pin_red_on_removal "#254: deleting the Pass 4 dependency-claims heading turns its pin RED" \
+  'Declared sequencing-dependency claims' "$IMPL_SKILL"
+assert_pin_unique "#254: Pass 4 checks each declared dependency's state via gh issue view" \
+  "gh issue view N --json state,title --jq '.state'" "$IMPL_SKILL"
+assert_pin_unique "#254: Pass 4 routes an OPEN declared dependency to the Blocked path" \
+  'issue-claim audit (dependency): declared dependency #N is still OPEN' "$IMPL_SKILL"
+# Review iter 3: the unresolvable-dependency → Blocked arm is the most safety-relevant
+# route (fail-closed on a `gh issue view` failure that says nothing about state); pin it
+# removal-proof too, not just the heading and the OPEN arm.
+assert_pin_unique "#254: Pass 4 fails closed (Blocked) when a declared dependency cannot be resolved" \
+  'issue-claim audit (dependency): could not resolve declared dependency #N state' "$IMPL_SKILL"
+# Review iter (PR #255): `gh issue view` returns MERGED (not CLOSED) for a merged PR
+# dependency — the satisfied case. Pin the operative clause that a landed prerequisite is
+# CLOSED **or** MERGED so a later edit cannot silently drop MERGED and mis-Block a merged
+# prerequisite (the fail-closed-but-wrong direction the review flagged).
+assert_pin_unique "#254: Pass 4 treats a MERGED dependency as satisfied (landed = CLOSED or MERGED)" \
+  'when it is `CLOSED` **or** `MERGED`' "$IMPL_SKILL"
 # ── issue #185 (+ Addendum): Phase 4.1 Documentation Needed cross-check ─────
 # Phase 4.1 enforces named documentation deliverables in two stages:
 #   Stage 1 pre-flight: extract the Documentation Needed paths and inject them
@@ -3679,6 +3771,114 @@ fx_period="## Implementation Notes
 assert_eq "#190 fix-loop: un-backticked filename with a trailing sentence period IS extracted" \
   "CHANGELOG.md" \
   "$(printf '%s\n' "$fx_period" | bash "$EXTRACT_HELPER")"
+
+# Case 7 (issue #254): the real issue #247 Documentation Needed bullet. The
+# tokenizer splits the skill-invocation reference \`/claude-md-management:revise-claude-md\`
+# on the colon into \`/claude-md-management\` (rooted, no extension, names no
+# in-tree file) — which the OLD contains-a-slash test wrongly emitted. The
+# fixture must yield EXACTLY the three real doc files, dropping the skill-ref.
+fx_247="## Implementation Notes
+
+- **Approach** — do the thing.
+- **Documentation Needed**
+  - Document \`DEVFLOW_JQ\` as the Windows \`jq\` escape hatch in
+    \`docs/install.md\` / \`README.md\` requirements.
+  - Record the shared resolver-family expansion (\`jq\` + \`gh\`) and the path
+    normalizer in the \`CLAUDE.md\` tool-resolution gotcha, via
+    \`/claude-md-management:revise-claude-md\`.
+- **Potential Gotchas** — none."
+assert_eq "#254: the #247 body yields exactly CLAUDE.md, README.md, docs/install.md (skill-ref dropped)" \
+  "$(printf 'CLAUDE.md\nREADME.md\ndocs/install.md')" \
+  "$(printf '%s\n' "$fx_247" | bash "$EXTRACT_HELPER")"
+
+# Case 8 (issue #254): bare-directory tokens (trailing-slash and extensionless
+# dir path) and rooted non-file tokens are all dropped; only the real file
+# path with a recognized extension survives.
+fx_dirs="## Implementation Notes
+
+- **Documentation Needed** — touch \`docs/\`, \`docs/internal\`, \`/pr-description\`, and \`README.md\`."
+assert_eq "#254: bare dirs (docs/, docs/internal) and rooted skill-ref (/pr-description) dropped; file kept" \
+  "README.md" \
+  "$(printf '%s\n' "$fx_dirs" | bash "$EXTRACT_HELPER")"
+
+# Case 9 (issue #254 review): the extensionless-rescue must be BOTH a regular file
+# AND in-tree — guarding the two fail-open shapes the review surfaced. `LICENSE`
+# (extensionless, tracked) is rescued; `/README.md` is rooted, so it is dropped even
+# though `README.md` exists relative (the "drops tokens beginning with `/`" contract —
+# a bare `[ -f ]` on the host FS would have accepted an out-of-tree `/etc/hostname`);
+# and a bare directory token `docs` must NOT leak (`git ls-files --error-unmatch docs`
+# succeeds by matching the tracked files INSIDE `docs/`, so the `[ -f ]` regular-file
+# check is what rejects it). Hermetic: LICENSE, README.md, docs all exist in this repo.
+fx_intree="## Implementation Notes
+
+- **Documentation Needed** — update \`LICENSE\`, \`/README.md\`, and \`docs\`."
+assert_eq "#254: extensionless in-tree file rescued; rooted token and bare dir dropped (fail-open closed)" \
+  "LICENSE" \
+  "$(printf '%s\n' "$fx_intree" | bash "$EXTRACT_HELPER")"
+
+# Case 10 (issue #254 review): ACCEPTED-tradeoff pin. A deterministic extractor cannot
+# tell a to-be-created EXTENSIONLESS file (`docs/newthing`, no extension, not yet on disk)
+# apart from a bare-directory token, so the in-tree-regular-file rescue drops it — an
+# extension-bearing deliverable (`docs/newthing.md`) is still emitted regardless of whether
+# it exists yet. This pins the drop as intended behavior (not a silent regression to chase):
+# the overwhelmingly-common doc deliverable carries an extension; only a brand-new
+# extensionless path is affected, and it fails CLOSED (dropped, never mis-emitted).
+fx_tobecreated="## Implementation Notes
+
+- **Documentation Needed** — create \`docs/newthing\` and \`docs/newthing.md\`."
+assert_eq "#254: to-be-created extensionless deliverable dropped (accepted); extension-bearing kept" \
+  "docs/newthing.md" \
+  "$(printf '%s\n' "$fx_tobecreated" | bash "$EXTRACT_HELPER")"
+
+# Case 11 (review iter 3): a parent-dir-escaping token WITH a recognized extension
+# (`../notes.md`, `docs/../secret.md`) must be dropped. The extension branch emits on
+# the extension ALONE and never runs the `[ -f ]` + git in-tree check, so without the
+# `../*|*/../*` case arm an out-of-tree `../x.md` would be emitted — the same out-of-tree
+# fail-open the extensionless rescue (Case 9) was hardened against. An in-tree filename
+# that merely CONTAINS dots but no `/../` segment (`foo..md`) is NOT an escape and is kept.
+fx_escape="## Implementation Notes
+
+- **Documentation Needed** — update \`../notes.md\`, \`docs/../secret.md\`, \`foo..md\`, and \`CLAUDE.md\`."
+assert_eq "#254: parent-dir-escaping extension tokens dropped (out-of-tree fail-open closed); in-tree kept" \
+  "CLAUDE.md
+foo..md" \
+  "$(printf '%s\n' "$fx_escape" | bash "$EXTRACT_HELPER")"
+
+# Case 12 (issue #254 review — test gap): extensionless real-but-UNTRACKED file drop with
+# git PRESENT. cwd is inside a fresh git work tree (git_rescue_ok=1); the token names a real
+# on-disk regular file (`[ -f ]` passes) but `git ls-files --error-unmatch` fails because it
+# is untracked → dropped with NO breadcrumb (a legitimate "not a repo deliverable" decision,
+# not a tool-absence degradation — the exact discrimination the two-part rescue exists to make).
+fx_untracked_dir="$(mktemp -d)"
+( cd "$fx_untracked_dir" && git init -q && : > adhoc_notes )
+fx_untracked_body="## Implementation Notes
+
+- **Documentation Needed** — update \`adhoc_notes\` and \`CLAUDE.md\`."
+fx_untracked_out="$( cd "$fx_untracked_dir" && printf '%s\n' "$fx_untracked_body" | bash "$EXTRACT_HELPER" 2>"$fx_untracked_dir/err" )"
+assert_eq "#254: extensionless untracked real file dropped (git present, [ -f ] passes, ls-files fails)" \
+  "CLAUDE.md" "$fx_untracked_out"
+assert_eq "#254: untracked-drop emits NO git-unavailable breadcrumb (git present)" \
+  "0" "$(grep -c 'git unavailable' "$fx_untracked_dir/err")"
+rm -rf "$fx_untracked_dir"
+
+# Case 13 (issue #254 review — test gap): git-unavailable degraded-rescue breadcrumb. cwd is
+# OUTSIDE any git work tree (a bare temp dir → git_rescue_ok=0). An extensionless token naming
+# a real on-disk file (`[ -f ]` passes) is dropped, but because the drop is due to git being
+# unable to run — not because the file is untracked — the helper emits ONE `git unavailable`
+# breadcrumb so the drop is observable (guard-class-2 tr-dependence standard, this PR's own
+# review-extension contract). The extension-bearing token is still emitted, unaffected.
+fx_nogit_dir="$(mktemp -d)"
+fx_nogit_ceiling="$(dirname "$fx_nogit_dir")"
+: > "$fx_nogit_dir/adhoc_notes"
+fx_nogit_body="## Implementation Notes
+
+- **Documentation Needed** — update \`adhoc_notes\` and \`CLAUDE.md\`."
+fx_nogit_out="$( printf '%s\n' "$fx_nogit_body" | ( cd "$fx_nogit_dir" && GIT_CEILING_DIRECTORIES="$fx_nogit_ceiling" bash "$EXTRACT_HELPER" 2>"$fx_nogit_dir/err" ) )"
+assert_eq "#254: extensionless real file dropped when git unavailable (cwd outside work tree)" \
+  "CLAUDE.md" "$fx_nogit_out"
+assert_eq "#254: git-unavailable drop emits the degraded-rescue breadcrumb exactly once" \
+  "1" "$(grep -c 'git unavailable' "$fx_nogit_dir/err")"
+rm -rf "$fx_nogit_dir"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "scaffold-config.sh"
