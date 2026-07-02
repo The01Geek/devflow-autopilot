@@ -12040,6 +12040,34 @@ SKILL_JQ_BARE="$(
   | grep -vE 'jq(\.exe)? --version' | grep -c . || true)"
 assert_eq "#253 skills-jq: no bare invocation-position jq survives in a retrospective-skill shell fenced block" "0" "$SKILL_JQ_BARE"
 
+# Mutation check: the absence pin above only proves "count is 0 today" — it does not
+# prove the awk fence-parser + grep would actually *catch* a reintroduced bare jq (a
+# silently-broken fence regex would also read 0 and stay GREEN). Run the identical
+# pipeline against a synthetic fixture carrying one bare `jq` call inside a ```bash
+# fence and assert the count flips to nonzero, proving the guard fails closed.
+SKILL_JQ_BARE_FIXTURE_DIR="$(mktemp -d)"
+cat > "$SKILL_JQ_BARE_FIXTURE_DIR/fixture.md" <<'EOF'
+# Fixture
+
+```bash
+echo hi
+jq -r '.x' <<< "$INPUT"
+```
+EOF
+SKILL_JQ_BARE_MUTATED="$(
+  find "$SKILL_JQ_BARE_FIXTURE_DIR" -type f -name '*.md' 2>/dev/null | while IFS= read -r _f; do
+    awk '
+      /^[[:space:]]*```(bash|sh|shell)[[:space:]]*$/ { inb=1; next }
+      /^[[:space:]]*```[[:space:]]*$/ { inb=0; next }
+      inb { print }
+    ' "$_f"
+  done \
+  | grep -v 'run-jq\.sh' \
+  | grep -E '(^|[[:space:]|&;(`])jq[[:space:]]+(-|'"'"'|"|\.|empty|length|keys|type|to_entries)' \
+  | grep -vE 'jq(\.exe)? --version' | grep -c . || true)"
+assert_eq "#253 skills-jq mutation check: awk fence-parser catches a reintroduced bare jq (guard fails closed, not vacuous)" "1" "$SKILL_JQ_BARE_MUTATED"
+rm -rf "$SKILL_JQ_BARE_FIXTURE_DIR"
+
 # ── #253 run-jq.sh behavioral coverage — the wrapper carries logic the #247
 #    resolver tests don't reach (pure-bash BASH_SOURCE dir derivation, the
 #    source-guard, the partial-deploy fallback, DEVFLOW_JQ honoring on that
