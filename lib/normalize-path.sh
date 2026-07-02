@@ -8,7 +8,9 @@
 # can arrive in Windows form; handing such a path to a POSIX shell fails.
 #
 # Non-Windows-form input passes through unchanged and consults no tool — zero
-# behavior change on Linux/macOS/cloud.
+# behavior change on Linux/macOS/cloud. UNC paths (`\\server\share\...`) are
+# deliberately out of scope: they do not match the drive-letter form and pass
+# through unchanged (the documented residual — a skill anchor is never UNC).
 #
 # NOTE (bootstrap constraint): the create-issue skill-dir anchor cannot source
 # this helper — the anchor is what LOCATES lib/ in the first place — so
@@ -40,15 +42,17 @@ devflow_normalize_path() {
     printf '%s\n' "$input"
     return 0
   fi
-  # Capture the tool's output and echo it only on SUCCESS (the same form as
-  # the SKILL.md mirror): a tool that prints partial output and then exits
-  # non-zero must not contaminate the caller's command substitution with a
-  # garbage line before the next tier's result.
-  if command -v wslpath >/dev/null 2>&1 && _np="$(wslpath -u "$input" 2>/dev/null)"; then
+  # Capture the tool's output and echo it only on SUCCESS with NON-EMPTY
+  # output (the same form as the SKILL.md mirror): a tool that prints partial
+  # output and exits non-zero must not contaminate the caller's command
+  # substitution, and a tool that exits 0 printing nothing must not turn the
+  # path into the empty string ("the caller always gets a usable string") —
+  # both fall through to the next tier.
+  if command -v wslpath >/dev/null 2>&1 && _np="$(wslpath -u "$input" 2>/dev/null)" && [ -n "$_np" ]; then
     printf '%s\n' "$_np"
     return 0
   fi
-  if command -v cygpath >/dev/null 2>&1 && _np="$(cygpath -u "$input" 2>/dev/null)"; then
+  if command -v cygpath >/dev/null 2>&1 && _np="$(cygpath -u "$input" 2>/dev/null)" && [ -n "$_np" ]; then
     printf '%s\n' "$_np"
     return 0
   fi

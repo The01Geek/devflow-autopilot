@@ -25,8 +25,9 @@
 # helpers run `set -euo pipefail` / `set -uo pipefail`, and sourced-only
 # scripts set no options at all).
 
-# Idempotence guard: several helpers source this file both directly and
-# transitively (via resolve-gh.sh / resolve-jq.sh) — skip the re-parse. The
+# Idempotence guard: this file is sourced more than once per process —
+# lib/preflight.sh directly plus transitively, and the jq+gh helpers twice
+# transitively (via resolve-jq.sh and resolve-gh.sh) — skip the re-parse. The
 # if-form (not `[ … ] && return`) is kept so the guard can never become the
 # file's final failing AND-list statement if lines are later reordered.
 if [ -n "${_DEVFLOW_RESOLVE_BIN_SOURCED:-}" ]; then return 0; fi
@@ -56,8 +57,25 @@ _DEVFLOW_RESOLVE_BIN_SOURCED=1
 # caller wants the string).
 devflow_resolve_bin() {
   local tool="$1" var_name override cand
-  # tr (not ${var^^}) keeps this bash-3.2-compatible for stock macOS bash.
-  var_name="DEVFLOW_$(printf '%s' "$tool" | tr '[:lower:]-' '[:upper:]_')"
+  # The override path must stay PURE BASH for the known tools: deriving the
+  # variable name through `tr` means a degenerate PATH without tr silently
+  # bypasses DEVFLOW_<TOOL> — probing (or even executing) the very stub the
+  # override contract promises never to touch. Map the known consumers
+  # directly; the generic tr arm remains for future tools (git would take it),
+  # failing CLOSED with a breadcrumb when tr is unavailable rather than
+  # reading a mangled `DEVFLOW_` variable.
+  case "$tool" in
+    jq) var_name=DEVFLOW_JQ ;;
+    gh) var_name=DEVFLOW_GH ;;
+    *)
+      # tr (not ${var^^}) keeps this bash-3.2-compatible for stock macOS bash.
+      var_name="DEVFLOW_$(printf '%s' "$tool" | tr '[:lower:]-' '[:upper:]_' 2>/dev/null)"
+      if [ "$var_name" = "DEVFLOW_" ]; then
+        printf 'devflow: could not derive the override variable name for "%s" (tr unavailable?) — override not consulted, probing candidates\n' "$tool" >&2
+        var_name=__DEVFLOW_NO_OVERRIDE__
+      fi
+      ;;
+  esac
   override="${!var_name:-}"
   # Explicit override wins with no probe (stub contract + Windows escape hatch).
   if [ -n "$override" ]; then

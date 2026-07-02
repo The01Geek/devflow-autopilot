@@ -19,9 +19,17 @@ _PREFLIGHT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$_PREFLIGHT_DIR/resolve-python.sh"
 # Share the generic execution-verified binary-selection contract (see
 # lib/resolve-bin.sh) — jq resolves through it here, and resolve-gh.sh
-# delegates to it for gh.
-# shellcheck source=resolve-bin.sh
-. "$_PREFLIGHT_DIR/resolve-bin.sh"
+# delegates to it for gh. Guarded (family partial-copy posture): a deployment
+# missing the sibling degrades to bare-name resolution with a breadcrumb, so
+# the jq/gh diagnoses below stay attributable instead of blaming a phantom
+# Windows shim ("the resolved '' does not execute").
+if [ -f "$_PREFLIGHT_DIR/resolve-bin.sh" ]; then
+  # shellcheck source=resolve-bin.sh
+  . "$_PREFLIGHT_DIR/resolve-bin.sh"
+else
+  printf 'devflow preflight: lib/resolve-bin.sh missing beside preflight.sh (partial copy?) — tool resolution degraded to bare names\n' >&2
+  devflow_resolve_bin() { printf '%s\n' "${1:-}"; }
+fi
 # Share the gh-selection contract with every gh-calling helper (see lib/resolve-gh.sh)
 # so preflight DETECTS with the same execution-verified probe the helpers USE.
 # shellcheck source=resolve-gh.sh

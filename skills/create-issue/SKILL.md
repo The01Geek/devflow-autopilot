@@ -16,8 +16,8 @@ SKILL_DIR="${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner report
 # mirror of lib/normalize-path.sh, kept in lockstep (bootstrap constraint: the
 # anchor is what locates lib/, so it cannot source the helper).
 if [[ "$SKILL_DIR" =~ ^[A-Za-z]:[\\/] ]]; then
-  if command -v wslpath >/dev/null 2>&1 && _np="$(wslpath -u "$SKILL_DIR" 2>/dev/null)"; then SKILL_DIR="$_np"
-  elif command -v cygpath >/dev/null 2>&1 && _np="$(cygpath -u "$SKILL_DIR" 2>/dev/null)"; then SKILL_DIR="$_np"
+  if command -v wslpath >/dev/null 2>&1 && _np="$(wslpath -u "$SKILL_DIR" 2>/dev/null)" && [ -n "$_np" ]; then SKILL_DIR="$_np"
+  elif command -v cygpath >/dev/null 2>&1 && _np="$(cygpath -u "$SKILL_DIR" 2>/dev/null)" && [ -n "$_np" ]; then SKILL_DIR="$_np"
   else
     _d="$(printf '%s' "${SKILL_DIR%%:*}" | tr '[:upper:]' '[:lower:]')"; _r="${SKILL_DIR#?:}"; _r="${_r//\\//}"
     if uname -r 2>/dev/null | grep -qi microsoft; then SKILL_DIR="/mnt/${_d}${_r}"
@@ -135,8 +135,8 @@ Drafting produces a candidate issue **in your message only** — nothing is post
    # mirror of lib/normalize-path.sh, kept in lockstep (bootstrap constraint: the
    # anchor is what locates lib/, so it cannot source the helper).
    if [[ "$SKILL_DIR" =~ ^[A-Za-z]:[\\/] ]]; then
-     if command -v wslpath >/dev/null 2>&1 && _np="$(wslpath -u "$SKILL_DIR" 2>/dev/null)"; then SKILL_DIR="$_np"
-     elif command -v cygpath >/dev/null 2>&1 && _np="$(cygpath -u "$SKILL_DIR" 2>/dev/null)"; then SKILL_DIR="$_np"
+     if command -v wslpath >/dev/null 2>&1 && _np="$(wslpath -u "$SKILL_DIR" 2>/dev/null)" && [ -n "$_np" ]; then SKILL_DIR="$_np"
+     elif command -v cygpath >/dev/null 2>&1 && _np="$(cygpath -u "$SKILL_DIR" 2>/dev/null)" && [ -n "$_np" ]; then SKILL_DIR="$_np"
      else
        _d="$(printf '%s' "${SKILL_DIR%%:*}" | tr '[:upper:]' '[:lower:]')"; _r="${SKILL_DIR#?:}"; _r="${_r//\\//}"
        if uname -r 2>/dev/null | grep -qi microsoft; then SKILL_DIR="/mnt/${_d}${_r}"

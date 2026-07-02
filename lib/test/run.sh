@@ -11309,6 +11309,14 @@ assert_eq "#247 T2: override path never probes --version (stub not invoked)" "no
 T2B_SEL="$(DEVFLOW_JQ="" PATH="$JQT0:$PATH" bash -c ". \"$RESOLVE_BIN_SH\"; devflow_resolve_bin jq")"
 assert_eq "#247 T2b: empty DEVFLOW_JQ falls through to the probe (not echoed verbatim)" "jq" "$T2B_SEL"
 
+# ── T2d — the override must win WITHOUT tr on PATH (pure-bash derivation for
+#    the known tools): a degenerate PATH must never silently bypass
+#    DEVFLOW_<TOOL> and probe/execute the stub the contract protects. ──
+JQT2D="$(mktemp -d)"
+ln -s "$(command -v bash)" "$JQT2D/bash"
+T2D_SEL="$(DEVFLOW_JQ=/stub/jq PATH="$JQT2D" "$JQT2D/bash" -c ". \"$RESOLVE_BIN_SH\"; devflow_resolve_bin jq")"
+assert_eq "#247 T2d: DEVFLOW_JQ override honored with NO tr on PATH (pure-bash known-tool derivation)" "/stub/jq" "$T2D_SEL"
+
 # ── Degenerate — no runnable candidate → bare tool echoed, rc 0 (best-effort
 #    contract preserved: existing error paths downstream stay unchanged). ──
 JQTD="$(mktemp -d)"; ln -s "$(command -v bash)" "$JQTD/bash"
@@ -11453,6 +11461,21 @@ DEVFLOW_JQ="$JQT6/jq-rec" bash "$LIB/../scripts/detect-project-tools.sh" "$JQT6"
 assert_eq "#247 T6: converted helper routes jq through DEVFLOW_JQ (stub invoked)" "yes" \
   "$([ -f "$JQT6/.called" ] && echo yes || echo no)"
 
+# ── T4i — a wslpath that exits 0 but prints NOTHING must not yield an empty
+#    path ("the caller always gets a usable string"): falls through to the
+#    next tier. ──
+NPT4I="$(mktemp -d)"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$NPT4I/wslpath"; chmod +x "$NPT4I/wslpath"
+printf '#!/usr/bin/env bash\necho "5.15.0-microsoft-standard-WSL2"\n' > "$NPT4I/uname"; chmod +x "$NPT4I/uname"
+_mk_restricted "$NPT4I" bash tr grep dirname
+T4I="$(env -u MSYSTEM PATH="$NPT4I" "$_NP_BASH_BIN" -c ". \"$NORMALIZE_PATH_SH\"; devflow_normalize_path 'C:\\Users\\x'" 2>/dev/null)"
+assert_eq "#247 T4i: empty-but-successful wslpath output falls through (never an empty path)" "/mnt/c/Users/x" "$T4I"
+
+# ── T4j — spaces and a lowercase non-C drive letter through the env-detected
+#    arm (real anchors look like d:\Program Files\...). ──
+T4J="$(env -u MSYSTEM PATH="$NPT4C" "$_NP_BASH_BIN" -c ". \"$NORMALIZE_PATH_SH\"; devflow_normalize_path 'd:\\Program Files\\x'" 2>/dev/null)"
+assert_eq "#247 T4j: spaces + lowercase drive letter normalize (env-detected WSL arm)" "/mnt/d/Program Files/x" "$T4J"
+
 # ── T4g — a PRESENT-but-FAILING wslpath (prints partial output, exits 1) must
 #    not contaminate the result: the chain falls through to the next tier and
 #    the caller receives ONE clean line (the pre-fix form leaked the partial
@@ -11511,6 +11534,57 @@ env -u DEVFLOW_JQ PATH="$SCVJ" "$_SCV_BASH_BIN" -c "DEVFLOW_SELFTEST=1 . \"$DJQ_
 assert_eq "#247 T9: bad-shebang jq + working python3 → python3 arm pins devflow_version" "yes" \
   "$(grep -q '"devflow_version": "abc1234"' "$SCVJ/config.json" && echo yes || echo no)"
 
+# ── T9b — install.sh, broken explicit DEVFLOW_JQ override: the warning
+#    breadcrumb fires AND the python3 arm still pins the version (the one
+#    deliberately-divergent contract in the family — pinned so a future
+#    "unify with the shared resolver" edit goes RED). ──
+SCVO="$(mktemp -d)"
+_mk_restricted "$SCVO" bash python3 mktemp mv cat grep tr dirname rm
+printf '{\n  "docs": {}\n}\n' > "$SCVO/config.json"
+printf '#!/nonexistent/devflow-test-interpreter\necho nope\n' > "$SCVO/broken-jq"; chmod +x "$SCVO/broken-jq"
+T9B_ERRLOG="$(DEVFLOW_JQ="$SCVO/broken-jq" PATH="$SCVO" "$_SCV_BASH_BIN" -c "DEVFLOW_SELFTEST=1 . \"$DJQ_ROOT/install.sh\" && set_config_version \"$SCVO/config.json\" beef1234" 2>&1)"
+assert_eq "#247 T9b: broken DEVFLOW_JQ override → warning breadcrumb names the override" "yes" \
+  "$(printf '%s' "$T9B_ERRLOG" | grep -q "DEVFLOW_JQ is set to .*broken-jq.* but it does not execute" && echo yes || echo no)"
+assert_eq "#247 T9b: broken DEVFLOW_JQ override → python3 arm still pins devflow_version" "yes" \
+  "$(grep -q '"devflow_version": "beef1234"' "$SCVO/config.json" && echo yes || echo no)"
+
+# ── Preflight, broken DEVFLOW_JQ override: the re-probe catches it and the
+#    shim-branch remedy names the resolved value (mirrors #245 AC5b). ──
+PF_JQO_OUT="$(DEVFLOW_JQ="$SCVO/broken-jq" bash "$LIB/preflight.sh" 2>&1)"; PF_JQO_RC=$?
+assert_eq "#247 preflight: broken DEVFLOW_JQ override → exit non-zero (re-probe catches it)" "yes" \
+  "$([ "$PF_JQO_RC" -ne 0 ] && echo yes || echo no)"
+assert_eq "#247 preflight: broken DEVFLOW_JQ override → remedy names the resolved binary" "yes" \
+  "$(printf '%s' "$PF_JQO_OUT" | grep -q "no working 'jq'.*broken-jq" && echo yes || echo no)"
+
+# ── Preflight partial copy (no resolve-bin.sh beside it): degrades with an
+#    attributable breadcrumb and bare-name resolution — never the phantom
+#    "the resolved '' does not execute" misdiagnosis. ──
+PFPC="$(mktemp -d)"
+cp "$LIB/preflight.sh" "$LIB/resolve-python.sh" "$LIB/resolve-gh.sh" "$LIB/resolve-jq.sh" "$PFPC/"
+PF_PC_OUT="$(env -u DEVFLOW_JQ -u DEVFLOW_GH bash "$PFPC/preflight.sh" 2>&1)"; PF_PC_RC=$?
+assert_eq "#247 preflight partial copy: attributable resolve-bin.sh breadcrumb emitted" "yes" \
+  "$(printf '%s' "$PF_PC_OUT" | grep -q 'resolve-bin.sh missing beside preflight.sh' && echo yes || echo no)"
+assert_eq "#247 preflight partial copy: bare-name degradation still verifies real tools (exit 0 on a healthy host)" "0" "$PF_PC_RC"
+
+# ── T5d — BEHAVIORAL lockstep: extract the first SKILL.md inline block, run it
+#    under the same stubbed env as the lib helper, and assert identical output
+#    (the regex pin above catches detection-line drift; this catches
+#    translation-body drift between lib and the mirrors). ──
+T5D="$(mktemp -d)"
+printf '#!/usr/bin/env bash\necho "5.15.0-microsoft-standard-WSL2"\n' > "$T5D/uname"; chmod +x "$T5D/uname"
+_mk_restricted "$T5D" bash tr grep dirname
+awk '
+  /# Windows-form anchor normalization/ { n++; if (n==1) on=1 }
+  on { line=$0; sub(/^[[:space:]]*/, "", line); print line
+       if (u && line == "fi") { on=0 }
+       if (line ~ /^unset _d _np _r$/) u=1 }
+' "$CI_SKILL" > "$T5D/block.sh"
+printf 'SKILL_DIR='"'"'C:\\Users\\dev\\skills\\x'"'"'\n%s\nprintf %%s "$SKILL_DIR"\n' "$(cat "$T5D/block.sh")" > "$T5D/runner.sh"
+T5D_SKILL="$(env -u MSYSTEM PATH="$T5D" "$_NP_BASH_BIN" "$T5D/runner.sh" 2>/dev/null)"
+T5D_LIB="$(env -u MSYSTEM PATH="$T5D" "$_NP_BASH_BIN" -c ". \"$NORMALIZE_PATH_SH\"; devflow_normalize_path 'C:\\Users\\dev\\skills\\x'" 2>/dev/null)"
+assert_eq "#247 T5d: SKILL.md inline block and lib helper translate identically (behavioral lockstep)" "$T5D_LIB" "$T5D_SKILL"
+assert_eq "#247 T5d: behavioral lockstep output is the expected WSL form" "/mnt/c/Users/dev/skills/x" "$T5D_LIB"
+
 # ── Lockstep pin — the Windows-form detection regex literal must appear in
 #    BOTH lib/normalize-path.sh and the create-issue SKILL.md mirrors, so a
 #    translation-logic edit to either side alone goes RED (T5c pins the two
@@ -11548,16 +11622,18 @@ assert_eq "#247 peer-completeness: >=15 helpers reference the shared resolver (a
 # would mask the repo's dominant `printf ... | jq -r` idiom): full-line
 # comments, the resolver's own file, and `--version` probe lines (`<cand>
 # --version` IS the resolver mechanism — install.sh's inline adaptation and
-# the preflight re-probe — never a data-processing call site). The suffix
+# the preflight re-probe — never a data-processing call site; the exclusion
+# is anchored to the probe shape `jq(.exe)? --version`, not a whole-line
+# --version filter that a filter-string mention would ride). The suffix
 # alternation covers flag/quoted-program/path forms AND common bareword
 # filters (empty/length/keys/type/to_entries) so `jq empty <<<"$x"`-style
 # reintroductions go RED too.
 DJQ_BARE="$(grep -rnE '(^|[[:space:]|&;(`])jq[[:space:]]+(-|'"'"'|"|\.|empty|length|keys|type|to_entries)' \
   "$DJQ_ROOT/scripts" "$DJQ_ROOT/lib" "$DJQ_ROOT/install.sh" --include='*.sh' 2>/dev/null \
-  | grep -v '/test/' | grep -v 'resolve-bin\.sh:' | grep -vE ':[[:space:]]*#' | grep -v -- '--version' | grep -c . || true)"
+  | grep -v '/test/' | grep -v 'resolve-bin\.sh:' | grep -vE ':[[:space:]]*#' | grep -vE 'jq(\.exe)? --version' | grep -c . || true)"
 assert_eq "#247 peer-completeness: no bare invocation-position jq call survives outside the resolver" "0" "$DJQ_BARE"
 
-rm -rf "$JQT0" "$JQT1" "$JQT2" "$JQTD" "$NPT4" "$NPT4B" "$NPT4C" "$NPT4D" "$NPT4E" "$NPT4G" "$JQTP" "$JQT10" "$JQT6" "$JQT7" "$JQT8" "$SCVJ"
+rm -rf "$JQT0" "$JQT1" "$JQT2" "$JQT2D" "$JQTD" "$NPT4" "$NPT4B" "$NPT4C" "$NPT4D" "$NPT4E" "$NPT4G" "$NPT4I" "$JQTP" "$JQT10" "$JQT6" "$JQT7" "$JQT8" "$SCVJ" "$SCVO" "$PFPC" "$T5D"
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.

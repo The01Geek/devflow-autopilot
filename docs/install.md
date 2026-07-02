@@ -69,7 +69,7 @@ export DEVFLOW_GH=gh.exe   # or an absolute path to the working GitHub CLI
 
 The same shadowing can hit `jq`: a present-but-unrunnable `jq` earlier on `PATH` (a bad-shebang shim, a cleared exec bit) passes a naive presence check while every jq-dependent DevFlow step breaks.
 
-DevFlow resolves this the same way: the shared resolver `lib/resolve-bin.sh` (which every jq-calling helper and `lib/preflight.sh` route through, and which `lib/resolve-gh.sh` delegates to for `gh`) picks the first of `jq`, `jq.exe` whose `jq --version` **actually runs** (a network- and auth-free probe), rejecting an unrunnable shim in favor of a working `jq.exe`. On macOS/Linux/cloud, where bare `jq` runs, it returns `jq` on the first probe — no behavior change.
+DevFlow resolves this the same way: the shared resolver `lib/resolve-bin.sh` (which every jq-calling helper and `lib/preflight.sh` route through, and which `lib/resolve-gh.sh` delegates to for `gh`; `install.sh` alone carries an inline adaptation, since it runs before any checkout exists — there a broken `DEVFLOW_JQ` falls back to python3 with a warning) picks the first of `jq`, `jq.exe` whose `jq --version` **actually runs** (a network- and auth-free probe), rejecting an unrunnable shim in favor of a working `jq.exe`. On macOS/Linux/cloud, where bare `jq` runs, it returns `jq` on the first probe — no behavior change.
 
 If your host needs a specific binary (or you want to bypass probing entirely), set the **`DEVFLOW_JQ`** environment variable to the working `jq` / `jq.exe` (a name on PATH or an absolute path). When set and non-empty it takes top precedence — the probe runs only when `DEVFLOW_JQ` is unset or empty:
 
