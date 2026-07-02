@@ -1,0 +1,133 @@
+{
+  "iter": 2,
+  "started_at": "2026-07-02T04:15:00Z",
+  "fix_commit_sha": "9d6ff7f9bb23acae4f4b515b7c14096c490e250e",
+  "fix_files": [
+    "lib/resolve-bin.sh",
+    "lib/normalize-path.sh",
+    "lib/preflight.sh",
+    "skills/create-issue/SKILL.md",
+    "docs/install.md",
+    "lib/test/run.sh"
+  ],
+  "loop_role": "promoted",
+  "checklist": [],
+  "phase3_dispatched": [],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "detect_all_audit": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [],
+  "fix_decisions": [
+    {
+      "finding_id": "S-1",
+      "decision": "applied",
+      "commit": "9d6ff7f"
+    },
+    {
+      "finding_id": "S-1",
+      "decision": "severity-calibrated",
+      "source_file": "lib/resolve-bin.sh",
+      "claim_text": "tr-dependent override derivation drops DEVFLOW_<TOOL>",
+      "original_severity": "Important",
+      "calibrated_severity": "Important",
+      "evidence": "no over-grade shape matches: silent fail-OPEN (stub probed/executed against the never-probe contract), corroborated by 2 agents, both reproduced \u2014 upheld at Important and fixed"
+    },
+    {
+      "finding_id": "S-2",
+      "decision": "applied",
+      "commit": "9d6ff7f"
+    },
+    {
+      "finding_id": "S-2",
+      "decision": "severity-calibrated",
+      "source_file": "lib/normalize-path.sh",
+      "claim_text": "empty-but-successful converter output yields empty path",
+      "original_severity": "Important",
+      "calibrated_severity": "Important",
+      "evidence": "flagged shape 3 (single-source SFH); evaluation: concrete reproduction (exit-0 empty stdout \u2192 empty path, no breadcrumb), silent fail-open matching the PR's own defect class \u2014 upheld and fixed (one-token guard, lockstep at 3 sites)"
+    },
+    {
+      "finding_id": "S-3",
+      "decision": "applied",
+      "commit": "9d6ff7f"
+    },
+    {
+      "finding_id": "S-3",
+      "decision": "severity-calibrated",
+      "source_file": "lib/preflight.sh",
+      "claim_text": "unguarded resolve-bin source misdiagnoses partial copy",
+      "original_severity": "Important",
+      "calibrated_severity": "Suggestion",
+      "evidence": "shape 2: fails CLOSED (missing=1, exit 1); impact is diagnostic wording only \u2014 calibrated down, fixed anyway for family uniformity"
+    },
+    {
+      "finding_id": "S-4",
+      "decision": "applied",
+      "commit": "9d6ff7f"
+    },
+    {
+      "finding_id": "S-6",
+      "decision": "applied",
+      "commit": "9d6ff7f"
+    },
+    {
+      "finding_id": "S-7",
+      "decision": "applied",
+      "commit": "9d6ff7f"
+    },
+    {
+      "finding_id": "S-8",
+      "decision": "applied",
+      "commit": "9d6ff7f"
+    },
+    {
+      "finding_id": "S-9",
+      "decision": "deferred",
+      "source_file": "skills/review/SKILL.md",
+      "claim_text": "skill bodies still instruct bare jq on the local tier (agent-composed commands hit the shim on Windows)",
+      "skip_category": "out-of-scope",
+      "evidence": "issue #247's Technical Context bounds the call-site migration to 'The jq call sites across scripts/*.sh and lib/*.sh' plus install.sh; agent-composed jq in SKILL.md bodies is the agent tier (allowlist-governed, runner-specific) \u2014 a distinct surface needing its own design (DEVFLOW_JQ is not exported to agent shells)"
+    },
+    {
+      "finding_id": "S-10",
+      "decision": "applied",
+      "commit": "9d6ff7f"
+    },
+    {
+      "finding_id": "S-11",
+      "decision": "applied",
+      "commit": "9d6ff7f"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 8,
+    "fix_diff_lines": 150,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "telemetry": {
+    "phase_2": {
+      "calls": 6,
+      "tokens": 328659,
+      "wall_clock_s": 90
+    },
+    "step_2_6": {
+      "calls": 17,
+      "tokens": 1420000,
+      "wall_clock_s": 1000
+    },
+    "phase_4_x": {
+      "calls": 2,
+      "tokens": 161668,
+      "wall_clock_s": 450
+    }
+  }
+}

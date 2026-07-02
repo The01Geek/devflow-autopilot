@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.51] — 2026-07-02
+
+### Added
+- **Review-finding severity thresholds are now configurable in `.devflow/config.json`, so a repo can tune fixer aggressiveness and verdict strictness without editing vendored skill bodies.** Three enum-valued keys (allowed values `"critical"`, `"important"`, `"suggestion"`; ordering critical > important > suggestion), each defaulting to today's hard-coded behavior so an absent key is a no-op: `devflow_review_and_fix.fix_severity_threshold` (default `"important"`) — the `/devflow:review-and-fix` fix loop routes to the fixer every finding at or above the threshold and parks the rest as advisory (at `"suggestion"` it also fixes Suggestion/Minor findings, still bounded by `max_iterations` and the convergence check); `receiving_review.fix_severity_threshold` (default `"critical"`, new top-level section) — the re-open bar when `/devflow:receiving-code-review` is invoked directly (the demonstrable-correctness-defect / documented-falsehood carve-out re-opens at every threshold value); and `devflow_review.verdict_severity_threshold` (default `"critical"`) — moves only the REJECT line of the shared engine's Phase 4.2 verdict (byte-identical to today at the default). The fix loop's effective fix set additionally includes every finding that drove a REJECT under `verdict_severity_threshold`, so no configuration combination produces a REJECT the fixer is configured to ignore. All three are read through the existing `config-get.sh` resolver (no new config parser) and enum-validated inline in each skill, falling back to the default with a key-naming stderr breadcrumb on a missing/wrong-type/unknown value (never aborting a run). (#252, closes #251)
+
 ## [2.8.50] — 2026-07-01
 
 ### Added

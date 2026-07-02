@@ -21,17 +21,22 @@
     "allowed_tools": []
   },
   "devflow_review_and_fix": {
+    "fix_severity_threshold": "important",
     "max_iterations": 5,
     "efficiency_telemetry_enabled": true,
     "efficiency_cut_candidate_min_dispatch": 3
   },
   "devflow_review": {
+    "verdict_severity_threshold": "critical",
     "live_progress_comment_enabled": true,
     "agent_overrides": {
       "default": { "effort": "high" },
       "devflow:checklist-deduper": { "model": "claude-sonnet-4-6", "effort": "medium" },
       "devflow:code-reviewer": { "model": "claude-opus-4-8", "effort": "high" }
     }
+  },
+  "receiving_review": {
+    "fix_severity_threshold": "critical"
   },
   "setup": {
     "python_version": "3.11",

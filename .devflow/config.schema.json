@@ -96,8 +96,14 @@
     },
     "devflow_review_and_fix": {
       "type": "object",
-      "description": "Settings for /devflow:review-and-fix: the fix-loop iteration cap and per-run subagent effectiveness telemetry. See docs/shadow-review.md and docs/efficiency-trace.md.",
+      "description": "Settings for /devflow:review-and-fix: the fix-loop iteration cap, the fix-severity routing threshold, and per-run subagent effectiveness telemetry. See docs/shadow-review.md and docs/efficiency-trace.md.",
       "properties": {
+        "fix_severity_threshold": {
+          "type": "string",
+          "enum": ["critical", "important", "suggestion"],
+          "description": "The /devflow:review-and-fix fix loop routes to the fixer every finding whose severity is at or above this threshold (severity ordering: critical > important > suggestion); findings below it stay advisory. At the default 'important', the loop fixes Critical + Important/Major and parks Suggestion/Minor as advisory — identical to the historical hard-coded behavior. Set 'suggestion' for a more aggressive fixer (Suggestion/Minor also routed to the fixer, bounded by max_iterations and the convergence check) or 'critical' for a conservative one. Independent of devflow_review.verdict_severity_threshold, except that every REJECT-driving finding is always fixable regardless of this key. A missing/wrong-type/unknown value falls back to the default with a stderr breadcrumb (never aborts a run).",
+          "default": "important"
+        },
         "max_iterations": {
           "type": "integer",
           "minimum": 1,
@@ -121,6 +127,12 @@
       "type": "object",
       "description": "Settings for the standalone /devflow:review engine. See docs/workflow-triggers.md (live progress comment) and docs/efficiency-trace.md (telemetry + effectiveness trace).",
       "properties": {
+        "verdict_severity_threshold": {
+          "type": "string",
+          "enum": ["critical", "important", "suggestion"],
+          "description": "Moves ONLY the REJECT line of the shared review engine's Phase 4.2 verdict computation: a finding at or above this severity (severity ordering: critical > important > suggestion), excluding deferral-demoted ones, drives REJECT. All other Phase 4.2 rules and verdict labels are untouched. At the default 'critical' (or when the key is absent) verdict computation is byte-identical to the historical behavior. Both standalone /devflow:review and the Phase-3 pass of /devflow:review-and-fix inherit this. A missing/wrong-type/unknown value falls back to the default with a stderr breadcrumb (never aborts a run).",
+          "default": "critical"
+        },
         "live_progress_comment_enabled": {
           "type": "boolean",
           "description": "When true, a PR-mode /devflow:review authors a live progress comment for that run (a run-keyed <!-- devflow:review-progress run=<id>-<attempt> --> comment — one per review run, so a later run posts its own rather than overwriting an earlier run's) incrementally as it works — a blueprint of the phases up front, then per-phase updates (diff classification, checklist results, each Phase-3 agent's findings as they land, the verdict), finalizing with the run-telemetry summary and effectiveness trace. When false, /devflow:review falls back to producing its report once at the end (no incremental updates). Independent of devflow_review_and_fix.efficiency_telemetry_enabled, which separately gates the embedded telemetry/trace.",
@@ -142,6 +154,18 @@
             "devflow:pr-test-analyzer": { "type": "object", "additionalProperties": false, "properties": { "model": { "type": "string" }, "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"] } } },
             "devflow:requesting-code-review": { "type": "object", "additionalProperties": false, "properties": { "model": { "type": "string" }, "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"] } } }
           }
+        }
+      }
+    },
+    "receiving_review": {
+      "type": "object",
+      "description": "Settings for a direct invocation of /devflow:receiving-code-review (the fix-loop principles skill). Consulted only when the skill is invoked directly; the /devflow:review-and-fix loop governs its own routing via devflow_review_and_fix.fix_severity_threshold and does NOT consult this section.",
+      "properties": {
+        "fix_severity_threshold": {
+          "type": "string",
+          "enum": ["critical", "important", "suggestion"],
+          "description": "When /devflow:receiving-code-review is invoked directly and the verdict is already non-blocking, the diff is re-opened for a finding at or above this severity (severity ordering: critical > important > suggestion). At the default 'critical' this matches the historical behavior (re-open only for a Critical/blocking finding). The demonstrable-correctness-defect / documented-falsehood carve-out re-opens the diff at every threshold value — it is a correctness principle, not a severity grade. A missing/wrong-type/unknown value falls back to the default with a stderr breadcrumb (never aborts a run).",
+          "default": "critical"
         }
       }
     },

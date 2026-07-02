@@ -12,7 +12,12 @@ sees "just run the engine in a fresh subagent" as the obvious simplification. It
 `/devflow:review-and-fix` wraps `/devflow:review`'s four-phase engine in a fix loop. The loop runs
 up to a configurable number of iterations — `devflow_review_and_fix.max_iterations` (default 5),
 resolved once at loop start — before exiting with its latest verdict; the shadow pass below is not
-counted toward that cap. Iterations
+counted toward that cap. Which findings the loop routes to the fixer is itself configurable via
+`devflow_review_and_fix.fix_severity_threshold` (default `important`): every finding at or above the
+threshold (`critical` > `important` > `suggestion`) is fixed and the rest are parked as advisory,
+except that every finding that drove the engine's REJECT (under
+`devflow_review.verdict_severity_threshold`) is always in the fix set — so no configuration produces
+a REJECT the fixer is configured to ignore. Iterations
 inside that loop **share state**: the orchestrator's context window carries prior findings, fix
 decisions, and pushback history forward across iterations. That shared state is useful for fixing
 (it lets later iterations skip what was already considered) but it **biases** the loop toward
