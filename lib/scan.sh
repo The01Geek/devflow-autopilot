@@ -24,21 +24,12 @@
 # max_prs_per_run.
 set -euo pipefail
 
-# jq binary: resolved once via the shared execution-verified resolver
-# (lib/resolve-bin.sh, issue #247); an explicit DEVFLOW_JQ still wins, so test
-# stubs and the Windows escape hatch are honored.
-# Best-effort: when the resolver is not beside this script (a copied/vendored
-# deployment), fall back to bare `jq` with a breadcrumb rather than aborting
-# under the caller's set -e.
-_DEVFLOW_RESOLVE_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/resolve-bin.sh"
-if [ -f "$_DEVFLOW_RESOLVE_BIN" ]; then
-  # shellcheck source=resolve-bin.sh
-  . "$_DEVFLOW_RESOLVE_BIN"
-  : "${DEVFLOW_JQ:=$(devflow_resolve_bin jq)}"
-else
-  echo "devflow: lib/resolve-bin.sh not found beside ${BASH_SOURCE[0]} — using bare 'jq' (set DEVFLOW_JQ to override)" >&2
-  : "${DEVFLOW_JQ:=jq}"
-fi
+# jq binary: resolved once via the sourced sibling resolver (issue #247);
+# best-effort — a copied/vendored deployment without lib/ falls back to bare
+# `jq` with a breadcrumb rather than aborting under set -e.
+# shellcheck source=resolve-jq.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/resolve-jq.sh" \
+  || { echo "devflow: resolve-jq.sh could not be sourced beside ${BASH_SOURCE[0]} — using bare 'jq' (set DEVFLOW_JQ to override)" >&2; : "${DEVFLOW_JQ:=jq}"; }
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # gh binary: resolved once via the single-source resolver (execution-verified);

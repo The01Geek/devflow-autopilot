@@ -33,9 +33,10 @@
 #      so the echoed value stays clean).
 # Always returns rc 0 (best-effort — the caller always gets a usable string).
 devflow_normalize_path() {
-  local input="$1" drive rest _win_re
-  _win_re='^[A-Za-z]:[\\/]'
-  if [[ ! "$input" =~ $_win_re ]]; then
+  local input="$1" drive rest
+  # Inline regex literal, kept form-identical to the SKILL.md mirror so the
+  # coupled sites diff cleanly.
+  if [[ ! "$input" =~ ^[A-Za-z]:[\\/] ]]; then
     printf '%s\n' "$input"
     return 0
   fi

@@ -25,6 +25,13 @@
 # helpers run `set -euo pipefail` / `set -uo pipefail`, and sourced-only
 # scripts set no options at all).
 
+# Idempotence guard: several helpers source this file both directly and
+# transitively (via resolve-gh.sh / resolve-jq.sh) — skip the re-parse. The
+# if-form (not `[ … ] && return`) keeps the first-source path from leaving a
+# non-zero AND-list status under a set -e caller.
+if [ -n "${_DEVFLOW_RESOLVE_BIN_SOURCED:-}" ]; then return 0; fi
+_DEVFLOW_RESOLVE_BIN_SOURCED=1
+
 # devflow_resolve_bin <tool> — echo the invocation DevFlow should use for <tool>.
 #
 #   * An explicit, non-empty DEVFLOW_<TOOL-UPPER> (e.g. DEVFLOW_JQ for "jq")

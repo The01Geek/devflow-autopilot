@@ -11224,6 +11224,18 @@ echo "shared binary resolver + path normalization: resolve-bin.sh / normalize-pa
 # unchanged with a stderr breadcrumb).
 RESOLVE_BIN_SH="$LIB/resolve-bin.sh"
 NORMALIZE_PATH_SH="$LIB/normalize-path.sh"
+RESOLVE_JQ_SH="$LIB/resolve-jq.sh"
+
+# Restricted-PATH sandbox builder shared by the fixtures below: symlink only the
+# named tools into the dir so `command -v` genuinely fails for everything else.
+_mk_restricted() {  # dir tool...
+  local _mr_d="$1" _mr_b _mr_p; shift
+  for _mr_b in "$@"; do
+    _mr_p="$(command -v "$_mr_b" 2>/dev/null)"
+    [ -n "$_mr_p" ] && ln -sf "$_mr_p" "$_mr_d/$_mr_b"
+  done
+  return 0
+}
 
 # Static/source hygiene (mirrors the resolve-gh.sh checks).
 assert_eq "#247 resolve-bin.sh: file exists" "yes" "$([ -f "$RESOLVE_BIN_SH" ] && echo yes || echo no)"
@@ -11244,6 +11256,13 @@ assert_eq "#247 normalize-path.sh: defines devflow_normalize_path" "yes" \
   "$(grep -q 'devflow_normalize_path()' "$NORMALIZE_PATH_SH" 2>/dev/null && echo yes || echo no)"
 assert_eq "#247 normalize-path.sh: sets no 'set -e'/'set -u' (safe to source)" "no" \
   "$(grep -qE '^\s*set -[eu]' "$NORMALIZE_PATH_SH" 2>/dev/null && echo yes || echo no)"
+assert_eq "#247 resolve-jq.sh: file exists" "yes" "$([ -f "$RESOLVE_JQ_SH" ] && echo yes || echo no)"
+assert_eq "#247 resolve-jq.sh: SPDX header present" "yes" \
+  "$(grep -q 'SPDX-License-Identifier: MIT' "$RESOLVE_JQ_SH" 2>/dev/null && echo yes || echo no)"
+assert_eq "#247 resolve-jq.sh: sets no 'set -e'/'set -u' (safe to source)" "no" \
+  "$(grep -qE '^\s*set -[eu]' "$RESOLVE_JQ_SH" 2>/dev/null && echo yes || echo no)"
+assert_eq "#247 resolve-jq.sh: delegates via devflow_resolve_bin jq" "yes" \
+  "$(grep -qE 'devflow_resolve_bin[[:space:]]+jq' "$RESOLVE_JQ_SH" 2>/dev/null && echo yes || echo no)"
 
 # ── T0 (Linux/macOS/cloud no-change AC) — a runnable `jq` resolves to `jq` on
 #    the first probe. ──
@@ -11256,6 +11275,8 @@ STUB
 chmod +x "$JQT0/jq"
 T0_SEL="$(PATH="$JQT0:$PATH" bash -c ". \"$RESOLVE_BIN_SH\"; devflow_resolve_bin jq")"
 assert_eq "#247 T0: runnable jq on PATH resolves to 'jq' (no behavior change on Linux/macOS/cloud)" "jq" "$T0_SEL"
+T0B_SEL="$(PATH="$JQT0:$PATH" bash -c "set -euo pipefail; . \"$RESOLVE_JQ_SH\"; printf %s \"\$DEVFLOW_JQ\"")"
+assert_eq "#247 T0b: sourcing resolve-jq.sh under set -euo pipefail sets DEVFLOW_JQ" "jq" "$T0B_SEL"
 
 # ── T1 (defect reproduction) — a non-executable (bad-shebang) `jq` earlier on
 #    PATH plus a runnable `jq.exe` resolves to `jq.exe` (execution-verified). ──
@@ -11329,10 +11350,7 @@ exit 1
 STUB
 chmod +x "$NPT4B/cygpath"
 # Restricted PATH (no wslpath anywhere) so cygpath is genuinely the first tool.
-for _np_bin in bash tr grep uname dirname; do
-  _np_path="$(command -v "$_np_bin" 2>/dev/null)"
-  [ -n "$_np_path" ] && ln -sf "$_np_path" "$NPT4B/$_np_bin"
-done
+_mk_restricted "$NPT4B" bash tr grep uname dirname
 _NP_BASH_BIN="$(command -v bash)"
 T4B="$(PATH="$NPT4B" "$_NP_BASH_BIN" -c ". \"$NORMALIZE_PATH_SH\"; devflow_normalize_path 'C:\\Users\\x'")"
 assert_eq "#247 T4b: cygpath used when wslpath absent" "/c/from/cygpath" "$T4B"
@@ -11341,32 +11359,23 @@ assert_eq "#247 T4b: cygpath used when wslpath absent" "/c/from/cygpath" "$T4B"
 # reporting a microsoft kernel → /mnt/c translation.
 NPT4C="$(mktemp -d)"
 printf '#!/usr/bin/env bash\necho "5.15.0-microsoft-standard-WSL2"\n' > "$NPT4C/uname"; chmod +x "$NPT4C/uname"
-for _np_bin in bash tr grep dirname; do
-  _np_path="$(command -v "$_np_bin" 2>/dev/null)"
-  [ -n "$_np_path" ] && ln -sf "$_np_path" "$NPT4C/$_np_bin"
-done
+_mk_restricted "$NPT4C" bash tr grep dirname
 T4C="$(env -u MSYSTEM PATH="$NPT4C" "$_NP_BASH_BIN" -c ". \"$NORMALIZE_PATH_SH\"; devflow_normalize_path 'C:\\Users\\x'")"
 assert_eq "#247 T4c: env-detected WSL fallback (uname microsoft, no tools) → /mnt/c form" "/mnt/c/Users/x" "$T4C"
 
 # Env-detected fallback, MSYS flavor: no tools, non-microsoft uname, MSYSTEM set.
 NPT4D="$(mktemp -d)"
 printf '#!/usr/bin/env bash\necho "generic-kernel"\n' > "$NPT4D/uname"; chmod +x "$NPT4D/uname"
-for _np_bin in bash tr grep dirname; do
-  _np_path="$(command -v "$_np_bin" 2>/dev/null)"
-  [ -n "$_np_path" ] && ln -sf "$_np_path" "$NPT4D/$_np_bin"
-done
+_mk_restricted "$NPT4D" bash tr grep dirname
 T4D="$(MSYSTEM=MINGW64 PATH="$NPT4D" "$_NP_BASH_BIN" -c ". \"$NORMALIZE_PATH_SH\"; devflow_normalize_path 'C:\\Users\\x'")"
 assert_eq "#247 T4d: env-detected MSYS fallback (MSYSTEM set, no tools) → /c form" "/c/Users/x" "$T4D"
 
 # Last resort: no tools, no env signal → input unchanged (rc 0) + stderr breadcrumb.
 NPT4E="$(mktemp -d)"
 printf '#!/usr/bin/env bash\necho "generic-kernel"\n' > "$NPT4E/uname"; chmod +x "$NPT4E/uname"
-for _np_bin in bash tr grep dirname; do
-  _np_path="$(command -v "$_np_bin" 2>/dev/null)"
-  [ -n "$_np_path" ] && ln -sf "$_np_path" "$NPT4E/$_np_bin"
-done
-T4E_OUT="$(env -u MSYSTEM PATH="$NPT4E" "$_NP_BASH_BIN" -c ". \"$NORMALIZE_PATH_SH\"; devflow_normalize_path 'C:\\Users\\x'" 2>/dev/null)"; T4E_RC=$?
-T4E_ERR="$(env -u MSYSTEM PATH="$NPT4E" "$_NP_BASH_BIN" -c ". \"$NORMALIZE_PATH_SH\"; devflow_normalize_path 'C:\\Users\\x'" 2>&1 >/dev/null)"
+_mk_restricted "$NPT4E" bash tr grep dirname
+T4E_OUT="$(env -u MSYSTEM PATH="$NPT4E" "$_NP_BASH_BIN" -c ". \"$NORMALIZE_PATH_SH\"; devflow_normalize_path 'C:\\Users\\x'" 2>"$NPT4E/stderr")"; T4E_RC=$?
+T4E_ERR="$(cat "$NPT4E/stderr")"
 assert_eq "#247 T4e: no tool + no env signal → input unchanged" 'C:\Users\x' "$T4E_OUT"
 assert_eq "#247 T4e: no tool + no env signal → rc 0 (best-effort)" "0" "$T4E_RC"
 assert_eq "#247 T4e: no tool + no env signal → stderr breadcrumb emitted" "yes" \
@@ -11391,10 +11400,7 @@ assert_eq "#247 preflight: unrunnable jq shim → \"no working 'jq'\" remedy nam
 # jq genuinely absent (nothing named jq/jq.exe on PATH) → the "not installed"
 # branch wording, not the shim wording (mirrors #245 T10's curated PATH).
 JQT10="$(mktemp -d)"
-for _jq10_bin in git gh python3 dirname cat grep sed cut tr head; do
-  _jq10_path="$(command -v "$_jq10_bin" 2>/dev/null)"
-  [ -n "$_jq10_path" ] && ln -sf "$_jq10_path" "$JQT10/$_jq10_bin"
-done
+_mk_restricted "$JQT10" git gh python3 dirname cat grep sed cut tr head
 _JQ10_BASH_BIN="$(command -v bash)"
 PF_JQNI_OUT="$(env -u DEVFLOW_JQ PATH="$JQT10" "$_JQ10_BASH_BIN" "$LIB/preflight.sh" 2>&1)"; PF_JQNI_RC=$?
 assert_eq "#247 preflight: jq genuinely absent → exit non-zero" "yes" \
@@ -11414,6 +11420,21 @@ assert_eq "#247 T5: create-issue SKILL.md carries the inline anchor normalizatio
 # Windows-form detection line itself, present at both coupled sites.
 assert_eq "#247 T5b: both sites carry the operative Windows-form detection line (comment-only half-revert goes RED)" "yes" \
   "$([ "$(grep -cF 'if [[ "$SKILL_DIR" =~ ^[A-Za-z]:[\\/] ]]; then' "$CI_SKILL" 2>/dev/null)" -ge 2 ] && echo yes || echo no)"  # raw-guard-ok: count-based (same two coupled sites)
+# T5c: the two inline blocks must stay BYTE-IDENTICAL modulo indentation — the
+# lockstep contract with lib/normalize-path.sh is only auditable if the in-file
+# mirror pair cannot drift apart silently (a translation-logic edit applied to
+# one site but not the other would otherwise ship green past T5/T5b).
+T5C_EQ="$(awk '
+  /# Windows-form anchor normalization/ { on=1; n++ }
+  on {
+    line=$0; sub(/^[[:space:]]*/, "", line)
+    blk[n] = blk[n] line "\n"
+    if (u && line == "fi") { on=0; u=0 }
+    if (line ~ /^unset _d _np _r$/) u=1
+  }
+  END { if (n==2 && blk[1]==blk[2]) print "identical"; else print "different:" n }
+' "$CI_SKILL")"
+assert_eq "#247 T5c: the two inline anchor-normalization blocks are byte-identical (modulo indentation)" "identical" "$T5C_EQ"
 
 # ── T6 (jq call-site integration) — a REAL converted helper, run with
 #    DEVFLOW_JQ pointing at a recording stub, invokes the stub rather than bare
@@ -11441,8 +11462,8 @@ DJQ_ROOT="$(cd "$LIB/.." && pwd)"
 # standalone before any checkout exists, so it carries the contract by reference
 # comment rather than a source line; the DJQ_BARE grep below is what holds its
 # call sites to the converted form).
-DJQ_SOURCED="$(grep -rlF 'resolve-bin.sh' "$DJQ_ROOT/scripts" "$DJQ_ROOT/lib" "$DJQ_ROOT/install.sh" --include='*.sh' 2>/dev/null | grep -v '/test/' | grep -v 'lib/resolve-bin\.sh$' | grep -c . || true)"
-assert_eq "#247 peer-completeness: >=15 helpers reference resolve-bin.sh (all jq-callers + resolve-gh.sh converted)" "yes" \
+DJQ_SOURCED="$(grep -rlE 'resolve-(jq|bin)\.sh' "$DJQ_ROOT/scripts" "$DJQ_ROOT/lib" "$DJQ_ROOT/install.sh" --include='*.sh' 2>/dev/null | grep -v '/test/' | grep -v 'lib/resolve-bin\.sh$' | grep -v 'lib/resolve-jq\.sh$' | grep -c . || true)"
+assert_eq "#247 peer-completeness: >=15 helpers reference the shared resolver (all jq-callers + resolve-gh.sh converted)" "yes" \
   "$([ "$DJQ_SOURCED" -ge 15 ] && echo yes || echo no)"
 # `--version` probe lines are excluded: `<cand> --version` IS the resolver
 # mechanism (install.sh's inline mirror and the preflight re-probe), never a

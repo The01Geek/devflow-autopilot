@@ -82,7 +82,7 @@ set_config_version() {
   local cfg="$1" version="$2" tmp
   [ -f "$cfg" ] || return 0
   tmp="$(mktemp)" || { log "warning: mktemp failed; add \"devflow_version\": \"$version\" to $cfg by hand."; return 0; }
-  # jq resolution (#247): inline mirror of lib/resolve-bin.sh's contract —
+  # jq resolution (#247): adapted from lib/resolve-bin.sh's contract —
   # install.sh must run standalone (curl-piped, before any checkout exists), so
   # it cannot source the shared resolver. An explicit DEVFLOW_JQ keeps highest
   # precedence (taken verbatim, no probe here — the selection re-probe below is
