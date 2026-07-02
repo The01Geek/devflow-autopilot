@@ -11393,6 +11393,16 @@ assert_eq "#247 T4e: no tool + no env signal → stderr breadcrumb emitted" "yes
 T4F="$(bash -c ". \"$NORMALIZE_PATH_SH\"; devflow_normalize_path '/home/user/x'" 2>&1)"
 assert_eq "#247 T4f: non-Windows-form input passes through unchanged (no breadcrumb)" "/home/user/x" "$T4F"
 
+# ── T4k — tr absent from the restricted PATH: the env-detected arm fails
+#    CLOSED (input unchanged + tr breadcrumb), never a corrupted /mnt//...
+#    path; the SKILL.md block behaves identically (lockstep on this branch). ──
+NPT4K="$(mktemp -d)"
+printf '#!/usr/bin/env bash\necho "5.15.0-microsoft-standard-WSL2"\n' > "$NPT4K/uname"; chmod +x "$NPT4K/uname"
+_mk_restricted "$NPT4K" bash grep dirname
+T4K_OUT="$(env -u MSYSTEM PATH="$NPT4K" "$_NP_BASH_BIN" -c ". \"$NORMALIZE_PATH_SH\"; devflow_normalize_path 'C:\\Users\\x'" 2>"$NPT4K/err")"
+assert_eq "#247 T4k: tr-less env-detect arm → input unchanged (never /mnt//...)" 'C:\Users\x' "$T4K_OUT"
+assert_eq "#247 T4k: tr-less arm leaves the tr breadcrumb" "yes" \
+  "$(grep -q 'tr unavailable' "$NPT4K/err" && echo yes || echo no)"
 # ── Preflight jq — execution-verified via the shared resolver, mirroring the
 #    #245 gh two-branch diagnosis. Shadow BOTH candidates (bad-shebang jq AND
 #    jq.exe) so the degenerate path is forced on every host. ──
@@ -11521,6 +11531,22 @@ assert_eq "#247 T7d: unreadable resolve-bin.sh → DEVFLOW_JQ falls back to bare
 assert_eq "#247 T7d: unreadable resolve-bin.sh → fallback breadcrumb fires" "yes" \
   "$(grep -q 'not found or not sourceable beside resolve-jq.sh' "$JQT7D/err" && echo yes || echo no)"
 chmod 600 "$JQT7D/resolve-bin.sh"
+# Same sourceability class for the OTHER two guard sites: resolve-gh.sh and
+# preflight.sh beside an unreadable resolve-bin.sh must take their fallback
+# arms too (a regression to a bare `. file` at either site ships green
+# without these).
+cp "$LIB/resolve-gh.sh" "$JQT7D/resolve-gh.sh"
+chmod 000 "$JQT7D/resolve-bin.sh"
+T7E_OUT="$(env -u DEVFLOW_GH bash -c "set -euo pipefail; . \"$JQT7D/resolve-gh.sh\"; devflow_resolve_gh" 2>"$JQT7D/err-gh2")"
+assert_eq "#247 T7e: unreadable resolve-bin.sh → devflow_resolve_gh degrades to bare 'gh'" "gh" "$T7E_OUT"
+assert_eq "#247 T7e: unreadable resolve-bin.sh → gh fallback breadcrumb fires" "yes" \
+  "$(grep -q 'not found or not sourceable beside resolve-gh.sh' "$JQT7D/err-gh2" && echo yes || echo no)"
+cp "$LIB/preflight.sh" "$LIB/resolve-python.sh" "$JQT7D/"
+T7F_ERR="$(env -u DEVFLOW_JQ -u DEVFLOW_GH bash "$JQT7D/preflight.sh" 2>&1)"; T7F_RC=$?
+assert_eq "#247 T7f: preflight beside unreadable resolve-bin.sh → degraded breadcrumb, no phantom-shim wording" "yes" \
+  "$(printf '%s' "$T7F_ERR" | grep -q 'missing or not sourceable beside preflight.sh' && printf '%s' "$T7F_ERR" | grep -vq "the resolved '' does not execute" && echo yes || echo no)"
+assert_eq "#247 T7f: preflight degraded mode still exits 0 on a healthy host" "0" "$T7F_RC"
+chmod 600 "$JQT7D/resolve-bin.sh"
 
 DJQ_ROOT="$(cd "$LIB/.." && pwd)"
 # ── Helper-side breadcrumb literal pins — the init-relay pin above holds the
@@ -11648,6 +11674,9 @@ T5DM_SKILL="$(MSYSTEM=MINGW64 PATH="$T5DM" "$_NP_BASH_BIN" "$T5D/runner.sh" 2>/d
 T5DM_LIB="$(MSYSTEM=MINGW64 PATH="$T5DM" "$_NP_BASH_BIN" -c ". \"$NORMALIZE_PATH_SH\"; devflow_normalize_path 'C:\\Users\\dev\\skills\\x'" 2>/dev/null)"
 assert_eq "#247 T5d-msys: SKILL.md block and lib helper agree on the MSYS arm too" "$T5DM_LIB" "$T5DM_SKILL"
 assert_eq "#247 T5d-msys: MSYS-arm parity output is the expected /c form" "/c/Users/dev/skills/x" "$T5DM_LIB"
+# tr-less parity (the T4k fail-closed branch, SKILL side — runner.sh exists here):
+T4K_SKILL="$(env -u MSYSTEM PATH="$NPT4K" "$_NP_BASH_BIN" "$T5D/runner.sh" 2>/dev/null)"
+assert_eq "#247 T4k: SKILL.md block also leaves the anchor unchanged without tr (lockstep)" 'C:\Users\dev\skills\x' "$T4K_SKILL"
 
 # ── Lockstep pin — the Windows-form detection regex literal must appear in
 #    BOTH lib/normalize-path.sh and the create-issue SKILL.md mirrors, so a
