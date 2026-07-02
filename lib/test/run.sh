@@ -12040,7 +12040,37 @@ SKILL_JQ_BARE="$(
   | grep -vE 'jq(\.exe)? --version' | grep -c . || true)"
 assert_eq "#253 skills-jq: no bare invocation-position jq survives in a retrospective-skill shell fenced block" "0" "$SKILL_JQ_BARE"
 
-rm -rf "$JQT0" "$JQT1" "$JQT2" "$JQT2D" "$JQTD" "$NPT4" "$NPT4B" "$NPT4C" "$NPT4D" "$NPT4E" "$NPT4G" "$NPT4I" "$JQTP" "$JQT10" "$JQT6" "$JQT7" "$JQT8" "$SCVJ" "$SCVO" "$PFPC" "$T5D" "$T5DM" "$JQT7D" "$JQNEG" "$GENTR"
+# ── #253 run-jq.sh behavioral coverage — the wrapper carries logic the #247
+#    resolver tests don't reach (pure-bash BASH_SOURCE dir derivation, the
+#    source-guard, the partial-deploy fallback, DEVFLOW_JQ honoring on that
+#    fallback, and exec stdin/args/exit passthrough). Static existence-pinning
+#    alone would stay GREEN if any of those regressed, so exercise them. Stub
+#    jq (echoes a marker + its args, then cats stdin) proves the wrapper reached
+#    it with args and stdin intact; the DEVFLOW_JQ override is honored without a
+#    probe, so these stay hermetic (no real jq needed). ──
+RJQ_SH="$DJQ_ROOT/scripts/run-jq.sh"
+RJQ_STUB="$(mktemp -d)"
+printf '#!/usr/bin/env bash\nprintf "STUBJQ:%%s\\n" "$*"\ncat\n' > "$RJQ_STUB/jq"; chmod +x "$RJQ_STUB/jq"
+# (a) DEVFLOW_JQ override honored (no probe) + args + stdin pass through exec.
+RJQ_OUT="$(printf 'STDIN_MARK\n' | DEVFLOW_JQ="$RJQ_STUB/jq" bash "$RJQ_SH" -r '.x')"
+assert_eq "#253 run-jq.sh: DEVFLOW_JQ override honored, args + stdin pass through exec" "yes" \
+  "$(printf '%s' "$RJQ_OUT" | grep -q 'STUBJQ:-r .x' && printf '%s' "$RJQ_OUT" | grep -q 'STDIN_MARK' && echo yes || echo no)"
+# (b) exec propagates jq's exit code — a stub exiting 7 makes the wrapper exit 7.
+printf '#!/usr/bin/env bash\nexit 7\n' > "$RJQ_STUB/jq7"; chmod +x "$RJQ_STUB/jq7"
+DEVFLOW_JQ="$RJQ_STUB/jq7" bash "$RJQ_SH" '.' >/dev/null 2>&1; RJQ_RC=$?
+assert_eq "#253 run-jq.sh: exec propagates jq's exit code (7), never masks it as 0" "7" "$RJQ_RC"
+# (c) partial deploy — scripts/ copied WITHOUT sibling lib/: the source-guard
+#     fails, a specific breadcrumb fires, DEVFLOW_JQ is still honored (never an
+#     empty invocation), and the best-effort exit-0 contract survives.
+RJQ_PARTIAL="$(mktemp -d)"; mkdir -p "$RJQ_PARTIAL/scripts"; cp "$RJQ_SH" "$RJQ_PARTIAL/scripts/"
+RJQ_POUT="$(printf 'X\n' | DEVFLOW_JQ="$RJQ_STUB/jq" bash "$RJQ_PARTIAL/scripts/run-jq.sh" -r '.y' 2>"$RJQ_STUB/perr")"; RJQ_PRC=$?
+assert_eq "#253 run-jq.sh: partial deploy (no sibling lib/) still honors DEVFLOW_JQ, no empty exec" "yes" \
+  "$(printf '%s' "$RJQ_POUT" | grep -q 'STUBJQ:-r .y' && echo yes || echo no)"
+assert_eq "#253 run-jq.sh: partial deploy emits the specific 'could not source lib/resolve-jq.sh' breadcrumb" "yes" \
+  "$(grep -q 'could not source lib/resolve-jq.sh beside it' "$RJQ_STUB/perr" && echo yes || echo no)"
+assert_eq "#253 run-jq.sh: partial deploy preserves the best-effort exit-0 contract" "0" "$RJQ_PRC"
+
+rm -rf "$JQT0" "$JQT1" "$JQT2" "$JQT2D" "$JQTD" "$NPT4" "$NPT4B" "$NPT4C" "$NPT4D" "$NPT4E" "$NPT4G" "$NPT4I" "$JQTP" "$JQT10" "$JQT6" "$JQT7" "$JQT8" "$SCVJ" "$SCVO" "$PFPC" "$T5D" "$T5DM" "$JQT7D" "$JQNEG" "$GENTR" "$RJQ_STUB" "$RJQ_PARTIAL"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "running-bash diagnostic: preflight.sh devflow-bash breadcrumb + remedy (issue #248)"
