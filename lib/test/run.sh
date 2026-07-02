@@ -11972,14 +11972,16 @@ assert_eq "#247 init relay: no stale 'jq not found' relay survives in init SKILL
 #    scripts/authorize-actor.sh is deliberately out of scope — its `--jq` is a
 #    flag of `gh api`, not a jq-binary invocation. ──
 DJQ_ROOT="$(cd "$LIB/.." && pwd)"
-# 15 = 12 migrated jq-callers (7 lib + 5 scripts) + preflight.sh + resolve-gh.sh
+# 16 = 12 migrated jq-callers (7 lib + 5 scripts) + preflight.sh + resolve-gh.sh
 # (both reference the shared resolver) + install.sh (inline mirror — it must run
 # standalone before any checkout exists, so it carries the contract by reference
 # comment rather than a source line; the DJQ_BARE grep below is what holds its
-# call sites to the converted form).
+# call sites to the converted form) + scripts/run-jq.sh (issue #253 — the
+# agent-tier jq wrapper skill bodies invoke by path; it sources resolve-jq.sh
+# exactly as the .sh helpers do).
 DJQ_SOURCED="$(grep -rlE 'resolve-(jq|bin)\.sh' "$DJQ_ROOT/scripts" "$DJQ_ROOT/lib" "$DJQ_ROOT/install.sh" --include='*.sh' 2>/dev/null | grep -v '/test/' | grep -v 'lib/resolve-bin\.sh$' | grep -v 'lib/resolve-jq\.sh$' | grep -c . || true)"
-assert_eq "#247 peer-completeness: >=15 helpers reference the shared resolver (all jq-callers + resolve-gh.sh converted)" "yes" \
-  "$([ "$DJQ_SOURCED" -ge 15 ] && echo yes || echo no)"
+assert_eq "#247 peer-completeness: >=16 helpers reference the shared resolver (all jq-callers + resolve-gh.sh + run-jq.sh converted)" "yes" \
+  "$([ "$DJQ_SOURCED" -ge 16 ] && echo yes || echo no)"
 # Exclusions are deliberately MINIMAL (a blanket echo/printf line-exclusion
 # would mask the repo's dominant `printf ... | jq -r` idiom): full-line
 # comments, the resolver's own file, and `--version` probe lines (`<cand>
@@ -11995,7 +11997,108 @@ DJQ_BARE="$(grep -rnE '(^|[[:space:]|&;(`])jq[[:space:]]+(-|'"'"'|"|\.|empty|len
   | grep -v '/test/' | grep -v 'resolve-bin\.sh:' | grep -vE '^[^:]+:[0-9]+:[[:space:]]*#' | grep -vE 'jq(\.exe)? --version' | grep -c . || true)"
 assert_eq "#247 peer-completeness: no bare invocation-position jq call survives outside the resolver" "0" "$DJQ_BARE"
 
-rm -rf "$JQT0" "$JQT1" "$JQT2" "$JQT2D" "$JQTD" "$NPT4" "$NPT4B" "$NPT4C" "$NPT4D" "$NPT4E" "$NPT4G" "$NPT4I" "$JQTP" "$JQT10" "$JQT6" "$JQT7" "$JQT8" "$SCVJ" "$SCVO" "$PFPC" "$T5D" "$T5DM" "$JQT7D" "$JQNEG" "$GENTR"
+# ── Skills-tier jq pin (issue #253) — the DJQ_BARE grep above is scoped to
+#    *.sh and never sees skill bodies, so agent-composed `jq` inside SKILL.md
+#    fenced blocks was invisible to the #247 contract. On a shim-shadowed
+#    Windows/WSL host a bare agent-typed `jq` hits the same present-but-
+#    unrunnable-shim defect #247 fixed for the helpers. This pin holds every
+#    executable jq in the RETROSPECTIVE skill bodies to the agent-tier wrapper
+#    scripts/run-jq.sh (which sources the shared resolver — DEVFLOW_JQ is not
+#    exported to agent shells, so a callable-by-path wrapper is the agent-tier
+#    equivalent of the .sh source-once idiom).
+#    SCOPE — retrospective family only (retrospective-weekly / retrospective /
+#    retrospective-audit): that is the LOCAL weekly loop, the primary
+#    shim-shadow exposure (it runs on the maintainer's own WSL2/Windows host).
+#    The cloud-governed implement/docs-release-notes jq sites are deliberately
+#    OUT of scope here: they run predominantly on the Linux cloud runner (where
+#    jq is not shadowed), and migrating them would require adding the wrapper to
+#    the cloud allowlist in .github/workflows/devflow-implement.yml — a change
+#    the standing #225 AC11 `.github`-freeze guard forbids, so it belongs to a
+#    separate, deliberate follow-up (see the issue #253 workpad). Widening this
+#    grep to all skills would fail RED on those intentionally-deferred sites.
+#    Fence scope: lines inside ```bash / ```sh / ```shell fences only, so
+#    inline-backtick prose mentions of `jq -n` and non-shell (```json / ```dot /
+#    output) fences never false-match. ──
+# Positive pin: the wrapper exists and references the shared jq resolver.
+assert_eq "#253 skills-jq: scripts/run-jq.sh exists and references the shared jq resolver" "yes" \
+  "$([ -f "$LIB/../scripts/run-jq.sh" ] && grep -q 'resolve-jq\.sh' "$LIB/../scripts/run-jq.sh" && echo yes || echo no)"
+# Absence pin: no bare invocation-position jq survives inside a shell fenced
+# block of a retrospective skill body. The awk captures only ```bash/```sh/
+# ```shell block bodies (state reset per file); the grep shape mirrors DJQ_BARE
+# (flag/quoted-program/path/bareword-filter forms), excluding the resolver's own
+# `--version` probe shape and the wrapper path itself.
+SKILL_JQ_BARE="$(
+  find "$LIB/../skills" -type f -name '*.md' -path '*retrospective*' 2>/dev/null | while IFS= read -r _f; do
+    awk '
+      /^[[:space:]]*```(bash|sh|shell)[[:space:]]*$/ { inb=1; next }
+      /^[[:space:]]*```[[:space:]]*$/ { inb=0; next }
+      inb { print }
+    ' "$_f"
+  done \
+  | grep -v 'run-jq\.sh' \
+  | grep -E '(^|[[:space:]|&;(`])jq[[:space:]]+(-|'"'"'|"|\.|empty|length|keys|type|to_entries)' \
+  | grep -vE 'jq(\.exe)? --version' | grep -c . || true)"
+assert_eq "#253 skills-jq: no bare invocation-position jq survives in a retrospective-skill shell fenced block" "0" "$SKILL_JQ_BARE"
+
+# Mutation check: the absence pin above only proves "count is 0 today" — it does not
+# prove the awk fence-parser + grep would actually *catch* a reintroduced bare jq (a
+# silently-broken fence regex would also read 0 and stay GREEN). Run the identical
+# pipeline against a synthetic fixture carrying one bare `jq` call inside a ```bash
+# fence and assert the count flips to nonzero, proving the guard fails closed.
+SKILL_JQ_BARE_FIXTURE_DIR="$(mktemp -d)"
+cat > "$SKILL_JQ_BARE_FIXTURE_DIR/fixture.md" <<'EOF'
+# Fixture
+
+```bash
+echo hi
+jq -r '.x' <<< "$INPUT"
+```
+EOF
+SKILL_JQ_BARE_MUTATED="$(
+  find "$SKILL_JQ_BARE_FIXTURE_DIR" -type f -name '*.md' 2>/dev/null | while IFS= read -r _f; do
+    awk '
+      /^[[:space:]]*```(bash|sh|shell)[[:space:]]*$/ { inb=1; next }
+      /^[[:space:]]*```[[:space:]]*$/ { inb=0; next }
+      inb { print }
+    ' "$_f"
+  done \
+  | grep -v 'run-jq\.sh' \
+  | grep -E '(^|[[:space:]|&;(`])jq[[:space:]]+(-|'"'"'|"|\.|empty|length|keys|type|to_entries)' \
+  | grep -vE 'jq(\.exe)? --version' | grep -c . || true)"
+assert_eq "#253 skills-jq mutation check: awk fence-parser catches a reintroduced bare jq (guard fails closed, not vacuous)" "1" "$SKILL_JQ_BARE_MUTATED"
+rm -rf "$SKILL_JQ_BARE_FIXTURE_DIR"
+
+# ── #253 run-jq.sh behavioral coverage — the wrapper carries logic the #247
+#    resolver tests don't reach (pure-bash BASH_SOURCE dir derivation, the
+#    source-guard, the partial-deploy fallback, DEVFLOW_JQ honoring on that
+#    fallback, and exec stdin/args/exit passthrough). Static existence-pinning
+#    alone would stay GREEN if any of those regressed, so exercise them. Stub
+#    jq (echoes a marker + its args, then cats stdin) proves the wrapper reached
+#    it with args and stdin intact; the DEVFLOW_JQ override is honored without a
+#    probe, so these stay hermetic (no real jq needed). ──
+RJQ_SH="$DJQ_ROOT/scripts/run-jq.sh"
+RJQ_STUB="$(mktemp -d)"
+printf '#!/usr/bin/env bash\nprintf "STUBJQ:%%s\\n" "$*"\ncat\n' > "$RJQ_STUB/jq"; chmod +x "$RJQ_STUB/jq"
+# (a) DEVFLOW_JQ override honored (no probe) + args + stdin pass through exec.
+RJQ_OUT="$(printf 'STDIN_MARK\n' | DEVFLOW_JQ="$RJQ_STUB/jq" bash "$RJQ_SH" -r '.x')"
+assert_eq "#253 run-jq.sh: DEVFLOW_JQ override honored, args + stdin pass through exec" "yes" \
+  "$(printf '%s' "$RJQ_OUT" | grep -q 'STUBJQ:-r .x' && printf '%s' "$RJQ_OUT" | grep -q 'STDIN_MARK' && echo yes || echo no)"
+# (b) exec propagates jq's exit code — a stub exiting 7 makes the wrapper exit 7.
+printf '#!/usr/bin/env bash\nexit 7\n' > "$RJQ_STUB/jq7"; chmod +x "$RJQ_STUB/jq7"
+DEVFLOW_JQ="$RJQ_STUB/jq7" bash "$RJQ_SH" '.' >/dev/null 2>&1; RJQ_RC=$?
+assert_eq "#253 run-jq.sh: exec propagates jq's exit code (7), never masks it as 0" "7" "$RJQ_RC"
+# (c) partial deploy — scripts/ copied WITHOUT sibling lib/: the source-guard
+#     fails, a specific breadcrumb fires, DEVFLOW_JQ is still honored (never an
+#     empty invocation), and the best-effort exit-0 contract survives.
+RJQ_PARTIAL="$(mktemp -d)"; mkdir -p "$RJQ_PARTIAL/scripts"; cp "$RJQ_SH" "$RJQ_PARTIAL/scripts/"
+RJQ_POUT="$(printf 'X\n' | DEVFLOW_JQ="$RJQ_STUB/jq" bash "$RJQ_PARTIAL/scripts/run-jq.sh" -r '.y' 2>"$RJQ_STUB/perr")"; RJQ_PRC=$?
+assert_eq "#253 run-jq.sh: partial deploy (no sibling lib/) still honors DEVFLOW_JQ, no empty exec" "yes" \
+  "$(printf '%s' "$RJQ_POUT" | grep -q 'STUBJQ:-r .y' && echo yes || echo no)"
+assert_eq "#253 run-jq.sh: partial deploy emits the specific 'could not source lib/resolve-jq.sh' breadcrumb" "yes" \
+  "$(grep -q 'could not source lib/resolve-jq.sh beside it' "$RJQ_STUB/perr" && echo yes || echo no)"
+assert_eq "#253 run-jq.sh: partial deploy preserves the best-effort exit-0 contract" "0" "$RJQ_PRC"
+
+rm -rf "$JQT0" "$JQT1" "$JQT2" "$JQT2D" "$JQTD" "$NPT4" "$NPT4B" "$NPT4C" "$NPT4D" "$NPT4E" "$NPT4G" "$NPT4I" "$JQTP" "$JQT10" "$JQT6" "$JQT7" "$JQT8" "$SCVJ" "$SCVO" "$PFPC" "$T5D" "$T5DM" "$JQT7D" "$JQNEG" "$GENTR" "$RJQ_STUB" "$RJQ_PARTIAL"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "running-bash diagnostic: preflight.sh devflow-bash breadcrumb + remedy (issue #248)"
