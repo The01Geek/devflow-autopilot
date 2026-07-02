@@ -116,6 +116,19 @@ def _config_get(key: str, default: str = "", config_path: str = DEFAULT_CONFIG) 
     helper = here / "config-get.sh"
     r = _run([str(helper), key, default, config_path], check=False)
     if r.returncode != 0:
+        # rc=127 with empty stdout is _run's OSError sentinel (config-get.sh could
+        # not execute at all — e.g. it lost its exec bit on a Windows checkout, or
+        # a bad shebang) — a genuinely broken helper, not "the key is unset". The
+        # two are otherwise indistinguishable to this caller (allowed_bots_raw
+        # silently resolving to "" makes pr_author_trusted False, which rejects
+        # every deferral as untrusted-filer with no clue the real cause is a
+        # broken helper, not policy). Log a breadcrumb so it's diagnosable.
+        if r.returncode == 127 and not r.stdout:
+            sys.stderr.write(
+                f"match-deferrals.py: could not execute {str(helper)!r} "
+                f"({r.stderr.strip()}); falling back to default {default!r} for "
+                f"{key!r}\n"
+            )
         return default
     return r.stdout.strip()
 
