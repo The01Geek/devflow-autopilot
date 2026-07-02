@@ -656,14 +656,13 @@ jobs:
                 VERDICT=incomplete
                 VERDICT_DETERMINED=false
               else
+                # Capture the helper's stdout (the machine-readable verdict);
+                # its stderr breadcrumbs flow straight to the Actions job log.
                 DERIVED=$(HEAD_SHA="$HEAD_SHA" ENGINE_ERROR="${ENGINE_ERROR:-false}" \
                           PR_NUMBER="$PR_NUMBER" REPO="$REPO" GITHUB_RUN_ID="$GITHUB_RUN_ID" \
-                          bash "$DERIVE" 2>&1 1>/tmp/derived_verdict) || true
-                # The helper's stdout carries the machine-readable result; its
-                # stderr breadcrumbs are echoed into the job log for diagnosis.
-                [ -n "$DERIVED" ] && printf '%s\n' "$DERIVED" >&2
-                VERDICT=$(sed -n 's/^verdict=//p' /tmp/derived_verdict)
-                VERDICT_DETERMINED=$(sed -n 's/^verdict_determined=//p' /tmp/derived_verdict)
+                          bash "$DERIVE") || true
+                VERDICT=$(printf '%s\n' "$DERIVED" | sed -n 's/^verdict=//p')
+                VERDICT_DETERMINED=$(printf '%s\n' "$DERIVED" | sed -n 's/^verdict_determined=//p')
                 VERDICT="${VERDICT:-incomplete}"
                 VERDICT_DETERMINED="${VERDICT_DETERMINED:-false}"
               fi
