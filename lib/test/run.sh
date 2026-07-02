@@ -12564,15 +12564,16 @@ PY
 )"
 assert_eq "#266 config example+schema carry coupled stall_backstop keys (types/defaults/additionalProperties)" "yes" "$CFG266"
 
-# NOTE: the workflow-wiring pins (the stall-backstop step in
-# devflow-implement.yml reads the config keys, calls the decision helper, and
-# re-dispatches) plus the AC11 (#225) `.github`-freeze reconciliation are
-# DEFERRED to a follow-up issue: pushing a `.github/workflows/` edit needs a
-# token carrying `workflows:write` (the optional DEVFLOW_APP_ID App), which this
-# run's token lacks. The reusable primitives below (decision helper, REST comment
-# helper, workpad status read, config keys) ship and are fully pinned here; the
-# thin workflow caller lands with the follow-up. See the parent issue's Phase 4.0
-# follow-up for the exact workflow step + its pins.
+# NOTE: the stall-backstop workflow-wiring pins (the step in
+# devflow-implement.yml that reads the config keys, calls the decision helper, and
+# re-dispatches) are DEFERRED to a follow-up issue: pushing a `.github/workflows/`
+# edit needs a token carrying `workflows:write` (the optional DEVFLOW_APP_ID App),
+# which #266's run lacked. The reusable primitives below (decision helper, REST
+# comment helper, workpad status read, config keys) ship and are fully pinned here;
+# the thin workflow caller lands with the follow-up. See the parent issue's Phase 4.0
+# follow-up for the exact workflow step + its pins. (The AC11 (#225) `.github`-freeze
+# reconciliation this note originally also deferred is no longer pending — #271
+# retired that over-broad freeze; see the "AC11 (#225) RETIRED by #271" block above.)
 
 # workpad.py status subcommand is registered (the backstop's status read path).
 assert_eq "#266 workpad.py: status subcommand registered (func=cmd_status)" "yes" \
