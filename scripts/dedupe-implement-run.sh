@@ -56,6 +56,22 @@
 
 set -euo pipefail
 
+# jq binary: resolved once via the shared execution-verified resolver
+# (lib/resolve-bin.sh, issue #247); an explicit DEVFLOW_JQ still wins, so test
+# stubs and the Windows escape hatch are honored.
+# Best-effort: when the resolver is not beside this script (a copied/vendored
+# deployment), fall back to bare `jq` with a breadcrumb rather than aborting
+# under the caller's set -e.
+_DEVFLOW_RESOLVE_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/resolve-bin.sh"
+if [ -f "$_DEVFLOW_RESOLVE_BIN" ]; then
+  # shellcheck source=../lib/resolve-bin.sh
+  . "$_DEVFLOW_RESOLVE_BIN"
+  : "${DEVFLOW_JQ:=$(devflow_resolve_bin jq)}"
+else
+  echo "devflow: lib/resolve-bin.sh not found beside ${BASH_SOURCE[0]} — using bare 'jq' (set DEVFLOW_JQ to override)" >&2
+  : "${DEVFLOW_JQ:=jq}"
+fi
+
 emit() { printf '%s=%s\n' "$1" "$2"; }
 
 # gh binary: resolved once via the single-source resolver (execution-verified);
@@ -94,7 +110,7 @@ fi
 # same diagnostic discipline as react-to-trigger.sh's gh-stderr capture. Without
 # it, a missing jq would silently disable dedupe forever behind a generic message.
 jq_err="$(mktemp)"
-count="$(printf '%s' "$runs_json" | jq -r --argjson run "$run_id" --arg target "$target" '
+count="$(printf '%s' "$runs_json" | "$DEVFLOW_JQ" -r --argjson run "$run_id" --arg target "$target" '
   [ .[]
     | select(.status as $s | ["in_progress","queued","requested","waiting","pending"] | index($s))
     | select(.databaseId < $run)

@@ -52,13 +52,15 @@ die() { printf 'devflow-install: %s\n' "$1" >&2; exit 1; }
 # Pin .devflow/config.json's devflow_version to the ref we installed, so the
 # runtime fetch (vendor-plugin) never tracks mutable main. Adds or updates the
 # single key without clobbering the rest of the config — using the FIRST
-# available of jq or python3 (whichever is installed; both are JSON-safe),
-# each writing to a temp file and renaming so a failure can never truncate the
-# config in place. This is tool SELECTION, not a retry cascade: the `command -v`
-# checks are `if`/`elif` conditions, so once a tool is found the other arm is
-# skipped — a present-but-failing tool does NOT fall through to the next one.
-# That is fine: the realistic failure (a malformed config.json, a read-only
-# .devflow/) would defeat python3 too. (python3 is a hard DevFlow prerequisite;
+# USABLE of jq or python3 (both are JSON-safe), each writing to a temp file
+# and renaming so a failure can never truncate the config in place. This is
+# tool SELECTION, not a retry cascade: the jq/python3 arms are `if`/`elif`
+# conditions, so once a tool is selected the other arm is skipped — a
+# selected-but-failing tool does NOT fall through to the next one. That is
+# fine: the realistic failure (a malformed config.json, a read-only .devflow/)
+# would defeat python3 too. Selection is execution-verified (issue #247): a
+# present-but-unrunnable Windows `jq` shim must not win this selection over a
+# working python3, so the jq arm requires `--version` to actually run. (python3 is a hard DevFlow prerequisite;
 # `node` was dropped from this cascade — it is no longer required anywhere in
 # DevFlow's config path.)
 # NEVER aborts the install: a missing tool OR a present-but-failing tool (e.g. a
@@ -80,10 +82,23 @@ set_config_version() {
   local cfg="$1" version="$2" tmp
   [ -f "$cfg" ] || return 0
   tmp="$(mktemp)" || { log "warning: mktemp failed; add \"devflow_version\": \"$version\" to $cfg by hand."; return 0; }
-  if command -v jq >/dev/null 2>&1; then
-    if jq -e '(.devflow_version // "") as $cur | ($cur == "" or ($cur | test("^[0-9a-f]{7,40}$")))' \
+  # jq resolution (#247): inline mirror of lib/resolve-bin.sh's contract —
+  # install.sh must run standalone (curl-piped, before any checkout exists), so
+  # it cannot source the shared resolver. An explicit DEVFLOW_JQ keeps highest
+  # precedence (taken verbatim, no probe here — the selection re-probe below is
+  # what routes a broken override to the python3 arm); otherwise the first of
+  # jq/jq.exe whose `--version` runs is selected.
+  local jqbin
+  jqbin="${DEVFLOW_JQ:-}"
+  if [ -z "$jqbin" ]; then
+    if jq --version >/dev/null 2>&1; then jqbin=jq
+    elif jq.exe --version >/dev/null 2>&1; then jqbin=jq.exe
+    fi
+  fi
+  if [ -n "$jqbin" ] && "$jqbin" --version >/dev/null 2>&1; then
+    if "$jqbin" -e '(.devflow_version // "") as $cur | ($cur == "" or ($cur | test("^[0-9a-f]{7,40}$")))' \
         "$cfg" >/dev/null 2>&1; then
-      if jq --arg v "$version" '.devflow_version = $v' "$cfg" > "$tmp" 2>/dev/null; then
+      if "$jqbin" --arg v "$version" '.devflow_version = $v' "$cfg" > "$tmp" 2>/dev/null; then
         if mv "$tmp" "$cfg"; then
           log "pinned devflow_version=$version in $cfg"; return 0
         fi

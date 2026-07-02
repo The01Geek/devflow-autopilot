@@ -12,6 +12,22 @@
 
 set -euo pipefail
 
+# jq binary: resolved once via the shared execution-verified resolver
+# (lib/resolve-bin.sh, issue #247); an explicit DEVFLOW_JQ still wins, so test
+# stubs and the Windows escape hatch are honored.
+# Best-effort: when the resolver is not beside this script (a copied/vendored
+# deployment), fall back to bare `jq` with a breadcrumb rather than aborting
+# under the caller's set -e.
+_DEVFLOW_RESOLVE_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/resolve-bin.sh"
+if [ -f "$_DEVFLOW_RESOLVE_BIN" ]; then
+  # shellcheck source=resolve-bin.sh
+  . "$_DEVFLOW_RESOLVE_BIN"
+  : "${DEVFLOW_JQ:=$(devflow_resolve_bin jq)}"
+else
+  echo "devflow: lib/resolve-bin.sh not found beside ${BASH_SOURCE[0]} — using bare 'jq' (set DEVFLOW_JQ to override)" >&2
+  : "${DEVFLOW_JQ:=jq}"
+fi
+
 if [ "$#" -ne 2 ]; then
     echo "Usage: materialize-retrospectives.sh <new-entries-file> <jsonl-path>" >&2
     exit 1
@@ -42,13 +58,13 @@ REP=0
 while IFS= read -r line; do
     [ -z "$line" ] && continue
 
-    pr="$(jq -r '.pr' <<<"$line")"
-    kind="$(jq -r '.kind' <<<"$line")"
+    pr="$("$DEVFLOW_JQ" -r '.pr' <<<"$line")"
+    kind="$("$DEVFLOW_JQ" -r '.kind' <<<"$line")"
 
     # Check if an entry with same pr and kind already exists
     # Do NOT suppress jq errors here: a malformed dataset should fail loudly
     # rather than producing a spurious empty $existing and appending a duplicate.
-    existing="$(jq -c --argjson pr "$pr" --arg kind "$kind" \
+    existing="$("$DEVFLOW_JQ" -c --argjson pr "$pr" --arg kind "$kind" \
         'select(.pr==$pr and .kind==$kind)' "$TMP")"
 
     if [ -n "$existing" ]; then
@@ -56,7 +72,7 @@ while IFS= read -r line; do
         NEW_TMP="$(mktemp)"
         # shellcheck disable=SC2064
         trap "rm -f '$NEW_TMP' '$TMP'" EXIT
-        jq -c --argjson pr "$pr" --arg kind "$kind" --argjson repl "$line" \
+        "$DEVFLOW_JQ" -c --argjson pr "$pr" --arg kind "$kind" --argjson repl "$line" \
             'if .pr==$pr and .kind==$kind then $repl else . end' "$TMP" > "$NEW_TMP"
         mv "$NEW_TMP" "$TMP"
         # Restore trap to only clean $TMP now that $NEW_TMP is gone (renamed to $TMP)
@@ -69,7 +85,7 @@ while IFS= read -r line; do
 done < "$NEW_FILE"
 
 # Validate the merged result
-if ! jq -c . "$TMP" > /dev/null 2>&1; then
+if ! "$DEVFLOW_JQ" -c . "$TMP" > /dev/null 2>&1; then
     echo "materialize: invalid JSONL after merge" >&2
     rm -f "$TMP"
     exit 1

@@ -24,6 +24,22 @@
 # max_prs_per_run.
 set -euo pipefail
 
+# jq binary: resolved once via the shared execution-verified resolver
+# (lib/resolve-bin.sh, issue #247); an explicit DEVFLOW_JQ still wins, so test
+# stubs and the Windows escape hatch are honored.
+# Best-effort: when the resolver is not beside this script (a copied/vendored
+# deployment), fall back to bare `jq` with a breadcrumb rather than aborting
+# under the caller's set -e.
+_DEVFLOW_RESOLVE_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/resolve-bin.sh"
+if [ -f "$_DEVFLOW_RESOLVE_BIN" ]; then
+  # shellcheck source=resolve-bin.sh
+  . "$_DEVFLOW_RESOLVE_BIN"
+  : "${DEVFLOW_JQ:=$(devflow_resolve_bin jq)}"
+else
+  echo "devflow: lib/resolve-bin.sh not found beside ${BASH_SOURCE[0]} — using bare 'jq' (set DEVFLOW_JQ to override)" >&2
+  : "${DEVFLOW_JQ:=jq}"
+fi
+
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # gh binary: resolved once via the single-source resolver (execution-verified);
 # an explicit DEVFLOW_GH still wins, so test stubs are untouched.
@@ -72,7 +88,7 @@ RETRO_PREDICATE='
 # Fold a batch of PR objects into the running CANDIDATES set, deduplicating by
 # number. Shared by every mode so the union/dedupe rule lives in one place.
 _add_candidates() {  # $1 = JSON array of PR objects
-    CANDIDATES="$(jq -nc --argjson a "$CANDIDATES" --argjson b "$1" '$a + $b | unique_by(.number)')"
+    CANDIDATES="$("$DEVFLOW_JQ" -nc --argjson a "$CANDIDATES" --argjson b "$1" '$a + $b | unique_by(.number)')"
 }
 
 # ── _author_is_watched <login> ───────────────────────────────────────────────
@@ -103,13 +119,13 @@ if [ -n "$EXPLICIT_PRS" ]; then
         if ! _PRJSON="$("$DEVFLOW_GH" pr view "$_p" --repo "$REPO" --json number,headRefName,mergedAt,state,labels,closingIssuesReferences,author 2>/dev/null)"; then
             echo "::warning::scan --prs: could not fetch PR ${_p}; skipping" >&2; continue
         fi
-        _STATE="$(echo "$_PRJSON" | jq -r '.state // ""')"
-        _HEAD="$(echo "$_PRJSON" | jq -r '.headRefName // ""')"
+        _STATE="$(echo "$_PRJSON" | "$DEVFLOW_JQ" -r '.state // ""')"
+        _HEAD="$(echo "$_PRJSON" | "$DEVFLOW_JQ" -r '.headRefName // ""')"
         if [ "$_STATE" != "MERGED" ]; then
             echo "::warning::scan --prs: PR ${_p} is ${_STATE:-unknown}, not MERGED; skipping" >&2; continue
         fi
         _WATCHED=false
-        _author_is_watched "$(echo "$_PRJSON" | jq -r '.author.login // ""')" && _WATCHED=true
+        _author_is_watched "$(echo "$_PRJSON" | "$DEVFLOW_JQ" -r '.author.login // ""')" && _WATCHED=true
         # Split the jq exit status from the empty-result case. `select(…)` emits the
         # object on a match and nothing on a legitimate non-match — both exit 0 — so
         # the empty string alone cannot distinguish "evaluated and excluded" from
@@ -121,7 +137,7 @@ if [ -n "$EXPLICIT_PRS" ]; then
         # degraded gate: --prs is the operator-named ad-hoc path, so a per-PR
         # breadcrumb on stderr is the right granularity rather than a hard exit.
         set +e
-        _SEL="$(echo "$_PRJSON" | jq -c --arg impl "$IMPL_PREFIX" --argjson watched "$_WATCHED" \
+        _SEL="$(echo "$_PRJSON" | "$DEVFLOW_JQ" -c --arg impl "$IMPL_PREFIX" --argjson watched "$_WATCHED" \
             "select($RETRO_PREDICATE) | {number, headRefName, mergedAt}" 2>"$PRS_ERR")"
         _SEL_RC=$?
         set -e
@@ -134,7 +150,7 @@ if [ -n "$EXPLICIT_PRS" ]; then
         _add_candidates "[$_SEL]"
     done
     rm -f "$PRS_ERR"
-    echo "$CANDIDATES" | jq -c --argjson cap "$MAX_PRS" 'sort_by(.mergedAt) | [.[0:$cap][] | {number, headRefName, mergedAt}]'
+    echo "$CANDIDATES" | "$DEVFLOW_JQ" -c --argjson cap "$MAX_PRS" 'sort_by(.mergedAt) | [.[0:$cap][] | {number, headRefName, mergedAt}]'
     exit 0
 fi
 
@@ -170,7 +186,7 @@ trap 'rm -f "$FETCH_ERR"' EXIT
 if LABEL_BATCH="$("$DEVFLOW_GH" pr list --repo "$REPO" --state merged --label DevFlow \
         --search "merged:>=${SINCE}" \
         --json number,headRefName,mergedAt --limit 100 2>"$FETCH_ERR")"; then
-    LABEL_BATCH="$(echo "$LABEL_BATCH" | jq '[.[] | {number, headRefName, mergedAt}]' 2>"$FETCH_ERR")" \
+    LABEL_BATCH="$(echo "$LABEL_BATCH" | "$DEVFLOW_JQ" '[.[] | {number, headRefName, mergedAt}]' 2>"$FETCH_ERR")" \
         || { echo "::warning::scan: jq reshape of the DevFlow-label batch failed ($(tr '\n' ' ' < "$FETCH_ERR" | cut -c1-300)); treating as empty" >&2; LABEL_BATCH='[]'; DEGRADED=1; }
 else
     echo "::warning::gh pr list --label DevFlow failed ($(tr '\n' ' ' < "$FETCH_ERR" | cut -c1-300))" >&2; LABEL_BATCH='[]'; DEGRADED=1
@@ -192,7 +208,7 @@ else
                     --json number,headRefName,author,mergedAt,labels,closingIssuesReferences --limit 100 2>"$FETCH_ERR")"; then
                 # These are watched-author results, so $watched is true for the
                 # closes-issue path (b). Filter locally with the shared predicate.
-                BATCH="$(echo "$BATCH" | jq --arg impl "$IMPL_PREFIX" --argjson watched true \
+                BATCH="$(echo "$BATCH" | "$DEVFLOW_JQ" --arg impl "$IMPL_PREFIX" --argjson watched true \
                     "[.[] | select($RETRO_PREDICATE) | {number, headRefName, mergedAt}]" 2>"$FETCH_ERR")" \
                     || { echo "::warning::scan: jq reshape failed for author:${_form} ($(tr '\n' ' ' < "$FETCH_ERR" | cut -c1-300)); treating as empty" >&2; BATCH='[]'; DEGRADED=1; }
             else
@@ -235,11 +251,11 @@ fi
 # guard, so neither transport can collapse silently. Called in the current shell
 # (never via $(...)), so its exit terminates scan, not just a subshell.
 _decode_existing() {  # $1 = decoded jsonl text, $2 = source label for breadcrumbs
-    if ! EXISTING="$(printf '%s' "$1" | jq -s 'map(.pr // empty)' 2>"$ERR")"; then
+    if ! EXISTING="$(printf '%s' "$1" | "$DEVFLOW_JQ" -s 'map(.pr // empty)' 2>"$ERR")"; then
         echo "::error::scan: parsing retrospectives.jsonl ($2) failed — unparseable content under HTTP 200: $(cat "$ERR")" >&2
         exit 1
     fi
-    if [ "$(printf '%s' "$EXISTING" | jq 'length')" -eq 0 ]; then
+    if [ "$(printf '%s' "$EXISTING" | "$DEVFLOW_JQ" 'length')" -eq 0 ]; then
         echo "::error::scan: retrospectives.jsonl ($2) yielded zero pr records from non-empty content under HTTP 200 (a decode/parse miss, or otherwise pr-less/schema-drifted content) — refusing to treat the backlog as unprocessed (would re-queue everything and create duplicate retrospectives)" >&2
         exit 1
     fi
@@ -260,7 +276,7 @@ case "$HTTP" in
         # would otherwise read as an absent `.content` field). $ERR is single-use
         # scratch: every `2>"$ERR"` truncates it and each reader cats it right
         # after its own write, so breadcrumbs never cross streams.
-        if ! RAW="$(printf '%s' "$BODY_JSON" | jq -r '.content // ""' 2>"$ERR")"; then
+        if ! RAW="$(printf '%s' "$BODY_JSON" | "$DEVFLOW_JQ" -r '.content // ""' 2>"$ERR")"; then
             echo "::error::scan: HTTP 200 for retrospectives.jsonl but the Contents API envelope was not parseable JSON: $(cat "$ERR")" >&2
             exit 1
         fi
@@ -282,7 +298,7 @@ case "$HTTP" in
             # for larger files it returns "" and a download_url. Fall back to it
             # so the processed-PR set doesn't silently collapse to [] (which would
             # re-queue the whole backlog and create duplicate retrospectives).
-            DL_URL="$(echo "$BODY_JSON" | jq -r '.download_url // ""')"
+            DL_URL="$(echo "$BODY_JSON" | "$DEVFLOW_JQ" -r '.download_url // ""')"
             if [ -z "$DL_URL" ]; then
                 echo "::error::scan: HTTP 200 for retrospectives.jsonl but it carried neither inline content nor a download_url — cannot determine the processed-PR set; refusing to re-queue the whole backlog" >&2
                 exit 1
@@ -303,9 +319,9 @@ case "$HTTP" in
         ;;
 esac
 
-UNPROC="$(echo "$CANDIDATES" | jq --argjson e "$EXISTING" '[.[] | select(.number as $n | ($e | index($n) | not))] | sort_by(.mergedAt)')"
-N="$(echo "$UNPROC" | jq 'length')"
+UNPROC="$(echo "$CANDIDATES" | "$DEVFLOW_JQ" --argjson e "$EXISTING" '[.[] | select(.number as $n | ($e | index($n) | not))] | sort_by(.mergedAt)')"
+N="$(echo "$UNPROC" | "$DEVFLOW_JQ" 'length')"
 if [ "$N" -gt "$MAX_PRS" ]; then
     echo "scan: $N unprocessed PRs, capping to $MAX_PRS" >&2
 fi
-echo "$UNPROC" | jq -c --argjson cap "$MAX_PRS" '[.[0:$cap][] | {number, headRefName, mergedAt}]'
+echo "$UNPROC" | "$DEVFLOW_JQ" -c --argjson cap "$MAX_PRS" '[.[0:$cap][] | {number, headRefName, mergedAt}]'

@@ -16,6 +16,22 @@
 #                 --overrides <path> [--dry-run]
 set -euo pipefail
 
+# jq binary: resolved once via the shared execution-verified resolver
+# (lib/resolve-bin.sh, issue #247); an explicit DEVFLOW_JQ still wins, so test
+# stubs and the Windows escape hatch are honored.
+# Best-effort: when the resolver is not beside this script (a copied/vendored
+# deployment), fall back to bare `jq` with a breadcrumb rather than aborting
+# under the caller's set -e.
+_DEVFLOW_RESOLVE_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/resolve-bin.sh"
+if [ -f "$_DEVFLOW_RESOLVE_BIN" ]; then
+  # shellcheck source=resolve-bin.sh
+  . "$_DEVFLOW_RESOLVE_BIN"
+  : "${DEVFLOW_JQ:=$(devflow_resolve_bin jq)}"
+else
+  echo "devflow: lib/resolve-bin.sh not found beside ${BASH_SOURCE[0]} — using bare 'jq' (set DEVFLOW_JQ to override)" >&2
+  : "${DEVFLOW_JQ:=jq}"
+fi
+
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ── Argument parsing ─────────────────────────────────────────────────────────
@@ -104,15 +120,15 @@ _EXISTING_RAW="$("$DEVFLOW_GH" issue list \
     --limit 200 \
     --json number,url,title)" \
   || { echo "::error::meta-issue: de-dupe lookup failed for tag '${TAG}'" >&2; exit 1; }
-EXISTING="$(printf '%s' "$_EXISTING_RAW" | jq -c --arg tag "$TAG" '
+EXISTING="$(printf '%s' "$_EXISTING_RAW" | "$DEVFLOW_JQ" -c --arg tag "$TAG" '
     [ .[]
       | select(((((.title | capture("\\[devflow-retrospective\\] meta: (?<slug>[A-Za-z0-9_-]+)")?) // {}) | .slug) // "") == $tag)
     ] | .[0] // empty')" \
   || { echo "::error::meta-issue: could not parse the de-dupe list as JSON for tag '${TAG}' (gh returned non-JSON?)" >&2; exit 1; }
 
 if [[ -n "$EXISTING" ]]; then
-    URL="$(printf '%s' "$EXISTING" | jq -r '.url')"
-    NUMBER="$(printf '%s' "$EXISTING" | jq -r '.number')"
+    URL="$(printf '%s' "$EXISTING" | "$DEVFLOW_JQ" -r '.url')"
+    NUMBER="$(printf '%s' "$EXISTING" | "$DEVFLOW_JQ" -r '.number')"
     # Fail CLOSED on a de-dup hit that yielded no usable url/number (a gh --json
     # contract drift would make jq -r emit the literal "null"). Mirrors the
     # create-path URL guard below — without it a "null" url/number would flow into
@@ -182,7 +198,7 @@ if [[ "$DRY_RUN" -eq 0 ]]; then
     # write on every recurrence, so writing $now unconditionally would drift the
     # timestamp perpetually forward and mislead that audit. Only a brand-new entry
     # (no prior dismissed_at) gets $now; an existing one keeps its first stamp.
-    if jq \
+    if "$DEVFLOW_JQ" \
         --arg tag "$SLUG" \
         --arg now "$NOW" \
         --arg url "$URL" \
