@@ -125,7 +125,11 @@ AGG="${SLUG_DIR}/deferrals.json"   # slug-level aggregate the consumers read; di
 # run's deferrals (issue #254), so discover run-scoped manifests under BOTH candidate slug
 # directories. The aggregate is always written at `pr-<N>/deferrals.json` — the single path
 # /pr-description reads in Phase 4.2, unchanged.
-BRANCH_SLUG=$(git branch --show-current | tr '/' '-' | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9._-')
+# Read the current branch name ONCE and reuse it for both the slug derivation and the
+# empty-slug breadcrumb guard below — a single `git branch --show-current` subprocess, and no
+# chance the two reads disagree if HEAD moves mid-block.
+CUR_BRANCH=$(git branch --show-current)
+BRANCH_SLUG=$(printf '%s' "$CUR_BRANCH" | tr '/' '-' | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9._-')
 # tr-dependence guard (this repo's review-and-fix guard-class 2): BRANCH_SLUG keys a
 # filesystem search dir and is derived through `tr` on PATH. A non-empty current branch that
 # yields an EMPTY slug has two possible causes, both of which fall back to pr-<N>-only search
@@ -137,7 +141,7 @@ BRANCH_SLUG=$(git branch --show-current | tr '/' '-' | tr '[:upper:]' '[:lower:]
 # instead the benign detached-HEAD case — e.g. a PR merge-ref checkout — where pr-<N>-only is
 # correct and no breadcrumb fires.) Make the degraded case observable rather than silent.
 # Best-effort breadcrumb; never blocks.
-[ -z "$BRANCH_SLUG" ] && [ -n "$(git branch --show-current)" ] && echo "devflow: current branch produced an empty slug (either 'tr' is missing/degraded on PATH, or the branch name is composed entirely of characters dropped by the [a-z0-9._-] filter); falling back to pr-<N>-only deferral discovery (a current-branch-mode run's manifest may be missed)" >&2
+[ -z "$BRANCH_SLUG" ] && [ -n "$CUR_BRANCH" ] && echo "devflow: current branch produced an empty slug (either 'tr' is missing/degraded on PATH, or the branch name is composed entirely of characters dropped by the [a-z0-9._-] filter); falling back to pr-<N>-only deferral discovery (a current-branch-mode run's manifest may be missed)" >&2
 BRANCH_DIR=".devflow/tmp/review/${BRANCH_SLUG}"
 # Only add the branch-slug dir when it is non-empty AND distinct from pr-<N> (a branch
 # literally named `pr-<N>` would otherwise be searched twice — harmless but pointless).

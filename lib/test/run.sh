@@ -2731,8 +2731,10 @@ assert_pin_red_on_removal "#232: orchestrator AC4 scope mirror flips RED on remo
 # pr-<N>-only find silently misses those deferrals. The operative arm is the one that
 # actually adds the branch-slug dir to the search set; pin it removal-proof so deleting
 # the branch-slug arm goes RED. Also pin the BRANCH_SLUG derivation (its producer).
-assert_pin_unique "#254: Phase 4.0.5 derives the sanitized branch slug for manifest discovery" \
-  'BRANCH_SLUG=$(git branch --show-current | tr' "$P4_FILE"
+assert_pin_unique "#254: Phase 4.0.5 reads the current branch once into CUR_BRANCH" \
+  'CUR_BRANCH=$(git branch --show-current)' "$P4_FILE"
+assert_pin_unique "#254: Phase 4.0.5 derives the sanitized branch slug from CUR_BRANCH" \
+  'BRANCH_SLUG=$(printf '"'"'%s'"'"' "$CUR_BRANCH" | tr' "$P4_FILE"
 assert_pin_unique "#254: Phase 4.0.5 adds the branch-slug dir to the manifest search set (operative)" \
   'SEARCH_DIRS="$SLUG_DIR $BRANCH_DIR"' "$P4_FILE"
 assert_pin_red_on_removal "#254: Phase 4.0.5 branch-slug discovery arm flips RED on removal" \
@@ -3571,6 +3573,12 @@ assert_pin_unique "#254: Pass 4 routes an OPEN declared dependency to the Blocke
 # removal-proof too, not just the heading and the OPEN arm.
 assert_pin_unique "#254: Pass 4 fails closed (Blocked) when a declared dependency cannot be resolved" \
   'issue-claim audit (dependency): could not resolve declared dependency #N state' "$IMPL_SKILL"
+# Review iter (PR #255): `gh issue view` returns MERGED (not CLOSED) for a merged PR
+# dependency — the satisfied case. Pin the operative clause that a landed prerequisite is
+# CLOSED **or** MERGED so a later edit cannot silently drop MERGED and mis-Block a merged
+# prerequisite (the fail-closed-but-wrong direction the review flagged).
+assert_pin_unique "#254: Pass 4 treats a MERGED dependency as satisfied (landed = CLOSED or MERGED)" \
+  'when it is `CLOSED` **or** `MERGED`' "$IMPL_SKILL"
 # ── issue #185 (+ Addendum): Phase 4.1 Documentation Needed cross-check ─────
 # Phase 4.1 enforces named documentation deliverables in two stages:
 #   Stage 1 pre-flight: extract the Documentation Needed paths and inject them

@@ -1659,6 +1659,27 @@ assert_eq("blank-sep: item1 joins only its pre-blank continuation",
 assert_eq("blank-sep: an indented line after a blank line is NOT absorbed (boundary fired)",
           False, 'must not join' in _bs[0]['text'])
 
+# Review iter (PR #255 receiving-review, test-gap): TAB-indented continuation lines join too
+# (the continuation guard is `line[:1] in (' ', '\t')`); prior fixtures used only space
+# indentation, leaving the `\t` branch unexercised.
+WRAPPED_AC_TAB = "## Acceptance Criteria\n- [ ] Tab-wrapped criterion first line\n\tand its tab-indented continuation.\n"
+_t = parse_acs._parse_checkboxes(parse_acs._extract_section(WRAPPED_AC_TAB, 'Acceptance Criteria'))
+assert_eq("tab-cont: one item parsed", 1, len(_t))
+assert_eq("tab-cont: tab-indented continuation is joined into the criterion",
+          "Tab-wrapped criterion first line and its tab-indented continuation.", _t[0]['text'])
+
+# Review iter (PR #255 receiving-review, test-gap): a post-merge trigger phrase SPLIT across
+# the wrap boundary (no single physical line contains it) must still classify post-merge,
+# because classification runs on the fully-joined text. This is the core reason the join
+# feeds the post-merge scan — pin it directly.
+WRAPPED_AC_SPLITTRIG = ("## Acceptance Criteria\n"
+                        "- [ ] Update the changelog after\n"
+                        "      merge so the entry reconciles.\n")
+_st = parse_acs._parse_checkboxes(parse_acs._extract_section(WRAPPED_AC_SPLITTRIG, 'Acceptance Criteria'))
+assert_eq("split-trigger: one item parsed", 1, len(_st))
+assert_eq("split-trigger: 'after merge' split across the wrap still classifies post-merge",
+          True, _st[0]['post_merge'])
+
 
 print("file_deferrals._derive_area / _compute_id / _format_line_range / _render_issue_body")
 

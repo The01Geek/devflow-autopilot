@@ -219,12 +219,14 @@ Scan the issue body for explicit claims that this work **depends on** or **must 
 
 **Scope:** only *explicit* dependency directives. A `#N` that is a plain cross-reference ("as in #247", "the #157 retrospective flagged this", "carried from #241") is **not** a declared dependency — it is provenance/context, not a sequencing constraint. Do not treat every `#N` in the body as a dependency; extract only those attached to a depends-on / must-merge-after / blocked-by / follow-up-to phrasing (or living under a `## Dependencies` heading).
 
-For each declared dependency `#N`, check its state via `gh issue view` (works for both issues and PRs):
+For each declared dependency `#N`, check its state via `gh issue view` (works for both issues and PRs — a PR number resolves too):
 
 ```bash
-gh issue view N --json state,title --jq '.state'   # OPEN | CLOSED
+gh issue view N --json state,title --jq '.state'   # OPEN | CLOSED | MERGED
 ```
 
-- **All declared dependencies are `CLOSED`** (or the issue declares none) → record the confirmation: `--reflection-kind note --reflection "issue-claim audit (dependency): declared dependencies {#N, #M} all closed — safe to build on"` (or, when none were declared, `--reflection-kind note --reflection "issue-claim audit (dependency): no declared sequencing dependencies found — pass complete"`).
+Note the state domain: an **issue** resolves to `OPEN` or `CLOSED`, but a **PR** resolves to `OPEN`, `CLOSED`, or `MERGED`. A prerequisite has *landed* — the condition this pass verifies — when it is `CLOSED` **or** `MERGED`; only `OPEN` means it has not landed. Treat `MERGED` exactly like `CLOSED` (a merged PR is the canonical "prerequisite shipped" case); do **not** route a `MERGED` dependency to the Blocked path.
+
+- **All declared dependencies are `CLOSED` or `MERGED`** (or the issue declares none) → the prerequisites have landed; record the confirmation: `--reflection-kind note --reflection "issue-claim audit (dependency): declared dependencies {#N, #M} all landed (closed/merged) — safe to build on"` (or, when none were declared, `--reflection-kind note --reflection "issue-claim audit (dependency): no declared sequencing dependencies found — pass complete"`).
 - **Any declared dependency is still `OPEN`** → do not proceed to Phase 2. Building on unmerged prerequisite work is exactly the mistake this pass exists to stop. Record the block and stop the run: `workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind blocked --reflection "issue-claim audit (dependency): declared dependency #N is still OPEN — this issue states it must land after #N; building now would build on unmerged work. Resolve/merge #N (or amend the issue if the dependency is stale) before re-running Phase 1"`, then emit the 👎 outcome reaction (see *Outcome reaction* in the Workpad Reference) and stop.
 - **A dependency reference cannot be resolved** (a non-zero `gh issue view` — the number is wrong, or gh/network failed) → this is a *command failure* that says nothing about the dependency's state, so do **not** treat it as closed. Record it as actionable and take the Blocked path rather than fail open: `workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind blocked --reflection "issue-claim audit (dependency): could not resolve declared dependency #N state (gh issue view failed — wrong number or gh/network); cannot confirm it merged before building. Verify #N and re-run Phase 1"`, then emit the 👎 outcome reaction and stop.
