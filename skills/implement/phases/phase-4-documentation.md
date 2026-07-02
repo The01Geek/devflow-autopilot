@@ -118,9 +118,23 @@ Skip this step if no run-scoped manifest exists or all are empty.
 PR_NUMBER=$(gh pr view --json number --jq '.number')
 SLUG_DIR=".devflow/tmp/review/pr-${PR_NUMBER}"
 AGG="${SLUG_DIR}/deferrals.json"   # slug-level aggregate the consumers read; distinct from the per-run files
-# run-id and slug are path-safe (alphanumeric/hyphen/dot), so the unquoted find-output
-# word-split below is safe. -size +0c skips empty manifests.
-MANIFESTS=$(find "$SLUG_DIR" -mindepth 2 -maxdepth 2 -name deferrals.json -size +0c 2>/dev/null | sort)
+# A PR-mode /devflow:review-and-fix run writes its run-scoped manifest under `pr-<N>/`,
+# but a CURRENT-BRANCH-mode run writes it under the sanitized current branch slug instead
+# (`<slug>` = the branch name with `/`→`-`, lowercased, non-`[a-z0-9._-]` dropped — the same
+# convention /devflow:review uses). Searching only `pr-<N>/` silently misses a branch-mode
+# run's deferrals (issue #254), so discover run-scoped manifests under BOTH candidate slug
+# directories. The aggregate is always written at `pr-<N>/deferrals.json` — the single path
+# /pr-description reads in Phase 4.2, unchanged.
+BRANCH_SLUG=$(git branch --show-current | tr '/' '-' | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9._-')
+BRANCH_DIR=".devflow/tmp/review/${BRANCH_SLUG}"
+# Only add the branch-slug dir when it is non-empty AND distinct from pr-<N> (a branch
+# literally named `pr-<N>` would otherwise be searched twice — harmless but pointless).
+SEARCH_DIRS="$SLUG_DIR"
+[ -n "$BRANCH_SLUG" ] && [ "$BRANCH_DIR" != "$SLUG_DIR" ] && SEARCH_DIRS="$SLUG_DIR $BRANCH_DIR"
+# run-id and slug are path-safe (alphanumeric/hyphen/dot), so the unquoted $SEARCH_DIRS and
+# find-output word-splits below are safe. A non-existent dir among $SEARCH_DIRS makes find
+# emit a stderr error (suppressed) and continue with the others. -size +0c skips empty manifests.
+MANIFESTS=$(find $SEARCH_DIRS -mindepth 2 -maxdepth 2 -name deferrals.json -size +0c 2>/dev/null | sort)
 if [ -n "$MANIFESTS" ]; then
     # Merge the deferrals[] arrays across runs. The dedup key mirrors file-deferrals.py's
     # _compute_id payload — (file|symbol|kind|summary.strip()), every field defaulted to ""

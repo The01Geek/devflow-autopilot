@@ -1087,6 +1087,38 @@ assert_eq "sev(rcv): vendored body has no repo-specific CI job name (lib + pytho
 assert_pin_unique "unscoped-staging: review-and-fix fix-commit step prohibits git add -A / git add ." \
   'Never use `git add -A` or `git add .` at the fix-commit step' "$MAXI_SKILL"
 
+# ── issue #254: post-shadow edit gate logs-only exemption. The Loop Exit persist step
+# commits the observability artifacts (`.devflow/logs/**`) AFTER the shadow captured
+# reviewed_sha, so on every writable converging run HEAD legitimately advances past
+# reviewed_sha by exactly that logs-only commit — which formerly tripped the gate's own
+# HEAD==reviewed_sha assertion. The gate now exempts a post-shadow commit whose diff
+# touches ONLY `.devflow/logs/**`, while any commit touching other paths still trips it.
+# Pin the operative exemption sentence removal-proof, plus the counter-assertion that a
+# non-logs path still trips the gate (so a half-edit dropping the counter goes RED).
+assert_pin_unique "#254: post-shadow gate exempts a logs-only post-shadow commit (operative)" \
+  'a post-shadow commit whose diff touches only `.devflow/logs/**` does not constitute an unreviewed edit' "$MAXI_SKILL"
+assert_pin_unique "#254: post-shadow gate keeps the counter — a non-logs path still trips the gate" \
+  'Any commit touching a path outside `.devflow/logs/**` still trips the gate' "$MAXI_SKILL"
+# (The removal-proof counterparts for both operative sentences live below, after
+# assert_pin_red_on_removal is defined — see the "#254 post-shadow gate removal-proofs" block.)
+
+# ── issue #254: the consumer prompt extension carries the two fail-open guard-class
+# shapes (existence-vs-sourceability + tr-dependence), each with its #247 reproduction.
+# The extension sharpens but never supplants the engine gates — assert the file exists and
+# carries both shapes so a future edit that drops a shape (or the local instance that makes
+# it actionable) fails here.
+RAF_EXT="$LIB/../.devflow/prompt-extensions/review-and-fix.md"
+assert_eq "#254: review-and-fix prompt extension exists" "yes" \
+  "$([ -f "$RAF_EXT" ] && echo yes || echo no)"
+assert_pin_unique "#254: extension carries the existence-vs-sourceability guard shape" \
+  'Guard-class shape 1 — existence-vs-sourceability' "$RAF_EXT"
+assert_pin_unique "#254: existence-vs-sourceability fix verifies the outcome (type <fn>), not the precondition" \
+  'type <fn> >/dev/null 2>&1' "$RAF_EXT"
+assert_pin_unique "#254: extension carries the tr-dependence guard shape" \
+  'Guard-class shape 2 — tr-dependence' "$RAF_EXT"
+assert_pin_unique "#254: tr-dependence shape names its #247 reproduction (derived-through-tr slug degrades)" \
+  'degrades on a `PATH` without `tr`' "$RAF_EXT"
+
 # Drift guard: the park-calibration gate is the lenient-verdict catch — it re-reads
 # parked findings against three generic under-grade shapes before the review-and-fix
 # loop concludes on an APPROVE-family verdict, so every review-and-fix-engine consumer
@@ -1383,6 +1415,12 @@ assert_pin_red_on_removal "AC3(c): deleting the Step 2.6 sentinel contract turns
   'park-calibration gate clean: no parked finding matched'
 assert_pin_red_on_removal "AC3(d): narrowing the mutation-check rule back to fix-only turns its pin RED" \
   'any added or edited test guard in the diff'
+# #254 post-shadow gate removal-proofs (the assert_pin_unique presence pins are up in the
+# max_iterations/review-and-fix block; these removal-proofs must sit below the helper def).
+assert_pin_red_on_removal "#254: post-shadow gate logs-only exemption flips RED on removal" \
+  'a post-shadow commit whose diff touches only `.devflow/logs/**` does not constitute an unreviewed edit'
+assert_pin_red_on_removal "#254: post-shadow gate non-logs counter-assertion flips RED on removal" \
+  'Any commit touching a path outside `.devflow/logs/**` still trips the gate'
 #
 # AC3(g): the GENERALIZED (issue #159 B3) region meta-test detects a raw SKILL guard injected
 # into EACH registered region — proving the parametrized helper is not silently inert for the
@@ -2682,6 +2720,21 @@ assert_pin_unique "#232: orchestrator mirror keeps the AC4 Phase-4.1-only scope 
   'scoped to the Phase 4.1 docs subagent return only, not the Phase 2/3 returns' "$IMPL_ORCH"
 assert_pin_red_on_removal "#232: orchestrator AC4 scope mirror flips RED on removal" \
   'scoped to the Phase 4.1 docs subagent return only, not the Phase 2/3 returns' "$IMPL_ORCH"
+# ── issue #254: Phase 4.0.5 deferrals-manifest discovery must search BOTH the pr-<N>
+# slug dir and the sanitized-current-branch slug dir — a current-branch-mode
+# /devflow:review-and-fix run writes its manifest under the branch slug, so a
+# pr-<N>-only find silently misses those deferrals. The operative arm is the one that
+# actually adds the branch-slug dir to the search set; pin it removal-proof so deleting
+# the branch-slug arm goes RED. Also pin the BRANCH_SLUG derivation (its producer).
+assert_pin_unique "#254: Phase 4.0.5 derives the sanitized branch slug for manifest discovery" \
+  'BRANCH_SLUG=$(git branch --show-current | tr' "$P4_FILE"
+assert_pin_unique "#254: Phase 4.0.5 adds the branch-slug dir to the manifest search set (operative)" \
+  'SEARCH_DIRS="$SLUG_DIR $BRANCH_DIR"' "$P4_FILE"
+assert_pin_red_on_removal "#254: Phase 4.0.5 branch-slug discovery arm flips RED on removal" \
+  'SEARCH_DIRS="$SLUG_DIR $BRANCH_DIR"' "$P4_FILE"
+# The aggregate must still be written at pr-<N>/deferrals.json (the path /pr-description reads).
+assert_pin_unique "#254: Phase 4.0.5 keeps the aggregate at the pr-<N> slug path" \
+  'AGG="${SLUG_DIR}/deferrals.json"' "$P4_FILE"
 assert_pin_unique "sweep 2.3.6: implement SKILL keeps the sweep body" '#### 2.3.6 Error-handling & silent-failure sweep' "$IMPL_SKILL"
 assert_pin_unique "sweep 2.3.6: implement SKILL lists it in the always-run index" '**2.3.6** (error-handling & silent-failure)' "$IMPL_SKILL"
 assert_eq "sweep 2.3.6: docs/implement-skill.md keeps the rationale table row" "yes" \
@@ -3487,6 +3540,18 @@ assert_pin_red_on_removal "#184: deleting the negative-scope type literal turns 
   'explicit surface exclusions' "$IMPL_SKILL"
 assert_pin_red_on_removal "#184: deleting the policy-referencing type literal turns its pin RED" \
   'Policy-referencing claims in ACs' "$IMPL_SKILL"
+# ── issue #254: Phase 1.6 gains Pass 4 — declared sequencing-dependency claims.
+# An issue stating it "must merge after #N" is verified deterministically: each
+# declared dependency's state is read via gh issue view; all-closed records a
+# confirmation note, an OPEN (or unresolvable) dependency routes to the Blocked
+# path with the 👎 outcome reaction. Pin the pass heading removal-proof, and the
+# two operative contracts (the state read and the Blocked-on-open path).
+assert_pin_red_on_removal "#254: deleting the Pass 4 dependency-claims heading turns its pin RED" \
+  'Declared sequencing-dependency claims' "$IMPL_SKILL"
+assert_pin_unique "#254: Pass 4 checks each declared dependency's state via gh issue view" \
+  "gh issue view N --json state,title --jq '.state'" "$IMPL_SKILL"
+assert_pin_unique "#254: Pass 4 routes an OPEN declared dependency to the Blocked path" \
+  'issue-claim audit (dependency): declared dependency #N is still OPEN' "$IMPL_SKILL"
 # ── issue #185 (+ Addendum): Phase 4.1 Documentation Needed cross-check ─────
 # Phase 4.1 enforces named documentation deliverables in two stages:
 #   Stage 1 pre-flight: extract the Documentation Needed paths and inject them
@@ -3679,6 +3744,35 @@ fx_period="## Implementation Notes
 assert_eq "#190 fix-loop: un-backticked filename with a trailing sentence period IS extracted" \
   "CHANGELOG.md" \
   "$(printf '%s\n' "$fx_period" | bash "$EXTRACT_HELPER")"
+
+# Case 7 (issue #254): the real issue #247 Documentation Needed bullet. The
+# tokenizer splits the skill-invocation reference \`/claude-md-management:revise-claude-md\`
+# on the colon into \`/claude-md-management\` (rooted, no extension, names no
+# in-tree file) — which the OLD contains-a-slash test wrongly emitted. The
+# fixture must yield EXACTLY the three real doc files, dropping the skill-ref.
+fx_247="## Implementation Notes
+
+- **Approach** — do the thing.
+- **Documentation Needed**
+  - Document \`DEVFLOW_JQ\` as the Windows \`jq\` escape hatch in
+    \`docs/install.md\` / \`README.md\` requirements.
+  - Record the shared resolver-family expansion (\`jq\` + \`gh\`) and the path
+    normalizer in the \`CLAUDE.md\` tool-resolution gotcha, via
+    \`/claude-md-management:revise-claude-md\`.
+- **Potential Gotchas** — none."
+assert_eq "#254: the #247 body yields exactly CLAUDE.md, README.md, docs/install.md (skill-ref dropped)" \
+  "$(printf 'CLAUDE.md\nREADME.md\ndocs/install.md')" \
+  "$(printf '%s\n' "$fx_247" | bash "$EXTRACT_HELPER")"
+
+# Case 8 (issue #254): bare-directory tokens (trailing-slash and extensionless
+# dir path) and rooted non-file tokens are all dropped; only the real file
+# path with a recognized extension survives.
+fx_dirs="## Implementation Notes
+
+- **Documentation Needed** — touch \`docs/\`, \`docs/internal\`, \`/pr-description\`, and \`README.md\`."
+assert_eq "#254: bare dirs (docs/, docs/internal) and rooted skill-ref (/pr-description) dropped; file kept" \
+  "README.md" \
+  "$(printf '%s\n' "$fx_dirs" | bash "$EXTRACT_HELPER")"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "scaffold-config.sh"

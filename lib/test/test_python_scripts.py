@@ -1591,6 +1591,31 @@ assert_eq("render_md: test plan appended after blank line", True,
               [{'text': 'a', 'ticked': False, 'post_merge': False}],
               [{'text': 'b', 'ticked': False, 'post_merge': False}]))
 
+# ── issue #254: hard-wrapped criteria (the ~80-column format /devflow:create-issue
+# emits) must join indented continuation lines into ONE criterion, and a post-merge
+# trigger phrase sitting on a continuation line must still classify. The old parser
+# matched only the checkbox line itself, truncating each item to its first physical
+# line and blinding the classifier to any trigger past the wrap.
+WRAPPED_AC = """## Acceptance Criteria
+- [ ] The parser joins each checkbox item's indented continuation lines into
+      one criterion string so a hard-wrapped criterion round-trips verbatim
+      into the workpad mirror.
+- [ ] The deploy step is exercised and the result is confirmed
+      in production after the release ships.
+"""
+_w = parse_acs._parse_checkboxes(parse_acs._extract_section(WRAPPED_AC, 'Acceptance Criteria'))
+assert_eq("wrap: two items parsed", 2, len(_w))
+assert_eq("wrap: item1 continuation lines joined verbatim into one string",
+          "The parser joins each checkbox item's indented continuation lines into "
+          "one criterion string so a hard-wrapped criterion round-trips verbatim "
+          "into the workpad mirror.",
+          _w[0]['text'])
+assert_eq("wrap: item1 (no trigger anywhere) not post-merge", False, _w[0]['post_merge'])
+assert_eq("wrap: item2 joined text carries the continuation-line content", True,
+          'in production' in _w[1]['text'])
+assert_eq("wrap: item2 trigger phrase on a continuation line classifies post-merge",
+          True, _w[1]['post_merge'])
+
 
 print("file_deferrals._derive_area / _compute_id / _format_line_range / _render_issue_body")
 

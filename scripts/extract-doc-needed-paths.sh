@@ -84,11 +84,18 @@ printf '%s\n' "$tokens" \
         */) continue ;;        # trailing slash => directory, not a file
         '' ) continue ;;
       esac
-      # A path iff it contains a slash OR has a real basename ending in a
-      # recognized extension. The `.+` before the dot excludes a bare extension
-      # token (`.md`, `.sh`) that is a syntax reference, not a filename.
-      if printf '%s\n' "$tok" | grep -qE '/' \
-         || printf '%s\n' "$tok" | grep -qE '.+\.(md|markdown|sh|json|py|ya?ml|rst|txt|adoc|mdx|toml|cfg|ini)$'; then
+      # A token counts as a deliverable file iff it EITHER ends in a recognized
+      # doc/source extension (a real filename) OR names an in-tree file right now
+      # (`[ -f ]`, which rescues extensionless real files like Makefile/LICENSE).
+      # A bare "contains a slash" test is deliberately NOT enough: it emitted
+      # directory tokens (`docs/internal`) and — because the tokenizer splits a
+      # skill-invocation reference like `/claude-md-management:revise-claude-md`
+      # on the colon — rooted non-file tokens (`/claude-md-management`), neither
+      # of which is a documentation deliverable (issue #254). The `.+` before the
+      # dot excludes a bare extension token (`.md`, `.sh`) that is a syntax
+      # reference, not a filename.
+      if printf '%s\n' "$tok" | grep -qE '.+\.(md|markdown|sh|json|py|ya?ml|rst|txt|adoc|mdx|toml|cfg|ini)$' \
+         || [ -f "$tok" ]; then
         printf '%s\n' "$tok"
       fi
     done \
