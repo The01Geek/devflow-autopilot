@@ -140,7 +140,7 @@ Never hand-write or heredoc the output JSON — character-escaping errors in mul
 ```bash
 BODY_SCRATCH="$(mktemp)"   # unique per subagent — never a fixed shared path
 # ... write the issue body to "$BODY_SCRATCH" with the Write tool ...
-jq -n \
+${CLAUDE_SKILL_DIR}/../../scripts/run-jq.sh -n \
   --arg title "<action-oriented issue title>" \
   --arg body "$(cat "$BODY_SCRATCH")" \
   '{title: $title, body: $body}'
