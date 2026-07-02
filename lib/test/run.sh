@@ -2198,6 +2198,19 @@ assert_pin_unique "#236 (B) phase-3.3: record-write-failure detector matches the
   'grep -qE '\''record not written|failed' "$DEF_SKILL"
 assert_pin_unique "#236 (B) phase-3.3: record-write-failure detector ALSO matches the disk/permission-write breadcrumb (the single-literal grep this fix replaced silently missed it)" \
   'failed \(disk/permission\); not persisted for'\''' "$DEF_SKILL"
+# #236 review (iteration 2 fix-delta gate, pr-test-analyzer): the $PERSIST_ERR_IS_DEVNULL
+# mktemp-degrade path this fix introduced had NO removal-proof coverage — a half-revert
+# collapsing it back to a bare `PERSIST_ERR=$(mktemp)`, or one flipping the `-eq 1 ||` sense on
+# the cleanup guard, would ship green despite reintroducing the exact `rm -f /dev/null`
+# device-deletion hazard the guard exists to prevent (severe: under a root shell with a
+# writable /dev this breaks every other command in the environment that redirects to
+# /dev/null). Pin the rm-f cleanup guard's sense directly (assert_pin_red_on_removal on the
+# operative sentence: the code IS the fix, so the removal-proof target is the guard line
+# itself) and the mktemp-degrade warning breadcrumb's presence.
+assert_pin_red_on_removal "#236 (B) phase-3.3: deleting the /dev/null-safe rm-f cleanup guard turns its pin RED" \
+  '[ "$PERSIST_ERR_IS_DEVNULL" -eq 1 ] || rm -f "$PERSIST_ERR"' "$DEF_SKILL"
+assert_pin_unique "#236 (B) phase-3.3: mktemp-failure degrade emits its own distinct ::warning:: breadcrumb" \
+  'could not allocate a temp file for --persist'\''s stderr (mktemp failed)' "$DEF_SKILL"
 # (c) BOUNDED RE-REVIEW coverage: the AWUSF path can drive a SECOND, separate inline
 # review-and-fix invocation (the bounded re-review) whose own Loop Exit is just as droppable as
 # the first invocation's — but the original backstop only ran once, after the FIRST invocation,

@@ -152,7 +152,11 @@ captures the invocation's stderr and greps it for `--persist`'s own `record not 
 breadcrumb (jq/mkdir failures) **and** its differently-worded disk/permission write-failure
 breadcrumb — a single-literal grep would silently miss the latter — recording a second
 `dropped-failed` reflection when either fires (a record written-but-not-yet-committed is a
-separate, lower-priority gap not covered here). Because the
+separate, lower-priority gap not covered here). If the stderr capture itself can't be allocated
+(`mktemp` fails), the backstop degrades to discarding `--persist`'s stderr entirely rather than
+aborting — this disables the record-write-failure check for that run (the no-inputs case still
+runs) and emits its own distinct `::warning::`, the same degrade-and-warn discipline as the
+snapshot-missing case above. Because the
 `APPROVE WITH UNRESOLVED SHADOW FINDINGS` path can drive a **second**, separate inline
 `review-and-fix` invocation (the bounded re-review in §3.3), the orchestrator re-runs the whole
 snapshot-then-backstop procedure around that second invocation too — a fresh this-run baseline
