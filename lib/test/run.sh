@@ -11972,14 +11972,16 @@ assert_eq "#247 init relay: no stale 'jq not found' relay survives in init SKILL
 #    scripts/authorize-actor.sh is deliberately out of scope — its `--jq` is a
 #    flag of `gh api`, not a jq-binary invocation. ──
 DJQ_ROOT="$(cd "$LIB/.." && pwd)"
-# 15 = 12 migrated jq-callers (7 lib + 5 scripts) + preflight.sh + resolve-gh.sh
+# 16 = 12 migrated jq-callers (7 lib + 5 scripts) + preflight.sh + resolve-gh.sh
 # (both reference the shared resolver) + install.sh (inline mirror — it must run
 # standalone before any checkout exists, so it carries the contract by reference
 # comment rather than a source line; the DJQ_BARE grep below is what holds its
-# call sites to the converted form).
+# call sites to the converted form) + scripts/run-jq.sh (issue #253 — the
+# agent-tier jq wrapper skill bodies invoke by path; it sources resolve-jq.sh
+# exactly as the .sh helpers do).
 DJQ_SOURCED="$(grep -rlE 'resolve-(jq|bin)\.sh' "$DJQ_ROOT/scripts" "$DJQ_ROOT/lib" "$DJQ_ROOT/install.sh" --include='*.sh' 2>/dev/null | grep -v '/test/' | grep -v 'lib/resolve-bin\.sh$' | grep -v 'lib/resolve-jq\.sh$' | grep -c . || true)"
-assert_eq "#247 peer-completeness: >=15 helpers reference the shared resolver (all jq-callers + resolve-gh.sh converted)" "yes" \
-  "$([ "$DJQ_SOURCED" -ge 15 ] && echo yes || echo no)"
+assert_eq "#247 peer-completeness: >=16 helpers reference the shared resolver (all jq-callers + resolve-gh.sh + run-jq.sh converted)" "yes" \
+  "$([ "$DJQ_SOURCED" -ge 16 ] && echo yes || echo no)"
 # Exclusions are deliberately MINIMAL (a blanket echo/printf line-exclusion
 # would mask the repo's dominant `printf ... | jq -r` idiom): full-line
 # comments, the resolver's own file, and `--version` probe lines (`<cand>
@@ -11994,6 +11996,49 @@ DJQ_BARE="$(grep -rnE '(^|[[:space:]|&;(`])jq[[:space:]]+(-|'"'"'|"|\.|empty|len
   "$DJQ_ROOT/scripts" "$DJQ_ROOT/lib" "$DJQ_ROOT/install.sh" --include='*.sh' 2>/dev/null \
   | grep -v '/test/' | grep -v 'resolve-bin\.sh:' | grep -vE '^[^:]+:[0-9]+:[[:space:]]*#' | grep -vE 'jq(\.exe)? --version' | grep -c . || true)"
 assert_eq "#247 peer-completeness: no bare invocation-position jq call survives outside the resolver" "0" "$DJQ_BARE"
+
+# ── Skills-tier jq pin (issue #253) — the DJQ_BARE grep above is scoped to
+#    *.sh and never sees skill bodies, so agent-composed `jq` inside SKILL.md
+#    fenced blocks was invisible to the #247 contract. On a shim-shadowed
+#    Windows/WSL host a bare agent-typed `jq` hits the same present-but-
+#    unrunnable-shim defect #247 fixed for the helpers. This pin holds every
+#    executable jq in the RETROSPECTIVE skill bodies to the agent-tier wrapper
+#    scripts/run-jq.sh (which sources the shared resolver — DEVFLOW_JQ is not
+#    exported to agent shells, so a callable-by-path wrapper is the agent-tier
+#    equivalent of the .sh source-once idiom).
+#    SCOPE — retrospective family only (retrospective-weekly / retrospective /
+#    retrospective-audit): that is the LOCAL weekly loop, the primary
+#    shim-shadow exposure (it runs on the maintainer's own WSL2/Windows host).
+#    The cloud-governed implement/docs-release-notes jq sites are deliberately
+#    OUT of scope here: they run predominantly on the Linux cloud runner (where
+#    jq is not shadowed), and migrating them would require adding the wrapper to
+#    the cloud allowlist in .github/workflows/devflow-implement.yml — a change
+#    the standing #225 AC11 `.github`-freeze guard forbids, so it belongs to a
+#    separate, deliberate follow-up (see the issue #253 workpad). Widening this
+#    grep to all skills would fail RED on those intentionally-deferred sites.
+#    Fence scope: lines inside ```bash / ```sh / ```shell fences only, so
+#    inline-backtick prose mentions of `jq -n` and non-shell (```json / ```dot /
+#    output) fences never false-match. ──
+# Positive pin: the wrapper exists and references the shared jq resolver.
+assert_eq "#253 skills-jq: scripts/run-jq.sh exists and references the shared jq resolver" "yes" \
+  "$([ -f "$LIB/../scripts/run-jq.sh" ] && grep -q 'resolve-jq\.sh' "$LIB/../scripts/run-jq.sh" && echo yes || echo no)"
+# Absence pin: no bare invocation-position jq survives inside a shell fenced
+# block of a retrospective skill body. The awk captures only ```bash/```sh/
+# ```shell block bodies (state reset per file); the grep shape mirrors DJQ_BARE
+# (flag/quoted-program/path/bareword-filter forms), excluding the resolver's own
+# `--version` probe shape and the wrapper path itself.
+SKILL_JQ_BARE="$(
+  find "$LIB/../skills" -type f -name '*.md' -path '*retrospective*' 2>/dev/null | while IFS= read -r _f; do
+    awk '
+      /^[[:space:]]*```(bash|sh|shell)[[:space:]]*$/ { inb=1; next }
+      /^[[:space:]]*```[[:space:]]*$/ { inb=0; next }
+      inb { print }
+    ' "$_f"
+  done \
+  | grep -v 'run-jq\.sh' \
+  | grep -E '(^|[[:space:]|&;(`])jq[[:space:]]+(-|'"'"'|"|\.|empty|length|keys|type|to_entries)' \
+  | grep -vE 'jq(\.exe)? --version' | grep -c . || true)"
+assert_eq "#253 skills-jq: no bare invocation-position jq survives in a retrospective-skill shell fenced block" "0" "$SKILL_JQ_BARE"
 
 rm -rf "$JQT0" "$JQT1" "$JQT2" "$JQT2D" "$JQTD" "$NPT4" "$NPT4B" "$NPT4C" "$NPT4D" "$NPT4E" "$NPT4G" "$NPT4I" "$JQTP" "$JQT10" "$JQT6" "$JQT7" "$JQT8" "$SCVJ" "$SCVO" "$PFPC" "$T5D" "$T5DM" "$JQT7D" "$JQNEG" "$GENTR"
 
