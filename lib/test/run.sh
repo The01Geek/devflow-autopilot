@@ -964,7 +964,7 @@ assert_eq "sev: example receiving_review.fix_severity_threshold matches schema d
 
 # config-get.sh returns the RAW coerced value and does NOT validate the enum — this is why
 # the inline SKILL validation is load-bearing. Prove it on the divergence-prone shapes.
-ST_CFG="$(mktemp)"
+ST_CFG="$(probe_tmp sev.cfg)"
 printf '%s' '{"devflow_review_and_fix":{"fix_severity_threshold":"suggestion"}}' > "$ST_CFG"
 assert_eq "sev: config-get returns a configured valid value verbatim" "suggestion" "$("$CG" .devflow_review_and_fix.fix_severity_threshold important "$ST_CFG")"
 printf '%s' '{"devflow_review_and_fix":{"fix_severity_threshold":5}}' > "$ST_CFG"
@@ -985,9 +985,9 @@ sev_normalize() {  # rc raw default -> the validated severity
 assert_eq "sev normalize: valid critical kept"                  "critical"   "$(sev_normalize 0 critical important)"
 assert_eq "sev normalize: valid suggestion kept"               "suggestion" "$(sev_normalize 0 suggestion important)"
 assert_eq "sev normalize: default (important) kept"            "important"  "$(sev_normalize 0 important important)"
-assert_eq "sev normalize: coerced object → default"            "important"  "$(sev_normalize 0 '[object Object]' important)"
-assert_eq "sev normalize: comma-joined array → default"        "important"  "$(sev_normalize 0 'critical,important' important)"
-assert_eq "sev normalize: number string → default"            "important"  "$(sev_normalize 0 5 important)"
+# Any non-enum string collapses to the default (one representative here; the object/
+# array/number coercion shapes are covered end-to-end against the real config-get.sh in
+# the sev_resolve block below, so they aren't re-hardcoded at this pure-logic tier).
 assert_eq "sev normalize: unknown string → default"            "important"  "$(sev_normalize 0 blocker important)"
 assert_eq "sev normalize: empty → default"                     "important"  "$(sev_normalize 0 '' important)"
 assert_eq "sev normalize: resolver failure (rc≠0) → default"   "critical"   "$(sev_normalize 2 '' critical)"
