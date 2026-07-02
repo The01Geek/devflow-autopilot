@@ -66,7 +66,13 @@ Then tick the `/simplify` gate: `workpad.py update $ISSUE_NUMBER --tick-progress
 # MASK a genuine telemetry loss this run — the exact silent loss this backstop exists to
 # surface. Snapshot to a file because each phase bash block is a separate shell.
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
-mkdir -p "$ROOT/.devflow/tmp"
+# Check mkdir's own exit status rather than letting a failure here surface only as the
+# generic "snapshot file missing" degrade downstream — a distinct breadcrumb here names the
+# actual root cause (permissions/read-only-fs/disk-full) instead of leaving a future reader
+# only the symptom.
+if ! mkdir -p "$ROOT/.devflow/tmp" 2>/dev/null; then
+  echo "::warning::phase-3.3: could not create $ROOT/.devflow/tmp (permissions/read-only-fs/disk-full?); pre-loop snapshot will be missing, degrading the no-inputs detector to whole-tree presence below" >&2
+fi
 compgen -G "$ROOT/.devflow/tmp/review/*/*/iter-*.json" 2>/dev/null | sort > "$ROOT/.devflow/tmp/.phase33-iters-before" || :
 ```
 
@@ -162,9 +168,13 @@ fi
 # record derivation/write failures only, not the separate git-staging/commit failure surface
 # (efficiency-trace.sh's "not persisted this run" / "artifacts left staged" breadcrumbs) —
 # there the record IS written to disk, just not yet committed, a materially different and
-# lower-priority gap deferred on the issue #235 workpad.
+# lower-priority gap deferred on the issue #235 workpad. KNOWN LIMITATION (also deferred,
+# #236 review shadow pass): unlike the this-run-scoped no-inputs detector above, this grep
+# runs against --persist's WHOLE-TREE discovery-mode stderr (no --workpad-dir/--slug), so a
+# persistently-failing LEFTOVER run directory elsewhere on the local tier can also match —
+# the reflection below therefore does not assert the failure is scoped to this run.
 if [ "$PERSIST_ERR_IS_DEVNULL" -eq 0 ] && grep -qE 'record not written|failed \(disk/permission\); not persisted for' "$PERSIST_ERR" 2>/dev/null; then
-  workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "lib/efficiency-trace.sh --persist wrote iter-*.json inputs but failed to derive/write the effectiveness record this run (see the record-derivation/write-failure breadcrumb above); this run's effectiveness telemetry (.devflow/logs/efficiency/) is missing" \
+  workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "lib/efficiency-trace.sh --persist failed to derive/write an effectiveness record (see the record-derivation/write-failure breadcrumb above) — either this run's or an unresolved leftover run's on this host; some run's effectiveness telemetry under .devflow/logs/efficiency/ is missing" \
     || echo "::warning::phase-3.3: failed to record dropped-failed observability-gap reflection (record-write-failure case) on issue #$ISSUE_NUMBER; this run's effectiveness telemetry is lost AND its loss-record could not be written" >&2
 fi
 [ "$PERSIST_ERR_IS_DEVNULL" -eq 1 ] || rm -f "$PERSIST_ERR" 2>/dev/null

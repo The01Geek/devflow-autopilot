@@ -2211,6 +2211,16 @@ assert_pin_red_on_removal "#236 (B) phase-3.3: deleting the /dev/null-safe rm-f 
   '[ "$PERSIST_ERR_IS_DEVNULL" -eq 1 ] || rm -f "$PERSIST_ERR"' "$DEF_SKILL"
 assert_pin_unique "#236 (B) phase-3.3: mktemp-failure degrade emits its own distinct ::warning:: breadcrumb" \
   'could not allocate a temp file for --persist'\''s stderr (mktemp failed)' "$DEF_SKILL"
+# #236 review (shadow pass, pr-test-analyzer): the `[ "$PERSIST_ERR_IS_DEVNULL" -eq 0 ] &&`
+# guard gating the record-write-failure grep was UNPINNED — mutation-tested by the reviewer
+# (dropping the guard clause left the full suite green, since $PERSIST_ERR literally equals
+# /dev/null when the flag is 1 and grep against /dev/null always no-matches today). Currently
+# behaviorally redundant, but a future refactor reassigning $PERSIST_ERR away from the literal
+# path /dev/null while forgetting to update this guard would silently reintroduce a live bug
+# with nothing to catch it. Pin the guarded grep line as a whole so the conjunct can't be
+# silently dropped.
+assert_pin_unique "#236 (B) phase-3.3: record-write-failure grep is gated on the PERSIST_ERR_IS_DEVNULL guard (not run unconditionally)" \
+  'if [ "$PERSIST_ERR_IS_DEVNULL" -eq 0 ] && grep -qE' "$DEF_SKILL"
 # (c) BOUNDED RE-REVIEW coverage: the AWUSF path can drive a SECOND, separate inline
 # review-and-fix invocation (the bounded re-review) whose own Loop Exit is just as droppable as
 # the first invocation's — but the original backstop only ran once, after the FIRST invocation,
