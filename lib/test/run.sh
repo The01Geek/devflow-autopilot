@@ -5817,8 +5817,11 @@ assert_eq "#256 AC1: create-issue removed the goes-quiet disengagement trigger" 
 # literals are apostrophe-free + unique per file, per the issue's testing strategy:
 # pin the template section heading + its Quality-checklist line (coupled-pin, so a
 # half-edit goes RED), and the SKILL.md Step 2 UI-visual guidance — orchestrator-inferred
-# UI detection (AC1), screenshot-resource check (AC2), verbal-verification fallback
-# (AC5/AC7), the non-UI false-positive guard (AC8), and the Blocked-section route (AC9).
+# UI detection (AC1), screenshot-resource check (AC2), record-embed-or-reference (AC3),
+# ask-when-absent (AC4), the verbal-verification dimensions (AC5) and the
+# preferred-not-mandatory substitute rule (AC7), the non-UI false-positive guard (AC8),
+# and the Blocked-section route (AC9). Every #272 AC maps to at least one pin (AC3/AC4/AC5
+# added after a Phase-3 review found them orphaned and the header over-claiming AC5).
 CI_SKILL_272="$LIB/../skills/create-issue/SKILL.md"
 CI_TEMPLATE_272="$LIB/../skills/create-issue/references/issue-template.md"
 CI_OVERVIEW_272="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
@@ -5834,6 +5837,15 @@ assert_pin_unique "#272 AC1: create-issue Step 2 infers UI changes as part of sc
 # AC2: on a UI change, check the user-provided resources for a screenshot/mockup.
 assert_pin_unique "#272 AC2: create-issue Step 2 checks user-provided resources for a screenshot/mockup" \
   'On a UI change, check the user-provided resources/context' "$CI_SKILL_272"
+# AC3: a present screenshot is recorded — embedded when a hosted URL exists, else referenced.
+assert_pin_unique "#272 AC3: create-issue Step 2 records a present screenshot (embed-when-hosted, else reference)" \
+  'embed it when a hosted URL is available, otherwise reference it' "$CI_SKILL_272"
+# AC4: when none is present, ask the user to provide a screenshot or mockup.
+assert_pin_unique "#272 AC4: create-issue Step 2 asks for a screenshot/mockup when none is present" \
+  'ask the user to provide a screenshot or mockup' "$CI_SKILL_272"
+# AC5: when the user has none, verbally verify the visual details (the dimensions checklist).
+assert_pin_unique "#272 AC5: create-issue Step 2 verbally verifies the visual-detail dimensions" \
+  'visual states (hover/focus/error/empty/loading/disabled), responsive behavior across breakpoints' "$CI_SKILL_272"
 # AC7: a screenshot is preferred, not mandatory — verbal verification substitutes.
 assert_pin_unique "#272 AC7: create-issue Step 2 treats a screenshot as preferred, verbal verification as substitute" \
   'preferred, not mandatory** — verbal verification is an accepted substitute' "$CI_SKILL_272"
