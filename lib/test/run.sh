@@ -12288,9 +12288,10 @@ assert_eq "#247 peer-completeness: no bare invocation-position jq call survives 
 #    docs-release-notes/SKILL.md) to the wrapper and added the wrapper to the cloud
 #    allowlist in .github/workflows/devflow-implement.yml + devflow-runner.yml, so
 #    they are now IN scope: the find below no longer restricts to *retrospective*.
-#    (The skills/review/SKILL.md trace example uses `jq -n` in INLINE-backtick prose,
-#    not a shell fence, so it is deliberately outside this awk-fence pin's reach —
-#    #271 migrated it too but it is covered by the coupled allowlist edit, not here.)
+#    (The skills/review/SKILL.md trace example is in INLINE-backtick prose (now
+#    `run-jq.sh -n`), not a shell fence, so it is outside this awk-fence pin's reach —
+#    #271 migrated it too; its regression guard is the dedicated review-site pin below,
+#    and its cloud grant is the coupled allowlist edit, not this awk-fence pin.)
 #    Fence scope: lines inside ```bash / ```sh / ```shell fences only, so
 #    inline-backtick prose mentions of `jq -n` and non-shell (```json / ```dot /
 #    output) fences never false-match. ──
@@ -12314,6 +12315,28 @@ SKILL_JQ_BARE="$(
   | grep -E '(^|[[:space:]|&;(`])jq[[:space:]]+(-|'"'"'|"|\.|empty|length|keys|type|to_entries)' \
   | grep -vE 'jq(\.exe)? --version' | grep -c . || true)"
 assert_eq "#253 skills-jq: no bare invocation-position jq survives in any skill shell fenced block" "0" "$SKILL_JQ_BARE"
+
+# ── #271 coupled-invariant pins: the skill-body run-jq.sh migration is one half of a
+#    two-sided contract — the cloud-governed skills invoke the wrapper BY PATH as the
+#    command's leading token (`.devflow/vendor/devflow/scripts/run-jq.sh`), which the
+#    cloud permission profile silently DENIES unless the workflow allowlist grants it
+#    (the CLAUDE.md LEADING-token gotcha). Pin the grant at both cloud writer/runner
+#    profiles so a dropped/reformatted allowlist entry goes RED here rather than
+#    silently no-op'ing the migration in cloud (and because #271 retired the AC11
+#    `.github`-freeze, this is now the only guard on this `.github` side of the couple).
+IMPL_WF="$LIB/../.github/workflows/devflow-implement.yml"
+RUNNER_WF="$LIB/../.github/workflows/devflow-runner.yml"
+assert_eq "#271 coupled: devflow-implement.yml allowlists the run-jq.sh wrapper by vendored path" "1" \
+  "$(grep -cF 'Bash(.devflow/vendor/devflow/scripts/run-jq.sh:*)' "$IMPL_WF" || true)"
+assert_eq "#271 coupled: devflow-runner.yml (read-only review profile) allowlists the run-jq.sh wrapper" "1" \
+  "$(grep -cF 'Bash(.devflow/vendor/devflow/scripts/run-jq.sh:*)' "$RUNNER_WF" || true)"
+# The skills/review/SKILL.md trace-authoring example sits in INLINE-backtick prose, so the
+# awk-fence absence pin above cannot reach it — pin it directly so a revert of that site to
+# a bare `jq -n` goes RED (it is one of the four #271-migrated sites and would otherwise have
+# no regression guard). Target-unique: `--argjson findings` follows run-jq.sh only in the
+# trace example, so assert_pin_unique proves PASS-with-the-literal → FAIL-without-it.
+assert_pin_unique "#271 coupled: skills/review/SKILL.md trace example invokes the run-jq.sh wrapper (not bare jq -n)" \
+  'scripts/run-jq.sh -n --argjson findings' "$LIB/../skills/review/SKILL.md"
 
 # Mutation check: the absence pin above only proves "count is 0 today" — it does not
 # prove the awk fence-parser + grep would actually *catch* a reintroduced bare jq (a
