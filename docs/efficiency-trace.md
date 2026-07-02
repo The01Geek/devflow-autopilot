@@ -308,6 +308,47 @@ interactive-drop failure mode so a future orchestrator does not silently skip th
       exit 0
   ```
 
+- *`/devflow:implement` Phase 3.3 inline backstop (agent-executed).* `/devflow:implement` drives
+  `/devflow:review-and-fix` **inline in the orchestrator's own context** (Phase 3.3), so its Loop Exit
+  runs in-context and can be dropped exactly like any other interactive/inline drive. To close that
+  seam without waiting for a harness-tier caller, `phase-3-review.md` runs `--persist` directly
+  (resolved as `${CLAUDE_SKILL_DIR}/../../lib/efficiency-trace.sh`, best-effort `|| true`) the moment
+  the inline loop returns — regardless of verdict, before the verdict branches. It passes **no**
+  `--workpad-dir`/`--slug` (the orchestrator does not hold the loop's internal slug/run-id), so
+  `--persist` falls back to its disk-discovery mode and picks up whatever run-scoped
+  `iter-*.json` this run left behind. The "no inputs" detector is **this-run-scoped**, not a
+  whole-tree presence check: before driving the loop, Phase 3.3 snapshots the `iter-*.json`
+  already on disk, then after `--persist` returns it diffs (`comm -13`) the current tree against
+  that snapshot — only files that are genuinely NEW this run count. This is deliberate: a
+  whole-tree presence check would let a leftover `iter-*.json` from an earlier local run mask a
+  real loss on this run. When the diff is empty — no NEW `iter-*.json` appeared — the
+  inline loop wrote no per-iteration workpad, so the telemetry is genuinely lost — Phase 3.3 records a
+  `dropped-failed` reflection naming the gap rather than letting it vanish. The phase anchors both
+  the snapshot and the detector on the git top-level the **same** way `efficiency-trace.sh` does, so
+  it scans the exact `.devflow/tmp/review/` tree `--persist` scans and never fires a false "telemetry
+  lost" reflection from a cwd-relative divergence (if the pre-loop snapshot is itself missing, the
+  detector degrades to whole-tree presence and emits a distinct `::warning::` naming that degrade,
+  since it can then mask a real loss behind a leftover file). The detector counts NEW `iter-*.json`
+  regardless of `--persist`'s `source == "review"` skip: at this inline seam the review-and-fix loop
+  just driven is what writes the tree, so a foreign review-sourced dir being the sole new occupant is
+  not a reachable in-flow shape. The no-new-inputs case above only catches a dropped *Loop Exit*
+  (the loop wrote nothing at all); it does not by itself catch the sibling failure mode where the
+  loop *did* write `iter-*.json` but `--persist`'s own record derivation/write step then failed —
+  its jq-derivation and mkdir failure paths both leave a `record not written` breadcrumb on stderr,
+  and its disk/permission write-after-mkdir failure path (ENOSPC/EROFS/quota/perms) leaves a
+  differently-worded `...failed (disk/permission); not persisted for...` breadcrumb — all while
+  still exiting 0 by design. Phase 3.3 captures the `--persist` invocation's stderr and greps it for
+  both breadcrumb shapes (a single-literal grep here would silently miss the disk/permission path),
+  recording a second, independent `dropped-failed` reflection when either fires, so a record
+  derivation/write failure is surfaced even when inputs existed — this is deliberately narrower than
+  every conceivable `--persist` failure surface; a record written to disk but not yet git-committed
+  (a separate staging/commit failure path) is a distinct, lower-priority gap tracked on the issue's
+  workpad rather than covered here. And because the `APPROVE WITH UNRESOLVED
+  SHADOW FINDINGS` path can drive a **second**, separate inline `review-and-fix` invocation (the
+  bounded re-review), Phase 3.3 re-runs the whole snapshot-then-backstop procedure — a fresh
+  this-run baseline before, the persistence check after — around that second invocation too, so it
+  is not left unguarded at the same seam the first invocation's backstop protects.
+
 This guarantees **persistence of whatever telemetry was captured**. It does **not** guarantee
 *capture* of `tokens` / `wall_clock_s` — those come from `<usage>` blocks the agent reads live and no
 post-hoc tool can recover them if the agent never recorded them (the incremental writes + the

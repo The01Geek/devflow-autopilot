@@ -2093,6 +2093,172 @@ assert_pin_red_on_removal "#194 (B) implement: deleting the named-assertion-appe
   'its named assertion actually appears in the run as a PASS' "$DEF_SKILL"
 assert_pin_red_on_removal "#194 (B) review-and-fix: deleting the named-assertion-appears-as-PASS conjunct turns its pin RED" \
   'its named assertion appears in the run as a PASS' "$MAXI_SKILL"
+# #235 (finding A): the forced per-behavioral-fix-pin operative-sentence NOTE — before writing
+# a behavioral-fix pin the author records a one-line workpad --note naming the operative
+# sentence and asserting the pin literal is a substring of it (the same auditable-commitment
+# idiom as the sweep-selection / test-first notes). COUPLED across the implement skill's Phase
+# 2.3 (phase-2-implement.md, inside $DEF_SKILL) and the review-and-fix fix loop's Step 3 item 4
+# ($MAXI_SKILL), so the same operative literal pins each — a half-revert that drops the
+# directive from either file turns its pin RED. This clause is itself a behavioral-fix pin, so
+# per finding A's own rule the literal targets the operative NOTE directive, not its framing.
+assert_pin_red_on_removal "#235 (A) implement: deleting the forced operative-sentence-note directive turns its pin RED" \
+  'naming the operative sentence and asserting the pin literal is a substring of it' "$DEF_SKILL"
+assert_pin_red_on_removal "#235 (A) review-and-fix: deleting the forced operative-sentence-note directive turns its pin RED" \
+  'naming the operative sentence and asserting the pin literal is a substring of it' "$MAXI_SKILL"
+# #235 (finding B): the Phase 3.3 observability-persistence backstop — after the inline
+# review-and-fix loop returns, verify the run's telemetry artifacts were persisted, run
+# lib/efficiency-trace.sh --persist when they are missing, and record a dropped-failed
+# reflection when even --persist has no iter-*.json inputs. Two operative DIRECTIVE sentences
+# (run-the-backstop / record-the-gap), so one removal-proof pin each (per finding A's own
+# "at least one pin per operative sentence" rule the new clause must obey). Both sentences
+# live in phases/phase-3-review.md, i.e. inside $DEF_SKILL (the implement bundle).
+assert_pin_red_on_removal "#235 (B) phase-3.3: deleting the run-the-persist-backstop directive turns its pin RED" \
+  'run the efficiency-trace persist backstop when they are missing' "$DEF_SKILL"
+assert_pin_red_on_removal "#235 (B) phase-3.3: deleting the dropped-failed-reflection directive turns its pin RED" \
+  'reflection naming the observability gap' "$DEF_SKILL"
+# #235 (finding B, executable surface): the two prose pins above pin the DIRECTIVE; a
+# half-revert could break the actual bash code block that IMPLEMENTS the backstop while the
+# prose stays intact (the exact framing-only-pin class this PR closes, applied to code). So
+# pin the executable tokens the backstop stands on — the --persist invocation, the
+# this-run-scoped no-inputs detector, and the dropped-failed reflection emission.
+# These are literal-constant/token pins (not operative-sentence pins), so assert_pin_unique
+# is the right form and no operative-vs-framing note is required (the finding-A carve-out).
+assert_pin_unique "#235 (B) phase-3.3: the --persist backstop command is actually invoked" \
+  '"$LIB/efficiency-trace.sh" --persist' "$DEF_SKILL"
+# The "no inputs" detector is THIS-RUN-SCOPED (#236 review): it snapshots the pre-existing
+# iter-*.json BEFORE the inline loop and, after, records a loss only when NO NEW iter-*.json
+# appeared (comm -13 vs the snapshot). A whole-tree presence check would let a prior-run
+# leftover on the persistent local tier mask a genuine loss. The glob now appears in TWO
+# lines (snapshot + detector), so the bare glob substring is no longer unique — pin each full
+# line instead. The detector-line pin also captures the operative condition SENSE (`[ -z … ]`
+# over the comm-diff): a half-revert flipping the sense (-z→-n) or dropping the snapshot diff
+# turns the suite RED — closing the framing-only-pin gap on the guard's condition itself
+# (this PR's own lesson, applied to the detector sense; #236 pr-test-analyzer note).
+assert_pin_unique "#235 (B) phase-3.3: pre-loop snapshot captures pre-existing iter-*.json before the inline loop" \
+  'compgen -G "$ROOT/.devflow/tmp/review/*/*/iter-*.json" 2>/dev/null | sort > "$ROOT/.devflow/tmp/.phase33-iters-before"' "$DEF_SKILL"
+assert_pin_unique "#235 (B) phase-3.3: no-inputs detector is this-run-scoped (comm -13 vs snapshot) AND fail-closed on empty (-z)" \
+  'if [ -z "$(compgen -G "$ROOT/.devflow/tmp/review/*/*/iter-*.json" 2>/dev/null | sort | comm -13 "$BEFORE" -)" ]; then' "$DEF_SKILL"
+assert_pin_unique "#235 (B) phase-3.3: the no-inputs case emits the dropped-failed telemetry-lost reflection" \
+  'lib/efficiency-trace.sh --persist had no inputs' "$DEF_SKILL"
+# The detector references $ROOT and $BEFORE literally, so it stays GREEN even if the $ROOT
+# *derivation* were reverted to a cwd-relative form (e.g. `ROOT=$(pwd)`), silently defeating
+# the repo-root anchoring that keeps the detector congruent with --persist. $ROOT is now
+# derived in BOTH backstop bash blocks (the pre-loop snapshot and the post-return detector,
+# separate shells), so pin the derivation with a count of exactly 2 — a half-revert of either
+# occurrence turns the suite RED, the same framing-vs-fix lesson applied to the producer line.
+assert_eq "#235 (B) phase-3.3: the no-inputs detector root is derived from the git toplevel (not cwd), in both blocks" \
+  "2" "$(pin_count 'ROOT=$(git rev-parse --show-toplevel' "$DEF_SKILL")"
+# Symmetric to the $ROOT-derivation pin: the `"$LIB/efficiency-trace.sh" --persist` invocation
+# pinned above depends on the `LIB=` derivation that resolves it. Pin that derivation too so a
+# half-revert of the anchor (breaking the backstop invocation while the invocation-token pin
+# stays GREEN) turns the suite RED — the same half-revert class the $ROOT pin closes.
+assert_pin_unique "#235 (B) phase-3.3: the --persist backstop's LIB anchor is derived from the skill dir" \
+  'LIB="${CLAUDE_SKILL_DIR}/../../lib"' "$DEF_SKILL"
+# #236 review (iteration 3): the snapshot-absent degrade path is a documented-falsehood defect —
+# the adjacent comment claimed "fail-toward-surfacing, never masking" while the code actually
+# CAN mask a real this-run loss (an empty BEFORE snapshot makes comm -13 count any leftover
+# iter-*.json from a prior local run as "new", suppressing the -z reflection check even when
+# this run wrote nothing). The fix corrects the comment AND emits a distinct ::warning:: on the
+# snapshot-absent path so the degrade is visible on the run log instead of being silently
+# indistinguishable from the healthy case. Pin both halves: the false claim must be gone, and
+# the new warning breadcrumb must be present.
+assert_eq "#235/#236 (B) phase-3.3: the false 'fail-toward-surfacing, never masking' claim is gone" \
+  "0" "$(pin_count 'fail-toward-surfacing, never masking' "$DEF_SKILL")"
+assert_pin_unique "#235/#236 (B) phase-3.3: snapshot-absent degrade emits a distinct MASK warning breadcrumb" \
+  'no-inputs detector degrades to whole-tree presence, which can MASK a real this-run telemetry loss' "$DEF_SKILL"
+# #236 review (iteration 4, silent-failure-hunter Finding 2 + pr-test-analyzer mutation-tested
+# gap): two hardenings to the Phase 3.3 observability backstop.
+#
+# (a) ORDERING: the backstop's core invariant is that it runs UNCONDITIONALLY — "regardless of
+# the verdict" — before the verdict branches, not only on an approve-family outcome. Presence-only
+# pins on the two directive sentences stay GREEN even if a half-revert moved the backstop inside
+# the approve branch (mutation-tested by the #236 review's pr-test-analyzer: swapping "regardless
+# of the verdict" for "only on approve" left the full suite green). Assert the ordering
+# positionally in the OWNING file (phase-3-review.md), not the multi-file bundle, so both
+# endpoints are unique in one coordinate space (mirrors the "implement_pr_state: clean-tree
+# backstop precedes the publish gate" positional pin elsewhere in this file).
+P33_BACKSTOP_LN=$(grep -nF 'So regardless of the verdict, first' "$LIB/../skills/implement/phases/phase-3-review.md" | head -1 | cut -d: -f1)
+P33_VERDICT_BRANCH_LN=$(grep -nF 'After the skill completes with a clean approve-family verdict' "$LIB/../skills/implement/phases/phase-3-review.md" | head -1 | cut -d: -f1)
+assert_eq "#236 (B) phase-3.3: observability backstop directive precedes the approve-family verdict branch (runs unconditionally)" "yes" \
+  "$([ -n "$P33_BACKSTOP_LN" ] && [ -n "$P33_VERDICT_BRANCH_LN" ] && [ "$P33_BACKSTOP_LN" -lt "$P33_VERDICT_BRANCH_LN" ] && echo yes || echo no)"
+# (b) RECORD-WRITE-FAILURE detection: the no-new-inputs detector above only catches a dropped Loop
+# Exit (no iter-*.json written at all); it is blind to the sibling case where iter-*.json WAS
+# written but --persist's own record derivation/write failed (efficiency-trace.sh's own internal
+# failure paths leave a "record not written" breadcrumb on stderr while exiting 0 by design). Pin
+# that the backstop captures --persist's stderr and checks it for that literal.
+assert_pin_unique "#236 (B) phase-3.3: backstop captures --persist stderr for the record-write-failure check" \
+  '"$LIB/efficiency-trace.sh" --persist 2>"$PERSIST_ERR" || true' "$DEF_SKILL"
+# The single-literal grep above was itself a #236-review fix-delta-gate finding: jq-derivation
+# and mkdir failures both end "...record not written[ for ...]", but the disk/permission
+# write failure (write-after-mkdir-succeeded: ENOSPC/EROFS/quota/perms) reads "...failed
+# (disk/permission); not persisted for ..." instead — a grep on "record not written" alone
+# silently misses that third failure mode. Pin BOTH alternatives so a regression back to the
+# single-literal form (or a dropped alternative) turns the suite RED.
+assert_pin_unique "#236 (B) phase-3.3: record-write-failure detector matches the jq/mkdir 'record not written' breadcrumb via grep -qE" \
+  'grep -qE '\''record not written|failed' "$DEF_SKILL"
+assert_pin_unique "#236 (B) phase-3.3: record-write-failure detector ALSO matches the disk/permission-write breadcrumb (the single-literal grep this fix replaced silently missed it)" \
+  'failed \(disk/permission\); not persisted for'\''' "$DEF_SKILL"
+# #236 review (latest shadow pass, requesting-code-review — Important-1): the two breadcrumb
+# literals the consumer grep above depends on were pinned ONLY on the CONSUMER side ($DEF_SKILL,
+# just above). The PRODUCER side — lib/efficiency-trace.sh, which actually EMITS those literals on
+# its record-derivation/write failure paths — was unpinned, so a reword there would silently break
+# the consumer grep, stop the second dropped-failed reflection firing, and leave this suite GREEN:
+# the coupled-invariant / "guard whose comparand can be absent" class CLAUDE.md warns about. Pin
+# the PRODUCER end of BOTH literals so the two ends of the contract cannot drift apart (the
+# jq/mkdir "record not written" literal legitimately recurs across two failure paths — a count
+# pin, not unique; the disk/permission literal is unique).
+assert_eq "#236 (B) producer-side coupled pin: efficiency-trace.sh EMITS the 'record not written' breadcrumb the consumer greps (both failure paths)" "2" \
+  "$(pin_count 'record not written' "$LIB/efficiency-trace.sh")"
+assert_pin_unique "#236 (B) producer-side coupled pin: efficiency-trace.sh EMITS the disk/permission-write breadcrumb the consumer greps" \
+  'failed (disk/permission); not persisted for' "$LIB/efficiency-trace.sh"
+# #236 review (latest shadow pass, pr-test-analyzer — Important-3 + Suggestions 1-2): removal-proofs
+# were missing on the best-effort observability lines that carry the backstop's non-swallowing +
+# loss-record behavior — the PR's own operative-vs-framing lesson applied to code. Pin each so a
+# half-revert turns the suite RED:
+#  (1) `cat "$PERSIST_ERR" >&2` is the ONLY line re-surfacing --persist's captured breadcrumbs to
+#      the run log; deleting it re-swallows every breadcrumb into a temp file that is then rm -f'd.
+assert_pin_unique "#236 (B) phase-3.3: --persist captured stderr is re-surfaced to the run log (non-swallowing)" \
+  'cat "$PERSIST_ERR" >&2' "$DEF_SKILL"
+#  (2) BOTH dropped-failed `|| echo "::warning::"` loss-record guards (the "double silent failure"
+#      tails for a failing workpad.py write) — either tail dropped ships green, so count both.
+assert_eq "#236 (B) phase-3.3: BOTH dropped-failed reflection loss-record guards present (either tail dropped -> RED)" "2" \
+  "$(pin_count 'this run'\''s effectiveness telemetry is lost AND its loss-record could not be written' "$DEF_SKILL")"
+#  (3) the pre-loop snapshot's mkdir-failure breadcrumb that names the actual root cause.
+assert_pin_unique "#236 (B) phase-3.3: pre-loop snapshot mkdir-failure emits its distinct root-cause breadcrumb" \
+  'could not create $ROOT/.devflow/tmp (permissions/read-only-fs/disk-full?)' "$DEF_SKILL"
+# #236 review (iteration 2 fix-delta gate, pr-test-analyzer): the $PERSIST_ERR_IS_DEVNULL
+# mktemp-degrade path this fix introduced had NO removal-proof coverage — a half-revert
+# collapsing it back to a bare `PERSIST_ERR=$(mktemp)`, or one flipping the `-eq 1 ||` sense on
+# the cleanup guard, would ship green despite reintroducing the exact `rm -f /dev/null`
+# device-deletion hazard the guard exists to prevent (severe: under a root shell with a
+# writable /dev this breaks every other command in the environment that redirects to
+# /dev/null). Pin the rm-f cleanup guard's sense directly (assert_pin_red_on_removal on the
+# operative sentence: the code IS the fix, so the removal-proof target is the guard line
+# itself) and the mktemp-degrade warning breadcrumb's presence.
+assert_pin_red_on_removal "#236 (B) phase-3.3: deleting the /dev/null-safe rm-f cleanup guard turns its pin RED" \
+  '[ "$PERSIST_ERR_IS_DEVNULL" -eq 1 ] || rm -f "$PERSIST_ERR"' "$DEF_SKILL"
+assert_pin_unique "#236 (B) phase-3.3: mktemp-failure degrade emits its own distinct ::warning:: breadcrumb" \
+  'could not allocate a temp file for --persist'\''s stderr (mktemp failed)' "$DEF_SKILL"
+# #236 review (shadow pass, pr-test-analyzer): the `[ "$PERSIST_ERR_IS_DEVNULL" -eq 0 ] &&`
+# guard gating the record-write-failure grep was UNPINNED — mutation-tested by the reviewer
+# (dropping the guard clause left the full suite green, since $PERSIST_ERR literally equals
+# /dev/null when the flag is 1 and grep against /dev/null always no-matches today). Currently
+# behaviorally redundant, but a future refactor reassigning $PERSIST_ERR away from the literal
+# path /dev/null while forgetting to update this guard would silently reintroduce a live bug
+# with nothing to catch it. Pin the guarded grep line as a whole so the conjunct can't be
+# silently dropped.
+assert_pin_unique "#236 (B) phase-3.3: record-write-failure grep is gated on the PERSIST_ERR_IS_DEVNULL guard (not run unconditionally)" \
+  'if [ "$PERSIST_ERR_IS_DEVNULL" -eq 0 ] && grep -qE' "$DEF_SKILL"
+# (c) BOUNDED RE-REVIEW coverage: the AWUSF path can drive a SECOND, separate inline
+# review-and-fix invocation (the bounded re-review) whose own Loop Exit is just as droppable as
+# the first invocation's — but the original backstop only ran once, after the FIRST invocation,
+# leaving the second entirely unguarded (silent-failure-hunter's #236 review Finding 2). Pin that
+# the bounded re-review step re-runs both halves of the backstop (a fresh snapshot before, the
+# persistence check after) rather than relying on the first invocation's now-stale snapshot.
+assert_pin_unique "#236 (B) phase-3.3: bounded re-review re-takes a fresh pre-invocation snapshot" \
+  're-run the pre-invocation snapshot block from 3.3 above' "$DEF_SKILL"
+assert_pin_unique "#236 (B) phase-3.3: bounded re-review re-runs the observability-persistence backstop" \
+  're-run the observability-persistence backstop block from 3.3 above' "$DEF_SKILL"
 # ── #192: review/analysis agents must never mutate the live working tree ──────────────
 # Two coupled layers, each pinned with a mutation-proven assert_pin_red_on_removal so a
 # half-applied removal of the contract turns the suite RED (issue #192 AC4):
