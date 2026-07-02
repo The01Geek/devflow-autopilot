@@ -27,13 +27,29 @@ if [ -f "$_PREFLIGHT_DIR/resolve-bin.sh" ]; then
   # shellcheck source=resolve-bin.sh
   . "$_PREFLIGHT_DIR/resolve-bin.sh"
 else
-  printf 'devflow preflight: lib/resolve-bin.sh missing beside preflight.sh (partial copy?) — tool resolution degraded to bare names\n' >&2
-  devflow_resolve_bin() { printf '%s\n' "${1:-}"; }
+  printf 'devflow preflight: lib/resolve-bin.sh missing beside preflight.sh (partial copy?) — tool resolution degraded to override-or-bare-name\n' >&2
+  # Degrade override-FIRST (the family posture): preflight DETECTs with the
+  # same value the helpers USE, so a set DEVFLOW_JQ/DEVFLOW_GH is still what
+  # gets probed here even in the degraded mode.
+  devflow_resolve_bin() {
+    case "${1:-}" in
+      jq) printf '%s\n' "${DEVFLOW_JQ:-jq}" ;;
+      gh) printf '%s\n' "${DEVFLOW_GH:-gh}" ;;
+      *)  printf '%s\n' "${1:-}" ;;
+    esac
+  }
 fi
 # Share the gh-selection contract with every gh-calling helper (see lib/resolve-gh.sh)
 # so preflight DETECTS with the same execution-verified probe the helpers USE.
-# shellcheck source=resolve-gh.sh
-. "$_PREFLIGHT_DIR/resolve-gh.sh"
+# Guarded like resolve-bin.sh above (same partial-copy posture, same
+# override-first degradation).
+if [ -f "$_PREFLIGHT_DIR/resolve-gh.sh" ]; then
+  # shellcheck source=resolve-gh.sh
+  . "$_PREFLIGHT_DIR/resolve-gh.sh"
+else
+  printf 'devflow preflight: lib/resolve-gh.sh missing beside preflight.sh (partial copy?) — gh resolution degraded to DEVFLOW_GH-or-bare-gh\n' >&2
+  devflow_resolve_gh() { printf '%s\n' "${DEVFLOW_GH:-gh}"; }
+fi
 
 missing=0
 

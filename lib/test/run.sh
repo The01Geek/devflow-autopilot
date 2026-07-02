@@ -11565,6 +11565,15 @@ PF_PC_OUT="$(env -u DEVFLOW_JQ -u DEVFLOW_GH bash "$PFPC/preflight.sh" 2>&1)"; P
 assert_eq "#247 preflight partial copy: attributable resolve-bin.sh breadcrumb emitted" "yes" \
   "$(printf '%s' "$PF_PC_OUT" | grep -q 'resolve-bin.sh missing beside preflight.sh' && echo yes || echo no)"
 assert_eq "#247 preflight partial copy: bare-name degradation still verifies real tools (exit 0 on a healthy host)" "0" "$PF_PC_RC"
+# Override-first degradation: with a WORKING override set and a broken bare jq
+# unavailable-to-matter, the degraded preflight must probe the OVERRIDE (the
+# value the helpers USE), not the bare name — DETECT/USE parity survives the
+# partial copy. Probe with a broken override: preflight must fail and name it.
+PF_PC_OVR="$(DEVFLOW_JQ="$SCVO/broken-jq" env -u DEVFLOW_GH bash "$PFPC/preflight.sh" 2>&1)"; PF_PC_OVR_RC=$?
+assert_eq "#247 preflight partial copy: degraded mode still honors DEVFLOW_JQ (broken override → non-zero)" "yes" \
+  "$([ "$PF_PC_OVR_RC" -ne 0 ] && echo yes || echo no)"
+assert_eq "#247 preflight partial copy: degraded remedy names the override value" "yes" \
+  "$(printf '%s' "$PF_PC_OVR" | grep -q "no working 'jq'.*broken-jq" && echo yes || echo no)"
 
 # ── T5d — BEHAVIORAL lockstep: extract the first SKILL.md inline block, run it
 #    under the same stubbed env as the lib helper, and assert identical output
@@ -11584,6 +11593,15 @@ T5D_SKILL="$(env -u MSYSTEM PATH="$T5D" "$_NP_BASH_BIN" "$T5D/runner.sh" 2>/dev/
 T5D_LIB="$(env -u MSYSTEM PATH="$T5D" "$_NP_BASH_BIN" -c ". \"$NORMALIZE_PATH_SH\"; devflow_normalize_path 'C:\\Users\\dev\\skills\\x'" 2>/dev/null)"
 assert_eq "#247 T5d: SKILL.md inline block and lib helper translate identically (behavioral lockstep)" "$T5D_LIB" "$T5D_SKILL"
 assert_eq "#247 T5d: behavioral lockstep output is the expected WSL form" "/mnt/c/Users/dev/skills/x" "$T5D_LIB"
+# Same parity through the MSYS arm (non-microsoft uname + MSYSTEM set), so a
+# mirror-only edit to the /c translation cannot ship green either.
+T5DM="$(mktemp -d)"
+printf '#!/usr/bin/env bash\necho "generic-kernel"\n' > "$T5DM/uname"; chmod +x "$T5DM/uname"
+_mk_restricted "$T5DM" bash tr grep dirname
+T5DM_SKILL="$(MSYSTEM=MINGW64 PATH="$T5DM" "$_NP_BASH_BIN" "$T5D/runner.sh" 2>/dev/null)"
+T5DM_LIB="$(MSYSTEM=MINGW64 PATH="$T5DM" "$_NP_BASH_BIN" -c ". \"$NORMALIZE_PATH_SH\"; devflow_normalize_path 'C:\\Users\\dev\\skills\\x'" 2>/dev/null)"
+assert_eq "#247 T5d-msys: SKILL.md block and lib helper agree on the MSYS arm too" "$T5DM_LIB" "$T5DM_SKILL"
+assert_eq "#247 T5d-msys: MSYS-arm parity output is the expected /c form" "/c/Users/dev/skills/x" "$T5DM_LIB"
 
 # ── Lockstep pin — the Windows-form detection regex literal must appear in
 #    BOTH lib/normalize-path.sh and the create-issue SKILL.md mirrors, so a
@@ -11633,7 +11651,7 @@ DJQ_BARE="$(grep -rnE '(^|[[:space:]|&;(`])jq[[:space:]]+(-|'"'"'|"|\.|empty|len
   | grep -v '/test/' | grep -v 'resolve-bin\.sh:' | grep -vE ':[[:space:]]*#' | grep -vE 'jq(\.exe)? --version' | grep -c . || true)"
 assert_eq "#247 peer-completeness: no bare invocation-position jq call survives outside the resolver" "0" "$DJQ_BARE"
 
-rm -rf "$JQT0" "$JQT1" "$JQT2" "$JQT2D" "$JQTD" "$NPT4" "$NPT4B" "$NPT4C" "$NPT4D" "$NPT4E" "$NPT4G" "$NPT4I" "$JQTP" "$JQT10" "$JQT6" "$JQT7" "$JQT8" "$SCVJ" "$SCVO" "$PFPC" "$T5D"
+rm -rf "$JQT0" "$JQT1" "$JQT2" "$JQT2D" "$JQTD" "$NPT4" "$NPT4B" "$NPT4C" "$NPT4D" "$NPT4E" "$NPT4G" "$NPT4I" "$JQTP" "$JQT10" "$JQT6" "$JQT7" "$JQT8" "$SCVJ" "$SCVO" "$PFPC" "$T5D" "$T5DM"
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.

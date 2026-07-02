@@ -96,8 +96,12 @@ devflow_resolve_bin() {
   # stderr breadcrumb so the downstream "cannot execute" failure is
   # self-explanatory (stderr only — command substitution captures stdout, so
   # the echoed value stays clean).
+  # Name the override the USER would set — never the internal no-override
+  # sentinel the tr-unavailable arm parks in var_name.
+  local _display="$var_name"
+  if [ "$_display" = "__DEVFLOW_NO_OVERRIDE__" ]; then _display="the DEVFLOW_<TOOL> override for $tool"; fi
   printf 'devflow: no runnable %s or %s.exe found on PATH; falling back to bare "%s" — set %s to a working binary\n' \
-    "$tool" "$tool" "$tool" "$var_name" >&2
+    "$tool" "$tool" "$tool" "$_display" >&2
   printf '%s\n' "$tool"
   return 0
 }
