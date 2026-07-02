@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "pr_branch": "issue-247-windows-robust-resolution-layer-shared-execution",
+  "base_branch": "main",
+  "generated_at": "2026-07-02T06:10:00Z",
+  "deferrals": [
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "file": "skills/review/SKILL.md",
+      "line_range": null,
+      "symbol": "",
+      "kind": "test_gap",
+      "summary": "Skill bodies still instruct agent-composed bare `jq` on the local tier (skills/review, review-and-fix, retrospective-weekly, implement phases, init) \u2014 on a shim-shadowed Windows host an agent-typed `jq` command hits the original defect the #247 resolver fixed for the .sh helpers.",
+      "category": "out-of-scope",
+      "explanation": "issue #247's Technical Context bounds the call-site migration to 'The jq call sites across scripts/*.sh and lib/*.sh' plus install.sh; agent-composed jq in SKILL.md bodies is the agent tier (allowlist-governed, runner-specific) \u2014 a distinct surface needing its own design (DEVFLOW_JQ is not exported to agent shells)"
+    }
+  ]
+}
