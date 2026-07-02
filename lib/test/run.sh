@@ -2735,6 +2735,15 @@ assert_pin_red_on_removal "#254: Phase 4.0.5 branch-slug discovery arm flips RED
 # The aggregate must still be written at pr-<N>/deferrals.json (the path /pr-description reads).
 assert_pin_unique "#254: Phase 4.0.5 keeps the aggregate at the pr-<N> slug path" \
   'AGG="${SLUG_DIR}/deferrals.json"' "$P4_FILE"
+# tr-dependence observability (this repo's review-and-fix guard-class 2): BRANCH_SLUG is
+# derived through `tr` on PATH, so a `tr`-degraded host yields an empty slug and the branch-
+# slug arm is silently dropped. The extension MANDATES making that degradation observable,
+# so the empty-slug breadcrumb must not be droppable unnoticed — pin it removal-proof (the
+# existing SEARCH_DIRS pin covers the arm's RHS only, not this guard/breadcrumb).
+assert_pin_red_on_removal "#254: Phase 4.0.5 tr-degraded empty-slug breadcrumb flips RED on removal" \
+  'current branch produced an empty slug' "$P4_FILE"
+assert_pin_unique "#254: Phase 4.0.5 guards the branch-slug arm on a non-empty slug" \
+  '[ -n "$BRANCH_SLUG" ] && [ "$BRANCH_DIR" != "$SLUG_DIR" ]' "$P4_FILE"
 assert_pin_unique "sweep 2.3.6: implement SKILL keeps the sweep body" '#### 2.3.6 Error-handling & silent-failure sweep' "$IMPL_SKILL"
 assert_pin_unique "sweep 2.3.6: implement SKILL lists it in the always-run index" '**2.3.6** (error-handling & silent-failure)' "$IMPL_SKILL"
 assert_eq "sweep 2.3.6: docs/implement-skill.md keeps the rationale table row" "yes" \
@@ -3788,6 +3797,20 @@ fx_intree="## Implementation Notes
 assert_eq "#254: extensionless in-tree file rescued; rooted token and bare dir dropped (fail-open closed)" \
   "LICENSE" \
   "$(printf '%s\n' "$fx_intree" | bash "$EXTRACT_HELPER")"
+
+# Case 10 (issue #254 review): ACCEPTED-tradeoff pin. A deterministic extractor cannot
+# tell a to-be-created EXTENSIONLESS file (`docs/newthing`, no extension, not yet on disk)
+# apart from a bare-directory token, so the in-tree-regular-file rescue drops it — an
+# extension-bearing deliverable (`docs/newthing.md`) is still emitted regardless of whether
+# it exists yet. This pins the drop as intended behavior (not a silent regression to chase):
+# the overwhelmingly-common doc deliverable carries an extension; only a brand-new
+# extensionless path is affected, and it fails CLOSED (dropped, never mis-emitted).
+fx_tobecreated="## Implementation Notes
+
+- **Documentation Needed** — create \`docs/newthing\` and \`docs/newthing.md\`."
+assert_eq "#254: to-be-created extensionless deliverable dropped (accepted); extension-bearing kept" \
+  "docs/newthing.md" \
+  "$(printf '%s\n' "$fx_tobecreated" | bash "$EXTRACT_HELPER")"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "scaffold-config.sh"
