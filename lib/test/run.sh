@@ -3822,6 +3822,20 @@ assert_eq "#254: to-be-created extensionless deliverable dropped (accepted); ext
   "docs/newthing.md" \
   "$(printf '%s\n' "$fx_tobecreated" | bash "$EXTRACT_HELPER")"
 
+# Case 11 (review iter 3): a parent-dir-escaping token WITH a recognized extension
+# (`../notes.md`, `docs/../secret.md`) must be dropped. The extension branch emits on
+# the extension ALONE and never runs the `[ -f ]` + git in-tree check, so without the
+# `../*|*/../*` case arm an out-of-tree `../x.md` would be emitted — the same out-of-tree
+# fail-open the extensionless rescue (Case 9) was hardened against. An in-tree filename
+# that merely CONTAINS dots but no `/../` segment (`foo..md`) is NOT an escape and is kept.
+fx_escape="## Implementation Notes
+
+- **Documentation Needed** — update \`../notes.md\`, \`docs/../secret.md\`, \`foo..md\`, and \`CLAUDE.md\`."
+assert_eq "#254: parent-dir-escaping extension tokens dropped (out-of-tree fail-open closed); in-tree kept" \
+  "CLAUDE.md
+foo..md" \
+  "$(printf '%s\n' "$fx_escape" | bash "$EXTRACT_HELPER")"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "scaffold-config.sh"
 # ────────────────────────────────────────────────────────────────────────────

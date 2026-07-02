@@ -311,7 +311,7 @@ ends in a recognized doc/source extension **or** names an in-tree tracked regula
 `[ -f ] && git ls-files --error-unmatch` rescue for extensionless real files like `Makefile`/`LICENSE`).
 A bare "contains `/`" test is deliberately **not** sufficient — it wrongly emitted directory tokens
 (`docs/internal`) and rooted skill-invocation refs (`/claude-md-management`, from colon-splitting); rooted
-(`/…`) and trailing-slash directory tokens are dropped outright (issue #254). So prose, skill names
+(`/…`), parent-dir-escaping (`../…`), and trailing-slash directory tokens are dropped outright (issue #254). So prose, skill names
 (`devflow:docs`), directories, and paths named in *other* sections or bullets are excluded by
 construction (no judgement call, and none of the LLM-extraction drift that earlier incarnations of this
 gate suffered). Its behavior is verified by a fixture-based input-shape matrix in `lib/test/run.sh`

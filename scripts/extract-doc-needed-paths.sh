@@ -105,6 +105,14 @@ printf '%s\n' "$tokens" \
                                # keeps a rooted skill-ref (`/claude-md-management`)
                                # or out-of-tree path (`/etc/hostname`) from ever
                                # reaching the predicate below (issue #254 AC).
+        ../*|*/../*) continue ;; # parent-dir escape: an in-tree deliverable never
+                               # traverses out of the tree. Drop it here so a token
+                               # WITH a recognized extension (`../notes.md`) cannot
+                               # reach the extension branch below — that branch emits
+                               # on the extension alone and never runs the `[ -f ]` +
+                               # git in-tree check, so without this arm an out-of-tree
+                               # `../x.md` would be emitted, the very out-of-tree
+                               # fail-open the extensionless rescue was hardened against.
         '' ) continue ;;
       esac
       # A token counts as a deliverable file iff it EITHER ends in a recognized
