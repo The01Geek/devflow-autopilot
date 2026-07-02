@@ -10687,7 +10687,7 @@ assert_pin_unique "#187 implement prompt-extension mandates the chore: bump vers
 # searches, coupled to the implement extension's `## [x.y.z]` producer so a heading-convention
 # drift cannot silently no-op reconciliation on one side only.
 assert_pin_unique "#187 docs-release-notes Step 4b reads the shipped version from the plugin.json manifest (not the commit subject)" \
-  'jq -r .version .claude-plugin/plugin.json' "$FDROOT/skills/docs-release-notes/SKILL.md"
+  'run-jq.sh -r .version .claude-plugin/plugin.json' "$FDROOT/skills/docs-release-notes/SKILL.md"
 assert_pin_unique "#187 docs-release-notes Step 4b scans the origin/main..HEAD two-dot commit range" \
   'git log --oneline origin/main..HEAD' "$FDROOT/skills/docs-release-notes/SKILL.md"
 assert_pin_unique "#187 docs-release-notes Step 4b searches the bracketed Keep-a-Changelog heading (consumer side)" \
@@ -11446,16 +11446,20 @@ EOF
   assert_eq "#225 install.sh: provisioner refusal → offer_python3_shim still returns 0 (non-aborting)" "yes" \
     "$(printf '%s' "$OFFER_OUT_R" | grep -q 'ret=0' && echo yes || echo no)"
 
-  # ── AC11: no .github/ workflow, action, or allowlist entry is modified by this change. ──
-  if git -C "$REPO_ROOT" rev-parse --verify origin/main >/dev/null 2>&1; then
-    GH_CHANGED="$(git -C "$REPO_ROOT" diff --name-only origin/main -- .github 2>/dev/null)"
-    assert_eq "#225 no .github/ path modified vs origin/main (AC11)" "" "$GH_CHANGED"
-  else
-    # origin/main is not resolvable (shallow/detached checkout) — record an explicit skip
-    # breadcrumb rather than silently passing AC11 (the silent-skip anti-pattern the REAL_PY
-    # guard above avoids). CI fetches origin/main, so the assertion runs there.
-    printf '  SKIP  #225 AC11 (.github no-diff): origin/main not resolvable in this checkout — verified in CI\n'
-  fi
+  # ── AC11 (#225) RETIRED by #271. This was a branch-wide `.github`-freeze
+  #    (`git diff --name-only origin/main -- .github` must be empty), written to
+  #    assert #225's own python-shim change touched no `.github/` path. As a
+  #    STANDING suite assertion it is over-broad: it fires on EVERY later branch
+  #    that legitimately edits `.github/` — e.g. #271 itself, which adds the
+  #    `Bash(.devflow/vendor/devflow/scripts/run-jq.sh:*)` grant to
+  #    devflow-implement.yml + devflow-runner.yml so the cloud-governed skills can
+  #    invoke the run-jq.sh wrapper. It cannot distinguish #225's diff from any
+  #    other, so it can only be satisfied by never changing `.github/` again —
+  #    which is not a real invariant. The load-bearing `.github/` invariants that
+  #    DO warrant a standing guard (the workflow partition invariant, per-workflow
+  #    allowlist correctness, the vendored-path/exec-bit contracts, the react-to-
+  #    trigger wiring) are each covered by their own dedicated tests elsewhere in
+  #    this suite, so retiring this catch-all loses no real coverage.
 
   # ── AC12: the three docs document the Windows interpreter-resolution path. ──
   for _doc in CONTRIBUTING.md docs/install.md docs/DEVFLOW_SYSTEM_OVERVIEW.md; do
@@ -12269,25 +12273,24 @@ DJQ_BARE="$(grep -rnE '(^|[[:space:]|&;(`])jq[[:space:]]+(-|'"'"'|"|\.|empty|len
   | grep -v '/test/' | grep -v 'resolve-bin\.sh:' | grep -vE '^[^:]+:[0-9]+:[[:space:]]*#' | grep -vE 'jq(\.exe)? --version' | grep -c . || true)"
 assert_eq "#247 peer-completeness: no bare invocation-position jq call survives outside the resolver" "0" "$DJQ_BARE"
 
-# ── Skills-tier jq pin (issue #253) — the DJQ_BARE grep above is scoped to
-#    *.sh and never sees skill bodies, so agent-composed `jq` inside SKILL.md
-#    fenced blocks was invisible to the #247 contract. On a shim-shadowed
+# ── Skills-tier jq pin (issue #253, widened by #271) — the DJQ_BARE grep above
+#    is scoped to *.sh and never sees skill bodies, so agent-composed `jq` inside
+#    SKILL.md fenced blocks was invisible to the #247 contract. On a shim-shadowed
 #    Windows/WSL host a bare agent-typed `jq` hits the same present-but-
 #    unrunnable-shim defect #247 fixed for the helpers. This pin holds every
-#    executable jq in the RETROSPECTIVE skill bodies to the agent-tier wrapper
+#    executable jq in EVERY skill body to the agent-tier wrapper
 #    scripts/run-jq.sh (which sources the shared resolver — DEVFLOW_JQ is not
 #    exported to agent shells, so a callable-by-path wrapper is the agent-tier
 #    equivalent of the .sh source-once idiom).
-#    SCOPE — retrospective family only (retrospective-weekly / retrospective /
-#    retrospective-audit): that is the LOCAL weekly loop, the primary
-#    shim-shadow exposure (it runs on the maintainer's own WSL2/Windows host).
-#    The cloud-governed implement/docs-release-notes jq sites are deliberately
-#    OUT of scope here: they run predominantly on the Linux cloud runner (where
-#    jq is not shadowed), and migrating them would require adding the wrapper to
-#    the cloud allowlist in .github/workflows/devflow-implement.yml — a change
-#    the standing #225 AC11 `.github`-freeze guard forbids, so it belongs to a
-#    separate, deliberate follow-up (see the issue #253 workpad). Widening this
-#    grep to all skills would fail RED on those intentionally-deferred sites.
+#    SCOPE — all skill bodies. #253 originally scoped this to the retrospective
+#    family (the LOCAL weekly loop); #271 migrated the remaining cloud-governed
+#    executable jq sites (skills/implement/SKILL.md, phases/phase-4-documentation.md,
+#    docs-release-notes/SKILL.md) to the wrapper and added the wrapper to the cloud
+#    allowlist in .github/workflows/devflow-implement.yml + devflow-runner.yml, so
+#    they are now IN scope: the find below no longer restricts to *retrospective*.
+#    (The skills/review/SKILL.md trace example uses `jq -n` in INLINE-backtick prose,
+#    not a shell fence, so it is deliberately outside this awk-fence pin's reach —
+#    #271 migrated it too but it is covered by the coupled allowlist edit, not here.)
 #    Fence scope: lines inside ```bash / ```sh / ```shell fences only, so
 #    inline-backtick prose mentions of `jq -n` and non-shell (```json / ```dot /
 #    output) fences never false-match. ──
@@ -12295,12 +12298,12 @@ assert_eq "#247 peer-completeness: no bare invocation-position jq call survives 
 assert_eq "#253 skills-jq: scripts/run-jq.sh exists and references the shared jq resolver" "yes" \
   "$([ -f "$LIB/../scripts/run-jq.sh" ] && grep -q 'resolve-jq\.sh' "$LIB/../scripts/run-jq.sh" && echo yes || echo no)"
 # Absence pin: no bare invocation-position jq survives inside a shell fenced
-# block of a retrospective skill body. The awk captures only ```bash/```sh/
+# block of ANY skill body. The awk captures only ```bash/```sh/
 # ```shell block bodies (state reset per file); the grep shape mirrors DJQ_BARE
 # (flag/quoted-program/path/bareword-filter forms), excluding the resolver's own
 # `--version` probe shape and the wrapper path itself.
 SKILL_JQ_BARE="$(
-  find "$LIB/../skills" -type f -name '*.md' -path '*retrospective*' 2>/dev/null | while IFS= read -r _f; do
+  find "$LIB/../skills" -type f -name '*.md' 2>/dev/null | while IFS= read -r _f; do
     awk '
       /^[[:space:]]*```(bash|sh|shell)[[:space:]]*$/ { inb=1; next }
       /^[[:space:]]*```[[:space:]]*$/ { inb=0; next }
@@ -12310,7 +12313,7 @@ SKILL_JQ_BARE="$(
   | grep -v 'run-jq\.sh' \
   | grep -E '(^|[[:space:]|&;(`])jq[[:space:]]+(-|'"'"'|"|\.|empty|length|keys|type|to_entries)' \
   | grep -vE 'jq(\.exe)? --version' | grep -c . || true)"
-assert_eq "#253 skills-jq: no bare invocation-position jq survives in a retrospective-skill shell fenced block" "0" "$SKILL_JQ_BARE"
+assert_eq "#253 skills-jq: no bare invocation-position jq survives in any skill shell fenced block" "0" "$SKILL_JQ_BARE"
 
 # Mutation check: the absence pin above only proves "count is 0 today" — it does not
 # prove the awk fence-parser + grep would actually *catch* a reintroduced bare jq (a
