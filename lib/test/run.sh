@@ -12062,8 +12062,10 @@ if [ -n "$NONBASH" ]; then
 else
   # No non-bash sh on this host: record an explicit skip so the missing dynamic
   # coverage is visible (never a silent green); the static pins below still fire.
-  echo PASS >> "$RESULTS_FILE"
-  printf '  PASS  #248 preflight: non-bash remedy dynamic arm SKIPPED (no dash/busybox on host) — static pins below cover the remedy strings\n'
+  # Route the recorded PASS through assert_eq (a trivially-true comparison) rather
+  # than hand-inlining its tally/print contract, so this site tracks any change to
+  # how the helper records a pass.
+  assert_eq "#248 preflight: non-bash remedy dynamic arm SKIPPED (no dash/busybox on host) — static pins below cover the remedy strings" "skip" "skip"
 fi
 
 # ── Static pins (AC2/AC3/AC7): the breadcrumb + remedy literals ship in the source,
