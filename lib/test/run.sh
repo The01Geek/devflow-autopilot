@@ -7432,11 +7432,13 @@ for site in "${APP_SITES[@]}"; do
     "$([ -n "$blk" ] && echo yes || echo no)"
   assert_eq "app-token: $f.yml '$name' uses actions/create-github-app-token" "1" \
     "$(printf '%s\n' "$blk" | grep -cE 'uses:[[:space:]]*actions/create-github-app-token@')"
-  # Substring match: the review_dedupe mint adds `&& suppress == 'true'` to the
-  # gate (mint only when the notice will actually post), so the opt-in literal
-  # is asserted as a required part of the if:, not the whole expression.
+  # Substring match: the downscoped mints add a consumer condition to the gate
+  # (`&& should_run == 'true'` on the two gate-job mints, `&& suppress ==
+  # 'true'` on the review_dedupe mint — mint only when a consumer will run), so
+  # the opt-in literal is asserted as a required part of the if:, not the whole
+  # expression.
   assert_eq "app-token: $f.yml '$name' is gated on vars.DEVFLOW_APP_ID != ''" "1" \
-    "$(printf '%s\n' "$blk" | grep -c "vars.DEVFLOW_APP_ID != ''" || true)"
+    "$(printf '%s\n' "$blk" | grep -cF "vars.DEVFLOW_APP_ID != ''" || true)"
   assert_eq "app-token: $f.yml '$name' reads app-id from vars.DEVFLOW_APP_ID" "1" \
     "$(printf '%s\n' "$blk" | grep -cF 'app-id: ${{ vars.DEVFLOW_APP_ID }}')"
   assert_eq "app-token: $f.yml '$name' reads private-key from secrets.DEVFLOW_APP_PRIVATE_KEY" "1" \

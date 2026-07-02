@@ -197,20 +197,17 @@ jobs:
           fi
           bash "$DEDUPE" >> "$GITHUB_OUTPUT"
 
-      # Optional, opt-in: mint ONE GitHub App installation token DOWNSCOPED to
-      # this job's user-visible posts — the trigger reaction and the
-      # duplicate-ignored notice below (issue reactions/comments and PR-comment
-      # reactions; no contents, no workflows — this job neither reads code with
-      # it nor pushes). The permission-* inputs are the sole enforcement of
-      # least privilege (an App installation token ignores the job's
-      # `permissions:` block). Gated on the DEVFLOW_APP_ID repository VARIABLE:
-      # unset/empty → skipped, and each consumer's GH_TOKEN falls back to
-      # github.token — byte-for-byte today's behavior. NO continue-on-error: a
-      # configured-but-broken App fails loud here rather than silently
-      # degrading.
+      # Optional, opt-in: mint ONE App token DOWNSCOPED to this job's
+      # user-visible posts — the trigger reaction and the duplicate-ignored
+      # notice below (no contents/workflows: this job neither reads code with
+      # it nor pushes). Same opt-in/fail-loud/downscope contract as the review
+      # mint in devflow-runner.yml — see docs/cloud-setup.md. Minted only when
+      # a consumer will actually run (should_run gates both the reaction and
+      # the notice), so the common unauthorized/non-command rejection path
+      # stays mint-free.
       - name: Mint downscoped reaction token (optional)
         id: gate_app_token
-        if: ${{ vars.DEVFLOW_APP_ID != '' }}
+        if: ${{ vars.DEVFLOW_APP_ID != '' && steps.resolve.outputs.should_run == 'true' }}
         uses: actions/create-github-app-token@v2
         with:
           app-id: ${{ vars.DEVFLOW_APP_ID }}
@@ -310,7 +307,11 @@ jobs:
           # failure is distinguishable from a transient blip (same diagnostic
           # discipline as react-to-trigger.sh) — without it, the requester gets
           # no notice AND the log gives no actionable reason.
-          if ! err="$(gh issue comment "$NUMBER" --repo "$REPO" --body "$NOTE" 2>&1 >/dev/null)"; then
+          # REST (not `gh issue comment` porcelain): this step now runs under
+          # the repo-scoped App installation token when configured, and
+          # GraphQL-resolving porcelain fails silently under repo-scoped
+          # tokens (CLAUDE.md gotcha, #228).
+          if ! err="$(gh api --method POST "repos/$REPO/issues/$NUMBER/comments" -f body="$NOTE" 2>&1 >/dev/null)"; then
             echo "::warning::could not post duplicate-ignored notice on #$NUMBER (continuing): ${err//$'\n'/ }" >&2
           fi
 
