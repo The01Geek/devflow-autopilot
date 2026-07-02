@@ -13,7 +13,11 @@
   "devflow_implement": {
     "effort": "high",
     "implement_pr_state": "ready_for_review",
-    "allowed_tools": []
+    "allowed_tools": [],
+    "stall_backstop": {
+      "enabled": true,
+      "max_resume_attempts": 2
+    }
   },
   "devflow_runner": {
     "effort": "high",

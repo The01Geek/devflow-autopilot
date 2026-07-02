@@ -73,6 +73,24 @@
           "items": { "type": "string" },
           "description": "Extra --allowed-tools entries for the /devflow:implement path (devflow-implement.yml), APPENDED on top of devflow's built-in base list. The implement path does NOT inherit devflow.allowed_tools, so list every extra tool you want during implementation here. Empty/omitted → base list only.",
           "default": []
+        },
+        "stall_backstop": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Cloud-only workflow-level backstop for /devflow:implement (devflow-implement.yml). A headless single-shot run can end mid-lifecycle (e.g. right after `gh pr create`) yet report success, because the SDK session ends the moment the model emits a tool-call-free turn. After the `claude` step, the backstop reads the issue workpad Status (never PR draft state): a terminal Status (🎉 Complete / 👎 Blocked) is a no-op, an interim Status (🚀 …) auto-resumes `/devflow:implement <n>` up to `max_resume_attempts`, and an exhausted cap or an unreadable Status fails the job loud with a distinct issue comment. Purely additive: absent/disabled, the job behaves exactly as before.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Master switch for the stall backstop. true (the default) enables the post-run status check + auto-resume/fail-loud behavior; false skips the backstop entirely (no status read, no resume, no fail, no comment) so the job stays green on a mid-lifecycle stop, exactly as before this feature. An unrecognized/missing value resolves to true — the safe, honest-failure direction.",
+              "default": true
+            },
+            "max_resume_attempts": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Hard cap on automatic resume attempts before the backstop fails loud. 0 means detect-and-fail-loud only (no auto-resume). N means up to N auto-resumes, each announced by a distinct issue comment, before the job exits non-zero. A negative or non-integer value resolves to the default 2.",
+              "default": 2
+            }
+          }
         }
       }
     },

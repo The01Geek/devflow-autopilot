@@ -189,6 +189,63 @@ def cmd_body(args):
     sys.stdout.write(r.stdout)
 
 
+def cmd_status(args):
+    """Print the workpad Status as `CLASS GLYPH WORD` (e.g. 'interim 🚀 Reviewing').
+
+    CLASS is 'terminal' for a Complete (🎉) or Blocked (👎) status, else
+    'interim'. The glyph and classification come from `_status_glyph` — the same
+    single source of truth the update path uses — so no caller re-parses the
+    glyph vocabulary ad hoc. Exit codes mirror `id` so a caller can fail closed:
+      0  status printed
+      2  no workpad comment exists for this issue (scanned OK, none matched)
+      1  gh api / parse error, OR the workpad exists but its Status line is
+         missing/empty (present-but-unreadable — distinct from 'no workpad').
+    The cloud stall backstop maps exit 2 and exit 1 alike to the 'unreadable'
+    decision class (fail closed), while a healthy run prints a class it can act
+    on."""
+    marker = _workpad_marker(args.marker)
+    repo = _repo_full()
+    page = 1
+    body = None
+    while body is None:
+        try:
+            r = _run([
+                GH, 'api',
+                f'/repos/{repo}/issues/{args.issue}/comments'
+                f'?page={page}&per_page=100',
+            ])
+        except (subprocess.CalledProcessError, OSError) as e:
+            _fail('status', e)
+        try:
+            items = json.loads(r.stdout)
+        except json.JSONDecodeError as e:
+            _fail('status', f"could not parse gh comments response: {e}")
+        for c in items:
+            b = c.get('body') or ''
+            if b.startswith(marker):
+                body = b
+                break
+        if body is None and len(items) < 100:
+            # Scanned every page, no workpad — same benign exit 2 as `id`.
+            sys.exit(2)
+        page += 1
+    m = _STATUS_VALUE_RE.search(body)
+    if not m:
+        sys.stderr.write(
+            "workpad.py status: workpad found but no Status line in it\n"
+        )
+        sys.exit(1)
+    word = _strip_status_glyph(m.group(1).strip()).strip()
+    if not word:
+        sys.stderr.write(
+            "workpad.py status: workpad Status line has no value\n"
+        )
+        sys.exit(1)
+    glyph = _status_glyph(word)
+    cls = 'terminal' if glyph in ('🎉', '👎') else 'interim'
+    print(f"{cls} {glyph} {word}")
+
+
 def cmd_patch(args):
     repo = _repo_full()
     body_path = Path(args.body_file)
@@ -1190,6 +1247,16 @@ def main():
     s = sub.add_parser('body', help='Print the body of an existing workpad comment.')
     s.add_argument('comment_id', type=int)
     s.set_defaults(func=cmd_body)
+
+    s = sub.add_parser(
+        'status',
+        help='Print the workpad Status as `CLASS GLYPH WORD` (CLASS is '
+             'terminal|interim). Exit 2 if no workpad, exit 1 if present but the '
+             'Status is unreadable.',
+    )
+    s.add_argument('issue', type=int)
+    s.add_argument('--marker', default=None, help=_marker_help)
+    s.set_defaults(func=cmd_status)
 
     s = sub.add_parser('patch', help='PATCH a workpad comment from a body file; prints new body.')
     s.add_argument('comment_id', type=int)

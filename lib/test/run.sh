@@ -12202,6 +12202,84 @@ assert_eq "#248 pin: remedy names all three supported bashes + the DEVFLOW_BASH 
 
 rm -rf "$T248"
 
+# ────────────────────────────────────────────────────────────────────────────
+echo "#266 cloud /devflow:implement stall backstop"
+# ────────────────────────────────────────────────────────────────────────────
+# The decision core is extracted into scripts/stall-backstop-decide.sh precisely
+# so it is drivable here with stubbed inputs (the YAML step is a thin caller).
+# Every branch below is RED against the pre-change state: pre-change the helper
+# does not exist, so `bash <missing>` prints nothing to stdout / exits 127 and
+# each assert_eq fails. These are behavioral pins over the REAL script, so a
+# broken branch in the helper goes RED — no vacuity.
+DECIDE_SH266="$REPO_ROOT/scripts/stall-backstop-decide.sh"
+decide266() { bash "$DECIDE_SH266" "$@" 2>/dev/null; }
+assert_eq "#266 decide: disabled (enabled=false) -> skip" "skip" "$(decide266 false interim 0 2)"
+assert_eq "#266 decide: terminal -> noop" "noop" "$(decide266 true terminal 0 2)"
+assert_eq "#266 decide: interim under cap -> resume" "resume" "$(decide266 true interim 0 2)"
+assert_eq "#266 decide: interim at cap -> fail-exhausted" "fail-exhausted" "$(decide266 true interim 2 2)"
+assert_eq "#266 decide: interim cap=0 -> fail-exhausted (no auto-resume)" "fail-exhausted" "$(decide266 true interim 0 0)"
+assert_eq "#266 decide: interim mid-cap -> resume" "resume" "$(decide266 true interim 1 2)"
+assert_eq "#266 decide: unreadable -> fail-unreadable (fail closed)" "fail-unreadable" "$(decide266 true unreadable 0 2)"
+assert_eq "#266 decide: unknown class -> fail-unreadable (fail closed)" "fail-unreadable" "$(decide266 true bogus 0 2)"
+assert_eq "#266 decide: unrecognized enabled resolves to enabled (interim -> resume)" "resume" "$(decide266 yes interim 0 2)"
+assert_eq "#266 decide: negative cap falls back to default 2 (interim,attempts=1 -> resume)" "resume" "$(decide266 true interim 1 -1)"
+assert_eq "#266 decide: non-integer attempts -> 0 (interim,cap=2 -> resume)" "resume" "$(decide266 true interim notanum 2)"
+decide266 true interim 0 2 >/dev/null 2>&1
+assert_eq "#266 decide: a valid decision exits 0" "0" "$?"
+
+# post-issue-comment.sh best-effort contract (mirrors ensure-label.sh): a bad
+# input never aborts — exit 0 + a breadcrumb. DEVFLOW_GH is stubbed so sourcing
+# resolve-gh.sh never probes a real gh. RED pre-change (helper absent → rc 127).
+POST_SH266="$REPO_ROOT/scripts/post-issue-comment.sh"
+POST_RC266_NAN="$(DEVFLOW_GH=true bash "$POST_SH266" notanumber /dev/null >/dev/null 2>&1; echo $?)"
+assert_eq "#266 post-issue-comment: non-numeric issue -> exit 0 (best-effort)" "0" "$POST_RC266_NAN"
+POST_RC266_NF="$(DEVFLOW_GH=true bash "$POST_SH266" 5 /no/such/body/file >/dev/null 2>&1; echo $?)"
+assert_eq "#266 post-issue-comment: missing body file -> exit 0 (best-effort)" "0" "$POST_RC266_NF"
+POST_ERR266="$(DEVFLOW_GH=true bash "$POST_SH266" 5 /no/such/body/file 2>&1 >/dev/null)"
+assert_eq "#266 post-issue-comment: missing body file leaves a specific breadcrumb" "yes" \
+  "$(printf '%s' "$POST_ERR266" | grep -q 'body file not found' && echo yes || echo no)"
+
+# Config keys are a coupled peer set (2.3.0a): example template ↔ schema must
+# both carry stall_backstop.{enabled,max_resume_attempts}. Parse structurally so
+# a key present in one but not the other goes RED.
+CFG266="$(python3 - "$REPO_ROOT" <<'PY' 2>/dev/null || true
+import json, sys, pathlib
+root = pathlib.Path(sys.argv[1])
+ex = json.loads((root / ".devflow/config.example.json").read_text())
+sc = json.loads((root / ".devflow/config.schema.json").read_text())
+eb = ex.get("devflow_implement", {}).get("stall_backstop", {})
+sp = sc["properties"]["devflow_implement"]["properties"].get("stall_backstop", {})
+props = sp.get("properties", {})
+ok = (
+    eb.get("enabled") is True
+    and eb.get("max_resume_attempts") == 2
+    and sp.get("type") == "object"
+    and sp.get("additionalProperties") is False
+    and props.get("enabled", {}).get("type") == "boolean"
+    and props.get("enabled", {}).get("default") is True
+    and props.get("max_resume_attempts", {}).get("type") == "integer"
+    and props.get("max_resume_attempts", {}).get("minimum") == 0
+    and props.get("max_resume_attempts", {}).get("default") == 2
+)
+print("yes" if ok else "no")
+PY
+)"
+assert_eq "#266 config example+schema carry coupled stall_backstop keys (types/defaults/additionalProperties)" "yes" "$CFG266"
+
+# NOTE: the workflow-wiring pins (the stall-backstop step in
+# devflow-implement.yml reads the config keys, calls the decision helper, and
+# re-dispatches) plus the AC11 (#225) `.github`-freeze reconciliation are
+# DEFERRED to a follow-up issue: pushing a `.github/workflows/` edit needs a
+# token carrying `workflows:write` (the optional DEVFLOW_APP_ID App), which this
+# run's token lacks. The reusable primitives below (decision helper, REST comment
+# helper, workpad status read, config keys) ship and are fully pinned here; the
+# thin workflow caller lands with the follow-up. See the parent issue's Phase 4.0
+# follow-up for the exact workflow step + its pins.
+
+# workpad.py status subcommand is registered (the backstop's status read path).
+assert_eq "#266 workpad.py: status subcommand registered (func=cmd_status)" "yes" \
+  "$(grep -q 'func=cmd_status' "$REPO_ROOT/scripts/workpad.py" && echo yes || echo no)"
+
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
