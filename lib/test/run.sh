@@ -12035,13 +12035,23 @@ assert_eq "#248 preflight: DEVFLOW_BASH set → still exit 0 (AC4)" "0" "$PF248O
 assert_eq "#248 preflight: breadcrumb surfaces the DEVFLOW_BASH value (AC2/T2)" "yes" \
   "$(printf '%s' "$PF248O_OUT" | grep -qF 'DEVFLOW_BASH=/opt/devflow-marker/bash' && echo yes || echo no)"
 
+# ── T2b (AC2/AC4 boundary): a set-but-EMPTY DEVFLOW_BASH is a no-op, exactly like
+#    unset — the breadcrumb surfaces no `DEVFLOW_BASH=`. This pins the `[ -n … ]`
+#    emptiness guard specifically: a regression swapping it for set-detection
+#    (`${DEVFLOW_BASH+set}` / `-v`) would leak an empty `DEVFLOW_BASH=` into the
+#    breadcrumb and otherwise ship green. ──
+PF248E_OUT="$(DEVFLOW_BASH='' PATH="$T248" bash "$PF248" 2>&1)"; PF248E_RC=$?
+assert_eq "#248 preflight: empty DEVFLOW_BASH → still exit 0 (AC4)" "0" "$PF248E_RC"
+assert_eq "#248 preflight: empty DEVFLOW_BASH is a no-op — not surfaced (AC2/AC4 boundary)" "no" \
+  "$(printf '%s' "$PF248E_OUT" | grep -q 'DEVFLOW_BASH=' && echo yes || echo no)"
+
 # ── T3 (AC3 remedy): under a NON-bash POSIX shell (empty $BASH_VERSION) preflight
 #    prints the remedy naming the supported bashes + DEVFLOW_BASH and exits non-zero,
 #    BEFORE the bash-only `${BASH_SOURCE[0]}` would abort with a cryptic error.
 #    Exercised with a real non-bash sh when one exists (dash/busybox, invoked by
-#    absolute path so the stub PATH can't hide it); on a bash-only host the dynamic
-#    arm is skipped (recorded, never silently green) and the static pins below still
-#    guarantee the remedy strings ship. ──
+#    absolute path); on a bash-only host the dynamic arm is skipped (recorded, never
+#    silently green) and the static pins below still guarantee the remedy strings
+#    ship. ──
 NONBASH=""
 if command -v dash >/dev/null 2>&1; then NONBASH="$(command -v dash)"
 elif command -v busybox >/dev/null 2>&1; then NONBASH="$(command -v busybox) sh"
