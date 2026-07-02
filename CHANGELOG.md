@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.53] — 2026-07-02
+
+### Added
+- **DevFlow now supports any POSIX bash via a `DEVFLOW_BASH` override and a preflight running-bash diagnostic, retiring the "which Windows shell must we mandate" question.** DevFlow's helpers are `.sh` scripts, so the shell that *runs* them is chosen at the invocation boundary (the agent/runner that shells into bash) **before any `.sh` executes** — a sourced `resolve-*.sh` cannot select it (bootstrap: the resolver would itself need a chosen bash to run), so this is deliberately **not** a resolver clone. `DEVFLOW_BASH` is established as the invocation-layer override that layer honors to point DevFlow at a working POSIX bash; any of **WSL bash / Git Bash / MSYS2 bash** works and none is mandated. `lib/preflight.sh` gains a `devflow-bash:` diagnostic (a reporter, not a selector), placed above the first bash-only `${BASH_SOURCE[0]}` so it fails closed under a non-bash shell: under bash it prints a breadcrumb naming the interpreter path + `$BASH_VERSION` and surfaces `DEVFLOW_BASH` when set; under a non-bash POSIX shell (empty `$BASH_VERSION`) it prints a remedy naming the three supported bashes + the `DEVFLOW_BASH` override and exits non-zero before the array reference would abort with a cryptic "Bad substitution". On Linux/macOS/cloud the running `bash` is used unchanged and an unset `DEVFLOW_BASH` is a no-op. Known non-goal (out of scope): a host with no POSIX bash at all (PowerShell-only, no WSL/Git Bash/MSYS2) cannot run the `.sh` helpers regardless. Documented in `docs/install.md` / `README.md` and the `CLAUDE.md` tool-resolution gotcha; pinned in `lib/test/run.sh` (the `#248` block: breadcrumb + `$BASH_VERSION` + `DEVFLOW_BASH` surfacing under bash, the non-bash remedy exercised under `dash`, and removal-proof static pins on the breadcrumb/remedy literals). (#260, closes #248)
+
 ## [2.8.51] — 2026-07-02
 
 ### Changed
