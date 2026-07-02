@@ -2198,6 +2198,34 @@ assert_pin_unique "#236 (B) phase-3.3: record-write-failure detector matches the
   'grep -qE '\''record not written|failed' "$DEF_SKILL"
 assert_pin_unique "#236 (B) phase-3.3: record-write-failure detector ALSO matches the disk/permission-write breadcrumb (the single-literal grep this fix replaced silently missed it)" \
   'failed \(disk/permission\); not persisted for'\''' "$DEF_SKILL"
+# #236 review (latest shadow pass, requesting-code-review — Important-1): the two breadcrumb
+# literals the consumer grep above depends on were pinned ONLY on the CONSUMER side ($DEF_SKILL,
+# just above). The PRODUCER side — lib/efficiency-trace.sh, which actually EMITS those literals on
+# its record-derivation/write failure paths — was unpinned, so a reword there would silently break
+# the consumer grep, stop the second dropped-failed reflection firing, and leave this suite GREEN:
+# the coupled-invariant / "guard whose comparand can be absent" class CLAUDE.md warns about. Pin
+# the PRODUCER end of BOTH literals so the two ends of the contract cannot drift apart (the
+# jq/mkdir "record not written" literal legitimately recurs across two failure paths — a count
+# pin, not unique; the disk/permission literal is unique).
+assert_eq "#236 (B) producer-side coupled pin: efficiency-trace.sh EMITS the 'record not written' breadcrumb the consumer greps (both failure paths)" "2" \
+  "$(pin_count 'record not written' "$LIB/efficiency-trace.sh")"
+assert_pin_unique "#236 (B) producer-side coupled pin: efficiency-trace.sh EMITS the disk/permission-write breadcrumb the consumer greps" \
+  'failed (disk/permission); not persisted for' "$LIB/efficiency-trace.sh"
+# #236 review (latest shadow pass, pr-test-analyzer — Important-3 + Suggestions 1-2): removal-proofs
+# were missing on the best-effort observability lines that carry the backstop's non-swallowing +
+# loss-record behavior — the PR's own operative-vs-framing lesson applied to code. Pin each so a
+# half-revert turns the suite RED:
+#  (1) `cat "$PERSIST_ERR" >&2` is the ONLY line re-surfacing --persist's captured breadcrumbs to
+#      the run log; deleting it re-swallows every breadcrumb into a temp file that is then rm -f'd.
+assert_pin_unique "#236 (B) phase-3.3: --persist captured stderr is re-surfaced to the run log (non-swallowing)" \
+  'cat "$PERSIST_ERR" >&2' "$DEF_SKILL"
+#  (2) BOTH dropped-failed `|| echo "::warning::"` loss-record guards (the "double silent failure"
+#      tails for a failing workpad.py write) — either tail dropped ships green, so count both.
+assert_eq "#236 (B) phase-3.3: BOTH dropped-failed reflection loss-record guards present (either tail dropped -> RED)" "2" \
+  "$(pin_count 'this run'\''s effectiveness telemetry is lost AND its loss-record could not be written' "$DEF_SKILL")"
+#  (3) the pre-loop snapshot's mkdir-failure breadcrumb that names the actual root cause.
+assert_pin_unique "#236 (B) phase-3.3: pre-loop snapshot mkdir-failure emits its distinct root-cause breadcrumb" \
+  'could not create $ROOT/.devflow/tmp (permissions/read-only-fs/disk-full?)' "$DEF_SKILL"
 # #236 review (iteration 2 fix-delta gate, pr-test-analyzer): the $PERSIST_ERR_IS_DEVNULL
 # mktemp-degrade path this fix introduced had NO removal-proof coverage — a half-revert
 # collapsing it back to a bare `PERSIST_ERR=$(mktemp)`, or one flipping the `-eq 1 ||` sense on
