@@ -25,11 +25,15 @@ esac
 # EMPTY (the failed command substitution under the caller's `|| fallback`
 # AND-OR list), turning every call site's "$DEVFLOW_JQ" into a baffling ''
 # command-not-found — so fall back to bare `jq` with a breadcrumb instead.
-if [ -f "$_RESOLVE_JQ_DIR/resolve-bin.sh" ]; then
-  # shellcheck source=resolve-bin.sh
-  . "$_RESOLVE_JQ_DIR/resolve-bin.sh"
+# shellcheck source=resolve-bin.sh
+if [ -f "$_RESOLVE_JQ_DIR/resolve-bin.sh" ] \
+   && . "$_RESOLVE_JQ_DIR/resolve-bin.sh" \
+   && type devflow_resolve_bin >/dev/null 2>&1; then
+  # Verified the OUTCOME (function defined), not just the precondition: an
+  # unreadable or corrupt sibling must take the fallback arm, never leave
+  # DEVFLOW_JQ assigned empty.
   : "${DEVFLOW_JQ:=$(devflow_resolve_bin jq)}"
 else
-  echo "devflow: resolve-bin.sh not found beside resolve-jq.sh — using bare 'jq' (set DEVFLOW_JQ to override)" >&2
+  echo "devflow: resolve-bin.sh not found or not sourceable beside resolve-jq.sh — using bare 'jq' (set DEVFLOW_JQ to override)" >&2
   : "${DEVFLOW_JQ:=jq}"
 fi

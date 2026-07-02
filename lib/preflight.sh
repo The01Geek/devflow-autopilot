@@ -23,11 +23,13 @@ _PREFLIGHT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # missing the sibling degrades to bare-name resolution with a breadcrumb, so
 # the jq/gh diagnoses below stay attributable instead of blaming a phantom
 # Windows shim ("the resolved '' does not execute").
-if [ -f "$_PREFLIGHT_DIR/resolve-bin.sh" ]; then
-  # shellcheck source=resolve-bin.sh
-  . "$_PREFLIGHT_DIR/resolve-bin.sh"
+# shellcheck source=resolve-bin.sh
+if [ -f "$_PREFLIGHT_DIR/resolve-bin.sh" ] \
+   && . "$_PREFLIGHT_DIR/resolve-bin.sh" \
+   && type devflow_resolve_bin >/dev/null 2>&1; then
+  :
 else
-  printf 'devflow preflight: lib/resolve-bin.sh missing beside preflight.sh (partial copy?) — tool resolution degraded to override-or-bare-name\n' >&2
+  printf 'devflow preflight: lib/resolve-bin.sh missing or not sourceable beside preflight.sh (partial copy?) — tool resolution degraded to override-or-bare-name\n' >&2
   # Degrade override-FIRST (the family posture): preflight DETECTs with the
   # same value the helpers USE, so a set DEVFLOW_JQ/DEVFLOW_GH is still what
   # gets probed here even in the degraded mode.
@@ -43,11 +45,13 @@ fi
 # so preflight DETECTS with the same execution-verified probe the helpers USE.
 # Guarded like resolve-bin.sh above (same partial-copy posture, same
 # override-first degradation).
-if [ -f "$_PREFLIGHT_DIR/resolve-gh.sh" ]; then
-  # shellcheck source=resolve-gh.sh
-  . "$_PREFLIGHT_DIR/resolve-gh.sh"
+# shellcheck source=resolve-gh.sh
+if [ -f "$_PREFLIGHT_DIR/resolve-gh.sh" ] \
+   && . "$_PREFLIGHT_DIR/resolve-gh.sh" \
+   && type devflow_resolve_gh >/dev/null 2>&1; then
+  :
 else
-  printf 'devflow preflight: lib/resolve-gh.sh missing beside preflight.sh (partial copy?) — gh resolution degraded to DEVFLOW_GH-or-bare-gh\n' >&2
+  printf 'devflow preflight: lib/resolve-gh.sh missing or not sourceable beside preflight.sh (partial copy?) — gh resolution degraded to DEVFLOW_GH-or-bare-gh\n' >&2
   devflow_resolve_gh() { printf '%s\n' "${DEVFLOW_GH:-gh}"; }
 fi
 

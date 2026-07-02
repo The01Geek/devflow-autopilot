@@ -10955,7 +10955,7 @@ assert_eq "#245 resolve-gh.sh: defines devflow_resolve_gh" "yes" \
 assert_eq "#245 resolve-gh.sh: probes with '--version' only (network/auth-free)" "yes" \
   "$(grep -q -- '--version' "$RESOLVE_GH_SH" && echo yes || echo no)"
 assert_eq "#245 resolve-gh.sh: sets no 'set -e'/'set -u' (safe to source)" "no" \
-  "$(grep -qE '^\s*set -[eu]' "$RESOLVE_GH_SH" && echo yes || echo no)"
+  "$(grep -qE '^[[:space:]]*set -[eu]' "$RESOLVE_GH_SH" && echo yes || echo no)"
 # AC3: the gh.exe fallback candidate is referenced by name only — no absolute or
 # owner-specific install path is hardcoded.
 assert_eq "#245 resolve-gh.sh: gh.exe candidate referenced by name only (no path separator)" "yes" \
@@ -11246,7 +11246,7 @@ assert_eq "#247 resolve-bin.sh: defines devflow_resolve_bin" "yes" \
 assert_eq "#247 resolve-bin.sh: probes with '--version' only (network/auth-free)" "yes" \
   "$(grep -q -- '--version' "$RESOLVE_BIN_SH" 2>/dev/null && echo yes || echo no)"
 assert_eq "#247 resolve-bin.sh: sets no 'set -e'/'set -u' (safe to source)" "no" \
-  "$(grep -qE '^\s*set -[eu]' "$RESOLVE_BIN_SH" 2>/dev/null && echo yes || echo no)"
+  "$(grep -qE '^[[:space:]]*set -[eu]' "$RESOLVE_BIN_SH" 2>/dev/null && echo yes || echo no)"
 assert_eq "#247 resolve-bin.sh: candidates referenced by name only (no path separator before .exe)" "yes" \
   "$([ -f "$RESOLVE_BIN_SH" ] && ! grep -qE '/[^ ]*\.exe' "$RESOLVE_BIN_SH" && echo yes || echo no)"
 assert_eq "#247 normalize-path.sh: file exists" "yes" "$([ -f "$NORMALIZE_PATH_SH" ] && echo yes || echo no)"
@@ -11255,12 +11255,12 @@ assert_eq "#247 normalize-path.sh: SPDX header present" "yes" \
 assert_eq "#247 normalize-path.sh: defines devflow_normalize_path" "yes" \
   "$(grep -q 'devflow_normalize_path()' "$NORMALIZE_PATH_SH" 2>/dev/null && echo yes || echo no)"
 assert_eq "#247 normalize-path.sh: sets no 'set -e'/'set -u' (safe to source)" "no" \
-  "$(grep -qE '^\s*set -[eu]' "$NORMALIZE_PATH_SH" 2>/dev/null && echo yes || echo no)"
+  "$(grep -qE '^[[:space:]]*set -[eu]' "$NORMALIZE_PATH_SH" 2>/dev/null && echo yes || echo no)"
 assert_eq "#247 resolve-jq.sh: file exists" "yes" "$([ -f "$RESOLVE_JQ_SH" ] && echo yes || echo no)"
 assert_eq "#247 resolve-jq.sh: SPDX header present" "yes" \
   "$(grep -q 'SPDX-License-Identifier: MIT' "$RESOLVE_JQ_SH" 2>/dev/null && echo yes || echo no)"
 assert_eq "#247 resolve-jq.sh: sets no 'set -e'/'set -u' (safe to source)" "no" \
-  "$(grep -qE '^\s*set -[eu]' "$RESOLVE_JQ_SH" 2>/dev/null && echo yes || echo no)"
+  "$(grep -qE '^[[:space:]]*set -[eu]' "$RESOLVE_JQ_SH" 2>/dev/null && echo yes || echo no)"
 assert_eq "#247 resolve-jq.sh: delegates via devflow_resolve_bin jq" "yes" \
   "$(grep -qE 'devflow_resolve_bin[[:space:]]+jq' "$RESOLVE_JQ_SH" 2>/dev/null && echo yes || echo no)"
 
@@ -11501,14 +11501,60 @@ cp "$RESOLVE_JQ_SH" "$JQT7/resolve-jq.sh"
 T7_OUT="$(env -u DEVFLOW_JQ bash -c "set -euo pipefail; . \"$JQT7/resolve-jq.sh\"; printf %s \"\$DEVFLOW_JQ\"" 2>"$JQT7/err")"
 assert_eq "#247 T7: partial copy (no resolve-bin.sh) → DEVFLOW_JQ falls back to bare 'jq', not empty" "jq" "$T7_OUT"
 assert_eq "#247 T7: partial copy → breadcrumb names the missing resolve-bin.sh" "yes" \
-  "$(grep -q 'resolve-bin.sh not found beside resolve-jq.sh' "$JQT7/err" && echo yes || echo no)"
+  "$(grep -q 'resolve-bin.sh not found or not sourceable beside resolve-jq.sh' "$JQT7/err" && echo yes || echo no)"
 cp "$LIB/resolve-gh.sh" "$JQT7/resolve-gh.sh"
 T7B_OUT="$(DEVFLOW_GH=/stub/gh bash -c "set -euo pipefail; . \"$JQT7/resolve-gh.sh\"; devflow_resolve_gh" 2>"$JQT7/err-gh")"
 assert_eq "#247 T7b: partial copy (no resolve-bin.sh) → devflow_resolve_gh degrades to DEVFLOW_GH-or-bare-gh" "/stub/gh" "$T7B_OUT"
 assert_eq "#247 T7b: partial copy → gh breadcrumb emitted (no raw set -e abort)" "yes" \
-  "$(grep -q 'resolve-bin.sh not found beside resolve-gh.sh' "$JQT7/err-gh" && echo yes || echo no)"
+  "$(grep -q 'resolve-bin.sh not found or not sourceable beside resolve-gh.sh' "$JQT7/err-gh" && echo yes || echo no)"
 T7C_OUT="$(env -u DEVFLOW_GH bash -c "set -euo pipefail; . \"$JQT7/resolve-gh.sh\"; devflow_resolve_gh" 2>/dev/null)"
 assert_eq "#247 T7c: partial copy, no override → degraded devflow_resolve_gh defaults to bare 'gh' (set -u safe)" "gh" "$T7C_OUT"
+
+# ── T7d — sourceability, not just existence: an UNREADABLE resolve-bin.sh
+#    beside resolve-jq.sh must take the same fallback arm (bare jq +
+#    breadcrumb), never leave DEVFLOW_JQ empty. ──
+JQT7D="$(mktemp -d)"
+cp "$RESOLVE_JQ_SH" "$JQT7D/resolve-jq.sh"
+printf 'garbage' > "$JQT7D/resolve-bin.sh"; chmod 000 "$JQT7D/resolve-bin.sh"
+T7D_OUT="$(env -u DEVFLOW_JQ bash -c "set -euo pipefail; . \"$JQT7D/resolve-jq.sh\"; printf %s \"\$DEVFLOW_JQ\"" 2>"$JQT7D/err")"
+assert_eq "#247 T7d: unreadable resolve-bin.sh → DEVFLOW_JQ falls back to bare 'jq', not empty" "jq" "$T7D_OUT"
+assert_eq "#247 T7d: unreadable resolve-bin.sh → fallback breadcrumb fires" "yes" \
+  "$(grep -q 'not found or not sourceable beside resolve-jq.sh' "$JQT7D/err" && echo yes || echo no)"
+chmod 600 "$JQT7D/resolve-bin.sh"
+
+DJQ_ROOT="$(cd "$LIB/.." && pwd)"
+# ── Helper-side breadcrumb literal pins — the init-relay pin above holds the
+#    SKILL side; these hold the four EMITTING helpers to the same literal so a
+#    reworded gate breadcrumb cannot desync the relay silently (two-sided
+#    coupling). ──
+for _brf in scripts/detect-project-tools.sh scripts/provision-auto-mode.sh scripts/provision-local-settings.sh scripts/scaffold-config.sh; do
+  assert_eq "#247 gate breadcrumb literal present in $_brf" "yes" \
+    "$(grep -q 'no usable jq (missing or not executable)' "$DJQ_ROOT/$_brf" && echo yes || echo no)"
+done
+
+# ── Shim-present negative branch (the defect #247 fixes), behavioral: a
+#    bad-shebang jq with no jq.exe and no override must take the graceful
+#    breadcrumb path, not detonate mid-script (a revert to `command -v jq`
+#    would ship green without this). ──
+JQNEG="$(mktemp -d)"
+printf '#!/nonexistent/devflow-test-interpreter\necho nope\n' > "$JQNEG/jq"; chmod +x "$JQNEG/jq"
+_mk_restricted "$JQNEG" bash tr grep dirname cat mktemp mv rm find sort head sed uniq
+JQNEG_ERR="$(env -u DEVFLOW_JQ PATH="$JQNEG" "$_JQ10_BASH_BIN" "$DJQ_ROOT/scripts/detect-project-tools.sh" "$JQNEG" 2>&1)"; JQNEG_RC=$?
+assert_eq "#247 shim-negative: detect-project-tools with unrunnable jq → exit 0 (best-effort preserved)" "0" "$JQNEG_RC"
+assert_eq "#247 shim-negative: detect-project-tools emits the 'no usable jq' breadcrumb" "yes" \
+  "$(printf '%s' "$JQNEG_ERR" | grep -q 'no usable jq (missing or not executable)' && echo yes || echo no)"
+
+# ── Generic resolver arm (future tools): override honored via the tr path,
+#    and the tr-less unknown-tool arm fails closed with the derivation
+#    breadcrumb (never a mangled DEVFLOW_ lookup or the internal sentinel). ──
+GEN_SEL="$(DEVFLOW_GIT=/stub/git bash -c ". \"$RESOLVE_BIN_SH\"; devflow_resolve_bin git")"
+assert_eq "#247 generic arm: DEVFLOW_GIT override honored for an unrouted tool" "/stub/git" "$GEN_SEL"
+GENTR="$(mktemp -d)"; ln -s "$(command -v bash)" "$GENTR/bash"
+GEN_ERR="$(env -u DEVFLOW_GIT PATH="$GENTR" "$GENTR/bash" -c ". \"$RESOLVE_BIN_SH\"; devflow_resolve_bin git" 2>&1 >/dev/null)"
+assert_eq "#247 generic arm: tr-less unknown tool → derivation breadcrumb, override not consulted" "yes" \
+  "$(printf '%s' "$GEN_ERR" | grep -q 'could not derive the override variable name for \"git\"' && echo yes || echo no)"
+assert_eq "#247 generic arm: degenerate breadcrumb names the user-facing override, never the sentinel" "no" \
+  "$(printf '%s' "$GEN_ERR" | grep -q '__DEVFLOW_NO_OVERRIDE__' && echo yes || echo no)"
 
 # ── T8 — a converted helper COPIED without lib/ entirely: the call-site `||`
 #    fallback fires (breadcrumb + bare jq) and the helper still honors its
@@ -11563,7 +11609,7 @@ PFPC="$(mktemp -d)"
 cp "$LIB/preflight.sh" "$LIB/resolve-python.sh" "$LIB/resolve-gh.sh" "$LIB/resolve-jq.sh" "$PFPC/"
 PF_PC_OUT="$(env -u DEVFLOW_JQ -u DEVFLOW_GH bash "$PFPC/preflight.sh" 2>&1)"; PF_PC_RC=$?
 assert_eq "#247 preflight partial copy: attributable resolve-bin.sh breadcrumb emitted" "yes" \
-  "$(printf '%s' "$PF_PC_OUT" | grep -q 'resolve-bin.sh missing beside preflight.sh' && echo yes || echo no)"
+  "$(printf '%s' "$PF_PC_OUT" | grep -q 'resolve-bin.sh missing or not sourceable beside preflight.sh' && echo yes || echo no)"
 assert_eq "#247 preflight partial copy: bare-name degradation still verifies real tools (exit 0 on a healthy host)" "0" "$PF_PC_RC"
 # Override-first degradation: with a WORKING override set and a broken bare jq
 # unavailable-to-matter, the degraded preflight must probe the OVERRIDE (the
@@ -11651,7 +11697,7 @@ DJQ_BARE="$(grep -rnE '(^|[[:space:]|&;(`])jq[[:space:]]+(-|'"'"'|"|\.|empty|len
   | grep -v '/test/' | grep -v 'resolve-bin\.sh:' | grep -vE ':[[:space:]]*#' | grep -vE 'jq(\.exe)? --version' | grep -c . || true)"
 assert_eq "#247 peer-completeness: no bare invocation-position jq call survives outside the resolver" "0" "$DJQ_BARE"
 
-rm -rf "$JQT0" "$JQT1" "$JQT2" "$JQT2D" "$JQTD" "$NPT4" "$NPT4B" "$NPT4C" "$NPT4D" "$NPT4E" "$NPT4G" "$NPT4I" "$JQTP" "$JQT10" "$JQT6" "$JQT7" "$JQT8" "$SCVJ" "$SCVO" "$PFPC" "$T5D" "$T5DM"
+rm -rf "$JQT0" "$JQT1" "$JQT2" "$JQT2D" "$JQTD" "$NPT4" "$NPT4B" "$NPT4C" "$NPT4D" "$NPT4E" "$NPT4G" "$NPT4I" "$JQTP" "$JQT10" "$JQT6" "$JQT7" "$JQT8" "$SCVJ" "$SCVO" "$PFPC" "$T5D" "$T5DM" "$JQT7D" "$JQNEG" "$GENTR"
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.

@@ -56,7 +56,14 @@ devflow_normalize_path() {
     printf '%s\n' "$_np"
     return 0
   fi
-  drive="$(printf '%s' "${input%%:*}" | tr '[:upper:]' '[:lower:]')"
+  drive="$(printf '%s' "${input%%:*}" | tr '[:upper:]' '[:lower:]' 2>/dev/null)"
+  if [ -z "$drive" ]; then
+    # tr unavailable (degenerate PATH): never emit a corrupted /mnt//... path —
+    # fall to the documented unchanged-with-breadcrumb residual.
+    printf 'devflow: could not normalize Windows-form path "%s" (drive-letter lowercasing failed — tr unavailable?) — using it unchanged\n' "$input" >&2
+    printf '%s\n' "$input"
+    return 0
+  fi
   rest="${input#?:}"
   rest="${rest//\\//}"
   if uname -r 2>/dev/null | grep -qi microsoft; then
