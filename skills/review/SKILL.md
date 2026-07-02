@@ -922,10 +922,10 @@ FAIL and INCONCLUSIVE items stay listed outside the `<details>` block so they re
 ## Verdict Criteria
 - Any FAIL in verification checklist → REJECT
 - Any INCONCLUSIVE in verification checklist → REJECT (manual check needed)
-- Any Critical finding from review agents → REJECT (excluding findings demoted to Informational via Phase 4.0's deferral match)
+- Any finding from review agents at or above the configured verdict threshold ({VERDICT_THRESHOLD}) → REJECT (excluding findings demoted to Informational via Phase 4.0's deferral match)
 - Checklist generation failed → max APPROVE WITH CAVEAT
 - 2+ review agents failed → partial review coverage
-- Only Important/Suggestion findings → APPROVE with notes
+- Only findings below the verdict threshold → APPROVE with notes
 - No findings → APPROVE
 ```
 
@@ -947,15 +947,35 @@ The full **flag-and-record** gate — which *requires* a recorded `severity-cali
 
 ### 4.2 Determine verdict
 
+**Resolve the verdict-severity threshold once, before applying the rules.** Read `devflow_review.verdict_severity_threshold` (default `critical`) via the same `${CLAUDE_SKILL_DIR}`-anchored, no-`bash`-prefix `config-get.sh` invocation the live-progress-comment gate uses. `config-get.sh` reads the value but does **not** validate the enum — it coerces any JSON value to a string — so validate the enum **inline** and fall back to the default `critical` on a resolver failure (rc≠0) or any value outside the enum, with a **specific breadcrumb naming the key and the fallback value** (never aborting the review):
+
+```bash
+VERDICT_THRESHOLD=$("${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh" .devflow_review.verdict_severity_threshold critical); VERDICT_THRESHOLD_RC=$?
+# A missing key returns the default `critical` (valid → kept silently, so an absent
+# key leaves verdict computation byte-identical to today). A resolver failure (rc≠0:
+# malformed config.json or missing python3) and an out-of-enum value each fall back to
+# the default, but with DISTINCT breadcrumbs so a resolver failure is not misreported as
+# a bad enum value (config-get.sh's own stderr is left un-suppressed on the rc≠0 path).
+case "$VERDICT_THRESHOLD_RC:$VERDICT_THRESHOLD" in
+  0:critical|0:important|0:suggestion) : ;;
+  0:*) echo "::warning::devflow review: .devflow_review.verdict_severity_threshold value '$VERDICT_THRESHOLD' is not one of critical/important/suggestion; using default 'critical'" >&2
+       VERDICT_THRESHOLD=critical ;;
+  *)   echo "::warning::devflow review: could not read .devflow_review.verdict_severity_threshold (config-get.sh rc=$VERDICT_THRESHOLD_RC — malformed config.json or missing python3?); using default 'critical'" >&2
+       VERDICT_THRESHOLD=critical ;;
+esac
+```
+
+Severity ordering: `critical` > `important` > `suggestion`; "at or above `$VERDICT_THRESHOLD`" reads down that ladder. This threshold moves **only the REJECT line (rule 3)** below; every other rule and verdict label is unchanged. At the default `critical` (or an absent key) rule 3 fires on exactly the Critical findings it always has, so **verdict computation is byte-identical to today**.
+
 Apply these rules in order (first match wins). For every rule that counts findings by severity, **exclude findings demoted to Informational by Phase 4.0's deferral match** — they appear in the report under the "Informational — Deferred" sub-heading but do not contribute to verdict computation. (Rejected-deferral entries do *not* demote their corresponding finding; those flow through at their original severity.)
 
 1. Any verification checklist item with verdict FAIL → **REJECT**
 2. Any verification checklist item with verdict INCONCLUSIVE → **REJECT** (add "manual check needed" note)
-3. Any Critical finding from existing review agents (excluding deferral-demoted ones) → **REJECT**
+3. Any finding from existing review agents at or above `$VERDICT_THRESHOLD` (excluding deferral-demoted ones) → **REJECT**
 4a. If Phase 1+2 were skipped **because checklist generation failed** (`checklist_skipped = "failure"`) → maximum verdict is **APPROVE WITH CAVEAT** — verification checklist not generated (never a clean APPROVE)
 4b. If Phase 1+2 were skipped **intentionally by Phase 0.5** (`checklist_skipped = "intentional"`, i.e. small_diff AND config_only) → no caveat; the verdict follows the remaining rules normally. The skip was a deliberate engine-profile choice for a low-risk diff, not a failure.
 5. If 2 or more Phase 3 agents failed to return results → add "partial review coverage" note to the verdict
-6. Only Important or Suggestion findings (excluding deferral-demoted ones) → **APPROVE with notes**
+6. Only findings below `$VERDICT_THRESHOLD` present (excluding deferral-demoted ones) → **APPROVE with notes**
 7. No findings (excluding deferral-demoted ones) → **APPROVE**
 
 ### 4.3 Present the report
