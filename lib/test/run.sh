@@ -11211,7 +11211,7 @@ for DGH_PY in workpad.py file-deferrals.py match-deferrals.py parse-acs.py; do
   assert_eq "#245 python routing: $DGH_PY keeps no bare-\"gh\" argv0 literal" "0" \
     "$(grep -cE '\[[[:space:]]*['"'"'\"]gh['"'"'\"][[:space:]]*,' "$DGH_ROOT/scripts/$DGH_PY" || true)"
 done
-rm -rf "$GHT1" "$GHT2" "$GHT3" "$GHTD" "$GHTP" "$GHT4" "$GHT6" "$GHT7" "$GHT8"
+rm -rf "$GHT1" "$GHT2" "$GHT3" "$GHTD" "$GHTP" "$GHT4" "$GHT6" "$GHT7" "$GHT8" "$GHT9" "$GHT10"
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.

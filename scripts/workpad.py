@@ -126,7 +126,18 @@ def _workpad_marker(explicit=None):
     helper = here / 'config-get.sh'
     try:
         r = _run([str(helper), '.devflow.workpad_marker', _DEFAULT_WORKPAD_MARKER])
-    except (subprocess.CalledProcessError, OSError):
+    except (subprocess.CalledProcessError, OSError) as e:
+        # A broken config-get.sh (lost exec bit, bad shebang — the #3493 failure
+        # class this PR exists to fix) is otherwise indistinguishable from "no
+        # marker override configured": both silently fall back to the built-in
+        # default. Log a breadcrumb so an operator debugging a "workpad not
+        # found" symptom on a repo with `.devflow.workpad_marker` configured can
+        # tell "the helper couldn't execute" apart from "nothing is configured".
+        msg = e.stderr.strip() if isinstance(e, subprocess.CalledProcessError) else str(e)
+        sys.stderr.write(
+            f"workpad.py: could not execute {str(helper)!r} ({msg}); "
+            f"falling back to default marker\n"
+        )
         return _DEFAULT_WORKPAD_MARKER
     marker = r.stdout.strip()
     return marker or _DEFAULT_WORKPAD_MARKER

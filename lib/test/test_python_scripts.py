@@ -194,6 +194,26 @@ finally:
     if _saved is not None:
         _os.environ['DEVFLOW_WORKPAD_MARKER'] = _saved
 
+# #245: a broken config-get.sh (OSError — lost exec bit, bad shebang) must not
+# be silently indistinguishable from "no marker override configured" — both
+# otherwise fall back to _DEFAULT_WORKPAD_MARKER with zero diagnostic. Log a
+# breadcrumb naming the broken helper, mirroring match_deferrals._config_get's
+# identical fix for the identical config-get.sh-via-_run pattern.
+_saved_wp_run = workpad._run
+try:
+    def _boom_oserror(*a, **kw):
+        raise OSError(8, "Exec format error")
+    workpad._run = _boom_oserror
+    _stderr_capture = io.StringIO()
+    with contextlib.redirect_stderr(_stderr_capture):
+        _val = workpad._workpad_marker(None)
+    assert_eq("marker: broken config-get.sh (OSError) → still returns the default (no raise)",
+              workpad._DEFAULT_WORKPAD_MARKER, _val)
+    assert_eq("marker: broken config-get.sh (OSError) → logs a breadcrumb naming config-get.sh",
+              True, "config-get.sh" in _stderr_capture.getvalue())
+finally:
+    workpad._run = _saved_wp_run
+
 
 print("workpad.cmd_id exit-code contract (issue #55 live-comment seeding)")
 
