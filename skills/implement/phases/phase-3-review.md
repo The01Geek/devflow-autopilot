@@ -74,8 +74,9 @@ LIB="${CLAUDE_SKILL_DIR}/../../lib"
 # "telemetry lost" reflection (or mask a real loss) when cwd is not the repo root.
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 # Idempotent Layer-3 persist: derives + commits the effectiveness record and durable
-# workpad copy from whatever iter-*.json this run left under .devflow/tmp/review/; no-op
-# if already persisted or if the inline loop wrote no per-iter workpad. Best-effort
+# workpad copy from whatever iter-*.json this run left under .devflow/tmp/review/; a commit
+# no-op if already persisted (the effectiveness record is content-idempotent; the durable
+# workpad copy still re-runs) and a full no-op if the inline loop wrote no per-iter workpad. Best-effort
 # (always exits 0). No --workpad-dir/--slug: with no args --persist scans every run-scoped
 # dir on disk, which is exactly the "the orchestrator does not hold review-and-fix's
 # internal slug/run-id" case at this inline seam.
@@ -91,7 +92,13 @@ ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 # because at THIS seam the review-and-fix loop just driven inline is what writes this tree,
 # so a foreign review-sourced dir being the sole occupant is not a reachable in-flow shape.
 if ! compgen -G "$ROOT/.devflow/tmp/review/*/*/iter-*.json" >/dev/null 2>&1; then
-  workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "review-and-fix inline loop wrote no iter-*.json this run; lib/efficiency-trace.sh --persist had no inputs, so this run's effectiveness telemetry (.devflow/logs/efficiency/) is missing"
+  # Guard the loss-record write itself: if workpad.py fails (gh API/permission error,
+  # absent reflection section, bad $ISSUE_NUMBER) the ::warning:: keeps the gap visible on
+  # the run log rather than silently dropping both the telemetry AND its loss-record — a
+  # double silent failure at the exact seam this clause exists to make visible. Mirrors the
+  # --persist line's best-effort breadcrumb discipline.
+  workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "review-and-fix inline loop wrote no iter-*.json this run; lib/efficiency-trace.sh --persist had no inputs, so this run's effectiveness telemetry (.devflow/logs/efficiency/) is missing" \
+    || echo "::warning::phase-3.3: failed to record dropped-failed observability-gap reflection on issue #$ISSUE_NUMBER; this run's effectiveness telemetry is lost AND its loss-record could not be written" >&2
 fi
 ```
 

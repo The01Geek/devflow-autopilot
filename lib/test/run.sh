@@ -2136,6 +2136,12 @@ assert_pin_unique "#235 (B) phase-3.3: the no-inputs case emits the dropped-fail
 # lesson this whole block is about, applied to the load-bearing producer line.
 assert_pin_unique "#235 (B) phase-3.3: the no-inputs detector root is derived from the git toplevel (not cwd)" \
   'ROOT=$(git rev-parse --show-toplevel' "$DEF_SKILL"
+# Symmetric to the $ROOT-derivation pin: the `"$LIB/efficiency-trace.sh" --persist` invocation
+# pinned above depends on the `LIB=` derivation that resolves it. Pin that derivation too so a
+# half-revert of the anchor (breaking the backstop invocation while the invocation-token pin
+# stays GREEN) turns the suite RED — the same half-revert class the $ROOT pin closes.
+assert_pin_unique "#235 (B) phase-3.3: the --persist backstop's LIB anchor is derived from the skill dir" \
+  'LIB="${CLAUDE_SKILL_DIR}/../../lib"' "$DEF_SKILL"
 # ── #192: review/analysis agents must never mutate the live working tree ──────────────
 # Two coupled layers, each pinned with a mutation-proven assert_pin_red_on_removal so a
 # half-applied removal of the contract turns the suite RED (issue #192 AC4):
