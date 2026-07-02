@@ -12931,6 +12931,113 @@ assert_pin_unique "#268 wiring: resume-audit marker literal (written + counted v
 # targets the run's own issue number.
 assert_pin_unique "#268 wiring: re-dispatch body carries the /devflow:implement trigger phrase" \
   '/devflow:implement %s' "$WF268"
+# Fail-loud exit mapping: resume keeps the job green, everything else exits
+# non-zero. Drift to a bare `exit 0` (or dropping the FAIL flip) would convert
+# "job goes honestly red" back into a masked stall — the marquee contract.
+assert_pin_unique "#268 wiring: FAIL flips to 0 only on the resume decision" \
+  '[ "$DECISION" = "resume" ] && FAIL=0' "$WF268"
+assert_pin_unique "#268 wiring: step exits via the FAIL mapping" \
+  'exit "$FAIL"' "$WF268"
+# Negative pin: the stall-backstop STEP body must never embed the workpad
+# marker — the gate's self-trigger guard declines any comment containing it,
+# so a workpad-marker leak into the resume body would silently kill the
+# auto-resume (green job, no re-dispatch). Scope the check to the step region
+# (the workpad marker legitimately appears elsewhere in the workflow).
+SB268_STEP="$(awk '/name: Stall backstop/{f=1} f{print} f && /exit "\$FAIL"/{exit}' "$WF268")"
+assert_eq "#268 wiring: stall-backstop step region extracted (non-empty)" "yes" \
+  "$([ -n "$SB268_STEP" ] && echo yes || echo no)"
+assert_eq "#268 wiring: resume body cannot trip the self-trigger guard (no workpad marker in the step)" "0" \
+  "$(printf '%s' "$SB268_STEP" | grep -cF 'devflow:workpad' || true)"
+
+# Behavioral: extract the Stall backstop step's run: block (same idiom as the
+# provision 'tools' step extraction above) and drive its glue logic with
+# stubbed helpers — the content pins above prove presence, these prove the
+# step's own wiring: the disabled early-exit really skips the status read, the
+# exit code follows the decision, and a dropped resume POST fails loud.
+if command -v python3 >/dev/null 2>&1 && python3 -c 'import yaml' >/dev/null 2>&1; then
+  SB268_RUN=$(mktemp)
+  python3 - "$WF268" >"$SB268_RUN" <<'PY'
+import sys, yaml
+doc = yaml.safe_load(open(sys.argv[1]))
+for job in doc["jobs"].values():
+    for s in job.get("steps", []):
+        if s.get("name") == "Stall backstop" and "run" in s:
+            sys.stdout.write("#!/usr/bin/env bash\n" + s["run"])
+            raise SystemExit
+raise SystemExit("Stall backstop step not found")
+PY
+  SB268_DIR=$(mktemp -d)
+  mkdir -p "$SB268_DIR/repo/.devflow/vendor/devflow/scripts" "$SB268_DIR/bin"
+  SB268_V="$SB268_DIR/repo/.devflow/vendor/devflow/scripts"
+  cp "$REPO_ROOT/scripts/stall-backstop-decide.sh" "$SB268_V/"   # real decision core
+  cat > "$SB268_V/config-get.sh" <<'STUB'
+#!/usr/bin/env bash
+case "$1" in
+  *enabled*) printf '%s' "${STUB_ENABLED:-true}" ;;
+  *max_resume*) printf '%s' "${STUB_MAX:-2}" ;;
+esac
+STUB
+  cat > "$SB268_V/workpad.py" <<'STUB'
+import os, sys
+open(os.environ["STUB_TOUCH"], "w").close()
+out = os.environ.get("STUB_STATUS_OUT", "")
+if out:
+    print(out)
+sys.exit(int(os.environ.get("STUB_STATUS_RC", "0")))
+STUB
+  cat > "$SB268_V/post-issue-comment.sh" <<'STUB'
+#!/usr/bin/env bash
+cp "$2" "$STUB_POST_COPY" 2>/dev/null
+if [ "${STUB_POST_FAIL:-0}" = "1" ]; then
+  echo "devflow: warning: could not post comment on #$1 (best-effort, continuing): stub failure" >&2
+else
+  echo "devflow: posted comment on #$1" >&2
+fi
+exit 0
+STUB
+  cat > "$SB268_DIR/bin/gh" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "${STUB_GH_BODIES:-}"
+STUB
+  chmod +x "$SB268_V"/*.sh "$SB268_DIR/bin/gh"
+  sb268_run() {  # usage: sb268_run env VAR=... — returns step rc; post body lands in $SB268_POST
+    SB268_POST="$SB268_DIR/post-body"; rm -f "$SB268_POST" "$SB268_DIR/status-touched"
+    ( cd "$SB268_DIR/repo" && \
+      PATH="$SB268_DIR/bin:$PATH" ISSUE_NUMBER=5 \
+      STUB_TOUCH="$SB268_DIR/status-touched" STUB_POST_COPY="$SB268_POST" \
+      "$@" bash "$SB268_RUN" >/dev/null 2>&1 )
+  }
+  sb268_run env STUB_ENABLED=false STUB_STATUS_OUT="interim 🚀 Reviewing"
+  SB268_RC=$?
+  assert_eq "#268 behavior: disabled -> exit 0" "0" "$SB268_RC"
+  assert_eq "#268 behavior: disabled -> NO status read (workpad.py never invoked)" "no" \
+    "$([ -f "$SB268_DIR/status-touched" ] && echo yes || echo no)"
+  assert_eq "#268 behavior: disabled -> no comment posted" "no" \
+    "$([ -f "$SB268_POST" ] && echo yes || echo no)"
+  sb268_run env STUB_STATUS_OUT="terminal 🎉 Complete"
+  assert_eq "#268 behavior: terminal -> noop exit 0, no comment" "0:no" \
+    "$?:$([ -f "$SB268_POST" ] && echo yes || echo no)"
+  sb268_run env STUB_STATUS_OUT="interim 🚀 Reviewing"
+  SB268_RC=$?
+  assert_eq "#268 behavior: interim under cap -> resume exit 0" "0" "$SB268_RC"
+  assert_eq "#268 behavior: resume body carries marker + trigger phrase" "yes" \
+    "$(grep -qF 'devflow:stall-backstop-audit' "$SB268_POST" && grep -qF '/devflow:implement 5' "$SB268_POST" && echo yes || echo no)"
+  sb268_run env STUB_STATUS_OUT="interim 🚀 Reviewing" STUB_MAX=2 \
+    STUB_GH_BODIES=$'x <!-- devflow:stall-backstop-audit --> y\nz <!-- devflow:stall-backstop-audit --> w'
+  SB268_RC=$?
+  assert_eq "#268 behavior: cap exhausted -> exit 1" "1" "$SB268_RC"
+  assert_eq "#268 behavior: exhausted comment carries NO trigger phrase" "0" \
+    "$(grep -cF '/devflow:implement ' "$SB268_POST" || true)"
+  sb268_run env STUB_STATUS_RC=2
+  assert_eq "#268 behavior: unreadable (no workpad) -> exit 1 + diagnostic comment" "1:yes" \
+    "$?:$([ -f "$SB268_POST" ] && echo yes || echo no)"
+  sb268_run env STUB_STATUS_OUT="interim 🚀 Reviewing" STUB_POST_FAIL=1
+  SB268_RC=$?
+  assert_eq "#268 behavior: dropped resume POST fails loud (exit 1, never a masked green)" "1" "$SB268_RC"
+  rm -rf "$SB268_DIR"; rm -f "$SB268_RUN"
+else
+  printf '  SKIP  #268 behavior: python3+PyYAML unavailable — extraction test skipped (content pins above still ran)\n'
+fi
 
 # workpad.py status subcommand is registered (the backstop's status read path).
 assert_eq "#266 workpad.py: status subcommand registered (func=cmd_status)" "yes" \
