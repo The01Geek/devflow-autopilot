@@ -2166,6 +2166,40 @@ assert_eq "#235/#236 (B) phase-3.3: the false 'fail-toward-surfacing, never mask
   "0" "$(pin_count 'fail-toward-surfacing, never masking' "$DEF_SKILL")"
 assert_pin_unique "#235/#236 (B) phase-3.3: snapshot-absent degrade emits a distinct MASK warning breadcrumb" \
   'no-inputs detector degrades to whole-tree presence, which can MASK a real this-run telemetry loss' "$DEF_SKILL"
+# #236 review (iteration 4, silent-failure-hunter Finding 2 + pr-test-analyzer mutation-tested
+# gap): two hardenings to the Phase 3.3 observability backstop.
+#
+# (a) ORDERING: the backstop's core invariant is that it runs UNCONDITIONALLY — "regardless of
+# the verdict" — before the verdict branches, not only on an approve-family outcome. Presence-only
+# pins on the two directive sentences stay GREEN even if a half-revert moved the backstop inside
+# the approve branch (mutation-tested by the #236 review's pr-test-analyzer: swapping "regardless
+# of the verdict" for "only on approve" left the full suite green). Assert the ordering
+# positionally in the OWNING file (phase-3-review.md), not the multi-file bundle, so both
+# endpoints are unique in one coordinate space (mirrors the "implement_pr_state: clean-tree
+# backstop precedes the publish gate" positional pin elsewhere in this file).
+P33_BACKSTOP_LN=$(grep -nF 'So regardless of the verdict, first' "$LIB/../skills/implement/phases/phase-3-review.md" | head -1 | cut -d: -f1)
+P33_VERDICT_BRANCH_LN=$(grep -nF 'After the skill completes with a clean approve-family verdict' "$LIB/../skills/implement/phases/phase-3-review.md" | head -1 | cut -d: -f1)
+assert_eq "#236 (B) phase-3.3: observability backstop directive precedes the approve-family verdict branch (runs unconditionally)" "yes" \
+  "$([ -n "$P33_BACKSTOP_LN" ] && [ -n "$P33_VERDICT_BRANCH_LN" ] && [ "$P33_BACKSTOP_LN" -lt "$P33_VERDICT_BRANCH_LN" ] && echo yes || echo no)"
+# (b) RECORD-WRITE-FAILURE detection: the no-new-inputs detector above only catches a dropped Loop
+# Exit (no iter-*.json written at all); it is blind to the sibling case where iter-*.json WAS
+# written but --persist's own record derivation/write failed (efficiency-trace.sh's own internal
+# failure paths leave a "record not written" breadcrumb on stderr while exiting 0 by design). Pin
+# that the backstop captures --persist's stderr and checks it for that literal.
+assert_pin_unique "#236 (B) phase-3.3: backstop captures --persist stderr for the record-write-failure check" \
+  '"$LIB/efficiency-trace.sh" --persist 2>"$PERSIST_ERR" || true' "$DEF_SKILL"
+assert_pin_unique "#236 (B) phase-3.3: record-write-failure detector greps captured stderr for the record-not-written breadcrumb" \
+  'if grep -qF "record not written" "$PERSIST_ERR" 2>/dev/null; then' "$DEF_SKILL"
+# (c) BOUNDED RE-REVIEW coverage: the AWUSF path can drive a SECOND, separate inline
+# review-and-fix invocation (the bounded re-review) whose own Loop Exit is just as droppable as
+# the first invocation's — but the original backstop only ran once, after the FIRST invocation,
+# leaving the second entirely unguarded (silent-failure-hunter's #236 review Finding 2). Pin that
+# the bounded re-review step re-runs both halves of the backstop (a fresh snapshot before, the
+# persistence check after) rather than relying on the first invocation's now-stale snapshot.
+assert_pin_unique "#236 (B) phase-3.3: bounded re-review re-takes a fresh pre-invocation snapshot" \
+  're-run the pre-invocation snapshot block from 3.3 above' "$DEF_SKILL"
+assert_pin_unique "#236 (B) phase-3.3: bounded re-review re-runs the observability-persistence backstop" \
+  're-run the observability-persistence backstop block from 3.3 above' "$DEF_SKILL"
 # ── #192: review/analysis agents must never mutate the live working tree ──────────────
 # Two coupled layers, each pinned with a mutation-proven assert_pin_red_on_removal so a
 # half-applied removal of the contract turns the suite RED (issue #192 AC4):

@@ -331,7 +331,17 @@ interactive-drop failure mode so a future orchestrator does not silently skip th
   since it can then mask a real loss behind a leftover file). The detector counts NEW `iter-*.json`
   regardless of `--persist`'s `source == "review"` skip: at this inline seam the review-and-fix loop
   just driven is what writes the tree, so a foreign review-sourced dir being the sole new occupant is
-  not a reachable in-flow shape.
+  not a reachable in-flow shape. The no-new-inputs case above only catches a dropped *Loop Exit*
+  (the loop wrote nothing at all); it does not by itself catch the sibling failure mode where the
+  loop *did* write `iter-*.json` but `--persist`'s own record derivation/write step then failed —
+  every one of its internal failure paths leaves a `record not written` breadcrumb on stderr while
+  still exiting 0 by design. Phase 3.3 captures the `--persist` invocation's stderr and greps it for
+  that literal, recording a second, independent `dropped-failed` reflection when it fires, so a
+  persistence failure is surfaced even when inputs existed. And because the `APPROVE WITH UNRESOLVED
+  SHADOW FINDINGS` path can drive a **second**, separate inline `review-and-fix` invocation (the
+  bounded re-review), Phase 3.3 re-runs the whole snapshot-then-backstop procedure — a fresh
+  this-run baseline before, the persistence check after — around that second invocation too, so it
+  is not left unguarded at the same seam the first invocation's backstop protects.
 
 This guarantees **persistence of whatever telemetry was captured**. It does **not** guarantee
 *capture* of `tokens` / `wall_clock_s` — those come from `<usage>` blocks the agent reads live and no

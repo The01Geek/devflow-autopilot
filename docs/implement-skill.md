@@ -144,8 +144,18 @@ detection is **this-run-scoped**: the orchestrator snapshots the pre-existing `i
 *before* driving the loop and, after, records a loss only when no *new* `iter-*.json` appeared
 (`comm -13` against the snapshot). This matters on the local/interactive tier, where `.devflow/tmp`
 persists across runs — a whole-tree presence check would let a prior run's leftover mask a genuine
-loss. The new §3.3 clause is
-pinned by two coupled `lib/test/run.sh` removal-proof assertions (#235 finding B).
+loss. If the snapshot itself is missing, the detector degrades to whole-tree presence and emits a
+distinct `::warning::` naming that degrade, since it can then mask a real loss behind a leftover
+file. The backstop also catches the sibling failure mode where the loop *did* write `iter-*.json`
+but `--persist`'s own record derivation/write step then failed silently (rc 0 by design): it
+captures the invocation's stderr and greps it for `--persist`'s own `record not written`
+breadcrumb, recording a second `dropped-failed` reflection when that fires. Because the
+`APPROVE WITH UNRESOLVED SHADOW FINDINGS` path can drive a **second**, separate inline
+`review-and-fix` invocation (the bounded re-review in §3.3), the orchestrator re-runs the whole
+snapshot-then-backstop procedure around that second invocation too — a fresh this-run baseline
+before, the persistence check after — so it is not left unguarded at the same seam. The §3.3
+clause is pinned by coupled `lib/test/run.sh` removal-proof assertions (#235 finding B, extended
+by the #236 review).
 
 ## Acceptance-criteria gate: the gated `(post-merge)` tag (Phase 3.4)
 
