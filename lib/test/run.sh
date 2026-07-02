@@ -5535,8 +5535,17 @@ assert_pin_unique "#256 AC3: the exclusivity head pins 'Only an explicit reply' 
 # AC3 second operative site — the disengagement-list header's exclusivity clause.
 assert_pin_unique "#256 AC3: the disengagement-list header scopes triggers to explicit user replies" \
   'these three explicit replies are the *only* user-reply disengagement triggers' "$CI_SKILL_256"
+# AC4 primary clause — anchor the "count of **answered** questions" reconciliation itself,
+# not only its silence corollary below: a revert of line 78 to "a count of questions asked"
+# would keep the corollary pin GREEN while re-opening the budget-vs-silence defect.
+assert_pin_unique "#256 AC4: the budget counts answered questions, not questions merely asked" \
+  'a *count of **answered** questions*, not a count of rounds or of questions merely asked' "$CI_SKILL_256"
 assert_pin_unique "#256 AC4: a silent timeout never counts toward or trips the disengagement budget" \
   'never counts toward the budget and never trips' "$CI_SKILL_256"
+# AC2 sub-clause — anchor the specific prohibited actions on silence (guess-a-default / Blocked),
+# so a paraphrase that keeps "never proceed" but drops these cannot regress GREEN.
+assert_pin_unique "#256 AC2: on silence the agent must not guess a default or route to Blocked" \
+  'guess a default, or route the item to the Blocked section on that basis' "$CI_SKILL_256"
 # AC5 — the new rule reconciles with the Step 4 confirmation gate (stay paused on no response).
 assert_pin_unique "#256 AC5: the silent-non-response rule mirrors the Step 4 confirmation gate" \
   'This mirrors the Step 4 confirmation gate' "$CI_SKILL_256"
