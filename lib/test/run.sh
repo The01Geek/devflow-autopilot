@@ -5513,6 +5513,25 @@ assert_pin_unique "#242 docs: overview states the runner-neutral total-question 
   'runner-neutral total-clarifying-question budget' "$CI_OVERVIEW_242"
 assert_eq "#242 docs: overview dropped the round-based cap phrasing" "yes" \
   "$(! grep -qF 'capped at ~6 rounds' "$CI_OVERVIEW_242" && echo yes || echo no)"  # raw-guard-ok: absence pin — old round-cap phrasing GONE
+# ── #256: a silent no-response is NOT disengagement (question-tool timeout ≠ hand-off) ──
+# The operative fix is behavioral: silence (a question-tool timeout / No response after 60s /
+# the user stepping away) must NOT be classified as disengagement — the agent pauses and
+# re-asks, and only an EXPLICIT reply engages the draft-from-decided / Blocked path. These
+# are removal-proof presence pins on the operative sentences (assert_pin_unique fails closed
+# if the literal is deleted or paraphrased), per the issue's testing strategy: pin the
+# behavior, not merely the absence of "goes quiet". Literals are apostrophe-free + unique.
+CI_SKILL_256="$LIB/../skills/create-issue/SKILL.md"
+assert_pin_unique "#256 AC2: create-issue classifies a silent non-response as NOT disengagement" \
+  'A silent non-response is not disengagement — never proceed on silence' "$CI_SKILL_256"
+assert_pin_unique "#256 AC2: create-issue requires re-asking the unanswered question in the final chat message" \
+  'pause and re-ask that question in your final chat message' "$CI_SKILL_256"
+assert_pin_unique "#256 AC3: only an explicit reply engages the draft-from-decided / Blocked path" \
+  'engages the disengagement / draft-from-decided / Blocked path below' "$CI_SKILL_256"
+assert_pin_unique "#256 AC4: a silent timeout never counts toward or trips the disengagement budget" \
+  'never counts toward the budget and never trips' "$CI_SKILL_256"
+# AC1 (regression): "goes quiet" is GONE — silence is no longer a disengagement trigger.
+assert_eq "#256 AC1: create-issue removed the goes-quiet disengagement trigger" "yes" \
+  "$(! grep -qF 'goes quiet' "$CI_SKILL_256" && echo yes || echo no)"  # raw-guard-ok: absence pin — the removed trigger literal must be GONE
 assert_eq "#97 pin: ensure-label.sh exists" "yes" \
   "$([ -f "$LIB/../scripts/ensure-label.sh" ] && echo yes || echo no)"
 assert_eq "#97 pin: create-issue ensures+applies DevFlow label via REST helper" "yes" \
