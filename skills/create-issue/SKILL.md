@@ -19,7 +19,7 @@ if [[ "$SKILL_DIR" =~ ^[A-Za-z]:[\\/] ]]; then
   if command -v wslpath >/dev/null 2>&1 && _np="$(wslpath -u "$SKILL_DIR" 2>/dev/null)" && [ -n "$_np" ]; then SKILL_DIR="$_np"
   elif command -v cygpath >/dev/null 2>&1 && _np="$(cygpath -u "$SKILL_DIR" 2>/dev/null)" && [ -n "$_np" ]; then SKILL_DIR="$_np"
   else
-    _d="$(printf '%s' "${SKILL_DIR%%:*}" | tr '[:upper:]' '[:lower:]' 2>/dev/null)"; _r="${SKILL_DIR#?:}"; _r="${_r//\\//}"
+    _d="$(printf '%s' "${SKILL_DIR%%:*}" | tr '[:upper:]' '[:lower:]' 2>/dev/null)" || _d=""; _r="${SKILL_DIR#?:}"; _r="${_r//\\//}"
     if [ -z "$_d" ]; then echo "devflow: could not normalize Windows-form skill anchor '$SKILL_DIR' (tr unavailable?) — using it unchanged" >&2
     elif uname -r 2>/dev/null | grep -qi microsoft; then SKILL_DIR="/mnt/${_d}${_r}"
     elif [ -n "${MSYSTEM:-}" ]; then SKILL_DIR="/${_d}${_r}"
@@ -139,7 +139,7 @@ Drafting produces a candidate issue **in your message only** — nothing is post
      if command -v wslpath >/dev/null 2>&1 && _np="$(wslpath -u "$SKILL_DIR" 2>/dev/null)" && [ -n "$_np" ]; then SKILL_DIR="$_np"
      elif command -v cygpath >/dev/null 2>&1 && _np="$(cygpath -u "$SKILL_DIR" 2>/dev/null)" && [ -n "$_np" ]; then SKILL_DIR="$_np"
      else
-       _d="$(printf '%s' "${SKILL_DIR%%:*}" | tr '[:upper:]' '[:lower:]' 2>/dev/null)"; _r="${SKILL_DIR#?:}"; _r="${_r//\\//}"
+       _d="$(printf '%s' "${SKILL_DIR%%:*}" | tr '[:upper:]' '[:lower:]' 2>/dev/null)" || _d=""; _r="${SKILL_DIR#?:}"; _r="${_r//\\//}"
        if [ -z "$_d" ]; then echo "devflow: could not normalize Windows-form skill anchor '$SKILL_DIR' (tr unavailable?) — using it unchanged" >&2
        elif uname -r 2>/dev/null | grep -qi microsoft; then SKILL_DIR="/mnt/${_d}${_r}"
        elif [ -n "${MSYSTEM:-}" ]; then SKILL_DIR="/${_d}${_r}"

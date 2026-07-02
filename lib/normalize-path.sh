@@ -56,7 +56,10 @@ devflow_normalize_path() {
     printf '%s\n' "$_np"
     return 0
   fi
-  drive="$(printf '%s' "${input%%:*}" | tr '[:upper:]' '[:lower:]' 2>/dev/null)"
+  # `|| drive=""` keeps the "safe to source under set -e" contract (header): a
+  # bare `drive=$(… | tr …)` would let a tr-less pipeline's non-zero status abort
+  # a set -e caller BEFORE the empty-drive fail-closed guard below runs.
+  drive="$(printf '%s' "${input%%:*}" | tr '[:upper:]' '[:lower:]' 2>/dev/null)" || drive=""
   if [ -z "$drive" ]; then
     # tr unavailable (degenerate PATH): never emit a corrupted /mnt//... path —
     # fall to the documented unchanged-with-breadcrumb residual.

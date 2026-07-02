@@ -69,7 +69,10 @@ devflow_resolve_bin() {
     gh) var_name=DEVFLOW_GH ;;
     *)
       # tr (not ${var^^}) keeps this bash-3.2-compatible for stock macOS bash.
-      var_name="DEVFLOW_$(printf '%s' "$tool" | tr '[:lower:]-' '[:upper:]_' 2>/dev/null)"
+      # `|| var_name="DEVFLOW_"` keeps this sourceable under a set -e caller: a
+      # tr-less pipeline's non-zero status would otherwise abort before the
+      # fail-closed guard below; the fallback routes straight into it.
+      var_name="DEVFLOW_$(printf '%s' "$tool" | tr '[:lower:]-' '[:upper:]_' 2>/dev/null)" || var_name="DEVFLOW_"
       if [ "$var_name" = "DEVFLOW_" ]; then
         printf 'devflow: could not derive the override variable name for "%s" (tr unavailable?) — override not consulted, probing candidates\n' "$tool" >&2
         var_name=__DEVFLOW_NO_OVERRIDE__

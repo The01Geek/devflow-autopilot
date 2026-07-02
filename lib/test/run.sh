@@ -8906,6 +8906,28 @@ if command -v jq >/dev/null 2>&1; then
   rm -rf "$(dirname "$SCV_JQ_BIN")"
 fi
 
+# jq.exe-wins selection pin (the headline Windows path): a present-but-unrunnable
+# `jq` shadows PATH while a runnable `jq.exe` is available — install.sh's
+# `elif jq.exe --version` arm must select jq.exe and pin. Forced hermetically
+# (a non-runnable jq stub + real jq exposed only as jq.exe, python3 omitted) so
+# a regression in that arm fails closed instead of shipping CI-green.
+if command -v jq >/dev/null 2>&1; then
+  SCV_JQE_BIN="$(mktemp -d)/bin"; mkdir -p "$SCV_JQE_BIN"
+  printf '#!/bin/sh\nexit 1\n' > "$SCV_JQE_BIN/jq"; chmod +x "$SCV_JQE_BIN/jq"   # unrunnable shadow
+  ln -sf "$(command -v jq)" "$SCV_JQE_BIN/jq.exe"                                # real jq, jq.exe-only
+  for c in mktemp mv rm; do ln -sf "$(command -v "$c")" "$SCV_JQE_BIN/$c"; done  # python3 deliberately omitted
+  SCV_JQE_CFG="$(mktemp)"; printf '{"devflow_version":""}' > "$SCV_JQE_CFG"
+  # shellcheck disable=SC1090
+  SCV_JQE_OUT="$( ( PATH="$SCV_JQE_BIN"; DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" \
+      && set_config_version "$SCV_JQE_CFG" "exe-sha1234" ) 2>&1 )"
+  assert_eq "scv(jq.exe): shadowed jq → runnable jq.exe is selected and pins (headline Windows path)" "exe-sha1234" \
+    "$(jq -r '.devflow_version' "$SCV_JQE_CFG")"
+  assert_eq "scv(jq.exe): pins via the jq.exe arm, logs 'pinned'" "yes" \
+    "$(printf '%s' "$SCV_JQE_OUT" | grep -q 'pinned devflow_version=exe-sha1234' && echo yes || echo no)"
+  rm -f "$SCV_JQE_CFG"
+  rm -rf "$(dirname "$SCV_JQE_BIN")"
+fi
+
 # ── Critical regression guard: a failed mv must not report false success ────
 # A failed `mv "$tmp" "$cfg"` (read-only destination dir, ENOSPC, cross-device
 # rename failure) must fall through to the generic warning + return 0, never
@@ -11600,6 +11622,17 @@ T4K_OUT="$(env -u MSYSTEM PATH="$NPT4K" "$_NP_BASH_BIN" -c ". \"$NORMALIZE_PATH_
 assert_eq "#247 T4k: tr-less env-detect arm → input unchanged (never /mnt//...)" 'C:\Users\x' "$T4K_OUT"
 assert_eq "#247 T4k: tr-less arm leaves the tr breadcrumb" "yes" \
   "$(grep -q 'tr unavailable' "$NPT4K/err" && echo yes || echo no)"
+# ── T4k-setE — the header's "safe to source under set -e" contract: a set -e
+#    caller sourcing the helper on the same tr-less degenerate PATH must NOT
+#    abort at the drive-lowercasing assignment before the empty-drive guard
+#    runs. Without the `|| drive=""` fallback the tr-less pipeline's non-zero
+#    status trips set -e and the guard never runs. ──
+T4KSE_OUT="$(env -u MSYSTEM PATH="$NPT4K" "$_NP_BASH_BIN" -c "set -e; . \"$NORMALIZE_PATH_SH\"; devflow_normalize_path 'C:\\Users\\x'; printf 'SE_OK\\n'" 2>/dev/null)"; T4KSE_RC=$?
+assert_eq "#247 T4k set -e: tr-less source under set -e reaches the guard, never aborts" "yes" \
+  "$(printf '%s' "$T4KSE_OUT" | grep -q 'SE_OK' && echo yes || echo no)"
+assert_eq "#247 T4k set -e: returns 0 to the set -e caller" "0" "$T4KSE_RC"
+assert_eq "#247 T4k set -e: still yields the input unchanged (fail-closed)" 'C:\Users\x' \
+  "$(printf '%s' "$T4KSE_OUT" | head -1)"
 # ── Preflight jq — execution-verified via the shared resolver, mirroring the
 #    #245 gh two-branch diagnosis. Shadow BOTH candidates (bad-shebang jq AND
 #    jq.exe) so the degenerate path is forced on every host. ──
