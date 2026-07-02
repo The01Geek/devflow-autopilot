@@ -700,9 +700,10 @@ jobs:
           # Auto-path safety net (same script the skill's Phase 4.4 final
           # step calls — single source of truth). Gated on a POSITIVELY
           # determined APPROVE: CONCLUSION=success (REJECT maps to failure),
-          # a real PR_NUMBER (the empty-PR fallback yields success without
-          # one), AND VERDICT_DETERMINED=true (the verdict came from a
-          # successful lookup, not a default under a swallowed API error —
+          # a real PR_NUMBER (defense-in-depth — since issue #249 an empty
+          # PR_NUMBER fails closed to `incomplete`/`failure` and can never
+          # reach this success path), AND VERDICT_DETERMINED=true (the verdict
+          # came from a successful lookup, not a default under a swallowed API error —
           # otherwise a correlated GitHub degradation could silently dismiss
           # a still-valid REJECT). Best-effort: a non-zero exit is logged
           # but never fails the job — the check is already finalized.
