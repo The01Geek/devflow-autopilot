@@ -316,15 +316,22 @@ interactive-drop failure mode so a future orchestrator does not silently skip th
   the inline loop returns — regardless of verdict, before the verdict branches. It passes **no**
   `--workpad-dir`/`--slug` (the orchestrator does not hold the loop's internal slug/run-id), so
   `--persist` falls back to its disk-discovery mode and picks up whatever run-scoped
-  `iter-*.json` this run left behind. When even `--persist` finds **no** `iter-*.json` inputs — the
+  `iter-*.json` this run left behind. The "no inputs" detector is **this-run-scoped**, not a
+  whole-tree presence check: before driving the loop, Phase 3.3 snapshots the `iter-*.json`
+  already on disk, then after `--persist` returns it diffs (`comm -13`) the current tree against
+  that snapshot — only files that are genuinely NEW this run count. This is deliberate: a
+  whole-tree presence check would let a leftover `iter-*.json` from an earlier local run mask a
+  real loss on this run. When the diff is empty — no NEW `iter-*.json` appeared — the
   inline loop wrote no per-iteration workpad, so the telemetry is genuinely lost — Phase 3.3 records a
-  `dropped-failed` reflection naming the gap rather than letting it vanish. The phase anchors its
-  "no inputs" detector on the git top-level the **same** way `efficiency-trace.sh` does, so it scans
-  the exact `.devflow/tmp/review/` tree `--persist` scans and never fires a false "telemetry lost"
-  reflection from a cwd-relative divergence. The detector counts **any** `iter-*.json` and does not
-  replicate `--persist`'s `source == "review"` skip: at this inline seam the review-and-fix loop just
-  driven is what writes the tree, so a foreign review-sourced dir being the sole occupant is not a
-  reachable in-flow shape.
+  `dropped-failed` reflection naming the gap rather than letting it vanish. The phase anchors both
+  the snapshot and the detector on the git top-level the **same** way `efficiency-trace.sh` does, so
+  it scans the exact `.devflow/tmp/review/` tree `--persist` scans and never fires a false "telemetry
+  lost" reflection from a cwd-relative divergence (if the pre-loop snapshot is itself missing, the
+  detector degrades to whole-tree presence and emits a distinct `::warning::` naming that degrade,
+  since it can then mask a real loss behind a leftover file). The detector counts NEW `iter-*.json`
+  regardless of `--persist`'s `source == "review"` skip: at this inline seam the review-and-fix loop
+  just driven is what writes the tree, so a foreign review-sourced dir being the sole new occupant is
+  not a reachable in-flow shape.
 
 This guarantees **persistence of whatever telemetry was captured**. It does **not** guarantee
 *capture* of `tokens` / `wall_clock_s` — those come from `<usage>` blocks the agent reads live and no

@@ -2154,6 +2154,18 @@ assert_eq "#235 (B) phase-3.3: the no-inputs detector root is derived from the g
 # stays GREEN) turns the suite RED — the same half-revert class the $ROOT pin closes.
 assert_pin_unique "#235 (B) phase-3.3: the --persist backstop's LIB anchor is derived from the skill dir" \
   'LIB="${CLAUDE_SKILL_DIR}/../../lib"' "$DEF_SKILL"
+# #236 review (iteration 3): the snapshot-absent degrade path is a documented-falsehood defect —
+# the adjacent comment claimed "fail-toward-surfacing, never masking" while the code actually
+# CAN mask a real this-run loss (an empty BEFORE snapshot makes comm -13 count any leftover
+# iter-*.json from a prior local run as "new", suppressing the -z reflection check even when
+# this run wrote nothing). The fix corrects the comment AND emits a distinct ::warning:: on the
+# snapshot-absent path so the degrade is visible on the run log instead of being silently
+# indistinguishable from the healthy case. Pin both halves: the false claim must be gone, and
+# the new warning breadcrumb must be present.
+assert_eq "#235/#236 (B) phase-3.3: the false 'fail-toward-surfacing, never masking' claim is gone" \
+  "0" "$(pin_count 'fail-toward-surfacing, never masking' "$DEF_SKILL")"
+assert_pin_unique "#235/#236 (B) phase-3.3: snapshot-absent degrade emits a distinct MASK warning breadcrumb" \
+  'no-inputs detector degrades to whole-tree presence, which can MASK a real this-run telemetry loss' "$DEF_SKILL"
 # ── #192: review/analysis agents must never mutate the live working tree ──────────────
 # Two coupled layers, each pinned with a mutation-proven assert_pin_red_on_removal so a
 # half-applied removal of the contract turns the suite RED (issue #192 AC4):

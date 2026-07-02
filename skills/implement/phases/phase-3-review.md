@@ -100,18 +100,26 @@ ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 # on $ROOT (matching --persist): comm -13 lists iter-*.json present now but NOT before the
 # inline loop — i.e. exactly what THIS run wrote. This is immune to prior-run leftovers on the
 # persistent local tier, where a whole-tree presence check would let a leftover mask a real
-# loss. If the snapshot file is somehow absent it defaults to empty, degrading to whole-tree
-# presence (fail-toward-surfacing, never masking). Zero NEW iter-*.json means the inline loop
-# wrote no per-iteration workpad, so --persist had nothing to derive from and this run's
-# effectiveness telemetry is genuinely lost — surface it, do not swallow. (A persist that DID
-# find inputs but failed to write still leaves efficiency-trace.sh's own ::warning:: on the
-# run log, surfaced above.) The detector counts NEW iter-*.json regardless of --persist's
-# source=="review" skip (standalone /devflow:review runs have their own record path); that is
-# correct here because at THIS seam the review-and-fix loop just driven inline is what writes
-# this tree, so a foreign review-sourced dir being the sole new occupant is not a reachable
-# in-flow shape.
+# loss. If the snapshot file is somehow absent, treating it as empty degrades to whole-tree
+# presence — and that degrade direction can MASK a real loss, not surface it: comm -13 against
+# an empty snapshot counts every pre-existing leftover iter-*.json on the persistent local tier
+# as if this run wrote it, so a leftover file makes the -z check false and suppresses the
+# reflection even when this run's loop wrote nothing. Because this snapshot-absent path is the
+# reachable failure mode the detector exists to guard against, emit a distinct ::warning:: so
+# the degrade is visible on the run log rather than silently indistinguishable from the healthy
+# case. Zero NEW iter-*.json means the inline loop wrote no per-iteration workpad, so --persist
+# had nothing to derive from and this run's effectiveness telemetry is genuinely lost — surface
+# it, do not swallow. (A persist that DID find inputs but failed to write still leaves
+# efficiency-trace.sh's own ::warning:: on the run log, surfaced above.) The detector counts NEW
+# iter-*.json regardless of --persist's source=="review" skip (standalone /devflow:review runs
+# have their own record path); that is correct here because at THIS seam the review-and-fix
+# loop just driven inline is what writes this tree, so a foreign review-sourced dir being the
+# sole new occupant is not a reachable in-flow shape.
 BEFORE="$ROOT/.devflow/tmp/.phase33-iters-before"
-[ -f "$BEFORE" ] || : > "$BEFORE"
+if [ ! -f "$BEFORE" ]; then
+  : > "$BEFORE"
+  echo "::warning::phase-3.3: pre-loop iter-*.json snapshot missing; no-inputs detector degrades to whole-tree presence, which can MASK a real this-run telemetry loss behind a leftover iter-*.json from a prior local run" >&2
+fi
 if [ -z "$(compgen -G "$ROOT/.devflow/tmp/review/*/*/iter-*.json" 2>/dev/null | sort | comm -13 "$BEFORE" -)" ]; then
   # Guard the loss-record write itself: if workpad.py fails (gh API/permission error,
   # absent reflection section, bad $ISSUE_NUMBER) the ::warning:: keeps the gap visible on
