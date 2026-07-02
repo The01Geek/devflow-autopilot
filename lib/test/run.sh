@@ -8860,6 +8860,52 @@ if command -v python3 >/dev/null 2>&1; then
   rm -f "$SCV_PY_EMPTY"
 fi
 
+# jq backend POSITIVE regression pin: the jq success-path arm is otherwise only
+# exercised INCIDENTALLY by the default-PATH scv block above (jq happens to be
+# first-selected on CI). On a host without jq that block silently falls to the
+# python3 backend and the jq arm goes untested with every assertion still green.
+# Force the jq arm hermetically via a curated bin dir holding jq (python3
+# deliberately omitted), symmetric with the python3 forced-PATH block above, so a
+# regression that broke the jq success arm can no longer pass by falling through.
+if command -v jq >/dev/null 2>&1; then
+  SCV_JQ_BIN="$(mktemp -d)/bin"
+  scv_mkbin "$SCV_JQ_BIN" jq mktemp mv rm   # python3 deliberately omitted
+  SCV_JQ_CFG="$(mktemp)"; printf '{"base_branch":"main","devflow":{"effort":"high"}}' > "$SCV_JQ_CFG"
+  # shellcheck disable=SC1090
+  ( PATH="$SCV_JQ_BIN"; DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" \
+      && set_config_version "$SCV_JQ_CFG" "jq-sha1234" ) >/dev/null 2>&1
+  assert_eq "scv(jq): pins devflow_version (python3 shadowed off PATH)" "jq-sha1234" \
+    "$(jq -r '.devflow_version' "$SCV_JQ_CFG")"
+  assert_eq "scv(jq): preserves sibling top-level key" "main" "$(jq -r '.base_branch' "$SCV_JQ_CFG")"
+  assert_eq "scv(jq): preserves nested key" "high" "$(jq -r '.devflow.effort' "$SCV_JQ_CFG")"
+  rm -f "$SCV_JQ_CFG"
+
+  # jq arm preserve-vs-restamp branches, hermetic (python3 unavailable): a
+  # hand-set non-SHA value is kept; an empty-string first-install value is stamped.
+  SCV_JQ_MAIN="$(mktemp)"; printf '{"devflow_version":"main"}' > "$SCV_JQ_MAIN"
+  # shellcheck disable=SC1090
+  SCV_JQ_MAIN_OUT="$( ( PATH="$SCV_JQ_BIN"; DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" \
+      && set_config_version "$SCV_JQ_MAIN" "deadbeef1234" ) 2>&1 )"
+  SCV_JQ_MAIN_RC=$?
+  assert_eq "scv(jq): hand-set non-SHA devflow_version (main) is preserved, not re-stamped" "main" \
+    "$(jq -r '.devflow_version' "$SCV_JQ_MAIN")"
+  assert_eq "scv(jq): hand-set non-SHA (main) preserve returns 0 (never aborts)" "0" "$SCV_JQ_MAIN_RC"
+  assert_eq "scv(jq): hand-set non-SHA (main) preserve logs 'kept existing...deliberate pin'" "yes" \
+    "$(printf '%s' "$SCV_JQ_MAIN_OUT" | grep -q 'kept existing devflow_version' && echo yes || echo no)"
+  rm -f "$SCV_JQ_MAIN"
+
+  SCV_JQ_EMPTY="$(mktemp)"; printf '{"devflow_version":""}' > "$SCV_JQ_EMPTY"
+  # shellcheck disable=SC1090
+  SCV_JQ_EMPTY_OUT="$( ( PATH="$SCV_JQ_BIN"; DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" \
+      && set_config_version "$SCV_JQ_EMPTY" "deadbeef1234" ) 2>&1 )"
+  assert_eq "scv(jq): empty-string devflow_version is stamped" "deadbeef1234" \
+    "$(jq -r '.devflow_version' "$SCV_JQ_EMPTY")"
+  assert_eq "scv(jq): empty-string devflow_version stamp logs 'pinned'" "yes" \
+    "$(printf '%s' "$SCV_JQ_EMPTY_OUT" | grep -q 'pinned devflow_version=deadbeef1234' && echo yes || echo no)"
+  rm -f "$SCV_JQ_EMPTY"
+  rm -rf "$(dirname "$SCV_JQ_BIN")"
+fi
+
 # ── Critical regression guard: a failed mv must not report false success ────
 # A failed `mv "$tmp" "$cfg"` (read-only destination dir, ENOSPC, cross-device
 # rename failure) must fall through to the generic warning + return 0, never
