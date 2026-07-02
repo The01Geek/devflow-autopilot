@@ -1000,8 +1000,7 @@ assert_eq("#258: the AC-precedence abort emits NO Plan warning before failing", 
 # than passing silently. A genuinely AC-less issue reads the DISTINCT
 # `_(none provided in issue body)_` sentinel and finalizes SILENTLY (no false warning).
 _AC_PLACEHOLDER = GATE_BODY.replace(
-    '- [x] AC one\n- [x] AC two',
-    '_(pending — mirrored from the issue when the run begins)_')
+    '- [x] AC one\n- [x] AC two', workpad._AC_PENDING_PLACEHOLDER)
 _AC_NONE = GATE_BODY.replace(
     '- [x] AC one\n- [x] AC two', '_(none provided in issue body)_')
 _pherr = io.StringIO()
@@ -1455,6 +1454,12 @@ assert_eq("new-body: run-started note nested (indented) under Setup", True,
           '  - ' in _nb and '/devflow:implement run started' in _nb)
 assert_eq("new-body: Plan + AC are placeholders (not populated)", True,
           '_(planning in progress)_' in _nb and '_(pending' in _nb)
+# Coupling pin (#258): the new-body template must emit the EXACT `_AC_PENDING_PLACEHOLDER`
+# constant the terminal Complete gate matches on — they are one single source. Goes RED if
+# the template is reworded away from the constant (e.g. the em-dash→ASCII-hyphen trap), which
+# would silently disarm the gate's un-mirrored-placeholder warning (re-opening its fail-open).
+assert_eq("new-body: AC placeholder is the exact gate constant (producer↔guard coupling)", True,
+          workpad._AC_PENDING_PLACEHOLDER in _nb)
 assert_eq("new-body: no separate Decisions / Notes section", False,
           '## Decisions / Notes' in _nb)
 # Map ↔ template drift guard: every canonical phase (and therefore every value

@@ -299,6 +299,18 @@ def cmd_now(_args):
     print(now.strftime('%Y-%m-%dT%H:%M:%SZ'))
 
 
+# The un-mirrored `## Acceptance Criteria` placeholder — the SINGLE SOURCE seeded by
+# `cmd_new_body`'s template below AND matched by the terminal Complete gate. Keeping
+# both the producer and the guard on this one constant means a reword (e.g. the ASCII
+# vs em-dash trap) can never silently drift them apart and disarm the gate's warning.
+# If it survives to a terminal `--status Complete` write, Phase 1.2/1.3 AC-mirroring
+# never ran, so the gate's checkbox scan has nothing to check — the "self-record
+# matches reality" guarantee would be vacuously satisfied. The gate warns (non-blocking)
+# on this exact placeholder; a genuinely AC-less issue carries the DISTINCT sentinel
+# `_(none provided in issue body)_` parse-acs.py emits, so no warning fires there.
+_AC_PENDING_PLACEHOLDER = '_(pending — mirrored from the issue when the run begins)_'
+
+
 def cmd_new_body(args):
     """Print the lean initial workpad skeleton to stdout, for piping into a file
     and `create`. Deliberately minimal — only what's available before the run
@@ -348,7 +360,7 @@ def cmd_new_body(args):
 - [ ] _(planning in progress)_
 
 ## Acceptance Criteria
-_(pending — mirrored from the issue when the run begins)_
+{_AC_PENDING_PLACEHOLDER}
 
 ## Devflow Reflection
 <details>
@@ -1089,15 +1101,6 @@ def _apply_section_ticks(
 # `(post-merge)`"). The terminal Complete gate reuses the same exclusion so its
 # hard-fail set matches the gate's blocking set exactly.
 _POST_MERGE_MARKER = '(post-merge)'
-
-# The un-mirrored `## Acceptance Criteria` placeholder `new-body` seeds (see the
-# `new-body` template). If it survives to a terminal `--status Complete` write, the
-# Phase 1.2/1.3 AC-mirroring never ran, so the gate's checkbox scan has nothing to
-# check — the "self-record matches reality" guarantee would be vacuously satisfied.
-# The terminal gate warns (non-blocking) when it sees this exact placeholder, which
-# a genuinely AC-less issue never carries (that path reads the DISTINCT sentinel
-# `_(none provided in issue body)_` parse-acs.py emits), so no warning fires there.
-_AC_PENDING_PLACEHOLDER = '_(pending — mirrored from the issue when the run begins)_'
 
 
 def _unticked_rows(content: str) -> tuple[list[str], list[str]]:
