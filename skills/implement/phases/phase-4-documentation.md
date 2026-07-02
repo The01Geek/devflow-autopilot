@@ -401,7 +401,10 @@ Then finalize the workpad — tick the final `## Progress` item and flip `Status
 #       Resolve the outstanding AC the same way Phase 3.4 does — tick it once its work is
 #       real (`--tick-ac-n {N}`), or take the Blocked path if it genuinely cannot be met —
 #       THEN re-issue the finalize. (post-merge AC rows never trip this; an unticked `## Plan`
-#       row only prints a non-blocking warning and the finalize still succeeds.)
+#       row — or an `## Acceptance Criteria` section still holding the un-mirrored placeholder,
+#       i.e. AC-mirroring never ran — only prints a non-blocking warning and the finalize still
+#       succeeds. If that AC-placeholder warning fires, the self-record was never populated from
+#       the issue: investigate the mirroring, do not just re-run the finalize.)
 workpad.py update $ISSUE_NUMBER \
     --status Complete \
     --tick-progress "PR marked ready" \

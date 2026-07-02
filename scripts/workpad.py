@@ -1090,6 +1090,15 @@ def _apply_section_ticks(
 # hard-fail set matches the gate's blocking set exactly.
 _POST_MERGE_MARKER = '(post-merge)'
 
+# The un-mirrored `## Acceptance Criteria` placeholder `new-body` seeds (see the
+# `new-body` template). If it survives to a terminal `--status Complete` write, the
+# Phase 1.2/1.3 AC-mirroring never ran, so the gate's checkbox scan has nothing to
+# check — the "self-record matches reality" guarantee would be vacuously satisfied.
+# The terminal gate warns (non-blocking) when it sees this exact placeholder, which
+# a genuinely AC-less issue never carries (that path reads the DISTINCT sentinel
+# `_(none provided in issue body)_` parse-acs.py emits), so no warning fires there.
+_AC_PENDING_PLACEHOLDER = '_(pending — mirrored from the issue when the run begins)_'
+
 
 def _unticked_rows(content: str) -> tuple[list[str], list[str]]:
     """Split a checkbox section's still-unticked `- [ ]` rows into
@@ -1115,11 +1124,15 @@ def _terminal_complete_gate(sections) -> list[str]:
     AC rows are excluded (byte-for-byte the Phase 3.4 exclusion). Returns the
     still-unticked `## Plan` rows for the caller to emit a NON-blocking warning on
     (a genuinely dropped/superseded plan step may honestly stay unticked, so Plan
-    is not hard-failed). NEVER modifies a row; an absent section contributes
-    nothing. Called only for `--status Complete`, over the post-mutation sections."""
+    is not hard-failed). Also emits a NON-blocking warning when the AC section still
+    holds the un-mirrored `new-body` placeholder (mirroring never ran — a vacuously
+    satisfied hard-fail), so a Complete over an unpopulated self-record is surfaced.
+    NEVER modifies a row; an absent section contributes nothing. Called only for
+    `--status Complete`, over the post-mutation sections."""
     ac_idx = _find_section(sections, 'Acceptance Criteria')
     if ac_idx is not None:
-        non_pm, _pm = _unticked_rows(sections[ac_idx][1])
+        ac_content = sections[ac_idx][1]
+        non_pm, _pm = _unticked_rows(ac_content)
         if non_pm:
             rows = '\n'.join(f'    - [ ] {t}' for t in non_pm)
             raise _UpdateError(
@@ -1127,6 +1140,18 @@ def _terminal_complete_gate(sections) -> list[str]:
                 f"{len(non_pm)} non-post-merge Acceptance Criteria row(s) still "
                 "unticked (tick each once its work is real, or route the run to "
                 f"Blocked, before finalizing):\n{rows}"
+            )
+        # Fail-open guard: no unticked rows can mean the section was never mirrored
+        # (still the `new-body` placeholder), not that every AC is satisfied. Warn
+        # (non-blocking) so a Complete finalize over an un-mirrored self-record is
+        # surfaced rather than passing silently. A genuinely AC-less issue carries
+        # the DISTINCT `_(none provided in issue body)_` sentinel, so it is unaffected.
+        if _AC_PENDING_PLACEHOLDER in ac_content:
+            sys.stderr.write(
+                "workpad.py update: warning: finalizing Status: Complete but the "
+                "## Acceptance Criteria section still holds the un-mirrored placeholder "
+                "— the self-record was never populated from the issue; verify the "
+                "acceptance criteria were mirrored before relying on this Complete.\n"
             )
     plan_idx = _find_section(sections, 'Plan')
     if plan_idx is None:

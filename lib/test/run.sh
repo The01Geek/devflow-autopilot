@@ -3189,9 +3189,11 @@ assert_eq "#169: workpad.py routes volatile misses through _report_failed_ticks 
 # while still finalizing. The gate fires ONLY for --status Complete; it never
 # modifies a `- [ ]` row. Exercised here as a real CLI subprocess against a gh
 # stub (the five AC-7 scenarios), and pinned exhaustively at the _apply_mutations
-# level in lib/test/test_python_scripts.py. Each behavioral scenario below goes
-# RED against the pre-gate workpad.py: (a)/(e-gated) — old code PATCHed Complete
-# over an unticked AC; (c) — old code emitted no Plan warning.
+# level in lib/test/test_python_scripts.py. Two scenarios go RED against the
+# pre-gate workpad.py — (a): old code PATCHed Complete over an unticked AC; (c):
+# old code emitted no Plan warning. (b)/(d)/(e) are controls that pass identically
+# on old and new code — they guard against the gate OVER-firing (post-merge-only,
+# all-ticked, and --status Blocked must NOT be blocked or warned).
 S258="$(mktemp -d)"
 cat > "$S258/gh" <<'STUB'
 #!/usr/bin/env bash

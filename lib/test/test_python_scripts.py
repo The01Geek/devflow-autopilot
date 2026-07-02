@@ -883,8 +883,13 @@ try:
     apply_mut(_AC_UNTICKED, make_args(status='Complete'), [])
 except workpad._UpdateError as _e:
     assert_eq("#258: the AC hard-fail names the offending row", True, 'AC two' in str(_e))
-assert_eq("#258: the gate never auto-ticks the offending AC row", True,
-          '- [ ] AC two' in _AC_UNTICKED)  # source unchanged; helper does not mutate in place
+# The gate never auto-ticks: a PASSING (un-gated) write over the same unticked-AC body
+# returns a body whose AC row is STILL `- [ ]` — a behavioral check on the RETURNED body
+# (the earlier `in _AC_UNTICKED` form was vacuous: the input str is immutable, so it could
+# never fail regardless of gate behavior). Goes RED if any path silently ticks the row.
+_noauto = apply_mut(_AC_UNTICKED, make_args(status='Blocked'), [])
+assert_eq("#258: the gate never auto-ticks the offending AC row (returned body still [ ])", True,
+          '- [ ] AC two' in _noauto)
 
 # post-merge exclusion (byte-for-byte the Phase 3.4 'line ends in (post-merge)'):
 # an outstanding post-merge-only AC does NOT block — the Status flips to Complete.
@@ -974,6 +979,43 @@ _code, _err, _patched = _drive_cmd_update(_AC_UNTICKED, status='Complete', tick_
 assert_eq("#258 cmd_update: one-shot tick-last-AC + Complete finalizes (exit 0)", None, _code)
 assert_eq("#258 cmd_update: the one-shot finalize PATCHed Status → Complete with the AC ticked", True,
           _patched is not None and '🎉 Complete' in _patched and '- [x] AC two' in _patched)
+
+# AC hard-fail takes PRECEDENCE over the Plan warning: a Complete write with BOTH an
+# unticked non-post-merge AC *and* an unticked Plan row aborts (AC checked first) and
+# emits NO Plan warning (the abort raises before the Plan branch runs). Goes RED if the
+# gate were reordered to warn on Plan before the AC hard-fail.
+_AC_AND_PLAN_UNTICKED = _AC_UNTICKED.replace('- [x] Plan step two', '- [ ] Plan step two')
+_bperr = io.StringIO()
+def _complete_over_ac_and_plan():
+    with contextlib.redirect_stderr(_bperr):
+        apply_mut(_AC_AND_PLAN_UNTICKED, make_args(status='Complete'), [])
+assert_raises("#258: Complete with both unticked AC and Plan aborts (AC precedence over Plan)",
+              workpad._UpdateError, _complete_over_ac_and_plan)
+assert_eq("#258: the AC-precedence abort emits NO Plan warning before failing", False,
+          'Plan step two' in _bperr.getvalue())
+
+# Fail-open guard (shadow finding): a Complete write whose ## Acceptance Criteria section
+# still holds the un-mirrored `new-body` placeholder (AC-mirroring never ran) has NO
+# checkbox rows, so it does not hard-fail — but it emits a NON-blocking warning rather
+# than passing silently. A genuinely AC-less issue reads the DISTINCT
+# `_(none provided in issue body)_` sentinel and finalizes SILENTLY (no false warning).
+_AC_PLACEHOLDER = GATE_BODY.replace(
+    '- [x] AC one\n- [x] AC two',
+    '_(pending — mirrored from the issue when the run begins)_')
+_AC_NONE = GATE_BODY.replace(
+    '- [x] AC one\n- [x] AC two', '_(none provided in issue body)_')
+_pherr = io.StringIO()
+with contextlib.redirect_stderr(_pherr):
+    out = apply_mut(_AC_PLACEHOLDER, make_args(status='Complete'), [])
+assert_eq("#258: a Complete over an un-mirrored AC placeholder still finalizes (Status → Complete)", True,
+          '🎉 Complete' in _statusline(out))
+assert_eq("#258: the un-mirrored AC placeholder emits a non-blocking warning", True,
+          'un-mirrored placeholder' in _pherr.getvalue())
+_nnerr = io.StringIO()
+with contextlib.redirect_stderr(_nnerr):
+    out = apply_mut(_AC_NONE, make_args(status='Complete'), [])
+assert_eq("#258: a genuinely AC-less ('none provided') Complete finalizes SILENTLY", True,
+          '🎉 Complete' in _statusline(out) and _nnerr.getvalue() == '')
 
 
 print("workpad notes: compact timestamp + nesting under ## Progress phase")
