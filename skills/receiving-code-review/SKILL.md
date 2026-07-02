@@ -52,11 +52,22 @@ This gate applies in both interactive sessions and the autonomous `/devflow:revi
 
 A review engine that re-runs after every edit is *exhaustive*: each pass surfaces a fresh batch of advisory notes. That is the engine working, not a regression — expecting an already-clean run to produce zero new notes is the mistake that puts the loop on an advisory treadmill, where every edit spawns the next batch and nothing ever converges.
 
-Once the verdict is already non-blocking (an APPROVE, or any approve-with-notes verdict), the bar for re-opening the diff changes:
+Once the verdict is already non-blocking (an APPROVE, or any approve-with-notes verdict), the bar for re-opening the diff changes. **Resolve that bar once** from the project's configured fix threshold, read through the same bundled-helper pattern this skill's prompt-extension loader already uses. The config reader returns the raw value but does not validate it, so validate the enum inline and fall back to a safe default with a stderr breadcrumb naming the key and the fallback value (it never aborts):
 
-- **Re-open only for** a Critical / blocking finding, or a demonstrable correctness defect (one that cites a concrete failing input). These still get fixed immediately.
-- **A finding that a claim is stale, contradicts HEAD, or contradicts another part of this change is blocking** — never advisory. A documented falsehood is *itself* a demonstrable correctness defect (the case above), so it re-opens the diff even on an otherwise already-passing verdict. Verify it against HEAD (`git log -S` / grep the symbol), then fix the prose or correct the reviewer.
-- **Everything else is recorded or deferred** (see Record Every Deferral below), not implemented. A Suggestion- or advisory-level note on an already-passing verdict does not, by itself, re-open the diff.
+```bash
+REOPEN_THRESHOLD=$(${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .receiving_review.fix_severity_threshold critical 2>/dev/null); REOPEN_THRESHOLD_RC=$?
+case "$REOPEN_THRESHOLD_RC:$REOPEN_THRESHOLD" in
+  0:critical|0:important|0:suggestion) : ;;
+  *) echo "receiving-code-review: .receiving_review.fix_severity_threshold value '$REOPEN_THRESHOLD' (rc=$REOPEN_THRESHOLD_RC) is not one of critical/important/suggestion; using default 'critical'" >&2
+     REOPEN_THRESHOLD=critical ;;
+esac
+```
+
+Severity ordering: `critical` > `important` > `suggestion`; "at or above `$REOPEN_THRESHOLD`" reads down that ladder. At the default `critical`, only a Critical/blocking finding re-opens the diff (the historical bar); a lower configured threshold re-opens for findings at or above it. **Scope:** this threshold governs a **direct** invocation of this skill. When these principles run inside an autonomous fix loop that drives its own severity routing, that loop's routing governs re-opening and this key is not consulted.
+
+- **Re-open only for** a finding whose severity is at or above `$REOPEN_THRESHOLD`, or a demonstrable correctness defect (one that cites a concrete failing input). These still get fixed immediately.
+- **The demonstrable-correctness-defect / documented-falsehood carve-out re-opens the diff at every threshold value** — it is a correctness principle, not a severity grade, so it applies even when `$REOPEN_THRESHOLD` is `critical`. **A finding that a claim is stale, contradicts HEAD, or contradicts another part of this change is blocking** — never advisory. A documented falsehood is *itself* a demonstrable correctness defect, so it re-opens the diff even on an otherwise already-passing verdict. Verify it against HEAD (`git log -S` / grep the symbol), then fix the prose or correct the reviewer.
+- **Everything else is recorded or deferred** (see Record Every Deferral below), not implemented. A note whose severity is *below* `$REOPEN_THRESHOLD` on an already-passing verdict does not, by itself, re-open the diff.
 - **Bound any advisory re-open to a concrete, pre-agreed set.** If advisory notes *are* worth one more pass, name the specific bounded set of them before you start — never "address all the notes," which guarantees the next run produces a new batch and the loop never settles.
 
 ## Forbidden Responses

@@ -927,6 +927,112 @@ assert_pin_unique "max_iterations clamp: SKILL keeps the negative-aware integer 
 assert_pin_unique "max_iterations clamp: SKILL keeps the below-1 floor" '"$MAX_ITERS" -lt 1' "$MAXI_SKILL"
 assert_pin_unique "max_iterations clamp: SKILL keeps the default-5 fallback" 'MAX_ITERS=5' "$MAXI_SKILL"
 
+# ────────────────────────────────────────────────────────────────────────────
+echo "severity thresholds (schema + example + config-get resolution + SKILL pins) (#251)"
+# ────────────────────────────────────────────────────────────────────────────
+# Three enum-valued keys let a repo tune fixer aggressiveness and verdict strictness.
+# Config READING goes through config-get.sh (no new config parser); config-get.sh does
+# NOT validate the enum (it coerces any JSON value to a string), so each SKILL validates
+# the enum INLINE and falls back to the key's default on rc≠0 or an out-of-enum value.
+# Model mirrors the max_iterations block above: (a) schema/example contract, (b) the REAL
+# config-get.sh resolution feeding the validation, (c) a byte-aligned copy of the inline
+# case (sev_normalize) exercising the fallback matrix, (d) operative-sentence pins that go
+# RED if the behavior line is removed from the SKILL.
+ST_SCHEMA="$LIB/../.devflow/config.schema.json"
+ST_EXAMPLE="$LIB/../.devflow/config.example.json"
+
+ST_FIX_PROP='.properties.devflow_review_and_fix.properties.fix_severity_threshold'
+ST_VERDICT_PROP='.properties.devflow_review.properties.verdict_severity_threshold'
+ST_RECV_PROP='.properties.receiving_review.properties.fix_severity_threshold'
+
+# schema: each of the three keys is a string enum of exactly the three values, right default
+assert_eq "sev: fix_severity_threshold schema type is string" "string" "$(jq -r "$ST_FIX_PROP.type" "$ST_SCHEMA")"
+assert_eq "sev: fix_severity_threshold schema enum is exactly the three values" '["critical","important","suggestion"]' "$(jq -c "$ST_FIX_PROP.enum" "$ST_SCHEMA")"
+assert_eq "sev: fix_severity_threshold schema default is important" "important" "$(jq -r "$ST_FIX_PROP.default" "$ST_SCHEMA")"
+assert_eq "sev: fix_severity_threshold has non-empty description" "yes" "$(jq -e "$ST_FIX_PROP.description | type==\"string\" and (length>0)" "$ST_SCHEMA" >/dev/null && echo yes || echo no)"
+assert_eq "sev: verdict_severity_threshold schema type is string" "string" "$(jq -r "$ST_VERDICT_PROP.type" "$ST_SCHEMA")"
+assert_eq "sev: verdict_severity_threshold schema enum is exactly the three values" '["critical","important","suggestion"]' "$(jq -c "$ST_VERDICT_PROP.enum" "$ST_SCHEMA")"
+assert_eq "sev: verdict_severity_threshold schema default is critical" "critical" "$(jq -r "$ST_VERDICT_PROP.default" "$ST_SCHEMA")"
+assert_eq "sev: receiving_review.fix_severity_threshold schema type is string" "string" "$(jq -r "$ST_RECV_PROP.type" "$ST_SCHEMA")"
+assert_eq "sev: receiving_review.fix_severity_threshold schema enum is exactly the three values" '["critical","important","suggestion"]' "$(jq -c "$ST_RECV_PROP.enum" "$ST_SCHEMA")"
+assert_eq "sev: receiving_review.fix_severity_threshold schema default is critical" "critical" "$(jq -r "$ST_RECV_PROP.default" "$ST_SCHEMA")"
+
+# example mirrors each schema default 1:1
+assert_eq "sev: example fix_severity_threshold matches schema default" "$(jq -r "$ST_FIX_PROP.default" "$ST_SCHEMA")" "$(jq -r '.devflow_review_and_fix.fix_severity_threshold' "$ST_EXAMPLE")"
+assert_eq "sev: example verdict_severity_threshold matches schema default" "$(jq -r "$ST_VERDICT_PROP.default" "$ST_SCHEMA")" "$(jq -r '.devflow_review.verdict_severity_threshold' "$ST_EXAMPLE")"
+assert_eq "sev: example receiving_review.fix_severity_threshold matches schema default" "$(jq -r "$ST_RECV_PROP.default" "$ST_SCHEMA")" "$(jq -r '.receiving_review.fix_severity_threshold' "$ST_EXAMPLE")"
+
+# config-get.sh returns the RAW coerced value and does NOT validate the enum — this is why
+# the inline SKILL validation is load-bearing. Prove it on the divergence-prone shapes.
+ST_CFG="$(mktemp)"
+printf '%s' '{"devflow_review_and_fix":{"fix_severity_threshold":"suggestion"}}' > "$ST_CFG"
+assert_eq "sev: config-get returns a configured valid value verbatim" "suggestion" "$("$CG" .devflow_review_and_fix.fix_severity_threshold important "$ST_CFG")"
+printf '%s' '{"devflow_review_and_fix":{"fix_severity_threshold":5}}' > "$ST_CFG"
+assert_eq "sev: config-get returns a raw number unvalidated (validation is the SKILL's job)" "5" "$("$CG" .devflow_review_and_fix.fix_severity_threshold important "$ST_CFG")"
+printf '%s' '{"devflow_review_and_fix":{}}' > "$ST_CFG"
+assert_eq "sev: config-get returns the default on an unset key" "important" "$("$CG" .devflow_review_and_fix.fix_severity_threshold important "$ST_CFG")"
+assert_eq "sev: config-get returns the default on a missing config file" "important" "$("$CG" .devflow_review_and_fix.fix_severity_threshold important /no/such/config.json)"
+rm -f "$ST_CFG"
+
+# sev_normalize is a byte-aligned copy of the inline case block in all three SKILLs (kept in
+# lockstep via the pins below). Exercises the fallback matrix the SKILLs run at runtime.
+sev_normalize() {  # rc raw default -> the validated severity
+  case "$1:$2" in
+    0:critical|0:important|0:suggestion) printf '%s\n' "$2" ;;
+    *) printf '%s\n' "$3" ;;
+  esac
+}
+assert_eq "sev normalize: valid critical kept"                  "critical"   "$(sev_normalize 0 critical important)"
+assert_eq "sev normalize: valid suggestion kept"               "suggestion" "$(sev_normalize 0 suggestion important)"
+assert_eq "sev normalize: default (important) kept"            "important"  "$(sev_normalize 0 important important)"
+assert_eq "sev normalize: coerced object → default"            "important"  "$(sev_normalize 0 '[object Object]' important)"
+assert_eq "sev normalize: comma-joined array → default"        "important"  "$(sev_normalize 0 'critical,important' important)"
+assert_eq "sev normalize: number string → default"            "important"  "$(sev_normalize 0 5 important)"
+assert_eq "sev normalize: unknown string → default"            "important"  "$(sev_normalize 0 blocker important)"
+assert_eq "sev normalize: empty → default"                     "important"  "$(sev_normalize 0 '' important)"
+assert_eq "sev normalize: resolver failure (rc≠0) → default"   "critical"   "$(sev_normalize 2 '' critical)"
+assert_eq "sev normalize: verdict/receiving default is critical" "critical" "$(sev_normalize 0 bogus critical)"
+
+# End-to-end (the REAL config-get.sh runs, then the copied inline validation): the
+# adversarial invalid-shape matrix each resolves to the key's default, never aborting.
+sev_resolve() {  # json key default -> config-get.sh raw value passed through the inline validation
+  local cfg raw rc
+  cfg="$(probe_tmp sev_resolve.cfg)"
+  printf '%s' "$1" > "$cfg"
+  raw="$("$CG" "$2" "$3" "$cfg" 2>/dev/null)"; rc=$?
+  rm -f "$cfg"
+  sev_normalize "$rc" "$raw" "$3"
+}
+STK=.devflow_review_and_fix.fix_severity_threshold
+assert_eq "sev e2e: configured valid value honored"    "suggestion" "$(sev_resolve '{"devflow_review_and_fix":{"fix_severity_threshold":"suggestion"}}' "$STK" important)"
+assert_eq "sev e2e: object value → default"            "important"  "$(sev_resolve '{"devflow_review_and_fix":{"fix_severity_threshold":{"a":1}}}' "$STK" important)"
+assert_eq "sev e2e: array value → default"             "important"  "$(sev_resolve '{"devflow_review_and_fix":{"fix_severity_threshold":["critical","important"]}}' "$STK" important)"
+assert_eq "sev e2e: number value → default"            "important"  "$(sev_resolve '{"devflow_review_and_fix":{"fix_severity_threshold":5}}' "$STK" important)"
+assert_eq "sev e2e: unknown string → default"          "important"  "$(sev_resolve '{"devflow_review_and_fix":{"fix_severity_threshold":"blocker"}}' "$STK" important)"
+assert_eq "sev e2e: unset key → default (silent, AC2)"  "important" "$(sev_resolve '{"devflow_review_and_fix":{}}' "$STK" important)"
+assert_eq "sev e2e: malformed JSON → default"          "important"  "$(sev_resolve '{ not valid json' "$STK" important)"
+
+# operative-sentence pins in the three SKILL.md files (the sentence carrying the behavior)
+ST_RAF="$LIB/../skills/review-and-fix/SKILL.md"
+ST_REV="$LIB/../skills/review/SKILL.md"
+ST_RCV="$LIB/../skills/receiving-code-review/SKILL.md"
+# each SKILL reads its key via config-get.sh (already cloud-allowlisted — no new helper)
+assert_pin_unique "sev(raf): reads fix_severity_threshold via config-get.sh" 'config-get.sh" .devflow_review_and_fix.fix_severity_threshold important' "$ST_RAF"
+assert_pin_unique "sev(rev): reads verdict_severity_threshold via config-get.sh" 'config-get.sh" .devflow_review.verdict_severity_threshold critical' "$ST_REV"
+assert_pin_unique "sev(rcv): reads receiving_review key via config-get.sh (anchor pattern)" 'config-get.sh .receiving_review.fix_severity_threshold critical' "$ST_RCV"
+# each SKILL enum-validates inline (the case block config-get.sh does not do) — one per file
+assert_pin_unique "sev(raf): enum-validates the threshold inline" '0:critical|0:important|0:suggestion' "$ST_RAF"
+assert_pin_unique "sev(rev): enum-validates the threshold inline" '0:critical|0:important|0:suggestion' "$ST_REV"
+assert_pin_unique "sev(rcv): enum-validates the threshold inline" '0:critical|0:important|0:suggestion' "$ST_RCV"
+# routing / verdict / re-open behavior sentences
+assert_pin_unique "sev(raf): routes findings at or above the loop threshold" 'any finding whose severity is at or above `$FIX_THRESHOLD`' "$ST_RAF"
+assert_pin_unique "sev(raf): REJECT-driver widening (the sentence carrying the behavior)" 'no configuration combination produces a REJECT the fixer is configured to ignore' "$ST_RAF"
+assert_pin_unique "sev(rev): rule 3 fires at or above the verdict threshold" 'at or above `$VERDICT_THRESHOLD` (excluding deferral-demoted ones) → **REJECT**' "$ST_REV"
+assert_pin_unique "sev(rcv): carve-out re-opens at every threshold value" 're-opens the diff at every threshold value' "$ST_RCV"
+# the receiving-code-review snippet keeps the vendored body repo-agnostic
+assert_eq "sev(rcv): vendored body has no repo-specific test path (lib/test/run.sh)" "no" "$(grep -qF 'lib/test/run.sh' "$ST_RCV" && echo yes || echo no)"
+assert_eq "sev(rcv): vendored body has no repo-specific CI job name (lib + python tests)" "no" "$(grep -qF 'lib + python tests' "$ST_RCV" && echo yes || echo no)"
+
 # Issue #182 (convention-violation / unscoped-staging): the review-and-fix fix-commit step
 # (Step 3 item 6) must stage only the specific files the fix touched, never `git add -A` /
 # `git add .` — an unscoped stage sweeps unrelated working-tree state (a local config edit,
