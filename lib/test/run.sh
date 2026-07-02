@@ -1054,6 +1054,20 @@ assert_pin_unique "sev(rcv): resolver-failure breadcrumb" 'could not read .recei
 # verdict rule 6 is the coupled partner of rule 3 (below-threshold → APPROVE with notes);
 # pin it so it can't desync from the threshold-driven rule 3 into a contradictory partition
 assert_pin_unique "sev(rev): rule 6 is threshold-driven (coupled with rule 3)" 'Only findings below `$VERDICT_THRESHOLD` present (excluding deferral-demoted ones) → **APPROVE with notes**' "$ST_REV"
+# The "## Verdict Criteria" summary block (the report-template mirror of the numbered
+# rules 3/6) is a SECOND site carrying the same threshold-driven partition. Pin BOTH its
+# lines so a revert of just the summary to the historical "Any Critical → REJECT" /
+# "Only Important/Suggestion → APPROVE with notes" can't ship GREEN and leave the SKILL
+# with two contradictory verdict specs (coupled-invariant rule; PR #252 review finding).
+assert_pin_unique "sev(rev): Verdict-Criteria summary REJECT line is threshold-driven (mirror of rule 3)" 'at or above the configured verdict threshold ({VERDICT_THRESHOLD}) → REJECT' "$ST_REV"
+assert_pin_unique "sev(rev): Verdict-Criteria summary APPROVE-with-notes line is threshold-driven (mirror of rule 6)" 'Only findings below the verdict threshold → APPROVE with notes' "$ST_REV"
+# Step 2.5's pre-fix verification gate was widened in lockstep with the routing threshold:
+# it now classifies the WHOLE effective fix set, not just Critical/Important. This is the
+# load-bearing safety behavior that keeps a Suggestion-level fix (admitted at
+# fix_severity_threshold="suggestion") from bypassing the confidently-wrong-claim gate.
+# Pin the operative clause so a revert to "each Critical or Important/Major finding" goes
+# RED instead of silently stripping the protection (PR #252 review finding).
+assert_pin_unique "sev(raf): Step 2.5 gate widened to the whole effective fix set" 'classify **every finding this iteration routed to the fixer**' "$ST_RAF"
 # each SKILL falls back to its OWN key's default on BOTH fallback arms (out-of-enum +
 # resolver-failure) — a wrong default here would silently loosen/tighten the policy while
 # the case-label pin stayed green. Count is 2 (one assignment per fallback arm).
