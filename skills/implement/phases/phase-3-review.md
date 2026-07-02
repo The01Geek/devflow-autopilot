@@ -56,6 +56,20 @@ Then tick the `/simplify` gate: `workpad.py update $ISSUE_NUMBER --tick-progress
 
 ### 3.3 Review & Fix
 
+**Snapshot this run's per-iteration workpad baseline first (before invoking `review-and-fix`).** The observability backstop below decides whether *this* run wrote any `iter-*.json`; on the local/interactive tier `.devflow/tmp` persists across runs, so a whole-tree presence check would count a prior run's leftover and mask a genuine loss. Record the pre-existing set now so the post-return detector measures only what this run adds:
+```bash
+# Snapshot the iter-*.json that ALREADY exist before driving review-and-fix inline, so the
+# post-return detector can tell whether THIS run wrote any per-iteration workpad rather than
+# whether the review tree is merely non-empty. On the local/interactive tier .devflow/tmp is
+# a persistent gitignored checkout (NOT wiped between runs the way a fresh cloud runner is),
+# so a leftover iter-*.json from a prior run would satisfy a whole-tree presence check and
+# MASK a genuine telemetry loss this run — the exact silent loss this backstop exists to
+# surface. Snapshot to a file because each phase bash block is a separate shell.
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+mkdir -p "$ROOT/.devflow/tmp"
+compgen -G "$ROOT/.devflow/tmp/review/*/*/iter-*.json" 2>/dev/null | sort > "$ROOT/.devflow/tmp/.phase33-iters-before" || :
+```
+
 Invoke the **Skill tool** with `skill: review-and-fix` and `args: "--push-each-iteration"`. The flag is load-bearing here: this phase operates on the live draft PR created in 3.1, and `--push-each-iteration` propagates each fix iteration to the remote branch so its CI validates the converging state and progress survives a mid-loop crash. (Direct users of `/devflow:review-and-fix` omit the flag and the loop stays local — see that skill's Input section for the flag's semantics.)
 
 This runs the four-phase review engine in your context:
@@ -75,23 +89,30 @@ LIB="${CLAUDE_SKILL_DIR}/../../lib"
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 # Idempotent Layer-3 persist: derives + commits the effectiveness record and durable
 # workpad copy from whatever iter-*.json this run left under .devflow/tmp/review/; a commit
-# no-op if already persisted (the effectiveness record is content-idempotent; the durable
-# workpad copy still re-runs) and a full no-op if the inline loop wrote no per-iter workpad. Best-effort
+# no-op if already persisted (the effectiveness record is presence-idempotent — skipped when
+# it already exists; the durable workpad copy re-runs but is content-idempotent, rewriting
+# identical bytes) and a full no-op if the inline loop wrote no per-iter workpad. Best-effort
 # (always exits 0). No --workpad-dir/--slug: with no args --persist scans every run-scoped
 # dir on disk, which is exactly the "the orchestrator does not hold review-and-fix's
 # internal slug/run-id" case at this inline seam.
 "$LIB/efficiency-trace.sh" --persist || true   # best-effort; let its ::warning:: breadcrumbs surface to the run log (never swallow to a write-only file)
-# Detect the "no inputs" case directly, anchored on $ROOT (matching --persist): .devflow/tmp
-# is gitignored ephemeral scratch destroyed with the runner, so any iter-*.json present
-# belongs to this run. Zero of them means the inline loop wrote no per-iteration workpad, so
-# --persist had nothing to derive from and this run's effectiveness telemetry is genuinely
-# lost — surface it, do not swallow. (A persist that DID find inputs but failed to write
-# still leaves efficiency-trace.sh's own ::warning:: on the run log, surfaced above.)
-# This detector counts ANY iter-*.json and does not replicate --persist's source=="review"
-# skip (standalone /devflow:review runs have their own record path); that is correct here
-# because at THIS seam the review-and-fix loop just driven inline is what writes this tree,
-# so a foreign review-sourced dir being the sole occupant is not a reachable in-flow shape.
-if ! compgen -G "$ROOT/.devflow/tmp/review/*/*/iter-*.json" >/dev/null 2>&1; then
+# Detect the "no inputs FROM THIS RUN" case by diffing against the pre-loop snapshot, anchored
+# on $ROOT (matching --persist): comm -13 lists iter-*.json present now but NOT before the
+# inline loop — i.e. exactly what THIS run wrote. This is immune to prior-run leftovers on the
+# persistent local tier, where a whole-tree presence check would let a leftover mask a real
+# loss. If the snapshot file is somehow absent it defaults to empty, degrading to whole-tree
+# presence (fail-toward-surfacing, never masking). Zero NEW iter-*.json means the inline loop
+# wrote no per-iteration workpad, so --persist had nothing to derive from and this run's
+# effectiveness telemetry is genuinely lost — surface it, do not swallow. (A persist that DID
+# find inputs but failed to write still leaves efficiency-trace.sh's own ::warning:: on the
+# run log, surfaced above.) The detector counts NEW iter-*.json regardless of --persist's
+# source=="review" skip (standalone /devflow:review runs have their own record path); that is
+# correct here because at THIS seam the review-and-fix loop just driven inline is what writes
+# this tree, so a foreign review-sourced dir being the sole new occupant is not a reachable
+# in-flow shape.
+BEFORE="$ROOT/.devflow/tmp/.phase33-iters-before"
+[ -f "$BEFORE" ] || : > "$BEFORE"
+if [ -z "$(compgen -G "$ROOT/.devflow/tmp/review/*/*/iter-*.json" 2>/dev/null | sort | comm -13 "$BEFORE" -)" ]; then
   # Guard the loss-record write itself: if workpad.py fails (gh API/permission error,
   # absent reflection section, bad $ISSUE_NUMBER) the ::warning:: keeps the gap visible on
   # the run log rather than silently dropping both the telemetry AND its loss-record — a

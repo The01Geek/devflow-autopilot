@@ -2119,23 +2119,35 @@ assert_pin_red_on_removal "#235 (B) phase-3.3: deleting the dropped-failed-refle
 # #235 (finding B, executable surface): the two prose pins above pin the DIRECTIVE; a
 # half-revert could break the actual bash code block that IMPLEMENTS the backstop while the
 # prose stays intact (the exact framing-only-pin class this PR closes, applied to code). So
-# pin the three executable tokens the backstop stands on — the --persist invocation, the
-# repo-root-anchored no-inputs detector glob, and the dropped-failed reflection emission.
+# pin the executable tokens the backstop stands on — the --persist invocation, the
+# this-run-scoped no-inputs detector, and the dropped-failed reflection emission.
 # These are literal-constant/token pins (not operative-sentence pins), so assert_pin_unique
 # is the right form and no operative-vs-framing note is required (the finding-A carve-out).
 assert_pin_unique "#235 (B) phase-3.3: the --persist backstop command is actually invoked" \
   '"$LIB/efficiency-trace.sh" --persist' "$DEF_SKILL"
-assert_pin_unique "#235 (B) phase-3.3: the no-inputs detector glob is repo-root-anchored (matches --persist)" \
-  'compgen -G "$ROOT/.devflow/tmp/review/*/*/iter-*.json"' "$DEF_SKILL"
+# The "no inputs" detector is THIS-RUN-SCOPED (#236 review): it snapshots the pre-existing
+# iter-*.json BEFORE the inline loop and, after, records a loss only when NO NEW iter-*.json
+# appeared (comm -13 vs the snapshot). A whole-tree presence check would let a prior-run
+# leftover on the persistent local tier mask a genuine loss. The glob now appears in TWO
+# lines (snapshot + detector), so the bare glob substring is no longer unique — pin each full
+# line instead. The detector-line pin also captures the operative condition SENSE (`[ -z … ]`
+# over the comm-diff): a half-revert flipping the sense (-z→-n) or dropping the snapshot diff
+# turns the suite RED — closing the framing-only-pin gap on the guard's condition itself
+# (this PR's own lesson, applied to the detector sense; #236 pr-test-analyzer note).
+assert_pin_unique "#235 (B) phase-3.3: pre-loop snapshot captures pre-existing iter-*.json before the inline loop" \
+  'compgen -G "$ROOT/.devflow/tmp/review/*/*/iter-*.json" 2>/dev/null | sort > "$ROOT/.devflow/tmp/.phase33-iters-before"' "$DEF_SKILL"
+assert_pin_unique "#235 (B) phase-3.3: no-inputs detector is this-run-scoped (comm -13 vs snapshot) AND fail-closed on empty (-z)" \
+  'if [ -z "$(compgen -G "$ROOT/.devflow/tmp/review/*/*/iter-*.json" 2>/dev/null | sort | comm -13 "$BEFORE" -)" ]; then' "$DEF_SKILL"
 assert_pin_unique "#235 (B) phase-3.3: the no-inputs case emits the dropped-failed telemetry-lost reflection" \
   'lib/efficiency-trace.sh --persist had no inputs' "$DEF_SKILL"
-# The detector glob pin above references $ROOT literally, so it stays GREEN even if the
-# $ROOT *derivation* were reverted to a cwd-relative form (e.g. `ROOT=$(pwd)`), silently
-# defeating the repo-root anchoring that keeps the detector congruent with --persist. Pin
-# the derivation itself so that half-revert turns the suite RED — the same framing-vs-fix
-# lesson this whole block is about, applied to the load-bearing producer line.
-assert_pin_unique "#235 (B) phase-3.3: the no-inputs detector root is derived from the git toplevel (not cwd)" \
-  'ROOT=$(git rev-parse --show-toplevel' "$DEF_SKILL"
+# The detector references $ROOT and $BEFORE literally, so it stays GREEN even if the $ROOT
+# *derivation* were reverted to a cwd-relative form (e.g. `ROOT=$(pwd)`), silently defeating
+# the repo-root anchoring that keeps the detector congruent with --persist. $ROOT is now
+# derived in BOTH backstop bash blocks (the pre-loop snapshot and the post-return detector,
+# separate shells), so pin the derivation with a count of exactly 2 — a half-revert of either
+# occurrence turns the suite RED, the same framing-vs-fix lesson applied to the producer line.
+assert_eq "#235 (B) phase-3.3: the no-inputs detector root is derived from the git toplevel (not cwd), in both blocks" \
+  "2" "$(pin_count 'ROOT=$(git rev-parse --show-toplevel' "$DEF_SKILL")"
 # Symmetric to the $ROOT-derivation pin: the `"$LIB/efficiency-trace.sh" --persist` invocation
 # pinned above depends on the `LIB=` derivation that resolves it. Pin that derivation too so a
 # half-revert of the anchor (breaking the backstop invocation while the invocation-token pin

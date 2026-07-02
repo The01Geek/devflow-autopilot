@@ -139,7 +139,12 @@ backstop (idempotent: it never re-derives an existing record, and with no `--wor
 scans every run-scoped dir, which is exactly the "the orchestrator does not hold the loop's internal
 slug/run-id" case). When even `--persist` has no `iter-*.json` inputs — the inline loop wrote no
 per-iteration workpad this run, so the telemetry is genuinely lost — the orchestrator records a
-`dropped-failed` reflection naming the gap rather than letting it vanish silently. The new §3.3 clause is
+`dropped-failed` reflection naming the gap rather than letting it vanish silently. The "no inputs"
+detection is **this-run-scoped**: the orchestrator snapshots the pre-existing `iter-*.json` set
+*before* driving the loop and, after, records a loss only when no *new* `iter-*.json` appeared
+(`comm -13` against the snapshot). This matters on the local/interactive tier, where `.devflow/tmp`
+persists across runs — a whole-tree presence check would let a prior run's leftover mask a genuine
+loss. The new §3.3 clause is
 pinned by two coupled `lib/test/run.sh` removal-proof assertions (#235 finding B).
 
 ## Acceptance-criteria gate: the gated `(post-merge)` tag (Phase 3.4)
