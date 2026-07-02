@@ -542,15 +542,10 @@ jobs:
       # never PR draft state — and acts on the pure decision helper's verdict:
       # terminal → no-op; interim → audit comment + re-dispatch (bounded by
       # stall_backstop.max_resume_attempts); cap exhausted or unreadable →
-      # distinct comment + non-zero exit (the job goes honestly red).
-      #
-      # Two live-run boundaries (documented in docs/implement-skill.md): a
-      # re-dispatch comment authored by the built-in GITHUB_TOKEN does NOT
-      # re-trigger the workflow (GitHub suppresses recursive GITHUB_TOKEN
-      # events), so auto-resume needs the optional DEVFLOW_APP_ID App token —
-      # and that App's bot login must be in devflow.allowed_bots or the gate's
-      # authorization declines the resume comment. Fail-loud + audit comments
-      # work under either token.
+      # distinct comment + non-zero exit (the job goes honestly red). Auto-
+      # resume needs the optional DEVFLOW_APP_ID App token AND that App's bot
+      # login in devflow.allowed_bots; fail-loud works under either token —
+      # see docs/implement-skill.md for the full boundary discussion.
       - name: Stall backstop
         if: ${{ always() }}
         env:
@@ -561,14 +556,17 @@ jobs:
           V=.devflow/vendor/devflow/scripts
           [ -d "$V" ] || { echo "::warning::stall backstop: vendored scripts dir '$V' missing; skipped"; exit 0; }
           # Master switch first: disabled → fully skipped (no status read, no
-          # comment, no resume, no fail). Unrecognized/missing resolves to true.
-          ENABLED="$("$V/config-get.sh" .devflow_implement.stall_backstop.enabled true)" || ENABLED=true
+          # comment, no resume, no fail). Unrecognized/missing resolves to true;
+          # config-get prints a fully-resolved value or nothing, so one
+          # emptiness fallback covers both its soft and hard failure paths.
+          ENABLED="$("$V/config-get.sh" .devflow_implement.stall_backstop.enabled true)"
           [ -n "$ENABLED" ] || ENABLED=true
           if [ "$ENABLED" = "false" ]; then
             echo "stall backstop: disabled via stall_backstop.enabled=false; skipping (no status read)"
             exit 0
           fi
-          MAX="$("$V/config-get.sh" .devflow_implement.stall_backstop.max_resume_attempts 2)" || MAX=2
+          MAX="$("$V/config-get.sh" .devflow_implement.stall_backstop.max_resume_attempts 2)"
+          [ -n "$MAX" ] || MAX=2
           # Workpad Status read: exit 2 (no workpad) and exit 1 (unparseable
           # Status) both map to the decision helper's 'unreadable' class.
           STATUS_OUT="$(python3 "$V/workpad.py" status "$ISSUE_NUMBER" 2>/dev/null)"
@@ -581,21 +579,31 @@ jobs:
           # Prior auto-resume attempts = audit comments carrying the marker
           # below. The marker is written into each resume comment AND counted
           # here through this single variable (coupled with the lib/test/run.sh
-          # pin). A gh/network failure counts 0 — failing toward one more
-          # resume attempt, never toward a spurious exhaustion.
+          # pin). Counted lazily — only an interim status can lead to a decision
+          # that reads it — so the healthy terminal path skips the paginated
+          # fetch. A gh/network failure counts 0: failing toward one more resume
+          # attempt, never toward a spurious exhaustion.
           MARKER='<!-- devflow:stall-backstop-audit -->'
-          ATTEMPTS="$(gh api --paginate "repos/{owner}/{repo}/issues/${ISSUE_NUMBER}/comments?per_page=100" --jq '.[].body' 2>/dev/null | grep -cF "$MARKER")"
-          [[ "$ATTEMPTS" =~ ^[0-9]+$ ]] || ATTEMPTS=0
+          ATTEMPTS=0
+          if [ "$CLASS" = "interim" ]; then
+            ATTEMPTS="$(gh api --paginate "repos/{owner}/{repo}/issues/${ISSUE_NUMBER}/comments?per_page=100" --jq '.[].body' 2>/dev/null | grep -cF "$MARKER")"
+            [[ "$ATTEMPTS" =~ ^[0-9]+$ ]] || ATTEMPTS=0
+          fi
           DECISION="$(bash "$V/stall-backstop-decide.sh" "$ENABLED" "$CLASS" "$ATTEMPTS" "$MAX")"
           echo "stall backstop: status='${STATUS_OUT}' class=${CLASS} attempts=${ATTEMPTS} max=${MAX} decision=${DECISION}"
-          if [ "$DECISION" = "skip" ] || [ "$DECISION" = "noop" ]; then
+          # (The helper's 'skip' arm is unreachable here — the early exit above
+          # already returned on ENABLED=false — so only 'noop' ends the step.)
+          if [ "$DECISION" = "noop" ]; then
             exit 0
           fi
-          BODY="$(mktemp)" || { echo "::warning::stall backstop: mktemp failed; cannot post the ${DECISION} comment"; [ "$DECISION" = "resume" ] && exit 0 || exit 1; }
+          # resume keeps the job green (the new run takes over); every other
+          # decision fails the job loud. Computed before mktemp so the guard
+          # and the funnel share one mapping.
           FAIL=1
+          [ "$DECISION" = "resume" ] && FAIL=0
+          BODY="$(mktemp)" || { echo "::warning::stall backstop: mktemp failed; cannot post the ${DECISION} comment"; exit "$FAIL"; }
           case "$DECISION" in
             resume)
-              FAIL=0
               K=$((ATTEMPTS + 1))
               # The ONLY comment that may carry the trigger phrase. It must not
               # embed the workpad marker (the gate's self-trigger guard declines
@@ -611,7 +619,7 @@ jobs:
               ;;
             *)
               # fail-unreadable (or any unknown/empty decision token — fail closed).
-              printf '**DevFlow stall backstop** — could not classify this run'"'"'s outcome: the issue workpad Status was unreadable (workpad comment missing, or its Status line unparseable), or the backstop decision could not be computed (decision token: `%s`). The job has been failed so this is visible; inspect the run log and the workpad, then post a fresh implement trigger comment to retry.\n' "${DECISION:-none}" > "$BODY"
+              printf '**DevFlow stall backstop** — could not classify the outcome of this run: the issue workpad Status was unreadable (workpad comment missing, or its Status line unparseable), or the backstop decision could not be computed (decision token: `%s`). The job has been failed so the stall is visible; inspect the run log and the workpad, then post a fresh implement trigger comment to retry.\n' "${DECISION:-none}" > "$BODY"
               ;;
           esac
           bash "$V/post-issue-comment.sh" "$ISSUE_NUMBER" "$BODY"
