@@ -128,7 +128,7 @@ one purely so a bot-authored "implement this" comment could re-trigger the
 workflow; a human `/devflow:implement <#>` comment is itself a native user event,
 so that need is gone.)
 
-### Optional: a GitHub App to edit `.github/workflows/` files
+### Optional: a GitHub App for workflow-file pushes and a single DevFlow identity
 
 DevFlow's cloud writers — `/devflow:implement` (`devflow-implement.yml`) and the
 write-capable `/devflow:review-and-fix` path (`devflow.yml`'s `command` job) — push
@@ -137,10 +137,16 @@ to the feature branch using the built-in `GITHUB_TOKEN`. GitHub **hard-blocks**
 (the push is refused: *"refusing to allow … to create or update workflow … without
 `workflows` permission"*), and `actions: write` does not lift it. So a ticket whose
 change legitimately edits a workflow file cannot be completed by the cloud tier on
-the default credential.
+the default credential. Separately, everything DevFlow posts on the default
+credential — reviews, verdicts, reactions, notice comments — is attributed to
+`github-actions[bot]`, and an approval from `github-actions[bot]` cannot satisfy a
+"required approving reviews" branch-protection rule.
 
-This is **opt-in** and unlocks exactly that. When it is **not** configured, behavior
-is byte-for-byte unchanged — no new secret or variable is required. To enable it,
+The optional App unlocks both: workflow-file pushes for the writers, and **one App
+identity for every user-visible DevFlow cloud post** — the review agent's progress
+comment, verdicts, approvals, and rejections; the 👀/🚀 trigger reactions; and the
+notice comments. This is **opt-in**. When it is **not** configured, behavior is
+byte-for-byte unchanged — no new secret or variable is required. To enable it,
 create a GitHub App, install it on the repo, and configure:
 
 | Kind | Name | Value |
@@ -148,20 +154,34 @@ create a GitHub App, install it on the repo, and configure:
 | Repository **variable** | `DEVFLOW_APP_ID` | The App's ID (or client ID). |
 | Repository **secret** | `DEVFLOW_APP_PRIVATE_KEY` | The App's PEM private key. |
 
-The App must be **installed on the repo** with both **`Contents: write`** and
-**`Workflows: write`** permissions — `Workflows: write` alone cannot commit, and
-`Contents: write` alone hits the original `workflows`-permission refusal, so both are
-required. Set the variable + secret under **Settings → Secrets and variables →
-Actions** (the App ID is a *variable*, the private key a *secret*).
+The App must be **installed on the repo** with **`Contents: write`**,
+**`Workflows: write`** (the writers' push path — `Workflows: write` alone cannot
+commit, and `Contents: write` alone hits the original `workflows`-permission
+refusal), plus **`Pull requests: write`**, **`Issues: write`**, and
+**`Actions: read`** (the review/reaction/notice sites below). Set the variable +
+secret under **Settings → Secrets and variables → Actions** (the App ID is a
+*variable*, the private key a *secret*).
 
-With `DEVFLOW_APP_ID` set, each write workflow mints a short-lived App installation
-token (via `actions/create-github-app-token`) carrying those permissions and uses it
-for git operations, so workflow-file pushes succeed. The mint step is gated on
-`vars.DEVFLOW_APP_ID != ''`, so it is skipped when the variable is unset and
-`github_token` falls back to `GITHUB_TOKEN`. A configured-but-broken App (invalid or
-rotated key) **fails the job at the mint step** — there is no silent fall-back to
-`GITHUB_TOKEN`. The read-only reviewer (`devflow-runner.yml`) is untouched: it never
-edits files and keeps the plain `GITHUB_TOKEN`.
+With `DEVFLOW_APP_ID` set, each cloud site mints its own short-lived App
+installation token (via `actions/create-github-app-token`) **downscoped to exactly
+what that site does** — a job-scoped token cannot cross jobs, and the `permission-*`
+mint inputs are the sole enforcement of least privilege (an App installation token
+ignores the job's `permissions:` block):
+
+| Site | Scope | Can |
+|---|---|---|
+| Writers' agent (`devflow-implement.yml` / `devflow.yml` `command`) | full installation scope | push, incl. `.github/workflows/` files |
+| Review agent (`devflow-runner.yml`) | `contents: read`, `issues: read`, `pull-requests: write`, `actions: read` | read the repo/issue/CI; post comments, reviews, approvals, rejections — **cannot push** |
+| Trigger reactions + notices (`devflow.yml` / `devflow-implement.yml` `gate`, `devflow.yml` `review_dedupe`) | `issues: write` and/or `pull-requests: write` | add reactions, post notice comments — nothing more |
+
+Every mint step is gated on `vars.DEVFLOW_APP_ID != ''`, so it is skipped when the
+variable is unset and each consumer falls back to `GITHUB_TOKEN`. A
+configured-but-broken App (invalid or rotated key, or an installation missing one of
+the permissions a site requests) **fails the job at the mint step** — there is no
+silent fall-back to `GITHUB_TOKEN`. Deliberately still on `GITHUB_TOKEN`: the
+`Devflow Review` check-run (emitted by the Actions runner from the job `name:`, not
+token-authored) and the stale-rejection housekeeping (invisible; works
+cross-identity).
 
 > **Loop-safety note.** Unlike `GITHUB_TOKEN` pushes (which GitHub suppresses from
 > re-triggering workflows), an **App-token push re-triggers workflows**. For DevFlow
