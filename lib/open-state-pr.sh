@@ -29,8 +29,11 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# ── gh binary (allow injection for tests) ────────────────────────────────────
-: "${DEVFLOW_GH:=gh}"
+# ── gh binary: resolved once via the single-source resolver (execution-verified);
+# an explicit DEVFLOW_GH still wins (injection for tests) ─────────────────────
+# shellcheck source=resolve-gh.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/resolve-gh.sh"
+: "${DEVFLOW_GH:=$(devflow_resolve_gh)}"
 
 # ── Determine entry count ─────────────────────────────────────────────────────
 N=0

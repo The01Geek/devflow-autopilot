@@ -19,6 +19,12 @@
 # No `set -e` here — the function is sourced into scripts that manage their own
 # error mode, and the collaborator loop deliberately tolerates non-zero gh exits.
 
+# gh binary: resolved once via the single-source resolver (execution-verified);
+# an explicit DEVFLOW_GH still wins, so test stubs are untouched.
+# shellcheck source=../lib/resolve-gh.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/resolve-gh.sh"
+: "${DEVFLOW_GH:=$(devflow_resolve_gh)}"
+
 authorize_actor() {
   local actor="${ACTOR:-}" allowed_bots="${ALLOWED_BOTS:-}" repo="${REPO:-}"
   # Empty/unset → wildcard, preserving "any collaborator" behavior for repos
@@ -63,7 +69,7 @@ authorize_actor() {
       perm=""
       last_err=""
       for attempt in 1 2; do
-        if perm="$(gh api "repos/$repo/collaborators/$actor/permission" \
+        if perm="$("$DEVFLOW_GH" api "repos/$repo/collaborators/$actor/permission" \
                      --jq '.permission' 2>"$err_file")"; then
           break
         fi

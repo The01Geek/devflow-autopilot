@@ -20,7 +20,11 @@
 # `read:org`) creates labels successfully.
 set -uo pipefail
 
-: "${DEVFLOW_GH:=gh}"
+# gh binary: resolved once via the single-source resolver (execution-verified);
+# an explicit DEVFLOW_GH still wins, so test stubs are untouched.
+# shellcheck source=../lib/resolve-gh.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/resolve-gh.sh"
+: "${DEVFLOW_GH:=$(devflow_resolve_gh)}"
 NAME="${1:?Usage: ensure-label.sh <name>}"
 
 # Capture both streams so we can distinguish "already exists" (benign) from a

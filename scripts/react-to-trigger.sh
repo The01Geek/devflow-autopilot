@@ -39,6 +39,12 @@
 
 set -euo pipefail
 
+# gh binary: resolved once via the single-source resolver (execution-verified);
+# an explicit DEVFLOW_GH still wins, so test stubs are untouched.
+# shellcheck source=../lib/resolve-gh.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/resolve-gh.sh"
+: "${DEVFLOW_GH:=$(devflow_resolve_gh)}"
+
 reaction="${REACTION:-rocket}"
 repo="${REPO:-}"
 event="${EVENT_NAME:-}"
@@ -72,7 +78,7 @@ esac
 # the actual gh error (e.g. "HTTP 403: Resource not accessible by integration"
 # when the token lacks issues/pull-requests write) — without it a permissions
 # misconfig is indistinguishable from transient flakiness.
-if err="$(gh api -X POST "$endpoint" -f "content=$reaction" 2>&1 >/dev/null)"; then
+if err="$("$DEVFLOW_GH" api -X POST "$endpoint" -f "content=$reaction" 2>&1 >/dev/null)"; then
   echo "::notice::react: added :$reaction: to $endpoint" >&2
 else
   # Collapse to one line so the GitHub log annotation stays readable.

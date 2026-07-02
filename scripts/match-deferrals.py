@@ -57,10 +57,15 @@ Exit codes:
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
 from pathlib import Path
+
+# The gh binary to shell out to. `DEVFLOW_GH` (the documented override the shell
+# helpers resolve via lib/resolve-gh.sh) wins when set and non-empty; else `gh`.
+GH = os.environ.get("DEVFLOW_GH") or "gh"
 
 LINE_DRIFT_TOLERANCE = 25
 WIDENS_SURFACE_TOLERANCE = 10
@@ -91,10 +96,19 @@ def _run(cmd, *, check=True):
     # which are routinely non-ASCII, so decoding through the locale codec would
     # raise UnicodeDecodeError under a non-UTF-8 ambient codec (Windows' cp1252).
     # Implies text mode, so `text=True` is dropped (passing both is redundant).
-    return subprocess.run(
-        cmd, check=check,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8",
-    )
+    # An OSError (ENOEXEC from a non-executable `gh` shim, or gh absent — the
+    # host class DEVFLOW_GH exists for) is converted into the same structured
+    # surface as a non-zero exit, so callers get a breadcrumb, not a traceback.
+    try:
+        return subprocess.run(
+            cmd, check=check,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8",
+        )
+    except OSError as e:
+        if check:
+            _fail(f"could not execute {cmd[0]!r}: {e} "
+                  f"(set DEVFLOW_GH to a working GitHub CLI)")
+        return subprocess.CompletedProcess(cmd, 127, stdout="", stderr=str(e))
 
 
 def _config_get(key: str, default: str = "", config_path: str = DEFAULT_CONFIG) -> str:
@@ -102,6 +116,19 @@ def _config_get(key: str, default: str = "", config_path: str = DEFAULT_CONFIG) 
     helper = here / "config-get.sh"
     r = _run([str(helper), key, default, config_path], check=False)
     if r.returncode != 0:
+        # rc=127 with empty stdout is _run's OSError sentinel (config-get.sh could
+        # not execute at all — e.g. it lost its exec bit on a Windows checkout, or
+        # a bad shebang) — a genuinely broken helper, not "the key is unset". The
+        # two are otherwise indistinguishable to this caller (allowed_bots_raw
+        # silently resolving to "" makes pr_author_trusted False, which rejects
+        # every deferral as untrusted-filer with no clue the real cause is a
+        # broken helper, not policy). Log a breadcrumb so it's diagnosable.
+        if r.returncode == 127 and not r.stdout:
+            sys.stderr.write(
+                f"match-deferrals.py: could not execute {str(helper)!r} "
+                f"({r.stderr.strip()}); falling back to default {default!r} for "
+                f"{key!r}\n"
+            )
         return default
     return r.stdout.strip()
 
@@ -166,7 +193,7 @@ def _parse_yaml_payload(block: str) -> dict:
 
 def _get_pr_body_and_author(pr_number: int) -> tuple[str, str]:
     r = _run(
-        ["gh", "pr", "view", str(pr_number),
+        [GH, "pr", "view", str(pr_number),
          "--json", "body,author", "--jq",
          "[.body, (.author.login // \"\")] | @json"],
         check=False,
@@ -180,12 +207,24 @@ def _get_pr_body_and_author(pr_number: int) -> tuple[str, str]:
 def _check_issue_cross_link(issue_number: int, pr_number: int) -> str | None:
     """Returns None if valid, else a rejection reason string."""
     r = _run(
-        ["gh", "issue", "view", str(issue_number),
+        [GH, "issue", "view", str(issue_number),
          "--json", "body,state", "--jq",
          "[.body, .state] | @json"],
         check=False,
     )
     if r.returncode != 0:
+        # rc=127 with empty stdout is _run's OSError sentinel (gh could not execute
+        # at all — e.g. an unrunnable shim), not a genuine gh/GitHub failure (404,
+        # permission, rate limit). An unusable gh invalidates the whole matching
+        # run, not just this one deferral, so fail loudly instead of silently
+        # misclassifying it as "issue unreadable" and discarding the diagnostic.
+        if r.returncode == 127 and not r.stdout:
+            _fail(f"could not execute {GH!r} while checking issue #{issue_number}: "
+                  f"{r.stderr.strip()} (set DEVFLOW_GH to a working GitHub CLI)")
+        sys.stderr.write(
+            f"match-deferrals.py: could not read issue #{issue_number} "
+            f"({r.stderr.strip()}); treating as unreadable\n"
+        )
         return REASON_ISSUE_UNREADABLE
     body, state = json.loads(r.stdout.strip())
     if state.upper() != "OPEN":

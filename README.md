@@ -113,6 +113,8 @@ The intended way to drive DevFlow — from a feature request to a reviewed pull 
 
 All four are used by the core skills; none is optional. Shell helpers avoid GNU-only flags, so macOS/BSD work without GNU coreutils.
 
+On **Windows (WSL-bash / Git Bash)** a non-executable `gh` shim can shadow the real GitHub CLI on `PATH`; DevFlow resolves the first `gh`/`gh.exe` that actually runs (execution-verified), and you can force a specific binary by setting **`DEVFLOW_GH`** to the working `gh` / `gh.exe`. See [Windows: resolving `gh`](docs/install.md#windows-resolving-gh).
+
 **Cloud tier** — nothing to install on your machine; the GitHub Actions runner provisions its own toolchain. See [`docs/cloud-setup.md`](docs/cloud-setup.md).
 
 ## Skills and agents

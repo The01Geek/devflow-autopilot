@@ -194,6 +194,26 @@ finally:
     if _saved is not None:
         _os.environ['DEVFLOW_WORKPAD_MARKER'] = _saved
 
+# #245: a broken config-get.sh (OSError — lost exec bit, bad shebang) must not
+# be silently indistinguishable from "no marker override configured" — both
+# otherwise fall back to _DEFAULT_WORKPAD_MARKER with zero diagnostic. Log a
+# breadcrumb naming the broken helper, mirroring match_deferrals._config_get's
+# identical fix for the identical config-get.sh-via-_run pattern.
+_saved_wp_run = workpad._run
+try:
+    def _boom_oserror(*a, **kw):
+        raise OSError(8, "Exec format error")
+    workpad._run = _boom_oserror
+    _stderr_capture = io.StringIO()
+    with contextlib.redirect_stderr(_stderr_capture):
+        _val = workpad._workpad_marker(None)
+    assert_eq("marker: broken config-get.sh (OSError) → still returns the default (no raise)",
+              workpad._DEFAULT_WORKPAD_MARKER, _val)
+    assert_eq("marker: broken config-get.sh (OSError) → logs a breadcrumb naming config-get.sh",
+              True, "config-get.sh" in _stderr_capture.getvalue())
+finally:
+    workpad._run = _saved_wp_run
+
 
 print("workpad.cmd_id exit-code contract (issue #55 live-comment seeding)")
 
@@ -1431,6 +1451,46 @@ assert_eq("render_issue_body: references source issue #40", True, '#40' in _body
 assert_eq("render_issue_body: severity/agent heading", True, '### High — sec' in _body)
 assert_eq("render_issue_body: file:line-range", True, 'a.py:1-2' in _body)
 
+print("file_deferrals._create_issue (#245: OSError from an unrunnable gh must "
+      "raise RuntimeError, not a raw traceback)")
+
+# _create_issue's non-dry-run path must convert a real OSError (unrunnable gh
+# shim / absent binary) into RuntimeError with an actionable message, per its
+# own docstring contract ("Raises on failure") — never let the bare OSError
+# escape uncaught.
+_saved_sp_run = file_deferrals.subprocess.run
+try:
+    def _boom_oserror(*a, **kw):
+        raise OSError(8, "Exec format error")
+    file_deferrals.subprocess.run = _boom_oserror
+    _raised_runtime_error = False
+    try:
+        file_deferrals._create_issue("t", "b", dry_run=False)
+    except RuntimeError as e:
+        _raised_runtime_error = True
+        _msg = str(e)
+    except OSError:
+        _raised_runtime_error = False
+        _msg = ""
+    assert_eq("create_issue: unrunnable gh (OSError) → RuntimeError, not a bare OSError",
+              True, _raised_runtime_error)
+    assert_eq("create_issue: RuntimeError message names the resolved gh and the escape hatch",
+              True, ("DEVFLOW_GH" in _msg))
+finally:
+    file_deferrals.subprocess.run = _saved_sp_run
+
+# dry_run=True must short-circuit before ever calling subprocess.run — confirms
+# the OSError path above genuinely exercises the real (non-dry-run) branch.
+_saved_sp_run = file_deferrals.subprocess.run
+try:
+    file_deferrals.subprocess.run = lambda *a, **kw: (_ for _ in ()).throw(
+        AssertionError("dry_run must not invoke subprocess.run"))
+    _num, _url = file_deferrals._create_issue("t", "b", dry_run=True)
+    assert_eq("create_issue: dry_run short-circuits before subprocess.run", True,
+              _url.startswith("https://example.invalid/"))
+finally:
+    file_deferrals.subprocess.run = _saved_sp_run
+
 
 print("match_deferrals._extract_block / _parse_yaml_payload (hidden-comment payload)")
 
@@ -1552,6 +1612,115 @@ _empty_payload = """<!-- DEVFLOW_DEFERRED_FINDINGS_START -->
 assert_eq("parse_payload: empty payload comment → {}", {},
           match_deferrals._parse_yaml_payload(
               match_deferrals._extract_block(_empty_payload)))
+
+print("match_deferrals._check_issue_cross_link (#245: gh-exec-failure vs. genuine "
+      "issue-unreadable must not be conflated)")
+
+# _check_issue_cross_link must no longer silently treat _run's OSError sentinel
+# (CompletedProcess(cmd, 127, stdout="", stderr=str(e))) the same as a genuine
+# gh/GitHub failure (404, permission, rate limit) — an unusable gh invalidates
+# the whole matching run and must fail loudly via _fail() (sys.exit), not just
+# return REASON_ISSUE_UNREADABLE and discard the diagnostic.
+_saved_run = match_deferrals._run
+try:
+    match_deferrals._run = lambda cmd, **kw: match_deferrals.subprocess.CompletedProcess(
+        cmd, 127, stdout="", stderr="[Errno 8] Exec format error: 'gh'")
+    _exited = False
+    _exit_code = None
+    try:
+        match_deferrals._check_issue_cross_link(9, 1)
+    except SystemExit as e:
+        _exited = True
+        _exit_code = e.code
+    assert_eq("check_issue_cross_link: OSError sentinel (rc=127, empty stdout) → fails loudly (SystemExit)",
+              True, _exited)
+    assert_eq("check_issue_cross_link: OSError sentinel → non-zero exit code", True,
+              bool(_exit_code))
+finally:
+    match_deferrals._run = _saved_run
+
+# A genuine gh/GitHub failure (non-127 rc, e.g. 404/permission) must still
+# degrade gracefully to REASON_ISSUE_UNREADABLE — this is NOT the OSError path,
+# so it must not raise/exit.
+_saved_run = match_deferrals._run
+try:
+    match_deferrals._run = lambda cmd, **kw: match_deferrals.subprocess.CompletedProcess(
+        cmd, 1, stdout="", stderr="HTTP 404: Not Found")
+    _reason = match_deferrals._check_issue_cross_link(9, 1)
+    assert_eq("check_issue_cross_link: genuine gh failure (rc=1) → REASON_ISSUE_UNREADABLE (degrades, no exit)",
+              match_deferrals.REASON_ISSUE_UNREADABLE, _reason)
+finally:
+    match_deferrals._run = _saved_run
+
+# rc==127 with NON-empty stdout is not the OSError sentinel shape (_run's sentinel
+# always pairs 127 with empty stdout) — must not be misclassified as an exec
+# failure and must degrade gracefully like any other genuine non-zero rc.
+_saved_run = match_deferrals._run
+try:
+    match_deferrals._run = lambda cmd, **kw: match_deferrals.subprocess.CompletedProcess(
+        cmd, 127, stdout="some output", stderr="")
+    _reason = match_deferrals._check_issue_cross_link(9, 1)
+    assert_eq("check_issue_cross_link: rc=127 with non-empty stdout (not the OSError shape) → degrades, no exit",
+              match_deferrals.REASON_ISSUE_UNREADABLE, _reason)
+finally:
+    match_deferrals._run = _saved_run
+
+# The 3 tests above monkeypatch _run itself to hand _check_issue_cross_link a
+# pre-built sentinel — they never confirm _run() itself actually PRODUCES that
+# (127, empty-stdout) shape from a real OSError. Exercise the real subprocess.run
+# call so a regression in _run's own except-OSError block (wrong rc, non-empty
+# stdout, wrong exception class) is caught here rather than only in the mocked
+# classification tests above.
+_saved_sp_run = match_deferrals.subprocess.run
+try:
+    def _boom_oserror(*a, **kw):
+        raise OSError(8, "Exec format error")
+    match_deferrals.subprocess.run = _boom_oserror
+    _r = match_deferrals._run(["gh-does-not-matter"], check=False)
+    assert_eq("_run: real OSError (check=False) → sentinel returncode is 127",
+              127, _r.returncode)
+    assert_eq("_run: real OSError (check=False) → sentinel stdout is empty",
+              "", _r.stdout)
+    assert_eq("_run: real OSError (check=False) → stderr carries the exception text",
+              True, "Exec format error" in _r.stderr)
+finally:
+    match_deferrals.subprocess.run = _saved_sp_run
+
+print("match_deferrals._config_get (#245: a broken config-get.sh must not be "
+      "silently indistinguishable from a legitimately-unset key)")
+
+# A broken config-get.sh (OSError sentinel: rc=127, empty stdout) must log a
+# breadcrumb so an operator can tell "the helper couldn't execute" apart from
+# "the key just isn't set" — both otherwise silently return `default`.
+_saved_run = match_deferrals._run
+try:
+    match_deferrals._run = lambda cmd, **kw: match_deferrals.subprocess.CompletedProcess(
+        cmd, 127, stdout="", stderr="[Errno 8] Exec format error")
+    _stderr_capture = io.StringIO()
+    with contextlib.redirect_stderr(_stderr_capture):
+        _val = match_deferrals._config_get("some.key", "fallback")
+    assert_eq("config_get: OSError sentinel → still returns the default (no raise)",
+              "fallback", _val)
+    assert_eq("config_get: OSError sentinel → logs a breadcrumb naming config-get.sh",
+              True, "config-get.sh" in _stderr_capture.getvalue())
+finally:
+    match_deferrals._run = _saved_run
+
+# A genuine non-zero rc (config-get.sh ran fine but the key/file doesn't exist)
+# must NOT log the broken-helper breadcrumb — that would be a false alarm on
+# the ordinary, expected "key not found" path.
+_saved_run = match_deferrals._run
+try:
+    match_deferrals._run = lambda cmd, **kw: match_deferrals.subprocess.CompletedProcess(
+        cmd, 1, stdout="", stderr="")
+    _stderr_capture = io.StringIO()
+    with contextlib.redirect_stderr(_stderr_capture):
+        _val = match_deferrals._config_get("some.key", "fallback")
+    assert_eq("config_get: ordinary non-zero rc → returns the default", "fallback", _val)
+    assert_eq("config_get: ordinary non-zero rc → does NOT log the broken-helper breadcrumb",
+              False, "could not execute" in _stderr_capture.getvalue())
+finally:
+    match_deferrals._run = _saved_run
 
 
 # ---------------------------------------------------------------------------

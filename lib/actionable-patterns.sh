@@ -31,7 +31,8 @@
 #     }
 #
 # Environment:
-#   DEVFLOW_GH  override the gh binary (default: gh). Used by tests for stubbing.
+#   DEVFLOW_GH  override the gh binary. Used by tests for stubbing; when unset
+#               or empty it is resolved (execution-verified) via lib/resolve-gh.sh.
 
 set -euo pipefail
 
@@ -47,7 +48,11 @@ OVERRIDES_FILE="$2"
 MIN="$(devflow_conf '.devflow_retrospective.min_occurrences' 2)"
 COOLDOWN="$(devflow_conf '.devflow_retrospective.cooldown_days' 3)"
 
-: "${DEVFLOW_GH:=gh}"
+# gh binary: resolved once via the single-source resolver (execution-verified);
+# an explicit DEVFLOW_GH still wins, so test stubs are untouched.
+# shellcheck source=resolve-gh.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/resolve-gh.sh"
+: "${DEVFLOW_GH:=$(devflow_resolve_gh)}"
 
 # ── Stub overrides.json if absent or empty (first-run safety) ─────────────────
 _OVERRIDES_ACTUAL="$OVERRIDES_FILE"

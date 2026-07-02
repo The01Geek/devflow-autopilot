@@ -9,8 +9,12 @@ set -euo pipefail
 
 PR="${1:?Usage: fetch-pr-context.sh <pr-number>}"
 
-: "${DEVFLOW_GH:=gh}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# gh binary: resolved once via the single-source resolver (execution-verified);
+# an explicit DEVFLOW_GH still wins, so test stubs are untouched.
+# shellcheck source=resolve-gh.sh
+. "$HERE/resolve-gh.sh"
+: "${DEVFLOW_GH:=$(devflow_resolve_gh)}"
 
 # shellcheck source=./config-source.sh
 . "$HERE/config-source.sh"

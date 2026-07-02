@@ -47,10 +47,15 @@ Exit codes:
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
 from pathlib import Path
+
+# The gh binary to shell out to. `DEVFLOW_GH` (the documented override the shell
+# helpers resolve via lib/resolve-gh.sh) wins when set and non-empty; else `gh`.
+GH = os.environ.get("DEVFLOW_GH") or "gh"
 
 
 # Trigger phrases that mark a criterion as post-merge. Matched case-
@@ -123,11 +128,15 @@ def _fetch_body(issue: int) -> str:
         # `encoding="utf-8"` so DECODING the issue body (routinely non-ASCII)
         # does not raise under a non-UTF-8 ambient codec. Implies text mode.
         r = subprocess.run(
-            ['gh', 'issue', 'view', str(issue), '--json', 'body', '-q', '.body'],
+            [GH, 'issue', 'view', str(issue), '--json', 'body', '-q', '.body'],
             check=True, capture_output=True, encoding="utf-8",
         )
-    except subprocess.CalledProcessError as e:
-        sys.stderr.write(f"parse-acs.py: gh issue view failed: {e.stderr.strip()}\n")
+    except (subprocess.CalledProcessError, OSError) as e:
+        # OSError covers a gh that cannot execute at all (ENOEXEC shim, absent
+        # binary — the host class DEVFLOW_GH exists for); it carries no
+        # .stderr, so fall back to str(e).
+        msg = e.stderr.strip() if isinstance(e, subprocess.CalledProcessError) else str(e)
+        sys.stderr.write(f"parse-acs.py: gh issue view failed: {msg}\n")
         sys.exit(1)
     return r.stdout
 

@@ -51,6 +51,20 @@ bash scripts/provision-python3-shim.sh --apply
 
 It selects the first of `python3`/`py -3`/`python` reporting `>=3.11`, writes a `python3` that forwards all arguments and the exit code to it (never recursing), and prints a `devflow-python:` breadcrumb. Without `--apply` it prints exactly what it would do and writes nothing. It is idempotent — a no-op when a real `python3 >=3.11` already resolves — and refuses to write a shim if no `>=3.11` interpreter exists. `install.sh` surfaces this provisioner in plan-only mode on the clone-based install path, and `bash lib/preflight.sh` (which `/devflow:init` relays) points you here when it detects the no-`python3`/has-alternate state. macOS/Linux already ship a real `python3`, so this step is a no-op there.
 
+### Windows: resolving `gh`
+
+On Windows (WSL-bash or Git Bash), `PATH` can place a **non-executable `gh`** — for example a Python-provided `gh` script carrying a Windows shebang — ahead of the real GitHub CLI (`gh.exe`). A bare `gh` then resolves to that shim, which fails with `cannot execute: required file not found`, so every DevFlow helper that shells out to `gh` breaks even though `gh` works from PowerShell.
+
+DevFlow resolves this automatically: `lib/resolve-gh.sh` (used by every gh-calling helper and by `lib/preflight.sh`) picks the first of `gh`, `gh.exe` whose `gh --version` **actually runs** (a network- and auth-free probe), so a present-but-unrunnable shim is rejected in favor of a working `gh.exe`. On macOS/Linux/cloud, where bare `gh` runs, it returns `gh` on the first probe — no behavior change.
+
+If your host needs a specific binary (or you want to bypass probing entirely), set the **`DEVFLOW_GH`** environment variable to the working `gh` / `gh.exe` (a name on PATH or an absolute path). When set and non-empty it takes top precedence — the probe runs only when `DEVFLOW_GH` is unset or empty — and it is honored by both the shell helpers and the Python helpers (`workpad.py`, `file-deferrals.py`, `match-deferrals.py`, `parse-acs.py`):
+
+```bash
+export DEVFLOW_GH=gh.exe   # or an absolute path to the working GitHub CLI
+```
+
+`bash lib/preflight.sh` reports a present-but-unrunnable `gh` with this remedy.
+
 ## Cloud tier (optional, autonomous)
 
 For autonomous GitHub Actions automation, run this from your repo root — the same command installs and later updates it:
