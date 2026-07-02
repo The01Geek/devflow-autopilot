@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.60] — 2026-07-02
+
+### Added
+- **The cloud `/devflow:implement` stall backstop is now wired into `devflow-implement.yml`** (the thin workflow-caller step deferred from #266, whose primitives shipped in 2.8.55). A new `Stall backstop` step (`if: always()`, after the observability-persist backstop in the `claude` job) reads `devflow_implement.stall_backstop.{enabled,max_resume_attempts}` via the vendored `config-get.sh`, reads the issue workpad `Status` via `workpad.py status` (never PR draft state), counts prior auto-resume attempts by the `<!-- devflow:stall-backstop-audit -->` marker each resume comment carries, and acts on `stall-backstop-decide.sh`'s verdict: terminal → no-op; interim → a distinct audit comment (attempt k of N) carrying the `/devflow:implement <n>` re-dispatch, bounded by the cap; cap exhausted or unreadable status → a distinct fail-loud comment (deliberately carrying no trigger phrase) plus a non-zero job exit. Disabled via config → fully skipped, no status read. Comments route through the best-effort `post-issue-comment.sh`, so a comment hiccup never flips the pass/fail decision. Auto-resume requires the optional `DEVFLOW_APP_ID` App token (a `GITHUB_TOKEN`-authored comment never re-triggers a workflow) and that App's bot login in `devflow.allowed_bots`; fail-loud works under either token. `lib/test/run.sh` pins the wiring (step present, `if: always()`, both config-key reads, decision-helper/status-read/comment-funnel call sites, the coupled audit-marker literal, and the trigger phrase in the re-dispatch body) and reconciles the #225 AC11 `.github`-freeze guard to exempt `devflow-implement.yml` while still freezing every other `.github/` path. (#277, closes #268)
+
 ## [2.8.59] — 2026-07-02
 
 ### Changed
