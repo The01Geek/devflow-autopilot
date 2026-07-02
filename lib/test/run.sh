@@ -1125,6 +1125,13 @@ assert_pin_unique "263(A5): receiving-code-review carries the shared 'contradict
 assert_eq "263(A6): devflow_review schema gains no new property (carve-out adds no config key)" \
   "agent_overrides live_progress_comment_enabled verdict_severity_threshold" \
   "$(jq -r '.properties.devflow_review.properties | keys | join(" ")' "$ST_SCHEMA")"
+# A7 (corroboration-independence AC — AC6): the carve-out blocks a SINGLE-SOURCE
+# self-contradicting finding exactly like a corroborated one. This is a distinct enumerated
+# deliverable property and the counter to Phase 4.1.5's uncorroborated-single-source
+# over-grade shape, so pin its operative sentence — none of A1-A6 contain 'corroborat', so
+# deleting this clause would otherwise leave the suite GREEN (PR #276 pr-test-analyzer gap).
+assert_pin_unique "263(A7): the carve-out is not conditioned on Phase 3.2 corroboration count" \
+  'a single-source self-contradicting finding blocks exactly like a corroborated one' "$ST_REV"
 
 # Issue #182 (convention-violation / unscoped-staging): the review-and-fix fix-commit step
 # (Step 3 item 6) must stage only the specific files the fix touched, never `git add -A` /
