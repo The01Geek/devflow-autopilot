@@ -56,6 +56,26 @@ Then tick the `/simplify` gate: `workpad.py update $ISSUE_NUMBER --tick-progress
 
 ### 3.3 Review & Fix
 
+**Snapshot this run's per-iteration workpad baseline first (before invoking `review-and-fix`).** The observability backstop below decides whether *this* run wrote any `iter-*.json`; on the local/interactive tier `.devflow/tmp` persists across runs, so a whole-tree presence check would count a prior run's leftover and mask a genuine loss. Record the pre-existing set now so the post-return detector measures only what this run adds:
+```bash
+# Snapshot the iter-*.json that ALREADY exist before driving review-and-fix inline, so the
+# post-return detector can tell whether THIS run wrote any per-iteration workpad rather than
+# whether the review tree is merely non-empty. On the local/interactive tier .devflow/tmp is
+# a persistent gitignored checkout (NOT wiped between runs the way a fresh cloud runner is),
+# so a leftover iter-*.json from a prior run would satisfy a whole-tree presence check and
+# MASK a genuine telemetry loss this run — the exact silent loss this backstop exists to
+# surface. Snapshot to a file because each phase bash block is a separate shell.
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+# Check mkdir's own exit status rather than letting a failure here surface only as the
+# generic "snapshot file missing" degrade downstream — a distinct breadcrumb here names the
+# actual root cause (permissions/read-only-fs/disk-full) instead of leaving a future reader
+# only the symptom.
+if ! mkdir -p "$ROOT/.devflow/tmp" 2>/dev/null; then
+  echo "::warning::phase-3.3: could not create $ROOT/.devflow/tmp (permissions/read-only-fs/disk-full?); pre-loop snapshot will be missing, degrading the no-inputs detector to whole-tree presence below" >&2
+fi
+compgen -G "$ROOT/.devflow/tmp/review/*/*/iter-*.json" 2>/dev/null | sort > "$ROOT/.devflow/tmp/.phase33-iters-before" || :
+```
+
 Invoke the **Skill tool** with `skill: review-and-fix` and `args: "--push-each-iteration"`. The flag is load-bearing here: this phase operates on the live draft PR created in 3.1, and `--push-each-iteration` propagates each fix iteration to the remote branch so its CI validates the converging state and progress survives a mid-loop crash. (Direct users of `/devflow:review-and-fix` omit the flag and the loop stays local — see that skill's Input section for the flag's semantics.)
 
 This runs the four-phase review engine in your context:
@@ -64,6 +84,102 @@ This runs the four-phase review engine in your context:
 3. **Automatic fix loop** — fixes findings using `devflow:receiving-code-review` principles, re-runs the engine, loops until APPROVE or the configured iteration cap (`devflow_review_and_fix.max_iterations`, default 5)
 
 Follow the skill's instructions. It handles evaluation, fixing, testing, and re-review internally.
+
+**Observability-persistence backstop (after `review-and-fix` returns, before the verdict branches below).** `review-and-fix`'s Loop Exit is what normally derives this run's effectiveness record (`.devflow/logs/efficiency/<slug>-<run-id>.json`) and durable workpad copy from its per-iteration `iter-*.json`. But this phase drives that loop **inline in your context**, so a dropped Loop Exit leaves those artifacts unpersisted and the run contributes nothing to `.devflow/logs/efficiency/` — the skill's own #1 documented "Common Mistake," unguarded at this seam. So regardless of the verdict, first **verify this run's observability artifacts were persisted and run the efficiency-trace persist backstop when they are missing**; the backstop is idempotent (it never re-derives an existing record), so running it unconditionally is safe. **When even that backstop has no `iter-*.json` inputs** — the inline loop wrote no per-iteration workpad this run — **record a `dropped-failed` reflection naming the observability gap** so the lost telemetry is visible rather than silently absent:
+```bash
+LIB="${CLAUDE_SKILL_DIR}/../../lib"
+# Anchor on the repo root the SAME way efficiency-trace.sh does (git toplevel), so the
+# "no inputs" detector below reads the exact .devflow/tmp/review tree --persist scans —
+# never a cwd-relative path that could diverge from the wrapper and fire a false
+# "telemetry lost" reflection (or mask a real loss) when cwd is not the repo root.
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+# Idempotent Layer-3 persist: derives + commits the effectiveness record and durable
+# workpad copy from whatever iter-*.json this run left under .devflow/tmp/review/; a commit
+# no-op if already persisted (the effectiveness record is presence-idempotent — skipped when
+# it already exists; the durable workpad copy re-runs but is content-idempotent, rewriting
+# identical bytes) and a full no-op if the inline loop wrote no per-iter workpad. Best-effort
+# (always exits 0). No --workpad-dir/--slug: with no args --persist scans every run-scoped
+# dir on disk, which is exactly the "the orchestrator does not hold review-and-fix's
+# internal slug/run-id" case at this inline seam.
+# On mktemp failure, degrade to /dev/null rather than aborting — the capture becomes a
+# no-op (stderr is discarded, so the record-write-failure grep below can never match), but
+# --persist's own best-effort exit-0 contract is preserved. Track the degrade explicitly in
+# $PERSIST_ERR_IS_DEVNULL (not by re-testing the string later) so (a) the cleanup at the
+# bottom of this block never runs `rm -f` on the LITERAL PATH `/dev/null` — under a root
+# shell with a writable /dev this would delete the device node itself, breaking every other
+# command in the environment that redirects to /dev/null — and (b) the degrade gets the same
+# distinct ::warning:: breadcrumb discipline as the sibling $BEFORE-missing degrade below,
+# instead of silently no-opping the record-write-failure detector for this run.
+if PERSIST_ERR=$(mktemp 2>/dev/null); then
+  PERSIST_ERR_IS_DEVNULL=0
+else
+  PERSIST_ERR=/dev/null
+  PERSIST_ERR_IS_DEVNULL=1
+  echo "::warning::phase-3.3: could not allocate a temp file for --persist's stderr (mktemp failed); ALL of --persist's stderr (durable-copy/staging/commit warnings included, not only the record-write-failure check) is discarded this run, and the record-write-failure detector is DISABLED (only the no-new-inputs case below is still checked)" >&2
+fi
+"$LIB/efficiency-trace.sh" --persist 2>"$PERSIST_ERR" || true   # best-effort; captured (not swallowed) so its ::warning:: breadcrumbs both surface to the run log below AND are checked for a record-write failure by the detector
+cat "$PERSIST_ERR" >&2   # surface every --persist breadcrumb to the run log, same as before this capture was added
+# Detect the "no inputs FROM THIS RUN" case by diffing against the pre-loop snapshot, anchored
+# on $ROOT (matching --persist): comm -13 lists iter-*.json present now but NOT before the
+# inline loop — i.e. exactly what THIS run wrote. This is immune to prior-run leftovers on the
+# persistent local tier, where a whole-tree presence check would let a leftover mask a real
+# loss. If the snapshot file is somehow absent, treating it as empty degrades to whole-tree
+# presence — and that degrade direction can MASK a real loss, not surface it: comm -13 against
+# an empty snapshot counts every pre-existing leftover iter-*.json on the persistent local tier
+# as if this run wrote it, so a leftover file makes the -z check false and suppresses the
+# reflection even when this run's loop wrote nothing. Because this snapshot-absent path is the
+# reachable failure mode the detector exists to guard against, emit a distinct ::warning:: so
+# the degrade is visible on the run log rather than silently indistinguishable from the healthy
+# case. Zero NEW iter-*.json means the inline loop wrote no per-iteration workpad, so --persist
+# had nothing to derive from and this run's effectiveness telemetry is genuinely lost — surface
+# it, do not swallow. (A persist that DID find inputs but failed to write still leaves
+# efficiency-trace.sh's own ::warning:: on the run log, surfaced above.) The detector counts NEW
+# iter-*.json regardless of --persist's source=="review" skip (standalone /devflow:review runs
+# have their own record path); that is correct here because at THIS seam the review-and-fix
+# loop just driven inline is what writes this tree, so a foreign review-sourced dir being the
+# sole new occupant is not a reachable in-flow shape.
+BEFORE="$ROOT/.devflow/tmp/.phase33-iters-before"
+if [ ! -f "$BEFORE" ]; then
+  : > "$BEFORE"
+  echo "::warning::phase-3.3: pre-loop iter-*.json snapshot missing; no-inputs detector degrades to whole-tree presence, which can MASK a real this-run telemetry loss behind a leftover iter-*.json from a prior local run" >&2
+fi
+if [ -z "$(compgen -G "$ROOT/.devflow/tmp/review/*/*/iter-*.json" 2>/dev/null | sort | comm -13 "$BEFORE" -)" ]; then
+  # Guard the loss-record write itself: if workpad.py fails (gh API/permission error,
+  # absent reflection section, bad $ISSUE_NUMBER) the ::warning:: keeps the gap visible on
+  # the run log rather than silently dropping both the telemetry AND its loss-record — a
+  # double silent failure at the exact seam this clause exists to make visible. Mirrors the
+  # --persist line's best-effort breadcrumb discipline.
+  workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "review-and-fix inline loop wrote no iter-*.json this run; lib/efficiency-trace.sh --persist had no inputs, so this run's effectiveness telemetry (.devflow/logs/efficiency/) is missing" \
+    || echo "::warning::phase-3.3: failed to record dropped-failed observability-gap reflection on issue #$ISSUE_NUMBER; this run's effectiveness telemetry is lost AND its loss-record could not be written" >&2
+fi
+# The no-new-inputs case above only catches a dropped LOOP EXIT (the inline loop wrote no
+# iter-*.json at all). It does NOT catch the sibling failure mode where the loop DID write
+# iter-*.json but --persist's own record derivation/write step then failed — that failure is
+# otherwise invisible to this this-run-scoped detector, which only measures INPUT presence,
+# not persistence SUCCESS. Grep the captured --persist stderr for its record-derivation/write
+# failure breadcrumbs so this second, independent failure mode is surfaced too, rather than
+# reading "inputs existed" as "persisted successfully". efficiency-trace.sh's three record
+# derivation/write failure paths do NOT share one common substring: jq-derivation failure and
+# mkdir failure both end "...record not written[ for ...]", but the disk/permission write
+# failure (a write after mkdir succeeded — ENOSPC/EROFS/quota/perms) instead reads "...failed
+# (disk/permission); not persisted for ..." — so match BOTH literals, or a mutated/renamed
+# breadcrumb on just the disk-write path would silently escape this detector exactly as the
+# single-literal form did (#236 review, Step 3.5 fix-delta gate). This intentionally scopes to
+# record derivation/write failures only, not the separate git-staging/commit failure surface
+# (efficiency-trace.sh's "not persisted this run" / "artifacts left staged" breadcrumbs) —
+# there the record IS written to disk, just not yet committed, a materially different and
+# lower-priority gap deferred on the issue #235 workpad. KNOWN LIMITATION (also deferred,
+# #236 review shadow pass): unlike the this-run-scoped no-inputs detector above, this grep
+# runs against --persist's WHOLE-TREE discovery-mode stderr (no --workpad-dir/--slug), so a
+# persistently-failing LEFTOVER run directory elsewhere on the local tier can also match —
+# the reflection below therefore does not assert the failure is scoped to this run.
+if [ "$PERSIST_ERR_IS_DEVNULL" -eq 0 ] && grep -qE 'record not written|failed \(disk/permission\); not persisted for' "$PERSIST_ERR" 2>/dev/null; then
+  workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "lib/efficiency-trace.sh --persist failed to derive/write an effectiveness record (see the record-derivation/write-failure breadcrumb above) — either this run's or an unresolved leftover run's on this host; some run's effectiveness telemetry under .devflow/logs/efficiency/ is missing" \
+    || echo "::warning::phase-3.3: failed to record dropped-failed observability-gap reflection (record-write-failure case) on issue #$ISSUE_NUMBER; this run's effectiveness telemetry is lost AND its loss-record could not be written" >&2
+fi
+[ "$PERSIST_ERR_IS_DEVNULL" -eq 1 ] || rm -f "$PERSIST_ERR" 2>/dev/null
+```
+
 
 After the skill completes with a clean approve-family verdict (`APPROVE`, `APPROVE WITH CAVEAT`, or `APPROVE WITH ADVISORY NOTES` — **not** `APPROVE WITH UNRESOLVED SHADOW FINDINGS`, which is handled separately below), flush any residual fixes. A run that does **not** return one of those three recognizable verdicts — it errors, can't run, or emits nothing parseable as a verdict — is **not** a clean completion: route it to the **Blocked path** below rather than letting an empty/garbled exit fall through to the flush. With `--push-each-iteration` the loop has already committed and pushed every iteration, so this is normally a no-op — guard the commit so an empty staging area doesn't error:
 ```bash
@@ -75,7 +191,7 @@ git push
 Then tick the `review-and-fix` gate: `workpad.py update $ISSUE_NUMBER --tick-progress "review-and-fix"`. Before ticking, record the run's shadow-coverage status — `shadow agreed, full coverage` vs `shadow agreement not verified` — via `--note`. Read these from the run's **verdict headline**: those exact literals are the `{shadow status}` parenthetical that review-and-fix renders on its APPROVE-family chat line (its Loop Exit "Verdict → chat output"), **not** from the report's `## Coverage` → `### Shadow agreement` section, which paraphrases the same fact in different prose (`Shadow ran with full reviewer coverage …` / `Shadow agreement NOT verified — {reason}`). Matching the headline token is exact; grepping the report body for the literal would miss. (Bucket the run by the loop's **verdict** first — this clean-completion path versus the AWUSF / REJECT / Blocked branches below — reading it from review-and-fix's **chat-output verdict line** (its Loop Exit "Verdict → chat output"). That line is the only surface carrying the *loop-level* verdicts: `APPROVE WITH UNRESOLVED SHADOW FINDINGS` is rendered there and **never** on the engine's report `## Verdict:` line, whose enum stops at the per-iteration engine verdicts (`APPROVE` / `APPROVE with notes` / `APPROVE WITH CAVEAT` / `APPROVE WITH ADVISORY NOTES` / `REJECT`) — so bucketing off `## Verdict:` would silently read an AWUSF run as a clean approve and ship it unreviewed. Only **after** the verdict has bucketed as clean approve-family, harvest the `{shadow status}` token from that same headline, so the AWUSF lost-write headline's own `… not verified …` prose can never be mis-harvested onto a clean run.) This is so a clean approve-family verdict that rode on a *not-verified* shadow (Step 2.6 outcome 3, which the loop intentionally proceeds on) is visible in the workpad rather than silently consumed as if it had been fully audited. This surfaces the gap without blocking — the loop already chose to proceed on its tentative verdict; contrast the bounded re-review below, which *does* require full coverage because it exists specifically to give an orchestrator hand-fix the independent pass it would otherwise never get.
 
 **If the skill returns `APPROVE WITH UNRESOLVED SHADOW FINDINGS`** (the iteration-cap shadow pass surfaced new Important — never Critical — findings the loop could not address; see that skill's Step 2.6 outcome 2): this is **not** a clean approve. The findings came from a *full-coverage* shadow pass and are real, but they reach you only in chat + the report's `## Unresolved Shadow Findings` section (they do **not** flow through the Step-3 deferrals manifest, so Phase 4.0.5 will not file them). You may **not** silently hand-fix them and ship — any fix you apply to resolve them is itself unreviewed spec/code that no independent pass has seen, and shipping it is the unreviewed-final-edit gap the skill's caller contract forbids. Pick one:
-1. **Fix + re-review (bounded once).** Apply fixes for the unresolved findings, commit (`fix:` prefix), then **re-invoke `review-and-fix` exactly one more time** (Skill tool, same `args: "--push-each-iteration"`) so the fix delta gets an independent shadow/review pass. **A clean approve-family verdict (`APPROVE` / `APPROVE WITH CAVEAT` / `APPROVE WITH ADVISORY NOTES`) whose verdict headline reads `shadow agreed, full coverage` (the `{shadow status}` token — same surface as the gate note above) clears the re-review** — treat it exactly as a clean completion above (flush residual fixes **and** tick the `review-and-fix` gate), then continue. A clean verdict whose shadow was `not verified` does **not** clear it: the re-review exists precisely to give the hand-fix delta an *independent, full-coverage* pass. **Any other outcome routes through the severity-aware exit below — it does NOT automatically Block** (e.g. `APPROVE WITH UNRESOLVED SHADOW FINDINGS` again, `REJECT`, or a not-verified re-review). Do **not** loop a third time: trigger at most **one** orchestrator-initiated re-review, and that bound is what keeps this terminating. (The bounded re-review is an ordinary `review-and-fix` run, so if *it* defers a finding through the Step-3 deferrals manifest, that is the normal Phase 4.0.5 follow-up-issue channel and proceeds as usual — the "AWUSF findings do not flow through the deferrals manifest" rule above is about the *first* run's unresolved shadow findings, not the re-review's own deferrals.)
+1. **Fix + re-review (bounded once).** Apply fixes for the unresolved findings, commit (`fix:` prefix). **Before re-invoking, re-run the pre-invocation snapshot block from 3.3 above** (recomputes the repo-toplevel-anchored baseline of pre-existing per-iteration workpads) — the bounded re-review below is a **second, separate** inline `review-and-fix` invocation whose own Loop Exit can be dropped exactly like the first invocation's, so it needs its own fresh this-run baseline, not the first invocation's now-stale one. Then **re-invoke `review-and-fix` exactly one more time** (Skill tool, same `args: "--push-each-iteration"`) so the fix delta gets an independent shadow/review pass, and **immediately after it returns, re-run the observability-persistence backstop block from 3.3 above** (the same persist-and-detect procedure — the idempotent Layer-3 persist call, the record-write-failure check, and the `dropped-failed` reflection) against the snapshot just taken — this second invocation's telemetry is protected exactly like the first invocation's, not left unguarded at this seam. **A clean approve-family verdict (`APPROVE` / `APPROVE WITH CAVEAT` / `APPROVE WITH ADVISORY NOTES`) whose verdict headline reads `shadow agreed, full coverage` (the `{shadow status}` token — same surface as the gate note above) clears the re-review** — treat it exactly as a clean completion above (flush residual fixes **and** tick the `review-and-fix` gate), then continue. A clean verdict whose shadow was `not verified` does **not** clear it: the re-review exists precisely to give the hand-fix delta an *independent, full-coverage* pass. **Any other outcome routes through the severity-aware exit below — it does NOT automatically Block** (e.g. `APPROVE WITH UNRESOLVED SHADOW FINDINGS` again, `REJECT`, or a not-verified re-review). Do **not** loop a third time: trigger at most **one** orchestrator-initiated re-review, and that bound is what keeps this terminating. (The bounded re-review is an ordinary `review-and-fix` run, so if *it* defers a finding through the Step-3 deferrals manifest, that is the normal Phase 4.0.5 follow-up-issue channel and proceeds as usual — the "AWUSF findings do not flow through the deferrals manifest" rule above is about the *first* run's unresolved shadow findings, not the re-review's own deferrals.)
 2. **Do not fix — route directly through the severity-aware exit below** (treat the unresolved findings as "unresolved after the cap").
 
 **Severity-aware exit (do not fully block on diminishing-returns).** Reached when the bounded re-review did not return a clean **and** full-coverage verdict, or when you chose option 2. Two consecutive non-clean review passes (the capped first run + the bounded re-review) is **not**, by itself, grounds to abort the whole implement lifecycle — hard-blocking there discards the completed work and the review-ready PR over findings that are often advisory or over-graded. Instead, **classify the residual unresolved findings by severity** and route. **First ensure over-grade calibration has actually run on the residual:** the loop's **over-grade calibration gate** (`/devflow:review-and-fix` Step 2.6) — which *flags* a promote-path over-grade and *requires a recorded `severity-calibrated` technical evaluation*, never auto-demoting — ran on the residual **only if a bounded re-review actually ran** (option 1). On **option 2** (you chose not to re-review) and on a **first-run REJECT** (which may never have reached the shadow-promotion decision where the gate fires), the gate has *not* run — do **not** assume a finding was already calibrated; apply the same flag-and-evaluate calibration yourself before classifying, and grade conservatively (default to Critical-treatment on doubt). Then route:
