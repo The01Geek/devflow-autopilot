@@ -3836,6 +3836,42 @@ assert_eq "#254: parent-dir-escaping extension tokens dropped (out-of-tree fail-
 foo..md" \
   "$(printf '%s\n' "$fx_escape" | bash "$EXTRACT_HELPER")"
 
+# Case 12 (issue #254 review — test gap): extensionless real-but-UNTRACKED file drop with
+# git PRESENT. cwd is inside a fresh git work tree (git_rescue_ok=1); the token names a real
+# on-disk regular file (`[ -f ]` passes) but `git ls-files --error-unmatch` fails because it
+# is untracked → dropped with NO breadcrumb (a legitimate "not a repo deliverable" decision,
+# not a tool-absence degradation — the exact discrimination the two-part rescue exists to make).
+fx_untracked_dir="$(mktemp -d)"
+( cd "$fx_untracked_dir" && git init -q && : > adhoc_notes )
+fx_untracked_body="## Implementation Notes
+
+- **Documentation Needed** — update \`adhoc_notes\` and \`CLAUDE.md\`."
+fx_untracked_out="$( cd "$fx_untracked_dir" && printf '%s\n' "$fx_untracked_body" | bash "$EXTRACT_HELPER" 2>"$fx_untracked_dir/err" )"
+assert_eq "#254: extensionless untracked real file dropped (git present, [ -f ] passes, ls-files fails)" \
+  "CLAUDE.md" "$fx_untracked_out"
+assert_eq "#254: untracked-drop emits NO git-unavailable breadcrumb (git present)" \
+  "0" "$(grep -c 'git unavailable' "$fx_untracked_dir/err")"
+rm -rf "$fx_untracked_dir"
+
+# Case 13 (issue #254 review — test gap): git-unavailable degraded-rescue breadcrumb. cwd is
+# OUTSIDE any git work tree (a bare temp dir → git_rescue_ok=0). An extensionless token naming
+# a real on-disk file (`[ -f ]` passes) is dropped, but because the drop is due to git being
+# unable to run — not because the file is untracked — the helper emits ONE `git unavailable`
+# breadcrumb so the drop is observable (guard-class-2 tr-dependence standard, this PR's own
+# review-extension contract). The extension-bearing token is still emitted, unaffected.
+fx_nogit_dir="$(mktemp -d)"
+fx_nogit_ceiling="$(dirname "$fx_nogit_dir")"
+: > "$fx_nogit_dir/adhoc_notes"
+fx_nogit_body="## Implementation Notes
+
+- **Documentation Needed** — update \`adhoc_notes\` and \`CLAUDE.md\`."
+fx_nogit_out="$( printf '%s\n' "$fx_nogit_body" | ( cd "$fx_nogit_dir" && GIT_CEILING_DIRECTORIES="$fx_nogit_ceiling" bash "$EXTRACT_HELPER" 2>"$fx_nogit_dir/err" ) )"
+assert_eq "#254: extensionless real file dropped when git unavailable (cwd outside work tree)" \
+  "CLAUDE.md" "$fx_nogit_out"
+assert_eq "#254: git-unavailable drop emits the degraded-rescue breadcrumb exactly once" \
+  "1" "$(grep -c 'git unavailable' "$fx_nogit_dir/err")"
+rm -rf "$fx_nogit_dir"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "scaffold-config.sh"
 # ────────────────────────────────────────────────────────────────────────────

@@ -28,6 +28,11 @@
 #     repo-relative. This excludes prose, skill names (`devflow:docs`), and
 #     section names — the over-extraction the issue's Counterfactual warns
 #     against — by construction, with no LLM judgement.
+#   * out-of-tree escapes are dropped before the path test even runs: a rooted
+#     (`/…`) token and a parent-dir-escaping (`../…`) token can never name an
+#     in-tree deliverable, so both are dropped outright — this also stops a token
+#     that carries a recognized extension (`../notes.md`) from reaching the
+#     extension branch, which emits on the extension alone (issue #254).
 #
 # Output is sorted and de-duplicated; absent section / empty bullet / no
 # path-like tokens all yield empty output and exit 0 (a true no-op signal).
@@ -121,14 +126,19 @@ printf '%s\n' "$tokens" \
       # rescue needs BOTH checks: `[ -f "$tok" ]` rejects directory tokens (a bare
       # `docs`/`docs/internal`, which `-f` reports false for), and
       # `git ls-files --error-unmatch` constrains it to the git work tree. Neither
-      # alone suffices: `[ -f ]` tests the whole host filesystem, so a `../`-
-      # escaping token would fail OPEN and be emitted though it names no in-tree
-      # deliverable (issue #254 AC); and `git ls-files` on a bare directory token
-      # (`docs`) succeeds by matching the tracked files INSIDE it, so it would
-      # wrongly emit the directory. Together they keep only in-tree regular files.
-      # (Rooted `/…` tokens were already dropped by the case above.) The `.+`
-      # before the dot excludes a bare extension token (`.md`, `.sh`) that is a
-      # syntax reference, not a filename.
+      # alone suffices: `[ -f ]` tests the whole host filesystem, so a real-on-disk
+      # but UNTRACKED relative token (an ad-hoc `notes` file in cwd that is not a
+      # repo deliverable) would fail OPEN and be emitted though `git ls-files`
+      # rejects it; and `git ls-files` on a bare directory token (`docs`) succeeds
+      # by matching the tracked files INSIDE it, so alone it would wrongly emit the
+      # directory that `[ -f ]` rejects. Together they keep only in-tree regular
+      # files. NOTE: the out-of-tree escapes are NOT this predicate's job —
+      # rooted `/…` and parent-escaping `../…` tokens are already dropped by the
+      # `case` above, BEFORE the predicate runs, so they never reach here; do not
+      # delete those case arms on the assumption this predicate would re-catch them
+      # (it would not — the extension branch below emits on the extension alone).
+      # The `.+` before the dot excludes a bare extension token (`.md`, `.sh`)
+      # that is a syntax reference, not a filename.
       if printf '%s\n' "$tok" | grep -qE '.+\.(md|markdown|sh|json|py|ya?ml|rst|txt|adoc|mdx|toml|cfg|ini)$'; then
         printf '%s\n' "$tok"
       elif [ -f "$tok" ]; then

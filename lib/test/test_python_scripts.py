@@ -1639,6 +1639,26 @@ assert_eq("over-join: an indented line after a dedented prose line is NOT absorb
 assert_eq("over-join: final item after the boundary parses cleanly and unticked",
           ("Final standalone item.", False), (_b[1]['text'], _b[1]['ticked']))
 
+# Review iter (PR #255 receiving-review, Suggestion 2): the blank-line separator boundary,
+# distinct from the column-zero-prose boundary above. /devflow:create-issue output can put a
+# blank line between an item and following indented content; a blank line closes the item
+# (the `else: current = None` arm fires on it too, since `line.strip()` is falsy), so a later
+# indented line is NOT over-absorbed into the preceding criterion.
+WRAPPED_AC_BLANKSEP = """## Acceptance Criteria
+- [ ] First item wraps across
+      two indented lines.
+
+      This indented line follows a BLANK line and must not join item 1.
+- [ ] Second standalone item.
+"""
+_bs = parse_acs._parse_checkboxes(parse_acs._extract_section(WRAPPED_AC_BLANKSEP, 'Acceptance Criteria'))
+assert_eq("blank-sep: only the two checkbox items are parsed (blank line closed item 1)",
+          2, len(_bs))
+assert_eq("blank-sep: item1 joins only its pre-blank continuation",
+          "First item wraps across two indented lines.", _bs[0]['text'])
+assert_eq("blank-sep: an indented line after a blank line is NOT absorbed (boundary fired)",
+          False, 'must not join' in _bs[0]['text'])
+
 
 print("file_deferrals._derive_area / _compute_id / _format_line_range / _render_issue_body")
 

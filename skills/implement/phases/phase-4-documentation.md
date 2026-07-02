@@ -127,13 +127,17 @@ AGG="${SLUG_DIR}/deferrals.json"   # slug-level aggregate the consumers read; di
 # /pr-description reads in Phase 4.2, unchanged.
 BRANCH_SLUG=$(git branch --show-current | tr '/' '-' | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9._-')
 # tr-dependence guard (this repo's review-and-fix guard-class 2): BRANCH_SLUG keys a
-# filesystem search dir and is derived through `tr` on PATH. If `tr` is missing/degraded the
-# slug comes back empty and the branch-slug arm below is silently dropped — reverting to the
-# pr-<N>-only search this fix set out to widen, with no signal. A non-empty current branch that
-# yields an empty slug is exactly that degradation (an EMPTY branch name is instead the benign
-# detached-HEAD case — e.g. a PR merge-ref checkout — where pr-<N>-only is correct), so make
-# the degraded case observable rather than silent. Best-effort breadcrumb; never blocks.
-[ -z "$BRANCH_SLUG" ] && [ -n "$(git branch --show-current)" ] && echo "devflow: current branch produced an empty slug — 'tr' may be missing/degraded on PATH; falling back to pr-<N>-only deferral discovery (a current-branch-mode run's manifest may be missed)" >&2
+# filesystem search dir and is derived through `tr` on PATH. A non-empty current branch that
+# yields an EMPTY slug has two possible causes, both of which fall back to pr-<N>-only search
+# correctly: (a) `tr` is missing/degraded on PATH (the guard-class-2 degradation), or (b) a
+# working `tr` dropped every character because the branch name is composed entirely of
+# characters outside `[a-z0-9._-]` (e.g. all-non-ASCII). The breadcrumb names the observable
+# fact plus both candidate causes rather than blaming `tr` alone, so an operator on cause (b)
+# is not sent to debug a `tr`/PATH problem that does not exist. (An EMPTY branch name is
+# instead the benign detached-HEAD case — e.g. a PR merge-ref checkout — where pr-<N>-only is
+# correct and no breadcrumb fires.) Make the degraded case observable rather than silent.
+# Best-effort breadcrumb; never blocks.
+[ -z "$BRANCH_SLUG" ] && [ -n "$(git branch --show-current)" ] && echo "devflow: current branch produced an empty slug (either 'tr' is missing/degraded on PATH, or the branch name is composed entirely of characters dropped by the [a-z0-9._-] filter); falling back to pr-<N>-only deferral discovery (a current-branch-mode run's manifest may be missed)" >&2
 BRANCH_DIR=".devflow/tmp/review/${BRANCH_SLUG}"
 # Only add the branch-slug dir when it is non-empty AND distinct from pr-<N> (a branch
 # literally named `pr-<N>` would otherwise be searched twice — harmless but pointless).
