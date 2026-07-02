@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.54] — 2026-07-02
+
+### Changed
+- **`/devflow:create-issue`'s issue template now deterministically prescribes the Description sub-fields as top-level headings, removing the drift that let drafting output vary.** `skills/create-issue/references/issue-template.md` previously nested Problem Statement, Current Behavior, Desired Behavior, and User Impact as bold bullets under a single `### Description` heading in its "Issue structure" section, while the "Posting the issue" heredoc example opened with a top-level `## Problem Statement` — a contradiction that never pinned how the four fields should render, so the drafting model was free to choose (≈200 historical issues promoted each field to its own `##` heading, but #258 followed the bullets literally). The `### Description` wrapper is replaced with four peer subsections (`### Problem Statement` / `### Current Behavior` / `### Desired Behavior` / `### User Impact`), each carrying its original one-line guidance prose, and the posting example is extended to the full ordered `##` skeleton (Problem Statement → Current Behavior → Desired Behavior → User Impact → Technical Context → Acceptance Criteria → Implementation Notes) so the two coupled sites present one agreed heading skeleton. Markdown-reference-only change; no code, test, or config keys parse the Description field layout. (#264, closes #259)
+
 ## [2.8.53] — 2026-07-02
 
 ### Added
