@@ -1011,6 +1011,14 @@ assert_eq "sev e2e: number value → default"            "important"  "$(sev_res
 assert_eq "sev e2e: unknown string → default"          "important"  "$(sev_resolve '{"devflow_review_and_fix":{"fix_severity_threshold":"blocker"}}' "$STK" important)"
 assert_eq "sev e2e: unset key → default (silent, AC2)"  "important" "$(sev_resolve '{"devflow_review_and_fix":{}}' "$STK" important)"
 assert_eq "sev e2e: malformed JSON → default"          "important"  "$(sev_resolve '{ not valid json' "$STK" important)"
+# End-to-end over the OTHER two keys, each with its own default — exercises the real
+# config-get.sh against the verdict key and the brand-new top-level receiving_review
+# section (a section-name/nesting typo in schema/example would surface here), incl. the
+# invalid-value fallback so all three keys have live resolution coverage, not just pins.
+assert_eq "sev e2e: verdict key configured value honored"   "important" "$(sev_resolve '{"devflow_review":{"verdict_severity_threshold":"important"}}' .devflow_review.verdict_severity_threshold critical)"
+assert_eq "sev e2e: verdict key unknown value → default"    "critical"  "$(sev_resolve '{"devflow_review":{"verdict_severity_threshold":"blocker"}}' .devflow_review.verdict_severity_threshold critical)"
+assert_eq "sev e2e: receiving section configured value honored" "suggestion" "$(sev_resolve '{"receiving_review":{"fix_severity_threshold":"suggestion"}}' .receiving_review.fix_severity_threshold critical)"
+assert_eq "sev e2e: receiving section unset → default"      "critical"  "$(sev_resolve '{"receiving_review":{}}' .receiving_review.fix_severity_threshold critical)"
 
 # operative-sentence pins in the three SKILL.md files (the sentence carrying the behavior)
 ST_RAF="$LIB/../skills/review-and-fix/SKILL.md"
@@ -1026,9 +1034,23 @@ assert_pin_unique "sev(rev): enum-validates the threshold inline" '0:critical|0:
 assert_pin_unique "sev(rcv): enum-validates the threshold inline" '0:critical|0:important|0:suggestion' "$ST_RCV"
 # routing / verdict / re-open behavior sentences
 assert_pin_unique "sev(raf): routes findings at or above the loop threshold" 'any finding whose severity is at or above `$FIX_THRESHOLD`' "$ST_RAF"
-assert_pin_unique "sev(raf): REJECT-driver widening (the sentence carrying the behavior)" 'no configuration combination produces a REJECT the fixer is configured to ignore' "$ST_RAF"
+assert_pin_unique "sev(raf): REJECT-driver widening tagline" 'no configuration combination produces a REJECT the fixer is configured to ignore' "$ST_RAF"
+# The tagline above is the framing; pin the OPERATIVE clause too — removing it alone
+# re-introduces the deadlock the AC forbids (verdict threshold more inclusive than fix).
+assert_pin_unique "sev(raf): REJECT-driver widening operative clause" 'PLUS every finding that drove the engine' "$ST_RAF"
 assert_pin_unique "sev(rev): rule 3 fires at or above the verdict threshold" 'at or above `$VERDICT_THRESHOLD` (excluding deferral-demoted ones) → **REJECT**' "$ST_REV"
 assert_pin_unique "sev(rcv): carve-out re-opens at every threshold value" 're-opens the diff at every threshold value' "$ST_RCV"
+# each SKILL emits a SPECIFIC out-of-enum fallback breadcrumb (the auditability contract
+# the schema descriptions promise) — removing the echo would make the fallback silent
+assert_pin_unique "sev(raf): out-of-enum fallback breadcrumb" "is not one of critical/important/suggestion; using default 'important'" "$ST_RAF"
+assert_pin_unique "sev(rev): out-of-enum fallback breadcrumb" "is not one of critical/important/suggestion; using default 'critical'" "$ST_REV"
+assert_pin_unique "sev(rcv): out-of-enum fallback breadcrumb" "is not one of critical/important/suggestion; using default 'critical'" "$ST_RCV"
+# each SKILL falls back to its OWN key's default on BOTH fallback arms (out-of-enum +
+# resolver-failure) — a wrong default here would silently loosen/tighten the policy while
+# the case-label pin stayed green. Count is 2 (one assignment per fallback arm).
+assert_eq "sev(raf): fix threshold falls back to 'important' on both arms" "2" "$(pin_count 'FIX_THRESHOLD=important' "$ST_RAF")"
+assert_eq "sev(rev): verdict threshold falls back to 'critical' on both arms" "2" "$(pin_count 'VERDICT_THRESHOLD=critical' "$ST_REV")"
+assert_eq "sev(rcv): re-open threshold falls back to 'critical' on both arms" "2" "$(pin_count 'REOPEN_THRESHOLD=critical' "$ST_RCV")"
 # the receiving-code-review snippet keeps the vendored body repo-agnostic
 assert_eq "sev(rcv): vendored body has no repo-specific test path (lib/test/run.sh)" "no" "$(grep -qF 'lib/test/run.sh' "$ST_RCV" && echo yes || echo no)"
 assert_eq "sev(rcv): vendored body has no repo-specific CI job name (lib + python tests)" "no" "$(grep -qF 'lib + python tests' "$ST_RCV" && echo yes || echo no)"

@@ -950,14 +950,18 @@ The full **flag-and-record** gate — which *requires* a recorded `severity-cali
 **Resolve the verdict-severity threshold once, before applying the rules.** Read `devflow_review.verdict_severity_threshold` (default `critical`) via the same `${CLAUDE_SKILL_DIR}`-anchored, no-`bash`-prefix `config-get.sh` invocation the live-progress-comment gate uses. `config-get.sh` reads the value but does **not** validate the enum — it coerces any JSON value to a string — so validate the enum **inline** and fall back to the default `critical` on a resolver failure (rc≠0) or any value outside the enum, with a **specific breadcrumb naming the key and the fallback value** (never aborting the review):
 
 ```bash
-VERDICT_THRESHOLD=$("${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh" .devflow_review.verdict_severity_threshold critical 2>/dev/null); VERDICT_THRESHOLD_RC=$?
+VERDICT_THRESHOLD=$("${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh" .devflow_review.verdict_severity_threshold critical); VERDICT_THRESHOLD_RC=$?
 # A missing key returns the default `critical` (valid → kept silently, so an absent
-# key leaves verdict computation byte-identical to today). Only a resolver failure or
-# an out-of-enum value falls back with a breadcrumb.
+# key leaves verdict computation byte-identical to today). A resolver failure (rc≠0:
+# malformed config.json or missing python3) and an out-of-enum value each fall back to
+# the default, but with DISTINCT breadcrumbs so a resolver failure is not misreported as
+# a bad enum value (config-get.sh's own stderr is left un-suppressed on the rc≠0 path).
 case "$VERDICT_THRESHOLD_RC:$VERDICT_THRESHOLD" in
   0:critical|0:important|0:suggestion) : ;;
-  *) echo "::warning::devflow review: .devflow_review.verdict_severity_threshold value '$VERDICT_THRESHOLD' (rc=$VERDICT_THRESHOLD_RC) is not one of critical/important/suggestion; using default 'critical'" >&2
-     VERDICT_THRESHOLD=critical ;;
+  0:*) echo "::warning::devflow review: .devflow_review.verdict_severity_threshold value '$VERDICT_THRESHOLD' is not one of critical/important/suggestion; using default 'critical'" >&2
+       VERDICT_THRESHOLD=critical ;;
+  *)   echo "::warning::devflow review: could not read .devflow_review.verdict_severity_threshold (config-get.sh rc=$VERDICT_THRESHOLD_RC — malformed config.json or missing python3?); using default 'critical'" >&2
+       VERDICT_THRESHOLD=critical ;;
 esac
 ```
 

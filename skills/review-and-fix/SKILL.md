@@ -251,14 +251,19 @@ fi
 **Resolve the fix-severity threshold once, at loop start** (right after the cap above). Read `devflow_review_and_fix.fix_severity_threshold` (default `important`) via the same `${CLAUDE_SKILL_DIR}`-anchored, no-`bash`-prefix `config-get.sh` invocation the cap read uses (so the read is cwd-independent and matches the resolved-path allow-list entry). `config-get.sh` reads the value but does **not** validate the enum — it coerces any JSON value to a string (a number → `5`, an object → `[object Object]`, an array is comma-joined) — so validate the enum **inline** and fall back to the default on a resolver failure (rc≠0, e.g. malformed `config.json`) or any value outside the enum, with a **specific breadcrumb naming the key and the fallback value** (never aborting the loop):
 
 ```bash
-FIX_THRESHOLD=$("${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh" .devflow_review_and_fix.fix_severity_threshold important 2>/dev/null); FIX_THRESHOLD_RC=$?
+FIX_THRESHOLD=$("${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh" .devflow_review_and_fix.fix_severity_threshold important); FIX_THRESHOLD_RC=$?
 # A missing key returns the default `important` (a valid value → kept silently, so an
-# absent key is byte-identical to today). Only a resolver failure or an out-of-enum
-# value falls back with a breadcrumb.
+# absent key is byte-identical to today). A resolver failure (rc≠0: malformed config.json
+# or missing python3) and an out-of-enum value each fall back to the default, but with
+# DISTINCT breadcrumbs so the cause is named correctly rather than a resolver failure
+# being misreported as a bad enum value (config-get.sh's own stderr — a JSON parse
+# location or the missing-python3 message — is left un-suppressed on the rc≠0 path).
 case "$FIX_THRESHOLD_RC:$FIX_THRESHOLD" in
   0:critical|0:important|0:suggestion) : ;;
-  *) echo "::warning::devflow review-and-fix: .devflow_review_and_fix.fix_severity_threshold value '$FIX_THRESHOLD' (rc=$FIX_THRESHOLD_RC) is not one of critical/important/suggestion; using default 'important'" >&2
-     FIX_THRESHOLD=important ;;
+  0:*) echo "::warning::devflow review-and-fix: .devflow_review_and_fix.fix_severity_threshold value '$FIX_THRESHOLD' is not one of critical/important/suggestion; using default 'important'" >&2
+       FIX_THRESHOLD=important ;;
+  *)   echo "::warning::devflow review-and-fix: could not read .devflow_review_and_fix.fix_severity_threshold (config-get.sh rc=$FIX_THRESHOLD_RC — malformed config.json or missing python3?); using default 'important'" >&2
+       FIX_THRESHOLD=important ;;
 esac
 ```
 
