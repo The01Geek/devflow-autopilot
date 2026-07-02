@@ -126,6 +126,14 @@ AGG="${SLUG_DIR}/deferrals.json"   # slug-level aggregate the consumers read; di
 # directories. The aggregate is always written at `pr-<N>/deferrals.json` — the single path
 # /pr-description reads in Phase 4.2, unchanged.
 BRANCH_SLUG=$(git branch --show-current | tr '/' '-' | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9._-')
+# tr-dependence guard (this repo's review-and-fix guard-class 2): BRANCH_SLUG keys a
+# filesystem search dir and is derived through `tr` on PATH. If `tr` is missing/degraded the
+# slug comes back empty and the branch-slug arm below is silently dropped — reverting to the
+# pr-<N>-only search this fix set out to widen, with no signal. A non-empty current branch that
+# yields an empty slug is exactly that degradation (an EMPTY branch name is instead the benign
+# detached-HEAD case — e.g. a PR merge-ref checkout — where pr-<N>-only is correct), so make
+# the degraded case observable rather than silent. Best-effort breadcrumb; never blocks.
+[ -z "$BRANCH_SLUG" ] && [ -n "$(git branch --show-current)" ] && echo "devflow: current branch produced an empty slug — 'tr' may be missing/degraded on PATH; falling back to pr-<N>-only deferral discovery (a current-branch-mode run's manifest may be missed)" >&2
 BRANCH_DIR=".devflow/tmp/review/${BRANCH_SLUG}"
 # Only add the branch-slug dir when it is non-empty AND distinct from pr-<N> (a branch
 # literally named `pr-<N>` would otherwise be searched twice — harmless but pointless).

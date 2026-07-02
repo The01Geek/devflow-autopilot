@@ -3774,6 +3774,21 @@ assert_eq "#254: bare dirs (docs/, docs/internal) and rooted skill-ref (/pr-desc
   "README.md" \
   "$(printf '%s\n' "$fx_dirs" | bash "$EXTRACT_HELPER")"
 
+# Case 9 (issue #254 review): the extensionless-rescue must be BOTH a regular file
+# AND in-tree — guarding the two fail-open shapes the review surfaced. `LICENSE`
+# (extensionless, tracked) is rescued; `/README.md` is rooted, so it is dropped even
+# though `README.md` exists relative (the "drops tokens beginning with `/`" contract —
+# a bare `[ -f ]` on the host FS would have accepted an out-of-tree `/etc/hostname`);
+# and a bare directory token `docs` must NOT leak (`git ls-files --error-unmatch docs`
+# succeeds by matching the tracked files INSIDE `docs/`, so the `[ -f ]` regular-file
+# check is what rejects it). Hermetic: LICENSE, README.md, docs all exist in this repo.
+fx_intree="## Implementation Notes
+
+- **Documentation Needed** — update \`LICENSE\`, \`/README.md\`, and \`docs\`."
+assert_eq "#254: extensionless in-tree file rescued; rooted token and bare dir dropped (fail-open closed)" \
+  "LICENSE" \
+  "$(printf '%s\n' "$fx_intree" | bash "$EXTRACT_HELPER")"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "scaffold-config.sh"
 # ────────────────────────────────────────────────────────────────────────────

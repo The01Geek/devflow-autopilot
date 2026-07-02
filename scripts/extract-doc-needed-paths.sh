@@ -17,10 +17,16 @@
 #     the next top-level `- **…**` bullet or the next `## ` heading (or EOF). A
 #     path mentioned in `## Current Behavior`, `## Technical Context`, or any
 #     OTHER bullet is NOT a documentation deliverable and is never emitted.
-#   * a token counts as a path only if it contains `/` OR ends in a recognized
-#     documentation/source extension. This excludes prose, skill names
-#     (`devflow:docs`), and section names — the over-extraction the issue's
-#     Counterfactual warns against — by construction, with no LLM judgement.
+#   * a token counts as a path only if it ends in a recognized documentation/
+#     source extension OR names an in-tree tracked file (the `git ls-files`
+#     rescue for extensionless real files like Makefile/LICENSE). A bare
+#     "contains `/`" test is deliberately NOT sufficient: it wrongly emitted
+#     directory tokens (`docs/internal`) and rooted skill-invocation refs
+#     (`/claude-md-management`, from colon-splitting) — see issue #254. Rooted
+#     (`/…`) tokens are dropped outright, since an in-tree deliverable is always
+#     repo-relative. This excludes prose, skill names (`devflow:docs`), and
+#     section names — the over-extraction the issue's Counterfactual warns
+#     against — by construction, with no LLM judgement.
 #
 # Output is sorted and de-duplicated; absent section / empty bullet / no
 # path-like tokens all yield empty output and exit 0 (a true no-op signal).
@@ -82,20 +88,29 @@ printf '%s\n' "$tokens" \
       tok="${tok%"${tok##*[!.]}"}"
       case "$tok" in
         */) continue ;;        # trailing slash => directory, not a file
+        /*) continue ;;        # rooted token: an in-tree deliverable is always
+                               # repo-relative, never absolute. Dropping it here
+                               # keeps a rooted skill-ref (`/claude-md-management`)
+                               # or out-of-tree path (`/etc/hostname`) from ever
+                               # reaching the predicate below (issue #254 AC).
         '' ) continue ;;
       esac
       # A token counts as a deliverable file iff it EITHER ends in a recognized
-      # doc/source extension (a real filename) OR names an in-tree file right now
-      # (`[ -f ]`, which rescues extensionless real files like Makefile/LICENSE).
-      # A bare "contains a slash" test is deliberately NOT enough: it emitted
-      # directory tokens (`docs/internal`) and — because the tokenizer splits a
-      # skill-invocation reference like `/claude-md-management:revise-claude-md`
-      # on the colon — rooted non-file tokens (`/claude-md-management`), neither
-      # of which is a documentation deliverable (issue #254). The `.+` before the
-      # dot excludes a bare extension token (`.md`, `.sh`) that is a syntax
-      # reference, not a filename.
+      # doc/source extension (a real filename) OR names an in-tree TRACKED regular
+      # file — the rescue for extensionless real files like Makefile/LICENSE. The
+      # rescue needs BOTH checks: `[ -f "$tok" ]` rejects directory tokens (a bare
+      # `docs`/`docs/internal`, which `-f` reports false for), and
+      # `git ls-files --error-unmatch` constrains it to the git work tree. Neither
+      # alone suffices: `[ -f ]` tests the whole host filesystem, so a `../`-
+      # escaping token would fail OPEN and be emitted though it names no in-tree
+      # deliverable (issue #254 AC); and `git ls-files` on a bare directory token
+      # (`docs`) succeeds by matching the tracked files INSIDE it, so it would
+      # wrongly emit the directory. Together they keep only in-tree regular files.
+      # (Rooted `/…` tokens were already dropped by the case above.) The `.+`
+      # before the dot excludes a bare extension token (`.md`, `.sh`) that is a
+      # syntax reference, not a filename.
       if printf '%s\n' "$tok" | grep -qE '.+\.(md|markdown|sh|json|py|ya?ml|rst|txt|adoc|mdx|toml|cfg|ini)$' \
-         || [ -f "$tok" ]; then
+         || { [ -f "$tok" ] && git ls-files --error-unmatch -- "$tok" >/dev/null 2>&1; }; then
         printf '%s\n' "$tok"
       fi
     done \
