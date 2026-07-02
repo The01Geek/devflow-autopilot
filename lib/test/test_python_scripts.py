@@ -842,6 +842,181 @@ assert_eq("#169 same-row: --status still applied (volatile, not abort)", True,
           '🚀 Reviewing' in _statusline(out))
 
 
+print("issue #258: terminal --status Complete self-record gate")
+
+# The gate reconciles the workpad self-record against reality at the terminal
+# `--status Complete` write: a structural HARD-FAIL (raises _UpdateError → the
+# cmd_update abort path exits 1 with NO PATCH) on any non-post-merge unticked AC
+# row, and a NON-blocking stderr warning naming any unticked ## Plan row. It fires
+# ONLY for Complete, and never modifies a `- [ ]` row.
+GATE_BODY = """<!-- devflow:workpad -->
+# DevFlow Workpad — Issue #999
+
+**Status:** 🚀 Documenting
+**Last updated:** 2026-05-15T00:00:00Z
+
+## Progress
+- [x] **Setup**
+
+## Plan
+- [x] Plan step one
+- [x] Plan step two
+
+## Acceptance Criteria
+- [x] AC one
+- [x] AC two
+"""
+_AC_UNTICKED = GATE_BODY.replace('- [x] AC two', '- [ ] AC two')
+_AC_POSTMERGE = GATE_BODY.replace('- [x] AC two', '- [ ] AC two (post-merge)')
+_PLAN_UNTICKED = GATE_BODY.replace('- [x] Plan step two', '- [ ] Plan step two')
+
+# AC hard-fail is a STRUCTURAL _UpdateError (sibling of the missing-section abort),
+# so the shared cmd_update abort path applies: no PATCH, Status not flipped.
+def _complete_over_unticked_ac():
+    apply_mut(_AC_UNTICKED, make_args(status='Complete'), [])
+assert_raises("#258: --status Complete over an unticked non-post-merge AC raises _UpdateError",
+              workpad._UpdateError, _complete_over_unticked_ac)
+
+# The gate NEVER modifies a row: a rejected finalize leaves the AC `- [ ]`. (Prove the
+# body the abort would have discarded still shows the row untouched — no auto-tick.)
+try:
+    apply_mut(_AC_UNTICKED, make_args(status='Complete'), [])
+except workpad._UpdateError as _e:
+    assert_eq("#258: the AC hard-fail names the offending row", True, 'AC two' in str(_e))
+# The gate never auto-ticks: a PASSING (un-gated) write over the same unticked-AC body
+# returns a body whose AC row is STILL `- [ ]` — a behavioral check on the RETURNED body
+# (the earlier `in _AC_UNTICKED` form was vacuous: the input str is immutable, so it could
+# never fail regardless of gate behavior). Goes RED if any path silently ticks the row.
+_noauto = apply_mut(_AC_UNTICKED, make_args(status='Blocked'), [])
+assert_eq("#258: the gate never auto-ticks the offending AC row (returned body still [ ])", True,
+          '- [ ] AC two' in _noauto)
+
+# post-merge exclusion (byte-for-byte the Phase 3.4 'line ends in (post-merge)'):
+# an outstanding post-merge-only AC does NOT block — the Status flips to Complete.
+out = apply_mut(_AC_POSTMERGE, make_args(status='Complete'), [])
+assert_eq("#258: a post-merge-only outstanding AC finalizes (Status → 🎉 Complete)", True,
+          '🎉 Complete' in _statusline(out))
+assert_eq("#258: the post-merge AC row is left unticked (never auto-ticked)", True,
+          '- [ ] AC two (post-merge)' in out)
+
+# Plan warning is NON-blocking: the call succeeds (returns a body with Status flipped)
+# and writes a warning naming the unticked Plan row to stderr.
+_perr = io.StringIO()
+with contextlib.redirect_stderr(_perr):
+    out = apply_mut(_PLAN_UNTICKED, make_args(status='Complete'), [])
+assert_eq("#258: an unticked Plan row does NOT block finalize (Status → 🎉 Complete)", True,
+          '🎉 Complete' in _statusline(out))
+assert_eq("#258: the Plan warning names the unticked row on stderr", True,
+          'Plan step two' in _perr.getvalue())
+assert_eq("#258: the Plan warning does not fire on the ticked Plan row", False,
+          'Plan step one' in _perr.getvalue())
+
+# Clean run: every row ticked → finalize is silent (no AC abort, no Plan warning).
+_cerr = io.StringIO()
+with contextlib.redirect_stderr(_cerr):
+    out = apply_mut(GATE_BODY, make_args(status='Complete'), [])
+assert_eq("#258: a fully-ticked finalize flips Status to 🎉 Complete", True,
+          '🎉 Complete' in _statusline(out))
+assert_eq("#258: a fully-ticked finalize emits no gate warning", "", _cerr.getvalue())
+
+# Gate is scoped to Complete ONLY: --status Blocked over an unticked AC is never gated.
+_berr = io.StringIO()
+with contextlib.redirect_stderr(_berr):
+    out = apply_mut(_AC_UNTICKED, make_args(status='Blocked'), [])
+assert_eq("#258: --status Blocked over an unticked AC is not gated (Status → 👎 Blocked)", True,
+          '👎 Blocked' in _statusline(out))
+assert_eq("#258: --status Blocked emits no gate warning", "", _berr.getvalue())
+
+# No --status at all → never gated (an update with only ticks/notes is unaffected).
+_nerr = io.StringIO()
+with contextlib.redirect_stderr(_nerr):
+    apply_mut(_AC_UNTICKED, make_args(note=['n']), [])
+assert_eq("#258: an update with no --status is never gated", "", _nerr.getvalue())
+
+# A non-Complete in-progress status that merely CONTAINS a mapped word is not gated.
+_derr = io.StringIO()
+with contextlib.redirect_stderr(_derr):
+    out = apply_mut(_AC_UNTICKED, make_args(status='Documenting'), [])
+assert_eq("#258: --status Documenting over an unticked AC is not gated", True,
+          '🚀 Documenting' in _statusline(out) and _derr.getvalue() == '')
+
+# CLI-level: the AC hard-fail routes through cmd_update's abort path — non-zero exit,
+# NO PATCH (uses the existing #169 _drive_cmd_update harness).
+_code, _err, _patched = _drive_cmd_update(_AC_UNTICKED, status='Complete')
+assert_eq("#258 cmd_update: --status Complete over an unticked AC exits non-zero", 1, _code)
+assert_eq("#258 cmd_update: the rejected finalize made NO PATCH", True, _patched is None)
+assert_eq("#258 cmd_update: the abort stderr names the offending AC", True, 'AC two' in _err)
+# CLI-level: a post-merge-only outstanding AC finalizes (PATCH lands, Status flipped).
+_code, _err, _patched = _drive_cmd_update(_AC_POSTMERGE, status='Complete')
+assert_eq("#258 cmd_update: a post-merge-only finalize succeeds (exit 0)", None, _code)
+assert_eq("#258 cmd_update: the post-merge finalize PATCHed Status → Complete", True,
+          _patched is not None and '🎉 Complete' in _patched)
+
+# Post-mutation ordering (the gate's load-bearing placement): the gate runs LAST, over
+# the POST-mutation sections, so a SINGLE call that ticks the last outstanding AC *and*
+# flips Status to Complete passes — the tick lands before the scan. This is exactly the
+# Phase 4.3 finalize shape (it ticks the "PR marked ready" progress box while flipping to
+# Complete). Goes RED if the gate is reordered to scan the pre-mutation body/sections.
+_oerr = io.StringIO()
+with contextlib.redirect_stderr(_oerr):
+    out = apply_mut(_AC_UNTICKED, make_args(status='Complete', tick_ac=['AC two']), [])
+assert_eq("#258: ticking the last AC and flipping to Complete in one call passes", True,
+          '🎉 Complete' in _statusline(out))
+assert_eq("#258: the one-shot tick+Complete leaves the AC ticked (post-mutation scan saw [x])", True,
+          '- [x] AC two' in out)
+assert_eq("#258: the one-shot tick+Complete emits no AC/Plan gate warning", "", _oerr.getvalue())
+# Symmetric Plan case: ticking the last Plan row in the same Complete call suppresses the
+# non-blocking Plan warning — proving the Plan scan is also post-mutation, not pre-mutation.
+_operr = io.StringIO()
+with contextlib.redirect_stderr(_operr):
+    out = apply_mut(_PLAN_UNTICKED, make_args(status='Complete', tick_plan=['Plan step two']), [])
+assert_eq("#258: ticking the last Plan row in the Complete call suppresses the Plan warning", "",
+          _operr.getvalue())
+assert_eq("#258: the one-shot Plan tick+Complete flipped Status and ticked the row", True,
+          '🎉 Complete' in _statusline(out) and '- [x] Plan step two' in out)
+# CLI-level: the same one-shot tick+Complete routes cleanly through cmd_update (PATCH lands).
+_code, _err, _patched = _drive_cmd_update(_AC_UNTICKED, status='Complete', tick_ac=['AC two'])
+assert_eq("#258 cmd_update: one-shot tick-last-AC + Complete finalizes (exit 0)", None, _code)
+assert_eq("#258 cmd_update: the one-shot finalize PATCHed Status → Complete with the AC ticked", True,
+          _patched is not None and '🎉 Complete' in _patched and '- [x] AC two' in _patched)
+
+# AC hard-fail takes PRECEDENCE over the Plan warning: a Complete write with BOTH an
+# unticked non-post-merge AC *and* an unticked Plan row aborts (AC checked first) and
+# emits NO Plan warning (the abort raises before the Plan branch runs). Goes RED if the
+# gate were reordered to warn on Plan before the AC hard-fail.
+_AC_AND_PLAN_UNTICKED = _AC_UNTICKED.replace('- [x] Plan step two', '- [ ] Plan step two')
+_bperr = io.StringIO()
+def _complete_over_ac_and_plan():
+    with contextlib.redirect_stderr(_bperr):
+        apply_mut(_AC_AND_PLAN_UNTICKED, make_args(status='Complete'), [])
+assert_raises("#258: Complete with both unticked AC and Plan aborts (AC precedence over Plan)",
+              workpad._UpdateError, _complete_over_ac_and_plan)
+assert_eq("#258: the AC-precedence abort emits NO Plan warning before failing", False,
+          'Plan step two' in _bperr.getvalue())
+
+# Fail-open guard (shadow finding): a Complete write whose ## Acceptance Criteria section
+# still holds the un-mirrored `new-body` placeholder (AC-mirroring never ran) has NO
+# checkbox rows, so it does not hard-fail — but it emits a NON-blocking warning rather
+# than passing silently. A genuinely AC-less issue reads the DISTINCT
+# `_(none provided in issue body)_` sentinel and finalizes SILENTLY (no false warning).
+_AC_PLACEHOLDER = GATE_BODY.replace(
+    '- [x] AC one\n- [x] AC two', workpad._AC_PENDING_PLACEHOLDER)
+_AC_NONE = GATE_BODY.replace(
+    '- [x] AC one\n- [x] AC two', '_(none provided in issue body)_')
+_pherr = io.StringIO()
+with contextlib.redirect_stderr(_pherr):
+    out = apply_mut(_AC_PLACEHOLDER, make_args(status='Complete'), [])
+assert_eq("#258: a Complete over an un-mirrored AC placeholder still finalizes (Status → Complete)", True,
+          '🎉 Complete' in _statusline(out))
+assert_eq("#258: the un-mirrored AC placeholder emits a non-blocking warning", True,
+          'un-mirrored placeholder' in _pherr.getvalue())
+_nnerr = io.StringIO()
+with contextlib.redirect_stderr(_nnerr):
+    out = apply_mut(_AC_NONE, make_args(status='Complete'), [])
+assert_eq("#258: a genuinely AC-less ('none provided') Complete finalizes SILENTLY", True,
+          '🎉 Complete' in _statusline(out) and _nnerr.getvalue() == '')
+
+
 print("workpad notes: compact timestamp + nesting under ## Progress phase")
 
 # Compact timestamp: note bullet renders `  - HH:MM:SS — {note}` (no date/T/Z),
@@ -983,11 +1158,18 @@ assert_eq("glyph: Blocked → 👎", '👎', workpad._status_glyph('Blocked'))
 assert_eq("glyph: strips an existing leading glyph", 'Implementing',
           workpad._strip_status_glyph('🚀 Implementing'))
 
-out = apply_mut(WORKPAD_V2, make_args(status='Complete'))
+# A --status Complete write now runs the issue #258 terminal self-record gate, which
+# hard-fails on an unticked non-post-merge AC — so this glyph-rendering test uses a
+# fully-ticked variant (its intent is the glyph, not the gate; the gate itself is
+# covered in the issue #258 block above).
+WORKPAD_V2_DONE = (WORKPAD_V2.replace('- [ ] AC one', '- [x] AC one')
+                             .replace('- [ ] AC two', '- [x] AC two')
+                             .replace('- [ ] Step alpha', '- [x] Step alpha'))
+out = apply_mut(WORKPAD_V2_DONE, make_args(status='Complete'))
 assert_eq("status: glyph applied to Status line", True,
           '**Status:** 🎉 Complete' in out)
 # Idempotent: passing a glyph-prefixed status doesn't double up.
-out_idem = apply_mut(WORKPAD_V2, make_args(status='🎉 Complete'))
+out_idem = apply_mut(WORKPAD_V2_DONE, make_args(status='🎉 Complete'))
 assert_eq("status: re-applying a glyph-prefixed status is idempotent", 1,
           out_idem.count('🎉'))
 # A status transition while a note is added nests the note under the matching
@@ -1272,6 +1454,12 @@ assert_eq("new-body: run-started note nested (indented) under Setup", True,
           '  - ' in _nb and '/devflow:implement run started' in _nb)
 assert_eq("new-body: Plan + AC are placeholders (not populated)", True,
           '_(planning in progress)_' in _nb and '_(pending' in _nb)
+# Coupling pin (#258): the new-body template must emit the EXACT `_AC_PENDING_PLACEHOLDER`
+# constant the terminal Complete gate matches on — they are one single source. Goes RED if
+# the template is reworded away from the constant (e.g. the em-dash→ASCII-hyphen trap), which
+# would silently disarm the gate's un-mirrored-placeholder warning (re-opening its fail-open).
+assert_eq("new-body: AC placeholder is the exact gate constant (producer↔guard coupling)", True,
+          workpad._AC_PENDING_PLACEHOLDER in _nb)
 assert_eq("new-body: no separate Decisions / Notes section", False,
           '## Decisions / Notes' in _nb)
 # Map ↔ template drift guard: every canonical phase (and therefore every value

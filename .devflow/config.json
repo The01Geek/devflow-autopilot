@@ -2,7 +2,7 @@
   "$schema": "./config.schema.json",
   "base_branch": "main",
   "claude_model": "claude-opus-4-8",
-  "devflow_version": "",
+  "devflow_version": "main",
   "devflow": {
     "allowed_bots": "claude,dependabot,devflow-autopilot",
     "allowed_users": "*",
@@ -11,9 +11,13 @@
     "allowed_tools": []
   },
   "devflow_implement": {
-    "effort": "low",
+    "effort": "medium",
+    "implement_pr_state": "ready_for_review",
     "allowed_tools": [],
-    "implement_pr_state": "ready_for_review"
+    "stall_backstop": {
+      "enabled": true,
+      "max_resume_attempts": 2
+    }
   },
   "devflow_runner": {
     "effort": "low",
@@ -34,7 +38,7 @@
         "effort": "low"
       },
       "devflow:checklist-deduper": {
-        "model": "claude-sonnet-4-6",
+        "model": "claude-sonnet-5",
         "effort": "low"
       },
       "devflow:code-reviewer": {
@@ -58,7 +62,8 @@
     "external": "docs/",
     "internal_enabled": true,
     "external_enabled": false,
-    "release_notes_file": "CHANGELOG.md",
+    "release_notes_file": "",
+    "changelog_file": "CHANGELOG.md",
     "labels": "Documented"
   },
   "deferred": {
