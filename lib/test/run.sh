@@ -3181,6 +3181,110 @@ assert_pin_unique "#169: implement/SKILL.md warns re-tick-only (don't re-send th
 assert_eq "#169: workpad.py routes volatile misses through _report_failed_ticks (PATCH-failure echo)" "yes" \
   "$(grep -qF 'def _report_failed_ticks' "$WP_PY" && grep -qF 'NO workpad change was persisted' "$WP_PY" && echo yes || echo no)"
 
+# ── issue #258: terminal --status Complete self-record gate ───────────────────
+# scripts/workpad.py, on a `--status Complete` write, must reconcile the workpad's
+# self-record against reality: hard-fail (structural: non-zero exit, NO PATCH,
+# Status not flipped) when any NON-post-merge ## Acceptance Criteria row is still
+# `- [ ]`, and emit a NON-blocking stderr warning naming any unticked ## Plan row
+# while still finalizing. The gate fires ONLY for --status Complete; it never
+# modifies a `- [ ]` row. Exercised here as a real CLI subprocess against a gh
+# stub (the five AC-7 scenarios), and pinned exhaustively at the _apply_mutations
+# level in lib/test/test_python_scripts.py. Each behavioral scenario below goes
+# RED against the pre-gate workpad.py: (a)/(e-gated) — old code PATCHed Complete
+# over an unticked AC; (c) — old code emitted no Plan warning.
+S258="$(mktemp -d)"
+cat > "$S258/gh" <<'STUB'
+#!/usr/bin/env bash
+# Minimal gh stub for workpad.py update: repo view, comments list (marker match),
+# body fetch, and PATCH (records that a PATCH happened + echoes the patched body).
+j="$*"
+if [[ "$j" == *"repo view"* ]]; then echo "owner/repo"; exit 0; fi
+if [[ "$j" == *"-X PATCH"* ]]; then
+  echo p >> "$WP_PATCHLOG"
+  for a in "$@"; do case "$a" in body=@*) cat "${a#body=@}";; esac; done
+  exit 0
+fi
+if [[ "$j" == *"issues/comments/7"* ]]; then cat "$WP_BODY"; exit 0; fi
+if [[ "$j" == *"issues/999/comments"* ]]; then echo '[{"id":7,"body":"<!-- devflow:workpad -->"}]'; exit 0; fi
+echo '[]'
+STUB
+chmod +x "$S258/gh"
+
+# Fixture bodies. Base = every Plan/AC row ticked (the clean-run shape).
+cat > "$S258/all-ticked.md" <<'WPMD'
+<!-- devflow:workpad -->
+# DevFlow Workpad — Issue #999
+
+**Status:** 🚀 Documenting
+**Last updated:** 2026-05-15T00:00:00Z
+
+## Progress
+- [x] **Setup**
+
+## Plan
+- [x] Plan step one
+- [x] Plan step two
+
+## Acceptance Criteria
+- [x] AC one
+- [x] AC two
+WPMD
+# (a) a non-post-merge AC row still unticked.
+sed 's/- \[x\] AC two/- [ ] AC two/' "$S258/all-ticked.md" > "$S258/ac-unticked.md"
+# (b) the ONLY outstanding AC row carries the (post-merge) marker.
+sed 's/- \[x\] AC two/- [ ] AC two (post-merge)/' "$S258/all-ticked.md" > "$S258/ac-postmerge.md"
+# (c) a ## Plan row unticked, every AC ticked.
+sed 's/- \[x\] Plan step two/- [ ] Plan step two/' "$S258/all-ticked.md" > "$S258/plan-unticked.md"
+
+# run258 <body-file> <args...> → prints the exit code; leaves out/err/patchlog on disk.
+run258() {
+  local body="$1"; shift
+  : > "$S258/patchlog"
+  WP_BODY="$body" WP_PATCHLOG="$S258/patchlog" DEVFLOW_GH="$S258/gh" \
+    python3 "$WP_PY" update 999 "$@" >"$S258/out" 2>"$S258/err"
+  echo $?
+}
+
+# (a) --status Complete aborts non-zero with NO PATCH when a non-post-merge AC is [ ].
+_c="$(run258 "$S258/ac-unticked.md" --status Complete)"
+assert_eq "#258(a): --status Complete aborts non-zero on an unticked non-post-merge AC" "no" \
+  "$([ "$_c" = "0" ] && echo yes || echo no)"
+assert_eq "#258(a): the abort made NO PATCH (self-record not flipped to Complete)" "yes" \
+  "$([ -s "$S258/patchlog" ] && echo no || echo yes)"
+assert_eq "#258(a): the abort names the offending AC row on stderr" "yes" \
+  "$(grep -q 'AC two' "$S258/err" && echo yes || echo no)"
+
+# (b) only outstanding AC is (post-merge) → finalizes normally (PATCH, Status flipped).
+_c="$(run258 "$S258/ac-postmerge.md" --status Complete)"
+assert_eq "#258(b): a post-merge-only outstanding AC finalizes (exit 0)" "0" "$_c"
+assert_eq "#258(b): the post-merge-only finalize PATCHed the Status to Complete" "yes" \
+  "$(grep -q '🎉 Complete' "$S258/out" && echo yes || echo no)"
+
+# (c) a ## Plan row unticked → succeeds-with-warning (non-blocking), Status flips.
+_c="$(run258 "$S258/plan-unticked.md" --status Complete)"
+assert_eq "#258(c): an unticked Plan row does NOT block finalize (exit 0)" "0" "$_c"
+assert_eq "#258(c): finalize emits a non-blocking Plan warning naming the unticked row" "yes" \
+  "$(grep -qi 'plan' "$S258/err" && grep -q 'Plan step two' "$S258/err" && echo yes || echo no)"
+assert_eq "#258(c): the Plan-warning finalize still flipped Status to Complete" "yes" \
+  "$(grep -q '🎉 Complete' "$S258/out" && echo yes || echo no)"
+
+# (d) all rows ticked → succeeds silently (no AC abort, no Plan warning).
+_c="$(run258 "$S258/all-ticked.md" --status Complete)"
+assert_eq "#258(d): a fully-ticked run finalizes (exit 0)" "0" "$_c"
+assert_eq "#258(d): a fully-ticked finalize emits NO Plan/AC gate warning" "yes" \
+  "$(grep -qiE 'unticked|refusing to finalize' "$S258/err" && echo no || echo yes)"
+
+# (e) --status Blocked with an unticked AC is NEVER gated (behaves as today).
+_c="$(run258 "$S258/ac-unticked.md" --status Blocked)"
+assert_eq "#258(e): --status Blocked with an unticked AC is not gated (exit 0)" "0" "$_c"
+assert_eq "#258(e): --status Blocked with an unticked AC still PATCHed (Status → Blocked)" "yes" \
+  "$([ -s "$S258/patchlog" ] && grep -q '👎 Blocked' "$S258/out" && echo yes || echo no)"
+
+# Source pin: the terminal gate + its post-merge exclusion live in workpad.py.
+assert_eq "#258: workpad.py carries the terminal --status Complete self-record gate" "yes" \
+  "$(grep -q '_terminal_complete_gate' "$WP_PY" && grep -q "(post-merge)" "$WP_PY" && echo yes || echo no)"
+rm -rf "$S258"
+
 # ── Issue #184: Phase 1.6 Issue-Claim Audit ──────────────────────────────
 # Five assert_pin_red_on_removal guards + five assert_pin_unique pins.
 # assert_pin_red_on_removal: presence+uniqueness (PASS-before) + deletion

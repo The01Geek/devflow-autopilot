@@ -1084,6 +1084,57 @@ def _apply_section_ticks(
     sections[idx] = (heading, content)
 
 
+# The marker parse-acs.py appends to a post-merge criterion, and the byte-for-byte
+# token the Phase 3.4 AC gate excludes ("a criterion whose checkbox line ends in
+# `(post-merge)`"). The terminal Complete gate reuses the same exclusion so its
+# hard-fail set matches the gate's blocking set exactly.
+_POST_MERGE_MARKER = '(post-merge)'
+
+
+def _unticked_rows(content: str) -> tuple[list[str], list[str]]:
+    """Split a checkbox section's still-unticked `- [ ]` rows into
+    (non_post_merge, post_merge) by whether the row text ends in the
+    `(post-merge)` marker (the Phase 3.4 exclusion). Non-checkbox lines
+    (placeholders, prose) are ignored. Read-only — never mutates a row."""
+    non_pm, pm = [], []
+    for line in content.splitlines():
+        m = _CHECKBOX_ROW_RE.match(line)
+        if not m or m.group(2) != '[ ]':
+            continue
+        text = m.group(4)
+        (pm if text.rstrip().endswith(_POST_MERGE_MARKER) else non_pm).append(text)
+    return non_pm, pm
+
+
+def _terminal_complete_gate(sections) -> list[str]:
+    """Reconcile the workpad self-record on a terminal `--status Complete` write.
+
+    Hard-fail (a *structural* `_UpdateError`, so `cmd_update` aborts before any
+    PATCH and the Status is never flipped) when any NON-post-merge `## Acceptance
+    Criteria` row is still `- [ ]`, naming each offending row on stderr. Post-merge
+    AC rows are excluded (byte-for-byte the Phase 3.4 exclusion). Returns the
+    still-unticked `## Plan` rows for the caller to emit a NON-blocking warning on
+    (a genuinely dropped/superseded plan step may honestly stay unticked, so Plan
+    is not hard-failed). NEVER modifies a row; an absent section contributes
+    nothing. Called only for `--status Complete`, over the post-mutation sections."""
+    ac_idx = _find_section(sections, 'Acceptance Criteria')
+    if ac_idx is not None:
+        non_pm, _pm = _unticked_rows(sections[ac_idx][1])
+        if non_pm:
+            rows = '\n'.join(f'    - [ ] {t}' for t in non_pm)
+            raise _UpdateError(
+                "refusing to finalize Status: Complete — "
+                f"{len(non_pm)} non-post-merge Acceptance Criteria row(s) still "
+                "unticked (tick each once its work is real, or route the run to "
+                f"Blocked, before finalizing):\n{rows}"
+            )
+    plan_idx = _find_section(sections, 'Plan')
+    if plan_idx is None:
+        return []
+    non_pm, pm = _unticked_rows(sections[plan_idx][1])
+    return non_pm + pm  # Plan has no post-merge concept; warn on every unticked row
+
+
 def _apply_mutations(body: str, args, failed_ticks) -> str:
     """Apply all mutations from args and return the new body.
 
@@ -1210,6 +1261,24 @@ def _apply_mutations(body: str, args, failed_ticks) -> str:
         for bullet in args.reflection:
             content = _append_reflection(content, kind, bullet)
         sections[idx] = (heading, content)
+
+    # Terminal self-record gate (issue #258): a `--status Complete` write is the
+    # deterministic chokepoint that guarantees the workpad's Plan/AC self-record
+    # matches reality. It runs LAST, over the *post-mutation* sections, so a call
+    # that ticks the final AC row and flips to Complete in one shot still passes.
+    # Detection reuses `_status_glyph` (the single source of truth for the
+    # Complete/🎉 vocabulary), so a non-Complete status (Blocked/👎, any in-progress
+    # 🚀) and a status-less update are never gated.
+    if args.status and _status_glyph(args.status) == '🎉':
+        unticked_plan = _terminal_complete_gate(sections)  # AC hard-fail raises here
+        if unticked_plan:
+            rows = '; '.join(t.strip() for t in unticked_plan)
+            sys.stderr.write(
+                "workpad.py update: warning: finalizing Status: Complete with "
+                f"{len(unticked_plan)} unticked ## Plan row(s) — a genuinely "
+                "dropped/superseded step may honestly stay unticked, but verify: "
+                f"{rows}\n"
+            )
 
     return _join_sections(preamble, sections)
 
