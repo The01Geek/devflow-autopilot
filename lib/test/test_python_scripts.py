@@ -1553,6 +1553,58 @@ assert_eq("parse_payload: empty payload comment → {}", {},
           match_deferrals._parse_yaml_payload(
               match_deferrals._extract_block(_empty_payload)))
 
+print("match_deferrals._check_issue_cross_link (#245: gh-exec-failure vs. genuine "
+      "issue-unreadable must not be conflated)")
+
+# _check_issue_cross_link must no longer silently treat _run's OSError sentinel
+# (CompletedProcess(cmd, 127, stdout="", stderr=str(e))) the same as a genuine
+# gh/GitHub failure (404, permission, rate limit) — an unusable gh invalidates
+# the whole matching run and must fail loudly via _fail() (sys.exit), not just
+# return REASON_ISSUE_UNREADABLE and discard the diagnostic.
+_saved_run = match_deferrals._run
+try:
+    match_deferrals._run = lambda cmd, **kw: match_deferrals.subprocess.CompletedProcess(
+        cmd, 127, stdout="", stderr="[Errno 8] Exec format error: 'gh'")
+    _exited = False
+    _exit_code = None
+    try:
+        match_deferrals._check_issue_cross_link(9, 1)
+    except SystemExit as e:
+        _exited = True
+        _exit_code = e.code
+    assert_eq("check_issue_cross_link: OSError sentinel (rc=127, empty stdout) → fails loudly (SystemExit)",
+              True, _exited)
+    assert_eq("check_issue_cross_link: OSError sentinel → non-zero exit code", True,
+              bool(_exit_code))
+finally:
+    match_deferrals._run = _saved_run
+
+# A genuine gh/GitHub failure (non-127 rc, e.g. 404/permission) must still
+# degrade gracefully to REASON_ISSUE_UNREADABLE — this is NOT the OSError path,
+# so it must not raise/exit.
+_saved_run = match_deferrals._run
+try:
+    match_deferrals._run = lambda cmd, **kw: match_deferrals.subprocess.CompletedProcess(
+        cmd, 1, stdout="", stderr="HTTP 404: Not Found")
+    _reason = match_deferrals._check_issue_cross_link(9, 1)
+    assert_eq("check_issue_cross_link: genuine gh failure (rc=1) → REASON_ISSUE_UNREADABLE (degrades, no exit)",
+              match_deferrals.REASON_ISSUE_UNREADABLE, _reason)
+finally:
+    match_deferrals._run = _saved_run
+
+# rc==127 with NON-empty stdout is not the OSError sentinel shape (_run's sentinel
+# always pairs 127 with empty stdout) — must not be misclassified as an exec
+# failure and must degrade gracefully like any other genuine non-zero rc.
+_saved_run = match_deferrals._run
+try:
+    match_deferrals._run = lambda cmd, **kw: match_deferrals.subprocess.CompletedProcess(
+        cmd, 127, stdout="some output", stderr="")
+    _reason = match_deferrals._check_issue_cross_link(9, 1)
+    assert_eq("check_issue_cross_link: rc=127 with non-empty stdout (not the OSError shape) → degrades, no exit",
+              match_deferrals.REASON_ISSUE_UNREADABLE, _reason)
+finally:
+    match_deferrals._run = _saved_run
+
 
 # ---------------------------------------------------------------------------
 # resolve_review_overrides.resolve_overrides — per-subagent model/effort
