@@ -12,8 +12,12 @@
 # HEAD never merges (in either direction):
 #   - The engine ended in error (is_error) .................... incomplete
 #   - No PR number / no HEAD SHA (unverifiable) .............. incomplete
-#   - Reviews-API query failed (unverifiable) ............... incomplete
+#   - Unresolvable REPO (owner/name) (unverifiable) ......... incomplete
+#   - Reviews-API / comments-API query failed, or their JSON
+#     could not be parsed (unverifiable) .................... incomplete
 #   - Only older-commit reviews / empty reviews for HEAD .... incomplete
+#   - No HEAD review and no run id to scope the comment
+#     fallback (unverifiable) ............................... incomplete
 #   - A CHANGES_REQUESTED (or `## Verdict: REJECT`) ON HEAD .. reject
 #   - An APPROVED (or `## Verdict: APPROVE`) review ON HEAD .. approve
 #   - No HEAD review, but this run's run-keyed progress
@@ -64,9 +68,23 @@
 set -uo pipefail
 
 _DRV_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Guarded source (documented partial-copy posture — see CLAUDE.md): a deployment
+# carrying this file without its sibling lib/resolve-gh.sh must degrade to bare
+# `gh` with a breadcrumb, never assign an empty DEVFLOW_GH from an undefined
+# devflow_resolve_gh (which would misdirect the failure to the reviews query).
 # shellcheck source=../lib/resolve-gh.sh
-. "$_DRV_DIR/../lib/resolve-gh.sh"
-: "${DEVFLOW_GH:=$(devflow_resolve_gh)}"
+. "$_DRV_DIR/../lib/resolve-gh.sh" \
+  || echo "devflow: resolve-gh.sh could not be sourced from ../lib relative to ${BASH_SOURCE[0]} — using bare 'gh' (set DEVFLOW_GH to override)" >&2
+# Sourceability is not function-availability (a sibling can source clean yet not
+# define the resolver) — verify the function itself before calling it.
+if type devflow_resolve_gh >/dev/null 2>&1; then
+  : "${DEVFLOW_GH:=$(devflow_resolve_gh)}"
+else
+  # Partial-copy degradation only (resolver absent, breadcrumb above): the `:-`
+  # form is the sanctioned fallback shape — the #245 peer-completeness pin
+  # forbids the `:=gh` default precisely so full deployments route the resolver.
+  DEVFLOW_GH="${DEVFLOW_GH:-gh}"
+fi
 # Guarded source (documented partial-copy posture — see CLAUDE.md): a deployment
 # carrying this file without its sibling lib/resolve-jq.sh must degrade to bare
 # `jq` with a breadcrumb, never leave DEVFLOW_JQ unbound and abort the next
@@ -131,11 +149,21 @@ fi
 #    review on any earlier commit is never treated as the verdict (an empty
 #    match set yields empty STATE/RBODY and falls through to the comment
 #    fallback). Piped through jq (DEVFLOW_JQ) rather than gh --jq so the test
-#    stub only has to echo JSON.
-STATE=$(printf '%s' "$REVIEWS_JSON" | "$DEVFLOW_JQ" -r --arg h "$HEAD_SHA" \
-          'map(select(.commit_id == $h)) | last | (.state // "")' 2>/dev/null || echo "")
-RBODY=$(printf '%s' "$REVIEWS_JSON" | "$DEVFLOW_JQ" -r --arg h "$HEAD_SHA" \
-          'map(select(.commit_id == $h)) | last | (.body // "")' 2>/dev/null || echo "")
+#    stub only has to echo JSON. A jq FAILURE (missing/broken jq, or a
+#    200-but-non-array payload `map()` rejects) is NOT an empty match set: it
+#    fails closed here with its own breadcrumb — falling through to the comment
+#    fallback could emit a verdict without the reviews ever being consulted,
+#    and the step-7 breadcrumb would misdiagnose a parse failure as "no verdict".
+if ! STATE=$(printf '%s' "$REVIEWS_JSON" | "$DEVFLOW_JQ" -r --arg h "$HEAD_SHA" \
+          'map(select(.commit_id == $h)) | last | (.state // "")' 2>/dev/null); then
+  echo "derive-review-verdict: reviews JSON could not be parsed (jq failed or the reviews payload was not an array) — verdict unverifiable; failing closed (incomplete)." >&2
+  emit incomplete false
+fi
+if ! RBODY=$(printf '%s' "$REVIEWS_JSON" | "$DEVFLOW_JQ" -r --arg h "$HEAD_SHA" \
+          'map(select(.commit_id == $h)) | last | (.body // "")' 2>/dev/null); then
+  echo "derive-review-verdict: reviews JSON could not be parsed (jq failed or the reviews payload was not an array) — verdict unverifiable; failing closed (incomplete)." >&2
+  emit incomplete false
+fi
 
 # REJECT first (fail toward blocking): a CHANGES_REQUESTED, or a REJECT verdict
 # marker, on the HEAD review.
@@ -164,8 +192,13 @@ fi
 # run=<RUN_ID>-<ATTEMPT> -->`, so matching the `run=<RUN_ID>-` prefix selects
 # only this run's comment(s) across attempts.
 MARKER="<!-- devflow:review-progress run=${RUN_ID}-"
-CBODY=$(printf '%s' "$COMMENTS_JSON" | "$DEVFLOW_JQ" -r --arg m "$MARKER" \
-          'map(select((.body // "") | contains($m))) | last | (.body // "")' 2>/dev/null || echo "")
+# Same jq fail-closed posture as step 5: a parse failure must not be read as
+# "no matching comment" and land in step 7's misdiagnosing breadcrumb.
+if ! CBODY=$(printf '%s' "$COMMENTS_JSON" | "$DEVFLOW_JQ" -r --arg m "$MARKER" \
+          'map(select((.body // "") | contains($m))) | last | (.body // "")' 2>/dev/null); then
+  echo "derive-review-verdict: issue-comments JSON could not be parsed (jq failed or the comments payload was not an array) — verdict unverifiable; failing closed (incomplete)." >&2
+  emit incomplete false
+fi
 
 if printf '%s\n' "$CBODY" | grep -qE "$REJECT_RE"; then
   emit reject true

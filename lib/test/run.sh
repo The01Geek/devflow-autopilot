@@ -6642,6 +6642,51 @@ HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DE
   DRV_REVIEWS="[{\"state\":\"COMMENTED\",\"commit_id\":\"$DRV_NEW\",\"body\":\"## Verdict: REJECT\n## Verdict: APPROVE\"}]" \
   drv "#249 both markers on HEAD review -> reject (REJECT precedence, fail toward blocking)" "reject true"
 
+# Adversarial input-shape: a 200-but-NON-ARRAY reviews payload (e.g. an API error
+# object) must fail closed as a PARSE failure, never silently fall through to the
+# comment fallback. A run-keyed APPROVE comment sits BEHIND the guard: without the
+# jq-failure check the fall-through would return approve — non-vacuous.
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS='{"message":"Moved Permanently"}' \
+  DRV_COMMENTS='[{"body":"<!-- devflow:review-progress run=100-1 -->\n## Verdict: APPROVE"}]' \
+  drv "#249 non-array reviews payload -> incomplete (parse failure fails closed; overrides a would-be APPROVE comment)" "incomplete false"
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS='{"message":"Moved Permanently"}' \
+  drv_stderr "#249 non-array reviews payload emits the specific 'could not be parsed' breadcrumb" "reviews JSON could not be parsed"
+
+# Same shape on the comments-API payload: non-array -> parse-failure fail-closed
+# (never step 7's misdiagnosing "no verdict" breadcrumb).
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[]" DRV_COMMENTS='{"message":"err"}' \
+  drv "#249 non-array comments payload -> incomplete (parse failure fails closed)" "incomplete false"
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[]" DRV_COMMENTS='{"message":"err"}' \
+  drv_stderr "#249 non-array comments payload emits the specific comments-parse breadcrumb" "issue-comments JSON could not be parsed"
+
+# Multi-attempt comment precedence: the marker prefix `run=<RUN_ID>-` matches every
+# attempt of this run, and `last` wins — a later attempt's verdict supersedes an
+# earlier attempt's. Pins `last` (a refactor to `first` ships RED).
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[]" \
+  DRV_COMMENTS='[{"body":"<!-- devflow:review-progress run=100-1 -->\n## Verdict: REJECT attempt 1"},{"body":"<!-- devflow:review-progress run=100-2 -->\n## Verdict: APPROVE attempt 2"}]' \
+  drv "#249 two attempts of one run [attempt1 REJECT, attempt2 APPROVE] -> approve (last comment wins)" "approve true"
+
+# Partial-copy posture (#247 class): the script deployed WITHOUT its lib/ siblings
+# must degrade with a breadcrumb (guarded resolve-gh source + type-check), never
+# assign an empty DEVFLOW_GH and misreport the failure as a reviews-query error.
+# With the stub in DEVFLOW_GH the deriver must still reach a verdict.
+DRV_PARTIAL_DIR="$(mktemp -d)"
+mkdir -p "$DRV_PARTIAL_DIR/scripts"
+cp "$DRV" "$DRV_PARTIAL_DIR/scripts/"
+DRV_PARTIAL="$DRV_PARTIAL_DIR/scripts/derive-review-verdict.sh"
+DRV_PARTIAL_OUT="$(HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"APPROVED\",\"commit_id\":\"$DRV_NEW\"}]" bash "$DRV_PARTIAL" 2>"$DRV_PARTIAL_DIR/err.txt")"
+assert_eq "#249 partial-copy (no lib siblings) still derives the verdict via DEVFLOW_GH" "approve true" \
+  "$(printf '%s\n' "$DRV_PARTIAL_OUT" | sed -n 's/^verdict=//p') $(printf '%s\n' "$DRV_PARTIAL_OUT" | sed -n 's/^verdict_determined=//p')"
+assert_eq "#249 partial-copy emits the resolve-gh.sh sourcing breadcrumb" "yes" \
+  "$(grep -qF -- "resolve-gh.sh could not be sourced" "$DRV_PARTIAL_DIR/err.txt" && echo yes || echo no)"
+rm -rf "$DRV_PARTIAL_DIR"
+
 # always exits 0 (best-effort; caller reads the verdict, not the exit code).
 ( HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER="" GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" bash "$DRV" >/dev/null 2>&1 ); DRV_RC=$?
 assert_eq "#249 deriver always exits 0 (best-effort)" "0" "$DRV_RC"
@@ -6656,7 +6701,7 @@ echo "parse-engine-error.sh (#249 execution-log is_error parser feeding engine_i
 # deriver's HEAD-SHA scoping is the primary guard).
 PEE="$LIB/../scripts/parse-engine-error.sh"
 PEE_TMP="$(mktemp -d)"
-# stream-json ARRAY whose final type==result element carries is_error
+# stream-json ARRAY where a type==result element carries is_error (any result with is_error=true wins)
 printf '%s' '[{"type":"system"},{"type":"result","is_error":true}]'  > "$PEE_TMP/arr_true.json"
 printf '%s' '[{"type":"assistant"},{"type":"result","is_error":false}]' > "$PEE_TMP/arr_false.json"
 # a single result OBJECT

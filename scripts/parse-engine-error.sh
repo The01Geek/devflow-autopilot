@@ -14,8 +14,9 @@
 # steps.claude.outputs.execution_file. The exact on-disk shape is not pinned by a
 # public contract, so all three plausible stream-json encodings are handled with
 # one slurp-based jq filter:
-#   - a single JSON ARRAY whose elements are the stream events (a final
-#     `type=="result"` element carries is_error);
+#   - a single JSON ARRAY whose elements are the stream events (an element of
+#     `type=="result"` carries is_error — ANY result with is_error=true wins,
+#     at any nesting depth; the fail-safe direction is toward blocking);
 #   - a single result OBJECT carrying is_error;
 #   - JSONL — one JSON object per line, no enclosing array (`jq -s` slurps every
 #     line into an array; without `-s` a JSONL log would emit one bool per line

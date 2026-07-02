@@ -565,7 +565,11 @@ jobs:
           PEE=.devflow/vendor/devflow/scripts/parse-engine-error.sh
           [ -f "$PEE" ] || PEE=scripts/parse-engine-error.sh
           if [ -f "$PEE" ]; then
-            IS_ERROR=$(bash "$PEE" "${EXECUTION_FILE:-}" 2>/dev/null || echo false)
+            # Let the helper's stderr breadcrumbs (e.g. a resolve-jq.sh sourcing
+            # failure) flow to the Actions job log — never 2>/dev/null them, or a
+            # broken jq silently reports is_error=false forever with zero trace.
+            # The helper always exits 0, so `|| echo false` is belt-and-suspenders.
+            IS_ERROR=$(bash "$PEE" "${EXECUTION_FILE:-}" || echo false)
           else
             echo "::notice::parse-engine-error.sh absent; treating engine is_error as false (fail-safe)."
             IS_ERROR=false
