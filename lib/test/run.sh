@@ -6506,7 +6506,7 @@ HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DE
   DRV_REVIEWS="[{\"state\":\"CHANGES_REQUESTED\",\"commit_id\":\"$DRV_OLD\",\"body\":\"## Verdict: REJECT stale\"}]" \
   drv "#249 stale-reject-on-older-commit -> incomplete (not a resurrected REJECT)" "incomplete false"
 
-# verdict-less-approve: empty reviews, engine subtype success. OLD logic:
+# verdict-less-approve: empty reviews, ENGINE_ERROR=false. OLD logic:
 # VERDICT defaulted to approve -> success (Direction-2 defect, PR #250).
 HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
   DRV_REVIEWS="[]" \
@@ -6687,6 +6687,31 @@ assert_eq "#249 partial-copy emits the resolve-gh.sh sourcing breadcrumb" "yes" 
   "$(grep -qF -- "resolve-gh.sh could not be sourced" "$DRV_PARTIAL_DIR/err.txt" && echo yes || echo no)"
 rm -rf "$DRV_PARTIAL_DIR"
 
+# Verdict-bearing-state selection: a DISMISSED review is a human override whose
+# body still carries its old `## Verdict: REJECT` — it must NEVER resurrect as
+# the HEAD verdict (the Direction-1 wedge via a new path). Pre-fix the body-grep
+# ran regardless of state and returned reject — non-vacuous.
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"DISMISSED\",\"commit_id\":\"$DRV_NEW\",\"body\":\"## Verdict: REJECT dismissed by a human\"}]" \
+  drv "#249 DISMISSED reject on HEAD is never the verdict -> incomplete (no resurrection of a human-dismissed reject)" "incomplete false"
+
+# ...and a non-verdict-bearing review (PENDING/other) interleaved on HEAD after a
+# genuine APPROVED must not mask it: selection takes the last VERDICT-BEARING
+# HEAD review. Pre-fix `last` landed on the PENDING entry -> incomplete.
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"APPROVED\",\"commit_id\":\"$DRV_NEW\",\"body\":\"## Verdict: APPROVE\"},{\"state\":\"PENDING\",\"commit_id\":\"$DRV_NEW\",\"body\":\"\"}]" \
+  drv "#249 interleaved PENDING on HEAD does not mask a genuine APPROVED -> approve" "approve true"
+
+# Output contract: exactly two stdout lines, `verdict=` then `verdict_determined=`
+# — finalize_check's `sed -n 's/^verdict=//p'` consumer depends on this exact
+# shape; an extra stdout line or a renamed key would silently degrade every
+# conclusion to incomplete.
+DRV_CONTRACT_OUT="$(HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"APPROVED\",\"commit_id\":\"$DRV_NEW\"}]" bash "$DRV" 2>/dev/null)"
+assert_eq "#249 deriver stdout contract: exactly 2 lines" "2" "$(printf '%s\n' "$DRV_CONTRACT_OUT" | wc -l | tr -d ' ')"
+assert_eq "#249 deriver stdout contract: line 1 is verdict=, line 2 is verdict_determined=" "yes" \
+  "$(printf '%s\n' "$DRV_CONTRACT_OUT" | sed -n '1s/^verdict=.*/ok1/p;2s/^verdict_determined=.*/ok2/p' | tr '\n' ' ' | grep -q 'ok1 ok2' && echo yes || echo no)"
+
 # always exits 0 (best-effort; caller reads the verdict, not the exit code).
 ( HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER="" GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" bash "$DRV" >/dev/null 2>&1 ); DRV_RC=$?
 assert_eq "#249 deriver always exits 0 (best-effort)" "0" "$DRV_RC"
@@ -6729,6 +6754,16 @@ assert_eq "#249 parse-engine-error: unparseable log -> false (fail-safe)"       
 assert_eq "#249 parse-engine-error: missing file arg -> false (fail-safe)"        "false" "$(bash "$PEE" "$PEE_TMP/does-not-exist.json")"
 assert_eq "#249 parse-engine-error: empty arg -> false (fail-safe)"               "false" "$(bash "$PEE" "")"
 ( bash "$PEE" "$PEE_TMP/arr_true.json" >/dev/null 2>&1 ); assert_eq "#249 parse-engine-error: always exits 0 (best-effort)" "0" "$?"
+# nested result object (pins the `..` any-depth recursion the header advertises;
+# a refactor to top-level-only `.[]` ships RED)
+printf '%s' '[{"type":"system","payload":{"type":"result","is_error":true}}]' > "$PEE_TMP/nested_true.json"
+assert_eq "#249 parse-engine-error: NESTED result is_error=true -> true (any-depth recursion pinned)" "true" "$(bash "$PEE" "$PEE_TMP/nested_true.json" 2>/dev/null)"
+# fail-safe arms leave breadcrumbs, never a silent false: a disarmed signal
+# (renamed execution_file output, broken jq) must be visible in the job log.
+assert_eq "#249 parse-engine-error: missing-file arm emits the 'execution file absent' breadcrumb" "yes" \
+  "$(bash "$PEE" "$PEE_TMP/does-not-exist.json" 2>&1 1>/dev/null | grep -qF "execution file absent or empty" && echo yes || echo no)"
+assert_eq "#249 parse-engine-error: unparseable-log arm emits the 'jq failed parsing' breadcrumb" "yes" \
+  "$(bash "$PEE" "$PEE_TMP/garbage.json" 2>&1 1>/dev/null | grep -qF "jq failed parsing" && echo yes || echo no)"
 rm -rf "$PEE_TMP"
 
 # ────────────────────────────────────────────────────────────────────────────

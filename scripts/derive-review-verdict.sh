@@ -20,6 +20,9 @@
 #     fallback (unverifiable) ............................... incomplete
 #   - A CHANGES_REQUESTED (or `## Verdict: REJECT`) ON HEAD .. reject
 #   - An APPROVED (or `## Verdict: APPROVE`) review ON HEAD .. approve
+#   - A DISMISSED or PENDING review ON HEAD is never the verdict (a dismissed
+#     review is a human override; its stale body must not resurrect) — such
+#     reviews are skipped as if absent
 #   - No HEAD review, but this run's run-keyed progress
 #     comment carries a `## Verdict:` line for HEAD ......... reject/approve
 # `incomplete` is distinct from `reject`: finalize_check maps it to a blocking
@@ -154,13 +157,20 @@ fi
 #    fails closed here with its own breadcrumb — falling through to the comment
 #    fallback could emit a verdict without the reviews ever being consulted,
 #    and the step-7 breadcrumb would misdiagnose a parse failure as "no verdict".
+#    Only VERDICT-BEARING states are selected: a DISMISSED review is a human
+#    override whose body still carries its old `## Verdict:` line — reading it
+#    would resurrect a deliberately-dismissed verdict (the same Direction-1
+#    wedge this helper exists to remove); a PENDING (or other non-verdict)
+#    review interleaved on HEAD must not mask a real APPROVED/CHANGES_REQUESTED
+#    posted just before it. Excluded states fall through like an empty set.
+DRV_STATE_FILTER='map(select(.commit_id == $h and ((.state // "") | IN("APPROVED","CHANGES_REQUESTED","COMMENTED")))) | last'
 if ! STATE=$(printf '%s' "$REVIEWS_JSON" | "$DEVFLOW_JQ" -r --arg h "$HEAD_SHA" \
-          'map(select(.commit_id == $h)) | last | (.state // "")' 2>/dev/null); then
+          "$DRV_STATE_FILTER | (.state // \"\")" 2>/dev/null); then
   echo "derive-review-verdict: reviews JSON could not be parsed (jq failed or the reviews payload was not an array) — verdict unverifiable; failing closed (incomplete)." >&2
   emit incomplete false
 fi
 if ! RBODY=$(printf '%s' "$REVIEWS_JSON" | "$DEVFLOW_JQ" -r --arg h "$HEAD_SHA" \
-          'map(select(.commit_id == $h)) | last | (.body // "")' 2>/dev/null); then
+          "$DRV_STATE_FILTER | (.body // \"\")" 2>/dev/null); then
   echo "derive-review-verdict: reviews JSON could not be parsed (jq failed or the reviews payload was not an array) — verdict unverifiable; failing closed (incomplete)." >&2
   emit incomplete false
 fi

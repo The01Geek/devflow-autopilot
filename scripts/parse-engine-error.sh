@@ -15,8 +15,9 @@
 # public contract, so all three plausible stream-json encodings are handled with
 # one slurp-based jq filter:
 #   - a single JSON ARRAY whose elements are the stream events (an element of
-#     `type=="result"` carries is_error — ANY result with is_error=true wins,
-#     at any nesting depth; the fail-safe direction is toward blocking);
+#     `type=="result"` carries is_error — when multiple result events exist,
+#     ANY is_error=true wins, at any nesting depth: a bias toward SURFACING an
+#     error, distinct from the absent/unparseable→false fail-safe below);
 #   - a single result OBJECT carrying is_error;
 #   - JSONL — one JSON object per line, no enclosing array (`jq -s` slurps every
 #     line into an array; without `-s` a JSONL log would emit one bool per line
@@ -47,6 +48,10 @@ _PEE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 FILE="${1:-}"
 if [ -z "$FILE" ] || [ ! -f "$FILE" ]; then
+  # Breadcrumb, not just the fail-safe value: a renamed/removed execution_file
+  # output would otherwise disarm this signal silently and permanently (the
+  # id-rename hazard — the caller's job log must show WHY is_error read false).
+  echo "devflow: parse-engine-error: execution file absent or empty ('$FILE') — defaulting is_error=false (fail-safe)" >&2
   echo false
   exit 0
 fi
@@ -55,11 +60,15 @@ fi
 # single object all normalize the same way; `.. | objects` then reaches every
 # result object regardless of nesting depth. `any(. == true)` returns true iff a
 # result carries is_error==true and false otherwise (empty set, absent field,
-# null → false — the fail-safe default). A parse error routes through the
-# `|| echo ""` and is likewise not "true".
-PARSED=$("$DEVFLOW_JQ" -rs \
+# null → false — the fail-safe default). A parse/jq failure defaults to "false"
+# too, but WITH a breadcrumb (jq's own stderr flows to the caller's log): a
+# broken jq or an unparseable log must never disarm this signal invisibly.
+if ! PARSED=$("$DEVFLOW_JQ" -rs \
   '[.. | objects | select(.type == "result") | .is_error] | any(. == true)' \
-  "$FILE" 2>/dev/null || echo "")
+  "$FILE"); then
+  echo "devflow: parse-engine-error: jq failed parsing '$FILE' — defaulting is_error=false (fail-safe)" >&2
+  PARSED=""
+fi
 
 if [ "$PARSED" = "true" ]; then
   echo true

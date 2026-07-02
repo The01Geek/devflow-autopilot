@@ -547,7 +547,8 @@ jobs:
       # result alone hides an incomplete review (issue #249). always() so this
       # runs even when the review step reports failure; the value is only
       # consumed on the success path, where a `true` here means the job
-      # succeeded yet the engine never reached a verdict.
+      # succeeded yet the engine ended in error — which the consumer treats
+      # as no verdict for HEAD.
       - name: Surface review-engine execution result
         id: engine
         if: always()
