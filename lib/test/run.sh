@@ -1099,6 +1099,11 @@ assert_pin_unique "#254: post-shadow gate exempts a logs-only post-shadow commit
   'a post-shadow commit whose diff touches only `.devflow/logs/**` does not constitute an unreviewed edit' "$MAXI_SKILL"
 assert_pin_unique "#254: post-shadow gate keeps the counter — a non-logs path still trips the gate" \
   'Any commit touching a path outside `.devflow/logs/**` still trips the gate' "$MAXI_SKILL"
+# Review iter 3 (finding: exemption fails OPEN on empty/errored diff — the vacuous-true hole):
+# require the changed-path list be NON-EMPTY and treat empty/errored output as non-exempt so
+# the gate fails closed, never open. Pin the operative fail-closed sentence removal-proof.
+assert_pin_unique "#254: post-shadow gate fails closed on empty/errored diff (non-empty required)" \
+  'An empty or errored `git diff` output is NOT exempt' "$MAXI_SKILL"
 # (The removal-proof counterparts for both operative sentences live below, after
 # assert_pin_red_on_removal is defined — see the "#254 post-shadow gate removal-proofs" block.)
 
@@ -3561,6 +3566,11 @@ assert_pin_unique "#254: Pass 4 checks each declared dependency's state via gh i
   "gh issue view N --json state,title --jq '.state'" "$IMPL_SKILL"
 assert_pin_unique "#254: Pass 4 routes an OPEN declared dependency to the Blocked path" \
   'issue-claim audit (dependency): declared dependency #N is still OPEN' "$IMPL_SKILL"
+# Review iter 3: the unresolvable-dependency → Blocked arm is the most safety-relevant
+# route (fail-closed on a `gh issue view` failure that says nothing about state); pin it
+# removal-proof too, not just the heading and the OPEN arm.
+assert_pin_unique "#254: Pass 4 fails closed (Blocked) when a declared dependency cannot be resolved" \
+  'issue-claim audit (dependency): could not resolve declared dependency #N state' "$IMPL_SKILL"
 # ── issue #185 (+ Addendum): Phase 4.1 Documentation Needed cross-check ─────
 # Phase 4.1 enforces named documentation deliverables in two stages:
 #   Stage 1 pre-flight: extract the Documentation Needed paths and inject them

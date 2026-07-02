@@ -18,8 +18,9 @@
 #     path mentioned in `## Current Behavior`, `## Technical Context`, or any
 #     OTHER bullet is NOT a documentation deliverable and is never emitted.
 #   * a token counts as a path only if it ends in a recognized documentation/
-#     source extension OR names an in-tree tracked file (the `git ls-files`
-#     rescue for extensionless real files like Makefile/LICENSE). A bare
+#     source extension OR names an in-tree tracked regular file (the two-part
+#     `[ -f ]` + `git ls-files` rescue for extensionless real files like
+#     Makefile/LICENSE — both halves are required; see the inline comment). A bare
 #     "contains `/`" test is deliberately NOT sufficient: it wrongly emitted
 #     directory tokens (`docs/internal`) and rooted skill-invocation refs
 #     (`/claude-md-management`, from colon-splitting) — see issue #254. Rooted
@@ -76,8 +77,19 @@ if [ "$grep_rc" -ge 2 ]; then
 fi
 [ -n "$tokens" ] || exit 0
 
+# Probe once whether the `git ls-files` half of the extensionless rescue can run
+# at all: git absent from PATH, or cwd outside a work tree, both disable it. When
+# disabled, an extensionless deliverable that IS a real on-disk file (so `[ -f ]`
+# passes) is silently dropped by the rescue below — the same guard-class-2
+# tr-dependence failure mode this repo's own review-extension flags. Emit ONE
+# stderr breadcrumb naming `git` the first time a token actually hits the
+# degraded rescue (not per-token, and not when no extensionless real file is
+# affected), so the drop is observable rather than silent.
+git_rescue_ok=1
+git rev-parse --is-inside-work-tree >/dev/null 2>&1 || git_rescue_ok=0
+
 printf '%s\n' "$tokens" \
-  | while IFS= read -r tok; do
+  | { git_warned=0; while IFS= read -r tok; do
       tok="${tok#./}"          # strip a leading ./
       # Strip a trailing run of dots the tokenizer glues on at a sentence
       # boundary (the char class includes `.`, so prose like "update
@@ -109,9 +121,19 @@ printf '%s\n' "$tokens" \
       # (Rooted `/…` tokens were already dropped by the case above.) The `.+`
       # before the dot excludes a bare extension token (`.md`, `.sh`) that is a
       # syntax reference, not a filename.
-      if printf '%s\n' "$tok" | grep -qE '.+\.(md|markdown|sh|json|py|ya?ml|rst|txt|adoc|mdx|toml|cfg|ini)$' \
-         || { [ -f "$tok" ] && git ls-files --error-unmatch -- "$tok" >/dev/null 2>&1; }; then
+      if printf '%s\n' "$tok" | grep -qE '.+\.(md|markdown|sh|json|py|ya?ml|rst|txt|adoc|mdx|toml|cfg|ini)$'; then
         printf '%s\n' "$tok"
+      elif [ -f "$tok" ]; then
+        # Extensionless token naming a real on-disk regular file → rescue via git.
+        if git ls-files --error-unmatch -- "$tok" >/dev/null 2>&1; then
+          printf '%s\n' "$tok"
+        elif [ "$git_rescue_ok" -eq 0 ] && [ "$git_warned" -eq 0 ]; then
+          # git is unavailable, so this real file was dropped for a tool-absence
+          # reason, not because it is untracked — surface it once, per the repo's
+          # guard-class-2 (tr-dependence) standard, instead of dropping silently.
+          printf '%s\n' "extract-doc-needed-paths.sh: git unavailable (absent from PATH or cwd outside a work tree); the in-tree rescue for extensionless deliverables is degraded — such tokens may be dropped" >&2
+          git_warned=1
+        fi
       fi
-    done \
+    done; } \
   | LC_ALL=C sort -u

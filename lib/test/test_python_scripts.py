@@ -1616,6 +1616,29 @@ assert_eq("wrap: item2 joined text carries the continuation-line content", True,
 assert_eq("wrap: item2 trigger phrase on a continuation line classifies post-merge",
           True, _w[1]['post_merge'])
 
+# Review iter 3 (over-join guard): the core risk of a join rewrite is *over*-joining.
+# Prove the item-closing boundary (the `else: current = None` arm) actually fires: a
+# dedented column-zero prose line must close the item so a *following* indented line
+# is NOT absorbed into the criterion — and prove `ticked` is preserved on a wrapped
+# `- [x]`. Deleting the `else: current = None` arm turns the "not over-joined" assert RED.
+WRAPPED_AC_BOUNDARY = """## Acceptance Criteria
+- [x] Ticked item wraps across
+      two indented lines.
+Prose paragraph at column zero closes the item.
+      This indented line belongs to the prose, not the ticked item.
+- [ ] Final standalone item.
+"""
+_b = parse_acs._parse_checkboxes(parse_acs._extract_section(WRAPPED_AC_BOUNDARY, 'Acceptance Criteria'))
+assert_eq("over-join: only the two checkbox items are parsed (prose lines are not items)",
+          2, len(_b))
+assert_eq("over-join: wrapped `- [x]` preserves ticked=True", True, _b[0]['ticked'])
+assert_eq("over-join: item1 joins only its own indented continuation",
+          "Ticked item wraps across two indented lines.", _b[0]['text'])
+assert_eq("over-join: an indented line after a dedented prose line is NOT absorbed (boundary fired)",
+          False, 'belongs to the prose' in _b[0]['text'])
+assert_eq("over-join: final item after the boundary parses cleanly and unticked",
+          ("Final standalone item.", False), (_b[1]['text'], _b[1]['ticked']))
+
 
 print("file_deferrals._derive_area / _compute_id / _format_line_range / _render_issue_body")
 
