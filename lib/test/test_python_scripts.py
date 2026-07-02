@@ -947,6 +947,34 @@ assert_eq("#258 cmd_update: a post-merge-only finalize succeeds (exit 0)", None,
 assert_eq("#258 cmd_update: the post-merge finalize PATCHed Status → Complete", True,
           _patched is not None and '🎉 Complete' in _patched)
 
+# Post-mutation ordering (the gate's load-bearing placement): the gate runs LAST, over
+# the POST-mutation sections, so a SINGLE call that ticks the last outstanding AC *and*
+# flips Status to Complete passes — the tick lands before the scan. This is exactly the
+# Phase 4.3 finalize shape (it ticks the "PR marked ready" progress box while flipping to
+# Complete). Goes RED if the gate is reordered to scan the pre-mutation body/sections.
+_oerr = io.StringIO()
+with contextlib.redirect_stderr(_oerr):
+    out = apply_mut(_AC_UNTICKED, make_args(status='Complete', tick_ac=['AC two']), [])
+assert_eq("#258: ticking the last AC and flipping to Complete in one call passes", True,
+          '🎉 Complete' in _statusline(out))
+assert_eq("#258: the one-shot tick+Complete leaves the AC ticked (post-mutation scan saw [x])", True,
+          '- [x] AC two' in out)
+assert_eq("#258: the one-shot tick+Complete emits no AC/Plan gate warning", "", _oerr.getvalue())
+# Symmetric Plan case: ticking the last Plan row in the same Complete call suppresses the
+# non-blocking Plan warning — proving the Plan scan is also post-mutation, not pre-mutation.
+_operr = io.StringIO()
+with contextlib.redirect_stderr(_operr):
+    out = apply_mut(_PLAN_UNTICKED, make_args(status='Complete', tick_plan=['Plan step two']), [])
+assert_eq("#258: ticking the last Plan row in the Complete call suppresses the Plan warning", "",
+          _operr.getvalue())
+assert_eq("#258: the one-shot Plan tick+Complete flipped Status and ticked the row", True,
+          '🎉 Complete' in _statusline(out) and '- [x] Plan step two' in out)
+# CLI-level: the same one-shot tick+Complete routes cleanly through cmd_update (PATCH lands).
+_code, _err, _patched = _drive_cmd_update(_AC_UNTICKED, status='Complete', tick_ac=['AC two'])
+assert_eq("#258 cmd_update: one-shot tick-last-AC + Complete finalizes (exit 0)", None, _code)
+assert_eq("#258 cmd_update: the one-shot finalize PATCHed Status → Complete with the AC ticked", True,
+          _patched is not None and '🎉 Complete' in _patched and '- [x] AC two' in _patched)
+
 
 print("workpad notes: compact timestamp + nesting under ## Progress phase")
 
