@@ -29,6 +29,13 @@
 #   2  bad arguments, or the template files are missing next to the script
 set -euo pipefail
 
+# jq binary: resolved once via the resolver sourced from the sibling lib/ directory (issue #247);
+# best-effort — a copied/vendored deployment without lib/ falls back to bare
+# `jq` with a breadcrumb rather than aborting under set -e.
+# shellcheck source=../lib/resolve-jq.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/resolve-jq.sh" \
+  || { echo "devflow: resolve-jq.sh could not be sourced from ../lib relative to ${BASH_SOURCE[0]} — using bare 'jq' (set DEVFLOW_JQ to override)" >&2; : "${DEVFLOW_JQ:=jq}"; }
+
 log() { printf 'devflow-scaffold: %s\n' "$1"; }
 die() { printf 'devflow-scaffold: %s\n' "$1" >&2; exit 2; }
 
@@ -48,8 +55,8 @@ die() { printf 'devflow-scaffold: %s\n' "$1" >&2; exit 2; }
 rewrite_config_if_changed() {
   local cfg="$1" cand="$2" changed_msg="$3" cmpfail_msg="$4"
   local cfg_norm cand_norm mv_err
-  if ! cfg_norm="$(jq --sort-keys . "$cfg" 2>/dev/null)" \
-     || ! cand_norm="$(jq --sort-keys . "$cand" 2>/dev/null)"; then
+  if ! cfg_norm="$("$DEVFLOW_JQ" --sort-keys . "$cfg" 2>/dev/null)" \
+     || ! cand_norm="$("$DEVFLOW_JQ" --sort-keys . "$cand" 2>/dev/null)"; then
     log "$cmpfail_msg"
     return 0
   fi
@@ -243,14 +250,14 @@ fi
 # changes something, so an up-to-date config is a quiet no-op (no mtime churn).
 # Runs before detection so the tool/setup union below operates on a config that
 # already has the full key set.
-if ! command -v jq >/dev/null 2>&1; then
-  log "jq not found; skipping config-key backfill (install jq to migrate newly-added keys)."
-elif ! jq -e . "$CONFIG" >/dev/null 2>&1; then
+if ! "$DEVFLOW_JQ" --version >/dev/null 2>&1; then
+  log "no usable jq (missing or not executable); skipping config-key backfill (install jq, or set DEVFLOW_JQ to a working jq/jq.exe, to migrate newly-added keys)."
+elif ! "$DEVFLOW_JQ" -e . "$CONFIG" >/dev/null 2>&1; then
   log "existing $CONFIG is not valid JSON; skipping config-key backfill (fix or delete it to re-scaffold)."
 else
   BACKFILL_TMP="$(mktemp)"; BACKFILL_ERR="$(mktemp)"
   trap 'rm -f "$BACKFILL_TMP" "$BACKFILL_ERR"' EXIT
-  if ! jq -n --slurpfile ex "$EXAMPLE" --slurpfile cfg "$CONFIG" '
+  if ! "$DEVFLOW_JQ" -n --slurpfile ex "$EXAMPLE" --slurpfile cfg "$CONFIG" '
         ($cfg[0].devflow_review.agent_overrides? // {}) as $userao
         | ($ex[0] * $cfg[0])
         | if (.devflow_review | type) == "object" and (.devflow_review.agent_overrides | type) == "object" then
@@ -308,7 +315,7 @@ fi
 # one. (The backfill separately refuses to GRAFT the example's Sonnet-deduper
 # effort onto a Haiku-pinned entry, so the two passes never churn against each
 # other on a re-scaffold.)
-if command -v jq >/dev/null 2>&1 && jq -e . "$CONFIG" >/dev/null 2>&1; then
+if "$DEVFLOW_JQ" --version >/dev/null 2>&1 && "$DEVFLOW_JQ" -e . "$CONFIG" >/dev/null 2>&1; then
   # Anti-silent-failure breadcrumb: if agent_overrides exists but is not an
   # object (hand-corrupted to an array/string/scalar), the cleanup filter below
   # still RUNS but no-ops via its `else .` arm (leaving the malformed value as-is).
@@ -323,7 +330,7 @@ if command -v jq >/dev/null 2>&1 && jq -e . "$CONFIG" >/dev/null 2>&1; then
   # breadcrumb — leaving only the generic "cleanup failed (jq error)" line below
   # to (mis)explain a corrupt config. Distinguish probe-error from genuinely-absent.
   ao_rc=0
-  ao_type="$(jq -r '.devflow_review.agent_overrides | type' "$CONFIG" 2>/dev/null)" || ao_rc=$?
+  ao_type="$("$DEVFLOW_JQ" -r '.devflow_review.agent_overrides | type' "$CONFIG" 2>/dev/null)" || ao_rc=$?
   if [ "$ao_rc" -ne 0 ]; then
     log "could not inspect .devflow_review.agent_overrides in $CONFIG (jq error — is devflow_review itself a non-object?); the Haiku effort-cleanup below will no-op."
   elif [ "$ao_type" != "object" ] && [ "$ao_type" != "null" ]; then
@@ -331,7 +338,7 @@ if command -v jq >/dev/null 2>&1 && jq -e . "$CONFIG" >/dev/null 2>&1; then
   fi
   CLEANUP_TMP="$(mktemp)"; CLEANUP_ERR="$(mktemp)"
   trap 'rm -f "$CLEANUP_TMP" "$CLEANUP_ERR"' EXIT
-  if ! jq '
+  if ! "$DEVFLOW_JQ" '
         if (.devflow_review | type) == "object" and (.devflow_review.agent_overrides | type) == "object" then
           .devflow_review.agent_overrides |= with_entries(
             if (.value | type) == "object"

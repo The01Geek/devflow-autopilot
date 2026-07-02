@@ -17,10 +17,43 @@ set -u
 _PREFLIGHT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=resolve-python.sh
 . "$_PREFLIGHT_DIR/resolve-python.sh"
+# Share the generic execution-verified binary-selection contract (see
+# lib/resolve-bin.sh) — jq resolves through it here, and resolve-gh.sh
+# delegates to it for gh. Guarded (family partial-copy posture): a deployment
+# missing the sibling degrades to bare-name resolution with a breadcrumb, so
+# the jq/gh diagnoses below stay attributable instead of blaming a phantom
+# Windows shim ("the resolved '' does not execute").
+# shellcheck source=resolve-bin.sh
+if [ -f "$_PREFLIGHT_DIR/resolve-bin.sh" ] \
+   && . "$_PREFLIGHT_DIR/resolve-bin.sh" \
+   && type devflow_resolve_bin >/dev/null 2>&1; then
+  :
+else
+  printf 'devflow preflight: lib/resolve-bin.sh missing or not sourceable beside preflight.sh (partial copy?) — tool resolution degraded to override-or-bare-name\n' >&2
+  # Degrade override-FIRST (the family posture): preflight DETECTs with the
+  # same value the helpers USE, so a set DEVFLOW_JQ/DEVFLOW_GH is still what
+  # gets probed here even in the degraded mode.
+  devflow_resolve_bin() {
+    case "${1:-}" in
+      jq) printf '%s\n' "${DEVFLOW_JQ:-jq}" ;;
+      gh) printf '%s\n' "${DEVFLOW_GH:-gh}" ;;
+      *)  printf '%s\n' "${1:-}" ;;
+    esac
+  }
+fi
 # Share the gh-selection contract with every gh-calling helper (see lib/resolve-gh.sh)
 # so preflight DETECTS with the same execution-verified probe the helpers USE.
+# Guarded like resolve-bin.sh above (same partial-copy posture, same
+# override-first degradation).
 # shellcheck source=resolve-gh.sh
-. "$_PREFLIGHT_DIR/resolve-gh.sh"
+if [ -f "$_PREFLIGHT_DIR/resolve-gh.sh" ] \
+   && . "$_PREFLIGHT_DIR/resolve-gh.sh" \
+   && type devflow_resolve_gh >/dev/null 2>&1; then
+  :
+else
+  printf 'devflow preflight: lib/resolve-gh.sh missing or not sourceable beside preflight.sh (partial copy?) — gh resolution degraded to DEVFLOW_GH-or-bare-gh\n' >&2
+  devflow_resolve_gh() { printf '%s\n' "${DEVFLOW_GH:-gh}"; }
+fi
 
 missing=0
 
@@ -32,7 +65,29 @@ _need() {  # $1=command  $2=how-to-install hint
 }
 
 _need git     "install git"
-_need jq      "install jq (https://jqlang.github.io/jq/)"
+
+# jq resolution — mirror the gh two-branch diagnosis below: execution-verified
+# via the shared resolver, not a bare presence check. On a stock Windows/WSL
+# host a non-executable `jq` shim can shadow the real jq: `command -v jq`
+# succeeds but the binary cannot run, so a plain presence check would pass
+# preflight while every jq-calling helper breaks. devflow_resolve_bin probes
+# candidates with a network/auth-free `jq --version` and returns the first
+# runnable one (or bare `jq` when none runs); we re-probe the chosen invocation
+# here so an unrunnable jq is reported with a remedy instead of silently
+# passing.
+_JQ="$(devflow_resolve_bin jq)"
+if ! "$_JQ" --version >/dev/null 2>&1; then
+  # Two accurate diagnoses instead of one hedged one: when jq is simply not
+  # installed (nothing named jq/jq.exe on PATH and no override), say so
+  # plainly; the shim wording applies only when something IS present but does
+  # not run. Both branches keep the literal "no working 'jq'".
+  if [ -z "${DEVFLOW_JQ:-}" ] && ! command -v jq >/dev/null 2>&1 && ! command -v jq.exe >/dev/null 2>&1; then
+    printf "devflow preflight: no working 'jq' — jq is not installed (nothing named jq/jq.exe on PATH). Install it (https://jqlang.github.io/jq/) or set DEVFLOW_JQ to a working jq/jq.exe.\n" >&2
+  else
+    printf "devflow preflight: no working 'jq' on PATH (the resolved '%s' does not execute — e.g. a non-executable shim shadowing the real jq on Windows/WSL). Install jq (https://jqlang.github.io/jq/), or set DEVFLOW_JQ to a working jq/jq.exe.\n" "$_JQ" >&2
+  fi
+  missing=1
+fi
 
 # gh resolution — mirror the resolve-python.sh sibling's detect-and-verify path:
 # use the execution-verified single-source resolver, not a bare presence check. On a stock Windows/WSL host a

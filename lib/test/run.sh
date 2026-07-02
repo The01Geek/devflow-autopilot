@@ -927,6 +927,157 @@ assert_pin_unique "max_iterations clamp: SKILL keeps the negative-aware integer 
 assert_pin_unique "max_iterations clamp: SKILL keeps the below-1 floor" '"$MAX_ITERS" -lt 1' "$MAXI_SKILL"
 assert_pin_unique "max_iterations clamp: SKILL keeps the default-5 fallback" 'MAX_ITERS=5' "$MAXI_SKILL"
 
+# ────────────────────────────────────────────────────────────────────────────
+echo "severity thresholds (schema + example + config-get resolution + SKILL pins) (#251)"
+# ────────────────────────────────────────────────────────────────────────────
+# Three enum-valued keys let a repo tune fixer aggressiveness and verdict strictness.
+# Config READING goes through config-get.sh (no new config parser); config-get.sh does
+# NOT validate the enum (it coerces any JSON value to a string), so each SKILL validates
+# the enum INLINE and falls back to the key's default on rc≠0 or an out-of-enum value.
+# Model mirrors the max_iterations block above: (a) schema/example contract, (b) the REAL
+# config-get.sh resolution feeding the validation, (c) a byte-aligned copy of the inline
+# case (sev_normalize) exercising the fallback matrix, (d) operative-sentence pins that go
+# RED if the behavior line is removed from the SKILL.
+ST_SCHEMA="$LIB/../.devflow/config.schema.json"
+ST_EXAMPLE="$LIB/../.devflow/config.example.json"
+
+ST_FIX_PROP='.properties.devflow_review_and_fix.properties.fix_severity_threshold'
+ST_VERDICT_PROP='.properties.devflow_review.properties.verdict_severity_threshold'
+ST_RECV_PROP='.properties.receiving_review.properties.fix_severity_threshold'
+
+# schema: each of the three keys is a string enum of exactly the three values, right default
+assert_eq "sev: fix_severity_threshold schema type is string" "string" "$(jq -r "$ST_FIX_PROP.type" "$ST_SCHEMA")"
+assert_eq "sev: fix_severity_threshold schema enum is exactly the three values" '["critical","important","suggestion"]' "$(jq -c "$ST_FIX_PROP.enum" "$ST_SCHEMA")"
+assert_eq "sev: fix_severity_threshold schema default is important" "important" "$(jq -r "$ST_FIX_PROP.default" "$ST_SCHEMA")"
+assert_eq "sev: fix_severity_threshold has non-empty description" "yes" "$(jq -e "$ST_FIX_PROP.description | type==\"string\" and (length>0)" "$ST_SCHEMA" >/dev/null && echo yes || echo no)"
+assert_eq "sev: verdict_severity_threshold schema type is string" "string" "$(jq -r "$ST_VERDICT_PROP.type" "$ST_SCHEMA")"
+assert_eq "sev: verdict_severity_threshold schema enum is exactly the three values" '["critical","important","suggestion"]' "$(jq -c "$ST_VERDICT_PROP.enum" "$ST_SCHEMA")"
+assert_eq "sev: verdict_severity_threshold schema default is critical" "critical" "$(jq -r "$ST_VERDICT_PROP.default" "$ST_SCHEMA")"
+assert_eq "sev: receiving_review.fix_severity_threshold schema type is string" "string" "$(jq -r "$ST_RECV_PROP.type" "$ST_SCHEMA")"
+assert_eq "sev: receiving_review.fix_severity_threshold schema enum is exactly the three values" '["critical","important","suggestion"]' "$(jq -c "$ST_RECV_PROP.enum" "$ST_SCHEMA")"
+assert_eq "sev: receiving_review.fix_severity_threshold schema default is critical" "critical" "$(jq -r "$ST_RECV_PROP.default" "$ST_SCHEMA")"
+
+# example mirrors each schema default 1:1
+assert_eq "sev: example fix_severity_threshold matches schema default" "$(jq -r "$ST_FIX_PROP.default" "$ST_SCHEMA")" "$(jq -r '.devflow_review_and_fix.fix_severity_threshold' "$ST_EXAMPLE")"
+assert_eq "sev: example verdict_severity_threshold matches schema default" "$(jq -r "$ST_VERDICT_PROP.default" "$ST_SCHEMA")" "$(jq -r '.devflow_review.verdict_severity_threshold' "$ST_EXAMPLE")"
+assert_eq "sev: example receiving_review.fix_severity_threshold matches schema default" "$(jq -r "$ST_RECV_PROP.default" "$ST_SCHEMA")" "$(jq -r '.receiving_review.fix_severity_threshold' "$ST_EXAMPLE")"
+
+# config-get.sh returns the RAW coerced value and does NOT validate the enum — this is why
+# the inline SKILL validation is load-bearing. Prove it on the divergence-prone shapes.
+ST_CFG="$(probe_tmp sev.cfg)"
+printf '%s' '{"devflow_review_and_fix":{"fix_severity_threshold":"suggestion"}}' > "$ST_CFG"
+assert_eq "sev: config-get returns a configured valid value verbatim" "suggestion" "$("$CG" .devflow_review_and_fix.fix_severity_threshold important "$ST_CFG")"
+printf '%s' '{"devflow_review_and_fix":{"fix_severity_threshold":5}}' > "$ST_CFG"
+assert_eq "sev: config-get returns a raw number unvalidated (validation is the SKILL's job)" "5" "$("$CG" .devflow_review_and_fix.fix_severity_threshold important "$ST_CFG")"
+printf '%s' '{"devflow_review_and_fix":{}}' > "$ST_CFG"
+assert_eq "sev: config-get returns the default on an unset key" "important" "$("$CG" .devflow_review_and_fix.fix_severity_threshold important "$ST_CFG")"
+assert_eq "sev: config-get returns the default on a missing config file" "important" "$("$CG" .devflow_review_and_fix.fix_severity_threshold important /no/such/config.json)"
+rm -f "$ST_CFG"
+
+# sev_normalize is a byte-aligned copy of the inline case block in all three SKILLs (kept in
+# lockstep via the pins below). Exercises the fallback matrix the SKILLs run at runtime.
+sev_normalize() {  # rc raw default -> the validated severity
+  case "$1:$2" in
+    0:critical|0:important|0:suggestion) printf '%s\n' "$2" ;;
+    *) printf '%s\n' "$3" ;;
+  esac
+}
+assert_eq "sev normalize: valid critical kept"                  "critical"   "$(sev_normalize 0 critical important)"
+assert_eq "sev normalize: valid suggestion kept"               "suggestion" "$(sev_normalize 0 suggestion important)"
+assert_eq "sev normalize: default (important) kept"            "important"  "$(sev_normalize 0 important important)"
+# Any non-enum string collapses to the default (one representative here; the object/
+# array/number coercion shapes are covered end-to-end against the real config-get.sh in
+# the sev_resolve block below, so they aren't re-hardcoded at this pure-logic tier).
+assert_eq "sev normalize: unknown string → default"            "important"  "$(sev_normalize 0 blocker important)"
+assert_eq "sev normalize: empty → default"                     "important"  "$(sev_normalize 0 '' important)"
+assert_eq "sev normalize: resolver failure (rc≠0) → default"   "critical"   "$(sev_normalize 2 '' critical)"
+assert_eq "sev normalize: verdict/receiving default is critical" "critical" "$(sev_normalize 0 bogus critical)"
+
+# End-to-end (the REAL config-get.sh runs, then the copied inline validation): the
+# adversarial invalid-shape matrix each resolves to the key's default, never aborting.
+sev_resolve() {  # json key default -> config-get.sh raw value passed through the inline validation
+  local cfg raw rc
+  cfg="$(probe_tmp sev_resolve.cfg)"
+  printf '%s' "$1" > "$cfg"
+  raw="$("$CG" "$2" "$3" "$cfg" 2>/dev/null)"; rc=$?
+  rm -f "$cfg"
+  sev_normalize "$rc" "$raw" "$3"
+}
+STK=.devflow_review_and_fix.fix_severity_threshold
+assert_eq "sev e2e: configured valid value honored"    "suggestion" "$(sev_resolve '{"devflow_review_and_fix":{"fix_severity_threshold":"suggestion"}}' "$STK" important)"
+assert_eq "sev e2e: object value → default"            "important"  "$(sev_resolve '{"devflow_review_and_fix":{"fix_severity_threshold":{"a":1}}}' "$STK" important)"
+assert_eq "sev e2e: array value → default"             "important"  "$(sev_resolve '{"devflow_review_and_fix":{"fix_severity_threshold":["critical","important"]}}' "$STK" important)"
+assert_eq "sev e2e: number value → default"            "important"  "$(sev_resolve '{"devflow_review_and_fix":{"fix_severity_threshold":5}}' "$STK" important)"
+assert_eq "sev e2e: unknown string → default"          "important"  "$(sev_resolve '{"devflow_review_and_fix":{"fix_severity_threshold":"blocker"}}' "$STK" important)"
+assert_eq "sev e2e: unset key → default (silent, AC2)"  "important" "$(sev_resolve '{"devflow_review_and_fix":{}}' "$STK" important)"
+assert_eq "sev e2e: malformed JSON → default"          "important"  "$(sev_resolve '{ not valid json' "$STK" important)"
+# End-to-end over the OTHER two keys, each with its own default — exercises the real
+# config-get.sh against the verdict key and the brand-new top-level receiving_review
+# section (a section-name/nesting typo in schema/example would surface here), incl. the
+# invalid-value fallback so all three keys have live resolution coverage, not just pins.
+assert_eq "sev e2e: verdict key configured value honored"   "important" "$(sev_resolve '{"devflow_review":{"verdict_severity_threshold":"important"}}' .devflow_review.verdict_severity_threshold critical)"
+assert_eq "sev e2e: verdict key unknown value → default"    "critical"  "$(sev_resolve '{"devflow_review":{"verdict_severity_threshold":"blocker"}}' .devflow_review.verdict_severity_threshold critical)"
+assert_eq "sev e2e: receiving section configured value honored" "suggestion" "$(sev_resolve '{"receiving_review":{"fix_severity_threshold":"suggestion"}}' .receiving_review.fix_severity_threshold critical)"
+assert_eq "sev e2e: receiving section unset → default"      "critical"  "$(sev_resolve '{"receiving_review":{}}' .receiving_review.fix_severity_threshold critical)"
+
+# operative-sentence pins in the three SKILL.md files (the sentence carrying the behavior)
+ST_RAF="$LIB/../skills/review-and-fix/SKILL.md"
+ST_REV="$LIB/../skills/review/SKILL.md"
+ST_RCV="$LIB/../skills/receiving-code-review/SKILL.md"
+# each SKILL reads its key via config-get.sh (already cloud-allowlisted — no new helper)
+assert_pin_unique "sev(raf): reads fix_severity_threshold via config-get.sh" 'config-get.sh" .devflow_review_and_fix.fix_severity_threshold important' "$ST_RAF"
+assert_pin_unique "sev(rev): reads verdict_severity_threshold via config-get.sh" 'config-get.sh" .devflow_review.verdict_severity_threshold critical' "$ST_REV"
+assert_pin_unique "sev(rcv): reads receiving_review key via config-get.sh (anchor pattern)" 'config-get.sh .receiving_review.fix_severity_threshold critical' "$ST_RCV"
+# each SKILL enum-validates inline (the case block config-get.sh does not do) — one per file
+assert_pin_unique "sev(raf): enum-validates the threshold inline" '0:critical|0:important|0:suggestion' "$ST_RAF"
+assert_pin_unique "sev(rev): enum-validates the threshold inline" '0:critical|0:important|0:suggestion' "$ST_REV"
+assert_pin_unique "sev(rcv): enum-validates the threshold inline" '0:critical|0:important|0:suggestion' "$ST_RCV"
+# routing / verdict / re-open behavior sentences
+assert_pin_unique "sev(raf): routes findings at or above the loop threshold" 'any finding whose severity is at or above `$FIX_THRESHOLD`' "$ST_RAF"
+assert_pin_unique "sev(raf): REJECT-driver widening tagline" 'no configuration combination produces a REJECT the fixer is configured to ignore' "$ST_RAF"
+# The tagline above is the framing; pin the OPERATIVE clause too — removing it alone
+# re-introduces the deadlock the AC forbids (verdict threshold more inclusive than fix).
+assert_pin_unique "sev(raf): REJECT-driver widening operative clause" 'PLUS every finding that drove the engine' "$ST_RAF"
+assert_pin_unique "sev(rev): rule 3 fires at or above the verdict threshold" 'at or above `$VERDICT_THRESHOLD` (excluding deferral-demoted ones) → **REJECT**' "$ST_REV"
+assert_pin_unique "sev(rcv): carve-out re-opens at every threshold value" 're-opens the diff at every threshold value' "$ST_RCV"
+# each SKILL emits a SPECIFIC out-of-enum fallback breadcrumb (the auditability contract
+# the schema descriptions promise) — removing the echo would make the fallback silent
+assert_pin_unique "sev(raf): out-of-enum fallback breadcrumb" "is not one of critical/important/suggestion; using default 'important'" "$ST_RAF"
+assert_pin_unique "sev(rev): out-of-enum fallback breadcrumb" "is not one of critical/important/suggestion; using default 'critical'" "$ST_REV"
+assert_pin_unique "sev(rcv): out-of-enum fallback breadcrumb" "is not one of critical/important/suggestion; using default 'critical'" "$ST_RCV"
+# the DISTINCT resolver-failure (rc≠0) breadcrumb is a design point (a malformed config /
+# missing python3 must not be misreported as a bad enum value) — pin it too, else deleting
+# the rc≠0 echo would silence that path while the out-of-enum pin stayed green
+assert_pin_unique "sev(raf): resolver-failure breadcrumb" 'could not read .devflow_review_and_fix.fix_severity_threshold' "$ST_RAF"
+assert_pin_unique "sev(rev): resolver-failure breadcrumb" 'could not read .devflow_review.verdict_severity_threshold' "$ST_REV"
+assert_pin_unique "sev(rcv): resolver-failure breadcrumb" 'could not read .receiving_review.fix_severity_threshold' "$ST_RCV"
+# verdict rule 6 is the coupled partner of rule 3 (below-threshold → APPROVE with notes);
+# pin it so it can't desync from the threshold-driven rule 3 into a contradictory partition
+assert_pin_unique "sev(rev): rule 6 is threshold-driven (coupled with rule 3)" 'Only findings below `$VERDICT_THRESHOLD` present (excluding deferral-demoted ones) → **APPROVE with notes**' "$ST_REV"
+# The "## Verdict Criteria" summary block (the report-template mirror of the numbered
+# rules 3/6) is a SECOND site carrying the same threshold-driven partition. Pin BOTH its
+# lines so a revert of just the summary to the historical "Any Critical → REJECT" /
+# "Only Important/Suggestion → APPROVE with notes" can't ship GREEN and leave the SKILL
+# with two contradictory verdict specs (coupled-invariant rule; PR #252 review finding).
+assert_pin_unique "sev(rev): Verdict-Criteria summary REJECT line is threshold-driven (mirror of rule 3)" 'at or above the configured verdict threshold ({VERDICT_THRESHOLD}) → REJECT' "$ST_REV"
+assert_pin_unique "sev(rev): Verdict-Criteria summary APPROVE-with-notes line is threshold-driven (mirror of rule 6)" 'Only findings below the verdict threshold → APPROVE with notes' "$ST_REV"
+# Step 2.5's pre-fix verification gate was widened in lockstep with the routing threshold:
+# it now classifies the WHOLE effective fix set, not just Critical/Important. This is the
+# load-bearing safety behavior that keeps a Suggestion-level fix (admitted at
+# fix_severity_threshold="suggestion") from bypassing the confidently-wrong-claim gate.
+# Pin the operative clause so a revert to "each Critical or Important/Major finding" goes
+# RED instead of silently stripping the protection (PR #252 review finding).
+assert_pin_unique "sev(raf): Step 2.5 gate widened to the whole effective fix set" 'classify **every finding this iteration routed to the fixer**' "$ST_RAF"
+# each SKILL falls back to its OWN key's default on BOTH fallback arms (out-of-enum +
+# resolver-failure) — a wrong default here would silently loosen/tighten the policy while
+# the case-label pin stayed green. Count is 2 (one assignment per fallback arm).
+assert_eq "sev(raf): fix threshold falls back to 'important' on both arms" "2" "$(pin_count 'FIX_THRESHOLD=important' "$ST_RAF")"
+assert_eq "sev(rev): verdict threshold falls back to 'critical' on both arms" "2" "$(pin_count 'VERDICT_THRESHOLD=critical' "$ST_REV")"
+assert_eq "sev(rcv): re-open threshold falls back to 'critical' on both arms" "2" "$(pin_count 'REOPEN_THRESHOLD=critical' "$ST_RCV")"
+# the receiving-code-review snippet keeps the vendored body repo-agnostic
+assert_eq "sev(rcv): vendored body has no repo-specific test path (lib/test/run.sh)" "no" "$(grep -qF 'lib/test/run.sh' "$ST_RCV" && echo yes || echo no)"
+assert_eq "sev(rcv): vendored body has no repo-specific CI job name (lib + python tests)" "no" "$(grep -qF 'lib + python tests' "$ST_RCV" && echo yes || echo no)"
+
 # Issue #182 (convention-violation / unscoped-staging): the review-and-fix fix-commit step
 # (Step 3 item 6) must stage only the specific files the fix touched, never `git add -A` /
 # `git add .` — an unscoped stage sweeps unrelated working-tree state (a local config edit,
@@ -8748,6 +8899,74 @@ if command -v python3 >/dev/null 2>&1; then
   rm -f "$SCV_PY_EMPTY"
 fi
 
+# jq backend POSITIVE regression pin: the jq success-path arm is otherwise only
+# exercised INCIDENTALLY by the default-PATH scv block above (jq happens to be
+# first-selected on CI). On a host without jq that block silently falls to the
+# python3 backend and the jq arm goes untested with every assertion still green.
+# Force the jq arm hermetically via a curated bin dir holding jq (python3
+# deliberately omitted), symmetric with the python3 forced-PATH block above, so a
+# regression that broke the jq success arm can no longer pass by falling through.
+if command -v jq >/dev/null 2>&1; then
+  SCV_JQ_BIN="$(mktemp -d)/bin"
+  scv_mkbin "$SCV_JQ_BIN" jq mktemp mv rm   # python3 deliberately omitted
+  SCV_JQ_CFG="$(mktemp)"; printf '{"base_branch":"main","devflow":{"effort":"high"}}' > "$SCV_JQ_CFG"
+  # shellcheck disable=SC1090
+  ( PATH="$SCV_JQ_BIN"; DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" \
+      && set_config_version "$SCV_JQ_CFG" "jq-sha1234" ) >/dev/null 2>&1
+  assert_eq "scv(jq): pins devflow_version (python3 shadowed off PATH)" "jq-sha1234" \
+    "$(jq -r '.devflow_version' "$SCV_JQ_CFG")"
+  assert_eq "scv(jq): preserves sibling top-level key" "main" "$(jq -r '.base_branch' "$SCV_JQ_CFG")"
+  assert_eq "scv(jq): preserves nested key" "high" "$(jq -r '.devflow.effort' "$SCV_JQ_CFG")"
+  rm -f "$SCV_JQ_CFG"
+
+  # jq arm preserve-vs-restamp branches, hermetic (python3 unavailable): a
+  # hand-set non-SHA value is kept; an empty-string first-install value is stamped.
+  SCV_JQ_MAIN="$(mktemp)"; printf '{"devflow_version":"main"}' > "$SCV_JQ_MAIN"
+  # shellcheck disable=SC1090
+  SCV_JQ_MAIN_OUT="$( ( PATH="$SCV_JQ_BIN"; DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" \
+      && set_config_version "$SCV_JQ_MAIN" "deadbeef1234" ) 2>&1 )"
+  SCV_JQ_MAIN_RC=$?
+  assert_eq "scv(jq): hand-set non-SHA devflow_version (main) is preserved, not re-stamped" "main" \
+    "$(jq -r '.devflow_version' "$SCV_JQ_MAIN")"
+  assert_eq "scv(jq): hand-set non-SHA (main) preserve returns 0 (never aborts)" "0" "$SCV_JQ_MAIN_RC"
+  assert_eq "scv(jq): hand-set non-SHA (main) preserve logs 'kept existing...deliberate pin'" "yes" \
+    "$(printf '%s' "$SCV_JQ_MAIN_OUT" | grep -q 'kept existing devflow_version' && echo yes || echo no)"
+  rm -f "$SCV_JQ_MAIN"
+
+  SCV_JQ_EMPTY="$(mktemp)"; printf '{"devflow_version":""}' > "$SCV_JQ_EMPTY"
+  # shellcheck disable=SC1090
+  SCV_JQ_EMPTY_OUT="$( ( PATH="$SCV_JQ_BIN"; DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" \
+      && set_config_version "$SCV_JQ_EMPTY" "deadbeef1234" ) 2>&1 )"
+  assert_eq "scv(jq): empty-string devflow_version is stamped" "deadbeef1234" \
+    "$(jq -r '.devflow_version' "$SCV_JQ_EMPTY")"
+  assert_eq "scv(jq): empty-string devflow_version stamp logs 'pinned'" "yes" \
+    "$(printf '%s' "$SCV_JQ_EMPTY_OUT" | grep -q 'pinned devflow_version=deadbeef1234' && echo yes || echo no)"
+  rm -f "$SCV_JQ_EMPTY"
+  rm -rf "$(dirname "$SCV_JQ_BIN")"
+fi
+
+# jq.exe-wins selection pin (the headline Windows path): a present-but-unrunnable
+# `jq` shadows PATH while a runnable `jq.exe` is available — install.sh's
+# `elif jq.exe --version` arm must select jq.exe and pin. Forced hermetically
+# (a non-runnable jq stub + real jq exposed only as jq.exe, python3 omitted) so
+# a regression in that arm fails closed instead of shipping CI-green.
+if command -v jq >/dev/null 2>&1; then
+  SCV_JQE_BIN="$(mktemp -d)/bin"; mkdir -p "$SCV_JQE_BIN"
+  printf '#!/bin/sh\nexit 1\n' > "$SCV_JQE_BIN/jq"; chmod +x "$SCV_JQE_BIN/jq"   # unrunnable shadow
+  ln -sf "$(command -v jq)" "$SCV_JQE_BIN/jq.exe"                                # real jq, jq.exe-only
+  for c in mktemp mv rm; do ln -sf "$(command -v "$c")" "$SCV_JQE_BIN/$c"; done  # python3 deliberately omitted
+  SCV_JQE_CFG="$(mktemp)"; printf '{"devflow_version":""}' > "$SCV_JQE_CFG"
+  # shellcheck disable=SC1090
+  SCV_JQE_OUT="$( ( PATH="$SCV_JQE_BIN"; DEVFLOW_SELFTEST=1 . "$SCV_INSTALL" \
+      && set_config_version "$SCV_JQE_CFG" "exe-sha1234" ) 2>&1 )"
+  assert_eq "scv(jq.exe): shadowed jq → runnable jq.exe is selected and pins (headline Windows path)" "exe-sha1234" \
+    "$(jq -r '.devflow_version' "$SCV_JQE_CFG")"
+  assert_eq "scv(jq.exe): pins via the jq.exe arm, logs 'pinned'" "yes" \
+    "$(printf '%s' "$SCV_JQE_OUT" | grep -q 'pinned devflow_version=exe-sha1234' && echo yes || echo no)"
+  rm -f "$SCV_JQE_CFG"
+  rm -rf "$(dirname "$SCV_JQE_BIN")"
+fi
+
 # ── Critical regression guard: a failed mv must not report false success ────
 # A failed `mv "$tmp" "$cfg"` (read-only destination dir, ENOSPC, cross-device
 # rename failure) must fall through to the generic warning + return 0, never
@@ -10994,7 +11213,7 @@ assert_eq "#245 resolve-gh.sh: defines devflow_resolve_gh" "yes" \
 assert_eq "#245 resolve-gh.sh: probes with '--version' only (network/auth-free)" "yes" \
   "$(grep -q -- '--version' "$RESOLVE_GH_SH" && echo yes || echo no)"
 assert_eq "#245 resolve-gh.sh: sets no 'set -e'/'set -u' (safe to source)" "no" \
-  "$(grep -qE '^\s*set -[eu]' "$RESOLVE_GH_SH" && echo yes || echo no)"
+  "$(grep -qE '^[[:space:]]*set -[eu]' "$RESOLVE_GH_SH" && echo yes || echo no)"
 # AC3: the gh.exe fallback candidate is referenced by name only — no absolute or
 # owner-specific install path is hardcoded.
 assert_eq "#245 resolve-gh.sh: gh.exe candidate referenced by name only (no path separator)" "yes" \
@@ -11010,7 +11229,7 @@ cat > "$GHT1/gh.exe" <<'STUB'
 exit 0
 STUB
 chmod +x "$GHT1/gh.exe"
-T1_SEL="$(PATH="$GHT1:$PATH" bash -c ". \"$RESOLVE_GH_SH\"; devflow_resolve_gh")"
+T1_SEL="$(env -u DEVFLOW_GH PATH="$GHT1:$PATH" bash -c ". \"$RESOLVE_GH_SH\"; devflow_resolve_gh")"
 assert_eq "#245 T1: bad-shebang gh rejected, runnable gh.exe chosen (execution-verified)" "gh.exe" "$T1_SEL"
 
 # ── T2 (AC4) — DEVFLOW_GH override wins and never probes `gh --version`. ──
@@ -11035,13 +11254,13 @@ cat > "$GHT3/gh" <<'STUB'
 exit 0
 STUB
 chmod +x "$GHT3/gh"
-T3_SEL="$(PATH="$GHT3:$PATH" bash -c ". \"$RESOLVE_GH_SH\"; devflow_resolve_gh")"
+T3_SEL="$(env -u DEVFLOW_GH PATH="$GHT3:$PATH" bash -c ". \"$RESOLVE_GH_SH\"; devflow_resolve_gh")"
 assert_eq "#245 T3: runnable gh on PATH resolves to 'gh' (no behavior change on Linux/macOS/cloud)" "gh" "$T3_SEL"
 
 # ── Degenerate (AC1 tail) — no runnable candidate → bare `gh` so the caller's
 #    best-effort warning path still fires (rc 0 preserved). ──
 GHTD="$(mktemp -d)"; ln -s "$(command -v bash)" "$GHTD/bash"
-TD_SEL="$(PATH="$GHTD" "$GHTD/bash" -c ". \"$RESOLVE_GH_SH\"; devflow_resolve_gh")"; TD_RC=$?
+TD_SEL="$(env -u DEVFLOW_GH PATH="$GHTD" "$GHTD/bash" -c ". \"$RESOLVE_GH_SH\"; devflow_resolve_gh")"; TD_RC=$?
 assert_eq "#245 degenerate: no runnable gh/gh.exe → falls back to bare 'gh'" "gh" "$TD_SEL"
 assert_eq "#245 degenerate: fallback still exits 0 (best-effort warning path preserved)" "0" "$TD_RC"
 
@@ -11066,7 +11285,7 @@ cat > "$GHT6/gh.exe" <<'STUB'
 exit 0
 STUB
 chmod +x "$GHT6/gh" "$GHT6/gh.exe"
-T6_SEL="$(PATH="$GHT6:$PATH" bash -c ". \"$RESOLVE_GH_SH\"; devflow_resolve_gh")"
+T6_SEL="$(env -u DEVFLOW_GH PATH="$GHT6:$PATH" bash -c ". \"$RESOLVE_GH_SH\"; devflow_resolve_gh")"
 assert_eq "#245 T6: both runnable → gh chosen over gh.exe (candidate order preserved)" "gh" "$T6_SEL"
 
 # ── AC5 / preflight — a present-but-unrunnable `gh` is reported at preflight with
@@ -11251,6 +11470,532 @@ for DGH_PY in workpad.py file-deferrals.py match-deferrals.py parse-acs.py; do
     "$(grep -cE '\[[[:space:]]*['"'"'\"]gh['"'"'\"][[:space:]]*,' "$DGH_ROOT/scripts/$DGH_PY" || true)"
 done
 rm -rf "$GHT1" "$GHT2" "$GHT3" "$GHTD" "$GHTP" "$GHT4" "$GHT6" "$GHT7" "$GHT8" "$GHT9" "$GHT10"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "shared binary resolver + path normalization: resolve-bin.sh / normalize-path.sh / jq routing (issue #247)"
+# ────────────────────────────────────────────────────────────────────────────
+# Generalizes the #245 gh pattern: resolve-bin.sh is the single shared
+# execution-verified resolver (DEVFLOW_<TOOL> override → <tool>/<tool>.exe
+# --version probe → bare fallback), resolve-gh.sh delegates to it, jq routes
+# through it (DEVFLOW_JQ), and normalize-path.sh converts Windows-form paths
+# to the running shell's POSIX form (wslpath → cygpath → env-detected → echo
+# unchanged with a stderr breadcrumb).
+RESOLVE_BIN_SH="$LIB/resolve-bin.sh"
+NORMALIZE_PATH_SH="$LIB/normalize-path.sh"
+RESOLVE_JQ_SH="$LIB/resolve-jq.sh"
+
+# Restricted-PATH sandbox builder shared by the fixtures below: symlink only the
+# named tools into the dir so `command -v` genuinely fails for everything else.
+_mk_restricted() {  # dir tool...
+  local _mr_d="$1" _mr_b _mr_p; shift
+  for _mr_b in "$@"; do
+    _mr_p="$(command -v "$_mr_b" 2>/dev/null)"
+    [ -n "$_mr_p" ] && ln -sf "$_mr_p" "$_mr_d/$_mr_b"
+  done
+  return 0
+}
+
+# Static/source hygiene (mirrors the resolve-gh.sh checks).
+assert_eq "#247 resolve-bin.sh: file exists" "yes" "$([ -f "$RESOLVE_BIN_SH" ] && echo yes || echo no)"
+assert_eq "#247 resolve-bin.sh: SPDX header present" "yes" \
+  "$(grep -q 'SPDX-License-Identifier: MIT' "$RESOLVE_BIN_SH" 2>/dev/null && echo yes || echo no)"
+assert_eq "#247 resolve-bin.sh: defines devflow_resolve_bin" "yes" \
+  "$(grep -q 'devflow_resolve_bin()' "$RESOLVE_BIN_SH" 2>/dev/null && echo yes || echo no)"
+assert_eq "#247 resolve-bin.sh: probes with '--version' only (network/auth-free)" "yes" \
+  "$(grep -q -- '--version' "$RESOLVE_BIN_SH" 2>/dev/null && echo yes || echo no)"
+assert_eq "#247 resolve-bin.sh: sets no 'set -e'/'set -u' (safe to source)" "no" \
+  "$(grep -qE '^[[:space:]]*set -[eu]' "$RESOLVE_BIN_SH" 2>/dev/null && echo yes || echo no)"
+assert_eq "#247 resolve-bin.sh: candidates referenced by name only (no path separator before .exe)" "yes" \
+  "$([ -f "$RESOLVE_BIN_SH" ] && ! grep -qE '/[^ ]*\.exe' "$RESOLVE_BIN_SH" && echo yes || echo no)"
+assert_eq "#247 normalize-path.sh: file exists" "yes" "$([ -f "$NORMALIZE_PATH_SH" ] && echo yes || echo no)"
+assert_eq "#247 normalize-path.sh: SPDX header present" "yes" \
+  "$(grep -q 'SPDX-License-Identifier: MIT' "$NORMALIZE_PATH_SH" 2>/dev/null && echo yes || echo no)"
+assert_eq "#247 normalize-path.sh: defines devflow_normalize_path" "yes" \
+  "$(grep -q 'devflow_normalize_path()' "$NORMALIZE_PATH_SH" 2>/dev/null && echo yes || echo no)"
+assert_eq "#247 normalize-path.sh: sets no 'set -e'/'set -u' (safe to source)" "no" \
+  "$(grep -qE '^[[:space:]]*set -[eu]' "$NORMALIZE_PATH_SH" 2>/dev/null && echo yes || echo no)"
+assert_eq "#247 resolve-jq.sh: file exists" "yes" "$([ -f "$RESOLVE_JQ_SH" ] && echo yes || echo no)"
+assert_eq "#247 resolve-jq.sh: SPDX header present" "yes" \
+  "$(grep -q 'SPDX-License-Identifier: MIT' "$RESOLVE_JQ_SH" 2>/dev/null && echo yes || echo no)"
+assert_eq "#247 resolve-jq.sh: sets no 'set -e'/'set -u' (safe to source)" "no" \
+  "$(grep -qE '^[[:space:]]*set -[eu]' "$RESOLVE_JQ_SH" 2>/dev/null && echo yes || echo no)"
+assert_eq "#247 resolve-jq.sh: delegates via devflow_resolve_bin jq" "yes" \
+  "$(grep -qE 'devflow_resolve_bin[[:space:]]+jq' "$RESOLVE_JQ_SH" 2>/dev/null && echo yes || echo no)"
+
+# ── T0 (Linux/macOS/cloud no-change AC) — a runnable `jq` resolves to `jq` on
+#    the first probe. ──
+JQT0="$(mktemp -d)"
+cat > "$JQT0/jq" <<'STUB'
+#!/usr/bin/env bash
+[ "$1" = "--version" ] && { echo "jq-stub-1.7"; exit 0; }
+exit 0
+STUB
+chmod +x "$JQT0/jq"
+T0_SEL="$(env -u DEVFLOW_JQ PATH="$JQT0:$PATH" bash -c ". \"$RESOLVE_BIN_SH\"; devflow_resolve_bin jq")"
+assert_eq "#247 T0: runnable jq on PATH resolves to 'jq' (no behavior change on Linux/macOS/cloud)" "jq" "$T0_SEL"
+T0B_SEL="$(env -u DEVFLOW_JQ PATH="$JQT0:$PATH" bash -c "set -euo pipefail; . \"$RESOLVE_JQ_SH\"; printf %s \"\$DEVFLOW_JQ\"")"
+assert_eq "#247 T0b: sourcing resolve-jq.sh under set -euo pipefail sets DEVFLOW_JQ" "jq" "$T0B_SEL"
+
+# ── T1 (defect reproduction) — a non-executable (bad-shebang) `jq` earlier on
+#    PATH plus a runnable `jq.exe` resolves to `jq.exe` (execution-verified). ──
+JQT1="$(mktemp -d)"
+printf '#!/nonexistent/devflow-test-interpreter\necho nope\n' > "$JQT1/jq"; chmod +x "$JQT1/jq"
+cat > "$JQT1/jq.exe" <<'STUB'
+#!/usr/bin/env bash
+[ "$1" = "--version" ] && { echo "jq-stub-1.7-exe"; exit 0; }
+exit 0
+STUB
+chmod +x "$JQT1/jq.exe"
+T1_JQ_SEL="$(env -u DEVFLOW_JQ PATH="$JQT1:$PATH" bash -c ". \"$RESOLVE_BIN_SH\"; devflow_resolve_bin jq")"
+assert_eq "#247 T1: bad-shebang jq rejected, runnable jq.exe chosen (execution-verified)" "jq.exe" "$T1_JQ_SEL"
+
+# ── T2 — DEVFLOW_JQ override wins verbatim and never probes `--version`. ──
+JQT2="$(mktemp -d)"
+cat > "$JQT2/jq-stub" <<'STUB'
+#!/usr/bin/env bash
+touch "$(dirname "$0")/.probed"
+exit 0
+STUB
+chmod +x "$JQT2/jq-stub"
+T2_JQ_SEL="$(DEVFLOW_JQ="$JQT2/jq-stub" bash -c ". \"$RESOLVE_BIN_SH\"; devflow_resolve_bin jq")"
+assert_eq "#247 T2: DEVFLOW_JQ override returned verbatim (highest precedence)" "$JQT2/jq-stub" "$T2_JQ_SEL"
+assert_eq "#247 T2: override path never probes --version (stub not invoked)" "no" \
+  "$([ -f "$JQT2/.probed" ] && echo yes || echo no)"
+
+# ── T2b — an EMPTY DEVFLOW_JQ is NOT an override: falls through to the probe
+#    (empty ≠ match-all, the CLAUDE.md bug class; mirrors #245 T5). ──
+T2B_SEL="$(DEVFLOW_JQ="" PATH="$JQT0:$PATH" bash -c ". \"$RESOLVE_BIN_SH\"; devflow_resolve_bin jq")"
+assert_eq "#247 T2b: empty DEVFLOW_JQ falls through to the probe (not echoed verbatim)" "jq" "$T2B_SEL"
+
+# ── T2d — the override must win WITHOUT tr on PATH (pure-bash derivation for
+#    the known tools): a degenerate PATH must never silently bypass
+#    DEVFLOW_<TOOL> and probe/execute the stub the contract protects. ──
+JQT2D="$(mktemp -d)"
+ln -s "$(command -v bash)" "$JQT2D/bash"
+T2D_SEL="$(DEVFLOW_JQ=/stub/jq PATH="$JQT2D" "$JQT2D/bash" -c ". \"$RESOLVE_BIN_SH\"; devflow_resolve_bin jq")"
+assert_eq "#247 T2d: DEVFLOW_JQ override honored with NO tr on PATH (pure-bash known-tool derivation)" "/stub/jq" "$T2D_SEL"
+
+# ── Degenerate — no runnable candidate → bare tool echoed, rc 0 (best-effort
+#    contract preserved: existing error paths downstream stay unchanged). ──
+JQTD="$(mktemp -d)"; ln -s "$(command -v bash)" "$JQTD/bash"
+ln -s "$(command -v tr)" "$JQTD/tr" 2>/dev/null
+TD_JQ_SEL="$(env -u DEVFLOW_JQ PATH="$JQTD" "$JQTD/bash" -c ". \"$RESOLVE_BIN_SH\"; devflow_resolve_bin jq")"; TD_JQ_RC=$?
+assert_eq "#247 degenerate: no runnable jq/jq.exe → falls back to bare 'jq'" "jq" "$TD_JQ_SEL"
+assert_eq "#247 degenerate: fallback still exits 0 (best-effort contract preserved)" "0" "$TD_JQ_RC"
+
+# ── T3 (gh refactor regression) — resolve-gh.sh now delegates to the shared
+#    resolver; DEVFLOW_GH precedence and stub semantics must be unchanged. The
+#    full #245 block above is the deep regression net; this pins the delegation
+#    itself (resolve-gh.sh sources resolve-bin.sh and stays a thin wrapper). ──
+T3_DELEG="$(DEVFLOW_GH=/fake/devflow-gh bash -c ". \"$LIB/resolve-gh.sh\"; devflow_resolve_gh")"
+assert_eq "#247 T3: resolve-gh.sh delegation preserves DEVFLOW_GH override precedence" "/fake/devflow-gh" "$T3_DELEG"
+assert_eq "#247 T3: resolve-gh.sh sources the shared resolver (delegation, not a second copy)" "yes" \
+  "$(grep -q 'resolve-bin\.sh' "$LIB/resolve-gh.sh" && echo yes || echo no)"
+assert_eq "#247 T3: resolve-gh.sh delegates via devflow_resolve_bin gh" "yes" \
+  "$(grep -qE 'devflow_resolve_bin[[:space:]]+gh' "$LIB/resolve-gh.sh" && echo yes || echo no)"
+
+# ── T4 (path normalization) — Windows-form input under a stub wslpath, a stub
+#    cygpath, the env-detected fallback (uname/MSYSTEM), and POSIX passthrough.
+#    uname is STUBBED in the env-detect cases so the assertions are hermetic on
+#    every host (a real WSL host's `uname -r` contains "microsoft"). ──
+NPT4="$(mktemp -d)"
+cat > "$NPT4/wslpath" <<'STUB'
+#!/usr/bin/env bash
+[ "$1" = "-u" ] && { echo "/mnt/c/from/wslpath"; exit 0; }
+exit 1
+STUB
+chmod +x "$NPT4/wslpath"
+T4A="$(PATH="$NPT4:$PATH" bash -c ". \"$NORMALIZE_PATH_SH\"; devflow_normalize_path 'C:\\Users\\x'")"
+assert_eq "#247 T4a: wslpath preferred when present" "/mnt/c/from/wslpath" "$T4A"
+
+NPT4B="$(mktemp -d)"
+cat > "$NPT4B/cygpath" <<'STUB'
+#!/usr/bin/env bash
+[ "$1" = "-u" ] && { echo "/c/from/cygpath"; exit 0; }
+exit 1
+STUB
+chmod +x "$NPT4B/cygpath"
+# Restricted PATH (no wslpath anywhere) so cygpath is genuinely the first tool.
+_mk_restricted "$NPT4B" bash tr grep uname dirname
+_NP_BASH_BIN="$(command -v bash)"
+T4B="$(PATH="$NPT4B" "$_NP_BASH_BIN" -c ". \"$NORMALIZE_PATH_SH\"; devflow_normalize_path 'C:\\Users\\x'")"
+assert_eq "#247 T4b: cygpath used when wslpath absent" "/c/from/cygpath" "$T4B"
+
+# Env-detected fallback, WSL flavor: no wslpath/cygpath on PATH, stub uname
+# reporting a microsoft kernel → /mnt/c translation.
+NPT4C="$(mktemp -d)"
+printf '#!/usr/bin/env bash\necho "5.15.0-microsoft-standard-WSL2"\n' > "$NPT4C/uname"; chmod +x "$NPT4C/uname"
+_mk_restricted "$NPT4C" bash tr grep dirname
+T4C="$(env -u MSYSTEM PATH="$NPT4C" "$_NP_BASH_BIN" -c ". \"$NORMALIZE_PATH_SH\"; devflow_normalize_path 'C:\\Users\\x'")"
+assert_eq "#247 T4c: env-detected WSL fallback (uname microsoft, no tools) → /mnt/c form" "/mnt/c/Users/x" "$T4C"
+
+# Env-detected fallback, MSYS flavor: no tools, non-microsoft uname, MSYSTEM set.
+NPT4D="$(mktemp -d)"
+printf '#!/usr/bin/env bash\necho "generic-kernel"\n' > "$NPT4D/uname"; chmod +x "$NPT4D/uname"
+_mk_restricted "$NPT4D" bash tr grep dirname
+T4D="$(MSYSTEM=MINGW64 PATH="$NPT4D" "$_NP_BASH_BIN" -c ". \"$NORMALIZE_PATH_SH\"; devflow_normalize_path 'C:\\Users\\x'")"
+assert_eq "#247 T4d: env-detected MSYS fallback (MSYSTEM set, no tools) → /c form" "/c/Users/x" "$T4D"
+
+# Last resort: no tools, no env signal → input unchanged (rc 0) + stderr breadcrumb.
+NPT4E="$(mktemp -d)"
+printf '#!/usr/bin/env bash\necho "generic-kernel"\n' > "$NPT4E/uname"; chmod +x "$NPT4E/uname"
+_mk_restricted "$NPT4E" bash tr grep dirname
+T4E_OUT="$(env -u MSYSTEM PATH="$NPT4E" "$_NP_BASH_BIN" -c ". \"$NORMALIZE_PATH_SH\"; devflow_normalize_path 'C:\\Users\\x'" 2>"$NPT4E/stderr")"; T4E_RC=$?
+T4E_ERR="$(cat "$NPT4E/stderr")"
+assert_eq "#247 T4e: no tool + no env signal → input unchanged" 'C:\Users\x' "$T4E_OUT"
+assert_eq "#247 T4e: no tool + no env signal → rc 0 (best-effort)" "0" "$T4E_RC"
+assert_eq "#247 T4e: no tool + no env signal → stderr breadcrumb emitted" "yes" \
+  "$(printf '%s' "$T4E_ERR" | grep -q 'could not normalize' && echo yes || echo no)"
+
+# POSIX-form passthrough: never touched, no tools consulted, no breadcrumb.
+T4F="$(bash -c ". \"$NORMALIZE_PATH_SH\"; devflow_normalize_path '/home/user/x'" 2>&1)"
+assert_eq "#247 T4f: non-Windows-form input passes through unchanged (no breadcrumb)" "/home/user/x" "$T4F"
+
+# ── T4k — tr absent from the restricted PATH: the env-detected arm fails
+#    CLOSED (input unchanged + tr breadcrumb), never a corrupted /mnt//...
+#    path; the SKILL.md block behaves identically (lockstep on this branch). ──
+NPT4K="$(mktemp -d)"
+printf '#!/usr/bin/env bash\necho "5.15.0-microsoft-standard-WSL2"\n' > "$NPT4K/uname"; chmod +x "$NPT4K/uname"
+_mk_restricted "$NPT4K" bash grep dirname
+T4K_OUT="$(env -u MSYSTEM PATH="$NPT4K" "$_NP_BASH_BIN" -c ". \"$NORMALIZE_PATH_SH\"; devflow_normalize_path 'C:\\Users\\x'" 2>"$NPT4K/err")"
+assert_eq "#247 T4k: tr-less env-detect arm → input unchanged (never /mnt//...)" 'C:\Users\x' "$T4K_OUT"
+assert_eq "#247 T4k: tr-less arm leaves the tr breadcrumb" "yes" \
+  "$(grep -q 'tr unavailable' "$NPT4K/err" && echo yes || echo no)"
+# ── T4k-setE — the header's "safe to source under set -e" contract: a set -e
+#    caller sourcing the helper on the same tr-less degenerate PATH must NOT
+#    abort at the drive-lowercasing assignment before the empty-drive guard
+#    runs. Without the `|| drive=""` fallback the tr-less pipeline's non-zero
+#    status trips set -e and the guard never runs. ──
+T4KSE_OUT="$(env -u MSYSTEM PATH="$NPT4K" "$_NP_BASH_BIN" -c "set -e; . \"$NORMALIZE_PATH_SH\"; devflow_normalize_path 'C:\\Users\\x'; printf 'SE_OK\\n'" 2>/dev/null)"; T4KSE_RC=$?
+assert_eq "#247 T4k set -e: tr-less source under set -e reaches the guard, never aborts" "yes" \
+  "$(printf '%s' "$T4KSE_OUT" | grep -q 'SE_OK' && echo yes || echo no)"
+assert_eq "#247 T4k set -e: returns 0 to the set -e caller" "0" "$T4KSE_RC"
+assert_eq "#247 T4k set -e: still yields the input unchanged (fail-closed)" 'C:\Users\x' \
+  "$(printf '%s' "$T4KSE_OUT" | head -1)"
+# ── Preflight jq — execution-verified via the shared resolver, mirroring the
+#    #245 gh two-branch diagnosis. Shadow BOTH candidates (bad-shebang jq AND
+#    jq.exe) so the degenerate path is forced on every host. ──
+JQTP="$(mktemp -d)"
+printf '#!/nonexistent/devflow-test-interpreter\necho nope\n' > "$JQTP/jq"; chmod +x "$JQTP/jq"
+printf '#!/nonexistent/devflow-test-interpreter\necho nope\n' > "$JQTP/jq.exe"; chmod +x "$JQTP/jq.exe"
+PF_JQ_OUT="$(env -u DEVFLOW_JQ PATH="$JQTP:$PATH" bash "$LIB/preflight.sh" 2>&1)"; PF_JQ_RC=$?
+assert_eq "#247 preflight: unrunnable jq shim → exit non-zero" "yes" \
+  "$([ "$PF_JQ_RC" -ne 0 ] && echo yes || echo no)"
+assert_eq "#247 preflight: unrunnable jq shim → \"no working 'jq'\" remedy naming DEVFLOW_JQ, not silent pass" "yes" \
+  "$(printf '%s' "$PF_JQ_OUT" | grep -q "no working 'jq'" && printf '%s' "$PF_JQ_OUT" | grep -q 'DEVFLOW_JQ' && echo yes || echo no)"
+
+# jq genuinely absent (nothing named jq/jq.exe on PATH) → the "not installed"
+# branch wording, not the shim wording (mirrors #245 T10's curated PATH).
+JQT10="$(mktemp -d)"
+_mk_restricted "$JQT10" git gh python3 dirname cat grep sed cut tr head
+_JQ10_BASH_BIN="$(command -v bash)"
+PF_JQNI_OUT="$(env -u DEVFLOW_JQ PATH="$JQT10" "$_JQ10_BASH_BIN" "$LIB/preflight.sh" 2>&1)"; PF_JQNI_RC=$?
+assert_eq "#247 preflight: jq genuinely absent → exit non-zero" "yes" \
+  "$([ "$PF_JQNI_RC" -ne 0 ] && echo yes || echo no)"
+assert_eq "#247 preflight: jq genuinely absent → \"not installed\" wording (not the shim wording)" "yes" \
+  "$(printf '%s' "$PF_JQNI_OUT" | grep -q "no working 'jq' — jq is not installed" && echo yes || echo no)"
+
+# ── T5 (anchor recipe pin) — skills/create-issue/SKILL.md carries the inline
+#    Windows-form anchor normalization at BOTH coupled SKILL_DIR sites (the
+#    #241 recipe's parked half; inline because the anchor is what locates
+#    helpers — it cannot source lib/normalize-path.sh). ──
+CI_SKILL="$LIB/../skills/create-issue/SKILL.md"
+assert_eq "#247 T5: create-issue SKILL.md carries the inline anchor normalization at both coupled sites" "yes" \
+  "$([ "$(grep -c 'Windows-form anchor normalization' "$CI_SKILL" 2>/dev/null)" -ge 2 ] && echo yes || echo no)"  # raw-guard-ok: count-based (two coupled SKILL_DIR sites must both carry the block; uniqueness would be wrong)
+# Operative-code pin (not just the comment heading above — a half-revert that
+# deletes the normalization code but keeps its comment must go RED): the
+# Windows-form detection line itself, present at both coupled sites.
+assert_eq "#247 T5b: both sites carry the operative Windows-form detection line (comment-only half-revert goes RED)" "yes" \
+  "$([ "$(grep -cF 'if [[ "$SKILL_DIR" =~ ^[A-Za-z]:[\\/] ]]; then' "$CI_SKILL" 2>/dev/null)" -ge 2 ] && echo yes || echo no)"  # raw-guard-ok: count-based (same two coupled sites)
+# T5c: the two inline blocks must stay BYTE-IDENTICAL modulo indentation — the
+# lockstep contract with lib/normalize-path.sh is only auditable if the in-file
+# mirror pair cannot drift apart silently (a translation-logic edit applied to
+# one site but not the other would otherwise ship green past T5/T5b).
+T5C_EQ="$(awk '
+  /# Windows-form anchor normalization/ { on=1; n++ }
+  on {
+    line=$0; sub(/^[[:space:]]*/, "", line)
+    blk[n] = blk[n] line "\n"
+    if (u && line == "fi") { on=0; u=0 }
+    if (line ~ /^unset _d _np _r$/) u=1
+  }
+  END { if (n==2 && blk[1]==blk[2]) print "identical"; else print "different:" n }
+' "$CI_SKILL")"
+assert_eq "#247 T5c: the two inline anchor-normalization blocks are byte-identical (modulo indentation)" "identical" "$T5C_EQ"
+
+# ── T6 (jq call-site integration) — a REAL converted helper, run with
+#    DEVFLOW_JQ pointing at a recording stub, invokes the stub rather than bare
+#    jq. Scope: the stub records ANY invocation (the first is the usability
+#    gate probe), so this proves the helper consults DEVFLOW_JQ at all — the
+#    static DJQ_BARE grep below is what holds every data-processing call site
+#    to the converted form. ──
+JQT6="$(mktemp -d)"
+cat > "$JQT6/jq-rec" <<'STUB'
+#!/usr/bin/env bash
+touch "$(dirname "$0")/.called"
+exec jq "$@"
+STUB
+chmod +x "$JQT6/jq-rec"
+DEVFLOW_JQ="$JQT6/jq-rec" bash "$LIB/../scripts/detect-project-tools.sh" "$JQT6" >/dev/null 2>&1 || true
+assert_eq "#247 T6: converted helper routes jq through DEVFLOW_JQ (stub invoked)" "yes" \
+  "$([ -f "$JQT6/.called" ] && echo yes || echo no)"
+
+# ── T4i — a wslpath that exits 0 but prints NOTHING must not yield an empty
+#    path ("the caller always gets a usable string"): falls through to the
+#    next tier. ──
+NPT4I="$(mktemp -d)"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$NPT4I/wslpath"; chmod +x "$NPT4I/wslpath"
+printf '#!/usr/bin/env bash\necho "5.15.0-microsoft-standard-WSL2"\n' > "$NPT4I/uname"; chmod +x "$NPT4I/uname"
+_mk_restricted "$NPT4I" bash tr grep dirname
+T4I="$(env -u MSYSTEM PATH="$NPT4I" "$_NP_BASH_BIN" -c ". \"$NORMALIZE_PATH_SH\"; devflow_normalize_path 'C:\\Users\\x'" 2>/dev/null)"
+assert_eq "#247 T4i: empty-but-successful wslpath output falls through (never an empty path)" "/mnt/c/Users/x" "$T4I"
+
+# ── T4j — spaces and a lowercase non-C drive letter through the env-detected
+#    arm (real anchors look like d:\Program Files\...). ──
+T4J="$(env -u MSYSTEM PATH="$NPT4C" "$_NP_BASH_BIN" -c ". \"$NORMALIZE_PATH_SH\"; devflow_normalize_path 'd:\\Program Files\\x'" 2>/dev/null)"
+assert_eq "#247 T4j: spaces + lowercase drive letter normalize (env-detected WSL arm)" "/mnt/d/Program Files/x" "$T4J"
+
+# ── T4g — a PRESENT-but-FAILING wslpath (prints partial output, exits 1) must
+#    not contaminate the result: the chain falls through to the next tier and
+#    the caller receives ONE clean line (the pre-fix form leaked the partial
+#    stdout before the fallback's line). ──
+NPT4G="$(mktemp -d)"
+printf '#!/usr/bin/env bash\necho "/mnt/partial-garbage"; exit 1\n' > "$NPT4G/wslpath"; chmod +x "$NPT4G/wslpath"
+printf '#!/usr/bin/env bash\necho "5.15.0-microsoft-standard-WSL2"\n' > "$NPT4G/uname"; chmod +x "$NPT4G/uname"
+_mk_restricted "$NPT4G" bash tr grep dirname
+T4G="$(env -u MSYSTEM PATH="$NPT4G" "$_NP_BASH_BIN" -c ". \"$NORMALIZE_PATH_SH\"; devflow_normalize_path 'C:\\Users\\x'" 2>/dev/null)"
+assert_eq "#247 T4g: failing wslpath falls through cleanly (no partial-output contamination)" "/mnt/c/Users/x" "$T4G"
+
+# ── T4h — forward-slash Windows form (C:/...) through the env-detected arm
+#    (the regex and docs both claim it; pin it so an anchor-on-backslash edit
+#    goes RED). ──
+T4H="$(env -u MSYSTEM PATH="$NPT4C" "$_NP_BASH_BIN" -c ". \"$NORMALIZE_PATH_SH\"; devflow_normalize_path 'C:/Users/x'")"
+assert_eq "#247 T4h: forward-slash Windows form normalizes identically (env-detected WSL arm)" "/mnt/c/Users/x" "$T4H"
+
+# ── T7 — PARTIAL-COPY deployments: resolve-jq.sh / resolve-gh.sh present
+#    without their sibling resolve-bin.sh must degrade with a breadcrumb, never
+#    leave DEVFLOW_JQ empty (jq) or abort set -e callers at source time (gh). ──
+JQT7="$(mktemp -d)"
+cp "$RESOLVE_JQ_SH" "$JQT7/resolve-jq.sh"
+T7_OUT="$(env -u DEVFLOW_JQ bash -c "set -euo pipefail; . \"$JQT7/resolve-jq.sh\"; printf %s \"\$DEVFLOW_JQ\"" 2>"$JQT7/err")"
+assert_eq "#247 T7: partial copy (no resolve-bin.sh) → DEVFLOW_JQ falls back to bare 'jq', not empty" "jq" "$T7_OUT"
+assert_eq "#247 T7: partial copy → breadcrumb names the missing resolve-bin.sh" "yes" \
+  "$(grep -q 'resolve-bin.sh not found or not sourceable beside resolve-jq.sh' "$JQT7/err" && echo yes || echo no)"
+cp "$LIB/resolve-gh.sh" "$JQT7/resolve-gh.sh"
+T7B_OUT="$(DEVFLOW_GH=/stub/gh bash -c "set -euo pipefail; . \"$JQT7/resolve-gh.sh\"; devflow_resolve_gh" 2>"$JQT7/err-gh")"
+assert_eq "#247 T7b: partial copy (no resolve-bin.sh) → devflow_resolve_gh degrades to DEVFLOW_GH-or-bare-gh" "/stub/gh" "$T7B_OUT"
+assert_eq "#247 T7b: partial copy → gh breadcrumb emitted (no raw set -e abort)" "yes" \
+  "$(grep -q 'resolve-bin.sh not found or not sourceable beside resolve-gh.sh' "$JQT7/err-gh" && echo yes || echo no)"
+T7C_OUT="$(env -u DEVFLOW_GH bash -c "set -euo pipefail; . \"$JQT7/resolve-gh.sh\"; devflow_resolve_gh" 2>/dev/null)"
+assert_eq "#247 T7c: partial copy, no override → degraded devflow_resolve_gh defaults to bare 'gh' (set -u safe)" "gh" "$T7C_OUT"
+
+# ── T7d — sourceability, not just existence: an UNREADABLE resolve-bin.sh
+#    beside resolve-jq.sh must take the same fallback arm (bare jq +
+#    breadcrumb), never leave DEVFLOW_JQ empty. ──
+JQT7D="$(mktemp -d)"
+cp "$RESOLVE_JQ_SH" "$JQT7D/resolve-jq.sh"
+printf 'garbage' > "$JQT7D/resolve-bin.sh"; chmod 000 "$JQT7D/resolve-bin.sh"
+T7D_OUT="$(env -u DEVFLOW_JQ bash -c "set -euo pipefail; . \"$JQT7D/resolve-jq.sh\"; printf %s \"\$DEVFLOW_JQ\"" 2>"$JQT7D/err")"
+assert_eq "#247 T7d: unreadable resolve-bin.sh → DEVFLOW_JQ falls back to bare 'jq', not empty" "jq" "$T7D_OUT"
+assert_eq "#247 T7d: unreadable resolve-bin.sh → fallback breadcrumb fires" "yes" \
+  "$(grep -q 'not found or not sourceable beside resolve-jq.sh' "$JQT7D/err" && echo yes || echo no)"
+chmod 600 "$JQT7D/resolve-bin.sh"
+# Same sourceability class for the OTHER two guard sites: resolve-gh.sh and
+# preflight.sh beside an unreadable resolve-bin.sh must take their fallback
+# arms too (a regression to a bare `. file` at either site ships green
+# without these).
+cp "$LIB/resolve-gh.sh" "$JQT7D/resolve-gh.sh"
+chmod 000 "$JQT7D/resolve-bin.sh"
+T7E_OUT="$(env -u DEVFLOW_GH bash -c "set -euo pipefail; . \"$JQT7D/resolve-gh.sh\"; devflow_resolve_gh" 2>"$JQT7D/err-gh2")"
+assert_eq "#247 T7e: unreadable resolve-bin.sh → devflow_resolve_gh degrades to bare 'gh'" "gh" "$T7E_OUT"
+assert_eq "#247 T7e: unreadable resolve-bin.sh → gh fallback breadcrumb fires" "yes" \
+  "$(grep -q 'not found or not sourceable beside resolve-gh.sh' "$JQT7D/err-gh2" && echo yes || echo no)"
+cp "$LIB/preflight.sh" "$LIB/resolve-python.sh" "$JQT7D/"
+T7F_ERR="$(env -u DEVFLOW_JQ -u DEVFLOW_GH bash "$JQT7D/preflight.sh" 2>&1)"; T7F_RC=$?
+assert_eq "#247 T7f: preflight beside unreadable resolve-bin.sh → degraded breadcrumb, no phantom-shim wording" "yes" \
+  "$(printf '%s' "$T7F_ERR" | grep -q 'missing or not sourceable beside preflight.sh' && ! printf '%s' "$T7F_ERR" | grep -q "the resolved '' does not execute" && echo yes || echo no)"
+assert_eq "#247 T7f: preflight degraded mode still exits 0 on a healthy host" "0" "$T7F_RC"
+chmod 600 "$JQT7D/resolve-bin.sh"
+
+DJQ_ROOT="$(cd "$LIB/.." && pwd)"
+# ── Helper-side breadcrumb literal pins — the init-relay pin above holds the
+#    SKILL side; these hold the four EMITTING helpers to the same literal so a
+#    reworded gate breadcrumb cannot desync the relay silently (two-sided
+#    coupling). ──
+for _brf in scripts/detect-project-tools.sh scripts/provision-auto-mode.sh scripts/provision-local-settings.sh scripts/scaffold-config.sh; do
+  assert_eq "#247 gate breadcrumb literal present in $_brf" "yes" \
+    "$(grep -q 'no usable jq (missing or not executable)' "$DJQ_ROOT/$_brf" && echo yes || echo no)"
+done
+
+# ── Shim-present negative branch (the defect #247 fixes), behavioral: a
+#    bad-shebang jq with no jq.exe and no override must take the graceful
+#    breadcrumb path, not detonate mid-script (a revert to `command -v jq`
+#    would ship green without this). ──
+JQNEG="$(mktemp -d)"
+printf '#!/nonexistent/devflow-test-interpreter\necho nope\n' > "$JQNEG/jq"; chmod +x "$JQNEG/jq"
+_mk_restricted "$JQNEG" bash tr grep dirname cat mktemp mv rm find sort head sed uniq
+JQNEG_ERR="$(env -u DEVFLOW_JQ PATH="$JQNEG" "$_JQ10_BASH_BIN" "$DJQ_ROOT/scripts/detect-project-tools.sh" "$JQNEG" 2>&1)"; JQNEG_RC=$?
+assert_eq "#247 shim-negative: detect-project-tools with unrunnable jq → exit 0 (best-effort preserved)" "0" "$JQNEG_RC"
+assert_eq "#247 shim-negative: detect-project-tools emits the 'no usable jq' breadcrumb" "yes" \
+  "$(printf '%s' "$JQNEG_ERR" | grep -q 'no usable jq (missing or not executable)' && echo yes || echo no)"
+
+# ── Generic resolver arm (future tools): override honored via the tr path,
+#    and the tr-less unknown-tool arm fails closed with the derivation
+#    breadcrumb (never a mangled DEVFLOW_ lookup or the internal sentinel). ──
+GEN_SEL="$(DEVFLOW_GIT=/stub/git bash -c ". \"$RESOLVE_BIN_SH\"; devflow_resolve_bin git")"
+assert_eq "#247 generic arm: DEVFLOW_GIT override honored for an unrouted tool" "/stub/git" "$GEN_SEL"
+GENTR="$(mktemp -d)"; ln -s "$(command -v bash)" "$GENTR/bash"
+GEN_ERR="$(env -u DEVFLOW_GIT PATH="$GENTR" "$GENTR/bash" -c ". \"$RESOLVE_BIN_SH\"; devflow_resolve_bin git" 2>&1 >/dev/null)"
+assert_eq "#247 generic arm: tr-less unknown tool → derivation breadcrumb, override not consulted" "yes" \
+  "$(printf '%s' "$GEN_ERR" | grep -q 'could not derive the override variable name for \"git\"' && echo yes || echo no)"
+assert_eq "#247 generic arm: degenerate breadcrumb names the user-facing override, never the sentinel" "no" \
+  "$(printf '%s' "$GEN_ERR" | grep -q '__DEVFLOW_NO_OVERRIDE__' && echo yes || echo no)"
+
+# ── T8 — a converted helper COPIED without lib/ entirely: the call-site `||`
+#    fallback fires (breadcrumb + bare jq) and the helper still honors its
+#    best-effort exit-0 contract. ──
+DJQ_ROOT="$(cd "$LIB/.." && pwd)"
+JQT8="$(mktemp -d)"
+mkdir -p "$JQT8/scripts"
+cp "$DJQ_ROOT/scripts/detect-project-tools.sh" "$JQT8/scripts/"
+T8_ERR="$(bash "$JQT8/scripts/detect-project-tools.sh" "$JQT8" 2>&1 >/dev/null)"; T8_RC=$?
+assert_eq "#247 T8: helper copied without lib/ → exit 0 (best-effort contract survives the missing resolver)" "0" "$T8_RC"
+assert_eq "#247 T8: helper copied without lib/ → call-site fallback breadcrumb fires" "yes" \
+  "$(printf '%s' "$T8_ERR" | grep -q 'resolve-jq.sh could not be sourced' && echo yes || echo no)"
+
+# ── T9 — install.sh inline adaptation, defect reproduction: a bad-shebang jq
+#    shim (no jq.exe, no override) with a working python3 routes
+#    set_config_version to the python3 arm and still pins the version. ──
+SCVJ="$(mktemp -d)"
+printf '#!/nonexistent/devflow-test-interpreter\necho nope\n' > "$SCVJ/jq"; chmod +x "$SCVJ/jq"
+_mk_restricted "$SCVJ" bash python3 mktemp mv cat grep tr dirname rm
+printf '{\n  "docs": {}\n}\n' > "$SCVJ/config.json"
+_SCV_BASH_BIN="$(command -v bash)"
+env -u DEVFLOW_JQ PATH="$SCVJ" "$_SCV_BASH_BIN" -c "DEVFLOW_SELFTEST=1 . \"$DJQ_ROOT/install.sh\" && set_config_version \"$SCVJ/config.json\" abc1234" >/dev/null 2>&1
+assert_eq "#247 T9: bad-shebang jq + working python3 → python3 arm pins devflow_version" "yes" \
+  "$(grep -q '"devflow_version": "abc1234"' "$SCVJ/config.json" && echo yes || echo no)"
+
+# ── T9b — install.sh, broken explicit DEVFLOW_JQ override: the warning
+#    breadcrumb fires AND the python3 arm still pins the version (the one
+#    deliberately-divergent contract in the family — pinned so a future
+#    "unify with the shared resolver" edit goes RED). ──
+SCVO="$(mktemp -d)"
+_mk_restricted "$SCVO" bash python3 mktemp mv cat grep tr dirname rm
+printf '{\n  "docs": {}\n}\n' > "$SCVO/config.json"
+printf '#!/nonexistent/devflow-test-interpreter\necho nope\n' > "$SCVO/broken-jq"; chmod +x "$SCVO/broken-jq"
+T9B_ERRLOG="$(DEVFLOW_JQ="$SCVO/broken-jq" PATH="$SCVO" "$_SCV_BASH_BIN" -c "DEVFLOW_SELFTEST=1 . \"$DJQ_ROOT/install.sh\" && set_config_version \"$SCVO/config.json\" beef1234" 2>&1)"
+assert_eq "#247 T9b: broken DEVFLOW_JQ override → warning breadcrumb names the override" "yes" \
+  "$(printf '%s' "$T9B_ERRLOG" | grep -q "DEVFLOW_JQ is set to .*broken-jq.* but it does not execute" && echo yes || echo no)"
+assert_eq "#247 T9b: broken DEVFLOW_JQ override → python3 arm still pins devflow_version" "yes" \
+  "$(grep -q '"devflow_version": "beef1234"' "$SCVO/config.json" && echo yes || echo no)"
+
+# ── Preflight, broken DEVFLOW_JQ override: the re-probe catches it and the
+#    shim-branch remedy names the resolved value (mirrors #245 AC5b). ──
+PF_JQO_OUT="$(DEVFLOW_JQ="$SCVO/broken-jq" bash "$LIB/preflight.sh" 2>&1)"; PF_JQO_RC=$?
+assert_eq "#247 preflight: broken DEVFLOW_JQ override → exit non-zero (re-probe catches it)" "yes" \
+  "$([ "$PF_JQO_RC" -ne 0 ] && echo yes || echo no)"
+assert_eq "#247 preflight: broken DEVFLOW_JQ override → remedy names the resolved binary" "yes" \
+  "$(printf '%s' "$PF_JQO_OUT" | grep -q "no working 'jq'.*broken-jq" && echo yes || echo no)"
+
+# ── Preflight partial copy (no resolve-bin.sh beside it): degrades with an
+#    attributable breadcrumb and bare-name resolution — never the phantom
+#    "the resolved '' does not execute" misdiagnosis. ──
+PFPC="$(mktemp -d)"
+cp "$LIB/preflight.sh" "$LIB/resolve-python.sh" "$LIB/resolve-gh.sh" "$LIB/resolve-jq.sh" "$PFPC/"
+PF_PC_OUT="$(env -u DEVFLOW_JQ -u DEVFLOW_GH bash "$PFPC/preflight.sh" 2>&1)"; PF_PC_RC=$?
+assert_eq "#247 preflight partial copy: attributable resolve-bin.sh breadcrumb emitted" "yes" \
+  "$(printf '%s' "$PF_PC_OUT" | grep -q 'resolve-bin.sh missing or not sourceable beside preflight.sh' && echo yes || echo no)"
+assert_eq "#247 preflight partial copy: bare-name degradation still verifies real tools (exit 0 on a healthy host)" "0" "$PF_PC_RC"
+# Override-first degradation: with a WORKING override set and a broken bare jq
+# unavailable-to-matter, the degraded preflight must probe the OVERRIDE (the
+# value the helpers USE), not the bare name — DETECT/USE parity survives the
+# partial copy. Probe with a broken override: preflight must fail and name it.
+PF_PC_OVR="$(DEVFLOW_JQ="$SCVO/broken-jq" env -u DEVFLOW_GH bash "$PFPC/preflight.sh" 2>&1)"; PF_PC_OVR_RC=$?
+assert_eq "#247 preflight partial copy: degraded mode still honors DEVFLOW_JQ (broken override → non-zero)" "yes" \
+  "$([ "$PF_PC_OVR_RC" -ne 0 ] && echo yes || echo no)"
+assert_eq "#247 preflight partial copy: degraded remedy names the override value" "yes" \
+  "$(printf '%s' "$PF_PC_OVR" | grep -q "no working 'jq'.*broken-jq" && echo yes || echo no)"
+
+# ── T5d — BEHAVIORAL lockstep: extract the first SKILL.md inline block, run it
+#    under the same stubbed env as the lib helper, and assert identical output
+#    (the regex pin above catches detection-line drift; this catches
+#    translation-body drift between lib and the mirrors). ──
+T5D="$(mktemp -d)"
+printf '#!/usr/bin/env bash\necho "5.15.0-microsoft-standard-WSL2"\n' > "$T5D/uname"; chmod +x "$T5D/uname"
+_mk_restricted "$T5D" bash tr grep dirname
+awk '
+  /# Windows-form anchor normalization/ { n++; if (n==1) on=1 }
+  on { line=$0; sub(/^[[:space:]]*/, "", line); print line
+       if (u && line == "fi") { on=0 }
+       if (line ~ /^unset _d _np _r$/) u=1 }
+' "$CI_SKILL" > "$T5D/block.sh"
+printf 'SKILL_DIR='"'"'C:\\Users\\dev\\skills\\x'"'"'\n%s\nprintf %%s "$SKILL_DIR"\n' "$(cat "$T5D/block.sh")" > "$T5D/runner.sh"
+T5D_SKILL="$(env -u MSYSTEM PATH="$T5D" "$_NP_BASH_BIN" "$T5D/runner.sh" 2>/dev/null)"
+T5D_LIB="$(env -u MSYSTEM PATH="$T5D" "$_NP_BASH_BIN" -c ". \"$NORMALIZE_PATH_SH\"; devflow_normalize_path 'C:\\Users\\dev\\skills\\x'" 2>/dev/null)"
+assert_eq "#247 T5d: SKILL.md inline block and lib helper translate identically (behavioral lockstep)" "$T5D_LIB" "$T5D_SKILL"
+assert_eq "#247 T5d: behavioral lockstep output is the expected WSL form" "/mnt/c/Users/dev/skills/x" "$T5D_LIB"
+# Same parity through the MSYS arm (non-microsoft uname + MSYSTEM set), so a
+# mirror-only edit to the /c translation cannot ship green either.
+T5DM="$(mktemp -d)"
+printf '#!/usr/bin/env bash\necho "generic-kernel"\n' > "$T5DM/uname"; chmod +x "$T5DM/uname"
+_mk_restricted "$T5DM" bash tr grep dirname
+T5DM_SKILL="$(MSYSTEM=MINGW64 PATH="$T5DM" "$_NP_BASH_BIN" "$T5D/runner.sh" 2>/dev/null)"
+T5DM_LIB="$(MSYSTEM=MINGW64 PATH="$T5DM" "$_NP_BASH_BIN" -c ". \"$NORMALIZE_PATH_SH\"; devflow_normalize_path 'C:\\Users\\dev\\skills\\x'" 2>/dev/null)"
+assert_eq "#247 T5d-msys: SKILL.md block and lib helper agree on the MSYS arm too" "$T5DM_LIB" "$T5DM_SKILL"
+assert_eq "#247 T5d-msys: MSYS-arm parity output is the expected /c form" "/c/Users/dev/skills/x" "$T5DM_LIB"
+# tr-less parity (the T4k fail-closed branch, SKILL side — runner.sh exists here):
+T4K_SKILL="$(env -u MSYSTEM PATH="$NPT4K" "$_NP_BASH_BIN" "$T5D/runner.sh" 2>/dev/null)"
+assert_eq "#247 T4k: SKILL.md block also leaves the anchor unchanged without tr (lockstep)" 'C:\Users\dev\skills\x' "$T4K_SKILL"
+
+# ── Lockstep pin — the Windows-form detection regex literal must appear in
+#    BOTH lib/normalize-path.sh and the create-issue SKILL.md mirrors, so a
+#    translation-logic edit to either side alone goes RED (T5c pins the two
+#    in-file mirrors to each other; this pins the lib↔SKILL pair). ──
+assert_eq "#247 lockstep: detection regex literal present in lib/normalize-path.sh" "yes" \
+  "$(grep -qF '=~ ^[A-Za-z]:[\\/] ]]' "$NORMALIZE_PATH_SH" && echo yes || echo no)"
+assert_eq "#247 lockstep: detection regex literal present at both SKILL.md sites" "yes" \
+  "$([ "$(grep -cF '=~ ^[A-Za-z]:[\\/] ]]' "$CI_SKILL" 2>/dev/null)" -ge 2 ] && echo yes || echo no)"  # raw-guard-ok: count-based (both coupled SKILL_DIR sites)
+
+# ── Coupled-relay pin — skills/init/SKILL.md relays the jq-gate breadcrumbs of
+#    the provision/detect/scaffold helpers; the literal must track the helpers'
+#    actual wording (the pre-#247 'jq not found' relay went stale silently). ──
+INIT_SKILL="$LIB/../skills/init/SKILL.md"
+assert_eq "#247 init relay: init SKILL.md relays the current 'no usable jq' breadcrumb at all three sites" "yes" \
+  "$([ "$(grep -c 'no usable jq (missing or not executable)' "$INIT_SKILL" 2>/dev/null)" -ge 3 ] && echo yes || echo no)"  # raw-guard-ok: count-based (three relay sites)
+assert_eq "#247 init relay: no stale 'jq not found' relay survives in init SKILL.md" "0" \
+  "$(grep -c 'jq not found' "$INIT_SKILL" || true)"  # raw-guard-ok: count-based (absence pin)
+
+# ── Peer-completeness pins (2.3.0a) — every in-scope jq-calling helper sources
+#    the shared resolver, and no bare invocation-position `jq` survives outside
+#    it. Best-effort grep, mirroring the #245 DGH_BARE discipline: comment lines
+#    and diagnostic echo/printf lines are excluded; T6 is the dynamic backstop.
+#    scripts/authorize-actor.sh is deliberately out of scope — its `--jq` is a
+#    flag of `gh api`, not a jq-binary invocation. ──
+DJQ_ROOT="$(cd "$LIB/.." && pwd)"
+# 15 = 12 migrated jq-callers (7 lib + 5 scripts) + preflight.sh + resolve-gh.sh
+# (both reference the shared resolver) + install.sh (inline mirror — it must run
+# standalone before any checkout exists, so it carries the contract by reference
+# comment rather than a source line; the DJQ_BARE grep below is what holds its
+# call sites to the converted form).
+DJQ_SOURCED="$(grep -rlE 'resolve-(jq|bin)\.sh' "$DJQ_ROOT/scripts" "$DJQ_ROOT/lib" "$DJQ_ROOT/install.sh" --include='*.sh' 2>/dev/null | grep -v '/test/' | grep -v 'lib/resolve-bin\.sh$' | grep -v 'lib/resolve-jq\.sh$' | grep -c . || true)"
+assert_eq "#247 peer-completeness: >=15 helpers reference the shared resolver (all jq-callers + resolve-gh.sh converted)" "yes" \
+  "$([ "$DJQ_SOURCED" -ge 15 ] && echo yes || echo no)"
+# Exclusions are deliberately MINIMAL (a blanket echo/printf line-exclusion
+# would mask the repo's dominant `printf ... | jq -r` idiom): full-line
+# comments, the resolver's own file, and `--version` probe lines (`<cand>
+# --version` IS the resolver mechanism — install.sh's inline adaptation and
+# the preflight re-probe — never a data-processing call site; the exclusion
+# is anchored to the probe shape `jq(.exe)? --version`, not a whole-line
+# --version filter that a filter-string mention would ride). The suffix
+# alternation covers flag/quoted-program/path forms AND common bareword
+# filters (empty/length/keys/type/to_entries) so `jq empty <<<"$x"`-style
+# reintroductions go RED too.
+DJQ_BARE="$(grep -rnE '(^|[[:space:]|&;(`])jq[[:space:]]+(-|'"'"'|"|\.|empty|length|keys|type|to_entries)' \
+  "$DJQ_ROOT/scripts" "$DJQ_ROOT/lib" "$DJQ_ROOT/install.sh" --include='*.sh' 2>/dev/null \
+  | grep -v '/test/' | grep -v 'resolve-bin\.sh:' | grep -vE '^[^:]+:[0-9]+:[[:space:]]*#' | grep -vE 'jq(\.exe)? --version' | grep -c . || true)"
+assert_eq "#247 peer-completeness: no bare invocation-position jq call survives outside the resolver" "0" "$DJQ_BARE"
+
+rm -rf "$JQT0" "$JQT1" "$JQT2" "$JQT2D" "$JQTD" "$NPT4" "$NPT4B" "$NPT4C" "$NPT4D" "$NPT4E" "$NPT4G" "$NPT4I" "$JQTP" "$JQT10" "$JQT6" "$JQT7" "$JQT8" "$SCVJ" "$SCVO" "$PFPC" "$T5D" "$T5DM" "$JQT7D" "$JQNEG" "$GENTR"
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.

@@ -48,6 +48,13 @@
 # Exit codes: always 0 (best-effort). Non-fatal conditions log and skip.
 set -euo pipefail
 
+# jq binary: resolved once via the resolver sourced from the sibling lib/ directory (issue #247);
+# best-effort — a copied/vendored deployment without lib/ falls back to bare
+# `jq` with a breadcrumb rather than aborting under set -e.
+# shellcheck source=../lib/resolve-jq.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/resolve-jq.sh" \
+  || { echo "devflow: resolve-jq.sh could not be sourced from ../lib relative to ${BASH_SOURCE[0]} — using bare 'jq' (set DEVFLOW_JQ to override)" >&2; : "${DEVFLOW_JQ:=jq}"; }
+
 log() { printf 'devflow-detect: %s\n' "$1"; }
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -57,8 +64,8 @@ TARGET_ROOT="${1:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
 CONFIG="$TARGET_ROOT/.devflow/config.json"
 
 # Best-effort guards — never abort the surrounding scaffold.
-if ! command -v jq >/dev/null 2>&1; then
-  log "jq not found; skipping language auto-detection (install jq to enable it)."
+if ! "$DEVFLOW_JQ" --version >/dev/null 2>&1; then
+  log "no usable jq (missing or not executable); skipping language auto-detection (install jq, or set DEVFLOW_JQ to a working jq/jq.exe, to enable it)."
   exit 0
 fi
 if [ ! -f "$PRESETS" ]; then
@@ -100,16 +107,16 @@ while IFS= read -r key; do
   while IFS= read -r marker; do
     [ -n "$marker" ] || continue
     if marker_present "$marker"; then matched=true; break; fi
-  done < <(jq -r --arg k "$key" '.presets[$k].markers[]?' "$PRESETS" | tr -d '\r')
+  done < <("$DEVFLOW_JQ" -r --arg k "$key" '.presets[$k].markers[]?' "$PRESETS" | tr -d '\r')
   $matched && ACTIVE+=("$key")
-done < <(jq -r '.presets | keys[]' "$PRESETS" | tr -d '\r')
+done < <("$DEVFLOW_JQ" -r '.presets | keys[]' "$PRESETS" | tr -d '\r')
 
 if [ "${#ACTIVE[@]}" -eq 0 ]; then
   log "no known language markers detected; config.json left unchanged."
   exit 0
 fi
 
-ACTIVE_JSON=$(printf '%s\n' "${ACTIVE[@]}" | jq -R . | jq -s .)
+ACTIVE_JSON=$(printf '%s\n' "${ACTIVE[@]}" | "$DEVFLOW_JQ" -R . | "$DEVFLOW_JQ" -s .)
 
 # --- 2. Resolve pre-build install lines from the present lockfiles ----------
 # Node and PHP need an explicit pre-build install line (npm/pnpm/yarn populate
@@ -169,12 +176,12 @@ if printf '%s\n' "${ACTIVE[@]}" | grep -qx node; then
   else
     NODE_INSTALL="$NODE_CMD"
   fi
-  EXTRA_INSTALL_JSON=$(jq -n --arg c "$NODE_INSTALL" '[$c]')
+  EXTRA_INSTALL_JSON=$("$DEVFLOW_JQ" -n --arg c "$NODE_INSTALL" '[$c]')
 fi
 # composer install populates vendor/ so phpunit/phpstan/php-cs-fixer can run.
 if printf '%s\n' "${ACTIVE[@]}" | grep -qx php && [ -f "$TARGET_ROOT/composer.json" ]; then
   EXTRA_INSTALL_JSON=$(printf '%s' "$EXTRA_INSTALL_JSON" \
-    | jq -c '. + ["composer install --no-interaction --prefer-dist --no-progress"]')
+    | "$DEVFLOW_JQ" -c '. + ["composer install --no-interaction --prefer-dist --no-progress"]')
 fi
 
 # --- 3. Merge into config.json (ordered union) ------------------------------
@@ -185,7 +192,7 @@ fi
 TMP=$(mktemp)
 trap 'rm -f "$TMP"' EXIT
 
-jq -n \
+"$DEVFLOW_JQ" -n \
   --slurpfile cfg "$CONFIG" \
   --slurpfile pre "$PRESETS" \
   --argjson keys "$ACTIVE_JSON" \
@@ -252,7 +259,7 @@ jq -n \
 # short-circuits, so the object checks gate the indexing checks: a non-object
 # managed key fails fast instead of erroring on the `.key.subkey` access.
 config_shape_ok() {
-  jq -e '
+  "$DEVFLOW_JQ" -e '
     def str_array: type == "array" and all(.[]; type == "string");
     (.devflow            // {} | type == "object")
     and (.devflow_implement // {} | type == "object")
@@ -270,8 +277,8 @@ config_shape_ok() {
 # Only rewrite when the merge actually changed something (keeps re-runs quiet
 # and avoids touching the file's mtime for no reason) AND the merged result
 # still has the expected shape (so a drifted upgrade keeps the old config).
-if jq --sort-keys . "$CONFIG" >/dev/null 2>&1 && ! diff -q \
-     <(jq --sort-keys . "$CONFIG") <(jq --sort-keys . "$TMP") >/dev/null 2>&1; then
+if "$DEVFLOW_JQ" --sort-keys . "$CONFIG" >/dev/null 2>&1 && ! diff -q \
+     <("$DEVFLOW_JQ" --sort-keys . "$CONFIG") <("$DEVFLOW_JQ" --sort-keys . "$TMP") >/dev/null 2>&1; then
   if config_shape_ok "$TMP"; then
     mv "$TMP" "$CONFIG"
     trap - EXIT

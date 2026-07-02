@@ -50,6 +50,13 @@
 #      the cause.
 set -euo pipefail
 
+# jq binary: resolved once via the resolver sourced from the sibling lib/ directory (issue #247);
+# best-effort — a copied/vendored deployment without lib/ falls back to bare
+# `jq` with a breadcrumb rather than aborting under set -e.
+# shellcheck source=../lib/resolve-jq.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/resolve-jq.sh" \
+  || { echo "devflow: resolve-jq.sh could not be sourced from ../lib relative to ${BASH_SOURCE[0]} — using bare 'jq' (set DEVFLOW_JQ to override)" >&2; : "${DEVFLOW_JQ:=jq}"; }
+
 log()  { printf 'devflow-automode: %s\n' "$1"; }
 warn() { printf 'devflow-automode: %s\n' "$1" >&2; }
 
@@ -150,8 +157,8 @@ fi
 
 SETTINGS_DIR="$(dirname "$SETTINGS")"
 
-if ! command -v jq >/dev/null 2>&1; then
-  warn "jq not found; cannot provision $SETTINGS (install jq, then re-run /devflow:init)."
+if ! "$DEVFLOW_JQ" --version >/dev/null 2>&1; then
+  warn "no usable jq (missing or not executable); cannot provision $SETTINGS (install jq, or set DEVFLOW_JQ to a working jq/jq.exe, then re-run /devflow:init)."
   exit 2
 fi
 
@@ -176,7 +183,7 @@ if [ -f "$SETTINGS" ]; then
     exit 2
   fi
   if [ -s "$SETTINGS" ] && grep -q '[^[:space:]]' "$SETTINGS"; then
-    if ! EXISTING="$(jq . "$SETTINGS" 2>/dev/null)"; then
+    if ! EXISTING="$("$DEVFLOW_JQ" . "$SETTINGS" 2>/dev/null)"; then
       warn "existing $SETTINGS is not valid JSON; left it unchanged and provisioned nothing (fix or remove it, then re-run /devflow:init)."
       exit 2
     fi
@@ -202,7 +209,7 @@ fi
 # Capture with `if !` so a failure of the guard's OWN jq fails CLOSED — a bare
 # assignment would mask the command-substitution exit status from `set -e` and sail
 # past the `[ -n ]` check below as if the shape were validated.
-if ! BAD_SHAPE="$(printf '%s' "$EXISTING" | jq -r --argjson defaults "$DEFAULTS" '
+if ! BAD_SHAPE="$(printf '%s' "$EXISTING" | "$DEVFLOW_JQ" -r --argjson defaults "$DEFAULTS" '
   . as $root
   | if ($root | type) != "object" then
       "the file is valid JSON but not a JSON object (\($root | type))"
@@ -234,7 +241,7 @@ fi
 # The merge cannot fail post-guard ($existing is a validated object whose `env` is
 # object-or-absent, $defaults is a fixed valid object), but guard it anyway so an
 # unanticipated jq failure fails CLOSED with a breadcrumb rather than a raw error.
-if ! MERGED="$(jq -n --argjson defaults "$DEFAULTS" --argjson existing "$EXISTING" '$defaults * $existing')"; then
+if ! MERGED="$("$DEVFLOW_JQ" -n --argjson defaults "$DEFAULTS" --argjson existing "$EXISTING" '$defaults * $existing')"; then
   warn "could not compute the provisioned settings for $SETTINGS (merge failed); left it unchanged."
   exit 2
 fi
@@ -243,7 +250,7 @@ fi
 # no-clobber "0"/disabled case lands here: the merge keeps the user's existing value, so
 # MERGED == EXISTING and we report "nothing changed" without a write). Compare canonical
 # (sorted) forms so formatting differences never read as a change.
-if [ "$(printf '%s' "$EXISTING" | jq -S .)" = "$(printf '%s' "$MERGED" | jq -S .)" ]; then
+if [ "$(printf '%s' "$EXISTING" | "$DEVFLOW_JQ" -S .)" = "$(printf '%s' "$MERGED" | "$DEVFLOW_JQ" -S .)" ]; then
   # Distinguish the two no-change cases so the breadcrumb never implies "selectable"
   # when the user's preserved value actually DISABLES it: the STRING "1" → already
   # selectable; anything else (a deliberate "0", a non-"1" string, OR a non-string leaf)
@@ -269,7 +276,7 @@ if [ "$(printf '%s' "$EXISTING" | jq -S .)" = "$(printf '%s' "$MERGED" | jq -S .
   # guard against a jq hiccup; it cannot fire on the already-validated, key-present JSON here,
   # and if it somehow did the breadcrumb would render a blank value — strictly worse than the
   # literal, but unreachable, so it is the safe fail-soft for a cosmetic read.
-  PRESERVED_RAW="$(printf '%s' "$EXISTING" | jq -c '.env.CLAUDE_CODE_ENABLE_AUTO_MODE')" || PRESERVED_RAW=""
+  PRESERVED_RAW="$(printf '%s' "$EXISTING" | "$DEVFLOW_JQ" -c '.env.CLAUDE_CODE_ENABLE_AUTO_MODE')" || PRESERVED_RAW=""
   if [ "$PRESERVED_RAW" = '"1"' ]; then
     log "$SETTINGS already sets CLAUDE_CODE_ENABLE_AUTO_MODE=\"1\" — 'auto' is already selectable; nothing changed."
   else
