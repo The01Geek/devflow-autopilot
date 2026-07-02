@@ -84,16 +84,23 @@ set_config_version() {
   tmp="$(mktemp)" || { log "warning: mktemp failed; add \"devflow_version\": \"$version\" to $cfg by hand."; return 0; }
   # jq resolution (#247): adapted from lib/resolve-bin.sh's contract —
   # install.sh must run standalone (curl-piped, before any checkout exists), so
-  # it cannot source the shared resolver. An explicit DEVFLOW_JQ keeps highest
-  # precedence (taken verbatim, no probe here — the selection re-probe below is
-  # what routes a broken override to the python3 arm); otherwise the first of
-  # jq/jq.exe whose `--version` runs is selected.
+  # it cannot source the shared resolver. An explicit DEVFLOW_JQ wins the
+  # SELECTION (no candidate probing happens); deliberately unlike the shared
+  # resolver, the selection gate below then re-probes whatever was selected,
+  # so a broken override routes to the python3 arm instead of failing the
+  # step. Otherwise the first of jq/jq.exe whose `--version` runs is selected.
   local jqbin
   jqbin="${DEVFLOW_JQ:-}"
   if [ -z "$jqbin" ]; then
     if jq --version >/dev/null 2>&1; then jqbin=jq
     elif jq.exe --version >/dev/null 2>&1; then jqbin=jq.exe
     fi
+  fi
+  # Surface a broken explicit override at the earliest, cheapest point: the
+  # runtime helpers honor DEVFLOW_JQ verbatim (never probed), so without this
+  # breadcrumb the misconfiguration first detonates far from its cause.
+  if [ -n "${DEVFLOW_JQ:-}" ] && ! "$jqbin" --version >/dev/null 2>&1; then
+    log "warning: DEVFLOW_JQ is set to '$jqbin' but it does not execute; using another tool for this step — fix DEVFLOW_JQ before running DevFlow."
   fi
   if [ -n "$jqbin" ] && "$jqbin" --version >/dev/null 2>&1; then
     if "$jqbin" -e '(.devflow_version // "") as $cur | ($cur == "" or ($cur | test("^[0-9a-f]{7,40}$")))' \

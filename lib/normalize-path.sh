@@ -33,18 +33,24 @@
 #      so the echoed value stays clean).
 # Always returns rc 0 (best-effort — the caller always gets a usable string).
 devflow_normalize_path() {
-  local input="$1" drive rest
+  local input="$1" drive rest _np
   # Inline regex literal, kept form-identical to the SKILL.md mirror so the
   # coupled sites diff cleanly.
   if [[ ! "$input" =~ ^[A-Za-z]:[\\/] ]]; then
     printf '%s\n' "$input"
     return 0
   fi
-  if command -v wslpath >/dev/null 2>&1; then
-    wslpath -u "$input" 2>/dev/null && return 0
+  # Capture the tool's output and echo it only on SUCCESS (the same form as
+  # the SKILL.md mirror): a tool that prints partial output and then exits
+  # non-zero must not contaminate the caller's command substitution with a
+  # garbage line before the next tier's result.
+  if command -v wslpath >/dev/null 2>&1 && _np="$(wslpath -u "$input" 2>/dev/null)"; then
+    printf '%s\n' "$_np"
+    return 0
   fi
-  if command -v cygpath >/dev/null 2>&1; then
-    cygpath -u "$input" 2>/dev/null && return 0
+  if command -v cygpath >/dev/null 2>&1 && _np="$(cygpath -u "$input" 2>/dev/null)"; then
+    printf '%s\n' "$_np"
+    return 0
   fi
   drive="$(printf '%s' "${input%%:*}" | tr '[:upper:]' '[:lower:]')"
   rest="${input#?:}"

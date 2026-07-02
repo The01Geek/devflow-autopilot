@@ -27,8 +27,8 @@
 
 # Idempotence guard: several helpers source this file both directly and
 # transitively (via resolve-gh.sh / resolve-jq.sh) — skip the re-parse. The
-# if-form (not `[ … ] && return`) keeps the first-source path from leaving a
-# non-zero AND-list status under a set -e caller.
+# if-form (not `[ … ] && return`) is kept so the guard can never become the
+# file's final failing AND-list statement if lines are later reordered.
 if [ -n "${_DEVFLOW_RESOLVE_BIN_SOURCED:-}" ]; then return 0; fi
 _DEVFLOW_RESOLVE_BIN_SOURCED=1
 

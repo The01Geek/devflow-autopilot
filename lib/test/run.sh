@@ -11438,7 +11438,10 @@ assert_eq "#247 T5c: the two inline anchor-normalization blocks are byte-identic
 
 # ── T6 (jq call-site integration) — a REAL converted helper, run with
 #    DEVFLOW_JQ pointing at a recording stub, invokes the stub rather than bare
-#    jq (mirrors #245 T7's dynamic backstop for the static pins below). ──
+#    jq. Scope: the stub records ANY invocation (the first is the usability
+#    gate probe), so this proves the helper consults DEVFLOW_JQ at all — the
+#    static DJQ_BARE grep below is what holds every data-processing call site
+#    to the converted form. ──
 JQT6="$(mktemp -d)"
 cat > "$JQT6/jq-rec" <<'STUB'
 #!/usr/bin/env bash
@@ -11449,6 +11452,80 @@ chmod +x "$JQT6/jq-rec"
 DEVFLOW_JQ="$JQT6/jq-rec" bash "$LIB/../scripts/detect-project-tools.sh" "$JQT6" >/dev/null 2>&1 || true
 assert_eq "#247 T6: converted helper routes jq through DEVFLOW_JQ (stub invoked)" "yes" \
   "$([ -f "$JQT6/.called" ] && echo yes || echo no)"
+
+# ── T4g — a PRESENT-but-FAILING wslpath (prints partial output, exits 1) must
+#    not contaminate the result: the chain falls through to the next tier and
+#    the caller receives ONE clean line (the pre-fix form leaked the partial
+#    stdout before the fallback's line). ──
+NPT4G="$(mktemp -d)"
+printf '#!/usr/bin/env bash\necho "/mnt/partial-garbage"; exit 1\n' > "$NPT4G/wslpath"; chmod +x "$NPT4G/wslpath"
+printf '#!/usr/bin/env bash\necho "5.15.0-microsoft-standard-WSL2"\n' > "$NPT4G/uname"; chmod +x "$NPT4G/uname"
+_mk_restricted "$NPT4G" bash tr grep dirname
+T4G="$(env -u MSYSTEM PATH="$NPT4G" "$_NP_BASH_BIN" -c ". \"$NORMALIZE_PATH_SH\"; devflow_normalize_path 'C:\\Users\\x'" 2>/dev/null)"
+assert_eq "#247 T4g: failing wslpath falls through cleanly (no partial-output contamination)" "/mnt/c/Users/x" "$T4G"
+
+# ── T4h — forward-slash Windows form (C:/...) through the env-detected arm
+#    (the regex and docs both claim it; pin it so an anchor-on-backslash edit
+#    goes RED). ──
+T4H="$(env -u MSYSTEM PATH="$NPT4C" "$_NP_BASH_BIN" -c ". \"$NORMALIZE_PATH_SH\"; devflow_normalize_path 'C:/Users/x'")"
+assert_eq "#247 T4h: forward-slash Windows form normalizes identically (env-detected WSL arm)" "/mnt/c/Users/x" "$T4H"
+
+# ── T7 — PARTIAL-COPY deployments: resolve-jq.sh / resolve-gh.sh present
+#    without their sibling resolve-bin.sh must degrade with a breadcrumb, never
+#    leave DEVFLOW_JQ empty (jq) or abort set -e callers at source time (gh). ──
+JQT7="$(mktemp -d)"
+cp "$RESOLVE_JQ_SH" "$JQT7/resolve-jq.sh"
+T7_OUT="$(bash -c "set -euo pipefail; . \"$JQT7/resolve-jq.sh\"; printf %s \"\$DEVFLOW_JQ\"" 2>"$JQT7/err")"
+assert_eq "#247 T7: partial copy (no resolve-bin.sh) → DEVFLOW_JQ falls back to bare 'jq', not empty" "jq" "$T7_OUT"
+assert_eq "#247 T7: partial copy → breadcrumb names the missing resolve-bin.sh" "yes" \
+  "$(grep -q 'resolve-bin.sh not found beside resolve-jq.sh' "$JQT7/err" && echo yes || echo no)"
+cp "$LIB/resolve-gh.sh" "$JQT7/resolve-gh.sh"
+T7B_OUT="$(DEVFLOW_GH=/stub/gh bash -c "set -euo pipefail; . \"$JQT7/resolve-gh.sh\"; devflow_resolve_gh" 2>"$JQT7/err-gh")"
+assert_eq "#247 T7b: partial copy (no resolve-bin.sh) → devflow_resolve_gh degrades to DEVFLOW_GH-or-bare-gh" "/stub/gh" "$T7B_OUT"
+assert_eq "#247 T7b: partial copy → gh breadcrumb emitted (no raw set -e abort)" "yes" \
+  "$(grep -q 'resolve-bin.sh not found beside resolve-gh.sh' "$JQT7/err-gh" && echo yes || echo no)"
+
+# ── T8 — a converted helper COPIED without lib/ entirely: the call-site `||`
+#    fallback fires (breadcrumb + bare jq) and the helper still honors its
+#    best-effort exit-0 contract. ──
+DJQ_ROOT="$(cd "$LIB/.." && pwd)"
+JQT8="$(mktemp -d)"
+mkdir -p "$JQT8/scripts"
+cp "$DJQ_ROOT/scripts/detect-project-tools.sh" "$JQT8/scripts/"
+T8_ERR="$(bash "$JQT8/scripts/detect-project-tools.sh" "$JQT8" 2>&1 >/dev/null)"; T8_RC=$?
+assert_eq "#247 T8: helper copied without lib/ → exit 0 (best-effort contract survives the missing resolver)" "0" "$T8_RC"
+assert_eq "#247 T8: helper copied without lib/ → call-site fallback breadcrumb fires" "yes" \
+  "$(printf '%s' "$T8_ERR" | grep -q 'resolve-jq.sh could not be sourced' && echo yes || echo no)"
+
+# ── T9 — install.sh inline adaptation, defect reproduction: a bad-shebang jq
+#    shim (no jq.exe, no override) with a working python3 routes
+#    set_config_version to the python3 arm and still pins the version. ──
+SCVJ="$(mktemp -d)"
+printf '#!/nonexistent/devflow-test-interpreter\necho nope\n' > "$SCVJ/jq"; chmod +x "$SCVJ/jq"
+_mk_restricted "$SCVJ" bash python3 mktemp mv cat grep tr dirname rm
+printf '{\n  "docs": {}\n}\n' > "$SCVJ/config.json"
+_SCV_BASH_BIN="$(command -v bash)"
+env -u DEVFLOW_JQ PATH="$SCVJ" "$_SCV_BASH_BIN" -c "DEVFLOW_SELFTEST=1 . \"$DJQ_ROOT/install.sh\" && set_config_version \"$SCVJ/config.json\" abc1234" >/dev/null 2>&1
+assert_eq "#247 T9: bad-shebang jq + working python3 → python3 arm pins devflow_version" "yes" \
+  "$(grep -q '"devflow_version": "abc1234"' "$SCVJ/config.json" && echo yes || echo no)"
+
+# ── Lockstep pin — the Windows-form detection regex literal must appear in
+#    BOTH lib/normalize-path.sh and the create-issue SKILL.md mirrors, so a
+#    translation-logic edit to either side alone goes RED (T5c pins the two
+#    in-file mirrors to each other; this pins the lib↔SKILL pair). ──
+assert_eq "#247 lockstep: detection regex literal present in lib/normalize-path.sh" "yes" \
+  "$(grep -qF '=~ ^[A-Za-z]:[\\/] ]]' "$NORMALIZE_PATH_SH" && echo yes || echo no)"
+assert_eq "#247 lockstep: detection regex literal present at both SKILL.md sites" "yes" \
+  "$([ "$(grep -cF '=~ ^[A-Za-z]:[\\/] ]]' "$CI_SKILL" 2>/dev/null)" -ge 2 ] && echo yes || echo no)"  # raw-guard-ok: count-based (both coupled SKILL_DIR sites)
+
+# ── Coupled-relay pin — skills/init/SKILL.md relays the jq-gate breadcrumbs of
+#    the provision/detect/scaffold helpers; the literal must track the helpers'
+#    actual wording (the pre-#247 'jq not found' relay went stale silently). ──
+INIT_SKILL="$LIB/../skills/init/SKILL.md"
+assert_eq "#247 init relay: init SKILL.md relays the current 'no usable jq' breadcrumb at all three sites" "yes" \
+  "$([ "$(grep -c 'no usable jq (missing or not executable)' "$INIT_SKILL" 2>/dev/null)" -ge 3 ] && echo yes || echo no)"  # raw-guard-ok: count-based (three relay sites)
+assert_eq "#247 init relay: no stale 'jq not found' relay survives in init SKILL.md" "0" \
+  "$(grep -c 'jq not found' "$INIT_SKILL" || true)"  # raw-guard-ok: count-based (absence pin)
 
 # ── Peer-completeness pins (2.3.0a) — every in-scope jq-calling helper sources
 #    the shared resolver, and no bare invocation-position `jq` survives outside
@@ -11465,15 +11542,20 @@ DJQ_ROOT="$(cd "$LIB/.." && pwd)"
 DJQ_SOURCED="$(grep -rlE 'resolve-(jq|bin)\.sh' "$DJQ_ROOT/scripts" "$DJQ_ROOT/lib" "$DJQ_ROOT/install.sh" --include='*.sh' 2>/dev/null | grep -v '/test/' | grep -v 'lib/resolve-bin\.sh$' | grep -v 'lib/resolve-jq\.sh$' | grep -c . || true)"
 assert_eq "#247 peer-completeness: >=15 helpers reference the shared resolver (all jq-callers + resolve-gh.sh converted)" "yes" \
   "$([ "$DJQ_SOURCED" -ge 15 ] && echo yes || echo no)"
-# `--version` probe lines are excluded: `<cand> --version` IS the resolver
-# mechanism (install.sh's inline mirror and the preflight re-probe), never a
-# data-processing call site.
-DJQ_BARE="$(grep -rnE '(^|[[:space:]|&;(`])jq[[:space:]]+(-|'"'"'|"|\.)' \
+# Exclusions are deliberately MINIMAL (a blanket echo/printf line-exclusion
+# would mask the repo's dominant `printf ... | jq -r` idiom): full-line
+# comments, the resolver's own file, and `--version` probe lines (`<cand>
+# --version` IS the resolver mechanism — install.sh's inline adaptation and
+# the preflight re-probe — never a data-processing call site). The suffix
+# alternation covers flag/quoted-program/path forms AND common bareword
+# filters (empty/length/keys/type/to_entries) so `jq empty <<<"$x"`-style
+# reintroductions go RED too.
+DJQ_BARE="$(grep -rnE '(^|[[:space:]|&;(`])jq[[:space:]]+(-|'"'"'|"|\.|empty|length|keys|type|to_entries)' \
   "$DJQ_ROOT/scripts" "$DJQ_ROOT/lib" "$DJQ_ROOT/install.sh" --include='*.sh' 2>/dev/null \
-  | grep -v '/test/' | grep -v 'resolve-bin\.sh:' | grep -vE ':[[:space:]]*#' | grep -vE '(echo|printf|_need) ' | grep -v -- '--version' | grep -c . || true)"
+  | grep -v '/test/' | grep -v 'resolve-bin\.sh:' | grep -vE ':[[:space:]]*#' | grep -v -- '--version' | grep -c . || true)"
 assert_eq "#247 peer-completeness: no bare invocation-position jq call survives outside the resolver" "0" "$DJQ_BARE"
 
-rm -rf "$JQT0" "$JQT1" "$JQT2" "$JQTD" "$NPT4" "$NPT4B" "$NPT4C" "$NPT4D" "$NPT4E" "$JQTP" "$JQT10" "$JQT6"
+rm -rf "$JQT0" "$JQT1" "$JQT2" "$JQTD" "$NPT4" "$NPT4B" "$NPT4C" "$NPT4D" "$NPT4E" "$NPT4G" "$JQTP" "$JQT10" "$JQT6" "$JQT7" "$JQT8" "$SCVJ"
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.

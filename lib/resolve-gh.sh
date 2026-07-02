@@ -23,18 +23,30 @@
 # helpers run `set -euo pipefail` / `set -uo pipefail`, and
 # scripts/authorize-actor.sh — sourced itself — sets no options at all).
 
-# Pure-bash directory derivation (no `dirname`): this file must stay sourceable
-# in a degenerate environment with an empty PATH (the resolver family's own
-# degenerate-path tests run with only bash present).
+# Pure-bash DIRECTORY DERIVATION (no `dirname`): sourcing this file must
+# succeed in a degenerate environment with only bash on PATH (the resolver
+# family's degenerate-path tests). The resolver function itself additionally
+# needs `tr` on PATH for the override-variable derivation — the pure-bash
+# claim covers sourcing/derivation only, not the probe path.
 case "${BASH_SOURCE[0]}" in
   */*) _RESOLVE_GH_DIR="$(cd "${BASH_SOURCE[0]%/*}" && pwd)" ;;
   *)   _RESOLVE_GH_DIR="$(pwd)" ;;
 esac
-# shellcheck source=resolve-bin.sh
-. "$_RESOLVE_GH_DIR/resolve-bin.sh"
-
-# devflow_resolve_gh — echo the `gh` invocation DevFlow should use. See
-# lib/resolve-bin.sh for the full override/probe/fallback contract.
-devflow_resolve_gh() {
-  devflow_resolve_bin gh
-}
+# Guarded source (matches lib/resolve-jq.sh's partial-copy posture): a
+# deployment carrying this file without its sibling resolve-bin.sh degrades to
+# DEVFLOW_GH-or-bare-gh with a breadcrumb instead of aborting every set -e
+# gh-caller at source time.
+if [ -f "$_RESOLVE_GH_DIR/resolve-bin.sh" ]; then
+  # shellcheck source=resolve-bin.sh
+  . "$_RESOLVE_GH_DIR/resolve-bin.sh"
+  # devflow_resolve_gh — echo the `gh` invocation DevFlow should use. See
+  # lib/resolve-bin.sh for the full override/probe/fallback contract.
+  devflow_resolve_gh() {
+    devflow_resolve_bin gh
+  }
+else
+  echo "devflow: resolve-bin.sh not found beside resolve-gh.sh — gh resolution degraded to DEVFLOW_GH-or-bare-gh" >&2
+  devflow_resolve_gh() {
+    printf '%s\n' "${DEVFLOW_GH:-gh}"
+  }
+fi

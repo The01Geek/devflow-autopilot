@@ -46,12 +46,12 @@
 #      breadcrumb names the cause.
 set -euo pipefail
 
-# jq binary: resolved once via the sourced sibling resolver (issue #247);
+# jq binary: resolved once via the resolver sourced from the sibling lib/ directory (issue #247);
 # best-effort — a copied/vendored deployment without lib/ falls back to bare
 # `jq` with a breadcrumb rather than aborting under set -e.
 # shellcheck source=../lib/resolve-jq.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/resolve-jq.sh" \
-  || { echo "devflow: resolve-jq.sh could not be sourced beside ${BASH_SOURCE[0]} — using bare 'jq' (set DEVFLOW_JQ to override)" >&2; : "${DEVFLOW_JQ:=jq}"; }
+  || { echo "devflow: resolve-jq.sh could not be sourced from ../lib relative to ${BASH_SOURCE[0]} — using bare 'jq' (set DEVFLOW_JQ to override)" >&2; : "${DEVFLOW_JQ:=jq}"; }
 
 log()  { printf 'devflow-settings: %s\n' "$1"; }
 warn() { printf 'devflow-settings: %s\n' "$1" >&2; }
