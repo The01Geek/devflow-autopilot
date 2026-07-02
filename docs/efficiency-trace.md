@@ -334,10 +334,16 @@ interactive-drop failure mode so a future orchestrator does not silently skip th
   not a reachable in-flow shape. The no-new-inputs case above only catches a dropped *Loop Exit*
   (the loop wrote nothing at all); it does not by itself catch the sibling failure mode where the
   loop *did* write `iter-*.json` but `--persist`'s own record derivation/write step then failed —
-  every one of its internal failure paths leaves a `record not written` breadcrumb on stderr while
+  its jq-derivation and mkdir failure paths both leave a `record not written` breadcrumb on stderr,
+  and its disk/permission write-after-mkdir failure path (ENOSPC/EROFS/quota/perms) leaves a
+  differently-worded `...failed (disk/permission); not persisted for...` breadcrumb — all while
   still exiting 0 by design. Phase 3.3 captures the `--persist` invocation's stderr and greps it for
-  that literal, recording a second, independent `dropped-failed` reflection when it fires, so a
-  persistence failure is surfaced even when inputs existed. And because the `APPROVE WITH UNRESOLVED
+  both breadcrumb shapes (a single-literal grep here would silently miss the disk/permission path),
+  recording a second, independent `dropped-failed` reflection when either fires, so a record
+  derivation/write failure is surfaced even when inputs existed — this is deliberately narrower than
+  every conceivable `--persist` failure surface; a record written to disk but not yet git-committed
+  (a separate staging/commit failure path) is a distinct, lower-priority gap tracked on the issue's
+  workpad rather than covered here. And because the `APPROVE WITH UNRESOLVED
   SHADOW FINDINGS` path can drive a **second**, separate inline `review-and-fix` invocation (the
   bounded re-review), Phase 3.3 re-runs the whole snapshot-then-backstop procedure — a fresh
   this-run baseline before, the persistence check after — around that second invocation too, so it

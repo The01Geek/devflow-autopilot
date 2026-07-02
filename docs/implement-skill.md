@@ -149,7 +149,10 @@ distinct `::warning::` naming that degrade, since it can then mask a real loss b
 file. The backstop also catches the sibling failure mode where the loop *did* write `iter-*.json`
 but `--persist`'s own record derivation/write step then failed silently (rc 0 by design): it
 captures the invocation's stderr and greps it for `--persist`'s own `record not written`
-breadcrumb, recording a second `dropped-failed` reflection when that fires. Because the
+breadcrumb (jq/mkdir failures) **and** its differently-worded disk/permission write-failure
+breadcrumb — a single-literal grep would silently miss the latter — recording a second
+`dropped-failed` reflection when either fires (a record written-but-not-yet-committed is a
+separate, lower-priority gap not covered here). Because the
 `APPROVE WITH UNRESOLVED SHADOW FINDINGS` path can drive a **second**, separate inline
 `review-and-fix` invocation (the bounded re-review in §3.3), the orchestrator re-runs the whole
 snapshot-then-backstop procedure around that second invocation too — a fresh this-run baseline

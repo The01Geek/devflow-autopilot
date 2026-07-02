@@ -2188,8 +2188,16 @@ assert_eq "#236 (B) phase-3.3: observability backstop directive precedes the app
 # that the backstop captures --persist's stderr and checks it for that literal.
 assert_pin_unique "#236 (B) phase-3.3: backstop captures --persist stderr for the record-write-failure check" \
   '"$LIB/efficiency-trace.sh" --persist 2>"$PERSIST_ERR" || true' "$DEF_SKILL"
-assert_pin_unique "#236 (B) phase-3.3: record-write-failure detector greps captured stderr for the record-not-written breadcrumb" \
-  'if grep -qF "record not written" "$PERSIST_ERR" 2>/dev/null; then' "$DEF_SKILL"
+# The single-literal grep above was itself a #236-review fix-delta-gate finding: jq-derivation
+# and mkdir failures both end "...record not written[ for ...]", but the disk/permission
+# write failure (write-after-mkdir-succeeded: ENOSPC/EROFS/quota/perms) reads "...failed
+# (disk/permission); not persisted for ..." instead — a grep on "record not written" alone
+# silently misses that third failure mode. Pin BOTH alternatives so a regression back to the
+# single-literal form (or a dropped alternative) turns the suite RED.
+assert_pin_unique "#236 (B) phase-3.3: record-write-failure detector matches the jq/mkdir 'record not written' breadcrumb via grep -qE" \
+  'grep -qE '\''record not written|failed' "$DEF_SKILL"
+assert_pin_unique "#236 (B) phase-3.3: record-write-failure detector ALSO matches the disk/permission-write breadcrumb (the single-literal grep this fix replaced silently missed it)" \
+  'failed \(disk/permission\); not persisted for'\''' "$DEF_SKILL"
 # (c) BOUNDED RE-REVIEW coverage: the AWUSF path can drive a SECOND, separate inline
 # review-and-fix invocation (the bounded re-review) whose own Loop Exit is just as droppable as
 # the first invocation's — but the original backstop only ran once, after the FIRST invocation,

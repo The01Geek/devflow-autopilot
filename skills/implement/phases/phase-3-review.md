@@ -95,7 +95,22 @@ ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 # (always exits 0). No --workpad-dir/--slug: with no args --persist scans every run-scoped
 # dir on disk, which is exactly the "the orchestrator does not hold review-and-fix's
 # internal slug/run-id" case at this inline seam.
-PERSIST_ERR=$(mktemp 2>/dev/null || echo /dev/null)
+# On mktemp failure, degrade to /dev/null rather than aborting — the capture becomes a
+# no-op (stderr is discarded, so the record-write-failure grep below can never match), but
+# --persist's own best-effort exit-0 contract is preserved. Track the degrade explicitly in
+# $PERSIST_ERR_IS_DEVNULL (not by re-testing the string later) so (a) the cleanup at the
+# bottom of this block never runs `rm -f` on the LITERAL PATH `/dev/null` — under a root
+# shell with a writable /dev this would delete the device node itself, breaking every other
+# command in the environment that redirects to /dev/null — and (b) the degrade gets the same
+# distinct ::warning:: breadcrumb discipline as the sibling $BEFORE-missing degrade below,
+# instead of silently no-opping the record-write-failure detector for this run.
+if PERSIST_ERR=$(mktemp 2>/dev/null); then
+  PERSIST_ERR_IS_DEVNULL=0
+else
+  PERSIST_ERR=/dev/null
+  PERSIST_ERR_IS_DEVNULL=1
+  echo "::warning::phase-3.3: could not allocate a temp file for --persist's stderr (mktemp failed); the record-write-failure detector is DISABLED for this run (only the no-new-inputs case below is still checked)" >&2
+fi
 "$LIB/efficiency-trace.sh" --persist 2>"$PERSIST_ERR" || true   # best-effort; captured (not swallowed) so its ::warning:: breadcrumbs both surface to the run log below AND are checked for a record-write failure by the detector
 cat "$PERSIST_ERR" >&2   # surface every --persist breadcrumb to the run log, same as before this capture was added
 # Detect the "no inputs FROM THIS RUN" case by diffing against the pre-loop snapshot, anchored
@@ -133,18 +148,26 @@ if [ -z "$(compgen -G "$ROOT/.devflow/tmp/review/*/*/iter-*.json" 2>/dev/null | 
 fi
 # The no-new-inputs case above only catches a dropped LOOP EXIT (the inline loop wrote no
 # iter-*.json at all). It does NOT catch the sibling failure mode where the loop DID write
-# iter-*.json but --persist's own record derivation/write step then failed — every one of
-# efficiency-trace.sh's internal --persist failure paths (jq derivation, disk/permission
-# write, mkdir) leaves a distinct "record not written" breadcrumb on stderr while still
-# exiting 0 (best-effort by design), so that failure is otherwise invisible to this
-# this-run-scoped detector, which only measures INPUT presence, not persistence SUCCESS.
-# Grep the captured --persist stderr for that literal so this second, independent failure
-# mode is surfaced too, rather than reading "inputs existed" as "persisted successfully".
-if grep -qF "record not written" "$PERSIST_ERR" 2>/dev/null; then
-  workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "lib/efficiency-trace.sh --persist wrote iter-*.json inputs but failed to derive/write the effectiveness record this run (see the 'record not written' breadcrumb above); this run's effectiveness telemetry (.devflow/logs/efficiency/) is missing" \
+# iter-*.json but --persist's own record derivation/write step then failed — that failure is
+# otherwise invisible to this this-run-scoped detector, which only measures INPUT presence,
+# not persistence SUCCESS. Grep the captured --persist stderr for its record-derivation/write
+# failure breadcrumbs so this second, independent failure mode is surfaced too, rather than
+# reading "inputs existed" as "persisted successfully". efficiency-trace.sh's three record
+# derivation/write failure paths do NOT share one common substring: jq-derivation failure and
+# mkdir failure both end "...record not written[ for ...]", but the disk/permission write
+# failure (a write after mkdir succeeded — ENOSPC/EROFS/quota/perms) instead reads "...failed
+# (disk/permission); not persisted for ..." — so match BOTH literals, or a mutated/renamed
+# breadcrumb on just the disk-write path would silently escape this detector exactly as the
+# single-literal form did (#236 review, Step 3.5 fix-delta gate). This intentionally scopes to
+# record derivation/write failures only, not the separate git-staging/commit failure surface
+# (efficiency-trace.sh's "not persisted this run" / "artifacts left staged" breadcrumbs) —
+# there the record IS written to disk, just not yet committed, a materially different and
+# lower-priority gap deferred on the issue #235 workpad.
+if [ "$PERSIST_ERR_IS_DEVNULL" -eq 0 ] && grep -qE 'record not written|failed \(disk/permission\); not persisted for' "$PERSIST_ERR" 2>/dev/null; then
+  workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "lib/efficiency-trace.sh --persist wrote iter-*.json inputs but failed to derive/write the effectiveness record this run (see the record-derivation/write-failure breadcrumb above); this run's effectiveness telemetry (.devflow/logs/efficiency/) is missing" \
     || echo "::warning::phase-3.3: failed to record dropped-failed observability-gap reflection (record-write-failure case) on issue #$ISSUE_NUMBER; this run's effectiveness telemetry is lost AND its loss-record could not be written" >&2
 fi
-rm -f "$PERSIST_ERR" 2>/dev/null
+[ "$PERSIST_ERR_IS_DEVNULL" -eq 1 ] || rm -f "$PERSIST_ERR" 2>/dev/null
 ```
 
 
