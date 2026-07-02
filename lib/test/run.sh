@@ -10971,7 +10971,7 @@ cat > "$GHT1/gh.exe" <<'STUB'
 exit 0
 STUB
 chmod +x "$GHT1/gh.exe"
-T1_SEL="$(PATH="$GHT1:$PATH" bash -c ". \"$RESOLVE_GH_SH\"; devflow_resolve_gh")"
+T1_SEL="$(env -u DEVFLOW_GH PATH="$GHT1:$PATH" bash -c ". \"$RESOLVE_GH_SH\"; devflow_resolve_gh")"
 assert_eq "#245 T1: bad-shebang gh rejected, runnable gh.exe chosen (execution-verified)" "gh.exe" "$T1_SEL"
 
 # ── T2 (AC4) — DEVFLOW_GH override wins and never probes `gh --version`. ──
@@ -10996,13 +10996,13 @@ cat > "$GHT3/gh" <<'STUB'
 exit 0
 STUB
 chmod +x "$GHT3/gh"
-T3_SEL="$(PATH="$GHT3:$PATH" bash -c ". \"$RESOLVE_GH_SH\"; devflow_resolve_gh")"
+T3_SEL="$(env -u DEVFLOW_GH PATH="$GHT3:$PATH" bash -c ". \"$RESOLVE_GH_SH\"; devflow_resolve_gh")"
 assert_eq "#245 T3: runnable gh on PATH resolves to 'gh' (no behavior change on Linux/macOS/cloud)" "gh" "$T3_SEL"
 
 # ── Degenerate (AC1 tail) — no runnable candidate → bare `gh` so the caller's
 #    best-effort warning path still fires (rc 0 preserved). ──
 GHTD="$(mktemp -d)"; ln -s "$(command -v bash)" "$GHTD/bash"
-TD_SEL="$(PATH="$GHTD" "$GHTD/bash" -c ". \"$RESOLVE_GH_SH\"; devflow_resolve_gh")"; TD_RC=$?
+TD_SEL="$(env -u DEVFLOW_GH PATH="$GHTD" "$GHTD/bash" -c ". \"$RESOLVE_GH_SH\"; devflow_resolve_gh")"; TD_RC=$?
 assert_eq "#245 degenerate: no runnable gh/gh.exe → falls back to bare 'gh'" "gh" "$TD_SEL"
 assert_eq "#245 degenerate: fallback still exits 0 (best-effort warning path preserved)" "0" "$TD_RC"
 
@@ -11027,7 +11027,7 @@ cat > "$GHT6/gh.exe" <<'STUB'
 exit 0
 STUB
 chmod +x "$GHT6/gh" "$GHT6/gh.exe"
-T6_SEL="$(PATH="$GHT6:$PATH" bash -c ". \"$RESOLVE_GH_SH\"; devflow_resolve_gh")"
+T6_SEL="$(env -u DEVFLOW_GH PATH="$GHT6:$PATH" bash -c ". \"$RESOLVE_GH_SH\"; devflow_resolve_gh")"
 assert_eq "#245 T6: both runnable → gh chosen over gh.exe (candidate order preserved)" "gh" "$T6_SEL"
 
 # ── AC5 / preflight — a present-but-unrunnable `gh` is reported at preflight with
