@@ -188,10 +188,7 @@ author). This fail-loud contract now covers every site,
 including the read-only review run and the writers' `gate` jobs: with a broken App
 configured, even the trigger-reaction job fails rather than silently posting as
 `github-actions[bot]` — fix the App's key/permissions, or unset `DEVFLOW_APP_ID` to
-restore the default-token behavior. Deliberately still on `GITHUB_TOKEN`: the
-`Devflow Review` check-run (emitted by the Actions runner from the job `name:`, not
-token-authored) and the stale-rejection housekeeping (invisible; works
-cross-identity).
+restore the default-token behavior.
 
 > **Loop-safety note.** Unlike `GITHUB_TOKEN` pushes (which GitHub suppresses from
 > re-triggering workflows), an **App-token push re-triggers workflows**. For DevFlow
