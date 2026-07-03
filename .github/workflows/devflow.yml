@@ -146,8 +146,24 @@ jobs:
             exit 0
           fi
 
-          HEAD=$(gh pr view "$PR" --repo "$REPO" --json headRefOid --jq .headRefOid 2>/dev/null || echo "")
-          BRANCH=$(gh pr view "$PR" --repo "$REPO" --json headRefName --jq .headRefName 2>/dev/null || echo "")
+          # HEAD/BRANCH resolution mirrors Signals 1/2 below: a `gh` failure is
+          # surfaced as a ::warning:: carrying its stderr (captured to a separate
+          # file so a partial-stdout-plus-error response can't pollute the
+          # resolved value); a success-but-empty/null result stays the existing
+          # ::notice:: fail-open path. Both arms still fail open (exit 0 / IR=0).
+          HEAD_ERR=$(mktemp)
+          if ! HEAD=$(gh pr view "$PR" --repo "$REPO" --json headRefOid --jq .headRefOid 2>"$HEAD_ERR"); then
+            echo "::warning::Could not resolve PR #$PR HEAD (gh pr view failed: $(cat "$HEAD_ERR")); fail-open (manual review proceeds)."
+            rm -f "$HEAD_ERR"
+            exit 0
+          fi
+          rm -f "$HEAD_ERR"
+          BRANCH_ERR=$(mktemp)
+          if ! BRANCH=$(gh pr view "$PR" --repo "$REPO" --json headRefName --jq .headRefName 2>"$BRANCH_ERR"); then
+            echo "::warning::Could not resolve PR #$PR BRANCH (gh pr view failed: $(cat "$BRANCH_ERR")); treating as unresolved (fail-open — Signal 2 treated as 0)."
+            BRANCH=""
+          fi
+          rm -f "$BRANCH_ERR"
           if [ -z "$HEAD" ] || [ "$HEAD" = "null" ]; then
             echo "::notice::Could not resolve PR #$PR HEAD; fail-open (manual review proceeds)."
             exit 0

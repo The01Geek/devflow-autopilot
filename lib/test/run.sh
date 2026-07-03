@@ -8479,6 +8479,20 @@ for f in devflow devflow-implement; do
   assert_eq "app-token: $f.yml has no invocation-position gh issue/pr comment porcelain" "0" \
     "$(grep -cE '^[^#]*gh (issue|pr) comment ' "$WF/$f.yml" || true)"
 done
+# Issue #282: review_dedupe guard's HEAD/BRANCH resolution must surface `gh`
+# failure the same way Signals 1/2 do (a ::warning:: carrying gh's stderr),
+# never the old blind `2>/dev/null || echo ""` swallow that collapses a `gh`
+# failure and a genuinely-empty result into the same generic notice.
+assert_eq "app-token: devflow.yml HEAD/BRANCH resolution carries no 2>/dev/null || echo swallow" "0" \
+  "$(grep -cF '2>/dev/null || echo ""' "$WF/devflow.yml" || true)"
+assert_eq "app-token: devflow.yml HEAD resolution warns with gh's captured stderr on failure" "1" \
+  "$(grep -cF 'Could not resolve PR #$PR HEAD (gh pr view failed:' "$WF/devflow.yml" || true)"
+assert_eq "app-token: devflow.yml BRANCH resolution warns with gh's captured stderr on failure" "1" \
+  "$(grep -cF 'Could not resolve PR #$PR BRANCH (gh pr view failed:' "$WF/devflow.yml" || true)"
+# The success-but-empty/null ::notice:: fail-open path must be retained
+# unchanged (distinguishable in the log from the new gh-failure ::warning::).
+assert_eq "app-token: devflow.yml retains the success-but-empty HEAD ::notice:: fail-open path" "1" \
+  "$(grep -cF '::notice::Could not resolve PR #$PR HEAD; fail-open (manual review proceeds).' "$WF/devflow.yml" || true)"
 # Doc↔workflow scope-table coupling: the cloud-setup table hardcodes the
 # review token's permission set; pin the row so a future scope change that
 # reconciles APP_SITES but not the doc goes RED.
