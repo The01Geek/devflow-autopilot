@@ -2,6 +2,7 @@
 
 ## July 3, 2026
 
+- **Fix — Skill safety checks now fire correctly on non-Claude-Code runners** — When running DevFlow on agentic command-line tools other than Claude Code (such as GitHub Copilot CLI, Cursor, Codex CLI, or Gemini CLI), the internal guard checks inside the skills read an empty result because those tools drop a value passed between two steps of the same inline command. As a result, warning messages and fail-safe branches silently never ran — most notably the documentation gate in `/devflow:implement`, which stopped enforcing that required documentation was actually updated. Every such check has been rewritten into a single-statement form that reads the command's own result inline, so the safety checks and their warnings now hold on these runners, and behavior on Claude Code is unchanged. (#286)
 - **Fix — Cloud stall backstop is now resilient to expired GitHub App tokens** — On a long cloud `/devflow:implement` run, the App installation token could expire before the stall backstop read the workpad, causing the backstop to misread a perfectly healthy run as corrupt and waste one of its limited automatic resume attempts. The backstop now mints a fresh token just before it runs, and treats any authentication or API failure while reading the workpad as a distinct condition that fails the run loud with a clear diagnostic **without** consuming a resume attempt — so a transient token or API problem is never mistaken for a broken workpad. (#287)
 
 ## July 2, 2026
