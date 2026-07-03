@@ -13794,13 +13794,14 @@ assert_eq "#266 workpad.py status: present but unreadable Status -> exit 1" "1" 
 # stderr diagnostic) exactly like the missing/empty cases above, instead of the
 # pre-fix behavior of silently printing 'interim 🚀 <word>' at exit 0 (the stall
 # backstop would then burn an auto-resume attempt on a workpad it cannot read).
-WP281_OUT="$(PATH="$WP266_GHD:$PATH" STUB_COMMENTS='[{"id":1,"body":"<!-- devflow:workpad -->\n**Status:** 🚀 Frobnicating"}]' python3 "$WP266_PY" status 5 2>/tmp/wp281-stderr-$$)"
+WP281_STDERR=$(mktemp)
+WP281_OUT="$(PATH="$WP266_GHD:$PATH" STUB_COMMENTS='[{"id":1,"body":"<!-- devflow:workpad -->\n**Status:** 🚀 Frobnicating"}]' python3 "$WP266_PY" status 5 2>"$WP281_STDERR")"
 WP281_RC=$?
 assert_eq "#281 workpad.py status: unrecognized word -> exit 1 (not 0)" "1" "$WP281_RC"
 assert_eq "#281 workpad.py status: unrecognized word -> no stdout printed" "" "$WP281_OUT"
 assert_eq "#281 workpad.py status: unrecognized word -> stderr names the word" "yes" \
-  "$(grep -q 'Frobnicating' /tmp/wp281-stderr-$$ && echo yes || echo no)"
-rm -f /tmp/wp281-stderr-$$
+  "$(grep -q 'Frobnicating' "$WP281_STDERR" && echo yes || echo no)"
+rm -f "$WP281_STDERR"
 PATH="$WP266_GHD:$PATH" STUB_COMMENTS='[{"id":1,"body":"<!-- devflow:workpad -->\n**Status:** FROBNICATING"}]' python3 "$WP266_PY" status 5 >/dev/null 2>&1
 assert_eq "#281 workpad.py status: unrecognized word, mixed case -> exit 1" "1" "$?"
 

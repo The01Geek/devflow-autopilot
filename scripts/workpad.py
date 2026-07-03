@@ -253,7 +253,7 @@ def cmd_status(args):
         sys.exit(1)
     if not _is_recognized_status_word(word):
         recognized = '/'.join(
-            list(w.capitalize() for w in _STATUS_TO_PROGRESS_PHASE) + ['Blocked']
+            [w.capitalize() for w in _STATUS_TO_PROGRESS_PHASE] + ['Blocked']
         )
         sys.stderr.write(
             f"workpad.py status: workpad Status word {word!r} is not a "
