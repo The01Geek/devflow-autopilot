@@ -45,6 +45,13 @@ _PEE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../lib/resolve-jq.sh
 . "$_PEE_DIR/../lib/resolve-jq.sh" \
   || { echo "devflow: resolve-jq.sh could not be sourced from ../lib relative to ${BASH_SOURCE[0]} — using bare 'jq' (set DEVFLOW_JQ to override)" >&2; : "${DEVFLOW_JQ:=jq}"; }
+# Outcome check, not just sourceability: a sibling that sources clean yet never
+# assigns must still leave a usable jq — never a bare `set -u` abort that breaks
+# the single-token stdout / always-exit-0 contract.
+if [ -z "${DEVFLOW_JQ:-}" ]; then
+  echo "devflow: resolve-jq.sh sourced but did not assign DEVFLOW_JQ — using bare 'jq' (set DEVFLOW_JQ to override)" >&2
+  DEVFLOW_JQ=jq
+fi
 
 FILE="${1:-}"
 if [ -z "$FILE" ] || [ ! -f "$FILE" ]; then

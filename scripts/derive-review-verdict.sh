@@ -95,6 +95,13 @@ fi
 # shellcheck source=../lib/resolve-jq.sh
 . "$_DRV_DIR/../lib/resolve-jq.sh" \
   || { echo "devflow: resolve-jq.sh could not be sourced from ../lib relative to ${BASH_SOURCE[0]} — using bare 'jq' (set DEVFLOW_JQ to override)" >&2; : "${DEVFLOW_JQ:=jq}"; }
+# Outcome check, not just sourceability (mirrors the gh guard above): a sibling
+# that sources clean yet never assigns must still leave a usable jq — never a
+# bare `set -u` abort that breaks the always-exit-0 / two-line stdout contract.
+if [ -z "${DEVFLOW_JQ:-}" ]; then
+  echo "devflow: resolve-jq.sh sourced but did not assign DEVFLOW_JQ — using bare 'jq' (set DEVFLOW_JQ to override)" >&2
+  DEVFLOW_JQ=jq
+fi
 
 HEAD_SHA="${HEAD_SHA:-}"
 ENGINE_ERROR="${ENGINE_ERROR:-false}"
@@ -167,14 +174,18 @@ fi
 #    would resurrect a deliberately-dismissed verdict (the same Direction-1
 #    wedge this helper exists to remove); a PENDING (or other non-verdict)
 #    review interleaved on HEAD must not mask a real APPROVED/CHANGES_REQUESTED
-#    posted just before it. Excluded states fall through like an empty set.
+#    posted just before it; and a COMMENTED review counts as verdict-bearing
+#    ONLY when its body carries the `## Verdict:` marker (Phase 4.4's
+#    approve-with-notes shape) — a plain human comment-review on HEAD must not
+#    mask the bot verdict posted just before it. Excluded reviews fall through
+#    like an empty set.
 #    The leading `-s`/`add` normalizes the `--paginate` shape: slurp turns one
 #    array into [[...]] and concatenated pages into [[...],[...]], and `add`
 #    flattens both to one review list (a non-array payload with scalar values —
 #    the real gh error-object shape — still errors in `map()`, keeping the parse
 #    guard live; an all-empty input errors in `add|map` likewise — fail-closed
 #    either way).
-DRV_STATE_FILTER='add | map(select(.commit_id == $h and ((.state // "") | IN("APPROVED","CHANGES_REQUESTED","COMMENTED")))) | last'
+DRV_STATE_FILTER='add | map(select(.commit_id == $h and (((.state // "") | IN("APPROVED","CHANGES_REQUESTED")) or (((.state // "") == "COMMENTED") and ((.body // "") | test("(?:^|\\n)##[[:space:]]+Verdict:")))))) | last'
 if ! STATE=$(printf '%s' "$REVIEWS_JSON" | "$DEVFLOW_JQ" -rs --arg h "$HEAD_SHA" \
           "$DRV_STATE_FILTER | (.state // \"\")" 2>/dev/null); then
   echo "derive-review-verdict: reviews JSON could not be parsed (jq failed or the reviews payload was not an array) — verdict unverifiable; failing closed (incomplete)." >&2
