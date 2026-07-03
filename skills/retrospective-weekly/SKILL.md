@@ -20,7 +20,7 @@ plain scripts with no LLM tokens. The loop **proposes, it does not dispose**:
 each actionable pattern is filed as **one GitHub issue** for the normal
 implement → review pipeline, not landed as an autonomous PR.
 
-**`$LIB` notation (textual, not a shell variable).** Throughout this skill, `$LIB` in a command denotes the resolved path `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib` — expand it textually (with the anchor already resolved for this runner) when composing each command you actually run. Never rely on a shell variable named `LIB` persisting from one statement or block to another: each Bash call is a fresh shell, and some runners' inline-bash marshaling drops a variable assigned earlier in the *same* inline command before a later statement reads it (observed on Copilot CLI).
+**`$LIB` notation (textual, not a shell variable).** Throughout this skill, `$LIB` in a command denotes the resolved path `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib` — expand it textually (with the anchor already resolved for this runner) when composing each command you actually run. Never rely on a shell variable named `LIB` persisting from one statement or block to another — each Bash call is a fresh shell, and the *Portable helper anchor* note below explains why even same-command variable reuse is unsafe on some runners.
 
 Every `jq` in this skill is invoked through the execution-verified wrapper
 `$LIB/../scripts/run-jq.sh` (`$LIB/../scripts` is the `scripts/` dir beside

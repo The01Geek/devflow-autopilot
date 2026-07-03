@@ -11,9 +11,10 @@ from arguments + live GitHub state on each call.
 
 All subcommands shell out to `gh` for GitHub API access (same auth path as
 the rest of devflow). The workpad marker is read from
-`.devflow/config.json` via the bundled `config-get.sh` helper, falling
-back to the built-in default `<!-- devflow:workpad -->` when the config file or
-key is absent (so it works with no config).
+`.devflow/config.json` directly in-process (issue #275: no `.sh` exec, so it
+works on Windows), falling back to the built-in default
+`<!-- devflow:workpad -->` when the config file or key is absent (so it works
+with no config).
 
 Usage:
     workpad.py id        ISSUE [--marker M]
@@ -128,11 +129,13 @@ def _workpad_marker(explicit=None):
     # unconfigured case — silent fallback so the local tier works with no
     # config at all.
     config_file = Path('.devflow/config.json')
-    if not config_file.is_file():
-        return _DEFAULT_WORKPAD_MARKER
     try:
         with config_file.open(encoding='utf-8') as f:
             data = json.load(f)
+    except FileNotFoundError:
+        # Absent config (or an absent .devflow/ dir) is the normal
+        # unconfigured case — silent, unlike the breadcrumbed failures below.
+        return _DEFAULT_WORKPAD_MARKER
     except (OSError, json.JSONDecodeError) as e:
         # A present-but-unreadable/malformed config is otherwise
         # indistinguishable from "no marker override configured": both fall

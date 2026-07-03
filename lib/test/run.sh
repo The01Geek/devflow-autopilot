@@ -6287,8 +6287,9 @@ assert_eq "#97 pin: create-issue ensures+applies DevFlow label via REST helper" 
 # and read in a later statement of the same inline command, so the #241 recipe
 # (`SKILL_DIR="${CLAUDE_SKILL_DIR:-…}"; … "$SKILL_DIR"/../../…`) is itself defeated on
 # that runner. The generalized invariant, per file, is three-sided:
-#   (1) NO bare braced-or-unbraced $CLAUDE_SKILL_DIR/../../(scripts|lib) expansion
-#       (collapses to /../../… when the var is empty — the pre-#241 regression);
+#   (1) NO bare braced-or-unbraced $CLAUDE_SKILL_DIR/.. parent-relative expansion — any
+#       continuation (/../../scripts, /../../lib, /../../.devflow, a /../<sibling-skill>
+#       reference), since every shape collapses identically when the var is empty;
 #   (2) NO cross-statement anchor assignment (`X="${CLAUDE_SKILL_DIR…`) — the #241 form
 #       Copilot's inline-bash variable stripping defeats;
 #   (3) the portable single-statement inline form IS present (positive adoption pin —
@@ -6300,7 +6301,7 @@ assert_eq "#97 pin: create-issue ensures+applies DevFlow label via REST helper" 
 # all 22 files' (2-or-3) pins; the per-file mutation proof below keeps the transition
 # self-verifying afterward.
 PORTABLE_ANCHOR_LITERAL='"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../'
-PA_BARE_ERE='\$\{?CLAUDE_SKILL_DIR\}?/\.\./\.\./(scripts|lib)'
+PA_BARE_ERE='\$\{?CLAUDE_SKILL_DIR\}?/\.\.'
 PA_XSTMT_ERE='[A-Za-z_]+="\$\{CLAUDE_SKILL_DIR'
 PA_FILE_COUNT=0
 for PA_FILE in "$LIB"/../skills/*/SKILL.md "$LIB"/../skills/implement/phases/phase-*.md; do
@@ -6337,6 +6338,25 @@ assert_pin_unique "#275 pin (A2b): create-issue invokes apply-labels.sh through 
   "$PORTABLE_ANCHOR_LITERAL"'scripts/apply-labels.sh <issue_number> DevFlow' "$LIB/../skills/create-issue/SKILL.md"
 assert_pin_unique "#275 pin (A2b): create-issue invokes load-prompt-extension.sh through the inline portable anchor" \
   "$PORTABLE_ANCHOR_LITERAL"'scripts/load-prompt-extension.sh create-issue' "$LIB/../skills/create-issue/SKILL.md"
+# P4 — the shared "Portable helper anchor (single-statement)" preamble paragraph is a
+# 17-way verbatim coupled site (every non-create-issue SKILL.md carries the same copy;
+# the implement phase files rely on the orchestrator's copy). Pin each copy byte-identical
+# to a canonical reference so the guidance cannot drift word-by-word in one file silently —
+# the same coupled-site class T5c used to guard for the removed create-issue shell mirrors.
+# create-issue carries the extended reference variant (it names the label helpers and the
+# normalize-path lockstep), so it is exempt from the identity check and its operative
+# never-capture sentence is pinned separately.
+PA_REF_PREAMBLE="$(grep -F '**Portable helper anchor (single-statement).**' "$LIB/../skills/docs/SKILL.md")"
+assert_eq "#275 pin (P4-ref): the canonical preamble paragraph exists in the reference skill (docs)" "yes" \
+  "$([ -n "$PA_REF_PREAMBLE" ] && echo yes || echo no)"  # raw-guard-ok: non-empty capture check feeding the P4 identity loop, not a content pin
+for PA_FILE in "$LIB"/../skills/*/SKILL.md; do
+  PA_NAME="skills/${PA_FILE#"$LIB"/../skills/}"
+  case "$PA_NAME" in skills/create-issue/*) continue ;; esac
+  assert_eq "#275 pin (P4): $PA_NAME preamble paragraph is byte-identical to the canonical copy" "yes" \
+    "$([ "$(grep -F '**Portable helper anchor (single-statement).**' "$PA_FILE")" = "$PA_REF_PREAMBLE" ] && echo yes || echo no)"  # raw-guard-ok: loop body: cross-file identity check over the enumerated $PA_FILE loop variable
+done
+assert_pin_unique "#275 pin (P4-ci): create-issue preamble carries the never-capture operative sentence" \
+  'Never capture the anchor into a shell variable that a later statement reads' "$LIB/../skills/create-issue/SKILL.md"
 # Doc presence pins (#275 AC: the four Windows/Copilot-CLI operator gotchas are documented).
 # DEVFLOW_GH's shim remedy predates #275 and its pin lives with the #245 block; these pin
 # the three surfaces #275 added plus the anchor recipe in the overview.

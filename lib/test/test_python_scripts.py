@@ -211,6 +211,11 @@ try:
     workpad._run = _boom_oserror
     with _tempfile.TemporaryDirectory() as _td:
         _os.chdir(_td)
+
+        # No config file at all (fresh empty dir) → built-in default, silently.
+        assert_eq("marker (#275): no .devflow/config.json → built-in default",
+                  workpad._DEFAULT_WORKPAD_MARKER, workpad._workpad_marker(None))
+
         _os.mkdir('.devflow')
 
         def _write_cfg(text):
@@ -263,12 +268,7 @@ try:
         assert_eq("marker (#275): malformed config.json → breadcrumb names config.json",
                   True, "config.json" in _stderr_capture.getvalue())
 
-        # No config file at all (fresh empty dir) → built-in default, silently.
         _os.chdir(_orig_cwd_275)
-    with _tempfile.TemporaryDirectory() as _td2:
-        _os.chdir(_td2)
-        assert_eq("marker (#275): no .devflow/config.json → built-in default",
-                  workpad._DEFAULT_WORKPAD_MARKER, workpad._workpad_marker(None))
 finally:
     _os.chdir(_orig_cwd_275)
     workpad._run = _saved_wp_run
