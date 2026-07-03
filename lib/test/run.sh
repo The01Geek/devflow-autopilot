@@ -7813,6 +7813,10 @@ assert_eq "app-token: devflow.yml review_dedupe job output maps steps.guard.outp
 RS_NOTICE="$(mint_blk 'Notice — manual review suppressed' "$WF/devflow.yml")"
 assert_eq "app-token: suppression-notice pin captured the notice body (no vacuous pass)" "1" \
   "$(grep -c 'already running for this commit' <<< "$RS_NOTICE")"
+# The NOTE=-scoped absence pins below are vacuous if the body variable is
+# renamed/inlined — pin that exactly one NOTE= body line exists in the step.
+assert_eq "app-token: suppression notice carries exactly one NOTE= body line" "1" \
+  "$(grep -c 'NOTE=' <<< "$RS_NOTICE")"
 assert_eq "app-token: suppression notice contains no /devflow: phrase in its NOTE body" "0" \
   "$(grep 'NOTE=' <<< "$RS_NOTICE" | grep -c '/devflow:' || true)"
 # Scoped to the NOTE= body line: the step's own de-trigger rationale comment
