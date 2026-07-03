@@ -108,6 +108,62 @@ step the diff adds that claims to enumerate, verify, or scan a set, it confirms 
 (count, result) even when nothing needs changing — a silent no-op step is indistinguishable from one that
 never ran, so the human reviewing the run cannot tell it executed.
 
+## Review-engine hardening: forced operative-sentence pin note + inline-review observability backstop
+
+Two guards close gaps the review surface let ship "green" and only a blinded shadow pass (or nothing) caught.
+
+**Forced operative-sentence pin note (Phase 2.3 + review-and-fix Step 3).** The behavioral-fix-pin
+discipline — pin the *operative* sentence whose removal *alone* re-introduces the bug, never an adjacent
+*framing/justification* clause — was advice a fix-iteration author could quietly violate by pinning the
+nearest unique literal instead (the recurring framing-only-pin class behind PRs #173/#171/#167). It is now
+a **forced auditable artifact**: before writing any behavioral-fix pin, the author records a one-line
+workpad `--note` **naming the operative sentence and asserting the pin literal is a substring of it** —
+the same auditable-commitment idiom as the Phase 2.3 sweep-selection and test-first notes, so a
+framing-only pin becomes a visible error a reviewer or the weekly retrospective can catch instead of a
+silent slip. The requirement lives at both co-equal author sites — `phase-2-implement.md` §2.3 (the
+implement-path author) and `skills/review-and-fix/SKILL.md`'s Step 3 mutation-check step (the fix-loop
+author) — and is scoped to **behavioral-fix** pins only, never to literal-constant, token-name,
+count-based, or absence pins where no operative-vs-framing distinction exists. "Operative sentence" is a
+semantic property a grep cannot derive, so a true deterministic detector is infeasible; the recorded note
+plus the existing `assert_pin_red_on_removal` removal-proof is the strongest *viable* guard, and each new
+clause is itself pinned by a coupled `lib/test/run.sh` removal-proof assertion (#235 finding A).
+
+**Inline-review observability backstop (Phase 3.3).** `review-and-fix`'s Loop Exit is what normally
+persists a run's effectiveness record (`.devflow/logs/efficiency/<slug>-<run-id>.json`) and durable
+workpad copy, derived from its per-iteration `iter-*.json`. But Phase 3.3 drives that loop **inline in the
+orchestrator's context**, and a dropped Loop Exit then leaves those artifacts unwritten — the run
+contributes nothing to `.devflow/logs/efficiency/`, which is `review-and-fix`'s own #1 documented "Common
+Mistake," unguarded at this seam. So after the inline `review-and-fix` invocation returns — regardless of
+verdict — the orchestrator deterministically runs the existing `lib/efficiency-trace.sh --persist` Layer-3
+backstop (idempotent: it never re-derives an existing record, and with no `--workpad-dir`/`--slug` it
+scans every run-scoped dir, which is exactly the "the orchestrator does not hold the loop's internal
+slug/run-id" case). When even `--persist` has no `iter-*.json` inputs — the inline loop wrote no
+per-iteration workpad this run, so the telemetry is genuinely lost — the orchestrator records a
+`dropped-failed` reflection naming the gap rather than letting it vanish silently. The "no inputs"
+detection is **this-run-scoped**: the orchestrator snapshots the pre-existing `iter-*.json` set
+*before* driving the loop and, after, records a loss only when no *new* `iter-*.json` appeared
+(`comm -13` against the snapshot). This matters on the local/interactive tier, where `.devflow/tmp`
+persists across runs — a whole-tree presence check would let a prior run's leftover mask a genuine
+loss. If the snapshot itself is missing, the detector degrades to whole-tree presence and emits a
+distinct `::warning::` naming that degrade, since it can then mask a real loss behind a leftover
+file. The backstop also catches the sibling failure mode where the loop *did* write `iter-*.json`
+but `--persist`'s own record derivation/write step then failed silently (rc 0 by design): it
+captures the invocation's stderr and greps it for `--persist`'s own `record not written`
+breadcrumb (jq/mkdir failures) **and** its differently-worded disk/permission write-failure
+breadcrumb — a single-literal grep would silently miss the latter — recording a second
+`dropped-failed` reflection when either fires (a record written-but-not-yet-committed is a
+separate, lower-priority gap not covered here). If the stderr capture itself can't be allocated
+(`mktemp` fails), the backstop degrades to discarding `--persist`'s stderr entirely rather than
+aborting — this disables the record-write-failure check for that run (the no-inputs case still
+runs) and emits its own distinct `::warning::`, the same degrade-and-warn discipline as the
+snapshot-missing case above. Because the
+`APPROVE WITH UNRESOLVED SHADOW FINDINGS` path can drive a **second**, separate inline
+`review-and-fix` invocation (the bounded re-review in §3.3), the orchestrator re-runs the whole
+snapshot-then-backstop procedure around that second invocation too — a fresh this-run baseline
+before, the persistence check after — so it is not left unguarded at the same seam. The §3.3
+clause is pinned by coupled `lib/test/run.sh` removal-proof assertions (#235 finding B, extended
+by the #236 review).
+
 ## Acceptance-criteria gate: the gated `(post-merge)` tag (Phase 3.4)
 
 The Phase 3.4 gate requires every **non-post-merge** acceptance criterion to be verified before the run
@@ -251,11 +307,16 @@ Path extraction is **deterministic, not LLM-interpreted** (issue #185 Addendum):
 `scripts/extract-doc-needed-paths.sh`, is the single extraction boundary both stages consume. It reads
 the issue body, scopes strictly to the `**Documentation Needed**` bullet under `## Implementation
 Notes`, and emits the recognizable file paths one per line — a token counts as a path only if it
-contains `/` or ends in a recognized extension, so prose, skill names (`devflow:docs`), and paths named
-in *other* sections or bullets are excluded by construction (no judgement call, and none of the
-LLM-extraction drift that earlier incarnations of this gate suffered). Its behavior is verified by a
-fixture-based input-shape matrix in `lib/test/run.sh` (bullet-with-paths, no-paths, absent section,
-path-in-another-section-not-extracted) rather than by the shadow review.
+ends in a recognized doc/source extension **or** names an in-tree tracked regular file (the
+`[ -f ] && git ls-files --error-unmatch` rescue for extensionless real files like `Makefile`/`LICENSE`).
+A bare "contains `/`" test is deliberately **not** sufficient — it wrongly emitted directory tokens
+(`docs/internal`) and rooted skill-invocation refs (`/claude-md-management`, from colon-splitting); rooted
+(`/…`), parent-dir-escaping (`../…`), and trailing-slash directory tokens are dropped outright (issue #254). So prose, skill names
+(`devflow:docs`), directories, and paths named in *other* sections or bullets are excluded by
+construction (no judgement call, and none of the LLM-extraction drift that earlier incarnations of this
+gate suffered). Its behavior is verified by a fixture-based input-shape matrix in `lib/test/run.sh`
+(bullet-with-paths, no-paths, absent section, path-in-another-section-not-extracted, directory-token and
+rooted-token rejection) rather than by the shadow review.
 
 **Stage 1 — Pre-flight briefing (before dispatch).** The orchestrator runs the helper over the issue
 body and treats its output as the required deliverables. If the helper emits one or more paths, the

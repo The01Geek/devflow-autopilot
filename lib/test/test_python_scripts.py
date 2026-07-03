@@ -1591,6 +1591,95 @@ assert_eq("render_md: test plan appended after blank line", True,
               [{'text': 'a', 'ticked': False, 'post_merge': False}],
               [{'text': 'b', 'ticked': False, 'post_merge': False}]))
 
+# ── issue #254: hard-wrapped criteria (the ~80-column format /devflow:create-issue
+# emits) must join indented continuation lines into ONE criterion, and a post-merge
+# trigger phrase sitting on a continuation line must still classify. The old parser
+# matched only the checkbox line itself, truncating each item to its first physical
+# line and blinding the classifier to any trigger past the wrap.
+WRAPPED_AC = """## Acceptance Criteria
+- [ ] The parser joins each checkbox item's indented continuation lines into
+      one criterion string so a hard-wrapped criterion round-trips verbatim
+      into the workpad mirror.
+- [ ] The deploy step is exercised and the result is confirmed
+      in production after the release ships.
+"""
+_w = parse_acs._parse_checkboxes(parse_acs._extract_section(WRAPPED_AC, 'Acceptance Criteria'))
+assert_eq("wrap: two items parsed", 2, len(_w))
+assert_eq("wrap: item1 continuation lines joined verbatim into one string",
+          "The parser joins each checkbox item's indented continuation lines into "
+          "one criterion string so a hard-wrapped criterion round-trips verbatim "
+          "into the workpad mirror.",
+          _w[0]['text'])
+assert_eq("wrap: item1 (no trigger anywhere) not post-merge", False, _w[0]['post_merge'])
+assert_eq("wrap: item2 joined text carries the continuation-line content", True,
+          'in production' in _w[1]['text'])
+assert_eq("wrap: item2 trigger phrase on a continuation line classifies post-merge",
+          True, _w[1]['post_merge'])
+
+# Review iter 3 (over-join guard): the core risk of a join rewrite is *over*-joining.
+# Prove the item-closing boundary (the `else: current = None` arm) actually fires: a
+# dedented column-zero prose line must close the item so a *following* indented line
+# is NOT absorbed into the criterion — and prove `ticked` is preserved on a wrapped
+# `- [x]`. Deleting the `else: current = None` arm turns the "not over-joined" assert RED.
+WRAPPED_AC_BOUNDARY = """## Acceptance Criteria
+- [x] Ticked item wraps across
+      two indented lines.
+Prose paragraph at column zero closes the item.
+      This indented line belongs to the prose, not the ticked item.
+- [ ] Final standalone item.
+"""
+_b = parse_acs._parse_checkboxes(parse_acs._extract_section(WRAPPED_AC_BOUNDARY, 'Acceptance Criteria'))
+assert_eq("over-join: only the two checkbox items are parsed (prose lines are not items)",
+          2, len(_b))
+assert_eq("over-join: wrapped `- [x]` preserves ticked=True", True, _b[0]['ticked'])
+assert_eq("over-join: item1 joins only its own indented continuation",
+          "Ticked item wraps across two indented lines.", _b[0]['text'])
+assert_eq("over-join: an indented line after a dedented prose line is NOT absorbed (boundary fired)",
+          False, 'belongs to the prose' in _b[0]['text'])
+assert_eq("over-join: final item after the boundary parses cleanly and unticked",
+          ("Final standalone item.", False), (_b[1]['text'], _b[1]['ticked']))
+
+# Review iter (PR #255 receiving-review, Suggestion 2): the blank-line separator boundary,
+# distinct from the column-zero-prose boundary above. /devflow:create-issue output can put a
+# blank line between an item and following indented content; a blank line closes the item
+# (the `else: current = None` arm fires on it too, since `line.strip()` is falsy), so a later
+# indented line is NOT over-absorbed into the preceding criterion.
+WRAPPED_AC_BLANKSEP = """## Acceptance Criteria
+- [ ] First item wraps across
+      two indented lines.
+
+      This indented line follows a BLANK line and must not join item 1.
+- [ ] Second standalone item.
+"""
+_bs = parse_acs._parse_checkboxes(parse_acs._extract_section(WRAPPED_AC_BLANKSEP, 'Acceptance Criteria'))
+assert_eq("blank-sep: only the two checkbox items are parsed (blank line closed item 1)",
+          2, len(_bs))
+assert_eq("blank-sep: item1 joins only its pre-blank continuation",
+          "First item wraps across two indented lines.", _bs[0]['text'])
+assert_eq("blank-sep: an indented line after a blank line is NOT absorbed (boundary fired)",
+          False, 'must not join' in _bs[0]['text'])
+
+# Review iter (PR #255 receiving-review, test-gap): TAB-indented continuation lines join too
+# (the continuation guard is `line[:1] in (' ', '\t')`); prior fixtures used only space
+# indentation, leaving the `\t` branch unexercised.
+WRAPPED_AC_TAB = "## Acceptance Criteria\n- [ ] Tab-wrapped criterion first line\n\tand its tab-indented continuation.\n"
+_t = parse_acs._parse_checkboxes(parse_acs._extract_section(WRAPPED_AC_TAB, 'Acceptance Criteria'))
+assert_eq("tab-cont: one item parsed", 1, len(_t))
+assert_eq("tab-cont: tab-indented continuation is joined into the criterion",
+          "Tab-wrapped criterion first line and its tab-indented continuation.", _t[0]['text'])
+
+# Review iter (PR #255 receiving-review, test-gap): a post-merge trigger phrase SPLIT across
+# the wrap boundary (no single physical line contains it) must still classify post-merge,
+# because classification runs on the fully-joined text. This is the core reason the join
+# feeds the post-merge scan — pin it directly.
+WRAPPED_AC_SPLITTRIG = ("## Acceptance Criteria\n"
+                        "- [ ] Update the changelog after\n"
+                        "      merge so the entry reconciles.\n")
+_st = parse_acs._parse_checkboxes(parse_acs._extract_section(WRAPPED_AC_SPLITTRIG, 'Acceptance Criteria'))
+assert_eq("split-trigger: one item parsed", 1, len(_st))
+assert_eq("split-trigger: 'after merge' split across the wrap still classifies post-merge",
+          True, _st[0]['post_merge'])
+
 
 print("file_deferrals._derive_area / _compute_id / _format_line_range / _render_issue_body")
 

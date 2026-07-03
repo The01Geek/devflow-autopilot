@@ -118,9 +118,39 @@ Skip this step if no run-scoped manifest exists or all are empty.
 PR_NUMBER=$(gh pr view --json number --jq '.number')
 SLUG_DIR=".devflow/tmp/review/pr-${PR_NUMBER}"
 AGG="${SLUG_DIR}/deferrals.json"   # slug-level aggregate the consumers read; distinct from the per-run files
-# run-id and slug are path-safe (alphanumeric/hyphen/dot), so the unquoted find-output
-# word-split below is safe. -size +0c skips empty manifests.
-MANIFESTS=$(find "$SLUG_DIR" -mindepth 2 -maxdepth 2 -name deferrals.json -size +0c 2>/dev/null | sort)
+# A PR-mode /devflow:review-and-fix run writes its run-scoped manifest under `pr-<N>/`,
+# but a CURRENT-BRANCH-mode run writes it under the sanitized current branch slug instead
+# (`<slug>` = the branch name with `/`→`-`, lowercased, non-`[a-z0-9._-]` dropped — the same
+# convention /devflow:review uses). Searching only `pr-<N>/` silently misses a branch-mode
+# run's deferrals (issue #254), so discover run-scoped manifests under BOTH candidate slug
+# directories. The aggregate is always written at `pr-<N>/deferrals.json` — the single path
+# /pr-description reads in Phase 4.2, unchanged.
+# Read the current branch name ONCE and reuse it for both the slug derivation and the
+# empty-slug breadcrumb guard below — a single `git branch --show-current` subprocess, and no
+# chance the two reads disagree if HEAD moves mid-block.
+CUR_BRANCH=$(git branch --show-current)
+BRANCH_SLUG=$(printf '%s' "$CUR_BRANCH" | tr '/' '-' | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9._-')
+# tr-dependence guard (this repo's review-and-fix guard-class 2): BRANCH_SLUG keys a
+# filesystem search dir and is derived through `tr` on PATH. A non-empty current branch that
+# yields an EMPTY slug has two possible causes, both of which fall back to pr-<N>-only search
+# correctly: (a) `tr` is missing/degraded on PATH (the guard-class-2 degradation), or (b) a
+# working `tr` dropped every character because the branch name is composed entirely of
+# characters outside `[a-z0-9._-]` (e.g. all-non-ASCII). The breadcrumb names the observable
+# fact plus both candidate causes rather than blaming `tr` alone, so an operator on cause (b)
+# is not sent to debug a `tr`/PATH problem that does not exist. (An EMPTY branch name is
+# instead the benign detached-HEAD case — e.g. a PR merge-ref checkout — where pr-<N>-only is
+# correct and no breadcrumb fires.) Make the degraded case observable rather than silent.
+# Best-effort breadcrumb; never blocks.
+[ -z "$BRANCH_SLUG" ] && [ -n "$CUR_BRANCH" ] && echo "devflow: current branch produced an empty slug (either 'tr' is missing/degraded on PATH, or the branch name is composed entirely of characters dropped by the [a-z0-9._-] filter); falling back to pr-<N>-only deferral discovery (a current-branch-mode run's manifest may be missed)" >&2
+BRANCH_DIR=".devflow/tmp/review/${BRANCH_SLUG}"
+# Only add the branch-slug dir when it is non-empty AND distinct from pr-<N> (a branch
+# literally named `pr-<N>` would otherwise be searched twice — harmless but pointless).
+SEARCH_DIRS="$SLUG_DIR"
+[ -n "$BRANCH_SLUG" ] && [ "$BRANCH_DIR" != "$SLUG_DIR" ] && SEARCH_DIRS="$SLUG_DIR $BRANCH_DIR"
+# run-id and slug are path-safe (alphanumeric/hyphen/dot), so the unquoted $SEARCH_DIRS and
+# find-output word-splits below are safe. A non-existent dir among $SEARCH_DIRS makes find
+# emit a stderr error (suppressed) and continue with the others. -size +0c skips empty manifests.
+MANIFESTS=$(find $SEARCH_DIRS -mindepth 2 -maxdepth 2 -name deferrals.json -size +0c 2>/dev/null | sort)
 if [ -n "$MANIFESTS" ]; then
     # Merge the deferrals[] arrays across runs. The dedup key mirrors file-deferrals.py's
     # _compute_id payload — (file|symbol|kind|summary.strip()), every field defaulted to ""
@@ -134,7 +164,7 @@ if [ -n "$MANIFESTS" ]; then
     # re-run this prevents duplicate filing but does not incrementally file newly-added
     # deferrals — that all-or-nothing is the helper's existing guard, handled benignly below.)
     PRIOR=""; [ -s "$AGG" ] && PRIOR="$AGG"
-    if jq -s '.[0] as $f | {schema_version:$f.schema_version, pr_branch:$f.pr_branch, base_branch:$f.base_branch, generated_at:$f.generated_at,
+    if ${CLAUDE_SKILL_DIR}/../../scripts/run-jq.sh -s '.[0] as $f | {schema_version:$f.schema_version, pr_branch:$f.pr_branch, base_branch:$f.base_branch, generated_at:$f.generated_at,
         deferrals: ([.[].deferrals[]] | unique_by((.file // "") + "|" + (.symbol // "") + "|" + (.kind // "") + "|" + ((.summary // "") | gsub("^\\s+|\\s+$";"")))) }' \
         $PRIOR $MANIFESTS > "${AGG}.tmp"; then
         mv "${AGG}.tmp" "$AGG"
