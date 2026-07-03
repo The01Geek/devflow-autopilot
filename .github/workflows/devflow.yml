@@ -214,10 +214,11 @@ jobs:
       # Split out of the guard step so the notice posts under the App identity
       # when configured (the guard's queries stay on github.token — a scoped
       # token there could 403 the check-runs/run-list reads and flip the
-      # fail-open default). Best-effort like the old inline post, but with the
-      # gh stderr surfaced as a ::warning:: (same diagnostic discipline as
-      # devflow-implement.yml's duplicate-ignored notice) instead of the old
-      # silent `2>/dev/null || true` swallow.
+      # fail-open default). Best-effort for the post itself: the gh call is
+      # the only fallible command and is guarded (no continue-on-error on this
+      # step), with the gh stderr surfaced as a ::warning:: (same diagnostic
+      # discipline as devflow-implement.yml's duplicate-ignored notice)
+      # instead of the old silent `2>/dev/null || true` swallow.
       - name: Notice — manual review suppressed
         if: ${{ steps.guard.outputs.suppress == 'true' }}
         env:
@@ -298,12 +299,16 @@ jobs:
           fi
           "$RESOLVER" >> "$GITHUB_OUTPUT"
 
-      # Optional, opt-in: mint an App token DOWNSCOPED to the reaction's needs —
-      # issue/PR comment reactions only (no contents/workflows: this job neither
-      # reads code with it nor pushes). Same opt-in/fail-loud/downscope contract
-      # as the review mint in devflow-runner.yml — see docs/cloud-setup.md.
-      # Minted only when the reaction below will actually run (should_run), so
-      # the common unauthorized/non-command rejection path stays mint-free.
+      # Optional, opt-in: mint an App token DOWNSCOPED for the trigger reaction
+      # (issues:write + pull-requests:write — the narrowest grant GitHub offers
+      # for comment reactions; no contents/workflows: this job neither reads
+      # code with it nor pushes). Same opt-in/fail-loud/downscope contract as
+      # the review mint in devflow-runner.yml — see docs/cloud-setup.md. NOTE:
+      # fail-loud means a configured-but-broken App fails THIS gate job (and so
+      # blocks the command path) — deliberate, so a broken App is never
+      # silently degraded around. Minted only when the reaction below will
+      # actually run (should_run), so the common unauthorized/non-command
+      # rejection path stays mint-free.
       - name: Mint downscoped reaction token (optional)
         id: gate_app_token
         if: ${{ vars.DEVFLOW_APP_ID != '' && steps.resolve.outputs.should_run == 'true' }}

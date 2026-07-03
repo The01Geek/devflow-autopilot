@@ -201,10 +201,12 @@ jobs:
       # user-visible posts — the trigger reaction and the duplicate-ignored
       # notice below (no contents/workflows: this job neither reads code with
       # it nor pushes). Same opt-in/fail-loud/downscope contract as the review
-      # mint in devflow-runner.yml — see docs/cloud-setup.md. Minted only when
-      # a consumer will actually run (should_run gates both the reaction and
-      # the notice), so the common unauthorized/non-command rejection path
-      # stays mint-free.
+      # mint in devflow-runner.yml — see docs/cloud-setup.md. NOTE: fail-loud
+      # means a configured-but-broken App fails THIS gate job (and so blocks
+      # the run) — deliberate, so a broken App is never silently degraded
+      # around. Minted only when a consumer will actually run (should_run
+      # gates both the reaction and the notice), so the common
+      # unauthorized/non-command rejection path stays mint-free.
       - name: Mint downscoped reaction token (optional)
         id: gate_app_token
         if: ${{ vars.DEVFLOW_APP_ID != '' && steps.resolve.outputs.should_run == 'true' }}

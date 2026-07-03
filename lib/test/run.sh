@@ -7512,6 +7512,26 @@ assert_eq "app-token: devflow.yml notice step consumes dedupe_app_token || githu
   "$(grep -cF 'GH_TOKEN: ${{ steps.dedupe_app_token.outputs.token || github.token }}' "$WF/devflow.yml")"
 assert_eq "app-token: devflow-implement.yml react + duplicate-notice both consume gate_app_token || github.token" "2" \
   "$(grep -cF 'GH_TOKEN: ${{ steps.gate_app_token.outputs.token || github.token }}' "$WF/devflow-implement.yml")"
+# The two notice posts must stay on REST `gh api` — never `gh issue comment` /
+# `gh pr comment` porcelain, whose GraphQL repo resolution fails SILENTLY under
+# the repo-scoped App installation token these steps now run with (the #228
+# gotcha; the failure mode is invisible exactly on App-configured repos). A
+# porcelain revert would otherwise ship green.
+for pair in 'devflow|Notice — manual review suppressed' 'devflow-implement|Notice — duplicate ignored'; do
+  IFS='|' read -r f name <<<"$pair"
+  blk="$(mint_blk "$name" "$WF/$f.yml")"
+  assert_eq "app-token: $f.yml '$name' posts via REST gh api (issues comments endpoint)" "1" \
+    "$(printf '%s\n' "$blk" | grep -c 'gh api --method POST "repos/$REPO/issues/' || true)"
+  assert_eq "app-token: $f.yml '$name' uses no gh issue/pr comment porcelain" "0" \
+    "$(printf '%s\n' "$blk" | grep -cE 'gh (issue|pr) comment ' || true)"
+done
+# guard→notice `head` coupling: the guard step emits head= into GITHUB_OUTPUT
+# solely for the split-out notice step's HEAD env; a drift on either half
+# yields a notice with an empty commit SHA while everything stays green.
+assert_eq "app-token: devflow.yml guard emits head= into GITHUB_OUTPUT" "1" \
+  "$(grep -cF 'echo "head=$HEAD" >> "$GITHUB_OUTPUT"' "$WF/devflow.yml")"
+assert_eq "app-token: devflow.yml notice consumes steps.guard.outputs.head" "1" \
+  "$(grep -cF 'HEAD: ${{ steps.guard.outputs.head }}' "$WF/devflow.yml")"
 # Docs carry the opt-in contract: the var, the secret, ALL five required App
 # permissions, and the per-site downscope story (no more "reviewer untouched").
 CS="$LIB/../docs/cloud-setup.md"
