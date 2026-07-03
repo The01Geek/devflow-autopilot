@@ -228,9 +228,9 @@ jobs:
       - name: Mint downscoped notice token (optional)
         id: dedupe_app_token
         if: ${{ vars.DEVFLOW_APP_ID != '' && steps.guard.outputs.suppress == 'true' }}
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v3
         with:
-          app-id: ${{ vars.DEVFLOW_APP_ID }}
+          client-id: ${{ vars.DEVFLOW_APP_ID }}
           private-key: ${{ secrets.DEVFLOW_APP_PRIVATE_KEY }}
           permission-pull-requests: write
 
@@ -341,9 +341,9 @@ jobs:
       - name: Mint downscoped reaction token (optional)
         id: gate_app_token
         if: ${{ vars.DEVFLOW_APP_ID != '' && steps.resolve.outputs.should_run == 'true' }}
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v3
         with:
-          app-id: ${{ vars.DEVFLOW_APP_ID }}
+          client-id: ${{ vars.DEVFLOW_APP_ID }}
           private-key: ${{ secrets.DEVFLOW_APP_PRIVATE_KEY }}
           permission-issues: write
           permission-pull-requests: write
@@ -378,7 +378,7 @@ jobs:
       pull-requests: write
       issues: write
       id-token: write
-      actions: read # Required for Claude to read CI results on PRs
+      actions: write # write scope so actions/cache can save the pip cache (read alone → "cache write denied: token has no writable scopes"); superset still lets Claude read CI results on PRs
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -426,9 +426,9 @@ jobs:
       - name: Mint workflow-capable token (optional)
         id: app-token
         if: ${{ vars.DEVFLOW_APP_ID != '' }}
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v3
         with:
-          app-id: ${{ vars.DEVFLOW_APP_ID }}
+          client-id: ${{ vars.DEVFLOW_APP_ID }}
           private-key: ${{ secrets.DEVFLOW_APP_PRIVATE_KEY }}
 
       - name: Run Claude Code
