@@ -20,9 +20,7 @@ plain scripts with no LLM tokens. The loop **proposes, it does not dispose**:
 each actionable pattern is filed as **one GitHub issue** for the normal
 implement → review pipeline, not landed as an autonomous PR.
 
-```
-LIB="${CLAUDE_SKILL_DIR}/../../lib"
-```
+**`$LIB` notation (textual, not a shell variable).** Throughout this skill, `$LIB` in a command denotes the resolved path `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib` — expand it textually (with the anchor already resolved for this runner) when composing each command you actually run. Never rely on a shell variable named `LIB` persisting from one statement or block to another — each Bash call is a fresh shell, and the *Portable helper anchor* note below explains why even same-command variable reuse is unsafe on some runners.
 
 Every `jq` in this skill is invoked through the execution-verified wrapper
 `$LIB/../scripts/run-jq.sh` (`$LIB/../scripts` is the `scripts/` dir beside
@@ -38,13 +36,15 @@ All scratch files live under `.devflow/tmp/` (gitignored). Learnings files
 
 ---
 
+**Portable helper anchor (single-statement).** The bundled-helper commands in this skill resolve the skill directory inline at each call site via `${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}`. When `$CLAUDE_SKILL_DIR` is set and non-empty (Claude Code), run each command exactly as written. On a runner where it is unset or empty, replace the placeholder with the skill base directory the runner reports in context (e.g. a `Base directory for this skill:` line) before running the command; if that reported path is Windows-form (`C:\...`), first convert it to this shell's POSIX form with one standalone `wslpath -u '<path>'` (WSL) or `cygpath -u '<path>'` (Git Bash/MSYS2) command and substitute the printed result **only if the command succeeds and prints a non-empty path — otherwise fall through to the drive-letter rules exactly as if the tool were absent, the same success-and-non-empty acceptance the platform's path-normalization rules apply** (if neither tool exists: lowercase the drive letter, map `C:\` to `/mnt/c` on WSL or `/c` on MSYS2, and turn backslashes into `/`; if the environment is neither WSL nor MSYS2, use the path unchanged and report that it could not be normalized — the same arm the platform's path-normalization rules take). Resolve the anchor inline at every call site — never capture it into a shell variable that a later statement reads, because some runners' inline-bash marshaling drops such variables (observed on Copilot CLI). If neither `$CLAUDE_SKILL_DIR` nor a runner-reported base directory is available, stop and report that the helper anchor could not be resolved rather than running a command with a broken path.
+
 **Consumer prompt extension (load first).** Before doing this skill's work, load any consumer-supplied prompt extension for this skill and honor it. From the repo root, run:
 
 ```bash
-${CLAUDE_SKILL_DIR}/../../scripts/load-prompt-extension.sh retrospective-weekly
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/load-prompt-extension.sh retrospective-weekly
 ```
 
-If the helper exits non-zero, a consumer extension exists but could not be loaded — surface its stderr message and do not silently proceed as if none existed. If it exits 0 and prints text, treat that text as additional instructions appended to the end of this skill's own prompt for this run — it is upgrade-safe, consumer-owned customization committed under `.devflow/prompt-extensions/`. If it exits 0 and prints nothing, proceed unchanged.
+If the invocation fails because the helper path does not exist (`No such file`, exit 127, or the platform equivalent), that is the **anchor-resolution** failure described in the *Portable helper anchor* note above — fix the anchor, don't report a missing extension. Otherwise, if the helper exits non-zero, a consumer extension exists but could not be loaded — surface its stderr message and do not silently proceed as if none existed. If it exits 0 and prints text, treat that text as additional instructions appended to the end of this skill's own prompt for this run — it is upgrade-safe, consumer-owned customization committed under `.devflow/prompt-extensions/`. If it exits 0 and prints nothing, proceed unchanged.
 
 ## Procedure
 
@@ -75,10 +75,9 @@ git branch --show-current
 
 If not on `main`, run `git checkout main`.
 
-Set the library path and prepare the scratch directory:
+Prepare the scratch directory (`$LIB` below is the textual notation from the top of this skill — expand it when composing commands, do not assign a shell variable):
 
 ```bash
-LIB="${CLAUDE_SKILL_DIR}/../../lib"
 mkdir -p .devflow/tmp
 rm -f .devflow/tmp/new-entries.jsonl
 ```
@@ -177,7 +176,7 @@ For each bundle path in `needs_analysis`, dispatch a subagent. Issue up to
 **3–4 subagents concurrently** in a single message (use the Agent tool for
 each). Each subagent prompt:
 
-> Read and follow `${CLAUDE_SKILL_DIR}/../retrospective/SKILL.md`
+> Read and follow `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../retrospective/SKILL.md`
 > exactly.
 >
 > Your context bundle path is: `<path>`
@@ -329,7 +328,7 @@ parallel. No worktree is created or passed — the subagent makes no edits. Each
 subagent's prompt:
 
 > Read and follow
-> `${CLAUDE_SKILL_DIR}/../retrospective-audit/SKILL.md`
+> `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../retrospective-audit/SKILL.md`
 > exactly.
 >
 > Occurrence-PR context bundle paths (absolute): `<json array of paths>`
@@ -352,7 +351,13 @@ interpolate it inline into a shell command), then:
 
 ```bash
 # 1. Parse + validate the {title, body} contract. Malformed → blocker, continue.
-if ! $LIB/../scripts/run-jq.sh -e '.title and .body' < ".devflow/tmp/result-${SLUG}.json" >/dev/null 2>&1; then
+# The wrapper-existence precheck is a SEPARATE single-statement branch (no rc
+# variable carried across statements — the inline-bash marshaling constraint the
+# anchor note documents), so an unexpanded $LIB or missing run-jq.sh is reported
+# as the anchor failure it is, never misdiagnosed as "malformed subagent JSON".
+if [ ! -e "$LIB/../scripts/run-jq.sh" ]; then
+    blockers+=("Pattern ${SLUG}: run-jq.sh wrapper not found (unexpanded \$LIB notation or missing wrapper; fix the anchor) — not filed")
+elif ! $LIB/../scripts/run-jq.sh -e '.title and .body' < ".devflow/tmp/result-${SLUG}.json" >/dev/null 2>&1; then
     # Malformed: record a blocker and file NOTHING. The append below is the
     # load-bearing failure path — it MUST run (the run reports this pattern as a
     # blocker, never as filed), so it is concrete shell, not a comment.

@@ -5,13 +5,15 @@ description: Use when receiving code review feedback, before implementing sugges
 
 # Code Review Reception
 
+**Portable helper anchor (single-statement).** The bundled-helper commands in this skill resolve the skill directory inline at each call site via `${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}`. When `$CLAUDE_SKILL_DIR` is set and non-empty (Claude Code), run each command exactly as written. On a runner where it is unset or empty, replace the placeholder with the skill base directory the runner reports in context (e.g. a `Base directory for this skill:` line) before running the command; if that reported path is Windows-form (`C:\...`), first convert it to this shell's POSIX form with one standalone `wslpath -u '<path>'` (WSL) or `cygpath -u '<path>'` (Git Bash/MSYS2) command and substitute the printed result **only if the command succeeds and prints a non-empty path — otherwise fall through to the drive-letter rules exactly as if the tool were absent, the same success-and-non-empty acceptance the platform's path-normalization rules apply** (if neither tool exists: lowercase the drive letter, map `C:\` to `/mnt/c` on WSL or `/c` on MSYS2, and turn backslashes into `/`; if the environment is neither WSL nor MSYS2, use the path unchanged and report that it could not be normalized — the same arm the platform's path-normalization rules take). Resolve the anchor inline at every call site — never capture it into a shell variable that a later statement reads, because some runners' inline-bash marshaling drops such variables (observed on Copilot CLI). If neither `$CLAUDE_SKILL_DIR` nor a runner-reported base directory is available, stop and report that the helper anchor could not be resolved rather than running a command with a broken path.
+
 **Consumer prompt extension (load first).** Before doing this skill's work, load any consumer-supplied prompt extension for this skill and honor it. From the repo root, run:
 
 ```bash
-${CLAUDE_SKILL_DIR}/../../scripts/load-prompt-extension.sh receiving-code-review
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/load-prompt-extension.sh receiving-code-review
 ```
 
-If the helper exits non-zero, a consumer extension exists but could not be loaded — surface its stderr message and do not silently proceed as if none existed. If it exits 0 and prints text, treat that text as additional instructions appended to the end of this skill's own prompt for this run — it is upgrade-safe, consumer-owned customization committed under `.devflow/prompt-extensions/`. If it exits 0 and prints nothing, proceed unchanged.
+If the invocation fails because the helper path does not exist (`No such file`, exit 127, or the platform equivalent), that is the **anchor-resolution** failure described in the *Portable helper anchor* note above — fix the anchor, don't report a missing extension. Otherwise, if the helper exits non-zero, a consumer extension exists but could not be loaded — surface its stderr message and do not silently proceed as if none existed. If it exits 0 and prints text, treat that text as additional instructions appended to the end of this skill's own prompt for this run — it is upgrade-safe, consumer-owned customization committed under `.devflow/prompt-extensions/`. If it exits 0 and prints nothing, proceed unchanged.
 
 **DevFlow context.** This skill is vendored verbatim from `superpowers`, where its examples address a "human partner" you converse with and "report to." Inside DevFlow's *autonomous* `/devflow:review-and-fix` fix loop there is no interactive human in the turn: read every "your human partner" / "report to me" framing below as the loop's own escalation channels — the deferrals manifest, the pushback/decision tracking recorded in the workpad, and the PR/issue trail a human reviews later. The technical-rigor principle (verify before implementing, push back when wrong) is identical; only the audience for the pushback differs.
 
@@ -55,7 +57,7 @@ A review engine that re-runs after every edit is *exhaustive*: each pass surface
 Once the verdict is already non-blocking (an APPROVE, or any approve-with-notes verdict), the bar for re-opening the diff changes. **Resolve that bar once** from the project's configured fix threshold, read through the same bundled-helper pattern this skill's prompt-extension loader already uses. The config reader returns the raw value but does not validate it, so validate the enum inline and fall back to a safe default with a stderr breadcrumb naming the key and the fallback value (it never aborts):
 
 ```bash
-REOPEN_THRESHOLD=$(${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .receiving_review.fix_severity_threshold critical); REOPEN_THRESHOLD_RC=$?
+REOPEN_THRESHOLD=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .receiving_review.fix_severity_threshold critical); REOPEN_THRESHOLD_RC=$?
 # A resolver failure (rc≠0) and an out-of-enum value each fall back to the default, but
 # with distinct breadcrumbs so a resolver failure is not misreported as a bad enum value
 # (the config reader's own stderr is left un-suppressed on the rc≠0 path).

@@ -1025,8 +1025,8 @@ ST_RAF="$LIB/../skills/review-and-fix/SKILL.md"
 ST_REV="$LIB/../skills/review/SKILL.md"
 ST_RCV="$LIB/../skills/receiving-code-review/SKILL.md"
 # each SKILL reads its key via config-get.sh (already cloud-allowlisted — no new helper)
-assert_pin_unique "sev(raf): reads fix_severity_threshold via config-get.sh" 'config-get.sh" .devflow_review_and_fix.fix_severity_threshold important' "$ST_RAF"
-assert_pin_unique "sev(rev): reads verdict_severity_threshold via config-get.sh" 'config-get.sh" .devflow_review.verdict_severity_threshold critical' "$ST_REV"
+assert_pin_unique "sev(raf): reads fix_severity_threshold via config-get.sh" '/../../scripts/config-get.sh .devflow_review_and_fix.fix_severity_threshold important' "$ST_RAF"
+assert_pin_unique "sev(rev): reads verdict_severity_threshold via config-get.sh" '/../../scripts/config-get.sh .devflow_review.verdict_severity_threshold critical' "$ST_REV"
 assert_pin_unique "sev(rcv): reads receiving_review key via config-get.sh (anchor pattern)" 'config-get.sh .receiving_review.fix_severity_threshold critical' "$ST_RCV"
 # each SKILL enum-validates inline (the case block config-get.sh does not do) — one per file
 assert_pin_unique "sev(raf): enum-validates the threshold inline" '0:critical|0:important|0:suggestion' "$ST_RAF"
@@ -2222,7 +2222,7 @@ assert_pin_red_on_removal "#235 (B) phase-3.3: deleting the dropped-failed-refle
 # These are literal-constant/token pins (not operative-sentence pins), so assert_pin_unique
 # is the right form and no operative-vs-framing note is required (the finding-A carve-out).
 assert_pin_unique "#235 (B) phase-3.3: the --persist backstop command is actually invoked" \
-  '"$LIB/efficiency-trace.sh" --persist' "$DEF_SKILL"
+  '/../../lib/efficiency-trace.sh --persist' "$DEF_SKILL"
 # The "no inputs" detector is THIS-RUN-SCOPED (#236 review): it snapshots the pre-existing
 # iter-*.json BEFORE the inline loop and, after, records a loss only when NO NEW iter-*.json
 # appeared (comm -13 vs the snapshot). A whole-tree presence check would let a prior-run
@@ -2246,12 +2246,13 @@ assert_pin_unique "#235 (B) phase-3.3: the no-inputs case emits the dropped-fail
 # occurrence turns the suite RED, the same framing-vs-fix lesson applied to the producer line.
 assert_eq "#235 (B) phase-3.3: the no-inputs detector root is derived from the git toplevel (not cwd), in both blocks" \
   "2" "$(pin_count 'ROOT=$(git rev-parse --show-toplevel' "$DEF_SKILL")"
-# Symmetric to the $ROOT-derivation pin: the `"$LIB/efficiency-trace.sh" --persist` invocation
-# pinned above depends on the `LIB=` derivation that resolves it. Pin that derivation too so a
-# half-revert of the anchor (breaking the backstop invocation while the invocation-token pin
-# stays GREEN) turns the suite RED — the same half-revert class the $ROOT pin closes.
-assert_pin_unique "#235 (B) phase-3.3: the --persist backstop's LIB anchor is derived from the skill dir" \
-  'LIB="${CLAUDE_SKILL_DIR}/../../lib"' "$DEF_SKILL"
+# Symmetric to the $ROOT-derivation pin: the `--persist` invocation pinned above depends on
+# the inline portable anchor that resolves it (issue #275: the former cross-statement `LIB=`
+# derivation is gone — Copilot CLI's inline-bash marshaling drops such variables). Pin the
+# inline anchor ON the --persist invocation line so a half-revert of the anchor (breaking the
+# backstop invocation while the invocation-token pin stays GREEN) turns the suite RED.
+assert_pin_unique "#235 (B) phase-3.3: the --persist backstop resolves lib/ via the inline portable skill-dir anchor" \
+  '"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/efficiency-trace.sh --persist' "$DEF_SKILL"
 # #236 review (iteration 3): the snapshot-absent degrade path is a documented-falsehood defect —
 # the adjacent comment claimed "fail-toward-surfacing, never masking" while the code actually
 # CAN mask a real this-run loss (an empty BEFORE snapshot makes comm -13 count any leftover
@@ -2285,7 +2286,7 @@ assert_eq "#236 (B) phase-3.3: observability backstop directive precedes the app
 # failure paths leave a "record not written" breadcrumb on stderr while exiting 0 by design). Pin
 # that the backstop captures --persist's stderr and checks it for that literal.
 assert_pin_unique "#236 (B) phase-3.3: backstop captures --persist stderr for the record-write-failure check" \
-  '"$LIB/efficiency-trace.sh" --persist 2>"$PERSIST_ERR" || true' "$DEF_SKILL"
+  '/../../lib/efficiency-trace.sh --persist 2>"$PERSIST_ERR" || true' "$DEF_SKILL"
 # The single-literal grep above was itself a #236-review fix-delta-gate finding: jq-derivation
 # and mkdir failures both end "...record not written[ for ...]", but the disk/permission
 # write failure (write-after-mkdir-succeeded: ENOSPC/EROFS/quota/perms) reads "...failed
@@ -4651,15 +4652,12 @@ for SKILL_DIR in "$LIB"/../skills/*/; do
   # cannot vacuously match, and (b) rejects a prose mention or a commented-out /
   # HTML-comment-wrapped reference — only a live, exact invocation line passes, so
   # a future edit that comments out the step (leaving a stale reference) fails here.
-  # create-issue (issue #241) resolves a portable anchor ($SKILL_DIR) once, near the
-  # top, instead of the bare ${CLAUDE_SKILL_DIR} expansion, so its invocation line uses
-  # the "$SKILL_DIR"/../../ form; every other skill still carries the canonical bare
-  # form. Both are pinned whole-line (grep -Fx), so a name/path drift still fails here.
-  if [ "$SKILL_NAME" = "create-issue" ]; then
-    LPE_EXPECT_LINE='"$SKILL_DIR"/../../scripts/load-prompt-extension.sh '"$SKILL_NAME"
-  else
-    LPE_EXPECT_LINE='${CLAUDE_SKILL_DIR}/../../scripts/load-prompt-extension.sh '"$SKILL_NAME"
-  fi
+  # Issue #275: EVERY skill resolves the anchor inline in the invocation statement
+  # itself (the single-statement portable form — no bare ${CLAUDE_SKILL_DIR} expansion,
+  # and no cross-statement $SKILL_DIR assignment, which Copilot CLI's inline-bash
+  # marshaling defeats). One canonical line, pinned whole-line (grep -Fx), so a
+  # name/path drift still fails here.
+  LPE_EXPECT_LINE='"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/load-prompt-extension.sh '"$SKILL_NAME"
   assert_eq "lpe-coverage: $SKILL_NAME/SKILL.md invokes the helper for its own name" "yes" \
     "$([ -f "$SKILL_FILE" ] && grep -Fxq "$LPE_EXPECT_LINE" "$SKILL_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body: SKILL target is the $SKILL_FILE loop variable, not a static pin
   # The invocation line alone is half the contract — the step must also tell the
@@ -6283,48 +6281,201 @@ assert_eq "#97 pin: ensure-label.sh exists" "yes" \
   "$([ -f "$LIB/../scripts/ensure-label.sh" ] && echo yes || echo no)"
 assert_eq "#97 pin: create-issue ensures+applies DevFlow label via REST helper" "yes" \
   "$(grep -q 'ensure-label.sh DevFlow' "$LIB/../skills/create-issue/SKILL.md" && grep -qF 'apply-labels.sh <issue_number> DevFlow' "$LIB/../skills/create-issue/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: compound: two greps && on one line (provenance: ensure-label + REST apply-labels)
-# ── #241: create-issue resolves its helper-scripts anchor portably across runners ──
-# A1 (AC1, AC5): the portable-resolution recipe is present — the anchor is set to
-# $CLAUDE_SKILL_DIR when non-empty (the `:-` expansion also covers the empty case, AC3)
-# and otherwise the runner-reported skill base dir. The literal recurs by design: each
-# helper's bash fence re-establishes the anchor (fresh-shell-safe), so this is a `yes`
-# presence pin whose literal legitimately appears at more than one site, not a
-# uniqueness pin.
-assert_eq "#241 pin (A1): create-issue resolves a portable helper anchor (\$CLAUDE_SKILL_DIR-preferred, runner-base-dir fallback)" "yes" \
-  "$(grep -qF 'SKILL_DIR="${CLAUDE_SKILL_DIR:-' "$LIB/../skills/create-issue/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: presence pin — literal recurs across the self-contained helper fences by design (not unique)
-# A1b (review PR #243 Important note): the anchor must be RE-ESTABLISHED in BOTH bash
-# fences (each Bash call is a fresh shell). A1 alone is satisfied by one occurrence, so
-# a future edit that trims the "redundant" second assignment would keep every pin green
-# while that fence's helpers run with an unset $SKILL_DIR — a regression strictly worse
-# than #241 (it breaks on Claude Code too). Mutation-verified: deleting either fence's
-# assignment line drops the count to 1 and fails this pin.
-assert_eq "#241 pin (A1b): the anchor assignment appears exactly twice (one per bash fence)" "2" \
-  "$(grep -cF 'SKILL_DIR="${CLAUDE_SKILL_DIR:-' "$LIB/../skills/create-issue/SKILL.md")"  # raw-guard-ok: count pin — exactly one anchor re-establishment per fence
-# A2 (AC2): the regression-reproducing absence pin — NO bare (braced OR unbraced)
-# $CLAUDE_SKILL_DIR/../../scripts expansion may remain. RED provenance: three braced
-# occurrences existed in the pre-#241 file; the pin was authored failing against that
-# state and went GREEN when every call site was routed through the resolved anchor.
-# The ERE also catches the unbraced form ($CLAUDE_SKILL_DIR/../../scripts), which
-# collapses identically on empty-var runners but the old -F braced literal missed.
-# The inner grep must find NO bare expansion; the leading `!` negates it, so the
-# assert_eq passes with `yes` when the pattern is absent (do not misread this as an
-# assert_eq expecting `no`).
-assert_eq "#241 pin (A2): create-issue has no bare braced-or-unbraced \$CLAUDE_SKILL_DIR/../../scripts expansion" "yes" \
-  "$(! grep -qE '\$\{?CLAUDE_SKILL_DIR\}?/\.\./\.\./scripts' "$LIB/../skills/create-issue/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: absence pin — the broken expansion (either brace form) must be GONE
-# A2b (AC2, positive companion to A2): A2 proves NO bare expansion remains file-wide, but
-# that is a negative fact — it would still pass if the Step-4 label helpers were dropped
-# entirely. Pin each label call site POSITIVELY through the resolved anchor so "every
-# helper invocation uses that single resolved anchor" (AC2) is asserted, not just implied.
-assert_pin_unique "#241 pin (A2b): create-issue invokes ensure-label.sh through the resolved anchor" \
-  '"$SKILL_DIR"/../../scripts/ensure-label.sh DevFlow' "$LIB/../skills/create-issue/SKILL.md"
-assert_pin_unique "#241 pin (A2b): create-issue invokes apply-labels.sh through the resolved anchor" \
-  '"$SKILL_DIR"/../../scripts/apply-labels.sh <issue_number> DevFlow' "$LIB/../skills/create-issue/SKILL.md"
-# A2b (traceability companion): the third migrated call site — the preamble
-# load-prompt-extension.sh invocation — is also pinned HERE so all three positive
-# call-site pins live in one block; the lpe-coverage loop (issue #97/#218 region)
-# independently enforces the same line as create-issue's expected LPE form.
-assert_pin_unique "#241 pin (A2b): create-issue invokes load-prompt-extension.sh through the resolved anchor" \
-  '"$SKILL_DIR"/../../scripts/load-prompt-extension.sh create-issue' "$LIB/../skills/create-issue/SKILL.md"
+# ── #275: EVERY local-tier skill/phase file resolves its helper anchor portably, in a
+# single statement (supersedes the create-issue-only #241 pins A1/A1b/A2/A2b).
+# Copilot CLI's inline `bash -c` marshaling strips a variable assigned in one statement
+# and read in a later statement of the same inline command, so the #241 recipe
+# (`SKILL_DIR="${CLAUDE_SKILL_DIR:-…}"; … "$SKILL_DIR"/../../…`) is itself defeated on
+# that runner. The generalized invariant, per file, is three-sided:
+#   (1) NO bare braced-or-unbraced $CLAUDE_SKILL_DIR/.. parent-relative expansion — any
+#       continuation (/../../scripts, /../../lib, /../../.devflow, a /../<sibling-skill>
+#       reference), since every shape collapses identically when the var is empty;
+#   (2) NO cross-statement anchor assignment (`X="${CLAUDE_SKILL_DIR…`) — the #241 form
+#       Copilot's inline-bash variable stripping defeats;
+#   (3) the portable single-statement inline form IS present (positive adoption pin —
+#       (1)+(2) alone would pass on a file that dropped its helper calls entirely).
+# The file list is enumerated live from the repo (skills/*/SKILL.md + the implement
+# phase files), with a count reconciliation so a new skill is auto-covered — a new
+# SKILL.md that ships the bare form goes RED here on arrival.
+# RED provenance: this loop was authored BEFORE the migration and observed failing on
+# all 22 files' (2-or-3) pins; the per-file mutation proof below keeps the transition
+# self-verifying afterward.
+PORTABLE_ANCHOR_LITERAL='"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../'
+# PA_BARE_ERE matches ANY bare (non-fallback) parent/child continuation — unquoted
+# (`${CLAUDE_SKILL_DIR}/..`), quoted (`"${CLAUDE_SKILL_DIR}"/..`), and the non-`/..`
+# sibling shapes (`${CLAUDE_SKILL_DIR}/phases/…`) — since every one collapses to a broken
+# path when the var is empty. It can never match the portable form: there the char after
+# the var name is `:` (the `:-` fallback), which fails the `\}?"?/` tail.
+PA_BARE_ERE='\$\{?CLAUDE_SKILL_DIR\}?"?/'
+# PA_XSTMT_ERE matches the assignment head with or without the opening double quote
+# (SKILL_DIR="${CLAUDE_SKILL_DIR…  AND  SKILL_DIR=${CLAUDE_SKILL_DIR…) and digit-bearing
+# names; a command substitution (`VAR=$(…`) has `(` after `$`, so it never matches.
+PA_XSTMT_ERE='[A-Za-z_0-9]+="?\$\{?CLAUDE_SKILL_DIR'
+# PA_WRONGFB_ERE catches a WRONG-fallback anchor — `${CLAUDE_SKILL_DIR:-}` (empty), a
+# `:=`-spelled fallback, or any fallback diverging from the sanctioned placeholder within
+# its FIRST FOUR characters (`<abs`). Honest scope note: a wrong placeholder that shares
+# the `<abs` prefix but diverges deeper (`<absXYZ>`) is NOT caught by this ERE (no
+# lookahead in ERE); that residual is backstopped by the P3c per-occurrence check below,
+# which requires EVERY `${CLAUDE_SKILL_DIR:` occurrence to carry the full sanctioned
+# literal — so a deep-typo fallback still goes RED there, not here.
+PA_WRONGFB_ERE='\$\{CLAUDE_SKILL_DIR:[-=]([^<]|<[^a]|<a[^b]|<ab[^s])'
+PA_FILE_COUNT=0
+for PA_FILE in "$LIB"/../skills/*/SKILL.md "$LIB"/../skills/implement/phases/phase-*.md; do
+  PA_NAME="skills/${PA_FILE#"$LIB"/../skills/}"
+  PA_FILE_COUNT=$((PA_FILE_COUNT + 1))
+  assert_eq "#275 pin (P1): $PA_NAME has no bare \$CLAUDE_SKILL_DIR/../../ expansion" "yes" \
+    "$(! grep -qE "$PA_BARE_ERE" "$PA_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body: absence pin over the enumerated $PA_FILE loop variable, not a static pin
+  assert_eq "#275 pin (P2): $PA_NAME has no cross-statement \$CLAUDE_SKILL_DIR anchor assignment" "yes" \
+    "$(! grep -qE "$PA_XSTMT_ERE" "$PA_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body: absence pin over the enumerated $PA_FILE loop variable, not a static pin
+  assert_eq "#275 pin (P3): $PA_NAME invokes helpers via the portable single-statement inline anchor" "yes" \
+    "$(grep -qF "$PORTABLE_ANCHOR_LITERAL" "$PA_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body: presence pin over the enumerated $PA_FILE loop variable; literal recurs per call site by design
+  assert_eq "#275 pin (P1c): $PA_NAME has no wrong-fallback (non-placeholder) CLAUDE_SKILL_DIR expansion" "yes" \
+    "$(! grep -qE "$PA_WRONGFB_ERE" "$PA_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body: absence pin over the enumerated $PA_FILE loop variable
+  # P3c — per-occurrence completeness: every `${CLAUDE_SKILL_DIR:` expansion in the file
+  # must carry the FULL sanctioned literal (count equality), so a deep-typo fallback
+  # (`<absXYZ>` — past PA_WRONGFB_ERE's 4-char enumeration) cannot hide behind one correct
+  # call site elsewhere in the file (P3 alone is presence-only).
+  assert_eq "#275 pin (P3c): $PA_NAME: every CLAUDE_SKILL_DIR expansion carries the full sanctioned placeholder" "yes" \
+    "$([ "$(grep -oF '${CLAUDE_SKILL_DIR:' "$PA_FILE" | grep -c .)" = "$(grep -oF '${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}' "$PA_FILE" | grep -c .)" ] && echo yes || echo no)"  # raw-guard-ok: loop body: count-equality check over the enumerated $PA_FILE loop variable
+done
+assert_eq "#275 pin (P0): portable-anchor coverage spans every skill + implement phase file (enumeration reconciled)" \
+  "22" "$PA_FILE_COUNT"
+# Mutation proof (PASS->FAIL, self-contained): the absence EREs must actually MATCH the
+# two fragile forms they exist to reject — an ERE typo would leave P1/P2 green forever
+# (vacuous absence pins). Inject each fragile form into a temp copy of a migrated file
+# and assert the detector fires on the mutated copy while staying quiet on the real one.
+PA_MUT="$(probe_tmp '#275 mutation proof (fragile-form injection setup)')"
+if [ "$PA_MUT" != "/dev/null" ]; then
+  { cat "$LIB/../skills/create-issue/SKILL.md"; printf '%s\n' '${CLAUDE_SKILL_DIR}/../../scripts/injected.sh'; } > "$PA_MUT"
+  assert_eq "#275 mutation proof: reintroducing the bare expansion turns P1 RED (clean->detected)" "quiet->fires" \
+    "$(! grep -qE "$PA_BARE_ERE" "$LIB/../skills/create-issue/SKILL.md" && echo quiet || echo dirty)->$(grep -qE "$PA_BARE_ERE" "$PA_MUT" && echo fires || echo misses)"  # raw-guard-ok: mutation proof — clean-vs-injected transition over a temp copy, not a content pin
+  { cat "$LIB/../skills/create-issue/SKILL.md"; printf '%s\n' 'SKILL_DIR="${CLAUDE_SKILL_DIR:-<x>}"'; } > "$PA_MUT"
+  assert_eq "#275 mutation proof: reintroducing the cross-statement assignment turns P2 RED (clean->detected)" "quiet->fires" \
+    "$(! grep -qE "$PA_XSTMT_ERE" "$LIB/../skills/create-issue/SKILL.md" && echo quiet || echo dirty)->$(grep -qE "$PA_XSTMT_ERE" "$PA_MUT" && echo fires || echo misses)"  # raw-guard-ok: mutation proof — clean-vs-injected transition over a temp copy, not a content pin
+  # Adjacent-mutation variants (PR #279 review): the nearest-neighbor shapes of each banned
+  # form must ALSO fire — a quoted bare expansion, a non-`/..` sibling continuation, and an
+  # unquoted cross-statement assignment each collapse identically on an empty-var runner.
+  { cat "$LIB/../skills/create-issue/SKILL.md"; printf '%s\n' '"${CLAUDE_SKILL_DIR}"/../../scripts/injected.sh'; } > "$PA_MUT"
+  assert_eq "#275 mutation proof: the QUOTED bare expansion also turns P1 RED" "fires" \
+    "$(grep -qE "$PA_BARE_ERE" "$PA_MUT" && echo fires || echo misses)"  # raw-guard-ok: mutation proof over a temp copy
+  { cat "$LIB/../skills/create-issue/SKILL.md"; printf '%s\n' '${CLAUDE_SKILL_DIR}/phases/injected.md'; } > "$PA_MUT"
+  assert_eq "#275 mutation proof: a bare non-/.. sibling continuation (/phases/) also turns P1 RED" "fires" \
+    "$(grep -qE "$PA_BARE_ERE" "$PA_MUT" && echo fires || echo misses)"  # raw-guard-ok: mutation proof over a temp copy
+  { cat "$LIB/../skills/create-issue/SKILL.md"; printf '%s\n' 'SKILL_DIR=${CLAUDE_SKILL_DIR:-<x>}'; } > "$PA_MUT"
+  assert_eq "#275 mutation proof: the UNQUOTED cross-statement assignment also turns P2 RED" "fires" \
+    "$(grep -qE "$PA_XSTMT_ERE" "$PA_MUT" && echo fires || echo misses)"  # raw-guard-ok: mutation proof over a temp copy
+  { cat "$LIB/../skills/create-issue/SKILL.md"; printf '%s\n' '$CLAUDE_SKILL_DIR/../../scripts/injected.sh'; } > "$PA_MUT"
+  assert_eq "#275 mutation proof: the UNBRACED bare expansion also turns P1 RED" "fires" \
+    "$(grep -qE "$PA_BARE_ERE" "$PA_MUT" && echo fires || echo misses)"  # raw-guard-ok: mutation proof over a temp copy
+  { cat "$LIB/../skills/create-issue/SKILL.md"; printf '%s\n' '"${CLAUDE_SKILL_DIR:-}"/../../scripts/injected.sh'; } > "$PA_MUT"
+  assert_eq "#275 mutation proof: an EMPTY-fallback anchor turns P1c RED (clean->detected)" "quiet->fires" \
+    "$(! grep -qE "$PA_WRONGFB_ERE" "$LIB/../skills/create-issue/SKILL.md" && echo quiet || echo dirty)->$(grep -qE "$PA_WRONGFB_ERE" "$PA_MUT" && echo fires || echo misses)"  # raw-guard-ok: mutation proof over a temp copy
+  { cat "$LIB/../skills/create-issue/SKILL.md"; printf '%s\n' '"${CLAUDE_SKILL_DIR:-<wrong placeholder>}"/../../scripts/injected.sh'; } > "$PA_MUT"
+  assert_eq "#275 mutation proof: a WRONG angle-bracketed placeholder also turns P1c RED" "fires" \
+    "$(grep -qE "$PA_WRONGFB_ERE" "$PA_MUT" && echo fires || echo misses)"  # raw-guard-ok: mutation proof over a temp copy
+  rm -f "$PA_MUT"
+fi
+# Positive per-call-site companions (formerly #241 A2b), retargeted to the inline form:
+# the label helpers must route through the portable anchor, uniquely.
+assert_pin_unique "#275 pin (A2b): create-issue invokes ensure-label.sh through the inline portable anchor" \
+  "$PORTABLE_ANCHOR_LITERAL"'scripts/ensure-label.sh DevFlow' "$LIB/../skills/create-issue/SKILL.md"
+assert_pin_unique "#275 pin (A2b): create-issue invokes apply-labels.sh through the inline portable anchor" \
+  "$PORTABLE_ANCHOR_LITERAL"'scripts/apply-labels.sh <issue_number> DevFlow' "$LIB/../skills/create-issue/SKILL.md"
+assert_pin_unique "#275 pin (A2b): create-issue invokes load-prompt-extension.sh through the inline portable anchor" \
+  "$PORTABLE_ANCHOR_LITERAL"'scripts/load-prompt-extension.sh create-issue' "$LIB/../skills/create-issue/SKILL.md"
+# P4 — the shared "Portable helper anchor (single-statement)" preamble paragraph is a
+# 17-way verbatim coupled site (every non-create-issue SKILL.md carries the same copy;
+# the implement phase files rely on the orchestrator's copy). Pin each copy byte-identical
+# to a canonical reference so the guidance cannot drift word-by-word in one file silently —
+# the same coupled-site class T5c used to guard for the removed create-issue shell mirrors.
+# create-issue carries the extended reference variant (it names the label helpers and the
+# normalize-path lockstep), so it is exempt from the identity check and its operative
+# never-capture sentence is pinned separately.
+PA_REF_PREAMBLE="$(grep -F '**Portable helper anchor (single-statement).**' "$LIB/../skills/docs/SKILL.md")"
+assert_eq "#275 pin (P4-ref): the canonical preamble paragraph exists in the reference skill (docs)" "yes" \
+  "$([ -n "$PA_REF_PREAMBLE" ] && echo yes || echo no)"  # raw-guard-ok: non-empty capture check feeding the P4 identity loop, not a content pin
+for PA_FILE in "$LIB"/../skills/*/SKILL.md; do
+  PA_NAME="skills/${PA_FILE#"$LIB"/../skills/}"
+  case "$PA_NAME" in skills/create-issue/*) continue ;; esac
+  # Presence first, identity second — a MISSING paragraph fails with an attributable
+  # message instead of masquerading as a wording drift in the identity check below.
+  assert_eq "#275 pin (P4a): $PA_NAME carries a Portable-helper-anchor preamble paragraph at all" "yes" \
+    "$(grep -qF '**Portable helper anchor (single-statement).**' "$PA_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body: presence pin over the enumerated $PA_FILE loop variable
+  assert_eq "#275 pin (P4): $PA_NAME preamble paragraph is byte-identical to the canonical copy" "yes" \
+    "$([ "$(grep -F '**Portable helper anchor (single-statement).**' "$PA_FILE")" = "$PA_REF_PREAMBLE" ] && echo yes || echo no)"  # raw-guard-ok: loop body: cross-file identity check over the enumerated $PA_FILE loop variable
+done
+# Reflow guard: P4 compares only the header-bearing PHYSICAL LINE, so a copy whose
+# paragraph was wrapped onto multiple lines would keep an identical header line while
+# its operative continuation drifted per-file. Assert the canonical matched line itself
+# still carries the paragraph's operative TAIL clause — while the paragraph stays
+# single-line, the per-file identity compare above is a full-paragraph compare.
+assert_eq "#275 pin (P4b): the canonical preamble line is paragraph-complete (not reflowed)" "yes" \
+  "$(printf '%s' "$PA_REF_PREAMBLE" | grep -qF 'stop and report that the helper anchor could not be resolved' && echo yes || echo no)"  # raw-guard-ok: single-line completeness probe on the captured canonical line
+# Operative-sentence pin on the CANONICAL copy: P4 proves the 17 copies match the docs
+# reference, but nothing above stops the shared guidance itself being weakened in
+# lockstep. Pin the canonical copy's two operative clauses (the never-capture rule and
+# the fail-closed stop) so a propagated weakening still goes RED.
+assert_pin_unique "#275 pin (P4-op): canonical preamble carries the never-capture operative clause" \
+  'never capture it into a shell variable that a later statement reads' "$LIB/../skills/docs/SKILL.md"
+assert_pin_unique "#275 pin (P4-op): canonical preamble carries the fail-closed stop clause" \
+  'stop and report that the helper anchor could not be resolved' "$LIB/../skills/docs/SKILL.md"
+# P1b — the DASH-only expansion (`${CLAUDE_SKILL_DIR-…}`, no colon) treats an EMPTY var as
+# set, which is precisely the Copilot failure mode (empty, not unset), so it is a banned
+# form P1's `\}?"?/` tail cannot see. Absence-pin it separately across the same loop files.
+for PA_FILE in "$LIB"/../skills/*/SKILL.md "$LIB"/../skills/implement/phases/phase-*.md; do
+  PA_NAME="skills/${PA_FILE#"$LIB"/../skills/}"
+  assert_eq "#275 pin (P1b): $PA_NAME has no dash-only (empty-var-blind) CLAUDE_SKILL_DIR expansion" "yes" \
+    "$(! grep -qF '${CLAUDE_SKILL_DIR-' "$PA_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body: absence pin over the enumerated $PA_FILE loop variable
+done
+# Operative pin on the NEW fail-closed clause (#279 review): the widened trigger — halt on
+# the unsubstituted placeholder, not only on empty — is the PR's behavioral addition to the
+# implement orchestrator; without a pin a half-revert to empty-only ships GREEN.
+assert_pin_unique "#275 pin (gate-op): implement resolve gate halts on the unsubstituted placeholder too" \
+  'or prints the unsubstituted' "$LIB/../skills/implement/SKILL.md"
+assert_eq "#275 pin (gate-op): all four implement entry-gates carry the placeholder-aware halt clause" "4" \
+  "$(pin_count 'is empty or an unsubstituted placeholder' "$LIB/../skills/implement/SKILL.md")"
+# Live-invocation pins for the four phase files (the lpe-coverage whole-line pin covers
+# SKILL.md files only): one canonical helper invocation per phase file, pinned unique, so a
+# commented-out/prose-only occurrence cannot satisfy P3 alone.
+assert_pin_unique "#275 pin (P3-live): phase-1 carries a live parse-acs.py invocation via the portable anchor" \
+  "$PORTABLE_ANCHOR_LITERAL"'scripts/parse-acs.py --issue' "$LIB/../skills/implement/phases/phase-1-setup.md"
+assert_pin_unique "#275 pin (P3-live): phase-2 carries a live config-get.sh docs.internal read via the portable anchor" \
+  "$PORTABLE_ANCHOR_LITERAL"'scripts/config-get.sh .docs.internal' "$LIB/../skills/implement/phases/phase-2-implement.md"
+assert_pin_unique "#275 pin (P3-live): phase-3 carries the live --persist backstop via the portable anchor" \
+  "$PORTABLE_ANCHOR_LITERAL"'lib/efficiency-trace.sh --persist' "$LIB/../skills/implement/phases/phase-3-review.md"
+assert_pin_unique "#275 pin (P3-live): phase-4 carries a live file-deferrals.py invocation via the portable anchor" \
+  "$PORTABLE_ANCHOR_LITERAL"'scripts/file-deferrals.py' "$LIB/../skills/implement/phases/phase-4-documentation.md"
+assert_pin_unique "#275 pin (P4-ci): create-issue preamble carries the never-capture operative sentence" \
+  'Never capture the anchor into a shell variable that a later statement reads' "$LIB/../skills/create-issue/SKILL.md"
+# Behavioral proof — the static pins above are all greps; nothing executed the canonical
+# literal itself. Run the EXACT PORTABLE_ANCHOR_LITERAL (with CLAUDE_SKILL_DIR set to a
+# real skill dir, as on Claude Code) as a command head and assert the resolved helper is
+# actually reached — catching a quoting/expansion defect in the literal (a moved quote, a
+# glob-active placeholder char) that would break all 22 files in lockstep while every
+# static pin stayed GREEN. load-prompt-extension.sh with a bogus skill name exits 0 and
+# prints nothing (the repo tracks only docs.md.example, no live docs.md), so a
+# clean rc-0 no-op IS the observable.
+PA_BEHAV_CMD="$PORTABLE_ANCHOR_LITERAL"'scripts/load-prompt-extension.sh docs'
+PA_BEHAV_OUT="$(cd "$LIB/.." && CLAUDE_SKILL_DIR="$PWD/skills/docs" bash -c "$PA_BEHAV_CMD" 2>&1)"; PA_BEHAV_RC=$?
+assert_eq "#275 behavioral: the no-extension helper run prints nothing (clean no-op observable)" "" "$PA_BEHAV_OUT"
+assert_eq "#275 behavioral: the canonical anchor literal executes and reaches the helper (CLAUDE_SKILL_DIR set)" "0" "$PA_BEHAV_RC"
+# And with the var EMPTY the same literal must fail (the placeholder is not a real path) —
+# proving the fallback text is inert as a path, not accidentally resolvable.
+PA_BEHAV_EMPTY_RC=0
+(cd "$LIB/.." && CLAUDE_SKILL_DIR= bash -c "$PA_BEHAV_CMD" >/dev/null 2>&1) || PA_BEHAV_EMPTY_RC=$?
+assert_eq "#275 behavioral: the unsubstituted placeholder does NOT resolve (empty var -> non-zero)" "yes" \
+  "$([ "$PA_BEHAV_EMPTY_RC" -ne 0 ] && echo yes || echo no)"  # raw-guard-ok: behavioral rc check, not a content pin
+# Doc presence pins (#275 AC: the four Windows/Copilot-CLI operator gotchas are documented).
+# DEVFLOW_GH's shim remedy predates #275 and its pin lives with the #245 block; these pin
+# the three surfaces #275 added plus the anchor recipe in the overview.
+assert_eq "#275 docs: install.md documents the PowerShell UTF-16LE write pitfall + no-BOM remedy" "yes" \
+  "$(grep -q 'UTF-16LE' "$LIB/../docs/install.md" && grep -q 'utf8NoBOM' "$LIB/../docs/install.md" && echo yes || echo no)"  # raw-guard-ok: compound doc presence pin (two coupled fragments of one gotcha)
+assert_pin_unique "#275 docs: install.md documents the workpad.py PowerShell single-quoting guidance" \
+  "single-quote** the text argument in PowerShell" "$LIB/../docs/install.md"
+assert_pin_unique "#275 docs: install.md documents the inline-bash variable-stripping constraint" \
+  "reads **empty** in a later statement of the same command" "$LIB/../docs/install.md"
+assert_pin_unique "#275 docs: system overview documents the generalized single-statement anchor" \
+  "Runner-portable anchor (single-statement, generalized to every local-tier skill)" "$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
 # A3 (review PR #243 Important note): sub-step 5a carries the same anchor-resolution-vs-
 # helper-outcome discrimination guard the preamble has, so a broken-anchor "No such file"
 # (the helper never ran; the always-exit-0 contract never engaged) is not swallowed by
@@ -12886,33 +13037,22 @@ assert_eq "#247 preflight: jq genuinely absent → exit non-zero" "yes" \
 assert_eq "#247 preflight: jq genuinely absent → \"not installed\" wording (not the shim wording)" "yes" \
   "$(printf '%s' "$PF_JQNI_OUT" | grep -q "no working 'jq' — jq is not installed" && echo yes || echo no)"
 
-# ── T5 (anchor recipe pin) — skills/create-issue/SKILL.md carries the inline
-#    Windows-form anchor normalization at BOTH coupled SKILL_DIR sites (the
-#    #241 recipe's parked half; inline because the anchor is what locates
-#    helpers — it cannot source lib/normalize-path.sh). ──
+# ── T5 (anchor recipe pin, reshaped by #275) — the create-issue anchor recipe no
+#    longer carries inline SHELL normalization mirrors: Copilot CLI's inline-bash
+#    marshaling drops same-command variable assignments, so the multi-statement
+#    mirror blocks were removed and normalization moved to PROMPT time — the agent
+#    converts a Windows-form runner-reported base directory (one standalone
+#    wslpath/cygpath probe, or the textual drive-letter rules) BEFORE substituting
+#    it into the single-statement invocation. The preamble paraphrases
+#    lib/normalize-path.sh's rules; pin the operative paraphrase fragments so a
+#    trim of the normalization guidance (or of its lib lockstep reference) goes RED.
 CI_SKILL="$LIB/../skills/create-issue/SKILL.md"
-assert_eq "#247 T5: create-issue SKILL.md carries the inline anchor normalization at both coupled sites" "yes" \
-  "$([ "$(grep -c 'Windows-form anchor normalization' "$CI_SKILL" 2>/dev/null)" -ge 2 ] && echo yes || echo no)"  # raw-guard-ok: count-based (two coupled SKILL_DIR sites must both carry the block; uniqueness would be wrong)
-# Operative-code pin (not just the comment heading above — a half-revert that
-# deletes the normalization code but keeps its comment must go RED): the
-# Windows-form detection line itself, present at both coupled sites.
-assert_eq "#247 T5b: both sites carry the operative Windows-form detection line (comment-only half-revert goes RED)" "yes" \
-  "$([ "$(grep -cF 'if [[ "$SKILL_DIR" =~ ^[A-Za-z]:[\\/] ]]; then' "$CI_SKILL" 2>/dev/null)" -ge 2 ] && echo yes || echo no)"  # raw-guard-ok: count-based (same two coupled sites)
-# T5c: the two inline blocks must stay BYTE-IDENTICAL modulo indentation — the
-# lockstep contract with lib/normalize-path.sh is only auditable if the in-file
-# mirror pair cannot drift apart silently (a translation-logic edit applied to
-# one site but not the other would otherwise ship green past T5/T5b).
-T5C_EQ="$(awk '
-  /# Windows-form anchor normalization/ { on=1; n++ }
-  on {
-    line=$0; sub(/^[[:space:]]*/, "", line)
-    blk[n] = blk[n] line "\n"
-    if (u && line == "fi") { on=0; u=0 }
-    if (line ~ /^unset _d _np _r$/) u=1
-  }
-  END { if (n==2 && blk[1]==blk[2]) print "identical"; else print "different:" n }
-' "$CI_SKILL")"
-assert_eq "#247 T5c: the two inline anchor-normalization blocks are byte-identical (modulo indentation)" "identical" "$T5C_EQ"
+assert_pin_unique "#247/#275 T5: create-issue preamble carries the prompt-time wslpath probe guidance" \
+  "wslpath -u '<path>'" "$CI_SKILL"
+assert_pin_unique "#247/#275 T5b: create-issue preamble carries the tool-less drive-letter mapping rule" \
+  'map `C:\` to `/mnt/c` on WSL or `/c` on MSYS2' "$CI_SKILL"
+assert_pin_unique "#247/#275 T5c: create-issue preamble names lib/normalize-path.sh as the rules' source (lockstep reference)" \
+  'lib/normalize-path.sh' "$CI_SKILL"
 
 # ── T6 (jq call-site integration) — a REAL converted helper, run with
 #    DEVFLOW_JQ pointing at a recording stub, invokes the stub rather than bare
@@ -13107,45 +13247,14 @@ assert_eq "#247 preflight partial copy: degraded mode still honors DEVFLOW_JQ (b
 assert_eq "#247 preflight partial copy: degraded remedy names the override value" "yes" \
   "$(printf '%s' "$PF_PC_OVR" | grep -q "no working 'jq'.*broken-jq" && echo yes || echo no)"
 
-# ── T5d — BEHAVIORAL lockstep: extract the first SKILL.md inline block, run it
-#    under the same stubbed env as the lib helper, and assert identical output
-#    (the regex pin above catches detection-line drift; this catches
-#    translation-body drift between lib and the mirrors). ──
-T5D="$(mktemp -d)"
-printf '#!/usr/bin/env bash\necho "5.15.0-microsoft-standard-WSL2"\n' > "$T5D/uname"; chmod +x "$T5D/uname"
-_mk_restricted "$T5D" bash tr grep dirname
-awk '
-  /# Windows-form anchor normalization/ { n++; if (n==1) on=1 }
-  on { line=$0; sub(/^[[:space:]]*/, "", line); print line
-       if (u && line == "fi") { on=0 }
-       if (line ~ /^unset _d _np _r$/) u=1 }
-' "$CI_SKILL" > "$T5D/block.sh"
-printf 'SKILL_DIR='"'"'C:\\Users\\dev\\skills\\x'"'"'\n%s\nprintf %%s "$SKILL_DIR"\n' "$(cat "$T5D/block.sh")" > "$T5D/runner.sh"
-T5D_SKILL="$(env -u MSYSTEM PATH="$T5D" "$_NP_BASH_BIN" "$T5D/runner.sh" 2>/dev/null)"
-T5D_LIB="$(env -u MSYSTEM PATH="$T5D" "$_NP_BASH_BIN" -c ". \"$NORMALIZE_PATH_SH\"; devflow_normalize_path 'C:\\Users\\dev\\skills\\x'" 2>/dev/null)"
-assert_eq "#247 T5d: SKILL.md inline block and lib helper translate identically (behavioral lockstep)" "$T5D_LIB" "$T5D_SKILL"
-assert_eq "#247 T5d: behavioral lockstep output is the expected WSL form" "/mnt/c/Users/dev/skills/x" "$T5D_LIB"
-# Same parity through the MSYS arm (non-microsoft uname + MSYSTEM set), so a
-# mirror-only edit to the /c translation cannot ship green either.
-T5DM="$(mktemp -d)"
-printf '#!/usr/bin/env bash\necho "generic-kernel"\n' > "$T5DM/uname"; chmod +x "$T5DM/uname"
-_mk_restricted "$T5DM" bash tr grep dirname
-T5DM_SKILL="$(MSYSTEM=MINGW64 PATH="$T5DM" "$_NP_BASH_BIN" "$T5D/runner.sh" 2>/dev/null)"
-T5DM_LIB="$(MSYSTEM=MINGW64 PATH="$T5DM" "$_NP_BASH_BIN" -c ". \"$NORMALIZE_PATH_SH\"; devflow_normalize_path 'C:\\Users\\dev\\skills\\x'" 2>/dev/null)"
-assert_eq "#247 T5d-msys: SKILL.md block and lib helper agree on the MSYS arm too" "$T5DM_LIB" "$T5DM_SKILL"
-assert_eq "#247 T5d-msys: MSYS-arm parity output is the expected /c form" "/c/Users/dev/skills/x" "$T5DM_LIB"
-# tr-less parity (the T4k fail-closed branch, SKILL side — runner.sh exists here):
-T4K_SKILL="$(env -u MSYSTEM PATH="$NPT4K" "$_NP_BASH_BIN" "$T5D/runner.sh" 2>/dev/null)"
-assert_eq "#247 T4k: SKILL.md block also leaves the anchor unchanged without tr (lockstep)" 'C:\Users\dev\skills\x' "$T4K_SKILL"
-
-# ── Lockstep pin — the Windows-form detection regex literal must appear in
-#    BOTH lib/normalize-path.sh and the create-issue SKILL.md mirrors, so a
-#    translation-logic edit to either side alone goes RED (T5c pins the two
-#    in-file mirrors to each other; this pins the lib↔SKILL pair). ──
+# ── T5d (reshaped by #275) — the SKILL.md shell mirrors are gone (normalization is
+#    prompt-time prose now), so behavioral SKILL↔lib parity is no longer executable.
+#    lib/normalize-path.sh remains the canonical rules source (its own T4* behavioral
+#    tests above still exercise every arm); the prose paraphrase is pinned by
+#    T5/T5b/T5c. Keep the lib-side detection-regex pin so the helper's operative
+#    detection line cannot be trimmed while its callers still rely on it. ──
 assert_eq "#247 lockstep: detection regex literal present in lib/normalize-path.sh" "yes" \
   "$(grep -qF '=~ ^[A-Za-z]:[\\/] ]]' "$NORMALIZE_PATH_SH" && echo yes || echo no)"
-assert_eq "#247 lockstep: detection regex literal present at both SKILL.md sites" "yes" \
-  "$([ "$(grep -cF '=~ ^[A-Za-z]:[\\/] ]]' "$CI_SKILL" 2>/dev/null)" -ge 2 ] && echo yes || echo no)"  # raw-guard-ok: count-based (both coupled SKILL_DIR sites)
 
 # ── Coupled-relay pin — skills/init/SKILL.md relays the jq-gate breadcrumbs of
 #    the provision/detect/scaffold helpers; the literal must track the helpers'
@@ -13343,7 +13452,7 @@ assert_eq "#253 run-jq.sh: partial deploy emits the specific 'could not source l
   "$(grep -q 'could not source lib/resolve-jq.sh beside it' "$RJQ_STUB/perr" && echo yes || echo no)"
 assert_eq "#253 run-jq.sh: partial deploy preserves the best-effort exit-0 contract" "0" "$RJQ_PRC"
 
-rm -rf "$JQT0" "$JQT1" "$JQT2" "$JQT2D" "$JQTD" "$NPT4" "$NPT4B" "$NPT4C" "$NPT4D" "$NPT4E" "$NPT4G" "$NPT4I" "$JQTP" "$JQT10" "$JQT6" "$JQT7" "$JQT8" "$SCVJ" "$SCVO" "$PFPC" "$T5D" "$T5DM" "$JQT7D" "$JQNEG" "$GENTR" "$RJQ_STUB" "$RJQ_PARTIAL"
+rm -rf "$JQT0" "$JQT1" "$JQT2" "$JQT2D" "$JQTD" "$NPT4" "$NPT4B" "$NPT4C" "$NPT4D" "$NPT4E" "$NPT4G" "$NPT4I" "$JQTP" "$JQT10" "$JQT6" "$JQT7" "$JQT8" "$SCVJ" "$SCVO" "$PFPC" "$JQT7D" "$JQNEG" "$GENTR" "$RJQ_STUB" "$RJQ_PARTIAL"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "running-bash diagnostic: preflight.sh devflow-bash breadcrumb + remedy (issue #248)"

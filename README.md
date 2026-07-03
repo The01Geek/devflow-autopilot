@@ -177,7 +177,7 @@ lib/              # retrospective-loop helpers (*.sh, *.jq), preflight.sh, test/
 install.sh        # one-command cloud-tier install/update (thin by default; DEVFLOW_VENDOR=1 to commit the plugin)
 ```
 
-Skills reference bundled helpers via `${CLAUDE_SKILL_DIR}` so they resolve from any install location.
+Skills reference bundled helpers via the portable single-statement anchor (`$CLAUDE_SKILL_DIR` on Claude Code, with a runner-reported base-directory fallback on other agentic CLIs) so they resolve from any install location and runner.
 
 ## Contributing
 

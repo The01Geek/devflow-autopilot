@@ -14,13 +14,15 @@ You are the review-and-fix orchestrator. Run /devflow:review's review engine, fi
 
 **Key principle:** You perform fixes DIRECTLY in this session. Do NOT delegate fixes to a subagent. You need full conversation context to apply `devflow:receiving-code-review` principles (technical evaluation, pushback, verification).
 
+**Portable helper anchor (single-statement).** The bundled-helper commands in this skill resolve the skill directory inline at each call site via `${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}`. When `$CLAUDE_SKILL_DIR` is set and non-empty (Claude Code), run each command exactly as written. On a runner where it is unset or empty, replace the placeholder with the skill base directory the runner reports in context (e.g. a `Base directory for this skill:` line) before running the command; if that reported path is Windows-form (`C:\...`), first convert it to this shell's POSIX form with one standalone `wslpath -u '<path>'` (WSL) or `cygpath -u '<path>'` (Git Bash/MSYS2) command and substitute the printed result **only if the command succeeds and prints a non-empty path — otherwise fall through to the drive-letter rules exactly as if the tool were absent, the same success-and-non-empty acceptance the platform's path-normalization rules apply** (if neither tool exists: lowercase the drive letter, map `C:\` to `/mnt/c` on WSL or `/c` on MSYS2, and turn backslashes into `/`; if the environment is neither WSL nor MSYS2, use the path unchanged and report that it could not be normalized — the same arm the platform's path-normalization rules take). Resolve the anchor inline at every call site — never capture it into a shell variable that a later statement reads, because some runners' inline-bash marshaling drops such variables (observed on Copilot CLI). If neither `$CLAUDE_SKILL_DIR` nor a runner-reported base directory is available, stop and report that the helper anchor could not be resolved rather than running a command with a broken path.
+
 **Consumer prompt extension (load first).** Before doing this skill's work, load any consumer-supplied prompt extension for this skill and honor it. From the repo root, run:
 
 ```bash
-${CLAUDE_SKILL_DIR}/../../scripts/load-prompt-extension.sh review-and-fix
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/load-prompt-extension.sh review-and-fix
 ```
 
-If the helper exits non-zero, a consumer extension exists but could not be loaded — surface its stderr message and do not silently proceed as if none existed. If it exits 0 and prints text, treat that text as additional instructions appended to the end of this skill's own prompt for this run — it is upgrade-safe, consumer-owned customization committed under `.devflow/prompt-extensions/`. If it exits 0 and prints nothing, proceed unchanged.
+If the invocation fails because the helper path does not exist (`No such file`, exit 127, or the platform equivalent), that is the **anchor-resolution** failure described in the *Portable helper anchor* note above — fix the anchor, don't report a missing extension. Otherwise, if the helper exits non-zero, a consumer extension exists but could not be loaded — surface its stderr message and do not silently proceed as if none existed. If it exits 0 and prints text, treat that text as additional instructions appended to the end of this skill's own prompt for this run — it is upgrade-safe, consumer-owned customization committed under `.devflow/prompt-extensions/`. If it exits 0 and prints nothing, proceed unchanged.
 
 ## When NOT to use
 
@@ -228,10 +230,10 @@ The workpad is best-effort and informational. A write failure should not abort t
 
 ## Main Loop
 
-**Resolve the iteration cap once, at loop start.** Read `devflow_review_and_fix.max_iterations` (default 5) via the config helper — the same `${CLAUDE_SKILL_DIR}`-anchored, no-`bash`-prefix invocation the effectiveness-trace gate uses (see "Subagent effectiveness trace"), so the read is cwd-independent and the resolved-path allow-list entry matches. Capture stderr + rc so a resolver failure (missing `python3`, malformed `config.json` → non-zero exit with empty stdout) is distinguishable from a legitimately-absent key, and clamp the result:
+**Resolve the iteration cap once, at loop start.** Read `devflow_review_and_fix.max_iterations` (default 5) via the config helper — the same portable skill-dir-anchored, no-`bash`-prefix invocation the effectiveness-trace gate uses (see "Subagent effectiveness trace"), so the read is cwd-independent and the resolved-path allow-list entry matches. Capture stderr + rc so a resolver failure (missing `python3`, malformed `config.json` → non-zero exit with empty stdout) is distinguishable from a legitimately-absent key, and clamp the result:
 
 ```bash
-MAX_ITERS=$("${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh" .devflow_review_and_fix.max_iterations 5 2>/tmp/devflow-maxiter.err); MAX_ITERS_RC=$?
+MAX_ITERS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .devflow_review_and_fix.max_iterations 5 2>/tmp/devflow-maxiter.err); MAX_ITERS_RC=$?
 # Surface a genuine resolver failure (missing `python3`, malformed config.json) in the
 # Actions UI rather than swallowing it into a silent default — mirrors the
 # effectiveness-trace gate's `::warning::` on a non-zero read.
@@ -248,10 +250,10 @@ elif [ "$MAX_ITERS" -lt 1 ]; then
 fi
 ```
 
-**Resolve the fix-severity threshold once, at loop start** (right after the cap above). Read `devflow_review_and_fix.fix_severity_threshold` (default `important`) via the same `${CLAUDE_SKILL_DIR}`-anchored, no-`bash`-prefix `config-get.sh` invocation the cap read uses (so the read is cwd-independent and matches the resolved-path allow-list entry). `config-get.sh` reads the value but does **not** validate the enum — it coerces any JSON value to a string (a number → `5`, an object → `[object Object]`, an array is comma-joined) — so validate the enum **inline** and fall back to the default on a resolver failure (rc≠0, e.g. malformed `config.json`) or any value outside the enum, with a **specific breadcrumb naming the key and the fallback value** (never aborting the loop):
+**Resolve the fix-severity threshold once, at loop start** (right after the cap above). Read `devflow_review_and_fix.fix_severity_threshold` (default `important`) via the same portable skill-dir-anchored, no-`bash`-prefix `config-get.sh` invocation the cap read uses (so the read is cwd-independent and matches the resolved-path allow-list entry). `config-get.sh` reads the value but does **not** validate the enum — it coerces any JSON value to a string (a number → `5`, an object → `[object Object]`, an array is comma-joined) — so validate the enum **inline** and fall back to the default on a resolver failure (rc≠0, e.g. malformed `config.json`) or any value outside the enum, with a **specific breadcrumb naming the key and the fallback value** (never aborting the loop):
 
 ```bash
-FIX_THRESHOLD=$("${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh" .devflow_review_and_fix.fix_severity_threshold important); FIX_THRESHOLD_RC=$?
+FIX_THRESHOLD=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .devflow_review_and_fix.fix_severity_threshold important); FIX_THRESHOLD_RC=$?
 # A missing key returns the default `important` (a valid value → kept silently, so an
 # absent key is byte-identical to today). A resolver failure (rc≠0: malformed config.json
 # or missing python3) and an out-of-enum value each fall back to the default, but with
@@ -840,9 +842,9 @@ All derivation lives in `lib/efficiency-trace.jq` (a mechanical jq filter, no LL
 
 **Invoke both helpers directly — no `bash` prefix.** `config-get.sh` below and `efficiency-trace.sh` in step 3 are invoked the way `/devflow:implement` invokes its helpers: as executables resolving to a `.devflow/vendor/devflow/…` path, never `bash <path>`. Resolved-path allow-list entries (`Bash(.devflow/vendor/devflow/lib/efficiency-trace.sh:*)`, `Bash(.devflow/vendor/devflow/scripts/config-get.sh:*)`) match on the command's leading token after expansion; a `bash`-prefixed command starts with `bash` and matches nothing, so on a headless run the prompt is denied and the trace is silently skipped. Direct invocation requires `lib/efficiency-trace.sh` to keep its executable bit (it is committed `+x`); never re-add a `bash` prefix to dodge a missing bit.
 
-1. **Read the gating flag** via the config helper (use the `${CLAUDE_SKILL_DIR}`-anchored path so the read is cwd-independent, matching how this engine invokes `match-deferrals.py` / `dismiss-stale-rejections.sh`). Capture stderr + rc so a resolver failure is distinguishable from an intentional flag-off — `config-get.sh` exits non-zero with empty stdout when `python3` is missing or `config.json` is malformed, and an empty `ENABLED` would otherwise fall into the "not true → skip" branch indistinguishably from `false`:
+1. **Read the gating flag** via the config helper (use the portable skill-dir-anchored path so the read is cwd-independent, matching how this engine invokes `match-deferrals.py` / `dismiss-stale-rejections.sh`). Capture stderr + rc so a resolver failure is distinguishable from an intentional flag-off — `config-get.sh` exits non-zero with empty stdout when `python3` is missing or `config.json` is malformed, and an empty `ENABLED` would otherwise fall into the "not true → skip" branch indistinguishably from `false`:
    ```bash
-   ENABLED=$("${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh" .devflow_review_and_fix.efficiency_telemetry_enabled true 2>/tmp/devflow-et-flag.err); ENABLED_RC=$?
+   ENABLED=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .devflow_review_and_fix.efficiency_telemetry_enabled true 2>/tmp/devflow-et-flag.err); ENABLED_RC=$?
    if [ "$ENABLED_RC" -ne 0 ]; then
      echo "::warning::devflow efficiency-trace gate read failed (rc=$ENABLED_RC): $(cat /tmp/devflow-et-flag.err) — skipping trace"
    fi
@@ -853,7 +855,6 @@ All derivation lives in `lib/efficiency-trace.jq` (a mechanical jq filter, no LL
 
 3. **Render the trace to chat** and **write the per-run record**. Capture the trace's stderr+rc so a real failure surfaces a reason rather than degrading silently to an empty skip:
    ```bash
-   LIB="${CLAUDE_SKILL_DIR}/../../lib"
    WORKPAD_DIR=".devflow/tmp/review/<slug>/<run-id>"   # run-scoped: the trace must read THIS run's iter-*.json, not a sibling run's
    RECORD=".devflow/logs/efficiency/<slug>-<run-id>.json"   # run-id-keyed (NOT a fresh timestamp): the agent write + --persist backstop MUST agree on this exact path
    mkdir -p .devflow/logs/efficiency
@@ -861,7 +862,7 @@ All derivation lives in `lib/efficiency-trace.jq` (a mechanical jq filter, no LL
    # failure surfaces in the Actions UI on a headless run; and detect the
    # all-workpads-malformed case, where the helper exits 0 with empty stdout (the
    # `||` branch never fires) — print an explicit notice so it isn't a silent no-op.
-   TRACE="$("$LIB/efficiency-trace.sh" --workpad-dir "$WORKPAD_DIR" --slug "<slug>" --mode trace 2>/tmp/devflow-et.err)"; TRACE_RC=$?
+   TRACE="$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/efficiency-trace.sh --workpad-dir "$WORKPAD_DIR" --slug "<slug>" --mode trace 2>/tmp/devflow-et.err)"; TRACE_RC=$?
    if [ "$TRACE_RC" -ne 0 ]; then
      echo "::warning::devflow efficiency-trace unavailable (rc=$TRACE_RC): $(cat /tmp/devflow-et.err)"
    elif [ -z "$TRACE" ]; then
@@ -871,7 +872,7 @@ All derivation lives in `lib/efficiency-trace.jq` (a mechanical jq filter, no LL
    fi
    # Write the per-run JSON record (one file per run). Capture rc + stderr so a real
    # regression surfaces a ::warning:: breadcrumb instead of vanishing silently:
-   "$LIB/efficiency-trace.sh" --workpad-dir "$WORKPAD_DIR" --slug "<slug>" --mode record > "$RECORD" 2>/tmp/devflow-et-record.err; RECORD_RC=$?
+   "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/efficiency-trace.sh --workpad-dir "$WORKPAD_DIR" --slug "<slug>" --mode record > "$RECORD" 2>/tmp/devflow-et-record.err; RECORD_RC=$?
    if [ "$RECORD_RC" -ne 0 ]; then
      echo "::warning::devflow efficiency-trace record mode failed (rc=$RECORD_RC): $(cat /tmp/devflow-et-record.err)"
    fi
@@ -973,7 +974,7 @@ After the persist block above, on a **converged writable run with telemetry enab
 # so this is doubly safe. WORKPAD_DIR is the run-scoped dir from the trace block;
 # <slug> is this run's slug. Invoke the helper directly (no `bash` prefix) so the
 # resolved-path allow-list entry matches on a headless run.
-"${CLAUDE_SKILL_DIR}/../../lib/efficiency-trace.sh" --self-check --workpad-dir ".devflow/tmp/review/<slug>/<run-id>" --slug "<slug>" || true
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/efficiency-trace.sh --self-check --workpad-dir ".devflow/tmp/review/<slug>/<run-id>" --slug "<slug>" || true
 ```
 
 If the self-check warns that the record or the workpads were not persisted, the deterministic recovery is `lib/efficiency-trace.sh --persist` (Layer 3) — the same command the `Stop` hook and the cloud wrapper invoke. The warning is observability, not a gate: a writable run that converged but somehow skipped the persist block above is exactly the interactive-drop failure mode this self-check exists to surface (see Common Mistakes).

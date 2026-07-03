@@ -95,6 +95,23 @@ export DEVFLOW_BASH=/path/to/bash   # e.g. a WSL, Git Bash, or MSYS2 bash
 
 **Known non-goal.** A host with **no POSIX bash at all** (PowerShell-only, with no WSL, Git Bash, or MSYS2 installed) cannot run the `.sh` helpers regardless — that irreducible case is out of scope. Install any one of the three supported bashes; that is the fix, not a `DEVFLOW_BASH` value.
 
+### Non-Claude-Code runners (Copilot CLI, Cursor, Codex CLI, Gemini CLI): the skill anchor
+
+Every local-tier skill locates its bundled helpers through a **portable single-statement anchor**: `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/…`. On Claude Code, `$CLAUDE_SKILL_DIR` is exported and the command runs as written. On other runners the variable expands **empty**; the agent substitutes the placeholder with the skill base directory the runner reports in context (Copilot CLI prints a `Base directory for this skill:` line), normalizing a Windows-form path (`C:\...`) to POSIX form first (`wslpath -u` / `cygpath -u`, or the `lib/normalize-path.sh` drive-letter rules). Two constraints make the *single-statement* shape load-bearing rather than stylistic:
+
+- **Inline-bash variable stripping (Copilot CLI, verified on 1.0.68; the empty-`$CLAUDE_SKILL_DIR` observation is a separate fact, confirmed earlier on 1.0.67):** a variable assigned in one statement of an inline `bash -c` command reads **empty** in a later statement of the same command (`bash -c 'v=hi && echo $v'` prints nothing; the same lines in a `.sh` file work). So never rework a skill's helper call into an assign-then-use form (`SKILL_DIR=…; "$SKILL_DIR"/../…`) — resolve the anchor inline in the statement that uses it, every time.
+- **Fail closed:** when neither `$CLAUDE_SKILL_DIR` nor a runner-reported base directory is available, the skills stop and report the unresolved anchor instead of running a broken `/../../…` path. (One deliberate exception: `/devflow:create-issue` is best-effort throughout — an unresolvable anchor never blocks issue creation; a skipped provenance label or prompt-extension load is reported explicitly instead.)
+
+**Known residual on Copilot CLI:** the single-statement migration covers the *skill-dir anchor*. Some skill bodies still carry multi-statement guard recipes (e.g. `VAR=$(…); VAR_RC=$?` capture-then-discriminate blocks) whose later-statement variable reads the same inline-bash marshaling can drop — on such a runner those later-statement reads come back empty, so the rc-discriminating branches (and their `::warning::` breadcrumbs) silently never fire and the value variables can be left empty rather than at their documented defaults. The highest-blast-radius instance is `/devflow:implement`'s Phase 4.1 documentation gate (`GH_RC`/`HELPER_RC` captures), whose fail-closed empty-stdout check is inert there until the follow-up wave lands. Tracked as follow-up work; the anchor fix is what unblocks the skills from starting at all.
+
+### Windows: PowerShell file-write encoding (UTF-16LE pitfall)
+
+PowerShell 5.x's `>` redirection and `Out-File` write **UTF-16LE with a BOM** by default. DevFlow's helpers read their input files (issue bodies, workpad body files, AC lists) as **UTF-8**, so a file produced with a PowerShell `>` silently arrives corrupted (NUL-interleaved text, a `ÿþ` BOM). When preparing any file a DevFlow helper will read from PowerShell, write UTF-8 **without** BOM explicitly — e.g. `[IO.File]::WriteAllText($path, $text)` or `Set-Content -Encoding utf8NoBOM` (PowerShell 7+) — or simply create the file from inside your POSIX bash instead.
+
+### Windows: quoting `workpad.py` text arguments from PowerShell
+
+PowerShell's double-quote handling can split a `--note`/`--reflection` text argument into extra argv tokens before Python sees it. `workpad.py` fails closed in that case (exit 2, no partial write) — but the fix is on the caller: **single-quote** the text argument in PowerShell (`--note 'my note text'`), or invoke the helper from bash.
+
 ## Cloud tier (optional, autonomous)
 
 For autonomous GitHub Actions automation, run this from your repo root — the same command installs and later updates it:

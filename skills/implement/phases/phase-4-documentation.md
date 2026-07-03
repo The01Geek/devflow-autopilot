@@ -68,7 +68,7 @@ DEFERRED_ISSUE_NUMBERS="${DEFERRED_ISSUE_NUMBERS:-}"
 # The assignment runs as an `if` condition so the rc capture survives even if these
 # blocks are ever executed under `set -e` (a bare `VAR=$(cmd); RC=$?` would abort at the
 # assignment before the capture; an `if`-condition assignment is exempt from `set -e`).
-if DEFERRED_LABELS=$(${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .deferred.labels DevFlow,Deferred); then DEFERRED_LABELS_RC=0; else DEFERRED_LABELS_RC=$?; fi
+if DEFERRED_LABELS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .deferred.labels DevFlow,Deferred); then DEFERRED_LABELS_RC=0; else DEFERRED_LABELS_RC=$?; fi
 [ "$DEFERRED_LABELS_RC" -eq 0 ] || workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0 could not read deferred.labels (config-get rc=$DEFERRED_LABELS_RC — corrupt config.json or python3 missing); deferred follow-up issues filed WITHOUT labels."
 CLEAN_DEFERRED_LABELS=$(echo "$DEFERRED_LABELS" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' | paste -sd, -)
 if [ -z "$DEFERRED_ISSUE_NUMBERS" ]; then
@@ -86,7 +86,7 @@ elif [ -n "$CLEAN_DEFERRED_LABELS" ]; then
   # under `set -e` — the best-effort idiom matches the pre-existing docs.labels block.)
   echo "$CLEAN_DEFERRED_LABELS" | tr ',' '\n' | while IFS= read -r lbl; do
     [ -n "$lbl" ] || continue
-    ${CLAUDE_SKILL_DIR}/../../scripts/ensure-label.sh "$lbl"
+    "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/ensure-label.sh "$lbl"
   done
   # Apply to every issue filed above (the numbers captured into DEFERRED_ISSUE_NUMBERS)
   # through the shared REST label-apply helper (POST .../issues/{n}/labels — repo-scope
@@ -97,7 +97,7 @@ elif [ -n "$CLEAN_DEFERRED_LABELS" ]; then
   # (retrospective-visible) as well as stderr — stderr is ephemeral in an autonomous cloud
   # run, so a stderr-only breadcrumb would leave an unlabeled issue with no durable trace.
   for n in $DEFERRED_ISSUE_NUMBERS; do
-    LBL_ERR="$(${CLAUDE_SKILL_DIR}/../../scripts/apply-labels.sh "$n" "$CLEAN_DEFERRED_LABELS" 2>&1)"
+    LBL_ERR="$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/apply-labels.sh "$n" "$CLEAN_DEFERRED_LABELS" 2>&1)"
     [ -n "$LBL_ERR" ] && { echo "$LBL_ERR" >&2; \
       workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0 could not apply the configured deferred labels ($CLEAN_DEFERRED_LABELS) to issue #$n (best-effort; the issue was filed but carries none of the configured deferred labels)."; }
   done
@@ -164,7 +164,7 @@ if [ -n "$MANIFESTS" ]; then
     # re-run this prevents duplicate filing but does not incrementally file newly-added
     # deferrals — that all-or-nothing is the helper's existing guard, handled benignly below.)
     PRIOR=""; [ -s "$AGG" ] && PRIOR="$AGG"
-    if ${CLAUDE_SKILL_DIR}/../../scripts/run-jq.sh -s '.[0] as $f | {schema_version:$f.schema_version, pr_branch:$f.pr_branch, base_branch:$f.base_branch, generated_at:$f.generated_at,
+    if "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/run-jq.sh -s '.[0] as $f | {schema_version:$f.schema_version, pr_branch:$f.pr_branch, base_branch:$f.base_branch, generated_at:$f.generated_at,
         deferrals: ([.[].deferrals[]] | unique_by((.file // "") + "|" + (.symbol // "") + "|" + (.kind // "") + "|" + ((.summary // "") | gsub("^\\s+|\\s+$";"")))) }' \
         $PRIOR $MANIFESTS > "${AGG}.tmp"; then
         mv "${AGG}.tmp" "$AGG"
@@ -181,7 +181,7 @@ if [ -n "$AGG" ] && [ -s "$AGG" ]; then
     # Capture rc so file-deferrals.py's exit codes aren't discarded: 0 = filed; exit 2
     # with "already has follow_up" is the benign idempotent-re-run case (the prior
     # aggregate is still hydrated and /pr-description reads it fine) — not a failure.
-    FILED_OUT=$(${CLAUDE_SKILL_DIR}/../../scripts/file-deferrals.py \
+    FILED_OUT=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/file-deferrals.py \
         --source-issue $ARGUMENTS \
         --pr "$PR_NUMBER" \
         --manifest "$AGG" 2>/tmp/devflow-fd.err); FD_RC=$?
@@ -226,7 +226,7 @@ if [ -n "${FILED_NUMBERS:-}" ]; then
     # paths (missing file / unset key); rc≠0 is the hard path. The `if`-condition form
     # keeps the rc capture alive even under `set -e` (a bare `VAR=$(cmd); RC=$?` aborts at
     # the assignment; an `if`-condition assignment is exempt).
-    if DEFERRED_LABELS=$(${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .deferred.labels DevFlow,Deferred); then DEFERRED_LABELS_RC=0; else DEFERRED_LABELS_RC=$?; fi
+    if DEFERRED_LABELS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .deferred.labels DevFlow,Deferred); then DEFERRED_LABELS_RC=0; else DEFERRED_LABELS_RC=$?; fi
     [ "$DEFERRED_LABELS_RC" -eq 0 ] || workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5 could not read deferred.labels (config-get rc=$DEFERRED_LABELS_RC — corrupt config.json or python3 missing); deferred review-finding issues filed WITHOUT labels."
     CLEAN_DEFERRED_LABELS=$(echo "$DEFERRED_LABELS" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' | paste -sd, -)
     if [ -n "$CLEAN_DEFERRED_LABELS" ]; then
@@ -234,7 +234,7 @@ if [ -n "${FILED_NUMBERS:-}" ]; then
         # with Phase 4.0); ensure-label.sh always exits 0, so the loop never aborts.
         echo "$CLEAN_DEFERRED_LABELS" | tr ',' '\n' | while IFS= read -r lbl; do
             [ -n "$lbl" ] || continue
-            ${CLAUDE_SKILL_DIR}/../../scripts/ensure-label.sh "$lbl"
+            "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/ensure-label.sh "$lbl"
         done
         # Apply via the shared REST label-apply helper (POST .../issues/{n}/labels — repo-scope
         # only; `gh issue edit --add-label` resolves the repo via org-scoped GraphQL and fails
@@ -247,7 +247,7 @@ if [ -n "${FILED_NUMBERS:-}" ]; then
         # would word-split away); the per-issue failure is caught best-effort so the loop completes.
         echo "$FILED_NUMBERS" | while IFS= read -r n; do
             [ -n "$n" ] || continue
-            LBL_ERR="$(${CLAUDE_SKILL_DIR}/../../scripts/apply-labels.sh "$n" "$CLEAN_DEFERRED_LABELS" 2>&1)"
+            LBL_ERR="$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/apply-labels.sh "$n" "$CLEAN_DEFERRED_LABELS" 2>&1)"
             [ -n "$LBL_ERR" ] && { echo "$LBL_ERR" >&2; \
                 workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5 could not apply the configured deferred labels ($CLEAN_DEFERRED_LABELS) to issue #$n (best-effort; the issue was filed but carries none of the configured deferred labels)."; }
         done
@@ -266,7 +266,7 @@ The rc handling above distinguishes three cases: a clean filing (rc 0), the beni
 ```bash
 ISSUE_BODY=$(gh issue view $ISSUE_NUMBER --json body --jq '.body'); GH_RC=$?
 DOC_NEEDED_PATHS=$(printf '%s' "$ISSUE_BODY" \
-  | ${CLAUDE_SKILL_DIR}/../../scripts/extract-doc-needed-paths.sh); HELPER_RC=$?
+  | "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/extract-doc-needed-paths.sh); HELPER_RC=$?
 ```
 
 **Read `GH_RC`/`HELPER_RC`, never stdout emptiness, as the failure signal.** A non-zero `GH_RC` (auth, network, rate-limit, or a wrong issue number) or a non-zero `HELPER_RC` (the extractor's own token scan failed) is a *command failure* that says nothing about which paths the issue names — **never treat its empty stdout as a no-op**, the way an empty `DOC_NEEDED_PATHS` would be treated below. That is the exact fail-open this gate exists to close, moved one stage upstream. Retry the read once; if it still fails, fail closed — route to the Blocked path (`workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind dropped-failed --reflection "Phase 4.1: could not read the issue body to extract Documentation Needed deliverables (gh/extractor command failure); the deliverable cross-check could not run — retry when GitHub is reachable"`), emit the 👎 outcome reaction, and stop. Only an rc-0 read with empty `DOC_NEEDED_PATHS` is the legitimate empty signal handled below.
@@ -278,8 +278,8 @@ Spawn a **subagent** (using the Agent tool) and instruct it to invoke the `devfl
 After the subagent completes, commit any documentation changes. Read the docs paths from `.devflow/config.json`:
 
 ```bash
-DOCS_INTERNAL=$(${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .docs.internal docs/internal/)
-DOCS_EXTERNAL=$(${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .docs.external docs/external/)
+DOCS_INTERNAL=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.internal docs/internal/)
+DOCS_EXTERNAL=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.external docs/external/)
 git status -- "$DOCS_INTERNAL" "$DOCS_EXTERNAL"
 ```
 
@@ -297,7 +297,7 @@ Then decide whether the docs pass succeeded: it succeeded if the docs subagent a
 ```bash
 ISSUE_BODY=$(gh issue view $ISSUE_NUMBER --json body --jq '.body'); GH_RC=$?
 DOC_NEEDED_PATHS=$(printf '%s' "$ISSUE_BODY" \
-  | ${CLAUDE_SKILL_DIR}/../../scripts/extract-doc-needed-paths.sh); HELPER_RC=$?
+  | "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/extract-doc-needed-paths.sh); HELPER_RC=$?
 ```
 
 **Read `GH_RC`/`HELPER_RC`, never stdout emptiness, as the failure signal** — symmetric to the diff side below. A non-zero `GH_RC` (auth, network, rate-limit, or a wrong issue number) or a non-zero `HELPER_RC` (the extractor's own token scan failed) is a *command failure* that says nothing about which paths the issue names — **never treat its empty stdout as a no-op** (the step-1 escape hatch below), which would silently wave the gate through exactly when the deliverable list could not be read. Retry the read once; if it still fails, fail closed — route to the Blocked path (`workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind dropped-failed --reflection "Phase 4.1: could not read the issue body to extract Documentation Needed deliverables (gh/extractor command failure); the deliverable cross-check could not run — retry when GitHub is reachable"`), emit the 👎 outcome reaction, and stop. Only an rc-0 read with empty `DOC_NEEDED_PATHS` is the legitimate empty signal step 1 treats as a no-op.
@@ -315,7 +315,7 @@ DOC_NEEDED_PATHS=$(printf '%s' "$ISSUE_BODY" \
 Once every named path is satisfied (or Stage 1 found no paths), apply the deferred post-docs labels — only when the docs pass succeeded per the Stage-1 decision above; a run that routed to Blocked never reaches this point, so a Blocked PR never carries them. `docs.labels` is a comma-separated list (default `Documented`); normalize it (split on commas, trim each entry, drop empties) and apply through the shared REST label-apply helper (a PR is an issue, so `POST .../issues/{n}/labels` serves it — repo-scope only, unlike `gh pr edit --add-label`'s org-scoped GraphQL resolution). The REST path needs the PR number explicitly, so resolve it first from the current branch:
 
 ```bash
-DOCS_LABELS=$(${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .docs.labels Documented)
+DOCS_LABELS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.labels Documented)
 CLEAN_LABELS=$(echo "$DOCS_LABELS" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' | paste -sd, -)
 DOCS_PR_NUM=$(gh pr view --json number --jq '.number')
 # The REST endpoint needs the PR number, which the old `gh pr edit` form resolved
@@ -325,7 +325,7 @@ DOCS_PR_NUM=$(gh pr view --json number --jq '.number')
 # 4.0.5 deferral channels use, since stderr is ephemeral in an autonomous cloud run).
 if [ -n "$CLEAN_LABELS" ]; then
   if [ -n "$DOCS_PR_NUM" ]; then
-    ${CLAUDE_SKILL_DIR}/../../scripts/apply-labels.sh "$DOCS_PR_NUM" "$CLEAN_LABELS"
+    "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/apply-labels.sh "$DOCS_PR_NUM" "$CLEAN_LABELS"
   else
     echo "devflow: Phase 4.1 could not resolve the PR number (gh pr view returned empty); docs labels ($CLEAN_LABELS) NOT applied" >&2
     workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.1 could not resolve the PR number to apply docs labels ($CLEAN_LABELS); the PR carries none of the configured docs labels."
@@ -335,7 +335,7 @@ fi
 
 Then tick the Documentation phase in the workpad: `workpad.py update $ISSUE_NUMBER --tick-progress "Documentation"`.
 
-**Re-anchor before §4.2 (mandatory, after the Phase 4.1 `devflow:docs` subagent returns and its docs are committed).** Phase 4.1 above dispatched a context-isolated `devflow:docs` subagent (Stage 1/Stage 2); a long subagent return can evict this phase file from your working set, which is exactly how a run stops at "documentation done" before reaching §4.2/§4.3. So now that the docs subagent has returned and its docs are committed, before proceeding to §4.2, **`Read` `${CLAUDE_SKILL_DIR}/phases/phase-4-documentation.md` again and follow it exactly** — re-anchoring the remaining §4.2 (PR description) and §4.3 (finalize) procedure, never relying on the earlier entry-gate read. This re-anchor is scoped to the Phase 4.1 docs subagent return **only** — do not apply it to the Phase 2 or Phase 3 subagent returns, whose phases carry their own entry-gate reads.
+**Re-anchor before §4.2 (mandatory, after the Phase 4.1 `devflow:docs` subagent returns and its docs are committed).** Phase 4.1 above dispatched a context-isolated `devflow:docs` subagent (Stage 1/Stage 2); a long subagent return can evict this phase file from your working set, which is exactly how a run stops at "documentation done" before reaching §4.2/§4.3. So now that the docs subagent has returned and its docs are committed, before proceeding to §4.2, **`Read` `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/phases/phase-4-documentation.md` again and follow it exactly** — re-anchoring the remaining §4.2 (PR description) and §4.3 (finalize) procedure, never relying on the earlier entry-gate read. This re-anchor is scoped to the Phase 4.1 docs subagent return **only** — do not apply it to the Phase 2 or Phase 3 subagent returns, whose phases carry their own entry-gate reads.
 
 ### 4.2 Generate PR Description
 
@@ -376,7 +376,7 @@ If it is non-empty, **do not** finalize yet. The run began from a clean base-bra
 **Publish decision — `implement_pr_state`.** Whether the run publishes the PR or leaves it the draft created in Phase 3.1 is a per-consumer config choice. Read it (default `ready_for_review`), then publish **only** when it is not the exact literal `draft` — default-to-publish is the safe direction, so a missing key, empty string, or any unrecognized value publishes, and a hard read failure (malformed config) falls back to publishing. **Capture whether `gh pr ready` actually succeeded** so the finalize wording reflects the *real* end state — a bare `gh pr ready` whose failure (the `else` arm catches *any* non-zero exit — e.g. auth scope, GitHub 5xx, rate limit, a race that already merged/closed the PR) fell through would otherwise leave the workpad falsely claiming the PR was published when it is still a draft:
 
 ```bash
-PR_STATE=$(${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .devflow_implement.implement_pr_state ready_for_review) || PR_STATE=ready_for_review
+PR_STATE=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .devflow_implement.implement_pr_state ready_for_review) || PR_STATE=ready_for_review
 PR_OUTCOME=draft   # one of: draft | published | publish_failed (overwritten below unless PR_STATE=draft)
 if [ "$PR_STATE" = "draft" ]; then
     echo "devflow: implement_pr_state=draft — leaving PR as a draft (skipping gh pr ready)" >&2
