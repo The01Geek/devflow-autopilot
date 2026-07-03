@@ -7403,14 +7403,18 @@ echo "opt-in GitHub App tokens — writers full-scope + per-site downscoped (iss
 # continue-on-error): a configured-but-broken App fails the job rather than
 # silently degrading to GITHUB_TOKEN.
 
-# Extract one mint step's block from a workflow: from its `- name:` line to the
-# next sibling step's `- name:` (6-space step indent, matching these workflows).
-# Matched with index() (literal substring), not a regex — the step names carry
-# regex metacharacters ("(optional)").
+# Extract one step's block from a workflow: from its `- name:` line to the
+# next sibling step's `- name:` (6-space step indent, matching these workflows)
+# OR the enclosing job's end (a 2-space-indented key, i.e. the next job) —
+# without the job-boundary stop, a job's LAST named step would bleed into the
+# following job's header and name-less steps, un-scoping the assertions run
+# against the block. Matched with index() (literal substring), not a regex —
+# the step names carry regex metacharacters ("(optional)").
 mint_blk() {
   awk -v n="$1" '
     index($0, "- name: " n){f=1}
     f && /^      - name:/ && index($0, "- name: " n) == 0{exit}
+    f && /^  [^ ]/{exit}
     f{print}' "$2"
 }
 
@@ -7520,8 +7524,11 @@ assert_eq "app-token: devflow-implement.yml react + duplicate-notice both consum
 for pair in 'devflow|Notice — manual review suppressed' 'devflow-implement|Notice — duplicate ignored'; do
   IFS='|' read -r f name <<<"$pair"
   blk="$(mint_blk "$name" "$WF/$f.yml")"
+  # -F (fixed-string): the literal carries a mid-pattern `$` that a
+  # non-GNU/POSIX grep (e.g. ugrep) would read as an anchor and count 0,
+  # failing a correct suite on such a host.
   assert_eq "app-token: $f.yml '$name' posts via REST gh api (issues comments endpoint)" "1" \
-    "$(printf '%s\n' "$blk" | grep -c 'gh api --method POST "repos/$REPO/issues/' || true)"
+    "$(printf '%s\n' "$blk" | grep -cF 'gh api --method POST "repos/$REPO/issues/' || true)"
   assert_eq "app-token: $f.yml '$name' uses no gh issue/pr comment porcelain" "0" \
     "$(printf '%s\n' "$blk" | grep -cE 'gh (issue|pr) comment ' || true)"
 done
