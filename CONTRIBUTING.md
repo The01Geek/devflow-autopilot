@@ -101,7 +101,7 @@ The `.github/workflows/*.yml` files run inside GitHub Actions, where they refere
 plugin scripts at `.devflow/vendor/devflow/scripts/…`. That path assumes the cloud
 tier is used with the plugin **vendored** into the consuming repo at that path (see
 `docs/cloud-setup.md`). This is intentional and distinct from the local skills, which
-use `${CLAUDE_SKILL_DIR}`.
+resolve the portable `${CLAUDE_SKILL_DIR:-…}` anchor at runtime.
 
 ## Submitting changes
 

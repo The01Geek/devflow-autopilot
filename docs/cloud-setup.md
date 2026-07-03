@@ -51,7 +51,7 @@ or a tag like `"v1.2.0"` — is guaranteed protected and left untouched on re-ru
 
 ### Why the plugin lives at a workspace path (not added as a github marketplace in CI)
 
-The local skills locate their helpers via `${CLAUDE_SKILL_DIR}`, but in the
+The local skills locate their helpers via the portable `${CLAUDE_SKILL_DIR:-…}` anchor (with a runner-reported base-directory fallback), but in the
 `claude-code-action` runner that variable is unset, the bash sandbox cannot read
 `~/.claude` (where a marketplace plugin would install), and `$`-expansion in
 commands is blocked. So the workflows reference helper scripts at the **literal
