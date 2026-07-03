@@ -82,6 +82,16 @@ on:
       CLAUDE_CODE_OAUTH_TOKEN:
         description: 'Anthropic Claude Code OAuth token. Pass via `secrets: inherit` from callers.'
         required: true
+      DEVFLOW_APP_PRIVATE_KEY:
+        description: |
+          PEM private key of the optional DevFlow GitHub App (see
+          docs/cloud-setup.md). Consumed by the downscoped review-token mint
+          step, which is gated on `vars.DEVFLOW_APP_ID != ''` — so this secret
+          is only read when the App is configured. Resolves via `secrets:
+          inherit` from the caller (devflow-review.yml); declared here because
+          a reusable workflow's `secrets` context is typed by this block
+          (actionlint rejects an undeclared reference).
+        required: false
 
 # Job permissions are a clean subset of any caller's grant — this is the
 # invariant whose violation caused the startup_failure. A caller's `review`
