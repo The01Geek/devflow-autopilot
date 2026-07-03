@@ -126,7 +126,7 @@ Look for a commit whose message begins with `chore: bump version`. This commit's
 
 Read the **authoritative shipped version** from the manifest (the bump, and any later re-version, both update it):
 ```bash
-${CLAUDE_SKILL_DIR}/../../scripts/run-jq.sh -r .version .claude-plugin/plugin.json
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/run-jq.sh -r .version .claude-plugin/plugin.json
 ```
 Inspect the result: a non-zero `jq` exit, empty output, or a value that is not an `N.N.N` version string (e.g. `null` from an absent key) — **while a bump commit is present** — is a **failed determination** (the fail-loud path below), not a clean version; only a well-formed `N.N.N` value continues. Then read `[[CHANGELOG_FILE]]` and search for the bracketed Keep-a-Changelog heading `## [<version>]` for that manifest version (e.g., `## [2.8.26]`). If `[[CHANGELOG_FILE]]` itself cannot be read (missing, permission, IO) while a bump commit and a valid manifest version are both present, that too is a **failed determination**, not "no matching section". If the file reads cleanly but has no section heading matching the manifest version, this step is a no-op — log "no CHANGELOG section found for version X" and proceed to Step 5; CHANGELOG *presence* on a bump is separately enforced by the Phase 3 review gate, not here.
 

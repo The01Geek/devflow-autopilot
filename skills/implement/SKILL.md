@@ -56,7 +56,7 @@ Throughout the run you maintain exactly **one** marker-tagged comment on the Git
 # Resolve the triggering comment (best-effort): the newest issue comment that
 # quotes /devflow:implement but is NOT the workpad (no marker). $GITHUB_EVENT_PATH
 # also carries .comment.id when the event was a comment — prefer it when present.
-TRIGGER_COMMENT_ID=$(${CLAUDE_SKILL_DIR}/../../scripts/run-jq.sh -r '.comment.id // empty' "$GITHUB_EVENT_PATH" 2>/dev/null || true)
+TRIGGER_COMMENT_ID=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/run-jq.sh -r '.comment.id // empty' "$GITHUB_EVENT_PATH" 2>/dev/null || true)
 if [ -z "$TRIGGER_COMMENT_ID" ]; then
   TRIGGER_COMMENT_ID=$(gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER/comments?per_page=100" \
     --jq 'map(select((.body | contains("/devflow:implement")) and (.body | contains("devflow:workpad") | not))) | last | .id' 2>/dev/null || true)
