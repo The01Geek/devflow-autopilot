@@ -1,0 +1,589 @@
+{
+ "iter": 1,
+ "started_at": "2026-07-02T23:58:24Z",
+ "fix_commit_sha": "f8fef32267518f9985ec7ce60b7e8c58a5828b1e",
+ "fix_files": [
+  ".github/workflows/devflow.yml",
+  ".github/workflows/devflow-implement.yml",
+  "docs/cloud-setup.md",
+  "lib/test/run.sh"
+ ],
+ "loop_role": "fix",
+ "checklist": [
+  {
+   "id": "VC-1",
+   "claim": "runner mint step gated/id/scopes/fail-loud",
+   "file": ".github/workflows/devflow-runner.yml",
+   "verification_mode": "agent",
+   "claim_signature": "api_contract:devflow-runner.yml:review-mint-scopes",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-2",
+   "claim": "runner github_token fallback expression",
+   "file": ".github/workflows/devflow-runner.yml",
+   "verification_mode": "lite",
+   "claim_signature": "api_contract:devflow-runner.yml:github-token-fallback",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-3",
+   "claim": "runner mint no write-widening inputs",
+   "file": ".github/workflows/devflow-runner.yml",
+   "verification_mode": "agent",
+   "claim_signature": "api_contract:devflow-runner.yml:no-write-widen",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-4",
+   "claim": "devflow.yml gate mint scopes/gating",
+   "file": ".github/workflows/devflow.yml",
+   "verification_mode": "agent",
+   "claim_signature": "api_contract:devflow.yml:gate-mint-scopes",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-5",
+   "claim": "react GH_TOKEN fallback",
+   "file": ".github/workflows/devflow.yml",
+   "verification_mode": "lite",
+   "claim_signature": "api_contract:devflow.yml:react-token-fallback",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-6",
+   "claim": "dedupe mint scopes/gating",
+   "file": ".github/workflows/devflow.yml",
+   "verification_mode": "agent",
+   "claim_signature": "api_contract:devflow.yml:dedupe-mint-scopes",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-7",
+   "claim": "notice REST post + warning capture",
+   "file": ".github/workflows/devflow.yml",
+   "verification_mode": "agent",
+   "claim_signature": "api_contract:devflow.yml:notice-rest-post",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-8",
+   "claim": "guard head output -> notice HEAD env",
+   "file": ".github/workflows/devflow.yml",
+   "verification_mode": "agent",
+   "claim_signature": "dependency_interaction:devflow.yml:guard-head-output",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-9",
+   "claim": "implement gate mint scopes/order",
+   "file": ".github/workflows/devflow-implement.yml",
+   "verification_mode": "agent",
+   "claim_signature": "api_contract:devflow-implement.yml:gate-mint-scopes",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-10",
+   "claim": "implement dual consumers",
+   "file": ".github/workflows/devflow-implement.yml",
+   "verification_mode": "agent",
+   "claim_signature": "api_contract:devflow-implement.yml:dual-consumer-fallback",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-11",
+   "claim": "duplicate notice REST post",
+   "file": ".github/workflows/devflow-implement.yml",
+   "verification_mode": "lite",
+   "claim_signature": "api_contract:devflow-implement.yml:notice-rest-post",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-12",
+   "claim": "no contents/workflows on reaction mints",
+   "file": ".github/workflows/devflow.yml",
+   "verification_mode": "agent",
+   "claim_signature": "api_contract:workflows:no-contents-workflows-on-reaction-mints",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-13",
+   "claim": "writer mints stay full-scope",
+   "file": ".github/workflows/devflow-implement.yml",
+   "verification_mode": "agent",
+   "claim_signature": "dependency_interaction:workflows:writer-full-scope-unchanged",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-14",
+   "claim": "mint_blk awk extraction correct",
+   "file": "lib/test/run.sh",
+   "verification_mode": "agent",
+   "claim_signature": "test_mock_alignment:run.sh:mint_blk-extraction",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-15",
+   "claim": "APP_SITES table matches workflows",
+   "file": "lib/test/run.sh",
+   "verification_mode": "agent",
+   "claim_signature": "test_mock_alignment:run.sh:app-sites-table-matches-workflows",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-16",
+   "claim": "exact permission count assertion sound",
+   "file": "lib/test/run.sh",
+   "verification_mode": "agent",
+   "claim_signature": "test_mock_alignment:run.sh:exact-permission-count",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-17",
+   "claim": "per-file mint totals match",
+   "file": "lib/test/run.sh",
+   "verification_mode": "agent",
+   "claim_signature": "test_mock_alignment:run.sh:per-file-mint-totals",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-18",
+   "claim": "AC11 freeze fully retired",
+   "file": "lib/test/run.sh",
+   "verification_mode": "agent",
+   "claim_signature": "test_mock_alignment:run.sh:ac11-retirement-complete",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-19",
+   "claim": "stale AC11 cross-refs reconciled",
+   "file": "lib/test/run.sh",
+   "verification_mode": "agent",
+   "claim_signature": "data_format_assumption:run.sh:ac11-cross-ref-reconciled",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-20",
+   "claim": "cloud-setup.md five permissions + no untouched claim",
+   "file": "docs/cloud-setup.md",
+   "verification_mode": "lite",
+   "claim_signature": "api_contract:cloud-setup.md:five-permissions-documented",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-21",
+   "claim": "overview section 15 updated",
+   "file": "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+   "verification_mode": "lite",
+   "claim_signature": "api_contract:overview.md:section15-updated",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-22",
+   "claim": "version bump + CHANGELOG match",
+   "file": ".claude-plugin/plugin.json",
+   "verification_mode": "lite",
+   "claim_signature": "dependency_interaction:plugin.json:changelog-match",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-23",
+   "claim": "unset App fallback parity",
+   "file": ".github/workflows/devflow.yml",
+   "verification_mode": "agent",
+   "claim_signature": "dependency_interaction:workflows:unset-app-id-fallback-parity",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-24",
+   "claim": "guard queries stay on github.token",
+   "file": ".github/workflows/devflow.yml",
+   "verification_mode": "agent",
+   "claim_signature": "api_contract:devflow.yml:guard-queries-stay-unscoped",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  }
+ ],
+ "phase3_dispatched": [
+  "devflow:code-reviewer",
+  "devflow:silent-failure-hunter",
+  "devflow:comment-analyzer",
+  "devflow:pr-test-analyzer",
+  "devflow:requesting-code-review"
+ ],
+ "diff_profile": {
+  "small_diff": false,
+  "config_only": false,
+  "has_new_types": false,
+  "engine_self_modifying": true,
+  "checklist_skipped": null
+ },
+ "phase3_findings": [
+  {
+   "agent": "devflow:silent-failure-hunter",
+   "severity": "Important",
+   "description": "fail-loud gate/dedupe mint escalates a cosmetic post's credential failure into blocking the whole command path; react-step 'never blocks' comments now stale",
+   "defect_signature": {
+    "file": ".github/workflows/devflow-implement.yml",
+    "line_range": [
+     200,
+     240
+    ],
+    "kind": "logic_error"
+   },
+   "corroboration_count": 1,
+   "step25_classification": "codebase",
+   "fix_decision": "severity-calibrated"
+  },
+  {
+   "agent": "devflow:silent-failure-hunter",
+   "severity": "Suggestion",
+   "description": "react-step best-effort comments drift vs mint-failure mode",
+   "defect_signature": {
+    "file": ".github/workflows/devflow.yml",
+    "line_range": [
+     221,
+     232
+    ],
+    "kind": "comment_drift"
+   },
+   "corroboration_count": 1,
+   "step25_classification": "codebase",
+   "fix_decision": "applied"
+  },
+  {
+   "agent": "devflow:pr-test-analyzer",
+   "severity": "Important",
+   "description": "no run.sh pin asserts the two notice posts use REST gh api; porcelain revert ships green and fails silently under App token (#228 class)",
+   "defect_signature": {
+    "file": "lib/test/run.sh",
+    "line_range": [
+     7460,
+     7472
+    ],
+    "kind": "test_gap"
+   },
+   "corroboration_count": 1,
+   "step25_classification": "codebase",
+   "fix_decision": "applied"
+  },
+  {
+   "agent": "devflow:pr-test-analyzer",
+   "severity": "Suggestion",
+   "description": "guard head output/consumer coupling unpinned",
+   "defect_signature": {
+    "file": ".github/workflows/devflow.yml",
+    "line_range": [
+     196,
+     227
+    ],
+    "kind": "test_gap"
+   },
+   "corroboration_count": 1,
+   "step25_classification": "codebase",
+   "fix_decision": "applied"
+  },
+  {
+   "agent": "devflow:pr-test-analyzer",
+   "severity": "Suggestion",
+   "description": "should_run/suppress mint conjuncts unpinned (cost creep only)",
+   "defect_signature": {
+    "file": "lib/test/run.sh",
+    "line_range": [
+     7440,
+     7446
+    ],
+    "kind": "test_gap"
+   },
+   "corroboration_count": 1,
+   "step25_classification": "codebase",
+   "fix_decision": "deferred"
+  },
+  {
+   "agent": "devflow:comment-analyzer",
+   "severity": "Suggestion",
+   "description": "'reactions only' comment overstates downscope",
+   "defect_signature": {
+    "file": ".github/workflows/devflow.yml",
+    "line_range": [
+     302,
+     307
+    ],
+    "kind": "comment_drift"
+   },
+   "corroboration_count": 1,
+   "step25_classification": "codebase",
+   "fix_decision": "applied"
+  },
+  {
+   "agent": "devflow:comment-analyzer",
+   "severity": "Suggestion",
+   "description": "'Best-effort like the old inline post' imprecision",
+   "defect_signature": {
+    "file": ".github/workflows/devflow.yml",
+    "line_range": [
+     216,
+     222
+    ],
+    "kind": "comment_drift"
+   },
+   "corroboration_count": 1,
+   "step25_classification": "codebase",
+   "fix_decision": "applied"
+  },
+  {
+   "agent": "devflow:requesting-code-review",
+   "severity": "Suggestion",
+   "description": "no ceiling pin for future bare github.token post sites; docs mention of fail-loud on review path",
+   "defect_signature": {
+    "file": "lib/test/run.sh",
+    "line_range": [
+     7519,
+     7546
+    ],
+    "kind": "test_gap"
+   },
+   "corroboration_count": 1,
+   "step25_classification": "codebase",
+   "fix_decision": "deferred"
+  }
+ ],
+ "fix_decisions": [
+  {
+   "finding_id": "F-1",
+   "decision": "severity-calibrated",
+   "source_file": ".github/workflows/devflow-implement.yml",
+   "claim_text": "fail-loud gate mint blocks the whole command path for a reaction credential failure",
+   "original_severity": "Important",
+   "calibrated_severity": "Suggestion",
+   "evidence": "over-grade shape 1 (fail-closed): the mint fails LOUD and bounded (job error) on exactly the App-configured-but-broken input; the no-continue-on-error contract is mandated verbatim by issue #269 ACs 4-6 and the issue's Potential Gotchas ('fails the mint (fail-loud, by design)'), so the design cannot change without violating the spec; the real defect was the stale 'never blocks' comments + missing docs mention, fixed as the comment_drift siblings"
+  },
+  {
+   "finding_id": "F-2",
+   "decision": "applied",
+   "commit": "53d7ecc3b886764f6d094a86a38deacbcb802ff2"
+  },
+  {
+   "finding_id": "F-3",
+   "decision": "applied",
+   "commit": "53d7ecc3b886764f6d094a86a38deacbcb802ff2"
+  },
+  {
+   "finding_id": "F-4",
+   "decision": "applied",
+   "commit": "53d7ecc3b886764f6d094a86a38deacbcb802ff2"
+  },
+  {
+   "finding_id": "F-5",
+   "decision": "deferred",
+   "source_file": "lib/test/run.sh",
+   "claim_text": "should_run/suppress mint conjuncts unpinned",
+   "skip_category": "uncategorized",
+   "evidence": "real but minor: dropping a conjunct costs only an unused mint on rejection paths (opt-in repos), no functional/security break; pinning an efficiency optimization would couple the suite to a non-contract detail"
+  },
+  {
+   "finding_id": "F-6",
+   "decision": "applied",
+   "commit": "53d7ecc3b886764f6d094a86a38deacbcb802ff2"
+  },
+  {
+   "finding_id": "F-7",
+   "decision": "applied",
+   "commit": "53d7ecc3b886764f6d094a86a38deacbcb802ff2"
+  },
+  {
+   "finding_id": "F-8",
+   "decision": "deferred",
+   "source_file": "lib/test/run.sh",
+   "claim_text": "ceiling pin for future bare github.token post sites",
+   "skip_category": "uncategorized",
+   "evidence": "forward-looking guard against hypothetical future sites; would false-positive on legitimate query steps that correctly keep github.token (resolve/dedupe/guard); the docs-mention half was applied in docs/cloud-setup.md"
+  }
+ ],
+ "convergence_inputs": {
+  "fixes_applied": 5,
+  "fix_diff_lines": 46,
+  "new_corroborated_critical_count": 0
+ },
+ "cap_drops": {
+  "count": 0,
+  "by_category": {}
+ },
+ "telemetry": {
+  "phase_0": {
+   "calls": 0,
+   "tokens": 0,
+   "wall_clock_s": 20
+  },
+  "phase_0_5": {
+   "calls": 0,
+   "tokens": 0,
+   "wall_clock_s": 2
+  },
+  "phase_1": {
+   "calls": 1,
+   "tokens": 75013,
+   "wall_clock_s": 38
+  },
+  "phase_1_5": {
+   "calls": 0,
+   "tokens": 0,
+   "wall_clock_s": 0
+  },
+  "phase_2": {
+   "calls": 18,
+   "tokens": 841604,
+   "wall_clock_s": 120
+  },
+  "phase_3": {
+   "calls": 5,
+   "tokens": 368357,
+   "wall_clock_s": 301
+  },
+  "step_2_5": {
+   "calls": 0,
+   "tokens": 0,
+   "wall_clock_s": 2,
+   "webfetches": 0
+  },
+  "phase_4_x": {
+   "calls": 0,
+   "tokens": 0,
+   "wall_clock_s": 5
+  }
+ },
+ "shadow": {
+  "ran_at": "2026-07-03T00:40:00Z",
+  "reviewed_sha": "f8fef32267518f9985ec7ce60b7e8c58a5828b1e",
+  "verdict": "REJECT",
+  "coverage": "full",
+  "reviewers_dispatched": [
+   "devflow:code-reviewer",
+   "devflow:silent-failure-hunter",
+   "devflow:comment-analyzer",
+   "devflow:pr-test-analyzer",
+   "devflow:requesting-code-review"
+  ],
+  "expected_reviewers": [
+   "devflow:code-reviewer",
+   "devflow:silent-failure-hunter",
+   "devflow:comment-analyzer",
+   "devflow:pr-test-analyzer",
+   "devflow:requesting-code-review"
+  ],
+  "reason": null,
+  "checklist_skipped": null,
+  "phase3_findings": [
+   {
+    "agent": "devflow:requesting-code-review",
+    "severity": "Critical",
+    "description": "version collision 2.8.58 vs origin/main PR #255",
+    "defect_signature": {
+     "file": ".claude-plugin/plugin.json",
+     "line_range": [
+      3,
+      3
+     ],
+     "kind": "other"
+    }
+   },
+   {
+    "agent": "devflow:requesting-code-review",
+    "severity": "Important",
+    "description": "trigger phrase in App-token-authored suppression notice",
+    "defect_signature": {
+     "file": ".github/workflows/devflow.yml",
+     "line_range": [
+      220,
+      236
+     ],
+     "kind": "logic_error"
+    }
+   },
+   {
+    "agent": "devflow:comment-analyzer",
+    "severity": "Important",
+    "description": "docs overclaim every user-visible post (workpad exception missing)",
+    "defect_signature": {
+     "file": "docs/cloud-setup.md",
+     "line_range": [
+      146,
+      164
+     ],
+     "kind": "comment_drift"
+    }
+   },
+   {
+    "agent": "devflow:pr-test-analyzer",
+    "severity": "Important",
+    "description": "guard id/suppress coupling half-pinned",
+    "defect_signature": {
+     "file": ".github/workflows/devflow.yml",
+     "line_range": [
+      120,
+      200
+     ],
+     "kind": "test_gap"
+    }
+   },
+   {
+    "agent": "devflow:silent-failure-hunter",
+    "severity": "Suggestion",
+    "description": "consumer-condition conjunct unpinned",
+    "defect_signature": {
+     "file": "lib/test/run.sh",
+     "line_range": [
+      7460,
+      7466
+     ],
+     "kind": "test_gap"
+    }
+   },
+   {
+    "agent": "devflow:requesting-code-review",
+    "severity": "Suggestion",
+    "description": "permission- count grep counts prose",
+    "defect_signature": {
+     "file": "lib/test/run.sh",
+     "line_range": [
+      7480,
+      7500
+     ],
+     "kind": "test_gap"
+    }
+   }
+  ],
+  "phase2_fails": [],
+  "comparison": {
+   "shadow_total": 6,
+   "overlap_with_iter_N": 0,
+   "new": 6,
+   "new_critical": 1,
+   "new_important": 3
+  },
+  "promoted_to_iter_next": true
+ }
+}

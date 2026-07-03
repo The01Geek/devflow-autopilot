@@ -197,6 +197,27 @@ jobs:
           fi
           bash "$DEDUPE" >> "$GITHUB_OUTPUT"
 
+      # Optional, opt-in: mint ONE App token DOWNSCOPED to this job's
+      # user-visible posts — the trigger reaction and the duplicate-ignored
+      # notice below (no contents/workflows: this job neither reads code with
+      # it nor pushes; the early workpad comment below deliberately stays on
+      # github.token — detection is marker-based, so authorship never matters). Same opt-in/fail-loud/downscope contract as the review
+      # mint in devflow-runner.yml — see docs/cloud-setup.md. NOTE: fail-loud
+      # means a configured-but-broken App fails THIS gate job (and so blocks
+      # the run) — deliberate, so a broken App is never silently degraded
+      # around. Minted only when a consumer will actually run (should_run
+      # gates both the reaction and the notice), so the common
+      # unauthorized/non-command rejection path stays mint-free.
+      - name: Mint downscoped reaction token (optional)
+        id: gate_app_token
+        if: ${{ vars.DEVFLOW_APP_ID != '' && steps.resolve.outputs.should_run == 'true' }}
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.DEVFLOW_APP_ID }}
+          private-key: ${{ secrets.DEVFLOW_APP_PRIVATE_KEY }}
+          permission-issues: write
+          permission-pull-requests: write
+
       # Early acknowledgement: react on the triggering comment the moment we know
       # /devflow:implement is authorized, resolvable, AND not a duplicate, long
       # before the heavy `claude` job runs. Best-effort and continue-on-error so
@@ -206,7 +227,7 @@ jobs:
         if: ${{ steps.resolve.outputs.should_run == 'true' && steps.dedupe.outputs.duplicate != 'true' }}
         continue-on-error: true
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.gate_app_token.outputs.token || github.token }}
           REPO: ${{ github.repository }}
           EVENT_NAME: ${{ github.event_name }}
           COMMENT_ID: ${{ github.event.comment.id }}
@@ -279,7 +300,7 @@ jobs:
         if: ${{ steps.resolve.outputs.should_run == 'true' && steps.dedupe.outputs.duplicate == 'true' }}
         continue-on-error: true
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.gate_app_token.outputs.token || github.token }}
           REPO: ${{ github.repository }}
           NUMBER: ${{ steps.resolve.outputs.number }}
         run: |
@@ -289,7 +310,11 @@ jobs:
           # failure is distinguishable from a transient blip (same diagnostic
           # discipline as react-to-trigger.sh) — without it, the requester gets
           # no notice AND the log gives no actionable reason.
-          if ! err="$(gh issue comment "$NUMBER" --repo "$REPO" --body "$NOTE" 2>&1 >/dev/null)"; then
+          # REST (not `gh issue comment` porcelain): this step now runs under
+          # the repo-scoped App installation token when configured, and
+          # GraphQL-resolving porcelain fails silently under repo-scoped
+          # tokens (CLAUDE.md gotcha, #228).
+          if ! err="$(gh api --method POST "repos/$REPO/issues/$NUMBER/comments" -f body="$NOTE" 2>&1 >/dev/null)"; then
             echo "::warning::could not post duplicate-ignored notice on #$NUMBER (continuing): ${err//$'\n'/ }" >&2
           fi
 
@@ -333,8 +358,10 @@ jobs:
         with:
           config_json: ${{ steps.cfg.outputs.json }}
 
-      # Optional, opt-in: mint a GitHub App installation token carrying
-      # Contents: write + Workflows: write so the agent's git push can edit
+      # Optional, opt-in: mint a GitHub App installation token at full
+      # installation scope (notably Contents: write + Workflows: write — no
+      # permission-* downscope, unlike the per-site tokens elsewhere in these
+      # workflows) so the agent's git push can edit
       # .github/workflows/ files (which the built-in GITHUB_TOKEN is hard-blocked
       # from). Gated on the DEVFLOW_APP_ID repository VARIABLE: unset/empty → the
       # step is skipped and github_token below falls back to GITHUB_TOKEN, leaving

@@ -82,6 +82,16 @@ on:
       CLAUDE_CODE_OAUTH_TOKEN:
         description: 'Anthropic Claude Code OAuth token. Pass via `secrets: inherit` from callers.'
         required: true
+      DEVFLOW_APP_PRIVATE_KEY:
+        description: |
+          PEM private key of the optional DevFlow GitHub App (see
+          docs/cloud-setup.md). Consumed by the downscoped review-token mint
+          step, which is gated on `vars.DEVFLOW_APP_ID != ''` — so this secret
+          is only read when the App is configured. Resolves via `secrets:
+          inherit` from the caller (devflow-review.yml); declared here because
+          a reusable workflow's `secrets` context is typed by this block
+          (actionlint rejects an undeclared reference).
+        required: false
 
 # Job permissions are a clean subset of any caller's grant — this is the
 # invariant whose violation caused the startup_failure. A caller's `review`
@@ -491,17 +501,43 @@ jobs:
             printf '%s\n' "$delim"
           } >> "$GITHUB_OUTPUT"
 
+      # Optional, opt-in: mint a GitHub App installation token DOWNSCOPED to what
+      # the review agent actually does — read the repo/issue/CI and post comments,
+      # reviews, approvals, and rejections. `contents: read` (never write) is what
+      # makes a branch push impossible for the review path, and the permission-*
+      # inputs are the SOLE enforcement of least privilege (an App installation
+      # token ignores the job's `permissions:` block). Gated on the DEVFLOW_APP_ID
+      # repository VARIABLE: unset/empty → the step is skipped and github_token
+      # below falls back to GITHUB_TOKEN, leaving behavior byte-for-byte unchanged
+      # for consumers who do not opt in. NO continue-on-error: a
+      # configured-but-broken App (invalid/rotated key, or an installation not
+      # granted these permissions) fails the job here rather than silently
+      # degrading to GITHUB_TOKEN.
+      - name: Mint downscoped review token (optional)
+        id: app-token
+        if: ${{ vars.DEVFLOW_APP_ID != '' }}
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.DEVFLOW_APP_ID }}
+          private-key: ${{ secrets.DEVFLOW_APP_PRIVATE_KEY }}
+          permission-contents: read
+          permission-issues: read
+          permission-pull-requests: write
+          permission-actions: read
+
       - name: Run Claude Code
         id: claude
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          # Pass the workflow's own GITHUB_TOKEN so the action skips its
-          # OIDC → app-token exchange, which 401s for jobs running inside a
-          # reusable workflow_call from pull_request_target (anthropics/
-          # claude-code-action#443, #721). Cost: progress comment and final
-          # review post under `github-actions[bot]` instead of `@claude`.
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          # Pass an explicit token so the action skips its OIDC → app-token
+          # exchange, which 401s for jobs running inside a reusable
+          # workflow_call from pull_request_target (anthropics/
+          # claude-code-action#443, #721). With the opt-in App configured the
+          # token is the minted, downscoped App token above (review posts are
+          # attributed to the App); otherwise it is the workflow's own
+          # GITHUB_TOKEN and posts show `github-actions[bot]`.
+          github_token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
           allowed_bots: ${{ steps.extract.outputs.allowed_bots }}
 
           additional_permissions: |
