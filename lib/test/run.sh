@@ -2442,11 +2442,13 @@ assert_pin_unique "#236 (B) phase-3.3: bounded re-review re-runs the observabili
 #   (2) the Phase 3.3 seam authors .devflow/tmp scratch with the Write tool, not `>`;
 #   (3) a cloud claude-code-action denial is NOT the local-tier classifier and NOT license
 #       to leave the instrumented loop.
-# The (1) obligation lives in review-and-fix/SKILL.md ($MAXI_SKILL); (2)+(3) live in the
-# implement Phase 3.3 seam (phases/phase-3-review.md, inside $DEF_SKILL). Each behavioral
-# operative sentence is pinned removal-proof (assert_pin_red_on_removal, PASS->FAIL on a
-# targeted half-revert); the mechanism/naming/restatement pins are literal-constant style
-# (assert_pin_unique), where no operative-vs-framing distinction exists.
+# The (1) obligation lives in review-and-fix/SKILL.md ($MAXI_SKILL) and is ALSO restated for
+# the inline driver at the implement Phase 3.3 seam (phases/phase-3-review.md, inside
+# $DEF_SKILL); (2)+(3) live at that seam too. Each behavioral operative sentence is pinned
+# removal-proof (assert_pin_red_on_removal, PASS->FAIL on a targeted half-revert) — including
+# the seam restatement of (1), which is operative (not framing). The mechanism/naming/
+# Lifecycle-restatement pins are literal-constant style (assert_pin_unique), where no
+# operative-vs-framing distinction exists.
 #
 # (1) NON-OPTIONAL EMIT — the operative directive in Step 3 item 7 (the authoritative write
 # site): removing it re-introduces the optional-emit bug on the hand-run path.
