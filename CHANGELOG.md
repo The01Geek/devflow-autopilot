@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.63] — 2026-07-03
+
+### Fixed
+- **The `review_dedupe` guard's HEAD/BRANCH resolution now surfaces `gh` failure causes instead of swallowing them.** The two `gh pr view` calls that resolve a PR's `headRefOid`/`headRefName` previously discarded `gh`'s stderr via `2>/dev/null || echo ""`, so an authentication failure, a rate-limit, a transient API error, and a genuinely-missing PR all collapsed into the same generic `::notice::Could not resolve PR #$PR HEAD` — a maintainer reading the Actions log had no way to distinguish a persistently-failing guard from one correctly finding no in-flight run. Both resolutions now mirror the guard's own Signal 1/Signal 2 pattern: a `gh` failure captures stderr to a separate temp file (never merged into the resolved value) and emits a `::warning::` naming the cause, while the success-but-empty/null case keeps its existing `::notice::` fail-open path unchanged. Control flow is unaffected in every branch — the guard still fails open (HEAD failure `exit 0`; BRANCH failure treats Signal 2 as `0`). `mktemp` itself is guarded against failure (falls back to `/dev/null`, matching the existing `devflow-implement.yml` stall-backstop precedent) so a `mktemp` failure can never abort the step under `set -e` and defeat the fail-open contract; captured stderr is newline-collapsed before embedding so a multi-line `gh` error can't break the `::warning::` annotation. `lib/test/run.sh` gains four static pins (no blind swallow remains; both failure warnings carry the captured-stderr prefix; the success-but-empty notice is retained), mutation-checked RED-on-break. (#282, closes #269 follow-up)
+
 ## [2.8.62] — 2026-07-03
 
 ### Fixed
