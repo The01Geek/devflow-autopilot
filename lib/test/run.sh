@@ -13017,7 +13017,7 @@ STUB
   cat > "$SB268_DIR/bin/mktemp" <<'STUB'
 #!/usr/bin/env bash
 [ "${STUB_MKTEMP_FAIL:-0}" = "1" ] && exit 1
-exec /usr/bin/mktemp "$@" 2>/dev/null || exec /bin/mktemp "$@"
+exec "$(PATH=/usr/bin:/bin command -v mktemp)" "$@"
 STUB
   chmod +x "$SB268_DIR/bin/mktemp"
   chmod +x "$SB268_V"/*.sh "$SB268_DIR/bin/gh"
