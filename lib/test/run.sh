@@ -6695,7 +6695,7 @@ assert_eq "#249 partial-copy emits the resolve-gh.sh sourcing breadcrumb" "yes" 
 mkdir -p "$DRV_PARTIAL_DIR/lib"
 printf '%s\n' '# truncated resolve-jq: sources clean, assigns nothing' > "$DRV_PARTIAL_DIR/lib/resolve-jq.sh"
 cp "$LIB/resolve-gh.sh" "$LIB/resolve-bin.sh" "$DRV_PARTIAL_DIR/lib/"
-DRV_TRUNC_OUT="$(HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+DRV_TRUNC_OUT="$(env -u DEVFLOW_JQ HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
   DRV_REVIEWS="[{\"state\":\"APPROVED\",\"commit_id\":\"$DRV_NEW\"}]" bash "$DRV_PARTIAL" 2>"$DRV_PARTIAL_DIR/err2.txt" | sed -n 's/^verdict=//p')"
 assert_eq "#249 truncated resolve-jq sibling (clean source, no assignment) still derives the verdict" "approve" "$DRV_TRUNC_OUT"
 assert_eq "#249 truncated resolve-jq sibling emits the 'did not assign DEVFLOW_JQ' breadcrumb" "yes" \
@@ -6762,6 +6762,9 @@ HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DE
   DRV_REVIEWS="" \
   DRV_COMMENTS='[{"body":"<!-- devflow:review-progress run=100-1 -->\n## Verdict: APPROVE"}]' \
   drv "#249 empty-stdout reviews payload -> incomplete (parse guard, not comment fall-through)" "incomplete false"
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="" \
+  drv_stderr "#249 empty-stdout reviews payload takes the PARSE-guard arm (breadcrumb pinned)" "reviews JSON could not be parsed"
 
 # Comment-fallback marker precedence mirrors the review arm: REJECT before
 # APPROVE even when one run-keyed comment carries both markers.
