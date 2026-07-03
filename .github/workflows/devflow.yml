@@ -146,11 +146,13 @@ jobs:
             exit 0
           fi
 
-          # HEAD/BRANCH resolution mirrors Signals 1/2 below: a `gh` failure is
-          # surfaced as a ::warning:: carrying its stderr (captured to a separate
-          # file so a partial-stdout-plus-error response can't pollute the
-          # resolved value); a success-but-empty/null result stays the existing
-          # ::notice:: fail-open path. Both arms still fail open (exit 0 / IR=0).
+          # HEAD/BRANCH resolution adopts Signals 1/2's fail-open-with-::warning::
+          # pattern below, but additionally captures the `gh` failure's stderr
+          # (to a separate file so a partial-stdout-plus-error response can't
+          # pollute the resolved value) and surfaces it in the warning — Signals
+          # 1/2 themselves discard stderr (`2>/dev/null`). A success-but-empty/
+          # null result stays the existing ::notice:: fail-open path. Both arms
+          # still fail open (exit 0 / IR=0).
           # mktemp itself is guarded (falls back to /dev/null, matching
           # devflow-implement.yml's stall-backstop precedent) so a mktemp failure
           # can never abort this step via set -e and defeat the fail-open contract;
