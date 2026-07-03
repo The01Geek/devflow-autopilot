@@ -518,6 +518,33 @@ entries. Enabling the reviewer's build environment is then just setting
 > base-pinned install line fail — surfacing as a provisioning error, not a code
 > defect.
 
+## Effectiveness telemetry on the cloud `/devflow:implement` job
+
+`/devflow:implement`'s Phase 3.3 drives `review-and-fix` **inline in the orchestrator's
+context**, and that loop persists a per-run effectiveness record under
+`.devflow/logs/efficiency/` (see [`efficiency-trace.md`](efficiency-trace.md)). Two properties
+matter for the cloud tier:
+
+- **The per-iteration `iter-<N>.json` emit is a non-optional obligation on every iteration,
+  however the loop was executed** — whether `review-and-fix` ran as a `Skill` invocation or was
+  **hand-run via direct `Agent` dispatch** under sandbox friction — and it is written **with the
+  Write tool, never a shell `>`/heredoc redirect** the cloud sandbox denies into `.devflow/tmp`.
+  A `claude-code-action` permission/sandbox denial is not the local-tier permission classifier and
+  is **not** license to leave the instrumented loop: on the implement job `Skill`, `Agent`, `Write`,
+  `efficiency-trace.sh`, `workpad.py`, and `config-get.sh` are all allow-listed, so the loop is
+  navigable, not blocked. This guarantees the **effectiveness** half of the telemetry
+  (dispatch counts, findings, verdicts, fix decisions) is captured even on a degraded run. The
+  **token/wall-clock cost** half is *live-only* — it cannot be reconstructed once the loop is
+  abandoned, so it has **no deterministic guarantee**; keeping the loop live is its only (probabilistic)
+  protection.
+- **Implement-vs-runner `--permission-mode` asymmetry.** The read-only `review` runner
+  (`devflow-runner.yml`) launches Claude with `--permission-mode acceptEdits`; the
+  `/devflow:implement` job (`devflow-implement.yml`) deliberately does **not**. So the implement seam
+  reduces friction through the `#275`/`#284` portability discipline — single-statement, leading-token
+  helper invocations and the Write tool for scratch files — rather than by widening the permission
+  grant. `acceptEdits` would not help here anyway: it auto-approves `Edit`/`Write` plus some
+  filesystem `Bash`, not the piped/compound `.sh` forms that were the primary denial.
+
 ## Workflow inventory
 
 | Workflow | Purpose | Needs |

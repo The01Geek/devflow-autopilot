@@ -164,6 +164,23 @@ before, the persistence check after — so it is not left unguarded at the same 
 clause is pinned by coupled `lib/test/run.sh` removal-proof assertions (#235 finding B, extended
 by the #236 review).
 
+**The backstop detects a dropped telemetry gap; the upstream fix is to not drop it (#296).** The
+Layer-3 `--persist` backstop can only recover what was *written* — so the real protection is that the
+per-iteration `iter-<N>.json` emit is a **non-optional obligation on every iteration, however the loop
+was executed**: whether `review-and-fix` ran as a `Skill` invocation or was **hand-run via direct
+`Agent` dispatch** on a degraded path, the record is still written, and always **with the Write tool,
+never a shell `>` redirect** the cloud sandbox denies into `.devflow/tmp`. A cloud `claude-code-action`
+permission/sandbox denial is **not** the local-tier permission classifier and is **not** license to
+leave the instrumented loop and hand-run the engine — on the implement job `Skill`, `Agent`, `Write`,
+`efficiency-trace.sh`, `workpad.py`, and `config-get.sh` are all allowlisted, so the loop is navigable,
+not blocked. This makes only the **effectiveness** half of the telemetry (dispatch/findings/verdicts)
+recoverable on a degraded run; the **token/wall-clock cost** half is *live-only* — it cannot be
+reconstructed once the loop is abandoned, so it carries no deterministic guarantee, only the
+probabilistic protection of staying on the loop. Note the deliberate implement-vs-runner asymmetry:
+the read-only `review` runner uses `--permission-mode acceptEdits`, but `/devflow:implement` does
+**not** — friction at the seam is reduced by single-statement leading-token helper forms and the Write
+tool for scratch, never by widening the permission grant.
+
 ## Acceptance-criteria gate: the gated `(post-merge)` tag (Phase 3.4)
 
 The Phase 3.4 gate requires every **non-post-merge** acceptance criterion to be verified before the run
