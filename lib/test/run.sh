@@ -7641,8 +7641,8 @@ echo "opt-in GitHub App tokens — writers full-scope + per-site downscoped (iss
 #   #269 — the other user-visible cloud posts (the review agent in
 #   devflow-runner.yml; the trigger reactions + notice comments in the
 #   devflow.yml gate/review_dedupe and devflow-implement.yml gate jobs —
-#   the marker-detected workpad comment deliberately stays on GITHUB_TOKEN)
-#   mint a
+#   the marker-detected workpad comment's gate-job creation stays on
+#   GITHUB_TOKEN) mint a
 #   per-site token DOWNSCOPED via permission-* inputs to exactly what that site
 #   does. The permission-* inputs are the SOLE least-privilege enforcement (an
 #   App installation token ignores the job `permissions:` block), so the exact
@@ -7797,6 +7797,37 @@ assert_eq "app-token: devflow.yml review_dedupe guard step carries id: guard" "1
   "$(grep -cE '^      - id: guard$' "$WF/devflow.yml")"
 assert_eq "app-token: devflow.yml mint + notice both gate on steps.guard.outputs.suppress == 'true'" "2" \
   "$(grep -cF "steps.guard.outputs.suppress == 'true'" "$WF/devflow.yml")"
+# Producer side of the suppress coupling: emit() is the only writer of the
+# suppress= output (and the job-level output maps it); renaming either half
+# leaves both consumers reading empty and the downstream dedupe gate fails
+# OPEN (double review) while the suite stays green.
+assert_eq "app-token: devflow.yml guard emit() writes suppress= into GITHUB_OUTPUT" "1" \
+  "$(grep -cF 'emit() { echo "suppress=$1" >> "$GITHUB_OUTPUT"; }' "$WF/devflow.yml")"
+assert_eq "app-token: devflow.yml review_dedupe job output maps steps.guard.outputs.suppress" "1" \
+  "$(grep -cF 'suppress: ${{ steps.guard.outputs.suppress }}' "$WF/devflow.yml")"
+# The suppression NOTICE must carry no DevFlow trigger phrase: under the App
+# token this comment fires a REAL issue_comment event (GITHUB_TOKEN comments
+# are suppressed by GitHub), so a trigger substring would re-enter the gate
+# and loop. Mirrors the devflow-implement duplicate-notice pin, including the
+# anti-vacuity capture check.
+RS_NOTICE="$(mint_blk 'Notice — manual review suppressed' "$WF/devflow.yml")"
+assert_eq "app-token: suppression-notice pin captured the notice body (no vacuous pass)" "1" \
+  "$(grep -c 'already running for this commit' <<< "$RS_NOTICE")"
+assert_eq "app-token: suppression notice contains no /devflow: phrase in its NOTE body" "0" \
+  "$(grep 'NOTE=' <<< "$RS_NOTICE" | grep -c '/devflow:' || true)"
+# Scoped to the NOTE= body line: the step's own de-trigger rationale comment
+# legitimately names `@claude` in prose.
+assert_eq "app-token: suppression notice contains no @claude in its NOTE body" "0" \
+  "$(grep 'NOTE=' <<< "$RS_NOTICE" | grep -c '@claude' || true)"
+# The notice step deliberately has no continue-on-error; its best-effort
+# contract rests entirely on the `if ! err=` guard around the single gh call
+# plus the specific breadcrumb. Dropping the guard would let a transient
+# comment-post failure fail review_dedupe and (via needs:) skip the whole
+# manual-review command path.
+assert_eq "app-token: suppression notice guards its gh call (if ! err=)" "1" \
+  "$(grep -cF 'if ! err="$(gh api --method POST "repos/$REPO/issues/$PR/comments"' "$WF/devflow.yml")"
+assert_eq "app-token: suppression notice emits its specific failure breadcrumb" "1" \
+  "$(grep -cF '::warning::could not post review-suppressed notice' "$WF/devflow.yml")"
 # Consumer-condition conjuncts on the three downscoped gate/dedupe mints: the
 # second half of each mint's if: keeps the common rejection path mint-free AND
 # bounds fail-loud to runs where a consumer actually posts. Dropping it would

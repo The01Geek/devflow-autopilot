@@ -178,13 +178,19 @@ Every mint step is gated on `vars.DEVFLOW_APP_ID != ''`, so it is skipped when t
 variable is unset and each consumer falls back to `GITHUB_TOKEN`. A
 configured-but-broken App (invalid or rotated key, or an installation missing one of
 the permissions a site requests) **fails the job at the mint step** — there is no
-silent fall-back to `GITHUB_TOKEN`. Deliberately still on `GITHUB_TOKEN` (the named
-exceptions to the App identity): the `Devflow Review` check-run (emitted by the
-Actions runner from the job `name:`, not token-authored), the stale-rejection
-housekeeping (invisible; works cross-identity), and the `/devflow:implement`
-workpad comment (marker-detected by design — `CLAUDE.md` documents it as
-github-actions-authored, found by its `<!-- devflow:workpad -->` marker, never by
-author). This fail-loud contract now covers every site,
+silent fall-back to `GITHUB_TOKEN`. Named exceptions to the App identity: the
+`Devflow Review` check-run (emitted by the Actions runner from the job `name:`,
+not token-authored — it can never be App-authored), and the `/devflow:implement`
+workpad comment, which is *created* on `GITHUB_TOKEN` by the gate job (detection
+is marker-based — `<!-- devflow:workpad -->` — never author-based, so the
+claude-job fallback creation running under the App token is harmless). The
+stale-rejection housekeeping runs inside the review agent, so it uses whichever
+token the runner holds (the downscoped App token when configured — its dismissal
+needs only `pull-requests: write`, and dismissal works cross-identity). One
+same-identity caveat: GitHub rejects self-approval, so on a PR *created by the
+App* (a cloud `/devflow:implement` run with the App configured) the review's
+`--approve` cannot come from the same App identity — the verdict still posts, but
+a "required approving reviews" rule needs a distinct reviewer identity there. This fail-loud contract now covers every site,
 including the read-only review run and the writers' `gate` jobs: with a broken App
 configured, even the trigger-reaction job fails rather than silently posting as
 `github-actions[bot]` — fix the App's key/permissions, or unset `DEVFLOW_APP_ID` to
