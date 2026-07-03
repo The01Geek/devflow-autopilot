@@ -120,27 +120,37 @@ def _workpad_marker(explicit=None):
     override = (explicit or '').strip() or os.environ.get('DEVFLOW_WORKPAD_MARKER', '').strip()
     if override:
         return override
-    # Read the marker from .devflow/config.json, but fall back to the
-    # built-in default so the local tier works with no config file at all.
-    here = Path(__file__).resolve().parent
-    helper = here / 'config-get.sh'
+    # Read the marker from .devflow/config.json directly in-process (issue
+    # #275): Windows cannot exec a .sh helper ([WinError 193]), so the former
+    # config-get.sh subprocess hop silently dropped a configured custom marker
+    # back to the built-in default there. The path is cwd-relative, exactly as
+    # config-get.sh's own default is, and an absent file is the normal
+    # unconfigured case — silent fallback so the local tier works with no
+    # config at all.
+    config_file = Path('.devflow/config.json')
+    if not config_file.is_file():
+        return _DEFAULT_WORKPAD_MARKER
     try:
-        r = _run([str(helper), '.devflow.workpad_marker', _DEFAULT_WORKPAD_MARKER])
-    except (subprocess.CalledProcessError, OSError) as e:
-        # A broken config-get.sh (lost exec bit, bad shebang — the #3493 failure
-        # class this PR exists to fix) is otherwise indistinguishable from "no
-        # marker override configured": both silently fall back to the built-in
-        # default. Log a breadcrumb so an operator debugging a "workpad not
-        # found" symptom on a repo with `.devflow.workpad_marker` configured can
-        # tell "the helper couldn't execute" apart from "nothing is configured".
-        msg = e.stderr.strip() if isinstance(e, subprocess.CalledProcessError) else str(e)
+        with config_file.open(encoding='utf-8') as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError) as e:
+        # A present-but-unreadable/malformed config is otherwise
+        # indistinguishable from "no marker override configured": both fall
+        # back to the built-in default. Leave a breadcrumb naming the file so
+        # an operator debugging a "workpad not found" symptom on a repo with
+        # `.devflow.workpad_marker` configured can tell the two apart.
         sys.stderr.write(
-            f"workpad.py: could not execute {str(helper)!r} ({msg}); "
+            f"workpad.py: could not read {str(config_file)!r} ({e}); "
             f"falling back to default marker\n"
         )
         return _DEFAULT_WORKPAD_MARKER
-    marker = r.stdout.strip()
-    return marker or _DEFAULT_WORKPAD_MARKER
+    value = data.get('devflow') if isinstance(data, dict) else None
+    value = value.get('workpad_marker') if isinstance(value, dict) else None
+    # A non-string or blank value is "not configured" — never coerce a
+    # misconfigured type into a garbage marker stamped into a comment.
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return _DEFAULT_WORKPAD_MARKER
 
 
 def _find_workpad_comment(cmd, repo, issue, marker):

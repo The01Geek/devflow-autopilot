@@ -9,7 +9,7 @@ Output: `Phase 3/4: Review & Fix — creating PR and running review...`
 Re-derive the base branch and open the draft PR against it **in one bash block**. Each phase's bash block runs as a **separate** shell, so the `$BASE` resolved in Phase 1.4 is **not** in scope here — re-read it (behaviorally identical to Phase 1.4: the `config-get.sh` read plus the fail-closed empty-read fallback to `main`) so `gh pr create` targets the **configured** `base_branch` rather than the repo default branch. Keep the re-derivation and `gh pr create` in the **same** block so `$BASE` cannot be lost to a shell boundary between them (an empty `--base ""` would mistarget silently — the very failure this fix prevents). Pass the re-derived base as the `--base` flag; do **not** pass `--head` — Phase 3.1 runs on the checked-out feature branch, so `gh pr create` defaults `--head` to it correctly:
 
 ```bash
-BASE=$(${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .base_branch main) || BASE=""
+BASE=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .base_branch main) || BASE=""
 [ -n "$BASE" ] || { echo "devflow: base_branch read failed (malformed config or missing python3); falling back to 'main'" >&2; BASE=main; }
 gh pr create --base "$BASE" --draft --title "{issue title}" --body "$(cat <<'EOF'
 Work in progress — automated review pending.
@@ -30,8 +30,8 @@ workpad.py update $ISSUE_NUMBER --pr-link "[#$PR_NUM]($PR_URL)"
 
 Then stamp the reserved `DevFlow` **provenance** label on the PR (best-effort). `DevFlow` is a hardcoded provenance constant (no config key controls it) — it is the branch-naming-independent signal the weekly retrospective uses to detect DevFlow-authored PRs. Apply it through the shared REST label-apply helper after creation (a PR is an issue, so the same `POST .../issues/{n}/labels` endpoint serves it) so a label hiccup can never block the run:
 ```bash
-${CLAUDE_SKILL_DIR}/../../scripts/ensure-label.sh DevFlow
-${CLAUDE_SKILL_DIR}/../../scripts/apply-labels.sh "$PR_NUM" DevFlow
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/ensure-label.sh DevFlow
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/apply-labels.sh "$PR_NUM" DevFlow
 ```
 Both helpers always exit 0 and need only the `repo` scope: `ensure-label.sh` logs whether the label was created / present / hit a `gh` error, and `apply-labels.sh` applies via REST `POST .../issues/{n}/labels` (not `gh pr edit --add-label`, which resolves the repo via org-scoped GraphQL and fails under a repo-scoped token), logging its own breadcrumb on failure — continue regardless of the label outcome.
 
@@ -87,7 +87,6 @@ Follow the skill's instructions. It handles evaluation, fixing, testing, and re-
 
 **Observability-persistence backstop (after `review-and-fix` returns, before the verdict branches below).** `review-and-fix`'s Loop Exit is what normally derives this run's effectiveness record (`.devflow/logs/efficiency/<slug>-<run-id>.json`) and durable workpad copy from its per-iteration `iter-*.json`. But this phase drives that loop **inline in your context**, so a dropped Loop Exit leaves those artifacts unpersisted and the run contributes nothing to `.devflow/logs/efficiency/` — the skill's own #1 documented "Common Mistake," unguarded at this seam. So regardless of the verdict, first **verify this run's observability artifacts were persisted and run the efficiency-trace persist backstop when they are missing**; the backstop is idempotent (it never re-derives an existing record), so running it unconditionally is safe. **When even that backstop has no `iter-*.json` inputs** — the inline loop wrote no per-iteration workpad this run — **record a `dropped-failed` reflection naming the observability gap** so the lost telemetry is visible rather than silently absent:
 ```bash
-LIB="${CLAUDE_SKILL_DIR}/../../lib"
 # Anchor on the repo root the SAME way efficiency-trace.sh does (git toplevel), so the
 # "no inputs" detector below reads the exact .devflow/tmp/review tree --persist scans —
 # never a cwd-relative path that could diverge from the wrapper and fire a false
@@ -117,7 +116,7 @@ else
   PERSIST_ERR_IS_DEVNULL=1
   echo "::warning::phase-3.3: could not allocate a temp file for --persist's stderr (mktemp failed); ALL of --persist's stderr (durable-copy/staging/commit warnings included, not only the record-write-failure check) is discarded this run, and the record-write-failure detector is DISABLED (only the no-new-inputs case below is still checked)" >&2
 fi
-"$LIB/efficiency-trace.sh" --persist 2>"$PERSIST_ERR" || true   # best-effort; captured (not swallowed) so its ::warning:: breadcrumbs both surface to the run log below AND are checked for a record-write failure by the detector
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/efficiency-trace.sh --persist 2>"$PERSIST_ERR" || true   # best-effort; captured (not swallowed) so its ::warning:: breadcrumbs both surface to the run log below AND are checked for a record-write failure by the detector
 cat "$PERSIST_ERR" >&2   # surface every --persist breadcrumb to the run log, same as before this capture was added
 # Detect the "no inputs FROM THIS RUN" case by diffing against the pre-loop snapshot, anchored
 # on $ROOT (matching --persist): comm -13 lists iter-*.json present now but NOT before the

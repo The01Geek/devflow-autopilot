@@ -12,10 +12,16 @@
 # deliberately out of scope: they do not match the drive-letter form and pass
 # through unchanged (the documented residual — a skill anchor is never UNC).
 #
-# NOTE (bootstrap constraint): the create-issue skill-dir anchor cannot source
-# this helper — the anchor is what LOCATES lib/ in the first place — so
-# skills/create-issue/SKILL.md carries an inline mirror of this chain. Keep
-# the two in lockstep when changing the translation logic.
+# NOTE (bootstrap constraint): a skill-dir anchor cannot source this helper —
+# the anchor is what LOCATES lib/ in the first place. The skills no longer
+# carry shell mirrors of this chain (issue #275: multi-statement inline blocks
+# are defeated by some runners' inline-bash variable stripping); instead the
+# skill preambles instruct the agent to normalize a Windows-form
+# runner-reported base directory at PROMPT time — one standalone
+# wslpath/cygpath probe, or these same textual drive-letter rules — before
+# substituting it into the single-statement invocation.
+# skills/create-issue/SKILL.md's preamble is the reference prose paraphrase;
+# keep it in lockstep when changing the translation logic here.
 #
 # Defines a function only; it deliberately does NOT set -e/-u so it is safe to
 # source into a caller with its own shell options.

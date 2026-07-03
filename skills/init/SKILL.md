@@ -8,10 +8,12 @@ disable-model-invocation: true
 
 Scaffold this repo's DevFlow config files. **One command does everything — do not hand-write `config.json` or guess field values.**
 
+**Portable helper anchor (single-statement).** The bundled-helper commands in this skill resolve the skill directory inline at each call site via `${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}`. When `$CLAUDE_SKILL_DIR` is set and non-empty (Claude Code), run each command exactly as written. On a runner where it is unset or empty, replace the placeholder with the skill base directory the runner reports in context (e.g. a `Base directory for this skill:` line) before running the command; if that reported path is Windows-form (`C:\...`), first convert it to this shell's POSIX form with one standalone `wslpath -u '<path>'` (WSL) or `cygpath -u '<path>'` (Git Bash/MSYS2) command and substitute the printed result (if neither tool exists: lowercase the drive letter, map `C:\` to `/mnt/c` on WSL or `/c` on MSYS2, and turn backslashes into `/`). Resolve the anchor inline at every call site — never capture it into a shell variable that a later statement reads, because some runners' inline-bash marshaling drops such variables (observed on Copilot CLI). If neither `$CLAUDE_SKILL_DIR` nor a runner-reported base directory is available, stop and report that the helper anchor could not be resolved rather than running a command with a broken path.
+
 **Consumer prompt extension (load first).** Before doing this skill's work, load any consumer-supplied prompt extension for this skill and honor it. From the repo root, run:
 
 ```bash
-${CLAUDE_SKILL_DIR}/../../scripts/load-prompt-extension.sh init
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/load-prompt-extension.sh init
 ```
 
 If the helper exits non-zero, a consumer extension exists but could not be loaded — surface its stderr message and do not silently proceed as if none existed. If it exits 0 and prints text, treat that text as additional instructions appended to the end of this skill's own prompt for this run — it is upgrade-safe, consumer-owned customization committed under `.devflow/prompt-extensions/`. If it exits 0 and prints nothing, proceed unchanged.
@@ -19,7 +21,7 @@ If the helper exits non-zero, a consumer extension exists but could not be loade
 ## Run
 
 ```bash
-bash "${CLAUDE_SKILL_DIR}/../../scripts/scaffold-config.sh"
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/scaffold-config.sh
 ```
 
 This is the single shared scaffolder — the same script `install.sh` uses, so the two entry points can never drift. With no argument it targets the current repo root (git toplevel) and:
@@ -29,14 +31,14 @@ This is the single shared scaffolder — the same script `install.sh` uses, so t
 - scaffolds `.devflow/prompt-extensions/` with a commented, inert `<skill-name>.md.example` for **every** skill (each with a skill-specific hint), so you discover the consumer prompt-extension convention and which skills it covers. Each example is created **only if absent** (a per-file backfill, so re-running picks up newly added examples while never overwriting an example you edited or a live `<skill-name>.md` you authored); the `.example` suffix keeps every scaffolded file inert until you deliberately rename it;
 - **auto-detects the repo's language(s)** (Node, Go, Rust, Java, Ruby, PHP, .NET, Make, Docker) and **merges the matching build/test/lint tools** into `config.json` — into all three allowlists (`devflow.allowed_tools`, `devflow_implement.allowed_tools`, and `devflow_runner.allowed_tools`, which the automated reviewer consumes when `devflow_runner.provision_env: true` — see below) plus the `setup` block (`node_version` + a lockfile-appropriate install line, and a `composer install` line for PHP). When the Node `package.json`/lockfile lives in a **subdirectory** (a monorepo `frontend/` package, or a PHP/Rails app with a co-located `/jsx` or `/resources/js` bundle), it is auto-detected into `setup.node_working_directory` and the generated Node install line is scoped into that directory (a subshell `cd`) so caching and the build target the right place; a root-level build leaves `node_working_directory` empty. The `setup` block is what lets the automated reviewer build/test a PR — but only once the maintainer opts in with `devflow_runner.provision_env: true` (see "Letting the reviewer build/test a PR" in docs/cloud-setup.md). The merge is an **idempotent union**: it never removes your custom entries and never duplicates, so re-running after adding a language picks up only the new tools.
 
-It resolves the templates from the installed plugin (`${CLAUDE_SKILL_DIR}/../../.devflow/`), so it works whether DevFlow was installed via the marketplace or vendored by `install.sh`.
+It resolves the templates from the installed plugin (`"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../.devflow/`), so it works whether DevFlow was installed via the marketplace or vendored by `install.sh`.
 
 ## Then: verify the runtime dependencies are present
 
 The scaffolder needs only `jq`, but **running** DevFlow's skills needs more — and **PyYAML is the one dependency people miss**, because `/plugin install` resolves companion *plugins* and never runs `pip`. Config itself is JSON (read by a python3 resolver, no PyYAML), so a missing PyYAML doesn't break scaffolding — but it silently degrades the runtime Python helpers that parse YAML blocks in PR/issue bodies (`match-deferrals.py`, `workpad.py`). So after scaffolding, run the preflight check and surface any gap:
 
 ```bash
-bash "${CLAUDE_SKILL_DIR}/../../lib/preflight.sh"
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/preflight.sh
 ```
 
 This verifies `git`, `gh`, `jq`, `python3` (>=3.11), and **PyYAML**, printing an actionable line per missing item and exiting non-zero if any is absent. It's **advisory** — scaffolding already succeeded, so a non-zero exit here is a dependency gap to *report*, not an init failure. **Never run `pip` yourself**: DevFlow deliberately keeps `pip` out of the plugin/init path, so relay the install command and let the user run it (see "After running"). Read the result and respond per the matching branch below.
@@ -46,7 +48,7 @@ This verifies `git`, `gh`, `jq`, `python3` (>=3.11), and **PyYAML**, printing an
 Keeping the DevFlow plugin auto-updated otherwise needs a hand-edited Claude Code settings file. This step provisions that into the repo's **project** `.claude/settings.json` so adopters get it as a one-command outcome of `/devflow:init` instead of a manual edit they have to find in the docs:
 
 ```bash
-bash "${CLAUDE_SKILL_DIR}/../../scripts/provision-local-settings.sh"
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/provision-local-settings.sh
 ```
 
 With no argument it targets the current repo root and **deep-merges** the marketplace registration into `.claude/settings.json`, **additively and without clobbering anything you already set** (the user's value wins at every depth — same no-clobber discipline as the config scaffolder):
@@ -66,11 +68,11 @@ It is **local/interactive-tier only** — the cloud (CI) tier uses claude-code-a
 1. **Ask first.** Tell the user that making `auto` selectable means adding `CLAUDE_CODE_ENABLE_AUTO_MODE="1"` to their **user-global** `~/.claude/settings.json` (affecting all their projects), that it is **selectable only** — never turned on for them, and plan/model/admin gates still apply — and ask whether they want DevFlow to add it now. Default to **not** writing.
 2. **If they decline, or you cannot ask** (non-interactive run), invoke the helper with **no flag** — it prints the exact one-line setting for the user to add themselves and writes **nothing**:
    ```bash
-   bash "${CLAUDE_SKILL_DIR}/../../scripts/provision-auto-mode.sh"
+   "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/provision-auto-mode.sh
    ```
 3. **Only if the user explicitly consents,** pass `--apply` so the helper performs the user-scope write:
    ```bash
-   bash "${CLAUDE_SKILL_DIR}/../../scripts/provision-auto-mode.sh" --apply
+   "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/provision-auto-mode.sh --apply
    ```
 
 With `--apply` it targets `~/.claude/settings.json` and **deep-merges** `env.CLAUDE_CODE_ENABLE_AUTO_MODE="1"` additively and **without clobbering anything the user already set** — including a deliberately-disabled `"0"`, which it **preserves** and reports as "nothing changed" (it never flips a `"0"` to `"1"`). The merge is **idempotent**, **atomic** (mktemp + same-dir mv), and **fail-closed**: a malformed or wrong-shaped `~/.claude/settings.json` is left byte-for-byte unchanged with a specific `devflow-automode:` breadcrumb and a non-zero exit. It writes **no** `permissions.defaultMode` — `auto` stays selectable, never on.
@@ -149,7 +151,7 @@ There is **no trigger label** to create: in the cloud tier, `/devflow:implement`
 DevFlow does, however, stamp a single reserved **provenance** label — the literal `DevFlow` — on every issue and PR it creates, so the weekly retrospective can detect its own work independently of branch naming. Create that label now (best-effort, only here where `gh` is available — never in `scaffold-config.sh`, which must run without `gh` auth on the vendoring path) so it exists from day one:
 
 ```bash
-${CLAUDE_SKILL_DIR}/../../scripts/ensure-label.sh DevFlow
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/ensure-label.sh DevFlow
 ```
 
 `ensure-label.sh` always exits 0 — it creates the label, treats an already-exists outcome as success, and logs a breadcrumb on a real `gh` failure — so a label-creation failure (no auth, offline) **never fails init**. Report a one-line note if it logged a failure, then continue.

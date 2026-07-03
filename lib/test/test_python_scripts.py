@@ -194,24 +194,83 @@ finally:
     if _saved is not None:
         _os.environ['DEVFLOW_WORKPAD_MARKER'] = _saved
 
-# #245: a broken config-get.sh (OSError — lost exec bit, bad shebang) must not
-# be silently indistinguishable from "no marker override configured" — both
-# otherwise fall back to _DEFAULT_WORKPAD_MARKER with zero diagnostic. Log a
-# breadcrumb naming the broken helper, mirroring match_deferrals._config_get's
-# identical fix for the identical config-get.sh-via-_run pattern.
+# #275: _workpad_marker must read .devflow/config.json directly in Python —
+# never by exec-ing config-get.sh, which Windows cannot exec ([WinError 193])
+# and which therefore silently dropped a configured custom marker back to the
+# built-in default. The tests below exercise the REAL config file (a temp cwd
+# with a real .devflow/config.json — the config read is not mocked) while
+# poisoning workpad._run so any residual subprocess dependency in the marker
+# path raises the same OSError class Windows produces: against the pre-#275
+# code the custom-marker case fails for the right reason (exec fails → default
+# marker), and passes once the marker is read in-process.
 _saved_wp_run = workpad._run
+_orig_cwd_275 = _os.getcwd()
 try:
     def _boom_oserror(*a, **kw):
         raise OSError(8, "Exec format error")
     workpad._run = _boom_oserror
-    _stderr_capture = io.StringIO()
-    with contextlib.redirect_stderr(_stderr_capture):
-        _val = workpad._workpad_marker(None)
-    assert_eq("marker: broken config-get.sh (OSError) → still returns the default (no raise)",
-              workpad._DEFAULT_WORKPAD_MARKER, _val)
-    assert_eq("marker: broken config-get.sh (OSError) → logs a breadcrumb naming config-get.sh",
-              True, "config-get.sh" in _stderr_capture.getvalue())
+    with _tempfile.TemporaryDirectory() as _td:
+        _os.chdir(_td)
+        _os.mkdir('.devflow')
+
+        def _write_cfg(text):
+            with open(_os.path.join('.devflow', 'config.json'), 'w',
+                      encoding='utf-8') as _f:
+                _f.write(text)
+
+        # The headline regression: a configured custom marker is honored even
+        # when no subprocess can run (the Windows [WinError 193] shape).
+        _write_cfg('{"devflow": {"workpad_marker": "<!-- custom:pad -->"}}')
+        assert_eq("marker (#275): custom config marker honored without exec-ing config-get.sh",
+                  '<!-- custom:pad -->', workpad._workpad_marker(None))
+
+        # Precedence above the config value is unchanged: flag > env > config.
+        assert_eq("marker (#275): --marker flag still wins over a config value",
+                  '<!-- flag -->', workpad._workpad_marker('<!-- flag -->'))
+        _os.environ['DEVFLOW_WORKPAD_MARKER'] = '<!-- env -->'
+        try:
+            assert_eq("marker (#275): env var still wins over a config value",
+                      '<!-- env -->', workpad._workpad_marker(None))
+        finally:
+            _os.environ.pop('DEVFLOW_WORKPAD_MARKER', None)
+
+        # Key absent at either level → built-in default, silently (normal case).
+        _write_cfg('{"devflow": {}}')
+        assert_eq("marker (#275): workpad_marker key absent → built-in default",
+                  workpad._DEFAULT_WORKPAD_MARKER, workpad._workpad_marker(None))
+        _write_cfg('{"other": 1}')
+        assert_eq("marker (#275): devflow key absent → built-in default",
+                  workpad._DEFAULT_WORKPAD_MARKER, workpad._workpad_marker(None))
+
+        # A non-string or empty value is "not configured", never a coerced
+        # garbage marker stamped into a comment.
+        _write_cfg('{"devflow": {"workpad_marker": 42}}')
+        assert_eq("marker (#275): non-string marker value → built-in default",
+                  workpad._DEFAULT_WORKPAD_MARKER, workpad._workpad_marker(None))
+        _write_cfg('{"devflow": {"workpad_marker": "   "}}')
+        assert_eq("marker (#275): blank-string marker value → built-in default",
+                  workpad._DEFAULT_WORKPAD_MARKER, workpad._workpad_marker(None))
+
+        # Malformed JSON fails open to the default but MUST leave a breadcrumb
+        # naming the config file, so a masked failure is distinguishable from
+        # "nothing configured".
+        _write_cfg('{not json')
+        _stderr_capture = io.StringIO()
+        with contextlib.redirect_stderr(_stderr_capture):
+            _val = workpad._workpad_marker(None)
+        assert_eq("marker (#275): malformed config.json → still returns the default (no raise)",
+                  workpad._DEFAULT_WORKPAD_MARKER, _val)
+        assert_eq("marker (#275): malformed config.json → breadcrumb names config.json",
+                  True, "config.json" in _stderr_capture.getvalue())
+
+        # No config file at all (fresh empty dir) → built-in default, silently.
+        _os.chdir(_orig_cwd_275)
+    with _tempfile.TemporaryDirectory() as _td2:
+        _os.chdir(_td2)
+        assert_eq("marker (#275): no .devflow/config.json → built-in default",
+                  workpad._DEFAULT_WORKPAD_MARKER, workpad._workpad_marker(None))
 finally:
+    _os.chdir(_orig_cwd_275)
     workpad._run = _saved_wp_run
 
 

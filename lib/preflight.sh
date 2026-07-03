@@ -4,7 +4,7 @@
 # preflight.sh — verify DevFlow's runtime dependencies are present, with clear,
 # actionable errors. Exits 0 when everything is available, 1 otherwise.
 #
-#   bash "${CLAUDE_SKILL_DIR}/../../lib/preflight.sh"
+#   "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/preflight.sh
 #
 # DevFlow's shell/Python helpers assume: git, gh (authenticated), jq, and
 # python3 (>=3.11) with PyYAML. Date math and text extraction were written to
