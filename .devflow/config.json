@@ -11,7 +11,7 @@
     "allowed_tools": []
   },
   "devflow_implement": {
-    "effort": "medium",
+    "effort": "low",
     "implement_pr_state": "ready_for_review",
     "allowed_tools": [],
     "stall_backstop": {
