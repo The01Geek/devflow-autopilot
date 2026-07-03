@@ -668,7 +668,7 @@ jobs:
           STATUS_OUT="$(python3 "$V/workpad.py" status "$ISSUE_NUMBER")"
           STATUS_RC=$?
           if [ "$STATUS_RC" -eq 3 ]; then
-            echo "::error::stall backstop: reading the workpad Status failed with a gh-api/transport/auth error (workpad.py status exit 3) — this is an auth/API failure (e.g. an expired GitHub App installation token), NOT an unreadable workpad, which may be perfectly healthy. Failing loud WITHOUT consuming a resume attempt; verify DEVFLOW_APP_ID / the App token's freshness and re-run"
+            echo "::error::stall backstop: reading the workpad Status failed with a gh-api/transport/auth error (workpad.py status exit 3; the specific gh error is on workpad.py's stderr above) — this is an API/transport failure (most often an expired GitHub App installation token, but any gh-api/transport error or an unparseable API response lands here), NOT an unreadable workpad, which may be perfectly healthy. Failing loud WITHOUT consuming a resume attempt; check the specific error above (and DEVFLOW_APP_ID / the App token's freshness) and re-run"
             CLASS=auth-failure
             STATUS_OUT="(auth/API failure reading the workpad Status)"
           elif [ "$STATUS_RC" -eq 0 ] && [ -n "$STATUS_OUT" ]; then
@@ -754,7 +754,7 @@ jobs:
               # reading the workpad Status or the comment list — distinct from an
               # unreadable/corrupt workpad, which may be perfectly healthy. Fail
               # loud so the problem is visible; NO resume attempt was consumed.
-              printf '**DevFlow stall backstop** — could not read the outcome of this run because of a gh-api/transport/auth error (e.g. an expired GitHub App installation token) while reading the workpad Status or the issue comment list. This is distinct from an unreadable/corrupt workpad — the workpad itself may be perfectly healthy. The job has been failed so the problem is visible, and NO auto-resume attempt was consumed. Inspect the run log for the specific auth error, verify DEVFLOW_APP_ID / the App token, then post a fresh implement trigger comment to retry.\n' > "$BODY"
+              printf '**DevFlow stall backstop** — could not read the outcome of this run because of a gh-api/transport/auth error while reading the workpad Status or the issue comment list (most often an expired GitHub App installation token, but any gh-api/transport failure or an unparseable API response lands here). This is distinct from an unreadable/corrupt workpad — the workpad itself may be perfectly healthy. The job has been failed so the problem is visible, and NO auto-resume attempt was consumed. **The run log names the specific gh error** — inspect it first (and verify DEVFLOW_APP_ID / the App token if it is an auth error), then post a fresh implement trigger comment to retry.\n' > "$BODY"
               ;;
             *)
               # fail-unreadable (or any unknown/empty decision token — fail closed).
