@@ -14197,15 +14197,18 @@ count_284_twoline_rc_recipe() {  # file -> count of the banned recipe split acro
   #   (a) two-line-at-start:   VAR=$(cmd)              (b) trailing-after-continuation: VAR=$(printf x \
   #                            VAR_RC=$?                                                   | cmd); VAR_RC=$?
   # (a) is caught by the prev-line rule; (b) by a stateful `open` flag that tracks a command-
-  # substitution assignment continued via a trailing backslash until its `); VAR_RC=$?` close on
-  # ANY later continued line. Neither matches the exempt same-line `cmd; rc=$?` survivors
-  # (cmp_rc/gmrc/init grep) — their rc line carries no `=$(`, does not start with the rc token,
-  # and is not preceded by a backslash-continued `=$(` assignment.
+  # substitution assignment continued to a later line until its `); VAR_RC=$?` close. A line
+  # continues when it ends with a backslash OR with a pipe/operator (`|`, `&&`, `||`) — bash
+  # continues all of these without a backslash, and the historical recipe this PR removed
+  # literally PIPED `printf … | extractor`, so the pipe-continuation form is at least as likely
+  # a reintroduction as the backslash one. Neither rule matches the exempt same-line
+  # `cmd; rc=$?` survivors (cmp_rc/gmrc/init grep) — their rc line carries no `=$(`, does not
+  # start with the rc token, and is not preceded by a continued `=$(` assignment.
   awk '
     {
       if (open && $0 ~ /([A-Z_]+_RC|rc)=\$\?/) { c++; open=0 }
-      else if (open && $0 !~ /\\[[:space:]]*$/) { open=0 }
-      if ($0 ~ /=\$\(/ && $0 ~ /\\[[:space:]]*$/) { open=1 }
+      else if (open && $0 !~ /(\\|&&|\|)[[:space:]]*$/) { open=0 }
+      if ($0 ~ /=\$\(/ && $0 ~ /(\\|&&|\|)[[:space:]]*$/) { open=1 }
       if (prev ~ /=\$\(/ && $0 ~ /^[[:space:]]*([A-Z_]+_RC|rc)=\$\?/) { c++ }
       prev = $0
     }
@@ -14227,7 +14230,12 @@ assert_eq "#284 absence(2-line) detector: the migrated if!-form reads 0 (GREEN)"
 # this PR removed: a piped substitution continued with a backslash, rc captured after the
 # close). This is the shape the shadow review flagged as slipping past a naive 2-line detector.
 printf '%s\n' 'DOC_NEEDED_PATHS=$(printf '"'"'%s'"'"' "$ISSUE_BODY" \' '  | ./extract-doc-needed-paths.sh); HELPER_RC=$?' > "$P284_2L"
-assert_eq "#284 absence(2-line) detector: a trailing-rc-after-continuation recipe reads 1 (RED, not vacuous)" "1" "$(count_284_twoline_rc_recipe "$P284_2L")"
+assert_eq "#284 absence(2-line) detector: a trailing-rc-after-backslash-continuation recipe reads 1 (RED, not vacuous)" "1" "$(count_284_twoline_rc_recipe "$P284_2L")"
+# The historical recipe PIPED printf into the extractor; a pipe-continued reintroduction (pipe
+# at line end, NO backslash — bash continues it) must also read 1. This is the exact form the
+# removed recipe used, so it is the most realistic reintroduction shape.
+printf '%s\n' 'DOC_NEEDED_PATHS=$(printf '"'"'%s'"'"' "$ISSUE_BODY" |' '  ./extract-doc-needed-paths.sh); HELPER_RC=$?' > "$P284_2L"
+assert_eq "#284 absence(2-line) detector: a trailing-rc-after-PIPE-continuation recipe reads 1 (RED, not vacuous)" "1" "$(count_284_twoline_rc_recipe "$P284_2L")"
 # And the migrated fixed-temp-file form (multi-statement, no rc capture) reads 0 (GREEN):
 printf '%s\n' 'if ! gh issue view $N --json body > /tmp/b.txt \' '   && ! gh issue view $N --json body > /tmp/b.txt; then :; fi' > "$P284_2L"
 assert_eq "#284 absence(2-line) detector: the migrated temp-file form reads 0 (GREEN)" "0" "$(count_284_twoline_rc_recipe "$P284_2L")"
