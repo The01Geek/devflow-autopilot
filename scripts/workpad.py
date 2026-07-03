@@ -136,7 +136,11 @@ def _workpad_marker(explicit=None):
         # Absent config (or an absent .devflow/ dir) is the normal
         # unconfigured case — silent, unlike the breadcrumbed failures below.
         return _DEFAULT_WORKPAD_MARKER
-    except (OSError, json.JSONDecodeError) as e:
+    except (OSError, ValueError) as e:
+        # ValueError covers json.JSONDecodeError AND UnicodeDecodeError — a
+        # config.json written by PowerShell 5.x `>` redirection is UTF-16LE
+        # with a BOM (the docs/install.md pitfall), which raises
+        # UnicodeDecodeError, not JSONDecodeError, at read time.
         # A present-but-unreadable/malformed config is otherwise
         # indistinguishable from "no marker override configured": both fall
         # back to the built-in default. Leave a breadcrumb naming the file so

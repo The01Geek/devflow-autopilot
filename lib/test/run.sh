@@ -6372,9 +6372,21 @@ assert_eq "#275 pin (P4-ref): the canonical preamble paragraph exists in the ref
 for PA_FILE in "$LIB"/../skills/*/SKILL.md; do
   PA_NAME="skills/${PA_FILE#"$LIB"/../skills/}"
   case "$PA_NAME" in skills/create-issue/*) continue ;; esac
+  # Presence first, identity second — a MISSING paragraph fails with an attributable
+  # message instead of masquerading as a wording drift in the identity check below.
+  assert_eq "#275 pin (P4a): $PA_NAME carries a Portable-helper-anchor preamble paragraph at all" "yes" \
+    "$(grep -qF '**Portable helper anchor (single-statement).**' "$PA_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body: presence pin over the enumerated $PA_FILE loop variable
   assert_eq "#275 pin (P4): $PA_NAME preamble paragraph is byte-identical to the canonical copy" "yes" \
     "$([ "$(grep -F '**Portable helper anchor (single-statement).**' "$PA_FILE")" = "$PA_REF_PREAMBLE" ] && echo yes || echo no)"  # raw-guard-ok: loop body: cross-file identity check over the enumerated $PA_FILE loop variable
 done
+# Operative-sentence pin on the CANONICAL copy: P4 proves the 17 copies match the docs
+# reference, but nothing above stops the shared guidance itself being weakened in
+# lockstep. Pin the canonical copy's two operative clauses (the never-capture rule and
+# the fail-closed stop) so a propagated weakening still goes RED.
+assert_pin_unique "#275 pin (P4-op): canonical preamble carries the never-capture operative clause" \
+  'never capture it into a shell variable that a later statement reads' "$LIB/../skills/docs/SKILL.md"
+assert_pin_unique "#275 pin (P4-op): canonical preamble carries the fail-closed stop clause" \
+  'stop and report that the helper anchor could not be resolved' "$LIB/../skills/docs/SKILL.md"
 assert_pin_unique "#275 pin (P4-ci): create-issue preamble carries the never-capture operative sentence" \
   'Never capture the anchor into a shell variable that a later statement reads' "$LIB/../skills/create-issue/SKILL.md"
 # Doc presence pins (#275 AC: the four Windows/Copilot-CLI operator gotchas are documented).

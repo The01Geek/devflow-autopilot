@@ -276,6 +276,25 @@ try:
         assert_eq("marker (#275): top-level array config → built-in default",
                   workpad._DEFAULT_WORKPAD_MARKER, workpad._workpad_marker(None))
 
+        # A UTF-16LE config (the PowerShell `>` redirection pitfall install.md
+        # documents) raises UnicodeDecodeError — a ValueError, NOT an OSError or
+        # JSONDecodeError — which must take the breadcrumbed fallback, never
+        # escape as a traceback that aborts every workpad operation.
+        with open(_os.path.join('.devflow', 'config.json'), 'wb') as _f:
+            _f.write('{"devflow": {"workpad_marker": "<!-- utf16 -->"}}'.encode('utf-16-le'))
+        _stderr_u16 = io.StringIO()
+        with contextlib.redirect_stderr(_stderr_u16):
+            _val = workpad._workpad_marker(None)
+        assert_eq("marker (#275): UTF-16LE config.json → still returns the default (no raise)",
+                  workpad._DEFAULT_WORKPAD_MARKER, _val)
+        assert_eq("marker (#275): UTF-16LE config.json → breadcrumb names config.json",
+                  True, "config.json" in _stderr_u16.getvalue())
+
+        # A padded configured marker is trimmed (the .strip() contract).
+        _write_cfg('{"devflow": {"workpad_marker": "  <!-- padded:pad -->  "}}')
+        assert_eq("marker (#275): padded custom marker is stripped",
+                  '<!-- padded:pad -->', workpad._workpad_marker(None))
+
         # Malformed JSON fails open to the default but MUST leave a breadcrumb
         # naming the config file, so a masked failure is distinguishable from
         # "nothing configured".
