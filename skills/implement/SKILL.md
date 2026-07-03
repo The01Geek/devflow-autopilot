@@ -13,21 +13,23 @@ You are the main implementation agent. Execute the full 4-phase lifecycle for a 
 
 **Input:** GitHub issue number provided as `$ARGUMENTS`
 
+**Portable helper anchor (single-statement).** The bundled-helper commands in this skill resolve the skill directory inline at each call site via `${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}`. When `$CLAUDE_SKILL_DIR` is set and non-empty (Claude Code), run each command exactly as written. On a runner where it is unset or empty, replace the placeholder with the skill base directory the runner reports in context (e.g. a `Base directory for this skill:` line) before running the command; if that reported path is Windows-form (`C:\...`), first convert it to this shell's POSIX form with one standalone `wslpath -u '<path>'` (WSL) or `cygpath -u '<path>'` (Git Bash/MSYS2) command and substitute the printed result **only if the command succeeds and prints a non-empty path — otherwise fall through to the drive-letter rules exactly as if the tool were absent, the same success-and-non-empty acceptance the platform's path-normalization rules apply** (if neither tool exists: lowercase the drive letter, map `C:\` to `/mnt/c` on WSL or `/c` on MSYS2, and turn backslashes into `/`; if the environment is neither WSL nor MSYS2, use the path unchanged and report that it could not be normalized — the same arm the platform's path-normalization rules take). Resolve the anchor inline at every call site — never capture it into a shell variable that a later statement reads, because some runners' inline-bash marshaling drops such variables (observed on Copilot CLI). If neither `$CLAUDE_SKILL_DIR` nor a runner-reported base directory is available, stop and report that the helper anchor could not be resolved rather than running a command with a broken path.
+
 **Consumer prompt extension (load first).** Before doing this skill's work, load any consumer-supplied prompt extension for this skill and honor it. From the repo root, run:
 
 ```bash
-${CLAUDE_SKILL_DIR}/../../scripts/load-prompt-extension.sh implement
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/load-prompt-extension.sh implement
 ```
 
-If the helper exits non-zero, a consumer extension exists but could not be loaded — surface its stderr message and do not silently proceed as if none existed. If it exits 0 and prints text, treat that text as additional instructions appended to the end of this skill's own prompt for this run — it is upgrade-safe, consumer-owned customization committed under `.devflow/prompt-extensions/`. If it exits 0 and prints nothing, proceed unchanged.
+If the invocation fails because the helper path does not exist (`No such file`, exit 127, or the platform equivalent), that is the **anchor-resolution** failure described in the *Portable helper anchor* note above — fix the anchor, don't report a missing extension. Otherwise, if the helper exits non-zero, a consumer extension exists but could not be loaded — surface its stderr message and do not silently proceed as if none existed. If it exits 0 and prints text, treat that text as additional instructions appended to the end of this skill's own prompt for this run — it is upgrade-safe, consumer-owned customization committed under `.devflow/prompt-extensions/`. If it exits 0 and prints nothing, proceed unchanged.
 
-**Phase reference files (resolve once, read each phase at its entry).** This orchestrator holds the cross-phase material (above and below) and, for each phase, a short stub plus a hard **entry-gate**. The detailed, authoritative procedure for each phase lives in its own reference file under `phases/`. Resolve the skill directory once now — the same anchor the prompt-extension load uses — and reuse it at every phase entry:
+**Phase reference files (resolve once, read each phase at its entry).** This orchestrator holds the cross-phase material (above and below) and, for each phase, a short stub plus a hard **entry-gate**. The detailed, authoritative procedure for each phase lives in its own reference file under `phases/`. Resolve the skill directory once now — the same anchor the prompt-extension load uses — and reuse the **printed path textually** (as `<skill-dir>` in the `Read` calls below) at every phase entry; this is prompt-level reuse of the tool output, never a shell variable (shell commands still resolve the anchor inline per the *Portable helper anchor* note above):
 
 ```bash
-echo "${CLAUDE_SKILL_DIR}"
+echo "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"
 ```
 
-Treat the printed path as `<skill-dir>`. **Fail closed:** if it prints empty, **stop** and report that `${CLAUDE_SKILL_DIR}` did not resolve, so the phase files cannot be located — do **not** run any phase from its stub alone (the stubs are deliberately non-actionable). At the start of **every** phase, before taking any action in it, `Read` `<skill-dir>/phases/phase-N-<name>.md` and follow it exactly; if that `Read` fails, halt that phase with an attributable breadcrumb rather than improvising from the stub. This read is required **on every entry** — including a resumed or re-entrant run that picks up at a later phase — never relying on a read from an earlier phase or session. (`${CLAUDE_PLUGIN_ROOT}` is **not** substituted inside `SKILL.md` bodies; `${CLAUDE_SKILL_DIR}` is the only anchor that resolves under both the local checkout and the vendored cloud path.)
+Treat the printed path as `<skill-dir>`. On a runner where `$CLAUDE_SKILL_DIR` is unset or empty, replace the `<absolute skill base directory this runner reports in context>` placeholder with the skill base directory this runner reports (e.g. a `Base directory for this skill:` context line) before running the command — converting a Windows-form path (`C:\…`) to POSIX form first with one standalone `wslpath -u '<path>'` / `cygpath -u '<path>'` command (no such tool: lowercase the drive letter, map `C:\` → `/mnt/c` on WSL or `/c` on MSYS2, backslashes → `/`). **Fail closed:** if it prints empty **or prints the unsubstituted `<absolute skill base directory this runner reports in context>` placeholder** — neither `$CLAUDE_SKILL_DIR` nor a runner-reported base directory is available — **stop** and report that the skill-directory anchor did not resolve, so the phase files cannot be located — do **not** run any phase from its stub alone (the stubs are deliberately non-actionable). At the start of **every** phase, before taking any action in it, `Read` `<skill-dir>/phases/phase-N-<name>.md` and follow it exactly; if that `Read` fails, halt that phase with an attributable breadcrumb rather than improvising from the stub. This read is required **on every entry** — including a resumed or re-entrant run that picks up at a later phase — never relying on a read from an earlier phase or session. (`${CLAUDE_PLUGIN_ROOT}` is **not** substituted inside `SKILL.md` bodies; the `$CLAUDE_SKILL_DIR`-preferred, runner-reported-fallback anchor above is the only one that resolves under both the local checkout and the vendored cloud path.)
 
 ## MANDATORY: All Four Phases Must Execute
 
@@ -54,14 +56,14 @@ Throughout the run you maintain exactly **one** marker-tagged comment on the Git
 # Resolve the triggering comment (best-effort): the newest issue comment that
 # quotes /devflow:implement but is NOT the workpad (no marker). $GITHUB_EVENT_PATH
 # also carries .comment.id when the event was a comment — prefer it when present.
-TRIGGER_COMMENT_ID=$(${CLAUDE_SKILL_DIR}/../../scripts/run-jq.sh -r '.comment.id // empty' "$GITHUB_EVENT_PATH" 2>/dev/null || true)
+TRIGGER_COMMENT_ID=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/run-jq.sh -r '.comment.id // empty' "$GITHUB_EVENT_PATH" 2>/dev/null || true)
 if [ -z "$TRIGGER_COMMENT_ID" ]; then
   TRIGGER_COMMENT_ID=$(gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER/comments?per_page=100" \
     --jq 'map(select((.body | contains("/devflow:implement")) and (.body | contains("devflow:workpad") | not))) | last | .id' 2>/dev/null || true)
 fi
 if [ -n "$TRIGGER_COMMENT_ID" ]; then
   REPO="$GITHUB_REPOSITORY" EVENT_NAME=issue_comment COMMENT_ID="$TRIGGER_COMMENT_ID" REACTION="$REACTION" \
-    bash ${CLAUDE_SKILL_DIR}/../../scripts/react-to-trigger.sh || true
+    "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/react-to-trigger.sh || true
 fi
 ```
 
@@ -127,7 +129,7 @@ The `### ` sub-sections (and their bullets) are rendered by the helper from `--r
 
 ### Workpad helper CLI
 
-Every workpad operation goes through the bundled `workpad.py` helper at `${CLAUDE_SKILL_DIR}/../../scripts/workpad.py`. The helper is stateless — each subcommand re-derives `REPO_FULL` and the marker on every invocation, so it works across Claude Code's per-call fresh-shell model without any env var or shell function needing to survive between Bash tool calls.
+Every workpad operation goes through the bundled `workpad.py` helper at `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py`. The helper is stateless — each subcommand re-derives `REPO_FULL` and the marker on every invocation, so it works across Claude Code's per-call fresh-shell model without any env var or shell function needing to survive between Bash tool calls.
 
 Subcommand reference:
 
@@ -199,7 +201,7 @@ When a workpad already exists at the start of a re-run, treat its `## Progress` 
 
 ## Phase 1: Setup
 
-**Entry-gate (mandatory, on every entry):** before any Phase 1 action, `Read` `<skill-dir>/phases/phase-1-setup.md` and follow it exactly; re-read it each time you (re-)enter this phase, never relying on an earlier read. If `${CLAUDE_SKILL_DIR}` is empty or the read fails, halt Phase 1 with an attributable breadcrumb — do not improvise this phase from the stub.
+**Entry-gate (mandatory, on every entry):** before any Phase 1 action, `Read` `<skill-dir>/phases/phase-1-setup.md` and follow it exactly; re-read it each time you (re-)enter this phase, never relying on an earlier read. If `<skill-dir>` is empty or an unsubstituted placeholder (neither `$CLAUDE_SKILL_DIR` nor a runner-reported base directory resolves) or the read fails, halt Phase 1 with an attributable breadcrumb — do not improvise this phase from the stub.
 
 Orientation only (the phase file is authoritative): fetch the issue and parse its acceptance criteria; create-or-resume the single workpad comment and mirror the ACs into it; create or detect the feature branch and fill in the workpad Branch line; push the branch; then run the issue-claim audit.
 
@@ -207,7 +209,7 @@ Orientation only (the phase file is authoritative): fetch the issue and parse it
 
 ## Phase 2: Discover, Plan & Implement
 
-**Entry-gate (mandatory, on every entry):** before any Phase 2 action, `Read` `<skill-dir>/phases/phase-2-implement.md` and follow it exactly; re-read it each time you (re-)enter this phase, never relying on an earlier read. If `${CLAUDE_SKILL_DIR}` is empty or the read fails, halt Phase 2 with an attributable breadcrumb — do not improvise this phase from the stub.
+**Entry-gate (mandatory, on every entry):** before any Phase 2 action, `Read` `<skill-dir>/phases/phase-2-implement.md` and follow it exactly; re-read it each time you (re-)enter this phase, never relying on an earlier read. If `<skill-dir>` is empty or an unsubstituted placeholder (neither `$CLAUDE_SKILL_DIR` nor a runner-reported base directory resolves) or the read fails, halt Phase 2 with an attributable breadcrumb — do not improvise this phase from the stub.
 
 Orientation only (the phase file is authoritative): explore the codebase; reproduce first for `bug`-labelled issues; assess complexity and write the plan (using the architect for complex work); implement against the plan while running the mandatory code sweeps; test; and commit.
 
@@ -215,7 +217,7 @@ Orientation only (the phase file is authoritative): explore the codebase; reprod
 
 ## Phase 3: Review & Fix
 
-**Entry-gate (mandatory, on every entry):** before any Phase 3 action, `Read` `<skill-dir>/phases/phase-3-review.md` and follow it exactly; re-read it each time you (re-)enter this phase, never relying on an earlier read. If `${CLAUDE_SKILL_DIR}` is empty or the read fails, halt Phase 3 with an attributable breadcrumb — do not improvise this phase from the stub.
+**Entry-gate (mandatory, on every entry):** before any Phase 3 action, `Read` `<skill-dir>/phases/phase-3-review.md` and follow it exactly; re-read it each time you (re-)enter this phase, never relying on an earlier read. If `<skill-dir>` is empty or an unsubstituted placeholder (neither `$CLAUDE_SKILL_DIR` nor a runner-reported base directory resolves) or the read fails, halt Phase 3 with an attributable breadcrumb — do not improvise this phase from the stub.
 
 Orientation only (the phase file is authoritative): open the draft PR; run the self-review and the review-and-fix loop; then enforce the acceptance-criteria gate before advancing.
 
@@ -223,7 +225,7 @@ Orientation only (the phase file is authoritative): open the draft PR; run the s
 
 ## Phase 4: Documentation
 
-**Entry-gate (mandatory, on every entry):** before any Phase 4 action, `Read` `<skill-dir>/phases/phase-4-documentation.md` and follow it exactly; re-read it each time you (re-)enter this phase, never relying on an earlier read. If `${CLAUDE_SKILL_DIR}` is empty or the read fails, halt Phase 4 with an attributable breadcrumb — do not improvise this phase from the stub.
+**Entry-gate (mandatory, on every entry):** before any Phase 4 action, `Read` `<skill-dir>/phases/phase-4-documentation.md` and follow it exactly; re-read it each time you (re-)enter this phase, never relying on an earlier read. If `<skill-dir>` is empty or an unsubstituted placeholder (neither `$CLAUDE_SKILL_DIR` nor a runner-reported base directory resolves) or the read fails, halt Phase 4 with an attributable breadcrumb — do not improvise this phase from the stub.
 
 Orientation only (the phase file is authoritative): file follow-up issues for any deferred work; update the documentation; generate the PR description; then finalize the PR (publish or leave a draft per config) and the workpad.
 
@@ -260,5 +262,5 @@ This self-check keys on the workpad `Status`, not on PR draft state — a run th
 - **Subagent failures**: If a subagent fails or produces no useful output, record the failure in the workpad's `Devflow Reflection` via `--reflection-kind dropped-failed --reflection "…"` (a subagent failure is actionable) and continue to the next step. Do not retry the same subagent more than once.
 - **Permission denials**: If a Bash command is denied, note it in the workpad and continue to the next step. Never skip an entire phase because of a single denied command.
 - **Commit prefixes**: Use `docs:` for documentation, `feat:` for implementation, `fix:` for review fixes and test fixes.
-- **Context recovery**: If context was compressed and you lose track of variables, recover from `git log`, `git branch --show-current`, `gh pr list --head {branch}`, and the workpad — `${CLAUDE_SKILL_DIR}/../../scripts/workpad.py body $(${CLAUDE_SKILL_DIR}/../../scripts/workpad.py id $ISSUE_NUMBER)`. The workpad is the source of truth for plan state and every later mutation goes through `workpad.py update $ISSUE_NUMBER`, so the only variable to recover is `$ISSUE_NUMBER` itself (and it's already in `$ARGUMENTS`).
+- **Context recovery**: If context was compressed and you lose track of variables, recover from `git log`, `git branch --show-current`, `gh pr list --head {branch}`, and the workpad — `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py body $("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py id $ISSUE_NUMBER)`. The workpad is the source of truth for plan state and every later mutation goes through `workpad.py update $ISSUE_NUMBER`, so the only variable to recover is `$ISSUE_NUMBER` itself (and it's already in `$ARGUMENTS`).
 - **Surfacing failures**: Anything you "note the failure and continue" on above goes into the workpad's `Devflow Reflection` section (via `--reflection` with the matching `--reflection-kind` — actionable failures as `dropped-failed`, blockers as `blocked`, informational deviations as `note`) so a human can pick it up later. Track these as you go — by the time Phase 4.3 runs, they should already be in the workpad, and no separate end-of-run issue comment is needed.

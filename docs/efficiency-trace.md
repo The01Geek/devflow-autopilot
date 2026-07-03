@@ -312,7 +312,7 @@ interactive-drop failure mode so a future orchestrator does not silently skip th
   `/devflow:review-and-fix` **inline in the orchestrator's own context** (Phase 3.3), so its Loop Exit
   runs in-context and can be dropped exactly like any other interactive/inline drive. To close that
   seam without waiting for a harness-tier caller, `phase-3-review.md` runs `--persist` directly
-  (resolved as `${CLAUDE_SKILL_DIR}/../../lib/efficiency-trace.sh`, best-effort `|| true`) the moment
+  (resolved via the portable skill-dir anchor as `…/../../lib/efficiency-trace.sh`, best-effort `|| true`) the moment
   the inline loop returns — regardless of verdict, before the verdict branches. It passes **no**
   `--workpad-dir`/`--slug` (the orchestrator does not hold the loop's internal slug/run-id), so
   `--persist` falls back to its disk-discovery mode and picks up whatever run-scoped

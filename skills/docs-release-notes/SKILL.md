@@ -3,23 +3,25 @@ name: docs-release-notes
 description: Use when a PR has customer-visible changes (new features, bug fixes, UI changes) that need a release note entry, or when finalizing a branch before merge.
 ---
 > **Configuration:** Read paths from `.devflow/config.json`:
-> - Internal docs: `${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .docs.internal docs/internal/`
-> - External docs: `${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .docs.external docs/external/`
-> - Release notes file: `${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .docs.release_notes_file docs/external/release-notes.md`
-> - CHANGELOG file: `${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .docs.changelog_file CHANGELOG.md`
+> - Internal docs: `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.internal docs/internal/`
+> - External docs: `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.external docs/external/`
+> - Release notes file: `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.release_notes_file docs/external/release-notes.md`
+> - CHANGELOG file: `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.changelog_file CHANGELOG.md`
 > - PR number: `gh pr view --json number -q '.number'` (resolves from current branch)
 >
 > The `config-get.sh` helper falls back to the default value when the config file is missing or the key is absent.
 >
 > Use these values wherever `[[INTERNAL_DOC_LOCATION]]`, `[[EXTERNAL_DOC_LOCATION]]`, `[[RELEASE_NOTES_FILE]]`, `[[CHANGELOG_FILE]]`, and `[[PR_NUMBER]]` appear below.
 
+**Portable helper anchor (single-statement).** The bundled-helper commands in this skill resolve the skill directory inline at each call site via `${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}`. When `$CLAUDE_SKILL_DIR` is set and non-empty (Claude Code), run each command exactly as written. On a runner where it is unset or empty, replace the placeholder with the skill base directory the runner reports in context (e.g. a `Base directory for this skill:` line) before running the command; if that reported path is Windows-form (`C:\...`), first convert it to this shell's POSIX form with one standalone `wslpath -u '<path>'` (WSL) or `cygpath -u '<path>'` (Git Bash/MSYS2) command and substitute the printed result **only if the command succeeds and prints a non-empty path — otherwise fall through to the drive-letter rules exactly as if the tool were absent, the same success-and-non-empty acceptance the platform's path-normalization rules apply** (if neither tool exists: lowercase the drive letter, map `C:\` to `/mnt/c` on WSL or `/c` on MSYS2, and turn backslashes into `/`; if the environment is neither WSL nor MSYS2, use the path unchanged and report that it could not be normalized — the same arm the platform's path-normalization rules take). Resolve the anchor inline at every call site — never capture it into a shell variable that a later statement reads, because some runners' inline-bash marshaling drops such variables (observed on Copilot CLI). If neither `$CLAUDE_SKILL_DIR` nor a runner-reported base directory is available, stop and report that the helper anchor could not be resolved rather than running a command with a broken path.
+
 **Consumer prompt extension (load first).** Before doing this skill's work, load any consumer-supplied prompt extension for this skill and honor it. From the repo root, run:
 
 ```bash
-${CLAUDE_SKILL_DIR}/../../scripts/load-prompt-extension.sh docs-release-notes
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/load-prompt-extension.sh docs-release-notes
 ```
 
-If the helper exits non-zero, a consumer extension exists but could not be loaded — surface its stderr message and do not silently proceed as if none existed. If it exits 0 and prints text, treat that text as additional instructions appended to the end of this skill's own prompt for this run — it is upgrade-safe, consumer-owned customization committed under `.devflow/prompt-extensions/`. If it exits 0 and prints nothing, proceed unchanged.
+If the invocation fails because the helper path does not exist (`No such file`, exit 127, or the platform equivalent), that is the **anchor-resolution** failure described in the *Portable helper anchor* note above — fix the anchor, don't report a missing extension. Otherwise, if the helper exits non-zero, a consumer extension exists but could not be loaded — surface its stderr message and do not silently proceed as if none existed. If it exits 0 and prints text, treat that text as additional instructions appended to the end of this skill's own prompt for this run — it is upgrade-safe, consumer-owned customization committed under `.devflow/prompt-extensions/`. If it exits 0 and prints nothing, proceed unchanged.
 
 # Release Notes Agent
 
@@ -124,7 +126,7 @@ Look for a commit whose message begins with `chore: bump version`. This commit's
 
 Read the **authoritative shipped version** from the manifest (the bump, and any later re-version, both update it):
 ```bash
-${CLAUDE_SKILL_DIR}/../../scripts/run-jq.sh -r .version .claude-plugin/plugin.json
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/run-jq.sh -r .version .claude-plugin/plugin.json
 ```
 Inspect the result: a non-zero `jq` exit, empty output, or a value that is not an `N.N.N` version string (e.g. `null` from an absent key) — **while a bump commit is present** — is a **failed determination** (the fail-loud path below), not a clean version; only a well-formed `N.N.N` value continues. Then read `[[CHANGELOG_FILE]]` and search for the bracketed Keep-a-Changelog heading `## [<version>]` for that manifest version (e.g., `## [2.8.26]`). If `[[CHANGELOG_FILE]]` itself cannot be read (missing, permission, IO) while a bump commit and a valid manifest version are both present, that too is a **failed determination**, not "no matching section". If the file reads cleanly but has no section heading matching the manifest version, this step is a no-op — log "no CHANGELOG section found for version X" and proceed to Step 5; CHANGELOG *presence* on a bump is separately enforced by the Phase 3 review gate, not here.
 

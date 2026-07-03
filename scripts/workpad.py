@@ -11,9 +11,10 @@ from arguments + live GitHub state on each call.
 
 All subcommands shell out to `gh` for GitHub API access (same auth path as
 the rest of devflow). The workpad marker is read from
-`.devflow/config.json` via the bundled `config-get.sh` helper, falling
-back to the built-in default `<!-- devflow:workpad -->` when the config file or
-key is absent (so it works with no config).
+`.devflow/config.json` directly in-process (issue #275: no `.sh` exec, so it
+works on Windows), falling back to the built-in default
+`<!-- devflow:workpad -->` when the config file or key is absent (so it works
+with no config).
 
 Usage:
     workpad.py id        ISSUE [--marker M]
@@ -120,27 +121,52 @@ def _workpad_marker(explicit=None):
     override = (explicit or '').strip() or os.environ.get('DEVFLOW_WORKPAD_MARKER', '').strip()
     if override:
         return override
-    # Read the marker from .devflow/config.json, but fall back to the
-    # built-in default so the local tier works with no config file at all.
-    here = Path(__file__).resolve().parent
-    helper = here / 'config-get.sh'
+    # Read the marker from .devflow/config.json directly in-process (issue
+    # #275): Windows cannot exec a .sh helper ([WinError 193]), so the former
+    # config-get.sh subprocess hop silently dropped a configured custom marker
+    # back to the built-in default there. The path is cwd-relative, exactly as
+    # config-get.sh's own default is, and an absent file is the normal
+    # unconfigured case — silent fallback so the local tier works with no
+    # config at all.
+    config_file = Path('.devflow/config.json')
     try:
-        r = _run([str(helper), '.devflow.workpad_marker', _DEFAULT_WORKPAD_MARKER])
-    except (subprocess.CalledProcessError, OSError) as e:
-        # A broken config-get.sh (lost exec bit, bad shebang — the #3493 failure
-        # class this PR exists to fix) is otherwise indistinguishable from "no
-        # marker override configured": both silently fall back to the built-in
-        # default. Log a breadcrumb so an operator debugging a "workpad not
-        # found" symptom on a repo with `.devflow.workpad_marker` configured can
-        # tell "the helper couldn't execute" apart from "nothing is configured".
-        msg = e.stderr.strip() if isinstance(e, subprocess.CalledProcessError) else str(e)
+        with config_file.open(encoding='utf-8') as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        # Absent config (or an absent .devflow/ dir) is the normal
+        # unconfigured case — silent, unlike the breadcrumbed failures below.
+        return _DEFAULT_WORKPAD_MARKER
+    except (OSError, ValueError) as e:
+        # ValueError covers json.JSONDecodeError AND UnicodeDecodeError — a
+        # config.json written by PowerShell 5.x `>` redirection is UTF-16LE
+        # with a BOM (the docs/install.md pitfall), which raises
+        # UnicodeDecodeError, not JSONDecodeError, at read time.
+        # A present-but-unreadable/malformed config is otherwise
+        # indistinguishable from "no marker override configured": both fall
+        # back to the built-in default. Leave a breadcrumb naming the file so
+        # an operator debugging a "workpad not found" symptom on a repo with
+        # `.devflow.workpad_marker` configured can tell the two apart.
         sys.stderr.write(
-            f"workpad.py: could not execute {str(helper)!r} ({msg}); "
+            f"workpad.py: could not read {str(config_file)!r} ({e}); "
             f"falling back to default marker\n"
         )
         return _DEFAULT_WORKPAD_MARKER
-    marker = r.stdout.strip()
-    return marker or _DEFAULT_WORKPAD_MARKER
+    devflow = data.get('devflow') if isinstance(data, dict) else None
+    if not isinstance(devflow, dict) or 'workpad_marker' not in devflow:
+        return _DEFAULT_WORKPAD_MARKER
+    value = devflow['workpad_marker']
+    # A non-string or blank value is "not configured" — never coerce a
+    # misconfigured type into a garbage marker stamped into a comment — but a
+    # PRESENT-and-invalid key gets a breadcrumb: silently defaulting would be
+    # indistinguishable from "nothing configured", the same masked-fallback
+    # class the malformed-JSON branch above breadcrumbs.
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    sys.stderr.write(
+        f"workpad.py: ignoring non-string or blank devflow.workpad_marker in "
+        f"{str(config_file)!r}; falling back to default marker\n"
+    )
+    return _DEFAULT_WORKPAD_MARKER
 
 
 def _find_workpad_comment(cmd, repo, issue, marker):

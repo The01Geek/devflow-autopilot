@@ -20,7 +20,7 @@ Save the issue title, body, labels, and number — you will use these throughout
 Run the bundled parser to extract `## Acceptance Criteria` and (optional) `## Test Plan` sections from the issue, pre-classifying each criterion as either code-verifiable or *post-merge*:
 
 ```bash
-${CLAUDE_SKILL_DIR}/../../scripts/parse-acs.py --issue $ARGUMENTS > /tmp/acs-${ARGUMENTS}.md
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/parse-acs.py --issue $ARGUMENTS > /tmp/acs-${ARGUMENTS}.md
 ```
 
 The output is checkbox lines ready to splice into the workpad's `## Acceptance Criteria` section, with ` (post-merge)` appended to any criterion whose text matches the bundled trigger phrases (see `parse-acs.py`'s `POST_MERGE_TRIGGERS` list for what's matched). When no AC section exists, the helper prints `_(none provided in issue body)_` and Phase 3.4 passes trivially.
@@ -42,7 +42,7 @@ The workpad is created before the branch exists so the requester sees an acknowl
 ```bash
 ISSUE_NUMBER=$ARGUMENTS
 RUN_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"   # "/actions/runs/" segment is literal; empty env (local run) → use a "_(local run)_" placeholder
-WORKPAD_ID=$(${CLAUDE_SKILL_DIR}/../../scripts/workpad.py id "$ISSUE_NUMBER" || true)
+WORKPAD_ID=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py id "$ISSUE_NUMBER" || true)
 ```
 
 - **`WORKPAD_ID` empty (fresh issue — local-tier run with no `gate` job)** → Build the lean skeleton with the helper and create it, then mirror the issue's Acceptance Criteria into it:
@@ -87,7 +87,7 @@ The base branch is **read from config** (`base_branch` in `.devflow/config.json`
 # catch the empty read and supply `main` here (config-get already handled the
 # soft paths). It trusts config-get's contract that it prints a fully-resolved
 # value or nothing, never a partial/garbage string.
-BASE=$(${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .base_branch main) || BASE=""
+BASE=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .base_branch main) || BASE=""
 [ -n "$BASE" ] || { echo "devflow: base_branch read failed (malformed config or missing python3); falling back to 'main'" >&2; BASE=main; }
 CUR=$(git branch --show-current 2>/dev/null) || CUR=""
 ```
@@ -141,7 +141,7 @@ if [ -z "$USE_CURRENT" ]; then
   # attributable here, not a bare git error downstream — most importantly when the
   # fallback 'main' isn't the consumer's real trunk (a master/develop repo).
   git fetch origin "$BASE" || { echo "devflow: could not fetch base branch 'origin/$BASE' — if the base is correct, check network/auth; otherwise set base_branch in .devflow/config.json to the repo's real trunk (master/develop/…)" >&2; exit 1; }
-  BRANCH=$(${CLAUDE_SKILL_DIR}/../../scripts/branch-for-issue.py $ARGUMENTS --title-file /tmp/devflow-issue-$ARGUMENTS-title.txt) || { echo "devflow: branch-for-issue.py failed — could not derive a branch name for issue #$ARGUMENTS; check that the issue title file exists and the issue number is valid" >&2; exit 1; }
+  BRANCH=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/branch-for-issue.py $ARGUMENTS --title-file /tmp/devflow-issue-$ARGUMENTS-title.txt) || { echo "devflow: branch-for-issue.py failed — could not derive a branch name for issue #$ARGUMENTS; check that the issue title file exists and the issue number is valid" >&2; exit 1; }
   [ -n "$BRANCH" ] || { echo "devflow: branch-for-issue.py returned an empty branch name for issue #$ARGUMENTS — cannot create a branch" >&2; exit 1; }
   git checkout -b "$BRANCH" "origin/$BASE"
 fi

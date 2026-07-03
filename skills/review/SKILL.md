@@ -12,13 +12,15 @@ You are the review engine orchestrator. Run a four-phase review and present an A
 
 **Engine sharing.** Phases 0 through 4.3 of this skill are also executed verbatim by `/devflow:review-and-fix` (which wraps them in a fix loop and skips Phase 4.4 entirely — no GitHub post; its final report is emitted to chat only). When modifying engine behavior here — Phase 3 agent prompts, Phase 1 batching, Phase 0.5 classification, Phase 4 verdict criteria — verify `/devflow:review-and-fix` still produces the same findings; that's where divergence has historically slipped in. `/devflow:review-and-fix`'s SKILL.md deliberately keeps no paraphrase of these phases, so changes here propagate automatically as long as the file is reachable at the path `**/devflow/skills/review/SKILL.md`.
 
+**Portable helper anchor (single-statement).** The bundled-helper commands in this skill resolve the skill directory inline at each call site via `${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}`. When `$CLAUDE_SKILL_DIR` is set and non-empty (Claude Code), run each command exactly as written. On a runner where it is unset or empty, replace the placeholder with the skill base directory the runner reports in context (e.g. a `Base directory for this skill:` line) before running the command; if that reported path is Windows-form (`C:\...`), first convert it to this shell's POSIX form with one standalone `wslpath -u '<path>'` (WSL) or `cygpath -u '<path>'` (Git Bash/MSYS2) command and substitute the printed result **only if the command succeeds and prints a non-empty path — otherwise fall through to the drive-letter rules exactly as if the tool were absent, the same success-and-non-empty acceptance the platform's path-normalization rules apply** (if neither tool exists: lowercase the drive letter, map `C:\` to `/mnt/c` on WSL or `/c` on MSYS2, and turn backslashes into `/`; if the environment is neither WSL nor MSYS2, use the path unchanged and report that it could not be normalized — the same arm the platform's path-normalization rules take). Resolve the anchor inline at every call site — never capture it into a shell variable that a later statement reads, because some runners' inline-bash marshaling drops such variables (observed on Copilot CLI). If neither `$CLAUDE_SKILL_DIR` nor a runner-reported base directory is available, stop and report that the helper anchor could not be resolved rather than running a command with a broken path.
+
 **Consumer prompt extension (load first).** Before doing this skill's work, load any consumer-supplied prompt extension for this skill and honor it. From the repo root, run:
 
 ```bash
-${CLAUDE_SKILL_DIR}/../../scripts/load-prompt-extension.sh review
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/load-prompt-extension.sh review
 ```
 
-If the helper exits non-zero, a consumer extension exists but could not be loaded — surface its stderr message and do not silently proceed as if none existed. If it exits 0 and prints text, treat that text as additional instructions appended to the end of this skill's own prompt for this run — it is upgrade-safe, consumer-owned customization committed under `.devflow/prompt-extensions/`. If it exits 0 and prints nothing, proceed unchanged.
+If the invocation fails because the helper path does not exist (`No such file`, exit 127, or the platform equivalent), that is the **anchor-resolution** failure described in the *Portable helper anchor* note above — fix the anchor, don't report a missing extension. Otherwise, if the helper exits non-zero, a consumer extension exists but could not be loaded — surface its stderr message and do not silently proceed as if none existed. If it exits 0 and prints text, treat that text as additional instructions appended to the end of this skill's own prompt for this run — it is upgrade-safe, consumer-owned customization committed under `.devflow/prompt-extensions/`. If it exits 0 and prints nothing, proceed unchanged.
 
 ## When NOT to use
 
@@ -37,7 +39,7 @@ This is the review-side analogue of `/devflow:implement`'s workpad and reuses th
 
 **One progress comment per review *run*, not per PR.** Each run seeds its **own** comment and updates only that one; a later run must never re-discover and overwrite an earlier run's comment — the previous reviews stay on the PR as history. This is enforced by a **run-keyed marker**: the marker line carries a per-run discriminator (`run=<id>-<attempt>`), so the find-or-resume lookup only ever matches the *current* run's comment.
 
-Invoke the helper inline by its `${CLAUDE_SKILL_DIR}`-anchored path (cwd-independent, and it resolves to the `.devflow/vendor/devflow/scripts/workpad.py` form the cloud allow-list grants). **Do not route the *executable* through a shell variable (`WP_PY="…"; "$WP_PY" …`) or a leading `VAR=value` env-assignment** — either makes the command no longer *begin with* the allow-listed path, so every call is silently denied under the read-only cloud `review` profile and the live comment never appears. Pass the marker with `--marker "$MARKER"` instead — a variable in *argument* position is fine (the command still starts with the path); only the leading token and an env-assignment prefix break the match:
+Invoke the helper inline by its portable skill-dir-anchored path (cwd-independent, and it resolves to the `.devflow/vendor/devflow/scripts/workpad.py` form the cloud allow-list grants). **Do not route the *executable* through a shell variable (`WP_PY="…"; "$WP_PY" …`) or a leading `VAR=value` env-assignment** — either makes the command no longer *begin with* the allow-listed path, so every call is silently denied under the read-only cloud `review` profile and the live comment never appears. Pass the marker with `--marker "$MARKER"` instead — a variable in *argument* position is fine (the command still starts with the path); only the leading token and an env-assignment prefix break the match:
 
 ```bash
 # One progress comment PER REVIEW RUN. The marker carries a run discriminator so a
@@ -70,13 +72,13 @@ EOF
 # API error is NOT mistaken for "first write" (which would post a duplicate for this run):
 # Capture id's stderr to a temp file (NOT /dev/null) so the rc=1 branch can report
 # the *actual* gh-api/parse error rather than a generic "it failed":
-WP=$(${CLAUDE_SKILL_DIR}/../../scripts/workpad.py id "$PR_NUMBER" --marker "$MARKER" 2>/tmp/devflow-rv-id.err); rc=$?
+WP=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py id "$PR_NUMBER" --marker "$MARKER" 2>/tmp/devflow-rv-id.err); rc=$?
 if [ "$rc" -eq 0 ]; then
   :                                                                                    # resume $WP (this run's own comment)
 elif [ "$rc" -eq 2 ]; then
   # this run's first GitHub write — the marker is the body file's first line, so
   # `create` needs no --marker:
-  WP=$(${CLAUDE_SKILL_DIR}/../../scripts/workpad.py create "$PR_NUMBER" /tmp/review-wp.md)
+  WP=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py create "$PR_NUMBER" /tmp/review-wp.md)
 else
   # API error/parse failure (NOT "absent"): skip seeding to avoid a duplicate, but
   # surface the no-op WITH the captured error so a missing live comment is
@@ -89,7 +91,7 @@ fi
 # mid-run patch failure is the feature's most visible failure mode (a frozen
 # comment), so capture rc + stderr and surface a ::warning:: — never silently freeze:
 if [ -n "$WP" ]; then
-  ${CLAUDE_SKILL_DIR}/../../scripts/workpad.py patch "$WP" /tmp/review-wp.md 2>/tmp/devflow-rv-patch.err || \
+  "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py patch "$WP" /tmp/review-wp.md 2>/tmp/devflow-rv-patch.err || \
     echo "::warning::devflow review: live progress-comment update failed (workpad.py patch rc=$?): $(cat /tmp/devflow-rv-patch.err); the comment may be frozen at an earlier phase — the review continues to its verdict" >&2
 fi
 ```
@@ -130,7 +132,7 @@ _(pending)_
 **Read-only cloud is fine.** The slim cloud `review` profile is read-only for the tree but carries `gh api` / `gh pr comment`, so creating and editing this comment is permitted; only the `.devflow/logs/efficiency/` **file** write is gated to writable runs (see Phase 4.5).
 
 **Gating & fallbacks.**
-- `devflow_review.live_progress_comment_enabled` = `false` → skip the live comment entirely; behave as today (report produced once at the end). Read it via `${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .devflow_review.live_progress_comment_enabled true`.
+- `devflow_review.live_progress_comment_enabled` = `false` → skip the live comment entirely; behave as today (report produced once at the end). Read it via `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .devflow_review.live_progress_comment_enabled true`.
 - **Non-PR / current-branch mode** → there is no comment surface; render the same blueprint-and-progress narrative incrementally to **chat** as you go, and create no comment.
 - Comment create/patch is **best-effort** — a failure is logged and the review continues to its verdict; never abort the review on a workpad write failure.
 - **Fatal review abort after seeding.** If the review itself hits a fatal error *after* the comment is seeded (e.g. the diff becomes unfetchable mid-run, or an agent dispatch fails irrecoverably) and cannot reach the Phase 4 verdict, do **not** leave the comment frozen in `🚀 Reviewing`. Best-effort `patch` it to a clearly-failed terminal state — flip `Status` to `❌ Review failed`, add a one-line `## Verdict` of `REVIEW INCOMPLETE — <reason>`, and leave the partial Blueprint ticks as-is — before surfacing the failure. This is the skill-owned analogue of the old `devflow-review.yml` `### ❌ Devflow Review Failed` variant (the workflow no longer authors it).
@@ -153,7 +155,7 @@ Operators can tune each review subagent's model and reasoning effort via the `de
 # (Phase 3). This is a template substitution you fill in, NOT a shell variable: do not
 # emit a bare `$PHASE` (it would be unset and collapse all phases onto one file,
 # truncating earlier phases' unread diagnostics — see the surfacing rule below).
-OVERRIDES=$(${CLAUDE_SKILL_DIR}/../../scripts/resolve-review-overrides.py \
+OVERRIDES=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/resolve-review-overrides.py \
     "devflow:checklist-generator" 2>/tmp/devflow-rv-ovr.phase1.err)
 ```
 
@@ -240,7 +242,7 @@ Extract the list of changed files **by parsing the filtered `diff.patch` cached 
 
 ### 0.3.5 Seed the live progress comment (PR mode)
 
-In PR mode, and when `devflow_review.live_progress_comment_enabled` is `true` (read it via `${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .devflow_review.live_progress_comment_enabled true`), seed **this run's** live progress comment **now** — this is the engine's first GitHub write, so "review started" lands as early as possible. Create a fresh comment for this run, keyed by the run-keyed marker, with the Blueprint template (all boxes unticked) and the `Run` link to this job, per the **Live Progress Comment** section above. Because the marker carries this run's id, the find-or-resume lookup matches **only this run's** comment: on a mid-run retry (`rc=0`) it resumes that same comment; it never resumes or overwrites a **previous** run's comment — those stay on the PR as review history. Thereafter follow the update protocol at each phase boundary. In non-PR mode, or when the flag is off, skip this step (the narrative goes to chat as you proceed, or is produced once at the end, respectively).
+In PR mode, and when `devflow_review.live_progress_comment_enabled` is `true` (read it via `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .devflow_review.live_progress_comment_enabled true`), seed **this run's** live progress comment **now** — this is the engine's first GitHub write, so "review started" lands as early as possible. Create a fresh comment for this run, keyed by the run-keyed marker, with the Blueprint template (all boxes unticked) and the `Run` link to this job, per the **Live Progress Comment** section above. Because the marker carries this run's id, the find-or-resume lookup matches **only this run's** comment: on a mid-run retry (`rc=0`) it resumes that same comment; it never resumes or overwrites a **previous** run's comment — those stay on the PR as review history. Thereafter follow the update protocol at each phase boundary. In non-PR mode, or when the flag is off, skip this step (the narrative goes to chat as you proceed, or is produced once at the end, respectively).
 
 ### 0.4 Discover related GitHub issue
 
@@ -842,7 +844,7 @@ Output: `Phase 4/4: Aggregating findings...`
 
 **Skip this step entirely in current-branch mode** (no PR → no body to read). On standalone branch reviews, there is no Scope-Acknowledged Findings block; jump straight to 4.1.
 
-When `$ARGUMENTS` is a PR number, the engine consults the **Scope-Acknowledged Findings** block in the PR body (delimited by `<!-- DEVFLOW_DEFERRED_FINDINGS_START -->` / `<!-- DEVFLOW_DEFERRED_FINDINGS_END -->`) and demotes any current finding that matches a validated deferral entry to **Informational**. This is the consumer side of the contract /devflow:implement Phase 4.0.5 produces; without it, /devflow:review re-raises findings that /devflow:implement already filed follow-up issues for, creating the policy mismatch the contract is meant to prevent. (See `${CLAUDE_SKILL_DIR}/../../scripts/match-deferrals.py` for the matcher's exact guard order and matching rule.)
+When `$ARGUMENTS` is a PR number, the engine consults the **Scope-Acknowledged Findings** block in the PR body (delimited by `<!-- DEVFLOW_DEFERRED_FINDINGS_START -->` / `<!-- DEVFLOW_DEFERRED_FINDINGS_END -->`) and demotes any current finding that matches a validated deferral entry to **Informational**. This is the consumer side of the contract /devflow:implement Phase 4.0.5 produces; without it, /devflow:review re-raises findings that /devflow:implement already filed follow-up issues for, creating the policy mismatch the contract is meant to prevent. (See `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/match-deferrals.py` for the matcher's exact guard order and matching rule.)
 
 Serialize the Phase 3 findings collected in 3.2 to a JSON array with one object per finding:
 
@@ -858,7 +860,7 @@ The order matters — index N in this array becomes the matcher's `finding_index
 Pipe the JSON to the matcher via stdin (the `review` allowed-tools profile in `claude-runner.yml` is read-only and does not grant the Write tool, so the orchestrator cannot write a `findings.json` file; stdin is the load-bearing alternative):
 
 ```bash
-printf '%s' "$FINDINGS_JSON" | ${CLAUDE_SKILL_DIR}/../../scripts/match-deferrals.py \
+printf '%s' "$FINDINGS_JSON" | "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/match-deferrals.py \
     --pr $ARGUMENTS \
     --diff ".devflow/tmp/review/<slug>/<run-id>/diff.patch" \
     --findings -
@@ -950,10 +952,10 @@ The full **flag-and-record** gate — which *requires* a recorded `severity-cali
 
 ### 4.2 Determine verdict
 
-**Resolve the verdict-severity threshold once, before applying the rules.** Read `devflow_review.verdict_severity_threshold` (default `critical`) via the same `${CLAUDE_SKILL_DIR}`-anchored, no-`bash`-prefix `config-get.sh` invocation the live-progress-comment gate uses. `config-get.sh` reads the value but does **not** validate the enum — it coerces any JSON value to a string — so validate the enum **inline** and fall back to the default `critical` on a resolver failure (rc≠0) or any value outside the enum, with a **specific breadcrumb naming the key and the fallback value** (never aborting the review):
+**Resolve the verdict-severity threshold once, before applying the rules.** Read `devflow_review.verdict_severity_threshold` (default `critical`) via the same portable skill-dir-anchored, no-`bash`-prefix `config-get.sh` invocation the live-progress-comment gate uses. `config-get.sh` reads the value but does **not** validate the enum — it coerces any JSON value to a string — so validate the enum **inline** and fall back to the default `critical` on a resolver failure (rc≠0) or any value outside the enum, with a **specific breadcrumb naming the key and the fallback value** (never aborting the review):
 
 ```bash
-VERDICT_THRESHOLD=$("${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh" .devflow_review.verdict_severity_threshold critical); VERDICT_THRESHOLD_RC=$?
+VERDICT_THRESHOLD=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .devflow_review.verdict_severity_threshold critical); VERDICT_THRESHOLD_RC=$?
 # A missing key returns the default `critical` (valid → kept silently, so an absent
 # key leaves verdict computation byte-identical to today). A resolver failure (rc≠0:
 # malformed config.json or missing python3) and an out-of-enum value each fall back to
@@ -1019,18 +1021,18 @@ If `gh pr review` fails (e.g. you cannot review your own PR as the same GitHub i
 **Then, on any APPROVE form only (APPROVE / APPROVE with notes / APPROVE WITH CAVEAT), clear a stale REJECT.** A prior REJECT's `--request-changes` review stays the PR's effective `reviewDecision` until *dismissed*; the APPROVE-with-notes `--comment` review never supersedes it, and the REJECT may be a different bot identity (auto path posts as `github-actions[bot]`, manual `@claude` as another), so no later review clears it either. Without this the PR is wedged at `reviewDecision: CHANGES_REQUESTED` forever, contradicting the green check and this APPROVE. The script dismisses **only Devflow Review's own reports** (body marker), never a human reviewer's `--request-changes`. On REJECT, **skip this** — the changes-request must stand. Run (re-run safe):
 
 ```bash
-${CLAUDE_SKILL_DIR}/../../scripts/dismiss-stale-rejections.sh "$ARGUMENTS"
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/dismiss-stale-rejections.sh "$ARGUMENTS"
 ```
 
 If it exits non-zero (token scope), say so in chat output and that the PR stays blocked until dismissed manually. **A dismissal failure never downgrades the verdict** — the verdict stands; only merge-gate housekeeping failed.
 
 ### 4.5 Run telemetry + effectiveness trace
 
-This step is gated by `devflow_review_and_fix.efficiency_telemetry_enabled` (read via `${CLAUDE_SKILL_DIR}/../../scripts/config-get.sh .devflow_review_and_fix.efficiency_telemetry_enabled true`; the flag is shared with `/devflow:review-and-fix`). When `false`, skip this step entirely — no telemetry, no trace, no record. It is **independent** of the live-comment flag: the live comment can be on with telemetry off (an incremental narrative with no telemetry/trace block), or vice versa.
+This step is gated by `devflow_review_and_fix.efficiency_telemetry_enabled` (read via `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .devflow_review_and_fix.efficiency_telemetry_enabled true`; the flag is shared with `/devflow:review-and-fix`). When `false`, skip this step entirely — no telemetry, no trace, no record. It is **independent** of the live-comment flag: the live comment can be on with telemetry off (an incremental narrative with no telemetry/trace block), or vice versa.
 
 When enabled, assemble a **single workpad-shaped object** for this run from state the engine already produced, and write it to `.devflow/tmp/review/<slug>/<run-id>/iter-1.json` (run-scoped, the same `<run-id>` Phase 0.2 resolved — see "Caller run-id"). This scratch write is the input `efficiency-trace.sh --mode trace` reads back; it lands in gitignored `.devflow/tmp/` (the same ephemeral-scratch location as Phase 0.2's `diff.patch`), so it does **not** make the trace a tree write and is permitted under the read-only cloud `review` profile — only the durable `--mode record` file under `.devflow/logs/efficiency/` is gated to writable runs.
 
-**Author it with an allow-listed command** — the read-only cloud `review` profile grants the execution-verified jq wrapper `Bash(.devflow/vendor/devflow/scripts/run-jq.sh:*)` (invoke it as the command's leading token by path, so a shim-shadowed Windows/WSL host resolves a runnable jq — this is the preferred head; bare `Bash(jq:*)` also remains granted but skips the execution-verified resolution), plus `Bash(printf:*)` and `Bash(cat:*)`, but **not** `Bash(tee:*)`, so do not copy Phase 0.2's `… | tee` pattern here (that write rides a `gh pr diff` pipe; this one has no such pipe). Build the object with `${CLAUDE_SKILL_DIR}/../../scripts/run-jq.sh -n` (or `cat <<'EOF'`/`printf '%s'`) and `>`-redirect it, e.g. `${CLAUDE_SKILL_DIR}/../../scripts/run-jq.sh -n --argjson findings '…' '{iter:1, source:"review", …}' > .devflow/tmp/review/<slug>/<run-id>/iter-1.json`. The `>` redirect of an allow-listed command head is permitted; a non-allow-listed head like `tee` would be silently denied under the cloud profile and the trace would have no input.
+**Author it with an allow-listed command** — the read-only cloud `review` profile grants the execution-verified jq wrapper `Bash(.devflow/vendor/devflow/scripts/run-jq.sh:*)` (invoke it as the command's leading token by path, so a shim-shadowed Windows/WSL host resolves a runnable jq — this is the preferred head; bare `Bash(jq:*)` also remains granted but skips the execution-verified resolution), plus `Bash(printf:*)` and `Bash(cat:*)`, but **not** `Bash(tee:*)`, so do not copy Phase 0.2's `… | tee` pattern here (that write rides a `gh pr diff` pipe; this one has no such pipe). Build the object with `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/run-jq.sh -n` (or `cat <<'EOF'`/`printf '%s'`) and `>`-redirect it, e.g. `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/run-jq.sh -n --argjson findings '…' '{iter:1, source:"review", …}' > .devflow/tmp/review/<slug>/<run-id>/iter-1.json`. The `>` redirect of an allow-listed command head is permitted; a non-allow-listed head like `tee` would be silently denied under the cloud profile and the trace would have no input.
 
 ```json
 {
@@ -1049,10 +1051,9 @@ When enabled, assemble a **single workpad-shaped object** for this run from stat
 Then render the trace and (on a writable run) persist the record, reusing the **same hardened invocation** `/devflow:review-and-fix`'s Loop Exit uses (direct invocation — no `bash` prefix; rc/stderr `::warning::` breadcrumbs; remove-on-rc≠0):
 
 ```bash
-LIB="${CLAUDE_SKILL_DIR}/../../lib"
 WORKPAD_DIR=".devflow/tmp/review/<slug>/<run-id>"   # run-scoped: read THIS run's iter-1.json
 # Trace (renders to chat / the live comment; reads only):
-TELEM="$("$LIB/efficiency-trace.sh" --workpad-dir "$WORKPAD_DIR" --slug "<slug>" --mode trace 2>/tmp/devflow-rv-et.err)"; T_RC=$?
+TELEM="$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/efficiency-trace.sh --workpad-dir "$WORKPAD_DIR" --slug "<slug>" --mode trace 2>/tmp/devflow-rv-et.err)"; T_RC=$?
 # Three-way, mirroring /devflow:review-and-fix's Loop Exit: rc≠0 is a failure;
 # rc=0-but-empty stdout (e.g. telemetry flag off, or zero readable workpads) is a
 # benign no-trace — surface it but append nothing, never a blank trace section:
@@ -1069,7 +1070,7 @@ fi
 # the only thing preventing a 0-byte artifact.)
 RECORD=".devflow/logs/efficiency/<slug>-$(date -u +%Y%m%dT%H%M%SZ).json"
 mkdir -p .devflow/logs/efficiency
-"$LIB/efficiency-trace.sh" --workpad-dir "$WORKPAD_DIR" --slug "<slug>" --mode record > "$RECORD" 2>/tmp/devflow-rv-rec.err; R_RC=$?
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/efficiency-trace.sh --workpad-dir "$WORKPAD_DIR" --slug "<slug>" --mode record > "$RECORD" 2>/tmp/devflow-rv-rec.err; R_RC=$?
 [ "$R_RC" -ne 0 ] && echo "::warning::review effectiveness record failed (rc=$R_RC): $(cat /tmp/devflow-rv-rec.err)"
 { [ "$R_RC" -ne 0 ] || [ ! -s "$RECORD" ]; } && rm -f "$RECORD"
 ```

@@ -11,7 +11,7 @@ You are given:
 
 1. An array of context-bundle paths — one per occurrence PR (same schema `fetch-pr-context.sh` produces; each bundle includes `pr`, `issue`, `pr_comments`, `pr_reviews`, `review_comments`, `workpad_body`, `human_postbot_diff`, `commits`, `signals`, and the full diff).
 2. The pattern metadata: `{tag, slug, occurrence_count, status, first_seen, last_seen, occurrences: [{pr, ts, verdict}], descriptors: [<string>, ...]}` — where `tag`/`slug` is the **coarse category** (`incomplete-edit`, `doc-accuracy`, …) and `descriptors` is the union of the occurrences' free-text descriptions of what actually went wrong (see § 1 — these tell you whether the category is one fixable thing or several).
-3. Read `${CLAUDE_SKILL_DIR}/../../lib/intervention-surfaces.md` for candidate surfaces to propose against.
+3. Read `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/intervention-surfaces.md` for candidate surfaces to propose against.
 
 Your only stdout output is **exactly one** JSON object — `{title, body}` (see § 5). Make no edits, run no `git` commands, do not commit, push, open PRs, or file issues — the orchestrator files the issue from the JSON you return.
 
@@ -22,13 +22,15 @@ Your only stdout output is **exactly one** JSON object — `{title, body}` (see 
 
 ---
 
+**Portable helper anchor (single-statement).** The bundled-helper commands in this skill resolve the skill directory inline at each call site via `${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}`. When `$CLAUDE_SKILL_DIR` is set and non-empty (Claude Code), run each command exactly as written. On a runner where it is unset or empty, replace the placeholder with the skill base directory the runner reports in context (e.g. a `Base directory for this skill:` line) before running the command; if that reported path is Windows-form (`C:\...`), first convert it to this shell's POSIX form with one standalone `wslpath -u '<path>'` (WSL) or `cygpath -u '<path>'` (Git Bash/MSYS2) command and substitute the printed result **only if the command succeeds and prints a non-empty path — otherwise fall through to the drive-letter rules exactly as if the tool were absent, the same success-and-non-empty acceptance the platform's path-normalization rules apply** (if neither tool exists: lowercase the drive letter, map `C:\` to `/mnt/c` on WSL or `/c` on MSYS2, and turn backslashes into `/`; if the environment is neither WSL nor MSYS2, use the path unchanged and report that it could not be normalized — the same arm the platform's path-normalization rules take). Resolve the anchor inline at every call site — never capture it into a shell variable that a later statement reads, because some runners' inline-bash marshaling drops such variables (observed on Copilot CLI). If neither `$CLAUDE_SKILL_DIR` nor a runner-reported base directory is available, stop and report that the helper anchor could not be resolved rather than running a command with a broken path.
+
 **Consumer prompt extension (load first).** Before doing this skill's work, load any consumer-supplied prompt extension for this skill and honor it. From the repo root, run:
 
 ```bash
-${CLAUDE_SKILL_DIR}/../../scripts/load-prompt-extension.sh retrospective-audit
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/load-prompt-extension.sh retrospective-audit
 ```
 
-If the helper exits non-zero, a consumer extension exists but could not be loaded — surface its stderr message and do not silently proceed as if none existed. If it exits 0 and prints text, treat that text as additional instructions appended to the end of this skill's own prompt for this run — it is upgrade-safe, consumer-owned customization committed under `.devflow/prompt-extensions/`. If it exits 0 and prints nothing, proceed unchanged. (This subagent's stdout contract is strict — exactly one JSON object — so a consumer extension here must not break that contract.)
+If the invocation fails because the helper path does not exist (`No such file`, exit 127, or the platform equivalent), that is the **anchor-resolution** failure described in the *Portable helper anchor* note above — fix the anchor, don't report a missing extension. Otherwise, if the helper exits non-zero, a consumer extension exists but could not be loaded — surface its stderr message and do not silently proceed as if none existed. If it exits 0 and prints text, treat that text as additional instructions appended to the end of this skill's own prompt for this run — it is upgrade-safe, consumer-owned customization committed under `.devflow/prompt-extensions/`. If it exits 0 and prints nothing, proceed unchanged. (This subagent's stdout contract is strict — exactly one JSON object — so a consumer extension here must not break that contract.)
 
 ## § 1 — Re-derive the root cause
 
@@ -53,7 +55,7 @@ Any of these may legitimately be the highest-leverage proposed change — the is
 
 ## § 2 — Pick the proposed change
 
-Read `${CLAUDE_SKILL_DIR}/../../lib/intervention-surfaces.md`. From those surfaces — or beyond them — pick the **highest-leverage, smallest-blast-radius** single concrete change to propose. The proposal must be one change, not a set of bullet points. Any surface is fair game (skills, agents, `lib/`, `scripts/`, docs, CLAUDE.md, config, application code) — you are writing a spec for a human-reviewed implement run, so nothing is off-limits the way it was when this stage auto-edited.
+Read `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/intervention-surfaces.md`. From those surfaces — or beyond them — pick the **highest-leverage, smallest-blast-radius** single concrete change to propose. The proposal must be one change, not a set of bullet points. Any surface is fair game (skills, agents, `lib/`, `scripts/`, docs, CLAUDE.md, config, application code) — you are writing a spec for a human-reviewed implement run, so nothing is off-limits the way it was when this stage auto-edited.
 
 **Conflict check:** search the existing rules, skills, and docs for anything that contradicts your proposed change. If you find a conflict, reframe as "strengthen rule X" rather than "add rule Y" — that is always the higher-quality proposal. Document the conflict (or its explicit absence) in the issue body.
 
@@ -67,7 +69,7 @@ Write a short paragraph (3–5 sentences): what could go wrong if this change is
 
 ## § 4 — Author the issue body
 
-The `body` you return is filed verbatim as the GitHub issue, so it must read like a `/devflow:create-issue`-quality issue **plus** a clearly delimited provenance section. Follow `${CLAUDE_SKILL_DIR}/../create-issue/references/issue-template.md` for the issue structure, and append the provenance block.
+The `body` you return is filed verbatim as the GitHub issue, so it must read like a `/devflow:create-issue`-quality issue **plus** a clearly delimited provenance section. Follow `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../create-issue/references/issue-template.md` for the issue structure, and append the provenance block.
 
 **GitHub autolink hygiene** (your returned `title` and `body` are posted verbatim to a GitHub issue): never put a bare `#` immediately before a number unless it is a real issue or PR reference — GitHub renders `#2` as a link to issue/PR 2, which misleads readers. For an ordinal, count, or list position, spell it out ("item 2", "step 3"), never `#2`. Genuine references like `#123` stay as-is.
 
@@ -140,7 +142,7 @@ Never hand-write or heredoc the output JSON — character-escaping errors in mul
 ```bash
 BODY_SCRATCH="$(mktemp)"   # unique per subagent — never a fixed shared path
 # ... write the issue body to "$BODY_SCRATCH" with the Write tool ...
-${CLAUDE_SKILL_DIR}/../../scripts/run-jq.sh -n \
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/run-jq.sh -n \
   --arg title "<action-oriented issue title>" \
   --arg body "$(cat "$BODY_SCRATCH")" \
   '{title: $title, body: $body}'

@@ -44,8 +44,12 @@ auth is required to run them.
 
 ## Conventions
 
-- **Skills reference bundled files via `${CLAUDE_SKILL_DIR}/../../<dir>/…`** so they
-  resolve regardless of install location. Never hardcode `.devflow/vendor/devflow/…`
+- **Skills reference bundled files via the portable single-statement anchor
+  `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../<dir>/…`** so they
+  resolve regardless of install location and runner (`$CLAUDE_SKILL_DIR` on Claude Code;
+  the runner-reported skill base directory substituted for the placeholder elsewhere —
+  never assigned to a shell variable read by a later statement, which some runners'
+  inline-bash marshaling drops). Never hardcode `.devflow/vendor/devflow/…`
   in a skill (the cloud-tier *workflows* are the one exception — see below).
 - **Portability:** avoid GNU-only flags. Use `python3` for date math (not `date -d`)
   and ERE / `sed -E` (not `grep -P`).
@@ -78,7 +82,7 @@ auth is required to run them.
   ```
 - **Every `skills/*/SKILL.md` carries the standardized consumer prompt-extension
   step.** As a preflight, each skill invokes
-  `${CLAUDE_SKILL_DIR}/../../scripts/load-prompt-extension.sh <skill-name>` and honors
+  `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/load-prompt-extension.sh <skill-name>` and honors
   any returned text as instructions appended verbatim to the end of its own prompt — the
   consumer-owned, upgrade-safe `.devflow/prompt-extensions/<skill-name>.md` (absent or
   empty → no-op). When you **add a new skill**, copy this step verbatim (substituting the
@@ -97,7 +101,7 @@ The `.github/workflows/*.yml` files run inside GitHub Actions, where they refere
 plugin scripts at `.devflow/vendor/devflow/scripts/…`. That path assumes the cloud
 tier is used with the plugin **vendored** into the consuming repo at that path (see
 `docs/cloud-setup.md`). This is intentional and distinct from the local skills, which
-use `${CLAUDE_SKILL_DIR}`.
+resolve the portable `${CLAUDE_SKILL_DIR:-…}` anchor at runtime.
 
 ## Submitting changes
 
