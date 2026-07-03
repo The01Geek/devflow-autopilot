@@ -616,8 +616,7 @@ jobs:
           # here through this single variable (coupled with the lib/test/run.sh
           # pin). Counted lazily — only an interim status can lead to a decision
           # that reads it — so the healthy terminal path skips the paginated
-          # fetch. A gh/network failure counts 0: failing toward one more resume
-          # count input is CR-stripped so a CRLF-bearing body cannot silently
+          # fetch. The count input is CR-stripped so a CRLF-bearing body cannot silently
           # zero the count. A failed comment read makes the attempt count
           # UNKNOWABLE: it maps to the unreadable (fail-loud) class rather
           # than assuming 0 — a persistent read failure must not defeat the
