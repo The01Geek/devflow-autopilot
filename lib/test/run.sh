@@ -14186,13 +14186,31 @@ rm -f "$P284_PROBE"
 # (1b) TWO-LINE absence (#284 shadow review, AC5 completeness): the single-line detector
 # above is line-oriented, so the SAME cross-statement hazard written across two physical
 # lines — `VAR=$(…)` on one line, `VAR_RC=$?` (or `; rc=$?`) on the next — would slip past
-# it. That two-line form is exactly the reintroduction AC5 must turn RED. A portable POSIX
-# awk pass (no `grep -P`) flags a command-substitution assignment line immediately followed
-# by an rc-capture line. It reads 0 on every migrated body today (the recipes are gone) and
-# does NOT match the exempt `cmd; rc=$?` survivors (their rc line's PREVIOUS line carries no
-# `=$(`).
-count_284_twoline_rc_recipe() {  # file -> count of the banned recipe split across two lines
-  awk 'prev ~ /=\$\(/ && $0 ~ /^[[:space:]]*([A-Z_]+_RC|rc)=\$\?/ { c++ } { prev = $0 } END { print c+0 }' "$1"
+# it. That split form is exactly the reintroduction AC5 must turn RED. A portable POSIX awk
+# pass (no `grep -P`) flags a command-substitution assignment whose rc capture lands on a
+# later line — both the simple two-line form AND the trailing-rc-after-backslash-continuation
+# form the shadow review flagged (per-shape detail in the function body). It reads 0 on every
+# migrated body today (the recipes are gone) and does NOT match the exempt `cmd; rc=$?`
+# survivors (their rc line carries no `=$(` and no backslash-continued `=$(` precedes it).
+count_284_twoline_rc_recipe() {  # file -> count of the banned recipe split across lines (2-line + line-continuation)
+  # Two shapes, both the historical recipe this PR removed:
+  #   (a) two-line-at-start:   VAR=$(cmd)              (b) trailing-after-continuation: VAR=$(printf x \
+  #                            VAR_RC=$?                                                   | cmd); VAR_RC=$?
+  # (a) is caught by the prev-line rule; (b) by a stateful `open` flag that tracks a command-
+  # substitution assignment continued via a trailing backslash until its `); VAR_RC=$?` close on
+  # ANY later continued line. Neither matches the exempt same-line `cmd; rc=$?` survivors
+  # (cmp_rc/gmrc/init grep) — their rc line carries no `=$(`, does not start with the rc token,
+  # and is not preceded by a backslash-continued `=$(` assignment.
+  awk '
+    {
+      if (open && $0 ~ /([A-Z_]+_RC|rc)=\$\?/) { c++; open=0 }
+      else if (open && $0 !~ /\\[[:space:]]*$/) { open=0 }
+      if ($0 ~ /=\$\(/ && $0 ~ /\\[[:space:]]*$/) { open=1 }
+      if (prev ~ /=\$\(/ && $0 ~ /^[[:space:]]*([A-Z_]+_RC|rc)=\$\?/) { c++ }
+      prev = $0
+    }
+    END { print c+0 }
+  ' "$1"
 }
 assert_eq "#284 absence(2-line): no split VAR=\$(…)/VAR_RC=\$? recipe in review-and-fix SKILL" "0" "$(count_284_twoline_rc_recipe "$ST_RAF")"
 assert_eq "#284 absence(2-line): no split VAR=\$(…)/VAR_RC=\$? recipe in review SKILL" "0" "$(count_284_twoline_rc_recipe "$ST_REV")"
@@ -14205,7 +14223,19 @@ printf '%s\n' 'FOO=$(somecmd .k default)' 'FOO_RC=$?' > "$P284_2L"
 assert_eq "#284 absence(2-line) detector: a split VAR=\$(…)/VAR_RC=\$? recipe reads 1 (RED, not vacuous)" "1" "$(count_284_twoline_rc_recipe "$P284_2L")"
 printf '%s\n' 'if ! FOO=$(somecmd .k default); then FOO=default; fi' > "$P284_2L"
 assert_eq "#284 absence(2-line) detector: the migrated if!-form reads 0 (GREEN)" "0" "$(count_284_twoline_rc_recipe "$P284_2L")"
+# Mutation proof for the trailing-after-line-continuation shape (the exact historical form
+# this PR removed: a piped substitution continued with a backslash, rc captured after the
+# close). This is the shape the shadow review flagged as slipping past a naive 2-line detector.
+printf '%s\n' 'DOC_NEEDED_PATHS=$(printf '"'"'%s'"'"' "$ISSUE_BODY" \' '  | ./extract-doc-needed-paths.sh); HELPER_RC=$?' > "$P284_2L"
+assert_eq "#284 absence(2-line) detector: a trailing-rc-after-continuation recipe reads 1 (RED, not vacuous)" "1" "$(count_284_twoline_rc_recipe "$P284_2L")"
+# And the migrated fixed-temp-file form (multi-statement, no rc capture) reads 0 (GREEN):
+printf '%s\n' 'if ! gh issue view $N --json body > /tmp/b.txt \' '   && ! gh issue view $N --json body > /tmp/b.txt; then :; fi' > "$P284_2L"
+assert_eq "#284 absence(2-line) detector: the migrated temp-file form reads 0 (GREEN)" "0" "$(count_284_twoline_rc_recipe "$P284_2L")"
 rm -f "$P284_2L"
+# The extractor-side captured-rc token (HELPER_RC) must be GONE too — the shadow flagged that
+# only GH_RC/DIFF_RC had absence pins, leaving the extractor value-hop's rc capture unpinned.
+assert_eq "#284 shadow-fix: Phase 4.1 no longer carries the old HELPER_RC extractor-rc capture" \
+  "0" "$(pin_count 'HELPER_RC=$?' "$IMPL_SKILL")"
 # (2) POSITIVE-form pins (AC5): the new single-statement `if !` idiom is present at each
 # migrated site (routed through assert_pin_unique — no bare grep on the line).
 assert_pin_unique "#284 positive: receiving-code-review discriminates via single-statement if!" 'if ! REOPEN_THRESHOLD=$(' "$ST_RCV"
