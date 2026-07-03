@@ -3717,28 +3717,38 @@ assert_pin_unique "#190: Phase 4.1 Stage 2 fails closed when the diff command st
 # the gate off a still-local commit.
 assert_pin_unique "#190: Phase 4.1 Stage 2 self-heal re-check is remote-anchored (K)" \
   'the local branch is in sync with its upstream' "$IMPL_SKILL"
-# PR #190 fix-loop: the EXTRACTION side (gh issue view | helper) must read the
+# PR #190 fix-loop: the EXTRACTION side (gh issue view / helper) must read the
 # exit status, not stdout emptiness — a failed gh issue view (auth/network/wrong
 # number) emits empty stdout indistinguishable from a genuinely empty bullet and
 # would silently disable the whole gate. Issue #284 migrated this from a captured
 # GH_RC/HELPER_RC (which a cross-statement-variable-stripping inline-bash runner
-# leaves empty, making the fail-closed check inert) to a guard reading the command's
+# leaves empty, making the fail-closed check inert) to guards reading each command's
 # OWN exit status inline. The #284 SHADOW review then found the interim two-guard form
 # still hopped ISSUE_BODY across statements (gh assigned in one statement, read by the
-# extractor in the next) — a residual fail-OPEN on a value-stripping runner — so it was
-# folded into ONE `set -o pipefail` pipe per attempt (`gh … | extractor`), carrying no
-# intermediate variable. Assert the pipefail-pipe form appears in BOTH stages (coupled
-# site) and BOTH the old captured-rc recipe AND the ISSUE_BODY value-hop are GONE.
-assert_eq "#284 fix-loop: Phase 4.1 guards the gh|extractor read via a single-statement pipefail pipe in BOTH stages" \
-  "2" "$(pin_count 'if ! DOC_NEEDED_PATHS=$(set -o pipefail; gh issue view' "$IMPL_SKILL")"
+# extractor in the next) — a residual fail-OPEN on a value-stripping runner. The
+# fix-delta gate then flagged that a `set -o pipefail`-pipe alternative would rest on
+# SHELL-OPTION state surviving between statements inside $(...), the same marshaling class.
+# So the body is now passed through a FIXED TEMP FILE: gh writes it (statement 1, if!-guarded
+# on gh's own rc), the extractor reads it (statement 2, if!-guarded on the extractor's rc) —
+# a literal disk PATH, neither a variable nor an option, so NO marshaled cross-statement
+# state has to survive. Assert the temp-file form in BOTH stages (coupled site) and that the
+# old captured-rc recipe, the ISSUE_BODY value-hop, AND the pipefail-option form are all GONE.
+assert_eq "#284 fix-loop: Phase 4.1 gh body read is if!-guarded in BOTH stages" \
+  "2" "$(pin_count 'if ! gh issue view $ISSUE_NUMBER --json body' "$IMPL_SKILL")"
+assert_eq "#284 fix-loop: Phase 4.1 gh writes the body to a fixed temp file (read+retry x2 stages)" \
+  "4" "$(pin_count '> /tmp/devflow-docgate-body-$ISSUE_NUMBER.txt 2>' "$IMPL_SKILL")"
+assert_eq "#284 fix-loop: Phase 4.1 extractor reads that temp file (read+retry x2 stages)" \
+  "4" "$(pin_count 'extract-doc-needed-paths.sh < /tmp/devflow-docgate-body-$ISSUE_NUMBER.txt' "$IMPL_SKILL")"
 assert_eq "#284 fix-loop: Phase 4.1 no longer carries the old GH_RC/HELPER_RC capture-then-read recipe" \
   "0" "$(pin_count 'GH_RC=$?' "$IMPL_SKILL")"
-# The ISSUE_BODY value-hop the shadow flagged must be GONE: neither the interim two-guard
-# gh-into-ISSUE_BODY form nor the extractor's `printf '%s' "$ISSUE_BODY"` value read remains.
+# The ISSUE_BODY value-hop the shadow flagged, and the pipefail-option form the fix-delta gate
+# flagged, must BOTH be GONE — the temp-file form depends on neither.
 assert_eq "#284 shadow-fix: Phase 4.1 no longer assigns ISSUE_BODY in a gh guard (value-hop removed)" \
   "0" "$(pin_count 'if ! ISSUE_BODY=$(gh issue view' "$IMPL_SKILL")"
 assert_eq "#284 shadow-fix: Phase 4.1 no longer reads ISSUE_BODY across statements into the extractor" \
   "0" "$(pin_count 'printf '"'"'%s'"'"' "$ISSUE_BODY" |' "$IMPL_SKILL")"
+assert_eq "#284 delta-gate-fix: Phase 4.1 doc gate does not rest on set -o pipefail option state" \
+  "0" "$(pin_count 'set -o pipefail; gh issue view' "$IMPL_SKILL")"
 assert_eq "#190 fix-loop: Phase 4.1 fail-closed extraction contract pinned in BOTH stages" \
   "2" "$(pin_count 'never treat its empty stdout as a no-op' "$IMPL_SKILL")"
 
