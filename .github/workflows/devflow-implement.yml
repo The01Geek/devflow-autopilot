@@ -596,8 +596,10 @@ jobs:
           # Status, or a gh api fetch failure) both map to the decision
           # helper's 'unreadable' class (an rc-0 empty output is also treated
           # as unreadable, defensively). stderr deliberately flows to the run
-          # log — the helper emits distinct diagnostics for each cause, and
-          # discarding them would leave a red fail-unreadable run undebuggable.
+          # log — the helper's exit-1 causes (unparseable Status, gh fetch
+          # failure) emit distinct diagnostics there; the no-workpad exit-2 and
+          # rc-0-empty causes are silent, distinguished only by the status=
+          # echo below.
           STATUS_OUT="$(python3 "$V/workpad.py" status "$ISSUE_NUMBER")"
           if [ $? -eq 0 ] && [ -n "$STATUS_OUT" ]; then
             # Strip backticks/CR before the value is interpolated inside a
@@ -615,7 +617,11 @@ jobs:
           # pin). Counted lazily — only an interim status can lead to a decision
           # that reads it — so the healthy terminal path skips the paginated
           # fetch. A gh/network failure counts 0: failing toward one more resume
-          # attempt, never toward a spurious exhaustion. The count is
+          # count input is CR-stripped so a CRLF-bearing body cannot silently
+          # zero the count. A failed comment read makes the attempt count
+          # UNKNOWABLE: it maps to the unreadable (fail-loud) class rather
+          # than assuming 0 — a persistent read failure must not defeat the
+          # cap with an unbounded green resume loop. The count is
           # lifetime-per-issue by design: once a stall episode exhausted the
           # cap, later stalls on the same issue fail loud immediately (the
           # safe, visible direction) until a human intervenes.
@@ -628,9 +634,10 @@ jobs:
               # emits it alone on its first line), so a human QUOTING an audit
               # comment ("> <!-- ... -->") does not inflate the attempt count
               # into a spurious fail-exhausted.
-              ATTEMPTS="$(printf '%s\n' "$COMMENT_BODIES" | grep -cxF "$MARKER")"
+              ATTEMPTS="$(printf '%s\n' "$COMMENT_BODIES" | tr -d '\r' | grep -cxF "$MARKER")"
             else
-              echo "::warning::stall backstop: could not read the issue comments (gh api failed: $(tail -c 300 "$GH_ERRF" 2>/dev/null | tr '\n' ' ')); assuming 0 prior attempts (fail-toward-resume, never spurious exhaustion)"
+              echo "::error::stall backstop: could not read the issue comments (gh api failed: $(tail -c 300 "$GH_ERRF" 2>/dev/null | tr '\n' ' ')); the attempt count is unknowable, so the cap cannot be enforced — treating as unreadable (fail loud) rather than resuming unbounded"
+              CLASS=unreadable
             fi
             [ "$GH_ERRF" = /dev/null ] || rm -f "$GH_ERRF"
             [[ "$ATTEMPTS" =~ ^[0-9]+$ ]] || ATTEMPTS=0

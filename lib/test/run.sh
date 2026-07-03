@@ -13068,12 +13068,19 @@ STUB
   sb268_run env STUB_STATUS_OUT="interim 🚀 Reviewing" STUB_POST_FAIL=1
   SB268_RC=$?
   assert_eq "#268 behavior: dropped resume POST fails loud (exit 1, never a masked green)" "1" "$SB268_RC"
-  # gh comment-read failure on interim: counts 0 attempts (fail-toward-resume)
-  # and the resume still posts + exits green.
+  # gh comment-read failure on interim: the attempt count is unknowable, so
+  # the cap cannot be enforced — fail loud (unreadable class + diagnostic
+  # comment), never an unbounded green resume loop.
   sb268_run env STUB_STATUS_OUT="interim 🚀 Reviewing" STUB_GH_FAIL=1
   SB268_RC=$?
-  assert_eq "#268 behavior: gh comment-read failure -> assume 0 attempts, resume posted, exit 0" "0:yes" \
-    "$SB268_RC:$([ -f "$SB268_POST" ] && echo yes || echo no)"
+  assert_eq "#268 behavior: gh comment-read failure -> attempt count unknowable, fail loud (exit 1, no trigger phrase)" "1:0" \
+    "$SB268_RC:$(grep -cF '/devflow:implement ' "$SB268_POST" || true)"
+  # CRLF-bearing comment bodies still count (the count input is CR-stripped).
+  sb268_run env STUB_STATUS_OUT="interim 🚀 Reviewing" STUB_MAX=2 \
+    STUB_GH_BODIES=$'<!-- devflow:stall-backstop-audit -->\r\nattempt one\r'
+  SB268_RC=$?
+  assert_eq "#268 behavior: CRLF marker line still counts (resume as attempt 2 of 2)" "0:yes" \
+    "$SB268_RC:$(grep -qF 'attempt 2 of 2' "$SB268_POST" && echo yes || echo no)"
   # Terminal path is lazy: the paginated comment fetch must never run.
   sb268_run env STUB_STATUS_OUT="terminal 👎 Blocked"
   SB268_RC=$?
