@@ -280,8 +280,13 @@ try:
         # documents) raises UnicodeDecodeError — a ValueError, NOT an OSError or
         # JSONDecodeError — which must take the breadcrumbed fallback, never
         # escape as a traceback that aborts every workpad operation.
+        # The BOM is load-bearing: BOM-less UTF-16LE ASCII decodes as valid
+        # UTF-8 (interleaved NULs) and raises JSONDecodeError — which the OLD
+        # except tuple already caught, making a BOM-less probe vacuous. The
+        # real PowerShell `>` write emits the \xff\xfe BOM, whose \xff is an
+        # invalid UTF-8 lead byte → UnicodeDecodeError, the arm this pins.
         with open(_os.path.join('.devflow', 'config.json'), 'wb') as _f:
-            _f.write('{"devflow": {"workpad_marker": "<!-- utf16 -->"}}'.encode('utf-16-le'))
+            _f.write(b'\xff\xfe' + '{"devflow": {"workpad_marker": "<!-- utf16 -->"}}'.encode('utf-16-le'))
         _stderr_u16 = io.StringIO()
         with contextlib.redirect_stderr(_stderr_u16):
             _val = workpad._workpad_marker(None)
