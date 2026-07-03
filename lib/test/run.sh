@@ -7638,9 +7638,11 @@ echo "opt-in GitHub App tokens — writers full-scope + per-site downscoped (iss
 #   #201 — the two CLOUD WRITERS (devflow-implement.yml, devflow.yml `command`)
 #   mint a FULL-installation-scope token (Contents: write + Workflows: write)
 #   so the agent's git push can edit .github/workflows/ files.
-#   #269 — every other user-visible cloud post (the review agent in
+#   #269 — the other user-visible cloud posts (the review agent in
 #   devflow-runner.yml; the trigger reactions + notice comments in the
-#   devflow.yml gate/review_dedupe and devflow-implement.yml gate jobs) mints a
+#   devflow.yml gate/review_dedupe and devflow-implement.yml gate jobs —
+#   the marker-detected workpad comment deliberately stays on GITHUB_TOKEN)
+#   mint a
 #   per-site token DOWNSCOPED via permission-* inputs to exactly what that site
 #   does. The permission-* inputs are the SOLE least-privilege enforcement (an
 #   App installation token ignores the job `permissions:` block), so the exact
@@ -7712,7 +7714,7 @@ for site in "${APP_SITES[@]}"; do
     # Writers stay full-installation-scope: NO permission-* downscope input
     # (adding one would silently narrow the writers' Workflows: write push).
     assert_eq "app-token: $f.yml '$name' carries no permission-* input (full scope)" "0" \
-      "$(printf '%s\n' "$blk" | grep -c 'permission-' || true)"
+      "$(printf '%s\n' "$blk" | grep -cE '^[[:space:]]*permission-[a-z-]+:' || true)"
   else
     # "Declares exactly" = each expected permission present once AND the total
     # permission-* line count equals the expected set size, so an added
@@ -7724,7 +7726,7 @@ for site in "${APP_SITES[@]}"; do
         "$(printf '%s\n' "$blk" | grep -cF "$p" || true)"
     done
     assert_eq "app-token: $f.yml '$name' declares exactly ${#perms[@]} permission-* inputs" "${#perms[@]}" \
-      "$(printf '%s\n' "$blk" | grep -c 'permission-' || true)"
+      "$(printf '%s\n' "$blk" | grep -cE '^[[:space:]]*permission-[a-z-]+:' || true)"
   fi
 done
 # Explicit write-widening absence pins (belt to the exact-count braces above —
@@ -7788,6 +7790,25 @@ assert_eq "app-token: devflow.yml guard emits head= into GITHUB_OUTPUT" "1" \
   "$(grep -cF 'echo "head=$HEAD" >> "$GITHUB_OUTPUT"' "$WF/devflow.yml")"
 assert_eq "app-token: devflow.yml notice consumes steps.guard.outputs.head" "1" \
   "$(grep -cF 'HEAD: ${{ steps.guard.outputs.head }}' "$WF/devflow.yml")"
+# guard id ↔ suppress-output coupling: the dedupe mint and the notice step both
+# key on steps.guard.outputs.suppress; renaming `id: guard` (or the suppress
+# output key) silently disables both while the suite stays green.
+assert_eq "app-token: devflow.yml review_dedupe guard step carries id: guard" "1" \
+  "$(grep -cE '^      - id: guard$' "$WF/devflow.yml")"
+assert_eq "app-token: devflow.yml mint + notice both gate on steps.guard.outputs.suppress == 'true'" "2" \
+  "$(grep -cF "steps.guard.outputs.suppress == 'true'" "$WF/devflow.yml")"
+# Consumer-condition conjuncts on the three downscoped gate/dedupe mints: the
+# second half of each mint's if: keeps the common rejection path mint-free AND
+# bounds fail-loud to runs where a consumer actually posts. Dropping it would
+# make a configured-but-broken App fail every rejected/non-command event.
+for pair in "devflow|Mint downscoped reaction token (optional)|&& steps.resolve.outputs.should_run == 'true' }}" \
+            "devflow-implement|Mint downscoped reaction token (optional)|&& steps.resolve.outputs.should_run == 'true' }}" \
+            "devflow|Mint downscoped notice token (optional)|&& steps.guard.outputs.suppress == 'true' }}"; do
+  IFS='|' read -r f name cond <<<"$pair"
+  blk="$(mint_blk "$name" "$WF/$f.yml")"
+  assert_eq "app-token: $f.yml '$name' if: carries its consumer condition" "1" \
+    "$(printf '%s\n' "$blk" | grep -cF "$cond" || true)"
+done
 # Docs carry the opt-in contract: the var, the secret, ALL five required App
 # permissions, and the per-site downscope story (no more "reviewer untouched").
 CS="$LIB/../docs/cloud-setup.md"

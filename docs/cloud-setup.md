@@ -143,9 +143,9 @@ credential — reviews, verdicts, reactions, notice comments — is attributed t
 "required approving reviews" branch-protection rule.
 
 The optional App unlocks both: workflow-file pushes for the writers, and **one App
-identity for every user-visible DevFlow cloud post** — the review agent's progress
+identity for DevFlow's user-visible cloud posts** — the review agent's progress
 comment, verdicts, approvals, and rejections; the 👀/🚀 trigger reactions; and the
-notice comments. This is **opt-in**. When it is **not** configured, behavior is
+notice comments (the named exceptions below stay on `GITHUB_TOKEN`). This is **opt-in**. When it is **not** configured, behavior is
 byte-for-byte unchanged — no new secret or variable is required. To enable it,
 create a GitHub App, install it on the repo, and configure:
 
@@ -178,7 +178,13 @@ Every mint step is gated on `vars.DEVFLOW_APP_ID != ''`, so it is skipped when t
 variable is unset and each consumer falls back to `GITHUB_TOKEN`. A
 configured-but-broken App (invalid or rotated key, or an installation missing one of
 the permissions a site requests) **fails the job at the mint step** — there is no
-silent fall-back to `GITHUB_TOKEN`. This fail-loud contract now covers every site,
+silent fall-back to `GITHUB_TOKEN`. Deliberately still on `GITHUB_TOKEN` (the named
+exceptions to the App identity): the `Devflow Review` check-run (emitted by the
+Actions runner from the job `name:`, not token-authored), the stale-rejection
+housekeeping (invisible; works cross-identity), and the `/devflow:implement`
+workpad comment (marker-detected by design — `CLAUDE.md` documents it as
+github-actions-authored, found by its `<!-- devflow:workpad -->` marker, never by
+author). This fail-loud contract now covers every site,
 including the read-only review run and the writers' `gate` jobs: with a broken App
 configured, even the trigger-reaction job fails rather than silently posting as
 `github-actions[bot]` — fix the App's key/permissions, or unset `DEVFLOW_APP_ID` to

@@ -228,7 +228,13 @@ jobs:
           HEAD: ${{ steps.guard.outputs.head }}
         run: |
           set -euo pipefail
-          NOTE="ℹ️ An automated **Devflow Review** is already running for this commit (\`${HEAD:0:7}\`). Skipping this manual \`/devflow:review\` to avoid a duplicate review and double comments. Use the **Re-run** button on the \`Devflow Review\` check if you need to re-review."
+          # CRITICAL: the body must contain NO DevFlow trigger phrase (mirrors
+          # the devflow-implement.yml duplicate-notice discipline). Under the
+          # App token this comment fires a real issue_comment event (unlike
+          # GITHUB_TOKEN comments, which GitHub suppresses), so a trigger
+          # substring here could re-enter the gate and loop. Worded to avoid
+          # `/devflow:` and `@claude`.
+          NOTE="ℹ️ An automated **Devflow Review** is already running for this commit (\`${HEAD:0:7}\`). Skipping this manual review command to avoid a duplicate review and double comments. Use the **Re-run** button on the \`Devflow Review\` check if you need to re-review."
           # REST (not `gh pr comment` porcelain): this step can run under the
           # repo-scoped App installation token, and GraphQL-resolving porcelain
           # fails silently under repo-scoped tokens (CLAUDE.md gotcha, #228). A
