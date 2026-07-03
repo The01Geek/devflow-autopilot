@@ -12575,10 +12575,19 @@ assert_eq "#253 skills-jq: no bare invocation-position jq survives in any skill 
 #    `.github`-freeze, this is now the only guard on this `.github` side of the couple).
 IMPL_WF="$LIB/../.github/workflows/devflow-implement.yml"
 RUNNER_WF="$LIB/../.github/workflows/devflow-runner.yml"
+# devflow.yml is the THIRD governing workflow — the light command listener that
+# runs a MANUAL bare `/devflow:review` / `/devflow:review-and-fix` comment, so it
+# also executes the migrated skills/review/SKILL.md Phase 4.5 trace-authoring site
+# (`run-jq.sh` by path). Its inline allowlist must grant the wrapper too or the
+# by-path head is silently denied on that trigger, dropping the telemetry trace a
+# bare `jq -n` previously authored (raised by PR #274 review, Important).
+LIGHT_WF="$LIB/../.github/workflows/devflow.yml"
 assert_eq "#271 coupled: devflow-implement.yml allowlists the run-jq.sh wrapper by vendored path" "1" \
   "$(grep -cF 'Bash(.devflow/vendor/devflow/scripts/run-jq.sh:*)' "$IMPL_WF" || true)"
 assert_eq "#271 coupled: devflow-runner.yml (read-only review profile) allowlists the run-jq.sh wrapper" "1" \
   "$(grep -cF 'Bash(.devflow/vendor/devflow/scripts/run-jq.sh:*)' "$RUNNER_WF" || true)"
+assert_eq "#271 coupled: devflow.yml (manual-comment review listener) allowlists the run-jq.sh wrapper" "1" \
+  "$(grep -cF 'Bash(.devflow/vendor/devflow/scripts/run-jq.sh:*)' "$LIGHT_WF" || true)"
 # The skills/review/SKILL.md trace-authoring example sits in INLINE-backtick prose, so the
 # awk-fence absence pin above cannot reach it — pin it directly so a revert of that site to
 # a bare `jq -n` goes RED (it is one of the four #271-migrated sites and would otherwise have
