@@ -13898,6 +13898,60 @@ PATH="$WP266_GHD:$PATH" STUB_COMMENTS='[]' python3 "$WP266_PY" status 5 >/dev/nu
 assert_eq "#266 workpad.py status: no workpad -> exit 2" "2" "$?"
 PATH="$WP266_GHD:$PATH" STUB_COMMENTS='[{"id":1,"body":"<!-- devflow:workpad -->\nno status line here"}]' python3 "$WP266_PY" status 5 >/dev/null 2>&1
 assert_eq "#266 workpad.py status: present but unreadable Status -> exit 1" "1" "$?"
+
+# #281 — a present-but-unrecognized Status word must fail closed (exit 1, distinct
+# stderr diagnostic) exactly like the missing/empty cases above, instead of the
+# pre-fix behavior of silently printing 'interim 🚀 <word>' at exit 0 (the stall
+# backstop would then burn an auto-resume attempt on a workpad it cannot read).
+WP281_STDERR=$(mktemp)
+WP281_OUT="$(PATH="$WP266_GHD:$PATH" STUB_COMMENTS='[{"id":1,"body":"<!-- devflow:workpad -->\n**Status:** 🚀 Frobnicating"}]' python3 "$WP266_PY" status 5 2>"$WP281_STDERR")"
+WP281_RC=$?
+assert_eq "#281 workpad.py status: unrecognized word -> exit 1 (not 0)" "1" "$WP281_RC"
+assert_eq "#281 workpad.py status: unrecognized word -> no stdout printed" "" "$WP281_OUT"
+assert_eq "#281 workpad.py status: unrecognized word -> stderr names the word" "yes" \
+  "$(grep -q 'Frobnicating' "$WP281_STDERR" && echo yes || echo no)"
+rm -f "$WP281_STDERR"
+PATH="$WP266_GHD:$PATH" STUB_COMMENTS='[{"id":1,"body":"<!-- devflow:workpad -->\n**Status:** FROBNICATING"}]' python3 "$WP266_PY" status 5 >/dev/null 2>&1
+assert_eq "#281 workpad.py status: unrecognized word, mixed case -> exit 1" "1" "$?"
+
+# #281 — a word that merely STARTS WITH the terminal words 'complete'/'blocked' must
+# still be rejected (exit 1), not silently accepted via _status_glyph's prefix match.
+# Recognition must be exact-match on the terminal words, since _status_glyph's own
+# startswith('complete'/'blocked') is intentionally loose for its write-path callers.
+PATH="$WP266_GHD:$PATH" STUB_COMMENTS='[{"id":1,"body":"<!-- devflow:workpad -->\n**Status:** 🎉 Completely wrong word"}]' python3 "$WP266_PY" status 5 >/dev/null 2>&1
+assert_eq "#281 workpad.py status: prefix-adjacent 'Completely wrong word' -> exit 1 (not silently terminal)" "1" "$?"
+PATH="$WP266_GHD:$PATH" STUB_COMMENTS='[{"id":1,"body":"<!-- devflow:workpad -->\n**Status:** 👎 Blockeddependency on X"}]' python3 "$WP266_PY" status 5 >/dev/null 2>&1
+assert_eq "#281 workpad.py status: prefix-adjacent 'Blockeddependency on X' -> exit 1 (not silently terminal)" "1" "$?"
+
+# #281 — every canonical in-progress word not already exercised above must still
+# resolve at exit 0 with no regression to the healthy paths.
+for WP281_WORD in Setup Discovering Reproducing Planning Implementing Documenting; do
+  WP281_OUT="$(PATH="$WP266_GHD:$PATH" STUB_COMMENTS="[{\"id\":1,\"body\":\"<!-- devflow:workpad -->\n**Status:** 🚀 $WP281_WORD\"}]" python3 "$WP266_PY" status 5 2>/dev/null)"
+  assert_eq "#281 workpad.py status: $WP281_WORD -> 'interim 🚀 $WP281_WORD'" "interim 🚀 $WP281_WORD" "$WP281_OUT"
+done
+
+# #281 — regression guard: empty Status value (present line, no word) still exits
+# non-zero exactly as before (unchanged path, not the new unrecognized-word path).
+PATH="$WP266_GHD:$PATH" STUB_COMMENTS='[{"id":1,"body":"<!-- devflow:workpad -->\n**Status:**    "}]' python3 "$WP266_PY" status 5 >/dev/null 2>&1
+assert_eq "#281 workpad.py status: empty Status value -> exit 1 (regression, unchanged)" "1" "$?"
+
+# #281 — single-source guard: the recognized-word set must be derived from
+# _STATUS_TO_PROGRESS_PHASE, not a second hardcoded list. Prove it by adding a
+# synthetic key to that dict at runtime and confirming the synthetic word becomes
+# recognized (exit 0) — if recognition were a separate hardcoded list, this
+# monkeypatch would have no effect and the word would still be rejected.
+WP281_SINGLE_SOURCE="$(PATH="$WP266_GHD:$PATH" STUB_COMMENTS='[{"id":1,"body":"<!-- devflow:workpad -->\n**Status:** 🚀 Frobnicating"}]' python3 -c "
+import sys
+sys.path.insert(0, '$REPO_ROOT/scripts')
+sys.argv = ['workpad.py', 'status', '5']
+import workpad
+workpad._STATUS_TO_PROGRESS_PHASE['frobnicating'] = 'Implement'
+try:
+    workpad.main()
+except SystemExit as e:
+    print('exit', e.code)
+" 2>/dev/null)"
+assert_eq "#281 workpad.py status: recognized-word set single-sourced from _STATUS_TO_PROGRESS_PHASE" "interim 🚀 Frobnicating" "$WP281_SINGLE_SOURCE"
 rm -rf "$WP266_GHD"
 
 # Tally the shell assertions from the results file (authoritative — includes the

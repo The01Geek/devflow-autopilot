@@ -227,6 +227,23 @@ def cmd_body(args):
     sys.stdout.write(r.stdout)
 
 
+def _is_recognized_status_word(word: str) -> bool:
+    """True if `word` (already glyph-stripped) is a canonical Status word —
+    exactly one of `_STATUS_TO_PROGRESS_PHASE`'s keys (every in-progress phase
+    word, plus 'complete') or the literal terminal word 'blocked' (the one
+    word `_STATUS_TO_PROGRESS_PHASE` intentionally omits — see
+    `_progress_phase_for_status`). Deliberately exact-match, NOT
+    `_status_glyph(word) in ('🎉', '👎')`: that delegates to `_status_glyph`'s
+    own `startswith('complete'/'blocked')` prefix check, which is intentional
+    for its write-path callers but would let a corrupted word like
+    'Completely wrong' or 'Blockeddependency' pass this recognition check —
+    exactly the fail-open this function exists to close. No independent
+    hardcoded word list: 'blocked' is the only literal not already sourced
+    from `_STATUS_TO_PROGRESS_PHASE`."""
+    s = word.strip().lower()
+    return s in _STATUS_TO_PROGRESS_PHASE or s == 'blocked'
+
+
 def cmd_status(args):
     """Print the workpad Status as `CLASS GLYPH WORD` (e.g. 'interim 🚀 Reviewing').
 
@@ -236,8 +253,9 @@ def cmd_status(args):
     glyph vocabulary ad hoc. Exit codes mirror `id` so a caller can fail closed:
       0  status printed
       2  no workpad comment exists for this issue (scanned OK, none matched)
-      1  gh api / parse error, OR the workpad exists but its Status line is
-         missing/empty (present-but-unreadable — distinct from 'no workpad').
+      1  gh api / parse error, the workpad exists but its Status line is
+         missing/empty, OR the Status line has a value that isn't a recognized
+         status word (present-but-unreadable — distinct from 'no workpad').
     The cloud stall backstop maps exit 2 and exit 1 alike to the 'unreadable'
     decision class (fail closed), while a healthy run prints a class it can act
     on."""
@@ -257,6 +275,16 @@ def cmd_status(args):
     if not word:
         sys.stderr.write(
             "workpad.py status: workpad Status line has no value\n"
+        )
+        sys.exit(1)
+    if not _is_recognized_status_word(word):
+        recognized = '/'.join(
+            [w.capitalize() for w in _STATUS_TO_PROGRESS_PHASE] + ['Blocked']
+        )
+        sys.stderr.write(
+            f"workpad.py status: workpad Status word {word!r} is not a "
+            f"recognized status (expected one of {recognized}) — "
+            "present-but-unreadable\n"
         )
         sys.exit(1)
     glyph = _status_glyph(word)
