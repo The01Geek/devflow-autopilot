@@ -3722,13 +3722,23 @@ assert_pin_unique "#190: Phase 4.1 Stage 2 self-heal re-check is remote-anchored
 # number) emits empty stdout indistinguishable from a genuinely empty bullet and
 # would silently disable the whole gate. Issue #284 migrated this from a captured
 # GH_RC/HELPER_RC (which a cross-statement-variable-stripping inline-bash runner
-# leaves empty, making the fail-closed check inert) to a single-statement `if ! A && ! B`
-# that reads gh's OWN exit status inline; assert the new form appears in BOTH stages
-# (coupled site) and the old captured-rc recipe is GONE.
-assert_eq "#284 fix-loop: Phase 4.1 guards the gh extraction read via single-statement if! in BOTH stages" \
-  "2" "$(pin_count 'if ! ISSUE_BODY=$(gh issue view' "$IMPL_SKILL")"
+# leaves empty, making the fail-closed check inert) to a guard reading the command's
+# OWN exit status inline. The #284 SHADOW review then found the interim two-guard form
+# still hopped ISSUE_BODY across statements (gh assigned in one statement, read by the
+# extractor in the next) — a residual fail-OPEN on a value-stripping runner — so it was
+# folded into ONE `set -o pipefail` pipe per attempt (`gh … | extractor`), carrying no
+# intermediate variable. Assert the pipefail-pipe form appears in BOTH stages (coupled
+# site) and BOTH the old captured-rc recipe AND the ISSUE_BODY value-hop are GONE.
+assert_eq "#284 fix-loop: Phase 4.1 guards the gh|extractor read via a single-statement pipefail pipe in BOTH stages" \
+  "2" "$(pin_count 'if ! DOC_NEEDED_PATHS=$(set -o pipefail; gh issue view' "$IMPL_SKILL")"
 assert_eq "#284 fix-loop: Phase 4.1 no longer carries the old GH_RC/HELPER_RC capture-then-read recipe" \
   "0" "$(pin_count 'GH_RC=$?' "$IMPL_SKILL")"
+# The ISSUE_BODY value-hop the shadow flagged must be GONE: neither the interim two-guard
+# gh-into-ISSUE_BODY form nor the extractor's `printf '%s' "$ISSUE_BODY"` value read remains.
+assert_eq "#284 shadow-fix: Phase 4.1 no longer assigns ISSUE_BODY in a gh guard (value-hop removed)" \
+  "0" "$(pin_count 'if ! ISSUE_BODY=$(gh issue view' "$IMPL_SKILL")"
+assert_eq "#284 shadow-fix: Phase 4.1 no longer reads ISSUE_BODY across statements into the extractor" \
+  "0" "$(pin_count 'printf '"'"'%s'"'"' "$ISSUE_BODY" |' "$IMPL_SKILL")"
 assert_eq "#190 fix-loop: Phase 4.1 fail-closed extraction contract pinned in BOTH stages" \
   "2" "$(pin_count 'never treat its empty stdout as a no-op' "$IMPL_SKILL")"
 
@@ -14163,6 +14173,29 @@ assert_eq "#284 absence detector: a reintroduced VAR=\$(…);VAR_RC=\$? recipe r
 printf '%s\n' 'if ! FOO=$(somecmd .k default); then FOO=default; fi' > "$P284_PROBE"
 assert_eq "#284 absence detector: the migrated if!-form reads 0 (GREEN)" "0" "$(count_284_subst_rc_recipe "$P284_PROBE")"
 rm -f "$P284_PROBE"
+# (1b) TWO-LINE absence (#284 shadow review, AC5 completeness): the single-line detector
+# above is line-oriented, so the SAME cross-statement hazard written across two physical
+# lines — `VAR=$(…)` on one line, `VAR_RC=$?` (or `; rc=$?`) on the next — would slip past
+# it. That two-line form is exactly the reintroduction AC5 must turn RED. A portable POSIX
+# awk pass (no `grep -P`) flags a command-substitution assignment line immediately followed
+# by an rc-capture line. It reads 0 on every migrated body today (the recipes are gone) and
+# does NOT match the exempt `cmd; rc=$?` survivors (their rc line's PREVIOUS line carries no
+# `=$(`).
+count_284_twoline_rc_recipe() {  # file -> count of the banned recipe split across two lines
+  awk 'prev ~ /=\$\(/ && $0 ~ /^[[:space:]]*([A-Z_]+_RC|rc)=\$\?/ { c++ } { prev = $0 } END { print c+0 }' "$1"
+}
+assert_eq "#284 absence(2-line): no split VAR=\$(…)/VAR_RC=\$? recipe in review-and-fix SKILL" "0" "$(count_284_twoline_rc_recipe "$ST_RAF")"
+assert_eq "#284 absence(2-line): no split VAR=\$(…)/VAR_RC=\$? recipe in review SKILL" "0" "$(count_284_twoline_rc_recipe "$ST_REV")"
+assert_eq "#284 absence(2-line): no split VAR=\$(…)/VAR_RC=\$? recipe in receiving-code-review SKILL" "0" "$(count_284_twoline_rc_recipe "$ST_RCV")"
+assert_eq "#284 absence(2-line): no split VAR=\$(…)/VAR_RC=\$? recipe in implement-skill bundle" "0" "$(count_284_twoline_rc_recipe "$DEF_SKILL")"
+# Mutation proof the two-line detector is not vacuous: the split recipe reads 1 (RED), the
+# migrated single-statement form reads 0 (GREEN).
+P284_2L="$(probe_tmp '#284 two-line absence detector proof')"
+printf '%s\n' 'FOO=$(somecmd .k default)' 'FOO_RC=$?' > "$P284_2L"
+assert_eq "#284 absence(2-line) detector: a split VAR=\$(…)/VAR_RC=\$? recipe reads 1 (RED, not vacuous)" "1" "$(count_284_twoline_rc_recipe "$P284_2L")"
+printf '%s\n' 'if ! FOO=$(somecmd .k default); then FOO=default; fi' > "$P284_2L"
+assert_eq "#284 absence(2-line) detector: the migrated if!-form reads 0 (GREEN)" "0" "$(count_284_twoline_rc_recipe "$P284_2L")"
+rm -f "$P284_2L"
 # (2) POSITIVE-form pins (AC5): the new single-statement `if !` idiom is present at each
 # migrated site (routed through assert_pin_unique — no bare grep on the line).
 assert_pin_unique "#284 positive: receiving-code-review discriminates via single-statement if!" 'if ! REOPEN_THRESHOLD=$(' "$ST_RCV"
@@ -14170,6 +14203,12 @@ assert_pin_unique "#284 positive: review-and-fix fix-threshold discriminates via
 assert_pin_unique "#284 positive: review-and-fix max_iterations discriminates via single-statement if!" 'if ! MAX_ITERS=$(' "$ST_RAF"
 assert_pin_unique "#284 positive: review verdict-threshold discriminates via single-statement if!" 'if ! VERDICT_THRESHOLD=$(' "$ST_REV"
 assert_pin_unique "#284 positive: review live-comment 3-way reads \$? inline in the elif" 'elif [ "$?" -eq 2 ]; then' "$ST_REV"
+# The Phase 4.1 Stage-2 cumulative-diff read is also `if !`-guarded (git's own exit status
+# inline), symmetric to the gh|extractor guard; pin its positive form and prove the old
+# captured-rc form is gone (#284 shadow-review test-coverage completeness).
+assert_pin_unique "#284 positive: phase-4 doc-gate diff read discriminates via single-statement if!" 'if ! DIFF_OUT=$(git diff' "$DEF_SKILL"
+assert_eq "#284 shadow-fix: phase-4 doc-gate no longer carries the old DIFF_RC capture-then-read recipe" \
+  "0" "$(pin_count 'DIFF_RC=$?' "$IMPL_SKILL")"
 # (3) Mutation proof (AC5): removing the migrated operative guard turns its pin RED.
 assert_pin_red_on_removal "#284 mutation: deleting the receiving-code-review if!-guard turns its pin RED" \
   'if ! REOPEN_THRESHOLD=$(' "$ST_RCV"

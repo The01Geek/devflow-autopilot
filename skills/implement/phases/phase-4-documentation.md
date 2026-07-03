@@ -273,27 +273,26 @@ The rc handling above distinguishes three cases: a clean filing (rc 0), the beni
 **Stage 1 — Pre-flight briefing (before dispatch).** Extract the issue's required documentation deliverables **deterministically — do not interpret the prose yourself.** Run the bundled helper, which scopes to the `**Documentation Needed**` bullet under `## Implementation Notes` and emits the recognizable file paths one per line:
 
 ```bash
-# Each read is guarded by a single-statement `if ! A && ! B` (the read AND its one retry),
-# so the failure branch fires off the command's OWN exit status read INLINE — never a
-# captured rc variable read in a later statement, which an inline-bash runner that strips
-# cross-statement variable reads (Copilot CLI / Cursor / Codex CLI / Gemini CLI) would leave
-# empty, making this fail-closed check inert (the exact fail-open this gate exists to close).
-# A command failure (gh: auth/network/rate-limit/wrong number; extractor: token-scan error)
-# says nothing about which paths the issue names, so its empty stdout must never be read as
-# a no-op: on the read AND its retry both failing, fail CLOSED to the Blocked path.
-if ! ISSUE_BODY=$(gh issue view $ISSUE_NUMBER --json body --jq '.body' 2>/tmp/devflow-docgate-gh.err) \
-   && ! ISSUE_BODY=$(gh issue view $ISSUE_NUMBER --json body --jq '.body' 2>/tmp/devflow-docgate-gh.err); then
-  workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind dropped-failed --reflection "Phase 4.1: could not read the issue body to extract Documentation Needed deliverables (gh command failure); the deliverable cross-check could not run — retry when GitHub is reachable"
+# Read the issue body AND extract the Documentation Needed deliverables in ONE piped
+# statement per attempt — `set -o pipefail` makes a gh failure (auth/network/rate-limit/
+# wrong number) OR an extractor failure (token-scan error) fail the whole substitution, so
+# the `if !` fail-closed branch fires off the pipeline's OWN exit status read INLINE. This
+# deliberately carries NO intermediate ISSUE_BODY variable across statements: an inline-bash
+# runner that strips a cross-statement variable read (Copilot CLI / Cursor / Codex CLI /
+# Gemini CLI) would otherwise leave a gh-succeeds-but-body-stripped-empty read empty and
+# wave the gate through — a fail-OPEN, the exact hole AC2 exists to close. A command failure
+# says nothing about which paths the issue names, so its empty stdout must never be read as a
+# no-op: read AND retry both failing → fail CLOSED to the Blocked path. An rc-0 EMPTY result
+# (gh ok, no Documentation Needed paths) legitimately leaves DOC_NEEDED_PATHS empty for the
+# no-op handled below.
+if ! DOC_NEEDED_PATHS=$(set -o pipefail; gh issue view $ISSUE_NUMBER --json body --jq '.body' 2>/tmp/devflow-docgate-gh.err | "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/extract-doc-needed-paths.sh) \
+   && ! DOC_NEEDED_PATHS=$(set -o pipefail; gh issue view $ISSUE_NUMBER --json body --jq '.body' 2>/tmp/devflow-docgate-gh.err | "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/extract-doc-needed-paths.sh); then
+  workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind dropped-failed --reflection "Phase 4.1: could not read the issue body or extract Documentation Needed deliverables (gh or extractor command failure); the deliverable cross-check could not run — retry when GitHub is reachable"
   # then emit the 👎 outcome reaction (see the Workpad Reference) and STOP the run.
-fi
-if ! DOC_NEEDED_PATHS=$(printf '%s' "$ISSUE_BODY" | "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/extract-doc-needed-paths.sh) \
-   && ! DOC_NEEDED_PATHS=$(printf '%s' "$ISSUE_BODY" | "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/extract-doc-needed-paths.sh); then
-  workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind dropped-failed --reflection "Phase 4.1: the Documentation Needed extractor failed (token scan error); the deliverable cross-check could not run — retry"
-  # then emit the 👎 outcome reaction and STOP the run.
 fi
 ```
 
-**The `if !`-guarded reads discriminate a command failure by the command's own exit status, never stdout emptiness.** A gh failure (auth, network, rate-limit, or a wrong issue number) or an extractor failure (its own token scan failed) is a *command failure* that says nothing about which paths the issue names — **never treat its empty stdout as a no-op**, the way an empty `DOC_NEEDED_PATHS` would be treated below. That is the exact fail-open this gate exists to close, moved one stage upstream; the retry is folded into the `if ! A && ! B` guard so the fail-closed branch fires only when the read *and* its retry both fail, then routes to the Blocked path shown above, emits the 👎 outcome reaction, and stops. Only an rc-0 read with empty `DOC_NEEDED_PATHS` is the legitimate empty signal handled below.
+**The `set -o pipefail` pipe guard discriminates a command failure by the pipeline's own exit status, never stdout emptiness.** A gh failure (auth, network, rate-limit, or a wrong issue number) or an extractor failure (its own token scan failed) fails the whole `pipefail` substitution — a *command failure* that says nothing about which paths the issue names, so **never treat its empty stdout as a no-op**, the way an empty `DOC_NEEDED_PATHS` would be treated below. That is the exact fail-open this gate exists to close, moved one stage upstream; the retry is folded into the `if ! A && ! B` guard so the fail-closed branch fires only when the read *and* its retry both fail, then routes to the Blocked path shown above, emits the 👎 outcome reaction, and stops. Folding the gh read and the extractor into one pipeline also removes the intermediate `ISSUE_BODY` value that a stripping runner could drop between statements. Only an rc-0 read with empty `DOC_NEEDED_PATHS` is the legitimate empty signal handled below.
 
 These paths are the required deliverables. Stage 2 re-runs the **same helper** rather than re-deriving them, so the two passes can never disagree about which files were named. If `DOC_NEEDED_PATHS` is empty (the bullet is absent, names no file paths, or holds only non-path prose), Stage 1 is a no-op and the subagent is dispatched with its normal instruction unchanged. If the helper emits nothing **but** the issue body still contains a `**Documentation Needed**` bullet (`gh issue view $ISSUE_NUMBER --json body --jq '.body' | grep -q '\*\*Documentation Needed\*\*'`), record a workpad note (`workpad.py update $ISSUE_NUMBER --note "Phase 4.1: **Documentation Needed** bullet present but the extractor found no file paths; the deliverable cross-check is skipped this run"`) so the skipped enforcement is auditable.
 
@@ -319,23 +318,20 @@ Then decide whether the docs pass succeeded: it succeeded if the docs subagent a
 **Stage 2 — Post-hoc diff gate (mandatory when Stage 1 found named paths).** After the docs-subagent commit and before ticking `Documentation`, verify that every required-deliverable path has been touched. Re-run the **same deterministic helper** as Stage 1 — re-running the helper is the single source of truth; do not rely on remembered Stage 1 output:
 
 ```bash
-# Same single-statement `if ! A && ! B` guard as Stage 1: the failure branch fires off the
-# command's OWN exit status read INLINE, never a captured rc variable read in a later
-# statement (which a cross-statement-variable-stripping inline-bash runner would leave empty,
-# making the fail-closed check inert). Read AND retry both failing → fail CLOSED to Blocked.
-if ! ISSUE_BODY=$(gh issue view $ISSUE_NUMBER --json body --jq '.body' 2>/tmp/devflow-docgate-gh.err) \
-   && ! ISSUE_BODY=$(gh issue view $ISSUE_NUMBER --json body --jq '.body' 2>/tmp/devflow-docgate-gh.err); then
-  workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind dropped-failed --reflection "Phase 4.1: could not read the issue body to extract Documentation Needed deliverables (gh command failure); the deliverable cross-check could not run — retry when GitHub is reachable"
-  # then emit the 👎 outcome reaction and STOP the run.
-fi
-if ! DOC_NEEDED_PATHS=$(printf '%s' "$ISSUE_BODY" | "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/extract-doc-needed-paths.sh) \
-   && ! DOC_NEEDED_PATHS=$(printf '%s' "$ISSUE_BODY" | "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/extract-doc-needed-paths.sh); then
-  workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind dropped-failed --reflection "Phase 4.1: the Documentation Needed extractor failed (token scan error); the deliverable cross-check could not run — retry"
+# Same single-statement pipefail-pipe guard as Stage 1: `set -o pipefail` makes a gh OR an
+# extractor failure fail the whole substitution, so the `if !` fail-closed branch fires off
+# the pipeline's OWN exit status read INLINE — and no intermediate ISSUE_BODY value crosses a
+# statement boundary (a cross-statement-variable-stripping inline-bash runner would otherwise
+# leave a gh-succeeds-but-body-stripped read empty and wave the gate through). Read AND retry
+# both failing → fail CLOSED to Blocked; an rc-0 EMPTY result stays the genuine no-op signal.
+if ! DOC_NEEDED_PATHS=$(set -o pipefail; gh issue view $ISSUE_NUMBER --json body --jq '.body' 2>/tmp/devflow-docgate-gh.err | "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/extract-doc-needed-paths.sh) \
+   && ! DOC_NEEDED_PATHS=$(set -o pipefail; gh issue view $ISSUE_NUMBER --json body --jq '.body' 2>/tmp/devflow-docgate-gh.err | "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/extract-doc-needed-paths.sh); then
+  workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind dropped-failed --reflection "Phase 4.1: could not read the issue body or extract Documentation Needed deliverables (gh or extractor command failure); the deliverable cross-check could not run — retry when GitHub is reachable"
   # then emit the 👎 outcome reaction and STOP the run.
 fi
 ```
 
-**The `if !`-guarded reads discriminate a command failure by the command's own exit status, never stdout emptiness** — symmetric to the diff side below. A gh failure (auth, network, rate-limit, or a wrong issue number) or an extractor failure (its own token scan failed) is a *command failure* that says nothing about which paths the issue names — **never treat its empty stdout as a no-op** (the step-1 escape hatch below), which would silently wave the gate through exactly when the deliverable list could not be read. The retry is folded into the `if ! A && ! B` guard so the fail-closed branch fires only when the read *and* its retry both fail, then routes to the Blocked path shown above, emits the 👎 outcome reaction, and stops. Only an rc-0 read with empty `DOC_NEEDED_PATHS` is the legitimate empty signal step 1 treats as a no-op.
+**The `set -o pipefail` pipe guard discriminates a command failure by the pipeline's own exit status, never stdout emptiness** — symmetric to the diff side below. A gh failure (auth, network, rate-limit, or a wrong issue number) or an extractor failure (its own token scan failed) fails the whole `pipefail` substitution — a *command failure* that says nothing about which paths the issue names, so **never treat its empty stdout as a no-op** (the step-1 escape hatch below), which would silently wave the gate through exactly when the deliverable list could not be read. The retry is folded into the `if ! A && ! B` guard so the fail-closed branch fires only when the read *and* its retry both fail, then routes to the Blocked path shown above, emits the 👎 outcome reaction, and stops; folding gh and the extractor into one pipeline removes the intermediate `ISSUE_BODY` value a stripping runner could drop between statements. Only an rc-0 read with empty `DOC_NEEDED_PATHS` is the legitimate empty signal step 1 treats as a no-op.
 
 1. **No-op when empty.** If `DOC_NEEDED_PATHS` is empty, this cross-check is a no-op — proceed directly to the post-docs-labels + `--tick-progress "Documentation"` step below.
 
