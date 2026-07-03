@@ -14257,6 +14257,19 @@ rm -f "$P284_2L"
 # only GH_RC/DIFF_RC had absence pins, leaving the extractor value-hop's rc capture unpinned.
 assert_eq "#284 shadow-fix: Phase 4.1 no longer carries the old HELPER_RC extractor-rc capture" \
   "0" "$(pin_count 'HELPER_RC=$?' "$IMPL_SKILL")"
+# The efficiency-trace `--mode record` gates in BOTH review engines were migrated from the
+# `cmd > "$RECORD"; RECORD_RC=$? / R_RC=$?` capture-then-discriminate form to a single-statement
+# `if cmd > "$RECORD"; then …` — but that redirect-capture is NOT a command substitution, so the
+# `="?\$\(`-anchored absence detectors above cannot see its reintroduction (#284 shadow review,
+# 2nd pass). Pin the removed rc tokens directly so a straight revert of either record-write block
+# — which would re-inert the `[ "$RECORD_RC" -ne 0 ]` check on a value-stripping runner — turns
+# the suite RED; the positive `; then`-form pins below back them so a revert fails two ways.
+assert_eq "#284 shadow-fix: review-and-fix record gate no longer carries the old RECORD_RC capture" \
+  "0" "$(pin_count 'RECORD_RC=$?' "$ST_RAF")"
+assert_eq "#284 shadow-fix: review record gate no longer carries the old R_RC capture" \
+  "0" "$(pin_count 'R_RC=$?' "$ST_REV")"
+assert_pin_unique "#284 positive: review-and-fix record gate discriminates via single-statement if" 'slug "<slug>" --mode record > "$RECORD" 2>/tmp/devflow-et-record.err; then' "$ST_RAF"
+assert_pin_unique "#284 positive: review record gate discriminates via single-statement if" 'slug "<slug>" --mode record > "$RECORD" 2>/tmp/devflow-rv-rec.err; then' "$ST_REV"
 # (2) POSITIVE-form pins (AC5): the new single-statement `if !` idiom is present at each
 # migrated site (routed through assert_pin_unique — no bare grep on the line).
 assert_pin_unique "#284 positive: receiving-code-review discriminates via single-statement if!" 'if ! REOPEN_THRESHOLD=$(' "$ST_RCV"
