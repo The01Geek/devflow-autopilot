@@ -164,7 +164,7 @@ if [ -n "$MANIFESTS" ]; then
     # re-run this prevents duplicate filing but does not incrementally file newly-added
     # deferrals — that all-or-nothing is the helper's existing guard, handled benignly below.)
     PRIOR=""; [ -s "$AGG" ] && PRIOR="$AGG"
-    if jq -s '.[0] as $f | {schema_version:$f.schema_version, pr_branch:$f.pr_branch, base_branch:$f.base_branch, generated_at:$f.generated_at,
+    if ${CLAUDE_SKILL_DIR}/../../scripts/run-jq.sh -s '.[0] as $f | {schema_version:$f.schema_version, pr_branch:$f.pr_branch, base_branch:$f.base_branch, generated_at:$f.generated_at,
         deferrals: ([.[].deferrals[]] | unique_by((.file // "") + "|" + (.symbol // "") + "|" + (.kind // "") + "|" + ((.summary // "") | gsub("^\\s+|\\s+$";"")))) }' \
         $PRIOR $MANIFESTS > "${AGG}.tmp"; then
         mv "${AGG}.tmp" "$AGG"

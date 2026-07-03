@@ -516,6 +516,7 @@ jobs:
             Bash(gh workflow list:*),
             Bash(gh api:*),
             Bash(jq:*),
+            Bash(.devflow/vendor/devflow/scripts/run-jq.sh:*),
             Bash(.devflow/vendor/devflow/scripts/config-get.sh:*),
             Bash(.devflow/vendor/devflow/scripts/workpad.py:*),
             Bash(.devflow/vendor/devflow/scripts/parse-acs.py:*),
