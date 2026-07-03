@@ -641,7 +641,7 @@ jobs:
           # notice, and the breadcrumb below still names it in the run log.
           POST_ERR="$(bash "$V/post-issue-comment.sh" "$ISSUE_NUMBER" "$BODY" 2>&1)"
           printf '%s\n' "$POST_ERR"
-          if [ "$FAIL" -eq 0 ] && ! printf '%s' "$POST_ERR" | grep -qF "posted comment on"; then
+          if [ "$FAIL" -eq 0 ] && ! printf '%s' "$POST_ERR" | grep -qF "devflow: posted comment on #${ISSUE_NUMBER}"; then
             echo "::error::stall backstop: the resume re-dispatch comment did not land (see the breadcrumb above) — failing loud so the stall stays visible for a manual retrigger"
             exit 1
           fi

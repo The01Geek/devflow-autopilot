@@ -12997,6 +12997,7 @@ exit 0
 STUB
   cat > "$SB268_DIR/bin/gh" <<'STUB'
 #!/usr/bin/env bash
+[ "${STUB_GH_FAIL:-0}" = "1" ] && exit 1
 printf '%s\n' "${STUB_GH_BODIES:-}"
 STUB
   chmod +x "$SB268_V"/*.sh "$SB268_DIR/bin/gh"
@@ -13034,6 +13035,12 @@ STUB
   sb268_run env STUB_STATUS_OUT="interim 🚀 Reviewing" STUB_POST_FAIL=1
   SB268_RC=$?
   assert_eq "#268 behavior: dropped resume POST fails loud (exit 1, never a masked green)" "1" "$SB268_RC"
+  # gh comment-read failure on interim: counts 0 attempts (fail-toward-resume)
+  # and the resume still posts + exits green.
+  sb268_run env STUB_STATUS_OUT="interim 🚀 Reviewing" STUB_GH_FAIL=1
+  SB268_RC=$?
+  assert_eq "#268 behavior: gh comment-read failure -> assume 0 attempts, resume posted, exit 0" "0:yes" \
+    "$SB268_RC:$([ -f "$SB268_POST" ] && echo yes || echo no)"
   rm -rf "$SB268_DIR"; rm -f "$SB268_RUN"
 else
   printf '  SKIP  #268 behavior: python3+PyYAML unavailable — extraction test skipped (content pins above still ran)\n'
