@@ -13804,6 +13804,15 @@ rm -f /tmp/wp281-stderr-$$
 PATH="$WP266_GHD:$PATH" STUB_COMMENTS='[{"id":1,"body":"<!-- devflow:workpad -->\n**Status:** FROBNICATING"}]' python3 "$WP266_PY" status 5 >/dev/null 2>&1
 assert_eq "#281 workpad.py status: unrecognized word, mixed case -> exit 1" "1" "$?"
 
+# #281 — a word that merely STARTS WITH the terminal words 'complete'/'blocked' must
+# still be rejected (exit 1), not silently accepted via _status_glyph's prefix match.
+# Recognition must be exact-match on the terminal words, since _status_glyph's own
+# startswith('complete'/'blocked') is intentionally loose for its write-path callers.
+PATH="$WP266_GHD:$PATH" STUB_COMMENTS='[{"id":1,"body":"<!-- devflow:workpad -->\n**Status:** 🎉 Completely wrong word"}]' python3 "$WP266_PY" status 5 >/dev/null 2>&1
+assert_eq "#281 workpad.py status: prefix-adjacent 'Completely wrong word' -> exit 1 (not silently terminal)" "1" "$?"
+PATH="$WP266_GHD:$PATH" STUB_COMMENTS='[{"id":1,"body":"<!-- devflow:workpad -->\n**Status:** 👎 Blockeddependency on X"}]' python3 "$WP266_PY" status 5 >/dev/null 2>&1
+assert_eq "#281 workpad.py status: prefix-adjacent 'Blockeddependency on X' -> exit 1 (not silently terminal)" "1" "$?"
+
 # #281 — every canonical in-progress word not already exercised above must still
 # resolve at exit 0 with no regression to the healthy paths.
 for WP281_WORD in Setup Discovering Reproducing Planning Implementing Documenting; do
