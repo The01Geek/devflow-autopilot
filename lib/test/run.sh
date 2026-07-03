@@ -13714,6 +13714,17 @@ assert_pin_unique "#287 wiring: stall-backstop GH_TOKEN consumes the fresh backs
   'GH_TOKEN: ${{ steps.backstop-token.outputs.token || secrets.GITHUB_TOKEN }}' "$WF268"
 assert_pin_unique "#287 wiring: fresh backstop-token mint step present, gated on DEVFLOW_APP_ID" \
   "id: backstop-token" "$WF268"
+# The backstop mint's `if:` MUST carry `always()` — that is the one clause that
+# distinguishes it from the writer mint (which uses a bare `if:`), and it is
+# load-bearing: without it the mint is skipped on a FAILED claude job (default
+# success() gating), so APP_TOKEN_PRESENT resolves false and auto-resume fails
+# loud even with the App configured — the exact regression #287 exists to fix
+# and the exact edit the step's own comment warns against. The APP_SITES table
+# only substring-matches `DEVFLOW_APP_ID != ''` (deliberately lenient about the
+# rest of the if:), so `always()` needs its own removal-proof pin here: a
+# "harmonization" that drops it ships GREEN otherwise. RED if `always()` is removed.
+assert_eq "#287 wiring: backstop-token mint if: carries the always() guard (mints even after a failed claude job)" "1" \
+  "$(grep -A2 'name: Mint stall-backstop token' "$WF268" | grep -cF "if: \${{ always() && vars.DEVFLOW_APP_ID != '' }}")"
 assert_pin_unique "#268 wiring: CLAUDE_OUTCOME wired from the claude step outcome" \
   'CLAUDE_OUTCOME: ${{ steps.claude.outcome }}' "$WF268"
 # Actions runs run: blocks under bash -e; the step's leading `set +e` is what
@@ -14010,6 +14021,21 @@ STUB
 chmod +x "$WP287_GHD/gh"
 PATH="$WP287_GHD:$PATH" python3 "$WP266_PY" status 5 >/dev/null 2>&1
 assert_eq "#287 workpad.py status: gh success with unparseable body -> exit 3 (transport, not content-shape 1)" "3" "$?"
+# #287 — a rc-0 gh response that PARSES but is not a JSON array (an error envelope
+# like {"message":"Bad credentials"} — the realistic auth-at-exit-0 shape) must
+# also exit 3, NOT crash into a bare exit 1 via AttributeError on `for c in items`.
+# Pins the isinstance(items, list) guard so the exit-3 promise covers wrong-shape
+# bodies, not only unparseable ones.
+cat > "$WP287_GHD/gh" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *"repo view"*) echo "acme/example-repo" ;;
+  *) echo '{"message":"Bad credentials"}' ;;   # rc 0, valid JSON, NOT a list
+esac
+STUB
+chmod +x "$WP287_GHD/gh"
+PATH="$WP287_GHD:$PATH" python3 "$WP266_PY" status 5 >/dev/null 2>&1
+assert_eq "#287 workpad.py status: gh success with a non-list JSON body (error envelope) -> exit 3 (not AttributeError->1)" "3" "$?"
 rm -rf "$WP287_GHD"
 # #287 — the exit-code param defaults to 1, so a NON-status caller (cmd_id) on a
 # gh transport failure exits EXACTLY 1, not 3 — locking the "every other caller

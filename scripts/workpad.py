@@ -199,6 +199,21 @@ def _find_workpad_comment(cmd, repo, issue, marker, api_fail_code=1):
             items = json.loads(r.stdout)
         except json.JSONDecodeError as e:
             _fail(cmd, f"could not parse gh comments response: {e}", code=api_fail_code)
+        # A rc-0 gh response that parses but is NOT a JSON array is a transport/API
+        # anomaly, not a healthy comment page — most often an error envelope
+        # (`{"message":"Bad credentials"}`) some gh/API paths emit at exit 0. Route
+        # it through the same api_fail_code as a parse failure (exit 3 for cmd_status,
+        # so the exit-3 promise covers a wrong-shape body, not only an unparseable
+        # one) rather than iterating a dict's keys into an uncaught AttributeError
+        # (which would surface as a bare exit 1, mislabeling an auth error as an
+        # unreadable workpad).
+        if not isinstance(items, list):
+            _fail(
+                cmd,
+                f"gh comments response was not a JSON array "
+                f"(got {type(items).__name__}): {str(items)[:200]}",
+                code=api_fail_code,
+            )
         for c in items:
             if (c.get('body') or '').startswith(marker):
                 return c
@@ -267,9 +282,10 @@ def cmd_status(args):
          content is unusable.
       3  a gh api / transport / auth failure (the `gh repo view` repo lookup or
          the `gh api` comment fetch failed — e.g. an expired App token — or that
-         fetch returned an unparseable body, which a dropped/truncated connection
-         also produces). Distinct from exit 1: the workpad may be perfectly
-         healthy; the READ failed, not the content. Kept separate so the cloud stall backstop never mislabels
+         fetch returned a body that is unparseable (a dropped/truncated
+         connection) or parses but is not a JSON array (an error envelope such as
+         `{"message":"Bad credentials"}`)). Distinct from exit 1: the workpad may
+         be perfectly healthy; the READ failed, not the content. Kept separate so the cloud stall backstop never mislabels
          an auth failure as an unreadable workpad and never burns a resume
          attempt on a workpad it could not read.
     The cloud stall backstop maps exit 1 and exit 2 alike to the 'unreadable'
