@@ -14169,7 +14169,13 @@ echo "#284 portability wave 3: rc-capture guard migration"
 # capture-then-discriminate recipe turns this RED. (The grep targets `"$1"`, carrying no
 # `_SKILL`/echo, so the #157 raw-guard scanner does not match this helper's body.)
 count_284_subst_rc_recipe() {  # file -> count of the banned command-substitution-then-rc recipe
-  grep -cE '=\$\(.*[A-Z_]+_RC=\$\?|=\$\(.*; *rc=\$\?' "$1" || true
+  # `="?\$\(` matches BOTH the unquoted `VAR=$(…)` and the quoted `VAR="$(…)"` assignment —
+  # the removed efficiency-trace recipes (`TRACE="$(…)"; TRACE_RC=$?` / `TELEM="$(…)"; T_RC=$?`)
+  # were the QUOTED form, whose bytes are `="$(` (no `=$(` substring), so a bare `=\$\(` anchor
+  # would read 0 on their reintroduction and leave AC5 vacuous for exactly two removed sites
+  # (#284 shadow review). The optional `"` closes that gap without matching a single-quoted
+  # `='$('` (which performs no substitution and is not a real recipe).
+  grep -cE '="?\$\(.*[A-Z_]+_RC=\$\?|="?\$\(.*; *rc=\$\?' "$1" || true
 }
 assert_eq "#284 absence: no VAR=\$(…);VAR_RC=\$? recipe in review-and-fix SKILL" "0" "$(count_284_subst_rc_recipe "$ST_RAF")"
 assert_eq "#284 absence: no VAR=\$(…);VAR_RC=\$? recipe in review SKILL" "0" "$(count_284_subst_rc_recipe "$ST_REV")"
@@ -14182,6 +14188,13 @@ printf '%s\n' 'FOO=$(somecmd .k default); FOO_RC=$?' > "$P284_PROBE"
 assert_eq "#284 absence detector: a reintroduced VAR=\$(…);VAR_RC=\$? recipe reads 1 (RED, not vacuous)" "1" "$(count_284_subst_rc_recipe "$P284_PROBE")"
 printf '%s\n' 'if ! FOO=$(somecmd .k default); then FOO=default; fi' > "$P284_PROBE"
 assert_eq "#284 absence detector: the migrated if!-form reads 0 (GREEN)" "0" "$(count_284_subst_rc_recipe "$P284_PROBE")"
+# Quoted command-substitution reintroduction (the removed TRACE/TELEM shape: `VAR="$(…)"; VAR_RC=$?`)
+# must ALSO read 1 (RED) — a bare `=\$\(` anchor would miss it, leaving AC5 vacuous for those two
+# sites; and the migrated quoted `if ! VAR="$(…)"` form must read 0 (GREEN, no false positive).
+printf '%s\n' 'TRACE="$(efficiency-trace.sh --mode trace)"; TRACE_RC=$?' > "$P284_PROBE"
+assert_eq "#284 absence detector: a reintroduced QUOTED VAR=\"\$(…)\";VAR_RC=\$? recipe reads 1 (RED, not vacuous)" "1" "$(count_284_subst_rc_recipe "$P284_PROBE")"
+printf '%s\n' 'if ! TRACE="$(efficiency-trace.sh --mode trace)"; then TRACE=""; fi' > "$P284_PROBE"
+assert_eq "#284 absence detector: the migrated QUOTED if!-form reads 0 (GREEN)" "0" "$(count_284_subst_rc_recipe "$P284_PROBE")"
 rm -f "$P284_PROBE"
 # (1b) TWO-LINE absence (#284 shadow review, AC5 completeness): the single-line detector
 # above is line-oriented, so the SAME cross-statement hazard written across two physical
@@ -14208,8 +14221,8 @@ count_284_twoline_rc_recipe() {  # file -> count of the banned recipe split acro
     {
       if (open && $0 ~ /([A-Z_]+_RC|rc)=\$\?/) { c++; open=0 }
       else if (open && $0 !~ /(\\|&&|\|)[[:space:]]*$/) { open=0 }
-      if ($0 ~ /=\$\(/ && $0 ~ /(\\|&&|\|)[[:space:]]*$/) { open=1 }
-      if (prev ~ /=\$\(/ && $0 ~ /^[[:space:]]*([A-Z_]+_RC|rc)=\$\?/) { c++ }
+      if ($0 ~ /="?\$\(/ && $0 ~ /(\\|&&|\|)[[:space:]]*$/) { open=1 }
+      if (prev ~ /="?\$\(/ && $0 ~ /^[[:space:]]*([A-Z_]+_RC|rc)=\$\?/) { c++ }
       prev = $0
     }
     END { print c+0 }
@@ -14251,6 +14264,12 @@ assert_pin_unique "#284 positive: review-and-fix fix-threshold discriminates via
 assert_pin_unique "#284 positive: review-and-fix max_iterations discriminates via single-statement if!" 'if ! MAX_ITERS=$(' "$ST_RAF"
 assert_pin_unique "#284 positive: review verdict-threshold discriminates via single-statement if!" 'if ! VERDICT_THRESHOLD=$(' "$ST_REV"
 assert_pin_unique "#284 positive: review live-comment 3-way reads \$? inline in the elif" 'elif [ "$?" -eq 2 ]; then' "$ST_REV"
+# The efficiency-trace render reads are the QUOTED command-substitution sites the absence
+# detector previously could not see (#284 shadow review) — pin the migrated `if ! VAR="$(`
+# idiom positively so a straight revert to `VAR="$(…)"; VAR_RC=$?` fails BOTH the extended
+# absence detector and this positive pin.
+assert_pin_unique "#284 positive: review-and-fix trace render discriminates via single-statement if! (quoted)" 'if ! TRACE="$(' "$ST_RAF"
+assert_pin_unique "#284 positive: review trace render discriminates via single-statement if! (quoted)" 'if ! TELEM="$(' "$ST_REV"
 # The Phase 4.1 Stage-2 cumulative-diff read is also `if !`-guarded (git's own exit status
 # inline), symmetric to the gh|extractor guard; pin its positive form and prove the old
 # captured-rc form is gone (#284 shadow-review test-coverage completeness).

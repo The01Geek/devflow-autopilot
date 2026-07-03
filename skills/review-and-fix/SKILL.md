@@ -874,7 +874,7 @@ All derivation lives in `lib/efficiency-trace.jq` (a mechanical jq filter, no LL
    # Render the Markdown trace to chat. Use ::warning:: (not a plain echo) so a
    # failure surfaces in the Actions UI on a headless run; and detect the
    # all-workpads-malformed case, where the helper exits 0 with empty stdout (the
-   # `||` branch never fires) — print an explicit notice so it isn't a silent no-op.
+   # `elif [ -z "$TRACE" ]` arm reports it) — print an explicit notice so it isn't a silent no-op.
    # `if !` reads the helper's OWN exit status — never a captured rc read in a later
    # statement (a cross-statement-variable-stripping inline-bash runner would leave it empty).
    if ! TRACE="$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/efficiency-trace.sh --workpad-dir "$WORKPAD_DIR" --slug "<slug>" --mode trace 2>/tmp/devflow-et.err)"; then
