@@ -8118,80 +8118,258 @@ for f in devflow devflow-implement; do
 done
 
 # ────────────────────────────────────────────────────────────────────────────
-echo "opt-in GitHub App workflow-capable token (issue #201)"
+echo "opt-in GitHub App tokens — writers full-scope + per-site downscoped (issues #201 + #269)"
 # ────────────────────────────────────────────────────────────────────────────
-# DevFlow's two CLOUD WRITERS — devflow-implement.yml (/devflow:implement) and the
-# write-capable `command` job in devflow.yml (/devflow:review-and-fix) — push to the
-# feature branch with the built-in GITHUB_TOKEN, which GitHub hard-blocks from
-# editing .github/workflows/ files. An OPT-IN GitHub App credential lets those pushes
-# succeed: each writer mints a short-lived App installation token (Contents: write +
-# Workflows: write), gated on `vars.DEVFLOW_APP_ID != ''` so it is inert unless an
-# operator configures it, and falls back to GITHUB_TOKEN when unset — byte-for-byte
-# unchanged for consumers who do not opt in. The READ-ONLY runner (devflow-runner.yml)
-# never edits files and MUST NOT receive a write-capable token, so it carries no mint
-# step. These assertions pin the opt-in contract for all three workflows; they are the
-# change's observable boundary (the issue's Testing Strategy maps each to an AC).
-for f in devflow-implement devflow; do
+# The opt-in GitHub App (vars.DEVFLOW_APP_ID + secrets.DEVFLOW_APP_PRIVATE_KEY)
+# serves two contracts, pinned together here because they share one mint pattern:
+#   #201 — the two CLOUD WRITERS (devflow-implement.yml, devflow.yml `command`)
+#   mint a FULL-installation-scope token (Contents: write + Workflows: write)
+#   so the agent's git push can edit .github/workflows/ files.
+#   #269 — the other user-visible cloud posts (the review agent in
+#   devflow-runner.yml; the trigger reactions + notice comments in the
+#   devflow.yml gate/review_dedupe and devflow-implement.yml gate jobs —
+#   the marker-detected workpad comment's gate-job creation stays on
+#   GITHUB_TOKEN) mint a
+#   per-site token DOWNSCOPED via permission-* inputs to exactly what that site
+#   does. The permission-* inputs are the SOLE least-privilege enforcement (an
+#   App installation token ignores the job `permissions:` block), so the exact
+#   per-site permission sets — and the ABSENCE of any write-widening input —
+#   are the security boundary these pins protect.
+# Every mint is gated on `vars.DEVFLOW_APP_ID != ''` (inert unless an operator
+# opts in), consumed with a `|| GITHUB_TOKEN` / `|| github.token` fallback
+# (unset → byte-for-byte pre-App behavior), and fail-loud (no
+# continue-on-error): a configured-but-broken App fails the job rather than
+# silently degrading to GITHUB_TOKEN.
+
+# Extract one step's block from a workflow: from its `- name:` line to the
+# next sibling step's `- name:` (6-space step indent, matching these workflows)
+# OR the enclosing job's end (a 2-space-indented key, i.e. the next job) —
+# without the job-boundary stop, a job's LAST named step would bleed into the
+# following job's header and name-less steps, un-scoping the assertions run
+# against the block. Matched with index() (literal substring), not a regex —
+# the step names carry regex metacharacters ("(optional)").
+mint_blk() {
+  awk -v n="$1" '
+    index($0, "- name: " n){f=1}
+    f && /^      - name:/ && index($0, "- name: " n) == 0{exit}
+    f && /^  [^ ]/{exit}
+    f{print}' "$2"
+}
+
+# Site table: file | mint step name | step id | expected permission-* set
+# (comma-separated; FULL = full installation scope, i.e. NO permission-* input).
+APP_SITES=(
+  'devflow-implement|Mint workflow-capable token (optional)|app-token|FULL'
+  'devflow|Mint workflow-capable token (optional)|app-token|FULL'
+  'devflow-runner|Mint downscoped review token (optional)|app-token|permission-contents: read,permission-issues: read,permission-pull-requests: write,permission-actions: read'
+  'devflow|Mint downscoped reaction token (optional)|gate_app_token|permission-issues: write,permission-pull-requests: write'
+  'devflow|Mint downscoped notice token (optional)|dedupe_app_token|permission-pull-requests: write'
+  'devflow-implement|Mint downscoped reaction token (optional)|gate_app_token|permission-issues: write,permission-pull-requests: write'
+)
+for site in "${APP_SITES[@]}"; do
+  IFS='|' read -r f name id scopes <<<"$site"
   WFF="$WF/$f.yml"
-  # (1) The conditional mint step exists, gated on the opt-in variable (AC 1, AC 3).
-  assert_eq "app-token: $f.yml mints via actions/create-github-app-token" "1" \
-    "$(grep -cE 'uses:[[:space:]]*actions/create-github-app-token@' "$WFF")"
-  assert_eq "app-token: $f.yml mint step is gated on vars.DEVFLOW_APP_ID != ''" "1" \
-    "$(grep -cF "vars.DEVFLOW_APP_ID != ''" "$WFF")"
-  # (2) The mint step wires app-id from the variable and private-key from the secret
-  #     (the coupled var/secret literals carried identically across .yml/.md/.sh).
-  assert_eq "app-token: $f.yml mint step reads app-id from vars.DEVFLOW_APP_ID" "1" \
-    "$(grep -cF 'app-id: ${{ vars.DEVFLOW_APP_ID }}' "$WFF")"
-  assert_eq "app-token: $f.yml mint step reads private-key from secrets.DEVFLOW_APP_PRIVATE_KEY" "1" \
-    "$(grep -cF 'private-key: ${{ secrets.DEVFLOW_APP_PRIVATE_KEY }}' "$WFF")"
-  # (3) The claude-code-action step consumes the minted token with the GITHUB_TOKEN
-  #     fallback — this fallback IS the unset-opt-in path that keeps behavior identical
-  #     for non-adopters (AC 2, AC 5).
-  assert_eq "app-token: $f.yml github_token falls back to secrets.GITHUB_TOKEN" "1" \
-    "$(grep -cF 'github_token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}' "$WFF")"
-  # (4) Fail-loud (AC 6): the mint step must NOT carry continue-on-error, so a
-  #     configured-but-broken App fails the job rather than silently degrading.
-  blk="$(awk '/name: Mint workflow-capable token/{f=1} f{print} f&&/^      - name:/&&!/Mint workflow-capable/{exit}' "$WFF")"
-  assert_eq "app-token: $f.yml mint step is fail-loud (no continue-on-error)" "" \
-    "$(printf '%s\n' "$blk" | grep -E 'continue-on-error' || true)"
-  # (4a) The step-id ↔ output-reference coupling (AC 2). The mint step MUST carry
-  #      `id: app-token`, because the github_token expression consumes
-  #      `steps.app-token.outputs.token`. Renaming the id (leaving the consumer line
-  #      untouched) would resolve the output to empty on every run and silently and
-  #      permanently fall the opt-in back to GITHUB_TOKEN — the exact silent
-  #      degradation AC 6 exists to prevent, reached via a wiring typo. Pin the id
-  #      inside the extracted mint-step block so the two coupled sites can't drift
-  #      apart while the suite stays green.
-  assert_eq "app-token: $f.yml mint step carries id: app-token (couples to steps.app-token.outputs.token)" "1" \
-    "$(printf '%s\n' "$blk" | grep -cE '^[[:space:]]*id:[[:space:]]*app-token[[:space:]]*$')"
+  blk="$(mint_blk "$name" "$WFF")"
+  assert_eq "app-token: $f.yml has mint step '$name'" "yes" \
+    "$([ -n "$blk" ] && echo yes || echo no)"
+  assert_eq "app-token: $f.yml '$name' uses actions/create-github-app-token" "1" \
+    "$(printf '%s\n' "$blk" | grep -cE 'uses:[[:space:]]*actions/create-github-app-token@')"
+  # Substring match: the downscoped mints add a consumer condition to the gate
+  # (`&& should_run == 'true'` on the two gate-job mints, `&& suppress ==
+  # 'true'` on the review_dedupe mint — mint only when a consumer will run), so
+  # the opt-in literal is asserted as a required part of the if:, not the whole
+  # expression.
+  assert_eq "app-token: $f.yml '$name' is gated on vars.DEVFLOW_APP_ID != ''" "1" \
+    "$(printf '%s\n' "$blk" | grep -cF "vars.DEVFLOW_APP_ID != ''" || true)"
+  assert_eq "app-token: $f.yml '$name' reads app-id from vars.DEVFLOW_APP_ID" "1" \
+    "$(printf '%s\n' "$blk" | grep -cF 'app-id: ${{ vars.DEVFLOW_APP_ID }}')"
+  assert_eq "app-token: $f.yml '$name' reads private-key from secrets.DEVFLOW_APP_PRIVATE_KEY" "1" \
+    "$(printf '%s\n' "$blk" | grep -cF 'private-key: ${{ secrets.DEVFLOW_APP_PRIVATE_KEY }}')"
+  # Fail-loud: no continue-on-error KEY anywhere in the mint step (the block
+  # extract runs to the next `- name:`, so it can trail comment prose of the
+  # following step that mentions continue-on-error — match the `key:` form).
+  assert_eq "app-token: $f.yml '$name' is fail-loud (no continue-on-error)" "" \
+    "$(printf '%s\n' "$blk" | grep -E '^[[:space:]]*continue-on-error:' || true)"
+  # Step-id ↔ output-reference coupling: the consumer expression reads
+  # steps.<id>.outputs.token; renaming the id (leaving the consumer untouched)
+  # would resolve to empty on every run and silently fall the opt-in back to
+  # GITHUB_TOKEN — the exact silent degradation the fail-loud contract exists
+  # to prevent, reached via a wiring typo.
+  assert_eq "app-token: $f.yml '$name' carries id: $id (couples to steps.$id.outputs.token)" "1" \
+    "$(printf '%s\n' "$blk" | grep -cE "^[[:space:]]*id:[[:space:]]*$id[[:space:]]*\$")"
+  if [ "$scopes" = "FULL" ]; then
+    # Writers stay full-installation-scope: NO permission-* downscope input
+    # (adding one would silently narrow the writers' Workflows: write push).
+    assert_eq "app-token: $f.yml '$name' carries no permission-* input (full scope)" "0" \
+      "$(printf '%s\n' "$blk" | grep -cE '^[[:space:]]*permission-[a-z-]+:' || true)"
+  else
+    # "Declares exactly" = each expected permission present once AND the total
+    # permission-* line count equals the expected set size, so an added
+    # write-widening input (permission-contents: write, permission-workflows)
+    # goes RED without needing one absence pin per conceivable permission.
+    IFS=',' read -ra perms <<<"$scopes"
+    for p in "${perms[@]}"; do
+      assert_eq "app-token: $f.yml '$name' declares $p" "1" \
+        "$(printf '%s\n' "$blk" | grep -cF "$p" || true)"
+    done
+    assert_eq "app-token: $f.yml '$name' declares exactly ${#perms[@]} permission-* inputs" "${#perms[@]}" \
+      "$(printf '%s\n' "$blk" | grep -cE '^[[:space:]]*permission-[a-z-]+:' || true)"
+  fi
 done
-# (5) The read-only runner stays untouched: NO App-token mint step, and it keeps its
-#     plain GITHUB_TOKEN (AC 4, AC 10).
-assert_eq "app-token: devflow-runner.yml has NO create-github-app-token mint step" "0" \
+# Explicit write-widening absence pins (belt to the exact-count braces above —
+# these name the two inputs that would let a downscoped site push or edit
+# workflows, per the issue's negative/security dimension).
+blk="$(mint_blk 'Mint downscoped review token (optional)' "$WF/devflow-runner.yml")"
+assert_eq "app-token: review token has no permission-contents: write" "0" \
+  "$(printf '%s\n' "$blk" | grep -cF 'permission-contents: write' || true)"
+assert_eq "app-token: review token has no permission-workflows" "0" \
+  "$(printf '%s\n' "$blk" | grep -cF 'permission-workflows' || true)"
+for pair in 'devflow|Mint downscoped reaction token (optional)' 'devflow|Mint downscoped notice token (optional)' 'devflow-implement|Mint downscoped reaction token (optional)'; do
+  IFS='|' read -r f name <<<"$pair"
+  blk="$(mint_blk "$name" "$WF/$f.yml")"
+  assert_eq "app-token: $f.yml '$name' has no permission-contents" "0" \
+    "$(printf '%s\n' "$blk" | grep -cF 'permission-contents' || true)"
+  assert_eq "app-token: $f.yml '$name' has no permission-workflows" "0" \
+    "$(printf '%s\n' "$blk" | grep -cF 'permission-workflows' || true)"
+done
+# Per-file mint totals — the removal-proof complement of the per-block pins
+# above (a deleted mint step would otherwise only fail its own block extract).
+assert_eq "app-token: devflow-implement.yml has exactly 2 mint steps (writer + gate)" "2" \
+  "$(grep -cE 'uses:[[:space:]]*actions/create-github-app-token@' "$WF/devflow-implement.yml")"
+assert_eq "app-token: devflow.yml has exactly 3 mint steps (command + gate + review_dedupe)" "3" \
+  "$(grep -cE 'uses:[[:space:]]*actions/create-github-app-token@' "$WF/devflow.yml")"
+assert_eq "app-token: devflow-runner.yml has exactly 1 mint step (review)" "1" \
   "$(grep -cE 'uses:[[:space:]]*actions/create-github-app-token@' "$WF/devflow-runner.yml")"
-assert_eq "app-token: devflow-runner.yml mentions no DEVFLOW_APP_ID opt-in" "0" \
-  "$(grep -cF 'DEVFLOW_APP_ID' "$WF/devflow-runner.yml")"
-# (6) Docs carry the opt-in contract: the var, the secret, and BOTH required App
-#     permissions (AC 7, AC 8, AC 9).
+# Consumers: each token is consumed with the fallback that IS the unset-opt-in
+# path keeping behavior identical for non-adopters.
+for f in devflow-implement devflow devflow-runner; do
+  assert_eq "app-token: $f.yml consumes github_token: steps.app-token || secrets.GITHUB_TOKEN" "1" \
+    "$(grep -cF 'github_token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}' "$WF/$f.yml")"
+done
+assert_eq "app-token: devflow-runner.yml keeps no bare github_token: secrets.GITHUB_TOKEN consumer" "0" \
+  "$(grep -cF 'github_token: ${{ secrets.GITHUB_TOKEN }}' "$WF/devflow-runner.yml")"
+assert_eq "app-token: devflow.yml react step consumes gate_app_token || github.token" "1" \
+  "$(grep -cF 'GH_TOKEN: ${{ steps.gate_app_token.outputs.token || github.token }}' "$WF/devflow.yml")"
+assert_eq "app-token: devflow.yml notice step consumes dedupe_app_token || github.token" "1" \
+  "$(grep -cF 'GH_TOKEN: ${{ steps.dedupe_app_token.outputs.token || github.token }}' "$WF/devflow.yml")"
+assert_eq "app-token: devflow-implement.yml react + duplicate-notice both consume gate_app_token || github.token" "2" \
+  "$(grep -cF 'GH_TOKEN: ${{ steps.gate_app_token.outputs.token || github.token }}' "$WF/devflow-implement.yml")"
+# The two notice posts must stay on REST `gh api` — never `gh issue comment` /
+# `gh pr comment` porcelain, whose GraphQL repo resolution fails SILENTLY under
+# the repo-scoped App installation token these steps now run with (the #228
+# gotcha; the failure mode is invisible exactly on App-configured repos). A
+# porcelain revert would otherwise ship green.
+for pair in 'devflow|Notice — manual review suppressed' 'devflow-implement|Notice — duplicate ignored'; do
+  IFS='|' read -r f name <<<"$pair"
+  blk="$(mint_blk "$name" "$WF/$f.yml")"
+  # -F (fixed-string): the literal carries a mid-pattern `$` that a
+  # non-GNU/POSIX grep (e.g. ugrep) would read as an anchor and count 0,
+  # failing a correct suite on such a host.
+  assert_eq "app-token: $f.yml '$name' posts via REST gh api (issues comments endpoint)" "1" \
+    "$(printf '%s\n' "$blk" | grep -cF 'gh api --method POST "repos/$REPO/issues/' || true)"
+  assert_eq "app-token: $f.yml '$name' uses no gh issue/pr comment porcelain" "0" \
+    "$(printf '%s\n' "$blk" | grep -cE 'gh (issue|pr) comment ' || true)"
+done
+# guard→notice `head` coupling: the guard step emits head= into GITHUB_OUTPUT
+# solely for the split-out notice step's HEAD env; a drift on either half
+# yields a notice with an empty commit SHA while everything stays green.
+assert_eq "app-token: devflow.yml guard emits head= into GITHUB_OUTPUT" "1" \
+  "$(grep -cF 'echo "head=$HEAD" >> "$GITHUB_OUTPUT"' "$WF/devflow.yml")"
+assert_eq "app-token: devflow.yml notice consumes steps.guard.outputs.head" "1" \
+  "$(grep -cF 'HEAD: ${{ steps.guard.outputs.head }}' "$WF/devflow.yml")"
+# guard id ↔ suppress-output coupling: the dedupe mint and the notice step both
+# key on steps.guard.outputs.suppress; renaming `id: guard` (or the suppress
+# output key) silently disables both while the suite stays green.
+assert_eq "app-token: devflow.yml review_dedupe guard step carries id: guard" "1" \
+  "$(grep -cE '^      - id: guard$' "$WF/devflow.yml")"
+assert_eq "app-token: devflow.yml mint + notice both gate on steps.guard.outputs.suppress == 'true'" "2" \
+  "$(grep -cF "steps.guard.outputs.suppress == 'true'" "$WF/devflow.yml")"
+# Producer side of the suppress coupling: emit() is the only writer of the
+# suppress= output (and the job-level output maps it); renaming either half
+# leaves both consumers reading empty and the downstream dedupe gate fails
+# OPEN (double review) while the suite stays green.
+assert_eq "app-token: devflow.yml guard emit() writes suppress= into GITHUB_OUTPUT" "1" \
+  "$(grep -cF 'emit() { echo "suppress=$1" >> "$GITHUB_OUTPUT"; }' "$WF/devflow.yml")"
+assert_eq "app-token: devflow.yml review_dedupe job output maps steps.guard.outputs.suppress" "1" \
+  "$(grep -cF 'suppress: ${{ steps.guard.outputs.suppress }}' "$WF/devflow.yml")"
+# The suppression NOTICE must carry no DevFlow trigger phrase: under the App
+# token this comment fires a REAL issue_comment event (GITHUB_TOKEN comments
+# are suppressed by GitHub), so a trigger substring would re-enter the gate
+# and loop. Mirrors the devflow-implement duplicate-notice pin, including the
+# anti-vacuity capture check.
+RS_NOTICE="$(mint_blk 'Notice — manual review suppressed' "$WF/devflow.yml")"
+assert_eq "app-token: suppression-notice pin captured the notice body (no vacuous pass)" "1" \
+  "$(grep -c 'already running for this commit' <<< "$RS_NOTICE")"
+# The NOTE=-scoped absence pins below are vacuous if the body variable is
+# renamed/inlined — pin that exactly one NOTE= body line exists in the step.
+assert_eq "app-token: suppression notice carries exactly one NOTE= body line" "1" \
+  "$(grep -c 'NOTE=' <<< "$RS_NOTICE")"
+assert_eq "app-token: suppression notice contains no /devflow: phrase in its NOTE body" "0" \
+  "$(grep 'NOTE=' <<< "$RS_NOTICE" | grep -c '/devflow:' || true)"
+# Scoped to the NOTE= body line: the step's own de-trigger rationale comment
+# legitimately names `@claude` in prose.
+assert_eq "app-token: suppression notice contains no @claude in its NOTE body" "0" \
+  "$(grep 'NOTE=' <<< "$RS_NOTICE" | grep -c '@claude' || true)"
+# The notice step deliberately has no continue-on-error; its best-effort
+# contract rests entirely on the `if ! err=` guard around the single gh call
+# plus the specific breadcrumb. Dropping the guard would turn a transient
+# comment-post failure into a red review_dedupe job (operator noise — the
+# manual command was already suppressed in every run where the notice fires).
+assert_eq "app-token: suppression notice guards its gh call (if ! err=)" "1" \
+  "$(grep -cF 'if ! err="$(gh api --method POST "repos/$REPO/issues/$PR/comments"' "$WF/devflow.yml")"
+assert_eq "app-token: suppression notice emits its specific failure breadcrumb" "1" \
+  "$(grep -cF '::warning::could not post review-suppressed notice' "$WF/devflow.yml")"
+# File-wide porcelain ceiling: the shipped workflows carry ZERO
+# invocation-position `gh issue|pr comment` calls (both notices are REST). A
+# rebase/revert restoring the old inline guard-step porcelain post would
+# produce a double notice whose porcelain half fails silently under a
+# repo-scoped token — and every block-scoped pin above would stay green.
+for f in devflow devflow-implement; do
+  assert_eq "app-token: $f.yml has no invocation-position gh issue/pr comment porcelain" "0" \
+    "$(grep -cE '^[^#]*gh (issue|pr) comment ' "$WF/$f.yml" || true)"
+done
+# Doc↔workflow scope-table coupling: the cloud-setup table hardcodes the
+# review token's permission set; pin the row so a future scope change that
+# reconciles APP_SITES but not the doc goes RED.
+assert_eq "app-token: cloud-setup.md scope table carries the review token's exact permission set" "1" \
+  "$(grep -cF '`contents: read`, `issues: read`, `pull-requests: write`, `actions: read`' "$LIB/../docs/cloud-setup.md" || true)"
+# Consumer-condition conjuncts on the three downscoped gate/dedupe mints: the
+# second half of each mint's if: keeps the common rejection path mint-free AND
+# bounds fail-loud to runs where a consumer actually posts. Dropping it would
+# make a configured-but-broken App fail every rejected/non-command event.
+for pair in "devflow|Mint downscoped reaction token (optional)|&& steps.resolve.outputs.should_run == 'true' }}" \
+            "devflow-implement|Mint downscoped reaction token (optional)|&& steps.resolve.outputs.should_run == 'true' }}" \
+            "devflow|Mint downscoped notice token (optional)|&& steps.guard.outputs.suppress == 'true' }}"; do
+  IFS='|' read -r f name cond <<<"$pair"
+  blk="$(mint_blk "$name" "$WF/$f.yml")"
+  assert_eq "app-token: $f.yml '$name' if: carries its consumer condition" "1" \
+    "$(printf '%s\n' "$blk" | grep -cF "$cond" || true)"
+done
+# Docs carry the opt-in contract: the var, the secret, ALL five required App
+# permissions, and the per-site downscope story (no more "reviewer untouched").
 CS="$LIB/../docs/cloud-setup.md"
 for tok in 'DEVFLOW_APP_ID' 'DEVFLOW_APP_PRIVATE_KEY'; do
   assert_eq "app-token: cloud-setup.md documents $tok" "yes" \
     "$(grep -qF "$tok" "$CS" && echo yes || echo no)"
 done
-assert_eq "app-token: cloud-setup.md documents Contents: write App permission" "yes" \
-  "$(grep -qiE 'Contents:[[:space:]]*write' "$CS" && echo yes || echo no)"
-assert_eq "app-token: cloud-setup.md documents Workflows: write App permission" "yes" \
-  "$(grep -qiE 'Workflows:[[:space:]]*write' "$CS" && echo yes || echo no)"
-# §15 of the overview must no longer claim a bare "No GitHub App" without the
-# required/optional qualifier (AC 8).
+for perm in 'Contents:[[:space:]]*write' 'Workflows:[[:space:]]*write' 'Pull requests:[[:space:]]*write' 'Issues:[[:space:]]*write' 'Actions:[[:space:]]*read'; do
+  assert_eq "app-token: cloud-setup.md documents App permission ${perm//\[\[:space:\]\]\*/ }" "yes" \
+    "$(grep -qiE "$perm" "$CS" && echo yes || echo no)"
+done
+assert_eq "app-token: cloud-setup.md no longer claims the reviewer is untouched" "0" \
+  "$(grep -cF 'is untouched' "$CS")"
+assert_eq "app-token: cloud-setup.md documents the per-site downscope" "yes" \
+  "$(grep -qF 'downscoped to exactly' "$CS" && echo yes || echo no)"
+# §15 of the overview: still no bare "No GitHub App." claim, still names the
+# opt-in variable, and now covers all three #269 surfaces, not only the
+# writers' pushes.
 OV="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
 assert_eq "app-token: overview §15 no longer asserts a bare 'No GitHub App.'" "0" \
   "$(grep -cF 'No GitHub App.' "$OV")"
-# Positive complement to the negative check above (AC 8): the §15 reframe must
-# actually mention the optional App by its opt-in variable, so the bullet can't lose
-# all mention of the optional App and still pass on the old-string-absent check alone.
 assert_eq "app-token: overview §15 positively documents the optional App (DEVFLOW_APP_ID)" "yes" \
   "$(grep -qF 'DEVFLOW_APP_ID' "$OV" && echo yes || echo no)"
+assert_eq "app-token: overview §15 names the review-agent + reactions + notices surfaces" "yes" \
+  "$(grep -qF 'the trigger reactions, and the notice comments' "$OV" && echo yes || echo no)"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "devflow-review.yml first-ready gate invariant"

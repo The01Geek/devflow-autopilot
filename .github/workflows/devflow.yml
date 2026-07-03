@@ -188,12 +188,60 @@ jobs:
 
           if [ "$IC" != "0" ] || [ "$IR" != "0" ]; then
             emit true
-            NOTE="ℹ️ An automated **Devflow Review** is already running for this commit (\`${HEAD:0:7}\`). Skipping this manual \`/devflow:review\` to avoid a duplicate review and double comments. Use the **Re-run** button on the \`Devflow Review\` check if you need to re-review."
-            gh pr comment "$PR" --repo "$REPO" --body "$NOTE" 2>/dev/null || true
+            # The user-facing suppression notice is posted by the dedicated
+            # step below (under the optional downscoped App token); this step
+            # keeps only the queries + decision on github.token.
+            echo "head=$HEAD" >> "$GITHUB_OUTPUT"
             echo "::notice::Suppressed manual /devflow:review for PR #$PR (in-flight check=$IC run=$IR)."
             exit 0
           fi
           echo "::notice::No in-flight auto review for PR #$PR HEAD $HEAD; manual review proceeds."
+
+      # Optional, opt-in: mint an App token DOWNSCOPED to the notice's needs —
+      # PR comment only (no contents/workflows/issues). Same opt-in/fail-loud/
+      # downscope contract as the review mint in devflow-runner.yml — see
+      # docs/cloud-setup.md. Minted only when the notice below will actually
+      # post (suppress), so the common non-suppressed path stays mint-free.
+      - name: Mint downscoped notice token (optional)
+        id: dedupe_app_token
+        if: ${{ vars.DEVFLOW_APP_ID != '' && steps.guard.outputs.suppress == 'true' }}
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.DEVFLOW_APP_ID }}
+          private-key: ${{ secrets.DEVFLOW_APP_PRIVATE_KEY }}
+          permission-pull-requests: write
+
+      # Split out of the guard step so the notice posts under the App identity
+      # when configured (the guard's queries stay on github.token — a scoped
+      # token there could 403 the check-runs/run-list reads and flip the
+      # fail-open default). Best-effort for the post itself: the gh call is
+      # the only fallible command and is guarded (no continue-on-error on this
+      # step), with the gh stderr surfaced as a ::warning:: (same diagnostic
+      # discipline as devflow-implement.yml's duplicate-ignored notice)
+      # instead of the old silent `2>/dev/null || true` swallow.
+      - name: Notice — manual review suppressed
+        if: ${{ steps.guard.outputs.suppress == 'true' }}
+        env:
+          GH_TOKEN: ${{ steps.dedupe_app_token.outputs.token || github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.issue.number || github.event.pull_request.number }}
+          HEAD: ${{ steps.guard.outputs.head }}
+        run: |
+          set -euo pipefail
+          # CRITICAL: the body must contain NO DevFlow trigger phrase (mirrors
+          # the devflow-implement.yml duplicate-notice discipline). Under the
+          # App token this comment fires a real issue_comment event (unlike
+          # GITHUB_TOKEN comments, which GitHub suppresses), so a trigger
+          # substring here could re-enter the gate and loop. Worded to avoid
+          # `/devflow:` and `@claude`.
+          NOTE="ℹ️ An automated **Devflow Review** is already running for this commit (\`${HEAD:0:7}\`). Skipping this manual review command to avoid a duplicate review and double comments. Use the **Re-run** button on the \`Devflow Review\` check if you need to re-review."
+          # REST (not `gh pr comment` porcelain): this step can run under the
+          # repo-scoped App installation token, and GraphQL-resolving porcelain
+          # fails silently under repo-scoped tokens (CLAUDE.md gotcha, #228). A
+          # PR is an issue for the comments endpoint.
+          if ! err="$(gh api --method POST "repos/$REPO/issues/$PR/comments" -f body="$NOTE" 2>&1 >/dev/null)"; then
+            echo "::warning::could not post review-suppressed notice on PR #$PR (continuing): ${err//$'\n'/ }" >&2
+          fi
 
   # Authorization + command-detection gate for the LIGHT command path. The
   # `command` job below runs claude-code-action in AGENT mode (explicit prompt),
@@ -257,6 +305,26 @@ jobs:
           fi
           "$RESOLVER" >> "$GITHUB_OUTPUT"
 
+      # Optional, opt-in: mint an App token DOWNSCOPED for the trigger reaction
+      # (issues:write + pull-requests:write — the narrowest grant GitHub offers
+      # for comment reactions; no contents/workflows: this job neither reads
+      # code with it nor pushes). Same opt-in/fail-loud/downscope contract as
+      # the review mint in devflow-runner.yml — see docs/cloud-setup.md. NOTE:
+      # fail-loud means a configured-but-broken App fails THIS gate job (and so
+      # blocks the command path) — deliberate, so a broken App is never
+      # silently degraded around. Minted only when the reaction below will
+      # actually run (should_run), so the common unauthorized/non-command
+      # rejection path stays mint-free.
+      - name: Mint downscoped reaction token (optional)
+        id: gate_app_token
+        if: ${{ vars.DEVFLOW_APP_ID != '' && steps.resolve.outputs.should_run == 'true' }}
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.DEVFLOW_APP_ID }}
+          private-key: ${{ secrets.DEVFLOW_APP_PRIVATE_KEY }}
+          permission-issues: write
+          permission-pull-requests: write
+
       # Early acknowledgement: react on the triggering comment/issue the moment
       # we know the command is authorized + resolvable, long before the heavy
       # `command` job runs. Best-effort and continue-on-error so a reaction
@@ -267,7 +335,7 @@ jobs:
         if: ${{ steps.resolve.outputs.should_run == 'true' }}
         continue-on-error: true
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.gate_app_token.outputs.token || github.token }}
           REPO: ${{ github.repository }}
           EVENT_NAME: ${{ github.event_name }}
           COMMENT_ID: ${{ github.event.comment.id }}
@@ -321,8 +389,10 @@ jobs:
         with:
           config_json: ${{ steps.cfg.outputs.json }}
 
-      # Optional, opt-in: mint a GitHub App installation token carrying
-      # Contents: write + Workflows: write so the /devflow:review-and-fix push can
+      # Optional, opt-in: mint a GitHub App installation token at full
+      # installation scope (notably Contents: write + Workflows: write — no
+      # permission-* downscope, unlike the per-site tokens elsewhere in this
+      # workflow) so the /devflow:review-and-fix push can
       # edit .github/workflows/ files (which the built-in GITHUB_TOKEN is
       # hard-blocked from). Gated on the DEVFLOW_APP_ID repository VARIABLE:
       # unset/empty → the step is skipped and github_token below falls back to
