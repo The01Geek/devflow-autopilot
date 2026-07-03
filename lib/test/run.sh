@@ -12606,6 +12606,19 @@ assert_eq "#271 coupled: devflow.yml (manual-comment review listener) allowlists
 # trace example, so assert_pin_unique proves PASS-with-the-literal → FAIL-without-it.
 assert_pin_unique "#271 coupled: skills/review/SKILL.md trace example invokes the run-jq.sh wrapper (not bare jq -n)" \
   'scripts/run-jq.sh -n --argjson findings' "$LIB/../skills/review/SKILL.md"
+# The implement/SKILL.md reaction-comment read and the phase-4 deferrals merge are
+# fenced-block sites covered by the awk absence pin above, but that pin is *negative*
+# only — it goes RED on a reintroduced BARE jq, yet stays GREEN if the site is
+# refactored away from jq entirely (deleting the migrated wrapper call with it),
+# silently dropping the migration at that site with no failing test. Pin each
+# positively so a removal/refactor of the wrapper call goes RED too (PR #274 review,
+# Suggestion — parity with the review/docs-release-notes sites' positive guards).
+# Target-unique substrings: `run-jq.sh -r '.comment.id` occurs only at the reaction
+# read; `run-jq.sh -s '.[0] as $f` only at the phase-4 merge.
+assert_pin_unique "#271 coupled: skills/implement/SKILL.md reaction-comment read invokes the run-jq.sh wrapper" \
+  "scripts/run-jq.sh -r '.comment.id" "$LIB/../skills/implement/SKILL.md"
+assert_pin_unique "#271 coupled: phase-4-documentation.md deferrals merge invokes the run-jq.sh wrapper" \
+  "scripts/run-jq.sh -s '.[0] as \$f" "$LIB/../skills/implement/phases/phase-4-documentation.md"
 
 # Mutation check: the absence pin above only proves "count is 0 today" — it does not
 # prove the awk fence-parser + grep would actually *catch* a reintroduced bare jq (a
