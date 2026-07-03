@@ -3046,7 +3046,11 @@ assert_eq "sweep selection: SKILL and docs enumerate the same contract-sweep set
 # them unique-per-file; the phase-3 re-derivation has its own pins further below.
 assert_pin_unique "base_branch read: Phase 1.4 reads via config-get with the main default" 'config-get.sh .base_branch main' "$IMPL_PHASES_DIR/phase-1-setup.md"
 assert_pin_unique "base_branch read: Phase 1.4 guards the empty read" '[ -n "$BASE" ]' "$IMPL_PHASES_DIR/phase-1-setup.md"
-assert_pin_unique "base_branch read: SKILL fetches origin/\$BASE (not hard-coded main)" 'git fetch origin "$BASE"' "$IMPL_SKILL"
+# Scoped to phase-1-setup.md (Phase 1.4's create-path fetch): issue #284 added a SECOND
+# `git fetch origin "$BASE"` in phase-4-documentation.md's Stage-2 diff-gate retry, so a
+# bundle-wide unique pin now double-matches. The Phase 1.4 fetch this pin guards lives in
+# phase-1-setup.md, where it remains unique.
+assert_pin_unique "base_branch read: SKILL fetches origin/\$BASE (not hard-coded main)" 'git fetch origin "$BASE"' "$IMPL_PHASES_DIR/phase-1-setup.md"
 assert_pin_unique "base_branch read: SKILL checks out origin/\$BASE" 'git checkout -b "$BRANCH" "origin/$BASE"' "$IMPL_SKILL"
 assert_pin_unique "base_branch read: SKILL keeps the attributable fetch-failure breadcrumb" 'could not fetch base branch' "$IMPL_SKILL"
 assert_pin_unique "#168 create-path: SKILL guards branch-for-issue.py exit status" \
@@ -3673,9 +3677,11 @@ assert_pin_unique "#185: Phase 4.1 Stage 1 requires docs subagent to treat named
 # Addendum: Stage 1 extraction is deterministic (helper), not LLM prose-reading.
 assert_pin_unique "#185A: Phase 4.1 Stage 1 mandates deterministic (not LLM) extraction" \
   'do not interpret the prose yourself' "$IMPL_SKILL"
-# Addendum: both stages consume the SAME deterministic helper (not re-derived).
-assert_eq "#185A: Phase 4.1 calls extract-doc-needed-paths.sh in BOTH stages" \
-  "2" "$(pin_count 'extract-doc-needed-paths.sh' "$IMPL_SKILL")"
+# Addendum: both stages consume the SAME deterministic helper (not re-derived). Issue #284
+# folded the once-only retry into each stage's `if ! A && ! B` extractor guard, so the
+# helper is now invoked twice per stage (read + retry) × 2 stages = 4 occurrences.
+assert_eq "#185A: Phase 4.1 calls extract-doc-needed-paths.sh in BOTH stages (read+retry each)" \
+  "4" "$(pin_count 'extract-doc-needed-paths.sh' "$IMPL_SKILL")"
 assert_pin_unique "#185A: Phase 4.1 Stage 2 re-runs the helper as the single source of truth" \
   're-running the helper is the single source of truth' "$IMPL_SKILL"
 # #190 suggestion 1: a present-but-empty Documentation Needed bullet must leave an
@@ -3688,8 +3694,10 @@ assert_pin_unique "#185: Phase 4.1 Stage 2 bare-filename matching rule (F)" \
   'whose basename matches it counts as satisfied' "$IMPL_SKILL"
 assert_pin_unique "#185: Phase 4.1 Stage 2 keeps the absent-file self-heal condition (A)" \
   'absent from the diff, perform the missing update' "$IMPL_SKILL"
-assert_pin_unique "#185: Phase 4.1 Stage 2 uses the three-dot origin/\$BASE...HEAD diff range (B)" \
-  'git diff --name-only "origin/$BASE...HEAD"' "$IMPL_SKILL"
+# Issue #284 folded the once-only retry into the Stage-2 diff `if ! A && { fetch; ! B; }`
+# guard, so the three-dot range now appears twice (read + retry) — count-based, ==2.
+assert_eq "#185: Phase 4.1 Stage 2 uses the three-dot origin/\$BASE...HEAD diff range (B, read+retry)" \
+  "2" "$(pin_count 'git diff --name-only "origin/$BASE...HEAD"' "$IMPL_SKILL")"
 assert_pin_unique "#185: Phase 4.1 Stage 2 Blocked arm names the missing-content condition (C)" \
   'Documentation Needed file content cannot be determined' "$IMPL_SKILL"
 # #190 finding 2: $BASE-empty recovery must mirror the Phase 1.4 fallback, not
