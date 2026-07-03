@@ -11701,8 +11701,9 @@ EOF
   #    STANDING suite assertion it is over-broad: it fires on EVERY later branch
   #    that legitimately edits `.github/` — e.g. #271 itself, which adds the
   #    `Bash(.devflow/vendor/devflow/scripts/run-jq.sh:*)` grant to
-  #    devflow-implement.yml + devflow-runner.yml so the cloud-governed skills can
-  #    invoke the run-jq.sh wrapper. It cannot distinguish #225's diff from any
+  #    devflow-implement.yml + devflow-runner.yml + devflow.yml so the
+  #    cloud-governed skills can invoke the run-jq.sh wrapper. It cannot
+  #    distinguish #225's diff from any
   #    other, so it can only be satisfied by never changing `.github/` again —
   #    which is not a real invariant. The load-bearing `.github/` invariants that
   #    DO warrant a standing guard (the workflow partition invariant, per-workflow
@@ -12535,8 +12536,9 @@ assert_eq "#247 peer-completeness: no bare invocation-position jq call survives 
 #    family (the LOCAL weekly loop); #271 migrated the remaining cloud-governed
 #    executable jq sites (skills/implement/SKILL.md, phases/phase-4-documentation.md,
 #    docs-release-notes/SKILL.md) to the wrapper and added the wrapper to the cloud
-#    allowlist in .github/workflows/devflow-implement.yml + devflow-runner.yml, so
-#    they are now IN scope: the find below no longer restricts to *retrospective*.
+#    allowlist in .github/workflows/devflow-implement.yml + devflow-runner.yml +
+#    devflow.yml, so they are now IN scope: the find below no longer restricts to
+#    *retrospective*.
 #    (The skills/review/SKILL.md trace example is in INLINE-backtick prose (now
 #    `run-jq.sh -n`), not a shell fence, so it is outside this awk-fence pin's reach —
 #    #271 migrated it too; its regression guard is the dedicated review-site pin below,
@@ -12547,6 +12549,15 @@ assert_eq "#247 peer-completeness: no bare invocation-position jq call survives 
 # Positive pin: the wrapper exists and references the shared jq resolver.
 assert_eq "#253 skills-jq: scripts/run-jq.sh exists and references the shared jq resolver" "yes" \
   "$([ -f "$LIB/../scripts/run-jq.sh" ] && grep -q 'resolve-jq\.sh' "$LIB/../scripts/run-jq.sh" && echo yes || echo no)"
+# The wrapper's whole purpose is a cloud-tier by-path leading-token invocation
+# (`.devflow/vendor/devflow/scripts/run-jq.sh …`), which requires the COMMITTED
+# file to carry the executable bit — a dropped bit silently breaks the cloud
+# invocation with no other failing test (the coverage above runs it via `bash
+# "$RJQ_SH"`, which does not exercise the bit). Pin the git INDEX mode (what
+# ships), not the working-tree `-x` (which reflects local perms), mirroring the
+# comparable by-path helper lib/efficiency-trace.sh. (PR #274 review, Important.)
+assert_eq "#253 skills-jq: scripts/run-jq.sh is committed executable (100755)" "100755" \
+  "$(cd "$LIB/.." && git ls-files -s scripts/run-jq.sh | awk '{print $1}')"
 # Absence pin: no bare invocation-position jq survives inside a shell fenced
 # block of ANY skill body. The awk captures only ```bash/```sh/
 # ```shell block bodies (state reset per file); the grep shape mirrors DJQ_BARE
