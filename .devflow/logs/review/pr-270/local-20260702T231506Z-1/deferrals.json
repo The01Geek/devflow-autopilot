@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "pr_branch": "issue-249-devflow-review-check-resurrects-a-stale-reject",
+  "base_branch": "main",
+  "generated_at": "2026-07-03T03:10:00Z",
+  "deferrals": [
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "file": "scripts/derive-review-verdict.sh",
+      "line_range": [204, 210],
+      "symbol": "MARKER",
+      "kind": "logic_error",
+      "summary": "comment-fallback marker is run-scoped but not attempt-scoped; a stalled re-run attempt could surface the prior attempt's verdict",
+      "category": "claim-quality",
+      "explanation": "deliberate design documented at the match site ('selects only this run's comment(s) across attempts'); last-wins across attempts is pinned by the two-attempts test; attempt-scoping would break resume-across-attempt"
+    },
+    {
+      "agent": "step3.5-gate",
+      "severity": "Suggestion",
+      "file": "scripts/derive-review-verdict.sh",
+      "line_range": [188, 188],
+      "symbol": "DRV_STATE_FILTER",
+      "kind": "logic_error",
+      "summary": "line-start verdict marker anywhere in a COMMENTED body classifies it verdict-bearing (human quote at column 0)",
+      "category": "claim-quality",
+      "explanation": "the (?:^|\\n) line-start semantics deliberately match the downstream grep -E per-line extraction; anchoring classification tighter than extraction would reintroduce the masking asymmetry"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "file": "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+      "line_range": [475, 475],
+      "symbol": "",
+      "kind": "comment_drift",
+      "summary": "system-overview finalize_check bullet lags the new positive-APPROVE-on-HEAD fail-closed semantics",
+      "category": "out-of-scope",
+      "explanation": "file untouched by this PR's diff (pre-existing text); docs alignment belongs to the /devflow:docs pass — widens-surface guard clean (no diff hunk overlaps docs/DEVFLOW_SYSTEM_OVERVIEW.md)"
+    }
+  ]
+}

@@ -6922,6 +6922,438 @@ assert_eq "dismissal failure → exit 1" "1" "$DSR_RC"
 rm -f "$DSR_STUB"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "derive-review-verdict.sh (#249 HEAD-scoped, fail-closed verdict deriver)"
+# ────────────────────────────────────────────────────────────────────────────
+# The unit finalize_check's success) branch calls to decide the required-check
+# conclusion. `success` requires a POSITIVELY-observed APPROVE for the current
+# HEAD; everything else fails closed to `incomplete` (a blocking failure). The
+# reproduction cases (stale-reject-on-older-commit, verdict-less-approve, the
+# unverifiable arms) are exactly the ones the OLD inline logic got wrong: it read
+# `jq -r 'last.state'` (so a CHANGES_REQUESTED on an OLDER commit mapped to
+# REJECT) and defaulted VERDICT=approve/success on empty reviews or a swallowed
+# query error. This deriver returns `incomplete` for all of them.
+DRV="$LIB/../scripts/derive-review-verdict.sh"
+DRV_NEW="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"   # current HEAD SHA
+DRV_OLD="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"   # a superseded commit SHA
+DRV_STUB="/tmp/devflow-gh-stub-drv.$$.sh"
+cat > "$DRV_STUB" <<'EOS'
+#!/usr/bin/env bash
+# Echo raw JSON (the deriver pipes it through jq itself). DRV_*_FAIL=1 forces a
+# query failure so the fail-closed arms can be exercised.
+case "$*" in
+  *"repo view"*)           [ "${DRV_REPO_FAIL:-0}" = 0 ] && echo "o/r"; exit 0 ;;   # DRV_REPO_FAIL=1 -> empty stdout (unresolvable REPO)
+  *"pulls/"*"/reviews"*)   [ "${DRV_REVIEWS_FAIL:-0}" = 0 ] || { echo "HTTP 500" >&2; exit 1; }; printf '%s' "${DRV_REVIEWS-[]}"; exit 0 ;;
+  *"issues/"*"/comments"*) [ "${DRV_COMMENTS_FAIL:-0}" = 0 ] || { echo "HTTP 500" >&2; exit 1; }; printf '%s' "${DRV_COMMENTS-[]}"; exit 0 ;;
+esac
+echo '[]'; exit 0
+EOS
+chmod +x "$DRV_STUB"
+
+# Runs the deriver (env is set by the caller's prefix, exported to the function
+# body), collapses its two stdout lines to "<verdict> <verdict_determined>".
+drv() {  # $1=description  $2=expected "<verdict> <determined>"
+  local out v d
+  out="$(bash "$DRV" 2>/dev/null)"
+  v="$(printf '%s\n' "$out" | sed -n 's/^verdict=//p')"
+  d="$(printf '%s\n' "$out" | sed -n 's/^verdict_determined=//p')"
+  assert_eq "$1" "$2" "$v $d"
+}
+# Asserts the deriver emitted a SPECIFIC stderr breadcrumb. Used to pin the
+# fail-closed guards whose VERDICT is guard-invariant (an empty PR / empty
+# RUN_ID marker matches nothing downstream anyway, so the verdict alone cannot
+# tell a present guard from a removed one — the distinctive breadcrumb can:
+# delete the guard and the breadcrumb disappears, so this is non-vacuous).
+drv_stderr() {  # $1=description  $2=expected stderr substring
+  local err
+  err="$(bash "$DRV" 2>&1 1>/dev/null)"
+  assert_eq "$1" "yes" "$(printf '%s' "$err" | grep -qF -- "$2" && echo yes || echo no)"
+}
+
+# --- reproduction cases (OLD logic returned the WRONG answer) ---------------
+# stale-reject-on-older-commit: CHANGES_REQUESTED on OLD, HEAD=NEW. OLD logic:
+# last.state==CHANGES_REQUESTED -> REJECT (Direction-1 defect, PR #246).
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"CHANGES_REQUESTED\",\"commit_id\":\"$DRV_OLD\",\"body\":\"## Verdict: REJECT stale\"}]" \
+  drv "#249 stale-reject-on-older-commit -> incomplete (not a resurrected REJECT)" "incomplete false"
+
+# verdict-less-approve: empty reviews, ENGINE_ERROR=false. OLD logic:
+# VERDICT defaulted to approve -> success (Direction-2 defect, PR #250).
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[]" \
+  drv "#249 verdict-less-approve (empty reviews) -> incomplete (not a fabricated APPROVE)" "incomplete false"
+
+# empty-PR-number: OLD logic warned and defaulted to success. The verdict is
+# guard-invariant here (an empty PR can't reach a real query), so ALSO pin the
+# guard's distinctive breadcrumb — non-vacuous: remove the guard, lose the line.
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER="" REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  drv "#249 empty PR_NUMBER -> incomplete (fail closed)" "incomplete false"
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER="" REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  drv_stderr "#249 empty PR_NUMBER emits the specific 'empty PR_NUMBER' breadcrumb" "empty PR_NUMBER"
+
+# reviews-API-query-failure: OLD logic warned and defaulted to success (this is
+# the deliberate reversal in issue #249's ACs). The verdict alone is guard-
+# invariant here (with the guard removed, an empty REVIEWS_JSON still fails
+# closed via the step-5 parse guard), so the SPECIFIC query-failure breadcrumb
+# below is the non-vacuous pin distinguishing this arm from the parse arm.
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS_FAIL=1 \
+  DRV_COMMENTS='[{"body":"<!-- devflow:review-progress run=100-1 -->\n## Verdict: APPROVE"}]' \
+  drv "#249 reviews-API query failure -> incomplete (fail closed; overrides a would-be APPROVE comment)" "incomplete false"
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS_FAIL=1 \
+  drv_stderr "#249 reviews-API query failure emits the specific 'reviews API query failed' breadcrumb" "reviews API query failed"
+
+# --- engine-error path -----------------------------------------------------
+# engine-errored: is_error=true short-circuits BEFORE any reviews query. The
+# payload is a would-be APPROVE ON HEAD, so this is `incomplete` ONLY because the
+# engine-error branch overrides it — non-vacuous: remove the short-circuit and it
+# returns approve (the marquee PR #250 signal is now actually protected).
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=true PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"APPROVED\",\"commit_id\":\"$DRV_NEW\",\"body\":\"## Verdict: APPROVE\"}]" \
+  drv "#249 engine-errored overrides a would-be APPROVE-on-HEAD -> incomplete (no dismissal)" "incomplete false"
+
+# --- fresh verdicts ON HEAD (still block / still pass) ----------------------
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"CHANGES_REQUESTED\",\"commit_id\":\"$DRV_NEW\",\"body\":\"## Verdict: REJECT now\"}]" \
+  drv "#249 fresh-reject-on-HEAD -> reject (still blocks)" "reject true"
+
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"APPROVED\",\"commit_id\":\"$DRV_NEW\",\"body\":\"## Verdict: APPROVE\"}]" \
+  drv "#249 fresh-approve-on-HEAD (APPROVED) -> approve + determined (dismiss gate)" "approve true"
+
+# approve-with-notes is a COMMENTED review (Phase 4.4 producer contract) whose
+# body carries the APPROVE marker — the second positive-APPROVE signal.
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"COMMENTED\",\"commit_id\":\"$DRV_NEW\",\"body\":\"## Verdict: APPROVE with notes (ok)\"}]" \
+  drv "#249 approve-with-notes COMMENTED-on-HEAD -> approve (body marker)" "approve true"
+
+# A later NEW-commit review supersedes an earlier OLD-commit one (last-on-HEAD).
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"CHANGES_REQUESTED\",\"commit_id\":\"$DRV_OLD\"},{\"state\":\"APPROVED\",\"commit_id\":\"$DRV_NEW\"}]" \
+  drv "#249 approve-on-HEAD after stale reject-on-OLD -> approve" "approve true"
+
+# --- comment fallback (same-identity self-review), scoped to THIS run -------
+# No HEAD review; the run-keyed devflow:review-progress comment embeds the verdict.
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[]" \
+  DRV_COMMENTS='[{"body":"<!-- devflow:review-progress run=100-1 -->\n## Verdict: REJECT via comment"}]' \
+  drv "#249 comment-fallback run-keyed REJECT on HEAD -> reject" "reject true"
+
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[]" \
+  DRV_COMMENTS='[{"body":"<!-- devflow:review-progress run=100-1 -->\n## Verdict: APPROVE via comment"}]' \
+  drv "#249 comment-fallback run-keyed APPROVE on HEAD -> approve" "approve true"
+
+# A verdict comment from a PRIOR run (different run id) is NOT this HEAD's verdict.
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[]" \
+  DRV_COMMENTS='[{"body":"<!-- devflow:review-progress run=999-1 -->\n## Verdict: REJECT from an old run"}]' \
+  drv "#249 prior-run verdict comment NOT treated as HEAD verdict -> incomplete" "incomplete false"
+
+# A run-keyed progress comment frozen at "Verdict: (pending)" (the PR #250 stall
+# shape) carries no REJECT/APPROVE marker -> incomplete.
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[]" \
+  DRV_COMMENTS='[{"body":"<!-- devflow:review-progress run=100-1 -->\nStatus: Reviewing\nVerdict: (pending)"}]' \
+  drv "#249 pending progress comment (no verdict marker) -> incomplete" "incomplete false"
+
+# comment-query failure with no HEAD review -> fail closed.
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[]" DRV_COMMENTS_FAIL=1 \
+  drv "#249 comment-fallback query failure -> incomplete (fail closed)" "incomplete false"
+
+# --- additional fail-closed / positive guards (review coverage gaps) ---------
+# empty HEAD_SHA -> cannot scope to the current commit -> fail closed. Without
+# this guard an empty $h makes select(.commit_id=="") match nothing and a
+# comment-derived verdict could be emitted for an UNKNOWN head.
+HEAD_SHA="" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"APPROVED\",\"commit_id\":\"\"}]" \
+  drv "#249 empty HEAD_SHA -> incomplete (fail closed, cannot HEAD-scope)" "incomplete false"
+
+# A COMMENTED review ON HEAD with NO verdict marker is NOT an approve — this is
+# the false-APPROVE regression guard: state==COMMENTED alone must never approve
+# (only APPROVED state or a `## Verdict: APPROVE` body marker does).
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"COMMENTED\",\"commit_id\":\"$DRV_NEW\",\"body\":\"just a note, no verdict here\"}]" \
+  DRV_COMMENTS="[]" \
+  drv "#249 COMMENTED-on-HEAD WITHOUT a verdict marker -> incomplete (no false APPROVE)" "incomplete false"
+
+# REPO auto-derivation: empty REPO is resolved via `gh repo view` (positive path)...
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO="" GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"APPROVED\",\"commit_id\":\"$DRV_NEW\"}]" \
+  drv "#249 empty REPO resolved via 'gh repo view' -> approve" "approve true"
+# ...and when `gh repo view` yields nothing, REPO is unresolvable -> fail closed.
+# The APPROVED-on-HEAD payload sits behind the guard: without it, the empty REPO
+# would flow into the reviews query and return approve — non-vacuous.
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO="" GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" DRV_REPO_FAIL=1 \
+  DRV_REVIEWS="[{\"state\":\"APPROVED\",\"commit_id\":\"$DRV_NEW\"}]" \
+  drv "#249 unresolvable REPO ('gh repo view' empty) -> incomplete (fail closed; overrides a would-be APPROVE)" "incomplete false"
+
+# Multiple reviews on the SAME HEAD commit -> last-on-HEAD wins (a dismiss +
+# re-request, or a re-review, produces two HEAD reviews). Both orderings pinned.
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"CHANGES_REQUESTED\",\"commit_id\":\"$DRV_NEW\"},{\"state\":\"APPROVED\",\"commit_id\":\"$DRV_NEW\"}]" \
+  drv "#249 two reviews on HEAD [reject,approve] -> approve (last-on-HEAD wins)" "approve true"
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"APPROVED\",\"commit_id\":\"$DRV_NEW\"},{\"state\":\"CHANGES_REQUESTED\",\"commit_id\":\"$DRV_NEW\"}]" \
+  drv "#249 two reviews on HEAD [approve,reject] -> reject (last-on-HEAD wins)" "reject true"
+
+# No HEAD review + empty GITHUB_RUN_ID -> cannot scope the comment fallback to
+# this run -> fail closed BEFORE querying comments. The verdict is guard-invariant
+# (an empty-run-id marker matches no real comment), so ALSO pin the distinctive
+# breadcrumb — non-vacuous: remove the guard, lose the line.
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID="" DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[]" \
+  DRV_COMMENTS='[{"body":"<!-- devflow:review-progress run=100-1 -->\n## Verdict: APPROVE"}]' \
+  drv "#249 no HEAD review + empty GITHUB_RUN_ID -> incomplete (cannot run-scope the comment fallback)" "incomplete false"
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID="" DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[]" \
+  drv_stderr "#249 empty GITHUB_RUN_ID emits the specific 'GITHUB_RUN_ID is empty' breadcrumb" "GITHUB_RUN_ID is empty"
+
+# Marker precedence: REJECT is checked before APPROVE (fail toward blocking) even
+# when a HEAD review's body somehow carries both markers.
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"COMMENTED\",\"commit_id\":\"$DRV_NEW\",\"body\":\"## Verdict: REJECT\n## Verdict: APPROVE\"}]" \
+  drv "#249 both markers on HEAD review -> reject (REJECT precedence, fail toward blocking)" "reject true"
+
+# Adversarial input-shape: a 200-but-NON-ARRAY reviews payload (e.g. an API error
+# object) must fail closed as a PARSE failure, never silently fall through to the
+# comment fallback. A run-keyed APPROVE comment sits BEHIND the guard: without the
+# jq-failure check the fall-through would return approve — non-vacuous.
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS='{"message":"Moved Permanently"}' \
+  DRV_COMMENTS='[{"body":"<!-- devflow:review-progress run=100-1 -->\n## Verdict: APPROVE"}]' \
+  drv "#249 non-array reviews payload -> incomplete (parse failure fails closed; overrides a would-be APPROVE comment)" "incomplete false"
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS='{"message":"Moved Permanently"}' \
+  drv_stderr "#249 non-array reviews payload emits the specific 'could not be parsed' breadcrumb" "reviews JSON could not be parsed"
+
+# Same shape on the comments-API payload: non-array -> parse-failure fail-closed
+# (never step 7's misdiagnosing "no verdict" breadcrumb).
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[]" DRV_COMMENTS='{"message":"err"}' \
+  drv "#249 non-array comments payload -> incomplete (parse failure fails closed)" "incomplete false"
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[]" DRV_COMMENTS='{"message":"err"}' \
+  drv_stderr "#249 non-array comments payload emits the specific comments-parse breadcrumb" "issue-comments JSON could not be parsed"
+
+# Multi-attempt comment precedence: the marker prefix `run=<RUN_ID>-` matches every
+# attempt of this run, and `last` wins — a later attempt's verdict supersedes an
+# earlier attempt's. Pins `last` (a refactor to `first` ships RED).
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[]" \
+  DRV_COMMENTS='[{"body":"<!-- devflow:review-progress run=100-1 -->\n## Verdict: REJECT attempt 1"},{"body":"<!-- devflow:review-progress run=100-2 -->\n## Verdict: APPROVE attempt 2"}]' \
+  drv "#249 two attempts of one run [attempt1 REJECT, attempt2 APPROVE] -> approve (last comment wins)" "approve true"
+
+# Partial-copy posture (#247 class): the script deployed WITHOUT its lib/ siblings
+# must degrade with a breadcrumb (guarded resolve-gh source + type-check), never
+# assign an empty DEVFLOW_GH and misreport the failure as a reviews-query error.
+# With the stub in DEVFLOW_GH the deriver must still reach a verdict.
+DRV_PARTIAL_DIR="$(mktemp -d)"
+mkdir -p "$DRV_PARTIAL_DIR/scripts"
+cp "$DRV" "$DRV_PARTIAL_DIR/scripts/"
+DRV_PARTIAL="$DRV_PARTIAL_DIR/scripts/derive-review-verdict.sh"
+DRV_PARTIAL_OUT="$(HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"APPROVED\",\"commit_id\":\"$DRV_NEW\"}]" bash "$DRV_PARTIAL" 2>"$DRV_PARTIAL_DIR/err.txt")"
+assert_eq "#249 partial-copy (no lib siblings) still derives the verdict via DEVFLOW_GH" "approve true" \
+  "$(printf '%s\n' "$DRV_PARTIAL_OUT" | sed -n 's/^verdict=//p') $(printf '%s\n' "$DRV_PARTIAL_OUT" | sed -n 's/^verdict_determined=//p')"
+assert_eq "#249 partial-copy emits the resolve-gh.sh sourcing breadcrumb" "yes" \
+  "$(grep -qF -- "resolve-gh.sh could not be sourced" "$DRV_PARTIAL_DIR/err.txt" && echo yes || echo no)"
+# Truncated sibling (sources CLEAN but never assigns): the outcome check — not
+# just the sourceability guard — must leave a usable jq with its own breadcrumb,
+# never a set -u abort that breaks the two-line stdout contract.
+mkdir -p "$DRV_PARTIAL_DIR/lib"
+printf '%s\n' '# truncated resolve-jq: sources clean, assigns nothing' > "$DRV_PARTIAL_DIR/lib/resolve-jq.sh"
+cp "$LIB/resolve-gh.sh" "$LIB/resolve-bin.sh" "$DRV_PARTIAL_DIR/lib/"
+DRV_TRUNC_OUT="$(env -u DEVFLOW_JQ HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"APPROVED\",\"commit_id\":\"$DRV_NEW\"}]" bash "$DRV_PARTIAL" 2>"$DRV_PARTIAL_DIR/err2.txt" | sed -n 's/^verdict=//p')"
+assert_eq "#249 truncated resolve-jq sibling (clean source, no assignment) still derives the verdict" "approve" "$DRV_TRUNC_OUT"
+assert_eq "#249 truncated resolve-jq sibling emits the 'did not assign DEVFLOW_JQ' breadcrumb" "yes" \
+  "$(grep -qF -- "did not assign DEVFLOW_JQ" "$DRV_PARTIAL_DIR/err2.txt" && echo yes || echo no)"
+rm -rf "$DRV_PARTIAL_DIR"
+
+# Verdict-bearing-state selection: a DISMISSED review is a human override whose
+# body still carries its old `## Verdict: REJECT` — it must NEVER resurrect as
+# the HEAD verdict (the Direction-1 wedge via a new path). Pre-fix the body-grep
+# ran regardless of state and returned reject — non-vacuous.
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"DISMISSED\",\"commit_id\":\"$DRV_NEW\",\"body\":\"## Verdict: REJECT dismissed by a human\"}]" \
+  drv "#249 DISMISSED reject on HEAD is never the verdict -> incomplete (no resurrection of a human-dismissed reject)" "incomplete false"
+
+# ...and a non-verdict-bearing review (PENDING/other) interleaved on HEAD after a
+# genuine APPROVED must not mask it: selection takes the last VERDICT-BEARING
+# HEAD review. Pre-fix `last` landed on the PENDING entry -> incomplete.
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"APPROVED\",\"commit_id\":\"$DRV_NEW\",\"body\":\"## Verdict: APPROVE\"},{\"state\":\"PENDING\",\"commit_id\":\"$DRV_NEW\",\"body\":\"\"}]" \
+  drv "#249 interleaved PENDING on HEAD does not mask a genuine APPROVED -> approve" "approve true"
+
+# Output contract: exactly two stdout lines, `verdict=` then `verdict_determined=`
+# — finalize_check's `sed -n 's/^verdict=//p'` consumer depends on this exact
+# shape; an extra stdout line or a renamed key would silently degrade every
+# conclusion to incomplete.
+DRV_CONTRACT_OUT="$(HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"APPROVED\",\"commit_id\":\"$DRV_NEW\"}]" bash "$DRV" 2>/dev/null)"
+assert_eq "#249 deriver stdout contract: exactly 2 lines" "2" "$(printf '%s\n' "$DRV_CONTRACT_OUT" | wc -l | tr -d ' ')"
+assert_eq "#249 deriver stdout contract: line 1 is verdict=, line 2 is verdict_determined=" "yes" \
+  "$(printf '%s\n' "$DRV_CONTRACT_OUT" | sed -n '1s/^verdict=.*/ok1/p;2s/^verdict_determined=.*/ok2/p' | tr '\n' ' ' | grep -q 'ok1 ok2' && echo yes || echo no)"
+
+# Pagination shape: `gh api --paginate` CONCATENATES page arrays ("[...][...]").
+# The -s/add normalization must flatten them so a HEAD review on page 2 (GitHub
+# returns oldest-first — >100 reviews pushes the newest off page 1) is still
+# seen. Pre-normalization jq ran the filter once per top-level document, whose
+# multi-line output fails the STATE comparison -> incomplete (RED).
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"CHANGES_REQUESTED\",\"commit_id\":\"$DRV_OLD\"}][{\"state\":\"APPROVED\",\"commit_id\":\"$DRV_NEW\"}]" \
+  drv "#249 paginated (concatenated-arrays) reviews payload: HEAD approve on page 2 -> approve" "approve true"
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[]" \
+  DRV_COMMENTS='[{"body":"unrelated chatter"}][{"body":"<!-- devflow:review-progress run=100-1 -->\n## Verdict: APPROVE"}]' \
+  drv "#249 paginated comments payload: run-keyed verdict comment on page 2 -> approve" "approve true"
+
+# Trailing-dash marker scoping: run=10 must NOT substring-match a prior run's
+# run=105-1 comment. Without the trailing dash in MARKER the prior-run REJECT
+# below would match and resurrect -> this pins the dash (mutation-sensitive).
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=10 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[]" \
+  DRV_COMMENTS='[{"body":"<!-- devflow:review-progress run=105-1 -->\n## Verdict: REJECT from run 105"}]' \
+  drv "#249 marker trailing dash: run=10 does not match a run=105 comment -> incomplete" "incomplete false"
+
+# A plain human COMMENTED review (no `## Verdict:` marker) on HEAD is NOT
+# verdict-bearing: it must not mask the bot's APPROVED posted just before it
+# (pre-fix `last` landed on the marker-less COMMENTED entry -> incomplete).
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"APPROVED\",\"commit_id\":\"$DRV_NEW\",\"body\":\"## Verdict: APPROVE\"},{\"state\":\"COMMENTED\",\"commit_id\":\"$DRV_NEW\",\"body\":\"nice work, just a human note\"}]" \
+  drv "#249 marker-less human COMMENTED on HEAD does not mask a genuine APPROVED -> approve" "approve true"
+
+# Empty-stdout payload (gh exits 0 with no body — truncated/degraded proxy):
+# must take the PARSE guard (the slurped empty input becomes [], `add` yields
+# null, and `map` then errors), never
+# fall through to the comment fallback. APPROVE comment behind — non-vacuous.
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="" \
+  DRV_COMMENTS='[{"body":"<!-- devflow:review-progress run=100-1 -->\n## Verdict: APPROVE"}]' \
+  drv "#249 empty-stdout reviews payload -> incomplete (parse guard, not comment fall-through)" "incomplete false"
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="" \
+  drv_stderr "#249 empty-stdout reviews payload takes the PARSE-guard arm (breadcrumb pinned)" "reviews JSON could not be parsed"
+
+# Comment-fallback marker precedence mirrors the review arm: REJECT before
+# APPROVE even when one run-keyed comment carries both markers.
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[]" \
+  DRV_COMMENTS='[{"body":"<!-- devflow:review-progress run=100-1 -->\n## Verdict: REJECT\n## Verdict: APPROVE"}]' \
+  drv "#249 both markers in the run-keyed comment -> reject (REJECT precedence in the fallback arm)" "reject true"
+
+# Cross-arm precedence: a HEAD review verdict wins over a conflicting run-keyed
+# comment (the review is consulted first and emit exits).
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"CHANGES_REQUESTED\",\"commit_id\":\"$DRV_NEW\"}]" \
+  DRV_COMMENTS='[{"body":"<!-- devflow:review-progress run=100-1 -->\n## Verdict: APPROVE"}]' \
+  drv "#249 HEAD reject review wins over a conflicting run-keyed APPROVE comment -> reject" "reject true"
+
+# ${ENGINE_ERROR:-false} default: an ABSENT ENGINE_ERROR (version-skewed runner
+# that never emitted the output) degrades to false and the verdict still derives.
+DRV_NOEE_OUT="$(env -u ENGINE_ERROR HEAD_SHA="$DRV_NEW" PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"APPROVED\",\"commit_id\":\"$DRV_NEW\"}]" bash "$DRV" 2>/dev/null | sed -n 's/^verdict=//p')"
+assert_eq "#249 absent ENGINE_ERROR defaults to false (version-skew degradation) -> approve" "approve" "$DRV_NOEE_OUT"
+
+# Large-body verdict artifact (SIGPIPE regression class): under pipefail a
+# `printf | grep -q` pipeline could take SIGPIPE on a >64KB body and read a
+# REAL marker as no-match; the herestring form must stay deterministic. The
+# body is the full-report shape (marker first line + ~100KB of report text —
+# comfortably past the 64KB pipe buffer yet under the ~128KB per-env-var
+# execve limit the stub invocation must respect).
+DRV_BIGPAD="$(printf 'x%.0s' $(seq 1 4000))"
+DRV_BIG_TAIL=""
+for _i in $(seq 1 25); do DRV_BIG_TAIL="${DRV_BIG_TAIL}${DRV_BIGPAD}\n"; done
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"COMMENTED\",\"commit_id\":\"$DRV_NEW\",\"body\":\"## Verdict: APPROVE with notes\n$DRV_BIG_TAIL\"}]" \
+  drv "#249 large (~100KB) APPROVE-with-notes body -> approve (no SIGPIPE false-nomatch)" "approve true"
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"COMMENTED\",\"commit_id\":\"$DRV_NEW\",\"body\":\"## Verdict: REJECT big\n$DRV_BIG_TAIL\"}]" \
+  drv "#249 large (~100KB) REJECT body -> reject (no SIGPIPE false-nomatch)" "reject true"
+
+# A verdict-BEARING marker with an unrecognized token (e.g. a frozen
+# '## Verdict: (pending)'-like wording drift) is selected but matches neither
+# marker regex -> falls through -> incomplete (fail closed), never a masked
+# approve from the earlier review and never a fabricated verdict.
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"APPROVED\",\"commit_id\":\"$DRV_NEW\"},{\"state\":\"COMMENTED\",\"commit_id\":\"$DRV_NEW\",\"body\":\"## Verdict: NEEDS-DISCUSSION\"}]" \
+  drv "#249 unrecognized verdict token on last verdict-bearing HEAD review -> incomplete (fail closed, pinned)" "incomplete false"
+
+# always exits 0 (best-effort; caller reads the verdict, not the exit code).
+( HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER="" GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" bash "$DRV" >/dev/null 2>&1 ); DRV_RC=$?
+assert_eq "#249 deriver always exits 0 (best-effort)" "0" "$DRV_RC"
+rm -f "$DRV_STUB"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "parse-engine-error.sh (#249 execution-log is_error parser feeding engine_is_error)"
+# ────────────────────────────────────────────────────────────────────────────
+# The producer of devflow-runner.yml's engine_is_error output (extracted from the
+# inline workflow jq so its array/object/fail-safe branches are verified). Fail-safe:
+# any absent/unparseable field yields "false" (is_error is defense-in-depth; the
+# deriver's HEAD-SHA scoping is the primary guard).
+PEE="$LIB/../scripts/parse-engine-error.sh"
+PEE_TMP="$(mktemp -d)"
+# stream-json ARRAY where a type==result element carries is_error (any result with is_error=true wins)
+printf '%s' '[{"type":"system"},{"type":"result","is_error":true}]'  > "$PEE_TMP/arr_true.json"
+printf '%s' '[{"type":"assistant"},{"type":"result","is_error":false}]' > "$PEE_TMP/arr_false.json"
+# a single result OBJECT
+printf '%s' '{"type":"result","is_error":true}'  > "$PEE_TMP/obj_true.json"
+printf '%s' '{"type":"result","is_error":false}' > "$PEE_TMP/obj_false.json"
+# JSONL (one object per line, no enclosing array) — the shape a bare `jq` without
+# -s would mis-handle; the -s slurp normalizes it.
+printf '{"type":"system"}\n{"type":"assistant"}\n{"type":"result","is_error":true}\n'  > "$PEE_TMP/jsonl_true.json"
+printf '{"type":"system"}\n{"type":"result","is_error":false}\n'                       > "$PEE_TMP/jsonl_false.json"
+# absent is_error field (object AND array-result), empty array, and unparseable -> false
+printf '%s' '{"type":"result"}'  > "$PEE_TMP/obj_missing.json"
+printf '%s' '[{"type":"system"},{"type":"result"}]' > "$PEE_TMP/arr_missing.json"
+printf '%s' '[]'                 > "$PEE_TMP/empty_arr.json"
+printf '%s' 'not json {{'        > "$PEE_TMP/garbage.json"
+assert_eq "#249 parse-engine-error: array w/ a result is_error=true -> true"  "true"  "$(bash "$PEE" "$PEE_TMP/arr_true.json")"
+assert_eq "#249 parse-engine-error: array w/ a result is_error=false -> false" "false" "$(bash "$PEE" "$PEE_TMP/arr_false.json")"
+assert_eq "#249 parse-engine-error: single result object is_error=true -> true"   "true"  "$(bash "$PEE" "$PEE_TMP/obj_true.json")"
+assert_eq "#249 parse-engine-error: single result object is_error=false -> false" "false" "$(bash "$PEE" "$PEE_TMP/obj_false.json")"
+assert_eq "#249 parse-engine-error: JSONL w/ a result is_error=true -> true"  "true"  "$(bash "$PEE" "$PEE_TMP/jsonl_true.json")"
+assert_eq "#249 parse-engine-error: JSONL w/ a result is_error=false -> false" "false" "$(bash "$PEE" "$PEE_TMP/jsonl_false.json")"
+assert_eq "#249 parse-engine-error: absent is_error field (object) -> false (fail-safe)" "false" "$(bash "$PEE" "$PEE_TMP/obj_missing.json")"
+assert_eq "#249 parse-engine-error: absent is_error field (array result) -> false (fail-safe)" "false" "$(bash "$PEE" "$PEE_TMP/arr_missing.json")"
+assert_eq "#249 parse-engine-error: empty array (no result) -> false (fail-safe)" "false" "$(bash "$PEE" "$PEE_TMP/empty_arr.json")"
+assert_eq "#249 parse-engine-error: unparseable log -> false (fail-safe)"         "false" "$(bash "$PEE" "$PEE_TMP/garbage.json")"
+assert_eq "#249 parse-engine-error: missing file arg -> false (fail-safe)"        "false" "$(bash "$PEE" "$PEE_TMP/does-not-exist.json")"
+assert_eq "#249 parse-engine-error: empty arg -> false (fail-safe)"               "false" "$(bash "$PEE" "")"
+( bash "$PEE" "$PEE_TMP/arr_true.json" >/dev/null 2>&1 ); assert_eq "#249 parse-engine-error: always exits 0 (best-effort)" "0" "$?"
+# nested result object (pins the `..` any-depth recursion the header advertises;
+# a refactor to top-level-only `.[]` ships RED)
+printf '%s' '[{"type":"system","payload":{"type":"result","is_error":true}}]' > "$PEE_TMP/nested_true.json"
+assert_eq "#249 parse-engine-error: NESTED result is_error=true -> true (any-depth recursion pinned)" "true" "$(bash "$PEE" "$PEE_TMP/nested_true.json" 2>/dev/null)"
+# the type filter is load-bearing in the OTHER direction too: is_error=true on a
+# NON-result object (e.g. a tool_result event) must stay false — dropping the
+# select(.type=="result") would over-report engine errors and wedge good runs.
+printf '%s' '[{"type":"tool_result","is_error":true},{"type":"result","is_error":false}]' > "$PEE_TMP/tool_err.json"
+assert_eq "#249 parse-engine-error: is_error=true on a non-result object -> false (type filter pinned)" "false" "$(bash "$PEE" "$PEE_TMP/tool_err.json" 2>/dev/null)"
+# ANY-result-wins across MULTIPLE result events (pins any() vs a last-wins
+# refactor: an errored mid-stream result followed by a clean final one -> true)
+printf '%s' '[{"type":"result","is_error":true},{"type":"result","is_error":false}]' > "$PEE_TMP/two_results.json"
+assert_eq "#249 parse-engine-error: two result events [true,false] -> true (ANY-wins pinned, not last-wins)" "true" "$(bash "$PEE" "$PEE_TMP/two_results.json" 2>/dev/null)"
+# Truncated-tail JSONL (engine died mid-write): the -s slurp fails on the whole
+# file, so even a complete is_error=true line above the truncation reads false
+# + the jq-failure breadcrumb. Deliberate, documented trade-off pinned here:
+# is_error is defense-in-depth; the deriver's no-verdict-for-HEAD arm is what
+# actually fails the crashed run closed.
+printf '{"type":"result","is_error":true}\n{"type":"sys' > "$PEE_TMP/trunc_tail.json"
+assert_eq "#249 parse-engine-error: truncated-tail JSONL -> false (fail-safe; deriver HEAD-scoping is the real guard)" "false" "$(bash "$PEE" "$PEE_TMP/trunc_tail.json" 2>/dev/null)"
+assert_eq "#249 parse-engine-error: truncated-tail JSONL emits the jq-failure breadcrumb" "yes" \
+  "$(bash "$PEE" "$PEE_TMP/trunc_tail.json" 2>&1 1>/dev/null | grep -qF "jq failed parsing" && echo yes || echo no)"
+# fail-safe arms leave breadcrumbs, never a silent false: a disarmed signal
+# (renamed execution_file output, broken jq) must be visible in the job log.
+assert_eq "#249 parse-engine-error: missing-file arm emits the 'execution file absent' breadcrumb" "yes" \
+  "$(bash "$PEE" "$PEE_TMP/does-not-exist.json" 2>&1 1>/dev/null | grep -qF "execution file absent or empty" && echo yes || echo no)"
+assert_eq "#249 parse-engine-error: unparseable-log arm emits the 'jq failed parsing' breadcrumb" "yes" \
+  "$(bash "$PEE" "$PEE_TMP/garbage.json" 2>&1 1>/dev/null | grep -qF "jq failed parsing" && echo yes || echo no)"
+rm -rf "$PEE_TMP"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "resolve-implement-trigger.sh"
 # ────────────────────────────────────────────────────────────────────────────
 # The implement trigger runs the action in AGENT mode (explicit prompt), which
