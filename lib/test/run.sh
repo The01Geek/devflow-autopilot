@@ -8479,6 +8479,39 @@ for f in devflow devflow-implement; do
   assert_eq "app-token: $f.yml has no invocation-position gh issue/pr comment porcelain" "0" \
     "$(grep -cE '^[^#]*gh (issue|pr) comment ' "$WF/$f.yml" || true)"
 done
+# Issue #282: review_dedupe guard's HEAD/BRANCH resolution must surface `gh`
+# failure the same way Signals 1/2 do (a ::warning:: carrying gh's stderr),
+# never the old blind `2>/dev/null || echo ""` swallow that collapses a `gh`
+# failure and a genuinely-empty result into the same generic notice.
+assert_eq "app-token: devflow.yml HEAD/BRANCH resolution carries no 2>/dev/null || echo swallow" "0" \
+  "$(grep -cF '2>/dev/null || echo ""' "$WF/devflow.yml" || true)"
+assert_eq "app-token: devflow.yml HEAD resolution warns with gh's captured stderr on failure" "1" \
+  "$(grep -cF 'Could not resolve PR #$PR HEAD (gh pr view failed:' "$WF/devflow.yml" || true)"
+assert_eq "app-token: devflow.yml BRANCH resolution warns with gh's captured stderr on failure" "1" \
+  "$(grep -cF 'Could not resolve PR #$PR BRANCH (gh pr view failed:' "$WF/devflow.yml" || true)"
+# The success-but-empty/null ::notice:: fail-open path must be retained
+# unchanged (distinguishable in the log from the new gh-failure ::warning::).
+assert_eq "app-token: devflow.yml retains the success-but-empty HEAD ::notice:: fail-open path" "1" \
+  "$(grep -cF '::notice::Could not resolve PR #$PR HEAD; fail-open (manual review proceeds).' "$WF/devflow.yml" || true)"
+# The two pins above only assert the warning-text prefixes exist — they'd stay
+# GREEN even if a regression re-swallowed stderr back to `2>/dev/null` while
+# leaving the strings intact. Pin the actual capture mechanism: stderr
+# redirected to a dedicated file (never merged into the resolved value), the
+# newline-collapsed embed of that captured file, and the mktemp fail-open
+# guard — so a partial regression to the old swallow trips these, not just
+# the ones above.
+assert_eq "app-token: devflow.yml HEAD gh pr view captures stderr to a dedicated file (not /dev/null)" "1" \
+  "$(grep -cF '2>"$HEAD_ERR"' "$WF/devflow.yml" || true)"
+assert_eq "app-token: devflow.yml BRANCH gh pr view captures stderr to a dedicated file (not /dev/null)" "1" \
+  "$(grep -cF '2>"$BRANCH_ERR"' "$WF/devflow.yml" || true)"
+assert_eq "app-token: devflow.yml HEAD warning embeds the newline-collapsed captured stderr" "1" \
+  "$(grep -cF '$(tr '\''\n'\'' '\'' '\'' < "$HEAD_ERR")' "$WF/devflow.yml" || true)"
+assert_eq "app-token: devflow.yml BRANCH warning embeds the newline-collapsed captured stderr" "1" \
+  "$(grep -cF '$(tr '\''\n'\'' '\'' '\'' < "$BRANCH_ERR")' "$WF/devflow.yml" || true)"
+assert_eq "app-token: devflow.yml HEAD_ERR temp-file allocation is mktemp-fail-open-guarded" "1" \
+  "$(grep -cF 'HEAD_ERR="$(mktemp 2>/dev/null || echo /dev/null)"' "$WF/devflow.yml" || true)"
+assert_eq "app-token: devflow.yml BRANCH_ERR temp-file allocation is mktemp-fail-open-guarded" "1" \
+  "$(grep -cF 'BRANCH_ERR="$(mktemp 2>/dev/null || echo /dev/null)"' "$WF/devflow.yml" || true)"
 # Doc↔workflow scope-table coupling: the cloud-setup table hardcodes the
 # review token's permission set; pin the row so a future scope change that
 # reconciles APP_SITES but not the doc goes RED.

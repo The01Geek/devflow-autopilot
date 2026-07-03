@@ -146,8 +146,31 @@ jobs:
             exit 0
           fi
 
-          HEAD=$(gh pr view "$PR" --repo "$REPO" --json headRefOid --jq .headRefOid 2>/dev/null || echo "")
-          BRANCH=$(gh pr view "$PR" --repo "$REPO" --json headRefName --jq .headRefName 2>/dev/null || echo "")
+          # HEAD/BRANCH resolution adopts Signals 1/2's fail-open-with-::warning::
+          # pattern below, but additionally captures the `gh` failure's stderr
+          # (to a separate file so a partial-stdout-plus-error response can't
+          # pollute the resolved value) and surfaces it in the warning — Signals
+          # 1/2 themselves discard stderr (`2>/dev/null`). A success-but-empty/
+          # null result stays the existing ::notice:: fail-open path. Both arms
+          # still fail open (exit 0 / IR=0).
+          # mktemp itself is guarded (falls back to /dev/null, matching
+          # devflow-implement.yml's stall-backstop precedent) so a mktemp failure
+          # can never abort this step via set -e and defeat the fail-open contract;
+          # captured stderr is newline-collapsed before embedding so a multi-line
+          # gh error can't break the ::warning:: annotation's single-line parsing.
+          HEAD_ERR="$(mktemp 2>/dev/null || echo /dev/null)"
+          if ! HEAD=$(gh pr view "$PR" --repo "$REPO" --json headRefOid --jq .headRefOid 2>"$HEAD_ERR"); then
+            echo "::warning::Could not resolve PR #$PR HEAD (gh pr view failed: $(tr '\n' ' ' < "$HEAD_ERR")); fail-open (manual review proceeds)."
+            [ "$HEAD_ERR" = /dev/null ] || rm -f "$HEAD_ERR"
+            exit 0
+          fi
+          [ "$HEAD_ERR" = /dev/null ] || rm -f "$HEAD_ERR"
+          BRANCH_ERR="$(mktemp 2>/dev/null || echo /dev/null)"
+          if ! BRANCH=$(gh pr view "$PR" --repo "$REPO" --json headRefName --jq .headRefName 2>"$BRANCH_ERR"); then
+            echo "::warning::Could not resolve PR #$PR BRANCH (gh pr view failed: $(tr '\n' ' ' < "$BRANCH_ERR")); treating as unresolved (fail-open — Signal 2 treated as 0)."
+            BRANCH=""
+          fi
+          [ "$BRANCH_ERR" = /dev/null ] || rm -f "$BRANCH_ERR"
           if [ -z "$HEAD" ] || [ "$HEAD" = "null" ]; then
             echo "::notice::Could not resolve PR #$PR HEAD; fail-open (manual review proceeds)."
             exit 0
