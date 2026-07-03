@@ -205,14 +205,13 @@ def _is_recognized_status_word(word: str) -> bool:
     """True if `word` (already glyph-stripped) is a canonical Status word.
 
     Single-sourced from `_STATUS_TO_PROGRESS_PHASE`'s keys (every in-progress
-    phase word) unioned with the terminal words 'complete'/'blocked', matched
-    the same way `_status_glyph` itself matches them (a `startswith` prefix
-    check) so this recognition check never disagrees with what `_status_glyph`
-    already treats as a terminal glyph. No independent hardcoded word list."""
+    phase word) unioned with whatever `_status_glyph` itself treats as a
+    terminal word — delegating to `_status_glyph` (read-only call, no change
+    to its behavior) rather than re-encoding its 'complete'/'blocked' prefix
+    check here, so the two can never silently drift apart. No independent
+    hardcoded word list."""
     s = word.strip().lower()
-    if s in _STATUS_TO_PROGRESS_PHASE:
-        return True
-    return s.startswith('complete') or s.startswith('blocked')
+    return s in _STATUS_TO_PROGRESS_PHASE or _status_glyph(word) in ('🎉', '👎')
 
 
 def cmd_status(args):
