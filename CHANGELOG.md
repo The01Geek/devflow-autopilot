@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.62] — 2026-07-03
+
+### Fixed
+- **`workpad.py status` now fails closed on a present-but-unrecognized `Status` word instead of silently misreading it as a healthy in-progress stall.** `cmd_status` derived its classification from `_status_glyph`, which defaults to the 🚀 (interim) glyph for any word that doesn't start with `complete`/`blocked` — so a corrupted or hand-mangled `Status` line (e.g. `**Status:** Frobnicating`) printed `interim 🚀 Frobnicating` at exit 0, and the cloud `/devflow:implement` stall backstop (#266) burned a real auto-resume attempt on a workpad it could not actually read, instead of failing loud via its existing `non-zero → unreadable → fail-unreadable` path. A new `_is_recognized_status_word` helper, single-sourced from `_STATUS_TO_PROGRESS_PHASE`'s keys plus the literal terminal word `blocked` (exact-match, deliberately **not** delegating to `_status_glyph`'s looser `startswith('complete'/'blocked')` prefix check — which would itself let a corrupted word like `Completely wrong` or `Blockeddependency` slip through), gates `cmd_status` before it classifies a word: an unrecognized word now exits 1 with a diagnostic naming the bad word and the full recognized vocabulary. Every canonical status word, the pre-existing missing/empty-`Status`-line paths, and `_status_glyph`/`_strip_status_glyph`'s other callers (the `--status` write path, the terminal self-record gate, progress-phase nesting) are unchanged — the write path is deliberately out of scope, since it takes an orchestrator-supplied (trusted) status rather than untrusted read input. (#281, carried forward from the #268/PR #277 run)
+
 ## [2.8.61] — 2026-07-03
 
 ### Added
