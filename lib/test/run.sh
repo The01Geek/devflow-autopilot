@@ -12951,6 +12951,17 @@ assert_pin_unique "#268 wiring: APP_TOKEN_PRESENT wired from the app-token step 
   "APP_TOKEN_PRESENT: \${{ steps.app-token.outputs.token != '' }}" "$WF268"
 assert_pin_unique "#268 wiring: CLAUDE_OUTCOME wired from the claude step outcome" \
   'CLAUDE_OUTCOME: ${{ steps.claude.outcome }}' "$WF268"
+# Actions runs run: blocks under bash -e; the step's leading `set +e` is what
+# makes every fallback branch reachable. Assert it inside the step REGION (other
+# steps carry their own set +e, so a whole-file pin cannot be unique) AND run
+# the extracted harness under -e below, so dropping it goes RED behaviorally.
+assert_eq "#268 wiring: step neutralizes Actions' errexit (set +e present in the step region)" "yes" \
+  "$(awk '/name: Stall backstop/{f=1} f && /set \+e/{print "hit"; exit} f && /exit "\$FAIL"/{exit}' "$WF268" | grep -q hit && echo yes || echo no)"
+# Negative producer-side pin: the funnel's FAILURE breadcrumb must never
+# contain the success phrase the consumer greps (else a dropped POST could
+# read as landed).
+assert_eq "#268 wiring: funnel failure breadcrumb does not contain the success phrase" "0" \
+  "$(grep -F 'could not post comment' "$REPO_ROOT/scripts/post-issue-comment.sh" | grep -cF 'posted comment on' || true)"
 # Negative pin: the stall-backstop STEP body must never embed the workpad
 # marker — the gate's self-trigger guard declines any comment containing it,
 # so a workpad-marker leak into the resume body would silently kill the
@@ -13028,7 +13039,7 @@ STUB
       APP_TOKEN_PRESENT=true CLAUDE_OUTCOME=success \
       STUB_TOUCH="$SB268_DIR/status-touched" STUB_POST_COPY="$SB268_POST" \
       STUB_GH_TOUCH="$SB268_DIR/gh-touched" \
-      "$@" bash "$SB268_RUN" >/dev/null 2>&1 )
+      "$@" bash -e "$SB268_RUN" >/dev/null 2>&1 )
   }
   sb268_run env STUB_ENABLED=false STUB_STATUS_OUT="interim 🚀 Reviewing"
   SB268_RC=$?
@@ -13096,11 +13107,34 @@ STUB
   # Missing vendored dir: benign skip only when the claude step did not succeed;
   # on a successful run a vanished dir means the backstop is disarmed -> loud.
   SB268_EMPTY=$(mktemp -d)
-  ( cd "$SB268_EMPTY" && CLAUDE_OUTCOME=success bash "$SB268_RUN" >/dev/null 2>&1 )
+  ( cd "$SB268_EMPTY" && CLAUDE_OUTCOME=success bash -e "$SB268_RUN" >/dev/null 2>&1 )
   assert_eq "#268 behavior: vendored dir missing on a successful claude step -> exit 1" "1" "$?"
-  ( cd "$SB268_EMPTY" && CLAUDE_OUTCOME=failure bash "$SB268_RUN" >/dev/null 2>&1 )
+  ( cd "$SB268_EMPTY" && CLAUDE_OUTCOME=failure bash -e "$SB268_RUN" >/dev/null 2>&1 )
   assert_eq "#268 behavior: vendored dir missing on a failed claude step -> benign exit 0" "0" "$?"
   rm -rf "$SB268_EMPTY"
+  # Cap 0: detect-and-fail-loud only — straight to fail-exhausted, no trigger.
+  sb268_run env STUB_STATUS_OUT="interim 🚀 Reviewing" STUB_MAX=0
+  SB268_RC=$?
+  assert_eq "#268 behavior: cap 0 -> immediate fail-exhausted exit 1, no trigger phrase" "1:0" \
+    "$SB268_RC:$(grep -cF '/devflow:implement ' "$SB268_POST" || true)"
+  # Non-integer cap: sanitized to the default 2 before it reaches the comments.
+  sb268_run env STUB_STATUS_OUT="interim 🚀 Reviewing" STUB_MAX=banana
+  SB268_RC=$?
+  assert_eq "#268 behavior: non-integer cap -> default 2 in the resume body (never 'of banana')" "0:yes" \
+    "$SB268_RC:$(grep -qF 'attempt 1 of 2' "$SB268_POST" && echo yes || echo no)"
+  # Unreadable variants: exit-1 (unparseable/gh error) and rc-0-but-empty both
+  # classify unreadable -> fail loud + diagnostic comment.
+  sb268_run env STUB_STATUS_RC=1
+  assert_eq "#268 behavior: status exit 1 (unparseable/gh error) -> exit 1 + diagnostic comment" "1:yes" \
+    "$?:$([ -f "$SB268_POST" ] && echo yes || echo no)"
+  sb268_run env STUB_STATUS_RC=0 STUB_STATUS_OUT=
+  assert_eq "#268 behavior: status rc 0 with empty output -> defensively unreadable, exit 1" "1" "$?"
+  # Only the exact string "false" disables: an unrecognized value stays enabled
+  # (the status read runs).
+  sb268_run env STUB_ENABLED=False STUB_STATUS_OUT="terminal 🎉 Complete"
+  SB268_RC=$?
+  assert_eq "#268 behavior: unrecognized enabled value ('False') stays enabled (status read ran)" "0:yes" \
+    "$SB268_RC:$([ -f "$SB268_DIR/status-touched" ] && echo yes || echo no)"
   rm -rf "$SB268_DIR"; rm -f "$SB268_RUN"
 else
   printf '  SKIP  #268 behavior: python3+PyYAML unavailable — extraction test skipped (content pins above still ran)\n'
