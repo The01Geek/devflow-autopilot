@@ -18,8 +18,9 @@ It writes nothing else — staging and the ``chore: bump version`` commit are th
 
 Fail-closed contract: a malformed changeset (no frontmatter, missing/invalid ``bump``, an
 unknown ``type``, or an empty prose body) aborts with exit 2 and a diagnostic naming the
-offending file, **before any file is modified** — never a silent skip and never a partial
-write. Zero pending changesets is a clean no-op: nothing is written and the exit code is 0.
+offending file. All changesets are validated **before any file is modified**, so a malformed
+changeset never causes a silent skip or a partial bump. Zero pending changesets is a clean
+no-op: nothing is written and the exit code is 0.
 """
 
 from __future__ import annotations
@@ -51,11 +52,15 @@ def _fatal(msg: str) -> "int":
 
 
 def _is_consumable(name: str) -> bool:
-    """A ``.changeset/*.md`` file that is a real changeset (not README/config docs)."""
+    """A ``.changeset/*.md`` file that is a real changeset (not README/config docs).
+
+    ``config.*`` is excluded as forward-compat for the npm ``@changesets`` convention's
+    ``config.json`` (DevFlow does not use it, but a stray one must never be consumed).
+    """
     lower = name.lower()
     if lower == "readme.md":
         return False
-    if lower == "config.md" or lower.startswith("config."):
+    if lower.startswith("config."):
         return False
     return lower.endswith(".md")
 
@@ -138,6 +143,10 @@ def _bump_version(current: str, kind: str) -> str:
     return f"{major}.{minor}.{patch + 1}"
 
 
+# Read/write the version with a surgical regex rather than json.load/json.dump (or the
+# repo's jq-based read): a full JSON round-trip would reserialize the whole manifest and
+# churn unrelated formatting (key order, indentation) on every bump. The read uses the same
+# regex as the write so the two stay symmetric and neither shells out to jq from Python.
 def _read_manifest_version(manifest_path: str) -> str:
     try:
         with open(manifest_path, encoding="utf-8") as fh:
