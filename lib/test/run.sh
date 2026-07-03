@@ -6379,6 +6379,13 @@ for PA_FILE in "$LIB"/../skills/*/SKILL.md; do
   assert_eq "#275 pin (P4): $PA_NAME preamble paragraph is byte-identical to the canonical copy" "yes" \
     "$([ "$(grep -F '**Portable helper anchor (single-statement).**' "$PA_FILE")" = "$PA_REF_PREAMBLE" ] && echo yes || echo no)"  # raw-guard-ok: loop body: cross-file identity check over the enumerated $PA_FILE loop variable
 done
+# Reflow guard: P4 compares only the header-bearing PHYSICAL LINE, so a copy whose
+# paragraph was wrapped onto multiple lines would keep an identical header line while
+# its operative continuation drifted per-file. Assert the canonical matched line itself
+# still carries the paragraph's operative TAIL clause — while the paragraph stays
+# single-line, the per-file identity compare above is a full-paragraph compare.
+assert_eq "#275 pin (P4b): the canonical preamble line is paragraph-complete (not reflowed)" "yes" \
+  "$(printf '%s' "$PA_REF_PREAMBLE" | grep -qF 'stop and report that the helper anchor could not be resolved' && echo yes || echo no)"  # raw-guard-ok: single-line completeness probe on the captured canonical line
 # Operative-sentence pin on the CANONICAL copy: P4 proves the 17 copies match the docs
 # reference, but nothing above stops the shared guidance itself being weakened in
 # lockstep. Pin the canonical copy's two operative clauses (the never-capture rule and
@@ -6387,6 +6394,32 @@ assert_pin_unique "#275 pin (P4-op): canonical preamble carries the never-captur
   'never capture it into a shell variable that a later statement reads' "$LIB/../skills/docs/SKILL.md"
 assert_pin_unique "#275 pin (P4-op): canonical preamble carries the fail-closed stop clause" \
   'stop and report that the helper anchor could not be resolved' "$LIB/../skills/docs/SKILL.md"
+# P1b — the DASH-only expansion (`${CLAUDE_SKILL_DIR-…}`, no colon) treats an EMPTY var as
+# set, which is precisely the Copilot failure mode (empty, not unset), so it is a banned
+# form P1's `\}?"?/` tail cannot see. Absence-pin it separately across the same loop files.
+for PA_FILE in "$LIB"/../skills/*/SKILL.md "$LIB"/../skills/implement/phases/phase-*.md; do
+  PA_NAME="skills/${PA_FILE#"$LIB"/../skills/}"
+  assert_eq "#275 pin (P1b): $PA_NAME has no dash-only (empty-var-blind) CLAUDE_SKILL_DIR expansion" "yes" \
+    "$(! grep -qF '${CLAUDE_SKILL_DIR-' "$PA_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body: absence pin over the enumerated $PA_FILE loop variable
+done
+# Operative pin on the NEW fail-closed clause (#279 review): the widened trigger — halt on
+# the unsubstituted placeholder, not only on empty — is the PR's behavioral addition to the
+# implement orchestrator; without a pin a half-revert to empty-only ships GREEN.
+assert_pin_unique "#275 pin (gate-op): implement resolve gate halts on the unsubstituted placeholder too" \
+  'or prints the unsubstituted' "$LIB/../skills/implement/SKILL.md"
+assert_eq "#275 pin (gate-op): all four implement entry-gates carry the placeholder-aware halt clause" "4" \
+  "$(pin_count 'is empty or an unsubstituted placeholder' "$LIB/../skills/implement/SKILL.md")"
+# Live-invocation pins for the four phase files (the lpe-coverage whole-line pin covers
+# SKILL.md files only): one canonical helper invocation per phase file, pinned unique, so a
+# commented-out/prose-only occurrence cannot satisfy P3 alone.
+assert_pin_unique "#275 pin (P3-live): phase-1 carries a live parse-acs.py invocation via the portable anchor" \
+  "$PORTABLE_ANCHOR_LITERAL"'scripts/parse-acs.py --issue' "$LIB/../skills/implement/phases/phase-1-setup.md"
+assert_pin_unique "#275 pin (P3-live): phase-2 carries a live config-get.sh docs.internal read via the portable anchor" \
+  "$PORTABLE_ANCHOR_LITERAL"'scripts/config-get.sh .docs.internal' "$LIB/../skills/implement/phases/phase-2-implement.md"
+assert_pin_unique "#275 pin (P3-live): phase-3 carries the live --persist backstop via the portable anchor" \
+  "$PORTABLE_ANCHOR_LITERAL"'lib/efficiency-trace.sh --persist' "$LIB/../skills/implement/phases/phase-3-review.md"
+assert_pin_unique "#275 pin (P3-live): phase-4 carries a live file-deferrals.py invocation via the portable anchor" \
+  "$PORTABLE_ANCHOR_LITERAL"'scripts/file-deferrals.py' "$LIB/../skills/implement/phases/phase-4-documentation.md"
 assert_pin_unique "#275 pin (P4-ci): create-issue preamble carries the never-capture operative sentence" \
   'Never capture the anchor into a shell variable that a later statement reads' "$LIB/../skills/create-issue/SKILL.md"
 # Doc presence pins (#275 AC: the four Windows/Copilot-CLI operator gotchas are documented).

@@ -20,8 +20,12 @@
 # runner-reported base directory at PROMPT time — one standalone
 # wslpath/cygpath probe, or these same textual drive-letter rules — before
 # substituting it into the single-statement invocation.
-# skills/create-issue/SKILL.md's preamble is the reference prose paraphrase;
-# keep it in lockstep when changing the translation logic here.
+# skills/create-issue/SKILL.md's preamble is the reference prose paraphrase,
+# and the shared "Portable helper anchor" paragraph (canonical copy:
+# skills/docs/SKILL.md, replicated 17-way and identity-pinned by
+# lib/test/run.sh's P4 loop) carries the same rules — when changing the
+# translation logic here, update create-issue, the canonical docs copy, and
+# re-propagate the 17 copies together.
 #
 # Defines a function only; it deliberately does NOT set -e/-u so it is safe to
 # source into a caller with its own shell options.
