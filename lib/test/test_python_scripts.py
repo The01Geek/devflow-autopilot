@@ -209,6 +209,9 @@ try:
     def _boom_oserror(*a, **kw):
         raise OSError(8, "Exec format error")
     workpad._run = _boom_oserror
+    # Hermetic guard: an operator's ambient DEVFLOW_WORKPAD_MARKER would win the
+    # precedence race and fail every config-path assertion below spuriously.
+    _saved_275_env = _os.environ.pop('DEVFLOW_WORKPAD_MARKER', None)
     with _tempfile.TemporaryDirectory() as _td:
         _os.chdir(_td)
 
@@ -226,8 +229,13 @@ try:
         # The headline regression: a configured custom marker is honored even
         # when no subprocess can run (the Windows [WinError 193] shape).
         _write_cfg('{"devflow": {"workpad_marker": "<!-- custom:pad -->"}}')
+        _stderr_happy = io.StringIO()
+        with contextlib.redirect_stderr(_stderr_happy):
+            _val = workpad._workpad_marker(None)
         assert_eq("marker (#275): custom config marker honored without exec-ing config-get.sh",
-                  '<!-- custom:pad -->', workpad._workpad_marker(None))
+                  '<!-- custom:pad -->', _val)
+        assert_eq("marker (#275): happy custom-marker read emits no breadcrumb",
+                  '', _stderr_happy.getvalue())
 
         # Precedence above the config value is unchanged: flag > env > config.
         assert_eq("marker (#275): --marker flag still wins over a config value",
@@ -316,6 +324,8 @@ try:
 finally:
     _os.chdir(_orig_cwd_275)
     workpad._run = _saved_wp_run
+    if _saved_275_env is not None:
+        _os.environ['DEVFLOW_WORKPAD_MARKER'] = _saved_275_env
 
 
 print("workpad.cmd_id exit-code contract (issue #55 live-comment seeding)")

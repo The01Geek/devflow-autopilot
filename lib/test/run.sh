@@ -6312,9 +6312,12 @@ PA_BARE_ERE='\$\{?CLAUDE_SKILL_DIR\}?"?/'
 # names; a command substitution (`VAR=$(…`) has `(` after `$`, so it never matches.
 PA_XSTMT_ERE='[A-Za-z_0-9]+="?\$\{?CLAUDE_SKILL_DIR'
 # PA_WRONGFB_ERE catches a WRONG-fallback anchor — `${CLAUDE_SKILL_DIR:-}` (empty) or any
-# fallback not beginning the sanctioned `<absolute skill base directory …>` placeholder —
-# which passes P1/P1b/P2 yet collapses identically on an empty-var runner.
-PA_WRONGFB_ERE='\$\{CLAUDE_SKILL_DIR:-[^<]'
+# fallback that does not begin with the sanctioned placeholder's full prefix
+# `<absolute skill base directory` (so a `<typo>`-shaped wrong placeholder is caught too,
+# not just a non-`<` first char) — which passes P1/P1b/P2 yet collapses identically on an
+# empty-var runner. Negative lookahead is unavailable in ERE, so enumerate the prefix:
+# reject `:-` followed by anything that fails the sanctioned prefix at its first divergence.
+PA_WRONGFB_ERE='\$\{CLAUDE_SKILL_DIR:-([^<]|<[^a]|<a[^b]|<ab[^s])'
 PA_FILE_COUNT=0
 for PA_FILE in "$LIB"/../skills/*/SKILL.md "$LIB"/../skills/implement/phases/phase-*.md; do
   PA_NAME="skills/${PA_FILE#"$LIB"/../skills/}"
@@ -6360,6 +6363,9 @@ if [ "$PA_MUT" != "/dev/null" ]; then
   { cat "$LIB/../skills/create-issue/SKILL.md"; printf '%s\n' '"${CLAUDE_SKILL_DIR:-}"/../../scripts/injected.sh'; } > "$PA_MUT"
   assert_eq "#275 mutation proof: an EMPTY-fallback anchor turns P1c RED (clean->detected)" "quiet->fires" \
     "$(! grep -qE "$PA_WRONGFB_ERE" "$LIB/../skills/create-issue/SKILL.md" && echo quiet || echo dirty)->$(grep -qE "$PA_WRONGFB_ERE" "$PA_MUT" && echo fires || echo misses)"  # raw-guard-ok: mutation proof over a temp copy
+  { cat "$LIB/../skills/create-issue/SKILL.md"; printf '%s\n' '"${CLAUDE_SKILL_DIR:-<wrong placeholder>}"/../../scripts/injected.sh'; } > "$PA_MUT"
+  assert_eq "#275 mutation proof: a WRONG angle-bracketed placeholder also turns P1c RED" "fires" \
+    "$(grep -qE "$PA_WRONGFB_ERE" "$PA_MUT" && echo fires || echo misses)"  # raw-guard-ok: mutation proof over a temp copy
   rm -f "$PA_MUT"
 fi
 # Positive per-call-site companions (formerly #241 A2b), retargeted to the inline form:
