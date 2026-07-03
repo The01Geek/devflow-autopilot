@@ -7825,13 +7825,27 @@ assert_eq "app-token: suppression notice contains no @claude in its NOTE body" "
   "$(grep 'NOTE=' <<< "$RS_NOTICE" | grep -c '@claude' || true)"
 # The notice step deliberately has no continue-on-error; its best-effort
 # contract rests entirely on the `if ! err=` guard around the single gh call
-# plus the specific breadcrumb. Dropping the guard would let a transient
-# comment-post failure fail review_dedupe and (via needs:) skip the whole
-# manual-review command path.
+# plus the specific breadcrumb. Dropping the guard would turn a transient
+# comment-post failure into a red review_dedupe job (operator noise — the
+# manual command was already suppressed in every run where the notice fires).
 assert_eq "app-token: suppression notice guards its gh call (if ! err=)" "1" \
   "$(grep -cF 'if ! err="$(gh api --method POST "repos/$REPO/issues/$PR/comments"' "$WF/devflow.yml")"
 assert_eq "app-token: suppression notice emits its specific failure breadcrumb" "1" \
   "$(grep -cF '::warning::could not post review-suppressed notice' "$WF/devflow.yml")"
+# File-wide porcelain ceiling: the shipped workflows carry ZERO
+# invocation-position `gh issue|pr comment` calls (both notices are REST). A
+# rebase/revert restoring the old inline guard-step porcelain post would
+# produce a double notice whose porcelain half fails silently under a
+# repo-scoped token — and every block-scoped pin above would stay green.
+for f in devflow devflow-implement; do
+  assert_eq "app-token: $f.yml has no invocation-position gh issue/pr comment porcelain" "0" \
+    "$(grep -cE '^[^#]*gh (issue|pr) comment ' "$WF/$f.yml" || true)"
+done
+# Doc↔workflow scope-table coupling: the cloud-setup table hardcodes the
+# review token's permission set; pin the row so a future scope change that
+# reconciles APP_SITES but not the doc goes RED.
+assert_eq "app-token: cloud-setup.md scope table carries the review token's exact permission set" "1" \
+  "$(grep -cF '`contents: read`, `issues: read`, `pull-requests: write`, `actions: read`' "$LIB/../docs/cloud-setup.md" || true)"
 # Consumer-condition conjuncts on the three downscoped gate/dedupe mints: the
 # second half of each mint's if: keeps the common rejection path mint-free AND
 # bounds fail-loud to runs where a consumer actually posts. Dropping it would

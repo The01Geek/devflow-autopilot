@@ -200,7 +200,8 @@ jobs:
       # Optional, opt-in: mint ONE App token DOWNSCOPED to this job's
       # user-visible posts — the trigger reaction and the duplicate-ignored
       # notice below (no contents/workflows: this job neither reads code with
-      # it nor pushes). Same opt-in/fail-loud/downscope contract as the review
+      # it nor pushes; the early workpad comment below deliberately stays on
+      # github.token — detection is marker-based, so authorship never matters). Same opt-in/fail-loud/downscope contract as the review
       # mint in devflow-runner.yml — see docs/cloud-setup.md. NOTE: fail-loud
       # means a configured-but-broken App fails THIS gate job (and so blocks
       # the run) — deliberate, so a broken App is never silently degraded
