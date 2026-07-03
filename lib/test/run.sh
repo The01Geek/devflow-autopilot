@@ -6715,7 +6715,8 @@ assert_eq "#249 deriver stdout contract: line 1 is verdict=, line 2 is verdict_d
 # Pagination shape: `gh api --paginate` CONCATENATES page arrays ("[...][...]").
 # The -s/add normalization must flatten them so a HEAD review on page 2 (GitHub
 # returns oldest-first — >100 reviews pushes the newest off page 1) is still
-# seen. Pre-normalization jq errors on concatenated arrays -> incomplete (RED).
+# seen. Pre-normalization jq ran the filter once per top-level document, whose
+# multi-line output fails the STATE comparison -> incomplete (RED).
 HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
   DRV_REVIEWS="[{\"state\":\"CHANGES_REQUESTED\",\"commit_id\":\"$DRV_OLD\"}][{\"state\":\"APPROVED\",\"commit_id\":\"$DRV_NEW\"}]" \
   drv "#249 paginated (concatenated-arrays) reviews payload: HEAD approve on page 2 -> approve" "approve true"

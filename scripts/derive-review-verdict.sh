@@ -170,9 +170,10 @@ fi
 #    posted just before it. Excluded states fall through like an empty set.
 #    The leading `-s`/`add` normalizes the `--paginate` shape: slurp turns one
 #    array into [[...]] and concatenated pages into [[...],[...]], and `add`
-#    flattens both to one review list (a non-array payload still errors in
-#    `map()`, keeping the parse guard live; an all-empty input errors in `add|map`
-#    likewise — fail-closed either way).
+#    flattens both to one review list (a non-array payload with scalar values —
+#    the real gh error-object shape — still errors in `map()`, keeping the parse
+#    guard live; an all-empty input errors in `add|map` likewise — fail-closed
+#    either way).
 DRV_STATE_FILTER='add | map(select(.commit_id == $h and ((.state // "") | IN("APPROVED","CHANGES_REQUESTED","COMMENTED")))) | last'
 if ! STATE=$(printf '%s' "$REVIEWS_JSON" | "$DEVFLOW_JQ" -rs --arg h "$HEAD_SHA" \
           "$DRV_STATE_FILTER | (.state // \"\")" 2>/dev/null); then
