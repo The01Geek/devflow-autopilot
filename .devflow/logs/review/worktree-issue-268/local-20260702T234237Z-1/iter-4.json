@@ -121,6 +121,15 @@
    "claim_text": "backtick-strip harness scenario + PyYAML if-always pin + region-scoped AC11",
    "skip_category": "uncategorized",
    "evidence": "rated 3-4 polish by both raters; strip is one-line pure bash verified by the fix-delta gate's YAML literal-block trace; the adjacency pin and whole-file exemption both fail RED (safe direction) and are self-disclosed in comments"
+  },
+  {
+   "finding_id": "CS-1",
+   "decision": "severity-calibrated",
+   "source_file": ".github/workflows/devflow-implement.yml",
+   "claim_text": "stale counts-0 comment fragment (emitted Critical by comment-analyzer)",
+   "original_severity": "Critical",
+   "calibrated_severity": "Suggestion",
+   "evidence": "over-grade shape 2 (diagnostic-only): impact is comment text only \u2014 no wrong output, no corrupted state, no skipped guard; fixed anyway via the post-shadow bounded delta-review path (clean)"
   }
  ],
  "convergence_inputs": {
@@ -157,6 +166,96 @@
    "calls": 0,
    "tokens": 0,
    "wall_clock_s": 20
+  }
+ },
+ "shadow": {
+  "ran_at": "2026-07-03T02:05:00Z",
+  "reviewed_sha": "78caf388bdd650ce4495283f479a08bf5f3c6e8f",
+  "verdict": "APPROVE",
+  "coverage": "full",
+  "reviewers_dispatched": [
+   "devflow:code-reviewer",
+   "devflow:silent-failure-hunter",
+   "devflow:comment-analyzer",
+   "devflow:pr-test-analyzer",
+   "devflow:requesting-code-review"
+  ],
+  "expected_reviewers": [
+   "devflow:code-reviewer",
+   "devflow:silent-failure-hunter",
+   "devflow:comment-analyzer",
+   "devflow:pr-test-analyzer",
+   "devflow:requesting-code-review"
+  ],
+  "reason": null,
+  "checklist_skipped": null,
+  "phase3_findings": [
+   {
+    "agent": "devflow:code-reviewer",
+    "severity": "Suggestion",
+    "description": "stale 'counts 0' comment fragment contradicting the fail-loud code (corroborated x2; severity-calibrated shape 2 diagnostic-only; FIXED post-shadow, bounded delta-review clean)",
+    "defect_signature": {
+     "file": ".github/workflows/devflow-implement.yml",
+     "line_range": [
+      616,
+      619
+     ],
+     "kind": "comment_drift"
+    }
+   },
+   {
+    "agent": "devflow:silent-failure-hunter",
+    "severity": "Suggestion",
+    "description": "advisory polish: status-rc token in the unreadable echo; GH_ERRF mktemp-fallback breadcrumb; AC11 region-scoped alternative",
+    "defect_signature": {
+     "file": ".github/workflows/devflow-implement.yml",
+     "line_range": [
+      595,
+      640
+     ],
+     "kind": "other"
+    }
+   },
+   {
+    "agent": "devflow:requesting-code-review",
+    "severity": "Suggestion",
+    "description": "design tradeoffs for follow-up: always() fires on cancelled runs; inert-token resumes consume cap attempts; adjacency-brittle if-always pin",
+    "defect_signature": {
+     "file": ".github/workflows/devflow-implement.yml",
+     "line_range": [
+      549,
+      698
+     ],
+     "kind": "other"
+    }
+   },
+   {
+    "agent": "devflow:pr-test-analyzer",
+    "severity": "Suggestion",
+    "description": "cheap additions: unknown-decision-token behavioral case; backtick/CR strip harness scenario",
+    "defect_signature": {
+     "file": "lib/test/run.sh",
+     "line_range": [
+      12850,
+      12990
+     ],
+     "kind": "test_gap"
+    }
+   }
+  ],
+  "phase2_fails": [],
+  "comparison": {
+   "shadow_total": 8,
+   "overlap_with_iter_N": 3,
+   "new": 5,
+   "new_critical": 0,
+   "new_important": 0
+  },
+  "promoted_to_iter_next": false,
+  "post_shadow_delta_review": {
+   "delta": "comment-only deletion",
+   "verdict": "clean",
+   "reviewed_sha_updated_to": "78caf388bdd650ce4495283f479a08bf5f3c6e8f"
   }
  }
 }
