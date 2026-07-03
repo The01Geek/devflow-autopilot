@@ -6311,6 +6311,10 @@ PA_BARE_ERE='\$\{?CLAUDE_SKILL_DIR\}?"?/'
 # (SKILL_DIR="${CLAUDE_SKILL_DIR…  AND  SKILL_DIR=${CLAUDE_SKILL_DIR…) and digit-bearing
 # names; a command substitution (`VAR=$(…`) has `(` after `$`, so it never matches.
 PA_XSTMT_ERE='[A-Za-z_0-9]+="?\$\{?CLAUDE_SKILL_DIR'
+# PA_WRONGFB_ERE catches a WRONG-fallback anchor — `${CLAUDE_SKILL_DIR:-}` (empty) or any
+# fallback not beginning the sanctioned `<absolute skill base directory …>` placeholder —
+# which passes P1/P1b/P2 yet collapses identically on an empty-var runner.
+PA_WRONGFB_ERE='\$\{CLAUDE_SKILL_DIR:-[^<]'
 PA_FILE_COUNT=0
 for PA_FILE in "$LIB"/../skills/*/SKILL.md "$LIB"/../skills/implement/phases/phase-*.md; do
   PA_NAME="skills/${PA_FILE#"$LIB"/../skills/}"
@@ -6321,6 +6325,8 @@ for PA_FILE in "$LIB"/../skills/*/SKILL.md "$LIB"/../skills/implement/phases/pha
     "$(! grep -qE "$PA_XSTMT_ERE" "$PA_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body: absence pin over the enumerated $PA_FILE loop variable, not a static pin
   assert_eq "#275 pin (P3): $PA_NAME invokes helpers via the portable single-statement inline anchor" "yes" \
     "$(grep -qF "$PORTABLE_ANCHOR_LITERAL" "$PA_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body: presence pin over the enumerated $PA_FILE loop variable; literal recurs per call site by design
+  assert_eq "#275 pin (P1c): $PA_NAME has no wrong-fallback (non-placeholder) CLAUDE_SKILL_DIR expansion" "yes" \
+    "$(! grep -qE "$PA_WRONGFB_ERE" "$PA_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body: absence pin over the enumerated $PA_FILE loop variable
 done
 assert_eq "#275 pin (P0): portable-anchor coverage spans every skill + implement phase file (enumeration reconciled)" \
   "22" "$PA_FILE_COUNT"
@@ -6348,6 +6354,12 @@ if [ "$PA_MUT" != "/dev/null" ]; then
   { cat "$LIB/../skills/create-issue/SKILL.md"; printf '%s\n' 'SKILL_DIR=${CLAUDE_SKILL_DIR:-<x>}'; } > "$PA_MUT"
   assert_eq "#275 mutation proof: the UNQUOTED cross-statement assignment also turns P2 RED" "fires" \
     "$(grep -qE "$PA_XSTMT_ERE" "$PA_MUT" && echo fires || echo misses)"  # raw-guard-ok: mutation proof over a temp copy
+  { cat "$LIB/../skills/create-issue/SKILL.md"; printf '%s\n' '$CLAUDE_SKILL_DIR/../../scripts/injected.sh'; } > "$PA_MUT"
+  assert_eq "#275 mutation proof: the UNBRACED bare expansion also turns P1 RED" "fires" \
+    "$(grep -qE "$PA_BARE_ERE" "$PA_MUT" && echo fires || echo misses)"  # raw-guard-ok: mutation proof over a temp copy
+  { cat "$LIB/../skills/create-issue/SKILL.md"; printf '%s\n' '"${CLAUDE_SKILL_DIR:-}"/../../scripts/injected.sh'; } > "$PA_MUT"
+  assert_eq "#275 mutation proof: an EMPTY-fallback anchor turns P1c RED (clean->detected)" "quiet->fires" \
+    "$(! grep -qE "$PA_WRONGFB_ERE" "$LIB/../skills/create-issue/SKILL.md" && echo quiet || echo dirty)->$(grep -qE "$PA_WRONGFB_ERE" "$PA_MUT" && echo fires || echo misses)"  # raw-guard-ok: mutation proof over a temp copy
   rm -f "$PA_MUT"
 fi
 # Positive per-call-site companions (formerly #241 A2b), retargeted to the inline form:
