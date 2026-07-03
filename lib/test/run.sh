@@ -2431,6 +2431,49 @@ assert_pin_unique "#236 (B) phase-3.3: bounded re-review re-takes a fresh pre-in
   're-run the pre-invocation snapshot block from 3.3 above' "$DEF_SKILL"
 assert_pin_unique "#236 (B) phase-3.3: bounded re-review re-runs the observability-persistence backstop" \
   're-run the observability-persistence backstop block from 3.3 above' "$DEF_SKILL"
+# ── #296: keep the cloud inline review-and-fix loop instrumented ──────────────────────
+# #291's run (PR #292) hand-ran the review engine via direct Agent dispatch under cloud
+# claude-code-action friction, skipped the per-iteration iter-<N>.json write, and lost the
+# effectiveness half of the telemetry. Three ADDITIVE prose invariants close the upstream
+# driver (they do NOT replace the #235/#236 backstop pins above — that backstop is preserved
+# intact per AC4):
+#   (1) the iter-<N>.json emit is a NON-OPTIONAL obligation on EVERY iteration, incl. a
+#       hand-run/degraded path, written via the Write tool (never a shell `>` redirect);
+#   (2) the Phase 3.3 seam authors .devflow/tmp scratch with the Write tool, not `>`;
+#   (3) a cloud claude-code-action denial is NOT the local-tier classifier and NOT license
+#       to leave the instrumented loop.
+# The (1) obligation lives in review-and-fix/SKILL.md ($MAXI_SKILL); (2)+(3) live in the
+# implement Phase 3.3 seam (phases/phase-3-review.md, inside $DEF_SKILL). Each behavioral
+# operative sentence is pinned removal-proof (assert_pin_red_on_removal, PASS->FAIL on a
+# targeted half-revert); the mechanism/naming/restatement pins are literal-constant style
+# (assert_pin_unique), where no operative-vs-framing distinction exists.
+#
+# (1) NON-OPTIONAL EMIT — the operative directive in Step 3 item 7 (the authoritative write
+# site): removing it re-introduces the optional-emit bug on the hand-run path.
+assert_pin_red_on_removal "#296 review-and-fix: deleting the non-optional-emit-on-every-iteration (incl. hand-run) obligation turns its pin RED" \
+  'a non-optional emit on every iteration — including a degraded or hand-run path where the review engine was dispatched directly via `Agent` instead of this Skill' "$MAXI_SKILL"
+# (1b) the Write-tool mechanism the emit must use (never a shell redirect) — mechanism token.
+assert_pin_unique "#296 review-and-fix: Step 3 item 7 specifies the Write-tool mechanism (not a shell redirect)" \
+  'using the Write tool, not a shell `>` redirect' "$MAXI_SKILL"
+# (1c) the Lifecycle bullet's restatement of the every-iteration obligation — restatement pin.
+assert_pin_unique "#296 review-and-fix: the Lifecycle 'Iter N end' bullet restates the every-iteration obligation" \
+  'mandatory on every iteration regardless of how the loop was executed' "$MAXI_SKILL"
+# (1d) the Common Mistakes entry now names the direct-Agent-dispatch hand-run BYPASS (not
+# only the Skill-tool inline-driving case it originally framed) — naming pin.
+assert_pin_unique "#296 review-and-fix: Common Mistakes names the direct-Agent-dispatch hand-run bypass" \
+  'hand-runs the review engine via direct `Agent` dispatch' "$MAXI_SKILL"
+# (2) SEAM SCRATCH DISCIPLINE — the Phase 3.3 seam authors .devflow/tmp scratch/telemetry with
+# the Write tool, not a shell `>` redirect: operative directive, removal re-opens the friction.
+assert_pin_red_on_removal "#296 phase-3.3: deleting the Write-tool-for-.devflow/tmp seam directive turns its pin RED" \
+  'author it with the Write tool, not a shell `>` redirect' "$DEF_SKILL"
+# (2b) the non-optional-emit obligation RESTATED for the inline driver at the seam: operative.
+assert_pin_red_on_removal "#296 phase-3.3: deleting the inline-driver non-optional-emit restatement turns its pin RED" \
+  'the per-iteration effectiveness record (`iter-<N>.json`) is a non-optional emit on every iteration, written with the Write tool' "$DEF_SKILL"
+# (3) MISATTRIBUTION CORRECTION — a cloud claude-code-action denial is not the local-tier
+# classifier and not license to leave the loop: operative sentence, removal re-opens the
+# misattribution the #291 run made.
+assert_pin_red_on_removal "#296 phase-3.3: deleting the 'denial != local classifier != leave-the-loop' correction turns its pin RED" \
+  'that denial is not the local-tier permission classifier, and is not license to abandon the instrumented loop' "$DEF_SKILL"
 # ── #192: review/analysis agents must never mutate the live working tree ──────────────
 # Two coupled layers, each pinned with a mutation-proven assert_pin_red_on_removal so a
 # half-applied removal of the contract turns the suite RED (issue #192 AC4):
