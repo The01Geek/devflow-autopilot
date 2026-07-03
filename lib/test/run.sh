@@ -10936,7 +10936,7 @@ assert_pin_unique "#187 implement prompt-extension mandates the chore: bump vers
 # searches, coupled to the implement extension's `## [x.y.z]` producer so a heading-convention
 # drift cannot silently no-op reconciliation on one side only.
 assert_pin_unique "#187 docs-release-notes Step 4b reads the shipped version from the plugin.json manifest (not the commit subject)" \
-  'jq -r .version .claude-plugin/plugin.json' "$FDROOT/skills/docs-release-notes/SKILL.md"
+  'run-jq.sh -r .version .claude-plugin/plugin.json' "$FDROOT/skills/docs-release-notes/SKILL.md"
 assert_pin_unique "#187 docs-release-notes Step 4b scans the origin/main..HEAD two-dot commit range" \
   'git log --oneline origin/main..HEAD' "$FDROOT/skills/docs-release-notes/SKILL.md"
 assert_pin_unique "#187 docs-release-notes Step 4b searches the bracketed Keep-a-Changelog heading (consumer side)" \
@@ -11695,16 +11695,21 @@ EOF
   assert_eq "#225 install.sh: provisioner refusal → offer_python3_shim still returns 0 (non-aborting)" "yes" \
     "$(printf '%s' "$OFFER_OUT_R" | grep -q 'ret=0' && echo yes || echo no)"
 
-  # ── AC11: no .github/ workflow, action, or allowlist entry is modified by this change. ──
-  if git -C "$REPO_ROOT" rev-parse --verify origin/main >/dev/null 2>&1; then
-    GH_CHANGED="$(git -C "$REPO_ROOT" diff --name-only origin/main -- .github 2>/dev/null)"
-    assert_eq "#225 no .github/ path modified vs origin/main (AC11)" "" "$GH_CHANGED"
-  else
-    # origin/main is not resolvable (shallow/detached checkout) — record an explicit skip
-    # breadcrumb rather than silently passing AC11 (the silent-skip anti-pattern the REAL_PY
-    # guard above avoids). CI fetches origin/main, so the assertion runs there.
-    printf '  SKIP  #225 AC11 (.github no-diff): origin/main not resolvable in this checkout — verified in CI\n'
-  fi
+  # ── AC11 (#225) RETIRED by #271. This was a branch-wide `.github`-freeze
+  #    (`git diff --name-only origin/main -- .github` must be empty), written to
+  #    assert #225's own python-shim change touched no `.github/` path. As a
+  #    STANDING suite assertion it is over-broad: it fires on EVERY later branch
+  #    that legitimately edits `.github/` — e.g. #271 itself, which adds the
+  #    `Bash(.devflow/vendor/devflow/scripts/run-jq.sh:*)` grant to
+  #    devflow-implement.yml + devflow-runner.yml + devflow.yml so the
+  #    cloud-governed skills can invoke the run-jq.sh wrapper. It cannot
+  #    distinguish #225's diff from any
+  #    other, so it can only be satisfied by never changing `.github/` again —
+  #    which is not a real invariant. The load-bearing `.github/` invariants that
+  #    DO warrant a standing guard (the workflow partition invariant, per-workflow
+  #    allowlist correctness, the vendored-path/exec-bit contracts, the react-to-
+  #    trigger wiring) are each covered by their own dedicated tests elsewhere in
+  #    this suite, so retiring this catch-all loses no real coverage.
 
   # ── AC12: the three docs document the Windows interpreter-resolution path. ──
   for _doc in CONTRIBUTING.md docs/install.md docs/DEVFLOW_SYSTEM_OVERVIEW.md; do
@@ -12518,38 +12523,48 @@ DJQ_BARE="$(grep -rnE '(^|[[:space:]|&;(`])jq[[:space:]]+(-|'"'"'|"|\.|empty|len
   | grep -v '/test/' | grep -v 'resolve-bin\.sh:' | grep -vE '^[^:]+:[0-9]+:[[:space:]]*#' | grep -vE 'jq(\.exe)? --version' | grep -c . || true)"
 assert_eq "#247 peer-completeness: no bare invocation-position jq call survives outside the resolver" "0" "$DJQ_BARE"
 
-# ── Skills-tier jq pin (issue #253) — the DJQ_BARE grep above is scoped to
-#    *.sh and never sees skill bodies, so agent-composed `jq` inside SKILL.md
-#    fenced blocks was invisible to the #247 contract. On a shim-shadowed
+# ── Skills-tier jq pin (issue #253, widened by #271) — the DJQ_BARE grep above
+#    is scoped to *.sh and never sees skill bodies, so agent-composed `jq` inside
+#    SKILL.md fenced blocks was invisible to the #247 contract. On a shim-shadowed
 #    Windows/WSL host a bare agent-typed `jq` hits the same present-but-
 #    unrunnable-shim defect #247 fixed for the helpers. This pin holds every
-#    executable jq in the RETROSPECTIVE skill bodies to the agent-tier wrapper
+#    executable jq in EVERY skill body to the agent-tier wrapper
 #    scripts/run-jq.sh (which sources the shared resolver — DEVFLOW_JQ is not
 #    exported to agent shells, so a callable-by-path wrapper is the agent-tier
 #    equivalent of the .sh source-once idiom).
-#    SCOPE — retrospective family only (retrospective-weekly / retrospective /
-#    retrospective-audit): that is the LOCAL weekly loop, the primary
-#    shim-shadow exposure (it runs on the maintainer's own WSL2/Windows host).
-#    The cloud-governed implement/docs-release-notes jq sites are deliberately
-#    OUT of scope here: they run predominantly on the Linux cloud runner (where
-#    jq is not shadowed), and migrating them would require adding the wrapper to
-#    the cloud allowlist in .github/workflows/devflow-implement.yml — a change
-#    the standing #225 AC11 `.github`-freeze guard forbids, so it belongs to a
-#    separate, deliberate follow-up (see the issue #253 workpad). Widening this
-#    grep to all skills would fail RED on those intentionally-deferred sites.
+#    SCOPE — all skill bodies. #253 originally scoped this to the retrospective
+#    family (the LOCAL weekly loop); #271 migrated the remaining cloud-governed
+#    executable jq sites (skills/implement/SKILL.md, phases/phase-4-documentation.md,
+#    docs-release-notes/SKILL.md) to the wrapper and added the wrapper to the cloud
+#    allowlist in .github/workflows/devflow-implement.yml + devflow-runner.yml +
+#    devflow.yml, so they are now IN scope: the find below no longer restricts to
+#    *retrospective*.
+#    (The skills/review/SKILL.md trace example is in INLINE-backtick prose (now
+#    `run-jq.sh -n`), not a shell fence, so it is outside this awk-fence pin's reach —
+#    #271 migrated it too; its regression guard is the dedicated review-site pin below,
+#    and its cloud grant is the coupled allowlist edit, not this awk-fence pin.)
 #    Fence scope: lines inside ```bash / ```sh / ```shell fences only, so
 #    inline-backtick prose mentions of `jq -n` and non-shell (```json / ```dot /
 #    output) fences never false-match. ──
 # Positive pin: the wrapper exists and references the shared jq resolver.
 assert_eq "#253 skills-jq: scripts/run-jq.sh exists and references the shared jq resolver" "yes" \
   "$([ -f "$LIB/../scripts/run-jq.sh" ] && grep -q 'resolve-jq\.sh' "$LIB/../scripts/run-jq.sh" && echo yes || echo no)"
+# The wrapper's whole purpose is a cloud-tier by-path leading-token invocation
+# (`.devflow/vendor/devflow/scripts/run-jq.sh …`), which requires the COMMITTED
+# file to carry the executable bit — a dropped bit silently breaks the cloud
+# invocation with no other failing test (the coverage above runs it via `bash
+# "$RJQ_SH"`, which does not exercise the bit). Pin the git INDEX mode (what
+# ships), not the working-tree `-x` (which reflects local perms), mirroring the
+# comparable by-path helper lib/efficiency-trace.sh. (PR #274 review, Important.)
+assert_eq "#253 skills-jq: scripts/run-jq.sh is committed executable (100755)" "100755" \
+  "$(cd "$LIB/.." && git ls-files -s scripts/run-jq.sh | awk '{print $1}')"
 # Absence pin: no bare invocation-position jq survives inside a shell fenced
-# block of a retrospective skill body. The awk captures only ```bash/```sh/
+# block of ANY skill body. The awk captures only ```bash/```sh/
 # ```shell block bodies (state reset per file); the grep shape mirrors DJQ_BARE
 # (flag/quoted-program/path/bareword-filter forms), excluding the resolver's own
 # `--version` probe shape and the wrapper path itself.
 SKILL_JQ_BARE="$(
-  find "$LIB/../skills" -type f -name '*.md' -path '*retrospective*' 2>/dev/null | while IFS= read -r _f; do
+  find "$LIB/../skills" -type f -name '*.md' 2>/dev/null | while IFS= read -r _f; do
     awk '
       /^[[:space:]]*```(bash|sh|shell)[[:space:]]*$/ { inb=1; next }
       /^[[:space:]]*```[[:space:]]*$/ { inb=0; next }
@@ -12559,7 +12574,51 @@ SKILL_JQ_BARE="$(
   | grep -v 'run-jq\.sh' \
   | grep -E '(^|[[:space:]|&;(`])jq[[:space:]]+(-|'"'"'|"|\.|empty|length|keys|type|to_entries)' \
   | grep -vE 'jq(\.exe)? --version' | grep -c . || true)"
-assert_eq "#253 skills-jq: no bare invocation-position jq survives in a retrospective-skill shell fenced block" "0" "$SKILL_JQ_BARE"
+assert_eq "#253 skills-jq: no bare invocation-position jq survives in any skill shell fenced block" "0" "$SKILL_JQ_BARE"
+
+# ── #271 coupled-invariant pins: the skill-body run-jq.sh migration is one half of a
+#    two-sided contract — the cloud-governed skills invoke the wrapper BY PATH as the
+#    command's leading token (`.devflow/vendor/devflow/scripts/run-jq.sh`), which the
+#    cloud permission profile silently DENIES unless the workflow allowlist grants it
+#    (the CLAUDE.md LEADING-token gotcha). Pin the grant at both cloud writer/runner
+#    profiles so a dropped/reformatted allowlist entry goes RED here rather than
+#    silently no-op'ing the migration in cloud (and because #271 retired the AC11
+#    `.github`-freeze, this is now the only guard on this `.github` side of the couple).
+IMPL_WF="$LIB/../.github/workflows/devflow-implement.yml"
+RUNNER_WF="$LIB/../.github/workflows/devflow-runner.yml"
+# devflow.yml is the THIRD governing workflow — the light command listener that
+# runs a MANUAL bare `/devflow:review` / `/devflow:review-and-fix` comment, so it
+# also executes the migrated skills/review/SKILL.md Phase 4.5 trace-authoring site
+# (`run-jq.sh` by path). Its inline allowlist must grant the wrapper too or the
+# by-path head is silently denied on that trigger, dropping the telemetry trace a
+# bare `jq -n` previously authored (raised by PR #274 review, Important).
+LIGHT_WF="$LIB/../.github/workflows/devflow.yml"
+assert_eq "#271 coupled: devflow-implement.yml allowlists the run-jq.sh wrapper by vendored path" "1" \
+  "$(grep -cF 'Bash(.devflow/vendor/devflow/scripts/run-jq.sh:*)' "$IMPL_WF" || true)"
+assert_eq "#271 coupled: devflow-runner.yml (read-only review profile) allowlists the run-jq.sh wrapper" "1" \
+  "$(grep -cF 'Bash(.devflow/vendor/devflow/scripts/run-jq.sh:*)' "$RUNNER_WF" || true)"
+assert_eq "#271 coupled: devflow.yml (manual-comment review listener) allowlists the run-jq.sh wrapper" "1" \
+  "$(grep -cF 'Bash(.devflow/vendor/devflow/scripts/run-jq.sh:*)' "$LIGHT_WF" || true)"
+# The skills/review/SKILL.md trace-authoring example sits in INLINE-backtick prose, so the
+# awk-fence absence pin above cannot reach it — pin it directly so a revert of that site to
+# a bare `jq -n` goes RED (it is one of the four #271-migrated sites and would otherwise have
+# no regression guard). Target-unique: `--argjson findings` follows run-jq.sh only in the
+# trace example, so assert_pin_unique proves PASS-with-the-literal → FAIL-without-it.
+assert_pin_unique "#271 coupled: skills/review/SKILL.md trace example invokes the run-jq.sh wrapper (not bare jq -n)" \
+  'scripts/run-jq.sh -n --argjson findings' "$LIB/../skills/review/SKILL.md"
+# The implement/SKILL.md reaction-comment read and the phase-4 deferrals merge are
+# fenced-block sites covered by the awk absence pin above, but that pin is *negative*
+# only — it goes RED on a reintroduced BARE jq, yet stays GREEN if the site is
+# refactored away from jq entirely (deleting the migrated wrapper call with it),
+# silently dropping the migration at that site with no failing test. Pin each
+# positively so a removal/refactor of the wrapper call goes RED too (PR #274 review,
+# Suggestion — parity with the review/docs-release-notes sites' positive guards).
+# Target-unique substrings: `run-jq.sh -r '.comment.id` occurs only at the reaction
+# read; `run-jq.sh -s '.[0] as $f` only at the phase-4 merge.
+assert_pin_unique "#271 coupled: skills/implement/SKILL.md reaction-comment read invokes the run-jq.sh wrapper" \
+  "scripts/run-jq.sh -r '.comment.id" "$LIB/../skills/implement/SKILL.md"
+assert_pin_unique "#271 coupled: phase-4-documentation.md deferrals merge invokes the run-jq.sh wrapper" \
+  "scripts/run-jq.sh -s '.[0] as \$f" "$LIB/../skills/implement/phases/phase-4-documentation.md"
 
 # Mutation check: the absence pin above only proves "count is 0 today" — it does not
 # prove the awk fence-parser + grep would actually *catch* a reintroduced bare jq (a
@@ -12787,15 +12846,16 @@ PY
 )"
 assert_eq "#266 config example+schema carry coupled stall_backstop keys (types/defaults/additionalProperties)" "yes" "$CFG266"
 
-# NOTE: the workflow-wiring pins (the stall-backstop step in
-# devflow-implement.yml reads the config keys, calls the decision helper, and
-# re-dispatches) plus the AC11 (#225) `.github`-freeze reconciliation are
-# DEFERRED to a follow-up issue: pushing a `.github/workflows/` edit needs a
-# token carrying `workflows:write` (the optional DEVFLOW_APP_ID App), which this
-# run's token lacks. The reusable primitives below (decision helper, REST comment
-# helper, workpad status read, config keys) ship and are fully pinned here; the
-# thin workflow caller lands with the follow-up. See the parent issue's Phase 4.0
-# follow-up for the exact workflow step + its pins.
+# NOTE: the stall-backstop workflow-wiring pins (the step in
+# devflow-implement.yml that reads the config keys, calls the decision helper, and
+# re-dispatches) are DEFERRED to a follow-up issue: pushing a `.github/workflows/`
+# edit needs a token carrying `workflows:write` (the optional DEVFLOW_APP_ID App),
+# which #266's run lacked. The reusable primitives below (decision helper, REST
+# comment helper, workpad status read, config keys) ship and are fully pinned here;
+# the thin workflow caller lands with the follow-up. See the parent issue's Phase 4.0
+# follow-up for the exact workflow step + its pins. (The AC11 (#225) `.github`-freeze
+# reconciliation this note originally also deferred is no longer pending — #271
+# retired that over-broad freeze; see the "AC11 (#225) RETIRED by #271" block above.)
 
 # workpad.py status subcommand is registered (the backstop's status read path).
 assert_eq "#266 workpad.py: status subcommand registered (func=cmd_status)" "yes" \
