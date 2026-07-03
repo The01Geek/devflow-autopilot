@@ -62,8 +62,8 @@
 # successful lookup; it gates finalize_check's irreversible stale-REJECT
 # dismissal exactly as before. Every no-verdict/unverifiable path emits
 # `incomplete`/`false` with a SPECIFIC stderr breadcrumb naming which condition
-# fired. Always exits 0 (best-effort, like dismiss-stale-rejections.sh) — the
-# caller reads the verdict, not the exit code.
+# fired. Always exits 0 (best-effort — the caller reads the verdict, not the
+# exit code).
 #
 # $DEVFLOW_GH overrides the `gh` binary and $DEVFLOW_JQ the `jq` binary (the same
 # seams the rest of devflow uses; both honored by the sourced resolvers below).
@@ -183,8 +183,8 @@ fi
 #    array into [[...]] and concatenated pages into [[...],[...]], and `add`
 #    flattens both to one review list (a non-array payload with scalar values —
 #    the real gh error-object shape — still errors in `map()`, keeping the parse
-#    guard live; an all-empty input errors in `add|map` likewise — fail-closed
-#    either way).
+#    guard live; an all-empty input slurps to [] whose `add` yields null and
+#    `map` then errors — fail-closed either way).
 DRV_STATE_FILTER='add | map(select(.commit_id == $h and (((.state // "") | IN("APPROVED","CHANGES_REQUESTED")) or (((.state // "") == "COMMENTED") and ((.body // "") | test("(?:^|\\n)##[[:space:]]+Verdict:")))))) | last'
 if ! STATE=$(printf '%s' "$REVIEWS_JSON" | "$DEVFLOW_JQ" -rs --arg h "$HEAD_SHA" \
           "$DRV_STATE_FILTER | (.state // \"\")" 2>/dev/null); then
@@ -198,13 +198,16 @@ if ! RBODY=$(printf '%s' "$REVIEWS_JSON" | "$DEVFLOW_JQ" -rs --arg h "$HEAD_SHA"
 fi
 
 # REJECT first (fail toward blocking): a CHANGES_REQUESTED, or a REJECT verdict
-# marker, on the HEAD review.
-if [ "$STATE" = "CHANGES_REQUESTED" ] || printf '%s\n' "$RBODY" | grep -qE "$REJECT_RE"; then
+# marker, on the HEAD review. Herestrings, not `printf | grep -q`: under
+# `set -o pipefail`, grep -q exits at the first match and a large body can give
+# printf SIGPIPE (rc 141), nondeterministically reading a REAL marker as
+# no-match — a full-report review body is exactly the large-body case.
+if [ "$STATE" = "CHANGES_REQUESTED" ] || grep -qE "$REJECT_RE" <<<"$RBODY"; then
   emit reject true
 fi
 # Positively-observed APPROVE on HEAD: a clean APPROVED, or the APPROVE verdict
 # marker on a COMMENTED (approve-with-notes/caveat) review.
-if [ "$STATE" = "APPROVED" ] || printf '%s\n' "$RBODY" | grep -qE "$APPROVE_RE"; then
+if [ "$STATE" = "APPROVED" ] || grep -qE "$APPROVE_RE" <<<"$RBODY"; then
   emit approve true
 fi
 
@@ -234,10 +237,11 @@ if ! CBODY=$(printf '%s' "$COMMENTS_JSON" | "$DEVFLOW_JQ" -rs --arg m "$MARKER" 
   emit incomplete false
 fi
 
-if printf '%s\n' "$CBODY" | grep -qE "$REJECT_RE"; then
+# Herestrings for the same SIGPIPE/pipefail reason as the review-body greps.
+if grep -qE "$REJECT_RE" <<<"$CBODY"; then
   emit reject true
 fi
-if printf '%s\n' "$CBODY" | grep -qE "$APPROVE_RE"; then
+if grep -qE "$APPROVE_RE" <<<"$CBODY"; then
   emit approve true
 fi
 

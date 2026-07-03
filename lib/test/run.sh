@@ -6756,7 +6756,8 @@ HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DE
   drv "#249 marker-less human COMMENTED on HEAD does not mask a genuine APPROVED -> approve" "approve true"
 
 # Empty-stdout payload (gh exits 0 with no body — truncated/degraded proxy):
-# must take the PARSE guard (add|map errors on the slurped empty input), never
+# must take the PARSE guard (the slurped empty input becomes [], `add` yields
+# null, and `map` then errors), never
 # fall through to the comment fallback. APPROVE comment behind — non-vacuous.
 HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
   DRV_REVIEWS="" \
@@ -6785,6 +6786,30 @@ HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DE
 DRV_NOEE_OUT="$(env -u ENGINE_ERROR HEAD_SHA="$DRV_NEW" PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
   DRV_REVIEWS="[{\"state\":\"APPROVED\",\"commit_id\":\"$DRV_NEW\"}]" bash "$DRV" 2>/dev/null | sed -n 's/^verdict=//p')"
 assert_eq "#249 absent ENGINE_ERROR defaults to false (version-skew degradation) -> approve" "approve" "$DRV_NOEE_OUT"
+
+# Large-body verdict artifact (SIGPIPE regression class): under pipefail a
+# `printf | grep -q` pipeline could take SIGPIPE on a >64KB body and read a
+# REAL marker as no-match; the herestring form must stay deterministic. The
+# body is the full-report shape (marker first line + ~100KB of report text —
+# comfortably past the 64KB pipe buffer yet under the ~128KB per-env-var
+# execve limit the stub invocation must respect).
+DRV_BIGPAD="$(printf 'x%.0s' $(seq 1 4000))"
+DRV_BIG_TAIL=""
+for _i in $(seq 1 25); do DRV_BIG_TAIL="${DRV_BIG_TAIL}${DRV_BIGPAD}\n"; done
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"COMMENTED\",\"commit_id\":\"$DRV_NEW\",\"body\":\"## Verdict: APPROVE with notes\n$DRV_BIG_TAIL\"}]" \
+  drv "#249 large (~100KB) APPROVE-with-notes body -> approve (no SIGPIPE false-nomatch)" "approve true"
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"COMMENTED\",\"commit_id\":\"$DRV_NEW\",\"body\":\"## Verdict: REJECT big\n$DRV_BIG_TAIL\"}]" \
+  drv "#249 large (~100KB) REJECT body -> reject (no SIGPIPE false-nomatch)" "reject true"
+
+# A verdict-BEARING marker with an unrecognized token (e.g. a frozen
+# '## Verdict: (pending)'-like wording drift) is selected but matches neither
+# marker regex -> falls through -> incomplete (fail closed), never a masked
+# approve from the earlier review and never a fabricated verdict.
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"APPROVED\",\"commit_id\":\"$DRV_NEW\"},{\"state\":\"COMMENTED\",\"commit_id\":\"$DRV_NEW\",\"body\":\"## Verdict: NEEDS-DISCUSSION\"}]" \
+  drv "#249 unrecognized verdict token on last verdict-bearing HEAD review -> incomplete (fail closed, pinned)" "incomplete false"
 
 # always exits 0 (best-effort; caller reads the verdict, not the exit code).
 ( HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER="" GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" bash "$DRV" >/dev/null 2>&1 ); DRV_RC=$?
@@ -6841,6 +6866,15 @@ assert_eq "#249 parse-engine-error: is_error=true on a non-result object -> fals
 # refactor: an errored mid-stream result followed by a clean final one -> true)
 printf '%s' '[{"type":"result","is_error":true},{"type":"result","is_error":false}]' > "$PEE_TMP/two_results.json"
 assert_eq "#249 parse-engine-error: two result events [true,false] -> true (ANY-wins pinned, not last-wins)" "true" "$(bash "$PEE" "$PEE_TMP/two_results.json" 2>/dev/null)"
+# Truncated-tail JSONL (engine died mid-write): the -s slurp fails on the whole
+# file, so even a complete is_error=true line above the truncation reads false
+# + the jq-failure breadcrumb. Deliberate, documented trade-off pinned here:
+# is_error is defense-in-depth; the deriver's no-verdict-for-HEAD arm is what
+# actually fails the crashed run closed.
+printf '{"type":"result","is_error":true}\n{"type":"sys' > "$PEE_TMP/trunc_tail.json"
+assert_eq "#249 parse-engine-error: truncated-tail JSONL -> false (fail-safe; deriver HEAD-scoping is the real guard)" "false" "$(bash "$PEE" "$PEE_TMP/trunc_tail.json" 2>/dev/null)"
+assert_eq "#249 parse-engine-error: truncated-tail JSONL emits the jq-failure breadcrumb" "yes" \
+  "$(bash "$PEE" "$PEE_TMP/trunc_tail.json" 2>&1 1>/dev/null | grep -qF "jq failed parsing" && echo yes || echo no)"
 # fail-safe arms leave breadcrumbs, never a silent false: a disarmed signal
 # (renamed execution_file output, broken jq) must be visible in the job log.
 assert_eq "#249 parse-engine-error: missing-file arm emits the 'execution file absent' breadcrumb" "yes" \
