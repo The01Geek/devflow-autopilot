@@ -163,6 +163,16 @@ rotated key) **fails the job at the mint step** — there is no silent fall-back
 `GITHUB_TOKEN`. The read-only reviewer (`devflow-runner.yml`) is untouched: it never
 edits files and keeps the plain `GITHUB_TOKEN`.
 
+The same App token also powers the implement workflow's **stall-backstop
+auto-resume** (see `docs/implement-skill.md`): a `/devflow:implement <#>` resume
+comment authored by the built-in `GITHUB_TOKEN` never re-triggers the workflow
+(GitHub suppresses recursive `GITHUB_TOKEN` events), so without the App the
+backstop posts its resume comment and then fails the job loud instead of
+pretending the resume happened — a human re-posts the trigger comment manually.
+With the App configured, also add the App's bot login (e.g. `your-app[bot]`) to
+`devflow.allowed_bots` in `.devflow/config.json`, or the gate's actor
+authorization declines the App-authored resume comment.
+
 > **Loop-safety note.** Unlike `GITHUB_TOKEN` pushes (which GitHub suppresses from
 > re-triggering workflows), an **App-token push re-triggers workflows**. For DevFlow
 > this is mostly desirable (a push to a non-draft PR re-runs `Devflow Review` on its
