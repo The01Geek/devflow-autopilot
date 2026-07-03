@@ -201,6 +201,20 @@ def cmd_body(args):
     sys.stdout.write(r.stdout)
 
 
+def _is_recognized_status_word(word: str) -> bool:
+    """True if `word` (already glyph-stripped) is a canonical Status word.
+
+    Single-sourced from `_STATUS_TO_PROGRESS_PHASE`'s keys (every in-progress
+    phase word) unioned with the terminal words 'complete'/'blocked', matched
+    the same way `_status_glyph` itself matches them (a `startswith` prefix
+    check) so this recognition check never disagrees with what `_status_glyph`
+    already treats as a terminal glyph. No independent hardcoded word list."""
+    s = word.strip().lower()
+    if s in _STATUS_TO_PROGRESS_PHASE:
+        return True
+    return s.startswith('complete') or s.startswith('blocked')
+
+
 def cmd_status(args):
     """Print the workpad Status as `CLASS GLYPH WORD` (e.g. 'interim 🚀 Reviewing').
 
@@ -210,8 +224,9 @@ def cmd_status(args):
     glyph vocabulary ad hoc. Exit codes mirror `id` so a caller can fail closed:
       0  status printed
       2  no workpad comment exists for this issue (scanned OK, none matched)
-      1  gh api / parse error, OR the workpad exists but its Status line is
-         missing/empty (present-but-unreadable — distinct from 'no workpad').
+      1  gh api / parse error, the workpad exists but its Status line is
+         missing/empty, OR the Status line has a value that isn't a recognized
+         status word (present-but-unreadable — distinct from 'no workpad').
     The cloud stall backstop maps exit 2 and exit 1 alike to the 'unreadable'
     decision class (fail closed), while a healthy run prints a class it can act
     on."""
@@ -231,6 +246,14 @@ def cmd_status(args):
     if not word:
         sys.stderr.write(
             "workpad.py status: workpad Status line has no value\n"
+        )
+        sys.exit(1)
+    if not _is_recognized_status_word(word):
+        sys.stderr.write(
+            f"workpad.py status: workpad Status word {word!r} is not a "
+            "recognized status (expected one of Setup/Discovering/"
+            "Reproducing/Planning/Implementing/Reviewing/Documenting/"
+            "Complete/Blocked) — present-but-unreadable\n"
         )
         sys.exit(1)
     glyph = _status_glyph(word)
