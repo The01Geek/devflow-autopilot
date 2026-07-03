@@ -6336,7 +6336,7 @@ for PA_FILE in "$LIB"/../skills/*/SKILL.md "$LIB"/../skills/implement/phases/pha
   # (`<absXYZ>` — past PA_WRONGFB_ERE's 4-char enumeration) cannot hide behind one correct
   # call site elsewhere in the file (P3 alone is presence-only).
   assert_eq "#275 pin (P3c): $PA_NAME: every CLAUDE_SKILL_DIR expansion carries the full sanctioned placeholder" "yes" \
-    "$([ "$(grep -oF '\${CLAUDE_SKILL_DIR:' "$PA_FILE" | grep -c .)" = "$(grep -oF '\${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}' "$PA_FILE" | grep -c .)" ] && echo yes || echo no)"  # raw-guard-ok: loop body: count-equality check over the enumerated $PA_FILE loop variable
+    "$([ "$(grep -oF '${CLAUDE_SKILL_DIR:' "$PA_FILE" | grep -c .)" = "$(grep -oF '${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}' "$PA_FILE" | grep -c .)" ] && echo yes || echo no)"  # raw-guard-ok: loop body: count-equality check over the enumerated $PA_FILE loop variable
 done
 assert_eq "#275 pin (P0): portable-anchor coverage spans every skill + implement phase file (enumeration reconciled)" \
   "22" "$PA_FILE_COUNT"
@@ -6453,9 +6453,11 @@ assert_pin_unique "#275 pin (P4-ci): create-issue preamble carries the never-cap
 # actually reached — catching a quoting/expansion defect in the literal (a moved quote, a
 # glob-active placeholder char) that would break all 22 files in lockstep while every
 # static pin stayed GREEN. load-prompt-extension.sh with a bogus skill name exits 0 and
-# prints nothing (absent extension = no-op), so reaching it IS the observable.
+# prints nothing (the repo tracks only docs.md.example, no live docs.md), so a
+# clean rc-0 no-op IS the observable.
 PA_BEHAV_CMD="$PORTABLE_ANCHOR_LITERAL"'scripts/load-prompt-extension.sh docs'
 PA_BEHAV_OUT="$(cd "$LIB/.." && CLAUDE_SKILL_DIR="$PWD/skills/docs" bash -c "$PA_BEHAV_CMD" 2>&1)"; PA_BEHAV_RC=$?
+assert_eq "#275 behavioral: the no-extension helper run prints nothing (clean no-op observable)" "" "$PA_BEHAV_OUT"
 assert_eq "#275 behavioral: the canonical anchor literal executes and reaches the helper (CLAUDE_SKILL_DIR set)" "0" "$PA_BEHAV_RC"
 # And with the var EMPTY the same literal must fail (the placeholder is not a real path) —
 # proving the fallback text is inert as a path, not accidentally resolvable.
