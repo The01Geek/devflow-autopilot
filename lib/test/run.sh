@@ -836,11 +836,16 @@ assert_eq "deferred.labels: SKILL Phase 4.0 no longer instructs 'add no --label'
 # channels (4.0 + 4.0.5) must carry the exact deferred pipeline → require EXACTLY 2.
 assert_eq "deferred.labels: SKILL keeps the exact normalization pipeline in BOTH channels" "yes" \
   "$([ "$(grep -cF 'CLEAN_DEFERRED_LABELS=$(echo "$DEFERRED_LABELS" | tr '"'"','"'"' '"'"'\n'"'"' | sed '"'"'s/^[[:space:]]*//; s/[[:space:]]*$//'"'"' | grep -v '"'"'^$'"'"' | paste -sd, -)' "$DEF_SKILL")" -eq 2 ] && echo yes || echo no)"  # raw-guard-ok: count-based: asserts ==2 occurrences (both channels), not single-presence
-# Pin the rc-capture: a hard config-get read failure must be attributable, not silently
-# collapsed into the deliberately-empty-value path. The if-condition idiom keeps the
-# capture alive under set -e.
-assert_eq "deferred.labels: SKILL captures config-get rc (read-failure breadcrumb, set-e-safe)" "yes" \
-  "$(grep -qF 'then DEFERRED_LABELS_RC=0; else DEFERRED_LABELS_RC=$?; fi' "$DEF_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: token appears in BOTH deferral channels (4.0+4.0.5)
+# Pin the read-failure discrimination: a hard config-get read failure must be attributable,
+# not silently collapsed into the deliberately-empty-value path. Issue #284 moved this to a
+# single-statement `if !` that reads config-get's OWN exit status inline (no captured rc read
+# in a later statement — the inline-bash cross-statement-variable-stripping hazard) and is
+# also `set -e`-exempt. Pin the new idiom in BOTH deferral channels (4.0 + 4.0.5).
+assert_eq "deferred.labels: SKILL discriminates config-get read failure via single-statement if! (both channels)" "yes" \
+  "$([ "$(grep -cF 'if ! DEFERRED_LABELS=$(' "$DEF_SKILL")" -eq 2 ] && echo yes || echo no)"  # raw-guard-ok: count-based: asserts ==2 occurrences (both channels)
+# The old captured-rc recipe must be GONE (its reintroduction is the #284 hazard):
+assert_eq "deferred.labels: SKILL no longer carries the old DEFERRED_LABELS_RC capture-then-read recipe" "no" \
+  "$(grep -qF 'DEFERRED_LABELS_RC' "$DEF_SKILL" && echo yes || echo no)"  # raw-guard-ok: absence pin: the captured-rc var is GONE (expected no)
 # Pin the durable (workpad) breadcrumb on a failed label application — the feature's most
 # likely real-world failure must not be stderr-only (ephemeral in autonomous cloud runs).
 assert_eq "deferred.labels: SKILL routes a failed label-apply to a durable workpad reflection" "yes" \
@@ -974,11 +979,16 @@ assert_eq "sev: config-get returns the default on an unset key" "important" "$("
 assert_eq "sev: config-get returns the default on a missing config file" "important" "$("$CG" .devflow_review_and_fix.fix_severity_threshold important /no/such/config.json)"
 rm -f "$ST_CFG"
 
-# sev_normalize is a byte-aligned copy of the inline case block in all three SKILLs (kept in
-# lockstep via the pins below). Exercises the fallback matrix the SKILLs run at runtime.
+# sev_normalize models the migrated SKILL flow in all three SKILLs (#284; kept in lockstep
+# via the value-only enum pins below). The SKILLs no longer use a single `"$RC:$VALUE"` case:
+# the resolver-failure arm is handled first by a single-statement `if !` (rc≠0 → default),
+# then a VALUE-ONLY `case` validates the enum. This helper mirrors that two-step flow, and
+# the fallback matrix below (rc≠0 → default, bad enum → default, valid → kept) is unchanged.
 sev_normalize() {  # rc raw default -> the validated severity
-  case "$1:$2" in
-    0:critical|0:important|0:suggestion) printf '%s\n' "$2" ;;
+  local val="$2"
+  [ "$1" -eq 0 ] || val="$3"        # rc≠0 → default (the SKILL's `if !` resolver-failure branch)
+  case "$val" in
+    critical|important|suggestion) printf '%s\n' "$val" ;;
     *) printf '%s\n' "$3" ;;
   esac
 }
@@ -1028,10 +1038,14 @@ ST_RCV="$LIB/../skills/receiving-code-review/SKILL.md"
 assert_pin_unique "sev(raf): reads fix_severity_threshold via config-get.sh" '/../../scripts/config-get.sh .devflow_review_and_fix.fix_severity_threshold important' "$ST_RAF"
 assert_pin_unique "sev(rev): reads verdict_severity_threshold via config-get.sh" '/../../scripts/config-get.sh .devflow_review.verdict_severity_threshold critical' "$ST_REV"
 assert_pin_unique "sev(rcv): reads receiving_review key via config-get.sh (anchor pattern)" 'config-get.sh .receiving_review.fix_severity_threshold critical' "$ST_RCV"
-# each SKILL enum-validates inline (the case block config-get.sh does not do) — one per file
-assert_pin_unique "sev(raf): enum-validates the threshold inline" '0:critical|0:important|0:suggestion' "$ST_RAF"
-assert_pin_unique "sev(rev): enum-validates the threshold inline" '0:critical|0:important|0:suggestion' "$ST_REV"
-assert_pin_unique "sev(rcv): enum-validates the threshold inline" '0:critical|0:important|0:suggestion' "$ST_RCV"
+# each SKILL enum-validates inline (the case block config-get.sh does not do) — one per
+# file. The case now switches on the VALUE alone (`case "$VALUE"`), NOT the old
+# `"$RC:$VALUE"` form: issue #284 moved the resolver-failure discrimination to a single-
+# statement `if !` (which reads config-get's own exit status inline) so no captured rc is
+# read in a later statement (the inline-bash cross-statement-variable-stripping hazard).
+assert_pin_unique "sev(raf): enum-validates the threshold inline (value-only case)" 'critical|important|suggestion)' "$ST_RAF"
+assert_pin_unique "sev(rev): enum-validates the threshold inline (value-only case)" 'critical|important|suggestion)' "$ST_REV"
+assert_pin_unique "sev(rcv): enum-validates the threshold inline (value-only case)" 'critical|important|suggestion)' "$ST_RCV"
 # routing / verdict / re-open behavior sentences
 assert_pin_unique "sev(raf): routes findings at or above the loop threshold" 'any finding whose severity is at or above `$FIX_THRESHOLD`' "$ST_RAF"
 assert_pin_unique "sev(raf): REJECT-driver widening tagline" 'no configuration combination produces a REJECT the fixer is configured to ignore' "$ST_RAF"
@@ -3698,10 +3712,15 @@ assert_pin_unique "#190: Phase 4.1 Stage 2 self-heal re-check is remote-anchored
 # PR #190 fix-loop: the EXTRACTION side (gh issue view | helper) must read the
 # exit status, not stdout emptiness — a failed gh issue view (auth/network/wrong
 # number) emits empty stdout indistinguishable from a genuinely empty bullet and
-# would silently disable the whole gate. Both stages capture GH_RC/HELPER_RC and
-# fail closed; assert the shared contract appears in BOTH stages (coupled site).
-assert_eq "#190 fix-loop: Phase 4.1 captures GH_RC on the extraction read in BOTH stages" \
-  "2" "$(pin_count 'GH_RC=$?' "$IMPL_SKILL")"
+# would silently disable the whole gate. Issue #284 migrated this from a captured
+# GH_RC/HELPER_RC (which a cross-statement-variable-stripping inline-bash runner
+# leaves empty, making the fail-closed check inert) to a single-statement `if ! A && ! B`
+# that reads gh's OWN exit status inline; assert the new form appears in BOTH stages
+# (coupled site) and the old captured-rc recipe is GONE.
+assert_eq "#284 fix-loop: Phase 4.1 guards the gh extraction read via single-statement if! in BOTH stages" \
+  "2" "$(pin_count 'if ! ISSUE_BODY=$(gh issue view' "$IMPL_SKILL")"
+assert_eq "#284 fix-loop: Phase 4.1 no longer carries the old GH_RC/HELPER_RC capture-then-read recipe" \
+  "0" "$(pin_count 'GH_RC=$?' "$IMPL_SKILL")"
 assert_eq "#190 fix-loop: Phase 4.1 fail-closed extraction contract pinned in BOTH stages" \
   "2" "$(pin_count 'never treat its empty stdout as a no-op' "$IMPL_SKILL")"
 
@@ -14105,6 +14124,66 @@ except SystemExit as e:
 " 2>/dev/null)"
 assert_eq "#281 workpad.py status: recognized-word set single-sourced from _STATUS_TO_PROGRESS_PHASE" "interim 🚀 Frobnicating" "$WP281_SINGLE_SOURCE"
 rm -rf "$WP266_GHD"
+
+# ── issue #284: portability wave 3 — rc-capture guard recipes migrated off the ──
+# inline-bash cross-statement-variable-stripping hazard. A runner whose inline `bash -c`
+# marshaling strips a variable assigned in one statement and read in a LATER statement
+# (Copilot CLI; expected on Cursor / Codex CLI / Gemini CLI) left the old
+# `VAR=$(…); VAR_RC=$?` recipes' captured rc empty, so their fail-closed checks and DISTINCT
+# breadcrumbs silently no-op'd. The migration replaces each with a single-statement `if !`
+# (or an `elif [ "$?" … ]` for a 3-way) that reads the command's OWN exit status inline.
+echo "#284 portability wave 3: rc-capture guard migration"
+# (1) ABSENCE (AC5): the banned recipe is a line carrying a command substitution `=$(` AND
+# an uppercase `<IDENT>_RC=$?` capture (or a `<subst>); rc=$?` lowercase capture). This is
+# precisely the AC1 target and does NOT match the intentionally-exempt `cmd; rc=$?` survivors
+# (review's #216-pinned dirty-tree cmp_rc/gmrc, init's grep rc), whose rc line carries no
+# `=$(`. Assert ZERO such lines in every migrated skill body — a reintroduced
+# capture-then-discriminate recipe turns this RED. (The grep targets `"$1"`, carrying no
+# `_SKILL`/echo, so the #157 raw-guard scanner does not match this helper's body.)
+count_284_subst_rc_recipe() {  # file -> count of the banned command-substitution-then-rc recipe
+  grep -cE '=\$\(.*[A-Z_]+_RC=\$\?|=\$\(.*; *rc=\$\?' "$1" || true
+}
+assert_eq "#284 absence: no VAR=\$(…);VAR_RC=\$? recipe in review-and-fix SKILL" "0" "$(count_284_subst_rc_recipe "$ST_RAF")"
+assert_eq "#284 absence: no VAR=\$(…);VAR_RC=\$? recipe in review SKILL" "0" "$(count_284_subst_rc_recipe "$ST_REV")"
+assert_eq "#284 absence: no VAR=\$(…);VAR_RC=\$? recipe in receiving-code-review SKILL" "0" "$(count_284_subst_rc_recipe "$ST_RCV")"
+assert_eq "#284 absence: no VAR=\$(…);VAR_RC=\$? recipe in implement-skill bundle (phase-4 doc gate)" "0" "$(count_284_subst_rc_recipe "$DEF_SKILL")"
+# Mutation proof that the absence detector is not vacuous: a temp file carrying the banned
+# recipe must read 1 (RED), and a migrated `if !` form must read 0 (GREEN).
+P284_PROBE="$(probe_tmp '#284 absence detector proof')"
+printf '%s\n' 'FOO=$(somecmd .k default); FOO_RC=$?' > "$P284_PROBE"
+assert_eq "#284 absence detector: a reintroduced VAR=\$(…);VAR_RC=\$? recipe reads 1 (RED, not vacuous)" "1" "$(count_284_subst_rc_recipe "$P284_PROBE")"
+printf '%s\n' 'if ! FOO=$(somecmd .k default); then FOO=default; fi' > "$P284_PROBE"
+assert_eq "#284 absence detector: the migrated if!-form reads 0 (GREEN)" "0" "$(count_284_subst_rc_recipe "$P284_PROBE")"
+rm -f "$P284_PROBE"
+# (2) POSITIVE-form pins (AC5): the new single-statement `if !` idiom is present at each
+# migrated site (routed through assert_pin_unique — no bare grep on the line).
+assert_pin_unique "#284 positive: receiving-code-review discriminates via single-statement if!" 'if ! REOPEN_THRESHOLD=$(' "$ST_RCV"
+assert_pin_unique "#284 positive: review-and-fix fix-threshold discriminates via single-statement if!" 'if ! FIX_THRESHOLD=$(' "$ST_RAF"
+assert_pin_unique "#284 positive: review-and-fix max_iterations discriminates via single-statement if!" 'if ! MAX_ITERS=$(' "$ST_RAF"
+assert_pin_unique "#284 positive: review verdict-threshold discriminates via single-statement if!" 'if ! VERDICT_THRESHOLD=$(' "$ST_REV"
+assert_pin_unique "#284 positive: review live-comment 3-way reads \$? inline in the elif" 'elif [ "$?" -eq 2 ]; then' "$ST_REV"
+# (3) Mutation proof (AC5): removing the migrated operative guard turns its pin RED.
+assert_pin_red_on_removal "#284 mutation: deleting the receiving-code-review if!-guard turns its pin RED" \
+  'if ! REOPEN_THRESHOLD=$(' "$ST_RCV"
+# AC3: retrospective-weekly's wrapper precheck is execution-verified (`[ ! -x ]`, not the
+# old existence-only `[ ! -e ]`) so a present-but-non-executable run-jq.sh (rc 126) is caught
+# as an anchor/wrapper failure, not mis-read as malformed subagent JSON (mirrors #247).
+assert_pin_unique "#284 AC3: retrospective-weekly wrapper precheck is execution-verified ([ ! -x ])" \
+  '[ ! -x "$LIB/../scripts/run-jq.sh" ]' "$RW_SKILL"
+assert_eq "#284 AC3: retrospective-weekly no longer uses the existence-only [ ! -e ] precheck" "no" \
+  "$(grep -qF '[ ! -e "$LIB/../scripts/run-jq.sh" ]' "$RW_SKILL" && echo yes || echo no)"  # raw-guard-ok: absence pin: the existence-only precheck is GONE (expected no)
+# AC6: the shared cwd-relative config contract is documented in BOTH readers and both resolve
+# `.devflow/config.json` relative to cwd (no git-root discovery). A drift where one reader
+# moved to git-root while the other stayed cwd-relative would make a subdir-invoked run's
+# config resolution inconsistent — pin the shared contract phrase + the cwd-relative read in each.
+assert_eq "#284 AC6: config-get.sh documents the shared cwd-relative config contract" "yes" \
+  "$(grep -qF 'SHARED CWD-RELATIVE CONFIG CONTRACT' "$CG" && echo yes || echo no)"  # raw-guard-ok: presence pin: shared-contract doc in config-get.sh
+assert_eq "#284 AC6: workpad.py documents the shared cwd-relative config contract" "yes" \
+  "$(grep -qF 'SHARED CWD-RELATIVE CONFIG CONTRACT' "$WP_PY" && echo yes || echo no)"  # raw-guard-ok: presence pin: shared-contract doc in workpad.py
+assert_eq "#284 AC6: config-get.sh default config path is cwd-relative .devflow/config.json" "yes" \
+  "$(grep -qF 'config_file="${3:-.devflow/config.json}"' "$CG" && echo yes || echo no)"  # raw-guard-ok: presence pin: cwd-relative default in config-get.sh
+assert_eq "#284 AC6: workpad.py reads cwd-relative .devflow/config.json" "yes" \
+  "$(grep -qF "Path('.devflow/config.json')" "$WP_PY" && echo yes || echo no)"  # raw-guard-ok: presence pin: cwd-relative read in workpad.py
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.

@@ -61,15 +61,19 @@ EOF
 # outputs). It is NOT auto-populated — set it explicitly, e.g.:
 #   DEFERRED_ISSUE_NUMBERS="201 202"
 DEFERRED_ISSUE_NUMBERS="${DEFERRED_ISSUE_NUMBERS:-}"
-# Capture config-get's rc so a real read failure (corrupt config.json / missing python3 →
-# exit 2 with empty stdout) is NOT silently indistinguishable from a deliberately-empty
-# value: both yield an empty CLEAN below, but only the failure leaves a breadcrumb. The
-# default arg covers the soft paths (missing file / unset key); rc≠0 is the hard path.
-# The assignment runs as an `if` condition so the rc capture survives even if these
-# blocks are ever executed under `set -e` (a bare `VAR=$(cmd); RC=$?` would abort at the
-# assignment before the capture; an `if`-condition assignment is exempt from `set -e`).
-if DEFERRED_LABELS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .deferred.labels DevFlow,Deferred); then DEFERRED_LABELS_RC=0; else DEFERRED_LABELS_RC=$?; fi
-[ "$DEFERRED_LABELS_RC" -eq 0 ] || workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0 could not read deferred.labels (config-get rc=$DEFERRED_LABELS_RC — corrupt config.json or python3 missing); deferred follow-up issues filed WITHOUT labels."
+# Discriminate a real read failure (corrupt config.json / missing python3 → rc≠0, empty
+# stdout) from a deliberately-empty value with a single-statement `if !` that reads
+# config-get's OWN exit status — never a captured rc read in a later statement (an
+# inline-bash runner that strips such cross-statement variable reads — Copilot CLI /
+# Cursor / Codex CLI / Gemini CLI — would leave the rc empty and make the breadcrumb check
+# inert). The `if !` condition is also exempt from `set -e`. The default arg covers the
+# SOFT paths (missing file / unset key → config-get prints it, exit 0); only the HARD path
+# (rc≠0) enters the branch, where we leave DEFERRED_LABELS empty so CLEAN below applies NO
+# labels (deferred follow-up issues filed WITHOUT labels) AND leave an attributable breadcrumb.
+if ! DEFERRED_LABELS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .deferred.labels DevFlow,Deferred); then
+  DEFERRED_LABELS=""
+  workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0 could not read deferred.labels (config-get rc≠0 — corrupt config.json or python3 missing); deferred follow-up issues filed WITHOUT labels."
+fi
 CLEAN_DEFERRED_LABELS=$(echo "$DEFERRED_LABELS" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' | paste -sd, -)
 if [ -z "$DEFERRED_ISSUE_NUMBERS" ]; then
   # We only reach this block because deferred work WAS filed above, so an empty list
@@ -178,14 +182,16 @@ if [ -n "$MANIFESTS" ]; then
     fi
 fi
 if [ -n "$AGG" ] && [ -s "$AGG" ]; then
-    # Capture rc so file-deferrals.py's exit codes aren't discarded: 0 = filed; exit 2
-    # with "already has follow_up" is the benign idempotent-re-run case (the prior
-    # aggregate is still hydrated and /pr-description reads it fine) — not a failure.
-    FILED_OUT=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/file-deferrals.py \
+    # Discriminate file-deferrals.py's exit codes without a captured rc read in a later
+    # statement (a cross-statement-variable-stripping inline-bash runner would leave it
+    # empty): the single-statement `if` reads the helper's OWN status (rc 0 = filed), and
+    # the non-zero cases are told apart below by grepping the helper's own stderr markers —
+    # "already has follow_up" (the benign idempotent-re-run: the prior aggregate is still
+    # hydrated and /pr-description reads it fine, not a failure) vs. a genuine failure.
+    if FILED_OUT=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/file-deferrals.py \
         --source-issue $ARGUMENTS \
         --pr "$PR_NUMBER" \
-        --manifest "$AGG" 2>/tmp/devflow-fd.err); FD_RC=$?
-    if [ "$FD_RC" -eq 0 ]; then
+        --manifest "$AGG" 2>/tmp/devflow-fd.err); then
         FILED_NUMBERS="$FILED_OUT"
         # file-deferrals.py exits 0 even on PARTIAL success: a per-file group whose
         # `gh issue create` failed is dropped from the manifest, yet the helper still
@@ -198,7 +204,7 @@ if [ -n "$AGG" ] && [ -s "$AGG" ]; then
     elif grep -q 'no deferrals' /tmp/devflow-fd.err; then
         workpad.py update $ISSUE_NUMBER --note "Aggregate held no deferrals to file — nothing to do."
     else
-        workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "file-deferrals.py failed (rc=${FD_RC}): $(cat /tmp/devflow-fd.err); no follow-up issues filed this run."
+        workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "file-deferrals.py failed (rc≠0): $(cat /tmp/devflow-fd.err); no follow-up issues filed this run."
     fi
 fi
 ```
@@ -219,15 +225,18 @@ if [ -n "${FILED_NUMBERS:-}" ]; then
     # territory — read through config-get.sh, not re-parsed ad hoc); the skill owns
     # labeling. Best-effort and post-filing, so a label hiccup never unwinds an
     # already-filed issue.
-    # Capture config-get's rc (same as Phase 4.0): a hard read failure (corrupt
-    # config.json / missing python3 → exit 2, empty stdout) yields an empty CLEAN that is
-    # otherwise indistinguishable from a deliberately-empty value — leave a breadcrumb so
-    # the unlabeled outcome is attributable, not silent. The default arg covers the soft
-    # paths (missing file / unset key); rc≠0 is the hard path. The `if`-condition form
-    # keeps the rc capture alive even under `set -e` (a bare `VAR=$(cmd); RC=$?` aborts at
-    # the assignment; an `if`-condition assignment is exempt).
-    if DEFERRED_LABELS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .deferred.labels DevFlow,Deferred); then DEFERRED_LABELS_RC=0; else DEFERRED_LABELS_RC=$?; fi
-    [ "$DEFERRED_LABELS_RC" -eq 0 ] || workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5 could not read deferred.labels (config-get rc=$DEFERRED_LABELS_RC — corrupt config.json or python3 missing); deferred review-finding issues filed WITHOUT labels."
+    # Discriminate a hard read failure (same as Phase 4.0) with a single-statement `if !`
+    # that reads config-get's OWN exit status — never a captured rc read in a later
+    # statement (an inline-bash runner that strips such cross-statement variable reads —
+    # Copilot CLI / Cursor / Codex CLI / Gemini CLI — would leave the rc empty and make the
+    # breadcrumb check inert). The `if !` condition is also exempt from `set -e`. The
+    # default arg covers the SOFT paths (missing file / unset key → exit 0); only the HARD
+    # path (rc≠0) enters the branch, where we leave DEFERRED_LABELS empty so CLEAN applies
+    # NO labels AND leave an attributable breadcrumb.
+    if ! DEFERRED_LABELS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .deferred.labels DevFlow,Deferred); then
+        DEFERRED_LABELS=""
+        workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5 could not read deferred.labels (config-get rc≠0 — corrupt config.json or python3 missing); deferred review-finding issues filed WITHOUT labels."
+    fi
     CLEAN_DEFERRED_LABELS=$(echo "$DEFERRED_LABELS" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' | paste -sd, -)
     if [ -n "$CLEAN_DEFERRED_LABELS" ]; then
         # `|| continue` just skips a blank entry (CLEAN already drops blanks — symmetric
@@ -264,12 +273,27 @@ The rc handling above distinguishes three cases: a clean filing (rc 0), the beni
 **Stage 1 — Pre-flight briefing (before dispatch).** Extract the issue's required documentation deliverables **deterministically — do not interpret the prose yourself.** Run the bundled helper, which scopes to the `**Documentation Needed**` bullet under `## Implementation Notes` and emits the recognizable file paths one per line:
 
 ```bash
-ISSUE_BODY=$(gh issue view $ISSUE_NUMBER --json body --jq '.body'); GH_RC=$?
-DOC_NEEDED_PATHS=$(printf '%s' "$ISSUE_BODY" \
-  | "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/extract-doc-needed-paths.sh); HELPER_RC=$?
+# Each read is guarded by a single-statement `if ! A && ! B` (the read AND its one retry),
+# so the failure branch fires off the command's OWN exit status read INLINE — never a
+# captured rc variable read in a later statement, which an inline-bash runner that strips
+# cross-statement variable reads (Copilot CLI / Cursor / Codex CLI / Gemini CLI) would leave
+# empty, making this fail-closed check inert (the exact fail-open this gate exists to close).
+# A command failure (gh: auth/network/rate-limit/wrong number; extractor: token-scan error)
+# says nothing about which paths the issue names, so its empty stdout must never be read as
+# a no-op: on the read AND its retry both failing, fail CLOSED to the Blocked path.
+if ! ISSUE_BODY=$(gh issue view $ISSUE_NUMBER --json body --jq '.body' 2>/tmp/devflow-docgate-gh.err) \
+   && ! ISSUE_BODY=$(gh issue view $ISSUE_NUMBER --json body --jq '.body' 2>/tmp/devflow-docgate-gh.err); then
+  workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind dropped-failed --reflection "Phase 4.1: could not read the issue body to extract Documentation Needed deliverables (gh command failure); the deliverable cross-check could not run — retry when GitHub is reachable"
+  # then emit the 👎 outcome reaction (see the Workpad Reference) and STOP the run.
+fi
+if ! DOC_NEEDED_PATHS=$(printf '%s' "$ISSUE_BODY" | "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/extract-doc-needed-paths.sh) \
+   && ! DOC_NEEDED_PATHS=$(printf '%s' "$ISSUE_BODY" | "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/extract-doc-needed-paths.sh); then
+  workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind dropped-failed --reflection "Phase 4.1: the Documentation Needed extractor failed (token scan error); the deliverable cross-check could not run — retry"
+  # then emit the 👎 outcome reaction and STOP the run.
+fi
 ```
 
-**Read `GH_RC`/`HELPER_RC`, never stdout emptiness, as the failure signal.** A non-zero `GH_RC` (auth, network, rate-limit, or a wrong issue number) or a non-zero `HELPER_RC` (the extractor's own token scan failed) is a *command failure* that says nothing about which paths the issue names — **never treat its empty stdout as a no-op**, the way an empty `DOC_NEEDED_PATHS` would be treated below. That is the exact fail-open this gate exists to close, moved one stage upstream. Retry the read once; if it still fails, fail closed — route to the Blocked path (`workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind dropped-failed --reflection "Phase 4.1: could not read the issue body to extract Documentation Needed deliverables (gh/extractor command failure); the deliverable cross-check could not run — retry when GitHub is reachable"`), emit the 👎 outcome reaction, and stop. Only an rc-0 read with empty `DOC_NEEDED_PATHS` is the legitimate empty signal handled below.
+**The `if !`-guarded reads discriminate a command failure by the command's own exit status, never stdout emptiness.** A gh failure (auth, network, rate-limit, or a wrong issue number) or an extractor failure (its own token scan failed) is a *command failure* that says nothing about which paths the issue names — **never treat its empty stdout as a no-op**, the way an empty `DOC_NEEDED_PATHS` would be treated below. That is the exact fail-open this gate exists to close, moved one stage upstream; the retry is folded into the `if ! A && ! B` guard so the fail-closed branch fires only when the read *and* its retry both fail, then routes to the Blocked path shown above, emits the 👎 outcome reaction, and stops. Only an rc-0 read with empty `DOC_NEEDED_PATHS` is the legitimate empty signal handled below.
 
 These paths are the required deliverables. Stage 2 re-runs the **same helper** rather than re-deriving them, so the two passes can never disagree about which files were named. If `DOC_NEEDED_PATHS` is empty (the bullet is absent, names no file paths, or holds only non-path prose), Stage 1 is a no-op and the subagent is dispatched with its normal instruction unchanged. If the helper emits nothing **but** the issue body still contains a `**Documentation Needed**` bullet (`gh issue view $ISSUE_NUMBER --json body --jq '.body' | grep -q '\*\*Documentation Needed\*\*'`), record a workpad note (`workpad.py update $ISSUE_NUMBER --note "Phase 4.1: **Documentation Needed** bullet present but the extractor found no file paths; the deliverable cross-check is skipped this run"`) so the skipped enforcement is auditable.
 
@@ -295,20 +319,40 @@ Then decide whether the docs pass succeeded: it succeeded if the docs subagent a
 **Stage 2 — Post-hoc diff gate (mandatory when Stage 1 found named paths).** After the docs-subagent commit and before ticking `Documentation`, verify that every required-deliverable path has been touched. Re-run the **same deterministic helper** as Stage 1 — re-running the helper is the single source of truth; do not rely on remembered Stage 1 output:
 
 ```bash
-ISSUE_BODY=$(gh issue view $ISSUE_NUMBER --json body --jq '.body'); GH_RC=$?
-DOC_NEEDED_PATHS=$(printf '%s' "$ISSUE_BODY" \
-  | "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/extract-doc-needed-paths.sh); HELPER_RC=$?
+# Same single-statement `if ! A && ! B` guard as Stage 1: the failure branch fires off the
+# command's OWN exit status read INLINE, never a captured rc variable read in a later
+# statement (which a cross-statement-variable-stripping inline-bash runner would leave empty,
+# making the fail-closed check inert). Read AND retry both failing → fail CLOSED to Blocked.
+if ! ISSUE_BODY=$(gh issue view $ISSUE_NUMBER --json body --jq '.body' 2>/tmp/devflow-docgate-gh.err) \
+   && ! ISSUE_BODY=$(gh issue view $ISSUE_NUMBER --json body --jq '.body' 2>/tmp/devflow-docgate-gh.err); then
+  workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind dropped-failed --reflection "Phase 4.1: could not read the issue body to extract Documentation Needed deliverables (gh command failure); the deliverable cross-check could not run — retry when GitHub is reachable"
+  # then emit the 👎 outcome reaction and STOP the run.
+fi
+if ! DOC_NEEDED_PATHS=$(printf '%s' "$ISSUE_BODY" | "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/extract-doc-needed-paths.sh) \
+   && ! DOC_NEEDED_PATHS=$(printf '%s' "$ISSUE_BODY" | "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/extract-doc-needed-paths.sh); then
+  workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind dropped-failed --reflection "Phase 4.1: the Documentation Needed extractor failed (token scan error); the deliverable cross-check could not run — retry"
+  # then emit the 👎 outcome reaction and STOP the run.
+fi
 ```
 
-**Read `GH_RC`/`HELPER_RC`, never stdout emptiness, as the failure signal** — symmetric to the diff side below. A non-zero `GH_RC` (auth, network, rate-limit, or a wrong issue number) or a non-zero `HELPER_RC` (the extractor's own token scan failed) is a *command failure* that says nothing about which paths the issue names — **never treat its empty stdout as a no-op** (the step-1 escape hatch below), which would silently wave the gate through exactly when the deliverable list could not be read. Retry the read once; if it still fails, fail closed — route to the Blocked path (`workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind dropped-failed --reflection "Phase 4.1: could not read the issue body to extract Documentation Needed deliverables (gh/extractor command failure); the deliverable cross-check could not run — retry when GitHub is reachable"`), emit the 👎 outcome reaction, and stop. Only an rc-0 read with empty `DOC_NEEDED_PATHS` is the legitimate empty signal step 1 treats as a no-op.
+**The `if !`-guarded reads discriminate a command failure by the command's own exit status, never stdout emptiness** — symmetric to the diff side below. A gh failure (auth, network, rate-limit, or a wrong issue number) or an extractor failure (its own token scan failed) is a *command failure* that says nothing about which paths the issue names — **never treat its empty stdout as a no-op** (the step-1 escape hatch below), which would silently wave the gate through exactly when the deliverable list could not be read. The retry is folded into the `if ! A && ! B` guard so the fail-closed branch fires only when the read *and* its retry both fail, then routes to the Blocked path shown above, emits the 👎 outcome reaction, and stops. Only an rc-0 read with empty `DOC_NEEDED_PATHS` is the legitimate empty signal step 1 treats as a no-op.
 
 1. **No-op when empty.** If `DOC_NEEDED_PATHS` is empty, this cross-check is a no-op — proceed directly to the post-docs-labels + `--tick-progress "Documentation"` step below.
 
-2. **Compute the diff once; fail closed on a broken command.** Verify `$BASE` is non-empty; if empty, re-derive it exactly as Phase 1.4 does, **applying its non-empty fallback and not just the config read** — the read alone returns nothing on malformed config and would otherwise leave `$BASE` empty, collapsing the range to `origin/...HEAD` and judging every path absent. Capture the cumulative diff **and its exit status**:
+2. **Compute the diff once; fail closed on a broken command.** Verify `$BASE` is non-empty; if empty, re-derive it exactly as Phase 1.4 does, **applying its non-empty fallback and not just the config read** — the read alone returns nothing on malformed config and would otherwise leave `$BASE` empty, collapsing the range to `origin/...HEAD` and judging every path absent. Compute the cumulative diff, guarding git's exit status **inline** (never a captured rc read in a later statement, which a cross-statement-variable-stripping inline-bash runner would leave empty):
    ```bash
-   DIFF_OUT=$(git diff --name-only "origin/$BASE...HEAD"); DIFF_RC=$?
+   # Single-statement `if ! A && { re-fetch; ! B; }`: the failure branch fires off git's OWN
+   # exit status read inline. The retry re-fetches the base branch (as Phase 1.4 does)
+   # between attempts; read AND retry both failing → fail CLOSED to Blocked. An rc-0 result
+   # with EMPTY stdout is NOT a failure — the `if !` leaves DIFF_OUT set and the per-path
+   # check below reads it as the genuine "touched none of these files" signal.
+   if ! DIFF_OUT=$(git diff --name-only "origin/$BASE...HEAD") \
+      && { git fetch origin "$BASE" >/dev/null 2>&1; ! DIFF_OUT=$(git diff --name-only "origin/$BASE...HEAD"); }; then
+     workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind dropped-failed --reflection "Phase 4.1: could not compute the cumulative diff for the Documentation Needed gate (git diff / base-fetch failed — offline, auth, or wrong trunk); never falling through to a path-absent verdict on a broken command"
+     # then emit the 👎 outcome reaction and STOP the run.
+   fi
    ```
-   Read the exit status, **never** stdout emptiness, as the failure signal. A non-zero `DIFF_RC` (or `origin/$BASE` not present locally) is a *command failure* that says nothing about any path: re-fetch the base branch as Phase 1.4 does and retry once. If the re-fetch itself fails (offline / auth / wrong trunk), do not guess — route to the Blocked path / `--reflection-kind dropped-failed` and stop; **never fall through to a path-absent verdict on a broken command.** Conversely, **an rc-0 result with empty stdout is NOT a failure** — it is the legitimate signal that the diff touched none of these files (the genuine absence the gate exists to catch); treat it as real and continue to the per-path check. For each path in `DOC_NEEDED_PATHS`, decide satisfied vs absent against `DIFF_OUT`: if it is a bare filename (contains no `/`), any diff entry whose basename matches it counts as satisfied (e.g. the diff entry `docs/DEVFLOW_SYSTEM_OVERVIEW.md` satisfies the named path `DEVFLOW_SYSTEM_OVERVIEW.md`); if it contains a `/`, it must appear as an exact match in `DIFF_OUT`.
+   The `if !`-guard discriminates the failure by git's own exit status, **never** stdout emptiness. A `git diff` failure (or `origin/$BASE` not present locally) is a *command failure* that says nothing about any path: it re-fetches the base branch as Phase 1.4 does and retries once, and if the retry also fails (offline / auth / wrong trunk) it does not guess — it routes to the Blocked path and stops; **never fall through to a path-absent verdict on a broken command.** Conversely, **an rc-0 result with empty stdout is NOT a failure** — it is the legitimate signal that the diff touched none of these files (the genuine absence the gate exists to catch); treat it as real and continue to the per-path check. For each path in `DOC_NEEDED_PATHS`, decide satisfied vs absent against `DIFF_OUT`: if it is a bare filename (contains no `/`), any diff entry whose basename matches it counts as satisfied (e.g. the diff entry `docs/DEVFLOW_SYSTEM_OVERVIEW.md` satisfies the named path `DEVFLOW_SYSTEM_OVERVIEW.md`); if it contains a `/`, it must appear as an exact match in `DIFF_OUT`.
 
 3. **Self-heal or block for each absent path.** For each named path absent from the diff, perform the missing update when you can: if the correct update can be derived from the issue body's `**Documentation Needed**` prose, perform the missing update yourself, record a workpad note (`workpad.py update $ISSUE_NUMBER --note "Phase 4.1 self-heal: <path> absent from diff; performed update from Documentation Needed prose"`), commit (`docs:` prefix), and push. **Then re-verify the self-heal landed and reached the remote:** confirm the commit and push both succeeded *and* that the local branch is in sync with its upstream — `git rev-parse HEAD` must equal `git rev-parse @{u}` (a no-op `Everything up-to-date` push or a rejected non-fast-forward leaves them unequal, so a re-diff of the still-local commit would falsely satisfy the gate) — then re-run the helper-driven diff check for that path. A non-zero rc on commit/push, an upstream that does not match HEAD, or the path still absent from the re-checked diff all mean the self-heal did not land. Only a path now present in the re-checked diff **and** whose commit and push both reached the remote counts as satisfied. If the correct update cannot be derived from context (the prose is insufficient), **or** the self-heal did not land per the re-check, do not tick `Documentation` — route to the Blocked path: `workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind blocked --reflection "Phase 4.1: Documentation Needed file content cannot be determined for <path> — the docs subagent did not update this file and the correct content cannot be derived from the issue body; update manually and re-run Phase 4.1"`, then emit the 👎 outcome reaction (see *Outcome reaction* in the Workpad Reference) and stop.
 
