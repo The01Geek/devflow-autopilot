@@ -143,7 +143,12 @@ fi
 
 # 4. Query the reviews API. A failed query is unverifiable -> fail closed (this
 #    reverses the prior default-to-success; deliberate per issue #249).
-if ! REVIEWS_JSON=$("$DEVFLOW_GH" api "repos/$REPO/pulls/$PR_NUMBER/reviews?per_page=100" 2>/dev/null); then
+#    `--paginate` walks every page: GitHub returns reviews OLDEST-first, so on a
+#    PR with >100 reviews a single page would cut off exactly the newest (HEAD)
+#    review and fail-closed-wedge the PR with a misdiagnosing "no verdict"
+#    breadcrumb. Paginated output is CONCATENATED arrays ("[...][...]"), which
+#    the `-s`/`add` normalization in the jq filters below flattens.
+if ! REVIEWS_JSON=$("$DEVFLOW_GH" api --paginate "repos/$REPO/pulls/$PR_NUMBER/reviews?per_page=100" 2>/dev/null); then
   echo "derive-review-verdict: reviews API query failed for PR #$PR_NUMBER — verdict unverifiable; failing closed (incomplete)." >&2
   emit incomplete false
 fi
@@ -163,13 +168,18 @@ fi
 #    wedge this helper exists to remove); a PENDING (or other non-verdict)
 #    review interleaved on HEAD must not mask a real APPROVED/CHANGES_REQUESTED
 #    posted just before it. Excluded states fall through like an empty set.
-DRV_STATE_FILTER='map(select(.commit_id == $h and ((.state // "") | IN("APPROVED","CHANGES_REQUESTED","COMMENTED")))) | last'
-if ! STATE=$(printf '%s' "$REVIEWS_JSON" | "$DEVFLOW_JQ" -r --arg h "$HEAD_SHA" \
+#    The leading `-s`/`add` normalizes the `--paginate` shape: slurp turns one
+#    array into [[...]] and concatenated pages into [[...],[...]], and `add`
+#    flattens both to one review list (a non-array payload still errors in
+#    `map()`, keeping the parse guard live; an all-empty input errors in `add|map`
+#    likewise — fail-closed either way).
+DRV_STATE_FILTER='add | map(select(.commit_id == $h and ((.state // "") | IN("APPROVED","CHANGES_REQUESTED","COMMENTED")))) | last'
+if ! STATE=$(printf '%s' "$REVIEWS_JSON" | "$DEVFLOW_JQ" -rs --arg h "$HEAD_SHA" \
           "$DRV_STATE_FILTER | (.state // \"\")" 2>/dev/null); then
   echo "derive-review-verdict: reviews JSON could not be parsed (jq failed or the reviews payload was not an array) — verdict unverifiable; failing closed (incomplete)." >&2
   emit incomplete false
 fi
-if ! RBODY=$(printf '%s' "$REVIEWS_JSON" | "$DEVFLOW_JQ" -r --arg h "$HEAD_SHA" \
+if ! RBODY=$(printf '%s' "$REVIEWS_JSON" | "$DEVFLOW_JQ" -rs --arg h "$HEAD_SHA" \
           "$DRV_STATE_FILTER | (.body // \"\")" 2>/dev/null); then
   echo "derive-review-verdict: reviews JSON could not be parsed (jq failed or the reviews payload was not an array) — verdict unverifiable; failing closed (incomplete)." >&2
   emit incomplete false
@@ -193,7 +203,7 @@ if [ -z "$RUN_ID" ]; then
   echo "derive-review-verdict: no HEAD-scoped review verdict and GITHUB_RUN_ID is empty — cannot scope the comment fallback to this run; failing closed (incomplete)." >&2
   emit incomplete false
 fi
-if ! COMMENTS_JSON=$("$DEVFLOW_GH" api "repos/$REPO/issues/$PR_NUMBER/comments?per_page=100" 2>/dev/null); then
+if ! COMMENTS_JSON=$("$DEVFLOW_GH" api --paginate "repos/$REPO/issues/$PR_NUMBER/comments?per_page=100" 2>/dev/null); then
   echo "derive-review-verdict: no HEAD-scoped review verdict and the issue-comments query failed for PR #$PR_NUMBER — failing closed (incomplete)." >&2
   emit incomplete false
 fi
@@ -202,10 +212,12 @@ fi
 # run=<RUN_ID>-<ATTEMPT> -->`, so matching the `run=<RUN_ID>-` prefix selects
 # only this run's comment(s) across attempts.
 MARKER="<!-- devflow:review-progress run=${RUN_ID}-"
-# Same jq fail-closed posture as step 5: a parse failure must not be read as
-# "no matching comment" and land in step 7's misdiagnosing breadcrumb.
-if ! CBODY=$(printf '%s' "$COMMENTS_JSON" | "$DEVFLOW_JQ" -r --arg m "$MARKER" \
-          'map(select((.body // "") | contains($m))) | last | (.body // "")' 2>/dev/null); then
+# Same jq fail-closed posture as step 5 (and the same `-s`/`add` pagination
+# normalization — comments are also oldest-first, and >100 issue comments is the
+# realistic case on a chatty PR): a parse failure must not be read as "no
+# matching comment" and land in step 7's misdiagnosing breadcrumb.
+if ! CBODY=$(printf '%s' "$COMMENTS_JSON" | "$DEVFLOW_JQ" -rs --arg m "$MARKER" \
+          'add | map(select((.body // "") | contains($m))) | last | (.body // "")' 2>/dev/null); then
   echo "derive-review-verdict: issue-comments JSON could not be parsed (jq failed or the comments payload was not an array) — verdict unverifiable; failing closed (incomplete)." >&2
   emit incomplete false
 fi

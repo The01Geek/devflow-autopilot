@@ -6712,6 +6712,26 @@ assert_eq "#249 deriver stdout contract: exactly 2 lines" "2" "$(printf '%s\n' "
 assert_eq "#249 deriver stdout contract: line 1 is verdict=, line 2 is verdict_determined=" "yes" \
   "$(printf '%s\n' "$DRV_CONTRACT_OUT" | sed -n '1s/^verdict=.*/ok1/p;2s/^verdict_determined=.*/ok2/p' | tr '\n' ' ' | grep -q 'ok1 ok2' && echo yes || echo no)"
 
+# Pagination shape: `gh api --paginate` CONCATENATES page arrays ("[...][...]").
+# The -s/add normalization must flatten them so a HEAD review on page 2 (GitHub
+# returns oldest-first — >100 reviews pushes the newest off page 1) is still
+# seen. Pre-normalization jq errors on concatenated arrays -> incomplete (RED).
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[{\"state\":\"CHANGES_REQUESTED\",\"commit_id\":\"$DRV_OLD\"}][{\"state\":\"APPROVED\",\"commit_id\":\"$DRV_NEW\"}]" \
+  drv "#249 paginated (concatenated-arrays) reviews payload: HEAD approve on page 2 -> approve" "approve true"
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[]" \
+  DRV_COMMENTS='[{"body":"unrelated chatter"}][{"body":"<!-- devflow:review-progress run=100-1 -->\n## Verdict: APPROVE"}]' \
+  drv "#249 paginated comments payload: run-keyed verdict comment on page 2 -> approve" "approve true"
+
+# Trailing-dash marker scoping: run=10 must NOT substring-match a prior run's
+# run=105-1 comment. Without the trailing dash in MARKER the prior-run REJECT
+# below would match and resurrect -> this pins the dash (mutation-sensitive).
+HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER=1 REPO=o/r GITHUB_RUN_ID=10 DEVFLOW_GH="$DRV_STUB" \
+  DRV_REVIEWS="[]" \
+  DRV_COMMENTS='[{"body":"<!-- devflow:review-progress run=105-1 -->\n## Verdict: REJECT from run 105"}]' \
+  drv "#249 marker trailing dash: run=10 does not match a run=105 comment -> incomplete" "incomplete false"
+
 # always exits 0 (best-effort; caller reads the verdict, not the exit code).
 ( HEAD_SHA="$DRV_NEW" ENGINE_ERROR=false PR_NUMBER="" GITHUB_RUN_ID=100 DEVFLOW_GH="$DRV_STUB" bash "$DRV" >/dev/null 2>&1 ); DRV_RC=$?
 assert_eq "#249 deriver always exits 0 (best-effort)" "0" "$DRV_RC"
@@ -6758,6 +6778,11 @@ assert_eq "#249 parse-engine-error: empty arg -> false (fail-safe)"             
 # a refactor to top-level-only `.[]` ships RED)
 printf '%s' '[{"type":"system","payload":{"type":"result","is_error":true}}]' > "$PEE_TMP/nested_true.json"
 assert_eq "#249 parse-engine-error: NESTED result is_error=true -> true (any-depth recursion pinned)" "true" "$(bash "$PEE" "$PEE_TMP/nested_true.json" 2>/dev/null)"
+# the type filter is load-bearing in the OTHER direction too: is_error=true on a
+# NON-result object (e.g. a tool_result event) must stay false — dropping the
+# select(.type=="result") would over-report engine errors and wedge good runs.
+printf '%s' '[{"type":"tool_result","is_error":true},{"type":"result","is_error":false}]' > "$PEE_TMP/tool_err.json"
+assert_eq "#249 parse-engine-error: is_error=true on a non-result object -> false (type filter pinned)" "false" "$(bash "$PEE" "$PEE_TMP/tool_err.json" 2>/dev/null)"
 # fail-safe arms leave breadcrumbs, never a silent false: a disarmed signal
 # (renamed execution_file output, broken jq) must be visible in the job log.
 assert_eq "#249 parse-engine-error: missing-file arm emits the 'execution file absent' breadcrumb" "yes" \

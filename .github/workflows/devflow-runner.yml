@@ -571,6 +571,12 @@ jobs:
             # broken jq silently reports is_error=false forever with zero trace.
             # The helper always exits 0, so `|| echo false` is belt-and-suspenders.
             IS_ERROR=$(bash "$PEE" "${EXECUTION_FILE:-}" || echo false)
+            # Normalize to a single validated token: the helper's contract is one
+            # true/false line, but if it ever emitted partial stdout AND failed,
+            # the `|| echo false` above would append a second line and write a
+            # stray non-key=value line into GITHUB_OUTPUT. Anything not exactly
+            # "true" reads as false (the fail-safe direction).
+            [ "$IS_ERROR" = "true" ] || IS_ERROR=false
           else
             echo "::notice::parse-engine-error.sh absent; treating engine is_error as false (fail-safe)."
             IS_ERROR=false

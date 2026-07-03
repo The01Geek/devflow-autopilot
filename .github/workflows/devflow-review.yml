@@ -600,8 +600,13 @@ jobs:
           HEAD_SHA: ${{ needs.precheck.outputs.head_sha }}
           # "true" when the review engine execution ended in error (is_error)
           # even though the review JOB reported success — treated as no verdict
-          # for HEAD. Empty (cancelled/skipped review) reads as "false"; those
-          # results take the neutral arm below, not this success path.
+          # for HEAD. Empty reads as "false" via ${ENGINE_ERROR:-false}: that
+          # covers cancelled/skipped reviews (which take the neutral arm below)
+          # AND a runner that never emitted the output on this success path (a
+          # version-skewed vendored devflow-runner.yml predating engine_is_error,
+          # or a failed surface step) — a deliberate fail-safe degradation,
+          # because the deriver's HEAD-SHA verdict scoping remains the primary
+          # staleness guard.
           ENGINE_ERROR: ${{ needs.review.outputs.engine_is_error }}
         run: |
           set -euo pipefail
