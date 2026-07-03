@@ -230,7 +230,7 @@ The workpad is best-effort and informational. A write failure should not abort t
 
 ## Main Loop
 
-**Resolve the iteration cap once, at loop start.** Read `devflow_review_and_fix.max_iterations` (default 5) via the config helper — the same portable skill-dir-anchored, no-`bash`-prefix invocation the effectiveness-trace gate uses (see "Subagent effectiveness trace"), so the read is cwd-independent and the resolved-path allow-list entry matches. Capture stderr + rc so a resolver failure (missing `python3`, malformed `config.json` → non-zero exit with empty stdout) is distinguishable from a legitimately-absent key, and clamp the result:
+**Resolve the iteration cap once, at loop start.** Read `devflow_review_and_fix.max_iterations` (default 5) via the config helper — the same portable skill-dir-anchored, no-`bash`-prefix invocation the effectiveness-trace gate uses (see "Subagent effectiveness trace"), so the read is cwd-independent and the resolved-path allow-list entry matches. Discriminate a resolver failure (missing `python3`, malformed `config.json` → non-zero exit with empty stdout) from a legitimately-absent key with a single-statement `if !` (reading config-get's own exit status inline, never a captured rc read in a later statement), and clamp the result:
 
 ```bash
 # Discriminate a genuine resolver failure with a single-statement `if !` that reads
@@ -884,8 +884,7 @@ All derivation lives in `lib/efficiency-trace.jq` (a mechanical jq filter, no LL
    else
      printf '%s\n' "$TRACE"
    fi
-   # Write the per-run JSON record (one file per run). Capture rc + stderr so a real
-   # regression surfaces a ::warning:: breadcrumb instead of vanishing silently:
+   # Write the per-run JSON record (one file per run).
    # Discriminate the helper's exit status with a single-statement `if` (reads its OWN
    # status, never a captured rc read in a later statement). Only a clean rc-0, non-empty
    # write survives — an empty (flag-off / zero-iteration → 0-byte) write, or a truncated
