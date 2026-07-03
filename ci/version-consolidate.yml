@@ -22,6 +22,14 @@ on:
 permissions:
   contents: write
 
+# Serialize runs so two near-simultaneous merges to main don't consolidate from stale
+# tips in parallel (cancel-in-progress: false queues rather than drops — every merge is
+# still processed). The reset-and-retry loop in the consolidate step is the real
+# correctness guard; this just avoids redundant concurrent work.
+concurrency:
+  group: version-consolidate
+  cancel-in-progress: false
+
 jobs:
   consolidate:
     name: Consolidate changesets
@@ -45,24 +53,37 @@ jobs:
       - name: Install PyYAML
         run: python3 -m pip install --quiet pyyaml
 
-      - name: Consolidate pending changesets
-        # Fails loud (non-zero) and names the offending file on a malformed changeset — the
-        # step (and job) go red rather than silently skipping it or defaulting the version.
-        # With no pending changesets it is a clean no-op (exit 0, no file changes).
-        run: python3 scripts/consolidate-changesets.py
-
-      - name: Commit the version bump
-        # Only commit when the consolidation actually changed something (bumped the version,
-        # rewrote CHANGELOG, deleted changesets). No pending changesets => clean tree => no
-        # commit, no push, exit 0. The subject prefix `chore: bump version` is a load-bearing
-        # contract with docs-release-notes Step 4b (kept verbatim; pinned in lib/test/run.sh).
+      - name: Consolidate changesets and commit the version bump
+        # Reset to the freshest main and (re)consolidate on every attempt, so a run that was
+        # queued/checked-out behind a concurrent merge always consolidates the CURRENT set of
+        # pending changesets from the real main tip — no changeset is ever left behind and the
+        # push is a fast-forward. If the push still loses a race, reset to the new tip and
+        # retry (the consolidator is idempotent — it re-reads whatever is pending now).
+        #
+        # `consolidate-changesets.py` fails loud (non-zero, naming the file) on a malformed
+        # changeset, so the step goes red rather than silently skipping it or defaulting the
+        # version; with no pending changesets it is a clean no-op (no commit, exit 0). The
+        # subject prefix `chore: bump version` is a load-bearing contract with docs-release-notes
+        # Step 4b (kept verbatim; pinned in lib/test/run.sh). Staging is explicit (never
+        # `git add -A`) so only the consolidation's own outputs land on main.
         run: |
-          if [ -z "$(git status --porcelain)" ]; then
-            echo "No pending changesets consolidated — nothing to commit."
-            exit 0
-          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "chore: bump version (consolidate changesets)"
-          git push origin HEAD:main
+          for attempt in 1 2 3 4 5; do
+            git fetch origin main
+            git reset --hard origin/main
+            python3 scripts/consolidate-changesets.py
+            if [ -z "$(git status --porcelain)" ]; then
+              echo "No pending changesets consolidated — nothing to commit."
+              exit 0
+            fi
+            git add .claude-plugin/plugin.json CHANGELOG.md .changeset
+            git commit -m "chore: bump version (consolidate changesets)"
+            if git push origin HEAD:main; then
+              echo "Pushed version bump on attempt $attempt."
+              exit 0
+            fi
+            echo "Push rejected (main advanced); resetting and retrying (attempt $attempt)."
+          done
+          echo "::error::could not push the version bump after 5 attempts (main kept advancing)"
+          exit 1

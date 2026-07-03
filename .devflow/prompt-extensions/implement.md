@@ -51,7 +51,13 @@ the release-notes reconciliation step (`skills/docs-release-notes/SKILL.md` Step
 prefix to **confirm a version bump happened** — it then reads the authoritative version from
 `.claude-plugin/plugin.json` (never from the commit subject, which a later re-version can
 leave stale) and reconciles that version's CHANGELOG entry, or no-ops if no such commit
-exists. The producer of that subject is now the merge-time Action, not this skill; renaming it
+exists. **Note the consequence for DevFlow's own PRs:** because the bump commit is now created
+at merge time on `main` (not on the feature branch), Step 4b's branch-scoped
+`origin/main..HEAD` scan legitimately finds no bump commit during `/devflow:implement` and
+no-ops — that reconciliation stays live only for consumer repos that still bump in-PR. Here,
+CHANGELOG correctness rests on the in-diff changeset prose, which the Phase 2.3.4a self-claim
+sweep and Phase 4.2 keep aligned with the shipped diff. The producer of the subject is now the
+merge-time Action, not this skill; renaming it
 (e.g. to `chore(release): …`) makes Step 4b see no bump and silently disables that
 reconciliation. The producer (`version-consolidate.yml`) and consumer (Step 4b) are kept in
 lockstep by a coupling pin in `lib/test/run.sh`; change one and the suite goes RED until the

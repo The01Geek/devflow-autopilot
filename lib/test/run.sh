@@ -12028,9 +12028,46 @@ assert_eq "#290 missing bump: offending changeset NOT deleted" "yes" \
   "$([ -f "$CSD/.changeset/nobump.md" ] && echo yes || echo no)"
 rm -rf "$CSD"
 CSD="$(cs_repo)"; printf -- '---\nbump: hotfix\n---\n\n- prose (#1)\n' > "$CSD/.changeset/a.md"
-python3 "$CS_SCRIPT" --root "$CSD" --date 2026-07-03 >/dev/null 2>&1; CS_RC=$?
+python3 "$CS_SCRIPT" --root "$CSD" --date 2026-07-03 >"$CSD/out" 2>&1; CS_RC=$?
 assert_eq "#290 invalid bump value: exits non-zero" "yes" "$([ "$CS_RC" -ne 0 ] && echo yes || echo no)"
+assert_eq "#290 invalid bump value: diagnostic names the offending file (parity with missing-bump)" "yes" \
+  "$(grep -qF 'a.md' "$CSD/out" && echo yes || echo no)"
 assert_eq "#290 invalid bump value: version unchanged" "2.8.64" "$(cs_ver "$CSD")"; rm -rf "$CSD"
+
+# AC (adversarial): empty prose body → fail loud naming the file, version unchanged. The
+# script has a dedicated empty-prose branch; without a fixture a regression making prose
+# optional would ship a malformed CHANGELOG entry undetected.
+CSD="$(cs_repo)"; printf -- '---\nbump: patch\n---\n\n' > "$CSD/.changeset/empty.md"
+python3 "$CS_SCRIPT" --root "$CSD" --date 2026-07-03 >"$CSD/out" 2>&1; CS_RC=$?
+assert_eq "#290 empty prose: exits non-zero (fail-loud)" "yes" "$([ "$CS_RC" -ne 0 ] && echo yes || echo no)"
+assert_eq "#290 empty prose: diagnostic names the offending file" "yes" \
+  "$(grep -qF 'empty.md' "$CSD/out" && echo yes || echo no)"
+assert_eq "#290 empty prose: version unchanged" "2.8.64" "$(cs_ver "$CSD")"; rm -rf "$CSD"
+
+# AC (adversarial): a leading BOM defeats the '---' fence detection and is rejected loudly,
+# not silently mis-parsed. Guards a future "lstrip the text" refactor from silently changing
+# frontmatter acceptance.
+CSD="$(cs_repo)"; printf -- '\xef\xbb\xbf---\nbump: patch\n---\n\n- x (#1)\n' > "$CSD/.changeset/bom.md"
+python3 "$CS_SCRIPT" --root "$CSD" --date 2026-07-03 >"$CSD/out" 2>&1; CS_RC=$?
+assert_eq "#290 BOM prefix: exits non-zero (fail-loud, not silently mis-parsed)" "yes" "$([ "$CS_RC" -ne 0 ] && echo yes || echo no)"
+assert_eq "#290 BOM prefix: version unchanged" "2.8.64" "$(cs_ver "$CSD")"; rm -rf "$CSD"
+
+# AC (adversarial): an invalid Keep-a-Changelog `type:` is rejected loudly (the rejection
+# branch is otherwise untested — happy paths only use valid types).
+CSD="$(cs_repo)"; printf -- '---\nbump: patch\ntype: Fixes\n---\n\n- x (#1)\n' > "$CSD/.changeset/badtype.md"
+python3 "$CS_SCRIPT" --root "$CSD" --date 2026-07-03 >/dev/null 2>&1; CS_RC=$?
+assert_eq "#290 invalid type value: exits non-zero" "yes" "$([ "$CS_RC" -ne 0 ] && echo yes || echo no)"
+assert_eq "#290 invalid type value: version unchanged" "2.8.64" "$(cs_ver "$CSD")"; rm -rf "$CSD"
+
+# Section grouping: two different types render under two distinct `### <Type>` headings in
+# the one entry (not merged under a single heading).
+CSD="$(cs_repo)"
+printf -- '---\nbump: patch\ntype: Fixed\n---\n\n- FixProse (#1)\n' > "$CSD/.changeset/a.md"
+printf -- '---\nbump: patch\ntype: Added\n---\n\n- AddProse (#2)\n' > "$CSD/.changeset/b.md"
+python3 "$CS_SCRIPT" --root "$CSD" --date 2026-07-03 >/dev/null 2>&1
+assert_eq "#290 section grouping: distinct ### Added and ### Fixed headings both render" "yes" \
+  "$(grep -qF '### Added' "$CSD/CHANGELOG.md" && grep -qF '### Fixed' "$CSD/CHANGELOG.md" && echo yes || echo no)"
+rm -rf "$CSD"
 
 # AC: all-or-nothing — one malformed changeset among valid ones aborts the whole run with NO
 # partial write (a valid sibling is not consumed).

@@ -46,7 +46,9 @@ When your PR merges to `main`, the `version-consolidate` GitHub Action (shipped 
 `.github/workflows/`) runs
 [`scripts/consolidate-changesets.py`](../scripts/consolidate-changesets.py). The script:
 
-1. reads every pending `.changeset/*.md` (this `README.md` and any `config.*` are ignored),
+1. reads every pending `.changeset/*.md` (only this `README.md` is ignored — every other
+   `*.md` here is treated as a changeset, so a stray file with no valid frontmatter fails
+   the run loudly rather than being silently skipped),
 2. bumps `plugin.json`'s `version` by the **highest** pending bump type (patch < minor < major)
    — one increment even when several changesets are pending,
 3. prepends a dated, PR-cited Keep-a-Changelog entry assembled from all the pending prose, and

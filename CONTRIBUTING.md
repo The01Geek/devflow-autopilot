@@ -125,4 +125,6 @@ under `.github/workflows/`), running `scripts/consolidate-changesets.py`, bumps
 pending bump type, prepends one dated, PR-cited CHANGELOG entry assembled from all the pending
 prose, deletes the consumed changesets, and commits to `main` with a `chore: bump version`
 subject. A malformed changeset fails the Action loudly; with no pending changesets it is a
-clean no-op. Cadence stays per-merge — every merged change still ships as a version increment.
+clean no-op. Cadence stays per-merge — every merged *engine-surface* change (one carrying a
+changeset) still ships as a version increment; an internal-only merge with no changeset is a
+deliberate no-op (no bump).

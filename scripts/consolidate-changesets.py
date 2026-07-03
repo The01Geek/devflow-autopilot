@@ -5,7 +5,8 @@
 
 DevFlow versions itself with changesets instead of editing ``.claude-plugin/plugin.json``
 and ``CHANGELOG.md`` in every PR (see ``.changeset/README.md``). This helper runs at merge
-time (push to ``main``) from ``.github/workflows/version-consolidate.yml``:
+time (push to ``main``) from the ``version-consolidate`` workflow (shipped at
+``ci/version-consolidate.yml``, installed by a maintainer into ``.github/workflows/``):
 
   * globs every pending ``.changeset/*.md`` (ignoring ``README.md`` and any ``config.*``),
   * parses each file's ``bump:`` (required) + optional ``type:`` frontmatter and prose body,
@@ -52,17 +53,15 @@ def _fatal(msg: str) -> "int":
 
 
 def _is_consumable(name: str) -> bool:
-    """A ``.changeset/*.md`` file that is a real changeset (not README/config docs).
+    """A ``.changeset/*.md`` file that is a real changeset (only ``README.md`` is exempt).
 
-    ``config.*`` is excluded as forward-compat for the npm ``@changesets`` convention's
-    ``config.json`` (DevFlow does not use it, but a stray one must never be consumed).
+    Every other ``*.md`` here is treated as a changeset — an unexpected one with no valid
+    frontmatter fails the run loudly (naming it) rather than being silently skipped, which
+    is the fail-closed behavior this tool wants. (The npm ``@changesets`` ``config.json`` is
+    not markdown, so it is already excluded by the ``.md`` filter — no ``config.*`` special
+    case is needed, and a broad one would silently drop a legitimately-named changeset.)
     """
-    lower = name.lower()
-    if lower == "readme.md":
-        return False
-    if lower.startswith("config."):
-        return False
-    return lower.endswith(".md")
+    return name.lower() != "readme.md" and name.lower().endswith(".md")
 
 
 def _split_frontmatter(path: str) -> "tuple[str, str]":
@@ -240,9 +239,15 @@ def consolidate(root: str, date: str) -> int:
     for _path, _bump, section, prose in parsed:
         sections.setdefault(section, []).append(prose)
 
+    # Write the manifest first: it is the cheaper, regex-symmetric operation and is the
+    # likelier of the two to fail (the write regex is stricter than the read regex), so
+    # doing it first means a failure aborts before CHANGELOG.md is touched — no window
+    # where CHANGELOG is bumped but the manifest is not. (The workflow also commits
+    # atomically from a fresh checkout, so a half-write is never committed; this ordering
+    # just keeps the on-disk state consistent even mid-abort.)
+    _write_manifest_version(manifest_path, new_version)
     entry = _assemble_entry(new_version, date, sections)
     _prepend_changelog(changelog_path, entry)
-    _write_manifest_version(manifest_path, new_version)
     for path in pending:
         os.remove(path)
 
