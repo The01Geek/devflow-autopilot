@@ -26,8 +26,9 @@ Never leave it as prose in the body.
 
 ## Issue structure
 
-Every issue includes these sections, in this order. (`## 🚫 Blocked` appears only if
-unresolved items exist — see below.)
+Every issue includes these sections, in this order. (A **Visual Specification** section
+appears only for user-visible UI changes, and `## 🚫 Blocked` appears only if unresolved
+items exist — see below.)
 
 ### Title
 Clear, descriptive, action-oriented, and scoped to **one** feature/fix (e.g., "Add PDF
@@ -88,6 +89,24 @@ never baked into a prescriptive `Approach`.
 Verification is **proportional**: cheap in-repo reads for most claims, live-data only for
 population claims. It is scoped to **load-bearing** premises, so incidental context bullets
 stay light and drafting is never blocked in a data-less authoring context.
+
+### Visual Specification (include only for user-visible UI changes)
+Include this section **only** when the issue involves user-visible UI changes (Step 2's
+visual-specification guidance decided this). Omit it entirely for non-UI issues — do not
+leave an empty "Visual Specification: none" placeholder, exactly as the Blocked section is
+omitted when empty.
+
+Record one of two things, per what Step 2 obtained from the user:
+
+- **A screenshot or mockup** — embed it inline when a hosted URL is available
+  (`![description](https://…)`); otherwise reference it with a one-line note on how the
+  implementer can obtain it (attached file name, design-tool link such as Figma).
+- **A verbally-verified placement spec** — when the user has no screenshot/mockup, the
+  pinned-down visual details Step 2 verified with them: placement & layout, visual states
+  (hover/focus/error/empty/loading/disabled), responsive behavior across breakpoints, and
+  design-system/style match, plus any task-specific dimension. Only the dimensions that
+  actually apply appear here; a screenshot is preferred, but this verbal spec is an
+  accepted substitute.
 
 ### Acceptance Criteria
 Checkbox items (`- [ ]`), each a **single unconditional, testable assertion**:
@@ -215,6 +234,7 @@ incomplete issues.
 - [ ] Technical Context opens with the standardized scope note, included verbatim
 - [ ] Technical context cites real file paths / class names from this project
 - [ ] Load-bearing Technical Context premises (data-source/model, coverage/population, "already-done") are verified — not just file paths — or written as flagged assumptions to confirm
+- [ ] For a user-visible UI change, the Visual Specification section records a screenshot/mockup or a verbally-verified placement spec (screenshot preferred, verbal verification an accepted substitute); non-UI issues omit the section entirely
 - [ ] Acceptance criteria are measurable, testable, and unconditional
 - [ ] Implementation notes describe a single chosen approach
 - [ ] Testing Strategy classifies the boundary + level, walks the coverage dimensions (boundary/error/adversarial/state/scale/security as they apply), and gives test-first assertions with every AC mapped to ≥1 assertion and no orphan assertions — bug fixes reproduce the defect first; guarantee-class changes test the skipped-step path; or it names a reproducible stand-in verification when no automated test applies
