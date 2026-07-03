@@ -6301,8 +6301,16 @@ assert_eq "#97 pin: create-issue ensures+applies DevFlow label via REST helper" 
 # all 22 files' (2-or-3) pins; the per-file mutation proof below keeps the transition
 # self-verifying afterward.
 PORTABLE_ANCHOR_LITERAL='"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../'
-PA_BARE_ERE='\$\{?CLAUDE_SKILL_DIR\}?/\.\.'
-PA_XSTMT_ERE='[A-Za-z_]+="\$\{CLAUDE_SKILL_DIR'
+# PA_BARE_ERE matches ANY bare (non-fallback) parent/child continuation — unquoted
+# (`${CLAUDE_SKILL_DIR}/..`), quoted (`"${CLAUDE_SKILL_DIR}"/..`), and the non-`/..`
+# sibling shapes (`${CLAUDE_SKILL_DIR}/phases/…`) — since every one collapses to a broken
+# path when the var is empty. It can never match the portable form: there the char after
+# the var name is `:` (the `:-` fallback), which fails the `\}?"?/` tail.
+PA_BARE_ERE='\$\{?CLAUDE_SKILL_DIR\}?"?/'
+# PA_XSTMT_ERE matches the assignment head with or without the opening double quote
+# (SKILL_DIR="${CLAUDE_SKILL_DIR…  AND  SKILL_DIR=${CLAUDE_SKILL_DIR…) and digit-bearing
+# names; a command substitution (`VAR=$(…`) has `(` after `$`, so it never matches.
+PA_XSTMT_ERE='[A-Za-z_0-9]+="?\$\{?CLAUDE_SKILL_DIR'
 PA_FILE_COUNT=0
 for PA_FILE in "$LIB"/../skills/*/SKILL.md "$LIB"/../skills/implement/phases/phase-*.md; do
   PA_NAME="skills/${PA_FILE#"$LIB"/../skills/}"
@@ -6328,6 +6336,18 @@ if [ "$PA_MUT" != "/dev/null" ]; then
   { cat "$LIB/../skills/create-issue/SKILL.md"; printf '%s\n' 'SKILL_DIR="${CLAUDE_SKILL_DIR:-<x>}"'; } > "$PA_MUT"
   assert_eq "#275 mutation proof: reintroducing the cross-statement assignment turns P2 RED (clean->detected)" "quiet->fires" \
     "$(! grep -qE "$PA_XSTMT_ERE" "$LIB/../skills/create-issue/SKILL.md" && echo quiet || echo dirty)->$(grep -qE "$PA_XSTMT_ERE" "$PA_MUT" && echo fires || echo misses)"  # raw-guard-ok: mutation proof — clean-vs-injected transition over a temp copy, not a content pin
+  # Adjacent-mutation variants (PR #279 review): the nearest-neighbor shapes of each banned
+  # form must ALSO fire — a quoted bare expansion, a non-`/..` sibling continuation, and an
+  # unquoted cross-statement assignment each collapse identically on an empty-var runner.
+  { cat "$LIB/../skills/create-issue/SKILL.md"; printf '%s\n' '"${CLAUDE_SKILL_DIR}"/../../scripts/injected.sh'; } > "$PA_MUT"
+  assert_eq "#275 mutation proof: the QUOTED bare expansion also turns P1 RED" "fires" \
+    "$(grep -qE "$PA_BARE_ERE" "$PA_MUT" && echo fires || echo misses)"  # raw-guard-ok: mutation proof over a temp copy
+  { cat "$LIB/../skills/create-issue/SKILL.md"; printf '%s\n' '${CLAUDE_SKILL_DIR}/phases/injected.md'; } > "$PA_MUT"
+  assert_eq "#275 mutation proof: a bare non-/.. sibling continuation (/phases/) also turns P1 RED" "fires" \
+    "$(grep -qE "$PA_BARE_ERE" "$PA_MUT" && echo fires || echo misses)"  # raw-guard-ok: mutation proof over a temp copy
+  { cat "$LIB/../skills/create-issue/SKILL.md"; printf '%s\n' 'SKILL_DIR=${CLAUDE_SKILL_DIR:-<x>}'; } > "$PA_MUT"
+  assert_eq "#275 mutation proof: the UNQUOTED cross-statement assignment also turns P2 RED" "fires" \
+    "$(grep -qE "$PA_XSTMT_ERE" "$PA_MUT" && echo fires || echo misses)"  # raw-guard-ok: mutation proof over a temp copy
   rm -f "$PA_MUT"
 fi
 # Positive per-call-site companions (formerly #241 A2b), retargeted to the inline form:

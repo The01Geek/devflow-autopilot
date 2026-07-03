@@ -147,12 +147,21 @@ def _workpad_marker(explicit=None):
             f"falling back to default marker\n"
         )
         return _DEFAULT_WORKPAD_MARKER
-    value = data.get('devflow') if isinstance(data, dict) else None
-    value = value.get('workpad_marker') if isinstance(value, dict) else None
+    devflow = data.get('devflow') if isinstance(data, dict) else None
+    if not isinstance(devflow, dict) or 'workpad_marker' not in devflow:
+        return _DEFAULT_WORKPAD_MARKER
+    value = devflow['workpad_marker']
     # A non-string or blank value is "not configured" — never coerce a
-    # misconfigured type into a garbage marker stamped into a comment.
+    # misconfigured type into a garbage marker stamped into a comment — but a
+    # PRESENT-and-invalid key gets a breadcrumb: silently defaulting would be
+    # indistinguishable from "nothing configured", the same masked-fallback
+    # class the malformed-JSON branch above breadcrumbs.
     if isinstance(value, str) and value.strip():
         return value.strip()
+    sys.stderr.write(
+        f"workpad.py: ignoring non-string or blank devflow.workpad_marker in "
+        f"{str(config_file)!r}; falling back to default marker\n"
+    )
     return _DEFAULT_WORKPAD_MARKER
 
 

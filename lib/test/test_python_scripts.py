@@ -248,12 +248,32 @@ try:
                   workpad._DEFAULT_WORKPAD_MARKER, workpad._workpad_marker(None))
 
         # A non-string or empty value is "not configured", never a coerced
-        # garbage marker stamped into a comment.
+        # garbage marker stamped into a comment — but present-and-invalid
+        # leaves a breadcrumb (unlike the silent absent-key cases above).
         _write_cfg('{"devflow": {"workpad_marker": 42}}')
+        _stderr_nonstr = io.StringIO()
+        with contextlib.redirect_stderr(_stderr_nonstr):
+            _val = workpad._workpad_marker(None)
         assert_eq("marker (#275): non-string marker value → built-in default",
-                  workpad._DEFAULT_WORKPAD_MARKER, workpad._workpad_marker(None))
+                  workpad._DEFAULT_WORKPAD_MARKER, _val)
+        assert_eq("marker (#275): non-string marker value → breadcrumb names workpad_marker",
+                  True, "workpad_marker" in _stderr_nonstr.getvalue())
         _write_cfg('{"devflow": {"workpad_marker": "   "}}')
+        _stderr_blank = io.StringIO()
+        with contextlib.redirect_stderr(_stderr_blank):
+            _val = workpad._workpad_marker(None)
         assert_eq("marker (#275): blank-string marker value → built-in default",
+                  workpad._DEFAULT_WORKPAD_MARKER, _val)
+        assert_eq("marker (#275): blank-string marker value → breadcrumb emitted",
+                  True, "workpad_marker" in _stderr_blank.getvalue())
+        # Wrong-type shapes above the key (adversarial input matrix): a scalar
+        # where the devflow object is expected, and a top-level array — both
+        # are "not configured" (no key present), silent default.
+        _write_cfg('{"devflow": "str"}')
+        assert_eq("marker (#275): scalar devflow value → built-in default",
+                  workpad._DEFAULT_WORKPAD_MARKER, workpad._workpad_marker(None))
+        _write_cfg('[1]')
+        assert_eq("marker (#275): top-level array config → built-in default",
                   workpad._DEFAULT_WORKPAD_MARKER, workpad._workpad_marker(None))
 
         # Malformed JSON fails open to the default but MUST leave a breadcrumb
