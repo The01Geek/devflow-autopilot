@@ -351,7 +351,13 @@ interpolate it inline into a shell command), then:
 
 ```bash
 # 1. Parse + validate the {title, body} contract. Malformed → blocker, continue.
-if ! $LIB/../scripts/run-jq.sh -e '.title and .body' < ".devflow/tmp/result-${SLUG}.json" >/dev/null 2>&1; then
+# rc is captured (not discarded) so an exit-127 wrapper/anchor failure — an
+# unexpanded $LIB or a missing run-jq.sh — is reported as the anchor failure it
+# is, never misdiagnosed as "the subagent returned malformed JSON".
+$LIB/../scripts/run-jq.sh -e '.title and .body' < ".devflow/tmp/result-${SLUG}.json" >/dev/null 2>&1; JQ_VALID_RC=$?
+if [ "$JQ_VALID_RC" -ge 126 ]; then
+    blockers+=("Pattern ${SLUG}: run-jq.sh wrapper failed to execute (rc=${JQ_VALID_RC} — unexpanded \$LIB notation or missing wrapper; fix the anchor) — not filed")
+elif [ "$JQ_VALID_RC" -ne 0 ]; then
     # Malformed: record a blocker and file NOTHING. The append below is the
     # load-bearing failure path — it MUST run (the run reports this pattern as a
     # blocker, never as filed), so it is concrete shell, not a comment.

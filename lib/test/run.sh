@@ -6311,13 +6311,14 @@ PA_BARE_ERE='\$\{?CLAUDE_SKILL_DIR\}?"?/'
 # (SKILL_DIR="${CLAUDE_SKILL_DIR…  AND  SKILL_DIR=${CLAUDE_SKILL_DIR…) and digit-bearing
 # names; a command substitution (`VAR=$(…`) has `(` after `$`, so it never matches.
 PA_XSTMT_ERE='[A-Za-z_0-9]+="?\$\{?CLAUDE_SKILL_DIR'
-# PA_WRONGFB_ERE catches a WRONG-fallback anchor — `${CLAUDE_SKILL_DIR:-}` (empty) or any
-# fallback that does not begin with the sanctioned placeholder's full prefix
-# `<absolute skill base directory` (so a `<typo>`-shaped wrong placeholder is caught too,
-# not just a non-`<` first char) — which passes P1/P1b/P2 yet collapses identically on an
-# empty-var runner. Negative lookahead is unavailable in ERE, so enumerate the prefix:
-# reject `:-` followed by anything that fails the sanctioned prefix at its first divergence.
-PA_WRONGFB_ERE='\$\{CLAUDE_SKILL_DIR:-([^<]|<[^a]|<a[^b]|<ab[^s])'
+# PA_WRONGFB_ERE catches a WRONG-fallback anchor — `${CLAUDE_SKILL_DIR:-}` (empty), a
+# `:=`-spelled fallback, or any fallback diverging from the sanctioned placeholder within
+# its FIRST FOUR characters (`<abs`). Honest scope note: a wrong placeholder that shares
+# the `<abs` prefix but diverges deeper (`<absXYZ>`) is NOT caught by this ERE (no
+# lookahead in ERE); that residual is backstopped by the P3c per-occurrence check below,
+# which requires EVERY `${CLAUDE_SKILL_DIR:` occurrence to carry the full sanctioned
+# literal — so a deep-typo fallback still goes RED there, not here.
+PA_WRONGFB_ERE='\$\{CLAUDE_SKILL_DIR:[-=]([^<]|<[^a]|<a[^b]|<ab[^s])'
 PA_FILE_COUNT=0
 for PA_FILE in "$LIB"/../skills/*/SKILL.md "$LIB"/../skills/implement/phases/phase-*.md; do
   PA_NAME="skills/${PA_FILE#"$LIB"/../skills/}"
@@ -6330,6 +6331,12 @@ for PA_FILE in "$LIB"/../skills/*/SKILL.md "$LIB"/../skills/implement/phases/pha
     "$(grep -qF "$PORTABLE_ANCHOR_LITERAL" "$PA_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body: presence pin over the enumerated $PA_FILE loop variable; literal recurs per call site by design
   assert_eq "#275 pin (P1c): $PA_NAME has no wrong-fallback (non-placeholder) CLAUDE_SKILL_DIR expansion" "yes" \
     "$(! grep -qE "$PA_WRONGFB_ERE" "$PA_FILE" && echo yes || echo no)"  # raw-guard-ok: loop body: absence pin over the enumerated $PA_FILE loop variable
+  # P3c — per-occurrence completeness: every `${CLAUDE_SKILL_DIR:` expansion in the file
+  # must carry the FULL sanctioned literal (count equality), so a deep-typo fallback
+  # (`<absXYZ>` — past PA_WRONGFB_ERE's 4-char enumeration) cannot hide behind one correct
+  # call site elsewhere in the file (P3 alone is presence-only).
+  assert_eq "#275 pin (P3c): $PA_NAME: every CLAUDE_SKILL_DIR expansion carries the full sanctioned placeholder" "yes" \
+    "$([ "$(grep -oF '\${CLAUDE_SKILL_DIR:' "$PA_FILE" | grep -c .)" = "$(grep -oF '\${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}' "$PA_FILE" | grep -c .)" ] && echo yes || echo no)"  # raw-guard-ok: loop body: count-equality check over the enumerated $PA_FILE loop variable
 done
 assert_eq "#275 pin (P0): portable-anchor coverage spans every skill + implement phase file (enumeration reconciled)" \
   "22" "$PA_FILE_COUNT"
@@ -6440,6 +6447,22 @@ assert_pin_unique "#275 pin (P3-live): phase-4 carries a live file-deferrals.py 
   "$PORTABLE_ANCHOR_LITERAL"'scripts/file-deferrals.py' "$LIB/../skills/implement/phases/phase-4-documentation.md"
 assert_pin_unique "#275 pin (P4-ci): create-issue preamble carries the never-capture operative sentence" \
   'Never capture the anchor into a shell variable that a later statement reads' "$LIB/../skills/create-issue/SKILL.md"
+# Behavioral proof — the static pins above are all greps; nothing executed the canonical
+# literal itself. Run the EXACT PORTABLE_ANCHOR_LITERAL (with CLAUDE_SKILL_DIR set to a
+# real skill dir, as on Claude Code) as a command head and assert the resolved helper is
+# actually reached — catching a quoting/expansion defect in the literal (a moved quote, a
+# glob-active placeholder char) that would break all 22 files in lockstep while every
+# static pin stayed GREEN. load-prompt-extension.sh with a bogus skill name exits 0 and
+# prints nothing (absent extension = no-op), so reaching it IS the observable.
+PA_BEHAV_CMD="$PORTABLE_ANCHOR_LITERAL"'scripts/load-prompt-extension.sh docs'
+PA_BEHAV_OUT="$(cd "$LIB/.." && CLAUDE_SKILL_DIR="$PWD/skills/docs" bash -c "$PA_BEHAV_CMD" 2>&1)"; PA_BEHAV_RC=$?
+assert_eq "#275 behavioral: the canonical anchor literal executes and reaches the helper (CLAUDE_SKILL_DIR set)" "0" "$PA_BEHAV_RC"
+# And with the var EMPTY the same literal must fail (the placeholder is not a real path) —
+# proving the fallback text is inert as a path, not accidentally resolvable.
+PA_BEHAV_EMPTY_RC=0
+(cd "$LIB/.." && CLAUDE_SKILL_DIR= bash -c "$PA_BEHAV_CMD" >/dev/null 2>&1) || PA_BEHAV_EMPTY_RC=$?
+assert_eq "#275 behavioral: the unsubstituted placeholder does NOT resolve (empty var -> non-zero)" "yes" \
+  "$([ "$PA_BEHAV_EMPTY_RC" -ne 0 ] && echo yes || echo no)"  # raw-guard-ok: behavioral rc check, not a content pin
 # Doc presence pins (#275 AC: the four Windows/Copilot-CLI operator gotchas are documented).
 # DEVFLOW_GH's shim remedy predates #275 and its pin lives with the #245 block; these pin
 # the three surfaces #275 added plus the anchor recipe in the overview.
