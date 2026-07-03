@@ -1,0 +1,68 @@
+name: Version consolidate
+
+# Merge-time versioning. DevFlow versions itself with changesets (see .changeset/README.md):
+# each PR adds a uniquely-named .changeset/*.md instead of editing plugin.json / CHANGELOG.md,
+# so concurrent PRs never conflict on those two hot spots. When a PR merges to main, this job
+# consolidates every pending changeset into ONE version bump + CHANGELOG entry and commits it
+# back to main with a `chore: bump version` subject.
+#
+# INSTALLATION (one-time, maintainer with `workflows` permission): move this file into the
+# live workflows directory so GitHub runs it —
+#     git mv ci/version-consolidate.yml .github/workflows/version-consolidate.yml
+# It is shipped here (outside `.github/workflows/`) because the DevFlow bot's installation
+# token cannot push a file under `.github/workflows/` without the `workflows` permission; the
+# YAML is nonetheless authored, reviewed, and content-pinned by lib/test/run.sh in this PR.
+# Branch protection on `main` (the required `lib + python tests` check) must also permit the
+# job's write-scoped bump commit.
+on:
+  push:
+    branches: [main]
+
+# Least privilege: the job only needs to push the bump commit to main.
+permissions:
+  contents: write
+
+jobs:
+  consolidate:
+    name: Consolidate changesets
+    runs-on: ubuntu-latest
+    # Self-trigger guard: the bump commit this job creates is itself a push to main. Skip
+    # when the head commit is our own `chore: bump version` commit so the job never loops.
+    # (A run with no pending changesets is already a clean no-op via the porcelain guard
+    # below; this `if` just avoids even booting the runner for the bump commit's own push.)
+    if: "${{ !startsWith(github.event.head_commit.message, 'chore: bump version') }}"
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # Fetch enough history that the commit lands on a real main tip.
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install PyYAML
+        run: python3 -m pip install --quiet pyyaml
+
+      - name: Consolidate pending changesets
+        # Fails loud (non-zero) and names the offending file on a malformed changeset — the
+        # step (and job) go red rather than silently skipping it or defaulting the version.
+        # With no pending changesets it is a clean no-op (exit 0, no file changes).
+        run: python3 scripts/consolidate-changesets.py
+
+      - name: Commit the version bump
+        # Only commit when the consolidation actually changed something (bumped the version,
+        # rewrote CHANGELOG, deleted changesets). No pending changesets => clean tree => no
+        # commit, no push, exit 0. The subject prefix `chore: bump version` is a load-bearing
+        # contract with docs-release-notes Step 4b (kept verbatim; pinned in lib/test/run.sh).
+        run: |
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "No pending changesets consolidated — nothing to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore: bump version (consolidate changesets)"
+          git push origin HEAD:main

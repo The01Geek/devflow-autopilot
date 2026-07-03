@@ -11869,17 +11869,21 @@ assert_pin_unique "#183 docs-release-notes SKILL Step 4b does not commit" \
 assert_pin_unique "#183 docs-release-notes SKILL resolves changelog_file via config-get.sh" \
   'config-get.sh .docs.changelog_file CHANGELOG.md' "$FDROOT/skills/docs-release-notes/SKILL.md"
 
-# (PR #187 review hardening) Couple the `chore: bump version` commit-message prefix across
-# its producer and its consumer so the convention cannot drift on one side only. The
-# consumer (docs-release-notes Step 4b) uses this exact prefix ONLY to confirm a version bump
-# happened on the branch — it then selects the CHANGELOG section by the `## [version]` heading
-# whose version is read from the manifest, never from the commit subject; the producer
-# (implement prompt-extension) mandates emitting it. If either renames the prefix without the
-# other, Step 4b sees no bump and silently no-ops the reconciliation it exists to perform (the
-# fail-open the PR #187 review flagged). Pin the literal in both files.
+# (PR #187 review hardening; #290 repoint) Couple the `chore: bump version` commit-message
+# prefix across its producer and its consumer so the convention cannot drift on one side only.
+# The consumer (docs-release-notes Step 4b) uses this exact prefix ONLY to confirm a version
+# bump happened — it then selects the CHANGELOG section by the `## [version]` heading whose
+# version is read from the manifest, never from the commit subject. Since #290 the PRODUCER of
+# that subject is the merge-time consolidation Action (ci/version-consolidate.yml, installed to
+# → scripts/consolidate-changesets.py), not an in-PR bump; the implement prompt-extension still
+# documents the contract so the two stay lockstepped. If any of them renames the prefix without
+# the others, Step 4b sees no bump and silently no-ops the reconciliation it exists to perform
+# (the fail-open the PR #187 review flagged). Pin the literal across producer + consumer + doc.
 assert_pin_unique "#187 docs-release-notes Step 4b matches the chore: bump version prefix" \
   'message begins with `chore: bump version`' "$FDROOT/skills/docs-release-notes/SKILL.md"
-assert_pin_unique "#187 implement prompt-extension mandates the chore: bump version prefix" \
+assert_pin_unique "#290 version-consolidate workflow emits the chore: bump version subject (producer)" \
+  'chore: bump version (consolidate changesets)' "$FDROOT/ci/version-consolidate.yml"
+assert_pin_unique "#290 implement prompt-extension documents the chore: bump version contract" \
   'begins with the literal `chore: bump version`' "$FDROOT/.devflow/prompt-extensions/implement.md"
 
 # (PR #187 review round 2 — Critical + Important hardening) Step 4b's version-selection and
@@ -11897,8 +11901,8 @@ assert_pin_unique "#187 docs-release-notes Step 4b scans the origin/main..HEAD t
   'git log --oneline origin/main..HEAD' "$FDROOT/skills/docs-release-notes/SKILL.md"
 assert_pin_unique "#187 docs-release-notes Step 4b searches the bracketed Keep-a-Changelog heading (consumer side)" \
   'bracketed Keep-a-Changelog heading `## [<version>]`' "$FDROOT/skills/docs-release-notes/SKILL.md"
-assert_pin_unique "#187 implement prompt-extension mandates the bracketed ## [x.y.z] CHANGELOG heading (producer side)" \
-  '`## [x.y.z]` entry to `CHANGELOG.md`' "$FDROOT/.devflow/prompt-extensions/implement.md"
+assert_pin_unique "#290 implement prompt-extension describes the merge-time bracketed ## [x.y.z] CHANGELOG assembly (producer side)" \
+  'assembles the dated' "$FDROOT/.devflow/prompt-extensions/implement.md"
 
 # (PR #187 review round 3 — corroborated test_gap + silent-failure hardening) The round-2
 # pins above prove the version-from-manifest *mechanism* exists (the `jq` read, the scan, the
@@ -11942,6 +11946,141 @@ assert_pin_unique "#187 docs-release-notes Step 4b corrects stale claims in plac
   'Rewrite only the specific sentence or clause that is stale' "$FDROOT/skills/docs-release-notes/SKILL.md"
 assert_pin_unique "#187 docs-release-notes Step 4b no-bump-commit no-op branch (parity with the no-section branch)" \
   'no version-bump commit found on branch' "$FDROOT/skills/docs-release-notes/SKILL.md"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "#290 changeset-style versioning: consolidator behavior + repointed gate"
+# ────────────────────────────────────────────────────────────────────────────
+# scripts/consolidate-changesets.py is the merge-time consolidator: it turns pending
+# .changeset/*.md files into ONE version bump + CHANGELOG entry. Its logic is a pure
+# function over (changeset files -> new version, CHANGELOG block, files-to-delete), so it
+# is unit-testable here without git or a live push. Each AC in issue #290 maps to at least
+# one assertion below. Fixtures are built with printf into an isolated mktemp dir.
+CS_SCRIPT="$FDROOT/scripts/consolidate-changesets.py"
+assert_eq "#290 consolidate-changesets.py exists" "yes" "$([ -f "$CS_SCRIPT" ] && echo yes || echo no)"
+
+# Build an isolated fake repo root with a plugin.json + CHANGELOG.md; echo its path.
+cs_repo() {  # -> prints the repo root
+  local d; d="$(mktemp -d)"
+  mkdir -p "$d/.changeset" "$d/.claude-plugin"
+  printf '{\n  "name": "devflow",\n  "version": "2.8.64"\n}\n' > "$d/.claude-plugin/plugin.json"
+  printf '# Changelog\n\nPreamble.\n\n## [2.8.64] — 2026-07-03\n\n### Fixed\n- old (#288)\n' > "$d/CHANGELOG.md"
+  printf '# Changesets\ndocs\n' > "$d/.changeset/README.md"
+  printf '%s\n' "$d"
+}
+cs_ver() { grep -oE '"version": "[0-9]+\.[0-9]+\.[0-9]+"' "$1/.claude-plugin/plugin.json" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+'; }
+
+# AC: happy path — one pending patch changeset → 2.8.64 → 2.8.65, entry present, file deleted.
+CSD="$(cs_repo)"
+printf -- '---\nbump: patch\ntype: Fixed\n---\n\n- **Patch change.** Did a thing. (#290)\n' > "$CSD/.changeset/a.md"
+python3 "$CS_SCRIPT" --root "$CSD" --date 2026-07-03 >/dev/null 2>&1; CS_RC=$?
+assert_eq "#290 happy patch: exit 0" "0" "$CS_RC"
+assert_eq "#290 happy patch: version 2.8.64 → 2.8.65" "2.8.65" "$(cs_ver "$CSD")"
+assert_eq "#290 happy patch: dated CHANGELOG entry prepended" "yes" \
+  "$(grep -qF '## [2.8.65] — 2026-07-03' "$CSD/CHANGELOG.md" && echo yes || echo no)"
+assert_eq "#290 happy patch: changeset prose lands in the entry" "yes" \
+  "$(grep -qF 'Patch change' "$CSD/CHANGELOG.md" && echo yes || echo no)"
+assert_eq "#290 happy patch: consumed changeset deleted" "no" \
+  "$([ -f "$CSD/.changeset/a.md" ] && echo yes || echo no)"
+assert_eq "#290 happy patch: README.md is NOT consumed" "yes" \
+  "$([ -f "$CSD/.changeset/README.md" ] && echo yes || echo no)"
+rm -rf "$CSD"
+
+# AC: minor and major bump types.
+CSD="$(cs_repo)"; printf -- '---\nbump: minor\n---\n\n- feat (#1)\n' > "$CSD/.changeset/a.md"
+python3 "$CS_SCRIPT" --root "$CSD" --date 2026-07-03 >/dev/null 2>&1
+assert_eq "#290 minor bump: 2.8.64 → 2.9.0" "2.9.0" "$(cs_ver "$CSD")"; rm -rf "$CSD"
+CSD="$(cs_repo)"; printf -- '---\nbump: major\n---\n\n- break (#1)\n' > "$CSD/.changeset/a.md"
+python3 "$CS_SCRIPT" --root "$CSD" --date 2026-07-03 >/dev/null 2>&1
+assert_eq "#290 major bump: 2.8.64 → 3.0.0" "3.0.0" "$(cs_ver "$CSD")"; rm -rf "$CSD"
+
+# AC: multiple pending changesets → exactly one bump by the single highest type; every
+# pending changeset's prose appears in that one entry.
+CSD="$(cs_repo)"
+printf -- '---\nbump: patch\ntype: Fixed\n---\n\n- PatchProse (#1)\n' > "$CSD/.changeset/a.md"
+printf -- '---\nbump: minor\ntype: Added\n---\n\n- MinorProse (#2)\n' > "$CSD/.changeset/b.md"
+printf -- '---\nbump: major\ntype: Changed\n---\n\n- MajorProse (#3)\n' > "$CSD/.changeset/c.md"
+python3 "$CS_SCRIPT" --root "$CSD" --date 2026-07-03 >/dev/null 2>&1
+assert_eq "#290 mixed pending: single highest (major) bump 3.0.0" "3.0.0" "$(cs_ver "$CSD")"
+assert_eq "#290 mixed pending: exactly one new version heading" "1" \
+  "$(grep -cF '## [3.0.0]' "$CSD/CHANGELOG.md")"
+assert_eq "#290 mixed pending: all three proses present in the one entry" "yes" \
+  "$(grep -qF PatchProse "$CSD/CHANGELOG.md" && grep -qF MinorProse "$CSD/CHANGELOG.md" && grep -qF MajorProse "$CSD/CHANGELOG.md" && echo yes || echo no)"
+rm -rf "$CSD"
+
+# AC: with no pending changeset files, the Action makes no commit and exits 0 (no empty bump).
+CSD="$(cs_repo)"
+python3 "$CS_SCRIPT" --root "$CSD" --date 2026-07-03 >/dev/null 2>&1; CS_RC=$?
+assert_eq "#290 zero pending: exit 0 (no empty bump)" "0" "$CS_RC"
+assert_eq "#290 zero pending: version unchanged" "2.8.64" "$(cs_ver "$CSD")"
+assert_eq "#290 zero pending: CHANGELOG unchanged (no new heading)" "0" \
+  "$(grep -cE '^## \[2\.(8\.6[5-9]|9)' "$CSD/CHANGELOG.md")"
+rm -rf "$CSD"
+
+# AC: a malformed changeset (missing/invalid bump) fails LOUD (non-zero) naming the bad file,
+# and leaves plugin.json/CHANGELOG unchanged — no silent skip, no default, no partial write.
+CSD="$(cs_repo)"; printf -- '---\ntype: Fixed\n---\n\n- prose (#1)\n' > "$CSD/.changeset/nobump.md"
+python3 "$CS_SCRIPT" --root "$CSD" --date 2026-07-03 >"$CSD/out" 2>&1; CS_RC=$?
+assert_eq "#290 missing bump: exits non-zero (fail-loud)" "yes" "$([ "$CS_RC" -ne 0 ] && echo yes || echo no)"
+assert_eq "#290 missing bump: diagnostic names the offending file" "yes" \
+  "$(grep -qF 'nobump.md' "$CSD/out" && echo yes || echo no)"
+assert_eq "#290 missing bump: version left unchanged (no default)" "2.8.64" "$(cs_ver "$CSD")"
+assert_eq "#290 missing bump: offending changeset NOT deleted" "yes" \
+  "$([ -f "$CSD/.changeset/nobump.md" ] && echo yes || echo no)"
+rm -rf "$CSD"
+CSD="$(cs_repo)"; printf -- '---\nbump: hotfix\n---\n\n- prose (#1)\n' > "$CSD/.changeset/a.md"
+python3 "$CS_SCRIPT" --root "$CSD" --date 2026-07-03 >/dev/null 2>&1; CS_RC=$?
+assert_eq "#290 invalid bump value: exits non-zero" "yes" "$([ "$CS_RC" -ne 0 ] && echo yes || echo no)"
+assert_eq "#290 invalid bump value: version unchanged" "2.8.64" "$(cs_ver "$CSD")"; rm -rf "$CSD"
+
+# AC: all-or-nothing — one malformed changeset among valid ones aborts the whole run with NO
+# partial write (a valid sibling is not consumed).
+CSD="$(cs_repo)"
+printf -- '---\nbump: patch\n---\n\n- good (#1)\n' > "$CSD/.changeset/good.md"
+printf -- '---\nbump: hotfix\n---\n\n- bad (#2)\n' > "$CSD/.changeset/bad.md"
+python3 "$CS_SCRIPT" --root "$CSD" --date 2026-07-03 >/dev/null 2>&1; CS_RC=$?
+assert_eq "#290 partial-guard: exits non-zero" "yes" "$([ "$CS_RC" -ne 0 ] && echo yes || echo no)"
+assert_eq "#290 partial-guard: version unchanged (no partial bump)" "2.8.64" "$(cs_ver "$CSD")"
+assert_eq "#290 partial-guard: valid sibling NOT consumed" "yes" \
+  "$([ -f "$CSD/.changeset/good.md" ] && echo yes || echo no)"
+rm -rf "$CSD"
+
+# AC: state/idempotency — re-running after a successful consolidation (now zero pending) is a no-op.
+CSD="$(cs_repo)"; printf -- '---\nbump: patch\n---\n\n- once (#1)\n' > "$CSD/.changeset/a.md"
+python3 "$CS_SCRIPT" --root "$CSD" --date 2026-07-03 >/dev/null 2>&1
+CS_V1="$(cs_ver "$CSD")"; CS_CL1="$(cat "$CSD/CHANGELOG.md")"
+python3 "$CS_SCRIPT" --root "$CSD" --date 2026-07-03 >/dev/null 2>&1; CS_RC=$?
+assert_eq "#290 idempotent rerun: exit 0" "0" "$CS_RC"
+assert_eq "#290 idempotent rerun: version unchanged" "$CS_V1" "$(cs_ver "$CSD")"
+assert_eq "#290 idempotent rerun: CHANGELOG unchanged" "$CS_CL1" "$(cat "$CSD/CHANGELOG.md")"
+rm -rf "$CSD"
+
+# Coupled invariant: the merge-time workflow wires the consolidator and pushes on main. The
+# YAML ships at ci/version-consolidate.yml (a maintainer installs it into .github/workflows/
+# with `git mv` — the DevFlow bot token cannot push under .github/workflows/ without the
+# `workflows` permission); it is content-pinned here regardless of install location.
+CS_WF="$FDROOT/ci/version-consolidate.yml"
+assert_eq "#290 version-consolidate workflow template exists (ci/)" "yes" "$([ -f "$CS_WF" ] && echo yes || echo no)"
+assert_pin_unique "#290 workflow triggers on push to main" \
+  'branches: [main]' "$CS_WF"
+assert_pin_unique "#290 workflow runs the consolidator by path" \
+  'python3 scripts/consolidate-changesets.py' "$CS_WF"
+assert_pin_unique "#290 workflow grants contents: write for the bump push" \
+  'contents: write' "$CS_WF"
+# Self-trigger loop guard: the job skips its own `chore: bump version` head commit.
+assert_pin_unique "#290 workflow guards against its own bump commit re-triggering (no loop)" \
+  "startsWith(github.event.head_commit.message, 'chore: bump version')" "$CS_WF"
+
+# Repointed Phase 3 gate: engine-surface change ⇒ changeset file present (replaces the old
+# version↔CHANGELOG presence check). Pin the gate prose in phase-3-review.md and the extension.
+assert_pin_unique "#290 Phase 3 gate keys on the presence of a changeset artifact" \
+  'a missing changeset file' "$P3_REVIEW"
+assert_pin_unique "#290 implement prompt-extension gate: engine-surface change with no changeset FAILs" \
+  'FAILs on an engine-surface change that carries **no** changeset file' "$FDROOT/.devflow/prompt-extensions/implement.md"
+# The .changeset/ contributor doc must exist and document the required bump frontmatter.
+assert_eq "#290 .changeset/README.md exists" "yes" \
+  "$([ -f "$FDROOT/.changeset/README.md" ] && echo yes || echo no)"
+assert_eq "#290 .changeset/README documents the bump frontmatter key" "yes" \
+  "$(grep -qiF 'bump' "$FDROOT/.changeset/README.md" && echo yes || echo no)"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "#181 review-engine Phase 0.2 .devflow/logs/** diff-hunk filter"
