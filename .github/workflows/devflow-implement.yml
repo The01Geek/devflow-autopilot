@@ -682,7 +682,7 @@ jobs:
               ;;
             *)
               # fail-unreadable (or any unknown/empty decision token — fail closed).
-              printf '**DevFlow stall backstop** — could not classify the outcome of this run: the issue workpad Status was unreadable (workpad comment missing, or its Status line unparseable), or the backstop decision could not be computed (decision token: `%s`). The job has been failed so the stall is visible; inspect the run log and the workpad, then post a fresh implement trigger comment to retry.\n' "${DECISION:-none}" > "$BODY"
+              printf '**DevFlow stall backstop** — could not classify the outcome of this run: the issue workpad Status or the issue comment list was unreadable (workpad comment missing, Status line unparseable, or the comments could not be fetched to count prior attempts), or the backstop decision could not be computed (decision token: `%s`). The run log names the specific cause. The job has been failed so the stall is visible; inspect the run log and the workpad, then post a fresh implement trigger comment to retry.\n' "${DECISION:-none}" > "$BODY"
               ;;
           esac
           # The comment funnel below is always-exit-0 by contract, so read its
