@@ -204,7 +204,14 @@ backstop posts its resume comment and then fails the job loud instead of
 pretending the resume happened — a human re-posts the trigger comment manually.
 With the App configured, also add the App's bot login (e.g. `your-app[bot]`) to
 `devflow.allowed_bots` in `.devflow/config.json`, or the gate's actor
-authorization declines the App-authored resume comment.
+authorization declines the App-authored resume comment. Because a `claude` job
+can run longer than an App installation token's ~60-minute lifetime, the backstop
+mints its **own fresh** App token just-in-time immediately before it runs rather
+than reusing the token minted at the job's start; a `gh`-api/transport/auth
+failure reading the workpad (e.g. an expired token) is a distinct `auth-failure`
+class that fails the job loud **without** consuming a resume attempt, so a healthy
+workpad behind a bad token is never misclassified as corrupt (see
+`docs/implement-skill.md`).
 
 > **Loop-safety note.** Unlike `GITHUB_TOKEN` pushes (which GitHub suppresses from
 > re-triggering workflows), an **App-token push re-triggers workflows**. For DevFlow

@@ -1,5 +1,9 @@
 # Release Notes
 
+## July 3, 2026
+
+- **Fix — Cloud stall backstop is now resilient to expired GitHub App tokens** — On a long cloud `/devflow:implement` run, the App installation token could expire before the stall backstop read the workpad, causing the backstop to misread a perfectly healthy run as corrupt and waste one of its limited automatic resume attempts. The backstop now mints a fresh token just before it runs, and treats any authentication or API failure while reading the workpad as a distinct condition that fails the run loud with a clear diagnostic **without** consuming a resume attempt — so a transient token or API problem is never mistaken for a broken workpad. (#287)
+
 ## July 2, 2026
 
 - **Fix — Cloud stall backstop now fails closed on an unreadable workpad status** — The stall backstop that watches cloud `/devflow:implement` runs could previously misread a corrupted or unrecognized workpad status as a healthy in-progress run, silently spending one of its limited automatic resume attempts instead of flagging the problem. It now recognizes that condition as unreadable and fails the run loud with a diagnostic comment, the same way it already handled a missing status, so automatic resume attempts are no longer wasted on runs it cannot actually read. (#283)
