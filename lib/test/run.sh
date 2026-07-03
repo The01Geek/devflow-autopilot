@@ -12938,6 +12938,19 @@ assert_pin_unique "#268 wiring: FAIL flips to 0 only on the resume decision" \
   '[ "$DECISION" = "resume" ] && FAIL=0' "$WF268"
 assert_pin_unique "#268 wiring: step exits via the FAIL mapping" \
   'exit "$FAIL"' "$WF268"
+# Coupled breadcrumb literal: the workflow's resume-arm success check greps the
+# EXACT success breadcrumb post-issue-comment.sh emits. Pin BOTH sides so a
+# reworded producer breadcrumb (which would turn every real resume into a
+# spurious red) goes RED here instead of shipping.
+assert_pin_unique "#268 wiring: resume-landed check greps the funnel success breadcrumb (consumer side)" \
+  'devflow: posted comment on #' "$WF268"
+assert_pin_unique "#268 wiring: post-issue-comment.sh emits that exact success breadcrumb (producer side)" \
+  'devflow: posted comment on #' "$REPO_ROOT/scripts/post-issue-comment.sh"
+# App-token-inert-resume fail-loud + missing-vendored-dir disambiguation wiring.
+assert_pin_unique "#268 wiring: APP_TOKEN_PRESENT wired from the app-token step output" \
+  "APP_TOKEN_PRESENT: \${{ steps.app-token.outputs.token != '' }}" "$WF268"
+assert_pin_unique "#268 wiring: CLAUDE_OUTCOME wired from the claude step outcome" \
+  'CLAUDE_OUTCOME: ${{ steps.claude.outcome }}' "$WF268"
 # Negative pin: the stall-backstop STEP body must never embed the workpad
 # marker — the gate's self-trigger guard declines any comment containing it,
 # so a workpad-marker leak into the resume body would silently kill the
@@ -12973,8 +12986,8 @@ PY
   cat > "$SB268_V/config-get.sh" <<'STUB'
 #!/usr/bin/env bash
 case "$1" in
-  *enabled*) printf '%s' "${STUB_ENABLED:-true}" ;;
-  *max_resume*) printf '%s' "${STUB_MAX:-2}" ;;
+  *enabled*) printf '%s' "${STUB_ENABLED-true}" ;;
+  *max_resume*) printf '%s' "${STUB_MAX-2}" ;;
 esac
 STUB
   cat > "$SB268_V/workpad.py" <<'STUB'
@@ -12997,15 +13010,24 @@ exit 0
 STUB
   cat > "$SB268_DIR/bin/gh" <<'STUB'
 #!/usr/bin/env bash
+[ -n "${STUB_GH_TOUCH:-}" ] && : > "$STUB_GH_TOUCH"
 [ "${STUB_GH_FAIL:-0}" = "1" ] && exit 1
 printf '%s\n' "${STUB_GH_BODIES:-}"
 STUB
+  cat > "$SB268_DIR/bin/mktemp" <<'STUB'
+#!/usr/bin/env bash
+[ "${STUB_MKTEMP_FAIL:-0}" = "1" ] && exit 1
+exec /usr/bin/mktemp "$@" 2>/dev/null || exec /bin/mktemp "$@"
+STUB
+  chmod +x "$SB268_DIR/bin/mktemp"
   chmod +x "$SB268_V"/*.sh "$SB268_DIR/bin/gh"
   sb268_run() {  # usage: sb268_run env VAR=... — returns step rc; post body lands in $SB268_POST
-    SB268_POST="$SB268_DIR/post-body"; rm -f "$SB268_POST" "$SB268_DIR/status-touched"
+    SB268_POST="$SB268_DIR/post-body"; rm -f "$SB268_POST" "$SB268_DIR/status-touched" "$SB268_DIR/gh-touched"
     ( cd "$SB268_DIR/repo" && \
       PATH="$SB268_DIR/bin:$PATH" ISSUE_NUMBER=5 \
+      APP_TOKEN_PRESENT=true CLAUDE_OUTCOME=success \
       STUB_TOUCH="$SB268_DIR/status-touched" STUB_POST_COPY="$SB268_POST" \
+      STUB_GH_TOUCH="$SB268_DIR/gh-touched" \
       "$@" bash "$SB268_RUN" >/dev/null 2>&1 )
   }
   sb268_run env STUB_ENABLED=false STUB_STATUS_OUT="interim 🚀 Reviewing"
@@ -13024,7 +13046,7 @@ STUB
   assert_eq "#268 behavior: resume body carries marker + trigger phrase" "yes" \
     "$(grep -qF 'devflow:stall-backstop-audit' "$SB268_POST" && grep -qF '/devflow:implement 5' "$SB268_POST" && echo yes || echo no)"
   sb268_run env STUB_STATUS_OUT="interim 🚀 Reviewing" STUB_MAX=2 \
-    STUB_GH_BODIES=$'x <!-- devflow:stall-backstop-audit --> y\nz <!-- devflow:stall-backstop-audit --> w'
+    STUB_GH_BODIES=$'<!-- devflow:stall-backstop-audit -->\nattempt one\n<!-- devflow:stall-backstop-audit -->\nattempt two'
   SB268_RC=$?
   assert_eq "#268 behavior: cap exhausted -> exit 1" "1" "$SB268_RC"
   assert_eq "#268 behavior: exhausted comment carries NO trigger phrase" "0" \
@@ -13041,6 +13063,44 @@ STUB
   SB268_RC=$?
   assert_eq "#268 behavior: gh comment-read failure -> assume 0 attempts, resume posted, exit 0" "0:yes" \
     "$SB268_RC:$([ -f "$SB268_POST" ] && echo yes || echo no)"
+  # Terminal path is lazy: the paginated comment fetch must never run.
+  sb268_run env STUB_STATUS_OUT="terminal 👎 Blocked"
+  SB268_RC=$?
+  assert_eq "#268 behavior: terminal -> comment fetch skipped (gh never invoked)" "0:no" \
+    "$SB268_RC:$([ -f "$SB268_DIR/gh-touched" ] && echo yes || echo no)"
+  # Attempt boundary: one prior audit marker under cap 2 -> resume, body says 2 of 2.
+  sb268_run env STUB_STATUS_OUT="interim 🚀 Reviewing" STUB_MAX=2 \
+    STUB_GH_BODIES='<!-- devflow:stall-backstop-audit -->'
+  SB268_RC=$?
+  assert_eq "#268 behavior: one prior attempt under cap 2 -> resume, body names attempt 2 of 2" "0:yes" \
+    "$SB268_RC:$(grep -qF 'attempt 2 of 2' "$SB268_POST" && echo yes || echo no)"
+  # Quote-inflation guard: a QUOTED marker ("> <!-- ... -->") must not count.
+  sb268_run env STUB_STATUS_OUT="interim 🚀 Reviewing" STUB_MAX=1 \
+    STUB_GH_BODIES='> <!-- devflow:stall-backstop-audit -->'
+  SB268_RC=$?
+  assert_eq "#268 behavior: quoted marker does not inflate the attempt count (still resume under cap 1)" "0" "$SB268_RC"
+  # Empty config-get output (hard-failure shape): safe-direction defaults hold.
+  sb268_run env STUB_ENABLED= STUB_MAX= STUB_STATUS_OUT="terminal 🎉 Complete"
+  SB268_RC=$?
+  assert_eq "#268 behavior: empty config reads -> enabled + default cap (terminal still noop exit 0)" "0" "$SB268_RC"
+  # mktemp failure: fail loud on EVERY decision arm (a resume comment that was
+  # never posted must not read as green).
+  sb268_run env STUB_STATUS_OUT="interim 🚀 Reviewing" STUB_MKTEMP_FAIL=1
+  SB268_RC=$?
+  assert_eq "#268 behavior: mktemp failure on a resume decision -> exit 1 (fail loud)" "1" "$SB268_RC"
+  # No App token: the resume comment posts but cannot re-trigger -> fail loud.
+  sb268_run env STUB_STATUS_OUT="interim 🚀 Reviewing" APP_TOKEN_PRESENT=false
+  SB268_RC=$?
+  assert_eq "#268 behavior: resume without the App token -> comment posted + exit 1 (inert resume never green)" "1:yes" \
+    "$SB268_RC:$([ -f "$SB268_POST" ] && echo yes || echo no)"
+  # Missing vendored dir: benign skip only when the claude step did not succeed;
+  # on a successful run a vanished dir means the backstop is disarmed -> loud.
+  SB268_EMPTY=$(mktemp -d)
+  ( cd "$SB268_EMPTY" && CLAUDE_OUTCOME=success bash "$SB268_RUN" >/dev/null 2>&1 )
+  assert_eq "#268 behavior: vendored dir missing on a successful claude step -> exit 1" "1" "$?"
+  ( cd "$SB268_EMPTY" && CLAUDE_OUTCOME=failure bash "$SB268_RUN" >/dev/null 2>&1 )
+  assert_eq "#268 behavior: vendored dir missing on a failed claude step -> benign exit 0" "0" "$?"
+  rm -rf "$SB268_EMPTY"
   rm -rf "$SB268_DIR"; rm -f "$SB268_RUN"
 else
   printf '  SKIP  #268 behavior: python3+PyYAML unavailable — extraction test skipped (content pins above still ran)\n'

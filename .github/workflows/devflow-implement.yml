@@ -551,10 +551,28 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ needs.gate.outputs.number }}
+          # Whether the workflow-capable App token was actually minted: a
+          # GITHUB_TOKEN-authored resume comment never re-triggers the workflow
+          # (GitHub suppresses recursive GITHUB_TOKEN events), so a resume
+          # decision without the App token must fail loud, not read as green.
+          APP_TOKEN_PRESENT: ${{ steps.app-token.outputs.token != '' }}
+          # The claude step's outcome disambiguates the missing-vendored-dir
+          # case: on a failed/skipped claude step the job is already red (or
+          # deliberately not running), so skipping here is benign; on a
+          # successful claude step a vanished vendored dir means the backstop
+          # was silently disarmed — fail loud instead of masking it.
+          CLAUDE_OUTCOME: ${{ steps.claude.outcome }}
         run: |
           set +e
           V=.devflow/vendor/devflow/scripts
-          [ -d "$V" ] || { echo "::warning::stall backstop: vendored scripts dir '$V' missing; skipped"; exit 0; }
+          if [ ! -d "$V" ]; then
+            if [ "$CLAUDE_OUTCOME" = "success" ]; then
+              echo "::error::stall backstop: vendored scripts dir '$V' missing on a successful run — the backstop is disarmed; failing loud"
+              exit 1
+            fi
+            echo "::warning::stall backstop: vendored scripts dir '$V' missing (claude step outcome: ${CLAUDE_OUTCOME:-unknown}); skipped — the job is already non-green"
+            exit 0
+          fi
           # Master switch first: disabled → fully skipped (no status read, no
           # comment, no resume, no fail). Unrecognized/missing resolves to
           # enabled (only the exact string "false" disables — the decide
@@ -569,10 +587,17 @@ jobs:
           fi
           MAX="$("$V/config-get.sh" .devflow_implement.stall_backstop.max_resume_attempts 2)"
           [ -n "$MAX" ] || MAX=2
+          # Sanitize MAX here too (mirrors the decide helper): the helper
+          # substitutes 2 for a non-integer cap internally, so without this the
+          # comments would print a raw corrupt value ("attempt 1 of banana")
+          # that the decision never used.
+          [[ "$MAX" =~ ^[0-9]+$ ]] || MAX=2
           # Workpad Status read: exit 2 (no workpad) and exit 1 (unparseable
           # Status, or a gh api fetch failure) both map to the decision
-          # helper's 'unreadable' class.
-          STATUS_OUT="$(python3 "$V/workpad.py" status "$ISSUE_NUMBER" 2>/dev/null)"
+          # helper's 'unreadable' class. stderr deliberately flows to the run
+          # log — the helper emits distinct diagnostics for each cause, and
+          # discarding them would leave a red fail-unreadable run undebuggable.
+          STATUS_OUT="$(python3 "$V/workpad.py" status "$ISSUE_NUMBER")"
           if [ $? -eq 0 ] && [ -n "$STATUS_OUT" ]; then
             CLASS="${STATUS_OUT%% *}"
           else
@@ -590,7 +615,11 @@ jobs:
           ATTEMPTS=0
           if [ "$CLASS" = "interim" ]; then
             if COMMENT_BODIES="$(gh api --paginate "repos/{owner}/{repo}/issues/${ISSUE_NUMBER}/comments?per_page=100" --jq '.[].body' 2>/dev/null)"; then
-              ATTEMPTS="$(printf '%s\n' "$COMMENT_BODIES" | grep -cF "$MARKER")"
+              # -x: count only lines that ARE the marker (the resume comment
+              # emits it alone on its first line), so a human QUOTING an audit
+              # comment ("> <!-- ... -->") does not inflate the attempt count
+              # into a spurious fail-exhausted.
+              ATTEMPTS="$(printf '%s\n' "$COMMENT_BODIES" | grep -cxF "$MARKER")"
             else
               echo "::warning::stall backstop: could not read the issue comments (gh api failed); assuming 0 prior attempts (fail-toward-resume, never spurious exhaustion)"
             fi
@@ -643,6 +672,15 @@ jobs:
           printf '%s\n' "$POST_ERR"
           if [ "$FAIL" -eq 0 ] && ! printf '%s' "$POST_ERR" | grep -qF "devflow: posted comment on #${ISSUE_NUMBER}"; then
             echo "::error::stall backstop: the resume re-dispatch comment did not land (see the breadcrumb above) — failing loud so the stall stays visible for a manual retrigger"
+            exit 1
+          fi
+          # A resume comment authored by the built-in GITHUB_TOKEN posts fine
+          # but never re-triggers the workflow, so without the App token the
+          # "resume" would be a green no-op — the masked stall this backstop
+          # exists to prevent. The comment (with the trigger phrase a human
+          # can re-post) is already up; fail loud so the stall shows red.
+          if [ "$FAIL" -eq 0 ] && [ "$APP_TOKEN_PRESENT" != "true" ]; then
+            echo "::error::stall backstop: resume comment posted, but no DEVFLOW_APP_ID App token is configured — a GITHUB_TOKEN-authored comment cannot start a new run, so auto-resume is inert; failing loud (configure DEVFLOW_APP_ID for auto-resume, or re-post the trigger comment manually)"
             exit 1
           fi
           exit "$FAIL"
