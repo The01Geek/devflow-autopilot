@@ -18,11 +18,18 @@
 #             "true", an unrecognized string) resolves to enabled — the safe,
 #             honest-failure direction the issue mandates.
 #   CLASS     The workpad status class from `workpad.py status`:
-#               terminal    — 🎉 Complete / 👎 Blocked (healthy end)
-#               interim     — 🚀 any in-progress phase (a stall)
-#               unreadable  — no workpad, or its Status could not be parsed
-#             (the workflow passes "unreadable" when `workpad.py status` exits
-#             non-zero). Any other/unknown token is treated as unreadable.
+#               terminal      — 🎉 Complete / 👎 Blocked (healthy end)
+#               interim       — 🚀 any in-progress phase (a stall)
+#               unreadable    — no workpad, or its Status could not be parsed
+#               auth-failure  — a gh-api / transport / auth error (e.g. an
+#                               expired App token) while reading the workpad
+#                               Status or the comment list. Distinct from
+#                               "unreadable": the workpad may be perfectly
+#                               healthy — the READ failed, not the content.
+#             (the workflow passes "unreadable" when `workpad.py status` exits 1
+#             or 2, and "auth-failure" when it exits 3 or the comment-count
+#             fetch fails on transport/auth grounds.) Any other/unknown token is
+#             treated as unreadable.
 #   ATTEMPTS  How many automatic resume attempts have already been made for this
 #             issue (>=0). A non-integer resolves to 0 (fail toward attempting a
 #             resume, not toward a spurious exhaustion).
@@ -37,6 +44,9 @@
 #   fail-exhausted   interim + ATTEMPTS >= MAX     → comment + fail the job
 #                    (includes MAX=0: 0 >= 0)
 #   fail-unreadable  status unreadable/unknown    → diagnostic comment + fail
+#   fail-auth        gh-api/transport/auth failure → auth-specific comment + fail
+#                    (fails loud WITHOUT consuming a resume attempt; never
+#                    mislabeled 'unreadable')
 set -uo pipefail
 
 enabled="${1-}"
@@ -67,6 +77,13 @@ case "$cls" in
     else
       echo resume
     fi
+    ;;
+  auth-failure)
+    # A gh-api/transport/auth failure reading the workpad — NOT a corrupt
+    # workpad. Fail loud with a distinct decision so the workflow emits an
+    # auth-specific breadcrumb and never burns a resume attempt on a workpad it
+    # never actually read. Placed before the wildcard so it isn't swallowed.
+    echo fail-auth
     ;;
   unreadable|*)
     # 'unreadable' is the workflow's explicit "no workpad / unparseable Status"

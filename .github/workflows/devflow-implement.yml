@@ -562,6 +562,29 @@ jobs:
           fi
           exit 0
 
+      # ── Fresh App token for the stall backstop (issue #287) ────────────────
+      # The `app-token` step above is minted at the START of the `claude` job,
+      # which can run well over an hour — longer than a GitHub App installation
+      # token's ~60-minute lifetime. The stall backstop that fires AFTER that
+      # long run would otherwise inherit an already-expired token, so its
+      # workpad read 401s, a healthy workpad is misclassified, and auto-resume
+      # can never fire on exactly the long runs that need it. Mint a fresh token
+      # here, just-in-time (< 1 min old), mirroring the writer mint (same
+      # app-id/private-key, full installation scope); the gate adds `always()`
+      # so it still mints after a failed claude job (do NOT "reconcile" it back
+      # to the writer's bare `if:` — that would break the backstop on failed
+      # runs). When
+      # DEVFLOW_APP_ID is unset this step is skipped and its output token is
+      # empty, so the backstop's GH_TOKEN falls back to GITHUB_TOKEN exactly as
+      # before — the non-adopter path is byte-for-byte unchanged.
+      - name: Mint stall-backstop token (optional)
+        id: backstop-token
+        if: ${{ always() && vars.DEVFLOW_APP_ID != '' }}
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.DEVFLOW_APP_ID }}
+          private-key: ${{ secrets.DEVFLOW_APP_PRIVATE_KEY }}
+
       # ── Stall backstop (issue #268; primitives from #266) ──────────────────
       # A headless single-shot claude-code-action run can end mid-lifecycle yet
       # report success (the SDK ends the session on a tool-call-free turn), so
@@ -569,20 +592,29 @@ jobs:
       # never PR draft state — and acts on the pure decision helper's verdict:
       # terminal → no-op; interim → audit comment + re-dispatch (bounded by
       # stall_backstop.max_resume_attempts); cap exhausted or unreadable →
-      # distinct comment + non-zero exit (the job goes honestly red). Auto-
-      # resume needs the optional DEVFLOW_APP_ID App token AND that App's bot
-      # login in devflow.allowed_bots; fail-loud works under either token —
-      # see docs/implement-skill.md for the full boundary discussion.
+      # distinct comment + non-zero exit (the job goes honestly red). A gh-api/
+      # transport/auth failure reading the workpad is a distinct auth-failure
+      # class — it fails loud without consuming a resume attempt and is never
+      # mislabeled unreadable. Auto-resume needs the optional DEVFLOW_APP_ID App
+      # token AND that App's bot login in devflow.allowed_bots; fail-loud works
+      # under either token — see docs/implement-skill.md for the full boundary
+      # discussion.
       - name: Stall backstop
         if: ${{ always() }}
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
+          # The freshly-minted backstop token (issue #287), NOT the stale
+          # claude-job-scoped app-token — falls back to GITHUB_TOKEN when the
+          # opt-in App is unconfigured, identical to the pre-change behavior.
+          GH_TOKEN: ${{ steps.backstop-token.outputs.token || secrets.GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ needs.gate.outputs.number }}
           # Whether the workflow-capable App token was actually minted: a
           # GITHUB_TOKEN-authored resume comment never re-triggers the workflow
           # (GitHub suppresses recursive GITHUB_TOKEN events), so a resume
           # decision without the App token must fail loud, not read as green.
-          APP_TOKEN_PRESENT: ${{ steps.app-token.outputs.token != '' }}
+          # Keyed on the fresh backstop token (issue #287): when DEVFLOW_APP_ID
+          # is set both mints yield a token so this stays true, and when unset
+          # both are empty so it stays false — same value either way.
+          APP_TOKEN_PRESENT: ${{ steps.backstop-token.outputs.token != '' }}
           # The claude step's outcome disambiguates the missing-vendored-dir
           # case: on a failed/skipped claude step the job is already red (or
           # deliberately not running), so skipping here is benign; on a
@@ -619,16 +651,27 @@ jobs:
           # comments would print a raw corrupt value ("attempt 1 of banana")
           # that the decision never used.
           [[ "$MAX" =~ ^[0-9]+$ ]] || MAX=2
-          # Workpad Status read: exit 2 (no workpad) and exit 1 (unparseable
-          # Status, or a gh api fetch failure) both map to the decision
-          # helper's 'unreadable' class (an rc-0 empty output is also treated
-          # as unreadable, defensively). stderr deliberately flows to the run
-          # log — the helper's exit-1 causes (unparseable Status, gh fetch
-          # failure) emit distinct diagnostics there; the no-workpad exit-2 and
-          # rc-0-empty causes are silent, distinguished only by the status=
-          # echo below.
+          # Workpad Status read (issue #287): capture the rc into a variable —
+          # `$?` is only valid for one test, and we branch on it twice.
+          #   exit 3  → a gh-api/transport/auth failure (e.g. an EXPIRED App
+          #             token): the workpad may be perfectly healthy, the READ
+          #             failed. Classify as 'auth-failure' (its own decision
+          #             class), NOT 'unreadable' — fail loud without burning a
+          #             resume attempt on a workpad we never actually read.
+          #   exit 1  → unparseable/absent/unrecognized Status (content-shape).
+          #   exit 2  → no workpad. Both map to the 'unreadable' class.
+          #   rc-0 empty output → defensively 'unreadable'.
+          # stderr deliberately flows to the run log — the helper's exit-1/exit-3
+          # causes emit distinct diagnostics there; the no-workpad exit-2 and
+          # rc-0-empty causes are silent, distinguished only by the status= echo
+          # below.
           STATUS_OUT="$(python3 "$V/workpad.py" status "$ISSUE_NUMBER")"
-          if [ $? -eq 0 ] && [ -n "$STATUS_OUT" ]; then
+          STATUS_RC=$?
+          if [ "$STATUS_RC" -eq 3 ]; then
+            echo "::error::stall backstop: reading the workpad Status failed with a gh-api/transport/auth error (workpad.py status exit 3; the specific gh error is on workpad.py's stderr above) — this is an API/transport failure (most often an expired GitHub App installation token, but any gh-api/transport error or an unparseable API response lands here), NOT an unreadable workpad, which may be perfectly healthy. Failing loud WITHOUT consuming a resume attempt; check the specific error above (and DEVFLOW_APP_ID / the App token's freshness) and re-run"
+            CLASS=auth-failure
+            STATUS_OUT="(auth/API failure reading the workpad Status)"
+          elif [ "$STATUS_RC" -eq 0 ] && [ -n "$STATUS_OUT" ]; then
             # Strip backticks/CR before the value is interpolated inside a
             # markdown code span in the posted comments — a hand-corrupted
             # Status line must not be able to break the comment markup.
@@ -662,8 +705,8 @@ jobs:
               # into a spurious fail-exhausted.
               ATTEMPTS="$(printf '%s\n' "$COMMENT_BODIES" | tr -d '\r' | grep -cxF "$MARKER")"
             else
-              echo "::error::stall backstop: could not read the issue comments (gh api failed: $(tail -c 300 "$GH_ERRF" 2>/dev/null | tr '\n' ' ')); the attempt count is unknowable, so the cap cannot be enforced — treating as unreadable (fail loud) rather than resuming unbounded"
-              CLASS=unreadable
+              echo "::error::stall backstop: could not read the issue comments (gh api failed: $(tail -c 300 "$GH_ERRF" 2>/dev/null | tr '\n' ' ')); the attempt count is unknowable, so the cap cannot be enforced. This is a gh-api/transport/auth failure (e.g. an expired App token), NOT an unreadable workpad — treating as auth-failure (fail loud, no resume attempt consumed) rather than resuming unbounded (issue #287)"
+              CLASS=auth-failure
             fi
             [ "$GH_ERRF" = /dev/null ] || rm -f "$GH_ERRF"
             [[ "$ATTEMPTS" =~ ^[0-9]+$ ]] || ATTEMPTS=0
@@ -705,6 +748,13 @@ jobs:
               ;;
             fail-exhausted)
               printf '**DevFlow stall backstop** — this cloud run ended while the workpad Status was still in-progress (`%s`), and the auto-resume cap (max_resume_attempts=%s, attempts already made: %s) is exhausted. The job has been failed so the stall is visible; to retry, post a fresh implement trigger comment naming this issue number.\n' "$STATUS_OUT" "$MAX" "$ATTEMPTS" > "$BODY"
+              ;;
+            fail-auth)
+              # A gh-api/transport/auth failure (e.g. an expired App token)
+              # reading the workpad Status or the comment list — distinct from an
+              # unreadable/corrupt workpad, which may be perfectly healthy. Fail
+              # loud so the problem is visible; NO resume attempt was consumed.
+              printf '**DevFlow stall backstop** — could not read the outcome of this run because of a gh-api/transport/auth error while reading the workpad Status or the issue comment list (most often an expired GitHub App installation token, but any gh-api/transport failure or an unparseable API response lands here). This is distinct from an unreadable/corrupt workpad — the workpad itself may be perfectly healthy. The job has been failed so the problem is visible, and NO auto-resume attempt was consumed. **The run log names the specific gh error** — inspect it first (and verify DEVFLOW_APP_ID / the App token if it is an auth error), then post a fresh implement trigger comment to retry.\n' > "$BODY"
               ;;
             *)
               # fail-unreadable (or any unknown/empty decision token — fail closed).

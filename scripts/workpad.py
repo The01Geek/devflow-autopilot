@@ -89,18 +89,23 @@ def _run(cmd, *, stdout=subprocess.PIPE, stdin=None):
     )
 
 
-def _fail(prefix, exc):
+def _fail(prefix, exc, code=1):
+    # `code` defaults to 1 (the historical contract for every subcommand). Only
+    # cmd_status overrides it to 3 on its gh-api/transport/auth failure paths, so
+    # the cloud stall backstop can tell an auth/transport failure (the workpad
+    # may be healthy — the READ failed) apart from a genuinely unreadable
+    # workpad. Every other caller keeps exit 1 unchanged.
     msg = exc.stderr.strip() if isinstance(exc, subprocess.CalledProcessError) else str(exc)
     sys.stderr.write(f"workpad.py {prefix}: {msg}\n")
-    sys.exit(1)
+    sys.exit(code)
 
 
-def _repo_full():
+def _repo_full(api_fail_code=1):
     try:
         r = _run([GH, 'repo', 'view', '--json', 'nameWithOwner',
                   '-q', '.nameWithOwner'])
     except (subprocess.CalledProcessError, OSError) as e:
-        _fail('repo lookup', e)
+        _fail('repo lookup', e, code=api_fail_code)
     return r.stdout.strip()
 
 
@@ -169,15 +174,17 @@ def _workpad_marker(explicit=None):
     return _DEFAULT_WORKPAD_MARKER
 
 
-def _find_workpad_comment(cmd, repo, issue, marker):
+def _find_workpad_comment(cmd, repo, issue, marker, api_fail_code=1):
     """Scan an issue's comments (paginated) and return the first whose body
     starts with `marker`, or None when the scan completed and none matched.
 
     Single source for the marker-scan that `cmd_id` and `cmd_status` share — the
     `per_page=100`/`< 100` pagination boundary and the API/parse error handling
-    live here once. A `gh api` or JSON-parse failure exits 1 via `_fail(cmd, …)`
-    (so the caller's error prefix is preserved); a clean scan with no match
-    returns None so the caller can apply its own "not found" contract (exit 2)."""
+    live here once. A `gh api` or JSON-parse failure exits via `_fail(cmd, …)`
+    with `api_fail_code` (default 1, so the caller's error prefix and historical
+    exit code are preserved; cmd_status passes 3 to distinguish a transport/auth
+    failure from an unreadable workpad); a clean scan with no match returns None
+    so the caller can apply its own "not found" contract (exit 2)."""
     page = 1
     while True:
         try:
@@ -187,11 +194,26 @@ def _find_workpad_comment(cmd, repo, issue, marker):
                 f'?page={page}&per_page=100',
             ])
         except (subprocess.CalledProcessError, OSError) as e:
-            _fail(cmd, e)
+            _fail(cmd, e, code=api_fail_code)
         try:
             items = json.loads(r.stdout)
         except json.JSONDecodeError as e:
-            _fail(cmd, f"could not parse gh comments response: {e}")
+            _fail(cmd, f"could not parse gh comments response: {e}", code=api_fail_code)
+        # A rc-0 gh response that parses but is NOT a JSON array is a transport/API
+        # anomaly, not a healthy comment page — most often an error envelope
+        # (`{"message":"Bad credentials"}`) some gh/API paths emit at exit 0. Route
+        # it through the same api_fail_code as a parse failure (exit 3 for cmd_status,
+        # so the exit-3 promise covers a wrong-shape body, not only an unparseable
+        # one) rather than iterating a dict's keys into an uncaught AttributeError
+        # (which would surface as a bare exit 1, mislabeling an auth error as an
+        # unreadable workpad).
+        if not isinstance(items, list):
+            _fail(
+                cmd,
+                f"gh comments response was not a JSON array "
+                f"(got {type(items).__name__}): {str(items)[:200]}",
+                code=api_fail_code,
+            )
         for c in items:
             if (c.get('body') or '').startswith(marker):
                 return c
@@ -250,17 +272,30 @@ def cmd_status(args):
     CLASS is 'terminal' for a Complete (🎉) or Blocked (👎) status, else
     'interim'. The glyph and classification come from `_status_glyph` — the same
     single source of truth the update path uses — so no caller re-parses the
-    glyph vocabulary ad hoc. Exit codes mirror `id` so a caller can fail closed:
+    glyph vocabulary ad hoc. Exit codes let a caller fail closed:
       0  status printed
       2  no workpad comment exists for this issue (scanned OK, none matched)
-      1  gh api / parse error, the workpad exists but its Status line is
-         missing/empty, OR the Status line has a value that isn't a recognized
-         status word (present-but-unreadable — distinct from 'no workpad').
-    The cloud stall backstop maps exit 2 and exit 1 alike to the 'unreadable'
-    decision class (fail closed), while a healthy run prints a class it can act
-    on."""
+      1  the workpad exists but its Status line is missing/empty, OR the Status
+         line has a value that isn't a recognized status word
+         (present-but-unreadable — a content-shape failure, distinct from 'no
+         workpad'). This is NOT a transport failure — the read succeeded, the
+         content is unusable.
+      3  a gh api / transport / auth failure (the `gh repo view` repo lookup or
+         the `gh api` comment fetch failed — e.g. an expired App token — or that
+         fetch returned a body that is unparseable (a dropped/truncated
+         connection) or parses but is not a JSON array (an error envelope such as
+         `{"message":"Bad credentials"}`)). Distinct from exit 1: the workpad may
+         be perfectly healthy; the READ failed, not the content. Kept separate so the cloud stall backstop never mislabels
+         an auth failure as an unreadable workpad and never burns a resume
+         attempt on a workpad it could not read.
+    The cloud stall backstop maps exit 1 and exit 2 alike to the 'unreadable'
+    decision class, exit 3 to the distinct 'auth-failure' class (both fail
+    closed), while a healthy run prints a class it can act on."""
     marker = _workpad_marker(args.marker)
-    c = _find_workpad_comment('status', _repo_full(), args.issue, marker)
+    c = _find_workpad_comment(
+        'status', _repo_full(api_fail_code=3), args.issue, marker,
+        api_fail_code=3,
+    )
     if c is None:
         # Scanned every page, no workpad — same benign exit 2 as `id`.
         sys.exit(2)

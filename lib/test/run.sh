@@ -8311,6 +8311,7 @@ mint_blk() {
 # (comma-separated; FULL = full installation scope, i.e. NO permission-* input).
 APP_SITES=(
   'devflow-implement|Mint workflow-capable token (optional)|app-token|FULL'
+  'devflow-implement|Mint stall-backstop token (optional)|backstop-token|FULL'
   'devflow|Mint workflow-capable token (optional)|app-token|FULL'
   'devflow-runner|Mint downscoped review token (optional)|app-token|permission-contents: read,permission-issues: read,permission-pull-requests: write,permission-actions: read'
   'devflow|Mint downscoped reaction token (optional)|gate_app_token|permission-issues: write,permission-pull-requests: write'
@@ -8385,7 +8386,7 @@ for pair in 'devflow|Mint downscoped reaction token (optional)' 'devflow|Mint do
 done
 # Per-file mint totals — the removal-proof complement of the per-block pins
 # above (a deleted mint step would otherwise only fail its own block extract).
-assert_eq "app-token: devflow-implement.yml has exactly 2 mint steps (writer + gate)" "2" \
+assert_eq "app-token: devflow-implement.yml has exactly 3 mint steps (writer + gate + stall-backstop)" "3" \
   "$(grep -cE 'uses:[[:space:]]*actions/create-github-app-token@' "$WF/devflow-implement.yml")"
 assert_eq "app-token: devflow.yml has exactly 3 mint steps (command + gate + review_dedupe)" "3" \
   "$(grep -cE 'uses:[[:space:]]*actions/create-github-app-token@' "$WF/devflow.yml")"
@@ -13608,6 +13609,11 @@ assert_eq "#266 decide: interim cap=0 -> fail-exhausted (no auto-resume)" "fail-
 assert_eq "#266 decide: interim mid-cap -> resume" "resume" "$(decide266 true interim 1 2)"
 assert_eq "#266 decide: unreadable -> fail-unreadable (fail closed)" "fail-unreadable" "$(decide266 true unreadable 0 2)"
 assert_eq "#266 decide: unknown class -> fail-unreadable (fail closed)" "fail-unreadable" "$(decide266 true bogus 0 2)"
+# #287 — a gh-api/transport/auth failure is a DISTINCT class: fail-auth, not
+# fail-unreadable, so the workflow emits an auth-specific breadcrumb and never
+# burns a resume attempt on a workpad it could not read. The arm must sit BEFORE
+# the wildcard, so this also proves it is not swallowed into fail-unreadable.
+assert_eq "#287 decide: auth-failure -> fail-auth (distinct from fail-unreadable)" "fail-auth" "$(decide266 true auth-failure 0 2)"
 assert_eq "#266 decide: unrecognized enabled resolves to enabled (interim -> resume)" "resume" "$(decide266 yes interim 0 2)"
 assert_eq "#266 decide: negative cap falls back to default 2 (interim,attempts=1 -> resume)" "resume" "$(decide266 true interim 1 -1)"
 assert_eq "#266 decide: non-integer attempts -> 0 (interim,cap=2 -> resume)" "resume" "$(decide266 true interim notanum 2)"
@@ -13699,8 +13705,26 @@ assert_pin_unique "#268 wiring: resume-landed check greps the funnel success bre
 assert_pin_unique "#268 wiring: post-issue-comment.sh emits that exact success breadcrumb (producer side)" \
   'devflow: posted comment on #' "$REPO_ROOT/scripts/post-issue-comment.sh"
 # App-token-inert-resume fail-loud + missing-vendored-dir disambiguation wiring.
-assert_pin_unique "#268 wiring: APP_TOKEN_PRESENT wired from the app-token step output" \
-  "APP_TOKEN_PRESENT: \${{ steps.app-token.outputs.token != '' }}" "$WF268"
+# Issue #287: the backstop now consumes a FRESHLY-minted token (steps.backstop-token),
+# not the stale claude-job-scoped app-token, so both GH_TOKEN and APP_TOKEN_PRESENT
+# reference the fresh step's output.
+assert_pin_unique "#287 wiring: APP_TOKEN_PRESENT wired from the fresh backstop-token step output" \
+  "APP_TOKEN_PRESENT: \${{ steps.backstop-token.outputs.token != '' }}" "$WF268"
+assert_pin_unique "#287 wiring: stall-backstop GH_TOKEN consumes the fresh backstop-token (JIT re-mint)" \
+  'GH_TOKEN: ${{ steps.backstop-token.outputs.token || secrets.GITHUB_TOKEN }}' "$WF268"
+assert_pin_unique "#287 wiring: fresh backstop-token mint step present, gated on DEVFLOW_APP_ID" \
+  "id: backstop-token" "$WF268"
+# The backstop mint's `if:` MUST carry `always()` — that is the one clause that
+# distinguishes it from the writer mint (which uses a bare `if:`), and it is
+# load-bearing: without it the mint is skipped on a FAILED claude job (default
+# success() gating), so APP_TOKEN_PRESENT resolves false and auto-resume fails
+# loud even with the App configured — the exact regression #287 exists to fix
+# and the exact edit the step's own comment warns against. The APP_SITES table
+# only substring-matches `DEVFLOW_APP_ID != ''` (deliberately lenient about the
+# rest of the if:), so `always()` needs its own removal-proof pin here: a
+# "harmonization" that drops it ships GREEN otherwise. RED if `always()` is removed.
+assert_eq "#287 wiring: backstop-token mint if: carries the always() guard (mints even after a failed claude job)" "1" \
+  "$(grep -A2 'name: Mint stall-backstop token' "$WF268" | grep -cF "if: \${{ always() && vars.DEVFLOW_APP_ID != '' }}")"
 assert_pin_unique "#268 wiring: CLAUDE_OUTCOME wired from the claude step outcome" \
   'CLAUDE_OUTCOME: ${{ steps.claude.outcome }}' "$WF268"
 # Actions runs run: blocks under bash -e; the step's leading `set +e` is what
@@ -13827,6 +13851,11 @@ STUB
   SB268_RC=$?
   assert_eq "#268 behavior: gh comment-read failure -> attempt count unknowable, fail loud (exit 1, no trigger phrase)" "1:0" \
     "$SB268_RC:$(grep -cF '/devflow:implement ' "$SB268_POST" || true)"
+  # #287 — that gh comment-read failure is now classified auth-failure (not
+  # unreadable): the posted comment is the auth-specific body naming the
+  # gh-api/transport/auth error, and no resume attempt was consumed.
+  assert_eq "#287 behavior: gh comment-read failure -> auth-failure comment (names the auth error, not 'unreadable')" "yes" \
+    "$(grep -qF 'gh-api/transport/auth error' "$SB268_POST" && grep -qF 'NO auto-resume attempt was consumed' "$SB268_POST" && echo yes || echo no)"
   # CRLF-bearing comment bodies still count (the count input is CR-stripped).
   sb268_run env STUB_STATUS_OUT="interim 🚀 Reviewing" STUB_MAX=2 \
     STUB_GH_BODIES=$'<!-- devflow:stall-backstop-audit -->\r\nattempt one\r'
@@ -13888,6 +13917,21 @@ STUB
     "$?:$([ -f "$SB268_POST" ] && echo yes || echo no)"
   sb268_run env STUB_STATUS_RC=0 STUB_STATUS_OUT=
   assert_eq "#268 behavior: status rc 0 with empty output -> defensively unreadable, exit 1" "1" "$?"
+  # #287 — status exit 3 (gh-api/transport/auth failure) maps to the distinct
+  # auth-failure class: fails loud (exit 1) with the auth-specific comment body,
+  # NEVER labeled 'unreadable', and consumes NO resume attempt (no trigger
+  # phrase). This is the core regression guard for the App-token-expiry fix — a
+  # reintroduced exit-1 conflation would burn a resume attempt on a healthy
+  # workpad. The gh comment fetch is skipped entirely on this path (auth-failure
+  # is not 'interim'), so it also proves no attempt-count read is attempted.
+  sb268_run env STUB_STATUS_RC=3
+  SB268_RC=$?
+  assert_eq "#287 behavior: status exit 3 -> auth-failure, fail loud exit 1 + comment" "1:yes" \
+    "$SB268_RC:$([ -f "$SB268_POST" ] && echo yes || echo no)"
+  assert_eq "#287 behavior: status exit 3 comment is the auth-failure body (not the unreadable one)" "yes" \
+    "$(grep -qF 'gh-api/transport/auth error' "$SB268_POST" && grep -qF 'NO auto-resume attempt was consumed' "$SB268_POST" && echo yes || echo no)"
+  assert_eq "#287 behavior: status exit 3 consumes no resume attempt (no trigger phrase, gh fetch skipped)" "1:0:no" \
+    "$SB268_RC:$(grep -cF '/devflow:implement ' "$SB268_POST" || true):$([ -f "$SB268_DIR/gh-touched" ] && echo yes || echo no)"
   # Only the exact string "false" disables: an unrecognized value stays enabled
   # (the status read runs).
   sb268_run env STUB_ENABLED=False STUB_STATUS_OUT="terminal 🎉 Complete"
@@ -13931,6 +13975,81 @@ PATH="$WP266_GHD:$PATH" STUB_COMMENTS='[]' python3 "$WP266_PY" status 5 >/dev/nu
 assert_eq "#266 workpad.py status: no workpad -> exit 2" "2" "$?"
 PATH="$WP266_GHD:$PATH" STUB_COMMENTS='[{"id":1,"body":"<!-- devflow:workpad -->\nno status line here"}]' python3 "$WP266_PY" status 5 >/dev/null 2>&1
 assert_eq "#266 workpad.py status: present but unreadable Status -> exit 1" "1" "$?"
+
+# #287 — a gh-api/transport/auth failure (here a non-zero gh) must exit 3,
+# kept DISTINCT from exit 1 (content-shape: unparseable/absent/unrecognized) and
+# exit 2 (no workpad). Both cmd_status transport paths — the `gh api` comment
+# fetch AND the `gh repo view` repo lookup — must return 3, so the stall backstop
+# classifies it auth-failure and never mislabels a possibly-healthy workpad.
+WP287_GHD="$(mktemp -d)"
+cat > "$WP287_GHD/gh" <<'STUB'
+#!/usr/bin/env bash
+# repo view succeeds; the comment fetch fails (simulates a 401/transport error).
+case "$*" in
+  *"repo view"*) echo "acme/example-repo" ;;
+  *) echo "HTTP 401: Bad credentials" >&2; exit 1 ;;
+esac
+STUB
+chmod +x "$WP287_GHD/gh"
+PATH="$WP287_GHD:$PATH" python3 "$WP266_PY" status 5 >/dev/null 2>&1
+assert_eq "#287 workpad.py status: gh api comment-fetch failure -> exit 3 (auth/transport, not 1)" "3" "$?"
+cat > "$WP287_GHD/gh" <<'STUB'
+#!/usr/bin/env bash
+echo "HTTP 401: Bad credentials" >&2; exit 1
+STUB
+chmod +x "$WP287_GHD/gh"
+PATH="$WP287_GHD:$PATH" python3 "$WP266_PY" status 5 >/dev/null 2>&1
+assert_eq "#287 workpad.py status: gh repo-view failure -> exit 3 (auth/transport)" "3" "$?"
+# Regression guard: content-shape failures (no workpad, unparseable Status) must
+# NOT drift to exit 3 — they stay 2 and 1 respectively under a healthy gh.
+PATH="$WP266_GHD:$PATH" STUB_COMMENTS='[]' python3 "$WP266_PY" status 5 >/dev/null 2>&1
+assert_eq "#287 workpad.py status: no workpad stays exit 2 (not 3) under healthy gh" "2" "$?"
+PATH="$WP266_GHD:$PATH" STUB_COMMENTS='[{"id":1,"body":"<!-- devflow:workpad -->\nno status line here"}]' python3 "$WP266_PY" status 5 >/dev/null 2>&1
+assert_eq "#287 workpad.py status: unparseable Status stays exit 1 (not 3) under healthy gh" "1" "$?"
+# #287 — a gh api call that SUCCEEDS (rc 0) but returns an unparseable body (a
+# dropped/truncated connection, which surfaces as json.JSONDecodeError in the
+# comment fetch) is also a transport failure → exit 3, NOT the content-shape
+# exit 1. This pins the docstring's "or that fetch returned an unparseable body"
+# claim so a reclassification of the JSON-parse arm back to exit 1 goes RED.
+cat > "$WP287_GHD/gh" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *"repo view"*) echo "acme/example-repo" ;;
+  *) echo 'not json{' ;;   # rc 0, malformed body → JSONDecodeError in the fetch
+esac
+STUB
+chmod +x "$WP287_GHD/gh"
+PATH="$WP287_GHD:$PATH" python3 "$WP266_PY" status 5 >/dev/null 2>&1
+assert_eq "#287 workpad.py status: gh success with unparseable body -> exit 3 (transport, not content-shape 1)" "3" "$?"
+# #287 — a rc-0 gh response that PARSES but is not a JSON array (an error envelope
+# like {"message":"Bad credentials"} — the realistic auth-at-exit-0 shape) must
+# also exit 3, NOT crash into a bare exit 1 via AttributeError on `for c in items`.
+# Pins the isinstance(items, list) guard so the exit-3 promise covers wrong-shape
+# bodies, not only unparseable ones.
+cat > "$WP287_GHD/gh" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *"repo view"*) echo "acme/example-repo" ;;
+  *) echo '{"message":"Bad credentials"}' ;;   # rc 0, valid JSON, NOT a list
+esac
+STUB
+chmod +x "$WP287_GHD/gh"
+PATH="$WP287_GHD:$PATH" python3 "$WP266_PY" status 5 >/dev/null 2>&1
+assert_eq "#287 workpad.py status: gh success with a non-list JSON body (error envelope) -> exit 3 (not AttributeError->1)" "3" "$?"
+rm -rf "$WP287_GHD"
+# #287 — the exit-code param defaults to 1, so a NON-status caller (cmd_id) on a
+# gh transport failure exits EXACTLY 1, not 3 — locking the "every other caller
+# unchanged" contract the diff claims (a regression flipping the default to 3
+# would go RED here, where the pre-existing != 0 guards would not catch it).
+WP287_IDGHD="$(mktemp -d)"
+cat > "$WP287_IDGHD/gh" <<'STUB'
+#!/usr/bin/env bash
+echo "HTTP 401: Bad credentials" >&2; exit 1
+STUB
+chmod +x "$WP287_IDGHD/gh"
+PATH="$WP287_IDGHD:$PATH" python3 "$WP266_PY" id 5 >/dev/null 2>&1
+assert_eq "#287 workpad.py id: gh transport failure -> exit EXACTLY 1 (default code, non-status caller unchanged)" "1" "$?"
+rm -rf "$WP287_IDGHD"
 
 # #281 — a present-but-unrecognized Status word must fail closed (exit 1, distinct
 # stderr diagnostic) exactly like the missing/empty cases above, instead of the
