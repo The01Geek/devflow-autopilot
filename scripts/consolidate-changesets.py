@@ -8,7 +8,7 @@ and ``CHANGELOG.md`` in every PR (see ``.changeset/README.md``). This helper run
 time (push to ``main``) from the ``version-consolidate`` workflow (shipped at
 ``ci/version-consolidate.yml``, installed by a maintainer into ``.github/workflows/``):
 
-  * globs every pending ``.changeset/*.md`` (ignoring ``README.md`` and any ``config.*``),
+  * globs every pending ``.changeset/*.md`` (ignoring ``README.md``),
   * parses each file's ``bump:`` (required) + optional ``type:`` frontmatter and prose body,
   * computes the single highest pending bump (``patch`` < ``minor`` < ``major``),
   * rewrites ``.claude-plugin/plugin.json``'s ``version`` by that increment,
