@@ -57,16 +57,22 @@ A review engine that re-runs after every edit is *exhaustive*: each pass surface
 Once the verdict is already non-blocking (an APPROVE, or any approve-with-notes verdict), the bar for re-opening the diff changes. **Resolve that bar once** from the project's configured fix threshold, read through the same bundled-helper pattern this skill's prompt-extension loader already uses. The config reader returns the raw value but does not validate it, so validate the enum inline and fall back to a safe default with a stderr breadcrumb naming the key and the fallback value (it never aborts):
 
 ```bash
-REOPEN_THRESHOLD=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .receiving_review.fix_severity_threshold critical); REOPEN_THRESHOLD_RC=$?
-# A resolver failure (rc≠0) and an out-of-enum value each fall back to the default, but
-# with distinct breadcrumbs so a resolver failure is not misreported as a bad enum value
-# (the config reader's own stderr is left un-suppressed on the rc≠0 path).
-case "$REOPEN_THRESHOLD_RC:$REOPEN_THRESHOLD" in
-  0:critical|0:important|0:suggestion) : ;;
-  0:*) echo "receiving-code-review: .receiving_review.fix_severity_threshold value '$REOPEN_THRESHOLD' is not one of critical/important/suggestion; using default 'critical'" >&2
-       REOPEN_THRESHOLD=critical ;;
-  *)   echo "receiving-code-review: could not read .receiving_review.fix_severity_threshold (config reader rc=$REOPEN_THRESHOLD_RC); using default 'critical'" >&2
-       REOPEN_THRESHOLD=critical ;;
+# Discriminate a resolver FAILURE from a bad ENUM value with single-statement branches
+# that read no variable carried across statements: an inline-bash runner that strips a
+# variable assigned in one statement and read in a later one (Copilot CLI / Cursor / Codex
+# CLI / Gemini CLI) would otherwise leave a captured rc empty, misreporting a resolver
+# failure as a bad enum value. The `if !` condition reads the config reader's OWN exit
+# status directly (its stderr is never suppressed, so a rc≠0 failure surfaces its own
+# parse/missing-python3 message too); the value validation is a separate `case` on the
+# value alone. Both fall back to the default `critical`, each with its own breadcrumb.
+if ! REOPEN_THRESHOLD=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .receiving_review.fix_severity_threshold critical); then
+  echo "receiving-code-review: could not read .receiving_review.fix_severity_threshold (config reader rc≠0); using default 'critical'" >&2
+  REOPEN_THRESHOLD=critical
+fi
+case "$REOPEN_THRESHOLD" in
+  critical|important|suggestion) : ;;
+  *) echo "receiving-code-review: .receiving_review.fix_severity_threshold value '$REOPEN_THRESHOLD' is not one of critical/important/suggestion; using default 'critical'" >&2
+     REOPEN_THRESHOLD=critical ;;
 esac
 ```
 

@@ -230,20 +230,23 @@ The workpad is best-effort and informational. A write failure should not abort t
 
 ## Main Loop
 
-**Resolve the iteration cap once, at loop start.** Read `devflow_review_and_fix.max_iterations` (default 5) via the config helper — the same portable skill-dir-anchored, no-`bash`-prefix invocation the effectiveness-trace gate uses (see "Subagent effectiveness trace"), so the read is cwd-independent and the resolved-path allow-list entry matches. Capture stderr + rc so a resolver failure (missing `python3`, malformed `config.json` → non-zero exit with empty stdout) is distinguishable from a legitimately-absent key, and clamp the result:
+**Resolve the iteration cap once, at loop start.** Read `devflow_review_and_fix.max_iterations` (default 5) via the config helper — the same portable skill-dir-anchored, no-`bash`-prefix invocation the effectiveness-trace gate uses (see "Subagent effectiveness trace"), so the read is cwd-independent and the resolved-path allow-list entry matches. Discriminate a resolver failure (missing `python3`, malformed `config.json` → non-zero exit with empty stdout) from a legitimately-absent key with a single-statement `if !` (reading config-get's own exit status inline, never a captured rc read in a later statement), and clamp the result:
 
 ```bash
-MAX_ITERS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .devflow_review_and_fix.max_iterations 5 2>/tmp/devflow-maxiter.err); MAX_ITERS_RC=$?
-# Surface a genuine resolver failure (missing `python3`, malformed config.json) in the
-# Actions UI rather than swallowing it into a silent default — mirrors the
-# effectiveness-trace gate's `::warning::` on a non-zero read.
-if [ "$MAX_ITERS_RC" -ne 0 ]; then
-  echo "::warning::devflow review-and-fix max_iterations read failed (rc=$MAX_ITERS_RC): $(cat /tmp/devflow-maxiter.err) — using default 5"
+# Discriminate a genuine resolver failure with a single-statement `if !` that reads
+# config-get's OWN exit status — never a captured rc read in a later statement (an
+# inline-bash runner that strips such cross-statement variable reads — Copilot CLI /
+# Cursor / Codex CLI / Gemini CLI — would leave the rc empty and make the fail check
+# inert). On failure warn (surfacing a missing `python3` / malformed config.json in the
+# Actions UI) and leave MAX_ITERS empty; the integer-check fallback below then supplies the
+# default 5. That fallback is also what makes a stripped-empty value fail-safe.
+if ! MAX_ITERS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .devflow_review_and_fix.max_iterations 5 2>/tmp/devflow-maxiter.err); then
+  echo "::warning::devflow review-and-fix max_iterations read failed (config-get.sh rc≠0): $(cat /tmp/devflow-maxiter.err 2>/dev/null) — using default 5"
 fi
-# Fallback to the default 5 on any resolver failure (rc≠0 → empty stdout) or a
-# non-integer/empty value; clamp a configured value below 1 up to 1 so the loop
-# always runs at least once. No upper bound is imposed — any integer ≥ 1 is honored.
-if [ "$MAX_ITERS_RC" -ne 0 ] || ! printf '%s' "$MAX_ITERS" | grep -Eq '^-?[0-9]+$'; then
+# Fallback to the default 5 on a resolver failure (empty stdout from the failed read above)
+# or a non-integer/empty value; clamp a configured value below 1 up to 1 so the loop always
+# runs at least once. No upper bound is imposed — any integer ≥ 1 is honored.
+if ! printf '%s' "$MAX_ITERS" | grep -Eq '^-?[0-9]+$'; then
   MAX_ITERS=5
 elif [ "$MAX_ITERS" -lt 1 ]; then
   MAX_ITERS=1
@@ -253,19 +256,24 @@ fi
 **Resolve the fix-severity threshold once, at loop start** (right after the cap above). Read `devflow_review_and_fix.fix_severity_threshold` (default `important`) via the same portable skill-dir-anchored, no-`bash`-prefix `config-get.sh` invocation the cap read uses (so the read is cwd-independent and matches the resolved-path allow-list entry). `config-get.sh` reads the value but does **not** validate the enum — it coerces any JSON value to a string (a number → `5`, an object → `[object Object]`, an array is comma-joined) — so validate the enum **inline** and fall back to the default on a resolver failure (rc≠0, e.g. malformed `config.json`) or any value outside the enum, with a **specific breadcrumb naming the key and the fallback value** (never aborting the loop):
 
 ```bash
-FIX_THRESHOLD=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .devflow_review_and_fix.fix_severity_threshold important); FIX_THRESHOLD_RC=$?
 # A missing key returns the default `important` (a valid value → kept silently, so an
-# absent key is byte-identical to today). A resolver failure (rc≠0: malformed config.json
-# or missing python3) and an out-of-enum value each fall back to the default, but with
-# DISTINCT breadcrumbs so the cause is named correctly rather than a resolver failure
-# being misreported as a bad enum value (config-get.sh's own stderr — a JSON parse
-# location or the missing-python3 message — is left un-suppressed on the rc≠0 path).
-case "$FIX_THRESHOLD_RC:$FIX_THRESHOLD" in
-  0:critical|0:important|0:suggestion) : ;;
-  0:*) echo "::warning::devflow review-and-fix: .devflow_review_and_fix.fix_severity_threshold value '$FIX_THRESHOLD' is not one of critical/important/suggestion; using default 'important'" >&2
-       FIX_THRESHOLD=important ;;
-  *)   echo "::warning::devflow review-and-fix: could not read .devflow_review_and_fix.fix_severity_threshold (config-get.sh rc=$FIX_THRESHOLD_RC — malformed config.json or missing python3?); using default 'important'" >&2
-       FIX_THRESHOLD=important ;;
+# absent key is byte-identical to today). Discriminate a resolver FAILURE from an
+# out-of-enum value with single-statement branches that read no variable carried across
+# statements: an inline-bash runner that strips a variable assigned in one statement and
+# read in a later one (Copilot CLI / Cursor / Codex CLI / Gemini CLI) would otherwise leave
+# a captured rc empty and misreport a resolver failure as a bad enum value. The `if !`
+# condition reads config-get's OWN exit status directly (its stderr — a JSON parse location
+# or the missing-python3 message — is never suppressed, so it surfaces on the rc≠0 path);
+# the value validation is a separate `case` on the value alone. Both fall back to the
+# default, each with its own DISTINCT breadcrumb.
+if ! FIX_THRESHOLD=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .devflow_review_and_fix.fix_severity_threshold important); then
+  echo "::warning::devflow review-and-fix: could not read .devflow_review_and_fix.fix_severity_threshold (config-get.sh rc≠0 — malformed config.json or missing python3?); using default 'important'" >&2
+  FIX_THRESHOLD=important
+fi
+case "$FIX_THRESHOLD" in
+  critical|important|suggestion) : ;;
+  *) echo "::warning::devflow review-and-fix: .devflow_review_and_fix.fix_severity_threshold value '$FIX_THRESHOLD' is not one of critical/important/suggestion; using default 'important'" >&2
+     FIX_THRESHOLD=important ;;
 esac
 ```
 
@@ -842,18 +850,23 @@ All derivation lives in `lib/efficiency-trace.jq` (a mechanical jq filter, no LL
 
 **Invoke both helpers directly — no `bash` prefix.** `config-get.sh` below and `efficiency-trace.sh` in step 3 are invoked the way `/devflow:implement` invokes its helpers: as executables resolving to a `.devflow/vendor/devflow/…` path, never `bash <path>`. Resolved-path allow-list entries (`Bash(.devflow/vendor/devflow/lib/efficiency-trace.sh:*)`, `Bash(.devflow/vendor/devflow/scripts/config-get.sh:*)`) match on the command's leading token after expansion; a `bash`-prefixed command starts with `bash` and matches nothing, so on a headless run the prompt is denied and the trace is silently skipped. Direct invocation requires `lib/efficiency-trace.sh` to keep its executable bit (it is committed `+x`); never re-add a `bash` prefix to dodge a missing bit.
 
-1. **Read the gating flag** via the config helper (use the portable skill-dir-anchored path so the read is cwd-independent, matching how this engine invokes `match-deferrals.py` / `dismiss-stale-rejections.sh`). Capture stderr + rc so a resolver failure is distinguishable from an intentional flag-off — `config-get.sh` exits non-zero with empty stdout when `python3` is missing or `config.json` is malformed, and an empty `ENABLED` would otherwise fall into the "not true → skip" branch indistinguishably from `false`:
+1. **Read the gating flag** via the config helper (use the portable skill-dir-anchored path so the read is cwd-independent, matching how this engine invokes `match-deferrals.py` / `dismiss-stale-rejections.sh`). Discriminate a resolver failure from an intentional flag-off with a single-statement `if !` — `config-get.sh` exits non-zero with empty stdout when `python3` is missing or `config.json` is malformed, and an empty `ENABLED` would otherwise fall into the "not true → skip" branch indistinguishably from `false`:
    ```bash
-   ENABLED=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .devflow_review_and_fix.efficiency_telemetry_enabled true 2>/tmp/devflow-et-flag.err); ENABLED_RC=$?
-   if [ "$ENABLED_RC" -ne 0 ]; then
-     echo "::warning::devflow efficiency-trace gate read failed (rc=$ENABLED_RC): $(cat /tmp/devflow-et-flag.err) — skipping trace"
+   # `if !` reads config-get's OWN exit status — never a captured rc read in a later
+   # statement (an inline-bash runner that strips such cross-statement variable reads —
+   # Copilot CLI / Cursor / Codex CLI / Gemini CLI — would leave the rc empty and make the
+   # fail check inert). On a resolver failure, warn and force ENABLED=false so the read
+   # fails CLOSED (skips the trace) rather than masquerading as a deliberate flag-off.
+   if ! ENABLED=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .devflow_review_and_fix.efficiency_telemetry_enabled true 2>/tmp/devflow-et-flag.err); then
+     echo "::warning::devflow efficiency-trace gate read failed (config-get.sh rc≠0): $(cat /tmp/devflow-et-flag.err 2>/dev/null) — skipping trace"
+     ENABLED=false
    fi
    ```
-   If `ENABLED_RC` is non-zero or `ENABLED` is not `true`, **skip this entire section** — render no trace and write no file under `.devflow/logs/`. (The wrapper re-checks the flag itself, so this is belt-and-suspenders; the read here is what gates the `mkdir`/render below. The `::warning::` above ensures a genuine resolver failure surfaces in the Actions UI rather than masquerading as a deliberate flag-off.)
+   If `ENABLED` is not `true`, **skip this entire section** — render no trace and write no file under `.devflow/logs/`. (The wrapper re-checks the flag itself, so this is belt-and-suspenders; the read here is what gates the `mkdir`/render below. The `if !`-branch above forces `ENABLED=false` on a resolver failure — and a stripped-empty `ENABLED` is likewise not `true` — so a genuine failure surfaces its `::warning::` in the Actions UI *and* fails closed rather than masquerading as a deliberate flag-off.)
 
 2. **Resolve the run slug and run-id.** `<slug>` is `pr-<N>` in PR mode or the sanitized current branch name in branch mode; `<run-id>` is the per-run discriminator computed once at loop start (see Persistent workpad → Run-scoping). The run's workpads live in the run-scoped directory `.devflow/tmp/review/<slug>/<run-id>/`. The per-run **record filename is keyed by `<run-id>`** (`<slug>-<run-id>.json`), **not** a fresh `date` timestamp: the agent's Loop-Exit write here and the Layer-3 `lib/efficiency-trace.sh --persist` backstop must resolve the *same* path, or they would each write a duplicate record for one run. The run-id already embeds a timestamp on local runs (`local-<ts>-<attempt>`) and the run number on cloud runs, so it stays unique across runs while being deterministic *within* a run.
 
-3. **Render the trace to chat** and **write the per-run record**. Capture the trace's stderr+rc so a real failure surfaces a reason rather than degrading silently to an empty skip:
+3. **Render the trace to chat** and **write the per-run record**. Discriminate the trace's failure via a single-statement `if !` (redirecting its stderr to a temp file for the breadcrumb) so a real failure surfaces a reason rather than degrading silently to an empty skip:
    ```bash
    WORKPAD_DIR=".devflow/tmp/review/<slug>/<run-id>"   # run-scoped: the trace must read THIS run's iter-*.json, not a sibling run's
    RECORD=".devflow/logs/efficiency/<slug>-<run-id>.json"   # run-id-keyed (NOT a fresh timestamp): the agent write + --persist backstop MUST agree on this exact path
@@ -861,26 +874,27 @@ All derivation lives in `lib/efficiency-trace.jq` (a mechanical jq filter, no LL
    # Render the Markdown trace to chat. Use ::warning:: (not a plain echo) so a
    # failure surfaces in the Actions UI on a headless run; and detect the
    # all-workpads-malformed case, where the helper exits 0 with empty stdout (the
-   # `||` branch never fires) — print an explicit notice so it isn't a silent no-op.
-   TRACE="$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/efficiency-trace.sh --workpad-dir "$WORKPAD_DIR" --slug "<slug>" --mode trace 2>/tmp/devflow-et.err)"; TRACE_RC=$?
-   if [ "$TRACE_RC" -ne 0 ]; then
-     echo "::warning::devflow efficiency-trace unavailable (rc=$TRACE_RC): $(cat /tmp/devflow-et.err)"
+   # `elif [ -z "$TRACE" ]` arm reports it) — print an explicit notice so it isn't a silent no-op.
+   # `if !` reads the helper's OWN exit status — never a captured rc read in a later
+   # statement (a cross-statement-variable-stripping inline-bash runner would leave it empty).
+   if ! TRACE="$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/efficiency-trace.sh --workpad-dir "$WORKPAD_DIR" --slug "<slug>" --mode trace 2>/tmp/devflow-et.err)"; then
+     echo "::warning::devflow efficiency-trace unavailable (rc≠0): $(cat /tmp/devflow-et.err 2>/dev/null)"
    elif [ -z "$TRACE" ]; then
-     echo "::warning::devflow efficiency-trace produced no output (all workpads unreadable/malformed?): $(cat /tmp/devflow-et.err)"
+     echo "::warning::devflow efficiency-trace produced no output (all workpads unreadable/malformed?): $(cat /tmp/devflow-et.err 2>/dev/null)"
    else
      printf '%s\n' "$TRACE"
    fi
-   # Write the per-run JSON record (one file per run). Capture rc + stderr so a real
-   # regression surfaces a ::warning:: breadcrumb instead of vanishing silently:
-   "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/efficiency-trace.sh --workpad-dir "$WORKPAD_DIR" --slug "<slug>" --mode record > "$RECORD" 2>/tmp/devflow-et-record.err; RECORD_RC=$?
-   if [ "$RECORD_RC" -ne 0 ]; then
-     echo "::warning::devflow efficiency-trace record mode failed (rc=$RECORD_RC): $(cat /tmp/devflow-et-record.err)"
+   # Write the per-run JSON record (one file per run).
+   # Discriminate the helper's exit status with a single-statement `if` (reads its OWN
+   # status, never a captured rc read in a later statement). Only a clean rc-0, non-empty
+   # write survives — an empty (flag-off / zero-iteration → 0-byte) write, or a truncated
+   # file left by a mid-write abort (rc≠0), is removed so `git add -A` never commits it.
+   if "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/efficiency-trace.sh --workpad-dir "$WORKPAD_DIR" --slug "<slug>" --mode record > "$RECORD" 2>/tmp/devflow-et-record.err; then
+     [ -s "$RECORD" ] || rm -f "$RECORD"
+   else
+     echo "::warning::devflow efficiency-trace record mode failed (rc≠0): $(cat /tmp/devflow-et-record.err 2>/dev/null)"
+     rm -f "$RECORD"
    fi
-   # Remove the record on ANY of: helper failure (rc≠0 — guards a truncated-but-
-   # non-empty file left by a mid-write abort, which a bare `-s` check would keep
-   # and `git add -A` would then commit), or empty output (flag-off / zero-iteration
-   # run → 0-byte file). Only a clean rc-0, non-empty write survives.
-   { [ "$RECORD_RC" -ne 0 ] || [ ! -s "$RECORD" ]; } && rm -f "$RECORD"
    ```
    Print the rendered Markdown trace (the `--mode trace` output) into the chat report, after the Run telemetry table. The trace assigns each dispatched subagent exactly one verdict — **unique-effective**, **corroborating**, **noise**, or **null** (see `lib/efficiency-trace.jq`'s header and [`docs/efficiency-trace.md`](../../docs/efficiency-trace.md) for the derivation rules) — shows the per-iteration **diff profile** (the Phase 0.5 flags) and **verification posture** (so a low verifier count reads as a deliberate cheap-path/skip decision, not as "nothing ran"), the Phase-3 dispatch count, and flags any iteration that applied zero fixes as having added nothing.
 

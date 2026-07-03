@@ -333,18 +333,24 @@ the two passes can never disagree about which files were named — and checks ea
 cumulative diff:
 
 ```bash
-DIFF_OUT=$(git diff --name-only "origin/$BASE...HEAD"); DIFF_RC=$?
+if ! DIFF_OUT=$(git diff --name-only "origin/$BASE...HEAD") \
+   && { git fetch origin "$BASE" >/dev/null 2>&1; ! DIFF_OUT=$(git diff --name-only "origin/$BASE...HEAD"); }; then
+  # command failure on the read AND its retry → route to Blocked, never a path-absent verdict
+fi
 ```
 
 Before trusting that output the orchestrator guards two fail-open inputs. It ensures `$BASE` is
 non-empty by re-deriving it exactly as Phase 1.4 does — **applying Phase 1.4's non-empty fallback, not
 just the config read** (the read alone returns nothing on malformed config, which would collapse the
 range to `origin/...HEAD` and judge every path absent). And it reads the **exit status, never stdout
-emptiness**, as the failure signal: a non-zero `DIFF_RC` (or an unfetched `origin/$BASE`) is a command
-failure that says nothing about any path — the orchestrator re-fetches and retries, and if the re-fetch
-itself fails it routes to Blocked rather than falling through to a path-absent verdict on a broken
-command. An rc-0 result with empty stdout, by contrast, is the legitimate "none of these files were
-touched" signal (the genuine absence the gate exists to catch) and is acted on as real.
+emptiness**, as the failure signal — discriminated by the single-statement `if !` guard reading git's
+**own** exit status inline (never a captured `DIFF_RC` read in a later statement, which an inline-bash
+runner that strips cross-statement variable reads would leave empty): a `git diff` failure (or an
+unfetched `origin/$BASE`) is a command failure that says nothing about any path — the guard re-fetches
+and retries, and if the re-fetch itself fails it routes to Blocked rather than falling through to a
+path-absent verdict on a broken command. An rc-0 result with empty stdout, by contrast, is the
+legitimate "none of these files were touched" signal (the genuine absence the gate exists to catch) and
+is acted on as real.
 
 Bare-filename paths (containing no `/`) are considered satisfied if any diff entry's basename matches
 — for example, the diff entry `docs/DEVFLOW_SYSTEM_OVERVIEW.md` satisfies the named path

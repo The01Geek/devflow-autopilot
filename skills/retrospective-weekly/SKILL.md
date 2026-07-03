@@ -351,12 +351,16 @@ interpolate it inline into a shell command), then:
 
 ```bash
 # 1. Parse + validate the {title, body} contract. Malformed → blocker, continue.
-# The wrapper-existence precheck is a SEPARATE single-statement branch (no rc
-# variable carried across statements — the inline-bash marshaling constraint the
-# anchor note documents), so an unexpanded $LIB or missing run-jq.sh is reported
-# as the anchor failure it is, never misdiagnosed as "malformed subagent JSON".
-if [ ! -e "$LIB/../scripts/run-jq.sh" ]; then
-    blockers+=("Pattern ${SLUG}: run-jq.sh wrapper not found (unexpanded \$LIB notation or missing wrapper; fix the anchor) — not filed")
+# The wrapper precheck is a SEPARATE single-statement branch (no rc variable carried
+# across statements — the inline-bash marshaling constraint the anchor note documents),
+# so an unexpanded $LIB or missing/non-executable run-jq.sh is reported as the anchor
+# failure it is, never misdiagnosed as "malformed subagent JSON". `[ ! -x ]` (not `[ ! -e ]`)
+# so a PRESENT-but-non-executable wrapper (lost its +x bit → an invocation would exit 126)
+# is caught here as an anchor/wrapper failure, mirroring the execution-verified `resolve-*.sh`
+# family (#247) — an existence-only check would let it fall through to the elif and mis-read
+# the exit-126 as malformed JSON.
+if [ ! -x "$LIB/../scripts/run-jq.sh" ]; then
+    blockers+=("Pattern ${SLUG}: run-jq.sh wrapper not found or not executable (unexpanded \$LIB notation, missing wrapper, or lost +x bit; fix the anchor) — not filed")
 elif ! $LIB/../scripts/run-jq.sh -e '.title and .body' < ".devflow/tmp/result-${SLUG}.json" >/dev/null 2>&1; then
     # Malformed: record a blocker and file NOTHING. The append below is the
     # load-bearing failure path — it MUST run (the run reports this pattern as a

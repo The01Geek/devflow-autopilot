@@ -129,10 +129,15 @@ def _workpad_marker(explicit=None):
     # Read the marker from .devflow/config.json directly in-process (issue
     # #275): Windows cannot exec a .sh helper ([WinError 193]), so the former
     # config-get.sh subprocess hop silently dropped a configured custom marker
-    # back to the built-in default there. The path is cwd-relative, exactly as
-    # config-get.sh's own default is, and an absent file is the normal
-    # unconfigured case — silent fallback so the local tier works with no
-    # config at all.
+    # back to the built-in default there.
+    #
+    # SHARED CWD-RELATIVE CONFIG CONTRACT: this resolver and scripts/config-get.sh
+    # both read `.devflow/config.json` relative to the current working directory
+    # (the repo root in normal use) — NOT via git-root discovery. Keep the two in
+    # lockstep: a run invoked from a repo subdirectory resolves config the same way
+    # for both readers (both miss a subdir-invoked custom config identically, rather
+    # than one silently disagreeing with the other). An absent file is the normal
+    # unconfigured case — silent fallback so the local tier works with no config at all.
     config_file = Path('.devflow/config.json')
     try:
         with config_file.open(encoding='utf-8') as f:

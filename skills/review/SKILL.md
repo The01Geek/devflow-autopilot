@@ -72,10 +72,15 @@ EOF
 # API error is NOT mistaken for "first write" (which would post a duplicate for this run):
 # Capture id's stderr to a temp file (NOT /dev/null) so the rc=1 branch can report
 # the *actual* gh-api/parse error rather than a generic "it failed":
-WP=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py id "$PR_NUMBER" --marker "$MARKER" 2>/tmp/devflow-rv-id.err); rc=$?
-if [ "$rc" -eq 0 ]; then
-  :                                                                                    # resume $WP (this run's own comment)
-elif [ "$rc" -eq 2 ]; then
+# Branch on the command's OWN exit status via a single-statement `if`/`elif [ "$?" … ]`
+# chain — never a captured rc read in a later statement (an inline-bash runner that strips
+# such cross-statement variable reads — Copilot CLI / Cursor / Codex CLI / Gemini CLI —
+# would leave it empty and collapse the three-way). The `elif` reads `$?` from the failed
+# `if` condition (the `id` call) inline, exactly as this repo's sanctioned `else RC=$?`
+# idiom does, so a transient rc-1 API error is never mistaken for the rc-2 "first write".
+if WP=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py id "$PR_NUMBER" --marker "$MARKER" 2>/tmp/devflow-rv-id.err); then
+  :                                                                                    # rc 0 — resume $WP (this run's own comment)
+elif [ "$?" -eq 2 ]; then
   # this run's first GitHub write — the marker is the body file's first line, so
   # `create` needs no --marker:
   WP=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py create "$PR_NUMBER" /tmp/review-wp.md)
@@ -84,7 +89,7 @@ else
   # surface the no-op WITH the captured error so a missing live comment is
   # diagnosable rather than baffling (mirrors Phase 4.5's no-silent-failure discipline):
   WP=""
-  echo "::warning::devflow review: live progress-comment seeding failed (workpad.py id rc=$rc): $(cat /tmp/devflow-rv-id.err); continuing without the live comment" >&2
+  echo "::warning::devflow review: live progress-comment seeding failed (workpad.py id rc≠0): $(cat /tmp/devflow-rv-id.err); continuing without the live comment" >&2
 fi
 # rewrite in place at each phase boundary (only when $WP is set); `patch` targets
 # the comment by its ID, so it needs no marker either. Guard it like the seed: a
@@ -955,18 +960,23 @@ The full **flag-and-record** gate — which *requires* a recorded `severity-cali
 **Resolve the verdict-severity threshold once, before applying the rules.** Read `devflow_review.verdict_severity_threshold` (default `critical`) via the same portable skill-dir-anchored, no-`bash`-prefix `config-get.sh` invocation the live-progress-comment gate uses. `config-get.sh` reads the value but does **not** validate the enum — it coerces any JSON value to a string — so validate the enum **inline** and fall back to the default `critical` on a resolver failure (rc≠0) or any value outside the enum, with a **specific breadcrumb naming the key and the fallback value** (never aborting the review):
 
 ```bash
-VERDICT_THRESHOLD=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .devflow_review.verdict_severity_threshold critical); VERDICT_THRESHOLD_RC=$?
 # A missing key returns the default `critical` (valid → kept silently, so an absent
-# key leaves verdict computation byte-identical to today). A resolver failure (rc≠0:
-# malformed config.json or missing python3) and an out-of-enum value each fall back to
-# the default, but with DISTINCT breadcrumbs so a resolver failure is not misreported as
-# a bad enum value (config-get.sh's own stderr is left un-suppressed on the rc≠0 path).
-case "$VERDICT_THRESHOLD_RC:$VERDICT_THRESHOLD" in
-  0:critical|0:important|0:suggestion) : ;;
-  0:*) echo "::warning::devflow review: .devflow_review.verdict_severity_threshold value '$VERDICT_THRESHOLD' is not one of critical/important/suggestion; using default 'critical'" >&2
-       VERDICT_THRESHOLD=critical ;;
-  *)   echo "::warning::devflow review: could not read .devflow_review.verdict_severity_threshold (config-get.sh rc=$VERDICT_THRESHOLD_RC — malformed config.json or missing python3?); using default 'critical'" >&2
-       VERDICT_THRESHOLD=critical ;;
+# key leaves verdict computation byte-identical to today). Discriminate a resolver FAILURE
+# from an out-of-enum value with single-statement branches that read no variable carried
+# across statements: an inline-bash runner that strips a variable assigned in one statement
+# and read in a later one (Copilot CLI / Cursor / Codex CLI / Gemini CLI) would otherwise
+# leave a captured rc empty and misreport a resolver failure as a bad enum value. The
+# `if !` condition reads config-get's OWN exit status directly (its stderr is never
+# suppressed, so it surfaces on the rc≠0 path); the value validation is a separate `case`
+# on the value alone. Both fall back to the default, each with its own DISTINCT breadcrumb.
+if ! VERDICT_THRESHOLD=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .devflow_review.verdict_severity_threshold critical); then
+  echo "::warning::devflow review: could not read .devflow_review.verdict_severity_threshold (config-get.sh rc≠0 — malformed config.json or missing python3?); using default 'critical'" >&2
+  VERDICT_THRESHOLD=critical
+fi
+case "$VERDICT_THRESHOLD" in
+  critical|important|suggestion) : ;;
+  *) echo "::warning::devflow review: .devflow_review.verdict_severity_threshold value '$VERDICT_THRESHOLD' is not one of critical/important/suggestion; using default 'critical'" >&2
+     VERDICT_THRESHOLD=critical ;;
 esac
 ```
 
@@ -1053,12 +1063,13 @@ Then render the trace and (on a writable run) persist the record, reusing the **
 ```bash
 WORKPAD_DIR=".devflow/tmp/review/<slug>/<run-id>"   # run-scoped: read THIS run's iter-1.json
 # Trace (renders to chat / the live comment; reads only):
-TELEM="$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/efficiency-trace.sh --workpad-dir "$WORKPAD_DIR" --slug "<slug>" --mode trace 2>/tmp/devflow-rv-et.err)"; T_RC=$?
-# Three-way, mirroring /devflow:review-and-fix's Loop Exit: rc≠0 is a failure;
-# rc=0-but-empty stdout (e.g. telemetry flag off, or zero readable workpads) is a
-# benign no-trace — surface it but append nothing, never a blank trace section:
-if [ "$T_RC" -ne 0 ]; then
-  echo "::warning::review effectiveness trace unavailable (rc=$T_RC): $(cat /tmp/devflow-rv-et.err)"; TELEM=""
+# Three-way, mirroring /devflow:review-and-fix's Loop Exit. `if !` reads the helper's OWN
+# exit status — never a captured rc read in a later statement (a cross-statement-variable-
+# stripping inline-bash runner would leave it empty): rc≠0 is a failure; rc=0-but-empty
+# stdout (e.g. telemetry flag off, or zero readable workpads) is a benign no-trace —
+# surface it but append nothing, never a blank trace section:
+if ! TELEM="$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/efficiency-trace.sh --workpad-dir "$WORKPAD_DIR" --slug "<slug>" --mode trace 2>/tmp/devflow-rv-et.err)"; then
+  echo "::warning::review effectiveness trace unavailable (rc≠0): $(cat /tmp/devflow-rv-et.err 2>/dev/null)"; TELEM=""
 elif [ -z "$TELEM" ]; then
   echo "::warning::review effectiveness trace rendered empty (rc=0, no output — telemetry disabled or no readable workpads); omitting the trace section"
 fi
@@ -1070,9 +1081,15 @@ fi
 # the only thing preventing a 0-byte artifact.)
 RECORD=".devflow/logs/efficiency/<slug>-$(date -u +%Y%m%dT%H%M%SZ).json"
 mkdir -p .devflow/logs/efficiency
-"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/efficiency-trace.sh --workpad-dir "$WORKPAD_DIR" --slug "<slug>" --mode record > "$RECORD" 2>/tmp/devflow-rv-rec.err; R_RC=$?
-[ "$R_RC" -ne 0 ] && echo "::warning::review effectiveness record failed (rc=$R_RC): $(cat /tmp/devflow-rv-rec.err)"
-{ [ "$R_RC" -ne 0 ] || [ ! -s "$RECORD" ]; } && rm -f "$RECORD"
+# Discriminate the helper's exit status with a single-statement `if` (reads its OWN status,
+# never a captured rc read in a later statement). Only a clean rc-0, non-empty write
+# survives — a truncated mid-write (rc≠0) or a 0-byte record is removed before `git add -A`.
+if "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/efficiency-trace.sh --workpad-dir "$WORKPAD_DIR" --slug "<slug>" --mode record > "$RECORD" 2>/tmp/devflow-rv-rec.err; then
+  [ -s "$RECORD" ] || rm -f "$RECORD"
+else
+  echo "::warning::review effectiveness record failed (rc≠0): $(cat /tmp/devflow-rv-rec.err 2>/dev/null)"
+  rm -f "$RECORD"
+fi
 ```
 
 - **PR mode + live comment on:** append the Run telemetry summary (per-phase `calls`/`tokens`/`wall_clock_s`) and the rendered `$TELEM` trace into the live progress comment's finalization (Phase 4 of the update protocol), so the comment is the single complete surface. The comment edit goes through `gh` — permitted under the read-only cloud profile.

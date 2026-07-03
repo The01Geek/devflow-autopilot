@@ -11,6 +11,14 @@
 #                empty string ("") to explicitly request empty-on-missing.
 #   CONFIG_FILE  defaults to .devflow/config.json
 #
+# SHARED CWD-RELATIVE CONFIG CONTRACT: this resolver and scripts/workpad.py's
+# in-process marker read both resolve `.devflow/config.json` relative to the current
+# working directory (the repo root in normal use) — NOT via git-root discovery. Keep
+# the two in lockstep: a run invoked from a repo subdirectory resolves config the same
+# way for both readers, so neither silently disagrees with the other about a
+# subdirectory-invoked custom config. (workpad.py cannot exec this .sh on Windows —
+# [WinError 193] — so it re-implements the same cwd-relative read in Python; issue #275.)
+#
 # Parses with python3, which is a hard DevFlow prerequisite (lib/preflight.sh
 # requires python3 >= 3.11; the whole scripts/*.py surface depends on it) and so
 # is guaranteed on every host where DevFlow runs — including non-Node hosts where
