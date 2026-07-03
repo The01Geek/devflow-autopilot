@@ -13995,7 +13995,35 @@ PATH="$WP266_GHD:$PATH" STUB_COMMENTS='[]' python3 "$WP266_PY" status 5 >/dev/nu
 assert_eq "#287 workpad.py status: no workpad stays exit 2 (not 3) under healthy gh" "2" "$?"
 PATH="$WP266_GHD:$PATH" STUB_COMMENTS='[{"id":1,"body":"<!-- devflow:workpad -->\nno status line here"}]' python3 "$WP266_PY" status 5 >/dev/null 2>&1
 assert_eq "#287 workpad.py status: unparseable Status stays exit 1 (not 3) under healthy gh" "1" "$?"
+# #287 — a gh api call that SUCCEEDS (rc 0) but returns an unparseable body (a
+# dropped/truncated connection, which surfaces as json.JSONDecodeError in the
+# comment fetch) is also a transport failure → exit 3, NOT the content-shape
+# exit 1. This pins the docstring's "or that fetch returned an unparseable body"
+# claim so a reclassification of the JSON-parse arm back to exit 1 goes RED.
+cat > "$WP287_GHD/gh" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *"repo view"*) echo "acme/example-repo" ;;
+  *) echo 'not json{' ;;   # rc 0, malformed body → JSONDecodeError in the fetch
+esac
+STUB
+chmod +x "$WP287_GHD/gh"
+PATH="$WP287_GHD:$PATH" python3 "$WP266_PY" status 5 >/dev/null 2>&1
+assert_eq "#287 workpad.py status: gh success with unparseable body -> exit 3 (transport, not content-shape 1)" "3" "$?"
 rm -rf "$WP287_GHD"
+# #287 — the exit-code param defaults to 1, so a NON-status caller (cmd_id) on a
+# gh transport failure exits EXACTLY 1, not 3 — locking the "every other caller
+# unchanged" contract the diff claims (a regression flipping the default to 3
+# would go RED here, where the pre-existing != 0 guards would not catch it).
+WP287_IDGHD="$(mktemp -d)"
+cat > "$WP287_IDGHD/gh" <<'STUB'
+#!/usr/bin/env bash
+echo "HTTP 401: Bad credentials" >&2; exit 1
+STUB
+chmod +x "$WP287_IDGHD/gh"
+PATH="$WP287_IDGHD:$PATH" python3 "$WP266_PY" id 5 >/dev/null 2>&1
+assert_eq "#287 workpad.py id: gh transport failure -> exit EXACTLY 1 (default code, non-status caller unchanged)" "1" "$?"
+rm -rf "$WP287_IDGHD"
 
 # #281 — a present-but-unrecognized Status word must fail closed (exit 1, distinct
 # stderr diagnostic) exactly like the missing/empty cases above, instead of the

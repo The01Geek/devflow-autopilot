@@ -569,8 +569,11 @@ jobs:
       # long run would otherwise inherit an already-expired token, so its
       # workpad read 401s, a healthy workpad is misclassified, and auto-resume
       # can never fire on exactly the long runs that need it. Mint a fresh token
-      # here, just-in-time (< 1 min old), mirroring the writer mint verbatim
-      # (same app-id/private-key/gate, full installation scope). When
+      # here, just-in-time (< 1 min old), mirroring the writer mint (same
+      # app-id/private-key, full installation scope); the gate adds `always()`
+      # so it still mints after a failed claude job (do NOT "reconcile" it back
+      # to the writer's bare `if:` — that would break the backstop on failed
+      # runs). When
       # DEVFLOW_APP_ID is unset this step is skipped and its output token is
       # empty, so the backstop's GH_TOKEN falls back to GITHUB_TOKEN exactly as
       # before — the non-adopter path is byte-for-byte unchanged.

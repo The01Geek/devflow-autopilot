@@ -266,9 +266,10 @@ def cmd_status(args):
          workpad'). This is NOT a transport failure — the read succeeded, the
          content is unusable.
       3  a gh api / transport / auth failure (the `gh repo view` repo lookup or
-         the `gh api` comment fetch failed — e.g. an expired App token). Distinct
-         from exit 1: the workpad may be perfectly healthy; the READ failed, not
-         the content. Kept separate so the cloud stall backstop never mislabels
+         the `gh api` comment fetch failed — e.g. an expired App token — or that
+         fetch returned an unparseable body, which a dropped/truncated connection
+         also produces). Distinct from exit 1: the workpad may be perfectly
+         healthy; the READ failed, not the content. Kept separate so the cloud stall backstop never mislabels
          an auth failure as an unreadable workpad and never burns a resume
          attempt on a workpad it could not read.
     The cloud stall backstop maps exit 1 and exit 2 alike to the 'unreadable'
