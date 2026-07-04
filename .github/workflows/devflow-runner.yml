@@ -518,7 +518,7 @@ jobs:
         if: ${{ vars.DEVFLOW_APP_ID != '' }}
         uses: actions/create-github-app-token@v3
         with:
-          client-id: ${{ vars.DEVFLOW_APP_ID }}
+          app-id: ${{ vars.DEVFLOW_APP_ID }}
           private-key: ${{ secrets.DEVFLOW_APP_PRIVATE_KEY }}
           permission-contents: read
           permission-issues: read
