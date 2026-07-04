@@ -137,8 +137,8 @@ jobs:
       actions: read
       # statuses: read — the same precondition reads the legacy combined
       # commit status (repos/*/commits/*/status). Without it the query 403s
-      # on a private repo, the script fails closed ci-not-green on every
-      # event, and the review is permanently deferred.
+      # on a private repo, the script fails closed (reason 'unverifiable')
+      # on every event, and the review is permanently deferred.
       statuses: read
     outputs:
       enabled: ${{ steps.extract.outputs.enabled }}

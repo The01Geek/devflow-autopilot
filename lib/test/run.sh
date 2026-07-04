@@ -9248,8 +9248,8 @@ assert_eq "#304 all three route paths call preconditions_ok with the deferral ex
   "$(grep -cF 'preconditions_ok "$PR" "$HEAD" || exit 0' "$REVIEW_WF" || true)"
 # (c6) The precheck permissions the precondition queries depend on: without
 # actions:read the runs query 403s; without statuses:read the combined-status
-# query 403s on a private repo — either way the script fails closed
-# ci-not-green on every event and the review is permanently deferred.
+# query 403s on a private repo — either way the script fails closed (reason
+# 'unverifiable') on every event and the review is permanently deferred.
 assert_eq "#304 precheck grants actions: read" "yes" \
   "$(sed -n '/^  precheck:/,/^  create_check:/p' "$REVIEW_WF" | grep -qE '^      actions: read' && echo yes || echo no)"
 assert_eq "#304 precheck grants statuses: read" "yes" \
