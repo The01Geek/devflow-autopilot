@@ -197,7 +197,14 @@ if [ "$REQUIRE_CI_GREEN" != "false" ]; then
   fi
   if [ "$STATUS_TOTAL" != "0" ]; then
     OTHER_SIGNALS=1
-    STATUS_STATE=$(printf '%s' "$STATUS_JSON" | "$DEVFLOW_JQ" -r '.state // ""' 2>/dev/null) || STATUS_STATE=""
+    # `.state | strings` yields empty on a missing/non-string state — an
+    # UNVERIFIABLE shape, routed to the honest unverifiable reason like every
+    # other parse failure (never asserted as an observed ci-not-green).
+    STATUS_STATE=$(printf '%s' "$STATUS_JSON" | "$DEVFLOW_JQ" -r '.state | strings' 2>/dev/null) || STATUS_STATE=""
+    if [ -z "$STATUS_STATE" ]; then
+      echo "derive-review-preconditions: combined-status payload carried no string state (total_count $STATUS_TOTAL) — failing closed (unverifiable)." >&2
+      emit false unverifiable
+    fi
     if [ "$STATUS_STATE" != "success" ]; then
       echo "derive-review-preconditions: combined commit status for $HEAD_SHA is '$STATUS_STATE' ($STATUS_TOTAL status(es)) — deferring the review (ci-not-green)." >&2
       emit false ci-not-green

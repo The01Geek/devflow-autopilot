@@ -235,9 +235,17 @@ jobs:
               echo "::warning::derive-review-preconditions.sh not found (vendored or in-repo); skipping the review preconditions and proceeding (fail open — vendor the plugin to enable the gate)."
               return 0
             fi
-            pre=$(REPO="$REPO" HEAD_SHA="$2" BASE_BRANCH="$BASE_BRANCH" \
+            # The script's contract is always-exit-0; a non-zero exit means a
+            # crash / unreadable-but-present file (the existence-vs-
+            # sourceability class) — still fail-closed via the unverifiable
+            # default below, but with its OWN breadcrumb so an operator can
+            # tell "helper crashed" from "helper ran and reported
+            # unverifiable".
+            if ! pre=$(REPO="$REPO" HEAD_SHA="$2" BASE_BRANCH="$BASE_BRANCH" \
                   REQUIRE_UP_TO_DATE="$REQUIRE_UP_TO_DATE" REQUIRE_CI_GREEN="$REQUIRE_CI_GREEN" \
-                  SELF_WORKFLOW_NAME="$SELF_WORKFLOW_NAME" bash "$script") || true
+                  SELF_WORKFLOW_NAME="$SELF_WORKFLOW_NAME" bash "$script"); then
+              echo "::warning::derive-review-preconditions.sh exited non-zero (contract violation — crash or unreadable script); treating the preconditions as unverifiable."
+            fi
             pre_run=$(printf '%s\n' "$pre" | sed -n 's/^should_run=//p')
             pre_reason=$(printf '%s\n' "$pre" | sed -n 's/^reason=//p')
             if [ "$pre_run" = "true" ]; then

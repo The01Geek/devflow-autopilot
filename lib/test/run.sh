@@ -7726,8 +7726,9 @@ echo "derive-review-preconditions.sh (#304 branch-freshness + other-CI-green gat
 # config-gated preconditions against the PR head and prints:
 #   should_run=<true|false>
 #   reason=<empty|behind-base|ci-not-green|unverifiable>
-# always exit 0. Fail-closed arms: an unverifiable compare -> behind-base; an
-# unverifiable CI query -> ci-not-green; missing inputs -> unverifiable. The
+# always exit 0. Fail-closed arms: an unverifiable compare, an unverifiable CI
+# query, or missing inputs all -> unverifiable (never a positively-asserted
+# behind-base/ci-not-green the script did not observe). The
 # CI-green set is generic (no job names): Actions workflow runs for the head
 # excluding SELF_WORKFLOW_NAME, legacy combined status, and non-Actions check
 # runs. Zero entries across all three -> satisfied (a CI-less repo is reviewed
@@ -7878,6 +7879,22 @@ REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=true REQUIRE_CI_GREEN
   DRP_STATUS='{"state":"success","total_count":1}' \
   DRP_CHECKS='{"check_runs":[{"name":"ext","app":{"slug":"circleci"},"status":"completed","conclusion":"success"}]}' \
   drp "#304 both gates enabled, all signals green -> true (full happy path)" "true "
+# Statuses exist but carry no string state (adversarial shape) -> unverifiable,
+# never a positively-asserted ci-not-green.
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_STATUS='{"total_count":2}' \
+  drp "#304 combined status without a string state -> false unverifiable (shape fails closed)" "false unverifiable"
+# Precondition precedence: behind base AND red CI -> the freshness reason wins
+# (checked first); a reordering would flip the user-facing recovery guidance.
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=true REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_COMPARE='{"behind_by":3}' \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","status":"completed","conclusion":"failure"}]}' \
+  drp "#304 behind base AND red CI -> false behind-base (freshness precedence)" "false behind-base"
+# The shared green-gate pending arm driven via the EXTERNAL check-runs caller
+# (previously exercised only via the workflow-runs caller).
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_CHECKS='{"check_runs":[{"name":"ext","app":{"slug":"circleci"},"status":"in_progress","conclusion":null}]}' \
+  drp "#304 external check run in_progress -> false ci-not-green (pending, external caller)" "false ci-not-green"
 # Non-Actions (external app) check runs gate too; the Devflow Review check-run
 # name is excluded even off-app (defensive).
 REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
@@ -9286,6 +9303,17 @@ assert_eq "#304 ci.yml workflow name matches the workflow_run trigger list entry
   "$(grep -qE '^name: CI$' "$WF/ci.yml" && grep -qF 'workflows: [CI]' "$REVIEW_WF" && echo yes || echo no)"
 assert_eq "#304 script SELF_WORKFLOW_NAME default matches the workflow name:" "yes" \
   "$(grep -qF ':-Devflow Review (auto-trigger)}' "$LIB/../scripts/derive-review-preconditions.sh" && grep -qE '^name: Devflow Review \(auto-trigger\)$' "$REVIEW_WF" && echo yes || echo no)"
+# (c11) The compare operand ORDER is load-bearing and the test stub is
+# URL-shape-blind (it matches any compare/ URL): base...head reads behind_by
+# as "how far head trails base"; swapping the operands inverts the gate's
+# semantics while every stubbed test stays green — pin the literal.
+assert_eq "#304 compare query uses base...head operand order" "yes" \
+  "$(grep -qF 'compare/$BASE_BRANCH...$HEAD_SHA' "$LIB/../scripts/derive-review-preconditions.sh" && echo yes || echo no)"
+# (c12) A crashed/unreadable helper (contract violation: the script is
+# always-exit-0) gets its own breadcrumb, distinct from a ran-and-reported-
+# unverifiable result.
+assert_eq "#304 preconditions_ok distinguishes a crashed helper with its own breadcrumb" "yes" \
+  "$(grep -qF 'exited non-zero (contract violation' "$REVIEW_WF" && echo yes || echo no)"
 # (d) The workflow_run self-trigger guard compares against the workflow's own
 # name (and the on: workflows list must not name it).
 assert_eq "#304 workflow_run route carries the self-trigger guard" "yes" \
