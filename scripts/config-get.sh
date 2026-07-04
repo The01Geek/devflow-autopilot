@@ -77,8 +77,16 @@ else
     _devflow_root="$(git rev-parse --show-toplevel 2>/dev/null)" || _devflow_root=""
     if [ -z "$_devflow_root" ]; then
         _devflow_root="$(pwd)"
-        [ -d "${_devflow_root}/.devflow" ] || \
-            echo "config-get.sh: not in a git repo and no .devflow/ at '${_devflow_root}'; using cwd fallback and defaults" >&2
+        # git can exit non-zero while genuinely INSIDE a repo (safe.directory /
+        # dubious-ownership refusal), or be absent from PATH — not only "outside a
+        # git tree". So do not assert "not in a git repo": say the root could not be
+        # resolved and surface git's own stderr (the one string naming the real
+        # cause) instead of discarding it. Re-run on this rare breadcrumb path only;
+        # `|| true` keeps it set -e-safe.
+        if [ ! -d "${_devflow_root}/.devflow" ]; then
+            _git_err="$(git rev-parse --show-toplevel 2>&1 >/dev/null)" || true
+            echo "config-get.sh: could not resolve a git repo root${_git_err:+ (git: ${_git_err})} and no .devflow/ at '${_devflow_root}'; using cwd fallback and defaults" >&2
+        fi
     fi
     config_file="${_devflow_root}/.devflow/config.json"
 fi

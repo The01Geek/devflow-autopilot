@@ -118,6 +118,22 @@ def _repo_root():
     return root or None
 
 
+def _git_root_error_suffix():
+    # Best-effort: capture git's own stderr for the no-root breadcrumb so the real
+    # cause (safe.directory refusal, git absent) surfaces instead of being discarded.
+    # Returns a " (git: …)" suffix, or "" when git said nothing / cannot run. Never
+    # raises — the breadcrumb path must not itself fail.
+    try:
+        r = subprocess.run(
+            ['git', 'rev-parse', '--show-toplevel'],
+            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, encoding='utf-8',
+        )
+        err = (r.stderr or '').strip()
+    except OSError as e:
+        err = str(e)
+    return f" (git: {err})" if err else ""
+
+
 def _repo_full(api_fail_code=1):
     try:
         r = _run([GH, 'repo', 'view', '--json', 'nameWithOwner',
@@ -168,9 +184,14 @@ def _workpad_marker(explicit=None):
         # Breadcrumb only when NEITHER a git root NOR a .devflow/ dir can be located —
         # the silent-drop class this fix closes. A git root with no .devflow/ is the
         # normal unconfigured case and stays silent (handled by FileNotFoundError below).
+        # git can exit non-zero while genuinely INSIDE a repo (safe.directory /
+        # dubious-ownership), or be absent — not only "outside a git tree" — so don't
+        # assert "not in a git repo"; report the root could not be resolved and surface
+        # git's own stderr (re-run on this rare path only).
         if not (cwd / '.devflow').is_dir():
             sys.stderr.write(
-                f"workpad.py: not in a git repo and no .devflow/ at {str(cwd)!r}; "
+                f"workpad.py: could not resolve a git repo root"
+                f"{_git_root_error_suffix()} and no .devflow/ at {str(cwd)!r}; "
                 f"falling back to default marker\n"
             )
     try:

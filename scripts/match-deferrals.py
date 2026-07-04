@@ -129,6 +129,16 @@ def _repo_root():
     return root or None
 
 
+def _git_root_error_suffix() -> str:
+    # Best-effort: capture git's own stderr for the no-root breadcrumb so the real
+    # cause (safe.directory refusal, git absent — rc-127 OSError sentinel) surfaces
+    # instead of being discarded. Returns a " (git: …)" suffix, or "" when git said
+    # nothing / succeeded. _run never raises (OSError → rc 127 with stderr=str(e)).
+    r = _run(["git", "rev-parse", "--show-toplevel"], check=False)
+    err = (r.stderr or "").strip() if r.returncode != 0 else ""
+    return f" (git: {err})" if err else ""
+
+
 def _default_config_path() -> str:
     # Anchor the default config path to the repo root so a subdirectory invocation
     # reads the consumer's ROOT .devflow/config.json. Its explicit config-path
@@ -140,9 +150,14 @@ def _default_config_path() -> str:
     cwd = Path.cwd()
     # Breadcrumb only when NEITHER a git root NOR a .devflow/ dir can be located —
     # the silent-drop class this fix closes.
+    # git can exit non-zero while genuinely INSIDE a repo (safe.directory /
+    # dubious-ownership), or be absent — not only "outside a git tree" — so don't
+    # assert "not in a git repo"; report the root could not be resolved and surface
+    # git's own stderr instead of discarding it.
     if not (cwd / ".devflow").is_dir():
         sys.stderr.write(
-            f"match-deferrals.py: not in a git repo and no .devflow/ at {str(cwd)!r}; "
+            f"match-deferrals.py: could not resolve a git repo root"
+            f"{_git_root_error_suffix()} and no .devflow/ at {str(cwd)!r}; "
             f"falling back to a cwd-anchored default config path\n"
         )
     return str(cwd / ".devflow" / "config.json")

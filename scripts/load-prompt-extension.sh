@@ -74,8 +74,15 @@ esac
 _devflow_root="$(git rev-parse --show-toplevel 2>/dev/null)" || _devflow_root=""
 if [ -z "$_devflow_root" ]; then
     _devflow_root="$(pwd)"
-    [ -d "${_devflow_root}/.devflow" ] || \
-        echo "load-prompt-extension.sh: not in a git repo and no .devflow/ at '${_devflow_root}'; no extension loaded" >&2
+    # git can exit non-zero while genuinely INSIDE a repo (safe.directory /
+    # dubious-ownership refusal), or be absent from PATH — not only "outside a git
+    # tree". Don't assert "not in a git repo"; report that the root could not be
+    # resolved and surface git's own stderr (re-run on this rare path only; `|| true`
+    # keeps it set -e-safe).
+    if [ ! -d "${_devflow_root}/.devflow" ]; then
+        _git_err="$(git rev-parse --show-toplevel 2>&1 >/dev/null)" || true
+        echo "load-prompt-extension.sh: could not resolve a git repo root${_git_err:+ (git: ${_git_err})} and no .devflow/ at '${_devflow_root}'; no extension loaded" >&2
+    fi
 fi
 
 ext_file="${_devflow_root}/.devflow/prompt-extensions/${skill}.md"

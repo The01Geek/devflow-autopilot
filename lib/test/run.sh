@@ -4840,6 +4840,12 @@ assert_eq "#295 AC5: loader at root byte-identical" "EXT-295" \
 printf '{"docs":{"internal":"EXPLICIT"}}' > "$R295/explicit.json"
 assert_eq "#295 AC8: explicit CONFIG_FILE 3rd arg honored from subdir" "EXPLICIT" \
   "$(cd "$R295/a/b/c" && bash "$CG" .docs.internal FALLBACK "$R295/explicit.json")"
+# AC8b: match-deferrals' explicit config_path is honored verbatim over the root default
+# from a subdir — pins the `if config_path is None` guard's NON-None arm. A regression
+# dropping that guard (always calling _default_config_path()) would return the ROOT
+# CUSTOM/DOCS value instead of EXPLICIT and turn this RED while AC4 stayed green.
+assert_eq "#295 AC8b: match-deferrals explicit config_path honored over root default" "EXPLICIT" \
+  "$(cd "$R295/a/b/c" && python3 -c "import importlib.util as u;s=u.spec_from_file_location('md','$MD295');m=u.module_from_spec(s);s.loader.exec_module(m);print(m._config_get('.docs.internal','FALLBACK','$R295/explicit.json'))")"
 
 # AC6: non-git tree with a .devflow/ at cwd → falls back to pwd and still resolves.
 NG295="$(git_sandbox "#295 non-git .devflow sandbox")"
