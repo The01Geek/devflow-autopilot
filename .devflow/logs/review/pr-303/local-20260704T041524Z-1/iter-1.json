@@ -1,0 +1,31 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-04T04:15:24Z",
+  "fix_commit_sha": "a886911",
+  "fix_files": ["docs/cloud-setup.md", "lib/test/run.sh"],
+  "loop_role": "fix",
+  "checklist": [
+    {"id": "VC-1", "claim": "startsWith(needs.gate.outputs.command, '/devflow:review ') includes /devflow:review N and excludes /devflow:review-and-fix N", "file": ".github/workflows/devflow.yml", "verification_mode": "agent", "claim_signature": "gha_semantic:devflow.yml:review-command-startswith", "verdict": "PASS", "evidence": "resolve-command-trigger.sh:76 emits '$cmd $number'; trailing space excludes review-and-fix (pos-15 '-')", "reused_from_iter_prev": false},
+    {"id": "VC-2", "claim": "github_token ternary resolves reviewer token for review, primary for else; GITHUB_TOKEN always present so no falsy fall-through", "file": ".github/workflows/devflow.yml", "verification_mode": "agent", "claim_signature": "gha_semantic:devflow.yml:token-ternary", "verdict": "PASS", "evidence": "A&&B||C with B=(reviewer||GITHUB_TOKEN) never falsy", "reused_from_iter_prev": false},
+    {"id": "VC-3", "claim": "needs.gate.outputs.command is an exposed gate-job output the command job reads", "file": ".github/workflows/devflow.yml", "verification_mode": "lite", "claim_signature": "api_contract:devflow.yml:gate-command-output", "verdict": "PASS", "evidence": "devflow.yml:300 outputs command; command job needs: [config, review_dedupe, gate]", "reused_from_iter_prev": false},
+    {"id": "VC-4", "claim": "devflow-runner.yml carries zero primary-app references (DEVFLOW_APP_ID / DEVFLOW_APP_PRIVATE_KEY / steps.app-token)", "file": ".github/workflows/devflow-runner.yml", "verification_mode": "lite", "claim_signature": "invariant:devflow-runner.yml:no-primary-app", "verdict": "PASS", "evidence": "grep -c = 0 for all three; run.sh pins it", "reused_from_iter_prev": false},
+    {"id": "VC-5", "claim": "devflow-review.yml passes DEVFLOW_REVIEWER_PRIVATE_KEY to the runner via secrets: inherit", "file": ".github/workflows/devflow-review.yml", "verification_mode": "lite", "claim_signature": "api_contract:devflow-review.yml:secrets-inherit", "verdict": "PASS", "evidence": "devflow-review.yml:498 secrets: inherit; runner declares DEVFLOW_REVIEWER_PRIVATE_KEY", "reused_from_iter_prev": false},
+    {"id": "VC-6", "claim": "reviewer mint downscoped perm set (contents/issues:read, pull-requests:write, actions:read) matches the pre-change review mint", "file": ".github/workflows/devflow-runner.yml", "verification_mode": "lite", "claim_signature": "invariant:reviewer-mint-perms", "verdict": "PASS", "evidence": "4 permission-* inputs identical to old app-token review mint", "reused_from_iter_prev": false}
+  ],
+  "phase3_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+  "diff_profile": {"small_diff": false, "config_only": false, "has_new_types": false, "engine_self_modifying": true, "checklist_skipped": null},
+  "phase3_findings": [
+    {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "docs/cloud-setup.md:180 'Every mint step is gated on vars.DEVFLOW_APP_ID' now globally imprecise (reviewer mints gate on DEVFLOW_REVIEWER_APP_ID)", "defect_signature": {"file": "docs/cloud-setup.md", "line_range": [180, 181], "kind": "doc_accuracy"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "devflow.yml reviewer mint's && startsWith(...) command-gate conjunct not positively pinned; dropping it would mint reviewer token on pr-description (harmless, unused, but lost intent pin)", "defect_signature": {"file": "lib/test/run.sh", "line_range": [8640, 8645], "kind": "test_coverage_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-1", "decision": "applied", "commit": "a886911"},
+    {"finding_id": "F-2", "decision": "applied", "commit": "a886911"}
+  ],
+  "convergence_inputs": {"fixes_applied": 2, "fix_diff_lines": 12, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "shadow": null,
+  "telemetry": {
+    "phase_3": {"calls": 4, "tokens": 297000, "wall_clock_s": 200}
+  }
+}
