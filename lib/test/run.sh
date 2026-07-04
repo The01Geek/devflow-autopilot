@@ -14614,6 +14614,13 @@ assert_eq "#289 AC7: gate already-exists branch refreshes Run link via workpad.p
 # AC8: that same branch NEVER calls `create` — a resumed run must not post a 2nd workpad.
 assert_eq "#289 AC8: gate already-exists branch never calls workpad.py create (no duplicate workpad)" "0" \
   "$(printf '%s\n' "$AE_REGION289" | grep -cF '"$WP" create' || true)"  # raw-guard-ok: region-scoped absence count
+# AC5 (best-effort warn + exit 0): the already-exists branch's Run-link refresh must stay
+# best-effort — a specific ::warning:: breadcrumb on failure, then exit 0 (behavioral-fix pin:
+# operative sentence is that breadcrumb; dropping the `if !` warn-then-continue wrapper — so a
+# failed update aborts under set -euo pipefail — would also drop this breadcrumb, which no other
+# pin covers; continue-on-error backstops the job but the operator loses the failure signal).
+assert_eq "#289 AC5: gate already-exists branch emits the best-effort Run-link-refresh ::warning:: breadcrumb on failure" "1" \
+  "$(printf '%s\n' "$AE_REGION289" | grep -cF '::warning::early workpad Run-link refresh failed' || true)"  # raw-guard-ok: region-scoped presence count
 # AC7 removal-proof: the refresh line appears exactly once in the whole workflow
 # (behavioral-fix pin — its operative sentence is the update --run-link call; the
 # `new-body … --run-link` line in the fresh branch is NOT matched by `update "$NUMBER"`).
