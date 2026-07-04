@@ -1534,8 +1534,8 @@ assert_pin_unique "over-grade: engine gate keeps the never-auto-demote contract 
 # pin that review-and-fix REFERENCES (does NOT fork) them, and pin the advisory-annotation
 # contract (advisory only; verdict unchanged; never auto-demote).
 OG_REVIEW_SKILL="$LIB/../skills/review/SKILL.md"
-assert_pin_unique "over-grade: shared engine carries the single-source annotation heading" \
-  '### 4.1.5 Over-grade advisory annotation (advisory only — never changes the verdict)' "$OG_REVIEW_SKILL"
+assert_pin_unique "over-grade: shared engine carries the single-source annotation heading (#291-reconciled: title states the cap exception)" \
+  '### 4.1.5 Over-grade advisory annotation (advisory for shapes 1/3 + non-comment shape 2; a deterministic verdict cap for the in-code-comment sub-case)' "$OG_REVIEW_SKILL"
 assert_pin_unique "over-grade: shared engine declares itself the single source of truth for the shapes" \
   'single source of truth for the over-grade shape definitions' "$OG_REVIEW_SKILL"
 assert_pin_unique "over-grade: shared engine carries over-grade shape 1 (suite-RED / fail-closed above blast radius)" \
@@ -1544,8 +1544,8 @@ assert_pin_unique "over-grade: shared engine carries over-grade shape 2 (diagnos
   'Diagnostic-or-cosmetic-only finding with no behavioral fail-direction' "$OG_REVIEW_SKILL"
 assert_pin_unique "over-grade: shared engine carries over-grade shape 3 (uncorroborated single-source from an empirical over-grader)" \
   'Uncorroborated single-source finding from an empirical over-grader' "$OG_REVIEW_SKILL"
-assert_pin_unique "over-grade: standalone annotation is advisory — verdict computation unchanged (AC2)" \
-  '**The verdict computation in 4.2 is unchanged**' "$OG_REVIEW_SKILL"
+assert_pin_unique "over-grade: standalone annotation is advisory — verdict computation unchanged for advisory-only flags (AC2, #291-reconciled)" \
+  '**For those advisory-only flags the verdict computation in 4.2 is unchanged**' "$OG_REVIEW_SKILL"
 assert_pin_unique "over-grade: standalone annotation never auto-demotes (advisory by construction, AC2)" \
   'it MUST **not auto-demote**' "$OG_REVIEW_SKILL"
 assert_pin_unique "over-grade: shared engine clean-scan sentinel present" \
@@ -1622,6 +1622,65 @@ assert_pin_unique "over-grade: Step 3 item 2 produces the recorded severity-cali
   'Also calibrate its severity, not just its validity' "$MAXI_SKILL"
 assert_pin_unique "over-grade: severity-calibrated record carries no skip_category (Loop-Exit gates ignore it)" \
   'it is a calibration record, not a skip' "$MAXI_SKILL"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "deterministic in-code-comment cap (shape 2 refinement, Phase 4.1.5) (#291)"
+# ────────────────────────────────────────────────────────────────────────────
+# #291 refines shape 2's IN-CODE-COMMENT sub-case from advisory-only into a
+# DETERMINISTIC severity cap: a finding whose sole observable impact is an
+# inaccurate/stale in-code comment on a comment the diff did NOT add or modify is
+# classified ≤ Suggestion/Minor and Phase 4.2 does NOT REJECT on it — regardless of
+# the agent's grade. The cap is narrow: it names in-code comments only (log/breadcrumb/
+# error-message stay advisory) and EXCLUDES any diff-added/modified comment (still a
+# non-demotable self-contradicting-diff REJECT — the #263 A1/A2 pins above remain the
+# guardians of that carve-out). Single-sourced in review 4.1.5, consumed by review-and-fix
+# 2.6. These are operative-sentence pins (PASS→FAIL on removal) + the reconciled
+# heading pin and advisory 'verdict computation unchanged' pin (#291-reconciled, updated
+# above); the never-auto-demote pins are kept intact — so the suite is GREEN, not
+# contradicting the new cap prose.
+OG_OVERVIEW_DOC="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
+# AC1 — the cap operative sentence in review 4.1.5 (≤ Suggestion/Minor, Phase 4.2 no REJECT).
+assert_pin_unique "291(AC1): review 4.1.5 carries the deterministic in-code-comment cap" \
+  'deterministically — Phase 4.2 does not REJECT on it' "$OG_REVIEW_SKILL"
+# AC3 — the cap is scoped to in-code comments only (non-comment shape-2 surfaces stay advisory).
+assert_pin_unique "291(AC3): cap names in-code comments specifically (scope boundary)" \
+  'The cap names in-code comments specifically' "$OG_REVIEW_SKILL"
+# AC3 consequence half — non-comment shape-2 surfaces KEEP advisory-annotate-only treatment
+# (the load-bearing consequence, pinned so it cannot be deleted while the suite stays GREEN).
+assert_pin_unique "291(AC3): non-comment shape-2 surfaces keep advisory-annotate-only treatment" \
+  'keep their advisory-annotate-only treatment' "$OG_REVIEW_SKILL"
+# AC3 anti-fail-open — a machine-significant (directive/pragma/tool-read) comment has a
+# behavioral fail-direction and is NOT capped; a rewrite that dropped this exclusion would
+# let a behaviorally-significant directive-comment defect ride below Important.
+assert_pin_unique "291(AC3): machine-significant comment is not comment-only impact (anti-fail-open)" \
+  'A machine-significant comment is not comment-only impact.' "$OG_REVIEW_SKILL"
+# AC2 — the cap explicitly excludes diff-added/modified comments (self-contradicting carve-out kept).
+assert_pin_unique "291(AC2): cap excludes diff-added/modified comments" \
+  'Excludes any comment the diff added or modified' "$OG_REVIEW_SKILL"
+assert_pin_unique "291(AC2): cap covers only pre-existing, diff-untouched comments" \
+  'it covers only pre-existing, diff-untouched comments' "$OG_REVIEW_SKILL"
+# AC1 — Phase 4.2 composition: cap and the self-contradicting carve-out partition the comment-only
+# space, and the cap NEVER overrides the carve-out (a diff-touched untrue comment still REJECTs).
+assert_pin_unique "291(AC1): Phase 4.2 cap↔carve-out partition by whether the diff touched the comment" \
+  'partition the comment-only space by whether the diff touched the comment' "$OG_REVIEW_SKILL"
+assert_pin_unique "291(AC2): cap never overrides the self-contradicting-diff carve-out" \
+  'the cap **never overrides** this carve-out' "$OG_REVIEW_SKILL"
+# AC4/AC5 — review-and-fix Step 2.6 honors the cap by recording a DETERMINISTIC severity-calibrated
+# evaluation, CONSUMING the review-4.1.5 definition (no forked shape copy); so a comment-only-on-
+# unmodified-comment finding cannot drive a Decide-outcome-2 promotion.
+assert_pin_unique "291(AC4): review-and-fix 2.6 records the cap as a deterministic severity-calibrated eval" \
+  'deterministic comment-only cap (review 4.1.5)' "$MAXI_SKILL"
+assert_pin_unique "291(AC4): review-and-fix 2.6 capped finding cannot drive a Decide-outcome-2 promotion" \
+  'cannot drive a Decide-outcome-2 promotion' "$MAXI_SKILL"
+# AC5 fail-closed — the cap must NOT re-fork the review-4.1.5 shape headings into review-and-fix.
+assert_eq "291(AC5): cap in-code-comment operative sentence is NOT re-forked into review-and-fix" \
+  "0" "$(pin_count 'deterministically — Phase 4.2 does not REJECT on it' "$MAXI_SKILL")"
+# AC7 — both docs state the deterministic cap and its relationship to never-auto-demote.
+assert_pin_unique "291(AC7): DEVFLOW_SYSTEM_OVERVIEW states the deterministic in-code-comment cap" \
+  'is a *classification* cap' "$OG_OVERVIEW_DOC"
+assert_pin_unique "291(AC7): shadow-review.md states the deterministic in-code-comment cap" \
+  'One deterministic exception — the in-code-comment cap.' "$OG_SHADOW_DOC"
+
 # ── Meta-test (#157, AC2): widen the raw-guard audit from the park-calibration
 # region fence to the WHOLE suite. #155 enforced helper-routing ONLY inside the
 # PARKCAL_GUARD_REGION; the maxi_clamp / DEF_SKILL / IMPL_SKILL / INIT_SKILL /
