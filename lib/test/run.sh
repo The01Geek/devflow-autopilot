@@ -14628,6 +14628,17 @@ RESOLVES_LN289="$(grep -nF 'Resolves #{issue_number}' "$P3289" | head -1 | cut -
 VIEWRUN_LN289="$(grep -nF '[View run]($RUN_URL)' "$P3289" | head -1 | cut -d: -f1)"        # raw-guard-ok: line-number lookup for the positional pin
 assert_eq "#289 AC9: [View run](\$RUN_URL) is positioned after Resolves #{issue_number} in the draft-PR heredoc" "yes" \
   "$([ -n "$RESOLVES_LN289" ] && [ -n "$VIEWRUN_LN289" ] && [ "$VIEWRUN_LN289" -gt "$RESOLVES_LN289" ] && echo yes || echo no)"
+# AC6 (local-tier omission): the strip line that drops the broken [View run]() line when
+# RUN_URL is empty (behavioral-fix pin — its operative sentence is that strip; removing it
+# reintroduces a broken link on every local-tier draft PR, which AC9's presence pin would NOT
+# catch since it only asserts the line is present after Resolves).
+assert_pin_unique "#289 AC6: phase-3-review.md strips the broken [View run]() line on a local-tier run (empty RUN_URL)" \
+  "grep -vF '[View run]()'" "$P3289"
+# AC9 (heredoc expansion): the draft-PR heredoc must stay unquoted (<<EOF) so \$RUN_URL
+# expands — a revert to <<'EOF' would emit the literal string "\$RUN_URL" into the PR body,
+# which the [View run](\$RUN_URL) presence pin above matches identically and so cannot catch.
+assert_pin_unique "#289 AC9: draft-PR heredoc is unquoted (<<EOF) so \$RUN_URL expands, not emitted literally" \
+  'BODY=$(cat <<EOF' "$P3289"
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
