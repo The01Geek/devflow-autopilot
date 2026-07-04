@@ -284,11 +284,18 @@ jobs:
           # would misattribute an API outage as a factual claim and misdirect
           # whoever debugs a re-trigger that never fired.
           resolve_pr_for_head() {  # $1=commit SHA
-            local _resp
-            if ! _resp=$(gh api "repos/$REPO/commits/$1/pulls" 2>&1); then
-              echo "::warning::commits/$1/pulls query failed (${_resp:-no error output}); failing closed — the caller reports no PR, but the real cause is the query, not an absent PR." >&2
+            local _resp _err
+            # stderr goes to its own file, never merged into the captured
+            # JSON — stray stderr on a SUCCESSFUL call would corrupt the jq
+            # parse and silently read as "no PR" (the misattribution this
+            # function exists to eliminate).
+            _err=$(mktemp 2>/dev/null) || _err=/dev/null
+            if ! _resp=$(gh api "repos/$REPO/commits/$1/pulls" 2>"$_err"); then
+              echo "::warning::commits/$1/pulls query failed ($(cat "$_err" 2>/dev/null || echo 'no error output')); failing closed — the caller reports no PR, but the real cause is the query, not an absent PR." >&2
+              [ "$_err" = /dev/null ] || rm -f "$_err"
               return 0
             fi
+            [ "$_err" = /dev/null ] || rm -f "$_err"
             printf '%s' "$_resp" | jq -r '[.[] | select(.state=="open")][0].number // empty' 2>/dev/null || echo ""
           }
 
