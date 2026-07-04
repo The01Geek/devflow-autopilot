@@ -230,7 +230,7 @@ jobs:
         if: ${{ vars.DEVFLOW_APP_ID != '' && steps.guard.outputs.suppress == 'true' }}
         uses: actions/create-github-app-token@v3
         with:
-          client-id: ${{ vars.DEVFLOW_APP_ID }}
+          app-id: ${{ vars.DEVFLOW_APP_ID }}
           private-key: ${{ secrets.DEVFLOW_APP_PRIVATE_KEY }}
           permission-pull-requests: write
 
@@ -343,7 +343,7 @@ jobs:
         if: ${{ vars.DEVFLOW_APP_ID != '' && steps.resolve.outputs.should_run == 'true' }}
         uses: actions/create-github-app-token@v3
         with:
-          client-id: ${{ vars.DEVFLOW_APP_ID }}
+          app-id: ${{ vars.DEVFLOW_APP_ID }}
           private-key: ${{ secrets.DEVFLOW_APP_PRIVATE_KEY }}
           permission-issues: write
           permission-pull-requests: write
@@ -428,7 +428,7 @@ jobs:
         if: ${{ vars.DEVFLOW_APP_ID != '' }}
         uses: actions/create-github-app-token@v3
         with:
-          client-id: ${{ vars.DEVFLOW_APP_ID }}
+          app-id: ${{ vars.DEVFLOW_APP_ID }}
           private-key: ${{ secrets.DEVFLOW_APP_PRIVATE_KEY }}
 
       - name: Run Claude Code
