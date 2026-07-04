@@ -212,9 +212,9 @@ formal review, run the review agent under a **dedicated second GitHub App**,
 | Repository **variable** | `DEVFLOW_REVIEWER_APP_ID` | The DevFlow-Reviewer App's ID (or client ID). |
 | Repository **secret** | `DEVFLOW_REVIEWER_PRIVATE_KEY` | The DevFlow-Reviewer App's PEM private key. |
 
-Create and install a second GitHub App on the repo with **`Contents: read`**,
-**`Issues: read`**, **`Pull requests: write`**, and **`Actions: read`** — the
-downscoped review permission set (it reads the repo/issue/CI and posts comments,
+Create and install a second GitHub App on the repo with
+**`Contents: read`**, **`Issues: read`**, **`Pull requests: write`**, and **`Actions: read`** —
+the downscoped review permission set (it reads the repo/issue/CI and posts comments,
 reviews, approvals, and rejections; it **cannot push**). Set the variable + secret
 under **Settings → Secrets and variables → Actions**, mirroring the primary-App
 convention.

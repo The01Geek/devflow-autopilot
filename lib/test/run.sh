@@ -8752,11 +8752,11 @@ assert_eq "app-token: devflow.yml HEAD_ERR temp-file allocation is mktemp-fail-o
   "$(grep -cF 'HEAD_ERR="$(mktemp 2>/dev/null || echo /dev/null)"' "$WF/devflow.yml" || true)"
 assert_eq "app-token: devflow.yml BRANCH_ERR temp-file allocation is mktemp-fail-open-guarded" "1" \
   "$(grep -cF 'BRANCH_ERR="$(mktemp 2>/dev/null || echo /dev/null)"' "$WF/devflow.yml" || true)"
-# Doc↔workflow scope-table coupling: the cloud-setup table hardcodes the
-# review token's permission set; pin the row so a future scope change that
-# reconciles APP_SITES but not the doc goes RED.
-assert_eq "app-token: cloud-setup.md scope table carries the review token's exact permission set" "1" \
-  "$(grep -cF '`contents: read`, `issues: read`, `pull-requests: write`, `actions: read`' "$LIB/../docs/cloud-setup.md" || true)"
+# Doc↔workflow scope coupling: the cloud-setup DevFlow-Reviewer section (issue
+# #300) hardcodes the review token's permission set; pin it so a future scope
+# change that reconciles the REVIEWER_SITES loop but not the doc goes RED.
+assert_eq "app-token: cloud-setup.md DevFlow-Reviewer section carries the review token's exact permission set" "1" \
+  "$(grep -cF '**`Contents: read`**, **`Issues: read`**, **`Pull requests: write`**, and **`Actions: read`**' "$LIB/../docs/cloud-setup.md" || true)"
 # Consumer-condition conjuncts on the three downscoped gate/dedupe mints: the
 # second half of each mint's if: keeps the common rejection path mint-free AND
 # bounds fail-loud to runs where a consumer actually posts. Dropping it would
