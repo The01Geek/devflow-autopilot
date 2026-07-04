@@ -153,7 +153,7 @@ Only a draft that has survived this step — revised and re-gated if anything wa
 **This gate has no exceptions:**
 - "The user already answered every clarifying question in Step 2" — answering decision forks is **not** the same as reviewing the assembled ticket. Show it and wait.
 - "The user said 'just create it' / 'you decide' earlier" — that was said about a story they had **not yet seen written up**. It is not approval of *this* drafted issue. Render the draft and get explicit go-ahead on it.
-- "The user disengaged, so I'll file it with a Blocked section and move on" — drafting from what's decided is correct (Step 2), but you still present the rendered draft and wait for confirmation before creating. If the user never returns to confirm, leave the pipeline paused at todo 4 — do **not** create the issue to "finish".
+- "The user disengaged, so I'll file it with a Blocked section and move on" — drafting from what's decided is correct (Step 2), but you still present the rendered draft and wait for confirmation before creating. If the user never returns to confirm, leave the pipeline paused at todo 5 — do **not** create the issue to "finish".
 - "Showing the full body is verbose; a summary is enough" — no. Render the literal title and body that will be filed.
 
 **Red flags — STOP, you are about to skip the gate:**

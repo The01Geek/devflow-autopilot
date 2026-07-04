@@ -3,10 +3,12 @@
 # SPDX-License-Identifier: MIT
 # derive-review-preconditions.sh — evaluate the devflow-review auto-trigger
 # preconditions for a PR head, fail-closed (issue #304). This is the small,
-# testable unit devflow-review.yml's precheck `route` step calls before any
-# branch emits should_run=true on the first-review / synchronize /
-# CI-completion paths; lib/test/run.sh drives it directly with a stubbed `gh`
-# over the input-shape matrix.
+# testable unit devflow-review.yml's precheck `route` step calls before
+# emitting should_run=true on the first-review / synchronize / CI-completion
+# paths (the check_run Re-run path is deliberately ungated — Re-run forces a
+# review past the preconditions, which is what makes the deferral summary's
+# "Click Re-run … to force a review" true); lib/test/run.sh drives it
+# directly with a stubbed `gh` over the input-shape matrix.
 #
 # Two config-gated preconditions, both defaulting to enabled:
 #   require_up_to_date  the PR branch must not be BEHIND its configured base
@@ -19,10 +21,13 @@
 #                       successfully before an LLM code-quality verdict is
 #                       produced. "Other CI" is generic — no job names:
 #                         (1) Actions workflow runs for the head, excluding
-#                             this workflow itself (SELF_WORKFLOW_NAME) — the
-#                             runs API registers runs at event dispatch, so
-#                             "no runs" reliably means "no Actions CI exists"
-#                             rather than "CI has not registered yet";
+#                             this workflow itself (SELF_WORKFLOW_NAME) — runs
+#                             are registered at event dispatch, so in practice
+#                             "no runs" means "no Actions CI exists" rather
+#                             than "CI has not registered yet"; a registration
+#                             race is theoretically possible and accepted (a
+#                             premature review is a bounded cost, and the
+#                             deferral/exactly-once machinery bounds it);
 #                         (2) the legacy combined commit status (total_count
 #                             gates it — an empty status set reports state
 #                             "pending" and must not be read as pending CI);
