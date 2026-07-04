@@ -6,14 +6,11 @@ name: Version consolidate
 # consolidates every pending changeset into ONE version bump + CHANGELOG entry and commits it
 # back to main with a `chore: bump version` subject.
 #
-# INSTALLATION (one-time, maintainer with `workflows` permission): move this file into the
-# live workflows directory so GitHub runs it —
-#     git mv ci/version-consolidate.yml .github/workflows/version-consolidate.yml
-# It is shipped here (outside `.github/workflows/`) because the DevFlow bot's installation
-# token cannot push a file under `.github/workflows/` without the `workflows` permission; the
-# YAML is nonetheless authored, reviewed, and content-pinned by lib/test/run.sh in this PR.
-# Branch protection on `main` (the required `lib + python tests` check) must also permit the
-# job's write-scoped bump commit.
+# This job commits a version bump back to main, so branch protection on `main` (the required
+# `lib + python tests` check) must permit its write-scoped bump commit. Editing any file under
+# `.github/workflows/` needs a `workflows`-scoped push — the DevFlow bot's installation token
+# lacks it, so workflow changes land via a human/PAT, not an agent run. Content-pinned by
+# lib/test/run.sh.
 on:
   push:
     branches: [main]

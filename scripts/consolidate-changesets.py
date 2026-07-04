@@ -5,8 +5,8 @@
 
 DevFlow versions itself with changesets instead of editing ``.claude-plugin/plugin.json``
 and ``CHANGELOG.md`` in every PR (see ``.changeset/README.md``). This helper runs at merge
-time (push to ``main``) from the ``version-consolidate`` workflow (shipped at
-``ci/version-consolidate.yml``, installed by a maintainer into ``.github/workflows/``):
+time (push to ``main``) from the ``version-consolidate`` workflow at
+``.github/workflows/version-consolidate.yml``:
 
   * globs every pending ``.changeset/*.md`` (ignoring ``README.md``),
   * parses each file's ``bump:`` (required) + optional ``type:`` frontmatter and prose body,

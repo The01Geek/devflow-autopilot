@@ -118,9 +118,8 @@ resolve the portable `${CLAUDE_SKILL_DIR:-…}` anchor at runtime.
 
 DevFlow versions itself with changesets so concurrent PRs never collide on the `version` line
 or the top of `CHANGELOG.md`. Each PR adds a `.changeset/*.md`; when it merges to `main`, the
-`version-consolidate` GitHub Action (shipped at `ci/version-consolidate.yml`; a maintainer
-installs it into `.github/workflows/` with `git mv`, since the DevFlow bot token cannot push
-under `.github/workflows/`), running `scripts/consolidate-changesets.py`, bumps
+`version-consolidate` GitHub Action (`.github/workflows/version-consolidate.yml`),
+running `scripts/consolidate-changesets.py`, bumps
 `.claude-plugin/plugin.json` by the **highest**
 pending bump type, prepends one dated, PR-cited CHANGELOG entry assembled from all the pending
 prose, deletes the consumed changesets, and commits to `main` with a `chore: bump version`
