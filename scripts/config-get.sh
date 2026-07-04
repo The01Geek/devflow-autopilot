@@ -9,15 +9,27 @@
 #                the path is split on dots and walked through nested objects.
 #   DEFAULT      printed if key is absent or value is empty/null. Pass an
 #                empty string ("") to explicitly request empty-on-missing.
-#   CONFIG_FILE  defaults to .devflow/config.json
+#   CONFIG_FILE  when omitted, defaults to the repo-root .devflow/config.json
+#                (git rev-parse --show-toplevel, falling back to pwd); an explicit
+#                value is honored verbatim (issue #295)
 #
-# SHARED CWD-RELATIVE CONFIG CONTRACT: this resolver and scripts/workpad.py's
-# in-process marker read both resolve `.devflow/config.json` relative to the current
-# working directory (the repo root in normal use) — NOT via git-root discovery. Keep
-# the two in lockstep: a run invoked from a repo subdirectory resolves config the same
-# way for both readers, so neither silently disagrees with the other about a
-# subdirectory-invoked custom config. (workpad.py cannot exec this .sh on Windows —
-# [WinError 193] — so it re-implements the same cwd-relative read in Python; issue #275.)
+# SHARED REPO-ROOT CONFIG CONTRACT (issue #295, supersedes the #275 cwd-relative
+# contract): this resolver and scripts/workpad.py's in-process marker read both
+# resolve the DEFAULT `.devflow/config.json` anchored to the git repo root
+# (`git rev-parse --show-toplevel`, falling back to `pwd`), NOT relative to the
+# current working directory — mirroring lib/config-source.sh. So a skill invoked
+# from any subdirectory of the repo loads the consumer's root `.devflow/config.json`
+# exactly as if invoked from the root; when cwd already IS the root the resolution
+# is byte-for-byte unchanged. Keep the two readers in lockstep: they must resolve
+# the same file for the same cwd. An explicit CONFIG_FILE (3rd arg) is honored
+# verbatim — the root anchoring applies only to the default. (workpad.py cannot exec
+# this .sh on Windows — [WinError 193] — so it re-implements the same repo-root read
+# in Python via a native git subprocess; issue #275/#295.)
+#
+# Known limitation: `git rev-parse --show-toplevel` returns the NEAREST git root, so
+# a nested git submodule/inner repo resolves to that inner root, and a monorepo whose
+# `.devflow/` is deliberately not at the git root is not covered — consistent with
+# config-source.sh; a walk-up-to-nearest-`.devflow/` resolver was declined for this fix.
 #
 # Parses with python3, which is a hard DevFlow prerequisite (lib/preflight.sh
 # requires python3 >= 3.11; the whole scripts/*.py surface depends on it) and so
@@ -39,7 +51,29 @@ if [ $# -ge 2 ]; then
     has_default=1
     default="$2"
 fi
-config_file="${3:-.devflow/config.json}"
+# Anchor the DEFAULT config path to the git repo root (issue #295) — mirroring
+# lib/config-source.sh:14 (`git rev-parse --show-toplevel 2>/dev/null || pwd`) — so a
+# skill invoked from a subdirectory reads the consumer's ROOT .devflow/config.json
+# instead of silently missing it. An explicit CONFIG_FILE (3rd arg) is honored
+# verbatim; root anchoring applies only to the default. Each invocation forks
+# `git rev-parse` (fast; git is a hard preflight prereq) — unlike config-source.sh,
+# this standalone resolver cannot cache the root across its separate subprocesses.
+if [ $# -ge 3 ]; then
+    config_file="$3"
+else
+    if _devflow_root="$(git rev-parse --show-toplevel 2>/dev/null)" && [ -n "$_devflow_root" ]; then
+        :   # in a git repo — anchor to its root
+    else
+        # Not a git repo: fall back to cwd. Breadcrumb only when NEITHER a git root
+        # NOR a .devflow/ dir can be located — the silent-drop class this fix closes.
+        # (A git root with no .devflow/ is the normal unconfigured local case and
+        # stays silent; the caller then applies its own default.)
+        _devflow_root="$(pwd)"
+        [ -d "${_devflow_root}/.devflow" ] || \
+            echo "config-get.sh: not in a git repo and no .devflow/ at '${_devflow_root}'; using cwd fallback and defaults" >&2
+    fi
+    config_file="${_devflow_root}/.devflow/config.json"
+fi
 
 if [ -z "$key" ]; then
     echo "config-get.sh: usage: config-get.sh KEY [DEFAULT] [CONFIG_FILE]" >&2

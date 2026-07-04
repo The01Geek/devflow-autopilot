@@ -7,11 +7,16 @@
 #   SKILL_NAME   the skill's directory name under skills/ (e.g. create-issue,
 #                implement, review). This is the ONLY argument.
 #
-# Reads .devflow/prompt-extensions/<SKILL_NAME>.md relative to the current
-# working directory (the consumer repo root) and writes it byte-for-byte to
-# stdout when it exists. When the file is absent — or present but empty — this
-# prints nothing and exits 0 (the no-op path), so a skill that calls this
-# behaves exactly as before unless the consumer opted in.
+# Reads .devflow/prompt-extensions/<SKILL_NAME>.md anchored to the git repo root
+# (git rev-parse --show-toplevel, falling back to pwd when not in a git tree —
+# mirroring lib/config-source.sh; issue #295) and writes it byte-for-byte to
+# stdout when it exists. Anchoring to the root means a skill invoked from any
+# subdirectory of the repo still loads the consumer's committed extension, instead
+# of silently missing it. When the file is absent — or present but empty — this
+# prints nothing and exits 0 (the no-op path), so a skill that calls this behaves
+# exactly as before unless the consumer opted in. (Limitation: --show-toplevel
+# returns the NEAREST git root, so a nested submodule/inner repo or a monorepo whose
+# .devflow/ is not at the git root is not covered — consistent with config-source.sh.)
 #
 # This is DevFlow's single upgrade-safe extension point: a consumer adds
 # repo-specific instructions to any skill by committing one Markdown file in
@@ -61,7 +66,19 @@ case "$skill" in
         ;;
 esac
 
-ext_file=".devflow/prompt-extensions/${skill}.md"
+# Anchor to the repo root (issue #295) so a subdirectory invocation still finds the
+# consumer's extension. Mirror lib/config-source.sh:14's discovery expression.
+if _devflow_root="$(git rev-parse --show-toplevel 2>/dev/null)" && [ -n "$_devflow_root" ]; then
+    :   # in a git repo — anchor to its root
+else
+    # Not a git repo: fall back to cwd. Breadcrumb only when NEITHER a git root NOR a
+    # .devflow/ dir can be located — the silent-drop class this fix closes.
+    _devflow_root="$(pwd)"
+    [ -d "${_devflow_root}/.devflow" ] || \
+        echo "load-prompt-extension.sh: not in a git repo and no .devflow/ at '${_devflow_root}'; no extension loaded" >&2
+fi
+
+ext_file="${_devflow_root}/.devflow/prompt-extensions/${skill}.md"
 
 # Refuse every "present but undeliverable" shape loudly (exit 2 + a specific
 # breadcrumb) instead of letting it fall through to the silent empty no-op the
