@@ -69,6 +69,24 @@ on:
   # fires for EVERY check including CI re-runs.
   check_run:
     types: [rerequested]
+  # CI-completion re-trigger (#304): when a review was deferred because other
+  # CI was still pending/red (require_ci_green) or the branch was behind base
+  # (require_up_to_date), these events re-evaluate the preconditions and fire
+  # the real review once the PR is reviewable — no manual Re-run needed.
+  #
+  # GitHub platform constraint (do not "simplify" this into one generic
+  # listener): `check_suite: completed` NEVER fires for suites created by
+  # GitHub Actions (recursion prevention), so it only covers EXTERNAL CI apps
+  # — which is also why it cannot self-trigger off this workflow. Actions CI
+  # is covered by `workflow_run`, which REQUIRES an explicit workflow-name
+  # list (no wildcards). Consumer repos with differently-named CI workflows
+  # must add their names to this list when installing the workflow; the
+  # precondition EVALUATION itself stays fully generic (no job names).
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+  check_suite:
+    types: [completed]
 
 permissions:
   contents: read
@@ -85,11 +103,26 @@ concurrency:
   # (a second check_run Re-run collapses an in-flight earlier Re-run for the
   # same PR) while isolating the dedupe pair. github.run_id is the last-resort
   # key for events with no resolvable PR (the job no-ops anyway).
-  group: devflow-review-${{ github.event.pull_request.number || github.event.check_run.pull_requests[0].number || github.run_id }}-${{ github.event_name }}
+  # Note (#304): workflow_run/check_suite payloads carry an EMPTY
+  # pull_requests[] for fork PRs, so those completions fall to the run_id
+  # group and do not collapse each other — accepted looseness; the route
+  # step's exactly-once gate dedupes downstream, so at worst two prechecks
+  # race and one skips.
+  group: devflow-review-${{ github.event.pull_request.number || github.event.check_run.pull_requests[0].number || github.event.workflow_run.pull_requests[0].number || github.event.check_suite.pull_requests[0].number || github.run_id }}-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:
   precheck:
+    # Cheap trigger filter: drop workflow_run completions whose underlying
+    # event can never be PR CI (schedule, workflow_dispatch, …) before
+    # spinning a runner. 'push' MUST pass: many consumer repos run their CI
+    # on branch pushes, and filtering it out would silently disable the
+    # CI-completion re-trigger for them (the route step's PR-resolution +
+    # stale-head + exactly-once guards make a push completion safe — a
+    # merge-to-default push completion resolves no open PR and no-ops in
+    # one API call). (check_suite has no equivalent event field; its route
+    # branch no-ops cheaply on a PR-less head instead.)
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.event == 'pull_request' || github.event.workflow_run.event == 'pull_request_target' || github.event.workflow_run.event == 'push'
     runs-on: ubuntu-latest
     # Explicit (plan §4 matrix): the first-ready gate reads check-runs and PR
     # commits. On a public repo these are unauth-readable (verified: the gate
@@ -99,11 +132,27 @@ jobs:
       contents: read
       pull-requests: read
       checks: read
+      # actions: read — the #304 CI-green precondition reads the head's
+      # Actions workflow runs (repos/*/actions/runs?head_sha=...).
+      actions: read
+      # statuses: read — the same precondition reads the legacy combined
+      # commit status (repos/*/commits/*/status). Without it the query 403s
+      # on a private repo, the script fails closed (reason 'unverifiable')
+      # on every event, and the review is permanently deferred.
+      statuses: read
     outputs:
       enabled: ${{ steps.extract.outputs.enabled }}
       should_run: ${{ steps.route.outputs.should_run }}
       pr_number: ${{ steps.route.outputs.pr_number }}
       head_sha: ${{ steps.route.outputs.head_sha }}
+      # Non-empty ONLY when a #304 precondition deferred the review (values:
+      # behind-base | ci-not-green | unverifiable). create_check widens its
+      # gate on it so the required check is still posted — pre-completed
+      # neutral with the "waiting" title, in one POST — and finalize_check is
+      # deliberately skipped (see its if:). Every pre-existing
+      # should_run=false path (dedupe loser, draft, unauthorized, exactly-once)
+      # leaves it empty and still posts NO check — unchanged behavior.
+      skip_reason: ${{ steps.route.outputs.skip_reason }}
     steps:
       - uses: actions/checkout@v6
       - id: cfg
@@ -115,6 +164,19 @@ jobs:
           set -euo pipefail
           echo "enabled=$(echo "$CONFIG_JSON" | jq -r '.workflows["devflow-review"] // false')" >> "$GITHUB_OUTPUT"
           echo "allowed_bots=$(echo "$CONFIG_JSON" | jq -r '.devflow.allowed_bots // ""')" >> "$GITHUB_OUTPUT"
+          # #304 precondition config. try/catch: a hand-corrupted config whose
+          # devflow_review is a scalar must fall back to the defaults, not
+          # abort the step under set -e (the adversarial-parser discipline).
+          # The boolean keys use a TYPE-CHECKED default, never `// true`:
+          # jq's `//` substitutes on null AND false, so `// true` would
+          # silently coerce an explicit `false` (the documented off-switch)
+          # back to `true` — the knob would never work. The type check keeps
+          # a real boolean verbatim and defaults everything else (absent key,
+          # scalar-corrupted section, wrong type) to enabled — fail toward
+          # gating, matching the script's own anything-but-false contract.
+          echo "base_branch=$(echo "$CONFIG_JSON" | jq -r '(try .base_branch catch null) // "main"')" >> "$GITHUB_OUTPUT"
+          echo "require_up_to_date=$(echo "$CONFIG_JSON" | jq -r '(try .devflow_review.require_up_to_date catch null) | if type == "boolean" then . else true end')" >> "$GITHUB_OUTPUT"
+          echo "require_ci_green=$(echo "$CONFIG_JSON" | jq -r '(try .devflow_review.require_ci_green catch null) | if type == "boolean" then . else true end')" >> "$GITHUB_OUTPUT"
       - id: route
         env:
           GH_TOKEN: ${{ github.token }}
@@ -132,6 +194,23 @@ jobs:
           CR_PR: ${{ github.event.check_run.pull_requests[0].number }}
           CR_HEAD: ${{ github.event.check_run.head_sha }}
           SENDER: ${{ github.event.sender.login }}
+          # completion re-trigger path inputs (#304)
+          WR_NAME: ${{ github.event.workflow_run.name }}
+          WR_HEAD: ${{ github.event.workflow_run.head_sha }}
+          WR_PR: ${{ github.event.workflow_run.pull_requests[0].number }}
+          CS_HEAD: ${{ github.event.check_suite.head_sha }}
+          CS_PR: ${{ github.event.check_suite.pull_requests[0].number }}
+          CS_APP: ${{ github.event.check_suite.app.slug }}
+          # #304 precondition inputs (config-resolved in extract)
+          BASE_BRANCH: ${{ steps.extract.outputs.base_branch }}
+          REQUIRE_UP_TO_DATE: ${{ steps.extract.outputs.require_up_to_date }}
+          REQUIRE_CI_GREEN: ${{ steps.extract.outputs.require_ci_green }}
+          # Derived from the runner context, never a hand-mirrored literal:
+          # a consumer that renames this workflow's name: would otherwise
+          # break self-exclusion silently — the CI-green gate would count
+          # this workflow's own in-progress run as "other CI pending" and
+          # every PR would wedge in a permanent waiting state.
+          SELF_WORKFLOW_NAME: ${{ github.workflow }}
         run: |
           set -euo pipefail
           emit() { echo "$1=$2" >> "$GITHUB_OUTPUT"; }
@@ -139,6 +218,117 @@ jobs:
           emit should_run false
           emit pr_number ""
           emit head_sha ""
+          emit skip_reason ""
+
+          # #304 preconditions gate. Returns 0 when the review may proceed.
+          # On an unmet/unverifiable precondition it emits the deferral
+          # outputs (should_run stays false; a non-empty skip_reason routes
+          # create_check to post-and-conclude a neutral "waiting" check in
+          # one POST — finalize_check is skipped — so the required context
+          # is never absent) and
+          # returns 1 — the caller must `|| exit 0`. A missing helper script
+          # fails OPEN (proceed exactly as before #304): a consumer repo that
+          # has not vendored the new script must not lose reviews entirely.
+          preconditions_ok() {  # $1=PR number  $2=head SHA
+            local script pre pre_run pre_reason
+            script=.devflow/vendor/devflow/scripts/derive-review-preconditions.sh
+            [ -f "$script" ] || script=scripts/derive-review-preconditions.sh
+            if [ ! -f "$script" ]; then
+              echo "::warning::derive-review-preconditions.sh not found (vendored or in-repo); skipping the review preconditions and proceeding (fail open — vendor the plugin to enable the gate)."
+              return 0
+            fi
+            # The script's contract is always-exit-0; a non-zero exit means a
+            # crash / unreadable-but-present file (the existence-vs-
+            # sourceability class) — still fail-closed via the unverifiable
+            # default below, but with its OWN breadcrumb so an operator can
+            # tell "helper crashed" from "helper ran and reported
+            # unverifiable".
+            if ! pre=$(REPO="$REPO" HEAD_SHA="$2" BASE_BRANCH="$BASE_BRANCH" \
+                  REQUIRE_UP_TO_DATE="$REQUIRE_UP_TO_DATE" REQUIRE_CI_GREEN="$REQUIRE_CI_GREEN" \
+                  SELF_WORKFLOW_NAME="$SELF_WORKFLOW_NAME" bash "$script"); then
+              echo "::warning::$script exited non-zero (contract violation — crash or unreadable/truncated copy); treating the preconditions as unverifiable."
+              # A present-but-broken VENDORED copy must not permanently shadow
+              # a working in-repo copy ([ -f ] proves existence, not
+              # runnability — the existence-vs-sourceability class): retry
+              # once with the in-repo fallback when it is a different file.
+              if [ "$script" != scripts/derive-review-preconditions.sh ] && [ -f scripts/derive-review-preconditions.sh ]; then
+                echo "::warning::retrying the preconditions with the in-repo scripts/derive-review-preconditions.sh"
+                pre=$(REPO="$REPO" HEAD_SHA="$2" BASE_BRANCH="$BASE_BRANCH" \
+                      REQUIRE_UP_TO_DATE="$REQUIRE_UP_TO_DATE" REQUIRE_CI_GREEN="$REQUIRE_CI_GREEN" \
+                      SELF_WORKFLOW_NAME="$SELF_WORKFLOW_NAME" bash scripts/derive-review-preconditions.sh) || true
+              fi
+            fi
+            pre_run=$(printf '%s\n' "$pre" | sed -n 's/^should_run=//p')
+            pre_reason=$(printf '%s\n' "$pre" | sed -n 's/^reason=//p')
+            if [ "$pre_run" = "true" ]; then
+              return 0
+            fi
+            emit pr_number "$1"
+            emit head_sha "$2"
+            emit skip_reason "${pre_reason:-unverifiable}"
+            echo "::notice::Devflow Review deferred for PR #$1 at $2 (reason: ${pre_reason:-unverifiable}); a neutral 'waiting' check will be posted and the review auto-re-triggers on the next reviewable event (branch update or CI completion)."
+            return 1
+          }
+
+          # Exactly-once counter: prints the number of `Devflow Review`
+          # check-runs on $1 that actually ran or are running. The single
+          # definition of the exclusion filter — skipped (dedupe losers /
+          # deferral no-ops) AND neutral (a #304 "waiting" deferral, or a
+          # cancelled/skipped review job, is not a run — counting it would
+          # wedge e.g. a reopened PR forever). A null conclusion (in-progress
+          # review) passes both exclusions, so a running review still counts.
+          # Value-stream + line count, not per-page `| length`: --paginate
+          # concatenates jq output per page, so `length` would yield a
+          # multi-line count on a >100-check-run commit. Returns 1 with
+          # nothing on stdout on a query error or non-numeric count — the
+          # CALLER fails closed with its own path-specific breadcrumb. The
+          # synchronize cost-guard deliberately does NOT use this (its
+          # narrower `== "success"` filter is a pinned divergence).
+          devflow_review_run_count() {  # $1=commit SHA
+            local _runs _n
+            if ! _runs=$(gh api --paginate \
+                  "repos/$REPO/commits/$1/check-runs" \
+                  --jq '.check_runs[] | select(.name=="Devflow Review" and .conclusion != "skipped" and .conclusion != "neutral") | .id' \
+                  2>/dev/null); then
+              return 1
+            fi
+            _n=$(printf '%s' "$_runs" | grep -c . || true)
+            [[ "$_n" =~ ^[0-9]+$ ]] || return 1
+            printf '%s' "$_n"
+          }
+
+          # Head-SHA → open-PR resolution, shared by the paths whose event
+          # payload carries no (or a detached) PR reference. Uses the core
+          # REST endpoint (repos/*/commits/*/pulls), not the search API —
+          # cheaper, rate-safe, and not eventually-consistent. Prints the PR
+          # number or nothing. A QUERY failure (rate limit, 5xx, token scope)
+          # is distinguished from a genuine "no open PR" with its own
+          # ::warning:: — otherwise the caller's "No open PR found" notice
+          # would misattribute an API outage as a factual claim and misdirect
+          # whoever debugs a re-trigger that never fired.
+          resolve_pr_for_head() {  # $1=commit SHA
+            local _resp _err
+            # stderr goes to its own file, never merged into the captured
+            # JSON — stray stderr on a SUCCESSFUL call would corrupt the jq
+            # parse and silently read as "no PR" (the misattribution this
+            # function exists to eliminate).
+            _err=$(mktemp 2>/dev/null) || _err=/dev/null
+            if ! _resp=$(gh api "repos/$REPO/commits/$1/pulls" 2>"$_err"); then
+              echo "::warning::commits/$1/pulls query failed ($([ -s "$_err" ] && cat "$_err" || echo 'no error output captured')); failing closed — the caller reports no PR, but the real cause is the query, not an absent PR." >&2
+              [ "$_err" = /dev/null ] || rm -f "$_err"
+              return 0
+            fi
+            [ "$_err" = /dev/null ] || rm -f "$_err"
+            # The PARSE arm gets the same failure-vs-empty distinction as the
+            # query arm: a truncated/non-array success payload must not read
+            # as a factual "no open PR".
+            local _num
+            if ! _num=$(printf '%s' "$_resp" | jq -r '[.[] | select(.state=="open")][0].number // empty' 2>/dev/null); then
+              echo "::warning::commits/$1/pulls payload could not be parsed; failing closed — the caller reports no PR, but the real cause is the parse, not an absent PR." >&2
+              _num=""
+            fi
+            printf '%s' "$_num"
+          }
 
           # Event-variant dedupe (consulted only on the pull_request paths
           # below): when both pull_request and pull_request_target are wired
@@ -235,6 +425,93 @@ jobs:
             exit 0
           fi
 
+          if [ "$EVENT_NAME" = "workflow_run" ] || [ "$EVENT_NAME" = "check_suite" ]; then
+            # --- CI-completion re-trigger path (#304) ---
+            # A review deferred behind the preconditions must fire without a
+            # manual Re-run once the PR becomes reviewable. workflow_run
+            # covers Actions CI (named in the on: list — a GitHub platform
+            # requirement); check_suite covers external CI apps (Actions
+            # suites never deliver it — recursion prevention). No actor-
+            # dedupe here: these events have no pull_request/_target twin.
+            if [ "$EVENT_NAME" = "workflow_run" ]; then
+              # Self-exclusion: never re-trigger off this workflow's own
+              # completion (an infinite loop otherwise). Belt-and-braces —
+              # the on: workflows list should not name it either.
+              if [ "$WR_NAME" = "$SELF_WORKFLOW_NAME" ]; then
+                echo "::notice::workflow_run completion is this workflow itself; ignoring (self-trigger guard)."
+                exit 0
+              fi
+              HEAD="$WR_HEAD"
+              PR="$WR_PR"
+            else
+              # Defensive: Actions-created suites never deliver check_suite,
+              # but if one ever did, ignoring it here prevents a self-loop.
+              if [ "$CS_APP" = "github-actions" ]; then
+                echo "::notice::check_suite completion from the github-actions app; ignoring (Actions CI is covered by workflow_run)."
+                exit 0
+              fi
+              HEAD="$CS_HEAD"
+              PR="$CS_PR"
+            fi
+            if [ -z "$HEAD" ] || [ "$HEAD" = "null" ]; then
+              echo "::notice::CI-completion event carries no head_sha; no-op."
+              exit 0
+            fi
+            if [ -z "$PR" ] || [ "$PR" = "null" ]; then
+              PR=$(resolve_pr_for_head "$HEAD")
+            fi
+            if [ -z "$PR" ] || [ "$PR" = "null" ]; then
+              echo "::notice::No open PR found for CI-completion head $HEAD (or the PR-resolution query failed — see any warning above); no-op."
+              exit 0
+            fi
+            # Draft + stale-head guards. Fail CLOSED on query error: a missed
+            # re-trigger is recoverable via the next event or the Re-run
+            # button; reviewing a draft or a superseded head is the cost to
+            # avoid.
+            # state is read alongside draft/head: the payload-carried PR
+            # number (WR_PR/CS_PR) is not a guarantee of OPEN state at
+            # processing time (a PR can close/merge between event delivery
+            # and this step), and only the resolve_pr_for_head fallback arm
+            # filters on open — both arms must enforce the same invariant.
+            PR_INFO=$(gh pr view "$PR" --repo "$REPO" --json state,isDraft,headRefOid \
+                        --jq '.state + " " + (.isDraft|tostring) + " " + .headRefOid' 2>/dev/null || echo "")
+            if [ -z "$PR_INFO" ]; then
+              echo "::warning::Could not resolve state/draft/head for PR #$PR; failing closed (no CI-completion re-trigger)."
+              exit 0
+            fi
+            read -r PR_STATE IS_DRAFT CUR_HEAD <<<"$PR_INFO"
+            if [ "$PR_STATE" != "OPEN" ]; then
+              echo "::notice::PR #$PR is $PR_STATE (not open); no-op (never review a closed/merged PR)."
+              exit 0
+            fi
+            if [ "$IS_DRAFT" != "false" ]; then
+              echo "::notice::PR #$PR is a draft; deferring (the later ready_for_review event reviews it)."
+              exit 0
+            fi
+            if [ "$CUR_HEAD" != "$HEAD" ]; then
+              echo "::notice::CI completion is for stale head $HEAD (PR #$PR is now at $CUR_HEAD); no-op (the newer head's own events cover it)."
+              exit 0
+            fi
+            # Exactly-once: skip when a Devflow Review check already ran or is
+            # running for this head (devflow_review_run_count owns the
+            # skipped+neutral exclusion filter — a neutral check is the #304
+            # "waiting" deferral this path exists to supersede).
+            if ! EXISTING=$(devflow_review_run_count "$HEAD"); then
+              echo "::warning::Check-run query failed (or non-numeric count) for $HEAD; failing closed (no CI-completion re-trigger)."
+              exit 0
+            fi
+            if [ "$EXISTING" != "0" ]; then
+              echo "::notice::A Devflow Review check already ran or is running for $HEAD; skipping CI-completion re-trigger (exactly-once)."
+              exit 0
+            fi
+            preconditions_ok "$PR" "$HEAD" || exit 0
+            emit should_run true
+            emit pr_number "$PR"
+            emit head_sha "$HEAD"
+            echo "::notice::Other CI completed for PR #$PR at $HEAD and the preconditions are satisfied; auto-triggering Devflow Review."
+            exit 0
+          fi
+
           # --- synchronize (new commit pushed to an open PR) path ---
           # Closes the required-check deadlock: the first-ready gate
           # auto-reviews EXACTLY ONCE, so any commit pushed after that
@@ -289,6 +566,9 @@ jobs:
               echo "::notice::HEAD $HEAD already has a passing Devflow Review check; skipping synchronize re-review."
               exit 0
             fi
+            # #304 preconditions: defer (neutral "waiting" check) instead of
+            # reviewing a behind-base branch or racing ahead of pending CI.
+            preconditions_ok "$PR" "$HEAD" || exit 0
             emit should_run true
             emit pr_number "$PR"
             emit head_sha "$HEAD"
@@ -328,30 +608,23 @@ jobs:
           # pull_request_target wiring guarantees skipped checks (the dedupe
           # loser on HEAD, plus draft/synchronize deferrals on earlier commits).
           # Counting those would make the gate conclude the review "already ran"
-          # and skip it forever. A null conclusion (in-progress review) is
-          # `!= "skipped"`, so a running review still counts — exactly-once
-          # holds. Uses the same conclusion-scoped select shape as the
-          # synchronize cost-guard above, but a deliberately WIDER filter
-          # (`!= "skipped"` here vs `== "success"` there): the two are not
-          # interchangeable — do not align them. lib/test/run.sh pins this
-          # divergence.
+          # and skip it forever. ALSO exclude `conclusion == "neutral"` (#304):
+          # a precondition deferral posts a neutral "waiting" check (and a
+          # cancelled/skipped review job concludes neutral) — counting either
+          # would read a DEFERRED review as "already ran" and wedge e.g. a
+          # closed-and-reopened PR whose head carries only the waiting check.
+          # A null conclusion (in-progress review) passes both exclusions, so
+          # a running review still counts — exactly-once holds. Uses the same
+          # conclusion-scoped select shape as the synchronize cost-guard
+          # above, but a deliberately WIDER filter (skipped/neutral-exclusion
+          # here vs `== "success"` there): the two are not interchangeable —
+          # do not align them. lib/test/run.sh pins this divergence.
           # A truncated/empty body that still exits 0 yields a non-numeric
           # count; treating that as 0 would fail OPEN (re-review on a repeat
-          # toggle), which §0 forbids. Require a bare integer or fail closed.
-          # Value-stream + line count, not per-page `| length` (see the
-          # synchronize cost-guard above): --paginate concatenates jq
-          # output per page, so `length` would yield a multi-line count
-          # on a >100-check-run commit.
-          if ! _RUNS=$(gh api --paginate \
-                "repos/$REPO/commits/$HEAD/check-runs" \
-                --jq '.check_runs[] | select(.name=="Devflow Review" and .conclusion != "skipped") | .id' \
-                2>/dev/null); then
-            echo "::warning::Check-run query failed for $HEAD; failing closed (no auto-review). Use the Re-run button if a review is needed."
-            exit 0
-          fi
-          EXISTING=$(printf '%s' "$_RUNS" | grep -c . || true)
-          if ! [[ "$EXISTING" =~ ^[0-9]+$ ]]; then
-            echo "::warning::Non-numeric check-run count ('$EXISTING') for $HEAD; failing closed (no auto-review)."
+          # toggle), which §0 forbids — devflow_review_run_count returns 1
+          # on that shape and on a query error, so the caller fails closed.
+          if ! EXISTING=$(devflow_review_run_count "$HEAD"); then
+            echo "::warning::Check-run query failed (or non-numeric count) for $HEAD; failing closed (no auto-review). Use the Re-run button if a review is needed."
             exit 0
           fi
           if [ "$EXISTING" = "0" ]; then
@@ -363,15 +636,8 @@ jobs:
               exit 0
             fi
             for sha in $COMMITS; do
-              if ! _RUNS=$(gh api --paginate "repos/$REPO/commits/$sha/check-runs" \
-                    --jq '.check_runs[] | select(.name=="Devflow Review" and .conclusion != "skipped") | .id' \
-                    2>/dev/null); then
-                echo "::warning::Check-run query failed for commit $sha; failing closed (no auto-review). Use the Re-run button if a review is needed."
-                exit 0
-              fi
-              n=$(printf '%s' "$_RUNS" | grep -c . || true)
-              if ! [[ "$n" =~ ^[0-9]+$ ]]; then
-                echo "::warning::Non-numeric check-run count ('$n') for commit $sha; failing closed (no auto-review)."
+              if ! n=$(devflow_review_run_count "$sha"); then
+                echo "::warning::Check-run query failed (or non-numeric count) for commit $sha; failing closed (no auto-review). Use the Re-run button if a review is needed."
                 exit 0
               fi
               if [ "$n" != "0" ]; then
@@ -385,6 +651,9 @@ jobs:
             exit 0
           fi
 
+          # #304 preconditions: defer (neutral "waiting" check) instead of
+          # reviewing a behind-base branch or racing ahead of pending CI.
+          preconditions_ok "$PR" "$HEAD" || exit 0
           emit should_run true
           emit pr_number "$PR"
           emit head_sha "$HEAD"
@@ -392,7 +661,17 @@ jobs:
 
   create_check:
     needs: precheck
-    if: needs.precheck.outputs.enabled == 'true' && needs.precheck.outputs.should_run == 'true'
+    # Also runs on a #304 precondition deferral (skip_reason non-empty): the
+    # required `Devflow Review` check must be POSTED even when the review
+    # does not run, or the PR wedges on an absent required context. On a
+    # deferral this job posts the check ALREADY COMPLETED as neutral with the
+    # waiting title (see the step below) and finalize_check is skipped —
+    # deliberately, so the finalize job's own workflow check-run (also named
+    # `Devflow Review`) concludes `skipped`, which devflow_review_run_count
+    # excludes. If finalize ran and exited 0, its job check-run would be
+    # `success` and the exactly-once gates would read the deferral as an
+    # already-run review, permanently wedging the CI-completion re-trigger.
+    if: needs.precheck.outputs.enabled == 'true' && (needs.precheck.outputs.should_run == 'true' || needs.precheck.outputs.skip_reason != '')
     runs-on: ubuntu-latest
     permissions:
       checks: write
@@ -406,26 +685,58 @@ jobs:
           REPO: ${{ github.repository }}
           HEAD_SHA: ${{ needs.precheck.outputs.head_sha }}
           RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SKIP_REASON: ${{ needs.precheck.outputs.skip_reason }}
         run: |
           set -euo pipefail
-          SUMMARY='/devflow:review is executing. This is a required status check that encodes the verdict for the current HEAD: it PASSES only on a positively-observed APPROVE, and FAILS on a REJECT (blocks merge) or on an incomplete/unverifiable review (Re-run needed). The full verdict is also posted as a formal PR review.'
+          if [ -n "${SKIP_REASON:-}" ]; then
+            # #304 precondition deferral: post the required check ALREADY
+            # COMPLETED as neutral with the waiting reason — create and
+            # conclude in ONE POST, so no finalize PATCH is needed and
+            # finalize_check stays skipped (its `Devflow Review` job
+            # check-run then concludes `skipped`, which the exactly-once
+            # gates exclude — see the job-level comment above). neutral is
+            # deliberate — "not reviewable yet" is not a REJECT, and a
+            # neutral required check does not block merge (the
+            # branch-freshness gate is a cost optimization; pair it with
+            # branch protection's "require branches up to date" if staleness
+            # must block).
+            # behind-base / ci-not-green are POSITIVELY-OBSERVED conditions;
+            # unverifiable means a precondition query failed — the title must
+            # never assert a state the script did not observe (a user who
+            # rebases in response to a false "behind base" fixes nothing).
+            case "$SKIP_REASON" in
+              behind-base)  TITLE='Devflow review waiting: branch behind base' ;;
+              ci-not-green) TITLE='Devflow review waiting: other CI not green' ;;
+              unverifiable) TITLE='Devflow review waiting: preconditions unverifiable (API query failed — see the precheck log)' ;;
+              *)            TITLE='Devflow review waiting: precondition not met' ;;
+            esac
+            SUMMARY='This PR is not yet in a reviewable state, so the review was deferred (not run). It auto-re-triggers when the branch is updated, or when a CI workflow named in this workflow'"'"'s workflow_run trigger list (or an external check_suite CI) completes. If your CI workflow is not in that list, or a signal is permanently stuck (a cancelled sibling run, a forever-pending status), click Re-run on this check once CI is green to force a review of the current HEAD.'
+            STATUS_ARGS=(-f status='completed' -f conclusion='neutral')
+          else
+            TITLE='Devflow review running'
+            SUMMARY='/devflow:review is executing. This is a required status check that encodes the verdict for the current HEAD: it PASSES only on a positively-observed APPROVE, and FAILS on a REJECT (blocks merge) or on an incomplete/unverifiable review (Re-run needed). The full verdict is also posted as a formal PR review.'
+            STATUS_ARGS=(-f status='in_progress')
+          fi
           ID=$(gh api -X POST "repos/$REPO/check-runs" \
             -f name='Devflow Review' \
             -f head_sha="$HEAD_SHA" \
-            -f status='in_progress' \
+            "${STATUS_ARGS[@]}" \
             -f details_url="$RUN_URL" \
-            -f 'output[title]=Devflow review running' \
+            -f "output[title]=$TITLE" \
             -f "output[summary]=$SUMMARY" \
             --jq '.id')
           # An HTTP-success-but-no-.id response would leave finalize_check's
           # `!= ''` gate skipped and the check hung in_progress forever (the
-          # exact hang plan §6.3 guards against). Fail loudly instead.
+          # exact hang plan §6.3 guards against). Fail loudly instead. (On the
+          # deferral arm the check is posted pre-completed, so a lost id can
+          # never hang it — but fail loudly there too rather than reporting a
+          # created check the response can't substantiate.)
           if ! [[ "$ID" =~ ^[0-9]+$ ]]; then
             echo "::error::check-run POST returned no numeric id ('$ID'); cannot create 'Devflow Review' check."
             exit 1
           fi
           echo "check_run_id=$ID" >> "$GITHUB_OUTPUT"
-          echo "::notice::Created 'Devflow Review' check run $ID at $HEAD_SHA."
+          echo "::notice::Created 'Devflow Review' check run $ID at $HEAD_SHA${SKIP_REASON:+ (deferral: concluded neutral — $TITLE)}."
 
   review:
     # NOT needs: create_check — the formal verdict is the authoritative
@@ -524,8 +835,16 @@ jobs:
     needs: [precheck, create_check, review]
     # always() so a failed/cancelled review still closes the check —
     # otherwise it hangs `in_progress` forever and the Re-run button never
-    # appears. Gated on a check actually having been created.
-    if: always() && needs.create_check.outputs.check_run_id != ''
+    # appears. Gated on a check actually having been created, AND on the run
+    # not being a #304 precondition deferral: on a deferral create_check
+    # already posted the check pre-completed (neutral, waiting title), so
+    # there is nothing to finalize — and skipping this job is load-bearing,
+    # because a run of this job that exits 0 emits a `success` workflow job
+    # check-run named `Devflow Review`, which the exactly-once gates
+    # (devflow_review_run_count) would count as an already-run review and
+    # permanently wedge the CI-completion re-trigger. Skipped, the job
+    # check-run concludes `skipped`, which the gates exclude.
+    if: always() && needs.create_check.outputs.check_run_id != '' && needs.precheck.outputs.skip_reason == ''
     runs-on: ubuntu-latest
     permissions:
       # Job-level permissions REPLACE workflow-level (they do not merge), so
@@ -638,6 +957,11 @@ jobs:
           # body), or the run-keyed progress comment carrying the `## Verdict:`
           # line on the same-identity self-review fallback.
           SUMMARY='See the formal review verdict on the PR. Click Re-run on this check to re-review the current HEAD.'
+          # (#304 note: this job never runs on a precondition deferral — the
+          # deferral's neutral "waiting" check is posted pre-completed by
+          # create_check, and this job's if: skips on a non-empty
+          # skip_reason — so REVIEW_RESULT here always reflects a review job
+          # that was actually gated on should_run=true.)
           case "$REVIEW_RESULT" in
             cancelled|skipped)
               CONCLUSION=neutral

@@ -90,6 +90,12 @@ Verification is **proportional**: cheap in-repo reads for most claims, live-data
 population claims. It is scoped to **load-bearing** premises, so incidental context bullets
 stay light and drafting is never blocked in a data-less authoring context.
 
+This same discipline runs **twice**: here at drafting time, and again in the calling
+skill's Step 3.5 self-steelman, which re-applies it to the *assembled* draft (fresh
+targeted reads/greps against the code, never ambient context) before the user sees it.
+Keep the two coherent — a change to the premise-classes or the flagged-assumption form
+above must carry into Step 3.5's checks.
+
 ### Visual Specification (include only for user-visible UI changes)
 Include this section **only** when the issue involves user-visible UI changes (Step 2's
 visual-specification guidance decided this). Omit it entirely for non-UI issues — do not

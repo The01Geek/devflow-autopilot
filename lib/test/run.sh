@@ -1134,10 +1134,12 @@ assert_eq "263(A4): carve-out definitional phrase mirrored across 4.0 + 4.2 + su
 # term on either side goes RED. (The vendored body's repo-agnostic pins are the two above.)
 assert_pin_unique "263(A5): receiving-code-review carries the shared 'contradicts the diff' definitional phrase" \
   'stale, contradicts HEAD, or contradicts another part of this change' "$ST_RCV"
-# A6 (no-new-key AC): the carve-out is unconditional, not a knob — config.schema.json's
-# devflow_review.properties key set is unchanged from #251 (no new threshold property).
-assert_eq "263(A6): devflow_review schema gains no new property (carve-out adds no config key)" \
-  "agent_overrides live_progress_comment_enabled verdict_severity_threshold" \
+# A6 (no-new-key AC): the carve-out is unconditional, not a knob — the #263 change added
+# no config key. The pin holds the FULL devflow_review key set so any addition is a
+# deliberate, reviewed edit here: #304 later added require_up_to_date + require_ci_green
+# (the auto-trigger preconditions — unrelated to the carve-out, which remains knob-free).
+assert_eq "263(A6): devflow_review schema key set is the reviewed list (carve-out adds no config key)" \
+  "agent_overrides live_progress_comment_enabled require_ci_green require_up_to_date verdict_severity_threshold" \
   "$(jq -r '.properties.devflow_review.properties | keys | join(" ")' "$ST_SCHEMA")"
 # A7 (corroboration-independence AC — AC6): the carve-out blocks a SINGLE-SOURCE
 # self-contradicting finding exactly like a corroborated one. This is a distinct enumerated
@@ -7717,6 +7719,246 @@ assert_eq "#249 deriver always exits 0 (best-effort)" "0" "$DRV_RC"
 rm -f "$DRV_STUB"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "derive-review-preconditions.sh (#304 branch-freshness + other-CI-green gate)"
+# ────────────────────────────────────────────────────────────────────────────
+# The unit precheck.route calls before emitting should_run=true on the
+# first-review / synchronize / completion-re-trigger paths. It evaluates two
+# config-gated preconditions against the PR head and prints:
+#   should_run=<true|false>
+#   reason=<empty|behind-base|ci-not-green|unverifiable>
+# always exit 0. Fail-closed arms: an unverifiable compare, an unverifiable CI
+# query, or missing inputs all -> unverifiable (never a positively-asserted
+# behind-base/ci-not-green the script did not observe). The
+# CI-green set is generic (no job names): Actions workflow runs for the head
+# excluding SELF_WORKFLOW_NAME, legacy combined status, and non-Actions check
+# runs. Zero entries across all three -> satisfied (a CI-less repo is reviewed
+# immediately, never wedged).
+DRP="$LIB/../scripts/derive-review-preconditions.sh"
+DRP_STUB="/tmp/devflow-gh-stub-drp.$$.sh"
+cat > "$DRP_STUB" <<'EOS'
+#!/usr/bin/env bash
+# Echo raw JSON (the script pipes it through jq itself). DRP_*_FAIL=1 forces the
+# matching query to fail so the fail-closed arms can be exercised. Defaults are
+# assigned up front (a `}` inside a ${VAR-default} brace expansion terminates
+# the expansion early and corrupts the JSON — do not inline them).
+[ -n "${DRP_COMPARE-}" ] || DRP_COMPARE='{"behind_by":0}'
+[ -n "${DRP_RUNS-}" ]    || DRP_RUNS='{"workflow_runs":[]}'
+[ -n "${DRP_CHECKS-}" ]  || DRP_CHECKS='{"check_runs":[]}'
+[ -n "${DRP_STATUS-}" ]  || DRP_STATUS='{"state":"pending","total_count":0}'
+case "$*" in
+  *"compare/"*)          [ "${DRP_COMPARE_FAIL:-0}" = 0 ] || { echo "HTTP 500" >&2; exit 1; }; printf '%s' "$DRP_COMPARE"; exit 0 ;;
+  *"actions/runs"*)      [ "${DRP_RUNS_FAIL:-0}" = 0 ] || { echo "HTTP 500" >&2; exit 1; }; printf '%s' "$DRP_RUNS"; exit 0 ;;
+  *"/check-runs"*)       [ "${DRP_CHECKS_FAIL:-0}" = 0 ] || { echo "HTTP 500" >&2; exit 1; }; printf '%s' "$DRP_CHECKS"; exit 0 ;;
+  *"/status"*)           [ "${DRP_STATUS_FAIL:-0}" = 0 ] || { echo "HTTP 500" >&2; exit 1; }; printf '%s' "$DRP_STATUS"; exit 0 ;;
+esac
+echo '{}'; exit 0
+EOS
+chmod +x "$DRP_STUB"
+
+drp() {  # $1=description  $2=expected "<should_run> <reason>"
+  local out r s
+  out="$(bash "$DRP" 2>/dev/null)"
+  s="$(printf '%s\n' "$out" | sed -n 's/^should_run=//p')"
+  r="$(printf '%s\n' "$out" | sed -n 's/^reason=//p')"
+  assert_eq "$1" "$2" "$s $r"
+}
+drp_stderr() {  # $1=description  $2=expected stderr substring
+  local err
+  err="$(bash "$DRP" 2>&1 1>/dev/null)"
+  assert_eq "$1" "yes" "$(printf '%s' "$err" | grep -qF -- "$2" && echo yes || echo no)"
+}
+
+# AC1: branch behind base + require_up_to_date -> defer with behind-base reason.
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=true REQUIRE_CI_GREEN=false DEVFLOW_GH="$DRP_STUB" \
+  DRP_COMPARE='{"behind_by":3}' \
+  drp "#304 behind base (behind_by=3) + require_up_to_date -> false behind-base" "false behind-base"
+# AC7/AC8: the key set to false restores unconditional behavior for that arm.
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=false DEVFLOW_GH="$DRP_STUB" \
+  DRP_COMPARE='{"behind_by":3}' \
+  drp "#304 behind base but require_up_to_date=false -> true (unconditional restored)" "true "
+# Not behind -> freshness precondition passes.
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=true REQUIRE_CI_GREEN=false DEVFLOW_GH="$DRP_STUB" \
+  DRP_COMPARE='{"behind_by":0}' \
+  drp "#304 not behind (behind_by=0) -> true" "true "
+# AC10: compare query failure fails CLOSED with a specific breadcrumb.
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=true REQUIRE_CI_GREEN=false DEVFLOW_GH="$DRP_STUB" \
+  DRP_COMPARE_FAIL=1 \
+  drp "#304 compare query failure -> false unverifiable (fail closed, honest reason)" "false unverifiable"
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=true REQUIRE_CI_GREEN=false DEVFLOW_GH="$DRP_STUB" \
+  DRP_COMPARE_FAIL=1 \
+  drp_stderr "#304 compare query failure emits the specific 'compare query failed' breadcrumb" "compare query failed"
+# A non-numeric behind_by (adversarial payload shape) also fails closed.
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=true REQUIRE_CI_GREEN=false DEVFLOW_GH="$DRP_STUB" \
+  DRP_COMPARE='{"message":"Not Found"}' \
+  drp "#304 compare payload without numeric behind_by -> false unverifiable (fail closed)" "false unverifiable"
+
+# AC2 (failure arm): another workflow run concluded failure -> defer ci-not-green.
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","status":"completed","conclusion":"failure"}]}' \
+  drp "#304 other workflow run failed -> false ci-not-green" "false ci-not-green"
+# AC2 (pending arm): another workflow run still in progress -> defer.
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","status":"in_progress","conclusion":null}]}' \
+  drp "#304 other workflow run in_progress -> false ci-not-green (pending)" "false ci-not-green"
+# AC3 + AC9: only the review workflow's own run present -> excluded by
+# SELF_WORKFLOW_NAME -> zero other CI -> satisfied (self never blocks itself,
+# and a CI-less head is reviewed, not wedged).
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  SELF_WORKFLOW_NAME='Devflow Review (auto-trigger)' \
+  DRP_RUNS='{"workflow_runs":[{"name":"Devflow Review (auto-trigger)","status":"in_progress","conclusion":null}]}' \
+  drp "#304 only the review workflow itself running -> true (self-excluded; zero other CI satisfied)" "true "
+# AC4: all other runs green -> proceed.
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","status":"completed","conclusion":"success"},{"name":"Devflow Review (auto-trigger)","status":"in_progress","conclusion":null}]}' \
+  drp "#304 other CI green (self still running) -> true" "true "
+# Skipped/neutral conclusions on other runs are green (a path-filtered workflow
+# must not wedge the review).
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_RUNS='{"workflow_runs":[{"name":"Docs","status":"completed","conclusion":"skipped"},{"name":"Lint","status":"completed","conclusion":"neutral"}]}' \
+  drp "#304 skipped/neutral other runs count as green -> true" "true "
+# AC10: workflow-runs query failure fails CLOSED with a specific breadcrumb.
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_RUNS_FAIL=1 \
+  drp "#304 workflow-runs query failure -> false unverifiable (fail closed, honest reason)" "false unverifiable"
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_RUNS_FAIL=1 \
+  drp_stderr "#304 workflow-runs query failure emits the specific 'workflow-runs query failed' breadcrumb" "workflow-runs query failed"
+# Legacy combined status: a red commit status blocks; total_count=0 does not
+# (the combined-status state is 'pending' when NO statuses exist — total_count
+# gates it, so an empty status set is never read as pending).
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_STATUS='{"state":"failure","total_count":2}' \
+  drp "#304 legacy commit status red -> false ci-not-green" "false ci-not-green"
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_STATUS='{"state":"pending","total_count":0}' \
+  drp "#304 zero legacy statuses (state pending, total_count 0) -> true (not read as pending)" "true "
+# Statuses EXIST and are still pending (the primary real-world gating shape —
+# distinct from the zero-statuses case above, which shares the API 'pending'
+# state string but must proceed).
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_STATUS='{"state":"pending","total_count":3}' \
+  drp "#304 pending legacy statuses (total_count>0) -> false ci-not-green" "false ci-not-green"
+# AC10 applied to signals (2) and (3): combined-status / check-runs query
+# failures fail CLOSED too, each with its specific breadcrumb.
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_STATUS_FAIL=1 \
+  drp "#304 combined-status query failure -> false unverifiable (fail closed)" "false unverifiable"
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_STATUS_FAIL=1 \
+  drp_stderr "#304 combined-status query failure emits the specific 'combined-status query failed' breadcrumb" "combined-status query failed"
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_CHECKS_FAIL=1 \
+  drp "#304 check-runs query failure -> false unverifiable (fail closed)" "false unverifiable"
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_CHECKS_FAIL=1 \
+  drp_stderr "#304 check-runs query failure emits the specific 'check-runs query failed' breadcrumb" "check-runs query failed"
+# The external-check-runs jq normalization is a parallel copy of the tested
+# workflow-runs one — give it its own paginated + garbage adversarial cases.
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_CHECKS='{"check_runs":[{"name":"a","app":{"slug":"circleci"},"status":"completed","conclusion":"success"}]}{"check_runs":[{"name":"b","app":{"slug":"circleci"},"status":"completed","conclusion":"failure"}]}' \
+  drp "#304 paginated check-runs payload: page-2 external failure still gates -> false ci-not-green" "false ci-not-green"
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_CHECKS='"garbage"' \
+  drp "#304 non-object check-runs payload -> false unverifiable (parse fails closed)" "false unverifiable"
+# Anything-but-literal-false enables a gate (the header's fail-toward-gating
+# contract): a garbage/empty REQUIRE_* value must still gate.
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=maybe REQUIRE_CI_GREEN=false DEVFLOW_GH="$DRP_STUB" \
+  DRP_COMPARE='{"behind_by":3}' \
+  drp "#304 garbage REQUIRE_UP_TO_DATE value ('maybe') still gates -> false behind-base (fail toward gating)" "false behind-base"
+# Legacy statuses exist AND are green -> proceed (the success arm of signal 2;
+# an inverted state comparison would defer every legacy-status repo forever).
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_STATUS='{"state":"success","total_count":2}' \
+  drp "#304 green legacy statuses (state success, total_count>0) -> true" "true "
+# Both gates enabled, everything green end-to-end (not behind + all signals
+# green) -> true. The only all-defaults happy-path case with BOTH gates on,
+# catching a sequencing regression between precondition 1 and 2.
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=true REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_COMPARE='{"behind_by":0}' \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","status":"completed","conclusion":"success"}]}' \
+  DRP_STATUS='{"state":"success","total_count":1}' \
+  DRP_CHECKS='{"check_runs":[{"name":"ext","app":{"slug":"circleci"},"status":"completed","conclusion":"success"}]}' \
+  drp "#304 both gates enabled, all signals green -> true (full happy path)" "true "
+# Combined-status payload with a non-numeric / absent total_count (adversarial
+# shape) -> unverifiable. Mirrors the behind_by 'no numeric value' arm above:
+# this is the total_count parse arm (script's STATUS_TOTAL guard), distinct from
+# the no-string-state arm below (which supplies a numeric total_count).
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_STATUS='{"state":"pending"}' \
+  drp "#304 combined status without a numeric total_count -> false unverifiable (shape fails closed)" "false unverifiable"
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_STATUS='{"state":"pending"}' \
+  drp_stderr "#304 non-numeric total_count emits the specific 'no numeric total_count' breadcrumb" "combined-status payload carried no numeric total_count"
+# Statuses exist but carry no string state (adversarial shape) -> unverifiable,
+# never a positively-asserted ci-not-green.
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_STATUS='{"total_count":2}' \
+  drp "#304 combined status without a string state -> false unverifiable (shape fails closed)" "false unverifiable"
+# Precondition precedence: behind base AND red CI -> the freshness reason wins
+# (checked first); a reordering would flip the user-facing recovery guidance.
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=true REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_COMPARE='{"behind_by":3}' \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","status":"completed","conclusion":"failure"}]}' \
+  drp "#304 behind base AND red CI -> false behind-base (freshness precedence)" "false behind-base"
+# The shared green-gate pending arm driven via the EXTERNAL check-runs caller
+# (previously exercised only via the workflow-runs caller).
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_CHECKS='{"check_runs":[{"name":"ext","app":{"slug":"circleci"},"status":"in_progress","conclusion":null}]}' \
+  drp "#304 external check run in_progress -> false ci-not-green (pending, external caller)" "false ci-not-green"
+# A run object WITHOUT a status field: the run itself is an observed signal,
+# its unknown status is deliberately treated as not-completed (pending) —
+# pinned so a future edit makes this choice consciously.
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI"}]}' \
+  drp "#304 workflow run without a status field -> false ci-not-green (observed run, unknown status = pending)" "false ci-not-green"
+# The base_branch extraction expression, executed like the require_* ones.
+assert_eq "#304 base_branch extraction: non-default value kept" "develop" \
+  "$(echo '{"base_branch":"develop"}' | jq -r '(try .base_branch catch null) // "main"')"
+assert_eq "#304 base_branch extraction: absent key defaults main" "main" \
+  "$(echo '{}' | jq -r '(try .base_branch catch null) // "main"')"
+# Non-Actions (external app) check runs gate too; the Devflow Review check-run
+# name is excluded even off-app (defensive).
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_CHECKS='{"check_runs":[{"name":"external-ci","app":{"slug":"circleci"},"status":"completed","conclusion":"failure"}]}' \
+  drp "#304 external (non-Actions) check run failed -> false ci-not-green" "false ci-not-green"
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_CHECKS='{"check_runs":[{"name":"Devflow Review","app":{"slug":"some-app"},"status":"in_progress","conclusion":null},{"name":"precheck","app":{"slug":"github-actions"},"status":"in_progress","conclusion":null}]}' \
+  drp "#304 Devflow Review check-run + Actions-app check runs excluded from the external set -> true" "true "
+# AC7: require_ci_green=false restores unconditional behavior for that arm.
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=false DEVFLOW_GH="$DRP_STUB" \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","status":"completed","conclusion":"failure"}]}' \
+  drp "#304 red CI but require_ci_green=false -> true (unconditional restored)" "true "
+# Both keys false -> no queries at all (every query poisoned; still true).
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=false DEVFLOW_GH="$DRP_STUB" \
+  DRP_COMPARE_FAIL=1 DRP_RUNS_FAIL=1 DRP_STATUS_FAIL=1 DRP_CHECKS_FAIL=1 \
+  drp "#304 both preconditions disabled -> true with zero API queries" "true "
+# Missing inputs are unverifiable -> fail closed with the unverifiable reason.
+REPO=o/r HEAD_SHA="" BASE_BRANCH=main REQUIRE_UP_TO_DATE=true REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  drp "#304 empty HEAD_SHA -> false unverifiable (fail closed)" "false unverifiable"
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH="" REQUIRE_UP_TO_DATE=true REQUIRE_CI_GREEN=false DEVFLOW_GH="$DRP_STUB" \
+  drp "#304 empty BASE_BRANCH with freshness gate on -> false unverifiable (never a hardcoded main)" "false unverifiable"
+# Paginated (concatenated-objects) workflow-runs payload: a failure on page 2
+# must still gate — the -s normalization flattens the page objects.
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_RUNS='{"workflow_runs":[{"name":"A","status":"completed","conclusion":"success"}]}{"workflow_runs":[{"name":"B","status":"completed","conclusion":"failure"}]}' \
+  drp "#304 paginated workflow-runs payload: page-2 failure still gates -> false ci-not-green" "false ci-not-green"
+# Adversarial shape: a non-object/garbage runs payload is a parse failure ->
+# fail closed, never a fabricated green.
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_RUNS='"garbage"' \
+  drp "#304 non-object workflow-runs payload -> false unverifiable (parse fails closed)" "false unverifiable"
+# always exits 0 (best-effort; the route step reads stdout, not the exit code).
+( REPO="" HEAD_SHA="" BASE_BRANCH="" DEVFLOW_GH="$DRP_STUB" bash "$DRP" >/dev/null 2>&1 ); DRP_RC=$?
+assert_eq "#304 preconditions script always exits 0 (best-effort)" "0" "$DRP_RC"
+# Output contract: exactly two lines, should_run= then reason= (the route step's
+# sed consumers depend on this exact shape).
+DRP_CONTRACT_OUT="$(REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=false DEVFLOW_GH="$DRP_STUB" bash "$DRP" 2>/dev/null)"
+assert_eq "#304 preconditions stdout contract: exactly 2 lines" "2" "$(printf '%s\n' "$DRP_CONTRACT_OUT" | wc -l | tr -d ' ')"
+assert_eq "#304 preconditions stdout contract: line 1 should_run=, line 2 reason=" "yes" \
+  "$(printf '%s\n' "$DRP_CONTRACT_OUT" | sed -n '1s/^should_run=.*/ok1/p;2s/^reason=.*/ok2/p' | tr '\n' ' ' | grep -q 'ok1 ok2' && echo yes || echo no)"
+rm -f "$DRP_STUB"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "parse-engine-error.sh (#249 execution-log is_error parser feeding engine_is_error)"
 # ────────────────────────────────────────────────────────────────────────────
 # The producer of devflow-runner.yml's engine_is_error output (extracted from the
@@ -8960,19 +9202,176 @@ bare_gate_query_count="$(grep -cE \
   "$REVIEW_WF" || true)"
 assert_eq "first-ready gate: no unfiltered Devflow Review check-run query" \
   "0" "$bare_gate_query_count"
-# (2) Both gate queries (head-SHA + commit-list backstop) exclude skipped check-runs.
-gate_skipped_filter_count="$(grep -cE \
-  'select\(\.name *== *"Devflow Review" and \.conclusion *!= *"skipped"\)' \
+# (2) The exactly-once exclusion filter — skipped AND neutral — lives in
+# EXACTLY ONE place: the shared devflow_review_run_count() helper all three
+# exactly-once gates (first-ready head-SHA, commit-list backstop, #304
+# CI-completion re-trigger) call. A #304 precondition deferral posts a neutral
+# "waiting" check on the head, so a gate that only excluded skipped would read
+# the deferral itself as "already reviewed" and wedge e.g. a reopened PR
+# forever; single-sourcing the filter is what keeps the three gates aligned.
+gate_excl_filter_count="$(grep -cE \
+  'select\(\.name *== *"Devflow Review" and \.conclusion *!= *"skipped" and \.conclusion *!= *"neutral"\)' \
   "$REVIEW_WF" || true)"
-assert_eq "first-ready gate: both queries exclude conclusion==skipped" \
-  "2" "$gate_skipped_filter_count"
-# (3) The synchronize cost-guard must NOT be widened to != "skipped" — it stays
-# scoped to conclusion=="success".
+assert_eq "exactly-once gates: skipped+neutral exclusion filter has exactly one definition (shared helper)" \
+  "1" "$gate_excl_filter_count"
+assert_eq "exactly-once gates: all three call sites use the shared helper" \
+  "3" "$(grep -cE '=\$\(devflow_review_run_count ' "$REVIEW_WF" || true)"
+# (2b) No gate query may regress to the skipped-only exclusion (it would count
+# the #304 neutral waiting check as a completed review).
+gate_skipped_only_count="$(grep -cE \
+  'select\(\.name *== *"Devflow Review" and \.conclusion *!= *"skipped"\) *\|' \
+  "$REVIEW_WF" || true)"
+assert_eq "exactly-once gates: no skipped-only exclusion remains (neutral must also be excluded)" \
+  "0" "$gate_skipped_only_count"
+# (3) The synchronize cost-guard must NOT be widened to an exclusion filter —
+# it stays scoped to conclusion=="success".
 sync_success_filter_count="$(grep -cE \
   'select\(\.name *== *"Devflow Review" and \.conclusion *== *"success"\)' \
   "$REVIEW_WF" || true)"
 assert_eq "synchronize cost-guard keeps conclusion==success filter" \
   "1" "$sync_success_filter_count"
+
+# ── #304 precondition-gate invariants (static pins on the workflow) ─────────
+# The gate itself is execution-tested via derive-review-preconditions.sh above;
+# these pin the WORKFLOW wiring that cannot be executed in the suite.
+# (a) create_check also fires on a precondition deferral — the required check
+# must never be absent. Mutating the if: back to should_run-only goes RED here.
+assert_eq "#304 create_check gate widened to skip_reason (deferral still posts the required check)" "yes" \
+  "$(grep -qF "needs.precheck.outputs.should_run == 'true' || needs.precheck.outputs.skip_reason != ''" "$REVIEW_WF" && echo yes || echo no)"
+# (b) The review engine job is NOT widened — a deferral must never run it.
+assert_eq "#304 review job still gates on should_run only (a deferral never runs the engine)" "0" \
+  "$(grep -cF "skip_reason" <(sed -n '/^  review:/,/^  finalize_check:/p' "$REVIEW_WF") || true)"
+# (c) create_check maps the two deferral reasons to the distinctive neutral
+# "waiting" titles (the AC-required reasons) — posted pre-completed in ONE
+# POST, so no finalize PATCH is involved on the deferral path.
+assert_eq "#304 deferral maps behind-base to the waiting title" "yes" \
+  "$(grep -qF "Devflow review waiting: branch behind base" "$REVIEW_WF" && echo yes || echo no)"
+assert_eq "#304 deferral maps ci-not-green to the waiting title" "yes" \
+  "$(grep -qF "Devflow review waiting: other CI not green" "$REVIEW_WF" && echo yes || echo no)"
+# (c2) finalize_check is SKIPPED on a deferral (skip_reason non-empty). This is
+# load-bearing for the re-trigger: a finalize run that exits 0 emits a SUCCESS
+# workflow job check-run named 'Devflow Review', which devflow_review_run_count
+# counts as an already-run review — wedging the CI-completion re-trigger
+# forever. Skipped, the job check-run concludes 'skipped', which the gates
+# exclude. Mutating finalize's if: back to the two-clause form goes RED here.
+assert_eq "#304 finalize_check skips on a deferral (its success job check-run must never count as a review)" "yes" \
+  "$(grep -qF "needs.create_check.outputs.check_run_id != '' && needs.precheck.outputs.skip_reason == ''" "$REVIEW_WF" && echo yes || echo no)"
+# (c3) The boolean precondition keys use the TYPE-CHECKED default, never
+# `// true`: jq's // substitutes on null AND false, so `// true` silently
+# coerces an explicit false (the documented off-switch) back to true.
+assert_eq "#304 require_* extraction is type-checked (never a false-coercing // true)" "2" \
+  "$(grep -cF 'catch null) | if type == "boolean" then . else true end' "$REVIEW_WF" || true)"
+assert_eq "#304 no false-coercing // true remains on the require_* extractions" "0" \
+  "$(grep -cE 'require_(up_to_date|ci_green) catch null\) // true' "$REVIEW_WF" || true)"
+# ...and the exact extraction expression honors an explicit false / defaults
+# absent + garbage shapes to true (executed, not just pinned).
+assert_eq "#304 extraction expression: explicit false stays false" "false" \
+  "$(echo '{"devflow_review":{"require_ci_green":false}}' | jq -r '(try .devflow_review.require_ci_green catch null) | if type == "boolean" then . else true end')"
+assert_eq "#304 extraction expression: absent key defaults true" "true" \
+  "$(echo '{}' | jq -r '(try .devflow_review.require_ci_green catch null) | if type == "boolean" then . else true end')"
+assert_eq "#304 extraction expression: scalar-corrupted section defaults true" "true" \
+  "$(echo '{"devflow_review":"oops"}' | jq -r '(try .devflow_review.require_ci_green catch null) | if type == "boolean" then . else true end')"
+# (c4) The precheck job's workflow_run event filter survives — and 'push'
+# MUST be among the allowed events: many consumer repos run CI on branch
+# pushes, and a filter that drops push completions silently disables the
+# CI-completion re-trigger for them.
+assert_eq "#304 precheck if: workflow_run filter passes pull_request/pull_request_target/push" "yes" \
+  "$(grep -qF "github.event_name != 'workflow_run' || github.event.workflow_run.event == 'pull_request' || github.event.workflow_run.event == 'pull_request_target' || github.event.workflow_run.event == 'push'" "$REVIEW_WF" && echo yes || echo no)"
+# (c5) The single most load-bearing wiring fact: the three gated route paths
+# actually CALL the preconditions gate (with the || exit 0 that turns a
+# deferral into a clean skip instead of a set -e step failure). Deleting one
+# call silently disables the feature on that path while every script test
+# stays green.
+assert_eq "#304 all three route paths call preconditions_ok with the deferral exit" "3" \
+  "$(grep -cF 'preconditions_ok "$PR" "$HEAD" || exit 0' "$REVIEW_WF" || true)"
+# (c6) The precheck permissions the precondition queries depend on: without
+# actions:read the runs query 403s; without statuses:read the combined-status
+# query 403s on a private repo — either way the script fails closed (reason
+# 'unverifiable') on every event and the review is permanently deferred.
+assert_eq "#304 precheck grants actions: read" "yes" \
+  "$(sed -n '/^  precheck:/,/^  create_check:/p' "$REVIEW_WF" | grep -qE '^      actions: read' && echo yes || echo no)"
+assert_eq "#304 precheck grants statuses: read" "yes" \
+  "$(sed -n '/^  precheck:/,/^  create_check:/p' "$REVIEW_WF" | grep -qE '^      statuses: read' && echo yes || echo no)"
+# (c7) The check_suite self-loop guard (defensive twin of the workflow_run
+# one) and the on: trigger blocks themselves — deleting a trigger disables
+# the CI-completion re-trigger entirely while every other pin stays green.
+assert_eq "#304 check_suite route carries the github-actions app guard" "yes" \
+  "$(grep -qF '"$CS_APP" = "github-actions"' "$REVIEW_WF" && echo yes || echo no)"
+assert_eq "#304 on: block declares the workflow_run trigger" "yes" \
+  "$(sed -n '/^on:/,/^permissions:/p' "$REVIEW_WF" | grep -qE '^  workflow_run:' && echo yes || echo no)"
+assert_eq "#304 on: block declares the check_suite trigger" "yes" \
+  "$(sed -n '/^on:/,/^permissions:/p' "$REVIEW_WF" | grep -qE '^  check_suite:' && echo yes || echo no)"
+# (c8) resolve_pr_for_head distinguishes BOTH failure arms (query and parse)
+# from a genuine no-PR result — the misattribution breadcrumbs are pinned.
+assert_eq "#304 resolve_pr_for_head pins the query-failure misattribution breadcrumb" "yes" \
+  "$(grep -qF 'the real cause is the query, not an absent PR' "$REVIEW_WF" && echo yes || echo no)"
+assert_eq "#304 resolve_pr_for_head pins the parse-failure misattribution breadcrumb" "yes" \
+  "$(grep -qF 'the real cause is the parse, not an absent PR' "$REVIEW_WF" && echo yes || echo no)"
+# (c9) The unverifiable reason gets its own HONEST title (never a condition the
+# script did not observe), and the CI-completion path enforces the open-PR
+# invariant on the payload-carried arm too (a closed/merged PR is never
+# reviewed off a late CI completion).
+assert_eq "#304 unverifiable deferral maps to the honest 'preconditions unverifiable' title" "yes" \
+  "$(grep -qF "Devflow review waiting: preconditions unverifiable" "$REVIEW_WF" && echo yes || echo no)"
+assert_eq "#304 CI-completion path guards PR state == OPEN" "yes" \
+  "$(grep -qF '"$PR_STATE" != "OPEN"' "$REVIEW_WF" && echo yes || echo no)"
+# (c10) Coupled literals: the workflow_run workflows list must name ci.yml's
+# actual workflow name (rename ci.yml and the CI-completion re-trigger
+# silently never fires), and the script's SELF_WORKFLOW_NAME default must
+# byte-match this workflow's name: (a rename desyncs the fallback and the
+# gate would count its own run as other-CI-pending on default invocations).
+assert_eq "#304 ci.yml workflow name matches the workflow_run trigger list entry" "yes" \
+  "$(grep -qE '^name: CI$' "$WF/ci.yml" && grep -qF 'workflows: [CI]' "$REVIEW_WF" && echo yes || echo no)"
+assert_eq "#304 script SELF_WORKFLOW_NAME default matches the workflow name:" "yes" \
+  "$(grep -qF ':-Devflow Review (auto-trigger)}' "$LIB/../scripts/derive-review-preconditions.sh" && grep -qE '^name: Devflow Review \(auto-trigger\)$' "$REVIEW_WF" && echo yes || echo no)"
+# (c11) The compare operand ORDER is load-bearing and the test stub is
+# URL-shape-blind (it matches any compare/ URL): base...head reads behind_by
+# as "how far head trails base"; swapping the operands inverts the gate's
+# semantics while every stubbed test stays green — pin the literal.
+assert_eq "#304 compare query uses base...head operand order" "yes" \
+  "$(grep -qF 'compare/$BASE_BRANCH...$HEAD_SHA' "$LIB/../scripts/derive-review-preconditions.sh" && echo yes || echo no)"
+# (c12) A crashed/unreadable helper (contract violation: the script is
+# always-exit-0) gets its own breadcrumb, distinct from a ran-and-reported-
+# unverifiable result.
+assert_eq "#304 preconditions_ok distinguishes a crashed helper with its own breadcrumb" "yes" \
+  "$(grep -qF 'exited non-zero (contract violation' "$REVIEW_WF" && echo yes || echo no)"
+# (c13) The three head-SHA-scoped CI queries are pinned by URL literal (the
+# stub is URL-shape-blind, same rationale as c11): dropping ?head_sha= would
+# gate on every run in the repo; a wrong-variable SHA evaluates the wrong
+# commit — both invisible to the stubbed tests.
+assert_eq "#304 actions-runs query is head_sha-scoped" "yes" \
+  "$(grep -qF 'actions/runs?head_sha=$HEAD_SHA' "$LIB/../scripts/derive-review-preconditions.sh" && echo yes || echo no)"
+assert_eq "#304 combined-status query is head-scoped" "yes" \
+  "$(grep -qF 'commits/$HEAD_SHA/status' "$LIB/../scripts/derive-review-preconditions.sh" && echo yes || echo no)"
+assert_eq "#304 check-runs query is head-scoped" "yes" \
+  "$(grep -qF 'commits/$HEAD_SHA/check-runs' "$LIB/../scripts/derive-review-preconditions.sh" && echo yes || echo no)"
+# (c14) A present-but-broken vendored copy retries the in-repo fallback once
+# (existence-vs-sourceability: [ -f ] proves existence, not runnability).
+assert_eq "#304 crashed vendored copy retries the in-repo preconditions script" "yes" \
+  "$(grep -qF 'retrying the preconditions with the in-repo scripts/derive-review-preconditions.sh' "$REVIEW_WF" && echo yes || echo no)"
+# (d) The workflow_run self-trigger guard compares against the workflow's own
+# name (and the on: workflows list must not name it).
+assert_eq "#304 workflow_run route carries the self-trigger guard" "yes" \
+  "$(grep -qF '"$WR_NAME" = "$SELF_WORKFLOW_NAME"' "$REVIEW_WF" && echo yes || echo no)"
+assert_eq "#304 on: workflow_run workflows list does not name this workflow itself" "0" \
+  "$(sed -n '/^  workflow_run:/,/types:/p' "$REVIEW_WF" | grep -c 'Devflow Review (auto-trigger)' || true)"
+# (e) AC8: no hardcoded CI job names anywhere in the gate — the precondition
+# surface (workflow + script) must stay generic for consumer repos.
+assert_eq "#304 no hardcoded CI job name in devflow-review.yml (AC8)" "0" \
+  "$(grep -cF 'lib + python tests' "$REVIEW_WF" || true)"
+assert_eq "#304 no hardcoded CI job name in derive-review-preconditions.sh (AC8)" "0" \
+  "$(grep -cF 'lib + python tests' "$LIB/../scripts/derive-review-preconditions.sh" || true)"
+# (f) base_branch reaches the route from config (never a hardcoded main in the
+# precondition call chain).
+assert_eq "#304 extract resolves base_branch from config for the preconditions" "yes" \
+  "$(grep -qF 'base_branch=$(echo "$CONFIG_JSON" | jq -r' "$REVIEW_WF" && echo yes || echo no)"
+# (g) A missing preconditions helper fails OPEN (an un-vendored consumer repo
+# must keep its reviews) — pin the distinctive breadcrumb.
+assert_eq "#304 missing preconditions helper fails open with the vendor breadcrumb" "yes" \
+  "$(grep -qF 'skipping the review preconditions and proceeding (fail open' "$REVIEW_WF" && echo yes || echo no)"
+# (h) Config keys are extracted with the try/catch adversarial-shape guard.
+assert_eq "#304 require_* config extraction is try/catch-guarded" "2" \
+  "$(grep -cE 'try \.devflow_review\.require_(up_to_date|ci_green) catch null' "$REVIEW_WF" || true)"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "efficiency-trace.jq / efficiency-trace.sh"
