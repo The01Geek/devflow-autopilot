@@ -1,0 +1,354 @@
+{
+  "iter": 5,
+  "started_at": "2026-07-04T21:05:00Z",
+  "fix_commit_sha": "596926de7013590c8ff594316b50001aeeb36d12",
+  "fix_files": [
+    ".github/workflows/devflow-review.yml",
+    "lib/test/run.sh"
+  ],
+  "loop_role": "fix",
+  "checklist": [
+    {
+      "id": "VC-1",
+      "claim": "workflow_runs[].name is the workflow display name matching github.workflow",
+      "verification_mode": "agent",
+      "claim_signature": "data_format_assumption:derive-review-preconditions.sh:actions-runs-name-is-workflow-name",
+      "verdict": "PASS",
+      "evidence": "REST list-workflow-runs .name is the workflow name (display_title is the separate run-title field); matches github.workflow",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-2",
+      "claim": "github-actions is the Actions app slug in check-runs/check_suite payloads",
+      "verification_mode": "agent",
+      "claim_signature": "data_format_assumption:derive-review-preconditions.sh:actions-app-slug-literal",
+      "verdict": "PASS",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-3",
+      "claim": "head_sha is a supported actions/runs filter param",
+      "verification_mode": "agent",
+      "claim_signature": "data_format_assumption:derive-review-preconditions.sh:actions-runs-head-sha-filter",
+      "verdict": "PASS",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-4",
+      "claim": "route step env carries REPO for the new helpers",
+      "verification_mode": "lite",
+      "claim_signature": "dependency_interaction:devflow-review.yml:route-helpers-need-repo-env",
+      "verdict": "PASS",
+      "evidence": "REPO: ${{ github.repository }} present in the route step env (line 182)",
+      "reused_from_iter_prev": false
+    }
+  ],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "present-but-broken vendored preconditions copy permanently shadows the working in-repo fallback (existence-only selection)",
+      "defect_signature": {
+        "file": ".github/workflows/devflow-review.yml",
+        "line_range": [
+          226,
+          242
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "mktemp fallback renders an empty parenthetical in the query-failure warning",
+      "defect_signature": {
+        "file": ".github/workflows/devflow-review.yml",
+        "line_range": [
+          281,
+          284
+        ],
+        "kind": "other"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Important",
+      "description": "two comments still describe the pre-fix finalize-maps-neutral deferral design (stale mirror of the iteration-1 redesign)",
+      "defect_signature": {
+        "file": ".github/workflows/devflow-review.yml",
+        "line_range": [
+          148,
+          227
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "the three head-SHA-scoped CI query URLs are stub-blind and unpinned (dropping ?head_sha= gates on the whole repo)",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          1000,
+          1005
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "missing-status run shape untested; base_branch extraction not execution-tested",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          939,
+          946
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "behind-base deferrals only recover on synchronize/CI-completion/Re-run, not when base advances",
+      "defect_signature": {
+        "file": ".github/workflows/devflow-review.yml",
+        "line_range": [
+          85,
+          89
+        ],
+        "kind": "other"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "P1",
+      "decision": "applied",
+      "commit": "596926de7013590c8ff594316b50001aeeb36d12"
+    },
+    {
+      "finding_id": "P2",
+      "decision": "applied",
+      "commit": "596926de7013590c8ff594316b50001aeeb36d12"
+    },
+    {
+      "finding_id": "P3",
+      "decision": "applied",
+      "commit": "596926de7013590c8ff594316b50001aeeb36d12"
+    },
+    {
+      "finding_id": "P4",
+      "decision": "applied",
+      "commit": "596926de7013590c8ff594316b50001aeeb36d12"
+    },
+    {
+      "finding_id": "P5",
+      "decision": "applied",
+      "commit": "596926de7013590c8ff594316b50001aeeb36d12"
+    },
+    {
+      "finding_id": "P6",
+      "decision": "deferred",
+      "source_file": ".github/workflows/devflow-review.yml",
+      "claim_text": "re-evaluate behind-base deferrals when the base branch advances",
+      "skip_category": "uncategorized",
+      "evidence": "enhancement requiring a push-to-base listener; the existing recovery events (synchronize, CI completion, Re-run) cover the practical cases \u2014 recorded for the wrapping run's follow-up list"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 5,
+    "fix_diff_lines": 43,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "telemetry": {
+    "phase_1": {
+      "calls": 1,
+      "tokens": 101028,
+      "wall_clock_s": 99
+    },
+    "phase_2": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 5
+    },
+    "phase_3": {
+      "calls": 5,
+      "tokens": 466796,
+      "wall_clock_s": 360
+    },
+    "step_2_5": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 10,
+      "webfetches": 0
+    },
+    "phase_4_x": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 10
+    }
+  },
+  "shadow": {
+    "ran_at": "2026-07-04T21:40:00Z",
+    "reviewed_sha": "596926de7013590c8ff594316b50001aeeb36d12",
+    "verdict": "APPROVE WITH UNRESOLVED SHADOW FINDINGS",
+    "coverage": "full",
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {
+        "agent": "devflow:silent-failure-hunter",
+        "severity": "Important",
+        "description": "crashed-helper arm may parse the crashed helper's partial stdout (pre not cleared on the no-retry arm)",
+        "defect_signature": {
+          "file": ".github/workflows/devflow-review.yml",
+          "line_range": [
+            246,
+            262
+          ],
+          "kind": "logic_error"
+        }
+      },
+      {
+        "agent": "devflow:silent-failure-hunter",
+        "severity": "Suggestion",
+        "description": "script gh failure arms discard stderr (debuggability of a permanently-deferring repo)",
+        "defect_signature": {
+          "file": "scripts/derive-review-preconditions.sh",
+          "line_range": [
+            151,
+            225
+          ],
+          "kind": "other"
+        }
+      },
+      {
+        "agent": "devflow:silent-failure-hunter",
+        "severity": "Suggestion",
+        "description": "devflow_review_run_count conflates query failure vs non-numeric count in caller breadcrumbs",
+        "defect_signature": {
+          "file": ".github/workflows/devflow-review.yml",
+          "line_range": [
+            287,
+            298
+          ],
+          "kind": "other"
+        }
+      },
+      {
+        "agent": "devflow:comment-analyzer",
+        "severity": "Suggestion",
+        "description": "concurrency comment overstates the 'one skips' race guarantee",
+        "defect_signature": {
+          "file": ".github/workflows/devflow-review.yml",
+          "line_range": [
+            100,
+            110
+          ],
+          "kind": "comment_drift"
+        }
+      },
+      {
+        "agent": "devflow:pr-test-analyzer",
+        "severity": "Suggestion",
+        "description": "draft/stale-head guards, fail-open direction, run_count jq execution, open-state filter, skill coupling pin, cancelled case \u2014 residual pin/coverage suggestions",
+        "defect_signature": {
+          "file": "lib/test/run.sh",
+          "line_range": [
+            9200,
+            9300
+          ],
+          "kind": "test_gap"
+        }
+      },
+      {
+        "agent": "devflow:requesting-code-review",
+        "severity": "Important",
+        "description": "AC11 zero-registered-CI initial-event deviation (matches the loop's recorded 2.2.6 deviation \u2014 overlap, not new)",
+        "defect_signature": {
+          "file": "scripts/derive-review-preconditions.sh",
+          "line_range": [
+            27,
+            33
+          ],
+          "kind": "race"
+        }
+      },
+      {
+        "agent": "devflow:requesting-code-review",
+        "severity": "Important",
+        "description": "legacy commit-status-only CI defers with no auto-re-trigger event (no on: status listener) \u2014 routine dependence on manual Re-run for that consumer class",
+        "defect_signature": {
+          "file": ".github/workflows/devflow-review.yml",
+          "line_range": [
+            41,
+            91
+          ],
+          "kind": "other"
+        }
+      }
+    ],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 7,
+      "overlap_with_iter_N": 2,
+      "new": 5,
+      "new_critical": 0,
+      "new_important": 2
+    },
+    "promoted_to_iter_next": false
+  }
+}
