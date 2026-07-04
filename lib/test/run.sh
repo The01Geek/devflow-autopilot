@@ -4783,6 +4783,134 @@ assert_eq "lpe: read-only — source file unchanged after run" \
 rm -rf "$LPE_DIR"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "#295: repo-root anchoring — config/extension readers resolve from a subdir"
+# ────────────────────────────────────────────────────────────────────────────
+# Issue #295: the four .devflow/ readers (config-get.sh, load-prompt-extension.sh,
+# workpad.py, match-deferrals.py) anchor the DEFAULT config/extension path to the git
+# repo root (git rev-parse --show-toplevel, cwd fallback) so a skill invoked from a
+# subdirectory loads the consumer's ROOT config/extension instead of silently missing
+# it. Build a real temp git repo with .devflow/ at the root, cd into a nested subdir,
+# and assert each reader resolves the root file. These assertions fail on the pre-#295
+# (cwd-relative) code for the right reason (default/empty/wrong path) — proven live via
+# a git-show-HEAD comparison during implementation.
+R295="$(git_sandbox "#295 root-anchor sandbox")"
+git -C "$R295" init -q
+git -C "$R295" config user.email t@example.com; git -C "$R295" config user.name t
+mkdir -p "$R295/.devflow/prompt-extensions" "$R295/a/b/c"
+printf '{"docs":{"internal":"CUSTOM/DOCS"},"devflow":{"workpad_marker":"<!-- m295 -->","allowed_bots":"botX,botY"}}' > "$R295/.devflow/config.json"
+printf 'EXT-295\n' > "$R295/.devflow/prompt-extensions/implement.md"
+# Derive the expected root from git itself so the path compare is symlink-robust
+# (macOS /tmp → /private/tmp): both the test and the reader use --show-toplevel.
+R295_TOP="$(git -C "$R295" rev-parse --show-toplevel)"
+MD295="$LIB/../scripts/match-deferrals.py"
+
+# AC1: loader from a subdir prints the ROOT extension bytes verbatim.
+assert_eq "#295 AC1: loader from subdir → root extension bytes" "EXT-295" \
+  "$(cd "$R295/a/b/c" && bash "$LPE" implement 2>/dev/null)"
+# AC2: config-get (no explicit config arg) from a subdir → configured value, not default.
+assert_eq "#295 AC2: config-get from subdir → configured value not default" "CUSTOM/DOCS" \
+  "$(cd "$R295/a/b/c" && bash "$CG" .docs.internal FALLBACK)"
+# AC3: workpad.py marker from a subdir → ROOT marker (direct in-process resolution).
+assert_eq "#295 AC3: workpad marker from subdir → root marker" "<!-- m295 -->" \
+  "$(cd "$R295/a/b/c" && python3 -c "import importlib.util as u;s=u.spec_from_file_location('w','$WP_PY');m=u.module_from_spec(s);s.loader.exec_module(m);print(m._workpad_marker())")"
+# AC4: match-deferrals default config path from a subdir → ROOT config (its explicit-arg
+# passing no longer defeats root anchoring).
+assert_eq "#295 AC4: match-deferrals default config from subdir → root config" "$R295_TOP/.devflow/config.json" \
+  "$(cd "$R295/a/b/c" && python3 -c "import importlib.util as u;s=u.spec_from_file_location('md','$MD295');m=u.module_from_spec(s);s.loader.exec_module(m);print(m._default_config_path())")"
+# Lockstep: config-get.sh resolves the SAME root config from the subdir (a value only the
+# root config carries proves it read that file, not a cwd-relative miss).
+assert_eq "#295 lockstep: all readers resolve the identical root config from subdir" "botX,botY" \
+  "$(cd "$R295/a/b/c" && bash "$CG" .devflow.allowed_bots MISS)"
+# AC4 (end-to-end): match-deferrals' _config_get(config_path=None) actually INVOKES
+# _default_config_path() and reads the ROOT config VALUE from a subdir — proving the
+# config_path=None wiring, not just _default_config_path() in isolation (a revert of the
+# None default to a cwd-relative constant would leave the AC4 path-equality green but this
+# value read RED).
+assert_eq "#295 AC4: match-deferrals _config_get(None) reads ROOT allowed_bots from subdir" "botX,botY" \
+  "$(cd "$R295/a/b/c" && python3 -c "import importlib.util as u;s=u.spec_from_file_location('md','$MD295');m=u.module_from_spec(s);s.loader.exec_module(m);print(m._config_get('.devflow.allowed_bots','MISS'))")"
+
+# AC5: cwd == root → byte-identical to the subdir result (no regression on common path).
+assert_eq "#295 AC5: config-get at root byte-identical" "CUSTOM/DOCS" \
+  "$(cd "$R295" && bash "$CG" .docs.internal FALLBACK)"
+assert_eq "#295 AC5: loader at root byte-identical" "EXT-295" \
+  "$(cd "$R295" && bash "$LPE" implement 2>/dev/null)"
+
+# AC8: explicit CONFIG_FILE (3rd arg) honored verbatim from a subdir (root anchoring
+# applies only to the default).
+printf '{"docs":{"internal":"EXPLICIT"}}' > "$R295/explicit.json"
+assert_eq "#295 AC8: explicit CONFIG_FILE 3rd arg honored from subdir" "EXPLICIT" \
+  "$(cd "$R295/a/b/c" && bash "$CG" .docs.internal FALLBACK "$R295/explicit.json")"
+# AC8b: match-deferrals' explicit config_path is honored verbatim over the root default
+# from a subdir — pins the `if config_path is None` guard's NON-None arm. A regression
+# dropping that guard (always calling _default_config_path()) would return the ROOT
+# CUSTOM/DOCS value instead of EXPLICIT and turn this RED while AC4 stayed green.
+assert_eq "#295 AC8b: match-deferrals explicit config_path honored over root default" "EXPLICIT" \
+  "$(cd "$R295/a/b/c" && python3 -c "import importlib.util as u;s=u.spec_from_file_location('md','$MD295');m=u.module_from_spec(s);s.loader.exec_module(m);print(m._config_get('.docs.internal','FALLBACK','$R295/explicit.json'))")"
+# AC8c: an explicit EMPTY 3rd arg still selects the root-anchored default — pins the
+# `[ -n "${3:-}" ]` gate (NOT `$# -ge 3`/`${3:-…}`). A revert of that gate would set
+# config_file="" (an unopenable empty path) and silently drop to FALLBACK; this stays
+# RED on that revert while AC8 (non-empty explicit) stays green.
+assert_eq "#295 AC8c: explicit EMPTY CONFIG_FILE 3rd arg selects root default" "CUSTOM/DOCS" \
+  "$(cd "$R295/a/b/c" && bash "$CG" .docs.internal FALLBACK "")"
+
+# AC6: non-git tree with a .devflow/ at cwd → falls back to pwd and still resolves.
+NG295="$(git_sandbox "#295 non-git .devflow sandbox")"
+mkdir -p "$NG295/.devflow"
+printf '{"docs":{"internal":"NONGIT"}}' > "$NG295/.devflow/config.json"
+assert_eq "#295 AC6: non-git tree, .devflow at cwd → resolves via pwd fallback" "NONGIT" \
+  "$(cd "$NG295" && bash "$CG" .docs.internal FALLBACK)"
+
+# AC7: neither git root nor .devflow/ → a single non-empty stderr breadcrumb, defaults used.
+BARE295="$(git_sandbox "#295 bare tree sandbox")"
+BARE295_ERR="$(cd "$BARE295" && bash "$CG" .docs.internal FALLBACK 2>&1 >/dev/null)"
+assert_eq "#295 AC7: bare tree (no git root, no .devflow) → non-empty stderr breadcrumb" "yes" \
+  "$([ -n "$BARE295_ERR" ] && echo yes || echo no)"
+assert_eq "#295 AC7: bare tree still returns the default value" "FALLBACK" \
+  "$(cd "$BARE295" && bash "$CG" .docs.internal FALLBACK 2>/dev/null)"
+# The loader emits its OWN distinct breadcrumb on the same bare-tree path.
+BARE295_LPE_ERR="$(cd "$BARE295" && bash "$LPE" implement 2>&1 >/dev/null)"
+assert_eq "#295 AC7: loader bare tree → non-empty stderr breadcrumb" "yes" \
+  "$([ -n "$BARE295_LPE_ERR" ] && echo yes || echo no)"
+# AC7 completeness: the two PYTHON readers must ALSO emit a bare-tree breadcrumb (AC7
+# says *each* reader). Pop DEVFLOW_WORKPAD_MARKER so the marker read reaches the config
+# path rather than short-circuiting on an ambient env override.
+BARE295_WP_ERR="$(cd "$BARE295" && python3 -c "import os;os.environ.pop('DEVFLOW_WORKPAD_MARKER',None);import importlib.util as u;s=u.spec_from_file_location('w','$WP_PY');m=u.module_from_spec(s);s.loader.exec_module(m);m._workpad_marker(None)" 2>&1 >/dev/null)"
+assert_eq "#295 AC7: workpad marker bare tree → non-empty stderr breadcrumb" "yes" \
+  "$([ -n "$BARE295_WP_ERR" ] && echo yes || echo no)"
+BARE295_MD_ERR="$(cd "$BARE295" && python3 -c "import importlib.util as u;s=u.spec_from_file_location('md','$MD295');m=u.module_from_spec(s);s.loader.exec_module(m);m._default_config_path()" 2>&1 >/dev/null)"
+assert_eq "#295 AC7: match-deferrals bare tree → non-empty stderr breadcrumb" "yes" \
+  "$([ -n "$BARE295_MD_ERR" ] && echo yes || echo no)"
+
+# AC10: git-root-with-NO-.devflow/ (the normal unconfigured in-git case) → each reader
+# stays SILENT and returns the default. This is the exact NEGATIVE of the AC7 bare-tree
+# breadcrumb: every reader emits its breadcrumb ONLY when NEITHER a git root NOR a
+# .devflow/ is found, so a regression moving the .devflow-existence check OUTSIDE the
+# `if [ -z "$_devflow_root" ]` guard would spam stderr on every normal unconfigured
+# in-git run (the overwhelmingly common case) with no other assertion going RED.
+SIL295="$(git_sandbox "#295 git-root no-.devflow silence sandbox")"
+git -C "$SIL295" init -q
+git -C "$SIL295" config user.email t@example.com; git -C "$SIL295" config user.name t
+mkdir -p "$SIL295/a/b/c"   # a real git root, deliberately NO .devflow/ anywhere
+# config-get: default value returned AND empty stderr (git root found → .devflow check
+# is skipped → no breadcrumb).
+assert_eq "#295 AC10: config-get git-root-no-.devflow returns the default" "FALLBACK" \
+  "$(cd "$SIL295/a/b/c" && bash "$CG" .docs.internal FALLBACK 2>/dev/null)"
+assert_eq "#295 AC10: config-get git-root-no-.devflow stays SILENT (empty stderr)" "" \
+  "$(cd "$SIL295/a/b/c" && bash "$CG" .docs.internal FALLBACK 2>&1 >/dev/null)"
+# loader: no-op (prints nothing) AND empty stderr.
+assert_eq "#295 AC10: loader git-root-no-.devflow stays SILENT (empty stderr)" "" \
+  "$(cd "$SIL295/a/b/c" && bash "$LPE" implement 2>&1 >/dev/null)"
+# workpad marker: default marker AND empty stderr (pop the env override so the read
+# reaches the config path).
+assert_eq "#295 AC10: workpad marker git-root-no-.devflow stays SILENT (empty stderr)" "" \
+  "$(cd "$SIL295/a/b/c" && python3 -c "import os;os.environ.pop('DEVFLOW_WORKPAD_MARKER',None);import importlib.util as u;s=u.spec_from_file_location('w','$WP_PY');m=u.module_from_spec(s);s.loader.exec_module(m);m._workpad_marker(None)" 2>&1 >/dev/null)"
+# match-deferrals default path: resolves the git-root .devflow/config.json AND empty stderr.
+assert_eq "#295 AC10: match-deferrals git-root-no-.devflow stays SILENT (empty stderr)" "" \
+  "$(cd "$SIL295/a/b/c" && python3 -c "import importlib.util as u;s=u.spec_from_file_location('md','$MD295');m=u.module_from_spec(s);s.loader.exec_module(m);m._default_config_path()" 2>&1 >/dev/null)"
+
+rm -rf "$R295" "$NG295" "$BARE295" "$SIL295"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "load-prompt-extension.sh: every skills/*/SKILL.md carries the standardized step"
 # ────────────────────────────────────────────────────────────────────────────
 # Coverage / drift guard (issue #84, AC 6 + AC 7). The standardized step spans
@@ -12018,15 +12146,15 @@ assert_pin_unique "#183 docs-release-notes SKILL resolves changelog_file via con
 # The consumer (docs-release-notes Step 4b) uses this exact prefix ONLY to confirm a version
 # bump happened — it then selects the CHANGELOG section by the `## [version]` heading whose
 # version is read from the manifest, never from the commit subject. Since #290 the PRODUCER of
-# that subject is the merge-time consolidation Action (ci/version-consolidate.yml, installed to
-# → scripts/consolidate-changesets.py), not an in-PR bump; the implement prompt-extension still
-# documents the contract so the two stay lockstepped. If any of them renames the prefix without
+# that subject is the merge-time consolidation Action (.github/workflows/version-consolidate.yml,
+# wired to scripts/consolidate-changesets.py), not an in-PR bump; the implement prompt-extension
+# still documents the contract so the two stay lockstepped. If any of them renames the prefix without
 # the others, Step 4b sees no bump and silently no-ops the reconciliation it exists to perform
 # (the fail-open the PR #187 review flagged). Pin the literal across producer + consumer + doc.
 assert_pin_unique "#187 docs-release-notes Step 4b matches the chore: bump version prefix" \
   'message begins with `chore: bump version`' "$FDROOT/skills/docs-release-notes/SKILL.md"
 assert_pin_unique "#290 version-consolidate workflow emits the chore: bump version subject (producer)" \
-  'chore: bump version (consolidate changesets)' "$FDROOT/ci/version-consolidate.yml"
+  'chore: bump version (consolidate changesets)' "$FDROOT/.github/workflows/version-consolidate.yml"
 assert_pin_unique "#290 implement prompt-extension documents the chore: bump version contract" \
   'begins with the literal `chore: bump version`' "$FDROOT/.devflow/prompt-extensions/implement.md"
 
@@ -12236,17 +12364,18 @@ assert_eq "#290 idempotent rerun: CHANGELOG unchanged" "$CS_CL1" "$(cat "$CSD/CH
 rm -rf "$CSD"
 
 # Coupled invariant: the merge-time workflow wires the consolidator and pushes on main. The
-# YAML ships at ci/version-consolidate.yml (a maintainer installs it into .github/workflows/
-# with `git mv` — the DevFlow bot token cannot push under .github/workflows/ without the
-# `workflows` permission); it is content-pinned here regardless of install location.
-CS_WF="$FDROOT/ci/version-consolidate.yml"
-assert_eq "#290 version-consolidate workflow template exists (ci/)" "yes" "$([ -f "$CS_WF" ] && echo yes || echo no)"
+# YAML lives at .github/workflows/version-consolidate.yml; it is content-pinned here regardless
+# of its path.
+CS_WF="$FDROOT/.github/workflows/version-consolidate.yml"
+assert_eq "#290 version-consolidate workflow exists (.github/workflows/)" "yes" "$([ -f "$CS_WF" ] && echo yes || echo no)"
 assert_pin_unique "#290 workflow triggers on push to main" \
   'branches: [main]' "$CS_WF"
 assert_pin_unique "#290 workflow runs the consolidator by path" \
   'python3 scripts/consolidate-changesets.py' "$CS_WF"
+# Anchor on the 2-space-indented workflow-permissions line so this stays unique after the
+# app-token step added `permission-contents: write` (which also contains `contents: write`).
 assert_pin_unique "#290 workflow grants contents: write for the bump push" \
-  'contents: write' "$CS_WF"
+  '  contents: write' "$CS_WF"
 # Self-trigger loop guard: the job skips its own `chore: bump version` head commit.
 assert_pin_unique "#290 workflow guards against its own bump commit re-triggering (no loop)" \
   "startsWith(github.event.head_commit.message, 'chore: bump version')" "$CS_WF"
@@ -14678,18 +14807,79 @@ assert_pin_unique "#284 AC3: retrospective-weekly wrapper precheck is execution-
   '[ ! -x "$LIB/../scripts/run-jq.sh" ]' "$RW_SKILL"
 assert_eq "#284 AC3: retrospective-weekly no longer uses the existence-only [ ! -e ] precheck" "no" \
   "$(grep -qF '[ ! -e "$LIB/../scripts/run-jq.sh" ]' "$RW_SKILL" && echo yes || echo no)"  # raw-guard-ok: absence pin: the existence-only precheck is GONE (expected no)
-# AC6: the shared cwd-relative config contract is documented in BOTH readers and both resolve
-# `.devflow/config.json` relative to cwd (no git-root discovery). A drift where one reader
-# moved to git-root while the other stayed cwd-relative would make a subdir-invoked run's
-# config resolution inconsistent — pin the shared contract phrase + the cwd-relative read in each.
-assert_eq "#284 AC6: config-get.sh documents the shared cwd-relative config contract" "yes" \
-  "$(grep -qF 'SHARED CWD-RELATIVE CONFIG CONTRACT' "$CG" && echo yes || echo no)"  # raw-guard-ok: presence pin: shared-contract doc in config-get.sh
-assert_eq "#284 AC6: workpad.py documents the shared cwd-relative config contract" "yes" \
-  "$(grep -qF 'SHARED CWD-RELATIVE CONFIG CONTRACT' "$WP_PY" && echo yes || echo no)"  # raw-guard-ok: presence pin: shared-contract doc in workpad.py
-assert_eq "#284 AC6: config-get.sh default config path is cwd-relative .devflow/config.json" "yes" \
-  "$(grep -qF 'config_file="${3:-.devflow/config.json}"' "$CG" && echo yes || echo no)"  # raw-guard-ok: presence pin: cwd-relative default in config-get.sh
-assert_eq "#284 AC6: workpad.py reads cwd-relative .devflow/config.json" "yes" \
-  "$(grep -qF "Path('.devflow/config.json')" "$WP_PY" && echo yes || echo no)"  # raw-guard-ok: presence pin: cwd-relative read in workpad.py
+# AC6 (reconciled by #295): the shared config contract is now REPO-ROOT anchored, not
+# cwd-relative — both readers resolve the DEFAULT `.devflow/config.json` via git-root
+# discovery (git rev-parse --show-toplevel, cwd fallback), mirroring config-source.sh. A
+# drift where one reader moved to git-root while the other stayed cwd-relative would make a
+# subdir-invoked run's config resolution inconsistent — pin the shared contract phrase +
+# the git-root anchoring in each, and assert the OLD cwd-relative literals are GONE.
+assert_eq "#295 AC9: config-get.sh documents the shared REPO-ROOT config contract" "yes" \
+  "$(grep -qF 'SHARED REPO-ROOT CONFIG CONTRACT' "$CG" && echo yes || echo no)"  # raw-guard-ok: presence pin: shared-contract doc in config-get.sh
+assert_eq "#295 AC9: workpad.py documents the shared REPO-ROOT config contract" "yes" \
+  "$(grep -qF 'SHARED REPO-ROOT CONFIG CONTRACT' "$WP_PY" && echo yes || echo no)"  # raw-guard-ok: presence pin: shared-contract doc in workpad.py
+assert_eq "#295 AC9: config-get.sh anchors the default config path to the git repo root" "yes" \
+  "$(grep -qF 'git rev-parse --show-toplevel' "$CG" && echo yes || echo no)"  # raw-guard-ok: presence pin: git-root anchoring in config-get.sh
+assert_eq "#295 AC9: workpad.py anchors its marker read to the git repo root" "yes" \
+  "$(grep -qF '_repo_root()' "$WP_PY" && echo yes || echo no)"  # raw-guard-ok: presence pin: git-root anchoring in workpad.py
+assert_eq "#295 AC9: config-get.sh no longer carries the cwd-relative default literal" "no" \
+  "$(grep -qF 'config_file="${3:-.devflow/config.json}"' "$CG" && echo yes || echo no)"  # raw-guard-ok: absence pin: old cwd-relative default is GONE (expected no)
+assert_eq "#295 AC9: workpad.py no longer reads the bare cwd-relative .devflow/config.json" "no" \
+  "$(grep -qF "config_file = Path('.devflow/config.json')" "$WP_PY" && echo yes || echo no)"  # raw-guard-ok: absence pin: old cwd-relative read is GONE (expected no)
+
+# ── #289 wiring: the gate job's early-workpad step deterministically refreshes
+# the workpad Run: link to THIS run whenever a workpad already exists (resume /
+# retry), and the Phase 3.1 draft-PR body links back to the run that created it.
+# Static source pins over the two non-runtime-testable files (workflow YAML +
+# skill prose), mirroring the #268 wiring block's assert_pin_unique convention.
+WF289="$REPO_ROOT/.github/workflows/devflow-implement.yml"
+# Extract ONLY the "workpad already exists" branch of the early-workpad step —
+# from the `id "$NUMBER"` guard up to (not including) the fresh-create branch,
+# which starts at `BODY=` (`mktemp`) and legitimately calls `create`, so it must
+# be excluded from the pins. Bound on `BODY=` rather than a closing `fi`: the
+# branch itself now contains a NESTED `if ! … update …; then … fi`, so an fi-based
+# boundary would truncate the region at that inner fi and make the absence pin
+# below vacuous (a `create` added after it would go unseen).
+AE_REGION289="$(awk '/if python3 "\$WP" id "\$NUMBER"/{f=1} f && /BODY=/{exit} f{print}' "$WF289")"
+assert_eq "#289: gate already-exists branch extracted (non-empty)" "yes" \
+  "$([ -n "$AE_REGION289" ] && echo yes || echo no)"
+# AC7: the already-exists branch refreshes the Run: link via workpad.py update --run-link.
+assert_eq "#289 AC7: gate already-exists branch refreshes Run link via workpad.py update --run-link" "1" \
+  "$(printf '%s\n' "$AE_REGION289" | grep -cF 'update "$NUMBER" --run-link "[View run]($RUN_URL)"' || true)"  # raw-guard-ok: region-scoped presence count
+# AC8: that same branch NEVER calls `create` — a resumed run must not post a 2nd workpad.
+assert_eq "#289 AC8: gate already-exists branch never calls workpad.py create (no duplicate workpad)" "0" \
+  "$(printf '%s\n' "$AE_REGION289" | grep -cF '"$WP" create' || true)"  # raw-guard-ok: region-scoped absence count
+# AC5 (best-effort warn + exit 0): the already-exists branch's Run-link refresh must stay
+# best-effort — a specific ::warning:: breadcrumb on failure, then exit 0 (behavioral-fix pin:
+# operative sentence is that breadcrumb; dropping the `if !` warn-then-continue wrapper — so a
+# failed update aborts under set -euo pipefail — would also drop this breadcrumb, which no other
+# pin covers; continue-on-error backstops the job but the operator loses the failure signal).
+assert_eq "#289 AC5: gate already-exists branch emits the best-effort Run-link-refresh ::warning:: breadcrumb on failure" "1" \
+  "$(printf '%s\n' "$AE_REGION289" | grep -cF '::warning::early workpad Run-link refresh failed' || true)"  # raw-guard-ok: region-scoped presence count
+# AC7 removal-proof: the refresh line appears exactly once in the whole workflow
+# (behavioral-fix pin — its operative sentence is the update --run-link call; the
+# `new-body … --run-link` line in the fresh branch is NOT matched by `update "$NUMBER"`).
+assert_pin_unique "#289 AC7: the Run-link refresh update line is present exactly once (removal-proof)" \
+  'update "$NUMBER" --run-link "[View run]($RUN_URL)"' "$WF289"
+# AC9: the Phase 3.1 draft-PR heredoc carries a [View run]($RUN_URL) line positioned
+# AFTER Resolves #{issue_number} (behavioral-fix pin: operative sentence is that line).
+P3289="$REPO_ROOT/skills/implement/phases/phase-3-review.md"
+assert_pin_unique "#289 AC9: phase-3-review.md draft-PR body carries the [View run](\$RUN_URL) literal (removal-proof)" \
+  '[View run]($RUN_URL)' "$P3289"
+RESOLVES_LN289="$(grep -nF 'Resolves #{issue_number}' "$P3289" | head -1 | cut -d: -f1)"   # raw-guard-ok: line-number lookup for the positional pin
+VIEWRUN_LN289="$(grep -nF '[View run]($RUN_URL)' "$P3289" | head -1 | cut -d: -f1)"        # raw-guard-ok: line-number lookup for the positional pin
+assert_eq "#289 AC9: [View run](\$RUN_URL) is positioned after Resolves #{issue_number} in the draft-PR heredoc" "yes" \
+  "$([ -n "$RESOLVES_LN289" ] && [ -n "$VIEWRUN_LN289" ] && [ "$VIEWRUN_LN289" -gt "$RESOLVES_LN289" ] && echo yes || echo no)"
+# AC6 (local-tier omission): the strip line that drops the broken [View run]() line when
+# RUN_URL is empty (behavioral-fix pin — its operative sentence is that strip; removing it
+# reintroduces a broken link on every local-tier draft PR, which AC9's presence pin would NOT
+# catch since it only asserts the line is present after Resolves).
+assert_pin_unique "#289 AC6: phase-3-review.md strips the broken [View run]() line on a local-tier run (empty RUN_URL)" \
+  "grep -vF '[View run]()'" "$P3289"
+# AC9 (heredoc expansion): the draft-PR heredoc must stay unquoted (<<EOF) so \$RUN_URL
+# expands — a revert to <<'EOF' would emit the literal string "\$RUN_URL" into the PR body,
+# which the [View run](\$RUN_URL) presence pin above matches identically and so cannot catch.
+assert_pin_unique "#289 AC9: draft-PR heredoc is unquoted (<<EOF) so \$RUN_URL expands, not emitted literally" \
+  'BODY=$(cat <<EOF' "$P3289"
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.

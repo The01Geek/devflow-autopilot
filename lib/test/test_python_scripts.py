@@ -328,6 +328,36 @@ finally:
         _os.environ['DEVFLOW_WORKPAD_MARKER'] = _saved_275_env
 
 
+# #295: repo-root anchoring — the marker resolves from the ROOT config.json when
+# workpad.py is invoked from a nested SUBDIRECTORY of a git repo. The #275 block above
+# poisons _run and only exercises the cwd-FALLBACK path (non-git temp dirs); this test
+# uses the REAL _run (a live `git rev-parse --show-toplevel` subprocess) to exercise the
+# new git-ROOT discovery path directly — the case the reported bug (config silently lost
+# from a subdir) actually hit. Asserts the returned VALUE, so it is symlink-robust
+# (macOS /tmp → /private/tmp) without comparing resolved paths.
+import subprocess as _sp295  # noqa: E402
+_orig_cwd_295 = _os.getcwd()
+_saved_295_env = _os.environ.pop('DEVFLOW_WORKPAD_MARKER', None)
+try:
+    with _tempfile.TemporaryDirectory() as _rd295:
+        _sp295.run(['git', 'init', '-q', _rd295], check=True)
+        _sp295.run(['git', '-C', _rd295, 'config', 'user.email', 't@example.com'], check=True)
+        _sp295.run(['git', '-C', _rd295, 'config', 'user.name', 't'], check=True)
+        _os.makedirs(_os.path.join(_rd295, '.devflow'))
+        _os.makedirs(_os.path.join(_rd295, 'a', 'b', 'c'))
+        with open(_os.path.join(_rd295, '.devflow', 'config.json'), 'w',
+                  encoding='utf-8') as _f:
+            _f.write('{"devflow": {"workpad_marker": "<!-- root:295 -->"}}')
+        _os.chdir(_os.path.join(_rd295, 'a', 'b', 'c'))
+        assert_eq("marker (#295): resolves the ROOT config marker from a nested subdir",
+                  '<!-- root:295 -->', workpad._workpad_marker(None))
+        _os.chdir(_orig_cwd_295)
+finally:
+    _os.chdir(_orig_cwd_295)
+    if _saved_295_env is not None:
+        _os.environ['DEVFLOW_WORKPAD_MARKER'] = _saved_295_env
+
+
 print("workpad.cmd_id exit-code contract (issue #55 live-comment seeding)")
 
 # The /devflow:review live-comment seeding branches on `workpad.py id`'s exit code

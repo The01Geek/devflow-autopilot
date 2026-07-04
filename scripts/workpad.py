@@ -10,9 +10,11 @@ This script gives the orchestrator a stateless CLI that re-derives everything
 from arguments + live GitHub state on each call.
 
 All subcommands shell out to `gh` for GitHub API access (same auth path as
-the rest of devflow). The workpad marker is read from
+the rest of devflow). The workpad marker is read from the repo-root
 `.devflow/config.json` directly in-process (issue #275: no `.sh` exec, so it
-works on Windows), falling back to the built-in default
+works on Windows), anchored to the git repo root via a native `git rev-parse`
+subprocess (issue #295: falling back to cwd) so a subdirectory invocation still
+reads the consumer's root config, falling back to the built-in default
 `<!-- devflow:workpad -->` when the config file or key is absent (so it works
 with no config).
 
@@ -100,6 +102,44 @@ def _fail(prefix, exc, code=1):
     sys.exit(code)
 
 
+def _repo_root():
+    # Resolve the git repo root so config reads anchor there, not to cwd (issue
+    # #295) — the Python mirror of lib/config-source.sh's
+    # `git rev-parse --show-toplevel 2>/dev/null || pwd`. A native `git` subprocess
+    # (like the existing `gh` calls) is Windows-safe — unlike exec-ing a .sh
+    # ([WinError 193], issue #275). Returns the root string, or None when not in a
+    # git tree (git rev-parse rc!=0) or git cannot run at all (OSError) — the caller
+    # then falls back to Path.cwd(), degrading exactly as the pre-#295 code did.
+    try:
+        r = _run(['git', 'rev-parse', '--show-toplevel'])
+    except (subprocess.CalledProcessError, OSError):
+        return None
+    root = r.stdout.strip()
+    return root or None
+
+
+def _git_root_error_suffix():
+    # Best-effort: capture git's own stderr for the no-root breadcrumb so the real
+    # cause (safe.directory refusal, or git absent → OSError) surfaces instead of being
+    # discarded. Returns a " (git: …)" suffix, or "" when git succeeded or printed
+    # nothing to stderr. Gates on a NON-ZERO rc (mirroring the match-deferrals sibling)
+    # so a git that succeeds on this second call but printed a benign advisory to stderr
+    # is not misattributed as the failure cause. Catches broadly (not just OSError) so a
+    # non-UTF-8 decode or any other subprocess error cannot make the breadcrumb path
+    # itself raise — it truly never raises.
+    try:
+        r = subprocess.run(
+            ['git', 'rev-parse', '--show-toplevel'],
+            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, encoding='utf-8',
+        )
+        err = (r.stderr or '').strip() if r.returncode != 0 else ''
+    except OSError as e:
+        err = str(e)
+    except Exception:  # noqa: BLE001 — breadcrumb path must never raise
+        err = ''
+    return f" (git: {err})" if err else ""
+
+
 def _repo_full(api_fail_code=1):
     try:
         r = _run([GH, 'repo', 'view', '--json', 'nameWithOwner',
@@ -131,14 +171,35 @@ def _workpad_marker(explicit=None):
     # config-get.sh subprocess hop silently dropped a configured custom marker
     # back to the built-in default there.
     #
-    # SHARED CWD-RELATIVE CONFIG CONTRACT: this resolver and scripts/config-get.sh
-    # both read `.devflow/config.json` relative to the current working directory
-    # (the repo root in normal use) — NOT via git-root discovery. Keep the two in
-    # lockstep: a run invoked from a repo subdirectory resolves config the same way
-    # for both readers (both miss a subdir-invoked custom config identically, rather
-    # than one silently disagreeing with the other). An absent file is the normal
-    # unconfigured case — silent fallback so the local tier works with no config at all.
-    config_file = Path('.devflow/config.json')
+    # SHARED REPO-ROOT CONFIG CONTRACT (issue #295, supersedes the #275 cwd-relative
+    # contract): this resolver and scripts/config-get.sh both anchor the DEFAULT
+    # `.devflow/config.json` to the git repo root (git rev-parse --show-toplevel,
+    # falling back to cwd) — NOT relative to the current working directory — so a run
+    # invoked from a repo subdirectory reads the consumer's ROOT config, mirroring
+    # lib/config-source.sh. Keep the two readers in lockstep: they resolve the same
+    # file for the same cwd. An absent file is the normal unconfigured case — silent
+    # fallback so the local tier works with no config at all. (Limitation:
+    # --show-toplevel returns the NEAREST git root, so a nested submodule/inner repo
+    # or a monorepo whose .devflow/ is not at the git root is not covered.)
+    _root = _repo_root()
+    if _root is not None:
+        config_file = Path(_root) / '.devflow' / 'config.json'
+    else:
+        cwd = Path.cwd()
+        config_file = cwd / '.devflow' / 'config.json'
+        # Breadcrumb only when NEITHER a git root NOR a .devflow/ dir can be located —
+        # the silent-drop class this fix closes. A git root with no .devflow/ is the
+        # normal unconfigured case and stays silent (handled by FileNotFoundError below).
+        # git can exit non-zero while genuinely INSIDE a repo (safe.directory /
+        # dubious-ownership), or be absent — not only "outside a git tree" — so don't
+        # assert "not in a git repo"; report the root could not be resolved and surface
+        # git's own stderr (re-run on this rare path only).
+        if not (cwd / '.devflow').is_dir():
+            sys.stderr.write(
+                f"workpad.py: could not resolve a git repo root"
+                f"{_git_root_error_suffix()} and no .devflow/ at {str(cwd)!r}; "
+                f"falling back to default marker\n"
+            )
     try:
         with config_file.open(encoding='utf-8') as f:
             data = json.load(f)

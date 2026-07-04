@@ -265,10 +265,22 @@ jobs:
             echo "::warning::workpad.py not vendored at $WP; skipping early workpad (the claude job will create it)." >&2
             exit 0
           fi
-          # Skip if a workpad already exists (re-trigger / earlier run) so the
-          # claude job resumes it instead of getting a duplicate.
+          # Skip CREATE if a workpad already exists (re-trigger / earlier run, incl.
+          # a stall-backstop auto-resume) so the claude job resumes it instead of
+          # getting a duplicate — but first deterministically refresh its Run: link
+          # to THIS run. Without this the link keeps pointing at the ORIGINAL run,
+          # so an operator watching a stalled/retried run can't click through to the
+          # currently-active job's logs. This write happens at the workflow (gate)
+          # level, so it lands regardless of whether the subsequent claude job goes
+          # on to execute Phase 1.3 — it is not conditioned on the duplicate-run
+          # outcome beyond this step's own existing if: gate. Best-effort, mirroring
+          # the create-failure path below: warn on failure and exit 0 regardless, so
+          # a workpad-update hiccup never fails the gate job or blocks the run.
           if python3 "$WP" id "$NUMBER" >/dev/null 2>&1; then
-            echo "Workpad already exists for #$NUMBER — leaving it for the claude job to resume."
+            if ! python3 "$WP" update "$NUMBER" --run-link "[View run]($RUN_URL)"; then
+              echo "::warning::early workpad Run-link refresh failed for #$NUMBER; the claude job will refresh it in Phase 1.3 instead." >&2
+            fi
+            echo "Workpad already exists for #$NUMBER — refreshed Run link to this run; leaving the rest for the claude job to resume."
             exit 0
           fi
           BODY="$(mktemp)"

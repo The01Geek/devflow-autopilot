@@ -8,17 +8,33 @@ Output: `Phase 3/4: Review & Fix — creating PR and running review...`
 
 Re-derive the base branch and open the draft PR against it **in one bash block**. Each phase's bash block runs as a **separate** shell, so the `$BASE` resolved in Phase 1.4 is **not** in scope here — re-read it (behaviorally identical to Phase 1.4: the `config-get.sh` read plus the fail-closed empty-read fallback to `main`) so `gh pr create` targets the **configured** `base_branch` rather than the repo default branch. Keep the re-derivation and `gh pr create` in the **same** block so `$BASE` cannot be lost to a shell boundary between them (an empty `--base ""` would mistarget silently — the very failure this fix prevents). Pass the re-derived base as the `--base` flag; do **not** pass `--head` — Phase 3.1 runs on the checked-out feature branch, so `gh pr create` defaults `--head` to it correctly:
 
+Derive the run link exactly the way Phase 1.3 §1.3 does — the same
+`$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID` form — so the draft PR
+links back to the run that created it, letting a reviewer trace it to its originating job's
+logs. On a **local-tier** run there is no GitHub Actions run, so `$RUN_URL` is empty and the
+`View run` line is omitted entirely rather than rendering a broken `[View run]()` link. The
+heredoc uses an **unquoted** `<<EOF` so `$RUN_URL` expands (the `/devflow:implement` backticks
+are backslash-escaped so they stay literal, not command substitution):
+
 ```bash
 BASE=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .base_branch main) || BASE=""
 [ -n "$BASE" ] || { echo "devflow: base_branch read failed (malformed config or missing python3); falling back to 'main'" >&2; BASE=main; }
-gh pr create --base "$BASE" --draft --title "{issue title}" --body "$(cat <<'EOF'
+# Empty on a local-tier run (no GITHUB_RUN_ID) → the View-run line is stripped below.
+RUN_URL=""
+[ -n "$GITHUB_RUN_ID" ] && RUN_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+BODY=$(cat <<EOF
 Work in progress — automated review pending.
 
 Resolves #{issue_number}
+[View run]($RUN_URL)
 
-Generated via `/devflow:implement $ARGUMENTS`
+Generated via \`/devflow:implement $ARGUMENTS\`
 EOF
-)"
+)
+# Local-tier run has no run URL: drop the broken "[View run]()" line rather than
+# leaving a placeholder link in the PR body.
+[ -n "$RUN_URL" ] || BODY=$(printf '%s\n' "$BODY" | grep -vF '[View run]()')
+gh pr create --base "$BASE" --draft --title "{issue title}" --body "$BODY"
 ```
 
 Then populate the workpad's `PR` link from the freshly-created draft PR:

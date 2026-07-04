@@ -6,14 +6,11 @@ name: Version consolidate
 # consolidates every pending changeset into ONE version bump + CHANGELOG entry and commits it
 # back to main with a `chore: bump version` subject.
 #
-# INSTALLATION (one-time, maintainer with `workflows` permission): move this file into the
-# live workflows directory so GitHub runs it —
-#     git mv ci/version-consolidate.yml .github/workflows/version-consolidate.yml
-# It is shipped here (outside `.github/workflows/`) because the DevFlow bot's installation
-# token cannot push a file under `.github/workflows/` without the `workflows` permission; the
-# YAML is nonetheless authored, reviewed, and content-pinned by lib/test/run.sh in this PR.
-# Branch protection on `main` (the required `lib + python tests` check) must also permit the
-# job's write-scoped bump commit.
+# This job commits a version bump back to main, so branch protection on `main` (the required
+# `lib + python tests` check) must permit its write-scoped bump commit. Editing any file under
+# `.github/workflows/` needs a `workflows`-scoped push — the DevFlow bot's installation token
+# lacks it, so workflow changes land via a human/PAT, not an agent run. Content-pinned by
+# lib/test/run.sh.
 on:
   push:
     branches: [main]
@@ -40,10 +37,29 @@ jobs:
     # below; this `if` just avoids even booting the runner for the bump commit's own push.)
     if: "${{ !startsWith(github.event.head_commit.message, 'chore: bump version') }}"
     steps:
+      # Mint a DevFlow App installation token to push the bump commit. The default
+      # GITHUB_TOKEN cannot bypass main's required-checks ruleset (GitHub rejects the
+      # first-party github-actions app as a bypass actor — "must be part of the ruleset
+      # source or owner organization"), so a direct `git push origin HEAD:main` with it is
+      # declined (GH013). The DevFlow App IS a valid org integration and is added to the
+      # ruleset's bypass list, so its token's push is exempt. Same app-id/private-key pair
+      # the other DevFlow cloud workflows mint from. (#294 post-merge follow-up.)
+      - name: Mint DevFlow App token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ vars.DEVFLOW_APP_ID }}
+          private-key: ${{ secrets.DEVFLOW_APP_PRIVATE_KEY }}
+          permission-contents: write
+
       - uses: actions/checkout@v6
         with:
           # Fetch enough history that the commit lands on a real main tip.
           fetch-depth: 0
+          # Persist the App token as the git remote credential so the consolidate step's
+          # `git push origin HEAD:main` authenticates as the DevFlow App (the bypass actor),
+          # not the default GITHUB_TOKEN.
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Set up Python
         uses: actions/setup-python@v6
