@@ -12145,8 +12145,10 @@ assert_pin_unique "#290 workflow triggers on push to main" \
   'branches: [main]' "$CS_WF"
 assert_pin_unique "#290 workflow runs the consolidator by path" \
   'python3 scripts/consolidate-changesets.py' "$CS_WF"
+# Anchor on the 2-space-indented workflow-permissions line so this stays unique after the
+# app-token step added `permission-contents: write` (which also contains `contents: write`).
 assert_pin_unique "#290 workflow grants contents: write for the bump push" \
-  'contents: write' "$CS_WF"
+  '  contents: write' "$CS_WF"
 # Self-trigger loop guard: the job skips its own `chore: bump version` head commit.
 assert_pin_unique "#290 workflow guards against its own bump commit re-triggering (no loop)" \
   "startsWith(github.event.head_commit.message, 'chore: bump version')" "$CS_WF"
