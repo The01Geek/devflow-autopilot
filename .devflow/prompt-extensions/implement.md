@@ -8,37 +8,60 @@ opt-in, and it is the **operative** repo policy (edit this file to change it).
 
 ## Versioning policy
 
-**When to bump.** Bump `.claude-plugin/plugin.json`'s `version` only for changes that
+DevFlow versions itself with **changesets**, not an in-PR version bump. Each PR that reaches
+consumers declares its change in a uniquely-named `.changeset/*.md` file and never edits
+`.claude-plugin/plugin.json` or `CHANGELOG.md`; a merge-time GitHub Action (shipped at
+`ci/version-consolidate.yml`, installed by a maintainer into `.github/workflows/`; runs
+`scripts/consolidate-changesets.py`) consolidates all pending changesets into a single version
+bump + CHANGELOG entry on `main`.
+Because each changeset file has a unique name, two concurrent PRs never touch a shared line,
+so the version/CHANGELOG merge conflicts that used to tax every concurrent PR are gone. Full
+format reference: [`.changeset/README.md`](../../.changeset/README.md).
+
+**When to add a changeset.** Add exactly one `.changeset/*.md` file only for changes that
 reach consumer repos as an update — a fix, feature, or breaking change to the engine
 surface (`skills/`, `agents/`, `lib/`, `scripts/`, the workflows, the config schema).
-Internal-only changes (tests, CI, dev-only docs) do **not** bump.
+Internal-only changes (tests, CI, dev-only docs) add **no** changeset.
 
-**Which increment — default to `patch`.** Use the smallest step. Choose `minor`
-(backward-compatible feature) or `major` (breaking change) **only when this issue's body
-explicitly authorizes the larger step** — e.g. an acceptance criterion naming the target
-version or the SemVer increment. When the issue is silent on the increment, choose
-`patch`. Never infer a larger bump from the change's size or "feature-ness" on your own.
+**Which bump — default to `patch`.** The changeset frontmatter carries a `bump:` key of
+`patch`, `minor`, or `major`. Use the smallest step. Choose `minor` (backward-compatible
+feature) or `major` (breaking change) **only when this issue's body explicitly authorizes
+the larger step** — e.g. an acceptance criterion naming the target version or the SemVer
+increment. When the issue is silent on the increment, choose `patch`. Never infer a larger
+bump from the change's size or "feature-ness" on your own.
 
-**CHANGELOG is mandatory with any bump.** Whenever you bump the version, add the matching
-`## [x.y.z]` entry to `CHANGELOG.md` in the same change (Keep-a-Changelog format, dated,
-citing the PR number). The Phase 3 review gate FAILs on a version↔`CHANGELOG` mismatch.
+**Do not edit `plugin.json` or `CHANGELOG.md` directly.** The changeset *is* your changelog
+prose (Keep-a-Changelog wording in the body, PR-cited). The merge-time Action bumps
+`.claude-plugin/plugin.json` by the **highest** pending `bump:` and assembles the dated
+`## [x.y.z]` `CHANGELOG.md` entry from every pending changeset's prose. The Phase 3 review
+gate FAILs on an engine-surface change that carries **no** changeset file (the changeset
+replaces the old version↔`CHANGELOG` presence check).
 
-**When to apply it.** Decide the increment once the committed diff is concrete (record the
-decision in the workpad so it survives context compaction), then apply the bump +
-`CHANGELOG` entry **after the draft PR exists but before the review pass** — so the entry
-can cite the PR number and the version + `CHANGELOG` land inside the diff that `/simplify`
-and `/devflow:review-and-fix` review. The Phase 4.3 clean-tree backstop is the final guard
-that the bump never ends up uncommitted.
+**When to write it.** Decide the increment once the committed diff is concrete (record the
+decision in the workpad so it survives context compaction), then add the `.changeset/*.md`
+file **after the draft PR exists but before the review pass** — so the prose can cite the PR
+number and the changeset lands inside the diff that `/simplify` and `/devflow:review-and-fix`
+review. Name the file after the branch or issue (e.g. `issue-290-<slug>.md`) so it never
+collides with a concurrent PR's. The Phase 4.3 clean-tree backstop is the final guard that
+the changeset never ends up uncommitted.
 
-**Commit-message contract (load-bearing — do not drift).** Commit the bump with a subject
-that begins with the literal `chore: bump version`. This prefix is not cosmetic: the
-release-notes reconciliation step (`skills/docs-release-notes/SKILL.md` Step 4b) uses this
-prefix to **confirm a version bump happened on the branch** — it then reads the authoritative
-version from `.claude-plugin/plugin.json` (never from the commit subject, which a later
-re-version can leave stale) and reconciles that version's CHANGELOG entry, or no-ops if no
-such commit exists. Renaming the prefix (e.g. to `chore(release): …`) makes Step 4b see no
-bump and silently disables that reconciliation. The two sites are kept in lockstep by a
-coupling pin in `lib/test/run.sh`; change one and the suite goes RED until the other matches.
+**Commit-message contract (load-bearing — do not drift).** The merge-time consolidation
+commit's subject begins with the literal `chore: bump version`. This prefix is not cosmetic:
+the release-notes reconciliation step (`skills/docs-release-notes/SKILL.md` Step 4b) uses this
+prefix to **confirm a version bump happened** — it then reads the authoritative version from
+`.claude-plugin/plugin.json` (never from the commit subject, which a later re-version can
+leave stale) and reconciles that version's CHANGELOG entry, or no-ops if no such commit
+exists. **Note the consequence for DevFlow's own PRs:** because the bump commit is now created
+at merge time on `main` (not on the feature branch), Step 4b's branch-scoped
+`origin/main..HEAD` scan legitimately finds no bump commit during `/devflow:implement` and
+no-ops — that reconciliation stays live only for consumer repos that still bump in-PR. Here,
+CHANGELOG correctness rests on the in-diff changeset prose, which the Phase 2.3.4a self-claim
+sweep and Phase 4.2 keep aligned with the shipped diff. The producer of the subject is now the
+merge-time Action, not this skill; renaming it
+(e.g. to `chore(release): …`) makes Step 4b see no bump and silently disables that
+reconciliation. The producer (`version-consolidate.yml`) and consumer (Step 4b) are kept in
+lockstep by a coupling pin in `lib/test/run.sh`; change one and the suite goes RED until the
+other matches.
 
 ## Verification under classifier friction — never ship an unverified assumption
 
