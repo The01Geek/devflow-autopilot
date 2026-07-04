@@ -12508,6 +12508,13 @@ assert_pin_unique "#290 workflow triggers on push to main" \
   'branches: [main]' "$CS_WF"
 assert_pin_unique "#290 workflow runs the consolidator by path" \
   'python3 scripts/consolidate-changesets.py' "$CS_WF"
+# #298: the consolidate step hardens its shell (explicit set -euo pipefail, not just the
+# implicit Actions default) and checks the consolidator's exit status explicitly so a
+# malformed changeset makes the step go red (distinguishable from the No-pending no-op).
+assert_pin_unique "#298 workflow consolidate step sets an explicit set -euo pipefail" \
+  'set -euo pipefail' "$CS_WF"
+assert_pin_unique "#298 workflow consolidate step checks the consolidator exit status explicitly" \
+  '::error::consolidator failed' "$CS_WF"
 # Anchor on the 2-space-indented workflow-permissions line so this stays unique after the
 # app-token step added `permission-contents: write` (which also contains `contents: write`).
 assert_pin_unique "#290 workflow grants contents: write for the bump push" \

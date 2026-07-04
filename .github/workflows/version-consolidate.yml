@@ -87,12 +87,16 @@ jobs:
         # Step 4b (kept verbatim; pinned in lib/test/run.sh). Staging is explicit (never
         # `git add -A`) so only the consolidation's own outputs land on main.
         run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           for attempt in 1 2 3 4 5; do
             git fetch origin main
             git reset --hard origin/main
-            python3 scripts/consolidate-changesets.py || exit 1
+            if python3 scripts/consolidate-changesets.py; then :; else
+              echo "::error::consolidator failed"
+              exit 1
+            fi
             if [ -z "$(git status --porcelain)" ]; then
               echo "No pending changesets consolidated — nothing to commit."
               exit 0
