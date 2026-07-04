@@ -11919,15 +11919,15 @@ assert_pin_unique "#183 docs-release-notes SKILL resolves changelog_file via con
 # The consumer (docs-release-notes Step 4b) uses this exact prefix ONLY to confirm a version
 # bump happened — it then selects the CHANGELOG section by the `## [version]` heading whose
 # version is read from the manifest, never from the commit subject. Since #290 the PRODUCER of
-# that subject is the merge-time consolidation Action (ci/version-consolidate.yml, installed to
-# → scripts/consolidate-changesets.py), not an in-PR bump; the implement prompt-extension still
-# documents the contract so the two stay lockstepped. If any of them renames the prefix without
+# that subject is the merge-time consolidation Action (.github/workflows/version-consolidate.yml,
+# wired to scripts/consolidate-changesets.py), not an in-PR bump; the implement prompt-extension
+# still documents the contract so the two stay lockstepped. If any of them renames the prefix without
 # the others, Step 4b sees no bump and silently no-ops the reconciliation it exists to perform
 # (the fail-open the PR #187 review flagged). Pin the literal across producer + consumer + doc.
 assert_pin_unique "#187 docs-release-notes Step 4b matches the chore: bump version prefix" \
   'message begins with `chore: bump version`' "$FDROOT/skills/docs-release-notes/SKILL.md"
 assert_pin_unique "#290 version-consolidate workflow emits the chore: bump version subject (producer)" \
-  'chore: bump version (consolidate changesets)' "$FDROOT/ci/version-consolidate.yml"
+  'chore: bump version (consolidate changesets)' "$FDROOT/.github/workflows/version-consolidate.yml"
 assert_pin_unique "#290 implement prompt-extension documents the chore: bump version contract" \
   'begins with the literal `chore: bump version`' "$FDROOT/.devflow/prompt-extensions/implement.md"
 
@@ -12137,11 +12137,10 @@ assert_eq "#290 idempotent rerun: CHANGELOG unchanged" "$CS_CL1" "$(cat "$CSD/CH
 rm -rf "$CSD"
 
 # Coupled invariant: the merge-time workflow wires the consolidator and pushes on main. The
-# YAML ships at ci/version-consolidate.yml (a maintainer installs it into .github/workflows/
-# with `git mv` — the DevFlow bot token cannot push under .github/workflows/ without the
-# `workflows` permission); it is content-pinned here regardless of install location.
-CS_WF="$FDROOT/ci/version-consolidate.yml"
-assert_eq "#290 version-consolidate workflow template exists (ci/)" "yes" "$([ -f "$CS_WF" ] && echo yes || echo no)"
+# YAML lives at .github/workflows/version-consolidate.yml; it is content-pinned here regardless
+# of its path.
+CS_WF="$FDROOT/.github/workflows/version-consolidate.yml"
+assert_eq "#290 version-consolidate workflow exists (.github/workflows/)" "yes" "$([ -f "$CS_WF" ] && echo yes || echo no)"
 assert_pin_unique "#290 workflow triggers on push to main" \
   'branches: [main]' "$CS_WF"
 assert_pin_unique "#290 workflow runs the consolidator by path" \
