@@ -214,9 +214,28 @@ reconstructed (token/wall-clock telemetry is only capturable live). Three layers
 to strongest — the deterministic backstop (Layer 3) is the actual guarantee; the others shrink the
 blast radius and provide a portable fallback.
 
+**The telemetry splits into two halves with different recoverability, and the split drives the whole
+design.** The **effectiveness** data — findings-per-agent, dispatch counts, verdicts, fix decisions —
+is in the agent's context during *any* run, including a hand-run; it is lost only because the
+`iter-<N>.json` write was optional, so it is made recoverable by turning that write into a
+**non-optional obligation** (see Layer 1). The **token/wall-clock cost** half is *live-only*: it can
+only be captured while the loop runs, so it is gone the moment the loop is abandoned and **no
+backstop can reconstruct it** — there is no deterministic guarantee for the cost half, only the
+probabilistic protection of keeping the loop running live. The emit-obligation guarantees the
+effectiveness half; it does **not** promise the cost half.
+
 **Layer 1 — wording (portable, agent-executed).** The SKILL.md Loop Exit persistence steps are
 marked **mandatory on every writable run**, and a `## Common Mistakes` entry names the
-interactive-drop failure mode so a future orchestrator does not silently skip them.
+interactive-drop failure mode so a future orchestrator does not silently skip them. The
+per-iteration `iter-<N>.json` emit specifically is a **non-optional obligation on every iteration,
+regardless of how the loop was executed** — whether `review-and-fix` ran as a `Skill` invocation or
+was **hand-run via direct `Agent` dispatch** on a degraded path — and it is written **with the Write
+tool, never a shell `>`/heredoc redirect** (which the cloud sandbox denies into `.devflow/tmp`). This
+is what keeps the effectiveness half recoverable even when the instrumented loop is left; a cloud
+`claude-code-action` permission/sandbox denial is never license to abandon the loop. (This asymmetry
+is worth noting: the read-only `review` runner runs under `--permission-mode acceptEdits`, but the
+`/devflow:implement` job deliberately does **not** — so the implement seam relies on single-statement
+leading-token helper forms and the Write tool for scratch, not a broadened permission grant.)
 
 **Layer 2 — self-check + incremental capture (portable, agent-executed).**
 - *Incremental capture.* Each `iter-<N>.json` is written **the moment that iteration's data exists**
