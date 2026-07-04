@@ -1,0 +1,19 @@
+{
+  "iter": 2,
+  "started_at": "2026-07-04T04:10:00Z",
+  "fix_commit_sha": "58d6179",
+  "fix_files": ["scripts/workpad.py", "lib/test/run.sh"],
+  "loop_role": "promoted",
+  "diff_profile": {"small_diff": true, "config_only": false, "has_new_types": false, "engine_self_modifying": true, "checklist_skipped": null},
+  "phase3_dispatched": [],
+  "phase3_findings": [
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "workpad._git_root_error_suffix rc-gate inconsistency (promoted from iter-1 shadow).", "defect_signature": {"file": "scripts/workpad.py", "line_range": [120, 133], "kind": "coupled-pair-inconsistency"}, "corroboration_count": 1, "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Important", "description": "workpad._git_root_error_suffix docstring falsehood + Never-raises over-claim (promoted from iter-1 shadow).", "defect_signature": {"file": "scripts/workpad.py", "line_range": [120, 133], "kind": "docstring-contradicts-behavior"}, "corroboration_count": 1, "fix_decision": "applied"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-shadow-1", "decision": "applied", "commit": "58d6179"},
+    {"finding_id": "F-shadow-2", "decision": "applied", "commit": "58d6179"}
+  ],
+  "convergence_inputs": {"fixes_applied": 2, "fix_diff_lines": 20, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}}
+}

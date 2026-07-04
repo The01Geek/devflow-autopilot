@@ -72,7 +72,13 @@ WIDENS_SURFACE_TOLERANCE = 10
 BLOCK_START = "<!-- DEVFLOW_DEFERRED_FINDINGS_START -->"
 BLOCK_END = "<!-- DEVFLOW_DEFERRED_FINDINGS_END -->"
 PAYLOAD_START = "<!-- DEVFLOW_DEFERRED_PAYLOAD"
-DEFAULT_CONFIG = ".devflow/config.json"
+# The default config path is resolved lazily at call time by _default_config_path()
+# (anchored to the git repo root; issue #295) — NOT a cwd-relative module constant —
+# so a subdirectory invocation reads the consumer's ROOT config. A NON-EMPTY explicit
+# --config argument is honored verbatim; an explicit empty --config is passed down to
+# config-get.sh, whose own [ -n "${3:-}" ] gate then re-selects the root-anchored
+# default (so the empty-string edge matches config-get.sh's behavior, but via its
+# fallback rather than a passthrough here).
 
 # Rejection reason codes — mirrored verbatim in skills/review/SKILL.md prose.
 # Edit both in lockstep.
@@ -111,7 +117,55 @@ def _run(cmd, *, check=True):
         return subprocess.CompletedProcess(cmd, 127, stdout="", stderr=str(e))
 
 
-def _config_get(key: str, default: str = "", config_path: str = DEFAULT_CONFIG) -> str:
+def _repo_root():
+    # Resolve the git repo root (issue #295), the Python mirror of
+    # lib/config-source.sh's `git rev-parse --show-toplevel 2>/dev/null || pwd`.
+    # A native `git` subprocess is Windows-safe (like the existing `gh` calls),
+    # unlike exec-ing a .sh ([WinError 193], issue #275). Returns the root string,
+    # or None when not in a git tree / git cannot run (_run's rc-127 OSError
+    # sentinel) — the caller then falls back to cwd.
+    r = _run(["git", "rev-parse", "--show-toplevel"], check=False)
+    root = r.stdout.strip() if r.returncode == 0 else ""
+    return root or None
+
+
+def _git_root_error_suffix() -> str:
+    # Best-effort: capture git's own stderr for the no-root breadcrumb so the real
+    # cause (safe.directory refusal, git absent — rc-127 OSError sentinel) surfaces
+    # instead of being discarded. Returns a " (git: …)" suffix, or "" when git said
+    # nothing / succeeded. _run never raises (OSError → rc 127 with stderr=str(e)).
+    r = _run(["git", "rev-parse", "--show-toplevel"], check=False)
+    err = (r.stderr or "").strip() if r.returncode != 0 else ""
+    return f" (git: {err})" if err else ""
+
+
+def _default_config_path() -> str:
+    # Anchor the default config path to the repo root so a subdirectory invocation
+    # reads the consumer's ROOT .devflow/config.json. Its explicit config-path
+    # argument passing to config-get.sh would otherwise defeat config-get.sh's own
+    # root anchoring — so this reader must root-anchor its default itself (issue #295).
+    root = _repo_root()
+    if root is not None:
+        return str(Path(root) / ".devflow" / "config.json")
+    cwd = Path.cwd()
+    # Breadcrumb only when NEITHER a git root NOR a .devflow/ dir can be located —
+    # the silent-drop class this fix closes.
+    # git can exit non-zero while genuinely INSIDE a repo (safe.directory /
+    # dubious-ownership), or be absent — not only "outside a git tree" — so don't
+    # assert "not in a git repo"; report the root could not be resolved and surface
+    # git's own stderr instead of discarding it.
+    if not (cwd / ".devflow").is_dir():
+        sys.stderr.write(
+            f"match-deferrals.py: could not resolve a git repo root"
+            f"{_git_root_error_suffix()} and no .devflow/ at {str(cwd)!r}; "
+            f"falling back to a cwd-anchored default config path\n"
+        )
+    return str(cwd / ".devflow" / "config.json")
+
+
+def _config_get(key: str, default: str = "", config_path: str | None = None) -> str:
+    if config_path is None:
+        config_path = _default_config_path()
     here = Path(__file__).resolve().parent
     helper = here / "config-get.sh"
     r = _run([str(helper), key, default, config_path], check=False)
@@ -317,8 +371,11 @@ def main(argv=None):
     p.add_argument("--findings", required=True,
                    help="Path to JSON file with current Phase 3 findings, "
                         "or `-` to read from stdin.")
-    p.add_argument("--config", default=DEFAULT_CONFIG,
-                   help="Path to config.json (default: %(default)s).")
+    p.add_argument("--config", default=None,
+                   help="Path to config.json (default: the repo-root "
+                        ".devflow/config.json, resolved via git rev-parse "
+                        "--show-toplevel with a cwd fallback; issue #295). A "
+                        "non-empty explicit value is honored verbatim.")
     args = p.parse_args(argv)
 
     diff_path = Path(args.diff)
