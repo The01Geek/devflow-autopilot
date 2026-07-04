@@ -10,8 +10,8 @@ opt-in, and it is the **operative** repo policy (edit this file to change it).
 
 DevFlow versions itself with **changesets**, not an in-PR version bump. Each PR that reaches
 consumers declares its change in a uniquely-named `.changeset/*.md` file and never edits
-`.claude-plugin/plugin.json` or `CHANGELOG.md`; a merge-time GitHub Action (shipped at
-`ci/version-consolidate.yml`, installed by a maintainer into `.github/workflows/`; runs
+`.claude-plugin/plugin.json` or `CHANGELOG.md`; a merge-time GitHub Action (at
+`.github/workflows/version-consolidate.yml`; runs
 `scripts/consolidate-changesets.py`) consolidates all pending changesets into a single version
 bump + CHANGELOG entry on `main`.
 Because each changeset file has a unique name, two concurrent PRs never touch a shared line,

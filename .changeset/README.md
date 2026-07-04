@@ -41,9 +41,8 @@ CHANGELOG entry stays PR-cited.
 
 ## What happens on merge
 
-When your PR merges to `main`, the `version-consolidate` GitHub Action (shipped at
-[`ci/version-consolidate.yml`](../ci/version-consolidate.yml); a maintainer installs it into
-`.github/workflows/`) runs
+When your PR merges to `main`, the `version-consolidate` GitHub Action
+([`.github/workflows/version-consolidate.yml`](../.github/workflows/version-consolidate.yml)) runs
 [`scripts/consolidate-changesets.py`](../scripts/consolidate-changesets.py). The script:
 
 1. reads every pending `.changeset/*.md` (only this `README.md` is ignored — every other
