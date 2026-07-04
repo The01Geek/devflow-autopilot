@@ -120,17 +120,23 @@ def _repo_root():
 
 def _git_root_error_suffix():
     # Best-effort: capture git's own stderr for the no-root breadcrumb so the real
-    # cause (safe.directory refusal, git absent) surfaces instead of being discarded.
-    # Returns a " (git: …)" suffix, or "" when git said nothing / cannot run. Never
-    # raises — the breadcrumb path must not itself fail.
+    # cause (safe.directory refusal, or git absent → OSError) surfaces instead of being
+    # discarded. Returns a " (git: …)" suffix, or "" when git succeeded or printed
+    # nothing to stderr. Gates on a NON-ZERO rc (mirroring the match-deferrals sibling)
+    # so a git that succeeds on this second call but printed a benign advisory to stderr
+    # is not misattributed as the failure cause. Catches broadly (not just OSError) so a
+    # non-UTF-8 decode or any other subprocess error cannot make the breadcrumb path
+    # itself raise — it truly never raises.
     try:
         r = subprocess.run(
             ['git', 'rev-parse', '--show-toplevel'],
             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, encoding='utf-8',
         )
-        err = (r.stderr or '').strip()
+        err = (r.stderr or '').strip() if r.returncode != 0 else ''
     except OSError as e:
         err = str(e)
+    except Exception:  # noqa: BLE001 — breadcrumb path must never raise
+        err = ''
     return f" (git: {err})" if err else ""
 
 

@@ -4846,6 +4846,12 @@ assert_eq "#295 AC8: explicit CONFIG_FILE 3rd arg honored from subdir" "EXPLICIT
 # CUSTOM/DOCS value instead of EXPLICIT and turn this RED while AC4 stayed green.
 assert_eq "#295 AC8b: match-deferrals explicit config_path honored over root default" "EXPLICIT" \
   "$(cd "$R295/a/b/c" && python3 -c "import importlib.util as u;s=u.spec_from_file_location('md','$MD295');m=u.module_from_spec(s);s.loader.exec_module(m);print(m._config_get('.docs.internal','FALLBACK','$R295/explicit.json'))")"
+# AC8c: an explicit EMPTY 3rd arg still selects the root-anchored default — pins the
+# `[ -n "${3:-}" ]` gate (NOT `$# -ge 3`/`${3:-…}`). A revert of that gate would set
+# config_file="" (an unopenable empty path) and silently drop to FALLBACK; this stays
+# RED on that revert while AC8 (non-empty explicit) stays green.
+assert_eq "#295 AC8c: explicit EMPTY CONFIG_FILE 3rd arg selects root default" "CUSTOM/DOCS" \
+  "$(cd "$R295/a/b/c" && bash "$CG" .docs.internal FALLBACK "")"
 
 # AC6: non-git tree with a .devflow/ at cwd → falls back to pwd and still resolves.
 NG295="$(git_sandbox "#295 non-git .devflow sandbox")"
