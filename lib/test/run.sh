@@ -14592,6 +14592,43 @@ assert_eq "#284 AC6: config-get.sh default config path is cwd-relative .devflow/
 assert_eq "#284 AC6: workpad.py reads cwd-relative .devflow/config.json" "yes" \
   "$(grep -qF "Path('.devflow/config.json')" "$WP_PY" && echo yes || echo no)"  # raw-guard-ok: presence pin: cwd-relative read in workpad.py
 
+# ── #289 wiring: the gate job's early-workpad step deterministically refreshes
+# the workpad Run: link to THIS run whenever a workpad already exists (resume /
+# retry), and the Phase 3.1 draft-PR body links back to the run that created it.
+# Static source pins over the two non-runtime-testable files (workflow YAML +
+# skill prose), mirroring the #268 wiring block's assert_pin_unique convention.
+WF289="$REPO_ROOT/.github/workflows/devflow-implement.yml"
+# Extract ONLY the "workpad already exists" branch of the early-workpad step —
+# from the `id "$NUMBER"` guard up to (not including) the fresh-create branch,
+# which starts at `BODY=` (`mktemp`) and legitimately calls `create`, so it must
+# be excluded from the pins. Bound on `BODY=` rather than a closing `fi`: the
+# branch itself now contains a NESTED `if ! … update …; then … fi`, so an fi-based
+# boundary would truncate the region at that inner fi and make the absence pin
+# below vacuous (a `create` added after it would go unseen).
+AE_REGION289="$(awk '/if python3 "\$WP" id "\$NUMBER"/{f=1} f && /BODY=/{exit} f{print}' "$WF289")"
+assert_eq "#289: gate already-exists branch extracted (non-empty)" "yes" \
+  "$([ -n "$AE_REGION289" ] && echo yes || echo no)"
+# AC7: the already-exists branch refreshes the Run: link via workpad.py update --run-link.
+assert_eq "#289 AC7: gate already-exists branch refreshes Run link via workpad.py update --run-link" "1" \
+  "$(printf '%s\n' "$AE_REGION289" | grep -cF 'update "$NUMBER" --run-link "[View run]($RUN_URL)"' || true)"  # raw-guard-ok: region-scoped presence count
+# AC8: that same branch NEVER calls `create` — a resumed run must not post a 2nd workpad.
+assert_eq "#289 AC8: gate already-exists branch never calls workpad.py create (no duplicate workpad)" "0" \
+  "$(printf '%s\n' "$AE_REGION289" | grep -cF '"$WP" create' || true)"  # raw-guard-ok: region-scoped absence count
+# AC7 removal-proof: the refresh line appears exactly once in the whole workflow
+# (behavioral-fix pin — its operative sentence is the update --run-link call; the
+# `new-body … --run-link` line in the fresh branch is NOT matched by `update "$NUMBER"`).
+assert_pin_unique "#289 AC7: the Run-link refresh update line is present exactly once (removal-proof)" \
+  'update "$NUMBER" --run-link "[View run]($RUN_URL)"' "$WF289"
+# AC9: the Phase 3.1 draft-PR heredoc carries a [View run]($RUN_URL) line positioned
+# AFTER Resolves #{issue_number} (behavioral-fix pin: operative sentence is that line).
+P3289="$REPO_ROOT/skills/implement/phases/phase-3-review.md"
+assert_pin_unique "#289 AC9: phase-3-review.md draft-PR body carries the [View run](\$RUN_URL) literal (removal-proof)" \
+  '[View run]($RUN_URL)' "$P3289"
+RESOLVES_LN289="$(grep -nF 'Resolves #{issue_number}' "$P3289" | head -1 | cut -d: -f1)"   # raw-guard-ok: line-number lookup for the positional pin
+VIEWRUN_LN289="$(grep -nF '[View run]($RUN_URL)' "$P3289" | head -1 | cut -d: -f1)"        # raw-guard-ok: line-number lookup for the positional pin
+assert_eq "#289 AC9: [View run](\$RUN_URL) is positioned after Resolves #{issue_number} in the draft-PR heredoc" "yes" \
+  "$([ -n "$RESOLVES_LN289" ] && [ -n "$VIEWRUN_LN289" ] && [ "$VIEWRUN_LN289" -gt "$RESOLVES_LN289" ] && echo yes || echo no)"
+
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
