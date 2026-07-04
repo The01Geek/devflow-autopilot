@@ -1,0 +1,26 @@
+{
+  "iter": 2,
+  "started_at": "2026-07-04T04:40:00Z",
+  "fix_commit_sha": "f1d133c",
+  "fix_files": ["docs/DEVFLOW_SYSTEM_OVERVIEW.md", "docs/cloud-setup.md", "lib/test/run.sh"],
+  "loop_role": "promoted",
+  "checklist": [],
+  "phase3_dispatched": [],
+  "diff_profile": {"small_diff": false, "config_only": false, "has_new_types": false, "engine_self_modifying": true, "checklist_skipped": "intentional"},
+  "phase3_findings": [
+    {"agent": "devflow:code-reviewer", "severity": "Important", "description": "docs/DEVFLOW_SYSTEM_OVERVIEW.md:499 security bullet still attributes the review agent's progress comment/verdicts/approvals/rejections to the primary DEVFLOW_APP_ID App — stale after review posts moved to DevFlow-Reviewer", "defect_signature": {"file": "docs/DEVFLOW_SYSTEM_OVERVIEW.md", "line_range": [499, 499], "kind": "doc_accuracy"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:requesting-code-review", "severity": "Important", "description": "docs/cloud-setup.md:145-148 primary-App intro still lists the review agent's posts as primary-App user-visible posts, self-contradicting the DevFlow-Reviewer section added in the same file", "defect_signature": {"file": "docs/cloud-setup.md", "line_range": [145, 148], "kind": "doc_accuracy"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "S-1", "decision": "severity-calibrated", "source_file": "docs/DEVFLOW_SYSTEM_OVERVIEW.md", "claim_text": "review posts attributed to primary App in §15 threat-model bullet", "original_severity": "Important", "calibrated_severity": "Important", "evidence": "over-grade gate: NOT an over-grade — a buyer-facing threat-model doc stating review verdicts post under the primary App when they post as github-actions[bot]/DevFlow-Reviewer actively misleads an operator configuring only DEVFLOW_APP_ID; affirmed Important, fixed"},
+    {"finding_id": "S-2", "decision": "severity-calibrated", "source_file": "docs/cloud-setup.md", "claim_text": "primary-App intro lists review posts, contradicting the DevFlow-Reviewer section this diff added", "original_severity": "Important", "calibrated_severity": "Important", "evidence": "over-grade gate: NOT an over-grade — self-contradicting setup doc within one page (the DevFlow-Reviewer section this PR added is contradicted by the intro); affirmed Important, fixed"},
+    {"finding_id": "S-1", "decision": "applied", "commit": "f1d133c"},
+    {"finding_id": "S-2", "decision": "applied", "commit": "f1d133c"}
+  ],
+  "convergence_inputs": {"fixes_applied": 2, "fix_diff_lines": 10, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "shadow": null,
+  "telemetry": {
+    "step_2_6": {"calls": 5, "tokens": 421000, "wall_clock_s": 350}
+  }
+}

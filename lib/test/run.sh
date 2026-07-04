@@ -8550,26 +8550,35 @@ done
 # ────────────────────────────────────────────────────────────────────────────
 echo "opt-in GitHub App tokens — writers full-scope + per-site downscoped (issues #201 + #269)"
 # ────────────────────────────────────────────────────────────────────────────
-# The opt-in GitHub App (vars.DEVFLOW_APP_ID + secrets.DEVFLOW_APP_PRIVATE_KEY)
+# The opt-in PRIMARY GitHub App (vars.DEVFLOW_APP_ID + secrets.DEVFLOW_APP_PRIVATE_KEY)
 # serves two contracts, pinned together here because they share one mint pattern:
 #   #201 — the two CLOUD WRITERS (devflow-implement.yml, devflow.yml `command`)
 #   mint a FULL-installation-scope token (Contents: write + Workflows: write)
 #   so the agent's git push can edit .github/workflows/ files.
-#   #269 — the other user-visible cloud posts (the review agent in
-#   devflow-runner.yml; the trigger reactions + notice comments in the
-#   devflow.yml gate/review_dedupe and devflow-implement.yml gate jobs —
-#   the marker-detected workpad comment's gate-job creation stays on
-#   GITHUB_TOKEN) mint a
-#   per-site token DOWNSCOPED via permission-* inputs to exactly what that site
-#   does. The permission-* inputs are the SOLE least-privilege enforcement (an
-#   App installation token ignores the job `permissions:` block), so the exact
-#   per-site permission sets — and the ABSENCE of any write-widening input —
-#   are the security boundary these pins protect.
-# Every mint is gated on `vars.DEVFLOW_APP_ID != ''` (inert unless an operator
-# opts in), consumed with a `|| GITHUB_TOKEN` / `|| github.token` fallback
-# (unset → byte-for-byte pre-App behavior), and fail-loud (no
+#   #269 — the other primary-App user-visible cloud posts (the trigger reactions
+#   + notice comments in the devflow.yml gate/review_dedupe and
+#   devflow-implement.yml gate jobs — the marker-detected workpad comment's
+#   gate-job creation stays on GITHUB_TOKEN) mint a per-site token DOWNSCOPED via
+#   permission-* inputs to exactly what that site does. The permission-* inputs
+#   are the SOLE least-privilege enforcement (an App installation token ignores
+#   the job `permissions:` block), so the exact per-site permission sets — and
+#   the ABSENCE of any write-widening input — are the security boundary these
+#   pins protect.
+# Every primary-App mint is gated on `vars.DEVFLOW_APP_ID != ''` (inert unless an
+# operator opts in), consumed with a `|| GITHUB_TOKEN` / `|| github.token`
+# fallback (unset → byte-for-byte pre-App behavior), and fail-loud (no
 # continue-on-error): a configured-but-broken App fails the job rather than
 # silently degrading to GITHUB_TOKEN.
+#   #300 — the REVIEW identity is a SEPARATE dedicated app, DevFlow-Reviewer
+#   (vars.DEVFLOW_REVIEWER_APP_ID + secrets.DEVFLOW_REVIEWER_PRIVATE_KEY), so the
+#   review path (devflow-runner.yml's review agent, and devflow.yml's
+#   `/devflow:review` command branch) NEVER shares the PR-authoring primary-app
+#   identity — Phase 4.4's `gh pr review --request-changes`/`--approve` is then
+#   not a forbidden self-review. Those two review mints are pinned by the
+#   REVIEWER_SITES loop below (same downscoped review perm set, but keyed on the
+#   reviewer var/secret and id `reviewer-token`); the review-identity invariant
+#   (review github_token resolves to the reviewer token or GITHUB_TOKEN, NEVER
+#   DEVFLOW_APP_ID / the primary app token) is pinned after the consumer block.
 
 # Extract one step's block from a workflow: from its `- name:` line to the
 # next sibling step's `- name:` (6-space step indent, matching these workflows)
@@ -8592,7 +8601,6 @@ APP_SITES=(
   'devflow-implement|Mint workflow-capable token (optional)|app-token|FULL'
   'devflow-implement|Mint stall-backstop token (optional)|backstop-token|FULL'
   'devflow|Mint workflow-capable token (optional)|app-token|FULL'
-  'devflow-runner|Mint downscoped review token (optional)|app-token|permission-contents: read,permission-issues: read,permission-pull-requests: write,permission-actions: read'
   'devflow|Mint downscoped reaction token (optional)|gate_app_token|permission-issues: write,permission-pull-requests: write'
   'devflow|Mint downscoped notice token (optional)|dedupe_app_token|permission-pull-requests: write'
   'devflow-implement|Mint downscoped reaction token (optional)|gate_app_token|permission-issues: write,permission-pull-requests: write'
@@ -8647,14 +8655,62 @@ for site in "${APP_SITES[@]}"; do
       "$(printf '%s\n' "$blk" | grep -cE '^[[:space:]]*permission-[a-z-]+:' || true)"
   fi
 done
+# DevFlow-Reviewer mints (issue #300): the two REVIEW-identity mints key on the
+# SEPARATE reviewer var/secret (vars.DEVFLOW_REVIEWER_APP_ID +
+# secrets.DEVFLOW_REVIEWER_PRIVATE_KEY) and carry id `reviewer-token`, with the
+# same downscoped review perm set as the old runner mint. devflow.yml's reviewer
+# mint additionally gates on the command being `/devflow:review` (substring
+# assertion tolerates the extra `&& startsWith(...)` clause, same as the
+# should_run gate note above). This loop is the reviewer-app analogue of the
+# APP_SITES loop, kept separate so the primary-app pins never assert the reviewer
+# var/secret (and vice versa).
+REVIEWER_SITES=(
+  'devflow-runner|Mint downscoped DevFlow-Reviewer token (optional)|reviewer-token'
+  'devflow|Mint downscoped DevFlow-Reviewer token (optional)|reviewer-token'
+)
+for site in "${REVIEWER_SITES[@]}"; do
+  IFS='|' read -r f name id <<<"$site"
+  WFF="$WF/$f.yml"
+  blk="$(mint_blk "$name" "$WFF")"
+  assert_eq "reviewer-token: $f.yml has mint step '$name'" "yes" \
+    "$([ -n "$blk" ] && echo yes || echo no)"
+  assert_eq "reviewer-token: $f.yml '$name' uses actions/create-github-app-token" "1" \
+    "$(printf '%s\n' "$blk" | grep -cE 'uses:[[:space:]]*actions/create-github-app-token@')"
+  # Gated on the SEPARATE reviewer variable, never the primary DEVFLOW_APP_ID.
+  assert_eq "reviewer-token: $f.yml '$name' is gated on vars.DEVFLOW_REVIEWER_APP_ID != ''" "1" \
+    "$(printf '%s\n' "$blk" | grep -cF "vars.DEVFLOW_REVIEWER_APP_ID != ''" || true)"
+  assert_eq "reviewer-token: $f.yml '$name' reads app-id from vars.DEVFLOW_REVIEWER_APP_ID" "1" \
+    "$(printf '%s\n' "$blk" | grep -cF 'app-id: ${{ vars.DEVFLOW_REVIEWER_APP_ID }}')"
+  assert_eq "reviewer-token: $f.yml '$name' reads private-key from secrets.DEVFLOW_REVIEWER_PRIVATE_KEY" "1" \
+    "$(printf '%s\n' "$blk" | grep -cF 'private-key: ${{ secrets.DEVFLOW_REVIEWER_PRIVATE_KEY }}')"
+  # NOTE: a "reviewer block never mentions DEVFLOW_APP_ID" per-block pin is
+  # deliberately NOT asserted here — mint_blk extends to the next `- name:`, so a
+  # reviewer block bleeds the FOLLOWING step's leading comment (in devflow.yml
+  # that is the primary app-token step, whose comment legitimately names
+  # DEVFLOW_APP_ID). The review-identity invariant is pinned precisely, and
+  # extraction-safely, by the whole-file / review-branch-conditional pins after
+  # the consumer block below.
+  assert_eq "reviewer-token: $f.yml '$name' is fail-loud (no continue-on-error)" "" \
+    "$(printf '%s\n' "$blk" | grep -E '^[[:space:]]*continue-on-error:' || true)"
+  assert_eq "reviewer-token: $f.yml '$name' carries id: $id (couples to steps.$id.outputs.token)" "1" \
+    "$(printf '%s\n' "$blk" | grep -cE "^[[:space:]]*id:[[:space:]]*$id[[:space:]]*\$")"
+  # Downscoped review perm set: exactly the 4 read/write inputs, no write-widener.
+  for p in 'permission-contents: read' 'permission-issues: read' 'permission-pull-requests: write' 'permission-actions: read'; do
+    assert_eq "reviewer-token: $f.yml '$name' declares $p" "1" \
+      "$(printf '%s\n' "$blk" | grep -cF "$p" || true)"
+  done
+  # "declares exactly 4 permission-* inputs" + the four named-perm pins above
+  # already make permission-contents: write and permission-workflows provably
+  # absent (flipping contents:read→write fails the named pin; adding workflows
+  # makes the count 5) — so no separate negative pin is needed, matching the
+  # APP_SITES loop's count-based house style for downscoped sites.
+  assert_eq "reviewer-token: $f.yml '$name' declares exactly 4 permission-* inputs" "4" \
+    "$(printf '%s\n' "$blk" | grep -cE '^[[:space:]]*permission-[a-z-]+:' || true)"
+done
+
 # Explicit write-widening absence pins (belt to the exact-count braces above —
 # these name the two inputs that would let a downscoped site push or edit
 # workflows, per the issue's negative/security dimension).
-blk="$(mint_blk 'Mint downscoped review token (optional)' "$WF/devflow-runner.yml")"
-assert_eq "app-token: review token has no permission-contents: write" "0" \
-  "$(printf '%s\n' "$blk" | grep -cF 'permission-contents: write' || true)"
-assert_eq "app-token: review token has no permission-workflows" "0" \
-  "$(printf '%s\n' "$blk" | grep -cF 'permission-workflows' || true)"
 for pair in 'devflow|Mint downscoped reaction token (optional)' 'devflow|Mint downscoped notice token (optional)' 'devflow-implement|Mint downscoped reaction token (optional)'; do
   IFS='|' read -r f name <<<"$pair"
   blk="$(mint_blk "$name" "$WF/$f.yml")"
@@ -8667,18 +8723,55 @@ done
 # above (a deleted mint step would otherwise only fail its own block extract).
 assert_eq "app-token: devflow-implement.yml has exactly 3 mint steps (writer + gate + stall-backstop)" "3" \
   "$(grep -cE 'uses:[[:space:]]*actions/create-github-app-token@' "$WF/devflow-implement.yml")"
-assert_eq "app-token: devflow.yml has exactly 3 mint steps (command + gate + review_dedupe)" "3" \
+assert_eq "app-token: devflow.yml has exactly 4 mint steps (command primary + command reviewer + gate + review_dedupe)" "4" \
   "$(grep -cE 'uses:[[:space:]]*actions/create-github-app-token@' "$WF/devflow.yml")"
-assert_eq "app-token: devflow-runner.yml has exactly 1 mint step (review)" "1" \
+assert_eq "app-token: devflow-runner.yml has exactly 1 mint step (DevFlow-Reviewer review)" "1" \
   "$(grep -cE 'uses:[[:space:]]*actions/create-github-app-token@' "$WF/devflow-runner.yml")"
 # Consumers: each token is consumed with the fallback that IS the unset-opt-in
 # path keeping behavior identical for non-adopters.
-for f in devflow-implement devflow devflow-runner; do
+for f in devflow-implement; do
   assert_eq "app-token: $f.yml consumes github_token: steps.app-token || secrets.GITHUB_TOKEN" "1" \
     "$(grep -cF 'github_token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}' "$WF/$f.yml")"
 done
 assert_eq "app-token: devflow-runner.yml keeps no bare github_token: secrets.GITHUB_TOKEN consumer" "0" \
   "$(grep -cF 'github_token: ${{ secrets.GITHUB_TOKEN }}' "$WF/devflow-runner.yml")"
+
+# ── Review-identity invariant (issue #300) ──────────────────────────────────
+# The review path's github_token resolves to the DevFlow-Reviewer token or
+# GITHUB_TOKEN, and NEVER to DEVFLOW_APP_ID / the primary app token; the
+# primary-app path remains for /devflow:pr-description (+ /devflow:review-and-fix).
+# devflow-runner.yml (review-only runner): consumes the reviewer token; carries
+# NO trace of the primary app token/var at all.
+assert_eq "review-identity: devflow-runner.yml consumes github_token: steps.reviewer-token || secrets.GITHUB_TOKEN" "1" \
+  "$(grep -cF 'github_token: ${{ steps.reviewer-token.outputs.token || secrets.GITHUB_TOKEN }}' "$WF/devflow-runner.yml")"
+assert_eq "review-identity: devflow-runner.yml never references DEVFLOW_APP_ID (primary app var removed)" "0" \
+  "$(grep -cF 'DEVFLOW_APP_ID' "$WF/devflow-runner.yml")"
+assert_eq "review-identity: devflow-runner.yml never references DEVFLOW_APP_PRIVATE_KEY (primary app secret removed)" "0" \
+  "$(grep -cF 'DEVFLOW_APP_PRIVATE_KEY' "$WF/devflow-runner.yml")"
+assert_eq "review-identity: devflow-runner.yml has no steps.app-token consumer (renamed to reviewer-token)" "0" \
+  "$(grep -cF 'steps.app-token' "$WF/devflow-runner.yml")"
+# devflow.yml command job: the github_token is command-conditional. The
+# `/devflow:review` branch resolves to the reviewer token or GITHUB_TOKEN; the
+# else branch keeps the primary app token for /devflow:pr-description (+
+# review-and-fix). Pin the whole conditional literal so a revert to a plain
+# `steps.app-token || GITHUB_TOKEN` consumer (which would put the review command
+# back on the primary app identity) goes RED.
+assert_eq "review-identity: devflow.yml command github_token is the review-conditional expression" "1" \
+  "$(grep -cF "github_token: \${{ startsWith(needs.gate.outputs.command, '/devflow:review ') && (steps.reviewer-token.outputs.token || secrets.GITHUB_TOKEN) || (steps.app-token.outputs.token || secrets.GITHUB_TOKEN) }}" "$WF/devflow.yml")"
+# The review branch (startsWith .../devflow:review) selects the reviewer token,
+# NEVER the primary app token — assert the ordering: reviewer-token appears
+# inside the startsWith-guarded first operand, app-token only in the else.
+assert_eq "review-identity: devflow.yml review branch selects reviewer-token, primary app token only in the else" "1" \
+  "$(grep -cF "startsWith(needs.gate.outputs.command, '/devflow:review ') && (steps.reviewer-token.outputs.token" "$WF/devflow.yml")"
+# The primary-app mint in devflow.yml is now SKIPPED on the review command, so it
+# can never author the review — pin the negated startsWith on its if:.
+assert_eq "review-identity: devflow.yml primary app-token mint is skipped on /devflow:review" "1" \
+  "$(grep -cF "vars.DEVFLOW_APP_ID != '' && !startsWith(needs.gate.outputs.command, '/devflow:review ')" "$WF/devflow.yml")"
+# Conversely, devflow.yml's reviewer mint fires ONLY on the review command — pin the
+# positive startsWith conjunct on its if: so dropping it (which would mint the reviewer
+# token on /devflow:pr-description too) goes RED, keeping the mint scoped to /devflow:review.
+assert_eq "review-identity: devflow.yml reviewer-token mint fires only on /devflow:review" "1" \
+  "$(grep -cF "vars.DEVFLOW_REVIEWER_APP_ID != '' && startsWith(needs.gate.outputs.command, '/devflow:review ')" "$WF/devflow.yml")"
 assert_eq "app-token: devflow.yml react step consumes gate_app_token || github.token" "1" \
   "$(grep -cF 'GH_TOKEN: ${{ steps.gate_app_token.outputs.token || github.token }}' "$WF/devflow.yml")"
 assert_eq "app-token: devflow.yml notice step consumes dedupe_app_token || github.token" "1" \
@@ -8792,11 +8885,11 @@ assert_eq "app-token: devflow.yml HEAD_ERR temp-file allocation is mktemp-fail-o
   "$(grep -cF 'HEAD_ERR="$(mktemp 2>/dev/null || echo /dev/null)"' "$WF/devflow.yml" || true)"
 assert_eq "app-token: devflow.yml BRANCH_ERR temp-file allocation is mktemp-fail-open-guarded" "1" \
   "$(grep -cF 'BRANCH_ERR="$(mktemp 2>/dev/null || echo /dev/null)"' "$WF/devflow.yml" || true)"
-# Doc↔workflow scope-table coupling: the cloud-setup table hardcodes the
-# review token's permission set; pin the row so a future scope change that
-# reconciles APP_SITES but not the doc goes RED.
-assert_eq "app-token: cloud-setup.md scope table carries the review token's exact permission set" "1" \
-  "$(grep -cF '`contents: read`, `issues: read`, `pull-requests: write`, `actions: read`' "$LIB/../docs/cloud-setup.md" || true)"
+# Doc↔workflow scope coupling: the cloud-setup DevFlow-Reviewer section (issue
+# #300) hardcodes the review token's permission set; pin it so a future scope
+# change that reconciles the REVIEWER_SITES loop but not the doc goes RED.
+assert_eq "app-token: cloud-setup.md DevFlow-Reviewer section carries the review token's exact permission set" "1" \
+  "$(grep -cF '**`Contents: read`**, **`Issues: read`**, **`Pull requests: write`**, and **`Actions: read`**' "$LIB/../docs/cloud-setup.md" || true)"
 # Consumer-condition conjuncts on the three downscoped gate/dedupe mints: the
 # second half of each mint's if: keeps the common rejection path mint-free AND
 # bounds fail-loud to runs where a consumer actually posts. Dropping it would
@@ -8825,15 +8918,21 @@ assert_eq "app-token: cloud-setup.md no longer claims the reviewer is untouched"
 assert_eq "app-token: cloud-setup.md documents the per-site downscope" "yes" \
   "$(grep -qF 'downscoped to exactly' "$CS" && echo yes || echo no)"
 # §15 of the overview: still no bare "No GitHub App." claim, still names the
-# opt-in variable, and now covers all three #269 surfaces, not only the
-# writers' pushes.
+# opt-in variable, names the primary App's reactions + notices surfaces, and —
+# post-#300 — routes the review agent's posts to the separate DevFlow-Reviewer
+# App rather than listing them under the primary App.
 OV="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
 assert_eq "app-token: overview §15 no longer asserts a bare 'No GitHub App.'" "0" \
   "$(grep -cF 'No GitHub App.' "$OV")"
 assert_eq "app-token: overview §15 positively documents the optional App (DEVFLOW_APP_ID)" "yes" \
   "$(grep -qF 'DEVFLOW_APP_ID' "$OV" && echo yes || echo no)"
-assert_eq "app-token: overview §15 names the review-agent + reactions + notices surfaces" "yes" \
-  "$(grep -qF 'the trigger reactions, and the notice comments' "$OV" && echo yes || echo no)"
+assert_eq "app-token: overview §15 names the primary App's reactions + notices surfaces" "yes" \
+  "$(grep -qF 'the trigger reactions and the notice comments' "$OV" && echo yes || echo no)"
+# #300: §15 must route the review agent's posts to the DevFlow-Reviewer App, not
+# list them under the primary App — pin the reviewer-app name so a revert that
+# re-attributes review posts to the primary App goes RED.
+assert_eq "app-token: overview §15 routes the review agent's posts to DevFlow-Reviewer (not the primary App)" "yes" \
+  "$(grep -qF 'run instead under the separate **`DevFlow-Reviewer`** App' "$OV" && echo yes || echo no)"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "devflow-review.yml first-ready gate invariant"
