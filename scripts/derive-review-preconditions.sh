@@ -1,0 +1,226 @@
+#!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2026 Daniel Radman
+# SPDX-License-Identifier: MIT
+# derive-review-preconditions.sh — evaluate the devflow-review auto-trigger
+# preconditions for a PR head, fail-closed (issue #304). This is the small,
+# testable unit devflow-review.yml's precheck `route` step calls before any
+# branch emits should_run=true on the first-review / synchronize /
+# CI-completion paths; lib/test/run.sh drives it directly with a stubbed `gh`
+# over the input-shape matrix.
+#
+# Two config-gated preconditions, both defaulting to enabled:
+#   require_up_to_date  the PR branch must not be BEHIND its configured base
+#                       branch (compare API, behind_by == 0). A review of a
+#                       branch that a forthcoming update would invalidate is
+#                       wasted cost — this gate is a cost optimization, not a
+#                       correctness gate (a neutral required check does not
+#                       block merge; see the schema description).
+#   require_ci_green    every OTHER CI signal on the head must have concluded
+#                       successfully before an LLM code-quality verdict is
+#                       produced. "Other CI" is generic — no job names:
+#                         (1) Actions workflow runs for the head, excluding
+#                             this workflow itself (SELF_WORKFLOW_NAME) — the
+#                             runs API registers runs at event dispatch, so
+#                             "no runs" reliably means "no Actions CI exists"
+#                             rather than "CI has not registered yet";
+#                         (2) the legacy combined commit status (total_count
+#                             gates it — an empty status set reports state
+#                             "pending" and must not be read as pending CI);
+#                         (3) non-Actions (external app) check runs, with the
+#                             `Devflow Review` check-run name excluded
+#                             defensively (its own check never blocks itself).
+#                       Zero signals across all three -> satisfied: a repo
+#                       with no other CI is reviewed immediately, never wedged.
+#                       success/skipped/neutral conclusions are green; any
+#                       non-completed status or other conclusion defers.
+#
+# Inputs (environment):
+#   REPO                 owner/name (required)
+#   HEAD_SHA             the PR head SHA under evaluation (required)
+#   BASE_BRANCH          configured base branch (required when the freshness
+#                        gate is on — never a hardcoded trunk default here)
+#   REQUIRE_UP_TO_DATE   "false" disables the freshness gate; anything else
+#                        (including empty/garbage) enables it — fail toward
+#                        gating, the review still fires via a later event or
+#                        the Re-run button
+#   REQUIRE_CI_GREEN     same contract for the other-CI gate
+#   SELF_WORKFLOW_NAME   this workflow's name, excluded from the Actions-runs
+#                        set (default: "Devflow Review (auto-trigger)")
+#
+# Output (stdout, two lines, always emitted; always exits 0):
+#   should_run=<true|false>
+#   reason=<empty|behind-base|ci-not-green|unverifiable>
+# `reason` is empty only when should_run=true. Every deferral and fail-closed
+# arm emits a SPECIFIC stderr breadcrumb naming which condition fired. Fail
+# closed on any unverifiable query: a missed review is recoverable via the
+# next event or the check's Re-run button; a wasted/premature LLM review is
+# the cost this unit exists to prevent.
+#
+# $DEVFLOW_GH overrides the `gh` binary and $DEVFLOW_JQ the `jq` binary (the
+# same seams the rest of devflow uses; both honored by the sourced resolvers).
+
+set -uo pipefail
+
+_DRP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Guarded source (documented partial-copy posture — see CLAUDE.md): a deployment
+# carrying this file without its sibling lib/resolve-gh.sh must degrade to bare
+# `gh` with a breadcrumb, never assign an empty DEVFLOW_GH from an undefined
+# devflow_resolve_gh.
+# shellcheck source=../lib/resolve-gh.sh
+. "$_DRP_DIR/../lib/resolve-gh.sh" \
+  || echo "devflow: resolve-gh.sh could not be sourced from ../lib relative to ${BASH_SOURCE[0]} — using bare 'gh' (set DEVFLOW_GH to override)" >&2
+# Sourceability is not function-availability — verify the function itself.
+if type devflow_resolve_gh >/dev/null 2>&1; then
+  : "${DEVFLOW_GH:=$(devflow_resolve_gh)}"
+else
+  # Partial-copy degradation only (resolver absent, breadcrumb above): the `:-`
+  # form is the sanctioned fallback shape — the #245 peer-completeness pin
+  # forbids the `:=gh` default precisely so full deployments route the resolver.
+  DEVFLOW_GH="${DEVFLOW_GH:-gh}"
+fi
+# Guarded source: a missing resolve-jq.sh sibling degrades to bare `jq` with a
+# breadcrumb, never an unbound-variable abort under `set -u`.
+# shellcheck source=../lib/resolve-jq.sh
+. "$_DRP_DIR/../lib/resolve-jq.sh" \
+  || { echo "devflow: resolve-jq.sh could not be sourced from ../lib relative to ${BASH_SOURCE[0]} — using bare 'jq' (set DEVFLOW_JQ to override)" >&2; : "${DEVFLOW_JQ:=jq}"; }
+# Outcome check, not just sourceability (mirrors the gh guard above).
+if [ -z "${DEVFLOW_JQ:-}" ]; then
+  echo "devflow: resolve-jq.sh sourced but did not assign DEVFLOW_JQ — using bare 'jq' (set DEVFLOW_JQ to override)" >&2
+  DEVFLOW_JQ=jq
+fi
+
+REPO="${REPO:-}"
+HEAD_SHA="${HEAD_SHA:-}"
+BASE_BRANCH="${BASE_BRANCH:-}"
+REQUIRE_UP_TO_DATE="${REQUIRE_UP_TO_DATE:-true}"
+REQUIRE_CI_GREEN="${REQUIRE_CI_GREEN:-true}"
+SELF_WORKFLOW_NAME="${SELF_WORKFLOW_NAME:-Devflow Review (auto-trigger)}"
+
+emit() { printf 'should_run=%s\nreason=%s\n' "$1" "$2"; exit 0; }
+
+# Both gates off -> unconditional behavior restored; no API query is made.
+if [ "$REQUIRE_UP_TO_DATE" = "false" ] && [ "$REQUIRE_CI_GREEN" = "false" ]; then
+  emit true ""
+fi
+
+# Missing identifiers make every query unverifiable -> fail closed.
+if [ -z "$REPO" ] || [ -z "$HEAD_SHA" ]; then
+  echo "derive-review-preconditions: REPO ('$REPO') or HEAD_SHA ('$HEAD_SHA') is empty — preconditions unverifiable; failing closed (no auto-trigger; recoverable via a later event or the Re-run button)." >&2
+  emit false unverifiable
+fi
+
+# ── Precondition 1: branch freshness (behind base) ──────────────────────────
+if [ "$REQUIRE_UP_TO_DATE" != "false" ]; then
+  if [ -z "$BASE_BRANCH" ]; then
+    # Never substitute a hardcoded trunk name here — the configured base_branch
+    # is the caller's job to resolve (CLAUDE.md: consumer repos use master/
+    # develop/...); an empty value is unverifiable, not "main".
+    echo "derive-review-preconditions: BASE_BRANCH is empty with the freshness gate enabled — branch freshness unverifiable; failing closed." >&2
+    emit false unverifiable
+  fi
+  if ! CMP_JSON=$("$DEVFLOW_GH" api "repos/$REPO/compare/$BASE_BRANCH...$HEAD_SHA" 2>/dev/null); then
+    echo "derive-review-preconditions: compare query failed for $BASE_BRANCH...$HEAD_SHA — branch freshness unverifiable; failing closed (behind-base). Recoverable via a later event or the Re-run button." >&2
+    emit false behind-base
+  fi
+  BEHIND=$(printf '%s' "$CMP_JSON" | "$DEVFLOW_JQ" -r '.behind_by // empty' 2>/dev/null) || BEHIND=""
+  if ! [[ "$BEHIND" =~ ^[0-9]+$ ]]; then
+    echo "derive-review-preconditions: compare payload carried no numeric behind_by ('$BEHIND') — branch freshness unverifiable; failing closed (behind-base)." >&2
+    emit false behind-base
+  fi
+  if [ "$BEHIND" != "0" ]; then
+    echo "derive-review-preconditions: head $HEAD_SHA is behind $BASE_BRANCH by $BEHIND commit(s) — deferring the review (behind-base)." >&2
+    emit false behind-base
+  fi
+fi
+
+# ── Precondition 2: other CI green ───────────────────────────────────────────
+if [ "$REQUIRE_CI_GREEN" != "false" ]; then
+  OTHER_SIGNALS=0
+
+  # (1) Actions workflow runs for this head, excluding this workflow itself.
+  #     --paginate concatenates page OBJECTS; the -s slurp + map/add flattens
+  #     them (same normalization discipline as derive-review-verdict.sh).
+  if ! RUNS_JSON=$("$DEVFLOW_GH" api --paginate "repos/$REPO/actions/runs?head_sha=$HEAD_SHA&per_page=100" 2>/dev/null); then
+    echo "derive-review-preconditions: workflow-runs query failed for $HEAD_SHA — other-CI state unverifiable; failing closed (ci-not-green). Recoverable via a later event or the Re-run button." >&2
+    emit false ci-not-green
+  fi
+  if ! RUN_LINES=$(printf '%s' "$RUNS_JSON" | "$DEVFLOW_JQ" -rs --arg self "$SELF_WORKFLOW_NAME" \
+        'map(.workflow_runs // []) | add // [] | map(select((.name // "") != $self)) | .[] | ((.status // "") + "|" + (.conclusion // ""))' 2>/dev/null); then
+    echo "derive-review-preconditions: workflow-runs payload could not be parsed (jq failed or a non-object page) — failing closed (ci-not-green)." >&2
+    emit false ci-not-green
+  fi
+  if [ -n "$RUN_LINES" ]; then
+    OTHER_SIGNALS=1
+    while IFS='|' read -r _st _cn; do
+      if [ "$_st" != "completed" ]; then
+        echo "derive-review-preconditions: another workflow run on $HEAD_SHA is still '$_st' — deferring the review (ci-not-green: pending)." >&2
+        emit false ci-not-green
+      fi
+      case "$_cn" in
+        success|skipped|neutral) : ;;  # green: skipped/neutral runs (path filters etc.) must not wedge the review
+        *)
+          echo "derive-review-preconditions: another workflow run on $HEAD_SHA concluded '$_cn' — deferring the review (ci-not-green)." >&2
+          emit false ci-not-green
+          ;;
+      esac
+    done <<<"$RUN_LINES"
+  fi
+
+  # (2) Legacy combined commit status. total_count gates it: with ZERO statuses
+  #     the API reports state "pending", which must not be read as pending CI.
+  if ! STATUS_JSON=$("$DEVFLOW_GH" api "repos/$REPO/commits/$HEAD_SHA/status" 2>/dev/null); then
+    echo "derive-review-preconditions: combined-status query failed for $HEAD_SHA — other-CI state unverifiable; failing closed (ci-not-green)." >&2
+    emit false ci-not-green
+  fi
+  STATUS_TOTAL=$(printf '%s' "$STATUS_JSON" | "$DEVFLOW_JQ" -r '.total_count // empty' 2>/dev/null) || STATUS_TOTAL=""
+  if ! [[ "$STATUS_TOTAL" =~ ^[0-9]+$ ]]; then
+    echo "derive-review-preconditions: combined-status payload carried no numeric total_count ('$STATUS_TOTAL') — failing closed (ci-not-green)." >&2
+    emit false ci-not-green
+  fi
+  if [ "$STATUS_TOTAL" != "0" ]; then
+    OTHER_SIGNALS=1
+    STATUS_STATE=$(printf '%s' "$STATUS_JSON" | "$DEVFLOW_JQ" -r '.state // ""' 2>/dev/null) || STATUS_STATE=""
+    if [ "$STATUS_STATE" != "success" ]; then
+      echo "derive-review-preconditions: combined commit status for $HEAD_SHA is '$STATUS_STATE' ($STATUS_TOTAL status(es)) — deferring the review (ci-not-green)." >&2
+      emit false ci-not-green
+    fi
+  fi
+
+  # (3) External (non-Actions app) check runs. Actions job check-runs are
+  #     already covered at workflow granularity by (1) — and excluding the
+  #     github-actions app here is what keeps this workflow's OWN job
+  #     check-runs (precheck, create_check, the API-posted `Devflow Review`
+  #     run) from gating themselves. The `Devflow Review` name is excluded
+  #     even off-app, defensively.
+  if ! CHECKS_JSON=$("$DEVFLOW_GH" api --paginate "repos/$REPO/commits/$HEAD_SHA/check-runs" 2>/dev/null); then
+    echo "derive-review-preconditions: check-runs query failed for $HEAD_SHA — other-CI state unverifiable; failing closed (ci-not-green)." >&2
+    emit false ci-not-green
+  fi
+  if ! EXT_LINES=$(printf '%s' "$CHECKS_JSON" | "$DEVFLOW_JQ" -rs \
+        'map(.check_runs // []) | add // [] | map(select(((.app.slug // "") != "github-actions") and ((.name // "") != "Devflow Review"))) | .[] | ((.status // "") + "|" + (.conclusion // ""))' 2>/dev/null); then
+    echo "derive-review-preconditions: check-runs payload could not be parsed (jq failed or a non-object page) — failing closed (ci-not-green)." >&2
+    emit false ci-not-green
+  fi
+  if [ -n "$EXT_LINES" ]; then
+    OTHER_SIGNALS=1
+    while IFS='|' read -r _st _cn; do
+      if [ "$_st" != "completed" ]; then
+        echo "derive-review-preconditions: an external check run on $HEAD_SHA is still '$_st' — deferring the review (ci-not-green: pending)." >&2
+        emit false ci-not-green
+      fi
+      case "$_cn" in
+        success|skipped|neutral) : ;;
+        *)
+          echo "derive-review-preconditions: an external check run on $HEAD_SHA concluded '$_cn' — deferring the review (ci-not-green)." >&2
+          emit false ci-not-green
+          ;;
+      esac
+    done <<<"$EXT_LINES"
+  fi
+
+  if [ "$OTHER_SIGNALS" = "0" ]; then
+    echo "derive-review-preconditions: no other CI signal exists for $HEAD_SHA (no non-self workflow runs, no commit statuses, no external check runs) — CI-green precondition satisfied; a CI-less repo is reviewed, never wedged." >&2
+  fi
+fi
+
+emit true ""

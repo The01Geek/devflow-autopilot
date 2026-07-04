@@ -30,10 +30,11 @@ This skill is a **pipeline that ends with a created GitHub issue and an offer to
 1. Run `/devflow:docs-verify --report-only` and capture its findings report
 2. Clarify the user story until the **Definition of Ready** is met (Step 2)
 3. Draft the issue and pass the **no-options gate** (Step 3)
-4. Present the rendered issue, get the user's explicit confirmation, then create it (Step 4, sub-steps 1–5)
-5. After creation succeeds, offer to start implementation (Step 4, sub-step 6)
+4. Steelman the draft against the code, revise, and re-pass the no-options gate (Step 3.5)
+5. Present the rendered issue, get the user's explicit confirmation, then create it (Step 4, sub-steps 1–5)
+6. After creation succeeds, offer to start implementation (Step 4, sub-step 6)
 
-Mark each todo `in_progress` when you start and `completed` only when done. **The issue is created only after the user explicitly confirms the rendered draft (todo 4) — never before.** A finished `/devflow:docs-verify` report is only todo 1. If the user has not yet confirmed, the pipeline is paused at todo 4, not complete; that is a valid waiting state, not a reason to create the issue anyway. Todo 5 runs only after a successful creation — it is the post-creation hand-off, not a gate on creating the issue.
+Mark each todo `in_progress` when you start and `completed` only when done. **The issue is created only after the user explicitly confirms the rendered draft (todo 5) — never before.** A finished `/devflow:docs-verify` report is only todo 1. If the user has not yet confirmed, the pipeline is paused at todo 5, not complete; that is a valid waiting state, not a reason to create the issue anyway. Todo 6 runs only after a successful creation — it is the post-creation hand-off, not a gate on creating the issue.
 
 ## Steps
 
@@ -114,7 +115,21 @@ Follow `references/issue-template.md` for the required section structure, the **
 
 - **No-options gate (run before showing the draft):** re-read the rendered body. Outside the `## 🚫 Blocked` section it must contain **no** unresolved-decision language — no "or", "either", "alternatively", "could", "we might", "TBD", "option", "approach A vs B", "(optional)"-for-undecided, "e.g. X or Y" where X and Y are competing choices. Each acceptance criterion is one concrete unconditional assertion. If you find any such language, you skipped a decision: either ask the user now, or move it to the Blocked section. Do not proceed to Step 4 until the body is clean.
 
-Drafting produces a candidate issue **in your message only** — nothing is posted to GitHub in this step. Posting happens in Step 4, and only after the user confirms.
+Drafting produces a candidate issue **in your message only** — nothing is posted to GitHub in this step. Posting happens in Step 4, and only after the user confirms — but first the draft must survive Step 3.5.
+
+### Step 3.5: Steelman the draft against the code (mandatory, before the user sees it)
+
+*"Steelman this. Did we miss anything?"* — run that challenge against your own draft **every run**, immediately after the no-options gate passes and before Step 4 presents anything. The moment a draft passes the gate is when it looks most finished and is examined least; this step exists because a plausible-reading draft routinely carries claims the code contradicts, and the user should never be the one to catch them.
+
+This is a **code-grounded verification loop, not a re-read**. Ambient context — project memory, the Step 1 findings, your recollection of the codebase — is where the wrong claims *came from*; checking the draft against the same context it was drafted from verifies nothing. Every check below runs against the **actual repository content, via tool calls made now** (targeted `Read`s and `Grep`s — never a full re-exploration; the same premise-verification discipline `references/issue-template.md` defines under *"Verify every load-bearing premise before drafting"*, re-applied to the assembled draft):
+
+1. **Re-read the rendered draft end-to-end as an adversarial reviewer** whose job is to find what is wrong or missing, not to admire what is right.
+2. **Verify each load-bearing claim, file reference, and acceptance criterion against the code.** Every named file/path exists as named (a `Glob`/`ls` per reference); every "the code currently does X" claim is confirmed by reading the code that does X; every AC is checked to be assertable against the code surface it names. Match the verification method to the claim class per the template's discipline; an empty or inconclusive result is **unverified, never confirmed** — rewrite such a claim as an explicitly flagged assumption (the template's `— assumption, confirm before implementing` form) or resolve it now.
+3. **Hunt for what the draft omits**, specifically: **missed acceptance criteria** (behavior the Desired Behavior implies but no AC pins), **missed edge cases** (error paths, empty/absent inputs, concurrent or repeated events), **wrong assumptions** (claims step 2 could not confirm), and **unstated scope** (surfaces the change touches that the draft never mentions — grep the identifiers the draft names for consumers it missed).
+4. **Revise the draft yourself and re-run the Step 3 no-options gate on the revision.** Fixing a false claim or adding a missed AC is your work, done now — do not present the flaws to the user as questions attached to an unrevised draft. If — and only if — the steelman surfaces a genuinely **new unresolved decision fork** (competing behaviors only the user can choose between), route it through the existing Step 2 machinery: ask via the runner's user-question tool, and on disengagement it lands in `## 🚫 Blocked` — no new decision-handling path.
+5. **Log the outcome either way.** Report a one-line summary in your next message — claims/file-refs/ACs checked (count), what was revised, or "steelman: N claims verified against the code, no revisions needed". A silent pass is indistinguishable from a skipped step; the summary line is the evidence it ran.
+
+Only a draft that has survived this step — revised and re-gated if anything was found — proceeds to Step 4.
 
 ### Step 4: Review with the user, then create
 

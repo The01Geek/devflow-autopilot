@@ -33,6 +33,8 @@
   "devflow_review": {
     "verdict_severity_threshold": "critical",
     "live_progress_comment_enabled": true,
+    "require_up_to_date": true,
+    "require_ci_green": true,
     "agent_overrides": {
       "default": { "effort": "high" },
       "devflow:checklist-deduper": { "model": "claude-sonnet-4-6", "effort": "medium" },
