@@ -1,0 +1,44 @@
+{
+  "iter": 2,
+  "started_at": "2026-07-04T15:05:00Z",
+  "fix_commit_sha": "8147f72",
+  "fix_files": ["lib/test/run.sh"],
+  "loop_role": "promoted",
+  "checklist": [],
+  "phase3_dispatched": [],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": true,
+    "engine_self_modifying": true,
+    "checklist_skipped": "failure"
+  },
+  "phase3_findings": [
+    {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "Four original OS-fault site tests vacuous vs per-site wrap (promoted from iter-1 shadow).", "defect_signature": {"file": "lib/test/run.sh", "line_range": [12444, 12483], "kind": "vacuous-pin-not-isolated-from-backstop"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "S-1", "decision": "applied", "commit": "8147f72"}
+  ],
+  "convergence_inputs": {"fixes_applied": 1, "fix_diff_lines": 25, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "telemetry": {"step_3_5": {"calls": 1, "tokens": 20000, "wall_clock_s": 20}, "step_2_6": {"calls": 6, "tokens": 420000, "wall_clock_s": 110}},
+  "shadow": {
+    "ran_at": "2026-07-04T15:10:00Z",
+    "reviewed_sha": "8147f72",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:type-design-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:type-design-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": "failure",
+    "phase3_findings": [
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "changelog-read call-site (_read_text what=changelog) has no AC1-pattern test; shared _read_text wrap already proven by manifest-read + changeset-read.", "defect_signature": {"file": "lib/test/run.sh", "line_range": [12420, 12438], "kind": "wrapped-site-label-unpinned"}},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "no-prior-heading test does not assert entry is below the preamble (ordering unpinned).", "defect_signature": {"file": "lib/test/run.sh", "line_range": [12381, 12382], "kind": "assertion-weaker-than-name"}},
+      {"agent": "devflow:type-design-analyzer", "severity": "Suggestion", "description": "Optional: pin _BUMP_RANK ascending order (patch<minor<major), not just set/length congruence.", "defect_signature": {"file": "lib/test/run.sh", "line_range": [12369, 12370], "kind": "ordering-not-pinned"}},
+      {"agent": "devflow:code-reviewer", "severity": "Suggestion", "description": "manifest read twice (_read_manifest_version then _render_manifest); harmless redundant I/O.", "defect_signature": {"file": "scripts/consolidate-changesets.py", "line_range": [282, 294], "kind": "redundant-read"}}
+    ],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 4, "overlap_with_iter_N": 0, "new": 4, "new_critical": 0, "new_important": 0},
+    "promoted_to_iter_next": false
+  }
+}
