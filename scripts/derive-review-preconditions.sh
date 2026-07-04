@@ -98,6 +98,27 @@ SELF_WORKFLOW_NAME="${SELF_WORKFLOW_NAME:-Devflow Review (auto-trigger)}"
 
 emit() { printf 'should_run=%s\nreason=%s\n' "$1" "$2"; exit 0; }
 
+# Shared green-gate over a stream of "status|conclusion" lines (one signal per
+# line — the single definition of what "green" means for both the Actions-runs
+# and external-check-runs sets). $2 names the signal kind so each deferral
+# breadcrumb stays specific to the set that fired it.
+gate_signal_lines() {  # $1=lines  $2=signal noun for the breadcrumb
+  local _st _cn
+  while IFS='|' read -r _st _cn; do
+    if [ "$_st" != "completed" ]; then
+      echo "derive-review-preconditions: $2 on $HEAD_SHA is still '$_st' — deferring the review (ci-not-green: pending)." >&2
+      emit false ci-not-green
+    fi
+    case "$_cn" in
+      success|skipped|neutral) : ;;  # green: skipped/neutral signals (path filters etc.) must not wedge the review
+      *)
+        echo "derive-review-preconditions: $2 on $HEAD_SHA concluded '$_cn' — deferring the review (ci-not-green)." >&2
+        emit false ci-not-green
+        ;;
+    esac
+  done <<<"$1"
+}
+
 # Both gates off -> unconditional behavior restored; no API query is made.
 if [ "$REQUIRE_UP_TO_DATE" = "false" ] && [ "$REQUIRE_CI_GREEN" = "false" ]; then
   emit true ""
@@ -118,7 +139,10 @@ if [ "$REQUIRE_UP_TO_DATE" != "false" ]; then
     echo "derive-review-preconditions: BASE_BRANCH is empty with the freshness gate enabled — branch freshness unverifiable; failing closed." >&2
     emit false unverifiable
   fi
-  if ! CMP_JSON=$("$DEVFLOW_GH" api "repos/$REPO/compare/$BASE_BRANCH...$HEAD_SHA" 2>/dev/null); then
+  # per_page=1 trims the commit list in the payload; behind_by (all this arm
+  # reads) is present regardless — a long-lived branch's full compare payload
+  # can run to hundreds of KB otherwise.
+  if ! CMP_JSON=$("$DEVFLOW_GH" api "repos/$REPO/compare/$BASE_BRANCH...$HEAD_SHA?per_page=1" 2>/dev/null); then
     echo "derive-review-preconditions: compare query failed for $BASE_BRANCH...$HEAD_SHA — branch freshness unverifiable; failing closed (behind-base). Recoverable via a later event or the Re-run button." >&2
     emit false behind-base
   fi
@@ -151,19 +175,7 @@ if [ "$REQUIRE_CI_GREEN" != "false" ]; then
   fi
   if [ -n "$RUN_LINES" ]; then
     OTHER_SIGNALS=1
-    while IFS='|' read -r _st _cn; do
-      if [ "$_st" != "completed" ]; then
-        echo "derive-review-preconditions: another workflow run on $HEAD_SHA is still '$_st' — deferring the review (ci-not-green: pending)." >&2
-        emit false ci-not-green
-      fi
-      case "$_cn" in
-        success|skipped|neutral) : ;;  # green: skipped/neutral runs (path filters etc.) must not wedge the review
-        *)
-          echo "derive-review-preconditions: another workflow run on $HEAD_SHA concluded '$_cn' — deferring the review (ci-not-green)." >&2
-          emit false ci-not-green
-          ;;
-      esac
-    done <<<"$RUN_LINES"
+    gate_signal_lines "$RUN_LINES" "another workflow run"
   fi
 
   # (2) Legacy combined commit status. total_count gates it: with ZERO statuses
@@ -203,19 +215,7 @@ if [ "$REQUIRE_CI_GREEN" != "false" ]; then
   fi
   if [ -n "$EXT_LINES" ]; then
     OTHER_SIGNALS=1
-    while IFS='|' read -r _st _cn; do
-      if [ "$_st" != "completed" ]; then
-        echo "derive-review-preconditions: an external check run on $HEAD_SHA is still '$_st' — deferring the review (ci-not-green: pending)." >&2
-        emit false ci-not-green
-      fi
-      case "$_cn" in
-        success|skipped|neutral) : ;;
-        *)
-          echo "derive-review-preconditions: an external check run on $HEAD_SHA concluded '$_cn' — deferring the review (ci-not-green)." >&2
-          emit false ci-not-green
-          ;;
-      esac
-    done <<<"$EXT_LINES"
+    gate_signal_lines "$EXT_LINES" "an external check run"
   fi
 
   if [ "$OTHER_SIGNALS" = "0" ]; then

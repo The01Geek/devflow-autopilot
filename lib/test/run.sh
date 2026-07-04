@@ -7754,7 +7754,6 @@ echo '{}'; exit 0
 EOS
 chmod +x "$DRP_STUB"
 
-DRP_ENV_BASE='REPO=o/r HEAD_SHA=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa BASE_BRANCH=main'
 drp() {  # $1=description  $2=expected "<should_run> <reason>"
   local out r s
   out="$(bash "$DRP" 2>/dev/null)"
@@ -9118,16 +9117,20 @@ bare_gate_query_count="$(grep -cE \
   "$REVIEW_WF" || true)"
 assert_eq "first-ready gate: no unfiltered Devflow Review check-run query" \
   "0" "$bare_gate_query_count"
-# (2) All three exactly-once gate queries (first-ready head-SHA, commit-list
-# backstop, and the #304 CI-completion re-trigger) exclude BOTH skipped and
-# neutral check-runs: a #304 precondition deferral posts a neutral "waiting"
-# check on the head, so a gate that only excluded skipped would read the
-# deferral itself as "already reviewed" and wedge e.g. a reopened PR forever.
+# (2) The exactly-once exclusion filter — skipped AND neutral — lives in
+# EXACTLY ONE place: the shared devflow_review_run_count() helper all three
+# exactly-once gates (first-ready head-SHA, commit-list backstop, #304
+# CI-completion re-trigger) call. A #304 precondition deferral posts a neutral
+# "waiting" check on the head, so a gate that only excluded skipped would read
+# the deferral itself as "already reviewed" and wedge e.g. a reopened PR
+# forever; single-sourcing the filter is what keeps the three gates aligned.
 gate_excl_filter_count="$(grep -cE \
   'select\(\.name *== *"Devflow Review" and \.conclusion *!= *"skipped" and \.conclusion *!= *"neutral"\)' \
   "$REVIEW_WF" || true)"
-assert_eq "exactly-once gates: all three queries exclude skipped AND neutral conclusions" \
-  "3" "$gate_excl_filter_count"
+assert_eq "exactly-once gates: skipped+neutral exclusion filter has exactly one definition (shared helper)" \
+  "1" "$gate_excl_filter_count"
+assert_eq "exactly-once gates: all three call sites use the shared helper" \
+  "3" "$(grep -cE '=\$\(devflow_review_run_count ' "$REVIEW_WF" || true)"
 # (2b) No gate query may regress to the skipped-only exclusion (it would count
 # the #304 neutral waiting check as a completed review).
 gate_skipped_only_count="$(grep -cE \

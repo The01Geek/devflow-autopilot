@@ -108,6 +108,13 @@ concurrency:
 
 jobs:
   precheck:
+    # Cheap trigger filter: every merge to the default branch completes a CI
+    # run whose workflow_run event is 'push' with no associated PR — spinning
+    # a full checkout+route job per merge just to no-op. Only PR-shaped CI
+    # completions can satisfy the re-trigger, so filter the rest before the
+    # job starts. (check_suite has no equivalent event field; its route
+    # branch no-ops cheaply on a PR-less head instead.)
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.event == 'pull_request' || github.event.workflow_run.event == 'pull_request_target'
     runs-on: ubuntu-latest
     # Explicit (plan §4 matrix): the first-ready gate reads check-runs and PR
     # commits. On a public repo these are unauth-readable (verified: the gate
@@ -177,7 +184,12 @@ jobs:
           BASE_BRANCH: ${{ steps.extract.outputs.base_branch }}
           REQUIRE_UP_TO_DATE: ${{ steps.extract.outputs.require_up_to_date }}
           REQUIRE_CI_GREEN: ${{ steps.extract.outputs.require_ci_green }}
-          SELF_WORKFLOW_NAME: Devflow Review (auto-trigger)
+          # Derived from the runner context, never a hand-mirrored literal:
+          # a consumer that renames this workflow's name: would otherwise
+          # break self-exclusion silently — the CI-green gate would count
+          # this workflow's own in-progress run as "other CI pending" and
+          # every PR would wedge in a permanent waiting state.
+          SELF_WORKFLOW_NAME: ${{ github.workflow }}
         run: |
           set -euo pipefail
           emit() { echo "$1=$2" >> "$GITHUB_OUTPUT"; }
@@ -216,6 +228,43 @@ jobs:
             emit skip_reason "${pre_reason:-unverifiable}"
             echo "::notice::Devflow Review deferred for PR #$1 at $2 (reason: ${pre_reason:-unverifiable}); a neutral 'waiting' check will be posted and the review auto-re-triggers on the next reviewable event (branch update or CI completion)."
             return 1
+          }
+
+          # Exactly-once counter: prints the number of `Devflow Review`
+          # check-runs on $1 that actually ran or are running. The single
+          # definition of the exclusion filter — skipped (dedupe losers /
+          # deferral no-ops) AND neutral (a #304 "waiting" deferral, or a
+          # cancelled/skipped review job, is not a run — counting it would
+          # wedge e.g. a reopened PR forever). A null conclusion (in-progress
+          # review) passes both exclusions, so a running review still counts.
+          # Value-stream + line count, not per-page `| length`: --paginate
+          # concatenates jq output per page, so `length` would yield a
+          # multi-line count on a >100-check-run commit. Returns 1 with
+          # nothing on stdout on a query error or non-numeric count — the
+          # CALLER fails closed with its own path-specific breadcrumb. The
+          # synchronize cost-guard deliberately does NOT use this (its
+          # narrower `== "success"` filter is a pinned divergence).
+          devflow_review_run_count() {  # $1=commit SHA
+            local _runs _n
+            if ! _runs=$(gh api --paginate \
+                  "repos/$REPO/commits/$1/check-runs" \
+                  --jq '.check_runs[] | select(.name=="Devflow Review" and .conclusion != "skipped" and .conclusion != "neutral") | .id' \
+                  2>/dev/null); then
+              return 1
+            fi
+            _n=$(printf '%s' "$_runs" | grep -c . || true)
+            [[ "$_n" =~ ^[0-9]+$ ]] || return 1
+            printf '%s' "$_n"
+          }
+
+          # Head-SHA → open-PR resolution, shared by the paths whose event
+          # payload carries no (or a detached) PR reference. Uses the core
+          # REST endpoint (repos/*/commits/*/pulls), not the search API —
+          # cheaper, rate-safe, and not eventually-consistent. Prints the PR
+          # number or nothing.
+          resolve_pr_for_head() {  # $1=commit SHA
+            gh api "repos/$REPO/commits/$1/pulls" \
+              --jq '[.[] | select(.state=="open")][0].number // empty' 2>/dev/null || echo ""
           }
 
           # Event-variant dedupe (consulted only on the pull_request paths
@@ -346,8 +395,7 @@ jobs:
               exit 0
             fi
             if [ -z "$PR" ] || [ "$PR" = "null" ]; then
-              PR=$(gh pr list --repo "$REPO" --search "$HEAD" --state open \
-                     --json number --jq '.[0].number' 2>/dev/null || echo "")
+              PR=$(resolve_pr_for_head "$HEAD")
             fi
             if [ -z "$PR" ] || [ "$PR" = "null" ]; then
               echo "::notice::No open PR found for CI-completion head $HEAD; no-op."
@@ -373,21 +421,11 @@ jobs:
               exit 0
             fi
             # Exactly-once: skip when a Devflow Review check already ran or is
-            # running for this head. Excludes skipped (dedupe losers /
-            # deferral no-ops) AND neutral — a neutral check is the #304
-            # "waiting" deferral this path exists to supersede (counting it
-            # would wedge the PR forever). Same value-stream + line-count
-            # idiom as the first-ready gate.
-            if ! _RUNS=$(gh api --paginate \
-                  "repos/$REPO/commits/$HEAD/check-runs" \
-                  --jq '.check_runs[] | select(.name=="Devflow Review" and .conclusion != "skipped" and .conclusion != "neutral") | .id' \
-                  2>/dev/null); then
-              echo "::warning::Check-run query failed for $HEAD; failing closed (no CI-completion re-trigger)."
-              exit 0
-            fi
-            EXISTING=$(printf '%s' "$_RUNS" | grep -c . || true)
-            if ! [[ "$EXISTING" =~ ^[0-9]+$ ]]; then
-              echo "::warning::Non-numeric check-run count ('$EXISTING') for $HEAD; failing closed (no CI-completion re-trigger)."
+            # running for this head (devflow_review_run_count owns the
+            # skipped+neutral exclusion filter — a neutral check is the #304
+            # "waiting" deferral this path exists to supersede).
+            if ! EXISTING=$(devflow_review_run_count "$HEAD"); then
+              echo "::warning::Check-run query failed (or non-numeric count) for $HEAD; failing closed (no CI-completion re-trigger)."
               exit 0
             fi
             if [ "$EXISTING" != "0" ]; then
@@ -511,21 +549,10 @@ jobs:
           # do not align them. lib/test/run.sh pins this divergence.
           # A truncated/empty body that still exits 0 yields a non-numeric
           # count; treating that as 0 would fail OPEN (re-review on a repeat
-          # toggle), which §0 forbids. Require a bare integer or fail closed.
-          # Value-stream + line count, not per-page `| length` (see the
-          # synchronize cost-guard above): --paginate concatenates jq
-          # output per page, so `length` would yield a multi-line count
-          # on a >100-check-run commit.
-          if ! _RUNS=$(gh api --paginate \
-                "repos/$REPO/commits/$HEAD/check-runs" \
-                --jq '.check_runs[] | select(.name=="Devflow Review" and .conclusion != "skipped" and .conclusion != "neutral") | .id' \
-                2>/dev/null); then
-            echo "::warning::Check-run query failed for $HEAD; failing closed (no auto-review). Use the Re-run button if a review is needed."
-            exit 0
-          fi
-          EXISTING=$(printf '%s' "$_RUNS" | grep -c . || true)
-          if ! [[ "$EXISTING" =~ ^[0-9]+$ ]]; then
-            echo "::warning::Non-numeric check-run count ('$EXISTING') for $HEAD; failing closed (no auto-review)."
+          # toggle), which §0 forbids — devflow_review_run_count returns 1
+          # on that shape and on a query error, so the caller fails closed.
+          if ! EXISTING=$(devflow_review_run_count "$HEAD"); then
+            echo "::warning::Check-run query failed (or non-numeric count) for $HEAD; failing closed (no auto-review). Use the Re-run button if a review is needed."
             exit 0
           fi
           if [ "$EXISTING" = "0" ]; then
@@ -537,15 +564,8 @@ jobs:
               exit 0
             fi
             for sha in $COMMITS; do
-              if ! _RUNS=$(gh api --paginate "repos/$REPO/commits/$sha/check-runs" \
-                    --jq '.check_runs[] | select(.name=="Devflow Review" and .conclusion != "skipped" and .conclusion != "neutral") | .id' \
-                    2>/dev/null); then
-                echo "::warning::Check-run query failed for commit $sha; failing closed (no auto-review). Use the Re-run button if a review is needed."
-                exit 0
-              fi
-              n=$(printf '%s' "$_RUNS" | grep -c . || true)
-              if ! [[ "$n" =~ ^[0-9]+$ ]]; then
-                echo "::warning::Non-numeric check-run count ('$n') for commit $sha; failing closed (no auto-review)."
+              if ! n=$(devflow_review_run_count "$sha"); then
+                echo "::warning::Check-run query failed (or non-numeric count) for commit $sha; failing closed (no auto-review). Use the Re-run button if a review is needed."
                 exit 0
               fi
               if [ "$n" != "0" ]; then
