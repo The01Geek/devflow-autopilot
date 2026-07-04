@@ -1,6 +1,0 @@
----
-bump: patch
-type: Changed
----
-
-- **DevFlow reviews now post under a dedicated `DevFlow-Reviewer` GitHub App identity, so the review path never collides with the PR author.** GitHub forbids requesting-changes-on / approving your own PR, so when the review agent ran under the same primary `devflow-autopilot` App that authors PRs, Phase 4.4's `gh pr review --request-changes`/`--approve` failed and no visible formal review was recorded (the merge still blocked via the required `Devflow Review` check). Every review path — the automated runner (`.github/workflows/devflow-runner.yml`) and the manual `/devflow:review` command (`.github/workflows/devflow.yml`) — now mints a downscoped installation token from a separate `DevFlow-Reviewer` App (repository variable `DEVFLOW_REVIEWER_APP_ID` + secret `DEVFLOW_REVIEWER_PRIVATE_KEY`, permissions `contents:read`/`issues:read`/`pull-requests:write`/`actions:read`) when the variable is set, otherwise `github-actions[bot]` (`GITHUB_TOKEN`) — and never the primary app token. `/devflow:pr-description` and `/devflow:review-and-fix` keep the primary App token. **Upgrade note:** existing single-app consumers' review attribution moves from their DevFlow App to `github-actions[bot]` until they configure `DevFlow-Reviewer`. See `docs/cloud-setup.md`. (#303)
