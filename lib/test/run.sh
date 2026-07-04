@@ -7879,6 +7879,16 @@ REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=true REQUIRE_CI_GREEN
   DRP_STATUS='{"state":"success","total_count":1}' \
   DRP_CHECKS='{"check_runs":[{"name":"ext","app":{"slug":"circleci"},"status":"completed","conclusion":"success"}]}' \
   drp "#304 both gates enabled, all signals green -> true (full happy path)" "true "
+# Combined-status payload with a non-numeric / absent total_count (adversarial
+# shape) -> unverifiable. Mirrors the behind_by 'no numeric value' arm above:
+# this is the total_count parse arm (script's STATUS_TOTAL guard), distinct from
+# the no-string-state arm below (which supplies a numeric total_count).
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_STATUS='{"state":"pending"}' \
+  drp "#304 combined status without a numeric total_count -> false unverifiable (shape fails closed)" "false unverifiable"
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_STATUS='{"state":"pending"}' \
+  drp_stderr "#304 non-numeric total_count emits the specific 'no numeric total_count' breadcrumb" "combined-status payload carried no numeric total_count"
 # Statuses exist but carry no string state (adversarial shape) -> unverifiable,
 # never a positively-asserted ci-not-green.
 REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
