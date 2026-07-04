@@ -79,10 +79,12 @@ jobs:
         # `consolidate-changesets.py` fails loud (non-zero, naming the file) on a malformed
         # changeset, so the step goes red rather than silently skipping it or defaulting the
         # version; with no pending changesets it is a clean no-op (no commit, exit 0). The
-        # `|| exit 1` on the invocation makes that fail-loud explicit rather than relying on
-        # the runner's implicit `set -e`: the consolidator fails *closed* (no writes on a
-        # malformed changeset → clean tree), so without the explicit exit a fall-through would
-        # hit the clean-tree guard below and exit 0 green, inverting the contract. The
+        # explicit strict-shell mode (`set -e -u -o pipefail`) plus the
+        # `if python3 …; then :; else … exit 1; fi` exit-status check make that fail-loud
+        # explicit rather than relying on the runner's
+        # implicit default shell: the consolidator fails *closed* (no writes on a malformed
+        # changeset → clean tree), so without the explicit check a fall-through would hit the
+        # clean-tree guard below and exit 0 green, inverting the contract. The
         # subject prefix `chore: bump version` is a load-bearing contract with docs-release-notes
         # Step 4b (kept verbatim; pinned in lib/test/run.sh). Staging is explicit (never
         # `git add -A`) so only the consolidation's own outputs land on main.

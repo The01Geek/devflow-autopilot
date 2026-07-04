@@ -12481,6 +12481,33 @@ if [ "$(id -u)" -ne 0 ]; then
       "$(grep -qF 'a.md' "$CSD/out" && echo yes || echo no)"
   fi
   chmod 755 "$CSD/.changeset" 2>/dev/null || true; rm -rf "$CSD"
+  # _read_text manifest read: an unreadable plugin.json (read fails before any render/write).
+  CSD="$(cs_repo)"; printf -- '---\nbump: patch\n---\n\n- x (#298)\n' > "$CSD/.changeset/a.md"
+  chmod 000 "$CSD/.claude-plugin/plugin.json"
+  if [ ! -r "$CSD/.claude-plugin/plugin.json" ]; then
+    python3 "$CS_SCRIPT" --root "$CSD" --date 2026-07-04 >"$CSD/out" 2>&1; CS_RC=$?
+    assert_eq "#298 OS-fault (manifest read): exit 2" "2" "$CS_RC"
+    # Pin the PER-SITE wrap (AC1), not the removal-proof backstop (AC2): assert the clean
+    # `plugin.json: cannot read …` diagnostic AND that it did NOT fall through to the
+    # backstop's `unhandled OS error` message (whose {exc} would embed the path too — so a
+    # bare filename match alone is vacuous w.r.t. the per-site wrap).
+    assert_eq "#298 OS-fault (manifest read): per-site diagnostic names plugin.json (not backstop)" "yes" \
+      "$(grep -qF 'plugin.json: cannot read' "$CSD/out" && ! grep -qF 'unhandled OS error' "$CSD/out" && echo yes || echo no)"
+  fi
+  chmod 644 "$CSD/.claude-plugin/plugin.json" 2>/dev/null || true; rm -rf "$CSD"
+  # _write_text changelog write: a read-only CHANGELOG.md (read/render succeeds, write fails —
+  # manifest write lands first, so this exercises the changelog write open specifically).
+  CSD="$(cs_repo)"; printf -- '---\nbump: patch\n---\n\n- x (#298)\n' > "$CSD/.changeset/a.md"
+  chmod 444 "$CSD/CHANGELOG.md"
+  if [ ! -w "$CSD/CHANGELOG.md" ]; then
+    python3 "$CS_SCRIPT" --root "$CSD" --date 2026-07-04 >"$CSD/out" 2>&1; CS_RC=$?
+    assert_eq "#298 OS-fault (changelog write): exit 2" "2" "$CS_RC"
+    # Per-site wrap (AC1), not the backstop (AC2): assert the clean `CHANGELOG.md: cannot
+    # write …` diagnostic AND absence of the `unhandled OS error` backstop message.
+    assert_eq "#298 OS-fault (changelog write): per-site diagnostic names CHANGELOG.md (not backstop)" "yes" \
+      "$(grep -qF 'CHANGELOG.md: cannot write' "$CSD/out" && ! grep -qF 'unhandled OS error' "$CSD/out" && echo yes || echo no)"
+  fi
+  chmod 644 "$CSD/CHANGELOG.md" 2>/dev/null || true; rm -rf "$CSD"
 fi
 
 # AC: top-level `except OSError` backstop — an OS fault at a site that is NOT individually

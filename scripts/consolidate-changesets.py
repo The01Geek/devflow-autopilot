@@ -22,8 +22,11 @@ unknown ``type``, or an empty prose body) aborts with exit 2 and a diagnostic na
 offending file. Everything is **validated before any file is modified** — all changesets are
 parsed *and* both output files (``plugin.json``, ``CHANGELOG.md``) are read and their new
 contents assembled in memory *before* the first write, so a malformed changeset or an
-output-side read/parse fault never causes a silent skip, a partial bump, or a window where
-one output is rewritten but the other is not. Every OS-level fault (a read, write, or delete)
+output-side read/parse fault never causes a silent skip or a partial bump — it aborts before
+any write. (The two writes themselves are sequential and non-atomic, so a *write*-side fault
+between them can still leave one output rewritten and the other not; the workflow commits from
+a fresh ``git reset --hard origin/main`` checkout on each attempt, so a half-write is never
+committed.) Every OS-level fault (a read, write, or delete)
 is wrapped into the same name-the-file exit-2 path — a top-level ``except OSError`` backstop in
 ``main`` catches any site not individually wrapped — so the tool never exits 1 with a bare
 ``OSError`` traceback. Zero pending changesets is a clean no-op: nothing is written and the
