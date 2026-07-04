@@ -9219,10 +9219,42 @@ assert_eq "#304 extraction expression: absent key defaults true" "true" \
   "$(echo '{}' | jq -r '(try .devflow_review.require_ci_green catch null) | if type == "boolean" then . else true end')"
 assert_eq "#304 extraction expression: scalar-corrupted section defaults true" "true" \
   "$(echo '{"devflow_review":"oops"}' | jq -r '(try .devflow_review.require_ci_green catch null) | if type == "boolean" then . else true end')"
-# (c4) The precheck job's workflow_run event filter survives (drops push-CI
-# completions before spinning a runner; PR-shaped events pass).
-assert_eq "#304 precheck if: filters workflow_run to PR-shaped events" "yes" \
-  "$(grep -qF "github.event_name != 'workflow_run' || github.event.workflow_run.event == 'pull_request' || github.event.workflow_run.event == 'pull_request_target'" "$REVIEW_WF" && echo yes || echo no)"
+# (c4) The precheck job's workflow_run event filter survives — and 'push'
+# MUST be among the allowed events: many consumer repos run CI on branch
+# pushes, and a filter that drops push completions silently disables the
+# CI-completion re-trigger for them.
+assert_eq "#304 precheck if: workflow_run filter passes pull_request/pull_request_target/push" "yes" \
+  "$(grep -qF "github.event_name != 'workflow_run' || github.event.workflow_run.event == 'pull_request' || github.event.workflow_run.event == 'pull_request_target' || github.event.workflow_run.event == 'push'" "$REVIEW_WF" && echo yes || echo no)"
+# (c5) The single most load-bearing wiring fact: the three gated route paths
+# actually CALL the preconditions gate (with the || exit 0 that turns a
+# deferral into a clean skip instead of a set -e step failure). Deleting one
+# call silently disables the feature on that path while every script test
+# stays green.
+assert_eq "#304 all three route paths call preconditions_ok with the deferral exit" "3" \
+  "$(grep -cF 'preconditions_ok "$PR" "$HEAD" || exit 0' "$REVIEW_WF" || true)"
+# (c6) The precheck permissions the precondition queries depend on: without
+# actions:read the runs query 403s; without statuses:read the combined-status
+# query 403s on a private repo — either way the script fails closed
+# ci-not-green on every event and the review is permanently deferred.
+assert_eq "#304 precheck grants actions: read" "yes" \
+  "$(sed -n '/^  precheck:/,/^  create_check:/p' "$REVIEW_WF" | grep -qE '^      actions: read' && echo yes || echo no)"
+assert_eq "#304 precheck grants statuses: read" "yes" \
+  "$(sed -n '/^  precheck:/,/^  create_check:/p' "$REVIEW_WF" | grep -qE '^      statuses: read' && echo yes || echo no)"
+# (c7) The check_suite self-loop guard (defensive twin of the workflow_run
+# one) and the on: trigger blocks themselves — deleting a trigger disables
+# the CI-completion re-trigger entirely while every other pin stays green.
+assert_eq "#304 check_suite route carries the github-actions app guard" "yes" \
+  "$(grep -qF '"$CS_APP" = "github-actions"' "$REVIEW_WF" && echo yes || echo no)"
+assert_eq "#304 on: block declares the workflow_run trigger" "yes" \
+  "$(sed -n '/^on:/,/^permissions:/p' "$REVIEW_WF" | grep -qE '^  workflow_run:' && echo yes || echo no)"
+assert_eq "#304 on: block declares the check_suite trigger" "yes" \
+  "$(sed -n '/^on:/,/^permissions:/p' "$REVIEW_WF" | grep -qE '^  check_suite:' && echo yes || echo no)"
+# (c8) resolve_pr_for_head distinguishes BOTH failure arms (query and parse)
+# from a genuine no-PR result — the misattribution breadcrumbs are pinned.
+assert_eq "#304 resolve_pr_for_head pins the query-failure misattribution breadcrumb" "yes" \
+  "$(grep -qF 'the real cause is the query, not an absent PR' "$REVIEW_WF" && echo yes || echo no)"
+assert_eq "#304 resolve_pr_for_head pins the parse-failure misattribution breadcrumb" "yes" \
+  "$(grep -qF 'the real cause is the parse, not an absent PR' "$REVIEW_WF" && echo yes || echo no)"
 # (d) The workflow_run self-trigger guard compares against the workflow's own
 # name (and the on: workflows list must not name it).
 assert_eq "#304 workflow_run route carries the self-trigger guard" "yes" \

@@ -113,13 +113,16 @@ concurrency:
 
 jobs:
   precheck:
-    # Cheap trigger filter: every merge to the default branch completes a CI
-    # run whose workflow_run event is 'push' with no associated PR — spinning
-    # a full checkout+route job per merge just to no-op. Only PR-shaped CI
-    # completions can satisfy the re-trigger, so filter the rest before the
-    # job starts. (check_suite has no equivalent event field; its route
+    # Cheap trigger filter: drop workflow_run completions whose underlying
+    # event can never be PR CI (schedule, workflow_dispatch, …) before
+    # spinning a runner. 'push' MUST pass: many consumer repos run their CI
+    # on branch pushes, and filtering it out would silently disable the
+    # CI-completion re-trigger for them (the route step's PR-resolution +
+    # stale-head + exactly-once guards make a push completion safe — a
+    # merge-to-default push completion resolves no open PR and no-ops in
+    # one API call). (check_suite has no equivalent event field; its route
     # branch no-ops cheaply on a PR-less head instead.)
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.event == 'pull_request' || github.event.workflow_run.event == 'pull_request_target'
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.event == 'pull_request' || github.event.workflow_run.event == 'pull_request_target' || github.event.workflow_run.event == 'push'
     runs-on: ubuntu-latest
     # Explicit (plan §4 matrix): the first-ready gate reads check-runs and PR
     # commits. On a public repo these are unauth-readable (verified: the gate
@@ -296,7 +299,15 @@ jobs:
               return 0
             fi
             [ "$_err" = /dev/null ] || rm -f "$_err"
-            printf '%s' "$_resp" | jq -r '[.[] | select(.state=="open")][0].number // empty' 2>/dev/null || echo ""
+            # The PARSE arm gets the same failure-vs-empty distinction as the
+            # query arm: a truncated/non-array success payload must not read
+            # as a factual "no open PR".
+            local _num
+            if ! _num=$(printf '%s' "$_resp" | jq -r '[.[] | select(.state=="open")][0].number // empty' 2>/dev/null); then
+              echo "::warning::commits/$1/pulls payload could not be parsed; failing closed — the caller reports no PR, but the real cause is the parse, not an absent PR." >&2
+              _num=""
+            fi
+            printf '%s' "$_num"
           }
 
           # Event-variant dedupe (consulted only on the pull_request paths
@@ -665,7 +676,7 @@ jobs:
               ci-not-green) TITLE='Devflow review waiting: other CI not green' ;;
               *)            TITLE='Devflow review waiting: precondition not met' ;;
             esac
-            SUMMARY='This PR is not yet in a reviewable state, so the review was deferred (not run). It auto-re-triggers when the branch is updated or the other CI completes — no manual action needed. Click Re-run on this check to force a review of the current HEAD.'
+            SUMMARY='This PR is not yet in a reviewable state, so the review was deferred (not run). It auto-re-triggers when the branch is updated, or when a CI workflow named in this workflow'"'"'s workflow_run trigger list (or an external check_suite CI) completes. If your CI workflow is not in that list, or a signal is permanently stuck (a cancelled sibling run, a forever-pending status), click Re-run on this check once CI is green to force a review of the current HEAD.'
             STATUS_ARGS=(-f status='completed' -f conclusion='neutral')
           else
             TITLE='Devflow review running'

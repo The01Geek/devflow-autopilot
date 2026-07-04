@@ -10,7 +10,7 @@ source of truth — this doc records the *why*.
 |---|---|---|
 | `devflow.yml` (light path) | `/devflow:review`, `/devflow:review-and-fix`, `/devflow:pr-description` | `issue_comment[created]`, `pull_request_review_comment[created]`, `pull_request_review[submitted]` |
 | `devflow-implement.yml` (heavy path) | `/devflow:implement` | `issue_comment[created]` |
-| `devflow-review.yml` | automated review | PR lifecycle + `check_run[rerequested]` |
+| `devflow-review.yml` | automated review | PR lifecycle + `check_run[rerequested]` + `workflow_run`/`check_suite` `[completed]` (CI-completion re-trigger for deferred reviews — see the preconditions note in `DEVFLOW_SYSTEM_OVERVIEW.md` §14; the `workflow_run` `workflows:` list must name the repo's CI workflows) |
 
 Both command listeners run `claude-code-action` in **agent mode** with a
 synthesised prompt, so they need no `@claude` phrase. Every gate `if:` branch
