@@ -12447,8 +12447,11 @@ if [ "$(id -u)" -ne 0 ]; then
   if [ ! -r "$CSD/.changeset/a.md" ]; then
     python3 "$CS_SCRIPT" --root "$CSD" --date 2026-07-04 >"$CSD/out" 2>&1; CS_RC=$?
     assert_eq "#298 OS-fault (changeset read): exit 2" "2" "$CS_RC"
-    assert_eq "#298 OS-fault (changeset read): names a.md" "yes" \
-      "$(grep -qF 'a.md' "$CSD/out" && echo yes || echo no)"
+    # Pin the PER-SITE wrap (AC1), not the removal-proof backstop (AC2): assert the clean
+    # `…/a.md: cannot read changeset` diagnostic AND absence of the backstop's `unhandled OS
+    # error` message (whose {exc} embeds the path too, so a bare filename match is vacuous).
+    assert_eq "#298 OS-fault (changeset read): per-site diagnostic names a.md (not backstop)" "yes" \
+      "$(grep -qF 'a.md: cannot read' "$CSD/out" && ! grep -qF 'unhandled OS error' "$CSD/out" && echo yes || echo no)"
   fi
   chmod 644 "$CSD/.changeset/a.md" 2>/dev/null || true; rm -rf "$CSD"
   # os.listdir glob: an unlistable .changeset directory.
@@ -12457,8 +12460,10 @@ if [ "$(id -u)" -ne 0 ]; then
   if [ ! -r "$CSD/.changeset" ]; then
     python3 "$CS_SCRIPT" --root "$CSD" --date 2026-07-04 >"$CSD/out" 2>&1; CS_RC=$?
     assert_eq "#298 OS-fault (listdir): exit 2" "2" "$CS_RC"
-    assert_eq "#298 OS-fault (listdir): names the .changeset dir" "yes" \
-      "$(grep -qF '.changeset' "$CSD/out" && echo yes || echo no)"
+    # Per-site wrap (AC1), not the backstop (AC2): assert the `…/.changeset: cannot list
+    # changesets` diagnostic AND absence of the backstop's `unhandled OS error` message.
+    assert_eq "#298 OS-fault (listdir): per-site diagnostic names the .changeset dir (not backstop)" "yes" \
+      "$(grep -qF '.changeset: cannot list changesets' "$CSD/out" && ! grep -qF 'unhandled OS error' "$CSD/out" && echo yes || echo no)"
   fi
   chmod 755 "$CSD/.changeset" 2>/dev/null || true; rm -rf "$CSD"
   # _write_text manifest write: a read-only plugin.json (readable so render succeeds, write fails).
@@ -12467,8 +12472,10 @@ if [ "$(id -u)" -ne 0 ]; then
   if [ ! -w "$CSD/.claude-plugin/plugin.json" ]; then
     python3 "$CS_SCRIPT" --root "$CSD" --date 2026-07-04 >"$CSD/out" 2>&1; CS_RC=$?
     assert_eq "#298 OS-fault (manifest write): exit 2" "2" "$CS_RC"
-    assert_eq "#298 OS-fault (manifest write): names plugin.json" "yes" \
-      "$(grep -qF 'plugin.json' "$CSD/out" && echo yes || echo no)"
+    # Per-site wrap (AC1), not the backstop (AC2): assert the `…/plugin.json: cannot write`
+    # diagnostic AND absence of the backstop's `unhandled OS error` message.
+    assert_eq "#298 OS-fault (manifest write): per-site diagnostic names plugin.json (not backstop)" "yes" \
+      "$(grep -qF 'plugin.json: cannot write' "$CSD/out" && ! grep -qF 'unhandled OS error' "$CSD/out" && echo yes || echo no)"
   fi
   chmod 644 "$CSD/.claude-plugin/plugin.json" 2>/dev/null || true; rm -rf "$CSD"
   # os.remove delete loop: a non-writable .changeset dir (listdir/read OK, remove fails).
@@ -12477,8 +12484,10 @@ if [ "$(id -u)" -ne 0 ]; then
   if [ ! -w "$CSD/.changeset" ]; then
     python3 "$CS_SCRIPT" --root "$CSD" --date 2026-07-04 >"$CSD/out" 2>&1; CS_RC=$?
     assert_eq "#298 OS-fault (changeset delete): exit 2" "2" "$CS_RC"
-    assert_eq "#298 OS-fault (changeset delete): names a.md" "yes" \
-      "$(grep -qF 'a.md' "$CSD/out" && echo yes || echo no)"
+    # Per-site wrap (AC1), not the backstop (AC2): assert the `…/a.md: cannot delete consumed
+    # changeset` diagnostic AND absence of the backstop's `unhandled OS error` message.
+    assert_eq "#298 OS-fault (changeset delete): per-site diagnostic names a.md (not backstop)" "yes" \
+      "$(grep -qF 'a.md: cannot delete consumed changeset' "$CSD/out" && ! grep -qF 'unhandled OS error' "$CSD/out" && echo yes || echo no)"
   fi
   chmod 755 "$CSD/.changeset" 2>/dev/null || true; rm -rf "$CSD"
   # _read_text manifest read: an unreadable plugin.json (read fails before any render/write).
