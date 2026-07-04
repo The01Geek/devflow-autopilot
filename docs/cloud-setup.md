@@ -195,17 +195,20 @@ claude-job fallback creation running under the App token is harmless). The
 stale-rejection housekeeping runs inside the review agent, so it uses whichever
 token the runner holds (the downscoped DevFlow-Reviewer token when configured — its
 dismissal needs only `pull-requests: write`, and dismissal works cross-identity).
-This fail-loud contract now covers every site,
-including the read-only review run and the writers' `gate` jobs: with a broken App
-configured, even the trigger-reaction job fails rather than silently posting as
+This fail-loud contract covers every **primary-App** site — the writers' `gate`
+jobs and the trigger-reaction/notice jobs: with a broken primary App configured,
+even the trigger-reaction job fails rather than silently posting as
 `github-actions[bot]` — fix the App's key/permissions, or unset `DEVFLOW_APP_ID` to
-restore the default-token behavior.
+restore the default-token behavior. The read-only review run has the same fail-loud
+contract, but under its own `DEVFLOW_REVIEWER_APP_ID` (unset *that* to restore the
+review run's default token) — see the DevFlow-Reviewer section below.
 
 ### The dedicated DevFlow-Reviewer app (review identity)
 
 GitHub forbids **requesting changes on — or approving — your own pull request**.
-DevFlow's review agent runs under the same identity that DevFlow uses to *author*
-PRs (the primary App above, or `github-actions[bot]`), so Phase 4.4's
+Without a dedicated reviewer identity, DevFlow's review agent would run under the
+same identity that DevFlow uses to *author* PRs (the primary App above, or
+`github-actions[bot]`), so Phase 4.4's
 `gh pr review --request-changes` / `--approve` would be a forbidden self-review:
 the merge stays blocked by the required `Devflow Review` status check, but no
 **visible** formal review (`reviewDecision`) is recorded. To restore the visible
