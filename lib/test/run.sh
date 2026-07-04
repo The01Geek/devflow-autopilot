@@ -8571,12 +8571,13 @@ for site in "${REVIEWER_SITES[@]}"; do
     assert_eq "reviewer-token: $f.yml '$name' declares $p" "1" \
       "$(printf '%s\n' "$blk" | grep -cF "$p" || true)"
   done
+  # "declares exactly 4 permission-* inputs" + the four named-perm pins above
+  # already make permission-contents: write and permission-workflows provably
+  # absent (flipping contents:read→write fails the named pin; adding workflows
+  # makes the count 5) — so no separate negative pin is needed, matching the
+  # APP_SITES loop's count-based house style for downscoped sites.
   assert_eq "reviewer-token: $f.yml '$name' declares exactly 4 permission-* inputs" "4" \
     "$(printf '%s\n' "$blk" | grep -cE '^[[:space:]]*permission-[a-z-]+:' || true)"
-  assert_eq "reviewer-token: $f.yml '$name' has no permission-contents: write" "0" \
-    "$(printf '%s\n' "$blk" | grep -cF 'permission-contents: write' || true)"
-  assert_eq "reviewer-token: $f.yml '$name' has no permission-workflows" "0" \
-    "$(printf '%s\n' "$blk" | grep -cF 'permission-workflows' || true)"
 done
 
 # Explicit write-widening absence pins (belt to the exact-count braces above —
