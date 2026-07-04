@@ -11920,8 +11920,8 @@ assert_pin_unique "#183 docs-release-notes SKILL resolves changelog_file via con
 # bump happened — it then selects the CHANGELOG section by the `## [version]` heading whose
 # version is read from the manifest, never from the commit subject. Since #290 the PRODUCER of
 # that subject is the merge-time consolidation Action (.github/workflows/version-consolidate.yml,
-# installed there by #294 — wired to scripts/consolidate-changesets.py), not an in-PR bump; the
-# implement prompt-extension still
+# wired to scripts/consolidate-changesets.py), not an in-PR bump; the implement prompt-extension
+# still
 # documents the contract so the two stay lockstepped. If any of them renames the prefix without
 # the others, Step 4b sees no bump and silently no-ops the reconciliation it exists to perform
 # (the fail-open the PR #187 review flagged). Pin the literal across producer + consumer + doc.
@@ -12138,10 +12138,8 @@ assert_eq "#290 idempotent rerun: CHANGELOG unchanged" "$CS_CL1" "$(cat "$CSD/CH
 rm -rf "$CSD"
 
 # Coupled invariant: the merge-time workflow wires the consolidator and pushes on main. The
-# YAML now lives at .github/workflows/version-consolidate.yml (installed from its former ci/
-# staging path by #294 — the DevFlow bot token cannot push under .github/workflows/ without the
-# `workflows` permission, so a maintainer did the `git mv`); it is content-pinned here regardless
-# of install location.
+# YAML lives at .github/workflows/version-consolidate.yml; it is content-pinned here regardless
+# of its path.
 CS_WF="$FDROOT/.github/workflows/version-consolidate.yml"
 assert_eq "#290 version-consolidate workflow exists (.github/workflows/)" "yes" "$([ -f "$CS_WF" ] && echo yes || echo no)"
 assert_pin_unique "#290 workflow triggers on push to main" \
