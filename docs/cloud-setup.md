@@ -158,7 +158,9 @@ The App must be **installed on the repo** with **`Contents: write`**,
 **`Workflows: write`** (the writers' push path — `Workflows: write` alone cannot
 commit, and `Contents: write` alone hits the original `workflows`-permission
 refusal), plus **`Pull requests: write`**, **`Issues: write`**, and
-**`Actions: read`** (the review/reaction/notice sites below). Set the variable +
+**`Actions: read`** (the reaction/notice sites below, and the writers' CI reads).
+The formal-review posts are **not** on this App — they run under the separate
+DevFlow-Reviewer App (see below). Set the variable +
 secret under **Settings → Secrets and variables → Actions** (the App ID is a
 *variable*, the private key a *secret*).
 
@@ -170,9 +172,10 @@ ignores the job's `permissions:` block):
 
 | Site | Scope | Can |
 |---|---|---|
-| Writers' agent (`devflow-implement.yml` / `devflow.yml` `command`) | full installation scope | push, incl. `.github/workflows/` files |
-| Review agent (`devflow-runner.yml`) | `contents: read`, `issues: read`, `pull-requests: write`, `actions: read` | read the repo/issue/CI; post comments, reviews, approvals, rejections — **cannot push** |
+| Writers' agent (`devflow-implement.yml` / `devflow.yml` `command` for `/devflow:pr-description` + `/devflow:review-and-fix`) | full installation scope | push, incl. `.github/workflows/` files |
 | Trigger reactions + notices (`devflow.yml` / `devflow-implement.yml` `gate`, `devflow.yml` `review_dedupe`) | `issues: write` and/or `pull-requests: write` | add reactions, post notice comments — nothing more |
+
+The **review agent** (`devflow-runner.yml`'s automated review, and `devflow.yml`'s manual `/devflow:review` command) is the one exception: it runs under a **separate** `DevFlow-Reviewer` App, not the primary one — see [The dedicated DevFlow-Reviewer app](#the-dedicated-devflow-reviewer-app-review-identity) below.
 
 Every mint step is gated on `vars.DEVFLOW_APP_ID != ''`, so it is skipped when the
 variable is unset and each consumer falls back to `GITHUB_TOKEN`. A
@@ -185,16 +188,63 @@ workpad comment, which is *created* on `GITHUB_TOKEN` by the gate job (detection
 is marker-based — `<!-- devflow:workpad -->` — never author-based, so the
 claude-job fallback creation running under the App token is harmless). The
 stale-rejection housekeeping runs inside the review agent, so it uses whichever
-token the runner holds (the downscoped App token when configured — its dismissal
-needs only `pull-requests: write`, and dismissal works cross-identity). One
-same-identity caveat: GitHub rejects self-approval, so on a PR *created by the
-App* (a cloud `/devflow:implement` run with the App configured) the review's
-`--approve` cannot come from the same App identity — the verdict still posts, but
-a "required approving reviews" rule needs a distinct reviewer identity there. This fail-loud contract now covers every site,
+token the runner holds (the downscoped DevFlow-Reviewer token when configured — its
+dismissal needs only `pull-requests: write`, and dismissal works cross-identity).
+This fail-loud contract now covers every site,
 including the read-only review run and the writers' `gate` jobs: with a broken App
 configured, even the trigger-reaction job fails rather than silently posting as
 `github-actions[bot]` — fix the App's key/permissions, or unset `DEVFLOW_APP_ID` to
 restore the default-token behavior.
+
+### The dedicated DevFlow-Reviewer app (review identity)
+
+GitHub forbids **requesting changes on — or approving — your own pull request**.
+DevFlow's review agent runs under the same identity that DevFlow uses to *author*
+PRs (the primary App above, or `github-actions[bot]`), so Phase 4.4's
+`gh pr review --request-changes` / `--approve` would be a forbidden self-review:
+the merge stays blocked by the required `Devflow Review` status check, but no
+**visible** formal review (`reviewDecision`) is recorded. To restore the visible
+formal review, run the review agent under a **dedicated second GitHub App**,
+**`DevFlow-Reviewer`**, whose identity is distinct from the PR author.
+
+| Kind | Name | Value |
+|---|---|---|
+| Repository **variable** | `DEVFLOW_REVIEWER_APP_ID` | The DevFlow-Reviewer App's ID (or client ID). |
+| Repository **secret** | `DEVFLOW_REVIEWER_PRIVATE_KEY` | The DevFlow-Reviewer App's PEM private key. |
+
+Create and install a second GitHub App on the repo with **`Contents: read`**,
+**`Issues: read`**, **`Pull requests: write`**, and **`Actions: read`** — the
+downscoped review permission set (it reads the repo/issue/CI and posts comments,
+reviews, approvals, and rejections; it **cannot push**). Set the variable + secret
+under **Settings → Secrets and variables → Actions**, mirroring the primary-App
+convention.
+
+**Review-identity invariant.** Every review path — the automated runner
+(`devflow-runner.yml`) and the manual `/devflow:review` command (`devflow.yml`) —
+uses the `DevFlow-Reviewer` installation token when `vars.DEVFLOW_REVIEWER_APP_ID`
+is set, otherwise `github-actions[bot]` (`GITHUB_TOKEN`). The review path **never**
+uses the primary `devflow-autopilot` App token. Since implement authors PRs as the
+primary App (or `github-actions[bot]` when no App is configured), the review
+identity is structurally distinct from the author on every configured setup, so
+Phase 4.4's formal review posts instead of failing self-review. `/devflow:pr-description`
+and `/devflow:review-and-fix` are unchanged — they still use the primary App token
+(they push/author, and `review-and-fix` posts no formal review). The mint is gated
+and fail-loud exactly like the primary App: unset reviewer variable → `GITHUB_TOKEN`
+fallback; a configured-but-broken reviewer App fails the job at the mint step.
+
+> **Upgrade note (deliberate behavior change).** If you already run DevFlow with a
+> single App (`DEVFLOW_APP_ID` set) and do **not** configure `DevFlow-Reviewer`,
+> your review attribution moves from your DevFlow App to `github-actions[bot]`
+> until you set `DEVFLOW_REVIEWER_APP_ID` + `DEVFLOW_REVIEWER_PRIVATE_KEY`. This is
+> intentional: the review path no longer borrows the PR-authoring App identity, so
+> the same-identity self-review collision cannot occur. A `github-actions[bot]`
+> approval does not satisfy a "required approving reviews" branch-protection rule,
+> so configure `DevFlow-Reviewer` if you rely on that.
+>
+> **Degenerate zero-app config.** With neither `DEVFLOW_APP_ID` nor
+> `DEVFLOW_REVIEWER_APP_ID` set, implement and review are both
+> `github-actions[bot]`, so the self-approval collision persists on that config —
+> the `gh pr comment` fallback and the required `Devflow Review` check still apply.
 
 The same App token also powers the implement workflow's **stall-backstop
 auto-resume** (see `docs/implement-skill.md`): a `/devflow:implement <#>` resume

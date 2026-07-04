@@ -120,7 +120,7 @@ For autonomous GitHub Actions automation, run this from your repo root — the s
 curl -fsSL https://raw.githubusercontent.com/The01Geek/devflow-autopilot/main/install.sh | bash
 ```
 
-See **[`cloud-setup.md`](cloud-setup.md)** for secrets, triggers, and the full guide.
+See **[`cloud-setup.md`](cloud-setup.md)** for secrets, triggers, and the full guide — including the optional primary DevFlow App (workflow-file pushes + one identity for user-visible posts) and the separate **DevFlow-Reviewer** App that gives the review agent a non-author identity so its formal `--request-changes`/`--approve` is not a forbidden self-review.
 
 **Thin by default.** `install.sh` does **not** commit the plugin tree to your repo — it installs the workflows, composite actions, a local `marketplace.json`, and a `.devflow/config.json` scaffold, and pins a `devflow_version` (the commit it installed from). At runtime the workflows materialize the plugin into `.devflow/vendor/devflow/` via the `vendor-plugin` composite action, so there's no bulky vendored diff to carry. Pass `DEVFLOW_VENDOR=1` to commit the tree instead (self-hosting; `devflow_version` is then ignored).
 

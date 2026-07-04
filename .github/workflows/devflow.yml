@@ -412,12 +412,40 @@ jobs:
         with:
           config_json: ${{ steps.cfg.outputs.json }}
 
-      # Optional, opt-in: mint a GitHub App installation token at full
+      # Optional, opt-in: for the `/devflow:review` command ONLY, mint a
+      # DEDICATED DevFlow-Reviewer installation token DOWNSCOPED to the review
+      # agent's needs (contents/issues:read, pull-requests:write, actions:read —
+      # same set as devflow-runner.yml's review mint). This is the manual
+      # `/devflow:review` twin of the auto-review runner: the review identity is
+      # DevFlow-Reviewer, structurally distinct from the primary
+      # `devflow-autopilot` App that authors PRs, so Phase 4.4's
+      # `gh pr review --request-changes`/`--approve` is not a forbidden
+      # self-review (issue #300). Gated on the DEVFLOW_REVIEWER_APP_ID VARIABLE
+      # AND on the command being exactly `/devflow:review` (the trailing space
+      # in the startsWith excludes `/devflow:review-and-fix`, which pushes fixes
+      # and stays on the primary app token below). Unset reviewer var → skipped,
+      # github_token falls back to GITHUB_TOKEN — NEVER the primary app token.
+      - name: Mint downscoped DevFlow-Reviewer token (optional)
+        id: reviewer-token
+        if: ${{ vars.DEVFLOW_REVIEWER_APP_ID != '' && startsWith(needs.gate.outputs.command, '/devflow:review ') }}
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ vars.DEVFLOW_REVIEWER_APP_ID }}
+          private-key: ${{ secrets.DEVFLOW_REVIEWER_PRIVATE_KEY }}
+          permission-contents: read
+          permission-issues: read
+          permission-pull-requests: write
+          permission-actions: read
+
+      # Optional, opt-in: mint a primary-App installation token at full
       # installation scope (notably Contents: write + Workflows: write — no
       # permission-* downscope, unlike the per-site tokens elsewhere in this
       # workflow) so the /devflow:review-and-fix push can
       # edit .github/workflows/ files (which the built-in GITHUB_TOKEN is
-      # hard-blocked from). Gated on the DEVFLOW_APP_ID repository VARIABLE:
+      # hard-blocked from), and so /devflow:pr-description posts under the App.
+      # Gated on the DEVFLOW_APP_ID repository VARIABLE and skipped on a
+      # `/devflow:review` command (that path uses the DevFlow-Reviewer token
+      # above so it never shares the PR-authoring identity — issue #300):
       # unset/empty → the step is skipped and github_token below falls back to
       # GITHUB_TOKEN, leaving behavior byte-for-byte unchanged for consumers who
       # do not opt in. NO continue-on-error: a configured-but-broken App
@@ -425,7 +453,7 @@ jobs:
       # Kept in sync with the same step in devflow-implement.yml.
       - name: Mint workflow-capable token (optional)
         id: app-token
-        if: ${{ vars.DEVFLOW_APP_ID != '' }}
+        if: ${{ vars.DEVFLOW_APP_ID != '' && !startsWith(needs.gate.outputs.command, '/devflow:review ') }}
         uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ vars.DEVFLOW_APP_ID }}
@@ -436,10 +464,14 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          # Use the minted App token for git auth when the opt-in App is
-          # configured; otherwise fall back to the built-in GITHUB_TOKEN (the
-          # skipped-step path, identical to pre-change behavior).
-          github_token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
+          # Identity by command: `/devflow:review` runs under the downscoped
+          # DevFlow-Reviewer token (or GITHUB_TOKEN when the reviewer App is
+          # unset) — NEVER the primary app token, so the review is not a
+          # self-review of a PR the primary app authored (issue #300). Every
+          # other command (`/devflow:pr-description`, `/devflow:review-and-fix`)
+          # uses the full-scope primary App token when configured, else
+          # GITHUB_TOKEN — identical to pre-change behavior.
+          github_token: ${{ startsWith(needs.gate.outputs.command, '/devflow:review ') && (steps.reviewer-token.outputs.token || secrets.GITHUB_TOKEN) || (steps.app-token.outputs.token || secrets.GITHUB_TOKEN) }}
           allowed_bots: ${{ needs.config.outputs.allowed_bots }}
 
           # AGENT mode: the gate resolved which /devflow:* command + number to
