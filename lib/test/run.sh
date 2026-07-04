@@ -7782,14 +7782,14 @@ REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=true REQUIRE_CI_GREEN
 # AC10: compare query failure fails CLOSED with a specific breadcrumb.
 REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=true REQUIRE_CI_GREEN=false DEVFLOW_GH="$DRP_STUB" \
   DRP_COMPARE_FAIL=1 \
-  drp "#304 compare query failure -> false behind-base (fail closed)" "false behind-base"
+  drp "#304 compare query failure -> false unverifiable (fail closed, honest reason)" "false unverifiable"
 REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=true REQUIRE_CI_GREEN=false DEVFLOW_GH="$DRP_STUB" \
   DRP_COMPARE_FAIL=1 \
   drp_stderr "#304 compare query failure emits the specific 'compare query failed' breadcrumb" "compare query failed"
 # A non-numeric behind_by (adversarial payload shape) also fails closed.
 REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=true REQUIRE_CI_GREEN=false DEVFLOW_GH="$DRP_STUB" \
   DRP_COMPARE='{"message":"Not Found"}' \
-  drp "#304 compare payload without numeric behind_by -> false behind-base (fail closed)" "false behind-base"
+  drp "#304 compare payload without numeric behind_by -> false unverifiable (fail closed)" "false unverifiable"
 
 # AC2 (failure arm): another workflow run concluded failure -> defer ci-not-green.
 REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
@@ -7818,7 +7818,7 @@ REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREE
 # AC10: workflow-runs query failure fails CLOSED with a specific breadcrumb.
 REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
   DRP_RUNS_FAIL=1 \
-  drp "#304 workflow-runs query failure -> false ci-not-green (fail closed)" "false ci-not-green"
+  drp "#304 workflow-runs query failure -> false unverifiable (fail closed, honest reason)" "false unverifiable"
 REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
   DRP_RUNS_FAIL=1 \
   drp_stderr "#304 workflow-runs query failure emits the specific 'workflow-runs query failed' breadcrumb" "workflow-runs query failed"
@@ -7841,13 +7841,13 @@ REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREE
 # failures fail CLOSED too, each with its specific breadcrumb.
 REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
   DRP_STATUS_FAIL=1 \
-  drp "#304 combined-status query failure -> false ci-not-green (fail closed)" "false ci-not-green"
+  drp "#304 combined-status query failure -> false unverifiable (fail closed)" "false unverifiable"
 REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
   DRP_STATUS_FAIL=1 \
   drp_stderr "#304 combined-status query failure emits the specific 'combined-status query failed' breadcrumb" "combined-status query failed"
 REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
   DRP_CHECKS_FAIL=1 \
-  drp "#304 check-runs query failure -> false ci-not-green (fail closed)" "false ci-not-green"
+  drp "#304 check-runs query failure -> false unverifiable (fail closed)" "false unverifiable"
 REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
   DRP_CHECKS_FAIL=1 \
   drp_stderr "#304 check-runs query failure emits the specific 'check-runs query failed' breadcrumb" "check-runs query failed"
@@ -7858,12 +7858,26 @@ REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREE
   drp "#304 paginated check-runs payload: page-2 external failure still gates -> false ci-not-green" "false ci-not-green"
 REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
   DRP_CHECKS='"garbage"' \
-  drp "#304 non-object check-runs payload -> false ci-not-green (parse fails closed)" "false ci-not-green"
+  drp "#304 non-object check-runs payload -> false unverifiable (parse fails closed)" "false unverifiable"
 # Anything-but-literal-false enables a gate (the header's fail-toward-gating
 # contract): a garbage/empty REQUIRE_* value must still gate.
 REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=maybe REQUIRE_CI_GREEN=false DEVFLOW_GH="$DRP_STUB" \
   DRP_COMPARE='{"behind_by":3}' \
   drp "#304 garbage REQUIRE_UP_TO_DATE value ('maybe') still gates -> false behind-base (fail toward gating)" "false behind-base"
+# Legacy statuses exist AND are green -> proceed (the success arm of signal 2;
+# an inverted state comparison would defer every legacy-status repo forever).
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_STATUS='{"state":"success","total_count":2}' \
+  drp "#304 green legacy statuses (state success, total_count>0) -> true" "true "
+# Both gates enabled, everything green end-to-end (not behind + all signals
+# green) -> true. The only all-defaults happy-path case with BOTH gates on,
+# catching a sequencing regression between precondition 1 and 2.
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=true REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_COMPARE='{"behind_by":0}' \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","status":"completed","conclusion":"success"}]}' \
+  DRP_STATUS='{"state":"success","total_count":1}' \
+  DRP_CHECKS='{"check_runs":[{"name":"ext","app":{"slug":"circleci"},"status":"completed","conclusion":"success"}]}' \
+  drp "#304 both gates enabled, all signals green -> true (full happy path)" "true "
 # Non-Actions (external app) check runs gate too; the Devflow Review check-run
 # name is excluded even off-app (defensive).
 REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
@@ -7894,7 +7908,7 @@ REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREE
 # fail closed, never a fabricated green.
 REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
   DRP_RUNS='"garbage"' \
-  drp "#304 non-object workflow-runs payload -> false ci-not-green (parse fails closed)" "false ci-not-green"
+  drp "#304 non-object workflow-runs payload -> false unverifiable (parse fails closed)" "false unverifiable"
 # always exits 0 (best-effort; the route step reads stdout, not the exit code).
 ( REPO="" HEAD_SHA="" BASE_BRANCH="" DEVFLOW_GH="$DRP_STUB" bash "$DRP" >/dev/null 2>&1 ); DRP_RC=$?
 assert_eq "#304 preconditions script always exits 0 (best-effort)" "0" "$DRP_RC"
@@ -9255,6 +9269,23 @@ assert_eq "#304 resolve_pr_for_head pins the query-failure misattribution breadc
   "$(grep -qF 'the real cause is the query, not an absent PR' "$REVIEW_WF" && echo yes || echo no)"
 assert_eq "#304 resolve_pr_for_head pins the parse-failure misattribution breadcrumb" "yes" \
   "$(grep -qF 'the real cause is the parse, not an absent PR' "$REVIEW_WF" && echo yes || echo no)"
+# (c9) The unverifiable reason gets its own HONEST title (never a condition the
+# script did not observe), and the CI-completion path enforces the open-PR
+# invariant on the payload-carried arm too (a closed/merged PR is never
+# reviewed off a late CI completion).
+assert_eq "#304 unverifiable deferral maps to the honest 'preconditions unverifiable' title" "yes" \
+  "$(grep -qF "Devflow review waiting: preconditions unverifiable" "$REVIEW_WF" && echo yes || echo no)"
+assert_eq "#304 CI-completion path guards PR state == OPEN" "yes" \
+  "$(grep -qF '"$PR_STATE" != "OPEN"' "$REVIEW_WF" && echo yes || echo no)"
+# (c10) Coupled literals: the workflow_run workflows list must name ci.yml's
+# actual workflow name (rename ci.yml and the CI-completion re-trigger
+# silently never fires), and the script's SELF_WORKFLOW_NAME default must
+# byte-match this workflow's name: (a rename desyncs the fallback and the
+# gate would count its own run as other-CI-pending on default invocations).
+assert_eq "#304 ci.yml workflow name matches the workflow_run trigger list entry" "yes" \
+  "$(grep -qE '^name: CI$' "$WF/ci.yml" && grep -qF 'workflows: [CI]' "$REVIEW_WF" && echo yes || echo no)"
+assert_eq "#304 script SELF_WORKFLOW_NAME default matches the workflow name:" "yes" \
+  "$(grep -qF ':-Devflow Review (auto-trigger)}' "$LIB/../scripts/derive-review-preconditions.sh" && grep -qE '^name: Devflow Review \(auto-trigger\)$' "$REVIEW_WF" && echo yes || echo no)"
 # (d) The workflow_run self-trigger guard compares against the workflow's own
 # name (and the on: workflows list must not name it).
 assert_eq "#304 workflow_run route carries the self-trigger guard" "yes" \

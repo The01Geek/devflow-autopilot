@@ -17,8 +17,9 @@
 #                       wasted cost — this gate is a cost optimization, not a
 #                       correctness gate (a neutral required check does not
 #                       block merge; see the schema description).
-#   require_ci_green    every OTHER CI signal on the head must have concluded
-#                       successfully before an LLM code-quality verdict is
+#   require_ci_green    every OTHER CI signal on the head must have completed
+#                       without failing (success/skipped/neutral are green —
+#                       see below) before an LLM code-quality verdict is
 #                       produced. "Other CI" is generic — no job names:
 #                         (1) Actions workflow runs for the head, excluding
 #                             this workflow itself (SELF_WORKFLOW_NAME) — runs
@@ -148,13 +149,13 @@ if [ "$REQUIRE_UP_TO_DATE" != "false" ]; then
   # reads) is present regardless — a long-lived branch's full compare payload
   # can run to hundreds of KB otherwise.
   if ! CMP_JSON=$("$DEVFLOW_GH" api "repos/$REPO/compare/$BASE_BRANCH...$HEAD_SHA?per_page=1" 2>/dev/null); then
-    echo "derive-review-preconditions: compare query failed for $BASE_BRANCH...$HEAD_SHA — branch freshness unverifiable; failing closed (behind-base). Recoverable via a later event or the Re-run button." >&2
-    emit false behind-base
+    echo "derive-review-preconditions: compare query failed for $BASE_BRANCH...$HEAD_SHA — branch freshness unverifiable; failing closed (unverifiable). Recoverable via a later event or the Re-run button." >&2
+    emit false unverifiable
   fi
   BEHIND=$(printf '%s' "$CMP_JSON" | "$DEVFLOW_JQ" -r '.behind_by // empty' 2>/dev/null) || BEHIND=""
   if ! [[ "$BEHIND" =~ ^[0-9]+$ ]]; then
-    echo "derive-review-preconditions: compare payload carried no numeric behind_by ('$BEHIND') — branch freshness unverifiable; failing closed (behind-base)." >&2
-    emit false behind-base
+    echo "derive-review-preconditions: compare payload carried no numeric behind_by ('$BEHIND') — branch freshness unverifiable; failing closed (unverifiable)." >&2
+    emit false unverifiable
   fi
   if [ "$BEHIND" != "0" ]; then
     echo "derive-review-preconditions: head $HEAD_SHA is behind $BASE_BRANCH by $BEHIND commit(s) — deferring the review (behind-base)." >&2
@@ -170,13 +171,13 @@ if [ "$REQUIRE_CI_GREEN" != "false" ]; then
   #     --paginate concatenates page OBJECTS; the -s slurp + map/add flattens
   #     them (same normalization discipline as derive-review-verdict.sh).
   if ! RUNS_JSON=$("$DEVFLOW_GH" api --paginate "repos/$REPO/actions/runs?head_sha=$HEAD_SHA&per_page=100" 2>/dev/null); then
-    echo "derive-review-preconditions: workflow-runs query failed for $HEAD_SHA — other-CI state unverifiable; failing closed (ci-not-green). Recoverable via a later event or the Re-run button." >&2
-    emit false ci-not-green
+    echo "derive-review-preconditions: workflow-runs query failed for $HEAD_SHA — other-CI state unverifiable; failing closed (unverifiable). Recoverable via a later event or the Re-run button." >&2
+    emit false unverifiable
   fi
   if ! RUN_LINES=$(printf '%s' "$RUNS_JSON" | "$DEVFLOW_JQ" -rs --arg self "$SELF_WORKFLOW_NAME" \
         'map(.workflow_runs // []) | add // [] | map(select((.name // "") != $self)) | .[] | ((.status // "") + "|" + (.conclusion // ""))' 2>/dev/null); then
-    echo "derive-review-preconditions: workflow-runs payload could not be parsed (jq failed or a non-object page) — failing closed (ci-not-green)." >&2
-    emit false ci-not-green
+    echo "derive-review-preconditions: workflow-runs payload could not be parsed (jq failed or a non-object page) — failing closed (unverifiable)." >&2
+    emit false unverifiable
   fi
   if [ -n "$RUN_LINES" ]; then
     OTHER_SIGNALS=1
@@ -186,13 +187,13 @@ if [ "$REQUIRE_CI_GREEN" != "false" ]; then
   # (2) Legacy combined commit status. total_count gates it: with ZERO statuses
   #     the API reports state "pending", which must not be read as pending CI.
   if ! STATUS_JSON=$("$DEVFLOW_GH" api "repos/$REPO/commits/$HEAD_SHA/status" 2>/dev/null); then
-    echo "derive-review-preconditions: combined-status query failed for $HEAD_SHA — other-CI state unverifiable; failing closed (ci-not-green)." >&2
-    emit false ci-not-green
+    echo "derive-review-preconditions: combined-status query failed for $HEAD_SHA — other-CI state unverifiable; failing closed (unverifiable)." >&2
+    emit false unverifiable
   fi
   STATUS_TOTAL=$(printf '%s' "$STATUS_JSON" | "$DEVFLOW_JQ" -r '.total_count // empty' 2>/dev/null) || STATUS_TOTAL=""
   if ! [[ "$STATUS_TOTAL" =~ ^[0-9]+$ ]]; then
-    echo "derive-review-preconditions: combined-status payload carried no numeric total_count ('$STATUS_TOTAL') — failing closed (ci-not-green)." >&2
-    emit false ci-not-green
+    echo "derive-review-preconditions: combined-status payload carried no numeric total_count ('$STATUS_TOTAL') — failing closed (unverifiable)." >&2
+    emit false unverifiable
   fi
   if [ "$STATUS_TOTAL" != "0" ]; then
     OTHER_SIGNALS=1
@@ -210,13 +211,13 @@ if [ "$REQUIRE_CI_GREEN" != "false" ]; then
   #     run) from gating themselves. The `Devflow Review` name is excluded
   #     even off-app, defensively.
   if ! CHECKS_JSON=$("$DEVFLOW_GH" api --paginate "repos/$REPO/commits/$HEAD_SHA/check-runs" 2>/dev/null); then
-    echo "derive-review-preconditions: check-runs query failed for $HEAD_SHA — other-CI state unverifiable; failing closed (ci-not-green)." >&2
-    emit false ci-not-green
+    echo "derive-review-preconditions: check-runs query failed for $HEAD_SHA — other-CI state unverifiable; failing closed (unverifiable)." >&2
+    emit false unverifiable
   fi
   if ! EXT_LINES=$(printf '%s' "$CHECKS_JSON" | "$DEVFLOW_JQ" -rs \
         'map(.check_runs // []) | add // [] | map(select(((.app.slug // "") != "github-actions") and ((.name // "") != "Devflow Review"))) | .[] | ((.status // "") + "|" + (.conclusion // ""))' 2>/dev/null); then
-    echo "derive-review-preconditions: check-runs payload could not be parsed (jq failed or a non-object page) — failing closed (ci-not-green)." >&2
-    emit false ci-not-green
+    echo "derive-review-preconditions: check-runs payload could not be parsed (jq failed or a non-object page) — failing closed (unverifiable)." >&2
+    emit false unverifiable
   fi
   if [ -n "$EXT_LINES" ]; then
     OTHER_SIGNALS=1

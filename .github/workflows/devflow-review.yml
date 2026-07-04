@@ -448,13 +448,22 @@ jobs:
             # re-trigger is recoverable via the next event or the Re-run
             # button; reviewing a draft or a superseded head is the cost to
             # avoid.
-            PR_INFO=$(gh pr view "$PR" --repo "$REPO" --json isDraft,headRefOid \
-                        --jq '(.isDraft|tostring) + " " + .headRefOid' 2>/dev/null || echo "")
+            # state is read alongside draft/head: the payload-carried PR
+            # number (WR_PR/CS_PR) is not a guarantee of OPEN state at
+            # processing time (a PR can close/merge between event delivery
+            # and this step), and only the resolve_pr_for_head fallback arm
+            # filters on open — both arms must enforce the same invariant.
+            PR_INFO=$(gh pr view "$PR" --repo "$REPO" --json state,isDraft,headRefOid \
+                        --jq '.state + " " + (.isDraft|tostring) + " " + .headRefOid' 2>/dev/null || echo "")
             if [ -z "$PR_INFO" ]; then
-              echo "::warning::Could not resolve draft/head state for PR #$PR; failing closed (no CI-completion re-trigger)."
+              echo "::warning::Could not resolve state/draft/head for PR #$PR; failing closed (no CI-completion re-trigger)."
               exit 0
             fi
-            read -r IS_DRAFT CUR_HEAD <<<"$PR_INFO"
+            read -r PR_STATE IS_DRAFT CUR_HEAD <<<"$PR_INFO"
+            if [ "$PR_STATE" != "OPEN" ]; then
+              echo "::notice::PR #$PR is $PR_STATE (not open); no-op (never review a closed/merged PR)."
+              exit 0
+            fi
             if [ "$IS_DRAFT" != "false" ]; then
               echo "::notice::PR #$PR is a draft; deferring (the later ready_for_review event reviews it)."
               exit 0
@@ -671,9 +680,14 @@ jobs:
             # branch-freshness gate is a cost optimization; pair it with
             # branch protection's "require branches up to date" if staleness
             # must block).
+            # behind-base / ci-not-green are POSITIVELY-OBSERVED conditions;
+            # unverifiable means a precondition query failed — the title must
+            # never assert a state the script did not observe (a user who
+            # rebases in response to a false "behind base" fixes nothing).
             case "$SKIP_REASON" in
               behind-base)  TITLE='Devflow review waiting: branch behind base' ;;
               ci-not-green) TITLE='Devflow review waiting: other CI not green' ;;
+              unverifiable) TITLE='Devflow review waiting: preconditions unverifiable (API query failed — see the precheck log)' ;;
               *)            TITLE='Devflow review waiting: precondition not met' ;;
             esac
             SUMMARY='This PR is not yet in a reviewable state, so the review was deferred (not run). It auto-re-triggers when the branch is updated, or when a CI workflow named in this workflow'"'"'s workflow_run trigger list (or an external check_suite CI) completes. If your CI workflow is not in that list, or a signal is permanently stuck (a cancelled sibling run, a forever-pending status), click Re-run on this check once CI is green to force a review of the current HEAD.'
