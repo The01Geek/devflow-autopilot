@@ -95,11 +95,7 @@ def _split_frontmatter(path: str) -> Frontmatter:
     The file MUST start with a ``---`` fence (a leading BOM or any other prefix defeats
     detection and is rejected loudly rather than silently mis-parsed).
     """
-    try:
-        with open(path, encoding="utf-8") as fh:
-            text = fh.read()
-    except OSError as exc:
-        raise ChangesetError(f"{path}: cannot read changeset: {exc}") from exc
+    text = _read_text(path, "changeset")
     m = re.match(r"---[ \t]*\n(.*?)\n---[ \t]*\n?(.*)\Z", text, re.DOTALL)
     if not m:
         raise ChangesetError(
@@ -176,15 +172,24 @@ def _bump_version(current: str, kind: str) -> str:
 # churn unrelated formatting (key order, indentation) on every bump. The read uses the same
 # regex as the write so the two stay symmetric and neither shells out to jq from Python.
 def _read_manifest_version(manifest_path: str) -> str:
-    try:
-        with open(manifest_path, encoding="utf-8") as fh:
-            text = fh.read()
-    except OSError as exc:
-        raise ChangesetError(f"{manifest_path}: cannot read manifest: {exc}") from exc
+    text = _read_text(manifest_path, "manifest")
     m = re.search(r'"version"\s*:\s*"([^"]*)"', text)
     if not m:
         raise ChangesetError(f"{manifest_path}: no \"version\" key found")
     return m.group(1)
+
+
+def _read_text(path: str, what: str) -> str:
+    """Read ``path`` as UTF-8 text, wrapping any OS fault into the name-the-file exit-2 path.
+
+    Mirror of ``_write_text`` so read and write share one wrap site — a new reader cannot
+    diverge with a subtly different or missing diagnostic.
+    """
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return fh.read()
+    except OSError as exc:
+        raise ChangesetError(f"{path}: cannot read {what}: {exc}") from exc
 
 
 def _write_text(path: str, text: str) -> None:
@@ -202,11 +207,7 @@ def _render_manifest(manifest_path: str, new_version: str) -> str:
     Pure read + assemble (no write) so ``consolidate`` can prove both outputs are writable-in-
     memory before touching disk. Preserves the manifest's exact formatting.
     """
-    try:
-        with open(manifest_path, encoding="utf-8") as fh:
-            text = fh.read()
-    except OSError as exc:
-        raise ChangesetError(f"{manifest_path}: cannot read manifest: {exc}") from exc
+    text = _read_text(manifest_path, "manifest")
     new_text, n = re.subn(
         r'("version"\s*:\s*")[^"]*(")',
         lambda mo: mo.group(1) + new_version + mo.group(2),
@@ -238,11 +239,7 @@ def _render_changelog(changelog_path: str, entry: str) -> str:
     Pure read + assemble (no write): ``entry`` is inserted immediately before the first
     existing ``## [`` version heading, or appended after the preamble when none exists.
     """
-    try:
-        with open(changelog_path, encoding="utf-8") as fh:
-            lines = fh.readlines()
-    except OSError as exc:
-        raise ChangesetError(f"{changelog_path}: cannot read changelog: {exc}") from exc
+    lines = _read_text(changelog_path, "changelog").splitlines(keepends=True)
     insert_at = None
     for i, line in enumerate(lines):
         if line.startswith("## ["):
@@ -276,14 +273,14 @@ def consolidate(root: str, date: str) -> int:
         return 0
 
     # Parse ALL changesets first (fail-closed: no write happens until every file is valid).
-    parsed = [(p, _parse_changeset(p)) for p in pending]
+    parsed = [_parse_changeset(p) for p in pending]
 
-    highest = max((cs.bump for _p, cs in parsed), key=_BUMP_RANK.__getitem__)
+    highest = max((cs.bump for cs in parsed), key=_BUMP_RANK.__getitem__)
     current = _read_manifest_version(manifest_path)
     new_version = _bump_version(current, highest)
 
     sections: "dict[str, list[str]]" = {}
-    for _path, cs in parsed:
+    for cs in parsed:
         sections.setdefault(cs.section, []).append(cs.prose)
     entry = _assemble_entry(new_version, date, sections)
 
