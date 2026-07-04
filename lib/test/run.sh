@@ -11921,8 +11921,7 @@ assert_pin_unique "#183 docs-release-notes SKILL resolves changelog_file via con
 # version is read from the manifest, never from the commit subject. Since #290 the PRODUCER of
 # that subject is the merge-time consolidation Action (.github/workflows/version-consolidate.yml,
 # wired to scripts/consolidate-changesets.py), not an in-PR bump; the implement prompt-extension
-# still
-# documents the contract so the two stay lockstepped. If any of them renames the prefix without
+# still documents the contract so the two stay lockstepped. If any of them renames the prefix without
 # the others, Step 4b sees no bump and silently no-ops the reconciliation it exists to perform
 # (the fail-open the PR #187 review flagged). Pin the literal across producer + consumer + doc.
 assert_pin_unique "#187 docs-release-notes Step 4b matches the chore: bump version prefix" \
