@@ -143,7 +143,7 @@ def _default_config_path() -> str:
     if not (cwd / ".devflow").is_dir():
         sys.stderr.write(
             f"match-deferrals.py: not in a git repo and no .devflow/ at {str(cwd)!r}; "
-            f"using cwd-relative default config path\n"
+            f"falling back to a cwd-anchored default config path\n"
         )
     return str(cwd / ".devflow" / "config.json")
 
