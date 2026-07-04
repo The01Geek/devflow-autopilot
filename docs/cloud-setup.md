@@ -143,9 +143,12 @@ credential — reviews, verdicts, reactions, notice comments — is attributed t
 "required approving reviews" branch-protection rule.
 
 The optional App unlocks both: workflow-file pushes for the writers, and **one App
-identity for DevFlow's user-visible cloud posts** — the review agent's progress
-comment, verdicts, approvals, and rejections; the 👀/🚀 trigger reactions; and the
-notice comments (the named exceptions below stay on `GITHUB_TOKEN`). This is **opt-in**. When it is **not** configured, behavior is
+identity for DevFlow's non-review user-visible cloud posts** — the 👀/🚀 trigger
+reactions and the notice comments (the named exceptions below stay on
+`GITHUB_TOKEN`). The **review** agent's posts — its progress comment, verdicts,
+approvals, and rejections — are deliberately **not** on this App: they run under the
+separate `DevFlow-Reviewer` App (see below) so the review is never a self-review of a
+PR this App authored. This is **opt-in**. When it is **not** configured, behavior is
 byte-for-byte unchanged — no new secret or variable is required. To enable it,
 create a GitHub App, install it on the repo, and configure:
 

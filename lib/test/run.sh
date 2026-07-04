@@ -8790,15 +8790,21 @@ assert_eq "app-token: cloud-setup.md no longer claims the reviewer is untouched"
 assert_eq "app-token: cloud-setup.md documents the per-site downscope" "yes" \
   "$(grep -qF 'downscoped to exactly' "$CS" && echo yes || echo no)"
 # §15 of the overview: still no bare "No GitHub App." claim, still names the
-# opt-in variable, and now covers all three #269 surfaces, not only the
-# writers' pushes.
+# opt-in variable, names the primary App's reactions + notices surfaces, and —
+# post-#300 — routes the review agent's posts to the separate DevFlow-Reviewer
+# App rather than listing them under the primary App.
 OV="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
 assert_eq "app-token: overview §15 no longer asserts a bare 'No GitHub App.'" "0" \
   "$(grep -cF 'No GitHub App.' "$OV")"
 assert_eq "app-token: overview §15 positively documents the optional App (DEVFLOW_APP_ID)" "yes" \
   "$(grep -qF 'DEVFLOW_APP_ID' "$OV" && echo yes || echo no)"
-assert_eq "app-token: overview §15 names the review-agent + reactions + notices surfaces" "yes" \
-  "$(grep -qF 'the trigger reactions, and the notice comments' "$OV" && echo yes || echo no)"
+assert_eq "app-token: overview §15 names the primary App's reactions + notices surfaces" "yes" \
+  "$(grep -qF 'the trigger reactions and the notice comments' "$OV" && echo yes || echo no)"
+# #300: §15 must route the review agent's posts to the DevFlow-Reviewer App, not
+# list them under the primary App — pin the reviewer-app name so a revert that
+# re-attributes review posts to the primary App goes RED.
+assert_eq "app-token: overview §15 routes the review agent's posts to DevFlow-Reviewer (not the primary App)" "yes" \
+  "$(grep -qF 'run instead under the separate **`DevFlow-Reviewer`** App' "$OV" && echo yes || echo no)"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "devflow-review.yml first-ready gate invariant"
