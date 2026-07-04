@@ -12363,6 +12363,142 @@ assert_eq "#290 idempotent rerun: version unchanged" "$CS_V1" "$(cs_ver "$CSD")"
 assert_eq "#290 idempotent rerun: CHANGELOG unchanged" "$CS_CL1" "$(cat "$CSD/CHANGELOG.md")"
 rm -rf "$CSD"
 
+# ── #298 hardening: fail-closed OS wrapping, atomic outputs, single-source bump domain ──────
+# AC: _BUMP_RANK is DERIVED from VALID_BUMPS (single source) — the two sets stay consistent,
+# so a new bump value cannot desync them into a KeyError at the max(...) lookup.
+assert_eq "#298 single-source: VALID_BUMPS and _BUMP_RANK keys match exactly" "ok" \
+  "$(python3 -c "import importlib.util as u; s=u.spec_from_file_location('c','$CS_SCRIPT'); m=u.module_from_spec(s); s.loader.exec_module(m); print('ok' if set(m.VALID_BUMPS)==set(m._BUMP_RANK) and len(m._BUMP_RANK)==len(m.VALID_BUMPS) else 'drift')")"
+# AC: the two parse helpers return NamedTuples whose fields are addressable by name.
+assert_eq "#298 NamedTuple: parse helpers expose bump/section/prose + frontmatter/body fields" "ok" \
+  "$(python3 -c "import importlib.util as u; s=u.spec_from_file_location('c','$CS_SCRIPT'); m=u.module_from_spec(s); s.loader.exec_module(m); print('ok' if m.Changeset._fields==('bump','section','prose') and m.Frontmatter._fields==('frontmatter','body') else 'bad')")"
+
+# AC: the five previously-untested defensive branches each gain a named assertion.
+# (1) _render_changelog no-prior-`## [`-heading append branch: entry is appended after preamble.
+CSD="$(cs_repo)"; printf '# Changelog\n\nNo versioned entries yet.\n' > "$CSD/CHANGELOG.md"
+printf -- '---\nbump: patch\n---\n\n- first entry (#298)\n' > "$CSD/.changeset/a.md"
+python3 "$CS_SCRIPT" --root "$CSD" --date 2026-07-04 >/dev/null 2>&1; CS_RC=$?
+assert_eq "#298 no-prior-heading: exit 0" "0" "$CS_RC"
+assert_eq "#298 no-prior-heading: entry appended below the preamble" "yes" \
+  "$(grep -qF '## [2.8.65] — 2026-07-04' "$CSD/CHANGELOG.md" && grep -qF 'No versioned entries yet.' "$CSD/CHANGELOG.md" && echo yes || echo no)"
+rm -rf "$CSD"
+# (2) _read_manifest_version no-`version`-key guard: a manifest without a version key fails loud.
+CSD="$(cs_repo)"; printf '{\n  "name": "devflow"\n}\n' > "$CSD/.claude-plugin/plugin.json"
+printf -- '---\nbump: patch\n---\n\n- x (#298)\n' > "$CSD/.changeset/a.md"
+python3 "$CS_SCRIPT" --root "$CSD" --date 2026-07-04 >"$CSD/out" 2>&1; CS_RC=$?
+assert_eq "#298 no-version-key: exit 2" "2" "$CS_RC"
+assert_eq "#298 no-version-key: diagnostic names the manifest" "yes" \
+  "$(grep -qF 'plugin.json' "$CSD/out" && grep -qiF 'version' "$CSD/out" && echo yes || echo no)"
+rm -rf "$CSD"
+# (3) _bump_version non-N.N.N guard: a malformed version string fails loud.
+CSD="$(cs_repo)"; printf '{\n  "version": "1.2"\n}\n' > "$CSD/.claude-plugin/plugin.json"
+printf -- '---\nbump: patch\n---\n\n- x (#298)\n' > "$CSD/.changeset/a.md"
+python3 "$CS_SCRIPT" --root "$CSD" --date 2026-07-04 >"$CSD/out" 2>&1; CS_RC=$?
+assert_eq "#298 non-N.N.N version: exit 2" "2" "$CS_RC"
+assert_eq "#298 non-N.N.N version: diagnostic names the offending version" "yes" \
+  "$(grep -qF '1.2' "$CSD/out" && echo yes || echo no)"
+rm -rf "$CSD"
+# (4) --date format validation: a non-YYYY-MM-DD date fails loud before any work.
+CSD="$(cs_repo)"; printf -- '---\nbump: patch\n---\n\n- x (#298)\n' > "$CSD/.changeset/a.md"
+python3 "$CS_SCRIPT" --root "$CSD" --date "07/04/2026" >"$CSD/out" 2>&1; CS_RC=$?
+assert_eq "#298 bad --date: exit 2" "2" "$CS_RC"
+assert_eq "#298 bad --date: version unchanged" "2.8.64" "$(cs_ver "$CSD")"; rm -rf "$CSD"
+# (5) frontmatter-not-a-mapping and invalid-YAML branches both fail loud naming the file.
+CSD="$(cs_repo)"; printf -- '---\n- just a list item\n---\n\n- x (#298)\n' > "$CSD/.changeset/notmap.md"
+python3 "$CS_SCRIPT" --root "$CSD" --date 2026-07-04 >"$CSD/out" 2>&1; CS_RC=$?
+assert_eq "#298 frontmatter-not-a-mapping: exit 2" "2" "$CS_RC"
+assert_eq "#298 frontmatter-not-a-mapping: diagnostic names the file" "yes" \
+  "$(grep -qF 'notmap.md' "$CSD/out" && echo yes || echo no)"
+rm -rf "$CSD"
+CSD="$(cs_repo)"; printf -- '---\nbump: [unclosed\n---\n\n- x (#298)\n' > "$CSD/.changeset/badyaml.md"
+python3 "$CS_SCRIPT" --root "$CSD" --date 2026-07-04 >"$CSD/out" 2>&1; CS_RC=$?
+assert_eq "#298 invalid-YAML frontmatter: exit 2" "2" "$CS_RC"
+assert_eq "#298 invalid-YAML frontmatter: diagnostic names the file" "yes" \
+  "$(grep -qF 'badyaml.md' "$CSD/out" && echo yes || echo no)"
+rm -rf "$CSD"
+
+# AC: read-before-write atomicity — an output-side read fault (unreadable CHANGELOG) aborts
+# with exit 2 BEFORE any write, leaving both plugin.json and CHANGELOG.md byte-for-byte
+# unchanged and the changeset unconsumed. chmod-based; root bypasses mode bits, so guard it.
+CSD="$(cs_repo)"; printf -- '---\nbump: minor\n---\n\n- x (#298)\n' > "$CSD/.changeset/a.md"
+CS_MANI0="$(cat "$CSD/.claude-plugin/plugin.json")"; CS_CL0="$(cat "$CSD/CHANGELOG.md")"
+chmod 000 "$CSD/CHANGELOG.md"
+if [ "$(id -u)" -ne 0 ] && [ ! -r "$CSD/CHANGELOG.md" ]; then
+  python3 "$CS_SCRIPT" --root "$CSD" --date 2026-07-04 >"$CSD/out" 2>&1; CS_RC=$?
+  chmod 644 "$CSD/CHANGELOG.md"
+  assert_eq "#298 atomic read-before-write: exit 2 on unreadable CHANGELOG" "2" "$CS_RC"
+  assert_eq "#298 atomic read-before-write: diagnostic names CHANGELOG.md" "yes" \
+    "$(grep -qF 'CHANGELOG.md' "$CSD/out" && echo yes || echo no)"
+  assert_eq "#298 atomic read-before-write: plugin.json byte-for-byte unchanged" "$CS_MANI0" "$(cat "$CSD/.claude-plugin/plugin.json")"
+  assert_eq "#298 atomic read-before-write: CHANGELOG.md byte-for-byte unchanged" "$CS_CL0" "$(cat "$CSD/CHANGELOG.md")"
+  assert_eq "#298 atomic read-before-write: changeset NOT consumed" "yes" \
+    "$([ -f "$CSD/.changeset/a.md" ] && echo yes || echo no)"
+else
+  chmod 644 "$CSD/CHANGELOG.md" 2>/dev/null || true
+fi
+rm -rf "$CSD"
+
+# AC: every OS-level fault at a wrapped site raises ChangesetError → exit 2 naming the path
+# (not exit 1 with a bare OSError traceback). One representative fault per wrapped read/write/
+# delete site; all chmod-based, so guard against root (which ignores mode bits).
+if [ "$(id -u)" -ne 0 ]; then
+  # _split_frontmatter read: an unreadable changeset file.
+  CSD="$(cs_repo)"; printf -- '---\nbump: patch\n---\n\n- x (#298)\n' > "$CSD/.changeset/a.md"
+  chmod 000 "$CSD/.changeset/a.md"
+  if [ ! -r "$CSD/.changeset/a.md" ]; then
+    python3 "$CS_SCRIPT" --root "$CSD" --date 2026-07-04 >"$CSD/out" 2>&1; CS_RC=$?
+    assert_eq "#298 OS-fault (changeset read): exit 2" "2" "$CS_RC"
+    assert_eq "#298 OS-fault (changeset read): names a.md" "yes" \
+      "$(grep -qF 'a.md' "$CSD/out" && echo yes || echo no)"
+  fi
+  chmod 644 "$CSD/.changeset/a.md" 2>/dev/null || true; rm -rf "$CSD"
+  # os.listdir glob: an unlistable .changeset directory.
+  CSD="$(cs_repo)"; printf -- '---\nbump: patch\n---\n\n- x (#298)\n' > "$CSD/.changeset/a.md"
+  chmod 000 "$CSD/.changeset"
+  if [ ! -r "$CSD/.changeset" ]; then
+    python3 "$CS_SCRIPT" --root "$CSD" --date 2026-07-04 >"$CSD/out" 2>&1; CS_RC=$?
+    assert_eq "#298 OS-fault (listdir): exit 2" "2" "$CS_RC"
+    assert_eq "#298 OS-fault (listdir): names the .changeset dir" "yes" \
+      "$(grep -qF '.changeset' "$CSD/out" && echo yes || echo no)"
+  fi
+  chmod 755 "$CSD/.changeset" 2>/dev/null || true; rm -rf "$CSD"
+  # _write_text manifest write: a read-only plugin.json (readable so render succeeds, write fails).
+  CSD="$(cs_repo)"; printf -- '---\nbump: patch\n---\n\n- x (#298)\n' > "$CSD/.changeset/a.md"
+  chmod 444 "$CSD/.claude-plugin/plugin.json"
+  if [ ! -w "$CSD/.claude-plugin/plugin.json" ]; then
+    python3 "$CS_SCRIPT" --root "$CSD" --date 2026-07-04 >"$CSD/out" 2>&1; CS_RC=$?
+    assert_eq "#298 OS-fault (manifest write): exit 2" "2" "$CS_RC"
+    assert_eq "#298 OS-fault (manifest write): names plugin.json" "yes" \
+      "$(grep -qF 'plugin.json' "$CSD/out" && echo yes || echo no)"
+  fi
+  chmod 644 "$CSD/.claude-plugin/plugin.json" 2>/dev/null || true; rm -rf "$CSD"
+  # os.remove delete loop: a non-writable .changeset dir (listdir/read OK, remove fails).
+  CSD="$(cs_repo)"; printf -- '---\nbump: patch\n---\n\n- x (#298)\n' > "$CSD/.changeset/a.md"
+  chmod 555 "$CSD/.changeset"
+  if [ ! -w "$CSD/.changeset" ]; then
+    python3 "$CS_SCRIPT" --root "$CSD" --date 2026-07-04 >"$CSD/out" 2>&1; CS_RC=$?
+    assert_eq "#298 OS-fault (changeset delete): exit 2" "2" "$CS_RC"
+    assert_eq "#298 OS-fault (changeset delete): names a.md" "yes" \
+      "$(grep -qF 'a.md' "$CSD/out" && echo yes || echo no)"
+  fi
+  chmod 755 "$CSD/.changeset" 2>/dev/null || true; rm -rf "$CSD"
+fi
+
+# AC: top-level `except OSError` backstop — an OS fault at a site that is NOT individually
+# wrapped (here os.path.isdir, monkeypatched) still exits 2 with a diagnostic, never a bare
+# OSError traceback. Drives the backstop specifically, not a per-site wrap.
+CSD="$(cs_repo)"
+CS_BACKSTOP_RC="$(python3 -c "
+import importlib.util as u, sys
+s=u.spec_from_file_location('c','$CS_SCRIPT'); m=u.module_from_spec(s); s.loader.exec_module(m)
+def boom(p): raise OSError('injected fault at an unwrapped site')
+m.os.path.isdir = boom
+sys.exit(m.main(['--root','$CSD','--date','2026-07-04']))
+" 2>"$CSD/out"; echo $?)"
+assert_eq "#298 OSError backstop: unwrapped-site fault exits 2" "2" "$CS_BACKSTOP_RC"
+assert_eq "#298 OSError backstop: emits a diagnostic (no bare traceback)" "yes" \
+  "$(grep -qF 'consolidate-changesets.py:' "$CSD/out" && ! grep -qF 'Traceback' "$CSD/out" && echo yes || echo no)"
+rm -rf "$CSD"
+
 # Coupled invariant: the merge-time workflow wires the consolidator and pushes on main. The
 # YAML lives at .github/workflows/version-consolidate.yml; it is content-pinned here regardless
 # of its path.

@@ -19,9 +19,15 @@ It writes nothing else — staging and the ``chore: bump version`` commit are th
 
 Fail-closed contract: a malformed changeset (no frontmatter, missing/invalid ``bump``, an
 unknown ``type``, or an empty prose body) aborts with exit 2 and a diagnostic naming the
-offending file. All changesets are validated **before any file is modified**, so a malformed
-changeset never causes a silent skip or a partial bump. Zero pending changesets is a clean
-no-op: nothing is written and the exit code is 0.
+offending file. Everything is **validated before any file is modified** — all changesets are
+parsed *and* both output files (``plugin.json``, ``CHANGELOG.md``) are read and their new
+contents assembled in memory *before* the first write, so a malformed changeset or an
+output-side read/parse fault never causes a silent skip, a partial bump, or a window where
+one output is rewritten but the other is not. Every OS-level fault (a read, write, or delete)
+is wrapped into the same name-the-file exit-2 path — a top-level ``except OSError`` backstop in
+``main`` catches any site not individually wrapped — so the tool never exits 1 with a bare
+``OSError`` traceback. Zero pending changesets is a clean no-op: nothing is written and the
+exit code is 0.
 """
 
 from __future__ import annotations
@@ -31,9 +37,13 @@ import os
 import re
 import sys
 from datetime import datetime, timezone
+from typing import NamedTuple
 
+# Single source of the ordered bump domain: _BUMP_RANK is DERIVED from VALID_BUMPS (mirroring
+# the CANONICAL_TYPES → _TYPE_BY_LOWER pattern below), so adding a bump value cannot desync the
+# two into a KeyError at the `max(..., key=_BUMP_RANK.__getitem__)` lookup.
 VALID_BUMPS = ("patch", "minor", "major")
-_BUMP_RANK = {"patch": 0, "minor": 1, "major": 2}
+_BUMP_RANK = {bump: rank for rank, bump in enumerate(VALID_BUMPS)}
 
 # Keep-a-Changelog section names, in the canonical order they render within an entry.
 CANONICAL_TYPES = ["Added", "Changed", "Deprecated", "Removed", "Fixed", "Security"]
@@ -45,6 +55,21 @@ VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 
 class ChangesetError(Exception):
     """A malformed changeset or manifest — the fail-closed, name-the-file path."""
+
+
+class Frontmatter(NamedTuple):
+    """A changeset split into its YAML frontmatter text and prose body."""
+
+    frontmatter: str
+    body: str
+
+
+class Changeset(NamedTuple):
+    """One parsed changeset: its bump kind, CHANGELOG section, and prose body."""
+
+    bump: str
+    section: str
+    prose: str
 
 
 def _fatal(msg: str) -> "int":
@@ -64,14 +89,17 @@ def _is_consumable(name: str) -> bool:
     return name.lower() != "readme.md" and name.lower().endswith(".md")
 
 
-def _split_frontmatter(path: str) -> "tuple[str, str]":
-    """Return ``(frontmatter_text, body_text)`` for a changeset, or raise ChangesetError.
+def _split_frontmatter(path: str) -> Frontmatter:
+    """Return a ``Frontmatter(frontmatter, body)`` for a changeset, or raise ChangesetError.
 
     The file MUST start with a ``---`` fence (a leading BOM or any other prefix defeats
     detection and is rejected loudly rather than silently mis-parsed).
     """
-    with open(path, encoding="utf-8") as fh:
-        text = fh.read()
+    try:
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError as exc:
+        raise ChangesetError(f"{path}: cannot read changeset: {exc}") from exc
     m = re.match(r"---[ \t]*\n(.*?)\n---[ \t]*\n?(.*)\Z", text, re.DOTALL)
     if not m:
         raise ChangesetError(
@@ -79,11 +107,11 @@ def _split_frontmatter(path: str) -> "tuple[str, str]":
             "'---' fenced block declaring 'bump:' (a leading BOM or blank line "
             "also trips this)"
         )
-    return m.group(1), m.group(2)
+    return Frontmatter(m.group(1), m.group(2))
 
 
-def _parse_changeset(path: str) -> "tuple[str, str, str]":
-    """Parse one changeset → ``(bump, type, prose)``; raise ChangesetError if malformed."""
+def _parse_changeset(path: str) -> Changeset:
+    """Parse one changeset → ``Changeset(bump, section, prose)``; raise on malformed input."""
     try:
         import yaml
     except ImportError as exc:  # pragma: no cover - environment guard
@@ -91,7 +119,8 @@ def _parse_changeset(path: str) -> "tuple[str, str, str]":
             "PyYAML is required to parse changeset frontmatter but is not installed"
         ) from exc
 
-    fm_text, body = _split_frontmatter(path)
+    split = _split_frontmatter(path)
+    fm_text, body = split.frontmatter, split.body
     try:
         fm = yaml.safe_load(fm_text)
     except yaml.YAMLError as exc:
@@ -126,7 +155,7 @@ def _parse_changeset(path: str) -> "tuple[str, str, str]":
             f"{path}: empty prose body — a changeset must describe the change "
             "(one or more '-' bullets, PR-cited)"
         )
-    return bump, section, prose
+    return Changeset(bump, section, prose)
 
 
 def _bump_version(current: str, kind: str) -> str:
@@ -158,10 +187,26 @@ def _read_manifest_version(manifest_path: str) -> str:
     return m.group(1)
 
 
-def _write_manifest_version(manifest_path: str, new_version: str) -> None:
-    """Rewrite only the version string, preserving the manifest's exact formatting."""
-    with open(manifest_path, encoding="utf-8") as fh:
-        text = fh.read()
+def _write_text(path: str, text: str) -> None:
+    """Write ``text`` to ``path``, wrapping any OS fault into the name-the-file exit-2 path."""
+    try:
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text)
+    except OSError as exc:
+        raise ChangesetError(f"{path}: cannot write: {exc}") from exc
+
+
+def _render_manifest(manifest_path: str, new_version: str) -> str:
+    """Read the manifest and return its new text with only the version string rewritten.
+
+    Pure read + assemble (no write) so ``consolidate`` can prove both outputs are writable-in-
+    memory before touching disk. Preserves the manifest's exact formatting.
+    """
+    try:
+        with open(manifest_path, encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError as exc:
+        raise ChangesetError(f"{manifest_path}: cannot read manifest: {exc}") from exc
     new_text, n = re.subn(
         r'("version"\s*:\s*")[^"]*(")',
         lambda mo: mo.group(1) + new_version + mo.group(2),
@@ -170,8 +215,7 @@ def _write_manifest_version(manifest_path: str, new_version: str) -> None:
     )
     if n != 1:
         raise ChangesetError(f"{manifest_path}: could not rewrite the version string")
-    with open(manifest_path, "w", encoding="utf-8") as fh:
-        fh.write(new_text)
+    return new_text
 
 
 def _assemble_entry(version: str, date: str, sections: "dict[str, list[str]]") -> str:
@@ -188,8 +232,12 @@ def _assemble_entry(version: str, date: str, sections: "dict[str, list[str]]") -
     return "\n".join(lines).rstrip() + "\n"
 
 
-def _prepend_changelog(changelog_path: str, entry: str) -> None:
-    """Insert ``entry`` immediately before the first existing ``## [`` version heading."""
+def _render_changelog(changelog_path: str, entry: str) -> str:
+    """Read the changelog and return its new text with ``entry`` prepended.
+
+    Pure read + assemble (no write): ``entry`` is inserted immediately before the first
+    existing ``## [`` version heading, or appended after the preamble when none exists.
+    """
     try:
         with open(changelog_path, encoding="utf-8") as fh:
             lines = fh.readlines()
@@ -203,11 +251,8 @@ def _prepend_changelog(changelog_path: str, entry: str) -> None:
     block = entry.rstrip("\n") + "\n\n"
     if insert_at is None:
         # No prior versioned entry — append after the file's preamble.
-        new_text = "".join(lines).rstrip("\n") + "\n\n" + block
-    else:
-        new_text = "".join(lines[:insert_at]) + block + "".join(lines[insert_at:])
-    with open(changelog_path, "w", encoding="utf-8") as fh:
-        fh.write(new_text)
+        return "".join(lines).rstrip("\n") + "\n\n" + block
+    return "".join(lines[:insert_at]) + block + "".join(lines[insert_at:])
 
 
 def consolidate(root: str, date: str) -> int:
@@ -219,38 +264,43 @@ def consolidate(root: str, date: str) -> int:
         print("no .changeset/ directory — nothing to consolidate")
         return 0
 
+    try:
+        names = os.listdir(changeset_dir)
+    except OSError as exc:
+        raise ChangesetError(f"{changeset_dir}: cannot list changesets: {exc}") from exc
     pending = sorted(
-        os.path.join(changeset_dir, n)
-        for n in os.listdir(changeset_dir)
-        if _is_consumable(n)
+        os.path.join(changeset_dir, n) for n in names if _is_consumable(n)
     )
     if not pending:
         print("no pending changesets — no version bump, no CHANGELOG entry")
         return 0
 
     # Parse ALL changesets first (fail-closed: no write happens until every file is valid).
-    parsed = [(p, *_parse_changeset(p)) for p in pending]
+    parsed = [(p, _parse_changeset(p)) for p in pending]
 
-    highest = max((bump for _p, bump, _t, _pr in parsed), key=_BUMP_RANK.__getitem__)
+    highest = max((cs.bump for _p, cs in parsed), key=_BUMP_RANK.__getitem__)
     current = _read_manifest_version(manifest_path)
     new_version = _bump_version(current, highest)
 
     sections: "dict[str, list[str]]" = {}
-    for _path, _bump, section, prose in parsed:
-        sections.setdefault(section, []).append(prose)
-
-    # Write the manifest first so that if it fails (e.g. an I/O error) the abort happens
-    # before CHANGELOG.md is touched — no window where CHANGELOG is bumped but the manifest
-    # is not. (The manifest read above and this write use symmetric regexes over the same
-    # unmodified text, so the version key found by the read is always rewritable; the
-    # remaining failure surface is file I/O. The workflow also commits atomically from a
-    # fresh checkout, so a half-write is never committed; this ordering just keeps the
-    # on-disk state consistent even mid-abort.)
-    _write_manifest_version(manifest_path, new_version)
+    for _path, cs in parsed:
+        sections.setdefault(cs.section, []).append(cs.prose)
     entry = _assemble_entry(new_version, date, sections)
-    _prepend_changelog(changelog_path, entry)
+
+    # Read-before-write: assemble BOTH output files' new contents in memory (each read here
+    # can raise ChangesetError) before writing either — so an output-side read/parse fault
+    # aborts before any write, leaving plugin.json and CHANGELOG.md byte-for-byte unchanged.
+    # No os.access() check-then-write (TOCTOU): the render helpers do the real read.
+    new_manifest = _render_manifest(manifest_path, new_version)
+    new_changelog = _render_changelog(changelog_path, entry)
+
+    _write_text(manifest_path, new_manifest)
+    _write_text(changelog_path, new_changelog)
     for path in pending:
-        os.remove(path)
+        try:
+            os.remove(path)
+        except OSError as exc:
+            raise ChangesetError(f"{path}: cannot delete consumed changeset: {exc}") from exc
 
     print(
         f"consolidated {len(pending)} changeset(s): {current} -> {new_version} "
@@ -279,6 +329,11 @@ def main(argv: "list[str] | None" = None) -> int:
         return consolidate(args.root, date)
     except ChangesetError as exc:
         return _fatal(str(exc))
+    except OSError as exc:
+        # Removal-proof backstop: every OS site above is individually wrapped into a
+        # ChangesetError, but a site added later (or missed) must still exit 2 with a
+        # diagnostic rather than a bare OSError traceback / exit 1.
+        return _fatal(f"unhandled OS error: {exc}")
 
 
 if __name__ == "__main__":
