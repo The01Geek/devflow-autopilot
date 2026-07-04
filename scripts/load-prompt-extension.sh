@@ -67,7 +67,7 @@ case "$skill" in
 esac
 
 # Anchor to the repo root (issue #295) so a subdirectory invocation still finds the
-# consumer's extension. Mirror lib/config-source.sh:14's discovery expression.
+# consumer's extension. Mirror lib/config-source.sh's discovery expression.
 # git rev-parse prints nothing and exits non-zero outside a git tree; the trailing
 # `|| _devflow_root=""` keeps that assignment set -e-safe. Then fall back to cwd, with a
 # breadcrumb only when NEITHER a git root NOR a .devflow/ dir can be located.

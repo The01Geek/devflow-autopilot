@@ -52,13 +52,17 @@ if [ $# -ge 2 ]; then
     default="$2"
 fi
 # Anchor the DEFAULT config path to the git repo root (issue #295) — mirroring
-# lib/config-source.sh:14 (`git rev-parse --show-toplevel 2>/dev/null || pwd`) — so a
+# lib/config-source.sh (`git rev-parse --show-toplevel 2>/dev/null || pwd`) — so a
 # skill invoked from a subdirectory reads the consumer's ROOT .devflow/config.json
 # instead of silently missing it. An explicit CONFIG_FILE (3rd arg) is honored
 # verbatim; root anchoring applies only to the default. Each invocation forks
 # `git rev-parse` (fast; git is a hard preflight prereq) — unlike config-source.sh,
 # this standalone resolver cannot cache the root across its separate subprocesses.
-if [ $# -ge 3 ]; then
+# Gate on a NON-EMPTY 3rd arg (`[ -n "${3:-}" ]`), not merely `$# -ge 3`, so an
+# explicitly-passed empty CONFIG_FILE still means "use the default" (the pre-#295
+# `${3:-…}` semantics) — root-anchored now — rather than a literal empty path that
+# would fail to open.
+if [ -n "${3:-}" ]; then
     config_file="$3"
 else
     # git rev-parse prints nothing and exits non-zero outside a git tree; the trailing

@@ -4821,6 +4821,13 @@ assert_eq "#295 AC4: match-deferrals default config from subdir → root config"
 # root config carries proves it read that file, not a cwd-relative miss).
 assert_eq "#295 lockstep: all readers resolve the identical root config from subdir" "botX,botY" \
   "$(cd "$R295/a/b/c" && bash "$CG" .devflow.allowed_bots MISS)"
+# AC4 (end-to-end): match-deferrals' _config_get(config_path=None) actually INVOKES
+# _default_config_path() and reads the ROOT config VALUE from a subdir — proving the
+# config_path=None wiring, not just _default_config_path() in isolation (a revert of the
+# None default to a cwd-relative constant would leave the AC4 path-equality green but this
+# value read RED).
+assert_eq "#295 AC4: match-deferrals _config_get(None) reads ROOT allowed_bots from subdir" "botX,botY" \
+  "$(cd "$R295/a/b/c" && python3 -c "import importlib.util as u;s=u.spec_from_file_location('md','$MD295');m=u.module_from_spec(s);s.loader.exec_module(m);print(m._config_get('.devflow.allowed_bots','MISS'))")"
 
 # AC5: cwd == root → byte-identical to the subdir result (no regression on common path).
 assert_eq "#295 AC5: config-get at root byte-identical" "CUSTOM/DOCS" \
@@ -4852,6 +4859,15 @@ assert_eq "#295 AC7: bare tree still returns the default value" "FALLBACK" \
 BARE295_LPE_ERR="$(cd "$BARE295" && bash "$LPE" implement 2>&1 >/dev/null)"
 assert_eq "#295 AC7: loader bare tree → non-empty stderr breadcrumb" "yes" \
   "$([ -n "$BARE295_LPE_ERR" ] && echo yes || echo no)"
+# AC7 completeness: the two PYTHON readers must ALSO emit a bare-tree breadcrumb (AC7
+# says *each* reader). Pop DEVFLOW_WORKPAD_MARKER so the marker read reaches the config
+# path rather than short-circuiting on an ambient env override.
+BARE295_WP_ERR="$(cd "$BARE295" && python3 -c "import os;os.environ.pop('DEVFLOW_WORKPAD_MARKER',None);import importlib.util as u;s=u.spec_from_file_location('w','$WP_PY');m=u.module_from_spec(s);s.loader.exec_module(m);m._workpad_marker(None)" 2>&1 >/dev/null)"
+assert_eq "#295 AC7: workpad marker bare tree → non-empty stderr breadcrumb" "yes" \
+  "$([ -n "$BARE295_WP_ERR" ] && echo yes || echo no)"
+BARE295_MD_ERR="$(cd "$BARE295" && python3 -c "import importlib.util as u;s=u.spec_from_file_location('md','$MD295');m=u.module_from_spec(s);s.loader.exec_module(m);m._default_config_path()" 2>&1 >/dev/null)"
+assert_eq "#295 AC7: match-deferrals bare tree → non-empty stderr breadcrumb" "yes" \
+  "$([ -n "$BARE295_MD_ERR" ] && echo yes || echo no)"
 
 rm -rf "$R295" "$NG295" "$BARE295"
 

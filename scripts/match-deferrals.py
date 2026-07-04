@@ -116,7 +116,7 @@ def _run(cmd, *, check=True):
 
 def _repo_root():
     # Resolve the git repo root (issue #295), the Python mirror of
-    # lib/config-source.sh:14's `git rev-parse --show-toplevel 2>/dev/null || pwd`.
+    # lib/config-source.sh's `git rev-parse --show-toplevel 2>/dev/null || pwd`.
     # A native `git` subprocess is Windows-safe (like the existing `gh` calls),
     # unlike exec-ing a .sh ([WinError 193], issue #275). Returns the root string,
     # or None when not in a git tree / git cannot run (_run's rc-127 OSError

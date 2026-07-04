@@ -104,7 +104,7 @@ def _fail(prefix, exc, code=1):
 
 def _repo_root():
     # Resolve the git repo root so config reads anchor there, not to cwd (issue
-    # #295) — the Python mirror of lib/config-source.sh:14's
+    # #295) — the Python mirror of lib/config-source.sh's
     # `git rev-parse --show-toplevel 2>/dev/null || pwd`. A native `git` subprocess
     # (like the existing `gh` calls) is Windows-safe — unlike exec-ing a .sh
     # ([WinError 193], issue #275). Returns the root string, or None when not in a
