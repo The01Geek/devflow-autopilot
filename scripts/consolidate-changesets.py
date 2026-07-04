@@ -239,12 +239,13 @@ def consolidate(root: str, date: str) -> int:
     for _path, _bump, section, prose in parsed:
         sections.setdefault(section, []).append(prose)
 
-    # Write the manifest first: it is the cheaper, regex-symmetric operation and is the
-    # likelier of the two to fail (the write regex is stricter than the read regex), so
-    # doing it first means a failure aborts before CHANGELOG.md is touched — no window
-    # where CHANGELOG is bumped but the manifest is not. (The workflow also commits
-    # atomically from a fresh checkout, so a half-write is never committed; this ordering
-    # just keeps the on-disk state consistent even mid-abort.)
+    # Write the manifest first so that if it fails (e.g. an I/O error) the abort happens
+    # before CHANGELOG.md is touched — no window where CHANGELOG is bumped but the manifest
+    # is not. (The manifest read above and this write use symmetric regexes over the same
+    # unmodified text, so the version key found by the read is always rewritable; the
+    # remaining failure surface is file I/O. The workflow also commits atomically from a
+    # fresh checkout, so a half-write is never committed; this ordering just keeps the
+    # on-disk state consistent even mid-abort.)
     _write_manifest_version(manifest_path, new_version)
     entry = _assemble_entry(new_version, date, sections)
     _prepend_changelog(changelog_path, entry)
