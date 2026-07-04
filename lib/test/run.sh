@@ -4869,7 +4869,34 @@ BARE295_MD_ERR="$(cd "$BARE295" && python3 -c "import importlib.util as u;s=u.sp
 assert_eq "#295 AC7: match-deferrals bare tree → non-empty stderr breadcrumb" "yes" \
   "$([ -n "$BARE295_MD_ERR" ] && echo yes || echo no)"
 
-rm -rf "$R295" "$NG295" "$BARE295"
+# AC10: git-root-with-NO-.devflow/ (the normal unconfigured in-git case) → each reader
+# stays SILENT and returns the default. This is the exact NEGATIVE of the AC7 bare-tree
+# breadcrumb: every reader emits its breadcrumb ONLY when NEITHER a git root NOR a
+# .devflow/ is found, so a regression moving the .devflow-existence check OUTSIDE the
+# `if [ -z "$_devflow_root" ]` guard would spam stderr on every normal unconfigured
+# in-git run (the overwhelmingly common case) with no other assertion going RED.
+SIL295="$(git_sandbox "#295 git-root no-.devflow silence sandbox")"
+git -C "$SIL295" init -q
+git -C "$SIL295" config user.email t@example.com; git -C "$SIL295" config user.name t
+mkdir -p "$SIL295/a/b/c"   # a real git root, deliberately NO .devflow/ anywhere
+# config-get: default value returned AND empty stderr (git root found → .devflow check
+# is skipped → no breadcrumb).
+assert_eq "#295 AC10: config-get git-root-no-.devflow returns the default" "FALLBACK" \
+  "$(cd "$SIL295/a/b/c" && bash "$CG" .docs.internal FALLBACK 2>/dev/null)"
+assert_eq "#295 AC10: config-get git-root-no-.devflow stays SILENT (empty stderr)" "" \
+  "$(cd "$SIL295/a/b/c" && bash "$CG" .docs.internal FALLBACK 2>&1 >/dev/null)"
+# loader: no-op (prints nothing) AND empty stderr.
+assert_eq "#295 AC10: loader git-root-no-.devflow stays SILENT (empty stderr)" "" \
+  "$(cd "$SIL295/a/b/c" && bash "$LPE" implement 2>&1 >/dev/null)"
+# workpad marker: default marker AND empty stderr (pop the env override so the read
+# reaches the config path).
+assert_eq "#295 AC10: workpad marker git-root-no-.devflow stays SILENT (empty stderr)" "" \
+  "$(cd "$SIL295/a/b/c" && python3 -c "import os;os.environ.pop('DEVFLOW_WORKPAD_MARKER',None);import importlib.util as u;s=u.spec_from_file_location('w','$WP_PY');m=u.module_from_spec(s);s.loader.exec_module(m);m._workpad_marker(None)" 2>&1 >/dev/null)"
+# match-deferrals default path: resolves the git-root .devflow/config.json AND empty stderr.
+assert_eq "#295 AC10: match-deferrals git-root-no-.devflow stays SILENT (empty stderr)" "" \
+  "$(cd "$SIL295/a/b/c" && python3 -c "import importlib.util as u;s=u.spec_from_file_location('md','$MD295');m=u.module_from_spec(s);s.loader.exec_module(m);m._default_config_path()" 2>&1 >/dev/null)"
+
+rm -rf "$R295" "$NG295" "$BARE295" "$SIL295"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "load-prompt-extension.sh: every skills/*/SKILL.md carries the standardized step"

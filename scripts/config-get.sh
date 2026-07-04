@@ -10,8 +10,9 @@
 #   DEFAULT      printed if key is absent or value is empty/null. Pass an
 #                empty string ("") to explicitly request empty-on-missing.
 #   CONFIG_FILE  when omitted, defaults to the repo-root .devflow/config.json
-#                (git rev-parse --show-toplevel, falling back to pwd); an explicit
-#                value is honored verbatim (issue #295)
+#                (git rev-parse --show-toplevel, falling back to pwd); a NON-EMPTY
+#                explicit value is honored verbatim (an explicit empty string still
+#                selects the root-anchored default) (issue #295)
 #
 # SHARED REPO-ROOT CONFIG CONTRACT (issue #295, supersedes the #275 cwd-relative
 # contract): this resolver and scripts/workpad.py's in-process marker read both
@@ -21,8 +22,10 @@
 # from any subdirectory of the repo loads the consumer's root `.devflow/config.json`
 # exactly as if invoked from the root; when cwd already IS the root the resolution
 # is byte-for-byte unchanged. Keep the two readers in lockstep: they must resolve
-# the same file for the same cwd. An explicit CONFIG_FILE (3rd arg) is honored
-# verbatim — the root anchoring applies only to the default. (workpad.py cannot exec
+# the same file for the same cwd. A NON-EMPTY explicit CONFIG_FILE (3rd arg) is
+# honored verbatim — the root anchoring applies only to the default; an explicit
+# EMPTY 3rd arg still selects that default (see the [ -n "${3:-}" ] gate below).
+# (workpad.py cannot exec
 # this .sh on Windows — [WinError 193] — so it re-implements the same repo-root read
 # in Python via a native git subprocess; issue #275/#295.)
 #
@@ -54,8 +57,9 @@ fi
 # Anchor the DEFAULT config path to the git repo root (issue #295) — mirroring
 # lib/config-source.sh (`git rev-parse --show-toplevel 2>/dev/null || pwd`) — so a
 # skill invoked from a subdirectory reads the consumer's ROOT .devflow/config.json
-# instead of silently missing it. An explicit CONFIG_FILE (3rd arg) is honored
-# verbatim; root anchoring applies only to the default. Each invocation forks
+# instead of silently missing it. A NON-EMPTY explicit CONFIG_FILE (3rd arg) is
+# honored verbatim (an explicit empty 3rd arg still selects the default — see the
+# gate below); root anchoring applies only to the default. Each invocation forks
 # `git rev-parse` (fast; git is a hard preflight prereq) — unlike config-source.sh,
 # this standalone resolver cannot cache the root across its separate subprocesses.
 # Gate on a NON-EMPTY 3rd arg (`[ -n "${3:-}" ]`), not merely `$# -ge 3`, so an

@@ -74,8 +74,11 @@ BLOCK_END = "<!-- DEVFLOW_DEFERRED_FINDINGS_END -->"
 PAYLOAD_START = "<!-- DEVFLOW_DEFERRED_PAYLOAD"
 # The default config path is resolved lazily at call time by _default_config_path()
 # (anchored to the git repo root; issue #295) — NOT a cwd-relative module constant —
-# so a subdirectory invocation reads the consumer's ROOT config. An explicit --config
-# argument is honored verbatim (mirrors config-get.sh's explicit-CONFIG_FILE contract).
+# so a subdirectory invocation reads the consumer's ROOT config. A NON-EMPTY explicit
+# --config argument is honored verbatim; an explicit empty --config is passed down to
+# config-get.sh, whose own [ -n "${3:-}" ] gate then re-selects the root-anchored
+# default (so the empty-string edge matches config-get.sh's behavior, but via its
+# fallback rather than a passthrough here).
 
 # Rejection reason codes — mirrored verbatim in skills/review/SKILL.md prose.
 # Edit both in lockstep.
@@ -356,8 +359,8 @@ def main(argv=None):
     p.add_argument("--config", default=None,
                    help="Path to config.json (default: the repo-root "
                         ".devflow/config.json, resolved via git rev-parse "
-                        "--show-toplevel with a cwd fallback; issue #295). An "
-                        "explicit value is honored verbatim.")
+                        "--show-toplevel with a cwd fallback; issue #295). A "
+                        "non-empty explicit value is honored verbatim.")
     args = p.parse_args(argv)
 
     diff_path = Path(args.diff)
