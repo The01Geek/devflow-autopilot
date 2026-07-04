@@ -68,11 +68,11 @@ esac
 
 # Anchor to the repo root (issue #295) so a subdirectory invocation still finds the
 # consumer's extension. Mirror lib/config-source.sh:14's discovery expression.
-if _devflow_root="$(git rev-parse --show-toplevel 2>/dev/null)" && [ -n "$_devflow_root" ]; then
-    :   # in a git repo — anchor to its root
-else
-    # Not a git repo: fall back to cwd. Breadcrumb only when NEITHER a git root NOR a
-    # .devflow/ dir can be located — the silent-drop class this fix closes.
+# git rev-parse prints nothing and exits non-zero outside a git tree; the trailing
+# `|| _devflow_root=""` keeps that assignment set -e-safe. Then fall back to cwd, with a
+# breadcrumb only when NEITHER a git root NOR a .devflow/ dir can be located.
+_devflow_root="$(git rev-parse --show-toplevel 2>/dev/null)" || _devflow_root=""
+if [ -z "$_devflow_root" ]; then
     _devflow_root="$(pwd)"
     [ -d "${_devflow_root}/.devflow" ] || \
         echo "load-prompt-extension.sh: not in a git repo and no .devflow/ at '${_devflow_root}'; no extension loaded" >&2

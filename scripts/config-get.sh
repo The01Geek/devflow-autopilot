@@ -61,13 +61,13 @@ fi
 if [ $# -ge 3 ]; then
     config_file="$3"
 else
-    if _devflow_root="$(git rev-parse --show-toplevel 2>/dev/null)" && [ -n "$_devflow_root" ]; then
-        :   # in a git repo — anchor to its root
-    else
-        # Not a git repo: fall back to cwd. Breadcrumb only when NEITHER a git root
-        # NOR a .devflow/ dir can be located — the silent-drop class this fix closes.
-        # (A git root with no .devflow/ is the normal unconfigured local case and
-        # stays silent; the caller then applies its own default.)
+    # git rev-parse prints nothing and exits non-zero outside a git tree; the trailing
+    # `|| _devflow_root=""` keeps that assignment set -e-safe. Then fall back to cwd, with
+    # a breadcrumb only when NEITHER a git root NOR a .devflow/ dir can be located — the
+    # silent-drop class this fix closes. (A git root with no .devflow/ is the normal
+    # unconfigured local case and stays silent; the caller then applies its own default.)
+    _devflow_root="$(git rev-parse --show-toplevel 2>/dev/null)" || _devflow_root=""
+    if [ -z "$_devflow_root" ]; then
         _devflow_root="$(pwd)"
         [ -d "${_devflow_root}/.devflow" ] || \
             echo "config-get.sh: not in a git repo and no .devflow/ at '${_devflow_root}'; using cwd fallback and defaults" >&2
