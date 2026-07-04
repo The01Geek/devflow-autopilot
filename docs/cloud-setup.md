@@ -177,8 +177,10 @@ ignores the job's `permissions:` block):
 
 The **review agent** (`devflow-runner.yml`'s automated review, and `devflow.yml`'s manual `/devflow:review` command) is the one exception: it runs under a **separate** `DevFlow-Reviewer` App, not the primary one — see [The dedicated DevFlow-Reviewer app](#the-dedicated-devflow-reviewer-app-review-identity) below.
 
-Every mint step is gated on `vars.DEVFLOW_APP_ID != ''`, so it is skipped when the
-variable is unset and each consumer falls back to `GITHUB_TOKEN`. A
+Every primary-App mint step is gated on `vars.DEVFLOW_APP_ID != ''`, so it is skipped
+when the variable is unset and each consumer falls back to `GITHUB_TOKEN` (the two
+review mints gate on the separate `vars.DEVFLOW_REVIEWER_APP_ID` — see the
+DevFlow-Reviewer section below). A
 configured-but-broken App (invalid or rotated key, or an installation missing one of
 the permissions a site requests) **fails the job at the mint step** — there is no
 silent fall-back to `GITHUB_TOKEN`. Named exceptions to the App identity: the

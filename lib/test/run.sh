@@ -8639,6 +8639,11 @@ assert_eq "review-identity: devflow.yml review branch selects reviewer-token, pr
 # can never author the review — pin the negated startsWith on its if:.
 assert_eq "review-identity: devflow.yml primary app-token mint is skipped on /devflow:review" "1" \
   "$(grep -cF "vars.DEVFLOW_APP_ID != '' && !startsWith(needs.gate.outputs.command, '/devflow:review ')" "$WF/devflow.yml")"
+# Conversely, devflow.yml's reviewer mint fires ONLY on the review command — pin the
+# positive startsWith conjunct on its if: so dropping it (which would mint the reviewer
+# token on /devflow:pr-description too) goes RED, keeping the mint scoped to /devflow:review.
+assert_eq "review-identity: devflow.yml reviewer-token mint fires only on /devflow:review" "1" \
+  "$(grep -cF "vars.DEVFLOW_REVIEWER_APP_ID != '' && startsWith(needs.gate.outputs.command, '/devflow:review ')" "$WF/devflow.yml")"
 assert_eq "app-token: devflow.yml react step consumes gate_app_token || github.token" "1" \
   "$(grep -cF 'GH_TOKEN: ${{ steps.gate_app_token.outputs.token || github.token }}' "$WF/devflow.yml")"
 assert_eq "app-token: devflow.yml notice step consumes dedupe_app_token || github.token" "1" \
