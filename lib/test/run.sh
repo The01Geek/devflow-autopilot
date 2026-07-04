@@ -7895,6 +7895,17 @@ REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=true REQUIRE_CI_GREEN
 REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
   DRP_CHECKS='{"check_runs":[{"name":"ext","app":{"slug":"circleci"},"status":"in_progress","conclusion":null}]}' \
   drp "#304 external check run in_progress -> false ci-not-green (pending, external caller)" "false ci-not-green"
+# A run object WITHOUT a status field: the run itself is an observed signal,
+# its unknown status is deliberately treated as not-completed (pending) —
+# pinned so a future edit makes this choice consciously.
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI"}]}' \
+  drp "#304 workflow run without a status field -> false ci-not-green (observed run, unknown status = pending)" "false ci-not-green"
+# The base_branch extraction expression, executed like the require_* ones.
+assert_eq "#304 base_branch extraction: non-default value kept" "develop" \
+  "$(echo '{"base_branch":"develop"}' | jq -r '(try .base_branch catch null) // "main"')"
+assert_eq "#304 base_branch extraction: absent key defaults main" "main" \
+  "$(echo '{}' | jq -r '(try .base_branch catch null) // "main"')"
 # Non-Actions (external app) check runs gate too; the Devflow Review check-run
 # name is excluded even off-app (defensive).
 REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
@@ -9314,6 +9325,20 @@ assert_eq "#304 compare query uses base...head operand order" "yes" \
 # unverifiable result.
 assert_eq "#304 preconditions_ok distinguishes a crashed helper with its own breadcrumb" "yes" \
   "$(grep -qF 'exited non-zero (contract violation' "$REVIEW_WF" && echo yes || echo no)"
+# (c13) The three head-SHA-scoped CI queries are pinned by URL literal (the
+# stub is URL-shape-blind, same rationale as c11): dropping ?head_sha= would
+# gate on every run in the repo; a wrong-variable SHA evaluates the wrong
+# commit — both invisible to the stubbed tests.
+assert_eq "#304 actions-runs query is head_sha-scoped" "yes" \
+  "$(grep -qF 'actions/runs?head_sha=$HEAD_SHA' "$LIB/../scripts/derive-review-preconditions.sh" && echo yes || echo no)"
+assert_eq "#304 combined-status query is head-scoped" "yes" \
+  "$(grep -qF 'commits/$HEAD_SHA/status' "$LIB/../scripts/derive-review-preconditions.sh" && echo yes || echo no)"
+assert_eq "#304 check-runs query is head-scoped" "yes" \
+  "$(grep -qF 'commits/$HEAD_SHA/check-runs' "$LIB/../scripts/derive-review-preconditions.sh" && echo yes || echo no)"
+# (c14) A present-but-broken vendored copy retries the in-repo fallback once
+# (existence-vs-sourceability: [ -f ] proves existence, not runnability).
+assert_eq "#304 crashed vendored copy retries the in-repo preconditions script" "yes" \
+  "$(grep -qF 'retrying the preconditions with the in-repo scripts/derive-review-preconditions.sh' "$REVIEW_WF" && echo yes || echo no)"
 # (d) The workflow_run self-trigger guard compares against the workflow's own
 # name (and the on: workflows list must not name it).
 assert_eq "#304 workflow_run route carries the self-trigger guard" "yes" \

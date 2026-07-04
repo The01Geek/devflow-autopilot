@@ -147,8 +147,9 @@ jobs:
       head_sha: ${{ steps.route.outputs.head_sha }}
       # Non-empty ONLY when a #304 precondition deferred the review (values:
       # behind-base | ci-not-green | unverifiable). create_check widens its
-      # gate on it so the required check is still posted, and finalize_check
-      # maps it to a neutral "waiting" conclusion. Every pre-existing
+      # gate on it so the required check is still posted — pre-completed
+      # neutral with the "waiting" title, in one POST — and finalize_check is
+      # deliberately skipped (see its if:). Every pre-existing
       # should_run=false path (dedupe loser, draft, unauthorized, exactly-once)
       # leaves it empty and still posts NO check — unchanged behavior.
       skip_reason: ${{ steps.route.outputs.skip_reason }}
@@ -222,8 +223,9 @@ jobs:
           # #304 preconditions gate. Returns 0 when the review may proceed.
           # On an unmet/unverifiable precondition it emits the deferral
           # outputs (should_run stays false; a non-empty skip_reason routes
-          # create_check + finalize_check to post-and-conclude a neutral
-          # "waiting" check so the required context is never absent) and
+          # create_check to post-and-conclude a neutral "waiting" check in
+          # one POST — finalize_check is skipped — so the required context
+          # is never absent) and
           # returns 1 — the caller must `|| exit 0`. A missing helper script
           # fails OPEN (proceed exactly as before #304): a consumer repo that
           # has not vendored the new script must not lose reviews entirely.
@@ -244,7 +246,17 @@ jobs:
             if ! pre=$(REPO="$REPO" HEAD_SHA="$2" BASE_BRANCH="$BASE_BRANCH" \
                   REQUIRE_UP_TO_DATE="$REQUIRE_UP_TO_DATE" REQUIRE_CI_GREEN="$REQUIRE_CI_GREEN" \
                   SELF_WORKFLOW_NAME="$SELF_WORKFLOW_NAME" bash "$script"); then
-              echo "::warning::derive-review-preconditions.sh exited non-zero (contract violation — crash or unreadable script); treating the preconditions as unverifiable."
+              echo "::warning::$script exited non-zero (contract violation — crash or unreadable/truncated copy); treating the preconditions as unverifiable."
+              # A present-but-broken VENDORED copy must not permanently shadow
+              # a working in-repo copy ([ -f ] proves existence, not
+              # runnability — the existence-vs-sourceability class): retry
+              # once with the in-repo fallback when it is a different file.
+              if [ "$script" != scripts/derive-review-preconditions.sh ] && [ -f scripts/derive-review-preconditions.sh ]; then
+                echo "::warning::retrying the preconditions with the in-repo scripts/derive-review-preconditions.sh"
+                pre=$(REPO="$REPO" HEAD_SHA="$2" BASE_BRANCH="$BASE_BRANCH" \
+                      REQUIRE_UP_TO_DATE="$REQUIRE_UP_TO_DATE" REQUIRE_CI_GREEN="$REQUIRE_CI_GREEN" \
+                      SELF_WORKFLOW_NAME="$SELF_WORKFLOW_NAME" bash scripts/derive-review-preconditions.sh) || true
+              fi
             fi
             pre_run=$(printf '%s\n' "$pre" | sed -n 's/^should_run=//p')
             pre_reason=$(printf '%s\n' "$pre" | sed -n 's/^reason=//p')
@@ -302,7 +314,7 @@ jobs:
             # function exists to eliminate).
             _err=$(mktemp 2>/dev/null) || _err=/dev/null
             if ! _resp=$(gh api "repos/$REPO/commits/$1/pulls" 2>"$_err"); then
-              echo "::warning::commits/$1/pulls query failed ($(cat "$_err" 2>/dev/null || echo 'no error output')); failing closed — the caller reports no PR, but the real cause is the query, not an absent PR." >&2
+              echo "::warning::commits/$1/pulls query failed ($([ -s "$_err" ] && cat "$_err" || echo 'no error output captured')); failing closed — the caller reports no PR, but the real cause is the query, not an absent PR." >&2
               [ "$_err" = /dev/null ] || rm -f "$_err"
               return 0
             fi
