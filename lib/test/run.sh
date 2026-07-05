@@ -14569,8 +14569,8 @@ assert_pin_unique "#271 coupled: phase-4-documentation.md deferrals merge invoke
 # program body from each workflow at test time, assert the three copies are
 # byte-identical, then run ONE extracted copy live — never hand-maintain a fourth.
 # IMPL_WF / RUNNER_WF / LIGHT_WF are defined in the #271 block above; reuse them.
-# region_lines (run.sh:~1272) already prints the lines strictly between a BEGIN/END
-# marker pair, substring-matched — reuse it rather than a bespoke awk extractor.
+# region_lines already prints the lines strictly between a BEGIN/END marker pair,
+# substring-matched — reuse it rather than a bespoke awk extractor.
 R313_IMPL="$(region_lines "$IMPL_WF" '# devflow-provider-resolver BEGIN' '# devflow-provider-resolver END')"
 R313_RUNNER="$(region_lines "$RUNNER_WF" '# devflow-provider-resolver BEGIN' '# devflow-provider-resolver END')"
 R313_LIGHT="$(region_lines "$LIGHT_WF" '# devflow-provider-resolver BEGIN' '# devflow-provider-resolver END')"
@@ -14706,16 +14706,17 @@ for R313_WF in "$IMPL_WF" "$RUNNER_WF" "$LIGHT_WF"; do
   # PASS-with → FAIL-without at each site).
   assert_pin_unique "#313 defaults: $R313_TAG inject step fails loud on an empty provider secret (AC 6)" \
     "DEVFLOW_PROVIDER_API_KEY repository secret is empty" "$R313_WF"
-  # ANTHROPIC_BASE_URL is written exactly once, and only inside the provider-gated
-  # inject step — structurally proving it never leaks onto the default path.
+  # ANTHROPIC_BASE_URL is written exactly once (via genv, the newline-safe heredoc
+  # writer), and only inside the provider-gated inject step — structurally proving it
+  # never leaks onto the default path.
   assert_eq "#313 defaults: $R313_TAG writes ANTHROPIC_BASE_URL exactly once" "1" \
-    "$(pin_count 'ANTHROPIC_BASE_URL=' "$R313_WF")"
-  # mint_blk (run.sh:~8832) extracts a named step's block (- name: … to the next
-  # sibling/job boundary) — reuse it instead of a bespoke awk step-extractor.
+    "$(pin_count 'genv ANTHROPIC_BASE_URL' "$R313_WF")"
+  # mint_blk extracts a named step's block (- name: … to the next sibling/job
+  # boundary) — reuse it instead of a bespoke awk step-extractor.
   R313_INJECT="$(mint_blk 'Inject provider endpoint (provider-routed sections only)' "$R313_WF")"
   assert_eq "#313 defaults: $R313_TAG inject step is gated on provider != '' AND holds the ANTHROPIC_BASE_URL write" "yes" \
     "$(printf '%s' "$R313_INJECT" | grep -qF "steps.provider.outputs.provider != ''" \
-       && printf '%s' "$R313_INJECT" | grep -qF 'ANTHROPIC_BASE_URL=' && echo yes || echo no)"
+       && printf '%s' "$R313_INJECT" | grep -qF 'genv ANTHROPIC_BASE_URL' && echo yes || echo no)"
 done
 # AC 8 default-path fail-loud OAuth guard (runner-only): the runner relaxed
 # CLAUDE_CODE_OAUTH_TOKEN to an optional workflow_call secret, so it must fail loud when the
@@ -14765,49 +14766,104 @@ PY
 )"
   assert_eq "#313 single-sourced: Resolve/Inject/cargs run: bodies byte-identical across the 3 workflows" "yes,yes,yes" "$R313_BODY_IDENT"
 
-  # Behavioral coverage of the Inject + Build-claude_args-head run BODIES (issue #313 shadow
-  # gap 2): the 3-way body-identity pin proves the copies AGREE but not that they are CORRECT
-  # — a uniform logic mutation (invert the security-adjacent bearer branch, drop the effort
-  # gate, break the env expansion) stays GREEN. EXECUTE the extracted bodies with env set and
-  # $GITHUB_ENV / $GITHUB_OUTPUT pointed at temp files, then assert the emitted lines.
+  # gh_kv normalizes a $GITHUB_ENV/$GITHUB_OUTPUT file written in GitHub's newline-safe
+  # multiline-heredoc form (KEY<<DELIM\nvalue\nDELIM — the form this PR now uses everywhere)
+  # back into KEY=VALUE lines for whole-line assertions. All #313 emitted values are
+  # single-line, which is all this needs to handle.
+  gh_kv() {  # file -> KEY=VALUE lines on stdout
+    awk '
+      d == "" { p = index($0, "<<"); if (p > 0) { k = substr($0, 1, p-1); d = substr($0, p+2) } next }
+      $0 == d { d = ""; next }
+      { print k "=" $0 }
+    ' "$1"
+  }
+
+  # Behavioral coverage of the Resolve + Inject + Build-claude_args-head run BODIES (issue #313
+  # shadow gap 2 + review Important #2): the 3-way body-identity pin proves the copies AGREE but
+  # not that they are CORRECT — a uniform logic mutation (invert the security-adjacent bearer
+  # branch, drop the effort gate, drop the resolver's `exit 1` fail-loud, break the env
+  # expansion) stays GREEN. EXECUTE the extracted bodies with env set and $GITHUB_ENV /
+  # $GITHUB_OUTPUT pointed at temp files, then assert the emitted (heredoc) lines + exit codes.
+  R313_RES_BODY="$(python3 -c 'import yaml,sys
+d=yaml.safe_load(open(sys.argv[1]))
+print(next(s["run"] for j in d["jobs"].values() for s in j.get("steps",[]) if s.get("name")=="Resolve model provider"))' "$IMPL_WF")"
   R313_INJ_BODY="$(python3 -c 'import yaml,sys
 d=yaml.safe_load(open(sys.argv[1]))
 print(next(s["run"] for j in d["jobs"].values() for s in j.get("steps",[]) if s.get("name")=="Inject provider endpoint (provider-routed sections only)"))' "$IMPL_WF")"
   R313_CARGS_BODY="$(python3 -c 'import yaml,sys
 d=yaml.safe_load(open(sys.argv[1]))
 print(next(s["run"] for j in d["jobs"].values() for s in j.get("steps",[]) if s.get("name")=="Build claude_args head (model + conditional effort)"))' "$IMPL_WF")"
+
+  # Resolve body (review Important #2): the fail-loud undefined/incomplete-provider branch
+  # (`.error != ""` → ::error:: + exit 1) had NO runtime assertion — only 3-way byte-identity —
+  # so a mutation dropping the `exit 1` or inverting the `.error != ""` test kept every #313
+  # assertion GREEN while the workflow proceeded past a fail-loud condition. Drive the extracted
+  # body against an error-marker config (assert rc=1 + ::error::) and a default config (rc=0 +
+  # the emitted heredoc scalar/decision outputs).
+  R313_GOUT0="$(probe_tmp "#313 resolve GITHUB_OUTPUT")" || R313_GOUT0=""
+  if [ -n "$R313_RES_BODY" ] && [ -n "$R313_GOUT0" ]; then
+    # Happy path: default (no-provider) config → rc 0, scalar outputs + decision heredoc emitted.
+    R313_RC=0
+    ( export CONFIG_JSON='{"claude_model":"m","devflow_implement":{}}' SECTION=devflow_implement GITHUB_OUTPUT="$R313_GOUT0"; bash -c "$R313_RES_BODY" ) >/dev/null 2>&1 || R313_RC=$?
+    assert_eq "#313 resolve-body: default (no-provider) config resolves rc 0" "0" "$R313_RC"
+    gh_kv "$R313_GOUT0" > "$R313_GOUT0.kv"
+    assert_eq "#313 resolve-body: default config emits provider=(empty) + model + effort_supported + decision (heredoc-safe)" "yes" \
+      "$(grep -qxF 'provider=' "$R313_GOUT0.kv" && grep -qxF 'model=m' "$R313_GOUT0.kv" && grep -qxF 'effort_supported=true' "$R313_GOUT0.kv" && grep -q '^decision={' "$R313_GOUT0.kv" && echo yes || echo no)"
+    : > "$R313_GOUT0"
+    # Fail-loud: a section naming an undefined provider → resolver error marker → the body's
+    # `.error != ""` branch emits ::error:: and exit 1 BEFORE any action step.
+    R313_RC=0
+    R313_OUT="$( export CONFIG_JSON='{"claude_model":"m","devflow_implement":{"provider":"nope"}}' SECTION=devflow_implement GITHUB_OUTPUT="$R313_GOUT0"; bash -c "$R313_RES_BODY" 2>&1 )" || R313_RC=$?
+    assert_eq "#313 resolve-body: undefined provider fails loud (exit 1)" "1" "$R313_RC"
+    assert_eq "#313 resolve-body: undefined provider emits ::error:: naming the section + provider" "yes" \
+      "$(printf '%s' "$R313_OUT" | grep -qF '::error::' && printf '%s' "$R313_OUT" | grep -qF 'devflow_implement' && printf '%s' "$R313_OUT" | grep -qF "'nope'" && echo yes || echo no)"
+    rm -f "$R313_GOUT0" "$R313_GOUT0.kv"
+  else
+    echo "  SKIP  #313 resolve-body behavioral checks (no writable temp / body extraction failed)"
+  fi
+
   R313_GENV="$(probe_tmp "#313 inject GITHUB_ENV")" || R313_GENV=""
   if [ -n "$R313_INJ_BODY" ] && [ -n "$R313_GENV" ]; then
-    # bearer → ANTHROPIC_BASE_URL + API_TIMEOUT_MS + ANTHROPIC_AUTH_TOKEN(secret) + env map.
+    # bearer → ANTHROPIC_BASE_URL + API_TIMEOUT_MS + ANTHROPIC_AUTH_TOKEN(secret) + env map, each
+    # written via the newline-safe heredoc form (normalized back to KEY=VALUE by gh_kv).
     ( export DECISION='{"env":{"CLAUDE_CODE_SUBAGENT_MODEL":"z-ai/glm-5.2"}}' AUTH=bearer BASE_URL=https://openrouter.ai/api TIMEOUT_MS=3000000 PROVIDER=openrouter PROVIDER_API_KEY=sekret SECTION=devflow_implement GITHUB_ENV="$R313_GENV"; bash -c "$R313_INJ_BODY" ) >/dev/null 2>&1
+    gh_kv "$R313_GENV" > "$R313_GENV.kv"
     assert_eq "#313 inject-body: bearer exports BASE_URL + API_TIMEOUT_MS + ANTHROPIC_AUTH_TOKEN + env map" "yes" \
-      "$(grep -qxF 'ANTHROPIC_BASE_URL=https://openrouter.ai/api' "$R313_GENV" && grep -qxF 'API_TIMEOUT_MS=3000000' "$R313_GENV" && grep -qxF 'ANTHROPIC_AUTH_TOKEN=sekret' "$R313_GENV" && grep -qxF 'CLAUDE_CODE_SUBAGENT_MODEL=z-ai/glm-5.2' "$R313_GENV" && echo yes || echo no)"
+      "$(grep -qxF 'ANTHROPIC_BASE_URL=https://openrouter.ai/api' "$R313_GENV.kv" && grep -qxF 'API_TIMEOUT_MS=3000000' "$R313_GENV.kv" && grep -qxF 'ANTHROPIC_AUTH_TOKEN=sekret' "$R313_GENV.kv" && grep -qxF 'CLAUDE_CODE_SUBAGENT_MODEL=z-ai/glm-5.2' "$R313_GENV.kv" && echo yes || echo no)"
     : > "$R313_GENV"
-    # api_key → base_url written, but NO ANTHROPIC_AUTH_TOKEN (key rides the action input only).
+    # api_key → base_url written, but NO ANTHROPIC_AUTH_TOKEN (key rides the action input only);
+    # and with TIMEOUT_MS="" NO API_TIMEOUT_MS line either — a mutation writing it unconditionally
+    # (empty value) on the provider path goes RED (review Suggestion #2).
     ( export DECISION='{"env":{}}' AUTH=api_key BASE_URL=u TIMEOUT_MS="" PROVIDER=p PROVIDER_API_KEY=sekret SECTION=devflow_implement GITHUB_ENV="$R313_GENV"; bash -c "$R313_INJ_BODY" ) >/dev/null 2>&1
-    assert_eq "#313 inject-body: api_key writes base_url but NOT ANTHROPIC_AUTH_TOKEN (input-only)" "yes" \
-      "$(grep -qxF 'ANTHROPIC_BASE_URL=u' "$R313_GENV" && ! grep -q 'ANTHROPIC_AUTH_TOKEN' "$R313_GENV" && echo yes || echo no)"
+    gh_kv "$R313_GENV" > "$R313_GENV.kv"
+    assert_eq "#313 inject-body: api_key writes base_url but NOT ANTHROPIC_AUTH_TOKEN or API_TIMEOUT_MS (input-only, empty timeout)" "yes" \
+      "$(grep -qxF 'ANTHROPIC_BASE_URL=u' "$R313_GENV.kv" && ! grep -q 'ANTHROPIC_AUTH_TOKEN' "$R313_GENV.kv" && ! grep -q 'API_TIMEOUT_MS' "$R313_GENV.kv" && echo yes || echo no)"
     : > "$R313_GENV"
     # empty provider secret → fail loud (exit 1) before writing any endpoint (AC 6).
     R313_RC=0
     ( export DECISION='{"env":{}}' AUTH=bearer BASE_URL=u TIMEOUT_MS="" PROVIDER=p PROVIDER_API_KEY="" SECTION=devflow_implement GITHUB_ENV="$R313_GENV"; bash -c "$R313_INJ_BODY" ) >/dev/null 2>&1 || R313_RC=$?
     assert_eq "#313 inject-body: empty provider secret fails loud (exit 1)" "1" "$R313_RC"
-    rm -f "$R313_GENV"
+    rm -f "$R313_GENV" "$R313_GENV.kv"
+  else
+    echo "  SKIP  #313 inject-body behavioral checks (no writable temp / body extraction failed)"
   fi
   R313_GOUT="$(probe_tmp "#313 cargs GITHUB_OUTPUT")" || R313_GOUT=""
   if [ -n "$R313_CARGS_BODY" ] && [ -n "$R313_GOUT" ]; then
-    # effort_supported=true → --effort present; false → dropped (AC 7).
+    # effort_supported=true → --effort present; false → dropped (AC 7). args is written via the
+    # newline-safe heredoc form (normalized back to args=… by gh_kv).
     ( export MODEL=z-ai/glm-5.2 EFFORT=high EFFORT_SUPPORTED=true GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" ) >/dev/null 2>&1
-    assert_eq "#313 cargs-body: effort_supported=true → --effort in args" "args=--model z-ai/glm-5.2 --effort high" "$(cat "$R313_GOUT")"
+    assert_eq "#313 cargs-body: effort_supported=true → --effort in args" "args=--model z-ai/glm-5.2 --effort high" "$(gh_kv "$R313_GOUT")"
     : > "$R313_GOUT"
     ( export MODEL=z-ai/glm-5.2 EFFORT=high EFFORT_SUPPORTED=false GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" ) >/dev/null 2>&1
-    assert_eq "#313 cargs-body: effort_supported=false → --effort dropped" "args=--model z-ai/glm-5.2" "$(cat "$R313_GOUT")"
+    assert_eq "#313 cargs-body: effort_supported=false → --effort dropped" "args=--model z-ai/glm-5.2" "$(gh_kv "$R313_GOUT")"
     : > "$R313_GOUT"
     # empty MODEL → fail loud (the iter-2 guard; the two command workflows had none before).
     R313_RC=0
     ( export MODEL="" EFFORT=high EFFORT_SUPPORTED=true GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" ) >/dev/null 2>&1 || R313_RC=$?
     assert_eq "#313 cargs-body: empty MODEL fails loud (exit 1)" "1" "$R313_RC"
     rm -f "$R313_GOUT"
+  else
+    echo "  SKIP  #313 cargs-body behavioral checks (no writable temp / body extraction failed)"
   fi
 else
   echo "  SKIP  #313 body-identity + behavioral check (PyYAML unavailable)"

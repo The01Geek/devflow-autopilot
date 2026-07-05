@@ -507,14 +507,14 @@ jobs:
             echo "::error::.devflow/config.json section '$SECTION' provider '$PNAME': $DETAIL. Fix the providers.$PNAME entry (base_url + auth: bearer|api_key) or remove the section provider key. Refusing to run."
             exit 1
           fi
-          # One jq pass emits every scalar decision field to the step output.
-          printf '%s' "$DECISION" | jq -r '
-            "provider=\(.provider)",
-            "model=\(.model)",
-            "auth=\(.auth)",
-            "base_url=\(.base_url)",
-            "timeout_ms=\(.timeout_ms)",
-            "effort_supported=\(.effort_supported)"' >> "$GITHUB_OUTPUT"
+          # One jq pass emits every scalar decision field to the step output, each as a
+          # newline-safe heredoc block: a config-sourced value carrying an embedded newline
+          # would otherwise split a plain KEY=VALUE line and forge further step outputs. The
+          # timestamped+PID delimiter mirrors the decision<< output below.
+          sdelim="OUT_EOF_$(date +%s%N)_$$"
+          printf '%s' "$DECISION" | jq -r --arg d "$sdelim" '
+            ["provider","model","auth","base_url","timeout_ms","effort_supported"][] as $k
+            | "\($k)<<\($d)", "\(.[$k])", $d' >> "$GITHUB_OUTPUT"
           # Forward the full decision (it carries the provider env map) to the
           # inject step via a heredoc output so embedded values survive verbatim.
           delim="DEC_EOF_$(date +%s%N)_$$"
@@ -561,18 +561,24 @@ jobs:
             echo "::error::.devflow/config.json section '$SECTION' selects provider '$PROVIDER' but the DEVFLOW_PROVIDER_API_KEY repository secret is empty. Set that secret (the provider API key) before running a provider-routed job. Refusing to run."
             exit 1
           fi
+          # All $GITHUB_ENV writes use GitHub's newline-safe multiline (heredoc) form via
+          # genv(): a config-sourced value carrying an embedded newline would otherwise split a
+          # plain KEY=VALUE line and inject/forge further job env vars. Mirrors the resolver's
+          # decision<< output; the timestamped+PID delimiter makes value collision negligible.
+          genv() { local d; d="ENV_EOF_$(date +%s%N)_$$"; { printf '%s<<%s\n' "$1" "$d"; printf '%s\n' "$2"; printf '%s\n' "$d"; } >> "$GITHUB_ENV"; }
           # base_url is guaranteed non-empty by the resolver (a provider-active decision
           # fails loud on an empty base_url), so write it unconditionally.
-          echo "ANTHROPIC_BASE_URL=$BASE_URL" >> "$GITHUB_ENV"
-          if [ -n "$TIMEOUT_MS" ]; then echo "API_TIMEOUT_MS=$TIMEOUT_MS" >> "$GITHUB_ENV"; fi
+          genv ANTHROPIC_BASE_URL "$BASE_URL"
+          if [ -n "$TIMEOUT_MS" ]; then genv API_TIMEOUT_MS "$TIMEOUT_MS"; fi
           # Bearer-token gateways read Authorization from ANTHROPIC_AUTH_TOKEN; the
           # same key also rides as the anthropic_api_key action input below (the
           # documented two-slot recipe). auth: api_key passes it via the input only.
-          if [ "$AUTH" = "bearer" ]; then echo "ANTHROPIC_AUTH_TOKEN=$PROVIDER_API_KEY" >> "$GITHUB_ENV"; fi
+          if [ "$AUTH" = "bearer" ]; then genv ANTHROPIC_AUTH_TOKEN "$PROVIDER_API_KEY"; fi
           # Every key of the provider env map (haiku/subagent model mappings, the
-          # beta/attribution toggles, …) verbatim. These are non-secret model/config values
-          # (only the API key written above is a registered secret and masked in logs).
-          printf '%s' "$DECISION" | jq -r '.env | to_entries[] | "\(.key)=\(.value)"' >> "$GITHUB_ENV"
+          # beta/attribution toggles, …) verbatim, each as a heredoc block. These are
+          # non-secret model/config values (only the API key above is a masked secret).
+          edelim="ENV_EOF_$(date +%s%N)_$$"
+          printf '%s' "$DECISION" | jq -r --arg d "$edelim" '.env | to_entries[] | "\(.key)<<\($d)", "\(.value)", $d' >> "$GITHUB_ENV"
 
       # Compute the claude_args head so --model is always present and --effort is
       # dropped only for a provider whose effort_supported is false (AC 7). The
@@ -599,7 +605,9 @@ jobs:
           if [ "$EFFORT_SUPPORTED" = "true" ]; then
             ARGS="$ARGS --effort $EFFORT"
           fi
-          echo "args=$ARGS" >> "$GITHUB_OUTPUT"
+          # Newline-safe heredoc output (mirrors the resolver's decision<< / scalar-output form).
+          adelim="OUT_EOF_$(date +%s%N)_$$"
+          { printf 'args<<%s\n' "$adelim"; printf '%s\n' "$ARGS"; printf '%s\n' "$adelim"; } >> "$GITHUB_OUTPUT"
 
       # Provision the runtime BEFORE Claude runs, but ONLY when the trusted base
       # config opted in via devflow_runner.provision_env. config_json is the
