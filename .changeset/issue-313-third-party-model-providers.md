@@ -12,8 +12,10 @@ type: Added
   model decision; a `run:` step injects `ANTHROPIC_BASE_URL`/`API_TIMEOUT_MS`/the provider
   `env` map into `$GITHUB_ENV` only when a provider is active, with a fail-loud guard when the
   secret is empty, and `--effort` is dropped for providers that reject it. With no provider
-  configured, cloud behavior is byte-identical to the Anthropic-OAuth default — the feature is
-  strictly opt-in and best-effort (Anthropic does not support routing Claude Code to non-Claude
-  models). The reusable runner's dead `model` input is removed and its `CLAUDE_CODE_OAUTH_TOKEN`
+  configured, cloud behavior matches the Anthropic-OAuth default — the feature is strictly
+  opt-in and best-effort (Anthropic does not support routing Claude Code to non-Claude models).
+  (The reusable runner's default-path `--model` now resolves from the trusted base-ref config
+  rather than PR-head — a deliberate security hardening — so for a given `claude_model` the
+  rendered invocation is unchanged, while a PR can no longer swap the privileged reviewer's model.) The reusable runner's dead `model` input is removed and its `CLAUDE_CODE_OAUTH_TOKEN`
   secret is now optional (still fail-loud on the Anthropic default path). See the new
   "Third-party model providers" section in `docs/cloud-setup.md`. (#315)

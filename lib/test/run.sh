@@ -14678,6 +14678,11 @@ assert_eq "#313 matrix: env wrong-type (string) → env:{}" "{}" \
 assert_eq "#313 matrix: timeout_ms wrong-type (object) → passes through verbatim (documented, not type-guarded)" \
   '{"x":1}' \
   "$(echo '{"claude_model":"m","providers":{"p":{"base_url":"u","auth":"bearer","timeout_ms":{"x":1}}},"devflow_implement":{"provider":"p"}}' | r313 devflow_implement | jq -c .timeout_ms)"
+# section claude_model is the one type-GUARDED field (`type == "string" and != ""`); a wrong-type
+# section value (number/object) falls through to the global claude_model — completes the matrix's
+# {type-guarded field} x {wrong-type} cell (review Suggestion #5).
+assert_eq "#313 matrix: wrong-type section claude_model (number) → falls through to global claude_model" "global-m" \
+  "$(echo '{"claude_model":"global-m","devflow_implement":{"claude_model":5}}' | r313 devflow_implement | jq -r .model)"
 assert_eq "#313 matrix: provider entry wrong-type (string, not object) → undefined_provider marker" \
   '{"error":"undefined_provider","section":"devflow_implement","provider":"p","detail":"provider is not defined in the providers map"}' \
   "$(echo '{"claude_model":"m","providers":{"p":"x"},"devflow_implement":{"provider":"p"}}' | r313 devflow_implement)"
@@ -14785,6 +14790,26 @@ PY
       { print k "=" $0 }
     ' "$1"
   }
+  # gh_topkeys prints the top-level env/output KEY names GitHub itself would set from a
+  # $GITHUB_ENV/$GITHUB_OUTPUT file, heredoc-aware: a `KEY<<DELIM` block swallows every line up
+  # to DELIM as the value, so a `FORGED=evil` line INSIDE a heredoc body is NOT a top-level var.
+  # This is the GitHub-faithful check behind the newline-forge-prevention tests below.
+  gh_topkeys() {  # file -> top-level KEY names, one per line
+    python3 -c '
+import sys
+d=None
+for line in open(sys.argv[1]):
+    line=line.rstrip("\n")
+    if d is None:
+        i=line.find("<<")
+        if i>0:
+            print(line[:i]); d=line[i+2:]
+        elif "=" in line:
+            print(line.split("=",1)[0])
+    elif line==d:
+        d=None
+' "$1"
+  }
 
   # Behavioral coverage of the Resolve + Inject + Build-claude_args-head run BODIES (issue #313
   # shadow gap 2 + review Important #2): the 3-way body-identity pin proves the copies AGREE but
@@ -14837,6 +14862,15 @@ print(next(s["run"] for j in d["jobs"].values() for s in j.get("steps",[]) if s.
     gh_kv "$R313_GOUT0" > "$R313_GOUT0.kv"
     assert_eq "#313 resolve-body: provider-active config emits provider/base_url/auth/model/effort_supported + decision (heredoc-safe)" "yes" \
       "$(grep -qxF 'provider=openrouter' "$R313_GOUT0.kv" && grep -qxF 'base_url=https://openrouter.ai/api' "$R313_GOUT0.kv" && grep -qxF 'auth=bearer' "$R313_GOUT0.kv" && grep -qxF 'model=z-ai/glm-5.2' "$R313_GOUT0.kv" && grep -qxF 'effort_supported=false' "$R313_GOUT0.kv" && grep -q '^decision={' "$R313_GOUT0.kv" && echo yes || echo no)"
+    : > "$R313_GOUT0"
+    # Newline-forge safety of the resolve body's SCALAR emit (review Suggestion #4): base_url is
+    # config-sourced, so an embedded newline in it must NOT forge a top-level step output either.
+    # Feed base_url="u\nFORGED=evil" and confirm a GitHub-faithful parse yields base_url but no
+    # top-level FORGED. A revert of the scalar emit to `printf '%s=%s'` goes RED.
+    ( export CONFIG_JSON='{"claude_model":"m","providers":{"p":{"base_url":"u\nFORGED=evil","auth":"bearer"}},"devflow_implement":{"provider":"p"}}' SECTION=devflow_implement GITHUB_OUTPUT="$R313_GOUT0"; bash -c "$R313_RES_BODY" ) >/dev/null 2>&1
+    R313_TOPKEYS="$(gh_topkeys "$R313_GOUT0")"
+    assert_eq "#313 resolve-body: an embedded-newline base_url cannot forge a top-level step output" "yes" \
+      "$(printf '%s\n' "$R313_TOPKEYS" | grep -qxF 'base_url' && ! printf '%s\n' "$R313_TOPKEYS" | grep -qxF 'FORGED' && echo yes || echo no)"
     rm -f "$R313_GOUT0" "$R313_GOUT0.kv"
   else
     echo "  SKIP  #313 resolve-body behavioral checks (no writable temp / body extraction failed)"
@@ -14872,21 +14906,8 @@ print(next(s["run"] for j in d["jobs"].values() for s in j.get("steps",[]) if s.
     # var). Assert MKEY is a top-level key but FORGED is NOT. A mutation reverting to
     # `printf '%s=%s'` splits the line → FORGED becomes a real env var → this goes RED.
     ( export DECISION='{"env":{"MKEY":"a\nFORGED=evil"}}' AUTH=api_key BASE_URL=u TIMEOUT_MS="" PROVIDER=p PROVIDER_API_KEY=sekret SECTION=devflow_implement GITHUB_ENV="$R313_GENV"; bash -c "$R313_INJ_BODY" ) >/dev/null 2>&1
-    R313_TOPKEYS="$(python3 -c '
-import sys
-d=None
-for line in open(sys.argv[1]):
-    line=line.rstrip("\n")
-    if d is None:
-        i=line.find("<<")
-        if i>0:
-            print(line[:i]); d=line[i+2:]
-        elif "=" in line:
-            print(line.split("=",1)[0])
-    elif line==d:
-        d=None
-' "$R313_GENV")"
-    assert_eq "#313 inject-body: an embedded-newline env value cannot forge a top-level env var (heredoc newline-injection safety)" "yes" \
+    R313_TOPKEYS="$(gh_topkeys "$R313_GENV")"
+    assert_eq "#313 inject-body: an embedded-newline env-map value cannot forge a top-level env var (heredoc newline-injection safety)" "yes" \
       "$(printf '%s\n' "$R313_TOPKEYS" | grep -qxF 'MKEY' && ! printf '%s\n' "$R313_TOPKEYS" | grep -qxF 'FORGED' && echo yes || echo no)"
     rm -f "$R313_GENV" "$R313_GENV.kv"
   else
@@ -14912,6 +14933,15 @@ for line in open(sys.argv[1]):
     R313_RC=0
     ( export MODEL="" EFFORT=high EFFORT_SUPPORTED=true GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" ) >/dev/null 2>&1 || R313_RC=$?
     assert_eq "#313 cargs-body: empty MODEL fails loud (exit 1)" "1" "$R313_RC"
+    : > "$R313_GOUT"
+    # Newline-forge safety of the cargs `args<<` emit (review Suggestion #4): MODEL is
+    # config-sourced, so an embedded newline in it must NOT forge a top-level step output.
+    # `$'…'` puts a real newline in MODEL; assert a GitHub-faithful parse yields `args` but no
+    # top-level FORGED. A revert of the args emit to `echo "args=$ARGS"` goes RED.
+    ( export MODEL=$'x\nFORGED=evil' EFFORT=high EFFORT_SUPPORTED=false GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" ) >/dev/null 2>&1
+    R313_TOPKEYS="$(gh_topkeys "$R313_GOUT")"
+    assert_eq "#313 cargs-body: an embedded-newline MODEL cannot forge a top-level step output" "yes" \
+      "$(printf '%s\n' "$R313_TOPKEYS" | grep -qxF 'args' && ! printf '%s\n' "$R313_TOPKEYS" | grep -qxF 'FORGED' && echo yes || echo no)"
     rm -f "$R313_GOUT"
   else
     echo "  SKIP  #313 cargs-body behavioral checks (no writable temp / body extraction failed)"

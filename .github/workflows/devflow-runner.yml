@@ -458,8 +458,13 @@ jobs:
       # RESOLVER program is byte-identical across devflow.yml, devflow-implement.yml,
       # and devflow-runner.yml (lib/test/run.sh pins that identity); only the
       # `--arg section` value differs. An empty decision (no provider) reproduces
-      # today's Anthropic-OAuth review wiring byte-for-byte, so review stays on
-      # Claude unless devflow_runner.provider is set. See docs/cloud-setup.md.
+      # today's Anthropic-OAuth review wiring, so review stays on Claude unless
+      # devflow_runner.provider is set. (One deliberate #313 change on this default
+      # path: the runner's `--model` now resolves from the TRUSTED BASE-ref config,
+      # head only as a bootstrap fallback — see the cargs step's SECURITY note — so
+      # for a given `claude_model` the rendered invocation is unchanged, while a PR
+      # can no longer swap the privileged reviewer's model via head config.)
+      # See docs/cloud-setup.md.
       - name: Resolve model provider
         id: provider
         env:
