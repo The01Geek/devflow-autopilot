@@ -16,6 +16,6 @@ type: Added
   opt-in and best-effort (Anthropic does not support routing Claude Code to non-Claude models).
   (The reusable runner's default-path `--model` now resolves from the trusted base-ref config
   rather than PR-head — a deliberate security hardening — so for a given `claude_model` the
-  rendered invocation is unchanged, while a PR can no longer swap the privileged reviewer's model.) The reusable runner's dead `model` input is removed and its `CLAUDE_CODE_OAUTH_TOKEN`
+  rendered invocation is unchanged.) The reusable runner's dead `model` input is removed and its `CLAUDE_CODE_OAUTH_TOKEN`
   secret is now optional (still fail-loud on the Anthropic default path). See the new
   "Third-party model providers" section in `docs/cloud-setup.md`. (#315)

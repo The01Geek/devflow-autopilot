@@ -614,7 +614,9 @@ individual workflow section — the light command path (`devflow`),
 Z.ai, Kimi/Moonshot, MiniMax, a LiteLLM gateway, …) via a `providers` map in
 `.devflow/config.json` plus one fixed repo secret, `DEVFLOW_PROVIDER_API_KEY`.
 Each section picks its own provider and model independently; with no provider
-configured the cloud tier is byte-identical to the Anthropic-OAuth default.
+configured the cloud tier matches the Anthropic-OAuth default (unchanged for a
+given `claude_model`; the reviewer's default-path model now resolves from
+base-ref config).
 
 > **Anthropic does not support routing Claude Code to non-Claude models, so this
 > integration is best-effort.** It relies on the officially documented

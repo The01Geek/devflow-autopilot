@@ -27,7 +27,7 @@
     },
     "providers": {
       "type": "object",
-      "description": "OPT-IN, BEST-EFFORT third-party model providers for the CLOUD tier (issue #313). A named map of Anthropic-compatible endpoints (OpenRouter, Z.ai, Kimi/Moonshot, LiteLLM gateways, …) that the devflow / devflow_implement / devflow_runner sections can each route to via their own `provider` key. With no providers map and no per-section `provider`, cloud behavior is byte-identical to the Anthropic-OAuth default. The provider API credential is NOT named here — it is always the fixed repository secret DEVFLOW_PROVIDER_API_KEY (kept greppable/auditable and fail-closed on absence). Anthropic does not support routing Claude Code to non-Claude models, so this is best-effort. See docs/cloud-setup.md.",
+      "description": "OPT-IN, BEST-EFFORT third-party model providers for the CLOUD tier (issue #313). A named map of Anthropic-compatible endpoints (OpenRouter, Z.ai, Kimi/Moonshot, LiteLLM gateways, …) that the devflow / devflow_implement / devflow_runner sections can each route to via their own `provider` key. With no providers map and no per-section `provider`, cloud behavior matches the Anthropic-OAuth default (unchanged for a given `claude_model`; the runner's default-path model now resolves from base-ref config). The provider API credential is NOT named here — it is always the fixed repository secret DEVFLOW_PROVIDER_API_KEY (kept greppable/auditable and fail-closed on absence). Anthropic does not support routing Claude Code to non-Claude models, so this is best-effort. See docs/cloud-setup.md.",
       "additionalProperties": {
         "type": "object",
         "required": ["base_url", "auth"],
