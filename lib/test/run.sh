@@ -14569,10 +14569,11 @@ assert_pin_unique "#271 coupled: phase-4-documentation.md deferrals merge invoke
 # program body from each workflow at test time, assert the three copies are
 # byte-identical, then run ONE extracted copy live — never hand-maintain a fourth.
 # IMPL_WF / RUNNER_WF / LIGHT_WF are defined in the #271 block above; reuse them.
-r313_extract() { awk '/# devflow-provider-resolver BEGIN/{f=1;next} /# devflow-provider-resolver END/{f=0} f' "$1"; }
-R313_IMPL="$(r313_extract "$IMPL_WF")"
-R313_RUNNER="$(r313_extract "$RUNNER_WF")"
-R313_LIGHT="$(r313_extract "$LIGHT_WF")"
+# region_lines (run.sh:~1272) already prints the lines strictly between a BEGIN/END
+# marker pair, substring-matched — reuse it rather than a bespoke awk extractor.
+R313_IMPL="$(region_lines "$IMPL_WF" '# devflow-provider-resolver BEGIN' '# devflow-provider-resolver END')"
+R313_RUNNER="$(region_lines "$RUNNER_WF" '# devflow-provider-resolver BEGIN' '# devflow-provider-resolver END')"
+R313_LIGHT="$(region_lines "$LIGHT_WF" '# devflow-provider-resolver BEGIN' '# devflow-provider-resolver END')"
 # Non-empty guard: a renamed/removed sentinel would extract "" and make the
 # identity asserts vacuously PASS ("" == "") — assert extraction found a program.
 assert_eq "#313 resolver: program extracted from devflow-implement.yml is non-empty (sentinels intact)" "yes" \
@@ -14604,10 +14605,13 @@ assert_eq "#313 resolver: section claude_model beats global" "section-model" \
   "$(echo '{"claude_model":"global-model","devflow_implement":{"claude_model":"section-model"}}' | r313 devflow_implement | jq -r .model)"
 assert_eq "#313 resolver: global claude_model used when section absent" "global-model" \
   "$(echo '{"claude_model":"global-model","devflow_implement":{}}' | r313 devflow_implement | jq -r .model)"
-# AC 3: an undefined provider name yields the explicit error marker.
-assert_eq "#313 resolver: undefined provider name → explicit error marker" \
+# AC 3: a section naming a provider ABSENT from an EXISTING providers map yields the
+# explicit error marker. (Distinct from the matrix "providers map missing" shape below:
+# here the map exists but lacks the named entry — the literal "references an undefined
+# provider name" case AC 3 describes.)
+assert_eq "#313 resolver: provider name absent from an existing map → explicit error marker" \
   '{"error":"undefined_provider","section":"devflow_implement","provider":"nope"}' \
-  "$(echo '{"claude_model":"m","devflow_implement":{"provider":"nope"}}' | r313 devflow_implement)"
+  "$(echo '{"claude_model":"m","providers":{"other":{"base_url":"u","auth":"bearer"}},"devflow_implement":{"provider":"nope"}}' | r313 devflow_implement)"
 # AC 7: effort_supported false/absent → false; true → true.
 assert_eq "#313 resolver: effort_supported false when provider omits it (drop --effort)" "false" \
   "$(echo '{"claude_model":"m","providers":{"p":{"base_url":"u","auth":"api_key"}},"devflow_implement":{"provider":"p"}}' | r313 devflow_implement | jq -r .effort_supported)"
@@ -14660,14 +14664,45 @@ for R313_WF in "$IMPL_WF" "$RUNNER_WF" "$LIGHT_WF"; do
   # inject step — structurally proving it never leaks onto the default path.
   assert_eq "#313 defaults: $R313_TAG writes ANTHROPIC_BASE_URL exactly once" "1" \
     "$(pin_count 'ANTHROPIC_BASE_URL=' "$R313_WF")"
-  R313_INJECT="$(awk -v n='Inject provider endpoint (provider-routed sections only)' '
-    index($0, "- name: " n){f=1}
-    f && /^      - name:/ && index($0, "- name: " n)==0{exit}
-    f{print}' "$R313_WF")"
+  # mint_blk (run.sh:~8832) extracts a named step's block (- name: … to the next
+  # sibling/job boundary) — reuse it instead of a bespoke awk step-extractor.
+  R313_INJECT="$(mint_blk 'Inject provider endpoint (provider-routed sections only)' "$R313_WF")"
   assert_eq "#313 defaults: $R313_TAG inject step is gated on provider != '' AND holds the ANTHROPIC_BASE_URL write" "yes" \
     "$(printf '%s' "$R313_INJECT" | grep -qF "steps.provider.outputs.provider != ''" \
        && printf '%s' "$R313_INJECT" | grep -qF 'ANTHROPIC_BASE_URL=' && echo yes || echo no)"
 done
+
+# Single-sourcing widened past the jq body (issue #313 /simplify altitude finding):
+# with the section name env-parameterized, the Resolve / Inject / Build-claude_args-head
+# step `run:` BODIES are byte-identical across the three workflows too (only their `env:`
+# section value + effort source legitimately differ). Pin that so a drift in the
+# triplicated scaffolding — not just the jq program — goes RED. YAML-parse the step
+# bodies (same python+yaml idiom as the tools-step extraction above); SKIP without PyYAML.
+if command -v python3 >/dev/null 2>&1 && python3 -c 'import yaml' >/dev/null 2>&1; then
+  R313_BODY_IDENT="$(python3 - "$IMPL_WF" "$RUNNER_WF" "$LIGHT_WF" <<'PY'
+import sys, yaml
+files = sys.argv[1:]
+names = ["Resolve model provider",
+         "Inject provider endpoint (provider-routed sections only)",
+         "Build claude_args head (model + conditional effort)"]
+bodies = {n: [] for n in names}
+for f in files:
+    doc = yaml.safe_load(open(f))
+    for job in doc["jobs"].values():
+        for st in job.get("steps", []):
+            if st.get("name") in bodies and "run" in st:
+                bodies[st["name"]].append(st["run"])
+out = []
+for n in names:
+    b = bodies[n]
+    out.append("yes" if len(b) == 3 and b[0] == b[1] == b[2] else "no")
+print(",".join(out))
+PY
+)"
+  assert_eq "#313 single-sourced: Resolve/Inject/cargs run: bodies byte-identical across the 3 workflows" "yes,yes,yes" "$R313_BODY_IDENT"
+else
+  echo "  SKIP  #313 body-identity check (PyYAML unavailable)"
+fi
 unset RESOLVER
 
 # Mutation check: the absence pin above only proves "count is 0 today" — it does not

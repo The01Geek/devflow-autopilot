@@ -402,6 +402,7 @@ jobs:
         id: provider
         env:
           CONFIG_JSON: ${{ steps.cfg.outputs.json }}
+          SECTION: devflow_implement
         run: |
           set -euo pipefail
           # devflow-provider-resolver BEGIN (single-sourced; keep byte-identical across the three cloud workflows — lib/test/run.sh pins it)
@@ -423,20 +424,20 @@ jobs:
             end
           '
           # devflow-provider-resolver END
-          DECISION=$(printf '%s' "$CONFIG_JSON" | jq -c --arg section "devflow_implement" "$RESOLVER")
+          DECISION=$(printf '%s' "$CONFIG_JSON" | jq -c --arg section "$SECTION" "$RESOLVER")
           if [ "$(printf '%s' "$DECISION" | jq -r '.error // ""')" != "" ]; then
             PNAME=$(printf '%s' "$DECISION" | jq -r '.provider // ""')
-            echo "::error::.devflow/config.json section 'devflow_implement' selects provider '$PNAME', which is not defined in the providers map. Add a providers.$PNAME entry (base_url + auth) or remove the section provider key. Refusing to run."
+            echo "::error::.devflow/config.json section '$SECTION' selects provider '$PNAME', which is not defined in the providers map. Add a providers.$PNAME entry (base_url + auth) or remove the section provider key. Refusing to run."
             exit 1
           fi
-          {
-            echo "provider=$(printf '%s' "$DECISION" | jq -r '.provider')"
-            echo "model=$(printf '%s' "$DECISION" | jq -r '.model')"
-            echo "auth=$(printf '%s' "$DECISION" | jq -r '.auth')"
-            echo "base_url=$(printf '%s' "$DECISION" | jq -r '.base_url')"
-            echo "timeout_ms=$(printf '%s' "$DECISION" | jq -r '.timeout_ms')"
-            echo "effort_supported=$(printf '%s' "$DECISION" | jq -r '.effort_supported')"
-          } >> "$GITHUB_OUTPUT"
+          # One jq pass emits every scalar decision field to the step output.
+          printf '%s' "$DECISION" | jq -r '
+            "provider=\(.provider)",
+            "model=\(.model)",
+            "auth=\(.auth)",
+            "base_url=\(.base_url)",
+            "timeout_ms=\(.timeout_ms)",
+            "effort_supported=\(.effort_supported)"' >> "$GITHUB_OUTPUT"
           # Forward the full decision (it carries the provider env map) to the
           # inject step via a heredoc output so embedded values survive verbatim.
           delim="DEC_EOF_$(date +%s%N)_$$"
@@ -462,10 +463,11 @@ jobs:
           TIMEOUT_MS: ${{ steps.provider.outputs.timeout_ms }}
           PROVIDER: ${{ steps.provider.outputs.provider }}
           PROVIDER_API_KEY: ${{ secrets.DEVFLOW_PROVIDER_API_KEY }}
+          SECTION: devflow_implement
         run: |
           set -euo pipefail
           if [ -z "$PROVIDER_API_KEY" ]; then
-            echo "::error::.devflow/config.json section 'devflow_implement' selects provider '$PROVIDER' but the DEVFLOW_PROVIDER_API_KEY repository secret is empty. Set that secret (the provider API key) before running a provider-routed job. Refusing to run."
+            echo "::error::.devflow/config.json section '$SECTION' selects provider '$PROVIDER' but the DEVFLOW_PROVIDER_API_KEY repository secret is empty. Set that secret (the provider API key) before running a provider-routed job. Refusing to run."
             exit 1
           fi
           if [ -n "$BASE_URL" ]; then echo "ANTHROPIC_BASE_URL=$BASE_URL" >> "$GITHUB_ENV"; fi
