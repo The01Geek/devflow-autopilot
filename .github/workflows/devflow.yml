@@ -545,9 +545,10 @@ jobs:
             echo "::error::.devflow/config.json section '$SECTION' selects provider '$PROVIDER' but the DEVFLOW_PROVIDER_API_KEY repository secret is empty. Set that secret (the provider API key) before running a provider-routed job. Refusing to run."
             exit 1
           fi
-          # All $GITHUB_ENV writes use GitHub's newline-safe multiline (heredoc) form via
-          # genv(): a config-sourced value carrying an embedded newline would otherwise split a
-          # plain KEY=VALUE line and inject/forge further job env vars. Mirrors the resolver's
+          # Every $GITHUB_ENV write below uses GitHub's newline-safe multiline (heredoc) form —
+          # the scalar endpoint values via genv(), the provider env map via the inline jq heredoc
+          # emit at the end — so a config-sourced value carrying an embedded newline cannot split
+          # a plain KEY=VALUE line and inject/forge a further job env var. Mirrors the resolver's
           # decision<< output; the timestamped+PID delimiter makes value collision negligible.
           genv() { local d; d="ENV_EOF_$(date +%s%N)_$$"; { printf '%s<<%s\n' "$1" "$d"; printf '%s\n' "$2"; printf '%s\n' "$d"; } >> "$GITHUB_ENV"; }
           # base_url is guaranteed non-empty by the resolver (a provider-active decision
