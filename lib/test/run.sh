@@ -14642,6 +14642,12 @@ assert_eq "#313 matrix: providers wrong-type (string) → undefined_provider mar
 assert_eq "#313 matrix: provider entry present but missing base_url → incomplete_provider marker (fail-loud)" \
   '{"error":"incomplete_provider","section":"devflow_implement","provider":"p","detail":"provider entry has no base_url"}' \
   "$(echo '{"claude_model":"m","providers":{"p":{}},"devflow_implement":{"provider":"p"}}' | r313 devflow_implement)"
+# The EMPTY-STRING base_url disjunct (distinct from the missing/wrong-type one above): a
+# present but empty base_url is also fail-loud. Pins the `== ""` half of the guard so a
+# mutation dropping it (reintroducing the empty-ANTHROPIC_BASE_URL fail-open) goes RED.
+assert_eq "#313 matrix: provider entry with EMPTY base_url → incomplete_provider marker (== \"\" disjunct)" \
+  '{"error":"incomplete_provider","section":"devflow_implement","provider":"p","detail":"provider entry has no base_url"}' \
+  "$(echo '{"claude_model":"m","providers":{"p":{"base_url":"","auth":"bearer"}},"devflow_implement":{"provider":"p"}}' | r313 devflow_implement)"
 assert_eq "#313 matrix: provider entry present but missing auth → incomplete_provider marker" \
   '{"error":"incomplete_provider","section":"devflow_implement","provider":"p","detail":"provider auth must be bearer or api_key"}' \
   "$(echo '{"claude_model":"m","providers":{"p":{"base_url":"u"}},"devflow_implement":{"provider":"p"}}' | r313 devflow_implement)"
@@ -14724,6 +14730,11 @@ assert_pin_red_on_removal "#313 defaults: devflow-runner.yml fails loud on the A
 # (base) checkout on issue_comment, so steps.cfg is already the trusted config for them.
 assert_pin_red_on_removal "#313 security: devflow-runner.yml resolves the provider decision from the trusted base-ref config, not PR-head (review C1, removal-proof)" \
   "CONFIG_JSON: \${{ steps.baseprovision.outputs.config_json }}" "$RUNNER_WF"
+# The runner's MODEL head-fallback (bootstrap case: base ref carries no committed config →
+# resolver model="" → fall back to head claude_model so --model is never empty). It lives in
+# the cargs step's env: block, which the run-body-identity check excludes, so pin it directly.
+assert_pin_unique "#313 defaults: devflow-runner.yml MODEL falls back to head claude_model when the base-resolved model is empty (bootstrap)" \
+  "steps.provider.outputs.model != '' && steps.provider.outputs.model || steps.extract.outputs.claude_model" "$RUNNER_WF"
 
 # Single-sourcing widened past the jq body (issue #313 /simplify altitude finding):
 # with the section name env-parameterized, the Resolve / Inject / Build-claude_args-head
@@ -14753,8 +14764,53 @@ print(",".join(out))
 PY
 )"
   assert_eq "#313 single-sourced: Resolve/Inject/cargs run: bodies byte-identical across the 3 workflows" "yes,yes,yes" "$R313_BODY_IDENT"
+
+  # Behavioral coverage of the Inject + Build-claude_args-head run BODIES (issue #313 shadow
+  # gap 2): the 3-way body-identity pin proves the copies AGREE but not that they are CORRECT
+  # — a uniform logic mutation (invert the security-adjacent bearer branch, drop the effort
+  # gate, break the env expansion) stays GREEN. EXECUTE the extracted bodies with env set and
+  # $GITHUB_ENV / $GITHUB_OUTPUT pointed at temp files, then assert the emitted lines.
+  R313_INJ_BODY="$(python3 -c 'import yaml,sys
+d=yaml.safe_load(open(sys.argv[1]))
+print(next(s["run"] for j in d["jobs"].values() for s in j.get("steps",[]) if s.get("name")=="Inject provider endpoint (provider-routed sections only)"))' "$IMPL_WF")"
+  R313_CARGS_BODY="$(python3 -c 'import yaml,sys
+d=yaml.safe_load(open(sys.argv[1]))
+print(next(s["run"] for j in d["jobs"].values() for s in j.get("steps",[]) if s.get("name")=="Build claude_args head (model + conditional effort)"))' "$IMPL_WF")"
+  R313_GENV="$(probe_tmp "#313 inject GITHUB_ENV")" || R313_GENV=""
+  if [ -n "$R313_INJ_BODY" ] && [ -n "$R313_GENV" ]; then
+    # bearer → ANTHROPIC_BASE_URL + API_TIMEOUT_MS + ANTHROPIC_AUTH_TOKEN(secret) + env map.
+    ( export DECISION='{"env":{"CLAUDE_CODE_SUBAGENT_MODEL":"z-ai/glm-5.2"}}' AUTH=bearer BASE_URL=https://openrouter.ai/api TIMEOUT_MS=3000000 PROVIDER=openrouter PROVIDER_API_KEY=sekret SECTION=devflow_implement GITHUB_ENV="$R313_GENV"; bash -c "$R313_INJ_BODY" ) >/dev/null 2>&1
+    assert_eq "#313 inject-body: bearer exports BASE_URL + API_TIMEOUT_MS + ANTHROPIC_AUTH_TOKEN + env map" "yes" \
+      "$(grep -qxF 'ANTHROPIC_BASE_URL=https://openrouter.ai/api' "$R313_GENV" && grep -qxF 'API_TIMEOUT_MS=3000000' "$R313_GENV" && grep -qxF 'ANTHROPIC_AUTH_TOKEN=sekret' "$R313_GENV" && grep -qxF 'CLAUDE_CODE_SUBAGENT_MODEL=z-ai/glm-5.2' "$R313_GENV" && echo yes || echo no)"
+    : > "$R313_GENV"
+    # api_key → base_url written, but NO ANTHROPIC_AUTH_TOKEN (key rides the action input only).
+    ( export DECISION='{"env":{}}' AUTH=api_key BASE_URL=u TIMEOUT_MS="" PROVIDER=p PROVIDER_API_KEY=sekret SECTION=devflow_implement GITHUB_ENV="$R313_GENV"; bash -c "$R313_INJ_BODY" ) >/dev/null 2>&1
+    assert_eq "#313 inject-body: api_key writes base_url but NOT ANTHROPIC_AUTH_TOKEN (input-only)" "yes" \
+      "$(grep -qxF 'ANTHROPIC_BASE_URL=u' "$R313_GENV" && ! grep -q 'ANTHROPIC_AUTH_TOKEN' "$R313_GENV" && echo yes || echo no)"
+    : > "$R313_GENV"
+    # empty provider secret → fail loud (exit 1) before writing any endpoint (AC 6).
+    R313_RC=0
+    ( export DECISION='{"env":{}}' AUTH=bearer BASE_URL=u TIMEOUT_MS="" PROVIDER=p PROVIDER_API_KEY="" SECTION=devflow_implement GITHUB_ENV="$R313_GENV"; bash -c "$R313_INJ_BODY" ) >/dev/null 2>&1 || R313_RC=$?
+    assert_eq "#313 inject-body: empty provider secret fails loud (exit 1)" "1" "$R313_RC"
+    rm -f "$R313_GENV"
+  fi
+  R313_GOUT="$(probe_tmp "#313 cargs GITHUB_OUTPUT")" || R313_GOUT=""
+  if [ -n "$R313_CARGS_BODY" ] && [ -n "$R313_GOUT" ]; then
+    # effort_supported=true → --effort present; false → dropped (AC 7).
+    ( export MODEL=z-ai/glm-5.2 EFFORT=high EFFORT_SUPPORTED=true GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" ) >/dev/null 2>&1
+    assert_eq "#313 cargs-body: effort_supported=true → --effort in args" "args=--model z-ai/glm-5.2 --effort high" "$(cat "$R313_GOUT")"
+    : > "$R313_GOUT"
+    ( export MODEL=z-ai/glm-5.2 EFFORT=high EFFORT_SUPPORTED=false GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" ) >/dev/null 2>&1
+    assert_eq "#313 cargs-body: effort_supported=false → --effort dropped" "args=--model z-ai/glm-5.2" "$(cat "$R313_GOUT")"
+    : > "$R313_GOUT"
+    # empty MODEL → fail loud (the iter-2 guard; the two command workflows had none before).
+    R313_RC=0
+    ( export MODEL="" EFFORT=high EFFORT_SUPPORTED=true GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" ) >/dev/null 2>&1 || R313_RC=$?
+    assert_eq "#313 cargs-body: empty MODEL fails loud (exit 1)" "1" "$R313_RC"
+    rm -f "$R313_GOUT"
+  fi
 else
-  echo "  SKIP  #313 body-identity check (PyYAML unavailable)"
+  echo "  SKIP  #313 body-identity + behavioral check (PyYAML unavailable)"
 fi
 unset RESOLVER
 

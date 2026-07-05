@@ -486,7 +486,8 @@ jobs:
           # documented two-slot recipe). auth: api_key passes it via the input only.
           if [ "$AUTH" = "bearer" ]; then echo "ANTHROPIC_AUTH_TOKEN=$PROVIDER_API_KEY" >> "$GITHUB_ENV"; fi
           # Every key of the provider env map (haiku/subagent model mappings, the
-          # beta/attribution toggles, …) verbatim. Secret-masked in logs as usual.
+          # beta/attribution toggles, …) verbatim. These are non-secret model/config values
+          # (only the API key written above is a registered secret and masked in logs).
           printf '%s' "$DECISION" | jq -r '.env | to_entries[] | "\(.key)=\(.value)"' >> "$GITHUB_ENV"
 
       # Compute the claude_args head so --model is always present and --effort is
@@ -501,6 +502,10 @@ jobs:
           EFFORT_SUPPORTED: ${{ steps.provider.outputs.effort_supported }}
         run: |
           set -euo pipefail
+          if [ -z "$MODEL" ]; then
+            echo "::error::claude_model is missing from .devflow/config.json (set a top-level claude_model, or a per-section claude_model). Refusing to run."
+            exit 1
+          fi
           ARGS="--model $MODEL"
           if [ "$EFFORT_SUPPORTED" = "true" ]; then
             ARGS="$ARGS --effort $EFFORT"
