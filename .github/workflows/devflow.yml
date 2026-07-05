@@ -475,19 +475,25 @@ jobs:
           set -euo pipefail
           # devflow-provider-resolver BEGIN (single-sourced; keep byte-identical across the three cloud workflows — lib/test/run.sh pins it)
           RESOLVER='
-          . as $cfg
-          | ($cfg[$section] // {}) as $sec
-          | ($sec.provider // "") as $pname
-          | (if (($sec.claude_model // "") != "") then $sec.claude_model else ($cfg.claude_model // "") end) as $model
-          | if $pname == "" then
+          (if (. | type) == "object" then . else {} end) as $cfg
+          | (if (($cfg[$section]) | type) == "object" then $cfg[$section] else {} end) as $sec
+          | ($sec.provider) as $praw
+          | (if (($sec.claude_model) | type) == "string" and ($sec.claude_model != "") then $sec.claude_model else ($cfg.claude_model // "") end) as $model
+          | if ($praw == null or $praw == "") then
               {provider:"", base_url:"", auth:"", timeout_ms:"", effort_supported:true, model:$model, env:{}}
+            elif (($praw) | type) != "string" then
+              {error:"invalid_provider", section:$section, provider:"", detail:"section provider must be a string"}
             else
               (if (($cfg.providers) | type) == "object" then $cfg.providers else {} end) as $provs
-              | if (($provs[$pname]) | type) == "object" then
-                  ($provs[$pname]) as $p
-                  | {provider:$pname, base_url:($p.base_url // ""), auth:($p.auth // ""), timeout_ms:($p.timeout_ms // ""), effort_supported:(($p.effort_supported // false) == true), model:$model, env:(if (($p.env) | type) == "object" then $p.env else {} end)}
+              | if (($provs[$praw]) | type) != "object" then
+                  {error:"undefined_provider", section:$section, provider:$praw, detail:"provider is not defined in the providers map"}
+                elif ((($provs[$praw].base_url) | type) != "string" or ($provs[$praw].base_url == "")) then
+                  {error:"incomplete_provider", section:$section, provider:$praw, detail:"provider entry has no base_url"}
+                elif (($provs[$praw].auth) as $a | ($a != "bearer" and $a != "api_key")) then
+                  {error:"incomplete_provider", section:$section, provider:$praw, detail:"provider auth must be bearer or api_key"}
                 else
-                  {error:"undefined_provider", section:$section, provider:$pname}
+                  ($provs[$praw]) as $p
+                  | {provider:$praw, base_url:$p.base_url, auth:$p.auth, timeout_ms:($p.timeout_ms // ""), effort_supported:(($p.effort_supported // false) == true), model:$model, env:(if (($p.env) | type) == "object" then $p.env else {} end)}
                 end
             end
           '
@@ -495,7 +501,8 @@ jobs:
           DECISION=$(printf '%s' "$CONFIG_JSON" | jq -c --arg section "$SECTION" "$RESOLVER")
           if [ "$(printf '%s' "$DECISION" | jq -r '.error // ""')" != "" ]; then
             PNAME=$(printf '%s' "$DECISION" | jq -r '.provider // ""')
-            echo "::error::.devflow/config.json section '$SECTION' selects provider '$PNAME', which is not defined in the providers map. Add a providers.$PNAME entry (base_url + auth) or remove the section provider key. Refusing to run."
+            DETAIL=$(printf '%s' "$DECISION" | jq -r '.detail // "provider configuration is invalid"')
+            echo "::error::.devflow/config.json section '$SECTION' provider '$PNAME': $DETAIL. Fix the providers.$PNAME entry (base_url + auth: bearer|api_key) or remove the section provider key. Refusing to run."
             exit 1
           fi
           # One jq pass emits every scalar decision field to the step output.
@@ -538,7 +545,9 @@ jobs:
             echo "::error::.devflow/config.json section '$SECTION' selects provider '$PROVIDER' but the DEVFLOW_PROVIDER_API_KEY repository secret is empty. Set that secret (the provider API key) before running a provider-routed job. Refusing to run."
             exit 1
           fi
-          if [ -n "$BASE_URL" ]; then echo "ANTHROPIC_BASE_URL=$BASE_URL" >> "$GITHUB_ENV"; fi
+          # base_url is guaranteed non-empty by the resolver (a provider-active decision
+          # fails loud on an empty base_url), so write it unconditionally.
+          echo "ANTHROPIC_BASE_URL=$BASE_URL" >> "$GITHUB_ENV"
           if [ -n "$TIMEOUT_MS" ]; then echo "API_TIMEOUT_MS=$TIMEOUT_MS" >> "$GITHUB_ENV"; fi
           # Bearer-token gateways read Authorization from ANTHROPIC_AUTH_TOKEN; the
           # same key also rides as the anthropic_api_key action input below (the
@@ -623,8 +632,10 @@ jobs:
           base_branch: ${{ needs.config.outputs.base_branch }}
           # claude_args head is a COMPUTED string (steps.cargs): --model always,
           # --effort conditional on effort_supported (issue #313). The --allowed-tools
-          # tail below is preserved verbatim — keep it in sync with devflow-implement.yml
-          # and devflow-runner.yml. allowed_tools_extra splices inside the closing quote.
+          # tail below is preserved verbatim — keep this literal list in sync with
+          # devflow-implement.yml's literal list (devflow-runner.yml intentionally uses a
+          # computed steps.tools.outputs.tools profile string, not a literal list).
+          # allowed_tools_extra splices inside the closing quote.
           claude_args: >-
             ${{ steps.cargs.outputs.args }}
             --allowed-tools

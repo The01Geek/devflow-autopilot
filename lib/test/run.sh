@@ -14610,40 +14610,74 @@ assert_eq "#313 resolver: global claude_model used when section absent" "global-
 # here the map exists but lacks the named entry — the literal "references an undefined
 # provider name" case AC 3 describes.)
 assert_eq "#313 resolver: provider name absent from an existing map → explicit error marker" \
-  '{"error":"undefined_provider","section":"devflow_implement","provider":"nope"}' \
+  '{"error":"undefined_provider","section":"devflow_implement","provider":"nope","detail":"provider is not defined in the providers map"}' \
   "$(echo '{"claude_model":"m","providers":{"other":{"base_url":"u","auth":"bearer"}},"devflow_implement":{"provider":"nope"}}' | r313 devflow_implement)"
-# AC 7: effort_supported false/absent → false; true → true.
+# AC 7: effort_supported false/absent → false; true → true; strict (non-boolean → false).
 assert_eq "#313 resolver: effort_supported false when provider omits it (drop --effort)" "false" \
   "$(echo '{"claude_model":"m","providers":{"p":{"base_url":"u","auth":"api_key"}},"devflow_implement":{"provider":"p"}}' | r313 devflow_implement | jq -r .effort_supported)"
 assert_eq "#313 resolver: effort_supported true when provider sets it (keep --effort)" "true" \
   "$(echo '{"claude_model":"m","providers":{"p":{"base_url":"u","auth":"api_key","effort_supported":true}},"devflow_implement":{"provider":"p"}}' | r313 devflow_implement | jq -r .effort_supported)"
+# strict `== true`: a non-boolean effort_supported (string "true", number 1) resolves to
+# false so --effort is dropped (fail-closed) — pins the deliberate `== true` over bare
+# truthiness (a mutation to `(… // false)` would flip this GREEN→behavior on a gateway).
+assert_eq "#313 resolver: effort_supported non-boolean (string) → false (strict == true)" "false" \
+  "$(echo '{"claude_model":"m","providers":{"p":{"base_url":"u","auth":"api_key","effort_supported":"true"}},"devflow_implement":{"provider":"p"}}' | r313 devflow_implement | jq -r .effort_supported)"
 # AC 4: the provider env map (haiku/subagent/betas keys) survives intact.
 assert_eq "#313 resolver: provider env map survives into the decision intact" \
   '{"ANTHROPIC_DEFAULT_HAIKU_MODEL":"z-ai/glm-4.7","CLAUDE_CODE_SUBAGENT_MODEL":"z-ai/glm-5.2","CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS":"1"}' \
   "$(echo '{"claude_model":"m","providers":{"p":{"base_url":"u","auth":"bearer","env":{"ANTHROPIC_DEFAULT_HAIKU_MODEL":"z-ai/glm-4.7","CLAUDE_CODE_SUBAGENT_MODEL":"z-ai/glm-5.2","CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS":"1"}}},"devflow_implement":{"provider":"p"}}' | r313 devflow_implement | jq -c .env)"
 
-# AC 9: adversarial input-shape matrix — each malformed shape yields exit-0 plus
-# its SPECIFIC (not generic) documented decision/error marker.
+# AC 9: adversarial input-shape matrix — each malformed shape yields exit-0 plus its
+# SPECIFIC (not generic) documented decision/error marker. The resolver type-guards every
+# index, so NO shape crashes the workflow step (rc≠0) — the exit-0 sweep below proves it.
 assert_eq "#313 matrix: providers map missing (+ section provider) → undefined_provider marker" \
-  '{"error":"undefined_provider","section":"devflow_implement","provider":"openrouter"}' \
+  '{"error":"undefined_provider","section":"devflow_implement","provider":"openrouter","detail":"provider is not defined in the providers map"}' \
   "$(echo '{"claude_model":"m","devflow_implement":{"provider":"openrouter"}}' | r313 devflow_implement)"
 assert_eq "#313 matrix: providers wrong-type (string) → undefined_provider marker" \
-  '{"error":"undefined_provider","section":"devflow_implement","provider":"openrouter"}' \
+  '{"error":"undefined_provider","section":"devflow_implement","provider":"openrouter","detail":"provider is not defined in the providers map"}' \
   "$(echo '{"claude_model":"m","providers":"nope","devflow_implement":{"provider":"openrouter"}}' | r313 devflow_implement)"
-assert_eq "#313 matrix: provider entry missing base_url/auth → decision with empty base_url/auth" \
-  '{"provider":"p","base_url":"","auth":"","timeout_ms":"","effort_supported":false,"model":"m","env":{}}' \
+# Provider PRESENT but incomplete → FAIL-LOUD error marker (not a silent default with an
+# empty base_url/auth): a provider-active decision must never reach the inject step with an
+# empty ANTHROPIC_BASE_URL / a non-{bearer,api_key} auth (review C1/sfh — the old fail-open).
+assert_eq "#313 matrix: provider entry present but missing base_url → incomplete_provider marker (fail-loud)" \
+  '{"error":"incomplete_provider","section":"devflow_implement","provider":"p","detail":"provider entry has no base_url"}' \
   "$(echo '{"claude_model":"m","providers":{"p":{}},"devflow_implement":{"provider":"p"}}' | r313 devflow_implement)"
+assert_eq "#313 matrix: provider entry present but missing auth → incomplete_provider marker" \
+  '{"error":"incomplete_provider","section":"devflow_implement","provider":"p","detail":"provider auth must be bearer or api_key"}' \
+  "$(echo '{"claude_model":"m","providers":{"p":{"base_url":"u"}},"devflow_implement":{"provider":"p"}}' | r313 devflow_implement)"
+assert_eq "#313 matrix: provider auth outside {bearer,api_key} (e.g. Bearer) → incomplete_provider marker" \
+  '{"error":"incomplete_provider","section":"devflow_implement","provider":"p","detail":"provider auth must be bearer or api_key"}' \
+  "$(echo '{"claude_model":"m","providers":{"p":{"base_url":"u","auth":"Bearer"}},"devflow_implement":{"provider":"p"}}' | r313 devflow_implement)"
 assert_eq "#313 matrix: empty-string section provider → Anthropic-default decision" \
   '{"provider":"","base_url":"","auth":"","timeout_ms":"","effort_supported":true,"model":"m","env":{}}' \
   "$(echo '{"claude_model":"m","devflow_implement":{"provider":""}}' | r313 devflow_implement)"
+# Crash-class shapes (used to be jq rc=5 → set -e step abort with a raw jq error). The
+# type-guards now yield a specific marker / safe default with rc=0.
+assert_eq "#313 matrix: non-string section provider (number) → invalid_provider marker (no crash)" \
+  '{"error":"invalid_provider","section":"devflow_implement","provider":"","detail":"section provider must be a string"}' \
+  "$(echo '{"claude_model":"m","devflow_implement":{"provider":5}}' | r313 devflow_implement)"
+assert_eq "#313 matrix: non-object section (scalar) → Anthropic-default decision (no crash)" \
+  '{"provider":"","base_url":"","auth":"","timeout_ms":"","effort_supported":true,"model":"m","env":{}}' \
+  "$(echo '{"claude_model":"m","devflow_implement":"oops"}' | r313 devflow_implement)"
+assert_eq "#313 matrix: non-object top-level config → Anthropic-default decision (no crash)" \
+  '{"provider":"","base_url":"","auth":"","timeout_ms":"","effort_supported":true,"model":"","env":{}}' \
+  "$(echo '"not-an-object"' | r313 devflow_implement)"
 assert_eq "#313 matrix: env wrong-type (string) → env:{}" "{}" \
   "$(echo '{"claude_model":"m","providers":{"p":{"base_url":"u","auth":"bearer","env":"nope"}},"devflow_implement":{"provider":"p"}}' | r313 devflow_implement | jq -c .env)"
 assert_eq "#313 matrix: provider entry wrong-type (string, not object) → undefined_provider marker" \
-  '{"error":"undefined_provider","section":"devflow_implement","provider":"p"}' \
+  '{"error":"undefined_provider","section":"devflow_implement","provider":"p","detail":"provider is not defined in the providers map"}' \
   "$(echo '{"claude_model":"m","providers":{"p":"x"},"devflow_implement":{"provider":"p"}}' | r313 devflow_implement)"
-# Every malformed shape must EXIT 0 (never crash the workflow step under set -e).
-echo '{"claude_model":"m","providers":"nope","devflow_implement":{"provider":"openrouter"}}' | r313 devflow_implement >/dev/null 2>&1
-assert_eq "#313 matrix: a malformed providers shape exits 0 (never aborts the workflow step)" "0" "$?"
+# Every malformed shape EXITS 0 — sweep the shapes that USED to crash jq (rc=5) before the
+# type-guards, so a regression that drops a guard (reintroducing the set -e abort) goes RED.
+for R313_BAD in \
+  '{"providers":"nope","devflow_implement":{"provider":"openrouter"}}' \
+  '{"devflow_implement":{"provider":5}}' \
+  '{"devflow_implement":"oops"}' \
+  '{"devflow_implement":["x"]}' \
+  '"not-an-object"'; do
+  echo "$R313_BAD" | r313 devflow_implement >/dev/null 2>&1
+  assert_eq "#313 matrix: malformed shape exits 0 (no jq crash): $R313_BAD" "0" "$?"
+done
 
 # AC 1 defaults-unchanged pins — anchored to the three explicit workflow paths
 # (NOT a .github/workflows glob), so the synthetic claude.yml fixture elsewhere
@@ -14660,6 +14694,12 @@ for R313_WF in "$IMPL_WF" "$RUNNER_WF" "$LIGHT_WF"; do
   # anthropic_api_key rides only on the provider-active path.
   assert_pin_unique "#313 defaults: $R313_TAG passes anthropic_api_key only on the provider path" \
     "steps.provider.outputs.provider != '' && secrets.DEVFLOW_PROVIDER_API_KEY" "$R313_WF"
+  # AC 6 empty-secret guard: the inject step's run body is byte-identical across the three,
+  # so a UNIFORM removal keeps the body-identity check GREEN — this per-file presence pin is
+  # what makes dropping the fail-loud guard from all three go RED (assert_pin_unique proves
+  # PASS-with → FAIL-without at each site).
+  assert_pin_unique "#313 defaults: $R313_TAG inject step fails loud on an empty provider secret (AC 6)" \
+    "DEVFLOW_PROVIDER_API_KEY repository secret is empty" "$R313_WF"
   # ANTHROPIC_BASE_URL is written exactly once, and only inside the provider-gated
   # inject step — structurally proving it never leaks onto the default path.
   assert_eq "#313 defaults: $R313_TAG writes ANTHROPIC_BASE_URL exactly once" "1" \
@@ -14671,6 +14711,19 @@ for R313_WF in "$IMPL_WF" "$RUNNER_WF" "$LIGHT_WF"; do
     "$(printf '%s' "$R313_INJECT" | grep -qF "steps.provider.outputs.provider != ''" \
        && printf '%s' "$R313_INJECT" | grep -qF 'ANTHROPIC_BASE_URL=' && echo yes || echo no)"
 done
+# AC 8 default-path fail-loud OAuth guard (runner-only): the runner relaxed
+# CLAUDE_CODE_OAUTH_TOKEN to an optional workflow_call secret, so it must fail loud when the
+# Anthropic default path (no provider) has no OAuth token. This step is unique to the runner
+# (not covered by the 3-way body-identity check), so pin it removal-proof.
+assert_pin_red_on_removal "#313 defaults: devflow-runner.yml fails loud on the Anthropic default path when CLAUDE_CODE_OAUTH_TOKEN is empty (AC 8, removal-proof)" \
+  "No model provider is configured for the devflow_runner section" "$RUNNER_WF"
+# Review C1: the runner resolves its provider decision from the TRUSTED BASE ref config
+# (steps.baseprovision), never PR-head steps.cfg — a PR-head-sourced base_url + secret would
+# exfiltrate DEVFLOW_PROVIDER_API_KEY to an attacker gateway. Pin it removal-proof so a revert
+# to the head-config source goes RED. devflow.yml/devflow-implement.yml read the default-branch
+# (base) checkout on issue_comment, so steps.cfg is already the trusted config for them.
+assert_pin_red_on_removal "#313 security: devflow-runner.yml resolves the provider decision from the trusted base-ref config, not PR-head (review C1, removal-proof)" \
+  "CONFIG_JSON: \${{ steps.baseprovision.outputs.config_json }}" "$RUNNER_WF"
 
 # Single-sourcing widened past the jq body (issue #313 /simplify altitude finding):
 # with the section name env-parameterized, the Resolve / Inject / Build-claude_args-head

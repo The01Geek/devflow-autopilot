@@ -54,7 +54,7 @@
           "env": {
             "type": "object",
             "additionalProperties": { "type": "string" },
-            "description": "Extra environment variables exported verbatim into the action step (e.g. ANTHROPIC_DEFAULT_HAIKU_MODEL, CLAUDE_CODE_SUBAGENT_MODEL so background/subagent calls resolve to a real model the endpoint serves; CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS='1' and CLAUDE_CODE_ATTRIBUTION_HEADER='0' to avoid gateway 400s and preserve prompt caching). See docs/cloud-setup.md for the worked OpenRouter/Z.ai maps."
+            "description": "Extra environment variables exported verbatim into the action step (e.g. ANTHROPIC_DEFAULT_HAIKU_MODEL, CLAUDE_CODE_SUBAGENT_MODEL so background/subagent calls resolve to a real model the endpoint serves; CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS='1' to avoid anthropic-beta-header gateway 400s; CLAUDE_CODE_ATTRIBUTION_HEADER='0' to preserve gateway prompt caching — two distinct concerns, see docs/cloud-setup.md). See docs/cloud-setup.md for the worked OpenRouter/Z.ai maps."
           }
         }
       }
