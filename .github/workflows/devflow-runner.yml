@@ -25,13 +25,6 @@ on:
         description: 'Prompt passed through to anthropics/claude-code-action@v1. Callers (devflow-review.yml) always pass a real prompt.'
         type: string
         required: true
-      model:
-        description: |
-          Claude model to use. Defaults to the `claude_model` value from
-          .devflow/config.json when empty.
-        type: string
-        required: false
-        default: ''
       effort:
         description: |
           Reasoning effort (low|medium|high|xhigh|max). Defaults to the
@@ -80,8 +73,24 @@ on:
         value: ${{ jobs.run.outputs.engine_is_error }}
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN:
-        description: 'Anthropic Claude Code OAuth token. Pass via `secrets: inherit` from callers.'
-        required: true
+        description: |
+          Anthropic Claude Code OAuth token. Pass via `secrets: inherit` from
+          callers. No longer `required: true` (issue #313): a repo that routes the
+          devflow_runner section through a third-party provider need not set it.
+          The runner still fails loud when it is absent AND no provider is
+          configured (the Anthropic default path), so the default path is never
+          silently degraded.
+        required: false
+      DEVFLOW_PROVIDER_API_KEY:
+        description: |
+          API credential for the optional third-party model provider (issue #313).
+          Consumed only when the devflow_runner section names a `provider`; unused
+          on the Anthropic default path. Resolves via `secrets: inherit` from the
+          caller (devflow-review.yml); declared here (optional) because a reusable
+          workflow's `secrets` context is typed by this block (actionlint rejects an
+          undeclared reference), even though an inherited secret need not be declared
+          to be readable.
+        required: false
       DEVFLOW_REVIEWER_PRIVATE_KEY:
         description: |
           PEM private key of the optional dedicated **DevFlow-Reviewer** GitHub
@@ -443,6 +452,126 @@ jobs:
           set -euo pipefail
           echo "value=$RESOLVED" >> "$GITHUB_OUTPUT"
 
+      # ── Third-party model provider resolution (issue #313) ─────────────────
+      # Resolve the devflow_runner section's provider decision from
+      # .devflow/config.json via the single-sourced inline jq RESOLVER below. The
+      # RESOLVER program is byte-identical across devflow.yml, devflow-implement.yml,
+      # and devflow-runner.yml (lib/test/run.sh pins that identity); only the
+      # `--arg section` value differs. An empty decision (no provider) reproduces
+      # today's Anthropic-OAuth review wiring byte-for-byte, so review stays on
+      # Claude unless devflow_runner.provider is set. See docs/cloud-setup.md.
+      - name: Resolve model provider
+        id: provider
+        env:
+          CONFIG_JSON: ${{ steps.cfg.outputs.json }}
+        run: |
+          set -euo pipefail
+          # devflow-provider-resolver BEGIN (single-sourced; keep byte-identical across the three cloud workflows — lib/test/run.sh pins it)
+          RESOLVER='
+          . as $cfg
+          | ($cfg[$section] // {}) as $sec
+          | ($sec.provider // "") as $pname
+          | (if (($sec.claude_model // "") != "") then $sec.claude_model else ($cfg.claude_model // "") end) as $model
+          | if $pname == "" then
+              {provider:"", base_url:"", auth:"", timeout_ms:"", effort_supported:true, model:$model, env:{}}
+            else
+              (if (($cfg.providers) | type) == "object" then $cfg.providers else {} end) as $provs
+              | if (($provs[$pname]) | type) == "object" then
+                  ($provs[$pname]) as $p
+                  | {provider:$pname, base_url:($p.base_url // ""), auth:($p.auth // ""), timeout_ms:($p.timeout_ms // ""), effort_supported:(($p.effort_supported // false) == true), model:$model, env:(if (($p.env) | type) == "object" then $p.env else {} end)}
+                else
+                  {error:"undefined_provider", section:$section, provider:$pname}
+                end
+            end
+          '
+          # devflow-provider-resolver END
+          DECISION=$(printf '%s' "$CONFIG_JSON" | jq -c --arg section "devflow_runner" "$RESOLVER")
+          if [ "$(printf '%s' "$DECISION" | jq -r '.error // ""')" != "" ]; then
+            PNAME=$(printf '%s' "$DECISION" | jq -r '.provider // ""')
+            echo "::error::.devflow/config.json section 'devflow_runner' selects provider '$PNAME', which is not defined in the providers map. Add a providers.$PNAME entry (base_url + auth) or remove the section provider key. Refusing to run."
+            exit 1
+          fi
+          {
+            echo "provider=$(printf '%s' "$DECISION" | jq -r '.provider')"
+            echo "model=$(printf '%s' "$DECISION" | jq -r '.model')"
+            echo "auth=$(printf '%s' "$DECISION" | jq -r '.auth')"
+            echo "base_url=$(printf '%s' "$DECISION" | jq -r '.base_url')"
+            echo "timeout_ms=$(printf '%s' "$DECISION" | jq -r '.timeout_ms')"
+            echo "effort_supported=$(printf '%s' "$DECISION" | jq -r '.effort_supported')"
+          } >> "$GITHUB_OUTPUT"
+          # Forward the full decision (it carries the provider env map) to the
+          # inject step via a heredoc output so embedded values survive verbatim.
+          delim="DEC_EOF_$(date +%s%N)_$$"
+          {
+            printf 'decision<<%s\n' "$delim"
+            printf '%s\n' "$DECISION"
+            printf '%s\n' "$delim"
+          } >> "$GITHUB_OUTPUT"
+
+      # Anthropic default path (no provider): the review must fail loud if the
+      # OAuth token is absent, so relaxing the workflow_call secret to optional
+      # (issue #313) never silently degrades the default path (AC 8).
+      - name: Require OAuth token on the Anthropic default path
+        if: ${{ steps.provider.outputs.provider == '' }}
+        env:
+          OAUTH: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$OAUTH" ]; then
+            echo "::error::No model provider is configured for the devflow_runner section, so the review runs on the Anthropic default path — but the CLAUDE_CODE_OAUTH_TOKEN secret is empty. Set it (or configure devflow_runner.provider + DEVFLOW_PROVIDER_API_KEY). Refusing to run."
+            exit 1
+          fi
+
+      # Inject the provider endpoint into the JOB env — ONLY when a provider is
+      # active. A `run:` step writing $GITHUB_ENV (never a static step `env:`
+      # block of always-present expressions) is the only mechanism that can carry
+      # config-driven dynamic keys, and gating on `provider != ''` keeps the
+      # default path free of even empty-valued ANTHROPIC_* vars (AC 1/4). This
+      # step also carries the fail-loud empty-secret guard (AC 6), before the
+      # action step runs.
+      - name: Inject provider endpoint (provider-routed sections only)
+        if: ${{ steps.provider.outputs.provider != '' }}
+        env:
+          DECISION: ${{ steps.provider.outputs.decision }}
+          AUTH: ${{ steps.provider.outputs.auth }}
+          BASE_URL: ${{ steps.provider.outputs.base_url }}
+          TIMEOUT_MS: ${{ steps.provider.outputs.timeout_ms }}
+          PROVIDER: ${{ steps.provider.outputs.provider }}
+          PROVIDER_API_KEY: ${{ secrets.DEVFLOW_PROVIDER_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "$PROVIDER_API_KEY" ]; then
+            echo "::error::.devflow/config.json section 'devflow_runner' selects provider '$PROVIDER' but the DEVFLOW_PROVIDER_API_KEY repository secret is empty. Set that secret (the provider API key) before running a provider-routed job. Refusing to run."
+            exit 1
+          fi
+          if [ -n "$BASE_URL" ]; then echo "ANTHROPIC_BASE_URL=$BASE_URL" >> "$GITHUB_ENV"; fi
+          if [ -n "$TIMEOUT_MS" ]; then echo "API_TIMEOUT_MS=$TIMEOUT_MS" >> "$GITHUB_ENV"; fi
+          # Bearer-token gateways read Authorization from ANTHROPIC_AUTH_TOKEN; the
+          # same key also rides as the anthropic_api_key action input below (the
+          # documented two-slot recipe). auth: api_key passes it via the input only.
+          if [ "$AUTH" = "bearer" ]; then echo "ANTHROPIC_AUTH_TOKEN=$PROVIDER_API_KEY" >> "$GITHUB_ENV"; fi
+          # Every key of the provider env map (haiku/subagent model mappings, the
+          # beta/attribution toggles, …) verbatim. Secret-masked in logs as usual.
+          printf '%s' "$DECISION" | jq -r '.env | to_entries[] | "\(.key)=\(.value)"' >> "$GITHUB_ENV"
+
+      # Compute the claude_args head so --model is always present and --effort is
+      # dropped only for a provider whose effort_supported is false (AC 7). The
+      # Anthropic default path resolves effort_supported=true, so effort is
+      # preserved there byte-for-byte.
+      - name: Build claude_args head (model + conditional effort)
+        id: cargs
+        env:
+          MODEL: ${{ steps.provider.outputs.model }}
+          EFFORT: ${{ steps.effort.outputs.value }}
+          EFFORT_SUPPORTED: ${{ steps.provider.outputs.effort_supported }}
+        run: |
+          set -euo pipefail
+          ARGS="--model $MODEL"
+          if [ "$EFFORT_SUPPORTED" = "true" ]; then
+            ARGS="$ARGS --effort $EFFORT"
+          fi
+          echo "args=$ARGS" >> "$GITHUB_OUTPUT"
+
       # Provision the runtime BEFORE Claude runs, but ONLY when the trusted base
       # config opted in via devflow_runner.provision_env. config_json is the
       # BASE ref's config (steps.baseprovision), never the PR head, so PR edits
@@ -538,7 +667,16 @@ jobs:
         id: claude
         uses: anthropics/claude-code-action@v1
         with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Anthropic-default path only: pass the OAuth token when no provider is
+          # active. A provider-routed devflow_runner section passes '' here (the
+          # action treats empty as absent) and authenticates via anthropic_api_key
+          # below (issue #313).
+          claude_code_oauth_token: ${{ steps.provider.outputs.provider == '' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
+          # Provider path only: the fixed DEVFLOW_PROVIDER_API_KEY secret (inherited
+          # from devflow-review.yml via `secrets: inherit`) satisfies the action's
+          # launch check and, for bearer auth, is ALSO exported as ANTHROPIC_AUTH_TOKEN
+          # by the inject step. Empty on the default path.
+          anthropic_api_key: ${{ steps.provider.outputs.provider != '' && secrets.DEVFLOW_PROVIDER_API_KEY || '' }}
           # Pass an explicit token so the action skips its OIDC → app-token
           # exchange, which 401s for jobs running inside a reusable
           # workflow_call from pull_request_target (anthropics/
@@ -582,9 +720,12 @@ jobs:
           # this profile today — kept as defensive precedent-matching with
           # prompt-mode invocations and to absorb future profiles
           # that may need the auto-approved commands.
+          # claude_args head is a COMPUTED string (steps.cargs): --model always,
+          # --effort conditional on effort_supported (issue #313). --model now comes
+          # from the provider resolver (the dead `model` input was removed). The
+          # --permission-mode / --allowed-tools tail is preserved verbatim.
           claude_args: >-
-            --model ${{ inputs.model != '' && inputs.model || steps.extract.outputs.claude_model }}
-            --effort ${{ steps.effort.outputs.value }}
+            ${{ steps.cargs.outputs.args }}
             --permission-mode acceptEdits
             --allowed-tools "${{ steps.tools.outputs.tools }}"
 

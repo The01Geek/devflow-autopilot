@@ -101,7 +101,7 @@ The intended way to drive DevFlow — from a feature request to a reviewed pull 
 3. **DevFlow implements it.** It creates a branch, plans against your codebase, writes the code and tests, opens a **draft PR**, self-reviews with `/simplify`, runs `/devflow:review-and-fix`, files follow-up issues for deferred findings, updates the docs, and flips the PR to **ready**.
 4. **Review and merge.** On the cloud tier, `/devflow:review` runs as a gate and posts its verdict on the PR. You do the final human review and merge.
 
-> The cloud tier (steps 2–4 running automatically on GitHub) needs only a `CLAUDE_CODE_OAUTH_TOKEN` secret — see [`docs/cloud-setup.md`](docs/cloud-setup.md). Everything else runs locally inside Claude Code with no infrastructure.
+> The cloud tier (steps 2–4 running automatically on GitHub) needs only a `CLAUDE_CODE_OAUTH_TOKEN` secret **by default** (routing a workflow through an optional third-party model provider adds one more, `DEVFLOW_PROVIDER_API_KEY`) — see [`docs/cloud-setup.md`](docs/cloud-setup.md). Everything else runs locally inside Claude Code with no infrastructure.
 
 ## Requirements
 

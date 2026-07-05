@@ -459,11 +459,123 @@ jobs:
           app-id: ${{ vars.DEVFLOW_APP_ID }}
           private-key: ${{ secrets.DEVFLOW_APP_PRIVATE_KEY }}
 
+      # ── Third-party model provider resolution (issue #313) ─────────────────
+      # Resolve this section's (devflow) provider decision from .devflow/config.json
+      # via the single-sourced inline jq RESOLVER below. The RESOLVER program is
+      # byte-identical across devflow.yml, devflow-implement.yml, and
+      # devflow-runner.yml (lib/test/run.sh pins that identity); only the
+      # `--arg section` value differs. An empty decision (no provider) reproduces
+      # today's Anthropic-OAuth wiring byte-for-byte. See docs/cloud-setup.md.
+      - name: Resolve model provider
+        id: provider
+        env:
+          CONFIG_JSON: ${{ steps.cfg.outputs.json }}
+        run: |
+          set -euo pipefail
+          # devflow-provider-resolver BEGIN (single-sourced; keep byte-identical across the three cloud workflows — lib/test/run.sh pins it)
+          RESOLVER='
+          . as $cfg
+          | ($cfg[$section] // {}) as $sec
+          | ($sec.provider // "") as $pname
+          | (if (($sec.claude_model // "") != "") then $sec.claude_model else ($cfg.claude_model // "") end) as $model
+          | if $pname == "" then
+              {provider:"", base_url:"", auth:"", timeout_ms:"", effort_supported:true, model:$model, env:{}}
+            else
+              (if (($cfg.providers) | type) == "object" then $cfg.providers else {} end) as $provs
+              | if (($provs[$pname]) | type) == "object" then
+                  ($provs[$pname]) as $p
+                  | {provider:$pname, base_url:($p.base_url // ""), auth:($p.auth // ""), timeout_ms:($p.timeout_ms // ""), effort_supported:(($p.effort_supported // false) == true), model:$model, env:(if (($p.env) | type) == "object" then $p.env else {} end)}
+                else
+                  {error:"undefined_provider", section:$section, provider:$pname}
+                end
+            end
+          '
+          # devflow-provider-resolver END
+          DECISION=$(printf '%s' "$CONFIG_JSON" | jq -c --arg section "devflow" "$RESOLVER")
+          if [ "$(printf '%s' "$DECISION" | jq -r '.error // ""')" != "" ]; then
+            PNAME=$(printf '%s' "$DECISION" | jq -r '.provider // ""')
+            echo "::error::.devflow/config.json section 'devflow' selects provider '$PNAME', which is not defined in the providers map. Add a providers.$PNAME entry (base_url + auth) or remove the section provider key. Refusing to run."
+            exit 1
+          fi
+          {
+            echo "provider=$(printf '%s' "$DECISION" | jq -r '.provider')"
+            echo "model=$(printf '%s' "$DECISION" | jq -r '.model')"
+            echo "auth=$(printf '%s' "$DECISION" | jq -r '.auth')"
+            echo "base_url=$(printf '%s' "$DECISION" | jq -r '.base_url')"
+            echo "timeout_ms=$(printf '%s' "$DECISION" | jq -r '.timeout_ms')"
+            echo "effort_supported=$(printf '%s' "$DECISION" | jq -r '.effort_supported')"
+          } >> "$GITHUB_OUTPUT"
+          # Forward the full decision (it carries the provider env map) to the
+          # inject step via a heredoc output so embedded values survive verbatim.
+          delim="DEC_EOF_$(date +%s%N)_$$"
+          {
+            printf 'decision<<%s\n' "$delim"
+            printf '%s\n' "$DECISION"
+            printf '%s\n' "$delim"
+          } >> "$GITHUB_OUTPUT"
+
+      # Inject the provider endpoint into the JOB env — ONLY when a provider is
+      # active. A `run:` step writing $GITHUB_ENV (never a static step `env:`
+      # block of always-present expressions) is the only mechanism that can carry
+      # config-driven dynamic keys, and gating on `provider != ''` keeps the
+      # default path free of even empty-valued ANTHROPIC_* vars (AC 1/4). This
+      # step also carries the fail-loud empty-secret guard (AC 6), before the
+      # action step runs.
+      - name: Inject provider endpoint (provider-routed sections only)
+        if: ${{ steps.provider.outputs.provider != '' }}
+        env:
+          DECISION: ${{ steps.provider.outputs.decision }}
+          AUTH: ${{ steps.provider.outputs.auth }}
+          BASE_URL: ${{ steps.provider.outputs.base_url }}
+          TIMEOUT_MS: ${{ steps.provider.outputs.timeout_ms }}
+          PROVIDER: ${{ steps.provider.outputs.provider }}
+          PROVIDER_API_KEY: ${{ secrets.DEVFLOW_PROVIDER_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "$PROVIDER_API_KEY" ]; then
+            echo "::error::.devflow/config.json section 'devflow' selects provider '$PROVIDER' but the DEVFLOW_PROVIDER_API_KEY repository secret is empty. Set that secret (the provider API key) before running a provider-routed job. Refusing to run."
+            exit 1
+          fi
+          if [ -n "$BASE_URL" ]; then echo "ANTHROPIC_BASE_URL=$BASE_URL" >> "$GITHUB_ENV"; fi
+          if [ -n "$TIMEOUT_MS" ]; then echo "API_TIMEOUT_MS=$TIMEOUT_MS" >> "$GITHUB_ENV"; fi
+          # Bearer-token gateways read Authorization from ANTHROPIC_AUTH_TOKEN; the
+          # same key also rides as the anthropic_api_key action input below (the
+          # documented two-slot recipe). auth: api_key passes it via the input only.
+          if [ "$AUTH" = "bearer" ]; then echo "ANTHROPIC_AUTH_TOKEN=$PROVIDER_API_KEY" >> "$GITHUB_ENV"; fi
+          # Every key of the provider env map (haiku/subagent model mappings, the
+          # beta/attribution toggles, …) verbatim. Secret-masked in logs as usual.
+          printf '%s' "$DECISION" | jq -r '.env | to_entries[] | "\(.key)=\(.value)"' >> "$GITHUB_ENV"
+
+      # Compute the claude_args head so --model is always present and --effort is
+      # dropped only for a provider whose effort_supported is false (AC 7). The
+      # Anthropic default path resolves effort_supported=true, so effort is
+      # preserved there byte-for-byte.
+      - name: Build claude_args head (model + conditional effort)
+        id: cargs
+        env:
+          MODEL: ${{ steps.provider.outputs.model }}
+          EFFORT: ${{ needs.config.outputs.effort }}
+          EFFORT_SUPPORTED: ${{ steps.provider.outputs.effort_supported }}
+        run: |
+          set -euo pipefail
+          ARGS="--model $MODEL"
+          if [ "$EFFORT_SUPPORTED" = "true" ]; then
+            ARGS="$ARGS --effort $EFFORT"
+          fi
+          echo "args=$ARGS" >> "$GITHUB_OUTPUT"
+
       - name: Run Claude Code
         id: claude
         uses: anthropics/claude-code-action@v1
         with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Anthropic-default path only: pass the OAuth token when no provider is
+          # active. A provider-routed section passes '' here (the action treats
+          # empty as absent) and authenticates via anthropic_api_key below.
+          claude_code_oauth_token: ${{ steps.provider.outputs.provider == '' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
+          # Provider path only: the fixed DEVFLOW_PROVIDER_API_KEY secret satisfies
+          # the action's launch check (and, for bearer auth, is ALSO exported as
+          # ANTHROPIC_AUTH_TOKEN by the inject step). Empty on the default path.
+          anthropic_api_key: ${{ steps.provider.outputs.provider != '' && secrets.DEVFLOW_PROVIDER_API_KEY || '' }}
           # Identity by command: `/devflow:review` runs under the downscoped
           # DevFlow-Reviewer token (or GITHUB_TOKEN when the reviewer App is
           # unset) — NEVER the primary app token, so the review is not a
@@ -507,9 +619,12 @@ jobs:
             devflow@devflow-marketplace
 
           base_branch: ${{ needs.config.outputs.base_branch }}
+          # claude_args head is a COMPUTED string (steps.cargs): --model always,
+          # --effort conditional on effort_supported (issue #313). The --allowed-tools
+          # tail below is preserved verbatim — keep it in sync with devflow-implement.yml
+          # and devflow-runner.yml. allowed_tools_extra splices inside the closing quote.
           claude_args: >-
-            --model ${{ needs.config.outputs.claude_model }}
-            --effort ${{ needs.config.outputs.effort }}
+            ${{ steps.cargs.outputs.args }}
             --allowed-tools
             "Read,
             Write,

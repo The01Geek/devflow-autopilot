@@ -14561,6 +14561,115 @@ assert_pin_unique "#271 coupled: skills/implement/SKILL.md reaction-comment read
 assert_pin_unique "#271 coupled: phase-4-documentation.md deferrals merge invokes the run-jq.sh wrapper" \
   "scripts/run-jq.sh -s '.[0] as \$f" "$LIB/../skills/implement/phases/phase-4-documentation.md"
 
+# ── #313 third-party model provider resolver ───────────────────────────────
+# The provider resolver is an INLINE jq program embedded in all three cloud
+# workflows (devflow.yml / devflow-implement.yml / devflow-runner.yml). It cannot
+# be a scripts/*.jq file (the config-extract jobs never vendor the plugin, so no
+# helper exists on disk there), so single-sourcing is enforced HERE: extract the
+# program body from each workflow at test time, assert the three copies are
+# byte-identical, then run ONE extracted copy live — never hand-maintain a fourth.
+# IMPL_WF / RUNNER_WF / LIGHT_WF are defined in the #271 block above; reuse them.
+r313_extract() { awk '/# devflow-provider-resolver BEGIN/{f=1;next} /# devflow-provider-resolver END/{f=0} f' "$1"; }
+R313_IMPL="$(r313_extract "$IMPL_WF")"
+R313_RUNNER="$(r313_extract "$RUNNER_WF")"
+R313_LIGHT="$(r313_extract "$LIGHT_WF")"
+# Non-empty guard: a renamed/removed sentinel would extract "" and make the
+# identity asserts vacuously PASS ("" == "") — assert extraction found a program.
+assert_eq "#313 resolver: program extracted from devflow-implement.yml is non-empty (sentinels intact)" "yes" \
+  "$([ -n "$R313_IMPL" ] && echo yes || echo no)"
+assert_eq "#313 resolver single-sourced: devflow-implement.yml vs devflow.yml byte-identical" "yes" \
+  "$([ "$R313_IMPL" = "$R313_LIGHT" ] && echo yes || echo no)"
+assert_eq "#313 resolver single-sourced: devflow-implement.yml vs devflow-runner.yml byte-identical" "yes" \
+  "$([ "$R313_IMPL" = "$R313_RUNNER" ] && echo yes || echo no)"
+
+# Behavioral coverage: eval the EMBEDDED copy (single-sourced — not a retyped
+# program) to populate $RESOLVER, then drive it against literal config fixtures.
+eval "$R313_IMPL"
+r313() { jq -c --arg section "$1" "$RESOLVER"; }
+# AC 1: config with no provider keys → the Anthropic-default decision.
+assert_eq "#313 resolver: default (no providers, no section provider) → Anthropic-default decision" \
+  '{"provider":"","base_url":"","auth":"","timeout_ms":"","effort_supported":true,"model":"claude-opus-4-8","env":{}}' \
+  "$(echo '{"claude_model":"claude-opus-4-8","devflow_implement":{}}' | r313 devflow_implement)"
+# ACs 3/4: implement-section decision carries openrouter fields; the runner
+# section stays default in the SAME config (per-section isolation).
+R313_CFG='{"claude_model":"m","providers":{"openrouter":{"base_url":"https://openrouter.ai/api","auth":"bearer","timeout_ms":3000000,"env":{"CLAUDE_CODE_SUBAGENT_MODEL":"z-ai/glm-5.2"}}},"devflow_implement":{"provider":"openrouter","claude_model":"z-ai/glm-5.2"}}'
+assert_eq "#313 resolver: section provider selects openrouter (base_url/auth/model/env)" \
+  '{"provider":"openrouter","base_url":"https://openrouter.ai/api","auth":"bearer","timeout_ms":3000000,"effort_supported":false,"model":"z-ai/glm-5.2","env":{"CLAUDE_CODE_SUBAGENT_MODEL":"z-ai/glm-5.2"}}' \
+  "$(echo "$R313_CFG" | r313 devflow_implement)"
+assert_eq "#313 resolver: unrelated section stays Anthropic-default in the same provider config (AC 4 isolation)" \
+  '{"provider":"","base_url":"","auth":"","timeout_ms":"","effort_supported":true,"model":"m","env":{}}' \
+  "$(echo "$R313_CFG" | r313 devflow_runner)"
+# AC 3: model precedence — section claude_model beats global; global when absent.
+assert_eq "#313 resolver: section claude_model beats global" "section-model" \
+  "$(echo '{"claude_model":"global-model","devflow_implement":{"claude_model":"section-model"}}' | r313 devflow_implement | jq -r .model)"
+assert_eq "#313 resolver: global claude_model used when section absent" "global-model" \
+  "$(echo '{"claude_model":"global-model","devflow_implement":{}}' | r313 devflow_implement | jq -r .model)"
+# AC 3: an undefined provider name yields the explicit error marker.
+assert_eq "#313 resolver: undefined provider name → explicit error marker" \
+  '{"error":"undefined_provider","section":"devflow_implement","provider":"nope"}' \
+  "$(echo '{"claude_model":"m","devflow_implement":{"provider":"nope"}}' | r313 devflow_implement)"
+# AC 7: effort_supported false/absent → false; true → true.
+assert_eq "#313 resolver: effort_supported false when provider omits it (drop --effort)" "false" \
+  "$(echo '{"claude_model":"m","providers":{"p":{"base_url":"u","auth":"api_key"}},"devflow_implement":{"provider":"p"}}' | r313 devflow_implement | jq -r .effort_supported)"
+assert_eq "#313 resolver: effort_supported true when provider sets it (keep --effort)" "true" \
+  "$(echo '{"claude_model":"m","providers":{"p":{"base_url":"u","auth":"api_key","effort_supported":true}},"devflow_implement":{"provider":"p"}}' | r313 devflow_implement | jq -r .effort_supported)"
+# AC 4: the provider env map (haiku/subagent/betas keys) survives intact.
+assert_eq "#313 resolver: provider env map survives into the decision intact" \
+  '{"ANTHROPIC_DEFAULT_HAIKU_MODEL":"z-ai/glm-4.7","CLAUDE_CODE_SUBAGENT_MODEL":"z-ai/glm-5.2","CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS":"1"}' \
+  "$(echo '{"claude_model":"m","providers":{"p":{"base_url":"u","auth":"bearer","env":{"ANTHROPIC_DEFAULT_HAIKU_MODEL":"z-ai/glm-4.7","CLAUDE_CODE_SUBAGENT_MODEL":"z-ai/glm-5.2","CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS":"1"}}},"devflow_implement":{"provider":"p"}}' | r313 devflow_implement | jq -c .env)"
+
+# AC 9: adversarial input-shape matrix — each malformed shape yields exit-0 plus
+# its SPECIFIC (not generic) documented decision/error marker.
+assert_eq "#313 matrix: providers map missing (+ section provider) → undefined_provider marker" \
+  '{"error":"undefined_provider","section":"devflow_implement","provider":"openrouter"}' \
+  "$(echo '{"claude_model":"m","devflow_implement":{"provider":"openrouter"}}' | r313 devflow_implement)"
+assert_eq "#313 matrix: providers wrong-type (string) → undefined_provider marker" \
+  '{"error":"undefined_provider","section":"devflow_implement","provider":"openrouter"}' \
+  "$(echo '{"claude_model":"m","providers":"nope","devflow_implement":{"provider":"openrouter"}}' | r313 devflow_implement)"
+assert_eq "#313 matrix: provider entry missing base_url/auth → decision with empty base_url/auth" \
+  '{"provider":"p","base_url":"","auth":"","timeout_ms":"","effort_supported":false,"model":"m","env":{}}' \
+  "$(echo '{"claude_model":"m","providers":{"p":{}},"devflow_implement":{"provider":"p"}}' | r313 devflow_implement)"
+assert_eq "#313 matrix: empty-string section provider → Anthropic-default decision" \
+  '{"provider":"","base_url":"","auth":"","timeout_ms":"","effort_supported":true,"model":"m","env":{}}' \
+  "$(echo '{"claude_model":"m","devflow_implement":{"provider":""}}' | r313 devflow_implement)"
+assert_eq "#313 matrix: env wrong-type (string) → env:{}" "{}" \
+  "$(echo '{"claude_model":"m","providers":{"p":{"base_url":"u","auth":"bearer","env":"nope"}},"devflow_implement":{"provider":"p"}}' | r313 devflow_implement | jq -c .env)"
+assert_eq "#313 matrix: provider entry wrong-type (string, not object) → undefined_provider marker" \
+  '{"error":"undefined_provider","section":"devflow_implement","provider":"p"}' \
+  "$(echo '{"claude_model":"m","providers":{"p":"x"},"devflow_implement":{"provider":"p"}}' | r313 devflow_implement)"
+# Every malformed shape must EXIT 0 (never crash the workflow step under set -e).
+echo '{"claude_model":"m","providers":"nope","devflow_implement":{"provider":"openrouter"}}' | r313 devflow_implement >/dev/null 2>&1
+assert_eq "#313 matrix: a malformed providers shape exits 0 (never aborts the workflow step)" "0" "$?"
+
+# AC 1 defaults-unchanged pins — anchored to the three explicit workflow paths
+# (NOT a .github/workflows glob), so the synthetic claude.yml fixture elsewhere
+# in this suite can never satisfy or trip them. Each pin targets the OPERATIVE
+# conditional (its removal alone re-breaks the default-path wiring), and the
+# claude_code_oauth_token conditional is proven removal-proof (PASS→FAIL).
+for R313_WF in "$IMPL_WF" "$RUNNER_WF" "$LIGHT_WF"; do
+  R313_TAG="$(basename "$R313_WF")"
+  # claude_code_oauth_token stays under the empty-decision (no-provider) condition.
+  assert_pin_unique "#313 defaults: $R313_TAG passes OAuth token only on the no-provider path" \
+    "steps.provider.outputs.provider == '' && secrets.CLAUDE_CODE_OAUTH_TOKEN" "$R313_WF"
+  assert_pin_red_on_removal "#313 defaults: $R313_TAG OAuth-under-empty-decision conditional is removal-proof" \
+    "steps.provider.outputs.provider == '' && secrets.CLAUDE_CODE_OAUTH_TOKEN" "$R313_WF"
+  # anthropic_api_key rides only on the provider-active path.
+  assert_pin_unique "#313 defaults: $R313_TAG passes anthropic_api_key only on the provider path" \
+    "steps.provider.outputs.provider != '' && secrets.DEVFLOW_PROVIDER_API_KEY" "$R313_WF"
+  # ANTHROPIC_BASE_URL is written exactly once, and only inside the provider-gated
+  # inject step — structurally proving it never leaks onto the default path.
+  assert_eq "#313 defaults: $R313_TAG writes ANTHROPIC_BASE_URL exactly once" "1" \
+    "$(pin_count 'ANTHROPIC_BASE_URL=' "$R313_WF")"
+  R313_INJECT="$(awk -v n='Inject provider endpoint (provider-routed sections only)' '
+    index($0, "- name: " n){f=1}
+    f && /^      - name:/ && index($0, "- name: " n)==0{exit}
+    f{print}' "$R313_WF")"
+  assert_eq "#313 defaults: $R313_TAG inject step is gated on provider != '' AND holds the ANTHROPIC_BASE_URL write" "yes" \
+    "$(printf '%s' "$R313_INJECT" | grep -qF "steps.provider.outputs.provider != ''" \
+       && printf '%s' "$R313_INJECT" | grep -qF 'ANTHROPIC_BASE_URL=' && echo yes || echo no)"
+done
+unset RESOLVER
+
 # Mutation check: the absence pin above only proves "count is 0 today" — it does not
 # prove the awk fence-parser + grep would actually *catch* a reintroduced bare jq (a
 # silently-broken fence regex would also read 0 and stay GREEN). Run the identical
