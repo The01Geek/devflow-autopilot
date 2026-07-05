@@ -588,10 +588,13 @@ jobs:
         id: cargs
         env:
           # The runner's provider decision (incl. model) is resolved from the TRUSTED BASE
-          # config (see the Resolve step's SECURITY note). Fall back to the head-config
-          # claude_model (steps.extract, whose own empty-claude_model guard still fail-closes)
-          # only when the base-resolved model is empty — e.g. a repo bootstrapping devflow via
-          # this very PR, whose base ref carries no committed config — so --model is never empty.
+          # config (see the Resolve step's SECURITY note). The fallback below fires whenever
+          # the base-resolved model is empty — from ANY cause, the motivating one being a repo
+          # bootstrapping devflow via this very PR whose base ref carries no committed config —
+          # by reading the head-config claude_model (steps.extract, whose own empty-claude_model
+          # guard still fail-closes). Taking a model *name* from head config is safe: it cannot
+          # redirect the endpoint or leak the secret (both come from the base decision), so
+          # --model is never empty while the trust boundary holds.
           MODEL: ${{ steps.provider.outputs.model != '' && steps.provider.outputs.model || steps.extract.outputs.claude_model }}
           EFFORT: ${{ steps.effort.outputs.value }}
           EFFORT_SUPPORTED: ${{ steps.provider.outputs.effort_supported }}
@@ -602,7 +605,11 @@ jobs:
             exit 1
           fi
           ARGS="--model $MODEL"
-          if [ "$EFFORT_SUPPORTED" = "true" ]; then
+          # --effort only when the provider supports it AND a value actually resolved. The
+          # config effort defaults to "high", so the default path always has one; the -n
+          # co-guard just avoids ever handing the CLI a valueless --effort on a pathological
+          # empty effort.
+          if [ "$EFFORT_SUPPORTED" = "true" ] && [ -n "$EFFORT" ]; then
             ARGS="$ARGS --effort $EFFORT"
           fi
           # Newline-safe heredoc output (mirrors the resolver's decision<< / scalar-output form).

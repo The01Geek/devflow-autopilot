@@ -581,7 +581,11 @@ jobs:
             exit 1
           fi
           ARGS="--model $MODEL"
-          if [ "$EFFORT_SUPPORTED" = "true" ]; then
+          # --effort only when the provider supports it AND a value actually resolved. The
+          # config effort defaults to "high", so the default path always has one; the -n
+          # co-guard just avoids ever handing the CLI a valueless --effort on a pathological
+          # empty effort.
+          if [ "$EFFORT_SUPPORTED" = "true" ] && [ -n "$EFFORT" ]; then
             ARGS="$ARGS --effort $EFFORT"
           fi
           # Newline-safe heredoc output (mirrors the resolver's decision<< / scalar-output form).

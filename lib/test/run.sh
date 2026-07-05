@@ -14670,6 +14670,14 @@ assert_eq "#313 matrix: non-object top-level config → Anthropic-default decisi
   "$(echo '"not-an-object"' | r313 devflow_implement)"
 assert_eq "#313 matrix: env wrong-type (string) → env:{}" "{}" \
   "$(echo '{"claude_model":"m","providers":{"p":{"base_url":"u","auth":"bearer","env":"nope"}},"devflow_implement":{"provider":"p"}}' | r313 devflow_implement | jq -c .env)"
+# timeout_ms is NOT semantically type-guarded (only `// ""` for null/missing) — a wrong-type
+# value flows through verbatim (the documented, accepted defense-in-depth: config is
+# maintainer/base-ref-controlled and schema-typed). Completes the {field} x {wrong-type}
+# matrix (review Suggestion #6) — pins the pass-through so a future type-guard is a conscious
+# change, not a silent one; the inject step then writes it heredoc-safely regardless.
+assert_eq "#313 matrix: timeout_ms wrong-type (object) → passes through verbatim (documented, not type-guarded)" \
+  '{"x":1}' \
+  "$(echo '{"claude_model":"m","providers":{"p":{"base_url":"u","auth":"bearer","timeout_ms":{"x":1}}},"devflow_implement":{"provider":"p"}}' | r313 devflow_implement | jq -c .timeout_ms)"
 assert_eq "#313 matrix: provider entry wrong-type (string, not object) → undefined_provider marker" \
   '{"error":"undefined_provider","section":"devflow_implement","provider":"p","detail":"provider is not defined in the providers map"}' \
   "$(echo '{"claude_model":"m","providers":{"p":"x"},"devflow_implement":{"provider":"p"}}' | r313 devflow_implement)"
@@ -14817,6 +14825,18 @@ print(next(s["run"] for j in d["jobs"].values() for s in j.get("steps",[]) if s.
     assert_eq "#313 resolve-body: undefined provider fails loud (exit 1)" "1" "$R313_RC"
     assert_eq "#313 resolve-body: undefined provider emits ::error:: naming the section + provider" "yes" \
       "$(printf '%s' "$R313_OUT" | grep -qF '::error::' && printf '%s' "$R313_OUT" | grep -qF 'devflow_implement' && printf '%s' "$R313_OUT" | grep -qF "'nope'" && echo yes || echo no)"
+    # Provider-active path (review Suggestion #7): the resolve body was executed only for
+    # default + error configs, never a provider-active one — so a mutation in the scalar-emit
+    # jq for a real provider stayed uncovered here (caught only transitively). Drive a
+    # provider-active config ($R313_CFG, defined above) and assert the emitted (heredoc)
+    # scalar outputs + decision.
+    : > "$R313_GOUT0"
+    R313_RC=0
+    ( export CONFIG_JSON="$R313_CFG" SECTION=devflow_implement GITHUB_OUTPUT="$R313_GOUT0"; bash -c "$R313_RES_BODY" ) >/dev/null 2>&1 || R313_RC=$?
+    assert_eq "#313 resolve-body: provider-active config resolves rc 0" "0" "$R313_RC"
+    gh_kv "$R313_GOUT0" > "$R313_GOUT0.kv"
+    assert_eq "#313 resolve-body: provider-active config emits provider/base_url/auth/model/effort_supported + decision (heredoc-safe)" "yes" \
+      "$(grep -qxF 'provider=openrouter' "$R313_GOUT0.kv" && grep -qxF 'base_url=https://openrouter.ai/api' "$R313_GOUT0.kv" && grep -qxF 'auth=bearer' "$R313_GOUT0.kv" && grep -qxF 'model=z-ai/glm-5.2' "$R313_GOUT0.kv" && grep -qxF 'effort_supported=false' "$R313_GOUT0.kv" && grep -q '^decision={' "$R313_GOUT0.kv" && echo yes || echo no)"
     rm -f "$R313_GOUT0" "$R313_GOUT0.kv"
   else
     echo "  SKIP  #313 resolve-body behavioral checks (no writable temp / body extraction failed)"
@@ -14843,6 +14863,31 @@ print(next(s["run"] for j in d["jobs"].values() for s in j.get("steps",[]) if s.
     R313_RC=0
     ( export DECISION='{"env":{}}' AUTH=bearer BASE_URL=u TIMEOUT_MS="" PROVIDER=p PROVIDER_API_KEY="" SECTION=devflow_implement GITHUB_ENV="$R313_GENV"; bash -c "$R313_INJ_BODY" ) >/dev/null 2>&1 || R313_RC=$?
     assert_eq "#313 inject-body: empty provider secret fails loud (exit 1)" "1" "$R313_RC"
+    : > "$R313_GENV"
+    # Newline-injection safety (review Important #1 — the property the heredoc writes EXIST for):
+    # a config value carrying an embedded newline must NOT split a KEY=VALUE line into a forged
+    # top-level env var. Feed an env-map value embedding `\nFORGED=evil` (jq turns the JSON \n
+    # into a real newline), then parse $GITHUB_ENV the GitHub-faithful way (a KEY<<DELIM heredoc
+    # swallows every line up to DELIM as the value; only OUTSIDE a heredoc is `KEY=` a top-level
+    # var). Assert MKEY is a top-level key but FORGED is NOT. A mutation reverting to
+    # `printf '%s=%s'` splits the line → FORGED becomes a real env var → this goes RED.
+    ( export DECISION='{"env":{"MKEY":"a\nFORGED=evil"}}' AUTH=api_key BASE_URL=u TIMEOUT_MS="" PROVIDER=p PROVIDER_API_KEY=sekret SECTION=devflow_implement GITHUB_ENV="$R313_GENV"; bash -c "$R313_INJ_BODY" ) >/dev/null 2>&1
+    R313_TOPKEYS="$(python3 -c '
+import sys
+d=None
+for line in open(sys.argv[1]):
+    line=line.rstrip("\n")
+    if d is None:
+        i=line.find("<<")
+        if i>0:
+            print(line[:i]); d=line[i+2:]
+        elif "=" in line:
+            print(line.split("=",1)[0])
+    elif line==d:
+        d=None
+' "$R313_GENV")"
+    assert_eq "#313 inject-body: an embedded-newline env value cannot forge a top-level env var (heredoc newline-injection safety)" "yes" \
+      "$(printf '%s\n' "$R313_TOPKEYS" | grep -qxF 'MKEY' && ! printf '%s\n' "$R313_TOPKEYS" | grep -qxF 'FORGED' && echo yes || echo no)"
     rm -f "$R313_GENV" "$R313_GENV.kv"
   else
     echo "  SKIP  #313 inject-body behavioral checks (no writable temp / body extraction failed)"
@@ -14857,6 +14902,12 @@ print(next(s["run"] for j in d["jobs"].values() for s in j.get("steps",[]) if s.
     ( export MODEL=z-ai/glm-5.2 EFFORT=high EFFORT_SUPPORTED=false GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" ) >/dev/null 2>&1
     assert_eq "#313 cargs-body: effort_supported=false → --effort dropped" "args=--model z-ai/glm-5.2" "$(gh_kv "$R313_GOUT")"
     : > "$R313_GOUT"
+    # effort_supported=true but EFFORT empty → --effort STILL dropped (the -n co-guard). Unreachable
+    # on the default path (config effort defaults to "high"), but pins the guard so a valueless
+    # --effort can never reach the CLI — review Suggestion #3.
+    ( export MODEL=z-ai/glm-5.2 EFFORT="" EFFORT_SUPPORTED=true GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" ) >/dev/null 2>&1
+    assert_eq "#313 cargs-body: effort_supported=true but empty EFFORT → --effort dropped (no valueless flag)" "args=--model z-ai/glm-5.2" "$(gh_kv "$R313_GOUT")"
+    : > "$R313_GOUT"
     # empty MODEL → fail loud (the iter-2 guard; the two command workflows had none before).
     R313_RC=0
     ( export MODEL="" EFFORT=high EFFORT_SUPPORTED=true GITHUB_OUTPUT="$R313_GOUT"; bash -c "$R313_CARGS_BODY" ) >/dev/null 2>&1 || R313_RC=$?
@@ -14864,6 +14915,27 @@ print(next(s["run"] for j in d["jobs"].values() for s in j.get("steps",[]) if s.
     rm -f "$R313_GOUT"
   else
     echo "  SKIP  #313 cargs-body behavioral checks (no writable temp / body extraction failed)"
+  fi
+
+  # Runner-only AC-8 guard (review Important #2, second gap): the "Require OAuth token on the
+  # Anthropic default path" step was only assert_pin_red_on_removal-pinned, never EXECUTED — an
+  # inverted -z/-n test would leave the ::error:: string in place and stay GREEN while silently
+  # degrading the default path. Execute the extracted body: empty OAUTH → exit 1 + ::error::;
+  # a present OAUTH → exit 0. (No $GITHUB_ENV/OUTPUT temp needed — the step only branches on OAUTH.)
+  R313_OAUTH_BODY="$(python3 -c 'import yaml,sys
+d=yaml.safe_load(open(sys.argv[1]))
+print(next(s["run"] for j in d["jobs"].values() for s in j.get("steps",[]) if s.get("name")=="Require OAuth token on the Anthropic default path"))' "$RUNNER_WF")"
+  if [ -n "$R313_OAUTH_BODY" ]; then
+    R313_RC=0
+    R313_OUT="$( export OAUTH=""; bash -c "$R313_OAUTH_BODY" 2>&1 )" || R313_RC=$?
+    assert_eq "#313 oauth-guard: empty OAuth on the Anthropic default path fails loud (exit 1)" "1" "$R313_RC"
+    assert_eq "#313 oauth-guard: empty OAuth emits ::error:: naming CLAUDE_CODE_OAUTH_TOKEN" "yes" \
+      "$(printf '%s' "$R313_OUT" | grep -qF '::error::' && printf '%s' "$R313_OUT" | grep -qF 'CLAUDE_CODE_OAUTH_TOKEN' && echo yes || echo no)"
+    R313_RC=0
+    ( export OAUTH="oauth-token"; bash -c "$R313_OAUTH_BODY" ) >/dev/null 2>&1 || R313_RC=$?
+    assert_eq "#313 oauth-guard: a present OAuth token passes (exit 0)" "0" "$R313_RC"
+  else
+    echo "  SKIP  #313 oauth-guard behavioral check (body extraction failed)"
   fi
 else
   echo "  SKIP  #313 body-identity + behavioral check (PyYAML unavailable)"

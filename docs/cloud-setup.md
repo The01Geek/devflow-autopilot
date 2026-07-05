@@ -652,7 +652,11 @@ model-routing feature and is unrelated to that detection.
   gateways reject unknown params with HTTP 400.
 - **`env`** is a map of extra environment variables exported verbatim into the
   action step. Set at least the small/fast-model mappings (below) for every
-  third-party provider.
+  third-party provider. The keys are exported **unfiltered** — this map is read
+  only from maintainer-controlled config (base-ref for the runner, the trusted
+  default-branch checkout for the command workflows), so do not name a
+  runtime-sensitive variable here (`PATH`, `GITHUB_TOKEN`, `ANTHROPIC_API_KEY`,
+  …); a stray such key would shadow the job's own environment.
 - **The empty-secret guard:** if a section names a provider while
   `DEVFLOW_PROVIDER_API_KEY` is empty at run time, the job fails loud with a
   `::error::` naming the section and provider, before the action runs. (The secret
@@ -765,6 +769,11 @@ if you want it; the haiku slot uses **`glm-4.7`** (no bracket). Set
 | `devflow-runner.yml` | Reusable runner (`workflow_call`) — one read-only job called by `devflow-review.yml`; lives apart from `devflow.yml` so its permission ceiling stays a subset of the caller's grant | `CLAUDE_CODE_OAUTH_TOKEN` |
 | `devflow-implement.yml` | Runs `/devflow:implement` on a bare command in an issue comment (issues-only; PR comments never fire it) | `CLAUDE_CODE_OAUTH_TOKEN` |
 | `devflow-review.yml` | Auto-runs `/devflow:review` as a gate on PRs (calls `devflow-runner.yml`). Its `workflow_run` re-trigger — which re-fires a review deferred behind the `devflow_review.require_up_to_date` / `require_ci_green` preconditions (issue #304) — **must name your repo's CI workflows** in its `workflows:` list (ships as `[CI]`; a GitHub platform requirement, no wildcards) — edit that list when installing. External non-Actions CI is covered by `check_suite`, no naming needed | `CLAUDE_CODE_OAUTH_TOKEN` |
+
+The **Needs** column lists the default (Anthropic-OAuth) secret. Each of the three
+model-running workflows (`devflow.yml`, `devflow-runner.yml`, `devflow-implement.yml`)
+**additionally** consumes the optional `DEVFLOW_PROVIDER_API_KEY` when its section opts
+into a third-party `provider` (see [Third-party model providers](#third-party-model-providers-opt-in-best-effort)); with no provider configured that secret is unused and the OAuth token alone is required.
 
 DevFlow never creates or overwrites `claude.yml` — that file belongs to
 Anthropic's Claude GitHub App, which owns plain `@claude` mentions, Q&A, and
