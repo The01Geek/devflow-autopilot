@@ -1916,14 +1916,17 @@ assert_pin_unique "fix-delta gate: adversarial input-shape matrix check present"
   'for hand-corruptible inputs' "$MAXI_SKILL"
 # #312 item 4: the matrix shape set gained a valid-falsy row (coupled invariant mirrored
 # at CLAUDE.md's best-effort-parser gotcha, implement Phase 2.4, and this Step 3.5 site).
+# Hold the six-shape literal once so the three lockstep pins below can never drift from
+# each other (the test's own copies were the same coupled-literal trap the pins guard).
+SIXSHAPE_SET='{object, array, scalar, valid-falsy (explicit false / 0 / empty string), missing, wrong-type}'
 assert_pin_unique "fix-delta gate: input-shape matrix pins the six-shape set (incl. valid-falsy)" \
-  '{object, array, scalar, valid-falsy (explicit false / 0 / empty string), missing, wrong-type}' "$MAXI_SKILL"
+  "$SIXSHAPE_SET" "$MAXI_SKILL"
 # Lockstep: the SAME six-shape set must appear at its other two mirror sites — the CLAUDE.md
 # best-effort-parser gotcha and implement Phase 2.4 — so the three never drift (#312 item 4).
 assert_pin_unique "#312 item 4: CLAUDE.md matrix gotcha carries the six-shape set (valid-falsy row)" \
-  '{object, array, scalar, valid-falsy (explicit false / 0 / empty string), missing, wrong-type}' "$LIB/../CLAUDE.md"
+  "$SIXSHAPE_SET" "$LIB/../CLAUDE.md"
 assert_pin_unique "#312 item 4: implement Phase 2.4 carries the six-shape set (valid-falsy row)" \
-  '{object, array, scalar, valid-falsy (explicit false / 0 / empty string), missing, wrong-type}' "$IMPL_SKILL_BUNDLE"
+  "$SIXSHAPE_SET" "$IMPL_SKILL_BUNDLE"
 
 # ── #312 remaining-item prose pins (the sharpenings this issue lands; each fails if its
 #    rule is reworded away). File vars: $MAXI_SKILL (review-and-fix), $IMPL_SKILL (implement
@@ -15605,27 +15608,27 @@ assert_eq "#312: workflow endpoint↔permission lint is clean on the current tre
 # then has no covering permission. This retro-validates the #307 statuses:read grant as
 # load-bearing rather than incidental — the pin fails GREEN only if the lint no longer
 # ties that endpoint to that grant.
-WF_MUT_DIR="$(mktemp -d 2>/dev/null)"
-if [ -n "$WF_MUT_DIR" ] && [ -d "$WF_MUT_DIR" ]; then
-  mkdir -p "$WF_MUT_DIR/.github/workflows" "$WF_MUT_DIR/scripts"
-  cp "$WF_DIR"/*.yml "$WF_MUT_DIR/.github/workflows/" 2>/dev/null || true
-  cp "$WF_PRECOND" "$WF_MUT_DIR/scripts/derive-review-preconditions.sh" 2>/dev/null || true
-  # Drop ONLY the first `statuses: read` (precheck's). `0,/re/` is GNU-only, so use awk
-  # for a portable first-match replacement (macOS/BSD per CLAUDE.md portability rule).
-  awk '!d && /^      statuses: read/ { sub(/statuses: read/, "REMOVED_statuses_read: read"); d=1 } { print }' \
-    "$WF_DIR/devflow-review.yml" > "$WF_MUT_DIR/.github/workflows/devflow-review.yml"
-  WF_MUT_V="$(wf_perm_lint "$WF_MUT_DIR/.github/workflows" "$WF_MUT_DIR/scripts/derive-review-preconditions.sh")"
-  case "$WF_MUT_V" in
-    ''|*[!0-9]*) WF_MUT_RED=no ;;
-    *) [ "$WF_MUT_V" -ge 1 ] && WF_MUT_RED=yes || WF_MUT_RED=no ;;
-  esac
-  assert_eq "#312: wf-lint mutation proof — removing precheck statuses:read makes the lint RED" \
-    "yes" "$WF_MUT_RED"
-  rm -rf "$WF_MUT_DIR"
-else
-  # Fail-closed: could not run the mutation proof → a suite FAIL, never a vacuous pass.
-  assert_eq "#312: wf-lint mutation proof could not allocate a temp dir (not a vacuous pass)" yes no
-fi
+# Reuse the suite's canonical isolated-temp-dir helper: on `mktemp -d` failure it records a
+# suite FAIL (never a vacuous pass) and hands back a `/dev/null/…` sentinel, so the mkdir/cp/awk
+# below fail CLOSED and wf_perm_lint returns MISSING_WFDIR → the final assert_eq goes RED too.
+WF_MUT_DIR="$(git_sandbox "#312: wf-lint mutation proof temp dir")"
+mkdir -p "$WF_MUT_DIR/.github/workflows" "$WF_MUT_DIR/scripts" 2>/dev/null || true
+cp "$WF_DIR"/*.yml "$WF_MUT_DIR/.github/workflows/" 2>/dev/null || true
+cp "$WF_PRECOND" "$WF_MUT_DIR/scripts/derive-review-preconditions.sh" 2>/dev/null || true
+# Drop ONLY the first `statuses: read` (precheck's). `0,/re/` is GNU-only, so use awk
+# for a portable first-match replacement (macOS/BSD per CLAUDE.md portability rule).
+awk '!d && /^      statuses: read/ { sub(/statuses: read/, "REMOVED_statuses_read: read"); d=1 } { print }' \
+  "$WF_DIR/devflow-review.yml" > "$WF_MUT_DIR/.github/workflows/devflow-review.yml" 2>/dev/null || true
+WF_MUT_V="$(wf_perm_lint "$WF_MUT_DIR/.github/workflows" "$WF_MUT_DIR/scripts/derive-review-preconditions.sh")"
+case "$WF_MUT_V" in
+  ''|*[!0-9]*) WF_MUT_RED=no ;;
+  *) [ "$WF_MUT_V" -ge 1 ] && WF_MUT_RED=yes || WF_MUT_RED=no ;;
+esac
+assert_eq "#312: wf-lint mutation proof — removing precheck statuses:read makes the lint RED" \
+  "yes" "$WF_MUT_RED"
+# rm the sandbox on the success path; a no-op on the /dev/null sentinel (that path never exists,
+# and it is a subpath of /dev/null so the device node itself is never touched).
+rm -rf "$WF_MUT_DIR" 2>/dev/null || true
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
