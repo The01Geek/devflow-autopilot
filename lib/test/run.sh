@@ -1914,8 +1914,61 @@ assert_pin_unique "fix-delta gate: no-fix iteration skips the gate (no delta to 
   'skip the gate for that iteration' "$MAXI_SKILL"
 assert_pin_unique "fix-delta gate: adversarial input-shape matrix check present" \
   'for hand-corruptible inputs' "$MAXI_SKILL"
-assert_pin_unique "fix-delta gate: input-shape matrix pins the five-shape set" \
-  '{object, array, scalar, missing, wrong-type}' "$MAXI_SKILL"
+# #312 item 4: the matrix shape set gained a valid-falsy row (coupled invariant mirrored
+# at CLAUDE.md's best-effort-parser gotcha, implement Phase 2.4, and this Step 3.5 site).
+assert_pin_unique "fix-delta gate: input-shape matrix pins the six-shape set (incl. valid-falsy)" \
+  '{object, array, scalar, valid-falsy (explicit false / 0 / empty string), missing, wrong-type}' "$MAXI_SKILL"
+# Lockstep: the SAME six-shape set must appear at its other two mirror sites — the CLAUDE.md
+# best-effort-parser gotcha and implement Phase 2.4 — so the three never drift (#312 item 4).
+assert_pin_unique "#312 item 4: CLAUDE.md matrix gotcha carries the six-shape set (valid-falsy row)" \
+  '{object, array, scalar, valid-falsy (explicit false / 0 / empty string), missing, wrong-type}' "$LIB/../CLAUDE.md"
+assert_pin_unique "#312 item 4: implement Phase 2.4 carries the six-shape set (valid-falsy row)" \
+  '{object, array, scalar, valid-falsy (explicit false / 0 / empty string), missing, wrong-type}' "$IMPL_SKILL_BUNDLE"
+
+# ── #312 remaining-item prose pins (the sharpenings this issue lands; each fails if its
+#    rule is reworded away). File vars: $MAXI_SKILL (review-and-fix), $IMPL_SKILL (implement
+#    orchestrator+phase bundle, includes phase-2 and phase-3), create-issue SKILL + template.
+CI312_TMPL="$LIB/../skills/create-issue/references/issue-template.md"
+CI312_SKILL="$LIB/../skills/create-issue/SKILL.md"
+# item 1 — Step 4.5 severity/surface weighting of convergence
+assert_pin_unique "#312 item 1: Step 4.5 weighs convergence by severity and surface (code-only tally)" \
+  'Weigh convergence by severity and surface' "$MAXI_SKILL"
+# item 9 — Step 3 item 3a names job-gating / control-flow changes as mechanism changes
+assert_pin_unique "#312 item 9: Step 3 item 3a trigger names a rerouted step / job gating" \
+  'a rerouted step, a relocated where-a-decision-concludes' "$MAXI_SKILL"
+# item 2 — platform-behavior premise class in BOTH the template and Step 3.5
+assert_pin_unique "#312 item 2: issue-template names the platform-behavior premise class (WebFetch official docs)" \
+  'verified fact and its source URL recorded' "$CI312_TMPL"
+assert_pin_unique "#312 item 2: create-issue Step 3.5 re-applies the platform-behavior class" \
+  'platform-behavior' "$CI312_SKILL"
+# item 3 — Phase 2.3.4 workflow-diff addendum (both named checks)
+assert_pin_unique "#312 item 3: Phase 2.3.4 carries the workflow-diff addendum" \
+  'Workflow-diff addendum (mandatory whenever the diff touches' "$IMPL_SKILL_BUNDLE"
+assert_pin_unique "#312 item 3: addendum names the endpoint↔permission map" \
+  '(a) Endpoint↔permission map.' "$IMPL_SKILL_BUNDLE"
+assert_pin_unique "#312 item 3: addendum names the event-path artifact-lifecycle walkthrough" \
+  '(b) Event-path artifact-lifecycle walkthrough.' "$IMPL_SKILL_BUNDLE"
+# item 5 — test-first stub-blindness rule + unused-knob smell
+assert_pin_unique "#312 item 5: Phase 2.3 carries the stub-blindness rule" \
+  'Stub-blindness rule (when a test stubs an external boundary)' "$IMPL_SKILL_BUNDLE"
+assert_pin_unique "#312 item 5: declared-but-unused stub failure knob flagged as a pre-commit smell" \
+  'declared-but-unused stub failure knob' "$IMPL_SKILL_BUNDLE"
+# item 6 — Phase 2.2.6 in-repo deviation breadcrumb comment
+assert_pin_unique "#312 item 6: Phase 2.2.6 requires an in-repo breadcrumb at the deviation site" \
+  'also leave an in-repo breadcrumb comment at the deviation site' "$IMPL_SKILL_BUNDLE"
+# item 7 — Phase 2.3.6 all-output-channels honesty rule
+assert_pin_unique "#312 item 7: Phase 2.3.6 states all-output-channels honesty" \
+  'All-output-channels honesty (breadcrumb honesty is not scoped to stderr)' "$IMPL_SKILL_BUNDLE"
+assert_pin_unique "#312 item 7: honesty rule covers reason codes and user-facing titles" \
+  'machine-readable reason code**, and a **user-facing title or status string' "$IMPL_SKILL_BUNDLE"
+# item 8 — Phase 2.3.0b names doc-enumerated configuration sets
+assert_pin_unique "#312 item 8: Phase 2.3.0b names a doc-enumerated configuration set" \
+  'A **doc-enumerated configuration set** counts too' "$IMPL_SKILL_BUNDLE"
+# item 10 — Phase 3.2 triage against generality/consumer-facing ACs + filter-narrowing re-check
+assert_pin_unique "#312 item 10: Phase 3.2 triage evaluates against generality/consumer-facing ACs" \
+  '*generality / consumer-facing* ACs' "$IMPL_SKILL_BUNDLE"
+assert_pin_unique "#312 item 10: Phase 3.2 names the filter-narrowing consumer-boundary re-check" \
+  'narrows an event, input, or filter surface re-runs the consumer-boundary question' "$IMPL_SKILL_BUNDLE"
 assert_pin_unique "fix-delta gate: input-shape matrix asserts fail-closed direction (not open)" \
   'not open, on each' "$MAXI_SKILL"
 assert_pin_unique "fix-delta gate: per-iteration result recorded as a Devflow Reflection bullet" \
@@ -15458,6 +15511,121 @@ assert_pin_unique "#289 AC6: phase-3-review.md strips the broken [View run]() li
 # which the [View run](\$RUN_URL) presence pin above matches identically and so cannot catch.
 assert_pin_unique "#289 AC9: draft-PR heredoc is unquoted (<<EOF) so \$RUN_URL expands, not emitted literally" \
   'BODY=$(cat <<EOF' "$P3289"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "#312: workflow endpoint↔permission lint"
+# ────────────────────────────────────────────────────────────────────────────
+# A devflow workflow job must declare the token permission every `gh api` endpoint
+# family it invokes — inline in the job's own `run:` blocks AND in any helper the
+# job runs that itself calls `gh api` (the CI-green precondition helper
+# derive-review-preconditions.sh, whose repos/*/actions/runs + repos/*/commits/*/status
+# calls are exactly what the #307 actions:read + statuses:read grants cover). Endpoint
+# families are matched on the repos/-anchored REST-path form so a bare
+# actions/runs/<id> RUN_URL string is NOT a false match; pure-comment lines are stripped
+# so a doc comment naming an endpoint cannot manufacture a false requirement. The
+# issues/*/comments family is satisfied by EITHER `issues` or `pull-requests` (a PR
+# comment needs pull-requests:write, an issue comment needs issues:write — statically
+# indistinguishable). A job that declares no `permissions:` block inherits the file's
+# top-level block. Fail-closed: a missing workflows dir / precond helper yields a
+# sentinel token, never a silent 0.
+
+# emit sorted-unique required permission keys for the text on stdin
+_wf_req_keys() {
+  local t
+  t="$(grep -vE '^[[:space:]]*#' || true)"
+  {
+    printf '%s\n' "$t" | grep -qE "repos/[^ \"']*/actions/runs"            && echo actions
+    printf '%s\n' "$t" | grep -qE "repos/[^ \"']*/commits/[^ \"']*/status" && echo statuses
+    printf '%s\n' "$t" | grep -qE "repos/[^ \"']*check-runs"               && echo checks
+    printf '%s\n' "$t" | grep -qE "repos/[^ \"']*/issues/[^ \"']*/comments" && echo comments
+    printf '%s\n' "$t" | grep -qE "repos/[^ \"']*/compare/"                && echo contents
+  } | sort -u
+}
+
+# print the count of endpoint↔permission violations across $1 (workflows dir),
+# attributing the CI-green precondition helper $2's gh api families to any job that runs it.
+wf_perm_lint() {  # $1=workflows-dir  $2=precond-helper-path -> prints an integer (or a sentinel)
+  local wfdir="$1" precond="$2" precond_keys wf rec topperms jobs jn jperms jbody effperms req k v=0
+  [ -d "$wfdir" ] || { echo MISSING_WFDIR; return; }
+  [ -r "$precond" ] || { echo MISSING_PRECOND; return; }
+  precond_keys="$(_wf_req_keys < "$precond" | tr '\n' ' ')"
+  for wf in "$wfdir"/*.yml; do
+    [ -r "$wf" ] || continue
+    # Split the file into jobs; emit tab-delimited records (BODY preserves its own tabs
+    # via a 2nd-tab-stripped extraction below). Job detection is gated on having passed
+    # `^jobs:` so the `on:` block's 2-space event keys are never mistaken for jobs.
+    rec="$(awk '
+      BEGIN{ injobs=0; job=""; inperm=0; toplvl=0 }
+      !injobs && /^permissions:[[:space:]]*$/ { toplvl=1; next }
+      !injobs && toplvl && /^  [a-z-]+:/ { kk=$0; sub(/^  /,"",kk); sub(/:.*/,"",kk); print "TOPPERM\t" kk; next }
+      !injobs && toplvl && /^[^[:space:]]/ { toplvl=0 }
+      /^jobs:[[:space:]]*$/ { injobs=1; next }
+      injobs && /^[^[:space:]]/ { injobs=0; job=""; next }
+      injobs && /^  [A-Za-z0-9_-]+:[[:space:]]*$/ { job=$0; sub(/^  /,"",job); sub(/:.*/,"",job); inperm=0; print "JOB\t" job; next }
+      injobs && job!="" {
+        if ($0 ~ /^    permissions:[[:space:]]*$/){ inperm=1; next }
+        if (inperm && $0 ~ /^      [a-z-]+:/){ kk=$0; sub(/^      /,"",kk); sub(/:.*/,"",kk); print "JOBPERM\t" job "\t" kk; next }
+        if (inperm && $0 ~ /^    [^ ]/){ inperm=0 }
+        print "BODY\t" job "\t" $0
+      }
+    ' "$wf")"
+    topperms="$(printf '%s\n' "$rec" | awk -F'\t' '$1=="TOPPERM"{print $2}' | tr '\n' ' ')"
+    jobs="$(printf '%s\n' "$rec" | awk -F'\t' '$1=="JOB"{print $2}')"
+    while IFS= read -r jn; do
+      [ -n "$jn" ] || continue
+      jperms="$(printf '%s\n' "$rec" | awk -F'\t' -v J="$jn" '$1=="JOBPERM" && $2==J{print $3}' | tr '\n' ' ')"
+      jbody="$(printf '%s\n' "$rec" | awk -F'\t' -v J="$jn" '$1=="BODY" && $2==J{ line=$0; sub(/^BODY\t[^\t]*\t/,"",line); print line }')"
+      effperms="$jperms"
+      [ -n "${jperms// /}" ] || effperms="$topperms"
+      req="$(printf '%s\n' "$jbody" | _wf_req_keys)"
+      if printf '%s' "$jbody" | grep -q 'derive-review-preconditions.sh'; then
+        req="$(printf '%s\n%s\n' "$req" "${precond_keys// /$'\n'}" | grep -v '^$' | sort -u)"
+      fi
+      while IFS= read -r k; do
+        [ -n "$k" ] || continue
+        if [ "$k" = comments ]; then
+          case " $effperms " in *" issues "*|*" pull-requests "*) : ;; *) v=$((v+1)) ;; esac
+        else
+          case " $effperms " in *" $k "*) : ;; *) v=$((v+1)) ;; esac
+        fi
+      done <<< "$req"
+    done <<< "$jobs"
+  done
+  echo "$v"
+}
+
+WF_DIR="$LIB/../.github/workflows"
+WF_PRECOND="$LIB/../scripts/derive-review-preconditions.sh"
+assert_eq "#312: workflow endpoint↔permission lint is clean on the current tree (0 violations)" \
+  "0" "$(wf_perm_lint "$WF_DIR" "$WF_PRECOND")"
+
+# Mutation proof, baked into the suite (not a one-time manual check): removing
+# precheck's `statuses: read` grant must make the lint RED, because the
+# derive-review-preconditions.sh `repos/*/commits/*/status` call attributed to precheck
+# then has no covering permission. This retro-validates the #307 statuses:read grant as
+# load-bearing rather than incidental — the pin fails GREEN only if the lint no longer
+# ties that endpoint to that grant.
+WF_MUT_DIR="$(mktemp -d 2>/dev/null)"
+if [ -n "$WF_MUT_DIR" ] && [ -d "$WF_MUT_DIR" ]; then
+  mkdir -p "$WF_MUT_DIR/.github/workflows" "$WF_MUT_DIR/scripts"
+  cp "$WF_DIR"/*.yml "$WF_MUT_DIR/.github/workflows/" 2>/dev/null || true
+  cp "$WF_PRECOND" "$WF_MUT_DIR/scripts/derive-review-preconditions.sh" 2>/dev/null || true
+  # Drop ONLY the first `statuses: read` (precheck's). `0,/re/` is GNU-only, so use awk
+  # for a portable first-match replacement (macOS/BSD per CLAUDE.md portability rule).
+  awk '!d && /^      statuses: read/ { sub(/statuses: read/, "REMOVED_statuses_read: read"); d=1 } { print }' \
+    "$WF_DIR/devflow-review.yml" > "$WF_MUT_DIR/.github/workflows/devflow-review.yml"
+  WF_MUT_V="$(wf_perm_lint "$WF_MUT_DIR/.github/workflows" "$WF_MUT_DIR/scripts/derive-review-preconditions.sh")"
+  case "$WF_MUT_V" in
+    ''|*[!0-9]*) WF_MUT_RED=no ;;
+    *) [ "$WF_MUT_V" -ge 1 ] && WF_MUT_RED=yes || WF_MUT_RED=no ;;
+  esac
+  assert_eq "#312: wf-lint mutation proof — removing precheck statuses:read makes the lint RED" \
+    "yes" "$WF_MUT_RED"
+  rm -rf "$WF_MUT_DIR"
+else
+  # Fail-closed: could not run the mutation proof → a suite FAIL, never a vacuous pass.
+  assert_eq "#312: wf-lint mutation proof could not allocate a temp dir (not a vacuous pass)" yes no
+fi
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
