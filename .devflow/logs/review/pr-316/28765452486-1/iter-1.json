@@ -1,0 +1,88 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-06T03:30:00Z",
+  "fix_commit_sha": "88ebb2eb",
+  "fix_files": ["lib/test/test_python_scripts.py"],
+  "loop_role": "fix",
+  "checklist": [
+    {
+      "id": "VC-1",
+      "claim": "argparse action='append' + nargs=2 yields a list of [OLD,NEW] pairs; _apply_mutations iterates them applying _rewrite_checkbox per pair",
+      "file": "scripts/workpad.py",
+      "verification_mode": "lite",
+      "claim_signature": "api_contract:workpad.py:rewrite-ac-append-shape",
+      "verdict": "PASS",
+      "evidence": "argparse probe confirmed list-of-pairs; _apply_mutations loop verified",
+      "reused_from_iter_prev": false
+    },
+    {
+      "id": "VC-2",
+      "claim": "all-or-nothing preserved: a pair matching zero/multiple rows raises _UpdateError before any PATCH",
+      "file": "scripts/workpad.py",
+      "verification_mode": "lite",
+      "claim_signature": "contract:workpad.py:rewrite-ac-structural-abort",
+      "verdict": "PASS",
+      "evidence": "content threaded locally, sections[idx] written once after loop; _UpdateError caught in cmd_update before PATCH (workpad.py:1158-1171)",
+      "reused_from_iter_prev": false
+    }
+  ],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "Two-pair test uses disjoint rows; the progressive-rewrite coupling (a later pair matching an earlier pair's output) is untested, so a non-threading regression would pass.",
+      "defect_signature": {"file": "lib/test/test_python_scripts.py", "line_range": [606, 609], "kind": "missing-ordering-interaction-coverage"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-1", "decision": "applied", "commit": "88ebb2eb"}
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 1,
+    "fix_diff_lines": 30,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "shadow": {
+    "ran_at": "2026-07-06T03:34:00Z",
+    "reviewed_sha": "88ebb2ebeb7cc338e7d66c579da156fe0e7b2f26",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 0,
+      "overlap_with_iter_N": 0,
+      "new": 0,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": false,
+    "park_calibration": "park-calibration gate clean: no parked finding matched",
+    "over_grade_calibration": "over-grade calibration gate clean: no promote-path finding flagged (outcome 1)"
+  },
+  "telemetry": {
+    "phase_3": {"calls": 5, "tokens": 184250, "wall_clock_s": 64}
+  }
+}
