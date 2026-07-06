@@ -148,10 +148,16 @@ if [ "$REQUIRE_UP_TO_DATE" != "false" ]; then
   # per_page=1 trims the commit list in the payload; behind_by (all this arm
   # reads) is present regardless — a long-lived branch's full compare payload
   # can run to hundreds of KB otherwise.
-  if ! CMP_JSON=$("$DEVFLOW_GH" api "repos/$REPO/compare/$BASE_BRANCH...$HEAD_SHA?per_page=1" 2>/dev/null); then
-    echo "derive-review-preconditions: compare query failed for $BASE_BRANCH...$HEAD_SHA — branch freshness unverifiable; failing closed (unverifiable). Recoverable via a later event or the Re-run button." >&2
+  # Capture gh's own stderr into the breadcrumb (mirrors resolve_pr_for_head in
+  # devflow-review.yml): a bare "query failed" hides the real cause (rate limit,
+  # 403 token-scope, 5xx) from whoever debugs a permanently-deferred review.
+  _cmp_err=$(mktemp 2>/dev/null) || _cmp_err=/dev/null
+  if ! CMP_JSON=$("$DEVFLOW_GH" api "repos/$REPO/compare/$BASE_BRANCH...$HEAD_SHA?per_page=1" 2>"$_cmp_err"); then
+    echo "derive-review-preconditions: compare query failed for $BASE_BRANCH...$HEAD_SHA ($([ -s "$_cmp_err" ] && cat "$_cmp_err" || echo 'no error output captured')) — branch freshness unverifiable; failing closed (unverifiable). Recoverable via a later event or the Re-run button." >&2
+    [ "$_cmp_err" = /dev/null ] || rm -f "$_cmp_err"
     emit false unverifiable
   fi
+  [ "$_cmp_err" = /dev/null ] || rm -f "$_cmp_err"
   BEHIND=$(printf '%s' "$CMP_JSON" | "$DEVFLOW_JQ" -r '.behind_by // empty' 2>/dev/null) || BEHIND=""
   if ! [[ "$BEHIND" =~ ^[0-9]+$ ]]; then
     echo "derive-review-preconditions: compare payload carried no numeric behind_by ('$BEHIND') — branch freshness unverifiable; failing closed (unverifiable)." >&2
@@ -170,10 +176,13 @@ if [ "$REQUIRE_CI_GREEN" != "false" ]; then
   # (1) Actions workflow runs for this head, excluding this workflow itself.
   #     --paginate concatenates page OBJECTS; the -s slurp + map/add flattens
   #     them (same normalization discipline as derive-review-verdict.sh).
-  if ! RUNS_JSON=$("$DEVFLOW_GH" api --paginate "repos/$REPO/actions/runs?head_sha=$HEAD_SHA&per_page=100" 2>/dev/null); then
-    echo "derive-review-preconditions: workflow-runs query failed for $HEAD_SHA — other-CI state unverifiable; failing closed (unverifiable). Recoverable via a later event or the Re-run button." >&2
+  _runs_err=$(mktemp 2>/dev/null) || _runs_err=/dev/null
+  if ! RUNS_JSON=$("$DEVFLOW_GH" api --paginate "repos/$REPO/actions/runs?head_sha=$HEAD_SHA&per_page=100" 2>"$_runs_err"); then
+    echo "derive-review-preconditions: workflow-runs query failed for $HEAD_SHA ($([ -s "$_runs_err" ] && cat "$_runs_err" || echo 'no error output captured')) — other-CI state unverifiable; failing closed (unverifiable). Recoverable via a later event or the Re-run button." >&2
+    [ "$_runs_err" = /dev/null ] || rm -f "$_runs_err"
     emit false unverifiable
   fi
+  [ "$_runs_err" = /dev/null ] || rm -f "$_runs_err"
   if ! RUN_LINES=$(printf '%s' "$RUNS_JSON" | "$DEVFLOW_JQ" -rs --arg self "$SELF_WORKFLOW_NAME" \
         'map(.workflow_runs // []) | add // [] | map(select((.name // "") != $self)) | .[] | ((.status // "") + "|" + (.conclusion // ""))' 2>/dev/null); then
     echo "derive-review-preconditions: workflow-runs payload could not be parsed (jq failed or a non-object page) — failing closed (unverifiable)." >&2
@@ -186,10 +195,13 @@ if [ "$REQUIRE_CI_GREEN" != "false" ]; then
 
   # (2) Legacy combined commit status. total_count gates it: with ZERO statuses
   #     the API reports state "pending", which must not be read as pending CI.
-  if ! STATUS_JSON=$("$DEVFLOW_GH" api "repos/$REPO/commits/$HEAD_SHA/status" 2>/dev/null); then
-    echo "derive-review-preconditions: combined-status query failed for $HEAD_SHA — other-CI state unverifiable; failing closed (unverifiable)." >&2
+  _status_err=$(mktemp 2>/dev/null) || _status_err=/dev/null
+  if ! STATUS_JSON=$("$DEVFLOW_GH" api "repos/$REPO/commits/$HEAD_SHA/status" 2>"$_status_err"); then
+    echo "derive-review-preconditions: combined-status query failed for $HEAD_SHA ($([ -s "$_status_err" ] && cat "$_status_err" || echo 'no error output captured')) — other-CI state unverifiable; failing closed (unverifiable)." >&2
+    [ "$_status_err" = /dev/null ] || rm -f "$_status_err"
     emit false unverifiable
   fi
+  [ "$_status_err" = /dev/null ] || rm -f "$_status_err"
   STATUS_TOTAL=$(printf '%s' "$STATUS_JSON" | "$DEVFLOW_JQ" -r '.total_count // empty' 2>/dev/null) || STATUS_TOTAL=""
   if ! [[ "$STATUS_TOTAL" =~ ^[0-9]+$ ]]; then
     echo "derive-review-preconditions: combined-status payload carried no numeric total_count ('$STATUS_TOTAL') — failing closed (unverifiable)." >&2
@@ -217,10 +229,13 @@ if [ "$REQUIRE_CI_GREEN" != "false" ]; then
   #     check-runs (precheck, create_check, the API-posted `Devflow Review`
   #     run) from gating themselves. The `Devflow Review` name is excluded
   #     even off-app, defensively.
-  if ! CHECKS_JSON=$("$DEVFLOW_GH" api --paginate "repos/$REPO/commits/$HEAD_SHA/check-runs" 2>/dev/null); then
-    echo "derive-review-preconditions: check-runs query failed for $HEAD_SHA — other-CI state unverifiable; failing closed (unverifiable)." >&2
+  _checks_err=$(mktemp 2>/dev/null) || _checks_err=/dev/null
+  if ! CHECKS_JSON=$("$DEVFLOW_GH" api --paginate "repos/$REPO/commits/$HEAD_SHA/check-runs" 2>"$_checks_err"); then
+    echo "derive-review-preconditions: check-runs query failed for $HEAD_SHA ($([ -s "$_checks_err" ] && cat "$_checks_err" || echo 'no error output captured')) — other-CI state unverifiable; failing closed (unverifiable)." >&2
+    [ "$_checks_err" = /dev/null ] || rm -f "$_checks_err"
     emit false unverifiable
   fi
+  [ "$_checks_err" = /dev/null ] || rm -f "$_checks_err"
   if ! EXT_LINES=$(printf '%s' "$CHECKS_JSON" | "$DEVFLOW_JQ" -rs \
         'map(.check_runs // []) | add // [] | map(select(((.app.slug // "") != "github-actions") and ((.name // "") != "Devflow Review"))) | .[] | ((.status // "") + "|" + (.conclusion // ""))' 2>/dev/null); then
     echo "derive-review-preconditions: check-runs payload could not be parsed (jq failed or a non-object page) — failing closed (unverifiable)." >&2

@@ -31,6 +31,53 @@ This is what stops the weekly retrospective's audit-report comment (which quotes
 the literal `/devflow:implement` phrase in prose) from self-triggering on the
 state PR.
 
+## Automated review (`devflow-review.yml`): trigger + preconditions policy
+
+The automated reviewer runs `/devflow:review` as a **required** status check on a
+PR. Its trigger policy (issue #304):
+
+- **First review — exactly once per PR.** The first review auto-triggers on
+  whichever of `{opened non-draft, reopened non-draft, ready_for_review}` fires
+  first, gated to exactly-once by a check-existence query (`precheck` skips when a
+  `Devflow Review` check that actually ran already exists on the head or any
+  commit). A `synchronize` (new commit on an open PR) re-reviews the new HEAD when
+  it carries no already-passing check, so the required context is never missing.
+- **Preconditions (both default-on, config-gated).** Before a review fires,
+  `scripts/derive-review-preconditions.sh` evaluates two gates: `require_up_to_date`
+  (the PR branch must not be **behind its base**) and `require_ci_green` (every
+  *other* CI signal on the head must have completed without failing). When a gate
+  is unmet the review is **deferred**, not run: a neutral "waiting" `Devflow Review`
+  check is posted so the required context is present but non-blocking (a neutral
+  required check does not block merge — pair it with branch protection's "require
+  branches up to date" if staleness must hard-block).
+- **CI-completion re-trigger.** A review deferred behind `require_ci_green` (or
+  `require_up_to_date`) auto-re-fires once the PR becomes reviewable — via the
+  `workflow_run` (Actions CI) and `check_suite` (external CI) `completed` events —
+  with no manual Re-run. `workflow_run` **requires an explicit workflow-name list**
+  (a GitHub platform constraint — no wildcards): it ships as `workflows: [CI]`, so
+  **a consumer repo whose CI workflow is named anything other than `CI` must add
+  that name to the `workflow_run:` list in `.github/workflows/devflow-review.yml`
+  when installing**, or the CI-completion re-trigger silently never fires for a
+  deferred review (the installer prints a reminder to this effect; see also
+  `docs/cloud-setup.md`). The precondition *evaluation* itself stays fully generic
+  (no job names).
+
+### Known limitation: a behind-base deferral is not re-evaluated when the base advances
+
+A `require_up_to_date` (behind-base) deferral clears only when the review is
+re-evaluated, and the re-evaluation triggers are all **head-scoped**: a new commit
+pushed to the PR branch (`synchronize`), a CI workflow completing for the head
+(`workflow_run` / `check_suite`), or a manual **Re-run**. There is **no
+push-to-base listener** — advancing the *base* branch (which is what actually
+makes a behind-base PR fall further behind, or, after the PR rebases elsewhere,
+could clear it) does **not** by itself re-evaluate the deferral. So a PR deferred
+as "branch behind base" whose base moves but whose head is untouched stays in the
+neutral "waiting" state until its branch is updated or its check is Re-run. This
+is accepted: a behind-base neutral check does not block merge, updating the branch
+(the action that actually resolves being behind) fires `synchronize` and clears
+it, and the Re-run button is always available. The waiting check's deferral
+summary points operators here.
+
 ## Triggers fire on real comments only — never on descriptions
 
 A `/devflow:*` phrase placed in an **issue or PR description (body or title)**
