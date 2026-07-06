@@ -15519,18 +15519,24 @@ assert_pin_unique "#289 AC9: draft-PR heredoc is unquoted (<<EOF) so \$RUN_URL e
 echo "#312: workflow endpoint↔permission lint"
 # ────────────────────────────────────────────────────────────────────────────
 # A devflow workflow job must declare the token permission every `gh api` endpoint
-# family it invokes — inline in the job's own `run:` blocks AND in any helper the
-# job runs that itself calls `gh api` (the CI-green precondition helper
-# derive-review-preconditions.sh, whose repos/*/actions/runs + repos/*/commits/*/status
-# calls are exactly what the #307 actions:read + statuses:read grants cover). Endpoint
-# families are matched on the repos/-anchored REST-path form so a bare
-# actions/runs/<id> RUN_URL string is NOT a false match; pure-comment lines are stripped
-# so a doc comment naming an endpoint cannot manufacture a false requirement. The
-# issues/*/comments family is satisfied by EITHER `issues` or `pull-requests` (a PR
-# comment needs pull-requests:write, an issue comment needs issues:write — statically
-# indistinguishable). A job that declares no `permissions:` block inherits the file's
-# top-level block. Fail-closed: a missing workflows dir / precond helper yields a
-# sentinel token, never a silent 0.
+# family it invokes — inline in the job's own `run:` blocks, AND the families called by
+# the one precondition helper the lint is wired to recognize by name,
+# derive-review-preconditions.sh (its repos/*/actions/runs → actions,
+# repos/*/commits/*/status → statuses, repos/*/compare → contents, and
+# repos/*/commits/*/check-runs → checks calls; the #307 actions:read + statuses:read
+# grants cover the first two, and precheck's pre-existing contents/checks grants the
+# other two). NOTE: only THIS helper is attributed — a job that runs a *different*
+# gh-api-calling helper (react-to-trigger.sh, resolve-implement-trigger.sh) is NOT walked,
+# so the lint covers inline calls plus this one helper, not "any helper the job runs"
+# (a deferred generalization, #312 review). Endpoint families are matched on the
+# repos/-anchored REST-path form so a bare actions/runs/<id> RUN_URL string is NOT a false
+# match; pure-comment lines are stripped so a doc comment naming an endpoint cannot
+# manufacture a false requirement. The issues/*/comments family is satisfied by EITHER
+# `issues` or `pull-requests` (a PR comment needs pull-requests:write, an issue comment
+# needs issues:write — statically indistinguishable); the lint checks key PRESENCE, not the
+# read/write access level (a deferred refinement, #312 review). A job that declares no
+# `permissions:` block inherits the file's top-level block. Fail-closed: a missing
+# workflows dir / precond helper yields a sentinel token, never a silent 0.
 
 # emit sorted-unique required permission keys for the text on stdin
 _wf_req_keys() {
@@ -15541,6 +15547,10 @@ _wf_req_keys() {
     printf '%s\n' "$t" | grep -qE "repos/[^ \"']*/commits/[^ \"']*/status" && echo statuses
     printf '%s\n' "$t" | grep -qE "repos/[^ \"']*check-runs"               && echo checks
     printf '%s\n' "$t" | grep -qE "repos/[^ \"']*/issues/[^ \"']*/comments" && echo comments
+    # repos/*/commits/*/pulls (list PRs for a commit) needs pull-requests (#312 review,
+    # silent-failure finding): devflow-review.yml:316's precheck call — precheck already
+    # grants pull-requests:read, so the current tree stays clean.
+    printf '%s\n' "$t" | grep -qE "repos/[^ \"']*/commits/[^ \"']*/pulls"  && echo pull-requests
     printf '%s\n' "$t" | grep -qE "repos/[^ \"']*/compare/"                && echo contents
   } | sort -u
 }
@@ -15552,7 +15562,10 @@ wf_perm_lint() {  # $1=workflows-dir  $2=precond-helper-path -> prints an intege
   [ -d "$wfdir" ] || { echo MISSING_WFDIR; return; }
   [ -r "$precond" ] || { echo MISSING_PRECOND; return; }
   precond_keys="$(_wf_req_keys < "$precond" | tr '\n' ' ')"
-  for wf in "$wfdir"/*.yml; do
+  # Both .yml and .yaml (GitHub honors either); with nullglob off an unmatched pattern
+  # expands to its literal, which the `[ -r ]` guard skips — so a repo using only one
+  # extension is unaffected (#312 review).
+  for wf in "$wfdir"/*.yml "$wfdir"/*.yaml; do
     [ -r "$wf" ] || continue
     # Split the file into jobs; emit tab-delimited records (BODY preserves its own tabs
     # via a 2nd-tab-stripped extraction below). Job detection is gated on having passed
@@ -15629,6 +15642,45 @@ assert_eq "#312: wf-lint mutation proof — removing precheck statuses:read make
 # rm the sandbox on the success path; a no-op on the /dev/null sentinel (that path never exists,
 # and it is a subpath of /dev/null so the device node itself is never touched).
 rm -rf "$WF_MUT_DIR" 2>/dev/null || true
+
+# Positive inline-detection test (#312 review — pr-test-analyzer). The mutation proof above
+# only exercises the HELPER-ATTRIBUTION path (precheck's statuses need flows through
+# precond_keys). This synthetic fixture drives the INLINE `_wf_req_keys` path — a job whose
+# own `run:` block calls an endpoint whose grant is absent — so a regression that broke the
+# inline regexes could no longer keep the suite green. One fixture, three covered paths:
+#   - inline_missing: inline check-runs (→ checks) with only `contents` declared → 1 violation
+#     (proves the inline path catches a missing grant — AC4's core promise);
+#   - inherits: no job `permissions:` block, inline actions/runs (→ actions) with a top-level
+#     `actions: read` → 0 violations (proves top-level→job inheritance resolves);
+#   - comments_missing: inline POST issues/*/comments (→ comments) with neither issues nor
+#     pull-requests → 1 violation (proves the either-satisfies branch flags a job with neither).
+# Expected total = 2 (inherits contributes 0, else the total would be 3). Fail-closed on a
+# git_sandbox sentinel: the cat/mkdir no-op and wf_perm_lint → MISSING_WFDIR ≠ "2" → RED.
+WF_POS_DIR="$(git_sandbox "#312: wf-lint positive inline test temp dir")"
+mkdir -p "$WF_POS_DIR/.github/workflows" 2>/dev/null || true
+cat > "$WF_POS_DIR/.github/workflows/pos.yml" <<'POSYAML' 2>/dev/null || true
+name: pos-fixture
+on: push
+permissions:
+  actions: read
+jobs:
+  inline_missing:
+    permissions:
+      contents: read
+    steps:
+      - run: gh api repos/o/r/commits/deadbeef/check-runs
+  inherits:
+    steps:
+      - run: gh api repos/o/r/actions/runs
+  comments_missing:
+    permissions:
+      contents: read
+    steps:
+      - run: gh api -X POST repos/o/r/issues/5/comments
+POSYAML
+assert_eq "#312: wf-lint positive inline test — inline missing grant caught, inheritance honored (2 violations)" \
+  "2" "$(wf_perm_lint "$WF_POS_DIR/.github/workflows" "$WF_PRECOND")"
+rm -rf "$WF_POS_DIR" 2>/dev/null || true
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
