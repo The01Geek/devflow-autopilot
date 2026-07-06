@@ -4119,6 +4119,29 @@ assert_eq "#309: bare bold-paragraph (no '- ') em-dash Documentation Needed form
   "$(printf '.devflow/config.example.json\nCLAUDE.md\ndocs/DEVFLOW_SYSTEM_OVERVIEW.md')" \
   "$(printf '%s\n' "$fx_309" | bash "$EXTRACT_HELPER")"
 
+# Case 15 (issue #309, review fail-open guard): a bold-emphasis span that BEGINS a
+# wrapped continuation line INSIDE an open bare-paragraph Documentation Needed
+# bullet (no leading "- ", not preceded by a blank line — e.g. "**Note.** …") must
+# NOT close the scope. Supporting the bare-paragraph form (Case 14) meant the scope
+# closer had to accept a bare "**" line; naively closing on EVERY bold-led line
+# would silently drop `docs/b.md` and any later wrapped path — a fail-OPEN that
+# under-enforces the Phase 4.1 gate on exactly the LLM-drafted shape #309 set out to
+# support. The `prev_blank` paragraph-boundary guard fixes it: `**Note.**` here is
+# mid-paragraph (the prior line is non-blank), so it stays in scope and `docs/b.md`
+# is still emitted; only the blank-line-preceded peer paragraph `**Potential
+# Gotchas.**` closes the scope, so `other/leak.md` does not leak. RED before the
+# guard (the bare-"**" closer dropped `docs/b.md`), GREEN after.
+fx_309_wrap="## Implementation Notes
+
+**Documentation Needed** — update \`docs/a.md\` first.
+**Note.** also update \`docs/b.md\` in the same pass.
+
+**Potential Gotchas.**
+- **Do not extract \`other/leak.md\` named here.**"
+assert_eq "#309 fail-open guard: a bold-led continuation line does NOT close scope; wrapped-line paths still emitted, peer paragraph still closes" \
+  "$(printf 'docs/a.md\ndocs/b.md')" \
+  "$(printf '%s\n' "$fx_309_wrap" | bash "$EXTRACT_HELPER")"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "scaffold-config.sh"
 # ────────────────────────────────────────────────────────────────────────────
