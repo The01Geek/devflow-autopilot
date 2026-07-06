@@ -8438,6 +8438,83 @@ assert_eq "auth: allowed bot bypasses allowed_users → authorized" "true" "$A"
 rm -rf "$ASTUB"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "detect-standalone-command.sh"
+# ────────────────────────────────────────────────────────────────────────────
+# Shared markdown-aware standalone-command detector (issue #314). It fires only
+# on a light /devflow:* command that is the sole content of its own line — at
+# most three leading spaces, not tab/4+-indented, not inside a fenced block, and
+# with the remainder at most an optional #-number — and declines any command
+# merely quoted in prose, blockquoted, indented, or fenced. It is the single
+# scanner both resolve-command-trigger.sh AND the review_dedupe job route
+# through, so the two matchers cannot drift. Reads the body on stdin; emits
+# `command=`/`number=`. No gh, no network — pure text.
+DSC="$LIB/../scripts/detect-standalone-command.sh"
+dsc_cmd() { printf '%s' "$1" | bash "$DSC" | sed -n 's/^command=//p'; }
+dsc_num() { printf '%s' "$1" | bash "$DSC" | sed -n 's/^number=//p'; }
+
+# --- Standalone forms FIRE (command resolves) -------------------------------
+assert_eq "dsc: bare /devflow:review fires" \
+  "/devflow:review" "$(dsc_cmd '/devflow:review')"
+assert_eq "dsc: /devflow:review 42 → number 42" \
+  "42" "$(dsc_num '/devflow:review 42')"
+assert_eq "dsc: /devflow:review #42 → number 42 (# stripped)" \
+  "42" "$(dsc_num '/devflow:review #42')"
+assert_eq "dsc: review-and-fix disambiguation (never bare review)" \
+  "/devflow:review-and-fix" "$(dsc_cmd '/devflow:review-and-fix')"
+assert_eq "dsc: /devflow:pr-description fires" \
+  "/devflow:pr-description" "$(dsc_cmd '/devflow:pr-description')"
+assert_eq "dsc: up to three leading spaces still fires" \
+  "/devflow:review" "$(dsc_cmd '   /devflow:review')"
+assert_eq "dsc: command alone on line 2 of a multi-line body fires" \
+  "/devflow:review" "$(dsc_cmd "$(printf 'hello world\n/devflow:review\nbye')")"
+
+# --- Non-invoking forms are DECLINED (empty command) ------------------------
+assert_eq "dsc: leading prose declined" \
+  "" "$(dsc_cmd 'please run /devflow:review')"
+assert_eq "dsc: trailing prose declined" \
+  "" "$(dsc_cmd '/devflow:review please look')"
+assert_eq "dsc: > blockquote declined" \
+  "" "$(dsc_cmd '> /devflow:review')"
+assert_eq "dsc: four-plus-space indent (code block) declined" \
+  "" "$(dsc_cmd '    /devflow:review')"
+assert_eq "dsc: tab indent (code block) declined" \
+  "" "$(dsc_cmd "$(printf '\t/devflow:review')")"
+assert_eq "dsc: inside a triple-backtick fenced block (with info string) declined" \
+  "" "$(dsc_cmd "$(printf 'text\n```bash\n/devflow:review\n```\nmore')")"
+assert_eq "dsc: inside a ~~~ fenced block declined" \
+  "" "$(dsc_cmd "$(printf '~~~\n/devflow:review\n~~~')")"
+assert_eq "dsc: fail-closed after an UNBALANCED (unclosed) fence" \
+  "" "$(dsc_cmd "$(printf '```\n/devflow:review')")"
+assert_eq "dsc: reported PR-review-body prose mention declined" \
+  "" "$(dsc_cmd 'I ran /devflow:review earlier, see the report')"
+
+# --- #314 review fixes: CRLF, case-insensitivity, mismatched fence type ------
+# CRLF: GitHub delivers comment/review bodies with \r\n line endings; a trailing
+# \r must not make an end-anchored standalone command silently decline.
+assert_eq "dsc: CRLF-terminated bare command still fires" \
+  "/devflow:review" "$(dsc_cmd "$(printf '/devflow:review\r')")"
+assert_eq "dsc: CRLF-terminated command keeps its number" \
+  "42" "$(dsc_num "$(printf '/devflow:review 42\r')")"
+assert_eq "dsc: CRLF multi-line body — standalone command on its own \\r\\n line fires" \
+  "/devflow:review" "$(dsc_cmd "$(printf 'kick it off\r\n/devflow:review\r\nthanks\r')")"
+# Case-insensitivity is documented; pin it so a dropped tolower() goes RED.
+assert_eq "dsc: uppercase /DEVFLOW:REVIEW fires (case-insensitive), canonical token emitted" \
+  "/devflow:review" "$(dsc_cmd '/DEVFLOW:REVIEW')"
+assert_eq "dsc: mixed-case command keeps its number" \
+  "7" "$(dsc_num '/Devflow:Review 7')"
+# Mismatched fence type: a ~~~ line inside a ``` block (or vice versa) is literal
+# content per GFM — it must NOT close the outer fence and expose the command.
+assert_eq "dsc: tilde-fence line inside a backtick fence does not expose the command (type-tracked)" \
+  "" "$(dsc_cmd "$(printf '%s\n' '```' '~~~' '/devflow:review' '```')")"
+assert_eq "dsc: backtick-fence line inside a tilde fence does not expose the command (type-tracked)" \
+  "" "$(dsc_cmd "$(printf '%s\n' '~~~' '```' '/devflow:review' '~~~')")"
+# review-and-fix with an explicit #number resolves the number (was only pinned for review).
+assert_eq "dsc: review-and-fix #number resolves both command and number" \
+  "/devflow:review-and-fix" "$(dsc_cmd '/devflow:review-and-fix #9')"
+assert_eq "dsc: review-and-fix #number — number extracted" \
+  "9" "$(dsc_num '/devflow:review-and-fix #9')"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "resolve-command-trigger.sh"
 # ────────────────────────────────────────────────────────────────────────────
 # Light command dispatch (review / review-and-fix / pr-description) in AGENT
@@ -8456,11 +8533,15 @@ assert_eq "rct: review w/ explicit number → should_run" \
 assert_eq "rct: review w/ explicit number → command" \
   "command=/devflow:review 42" "$(echo "$OUT" | grep '^command=')"
 
-# 2. review-and-fix must win over the /devflow:review substring it contains.
+# 2. review-and-fix disambiguation, STANDALONE form. (Rewritten for issue #314:
+# the old assertion fed the prose-wrapped "please run /devflow:review-and-fix
+# now" and expected it to FIRE — under standalone anchoring that prose form now
+# correctly DECLINES, so the input is rewritten to the standalone command.
+# review-and-fix must still win over the /devflow:review substring it contains.)
 OUT="$(PATH="$RCT_STUB:$PATH" ACTOR="devflow-bot" ALLOWED_BOTS="devflow-bot" \
   REPO="o/r" GH_TOKEN="x" CONTEXT_NUMBER="7" \
-  TRIGGER_TEXT="please run /devflow:review-and-fix now" bash "$RCT")"
-assert_eq "rct: review-and-fix beats review substring → command" \
+  TRIGGER_TEXT="/devflow:review-and-fix" bash "$RCT")"
+assert_eq "rct: standalone review-and-fix beats review substring → command" \
   "command=/devflow:review-and-fix 7" "$(echo "$OUT" | grep '^command=')"
 
 # 3. pr-description, no explicit number → falls back to the context number.
@@ -8484,7 +8565,106 @@ OUT="$(PATH="$RCT_STUB:$PATH" ACTOR="random-user" ALLOWED_BOTS="devflow-bot" \
 assert_eq "rct: unauthorized actor → should_run=false" \
   "should_run=false" "$(echo "$OUT" | grep '^should_run=')"
 
+# --- issue #314: standalone anchoring at the resolver boundary ---------------
+# A helper that captures BOTH stdout and stderr, so we can assert the auditable
+# ::warning:: on the decline paths (an authorized bot, so any decline is the
+# ANCHORING/self-marker decision, never an authorization one).
+rct_run() {  # trigger-text [context-number] -> sets RCT_OUT / RCT_ERR
+  local text="$1" ctx="${2:-99}"
+  RCT_ERR="$(mktemp)"
+  RCT_OUT="$(PATH="$RCT_STUB:$PATH" ACTOR="devflow-bot" ALLOWED_BOTS="devflow-bot" \
+    REPO="o/r" GH_TOKEN="x" CONTEXT_NUMBER="$ctx" \
+    TRIGGER_TEXT="$text" bash "$RCT" 2>"$RCT_ERR")"
+}
+
+# 6. THE DEFECT / regression pin: a body whose only occurrence is a QUOTED
+# mention must decline (should_run=false) AND emit an auditable ::warning:: —
+# never the silent should_run=true today's substring resolver produced. This is
+# the PASS→FAIL pin: against the pre-#314 substring matcher this asserted
+# should_run=true, so it fails there and passes after anchoring.
+rct_run "I ran /devflow:review earlier"
+assert_eq "rct #314: quoted mention → should_run=false" \
+  "should_run=false" "$(echo "$RCT_OUT" | grep '^should_run=')"
+assert_eq "rct #314: quoted mention emits an auditable ::warning::" \
+  "1" "$(grep -c '::warning::No STANDALONE' "$RCT_ERR")"; rm -f "$RCT_ERR"
+
+# 7. The reported vector: a PR-review-body-shaped prose paragraph quoting
+# /devflow:review resolves should_run=false (TRIGGER_TEXT is the review body).
+rct_run "Thanks for the fix. As /devflow:review flagged, the edge case is now handled — approving."
+assert_eq "rct #314: PR-review-body prose mention → should_run=false" \
+  "should_run=false" "$(echo "$RCT_OUT" | grep '^should_run=')"
+
+# 8. Each non-invoking form declines: leading prose, > blockquote, 4-space and
+# tab indent, and inside a fenced block (both fence flavors + unclosed).
+rct_run "please run /devflow:review"
+assert_eq "rct #314: leading prose → should_run=false" \
+  "should_run=false" "$(echo "$RCT_OUT" | grep '^should_run=')"; rm -f "$RCT_ERR"
+rct_run "> /devflow:review"
+assert_eq "rct #314: blockquote → should_run=false" \
+  "should_run=false" "$(echo "$RCT_OUT" | grep '^should_run=')"; rm -f "$RCT_ERR"
+rct_run "    /devflow:review"
+assert_eq "rct #314: four-space indent → should_run=false" \
+  "should_run=false" "$(echo "$RCT_OUT" | grep '^should_run=')"; rm -f "$RCT_ERR"
+rct_run "$(printf '\t/devflow:review')"
+assert_eq "rct #314: tab indent → should_run=false" \
+  "should_run=false" "$(echo "$RCT_OUT" | grep '^should_run=')"; rm -f "$RCT_ERR"
+rct_run "$(printf 'see below\n```\n/devflow:review\n```')"
+assert_eq "rct #314: inside a triple-backtick fence → should_run=false" \
+  "should_run=false" "$(echo "$RCT_OUT" | grep '^should_run=')"; rm -f "$RCT_ERR"
+rct_run "$(printf '~~~\n/devflow:review\n~~~')"
+assert_eq "rct #314: inside a ~~~ fence → should_run=false" \
+  "should_run=false" "$(echo "$RCT_OUT" | grep '^should_run=')"; rm -f "$RCT_ERR"
+rct_run "$(printf '```\n/devflow:review')"
+assert_eq "rct #314: fail-closed after an unclosed fence → should_run=false" \
+  "should_run=false" "$(echo "$RCT_OUT" | grep '^should_run=')"; rm -f "$RCT_ERR"
+
+# 9. A STANDALONE command inside a longer multi-line body still fires (the
+# anchoring declines only the quoted forms, never a genuine own-line command).
+rct_run "$(printf 'Here is the PR summary.\n\n/devflow:review 42\n\nthanks')"
+assert_eq "rct #314: standalone command on its own line in a multi-line body fires" \
+  "should_run=true" "$(echo "$RCT_OUT" | grep '^should_run=')"
+assert_eq "rct #314: …and resolves the explicit number" \
+  "command=/devflow:review 42" "$(echo "$RCT_OUT" | grep '^command=')"; rm -f "$RCT_ERR"
+
+# 10. Self-marker decline (defense-in-depth), asserted BEFORE authorization:
+# the review-progress marker prefix and the workpad marker each decline with a
+# self-trigger ::warning::, even though the body also carries a standalone-looking
+# command. (Authorized bot, so this is the marker decision, not authorization.)
+rct_run "$(printf '<!-- devflow:review-progress run=123-1 -->\n/devflow:review')"
+assert_eq "rct #314: review-progress marker → should_run=false" \
+  "should_run=false" "$(echo "$RCT_OUT" | grep '^should_run=')"
+assert_eq "rct #314: review-progress marker emits a self-trigger ::warning::" \
+  "1" "$(grep -c '::warning::light /devflow:. trigger came from a Devflow-authored comment' "$RCT_ERR")"; rm -f "$RCT_ERR"
+rct_run "$(printf '<!-- devflow:workpad -->\n/devflow:review')"
+assert_eq "rct #314: workpad marker → should_run=false" \
+  "should_run=false" "$(echo "$RCT_OUT" | grep '^should_run=')"; rm -f "$RCT_ERR"
+
+# 11. Missing/unrunnable detector → fail-closed decline with a DISTINCT
+# broken-install breadcrumb (not a generic bash error, not the misdirected
+# "no standalone command" message). Run a resolver copy from a temp dir with NO
+# sibling detect-standalone-command.sh so `$(dirname "$0")/detect-...` is absent.
+NODET_DIR="$(mktemp -d)"; cp "$RCT" "$NODET_DIR/resolve-command-trigger.sh"
+cp "$LIB/../scripts/authorize-actor.sh" "$NODET_DIR/authorize-actor.sh"
+NODET_ERR="$(mktemp)"
+NODET_OUT="$(PATH="$RCT_STUB:$PATH" ACTOR="devflow-bot" ALLOWED_BOTS="devflow-bot" \
+  REPO="o/r" GH_TOKEN="x" CONTEXT_NUMBER="5" \
+  TRIGGER_TEXT="/devflow:review" bash "$NODET_DIR/resolve-command-trigger.sh" 2>"$NODET_ERR")"
+assert_eq "rct #314: missing detector → should_run=false (fail-closed)" \
+  "should_run=false" "$(echo "$NODET_OUT" | grep '^should_run=')"
+assert_eq "rct #314: missing detector emits a distinct broken-install ::warning::" \
+  "1" "$(grep -c '::warning::standalone-command detector' "$NODET_ERR")"
+rm -rf "$NODET_DIR"; rm -f "$NODET_ERR"
+
 rm -rf "$RCT_STUB"
+
+# --- issue #314: coupled-invariant pin (resolver ↔ shared detector) ----------
+# The resolver MUST route through the ONE shared detector; a future divergence
+# (re-inlining a substring matcher) is caught here. The twin pin for the
+# review_dedupe workflow step is deferred with that change to a human-landed
+# follow-up (a workflows-scoped push the DevFlow bot token cannot make) — see
+# the deferred follow-up issue filed by /devflow:implement Phase 4.0.
+assert_pin_unique "rct #314: resolver calls the shared detect-standalone-command.sh" \
+  'detector="$(dirname "$0")/detect-standalone-command.sh"' "$LIB/../scripts/resolve-command-trigger.sh"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "react-to-trigger.sh"
