@@ -127,6 +127,79 @@ that runs *before* authorization and number resolution: it declines any
 > **default** marker and any repo-customized `devflow.workpad_marker` are protected
 > out of the box, with no manual edit required.
 
+## A light `/devflow:*` command fires only when *issued*, never when *quoted*
+
+The light command path (`/devflow:review`, `/devflow:review-and-fix`,
+`/devflow:pr-description`) is intentionally **PR-aware** — a PR comment is also an
+`issue_comment` in GitHub's API, and these commands act on a PR — so unlike the
+issues-only heavy path it *retains* PR-comment and PR-review triggering by design.
+Removing that surface would break the primary use case. The bug it must avoid is
+different: a command **quoted in prose** (a human review that says "as
+`/devflow:review` flagged…", DevFlow's own review narrative, an un-markered report
+body) must not be mistaken for the command being *issued*. A quoted
+`/devflow:review` inside a PR **review** body was the reported self-trigger vector.
+
+Two mechanisms close this, both living in `scripts/resolve-command-trigger.sh`
+(the authoritative gate; the workflow `gate` `if:` stays a coarse `contains()`
+pre-filter):
+
+1. **Anchoring (the core fix).** A light command is a trigger **only** when it is
+   the sole content of its own line — it begins the line with at most three
+   leading spaces (never a tab, never four-plus, so an *indented* code block never
+   qualifies), it is **not** inside a fenced (triple-backtick / `~~~`) code block,
+   and the remainder of the line is at most an optional `#`-prefixed number plus
+   trailing whitespace. So `/devflow:review`, `/devflow:review 42`, and
+   `/devflow:review #42` fire (alone on their line, even inside a longer body);
+   `please run /devflow:review`, a `> /devflow:review` blockquote, an indented or
+   fenced `/devflow:review`, and `I ran /devflow:review earlier` do **not**. The
+   scan is a small **markdown-aware line scanner** (`scripts/detect-standalone-command.sh`,
+   POSIX `awk`, ERE only) that tracks fenced-block state, skips indented-code
+   lines, and applies the anchored own-line match most-specific-first
+   (`/devflow:review-and-fix` outranks `/devflow:review`). It is deliberately
+   **fail-closed on an unbalanced fence**: after an unclosed opening fence every
+   following line reads as code and fires nothing — matching how GitHub itself
+   renders an unbalanced fence, and the safe direction for a self-trigger fix. It
+   approximates GitHub-flavored markdown (not a full CommonMark parser): it does
+   not model list-relative indentation, so a command deeply indented inside a list
+   item is treated as code and does not fire — an over-exclusion that still errs
+   toward not-triggering.
+
+2. **Self-marker guard (defense-in-depth).** Mirrored from
+   `resolve-implement-trigger.sh`, the resolver additionally declines — *before*
+   authorization — any body that carries a DevFlow self-comment marker: the
+   run-keyed review-progress marker **prefix** `<!-- devflow:review-progress` (the
+   review engine's live progress comment, whose narrative naturally quotes
+   `/devflow:review` — see `scripts/derive-review-verdict.sh`) or the workpad
+   marker `<!-- devflow:workpad -->`. Each is a literal **substring** match, and
+   the effective markers **default to those built-in values internally**, so the
+   guard protects a repo with no extra workflow wiring. Note this guard alone was
+   insufficient for the reported vector — the PR-review body carried no marker —
+   which is why anchoring is the necessary core and the marker guard is retained
+   only for DevFlow's own progress comment.
+
+Because anchoring operates on the resolver's `TRIGGER_TEXT` input, it is
+**surface-agnostic**: the workflow's existing
+`TRIGGER_TEXT: ${{ github.event.comment.body || github.event.review.body }}`
+wiring already routes the PR-review body in, so no new surface wiring is added.
+
+> **Follow-up (workflows-scoped push):** the `review_dedupe` job in `devflow.yml`
+> is intended to route through the **same** `detect-standalone-command.sh`
+> detector (not its own `case` substring), so a quoted/documented
+> `/devflow:review` mention neither dedupes nor posts a "manual review
+> suppressed" notice and the two matchers cannot drift. That change edits a file
+> under `.github/workflows/`, which needs a `workflows`-scoped push the DevFlow
+> bot's installation token lacks, so it lands via a human/PAT in a separate
+> follow-up rather than in the bot-authored PR that ships the resolver anchoring
+> here. Until then the resolver anchoring is the authoritative trigger gate (it
+> already covers the reported PR-review vector); `review_dedupe` keeps its
+> pre-existing coarse `case` match, which only affects the cosmetic
+> manual-review-suppressed notice, never whether a run starts.
+
+> **Out of scope (decided):** a light command posted on a plain **non-PR issue**
+> comment still resolves a number and runs; narrowing that surface is deferred to
+> a separate issue. This section covers only the markdown-aware anchoring and the
+> self-marker guard.
+
 ## A `/devflow:implement` run posts exactly one comment — the workpad
 
 A run maintains a **single** GitHub comment, the marker-tagged *workpad*
