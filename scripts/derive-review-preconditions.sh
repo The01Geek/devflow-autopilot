@@ -104,6 +104,12 @@ SELF_WORKFLOW_NAME="${SELF_WORKFLOW_NAME:-Devflow Review (auto-trigger)}"
 
 emit() { printf 'should_run=%s\nreason=%s\n' "$1" "$2"; exit 0; }
 
+# Render a captured-stderr temp file for a "query failed" breadcrumb: the raw gh
+# error when one was captured, else a fixed placeholder. Single definition of the
+# reader the four gh-failure arms share (so the breadcrumb format has one edit
+# site); each arm still owns its distinct noun + emit reason inline.
+gh_err_detail() { [ -s "$1" ] && cat "$1" || echo 'no error output captured'; }
+
 # Shared green-gate over a stream of "status|conclusion" lines (one signal per
 # line — the single definition of what "green" means for both the Actions-runs
 # and external-check-runs sets). $2 names the signal kind so each deferral
@@ -153,7 +159,7 @@ if [ "$REQUIRE_UP_TO_DATE" != "false" ]; then
   # 403 token-scope, 5xx) from whoever debugs a permanently-deferred review.
   _cmp_err=$(mktemp 2>/dev/null) || _cmp_err=/dev/null
   if ! CMP_JSON=$("$DEVFLOW_GH" api "repos/$REPO/compare/$BASE_BRANCH...$HEAD_SHA?per_page=1" 2>"$_cmp_err"); then
-    echo "derive-review-preconditions: compare query failed for $BASE_BRANCH...$HEAD_SHA ($([ -s "$_cmp_err" ] && cat "$_cmp_err" || echo 'no error output captured')) — branch freshness unverifiable; failing closed (unverifiable). Recoverable via a later event or the Re-run button." >&2
+    echo "derive-review-preconditions: compare query failed for $BASE_BRANCH...$HEAD_SHA ($(gh_err_detail "$_cmp_err")) — branch freshness unverifiable; failing closed (unverifiable). Recoverable via a later event or the Re-run button." >&2
     [ "$_cmp_err" = /dev/null ] || rm -f "$_cmp_err"
     emit false unverifiable
   fi
@@ -178,7 +184,7 @@ if [ "$REQUIRE_CI_GREEN" != "false" ]; then
   #     them (same normalization discipline as derive-review-verdict.sh).
   _runs_err=$(mktemp 2>/dev/null) || _runs_err=/dev/null
   if ! RUNS_JSON=$("$DEVFLOW_GH" api --paginate "repos/$REPO/actions/runs?head_sha=$HEAD_SHA&per_page=100" 2>"$_runs_err"); then
-    echo "derive-review-preconditions: workflow-runs query failed for $HEAD_SHA ($([ -s "$_runs_err" ] && cat "$_runs_err" || echo 'no error output captured')) — other-CI state unverifiable; failing closed (unverifiable). Recoverable via a later event or the Re-run button." >&2
+    echo "derive-review-preconditions: workflow-runs query failed for $HEAD_SHA ($(gh_err_detail "$_runs_err")) — other-CI state unverifiable; failing closed (unverifiable). Recoverable via a later event or the Re-run button." >&2
     [ "$_runs_err" = /dev/null ] || rm -f "$_runs_err"
     emit false unverifiable
   fi
@@ -197,7 +203,7 @@ if [ "$REQUIRE_CI_GREEN" != "false" ]; then
   #     the API reports state "pending", which must not be read as pending CI.
   _status_err=$(mktemp 2>/dev/null) || _status_err=/dev/null
   if ! STATUS_JSON=$("$DEVFLOW_GH" api "repos/$REPO/commits/$HEAD_SHA/status" 2>"$_status_err"); then
-    echo "derive-review-preconditions: combined-status query failed for $HEAD_SHA ($([ -s "$_status_err" ] && cat "$_status_err" || echo 'no error output captured')) — other-CI state unverifiable; failing closed (unverifiable)." >&2
+    echo "derive-review-preconditions: combined-status query failed for $HEAD_SHA ($(gh_err_detail "$_status_err")) — other-CI state unverifiable; failing closed (unverifiable)." >&2
     [ "$_status_err" = /dev/null ] || rm -f "$_status_err"
     emit false unverifiable
   fi
@@ -231,7 +237,7 @@ if [ "$REQUIRE_CI_GREEN" != "false" ]; then
   #     even off-app, defensively.
   _checks_err=$(mktemp 2>/dev/null) || _checks_err=/dev/null
   if ! CHECKS_JSON=$("$DEVFLOW_GH" api --paginate "repos/$REPO/commits/$HEAD_SHA/check-runs" 2>"$_checks_err"); then
-    echo "derive-review-preconditions: check-runs query failed for $HEAD_SHA ($([ -s "$_checks_err" ] && cat "$_checks_err" || echo 'no error output captured')) — other-CI state unverifiable; failing closed (unverifiable)." >&2
+    echo "derive-review-preconditions: check-runs query failed for $HEAD_SHA ($(gh_err_detail "$_checks_err")) — other-CI state unverifiable; failing closed (unverifiable)." >&2
     [ "$_checks_err" = /dev/null ] || rm -f "$_checks_err"
     emit false unverifiable
   fi
