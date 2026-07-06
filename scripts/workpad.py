@@ -1388,15 +1388,20 @@ def _apply_mutations(body: str, args, failed_ticks) -> str:
     )
 
     if args.rewrite_ac:
-        old, new = args.rewrite_ac
         idx = _find_section(sections, 'Acceptance Criteria')
         if idx is None:
             raise _UpdateError("section '## Acceptance Criteria' not found")
+        # --rewrite-ac is repeatable (issue #308): apply every OLD/NEW pair in
+        # argument order against the progressively-rewritten section. Each pair
+        # runs the existing exactly-one-match rule, so a pair matching zero or
+        # multiple rows raises _UpdateError here — before any PATCH — preserving
+        # the structural all-or-nothing contract for the whole call. Thread
+        # `content` through a local and write `sections[idx]` once after the
+        # loop, so a mid-loop raise leaves the section fully untouched.
         heading, content = sections[idx]
-        sections[idx] = (
-            heading,
-            _rewrite_checkbox(content, old, new, 'Acceptance Criteria'),
-        )
+        for old, new in args.rewrite_ac:
+            content = _rewrite_checkbox(content, old, new, 'Acceptance Criteria')
+        sections[idx] = (heading, content)
 
     if args.replace_plan_file:
         new_content = _read_section_file(args.replace_plan_file, '--replace-plan-file')
@@ -1583,8 +1588,13 @@ def main():
                         'failure (reported, non-zero exit, other mutations '
                         'applied).')
     u.add_argument('--rewrite-ac', nargs=2, metavar=('OLD', 'NEW'),
+                   action='append', default=[],
                    help='Find one AC matching OLD; replace its text with NEW. '
-                        'Preserves the checkbox state. For Phase 2.2.6.')
+                        'Preserves the checkbox state. For Phase 2.2.6. '
+                        'Repeatable: multiple pairs apply in argument order, each '
+                        'validated by the exactly-one-match rule; any pair '
+                        'matching zero or multiple rows aborts the whole call '
+                        'with no PATCH (structural all-or-nothing).')
     u.add_argument('--note', metavar='TEXT', action='append', default=[],
                    help='Append a note bullet, prefixed with a time-only '
                         'HH:MM:SS UTC timestamp and nested under the current '
