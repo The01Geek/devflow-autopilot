@@ -600,13 +600,29 @@ assert_eq("case-insensitive heading: AC one ticked under lowercase heading",
 # element of the append list).
 out = apply_mut(WORKPAD_BODY, make_args(rewrite_ac=[['AC one', 'AC one rewritten']]))
 assert_eq("single --rewrite-ac: text rewritten", True, '- [ ] AC one rewritten' in out)
-assert_eq("single --rewrite-ac: box state preserved", True, '- [ ] AC one rewritten' in out)
+
+# Box state is preserved on a *ticked* row (exercises _rewrite_checkbox's
+# group-2 reconstruction, which the unticked fixture above cannot).
+AC_TICKED = WORKPAD_BODY.replace('- [ ] AC one', '- [x] AC one')
+out = apply_mut(AC_TICKED, make_args(rewrite_ac=[['AC one', 'AC one rewritten']]))
+assert_eq("single --rewrite-ac: ticked box state preserved", True,
+          '- [x] AC one rewritten' in out)
 
 # Two pairs in one call: BOTH land (the pre-#308 bug silently kept only the last).
 out = apply_mut(WORKPAD_BODY, make_args(
     rewrite_ac=[['AC one', 'AC one v2'], ['AC two', 'AC two v2']]))
 assert_eq("two-pair --rewrite-ac: first pair landed", True, '- [ ] AC one v2' in out)
 assert_eq("two-pair --rewrite-ac: second pair landed", True, '- [ ] AC two v2' in out)
+
+# Pairs apply against the PROGRESSIVELY-rewritten section: the second pair's OLD
+# matches the text the FIRST pair just wrote, not the original. A regression that
+# re-read the original section per pair would leave 'AC one beta' unfound here.
+out = apply_mut(WORKPAD_BODY, make_args(
+    rewrite_ac=[['AC one', 'AC one alpha'], ['AC one alpha', 'AC one beta']]))
+assert_eq("progressive --rewrite-ac: second pair matches first pair's output",
+          True, '- [ ] AC one beta' in out)
+assert_eq("progressive --rewrite-ac: intermediate text does not survive",
+          True, '- [ ] AC one alpha' not in out)
 
 # A second pair whose OLD matches nothing aborts the whole call with no partial
 # application — structural all-or-nothing preserved (raises _UpdateError, so the
@@ -616,6 +632,16 @@ assert_raises(
     workpad._UpdateError,
     lambda: apply_mut(WORKPAD_BODY, make_args(
         rewrite_ac=[['AC one', 'AC one v2'], ['nonexistent', 'x']])))
+
+# A pair whose OLD matches MULTIPLE rows also aborts (the "zero OR multiple"
+# arm of the exactly-one-match rule). Here the first pair renames 'AC one' to
+# 'AC two', so 'AC two' now matches two rows and the second pair aborts —
+# exercising both the progressive coupling and the >1-match structural abort.
+assert_raises(
+    "two-pair --rewrite-ac: OLD matching multiple rows aborts the whole call",
+    workpad._UpdateError,
+    lambda: apply_mut(WORKPAD_BODY, make_args(
+        rewrite_ac=[['AC one', 'AC two'], ['AC two', 'AC two collapsed']])))
 
 
 print("issue #169: failure-isolation + index-based ticking")
