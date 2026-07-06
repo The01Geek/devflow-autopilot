@@ -75,8 +75,9 @@ as "branch behind base" whose base moves but whose head is untouched stays in th
 neutral "waiting" state until its branch is updated or its check is Re-run. This
 is accepted: a behind-base neutral check does not block merge, updating the branch
 (the action that actually resolves being behind) fires `synchronize` and clears
-it, and the Re-run button is always available. The waiting check's deferral
-summary points operators here.
+it, and the Re-run button is always available. Once the workflow-hardening
+follow-up ships the summary pointer, the waiting check's deferral summary will
+point operators here.
 
 ## Triggers fire on real comments only — never on descriptions
 
