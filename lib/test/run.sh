@@ -15646,16 +15646,28 @@ rm -rf "$WF_MUT_DIR" 2>/dev/null || true
 # Positive inline-detection test (#312 review — pr-test-analyzer). The mutation proof above
 # only exercises the HELPER-ATTRIBUTION path (precheck's statuses need flows through
 # precond_keys). This synthetic fixture drives the INLINE `_wf_req_keys` path — a job whose
-# own `run:` block calls an endpoint whose grant is absent — so a regression that broke the
-# inline regexes could no longer keep the suite green. One fixture, three covered paths:
-#   - inline_missing: inline check-runs (→ checks) with only `contents` declared → 1 violation
-#     (proves the inline path catches a missing grant — AC4's core promise);
-#   - inherits: no job `permissions:` block, inline actions/runs (→ actions) with a top-level
-#     `actions: read` → 0 violations (proves top-level→job inheritance resolves);
-#   - comments_missing: inline POST issues/*/comments (→ comments) with neither issues nor
-#     pull-requests → 1 violation (proves the either-satisfies branch flags a job with neither).
-# Expected total = 2 (inherits contributes 0, else the total would be 3). Fail-closed on a
-# git_sandbox sentinel: the cat/mkdir no-op and wf_perm_lint → MISSING_WFDIR ≠ "2" → RED.
+# own `run:` block calls an endpoint whose grant is absent — so a regression that broke ANY
+# inline regex could no longer keep the suite green. It gives EACH of the six endpoint
+# families a RED-going differential case (an under-detecting regex regression is the
+# dangerous fail-open direction, so every family, not just the ones the mutation-proof and
+# clean-tree assert happen to touch, needs one — #312 review, pr-test-analyzer):
+#   - inline_missing:    check-runs (→ checks), declares only contents            → +1
+#   - inherits:          actions/runs (→ actions), NO job block, top-level actions → 0
+#                        (proves top-level→job inheritance resolves — else this would be +1)
+#   - comments_missing:  POST issues/*/comments (→ comments), neither issues nor
+#                        pull-requests declared                                    → +1
+#                        (proves the either-satisfies branch flags a job with neither)
+#   - contents_missing:  compare (→ contents), declares only checks               → +1
+#   - pulls_missing:     commits/*/pulls (→ pull-requests), declares only checks   → +1
+#   - actions_missing:   actions/runs (→ actions), declares only contents so the
+#                        job block REPLACES the top-level actions grant           → +1
+#   - guards_ok:         a COMMENTED endpoint line (must be stripped → no statuses
+#                        requirement) plus a bare actions/runs/<id> RUN_URL string
+#                        (no repos/ prefix → must NOT match)                       → 0
+#                        (locks the comment-strip + repos/-anchor false-match guards)
+# Expected total = 5. Any single inline regex breaking, or inheritance/replacement/strip/
+# anchor logic regressing, moves the count off 5 → RED. Fail-closed on a git_sandbox sentinel:
+# the cat/mkdir no-op and wf_perm_lint → MISSING_WFDIR ≠ "5" → RED.
 WF_POS_DIR="$(git_sandbox "#312: wf-lint positive inline test temp dir")"
 mkdir -p "$WF_POS_DIR/.github/workflows" 2>/dev/null || true
 cat > "$WF_POS_DIR/.github/workflows/pos.yml" <<'POSYAML' 2>/dev/null || true
@@ -15677,9 +15689,30 @@ jobs:
       contents: read
     steps:
       - run: gh api -X POST repos/o/r/issues/5/comments
+  contents_missing:
+    permissions:
+      checks: read
+    steps:
+      - run: gh api repos/o/r/compare/base...head
+  pulls_missing:
+    permissions:
+      checks: read
+    steps:
+      - run: gh api repos/o/r/commits/deadbeef/pulls
+  actions_missing:
+    permissions:
+      contents: read
+    steps:
+      - run: gh api repos/o/r/actions/runs
+  guards_ok:
+    permissions:
+      contents: read
+    steps:
+      # gh api repos/o/r/commits/deadbeef/status  <- commented: must be stripped
+      - run: echo "run https://github.com/o/r/actions/runs/123"
 POSYAML
-assert_eq "#312: wf-lint positive inline test — inline missing grant caught, inheritance honored (2 violations)" \
-  "2" "$(wf_perm_lint "$WF_POS_DIR/.github/workflows" "$WF_PRECOND")"
+assert_eq "#312: wf-lint positive inline test — all six endpoint families differentially covered, inheritance/replacement/strip/anchor honored (5 violations)" \
+  "5" "$(wf_perm_lint "$WF_POS_DIR/.github/workflows" "$WF_PRECOND")"
 rm -rf "$WF_POS_DIR" 2>/dev/null || true
 
 # Tally the shell assertions from the results file (authoritative — includes the
