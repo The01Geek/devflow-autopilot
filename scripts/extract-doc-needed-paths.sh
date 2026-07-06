@@ -13,10 +13,13 @@
 # passes can never disagree about which paths were named (issue #185 Addendum).
 #
 # Extraction is intentionally deterministic and scoped:
-#   * scope — only the text between the `- **Documentation Needed**` bullet and
-#     the next top-level `- **…**` bullet or the next `## ` heading (or EOF). A
-#     path mentioned in `## Current Behavior`, `## Technical Context`, or any
-#     OTHER bullet is NOT a documentation deliverable and is never emitted.
+#   * scope — only the text between the `**Documentation Needed**` bullet (with
+#     or without a leading `- ` list marker — an LLM-drafted `## Implementation
+#     Notes` section commonly renders these items as bare bold paragraphs, as the
+#     real issue #304 body does; issue #309) and the next top-level bold bullet
+#     (`(- )?**…**`) or the next `## ` heading (or EOF). A path mentioned in
+#     `## Current Behavior`, `## Technical Context`, or any OTHER bullet is NOT a
+#     documentation deliverable and is never emitted.
 #   * a token counts as a path only if it ends in a recognized documentation/
 #     source extension OR names an in-tree tracked regular file (the two-part
 #     `[ -f ]` + `git ls-files` rescue for extensionless real files like
@@ -48,14 +51,22 @@ block="$(printf '%s\n' "$body" | awk '
     state = ($0 ~ /^## Implementation Notes[[:space:]]*$/) ? 1 : 0
     next
   }
-  # A top-level "- **Bold**" bullet either opens the Documentation Needed scope
-  # or (any other bold bullet) closes it. The open-match is ANCHORED to the
-  # bullet LABEL (^- **Documentation Needed**) so a different bullet that merely
+  # A top-level bold bullet either opens the Documentation Needed scope or (any
+  # other bold bullet) closes it. The leading "- " list marker is OPTIONAL: the
+  # canonical issue template writes "- **Documentation Needed** — …", but an
+  # LLM-drafted `## Implementation Notes` section commonly renders the same items
+  # as bare bold PARAGRAPHS ("**Documentation Needed** — …", no "- " prefix — the
+  # real issue #304 body is exactly this, and matched NOTHING under the old
+  # "- "-required anchor, silently skipping the gate; issue #309, sibling of the
+  # #289 class). So the anchor accepts an optional "- " marker on both the opener
+  # and the peer-bullet closer. The open-match is still ANCHORED to the bullet
+  # LABEL (^(- )?**Documentation Needed**) so a different bullet that merely
   # MENTIONS the label in its prose (e.g. the Potential Gotchas bullet in the
   # issue template) closes the scope rather than re-opening it.
-  # Sub-bullets ("  - x") do not match and stay within an open scope.
-  state >= 1 && /^- \*\*/ {
-    state = ($0 ~ /^- \*\*Documentation Needed\*\*/) ? 2 : 1
+  # Sub-bullets ("  - x") and continuation prose (no leading bold) do not match
+  # and stay within an open scope.
+  state >= 1 && /^(- )?\*\*/ {
+    state = ($0 ~ /^(- )?\*\*Documentation Needed\*\*/) ? 2 : 1
   }
   state == 2 { print }
 ')"

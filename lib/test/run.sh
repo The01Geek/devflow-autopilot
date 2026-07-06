@@ -4089,6 +4089,36 @@ assert_eq "#254: git-unavailable drop emits the degraded-rescue breadcrumb exact
   "1" "$(grep -c 'git unavailable' "$fx_nogit_dir/err")"
 rm -rf "$fx_nogit_dir"
 
+# Case 14 (issue #309): the em-dash prose-sentence **Documentation Needed** form
+# rendered as a bare bold PARAGRAPH with NO leading "- " list marker — exactly the
+# real issue #304 body shape an LLM-drafted `## Implementation Notes` produces.
+# RED on the old "- "-required scope anchor (the block matched nothing → the gate
+# was silently skipped on the issue shape it exists to enforce); GREEN after the
+# opener/closer accept an optional "- " marker (`^(- )?\*\*`). The paths must be
+# extracted by the SAME token scan as the dashed forms: the backticked files are
+# emitted, the trailing-slash directory ref (`docs/internal/workflows/`) is
+# dropped as a directory, and the non-path parenthetical prose
+# (`(review auto-trigger section)`) never leaks — the issue's false-positive
+# discipline is preserved. A peer bold paragraph (`**Potential Gotchas.**`, no
+# "- ") must still CLOSE the scope so the gotchas bullet's own tokens don't leak.
+fx_309="## Implementation Notes
+
+**Approach (Part A).** Add two config keys under \`devflow_review\`.
+
+**Code Patterns** — Part A mirrors the existing branches.
+
+**Documentation Needed** — \`docs/DEVFLOW_SYSTEM_OVERVIEW.md\` (review auto-trigger section) and any
+internal workflow doc under \`docs/internal/workflows/\` describing the trigger policy must document
+the new preconditions, the neutral-check-with-re-trigger behavior, and the two config keys. The
+\`CLAUDE.md\` review-engine / gotchas notes should mention the preconditions if they become a
+load-bearing invariant. \`.devflow/config.example.json\` documents the keys inline.
+
+**Potential Gotchas.**
+- **Do not extract \`other/leak.md\` named in this closing bullet.**"
+assert_eq "#309: bare bold-paragraph (no '- ') em-dash Documentation Needed form IS extracted; dir/prose dropped, gotchas bullet closes scope" \
+  "$(printf '.devflow/config.example.json\nCLAUDE.md\ndocs/DEVFLOW_SYSTEM_OVERVIEW.md')" \
+  "$(printf '%s\n' "$fx_309" | bash "$EXTRACT_HELPER")"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "scaffold-config.sh"
 # ────────────────────────────────────────────────────────────────────────────
