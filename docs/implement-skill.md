@@ -326,7 +326,13 @@ of named deliverables; it does not decide whether the doc pass runs.
 Path extraction is **deterministic, not LLM-interpreted** (issue #185 Addendum): a bundled helper,
 `scripts/extract-doc-needed-paths.sh`, is the single extraction boundary both stages consume. It reads
 the issue body, scopes strictly to the `**Documentation Needed**` bullet under `## Implementation
-Notes`, and emits the recognizable file paths one per line — a token counts as a path only if it
+Notes` — recognized in **either** bullet shape real bodies use: the template's `- **Documentation
+Needed** — …` list item **or** a bare, blank-line-preceded `**Documentation Needed** — …` bold
+paragraph with no `- ` marker (the form an LLM-drafted `## Implementation Notes` section commonly
+renders, which the older `- `-required anchor matched nothing of, silently skipping the gate; issue
+#309, a sibling of the #289 miss class). A bold-emphasis span that only begins a wrapped continuation
+line inside the bullet does not close the scope, so paths on later wrapped lines are still captured.
+It then emits the recognizable file paths one per line — a token counts as a path only if it
 ends in a recognized doc/source extension **or** names an in-tree tracked regular file (the
 `[ -f ] && git ls-files --error-unmatch` rescue for extensionless real files like `Makefile`/`LICENSE`).
 A bare "contains `/`" test is deliberately **not** sufficient — it wrongly emitted directory tokens
