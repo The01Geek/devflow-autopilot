@@ -1395,13 +1395,13 @@ def _apply_mutations(body: str, args, failed_ticks) -> str:
         # argument order against the progressively-rewritten section. Each pair
         # runs the existing exactly-one-match rule, so a pair matching zero or
         # multiple rows raises _UpdateError here — before any PATCH — preserving
-        # the structural all-or-nothing contract for the whole call.
+        # the structural all-or-nothing contract for the whole call. Thread
+        # `content` through a local and write `sections[idx]` once after the
+        # loop, so a mid-loop raise leaves the section fully untouched.
+        heading, content = sections[idx]
         for old, new in args.rewrite_ac:
-            heading, content = sections[idx]
-            sections[idx] = (
-                heading,
-                _rewrite_checkbox(content, old, new, 'Acceptance Criteria'),
-            )
+            content = _rewrite_checkbox(content, old, new, 'Acceptance Criteria')
+        sections[idx] = (heading, content)
 
     if args.replace_plan_file:
         new_content = _read_section_file(args.replace_plan_file, '--replace-plan-file')
