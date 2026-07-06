@@ -59,16 +59,29 @@ done
 
 # --- Command detection via the shared standalone-command detector -----------
 # The detector is the single markdown-aware, anchored, fence-/indent-aware line
-# scanner (scripts/detect-standalone-command.sh); the review_dedupe job in
-# devflow.yml routes through the SAME script, so the trigger gate and the dedupe
-# matcher cannot drift. It fires only on a standalone command in ordinary
-# comment text (most-specific-first: review-and-fix outranks review), declining
-# a command that is merely quoted in prose, blockquoted, indented as code, or
-# inside a fenced block — so a non-invoking mention in any comment/review body
-# is declined regardless of who authored it (this covers the reported PR-review
-# vector). Invoked via `bash` so a vendored copy that lost its executable bit
-# still runs (same robustness rationale as devflow.yml's `bash "$RESOLVER"`).
-det_out="$(printf '%s' "$text" | bash "$(dirname "$0")/detect-standalone-command.sh")"
+# scanner (scripts/detect-standalone-command.sh). The review_dedupe job in
+# devflow.yml is INTENDED to route through the SAME script (so the trigger gate
+# and the dedupe matcher cannot drift), but that workflow change is a deferred,
+# workflows-scoped follow-up (see docs/workflow-triggers.md) — until it lands the
+# shared detector is the resolver's alone and review_dedupe keeps its own coarse
+# case-substring match. It fires only on a standalone command in ordinary comment
+# text (most-specific-first: review-and-fix outranks review), declining a command
+# that is merely quoted in prose, blockquoted, indented as code, or inside a
+# fenced block — so a non-invoking mention in any comment/review body is declined
+# regardless of who authored it (this covers the reported PR-review vector).
+# Invoked via `bash` so a vendored copy that lost its executable bit still runs
+# (same robustness rationale as devflow.yml's `bash "$RESOLVER"`). Guarded with
+# `if !` so a MISSING/unrunnable detector (broken vendor deploy, absent awk) is
+# declined fail-closed with a DISTINCT breadcrumb rather than aborting under
+# `set -e` with only a generic bash error, or falling through to the misdirected
+# "no standalone command" decline below that blames the comment text.
+detector="$(dirname "$0")/detect-standalone-command.sh"
+if ! det_out="$(printf '%s' "$text" | bash "$detector")"; then
+  echo "::warning::standalone-command detector ('$detector') failed to run (missing/unrunnable, or awk unavailable); declining (fail-closed) — this is a BROKEN INSTALL, not a missing command." >&2
+  emit should_run false
+  emit command ""
+  exit 0
+fi
 cmd="$(printf '%s\n' "$det_out" | sed -n 's/^command=//p')"
 det_number="$(printf '%s\n' "$det_out" | sed -n 's/^number=//p')"
 

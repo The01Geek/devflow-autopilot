@@ -8432,6 +8432,32 @@ assert_eq "dsc: fail-closed after an UNBALANCED (unclosed) fence" \
 assert_eq "dsc: reported PR-review-body prose mention declined" \
   "" "$(dsc_cmd 'I ran /devflow:review earlier, see the report')"
 
+# --- #314 review fixes: CRLF, case-insensitivity, mismatched fence type ------
+# CRLF: GitHub delivers comment/review bodies with \r\n line endings; a trailing
+# \r must not make an end-anchored standalone command silently decline.
+assert_eq "dsc: CRLF-terminated bare command still fires" \
+  "/devflow:review" "$(dsc_cmd "$(printf '/devflow:review\r')")"
+assert_eq "dsc: CRLF-terminated command keeps its number" \
+  "42" "$(dsc_num "$(printf '/devflow:review 42\r')")"
+assert_eq "dsc: CRLF multi-line body — standalone command on its own \\r\\n line fires" \
+  "/devflow:review" "$(dsc_cmd "$(printf 'kick it off\r\n/devflow:review\r\nthanks\r')")"
+# Case-insensitivity is documented; pin it so a dropped tolower() goes RED.
+assert_eq "dsc: uppercase /DEVFLOW:REVIEW fires (case-insensitive), canonical token emitted" \
+  "/devflow:review" "$(dsc_cmd '/DEVFLOW:REVIEW')"
+assert_eq "dsc: mixed-case command keeps its number" \
+  "7" "$(dsc_num '/Devflow:Review 7')"
+# Mismatched fence type: a ~~~ line inside a ``` block (or vice versa) is literal
+# content per GFM — it must NOT close the outer fence and expose the command.
+assert_eq "dsc: tilde-fence line inside a backtick fence does not expose the command (type-tracked)" \
+  "" "$(dsc_cmd "$(printf '%s\n' '```' '~~~' '/devflow:review' '```')")"
+assert_eq "dsc: backtick-fence line inside a tilde fence does not expose the command (type-tracked)" \
+  "" "$(dsc_cmd "$(printf '%s\n' '~~~' '```' '/devflow:review' '~~~')")"
+# review-and-fix with an explicit #number resolves the number (was only pinned for review).
+assert_eq "dsc: review-and-fix #number resolves both command and number" \
+  "/devflow:review-and-fix" "$(dsc_cmd '/devflow:review-and-fix #9')"
+assert_eq "dsc: review-and-fix #number — number extracted" \
+  "9" "$(dsc_num '/devflow:review-and-fix #9')"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "resolve-command-trigger.sh"
 # ────────────────────────────────────────────────────────────────────────────
@@ -8557,6 +8583,22 @@ rct_run "$(printf '<!-- devflow:workpad -->\n/devflow:review')"
 assert_eq "rct #314: workpad marker → should_run=false" \
   "should_run=false" "$(echo "$RCT_OUT" | grep '^should_run=')"; rm -f "$RCT_ERR"
 
+# 11. Missing/unrunnable detector → fail-closed decline with a DISTINCT
+# broken-install breadcrumb (not a generic bash error, not the misdirected
+# "no standalone command" message). Run a resolver copy from a temp dir with NO
+# sibling detect-standalone-command.sh so `$(dirname "$0")/detect-...` is absent.
+NODET_DIR="$(mktemp -d)"; cp "$RCT" "$NODET_DIR/resolve-command-trigger.sh"
+cp "$LIB/../scripts/authorize-actor.sh" "$NODET_DIR/authorize-actor.sh"
+NODET_ERR="$(mktemp)"
+NODET_OUT="$(PATH="$RCT_STUB:$PATH" ACTOR="devflow-bot" ALLOWED_BOTS="devflow-bot" \
+  REPO="o/r" GH_TOKEN="x" CONTEXT_NUMBER="5" \
+  TRIGGER_TEXT="/devflow:review" bash "$NODET_DIR/resolve-command-trigger.sh" 2>"$NODET_ERR")"
+assert_eq "rct #314: missing detector → should_run=false (fail-closed)" \
+  "should_run=false" "$(echo "$NODET_OUT" | grep '^should_run=')"
+assert_eq "rct #314: missing detector emits a distinct broken-install ::warning::" \
+  "1" "$(grep -c '::warning::standalone-command detector' "$NODET_ERR")"
+rm -rf "$NODET_DIR"; rm -f "$NODET_ERR"
+
 rm -rf "$RCT_STUB"
 
 # --- issue #314: coupled-invariant pin (resolver ↔ shared detector) ----------
@@ -8566,7 +8608,7 @@ rm -rf "$RCT_STUB"
 # follow-up (a workflows-scoped push the DevFlow bot token cannot make) — see
 # the deferred follow-up issue filed by /devflow:implement Phase 4.0.
 assert_pin_unique "rct #314: resolver calls the shared detect-standalone-command.sh" \
-  '/detect-standalone-command.sh")' "$LIB/../scripts/resolve-command-trigger.sh"
+  'detector="$(dirname "$0")/detect-standalone-command.sh"' "$LIB/../scripts/resolve-command-trigger.sh"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "react-to-trigger.sh"

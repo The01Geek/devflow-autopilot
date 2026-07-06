@@ -12,10 +12,13 @@
 #     number plus trailing whitespace.
 # A command merely *quoted in prose* (`please run /devflow:review`), in a `>`
 # blockquote, indented as code, or inside a fenced block does NOT qualify. This
-# is the single implementation of the anchored line scan, shared by
-# scripts/resolve-command-trigger.sh (the authoritative trigger gate) and the
-# review_dedupe job in .github/workflows/devflow.yml, so the two matchers cannot
-# drift.
+# is the single implementation of the anchored line scan.
+# scripts/resolve-command-trigger.sh (the authoritative trigger gate) routes
+# through it today; the review_dedupe job in .github/workflows/devflow.yml is
+# INTENDED to route through it too (so the two matchers cannot drift), but that
+# workflow change is a deferred, workflows-scoped follow-up (see
+# docs/workflow-triggers.md) — until it lands, review_dedupe keeps its own
+# coarse `case`-substring match.
 #
 # Detection is deliberately FAIL-CLOSED on an unbalanced fence: after an
 # unclosed opening fence every following line is treated as code and fires
@@ -45,13 +48,30 @@
 set -euo pipefail
 
 awk '
-BEGIN { infence = 0; found = 0; cmd = ""; num = "" }
+BEGIN { infence = 0; fencechar = ""; found = 0; cmd = ""; num = "" }
 found == 0 {
   line = $0
+  # Strip a trailing carriage return so a CRLF body (GitHub delivers comment /
+  # review bodies with \r\n line endings) matches the end-anchored patterns
+  # below; without this every standalone command on a CRLF line silently
+  # declines. Done first so the fence/indent tests and number extraction all see
+  # the clean line.
+  sub(/\r$/, "", line)
   # Fence toggle: an opening/closing ``` or ~~~ with at most three leading
-  # spaces (an info string like ```bash is tolerated on the opener). The fence
-  # line itself is never a command line.
-  if (line ~ /^ {0,3}(```|~~~)/) { infence = (infence ? 0 : 1); next }
+  # spaces (an info string like ```bash is tolerated on the opener). Per
+  # GitHub-flavored markdown a fence is closed only by the SAME marker type, so
+  # track the opening char and ignore the other type while inside a fence (a
+  # ~~~ line inside a ``` block is literal content, not a close). The fence line
+  # itself is never a command line.
+  if (line ~ /^ {0,3}(```|~~~)/) {
+    if (infence == 0) {
+      infence = 1
+      fencechar = (line ~ /^ {0,3}~~~/) ? "~" : "`"
+    } else if ((fencechar == "~" && line ~ /^ {0,3}~~~/) || (fencechar == "`" && line ~ /^ {0,3}```/)) {
+      infence = 0; fencechar = ""
+    }
+    next
+  }
   if (infence) next
   # Indented code block: a leading tab, or four-plus leading spaces.
   if (line ~ /^\t/ || line ~ /^ {4,}/) next
