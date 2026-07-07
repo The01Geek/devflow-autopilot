@@ -2089,6 +2089,21 @@ assert_pin_unique "fix-as-new-code: deletion class re-reads the unit and greps f
 assert_pin_unique "fix-as-new-code: anti-punt clause (do not lean on a later pass to find a fix-introduced defect)" \
   'to find a defect your fix introduced' "$RECV_SKILL"
 
+# ── Drift guards (issue #323): the "Update the Branch First (Step 0)" step prepended to the
+# Response Pattern. SKILL prose vendored to consumer repos, so an assert_pin_unique on each
+# operative sentence is the mutation-proven drift guard — deleting or paraphrasing it drops the
+# count to 0 and fails closed. Each literal is target-unique, apostrophe-free ASCII, and
+# repo-agnostic (only generic git concepts — the remote, the working branch, the base branch —
+# never a repo path or CI job name, which the two repo-agnostic pins below keep out of the body).
+# The operative sentence for each AC is pinned (not an adjacent framing clause): the step's
+# existence/instruction (AC1), the conflicts-resolved rule (AC2), and the fail-soft path (AC3).
+assert_pin_unique "rcv: response pattern opens with an update-branch step 0" \
+  '0. UPDATE BRANCH: Update the working branch first' "$RECV_SKILL"
+assert_pin_unique "rcv: step 0 resolves update conflicts as part of the work" \
+  'resolved as part of the current work, before any review finding is implemented' "$RECV_SKILL"
+assert_pin_unique "rcv: step 0 fail-soft path" \
+  'record the limitation and proceed on the local state' "$RECV_SKILL"
+
 # ── Drift guards (issue #167): the completeness-critic pass (shared engine) and the
 # mechanism-scoped self-authored-claim re-sweep (fix loop). Both are SKILL-prose engine
 # behaviors; pin the load-bearing contract literals so a silent paraphrase or deletion that
