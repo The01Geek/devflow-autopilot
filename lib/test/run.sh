@@ -9563,11 +9563,11 @@ assert_eq "#304 require_* config extraction is try/catch-guarded" "2" \
 # (AC1) preconditions_ok clears the crashed helper's captured stdout on the
 # no-retry path (bare `pre=""` in the else arm) so a corrupted copy's partial
 # output is never parsed — the parse below then fails closed to 'unverifiable'.
-# The bare pre="" is the operative fix; the comment is its framing.
+# The bare pre="" IS the operative fix (its removal alone re-introduces
+# parsing a crashed helper's partial stdout), so assert_pin_unique on it is
+# removal-proof — no separate framing-comment pin is needed.
 assert_pin_unique '#311 preconditions_ok clears partial stdout on the no-retry crash path (operative pre="")' \
   'pre=""' "$REVIEW_WF"
-assert_eq "#311 preconditions_ok no-retry pre-clear names its intent (never parse a crashed helper's output)" "yes" \
-  "$(grep -qF "Never parse a crashed helper" "$REVIEW_WF" && echo yes || echo no)"
 # (AC2) devflow_review_run_count emits its OWN breadcrumb distinguishing a
 # query failure from a non-numeric count (the #311 workflow half of AC2).
 assert_eq "#311 run_count distinguishes query-failure in its own breadcrumb" "yes" \
@@ -9577,21 +9577,22 @@ assert_eq "#311 run_count distinguishes non-numeric-count in its own breadcrumb"
 # (AC3, executed) The exclusion filter is skipped+neutral ONLY: run the exact
 # devflow_review_run_count jq filter over a fixture spanning the conclusion
 # vocabulary. A cancelled review JOB is mapped to neutral upstream (finalize_
-# check) and so is excluded as the neutral case; a bare cancelled conclusion
+# check) and so is excluded as the neutral case; a bare `cancelled` conclusion
 # sits OUTSIDE the exclusion set and counts — this is the cancelled-conclusion
-# gate case. skipped+neutral excluded; null(in-progress)+success+cancelled
-# counted; a non-'Devflow Review' name never counts.
+# gate case, exercised here by the `cancelled` (id:5) entry in the fixture:
+# skipped+neutral are excluded; null(in-progress)+success+cancelled are
+# counted (→ 3); a non-'Devflow Review' name never counts.
 RUNCOUNT_FILTER='.check_runs[] | select(.name=="Devflow Review" and .conclusion != "skipped" and .conclusion != "neutral") | .id'
-assert_eq "#311 run_count filter counts a cancelled-conclusion Devflow Review check (outside the skipped+neutral exclusion set)" "1" \
-  "$(echo '{"check_runs":[{"name":"Devflow Review","conclusion":"cancelled","id":11}]}' | jq -r "$RUNCOUNT_FILTER" | grep -c . || true)"
 assert_eq "#311 run_count filter excludes skipped+neutral, counts null+success+cancelled, ignores other names" "3" \
   "$(echo '{"check_runs":[{"name":"Devflow Review","conclusion":"skipped","id":1},{"name":"Devflow Review","conclusion":"neutral","id":2},{"name":"Devflow Review","conclusion":null,"id":3},{"name":"Devflow Review","conclusion":"success","id":4},{"name":"Devflow Review","conclusion":"cancelled","id":5},{"name":"Other","conclusion":"success","id":6}]}' | jq -r "$RUNCOUNT_FILTER" | grep -c . || true)"
-# (AC3, static) The CI-completion path's draft + stale-head guards
-# (breadcrumb-plus-behavior: each notice sits above its own exit 0).
-assert_eq "#311 CI-completion path guards draft PRs (defers to the ready_for_review event)" "yes" \
-  "$(grep -qF 'is a draft; deferring (the later ready_for_review event reviews it)' "$REVIEW_WF" && echo yes || echo no)"
-assert_eq "#311 CI-completion path guards a stale head (no-op on a superseded head)" "yes" \
-  "$(grep -qF "no-op (the newer head's own events cover it)" "$REVIEW_WF" && echo yes || echo no)"
+# (AC3, static) The CI-completion path's draft + stale-head guards, anchored
+# to the operative token (breadcrumb-plus-behavior): grep -A1 pins that each
+# guard's notice is immediately followed by its `exit 0`, so a reword that
+# silently dropped the deferral behavior goes RED — not a comment-only pin.
+assert_eq "#311 CI-completion path draft guard defers with exit 0 (breadcrumb-plus-behavior)" "yes" \
+  "$(grep -A1 'is a draft; deferring (the later ready_for_review event reviews it)' "$REVIEW_WF" | grep -qE '^ *exit 0' && echo yes || echo no)"
+assert_eq "#311 CI-completion path stale-head guard no-ops with exit 0 (breadcrumb-plus-behavior)" "yes" \
+  "$(grep -A1 "no-op (the newer head's own events cover it)" "$REVIEW_WF" | grep -qE '^ *exit 0' && echo yes || echo no)"
 # (AC3, static) The missing-helper fail-OPEN arm keeps its `return 0`
 # DIRECTION (behavior, not breadcrumb-only): the return 0 sits immediately
 # under the fail-open breadcrumb, so an un-vendored consumer reviews
