@@ -257,9 +257,19 @@ jobs:
               # once with the in-repo fallback when it is a different file.
               if [ "$script" != scripts/derive-review-preconditions.sh ] && [ -f scripts/derive-review-preconditions.sh ]; then
                 echo "::warning::retrying the preconditions with the in-repo scripts/derive-review-preconditions.sh"
-                pre=$(REPO="$REPO" HEAD_SHA="$2" BASE_BRANCH="$BASE_BRANCH" \
+                # Same crash-arm hazard as the no-retry else below: if the in-repo
+                # retry ALSO exits non-zero it may have emitted partial stdout (a
+                # truncated should_run=/reason= line) before dying, and a bare
+                # `|| true` would keep that partial output for the parse to read
+                # — failing OPEN on a crashed helper. Clear it so this crash path
+                # fails closed to 'unverifiable' identically to the no-retry path
+                # (peer-complete: both crash arms of preconditions_ok clear pre).
+                if ! pre=$(REPO="$REPO" HEAD_SHA="$2" BASE_BRANCH="$BASE_BRANCH" \
                       REQUIRE_UP_TO_DATE="$REQUIRE_UP_TO_DATE" REQUIRE_CI_GREEN="$REQUIRE_CI_GREEN" \
-                      SELF_WORKFLOW_NAME="$SELF_WORKFLOW_NAME" bash scripts/derive-review-preconditions.sh) || true
+                      SELF_WORKFLOW_NAME="$SELF_WORKFLOW_NAME" bash scripts/derive-review-preconditions.sh); then
+                  echo "::warning::the in-repo retry also exited non-zero; clearing its partial output and treating the preconditions as unverifiable (fail closed)."
+                  pre=""
+                fi
               else
                 # No in-repo copy to retry (the crashed script IS the in-repo
                 # one, or no fallback exists). The command substitution above

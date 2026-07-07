@@ -9563,11 +9563,13 @@ assert_eq "#304 require_* config extraction is try/catch-guarded" "2" \
 # (AC1) preconditions_ok clears the crashed helper's captured stdout on the
 # no-retry path (bare `pre=""` in the else arm) so a corrupted copy's partial
 # output is never parsed — the parse below then fails closed to 'unverifiable'.
-# The bare pre="" IS the operative fix (its removal alone re-introduces
-# parsing a crashed helper's partial stdout), so assert_pin_unique on it is
-# removal-proof — no separate framing-comment pin is needed.
-assert_pin_unique '#311 preconditions_ok clears partial stdout on the no-retry crash path (operative pre="")' \
-  'pre=""' "$REVIEW_WF"
+# The bare pre="" IS the operative fix (its removal re-introduces parsing a
+# crashed helper's partial stdout). preconditions_ok has TWO crash arms that
+# must each clear it — the no-retry `else` arm AND the in-repo retry arm — so
+# the rule is peer-complete only when BOTH clear (2.3.0a): pin the count at 2.
+# Removal-proof: dropping either clear → count 1 → RED; dropping both → 0 → RED.
+assert_eq '#311 preconditions_ok clears partial stdout on BOTH crash arms (no-retry + retry), fail-closed' "2" \
+  "$(grep -cF 'pre=""' "$REVIEW_WF" || true)"
 # (AC2) devflow_review_run_count emits its OWN breadcrumb distinguishing a
 # query failure from a non-numeric count (the #311 workflow half of AC2).
 assert_eq "#311 run_count distinguishes query-failure in its own breadcrumb" "yes" \
@@ -9615,6 +9617,18 @@ assert_eq "#311 create_check reuses an existing neutral check for the same head+
   "$(grep -qF 'PATCHed in place instead of posting a duplicate' "$REVIEW_WF" && echo yes || echo no)"
 assert_eq "#311 create_check reuse looks up neutral Devflow Review checks on the head" "yes" \
   "$(grep -qF 'select(.name=="Devflow Review" and .conclusion=="neutral")' "$REVIEW_WF" && echo yes || echo no)"
+# (AC5, executed) The reuse lookup's jq PROJECTION column order is load-bearing:
+# the bash reads `IFS=$'\t' read -r _rt _rid`, so the filter must emit
+# title<TAB>id (not id<TAB>title) or the title match silently compares the id
+# and de-dup breaks. A presence grep can't catch a swapped projection, so run
+# the exact filter over a fixture. Only neutral Devflow Review rows project;
+# success/other-name rows are excluded; an absent output.title yields an empty
+# first column (not null), so the row still parses as "<empty>\t<id>".
+REUSE_FILTER='.check_runs[] | select(.name=="Devflow Review" and .conclusion=="neutral") | [(.output.title // ""), (.id|tostring)] | @tsv'
+assert_eq "#311 AC5 reuse lookup projects title<TAB>id (column order) for neutral Devflow Review rows only" "$(printf 'Devflow review waiting: branch behind base\t7')" \
+  "$(echo '{"check_runs":[{"name":"Devflow Review","conclusion":"neutral","output":{"title":"Devflow review waiting: branch behind base"},"id":7},{"name":"Devflow Review","conclusion":"success","output":{"title":"x"},"id":8},{"name":"Other","conclusion":"neutral","output":{"title":"y"},"id":9}]}' | jq -r "$REUSE_FILTER")"
+assert_eq "#311 AC5 reuse lookup emits an empty title column (not null) when output.title is absent" "$(printf '\t11')" \
+  "$(echo '{"check_runs":[{"name":"Devflow Review","conclusion":"neutral","id":11}]}' | jq -r "$REUSE_FILTER")"
 # (AC6) The dangling review-rerun-checks.md comment ref is corrected to the
 # real doc, and the behind-base deferral summary points at it.
 assert_eq "#311 no dangling review-rerun-checks.md reference remains in the workflow" "0" \
