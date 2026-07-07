@@ -15708,15 +15708,24 @@ echo "#312: workflow endpoint↔permission lint"
 # other two). NOTE: only THIS helper is attributed — a job that runs a *different*
 # gh-api-calling helper (react-to-trigger.sh, resolve-implement-trigger.sh) is NOT walked,
 # so the lint covers inline calls plus this one helper, not "any helper the job runs"
-# (a deferred generalization, #312 review). Endpoint families are matched on the
+# (a deferred generalization, #312 review). The matcher recognizes only the six families
+# enumerated in _wf_req_keys — an inline call outside them (e.g. devflow-review.yml's
+# best-effort repos/*/collaborators/*/permission) is not checked (a deferred family,
+# #312 review); the manual Phase 2.3.4 endpoint↔permission map remains the primary check,
+# this lint its CI backstop. Endpoint families are matched on the
 # repos/-anchored REST-path form so a bare actions/runs/<id> RUN_URL string is NOT a false
 # match; pure-comment lines are stripped so a doc comment naming an endpoint cannot
-# manufacture a false requirement. The issues/*/comments family is satisfied by EITHER
+# manufacture a false requirement (only FULL-LINE comments are stripped: a trailing
+# inline comment naming an endpoint over-requires, which fails CLOSED — surfaces RED —
+# so it is accepted, #312 review). The issues/*/comments family is satisfied by EITHER
 # `issues` or `pull-requests` (a PR comment needs pull-requests:write, an issue comment
 # needs issues:write — statically indistinguishable); the lint checks key PRESENCE, not the
 # read/write access level (a deferred refinement, #312 review). A job that declares no
 # `permissions:` block inherits the file's top-level block. Fail-closed: a missing
-# workflows dir / precond helper yields a sentinel token, never a silent 0.
+# workflows dir / precond helper yields a sentinel token, never a silent 0. Known
+# fail-open limit: the awk splitter assumes this repo's canonical 2/4/6-space YAML
+# indentation — a re-indented or tab-indented workflow parses to 0 jobs, indistinguishable
+# from clean (deferred hardening, #312 review).
 
 # emit sorted-unique required permission keys for the text on stdin
 _wf_req_keys() {
@@ -15810,6 +15819,11 @@ cp "$WF_DIR"/*.yml "$WF_MUT_DIR/.github/workflows/" 2>/dev/null || true
 cp "$WF_PRECOND" "$WF_MUT_DIR/scripts/derive-review-preconditions.sh" 2>/dev/null || true
 # Drop ONLY the first `statuses: read` (precheck's). `0,/re/` is GNU-only, so use awk
 # for a portable first-match replacement (macOS/BSD per CLAUDE.md portability rule).
+# First-match targeting assumes precheck's grant stays the file's only/first
+# `statuses: read` (true today); if another job gains one, re-anchor this to the
+# precheck job block (#312 review). The other precond-attributed families
+# (actions/checks/contents/pull-requests) have no per-family attribution mutation
+# case — deferred (#312 review).
 awk '!d && /^      statuses: read/ { sub(/statuses: read/, "REMOVED_statuses_read: read"); d=1 } { print }' \
   "$WF_DIR/devflow-review.yml" > "$WF_MUT_DIR/.github/workflows/devflow-review.yml" 2>/dev/null || true
 WF_MUT_V="$(wf_perm_lint "$WF_MUT_DIR/.github/workflows" "$WF_MUT_DIR/scripts/derive-review-preconditions.sh")"
@@ -15839,15 +15853,18 @@ rm -rf "$WF_MUT_DIR" 2>/dev/null || true
 #                        (proves the either-satisfies branch flags a job with neither)
 #   - contents_missing:  compare (→ contents), declares only checks               → +1
 #   - pulls_missing:     commits/*/pulls (→ pull-requests), declares only checks   → +1
+#   - statuses_missing:  commits/*/status (→ statuses), declares only contents     → +1
+#                        (the mutation proof above covers statuses only via the
+#                        helper-attribution path; this is its inline-path case)
 #   - actions_missing:   actions/runs (→ actions), declares only contents so the
 #                        job block REPLACES the top-level actions grant           → +1
 #   - guards_ok:         a COMMENTED endpoint line (must be stripped → no statuses
 #                        requirement) plus a bare actions/runs/<id> RUN_URL string
 #                        (no repos/ prefix → must NOT match)                       → 0
 #                        (locks the comment-strip + repos/-anchor false-match guards)
-# Expected total = 5. Any single inline regex breaking, or inheritance/replacement/strip/
-# anchor logic regressing, moves the count off 5 → RED. Fail-closed on a git_sandbox sentinel:
-# the cat/mkdir no-op and wf_perm_lint → MISSING_WFDIR ≠ "5" → RED.
+# Expected total = 6. Any single inline regex breaking, or inheritance/replacement/strip/
+# anchor logic regressing, moves the count off 6 → RED. Fail-closed on a git_sandbox sentinel:
+# the cat/mkdir no-op and wf_perm_lint → MISSING_WFDIR ≠ "6" → RED.
 WF_POS_DIR="$(git_sandbox "#312: wf-lint positive inline test temp dir")"
 mkdir -p "$WF_POS_DIR/.github/workflows" 2>/dev/null || true
 cat > "$WF_POS_DIR/.github/workflows/pos.yml" <<'POSYAML' 2>/dev/null || true
@@ -15879,6 +15896,11 @@ jobs:
       checks: read
     steps:
       - run: gh api repos/o/r/commits/deadbeef/pulls
+  statuses_missing:
+    permissions:
+      contents: read
+    steps:
+      - run: gh api repos/o/r/commits/deadbeef/status
   actions_missing:
     permissions:
       contents: read
@@ -15891,8 +15913,8 @@ jobs:
       # gh api repos/o/r/commits/deadbeef/status  <- commented: must be stripped
       - run: echo "run https://github.com/o/r/actions/runs/123"
 POSYAML
-assert_eq "#312: wf-lint positive inline test — all six endpoint families differentially covered, inheritance/replacement/strip/anchor honored (5 violations)" \
-  "5" "$(wf_perm_lint "$WF_POS_DIR/.github/workflows" "$WF_PRECOND")"
+assert_eq "#312: wf-lint positive inline test — all six endpoint families differentially covered, inheritance/replacement/strip/anchor honored (6 violations)" \
+  "6" "$(wf_perm_lint "$WF_POS_DIR/.github/workflows" "$WF_PRECOND")"
 rm -rf "$WF_POS_DIR" 2>/dev/null || true
 
 # Tally the shell assertions from the results file (authoritative — includes the
