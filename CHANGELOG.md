@@ -4,6 +4,16 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.77] — 2026-07-07
+
+### Fixed
+- **Review preconditions now surface the underlying `gh` error in their breadcrumbs.** Each `gh api` failure arm in `scripts/derive-review-preconditions.sh` (the branch-freshness compare, the workflow-runs, combined-status, and check-runs queries) now captures `gh`'s own stderr into its "query failed" breadcrumb — mirroring `resolve_pr_for_head` — so an operator debugging a permanently-deferred auto-review sees the real cause (rate limit, 403 token-scope, 5xx) instead of a bare "query failed". Also documents the behind-base deferral base-advance limitation in `docs/workflow-triggers.md` and adds a post-install reminder to set the `workflow_run` CI workflow name(s). (#319)
+
+## [2.8.76] — 2026-07-06
+
+### Fixed
+- **Light `/devflow:*` command triggers now fire only on a standalone command, not a quoted mention.** `scripts/resolve-command-trigger.sh` now detects `/devflow:review`, `/devflow:review-and-fix`, and `/devflow:pr-description` via a shared markdown-aware line scanner (`scripts/detect-standalone-command.sh`) that recognizes a command only when it is the sole content of its own line — anchored, fence-aware, indent-aware, most-specific-first, and fail-closed on an unbalanced fence — so a command merely quoted in prose, blockquoted, indented, or inside a fenced code block no longer starts a spurious review run (the reported PR-review self-trigger loop). A self-marker guard additionally declines any body carrying a DevFlow self-comment marker (the review-progress prefix or the workpad marker) before authorization. (#318)
+
 ## [2.8.75] — 2026-07-06
 
 ### Fixed
