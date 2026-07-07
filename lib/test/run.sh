@@ -9553,6 +9553,76 @@ assert_eq "#304 missing preconditions helper fails open with the vendor breadcru
 assert_eq "#304 require_* config extraction is try/catch-guarded" "2" \
   "$(grep -cE 'try \.devflow_review\.require_(up_to_date|ci_green) catch null' "$REVIEW_WF" || true)"
 
+# ── #311 workflow-resident hardening (deferred from #311 to this human/PAT PR) ─
+# The workflow half of #311 could not ship in the bot-pushed #319 (the DevFlow
+# bot's installation token cannot push .github/workflows/), and these pins are
+# coupled to the exact devflow-review.yml lines — landed in the SAME commit as
+# those lines so CI never greps an unlanded line (the CLAUDE.md coupled-
+# invariant rule). The script gh-stderr half of AC2 shipped in #319 (drp_stderr
+# tests above); this is the workflow-resident remainder.
+# (AC1) preconditions_ok clears the crashed helper's captured stdout on the
+# no-retry path (bare `pre=""` in the else arm) so a corrupted copy's partial
+# output is never parsed — the parse below then fails closed to 'unverifiable'.
+# The bare pre="" is the operative fix; the comment is its framing.
+assert_pin_unique '#311 preconditions_ok clears partial stdout on the no-retry crash path (operative pre="")' \
+  'pre=""' "$REVIEW_WF"
+assert_eq "#311 preconditions_ok no-retry pre-clear names its intent (never parse a crashed helper's output)" "yes" \
+  "$(grep -qF "Never parse a crashed helper" "$REVIEW_WF" && echo yes || echo no)"
+# (AC2) devflow_review_run_count emits its OWN breadcrumb distinguishing a
+# query failure from a non-numeric count (the #311 workflow half of AC2).
+assert_eq "#311 run_count distinguishes query-failure in its own breadcrumb" "yes" \
+  "$(grep -qF 'the check-runs query for $1 failed' "$REVIEW_WF" && echo yes || echo no)"
+assert_eq "#311 run_count distinguishes non-numeric-count in its own breadcrumb" "yes" \
+  "$(grep -qF 'the count was non-numeric' "$REVIEW_WF" && echo yes || echo no)"
+# (AC3, executed) The exclusion filter is skipped+neutral ONLY: run the exact
+# devflow_review_run_count jq filter over a fixture spanning the conclusion
+# vocabulary. A cancelled review JOB is mapped to neutral upstream (finalize_
+# check) and so is excluded as the neutral case; a bare cancelled conclusion
+# sits OUTSIDE the exclusion set and counts — this is the cancelled-conclusion
+# gate case. skipped+neutral excluded; null(in-progress)+success+cancelled
+# counted; a non-'Devflow Review' name never counts.
+RUNCOUNT_FILTER='.check_runs[] | select(.name=="Devflow Review" and .conclusion != "skipped" and .conclusion != "neutral") | .id'
+assert_eq "#311 run_count filter counts a cancelled-conclusion Devflow Review check (outside the skipped+neutral exclusion set)" "1" \
+  "$(echo '{"check_runs":[{"name":"Devflow Review","conclusion":"cancelled","id":11}]}' | jq -r "$RUNCOUNT_FILTER" | grep -c . || true)"
+assert_eq "#311 run_count filter excludes skipped+neutral, counts null+success+cancelled, ignores other names" "3" \
+  "$(echo '{"check_runs":[{"name":"Devflow Review","conclusion":"skipped","id":1},{"name":"Devflow Review","conclusion":"neutral","id":2},{"name":"Devflow Review","conclusion":null,"id":3},{"name":"Devflow Review","conclusion":"success","id":4},{"name":"Devflow Review","conclusion":"cancelled","id":5},{"name":"Other","conclusion":"success","id":6}]}' | jq -r "$RUNCOUNT_FILTER" | grep -c . || true)"
+# (AC3, static) The CI-completion path's draft + stale-head guards
+# (breadcrumb-plus-behavior: each notice sits above its own exit 0).
+assert_eq "#311 CI-completion path guards draft PRs (defers to the ready_for_review event)" "yes" \
+  "$(grep -qF 'is a draft; deferring (the later ready_for_review event reviews it)' "$REVIEW_WF" && echo yes || echo no)"
+assert_eq "#311 CI-completion path guards a stale head (no-op on a superseded head)" "yes" \
+  "$(grep -qF "no-op (the newer head's own events cover it)" "$REVIEW_WF" && echo yes || echo no)"
+# (AC3, static) The missing-helper fail-OPEN arm keeps its `return 0`
+# DIRECTION (behavior, not breadcrumb-only): the return 0 sits immediately
+# under the fail-open breadcrumb, so an un-vendored consumer reviews
+# unconditionally rather than losing reviews. grep -A1 pins the coupling.
+assert_eq "#311 missing-helper fail-open arm returns 0 right under its breadcrumb (behavior, not breadcrumb-only)" "yes" \
+  "$(grep -A1 'skipping the review preconditions and proceeding (fail open' "$REVIEW_WF" | grep -qE '^ *return 0' && echo yes || echo no)"
+# (AC3, static) resolve_pr_for_head filters to OPEN PRs only — a closed/merged
+# PR sharing the head is never resolved as the review target.
+assert_eq '#311 resolve_pr_for_head keeps the select(.state=="open") filter' "yes" \
+  "$(grep -qF 'select(.state=="open")' "$REVIEW_WF" && echo yes || echo no)"
+# (AC4) The concurrency-comment overstatement is reworded to the true worst
+# case (a same-instant race can double-review); the old claim is gone.
+assert_eq "#311 concurrency comment reworded to the true worst case (same-instant double-review)" "yes" \
+  "$(grep -qF 'the true worst case is a same-instant double-review' "$REVIEW_WF" && echo yes || echo no)"
+assert_eq "#311 old concurrency overstatement removed (no 'at worst two prechecks race and one skips')" "0" \
+  "$(grep -cF 'at worst two prechecks' "$REVIEW_WF" || true)"
+# (AC5) create_check reuses/PATCHes an existing neutral check for the same
+# head+reason instead of POSTing a fresh completed-neutral run each re-eval.
+assert_eq "#311 create_check reuses an existing neutral check for the same head+reason (PATCH in place)" "yes" \
+  "$(grep -qF 'PATCHed in place instead of posting a duplicate' "$REVIEW_WF" && echo yes || echo no)"
+assert_eq "#311 create_check reuse looks up neutral Devflow Review checks on the head" "yes" \
+  "$(grep -qF 'select(.name=="Devflow Review" and .conclusion=="neutral")' "$REVIEW_WF" && echo yes || echo no)"
+# (AC6) The dangling review-rerun-checks.md comment ref is corrected to the
+# real doc, and the behind-base deferral summary points at it.
+assert_eq "#311 no dangling review-rerun-checks.md reference remains in the workflow" "0" \
+  "$(grep -cF 'review-rerun-checks.md' "$REVIEW_WF" || true)"
+assert_eq "#311 trigger-policy comment points at the real doc (docs/workflow-triggers.md)" "yes" \
+  "$(grep -qF 'see docs/workflow-triggers.md' "$REVIEW_WF" && echo yes || echo no)"
+assert_eq "#311 behind-base deferral summary points at docs/workflow-triggers.md" "yes" \
+  "$(grep -qF 'See docs/workflow-triggers.md for the deferral and re-trigger policy' "$REVIEW_WF" && echo yes || echo no)"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "efficiency-trace.jq / efficiency-trace.sh"
 # ────────────────────────────────────────────────────────────────────────────
