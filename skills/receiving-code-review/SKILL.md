@@ -28,7 +28,7 @@ Code review requires technical evaluation, not emotional performance.
 ```
 WHEN receiving code review feedback:
 
-0. UPDATE BRANCH: Update the working branch first — fetch from the remote, merge in the branch's remote counterpart when it has commits the local branch lacks, then merge the base branch into the working branch (see Update the Branch First below)
+0. UPDATE BRANCH: Update the working branch first (see Update the Branch First below)
 1. READ: Complete feedback without reacting
 2. UNDERSTAND: Restate requirement in own words (or ask)
 3. VERIFY: Check against codebase reality
