@@ -2101,6 +2101,10 @@ assert_pin_unique "fix-as-new-code: anti-punt clause (do not lean on a later pas
 # the conflicts-resolved rule (AC2), and the fail-soft path (AC3).
 assert_pin_unique "rcv: response pattern opens with an update-branch step 0" \
   '0. UPDATE BRANCH: Update the working branch first' "$RECV_SKILL"
+assert_pin_unique "rcv: step 0 fetches from the remote first" \
+  'Fetch from the remote first' "$RECV_SKILL"
+assert_pin_unique "rcv: step 0 merges in the remote counterpart" \
+  'has commits the local branch lacks, merge them in' "$RECV_SKILL"
 assert_pin_unique "rcv: step 0 merges the base branch into the working branch" \
   'then merge the base branch into the working branch' "$RECV_SKILL"
 assert_pin_unique "rcv: step 0 resolves update conflicts as part of the work" \
