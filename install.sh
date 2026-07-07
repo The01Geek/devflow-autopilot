@@ -358,6 +358,15 @@ mkdir -p .github/workflows .github/actions
 for w in devflow devflow-runner devflow-implement devflow-review; do
   [ -f "$SRC/.github/workflows/$w.yml" ] && cp "$SRC/.github/workflows/$w.yml" ".github/workflows/$w.yml"
 done
+# devflow-review.yml's CI-completion re-trigger (issue #304) re-fires a review
+# that was deferred behind the branch-freshness / other-CI-green preconditions
+# once your CI completes. The `workflow_run:` trigger REQUIRES an explicit
+# workflow-name list (a GitHub platform constraint — no wildcards) and ships as
+# `[CI]`. If your CI workflow is named anything else, that re-trigger silently
+# never fires until you add its name. Prompt for it prominently here.
+if [ -f ".github/workflows/devflow-review.yml" ]; then
+  log "ACTION REQUIRED: edit '.github/workflows/devflow-review.yml' — set the 'workflow_run:' 'workflows:' list (ships as [CI]) to your repo's actual CI workflow name(s), or the auto-review's CI-completion re-trigger will not fire for deferred reviews. External non-Actions CI is covered by 'check_suite' and needs no naming. See docs/workflow-triggers.md."
+fi
 # Drop DevFlow's superseded claude*.yml on upgrade (signature-guarded so an
 # Anthropic-owned claude.yml is never touched).
 prune_stale_devflow_workflows
