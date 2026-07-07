@@ -2094,11 +2094,15 @@ assert_pin_unique "fix-as-new-code: anti-punt clause (do not lean on a later pas
 # operative sentence is the mutation-proven drift guard — deleting or paraphrasing it drops the
 # count to 0 and fails closed. Each literal is target-unique, apostrophe-free ASCII, and
 # repo-agnostic (only generic git concepts — the remote, the working branch, the base branch —
-# never a repo path or CI job name, which the two repo-agnostic pins below keep out of the body).
+# never a repo path or CI job name; the separate repo-agnostic pins earlier in this file
+# assert no 'lib/test/run.sh' / 'lib + python tests' literal ever enters the body).
 # The operative sentence for each AC is pinned (not an adjacent framing clause): the step's
-# existence/instruction (AC1), the conflicts-resolved rule (AC2), and the fail-soft path (AC3).
+# existence/instruction (AC1), the update mechanic (the fetch/merge-remote/merge-base sequence),
+# the conflicts-resolved rule (AC2), and the fail-soft path (AC3).
 assert_pin_unique "rcv: response pattern opens with an update-branch step 0" \
   '0. UPDATE BRANCH: Update the working branch first' "$RECV_SKILL"
+assert_pin_unique "rcv: step 0 merges the base branch into the working branch" \
+  'then merge the base branch into the working branch' "$RECV_SKILL"
 assert_pin_unique "rcv: step 0 resolves update conflicts as part of the work" \
   'resolved as part of the current work, before any review finding is implemented' "$RECV_SKILL"
 assert_pin_unique "rcv: step 0 fail-soft path" \
