@@ -6,8 +6,9 @@
 # in an issue body's **Documentation Needed** bullet, one per line.
 #
 # Reads the issue body on stdin (or from a file path given as $1) and emits the
-# recognizable file paths declared in the `**Documentation Needed**` bullet that
-# lives as a sub-bullet of the `## Implementation Notes` section. Both Phase 4.1
+# recognizable file paths declared in the `**Documentation Needed**` bullet of
+# the `## Implementation Notes` section — a `- **…**` list item or a bare bold
+# paragraph, per the scope note below (issue #309). Both Phase 4.1
 # Stage 1 (pre-flight briefing) and Stage 2 (post-hoc diff gate) consume THIS
 # output rather than re-deriving paths by LLM prose interpretation — so the two
 # passes can never disagree about which paths were named (issue #185 Addendum).
@@ -75,7 +76,15 @@ block="$(printf '%s\n' "$body" | awk '
   # helper feeds, the recurrence the #309 fix must not introduce. It also keeps
   # the dashed list form (consecutive, blank-separator-free "- **…**" bullets, as
   # in the template) closing correctly via the "- **" arm, which needs no blank
-  # line. The open-match is still ANCHORED to the bullet LABEL
+  # line. ACCEPTED tradeoff (#309 review): a blank-line-PRECEDED bold paragraph
+  # that the author meant as a continuation of the bullet ("**Also.** update
+  # `b.md`" after a blank line) is structurally indistinguishable from a peer
+  # bullet ("**Potential Gotchas.** …"), so it closes the scope and its paths
+  # are dropped. Closing is the deliberate choice: treating it as continuation
+  # would leak every following peer bullet into the gate output (the
+  # false-positive direction the issue Gotchas forbid). Pinned by a run.sh
+  # fixture so the drop is a documented contract, not a silent surprise.
+  # The open-match is still ANCHORED to the bullet LABEL
   # (^(- )?**Documentation Needed**) so a different bullet that merely MENTIONS
   # the label in its prose (e.g. the Potential Gotchas bullet) closes the scope
   # rather than re-opening it. Sub-bullets ("  - x") and non-bold continuation
