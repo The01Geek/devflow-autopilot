@@ -152,7 +152,17 @@ jobs:
             echo "::warning::devflow detector not found at $DETECTOR — has install.sh vendored the plugin? Fail-open (manual review proceeds)."
             exit 0
           fi
-          CMD="$(printf '%s' "$BODY" | bash "$DETECTOR" | sed -n 's/^command=//p')"
+          # Verify the OUTCOME, not just the -x precondition: a present-but-broken
+          # detector (corrupt/partial vendored copy, awk error) or a missing sed
+          # exits non-zero, and under `set -euo pipefail` that would abort this step
+          # and FAIL the job — which then SKIPS the downstream `command` job (it
+          # `needs: review_dedupe` with no always()), silently swallowing the manual
+          # review. That is the fail-CLOSED direction this job's contract forbids, so
+          # absorb any run failure into the same fail-OPEN exit the -x branch uses (#321).
+          if ! CMD="$(printf '%s' "$BODY" | bash "$DETECTOR" | sed -n 's/^command=//p')"; then
+            echo "::warning::devflow detector at $DETECTOR failed to run (broken vendored copy, or missing sed/bash); fail-open (manual review proceeds)."
+            exit 0
+          fi
           case "$CMD" in
             /devflow:review-and-fix)
               echo "::notice::/devflow:review-and-fix has no auto path; not deduping."

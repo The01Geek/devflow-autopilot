@@ -8616,6 +8616,14 @@ assert_pin_unique "rct #314: resolver calls the shared detect-standalone-command
 assert_pin_unique "rct #321: review_dedupe routes through the shared detect-standalone-command.sh" \
   '.devflow/vendor/devflow/scripts/detect-standalone-command.sh' "$LIB/../.github/workflows/devflow.yml"
 
+# review_dedupe is fail-OPEN by contract: a present-but-broken detector (or a
+# missing sed) must NOT abort the guard step under `set -euo pipefail` — an abort
+# fails the job, skipping the downstream `command` job and silently swallowing the
+# manual review. Pin the outcome-verifying `if !` wrapper (the operative fix);
+# reverting it to a bare `CMD=$(...)` assignment re-opens the fail-CLOSED swallow.
+assert_pin_unique "rct #321: review_dedupe detector extraction fails open on a run failure (if!-guarded)" \
+  'if ! CMD="$(printf '"'"'%s'"'"' "$BODY" | bash "$DETECTOR" | sed -n '"'"'s/^command=//p'"'"')"' "$LIB/../.github/workflows/devflow.yml"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "react-to-trigger.sh"
 # ────────────────────────────────────────────────────────────────────────────
