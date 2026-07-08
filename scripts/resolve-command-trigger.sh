@@ -26,18 +26,67 @@ emit() { printf '%s=%s\n' "$1" "$2"; }
 text="${TRIGGER_TEXT:-}"
 context_number="${CONTEXT_NUMBER:-}"
 
-# --- Command detection (most specific first; review-and-fix contains review) -
-cmd=""
-if printf '%s' "$text" | grep -qiE '/devflow:review-and-fix'; then
-  cmd="/devflow:review-and-fix"
-elif printf '%s' "$text" | grep -qiE '/devflow:review'; then
-  cmd="/devflow:review"
-elif printf '%s' "$text" | grep -qiE '/devflow:pr-description'; then
-  cmd="/devflow:pr-description"
+# --- Self-trigger guard (runs BEFORE detection / authorization) -------------
+# Defense-in-depth mirrored from resolve-implement-trigger.sh: decline any body
+# that carries a DevFlow self-comment marker, so DevFlow's own marker-tagged
+# comments (the review engine's run-keyed live progress comment, or an implement
+# workpad) can never re-enter the gate — regardless of who authored them or what
+# phrase they quote. The anchoring below is the authoritative gate for quoted
+# prose; this guard cheaply catches DevFlow's own progress comment (whose
+# narrative naturally quotes `/devflow:review`).
+#
+# The effective markers default to their built-in values (the run-keyed
+# review-progress marker PREFIX `<!-- devflow:review-progress`, matching
+# scripts/derive-review-verdict.sh's `<!-- devflow:review-progress run=<id>- -->`
+# shape, and the workpad marker `<!-- devflow:workpad -->`, matching
+# scripts/workpad.py's own fallback), so the guard protects a repo with no extra
+# workflow wiring. Each is a literal substring match (`case`, not a regex), so a
+# marker customized with regex-special characters still matches literally and a
+# marker quoted/embedded anywhere in the body is still caught.
+review_progress_marker="${SELF_REVIEW_PROGRESS_MARKER:-<!-- devflow:review-progress}"
+workpad_marker="${SELF_WORKPAD_MARKER:-<!-- devflow:workpad -->}"
+for marker in "$review_progress_marker" "$workpad_marker"; do
+  [ -n "$marker" ] || continue
+  case "$text" in
+    *"$marker"*)
+      echo "::warning::light /devflow:* trigger came from a Devflow-authored comment (self-comment marker '$marker' present); skipping (self-trigger guard)." >&2
+      emit should_run false
+      emit command ""
+      exit 0
+      ;;
+  esac
+done
+
+# --- Command detection via the shared standalone-command detector -----------
+# The detector is the single markdown-aware, anchored, fence-/indent-aware line
+# scanner (scripts/detect-standalone-command.sh). The review_dedupe job in
+# devflow.yml is INTENDED to route through the SAME script (so the trigger gate
+# and the dedupe matcher cannot drift), but that workflow change is a deferred,
+# workflows-scoped follow-up (see docs/workflow-triggers.md) — until it lands the
+# shared detector is the resolver's alone and review_dedupe keeps its own coarse
+# case-substring match. It fires only on a standalone command in ordinary comment
+# text (most-specific-first: review-and-fix outranks review), declining a command
+# that is merely quoted in prose, blockquoted, indented as code, or inside a
+# fenced block — so a non-invoking mention in any comment/review body is declined
+# regardless of who authored it (this covers the reported PR-review vector).
+# Invoked via `bash` so a vendored copy that lost its executable bit still runs
+# (same robustness rationale as devflow.yml's `bash "$RESOLVER"`). Guarded with
+# `if !` so a MISSING/unrunnable detector (broken vendor deploy, absent awk) is
+# declined fail-closed with a DISTINCT breadcrumb rather than aborting under
+# `set -e` with only a generic bash error, or falling through to the misdirected
+# "no standalone command" decline below that blames the comment text.
+detector="$(dirname "$0")/detect-standalone-command.sh"
+if ! det_out="$(printf '%s' "$text" | bash "$detector")"; then
+  echo "::warning::standalone-command detector ('$detector') failed to run (missing/unrunnable, or awk unavailable); declining (fail-closed) — this is a BROKEN INSTALL, not a missing command." >&2
+  emit should_run false
+  emit command ""
+  exit 0
 fi
+cmd="$(printf '%s\n' "$det_out" | sed -n 's/^command=//p')"
+det_number="$(printf '%s\n' "$det_out" | sed -n 's/^number=//p')"
 
 if [ -z "$cmd" ]; then
-  echo "::notice::No light /devflow:* command in trigger text; nothing to dispatch." >&2
+  echo "::warning::No STANDALONE light /devflow:* command in trigger text (a command merely quoted in prose, blockquoted, indented, or fenced does not trigger); nothing to dispatch." >&2
   emit should_run false
   emit command ""
   exit 0
@@ -58,11 +107,10 @@ if [ "$authorized" != "true" ]; then
 fi
 
 # --- Target number resolution -----------------------------------------------
-# First explicit `<cmd> <n>` (optional leading #) wins; else the event's number.
-esc_cmd="$(printf '%s' "$cmd" | sed 's/[.[\*^$()+?{|]/\\&/g')"
-match="$(printf '%s' "$text" \
-  | grep -oiE "${esc_cmd}[[:space:]]+#?[0-9]+" | head -n1 || true)"
-number="$(printf '%s' "$match" | grep -oE '[0-9]+' | head -n1 || true)"
+# The detector already returned the explicit number on the matched standalone
+# command line (optional leading #), if any; else fall back to the event's
+# context number.
+number="$det_number"
 [ -z "$number" ] && number="$context_number"
 
 if ! [[ "$number" =~ ^[0-9]+$ ]]; then
