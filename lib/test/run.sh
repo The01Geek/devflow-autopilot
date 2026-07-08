@@ -15870,7 +15870,8 @@ echo "#312: workflow endpoint↔permission lint"
 # (see wf_perm_lint below). So the attribution is not a hardcoded helper allow-list — the three
 # helpers with literal recognized-family calls today
 # (derive-review-preconditions.sh → actions/statuses/contents/checks in precheck;
-# derive-review-verdict.sh → comments in finalize_check; post-issue-comment.sh → comments in
+# derive-review-verdict.sh → comments + pull-requests (pulls/{n}/reviews) in finalize_check;
+# post-issue-comment.sh → comments in
 # the claude job) are all walked, and any future helper in scripts/ or lib/ is too, so no
 # currently-shipping recognized-family endpoint falls in an un-walked gap. The #307 actions:read + statuses:read
 # grants cover precheck's first two families; finalize_check's pull-requests:write and the
@@ -15966,6 +15967,17 @@ _wf_req_keys() {
     # silent-failure finding): devflow-review.yml's resolve_pr_for_head precheck call —
     # precheck already grants pull-requests:read, so the current tree stays clean.
     printf '%s\n' "$t" | _famgrep "repos/[^ \"']*/commits/[^ \"']*/pulls"  pull-requests
+    # The PR-number-scoped sub-resource shape repos/*/pulls/{n}/{reviews,comments,commits,
+    # files,requested_reviewers,merge} is the OTHER pull-requests namespace, distinct from the
+    # commits/*/pulls list above (#312 receiving-review, completeness-critic finding — the six-
+    # family map recognized pull-requests ONLY via commits/*/pulls and was blind to this shape).
+    # LIVE in-population instances, walked via helper attribution and all in jobs that grant
+    # pull-requests (so the tree stays clean): derive-review-verdict.sh (pulls/{n}/reviews) in
+    # finalize_check, and dismiss-stale-rejections.sh (pulls/{n}/reviews[/{id}/dismissals]) in
+    # finalize_check / the runner / the gates. The sub-resource-keyword anchor deliberately
+    # EXCLUDES react-to-trigger.sh's pulls/comments/{id}/reactions — the reactions family stays
+    # OUT of the six recognized families, as the header states.
+    printf '%s\n' "$t" | _famgrep "repos/[^ \"']*/pulls/[^ \"'/]+/(reviews|comments|commits|files|requested_reviewers|merge)"  pull-requests
     printf '%s\n' "$t" | _famgrep "repos/[^ \"']*/compare/"                contents
   } | sort -u
 }
@@ -16111,26 +16123,36 @@ rm -rf "$WF_MUT_DIR" 2>/dev/null || true
 #                        not only the both-absent arm — #312 review, pr-test-analyzer)
 #   - contents_missing:  compare (→ contents), declares only checks               → +1
 #   - pulls_missing:     commits/*/pulls (→ pull-requests), declares only checks   → +1
+#   - pr_reviews_missing: pulls/{n}/reviews (→ pull-requests via the OTHER PR namespace,
+#                        distinct from commits/*/pulls), declares only contents       → +1
+#                        (the inline differential for the PR-sub-resource regex added by
+#                        the #312 receiving-review completeness-critic finding; if that
+#                        regex regresses this drops to 0)
 #   - statuses_missing:  commits/*/status (→ statuses), declares only contents     → +1
 #                        (the mutation proof above covers statuses only via the
 #                        helper-attribution path; this is its inline-path case)
 #   - actions_missing:   actions/runs (→ actions), declares only contents so the
 #                        job block REPLACES the top-level actions grant           → +1
-#   - verdict_helper_missing: runs derive-review-verdict.sh (→ comments via the second-
-#                        helper attribution, resolved from $WF_PRECOND's real scripts/ dir),
-#                        declares only contents                                    → +1
-#                        (proves the derive-review-verdict.sh comments attribution is
-#                        load-bearing — #312 shadow review; if it regresses this drops to 0)
-#   - verdict_helper_ok:  runs derive-review-verdict.sh (→ comments), declares pull-requests → 0
-#                        (proves a satisfied grant clears the second-helper requirement)
+#   - verdict_helper_missing: runs derive-review-verdict.sh (→ comments AND pull-requests via
+#                        the second-helper attribution — the real scripts/ file calls both
+#                        issues/{n}/comments and pulls/{n}/reviews; resolved from $WF_PRECOND's
+#                        real scripts/ dir), declares only contents                → +2
+#                        (proves BOTH the comments and the pull-requests attributions of
+#                        derive-review-verdict.sh are load-bearing — #312 shadow review + #312
+#                        receiving-review; if either regresses this drops toward 0)
+#   - verdict_helper_ok:  runs derive-review-verdict.sh (→ comments + pull-requests), declares
+#                        pull-requests → 0 (pull-requests satisfies both the pull-requests
+#                        requirement and — via the either-arm — the comments requirement;
+#                        proves a satisfied grant clears the second-helper requirement)
 #   - guards_ok:         a COMMENTED endpoint line (must be stripped → no statuses
 #                        requirement) plus a bare actions/runs/<id> RUN_URL string
 #                        (no repos/ prefix → must NOT match)                       → 0
 #                        (locks the comment-strip + repos/-anchor false-match guards)
-# Expected total = 7. Any single inline regex breaking, the verdict-helper attribution
-# regressing, or inheritance/replacement/strip/anchor logic regressing, moves the count off
-# 7 → RED. Fail-closed on a git_sandbox sentinel: the cat/mkdir no-op and wf_perm_lint →
-# MISSING_WFDIR ≠ "7" → RED.
+# Expected total = 9 (seven inline +1 cases: inline_missing, comments_missing, contents_missing,
+# pulls_missing, pr_reviews_missing, statuses_missing, actions_missing; plus verdict_helper_missing
+# at +2). Any single inline regex breaking, the verdict-helper attribution regressing, or
+# inheritance/replacement/strip/anchor logic regressing, moves the count off 9 → RED. Fail-closed
+# on a git_sandbox sentinel: the cat/mkdir no-op and wf_perm_lint → MISSING_WFDIR ≠ "9" → RED.
 WF_POS_DIR="$(git_sandbox "#312: wf-lint positive inline test temp dir")"
 mkdir -p "$WF_POS_DIR/.github/workflows" 2>/dev/null || true
 cat > "$WF_POS_DIR/.github/workflows/pos.yml" <<'POSYAML' 2>/dev/null || true
@@ -16172,6 +16194,11 @@ jobs:
       checks: read
     steps:
       - run: gh api repos/o/r/commits/deadbeef/pulls
+  pr_reviews_missing:
+    permissions:
+      contents: read
+    steps:
+      - run: gh api repos/o/r/pulls/5/reviews
   statuses_missing:
     permissions:
       contents: read
@@ -16199,8 +16226,8 @@ jobs:
       # gh api repos/o/r/commits/deadbeef/status  <- commented: must be stripped
       - run: echo "run https://github.com/o/r/actions/runs/123"
 POSYAML
-assert_eq "#312: wf-lint positive inline test — six inline families + verdict-helper attribution differentially covered, inheritance/replacement/strip/anchor honored (7 violations)" \
-  "7" "$(wf_perm_lint "$WF_POS_DIR/.github/workflows" "$WF_PRECOND")"
+assert_eq "#312: wf-lint positive inline test — six inline families (pull-requests in both the commits/*/pulls and pulls/{n}/reviews shapes) + verdict-helper attribution differentially covered, inheritance/replacement/strip/anchor honored (9 violations)" \
+  "9" "$(wf_perm_lint "$WF_POS_DIR/.github/workflows" "$WF_PRECOND")"
 rm -rf "$WF_POS_DIR" 2>/dev/null || true
 
 # Generic-attribution proof (#312 conv shadow — pr-test-analyzer): the value the generic
