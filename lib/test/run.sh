@@ -9587,6 +9587,16 @@ assert_eq "#304 require_* config extraction is try/catch-guarded" "2" \
 # Removal-proof: dropping either clear → count 1 → RED; dropping both → 0 → RED.
 assert_eq '#311 preconditions_ok clears partial stdout on BOTH crash arms (no-retry + retry), fail-closed' "2" \
   "$(grep -cF 'pre=""' "$REVIEW_WF" || true)"
+# (AC1, retry-arm conditionality — structural, not count-only) The count==2 pin
+# above proves two `pre=""` exist but not WHERE: the in-repo retry arm's `pre=""`
+# must sit INSIDE its `if ! pre=$(…retry…); then` failure branch (clear only on a
+# failed retry), never unconditionally. If a refactor moved it out of the failure
+# branch, a SUCCESSFUL retry's stdout would be discarded and the retry path would
+# always fail closed to `unverifiable` even when the helper succeeded (reviews
+# silently never fire via retry) — and count would stay 2, GREEN. grep -A1 anchors
+# the retry `pre=""` to its failure-branch warning line, so that move goes RED.
+assert_eq '#311 AC1 retry-arm pre="" is anchored inside its failure branch (clears only on a failed retry)' "yes" \
+  "$(grep -A1 -F 'the in-repo retry also exited non-zero' "$REVIEW_WF" | grep -qE '^[[:space:]]*pre=""' && echo yes || echo no)"
 # (AC2) devflow_review_run_count emits its OWN breadcrumb distinguishing a
 # query failure from a non-numeric count (the #311 workflow half of AC2).
 assert_eq "#311 run_count distinguishes query-failure in its own breadcrumb" "yes" \
@@ -9632,6 +9642,21 @@ assert_eq "#311 old concurrency overstatement removed (no 'at worst two precheck
 # head+reason instead of POSTing a fresh completed-neutral run each re-eval.
 assert_eq "#311 create_check reuses an existing neutral check for the same head+reason (PATCH in place)" "yes" \
   "$(grep -qF 'PATCHed in place instead of posting a duplicate' "$REVIEW_WF" && echo yes || echo no)"
+# (AC5, post-PATCH exit 0 — structural, not presence-only) The `exit 0` right
+# after the successful-PATCH notice is what STOPS the reuse path from ALSO
+# falling through to the POST (STATUS_ARGS) block — it IS the anti-duplication.
+# The presence pin above only proves the notice text exists; if a refactor
+# dropped the `exit 0`, every deferral would PATCH the existing check AND POST a
+# fresh duplicate (the exact litter this AC eliminates) while staying GREEN.
+# grep -A1 anchors the notice to its `exit 0` (same discipline the AC3 draft/
+# stale-head guards use), so dropping the exit goes RED.
+assert_eq "#311 AC5 successful-PATCH reuse exits 0 right after its notice (no fall-through to a duplicate POST)" "yes" \
+  "$(grep -A1 -F 'PATCHed in place instead of posting a duplicate' "$REVIEW_WF" | grep -qE '^[[:space:]]*exit 0' && echo yes || echo no)"
+# (AC5, PATCH-failure fallback breadcrumb) Parity with the reuse-query-failure
+# breadcrumb pin: a failed PATCH warns and falls through to POST (required check
+# never lost); pin the breadcrumb so removing that fallback warning goes RED.
+assert_eq "#311 AC5 PATCH-failure fallback emits its own breadcrumb before falling through to POST" "yes" \
+  "$(grep -qF 'Could not PATCH existing neutral check' "$REVIEW_WF" && echo yes || echo no)"
 assert_eq "#311 create_check reuse looks up neutral Devflow Review checks on the head" "yes" \
   "$(grep -qF 'select(.name=="Devflow Review" and .conclusion=="neutral")' "$REVIEW_WF" && echo yes || echo no)"
 # (AC5, executed) The reuse lookup's jq PROJECTION column order is load-bearing:
