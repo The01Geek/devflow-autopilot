@@ -23,7 +23,7 @@ name: Devflow Review (auto-trigger)
 # this workflow listens for it and re-executes the review against the PR's
 # *current* HEAD (not the possibly-stale SHA the old check was attached to).
 #
-# Trigger policy (see docs/internal/workflows/review-rerun-checks.md §0):
+# Trigger policy (see docs/workflow-triggers.md):
 # the FIRST review auto-triggers EXACTLY ONCE per PR — on whichever of
 # {opened non-draft, reopened non-draft, ready_for_review} fires first.
 # Exactly-once is enforced by the first-ready gate in precheck (it skips
@@ -105,9 +105,13 @@ concurrency:
   # key for events with no resolvable PR (the job no-ops anyway).
   # Note (#304): workflow_run/check_suite payloads carry an EMPTY
   # pull_requests[] for fork PRs, so those completions fall to the run_id
-  # group and do not collapse each other — accepted looseness; the route
-  # step's exactly-once gate dedupes downstream, so at worst two prechecks
-  # race and one skips.
+  # group and do not collapse each other — accepted looseness. The route
+  # step's exactly-once gate dedupes the common case, but it is a
+  # check-existence READ, not a lock: two prechecks racing at the same
+  # instant can both observe zero existing `Devflow Review` checks and both
+  # proceed, so the true worst case is a same-instant double-review (not
+  # "one skips"). Accepted looseness — a redundant review is cheap relative
+  # to the locking a stricter guarantee would need.
   group: devflow-review-${{ github.event.pull_request.number || github.event.check_run.pull_requests[0].number || github.event.workflow_run.pull_requests[0].number || github.event.check_suite.pull_requests[0].number || github.run_id }}-${{ github.event_name }}
   cancel-in-progress: true
 
@@ -253,9 +257,29 @@ jobs:
               # once with the in-repo fallback when it is a different file.
               if [ "$script" != scripts/derive-review-preconditions.sh ] && [ -f scripts/derive-review-preconditions.sh ]; then
                 echo "::warning::retrying the preconditions with the in-repo scripts/derive-review-preconditions.sh"
-                pre=$(REPO="$REPO" HEAD_SHA="$2" BASE_BRANCH="$BASE_BRANCH" \
+                # Same crash-arm hazard as the no-retry else below: if the in-repo
+                # retry ALSO exits non-zero it may have emitted partial stdout (a
+                # truncated should_run=/reason= line) before dying, and a bare
+                # `|| true` would keep that partial output for the parse to read
+                # — failing OPEN on a crashed helper. Clear it so this crash path
+                # fails closed to 'unverifiable' identically to the no-retry path
+                # (peer-complete: both crash arms of preconditions_ok clear pre).
+                if ! pre=$(REPO="$REPO" HEAD_SHA="$2" BASE_BRANCH="$BASE_BRANCH" \
                       REQUIRE_UP_TO_DATE="$REQUIRE_UP_TO_DATE" REQUIRE_CI_GREEN="$REQUIRE_CI_GREEN" \
-                      SELF_WORKFLOW_NAME="$SELF_WORKFLOW_NAME" bash scripts/derive-review-preconditions.sh) || true
+                      SELF_WORKFLOW_NAME="$SELF_WORKFLOW_NAME" bash scripts/derive-review-preconditions.sh); then
+                  echo "::warning::the in-repo retry also exited non-zero; clearing its partial output and treating the preconditions as unverifiable (fail closed)."
+                  pre=""
+                fi
+              else
+                # No in-repo copy to retry (the crashed script IS the in-repo
+                # one, or no fallback exists). The command substitution above
+                # still captured whatever partial stdout the helper emitted
+                # before dying — a truncated `should_run=`/`reason=` line from a
+                # corrupted copy. Clear it so the parse below never reads that
+                # partial output: an emptied pre yields an empty pre_run, so the
+                # unverifiable default fires (fail closed).
+                # Never parse a crashed helper's half-written output.
+                pre=""
               fi
             fi
             pre_run=$(printf '%s\n' "$pre" | sed -n 's/^should_run=//p')
@@ -280,20 +304,30 @@ jobs:
           # Value-stream + line count, not per-page `| length`: --paginate
           # concatenates jq output per page, so `length` would yield a
           # multi-line count on a >100-check-run commit. Returns 1 with
-          # nothing on stdout on a query error or non-numeric count — the
-          # CALLER fails closed with its own path-specific breadcrumb. The
-          # synchronize cost-guard deliberately does NOT use this (its
-          # narrower `== "success"` filter is a pinned divergence).
+          # nothing on stdout on a query error or non-numeric count, AND emits
+          # its OWN ::warning:: distinguishing the two (the check-runs query
+          # failed vs. the count came back non-numeric) — the caller still
+          # fails closed with its path-specific breadcrumb, but an operator
+          # reading the job log can now tell an API outage from a parse
+          # anomaly instead of both collapsing into the caller's single
+          # "(or non-numeric count)" message. Mirrors resolve_pr_for_head's
+          # >&2 misattribution-distinguishing pattern. The synchronize
+          # cost-guard deliberately does NOT use this (its narrower
+          # `== "success"` filter is a pinned divergence).
           devflow_review_run_count() {  # $1=commit SHA
             local _runs _n
             if ! _runs=$(gh api --paginate \
                   "repos/$REPO/commits/$1/check-runs" \
                   --jq '.check_runs[] | select(.name=="Devflow Review" and .conclusion != "skipped" and .conclusion != "neutral") | .id' \
                   2>/dev/null); then
+              echo "::warning::devflow_review_run_count: the check-runs query for $1 failed (rate limit, 5xx, or token scope); returning failure so the caller fails closed — this is a query outage, not a factual zero." >&2
               return 1
             fi
             _n=$(printf '%s' "$_runs" | grep -c . || true)
-            [[ "$_n" =~ ^[0-9]+$ ]] || return 1
+            if ! [[ "$_n" =~ ^[0-9]+$ ]]; then
+              echo "::warning::devflow_review_run_count: the check-runs query for $1 succeeded but the count was non-numeric ('$_n'); returning failure so the caller fails closed — this is a count-parse anomaly, not a query failure." >&2
+              return 1
+            fi
             printf '%s' "$_n"
           }
 
@@ -710,7 +744,53 @@ jobs:
               unverifiable) TITLE='Devflow review waiting: preconditions unverifiable (API query failed — see the precheck log)' ;;
               *)            TITLE='Devflow review waiting: precondition not met' ;;
             esac
-            SUMMARY='This PR is not yet in a reviewable state, so the review was deferred (not run). It auto-re-triggers when the branch is updated, or when a CI workflow named in this workflow'"'"'s workflow_run trigger list (or an external check_suite CI) completes. If your CI workflow is not in that list, or a signal is permanently stuck (a cancelled sibling run, a forever-pending status), click Re-run on this check once CI is green to force a review of the current HEAD.'
+            SUMMARY='This PR is not yet in a reviewable state, so the review was deferred (not run). It auto-re-triggers when the branch is updated, or when a CI workflow named in this workflow'"'"'s workflow_run trigger list (or an external check_suite CI) completes. If your CI workflow is not in that list, or a signal is permanently stuck (a cancelled sibling run, a forever-pending status), click Re-run on this check once CI is green to force a review of the current HEAD. See docs/workflow-triggers.md for the deferral and re-trigger policy.'
+            # De-duplicate repeated deferral re-evaluations. A branch that
+            # stays behind base (or whose CI stays red) across several
+            # CI-completion events re-enters this job each time; POSTing a
+            # fresh completed-neutral 'Devflow Review' check-run per event
+            # litters the checks tab with identical waiting checks. Instead
+            # REUSE the existing neutral check for the SAME head + SAME reason
+            # (title): look one up and PATCH it in place, refreshing its
+            # details_url/summary; only POST when none exists. Same head +
+            # same title = same deferral, so refreshing (not duplicating) is
+            # correct. Match the title in bash (not in --jq, which gh api does
+            # not let us parameterize with --arg) over the id+title pairs of
+            # every neutral 'Devflow Review' check on this head. Best-effort:
+            # a lookup failure leaves REUSE_ID empty and falls through to the
+            # POST path, so the required check is never lost.
+            REUSE_ID=""
+            # Capture the lookup separately (not a `2>/dev/null || true` process
+            # substitution) so a genuine query failure (rate limit, 5xx, 403
+            # token-scope) is DISTINGUISHED from a legitimate "no existing
+            # neutral check to reuse": both leave REUSE_ID empty and fall
+            # through to the POST path (so the required check is never lost),
+            # but only the failure emits a breadcrumb — consistent with the
+            # sibling helpers this workflow hardens (devflow_review_run_count,
+            # resolve_pr_for_head), which likewise distinguish query failure
+            # from an empty result. gh's own stderr is left on the log too.
+            _reuse_rc=0
+            _reuse_pairs=$(gh api --paginate "repos/$REPO/commits/$HEAD_SHA/check-runs" \
+                             --jq '.check_runs[] | select(.name=="Devflow Review" and .conclusion=="neutral") | [(.output.title // ""), (.id|tostring)] | @tsv') || _reuse_rc=$?
+            if [ "$_reuse_rc" -eq 0 ]; then
+              while IFS=$'\t' read -r _rt _rid; do
+                if [ "$_rt" = "$TITLE" ]; then REUSE_ID="$_rid"; break; fi
+              done <<< "$_reuse_pairs"
+            else
+              echo "::warning::Could not query existing 'Devflow Review' check-runs for $HEAD_SHA to de-duplicate the deferral (gh api rc=$_reuse_rc); falling back to posting a fresh neutral check."
+            fi
+            if [[ "$REUSE_ID" =~ ^[0-9]+$ ]]; then
+              if gh api -X PATCH "repos/$REPO/check-runs/$REUSE_ID" \
+                  -f status='completed' -f conclusion='neutral' \
+                  -f details_url="$RUN_URL" \
+                  -f "output[title]=$TITLE" \
+                  -f "output[summary]=$SUMMARY" --jq '.id' >/dev/null; then
+                echo "check_run_id=$REUSE_ID" >> "$GITHUB_OUTPUT"
+                echo "::notice::Reused existing neutral 'Devflow Review' check $REUSE_ID for $HEAD_SHA (deferral: $TITLE) — PATCHed in place instead of posting a duplicate."
+                exit 0
+              fi
+              echo "::warning::Could not PATCH existing neutral check $REUSE_ID for $HEAD_SHA; falling back to posting a fresh neutral check."
+            fi
             STATUS_ARGS=(-f status='completed' -f conclusion='neutral')
           else
             TITLE='Devflow review running'
