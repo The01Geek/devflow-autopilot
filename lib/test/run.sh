@@ -4465,6 +4465,36 @@ assert_eq "#327 Shape 2 trailing-close pin: trailing prose after a captured deli
   "docs/a.md" \
   "$(printf '%s\n' "$fx_327_trailing_close" | bash "$EXTRACT_HELPER")"
 
+# Case 37 (#327 Shape 2 fail-open pin — arms() must mirror Stage B): a STRUCTURAL
+# line (list item) whose only extension-bearing token is one Stage B DROPS (a bare
+# `.md` with no basename, a rooted `/…`, a URL) must NOT arm the `emitted` gate, so
+# the real deliverable named in the following trailing-prose paragraph is still
+# captured. Without Stage A's arms() mirroring Stage B's per-token predicate — i.e.
+# if `emitted` armed on a loose line `.<ext>` substring — the `- Write … in .md
+# format` and `- Follow … /usr/share/spec.md` items would arm the gate, the
+# `docs/guide.md` paragraph would close the scope, and the output would be EMPTY:
+# a fail-open silently disabling the Phase 4.1 gate. Pins that arming implies a
+# real Stage-B-emittable path was captured.
+fx_327_arms_bare_ext="## Implementation Notes
+
+- **Documentation Needed**
+- Write everything in .md format
+
+Update \`docs/guide.md\` with the new flag."
+assert_eq "#327 Shape 2 fail-open pin: a list item whose only ext token is a bare .md (Stage-B-dropped) does NOT arm the close; the trailing-prose deliverable is captured" \
+  "docs/guide.md" \
+  "$(printf '%s\n' "$fx_327_arms_bare_ext" | bash "$EXTRACT_HELPER")"
+
+fx_327_arms_rooted="## Implementation Notes
+
+- **Documentation Needed**
+- Follow the format defined in /usr/share/spec.md
+
+Update \`docs/guide.md\` here."
+assert_eq "#327 Shape 2 fail-open pin: a list item whose only ext token is a rooted path (Stage-B-dropped) does NOT arm the close; the trailing-prose deliverable is captured" \
+  "docs/guide.md" \
+  "$(printf '%s\n' "$fx_327_arms_rooted" | bash "$EXTRACT_HELPER")"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "scaffold-config.sh"
 # ────────────────────────────────────────────────────────────────────────────

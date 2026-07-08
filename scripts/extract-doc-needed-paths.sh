@@ -75,6 +75,31 @@ doc_ext_alt='md|markdown|sh|json|py|ya?ml|rst|txt|adoc|mdx|toml|cfg|ini'
 # state: 0 = outside Implementation Notes; 1 = inside the section but outside the
 # bullet; 2 = inside the Documentation Needed bullet.
 block="$(printf '%s\n' "$body" | awk -v extre="$doc_ext_alt" '
+  # arms(line): does this line contain a token STAGE B WOULD EMIT? The `emitted`
+  # gate for the Shape 2 close (below) is only fail-open-safe if arming implies a
+  # real path was captured, so this MUST mirror the Stage B token predicate: split
+  # on the same non-path delimiters, apply the same leading-./ and trailing-dot
+  # strips, drop the same rooted (/...) and parent-escape (../...) tokens, and
+  # require a basename + a recognized extension (extre, single-sourced). A looser
+  # test (a bare line ".ext" substring) would arm on prose/list tokens Stage B
+  # DROPS — a bare ".md", a rooted "/x/y.md", a URL, "../x.md" — letting the next
+  # trailing-prose paragraph close the scope and drop the real deliverable to
+  # empty output (the fail-OPEN this whole gate exists to prevent). COUPLED with
+  # the Stage B `case` drops + extension test below: change one, change both.
+  function arms(line,   n, arr, i, t) {
+    n = split(line, arr, /[^A-Za-z0-9._\/-]+/)
+    for (i = 1; i <= n; i++) {
+      t = arr[i]
+      sub(/^\.\//, "", t)
+      sub(/\.+$/, "", t)
+      if (t == "") continue
+      if (t ~ /^\//) continue
+      if (t ~ /^\.\.\//) continue
+      if (t ~ /\/\.\.\//) continue
+      if (t ~ ("[A-Za-z0-9._-][.](" extre ")$")) return 1
+    }
+    return 0
+  }
   BEGIN { prev_blank = 1 }   # start-of-file is a paragraph boundary
   /^## / {
     state = ($0 ~ /^## Implementation Notes[[:space:]]*$/) ? 1 : 0
@@ -174,28 +199,29 @@ block="$(printf '%s\n' "$body" | awk -v extre="$doc_ext_alt" '
   # the two cannot drift). The structural-line restriction is the load-bearing
   # fail-open guard: `emitted` must NEVER be armed by a PLAIN-PROSE line, because
   # ordinary intro/context prose routinely carries an extension-bearing substring
-  # that is NOT a deliverable — a URL ("https://x.com/spec.md"), a bare syntax
-  # reference (".md format"), a rooted path ("/etc/spec.md") — none of which the
-  # loose line regex can tell apart from a real path, yet a prose line arming
-  # emitted would let the NEXT paragraph (often the one that actually names the
-  # deliverable) close the scope and DROP it: a fail-OPEN that empties the output,
-  # the #289/#309/#327 recurrence. Restricting the arming to list/bold lines makes
-  # this PROVABLY fail-open-safe: a fresh scope opens emitted=0, plain prose can
-  # never flip it, so a prose-declared deliverable is always in scope when the
-  # close arm sees it (emitted still 0 → not closed → captured); the close fires
-  # only AFTER a structural deliverable was captured, and that deliverable is
-  # itself printed, so the output can never be empty. (An extension-bearing token
-  # on a prose line is still emitted by Stage B if it is a real path — same as
-  # main; we just do not let it ARM the trailing-prose close.) Boundary: a token
-  # ends in ".<ext>" at a non-alphanumeric edge (matching the Stage B `.+\.(ext)$`
-  # per-token anchor closely enough — an over-broad line match only over-arms on a
-  # structural line, the leak-safe direction). KNOWN gap (over-emission, leak-safe,
-  # no worse than main): an EXTENSIONLESS structural deliverable (a bare
-  # "- Makefile") does not flip emitted, so a following trailing-prose paragraph
-  # would not close — over-emission, never a fail-open.
+  # that is NOT a deliverable, yet a prose line arming emitted would let the NEXT
+  # paragraph (often the one that actually names the deliverable) close the scope
+  # and DROP it: a fail-OPEN that empties the output, the #289/#309/#327 recurrence.
+  # TWO guards make arming imply "a real path was captured": (1) only a structural
+  # deliverable line (list item / bold line) can arm — a plain-prose line never
+  # does; (2) even on a structural line, arms() applies the SAME per-token predicate
+  # Stage B emits on (basename + recognized extension, minus rooted / parent-escape
+  # tokens), so a structural line whose only extension-bearing token is one Stage B
+  # DROPS (a bare ".md", a rooted "/x/y.md", a URL) does NOT arm either. Together
+  # these make the close PROVABLY fail-open-safe: a fresh scope opens emitted=0;
+  # emitted flips only when Stage B will emit >=1 path from this scope, and that
+  # path is itself printed — so whenever the close fires, the output is non-empty,
+  # and a prose-declared deliverable (emitted still 0 when the close arm sees it)
+  # is always captured. (An extension-bearing token on a prose line is still
+  # emitted by Stage B if it is a real path — same as main; we just do not let it
+  # ARM the trailing-prose close.) KNOWN gap (over-emission, leak-safe, no worse
+  # than main): an EXTENSIONLESS structural deliverable (a bare "- Makefile", which
+  # Stage B rescues via its in-tree check that arms() cannot replicate) does not
+  # flip emitted, so a following trailing-prose paragraph would not close —
+  # over-emission, never a fail-open.
   state == 2 {
     print
-    if ( ( $0 ~ /^[[:space:]]*-/ || $0 ~ /^\*\*/ ) && $0 ~ ("\\.(" extre ")([^[:alnum:]]|$)") ) emitted = 1
+    if ( ( $0 ~ /^[[:space:]]*-/ || $0 ~ /^\*\*/ ) && arms($0) ) emitted = 1
   }
   { prev_blank = ($0 ~ /^[[:space:]]*$/) }
 ')"
@@ -279,6 +305,11 @@ printf '%s\n' "$tokens" \
       # (it would not — the extension branch below emits on the extension alone).
       # The `.+` before the dot excludes a bare extension token (`.md`, `.sh`)
       # that is a syntax reference, not a filename.
+      # SYNC: Stage A's arms() (in the awk above) mirrors THIS token predicate — the
+      # rooted/`../` `case` drops above plus this basename+extension test — so the
+      # Shape 2 `emitted` gate only arms when this branch would emit. Change one,
+      # change both (the extensionless `[ -f ]`+git rescue below is intentionally
+      # NOT mirrored — arms() cannot do a filesystem check, an accepted leak-safe gap).
       if printf '%s\n' "$tok" | grep -qE ".+\.($doc_ext_alt)\$"; then
         printf '%s\n' "$tok"
       elif [ -f "$tok" ]; then
