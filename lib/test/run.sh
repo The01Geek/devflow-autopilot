@@ -8620,12 +8620,26 @@ rm -rf "$RCT_STUB"
 
 # --- issue #314: coupled-invariant pin (resolver ↔ shared detector) ----------
 # The resolver MUST route through the ONE shared detector; a future divergence
-# (re-inlining a substring matcher) is caught here. The twin pin for the
-# review_dedupe workflow step is deferred with that change to a human-landed
-# follow-up (a workflows-scoped push the DevFlow bot token cannot make) — see
-# the deferred follow-up issue filed by /devflow:implement Phase 4.0.
+# (re-inlining a substring matcher) is caught here.
 assert_pin_unique "rct #314: resolver calls the shared detect-standalone-command.sh" \
   'detector="$(dirname "$0")/detect-standalone-command.sh"' "$LIB/../scripts/resolve-command-trigger.sh"
+
+# --- issue #321: coupled-invariant pin (dedupe ↔ shared detector) ------------
+# The twin of the #314 pin above, landed once the workflows-scoped push became
+# possible (a human/PAT push the DevFlow bot token cannot make). The
+# review_dedupe job in devflow.yml MUST route its body match through the SAME
+# vendored detector so the trigger gate and the dedupe matcher cannot drift;
+# re-inlining a `case "$BODY"` substring here would re-open that drift.
+assert_pin_unique "rct #321: review_dedupe routes through the shared detect-standalone-command.sh" \
+  '.devflow/vendor/devflow/scripts/detect-standalone-command.sh' "$LIB/../.github/workflows/devflow.yml"
+
+# review_dedupe is fail-OPEN by contract: a present-but-broken detector (or a
+# missing sed) must NOT abort the guard step under `set -euo pipefail` — an abort
+# fails the job, skipping the downstream `command` job and silently swallowing the
+# manual review. Pin the outcome-verifying `if !` wrapper (the operative fix);
+# reverting it to a bare `CMD=$(...)` assignment re-opens the fail-CLOSED swallow.
+assert_pin_unique "rct #321: review_dedupe detector extraction fails open on a run failure (if!-guarded)" \
+  'if ! CMD="$(printf '"'"'%s'"'"' "$BODY" | bash "$DETECTOR" | sed -n '"'"'s/^command=//p'"'"')"' "$LIB/../.github/workflows/devflow.yml"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "react-to-trigger.sh"
@@ -10965,7 +10979,7 @@ assert_eq "vendor: install.sh copies the vendor-plugin composite action" "1" \
   "$(grep -cE 'for a in .*vendor-plugin' "$REPO_ROOT/install.sh" || true)"
 # AC8 placement drift-guard: the vendor-plugin composite action reads files at
 # ./.github/actions/…, so the repo must be checked out BEFORE it runs in every
-# plugin-using job (six across the four workflows). Scan each workflow, reset the
+# plugin-using job (seven across the four workflows). Scan each workflow, reset the
 # "checkout seen" flag at each 2-space job/section boundary, and tally each
 # vendor-plugin use as ok only if an actions/checkout preceded it in the same job.
 VP_PLACEMENT="$(awk '
@@ -10975,7 +10989,7 @@ VP_PLACEMENT="$(awk '
   /uses:[[:space:]]*\.\/\.github\/actions\/vendor-plugin/ { if (seen) ok++; else bad++ }
   END { print (ok+0)"/"(bad+0) }
 ' "$REPO_ROOT"/.github/workflows/*.yml)"
-assert_eq "vendor: vendor-plugin runs after checkout in all six plugin jobs" "6/0" "$VP_PLACEMENT"
+assert_eq "vendor: vendor-plugin runs after checkout in all seven plugin jobs" "7/0" "$VP_PLACEMENT"
 
 # AC3 finalize_check drift-guard: the dismiss call must be preceded by an
 # explicit executability check so a vendoring miss (absent script, exit 127)

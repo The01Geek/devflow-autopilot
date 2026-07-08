@@ -60,11 +60,9 @@ done
 # --- Command detection via the shared standalone-command detector -----------
 # The detector is the single markdown-aware, anchored, fence-/indent-aware line
 # scanner (scripts/detect-standalone-command.sh). The review_dedupe job in
-# devflow.yml is INTENDED to route through the SAME script (so the trigger gate
-# and the dedupe matcher cannot drift), but that workflow change is a deferred,
-# workflows-scoped follow-up (see docs/workflow-triggers.md) — until it lands the
-# shared detector is the resolver's alone and review_dedupe keeps its own coarse
-# case-substring match. It fires only on a standalone command in ordinary comment
+# devflow.yml routes through the SAME script (issue #321), so the trigger gate
+# and the dedupe matcher are a single source of truth and cannot drift. It fires
+# only on a standalone command in ordinary comment
 # text (most-specific-first: review-and-fix outranks review), declining a command
 # that is merely quoted in prose, blockquoted, indented as code, or inside a
 # fenced block — so a non-invoking mention in any comment/review body is declined
