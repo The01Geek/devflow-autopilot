@@ -1,0 +1,40 @@
+{
+  "iter": 4,
+  "started_at": "2026-07-08T01:45:00Z",
+  "fix_commit_sha": "1b3c8ea",
+  "fix_files": ["lib/test/run.sh"],
+  "loop_role": "promoted",
+  "checklist": [],
+  "phase3_dispatched": [],
+  "diff_profile": {"small_diff": false, "config_only": false, "has_new_types": false, "engine_self_modifying": true, "detect_all_audit": true, "checklist_skipped": null},
+  "phase3_findings": [
+    {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "Generic helper-attribution mechanism untested vs a hardcoded-list regression; all fixture helpers are real.", "defect_signature": {"file": "lib/test/run.sh", "line_range": [15826, 15834], "kind": "missing-test-coverage"}, "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Medium", "description": "Misattributed collaborators call to resolve-implement-trigger.sh (actually in sourced authorize-actor.sh); sourced-helper limitation undisclosed.", "defect_signature": {"file": "lib/test/run.sh", "line_range": [15715, 15716], "kind": "inaccurate-comment"}, "fix_decision": "applied"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "CONV-generic-test", "decision": "applied", "commit": "1b3c8ea", "evidence": "Added synthetic novel-basename helper test; mutation-checked (general loop -> 1, hardcoded-list regression -> 0 -> RED)."},
+    {"finding_id": "CONV-authorize-actor", "decision": "applied", "commit": "1b3c8ea", "evidence": "Verified collaborators call is in authorize-actor.sh:72 (sourced by resolve-*-trigger.sh, not named in a job body). Corrected attribution + disclosed single-level/sourced limitation. Comprehensively verified (walked all 24 named basenames + children) that no recognized-family endpoint is reachable only transitively."},
+    {"finding_id": "CONV-shadow-false-claim", "decision": "pushed_back", "source_file": "lib/test/run.sh", "claim_text": "shadow claimed post-issue-comment.sh invokes apply-labels.sh/ensure-label.sh", "skip_category": "claim-quality", "evidence": "Verified FALSE — post-issue-comment.sh only comment-mentions them (lines 13, 44), does not invoke. Excluded from the disclosure."}
+  ],
+  "convergence_inputs": {"fixes_applied": 2, "fix_diff_lines": 60, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "telemetry": {"step_2_6": {"calls": 5}, "step_3_5": {"calls": 1}},
+  "shadow": {
+    "ran_at": "2026-07-08T02:05:00Z",
+    "reviewed_sha": "1b3c8ea",
+    "verdict": "APPROVE with notes",
+    "coverage": "full",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "'any future helper is too' overclaims — walk resolves scripts/ only; a future lib/ job-invoked helper would be unattributed. Latent, not live.", "defect_signature": {"file": "lib/test/run.sh", "line_range": [15709, 15713], "kind": "over-general-completeness-claim"}},
+      {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "scripts/-only resolution: a recognized-family lib/ helper is fail-OPEN, mislabeled 'fail-safe'. Not live (only lib/efficiency-trace.sh named, no gh api call).", "defect_signature": {"file": "lib/test/run.sh", "line_range": [15797, 15843], "kind": "fail-open-mischaracterized-as-fail-safe"}},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "Optional: union-merge not tested with both inline+helper unmet; over-detection per-family; vendored-path form untested. Non-blocking hardening.", "defect_signature": {"file": "lib/test/run.sh", "line_range": [15837, 15844], "kind": "coverage-gap-union-merge"}}
+    ],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 8, "overlap_with_iter_N": 0, "new": 2, "new_critical": 0, "new_important": 0},
+    "promoted_to_iter_next": true
+  }
+}

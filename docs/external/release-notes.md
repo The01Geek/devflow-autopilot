@@ -3,6 +3,7 @@
 ## July 7, 2026
 
 - **Fix — Automated Devflow Review no longer posts duplicate "waiting" checks while a pull request stays deferred** — When a deferred automatic review re-evaluated across several CI-completion events (a branch that stays behind its base, or CI that stays red), it previously posted a fresh neutral `Devflow Review` "waiting" check each time, cluttering the pull request's checks tab. The workflow now reuses and updates the existing neutral check for the same commit and reason instead of posting a duplicate. It also hardens the internal precondition checks so they fail safely — deferring rather than reviewing — when a helper crashes or an API query cannot be verified, with clearer log breadcrumbs distinguishing a query outage from a parsing problem. (#325)
+- **Improvement — Automated Devflow Review now auto-recovers a deferred review on legacy commit-status-only CI** — Repositories whose CI reports only through the commit-status API (such as classic Jenkins or legacy CircleCI) emit neither the workflow-run nor the check-suite completion events the review previously listened for, so a review deferred behind the `require_ci_green` precondition would stay stuck until someone clicked Re-run. Devflow Review now also listens for the GitHub `status` event, so once such a repository's CI turns green the deferred review re-fires on its own — no manual Re-run needed. Only a successful commit status spins up the check, and the review is matched to the correct pull request from the commit it applies to. (#335)
 
 ## July 4, 2026
 

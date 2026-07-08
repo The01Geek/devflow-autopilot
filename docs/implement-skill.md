@@ -336,6 +336,18 @@ paragraph with no `- ` marker (the form an LLM-drafted `## Implementation Notes`
 renders, which the older `- `-required anchor matched nothing of, silently skipping the gate; issue
 #309, a sibling of the #289 miss class). A bold-emphasis span that only begins a wrapped continuation
 line inside the bullet does not close the scope, so paths on later wrapped lines are still captured.
+Two adjacent grammar shapes are handled explicitly (issue #327), both in the leak-safe direction: (1) a
+top-level bold **deliverable** list after the bullet stays in scope — a backtick-led bold item
+(`- **`docs/a.md`**`) is a listed deliverable, not a peer section label, so it is captured instead of
+silently closing the scope to empty output (a non-backticked `- **docs/a.md**`, being indistinguishable
+from a peer label, still closes — an accepted, `run.sh`-pinned tradeoff, since real deliverable lists
+backtick their paths); (2) a trailing blank-line-preceded **plain-prose** paragraph (not blank, not a
+list item, not bold) closes the scope so its path-like tokens do not leak as deliverables — but only
+**once a deliverable has already been captured** in the scope (an `emitted` gate), so a primary prose
+declaration and any intervening prose before the deliverables stay in scope. A blank-separated plain
+sub-list stays in scope. The `emitted` gate arms only on a structural line (list item or bold line)
+bearing a token Stage B would emit, mirroring Stage B's basename+extension predicate, so plain prose can
+never arm the close — keeping the fix strictly leak-safe (it never introduces a new fail-open).
 It then emits the recognizable file paths one per line — a token counts as a path only if it
 ends in a recognized doc/source extension **or** names an in-tree tracked regular file (the
 `[ -f ] && git ls-files --error-unmatch` rescue for extensionless real files like `Makefile`/`LICENSE`).
