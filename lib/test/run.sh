@@ -10041,6 +10041,15 @@ assert_eq "#310 docs/cloud-setup.md names the status trigger in its coverage row
   "$(grep -qF 'legacy commit-status-only CI (classic Jenkins, legacy CircleCI) by the `status` trigger' "$LIB/../docs/cloud-setup.md" && echo yes || echo no)"
 assert_eq "#310 docs/workflow-triggers.md table row names the status re-trigger" "yes" \
   "$(grep -qF 'status` covers legacy commit-status-only CI' "$LIB/../docs/workflow-triggers.md" && echo yes || echo no)"
+# (t) The operator-facing deferral SUMMARY string in the workflow ITSELF is a
+# SIXTH re-trigger-policy mirror site that got the #310 legacy-status clause
+# (alongside the five doc/schema sites pinned by h/i/q/r/s). It is the message a
+# legacy-CI-repo operator reads on a deferred check to learn what re-triggers
+# their review, so a reword/drop of the legacy-status clause here would silently
+# mislead them while every other #310 pin stays green. Pin it for parity with
+# the other mirror sites (same coupled-invariant discipline).
+assert_eq "#310 deferral SUMMARY names the legacy commit-status re-trigger (6th mirror site)" "yes" \
+  "$(grep -qF 'or a legacy commit status transitioning to success' "$REVIEW_WF" && echo yes || echo no)"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "efficiency-trace.jq / efficiency-trace.sh"
