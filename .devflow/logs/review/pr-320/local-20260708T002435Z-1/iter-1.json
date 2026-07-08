@@ -1,0 +1,67 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-08T00:24:35Z",
+  "fix_commit_sha": "f94d44d",
+  "fix_files": [],
+  "loop_role": "fix",
+  "checklist": [
+    {"id": "VC-1", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "dependency_interaction:run.sh:wf-req-keys-families-match-precond-helper", "reused_from_iter_prev": false},
+    {"id": "VC-2", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "api_contract:run.sh:clean-tree-zero-violations", "reused_from_iter_prev": false},
+    {"id": "VC-3", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "data_format_assumption:run.sh:mutation-first-match-statuses-anchor", "reused_from_iter_prev": false},
+    {"id": "VC-4", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "data_format_assumption:run.sh:awk-canonical-indentation-assumption", "reused_from_iter_prev": false},
+    {"id": "VC-5", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "dependency_interaction:run.sh:impl-bundle-includes-phase2-phase3", "reused_from_iter_prev": false},
+    {"id": "VC-6", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "api_contract:run.sh:six-shape-literal-unique-at-three-sites", "reused_from_iter_prev": false},
+    {"id": "VC-7", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "dependency_interaction:run.sh:git-sandbox-failclosed-sentinel", "reused_from_iter_prev": false},
+    {"id": "VC-8", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "test_mock_alignment:run.sh:positive-fixture-six-violations", "reused_from_iter_prev": false},
+    {"id": "VC-9", "verification_mode": "lite", "verdict": "PASS", "claim_signature": "api_contract:changeset:bump-patch-present", "reused_from_iter_prev": false},
+    {"id": "VC-10", "verification_mode": "lite", "verdict": "PASS", "claim_signature": "string_presence:SKILL.md:item1-step4.5-severity-surface", "reused_from_iter_prev": false},
+    {"id": "VC-11", "verification_mode": "lite", "verdict": "PASS", "claim_signature": "string_presence:SKILL.md:item9-3a-job-gating", "reused_from_iter_prev": false},
+    {"id": "VC-12", "verification_mode": "lite", "verdict": "PASS", "claim_signature": "string_presence:issue-template.md:item2-platform-behavior-class", "reused_from_iter_prev": false},
+    {"id": "VC-13", "verification_mode": "lite", "verdict": "PASS", "claim_signature": "string_presence:create-issue-SKILL.md:item2-step3.5-platform-behavior", "reused_from_iter_prev": false},
+    {"id": "VC-14", "verification_mode": "lite", "verdict": "PASS", "claim_signature": "string_presence:phase-2-implement.md:item3-workflow-diff-addendum", "reused_from_iter_prev": false},
+    {"id": "VC-15", "verification_mode": "lite", "verdict": "PASS", "claim_signature": "string_presence:phase-2-implement.md:item5-stub-blindness", "reused_from_iter_prev": false},
+    {"id": "VC-16", "verification_mode": "lite", "verdict": "PASS", "claim_signature": "string_presence:phase-2-implement.md:item6-deviation-breadcrumb", "reused_from_iter_prev": false},
+    {"id": "VC-17", "verification_mode": "lite", "verdict": "PASS", "claim_signature": "string_presence:phase-2-implement.md:item7-all-output-channels", "reused_from_iter_prev": false},
+    {"id": "VC-18", "verification_mode": "lite", "verdict": "PASS", "claim_signature": "string_presence:phase-2-implement.md:item8-doc-enumerated-config-set", "reused_from_iter_prev": false},
+    {"id": "VC-19", "verification_mode": "lite", "verdict": "PASS", "claim_signature": "string_presence:phase-3-review.md:item10-simplify-generality-triage", "reused_from_iter_prev": false},
+    {"id": "VC-20", "verification_mode": "lite", "verdict": "PASS", "claim_signature": "string_presence:CLAUDE.md:item4-valid-falsy-inline-jq", "reused_from_iter_prev": false},
+    {"id": "VC-21", "verification_mode": "agent", "verdict": "PASS", "claim_signature": "dependency_interaction:run.sh:comments-either-issues-or-pulls", "reused_from_iter_prev": false}
+  ],
+  "phase3_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "detect_all_audit": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "Empty-but-present workflows dir returns a silent 0 rather than a sentinel; unreachable on the real target (WF_DIR is never empty).", "defect_signature": {"file": "lib/test/run.sh", "line_range": [15749, 15799], "kind": "sentinel-bypass"}, "corroboration_count": 1, "fix_decision": "advisory"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "Job-level `permissions: {}` (deny-all) / read-all / flow-mapping fails open (inherits top-level grants); no devflow job uses these forms. Corroborated by code-reviewer sub-threshold note and prior cloud review Suggestion #1.", "defect_signature": {"file": "lib/test/run.sh", "line_range": [15762, 15776], "kind": "fail-open-unhandled-input-shape"}, "corroboration_count": 3, "fix_decision": "advisory"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "Variable-composed endpoint paths / api-host URLs evade static line matching (fail-open under-require / fail-closed over-require); inherent to static matching, lint is a documented CI backstop.", "defect_signature": {"file": "lib/test/run.sh", "line_range": [15731, 15745], "kind": "fail-open-static-match-evasion"}, "corroboration_count": 1, "fix_decision": "advisory"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "Positive fixture asserts only aggregate count (6), not per-family violation identity; a compensating regex shift between families passes silently. Documented deferral.", "defect_signature": {"file": "lib/test/run.sh", "line_range": [15916, 15917], "kind": "coverage-gap-differential-identity"}, "corroboration_count": 1, "fix_decision": "advisory"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "Grant-present->0 synthetic path exercised only for actions and comments families; other four rely on real-tree clean assert. Documented deferral.", "defect_signature": {"file": "lib/test/run.sh", "line_range": [15840, 15864], "kind": "coverage-gap-false-positive-direction"}, "corroboration_count": 1, "fix_decision": "advisory"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "Mutation proof's first-match statuses:read targeting is position-fragile if another job gains a job-level statuses:read above precheck. Documented deferral.", "defect_signature": {"file": "lib/test/run.sh", "line_range": [15827, 15828], "kind": "test-fragility-positional"}, "corroboration_count": 1, "fix_decision": "advisory"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "SFH-1", "decision": "advisory", "source_file": "lib/test/run.sh", "claim_text": "empty-but-present workflows dir returns silent 0", "skip_category": "advisory-parked", "evidence": "Suggestion; fail-open only on empty WF_DIR which never occurs (all workflows deleted = larger signal); sentinel comment scopes 'never a silent 0' to missing dir/helper, not empty dir; 0 violations over 0 jobs is semantically correct."},
+    {"finding_id": "SFH-2", "decision": "advisory", "source_file": "lib/test/run.sh", "claim_text": "permissions: {} deny-all fails open", "skip_category": "advisory-parked", "evidence": "Suggestion; no devflow workflow uses permissions:{}/read-all/flow-mapping; recurring across 3 reviews; recorded as explicit deferred limitation in the lint comment ledger this pass."},
+    {"finding_id": "SFH-3", "decision": "advisory", "source_file": "lib/test/run.sh", "claim_text": "variable-composed endpoint paths evade static match", "skip_category": "advisory-parked", "evidence": "Suggestion; inherent to line-oriented static matching; lint is documented CI backstop to the manual Phase 2.3.4 map."},
+    {"finding_id": "PTA-1", "decision": "advisory", "source_file": "lib/test/run.sh", "claim_text": "aggregate-only count hides compensating regex shift", "skip_category": "advisory-parked", "evidence": "Suggestion; documented deferral in lint comment; under-detection (dangerous direction) IS caught per-family; compensating-shift is lower-probability."},
+    {"finding_id": "PTA-2", "decision": "advisory", "source_file": "lib/test/run.sh", "claim_text": "grant-present->0 asymmetric coverage", "skip_category": "advisory-parked", "evidence": "Suggestion; documented deferral; fail-closed direction (over-detect surfaces RED)."},
+    {"finding_id": "PTA-3", "decision": "advisory", "source_file": "lib/test/run.sh", "claim_text": "mutation first-match positional fragility", "skip_category": "advisory-parked", "evidence": "Suggestion; documented inline; non-actionable today (statuses:read occurs once, line 142)."}
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 0,
+    "fix_diff_lines": 0,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "telemetry": {
+    "phase_1": {"calls": 1, "tokens": 69430, "wall_clock_s": 163},
+    "phase_2": {"calls": 0, "tokens": 0, "wall_clock_s": 20},
+    "phase_3": {"calls": 6, "tokens": 380000, "wall_clock_s": 280},
+    "step_2_6": {"calls": 5, "tokens": 0, "wall_clock_s": 0}
+  }
+}
