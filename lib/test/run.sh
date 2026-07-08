@@ -9637,6 +9637,13 @@ assert_eq "#311 trigger-policy comment points at the real doc (docs/workflow-tri
   "$(grep -qF 'see docs/workflow-triggers.md' "$REVIEW_WF" && echo yes || echo no)"
 assert_eq "#311 behind-base deferral summary points at docs/workflow-triggers.md" "yes" \
   "$(grep -qF 'See docs/workflow-triggers.md for the deferral and re-trigger policy' "$REVIEW_WF" && echo yes || echo no)"
+# (AC6, end-to-end) The two pins above assert the workflow REFERENCES the doc;
+# this closes the dangling-ref loop by asserting the target actually EXISTS on
+# disk. #311's bug was a *dangling* reference — a text-only pin would stay green
+# if the ref were later re-pointed at a deleted/renamed doc, re-introducing the
+# exact defect class this AC fixed.
+assert_eq "#311 AC6 target doc docs/workflow-triggers.md exists on disk (closes the dangling-ref loop)" "yes" \
+  "$([ -f "$LIB/../docs/workflow-triggers.md" ] && echo yes || echo no)"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "efficiency-trace.jq / efficiency-trace.sh"
