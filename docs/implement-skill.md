@@ -218,8 +218,9 @@ This is the gate enforcing "verified before merge" rather than trusting the run'
 tooling gap can no longer be laundered into a post-merge pass, a self-claim confirmation can no
 longer be deferred past the one test that would catch it, and a self-reconfiguration check can no longer
 ride a "cleanest in a fresh session" rationale into an unchecked post-merge deferral. To keep every mid-run
-retag auditable, `workpad.py` structurally rejects a `--rewrite-ac` that appends the `(post-merge)` tag
-without a non-empty `--note` rationale (issue #338).
+`--rewrite-ac` retag auditable, `workpad.py` structurally rejects a `--rewrite-ac` call that appends the
+`(post-merge)` tag (a single pair or a crafted multi-pair sequence) without a non-empty `--note` rationale
+(issue #338). (The Phase 2.2.5 `--replace-acs-file` wholesale channel is a deliberate, known exception.)
 
 ## Phase 4.3 finalize: publish vs. draft (`implement_pr_state`)
 

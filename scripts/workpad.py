@@ -1260,12 +1260,13 @@ _POST_MERGE_MARKER = '(post-merge)'
 
 def _pair_appends_post_merge(old: str, new: str) -> bool:
     """True when a `--rewrite-ac` OLD/NEW pair *appends* the `(post-merge)` tag —
-    NEW ends with the marker (after a trailing-whitespace strip so a stray space
-    or newline can't mask it) while OLD does not. This is exactly the mid-run
-    retag channel §3.4 requires a rationale `--note` for (issue #338): a pair that
-    tags a previously-untagged criterion. A pair whose OLD already ends with the
-    tag (a text tweak on an already-tagged row) or that *removes* the tag returns
-    False — those need no rationale."""
+    NEW ends with the marker while OLD does not (both sides trailing-whitespace
+    stripped first, so a stray space or newline on either side can't mask the
+    comparison). This is exactly the mid-run retag channel §3.4 requires a
+    rationale `--note` for (issue #338): a pair that tags a previously-untagged
+    criterion. A pair whose OLD already ends with the tag (a text tweak on an
+    already-tagged row) or that *removes* the tag returns False — those need no
+    rationale."""
     return (new.rstrip().endswith(_POST_MERGE_MARKER)
             and not old.rstrip().endswith(_POST_MERGE_MARKER))
 
@@ -1415,7 +1416,8 @@ def _apply_mutations(body: str, args, failed_ticks) -> str:
         # Scope: this covers the `--rewrite-ac` retag channel only; the Phase 2.2.5
         # `--replace-acs-file` channel can introduce `(post-merge)` rows wholesale —
         # a deliberate, known limitation left open here, not closed by this guard.
-        if not any(n.strip() for n in args.note):
+        has_note = any(n.strip() for n in args.note)
+        if not has_note:
             offending = next(((old, new) for old, new in args.rewrite_ac
                               if _pair_appends_post_merge(old, new)), None)
             if offending:
@@ -1434,8 +1436,32 @@ def _apply_mutations(body: str, args, failed_ticks) -> str:
         # `content` through a local and write `sections[idx]` once after the
         # loop, so a mid-loop raise leaves the section fully untouched.
         heading, content = sections[idx]
+        # State-based backstop (issue #338 hardening): the per-pair guard above
+        # reasons over the OLD/NEW argument *strings*, so a crafted MULTI-pair call
+        # whose pairs each individually dodge `_pair_appends_post_merge` — e.g.
+        # pair 1 places the marker non-terminally (`X` -> `(post-merge) X`, NEW
+        # doesn't end in the tag), pair 2 makes it terminal (`(post-merge)` ->
+        # `X (post-merge)`, OLD ends in the tag) — could net-add a post-merge row
+        # with no note and slip past. Compare the count of post-merge-terminal
+        # unticked rows before vs. after the whole loop: a net increase with no
+        # non-empty --note is a laundered deferral regardless of how the pairs were
+        # shaped, so abort here (still before any PATCH → all-or-nothing holds).
+        # This is additive — it never fires on a call the per-pair guard already
+        # caught, and it leaves the tag-preserving/tag-removing cases (no count
+        # increase) untouched. Residual known limitations (not closed here): a tag
+        # appended to an already-ticked `[x]` row is outside the unticked-row
+        # population, and a call that removes one tag while adding another nets to
+        # no increase — both far outside the natural single-retag flow.
+        pre_pm = len(_unticked_rows(content)[1])
         for old, new in args.rewrite_ac:
             content = _rewrite_checkbox(content, old, new, 'Acceptance Criteria')
+        if not has_note and len(_unticked_rows(content)[1]) > pre_pm:
+            raise _UpdateError(
+                f"a --rewrite-ac in this call net-adds a {_POST_MERGE_MARKER} "
+                f"criterion but no non-empty --note rationale was supplied; a "
+                f"mid-run {_POST_MERGE_MARKER} retag must record why the deferral "
+                f"is genuinely-live (§3.4). No PATCH was made."
+            )
         sections[idx] = (heading, content)
 
     if args.replace_plan_file:

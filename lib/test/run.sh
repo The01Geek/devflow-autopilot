@@ -3877,6 +3877,42 @@ assert_eq "#338(T5): a mixed call with one appending pair, no note, aborts non-z
 assert_eq "#338(T5): the mixed-call refusal made NO PATCH (the plain rewrite did not partially apply)" "yes" \
   "$([ -s "$S338/patchlog" ] && echo no || echo yes)"
 
+# T3b (removal pair — documented no-note case, unpinned until now): NEW lacks the tag
+# and OLD ends with it (de-tagging an already-post-merge row) needs no note. Pins the
+# predicate's first-conjunct-False path (no current test drives it: T1/T2/T3 all have NEW
+# ending in the marker), so a refactor that fired on any tag *movement* would go RED here.
+_c="$(run338 "$S338/base-tagged.md" --rewrite-ac "AC two (post-merge)" "AC two")"
+assert_eq "#338(T3b): a rewrite that REMOVES the (post-merge) tag passes with no note (exit 0)" "0" "$_c"
+assert_eq "#338(T3b): the tag-removing rewrite PATCHed" "yes" \
+  "$([ -s "$S338/patchlog" ] && echo yes || echo no)"
+
+# T4b (trailing-whitespace anti-evasion — the reason the predicate rstrips): an appending
+# pair whose NEW ends with the tag plus trailing spaces is still an append and is refused
+# with no note. Pins the rstrip; a bare endswith (no rstrip) would let this evasion through
+# while every other S338 test stayed green.
+_c="$(run338 "$S338/base.md" --rewrite-ac "AC two" "AC two (post-merge)   ")"
+assert_eq "#338(T4b): an appending pair with trailing whitespace after the tag is refused (non-zero)" "no" \
+  "$([ "$_c" = "0" ] && echo yes || echo no)"
+assert_eq "#338(T4b): the trailing-whitespace-append refusal made NO PATCH" "yes" \
+  "$([ -s "$S338/patchlog" ] && echo no || echo yes)"
+
+# T7 (state-based multi-pair backstop, issue #338 hardening): a crafted two-pair call whose
+# pairs each individually dodge the per-pair guard — pair 1 places the marker non-terminally
+# (NEW doesn't end in the tag), pair 2 makes it terminal (OLD ends in the tag) — net-adds a
+# (post-merge) row. The per-pair guard alone would fail OPEN here; the post-loop count-of-
+# post-merge-rows backstop catches it and aborts before any PATCH. RED against the pre-
+# backstop code (the laundered tag PATCHes with no note).
+_c="$(run338 "$S338/base.md" --rewrite-ac "AC two" "(post-merge) AC two" \
+  --rewrite-ac "(post-merge)" "AC two (post-merge)")"
+assert_eq "#338(T7): a multi-pair call that net-adds a (post-merge) row with no note is refused (non-zero)" "no" \
+  "$([ "$_c" = "0" ] && echo yes || echo no)"
+assert_eq "#338(T7): the multi-pair backstop refusal made NO PATCH (all-or-nothing)" "yes" \
+  "$([ -s "$S338/patchlog" ] && echo no || echo yes)"
+# T7b (backstop no false fire): the identical multi-pair call WITH a non-empty --note succeeds.
+_c="$(run338 "$S338/base.md" --rewrite-ac "AC two" "(post-merge) AC two" \
+  --rewrite-ac "(post-merge)" "AC two (post-merge)" --note "retro-tagged (genuinely-live): live endpoint")"
+assert_eq "#338(T7b): the same multi-pair retag WITH a --note succeeds (exit 0)" "0" "$_c"
+
 # Source pin: the rationale-required guard + its predicate live in workpad.py.
 assert_eq "#338: workpad.py carries the (post-merge)-retag rationale guard" "yes" \
   "$(grep -q '_pair_appends_post_merge' "$WP_PY" && echo yes || echo no)"
