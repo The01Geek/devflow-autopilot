@@ -4,6 +4,36 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.79] — 2026-07-08
+
+### Fixed
+- **`extract-doc-needed-paths.sh` now recognizes the `**Documentation Needed**`
+  bullet when it is written as a bare bold paragraph with no leading `- ` list
+  marker.** LLM-drafted `## Implementation Notes` sections commonly render the item
+  as `**Documentation Needed** — …` rather than the template's `- **Documentation
+  Needed** — …`; the extractor's scope anchor required the `- ` prefix, so it
+  matched nothing and returned empty — silently skipping the Phase 4.1 deterministic
+  deliverable cross-check on exactly that issue shape (the real issue #304 body
+  triggered it). The Stage-A scope opener and closer now treat a bold line as a
+  top-level bullet when it is either a `- **…**` list item or a bare, blank-line-
+  preceded `**…**` bold paragraph — the actual grammar of both bullet shapes. A
+  bold-emphasis span that only begins a wrapped continuation line inside the bullet
+  no longer closes the scope, so paths on later wrapped lines are still captured
+  (avoiding a fail-open that would silently drop deliverables). The unchanged token
+  scan still decides what is a path, so backticked/bare file paths in the em-dash
+  prose sentence are emitted while directory references and non-path parenthetical
+  prose are dropped as before. A sibling of the #289 miss class. (#309)
+
+## [2.8.78] — 2026-07-08
+
+### Fixed
+- **Route the `review_dedupe` cloud job through the shared standalone-command detector.** The
+  `review_dedupe` job in `devflow.yml` now materializes the vendored plugin and routes its body
+  match through the same `detect-standalone-command.sh` the trigger resolver uses, replacing its
+  coarse `case "$BODY"` substring. A `/devflow:review` merely quoted or fenced in prose no longer
+  dedupes or posts a "manual review suppressed" notice, and the trigger gate and dedupe matcher
+  can no longer drift. (#321)
+
 ## [2.8.77] — 2026-07-07
 
 ### Fixed
