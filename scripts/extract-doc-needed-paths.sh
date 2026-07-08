@@ -157,6 +157,18 @@ block="$(printf '%s\n' "$body" | awk '
   # emission — only a deliverable within the still-open Documentation Needed
   # bullet does. Runs after the suspend arm and only promotes 3 -> 2, so it never
   # touches state 0/1 (a fully-closed scope stays closed).
+  # KNOWN LIMITATION (lookahead-free, matches the pre-#327 main behavior, so it is
+  # NOT a regression vs the merge target): a genuinely-trailing prose paragraph
+  # FOLLOWED by an unrelated plain (non-bold) bullet is structurally
+  # indistinguishable from intervening prose before the real list, so the bullet
+  # reenters and its tokens are emitted (over-emission). This is deliberately not
+  # "fixed" by restricting reentry to backtick-bearing lines: that would drop a
+  # blank-separated NON-backtick deliverable list after intervening prose, turning
+  # this over-emission into the MORE severe fail-OPEN (a silently-skipped gate) the
+  # #289/#309/#327 class exists to prevent. Between the two lookahead-free
+  # ambiguities we keep the no-fail-open property (a bold PEER bullet or heading
+  # still closes fully via the earlier arms, so this only bites a bare non-bold
+  # trailing bullet — an unusual shape that already leaks on main).
   state == 3 && ( /^[[:space:]]*-/ || /^\*\*`/ ) {
     state = 2
   }
