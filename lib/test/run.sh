@@ -8174,6 +8174,120 @@ assert_eq "#249 parse-engine-error: unparseable-log arm emits the 'jq failed par
 rm -rf "$PEE_TMP"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "surface-execution-diagnostics.sh (#329 execution-diagnostics surfacer: run summary + permission denials)"
+# ────────────────────────────────────────────────────────────────────────────
+# Best-effort read-only surfacer: prints the run summary + permission-denial
+# detail from a claude-code-action execution log to stdout (and $GITHUB_STEP_SUMMARY
+# when set). Always exits 0. Degrades to count-only when no per-denial array is
+# present, and to "no diagnostics available" when the file is absent/empty/
+# unparseable/result-less. Mirrors parse-engine-error.sh's slurp-based traversal.
+SED="$LIB/../scripts/surface-execution-diagnostics.sh"
+SED_TMP="$(mktemp -d)"
+# populated: result object carrying the run summary AND a permission_denials array
+# with per-denial tool_name + tool_input (the tool_input long enough to truncate).
+LONG_INPUT="$(printf 'x%.0s' $(seq 1 300))"
+printf '%s' "$(printf '{"type":"result","is_error":false,"num_turns":12,"duration_ms":34567,"total_cost_usd":0.42,"permission_denials_count":2,"permission_denials":[{"tool_name":"Bash","tool_input":"%s"},{"tool_name":"Write","tool_input":"file.txt"}]}' "$LONG_INPUT")" > "$SED_TMP/populated.json"
+# count-only: run summary with permission_denials_count but NO permission_denials array
+printf '%s' '{"type":"result","is_error":true,"num_turns":3,"duration_ms":100,"total_cost_usd":0.01,"permission_denials_count":7}' > "$SED_TMP/count_only.json"
+# zero denials
+printf '%s' '{"type":"result","is_error":false,"num_turns":1,"duration_ms":5,"total_cost_usd":0.0,"permission_denials_count":0}' > "$SED_TMP/zero.json"
+# JSONL shape carrying the result event on a later line (pins the -s slurp)
+printf '{"type":"system"}\n{"type":"result","is_error":false,"num_turns":2,"permission_denials_count":1,"permission_denials":[{"tool_name":"Edit","tool_input":"a.py"}]}\n' > "$SED_TMP/jsonl.json"
+# malformed / unparseable
+printf '%s' 'not json {{'   > "$SED_TMP/garbage.json"
+# empty file
+: > "$SED_TMP/empty.json"
+
+# --- AC1: run summary fields surfaced to stdout ---
+assert_eq "#329 surface-diag: populated emits Run summary header" "yes" \
+  "$(bash "$SED" "$SED_TMP/populated.json" 2>/dev/null | grep -qF "### Run summary" && echo yes || echo no)"
+assert_eq "#329 surface-diag: populated surfaces is_error" "yes" \
+  "$(bash "$SED" "$SED_TMP/populated.json" 2>/dev/null | grep -qF "is_error: false" && echo yes || echo no)"
+assert_eq "#329 surface-diag: populated surfaces num_turns" "yes" \
+  "$(bash "$SED" "$SED_TMP/populated.json" 2>/dev/null | grep -qF "num_turns: 12" && echo yes || echo no)"
+assert_eq "#329 surface-diag: populated surfaces duration_ms" "yes" \
+  "$(bash "$SED" "$SED_TMP/populated.json" 2>/dev/null | grep -qF "duration_ms: 34567" && echo yes || echo no)"
+assert_eq "#329 surface-diag: populated surfaces total_cost_usd" "yes" \
+  "$(bash "$SED" "$SED_TMP/populated.json" 2>/dev/null | grep -qF "total_cost_usd: 0.42" && echo yes || echo no)"
+assert_eq "#329 surface-diag: populated surfaces permission_denials_count" "yes" \
+  "$(bash "$SED" "$SED_TMP/populated.json" 2>/dev/null | grep -qF "permission_denials_count: 2" && echo yes || echo no)"
+# --- AC1: per-denial detail (tool_name + tool_input) when the array is present ---
+assert_eq "#329 surface-diag: populated surfaces per-denial tool_name" "yes" \
+  "$(bash "$SED" "$SED_TMP/populated.json" 2>/dev/null | grep -qF '`Bash`' && echo yes || echo no)"
+assert_eq "#329 surface-diag: populated surfaces second per-denial tool_name" "yes" \
+  "$(bash "$SED" "$SED_TMP/populated.json" 2>/dev/null | grep -qF '`Write`' && echo yes || echo no)"
+assert_eq "#329 surface-diag: populated truncates a long tool_input" "yes" \
+  "$(bash "$SED" "$SED_TMP/populated.json" 2>/dev/null | grep -qF '(truncated)' && echo yes || echo no)"
+# --- count-only degrades to count text, no per-denial detail ---
+assert_eq "#329 surface-diag: count-only surfaces count" "yes" \
+  "$(bash "$SED" "$SED_TMP/count_only.json" 2>/dev/null | grep -qF "permission_denials_count: 7" && echo yes || echo no)"
+assert_eq "#329 surface-diag: count-only emits the no-per-denial-detail line" "yes" \
+  "$(bash "$SED" "$SED_TMP/count_only.json" 2>/dev/null | grep -qF "no per-denial detail in execution file" && echo yes || echo no)"
+# --- zero denials -> "No permission denials." ---
+assert_eq "#329 surface-diag: zero denials emits 'No permission denials.'" "yes" \
+  "$(bash "$SED" "$SED_TMP/zero.json" 2>/dev/null | grep -qF "No permission denials." && echo yes || echo no)"
+# --- JSONL slurp reaches the later result line ---
+assert_eq "#329 surface-diag: JSONL result line surfaced (slurp pinned)" "yes" \
+  "$(bash "$SED" "$SED_TMP/jsonl.json" 2>/dev/null | grep -qF '`Edit`' && echo yes || echo no)"
+# --- AC3: absent/empty/malformed -> "no diagnostics available" + exit 0 ---
+assert_eq "#329 surface-diag: absent file -> no diagnostics available" "yes" \
+  "$(bash "$SED" "$SED_TMP/does-not-exist.json" 2>/dev/null | grep -qF "No diagnostics available" && echo yes || echo no)"
+assert_eq "#329 surface-diag: empty file -> no diagnostics available" "yes" \
+  "$(bash "$SED" "$SED_TMP/empty.json" 2>/dev/null | grep -qF "No diagnostics available" && echo yes || echo no)"
+assert_eq "#329 surface-diag: malformed shape -> no diagnostics available" "yes" \
+  "$(bash "$SED" "$SED_TMP/garbage.json" 2>/dev/null | grep -qF "No diagnostics available" && echo yes || echo no)"
+assert_eq "#329 surface-diag: missing file arg -> no diagnostics available" "yes" \
+  "$(bash "$SED" "" 2>/dev/null | grep -qF "No diagnostics available" && echo yes || echo no)"
+# --- AC3: always exits 0 on every arm ---
+( bash "$SED" "$SED_TMP/populated.json" >/dev/null 2>&1 ); assert_eq "#329 surface-diag: exits 0 (populated)" "0" "$?"
+( bash "$SED" "$SED_TMP/garbage.json" >/dev/null 2>&1 );   assert_eq "#329 surface-diag: exits 0 (malformed)" "0" "$?"
+( bash "$SED" "$SED_TMP/does-not-exist.json" >/dev/null 2>&1 ); assert_eq "#329 surface-diag: exits 0 (absent)" "0" "$?"
+( bash "$SED" "" >/dev/null 2>&1 );                        assert_eq "#329 surface-diag: exits 0 (empty arg)" "0" "$?"
+# --- AC3: absent-file / malformed arms leave a breadcrumb (not a silent no-op) ---
+assert_eq "#329 surface-diag: absent-file arm emits 'execution file absent' breadcrumb" "yes" \
+  "$(bash "$SED" "$SED_TMP/does-not-exist.json" 2>&1 1>/dev/null | grep -qF "execution file absent or empty" && echo yes || echo no)"
+assert_eq "#329 surface-diag: malformed arm emits 'jq failed parsing' breadcrumb" "yes" \
+  "$(bash "$SED" "$SED_TMP/garbage.json" 2>&1 1>/dev/null | grep -qF "jq failed parsing" && echo yes || echo no)"
+# --- AC2: appends to $GITHUB_STEP_SUMMARY when set & non-empty; stdout-only when not ---
+SED_SUMMARY="$SED_TMP/step_summary.md"
+: > "$SED_SUMMARY"
+( GITHUB_STEP_SUMMARY="$SED_SUMMARY" bash "$SED" "$SED_TMP/populated.json" >/dev/null 2>&1 )
+assert_eq "#329 surface-diag: appends the block to GITHUB_STEP_SUMMARY when set" "yes" \
+  "$(grep -qF "permission_denials_count: 2" "$SED_SUMMARY" && echo yes || echo no)"
+# unset -> no file written; stdout still carries the block (the summary var is empty)
+SED_STDOUT="$(GITHUB_STEP_SUMMARY="" bash "$SED" "$SED_TMP/populated.json" 2>/dev/null)"
+assert_eq "#329 surface-diag: stdout still carries the block when GITHUB_STEP_SUMMARY unset" "yes" \
+  "$(printf '%s' "$SED_STDOUT" | grep -qF "### Run summary" && echo yes || echo no)"
+# DEVFLOW_JQ override honored (best-effort seam, same as parse-engine-error.sh)
+assert_eq "#329 surface-diag: honors DEVFLOW_JQ override" "yes" \
+  "$(DEVFLOW_JQ="$(command -v jq)" bash "$SED" "$SED_TMP/populated.json" 2>/dev/null | grep -qF "### Run summary" && echo yes || echo no)"
+# --- AC8: the execution_diagnostics_enabled key exists in schema + example (default true) ---
+SED_SCHEMA="$LIB/../.devflow/config.schema.json"
+SED_EXAMPLE="$LIB/../.devflow/config.example.json"
+SED_PROP='.properties.devflow.properties.execution_diagnostics_enabled'
+assert_eq "#329 execution_diagnostics_enabled: schema type is boolean" "boolean" \
+  "$(jq -r "$SED_PROP.type" "$SED_SCHEMA")"
+assert_eq "#329 execution_diagnostics_enabled: schema default is true" "true" \
+  "$(jq -r "$SED_PROP.default" "$SED_SCHEMA")"
+assert_eq "#329 execution_diagnostics_enabled: schema has a non-empty description" "yes" \
+  "$(jq -e "$SED_PROP.description | type == \"string\" and (length > 0)" "$SED_SCHEMA" >/dev/null && echo yes || echo no)"
+assert_eq "#329 execution_diagnostics_enabled: example value matches schema default" \
+  "$(jq -r "$SED_PROP.default" "$SED_SCHEMA")" \
+  "$(jq -r '.devflow.execution_diagnostics_enabled' "$SED_EXAMPLE")"
+# resolver read: configured false read back verbatim, absent/missing → default true
+SED_CFG="$(mktemp)"
+printf '%s' '{"devflow":{"execution_diagnostics_enabled":false}}' > "$SED_CFG"
+assert_eq "#329 execution_diagnostics_enabled: configured false read back" "false" \
+  "$("$CG" .devflow.execution_diagnostics_enabled true "$SED_CFG")"
+printf '%s' '{}' > "$SED_CFG"
+assert_eq "#329 execution_diagnostics_enabled: unset key → resolver default true" "true" \
+  "$("$CG" .devflow.execution_diagnostics_enabled true "$SED_CFG")"
+assert_eq "#329 execution_diagnostics_enabled: missing config file → resolver default true" "true" \
+  "$("$CG" .devflow.execution_diagnostics_enabled true /no/such/config.json)"
+rm -f "$SED_CFG"
+rm -rf "$SED_TMP"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "resolve-implement-trigger.sh"
 # ────────────────────────────────────────────────────────────────────────────
 # The implement trigger runs the action in AGENT mode (explicit prompt), which

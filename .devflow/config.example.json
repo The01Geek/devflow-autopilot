@@ -8,7 +8,8 @@
     "allowed_users": "*",
     "workpad_marker": "<!-- devflow:workpad -->",
     "effort": "high",
-    "allowed_tools": []
+    "allowed_tools": [],
+    "execution_diagnostics_enabled": true
   },
   "devflow_implement": {
     "effort": "high",
