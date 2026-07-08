@@ -17425,6 +17425,13 @@ echo "#342 interpreter version gate: workpad.py / match-deferrals.py fail fast o
 #   (3) the `if` body actually calls `sys.exit(...)` — a warn-then-continue gate
 #       (stderr write but no exit) would fail OPEN, printing the message and then
 #       dying with the raw `TypeError` the gate exists to prevent (GATE_NO_EXIT);
+#   (3b) the sys.exit argument is a non-zero integer CONSTANT — a regression to
+#       `sys.exit(0)` or bare `sys.exit()` (both an exit CODE of 0) would satisfy
+#       the plain "calls sys.exit" check yet exit SUCCESSFULLY on a sub-3.11
+#       interpreter, i.e. fail OPEN in exactly the direction the gate exists to
+#       prevent (a caller reading `$?` would proceed as if the helper ran)
+#       (GATE_ZERO_EXIT); pinning the constant's non-zero value closes that hole
+#       (finding #343-1);
 # and (4) the gate precedes the first FunctionDef/ClassDef (below it, the gate can
 #       no longer fire ahead of annotation evaluation — GATE_BELOW_DEF).
 # It separately pins the message wording (`Python 3.11+ required` + the
@@ -17435,18 +17442,28 @@ echo "#342 interpreter version gate: workpad.py / match-deferrals.py fail fast o
 # future floor change updates every site in one commit.
 GATE_CHECK='
 import ast, sys
-def _body_exits(body):
+def _find_exit_call(body):
     # Walk only the gate body statements (NOT the whole If node) so a sys.exit in an
     # `else` branch cannot satisfy this — an else-exit gate fires on the SUPPORTED
-    # interpreters, the fail-open direction this check exists to reject.
+    # interpreters, the fail-open direction this check exists to reject. Returns the
+    # sys.exit Call node (so the caller can inspect its argument) or None.
     for stmt in body:
         for sub in ast.walk(stmt):
             if isinstance(sub, ast.Call):
                 f = sub.func
                 if isinstance(f, ast.Attribute) and f.attr == "exit" \
                    and isinstance(f.value, ast.Name) and f.value.id == "sys":
-                    return True
-    return False
+                    return sub
+    return None
+def _exits_nonzero(call):
+    # The exit CODE must be a non-zero integer constant. bool is a subclass of int
+    # so it is excluded explicitly (sys.exit(True) is code 1 but reads as an obvious
+    # mistake; sys.exit(False) is code 0). A bare sys.exit() / sys.exit(None) /
+    # sys.exit(0) all exit 0 — the fail-open regression this rejects.
+    arg = call.args[0] if call.args else None
+    return (isinstance(arg, ast.Constant)
+            and isinstance(arg.value, int) and not isinstance(arg.value, bool)
+            and arg.value != 0)
 def check(path):
     tree = ast.parse(open(path, encoding="utf-8").read())
     first_def = None
@@ -17470,8 +17487,11 @@ def check(path):
         print("NO_GATE"); return
     if first_def is not None and gate_idx > first_def:
         print("GATE_BELOW_DEF"); return
-    if not _body_exits(gate_node.body):
+    exit_call = _find_exit_call(gate_node.body)
+    if exit_call is None:
         print("GATE_NO_EXIT"); return
+    if not _exits_nonzero(exit_call):
+        print("GATE_ZERO_EXIT"); return
     print("GATE_OK")
 check(sys.argv[1])
 '
@@ -17487,13 +17507,13 @@ done
 # Meta-guard (removal-proof): assert GATE_CHECK itself goes RED on each regression
 # direction the block comment claims to cover — not merely GREEN on the real files.
 # Asserting only GATE_OK against the shipped gates would stay green if a future edit
-# reopened a hole (e.g. `_body_exits` reverting to walk the whole `If` node, `is_lt`
-# dropped, or the tuple loosened) because the real files still emit GATE_OK. Exercising
-# each negative sentinel against a synthetic fixture bakes the #342 AC's RED-direction
-# requirement (gate absent / comparison no longer `< (3,11)` / gate below the first def /
-# body does not exit) into the suite, so those mutations fail RED here rather than in a
-# later shadow. Fail CLOSED if the fixture dir can't be created (record a FAIL, never a
-# silent skip).
+# reopened a hole (e.g. `_find_exit_call` reverting to walk the whole `If` node, `is_lt`
+# dropped, the tuple loosened, or the non-zero-exit-code check dropped) because the real
+# files still emit GATE_OK. Exercising each negative sentinel against a synthetic fixture
+# bakes the #342/#343 AC's RED-direction requirement (gate absent / comparison no longer
+# `< (3,11)` / gate below the first def / body does not exit / body exits with code 0)
+# into the suite, so those mutations fail RED here rather than in a later shadow. Fail
+# CLOSED if the fixture dir can't be created (record a FAIL, never a silent skip).
 if _G342_DIR="$(mktemp -d 2>/dev/null)" && [ -n "$_G342_DIR" ] && [ -d "$_G342_DIR" ]; then
   printf 'import sys\n\ndef f(x: "int | None"):\n    pass\n' > "$_G342_DIR/absent.py"
   printf 'import sys\nif sys.version_info >= (3, 11):\n    sys.exit(1)\ndef f(x: "int | None"):\n    pass\n' > "$_G342_DIR/reversed.py"
@@ -17501,6 +17521,8 @@ if _G342_DIR="$(mktemp -d 2>/dev/null)" && [ -n "$_G342_DIR" ] && [ -d "$_G342_D
   printf 'import sys\n\ndef f(x: "int | None"):\n    pass\n\nif sys.version_info < (3, 11):\n    sys.exit(1)\n' > "$_G342_DIR/belowdef.py"
   printf 'import sys\nif sys.version_info < (3, 11):\n    sys.stderr.write("Python 3.11+ required\\n")\ndef f(x: "int | None"):\n    pass\n' > "$_G342_DIR/noexit.py"
   printf 'import sys\nif sys.version_info < (3, 11):\n    sys.stderr.write("x\\n")\nelse:\n    sys.exit(1)\ndef f(x: "int | None"):\n    pass\n' > "$_G342_DIR/elseexit.py"
+  printf 'import sys\nif sys.version_info < (3, 11):\n    sys.exit(0)\ndef f(x: "int | None"):\n    pass\n' > "$_G342_DIR/zeroexit.py"
+  printf 'import sys\nif sys.version_info < (3, 11):\n    sys.exit()\ndef f(x: "int | None"):\n    pass\n' > "$_G342_DIR/bareexit.py"
   printf 'import sys\nif sys.version_info < (3, 11):\n    sys.exit(1)\ndef f(x: "int | None"):\n    pass\n' > "$_G342_DIR/ok.py"
   assert_eq "#342 meta-guard: absent gate does NOT read GATE_OK" \
     "NO_GATE" "$(python3 -c "$GATE_CHECK" "$_G342_DIR/absent.py" 2>&1)"
@@ -17514,6 +17536,10 @@ if _G342_DIR="$(mktemp -d 2>/dev/null)" && [ -n "$_G342_DIR" ] && [ -d "$_G342_D
     "GATE_NO_EXIT" "$(python3 -c "$GATE_CHECK" "$_G342_DIR/noexit.py" 2>&1)"
   assert_eq "#342 meta-guard: exit only in else branch reads GATE_NO_EXIT" \
     "GATE_NO_EXIT" "$(python3 -c "$GATE_CHECK" "$_G342_DIR/elseexit.py" 2>&1)"
+  assert_eq "#343 meta-guard: sys.exit(0) gate (fails open) reads GATE_ZERO_EXIT" \
+    "GATE_ZERO_EXIT" "$(python3 -c "$GATE_CHECK" "$_G342_DIR/zeroexit.py" 2>&1)"
+  assert_eq "#343 meta-guard: bare sys.exit() gate (code 0, fails open) reads GATE_ZERO_EXIT" \
+    "GATE_ZERO_EXIT" "$(python3 -c "$GATE_CHECK" "$_G342_DIR/bareexit.py" 2>&1)"
   assert_eq "#342 meta-guard: a correct synthetic gate reads GATE_OK" \
     "GATE_OK" "$(python3 -c "$GATE_CHECK" "$_G342_DIR/ok.py" 2>&1)"
   rm -rf "$_G342_DIR"
@@ -17521,6 +17547,31 @@ else
   echo FAIL >> "$RESULTS_FILE"
   printf '  FAIL  #342 meta-guard: mktemp -d failed (negative-direction assertions could not run; not a vacuous pass)\n' >&2
 fi
+
+# ── #343 runtime gate exercise: EXECUTE the gate body on a simulated sub-3.11 host ──
+# The ast meta-guard above proves the gate's SHAPE; it never RUNS the gate body, so the
+# `%`-formatting inside the message (three `%s` against `sys.version_info[:3]`) is
+# unexercised on the interpreter class the gate actually fires on. A later arg-count
+# mismatch would raise `TypeError` only on <3.11 — resurfacing the opaque traceback this
+# whole fix set out to eliminate — and stay green everywhere the suite runs (>=3.11).
+# Close it by monkeypatching `sys.version_info` to a 3.10 tuple, then exec-ing the real
+# file: the gate is above every def, so it fires (writing the formatted message + exiting
+# non-zero) before any PEP 604 annotation is evaluated, on the suite's own >=3.11 python3.
+# Operand trace (per CLAUDE.md guard discipline): rc and stderr are both PRODUCED by the
+# shipped gate itself — `sys.exit(1)` → rc 1 (finding #343-1's non-zero contract, now also
+# checked at runtime), `sys.stderr.write(... % sys.version_info[:3])` → the message. The
+# patched `(3, 10, 0)` feeds `[:3]` exactly three elements, so a placeholder/arg-count
+# regression detonates HERE as a non-1 rc / empty stderr rather than only on a real 3.10 host.
+for _gf in workpad.py match-deferrals.py; do
+  _G343_ERR="$(python3 -c 'import sys; sys.version_info=(3,10,0); exec(open(sys.argv[1]).read())' "$LIB/../scripts/$_gf" 2>&1 >/dev/null)"
+  _G343_RC=$?
+  assert_eq "#343 runtime: $_gf gate exits NON-ZERO on simulated 3.10 (fails closed)" \
+    "1" "$_G343_RC"
+  assert_eq "#343 runtime: $_gf gate prints the formatted floor+found message (no TypeError)" \
+    "yes" "$(printf '%s' "$_G343_ERR" | grep -q 'Python 3.11+ required (found 3.10.0)' && echo yes || echo no)"
+  assert_eq "#343 runtime: $_gf gate names the provision-python3-shim.sh remedy at runtime" \
+    "yes" "$(printf '%s' "$_G343_ERR" | grep -q 'provision-python3-shim.sh' && echo yes || echo no)"
+done
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
