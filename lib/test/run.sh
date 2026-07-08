@@ -7215,6 +7215,132 @@ assert_pin_unique "#275 pin (P3-live): phase-4 carries a live file-deferrals.py 
   "$PORTABLE_ANCHOR_LITERAL"'scripts/file-deferrals.py' "$LIB/../skills/implement/phases/phase-4-documentation.md"
 assert_pin_unique "#275 pin (P4-ci): create-issue preamble carries the never-capture operative sentence" \
   'Never capture the anchor into a shell variable that a later statement reads' "$LIB/../skills/create-issue/SKILL.md"
+# ────────────────────────────────────────────────────────────────────────────
+echo "#332: resolve-main-root.sh (main-worktree root) + create-issue draft-path"
+# ────────────────────────────────────────────────────────────────────────────
+# The resolver prints the MAIN working-tree root so create-issue's draft path is
+# correct inside a linked (Claude) worktree. Best-effort: always exit 0, pwd
+# fallback + stderr breadcrumb when git can't answer. Tests use REAL throwaway
+# git repos + real `git worktree add` (the boundary being proven is git's own
+# worktree topology — not mocked). RED before the resolver existed (no file to run).
+RMR="$LIB/../scripts/resolve-main-root.sh"
+# AC1: SPDX header (required for new .sh files).
+assert_pin_unique "#332 AC1: resolve-main-root.sh carries the SPDX copyright header" \
+  'SPDX-FileCopyrightText: 2026 Daniel Radman' "$RMR"
+assert_pin_unique "#332 AC1: resolve-main-root.sh carries the SPDX license header" \
+  'SPDX-License-Identifier: MIT' "$RMR"
+
+# Build a real main tree + a linked worktree under one sandbox parent.
+RMR_PARENT="$(git_sandbox "#332 resolver sandbox")"
+RMR_MAIN="$RMR_PARENT/main"; RMR_WT="$RMR_PARENT/wt"
+mkdir -p "$RMR_MAIN"
+git -C "$RMR_MAIN" init -q
+git -C "$RMR_MAIN" config user.email t@example.com; git -C "$RMR_MAIN" config user.name t
+printf 'x\n' > "$RMR_MAIN/f"
+git -C "$RMR_MAIN" add -A; git -C "$RMR_MAIN" -c user.email=t@t -c user.name=t commit -qm init
+git -C "$RMR_MAIN" worktree add -q -b rmr-feat "$RMR_WT" >/dev/null 2>&1
+# Guard: the worktree must exist, else the from-worktree run would fall back to cwd
+# and the AC2 assertions would be meaningless (a false GREEN).
+assert_eq "#332 setup: linked worktree was created" "yes" \
+  "$([ -d "$RMR_WT" ] && echo yes || echo no)"
+RMR_FROM_MAIN="$(cd "$RMR_MAIN" && bash "$RMR" 2>/dev/null)"
+RMR_FROM_WT="$(cd "$RMR_WT" && bash "$RMR" 2>/dev/null)"
+# AC2: from inside the worktree the resolver prints the MAIN root (== the main-tree
+# result), NOT the worktree path. Comparing the two runs sidesteps macOS /tmp
+# symlink canonicalization (both runs canonicalize identically).
+assert_eq "#332 AC2: resolver from a linked worktree prints the MAIN root (== main-tree result)" \
+  "$RMR_FROM_MAIN" "$RMR_FROM_WT"
+assert_eq "#332 AC2: resolver from a worktree does NOT print the worktree path" "yes" \
+  "$([ -n "$RMR_FROM_WT" ] && [ "$RMR_FROM_WT" != "$RMR_WT" ] && echo yes || echo no)"
+# AC3: from the main tree the resolver prints a non-empty existing dir (no regression).
+assert_eq "#332 AC3: resolver from the main tree prints a non-empty existing dir" "yes" \
+  "$([ -n "$RMR_FROM_MAIN" ] && [ -d "$RMR_FROM_MAIN" ] && echo yes || echo no)"
+# AC3 (discriminating): run from a SUBDIRECTORY of the main tree — the resolver must return
+# the enclosing main root, NOT the cwd. `git worktree list --porcelain` reports an absolute
+# root independent of cwd, so this is the case that proves the resolver isn't just printing
+# `pwd` on the normal-checkout path (an always-pwd regression passes the AC3 above — where
+# pwd==root — but fails here where the subdir≠root). Compare against RMR_FROM_MAIN (same
+# canonicalization) rather than a hardcoded path, matching the AC2 rationale.
+mkdir -p "$RMR_MAIN/sub/dir"
+RMR_FROM_SUBDIR="$(cd "$RMR_MAIN/sub/dir" && bash "$RMR" 2>/dev/null)"
+assert_eq "#332 AC3: resolver from a main-tree subdirectory prints the main root (== main-tree result), not the cwd" \
+  "$RMR_FROM_MAIN" "$RMR_FROM_SUBDIR"
+assert_eq "#332 AC3: resolver from a subdirectory does NOT print the subdirectory (cwd) path" "yes" \
+  "$([ -n "$RMR_FROM_SUBDIR" ] && [ "$RMR_FROM_SUBDIR" != "$RMR_MAIN/sub/dir" ] && echo yes || echo no)"
+
+# AC (always exit 0 / pwd fallback / breadcrumb): a non-git directory.
+RMR_NG="$(git_sandbox "#332 resolver non-git sandbox")"
+RMR_NG_OUT="$(cd "$RMR_NG" && bash "$RMR" 2>/dev/null)"
+RMR_NG_ERR="$(cd "$RMR_NG" && bash "$RMR" 2>&1 >/dev/null)"
+RMR_NG_RC=0; (cd "$RMR_NG" && bash "$RMR" >/dev/null 2>&1) || RMR_NG_RC=$?
+assert_eq "#332 fallback: non-git dir → prints pwd" "$(cd "$RMR_NG" && pwd)" "$RMR_NG_OUT"
+assert_eq "#332 fallback: non-git dir → exits 0" "0" "$RMR_NG_RC"
+assert_eq "#332 fallback: non-git dir → specific (not generic) stderr breadcrumb" "yes" \
+  "$(printf '%s' "$RMR_NG_ERR" | grep -q 'resolve-main-root' && echo yes || echo no)"  # raw-guard-ok: breadcrumb specificity probe on captured stderr, not a content pin
+
+# AC (git unavailable): shadow `git` with a failing stub on PATH; even inside a real
+# repo the resolver must fall back to pwd + breadcrumb, exit 0.
+RMR_SHADOW="$(git_sandbox "#332 resolver git-shadow bin")"
+printf '#!/bin/sh\nexit 127\n' > "$RMR_SHADOW/git"; chmod +x "$RMR_SHADOW/git"
+RMR_GU_OUT="$(cd "$RMR_MAIN" && PATH="$RMR_SHADOW:$PATH" bash "$RMR" 2>/dev/null)"
+RMR_GU_ERR="$(cd "$RMR_MAIN" && PATH="$RMR_SHADOW:$PATH" bash "$RMR" 2>&1 >/dev/null)"
+RMR_GU_RC=0; (cd "$RMR_MAIN" && PATH="$RMR_SHADOW:$PATH" bash "$RMR" >/dev/null 2>&1) || RMR_GU_RC=$?
+assert_eq "#332 fallback: git unavailable → prints pwd" "$(cd "$RMR_MAIN" && pwd)" "$RMR_GU_OUT"
+assert_eq "#332 fallback: git unavailable → exits 0" "0" "$RMR_GU_RC"
+assert_eq "#332 fallback: git unavailable → specific (not generic) stderr breadcrumb" "yes" \
+  "$(printf '%s' "$RMR_GU_ERR" | grep -q 'resolve-main-root' && echo yes || echo no)"  # raw-guard-ok: breadcrumb specificity probe on captured stderr (uniform with the non-git case — a misdirected/generic breadcrumb on the git-unavailable path is the one most easily confused with an unrelated error)
+
+# AC (bare main repo): git worktree list reports it `bare`; the resolver falls back to pwd.
+RMR_BARE="$(git_sandbox "#332 resolver bare sandbox")"
+git -C "$RMR_BARE" init --bare -q
+RMR_BARE_OUT="$(cd "$RMR_BARE" && bash "$RMR" 2>/dev/null)"
+RMR_BARE_ERR="$(cd "$RMR_BARE" && bash "$RMR" 2>&1 >/dev/null)"
+RMR_BARE_RC=0; (cd "$RMR_BARE" && bash "$RMR" >/dev/null 2>&1) || RMR_BARE_RC=$?
+assert_eq "#332 fallback: bare main repo → prints pwd (not the bare git dir as a worktree)" \
+  "$(cd "$RMR_BARE" && pwd)" "$RMR_BARE_OUT"
+assert_eq "#332 fallback: bare main repo → exits 0" "0" "$RMR_BARE_RC"
+# The bare case is the one fallback where git SUCCEEDS (returns a `bare` record the resolver
+# deliberately rejects) — so it is the path most at risk of falling back without a breadcrumb
+# if the `bare` detection and the breadcrumb emission ever drift apart. Assert the specific
+# breadcrumb fired, mirroring the git-failure fallbacks.
+assert_eq "#332 fallback: bare main repo → specific (not generic) stderr breadcrumb" "yes" \
+  "$(printf '%s' "$RMR_BARE_ERR" | grep -q 'resolve-main-root' && echo yes || echo no)"  # raw-guard-ok: breadcrumb specificity probe on captured stderr
+
+# AC (resolved root no longer exists on disk): git SUCCEEDS and reports a worktree path in
+# `--porcelain`, but that path is gone from disk (e.g. inside a linked worktree whose main
+# tree was removed). The `[ -d "$main_root" ]` arm must reject the stale path and fall back
+# to pwd + breadcrumb — otherwise the resolver prints a nonexistent path the user cannot
+# open, the exact failure this helper exists to prevent. A git stub emitting a bogus
+# porcelain record exercises this branch precisely; without it every fallback test drives
+# `main_root` EMPTY (gated by `[ -n ]` alone), so deleting `&& [ -d "$main_root" ]` would
+# leave the suite GREEN.
+RMR_STALE="$(git_sandbox "#332 resolver stale-root bin")"
+printf '#!/bin/sh\nprintf "worktree /nonexistent/devflow-main-gone\\n"\n' > "$RMR_STALE/git"; chmod +x "$RMR_STALE/git"
+RMR_STALE_OUT="$(cd "$RMR_MAIN" && PATH="$RMR_STALE:$PATH" bash "$RMR" 2>/dev/null)"
+RMR_STALE_ERR="$(cd "$RMR_MAIN" && PATH="$RMR_STALE:$PATH" bash "$RMR" 2>&1 >/dev/null)"
+RMR_STALE_RC=0; (cd "$RMR_MAIN" && PATH="$RMR_STALE:$PATH" bash "$RMR" >/dev/null 2>&1) || RMR_STALE_RC=$?
+assert_eq "#332 fallback: resolved root gone from disk → prints pwd (not the stale porcelain path)" \
+  "$(cd "$RMR_MAIN" && pwd)" "$RMR_STALE_OUT"
+assert_eq "#332 fallback: resolved root gone from disk → does NOT print the stale nonexistent path" "yes" \
+  "$([ "$RMR_STALE_OUT" != "/nonexistent/devflow-main-gone" ] && echo yes || echo no)"
+assert_eq "#332 fallback: resolved root gone from disk → exits 0" "0" "$RMR_STALE_RC"
+assert_eq "#332 fallback: resolved root gone from disk → specific (not generic) stderr breadcrumb" "yes" \
+  "$(printf '%s' "$RMR_STALE_ERR" | grep -q 'resolve-main-root' && echo yes || echo no)"  # raw-guard-ok: breadcrumb specificity probe on captured stderr
+
+# create-issue SKILL.md contract pins (coupled with the SKILL.md edit — reconciled in the
+# same change per the AC). The draft is written to AND displayed at the main-root absolute
+# path; no bare-relative displayed draft-save note remains.
+CI_SKILL_332="$LIB/../skills/create-issue/SKILL.md"
+assert_pin_unique "#332 AC4: create-issue resolves the main root via resolve-main-root.sh (portable anchor)" \
+  "$PORTABLE_ANCHOR_LITERAL"'scripts/resolve-main-root.sh' "$CI_SKILL_332"
+assert_pin_unique "#332 AC4: create-issue displays the draft at the main-root ABSOLUTE path" \
+  'Draft also saved to `<main-root>/.devflow/tmp/issue-draft-<slug>.md` for review.' "$CI_SKILL_332"
+assert_eq "#332 AC4: create-issue no longer shows a bare-relative draft-save note" "no" \
+  "$(grep -qF 'Draft also saved to `.devflow/tmp/issue-draft-<slug>.md` for review.' "$CI_SKILL_332" && echo yes || echo no)"  # raw-guard-ok: absence pin (expects no) — the old cwd-relative displayed draft note must be gone
+# The Step 2 derivation gate artifact deliberately STAYS cwd-anchored (internal, not shown
+# to the user) — assert it was not accidentally moved to the main root.
+assert_eq "#332 gotcha: Step 2 derivation artifact stays cwd-relative (not main-root)" "no" \
+  "$(grep -qF '<main-root>/.devflow/tmp/issue-derivation' "$CI_SKILL_332" && echo yes || echo no)"  # raw-guard-ok: absence pin (expects no) — the internal derivation artifact must not move to the main root
 # Behavioral proof — the static pins above are all greps; nothing executed the canonical
 # literal itself. Run the EXACT PORTABLE_ANCHOR_LITERAL (with CLAUDE_SKILL_DIR set to a
 # real skill dir, as on Claude Code) as a command head and assert the resolved helper is
