@@ -6,8 +6,9 @@
 # Prints the main repo root when run from inside a linked git worktree (e.g. a
 # Claude worktree under `.claude/worktrees/<name>/`), the repo root when run from
 # a normal single-tree checkout, and falls back to `pwd` (with a specific stderr
-# breadcrumb) when git is unavailable, the cwd is not a git repo, or the main
-# repo is bare. Like `scripts/ensure-label.sh` / `scripts/apply-labels.sh`, this
+# breadcrumb) when git is unavailable, the cwd is not a git repo, the main
+# repo is bare, or the resolved root no longer exists on disk. Like
+# `scripts/ensure-label.sh` / `scripts/apply-labels.sh`, this
 # is a best-effort helper: it ALWAYS exits 0, so a resolution hiccup can never
 # abort the caller — but it leaves a specific stderr breadcrumb on the fallback
 # path so a real failure is visible rather than silently swallowed.

@@ -6899,6 +6899,18 @@ assert_eq "#332 AC2: resolver from a worktree does NOT print the worktree path" 
 # AC3: from the main tree the resolver prints a non-empty existing dir (no regression).
 assert_eq "#332 AC3: resolver from the main tree prints a non-empty existing dir" "yes" \
   "$([ -n "$RMR_FROM_MAIN" ] && [ -d "$RMR_FROM_MAIN" ] && echo yes || echo no)"
+# AC3 (discriminating): run from a SUBDIRECTORY of the main tree — the resolver must return
+# the enclosing main root, NOT the cwd. `git worktree list --porcelain` reports an absolute
+# root independent of cwd, so this is the case that proves the resolver isn't just printing
+# `pwd` on the normal-checkout path (an always-pwd regression passes the AC3 above — where
+# pwd==root — but fails here where the subdir≠root). Compare against RMR_FROM_MAIN (same
+# canonicalization) rather than a hardcoded path, matching the AC2 rationale.
+mkdir -p "$RMR_MAIN/sub/dir"
+RMR_FROM_SUBDIR="$(cd "$RMR_MAIN/sub/dir" && bash "$RMR" 2>/dev/null)"
+assert_eq "#332 AC3: resolver from a main-tree subdirectory prints the main root (== main-tree result), not the cwd" \
+  "$RMR_FROM_MAIN" "$RMR_FROM_SUBDIR"
+assert_eq "#332 AC3: resolver from a subdirectory does NOT print the subdirectory (cwd) path" "yes" \
+  "$([ -n "$RMR_FROM_SUBDIR" ] && [ "$RMR_FROM_SUBDIR" != "$RMR_MAIN/sub/dir" ] && echo yes || echo no)"
 
 # AC (always exit 0 / pwd fallback / breadcrumb): a non-git directory.
 RMR_NG="$(git_sandbox "#332 resolver non-git sandbox")"
@@ -6919,17 +6931,24 @@ RMR_GU_ERR="$(cd "$RMR_MAIN" && PATH="$RMR_SHADOW:$PATH" bash "$RMR" 2>&1 >/dev/
 RMR_GU_RC=0; (cd "$RMR_MAIN" && PATH="$RMR_SHADOW:$PATH" bash "$RMR" >/dev/null 2>&1) || RMR_GU_RC=$?
 assert_eq "#332 fallback: git unavailable → prints pwd" "$(cd "$RMR_MAIN" && pwd)" "$RMR_GU_OUT"
 assert_eq "#332 fallback: git unavailable → exits 0" "0" "$RMR_GU_RC"
-assert_eq "#332 fallback: git unavailable → non-empty stderr breadcrumb" "yes" \
-  "$([ -n "$RMR_GU_ERR" ] && echo yes || echo no)"  # raw-guard-ok: breadcrumb-presence check on captured stderr
+assert_eq "#332 fallback: git unavailable → specific (not generic) stderr breadcrumb" "yes" \
+  "$(printf '%s' "$RMR_GU_ERR" | grep -q 'resolve-main-root' && echo yes || echo no)"  # raw-guard-ok: breadcrumb specificity probe on captured stderr (uniform with the non-git case — a misdirected/generic breadcrumb on the git-unavailable path is the one most easily confused with an unrelated error)
 
 # AC (bare main repo): git worktree list reports it `bare`; the resolver falls back to pwd.
 RMR_BARE="$(git_sandbox "#332 resolver bare sandbox")"
 git -C "$RMR_BARE" init --bare -q
 RMR_BARE_OUT="$(cd "$RMR_BARE" && bash "$RMR" 2>/dev/null)"
+RMR_BARE_ERR="$(cd "$RMR_BARE" && bash "$RMR" 2>&1 >/dev/null)"
 RMR_BARE_RC=0; (cd "$RMR_BARE" && bash "$RMR" >/dev/null 2>&1) || RMR_BARE_RC=$?
 assert_eq "#332 fallback: bare main repo → prints pwd (not the bare git dir as a worktree)" \
   "$(cd "$RMR_BARE" && pwd)" "$RMR_BARE_OUT"
 assert_eq "#332 fallback: bare main repo → exits 0" "0" "$RMR_BARE_RC"
+# The bare case is the one fallback where git SUCCEEDS (returns a `bare` record the resolver
+# deliberately rejects) — so it is the path most at risk of falling back without a breadcrumb
+# if the `bare` detection and the breadcrumb emission ever drift apart. Assert the specific
+# breadcrumb fired, mirroring the git-failure fallbacks.
+assert_eq "#332 fallback: bare main repo → specific (not generic) stderr breadcrumb" "yes" \
+  "$(printf '%s' "$RMR_BARE_ERR" | grep -q 'resolve-main-root' && echo yes || echo no)"  # raw-guard-ok: breadcrumb specificity probe on captured stderr
 
 # create-issue SKILL.md contract pins (coupled with the SKILL.md edit — reconciled in the
 # same change per the AC). The draft is written to AND displayed at the main-root absolute
