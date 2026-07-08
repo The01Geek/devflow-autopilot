@@ -17484,6 +17484,44 @@ for _gf in workpad.py match-deferrals.py; do
     'provision-python3-shim.sh' "$LIB/../scripts/$_gf"
 done
 
+# Meta-guard (removal-proof): assert GATE_CHECK itself goes RED on each regression
+# direction the block comment claims to cover — not merely GREEN on the real files.
+# Asserting only GATE_OK against the shipped gates would stay green if a future edit
+# reopened a hole (e.g. `_body_exits` reverting to walk the whole `If` node, `is_lt`
+# dropped, or the tuple loosened) because the real files still emit GATE_OK. Exercising
+# each negative sentinel against a synthetic fixture bakes the #342 AC's RED-direction
+# requirement (gate absent / comparison no longer `< (3,11)` / gate below the first def /
+# body does not exit) into the suite, so those mutations fail RED here rather than in a
+# later shadow. Fail CLOSED if the fixture dir can't be created (record a FAIL, never a
+# silent skip).
+if _G342_DIR="$(mktemp -d 2>/dev/null)" && [ -n "$_G342_DIR" ] && [ -d "$_G342_DIR" ]; then
+  printf 'import sys\n\ndef f(x: "int | None"):\n    pass\n' > "$_G342_DIR/absent.py"
+  printf 'import sys\nif sys.version_info >= (3, 11):\n    sys.exit(1)\ndef f(x: "int | None"):\n    pass\n' > "$_G342_DIR/reversed.py"
+  printf 'import sys\nif sys.version_info < (3, 10):\n    sys.exit(1)\ndef f(x: "int | None"):\n    pass\n' > "$_G342_DIR/wrongtuple.py"
+  printf 'import sys\n\ndef f(x: "int | None"):\n    pass\n\nif sys.version_info < (3, 11):\n    sys.exit(1)\n' > "$_G342_DIR/belowdef.py"
+  printf 'import sys\nif sys.version_info < (3, 11):\n    sys.stderr.write("Python 3.11+ required\\n")\ndef f(x: "int | None"):\n    pass\n' > "$_G342_DIR/noexit.py"
+  printf 'import sys\nif sys.version_info < (3, 11):\n    sys.stderr.write("x\\n")\nelse:\n    sys.exit(1)\ndef f(x: "int | None"):\n    pass\n' > "$_G342_DIR/elseexit.py"
+  printf 'import sys\nif sys.version_info < (3, 11):\n    sys.exit(1)\ndef f(x: "int | None"):\n    pass\n' > "$_G342_DIR/ok.py"
+  assert_eq "#342 meta-guard: absent gate does NOT read GATE_OK" \
+    "NO_GATE" "$(python3 -c "$GATE_CHECK" "$_G342_DIR/absent.py" 2>&1)"
+  assert_eq "#342 meta-guard: reversed operator (>=) does NOT read GATE_OK" \
+    "NO_GATE" "$(python3 -c "$GATE_CHECK" "$_G342_DIR/reversed.py" 2>&1)"
+  assert_eq "#342 meta-guard: wrong floor tuple (3,10) does NOT read GATE_OK" \
+    "NO_GATE" "$(python3 -c "$GATE_CHECK" "$_G342_DIR/wrongtuple.py" 2>&1)"
+  assert_eq "#342 meta-guard: gate below first def reads GATE_BELOW_DEF" \
+    "GATE_BELOW_DEF" "$(python3 -c "$GATE_CHECK" "$_G342_DIR/belowdef.py" 2>&1)"
+  assert_eq "#342 meta-guard: gate body without exit reads GATE_NO_EXIT" \
+    "GATE_NO_EXIT" "$(python3 -c "$GATE_CHECK" "$_G342_DIR/noexit.py" 2>&1)"
+  assert_eq "#342 meta-guard: exit only in else branch reads GATE_NO_EXIT" \
+    "GATE_NO_EXIT" "$(python3 -c "$GATE_CHECK" "$_G342_DIR/elseexit.py" 2>&1)"
+  assert_eq "#342 meta-guard: a correct synthetic gate reads GATE_OK" \
+    "GATE_OK" "$(python3 -c "$GATE_CHECK" "$_G342_DIR/ok.py" 2>&1)"
+  rm -rf "$_G342_DIR"
+else
+  echo FAIL >> "$RESULTS_FILE"
+  printf '  FAIL  #342 meta-guard: mktemp -d failed (negative-direction assertions could not run; not a vacuous pass)\n' >&2
+fi
+
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
