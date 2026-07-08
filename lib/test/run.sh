@@ -4373,6 +4373,21 @@ assert_eq "#327 tradeoff pin: a NON-backticked bold deliverable item closes scop
   "" \
   "$(printf '%s\n' "$fx_327_nobacktick" | bash "$EXTRACT_HELPER")"
 
+# Case 33 (#327 guard pin): a BARE backtick-led bold DELIVERABLE paragraph
+# (`**`docs/b.md`**`, no `- `, blank-preceded) is captured. The bold arm skips it
+# (its `[^`]` class), so it falls through to the Shape 2 arm, whose `$0 !~ /^\*\*/`
+# guard keeps it IN scope instead of mistaking it for prose and closing. This pins
+# that guard as load-bearing: deleting `$0 !~ /^\*\*/` from the Shape 2 arm would
+# close scope here and drop `docs/b.md`, turning this assertion RED.
+fx_327_bare_boldpath="## Implementation Notes
+
+**Documentation Needed** — update \`docs/a.md\`.
+
+**\`docs/b.md\`**"
+assert_eq "#327 guard pin: a bare backtick-led bold deliverable paragraph stays in scope (Shape 2 \`^\*\*\` guard is load-bearing)" \
+  "$(printf 'docs/a.md\ndocs/b.md')" \
+  "$(printf '%s\n' "$fx_327_bare_boldpath" | bash "$EXTRACT_HELPER")"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "scaffold-config.sh"
 # ────────────────────────────────────────────────────────────────────────────

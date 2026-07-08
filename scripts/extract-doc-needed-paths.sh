@@ -118,10 +118,15 @@ block="$(printf '%s\n' "$body" | awk '
   # (over-emission). A blank-separated PLAIN sub-list ("- `docs/a.md`", non-bold)
   # is a list CONTINUATION, not prose: the ^[[:space:]]*- guard keeps it in scope,
   # preserving that currently-working shape (the issue Gotchas forbid dropping
-  # it). Bold paragraphs are already decided by the arm above (backtick-led ones
-  # stay; peer/continuation ones close per Case 17), so the $0 !~ /^\*\*/ guard
-  # here is belt-and-braces. This arm runs AFTER the bold arm and only demotes
-  # (2 -> 1), so it never re-opens or interferes with an opener.
+  # it). The $0 !~ /^\*\*/ guard is LOAD-BEARING, not decorative: the bold arm
+  # above deliberately skips a BACKTICK-LED bold line (its [^`] class), so a bare
+  # "**`docs/a.md`**" deliverable paragraph at a paragraph boundary falls through
+  # to here — the guard keeps it IN scope (captured, per Shape 1) instead of this
+  # arm mistaking it for prose and closing. A peer/continuation bold paragraph
+  # ("**Also.** …") was already demoted by the bold arm (Case 17), so it is state
+  # 1 by the time this arm sees it and never reaches this test. This arm runs
+  # AFTER the bold arm and only demotes (2 -> 1), so it never re-opens or
+  # interferes with an opener.
   state == 2 && prev_blank && $0 !~ /^[[:space:]]*$/ && $0 !~ /^[[:space:]]*-/ && $0 !~ /^\*\*/ {
     state = 1
   }
