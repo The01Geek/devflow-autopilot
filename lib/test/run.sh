@@ -3795,6 +3795,14 @@ P345_P1="$IMPL_PHASES_DIR/phase-1-setup.md"
 # recording each probe command + observed result (or the empty-set finding).
 assert_pin_unique "#345 AC1: phase-3-review.md states the Pre-merge probe contract before any (post-merge) tag/retag" \
   'Pre-merge probe contract (mandatory before any' "$P345_P3"
+# AC1 operative step 1 (decompose) — the structural premise the whole contract rests
+# on; unpinned, a half-revert deleting it while keeping the header stays GREEN.
+assert_pin_unique "#345 AC1: the contract's step 1 decomposes into pre-merge-observable preconditions" \
+  '**Decompose** the criterion into **(a) pre-merge-observable preconditions**' "$P345_P3"
+# AC1 operative step 3 (non-empty record obligation) — the auditable-record requirement
+# that IS the point of the AC; pinning only its empty-set branch left this desync-open.
+assert_pin_unique "#345 AC1: the contract records each probed precondition + command + observed result in the deferral note" \
+  'Record each probed precondition, the probe command, and its observed result in the deferral' "$P345_P3"
 assert_pin_unique "#345 AC1: the retro-tag path runs the probe contract before the retag lands" \
   'Before the retag lands, run the Pre-merge probe contract above' "$P345_P3"
 assert_pin_unique "#345 AC1: the empty observable-precondition set is a legal, explicitly recordable finding" \
@@ -3814,6 +3822,11 @@ assert_pin_unique "#345 AC4: phase-1-setup.md ties the partial-live rule to the 
   'is the Pre-merge probe contract, not just files-in-the-diff' "$P345_P1"
 assert_pin_unique "#345 AC4: phase-1-setup.md states a passed probe never ticks the AC box" \
   'A passed probe never ticks the AC box' "$P345_P1"
+# AC4 coupled-invariant: the passed-probe-never-ticks clause also lives in phase-3's
+# contract (step 6); pin the phase-3 side too so removing it there turns the suite RED
+# (the two files are a stated single-source-of-truth pair).
+assert_pin_unique "#345 AC4: phase-3-review.md's contract step 6 also states a passed probe never ticks the AC box" \
+  'A passed probe never ticks the AC box' "$P345_P3"
 
 # ── Issue #184: Phase 1.6 Issue-Claim Audit ──────────────────────────────
 # Five assert_pin_red_on_removal guards + five assert_pin_unique pins.
