@@ -15701,13 +15701,14 @@ echo "#312: workflow endpoint↔permission lint"
 # A devflow workflow job must declare the token permission every `gh api` endpoint
 # family it invokes — inline in the job's own `run:` blocks, AND the families called by
 # every helper script the job runs, which the lint attributes GENERICALLY: it extracts each
-# `<name>.sh` basename the job body names and unions that helper's recognized families into
-# the job's requirement (see wf_perm_lint below). So the attribution is not a hardcoded helper
-# allow-list — the three helpers with literal recognized-family calls today
+# `<name>.sh` basename the job body names, resolves it against BOTH DevFlow helper dirs
+# (scripts/ and lib/), and unions that helper's recognized families into the job's requirement
+# (see wf_perm_lint below). So the attribution is not a hardcoded helper allow-list — the three
+# helpers with literal recognized-family calls today
 # (derive-review-preconditions.sh → actions/statuses/contents/checks in precheck;
 # derive-review-verdict.sh → comments in finalize_check; post-issue-comment.sh → comments in
-# the claude job) are all walked, and any future helper is too, so no currently-shipping
-# recognized-family endpoint falls in an un-walked gap. The #307 actions:read + statuses:read
+# the claude job) are all walked, and any future helper in scripts/ or lib/ is too, so no
+# currently-shipping recognized-family endpoint falls in an un-walked gap. The #307 actions:read + statuses:read
 # grants cover precheck's first two families; finalize_check's pull-requests:write and the
 # claude job's issues+pull-requests grants keep their comments requirements satisfied on the
 # clean tree. (The other job-run helpers hit no endpoint in the six recognized families, so
@@ -15791,10 +15792,15 @@ _wf_req_keys() {
 # contributes nothing (fail-safe). General attribution replaces the fragile per-helper allow-
 # list that repeatedly missed a live helper (#312 shadow review).
 wf_perm_lint() {  # $1=workflows-dir  $2=precond-helper-path (anchors scripts/ dir) -> prints an integer (or a sentinel)
-  local wfdir="$1" precond="$2" scripts_dir wf rec topperms jobs jn jperms jbody effperms req k hn hpath v=0
+  local wfdir="$1" precond="$2" scripts_dir helper_dirs hd wf rec topperms jobs jn jperms jbody effperms req k hn hpath v=0
   [ -d "$wfdir" ] || { echo MISSING_WFDIR; return; }
   [ -r "$precond" ] || { echo MISSING_PRECOND; return; }
   scripts_dir="$(dirname "$precond")"
+  # DevFlow helpers live in two sibling dirs — scripts/ and lib/ — so resolve a job-named
+  # basename against BOTH (a repo whose $precond is scripts/… puts lib/ at ../lib). Walking
+  # only scripts/ would silently miss a recognized-family call in a lib/-resident job-run
+  # helper (a fail-open, #312 conv shadow); the two are the complete set of helper dirs.
+  helper_dirs="$scripts_dir $(dirname "$scripts_dir")/lib"
   # Both .yml and .yaml (GitHub honors either); with nullglob off an unmatched pattern
   # expands to its literal, which the `[ -r ]` guard skips — so a repo using only one
   # extension is unaffected (#312 review).
@@ -15829,15 +15835,21 @@ wf_perm_lint() {  # $1=workflows-dir  $2=precond-helper-path (anchors scripts/ d
       req="$(printf '%s\n' "$jbody" | _wf_req_keys)"
       # Attribute the recognized families of every helper script this job invokes. Extract
       # each `<name>.sh` basename the body names (however it is pathed — bare, scripts/…, or a
-      # $VAR/… vendored path — since only the basename is matched), resolve it against the
-      # scripts/ dir, and union its _wf_req_keys. An unresolvable/unreadable basename (e.g. the
-      # mutation-proof sandbox that copies only derive-review-preconditions.sh, so
-      # derive-review-verdict.sh is absent there) contributes nothing — fail-safe, and the same
-      # reason that sandbox still isolates precheck's statuses signal.
+      # $VAR/… vendored path — since only the basename is matched), resolve it against BOTH
+      # helper dirs (scripts/ and lib/), and union its _wf_req_keys. A basename present in
+      # neither dir (e.g. the mutation-proof sandbox that copies only
+      # derive-review-preconditions.sh, so derive-review-verdict.sh is absent there)
+      # contributes nothing — which isolates that sandbox's statuses signal. NOTE this
+      # empty-result is only truly fail-SAFE for a basename that resolves to no helper at all
+      # or to a non-recognized-family helper; a recognized-family helper living in some OTHER
+      # dir than scripts//lib/ would be a fail-OPEN, but scripts/ and lib/ are the complete set
+      # of DevFlow helper dirs, so no such helper exists (#312 conv shadow).
       for hn in $(printf '%s\n' "$jbody" | grep -oE '[A-Za-z0-9_.-]+\.sh' | sort -u); do
-        hpath="$scripts_dir/$hn"
-        [ -r "$hpath" ] || continue
-        req="$(printf '%s\n%s\n' "$req" "$(_wf_req_keys < "$hpath")" | grep -v '^$' | sort -u)"
+        for hd in $helper_dirs; do
+          hpath="$hd/$hn"
+          [ -r "$hpath" ] || continue
+          req="$(printf '%s\n%s\n' "$req" "$(_wf_req_keys < "$hpath")" | grep -v '^$' | sort -u)"
+        done
       done
       while IFS= read -r k; do
         [ -n "$k" ] || continue
@@ -16013,14 +16025,23 @@ rm -rf "$WF_POS_DIR" 2>/dev/null || true
 # not attributed → 0 → this assert (expecting 1) goes RED. Its own scripts/ sandbox holds the
 # synthetic helper; the sandbox precond anchors scripts_dir there.
 WF_GEN_DIR="$(git_sandbox "#312: wf-lint generic-attribution proof temp dir")"
-mkdir -p "$WF_GEN_DIR/.github/workflows" "$WF_GEN_DIR/scripts" 2>/dev/null || true
+mkdir -p "$WF_GEN_DIR/.github/workflows" "$WF_GEN_DIR/scripts" "$WF_GEN_DIR/lib" 2>/dev/null || true
 cat > "$WF_GEN_DIR/scripts/novel-attributed-helper.sh" <<'SYNTH' 2>/dev/null || true
 #!/usr/bin/env bash
 # a novel-basename helper a hardcoded allow-list could not enumerate
 gh api -X POST "repos/$REPO/issues/$N/comments" -f body=x
 SYNTH
+# A lib/-resident helper (novel basename, checks family) — proves resolution walks BOTH the
+# scripts/ and lib/ helper dirs (#312 conv shadow): if the walk resolved scripts/ only, this
+# helper's checks family would go unattributed and runs_lib_helper below would drop from +2 to
+# +1 → the count-3 assert goes RED.
+cat > "$WF_GEN_DIR/lib/novel-lib-helper.sh" <<'LIBSYNTH' 2>/dev/null || true
+#!/usr/bin/env bash
+gh api "repos/$REPO/commits/$SHA/check-runs"
+LIBSYNTH
 # the precond anchor for scripts_dir must exist + be readable (else MISSING_PRECOND); reuse the
-# same synthetic dir so scripts_dir resolves to where the novel helper lives.
+# same synthetic dir so scripts_dir resolves to where the novel helper lives (and lib/ sits at
+# ../lib beside it).
 cat > "$WF_GEN_DIR/scripts/derive-review-preconditions.sh" <<'ANCHOR' 2>/dev/null || true
 #!/usr/bin/env bash
 : # no gh api call — this fixture isolates the generic-walk mechanism, not precond attribution
@@ -16034,9 +16055,20 @@ jobs:
       contents: read
     steps:
       - run: bash scripts/novel-attributed-helper.sh
+  runs_lib_helper:
+    permissions:
+      pull-requests: read
+    steps:
+      # inline compare (→ contents, unmet) AND a lib/ helper's check-runs (→ checks, unmet):
+      # both must count (union, not replace) → +2. Grant is pull-requests, satisfying neither.
+      - run: gh api repos/o/r/compare/a...b; bash lib/novel-lib-helper.sh
 GENYAML
-assert_eq "#312: wf-lint generic-attribution proof — a novel-basename helper no hardcoded allow-list could know is attributed (1 violation; a revert to a hardcoded list goes RED here)" \
-  "1" "$(wf_perm_lint "$WF_GEN_DIR/.github/workflows" "$WF_GEN_DIR/scripts/derive-review-preconditions.sh")"
+# Expected 3 = runs_novel_helper (+1, scripts/ helper comments) + runs_lib_helper (+2, inline
+# contents + lib/ helper checks). A revert to a hardcoded allow-list → novel names unknown → 0
+# for runs_novel_helper; a scripts/-only walk → lib helper's checks unattributed → runs_lib_helper
+# +1; a replace-instead-of-union merge → runs_lib_helper +1. Any of these moves the count off 3.
+assert_eq "#312: wf-lint generic-attribution proof — novel scripts/ + lib/ helpers attributed and inline+helper families unioned (3 violations; hardcoded-list / scripts-only / replace-merge regressions each go RED)" \
+  "3" "$(wf_perm_lint "$WF_GEN_DIR/.github/workflows" "$WF_GEN_DIR/scripts/derive-review-preconditions.sh")"
 rm -rf "$WF_GEN_DIR" 2>/dev/null || true
 
 # Fail-closed sentinel contract (#312 review — pr-test-analyzer): a missing workflows
