@@ -9771,6 +9771,156 @@ assert_eq "#304 missing preconditions helper fails open with the vendor breadcru
 assert_eq "#304 require_* config extraction is try/catch-guarded" "2" \
   "$(grep -cE 'try \.devflow_review\.require_(up_to_date|ci_green) catch null' "$REVIEW_WF" || true)"
 
+# ── #311 workflow-resident hardening (deferred from #311 to this human/PAT PR) ─
+# The workflow half of #311 could not ship in the bot-pushed #319 (the DevFlow
+# bot's installation token cannot push .github/workflows/), and these pins are
+# coupled to the exact devflow-review.yml lines — landed in the SAME commit as
+# those lines so CI never greps an unlanded line (the CLAUDE.md coupled-
+# invariant rule). The script gh-stderr half of AC2 shipped in #319 (drp_stderr
+# tests above); this is the workflow-resident remainder.
+# (AC1) preconditions_ok clears the crashed helper's captured stdout on the
+# no-retry path (bare `pre=""` in the else arm) so a corrupted copy's partial
+# output is never parsed — the parse below then fails closed to 'unverifiable'.
+# The bare pre="" IS the operative fix (its removal re-introduces parsing a
+# crashed helper's partial stdout). preconditions_ok has TWO crash arms that
+# must each clear it — the no-retry `else` arm AND the in-repo retry arm — so
+# the rule is peer-complete only when BOTH clear (2.3.0a): pin the count at 2.
+# Removal-proof: dropping either clear → count 1 → RED; dropping both → 0 → RED.
+assert_eq '#311 preconditions_ok clears partial stdout on BOTH crash arms (no-retry + retry), fail-closed' "2" \
+  "$(grep -cF 'pre=""' "$REVIEW_WF" || true)"
+# (AC1, retry-arm conditionality — structural, not count-only) The count==2 pin
+# above proves two `pre=""` exist but not WHERE: the in-repo retry arm's `pre=""`
+# must sit INSIDE its `if ! pre=$(…retry…); then` failure branch (clear only on a
+# failed retry), never unconditionally. If a refactor moved it out of the failure
+# branch, a SUCCESSFUL retry's stdout would be discarded and the retry path would
+# always fail closed to `unverifiable` even when the helper succeeded (reviews
+# silently never fire via retry) — and count would stay 2, GREEN. grep -A1 anchors
+# the retry `pre=""` to its failure-branch warning line, so that move goes RED.
+assert_eq '#311 AC1 retry-arm pre="" is anchored inside its failure branch (clears only on a failed retry)' "yes" \
+  "$(grep -A1 -F 'the in-repo retry also exited non-zero' "$REVIEW_WF" | grep -qE '^[[:space:]]*pre=""' && echo yes || echo no)"
+# (AC2) devflow_review_run_count emits its OWN breadcrumb distinguishing a
+# query failure from a non-numeric count (the #311 workflow half of AC2).
+assert_eq "#311 run_count distinguishes query-failure in its own breadcrumb" "yes" \
+  "$(grep -qF 'the check-runs query for $1 failed' "$REVIEW_WF" && echo yes || echo no)"
+assert_eq "#311 run_count distinguishes non-numeric-count in its own breadcrumb" "yes" \
+  "$(grep -qF 'the count was non-numeric' "$REVIEW_WF" && echo yes || echo no)"
+# (AC3, executed) The exclusion filter is skipped+neutral ONLY: run the exact
+# devflow_review_run_count jq filter over a fixture spanning the conclusion
+# vocabulary. A cancelled review JOB is mapped to neutral upstream (finalize_
+# check) and so is excluded as the neutral case; a bare `cancelled` conclusion
+# sits OUTSIDE the exclusion set and counts — this is the cancelled-conclusion
+# gate case, exercised here by the `cancelled` (id:5) entry in the fixture:
+# skipped+neutral are excluded; null(in-progress)+success+cancelled are
+# counted (→ 3); a non-'Devflow Review' name never counts.
+RUNCOUNT_FILTER='.check_runs[] | select(.name=="Devflow Review" and .conclusion != "skipped" and .conclusion != "neutral") | .id'
+assert_eq "#311 run_count filter excludes skipped+neutral, counts null+success+cancelled, ignores other names" "3" \
+  "$(echo '{"check_runs":[{"name":"Devflow Review","conclusion":"skipped","id":1},{"name":"Devflow Review","conclusion":"neutral","id":2},{"name":"Devflow Review","conclusion":null,"id":3},{"name":"Devflow Review","conclusion":"success","id":4},{"name":"Devflow Review","conclusion":"cancelled","id":5},{"name":"Other","conclusion":"success","id":6}]}' | jq -r "$RUNCOUNT_FILTER" | grep -c . || true)"
+# (AC3, static) The CI-completion path's draft + stale-head guards, anchored
+# to the operative token (breadcrumb-plus-behavior): grep -A1 pins that each
+# guard's notice is immediately followed by its `exit 0`, so a reword that
+# silently dropped the deferral behavior goes RED — not a comment-only pin.
+assert_eq "#311 CI-completion path draft guard defers with exit 0 (breadcrumb-plus-behavior)" "yes" \
+  "$(grep -A1 'is a draft; deferring (the later ready_for_review event reviews it)' "$REVIEW_WF" | grep -qE '^ *exit 0' && echo yes || echo no)"
+assert_eq "#311 CI-completion path stale-head guard no-ops with exit 0 (breadcrumb-plus-behavior)" "yes" \
+  "$(grep -A1 "no-op (the newer head's own events cover it)" "$REVIEW_WF" | grep -qE '^ *exit 0' && echo yes || echo no)"
+# (AC3, static) The missing-helper fail-OPEN arm keeps its `return 0`
+# DIRECTION (behavior, not breadcrumb-only): the return 0 sits immediately
+# under the fail-open breadcrumb, so an un-vendored consumer reviews
+# unconditionally rather than losing reviews. grep -A1 pins the coupling.
+assert_eq "#311 missing-helper fail-open arm returns 0 right under its breadcrumb (behavior, not breadcrumb-only)" "yes" \
+  "$(grep -A1 'skipping the review preconditions and proceeding (fail open' "$REVIEW_WF" | grep -qE '^ *return 0' && echo yes || echo no)"
+# (AC3, static) resolve_pr_for_head filters to OPEN PRs only — a closed/merged
+# PR sharing the head is never resolved as the review target.
+assert_eq '#311 resolve_pr_for_head keeps the select(.state=="open") filter' "yes" \
+  "$(grep -qF 'select(.state=="open")' "$REVIEW_WF" && echo yes || echo no)"
+# (AC4) The concurrency-comment overstatement is reworded to the true worst
+# case (a same-instant race can double-review); the old claim is gone.
+assert_eq "#311 concurrency comment reworded to the true worst case (same-instant double-review)" "yes" \
+  "$(grep -qF 'the true worst case is a same-instant double-review' "$REVIEW_WF" && echo yes || echo no)"
+assert_eq "#311 old concurrency overstatement removed (no 'at worst two prechecks race and one skips')" "0" \
+  "$(grep -cF 'at worst two prechecks' "$REVIEW_WF" || true)"
+# (AC5) create_check reuses/PATCHes an existing neutral check for the same
+# head+reason instead of POSTing a fresh completed-neutral run each re-eval.
+assert_eq "#311 create_check reuses an existing neutral check for the same head+reason (PATCH in place)" "yes" \
+  "$(grep -qF 'PATCHed in place instead of posting a duplicate' "$REVIEW_WF" && echo yes || echo no)"
+# (AC5, post-PATCH exit 0 — structural, not presence-only) The `exit 0` right
+# after the successful-PATCH notice is what STOPS the reuse path from ALSO
+# falling through to the POST (STATUS_ARGS) block — it IS the anti-duplication.
+# The presence pin above only proves the notice text exists; if a refactor
+# dropped the `exit 0`, every deferral would PATCH the existing check AND POST a
+# fresh duplicate (the exact litter this AC eliminates) while staying GREEN.
+# grep -A1 anchors the notice to its `exit 0` (same discipline the AC3 draft/
+# stale-head guards use), so dropping the exit goes RED.
+assert_eq "#311 AC5 successful-PATCH reuse exits 0 right after its notice (no fall-through to a duplicate POST)" "yes" \
+  "$(grep -A1 -F 'PATCHed in place instead of posting a duplicate' "$REVIEW_WF" | grep -qE '^[[:space:]]*exit 0' && echo yes || echo no)"
+# (AC5, PATCH-failure fallback breadcrumb) Parity with the reuse-query-failure
+# breadcrumb pin: a failed PATCH warns and falls through to POST (required check
+# never lost); pin the breadcrumb so removing that fallback warning goes RED.
+assert_eq "#311 AC5 PATCH-failure fallback emits its own breadcrumb before falling through to POST" "yes" \
+  "$(grep -qF 'Could not PATCH existing neutral check' "$REVIEW_WF" && echo yes || echo no)"
+assert_eq "#311 create_check reuse looks up neutral Devflow Review checks on the head" "yes" \
+  "$(grep -qF 'select(.name=="Devflow Review" and .conclusion=="neutral")' "$REVIEW_WF" && echo yes || echo no)"
+# (AC5, executed) The reuse lookup's jq PROJECTION column order is load-bearing:
+# the bash reads `IFS=$'\t' read -r _rt _rid`, so the filter must emit
+# title<TAB>id (not id<TAB>title) or the title match silently compares the id
+# and de-dup breaks. A presence grep can't catch a swapped projection, so run
+# the exact filter over a fixture. Only neutral Devflow Review rows project;
+# success/other-name rows are excluded; an absent output.title yields an empty
+# first column (not null), so the row still parses as "<empty>\t<id>".
+REUSE_FILTER='.check_runs[] | select(.name=="Devflow Review" and .conclusion=="neutral") | [(.output.title // ""), (.id|tostring)] | @tsv'
+assert_eq "#311 AC5 reuse lookup projects title<TAB>id (column order) for neutral Devflow Review rows only" "$(printf 'Devflow review waiting: branch behind base\t7')" \
+  "$(echo '{"check_runs":[{"name":"Devflow Review","conclusion":"neutral","output":{"title":"Devflow review waiting: branch behind base"},"id":7},{"name":"Devflow Review","conclusion":"success","output":{"title":"x"},"id":8},{"name":"Other","conclusion":"neutral","output":{"title":"y"},"id":9}]}' | jq -r "$REUSE_FILTER")"
+assert_eq "#311 AC5 reuse lookup emits an empty title column (not null) when output.title is absent" "$(printf '\t11')" \
+  "$(echo '{"check_runs":[{"name":"Devflow Review","conclusion":"neutral","id":11}]}' | jq -r "$REUSE_FILTER")"
+# (AC5, coupling) The fixture above only proves REUSE_FILTER is self-consistent;
+# it does NOT prove the workflow still uses that exact projection. A swap of the
+# workflow's projection column order (id<TAB>title) would break de-dup while the
+# fixture stayed green. Byte-couple the fixture to the source the same way
+# RUNCOUNT_FILTER is: the exact filter string must appear verbatim in the
+# workflow exactly once (a swapped/edited projection makes this count 0 → RED).
+assert_eq "#311 AC5 reuse-lookup projection in run.sh is byte-identical to the workflow (exactly one match)" "1" \
+  "$(grep -cF "$REUSE_FILTER" "$REVIEW_WF" || true)"
+# (AC5, breadcrumb) The reuse lookup's captured-rc restructure distinguishes a
+# genuine gh-api query failure from an empty result, emitting its own breadcrumb
+# on the failure arm only (both arms still fall through to POST, so the required
+# check is never lost). Like every other breadcrumb this PR hardens
+# (devflow_review_run_count's two, the pre="" crash arms), it needs a coupling
+# pin: collapsing the if/else arms so a query failure silently falls through to
+# POST with no warning — reintroducing the failure/empty conflation the old
+# `2>/dev/null || true` had — would otherwise stay green.
+# Structural (grep -B1), not presence-only: anchor the breadcrumb as sitting
+# directly under the `else` of the `if [ "$_reuse_rc" -eq 0 ]` split, so the pin
+# fully covers its stated claim. A regression that KEEPS the echo but fires it on
+# both arms (moving it out of the else, destroying the failure-vs-empty
+# distinction) — not just outright removal — goes RED.
+assert_eq "#311 AC5 reuse-lookup failure arm emits its own distinguishing breadcrumb (on the else/query-failure arm)" "yes" \
+  "$(grep -B1 -F "Could not query existing 'Devflow Review' check-runs" "$REVIEW_WF" | grep -qE '^[[:space:]]*else[[:space:]]*$' && echo yes || echo no)"
+# (AC5, read-order — the consuming half of the column-order contract) The
+# byte-coupling pin above secures jq↔workflow-source, but the contract has two
+# sides: the bash consumer must read the columns in the order the jq emits them
+# (title first, id second). A swap to `read -r _rid _rt` would compare the id
+# against $TITLE (never matches) and assign a non-numeric title to REUSE_ID
+# (the downstream ^[0-9]+$ guard then fails) — silently breaking dedup while the
+# self-consistent fixture stays green. grep -A1 anchors the title var reading
+# first (_rt) AND being compared against $TITLE on the very next line, so a
+# read-order swap goes RED.
+assert_eq "#311 AC5 reuse lookup reads title column first (_rt) and compares it against \$TITLE (read-order regression-proof)" "yes" \
+  "$(grep -A1 -F 'read -r _rt _rid' "$REVIEW_WF" | grep -qF '[ "$_rt" = "$TITLE" ]' && echo yes || echo no)"
+# (AC6) The dangling review-rerun-checks.md comment ref is corrected to the
+# real doc, and the behind-base deferral summary points at it.
+assert_eq "#311 no dangling review-rerun-checks.md reference remains in the workflow" "0" \
+  "$(grep -cF 'review-rerun-checks.md' "$REVIEW_WF" || true)"
+assert_eq "#311 trigger-policy comment points at the real doc (docs/workflow-triggers.md)" "yes" \
+  "$(grep -qF 'see docs/workflow-triggers.md' "$REVIEW_WF" && echo yes || echo no)"
+assert_eq "#311 behind-base deferral summary points at docs/workflow-triggers.md" "yes" \
+  "$(grep -qF 'See docs/workflow-triggers.md for the deferral and re-trigger policy' "$REVIEW_WF" && echo yes || echo no)"
+# (AC6, end-to-end) The two pins above assert the workflow REFERENCES the doc;
+# this closes the dangling-ref loop by asserting the target actually EXISTS on
+# disk. #311's bug was a *dangling* reference — a text-only pin would stay green
+# if the ref were later re-pointed at a deleted/renamed doc, re-introducing the
+# exact defect class this AC fixed.
+assert_eq "#311 AC6 target doc docs/workflow-triggers.md exists on disk (closes the dangling-ref loop)" "yes" \
+  "$([ -f "$LIB/../docs/workflow-triggers.md" ] && echo yes || echo no)"
 # ── #311 post-#307 hardening pins (pushable subset — see the workflow-resident
 # remainder deferred to a follow-up issue: the run.sh pins for AC1/AC2b/AC4/AC5,
 # the AC3 workflow-guard pins, and the AC7 comment-fix all grep devflow-review.yml
