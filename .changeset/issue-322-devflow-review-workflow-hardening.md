@@ -18,4 +18,7 @@ type: Fixed
   exclusion-filter fixture). The deferral-dedup reuse lookup now distinguishes a genuine
   check-runs query failure from an empty result with its own breadcrumb (consistent with the
   sibling helpers), and its jq projection is byte-coupled to the workflow source by a
-  `run.sh` presence pin so a swapped column order can no longer pass green. (#325)
+  `run.sh` presence pin so a swapped column order can no longer pass green; its
+  failure-arm breadcrumb and the consuming bash read-order (title column first) each
+  gained a coupling pin so the query-failure-vs-empty distinction and the column-order
+  contract's consumer half are both regression-proof. (#325)

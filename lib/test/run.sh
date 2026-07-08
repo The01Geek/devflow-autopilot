@@ -9654,6 +9654,32 @@ assert_eq "#311 AC5 reuse lookup emits an empty title column (not null) when out
 # workflow exactly once (a swapped/edited projection makes this count 0 → RED).
 assert_eq "#311 AC5 reuse-lookup projection in run.sh is byte-identical to the workflow (exactly one match)" "1" \
   "$(grep -cF "$REUSE_FILTER" "$REVIEW_WF" || true)"
+# (AC5, breadcrumb) The reuse lookup's captured-rc restructure distinguishes a
+# genuine gh-api query failure from an empty result, emitting its own breadcrumb
+# on the failure arm only (both arms still fall through to POST, so the required
+# check is never lost). Like every other breadcrumb this PR hardens
+# (devflow_review_run_count's two, the pre="" crash arms), it needs a coupling
+# pin: collapsing the if/else arms so a query failure silently falls through to
+# POST with no warning — reintroducing the failure/empty conflation the old
+# `2>/dev/null || true` had — would otherwise stay green.
+# Structural (grep -B1), not presence-only: anchor the breadcrumb as sitting
+# directly under the `else` of the `if [ "$_reuse_rc" -eq 0 ]` split, so the pin
+# fully covers its stated claim. A regression that KEEPS the echo but fires it on
+# both arms (moving it out of the else, destroying the failure-vs-empty
+# distinction) — not just outright removal — goes RED.
+assert_eq "#311 AC5 reuse-lookup failure arm emits its own distinguishing breadcrumb (on the else/query-failure arm)" "yes" \
+  "$(grep -B1 -F "Could not query existing 'Devflow Review' check-runs" "$REVIEW_WF" | grep -qE '^[[:space:]]*else[[:space:]]*$' && echo yes || echo no)"
+# (AC5, read-order — the consuming half of the column-order contract) The
+# byte-coupling pin above secures jq↔workflow-source, but the contract has two
+# sides: the bash consumer must read the columns in the order the jq emits them
+# (title first, id second). A swap to `read -r _rid _rt` would compare the id
+# against $TITLE (never matches) and assign a non-numeric title to REUSE_ID
+# (the downstream ^[0-9]+$ guard then fails) — silently breaking dedup while the
+# self-consistent fixture stays green. grep -A1 anchors the title var reading
+# first (_rt) AND being compared against $TITLE on the very next line, so a
+# read-order swap goes RED.
+assert_eq "#311 AC5 reuse lookup reads title column first (_rt) and compares it against \$TITLE (read-order regression-proof)" "yes" \
+  "$(grep -A1 -F 'read -r _rt _rid' "$REVIEW_WF" | grep -qF '[ "$_rt" = "$TITLE" ]' && echo yes || echo no)"
 # (AC6) The dangling review-rerun-checks.md comment ref is corrected to the
 # real doc, and the behind-base deferral summary points at it.
 assert_eq "#311 no dangling review-rerun-checks.md reference remains in the workflow" "0" \
