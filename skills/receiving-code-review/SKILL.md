@@ -28,6 +28,7 @@ Code review requires technical evaluation, not emotional performance.
 ```
 WHEN receiving code review feedback:
 
+0. UPDATE BRANCH: Update the working branch first (see Update the Branch First below)
 1. READ: Complete feedback without reacting
 2. UNDERSTAND: Restate requirement in own words (or ask)
 3. VERIFY: Check against codebase reality
@@ -37,6 +38,10 @@ WHEN receiving code review feedback:
 7. RECORD DEFERRALS: For every finding you did NOT fix, write a durable trace (WHAT/WHY/revisit-condition) before claiming done — see Record Every Deferral
 8. VERIFY BEFORE DONE: Review diff against addressed findings + run test suite — only then claim completion
 ```
+
+## Update the Branch First (Step 0)
+
+Start every reception by updating the working branch, so steps 3 (VERIFY) and 8 (VERIFY BEFORE DONE) operate on the code that will actually merge rather than a stale snapshot. Fetch from the remote first; when the branch's remote counterpart has commits the local branch lacks, merge them in; then merge the base branch into the working branch. Check the exit status and resulting working-tree state of each fetch and merge, so a failed fetch or a conflicted merge is detected rather than passed over silently. Any merge conflicts these updates raise are resolved as part of the current work, before any review finding is implemented. When the branch cannot be updated — no remote counterpart, a failed fetch, a detached HEAD, or a read-only environment — record the limitation and proceed on the local state; the step is fail-soft and never blocks feedback work when there is nothing to update from.
 
 ## Verification Gate (Step 8)
 
