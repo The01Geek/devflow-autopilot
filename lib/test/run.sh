@@ -15929,20 +15929,44 @@ echo "#312: workflow endpoint↔permission lint"
 # actions and comments families (via `inherits`/`comments_ok_*`) but relies on the real-tree
 # clean assert for the other four — both revisit if the family set or regexes are reworked.
 
+# Echo family key $2 when its ERE $1 matches the piped body (grep rc 0) OR when grep
+# ERRORS (rc>=2) — the latter fail-CLOSED: an undetermined scan must surface as a
+# potential violation (RED), never a silent pass, plus a stderr breadcrumb. A clean
+# no-match (rc 1) stays silent. Reads the body from stdin. Hardens the swallowed
+# `grep … && echo` fail-open (#312 review, grep rc-2 finding): with `&&` alone, an
+# rc>=2 short-circuited and dropped the requirement — a fail-OPEN in a lint whose whole
+# job is to fail closed. No live trigger on ASCII YAML, but the safe direction is cheap.
+_famgrep() {
+  local rc
+  grep -qE "$1"; rc=$?
+  if [ "$rc" -eq 0 ]; then echo "$2"
+  elif [ "$rc" -ge 2 ]; then
+    echo "$2"
+    echo "wf_perm_lint: grep rc=$rc scanning '$2' family — requiring permission fail-closed" >&2
+  fi
+}
+
 # emit sorted-unique required permission keys for the text on stdin
 _wf_req_keys() {
-  local t
-  t="$(grep -vE '^[[:space:]]*#' || true)"
+  local raw t rc
+  # Consume stdin once, then strip full-line comments. grep -vE returns rc 0 (some
+  # non-comment lines) or 1 (all lines were comments) on success; rc>=2 is an error. The
+  # old `|| true` swallowed rc>=2 and left $t empty, dropping EVERY family (fail-OPEN); on
+  # an error we now scan the UNSTRIPPED input (comments over-require = fail-closed) instead
+  # of silently passing (#312 review, grep rc-2 finding).
+  raw="$(cat)"
+  t="$(printf '%s\n' "$raw" | grep -vE '^[[:space:]]*#')"; rc=$?
+  [ "$rc" -le 1 ] || t="$raw"
   {
-    printf '%s\n' "$t" | grep -qE "repos/[^ \"']*/actions/runs"            && echo actions
-    printf '%s\n' "$t" | grep -qE "repos/[^ \"']*/commits/[^ \"']*/status" && echo statuses
-    printf '%s\n' "$t" | grep -qE "repos/[^ \"']*/check-runs"              && echo checks
-    printf '%s\n' "$t" | grep -qE "repos/[^ \"']*/issues/[^ \"']*/comments" && echo comments
+    printf '%s\n' "$t" | _famgrep "repos/[^ \"']*/actions/runs"            actions
+    printf '%s\n' "$t" | _famgrep "repos/[^ \"']*/commits/[^ \"']*/status" statuses
+    printf '%s\n' "$t" | _famgrep "repos/[^ \"']*/check-runs"              checks
+    printf '%s\n' "$t" | _famgrep "repos/[^ \"']*/issues/[^ \"']*/comments" comments
     # repos/*/commits/*/pulls (list PRs for a commit) needs pull-requests (#312 review,
     # silent-failure finding): devflow-review.yml's resolve_pr_for_head precheck call —
     # precheck already grants pull-requests:read, so the current tree stays clean.
-    printf '%s\n' "$t" | grep -qE "repos/[^ \"']*/commits/[^ \"']*/pulls"  && echo pull-requests
-    printf '%s\n' "$t" | grep -qE "repos/[^ \"']*/compare/"                && echo contents
+    printf '%s\n' "$t" | _famgrep "repos/[^ \"']*/commits/[^ \"']*/pulls"  pull-requests
+    printf '%s\n' "$t" | _famgrep "repos/[^ \"']*/compare/"                contents
   } | sort -u
 }
 
@@ -16050,9 +16074,10 @@ cp "$WF_PRECOND" "$WF_MUT_DIR/scripts/derive-review-preconditions.sh" 2>/dev/nul
 # for a portable first-match replacement (macOS/BSD per CLAUDE.md portability rule).
 # First-match targeting assumes precheck's grant stays the file's only/first
 # `statuses: read` (true today); if another job gains one, re-anchor this to the
-# precheck job block (#312 review). The other precond-attributed families
-# (actions/checks/contents/pull-requests) have no per-family attribution mutation
-# case — deferred (#312 review).
+# precheck job block (#312 review). The other families precheck requires
+# (actions/checks/contents via derive-review-preconditions.sh, pull-requests via the
+# inline resolve_pr_for_head call) have no per-family attribution mutation case —
+# deferred (#312 review).
 awk '!d && /^      statuses: read/ { sub(/statuses: read/, "REMOVED_statuses_read: read"); d=1 } { print }' \
   "$WF_DIR/devflow-review.yml" > "$WF_MUT_DIR/.github/workflows/devflow-review.yml" 2>/dev/null || true
 WF_MUT_V="$(wf_perm_lint "$WF_MUT_DIR/.github/workflows" "$WF_MUT_DIR/scripts/derive-review-preconditions.sh")"
@@ -16243,6 +16268,16 @@ assert_eq "#312: wf-lint fails closed (sentinel) on a missing workflows dir" \
   "MISSING_WFDIR" "$(wf_perm_lint "$WF_DIR/does-not-exist" "$WF_PRECOND")"
 assert_eq "#312: wf-lint fails closed (sentinel) on an unreadable precond helper" \
   "MISSING_PRECOND" "$(wf_perm_lint "$WF_DIR" "$WF_PRECOND.does-not-exist")"
+
+# _famgrep fail-closed proof (#312 review — grep rc-2 finding): a grep that ERRORS (rc>=2,
+# forced deterministically here with an invalid ERE `[`) must still emit the family key so
+# an undetermined scan surfaces as a potential violation, never a silent drop (fail-open).
+# rc 0 (match) also emits; rc 1 (clean no-match) stays silent — both pinned so the loud arm
+# can't regress the quiet one. stderr breadcrumb suppressed (asserting the stdout key only).
+assert_eq "#312: _famgrep emits the key on a grep ERROR (rc>=2) — fail-closed, not a silent drop" \
+  "actions" "$(printf 'x\n' | _famgrep '[' actions 2>/dev/null)"
+assert_eq "#312: _famgrep stays silent on a clean no-match (rc 1)" \
+  "" "$(printf 'x\n' | _famgrep 'repos/[^ \"'\'']*/actions/runs' actions 2>/dev/null)"
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
