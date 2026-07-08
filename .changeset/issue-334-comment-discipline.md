@@ -10,7 +10,8 @@ type: Added
   lists, predicate-restating scope words, and narration of adjacent code — out of the diff or
   make them drift-proof (bind to a test assertion, state a lower bound, or point at the
   defining symbol). A new step in the always-on 2.3.4a self-authored-claim sweep drift-proofs
-  any mirror-fact comment the diff adds or changes before commit, even when it is currently
-  accurate, so the rot-prone class is caught whether or not the writer applied the authoring
-  rule. Every consumer repo inherits both engine halves, reducing stale-comment review
-  findings and fix-loop iterations. (#336)
+  the mechanically-detectable mirror-fact comments the diff adds or changes — exact counts,
+  enumerated site/value lists, and predicate-restating scope words — before commit, even when
+  they are currently accurate, so the rot-prone class is caught whether or not the writer
+  applied the authoring rule. Every consumer repo inherits both engine halves, reducing
+  stale-comment review findings and fix-loop iterations. (#336)
