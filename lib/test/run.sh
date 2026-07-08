@@ -9985,6 +9985,42 @@ assert_eq "#310 workflow never grants statuses: write (cannot post a commit stat
 # per-key permissions throughout — this keeps it that way).
 assert_eq "#310 workflow never grants permissions: write-all (would implicitly confer statuses: write)" "0" \
   "$(grep -cE 'permissions:[[:space:]]*write-all' "$REVIEW_WF" || true)"
+# (l) Pin (j) proves the leading `!= 'status'` guard is PRESENT, but not that it
+# is AND-coupled to the `!= 'workflow_run'` guard inside the parenthesized
+# pass-through clause. If that `&&` regressed to `||` — `(… != 'workflow_run' ||
+# … != 'status')` — the clause would be TRUE for EVERY status event regardless of
+# state, spinning a runner on every pending/failure/error status while pins (b)
+# and (j) both still find their substrings (GREEN). Pin the contiguous
+# `&&`-coupled parenthesized form so a join-operator corruption goes RED.
+assert_eq "#310 precheck if: the two leading guards are AND-coupled (a &&->|| regression would spin runners on every status)" "yes" \
+  "$(grep -qF "(github.event_name != 'workflow_run' && github.event_name != 'status')" "$REVIEW_WF" && echo yes || echo no)"
+# (m) #310 restructured the CI-completion route branch's catch-all `else` (which
+# handled check_suite) into `elif check_suite`, with status as the new terminal
+# `else`. Nothing pinned the inner check_suite dispatch, so a regression of the
+# `elif [ "$EVENT_NAME" = "check_suite" ]` literal would drop check_suite into
+# the status else-arm → HEAD="$ST_SHA" (empty on a check_suite payload) → "no
+# head_sha" silent no-op, killing the PRE-EXISTING external-CI re-trigger while
+# every #310 pin and the #304 check_suite app-guard pin stay green. Pin both the
+# elif gate and its CS_HEAD derivation so the else->elif boundary #310 introduced
+# is protected.
+assert_eq "#310 route branch keeps check_suite on its own elif arm (not swallowed by the new status else)" "yes" \
+  "$(grep -qF 'elif [ "$EVENT_NAME" = "check_suite" ]; then' "$REVIEW_WF" && echo yes || echo no)"
+assert_eq "#310 check_suite arm still derives HEAD from CS_HEAD (guards the else->elif restructure)" "yes" \
+  "$(grep -qF 'HEAD="$CS_HEAD"' "$REVIEW_WF" && echo yes || echo no)"
+# (n) The concurrency group deliberately gives status NO arm (it falls to the
+# run_id group — recorded looseness, deduped by the exactly-once gate). Lock that
+# documented decision: a future edit adding a github.event.status.* term to the
+# group key would silently change the dedupe behavior the #310 comment reasons
+# about. Absence pin (count 0).
+assert_eq "#310 concurrency group adds no status arm (status falls to run_id — recorded looseness)" "0" \
+  "$(grep -cF 'github.event.status' "$REVIEW_WF" || true)"
+# (o) Pin (f) asserts the defensive no-op's message text + exit 0, but not that
+# it is emitted at ::warning:: (the code deliberately uses warning, not the
+# ::notice:: the routine no-ops use, so an operator sees a precheck-if
+# regression). A regression to ::notice:: would blend the operator-actionable
+# signal into normal traffic and still pass (f); pin the warning prefix.
+assert_eq "#310 status arm defensive no-op emits ::warning:: (operator-visible precheck-if regression), not ::notice::" "yes" \
+  "$(grep -qF '::warning::status event state' "$REVIEW_WF" && echo yes || echo no)"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "efficiency-trace.jq / efficiency-trace.sh"
