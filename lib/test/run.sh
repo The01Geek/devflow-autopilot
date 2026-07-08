@@ -1149,6 +1149,54 @@ assert_eq "263(A6): devflow_review schema key set is the reviewed list (carve-ou
 assert_pin_unique "263(A7): the carve-out is not conditioned on Phase 3.2 corroboration count" \
   'a single-source self-contradicting finding blocks exactly like a corroborated one' "$ST_REV"
 
+# ────────────────────────────────────────────────────────────────────────────
+echo "blocker-recheck fast path (Phase 0.6, standalone-review re-verdict) (#347)"
+# ────────────────────────────────────────────────────────────────────────────
+# #347 adds a scoped fast path to the shared review engine (skills/review/SKILL.md):
+# a standalone /devflow:review on a PR whose most recent recorded verdict is a REJECT
+# driven SOLELY by enumerated self-contradicting-diff carve-out blockers re-verifies
+# only those blockers at HEAD (blinded) and posts a refreshed verdict through the
+# existing Phase 4.4 machinery, instead of a full 4-phase re-review. The deliverable
+# is LLM-executed skill prose (no automated verdict boundary), so these are
+# operative-sentence pins (PASS→FAIL on removal) covering the fast path's existence,
+# its blinding, the fail-closed preconditions, and the APPROVE→dismiss reuse — the
+# same idiom as the #263 carve-out pins above. Each literal is target-unique and
+# apostrophe-free (single-quoted bash literal).
+
+# Existence: the Phase 0.6 heading is the fast path's anchor in the engine.
+assert_pin_unique "347: Phase 0.6 blocker-recheck fast path exists in the review engine" \
+  '### 0.6 Blocker-recheck fast path' "$ST_REV"
+# AC2 (blinded verifier): the verifier receives only the enumerated blockers + the
+# rejected-head..HEAD delta — mirrors Step 3.5's blinding. Two operative sentences.
+assert_pin_unique "347(AC2): fast-path verifier is blinded to the fixer's reasoning/prior findings" \
+  'Blinding is the independence guarantee' "$ST_REV"
+assert_pin_unique "347(AC2): the blinded verifier receives only the enumerated blockers" \
+  'receives **only** the enumerated blockers' "$ST_REV"
+# AC3 (APPROVE posts through Phase 4.4 + reuses dismiss-stale-rejections.sh unchanged).
+assert_pin_unique "347(AC3): fast-path APPROVE reuses dismiss-stale-rejections.sh like a full run" \
+  'on the APPROVE exactly like a full-run APPROVE' "$ST_REV"
+# AC1 fail-closed precondition — all-PASS except carve-out: zero FAIL/INCONCLUSIVE, and no
+# non-carve-out verdict-driving finding at/above threshold. Two operative sentences.
+assert_pin_unique "347(AC4): precondition requires zero checklist FAIL/INCONCLUSIVE" \
+  'must record **zero** FAIL and **zero** INCONCLUSIVE' "$ST_REV"
+assert_pin_unique "347(AC4): precondition excludes non-carve-out verdict-driving findings" \
+  'verdict-driving agent finding at or above the configured' "$ST_REV"
+# AC4 fail-closed precondition — unparseable blocker enumeration falls through (never guess).
+assert_pin_unique "347(AC4): unparseable blocker enumeration falls through, never guessed" \
+  'never guess a blocker set' "$ST_REV"
+# AC4 fail-closed precondition — an intervening change outside the blocker sites falls through.
+assert_pin_unique "347(AC4): intervening change outside blocker sites cannot smuggle past APPROVE" \
+  'smuggle unreviewed changes behind an APPROVE' "$ST_REV"
+# AC4 (single-source guarantee): gated OFF for /devflow:review-and-fix (head_override=local),
+# so the fix loop never takes the fast path mid-loop and the engine stays single-sourced.
+assert_pin_unique "347(AC4): fast path is gated off when head_override is set (fix-loop reuse)" \
+  'skip this entire phase** and continue to Phase 1 unchanged' "$ST_REV"
+# AC5 (still-unfixed → REJECT, never APPROVE/silence) + verifier-failure fails closed.
+assert_pin_unique "347(AC5): any still-unfixed blocker posts REJECT, never APPROVE/silence" \
+  'Never APPROVE, never silence' "$ST_REV"
+assert_pin_unique "347(AC5): a degraded verifier fails closed to the full pipeline, never clears a REJECT" \
+  'a degraded verifier never clears a REJECT' "$ST_REV"
+
 # Issue #182 (convention-violation / unscoped-staging): the review-and-fix fix-commit step
 # (Step 3 item 6) must stage only the specific files the fix touched, never `git add -A` /
 # `git add .` — an unscoped stage sweeps unrelated working-tree state (a local config edit,
