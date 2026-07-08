@@ -62,6 +62,32 @@
     "phase_1": {"calls": 1, "tokens": 69430, "wall_clock_s": 163},
     "phase_2": {"calls": 0, "tokens": 0, "wall_clock_s": 20},
     "phase_3": {"calls": 6, "tokens": 380000, "wall_clock_s": 280},
-    "step_2_6": {"calls": 5, "tokens": 0, "wall_clock_s": 0}
+    "step_2_6": {"calls": 5, "tokens": 405000, "wall_clock_s": 340}
+  },
+  "shadow": {
+    "ran_at": "2026-07-08T00:55:00Z",
+    "reviewed_sha": "f94d44d",
+    "verdict": "APPROVE with notes",
+    "coverage": "full",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "Single-helper attribution live fail-open: derive-review-verdict.sh's comments call in finalize_check never attributed; header NOTE implied gap was future/theoretical.", "defect_signature": {"file": "lib/test/run.sh", "line_range": [15796, 15799], "kind": "guard-fails-open-incomplete-coverage"}},
+      {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "Empty/jobless workflows dir reads as clean 0 (no NO_JOBS_PARSED sentinel).", "defect_signature": {"file": "lib/test/run.sh", "line_range": [15762, 15810], "kind": "fail-open-sentinel-gap"}},
+      {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "Legend comment (l.1931-1933) names $IMPL_SKILL (empty/out-of-scope there; alias defined ~800 lines later) instead of $IMPL_SKILL_BUNDLE the pins use.", "defect_signature": {"file": "lib/test/run.sh", "line_range": [1931, 1933], "kind": "stale-comment"}},
+      {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "'NO job block' imprecise in inherits fixture legend (has a job block, just no permissions block).", "defect_signature": {"file": "lib/test/run.sh", "line_range": [15860, 15860], "kind": "imprecise-comment"}},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "S1-S5: aggregate-only count; helper-attribution proven only for statuses; no multi-family-single-job fixture; single-helper scope; awk indentation fail-open. All documented deferrals except S3.", "defect_signature": {"file": "lib/test/run.sh", "line_range": [15900, 15960], "kind": "coverage-gap"}}
+    ],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 9,
+      "overlap_with_iter_N": 6,
+      "new": 3,
+      "new_critical": 0,
+      "new_important": 1
+    },
+    "promoted_to_iter_next": true
   }
 }
