@@ -1683,6 +1683,63 @@ assert_pin_unique "291(AC7): DEVFLOW_SYSTEM_OVERVIEW states the deterministic in
 assert_pin_unique "291(AC7): shadow-review.md states the deterministic in-code-comment cap" \
   'One deterministic exception — the in-code-comment cap.' "$OG_SHADOW_DOC"
 
+# ────────────────────────────────────────────────────────────────────────────
+echo "documented_falsehood tagging + pre-verdict truthfulness sweep (Phase 4.1.5/4.1.6) (#339)"
+# ────────────────────────────────────────────────────────────────────────────
+# #339 closes two failure modes for a diff-added/modified doc/comment/example/
+# command-form whose claim is false against HEAD: (1) production-time tagging — the
+# shared defect_signature block gains a `documented_falsehood` kind + a truthfulness
+# discriminator, inherited by all six Phase-3 producers; (2) a pre-verdict truthfulness
+# sweep (Phase 4.1.6) that runs over EVERY finding regardless of severity chip, is
+# promote-only, and routes a demonstrated falsehood into the Phase 4.2 self-contradicting
+# carve-out (REJECT). Phase 4.1.5 shape 2 excludes such an artifact from the cosmetic
+# class and is the single source of truth for the discriminator; the agents mirror it.
+# Deliverable is LLM-executed skill prose — no automated verdict boundary — so these are
+# operative-sentence pins (PASS→FAIL on removal) + mirror-count pins, same idiom as #263/#291.
+FALSE_COMMENT_AGENT="$LIB/../agents/comment-analyzer.md"
+FALSE_CODEREV_AGENT="$LIB/../agents/code-reviewer.md"
+# AC1 — documented_falsehood is added to the shared defect_signature kind enum (enum-line
+# fragment is ST_REV-unique; the bare token recurs at the discriminator/sweep/agent sites).
+assert_pin_unique "339(AC1): defect_signature kind enum gains documented_falsehood" \
+  'comment_drift | documented_falsehood | test_gap' "$ST_REV"
+# AC4 — the truthfulness discriminator is single-sourced in Phase 4.1.5 shape 2 and mirrored
+# verbatim: it occurs at 2 sites in the review engine (shape-2 canonical + shared
+# defect_signature block) and once in each agent file. A dropped mirror moves a count → RED.
+assert_eq "339(AC4): discriminator phrase mirrored at 2 sites in the review engine (shape-2 + defect_signature block)" \
+  "2" "$(pin_count 'false against HEAD is a truthfulness defect (a self-contradicting diff — non-demotable REJECT); true but awkwardly worded is a clarity Suggestion (demotable)' "$ST_REV")"
+assert_pin_unique "339(AC3): comment-analyzer mirrors the truthfulness discriminator" \
+  'false against HEAD is a truthfulness defect (a self-contradicting diff — non-demotable REJECT); true but awkwardly worded is a clarity Suggestion (demotable)' "$FALSE_COMMENT_AGENT"
+assert_pin_unique "339(AC3): code-reviewer mirrors the truthfulness discriminator" \
+  'false against HEAD is a truthfulness defect (a self-contradicting diff — non-demotable REJECT); true but awkwardly worded is a clarity Suggestion (demotable)' "$FALSE_CODEREV_AGENT"
+# AC3 — code-reviewer: a HEAD-verified false changed-line claim clears the ≥80 confidence filter.
+assert_pin_unique "339(AC3): code-reviewer scores a HEAD-verified false changed-line claim >= 80 by definition" \
+  'scores ≥ 80 confidence by definition' "$FALSE_CODEREV_AGENT"
+# AC2 — both dispatch prompts name the four recurring shapes (the last shape's clause occurs
+# once per dispatch prompt = 2 sites in the review engine).
+assert_eq "339(AC2): dispatch prompts name the four recurring shapes (comment-analyzer + code-reviewer)" \
+  "2" "$(pin_count 'claim the code does not bear out' "$ST_REV")"
+# AC4 — Phase 4.1.5 shape 2 explicitly excludes a false-against-HEAD diff-added/modified artifact
+# from the cosmetic-wording class (the operative exclusion sentence; removal re-opens the mis-file).
+assert_pin_unique "339(AC4): shape 2 excludes a false-against-HEAD diff-added/modified artifact" \
+  'Excludes a false-against-HEAD diff-added/modified artifact.' "$ST_REV"
+# AC5 — the pre-verdict truthfulness sweep operative sentences: (a) it runs over every finding
+# regardless of severity chip and does NOT inherit 4.1.5's Critical/Important/Major scope;
+# (b) a demonstrated falsehood routes into the Phase 4.2 carve-out (REJECT); (c) promote-only;
+# (d) the visible clean-pass line. Each is removal-proof (its deletion re-opens a failure mode).
+assert_pin_unique "339(AC5): sweep runs over every finding regardless of severity chip (not 4.1.5's scope)" \
+  "this sweep does **not** inherit 4.1.5's Critical/Important/Major scope" "$ST_REV"
+assert_pin_unique "339(AC5): sweep routes a demonstrated falsehood into the Phase 4.2 carve-out" \
+  'a **demonstrated** falsehood — the claim is false against the shipped code — is routed into the Phase 4.2 self-contradicting-diff carve-out' "$ST_REV"
+assert_pin_unique "339(AC5): sweep is promote-only (never demotes/downgrades/clears)" \
+  'The sweep is promote-only: it never demotes, downgrades, or clears any finding' "$ST_REV"
+assert_pin_unique "339(AC5): sweep emits a visible clean-pass line" \
+  'truthfulness sweep: no finding promoted' "$ST_REV"
+# AC (docs sync) — both engine docs describe the pre-verdict truthfulness sweep.
+assert_pin_unique "339(docs): DEVFLOW_SYSTEM_OVERVIEW describes the pre-verdict truthfulness sweep" \
+  'pre-verdict truthfulness sweep' "$OG_OVERVIEW_DOC"
+assert_pin_unique "339(docs): shadow-review.md describes the pre-verdict truthfulness sweep" \
+  'pre-verdict truthfulness sweep' "$OG_SHADOW_DOC"
+
 # ── Meta-test (#157, AC2): widen the raw-guard audit from the park-calibration
 # region fence to the WHOLE suite. #155 enforced helper-routing ONLY inside the
 # PARKCAL_GUARD_REGION; the maxi_clamp / DEF_SKILL / IMPL_SKILL / INIT_SKILL /

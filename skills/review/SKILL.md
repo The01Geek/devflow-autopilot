@@ -614,16 +614,18 @@ For every finding you report, include a `defect_signature` field with the follow
   defect_signature:
     file: "<path/to/file>"           # required; the primary file the defect lives in
     line_range: [<start>, <end>]     # required when locatable; null only when the defect spans an unbounded region (e.g. "missing test file")
-    kind: "<one of: null_deref | unhandled_exception | leak | race | logic_error | api_misuse | type_design | comment_drift | test_gap | security | style | other>"
+    kind: "<one of: null_deref | unhandled_exception | leak | race | logic_error | api_misuse | type_design | comment_drift | documented_falsehood | test_gap | security | style | other>"
 
 Place this field on each finding alongside severity and description. If your normal output format is a markdown bullet list, append the signature as a fenced JSON block right under the bullet. Without `defect_signature`, the orchestrator cannot corroborate your finding against other agents and may downweight it.
+
+Truthfulness contract (file it, do not soften it): a diff-added or diff-modified doc line, code comment, example, or command-form whose claim is false against HEAD MUST be filed with `kind: documented_falsehood` — never as a clarity or cosmetic Suggestion. The discriminator is: false against HEAD is a truthfulness defect (a self-contradicting diff — non-demotable REJECT); true but awkwardly worded is a clarity Suggestion (demotable). Verify the claim against the shipped code (read the named symbol, command surface, or code path) before you grade it.
 ```
 
 Agents to launch:
 
 **devflow:code-reviewer** — prompt:
 ```
-Review the code changes in this PR. Read the cached diff at `{DIFF_PATH}`. Read CLAUDE.md for project conventions. Focus on CLAUDE.md compliance, bugs, and code quality. Only report issues with confidence >= 80.
+Review the code changes in this PR. Read the cached diff at `{DIFF_PATH}`. Read CLAUDE.md for project conventions. Focus on CLAUDE.md compliance, bugs, and code quality. Only report issues with confidence >= 80. Per the shared `defect_signature` contract below, a diff-added/modified doc line, comment, example, or command-form whose claim is false against HEAD is a `documented_falsehood`, never a clarity Suggestion — watch for the four recurring shapes: a documented symbol or base class the code lacks; a documented command invocation the skill/CLI does not accept; a "known limitation" the same diff already fixed; an "apply this pattern to X" claim the code does not bear out.
 
 {paste the defect_signature paragraph above}
 ```
@@ -637,7 +639,7 @@ Review the error handling in the code changes. Read the cached diff at `{DIFF_PA
 
 **devflow:comment-analyzer** — prompt:
 ```
-Analyze the code comments in the changes. Read the cached diff at `{DIFF_PATH}`. Check that docstrings and comments are accurate, helpful, and not misleading.
+Analyze the code comments in the changes. Read the cached diff at `{DIFF_PATH}`. Check that docstrings and comments are accurate, helpful, and not misleading. Per the shared `defect_signature` contract below, a diff-added/modified doc line, comment, example, or command-form whose claim is false against HEAD is a `documented_falsehood`, never a clarity Suggestion — watch for the four recurring shapes: a documented symbol or base class the code lacks; a documented command invocation the skill/CLI does not accept; a "known limitation" the same diff already fixed; an "apply this pattern to X" claim the code does not bear out.
 
 {paste the defect_signature paragraph above}
 ```
@@ -946,7 +948,7 @@ FAIL and INCONCLUSIVE items stay listed outside the `<details>` block so they re
 After building the report (4.1) and **before** computing the verdict (4.2), scan the Phase-3 findings the verdict will weigh (the `Critical` / `Important` / `Major` findings not deferral-demoted in 4.0). **Flag** a finding as a *suspected over-grade* when it matches one of these **observable** over-grade shapes (keyed on observable signals — what the suite catches, which direction the code fails, how many agents corroborated — never on a re-judgment of the finding's merits, or the annotation just relocates the calibration problem it exists to surface):
 
 1. **Suite-RED or fail-closed defect graded above its blast radius** — the defect's own failure mode is one the project's test suite catches **RED**, or the code **fails closed** on the bad input (it aborts / refuses / returns the safe value rather than admitting a wrong one). A fenced or fail-closed defect is real and worth fixing, but its observable blast radius is a loud, bounded stop — not the silent corruption a `Critical`/`Important` grade asserts.
-2. **Diagnostic-or-cosmetic-only finding with no behavioral fail-direction** — the finding's entire observable impact is the wording of a message / breadcrumb / log / comment or another purely-diagnostic surface, with no wrong output, no corrupted state, and no skipped guard. Real and worth fixing, but not a high-severity blast radius.
+2. **Diagnostic-or-cosmetic-only finding with no behavioral fail-direction** — the finding's entire observable impact is the wording of a message / breadcrumb / log / comment or another purely-diagnostic surface, with no wrong output, no corrupted state, and no skipped guard. Real and worth fixing, but not a high-severity blast radius. **Excludes a false-against-HEAD diff-added/modified artifact.** A diff-added or diff-modified doc line, code comment, example, or command-form whose claim is **false against HEAD** is **not** cosmetic wording — it is a truthfulness defect (a `documented_falsehood`), because false against HEAD is a truthfulness defect (a self-contradicting diff — non-demotable REJECT); true but awkwardly worded is a clarity Suggestion (demotable). Such an artifact is a self-contradicting diff that the Phase 4.2 carve-out REJECTs non-demotably and is a subject of the Phase 4.1.6 truthfulness sweep below — never a demotable Suggestion under this shape. (This discriminator is single-sourced here; the shared `defect_signature` block and the `comment-analyzer` / `code-reviewer` agent files mirror it verbatim.)
 3. **Uncorroborated single-source finding from an empirical over-grader** — the finding is graded `Critical`/`Important` but is **single-source** (corroboration count 1 from Phase 3.2) from `silent-failure-hunter` or `pr-test-analyzer`, with **no** corroboration from any other Phase-3 agent **and** no Phase-2 verification-checklist FAIL covering the same defect. Empirically this uncorroborated-single-source-from-an-empirical-over-grader signal is the highest-probability over-grade.
 
 **Deterministic in-code-comment cap (shape 2 refinement — the one flag that changes the verdict).** Shape 2's *in-code-comment* sub-case is **not** advisory-only: a finding whose **sole** observable impact is an inaccurate or stale **in-code comment**, on a comment the diff under review did **not** add or modify, is **capped at 🟡 Suggestion / Minor deterministically — Phase 4.2 does not REJECT on it** — regardless of the severity a review agent assigned. This is a *severity-classification* rule (a comment-only-on-unmodified-comment defect is by definition ≤ Suggestion/Minor), keyed **only** on the two observable properties — the impact is solely an in-code comment, and that comment was not diff-touched — never on a re-judgment of the finding's merits, so it does **not** reopen the #195 lenient-verdict hole (a genuine behavioral defect is never touched; only this deterministically-defined comment-only class is capped). The cap is **narrow by construction**:
@@ -959,6 +961,19 @@ After building the report (4.1) and **before** computing the verdict (4.2), scan
 If no finding matches, add the line `over-grade annotation: no finding flagged` to the report so a clean scan is visible rather than ambiguous with a skipped step.
 
 The full **flag-and-record** gate — which *requires* a recorded `severity-calibrated` technical evaluation before a flagged finding may drive a shadow-promotion, and which still never auto-demotes — lives in `/devflow:review-and-fix` Step 2.6, because the fix loop has a fixer to record that evaluation. Standalone review is **advisory by construction**: do not port the gate's recording requirement here, and never let the annotation change what 4.2 computes. A consumer repo sharpens these shapes with local instances via `.devflow/prompt-extensions/review.md`; the extension sharpens the shapes but never makes the annotation change the verdict.
+
+### 4.1.6 Pre-verdict truthfulness sweep (promote-only; over every finding, regardless of severity chip)
+
+After the over-grade scan (4.1.5) and **before** computing the verdict (4.2), run a **pre-verdict truthfulness sweep** over the Phase-3 findings. Unlike the over-grade scan — which weighs only the `Critical` / `Important` / `Major` findings — this sweep runs over **every** Phase-3 finding **regardless of its severity chip**: `this sweep does **not** inherit 4.1.5's Critical/Important/Major scope`, because the mis-filed falsehood it closes lands at 🟡 Suggestion, exactly where the over-grade scan never looks.
+
+For each finding whose subject is a **diff-added or diff-modified** doc line, code comment, example, or command-form, verify the flagged claim against HEAD by reading the named symbol, command surface, or code path it describes, and apply the shape-2 discriminator (false against HEAD = truthfulness defect, non-demotable; true but awkwardly worded = clarity Suggestion, demotable):
+
+- a **demonstrated** falsehood — the claim is false against the shipped code — is routed into the Phase 4.2 self-contradicting-diff carve-out and drives **REJECT**, **independent of how the producing agent framed or graded it** (a Suggestion-chipped, clarity-worded finding routes exactly like a Critical one);
+- an **inconclusive** check — the claim cannot be *demonstrated* false against HEAD — leaves the finding **exactly as filed**. The sweep never promotes on suspicion, only on demonstrated falsity — this fail direction is the load-bearing safety property that contains the false-REJECT risk.
+
+**The sweep is promote-only: it never demotes, downgrades, or clears any finding** — it can only *add* a REJECT the Phase 4.2 carve-out already warrants, never remove or soften one (mirroring the shadow pass's promote-only under-grade gate). Scope is strictly diff-added/modified artifacts that contradict the shipped code: an accurate mention of a still-present limitation, a still-valid follow-up reference, a diff-untouched inaccurate comment (governed by the deterministic in-code-comment cap, which this sweep does not touch), a machine-significant comment (lint/type directive, tool-read marker — graded by its behavioral fail-direction), and a subjective or forward-looking statement that asserts no verifiable fact are **never** sweep subjects.
+
+If the sweep demonstrates no falsehood, add the line `truthfulness sweep: no finding promoted` to the report so a clean pass is visible rather than ambiguous with a skipped step (mirroring the over-grade scan's clean-scan sentinel idiom). This sweep is a **classification** step keyed on observable properties (the artifact is diff-added/modified; its claim is demonstrably false against HEAD), never a re-judgment of merits — so it does not reopen the #195 lenient-verdict hole. `/devflow:review-and-fix` and `/devflow:implement` Phase 3 inherit it unchanged through the shared engine.
 
 ### 4.2 Determine verdict
 
