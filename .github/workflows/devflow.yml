@@ -689,7 +689,7 @@ jobs:
           # python3) can't abort this step under GitHub's default `-e` run shell — which
           # would fail the job and break the "never changes the job's pass/fail" contract
           # above. The empty read then falls safe to enabled on the next line. (Mirrors the
-          # engine-error step's `|| echo false` assignment guard.)
+          # `|| echo false` assignment guard in devflow-runner.yml's engine-error step.)
           ENABLED="$("$CG" .devflow.execution_diagnostics_enabled true || true)"
           [ -n "$ENABLED" ] || ENABLED=true
           if [ "$ENABLED" = "false" ]; then
@@ -699,7 +699,13 @@ jobs:
           SED=.devflow/vendor/devflow/scripts/surface-execution-diagnostics.sh
           [ -f "$SED" ] || SED=scripts/surface-execution-diagnostics.sh
           if [ -f "$SED" ]; then
-            bash "$SED" "${EXECUTION_FILE:-}"
+            # `|| echo ::notice::` for the same reason as the config-get guard above:
+            # the helper's always-exit-0 contract holds for the committed file, but a
+            # partial-copy / truncated vendored helper (a documented deployment hazard)
+            # could exit non-zero, which under GitHub's default `-e` run shell would
+            # abort this always() step and fail the job. Guard it so the read-only
+            # "never changes the job's pass/fail" contract holds even then.
+            bash "$SED" "${EXECUTION_FILE:-}" || echo "::notice::surface-execution-diagnostics.sh exited non-zero; execution diagnostics unavailable (best-effort)."
           else
             echo "::notice::surface-execution-diagnostics.sh absent; execution diagnostics not surfaced (best-effort)."
           fi

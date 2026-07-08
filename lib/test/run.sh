@@ -8959,6 +8959,12 @@ for WF in devflow-runner.yml devflow-implement.yml devflow.yml; do
   # the AC3 guarantees inert while still reading green.
   assert_eq "#331 $WF: slice reaches the run body (helper invocation present)" "yes" \
     "$(printf '%s' "$BLK" | grep -qF 'bash "$SED" "${EXECUTION_FILE:-}"' && echo yes || echo no)"
+  # AC3: the helper invocation is `|| echo`-guarded so a partial-copy/truncated vendored
+  # helper that exits non-zero can't abort the always() step under GitHub's default -e
+  # shell (same read-only "never changes the job's pass/fail" contract as the config-get
+  # guard). Pins the guard so a regression dropping it goes RED.
+  assert_eq "#331 $WF: helper invocation is -e-guarded (|| echo)" "yes" \
+    "$(printf '%s' "$BLK" | grep -qF 'bash "$SED" "${EXECUTION_FILE:-}" || echo' && echo yes || echo no)"
   # AC3: the step is a pure run-only step — no action invocation, so it can neither
   # mint a token (create-github-app-token) nor upload an artifact (upload-artifact).
   assert_eq "#331 $WF: diagnostics step is run-only (no uses:)" "no" \
