@@ -3874,6 +3874,18 @@ assert_pin_unique "#346: Pass 5 local/interactive tier behavior is unchanged (no
 # human/PAT follow-up statement (phase-4) land in the SAME change as Pass 5.
 assert_pin_unique "#346: 2.2.5 lists capability-blocked ACs as a sanctioned scope-adjustment trigger" \
   'Capability-blocked ACs are a sanctioned trigger too' "$IMPL_PHASES_DIR/phase-2-implement.md"
+# Review iter 2 (shadow): Pass 5's text-only 1.6 detection cannot see an AC whose
+# workflow-residence surfaces only during planning/implementation — 2.2.5 is the concrete-diff
+# backstop that catches those, and a Phase 2.3-discovered edit re-routes through it before
+# committing. Pin the backstop clause + the 2.3-discovery re-route so a trim can't silently
+# reopen the push-time gap. And pin the tier-indeterminate fail-closed-toward-cloud rule (a
+# proxy-fails-open guard the shadow flagged): an env that can't be confirmed interactive defers.
+assert_pin_unique "#346: 2.2.5 backstop catches planning-surfaced workflow-resident ACs Pass 5's text scan misses" \
+  'also catch any AC whose workflow-residence surfaced only during planning' "$IMPL_PHASES_DIR/phase-2-implement.md"
+assert_pin_unique "#346: a Phase 2.3-discovered workflow edit re-routes through 2.2.5 before committing" \
+  'if Phase 2.3 code-writing *itself* later reveals a required `.github/workflows/` edit' "$IMPL_PHASES_DIR/phase-2-implement.md"
+assert_pin_unique "#346: Pass 5 fails closed toward cloud when the executing tier is indeterminate" \
+  'fail closed toward cloud** — route it through the deferral' "$P1_FILE"
 assert_pin_unique "#346: Phase 4.0 follow-up states landing a capability-deferral needs a human/PAT workflows-scope push" \
   'Landing this requires a human or PAT push carrying the `workflows` scope' "$IMPL_PHASES_DIR/phase-4-documentation.md"
 # ── issue #185 (+ Addendum): Phase 4.1 Documentation Needed cross-check ─────
