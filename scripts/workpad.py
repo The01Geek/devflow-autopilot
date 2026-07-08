@@ -1416,10 +1416,10 @@ def _apply_mutations(body: str, args, failed_ticks) -> str:
         # `--replace-acs-file` channel can introduce `(post-merge)` rows wholesale —
         # a deliberate, known limitation left open here, not closed by this guard.
         if not any(n.strip() for n in args.note):
-            appending = [(old, new) for old, new in args.rewrite_ac
-                         if _pair_appends_post_merge(old, new)]
-            if appending:
-                old, new = appending[0]
+            offending = next(((old, new) for old, new in args.rewrite_ac
+                              if _pair_appends_post_merge(old, new)), None)
+            if offending:
+                old, new = offending
                 raise _UpdateError(
                     f"--rewrite-ac pair {old!r} -> {new!r} appends the "
                     f"{_POST_MERGE_MARKER} tag but no non-empty --note rationale was "
