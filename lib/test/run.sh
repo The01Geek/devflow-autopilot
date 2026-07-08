@@ -16042,10 +16042,11 @@ echo "#312: workflow endpoint↔permission lint"
 # every helper script the job runs, which the lint attributes GENERICALLY: it extracts each
 # `<name>.sh` basename the job body names, resolves it against BOTH DevFlow helper dirs
 # (scripts/ and lib/), and unions that helper's recognized families into the job's requirement
-# (see wf_perm_lint below). So the attribution is not a hardcoded helper allow-list — the three
+# (see wf_perm_lint below). So the attribution is not a hardcoded helper allow-list — the four
 # helpers with literal recognized-family calls today
 # (derive-review-preconditions.sh → actions/statuses/contents/checks in precheck;
 # derive-review-verdict.sh → comments + pull-requests (pulls/{n}/reviews) in finalize_check;
+# dismiss-stale-rejections.sh → pull-requests (pulls/{n}/reviews[/{id}/dismissals]) in finalize_check;
 # post-issue-comment.sh → comments in
 # the claude job) are all walked, and any future helper in scripts/ or lib/ is too, so no
 # currently-shipping recognized-family endpoint falls in an un-walked gap. The #307 actions:read + statuses:read
@@ -16168,8 +16169,9 @@ _wf_req_keys() {
 # print the count of endpoint↔permission violations across $1 (workflows dir),
 # attributing the gh api families of EVERY helper script a job invokes — resolved by basename
 # against $2's own directory (the repo scripts/ dir) — not a hardcoded helper list. So each
-# helper a job runs (derive-review-preconditions.sh in precheck, derive-review-verdict.sh in
-# finalize_check, post-issue-comment.sh in the claude job, and any future one) is walked and
+# helper a job runs (derive-review-preconditions.sh in precheck, derive-review-verdict.sh and
+# dismiss-stale-rejections.sh in finalize_check, post-issue-comment.sh in the claude job, and
+# any future one) is walked and
 # its recognized families are required of that job. $2 anchors the scripts/ dir and is the
 # MISSING_PRECOND sentinel; a job body naming a helper the scripts/ dir does not hold
 # contributes nothing (fail-safe). General attribution replaces the fragile per-helper allow-
