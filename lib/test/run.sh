@@ -1155,7 +1155,7 @@ echo "blocker-recheck fast path (Phase 0.3.6, standalone-review re-verdict) (#34
 # #347 adds a scoped fast path to the shared review engine (skills/review/SKILL.md):
 # a standalone /devflow:review on a PR whose most recent recorded verdict is a REJECT
 # driven SOLELY by enumerated self-contradicting-diff carve-out blockers re-verifies
-# only those blockers at HEAD (blinded) and posts a refreshed verdict through the
+# only those blockers at the pushed head $PR_HEAD_SHA (blinded) and posts a refreshed verdict through the
 # existing Phase 4.4 machinery, instead of a full 4-phase re-review. The deliverable
 # is LLM-executed skill prose (no automated verdict boundary), so these are
 # operative-sentence pins (PASS→FAIL on removal) covering the fast path's existence,
@@ -1167,7 +1167,7 @@ echo "blocker-recheck fast path (Phase 0.3.6, standalone-review re-verdict) (#34
 assert_pin_unique "347: Phase 0.3.6 blocker-recheck fast path exists in the review engine" \
   '### 0.3.6 Blocker-recheck fast path' "$ST_REV"
 # AC2 (blinded verifier): pin the OPERATIVE sentence — the verifier's input scope (it
-# receives only the enumerated blockers + rejected-head..HEAD delta, never the fixer's
+# receives only the enumerated blockers + rejected-head..$PR_HEAD_SHA delta, never the fixer's
 # reasoning), mirroring Step 3.5's blinding. The rhetorical framing phrase ("Blinding is
 # the independence guarantee") in the same sentence is deliberately NOT pinned — pinning
 # it would go RED on a behavior-preserving reword (operative-vs-framing pin discipline).
@@ -1184,12 +1184,23 @@ assert_pin_unique "347(AC1): rejected head is the reviews-API commit_id (authori
   'the authoritative rejected head' "$ST_REV"
 assert_pin_unique "347(AC1): precondition 2 reads a prior run's REJECT comment, not this run's seed" \
   'its run-key differs from' "$ST_REV"
+# AC1/AC4 (shadow-review fix): precondition 2's progress comment must belong to the
+# precondition-1 REJECT — never fall back to the most-recent REJECT comment, or an older
+# all-PASS carve-out report could gate an APPROVE past a newer REJECT's real blockers.
+assert_pin_unique "347(AC4): precondition 2 must correspond to the precondition-1 REJECT, no stale fallback" \
+  'do NOT fall back to "the most recent REJECT comment"' "$ST_REV"
+# AC4 (shadow-review fix): the verdict-threshold read precondition 3 relies on is itself
+# fail-closed — an unresolvable threshold is a fall-through, not an undefined comparison.
+assert_pin_unique "347(AC4): precondition 3's threshold read is fail-closed (unresolvable → fall-through)" \
+  'a threshold that cannot be resolved to a concrete enum value is a fall-through' "$ST_REV"
 # AC4 fail-closed precondition — all-PASS except carve-out: zero FAIL/INCONCLUSIVE, and no
 # non-carve-out verdict-driving finding at/above threshold. Two operative sentences.
 assert_pin_unique "347(AC4): precondition requires zero checklist FAIL/INCONCLUSIVE" \
   'must record **zero** FAIL and **zero** INCONCLUSIVE' "$ST_REV"
-assert_pin_unique "347(AC4): precondition excludes non-carve-out verdict-driving findings" \
-  'verdict-driving agent finding at or above the configured' "$ST_REV"
+# Pin the exclusion POLARITY (the carve-out-only gate), not the interior noun phrase — a
+# reword that drops "other than … carve-out blockers" and tolerates any finding must go RED.
+assert_pin_unique "347(AC4): precondition admits ONLY carve-out findings (exclusion polarity)" \
+  'may be present *other than*' "$ST_REV"
 # AC4 fail-closed precondition — unparseable blocker enumeration falls through (never guess).
 assert_pin_unique "347(AC4): unparseable blocker enumeration falls through, never guessed" \
   'never guess a blocker set' "$ST_REV"
@@ -1201,10 +1212,23 @@ assert_pin_unique "347(AC4): unparseable blocker enumeration falls through, neve
 # corroborated Critical/Important fail-open and turns the suite RED.
 assert_pin_unique "347(AC4): intervening-change guard requires REJECTED_HEAD ancestor of PR_HEAD_SHA" \
   'git merge-base --is-ancestor "$REJECTED_HEAD" "$PR_HEAD_SHA"' "$ST_REV"
+# Pin the OPERATIVE mechanism (the non-zero-exit fall-through), not just the rationale
+# clause — deleting the rc check must go RED. The rationale sentence backs it up as a
+# second, distinct pin so a reword that guts only the mechanism still trips one of them.
+assert_pin_unique "347(AC4): a non-zero git diff exit falls through (operative errored-diff mechanism)" \
+  'if that `git diff` exits non-zero, fall through' "$ST_REV"
 assert_pin_unique "347(AC4): an errored/empty diff is never trusted as a benign empty (fail-closed)" \
   'never as the vacuous default of an errored diff' "$ST_REV"
 assert_pin_unique "347(AC4): target head is the pushed \$PR_HEAD_SHA, never the local git HEAD ref" \
   'never the local `git HEAD` ref' "$ST_REV"
+# AC5 (shadow-review fix): any blocker not positively 'fixed' (ambiguous/missing) is
+# still-unfixed — the fail-closed default that keeps a silent verifier from clearing a REJECT.
+assert_pin_unique "347(AC5): a blocker not positively fixed defaults to still-unfixed (fail-closed)" \
+  'is treated as still-unfixed** (the fail-closed default)' "$ST_REV"
+# AC1 (shadow-review fix): a fast-path hit terminates the run — it must NOT also fall into
+# 0.4/0.5/Phase 1 and double-post a second verdict.
+assert_pin_unique "347(AC1): a fast-path hit terminates the run, never continues into the full pipeline" \
+  'do not** continue to 0.4/0.5 or Phase 1' "$ST_REV"
 # AC4 (single-source guarantee): gated OFF for /devflow:review-and-fix (head_override=local),
 # so the fix loop never takes the fast path mid-loop and the engine stays single-sourced.
 assert_pin_unique "347(AC4): fast path is gated off when head_override is set (fix-loop reuse)" \
