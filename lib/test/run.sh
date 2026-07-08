@@ -4220,11 +4220,11 @@ assert_eq "#309 heading reset pin: bare bold bullet on the line directly after t
   "docs/h.md" \
   "$(printf '%s\n' "$fx_309_hdr" | bash "$EXTRACT_HELPER")"
 
-# Cases 19-32 (issue #327): the adjacent-grammar SHAPE MATRIX. Both bullet forms
+# Cases 19-37 (issue #327): the adjacent-grammar SHAPE MATRIX. Both bullet forms
 # — Form L (`- **Documentation Needed** …` list-marker) and Form P
 # (`**Documentation Needed** …` bare bold paragraph) — crossed with each FOLLOWER
 # shape: top-level bold list, indented sub-list, plain-prose paragraph, bold
-# paragraph, heading, EOF (plus two dedicated pins). Two cells were RED on the
+# paragraph, heading, EOF (plus seven dedicated pins). Two cells were RED on the
 # pre-#327 extractor: a top-level bold DELIVERABLE list dropped every path
 # (Shape 1, fail-open empty output — Cases 19/25) and a trailing plain-prose
 # paragraph leaked its tokens (Shape 2, over-emission — Cases 21/27). All doc
