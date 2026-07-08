@@ -8198,26 +8198,27 @@ printf '%s' 'not json {{'   > "$SED_TMP/garbage.json"
 # empty file
 : > "$SED_TMP/empty.json"
 
-# --- AC1: run summary fields surfaced to stdout ---
+# --- AC1: run summary fields surfaced to stdout (capture once, grep the block) ---
+SED_POP_OUT="$(bash "$SED" "$SED_TMP/populated.json" 2>/dev/null)"
 assert_eq "#329 surface-diag: populated emits Run summary header" "yes" \
-  "$(bash "$SED" "$SED_TMP/populated.json" 2>/dev/null | grep -qF "### Run summary" && echo yes || echo no)"
+  "$(printf '%s' "$SED_POP_OUT" | grep -qF "### Run summary" && echo yes || echo no)"
 assert_eq "#329 surface-diag: populated surfaces is_error" "yes" \
-  "$(bash "$SED" "$SED_TMP/populated.json" 2>/dev/null | grep -qF "is_error: false" && echo yes || echo no)"
+  "$(printf '%s' "$SED_POP_OUT" | grep -qF "is_error: false" && echo yes || echo no)"
 assert_eq "#329 surface-diag: populated surfaces num_turns" "yes" \
-  "$(bash "$SED" "$SED_TMP/populated.json" 2>/dev/null | grep -qF "num_turns: 12" && echo yes || echo no)"
+  "$(printf '%s' "$SED_POP_OUT" | grep -qF "num_turns: 12" && echo yes || echo no)"
 assert_eq "#329 surface-diag: populated surfaces duration_ms" "yes" \
-  "$(bash "$SED" "$SED_TMP/populated.json" 2>/dev/null | grep -qF "duration_ms: 34567" && echo yes || echo no)"
+  "$(printf '%s' "$SED_POP_OUT" | grep -qF "duration_ms: 34567" && echo yes || echo no)"
 assert_eq "#329 surface-diag: populated surfaces total_cost_usd" "yes" \
-  "$(bash "$SED" "$SED_TMP/populated.json" 2>/dev/null | grep -qF "total_cost_usd: 0.42" && echo yes || echo no)"
+  "$(printf '%s' "$SED_POP_OUT" | grep -qF "total_cost_usd: 0.42" && echo yes || echo no)"
 assert_eq "#329 surface-diag: populated surfaces permission_denials_count" "yes" \
-  "$(bash "$SED" "$SED_TMP/populated.json" 2>/dev/null | grep -qF "permission_denials_count: 2" && echo yes || echo no)"
+  "$(printf '%s' "$SED_POP_OUT" | grep -qF "permission_denials_count: 2" && echo yes || echo no)"
 # --- AC1: per-denial detail (tool_name + tool_input) when the array is present ---
 assert_eq "#329 surface-diag: populated surfaces per-denial tool_name" "yes" \
-  "$(bash "$SED" "$SED_TMP/populated.json" 2>/dev/null | grep -qF '`Bash`' && echo yes || echo no)"
+  "$(printf '%s' "$SED_POP_OUT" | grep -qF '`Bash`' && echo yes || echo no)"
 assert_eq "#329 surface-diag: populated surfaces second per-denial tool_name" "yes" \
-  "$(bash "$SED" "$SED_TMP/populated.json" 2>/dev/null | grep -qF '`Write`' && echo yes || echo no)"
+  "$(printf '%s' "$SED_POP_OUT" | grep -qF '`Write`' && echo yes || echo no)"
 assert_eq "#329 surface-diag: populated truncates a long tool_input" "yes" \
-  "$(bash "$SED" "$SED_TMP/populated.json" 2>/dev/null | grep -qF '(truncated)' && echo yes || echo no)"
+  "$(printf '%s' "$SED_POP_OUT" | grep -qF '(truncated)' && echo yes || echo no)"
 # --- count-only degrades to count text, no per-denial detail ---
 assert_eq "#329 surface-diag: count-only surfaces count" "yes" \
   "$(bash "$SED" "$SED_TMP/count_only.json" 2>/dev/null | grep -qF "permission_denials_count: 7" && echo yes || echo no)"

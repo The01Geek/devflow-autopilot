@@ -111,7 +111,7 @@ if ! BLOCK=$("$DEVFLOW_JQ" -rs --arg header "$_HEADER" '
           "- permission_denials_count: \($count)",
           "",
           "### Permission denials",
-          (if ($count // 0) == 0 then
+          (if $count == 0 then
              "No permission denials."
            elif ($denials | length) > 0 then
              ("\($denials | length) permission denial(s) with detail:"),
