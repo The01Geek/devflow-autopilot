@@ -1744,6 +1744,20 @@ assert_pin_unique "339(AC5): sweep emits a visible clean-pass line" \
   'truthfulness sweep: no finding promoted' "$ST_REV"
 assert_pin_unique "339(AC5): sweep promotes only on demonstrated falsity, never on suspicion (fail-direction safety)" \
   'The sweep never promotes on suspicion, only on demonstrated falsity' "$ST_REV"
+# AC5 (coupled-invariant guard, #341 review follow-up) — the sweep's relationship to the
+# Phase 4.2 self-contradicting-diff carve-out enumeration is a two-sided contract: the sweep
+# ROUTES a demonstrated falsehood into the byte-frozen carve-out categories "as the doc line
+# or code comment it inhabits" but must NEVER widen or edit that enumeration. Neither half was
+# pinned, so a future edit could silently let the sweep widen the carve-out and every existing
+# 339 pin would stay GREEN (the coupled-invariant-without-an-asserting-test class CLAUDE.md
+# warns about). Pin both the mapping clause and the never-widen/never-edit clause, and prove
+# the never-widen clause goes RED on removal.
+assert_pin_unique "339(AC5): example/command-form routes into the carve-out as the doc line/code comment it inhabits (mapping clause)" \
+  'it routes into the carve-out **as the doc line or code comment it inhabits**' "$ST_REV"
+assert_pin_unique "339(AC5): sweep does not widen (and must never edit) the Phase 4.2 carve-out enumeration" \
+  'this sweep does **not** widen (and must never edit) the Phase 4.2 carve-out enumeration' "$ST_REV"
+assert_pin_red_on_removal "339(AC5)-mp: deleting the never-widen/never-edit carve-out clause turns its pin RED" \
+  'this sweep does **not** widen (and must never edit) the Phase 4.2 carve-out enumeration' "$ST_REV"
 # AC5/AC9 (hardening) — pin the negative-scope carve-out (what is NEVER a sweep subject): a
 # machine-significant comment keeps its behavioral fail-direction grading. Its deletion would
 # strip the boundary preventing the sweep from colliding with the #291 in-code-comment cap, so
