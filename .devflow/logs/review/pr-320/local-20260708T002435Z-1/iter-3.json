@@ -1,0 +1,41 @@
+{
+  "iter": 3,
+  "started_at": "2026-07-08T01:10:00Z",
+  "fix_commit_sha": "6d5c981",
+  "fix_files": ["lib/test/run.sh"],
+  "loop_role": "promoted",
+  "checklist": [],
+  "phase3_dispatched": [],
+  "diff_profile": {"small_diff": false, "config_only": false, "has_new_types": false, "engine_self_modifying": true, "detect_all_audit": true, "checklist_skipped": null},
+  "phase3_findings": [
+    {"agent": "devflow:comment-analyzer", "severity": "Critical", "description": "Fix-introduced self-contradicting legend: phantom 'actions_missing (cont.) → +1' bullet made the legend enumerate 8 while fixture/assert produce 7.", "defect_signature": {"file": "lib/test/run.sh", "line_range": [15895, 15897], "kind": "self-contradicting-legend"}, "fix_decision": "applied"},
+    {"agent": "devflow:requesting-code-review", "severity": "Important", "description": "Documented falsehood: header claimed no recognized-family endpoint falls in the un-walked-helper gap, but post-issue-comment.sh (invoked as $V/... in claude job) makes a literal comments call, un-attributed.", "defect_signature": {"file": "lib/test/run.sh", "line_range": [15711, 15716], "kind": "documented-falsehood"}, "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "Empty/deny-all permissions block treated as inherit-top-level (fail-open), reachable via canonical YAML, undocumented; not live.", "defect_signature": {"file": "lib/test/run.sh", "line_range": [15800, 15813], "kind": "conflated-empty-vs-absent"}, "fix_decision": "severity-calibrated"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "SHADOW-phantom", "decision": "applied", "commit": "6d5c981"},
+    {"finding_id": "SHADOW-postissue", "decision": "applied", "commit": "6d5c981", "source_file": "lib/test/run.sh", "claim_text": "post-issue-comment.sh comments call un-attributed + documented falsehood", "evidence": "Verified: post-issue-comment.sh invoked as $V/... in devflow-implement.yml:783 (missed by scripts/<name>.sh sweep), makes literal comments call. Replaced hardcoded 2-helper attribution with GENERAL dynamic attribution (walk every .sh basename a job invokes); verified clean tree stays 0 (all 3 helper-invoking jobs grant their families) and monotonic-safe (union only adds requirements)."},
+    {"finding_id": "SHADOW-empty-perms", "decision": "severity-calibrated", "source_file": "lib/test/run.sh", "claim_text": "empty/deny-all permissions block fail-open", "original_severity": "Important", "calibrated_severity": "suggestion", "evidence": "Over-grade/symmetric calibration: verified real (empty block emits no JOBPERM → inherits top-level → fail-open when top-level grants the family) but NOT live (all devflow jobs use populated blocks); robust fix must distinguish deny-all/grant-all/read-all (false-positive risk). Elevation was driven by being undocumented — resolved by disclosing it as a bounded deferred limitation (symmetric with the accepted indentation deferral). Disclosure is the finding's own stated minimum."}
+  ],
+  "convergence_inputs": {"fixes_applied": 3, "fix_diff_lines": 90, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "telemetry": {"step_2_6": {"calls": 5}, "step_3_5": {"calls": 1}},
+  "shadow": {
+    "ran_at": "2026-07-08T01:25:00Z",
+    "reviewed_sha": "6d5c981",
+    "verdict": "APPROVE with notes",
+    "coverage": "full",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "Generic helper-attribution mechanism not differentially tested vs a hardcoded-list regression (all fixture helpers are real).", "defect_signature": {"file": "lib/test/run.sh", "line_range": [15826, 15834], "kind": "missing-test-coverage"}},
+      {"agent": "devflow:comment-analyzer", "severity": "Medium", "description": "Misattributed collaborators call to resolve-implement-trigger.sh (actually in sourced authorize-actor.sh); sourced-helper limitation undisclosed.", "defect_signature": {"file": "lib/test/run.sh", "line_range": [15715, 15716], "kind": "inaccurate-comment"}},
+      {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "Single-level attribution (transitive/sourced helpers not walked); basename must appear literally. Not live.", "defect_signature": {"file": "lib/test/run.sh", "line_range": [15828, 15834], "kind": "fail-open-coverage-gap"}}
+    ],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 8, "overlap_with_iter_N": 3, "new": 2, "new_critical": 0, "new_important": 1},
+    "promoted_to_iter_next": true
+  }
+}

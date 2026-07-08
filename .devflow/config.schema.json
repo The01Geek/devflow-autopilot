@@ -55,6 +55,11 @@
           "items": { "type": "string" },
           "description": "Extra --allowed-tools entries for the light /devflow:* command path (devflow.yml), APPENDED on top of devflow's built-in base list. Use claude-code-action tool syntax, e.g. \"Bash(make:*)\", \"Bash(docker compose:*)\". Does not apply to /devflow:implement — see devflow_implement.allowed_tools. Empty/omitted → base list only.",
           "default": []
+        },
+        "execution_diagnostics_enabled": {
+          "type": "boolean",
+          "description": "Gates whether the cloud-tier workflows that run claude-code-action surface the run's execution diagnostics after the claude step — the run summary (is_error, num_turns, duration_ms, total_cost_usd, permission_denials_count) and the permission-denial detail (count when available, else reported unavailable; per-denial tool_name + truncated tool_input when the execution file carries it) — to the job log and $GITHUB_STEP_SUMMARY via scripts/surface-execution-diagnostics.sh. A pure read-only diagnostic: it never changes the job's pass/fail result, adds no token scope, and uploads no artifact. true (the default) enables the surfacing; false is for quieter runs. Absent config resolves to true (enabled by default). The helper ships now; the workflow steps that read this key are wired in a follow-up.",
+          "default": true
         }
       }
     },
@@ -163,7 +168,7 @@
         },
         "require_ci_green": {
           "type": "boolean",
-          "description": "When true (the default), the devflow-review auto-trigger defers — posting a neutral 'waiting: other CI not green' Devflow Review check instead of running the engine — until every other signal on the PR head (GitHub Actions workflow runs excluding the Devflow Review workflow itself, legacy commit statuses, and non-Actions check runs) has completed without failing (success, skipped, and neutral conclusions all count as green, so a path-filtered or optional workflow never wedges the review), so a code-quality verdict is never produced for known-broken code. Generic: no CI job names are referenced. A head with NO other CI at all is treated as satisfied (nothing to wait on), so a CI-less repo is reviewed immediately and never wedged. The review auto-re-triggers when other CI completes (workflow_run/check_suite completed events — the workflow_run trigger's `workflows:` list must name the repo's CI workflows, a GitHub platform requirement). When false, restores the unconditional auto-trigger for this precondition. Evaluated by scripts/derive-review-preconditions.sh; an unverifiable query fails closed (defer, recoverable via a later event or the check's Re-run button).",
+          "description": "When true (the default), the devflow-review auto-trigger defers — posting a neutral 'waiting: other CI not green' Devflow Review check instead of running the engine — until every other signal on the PR head (GitHub Actions workflow runs excluding the Devflow Review workflow itself, legacy commit statuses, and non-Actions check runs) has completed without failing (success, skipped, and neutral conclusions all count as green, so a path-filtered or optional workflow never wedges the review), so a code-quality verdict is never produced for known-broken code. Generic: no CI job names are referenced. A head with NO other CI at all is treated as satisfied (nothing to wait on), so a CI-less repo is reviewed immediately and never wedged. The review auto-re-triggers when other CI completes — a workflow_run/check_suite completed event, or (since issue #310) a legacy commit-status `status` event with `state == 'success'` for repos whose CI reports only via the commit-status API (classic Jenkins, legacy CircleCI); the workflow_run trigger's `workflows:` list must name the repo's CI workflows, a GitHub platform requirement. When false, restores the unconditional auto-trigger for this precondition. Evaluated by scripts/derive-review-preconditions.sh; an unverifiable query fails closed (defer, recoverable via a later event or the check's Re-run button).",
           "default": true
         },
         "agent_overrides": {

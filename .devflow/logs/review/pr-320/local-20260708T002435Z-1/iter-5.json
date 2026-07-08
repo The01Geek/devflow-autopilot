@@ -1,0 +1,38 @@
+{
+  "iter": 5,
+  "started_at": "2026-07-08T02:20:00Z",
+  "fix_commit_sha": "999a7d8",
+  "fix_files": ["lib/test/run.sh"],
+  "loop_role": "promoted",
+  "checklist": [],
+  "phase3_dispatched": [],
+  "diff_profile": {"small_diff": false, "config_only": false, "has_new_types": false, "engine_self_modifying": true, "detect_all_audit": true, "checklist_skipped": null},
+  "phase3_findings": [
+    {"agent": "devflow:comment-analyzer+silent-failure-hunter", "severity": "Important", "description": "Park-calibration promotion: corroborated scripts/-only helper resolution fail-open (recognized-family lib/ helper unattributed, mislabeled 'fail-safe'; 'any future helper' overclaim). Shape 1 (fail-open guard in this PR's own diff).", "defect_signature": {"file": "lib/test/run.sh", "line_range": [15797, 15843], "kind": "fail-open-directory-scoping"}, "fix_decision": "applied"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "PARK-scripts-only", "decision": "applied", "commit": "999a7d8", "evidence": "Resolved helper basenames against BOTH scripts/ and lib/; verified clean tree stays 0 (all 3 real lib/-named helpers make no recognized call). Corrected comment (removed overclaim + relabeled fail-open direction). Extended generic-attribution proof to 3 (adds lib/ helper + inline+helper union-merge); differential verified via real function (scripts-only->2 RED, replace-merge->2 RED, hardcoded->off-3)."},
+    {"finding_id": "PARK-wordsplit", "decision": "advisory", "source_file": "lib/test/run.sh", "claim_text": "unquoted word-split on $helper_dirs (space-in-path)", "skip_category": "advisory-parked", "evidence": "LOW/latent: matches surrounding style (for hn in $(...)), real invocation path ($LIB/../) is space-free; test-only helper."}
+  ],
+  "convergence_inputs": {"fixes_applied": 1, "fix_diff_lines": 62, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "telemetry": {"step_3_5": {"calls": 1}},
+  "shadow": {
+    "ran_at": "2026-07-08T02:30:00Z",
+    "reviewed_sha": "999a7d8",
+    "verdict": "APPROVE with notes",
+    "coverage": "full",
+    "reviewers_dispatched": ["post-shadow-delta-review (bounded, blinded general-purpose over the iter-5 delta)"],
+    "expected_reviewers": ["post-shadow-delta-review"],
+    "reason": "iter-5 is the cap iteration; the mandatory full-coverage shadow ran on iter-4 (see iter-4.json) and found no promotable finding. iter-5 fixed the one corroborated park-calibration-promoted finding; its delta was audited by the bounded post-shadow delta-review (clean).",
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {"agent": "post-shadow-delta-review", "severity": "Suggestion", "description": "Unquoted word-split on $helper_dirs (space-in-path). Latent, style-consistent, real path space-free.", "defect_signature": {"file": "lib/test/run.sh", "line_range": [15797, 15843], "kind": "word-split-latent"}}
+    ],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 1, "overlap_with_iter_N": 0, "new": 1, "new_critical": 0, "new_important": 0},
+    "promoted_to_iter_next": false,
+    "park_calibration": "clean — parked findings are disclosed bounded deferrals with verified-nil live blast radius; the one corroborated materially-reachable fail-open (scripts/-only) was promoted and fixed this iter.",
+    "post_shadow_edit_gate": "HEAD advanced past reviewed_sha 999a7d8 only by a logs-only observability commit (.devflow/logs/** — exempt); the reviewed code state ships."
+  }
+}

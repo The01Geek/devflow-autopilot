@@ -4,6 +4,38 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.85] — 2026-07-08
+
+### Added
+- **`devflow-review.yml` now auto-recovers a deferred review on legacy commit-status-only CI.** A new `status` trigger lets a repo whose CI reports only via the commit-status API (classic Jenkins, legacy CircleCI) re-fire a review that was deferred behind `require_ci_green` once its CI turns green — with no manual Re-run. The precheck filters to `state == 'success'` (the cheap green-state filter, mirroring the `workflow_run` push filter) before a runner spins, so non-success states never spin the route; the CI-completion route branch gains a `status` arm that resolves the PR from the status head SHA (the payload carries no PR reference) and reuses the existing open-state/draft/stale-head/exactly-once/precondition machinery. It cannot self-trigger because the workflow posts check-runs, never commit statuses. (#335)
+
+## [2.8.84] — 2026-07-08
+
+### Changed
+- **Ten retrospective corrections from the #304 run so the review loop converges in 1–2 iterations.** Sharpen the review/implement/create-issue skills and add a deterministic workflow-permission lint: `/devflow:review-and-fix` Step 4.5 now weighs convergence by severity and surface (only applied Critical/Important *code* fixes defeat convergence; test/pin/comment/doc-only deltas satisfy it), and Step 3 item 3a names job-gating and control-flow changes as mechanism changes; `/devflow:create-issue` Step 3.5 and the issue template gain a platform-behavior premise class (WebFetch official docs before writing an AC whose mechanism depends on external platform/API semantics); `/devflow:implement` gains a Phase 2.3.4 workflow-diff addendum (endpoint↔permission map + event-path artifact-lifecycle walkthrough), a Phase 2.3 stub-blindness rule plus unused-stub-knob smell, a Phase 2.2.6 in-repo deviation breadcrumb, a Phase 2.3.6 all-output-channels honesty rule, a Phase 2.3.0b doc-enumerated-configuration-set trigger, and a Phase 3.2 `/simplify` triage against generality/consumer-facing ACs; the CLAUDE.md adversarial input-shape matrix gains a valid-falsy row and names inline workflow jq as a parser (kept in lockstep across its three mirror sites); and `lib/test/run.sh` carries a new endpoint↔permission lint that fails when a devflow workflow job invokes a `gh api` endpoint family whose token permission its `permissions:` block omits (green on the current tree — which requires the #307 `actions: read` + `statuses: read` grants to be present — with a baked mutation-proof that removes `statuses: read` and confirms the lint goes red, proving that grant load-bearing). (#320)
+
+## [2.8.83] — 2026-07-08
+
+### Added
+- **Surface claude-code-action execution diagnostics via a shared helper.** New best-effort
+  `scripts/surface-execution-diagnostics.sh` reads a claude-code-action execution log and prints
+  the run summary (`is_error`, `num_turns`, `duration_ms`, `total_cost_usd`,
+  `permission_denials_count`) plus permission-denial detail (count when available, else reported unavailable; per-denial `tool_name`
+  and truncated `tool_input` when the log carries it) to stdout, and appends the same block to
+  `$GITHUB_STEP_SUMMARY` when set. It mirrors `parse-engine-error.sh`'s slurp-based
+  array/object/JSONL traversal and `lib/resolve-jq.sh` / `DEVFLOW_JQ` seam, degrades to an explicit
+  "no diagnostics available" line on an absent/empty/unparseable file (or one carrying neither a
+  result event nor denial detail), and always exits
+  0 so it never fails the calling step. A new `devflow.execution_diagnostics_enabled` config key
+  (boolean, default `true`) is added to the schema and example config to gate the surfacing. The
+  three workflow-step call sites land in a follow-up (the DevFlow bot token lacks the
+  `workflows`-scoped push). (#329)
+
+## [2.8.82] — 2026-07-08
+
+### Fixed
+- **`extract-doc-needed-paths.sh`: handle two adjacent Documentation Needed grammar shapes.** A top-level bold deliverable list after the bullet (`- **`docs/a.md`**`) is now captured instead of the first item silently closing the scope to empty output (Shape 1, a fail-open that disabled the Phase 4.1 gate), and a blank-separated *trailing* plain-prose paragraph no longer leaks its path-like tokens as deliverables (Shape 2, over-emission) — a plain-prose paragraph closes the scope only once a deliverable has already been captured, so a primary prose declaration (a bare opener followed by a prose paragraph that names the path) and intervening prose before the deliverables are still captured rather than silently dropped (avoiding a fail-open). A non-backticked bold item (`- **docs/a.md**`) remains indistinguishable from a peer label and is a pinned, documented drop; blank-separated plain sub-lists stay in scope. Adds a `run.sh` shape-matrix over both bullet forms × the follower shapes. (#327)
+
 ## [2.8.81] — 2026-07-08
 
 ### Fixed

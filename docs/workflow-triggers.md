@@ -10,7 +10,7 @@ source of truth — this doc records the *why*.
 |---|---|---|
 | `devflow.yml` (light path) | `/devflow:review`, `/devflow:review-and-fix`, `/devflow:pr-description` | `issue_comment[created]`, `pull_request_review_comment[created]`, `pull_request_review[submitted]` |
 | `devflow-implement.yml` (heavy path) | `/devflow:implement` | `issue_comment[created]` |
-| `devflow-review.yml` | automated review | PR lifecycle + `check_run[rerequested]` + `workflow_run`/`check_suite` `[completed]` (CI-completion re-trigger for deferred reviews — see the preconditions note in `DEVFLOW_SYSTEM_OVERVIEW.md` §14; the `workflow_run` `workflows:` list must name the repo's CI workflows) |
+| `devflow-review.yml` | automated review | PR lifecycle + `check_run[rerequested]` + `workflow_run`/`check_suite` `[completed]` + `status` (CI-completion re-trigger for deferred reviews — `status` covers legacy commit-status-only CI, filtered to a green state; see the preconditions note in `DEVFLOW_SYSTEM_OVERVIEW.md` §14; the `workflow_run` `workflows:` list must name the repo's CI workflows) |
 
 Both command listeners run `claude-code-action` in **agent mode** with a
 synthesised prompt, so they need no `@claude` phrase. Every gate `if:` branch
@@ -52,8 +52,25 @@ PR. Its trigger policy (issue #304):
   branches up to date" if staleness must hard-block).
 - **CI-completion re-trigger.** A review deferred behind `require_ci_green` (or
   `require_up_to_date`) auto-re-fires once the PR becomes reviewable — via the
-  `workflow_run` (Actions CI) and `check_suite` (external CI) `completed` events —
-  with no manual Re-run. `workflow_run` **requires an explicit workflow-name list**
+  `workflow_run` (Actions CI) and `check_suite` (external CI) `completed` events,
+  or a `status` event (legacy commit-status-only CI — classic Jenkins, legacy
+  CircleCI — reporting via the commit-status API, which emits neither of the
+  other two; filtered to a green `state == 'success'` before a runner spins, and
+  resolving the PR from the status head SHA since its payload carries no PR ref) —
+  with no manual Re-run. Note the `status` trigger is **unconditional**: GitHub
+  offers no context/branch scoping for it, so it fires for *any* commit status
+  from *any* app (Codecov, Vercel, external bots), not only legacy CI — an
+  Actions-CI repo that also has a status-posting app therefore spins a precheck
+  runner per green status. Once a review already exists for the head each
+  redundant spin no-ops after a couple of read calls (PR resolution + the
+  exactly-once gate, which short-circuits before the expensive precondition and
+  review work). A status arriving *before* sibling CI has completed instead
+  re-enters the preconditions — several `gh api` reads that fail closed to
+  *defer* on a rate-limited token — so a heavy status burst in that pre-review
+  window could spuriously defer an otherwise-reviewable PR (bounded to the
+  pre-review window; the exactly-once gate ends it once a review lands). This is
+  the accepted cost of an unconditional trigger. `workflow_run` **requires an
+  explicit workflow-name list**
   (a GitHub platform constraint — no wildcards): it ships as `workflows: [CI]`, so
   **a consumer repo whose CI workflow is named anything other than `CI` must add
   that name to the `workflow_run:` list in `.github/workflows/devflow-review.yml`
@@ -67,7 +84,8 @@ PR. Its trigger policy (issue #304):
 A `require_up_to_date` (behind-base) deferral clears only when the review is
 re-evaluated, and the re-evaluation triggers are all **head-scoped**: a new commit
 pushed to the PR branch (`synchronize`), a CI workflow completing for the head
-(`workflow_run` / `check_suite`), or a manual **Re-run**. There is **no
+(`workflow_run` / `check_suite`), a legacy commit-status transition for the head
+(`status`), or a manual **Re-run**. There is **no
 push-to-base listener** — advancing the *base* branch (which is what actually
 makes a behind-base PR fall further behind, or, after the PR rebases elsewhere,
 could clear it) does **not** by itself re-evaluate the deferral. So a PR deferred
