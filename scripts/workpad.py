@@ -1258,6 +1258,18 @@ def _apply_section_ticks(
 _POST_MERGE_MARKER = '(post-merge)'
 
 
+def _pair_appends_post_merge(old: str, new: str) -> bool:
+    """True when a `--rewrite-ac` OLD/NEW pair *appends* the `(post-merge)` tag —
+    NEW ends with the marker (after a trailing-whitespace strip so a stray space
+    or newline can't mask it) while OLD does not. This is exactly the mid-run
+    retag channel §3.4 requires a rationale `--note` for (issue #338): a pair that
+    tags a previously-untagged criterion. A pair whose OLD already ends with the
+    tag (a text tweak on an already-tagged row) or that *removes* the tag returns
+    False — those need no rationale."""
+    return (new.rstrip().endswith(_POST_MERGE_MARKER)
+            and not old.rstrip().endswith(_POST_MERGE_MARKER))
+
+
 def _unticked_rows(content: str) -> tuple[list[str], list[str]]:
     """Split a checkbox section's still-unticked `- [ ]` rows into
     (non_post_merge, post_merge) by whether the row text ends in the
@@ -1391,6 +1403,29 @@ def _apply_mutations(body: str, args, failed_ticks) -> str:
         idx = _find_section(sections, 'Acceptance Criteria')
         if idx is None:
             raise _UpdateError("section '## Acceptance Criteria' not found")
+        # Rationale-required guard (issue #338): any pair that *appends* the
+        # `(post-merge)` tag (NEW ends with it, OLD does not) is a mid-run retag —
+        # the §3.4 channel used to defer a criterion's verification past merge — and
+        # MUST carry a non-empty `--note` recording why the deferral qualifies
+        # (genuinely-live), so a silently-laundered self-reconfiguration/tooling-gap
+        # deferral becomes a recorded, retrospective-auditable claim rather than a
+        # trust-me tag. Fail structurally (raise before any PATCH → all-or-nothing,
+        # Status never flips) when no non-empty note accompanies such a pair. The
+        # guard cannot judge the rationale's *truth* — it enforces that one exists.
+        # Scope: this covers the `--rewrite-ac` retag channel only; the Phase 2.2.5
+        # `--replace-acs-file` channel can introduce `(post-merge)` rows wholesale —
+        # a deliberate, known limitation left open here, not closed by this guard.
+        if not any(n.strip() for n in args.note):
+            appending = [(old, new) for old, new in args.rewrite_ac
+                         if _pair_appends_post_merge(old, new)]
+            if appending:
+                old, new = appending[0]
+                raise _UpdateError(
+                    f"--rewrite-ac pair {old!r} -> {new!r} appends the "
+                    f"{_POST_MERGE_MARKER} tag but no non-empty --note rationale was "
+                    f"supplied; a mid-run {_POST_MERGE_MARKER} retag must record why "
+                    f"the deferral is genuinely-live (§3.4). No PATCH was made."
+                )
         # --rewrite-ac is repeatable (issue #308): apply every OLD/NEW pair in
         # argument order against the progressively-rewritten section. Each pair
         # runs the existing exactly-one-match rule, so a pair matching zero or
@@ -1594,7 +1629,11 @@ def main():
                         'Repeatable: multiple pairs apply in argument order, each '
                         'validated by the exactly-one-match rule; any pair '
                         'matching zero or multiple rows aborts the whole call '
-                        'with no PATCH (structural all-or-nothing).')
+                        'with no PATCH (structural all-or-nothing). A pair that '
+                        'appends the (post-merge) tag (NEW ends with it, OLD does '
+                        'not) is a mid-run retag and requires a non-empty --note '
+                        'rationale (issue #338); without one the call aborts '
+                        'structurally before any PATCH.')
     u.add_argument('--note', metavar='TEXT', action='append', default=[],
                    help='Append a note bullet, prefixed with a time-only '
                         'HH:MM:SS UTC timestamp and nested under the current '

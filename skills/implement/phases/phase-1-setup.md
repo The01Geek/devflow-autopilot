@@ -29,7 +29,7 @@ A post-merge criterion is **not** deferred work (that's the 2.2.5 rule) — the 
 
 **Orchestrator override authority.** The trigger-phrase classifier is a heuristic, not exhaustive. After running the helper, eyeball each criterion and override if needed:
 - *Demote to code-verifiable* — when a matching phrase appears inside quoted/example text within the criterion rather than describing the verification step itself (e.g. the criterion quotes a function name that happens to contain "click"). Strip the ` (post-merge)` suffix in the file before mirroring.
-- *Promote to post-merge* — when no trigger phrase matched but the criterion's intent clearly requires a live PR/deploy/CI environment. Append ` (post-merge)`.
+- *Promote to post-merge* — when no trigger phrase matched but the criterion's intent clearly requires a live PR/deploy/CI environment. Append ` (post-merge)`. **§3.4's forbidden `(post-merge)` cases (runnable-but-blocked tooling gap, self-authored-claim confirmation, and self-reconfiguration — a hook/flag/setting the diff registers needing an active session) are binding on this *initial* classification too:** a criterion runnable on this host given the right tools, or one whose only unmet precondition is the orchestrator's own session/harness/account being in the just-shipped configuration, is **not** post-merge here either — do not promote it.
 
 Either kind of override goes into the workpad notes (`--note`) with a one-line reason.
 

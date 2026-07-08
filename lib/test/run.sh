@@ -3783,6 +3783,116 @@ assert_eq "#258: workpad.py carries the terminal --status Complete self-record g
   "$(grep -q '_terminal_complete_gate' "$WP_PY" && grep -q "(post-merge)" "$WP_PY" && echo yes || echo no)"
 rm -rf "$S258"
 
+# ── issue #338: --rewrite-ac (post-merge) retag requires a --note rationale ────
+# scripts/workpad.py: an `update` call in which any --rewrite-ac pair APPENDS the
+# trailing (post-merge) tag (NEW ends with it after rstrip, OLD does not) and which
+# carries no non-empty --note aborts STRUCTURALLY — _UpdateError, exit 1, stderr
+# naming the offending pair, NO PATCH issued (all-or-nothing preserved). The same
+# call with a non-empty --note succeeds. A pair whose OLD already ends with the tag,
+# or that removes it, needs no note. Exercised as a real CLI subprocess against a gh
+# stub, mirroring the #258 fixture pattern. T1/T4/T5 go RED against the pre-guard
+# workpad.py (the laundered tag PATCHed with no rationale); T2/T3 are pass controls.
+S338="$(mktemp -d)"
+cat > "$S338/gh" <<'STUB'
+#!/usr/bin/env bash
+# Minimal gh stub for workpad.py update: repo view, comments list (marker match),
+# body fetch, and PATCH (records that a PATCH happened + echoes the patched body).
+j="$*"
+if [[ "$j" == *"repo view"* ]]; then echo "owner/repo"; exit 0; fi
+if [[ "$j" == *"-X PATCH"* ]]; then
+  echo p >> "$WP_PATCHLOG"
+  for a in "$@"; do case "$a" in body=@*) cat "${a#body=@}";; esac; done
+  exit 0
+fi
+if [[ "$j" == *"issues/comments/7"* ]]; then cat "$WP_BODY"; exit 0; fi
+if [[ "$j" == *"issues/999/comments"* ]]; then echo '[{"id":7,"body":"<!-- devflow:workpad -->"}]'; exit 0; fi
+echo '[]'
+STUB
+chmod +x "$S338/gh"
+
+cat > "$S338/base.md" <<'WPMD'
+<!-- devflow:workpad -->
+# DevFlow Workpad — Issue #999
+
+**Status:** 🚀 Reviewing
+**Last updated:** 2026-05-15T00:00:00Z
+
+## Progress
+- [ ] **Review**
+
+## Plan
+- [x] Plan step one
+
+## Acceptance Criteria
+- [ ] AC one
+- [ ] AC two
+WPMD
+# A fixture whose AC two already carries the (post-merge) tag (for the OLD-already-tagged case).
+sed 's/- \[ \] AC two/- [ ] AC two (post-merge)/' "$S338/base.md" > "$S338/base-tagged.md"
+
+# run338 <body-file> <args...> → prints the exit code; leaves out/err/patchlog on disk.
+run338() {
+  local body="$1"; shift
+  : > "$S338/patchlog"
+  WP_BODY="$body" WP_PATCHLOG="$S338/patchlog" DEVFLOW_GH="$S338/gh" \
+    python3 "$WP_PY" update 999 "$@" >"$S338/out" 2>"$S338/err"
+  echo $?
+}
+
+# T1 (refusal — reproduces the defect): appending pair, no --note → abort, NO PATCH.
+_c="$(run338 "$S338/base.md" --rewrite-ac "AC two" "AC two (post-merge)")"
+assert_eq "#338(T1): appending (post-merge) retag with no --note aborts non-zero" "no" \
+  "$([ "$_c" = "0" ] && echo yes || echo no)"
+assert_eq "#338(T1): the refusal made NO PATCH (all-or-nothing)" "yes" \
+  "$([ -s "$S338/patchlog" ] && echo no || echo yes)"
+assert_eq "#338(T1): the refusal names the offending pair on stderr" "yes" \
+  "$(grep -q 'AC two' "$S338/err" && grep -q 'post-merge' "$S338/err" && echo yes || echo no)"
+
+# T2 (pass with note): identical call + non-empty --note → exit 0, row rewritten.
+_c="$(run338 "$S338/base.md" --rewrite-ac "AC two" "AC two (post-merge)" \
+  --note "retro-tagged as post-merge (genuinely-live): live deploy target")"
+assert_eq "#338(T2): the same retag WITH a non-empty --note succeeds (exit 0)" "0" "$_c"
+assert_eq "#338(T2): the with-note retag PATCHed the row with the (post-merge) tag" "yes" \
+  "$([ -s "$S338/patchlog" ] && grep -q '\- \[ \] AC two (post-merge)' "$S338/out" && echo yes || echo no)"
+
+# T3 (no false fire): OLD already ends with the tag → a text tweak needs no note.
+_c="$(run338 "$S338/base-tagged.md" --rewrite-ac "AC two (post-merge)" "AC two reworded (post-merge)")"
+assert_eq "#338(T3): a rewrite whose OLD already ends with (post-merge) passes with no note (exit 0)" "0" "$_c"
+assert_eq "#338(T3): the tag-preserving rewrite PATCHed" "yes" \
+  "$([ -s "$S338/patchlog" ] && echo yes || echo no)"
+
+# T4 (empty note): --note "" with an appending pair is a MISSING rationale → refused.
+_c="$(run338 "$S338/base.md" --rewrite-ac "AC two" "AC two (post-merge)" --note "")"
+assert_eq "#338(T4): an empty-string --note is treated as missing → refused (non-zero)" "no" \
+  "$([ "$_c" = "0" ] && echo yes || echo no)"
+assert_eq "#338(T4): the empty-note refusal made NO PATCH" "yes" \
+  "$([ -s "$S338/patchlog" ] && echo no || echo yes)"
+
+# T5 (all-or-nothing): a mixed repeatable call (one appending pair among a plain
+# rewrite), no note, is refused BEFORE any PATCH — no partial application.
+_c="$(run338 "$S338/base.md" --rewrite-ac "AC one" "AC one edited" \
+  --rewrite-ac "AC two" "AC two (post-merge)")"
+assert_eq "#338(T5): a mixed call with one appending pair, no note, aborts non-zero" "no" \
+  "$([ "$_c" = "0" ] && echo yes || echo no)"
+assert_eq "#338(T5): the mixed-call refusal made NO PATCH (the plain rewrite did not partially apply)" "yes" \
+  "$([ -s "$S338/patchlog" ] && echo no || echo yes)"
+
+# Source pin: the rationale-required guard + its predicate live in workpad.py.
+assert_eq "#338: workpad.py carries the (post-merge)-retag rationale guard" "yes" \
+  "$(grep -q '_pair_appends_post_merge' "$WP_PY" && echo yes || echo no)"
+
+# T6 (pin mutation check): the operative sentence of the new third forbidden case in
+# phase-3-review.md §3.4. This is a behavioral-fix pin (removing the sentence
+# re-introduces the self-reconfiguration laundering the issue closes), so it targets
+# the OPERATIVE clause — the minimal text whose removal alone re-opens the bug — not a
+# framing clause. assert_pin_unique is removal-proof by construction: PASS with the
+# sentence present (count 1), FAIL if deleted (count 0) or duplicated (count >= 2), so
+# the counterfactual half-revert re-runs on every suite execution.
+P3REVIEW="$LIB/../skills/implement/phases/phase-3-review.md"
+assert_pin_unique "#338(T6): §3.4 pins the operative sentence of the self-reconfiguration forbidden case" \
+  'is runnable on this host and is never `(post-merge)`' "$P3REVIEW"
+rm -rf "$S338"
+
 # ── Issue #184: Phase 1.6 Issue-Claim Audit ──────────────────────────────
 # Five assert_pin_red_on_removal guards + five assert_pin_unique pins.
 # assert_pin_red_on_removal: presence+uniqueness (PASS-before) + deletion
