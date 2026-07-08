@@ -9931,7 +9931,7 @@ assert_eq "#310 status route arm derives HEAD from ST_SHA" "yes" \
   "$(grep -qF 'HEAD="$ST_SHA"' "$REVIEW_WF" && echo yes || echo no)"
 # (f) Defense-in-depth: even though (b) already filtered to success at the if:,
 # the status arm RE-ASSERTS state == success and no-ops otherwise
-# (breadcrumb-plus-behavior via grep -A1: the notice is immediately followed by
+# (breadcrumb-plus-behavior via grep -A1: the ::warning:: breadcrumb is immediately followed by
 # its exit 0), so a future precheck-if edit can't silently let a non-success
 # status spin the route (AC1: "non-success states never spin the route").
 assert_eq "#310 status arm re-asserts non-success no-ops with exit 0 (breadcrumb-plus-behavior)" "yes" \
@@ -10021,6 +10021,26 @@ assert_eq "#310 concurrency group adds no status arm (status falls to run_id —
 # signal into normal traffic and still pass (f); pin the warning prefix.
 assert_eq "#310 status arm defensive no-op emits ::warning:: (operator-visible precheck-if regression), not ::notice::" "yes" \
   "$(grep -qF '::warning::status event state' "$REVIEW_WF" && echo yes || echo no)"
+# (p) The runtime guard's PREDICATE DIRECTION (`!= "success"`) is load-bearing
+# and, until this pin, uncovered. Pins (f)/(o) grep the no-op message + exit 0 +
+# ::warning:: prefix, and (e)/(g) grep the HEAD/PR assignments below the guard —
+# but if the predicate were INVERTED to `= "success"`, every green status would
+# hit the ::warning:: no-op + exit 0 and the re-trigger would NEVER fire (total
+# feature kill), while all of (e)(f)(g)(o) stay green (their lines are unchanged;
+# HEAD/PR become dead code below the flipped guard). Only deleting the whole
+# `if…fi` is caught today. Pin the guard's exact sense so an inversion goes RED.
+assert_eq "#310 status arm guard tests state != success (an inversion to = success would silently kill the whole re-trigger)" "yes" \
+  "$(grep -qF 'if [ "$ST_STATE" != "success" ]; then' "$REVIEW_WF" && echo yes || echo no)"
+# (q)/(r)/(s) The #310 status clause was added to FIVE reconciled doc/schema
+# mirror sites in this commit (CLAUDE.md coupled-invariant rule), but only §14
+# (pin h) and the schema (pin i) were pinned — so a later divergence at the other
+# three would go uncaught. Pin the remaining three by a #310-distinctive phrase.
+assert_eq "#310 install.sh names the status trigger in its coverage enumeration" "yes" \
+  "$(grep -qF "legacy commit-status-only CI (classic Jenkins, legacy CircleCI) by the 'status' trigger" "$LIB/../install.sh" && echo yes || echo no)"
+assert_eq "#310 docs/cloud-setup.md names the status trigger in its coverage row" "yes" \
+  "$(grep -qF 'legacy commit-status-only CI (classic Jenkins, legacy CircleCI) by the `status` trigger' "$LIB/../docs/cloud-setup.md" && echo yes || echo no)"
+assert_eq "#310 docs/workflow-triggers.md table row names the status re-trigger" "yes" \
+  "$(grep -qF 'status` covers legacy commit-status-only CI' "$LIB/../docs/workflow-triggers.md" && echo yes || echo no)"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "efficiency-trace.jq / efficiency-trace.sh"

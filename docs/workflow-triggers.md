@@ -61,9 +61,16 @@ PR. Its trigger policy (issue #304):
   offers no context/branch scoping for it, so it fires for *any* commit status
   from *any* app (Codecov, Vercel, external bots), not only legacy CI — an
   Actions-CI repo that also has a status-posting app therefore spins a precheck
-  runner per green status. Each redundant spin no-ops cheaply (one PR-resolution
-  call, then the exactly-once gate), the accepted cost of an unconditional
-  trigger. `workflow_run` **requires an explicit workflow-name list**
+  runner per green status. Once a review already exists for the head each
+  redundant spin no-ops after a couple of read calls (PR resolution + the
+  exactly-once gate, which short-circuits before the expensive precondition and
+  review work). A status arriving *before* sibling CI has completed instead
+  re-enters the preconditions — several `gh api` reads that fail closed to
+  *defer* on a rate-limited token — so a heavy status burst in that pre-review
+  window could spuriously defer an otherwise-reviewable PR (bounded to the
+  pre-review window; the exactly-once gate ends it once a review lands). This is
+  the accepted cost of an unconditional trigger. `workflow_run` **requires an
+  explicit workflow-name list**
   (a GitHub platform constraint — no wildcards): it ships as `workflows: [CI]`, so
   **a consumer repo whose CI workflow is named anything other than `CI` must add
   that name to the `workflow_run:` list in `.github/workflows/devflow-review.yml`

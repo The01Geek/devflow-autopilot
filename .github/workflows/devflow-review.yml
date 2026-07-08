@@ -100,9 +100,14 @@ on:
   # a `status` event fires for ANY commit status posted by ANY app (Codecov,
   # Vercel, external bots), on any commit — GitHub offers no context/branch
   # scoping for it — so an Actions-CI repo that also has a status-posting app
-  # will spin a precheck runner per green status; each redundant spin no-ops
-  # cheaply (one PR-resolution call, then the exactly-once gate), the accepted
-  # cost of an unconditional trigger. The route branch resolves
+  # will spin a precheck runner per green status. Once a review already exists
+  # for the head each redundant spin no-ops after a couple of read calls (PR
+  # resolution + the exactly-once gate, which short-circuits before the
+  # expensive precondition/review work); a status arriving BEFORE sibling CI
+  # has completed instead re-enters the preconditions (several gh-api reads that
+  # fail closed to *defer* under a rate-limited token — so a heavy status burst
+  # in that pre-review window could spuriously defer an otherwise-reviewable
+  # PR). This is the accepted cost of an unconditional trigger. The route resolves
   # the PR from the status head SHA (the payload carries no pull_requests[] ref)
   # and reuses the same open-state/draft/stale-head/exactly-once/precondition
   # machinery. Cannot self-trigger: this workflow posts check-runs, never commit
