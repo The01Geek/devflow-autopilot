@@ -1943,7 +1943,7 @@ assert_pin_unique "#312 item 9: Step 3 item 3a trigger names a rerouted step / j
 assert_pin_unique "#312 item 2: issue-template names the platform-behavior premise class (WebFetch official docs)" \
   'verified fact and its source URL recorded' "$CI312_TMPL"
 assert_pin_unique "#312 item 2: create-issue Step 3.5 re-applies the platform-behavior class" \
-  'platform-behavior' "$CI312_SKILL"
+  'platform-behavior** class: any load-bearing claim about external platform' "$CI312_SKILL"
 # item 3 — Phase 2.3.4 workflow-diff addendum (both named checks)
 assert_pin_unique "#312 item 3: Phase 2.3.4 carries the workflow-diff addendum" \
   'Workflow-diff addendum (mandatory whenever the diff touches' "$IMPL_SKILL_BUNDLE"
@@ -15725,7 +15725,18 @@ echo "#312: workflow endpoint↔permission lint"
 # workflows dir / precond helper yields a sentinel token, never a silent 0. Known
 # fail-open limit: the awk splitter assumes this repo's canonical 2/4/6-space YAML
 # indentation — a re-indented or tab-indented workflow parses to 0 jobs, indistinguishable
-# from clean (deferred hardening, #312 review).
+# from clean (deferred hardening, #312 review). DEFERRED (#312 receiving-review, verdict
+# APPROVE-with-notes): every devflow workflow uses canonical indentation (verified — no tab
+# or flow-style job block exists), so this fail-open direction cannot trigger on the actual
+# target population; the manual Phase 2.3.4 endpoint↔permission map is the primary check and
+# this lint its CI backstop — a full indentation-agnostic YAML parse is a larger rewrite with
+# its own regression surface, revisit only if a devflow workflow adopts non-canonical
+# indentation. Also deferred, same pass: (a) per-family *violation identity* in the positive
+# fixture asserts only the aggregate count, so a regex change that shifts a detection between
+# two families (both still counted) passes silently — would need wf_perm_lint to emit which
+# families it flagged; and (b) the grant-present→0 no-false-positive path is exercised for the
+# actions and comments families (via `inherits`/`comments_ok_*`) but relies on the real-tree
+# clean assert for the other four — both revisit if the family set or regexes are reworked.
 
 # emit sorted-unique required permission keys for the text on stdin
 _wf_req_keys() {
@@ -15734,11 +15745,11 @@ _wf_req_keys() {
   {
     printf '%s\n' "$t" | grep -qE "repos/[^ \"']*/actions/runs"            && echo actions
     printf '%s\n' "$t" | grep -qE "repos/[^ \"']*/commits/[^ \"']*/status" && echo statuses
-    printf '%s\n' "$t" | grep -qE "repos/[^ \"']*check-runs"               && echo checks
+    printf '%s\n' "$t" | grep -qE "repos/[^ \"']*/check-runs"              && echo checks
     printf '%s\n' "$t" | grep -qE "repos/[^ \"']*/issues/[^ \"']*/comments" && echo comments
     # repos/*/commits/*/pulls (list PRs for a commit) needs pull-requests (#312 review,
-    # silent-failure finding): devflow-review.yml:316's precheck call — precheck already
-    # grants pull-requests:read, so the current tree stays clean.
+    # silent-failure finding): devflow-review.yml's resolve_pr_for_head precheck call —
+    # precheck already grants pull-requests:read, so the current tree stays clean.
     printf '%s\n' "$t" | grep -qE "repos/[^ \"']*/commits/[^ \"']*/pulls"  && echo pull-requests
     printf '%s\n' "$t" | grep -qE "repos/[^ \"']*/compare/"                && echo contents
   } | sort -u
@@ -15851,6 +15862,10 @@ rm -rf "$WF_MUT_DIR" 2>/dev/null || true
 #   - comments_missing:  POST issues/*/comments (→ comments), neither issues nor
 #                        pull-requests declared                                    → +1
 #                        (proves the either-satisfies branch flags a job with neither)
+#   - comments_ok_issues: POST issues/*/comments (→ comments), declares issues     → 0
+#   - comments_ok_pulls:  POST issues/*/comments (→ comments), declares pull-requests → 0
+#                        (the pair proves EITHER arm of the OR independently satisfies,
+#                        not only the both-absent arm — #312 review, pr-test-analyzer)
 #   - contents_missing:  compare (→ contents), declares only checks               → +1
 #   - pulls_missing:     commits/*/pulls (→ pull-requests), declares only checks   → +1
 #   - statuses_missing:  commits/*/status (→ statuses), declares only contents     → +1
@@ -15886,6 +15901,16 @@ jobs:
       contents: read
     steps:
       - run: gh api -X POST repos/o/r/issues/5/comments
+  comments_ok_issues:
+    permissions:
+      issues: read
+    steps:
+      - run: gh api -X POST repos/o/r/issues/5/comments
+  comments_ok_pulls:
+    permissions:
+      pull-requests: read
+    steps:
+      - run: gh api -X POST repos/o/r/issues/5/comments
   contents_missing:
     permissions:
       checks: read
@@ -15916,6 +15941,15 @@ POSYAML
 assert_eq "#312: wf-lint positive inline test — all six endpoint families differentially covered, inheritance/replacement/strip/anchor honored (6 violations)" \
   "6" "$(wf_perm_lint "$WF_POS_DIR/.github/workflows" "$WF_PRECOND")"
 rm -rf "$WF_POS_DIR" 2>/dev/null || true
+
+# Fail-closed sentinel contract (#312 review — pr-test-analyzer): a missing workflows
+# dir or an unreadable precond helper must emit a NON-NUMERIC sentinel, never a silent 0
+# that reads as clean. Previously asserted only in prose; these two pins exercise it so a
+# regression that swapped a sentinel for `echo 0` (fail-open) goes RED.
+assert_eq "#312: wf-lint fails closed (sentinel) on a missing workflows dir" \
+  "MISSING_WFDIR" "$(wf_perm_lint "$WF_DIR/does-not-exist" "$WF_PRECOND")"
+assert_eq "#312: wf-lint fails closed (sentinel) on an unreadable precond helper" \
+  "MISSING_PRECOND" "$(wf_perm_lint "$WF_DIR" "$WF_PRECOND.does-not-exist")"
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
