@@ -536,7 +536,7 @@ The local tier needs **no config**. To customize, `/devflow:init` scaffolds `.de
 | `devflow.allowed_bots` / `allowed_users` | Trigger authorization (also the trusted-filer allowlist). |
 | `devflow.workpad_marker` | Workpad comment marker. |
 | `devflow.effort` / `allowed_tools` | Light command path settings. |
-| `devflow.execution_diagnostics_enabled` | Gates cloud-tier surfacing of a `claude-code-action` run's execution diagnostics — the run summary (`is_error`, `num_turns`, `duration_ms`, `total_cost_usd`, `permission_denials_count`) plus permission-denial detail — to the job log and `$GITHUB_STEP_SUMMARY` via `scripts/surface-execution-diagnostics.sh`. A read-only diagnostic: never changes a job's pass/fail result, adds no token scope, uploads no artifact. Default `true`. (The helper ships now; the workflow steps that read this key are wired in a follow-up.) |
+| `devflow.execution_diagnostics_enabled` | Gates cloud-tier surfacing of a `claude-code-action` run's execution diagnostics — the run summary (`is_error`, `num_turns`, `duration_ms`, `total_cost_usd`, `permission_denials_count`) plus permission-denial detail — to the job log and `$GITHUB_STEP_SUMMARY` via `scripts/surface-execution-diagnostics.sh`. A read-only diagnostic: never changes a job's pass/fail result, adds no token scope, uploads no artifact. Default `true`. (Read by the `Surface execution diagnostics` step in each cloud-tier workflow.) |
 | `devflow_implement.effort` / `allowed_tools` | `/devflow:implement` settings. |
 | `devflow_runner.provision_env` / `effort` / `allowed_tools` | Automated-reviewer build-environment opt-in + tools. |
 | `devflow_review.live_progress_comment_enabled` / `agent_overrides` | Review engine: live comment + per-subagent model/effort. |

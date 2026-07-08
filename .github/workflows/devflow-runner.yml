@@ -630,3 +630,50 @@ jobs:
             IS_ERROR=false
           fi
           echo "is_error=$IS_ERROR" >> "$GITHUB_OUTPUT"
+
+      # Surface the claude-code-action run's execution diagnostics (run summary +
+      # permission-denial detail) to the job log and $GITHUB_STEP_SUMMARY so a
+      # maintainer debugging a stalled / incomplete / unexpectedly-denied cloud
+      # run sees the denial detail and run shape directly — the exact information
+      # that was irrecoverable for PR #325 (issue #331; helper + config key
+      # shipped in #329). Read-only: the helper always exits 0, this step adds no
+      # permissions grant / minted-token scope and uploads no artifact, so it
+      # never changes the job's pass/fail. always() (alongside the engine-error
+      # step above, same steps.claude.outputs.execution_file) so it runs even
+      # when the claude step errored — which is exactly when the diagnostics
+      # matter. Gated on .devflow.execution_diagnostics_enabled (default true)
+      # via the vendored config-get.sh (repo-path fallback for a self-repo
+      # checkout); only the exact string "false" disables it, and an empty read
+      # (config-get soft/hard failure) falls safe to enabled.
+      - name: Surface execution diagnostics
+        if: always()
+        env:
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          set -uo pipefail
+          CG=.devflow/vendor/devflow/scripts/config-get.sh
+          [ -f "$CG" ] || CG=scripts/config-get.sh
+          # `|| true` so config-get's hard-fail exit (malformed config.json / missing
+          # python3) can't abort this step under GitHub's default `-e` run shell — which
+          # would fail the job and break the "never changes the job's pass/fail" contract
+          # above. The empty read then falls safe to enabled on the next line. (Mirrors the
+          # engine-error step's `|| echo false` assignment guard.)
+          ENABLED="$("$CG" .devflow.execution_diagnostics_enabled true || true)"
+          [ -n "$ENABLED" ] || ENABLED=true
+          if [ "$ENABLED" = "false" ]; then
+            echo "execution diagnostics: disabled via .devflow.execution_diagnostics_enabled=false; skipping."
+            exit 0
+          fi
+          SED=.devflow/vendor/devflow/scripts/surface-execution-diagnostics.sh
+          [ -f "$SED" ] || SED=scripts/surface-execution-diagnostics.sh
+          if [ -f "$SED" ]; then
+            # `|| echo ::notice::` for the same reason as the config-get guard above:
+            # the helper's always-exit-0 contract holds for the committed file, but a
+            # partial-copy / truncated vendored helper (a documented deployment hazard)
+            # could exit non-zero, which under GitHub's default `-e` run shell would
+            # abort this always() step and fail the job. Guard it so the read-only
+            # "never changes the job's pass/fail" contract holds even then.
+            bash "$SED" "${EXECUTION_FILE:-}" || echo "::notice::surface-execution-diagnostics.sh exited non-zero; execution diagnostics unavailable (best-effort)."
+          else
+            echo "::notice::surface-execution-diagnostics.sh absent; execution diagnostics not surfaced (best-effort)."
+          fi
