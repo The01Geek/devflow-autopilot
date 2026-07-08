@@ -77,7 +77,16 @@ checked with a method matched to its class: **data-source / data-model** claims 
 holds the role name") against the schema definitions or the code that reads and writes that
 data; **"parent PR or commit already did X"** claims at HEAD (read the file, `git log -p` /
 `git log -S<symbol>`), never taken from the parent issue's narrative; **data-coverage /
-population** claims ("column X is set for most users") against live data when it is available.
+population** claims ("column X is set for most users") against live data when it is available;
+and **platform-behavior** claims — any load-bearing claim about external platform or API
+semantics (webhook / event delivery, trigger syntax, token scopes, endpoint behavior) that an
+acceptance criterion's mechanism depends on — **verified against the official documentation
+(a `WebFetch` of the vendor's own docs, not memory) before the AC is written**, with the
+verified fact and its source URL recorded in the draft's `Technical Context`. This is the
+premise class the #304 run missed: it prescribed a `check_suite`/`workflow_run` mechanism
+GitHub cannot deliver (Actions-created check suites never emit `check_suite`; `workflow_run`
+requires a named workflow list), which only surfaced mid-implement — a `WebFetch` of the
+events docs at drafting time would have caught it.
 Treat an empty or inconclusive result (no matching commit, no matching column/schema, data
 unavailable) as **unverified** — never as silent confirmation. A load-bearing premise that
 cannot be verified is written as an explicitly flagged assumption for the implementer to
@@ -239,7 +248,7 @@ incomplete issues.
 - [ ] Desired Behavior is stated as one decided behavior, not a menu
 - [ ] Technical Context opens with the standardized scope note, included verbatim
 - [ ] Technical context cites real file paths / class names from this project
-- [ ] Load-bearing Technical Context premises (data-source/model, coverage/population, "already-done") are verified — not just file paths — or written as flagged assumptions to confirm
+- [ ] Load-bearing Technical Context premises (data-source/model, coverage/population, "already-done", platform-behavior) are verified — not just file paths; platform-behavior claims are WebFetch-checked against official docs with the source recorded — or written as flagged assumptions to confirm
 - [ ] For a user-visible UI change, the Visual Specification section records a screenshot/mockup or a verbally-verified placement spec (screenshot preferred, verbal verification an accepted substitute); non-UI issues omit the section entirely
 - [ ] Acceptance criteria are measurable, testable, and unconditional
 - [ ] Implementation notes describe a single chosen approach
