@@ -1189,6 +1189,16 @@ assert_pin_unique "347(AC1): precondition 2 reads a prior run's REJECT comment, 
 # all-PASS carve-out report could gate an APPROVE past a newer REJECT's real blockers.
 assert_pin_unique "347(AC4): precondition 2 must correspond to the precondition-1 REJECT, no stale fallback" \
   'do NOT fall back to "the most recent REJECT comment"' "$ST_REV"
+# The correspondence join is grounded on a PRODUCER-EMITTED key, not an absent field
+# (shadow-review fix): Phase 4 stamps a `Reviewed HEAD:` line on every finalized progress
+# comment, and precondition 2 joins by it equalling $REJECTED_HEAD. Pin BOTH sides — the
+# producer template line, the Phase 4 set instruction, and the consumer join.
+assert_pin_unique "347(AC4/producer): progress-comment template carries the Reviewed HEAD key line" \
+  '**Reviewed HEAD:**' "$ST_REV"
+assert_pin_unique "347(AC4/producer): Phase 4 sets Reviewed HEAD to the reviewed head SHA" \
+  'set the `Reviewed HEAD` line to the reviewed head SHA' "$ST_REV"
+assert_pin_unique "347(AC4/consumer): precondition 2 joins by Reviewed HEAD equalling REJECTED_HEAD" \
+  'whose `Reviewed HEAD:` front-matter line equals `$REJECTED_HEAD`' "$ST_REV"
 # AC4 (shadow-review fix): the verdict-threshold read precondition 3 relies on is itself
 # fail-closed — an unresolvable threshold is a fall-through, not an undefined comparison.
 assert_pin_unique "347(AC4): precondition 3's threshold read is fail-closed (unresolvable → fall-through)" \
@@ -1197,10 +1207,15 @@ assert_pin_unique "347(AC4): precondition 3's threshold read is fail-closed (unr
 # non-carve-out verdict-driving finding at/above threshold. Two operative sentences.
 assert_pin_unique "347(AC4): precondition requires zero checklist FAIL/INCONCLUSIVE" \
   'must record **zero** FAIL and **zero** INCONCLUSIVE' "$ST_REV"
-# Pin the exclusion POLARITY (the carve-out-only gate), not the interior noun phrase — a
-# reword that drops "other than … carve-out blockers" and tolerates any finding must go RED.
-assert_pin_unique "347(AC4): precondition admits ONLY carve-out findings (exclusion polarity)" \
-  'may be present *other than*' "$ST_REV"
+# Carve-out classification is keyed off a PRODUCER-EMITTED marker, not inferred from prose:
+# Phase 4.1 stamps every self-contradicting-diff carve-out finding with an unconditional
+# machine-detectable marker, and precondition 3 falls through on any at/above-threshold
+# finding LACKING it. Pin BOTH sides of this coupled producer/consumer contract (shadow-review
+# fix): the producer render instruction and the consumer marker-absence fall-through.
+assert_pin_unique "347(AC4/producer): Phase 4.1 stamps carve-out findings with an unconditional marker" \
+  'unconditional machine-detectable marker' "$ST_REV"
+assert_pin_unique "347(AC4/consumer): a REJECT-driver lacking the carve-out marker falls through" \
+  'A REJECT-driving finding without the `[self-contradicting-diff carve-out]` marker' "$ST_REV"
 # AC4 fail-closed precondition — unparseable blocker enumeration falls through (never guess).
 assert_pin_unique "347(AC4): unparseable blocker enumeration falls through, never guessed" \
   'never guess a blocker set' "$ST_REV"
