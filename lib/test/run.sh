@@ -1725,7 +1725,10 @@ assert_pin_unique "339(AC4): shape 2 excludes a false-against-HEAD diff-added/mo
 # AC5 — the pre-verdict truthfulness sweep operative sentences: (a) it runs over every finding
 # regardless of severity chip and does NOT inherit 4.1.5's Critical/Important/Major scope;
 # (b) a demonstrated falsehood routes into the Phase 4.2 carve-out (REJECT); (c) promote-only;
-# (d) the visible clean-pass line. Each is removal-proof (its deletion re-opens a failure mode).
+# (d) the visible clean-pass line; (e) the inconclusive/only-on-demonstrated-falsity fail
+# direction — the load-bearing safety property that contains the false-REJECT risk (its
+# deletion would let the sweep promote on suspicion). Each is removal-proof (its deletion
+# re-opens a failure mode).
 assert_pin_unique "339(AC5): sweep runs over every finding regardless of severity chip (not 4.1.5's scope)" \
   "this sweep does **not** inherit 4.1.5's Critical/Important/Major scope" "$ST_REV"
 assert_pin_unique "339(AC5): sweep routes a demonstrated falsehood into the Phase 4.2 carve-out" \
@@ -1734,6 +1737,8 @@ assert_pin_unique "339(AC5): sweep is promote-only (never demotes/downgrades/cle
   'The sweep is promote-only: it never demotes, downgrades, or clears any finding' "$ST_REV"
 assert_pin_unique "339(AC5): sweep emits a visible clean-pass line" \
   'truthfulness sweep: no finding promoted' "$ST_REV"
+assert_pin_unique "339(AC5): sweep promotes only on demonstrated falsity, never on suspicion (fail-direction safety)" \
+  'The sweep never promotes on suspicion, only on demonstrated falsity' "$ST_REV"
 # AC (docs sync) — both engine docs describe the pre-verdict truthfulness sweep.
 assert_pin_unique "339(docs): DEVFLOW_SYSTEM_OVERVIEW describes the pre-verdict truthfulness sweep" \
   'pre-verdict truthfulness sweep' "$OG_OVERVIEW_DOC"
