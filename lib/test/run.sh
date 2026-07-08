@@ -2109,6 +2109,8 @@ assert_pin_unique "rcv: step 0 merges the base branch into the working branch" \
   'then merge the base branch into the working branch' "$RECV_SKILL"
 assert_pin_unique "rcv: step 0 resolves update conflicts as part of the work" \
   'resolved as part of the current work, before any review finding is implemented' "$RECV_SKILL"
+assert_pin_unique "rcv: step 0 checks fetch/merge exit status so a silent failure is detected" \
+  'Check the exit status and resulting working-tree state of each fetch and merge' "$RECV_SKILL"
 assert_pin_unique "rcv: step 0 fail-soft path" \
   'record the limitation and proceed on the local state' "$RECV_SKILL"
 

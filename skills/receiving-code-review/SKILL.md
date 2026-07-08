@@ -41,7 +41,7 @@ WHEN receiving code review feedback:
 
 ## Update the Branch First (Step 0)
 
-Start every reception by updating the working branch, so steps 3 (VERIFY) and 8 (VERIFY BEFORE DONE) operate on the code that will actually merge rather than a stale snapshot. Fetch from the remote first; when the branch's remote counterpart has commits the local branch lacks, merge them in; then merge the base branch into the working branch. Any merge conflicts these updates raise are resolved as part of the current work, before any review finding is implemented. When the branch cannot be updated — no remote counterpart, a failed fetch, a detached HEAD, or a read-only environment — record the limitation and proceed on the local state; the step is fail-soft and never blocks feedback work when there is nothing to update from.
+Start every reception by updating the working branch, so steps 3 (VERIFY) and 8 (VERIFY BEFORE DONE) operate on the code that will actually merge rather than a stale snapshot. Fetch from the remote first; when the branch's remote counterpart has commits the local branch lacks, merge them in; then merge the base branch into the working branch. Check the exit status and resulting working-tree state of each fetch and merge, so a failed fetch or a conflicted merge is detected rather than passed over silently. Any merge conflicts these updates raise are resolved as part of the current work, before any review finding is implemented. When the branch cannot be updated — no remote counterpart, a failed fetch, a detached HEAD, or a read-only environment — record the limitation and proceed on the local state; the step is fail-soft and never blocks feedback work when there is nothing to update from.
 
 ## Verification Gate (Step 8)
 
