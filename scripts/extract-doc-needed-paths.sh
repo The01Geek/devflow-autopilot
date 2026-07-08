@@ -60,10 +60,20 @@ set -euo pipefail
 
 body="$(cat "${1:-/dev/stdin}")"
 
-# Stage A — isolate the **Documentation Needed** bullet block (scope-only; no
-# token logic here). awk state: 0 = outside Implementation Notes; 1 = inside the
-# section but outside the bullet; 2 = inside the Documentation Needed bullet.
-block="$(printf '%s\n' "$body" | awk '
+# Recognized documentation/source extensions (an ERE alternation, no anchors).
+# SINGLE-SOURCED here: Stage A's `emitted` proxy (passed in via -v extre) and
+# Stage B's path test (below) both consume it, so the two can never drift — a
+# coupled invariant, kept in one place. Editing this list changes both callers.
+doc_ext_alt='md|markdown|sh|json|py|ya?ml|rst|txt|adoc|mdx|toml|cfg|ini'
+
+# Stage A — isolate the **Documentation Needed** bullet block. Scope logic only,
+# with ONE minimal token-awareness point: the `emitted` proxy (see its arm below)
+# flips once a printed line bears a recognized-extension path, so a *later*
+# trailing prose paragraph can close the scope without dropping a primary/
+# intervening prose deliverable. awk state: 0 = outside Implementation Notes;
+# 1 = inside the section but outside the bullet; 2 = inside the Documentation
+# Needed bullet.
+block="$(printf '%s\n' "$body" | awk -v extre="$doc_ext_alt" '
   BEGIN { prev_blank = 1 }   # start-of-file is a paragraph boundary
   /^## / {
     state = ($0 ~ /^## Implementation Notes[[:space:]]*$/) ? 1 : 0
@@ -157,16 +167,25 @@ block="$(printf '%s\n' "$body" | awk '
     state = 1
   }
   # Print an in-scope line and mark the scope as having emitted a deliverable once
-  # a printed line carries a path-like token (a backtick-quoted span or a token
-  # bearing a "/"). This is a deliberately BROAD, best-effort proxy for "a
-  # deliverable was captured" — it does not re-derive the Stage B extension list
-  # (kept single-sourced in Stage B) — it only needs to flip once so trailing
-  # prose after a real path can close the scope; an over-broad match (prose that
-  # merely contains a "/") at worst closes the scope one paragraph early, the
-  # leak-safe direction. A path-less opener/prose line leaves emitted unchanged.
+  # a printed line bears a RECOGNIZED-EXTENSION path token — the SAME extension
+  # set Stage B emits on (passed in as `extre`, single-sourced in the shell above,
+  # so the two cannot drift). This must track a REAL captured path, NOT a bare
+  # backtick or "/": ordinary intro prose routinely carries an inline code span
+  # ("`parseConfig()`") or a non-path slash ("and/or", "TCP/IP", a URL), and a
+  # backtick/"/"-based proxy would spuriously flip emitted on such prose, letting
+  # the NEXT paragraph — often the one that actually names the deliverable — close
+  # the scope and DROP it (a fail-OPEN that empties the output, the #289/#309/#327
+  # recurrence). The extension test flips only on a token Stage B would itself
+  # emit, so intervening/primary prose that merely mentions a symbol keeps the
+  # scope open. Boundary: a token must end in ".<ext>" at a non-alphanumeric edge
+  # (matching the Stage B `.+\.(ext)$` per-token anchor closely enough). KNOWN gap
+  # (over-emission, leak-safe, no worse than main): an EXTENSIONLESS deliverable
+  # named in prose (a bare "Makefile") does not flip emitted, so a following
+  # trailing-prose paragraph would not close — that direction only over-emits,
+  # never fails open, so it is the acceptable side to miss on.
   state == 2 {
     print
-    if ($0 ~ /`/ || $0 ~ /\//) emitted = 1
+    if ($0 ~ ("\\.(" extre ")([^[:alnum:]]|$)")) emitted = 1
   }
   { prev_blank = ($0 ~ /^[[:space:]]*$/) }
 ')"
@@ -250,7 +269,7 @@ printf '%s\n' "$tokens" \
       # (it would not — the extension branch below emits on the extension alone).
       # The `.+` before the dot excludes a bare extension token (`.md`, `.sh`)
       # that is a syntax reference, not a filename.
-      if printf '%s\n' "$tok" | grep -qE '.+\.(md|markdown|sh|json|py|ya?ml|rst|txt|adoc|mdx|toml|cfg|ini)$'; then
+      if printf '%s\n' "$tok" | grep -qE ".+\.($doc_ext_alt)\$"; then
         printf '%s\n' "$tok"
       elif [ -f "$tok" ]; then
         # Extensionless token naming a real on-disk regular file → rescue via git.
