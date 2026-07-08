@@ -8425,11 +8425,11 @@ REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=true REQUIRE_CI_GREEN
 
 # AC2 (failure arm): another workflow run concluded failure -> defer ci-not-green.
 REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
-  DRP_RUNS='{"workflow_runs":[{"name":"CI","status":"completed","conclusion":"failure"}]}' \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","workflow_id":1,"event":"pull_request","run_number":1,"status":"completed","conclusion":"failure"}]}' \
   drp "#304 other workflow run failed -> false ci-not-green" "false ci-not-green"
 # AC2 (pending arm): another workflow run still in progress -> defer.
 REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
-  DRP_RUNS='{"workflow_runs":[{"name":"CI","status":"in_progress","conclusion":null}]}' \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","workflow_id":1,"event":"pull_request","run_number":1,"status":"in_progress","conclusion":null}]}' \
   drp "#304 other workflow run in_progress -> false ci-not-green (pending)" "false ci-not-green"
 # AC3 + AC9: only the review workflow's own run present -> excluded by
 # SELF_WORKFLOW_NAME -> zero other CI -> satisfied (self never blocks itself,
@@ -8440,12 +8440,12 @@ REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREE
   drp "#304 only the review workflow itself running -> true (self-excluded; zero other CI satisfied)" "true "
 # AC4: all other runs green -> proceed.
 REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
-  DRP_RUNS='{"workflow_runs":[{"name":"CI","status":"completed","conclusion":"success"},{"name":"Devflow Review (auto-trigger)","status":"in_progress","conclusion":null}]}' \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","workflow_id":1,"event":"pull_request","run_number":1,"status":"completed","conclusion":"success"},{"name":"Devflow Review (auto-trigger)","status":"in_progress","conclusion":null}]}' \
   drp "#304 other CI green (self still running) -> true" "true "
 # Skipped/neutral conclusions on other runs are green (a path-filtered workflow
 # must not wedge the review).
 REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
-  DRP_RUNS='{"workflow_runs":[{"name":"Docs","status":"completed","conclusion":"skipped"},{"name":"Lint","status":"completed","conclusion":"neutral"}]}' \
+  DRP_RUNS='{"workflow_runs":[{"name":"Docs","workflow_id":1,"event":"pull_request","run_number":1,"status":"completed","conclusion":"skipped"},{"name":"Lint","workflow_id":2,"event":"pull_request","run_number":1,"status":"completed","conclusion":"neutral"}]}' \
   drp "#304 skipped/neutral other runs count as green -> true" "true "
 # AC10: workflow-runs query failure fails CLOSED with a specific breadcrumb.
 REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
@@ -8523,7 +8523,7 @@ REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREE
 # catching a sequencing regression between precondition 1 and 2.
 REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=true REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
   DRP_COMPARE='{"behind_by":0}' \
-  DRP_RUNS='{"workflow_runs":[{"name":"CI","status":"completed","conclusion":"success"}]}' \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","workflow_id":1,"event":"pull_request","run_number":1,"status":"completed","conclusion":"success"}]}' \
   DRP_STATUS='{"state":"success","total_count":1}' \
   DRP_CHECKS='{"check_runs":[{"name":"ext","app":{"slug":"circleci"},"status":"completed","conclusion":"success"}]}' \
   drp "#304 both gates enabled, all signals green -> true (full happy path)" "true "
@@ -8557,7 +8557,7 @@ REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREE
 # its unknown status is deliberately treated as not-completed (pending) —
 # pinned so a future edit makes this choice consciously.
 REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
-  DRP_RUNS='{"workflow_runs":[{"name":"CI"}]}' \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","workflow_id":1,"event":"pull_request","run_number":1}]}' \
   drp "#304 workflow run without a status field -> false ci-not-green (observed run, unknown status = pending)" "false ci-not-green"
 # The base_branch extraction expression, executed like the require_* ones.
 assert_eq "#304 base_branch extraction: non-default value kept" "develop" \
@@ -8588,7 +8588,7 @@ REPO=o/r HEAD_SHA=aaaa BASE_BRANCH="" REQUIRE_UP_TO_DATE=true REQUIRE_CI_GREEN=f
 # Paginated (concatenated-objects) workflow-runs payload: a failure on page 2
 # must still gate — the -s normalization flattens the page objects.
 REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
-  DRP_RUNS='{"workflow_runs":[{"name":"A","status":"completed","conclusion":"success"}]}{"workflow_runs":[{"name":"B","status":"completed","conclusion":"failure"}]}' \
+  DRP_RUNS='{"workflow_runs":[{"name":"A","workflow_id":1,"event":"pull_request","run_number":1,"status":"completed","conclusion":"success"}]}{"workflow_runs":[{"name":"B","workflow_id":2,"event":"pull_request","run_number":1,"status":"completed","conclusion":"failure"}]}' \
   drp "#304 paginated workflow-runs payload: page-2 failure still gates -> false ci-not-green" "false ci-not-green"
 # Adversarial shape: a non-object/garbage runs payload is a parse failure ->
 # fail closed, never a fabricated green.
@@ -8604,6 +8604,90 @@ DRP_CONTRACT_OUT="$(REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=f
 assert_eq "#304 preconditions stdout contract: exactly 2 lines" "2" "$(printf '%s\n' "$DRP_CONTRACT_OUT" | wc -l | tr -d ' ')"
 assert_eq "#304 preconditions stdout contract: line 1 should_run=, line 2 reason=" "yes" \
   "$(printf '%s\n' "$DRP_CONTRACT_OUT" | sed -n '1s/^should_run=.*/ok1/p;2s/^reason=.*/ok2/p' | tr '\n' ' ' | grep -q 'ok1 ok2' && echo yes || echo no)"
+
+# ── #351: collapse non-self workflow runs to the latest per (workflow_id, event) ──
+# Signal-set (1) now collapses duplicate runs of the same workflow+event to the
+# highest-run_number run before gating, so a superseded non-green run never wedges
+# the review once a newer run of the same group exists. A NON-self run missing a
+# numeric workflow_id/run_number makes the collapse unverifiable and fails closed.
+# A completed run awaiting approval (conclusion action_required) gets its own
+# distinct reason (ci-approval-required), in the SHARED green-gate so signal-set
+# (3) external check runs get it too.
+# #351 AC1/AC3: the literal PR #349 payload — run 1435 action_required + run 1436
+# success, same workflow_id/event — collapses to the newer green run -> true.
+# (RED before the fix: the un-collapsed action_required line deferred the review.)
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","workflow_id":280327711,"event":"pull_request","run_number":1435,"status":"completed","conclusion":"action_required"},{"name":"CI","workflow_id":280327711,"event":"pull_request","run_number":1436,"status":"completed","conclusion":"success"}]}' \
+  drp "#351 superseded action_required + newer success (PR #349 payload) collapses -> true" "true "
+# #351 AC8-companion: a single-run group is a collapse no-op -> still true.
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","workflow_id":1,"event":"pull_request","run_number":9,"status":"completed","conclusion":"success"}]}' \
+  drp "#351 single green run in a group (collapse no-op) -> true" "true "
+# #351 AC2: a self-named run is excluded BEFORE grouping — even one lacking
+# workflow_id/run_number never trips the numeric-operand guard — so a green CI run
+# still collapses to true (the guard applies to NON-self runs only).
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  SELF_WORKFLOW_NAME='Devflow Review (auto-trigger)' \
+  DRP_RUNS='{"workflow_runs":[{"name":"Devflow Review (auto-trigger)","event":"pull_request","status":"in_progress","conclusion":null},{"name":"CI","workflow_id":1,"event":"pull_request","run_number":6,"status":"completed","conclusion":"success"}]}' \
+  drp "#351 self run (no workflow_id) excluded before the guard; green CI collapses -> true" "true "
+# #351 AC4: the highest-run_number run in a group is NOT completed -> defer
+# ci-not-green, regardless of a lower-run_number green sibling in that group.
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","workflow_id":1,"event":"pull_request","run_number":1435,"status":"completed","conclusion":"success"},{"name":"CI","workflow_id":1,"event":"pull_request","run_number":1436,"status":"in_progress","conclusion":null}]}' \
+  drp "#351 newest run in group not completed (green sibling superseded) -> false ci-not-green" "false ci-not-green"
+# #351 AC5: the highest-run_number run in a group concluded failure -> defer
+# ci-not-green, regardless of a lower-run_number green sibling.
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","workflow_id":1,"event":"pull_request","run_number":1435,"status":"completed","conclusion":"success"},{"name":"CI","workflow_id":1,"event":"pull_request","run_number":1436,"status":"completed","conclusion":"failure"}]}' \
+  drp "#351 newest run in group failed (green sibling superseded) -> false ci-not-green" "false ci-not-green"
+# #351 AC6: same workflow_id under DIFFERENT events are two independent groups —
+# a failure under one event defers even when the run under the other event is
+# newer and green (the collapse is per (workflow_id, event), not per workflow_id).
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","workflow_id":1,"event":"push","run_number":5,"status":"completed","conclusion":"failure"},{"name":"CI","workflow_id":1,"event":"pull_request","run_number":6,"status":"completed","conclusion":"success"}]}' \
+  drp "#351 same workflow_id, different events stay independent: push failure still gates -> false ci-not-green" "false ci-not-green"
+# #351 AC7: a NON-self run missing workflow_id -> unverifiable (never a dropped
+# signal, never a positively-asserted ci-not-green), with a breadcrumb NAMING the
+# missing field. (RED before the fix: with no guard the run would gate ci-not-green.)
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","event":"pull_request","run_number":6,"status":"completed","conclusion":"failure"}]}' \
+  drp "#351 non-self run missing workflow_id -> false unverifiable (fail closed, no dropped signal)" "false unverifiable"
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","event":"pull_request","run_number":6,"status":"completed","conclusion":"failure"}]}' \
+  drp_stderr "#351 missing workflow_id breadcrumb names the field" "numeric workflow_id"
+# #351 AC7: a NON-self run whose run_number is non-numeric -> unverifiable, with a
+# breadcrumb naming run_number.
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","workflow_id":1,"event":"pull_request","run_number":"nope","status":"completed","conclusion":"failure"}]}' \
+  drp "#351 non-self run with non-numeric run_number -> false unverifiable (fail closed)" "false unverifiable"
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","workflow_id":1,"event":"pull_request","run_number":"nope","status":"completed","conclusion":"failure"}]}' \
+  drp_stderr "#351 non-numeric run_number breadcrumb names the field" "numeric run_number"
+# #351 AC8: zero NON-self workflow runs still satisfies the CI-green precondition
+# (a CI-less-repo / self-only head is reviewed, never wedged).
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_RUNS='{"workflow_runs":[]}' \
+  drp "#351 zero non-self workflow runs -> true (never wedged)" "true "
+# #351 AC9: a surviving run (signal-set 1) whose newest conclusion is
+# action_required -> defer with the DISTINCT ci-approval-required reason, and the
+# breadcrumb names approval as the blocker.
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","workflow_id":1,"event":"pull_request","run_number":6,"status":"completed","conclusion":"action_required"}]}' \
+  drp "#351 newest run action_required (signal-set 1) -> false ci-approval-required" "false ci-approval-required"
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","workflow_id":1,"event":"pull_request","run_number":6,"status":"completed","conclusion":"action_required"}]}' \
+  drp_stderr "#351 action_required breadcrumb names approval as the blocker" "an approval is required"
+# #351 AC9 (signal-set 3): the SHARED green-gate gives an external check run
+# concluding action_required the same ci-approval-required reason.
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_CHECKS='{"check_runs":[{"name":"ext","app":{"slug":"circleci"},"status":"completed","conclusion":"action_required"}]}' \
+  drp "#351 external check run action_required (signal-set 3, shared gate) -> false ci-approval-required" "false ci-approval-required"
+# NOTE: the devflow-review.yml create_check title-arm pin (AC10) and the
+# deferral-SUMMARY 'cancelled sibling run' removal pin (AC13) are the coupled
+# WORKFLOW half of #351. They are deferred to a follow-up landed by a human/PAT,
+# because a GitHub App installation token cannot push a .github/workflows/ change
+# (CLAUDE.md: workflow changes land via a human/PAT, not an agent run). The two
+# static grep pins move with that workflow change so they land in the same commit.
 rm -f "$DRP_STUB"
 
 # ────────────────────────────────────────────────────────────────────────────

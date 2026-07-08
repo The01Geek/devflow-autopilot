@@ -45,11 +45,19 @@ PR. Its trigger policy (issue #304):
 - **Preconditions (both default-on, config-gated).** Before a review fires,
   `scripts/derive-review-preconditions.sh` evaluates two gates: `require_up_to_date`
   (the PR branch must not be **behind its base**) and `require_ci_green` (every
-  *other* CI signal on the head must have completed without failing). When a gate
+  *other* CI signal on the head must have completed without failing). For the
+  Actions-runs signal, the non-self runs are first **collapsed to the latest run
+  (highest `run_number`) per `(workflow_id, event)` group**, so a superseded run —
+  an approval-gated re-dispatch, a double-fire, a cancelled sibling — never gates
+  the review once a newer run of the same workflow+event exists (a run missing a
+  numeric `workflow_id`/`run_number` fails closed as *unverifiable*). When a gate
   is unmet the review is **deferred**, not run: a neutral "waiting" `Devflow Review`
   check is posted so the required context is present but non-blocking (a neutral
   required check does not block merge — pair it with branch protection's "require
-  branches up to date" if staleness must hard-block).
+  branches up to date" if staleness must hard-block). A surviving run awaiting
+  manual approval (conclusion `action_required`) defers with the distinct reason
+  `ci-approval-required`, whose check reads **"Devflow review waiting: CI approval
+  required"** rather than the opaque "other CI not green".
 - **CI-completion re-trigger.** A review deferred behind `require_ci_green` (or
   `require_up_to_date`) auto-re-fires once the PR becomes reviewable — via the
   `workflow_run` (Actions CI) and `check_suite` (external CI) `completed` events,
