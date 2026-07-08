@@ -1,5 +1,9 @@
 # Release Notes
 
+## July 8, 2026
+
+- **Improvement — Cloud runs now surface execution diagnostics to the job log for easier debugging** — After each cloud-tier `claude-code-action` run, DevFlow now writes the run's execution diagnostics — the run summary (whether the run errored, the turn count, duration, cost, and the number of permission denials) plus per-denial detail when available — to the job log and the workflow run summary. A maintainer debugging a stalled, incomplete, or unexpectedly denied cloud run can now see the denial detail and run shape directly instead of losing that information. The step is read-only: it always runs after the main step, never changes a job's pass or fail result, adds no token scope, and uploads no artifact, and it can be turned off by setting `devflow.execution_diagnostics_enabled` to `false`. (#337)
+
 ## July 7, 2026
 
 - **Fix — Automated Devflow Review no longer posts duplicate "waiting" checks while a pull request stays deferred** — When a deferred automatic review re-evaluated across several CI-completion events (a branch that stays behind its base, or CI that stays red), it previously posted a fresh neutral `Devflow Review` "waiting" check each time, cluttering the pull request's checks tab. The workflow now reuses and updates the existing neutral check for the same commit and reason instead of posting a duplicate. It also hardens the internal precondition checks so they fail safely — deferring rather than reviewing — when a helper crashes or an API query cannot be verified, with clearer log breadcrumbs distinguishing a query outage from a parsing problem. (#325)
