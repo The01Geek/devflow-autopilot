@@ -17412,22 +17412,41 @@ echo "#342 interpreter version gate: workpad.py / match-deferrals.py fail fast o
 # This guard is deterministic and ast-based (not a text scan, so comments/strings
 # can never satisfy it) and runs on the suite's normal >=3.11 interpreter — no
 # sub-3.11 interpreter is needed (and none exists in any gate; the #225 alt-python
-# machinery is fake version-reporting PATH stubs). It asserts, per file:
-#   (1) a top-level `if` whose test compares `sys.version_info` against the tuple
-#       `(3, 11)` exists;
-#   (2) that `if` precedes the first FunctionDef/ClassDef (below it, the gate can
-#       no longer fire ahead of annotation evaluation);
-# and separately pins the message wording (`Python 3.11+ required` + the
+# machinery is fake version-reporting PATH stubs). It asserts, per file, that a
+# top-level `if` exists whose test is `sys.version_info < (3, 11)` — checking all
+# THREE operands of that behavior, not just two:
+#   (1) the left operand is `sys.version_info` and the comparator is the tuple
+#       `(3, 11)` — the floor value;
+#   (2) the comparison operator is `<` (ast.Lt) — a *reversed* gate
+#       (`sys.version_info >= (3, 11)`) would exit on exactly the SUPPORTED
+#       interpreters and fall through on the unsupported ones, i.e. fail in the
+#       precisely-wrong direction, so the direction is load-bearing and pinned;
+#   (3) the `if` body actually calls `sys.exit(...)` — a warn-then-continue gate
+#       (stderr write but no exit) would fail OPEN, printing the message and then
+#       dying with the raw `TypeError` the gate exists to prevent (GATE_NO_EXIT);
+# and (4) the gate precedes the first FunctionDef/ClassDef (below it, the gate can
+#       no longer fire ahead of annotation evaluation — GATE_BELOW_DEF).
+# It separately pins the message wording (`Python 3.11+ required` + the
 # `provision-python3-shim.sh` remedy). Bug-reproducing direction: RED against the
-# gate-less files, GREEN after the gate is added. The floor tuple `(3, 11)` is a
-# coupled constant mirrored in lib/resolve-python.sh, lib/preflight.sh, and both
-# gates — a future floor change updates every site in one commit.
+# gate-less files, RED on a reversed operator / a missing exit / a below-def gate,
+# GREEN after the correct gate is added. The floor tuple `(3, 11)` is a coupled
+# constant mirrored in lib/resolve-python.sh, lib/preflight.sh, and both gates — a
+# future floor change updates every site in one commit.
 GATE_CHECK='
 import ast, sys
+def _body_exits(node):
+    for sub in ast.walk(node):
+        if isinstance(sub, ast.Call):
+            f = sub.func
+            if isinstance(f, ast.Attribute) and f.attr == "exit" \
+               and isinstance(f.value, ast.Name) and f.value.id == "sys":
+                return True
+    return False
 def check(path):
     tree = ast.parse(open(path, encoding="utf-8").read())
     first_def = None
     gate_idx = None
+    gate_node = None
     for i, node in enumerate(tree.body):
         if first_def is None and isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             first_def = i
@@ -17435,15 +17454,19 @@ def check(path):
             left = node.test.left
             is_vi = (isinstance(left, ast.Attribute) and left.attr == "version_info"
                      and isinstance(left.value, ast.Name) and left.value.id == "sys")
+            is_lt = bool(node.test.ops) and isinstance(node.test.ops[0], ast.Lt)
             comp = node.test.comparators[0] if node.test.comparators else None
             is_tuple = (isinstance(comp, ast.Tuple)
                         and [getattr(e, "value", None) for e in comp.elts] == [3, 11])
-            if is_vi and is_tuple:
+            if is_vi and is_lt and is_tuple:
                 gate_idx = i
+                gate_node = node
     if gate_idx is None:
         print("NO_GATE"); return
     if first_def is not None and gate_idx > first_def:
         print("GATE_BELOW_DEF"); return
+    if not _body_exits(gate_node):
+        print("GATE_NO_EXIT"); return
     print("GATE_OK")
 check(sys.argv[1])
 '
