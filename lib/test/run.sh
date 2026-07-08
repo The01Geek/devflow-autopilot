@@ -3887,7 +3887,16 @@ assert_pin_unique "#346: a Phase 2.3-discovered workflow edit re-routes through 
 assert_pin_unique "#346: Pass 5 fails closed toward cloud when the executing tier is indeterminate" \
   'fail closed toward cloud** — route it through the deferral' "$P1_FILE"
 assert_pin_unique "#346: Phase 4.0 follow-up states landing a capability-deferral needs a human/PAT workflows-scope push" \
-  'Landing this requires a human or PAT push carrying the `workflows` scope' "$IMPL_PHASES_DIR/phase-4-documentation.md"
+  'Landing this requires a human/PAT push carrying the `workflows` scope' "$IMPL_PHASES_DIR/phase-4-documentation.md"
+# Review iter 3 (shadow): the all-blocked decline was executable only at Phase 1.6; when
+# every-AC-blocked is discovered late (at 2.2.5/2.3), narrowing yields an EMPTY pushable
+# subset with no executable stop, so the run could fall through to a near-empty PR. Pin the
+# empty-subset → Blocked stop restated at 2.2.5. Also pin the clean cloud-tier arm's
+# record-even-when-clean reflection (AC1's contract on the no-workflow-AC path).
+assert_pin_unique "#346: 2.2.5 takes the Blocked path when the pushable subset would be empty (late-discovered all-blocked)" \
+  'Empty pushable subset ⇒ take the Blocked path here, do not narrow-and-proceed' "$IMPL_PHASES_DIR/phase-2-implement.md"
+assert_pin_unique "#346: Pass 5 records a clean note on the cloud-tier no-workflow-AC path (record-even-when-clean)" \
+  'issue-claim audit (execution-capability): cloud tier — no acceptance criterion requires editing .github/workflows/' "$P1_FILE"
 # ── issue #185 (+ Addendum): Phase 4.1 Documentation Needed cross-check ─────
 # Phase 4.1 enforces named documentation deliverables in two stages:
 #   Stage 1 pre-flight: extract the Documentation Needed paths and inject them
