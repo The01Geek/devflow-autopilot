@@ -3989,6 +3989,24 @@ assert_pin_unique "#230: phase-4 §4.1 keeps the §2.1 cross-reference anchor (m
 assert_pin_unique "#230: docs/implement-skill.md mirrors the floor-not-ceiling framing (AC6)" \
   'never read as a ceiling that authorizes' "$IMPL_DOC"
 
+# ── issue #334: comment discipline — repo-agnostic engine prose in §2.3 and ───
+# §2.3.4a. These are behavioral-fix pins: each pinned literal is the OPERATIVE
+# sentence of its passage — the minimal text whose removal alone re-introduces the
+# gap it guards, not an adjacent framing clause. The §2.3.4a pin deliberately spans
+# the trailing "even when the comment is currently accurate" clause: that clause is
+# the whole reason the §2.3.4a sweep step is an always-on sweep rather than a
+# restatement of §2.3, so a half-revert deleting only it must turn this pin RED.
+# The docs mirror in $IMPL_DOC is pinned below (the #334 docs↔skill coupled
+# invariant, mirroring the #230 $IMPL_DOC pins). assert_pin_unique's count==1
+# contract is the standing removal-proof (the counterfactual half-revert was
+# observed RED at authoring time, per the workpad).
+assert_pin_unique "#334: §2.3 authoring rule forbids mirror-fact comments (operative sentence)" \
+  'A comment that mirrors a fact the code already carries is not authored' "$P2_FILE"
+assert_pin_unique "#334: §2.3.4a step drift-proofs mirror-fact comments before commit (operative sentence + always-on clause)" \
+  'is made drift-proof per the §2.3 treatments — rewritten or removed — before commit, **even when the comment is currently accurate.**' "$P2_FILE"
+assert_pin_unique "#334: docs/implement-skill.md mirrors the 2.3.4a mirror-fact drift-proofing clause (docs↔skill coupled invariant)" \
+  'is rewritten or removed per the §2.3 authoring' "$IMPL_DOC"
+
 # ── issue #185 Addendum: deterministic extraction helper (fixture matrix) ────
 # The helper is the deterministic boundary the Addendum mandates; test its
 # BEHAVIOR over the required input-shape matrix (bullet-with-paths, no-paths,

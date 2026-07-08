@@ -63,6 +63,21 @@ reconciliation. The producer (`version-consolidate.yml`) and consumer (Step 4b) 
 lockstep by a coupling pin in `lib/test/run.sh`; change one and the suite goes RED until the
 other matches.
 
+## Comment discipline — pin mirror-fact comments or don't write them
+
+The base skill's §2.3 authoring rule keeps mirror-fact comments (an exact count, an
+enumerated list of sites/values, a scope word restating a predicate, narration of what
+adjacent code does) out of the diff or makes them drift-proof. This repository sharpens the
+"drift-proof" alternative into a hard local rule: **a mirror-fact comment is written only if
+it is pinned by a `lib/test/run.sh` assertion added in the same change — otherwise it is not
+written.** With the pin in place, a later code change that strands the comment turns the suite
+RED at the desk instead of shipping a stale comment to review; without it, the comment is
+review-time-only again, which is exactly the rot this policy removes. Header and contract
+comments — fail-closed decision matrices, cross-file producer/consumer contracts, and the
+issue provenance of a non-obvious shape — are load-bearing and stay, pinned or not. **Prefer a
+lower bound over an exact count in both the comment and its pin** (`at least N`, not `N`), so
+adding an Nth site never forces a coupled edit of the comment and the assertion.
+
 ## Verification under classifier friction — never ship an unverified assumption
 
 The sandbox permission classifier in this repo frequently denies the very commands that

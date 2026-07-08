@@ -106,7 +106,11 @@ unreconciled pair. The **PR body** is reconciled the same way in Phase 4.2, wher
 (it does not exist at commit time). The sweep also carries a **clean-path-evidence** sub-check: for any
 step the diff adds that claims to enumerate, verify, or scan a set, it confirms the step logs a summary
 (count, result) even when nothing needs changing — a silent no-op step is indistinguishable from one that
-never ran, so the human reviewing the run cannot tell it executed.
+never ran, so the human reviewing the run cannot tell it executed. It also carries a **mirror-fact
+drift-proofing** clause: any comment the diff adds or changes that carries an exact count, an enumerated list
+of sites/values, or a predicate-restating scope word is rewritten or removed per the §2.3 authoring
+treatments before commit — even when it is currently accurate — because an accurate-today mirror-fact comment
+is precisely the one that silently rots once a later change updates the code and not the comment.
 
 ## Review-engine hardening: forced operative-sentence pin note + inline-review observability backstop
 
