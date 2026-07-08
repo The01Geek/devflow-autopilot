@@ -4146,10 +4146,12 @@ assert_eq "#309 fail-open guard: a bold-led continuation line does NOT close sco
 # shape that motivated #309 — checked in at lib/test/fixtures/issue-304-body.md
 # byte-for-byte. Case 14 is a hand-crafted paraphrase of the bullet; this fixture
 # makes AC-1 ("running the extractor over issue #304's verbatim body emits the
-# named docs") a real assertion, so a structural nuance the paraphrase smooths
-# over (a multi-line wrapped bullet, the bare no-`- ` paragraph form, a real
-# `## `-terminated section layout) can never keep the suite green while the real
-# body no-ops. Also exercises the $1 file-arg path.
+# named docs") a real assertion: Case 14 paraphrases the bullet (it too carries
+# the wrapped multi-line bare-paragraph form), but only this fixture pins
+# byte-for-byte fidelity to the real body and its full multi-`## `-section
+# document layout (Case 14 has a single `## Implementation Notes` section), so a
+# structural drift in the real body can never keep the suite green while it
+# no-ops. Also exercises the $1 file-arg path.
 # Expected: the three backticked doc files; the `docs/internal/workflows/`
 # directory ref is dropped (directories are not file deliverables) and the
 # parenthetical prose ("(review auto-trigger section)") yields no path tokens.
