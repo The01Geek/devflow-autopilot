@@ -17413,8 +17413,9 @@ echo "#342 interpreter version gate: workpad.py / match-deferrals.py fail fast o
 # can never satisfy it) and runs on the suite's normal >=3.11 interpreter — no
 # sub-3.11 interpreter is needed (and none exists in any gate; the #225 alt-python
 # machinery is fake version-reporting PATH stubs). It asserts, per file, that a
-# top-level `if` exists whose test is `sys.version_info < (3, 11)` — checking all
-# THREE operands of that behavior, not just two:
+# top-level `if` exists whose test is `sys.version_info < (3, 11)` — checking the
+# comparison's operator DIRECTION, not just its two operands, plus two
+# placement/behavior invariants:
 #   (1) the left operand is `sys.version_info` and the comparator is the tuple
 #       `(3, 11)` — the floor value;
 #   (2) the comparison operator is `<` (ast.Lt) — a *reversed* gate
@@ -17434,13 +17435,17 @@ echo "#342 interpreter version gate: workpad.py / match-deferrals.py fail fast o
 # future floor change updates every site in one commit.
 GATE_CHECK='
 import ast, sys
-def _body_exits(node):
-    for sub in ast.walk(node):
-        if isinstance(sub, ast.Call):
-            f = sub.func
-            if isinstance(f, ast.Attribute) and f.attr == "exit" \
-               and isinstance(f.value, ast.Name) and f.value.id == "sys":
-                return True
+def _body_exits(body):
+    # Walk only the gate body statements (NOT the whole If node) so a sys.exit in an
+    # `else` branch cannot satisfy this — an else-exit gate fires on the SUPPORTED
+    # interpreters, the fail-open direction this check exists to reject.
+    for stmt in body:
+        for sub in ast.walk(stmt):
+            if isinstance(sub, ast.Call):
+                f = sub.func
+                if isinstance(f, ast.Attribute) and f.attr == "exit" \
+                   and isinstance(f.value, ast.Name) and f.value.id == "sys":
+                    return True
     return False
 def check(path):
     tree = ast.parse(open(path, encoding="utf-8").read())
@@ -17465,7 +17470,7 @@ def check(path):
         print("NO_GATE"); return
     if first_def is not None and gate_idx > first_def:
         print("GATE_BELOW_DEF"); return
-    if not _body_exits(gate_node):
+    if not _body_exits(gate_node.body):
         print("GATE_NO_EXIT"); return
     print("GATE_OK")
 check(sys.argv[1])
