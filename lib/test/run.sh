@@ -7908,6 +7908,23 @@ REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREE
 REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
   DRP_CHECKS_FAIL=1 \
   drp_stderr "#304 check-runs query failure emits the specific 'check-runs query failed' breadcrumb" "check-runs query failed"
+# #311 (AC2a): each gh-failure arm now captures gh's OWN stderr into its
+# breadcrumb (mirroring resolve_pr_for_head), so the operator sees the underlying
+# cause — rate limit / 403 token-scope / 5xx — not just "query failed". The stub
+# writes 'HTTP 500' to stderr on a forced failure; before the capture that text
+# was discarded by `2>/dev/null` and never reached the breadcrumb.
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=true REQUIRE_CI_GREEN=false DEVFLOW_GH="$DRP_STUB" \
+  DRP_COMPARE_FAIL=1 \
+  drp_stderr "#311 compare-failure breadcrumb embeds the captured gh stderr" "HTTP 500"
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_RUNS_FAIL=1 \
+  drp_stderr "#311 workflow-runs-failure breadcrumb embeds the captured gh stderr" "HTTP 500"
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_STATUS_FAIL=1 \
+  drp_stderr "#311 combined-status-failure breadcrumb embeds the captured gh stderr" "HTTP 500"
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_CHECKS_FAIL=1 \
+  drp_stderr "#311 check-runs-failure breadcrumb embeds the captured gh stderr" "HTTP 500"
 # The external-check-runs jq normalization is a parallel copy of the tested
 # workflow-runs one — give it its own paginated + garbage adversarial cases.
 REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
@@ -9608,6 +9625,33 @@ assert_eq "#304 missing preconditions helper fails open with the vendor breadcru
 # (h) Config keys are extracted with the try/catch adversarial-shape guard.
 assert_eq "#304 require_* config extraction is try/catch-guarded" "2" \
   "$(grep -cE 'try \.devflow_review\.require_(up_to_date|ci_green) catch null' "$REVIEW_WF" || true)"
+
+# ── #311 post-#307 hardening pins (pushable subset — see the workflow-resident
+# remainder deferred to a follow-up issue: the run.sh pins for AC1/AC2b/AC4/AC5,
+# the AC3 workflow-guard pins, and the AC7 comment-fix all grep devflow-review.yml
+# and therefore ship in the human/PAT workflow PR alongside those edits, so CI
+# never greps a workflow the bot could not push. The three pins below are
+# self-contained: the executed jq filter fixture, the AC6 doc, and the AC7
+# installer note.) ─────────────────────────────────────────────────────────
+# (AC3) Executed fixture for the shared devflow_review_run_count jq filter,
+# including a `cancelled`-conclusion gate case: a cancelled Devflow Review check
+# is NOT skipped/neutral, so it COUNTS (a cancelled review job still means a
+# review ran at this head); skipped and the #304 neutral "waiting" deferral are
+# excluded. The filter literal mirrors the shared helper, whose single
+# definition is pinned above (gate_excl_filter_count == 1).
+run_count_filter='.check_runs[] | select(.name=="Devflow Review" and .conclusion != "skipped" and .conclusion != "neutral") | .id'
+run_count_fixture='{"check_runs":[{"name":"Devflow Review","conclusion":"neutral","id":1},{"name":"Devflow Review","conclusion":"skipped","id":2},{"name":"Devflow Review","conclusion":"cancelled","id":3},{"name":"Devflow Review","conclusion":"success","id":4},{"name":"Other","conclusion":"success","id":5}]}'
+assert_eq "#311 run_count filter counts cancelled+success, excludes skipped/neutral (executed)" "3 4" \
+  "$(printf '%s' "$run_count_fixture" | jq -r "$run_count_filter" | tr '\n' ' ' | sed 's/ *$//')"
+# (AC6) The behind-base base-advance limitation is documented in
+# docs/workflow-triggers.md (the doc the deferral summary points at once the
+# workflow-hardening follow-up ships the summary pointer).
+assert_eq "#311 behind-base base-advance limitation documented in workflow-triggers.md" "yes" \
+  "$(grep -qF 'push-to-base listener' "$LIB/../docs/workflow-triggers.md" && echo yes || echo no)"
+# (AC7) The installer prompts prominently for the consumer's CI workflow name(s)
+# in the workflow_run trigger list.
+assert_eq "#311 installer prompts for the consumer CI workflow name in workflow_run" "yes" \
+  "$(grep -qF "set the 'workflow_run:' 'workflows:' list" "$LIB/../install.sh" && echo yes || echo no)"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "efficiency-trace.jq / efficiency-trace.sh"
