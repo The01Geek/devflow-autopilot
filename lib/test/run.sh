@@ -8880,6 +8880,69 @@ rm -f "$SED_CFG"
 rm -rf "$SED_TMP"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "workflow wiring: Surface execution diagnostics step (#331)"
+# ────────────────────────────────────────────────────────────────────────────
+# Issue #331 wires scripts/surface-execution-diagnostics.sh (shipped in #329)
+# into the three claude-code-action workflows. Each must carry a post-`claude`
+# "Surface execution diagnostics" step that: (AC1) runs under always(), reads
+# ${{ steps.claude.outputs.execution_file }}, and resolves the helper
+# vendored-path-first with a repo-path fallback; (AC2) gates on
+# .devflow.execution_diagnostics_enabled (default true) via config-get.sh
+# (vendored-first) and skips on the literal "false"; (AC3) adds no permissions
+# grant / minted-token scope and uploads no artifact (a pure run-only step).
+# Assertions scope to the step block — awk-sliced from its `- name:` to the next
+# `- name:` — so `if: always()` is non-vacuous: it must be THIS step's `if:`,
+# not a sibling's.
+WF_DIR="$LIB/../.github/workflows"
+# Slice a named step block out of a workflow file: from the `- name: <step>`
+# line to (but not including) the next top-level (6-space-indented) `- name:`.
+extract_step() {  # $1=workflow file  $2=exact step name
+  awk -v want="- name: $2" '
+    index($0, want) { grab=1; print; next }
+    grab && /^      - name: / { exit }
+    grab { print }
+  ' "$1"
+}
+for WF in devflow-runner.yml devflow-implement.yml devflow.yml; do
+  WF_PATH="$WF_DIR/$WF"
+  BLK="$(extract_step "$WF_PATH" "Surface execution diagnostics")"
+  assert_eq "#331 $WF: has a 'Surface execution diagnostics' step" "yes" \
+    "$([ -n "$BLK" ] && echo yes || echo no)"
+  # AC1: runs under always()
+  assert_eq "#331 $WF: diagnostics step runs under always()" "yes" \
+    "$(printf '%s' "$BLK" | grep -qE 'if:[[:space:]]*(\$\{\{[[:space:]]*)?always\(\)' && echo yes || echo no)"
+  # AC1: reads the claude step's execution_file output
+  assert_eq "#331 $WF: reads steps.claude.outputs.execution_file" "yes" \
+    "$(printf '%s' "$BLK" | grep -qF 'steps.claude.outputs.execution_file' && echo yes || echo no)"
+  # AC1: resolves the helper vendored-path-first with a repo-path fallback
+  assert_eq "#331 $WF: resolves helper vendored-path-first" "yes" \
+    "$(printf '%s' "$BLK" | grep -qF '.devflow/vendor/devflow/scripts/surface-execution-diagnostics.sh' && echo yes || echo no)"
+  assert_eq "#331 $WF: helper repo-path fallback present" "yes" \
+    "$(printf '%s' "$BLK" | grep -qF 'SED=scripts/surface-execution-diagnostics.sh' && echo yes || echo no)"
+  # AC2: gates on the config key via config-get.sh, vendored-first with fallback
+  assert_eq "#331 $WF: reads .devflow.execution_diagnostics_enabled" "yes" \
+    "$(printf '%s' "$BLK" | grep -qF '.devflow.execution_diagnostics_enabled' && echo yes || echo no)"
+  assert_eq "#331 $WF: gate uses config-get.sh vendored-first" "yes" \
+    "$(printf '%s' "$BLK" | grep -qF '.devflow/vendor/devflow/scripts/config-get.sh' && echo yes || echo no)"
+  assert_eq "#331 $WF: config-get.sh repo-path fallback present" "yes" \
+    "$(printf '%s' "$BLK" | grep -qF 'CG=scripts/config-get.sh' && echo yes || echo no)"
+  # AC2: disables only on the literal "false"
+  assert_eq "#331 $WF: skips when the resolved value is \"false\"" "yes" \
+    "$(printf '%s' "$BLK" | grep -qF '= "false" ]' && echo yes || echo no)"
+  # AC3: the step is a pure run-only step — no action invocation, so it can neither
+  # mint a token (create-github-app-token) nor upload an artifact (upload-artifact).
+  assert_eq "#331 $WF: diagnostics step is run-only (no uses:)" "no" \
+    "$(printf '%s' "$BLK" | grep -qE '^[[:space:]]*uses:' && echo yes || echo no)"
+  # AC3: the step declares no per-step permissions: block
+  assert_eq "#331 $WF: diagnostics step declares no permissions: block" "no" \
+    "$(printf '%s' "$BLK" | grep -qE '^[[:space:]]*permissions:' && echo yes || echo no)"
+  # AC3 (explicit): no artifact upload even if a future edit added a uses:
+  assert_eq "#331 $WF: diagnostics step uploads no artifact" "no" \
+    "$(printf '%s' "$BLK" | grep -qiF 'upload-artifact' && echo yes || echo no)"
+done
+unset -f extract_step
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "resolve-implement-trigger.sh"
 # ────────────────────────────────────────────────────────────────────────────
 # The implement trigger runs the action in AGENT mode (explicit prompt), which
