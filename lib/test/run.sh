@@ -9954,6 +9954,29 @@ assert_eq "#310 DEVFLOW_SYSTEM_OVERVIEW §14 names the status-event re-trigger" 
 # CI-green signal list already mentions "legacy commit statuses" separately).
 assert_eq "#310 require_ci_green schema description names the status-event re-trigger" "yes" \
   "$(grep -qF 'since issue #310) a legacy commit-status' "$LIB/../.devflow/config.schema.json" && echo yes || echo no)"
+# (j) The precheck if: LEADING guard `github.event_name != 'status'` is the
+# clause that actually keeps a non-success status OFF the runner (AC1: "before a
+# runner spins"). Pin (b) only asserts the trailing `state == 'success'` arm —
+# but if the leading guard were dropped (a bad revert to the pre-#310
+# `github.event_name != 'workflow_run'` form), the first OR-clause would evaluate
+# TRUE for a status event and spin a runner on EVERY CI transition regardless of
+# state, while pin (b) AND pin (f) both stay green (the success literal and the
+# runtime re-check are untouched). This pin closes that gap: the cost half of AC1
+# — non-success never spins the route — is protected, not just the runtime no-op.
+assert_eq "#310 precheck if: leading guard excludes status events from the pass-through clause (non-success never spins the runner)" "yes" \
+  "$(grep -qF "github.event_name != 'status'" "$REVIEW_WF" && echo yes || echo no)"
+# (k) The status arm has NO runtime self-exclusion guard (unlike workflow_run's
+# self-name guard and check_suite's github-actions-app guard); its "cannot
+# self-trigger" safety (AC2) rests entirely on the workflow being STRUCTURALLY
+# incapable of posting a commit status — the precheck grants `statuses: read`,
+# never `statuses: write`, so no status POST is possible. Pin that absence-based
+# invariant per the CLAUDE.md "a guard whose comparand can be absent fails open"
+# discipline: a future edit adding `statuses: write` + any status POST would
+# create an infinite self-trigger loop with every other #310 pin still green.
+assert_eq "#310 precheck grants statuses: read (self-trigger safety comparand present)" "yes" \
+  "$(sed -n '/^  precheck:/,/^  create_check:/p' "$REVIEW_WF" | grep -qE '^      statuses: read' && echo yes || echo no)"
+assert_eq "#310 workflow never grants statuses: write (cannot post a commit status → cannot self-trigger)" "0" \
+  "$(grep -cE 'statuses:[[:space:]]*write' "$REVIEW_WF" || true)"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "efficiency-trace.jq / efficiency-trace.sh"

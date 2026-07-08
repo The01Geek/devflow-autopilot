@@ -93,8 +93,16 @@ on:
   # this listener such a repo defers every PR at open (ci-not-green) and has no
   # completion event to auto-re-trigger on, making the check's Re-run button its
   # routine path rather than the stuck-signal exception. The precheck `if:`
-  # filters to state == 'success' (the cheap green-state filter, mirroring the
-  # workflow_run push filter) BEFORE a runner spins; the route branch resolves
+  # filters to state == 'success' (a cheap green-state filter, at the same
+  # precheck-if position as the workflow_run push filter — it mirrors that
+  # filter's placement, not its predicate: workflow_run keys on the underlying
+  # event, status keys on the commit-status state) BEFORE a runner spins; note
+  # a `status` event fires for ANY commit status posted by ANY app (Codecov,
+  # Vercel, external bots), on any commit — GitHub offers no context/branch
+  # scoping for it — so an Actions-CI repo that also has a status-posting app
+  # will spin a precheck runner per green status; each redundant spin no-ops
+  # cheaply (one PR-resolution call, then the exactly-once gate), the accepted
+  # cost of an unconditional trigger. The route branch resolves
   # the PR from the status head SHA (the payload carries no pull_requests[] ref)
   # and reuses the same open-state/draft/stale-head/exactly-once/precondition
   # machinery. Cannot self-trigger: this workflow posts check-runs, never commit
@@ -121,8 +129,7 @@ concurrency:
   # group and do not collapse each other — accepted looseness. (#310): a
   # status payload carries NO pull_requests[] at all, so status completions
   # likewise fall to the run_id group and are deliberately given no group arm
-  # below — same accepted looseness; the route step's exactly-once gate
-  # dedupes the common case. The route
+  # below — same accepted looseness. The route
   # step's exactly-once gate dedupes the common case, but it is a
   # check-existence READ, not a lock: two prechecks racing at the same
   # instant can both observe zero existing `Devflow Review` checks and both
@@ -528,7 +535,12 @@ jobs:
               # exactly like a fork-PR workflow_run completion. Cannot
               # self-trigger: this workflow posts check-runs, never statuses.
               if [ "$ST_STATE" != "success" ]; then
-                echo "::notice::status event state '$ST_STATE' is not success; no-op (only a green commit status re-triggers a deferred review)."
+                # Reaching here means the precheck if: green-state filter let a
+                # non-success status through — an operator-actionable regression,
+                # not a routine no-op — so warn (distinct from the ::notice:: the
+                # expected draft/stale-head/no-PR no-ops use) rather than blend
+                # into normal traffic.
+                echo "::warning::status event state '$ST_STATE' is not success; no-op (only a green commit status re-triggers a deferred review). Reaching this arm means the precheck if: green-state filter regressed."
                 exit 0
               fi
               HEAD="$ST_SHA"

@@ -57,7 +57,13 @@ PR. Its trigger policy (issue #304):
   CircleCI — reporting via the commit-status API, which emits neither of the
   other two; filtered to a green `state == 'success'` before a runner spins, and
   resolving the PR from the status head SHA since its payload carries no PR ref) —
-  with no manual Re-run. `workflow_run` **requires an explicit workflow-name list**
+  with no manual Re-run. Note the `status` trigger is **unconditional**: GitHub
+  offers no context/branch scoping for it, so it fires for *any* commit status
+  from *any* app (Codecov, Vercel, external bots), not only legacy CI — an
+  Actions-CI repo that also has a status-posting app therefore spins a precheck
+  runner per green status. Each redundant spin no-ops cheaply (one PR-resolution
+  call, then the exactly-once gate), the accepted cost of an unconditional
+  trigger. `workflow_run` **requires an explicit workflow-name list**
   (a GitHub platform constraint — no wildcards): it ships as `workflows: [CI]`, so
   **a consumer repo whose CI workflow is named anything other than `CI` must add
   that name to the `workflow_run:` list in `.github/workflows/devflow-review.yml`
