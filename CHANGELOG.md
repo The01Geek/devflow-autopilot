@@ -4,6 +4,42 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.81] — 2026-07-08
+
+### Fixed
+- **`devflow-review.yml` auto-trigger hardening (workflow-resident half of #311).** The
+  `preconditions_ok` crash arms now clear a crashed helper's captured stdout (`pre=""`) on
+  both the no-retry path and the in-repo retry path, so a corrupted copy's partial output is
+  never parsed (it fails closed to `unverifiable`). `devflow_review_run_count` now emits its own breadcrumb distinguishing a
+  check-runs query failure from a non-numeric count. A repeated precondition deferral for the
+  same head+reason now reuses/PATCHes the existing neutral `Devflow Review` check instead of
+  posting a fresh completed-neutral check-run each time. The concurrency-group comment's
+  worst-case wording was corrected (a same-instant race can double-review), and the dangling
+  `docs/internal/workflows/review-rerun-checks.md` comment reference (plus the behind-base
+  deferral summary) now points at the real `docs/workflow-triggers.md`. Adds coupled
+  `lib/test/run.sh` static pins (CI-completion draft/stale-head guards, the missing-helper
+  fail-open `return 0`, `resolve_pr_for_head`'s open-PR filter, and a `cancelled`-conclusion
+  exclusion-filter fixture). The deferral-dedup reuse lookup now distinguishes a genuine
+  check-runs query failure from an empty result with its own breadcrumb (consistent with the
+  sibling helpers), and its jq projection is byte-coupled to the workflow source by a
+  `run.sh` presence pin so a swapped column order can no longer pass green; its
+  failure-arm breadcrumb and the consuming bash read-order (title column first) each
+  gained a coupling pin so the query-failure-vs-empty distinction and the column-order
+  contract's consumer half are both regression-proof. (#325)
+
+## [2.8.80] — 2026-07-08
+
+### Added
+- **`receiving-code-review`: added an update-the-branch step 0 to the Response Pattern.** The
+  fix loop now opens by updating the working branch — fetch from the remote, merge in the
+  branch's remote counterpart when it has commits the local branch lacks, then merge the base
+  branch into the working branch — before reading any feedback, so review fixes are written,
+  tested, and verified against the code that will actually merge instead of a stale snapshot.
+  The step checks each fetch's and merge's exit status and working-tree state so a failed fetch
+  or a conflicted merge is detected rather than passed over silently. Merge conflicts these
+  updates raise are resolved as part of the current work; the step is fail-soft when there is
+  nothing to update from. (#326)
+
 ## [2.8.79] — 2026-07-08
 
 ### Fixed
