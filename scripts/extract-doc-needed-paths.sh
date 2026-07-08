@@ -21,7 +21,15 @@
 #     the same two shapes, or the next `## ` heading (or EOF). A bold-emphasis
 #     span that only begins a wrapped CONTINUATION line inside the bullet (no
 #     `- `, not blank-preceded) does NOT close the scope, so paths on wrapped
-#     lines are still captured. A path mentioned in `## Current Behavior`,
+#     lines are still captured. Two adjacent-grammar shapes are handled per
+#     issue #327: (Shape 1) a top-level bold DELIVERABLE list after the bullet
+#     (`- **`docs/a.md`**`) is captured — a backtick-led bold item is a
+#     deliverable, not a peer label, and does not close the scope (a
+#     non-backticked `- **docs/a.md**` is indistinguishable from a peer label
+#     and closes, an accepted run.sh-pinned tradeoff); (Shape 2) a trailing
+#     blank-separated PLAIN-PROSE paragraph closes the scope so its tokens do
+#     not leak, while a blank-separated plain sub-list (`- `docs/a.md``) stays
+#     in scope. A path mentioned in `## Current Behavior`,
 #     `## Technical Context`, or any OTHER bullet is NOT a documentation
 #     deliverable and is never emitted.
 #   * a token counts as a path only if it ends in a recognized documentation/
@@ -89,8 +97,33 @@ block="$(printf '%s\n' "$body" | awk '
   # the label in its prose (e.g. the Potential Gotchas bullet) closes the scope
   # rather than re-opening it. Sub-bullets ("  - x") and non-bold continuation
   # prose do not match and stay within an open scope.
-  state >= 1 && ( /^- \*\*/ || ( /^\*\*/ && prev_blank ) ) {
+  #
+  # SHAPE 1 (issue #327): the [^`] after \*\* excludes a BACKTICK-LED bold item
+  # (e.g. "- **`docs/a.md`**", "**`docs/a.md`**") from this scope-controlling arm.
+  # Such an item is a listed DELIVERABLE path, not a peer section LABEL
+  # ("- **Potential Gotchas**", which opens with a letter), so it must NOT close
+  # the scope: a top-level bold DELIVERABLE list after the bullet then stays IN
+  # scope and its paths are captured, instead of the first item silently closing
+  # the scope to empty output (the fail-open the issue reported). A NON-backticked
+  # bold item ("- **docs/a.md**") is structurally identical to a peer label and
+  # DOES close — an ACCEPTED, run.sh-pinned tradeoff (leak-safe direction, mirror
+  # of the Case 17 drop; deliverable lists in the wild backtick their paths).
+  state >= 1 && ( /^- \*\*[^`]/ || ( /^\*\*[^`]/ && prev_blank ) ) {
     state = ($0 ~ /^(- )?\*\*Documentation Needed\*\*/) ? 2 : 1
+  }
+  # SHAPE 2 (issue #327): inside an open bullet, a blank-line-PRECEDED PLAIN-PROSE
+  # paragraph (not blank, not a list item, not a bold bullet) begins a new
+  # paragraph OUTSIDE the bullet, so close the scope — otherwise its path-like
+  # tokens LEAK into the gate as deliverables the docs pass never owed
+  # (over-emission). A blank-separated PLAIN sub-list ("- `docs/a.md`", non-bold)
+  # is a list CONTINUATION, not prose: the ^[[:space:]]*- guard keeps it in scope,
+  # preserving that currently-working shape (the issue Gotchas forbid dropping
+  # it). Bold paragraphs are already decided by the arm above (backtick-led ones
+  # stay; peer/continuation ones close per Case 17), so the $0 !~ /^\*\*/ guard
+  # here is belt-and-braces. This arm runs AFTER the bold arm and only demotes
+  # (2 -> 1), so it never re-opens or interferes with an opener.
+  state == 2 && prev_blank && $0 !~ /^[[:space:]]*$/ && $0 !~ /^[[:space:]]*-/ && $0 !~ /^\*\*/ {
+    state = 1
   }
   state == 2 { print }
   { prev_blank = ($0 ~ /^[[:space:]]*$/) }

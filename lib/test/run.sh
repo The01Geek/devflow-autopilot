@@ -4195,6 +4195,184 @@ assert_eq "#309 heading reset pin: bare bold bullet on the line directly after t
   "docs/h.md" \
   "$(printf '%s\n' "$fx_309_hdr" | bash "$EXTRACT_HELPER")"
 
+# Cases 19-32 (issue #327): the adjacent-grammar SHAPE MATRIX. Both bullet forms
+# — Form L (`- **Documentation Needed** …` list-marker) and Form P
+# (`**Documentation Needed** …` bare bold paragraph) — crossed with each FOLLOWER
+# shape: top-level bold list, indented sub-list, plain-prose paragraph, bold
+# paragraph, heading, EOF (plus two dedicated pins). Two cells were RED on the
+# pre-#327 extractor: a top-level bold DELIVERABLE list dropped every path
+# (Shape 1, fail-open empty output — Cases 19/25) and a trailing plain-prose
+# paragraph leaked its tokens (Shape 2, over-emission — Cases 21/27). All doc
+# paths carry a `.md` extension so the assertions are hermetic (they pass the
+# extension branch regardless of on-disk existence).
+
+# Case 19 (#327 Shape 1, Form L): a `- **Documentation Needed**` bullet followed
+# by a top-level bold DELIVERABLE list (`- **`docs/a.md`**`) captures the paths.
+# A backtick-led bold item is a deliverable, not a peer label, so it must NOT
+# close the scope. RED before #327 (the `- **` closer fired on the first item →
+# empty output).
+fx_327_L_boldlist="## Implementation Notes
+
+- **Documentation Needed** — the docs pass must update:
+- **\`docs/a.md\`** — overview
+- **\`docs/b.md\`** — config keys"
+assert_eq "#327 Shape 1 (Form L): top-level bold deliverable list after the bullet is captured (backtick-led items do not close scope)" \
+  "$(printf 'docs/a.md\ndocs/b.md')" \
+  "$(printf '%s\n' "$fx_327_L_boldlist" | bash "$EXTRACT_HELPER")"
+
+# Case 20 (#327, Form L × indented sub-list): the canonical template shape — an
+# indented `  - ` sub-list stays in scope (unchanged behavior, GREEN before/after).
+fx_327_L_subindent="## Implementation Notes
+
+- **Documentation Needed**
+  - update \`docs/a.md\`
+  - and \`docs/b.md\`"
+assert_eq "#327 (Form L): indented sub-list stays in scope" \
+  "$(printf 'docs/a.md\ndocs/b.md')" \
+  "$(printf '%s\n' "$fx_327_L_subindent" | bash "$EXTRACT_HELPER")"
+
+# Case 21 (#327 Shape 2, Form L): a trailing blank-separated PLAIN-PROSE paragraph
+# after the bullet must NOT leak its path tokens. RED before #327 (`docs/leak.md`
+# was emitted — over-emission).
+fx_327_L_prose="## Implementation Notes
+
+- **Documentation Needed** — update \`docs/a.md\`.
+
+trailing prose names docs/leak.md here."
+assert_eq "#327 Shape 2 (Form L): trailing plain-prose paragraph tokens are NOT emitted" \
+  "docs/a.md" \
+  "$(printf '%s\n' "$fx_327_L_prose" | bash "$EXTRACT_HELPER")"
+
+# Case 22 (#327, Form L × bold paragraph follower): a blank-preceded peer bold
+# paragraph closes scope (Case 17 tradeoff; GREEN before/after — leak dropped).
+fx_327_L_boldpara="## Implementation Notes
+
+- **Documentation Needed** — update \`docs/a.md\`.
+
+**Also** update \`docs/leak.md\`."
+assert_eq "#327 (Form L): a blank-preceded peer bold paragraph closes scope (leak dropped)" \
+  "docs/a.md" \
+  "$(printf '%s\n' "$fx_327_L_boldpara" | bash "$EXTRACT_HELPER")"
+
+# Case 23 (#327, Form L × heading follower): a `## ` heading closes scope.
+fx_327_L_heading="## Implementation Notes
+
+- **Documentation Needed** — update \`docs/a.md\`.
+
+## Potential Gotchas
+
+names docs/leak.md."
+assert_eq "#327 (Form L): a following heading closes scope (leak dropped)" \
+  "docs/a.md" \
+  "$(printf '%s\n' "$fx_327_L_heading" | bash "$EXTRACT_HELPER")"
+
+# Case 24 (#327, Form L × EOF): the bullet is the last thing in the body.
+fx_327_L_eof="## Implementation Notes
+
+- **Documentation Needed** — update \`docs/a.md\`."
+assert_eq "#327 (Form L): bullet at EOF emits its path" \
+  "docs/a.md" \
+  "$(printf '%s\n' "$fx_327_L_eof" | bash "$EXTRACT_HELPER")"
+
+# Case 25 (#327 Shape 1, Form P — the VERBATIM issue #327 example): a bare bold
+# paragraph opener followed by a top-level bold deliverable list captures the
+# paths. RED before #327 (empty output — the exact fail-open the issue reported).
+fx_327_P_boldlist="## Implementation Notes
+
+**Documentation Needed** — the docs pass must update:
+
+- **\`docs/a.md\`** — overview
+- **\`docs/b.md\`** — config keys"
+assert_eq "#327 Shape 1 (Form P, issue example): bare-bold opener + top-level bold deliverable list is captured" \
+  "$(printf 'docs/a.md\ndocs/b.md')" \
+  "$(printf '%s\n' "$fx_327_P_boldlist" | bash "$EXTRACT_HELPER")"
+
+# Case 26 (#327, Form P × indented sub-list): blank-separated indented `  - `
+# sub-list stays in scope.
+fx_327_P_subindent="## Implementation Notes
+
+**Documentation Needed** — update these:
+
+  - \`docs/a.md\`
+  - \`docs/b.md\`"
+assert_eq "#327 (Form P): blank-separated indented sub-list stays in scope" \
+  "$(printf 'docs/a.md\ndocs/b.md')" \
+  "$(printf '%s\n' "$fx_327_P_subindent" | bash "$EXTRACT_HELPER")"
+
+# Case 27 (#327 Shape 2, Form P): a trailing blank-separated PLAIN-PROSE paragraph
+# must NOT leak. RED before #327.
+fx_327_P_prose="## Implementation Notes
+
+**Documentation Needed** — update \`docs/a.md\`.
+
+trailing prose names docs/leak.md here."
+assert_eq "#327 Shape 2 (Form P): trailing plain-prose paragraph tokens are NOT emitted" \
+  "docs/a.md" \
+  "$(printf '%s\n' "$fx_327_P_prose" | bash "$EXTRACT_HELPER")"
+
+# Case 28 (#327, Form P × bold paragraph follower): blank-preceded peer bold
+# paragraph closes scope (Case 17 mirror).
+fx_327_P_boldpara="## Implementation Notes
+
+**Documentation Needed** — update \`docs/a.md\`.
+
+**Also** update \`docs/leak.md\`."
+assert_eq "#327 (Form P): a blank-preceded peer bold paragraph closes scope (leak dropped)" \
+  "docs/a.md" \
+  "$(printf '%s\n' "$fx_327_P_boldpara" | bash "$EXTRACT_HELPER")"
+
+# Case 29 (#327, Form P × heading follower): a `## ` heading closes scope.
+fx_327_P_heading="## Implementation Notes
+
+**Documentation Needed** — update \`docs/a.md\`.
+
+## Potential Gotchas
+
+names docs/leak.md."
+assert_eq "#327 (Form P): a following heading closes scope (leak dropped)" \
+  "docs/a.md" \
+  "$(printf '%s\n' "$fx_327_P_heading" | bash "$EXTRACT_HELPER")"
+
+# Case 30 (#327, Form P × EOF): bare-bold bullet is the last thing in the body.
+fx_327_P_eof="## Implementation Notes
+
+**Documentation Needed** — update \`docs/a.md\`."
+assert_eq "#327 (Form P): bare-bold bullet at EOF emits its path" \
+  "docs/a.md" \
+  "$(printf '%s\n' "$fx_327_P_eof" | bash "$EXTRACT_HELPER")"
+
+# Case 31 (#327 Gotcha pin): the Shape 2 closer must NOT over-close onto a
+# blank-separated PLAIN (non-bold) top-level sub-list — the currently-working
+# shape the issue Gotchas require preserving. `- \`docs/a.md\`` is a list
+# continuation, not prose, so it stays in scope. GREEN before/after (this pins
+# that the Shape 2 fix did not break it).
+fx_327_plain_sublist="## Implementation Notes
+
+**Documentation Needed** — update these:
+
+- \`docs/a.md\`
+- \`docs/b.md\`"
+assert_eq "#327 gotcha pin: blank-separated plain (non-bold) top-level sub-list stays captured (Shape 2 closer does not over-close)" \
+  "$(printf 'docs/a.md\ndocs/b.md')" \
+  "$(printf '%s\n' "$fx_327_plain_sublist" | bash "$EXTRACT_HELPER")"
+
+# Case 32 (#327 ACCEPTED-tradeoff pin, Shape 1): a NON-backticked bold deliverable
+# item (`- **docs/a.md**`) is structurally indistinguishable from a peer section
+# label (`- **Potential Gotchas**`), so it CLOSES the scope and its path is
+# dropped. Closing is the leak-safe direction (the alternative — keeping every
+# bold item in scope — would leak peer-label bullets' tokens, the false-positive
+# direction the issue Gotchas forbid). Deliverable lists in the wild backtick
+# their paths (Cases 19/25), which ARE captured; this pins the extension-less
+# bold form as a documented drop, not a silent surprise.
+fx_327_nobacktick="## Implementation Notes
+
+**Documentation Needed** — update:
+
+- **docs/a.md** — overview"
+assert_eq "#327 tradeoff pin: a NON-backticked bold deliverable item closes scope (accepted drop — leak-safe direction)" \
+  "" \
+  "$(printf '%s\n' "$fx_327_nobacktick" | bash "$EXTRACT_HELPER")"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "scaffold-config.sh"
 # ────────────────────────────────────────────────────────────────────────────
