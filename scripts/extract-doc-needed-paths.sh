@@ -68,11 +68,12 @@ doc_ext_alt='md|markdown|sh|json|py|ya?ml|rst|txt|adoc|mdx|toml|cfg|ini'
 
 # Stage A — isolate the **Documentation Needed** bullet block. Scope logic only,
 # with ONE minimal token-awareness point: the `emitted` proxy (see its arm below)
-# flips once a printed line bears a recognized-extension path, so a *later*
-# trailing prose paragraph can close the scope without dropping a primary/
-# intervening prose deliverable. awk state: 0 = outside Implementation Notes;
-# 1 = inside the section but outside the bullet; 2 = inside the Documentation
-# Needed bullet.
+# flips once a printed STRUCTURAL line (a list item or bold line) bears a
+# recognized-extension path — never a plain-prose line — so a *later* trailing
+# prose paragraph can close the scope without ever dropping a primary/intervening
+# prose deliverable (the fail-open guard: prose can never arm the close). awk
+# state: 0 = outside Implementation Notes; 1 = inside the section but outside the
+# bullet; 2 = inside the Documentation Needed bullet.
 block="$(printf '%s\n' "$body" | awk -v extre="$doc_ext_alt" '
   BEGIN { prev_blank = 1 }   # start-of-file is a paragraph boundary
   /^## / {
@@ -167,25 +168,34 @@ block="$(printf '%s\n' "$body" | awk -v extre="$doc_ext_alt" '
     state = 1
   }
   # Print an in-scope line and mark the scope as having emitted a deliverable once
-  # a printed line bears a RECOGNIZED-EXTENSION path token — the SAME extension
-  # set Stage B emits on (passed in as `extre`, single-sourced in the shell above,
-  # so the two cannot drift). This must track a REAL captured path, NOT a bare
-  # backtick or "/": ordinary intro prose routinely carries an inline code span
-  # ("`parseConfig()`") or a non-path slash ("and/or", "TCP/IP", a URL), and a
-  # backtick/"/"-based proxy would spuriously flip emitted on such prose, letting
-  # the NEXT paragraph — often the one that actually names the deliverable — close
-  # the scope and DROP it (a fail-OPEN that empties the output, the #289/#309/#327
-  # recurrence). The extension test flips only on a token Stage B would itself
-  # emit, so intervening/primary prose that merely mentions a symbol keeps the
-  # scope open. Boundary: a token must end in ".<ext>" at a non-alphanumeric edge
-  # (matching the Stage B `.+\.(ext)$` per-token anchor closely enough). KNOWN gap
-  # (over-emission, leak-safe, no worse than main): an EXTENSIONLESS deliverable
-  # named in prose (a bare "Makefile") does not flip emitted, so a following
-  # trailing-prose paragraph would not close — that direction only over-emits,
-  # never fails open, so it is the acceptable side to miss on.
+  # a printed STRUCTURAL deliverable line — a list item (^[[:space:]]*-) or a bold
+  # line (^**) — bears a recognized-extension path token (the SAME extension set
+  # Stage B emits on, passed in as `extre`, single-sourced in the shell above so
+  # the two cannot drift). The structural-line restriction is the load-bearing
+  # fail-open guard: `emitted` must NEVER be armed by a PLAIN-PROSE line, because
+  # ordinary intro/context prose routinely carries an extension-bearing substring
+  # that is NOT a deliverable — a URL ("https://x.com/spec.md"), a bare syntax
+  # reference (".md format"), a rooted path ("/etc/spec.md") — none of which the
+  # loose line regex can tell apart from a real path, yet a prose line arming
+  # emitted would let the NEXT paragraph (often the one that actually names the
+  # deliverable) close the scope and DROP it: a fail-OPEN that empties the output,
+  # the #289/#309/#327 recurrence. Restricting the arming to list/bold lines makes
+  # this PROVABLY fail-open-safe: a fresh scope opens emitted=0, plain prose can
+  # never flip it, so a prose-declared deliverable is always in scope when the
+  # close arm sees it (emitted still 0 → not closed → captured); the close fires
+  # only AFTER a structural deliverable was captured, and that deliverable is
+  # itself printed, so the output can never be empty. (An extension-bearing token
+  # on a prose line is still emitted by Stage B if it is a real path — same as
+  # main; we just do not let it ARM the trailing-prose close.) Boundary: a token
+  # ends in ".<ext>" at a non-alphanumeric edge (matching the Stage B `.+\.(ext)$`
+  # per-token anchor closely enough — an over-broad line match only over-arms on a
+  # structural line, the leak-safe direction). KNOWN gap (over-emission, leak-safe,
+  # no worse than main): an EXTENSIONLESS structural deliverable (a bare
+  # "- Makefile") does not flip emitted, so a following trailing-prose paragraph
+  # would not close — over-emission, never a fail-open.
   state == 2 {
     print
-    if ($0 ~ ("\\.(" extre ")([^[:alnum:]]|$)")) emitted = 1
+    if ( ( $0 ~ /^[[:space:]]*-/ || $0 ~ /^\*\*/ ) && $0 ~ ("\\.(" extre ")([^[:alnum:]]|$)") ) emitted = 1
   }
   { prev_blank = ($0 ~ /^[[:space:]]*$/) }
 ')"
