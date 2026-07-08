@@ -97,9 +97,13 @@ if ! BLOCK=$("$DEVFLOW_JQ" -rs --arg header "$_HEADER" '
     # explicit null check is used instead of `.field // "n/a"`.
     def orna($v): if $v == null then "n/a" else $v end;
     (last(.. | objects | select(.type? == "result"))) as $r
+    # `unique` de-duplicates: the same denial can appear in more than one place in
+    # the slurped log (e.g. a streamed message event AND the summarizing result
+    # event both carrying permission_denials), which would otherwise double-count
+    # $dcount and inflate both the reconciled count and the detail listing.
     | ([.. | objects | (.permission_denials? // empty)
         | if type == "array" then .[] else . end
-        | select(type == "object")]) as $denials
+        | select(type == "object")] | unique) as $denials
     | if $r == null and ($denials | length) == 0 then
         # Parsed, but no result event and no denial detail: nothing to surface.
         $header, "",

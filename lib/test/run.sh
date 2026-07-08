@@ -8218,6 +8218,9 @@ printf '%s' '[{"type":"system"},{"type":"stream","permission_denials":[{"tool_na
 # count must be the larger (1) and the detail must be SURFACED, not suppressed as
 # "No permission denials." (the fail-open the shadow pass caught)
 printf '%s' '[{"type":"stream","permission_denials":[{"tool_name":"Task","tool_input":"q"}]},{"type":"result","is_error":false,"num_turns":9,"permission_denials_count":0}]' > "$SED_TMP/count0_with_denials.json"
+# SAME two denials duplicated across a stream event AND the result event, count 2:
+# `unique` must de-dup so the reconciled count is 2, not the double-counted 4
+printf '%s' '[{"type":"stream","permission_denials":[{"tool_name":"Bash","tool_input":"a"},{"tool_name":"Edit","tool_input":"b"}]},{"type":"result","is_error":false,"permission_denials_count":2,"permission_denials":[{"tool_name":"Bash","tool_input":"a"},{"tool_name":"Edit","tool_input":"b"}]}]' > "$SED_TMP/dup_denials.json"
 
 # --- AC1: run summary fields surfaced to stdout (capture once, grep the block) ---
 SED_POP_OUT="$(bash "$SED" "$SED_TMP/populated.json" 2>/dev/null)"
@@ -8300,6 +8303,12 @@ assert_eq "#329 surface-diag: count-0-with-denials does NOT print 'No permission
   "$(printf '%s' "$SED_C0D_OUT" | grep -qF "No permission denials." && echo yes || echo no)"
 assert_eq "#329 surface-diag: count-0-with-denials reconciles count to the larger (1)" "yes" \
   "$(printf '%s' "$SED_C0D_OUT" | grep -qF "permission_denials_count: 1" && echo yes || echo no)"
+# --- dedup: denials duplicated across events must not inflate the reconciled count ---
+SED_DUP_OUT="$(bash "$SED" "$SED_TMP/dup_denials.json" 2>/dev/null)"
+assert_eq "#329 surface-diag: duplicated denials de-duped -> count 2 (not double-counted 4)" "yes" \
+  "$(printf '%s' "$SED_DUP_OUT" | grep -qF "permission_denials_count: 2" && echo yes || echo no)"
+assert_eq "#329 surface-diag: duplicated denials -> detail lists 2 (not 4)" "yes" \
+  "$(printf '%s' "$SED_DUP_OUT" | grep -qF "2 permission denial(s) with detail:" && echo yes || echo no)"
 # --- count derived from the denials-array length when the count field is absent ---
 SED_CFL_OUT="$(bash "$SED" "$SED_TMP/count_from_len.json" 2>/dev/null)"
 assert_eq "#329 surface-diag: count derived from denial-array length" "yes" \
