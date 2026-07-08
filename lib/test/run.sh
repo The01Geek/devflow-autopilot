@@ -15700,15 +15700,21 @@ echo "#312: workflow endpoint↔permission lint"
 # ────────────────────────────────────────────────────────────────────────────
 # A devflow workflow job must declare the token permission every `gh api` endpoint
 # family it invokes — inline in the job's own `run:` blocks, AND the families called by
-# the one precondition helper the lint is wired to recognize by name,
+# the two review helpers the lint is wired to recognize by name:
 # derive-review-preconditions.sh (its repos/*/actions/runs → actions,
 # repos/*/commits/*/status → statuses, repos/*/compare → contents, and
 # repos/*/commits/*/check-runs → checks calls; the #307 actions:read + statuses:read
 # grants cover the first two, and precheck's pre-existing contents/checks grants the
-# other two). NOTE: only THIS helper is attributed — a job that runs a *different*
-# gh-api-calling helper (react-to-trigger.sh, resolve-implement-trigger.sh) is NOT walked,
-# so the lint covers inline calls plus this one helper, not "any helper the job runs"
-# (a deferred generalization, #312 review). The matcher recognizes only the six families
+# other two), and derive-review-verdict.sh (its repos/*/issues/*/comments → comments call,
+# run by finalize_check, which grants pull-requests:write so the comments either-arm stays
+# satisfied on the clean tree). NOTE: only these TWO helpers are attributed — a job that
+# runs some OTHER gh-api-calling helper is NOT walked. Today that residual gap is not live:
+# the remaining job-run helpers (react-to-trigger.sh, resolve-implement-trigger.sh) build
+# their endpoints in shell variables (unmatchable by the literal repos/... regexes) and hit
+# no recognized family with a literal path, verified #312 shadow review — so no currently-
+# shipping recognized-family endpoint falls in the gap. Walking an arbitrary job-run helper
+# remains a deferred generalization (#312 review), revisit if a third helper adds a literal
+# recognized-family call. The matcher recognizes only the six families
 # enumerated in _wf_req_keys — an inline call outside them (e.g. devflow-review.yml's
 # best-effort repos/*/collaborators/*/permission) is not checked (a deferred family,
 # #312 review); the manual Phase 2.3.4 endpoint↔permission map remains the primary check,
@@ -15756,12 +15762,24 @@ _wf_req_keys() {
 }
 
 # print the count of endpoint↔permission violations across $1 (workflows dir),
-# attributing the CI-green precondition helper $2's gh api families to any job that runs it.
+# attributing the gh api families of the two recognized review helpers to any job that runs
+# them: the precondition helper $2 (derive-review-preconditions.sh, run by precheck) AND its
+# sibling derive-review-verdict.sh (run by finalize_check), whose repos/*/issues/*/comments
+# call is a LIVE recognized family the single-helper walk missed (#312 shadow review).
 wf_perm_lint() {  # $1=workflows-dir  $2=precond-helper-path -> prints an integer (or a sentinel)
-  local wfdir="$1" precond="$2" precond_keys wf rec topperms jobs jn jperms jbody effperms req k v=0
+  local wfdir="$1" precond="$2" precond_keys verdict_helper verdict_keys wf rec topperms jobs jn jperms jbody effperms req k v=0
   [ -d "$wfdir" ] || { echo MISSING_WFDIR; return; }
   [ -r "$precond" ] || { echo MISSING_PRECOND; return; }
   precond_keys="$(_wf_req_keys < "$precond" | tr '\n' ' ')"
+  # Second recognized helper, resolved as a sibling of $precond. An unreadable path (e.g. the
+  # statuses mutation-proof sandbox that copies only derive-review-preconditions.sh) yields
+  # empty keys and no attribution — the same fail-safe as the .yaml literal-glob guard, and
+  # harmless there because that sandbox exercises precheck's statuses, not finalize_check's
+  # comments. This closes the fail-open the header NOTE below records: finalize_check's
+  # comments requirement is now attributed, so dropping its comments-satisfying grant goes RED.
+  verdict_helper="$(dirname "$precond")/derive-review-verdict.sh"
+  verdict_keys=""
+  [ -r "$verdict_helper" ] && verdict_keys="$(_wf_req_keys < "$verdict_helper" | tr '\n' ' ')"
   # Both .yml and .yaml (GitHub honors either); with nullglob off an unmatched pattern
   # expands to its literal, which the `[ -r ]` guard skips — so a repo using only one
   # extension is unaffected (#312 review).
@@ -15796,6 +15814,9 @@ wf_perm_lint() {  # $1=workflows-dir  $2=precond-helper-path -> prints an intege
       req="$(printf '%s\n' "$jbody" | _wf_req_keys)"
       if printf '%s' "$jbody" | grep -q 'derive-review-preconditions.sh'; then
         req="$(printf '%s\n%s\n' "$req" "${precond_keys// /$'\n'}" | grep -v '^$' | sort -u)"
+      fi
+      if printf '%s' "$jbody" | grep -q 'derive-review-verdict.sh'; then
+        req="$(printf '%s\n%s\n' "$req" "${verdict_keys// /$'\n'}" | grep -v '^$' | sort -u)"
       fi
       while IFS= read -r k; do
         [ -n "$k" ] || continue
@@ -15873,13 +15894,22 @@ rm -rf "$WF_MUT_DIR" 2>/dev/null || true
 #                        helper-attribution path; this is its inline-path case)
 #   - actions_missing:   actions/runs (→ actions), declares only contents so the
 #                        job block REPLACES the top-level actions grant           → +1
+#   - actions_missing (cont.)                                                     → +1
+#   - verdict_helper_missing: runs derive-review-verdict.sh (→ comments via the second-
+#                        helper attribution, resolved from $WF_PRECOND's real scripts/ dir),
+#                        declares only contents                                    → +1
+#                        (proves the derive-review-verdict.sh comments attribution is
+#                        load-bearing — #312 shadow review; if it regresses this drops to 0)
+#   - verdict_helper_ok:  runs derive-review-verdict.sh (→ comments), declares pull-requests → 0
+#                        (proves a satisfied grant clears the second-helper requirement)
 #   - guards_ok:         a COMMENTED endpoint line (must be stripped → no statuses
 #                        requirement) plus a bare actions/runs/<id> RUN_URL string
 #                        (no repos/ prefix → must NOT match)                       → 0
 #                        (locks the comment-strip + repos/-anchor false-match guards)
-# Expected total = 6. Any single inline regex breaking, or inheritance/replacement/strip/
-# anchor logic regressing, moves the count off 6 → RED. Fail-closed on a git_sandbox sentinel:
-# the cat/mkdir no-op and wf_perm_lint → MISSING_WFDIR ≠ "6" → RED.
+# Expected total = 7. Any single inline regex breaking, the verdict-helper attribution
+# regressing, or inheritance/replacement/strip/anchor logic regressing, moves the count off
+# 7 → RED. Fail-closed on a git_sandbox sentinel: the cat/mkdir no-op and wf_perm_lint →
+# MISSING_WFDIR ≠ "7" → RED.
 WF_POS_DIR="$(git_sandbox "#312: wf-lint positive inline test temp dir")"
 mkdir -p "$WF_POS_DIR/.github/workflows" 2>/dev/null || true
 cat > "$WF_POS_DIR/.github/workflows/pos.yml" <<'POSYAML' 2>/dev/null || true
@@ -15931,6 +15961,16 @@ jobs:
       contents: read
     steps:
       - run: gh api repos/o/r/actions/runs
+  verdict_helper_missing:
+    permissions:
+      contents: read
+    steps:
+      - run: bash scripts/derive-review-verdict.sh
+  verdict_helper_ok:
+    permissions:
+      pull-requests: read
+    steps:
+      - run: bash scripts/derive-review-verdict.sh
   guards_ok:
     permissions:
       contents: read
@@ -15938,8 +15978,8 @@ jobs:
       # gh api repos/o/r/commits/deadbeef/status  <- commented: must be stripped
       - run: echo "run https://github.com/o/r/actions/runs/123"
 POSYAML
-assert_eq "#312: wf-lint positive inline test — all six endpoint families differentially covered, inheritance/replacement/strip/anchor honored (6 violations)" \
-  "6" "$(wf_perm_lint "$WF_POS_DIR/.github/workflows" "$WF_PRECOND")"
+assert_eq "#312: wf-lint positive inline test — six inline families + verdict-helper attribution differentially covered, inheritance/replacement/strip/anchor honored (7 violations)" \
+  "7" "$(wf_perm_lint "$WF_POS_DIR/.github/workflows" "$WF_PRECOND")"
 rm -rf "$WF_POS_DIR" 2>/dev/null || true
 
 # Fail-closed sentinel contract (#312 review — pr-test-analyzer): a missing workflows
