@@ -3895,6 +3895,12 @@ assert_pin_unique "#346: Phase 4.0 follow-up states landing a capability-deferra
 # record-even-when-clean reflection (AC1's contract on the no-workflow-AC path).
 assert_pin_unique "#346: 2.2.5 takes the Blocked path when the pushable subset would be empty (late-discovered all-blocked)" \
   'Empty pushable subset ⇒ take the Blocked path here, do not narrow-and-proceed' "$IMPL_PHASES_DIR/phase-2-implement.md"
+# Review iter 4 (shadow): the Phase 2.3-discovery backstop was inert prose — no firing
+# point at the commit step. Pin the Phase 2.5 cloud-tier commit guard that actually fires it
+# (git status against the repo-own .github/workflows/, revert + route through 2.2.5) so a
+# later edit cannot strand the backstop as unexecutable prose again.
+assert_pin_unique "#346: Phase 2.5 commit guard fires the workflow-edit backstop (repo-own .github/workflows/, cloud tier)" \
+  'Cloud-tier workflow-edit commit guard (fires the Pass 5 / 2.2.5 backstop here)' "$IMPL_PHASES_DIR/phase-2-implement.md"
 assert_pin_unique "#346: Pass 5 records a clean note on the cloud-tier no-workflow-AC path (record-even-when-clean)" \
   'issue-claim audit (execution-capability): cloud tier — no acceptance criterion requires editing .github/workflows/' "$P1_FILE"
 # ── issue #185 (+ Addendum): Phase 4.1 Documentation Needed cross-check ─────
