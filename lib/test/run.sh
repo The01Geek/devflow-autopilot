@@ -3813,6 +3813,15 @@ assert_pin_unique "#345 AC2: an observed-cannot-succeed probe routes to a pre-me
   'cannot succeed as shipped routes to a pre-merge fix or the Blocked path (step 4 below) — never a deferral' "$P345_P3"
 assert_pin_unique "#345 AC2: the red-flags STOP list forbids a deferral over a failed probe" \
   'observed-cannot-succeed probe: **never** a deferral' "$P345_P3"
+# AC1/AC2 operative step 2 (probe read-only) — the probe mandate itself; without this
+# a half-revert could delete "probe every precondition" and keep decompose+record GREEN.
+assert_pin_unique "#345 AC1: the contract's step 2 mandates probing every precondition read-only" \
+  '**Probe every (a) precondition read-only**' "$P345_P3"
+# AC2 reverse-launder guard (step 5): a denial must be an inability to observe the
+# state, NOT a non-zero gh-api exit carrying an observed-false answer (404/empty). This
+# is the dual of the observed-cannot-succeed routing; unpinned it fails OPEN silently.
+assert_pin_unique "#345 AC2: step 5 keys denial on whether the probe obtained a definitive answer, not raw exit status (no reverse launder)" \
+  'Tell the two apart by whether the probe obtained a definitive answer about the precondition' "$P345_P3"
 # AC3: the probe obligation includes issue-named failure modes for the mechanism.
 assert_pin_unique "#345 AC3: the probe set must include any issue-named failure mode for the criterion's mechanism" \
   "any failure mode the linked issue's Potential Gotchas or Implementation Notes names for that criterion's mechanism" "$P345_P3"
