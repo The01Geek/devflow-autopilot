@@ -4145,6 +4145,112 @@ assert_eq "#254: git-unavailable drop emits the degraded-rescue breadcrumb exact
   "1" "$(grep -c 'git unavailable' "$fx_nogit_dir/err")"
 rm -rf "$fx_nogit_dir"
 
+# Case 14 (issue #309): the em-dash prose-sentence **Documentation Needed** form
+# rendered as a bare bold PARAGRAPH with NO leading "- " list marker — exactly the
+# real issue #304 body shape an LLM-drafted `## Implementation Notes` produces.
+# RED on the old "- "-required scope anchor (the block matched nothing → the gate
+# was silently skipped on the issue shape it exists to enforce); GREEN after the
+# opener/closer accept an optional "- " marker (`^(- )?\*\*`). The paths must be
+# extracted by the SAME token scan as the dashed forms: the backticked files are
+# emitted, the trailing-slash directory ref (`docs/internal/workflows/`) is
+# dropped as a directory, and the non-path parenthetical prose
+# (`(review auto-trigger section)`) never leaks — the issue's false-positive
+# discipline is preserved. A peer bold paragraph (`**Potential Gotchas.**`, no
+# "- ") must still CLOSE the scope so the gotchas bullet's own tokens don't leak.
+fx_309="## Implementation Notes
+
+**Approach (Part A).** Add two config keys under \`devflow_review\`.
+
+**Code Patterns** — Part A mirrors the existing branches.
+
+**Documentation Needed** — \`docs/DEVFLOW_SYSTEM_OVERVIEW.md\` (review auto-trigger section) and any
+internal workflow doc under \`docs/internal/workflows/\` describing the trigger policy must document
+the new preconditions, the neutral-check-with-re-trigger behavior, and the two config keys. The
+\`CLAUDE.md\` review-engine / gotchas notes should mention the preconditions if they become a
+load-bearing invariant. \`.devflow/config.example.json\` documents the keys inline.
+
+**Potential Gotchas.**
+- **Do not extract \`other/leak.md\` named in this closing bullet.**"
+assert_eq "#309: bare bold-paragraph (no '- ') em-dash Documentation Needed form IS extracted; dir/prose dropped, gotchas bullet closes scope" \
+  "$(printf '.devflow/config.example.json\nCLAUDE.md\ndocs/DEVFLOW_SYSTEM_OVERVIEW.md')" \
+  "$(printf '%s\n' "$fx_309" | bash "$EXTRACT_HELPER")"
+
+# Case 15 (issue #309, review fail-open guard): a bold-emphasis span that BEGINS a
+# wrapped continuation line INSIDE an open bare-paragraph Documentation Needed
+# bullet (no leading "- ", not preceded by a blank line — e.g. "**Note.** …") must
+# NOT close the scope. Supporting the bare-paragraph form (Case 14) meant the scope
+# closer had to accept a bare "**" line; naively closing on EVERY bold-led line
+# would silently drop `docs/b.md` and any later wrapped path — a fail-OPEN that
+# under-enforces the Phase 4.1 gate on exactly the LLM-drafted shape #309 set out to
+# support. The `prev_blank` paragraph-boundary guard fixes it: `**Note.**` here is
+# mid-paragraph (the prior line is non-blank), so it stays in scope and `docs/b.md`
+# is still emitted; only the blank-line-preceded peer paragraph `**Potential
+# Gotchas.**` closes the scope, so `other/leak.md` does not leak. RED before the
+# guard (the bare-"**" closer dropped `docs/b.md`), GREEN after.
+fx_309_wrap="## Implementation Notes
+
+**Documentation Needed** — update \`docs/a.md\` first.
+**Note.** also update \`docs/b.md\` in the same pass.
+
+**Potential Gotchas.**
+- **Do not extract \`other/leak.md\` named here.**"
+assert_eq "#309 fail-open guard: a bold-led continuation line does NOT close scope; wrapped-line paths still emitted, peer paragraph still closes" \
+  "$(printf 'docs/a.md\ndocs/b.md')" \
+  "$(printf '%s\n' "$fx_309_wrap" | bash "$EXTRACT_HELPER")"
+
+# Case 16 (issue #309 AC-1, review): the VERBATIM issue #304 body — the real-world
+# shape that motivated #309 — checked in at lib/test/fixtures/issue-304-body.md
+# byte-for-byte. This fixture makes AC-1 ("running the extractor over issue #304's
+# verbatim body emits the named docs") a real assertion: Case 14 embeds the same
+# bullet in a hand-crafted single-section body, so only this fixture pins
+# byte-for-byte fidelity to the real body and its full multi-`## `-section
+# document layout (Case 14 has a single `## Implementation Notes` section), so a
+# structural drift in the real body can never keep the suite green while it
+# no-ops. Also exercises the $1 file-arg path.
+# Expected: the three backticked doc files; the `docs/internal/workflows/`
+# directory ref is dropped (directories are not file deliverables) and the
+# parenthetical prose ("(review auto-trigger section)") yields no path tokens.
+assert_eq "#309 AC-1: verbatim issue #304 body emits exactly the three named doc files; dir ref dropped" \
+  "$(printf '.devflow/config.example.json\nCLAUDE.md\ndocs/DEVFLOW_SYSTEM_OVERVIEW.md')" \
+  "$(bash "$EXTRACT_HELPER" "$LIB/test/fixtures/issue-304-body.md")"
+
+# Case 17 (issue #309 review — ACCEPTED-tradeoff pin, mirror of Case 15): a
+# blank-line-PRECEDED bold paragraph the author meant as a continuation of the
+# bullet is structurally indistinguishable from a peer bullet (`**Potential
+# Gotchas.**`), so it CLOSES the scope and `docs/b.md` is deliberately dropped.
+# Closing is the leak-safe choice: treating it as continuation would emit every
+# following peer bullet's tokens (the false-positive direction #309's Gotchas
+# forbid). This pins the drop as a documented contract, not a silent surprise —
+# if the closer is ever tightened, this assertion states today's tradeoff.
+fx_309_mirror="## Implementation Notes
+
+**Documentation Needed** — update \`docs/a.md\` first.
+
+**Also.** update \`docs/b.md\` in the same pass.
+
+**Potential Gotchas.**
+- **Do not extract \`other/leak.md\` named here.**"
+assert_eq "#309 tradeoff pin: a blank-preceded bold continuation paragraph CLOSES scope (accepted drop — leak-safe direction)" \
+  "docs/a.md" \
+  "$(printf '%s\n' "$fx_309_mirror" | bash "$EXTRACT_HELPER")"
+
+# Case 18 (issue #309 review): the heading rule's `prev_blank = 1` reset is
+# load-bearing — a bare bold Documentation Needed paragraph on the line
+# IMMEDIATELY after `## Implementation Notes` (no separating blank line) must
+# still open scope, because a heading is a paragraph boundary. The prior section
+# deliberately ends with a NON-blank line so that deleting the reset leaves
+# prev_blank=0 at the bullet and this case goes RED (empty output).
+fx_309_hdr="## Technical Context
+prose that ends the prior section with no trailing blank line
+## Implementation Notes
+**Documentation Needed** — update \`docs/h.md\`.
+
+**Potential Gotchas.**
+- **Do not extract \`other/leak.md\` named here.**"
+assert_eq "#309 heading reset pin: bare bold bullet on the line directly after the heading (no blank) still opens scope" \
+  "docs/h.md" \
+  "$(printf '%s\n' "$fx_309_hdr" | bash "$EXTRACT_HELPER")"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "scaffold-config.sh"
 # ────────────────────────────────────────────────────────────────────────────
@@ -8676,12 +8782,26 @@ rm -rf "$RCT_STUB"
 
 # --- issue #314: coupled-invariant pin (resolver ↔ shared detector) ----------
 # The resolver MUST route through the ONE shared detector; a future divergence
-# (re-inlining a substring matcher) is caught here. The twin pin for the
-# review_dedupe workflow step is deferred with that change to a human-landed
-# follow-up (a workflows-scoped push the DevFlow bot token cannot make) — see
-# the deferred follow-up issue filed by /devflow:implement Phase 4.0.
+# (re-inlining a substring matcher) is caught here.
 assert_pin_unique "rct #314: resolver calls the shared detect-standalone-command.sh" \
   'detector="$(dirname "$0")/detect-standalone-command.sh"' "$LIB/../scripts/resolve-command-trigger.sh"
+
+# --- issue #321: coupled-invariant pin (dedupe ↔ shared detector) ------------
+# The twin of the #314 pin above, landed once the workflows-scoped push became
+# possible (a human/PAT push the DevFlow bot token cannot make). The
+# review_dedupe job in devflow.yml MUST route its body match through the SAME
+# vendored detector so the trigger gate and the dedupe matcher cannot drift;
+# re-inlining a `case "$BODY"` substring here would re-open that drift.
+assert_pin_unique "rct #321: review_dedupe routes through the shared detect-standalone-command.sh" \
+  '.devflow/vendor/devflow/scripts/detect-standalone-command.sh' "$LIB/../.github/workflows/devflow.yml"
+
+# review_dedupe is fail-OPEN by contract: a present-but-broken detector (or a
+# missing sed) must NOT abort the guard step under `set -euo pipefail` — an abort
+# fails the job, skipping the downstream `command` job and silently swallowing the
+# manual review. Pin the outcome-verifying `if !` wrapper (the operative fix);
+# reverting it to a bare `CMD=$(...)` assignment re-opens the fail-CLOSED swallow.
+assert_pin_unique "rct #321: review_dedupe detector extraction fails open on a run failure (if!-guarded)" \
+  'if ! CMD="$(printf '"'"'%s'"'"' "$BODY" | bash "$DETECTOR" | sed -n '"'"'s/^command=//p'"'"')"' "$LIB/../.github/workflows/devflow.yml"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "react-to-trigger.sh"
@@ -11021,7 +11141,7 @@ assert_eq "vendor: install.sh copies the vendor-plugin composite action" "1" \
   "$(grep -cE 'for a in .*vendor-plugin' "$REPO_ROOT/install.sh" || true)"
 # AC8 placement drift-guard: the vendor-plugin composite action reads files at
 # ./.github/actions/…, so the repo must be checked out BEFORE it runs in every
-# plugin-using job (six across the four workflows). Scan each workflow, reset the
+# plugin-using job (seven across the four workflows). Scan each workflow, reset the
 # "checkout seen" flag at each 2-space job/section boundary, and tally each
 # vendor-plugin use as ok only if an actions/checkout preceded it in the same job.
 VP_PLACEMENT="$(awk '
@@ -11031,7 +11151,7 @@ VP_PLACEMENT="$(awk '
   /uses:[[:space:]]*\.\/\.github\/actions\/vendor-plugin/ { if (seen) ok++; else bad++ }
   END { print (ok+0)"/"(bad+0) }
 ' "$REPO_ROOT"/.github/workflows/*.yml)"
-assert_eq "vendor: vendor-plugin runs after checkout in all six plugin jobs" "6/0" "$VP_PLACEMENT"
+assert_eq "vendor: vendor-plugin runs after checkout in all seven plugin jobs" "7/0" "$VP_PLACEMENT"
 
 # AC3 finalize_check drift-guard: the dismiss call must be preceded by an
 # explicit executability check so a vendoring miss (absent script, exit 127)
