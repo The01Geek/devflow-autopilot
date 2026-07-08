@@ -26,10 +26,13 @@
 # array in the slurped input, and the surfacing degrades to count-only when no
 # such array is present — the count (`permission_denials_count`) is always shown.
 #
-# Best-effort, mirroring parse-engine-error.sh: an absent, empty, unparseable, or
-# result-less execution file prints an explicit "no diagnostics available" line
-# and exits 0; a file with zero denials prints "No permission denials." Always
-# exits 0 — the caller reads stdout, never the exit code.
+# Best-effort, mirroring parse-engine-error.sh: an absent, empty, or unparseable
+# execution file — and a parsed file carrying neither a result event nor any
+# permission-denial detail — prints an explicit "no diagnostics available" line
+# and exits 0. (A parsed file with denial detail but no result event still
+# surfaces a partial block: n/a run-summary fields plus the denials.) A file with
+# zero denials prints "No permission denials." Always exits 0 — the caller reads
+# stdout, never the exit code.
 #
 # Usage: surface-execution-diagnostics.sh [EXECUTION_FILE]
 #   EXECUTION_FILE  path to the claude-code-action execution log.
@@ -68,7 +71,7 @@ _emit() {
 
 _HEADER="## DevFlow execution diagnostics"
 _NO_DIAG="$_HEADER
-_No diagnostics available (execution file absent, empty, unparseable, or carrying no result event)._"
+_No diagnostics available (execution file absent, empty, or unparseable)._"
 
 FILE="${1:-}"
 if [ -z "$FILE" ] || [ ! -f "$FILE" ] || [ ! -s "$FILE" ]; then
@@ -101,20 +104,31 @@ if ! BLOCK=$("$DEVFLOW_JQ" -rs --arg header "$_HEADER" '
         $header, "",
         "_No diagnostics available (no result event in execution file)._"
       else
-        (if $r.permission_denials_count == null then ($denials | length) else $r.permission_denials_count end) as $count
+        # Count resolution keeps "unknown" distinct from "measured zero" — do NOT
+        # collapse an absent count to 0 (that would fail OPEN: a run whose denial
+        # detail lived in a shape this slurp did not match, and whose result event
+        # omitted the count, would be affirmatively reported as "No permission
+        # denials." — the opposite of what this tool is for). $count is the reported
+        # count, else the gathered-denial length, else null (genuinely unknown).
+        ($denials | length) as $dcount
+        | (if $r.permission_denials_count != null then $r.permission_denials_count
+           elif $dcount > 0 then $dcount
+           else null end) as $count
         | $header, "",
           "### Run summary",
           "- is_error: \(orna($r.is_error))",
           "- num_turns: \(orna($r.num_turns))",
           "- duration_ms: \(orna($r.duration_ms))",
           "- total_cost_usd: \(orna($r.total_cost_usd))",
-          "- permission_denials_count: \($count)",
+          "- permission_denials_count: \(orna($count))",
           "",
           "### Permission denials",
-          (if $count == 0 then
+          (if $count == null then
+             "Permission-denial count unavailable — no permission_denials_count in the result event and no permission_denials array found."
+           elif $count == 0 then
              "No permission denials."
-           elif ($denials | length) > 0 then
-             ("\($denials | length) permission denial(s) with detail:"),
+           elif $dcount > 0 then
+             ("\($dcount) permission denial(s) with detail:"),
              ($denials[] | "- `\(.tool_name // "unknown")`: \(trunc(.tool_input // ""))")
            else
              "\($count) permission denial(s) reported; no per-denial detail in execution file."
@@ -123,7 +137,10 @@ if ! BLOCK=$("$DEVFLOW_JQ" -rs --arg header "$_HEADER" '
   ' "$FILE"); then
   # jq's own stderr flows to the caller's log; add a devflow breadcrumb naming the
   # file so a broken jq / unparseable log is attributable, not silently swallowed.
-  echo "devflow: surface-execution-diagnostics: jq failed parsing '$FILE' — no diagnostics available" >&2
+  # Worded to cover BOTH causes of a non-zero exit — an unparseable log AND an
+  # absent/unrunnable jq (resolve-jq.sh's final fallback is a bare, unverified jq) —
+  # rather than misattributing a missing binary to a parse error.
+  echo "devflow: surface-execution-diagnostics: jq ('$DEVFLOW_JQ') exited non-zero on '$FILE' (parse error or unrunnable jq) — no diagnostics available" >&2
   _emit "$_NO_DIAG"
   exit 0
 fi

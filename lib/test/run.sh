@@ -8180,7 +8180,9 @@ echo "surface-execution-diagnostics.sh (#329 execution-diagnostics surfacer: run
 # detail from a claude-code-action execution log to stdout (and $GITHUB_STEP_SUMMARY
 # when set). Always exits 0. Degrades to count-only when no per-denial array is
 # present, and to "no diagnostics available" when the file is absent/empty/
-# unparseable/result-less. Mirrors parse-engine-error.sh's slurp-based traversal.
+# unparseable or carries neither a result event nor denial detail. An absent
+# permission_denials_count (with no denial array) reads "unavailable", never a
+# fail-open zero. Mirrors parse-engine-error.sh's slurp-based traversal.
 SED="$LIB/../scripts/surface-execution-diagnostics.sh"
 SED_TMP="$(mktemp -d)"
 # populated: result object carrying the run summary AND a permission_denials array
@@ -8197,6 +8199,18 @@ printf '{"type":"system"}\n{"type":"result","is_error":false,"num_turns":2,"perm
 printf '%s' 'not json {{'   > "$SED_TMP/garbage.json"
 # empty file
 : > "$SED_TMP/empty.json"
+# parsed but NO result event and NO denials (message-only) -> the in-jq "no result
+# event" arm (distinct from the shell absent/empty guard and the jq-failure arm)
+printf '%s' '{"type":"system"}' > "$SED_TMP/msg_only.json"
+# result event present but permission_denials_count ABSENT and no denials array:
+# count is UNKNOWN, must NOT collapse to a success-shaped "No permission denials"
+printf '%s' '{"type":"result","is_error":false,"num_turns":4}' > "$SED_TMP/no_count.json"
+# denials array present but NO permission_denials_count field -> count derived from length
+printf '%s' '{"type":"result","is_error":false,"permission_denials":[{"tool_name":"Read","tool_input":"x"},{"tool_name":"Bash","tool_input":"y"}]}' > "$SED_TMP/count_from_len.json"
+# permission_denials is a bare OBJECT (not an array) -> the `else .` arm normalizes it
+printf '%s' '{"type":"result","is_error":false,"permission_denials_count":1,"permission_denials":{"tool_name":"Glob","tool_input":"z"}}' > "$SED_TMP/denial_obj.json"
+# result event missing duration_ms -> orna renders "n/a" (the null->n/a branch)
+printf '%s' '{"type":"result","is_error":true,"num_turns":2,"permission_denials_count":0}' > "$SED_TMP/missing_field.json"
 
 # --- AC1: run summary fields surfaced to stdout (capture once, grep the block) ---
 SED_POP_OUT="$(bash "$SED" "$SED_TMP/populated.json" 2>/dev/null)"
@@ -8247,8 +8261,35 @@ assert_eq "#329 surface-diag: missing file arg -> no diagnostics available" "yes
 # --- AC3: absent-file / malformed arms leave a breadcrumb (not a silent no-op) ---
 assert_eq "#329 surface-diag: absent-file arm emits 'execution file absent' breadcrumb" "yes" \
   "$(bash "$SED" "$SED_TMP/does-not-exist.json" 2>&1 1>/dev/null | grep -qF "execution file absent or empty" && echo yes || echo no)"
-assert_eq "#329 surface-diag: malformed arm emits 'jq failed parsing' breadcrumb" "yes" \
-  "$(bash "$SED" "$SED_TMP/garbage.json" 2>&1 1>/dev/null | grep -qF "jq failed parsing" && echo yes || echo no)"
+assert_eq "#329 surface-diag: malformed arm emits the jq-non-zero breadcrumb" "yes" \
+  "$(bash "$SED" "$SED_TMP/garbage.json" 2>&1 1>/dev/null | grep -qF "exited non-zero" && echo yes || echo no)"
+# --- fail-open guard: an ABSENT count with no denial array must read 'unavailable', not zero ---
+SED_NC_OUT="$(bash "$SED" "$SED_TMP/no_count.json" 2>/dev/null)"
+assert_eq "#329 surface-diag: absent count + no array -> 'count unavailable' (not fail-open zero)" "yes" \
+  "$(printf '%s' "$SED_NC_OUT" | grep -qF "Permission-denial count unavailable" && echo yes || echo no)"
+assert_eq "#329 surface-diag: absent count does NOT print 'No permission denials.'" "no" \
+  "$(printf '%s' "$SED_NC_OUT" | grep -qF "No permission denials." && echo yes || echo no)"
+assert_eq "#329 surface-diag: absent count renders permission_denials_count: n/a" "yes" \
+  "$(printf '%s' "$SED_NC_OUT" | grep -qF "permission_denials_count: n/a" && echo yes || echo no)"
+# --- parsed-but-result-less (message-only) -> the in-jq 'no result event' no-diag arm ---
+assert_eq "#329 surface-diag: message-only (no result, no denials) -> no diagnostics available" "yes" \
+  "$(bash "$SED" "$SED_TMP/msg_only.json" 2>/dev/null | grep -qF "No diagnostics available" && echo yes || echo no)"
+( bash "$SED" "$SED_TMP/msg_only.json" >/dev/null 2>&1 ); assert_eq "#329 surface-diag: exits 0 (message-only)" "0" "$?"
+# --- count derived from the denials-array length when the count field is absent ---
+SED_CFL_OUT="$(bash "$SED" "$SED_TMP/count_from_len.json" 2>/dev/null)"
+assert_eq "#329 surface-diag: count derived from denial-array length" "yes" \
+  "$(printf '%s' "$SED_CFL_OUT" | grep -qF "permission_denials_count: 2" && echo yes || echo no)"
+assert_eq "#329 surface-diag: derived-count surfaces per-denial detail" "yes" \
+  "$(printf '%s' "$SED_CFL_OUT" | grep -qF '`Read`' && echo yes || echo no)"
+# --- a bare-object permission_denials (not an array) is normalized by the `else .` arm ---
+assert_eq "#329 surface-diag: single-object permission_denials normalized to detail" "yes" \
+  "$(bash "$SED" "$SED_TMP/denial_obj.json" 2>/dev/null | grep -qF '`Glob`' && echo yes || echo no)"
+# --- orna null->n/a branch: a result event missing duration_ms/total_cost_usd renders n/a ---
+SED_MF_OUT="$(bash "$SED" "$SED_TMP/missing_field.json" 2>/dev/null)"
+assert_eq "#329 surface-diag: missing duration_ms renders 'duration_ms: n/a'" "yes" \
+  "$(printf '%s' "$SED_MF_OUT" | grep -qF "duration_ms: n/a" && echo yes || echo no)"
+assert_eq "#329 surface-diag: missing total_cost_usd renders 'total_cost_usd: n/a'" "yes" \
+  "$(printf '%s' "$SED_MF_OUT" | grep -qF "total_cost_usd: n/a" && echo yes || echo no)"
 # --- AC2: appends to $GITHUB_STEP_SUMMARY when set & non-empty; stdout-only when not ---
 SED_SUMMARY="$SED_TMP/step_summary.md"
 : > "$SED_SUMMARY"
@@ -8259,9 +8300,25 @@ assert_eq "#329 surface-diag: appends the block to GITHUB_STEP_SUMMARY when set"
 SED_STDOUT="$(GITHUB_STEP_SUMMARY="" bash "$SED" "$SED_TMP/populated.json" 2>/dev/null)"
 assert_eq "#329 surface-diag: stdout still carries the block when GITHUB_STEP_SUMMARY unset" "yes" \
   "$(printf '%s' "$SED_STDOUT" | grep -qF "### Run summary" && echo yes || echo no)"
-# DEVFLOW_JQ override honored (best-effort seam, same as parse-engine-error.sh)
-assert_eq "#329 surface-diag: honors DEVFLOW_JQ override" "yes" \
-  "$(DEVFLOW_JQ="$(command -v jq)" bash "$SED" "$SED_TMP/populated.json" 2>/dev/null | grep -qF "### Run summary" && echo yes || echo no)"
+# GITHUB_STEP_SUMMARY pointing at an unwritable path: the append fails with a breadcrumb
+# but stdout still carries the block and the helper still exits 0 (best-effort).
+SED_BADSUMMARY_OUT="$(GITHUB_STEP_SUMMARY="$SED_TMP/nonexistent-dir/summary.md" bash "$SED" "$SED_TMP/populated.json" 2>/dev/null)"
+assert_eq "#329 surface-diag: unwritable GITHUB_STEP_SUMMARY -> stdout still carries the block" "yes" \
+  "$(printf '%s' "$SED_BADSUMMARY_OUT" | grep -qF "### Run summary" && echo yes || echo no)"
+assert_eq "#329 surface-diag: unwritable GITHUB_STEP_SUMMARY leaves a breadcrumb" "yes" \
+  "$(GITHUB_STEP_SUMMARY="$SED_TMP/nonexistent-dir/summary.md" bash "$SED" "$SED_TMP/populated.json" 2>&1 1>/dev/null | grep -qF "could not append to GITHUB_STEP_SUMMARY" && echo yes || echo no)"
+( GITHUB_STEP_SUMMARY="$SED_TMP/nonexistent-dir/summary.md" bash "$SED" "$SED_TMP/populated.json" >/dev/null 2>&1 ); assert_eq "#329 surface-diag: exits 0 (unwritable GITHUB_STEP_SUMMARY)" "0" "$?"
+# DEVFLOW_JQ override honored (best-effort seam, same as parse-engine-error.sh).
+# NON-VACUOUS: point the override at a non-runnable binary and observe the behavioral
+# difference — the jq call exits non-zero, so the helper degrades to "no diagnostics
+# available" (+ the jq-non-zero breadcrumb) and still exits 0. A helper that ignored
+# DEVFLOW_JQ and called bare `jq` would instead surface the run summary, failing this.
+SED_BADJQ_OUT="$(DEVFLOW_JQ=/nonexistent/definitely-not-jq bash "$SED" "$SED_TMP/populated.json" 2>/dev/null)"
+assert_eq "#329 surface-diag: broken DEVFLOW_JQ override -> no diagnostics available (override honored)" "yes" \
+  "$(printf '%s' "$SED_BADJQ_OUT" | grep -qF "No diagnostics available" && echo yes || echo no)"
+assert_eq "#329 surface-diag: broken DEVFLOW_JQ override does NOT surface a run summary (non-vacuous)" "no" \
+  "$(printf '%s' "$SED_BADJQ_OUT" | grep -qF "### Run summary" && echo yes || echo no)"
+( DEVFLOW_JQ=/nonexistent/definitely-not-jq bash "$SED" "$SED_TMP/populated.json" >/dev/null 2>&1 ); assert_eq "#329 surface-diag: exits 0 (broken DEVFLOW_JQ)" "0" "$?"
 # --- AC8: the execution_diagnostics_enabled key exists in schema + example (default true) ---
 SED_SCHEMA="$LIB/../.devflow/config.schema.json"
 SED_EXAMPLE="$LIB/../.devflow/config.example.json"
