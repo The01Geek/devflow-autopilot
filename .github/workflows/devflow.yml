@@ -117,6 +117,14 @@ jobs:
     outputs:
       suppress: ${{ steps.guard.outputs.suppress }}
     steps:
+      - uses: actions/checkout@v6
+      # Materialize the plugin so detect-standalone-command.sh exists at
+      # .devflow/vendor/devflow/scripts/ (committed → self → fetch). Mirrors the
+      # gate job so the dedupe body match routes through the SAME shared detector
+      # the resolver uses — the two matchers cannot drift (issue #321).
+      - uses: ./.github/actions/vendor-plugin
+        with:
+          ref: ${{ needs.config.outputs.devflow_version }}
       - id: guard
         env:
           GH_TOKEN: ${{ github.token }}
@@ -128,16 +136,40 @@ jobs:
           emit() { echo "suppress=$1" >> "$GITHUB_OUTPUT"; }
           emit false  # fail-OPEN default: manual review proceeds unless we prove auto is in-flight
 
-          # First-match-wins: review-and-fix (no automated counterpart, never
-          # dedupe) is matched BEFORE the /devflow:review substring it
-          # contains; anything else is not a review request.
-          case "$BODY" in
-            *"/devflow:review-and-fix"*)
+          # Route body detection through the SAME shared standalone-command
+          # detector the resolver uses (vendored above), so a quoted/documented
+          # /devflow:review mention neither dedupes nor posts a suppression
+          # notice, and the trigger gate and this matcher cannot drift (#321).
+          # The detector is markdown-aware and fires only on a command that is
+          # the sole content of its own line; it emits `command=<token>` on
+          # stdout. First-match-wins is preserved by the detector's
+          # most-specific-first ordering (review-and-fix outranks review).
+          DETECTOR=.devflow/vendor/devflow/scripts/detect-standalone-command.sh
+          if [ ! -x "$DETECTOR" ]; then
+            # Fail OPEN (the job's contract): a missing detector must never
+            # suppress a manual review. Surface it so a vendoring miss is
+            # distinguishable from "not a review request".
+            echo "::warning::devflow detector not found at $DETECTOR — has install.sh vendored the plugin? Fail-open (manual review proceeds)."
+            exit 0
+          fi
+          # Verify the OUTCOME, not just the -x precondition: a present-but-broken
+          # detector (corrupt/partial vendored copy, awk error) or a missing sed
+          # exits non-zero, and under `set -euo pipefail` that would abort this step
+          # and FAIL the job — which then SKIPS the downstream `command` job (it
+          # `needs: review_dedupe` with no always()), silently swallowing the manual
+          # review. That is the fail-CLOSED direction this job's contract forbids, so
+          # absorb any run failure into the same fail-OPEN exit the -x branch uses (#321).
+          if ! CMD="$(printf '%s' "$BODY" | bash "$DETECTOR" | sed -n 's/^command=//p')"; then
+            echo "::warning::devflow detector at $DETECTOR failed to run (broken vendored copy, or missing sed/bash); fail-open (manual review proceeds)."
+            exit 0
+          fi
+          case "$CMD" in
+            /devflow:review-and-fix)
               echo "::notice::/devflow:review-and-fix has no auto path; not deduping."
               exit 0 ;;
-            *"/devflow:review"*) : ;;
+            /devflow:review) : ;;
             *)
-              echo "::notice::Not a /devflow:review request; nothing to dedupe."
+              echo "::notice::Not a standalone /devflow:review request; nothing to dedupe."
               exit 0 ;;
           esac
 

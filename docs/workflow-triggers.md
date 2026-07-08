@@ -182,18 +182,15 @@ Because anchoring operates on the resolver's `TRIGGER_TEXT` input, it is
 `TRIGGER_TEXT: ${{ github.event.comment.body || github.event.review.body }}`
 wiring already routes the PR-review body in, so no new surface wiring is added.
 
-> **Follow-up (workflows-scoped push):** the `review_dedupe` job in `devflow.yml`
-> is intended to route through the **same** `detect-standalone-command.sh`
-> detector (not its own `case` substring), so a quoted/documented
-> `/devflow:review` mention neither dedupes nor posts a "manual review
-> suppressed" notice and the two matchers cannot drift. That change edits a file
-> under `.github/workflows/`, which needs a `workflows`-scoped push the DevFlow
-> bot's installation token lacks, so it lands via a human/PAT in a separate
-> follow-up rather than in the bot-authored PR that ships the resolver anchoring
-> here. Until then the resolver anchoring is the authoritative trigger gate (it
-> already covers the reported PR-review vector); `review_dedupe` keeps its
-> pre-existing coarse `case` match, which only affects the cosmetic
-> manual-review-suppressed notice, never whether a run starts.
+> **Landed (issue #321):** the `review_dedupe` job in `devflow.yml` now routes
+> through the **same** `detect-standalone-command.sh` detector (not its own
+> `case` substring), so a quoted/documented `/devflow:review` mention neither
+> dedupes nor posts a "manual review suppressed" notice and the two matchers are
+> a single source of truth that cannot drift. Because that change edits a file
+> under `.github/workflows/`, it needed a `workflows`-scoped push the DevFlow
+> bot's installation token lacks, so it landed via a human/PAT in the #321
+> follow-up rather than in the bot-authored PR that shipped the resolver
+> anchoring here.
 
 > **Out of scope (decided):** a light command posted on a plain **non-PR issue**
 > comment still resolves a number and runs; narrowing that surface is deferred to
