@@ -1718,6 +1718,11 @@ assert_pin_unique "339(AC3): code-reviewer scores a HEAD-verified false changed-
 # once per dispatch prompt = 2 sites in the review engine).
 assert_eq "339(AC2): dispatch prompts name the four recurring shapes (comment-analyzer + code-reviewer)" \
   "2" "$(pin_count 'claim the code does not bear out' "$ST_REV")"
+# AC2 (hardening) — pin an EARLIER shape too, not only the fourth shape's tail: the
+# "known limitation the same diff already fixed" shape occurs once per dispatch prompt (= 2),
+# so dropping shapes 1-3 from a prompt now turns a pin RED instead of shipping GREEN.
+assert_eq "339(AC2): dispatch prompts name the 'known limitation already fixed' shape (both prompts)" \
+  "2" "$(pin_count 'a "known limitation" the same diff already fixed' "$ST_REV")"
 # AC4 — Phase 4.1.5 shape 2 explicitly excludes a false-against-HEAD diff-added/modified artifact
 # from the cosmetic-wording class (the operative exclusion sentence; removal re-opens the mis-file).
 assert_pin_unique "339(AC4): shape 2 excludes a false-against-HEAD diff-added/modified artifact" \
@@ -1739,6 +1744,12 @@ assert_pin_unique "339(AC5): sweep emits a visible clean-pass line" \
   'truthfulness sweep: no finding promoted' "$ST_REV"
 assert_pin_unique "339(AC5): sweep promotes only on demonstrated falsity, never on suspicion (fail-direction safety)" \
   'The sweep never promotes on suspicion, only on demonstrated falsity' "$ST_REV"
+# AC5/AC9 (hardening) — pin the negative-scope carve-out (what is NEVER a sweep subject): a
+# machine-significant comment keeps its behavioral fail-direction grading. Its deletion would
+# strip the boundary preventing the sweep from colliding with the #291 in-code-comment cap, so
+# it is a load-bearing safety-envelope sentence that must go RED on removal.
+assert_pin_unique "339(AC9): sweep excludes a machine-significant comment (graded by behavioral fail-direction)" \
+  'machine-significant comment (lint/type directive, tool-read marker — graded by its behavioral fail-direction)' "$ST_REV"
 # AC (docs sync) — both engine docs describe the pre-verdict truthfulness sweep.
 assert_pin_unique "339(docs): DEVFLOW_SYSTEM_OVERVIEW describes the pre-verdict truthfulness sweep" \
   'pre-verdict truthfulness sweep' "$OG_OVERVIEW_DOC"
