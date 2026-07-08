@@ -6950,6 +6950,27 @@ assert_eq "#332 fallback: bare main repo → exits 0" "0" "$RMR_BARE_RC"
 assert_eq "#332 fallback: bare main repo → specific (not generic) stderr breadcrumb" "yes" \
   "$(printf '%s' "$RMR_BARE_ERR" | grep -q 'resolve-main-root' && echo yes || echo no)"  # raw-guard-ok: breadcrumb specificity probe on captured stderr
 
+# AC (resolved root no longer exists on disk): git SUCCEEDS and reports a worktree path in
+# `--porcelain`, but that path is gone from disk (e.g. inside a linked worktree whose main
+# tree was removed). The `[ -d "$main_root" ]` arm must reject the stale path and fall back
+# to pwd + breadcrumb — otherwise the resolver prints a nonexistent path the user cannot
+# open, the exact failure this helper exists to prevent. A git stub emitting a bogus
+# porcelain record exercises this branch precisely; without it every fallback test drives
+# `main_root` EMPTY (gated by `[ -n ]` alone), so deleting `&& [ -d "$main_root" ]` would
+# leave the suite GREEN.
+RMR_STALE="$(git_sandbox "#332 resolver stale-root bin")"
+printf '#!/bin/sh\nprintf "worktree /nonexistent/devflow-main-gone\\n"\n' > "$RMR_STALE/git"; chmod +x "$RMR_STALE/git"
+RMR_STALE_OUT="$(cd "$RMR_MAIN" && PATH="$RMR_STALE:$PATH" bash "$RMR" 2>/dev/null)"
+RMR_STALE_ERR="$(cd "$RMR_MAIN" && PATH="$RMR_STALE:$PATH" bash "$RMR" 2>&1 >/dev/null)"
+RMR_STALE_RC=0; (cd "$RMR_MAIN" && PATH="$RMR_STALE:$PATH" bash "$RMR" >/dev/null 2>&1) || RMR_STALE_RC=$?
+assert_eq "#332 fallback: resolved root gone from disk → prints pwd (not the stale porcelain path)" \
+  "$(cd "$RMR_MAIN" && pwd)" "$RMR_STALE_OUT"
+assert_eq "#332 fallback: resolved root gone from disk → does NOT print the stale nonexistent path" "yes" \
+  "$([ "$RMR_STALE_OUT" != "/nonexistent/devflow-main-gone" ] && echo yes || echo no)"
+assert_eq "#332 fallback: resolved root gone from disk → exits 0" "0" "$RMR_STALE_RC"
+assert_eq "#332 fallback: resolved root gone from disk → specific (not generic) stderr breadcrumb" "yes" \
+  "$(printf '%s' "$RMR_STALE_ERR" | grep -q 'resolve-main-root' && echo yes || echo no)"  # raw-guard-ok: breadcrumb specificity probe on captured stderr
+
 # create-issue SKILL.md contract pins (coupled with the SKILL.md edit — reconciled in the
 # same change per the AC). The draft is written to AND displayed at the main-root absolute
 # path; no bare-relative displayed draft-save note remains.
