@@ -15,4 +15,7 @@ type: Fixed
   deferral summary) now points at the real `docs/workflow-triggers.md`. Adds coupled
   `lib/test/run.sh` static pins (CI-completion draft/stale-head guards, the missing-helper
   fail-open `return 0`, `resolve_pr_for_head`'s open-PR filter, and a `cancelled`-conclusion
-  exclusion-filter fixture). (#325)
+  exclusion-filter fixture). The deferral-dedup reuse lookup now distinguishes a genuine
+  check-runs query failure from an empty result with its own breadcrumb (consistent with the
+  sibling helpers), and its jq projection is byte-coupled to the workflow source by a
+  `run.sh` presence pin so a swapped column order can no longer pass green. (#325)

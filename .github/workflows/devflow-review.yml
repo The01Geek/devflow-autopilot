@@ -760,11 +760,25 @@ jobs:
             # a lookup failure leaves REUSE_ID empty and falls through to the
             # POST path, so the required check is never lost.
             REUSE_ID=""
-            while IFS=$'\t' read -r _rt _rid; do
-              if [ "$_rt" = "$TITLE" ]; then REUSE_ID="$_rid"; break; fi
-            done < <(gh api --paginate "repos/$REPO/commits/$HEAD_SHA/check-runs" \
-                       --jq '.check_runs[] | select(.name=="Devflow Review" and .conclusion=="neutral") | [(.output.title // ""), (.id|tostring)] | @tsv' \
-                       2>/dev/null || true)
+            # Capture the lookup separately (not a `2>/dev/null || true` process
+            # substitution) so a genuine query failure (rate limit, 5xx, 403
+            # token-scope) is DISTINGUISHED from a legitimate "no existing
+            # neutral check to reuse": both leave REUSE_ID empty and fall
+            # through to the POST path (so the required check is never lost),
+            # but only the failure emits a breadcrumb — consistent with the
+            # sibling helpers this workflow hardens (devflow_review_run_count,
+            # resolve_pr_for_head), which likewise distinguish query failure
+            # from an empty result. gh's own stderr is left on the log too.
+            _reuse_rc=0
+            _reuse_pairs=$(gh api --paginate "repos/$REPO/commits/$HEAD_SHA/check-runs" \
+                             --jq '.check_runs[] | select(.name=="Devflow Review" and .conclusion=="neutral") | [(.output.title // ""), (.id|tostring)] | @tsv') || _reuse_rc=$?
+            if [ "$_reuse_rc" -eq 0 ]; then
+              while IFS=$'\t' read -r _rt _rid; do
+                if [ "$_rt" = "$TITLE" ]; then REUSE_ID="$_rid"; break; fi
+              done <<< "$_reuse_pairs"
+            else
+              echo "::warning::Could not query existing 'Devflow Review' check-runs for $HEAD_SHA to de-duplicate the deferral (gh api rc=$_reuse_rc); falling back to posting a fresh neutral check."
+            fi
             if [[ "$REUSE_ID" =~ ^[0-9]+$ ]]; then
               if gh api -X PATCH "repos/$REPO/check-runs/$REUSE_ID" \
                   -f status='completed' -f conclusion='neutral' \

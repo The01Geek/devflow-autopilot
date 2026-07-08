@@ -9646,6 +9646,14 @@ assert_eq "#311 AC5 reuse lookup projects title<TAB>id (column order) for neutra
   "$(echo '{"check_runs":[{"name":"Devflow Review","conclusion":"neutral","output":{"title":"Devflow review waiting: branch behind base"},"id":7},{"name":"Devflow Review","conclusion":"success","output":{"title":"x"},"id":8},{"name":"Other","conclusion":"neutral","output":{"title":"y"},"id":9}]}' | jq -r "$REUSE_FILTER")"
 assert_eq "#311 AC5 reuse lookup emits an empty title column (not null) when output.title is absent" "$(printf '\t11')" \
   "$(echo '{"check_runs":[{"name":"Devflow Review","conclusion":"neutral","id":11}]}' | jq -r "$REUSE_FILTER")"
+# (AC5, coupling) The fixture above only proves REUSE_FILTER is self-consistent;
+# it does NOT prove the workflow still uses that exact projection. A swap of the
+# workflow's projection column order (id<TAB>title) would break de-dup while the
+# fixture stayed green. Byte-couple the fixture to the source the same way
+# RUNCOUNT_FILTER is: the exact filter string must appear verbatim in the
+# workflow exactly once (a swapped/edited projection makes this count 0 → RED).
+assert_eq "#311 AC5 reuse-lookup projection in run.sh is byte-identical to the workflow (exactly one match)" "1" \
+  "$(grep -cF "$REUSE_FILTER" "$REVIEW_WF" || true)"
 # (AC6) The dangling review-rerun-checks.md comment ref is corrected to the
 # real doc, and the behind-base deferral summary points at it.
 assert_eq "#311 no dangling review-rerun-checks.md reference remains in the workflow" "0" \
