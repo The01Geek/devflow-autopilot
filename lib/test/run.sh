@@ -15929,6 +15929,14 @@ echo "#312: workflow endpoint↔permission lint"
 # families it flagged; and (b) the grant-present→0 no-false-positive path is exercised for the
 # actions and comments families (via `inherits`/`comments_ok_*`) but relies on the real-tree
 # clean assert for the other four — both revisit if the family set or regexes are reworked.
+# KNOWN FAIL-OPEN, DEFERRED (#312 receiving-review shadow, silent-failure-hunter): the
+# pulls/{n} sub-resource arm below REQUIRES a recognized sub-resource keyword after the PR
+# number, so a BARE repos/*/pulls/{n} (no trailing sub-resource — notably the sanctioned
+# `PATCH repos/{owner}/{repo}/pulls/{n}` PR-body edit) emits no pull-requests requirement and
+# reads clean even in a job lacking the grant. NOT live: the whole helper tree (scripts/ +
+# lib/) contains no bare pulls/{n} PATCH/GET (verified — every pulls/{n}/… call carries a
+# sub-resource); revisit (add a bare `pulls/[^ "'/]+` arm) if a helper adds a bare pulls/{n}
+# call. Disclosed here to match the deny-all / single-level / indentation deferrals above.
 
 # Echo family key $2 when its ERE $1 matches the piped body (grep rc 0) OR when grep
 # ERRORS (rc>=2) — the latter fail-CLOSED: an undetermined scan must surface as a
