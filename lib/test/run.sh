@@ -1176,7 +1176,15 @@ assert_pin_unique "347(AC2): the blinded verifier receives only the enumerated b
 # AC3 (APPROVE posts through Phase 4.4 + reuses dismiss-stale-rejections.sh unchanged).
 assert_pin_unique "347(AC3): fast-path APPROVE reuses dismiss-stale-rejections.sh like a full run" \
   'on the APPROVE exactly like a full-run APPROVE' "$ST_REV"
-# AC1 fail-closed precondition — all-PASS except carve-out: zero FAIL/INCONCLUSIVE, and no
+# AC1 detection preconditions (unpinned before PR #349 review) — precondition 1 reads the
+# rejected head from the reviews-API commit_id, precondition 2 pins to a PRIOR run's progress
+# comment (never this run's freshly-seeded one). Both underpin the $REJECTED_HEAD..$PR_HEAD_SHA
+# smuggle guard, so pin their operative phrases.
+assert_pin_unique "347(AC1): rejected head is the reviews-API commit_id (authoritative)" \
+  'the authoritative rejected head' "$ST_REV"
+assert_pin_unique "347(AC1): precondition 2 reads a prior run's REJECT comment, not this run's seed" \
+  'its run-key differs from' "$ST_REV"
+# AC4 fail-closed precondition — all-PASS except carve-out: zero FAIL/INCONCLUSIVE, and no
 # non-carve-out verdict-driving finding at/above threshold. Two operative sentences.
 assert_pin_unique "347(AC4): precondition requires zero checklist FAIL/INCONCLUSIVE" \
   'must record **zero** FAIL and **zero** INCONCLUSIVE' "$ST_REV"
@@ -1185,9 +1193,18 @@ assert_pin_unique "347(AC4): precondition excludes non-carve-out verdict-driving
 # AC4 fail-closed precondition — unparseable blocker enumeration falls through (never guess).
 assert_pin_unique "347(AC4): unparseable blocker enumeration falls through, never guessed" \
   'never guess a blocker set' "$ST_REV"
-# AC4 fail-closed precondition — an intervening change outside the blocker sites falls through.
-assert_pin_unique "347(AC4): intervening change outside blocker sites cannot smuggle past APPROVE" \
-  'smuggle unreviewed changes behind an APPROVE' "$ST_REV"
+# AC4 intervening-change guard — pin the OPERATIVE fail-closed mechanism (the ancestor check
+# added in PR #349 review), not the trailing "smuggle" rationale clause: a behavior-weakening
+# reword of the guard must go RED. The empty-diff-not-vacuous rule and the "target head is
+# $PR_HEAD_SHA, never local HEAD" rule are the two fail-open fixes from that review — pin each
+# operative sentence so a revert to bare HEAD / a vacuous empty-diff pass re-introduces the
+# corroborated Critical/Important fail-open and turns the suite RED.
+assert_pin_unique "347(AC4): intervening-change guard requires REJECTED_HEAD ancestor of PR_HEAD_SHA" \
+  'git merge-base --is-ancestor "$REJECTED_HEAD" "$PR_HEAD_SHA"' "$ST_REV"
+assert_pin_unique "347(AC4): an errored/empty diff is never trusted as a benign empty (fail-closed)" \
+  'never as the vacuous default of an errored diff' "$ST_REV"
+assert_pin_unique "347(AC4): target head is the pushed \$PR_HEAD_SHA, never the local git HEAD ref" \
+  'never the local `git HEAD` ref' "$ST_REV"
 # AC4 (single-source guarantee): gated OFF for /devflow:review-and-fix (head_override=local),
 # so the fix loop never takes the fast path mid-loop and the engine stays single-sourced.
 assert_pin_unique "347(AC4): fast path is gated off when head_override is set (fix-loop reuse)" \
