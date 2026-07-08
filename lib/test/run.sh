@@ -4144,10 +4144,9 @@ assert_eq "#309 fail-open guard: a bold-led continuation line does NOT close sco
 
 # Case 16 (issue #309 AC-1, review): the VERBATIM issue #304 body — the real-world
 # shape that motivated #309 — checked in at lib/test/fixtures/issue-304-body.md
-# byte-for-byte. Case 14 is a hand-crafted paraphrase of the bullet; this fixture
-# makes AC-1 ("running the extractor over issue #304's verbatim body emits the
-# named docs") a real assertion: Case 14 paraphrases the bullet (it too carries
-# the wrapped multi-line bare-paragraph form), but only this fixture pins
+# byte-for-byte. This fixture makes AC-1 ("running the extractor over issue #304's
+# verbatim body emits the named docs") a real assertion: Case 14 embeds the same
+# bullet in a hand-crafted single-section body, so only this fixture pins
 # byte-for-byte fidelity to the real body and its full multi-`## `-section
 # document layout (Case 14 has a single `## Implementation Notes` section), so a
 # structural drift in the real body can never keep the suite green while it
