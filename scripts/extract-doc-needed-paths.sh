@@ -21,7 +21,20 @@
 #     the same two shapes, or the next `## ` heading (or EOF). A bold-emphasis
 #     span that only begins a wrapped CONTINUATION line inside the bullet (no
 #     `- `, not blank-preceded) does NOT close the scope, so paths on wrapped
-#     lines are still captured. A path mentioned in `## Current Behavior`,
+#     lines are still captured. Two adjacent-grammar shapes are handled per
+#     issue #327: (Shape 1) a top-level bold DELIVERABLE list after the bullet
+#     (`- **`docs/a.md`**`) is captured — a backtick-led bold item is a
+#     deliverable, not a peer label, and does not close the scope (a
+#     non-backticked `- **docs/a.md**` is indistinguishable from a peer label
+#     and closes, an accepted run.sh-pinned tradeoff); (Shape 2) a
+#     blank-separated PLAIN-PROSE paragraph closes the scope so its tokens do not
+#     leak — but ONLY once a deliverable has already been captured, so a PRIMARY
+#     prose declaration (a bare opener followed by a prose paragraph that names
+#     the path) and INTERVENING prose before the deliverables are still captured
+#     (avoiding the fail-open an unconditional close would cause), while a
+#     genuinely-TRAILING prose paragraph after the deliverables is dropped. A
+#     blank-separated plain sub-list (`- `docs/a.md``) stays in scope. A path
+#     mentioned in `## Current Behavior`,
 #     `## Technical Context`, or any OTHER bullet is NOT a documentation
 #     deliverable and is never emitted.
 #   * a token counts as a path only if it ends in a recognized documentation/
@@ -47,10 +60,46 @@ set -euo pipefail
 
 body="$(cat "${1:-/dev/stdin}")"
 
-# Stage A — isolate the **Documentation Needed** bullet block (scope-only; no
-# token logic here). awk state: 0 = outside Implementation Notes; 1 = inside the
-# section but outside the bullet; 2 = inside the Documentation Needed bullet.
-block="$(printf '%s\n' "$body" | awk '
+# Recognized documentation/source extensions (an ERE alternation, no anchors).
+# SINGLE-SOURCED here: Stage A's `emitted` proxy (passed in via -v extre) and
+# Stage B's path test (below) both consume it, so the two can never drift — a
+# coupled invariant, kept in one place. Editing this list changes both callers.
+doc_ext_alt='md|markdown|sh|json|py|ya?ml|rst|txt|adoc|mdx|toml|cfg|ini'
+
+# Stage A — isolate the **Documentation Needed** bullet block. Scope logic only,
+# with ONE minimal token-awareness point: the `emitted` proxy (see its arm below)
+# flips once a printed STRUCTURAL line (a list item or bold line) bears a
+# recognized-extension path — never a plain-prose line — so a *later* trailing
+# prose paragraph can close the scope without ever dropping a primary/intervening
+# prose deliverable (the fail-open guard: prose can never arm the close). awk
+# state: 0 = outside Implementation Notes; 1 = inside the section but outside the
+# bullet; 2 = inside the Documentation Needed bullet.
+block="$(printf '%s\n' "$body" | awk -v extre="$doc_ext_alt" '
+  # arms(line): does this line contain a token STAGE B WOULD EMIT? The `emitted`
+  # gate for the Shape 2 close (below) is only fail-open-safe if arming implies a
+  # real path was captured, so this MUST mirror the Stage B token predicate: split
+  # on the same non-path delimiters, apply the same leading-./ and trailing-dot
+  # strips, drop the same rooted (/...) and parent-escape (../...) tokens, and
+  # require a basename + a recognized extension (extre, single-sourced). A looser
+  # test (a bare line ".ext" substring) would arm on prose/list tokens Stage B
+  # DROPS — a bare ".md", a rooted "/x/y.md", a URL, "../x.md" — letting the next
+  # trailing-prose paragraph close the scope and drop the real deliverable to
+  # empty output (the fail-OPEN this whole gate exists to prevent). COUPLED with
+  # the Stage B `case` drops + extension test below: change one, change both.
+  function arms(line,   n, arr, i, t) {
+    n = split(line, arr, /[^A-Za-z0-9._\/-]+/)
+    for (i = 1; i <= n; i++) {
+      t = arr[i]
+      sub(/^\.\//, "", t)
+      sub(/\.+$/, "", t)
+      if (t == "") continue
+      if (t ~ /^\//) continue
+      if (t ~ /^\.\.\//) continue
+      if (t ~ /\/\.\.\//) continue
+      if (t ~ ("[A-Za-z0-9._-][.](" extre ")$")) return 1
+    }
+    return 0
+  }
   BEGIN { prev_blank = 1 }   # start-of-file is a paragraph boundary
   /^## / {
     state = ($0 ~ /^## Implementation Notes[[:space:]]*$/) ? 1 : 0
@@ -89,10 +138,91 @@ block="$(printf '%s\n' "$body" | awk '
   # the label in its prose (e.g. the Potential Gotchas bullet) closes the scope
   # rather than re-opening it. Sub-bullets ("  - x") and non-bold continuation
   # prose do not match and stay within an open scope.
-  state >= 1 && ( /^- \*\*/ || ( /^\*\*/ && prev_blank ) ) {
-    state = ($0 ~ /^(- )?\*\*Documentation Needed\*\*/) ? 2 : 1
+  #
+  # SHAPE 1 (issue #327): the [^`] after \*\* excludes a BACKTICK-LED bold item
+  # (e.g. "- **`docs/a.md`**", "**`docs/a.md`**") from this scope-controlling arm.
+  # Such an item is a listed DELIVERABLE path, not a peer section LABEL
+  # ("- **Potential Gotchas**", which opens with a letter), so it must NOT close
+  # the scope: a top-level bold DELIVERABLE list after the bullet then stays IN
+  # scope and its paths are captured, instead of the first item silently closing
+  # the scope to empty output (the fail-open the issue reported). A NON-backticked
+  # bold item ("- **docs/a.md**") is structurally identical to a peer label and
+  # DOES close — an ACCEPTED, run.sh-pinned tradeoff (leak-safe direction, mirror
+  # of the Case 17 drop; deliverable lists in the wild backtick their paths).
+  # `emitted` is reset to 0 whenever a FRESH Documentation Needed scope opens
+  # (transition into state 2 from a non-2 state) so the Shape 2 close arm below
+  # can tell a genuinely-TRAILING prose paragraph (one that follows a captured
+  # deliverable) from a PRIMARY prose declaration (the deliverable itself). See
+  # the Shape 2 comment.
+  state >= 1 && ( /^- \*\*[^`]/ || ( /^\*\*[^`]/ && prev_blank ) ) {
+    ns = ($0 ~ /^(- )?\*\*Documentation Needed\*\*/) ? 2 : 1
+    if (ns == 2 && state != 2) emitted = 0
+    state = ns
   }
-  state == 2 { print }
+  # SHAPE 2 (issue #327): a blank-line-PRECEDED PLAIN-PROSE paragraph (not blank,
+  # not a list item, not a bold bullet) inside an open bullet closes the scope so
+  # its path-like tokens do not LEAK into the gate as deliverables the docs pass
+  # never owed (over-emission) — BUT only once a deliverable has already been
+  # captured in this scope (`emitted`). That `emitted` guard is load-bearing: it
+  # distinguishes genuinely-TRAILING prose (which follows the deliverables and is
+  # safe to drop — the Suggestion-#3 fixture this issue targets) from a PRIMARY
+  # prose declaration where the paragraph IS the deliverable ("**Documentation
+  # Needed**\n\nUpdate `docs/foo.md`."). Closing unconditionally would empty the
+  # output for that primary-prose shape — a fail-OPEN that silently disables the
+  # Phase 4.1 gate (the #289/#309/#327 recurrence). Because a fresh scope opens
+  # with emitted=0, the FIRST prose paragraph (and any INTERVENING prose before
+  # the deliverables are captured) stays in scope and is captured; only prose that
+  # arrives AFTER a deliverable was emitted is treated as trailing and dropped.
+  # A blank-separated PLAIN sub-list ("- `docs/a.md`", non-bold) is a list
+  # CONTINUATION, not prose: the ^[[:space:]]*- guard keeps it in scope. The
+  # $0 !~ /^\*\*/ guard is LOAD-BEARING: the bold arm above deliberately skips a
+  # BACKTICK-LED bold line (its [^`] class), so a bare "**`docs/a.md`**"
+  # deliverable paragraph falls through to here — the guard keeps it IN scope
+  # (captured, per Shape 1) instead of this arm mistaking it for prose and closing.
+  # A peer/continuation bold paragraph ("**Also.** …") was already demoted to
+  # state 1 by the bold arm (Case 17) and never reaches this test. This arm runs
+  # AFTER the bold arm and only closes (2 -> 1), so it never re-opens an opener.
+  # KNOWN LIMITATION (lookahead-free, leak-safe direction): a deliverable list
+  # placed AFTER such a closing prose paragraph is treated as trailing and dropped
+  # ("- `docs/a.md`", blank, prose, blank, "- `docs/b.md`" drops docs/b.md). This
+  # is the deliberate leak-safe under-emission — keep all deliverables together
+  # before any prose paragraph, or in the deliverable list itself. Chosen over the
+  # opposite (reopen the scope on a later list) because reopening re-leaks an
+  # UNRELATED trailing bullet tokens, the over-emission the #309 Gotchas forbid.
+  state == 2 && emitted && prev_blank && $0 !~ /^[[:space:]]*$/ && $0 !~ /^[[:space:]]*-/ && $0 !~ /^\*\*/ {
+    state = 1
+  }
+  # Print an in-scope line and mark the scope as having emitted a deliverable once
+  # a printed STRUCTURAL deliverable line — a list item (^[[:space:]]*-) or a bold
+  # line (^**) — bears a recognized-extension path token (the SAME extension set
+  # Stage B emits on, passed in as `extre`, single-sourced in the shell above so
+  # the two cannot drift). The structural-line restriction is the load-bearing
+  # fail-open guard: `emitted` must NEVER be armed by a PLAIN-PROSE line, because
+  # ordinary intro/context prose routinely carries an extension-bearing substring
+  # that is NOT a deliverable, yet a prose line arming emitted would let the NEXT
+  # paragraph (often the one that actually names the deliverable) close the scope
+  # and DROP it: a fail-OPEN that empties the output, the #289/#309/#327 recurrence.
+  # TWO guards make arming imply "a real path was captured": (1) only a structural
+  # deliverable line (list item / bold line) can arm — a plain-prose line never
+  # does; (2) even on a structural line, arms() applies the SAME per-token predicate
+  # Stage B emits on (basename + recognized extension, minus rooted / parent-escape
+  # tokens), so a structural line whose only extension-bearing token is one Stage B
+  # DROPS (a bare ".md", a rooted "/x/y.md", a URL) does NOT arm either. Together
+  # these make the close PROVABLY fail-open-safe: a fresh scope opens emitted=0;
+  # emitted flips only when Stage B will emit >=1 path from this scope, and that
+  # path is itself printed — so whenever the close fires, the output is non-empty,
+  # and a prose-declared deliverable (emitted still 0 when the close arm sees it)
+  # is always captured. (An extension-bearing token on a prose line is still
+  # emitted by Stage B if it is a real path — same as main; we just do not let it
+  # ARM the trailing-prose close.) KNOWN gap (over-emission, leak-safe, no worse
+  # than main): an EXTENSIONLESS structural deliverable (a bare "- Makefile", which
+  # Stage B rescues via its in-tree check that arms() cannot replicate) does not
+  # flip emitted, so a following trailing-prose paragraph would not close —
+  # over-emission, never a fail-open.
+  state == 2 {
+    print
+    if ( ( $0 ~ /^[[:space:]]*-/ || $0 ~ /^\*\*/ ) && arms($0) ) emitted = 1
+  }
   { prev_blank = ($0 ~ /^[[:space:]]*$/) }
 ')"
 
@@ -175,7 +305,12 @@ printf '%s\n' "$tokens" \
       # (it would not — the extension branch below emits on the extension alone).
       # The `.+` before the dot excludes a bare extension token (`.md`, `.sh`)
       # that is a syntax reference, not a filename.
-      if printf '%s\n' "$tok" | grep -qE '.+\.(md|markdown|sh|json|py|ya?ml|rst|txt|adoc|mdx|toml|cfg|ini)$'; then
+      # SYNC: Stage A's arms() (in the awk above) mirrors THIS token predicate — the
+      # rooted/`../` `case` drops above plus this basename+extension test — so the
+      # Shape 2 `emitted` gate only arms when this branch would emit. Change one,
+      # change both (the extensionless `[ -f ]`+git rescue below is intentionally
+      # NOT mirrored — arms() cannot do a filesystem check, an accepted leak-safe gap).
+      if printf '%s\n' "$tok" | grep -qE ".+\.($doc_ext_alt)\$"; then
         printf '%s\n' "$tok"
       elif [ -f "$tok" ]; then
         # Extensionless token naming a real on-disk regular file → rescue via git.
