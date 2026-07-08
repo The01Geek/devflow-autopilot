@@ -8903,6 +8903,15 @@ extract_step() {  # $1=workflow file  $2=exact step name
     grab { print }
   ' "$1"
 }
+# Assert needle A's first occurrence precedes needle B's within a block — used to pin
+# vendored-path-FIRST *ordering* (a plain presence grep passes even if the two candidates
+# were flipped to repo-first, which the "vendored-first" label would then overstate).
+block_order_ok() {  # $1=block  $2=earlier-needle  $3=later-needle → echoes yes|no
+  local a b
+  a=$(printf '%s\n' "$1" | grep -nF "$2" | head -1 | cut -d: -f1)
+  b=$(printf '%s\n' "$1" | grep -nF "$3" | head -1 | cut -d: -f1)
+  if [ -n "$a" ] && [ -n "$b" ] && [ "$a" -lt "$b" ]; then echo yes; else echo no; fi
+}
 for WF in devflow-runner.yml devflow-implement.yml devflow.yml; do
   WF_PATH="$WF_DIR/$WF"
   BLK="$(extract_step "$WF_PATH" "Surface execution diagnostics")"
@@ -8919,6 +8928,9 @@ for WF in devflow-runner.yml devflow-implement.yml devflow.yml; do
     "$(printf '%s' "$BLK" | grep -qF '.devflow/vendor/devflow/scripts/surface-execution-diagnostics.sh' && echo yes || echo no)"
   assert_eq "#331 $WF: helper repo-path fallback present" "yes" \
     "$(printf '%s' "$BLK" | grep -qF 'SED=scripts/surface-execution-diagnostics.sh' && echo yes || echo no)"
+  # AC1 (order, not just presence): the vendored helper path is tried BEFORE the repo fallback
+  assert_eq "#331 $WF: helper vendored path precedes repo fallback" "yes" \
+    "$(block_order_ok "$BLK" 'SED=.devflow/vendor/devflow/scripts/surface-execution-diagnostics.sh' 'SED=scripts/surface-execution-diagnostics.sh')"
   # AC2: gates on the config key via config-get.sh, vendored-first with fallback
   assert_eq "#331 $WF: reads .devflow.execution_diagnostics_enabled" "yes" \
     "$(printf '%s' "$BLK" | grep -qF '.devflow.execution_diagnostics_enabled' && echo yes || echo no)"
@@ -8926,9 +8938,19 @@ for WF in devflow-runner.yml devflow-implement.yml devflow.yml; do
     "$(printf '%s' "$BLK" | grep -qF '.devflow/vendor/devflow/scripts/config-get.sh' && echo yes || echo no)"
   assert_eq "#331 $WF: config-get.sh repo-path fallback present" "yes" \
     "$(printf '%s' "$BLK" | grep -qF 'CG=scripts/config-get.sh' && echo yes || echo no)"
+  # AC2 (order, not just presence): the vendored config-get path is tried BEFORE the repo fallback
+  assert_eq "#331 $WF: config-get.sh vendored path precedes repo fallback" "yes" \
+    "$(block_order_ok "$BLK" 'CG=.devflow/vendor/devflow/scripts/config-get.sh' 'CG=scripts/config-get.sh')"
   # AC2: disables only on the literal "false"
   assert_eq "#331 $WF: skips when the resolved value is \"false\"" "yes" \
     "$(printf '%s' "$BLK" | grep -qF '= "false" ]' && echo yes || echo no)"
+  # Completeness anchor: the slice reaches the step's run body (the helper invocation).
+  # The AC3 assertions below are grep-ABSENT checks that pass vacuously on an empty or
+  # short-sliced block, so anchor them on a proven-complete block — a future extract_step
+  # mis-scope that truncated the slice would fail HERE (RED) rather than silently making
+  # the AC3 guarantees inert while still reading green.
+  assert_eq "#331 $WF: slice reaches the run body (helper invocation present)" "yes" \
+    "$(printf '%s' "$BLK" | grep -qF 'bash "$SED" "${EXECUTION_FILE:-}"' && echo yes || echo no)"
   # AC3: the step is a pure run-only step — no action invocation, so it can neither
   # mint a token (create-github-app-token) nor upload an artifact (upload-artifact).
   assert_eq "#331 $WF: diagnostics step is run-only (no uses:)" "no" \
