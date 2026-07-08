@@ -1216,6 +1216,15 @@ assert_pin_unique "347(AC4/producer): Phase 4.1 stamps carve-out findings with a
   'unconditional machine-detectable marker' "$ST_REV"
 assert_pin_unique "347(AC4/consumer): a REJECT-driver lacking the carve-out marker falls through" \
   'A REJECT-driving finding without the `[self-contradicting-diff carve-out]` marker' "$ST_REV"
+# Shadow-review fix (iter4): the marker audit is THRESHOLD-INDEPENDENT — a carve-out REJECTs
+# regardless of severity, so a below-threshold REJECT-driver lacking the marker must also fall
+# through, and an EMPTY $BLOCKERS set must fall through (never reach the vacuously-true
+# "every enumerated blocker is fixed" APPROVE branch). Both are fail-closed guards on the
+# safety center — pin each operative sentence.
+assert_pin_unique "347(AC4): marker audit covers a REJECT-driver at ANY severity (threshold-independent)" \
+  'REJECT-driving finding (at *any* severity) lacks the marker' "$ST_REV"
+assert_pin_unique "347(AC4): an empty \$BLOCKERS set falls through (no vacuous every-blocker-fixed APPROVE)" \
+  'If `$BLOCKERS` is empty, fall through' "$ST_REV"
 # AC4 fail-closed precondition — unparseable blocker enumeration falls through (never guess).
 assert_pin_unique "347(AC4): unparseable blocker enumeration falls through, never guessed" \
   'never guess a blocker set' "$ST_REV"
