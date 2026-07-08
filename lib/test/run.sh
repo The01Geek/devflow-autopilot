@@ -15700,21 +15700,21 @@ echo "#312: workflow endpoint↔permission lint"
 # ────────────────────────────────────────────────────────────────────────────
 # A devflow workflow job must declare the token permission every `gh api` endpoint
 # family it invokes — inline in the job's own `run:` blocks, AND the families called by
-# the two review helpers the lint is wired to recognize by name:
-# derive-review-preconditions.sh (its repos/*/actions/runs → actions,
-# repos/*/commits/*/status → statuses, repos/*/compare → contents, and
-# repos/*/commits/*/check-runs → checks calls; the #307 actions:read + statuses:read
-# grants cover the first two, and precheck's pre-existing contents/checks grants the
-# other two), and derive-review-verdict.sh (its repos/*/issues/*/comments → comments call,
-# run by finalize_check, which grants pull-requests:write so the comments either-arm stays
-# satisfied on the clean tree). NOTE: only these TWO helpers are attributed — a job that
-# runs some OTHER gh-api-calling helper is NOT walked. Today that residual gap is not live:
-# the remaining job-run helpers (react-to-trigger.sh, resolve-implement-trigger.sh) build
-# their endpoints in shell variables (unmatchable by the literal repos/... regexes) and hit
-# no recognized family with a literal path, verified #312 shadow review — so no currently-
-# shipping recognized-family endpoint falls in the gap. Walking an arbitrary job-run helper
-# remains a deferred generalization (#312 review), revisit if a third helper adds a literal
-# recognized-family call. The matcher recognizes only the six families
+# every helper script the job runs, which the lint attributes GENERICALLY: it extracts each
+# `<name>.sh` basename the job body names and unions that helper's recognized families into
+# the job's requirement (see wf_perm_lint below). So the attribution is not a hardcoded helper
+# allow-list — the three helpers with literal recognized-family calls today
+# (derive-review-preconditions.sh → actions/statuses/contents/checks in precheck;
+# derive-review-verdict.sh → comments in finalize_check; post-issue-comment.sh → comments in
+# the claude job) are all walked, and any future helper is too, so no currently-shipping
+# recognized-family endpoint falls in an un-walked gap. The #307 actions:read + statuses:read
+# grants cover precheck's first two families; finalize_check's pull-requests:write and the
+# claude job's issues+pull-requests grants keep their comments requirements satisfied on the
+# clean tree. (The other job-run helpers hit no endpoint in the six recognized families, so
+# they add no requirement even though they are walked: react-to-trigger.sh POSTs a
+# repos/*/…/reactions endpoint and resolve-implement-trigger.sh reads repos/*/collaborators/*/
+# permission — reactions and collaborators are both outside the six families below, not an
+# un-walked helper gap.) The matcher recognizes only the six families
 # enumerated in _wf_req_keys — an inline call outside them (e.g. devflow-review.yml's
 # best-effort repos/*/collaborators/*/permission) is not checked (a deferred family,
 # #312 review); the manual Phase 2.3.4 endpoint↔permission map remains the primary check,
@@ -15727,7 +15727,18 @@ echo "#312: workflow endpoint↔permission lint"
 # `issues` or `pull-requests` (a PR comment needs pull-requests:write, an issue comment
 # needs issues:write — statically indistinguishable); the lint checks key PRESENCE, not the
 # read/write access level (a deferred refinement, #312 review). A job that declares no
-# `permissions:` block inherits the file's top-level block. Fail-closed: a missing
+# `permissions:` block inherits the file's top-level block. KNOWN FAIL-OPEN, DEFERRED (#312
+# shadow review): a job that declares an EMPTY / deny-all block (`permissions:` with no keys,
+# or inline `permissions: {}`) means deny-all in GitHub semantics, but the awk emits no
+# JOBPERM for it, so it is indistinguishable from "no block" and inherits the top-level grants
+# it actually renounced — so a deny-all job calling a top-level-granted family reads clean
+# (fail-open); likewise `permissions: read-all`/`write-all` (grant-all) is not modeled. This
+# is reachable via CANONICAL indentation (the indentation deferral below does NOT cover it),
+# but it is NOT live: every devflow job declares a populated multi-line block (verified). A
+# robust fix must distinguish deny-all (`{}`/empty) from grant-all (`read-all`/`write-all`)
+# from a populated block or it introduces a false positive, so it is deferred behind the
+# manual Phase 2.3.4 map (the primary check); revisit if a devflow job adopts an empty/inline
+# `permissions:` form. Fail-closed: a missing
 # workflows dir / precond helper yields a sentinel token, never a silent 0. Known
 # fail-open limit: the awk splitter assumes this repo's canonical 2/4/6-space YAML
 # indentation — a re-indented or tab-indented workflow parses to 0 jobs, indistinguishable
@@ -15762,24 +15773,19 @@ _wf_req_keys() {
 }
 
 # print the count of endpoint↔permission violations across $1 (workflows dir),
-# attributing the gh api families of the two recognized review helpers to any job that runs
-# them: the precondition helper $2 (derive-review-preconditions.sh, run by precheck) AND its
-# sibling derive-review-verdict.sh (run by finalize_check), whose repos/*/issues/*/comments
-# call is a LIVE recognized family the single-helper walk missed (#312 shadow review).
-wf_perm_lint() {  # $1=workflows-dir  $2=precond-helper-path -> prints an integer (or a sentinel)
-  local wfdir="$1" precond="$2" precond_keys verdict_helper verdict_keys wf rec topperms jobs jn jperms jbody effperms req k v=0
+# attributing the gh api families of EVERY helper script a job invokes — resolved by basename
+# against $2's own directory (the repo scripts/ dir) — not a hardcoded helper list. So each
+# helper a job runs (derive-review-preconditions.sh in precheck, derive-review-verdict.sh in
+# finalize_check, post-issue-comment.sh in the claude job, and any future one) is walked and
+# its recognized families are required of that job. $2 anchors the scripts/ dir and is the
+# MISSING_PRECOND sentinel; a job body naming a helper the scripts/ dir does not hold
+# contributes nothing (fail-safe). General attribution replaces the fragile per-helper allow-
+# list that repeatedly missed a live helper (#312 shadow review).
+wf_perm_lint() {  # $1=workflows-dir  $2=precond-helper-path (anchors scripts/ dir) -> prints an integer (or a sentinel)
+  local wfdir="$1" precond="$2" scripts_dir wf rec topperms jobs jn jperms jbody effperms req k hn hpath v=0
   [ -d "$wfdir" ] || { echo MISSING_WFDIR; return; }
   [ -r "$precond" ] || { echo MISSING_PRECOND; return; }
-  precond_keys="$(_wf_req_keys < "$precond" | tr '\n' ' ')"
-  # Second recognized helper, resolved as a sibling of $precond. An unreadable path (e.g. the
-  # statuses mutation-proof sandbox that copies only derive-review-preconditions.sh) yields
-  # empty keys and no attribution — the same fail-safe as the .yaml literal-glob guard, and
-  # harmless there because that sandbox exercises precheck's statuses, not finalize_check's
-  # comments. This closes the fail-open the header NOTE below records: finalize_check's
-  # comments requirement is now attributed, so dropping its comments-satisfying grant goes RED.
-  verdict_helper="$(dirname "$precond")/derive-review-verdict.sh"
-  verdict_keys=""
-  [ -r "$verdict_helper" ] && verdict_keys="$(_wf_req_keys < "$verdict_helper" | tr '\n' ' ')"
+  scripts_dir="$(dirname "$precond")"
   # Both .yml and .yaml (GitHub honors either); with nullglob off an unmatched pattern
   # expands to its literal, which the `[ -r ]` guard skips — so a repo using only one
   # extension is unaffected (#312 review).
@@ -15812,12 +15818,18 @@ wf_perm_lint() {  # $1=workflows-dir  $2=precond-helper-path -> prints an intege
       effperms="$jperms"
       [ -n "${jperms// /}" ] || effperms="$topperms"
       req="$(printf '%s\n' "$jbody" | _wf_req_keys)"
-      if printf '%s' "$jbody" | grep -q 'derive-review-preconditions.sh'; then
-        req="$(printf '%s\n%s\n' "$req" "${precond_keys// /$'\n'}" | grep -v '^$' | sort -u)"
-      fi
-      if printf '%s' "$jbody" | grep -q 'derive-review-verdict.sh'; then
-        req="$(printf '%s\n%s\n' "$req" "${verdict_keys// /$'\n'}" | grep -v '^$' | sort -u)"
-      fi
+      # Attribute the recognized families of every helper script this job invokes. Extract
+      # each `<name>.sh` basename the body names (however it is pathed — bare, scripts/…, or a
+      # $VAR/… vendored path — since only the basename is matched), resolve it against the
+      # scripts/ dir, and union its _wf_req_keys. An unresolvable/unreadable basename (e.g. the
+      # mutation-proof sandbox that copies only derive-review-preconditions.sh, so
+      # derive-review-verdict.sh is absent there) contributes nothing — fail-safe, and the same
+      # reason that sandbox still isolates precheck's statuses signal.
+      for hn in $(printf '%s\n' "$jbody" | grep -oE '[A-Za-z0-9_.-]+\.sh' | sort -u); do
+        hpath="$scripts_dir/$hn"
+        [ -r "$hpath" ] || continue
+        req="$(printf '%s\n%s\n' "$req" "$(_wf_req_keys < "$hpath")" | grep -v '^$' | sort -u)"
+      done
       while IFS= read -r k; do
         [ -n "$k" ] || continue
         if [ "$k" = comments ]; then
@@ -15894,7 +15906,6 @@ rm -rf "$WF_MUT_DIR" 2>/dev/null || true
 #                        helper-attribution path; this is its inline-path case)
 #   - actions_missing:   actions/runs (→ actions), declares only contents so the
 #                        job block REPLACES the top-level actions grant           → +1
-#   - actions_missing (cont.)                                                     → +1
 #   - verdict_helper_missing: runs derive-review-verdict.sh (→ comments via the second-
 #                        helper attribution, resolved from $WF_PRECOND's real scripts/ dir),
 #                        declares only contents                                    → +1
