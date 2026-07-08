@@ -4388,13 +4388,14 @@ assert_eq "#327 guard pin: a bare backtick-led bold deliverable paragraph stays 
   "$(printf 'docs/a.md\ndocs/b.md')" \
   "$(printf '%s\n' "$fx_327_bare_boldpath" | bash "$EXTRACT_HELPER")"
 
-# Case 34 (#327 Shape 2 fail-open regression pin): INTERVENING plain-prose between
-# the opener and its deliverable list must NOT strand the list. The Shape 2 arm
-# SUSPENDS scope on the prose paragraph (state 2 -> 3) rather than hard-closing,
-# and the reentry arm RESUMES (3 -> 2) at the following list — so the paths are
-# still captured. Without the reentry arm the prose would permanently close the
-# scope and the extractor would emit EMPTY output, silently disabling the Phase
-# 4.1 docs gate (the fail-open this pin guards). Both bullet forms.
+# Case 34 (#327 Shape 2 emitted-gate pin — INTERVENING prose): a plain-prose
+# paragraph between a bare opener and its deliverable list must NOT strand the
+# list. The Shape 2 close arm is gated on `emitted` (a deliverable already
+# captured); before any deliverable is captured, emitted is 0, so intervening
+# prose does NOT close the scope and the following list is still captured.
+# Removing the `emitted` guard would make this prose close the scope
+# unconditionally, stranding the list to EMPTY output (the fail-open this pins).
+# Both bullet forms.
 fx_327_L_intervening="## Implementation Notes
 
 - **Documentation Needed**
@@ -4403,7 +4404,7 @@ Here are the docs to update.
 
 - \`docs/a.md\`
 - \`docs/b.md\`"
-assert_eq "#327 Shape 2 regression pin (Form L): intervening prose between opener and list does NOT strand the list (reentry resumes scope)" \
+assert_eq "#327 Shape 2 emitted-gate pin (Form L): intervening prose before the deliverables does NOT strand the list" \
   "$(printf 'docs/a.md\ndocs/b.md')" \
   "$(printf '%s\n' "$fx_327_L_intervening" | bash "$EXTRACT_HELPER")"
 
@@ -4415,26 +4416,54 @@ Here are the docs to update.
 
 - **\`docs/a.md\`**
 - **\`docs/b.md\`**"
-assert_eq "#327 Shape 2 regression pin (Form P): intervening prose does NOT strand a following bold deliverable list (reentry resumes scope)" \
+assert_eq "#327 Shape 2 emitted-gate pin (Form P): intervening prose does NOT strand a following bold deliverable list" \
   "$(printf 'docs/a.md\ndocs/b.md')" \
   "$(printf '%s\n' "$fx_327_P_intervening" | bash "$EXTRACT_HELPER")"
 
-# Case 35 (#327 leak-safe-AND-capture pin): an intervening prose paragraph that
-# itself NAMES a path token must have that token DROPPED (the prose is suspended,
-# never printed) while the following real deliverable list is still captured. This
-# pins that the reentry does not re-leak the suspended prose's own tokens — the
-# best-of-both outcome the suspend/resume design gives over both the pre-fix leak
-# (main) and the hard-close fail-open.
-fx_327_intervening_leak="## Implementation Notes
+# Case 35 (#327 Shape 2 fail-open regression pin — PRIMARY prose declaration): a
+# bare opener followed by a blank-separated prose paragraph that itself NAMES the
+# only deliverable must CAPTURE that path, not drop it. Because no deliverable was
+# captured before it (emitted is still 0), the emitted-gated close does not fire,
+# so the prose stays in scope and its path is emitted. Removing the `emitted`
+# guard would close the scope on this paragraph and yield EMPTY output — a
+# fail-open silently disabling the Phase 4.1 gate (matches main's capture; the
+# regression a shadow review surfaced). Both bullet forms.
+fx_327_L_primaryprose="## Implementation Notes
 
-- **Documentation Needed** — update \`docs/a.md\`.
+- **Documentation Needed**
 
-See the notes in docs/leak.md for context.
+Update docs/foo.md to reflect the new flag."
+assert_eq "#327 Shape 2 fail-open pin (Form L): a primary prose declaration (bare opener + prose naming the only deliverable) is captured" \
+  "docs/foo.md" \
+  "$(printf '%s\n' "$fx_327_L_primaryprose" | bash "$EXTRACT_HELPER")"
 
-- also update \`docs/b.md\`"
-assert_eq "#327 leak-safe pin: an intervening prose paragraph's own path token is dropped while the following list is captured" \
-  "$(printf 'docs/a.md\ndocs/b.md')" \
-  "$(printf '%s\n' "$fx_327_intervening_leak" | bash "$EXTRACT_HELPER")"
+fx_327_P_primaryprose="## Implementation Notes
+
+**Documentation Needed**
+
+Update docs/foo.md to reflect the new flag."
+assert_eq "#327 Shape 2 fail-open pin (Form P): a bare-bold opener + primary prose declaration is captured" \
+  "docs/foo.md" \
+  "$(printf '%s\n' "$fx_327_P_primaryprose" | bash "$EXTRACT_HELPER")"
+
+# Case 36 (#327 Shape 2 trailing-close pin — leak-safe, no over-emission): once a
+# deliverable has been captured, a blank-separated TRAILING plain-prose paragraph
+# closes the scope, dropping BOTH its own path tokens AND any following content
+# (an unrelated trailing bullet). This pins the Shape 2 over-emission fix: without
+# the close arm the trailing prose token (`docs/leak.md`) and the unrelated bullet
+# (`scripts/unrelated.py`) would leak as deliverables the docs pass never owed.
+fx_327_trailing_close="## Implementation Notes
+
+- **Documentation Needed**
+
+- \`docs/a.md\`
+
+Follow-up work names docs/leak.md and is tracked separately.
+
+- see scripts/unrelated.py for the follow-up"
+assert_eq "#327 Shape 2 trailing-close pin: trailing prose after a captured deliverable closes scope, dropping its token and an unrelated following bullet (no over-emission)" \
+  "docs/a.md" \
+  "$(printf '%s\n' "$fx_327_trailing_close" | bash "$EXTRACT_HELPER")"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "scaffold-config.sh"

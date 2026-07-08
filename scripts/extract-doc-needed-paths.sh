@@ -27,13 +27,14 @@
 #     deliverable, not a peer label, and does not close the scope (a
 #     non-backticked `- **docs/a.md**` is indistinguishable from a peer label
 #     and closes, an accepted run.sh-pinned tradeoff); (Shape 2) a
-#     blank-separated PLAIN-PROSE paragraph SUSPENDS the scope so its tokens do
-#     not leak, and the scope RESUMES at the next deliverable line — so
-#     genuinely-trailing prose stays dropped to EOF while INTERVENING prose
-#     between the opener and its list is skipped without stranding the list
-#     (the fail-open a hard close would cause), and a blank-separated plain
-#     sub-list (`- `docs/a.md``) stays in scope. A path mentioned in
-#     `## Current Behavior`,
+#     blank-separated PLAIN-PROSE paragraph closes the scope so its tokens do not
+#     leak — but ONLY once a deliverable has already been captured, so a PRIMARY
+#     prose declaration (a bare opener followed by a prose paragraph that names
+#     the path) and INTERVENING prose before the deliverables are still captured
+#     (avoiding the fail-open an unconditional close would cause), while a
+#     genuinely-TRAILING prose paragraph after the deliverables is dropped. A
+#     blank-separated plain sub-list (`- `docs/a.md``) stays in scope. A path
+#     mentioned in `## Current Behavior`,
 #     `## Technical Context`, or any OTHER bullet is NOT a documentation
 #     deliverable and is never emitted.
 #   * a token counts as a path only if it ends in a recognized documentation/
@@ -112,67 +113,61 @@ block="$(printf '%s\n' "$body" | awk '
   # bold item ("- **docs/a.md**") is structurally identical to a peer label and
   # DOES close — an ACCEPTED, run.sh-pinned tradeoff (leak-safe direction, mirror
   # of the Case 17 drop; deliverable lists in the wild backtick their paths).
+  # `emitted` is reset to 0 whenever a FRESH Documentation Needed scope opens
+  # (transition into state 2 from a non-2 state) so the Shape 2 close arm below
+  # can tell a genuinely-TRAILING prose paragraph (one that follows a captured
+  # deliverable) from a PRIMARY prose declaration (the deliverable itself). See
+  # the Shape 2 comment.
   state >= 1 && ( /^- \*\*[^`]/ || ( /^\*\*[^`]/ && prev_blank ) ) {
-    state = ($0 ~ /^(- )?\*\*Documentation Needed\*\*/) ? 2 : 1
+    ns = ($0 ~ /^(- )?\*\*Documentation Needed\*\*/) ? 2 : 1
+    if (ns == 2 && state != 2) emitted = 0
+    state = ns
   }
-  # SHAPE 2 (issue #327): inside an open bullet, a blank-line-PRECEDED PLAIN-PROSE
-  # paragraph (not blank, not a list item, not a bold bullet) is prose, not a
-  # deliverable, so its path-like tokens must not LEAK into the gate
-  # (over-emission). But such a paragraph is only genuinely TRAILING (safe to
-  # drop) when no deliverable follows it; the SAME shape also appears as
-  # INTERVENING prose between the opener and its list
-  # ("**Documentation Needed**\n\nHere are the docs:\n\n- `docs/a.md`"), where a
-  # hard close would silently strand the list and empty the output — a fail-OPEN
-  # that disables the very gate this helper feeds (the recurrence #289/#309/#327
-  # exist to stop). Since awk cannot look ahead, this arm SUSPENDS the scope
-  # (state 2 -> 3) instead of closing it: a suspended line is not printed (its
-  # tokens are dropped), and the reentry arm below RESUMES emission (3 -> 2) at
-  # the next deliverable line. So genuinely-trailing prose stays suspended to
-  # EOF / a section boundary (tokens dropped — the Shape 2 fix), while
-  # intervening prose is transparently skipped and the following list is still
-  # captured. A blank-separated PLAIN sub-list ("- `docs/a.md`", non-bold) is a
-  # list CONTINUATION, not prose: the ^[[:space:]]*- guard keeps it in scope
-  # directly (state stays 2), preserving that currently-working shape (the issue
-  # Gotchas forbid dropping it). The $0 !~ /^\*\*/ guard is LOAD-BEARING, not
-  # decorative: the bold arm above deliberately skips a BACKTICK-LED bold line
-  # (its [^`] class), so a bare "**`docs/a.md`**" deliverable paragraph at a
-  # paragraph boundary falls through to here — the guard keeps it IN scope
-  # (state 2, captured, per Shape 1) instead of this arm mistaking it for prose
-  # and suspending. A peer/continuation bold paragraph ("**Also.** …") was
-  # already demoted by the bold arm (Case 17), so it is state 1 by the time this
-  # arm sees it and never reaches this test. This arm runs AFTER the bold arm and
-  # only suspends (2 -> 3), so it never re-opens or interferes with an opener.
-  state == 2 && prev_blank && $0 !~ /^[[:space:]]*$/ && $0 !~ /^[[:space:]]*-/ && $0 !~ /^\*\*/ {
-    state = 3
+  # SHAPE 2 (issue #327): a blank-line-PRECEDED PLAIN-PROSE paragraph (not blank,
+  # not a list item, not a bold bullet) inside an open bullet closes the scope so
+  # its path-like tokens do not LEAK into the gate as deliverables the docs pass
+  # never owed (over-emission) — BUT only once a deliverable has already been
+  # captured in this scope (`emitted`). That `emitted` guard is load-bearing: it
+  # distinguishes genuinely-TRAILING prose (which follows the deliverables and is
+  # safe to drop — the Suggestion-#3 fixture this issue targets) from a PRIMARY
+  # prose declaration where the paragraph IS the deliverable ("**Documentation
+  # Needed**\n\nUpdate `docs/foo.md`."). Closing unconditionally would empty the
+  # output for that primary-prose shape — a fail-OPEN that silently disables the
+  # Phase 4.1 gate (the #289/#309/#327 recurrence). Because a fresh scope opens
+  # with emitted=0, the FIRST prose paragraph (and any INTERVENING prose before
+  # the deliverables are captured) stays in scope and is captured; only prose that
+  # arrives AFTER a deliverable was emitted is treated as trailing and dropped.
+  # A blank-separated PLAIN sub-list ("- `docs/a.md`", non-bold) is a list
+  # CONTINUATION, not prose: the ^[[:space:]]*- guard keeps it in scope. The
+  # $0 !~ /^\*\*/ guard is LOAD-BEARING: the bold arm above deliberately skips a
+  # BACKTICK-LED bold line (its [^`] class), so a bare "**`docs/a.md`**"
+  # deliverable paragraph falls through to here — the guard keeps it IN scope
+  # (captured, per Shape 1) instead of this arm mistaking it for prose and closing.
+  # A peer/continuation bold paragraph ("**Also.** …") was already demoted to
+  # state 1 by the bold arm (Case 17) and never reaches this test. This arm runs
+  # AFTER the bold arm and only closes (2 -> 1), so it never re-opens an opener.
+  # KNOWN LIMITATION (lookahead-free, leak-safe direction): a deliverable list
+  # placed AFTER such a closing prose paragraph is treated as trailing and dropped
+  # ("- `docs/a.md`", blank, prose, blank, "- `docs/b.md`" drops docs/b.md). This
+  # is the deliberate leak-safe under-emission — keep all deliverables together
+  # before any prose paragraph, or in the deliverable list itself. Chosen over the
+  # opposite (reopen the scope on a later list) because reopening re-leaks an
+  # UNRELATED trailing bullet tokens, the over-emission the #309 Gotchas forbid.
+  state == 2 && emitted && prev_blank && $0 !~ /^[[:space:]]*$/ && $0 !~ /^[[:space:]]*-/ && $0 !~ /^\*\*/ {
+    state = 1
   }
-  # SHAPE 2 reentry (issue #327): a scope SUSPENDED by intervening prose (state 3)
-  # resumes at the next deliverable-shaped line — a list item ("- …" at any
-  # indent) or a bare backtick-led bold deliverable paragraph ("**`docs/a.md`**",
-  # which the bold arm skips via its [^`] class). This is what makes the prose
-  # suspension above leak-safe WITHOUT stranding a following list: the intervening
-  # prose tokens are dropped (the suspended lines are never printed) yet the real
-  # deliverables that follow are captured. A bold PEER ("**Potential Gotchas**")
-  # or a "## " heading fully closes the scope (state 1 / 0) via the earlier arms
-  # BEFORE any list could reenter, so a peer section list never resumes
-  # emission — only a deliverable within the still-open Documentation Needed
-  # bullet does. Runs after the suspend arm and only promotes 3 -> 2, so it never
-  # touches state 0/1 (a fully-closed scope stays closed).
-  # KNOWN LIMITATION (lookahead-free, matches the pre-#327 main behavior, so it is
-  # NOT a regression vs the merge target): a genuinely-trailing prose paragraph
-  # FOLLOWED by an unrelated plain (non-bold) bullet is structurally
-  # indistinguishable from intervening prose before the real list, so the bullet
-  # reenters and its tokens are emitted (over-emission). This is deliberately not
-  # "fixed" by restricting reentry to backtick-bearing lines: that would drop a
-  # blank-separated NON-backtick deliverable list after intervening prose, turning
-  # this over-emission into the MORE severe fail-OPEN (a silently-skipped gate) the
-  # #289/#309/#327 class exists to prevent. Between the two lookahead-free
-  # ambiguities we keep the no-fail-open property (a bold PEER bullet or heading
-  # still closes fully via the earlier arms, so this only bites a bare non-bold
-  # trailing bullet — an unusual shape that already leaks on main).
-  state == 3 && ( /^[[:space:]]*-/ || /^\*\*`/ ) {
-    state = 2
+  # Print an in-scope line and mark the scope as having emitted a deliverable once
+  # a printed line carries a path-like token (a backtick-quoted span or a token
+  # bearing a "/"). This is a deliberately BROAD, best-effort proxy for "a
+  # deliverable was captured" — it does not re-derive the Stage B extension list
+  # (kept single-sourced in Stage B) — it only needs to flip once so trailing
+  # prose after a real path can close the scope; an over-broad match (prose that
+  # merely contains a "/") at worst closes the scope one paragraph early, the
+  # leak-safe direction. A path-less opener/prose line leaves emitted unchanged.
+  state == 2 {
+    print
+    if ($0 ~ /`/ || $0 ~ /\//) emitted = 1
   }
-  state == 2 { print }
   { prev_blank = ($0 ~ /^[[:space:]]*$/) }
 ')"
 
