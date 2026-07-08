@@ -9977,6 +9977,14 @@ assert_eq "#310 precheck grants statuses: read (self-trigger safety comparand pr
   "$(sed -n '/^  precheck:/,/^  create_check:/p' "$REVIEW_WF" | grep -qE '^      statuses: read' && echo yes || echo no)"
 assert_eq "#310 workflow never grants statuses: write (cannot post a commit status → cannot self-trigger)" "0" \
   "$(grep -cE 'statuses:[[:space:]]*write' "$REVIEW_WF" || true)"
+# (k, airtight) The invariant is "no grant that confers statuses: write" — an
+# explicit `statuses: write` is one form, but `permissions: write-all` implicitly
+# confers it too and would re-enable the self-trigger loop while the explicit-key
+# count above stays 0. Pin write-all's absence as well so the absence-based
+# invariant can't be evaded by a blanket grant (the workflow uses explicit
+# per-key permissions throughout — this keeps it that way).
+assert_eq "#310 workflow never grants permissions: write-all (would implicitly confer statuses: write)" "0" \
+  "$(grep -cE 'permissions:[[:space:]]*write-all' "$REVIEW_WF" || true)"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "efficiency-trace.jq / efficiency-trace.sh"
