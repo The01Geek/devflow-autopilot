@@ -3844,11 +3844,13 @@ assert_pin_unique "#254: Pass 4 treats a MERGED dependency as satisfied (landed 
 # A cloud-tier bot implement run cannot push .github/workflows/ (the installation
 # token lacks the workflows scope), so an AC that is workflow-resident must be
 # deferred at PLAN time (via 2.2.5) rather than discovered at push time after the
-# full commit is built. Pin the Pass 5 heading removal-proof, and the operative
-# contracts: the static-not-a-live-probe rule, the tier-keyed (not path-keyed)
-# decision, the repo-own-vs-vendored carve-out, the coupled-CI-pin-blocked-with-it
-# rule, the cloud-tier defer reflection, and the all-blocked → Blocked-path arm
-# (the most safety-relevant route — it declines the issue up front, opening no PR).
+# full commit is built. Pin the Pass 5 heading removal-proof, plus its operative
+# contracts (non-exhaustive; each pin below names its own): among them the
+# static-not-a-live-probe rule, the tier-keyed (not path-keyed) decision, the
+# repo-own-vs-vendored carve-out, the coupled-CI-pin-blocked-with-it rule, the
+# cloud-tier defer reflection, the all-blocked → Blocked-path arm (the most
+# safety-relevant route — it declines the issue up front, opening no PR), and the
+# local/interactive tier-unchanged arm.
 # Scoped to phase-1-setup.md (where Phase 1.6 lives) so the pins are precise to the
 # audit-pass surface AC7 names, not the whole bundle.
 P1_FILE="$IMPL_PHASES_DIR/phase-1-setup.md"
