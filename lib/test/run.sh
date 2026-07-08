@@ -13847,7 +13847,10 @@ assert_eq "#142 CLAUDE.md does NOT claim a vendored first-party devflow:writing-
 # discipline pinned in (1c); the internalized requesting/receiving ids are still covered on
 # CLAUDE.md by (1)'s repo-wide scans, and using-git-worktrees by (6), so excepting CLAUDE.md
 # here only narrows this net to "no OTHER stray superpowers: ref outside CLAUDE.md." Same
-# history/migration exceptions as (1), PLUS lib/test — this suite's own scaffolding
+# history/migration exceptions as (1), PLUS .devflow/learnings — append-only retrospective
+# audit data (same category as .devflow/logs and CHANGELOG history): an entry legitimately
+# quotes a past run's "superpowers:writing-skills was unavailable" reflection, so the
+# historical record naturally names the id it reports on. PLUS lib/test — this suite's own scaffolding
 # necessarily names the forbidden pattern to assert its absence, and a guard cannot scan
 # itself. Excepting all of lib/test leaves a narrow blind spot: a stray *non-internalized*
 # superpowers: id introduced into a non-scaffolding test helper would slip THIS broad scan.
@@ -13856,8 +13859,8 @@ assert_eq "#142 CLAUDE.md does NOT claim a vendored first-party devflow:writing-
 # new reference to some OTHER superpowers skill, placed in lib/test, would evade detection.
 # Pattern split-literal so this run.sh never self-matches outside lib/test.
 SP_PAT_NS="superpowers"":"
-assert_eq "#142 no operative surface outside CLAUDE.md carries any bare superpowers: namespaced id (non-internalized refs incl.; CLAUDE.md/test scaffolding/history/migration excepted)" \
-  "" "$(tracked_scan "$FDROOT" "$SP_PAT_NS" ':!.devflow/logs' ':!CHANGELOG.md' ':!docs/review-agent-overrides.md' ':!lib/test' ':!CLAUDE.md')"
+assert_eq "#142 no operative surface outside CLAUDE.md carries any bare superpowers: namespaced id (non-internalized refs incl.; CLAUDE.md/test scaffolding/history/migration/learnings excepted)" \
+  "" "$(tracked_scan "$FDROOT" "$SP_PAT_NS" ':!.devflow/logs' ':!.devflow/learnings' ':!CHANGELOG.md' ':!docs/review-agent-overrides.md' ':!lib/test' ':!CLAUDE.md')"
 
 # (2/2b/2c) Per-skill vendoring + structural validity. For each of the two skills the file
 # exists first-party under skills/<name>/SKILL.md; its frontmatter declares name: <name> (so
