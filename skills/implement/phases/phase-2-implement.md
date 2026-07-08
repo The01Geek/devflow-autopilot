@@ -85,6 +85,8 @@ After planning (either path), write the plan steps as `- [ ]` checkboxes to a te
 
 If discovery and planning revealed that the issue's deliverables span more than fits in a single PR (e.g., a phased cleanup, a multi-stage migration, or any issue whose acceptance criteria explicitly enumerate work for several future PRs), **you must narrow the workpad's `## Acceptance Criteria` to only the items this PR will deliver** before continuing to 2.3. Otherwise the Phase 3.4 gate will reject your run for criteria that are out-of-scope by design, and the run will stop without ever reaching Phase 4.
 
+**Capability-blocked ACs are a sanctioned trigger too.** Beyond phased/oversized work, this rule also fires when Phase 1.6's **execution-capability pass (Pass 5)** flagged one or more acceptance criteria as capability-blocked on a cloud-tier run — an AC that requires editing the repo's own `.github/workflows/` (or a file coupled to that edit, such as a `lib/test/run.sh` pin asserting workflow content), which the DevFlow bot installation token cannot push. Route those capability-blocked ACs through the steps below **before Phase 2.3 writes any code** (never after a rejected push): narrow to the pushable subset, and record the installation-token workflows-scope boundary as the deferral reason in the `--note` so Phase 4.0's follow-up can state that landing the deferred work needs a human/PAT (workflows-scoped) push. (When Pass 5 marked *every* in-scope AC blocked, that is the Phase 1 Blocked path, not this rule — no PR is opened.)
+
 Steps when scoping down:
 
 1. Write the narrowed AC list (only in-scope checkboxes, verbatim) to a temp file, e.g. `/tmp/narrowed-acs-${ISSUE_NUMBER}.md`.
@@ -97,7 +99,7 @@ Steps when scoping down:
 
 This is not "inventing" criteria (forbidden by 1.4) — the deferred items are preserved verbatim in the workpad notes (`--note`) and carried forward by Phase 4.0.
 
-If you are unsure whether to scope down, prefer a single fully-in-scope PR. Only re-scope when the issue body itself describes phased work or the diff would otherwise exceed reasonable PR size.
+If you are unsure whether to scope down, prefer a single fully-in-scope PR. Only re-scope when the issue body itself describes phased work, the diff would otherwise exceed reasonable PR size, or Phase 1.6 Pass 5 flagged a capability-blocked AC on a cloud-tier run (the credential-boundary trigger above).
 
 #### 2.2.6 AC-Plan reconciliation (rewrite surface details, never relax intent)
 

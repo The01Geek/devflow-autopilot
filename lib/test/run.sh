@@ -3840,6 +3840,40 @@ assert_pin_unique "#254: Pass 4 fails closed (Blocked) when a declared dependenc
 # prerequisite (the fail-closed-but-wrong direction the review flagged).
 assert_pin_unique "#254: Pass 4 treats a MERGED dependency as satisfied (landed = CLOSED or MERGED)" \
   'when it is `CLOSED` **or** `MERGED`' "$IMPL_SKILL"
+# ── issue #346: Phase 1.6 gains Pass 5 — execution-capability claims. ─────────
+# A cloud-tier bot implement run cannot push .github/workflows/ (the installation
+# token lacks the workflows scope), so an AC that is workflow-resident must be
+# deferred at PLAN time (via 2.2.5) rather than discovered at push time after the
+# full commit is built. Pin the Pass 5 heading removal-proof, and the operative
+# contracts: the static-not-a-live-probe rule, the tier-keyed (not path-keyed)
+# decision, the repo-own-vs-vendored carve-out, the coupled-CI-pin-blocked-with-it
+# rule, the cloud-tier defer reflection, and the all-blocked → Blocked-path arm
+# (the most safety-relevant route — it declines the issue up front, opening no PR).
+# Scoped to phase-1-setup.md (where Phase 1.6 lives) so the pins are precise to the
+# audit-pass surface AC7 names, not the whole bundle.
+P1_FILE="$IMPL_PHASES_DIR/phase-1-setup.md"
+assert_pin_red_on_removal "#346: deleting the Pass 5 execution-capability heading turns its pin RED" \
+  'Execution-capability claims (workflow-resident ACs vs. the executing credential)' "$P1_FILE"
+assert_pin_unique "#346: Pass 5 is static, never a live gh/API probe" \
+  'not** run a `gh`/API probe to test the token'"'"'s actual scope' "$P1_FILE"
+assert_pin_unique "#346: Pass 5 keys the decision on the executing tier's credential, not the path alone" \
+  'Key the routing decision on the executing tier'"'"'s credential, not on the path alone' "$P1_FILE"
+assert_pin_unique "#346: Pass 5 matches only the repo's own .github/workflows (vendored copy is pushable)" \
+  'Match only the repo'"'"'s *own* `.github/workflows/`' "$P1_FILE"
+assert_pin_unique "#346: Pass 5 treats a coupled CI pin as blocked with the workflow edit" \
+  'blocked with it**, so the pushable subset stays CI-green on its own' "$P1_FILE"
+assert_pin_unique "#346: Pass 5 cloud-tier defer routes capability-blocked ACs through 2.2.5" \
+  'issue-claim audit (execution-capability): cloud tier — ACs {list} require editing .github/workflows/' "$P1_FILE"
+assert_pin_unique "#346: Pass 5 all-blocked arm takes the Phase 1 Blocked path and opens no PR" \
+  'issue-claim audit (execution-capability): every in-scope acceptance criterion requires editing .github/workflows/' "$P1_FILE"
+assert_pin_unique "#346: Pass 5 local/interactive tier behavior is unchanged (no defer, no block)" \
+  'never defer, never block' "$P1_FILE"
+# Coupled mirror sites: the 2.2.5 capability trigger (phase-2) and the Phase 4.0
+# human/PAT follow-up statement (phase-4) land in the SAME change as Pass 5.
+assert_pin_unique "#346: 2.2.5 lists capability-blocked ACs as a sanctioned scope-adjustment trigger" \
+  'Capability-blocked ACs are a sanctioned trigger too' "$IMPL_PHASES_DIR/phase-2-implement.md"
+assert_pin_unique "#346: Phase 4.0 follow-up states landing a capability-deferral needs a human/PAT workflows-scope push" \
+  'Landing this requires a human or PAT push carrying the `workflows` scope' "$IMPL_PHASES_DIR/phase-4-documentation.md"
 # ── issue #185 (+ Addendum): Phase 4.1 Documentation Needed cross-check ─────
 # Phase 4.1 enforces named documentation deliverables in two stages:
 #   Stage 1 pre-flight: extract the Documentation Needed paths and inject them
