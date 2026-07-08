@@ -15711,10 +15711,12 @@ echo "#312: workflow endpoint↔permission lint"
 # grants cover precheck's first two families; finalize_check's pull-requests:write and the
 # claude job's issues+pull-requests grants keep their comments requirements satisfied on the
 # clean tree. (The other job-run helpers hit no endpoint in the six recognized families, so
-# they add no requirement even though they are walked: react-to-trigger.sh POSTs a
-# repos/*/…/reactions endpoint and resolve-implement-trigger.sh reads repos/*/collaborators/*/
-# permission — reactions and collaborators are both outside the six families below, not an
-# un-walked helper gap.) The matcher recognizes only the six families
+# they add no requirement: react-to-trigger.sh POSTs a repos/*/…/reactions endpoint; the
+# resolve-*-trigger.sh scripts source authorize-actor.sh, which reads
+# repos/*/collaborators/*/permission — reactions and collaborators are both OUTSIDE the six
+# families below. Note authorize-actor.sh is SOURCED, not named in a job body, so it is not
+# itself walked — see the SINGLE-LEVEL attribution deferral below; it is benign only because
+# its one endpoint is unrecognized.) The matcher recognizes only the six families
 # enumerated in _wf_req_keys — an inline call outside them (e.g. devflow-review.yml's
 # best-effort repos/*/collaborators/*/permission) is not checked (a deferred family,
 # #312 review); the manual Phase 2.3.4 endpoint↔permission map remains the primary check,
@@ -15738,7 +15740,14 @@ echo "#312: workflow endpoint↔permission lint"
 # robust fix must distinguish deny-all (`{}`/empty) from grant-all (`read-all`/`write-all`)
 # from a populated block or it introduces a false positive, so it is deferred behind the
 # manual Phase 2.3.4 map (the primary check); revisit if a devflow job adopts an empty/inline
-# `permissions:` form. Fail-closed: a missing
+# `permissions:` form. KNOWN FAIL-OPEN, DEFERRED (#312 conv shadow): helper attribution is
+# SINGLE-LEVEL — the walk unions the families of each helper NAMED (by literal `.sh` basename
+# on some line) in a job body, but does not recurse into helpers those helpers `source` or
+# invoke, and a path assembled with no literal `.sh` token on any line is not resolved. Today
+# no recognized-family endpoint is reachable only transitively (verified by walking each named
+# helper's own sourced/invoked helpers); the notable sourced case, authorize-actor.sh (sourced
+# by the resolve-*-trigger.sh scripts), reads only the unrecognized `collaborators` family.
+# Revisit if a recognized-family call is added to a sourced/second-level helper. Fail-closed: a missing
 # workflows dir / precond helper yields a sentinel token, never a silent 0. Known
 # fail-open limit: the awk splitter assumes this repo's canonical 2/4/6-space YAML
 # indentation — a re-indented or tab-indented workflow parses to 0 jobs, indistinguishable
@@ -15992,6 +16001,43 @@ POSYAML
 assert_eq "#312: wf-lint positive inline test — six inline families + verdict-helper attribution differentially covered, inheritance/replacement/strip/anchor honored (7 violations)" \
   "7" "$(wf_perm_lint "$WF_POS_DIR/.github/workflows" "$WF_PRECOND")"
 rm -rf "$WF_POS_DIR" 2>/dev/null || true
+
+# Generic-attribution proof (#312 conv shadow — pr-test-analyzer): the value the generic
+# helper walk buys OVER the retired hardcoded {preconditions,verdict,post-issue} allow-list is
+# that it attributes a helper the list never knew — the exact regression class this design
+# retires. All the fixtures above resolve REAL helper basenames, so a revert to a hardcoded
+# list would keep them green. This test gives the generic mechanism its own differential case:
+# a SYNTHETIC helper with a novel basename (which no hardcoded list could contain) that makes a
+# comments-family call, run by a job granting neither issues nor pull-requests → +1. A revert
+# to a hardcoded allow-list cannot know the synthetic name → the job's comments requirement is
+# not attributed → 0 → this assert (expecting 1) goes RED. Its own scripts/ sandbox holds the
+# synthetic helper; the sandbox precond anchors scripts_dir there.
+WF_GEN_DIR="$(git_sandbox "#312: wf-lint generic-attribution proof temp dir")"
+mkdir -p "$WF_GEN_DIR/.github/workflows" "$WF_GEN_DIR/scripts" 2>/dev/null || true
+cat > "$WF_GEN_DIR/scripts/novel-attributed-helper.sh" <<'SYNTH' 2>/dev/null || true
+#!/usr/bin/env bash
+# a novel-basename helper a hardcoded allow-list could not enumerate
+gh api -X POST "repos/$REPO/issues/$N/comments" -f body=x
+SYNTH
+# the precond anchor for scripts_dir must exist + be readable (else MISSING_PRECOND); reuse the
+# same synthetic dir so scripts_dir resolves to where the novel helper lives.
+cat > "$WF_GEN_DIR/scripts/derive-review-preconditions.sh" <<'ANCHOR' 2>/dev/null || true
+#!/usr/bin/env bash
+: # no gh api call — this fixture isolates the generic-walk mechanism, not precond attribution
+ANCHOR
+cat > "$WF_GEN_DIR/.github/workflows/gen.yml" <<'GENYAML' 2>/dev/null || true
+name: gen-fixture
+on: push
+jobs:
+  runs_novel_helper:
+    permissions:
+      contents: read
+    steps:
+      - run: bash scripts/novel-attributed-helper.sh
+GENYAML
+assert_eq "#312: wf-lint generic-attribution proof — a novel-basename helper no hardcoded allow-list could know is attributed (1 violation; a revert to a hardcoded list goes RED here)" \
+  "1" "$(wf_perm_lint "$WF_GEN_DIR/.github/workflows" "$WF_GEN_DIR/scripts/derive-review-preconditions.sh")"
+rm -rf "$WF_GEN_DIR" 2>/dev/null || true
 
 # Fail-closed sentinel contract (#312 review — pr-test-analyzer): a missing workflows
 # dir or an unreadable precond helper must emit a NON-NUMERIC sentinel, never a silent 0
