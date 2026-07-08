@@ -4089,6 +4089,112 @@ assert_eq "#254: git-unavailable drop emits the degraded-rescue breadcrumb exact
   "1" "$(grep -c 'git unavailable' "$fx_nogit_dir/err")"
 rm -rf "$fx_nogit_dir"
 
+# Case 14 (issue #309): the em-dash prose-sentence **Documentation Needed** form
+# rendered as a bare bold PARAGRAPH with NO leading "- " list marker — exactly the
+# real issue #304 body shape an LLM-drafted `## Implementation Notes` produces.
+# RED on the old "- "-required scope anchor (the block matched nothing → the gate
+# was silently skipped on the issue shape it exists to enforce); GREEN after the
+# opener/closer accept an optional "- " marker (`^(- )?\*\*`). The paths must be
+# extracted by the SAME token scan as the dashed forms: the backticked files are
+# emitted, the trailing-slash directory ref (`docs/internal/workflows/`) is
+# dropped as a directory, and the non-path parenthetical prose
+# (`(review auto-trigger section)`) never leaks — the issue's false-positive
+# discipline is preserved. A peer bold paragraph (`**Potential Gotchas.**`, no
+# "- ") must still CLOSE the scope so the gotchas bullet's own tokens don't leak.
+fx_309="## Implementation Notes
+
+**Approach (Part A).** Add two config keys under \`devflow_review\`.
+
+**Code Patterns** — Part A mirrors the existing branches.
+
+**Documentation Needed** — \`docs/DEVFLOW_SYSTEM_OVERVIEW.md\` (review auto-trigger section) and any
+internal workflow doc under \`docs/internal/workflows/\` describing the trigger policy must document
+the new preconditions, the neutral-check-with-re-trigger behavior, and the two config keys. The
+\`CLAUDE.md\` review-engine / gotchas notes should mention the preconditions if they become a
+load-bearing invariant. \`.devflow/config.example.json\` documents the keys inline.
+
+**Potential Gotchas.**
+- **Do not extract \`other/leak.md\` named in this closing bullet.**"
+assert_eq "#309: bare bold-paragraph (no '- ') em-dash Documentation Needed form IS extracted; dir/prose dropped, gotchas bullet closes scope" \
+  "$(printf '.devflow/config.example.json\nCLAUDE.md\ndocs/DEVFLOW_SYSTEM_OVERVIEW.md')" \
+  "$(printf '%s\n' "$fx_309" | bash "$EXTRACT_HELPER")"
+
+# Case 15 (issue #309, review fail-open guard): a bold-emphasis span that BEGINS a
+# wrapped continuation line INSIDE an open bare-paragraph Documentation Needed
+# bullet (no leading "- ", not preceded by a blank line — e.g. "**Note.** …") must
+# NOT close the scope. Supporting the bare-paragraph form (Case 14) meant the scope
+# closer had to accept a bare "**" line; naively closing on EVERY bold-led line
+# would silently drop `docs/b.md` and any later wrapped path — a fail-OPEN that
+# under-enforces the Phase 4.1 gate on exactly the LLM-drafted shape #309 set out to
+# support. The `prev_blank` paragraph-boundary guard fixes it: `**Note.**` here is
+# mid-paragraph (the prior line is non-blank), so it stays in scope and `docs/b.md`
+# is still emitted; only the blank-line-preceded peer paragraph `**Potential
+# Gotchas.**` closes the scope, so `other/leak.md` does not leak. RED before the
+# guard (the bare-"**" closer dropped `docs/b.md`), GREEN after.
+fx_309_wrap="## Implementation Notes
+
+**Documentation Needed** — update \`docs/a.md\` first.
+**Note.** also update \`docs/b.md\` in the same pass.
+
+**Potential Gotchas.**
+- **Do not extract \`other/leak.md\` named here.**"
+assert_eq "#309 fail-open guard: a bold-led continuation line does NOT close scope; wrapped-line paths still emitted, peer paragraph still closes" \
+  "$(printf 'docs/a.md\ndocs/b.md')" \
+  "$(printf '%s\n' "$fx_309_wrap" | bash "$EXTRACT_HELPER")"
+
+# Case 16 (issue #309 AC-1, review): the VERBATIM issue #304 body — the real-world
+# shape that motivated #309 — checked in at lib/test/fixtures/issue-304-body.md
+# byte-for-byte. This fixture makes AC-1 ("running the extractor over issue #304's
+# verbatim body emits the named docs") a real assertion: Case 14 embeds the same
+# bullet in a hand-crafted single-section body, so only this fixture pins
+# byte-for-byte fidelity to the real body and its full multi-`## `-section
+# document layout (Case 14 has a single `## Implementation Notes` section), so a
+# structural drift in the real body can never keep the suite green while it
+# no-ops. Also exercises the $1 file-arg path.
+# Expected: the three backticked doc files; the `docs/internal/workflows/`
+# directory ref is dropped (directories are not file deliverables) and the
+# parenthetical prose ("(review auto-trigger section)") yields no path tokens.
+assert_eq "#309 AC-1: verbatim issue #304 body emits exactly the three named doc files; dir ref dropped" \
+  "$(printf '.devflow/config.example.json\nCLAUDE.md\ndocs/DEVFLOW_SYSTEM_OVERVIEW.md')" \
+  "$(bash "$EXTRACT_HELPER" "$LIB/test/fixtures/issue-304-body.md")"
+
+# Case 17 (issue #309 review — ACCEPTED-tradeoff pin, mirror of Case 15): a
+# blank-line-PRECEDED bold paragraph the author meant as a continuation of the
+# bullet is structurally indistinguishable from a peer bullet (`**Potential
+# Gotchas.**`), so it CLOSES the scope and `docs/b.md` is deliberately dropped.
+# Closing is the leak-safe choice: treating it as continuation would emit every
+# following peer bullet's tokens (the false-positive direction #309's Gotchas
+# forbid). This pins the drop as a documented contract, not a silent surprise —
+# if the closer is ever tightened, this assertion states today's tradeoff.
+fx_309_mirror="## Implementation Notes
+
+**Documentation Needed** — update \`docs/a.md\` first.
+
+**Also.** update \`docs/b.md\` in the same pass.
+
+**Potential Gotchas.**
+- **Do not extract \`other/leak.md\` named here.**"
+assert_eq "#309 tradeoff pin: a blank-preceded bold continuation paragraph CLOSES scope (accepted drop — leak-safe direction)" \
+  "docs/a.md" \
+  "$(printf '%s\n' "$fx_309_mirror" | bash "$EXTRACT_HELPER")"
+
+# Case 18 (issue #309 review): the heading rule's `prev_blank = 1` reset is
+# load-bearing — a bare bold Documentation Needed paragraph on the line
+# IMMEDIATELY after `## Implementation Notes` (no separating blank line) must
+# still open scope, because a heading is a paragraph boundary. The prior section
+# deliberately ends with a NON-blank line so that deleting the reset leaves
+# prev_blank=0 at the bullet and this case goes RED (empty output).
+fx_309_hdr="## Technical Context
+prose that ends the prior section with no trailing blank line
+## Implementation Notes
+**Documentation Needed** — update \`docs/h.md\`.
+
+**Potential Gotchas.**
+- **Do not extract \`other/leak.md\` named here.**"
+assert_eq "#309 heading reset pin: bare bold bullet on the line directly after the heading (no blank) still opens scope" \
+  "docs/h.md" \
+  "$(printf '%s\n' "$fx_309_hdr" | bash "$EXTRACT_HELPER")"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "scaffold-config.sh"
 # ────────────────────────────────────────────────────────────────────────────
