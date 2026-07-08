@@ -1150,7 +1150,7 @@ assert_pin_unique "263(A7): the carve-out is not conditioned on Phase 3.2 corrob
   'a single-source self-contradicting finding blocks exactly like a corroborated one' "$ST_REV"
 
 # ────────────────────────────────────────────────────────────────────────────
-echo "blocker-recheck fast path (Phase 0.6, standalone-review re-verdict) (#347)"
+echo "blocker-recheck fast path (Phase 0.3.6, standalone-review re-verdict) (#347)"
 # ────────────────────────────────────────────────────────────────────────────
 # #347 adds a scoped fast path to the shared review engine (skills/review/SKILL.md):
 # a standalone /devflow:review on a PR whose most recent recorded verdict is a REJECT
@@ -1163,13 +1163,14 @@ echo "blocker-recheck fast path (Phase 0.6, standalone-review re-verdict) (#347)
 # same idiom as the #263 carve-out pins above. Each literal is target-unique and
 # apostrophe-free (single-quoted bash literal).
 
-# Existence: the Phase 0.6 heading is the fast path's anchor in the engine.
-assert_pin_unique "347: Phase 0.6 blocker-recheck fast path exists in the review engine" \
-  '### 0.6 Blocker-recheck fast path' "$ST_REV"
-# AC2 (blinded verifier): the verifier receives only the enumerated blockers + the
-# rejected-head..HEAD delta — mirrors Step 3.5's blinding. Two operative sentences.
-assert_pin_unique "347(AC2): fast-path verifier is blinded to the fixer's reasoning/prior findings" \
-  'Blinding is the independence guarantee' "$ST_REV"
+# Existence: the Phase 0.3.6 heading is the fast path's anchor in the engine.
+assert_pin_unique "347: Phase 0.3.6 blocker-recheck fast path exists in the review engine" \
+  '### 0.3.6 Blocker-recheck fast path' "$ST_REV"
+# AC2 (blinded verifier): pin the OPERATIVE sentence — the verifier's input scope (it
+# receives only the enumerated blockers + rejected-head..HEAD delta, never the fixer's
+# reasoning), mirroring Step 3.5's blinding. The rhetorical framing phrase ("Blinding is
+# the independence guarantee") in the same sentence is deliberately NOT pinned — pinning
+# it would go RED on a behavior-preserving reword (operative-vs-framing pin discipline).
 assert_pin_unique "347(AC2): the blinded verifier receives only the enumerated blockers" \
   'receives **only** the enumerated blockers' "$ST_REV"
 # AC3 (APPROVE posts through Phase 4.4 + reuses dismiss-stale-rejections.sh unchanged).
@@ -1190,7 +1191,7 @@ assert_pin_unique "347(AC4): intervening change outside blocker sites cannot smu
 # AC4 (single-source guarantee): gated OFF for /devflow:review-and-fix (head_override=local),
 # so the fix loop never takes the fast path mid-loop and the engine stays single-sourced.
 assert_pin_unique "347(AC4): fast path is gated off when head_override is set (fix-loop reuse)" \
-  'skip this entire phase** and continue to Phase 1 unchanged' "$ST_REV"
+  'skip this entire phase** and continue with the rest of Phase 0 unchanged' "$ST_REV"
 # AC5 (still-unfixed → REJECT, never APPROVE/silence) + verifier-failure fails closed.
 assert_pin_unique "347(AC5): any still-unfixed blocker posts REJECT, never APPROVE/silence" \
   'Never APPROVE, never silence' "$ST_REV"
