@@ -3,6 +3,7 @@
 ## July 8, 2026
 
 - **Improvement — Cloud runs now surface execution diagnostics to the job log for easier debugging** — After each cloud-tier `claude-code-action` run, DevFlow now writes the run's execution diagnostics — the run summary (whether the run errored, the turn count, duration, cost, and the number of permission denials) plus per-denial detail when available — to the job log and the workflow run summary. A maintainer debugging a stalled, incomplete, or unexpectedly denied cloud run can now see the denial detail and run shape directly instead of losing that information. The step is read-only: it always runs after the main step, never changes a job's pass or fail result, adds no token scope, and uploads no artifact, and it can be turned off by setting `devflow.execution_diagnostics_enabled` to `false`. (#337)
+- **Fix — DevFlow now reports a clear "Python 3.11+ required" message on an unsupported Python instead of an opaque crash** — When `workpad.py` or `match-deferrals.py` ran on a Python interpreter older than 3.11, they previously failed with a raw `TypeError` traceback that named neither the cause nor the remedy. Both helpers now check the interpreter version first and, when it is too old, print a single plain-text line naming the running version, the required Python 3.11+ floor, and how to fix it (install Python 3.11+ or run the provided `python3` shim setup, per `docs/install.md`), then exit cleanly. Behavior on Python 3.11 and newer, the supported floor, is unchanged. (#343)
 
 ## July 7, 2026
 
