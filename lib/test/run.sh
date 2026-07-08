@@ -17399,6 +17399,63 @@ assert_eq "#312: _famgrep emits the key on a grep ERROR (rc>=2) — fail-closed,
 assert_eq "#312: _famgrep stays silent on a clean no-match (rc 1)" \
   "" "$(printf 'x\n' | _famgrep 'repos/[^ \"'\'']*/actions/runs' actions 2>/dev/null)"
 
+# ────────────────────────────────────────────────────────────────────────────
+echo "#342 interpreter version gate: workpad.py / match-deferrals.py fail fast on pre-3.11"
+# ────────────────────────────────────────────────────────────────────────────
+# These two helpers annotate functions with PEP 604 unions (`str | None`), which
+# Python evaluates at function-definition time — so on an interpreter older than
+# 3.10 the module dies at import with a raw `TypeError` naming neither the cause
+# nor the remedy. The fix is a `sys.version_info < (3, 11)` gate placed AFTER the
+# import block but BEFORE the first function definition, so it fires ahead of any
+# annotation evaluation and prints the contract instead of a traceback.
+#
+# This guard is deterministic and ast-based (not a text scan, so comments/strings
+# can never satisfy it) and runs on the suite's normal >=3.11 interpreter — no
+# sub-3.11 interpreter is needed (and none exists in any gate; the #225 alt-python
+# machinery is fake version-reporting PATH stubs). It asserts, per file:
+#   (1) a top-level `if` whose test compares `sys.version_info` against the tuple
+#       `(3, 11)` exists;
+#   (2) that `if` precedes the first FunctionDef/ClassDef (below it, the gate can
+#       no longer fire ahead of annotation evaluation);
+# and separately pins the message wording (`Python 3.11+ required` + the
+# `provision-python3-shim.sh` remedy). Bug-reproducing direction: RED against the
+# gate-less files, GREEN after the gate is added. The floor tuple `(3, 11)` is a
+# coupled constant mirrored in lib/resolve-python.sh, lib/preflight.sh, and both
+# gates — a future floor change updates every site in one commit.
+GATE_CHECK='
+import ast, sys
+def check(path):
+    tree = ast.parse(open(path, encoding="utf-8").read())
+    first_def = None
+    gate_idx = None
+    for i, node in enumerate(tree.body):
+        if first_def is None and isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            first_def = i
+        if gate_idx is None and isinstance(node, ast.If) and isinstance(node.test, ast.Compare):
+            left = node.test.left
+            is_vi = (isinstance(left, ast.Attribute) and left.attr == "version_info"
+                     and isinstance(left.value, ast.Name) and left.value.id == "sys")
+            comp = node.test.comparators[0] if node.test.comparators else None
+            is_tuple = (isinstance(comp, ast.Tuple)
+                        and [getattr(e, "value", None) for e in comp.elts] == [3, 11])
+            if is_vi and is_tuple:
+                gate_idx = i
+    if gate_idx is None:
+        print("NO_GATE"); return
+    if first_def is not None and gate_idx > first_def:
+        print("GATE_BELOW_DEF"); return
+    print("GATE_OK")
+check(sys.argv[1])
+'
+for _gf in workpad.py match-deferrals.py; do
+  assert_eq "#342 gate: $_gf has a sys.version_info<(3,11) gate above the first def (ast)" \
+    "GATE_OK" "$(python3 -c "$GATE_CHECK" "$LIB/../scripts/$_gf" 2>&1)"
+  assert_pin_unique "#342 gate: $_gf pins the 'Python 3.11+ required' floor phrase" \
+    'Python 3.11+ required' "$LIB/../scripts/$_gf"
+  assert_pin_unique "#342 gate: $_gf points at the provision-python3-shim.sh remedy" \
+    'provision-python3-shim.sh' "$LIB/../scripts/$_gf"
+done
+
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
