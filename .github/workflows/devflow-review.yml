@@ -87,6 +87,19 @@ on:
     types: [completed]
   check_suite:
     types: [completed]
+  # Legacy commit-status CI re-trigger (#310): repos whose CI reports ONLY via
+  # the commit-status API (classic Jenkins, legacy CircleCI) emit a `status`
+  # event — not workflow_run/check_suite — when their CI transitions. Without
+  # this listener such a repo defers every PR at open (ci-not-green) and has no
+  # completion event to auto-re-trigger on, making the check's Re-run button its
+  # routine path rather than the stuck-signal exception. The precheck `if:`
+  # filters to state == 'success' (the cheap green-state filter, mirroring the
+  # workflow_run push filter) BEFORE a runner spins; the route branch resolves
+  # the PR from the status head SHA (the payload carries no pull_requests[] ref)
+  # and reuses the same open-state/draft/stale-head/exactly-once/precondition
+  # machinery. Cannot self-trigger: this workflow posts check-runs, never commit
+  # statuses.
+  status:
 
 permissions:
   contents: read
@@ -105,7 +118,11 @@ concurrency:
   # key for events with no resolvable PR (the job no-ops anyway).
   # Note (#304): workflow_run/check_suite payloads carry an EMPTY
   # pull_requests[] for fork PRs, so those completions fall to the run_id
-  # group and do not collapse each other — accepted looseness. The route
+  # group and do not collapse each other — accepted looseness. (#310): a
+  # status payload carries NO pull_requests[] at all, so status completions
+  # likewise fall to the run_id group and are deliberately given no group arm
+  # below — same accepted looseness; the route step's exactly-once gate
+  # dedupes the common case. The route
   # step's exactly-once gate dedupes the common case, but it is a
   # check-existence READ, not a lock: two prechecks racing at the same
   # instant can both observe zero existing `Devflow Review` checks and both
@@ -126,7 +143,14 @@ jobs:
     # merge-to-default push completion resolves no open PR and no-ops in
     # one API call). (check_suite has no equivalent event field; its route
     # branch no-ops cheaply on a PR-less head instead.)
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.event == 'pull_request' || github.event.workflow_run.event == 'pull_request_target' || github.event.workflow_run.event == 'push'
+    # #310 adds the status arm: a `status` event only spins the runner when its
+    # state is 'success' (the cheap green-state filter — status fires on EVERY
+    # CI transition, so gating pending/failure/error here keeps them off the
+    # runner entirely). Structure: pass any event that is neither workflow_run
+    # nor status; ELSE apply each event's own filter (workflow_run → underlying
+    # PR-CI event incl. push; status → state == success). For a status event
+    # github.event.workflow_run.event is empty, so those clauses are false.
+    if: (github.event_name != 'workflow_run' && github.event_name != 'status') || github.event.workflow_run.event == 'pull_request' || github.event.workflow_run.event == 'pull_request_target' || github.event.workflow_run.event == 'push' || (github.event_name == 'status' && github.event.state == 'success')
     runs-on: ubuntu-latest
     # Explicit (plan §4 matrix): the first-ready gate reads check-runs and PR
     # commits. On a public repo these are unauth-readable (verified: the gate
@@ -205,6 +229,11 @@ jobs:
           CS_HEAD: ${{ github.event.check_suite.head_sha }}
           CS_PR: ${{ github.event.check_suite.pull_requests[0].number }}
           CS_APP: ${{ github.event.check_suite.app.slug }}
+          # status re-trigger path inputs (#310): legacy commit-status CI. The
+          # payload carries a head sha + a state but NO pull_requests[] ref, so
+          # the route resolves the PR from ST_SHA (resolve_pr_for_head).
+          ST_SHA: ${{ github.event.sha }}
+          ST_STATE: ${{ github.event.state }}
           # #304 precondition inputs (config-resolved in extract)
           BASE_BRANCH: ${{ steps.extract.outputs.base_branch }}
           REQUIRE_UP_TO_DATE: ${{ steps.extract.outputs.require_up_to_date }}
@@ -459,14 +488,16 @@ jobs:
             exit 0
           fi
 
-          if [ "$EVENT_NAME" = "workflow_run" ] || [ "$EVENT_NAME" = "check_suite" ]; then
-            # --- CI-completion re-trigger path (#304) ---
+          if [ "$EVENT_NAME" = "workflow_run" ] || [ "$EVENT_NAME" = "check_suite" ] || [ "$EVENT_NAME" = "status" ]; then
+            # --- CI-completion re-trigger path (#304; +status #310) ---
             # A review deferred behind the preconditions must fire without a
             # manual Re-run once the PR becomes reviewable. workflow_run
             # covers Actions CI (named in the on: list — a GitHub platform
             # requirement); check_suite covers external CI apps (Actions
-            # suites never deliver it — recursion prevention). No actor-
-            # dedupe here: these events have no pull_request/_target twin.
+            # suites never deliver it — recursion prevention); status covers
+            # legacy commit-status-only CI (classic Jenkins, legacy CircleCI).
+            # No actor-dedupe here: these events have no pull_request/_target
+            # twin.
             if [ "$EVENT_NAME" = "workflow_run" ]; then
               # Self-exclusion: never re-trigger off this workflow's own
               # completion (an infinite loop otherwise). Belt-and-braces —
@@ -477,7 +508,7 @@ jobs:
               fi
               HEAD="$WR_HEAD"
               PR="$WR_PR"
-            else
+            elif [ "$EVENT_NAME" = "check_suite" ]; then
               # Defensive: Actions-created suites never deliver check_suite,
               # but if one ever did, ignoring it here prevents a self-loop.
               if [ "$CS_APP" = "github-actions" ]; then
@@ -486,6 +517,22 @@ jobs:
               fi
               HEAD="$CS_HEAD"
               PR="$CS_PR"
+            else
+              # --- status (legacy commit-status CI) #310 ---
+              # The precheck if: already filtered to state == 'success' before
+              # this runner spun, so only a green transition reaches here.
+              # Re-assert it as defense-in-depth so a future precheck-if edit
+              # can't silently let a non-success status spin the route. The
+              # status payload carries NO pull_requests[] ref, so PR is left
+              # empty and resolved from the head SHA below (resolve_pr_for_head),
+              # exactly like a fork-PR workflow_run completion. Cannot
+              # self-trigger: this workflow posts check-runs, never statuses.
+              if [ "$ST_STATE" != "success" ]; then
+                echo "::notice::status event state '$ST_STATE' is not success; no-op (only a green commit status re-triggers a deferred review)."
+                exit 0
+              fi
+              HEAD="$ST_SHA"
+              PR=""
             fi
             if [ -z "$HEAD" ] || [ "$HEAD" = "null" ]; then
               echo "::notice::CI-completion event carries no head_sha; no-op."
@@ -744,7 +791,7 @@ jobs:
               unverifiable) TITLE='Devflow review waiting: preconditions unverifiable (API query failed — see the precheck log)' ;;
               *)            TITLE='Devflow review waiting: precondition not met' ;;
             esac
-            SUMMARY='This PR is not yet in a reviewable state, so the review was deferred (not run). It auto-re-triggers when the branch is updated, or when a CI workflow named in this workflow'"'"'s workflow_run trigger list (or an external check_suite CI) completes. If your CI workflow is not in that list, or a signal is permanently stuck (a cancelled sibling run, a forever-pending status), click Re-run on this check once CI is green to force a review of the current HEAD. See docs/workflow-triggers.md for the deferral and re-trigger policy.'
+            SUMMARY='This PR is not yet in a reviewable state, so the review was deferred (not run). It auto-re-triggers when the branch is updated, or when a CI workflow named in this workflow'"'"'s workflow_run trigger list (or an external check_suite CI, or a legacy commit status transitioning to success) completes. If your CI workflow is not in that list, or a signal is permanently stuck (a cancelled sibling run, a forever-pending status), click Re-run on this check once CI is green to force a review of the current HEAD. See docs/workflow-triggers.md for the deferral and re-trigger policy.'
             # De-duplicate repeated deferral re-evaluations. A branch that
             # stays behind base (or whose CI stays red) across several
             # CI-completion events re-enters this job each time; POSTing a

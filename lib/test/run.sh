@@ -9616,9 +9616,12 @@ assert_eq "#304 extraction expression: scalar-corrupted section defaults true" "
 # (c4) The precheck job's workflow_run event filter survives — and 'push'
 # MUST be among the allowed events: many consumer repos run CI on branch
 # pushes, and a filter that drops push completions silently disables the
-# CI-completion re-trigger for them.
+# CI-completion re-trigger for them. (Pin the workflow_run underlying-event
+# sub-clause specifically: #310 restructured the surrounding if: to add the
+# status green-state arm, so the old whole-expression literal no longer appears
+# contiguously — but the push-allowed contract this pin protects is unchanged.)
 assert_eq "#304 precheck if: workflow_run filter passes pull_request/pull_request_target/push" "yes" \
-  "$(grep -qF "github.event_name != 'workflow_run' || github.event.workflow_run.event == 'pull_request' || github.event.workflow_run.event == 'pull_request_target' || github.event.workflow_run.event == 'push'" "$REVIEW_WF" && echo yes || echo no)"
+  "$(grep -qF "github.event.workflow_run.event == 'pull_request' || github.event.workflow_run.event == 'pull_request_target' || github.event.workflow_run.event == 'push'" "$REVIEW_WF" && echo yes || echo no)"
 # (c5) The single most load-bearing wiring fact: the three gated route paths
 # actually CALL the preconditions gate (with the || exit 0 that turns a
 # deferral into a clean skip instead of a set -e step failure). Deleting one
@@ -9891,6 +9894,66 @@ assert_eq "#311 behind-base base-advance limitation documented in workflow-trigg
 # in the workflow_run trigger list.
 assert_eq "#311 installer prompts for the consumer CI workflow name in workflow_run" "yes" \
   "$(grep -qF "set the 'workflow_run:' 'workflows:' list" "$LIB/../install.sh" && echo yes || echo no)"
+
+# ── #310 status-event re-trigger (legacy commit-status-only CI) ───────────────
+# A repo whose CI reports ONLY via the commit-status API (classic Jenkins,
+# legacy CircleCI) emits a `status` event — not workflow_run/check_suite — when
+# its CI transitions, so without a status listener it defers every PR at open
+# (ci-not-green) with no completion event to auto-re-trigger on. These pins are
+# coupled to the exact devflow-review.yml lines and land in the SAME commit as
+# them (the CLAUDE.md coupled-invariant rule); the workflow YAML has no runnable
+# unit surface, so the static pins ARE the verification.
+# (a) The on: block declares the status trigger (deleting it disables the whole
+# legacy-status re-trigger while every other pin stays green).
+assert_eq "#310 on: block declares the status trigger" "yes" \
+  "$(sed -n '/^on:/,/^permissions:/p' "$REVIEW_WF" | grep -qE '^  status:' && echo yes || echo no)"
+# (b) The precheck if: green-state cheap-filter (AC1: non-success states never
+# spin the route). status events fire on EVERY CI transition, so gating them at
+# the if: keeps pending/failure/error off the runner entirely — mirroring the
+# existing workflow_run push filter's placement.
+assert_eq "#310 precheck if: status proceeds only on state == success (green-state cheap-filter)" "yes" \
+  "$(grep -qF "github.event_name == 'status' && github.event.state == 'success'" "$REVIEW_WF" && echo yes || echo no)"
+# (c) The route step plumbs the status head SHA + state env inputs (without
+# ST_SHA the head is unresolvable; without ST_STATE the defensive re-filter in
+# the arm cannot fire).
+assert_eq "#310 route step reads ST_SHA from github.event.sha" "yes" \
+  "$(grep -qF 'ST_SHA: ${{ github.event.sha }}' "$REVIEW_WF" && echo yes || echo no)"
+assert_eq "#310 route step reads ST_STATE from github.event.state" "yes" \
+  "$(grep -qF 'ST_STATE: ${{ github.event.state }}' "$REVIEW_WF" && echo yes || echo no)"
+# (d) The CI-completion route branch's outer dispatch includes status, so a
+# status event enters the SHARED open-state/draft/stale-head/exactly-once/
+# preconditions machinery (AC2) rather than a parallel copy.
+assert_eq "#310 CI-completion route branch outer condition includes the status event" "yes" \
+  "$(grep -qF '[ "$EVENT_NAME" = "status" ]' "$REVIEW_WF" && echo yes || echo no)"
+# (e) The status arm derives HEAD from the status payload's own sha (ST_SHA),
+# not a workflow_run/check_suite field.
+assert_eq "#310 status route arm derives HEAD from ST_SHA" "yes" \
+  "$(grep -qF 'HEAD="$ST_SHA"' "$REVIEW_WF" && echo yes || echo no)"
+# (f) Defense-in-depth: even though (b) already filtered to success at the if:,
+# the status arm RE-ASSERTS state == success and no-ops otherwise
+# (breadcrumb-plus-behavior via grep -A1: the notice is immediately followed by
+# its exit 0), so a future precheck-if edit can't silently let a non-success
+# status spin the route (AC1: "non-success states never spin the route").
+assert_eq "#310 status arm re-asserts non-success no-ops with exit 0 (breadcrumb-plus-behavior)" "yes" \
+  "$(grep -A1 -F "is not success; no-op (only a green commit status re-triggers a deferred review)" "$REVIEW_WF" | grep -qE '^ *exit 0' && echo yes || echo no)"
+# (g) The status payload has no PR ref, so the arm leaves PR empty and the
+# shared resolve_pr_for_head fallback resolves it from the head SHA — same as a
+# fork-PR workflow_run completion. grep -A1 anchors the empty-PR set directly
+# under the ST_SHA head assignment (the resolve call + open-state guard are
+# already pinned by the #304/#311 blocks the status arm now reuses).
+assert_eq "#310 status arm leaves PR empty for resolve_pr_for_head (no payload PR ref)" "yes" \
+  "$(grep -A1 -F 'HEAD="$ST_SHA"' "$REVIEW_WF" | grep -qE '^ *PR=""' && echo yes || echo no)"
+# (h) Docs reconciliation (AC4): §14 of the overview names the status-event
+# re-trigger.
+assert_eq "#310 DEVFLOW_SYSTEM_OVERVIEW §14 names the status-event re-trigger" "yes" \
+  "$(grep -qF 'since issue #310' "$OV" && echo yes || echo no)"
+# (i) Docs reconciliation (AC4): the require_ci_green schema description names
+# the status-event re-trigger (replacing the workflow_run/check_suite-only
+# re-trigger caveat). The pinned phrase is the #310-specific lead-in to the
+# status-event clause, distinctive within the schema (the pre-existing
+# CI-green signal list already mentions "legacy commit statuses" separately).
+assert_eq "#310 require_ci_green schema description names the status-event re-trigger" "yes" \
+  "$(grep -qF 'since issue #310) a legacy commit-status' "$LIB/../.devflow/config.schema.json" && echo yes || echo no)"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "efficiency-trace.jq / efficiency-trace.sh"
