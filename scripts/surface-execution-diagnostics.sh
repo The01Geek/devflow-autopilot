@@ -24,7 +24,8 @@
 # event, and no sample execution file survives to pin its exact home (issue #329's
 # load-bearing assumption). So denials are gathered from ANY `permission_denials`
 # array in the slurped input, and the surfacing degrades to count-only when no
-# such array is present — the count (`permission_denials_count`) is always shown.
+# such array is present — the count (`permission_denials_count`) is shown when the
+# log carries it or denials were gathered, else reported as unavailable.
 #
 # Best-effort, mirroring parse-engine-error.sh: an absent, empty, or unparseable
 # execution file — and a parsed file carrying neither a result event nor any
@@ -110,8 +111,15 @@ if ! BLOCK=$("$DEVFLOW_JQ" -rs --arg header "$_HEADER" '
         # omitted the count, would be affirmatively reported as "No permission
         # denials." — the opposite of what this tool is for). $count is the reported
         # count, else the gathered-denial length, else null (genuinely unknown).
+        # Reconcile the reported count with directly-gathered denial objects: take
+        # the LARGER of the two so a result-event count of 0 (or an under-report)
+        # never suppresses denial detail the slurp actually found in message events
+        # — that would fail OPEN in the core use case. When the count field is
+        # absent, use the gathered length; when neither exists, null (genuinely
+        # unknown). Directly-observed denials always win over a smaller field value.
         ($denials | length) as $dcount
-        | (if $r.permission_denials_count != null then $r.permission_denials_count
+        | (if $r.permission_denials_count != null then
+             (if $dcount > $r.permission_denials_count then $dcount else $r.permission_denials_count end)
            elif $dcount > 0 then $dcount
            else null end) as $count
         | $header, "",
@@ -123,13 +131,16 @@ if ! BLOCK=$("$DEVFLOW_JQ" -rs --arg header "$_HEADER" '
           "- permission_denials_count: \(orna($count))",
           "",
           "### Permission denials",
-          (if $count == null then
+          # Gathered detail is surfaced FIRST — before the count==0 / unavailable
+          # branches — so directly-observed denials are never hidden behind a
+          # contradicting or absent result-event count.
+          (if $dcount > 0 then
+             ("\($dcount) permission denial(s) with detail:"),
+             ($denials[] | "- `\(.tool_name // "unknown")`: \(trunc(.tool_input // ""))")
+           elif $count == null then
              "Permission-denial count unavailable — no permission_denials_count in the result event and no permission_denials array found."
            elif $count == 0 then
              "No permission denials."
-           elif $dcount > 0 then
-             ("\($dcount) permission denial(s) with detail:"),
-             ($denials[] | "- `\(.tool_name // "unknown")`: \(trunc(.tool_input // ""))")
            else
              "\($count) permission denial(s) reported; no per-denial detail in execution file."
            end)

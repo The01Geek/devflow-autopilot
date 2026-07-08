@@ -6,7 +6,7 @@ type: Added
 - **Surface claude-code-action execution diagnostics via a shared helper.** New best-effort
   `scripts/surface-execution-diagnostics.sh` reads a claude-code-action execution log and prints
   the run summary (`is_error`, `num_turns`, `duration_ms`, `total_cost_usd`,
-  `permission_denials_count`) plus permission-denial detail (count always; per-denial `tool_name`
+  `permission_denials_count`) plus permission-denial detail (count when available, else reported unavailable; per-denial `tool_name`
   and truncated `tool_input` when the log carries it) to stdout, and appends the same block to
   `$GITHUB_STEP_SUMMARY` when set. It mirrors `parse-engine-error.sh`'s slurp-based
   array/object/JSONL traversal and `lib/resolve-jq.sh` / `DEVFLOW_JQ` seam, degrades to an explicit

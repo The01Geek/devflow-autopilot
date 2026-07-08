@@ -8211,6 +8211,13 @@ printf '%s' '{"type":"result","is_error":false,"permission_denials":[{"tool_name
 printf '%s' '{"type":"result","is_error":false,"permission_denials_count":1,"permission_denials":{"tool_name":"Glob","tool_input":"z"}}' > "$SED_TMP/denial_obj.json"
 # result event missing duration_ms -> orna renders "n/a" (the null->n/a branch)
 printf '%s' '{"type":"result","is_error":true,"num_turns":2,"permission_denials_count":0}' > "$SED_TMP/missing_field.json"
+# denials in a NON-result event, NO result event at all: the tool's core premise
+# (detail may live in streamed message events) -> partial block, n/a summary + detail
+printf '%s' '[{"type":"system"},{"type":"stream","permission_denials":[{"tool_name":"WebFetch","tool_input":"https://x"}]}]' > "$SED_TMP/denials_no_result.json"
+# result event reports count 0 but a message event carries denials: the reconciled
+# count must be the larger (1) and the detail must be SURFACED, not suppressed as
+# "No permission denials." (the fail-open the shadow pass caught)
+printf '%s' '[{"type":"stream","permission_denials":[{"tool_name":"Task","tool_input":"q"}]},{"type":"result","is_error":false,"num_turns":9,"permission_denials_count":0}]' > "$SED_TMP/count0_with_denials.json"
 
 # --- AC1: run summary fields surfaced to stdout (capture once, grep the block) ---
 SED_POP_OUT="$(bash "$SED" "$SED_TMP/populated.json" 2>/dev/null)"
@@ -8272,9 +8279,27 @@ assert_eq "#329 surface-diag: absent count does NOT print 'No permission denials
 assert_eq "#329 surface-diag: absent count renders permission_denials_count: n/a" "yes" \
   "$(printf '%s' "$SED_NC_OUT" | grep -qF "permission_denials_count: n/a" && echo yes || echo no)"
 # --- parsed-but-result-less (message-only) -> the in-jq 'no result event' no-diag arm ---
-assert_eq "#329 surface-diag: message-only (no result, no denials) -> no diagnostics available" "yes" \
-  "$(bash "$SED" "$SED_TMP/msg_only.json" 2>/dev/null | grep -qF "No diagnostics available" && echo yes || echo no)"
+# Grep the ARM-SPECIFIC text so this stays non-vacuous vs the shell _NO_DIAG string.
+assert_eq "#329 surface-diag: message-only (no result, no denials) -> in-jq 'no result event' arm" "yes" \
+  "$(bash "$SED" "$SED_TMP/msg_only.json" 2>/dev/null | grep -qF "no result event in execution file" && echo yes || echo no)"
 ( bash "$SED" "$SED_TMP/msg_only.json" >/dev/null 2>&1 ); assert_eq "#329 surface-diag: exits 0 (message-only)" "0" "$?"
+# --- partial block: denials present, NO result event (the tool's core premise) ---
+SED_DNR_OUT="$(bash "$SED" "$SED_TMP/denials_no_result.json" 2>/dev/null)"
+assert_eq "#329 surface-diag: denials-without-result surfaces per-denial detail" "yes" \
+  "$(printf '%s' "$SED_DNR_OUT" | grep -qF '`WebFetch`' && echo yes || echo no)"
+assert_eq "#329 surface-diag: denials-without-result derives the count" "yes" \
+  "$(printf '%s' "$SED_DNR_OUT" | grep -qF "permission_denials_count: 1" && echo yes || echo no)"
+assert_eq "#329 surface-diag: denials-without-result renders n/a run-summary fields" "yes" \
+  "$(printf '%s' "$SED_DNR_OUT" | grep -qF "is_error: n/a" && echo yes || echo no)"
+( bash "$SED" "$SED_TMP/denials_no_result.json" >/dev/null 2>&1 ); assert_eq "#329 surface-diag: exits 0 (denials-without-result)" "0" "$?"
+# --- fail-open regression: result count 0 but denials gathered -> detail SHOWN, not suppressed ---
+SED_C0D_OUT="$(bash "$SED" "$SED_TMP/count0_with_denials.json" 2>/dev/null)"
+assert_eq "#329 surface-diag: count-0-with-denials surfaces detail (not suppressed)" "yes" \
+  "$(printf '%s' "$SED_C0D_OUT" | grep -qF '`Task`' && echo yes || echo no)"
+assert_eq "#329 surface-diag: count-0-with-denials does NOT print 'No permission denials.'" "no" \
+  "$(printf '%s' "$SED_C0D_OUT" | grep -qF "No permission denials." && echo yes || echo no)"
+assert_eq "#329 surface-diag: count-0-with-denials reconciles count to the larger (1)" "yes" \
+  "$(printf '%s' "$SED_C0D_OUT" | grep -qF "permission_denials_count: 1" && echo yes || echo no)"
 # --- count derived from the denials-array length when the count field is absent ---
 SED_CFL_OUT="$(bash "$SED" "$SED_TMP/count_from_len.json" 2>/dev/null)"
 assert_eq "#329 surface-diag: count derived from denial-array length" "yes" \
