@@ -1412,7 +1412,12 @@ def _apply_mutations(body: str, args, failed_ticks) -> str:
         # deferral becomes a recorded, retrospective-auditable claim rather than a
         # trust-me tag. Fail structurally (raise before any PATCH → all-or-nothing,
         # Status never flips) when no non-empty note accompanies such a pair. The
-        # guard cannot judge the rationale's *truth* — it enforces that one exists.
+        # guard cannot judge the rationale's *truth* — it enforces that one exists,
+        # and does so at *call* scope: any one non-empty `--note` in the same
+        # `update` call satisfies it, whether or not that note is *about* the retag
+        # (the note is appended to Progress, not bound to the rewritten row). The
+        # retrospective auditor reads the recorded note; the guard only guarantees
+        # there is one to read.
         # Scope: this covers the `--rewrite-ac` retag channel only; the Phase 2.2.5
         # `--replace-acs-file` channel can introduce `(post-merge)` rows wholesale —
         # a deliberate, known limitation left open here, not closed by this guard.

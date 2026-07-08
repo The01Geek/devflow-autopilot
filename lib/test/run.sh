@@ -3908,6 +3908,11 @@ assert_eq "#338(T7): a multi-pair call that net-adds a (post-merge) row with no 
   "$([ "$_c" = "0" ] && echo yes || echo no)"
 assert_eq "#338(T7): the multi-pair backstop refusal made NO PATCH (all-or-nothing)" "yes" \
   "$([ -s "$S338/patchlog" ] && echo no || echo yes)"
+# Assert the refusal came from the STATE BACKSTOP ('net-adds'), not an incidental
+# _rewrite_checkbox zero/multi-match abort — so a refactor that made this call fail for
+# the wrong reason (while the backstop silently rotted) is caught, not masked by T7b.
+assert_eq "#338(T7): the refusal is the state backstop's 'net-adds' abort, not an incidental match failure" "yes" \
+  "$(grep -q 'net-adds' "$S338/err" && echo yes || echo no)"
 # T7b (backstop no false fire): the identical multi-pair call WITH a non-empty --note succeeds.
 _c="$(run338 "$S338/base.md" --rewrite-ac "AC two" "(post-merge) AC two" \
   --rewrite-ac "(post-merge)" "AC two (post-merge)" --note "retro-tagged (genuinely-live): live endpoint")"
