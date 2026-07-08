@@ -4151,9 +4151,8 @@ assert_eq "#309 fail-open guard: a bold-led continuation line does NOT close sco
 # suite green while the real body no-ops. Also exercises the $1 file-arg path.
 # Expected: the three backticked doc files; the `docs/internal/workflows/`
 # directory ref is dropped (directories are not file deliverables) and the
-# Problem Statement's QUOTED copy of the bullet never opens scope (outside
-# `## Implementation Notes`).
-assert_eq "#309 AC-1: verbatim issue #304 body emits exactly the three named doc files; dir ref + quoted copy dropped" \
+# parenthetical prose ("(review auto-trigger section)") yields no path tokens.
+assert_eq "#309 AC-1: verbatim issue #304 body emits exactly the three named doc files; dir ref dropped" \
   "$(printf '.devflow/config.example.json\nCLAUDE.md\ndocs/DEVFLOW_SYSTEM_OVERVIEW.md')" \
   "$(bash "$EXTRACT_HELPER" "$LIB/test/fixtures/issue-304-body.md")"
 
