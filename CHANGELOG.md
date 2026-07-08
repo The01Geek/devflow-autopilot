@@ -4,6 +4,16 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.78] — 2026-07-08
+
+### Fixed
+- **Route the `review_dedupe` cloud job through the shared standalone-command detector.** The
+  `review_dedupe` job in `devflow.yml` now materializes the vendored plugin and routes its body
+  match through the same `detect-standalone-command.sh` the trigger resolver uses, replacing its
+  coarse `case "$BODY"` substring. A `/devflow:review` merely quoted or fenced in prose no longer
+  dedupes or posts a "manual review suppressed" notice, and the trigger gate and dedupe matcher
+  can no longer drift. (#321)
+
 ## [2.8.77] — 2026-07-07
 
 ### Fixed
