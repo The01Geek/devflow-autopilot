@@ -4388,6 +4388,54 @@ assert_eq "#327 guard pin: a bare backtick-led bold deliverable paragraph stays 
   "$(printf 'docs/a.md\ndocs/b.md')" \
   "$(printf '%s\n' "$fx_327_bare_boldpath" | bash "$EXTRACT_HELPER")"
 
+# Case 34 (#327 Shape 2 fail-open regression pin): INTERVENING plain-prose between
+# the opener and its deliverable list must NOT strand the list. The Shape 2 arm
+# SUSPENDS scope on the prose paragraph (state 2 -> 3) rather than hard-closing,
+# and the reentry arm RESUMES (3 -> 2) at the following list — so the paths are
+# still captured. Without the reentry arm the prose would permanently close the
+# scope and the extractor would emit EMPTY output, silently disabling the Phase
+# 4.1 docs gate (the fail-open this pin guards). Both bullet forms.
+fx_327_L_intervening="## Implementation Notes
+
+- **Documentation Needed**
+
+Here are the docs to update.
+
+- \`docs/a.md\`
+- \`docs/b.md\`"
+assert_eq "#327 Shape 2 regression pin (Form L): intervening prose between opener and list does NOT strand the list (reentry resumes scope)" \
+  "$(printf 'docs/a.md\ndocs/b.md')" \
+  "$(printf '%s\n' "$fx_327_L_intervening" | bash "$EXTRACT_HELPER")"
+
+fx_327_P_intervening="## Implementation Notes
+
+**Documentation Needed** — the docs pass must update:
+
+Here are the docs to update.
+
+- **\`docs/a.md\`**
+- **\`docs/b.md\`**"
+assert_eq "#327 Shape 2 regression pin (Form P): intervening prose does NOT strand a following bold deliverable list (reentry resumes scope)" \
+  "$(printf 'docs/a.md\ndocs/b.md')" \
+  "$(printf '%s\n' "$fx_327_P_intervening" | bash "$EXTRACT_HELPER")"
+
+# Case 35 (#327 leak-safe-AND-capture pin): an intervening prose paragraph that
+# itself NAMES a path token must have that token DROPPED (the prose is suspended,
+# never printed) while the following real deliverable list is still captured. This
+# pins that the reentry does not re-leak the suspended prose's own tokens — the
+# best-of-both outcome the suspend/resume design gives over both the pre-fix leak
+# (main) and the hard-close fail-open.
+fx_327_intervening_leak="## Implementation Notes
+
+- **Documentation Needed** — update \`docs/a.md\`.
+
+See the notes in docs/leak.md for context.
+
+- also update \`docs/b.md\`"
+assert_eq "#327 leak-safe pin: an intervening prose paragraph's own path token is dropped while the following list is captured" \
+  "$(printf 'docs/a.md\ndocs/b.md')" \
+  "$(printf '%s\n' "$fx_327_intervening_leak" | bash "$EXTRACT_HELPER")"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "scaffold-config.sh"
 # ────────────────────────────────────────────────────────────────────────────
