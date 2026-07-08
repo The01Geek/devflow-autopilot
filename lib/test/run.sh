@@ -8941,9 +8941,17 @@ for WF in devflow-runner.yml devflow-implement.yml devflow.yml; do
   # AC2 (order, not just presence): the vendored config-get path is tried BEFORE the repo fallback
   assert_eq "#331 $WF: config-get.sh vendored path precedes repo fallback" "yes" \
     "$(block_order_ok "$BLK" 'CG=.devflow/vendor/devflow/scripts/config-get.sh' 'CG=scripts/config-get.sh')"
-  # AC2: disables only on the literal "false"
-  assert_eq "#331 $WF: skips when the resolved value is \"false\"" "yes" \
-    "$(printf '%s' "$BLK" | grep -qF '= "false" ]' && echo yes || echo no)"
+  # AC2: disables only on the literal "false" — anchor on the FULL gate shape, not the bare
+  # `= "false" ]` substring (which is ALSO contained in `!= "false" ]`, so a gate inverted to
+  # `!=` — skip-when-ENABLED, the exact AC2 violation — would pass a bare-substring grep green).
+  assert_eq "#331 $WF: skips only on the literal \"false\" (full gate shape, inversion-proof)" "yes" \
+    "$(printf '%s' "$BLK" | grep -qF 'if [ "$ENABLED" = "false" ]; then' && echo yes || echo no)"
+  # AC2/AC3: the config-get read is `|| true`-guarded so its hard-fail exit (malformed config /
+  # missing python3) can't abort the step under GitHub Actions' default `-e` run shell — an
+  # unguarded assignment would fail the job, breaking the read-only "never changes the job's
+  # pass/fail" contract.
+  assert_eq "#331 $WF: config-get read is -e-guarded (|| true)" "yes" \
+    "$(printf '%s' "$BLK" | grep -qF '.devflow.execution_diagnostics_enabled true || true)' && echo yes || echo no)"
   # Completeness anchor: the slice reaches the step's run body (the helper invocation).
   # The AC3 assertions below are grep-ABSENT checks that pass vacuously on an empty or
   # short-sliced block, so anchor them on a proven-complete block — a future extract_step

@@ -5,7 +5,7 @@ type: Added
 
 - **Surface `claude-code-action` execution diagnostics on every cloud run.** The three
   cloud-tier workflows (`devflow-runner.yml`, `devflow-implement.yml`, `devflow.yml`) now run a
-  post-`claude` `Surface execution diagnostics` step that pipes the run's execution log through
+  post-`claude` `Surface execution diagnostics` step that passes the run's execution log to
   `scripts/surface-execution-diagnostics.sh` (shipped in #329), printing the run summary
   (`is_error`, `num_turns`, `duration_ms`, `total_cost_usd`, `permission_denials_count`) plus
   per-denial detail to the job log and the step summary. The step runs under `always()`, is

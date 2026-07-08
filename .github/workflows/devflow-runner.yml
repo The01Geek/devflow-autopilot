@@ -653,7 +653,12 @@ jobs:
           set -uo pipefail
           CG=.devflow/vendor/devflow/scripts/config-get.sh
           [ -f "$CG" ] || CG=scripts/config-get.sh
-          ENABLED="$("$CG" .devflow.execution_diagnostics_enabled true)"
+          # `|| true` so config-get's hard-fail exit (malformed config.json / missing
+          # python3) can't abort this step under GitHub's default `-e` run shell — which
+          # would fail the job and break the "never changes the job's pass/fail" contract
+          # above. The empty read then falls safe to enabled on the next line. (Mirrors the
+          # engine-error step's `|| echo false` assignment guard.)
+          ENABLED="$("$CG" .devflow.execution_diagnostics_enabled true || true)"
           [ -n "$ENABLED" ] || ENABLED=true
           if [ "$ENABLED" = "false" ]; then
             echo "execution diagnostics: disabled via .devflow.execution_diagnostics_enabled=false; skipping."
