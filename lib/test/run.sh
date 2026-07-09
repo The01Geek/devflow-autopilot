@@ -4129,11 +4129,16 @@ assert_pin_unique "#254: Pass 4 fails closed (Blocked) when a declared dependenc
 # prerequisite (the fail-closed-but-wrong direction the review flagged).
 assert_pin_unique "#254: Pass 4 treats a MERGED dependency as satisfied (landed = CLOSED or MERGED)" \
   'when it is `CLOSED` **or** `MERGED`' "$IMPL_SKILL"
-# ── issue #346: Phase 1.6 gains Pass 5 — execution-capability claims. ─────────
-# A cloud-tier bot implement run cannot push .github/workflows/ (the installation
-# token lacks the workflows scope), so an AC that is workflow-resident must be
-# deferred at PLAN time (via 2.2.5) rather than discovered at push time after the
-# full commit is built. Pin the Pass 5 heading removal-proof, plus its operative
+# ── issue #346 (+ #350): Phase 1.6 gains Pass 5 — execution-capability claims. ─
+# A cloud-tier bot implement run whose credential is the built-in GITHUB_TOKEN
+# fallback (DEVFLOW_APP_ID empty) cannot push .github/workflows/, so an AC that is
+# workflow-resident must be deferred at PLAN time (via 2.2.5) rather than discovered
+# at push time after the full commit is built. #350 correction: the block is NOT a
+# property of the cloud tier as a whole — a cloud run with DEVFLOW_APP_ID set mints a
+# workflow-capable App token (Contents+Workflows write) seeded into checkout (#357/#358)
+# and pushes workflows fine, so Pass 5 keys the deferral on CREDENTIAL CAPABILITY
+# (cloud-tier AND DEVFLOW_APP_ID empty), never on tier alone.
+# Pin the Pass 5 heading removal-proof, plus its operative
 # contracts (non-exhaustive; each pin below names its own): among them the
 # static-not-a-live-probe rule, the tier-keyed (not path-keyed) decision, the
 # repo-own-vs-vendored carve-out, the coupled-CI-pin-blocked-with-it rule, the
@@ -4147,8 +4152,17 @@ assert_pin_red_on_removal "#346: deleting the Pass 5 execution-capability headin
   'Execution-capability claims (workflow-resident ACs vs. the executing credential)' "$P1_FILE"
 assert_pin_unique "#346: Pass 5 is static, never a live gh/API probe" \
   'not** run a `gh`/API probe to test the token'"'"'s actual scope' "$P1_FILE"
-assert_pin_unique "#346: Pass 5 keys the decision on the executing tier's credential, not the path alone" \
-  'Key the routing decision on the executing tier'"'"'s credential, not on the path alone' "$P1_FILE"
+assert_pin_unique "#346/#350: Pass 5 keys the decision on the pushing credential's capability, not tier or path alone" \
+  'Key the routing decision on the pushing credential'"'"'s actual capability, not on the tier or the path alone' "$P1_FILE"
+# #350 (Critical): the deferral premise is credential-capability, not tier. Pin the two
+# operative sentences whose removal re-introduces the false "cloud ⇒ defer" premise the
+# review flagged: (a) DEFER only on cloud-tier AND DEVFLOW_APP_ID empty; (b) a NON-EMPTY
+# DEVFLOW_APP_ID (workflow-capable App token, #357/#358) ⇒ do NOT defer. Half-reverting
+# either back to a tier-only rule turns these RED.
+assert_pin_unique "#350: Pass 5 defers ONLY on cloud-tier AND DEVFLOW_APP_ID empty (not tier alone)" \
+  'Defer only when you can positively confirm the pushing credential cannot push a workflow file — i.e. a cloud-tier run (`GITHUB_ACTIONS=true`) whose `DEVFLOW_APP_ID` is empty/unset' "$P1_FILE"
+assert_pin_unique "#350: Pass 5 does NOT defer when DEVFLOW_APP_ID is non-empty (workflow-capable App token)" \
+  'When **`DEVFLOW_APP_ID` is non-empty**, the seeded App token carries the `workflows` scope and this run pushes `.github/workflows/` exactly like a human run — **do NOT defer.**' "$P1_FILE"
 assert_pin_unique "#346: Pass 5 matches only the repo's own .github/workflows (vendored copy is pushable)" \
   'Match only the repo'"'"'s *own* `.github/workflows/`' "$P1_FILE"
 assert_pin_unique "#346: Pass 5 treats a coupled CI pin as blocked with the workflow edit" \
@@ -4167,14 +4181,18 @@ assert_pin_unique "#346: 2.2.5 lists capability-blocked ACs as a sanctioned scop
 # workflow-residence surfaces only during planning/implementation — 2.2.5 is the concrete-diff
 # backstop that catches those, and a Phase 2.3-discovered edit re-routes through it before
 # committing. Pin the backstop clause + the 2.3-discovery re-route so a trim can't silently
-# reopen the push-time gap. And pin the tier-indeterminate fail-closed-toward-cloud rule (a
-# proxy-fails-open guard the shadow flagged): an env that can't be confirmed interactive defers.
+# reopen the push-time gap. #350 supersedes the old tier-indeterminate fail-closed-toward-cloud
+# rule: post-#357 a spurious deferral silently under-delivers shippable workflow work (the
+# Critical failure), so when a discriminating signal is unreadable the pass PROCEEDS (fail-open
+# toward the pushable direction), not defers. Pin that corrected fail-direction sentence.
 assert_pin_unique "#346: 2.2.5 backstop catches planning-surfaced workflow-resident ACs Pass 5's text scan misses" \
   'also catch any AC whose workflow-residence surfaced only during planning' "$IMPL_PHASES_DIR/phase-2-implement.md"
 assert_pin_unique "#346: a Phase 2.3-discovered workflow edit re-routes through 2.2.5 before committing" \
   'if Phase 2.3 code-writing *itself* later reveals a required `.github/workflows/` edit' "$IMPL_PHASES_DIR/phase-2-implement.md"
-assert_pin_unique "#346: Pass 5 fails closed toward cloud when the executing tier is indeterminate" \
-  'fail closed toward cloud** — route it through the deferral' "$P1_FILE"
+assert_pin_unique "#350: Pass 5 proceeds (not defers) when a discriminating signal is genuinely unreadable" \
+  'When a discriminating signal is genuinely unreadable, proceed — do not defer.' "$P1_FILE"
+assert_pin_unique "#346: Phase 4.0 follow-up states landing a capability-deferral needs a human/PAT workflows-scope push" \
+  'Landing this requires a human/PAT push carrying the `workflows` scope' "$IMPL_PHASES_DIR/phase-4-documentation.md"
 assert_pin_unique "#346: Phase 4.0 follow-up states landing a capability-deferral needs a human/PAT workflows-scope push" \
   'Landing this requires a human/PAT push carrying the `workflows` scope' "$IMPL_PHASES_DIR/phase-4-documentation.md"
 # Review iter 3 (shadow): the all-blocked decline was executable only at Phase 1.6; when
@@ -4202,6 +4220,27 @@ assert_pin_unique "#346: Phase 2.5 commit guard also detects untracked new workf
   'git ls-files --others --exclude-standard -- .github/workflows/' "$IMPL_PHASES_DIR/phase-2-implement.md"
 assert_pin_unique "#346: Pass 5 records a clean note on the cloud-tier no-workflow-AC path (record-even-when-clean)" \
   'issue-claim audit (execution-capability): cloud tier — no acceptance criterion requires editing .github/workflows/' "$P1_FILE"
+# ── #350 review fixes: re-key the deferral on CREDENTIAL CAPABILITY, and make the
+# signal observable + the guard complete. Coupled sites for this ONE change:
+#   (1) phase-1 Pass 5 + phase-2 2.2.5/2.5 prose (keyed on cloud AND DEVFLOW_APP_ID empty),
+#   (2) the 2.5 guard reverts files COUPLED to a reverted workflow (Important-1),
+#   (3) devflow-implement.yml EXPORTS DEVFLOW_APP_ID into the claude step's env so the
+#       Phase 1.6 pass can actually read the operand it now keys on (producer for the guard).
+IMPL_YML="$LIB/../.github/workflows/devflow-implement.yml"
+assert_pin_unique "#350: 2.2.5 exempts a cloud run with DEVFLOW_APP_ID set (workflow-capable App token)" \
+  'a cloud run with `DEVFLOW_APP_ID` **set** carries a workflow-capable App token seeded into checkout' "$IMPL_PHASES_DIR/phase-2-implement.md"
+assert_pin_unique "#350: Phase 2.5 guard keys on the same cloud + DEVFLOW_APP_ID-empty condition as Pass 5" \
+  'the same condition Pass 5 keys on: cloud tier (`GITHUB_ACTIONS=true`) with `DEVFLOW_APP_ID` empty/unset' "$IMPL_PHASES_DIR/phase-2-implement.md"
+assert_pin_unique "#350 (Important-1): Phase 2.5 guard reverts files coupled to a reverted workflow (else CI-red)" \
+  'revert every file coupled to it in the same step' "$IMPL_PHASES_DIR/phase-2-implement.md"
+assert_pin_unique "#350: devflow-implement.yml exports DEVFLOW_APP_ID into the agent env (Pass 5's observable signal)" \
+  'DEVFLOW_APP_ID: ${{ vars.DEVFLOW_APP_ID }}' "$IMPL_YML"
+# Structurally confirm the export sits inside the 'Run Claude Code' step (between its
+# `name:` and its `with:`), so the /devflow:implement agent actually reads it — a bare
+# count could pass on a line stranded in the wrong step.
+CLAUDE_STEP_BLK="$(awk '/name: Run Claude Code/{f=1} f{print} f&&/^        with:/{exit}' "$IMPL_YML")"
+assert_eq "#350: the DEVFLOW_APP_ID env export lives in the Run Claude Code step (before its with:)" "1" \
+  "$(printf '%s\n' "$CLAUDE_STEP_BLK" | grep -cF 'DEVFLOW_APP_ID: ${{ vars.DEVFLOW_APP_ID }}')"
 # ── issue #185 (+ Addendum): Phase 4.1 Documentation Needed cross-check ─────
 # Phase 4.1 enforces named documentation deliverables in two stages:
 #   Stage 1 pre-flight: extract the Documentation Needed paths and inject them

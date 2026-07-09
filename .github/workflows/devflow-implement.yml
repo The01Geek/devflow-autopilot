@@ -414,6 +414,18 @@ jobs:
       - name: Run Claude Code
         id: claude
         uses: anthropics/claude-code-action@v1
+        env:
+          # Surfaces the workflow-capable-token signal to the /devflow:implement
+          # agent's Phase 1.6 execution-capability pass (Pass 5, issues #346/#350).
+          # NON-EMPTY ⇒ the App token minted above (Contents + Workflows write) is
+          # seeded into actions/checkout (#357), so the agent CAN push
+          # .github/workflows/ and workflow-resident ACs are NOT deferred. EMPTY ⇒
+          # the checkout credential is the built-in GITHUB_TOKEN (github-actions[bot]),
+          # which cannot push .github/workflows/, so Pass 5 defers those ACs at plan
+          # time. Always exported (empty-valued when the variable is unset) so the
+          # pass reads a definite signal rather than an absent one. Coupled to Pass 5's
+          # keying in skills/implement/phases/phase-1-setup.md and its lib/test/run.sh pins.
+          DEVFLOW_APP_ID: ${{ vars.DEVFLOW_APP_ID }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # Use the minted App token for git auth when the opt-in App is
