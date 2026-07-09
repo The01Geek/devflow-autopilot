@@ -3380,6 +3380,15 @@ assert_pin_unique "#362: the Outcome-reaction block removes the run marker at ev
   'remove the Phase 1.3 run-marker' "$IMPL_ORCH"
 assert_pin_red_on_removal "#362: run-marker removal flips RED on removal" \
   'remove the Phase 1.3 run-marker' "$IMPL_ORCH"
+# The marker filename is a THREE-site coupled invariant: the Phase 1.3 write (pinned above),
+# the guard's glob (covered functionally by every marker test), and the Outcome-reaction
+# removal command. The prose pin above binds the removal *obligation*; this one binds the
+# removal *path*, so a drift in the orchestrator's `rm` literal alone cannot slip through
+# (it would only delay cleanup — the guard self-heals — but a silent desync is the defect).
+assert_pin_unique "#362: the Outcome-reaction removal targets the exact path the guard globs" \
+  '.devflow/tmp/implement-active-$ISSUE_NUMBER' "$IMPL_ORCH"
+assert_pin_red_on_removal "#362: Outcome-reaction marker path flips RED on removal" \
+  '.devflow/tmp/implement-active-$ISSUE_NUMBER' "$IMPL_ORCH"
 
 # (5) Phase 1.4 resume pre-check — runs BEFORE Signal 1, so a harness-created worktree can
 #     no longer shadow an existing feature branch + open PR (the #356 resume defect).
@@ -3391,6 +3400,18 @@ assert_pin_unique "#362: the resume pre-check reuses an existing linked worktree
   'continue in that worktree instead of duplicating the branch' "$P362_P1"
 assert_pin_unique "#362: the resume pre-check falls through unchanged when there is no workpad Branch and no open PR" \
   'behaves exactly as it did before this pre-check existed' "$P362_P1"
+# A `gh` failure and a clean "no PRs found" both produce an empty result. Collapsing them
+# makes an unresolvable query read as "nothing to resume" and forks a duplicate branch+PR —
+# the very bug this pre-check exists to stop. Pin the distinct-values contract AND the
+# breadcrumb obligation it enables; a policy whose operand cannot be observed is inert.
+assert_pin_unique "#362: the resume pre-check keeps a failed PR query distinct from a clean empty one" \
+  'EMPTY = the query could not be resolved' "$P362_P1"
+assert_pin_unique "#362: an unresolvable PR query is never read as 'no open PR'" \
+  'An unresolvable PR query is not evidence that no PR exists' "$P362_P1"
+assert_pin_red_on_removal "#362: resume pre-check failed-vs-empty distinction flips RED on removal" \
+  'EMPTY = the query could not be resolved' "$P362_P1"
+assert_pin_red_on_removal "#362: resume pre-check gh-failure breadcrumb obligation flips RED on removal" \
+  'An unresolvable PR query is not evidence that no PR exists' "$P362_P1"
 assert_pin_red_on_removal "#362: resume pre-check ordering clause flips RED on removal" \
   'Resume pre-check (runs BEFORE Signal 1)' "$P362_P1"
 assert_pin_red_on_removal "#362: resume pre-check checkout directive flips RED on removal" \
@@ -18559,6 +18580,28 @@ ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidA"}' GITHUB_ACTIONS=true)"
 assert_eq "#362 isg: GITHUB_ACTIONS set -> allow (exit 0)" "0" "${ISG_R%%|*}"
 assert_eq "#362 isg: GITHUB_ACTIONS arm emits its own breadcrumb" "yes" \
   "$(printf '%s' "${ISG_R#*|}" | grep -qF 'GITHUB_ACTIONS is set' && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# ── allow: python3 is unavailable. Reached only with a marker present (the glob decides
+# first), and it must carry its OWN breadcrumb rather than being folded into the
+# session-id parse arm below — an operator on a python3-less host must be pointed at the
+# missing interpreter, not at the hook payload. PATH is narrowed to a dir holding only the
+# binaries the guard needs before that check: bash, cat, dirname, git.
+ISG_D="$(isg_repo "isg: python3-unavailable arm")"
+isg_stub_workpad "$ISG_D" 0
+: > "$ISG_D/.devflow/tmp/implement-active-611"
+mkdir -p "$ISG_D/nopybin"
+for ISG_B in bash cat dirname git; do
+  ln -sf "$(command -v "$ISG_B")" "$ISG_D/nopybin/$ISG_B" 2>/dev/null
+done
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidS"}' "PATH=$ISG_D/nopybin")"
+assert_eq "#362 isg: python3 unavailable -> allow (exit 0)" "0" "${ISG_R%%|*}"
+assert_eq "#362 isg: python3-unavailable arm emits its OWN breadcrumb (not the stdin one)" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'python3 not found' && echo yes || echo no)"
+assert_eq "#362 isg: python3-unavailable arm does NOT misreport the hook payload as unparseable" "no" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'no usable session_id' && echo yes || echo no)"
+assert_eq "#362 isg: python3 unavailable keeps the marker" "yes" \
+  "$([ -e "$ISG_D/.devflow/tmp/implement-active-611" ] && echo yes || echo no)"
 rm -rf "$ISG_D"
 
 # ── allow: stdin is not parseable JSON. A marker is present, so the cheaper

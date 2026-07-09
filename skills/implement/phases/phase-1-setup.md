@@ -74,7 +74,7 @@ DEVFLOW_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 mkdir -p "$DEVFLOW_ROOT/.devflow/tmp" && : > "$DEVFLOW_ROOT/.devflow/tmp/implement-active-$ISSUE_NUMBER"
 ```
 
-This is best-effort: if the write fails, note it and continue — a missing marker only means the Stop-hook backstop stays silent for this run. A marker left behind by a killed run self-heals, because the guard deletes any marker whose live workpad `Status` reads terminal (or whose workpad no longer exists).
+This is best-effort: if the write fails, note it and continue — a missing marker only means the Stop-hook backstop stays silent for this run. A marker whose run reached a terminal `Status` — or whose workpad no longer exists — self-heals, because the guard deletes it on the next Stop event. A marker left by a run that *died with its workpad still interim* does **not** self-heal: that is the state the backstop exists to surface, so it keeps blocking one stop per new session until the workpad is driven to a terminal `Status` or the marker is removed by hand.
 
 ### 1.4 Create or Detect Feature Branch
 
@@ -87,16 +87,26 @@ A re-triggered or backstop-resumed run may already have a feature branch and an 
 
 ```bash
 # WP_BRANCH is the workpad Branch line, empty when absent/placeholder.
-PR_JSON=$( { [ -n "$WP_BRANCH" ] && gh pr list --head "$WP_BRANCH" --state open --json number,headRefName,createdAt || echo '[]'; } 2>/dev/null || echo '[]')
-[ "$(printf '%s' "$PR_JSON" | tr -d '[:space:]')" = "[]" ] && \
-  PR_JSON=$(gh pr list --search "$ISSUE_NUMBER in:body" --state open --json number,headRefName,createdAt 2>/dev/null || echo '[]')
+# A transport failure and a genuine "no open PRs" both produce an empty result, and
+# collapsing them would make an unresolvable query read as a clean "nothing to resume" —
+# which falls straight through to create-a-branch, the exact duplicate-branch-and-PR bug
+# this pre-check exists to stop. So the two outcomes get DISTINCT values in PR_JSON:
+# `[]` = queried cleanly, none found;  EMPTY = the query could not be resolved.
+# Each `|| PR_JSON=''` sits in the same statement as the command whose failure it handles
+# (never a `RC=$?` captured in one statement and read in a later one — an inline-bash
+# runner that strips such cross-statement reads would leave the check inert; issue #284).
+PR_JSON='[]'
+[ -n "$WP_BRANCH" ] && { PR_JSON=$(gh pr list --head "$WP_BRANCH" --state open --json number,headRefName,createdAt) || PR_JSON=''; }
+[ "$PR_JSON" = "[]" ] && { PR_JSON=$(gh pr list --search "$ISSUE_NUMBER in:body" --state open --json number,headRefName,createdAt) || PR_JSON=''; }
 ```
 
 **When an open PR for the issue exists**, that PR's head branch is the branch this run continues: check out that PR head branch instead of creating a new one — fetching it first when it is absent locally (`git fetch origin "$HEAD_REF" && git checkout "$HEAD_REF"`) — and skip branch creation and both signals entirely. When the query returns **several** open PRs, pick the one whose `headRefName` equals the workpad `Branch` line; if none matches, pick the newest by `createdAt`. Record the resume decision with `--note` (which PR, which branch, why).
 
 If the harness placed you in a worktree, perform that checkout **inside the harness-provided worktree** — that is simply the current working tree, so no extra step is needed. If the checkout is refused because the branch is *already checked out in another linked worktree*, do not force it and do not duplicate the branch: read that worktree's path from `git worktree list --porcelain` and continue in that worktree instead of duplicating the branch, noting the switch in the workpad.
 
-**When there is no workpad `Branch` line and no open PR for the issue**, this pre-check is a no-op and the rest of §1.4 behaves exactly as it did before this pre-check existed — Signal 1, then Signal 2, then the create-fresh fallthrough. A `gh` failure is likewise a no-op with a `--note` breadcrumb: an unresolvable PR query is not evidence that no PR exists, but the fallthrough (create a branch) is the pre-existing behavior, so it degrades no worse than before.
+**When there is no workpad `Branch` line and no open PR for the issue** — `PR_JSON` is the literal `[]`, meaning the queries *ran* and found nothing — this pre-check is a no-op and the rest of §1.4 behaves exactly as it did before this pre-check existed — Signal 1, then Signal 2, then the create-fresh fallthrough.
+
+**An EMPTY `PR_JSON` is not that case, and must never be read as one.** An unresolvable PR query is not evidence that no PR exists, so record it before falling through — `workpad.py update $ISSUE_NUMBER --reflection-kind note --reflection "resume pre-check: the open-PR query could not be resolved (gh failed); could not confirm whether an open PR exists, falling through to branch creation — if a prior attempt's PR exists, this run may duplicate it"` — then continue to the signals. The fallthrough is the pre-existing behavior, so it degrades no worse than before; the breadcrumb is what keeps a transient `gh` failure from silently reading as "nothing to resume."
 
 #### Signals
 

@@ -297,12 +297,14 @@ leading-token helper forms and the Write tool for scratch, not a broadened permi
   ```
 
   > **Note on this repo's `.claude/settings.json`.** Writing `.claude/` is a privileged,
-  > self-modifying action, and an agent cannot use it to widen its own `permissions.allow`
-  > allowlist (the harness boundary that stops an agent granting itself new capabilities);
-  > the hook wiring itself has since been edited from inside a `/devflow:implement` run
-  > (the `implement-stop-guard.sh` entry above landed that way). It ships committed in this
-  > repo (`.claude/settings.json`); the `--persist` mode it calls and the cloud-tier guarantee
-  > land in the same wiring.
+  > self-modifying action. The boundary an agent cannot cross is widening its own
+  > `permissions.allow` allowlist — that is what stops an agent granting itself new
+  > capabilities. The **hook wiring** in this same file is not covered by that boundary:
+  > editing the `hooks` block is an ordinary file write, so a `/devflow:implement` run may
+  > add or change a hook entry (and the classifier may still deny it, in which case the run
+  > routes the change to a human rather than skipping it silently). It ships committed in
+  > this repo (`.claude/settings.json`); the `--persist` mode it calls and the cloud-tier
+  > guarantee land in the same wiring.
 - *Cloud-tier wrapper.* **`Stop` hooks are local-only**: `claude-code-action` `rm -rf`s and restores
   `.claude/` from the **base** branch before installing plugins, so a PR branch's `.claude/` hook is
   discarded for that PR's own cloud run, and the cloud guarantee must **never** depend on the hook.
