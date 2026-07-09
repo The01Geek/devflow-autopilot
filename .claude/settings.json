@@ -7,6 +7,11 @@
           {
             "type": "command",
             "command": "bash lib/efficiency-trace.sh --persist || true"
+          },
+          {
+            "type": "command",
+            "command": "bash lib/implement-stop-guard.sh",
+            "timeout": 15
           }
         ]
       }

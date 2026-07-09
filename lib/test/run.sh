@@ -3307,16 +3307,19 @@ assert_pin_red_on_removal "#232: SKILL self-check operative clause flips RED on 
 assert_pin_red_on_removal "#232: SKILL Status-not-draft clause flips RED on removal" \
   'keys on the workpad `Status`, not on PR draft state' "$IMPL_ORCH"
 # (2) phase-4-documentation.md Phase 4.1 post-subagent re-anchor — AC3 (re-read the phase
-#     file before §4.2 after the docs subagent returns) + AC4 (scoped to the Phase 4.1
-#     docs subagent return only, not the Phase 2/3 subagent returns).
+#     file before §4.2 after the docs subagent returns) + AC4 (scoped to SUBAGENT returns,
+#     not the Phase 2/3 subagent returns). Issue #362 reworded AC4's scope clause from
+#     "the Phase 4.1 docs subagent return only" to "**subagent** returns", because a
+#     Skill-tool return is now covered by the orchestrator's generalized mid-phase
+#     re-anchor instead; the wording and these pins move together.
 assert_pin_unique "#232: phase-4 re-anchor operative clause present (re-read before §4.2)" \
   're-anchoring the remaining §4.2 (PR description) and §4.3 (finalize) procedure' "$P4_FILE"
-assert_pin_unique "#232: phase-4 re-anchor scoped to the Phase 4.1 docs subagent return only (AC4)" \
-  'scoped to the Phase 4.1 docs subagent return **only**' "$P4_FILE"
+assert_pin_unique "#232/#362: phase-4 re-anchor scoped to **subagent** returns (AC4, reworded)" \
+  'scoped to **subagent** returns' "$P4_FILE"
 assert_pin_red_on_removal "#232: phase-4 re-anchor operative clause flips RED on removal" \
   're-anchoring the remaining §4.2 (PR description) and §4.3 (finalize) procedure' "$P4_FILE"
-assert_pin_red_on_removal "#232: phase-4 re-anchor scope clause flips RED on removal" \
-  'scoped to the Phase 4.1 docs subagent return **only**' "$P4_FILE"
+assert_pin_red_on_removal "#232/#362: phase-4 re-anchor scope clause flips RED on removal" \
+  'scoped to **subagent** returns' "$P4_FILE"
 # review iter-1 (pr-test-analyzer): pin the OPERATIVE directives, not only their framing —
 # a same-line surgical edit that drops the actual instruction while keeping the descriptive
 # appendix would otherwise ship GREEN (the recurring framing-only-pin hole).
@@ -3352,10 +3355,195 @@ assert_pin_red_on_removal "#232: orchestrator operative always-loaded re-Read di
   'the phase file before continuing to §4.2 (resume from §4.2' "$IMPL_ORCH"
 # AC4 scope constraint is mirrored in the always-loaded orchestrator too; pin that copy so the
 # "not the Phase 2/3 returns" guardrail can't be dropped from the resident mirror unnoticed.
-assert_pin_unique "#232: orchestrator mirror keeps the AC4 Phase-4.1-only scope (SFH F2 mirror)" \
-  'scoped to the Phase 4.1 docs subagent return only, not the Phase 2/3 returns' "$IMPL_ORCH"
-assert_pin_red_on_removal "#232: orchestrator AC4 scope mirror flips RED on removal" \
-  'scoped to the Phase 4.1 docs subagent return only, not the Phase 2/3 returns' "$IMPL_ORCH"
+# Reworded by #362 (see the phase-4 block above) to scope the trigger to SUBAGENT returns,
+# since a Skill-tool return now has its own generalized re-anchor in the same resident body.
+assert_pin_unique "#232/#362: orchestrator mirror scopes the re-anchor to **subagent** returns (SFH F2 mirror)" \
+  'scoped to **subagent** returns, not the Phase 2/3 subagent returns' "$IMPL_ORCH"
+assert_pin_red_on_removal "#232/#362: orchestrator AC4 scope mirror flips RED on removal" \
+  'scoped to **subagent** returns, not the Phase 2/3 subagent returns' "$IMPL_ORCH"
+
+# ── issue #362: run-continuity guards. Three always-resident cross-phase rules in the
+# orchestrator (generalized mid-phase re-anchor after ANY Skill-tool return; the
+# non-interactive self-answer rule; the Agent-subagent dispatch path for interactive
+# skills), plus the run-marker lifecycle (written in Phase 1.3, removed at every terminal
+# Status transition) and the Phase 1.4 resume pre-check. Each pin below targets the
+# OPERATIVE sentence — the minimal text whose removal alone re-introduces the #356 defect
+# class (a run that dies mid-phase on a nested skill's tail call, or a resume that forks a
+# second branch + PR) — never an adjacent framing clause. Paired removal proofs make that
+# half-revert check re-run on every suite execution.
+P362_P1="$IMPL_PHASES_DIR/phase-1-setup.md"
+
+# (1) Generalized mid-phase re-anchor — fires after EVERY Skill-tool return, not just the
+#     Phase 4.1 docs subagent.
+assert_pin_unique "#362: orchestrator re-anchors after every Skill-tool return (trigger)" \
+  'after **every** Skill-tool return mid-phase' "$IMPL_ORCH"
+assert_pin_unique "#362: generalized re-anchor carries its operative resume directive" \
+  'resume at the step immediately following the invocation, never re-dispatching the skill that just returned' "$IMPL_ORCH"
+assert_pin_red_on_removal "#362: generalized re-anchor trigger flips RED on removal" \
+  'after **every** Skill-tool return mid-phase' "$IMPL_ORCH"
+assert_pin_red_on_removal "#362: generalized re-anchor resume directive flips RED on removal" \
+  'resume at the step immediately following the invocation, never re-dispatching the skill that just returned' "$IMPL_ORCH"
+
+# (2) Non-interactive self-answer rule — the orchestrator answers a nested skill's
+#     user-facing question itself on the cloud tier, and records the answer.
+#     The tier gate is OPERATIVE, not framing: drop it and the rule would authorize an
+#     INTERACTIVE run to answer the user's questions for them without asking. So pin the
+#     `GITHUB_ACTIONS` keying itself — not just the prose lead-in, which a same-sentence
+#     edit could keep while swapping the gating env var — and prove it non-vacuous with a
+#     removal proof, like its three siblings below.
+assert_pin_unique "#362: self-answer rule keys on the non-interactive tier by GITHUB_ACTIONS" \
+  'When the run is non-interactive — `GITHUB_ACTIONS` is set (the cloud tier)' "$IMPL_ORCH"
+assert_pin_red_on_removal "#362: self-answer GITHUB_ACTIONS tier gate flips RED on removal" \
+  'When the run is non-interactive — `GITHUB_ACTIONS` is set (the cloud tier)' "$IMPL_ORCH"
+assert_pin_unique "#362: self-answer rule carries its operative answer directive" \
+  'answer that question yourself on behalf of the user, using the issue description as the primary guide' "$IMPL_ORCH"
+assert_pin_unique "#362: self-answer rule requires recording each self-answered decision" \
+  'record each self-answered question and the answer you chose in the workpad via `--note`' "$IMPL_ORCH"
+assert_pin_unique "#362: self-answer rule is confined to a nested skill question (a Blocked pause stays a pause)" \
+  'a workpad `Blocked` pause stays a pause' "$IMPL_ORCH"
+assert_pin_red_on_removal "#362: self-answer operative directive flips RED on removal" \
+  'answer that question yourself on behalf of the user, using the issue description as the primary guide' "$IMPL_ORCH"
+assert_pin_red_on_removal "#362: self-answer recording obligation flips RED on removal" \
+  'record each self-answered question and the answer you chose in the workpad via `--note`' "$IMPL_ORCH"
+assert_pin_red_on_removal "#362: self-answer scope confinement flips RED on removal" \
+  'a workpad `Blocked` pause stays a pause' "$IMPL_ORCH"
+
+# (3) Interactive skills are dispatched into an Agent-tool subagent, never Skill-invoked
+#     mid-phase. Both halves are operative: the positive dispatch directive AND the
+#     prohibition it replaces (dropping either re-opens the #356 tail-call death).
+assert_pin_unique "#362: Skill rule routes an interactive skill into an Agent-tool subagent" \
+  'dispatch that skill inside a context-isolated **Agent-tool subagent** whose prompt pre-grants the approval' "$IMPL_ORCH"
+assert_pin_unique "#362: Skill rule forbids the mid-phase Skill-tool invocation it replaces" \
+  'never invoke it through the Skill tool mid-phase' "$IMPL_ORCH"
+assert_pin_red_on_removal "#362: subagent-dispatch directive flips RED on removal" \
+  'dispatch that skill inside a context-isolated **Agent-tool subagent** whose prompt pre-grants the approval' "$IMPL_ORCH"
+assert_pin_red_on_removal "#362: mid-phase Skill-tool prohibition flips RED on removal" \
+  'never invoke it through the Skill tool mid-phase' "$IMPL_ORCH"
+
+# (4) Run-marker lifecycle. Written in Phase 1.3 (both the fresh and the resume arm);
+#     removed by the always-resident Outcome-reaction block, which already binds every
+#     terminal Status transition. Coupled to lib/implement-stop-guard.sh, which globs
+#     exactly this path — change one site and this pin names the other.
+assert_pin_unique "#362: Phase 1.3 writes the run marker the Stop-hook guard globs" \
+  '.devflow/tmp/implement-active-$ISSUE_NUMBER' "$P362_P1"
+assert_pin_red_on_removal "#362: Phase 1.3 run-marker write flips RED on removal" \
+  '.devflow/tmp/implement-active-$ISSUE_NUMBER' "$P362_P1"
+assert_pin_unique "#362: the Outcome-reaction block removes the run marker at every terminal transition" \
+  'remove the Phase 1.3 run-marker' "$IMPL_ORCH"
+assert_pin_red_on_removal "#362: run-marker removal flips RED on removal" \
+  'remove the Phase 1.3 run-marker' "$IMPL_ORCH"
+# The marker filename is a THREE-site coupled invariant: the Phase 1.3 write (pinned above),
+# the guard's glob (covered functionally by every marker test), and the Outcome-reaction
+# removal command. The prose pin above binds the removal *obligation*; this one binds the
+# removal *path*, so a drift in the orchestrator's `rm` literal alone cannot slip through
+# (it would only delay cleanup — the guard self-heals — but a silent desync is the defect).
+assert_pin_unique "#362: the Outcome-reaction removal targets the exact path the guard globs" \
+  '.devflow/tmp/implement-active-$ISSUE_NUMBER' "$IMPL_ORCH"
+assert_pin_red_on_removal "#362: Outcome-reaction marker path flips RED on removal" \
+  '.devflow/tmp/implement-active-$ISSUE_NUMBER' "$IMPL_ORCH"
+
+# (5) Phase 1.4 resume pre-check — runs BEFORE Signal 1, so a harness-created worktree can
+#     no longer shadow an existing feature branch + open PR (the #356 resume defect).
+assert_pin_unique "#362: Phase 1.4 gains a resume pre-check ahead of Signal 1" \
+  'Resume pre-check (runs BEFORE Signal 1)' "$P362_P1"
+# The skip of both branch signals is CONDITIONAL on the checkout landing. Pin that
+# conditionality — an unconditional "skip branch creation" is the regression this guards.
+assert_pin_unique "#362: the resume pre-check skips branch creation only once the checkout landed" \
+  'only once you have confirmed the tree landed on `$HEAD_REF`** skip branch creation' "$P362_P1"
+assert_pin_unique "#362: the resume pre-check reuses an existing linked worktree rather than duplicating the branch" \
+  'continue in that worktree instead of duplicating the branch' "$P362_P1"
+assert_pin_unique "#362: the resume pre-check falls through unchanged when there is no workpad Branch and no open PR" \
+  'behaves exactly as it did before this pre-check existed' "$P362_P1"
+# A `gh` failure and a clean "no PRs found" both produce an empty result. Collapsing them
+# makes an unresolvable query read as "nothing to resume" and forks a duplicate branch+PR —
+# the very bug this pre-check exists to stop. Pin the distinct-values contract AND the
+# breadcrumb obligation it enables; a policy whose operand cannot be observed is inert.
+# Pin the OPERATIVE shell, not the comment that explains it: each of the two `gh pr list`
+# calls must carry its own same-statement `|| PR_JSON=''`, which is what makes a failed
+# query distinguishable from a clean empty one. A comment-only pin would stay GREEN against
+# the exact edit that collapses the two outcomes back together. Both call sites need it, so
+# this is a count guard (a lower bound would let one site silently lose its handler).
+# The literal carries the statement's closing `; }` so it matches ONLY the two command
+# lines — the phase file's own prose quotes the bare handler, and counting that comment
+# would make the pin PASS on the very regression it guards (it did, once).
+assert_eq "#362: both resume-pre-check gh queries mark an unresolvable result distinctly (same-statement handler)" \
+  "2" "$(pin_count "|| PR_JSON=''; }" "$P362_P1")"
+assert_pin_unique "#362: an unresolvable PR query is never read as 'no open PR'" \
+  'An unresolvable PR query is not evidence that no PR exists' "$P362_P1"
+assert_pin_red_on_removal "#362: resume pre-check gh-failure breadcrumb obligation flips RED on removal" \
+  'An unresolvable PR query is not evidence that no PR exists' "$P362_P1"
+# The pre-check waives both branch signals on the strength of a checkout it must first
+# confirm. Pin the MECHANISM, not the paragraph that motivates it: an earlier attempt pinned
+# the motivating header, which survived deletion of BOTH the confirmation and the fail-closed
+# stop it named (the framing-pin hole behind PRs #62/#173). These four pins target, in order:
+# the LANDED computation, the stderr discriminator the two failure shapes route on, the
+# fail-closed stop directive, and its rationale.
+# The LANDED pin must cover the rev-parse COMPARISON, not just the `LANDED=no` prefix: an
+# edit that drops the comparison and sets LANDED=yes whenever HEAD_REF is non-empty waives
+# the signals without ever confirming the tree landed — the #356 regression itself.
+assert_pin_unique "#362: the resume pre-check confirms the tree landed by comparing HEAD to HEAD_REF" \
+  '[ "$(git rev-parse --abbrev-ref HEAD 2>/dev/null)" = "$HEAD_REF" ] && LANDED=yes' "$P362_P1"
+assert_pin_red_on_removal "#362: resume landing confirmation flips RED on removal" \
+  '[ "$(git rev-parse --abbrev-ref HEAD 2>/dev/null)" = "$HEAD_REF" ] && LANDED=yes' "$P362_P1"
+# The stderr capture and its `|| true` ARE the mechanism the two failure shapes route on —
+# pin them, not the sentence that motivates them. (An earlier pin sat on that motivating
+# sentence and survived a mutation that gutted the capture and collapsed the routing.)
+assert_pin_unique "#362: the resume checkout captures its own stderr in the same statement" \
+  'CO_ERR=$( { git fetch origin "$HEAD_REF" && git checkout "$HEAD_REF"; } 2>&1 1>/dev/null ) || true' "$P362_P1"
+assert_pin_red_on_removal "#362: resume checkout stderr capture flips RED on removal" \
+  'CO_ERR=$( { git fetch origin "$HEAD_REF" && git checkout "$HEAD_REF"; } 2>&1 1>/dev/null ) || true' "$P362_P1"
+# COUPLED TO GIT'S ACTUAL MESSAGE, verified against git 2.50.1: the refusal reads
+# "is already used by worktree at". The bare phrase `already checked out` occurs only in
+# git's --help prose, never in the error — keying on it made the worktree-resume arm
+# unreachable and falsely Blocked a resumable run. Pin the ROUTING BULLET including the
+# `$CO_ERR` operand it reads: a pin on the string alone stays GREEN when the bullet is
+# rewired to a different (or empty) variable, which is the same fail-open it must catch.
+assert_pin_unique "#362: the resume routing bullet matches git's real refusal, read from the captured CO_ERR" \
+  '`$CO_ERR` matches `already used by worktree`' "$P362_P1"
+assert_pin_red_on_removal "#362: worktree-refusal routing (string + CO_ERR operand) flips RED on removal" \
+  '`$CO_ERR` matches `already used by worktree`' "$P362_P1"
+# The PR tiebreak decides WHICH branch a resume adopts; collapsing it adopts the wrong PR.
+assert_pin_unique "#362: the resume pre-check tiebreak prefers the workpad Branch, else the newest PR" \
+  'pick the one whose `headRefName` equals the workpad `Branch` line; if none matches, pick the newest by `createdAt`' "$P362_P1"
+assert_pin_red_on_removal "#362: resume PR tiebreak flips RED on removal" \
+  'pick the one whose `headRefName` equals the workpad `Branch` line; if none matches, pick the newest by `createdAt`' "$P362_P1"
+assert_pin_unique "#362: a resume checkout that did not land stops the run rather than duplicating the PR" \
+  'refusing to fall through to branch creation' "$P362_P1"
+assert_pin_unique "#362: the fail-closed stop carries its rationale (a known duplication, not an unknown risk)" \
+  'Falling through here is never correct' "$P362_P1"
+assert_pin_red_on_removal "#362: resume checkout fail-closed stop flips RED on removal" \
+  'refusing to fall through to branch creation' "$P362_P1"
+
+# A body-reference match that merely MENTIONS the issue number is not a resume target —
+# adopting it would check out an unrelated PR's branch. Pin the closes-the-issue predicate
+# AND its operand's producer: a predicate reading a field the query never fetches is a filter
+# the run can never apply (the unverified-assumption class — the guard's comparand must have a
+# producer). Both queries must request `closingIssuesReferences`, so this is a count guard.
+assert_pin_unique "#362: a body-only PR match must actually close the issue to be a resume target" \
+  'must additionally *close this issue*' "$P362_P1"
+assert_pin_red_on_removal "#362: body-only resume predicate flips RED on removal" \
+  'must additionally *close this issue*' "$P362_P1"
+assert_eq "#362: both resume-pre-check queries fetch the closingIssuesReferences the predicate reads" \
+  "2" "$(pin_count ',createdAt,closingIssuesReferences)' "$P362_P1")"
+assert_pin_unique "#362: HEAD_REF, the checkout comparand, is explicitly bound from the selected PR" \
+  'bind `HEAD_REF` to that PR' "$P362_P1"
+assert_pin_red_on_removal "#362: HEAD_REF binding flips RED on removal" \
+  'bind `HEAD_REF` to that PR' "$P362_P1"
+assert_pin_red_on_removal "#362: resume pre-check ordering clause flips RED on removal" \
+  'Resume pre-check (runs BEFORE Signal 1)' "$P362_P1"
+assert_pin_red_on_removal "#362: resume pre-check conditional-skip directive flips RED on removal" \
+  'only once you have confirmed the tree landed on `$HEAD_REF`** skip branch creation' "$P362_P1"
+assert_pin_red_on_removal "#362: resume pre-check worktree arm flips RED on removal" \
+  'continue in that worktree instead of duplicating the branch' "$P362_P1"
+assert_pin_red_on_removal "#362: resume pre-check fallthrough guarantee flips RED on removal" \
+  'behaves exactly as it did before this pre-check existed' "$P362_P1"
+
+# (6) The two vendored superpowers skills stay untouched by this change (AC).
+assert_eq "#362: the vendored receiving-code-review skill is still present and unvendored-from" "yes" \
+  "$([ -f "$LIB/../skills/receiving-code-review/SKILL.md" ] && echo yes || echo no)"
+assert_eq "#362: the vendored requesting-code-review skill is still present and unvendored-from" "yes" \
+  "$([ -f "$LIB/../skills/requesting-code-review/SKILL.md" ] && echo yes || echo no)"
+
 # ── issue #366: guard /devflow:implement against a nested-Skill tail-call early-stop.
 # Four prose contracts in the always-resident orchestrator ($IMPL_ORCH) — the completion
 # re-anchor, the exclusionary Skill rule, the carve-out's SKILL.md sentence, and the
@@ -4663,6 +4851,451 @@ assert_eq "#356 pin: devflow.yml flip step's guard is always()-wrapped (runs on 
 assert_eq "#356 pin: devflow.yml surfaces the engine execution result as steps.engine.is_error" "yes" \
   "$(grep -q 'id: engine' "$DEVFLOW_YML" && grep -q 'parse-engine-error.sh' "$DEVFLOW_YML" && grep -q 'is_error=\$IS_ERROR' "$DEVFLOW_YML" && echo yes || echo no)"
 rm -rf "$S356"
+
+# ── issue #338: --rewrite-ac (post-merge) retag requires a --note rationale ────
+# scripts/workpad.py: an `update` call in which any --rewrite-ac pair APPENDS the
+# trailing (post-merge) tag (NEW ends with it after rstrip; neither OLD nor the row
+# the pair resolves to already does) and which carries no non-empty --note aborts
+# STRUCTURALLY — _UpdateError, exit 1, stderr naming the offending pair, NO PATCH
+# issued (all-or-nothing preserved). The same call with a non-empty --note succeeds.
+# A pair targeting a row that already ends with the tag, or that removes it, needs no
+# note. Exercised as a real CLI subprocess against a gh stub, mirroring the #258
+# fixture pattern. T1/T4/T5 go RED against the pre-guard workpad.py (the laundered
+# tag PATCHed with no rationale); T2/T3/T3c/T5b are pass controls.
+S338="$(mktemp -d)"
+cat > "$S338/gh" <<'STUB'
+#!/usr/bin/env bash
+# Minimal gh stub for workpad.py update: repo view, comments list (marker match),
+# body fetch, and PATCH (records that a PATCH happened + echoes the patched body).
+j="$*"
+if [[ "$j" == *"repo view"* ]]; then echo "owner/repo"; exit 0; fi
+if [[ "$j" == *"-X PATCH"* ]]; then
+  echo p >> "$WP_PATCHLOG"
+  for a in "$@"; do case "$a" in body=@*) cat "${a#body=@}";; esac; done
+  exit 0
+fi
+if [[ "$j" == *"issues/comments/7"* ]]; then cat "$WP_BODY"; exit 0; fi
+if [[ "$j" == *"issues/999/comments"* ]]; then echo '[{"id":7,"body":"<!-- devflow:workpad -->"}]'; exit 0; fi
+echo '[]'
+STUB
+chmod +x "$S338/gh"
+
+cat > "$S338/base.md" <<'WPMD'
+<!-- devflow:workpad -->
+# DevFlow Workpad — Issue #999
+
+**Status:** 🚀 Reviewing
+**Last updated:** 2026-05-15T00:00:00Z
+
+## Progress
+- [ ] **Review**
+
+## Plan
+- [x] Plan step one
+
+## Acceptance Criteria
+- [ ] AC one
+- [ ] AC two
+WPMD
+# A fixture whose AC two already carries the (post-merge) tag (for the OLD-already-tagged case).
+sed 's/- \[ \] AC two/- [ ] AC two (post-merge)/' "$S338/base.md" > "$S338/base-tagged.md"
+# A fixture carrying a `## Devflow Reflection` section, so a --reflection is a VALID
+# mutation on it. Without that section --reflection aborts on 'section not found', and a
+# test asserting "a reflection does not satisfy the --note" would pass for that unrelated
+# reason — staying green against a mutant that lets a reflection satisfy the guard (T4d).
+cp "$S338/base.md" "$S338/base-refl.md"
+printf '\n## Devflow Reflection\n- existing bullet\n' >> "$S338/base-refl.md"
+# A fixture whose AC two is already TICKED (`- [x]`). The retag guards must treat a
+# ticked row's tag exactly like an unticked one: `- [x]` rows are outside the Phase 3.4
+# terminal gate's population, but a `(post-merge)` tag landing on one is still a net-added
+# tagged row, and SKILL.md/DEVFLOW_SYSTEM_OVERVIEW both promise a crafted multi-pair
+# sequence that net-adds such a row is caught.
+sed 's/- \[ \] AC two/- [x] AC two/' "$S338/base.md" > "$S338/base-ticked.md"
+# ...and one whose ticked AC two is already tagged (for the tag-preserving no-false-fire control).
+sed 's/- \[ \] AC two/- [x] AC two (post-merge)/' "$S338/base.md" > "$S338/base-ticked-tagged.md"
+
+# run338 <body-file> <args...> → prints the exit code; leaves out/err/patchlog on disk.
+run338() {
+  local body="$1"; shift
+  : > "$S338/patchlog"
+  WP_BODY="$body" WP_PATCHLOG="$S338/patchlog" DEVFLOW_GH="$S338/gh" \
+    python3 "$WP_PY" update 999 "$@" >"$S338/out" 2>"$S338/err"
+  echo $?
+}
+
+# T1 (refusal — reproduces the defect): appending pair, no --note → abort, NO PATCH.
+_c="$(run338 "$S338/base.md" --rewrite-ac "AC two" "AC two (post-merge)")"
+assert_eq "#338(T1): appending (post-merge) retag with no --note aborts non-zero" "no" \
+  "$([ "$_c" = "0" ] && echo yes || echo no)"
+assert_eq "#338(T1): the refusal made NO PATCH (all-or-nothing)" "yes" \
+  "$([ -s "$S338/patchlog" ] && echo no || echo yes)"
+assert_eq "#338(T1): the refusal names the offending pair on stderr" "yes" \
+  "$(grep -q 'AC two' "$S338/err" && grep -q 'post-merge' "$S338/err" && echo yes || echo no)"
+
+# T2 (pass with note): identical call + non-empty --note → exit 0, row rewritten.
+_c="$(run338 "$S338/base.md" --rewrite-ac "AC two" "AC two (post-merge)" \
+  --note "retro-tagged as post-merge (genuinely-live): live deploy target")"
+assert_eq "#338(T2): the same retag WITH a non-empty --note succeeds (exit 0)" "0" "$_c"
+assert_eq "#338(T2): the with-note retag PATCHed the row with the (post-merge) tag" "yes" \
+  "$([ -s "$S338/patchlog" ] && grep -q '\- \[ \] AC two (post-merge)' "$S338/out" && echo yes || echo no)"
+
+# T2b (note scope is the CALL, not the pair): the guard's documented contract is that ANY
+# one non-empty --note in the same update call satisfies it, whether or not the note is
+# *about* the retag — the note is appended to ## Progress, never bound to the rewritten
+# row, so the guard enforces that a rationale EXISTS for the retrospective auditor to
+# read, not that it is true or on-topic. This batched call carries a note describing the
+# OTHER pair (the plain AC one rewrite) and never mentions the tag or the retagged row,
+# and must still pass. Without this pin a refactor that bound the note to the specific
+# appending pair would tighten the contract past what workpad.py's guard comment,
+# SKILL.md, and docs/implement-skill.md all promise, while every other S338 test — whose
+# notes all happen to describe the retag itself — stayed green. Compare T5: the same
+# batched shape with NO note is refused.
+_c="$(run338 "$S338/base.md" --rewrite-ac "AC one" "AC one edited" \
+  --rewrite-ac "AC two" "AC two (post-merge)" \
+  --note "reworded the first criterion for clarity")"
+assert_eq "#338(T2b): an appending retag is satisfied by any non-empty --note in the call, even one about an unrelated pair (exit 0)" "0" "$_c"
+assert_eq "#338(T2b): the call-scoped-note retag PATCHed the (post-merge) row" "yes" \
+  "$([ -s "$S338/patchlog" ] && grep -q '\- \[ \] AC two (post-merge)' "$S338/out" && echo yes || echo no)"
+assert_eq "#338(T2b): the unrelated pair in the same call applied too" "yes" \
+  "$(grep -q '\- \[ \] AC one edited' "$S338/out" && echo yes || echo no)"
+
+# T3 (no false fire): OLD already ends with the tag → a text tweak needs no note.
+_c="$(run338 "$S338/base-tagged.md" --rewrite-ac "AC two (post-merge)" "AC two reworded (post-merge)")"
+assert_eq "#338(T3): a rewrite whose OLD already ends with (post-merge) passes with no note (exit 0)" "0" "$_c"
+assert_eq "#338(T3): the tag-preserving rewrite PATCHed" "yes" \
+  "$([ -s "$S338/patchlog" ] && echo yes || echo no)"
+
+# T4 (empty note): --note "" with an appending pair is a MISSING rationale → refused.
+_c="$(run338 "$S338/base.md" --rewrite-ac "AC two" "AC two (post-merge)" --note "")"
+assert_eq "#338(T4): an empty-string --note is treated as missing → refused (non-zero)" "no" \
+  "$([ "$_c" = "0" ] && echo yes || echo no)"
+assert_eq "#338(T4): the empty-note refusal made NO PATCH" "yes" \
+  "$([ -s "$S338/patchlog" ] && echo no || echo yes)"
+
+# T5 (all-or-nothing): a mixed repeatable call (one appending pair among a plain
+# rewrite), no note, is refused BEFORE any PATCH — no partial application.
+_c="$(run338 "$S338/base.md" --rewrite-ac "AC one" "AC one edited" \
+  --rewrite-ac "AC two" "AC two (post-merge)")"
+assert_eq "#338(T5): a mixed call with one appending pair, no note, aborts non-zero" "no" \
+  "$([ "$_c" = "0" ] && echo yes || echo no)"
+assert_eq "#338(T5): the mixed-call refusal made NO PATCH (the plain rewrite did not partially apply)" "yes" \
+  "$([ -s "$S338/patchlog" ] && echo no || echo yes)"
+
+# T5b (guard + backstop no FALSE FIRE): an ordinary batched multi-pair rewrite that never
+# touches the (post-merge) tag needs no note and must apply in full. Pins the innocent
+# path both guards share: a regression that miscounted a plain row as post-merge-terminal
+# (or classified a plain pair as an append) would abort an honest batch, and no other
+# S338 test would notice — every one of them either carries a note or expects a refusal.
+_c="$(run338 "$S338/base.md" --rewrite-ac "AC one" "AC one edited" \
+  --rewrite-ac "AC two" "AC two edited")"
+assert_eq "#338(T5b): an ordinary batched no-note rewrite that never touches the tag succeeds (exit 0)" "0" "$_c"
+assert_eq "#338(T5b): both pairs of the innocent batch applied" "yes" \
+  "$([ -s "$S338/patchlog" ] && grep -q '\- \[ \] AC one edited' "$S338/out" \
+     && grep -q '\- \[ \] AC two edited' "$S338/out" && echo yes || echo no)"
+
+# T3b (removal pair — documented no-note case, unpinned until now): NEW lacks the tag
+# and OLD ends with it (de-tagging an already-post-merge row) needs no note. Pins the
+# predicate's first-conjunct-False path (no current test drives it: T1/T2/T3 all have NEW
+# ending in the marker), so a refactor that fired on any tag *movement* would go RED here.
+_c="$(run338 "$S338/base-tagged.md" --rewrite-ac "AC two (post-merge)" "AC two")"
+assert_eq "#338(T3b): a rewrite that REMOVES the (post-merge) tag passes with no note (exit 0)" "0" "$_c"
+assert_eq "#338(T3b): the tag-removing rewrite PATCHed" "yes" \
+  "$([ -s "$S338/patchlog" ] && echo yes || echo no)"
+
+# T3c (no false REFUSAL — the guard reasons over the RESOLVED ROW, not the OLD string):
+# a text tweak on a row that ALREADY ends with the tag creates no new deferral, so it
+# needs no note — even when the OLD substring does not itself span the tag. The
+# argument-string-only predicate classified this as an append and demanded a --note,
+# contradicting the exemption workpad.py's docstring, SKILL.md and docs/implement-skill.md
+# all publish. Fails CLOSED (an extra-note demand, never a laundered deferral), but the
+# published contract must match the code. RED against the OLD-string-only predicate.
+_c="$(run338 "$S338/base-tagged.md" --rewrite-ac "AC two" "AC two clarified (post-merge)")"
+assert_eq "#338(T3c): a tweak on an already-(post-merge) row needs no note even when OLD omits the tag (exit 0)" "0" "$_c"
+assert_eq "#338(T3c): the already-tagged-row tweak PATCHed the reworded row" "yes" \
+  "$([ -s "$S338/patchlog" ] && grep -q '\- \[ \] AC two clarified (post-merge)' "$S338/out" && echo yes || echo no)"
+# Control: the SAME shape onto an UNTAGGED row is still refused — the exemption is bound
+# to the target row's existing tag, not to the OLD substring being a prefix.
+_c="$(run338 "$S338/base-tagged.md" --rewrite-ac "AC one" "AC one clarified (post-merge)")"
+assert_eq "#338(T3c): the same shape onto an UNTAGGED row is still refused (non-zero)" "no" \
+  "$([ "$_c" = "0" ] && echo yes || echo no)"
+assert_eq "#338(T3c): the untagged-row refusal made NO PATCH" "yes" \
+  "$([ -s "$S338/patchlog" ] && echo no || echo yes)"
+
+# T4b (trailing-whitespace anti-evasion — the reason the predicate rstrips): an appending
+# pair whose NEW ends with the tag plus trailing spaces is still an append and is refused
+# with no note. Pins the rstrip; a bare endswith (no rstrip) would let this evasion through
+# while every other S338 test stayed green.
+_c="$(run338 "$S338/base.md" --rewrite-ac "AC two" "AC two (post-merge)   ")"
+assert_eq "#338(T4b): an appending pair with trailing whitespace after the tag is refused (non-zero)" "no" \
+  "$([ "$_c" = "0" ] && echo yes || echo no)"
+assert_eq "#338(T4b): the trailing-whitespace-append refusal made NO PATCH" "yes" \
+  "$([ -s "$S338/patchlog" ] && echo no || echo yes)"
+
+# T4c (note-side anti-evasion — the discriminating input that actually pins `.strip()`):
+# T4's `--note ""` does NOT pin it — `any([""])` is already falsy, so T4 stays GREEN
+# against a mutant `has_note = any(n for n in args.note)`. A whitespace-only note is the
+# input that separates them: truthy as a bare string, falsy after `.strip()`. Mutation-
+# checked — dropping `.strip()` turns THIS assertion RED while T4 stays GREEN.
+_c="$(run338 "$S338/base.md" --rewrite-ac "AC two" "AC two (post-merge)" --note "   ")"
+assert_eq "#338(T4c): a whitespace-only --note is treated as missing → refused (non-zero)" "no" \
+  "$([ "$_c" = "0" ] && echo yes || echo no)"
+assert_eq "#338(T4c): the whitespace-note refusal made NO PATCH" "yes" \
+  "$([ -s "$S338/patchlog" ] && echo no || echo yes)"
+
+# T4d (only --note satisfies the rationale): a --reflection is a different channel
+# (## Devflow Reflection) and never stands in for the retag rationale. Without this pin a
+# refactor broadening has_note to accept a reflection would loosen the contract while
+# every other S338 test stayed green. Runs against base-refl.md — the fixture that HAS a
+# ## Devflow Reflection section — so the reflection is a valid mutation and the refusal is
+# attributable to the guard; on a section-less fixture this test would pass vacuously via
+# 'section not found'. The stderr assertion pins that attribution (cf. T7's 'net-adds').
+_c="$(run338 "$S338/base-refl.md" --rewrite-ac "AC two" "AC two (post-merge)" \
+  --reflection "retro-tagged as post-merge (genuinely-live): live deploy target")"
+assert_eq "#338(T4d): a --reflection does not satisfy the --note rationale → refused (non-zero)" "no" \
+  "$([ "$_c" = "0" ] && echo yes || echo no)"
+assert_eq "#338(T4d): the reflection-only refusal made NO PATCH" "yes" \
+  "$([ -s "$S338/patchlog" ] && echo no || echo yes)"
+assert_eq "#338(T4d): the refusal is the rationale guard's, not an incidental section abort" "yes" \
+  "$(grep -q 'no non-empty --note rationale' "$S338/err" && echo yes || echo no)"
+# Control: the same call on the same fixture WITH a --note succeeds — proving base-refl.md
+# is not itself the reason T4d is refused (the reflection applies cleanly alongside).
+_c="$(run338 "$S338/base-refl.md" --rewrite-ac "AC two" "AC two (post-merge)" \
+  --reflection "context bullet" --note "genuinely-live: live deploy target")"
+assert_eq "#338(T4d): the same reflection call WITH a --note succeeds (exit 0)" "0" "$_c"
+
+# T7 (state-based multi-pair backstop, issue #338 hardening): a crafted two-pair call whose
+# pairs each individually dodge the per-pair guard — pair 1 places the marker non-terminally
+# (NEW doesn't end in the tag), pair 2 makes it terminal (OLD ends in the tag) — net-adds a
+# (post-merge) row. The per-pair guard alone would fail OPEN here; the post-loop count-of-
+# post-merge-rows backstop catches it and aborts before any PATCH. RED against the pre-
+# backstop code (the laundered tag PATCHes with no note).
+_c="$(run338 "$S338/base.md" --rewrite-ac "AC two" "(post-merge) AC two" \
+  --rewrite-ac "(post-merge)" "AC two (post-merge)")"
+assert_eq "#338(T7): a multi-pair call that net-adds a (post-merge) row with no note is refused (non-zero)" "no" \
+  "$([ "$_c" = "0" ] && echo yes || echo no)"
+assert_eq "#338(T7): the multi-pair backstop refusal made NO PATCH (all-or-nothing)" "yes" \
+  "$([ -s "$S338/patchlog" ] && echo no || echo yes)"
+# Assert the refusal came from the STATE BACKSTOP ('net-adds'), not an incidental
+# _rewrite_checkbox zero/multi-match abort — so a refactor that made this call fail for
+# the wrong reason (while the backstop silently rotted) is caught, not masked by T7b.
+assert_eq "#338(T7): the refusal is the state backstop's 'net-adds' abort, not an incidental match failure" "yes" \
+  "$(grep -q 'net-adds' "$S338/err" && echo yes || echo no)"
+# T7b (backstop no false fire): the identical multi-pair call WITH a non-empty --note succeeds.
+_c="$(run338 "$S338/base.md" --rewrite-ac "AC two" "(post-merge) AC two" \
+  --rewrite-ac "(post-merge)" "AC two (post-merge)" --note "retro-tagged (genuinely-live): live endpoint")"
+assert_eq "#338(T7b): the same multi-pair retag WITH a --note succeeds (exit 0)" "0" "$_c"
+
+# T8 (single-pair append onto an already-TICKED row): the per-pair guard is tick-state
+# agnostic — it reasons over the row's LABEL text, which `_CHECKBOX_ROW_RE` exposes
+# independently of the `[ ]`/`[x]` state cell — so this is refused with no note. Behavior
+# was already correct but unpinned; without this a refactor that skipped `[x]` rows in the
+# per-pair guard (to "match" the backstop's old unticked-only population) would go
+# unnoticed by every other S338 test, all of which drive `- [ ]` rows.
+#
+# ATTRIBUTION IS LOAD-BEARING HERE, not decoration. Since the backstop now also counts
+# ticked rows, a mutant that skips `[x]` rows in the per-pair guard STILL exits non-zero
+# with no PATCH — the backstop catches it one step later. rc/no-PATCH assertions alone
+# therefore pass on the very mutant this test exists to kill. Pin the refusal to the
+# PER-PAIR guard: its message names the offending pair, and it never says `net-adds` (the
+# backstop's word). Both attribution assertions below independently kill that mutant — the
+# backstop's message omits the pair AND says `net-adds` — while the rc/no-PATCH assertions
+# alone stay GREEN on it. Note the backstop's message also contains the phrase
+# `no non-empty --note rationale`, so that substring alone does not discriminate; the
+# pair name is what does.
+_c="$(run338 "$S338/base-ticked.md" --rewrite-ac "AC two" "AC two (post-merge)")"
+assert_eq "#338(T8): a single-pair (post-merge) append onto a TICKED [x] row is refused (non-zero)" "no" \
+  "$([ "$_c" = "0" ] && echo yes || echo no)"
+assert_eq "#338(T8): the ticked-row single-pair refusal made NO PATCH" "yes" \
+  "$([ -s "$S338/patchlog" ] && echo no || echo yes)"
+assert_eq "#338(T8): the refusal is the PER-PAIR guard's (names the pair + rationale), not the backstop's" "yes" \
+  "$(grep -q 'AC two' "$S338/err" && grep -q 'no non-empty --note rationale' "$S338/err" && echo yes || echo no)"
+assert_eq "#338(T8): the per-pair guard — not the state backstop — refused (stderr has no 'net-adds')" "yes" \
+  "$(grep -q 'net-adds' "$S338/err" && echo no || echo yes)"
+
+# T8b (the ticked-row SHUTTLE — the fail-open this backstop population closes): the same
+# crafted two-pair shuttle as T7, aimed at an already-`[x]` row. Both pairs dodge the
+# per-pair guard exactly as in T7; with the backstop counting only UNTICKED rows the
+# tagged row landed with NO note and exit 0, silently falsifying SKILL.md's and
+# DEVFLOW_SYSTEM_OVERVIEW's promise that "a crafted multi-pair sequence that net-adds a
+# (post-merge) row is caught by the same rule". Snapshotting each row's post-merge-terminal
+# flag across EVERY tick state (`_post_merge_flags`) closes it. RED against the
+# unticked-only population; the 'net-adds' grep pins that the STATE BACKSTOP is what
+# refuses it (T8 already covers the per-pair path, so a refusal for the wrong reason would
+# otherwise pass here).
+_c="$(run338 "$S338/base-ticked.md" --rewrite-ac "AC two" "(post-merge) AC two" \
+  --rewrite-ac "(post-merge)" "AC two (post-merge)")"
+assert_eq "#338(T8b): a multi-pair shuttle that net-adds (post-merge) onto a TICKED row is refused (non-zero)" "no" \
+  "$([ "$_c" = "0" ] && echo yes || echo no)"
+assert_eq "#338(T8b): the ticked-row shuttle refusal made NO PATCH (all-or-nothing)" "yes" \
+  "$([ -s "$S338/patchlog" ] && echo no || echo yes)"
+assert_eq "#338(T8b): the ticked-row shuttle refusal is the state backstop's 'net-adds' abort" "yes" \
+  "$(grep -q 'net-adds' "$S338/err" && echo yes || echo no)"
+# T8c (no false fire on the widened population): a tag-PRESERVING tweak on an already-tagged
+# TICKED row adds no tagged row, so the wider count must not fire — this is the assertion a
+# naive "count every tagged row and abort on any tagged row present" backstop would fail.
+_c="$(run338 "$S338/base-ticked-tagged.md" --rewrite-ac "AC two (post-merge)" "AC two reworded (post-merge)")"
+assert_eq "#338(T8c): a tag-preserving tweak on a TICKED tagged row still passes with no note (exit 0)" "0" "$_c"
+assert_eq "#338(T8c): the ticked tag-preserving rewrite PATCHed" "yes" \
+  "$([ -s "$S338/patchlog" ] && echo yes || echo no)"
+# T8d (no false fire): REMOVING the tag from a ticked tagged row decreases the count → passes.
+_c="$(run338 "$S338/base-ticked-tagged.md" --rewrite-ac "AC two (post-merge)" "AC two")"
+assert_eq "#338(T8d): removing the tag from a TICKED row passes with no note (exit 0)" "0" "$_c"
+
+# T9 (net-zero tag-swap — the last laundering shape): remove the tag from one row while
+# shuttling it onto ANOTHER, with no note. Every pair dodges the per-pair guard (pair 1
+# removes; pair 2's NEW is non-terminal; pair 3's OLD ends with the tag), and the TOTAL
+# count of tagged rows is unchanged — so an aggregate-count backstop reads "no net add"
+# and PATCHes a silently-deferred criterion. Comparing each row's flag POSITIONALLY
+# catches it: AC one transitions untagged -> terminally-tagged. RED against a count-based
+# backstop (verified: it exits 0 and PATCHes `- [ ] AC one (post-merge)`).
+_c="$(run338 "$S338/base-tagged.md" --rewrite-ac "AC two (post-merge)" "AC two" \
+  --rewrite-ac "AC one" "(post-merge) AC one" \
+  --rewrite-ac "(post-merge)" "AC one (post-merge)")"
+assert_eq "#338(T9): a net-zero tag-swap onto another row is refused (non-zero)" "no" \
+  "$([ "$_c" = "0" ] && echo yes || echo no)"
+assert_eq "#338(T9): the net-zero tag-swap refusal made NO PATCH (all-or-nothing)" "yes" \
+  "$([ -s "$S338/patchlog" ] && echo no || echo yes)"
+assert_eq "#338(T9): the net-zero refusal is the state backstop's 'net-adds' abort" "yes" \
+  "$(grep -q 'net-adds' "$S338/err" && echo yes || echo no)"
+# T9b (no false fire): the identical net-zero swap WITH a --note succeeds.
+_c="$(run338 "$S338/base-tagged.md" --rewrite-ac "AC two (post-merge)" "AC two" \
+  --rewrite-ac "AC one" "(post-merge) AC one" \
+  --rewrite-ac "(post-merge)" "AC one (post-merge)" \
+  --note "moved the deferral: AC one needs the live endpoint, AC two was verified")"
+assert_eq "#338(T9b): the same net-zero swap WITH a --note succeeds (exit 0)" "0" "$_c"
+
+# T10 (newline in NEW — the premise the positional comparison rests on): `_rewrite_checkbox`
+# writes NEW verbatim into ONE line, so an embedded newline splits that checkbox row in two.
+# That injects an unreviewed AC row AND breaks the row-index stability `_net_adds_post_merge`
+# compares against. It also slips the per-pair guard, whose `NEW ends with the marker` test
+# reads the whole string (`X (post-merge)\n- [ ] Y` ends with `Y`). Reject it structurally,
+# note or not. RED against the pre-fix code, which exited 0 and PATCHed the injected row.
+_c="$(run338 "$S338/base.md" --rewrite-ac "AC two" 'AC two (post-merge)
+- [ ] Injected')"
+assert_eq "#338(T10): a --rewrite-ac NEW containing a line break is refused (non-zero)" "no" \
+  "$([ "$_c" = "0" ] && echo yes || echo no)"
+assert_eq "#338(T10): the line-break refusal made NO PATCH (no row injected)" "yes" \
+  "$([ -s "$S338/patchlog" ] && echo no || echo yes)"
+assert_eq "#338(T10): the refusal names the line boundary, not the missing note" "yes" \
+  "$(grep -q 'line boundary in NEW' "$S338/err" && echo yes || echo no)"
+# T10a (the full `str.splitlines()` separator set — the superset bug): a `'\n' in s or
+# '\r' in s` membership test accepts \v, \f, \x1c-\x1e, NEL, LS and PS, EVERY one of which
+# `str.splitlines()` still splits on — so each injected a phantom `- [x]` row (with a
+# --note, both post-merge guards are skipped, leaving the row check as the only defense).
+# `_is_single_line` shares splitlines' own contract, so the rejected set matches exactly.
+# Driven with a --note so a refusal cannot come from a post-merge guard. RED against the
+# two-character membership test (all eight exited 0 and PATCHed an injected row).
+# Interpreter note: `printf '%b'` must expand `\302\205` (NEL), `\342\200\250` (LS) and
+# `\342\200\251` (PS) to their real bytes for the last three cases to drive a separator at
+# all. Bash's printf does; zsh's does not — it emits the literal backslash text, which
+# carries no separator, so workpad.py would accept the rewrite (exit 0) and these
+# assertions would FAIL LOUDLY. They cannot degrade into a silent green. This suite's
+# shebang is `#!/usr/bin/env bash`, so the expansion holds. Independently verified: under a
+# membership-test mutant all eight — including these three — go RED, which they could not
+# if their input carried no separator.
+for _sep in '\v' '\f' '\034' '\035' '\036' '\302\205' '\342\200\250' '\342\200\251'; do
+  _new="$(printf 'AC two (post-merge)%b- [x] Phantom' "$_sep")"
+  _c="$(run338 "$S338/base.md" --rewrite-ac "AC two" "$_new" --note "genuinely-live: endpoint")"
+  assert_eq "#338(T10a): NEW split by separator '$_sep' is refused even with a --note" "no" \
+    "$([ "$_c" = "0" ] && echo yes || echo no)"
+  assert_eq "#338(T10a): separator '$_sep' injected no row (NO PATCH)" "yes" \
+    "$([ -s "$S338/patchlog" ] && echo no || echo yes)"
+done
+# T10b: a --note does NOT excuse it — the newline is a malformed argument, not a deferral.
+_c="$(run338 "$S338/base.md" --rewrite-ac "AC two" 'AC two (post-merge)
+- [ ] Injected' --note "genuinely-live: live endpoint")"
+assert_eq "#338(T10b): a line break in NEW is refused even WITH a --note (non-zero)" "no" \
+  "$([ "$_c" = "0" ] && echo yes || echo no)"
+# T10c (the laundering combo the newline enabled): remove a tag from one row while
+# newline-splitting another into a terminally-tagged row. Row counts differ, so an
+# aggregate-count fallback reads the sum as flat and passes. Refused now — first by the
+# newline check; and were that ever removed, _net_adds_post_merge's length-mismatch branch
+# fails CLOSED rather than downgrading to the blind aggregate compare.
+_c="$(run338 "$S338/base-tagged.md" --rewrite-ac "AC two (post-merge)" "AC two" \
+  --rewrite-ac "AC one" 'AC one (post-merge)
+- [ ] Injected')"
+assert_eq "#338(T10c): a newline-split net-zero laundering combo is refused (non-zero)" "no" \
+  "$([ "$_c" = "0" ] && echo yes || echo no)"
+assert_eq "#338(T10c): the laundering combo made NO PATCH" "yes" \
+  "$([ -s "$S338/patchlog" ] && echo no || echo yes)"
+# T10d (no false fire): a NEW with ordinary internal whitespace (not a line break) is fine.
+_c="$(run338 "$S338/base.md" --rewrite-ac "AC two" "AC two   with   spaces")"
+assert_eq "#338(T10d): a NEW with internal spaces (no line break) still passes (exit 0)" "0" "$_c"
+
+# Source pin: the length-mismatch branch fails CLOSED (returns True), never degrading to an
+# aggregate `sum(post) > sum(pre)` compare that is blind to a remove-one/add-one swap.
+assert_eq "#338: _net_adds_post_merge fails closed on a row-count mismatch (no aggregate fallback)" "yes" \
+  "$(grep -q 'sum(post) > sum(pre)' "$WP_PY" && echo no || echo yes)"
+# Source pin: the newline rejection guards the row-index-stability premise. Pin the SYMBOL,
+# not the stderr wording — the message literal is an f-string wrapped across two source
+# lines ("...has a line " / "boundary in NEW; ..."), so no single line contains the phrase
+# whole and a source grep for it always fails. (That is the same wrapped-literal blind spot
+# that let the argparse help text drift; the rendered-surface pins are the ones that catch
+# wording, and T10 already asserts this message on real stderr.)
+assert_eq "#338: --rewrite-ac structurally rejects a line break in NEW" "yes" \
+  "$(grep -q 'offending_nl' "$WP_PY" && echo yes || echo no)"
+
+# Source pin: the backstop's population spans every tick state AND compares positionally.
+# A revert to `_unticked_rows(content)[1]` re-opens the T8b ticked-row fail-open; a revert
+# to an aggregate count re-opens the T9 net-zero fail-open.
+assert_eq "#338: the retag backstop snapshots per-row post-merge flags (not an aggregate count)" "yes" \
+  "$(grep -q 'pre_pm = _post_merge_flags(content)' "$WP_PY" && echo yes || echo no)"
+assert_eq "#338: the retag backstop compares those flags positionally via _net_adds_post_merge" "yes" \
+  "$(grep -q '_net_adds_post_merge(pre_pm, _post_merge_flags(content))' "$WP_PY" && echo yes || echo no)"
+
+# Source pin: the rationale-required guard + its predicate live in workpad.py.
+assert_eq "#338: workpad.py carries the (post-merge)-retag rationale guard" "yes" \
+  "$(grep -q '_pair_appends_post_merge' "$WP_PY" && echo yes || echo no)"
+# Source pin: the guard SHARES the rewriter's row resolution (parse, don't validate)
+# rather than re-deriving the target row from the OLD argument string. A revert to the
+# two-argument, string-only predicate re-introduces the T3c false refusal.
+assert_eq "#338: the retag guard resolves the target row via _find_checkbox_row" "yes" \
+  "$(grep -q '_find_checkbox_row' "$WP_PY" && echo yes || echo no)"
+# Coupled-invariant pin: SKILL.md's --rewrite-ac row publishes the row-scoped exemption
+# (not the stale OLD-only form). Edited in lockstep with the predicate above.
+assert_eq "#338: SKILL.md publishes the row-scoped (post-merge) exemption" "yes" \
+  "$(grep -q 'neither OLD nor the row it targets already does' \
+       "$LIB/../skills/implement/SKILL.md" && echo yes || echo no)"
+# ...and the NEGATIVE half. SKILL.md carries the contract sentence TWICE (the --rewrite-ac
+# flag-table row and the structural-failures bullet), so the positive `grep -q` above stays
+# GREEN if only ONE of them is reverted to the stale OLD-only form. Asserting the stale form
+# is ABSENT catches a partial reversion at either site — and does so without a brittle
+# occurrence-count pin that a third legitimate mention would break. Same for the docs mirror.
+for _f338 in "$LIB/../skills/implement/SKILL.md" "$LIB/../docs/implement-skill.md"; do
+  assert_eq "#338: $(basename "$_f338") carries no stale OLD-only (post-merge) contract sentence" "yes" \
+    "$(grep -q 'NEW ends with it, OLD does not' "$_f338" && echo no || echo yes)"
+done
+# Coupled-invariant pin on the RENDERED CLI surface. workpad.py's --rewrite-ac argparse
+# help is a third mirror of the guard contract, and it is the one a plain source grep for
+# the contract sentence MISSES: argparse help is assembled from adjacent string literals,
+# so the phrase wraps across lines ('... OLD does ' 'not)') and no line contains it whole.
+# Pin what the user actually reads — `update --help` — so a stale OLD-only help text turns
+# the suite RED. Asserts the row-scoped phrasing is present AND the stale form is gone.
+_h338="$(python3 "$WP_PY" update --help 2>&1)"
+assert_eq "#338: workpad.py --rewrite-ac help publishes the row-scoped exemption" "yes" \
+  "$(printf '%s' "$_h338" | tr -s '[:space:]' ' ' \
+     | grep -q 'neither OLD nor the row it targets already does' && echo yes || echo no)"
+assert_eq "#338: workpad.py --rewrite-ac help no longer carries the stale OLD-only form" "yes" \
+  "$(printf '%s' "$_h338" | tr -s '[:space:]' ' ' \
+     | grep -q 'NEW ends with it, OLD does not' && echo no || echo yes)"
+assert_eq "#338: workpad.py --rewrite-ac help states a --reflection does not satisfy the note" "yes" \
+  "$(printf '%s' "$_h338" | tr -s '[:space:]' ' ' \
+     | grep -q 'Only --note satisfies the rationale; a --reflection does not' && echo yes || echo no)"
+assert_eq "#338: workpad.py --rewrite-ac help states NEW must be a single line" "yes" \
+  "$(printf '%s' "$_h338" | tr -s '[:space:]' ' ' \
+     | grep -q 'NEW must be a single line' && echo yes || echo no)"
+
+# T6 (pin mutation check): the operative sentence of the new third forbidden case in
+# phase-3-review.md §3.4. This is a behavioral-fix pin (removing the sentence
+# re-introduces the self-reconfiguration laundering the issue closes), so it targets
+# the OPERATIVE clause — the minimal text whose removal alone re-opens the bug — not a
+# framing clause. assert_pin_unique is removal-proof by construction: PASS with the
+# sentence present (count 1), FAIL if deleted (count 0) or duplicated (count >= 2), so
+# the counterfactual half-revert re-runs on every suite execution.
+P3REVIEW="$LIB/../skills/implement/phases/phase-3-review.md"
+assert_pin_unique "#338(T6): §3.4 pins the operative sentence of the self-reconfiguration forbidden case" \
+  'is runnable on this host and is never `(post-merge)`' "$P3REVIEW"
+rm -rf "$S338"
 
 # ── Issue #345: pre-merge probe contract before any (post-merge) AC deferral ──
 # Coupled-invariant pins: the probe contract is stated once in phase-3-review.md
@@ -18981,6 +19614,464 @@ for _gf in workpad.py match-deferrals.py; do
   assert_eq "#343 runtime: $_gf gate names the provision-python3-shim.sh remedy at runtime" \
     "yes" "$(printf '%s' "$_G343_ERR" | grep -q 'provision-python3-shim.sh' && echo yes || echo no)"
 done
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "implement-stop-guard.sh (issue #362)"
+# ────────────────────────────────────────────────────────────────────────────
+# lib/implement-stop-guard.sh is the local-tier Stop-hook backstop: it blocks a
+# session's stop (exit 2 — the documented Stop-hook blocking code) while an
+# /devflow:implement run's issue workpad Status is still interim, and fails OPEN
+# (exit 0 + an arm-naming stderr breadcrumb) on every other path.
+#
+# The guard resolves its repo root via devflow_repo_root() (git rev-parse
+# --show-toplevel), so each scenario runs it with cwd inside a real, throwaway
+# git-inited sandbox rather than threading a test-only override through
+# production code — the guard carries NO env-var backdoor for testability.
+ISG_SH="$LIB/implement-stop-guard.sh"
+
+# isg_repo NAME -> prints a fresh git-inited sandbox with scripts/ + .devflow/tmp/.
+isg_repo() {
+  local d
+  d="$(git_sandbox "$1")" || { printf '%s\n' "$d"; return 1; }
+  git -C "$d" init -q >/dev/null 2>&1
+  mkdir -p "$d/scripts" "$d/.devflow/tmp"
+  printf '%s\n' "$d"
+}
+
+# isg_stub_workpad DIR RC -> a scripts/workpad.py that ignores its args and exits RC.
+# Drives the workpad-unreadable arms (exit 1, exit 3) and the no-workpad arm (exit 2)
+# deterministically, with no gh stub and no network.
+isg_stub_workpad() {
+  cat > "$1/scripts/workpad.py" <<STUB
+#!/usr/bin/env python3
+import sys
+sys.stderr.write("stub workpad.py status: forced rc $2\n")
+sys.exit($2)
+STUB
+  chmod +x "$1/scripts/workpad.py"
+}
+
+# isg_run DIR STDIN_JSON [VAR=value ...] -> prints "<rc>|<stderr>".
+# stderr can itself contain '|', so callers take rc as "${R%%|*}" (first field)
+# and stderr as "${R#*|}" (everything past the first separator).
+#
+# `env -u GITHUB_ACTIONS` scrubs the AMBIENT variable: the guard's second arm allows the
+# stop outright when it is set, so under CI (where the runner exports GITHUB_ACTIONS=true)
+# every arm below that one would be unreachable and its test would assert against the
+# cloud-tier breadcrumb instead. The `-u` precedes "$@", so the GITHUB_ACTIONS arm's own
+# test still sets it back explicitly and keeps testing what it names.
+isg_run() {
+  local dir="$1" stdin_json="$2"; shift 2
+  local err rc
+  err="$(mktemp)"
+  (
+    cd "$dir" || exit 90
+    printf '%s' "$stdin_json" | env -u GITHUB_ACTIONS "$@" bash "$ISG_SH"
+  ) >/dev/null 2>"$err"
+  rc=$?
+  printf '%s|%s' "$rc" "$(cat "$err")"
+  rm -f "$err"
+}
+
+# ── allow: GITHUB_ACTIONS set (cloud tier owns its own finalization) ─────────
+ISG_D="$(isg_repo "isg: GITHUB_ACTIONS arm")"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidA"}' GITHUB_ACTIONS=true)"
+assert_eq "#362 isg: GITHUB_ACTIONS set -> allow (exit 0)" "0" "${ISG_R%%|*}"
+assert_eq "#362 isg: GITHUB_ACTIONS arm emits its own breadcrumb" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'GITHUB_ACTIONS is set' && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# ── allow: python3 is unavailable. Reached only with a marker present (the glob decides
+# first), and it must carry its OWN breadcrumb rather than being folded into the
+# session-id parse arm below — an operator on a python3-less host must be pointed at the
+# missing interpreter, not at the hook payload. PATH is narrowed to a dir holding only the
+# binaries the guard needs before that check: bash, cat, dirname, git.
+ISG_D="$(isg_repo "isg: python3-unavailable arm")"
+isg_stub_workpad "$ISG_D" 0
+: > "$ISG_D/.devflow/tmp/implement-active-611"
+mkdir -p "$ISG_D/nopybin"
+for ISG_B in bash cat dirname git; do
+  ln -sf "$(command -v "$ISG_B")" "$ISG_D/nopybin/$ISG_B" 2>/dev/null
+done
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidS"}' "PATH=$ISG_D/nopybin")"
+assert_eq "#362 isg: python3 unavailable -> allow (exit 0)" "0" "${ISG_R%%|*}"
+assert_eq "#362 isg: python3-unavailable arm emits its OWN breadcrumb (not the stdin one)" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'python3 not found' && echo yes || echo no)"
+assert_eq "#362 isg: python3-unavailable arm does NOT misreport the hook payload as unparseable" "no" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'no usable session_id' && echo yes || echo no)"
+assert_eq "#362 isg: python3 unavailable keeps the marker" "yes" \
+  "$([ -e "$ISG_D/.devflow/tmp/implement-active-611" ] && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# ── allow: stdin is not parseable JSON. A marker is present, so the cheaper
+# no-marker arm cannot pre-empt this one (arm order: glob, THEN session-id parse).
+ISG_D="$(isg_repo "isg: unparseable stdin arm")"
+isg_stub_workpad "$ISG_D" 0
+: > "$ISG_D/.devflow/tmp/implement-active-598"
+ISG_R="$(isg_run "$ISG_D" 'not json {{{' )"
+assert_eq "#362 isg: unparseable stdin -> allow (exit 0)" "0" "${ISG_R%%|*}"
+assert_eq "#362 isg: unparseable-stdin arm emits its own breadcrumb" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'no usable session_id' && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# ── allow: a session_id that is unsafe as a filename component (path traversal)
+# folds into the same fail-open arm — the sentinel cannot be safely keyed.
+ISG_D="$(isg_repo "isg: unsafe session_id arm")"
+isg_stub_workpad "$ISG_D" 0
+: > "$ISG_D/.devflow/tmp/implement-active-599"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"../../etc/passwd"}')"
+assert_eq "#362 isg: path-traversing session_id -> allow (exit 0)" "0" "${ISG_R%%|*}"
+assert_eq "#362 isg: path-traversing session_id arm emits its own breadcrumb" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'no usable session_id' && echo yes || echo no)"
+# The guard must have written NO sentinel at all. Assert that by searching the sandbox for
+# any `stop-guard-*` file, not by probing `$ISG_D/../../etc/passwd`: that path is what the
+# session_id would traverse TO, and where it lands depends on how deep mktemp roots the
+# sandbox. Under CI (`/tmp/<x>`) it resolves to the host's real `/etc/passwd`, which exists
+# and the guard never touched — a false FAIL; under macOS's deep `/var/folders/...` root it
+# resolves nowhere, so the check passed vacuously and would not have caught a real escape.
+# A `find` for the sentinel name is depth-independent and non-vacuous: a guard that keyed a
+# sentinel on this session_id (sanitized or not) leaves a `stop-guard-*` file behind.
+assert_eq "#362 isg: path-traversing session_id never writes a sentinel anywhere" "" \
+  "$(find "$ISG_D" -name 'stop-guard-*' 2>/dev/null | head -1)"
+rm -rf "$ISG_D"
+
+# ── allow: no marker present — and the workpad helper is NEVER invoked (the
+# zero-network property every ordinary, non-implement session relies on). The
+# stub tattles to a file; its absence is the assertion.
+ISG_D="$(isg_repo "isg: no-marker arm")"
+cat > "$ISG_D/scripts/workpad.py" <<STUB
+#!/usr/bin/env python3
+open("$ISG_D/tattle", "a").write("invoked\n")
+STUB
+chmod +x "$ISG_D/scripts/workpad.py"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidB"}')"
+assert_eq "#362 isg: no marker -> allow (exit 0)" "0" "${ISG_R%%|*}"
+assert_eq "#362 isg: no-marker arm emits its own breadcrumb" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'no .devflow/tmp/implement-active-* marker' && echo yes || echo no)"
+assert_eq "#362 isg: no-marker arm never invokes the workpad helper (no network call)" "no" \
+  "$([ -e "$ISG_D/tattle" ] && echo yes || echo no)"
+# Hot-path arm-ordering pin: the pure-bash marker glob must decide BEFORE the session-id
+# parse, so an ordinary session's turn-end spawns no python3 at all. Unparseable stdin with
+# no marker present must therefore surface the *no-marker* breadcrumb, not the session-id
+# one — if a future edit hoists the parse back above the glob, this flips RED.
+ISG_R="$(isg_run "$ISG_D" 'not json {{{')"
+assert_eq "#362 isg: the marker glob decides before the session-id parse (no python3 on the hot path)" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'no .devflow/tmp/implement-active-* marker' && echo yes || echo no)"
+assert_eq "#362 isg: that hot-path exit never reached the session-id arm" "no" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'no usable session_id' && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# ── allow: this session's sentinel already exists (at-most-one-block bound),
+# and that arm too skips the workpad helper entirely.
+ISG_D="$(isg_repo "isg: existing-sentinel arm")"
+isg_stub_workpad "$ISG_D" 0
+: > "$ISG_D/.devflow/tmp/implement-active-600"
+: > "$ISG_D/.devflow/tmp/stop-guard-sidC"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidC"}')"
+assert_eq "#362 isg: existing sentinel -> allow (exit 0)" "0" "${ISG_R%%|*}"
+assert_eq "#362 isg: existing-sentinel arm emits its own breadcrumb" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'was already blocked once' && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# ── allow + KEEP the marker: workpad.py exit 1 (unreadable) and exit 3
+# (gh/transport/auth). Never block on a workpad the helper could not read.
+for ISG_RC in 1 3; do
+  ISG_D="$(isg_repo "isg: keep-marker rc=$ISG_RC arm")"
+  isg_stub_workpad "$ISG_D" "$ISG_RC"
+  : > "$ISG_D/.devflow/tmp/implement-active-601"
+  ISG_R="$(isg_run "$ISG_D" "{\"session_id\":\"sidD$ISG_RC\"}")"
+  assert_eq "#362 isg: workpad.py exit $ISG_RC -> allow (exit 0, fail open)" "0" "${ISG_R%%|*}"
+  assert_eq "#362 isg: workpad.py exit $ISG_RC arm emits its own breadcrumb" "yes" \
+    "$(printf '%s' "${ISG_R#*|}" | grep -qF "status exited $ISG_RC" && echo yes || echo no)"
+  assert_eq "#362 isg: workpad.py exit $ISG_RC keeps the marker" "yes" \
+    "$([ -e "$ISG_D/.devflow/tmp/implement-active-601" ] && echo yes || echo no)"
+  assert_eq "#362 isg: workpad.py exit $ISG_RC writes no sentinel" "no" \
+    "$([ -e "$ISG_D/.devflow/tmp/stop-guard-sidD$ISG_RC" ] && echo yes || echo no)"
+  rm -rf "$ISG_D"
+done
+
+# ── allow + DELETE the stale marker: workpad.py exit 2 (no workpad on the issue)
+ISG_D="$(isg_repo "isg: stale-marker arm")"
+isg_stub_workpad "$ISG_D" 2
+: > "$ISG_D/.devflow/tmp/implement-active-602"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidE"}')"
+assert_eq "#362 isg: workpad.py exit 2 -> allow (exit 0)" "0" "${ISG_R%%|*}"
+assert_eq "#362 isg: stale-marker arm emits its own breadcrumb" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'marker was stale' && echo yes || echo no)"
+assert_eq "#362 isg: workpad.py exit 2 deletes the stale marker (self-heal)" "no" \
+  "$([ -e "$ISG_D/.devflow/tmp/implement-active-602" ] && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# ── allow + skip: a marker whose issue suffix is not numeric is never parsed,
+# never queried, and never deleted (we do not understand its shape).
+ISG_D="$(isg_repo "isg: non-numeric marker arm")"
+isg_stub_workpad "$ISG_D" 0
+: > "$ISG_D/.devflow/tmp/implement-active-not-a-number"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidF"}')"
+assert_eq "#362 isg: non-numeric marker suffix -> allow (exit 0)" "0" "${ISG_R%%|*}"
+assert_eq "#362 isg: non-numeric-suffix arm emits its own breadcrumb" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'non-numeric issue suffix' && echo yes || echo no)"
+assert_eq "#362 isg: non-numeric marker is left on disk" "yes" \
+  "$([ -e "$ISG_D/.devflow/tmp/implement-active-not-a-number" ] && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# ── allow: config-source.sh cannot be sourced (a partial-copy deployment — the guard
+# resolves it as a sibling of itself). The guard must fail OPEN, never abort non-zero.
+ISG_D="$(isg_repo "isg: unsourceable config-source arm")"
+mkdir -p "$ISG_D/lib" && cp "$ISG_SH" "$ISG_D/lib/"   # deliberately NO config-source.sh beside it
+ISG_ERR="$(mktemp)"
+# This arm invokes the copied guard directly rather than through isg_run (the point is the
+# guard's own sibling resolution), so it must scrub the ambient GITHUB_ACTIONS itself — see
+# the isg_run header for why.
+( cd "$ISG_D" && printf '{"session_id":"sidL"}' | env -u GITHUB_ACTIONS bash "$ISG_D/lib/implement-stop-guard.sh" ) >/dev/null 2>"$ISG_ERR"
+assert_eq "#362 isg: an unsourceable config-source.sh -> allow (exit 0, never a non-zero abort)" "0" "$?"
+assert_eq "#362 isg: unsourceable-config-source arm emits its own breadcrumb" "yes" \
+  "$(grep -qF 'could not source config-source.sh' "$ISG_ERR" && echo yes || echo no)"
+rm -f "$ISG_ERR"; rm -rf "$ISG_D"
+
+# ── allow + KEEP every marker: scripts/workpad.py is absent. `python3 <script>` exits 2
+# on an unopenable script — the same code workpad.py uses for "no workpad" — so without
+# the existence guard this arm would DELETE a live run's marker and silently disable the
+# backstop. Assert the marker survives.
+ISG_D="$(isg_repo "isg: absent workpad.py arm")"
+: > "$ISG_D/.devflow/tmp/implement-active-605"
+rm -f "$ISG_D/scripts/workpad.py"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidM"}')"
+assert_eq "#362 isg: absent scripts/workpad.py -> allow (exit 0)" "0" "${ISG_R%%|*}"
+assert_eq "#362 isg: absent-workpad.py arm emits its own breadcrumb" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'not found or not readable' && echo yes || echo no)"
+assert_eq "#362 isg: an absent workpad.py NEVER deletes the marker (a missing helper is not an absent workpad)" "yes" \
+  "$([ -e "$ISG_D/.devflow/tmp/implement-active-605" ] && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# ── the same arm, one operand-shape over: a PRESENT but UNREADABLE workpad.py. It passes an
+# existence test yet still makes python3 exit 2, so an existence-only guard would accept an
+# input its consumer rejects and delete the marker anyway (the #62/#98 operand-contract class).
+ISG_D="$(isg_repo "isg: unreadable workpad.py arm")"
+: > "$ISG_D/.devflow/tmp/implement-active-610"
+printf '#!/usr/bin/env python3\n' > "$ISG_D/scripts/workpad.py"
+chmod 000 "$ISG_D/scripts/workpad.py"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidO"}')"
+chmod 644 "$ISG_D/scripts/workpad.py"
+assert_eq "#362 isg: an unreadable workpad.py -> allow (exit 0)" "0" "${ISG_R%%|*}"
+assert_eq "#362 isg: unreadable-workpad.py arm emits its own breadcrumb" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'not found or not readable' && echo yes || echo no)"
+assert_eq "#362 isg: an unreadable workpad.py NEVER deletes the marker (guard accepts no input its consumer rejects)" "yes" \
+  "$([ -e "$ISG_D/.devflow/tmp/implement-active-610" ] && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# ── allow + KEEP the marker: workpad.py exits 0 but prints a class the guard does not
+# recognize (a future workpad.py contract break). Fail open rather than guess.
+ISG_D="$(isg_repo "isg: unrecognized status class arm")"
+cat > "$ISG_D/scripts/workpad.py" <<'STUB'
+#!/usr/bin/env python3
+print("weirdclass 🚀 Foo")
+STUB
+chmod +x "$ISG_D/scripts/workpad.py"
+: > "$ISG_D/.devflow/tmp/implement-active-606"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidN"}')"
+assert_eq "#362 isg: an unrecognized status class -> allow (exit 0, fail open)" "0" "${ISG_R%%|*}"
+assert_eq "#362 isg: unrecognized-class arm emits its own breadcrumb" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF "unrecognized class 'weirdclass'" && echo yes || echo no)"
+assert_eq "#362 isg: an unrecognized class keeps the marker" "yes" \
+  "$([ -e "$ISG_D/.devflow/tmp/implement-active-606" ] && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# ── the arms that drive the REAL workpad.py, against a gh stub (the #258 stub contract):
+# a terminal workpad self-heals its marker; an interim one blocks.
+ISG_GHD="$(mktemp -d)"
+cat > "$ISG_GHD/gh" <<'STUB'
+#!/usr/bin/env bash
+# gh stub for `workpad.py status`: repo resolution + one comments page carrying the
+# fixture workpad body for THE REQUESTED ISSUE (json-encoded via python3, so the body's
+# quotes/glyphs never traverse shell quoting). Keying the body on the issue number in the
+# request URL is load-bearing: an issue-agnostic stub would return the same status for
+# every marker, so the guard's marker->issue-number threading and its multi-marker scan
+# order could not be asserted at all.
+case "$*" in
+  *"repo view"*) echo "owner/repo"; exit 0 ;;
+  *comments*)
+    python3 -c '
+import json, os, re, sys
+m = re.search(r"/issues/(\d+)/comments", " ".join(sys.argv[1:]))
+if not m:
+    sys.stdout.write("[]"); raise SystemExit(0)
+body = os.environ.get("ISG_BODY_" + m.group(1))
+if not body or not os.path.exists(body):
+    sys.stdout.write("[]"); raise SystemExit(0)   # no workpad for this issue -> status exit 2
+sys.stdout.write(json.dumps([{"id": 1, "body": open(body).read()}]))
+' "$@"
+    exit 0 ;;
+esac
+echo '[]'
+STUB
+chmod +x "$ISG_GHD/gh"
+
+cat > "$ISG_GHD/terminal.md" <<'WPMD'
+<!-- devflow:workpad -->
+# DevFlow Workpad — Issue #603
+
+**Status:** 🎉 Complete
+**Last updated:** 2026-05-15T00:00:00Z
+WPMD
+cat > "$ISG_GHD/interim.md" <<'WPMD'
+<!-- devflow:workpad -->
+# DevFlow Workpad — Issue #604
+
+**Status:** 🚀 Reviewing
+**Last updated:** 2026-05-15T00:00:00Z
+WPMD
+
+# terminal -> delete the marker, allow the stop.
+ISG_D="$(isg_repo "isg: terminal self-heal arm")"
+cp "$WP_PY" "$ISG_D/scripts/workpad.py"
+: > "$ISG_D/.devflow/tmp/implement-active-603"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidG"}' \
+  "DEVFLOW_GH=$ISG_GHD/gh" "ISG_BODY_603=$ISG_GHD/terminal.md")"
+assert_eq "#362 isg: terminal workpad -> allow (exit 0)" "0" "${ISG_R%%|*}"
+assert_eq "#362 isg: terminal arm names the status word in its breadcrumb" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'is terminal (Complete)' && echo yes || echo no)"
+assert_eq "#362 isg: terminal workpad deletes the marker (self-heal)" "no" \
+  "$([ -e "$ISG_D/.devflow/tmp/implement-active-603" ] && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# terminal, but the marker cannot be removed (read-only .devflow/tmp): the guard must
+# still allow the stop AND must not claim it deleted a marker that is still on disk.
+ISG_D="$(isg_repo "isg: unhealable terminal marker")"
+cp "$WP_PY" "$ISG_D/scripts/workpad.py"
+: > "$ISG_D/.devflow/tmp/implement-active-603"
+chmod 555 "$ISG_D/.devflow/tmp"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidK"}' \
+  "DEVFLOW_GH=$ISG_GHD/gh" "ISG_BODY_603=$ISG_GHD/terminal.md")"
+chmod 755 "$ISG_D/.devflow/tmp"
+assert_eq "#362 isg: an undeletable terminal marker still allows the stop (exit 0)" "0" "${ISG_R%%|*}"
+assert_eq "#362 isg: an undeletable marker is reported as NOT deleted (no success for work that did not happen)" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'could NOT be deleted' && echo yes || echo no)"
+assert_eq "#362 isg: the undeletable marker really is still on disk (the breadcrumb told the truth)" "yes" \
+  "$([ -e "$ISG_D/.devflow/tmp/implement-active-603" ] && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# ── multi-marker scan: the guard's header promises that a terminal marker earlier in scan
+# order is healed, the FIRST interim marker blocks, and markers after it are simply
+# re-scanned on a later Stop event (deferred, never lost). Markers glob in lexical order,
+# so 603 (terminal) precedes 604 (interim) precedes 607 (terminal). Asserting this needs an
+# issue-number-keyed gh stub: an issue-agnostic one returns the same status for every marker.
+cat > "$ISG_GHD/terminal607.md" <<'WPMD'
+<!-- devflow:workpad -->
+# DevFlow Workpad — Issue #607
+
+**Status:** 🎉 Complete
+**Last updated:** 2026-05-15T00:00:00Z
+WPMD
+ISG_D="$(isg_repo "isg: multi-marker scan order")"
+cp "$WP_PY" "$ISG_D/scripts/workpad.py"
+: > "$ISG_D/.devflow/tmp/implement-active-603"   # terminal, scanned first  -> healed
+: > "$ISG_D/.devflow/tmp/implement-active-604"   # interim,  scanned second -> blocks
+: > "$ISG_D/.devflow/tmp/implement-active-607"   # terminal, scanned third  -> deferred
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidP"}' "DEVFLOW_GH=$ISG_GHD/gh" \
+  "ISG_BODY_603=$ISG_GHD/terminal.md" "ISG_BODY_604=$ISG_GHD/interim.md" "ISG_BODY_607=$ISG_GHD/terminal607.md")"
+assert_eq "#362 isg: multi-marker — the first interim marker BLOCKS (exit 2)" "2" "${ISG_R%%|*}"
+assert_eq "#362 isg: multi-marker — the block names the interim issue (604), not an earlier terminal one" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF '#604' && echo yes || echo no)"
+assert_eq "#362 isg: multi-marker — a terminal marker EARLIER in scan order is healed before the block" "no" \
+  "$([ -e "$ISG_D/.devflow/tmp/implement-active-603" ] && echo yes || echo no)"
+assert_eq "#362 isg: multi-marker — the interim marker itself survives the block" "yes" \
+  "$([ -e "$ISG_D/.devflow/tmp/implement-active-604" ] && echo yes || echo no)"
+assert_eq "#362 isg: multi-marker — a terminal marker AFTER the block is deferred, not lost" "yes" \
+  "$([ -e "$ISG_D/.devflow/tmp/implement-active-607" ] && echo yes || echo no)"
+# The deferred heal really is only deferred: the next Stop event (same session, sentinel
+# present) still allows, and a later one with the interim marker gone heals 607.
+rm -f "$ISG_D/.devflow/tmp/implement-active-604" "$ISG_D/.devflow/tmp/stop-guard-sidP"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidQ"}' "DEVFLOW_GH=$ISG_GHD/gh" \
+  "ISG_BODY_607=$ISG_GHD/terminal607.md")"
+assert_eq "#362 isg: multi-marker — the deferred terminal marker heals on a later Stop event (exit 0)" "0" "${ISG_R%%|*}"
+assert_eq "#362 isg: multi-marker — the deferred heal actually removed marker 607" "no" \
+  "$([ -e "$ISG_D/.devflow/tmp/implement-active-607" ] && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# ── the issue-number threading is real: a marker whose issue has NO workpad (the stub
+# returns an empty comments page for it) heals as stale, while a sibling marker whose
+# issue DOES have an interim workpad blocks. An issue-agnostic stub could not tell these
+# apart, so this asserts the guard passes each marker's own issue number to workpad.py.
+ISG_D="$(isg_repo "isg: per-issue status threading")"
+cp "$WP_PY" "$ISG_D/scripts/workpad.py"
+: > "$ISG_D/.devflow/tmp/implement-active-608"   # no ISG_BODY_608 -> no workpad -> exit 2 -> stale heal
+: > "$ISG_D/.devflow/tmp/implement-active-609"   # interim
+sed 's/#604/#609/' "$ISG_GHD/interim.md" > "$ISG_GHD/interim609.md"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidR"}' "DEVFLOW_GH=$ISG_GHD/gh" \
+  "ISG_BODY_609=$ISG_GHD/interim609.md")"
+assert_eq "#362 isg: per-issue threading — the interim sibling still blocks (exit 2)" "2" "${ISG_R%%|*}"
+assert_eq "#362 isg: per-issue threading — the block names issue 609, proving the marker's own number was queried" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF '#609' && echo yes || echo no)"
+assert_eq "#362 isg: per-issue threading — the workpad-less marker 608 healed as stale" "no" \
+  "$([ -e "$ISG_D/.devflow/tmp/implement-active-608" ] && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# interim -> write the sentinel, print the instruction, exit 2 (BLOCK).
+ISG_D="$(isg_repo "isg: interim block arm")"
+cp "$WP_PY" "$ISG_D/scripts/workpad.py"
+: > "$ISG_D/.devflow/tmp/implement-active-604"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidH"}' \
+  "DEVFLOW_GH=$ISG_GHD/gh" "ISG_BODY_604=$ISG_GHD/interim.md")"
+assert_eq "#362 isg: interim workpad -> BLOCKS the stop (exit 2)" "2" "${ISG_R%%|*}"
+assert_eq "#362 isg: interim block names the issue number on stderr" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF '#604' && echo yes || echo no)"
+assert_eq "#362 isg: interim block names the interim status word on stderr" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'Reviewing' && echo yes || echo no)"
+assert_eq "#362 isg: interim block instructs the implement run to drive Status terminal" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'return to the phase that owns the remaining work' && echo yes || echo no)"
+assert_eq "#362 isg: interim block instructs any OTHER session to just end its turn again" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'end your turn again' && echo yes || echo no)"
+assert_eq "#362 isg: interim block writes the session-keyed sentinel" "yes" \
+  "$([ -e "$ISG_D/.devflow/tmp/stop-guard-sidH" ] && echo yes || echo no)"
+assert_eq "#362 isg: interim block leaves the marker in place" "yes" \
+  "$([ -e "$ISG_D/.devflow/tmp/implement-active-604" ] && echo yes || echo no)"
+
+# at-most-one-block bound: the SECOND stop in the SAME session is allowed even
+# though the workpad is still interim — a session that genuinely cannot
+# finalize is never trapped.
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidH"}' \
+  "DEVFLOW_GH=$ISG_GHD/gh" "ISG_BODY_604=$ISG_GHD/interim.md")"
+assert_eq "#362 isg: second stop in the same session is allowed (exit 0)" "0" "${ISG_R%%|*}"
+# ...while a DIFFERENT session (its own sentinel absent) is still blocked once.
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidI"}' \
+  "DEVFLOW_GH=$ISG_GHD/gh" "ISG_BODY_604=$ISG_GHD/interim.md")"
+assert_eq "#362 isg: a different session is still blocked once (exit 2)" "2" "${ISG_R%%|*}"
+rm -rf "$ISG_D"
+
+# ── allow: the sentinel write itself fails (read-only .devflow/tmp). The guard
+# must NOT exit 2 without a sentinel — that would break the one-block bound and
+# could trap the session in a re-block loop.
+ISG_D="$(isg_repo "isg: sentinel-write-failure arm")"
+cp "$WP_PY" "$ISG_D/scripts/workpad.py"
+: > "$ISG_D/.devflow/tmp/implement-active-604"
+chmod 555 "$ISG_D/.devflow/tmp"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidJ"}' \
+  "DEVFLOW_GH=$ISG_GHD/gh" "ISG_BODY_604=$ISG_GHD/interim.md")"
+chmod 755 "$ISG_D/.devflow/tmp"
+assert_eq "#362 isg: sentinel write failure -> allow (exit 0), never a sentinel-less block" "0" "${ISG_R%%|*}"
+assert_eq "#362 isg: sentinel-write-failure arm emits its own breadcrumb" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'could not write the sentinel' && echo yes || echo no)"
+rm -rf "$ISG_D" "$ISG_GHD"
+
+# ── static pin: .claude/settings.json wires the guard. Bare jq is fine here —
+# the resolve-jq.sh routing rule binds shipped .sh helpers, not this test file.
+ISG_SETTINGS="$LIB/../.claude/settings.json"
+ISG_GUARD_CMD="$(jq -r '.hooks.Stop[]?.hooks[]? | select((.command // "") | contains("implement-stop-guard.sh")) | .command' "$ISG_SETTINGS" 2>/dev/null)"
+ISG_GUARD_TIMEOUT="$(jq -r '.hooks.Stop[]?.hooks[]? | select((.command // "") | contains("implement-stop-guard.sh")) | .timeout' "$ISG_SETTINGS" 2>/dev/null)"
+ISG_ET_CMD="$(jq -r '.hooks.Stop[]?.hooks[]? | select((.command // "") | contains("efficiency-trace.sh")) | .command' "$ISG_SETTINGS" 2>/dev/null)"
+assert_eq "#362 settings.json: the Stop hook wires implement-stop-guard.sh" "yes" \
+  "$([ -n "$ISG_GUARD_CMD" ] && echo yes || echo no)"
+assert_eq "#362 settings.json: the guard entry carries a 15s per-command timeout" "15" "$ISG_GUARD_TIMEOUT"
+# Scoped to the guard's OWN command string: a whole-file grep would match the
+# sibling efficiency-trace.sh entry's legitimate `|| true` and pass vacuously.
+# A `|| true` here would swallow the guard's blocking exit 2 and neuter it.
+assert_eq "#362 settings.json: the guard command carries NO '|| true' (it would swallow exit 2)" "no" \
+  "$(printf '%s' "$ISG_GUARD_CMD" | grep -qF '|| true' && echo yes || echo no)"
+assert_eq "#362 settings.json: the pre-existing efficiency-trace.sh entry survives" "yes" \
+  "$([ -n "$ISG_ET_CMD" ] && echo yes || echo no)"
+assert_eq "#362 settings.json: the efficiency-trace.sh entry keeps its own '|| true'" "yes" \
+  "$(printf '%s' "$ISG_ET_CMD" | grep -qF '|| true' && echo yes || echo no)"
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.

@@ -4,6 +4,60 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.100] — 2026-07-09
+
+### Added
+- **`/devflow:implement` now survives a nested skill's return and resumes onto an existing PR.**
+  A Skill-tool invocation is a tail call, not a subroutine call: when a nested skill's procedure
+  ended in a user-facing approval step, the implement run ended with it — the workpad froze at an
+  in-progress `Status`, no terminal reaction fired, and the run died silently. Four orchestrator
+  rules close that gap. A **generalized mid-phase re-anchor** makes the orchestrator re-read the
+  current phase file after *every* Skill-tool return and resume at the step that follows it (the
+  Phase 4.1 docs-subagent re-anchor remains, now scoped to *subagent* returns). A
+  **non-interactive self-answer rule** has a cloud-tier run answer a nested skill's user-facing
+  question itself — from the issue description, recorded in the workpad — instead of stranding on
+  a question no one can answer, while an interactive run still asks the user. A **subagent-dispatch
+  rule** routes any edit that project conventions send through an *interactive* skill (one whose
+  procedure ends in a user approval step) into a context-isolated Agent-tool subagent whose prompt
+  pre-grants the approval, rather than invoking it mid-phase. And a **Phase 1.4 resume pre-check**
+  now consults the workpad `Branch` line and the issue's open PRs *before* the linked-worktree
+  signal, so a re-triggered run continues the existing branch and draft PR instead of forking a
+  duplicate and abandoning committed work. (#364)
+- **New local-tier Stop-hook backstop, `lib/implement-stop-guard.sh`.** Phase 1.3 writes a
+  gitignored run marker under `.devflow/tmp/`, and the guard — wired as a second `Stop` hook —
+  blocks a session's stop (exit 2) while that issue's workpad `Status` is still interim, naming the
+  issue and the status word so the run returns and finalizes. It is bounded to at most one block
+  per session, fails open on every ambiguous path (unreadable workpad, `gh` transport failure,
+  unparseable hook input), performs **no** network call when no marker is present, and self-heals a
+  stale marker. The marker is removed at every terminal `Status` transition. Consumer repos are
+  unaffected: the hook is repo-local, and the cloud tier keeps its existing workflow-level stall
+  backstop. (#364)
+
+## [2.8.99] — 2026-07-09
+
+### Changed
+- **Tightened the `/devflow:implement` `(post-merge)` contract.** Phase 3.4 now names a
+  third forbidden deferral case — **self-reconfiguration verification** (a criterion whose
+  only unmet precondition is the orchestrator's own session/harness/account being in the
+  configuration the diff just shipped, e.g. a hook it just registered or a flag it just
+  enabled): the host *can* become a fresh session with the change active, so it is runnable
+  pre-merge and is run-and-evidenced (or Blocked), never `(post-merge)`. A matching red flag
+  and the closing retag paragraph refuse it alongside the tooling-gap and self-claim cases,
+  and Phase 2.3.4 and Phase 1.2 bind to the same rule. `scripts/workpad.py` now structurally
+  rejects a `--rewrite-ac` that appends the `(post-merge)` tag without a non-empty `--note`
+  rationale, so every mid-run retag is a recorded, retrospective-auditable claim. The guard
+  resolves the row each pair targets with the rewriter's own lookup, so a text tweak on an
+  already-`(post-merge)` criterion creates no new deferral and needs no note — even when the
+  `OLD` substring does not itself span the tag. The multi-pair backstop snapshots each
+  criterion's `(post-merge)` state across every tick state and compares it positionally,
+  so a crafted `--rewrite-ac` sequence cannot launder a note-less retag — not onto an
+  already-ticked criterion, and not by removing the tag from one criterion while adding it
+  to another (which nets to zero under an aggregate count). A `--rewrite-ac` NEW spanning
+  more than one line is now rejected structurally — tested against the full
+  `str.splitlines()` separator set, not just `\n`/`\r` — because it would split one
+  criterion into two rows, injecting an unreviewed row and defeating both guards. The
+  `--replace-acs-file` channel remains a documented exception. (#340)
+
 ## [2.8.98] — 2026-07-09
 
 ### Fixed
