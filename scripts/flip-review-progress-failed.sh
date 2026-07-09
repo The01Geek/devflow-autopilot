@@ -118,6 +118,12 @@ _wp_err_cleanup() { [ -n "$WP_ERR" ] && rm -f "$WP_ERR"; return 0; }
 #   2. Backstop it on the observable that separates the two rc-2 sources: `cmd_id` exits 2
 #      SILENTLY (see its `sys.exit(2)` — no stderr), while every interpreter-level rc 2
 #      writes a diagnostic. So rc 2 with non-empty captured stderr is never a clean scan.
+#      This relies on our ALWAYS passing an explicit `--marker`: `_workpad_marker` returns
+#      immediately on an explicit marker, before the `.devflow/config.json` read that can
+#      breadcrumb to stderr on a malformed/BOM config. A future caller that dropped
+#      `--marker` could make a genuine clean scan write stderr and be misrouted here — so
+#      keep the marker explicit, or narrow this discriminator to the interpreter's own
+#      "can't open file" diagnostic.
 # (2) degrades to (1) alone when $WP_ERR could not be allocated and stderr went to
 # /dev/null — the common deploy case is still caught, and the residual is a no-flip no-op.
 if [ ! -f "$WORKPAD" ] || [ ! -r "$WORKPAD" ]; then

@@ -4714,6 +4714,11 @@ if [ ! -r "$S356/lonely/workpad.py" ]; then
   assert_eq "#356 flip: exits 0 when its workpad.py sibling is unreadable" "0" "$_fc"
   assert_eq "#356 flip: an unreadable workpad.py sibling is NOT reported as 'comment-absent'" "yes" \
     "$(! grep -qi 'comment-absent' "$S356/ferr" && echo yes || echo no)"
+else
+  # Never skip SILENTLY: under a uid that ignores the mode bit (root in a container) the
+  # two assertions above cannot run, and a quietly-lower assertion count is precisely the
+  # unaudited coverage loss the rest of this block exists to catch.
+  echo "  SKIP  #356 flip: unreadable-sibling arm (this uid ignores the mode bit; chmod 000 stayed readable)"
 fi
 chmod 644 "$S356/lonely/workpad.py" 2>/dev/null || true
 
