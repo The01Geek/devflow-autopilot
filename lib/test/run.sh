@@ -2757,6 +2757,17 @@ assert_eq "#365: no skills/ prose block uses the bash-only compgen builtin (lib/
 # masquerading `cd && git grep` form turns THIS assertion RED. PID-suffixed so it cannot exist.
 assert_eq "#365: the compgen-in-skills guard fails closed on a git error (sentinel, not a silent PASS)" \
   "<rgb-guard-errored>" "$(compgen_scan "$LIB/../nonexistent-compgen-probe-$$" 2>/dev/null)"
+# #365: positive sense-pins for the THIRD rewritten prose block — the durable-workpad-copy
+# block in review-and-fix/SKILL.md. The negative compgen_scan above proves only that `compgen`
+# is ABSENT there; it does not prove the replacement idiom or the new observable skip breadcrumb
+# are INTACT. Mirror the phase-3 sense-pin discipline so a half-revert that drops the `[ -e "$1" ]`
+# empty-set guard (regressing to passing a literal `*.json` to cp) or removes the AC-4 skip
+# breadcrumb (re-introducing the silent-skip this issue closed) turns the suite RED.
+RF_SKILL_365="$LIB/../skills/review-and-fix/SKILL.md"
+assert_pin_unique "#365 site-1: durable-copy existence guard uses the portable [ -e \"\$1\" ] test (preserving the [ -d \"\$WORKPAD_DIR\" ] guard), not compgen" \
+  'if [ -d "$WORKPAD_DIR" ] && [ -e "$1" ]; then' "$RF_SKILL_365"
+assert_pin_unique "#365 site-1: the skip path emits the specific AC-4 stderr breadcrumb (never a silent skip)" \
+  '::warning::durable workpad copy skipped:' "$RF_SKILL_365"
 # The detector references $ROOT and $BEFORE literally, so it stays GREEN even if the $ROOT
 # *derivation* were reverted to a cwd-relative form (e.g. `ROOT=$(pwd)`), silently defeating
 # the repo-root anchoring that keeps the detector congruent with --persist. $ROOT is now

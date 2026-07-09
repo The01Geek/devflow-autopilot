@@ -177,7 +177,10 @@ fi
 # exist does the `-z` arm enumerate them via the builtin `printf` and diff `comm -13 "$BEFORE"`
 # (files present now but not pre-loop = what THIS run wrote). The old glob-completion-builtin substitution form
 # could yield empty output from a MISSING glob-completion builtin and fire the false telemetry-loss reflection; the
-# builtin `printf` over real matches removes that fail-open path.
+# builtin `printf` over real matches removes that fail-open path. Caveat (mirrors the site-1
+# note): `[ ! -e "$1" ]` reads a dangling-symlink first-match as definitive absence, so it could
+# record a false telemetry-loss — irrelevant here (this DevFlow-controlled iter-*.json tree is
+# never symlinked); don't "simplify" it into a form that reintroduces that false-loss path.
 [ -n "${ZSH_VERSION:-}" ] && setopt nonomatch || :
 set -- "$ROOT"/.devflow/tmp/review/*/*/iter-*.json
 if [ ! -e "$1" ] || [ -z "$(printf '%s\n' "$@" | sort | comm -13 "$BEFORE" -)" ]; then
