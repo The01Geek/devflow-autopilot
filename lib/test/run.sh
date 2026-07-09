@@ -3404,12 +3404,18 @@ assert_pin_unique "#362: the resume pre-check falls through unchanged when there
 # makes an unresolvable query read as "nothing to resume" and forks a duplicate branch+PR —
 # the very bug this pre-check exists to stop. Pin the distinct-values contract AND the
 # breadcrumb obligation it enables; a policy whose operand cannot be observed is inert.
-assert_pin_unique "#362: the resume pre-check keeps a failed PR query distinct from a clean empty one" \
-  'EMPTY = the query could not be resolved' "$P362_P1"
+# Pin the OPERATIVE shell, not the comment that explains it: each of the two `gh pr list`
+# calls must carry its own same-statement `|| PR_JSON=''`, which is what makes a failed
+# query distinguishable from a clean empty one. A comment-only pin would stay GREEN against
+# the exact edit that collapses the two outcomes back together. Both call sites need it, so
+# this is a count guard (a lower bound would let one site silently lose its handler).
+# The literal carries the statement's closing `; }` so it matches ONLY the two command
+# lines — the phase file's own prose quotes the bare handler, and counting that comment
+# would make the pin PASS on the very regression it guards (it did, once).
+assert_eq "#362: both resume-pre-check gh queries mark an unresolvable result distinctly (same-statement handler)" \
+  "2" "$(pin_count "|| PR_JSON=''; }" "$P362_P1")"
 assert_pin_unique "#362: an unresolvable PR query is never read as 'no open PR'" \
   'An unresolvable PR query is not evidence that no PR exists' "$P362_P1"
-assert_pin_red_on_removal "#362: resume pre-check failed-vs-empty distinction flips RED on removal" \
-  'EMPTY = the query could not be resolved' "$P362_P1"
 assert_pin_red_on_removal "#362: resume pre-check gh-failure breadcrumb obligation flips RED on removal" \
   'An unresolvable PR query is not evidence that no PR exists' "$P362_P1"
 assert_pin_red_on_removal "#362: resume pre-check ordering clause flips RED on removal" \
