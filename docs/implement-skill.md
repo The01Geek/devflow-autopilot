@@ -193,7 +193,7 @@ behavior, not advisory prose — exactly **when** that tag is permitted: **only 
 genuinely requires a runtime environment that does not exist during the implement run** (a live deploy
 target, a real third-party endpoint, a production data path). The observable test is whether the
 verification could ever run on the orchestrator host given the right tools; if it could, it is not
-post-merge. Two cases are therefore never eligible and the gate refuses the tag for them:
+post-merge. Three cases are therefore never eligible and the gate refuses the tag for them:
 
 - **Runnable-but-blocked (local tooling/environment gap)** — a criterion verifiable on this host but
   blocked right now by a denied command, a missing build tool, an un-spawnable helper, or a failed
@@ -205,10 +205,22 @@ post-merge. Two cases are therefore never eligible and the gate refuses the tag 
   the PR already asserts as true. It is runnable pre-merge by construction (the claim is about the shipped
   diff), so deferring it would defer the one check that could falsify the claim; the gate refuses the tag
   regardless of stated reason.
+- **Self-reconfiguration verification** (issue #338) — a criterion whose only unmet precondition is the
+  orchestrator's own session/harness/account being in the configuration the diff just shipped (a hook the
+  diff registered now active, a flag/setting the diff added now enabled). The host *can* become a fresh or
+  child session with the change active, so it is runnable pre-merge and never `(post-merge)`: it is run and
+  evidenced — by an automated test driving the now-active code path, or by a separate/fresh session
+  observing the change live — or it takes the **`Blocked`** path. Evidence produced while prototyping is
+  captured in the workpad and PR body rather than re-deferred; the rule never mandates activating a
+  blocking hook mid-run in the orchestrator's own session.
 
 This is the gate enforcing "verified before merge" rather than trusting the run's narrative: a local
-tooling gap can no longer be laundered into a post-merge pass, and a self-claim confirmation can no
-longer be deferred past the one test that would catch it.
+tooling gap can no longer be laundered into a post-merge pass, a self-claim confirmation can no
+longer be deferred past the one test that would catch it, and a self-reconfiguration check can no longer
+ride a "cleanest in a fresh session" rationale into an unchecked post-merge deferral. To keep every mid-run
+`--rewrite-ac` retag auditable, `workpad.py` structurally rejects a `--rewrite-ac` call that appends the
+`(post-merge)` tag (a single pair or a crafted multi-pair sequence) without a non-empty `--note` rationale
+(issue #338). (The Phase 2.2.5 `--replace-acs-file` wholesale channel is a deliberate, known exception.)
 
 **Pre-merge probe contract.** Passing the genuinely-live test is necessary but not sufficient: a
 criterion whose *verification* needs a runtime environment can still carry a **pre-merge-observable
@@ -303,7 +315,7 @@ The decision itself is a pure, unit-tested helper (`scripts/stall-backstop-decid
 
 `workpad.py update` PATCHes the workpad once per call, and it distinguishes two failure classes so a batch of mutations is not lost to a single bad checkbox tick:
 
-- **Structural failures abort the whole call before any PATCH** (exit 1, clear stderr): `gh` cannot resolve the repo, the API call fails, a target section (`## Progress`/`## Plan`/`## Acceptance Criteria`) is absent, the `Last updated` line is missing (or the `Status` line when `--status` is supplied), a `--rewrite-ac` substring matches zero or multiple rows, or a `--replace-*-file`/`--set-reproduction-file` is unreadable. A `--status Complete` write with any non-post-merge `## Acceptance Criteria` row still `- [ ]` is also a structural abort — the terminal self-record gate (see Phase 4.3 above) — so a run can never record itself Complete over an unmet AC. A structural failure persists nothing — all-or-nothing, as it always was.
+- **Structural failures abort the whole call before any PATCH** (exit 1, clear stderr): `gh` cannot resolve the repo, the API call fails, a target section (`## Progress`/`## Plan`/`## Acceptance Criteria`) is absent, the `Last updated` line is missing (or the `Status` line when `--status` is supplied), a `--rewrite-ac` substring matches zero or multiple rows, a `--rewrite-ac` pair appends the `(post-merge)` tag (NEW ends with it; neither OLD nor the row it targets already does) without a non-empty `--note` rationale (issue #338 — so every mid-run `(post-merge)` retag is a recorded, auditable claim; a text tweak on an already-`(post-merge)` row creates no new deferral and needs no note), or a `--replace-*-file`/`--set-reproduction-file` is unreadable. A `--status Complete` write with any non-post-merge `## Acceptance Criteria` row still `- [ ]` is also a structural abort — the terminal self-record gate (see Phase 4.3 above) — so a run can never record itself Complete over an unmet AC. A structural failure persists nothing — all-or-nothing, as it always was.
 - **Volatile per-row tick misses are isolated, not aborted.** A `--tick-*`/`--tick-*-n` flag that does not resolve to exactly one tickable row *inside a present section* — a substring matching zero or multiple unticked rows, or a `-n` index that is out of range or lands on an already-ticked row — does **not** discard the call. Every other mutation (`--status`, `--note`, `--reflection`, and every tick that *did* resolve) is applied and PATCHed, and the call then **exits non-zero** with a stderr report naming each tick that did not land. So one bad tick in a batch no longer silently loses the accompanying status/notes.
 
 A single `_report_failed_ticks` chokepoint in `scripts/workpad.py` writes the collected misses on all three exit paths — the structural-abort path, the `gh`-PATCH-failure path, and the clean-PATCH-but-ticks-missed path — so a miss is never silently dropped, and the stderr preamble states whether a PATCH was persisted so the caller can distinguish "nothing landed, re-send the whole call" from "the body PATCHed, re-tick only the named row(s)."
