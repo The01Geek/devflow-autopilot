@@ -19,9 +19,10 @@
 #   - Emits exactly one stderr breadcrumb naming the arm it took — e.g. flipped,
 #     comment-absent, status-already-terminal, no-Status-line, missing-args, or
 #     read/patch-failure. Each arm names the SPECIFIC condition that fired: a
-#     failed comment lookup (`id` rc 1) is reported as a read failure, never as
-#     "comment-absent" (rc 2), so an operator is never told the comment does not
-#     exist when the read merely failed.
+#     failed comment lookup is reported as a read failure, never as "comment-absent",
+#     so an operator is never told the comment does not exist when the read merely
+#     failed. Only `cmd_id`'s OWN rc 2 means "comment-absent" — `python3` also exits
+#     2 when it cannot open the script, and that is screened out below.
 #   - Flips ONLY when the comment exists AND its `**Status:**` line begins with
 #     🚀 (interim) — anything else (a written verdict, an agent-side
 #     `❌ Review failed`, any terminal glyph) is treated as terminal and left
@@ -44,9 +45,10 @@ CAUSE="${3:-review run ended without a verdict}"
 
 # `workpad.py id` declares its issue arg `type=int`, so ARGPARSE also exits 2 on a
 # usage error — the same code `cmd_id` uses for "scanned cleanly, no match". Keep the
-# rc-2 arm below unambiguous by refusing a non-numeric PR here, so the only rc 2 that
-# can reach it is the genuine comment-absent one (a guard's accepted-input set must be
-# a subset of its consumer's contract, not wider).
+# rc-2 arm below unambiguous by refusing a non-numeric PR here (a guard's accepted-input
+# set must be a subset of its consumer's contract, not wider). Argparse is one of THREE
+# non-cmd_id sources of rc 2; the other two — an unopenable/unreadable script — are
+# screened just above the `id` call.
 if [ -z "$PR" ]; then
   echo "flip-review-progress-failed: usage: flip-review-progress-failed.sh <pr_number> <marker> <cause>; empty pr number — no-op (a non-PR event, or an unresolved pr_number output)" >&2
   exit 0
@@ -104,9 +106,32 @@ _wp_cause() {
   printf '%s' "$c"
 }
 _wp_err_cleanup() { [ -n "$WP_ERR" ] && rm -f "$WP_ERR"; return 0; }
+# rc 2 is only authoritative as "scanned cleanly, none present" when it came from
+# `cmd_id` itself. `python3` ALSO exits 2 when it cannot open the script (a partial-copy
+# vendor deployment: `can't open file … [Errno 2]`; a mode-000 file: `[Errno 13]`), which
+# would otherwise land in the rc-2 arm and tell an operator the comment does not exist
+# when the read never happened — precisely the misdirection the arm split exists to stop.
+# A guard's accepted-input set must be a subset of its consumer's contract, so screen the
+# interpreter-level rc 2 out BEFORE the arm split, two ways:
+#   1. Share the consumer's own operation as the guard: the thing `python3` must open is
+#      $WORKPAD, so test that directly rather than re-deriving the contract.
+#   2. Backstop it on the observable that separates the two rc-2 sources: `cmd_id` exits 2
+#      SILENTLY (see its `sys.exit(2)` — no stderr), while every interpreter-level rc 2
+#      writes a diagnostic. So rc 2 with non-empty captured stderr is never a clean scan.
+# (2) degrades to (1) alone when $WP_ERR could not be allocated and stderr went to
+# /dev/null — the common deploy case is still caught, and the residual is a no-flip no-op.
+if [ ! -f "$WORKPAD" ] || [ ! -r "$WORKPAD" ]; then
+  echo "flip-review-progress-failed: cannot read the helper's workpad.py sibling at '${WORKPAD}' (missing or unreadable — a partial vendor copy?) — read-failure no-op; PR #${PR}'s comment was never looked up, so its absence was NOT established" >&2
+  _wp_err_cleanup
+  exit 0
+fi
 CID="$(python3 "$WORKPAD" id "$PR" --marker "$MARKER" 2>"${WP_ERR:-/dev/null}")"
 ID_RC=$?
-if [ "$ID_RC" -eq 2 ]; then
+if [ "$ID_RC" -eq 2 ] && [ -n "$WP_ERR" ] && [ -s "$WP_ERR" ]; then
+  echo "flip-review-progress-failed: python3 exited 2 while looking up PR #${PR}'s review-progress comment, but wrote a diagnostic — an interpreter-level failure, not workpad.py's clean 'no match' (which exits 2 silently) — read-failure no-op; the comment's absence was NOT established. Cause: $(_wp_cause)" >&2
+  _wp_err_cleanup
+  exit 0
+elif [ "$ID_RC" -eq 2 ]; then
   echo "flip-review-progress-failed: no devflow:review-progress comment for PR #${PR} (marker '${MARKER}', workpad.py id rc=2 — scanned cleanly, none present) — comment-absent no-op" >&2
   _wp_err_cleanup
   exit 0

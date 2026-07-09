@@ -4497,7 +4497,53 @@ assert_eq "#356 flip: non-numeric pr makes NO PATCH" "yes" \
 assert_eq "#356 flip: a non-numeric pr is NOT reported as 'comment-absent'" "yes" \
   "$(grep -qi 'not numeric' "$S356/ferr" && ! grep -qi 'comment-absent' "$S356/ferr" && echo yes || echo no)"
 
+# (missing workpad.py sibling) `python3` ALSO exits 2 when it cannot open the script —
+# `can't open file … [Errno 2]` on a partial vendor copy, `[Errno 13]` on a mode-000 file
+# — the same rc `cmd_id` uses for "scanned cleanly, no match". Without a screen, that
+# interpreter-level rc 2 lands in the comment-absent arm and tells an operator the comment
+# does not exist when the read never happened. Copy the helper WITHOUT its workpad.py
+# sibling to drive the real deployment shape, and assert it takes a read-failure arm.
+mkdir -p "$S356/lonely"
+cp "$FLIP_SH" "$S356/lonely/flip-review-progress-failed.sh"
+: > "$S356/patchlog"
+WP_BODY="$S356/rev-interim.md" WP_PATCHLOG="$S356/patchlog" DEVFLOW_GH="$S356/gh" \
+  bash "$S356/lonely/flip-review-progress-failed.sh" 55 "$RMARK" "job died" >/dev/null 2>"$S356/ferr"; _fc=$?
+assert_eq "#356 flip: exits 0 when its workpad.py sibling is missing" "0" "$_fc"
+assert_eq "#356 flip: a missing workpad.py sibling makes NO PATCH" "yes" \
+  "$([ -s "$S356/patchlog" ] && echo no || echo yes)"
+assert_eq "#356 flip: a missing workpad.py sibling is NOT reported as 'comment-absent'" "yes" \
+  "$(! grep -qi 'comment-absent' "$S356/ferr" && echo yes || echo no)"
+assert_eq "#356 flip: a missing workpad.py sibling states absence was NOT established" "yes" \
+  "$(grep -q 'absence was NOT established' "$S356/ferr" && echo yes || echo no)"
+# An unreadable (mode-000) sibling is the same class and must take the same arm, not the
+# comment-absent one. Skip under a uid that ignores the mode bit (e.g. root in a container).
+cp "$WP_PY" "$S356/lonely/workpad.py"
+chmod 000 "$S356/lonely/workpad.py"
+if [ ! -r "$S356/lonely/workpad.py" ]; then
+  : > "$S356/patchlog"
+  WP_BODY="$S356/rev-interim.md" WP_PATCHLOG="$S356/patchlog" DEVFLOW_GH="$S356/gh" \
+    bash "$S356/lonely/flip-review-progress-failed.sh" 55 "$RMARK" "job died" >/dev/null 2>"$S356/ferr"; _fc=$?
+  assert_eq "#356 flip: exits 0 when its workpad.py sibling is unreadable" "0" "$_fc"
+  assert_eq "#356 flip: an unreadable workpad.py sibling is NOT reported as 'comment-absent'" "yes" \
+    "$(! grep -qi 'comment-absent' "$S356/ferr" && echo yes || echo no)"
+fi
+chmod 644 "$S356/lonely/workpad.py" 2>/dev/null || true
+
 # Helper contract pins: SPDX header + always-exit-0 + routes via workpad.py (no bare gh).
+# ── #356: the two skill-side enumerations of the status vocabulary this issue extends ──
+# `Failed`/💥 is a new member of workpad.py's CLOSED status model, so every skill body that
+# enumerates that model must name it. These two sites are operative (an agent reads them at
+# runtime), unpinned before this change, and were left stale by the first pass — pin them so
+# a future glyph addition cannot silently desync them again.
+assert_pin_unique "#356: implement SKILL's --status row names the full canonical glyph set (incl. 💥)" \
+  'the helper prepends the canonical glyph (🚀/🎉/👎/💥)' "$LIB/../skills/implement/SKILL.md"
+assert_pin_red_on_removal "#356: implement SKILL canonical-glyph-set clause flips RED on removal" \
+  'the helper prepends the canonical glyph (🚀/🎉/👎/💥)' "$LIB/../skills/implement/SKILL.md"
+assert_pin_unique "#356: retrospective SKILL enumerates Failed among the terminal workpad_final_status values" \
+  '`Complete` / `Blocked` / `Failed`' "$LIB/../skills/retrospective/SKILL.md"
+assert_pin_red_on_removal "#356: retrospective SKILL terminal-status enumeration flips RED on removal" \
+  '`Complete` / `Blocked` / `Failed`' "$LIB/../skills/retrospective/SKILL.md"
+
 assert_eq "#356 flip: helper carries the SPDX header" "yes" \
   "$(grep -q 'SPDX-License-Identifier: MIT' "$FLIP_SH" && echo yes || echo no)"
 assert_eq "#356 flip: helper routes GitHub access through workpad.py (no bare gh invocation)" "yes" \

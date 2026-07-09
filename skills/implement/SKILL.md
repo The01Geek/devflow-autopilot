@@ -153,7 +153,7 @@ The marker-locating subcommands (`id`, `new-body`, `update`) also accept `--mark
 
 | Flag | Effect |
 | --- | --- |
-| `--status STATUS` | Replace the Status line. Pass a **bare** status word — the helper prepends the canonical glyph (🚀/🎉/👎) and strips any glyph you pass, so re-applying is idempotent. |
+| `--status STATUS` | Replace the Status line. Pass a **bare** status word — the helper prepends the canonical glyph (🚀/🎉/👎/💥) and strips any glyph you pass, so re-applying is idempotent. You only ever pass `Complete`/`Blocked` or an in-progress word — `Failed` (💥) is written solely by the cloud stall backstop's dead-run flip. |
 | `--branch BRANCH` | Replace the Branch line. |
 | `--run-link VALUE` | Set the `Run` front-matter line to VALUE (markdown ok). Inserted after `Branch` if the line is absent (legacy-workpad resume). |
 | `--pr-link VALUE` | Set the `PR` front-matter line to VALUE (markdown ok). Inserted after `Branch` if absent. Used in Phase 3.1 once the draft PR exists. |
