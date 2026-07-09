@@ -7,8 +7,10 @@ type: Added
   cloud run dies — job failure, cancellation, or an exhausted implement auto-resume cap — its
   Status-bearing comment no longer lies at its last interim value. The implement workpad gains
   a new terminal status word **`Failed`** (glyph **💥**, a workpad-only glyph with no
-  triggering-comment reaction): the stall backstop flips an interim workpad to `💥 Failed` on
-  every fail-loud exit, best-effort and never altering the step's exit code. The review
+  triggering-comment reaction): every fail-loud exit of the stall backstop that is reached
+  after reading a genuinely **interim** Status flips the workpad to `💥 Failed`, best-effort
+  and never altering the step's exit code (a terminal, unreadable, or auth-failure Status is
+  never clobbered, and the green auto-resume path never flips). The review
   engine's live progress comment is flipped to its existing `❌ Review failed` state by a new
   best-effort helper (`scripts/flip-review-progress-failed.sh`) wired into `devflow-review.yml`'s
   `finalize_check` and `devflow.yml`'s comment-triggered job — each covering the same three

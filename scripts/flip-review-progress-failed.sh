@@ -47,8 +47,12 @@ CAUSE="${3:-review run ended without a verdict}"
 # rc-2 arm below unambiguous by refusing a non-numeric PR here, so the only rc 2 that
 # can reach it is the genuine comment-absent one (a guard's accepted-input set must be
 # a subset of its consumer's contract, not wider).
-if [ -z "$PR" ] || [ -z "$MARKER" ]; then
-  echo "flip-review-progress-failed: usage: flip-review-progress-failed.sh <pr_number> <marker> <cause>; missing pr number or marker — no-op" >&2
+if [ -z "$PR" ]; then
+  echo "flip-review-progress-failed: usage: flip-review-progress-failed.sh <pr_number> <marker> <cause>; empty pr number — no-op (a non-PR event, or an unresolved pr_number output)" >&2
+  exit 0
+fi
+if [ -z "$MARKER" ]; then
+  echo "flip-review-progress-failed: usage: flip-review-progress-failed.sh <pr_number> <marker> <cause>; empty marker — no-op (the caller failed to build the run-keyed marker)" >&2
   exit 0
 fi
 case "$PR" in
@@ -79,23 +83,43 @@ fi
 #    the latter as "comment-absent" would send an operator hunting for a
 #    missing comment that in fact exists — so each gets its own arm. Both are
 #    still best-effort no-ops (exit 0); only the diagnosis differs.
-CID="$(python3 "$WORKPAD" id "$PR" --marker "$MARKER" 2>/dev/null)"
+#    workpad.py writes the SPECIFIC gh cause (rate limit, 403 token scope, 5xx) to
+#    its own stderr, so capture it rather than 2>/dev/null-ing it away: without the
+#    cause an operator staring at a frozen `🚀 Reviewing` comment cannot tell a
+#    transient blip from a token-scope misconfiguration. Same intent as the stall
+#    backstop's `tail -c 300 "$GH_ERRF"`, but read with bash builtins only — no
+#    external `tail`/`tr`, whose absence on a stripped PATH would silently empty
+#    the breadcrumb rather than surfacing an error.
+WP_ERR="$(mktemp 2>/dev/null)" || WP_ERR=""
+# Read+flatten $WP_ERR with builtins ($(<file), parameter expansion). Empty when the
+# capture file could not be allocated — the breadcrumb then just omits the cause.
+_wp_cause() {
+  [ -n "$WP_ERR" ] && [ -s "$WP_ERR" ] || { printf '(cause unavailable)'; return 0; }
+  local c; c="$(<"$WP_ERR")"; c="${c//$'\n'/ }"
+  printf '%s' "${c: -300}"
+}
+_wp_err_cleanup() { [ -n "$WP_ERR" ] && rm -f "$WP_ERR"; return 0; }
+CID="$(python3 "$WORKPAD" id "$PR" --marker "$MARKER" 2>"${WP_ERR:-/dev/null}")"
 ID_RC=$?
 if [ "$ID_RC" -eq 2 ]; then
   echo "flip-review-progress-failed: no devflow:review-progress comment for PR #${PR} (marker '${MARKER}', workpad.py id rc=2 — scanned cleanly, none present) — comment-absent no-op" >&2
+  _wp_err_cleanup
   exit 0
 elif [ "$ID_RC" -ne 0 ] || [ -z "$CID" ]; then
-  echo "flip-review-progress-failed: could not look up PR #${PR}'s review-progress comment (marker '${MARKER}', workpad.py id rc=${ID_RC}) — read-failure no-op; the comment's absence was NOT established" >&2
+  echo "flip-review-progress-failed: could not look up PR #${PR}'s review-progress comment (marker '${MARKER}', workpad.py id rc=${ID_RC}) — read-failure no-op; the comment's absence was NOT established. Cause: $(_wp_cause)" >&2
+  _wp_err_cleanup
   exit 0
 fi
 
-# 2. Read the current body.
-BODY="$(python3 "$WORKPAD" body "$CID" 2>/dev/null)"
+# 2. Read the current body (same stderr-capture discipline).
+BODY="$(python3 "$WORKPAD" body "$CID" 2>"${WP_ERR:-/dev/null}")"
 BODY_RC=$?
 if [ "$BODY_RC" -ne 0 ] || [ -z "$BODY" ]; then
-  echo "flip-review-progress-failed: could not read body of comment #${CID} for PR #${PR} (workpad.py body rc=${BODY_RC}) — read-failure no-op" >&2
+  echo "flip-review-progress-failed: could not read body of comment #${CID} for PR #${PR} (workpad.py body rc=${BODY_RC}) — read-failure no-op. Cause: $(_wp_cause)" >&2
+  _wp_err_cleanup
   exit 0
 fi
+_wp_err_cleanup
 
 # 3. Transform: flip the Status line ONLY when it begins with 🚀, and append a
 #    one-line cause with the run link. Done in python3 (a hard dependency) so no

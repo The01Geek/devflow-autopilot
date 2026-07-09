@@ -647,8 +647,8 @@ def _progress_phase_for_status(progress_content: str, status: str | None) -> str
     `status` nests under, or None when the section has no top-level phases (the
     caller then appends the note flat).
 
-    Mapped statuses nest under their phase; an unmapped status (Blocked) or a
-    mapped phase that isn't present nests under the most recent *ticked*
+    Mapped statuses nest under their phase; an unmapped status (Blocked/Failed)
+    or a mapped phase that isn't present nests under the most recent *ticked*
     (completed) top-level row, else the first phase."""
     rows = []  # (label_text, ticked)
     for line in progress_content.split('\n'):

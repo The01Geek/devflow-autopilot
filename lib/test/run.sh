@@ -4305,16 +4305,44 @@ WP_PATCHLOG="$S356/patchlog" DEVFLOW_GH="$S356/gh" \
 assert_eq "#356 flip: exits 0 with a missing pr number" "0" "$_fc"
 assert_eq "#356 flip: missing-args arm makes NO PATCH" "yes" \
   "$([ -s "$S356/patchlog" ] && echo no || echo yes)"
-assert_eq "#356 flip: missing-args breadcrumb names the usage arm" "yes" \
-  "$(grep -qi 'missing pr number or marker' "$S356/ferr" && echo yes || echo no)"
+# An empty PR and an empty MARKER are DIFFERENT no-op modes and must not share one
+# breadcrumb: the empty-PR path is reachable in production (finalize_check passes a
+# possibly-empty pr_number output), the empty-marker path is a caller bug.
+assert_eq "#356 flip: empty-pr breadcrumb names the pr number specifically" "yes" \
+  "$(grep -qi 'empty pr number' "$S356/ferr" && ! grep -qi 'empty marker' "$S356/ferr" && echo yes || echo no)"
 : > "$S356/patchlog"
 WP_PATCHLOG="$S356/patchlog" DEVFLOW_GH="$S356/gh" \
   bash "$FLIP_SH" 55 "" "job died" >/dev/null 2>"$S356/ferr"; _fc=$?
 assert_eq "#356 flip: exits 0 with a missing marker" "0" "$_fc"
 assert_eq "#356 flip: missing-marker arm makes NO PATCH" "yes" \
   "$([ -s "$S356/patchlog" ] && echo no || echo yes)"
-assert_eq "#356 flip: missing-marker breadcrumb names the usage arm" "yes" \
-  "$(grep -qi 'missing pr number or marker' "$S356/ferr" && echo yes || echo no)"
+assert_eq "#356 flip: empty-marker breadcrumb names the marker specifically" "yes" \
+  "$(grep -qi 'empty marker' "$S356/ferr" && ! grep -qi 'empty pr number' "$S356/ferr" && echo yes || echo no)"
+
+# (NOSTATUS) the comment exists and the marker matches, but it carries no `**Status:**`
+# line -> no flip, exit 0, no PATCH. This arm is reachable if the review skill's seed
+# format ever drifts, so it must fail CLOSED (never PATCH a body it cannot parse).
+cat > "$S356/rev-nostatus.md" <<RMD
+$RMARK
+# Devflow Review — PR #55
+
+Status is missing entirely.
+RMD
+: > "$S356/patchlog"
+WP_BODY="$S356/rev-nostatus.md" WP_PATCHLOG="$S356/patchlog" DEVFLOW_GH="$S356/gh" \
+  bash "$FLIP_SH" 55 "$RMARK" "job died" >/dev/null 2>"$S356/ferr"; _fc=$?
+assert_eq "#356 flip: exits 0 on a comment with no Status line" "0" "$_fc"
+assert_eq "#356 flip: no-Status arm makes NO PATCH (fails closed)" "yes" \
+  "$([ -s "$S356/patchlog" ] && echo no || echo yes)"
+assert_eq "#356 flip: no-Status breadcrumb names its own arm" "yes" \
+  "$(grep -qi 'has no Status line' "$S356/ferr" && echo yes || echo no)"
+
+# Coupled contract: the helper's interim test keys on a `**Status:** 🚀 Reviewing`
+# line that skills/review/SKILL.md seeds. Pin the SEED SHAPE, not just the terminal
+# literal — a seed drift to e.g. `**Status**:` would silently route every flip to the
+# NOSTATUS no-op arm above while every other pin stayed green.
+assert_pin_unique "#356 pin: skills/review/SKILL.md seeds the '**Status:** 🚀 Reviewing' line the helper matches" \
+  '**Status:** 🚀 Reviewing' "$LIB/../skills/review/SKILL.md"
 
 # (non-numeric pr) `workpad.py id` declares its issue arg type=int, so ARGPARSE also
 # exits 2 on a usage error — the same rc cmd_id uses for "scanned cleanly, no match".
@@ -4379,10 +4407,17 @@ assert_eq "#356 pin: devflow-review.yml finalize_check invokes flip_review on en
   "$(grep -q 'flip_review "review engine ended with an error' "$REVIEW_YML" && grep -q 'ENGINE_ERROR:-false' "$REVIEW_YML" && echo yes || echo no)"
 assert_eq "#356 pin: devflow-review.yml wires flip-review-progress-failed.sh" "yes" \
   "$(grep -q 'flip-review-progress-failed.sh' "$REVIEW_YML" && echo yes || echo no)"
+# The filename alone also appears on the FLIP_HELPER= path-assignment lines, so a
+# filename-only pin stays GREEN even if the INVOCATION is deleted (gutting the flip).
+# Pin the invocation itself, in each workflow.
+assert_eq "#356 pin: devflow-review.yml actually INVOKES the helper (not just names it)" "yes" \
+  "$(grep -qF 'bash "$FLIP_HELPER" "$PR_NUMBER" "$FLIP_MARKER"' "$REVIEW_YML" && echo yes || echo no)"
 assert_eq "#356 pin: devflow.yml adds the dead-run review-progress flip step" "yes" \
   "$(grep -q 'Flip review-progress comment on dead run' "$DEVFLOW_YML" && echo yes || echo no)"
 assert_eq "#356 pin: devflow.yml flip step wires the helper" "yes" \
   "$(grep -q 'flip-review-progress-failed.sh' "$DEVFLOW_YML" && echo yes || echo no)"
+assert_eq "#356 pin: devflow.yml actually INVOKES the helper (not just names it)" "yes" \
+  "$(grep -qF 'bash "$FLIP_HELPER" "$CONTEXT_NUMBER" "$FLIP_MARKER"' "$DEVFLOW_YML" && echo yes || echo no)"
 # Per-DISJUNCT pins on the flip step's `if:` guard. A bare `grep steps.claude.outcome`
 # would also match the step's own `CLAUDE_OUTCOME:` env line, so deleting a disjunct
 # from the guard would leave it GREEN — the exact vacuous-pin failure these replace.
