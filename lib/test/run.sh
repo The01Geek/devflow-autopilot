@@ -4501,6 +4501,15 @@ assert_eq "#338: the retag guard resolves the target row via _find_checkbox_row"
 assert_eq "#338: SKILL.md publishes the row-scoped (post-merge) exemption" "yes" \
   "$(grep -q 'neither OLD nor the row it targets already does' \
        "$LIB/../skills/implement/SKILL.md" && echo yes || echo no)"
+# ...and the NEGATIVE half. SKILL.md carries the contract sentence TWICE (the --rewrite-ac
+# flag-table row and the structural-failures bullet), so the positive `grep -q` above stays
+# GREEN if only ONE of them is reverted to the stale OLD-only form. Asserting the stale form
+# is ABSENT catches a partial reversion at either site — and does so without a brittle
+# occurrence-count pin that a third legitimate mention would break. Same for the docs mirror.
+for _f338 in "$LIB/../skills/implement/SKILL.md" "$LIB/../docs/implement-skill.md"; do
+  assert_eq "#338: $(basename "$_f338") carries no stale OLD-only (post-merge) contract sentence" "yes" \
+    "$(grep -q 'NEW ends with it, OLD does not' "$_f338" && echo no || echo yes)"
+done
 # Coupled-invariant pin on the RENDERED CLI surface. workpad.py's --rewrite-ac argparse
 # help is a third mirror of the guard contract, and it is the one a plain source grep for
 # the contract sentence MISSES: argparse help is assembled from adjacent string literals,
