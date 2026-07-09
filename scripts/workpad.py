@@ -1327,21 +1327,38 @@ def _unticked_rows(content: str) -> tuple[list[str], list[str]]:
     return non_pm, pm
 
 
-def _count_post_merge_rows(content: str) -> int:
-    """Count the `## Acceptance Criteria` checkbox rows whose text ends with the
-    `(post-merge)` marker, across EVERY tick state (`[ ]` and `[x]` alike).
+def _post_merge_flags(content: str) -> list[bool]:
+    """Per-row `(post-merge)`-terminal flags for a checkbox section's rows, in
+    document order — one entry per checkbox row, across EVERY tick state (`[ ]` and
+    `[x]` alike). Non-checkbox lines (placeholders, prose) contribute nothing.
 
     This is the retag backstop's population, and it is deliberately WIDER than
-    `_unticked_rows`' (which is `[ ]`-only because the Phase 3.4 terminal gate
-    only reconciles still-unmet criteria). Counting only unticked rows would let a
-    crafted multi-pair shuttle land the marker on an already-`[x]` row with no
-    `--note` — a net-added `(post-merge)` row the backstop never sees — which is
-    exactly the shape SKILL.md and DEVFLOW_SYSTEM_OVERVIEW promise is caught.
-    Read-only — never mutates a row."""
-    return sum(
-        1 for line in content.splitlines()
-        if (m := _CHECKBOX_ROW_RE.match(line)) and _ends_with_post_merge(m.group(4))
-    )
+    `_unticked_rows`' (which is `[ ]`-only because the Phase 3.4 terminal gate only
+    reconciles still-unmet criteria): a marker landing on an already-`[x]` row is
+    still a net-added `(post-merge)` row. Read-only — never mutates a row."""
+    return [
+        _ends_with_post_merge(m.group(4))
+        for line in content.splitlines()
+        if (m := _CHECKBOX_ROW_RE.match(line))
+    ]
+
+
+def _net_adds_post_merge(pre: list[bool], post: list[bool]) -> bool:
+    """True when the `--rewrite-ac` loop tagged a criterion that was not terminally
+    `(post-merge)` before it ran — i.e. some row transitioned False -> True.
+
+    Compares POSITIONALLY, not by aggregate count. `_rewrite_checkbox` replaces one
+    line in place (never inserts, deletes, or reorders), so a row's index is stable
+    across the whole loop and index `i` before is index `i` after. A count-based
+    comparison would miss a call that removes the tag from one row while adding it
+    to another: the totals net to zero while a criterion was silently deferred.
+
+    Defensive: if the row count changed (a shape this rewrite path cannot produce),
+    fall back to the aggregate comparison so the guard still fails closed on any
+    increase rather than silently reading a positional mismatch as 'no change'."""
+    if len(pre) != len(post):
+        return sum(post) > sum(pre)
+    return any(now and not before for before, now in zip(pre, post))
 
 
 def _terminal_complete_gate(sections) -> list[str]:
@@ -1501,21 +1518,22 @@ def _apply_mutations(body: str, args, failed_ticks) -> str:
         # pair 1 places the marker non-terminally (`X` -> `(post-merge) X`, NEW
         # doesn't end in the tag), pair 2 makes it terminal (`(post-merge)` ->
         # `X (post-merge)`, OLD ends in the tag) — could net-add a post-merge row
-        # with no note and slip past. Compare the count of post-merge-terminal
-        # rows before vs. after the whole loop: a net increase with no non-empty
-        # --note is a laundered deferral regardless of how the pairs were shaped,
-        # so abort here (still before any PATCH → all-or-nothing holds).
-        # The count spans EVERY tick state (`_count_post_merge_rows`, not
-        # `_unticked_rows`): an unticked-only population would miss the same
-        # shuttle aimed at an already-`[x]` row, which still net-adds a tagged row.
-        # This is additive — it never fires on a call the per-pair guard already
-        # caught, and it leaves the tag-preserving/tag-removing cases (no count
-        # increase) untouched. Residual known limitation (not closed here): a call
-        # that removes the tag from one row while adding it to another nets to no
-        # increase — far outside the natural single-retag flow, and it un-defers
-        # the first criterion, which the terminal Complete gate then hard-fails
-        # unless it is ticked.
-        pre_pm = _count_post_merge_rows(content)
+        # with no note and slip past. Snapshot each AC row's post-merge-terminal
+        # flag before the loop and compare POSITIONALLY after it: any row that went
+        # untagged -> terminally-tagged is a laundered deferral regardless of how the
+        # pairs were shaped, so abort here (still before any PATCH → all-or-nothing
+        # holds). Row indices are stable because `_rewrite_checkbox` replaces a line
+        # in place. The flags span EVERY tick state (`_post_merge_flags`, not
+        # `_unticked_rows`): an unticked-only population would miss the same shuttle
+        # aimed at an already-`[x]` row, which still net-adds a tagged row. And the
+        # comparison is positional, not an aggregate count, so a call that removes
+        # the tag from one row while adding it to another — netting to zero — is
+        # caught too. This is additive: it never fires on a call the per-pair guard
+        # already caught, and it leaves the tag-preserving/tag-removing cases (no
+        # False -> True transition) untouched. Scope: like the per-pair guard, this
+        # covers the `--rewrite-ac` channel only — the Phase 2.2.5
+        # `--replace-acs-file` channel remains a deliberate, documented exception.
+        pre_pm = _post_merge_flags(content)
         for old, new in args.rewrite_ac:
             if not has_note:
                 # Resolve the row this pair targets with the rewriter's own
@@ -1532,7 +1550,7 @@ def _apply_mutations(body: str, args, failed_ticks) -> str:
                         f"(§3.4). No PATCH was made."
                     )
             content = _rewrite_checkbox(content, old, new, 'Acceptance Criteria')
-        if not has_note and _count_post_merge_rows(content) > pre_pm:
+        if not has_note and _net_adds_post_merge(pre_pm, _post_merge_flags(content)):
             raise _UpdateError(
                 f"a --rewrite-ac in this call net-adds a {_POST_MERGE_MARKER} "
                 f"criterion but no non-empty --note rationale was supplied; a "

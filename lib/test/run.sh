@@ -4370,10 +4370,11 @@ assert_eq "#338(T8): the per-pair guard — not the state backstop — refused (
 # per-pair guard exactly as in T7; with the backstop counting only UNTICKED rows the
 # tagged row landed with NO note and exit 0, silently falsifying SKILL.md's and
 # DEVFLOW_SYSTEM_OVERVIEW's promise that "a crafted multi-pair sequence that net-adds a
-# (post-merge) row is caught by the same rule". Counting post-merge-terminal rows across
-# EVERY tick state (`_count_post_merge_rows`) closes it. RED against the unticked-only
-# backstop; the 'net-adds' grep pins that the STATE BACKSTOP is what refuses it (T8 already
-# covers the per-pair path, so a refusal for the wrong reason would otherwise pass here).
+# (post-merge) row is caught by the same rule". Snapshotting each row's post-merge-terminal
+# flag across EVERY tick state (`_post_merge_flags`) closes it. RED against the
+# unticked-only population; the 'net-adds' grep pins that the STATE BACKSTOP is what
+# refuses it (T8 already covers the per-pair path, so a refusal for the wrong reason would
+# otherwise pass here).
 _c="$(run338 "$S338/base-ticked.md" --rewrite-ac "AC two" "(post-merge) AC two" \
   --rewrite-ac "(post-merge)" "AC two (post-merge)")"
 assert_eq "#338(T8b): a multi-pair shuttle that net-adds (post-merge) onto a TICKED row is refused (non-zero)" "no" \
@@ -4393,10 +4394,36 @@ assert_eq "#338(T8c): the ticked tag-preserving rewrite PATCHed" "yes" \
 _c="$(run338 "$S338/base-ticked-tagged.md" --rewrite-ac "AC two (post-merge)" "AC two")"
 assert_eq "#338(T8d): removing the tag from a TICKED row passes with no note (exit 0)" "0" "$_c"
 
-# Source pin: the backstop's population spans every tick state. A revert to
-# `_unticked_rows(content)[1]` here re-opens the T8b ticked-row fail-open.
-assert_eq "#338: the retag backstop counts post-merge rows across every tick state" "yes" \
-  "$(grep -q 'pre_pm = _count_post_merge_rows(content)' "$WP_PY" && echo yes || echo no)"
+# T9 (net-zero tag-swap — the last laundering shape): remove the tag from one row while
+# shuttling it onto ANOTHER, with no note. Every pair dodges the per-pair guard (pair 1
+# removes; pair 2's NEW is non-terminal; pair 3's OLD ends with the tag), and the TOTAL
+# count of tagged rows is unchanged — so an aggregate-count backstop reads "no net add"
+# and PATCHes a silently-deferred criterion. Comparing each row's flag POSITIONALLY
+# catches it: AC one transitions untagged -> terminally-tagged. RED against a count-based
+# backstop (verified: it exits 0 and PATCHes `- [ ] AC one (post-merge)`).
+_c="$(run338 "$S338/base-tagged.md" --rewrite-ac "AC two (post-merge)" "AC two" \
+  --rewrite-ac "AC one" "(post-merge) AC one" \
+  --rewrite-ac "(post-merge)" "AC one (post-merge)")"
+assert_eq "#338(T9): a net-zero tag-swap onto another row is refused (non-zero)" "no" \
+  "$([ "$_c" = "0" ] && echo yes || echo no)"
+assert_eq "#338(T9): the net-zero tag-swap refusal made NO PATCH (all-or-nothing)" "yes" \
+  "$([ -s "$S338/patchlog" ] && echo no || echo yes)"
+assert_eq "#338(T9): the net-zero refusal is the state backstop's 'net-adds' abort" "yes" \
+  "$(grep -q 'net-adds' "$S338/err" && echo yes || echo no)"
+# T9b (no false fire): the identical net-zero swap WITH a --note succeeds.
+_c="$(run338 "$S338/base-tagged.md" --rewrite-ac "AC two (post-merge)" "AC two" \
+  --rewrite-ac "AC one" "(post-merge) AC one" \
+  --rewrite-ac "(post-merge)" "AC one (post-merge)" \
+  --note "moved the deferral: AC one needs the live endpoint, AC two was verified")"
+assert_eq "#338(T9b): the same net-zero swap WITH a --note succeeds (exit 0)" "0" "$_c"
+
+# Source pin: the backstop's population spans every tick state AND compares positionally.
+# A revert to `_unticked_rows(content)[1]` re-opens the T8b ticked-row fail-open; a revert
+# to an aggregate count re-opens the T9 net-zero fail-open.
+assert_eq "#338: the retag backstop snapshots per-row post-merge flags (not an aggregate count)" "yes" \
+  "$(grep -q 'pre_pm = _post_merge_flags(content)' "$WP_PY" && echo yes || echo no)"
+assert_eq "#338: the retag backstop compares those flags positionally via _net_adds_post_merge" "yes" \
+  "$(grep -q '_net_adds_post_merge(pre_pm, _post_merge_flags(content))' "$WP_PY" && echo yes || echo no)"
 
 # Source pin: the rationale-required guard + its predicate live in workpad.py.
 assert_eq "#338: workpad.py carries the (post-merge)-retag rationale guard" "yes" \

@@ -15,6 +15,8 @@ type: Changed
   rationale, so every mid-run retag is a recorded, retrospective-auditable claim. The guard
   resolves the row each pair targets with the rewriter's own lookup, so a text tweak on an
   already-`(post-merge)` criterion creates no new deferral and needs no note — even when the
-  `OLD` substring does not itself span the tag. The multi-pair backstop counts
-  `(post-merge)` rows across every tick state, so a crafted sequence cannot launder a
-  note-less retag onto an already-ticked criterion either. (#340)
+  `OLD` substring does not itself span the tag. The multi-pair backstop snapshots each
+  criterion's `(post-merge)` state across every tick state and compares it positionally,
+  so no crafted sequence can launder a note-less retag — not onto an already-ticked
+  criterion, and not by removing the tag from one criterion while adding it to another
+  (which nets to zero under an aggregate count). (#340)
