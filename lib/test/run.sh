@@ -1281,7 +1281,7 @@ assert_pin_unique "347(AC4/consumer): a REJECT-driver lacking the carve-out mark
 # file (` [self-contradicting-diff carve-out: {file}]`), making it the single producer key for both
 # carve-out classification AND the blocker path. Pin BOTH sides plus the explicit ban on the old field.
 assert_pin_unique "347(AC4/producer): the carve-out marker carries the blocker file as a required field" \
-  '` [self-contradicting-diff carve-out: {file}]` on its line' "$ST_REV"
+  '` [self-contradicting-diff carve-out: {file}]` appended' "$ST_REV"
 assert_pin_unique "347(AC4/producer): an absent defect_signature.file renders the marker as unknown, never omitted/invented" \
   'replaced by `unknown` (never omit the marker, never invent a path)' "$ST_REV"
 assert_pin_unique "347(AC4/consumer): precondition 4 reads the blocker file from the marker" \
@@ -1346,6 +1346,43 @@ assert_pin_unique "347(AC5): any still-unfixed blocker posts REJECT, never APPRO
   'Never APPROVE, never silence' "$ST_REV"
 assert_pin_unique "347(AC5): a degraded verifier fails closed to the full pipeline, never clears a REJECT" \
   'a degraded verifier never clears a REJECT' "$ST_REV"
+# PR #349 review (Important 1, marker classification was substring-based): precondition 3 audited each
+# REJECT-driving finding for the carve-out marker by a bare substring scan of the rendered finding line.
+# But a finding's `description` is free prose, so a REJECT-driving CODE finding whose description quotes a
+# well-formed marker literal is classified as a carve-out blocker — precondition 3's audit then passes and
+# precondition 4 enumerates it as a $BLOCKERS site, potentially clearing a REJECT that still carried a real
+# code finding. Not hypothetical: on an engine_self_modifying PR, findings routinely quote the marker
+# literal (this very PR's review findings do). Fix: the producer pins the marker's POSITION (immediately
+# after the `(raised by N/M agents)` agent-count suffix, in the line's trailing bracketed-annotation region)
+# and the consumer matches it there, never as a bare substring. Note the marker is NOT line-final — the
+# deferral and 4.1.5 over-grade annotations append after it — so a `$`-anchored match would break the
+# deferred self-contradicting finding Phase 4.2 REJECTs on. Pin BOTH sides of the coupled contract.
+assert_pin_unique "347(AC4/producer): the marker's position is fixed to the agent-count suffix (anchorable)" \
+  'immediately after that line'"'"'s `(raised by N/M agents)` agent-count suffix' "$ST_REV"
+assert_pin_unique "347(AC4/producer): the marker never lands inside the finding's free-prose description" \
+  'never inside the finding'"'"'s free-prose `description`' "$ST_REV"
+assert_pin_unique "347(AC4/consumer): the marker is matched by producer position, not a bare substring" \
+  'Match the marker by its producer position, never as a bare substring' "$ST_REV"
+assert_pin_unique "347(AC4/consumer): a marker-shaped string in description prose is NOT a marker" \
+  'belongs to the finding'"'"'s free-prose `description` and is **not** a marker' "$ST_REV"
+assert_pin_unique "347(AC4/consumer): an unparseable annotation region falls through (fail-closed)" \
+  'whose annotation region cannot be parsed unambiguously' "$ST_REV"
+# PR #349 review (Important 2, unpaginated reviews read): precondition 1 read the reviews endpoint with a
+# bare `gh api .../reviews`. GitHub serves that endpoint OLDEST-first at 30 per page, so on a PR with >30
+# reviews the "chronologically-last" review on page 1 is stale and a superseded REJECT sitting behind a
+# newer, later-page APPROVE gets rechecked — defeating the same never-scan-past-a-newer-APPROVE guarantee
+# the precondition is written to enforce. The generic fail-closed rule does NOT catch it: the truncated call
+# exits zero with a non-empty page. This repo already knows this bug class — scripts/derive-review-verdict.sh
+# (#249) and scripts/dismiss-stale-rejections.sh both paginate this exact endpoint — so the fix restores the
+# established idiom. Pin the paginated invocation AND the fail-direction rationale.
+assert_pin_unique "347(AC1): precondition 1 paginates the reviews read (no oldest-page truncation)" \
+  'gh api --paginate "repos/{owner}/{repo}/pulls/$ARGUMENTS/reviews?per_page=100"' "$ST_REV"
+assert_pin_unique "347(AC1): an unpaginated reviews read would select a stale chronologically-last review" \
+  'an unpaginated read silently truncates to the oldest page' "$ST_REV"
+assert_pin_unique "347(AC1): a superseded REJECT behind a later-page APPROVE must never be rechecked" \
+  'behind a newer, later-page APPROVE would then be rechecked' "$ST_REV"
+assert_pin_unique "347(AC1): a non-zero exit from the paginated reviews query falls through (fail-closed)" \
+  'If the paginated query exits non-zero, fall through' "$ST_REV"
 
 # Issue #182 (convention-violation / unscoped-staging): the review-and-fix fix-commit step
 # (Step 3 item 6) must stage only the specific files the fix touched, never `git add -A` /
