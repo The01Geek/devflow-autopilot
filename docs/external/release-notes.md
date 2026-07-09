@@ -1,5 +1,9 @@
 # Release Notes
 
+## July 9, 2026
+
+- **Fix — Automated Devflow Review no longer stays wedged behind a superseded CI run** — When a repository re-ran or re-dispatched a CI workflow on a pull request — an approval-gated re-run, a rapid double-fire, or a cancelled duplicate — the automated review's green-CI precondition previously weighed every run on the commit, including the older non-green one, and could keep the review deferred behind its required check even after a newer run of the same workflow had passed. Devflow Review now keeps only the latest run per workflow and event before checking CI, so a superseded run no longer blocks the review. A run still waiting on manual approval now defers with a clear, distinct reason instead of being lumped in with failed CI. (#352)
+
 ## July 8, 2026
 
 - **Improvement — Cloud runs now surface execution diagnostics to the job log for easier debugging** — After each cloud-tier `claude-code-action` run, DevFlow now writes the run's execution diagnostics — the run summary (whether the run errored, the turn count, duration, cost, and the number of permission denials) plus per-denial detail when available — to the job log and the workflow run summary. A maintainer debugging a stalled, incomplete, or unexpectedly denied cloud run can now see the denial detail and run shape directly instead of losing that information. The step is read-only: it always runs after the main step, never changes a job's pass or fail result, adds no token scope, and uploads no artifact, and it can be turned off by setting `devflow.execution_diagnostics_enabled` to `false`. (#337)
