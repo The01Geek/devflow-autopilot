@@ -3304,6 +3304,53 @@ assert_pin_unique "#232: orchestrator mirror keeps the AC4 Phase-4.1-only scope 
   'scoped to the Phase 4.1 docs subagent return only, not the Phase 2/3 returns' "$IMPL_ORCH"
 assert_pin_red_on_removal "#232: orchestrator AC4 scope mirror flips RED on removal" \
   'scoped to the Phase 4.1 docs subagent return only, not the Phase 2/3 returns' "$IMPL_ORCH"
+# ── issue #366: guard /devflow:implement against a nested-Skill tail-call early-stop.
+# Three prose contracts in the always-resident orchestrator ($IMPL_ORCH) plus one coupled
+# CLAUDE.md bullet. Each operative sentence is pinned with assert_pin_unique (exactly-once)
+# and mutation-checked with assert_pin_red_on_removal (PASS->FAIL on removal), each passing
+# its file explicitly because assert_pin_red_on_removal defaults its file arg to $MAXI_SKILL.
+# (a) Skill-completion re-anchor trigger — completion-anchored, never re-invoke, orchestrator-resident.
+assert_pin_unique "#366: SKILL re-anchor is completion-anchored, not tool-return-anchored (operative)" \
+  'anchored on completion of the nested *procedure*, **not** on the' "$IMPL_ORCH"
+assert_pin_red_on_removal "#366: SKILL re-anchor completion-anchor clause flips RED on removal" \
+  'anchored on completion of the nested *procedure*, **not** on the' "$IMPL_ORCH"
+assert_pin_unique "#366: SKILL re-anchor resumes the step and never re-invokes the nested skill (operative)" \
+  'resume the interrupted step, never re-invoking the nested skill' "$IMPL_ORCH"
+assert_pin_red_on_removal "#366: SKILL re-anchor never-re-invoke clause flips RED on removal" \
+  'resume the interrupted step, never re-invoking the nested skill' "$IMPL_ORCH"
+assert_pin_unique "#366: SKILL re-anchor is orchestrator-resident for eviction-resistance (placement)" \
+  'for the same eviction-resistance reason the Phase 4.1 re-anchor cites' "$IMPL_ORCH"
+assert_pin_red_on_removal "#366: SKILL re-anchor orchestrator-placement clause flips RED on removal" \
+  'for the same eviction-resistance reason the Phase 4.1 re-anchor cites' "$IMPL_ORCH"
+# (b) exclusionary Skill rule + two-guards division of labor.
+assert_pin_unique "#366: SKILL rule forbids the interactive skills mid-run, naming revise-claude-md/brainstorming (operative)" \
+  '`claude-md-management:revise-claude-md` and `superpowers:brainstorming` are examples that must never be invoked from inside an autonomous phase' "$IMPL_ORCH"
+assert_pin_red_on_removal "#366: SKILL exclusionary-rule sentence flips RED on removal" \
+  '`claude-md-management:revise-claude-md` and `superpowers:brainstorming` are examples that must never be invoked from inside an autonomous phase' "$IMPL_ORCH"
+assert_pin_unique "#366: SKILL states the two guards division of labor (mid-procedure stop unreachable by re-anchor)" \
+  'no completion-anchored re-anchor can ever reach' "$IMPL_ORCH"
+assert_pin_red_on_removal "#366: SKILL division-of-labor clause flips RED on removal" \
+  'no completion-anchored re-anchor can ever reach' "$IMPL_ORCH"
+# (c) carve-out COUPLED PAIR — SKILL.md sentence AND the CLAUDE.md Conventions bullet.
+# A half-revert deleting either side turns its assert_pin_unique RED (mirrors the #312 lockstep
+# CLAUDE.md pin at ~line 2248, which passes the CLAUDE.md path explicitly).
+assert_pin_unique "#366: SKILL carve-out — required CLAUDE.md edit made directly by the orchestrator (operative)" \
+  'is made **directly by the orchestrator**, citing the carve-out and recording it in the workpad' "$IMPL_ORCH"
+assert_pin_red_on_removal "#366: SKILL carve-out sentence flips RED on removal" \
+  'is made **directly by the orchestrator**, citing the carve-out and recording it in the workpad' "$IMPL_ORCH"
+assert_pin_unique "#366: CLAUDE.md carve-out bullet mirrors the SKILL rule (coupled half)" \
+  'is made **directly by the orchestrator**, citing this carve-out and recording it in the workpad, **never** by invoking' "$LIB/../CLAUDE.md"
+assert_pin_red_on_removal "#366: CLAUDE.md carve-out bullet flips RED on removal" \
+  'is made **directly by the orchestrator**, citing this carve-out and recording it in the workpad, **never** by invoking' "$LIB/../CLAUDE.md"
+# (d) Terminal-status self-check: read Status immediately before run-final message + accurate backstop citation.
+assert_pin_unique "#366: SKILL self-check reads Status immediately before any run-final message (operative)" \
+  'read the workpad `Status` line immediately before emitting any run-final message' "$IMPL_ORCH"
+assert_pin_red_on_removal "#366: SKILL self-check Status-read clause flips RED on removal" \
+  'read the workpad `Status` line immediately before emitting any run-final message' "$IMPL_ORCH"
+assert_pin_unique "#366: SKILL self-check cites the cloud Stall backstop as re-dispatch, never a terminal-Status flip (operative)" \
+  're-dispatches (bounded auto-resume, honest-red on cap exhaustion) — it never writes a terminal `Status`' "$IMPL_ORCH"
+assert_pin_red_on_removal "#366: SKILL self-check backstop-accuracy clause flips RED on removal" \
+  're-dispatches (bounded auto-resume, honest-red on cap exhaustion) — it never writes a terminal `Status`' "$IMPL_ORCH"
 # ── issue #254: Phase 4.0.5 deferrals-manifest discovery must search BOTH the pr-<N>
 # slug dir and the sanitized-current-branch slug dir — a current-branch-mode
 # /devflow:review-and-fix run writes its manifest under the branch slug, so a
