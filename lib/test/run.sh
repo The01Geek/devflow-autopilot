@@ -4136,6 +4136,13 @@ assert_pin_unique "#346: 2.2.5 takes the Blocked path when the pushable subset w
 # later edit cannot strand the backstop as unexecutable prose again.
 assert_pin_unique "#346: Phase 2.5 commit guard fires the workflow-edit backstop (repo-own .github/workflows/, cloud tier)" \
   'Cloud-tier workflow-edit commit guard (fires the Pass 5 / 2.2.5 backstop here)' "$IMPL_PHASES_DIR/phase-2-implement.md"
+# The guard checks BOTH tracked edits (git diff HEAD) AND untracked new workflow files
+# (git ls-files --others), because a workflow-*adding* AC leaves an untracked file that
+# git diff HEAD never lists yet git add -A would stage. Pin the untracked-detection clause
+# so a future trim back to tracked-only detection (git diff HEAD alone) goes RED instead of
+# silently regressing the untracked-workflow catch that iteration-4 added.
+assert_pin_unique "#346: Phase 2.5 commit guard also detects untracked new workflow files (not tracked-only)" \
+  'git ls-files --others --exclude-standard -- .github/workflows/' "$IMPL_PHASES_DIR/phase-2-implement.md"
 assert_pin_unique "#346: Pass 5 records a clean note on the cloud-tier no-workflow-AC path (record-even-when-clean)" \
   'issue-claim audit (execution-capability): cloud tier — no acceptance criterion requires editing .github/workflows/' "$P1_FILE"
 # ── issue #185 (+ Addendum): Phase 4.1 Documentation Needed cross-check ─────
