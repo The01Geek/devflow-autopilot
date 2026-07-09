@@ -1245,6 +1245,16 @@ assert_pin_unique "347(AC4): an errored/empty diff is never trusted as a benign 
   'never as the vacuous default of an errored diff' "$ST_REV"
 assert_pin_unique "347(AC4): target head is the pushed \$PR_HEAD_SHA, never the local git HEAD ref" \
   'never the local `git HEAD` ref' "$ST_REV"
+# AC4 (PR #349 review, Important): precondition 5's CORE subset comparison is the decisive
+# smuggle guard — every intervening changed path must be one of the enumerated blocker sites,
+# and any path outside them falls through. It sat unpinned while its neighbours (ancestor,
+# non-zero-diff, errored-diff) were pinned, so a revert of just the subset check would keep the
+# suite GREEN and re-open the smuggle. Pin BOTH operative halves: the positive membership
+# comparison and the fail-closed outside-path fall-through.
+assert_pin_unique "347(AC4): every intervening changed path must be one of the \$BLOCKERS files (subset check)" \
+  'must be one of the `$BLOCKERS` files' "$ST_REV"
+assert_pin_unique "347(AC4): a changed path outside the enumerated blocker sites falls through (fail-closed)" \
+  'path outside the enumerated blocker sites changed, fall through' "$ST_REV"
 # AC5 (shadow-review fix): any blocker not positively 'fixed' (ambiguous/missing) is
 # still-unfixed — the fail-closed default that keeps a silent verifier from clearing a REJECT.
 assert_pin_unique "347(AC5): a blocker not positively fixed defaults to still-unfixed (fail-closed)" \
