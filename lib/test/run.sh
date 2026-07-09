@@ -3426,18 +3426,36 @@ assert_pin_red_on_removal "#362: resume pre-check gh-failure breadcrumb obligati
 # stop it named (the framing-pin hole behind PRs #62/#173). These four pins target, in order:
 # the LANDED computation, the stderr discriminator the two failure shapes route on, the
 # fail-closed stop directive, and its rationale.
-assert_pin_unique "#362: the resume pre-check computes whether the checkout actually landed" \
-  'LANDED=no; [ -n "$HEAD_REF" ]' "$P362_P1"
-assert_pin_unique "#362: the two resume-checkout failure shapes route on the captured checkout stderr" \
-  'is the *only* discriminator between the two failure shapes' "$P362_P1"
+# The LANDED pin must cover the rev-parse COMPARISON, not just the `LANDED=no` prefix: an
+# edit that drops the comparison and sets LANDED=yes whenever HEAD_REF is non-empty waives
+# the signals without ever confirming the tree landed — the #356 regression itself.
+assert_pin_unique "#362: the resume pre-check confirms the tree landed by comparing HEAD to HEAD_REF" \
+  '[ "$(git rev-parse --abbrev-ref HEAD 2>/dev/null)" = "$HEAD_REF" ] && LANDED=yes' "$P362_P1"
+assert_pin_red_on_removal "#362: resume landing confirmation flips RED on removal" \
+  '[ "$(git rev-parse --abbrev-ref HEAD 2>/dev/null)" = "$HEAD_REF" ] && LANDED=yes' "$P362_P1"
+# The stderr capture and its `|| true` ARE the mechanism the two failure shapes route on —
+# pin them, not the sentence that motivates them. (An earlier pin sat on that motivating
+# sentence and survived a mutation that gutted the capture and collapsed the routing.)
+assert_pin_unique "#362: the resume checkout captures its own stderr in the same statement" \
+  'CO_ERR=$( { git fetch origin "$HEAD_REF" && git checkout "$HEAD_REF"; } 2>&1 1>/dev/null ) || true' "$P362_P1"
+assert_pin_red_on_removal "#362: resume checkout stderr capture flips RED on removal" \
+  'CO_ERR=$( { git fetch origin "$HEAD_REF" && git checkout "$HEAD_REF"; } 2>&1 1>/dev/null ) || true' "$P362_P1"
+# COUPLED TO GIT'S ACTUAL MESSAGE, verified against git 2.50.1: the refusal reads
+# "is already used by worktree at". `already checked out` appears ONLY in `git worktree
+# --help`, never in the error — keying on it made the worktree-resume arm unreachable and
+# falsely Blocked a resumable run. Pin the string git really emits, at both sites that name it.
+assert_pin_unique "#362: the prose names the worktree-refusal string git actually emits" \
+  '**match `already used by worktree`**' "$P362_P1"
+assert_pin_unique "#362: the resume routing bullet keys on the real worktree refusal" \
+  'matches `already used by worktree`' "$P362_P1"
+assert_pin_red_on_removal "#362: verified worktree-refusal string flips RED on removal" \
+  '**match `already used by worktree`**' "$P362_P1"
+assert_pin_red_on_removal "#362: worktree-refusal discriminator flips RED on removal" \
+  'matches `already used by worktree`' "$P362_P1"
 assert_pin_unique "#362: a resume checkout that did not land stops the run rather than duplicating the PR" \
   'refusing to fall through to branch creation' "$P362_P1"
 assert_pin_unique "#362: the fail-closed stop carries its rationale (a known duplication, not an unknown risk)" \
   'Falling through here is never correct' "$P362_P1"
-assert_pin_red_on_removal "#362: resume LANDED computation flips RED on removal" \
-  'LANDED=no; [ -n "$HEAD_REF" ]' "$P362_P1"
-assert_pin_red_on_removal "#362: resume checkout stderr discriminator flips RED on removal" \
-  'is the *only* discriminator between the two failure shapes' "$P362_P1"
 assert_pin_red_on_removal "#362: resume checkout fail-closed stop flips RED on removal" \
   'refusing to fall through to branch creation' "$P362_P1"
 
