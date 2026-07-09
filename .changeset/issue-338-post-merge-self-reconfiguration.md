@@ -19,7 +19,8 @@ type: Changed
   criterion's `(post-merge)` state across every tick state and compares it positionally,
   so a crafted `--rewrite-ac` sequence cannot launder a note-less retag — not onto an
   already-ticked criterion, and not by removing the tag from one criterion while adding it
-  to another (which nets to zero under an aggregate count). A `--rewrite-ac` NEW containing
-  a line break is now rejected structurally: it would split one criterion into two rows,
-  injecting an unreviewed row and defeating both guards. The `--replace-acs-file` channel
-  remains a documented exception. (#340)
+  to another (which nets to zero under an aggregate count). A `--rewrite-ac` NEW spanning
+  more than one line is now rejected structurally — tested against the full
+  `str.splitlines()` separator set, not just `\n`/`\r` — because it would split one
+  criterion into two rows, injecting an unreviewed row and defeating both guards. The
+  `--replace-acs-file` channel remains a documented exception. (#340)

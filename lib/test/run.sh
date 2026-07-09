@@ -4429,8 +4429,23 @@ assert_eq "#338(T10): a --rewrite-ac NEW containing a line break is refused (non
   "$([ "$_c" = "0" ] && echo yes || echo no)"
 assert_eq "#338(T10): the line-break refusal made NO PATCH (no row injected)" "yes" \
   "$([ -s "$S338/patchlog" ] && echo no || echo yes)"
-assert_eq "#338(T10): the refusal names the line break, not the missing note" "yes" \
-  "$(grep -q 'line break in NEW' "$S338/err" && echo yes || echo no)"
+assert_eq "#338(T10): the refusal names the line boundary, not the missing note" "yes" \
+  "$(grep -q 'line boundary in NEW' "$S338/err" && echo yes || echo no)"
+# T10a (the full `str.splitlines()` separator set — the superset bug): a `'\n' in s or
+# '\r' in s` membership test accepts \v, \f, \x1c-\x1e, NEL, LS and PS, EVERY one of which
+# `str.splitlines()` still splits on — so each injected a phantom `- [x]` row (with a
+# --note, both post-merge guards are skipped, leaving the row check as the only defense).
+# `_is_single_line` shares splitlines' own contract, so the rejected set matches exactly.
+# Driven with a --note so a refusal cannot come from a post-merge guard. RED against the
+# two-character membership test (all eight exited 0 and PATCHed an injected row).
+for _sep in '\v' '\f' '\034' '\035' '\036' '\302\205' '\342\200\250' '\342\200\251'; do
+  _new="$(printf 'AC two (post-merge)%b- [x] Phantom' "$_sep")"
+  _c="$(run338 "$S338/base.md" --rewrite-ac "AC two" "$_new" --note "genuinely-live: endpoint")"
+  assert_eq "#338(T10a): NEW split by separator '$_sep' is refused even with a --note" "no" \
+    "$([ "$_c" = "0" ] && echo yes || echo no)"
+  assert_eq "#338(T10a): separator '$_sep' injected no row (NO PATCH)" "yes" \
+    "$([ -s "$S338/patchlog" ] && echo no || echo yes)"
+done
 # T10b: a --note does NOT excuse it — the newline is a malformed argument, not a deferral.
 _c="$(run338 "$S338/base.md" --rewrite-ac "AC two" 'AC two (post-merge)
 - [ ] Injected' --note "genuinely-live: live endpoint")"
@@ -4502,6 +4517,9 @@ assert_eq "#338: workpad.py --rewrite-ac help no longer carries the stale OLD-on
 assert_eq "#338: workpad.py --rewrite-ac help states a --reflection does not satisfy the note" "yes" \
   "$(printf '%s' "$_h338" | tr -s '[:space:]' ' ' \
      | grep -q 'Only --note satisfies the rationale; a --reflection does not' && echo yes || echo no)"
+assert_eq "#338: workpad.py --rewrite-ac help states NEW must be a single line" "yes" \
+  "$(printf '%s' "$_h338" | tr -s '[:space:]' ' ' \
+     | grep -q 'NEW must be a single line' && echo yes || echo no)"
 
 # T6 (pin mutation check): the operative sentence of the new third forbidden case in
 # phase-3-review.md §3.4. This is a behavioral-fix pin (removing the sentence

@@ -2786,6 +2786,27 @@ assert_eq("#338: _net_adds_post_merge does not fire on a tag-preserving rewrite"
           False, workpad._net_adds_post_merge([True, False], [True, False]))
 assert_eq("#338: _net_adds_post_merge does not fire on a tag removal",
           False, workpad._net_adds_post_merge([True, False], [False, False]))
+# `_is_single_line` must accept no more than its consumer (`str.splitlines()`) does.
+# A `'\n' in s or '\r' in s` membership test accepts every separator below and each one
+# still splits a checkbox row — the validator-superset bug class. Sweep the full set.
+for _sep in ('\n', '\r', '\r\n', '\v', '\f', '\x1c', '\x1d', '\x1e',
+             '\x85', ' ', ' '):
+    assert_eq(f"#338: _is_single_line rejects {_sep!r} (a str.splitlines() boundary)",
+              False, workpad._is_single_line(f"AC two (post-merge){_sep}- [x] Phantom"))
+    # A trailing separator also splits/reflows the row, so it is rejected too.
+    assert_eq(f"#338: _is_single_line rejects a trailing {_sep!r}",
+              False, workpad._is_single_line(f"AC two{_sep}"))
+# ...and accepts ordinary single-line text, including a LITERAL backslash-n (two chars),
+# internal whitespace, the empty string, and a tab.
+for _ok in ('AC two', 'AC two (post-merge)', r'a literal \n backslash-n', 'a  b   c',
+            '', '\tindented'):
+    assert_eq(f"#338: _is_single_line accepts {_ok!r}", True, workpad._is_single_line(_ok))
+# Contract check: the accepted set is exactly the set splitlines() does not split.
+assert_eq("#338: _is_single_line agrees with str.splitlines() on every accepted input",
+          True, all(len(s.splitlines()) <= 1
+                    for s in ('AC two', '', '\tx', r'a \n b')
+                    if workpad._is_single_line(s)))
+
 # `_post_merge_flags` spans every tick state and ignores non-checkbox lines.
 assert_eq("#338: _post_merge_flags flags ticked and unticked rows alike, skipping prose",
           [False, True, True],

@@ -1280,6 +1280,25 @@ def _apply_section_ticks(
 _POST_MERGE_MARKER = '(post-merge)'
 
 
+def _is_single_line(text: str) -> bool:
+    """True when `text` holds no line boundary *as the row parser sees one*.
+
+    Shares the consumer's own operation instead of re-deriving its contract. The
+    checkbox-row parsers (`_find_checkbox_row`, `_post_merge_flags`, `_unticked_rows`)
+    split with `str.splitlines()`, which breaks on far more than `\\n`/`\\r`: `\\v`,
+    `\\f`, `\\x1c`-`\\x1e`, `\\x85` (NEL), `\\u2028` (LINE SEPARATOR) and `\\u2029`
+    (PARAGRAPH SEPARATOR). A membership test for `'\\n'`/`'\\r'` accepts a *superset*
+    of what `splitlines()` treats as one line, so any of those other separators would
+    still split a checkbox row in two — a guard's accepted-input set must be a subset
+    of its consumer's, never a guess at it. `''.join(text.splitlines()) == text` holds
+    exactly when `splitlines()` finds no boundary (the empty string included, and a
+    trailing separator caught too). A few section helpers (`_split_details`,
+    `_append_progress_note`) split on `'\\n'` alone — a strict subset of the
+    `splitlines()` boundaries — so this guard over-covers them too, never under.
+    The same `splitlines()` idiom collapses multi-line `--reflection` text above."""
+    return ''.join(text.splitlines()) == text
+
+
 def _ends_with_post_merge(text: str) -> bool:
     """True when `text` carries the `(post-merge)` marker in TERMINAL position.
     Trailing whitespace is stripped first, so a stray space or newline can't mask
@@ -1355,11 +1374,13 @@ def _net_adds_post_merge(pre: list[bool], post: list[bool]) -> bool:
 
     Defensive: a differing row count means the positional mapping is meaningless, so
     the comparison cannot answer the question at all. Fail CLOSED — treat it as a
-    net-add. `_apply_mutations` rejects a newline in any NEW before the loop runs, so
-    `_rewrite_checkbox` cannot change the row count and this branch is unreachable by
-    construction; it exists so that a future path which *does* change the count can
-    never silently downgrade this guard to an aggregate count (which is blind to a
-    remove-one/add-one swap — exactly the hole the positional comparison closes)."""
+    net-add. `_apply_mutations` rejects a multi-line NEW (`_is_single_line`) before the
+    loop runs, so `_rewrite_checkbox` should not be able to change the row count; this
+    branch is the backstop for that guard rather than dead code, and it exists so that
+    any path which *does* change the count can never silently downgrade this guard to
+    an aggregate count (which is blind to a remove-one/add-one swap — exactly the hole
+    the positional comparison closes). Do not "simplify" it back to `sum(post) >
+    sum(pre)`: that comparison returns False on a shorter-but-newly-tagged post state."""
     if len(pre) != len(post):
         return True
     return any(now and not before for before, now in zip(pre, post))
@@ -1507,23 +1528,26 @@ def _apply_mutations(body: str, args, failed_ticks) -> str:
         # `--replace-acs-file` channel can introduce `(post-merge)` rows wholesale —
         # a deliberate, known limitation left open here, not closed by this guard.
         has_note = any(n.strip() for n in args.note)
-        # A NEW containing a line break is structurally invalid, and rejecting it here
-        # is load-bearing for BOTH guards below (issue #338). `_rewrite_checkbox` writes
-        # NEW verbatim into one line, so an embedded newline SPLITS that checkbox row in
-        # two: it injects an unreviewed AC row, and it breaks the row-index stability
-        # `_net_adds_post_merge` compares against. It also slips the per-pair guard, whose
-        # `NEW ends with the marker` test reads the whole string — `X (post-merge)\n- [ ] Y`
-        # ends with `Y`, so the tag reads as non-terminal while landing terminal on the
-        # split row. Combined with a compensating tag-removal, that laundered a note-less
-        # deferral. Reject it unconditionally (a malformed argument, note or not), before
+        # A multi-line NEW is structurally invalid, and rejecting it here is load-bearing
+        # for BOTH guards below (issue #338). `_rewrite_checkbox` writes NEW verbatim into
+        # one line, so an embedded line boundary SPLITS that checkbox row in two: it injects
+        # an unreviewed AC row, and it breaks the row-index stability `_net_adds_post_merge`
+        # compares against. It also slips the per-pair guard, whose `NEW ends with the
+        # marker` test reads the whole string — `X (post-merge)<sep>- [ ] Y` ends with `Y`,
+        # so the tag reads non-terminal while landing terminal on the split row. Combined
+        # with a compensating tag-removal, that laundered a note-less deferral.
+        # `_is_single_line` shares the row parser's own `str.splitlines()` contract, so the
+        # rejected set matches the splitting set exactly — a `'\n'`/`'\r'` membership test
+        # would accept `\v`, `\f`, `\x1c`-`\x1e`, NEL, LS and PS, every one of which still
+        # splits the row. Reject unconditionally (a malformed argument, note or not), before
         # any PATCH, so the all-or-nothing contract holds.
-        offending_nl = next((p for p in args.rewrite_ac if '\n' in p[1] or '\r' in p[1]),
+        offending_nl = next((p for p in args.rewrite_ac if not _is_single_line(p[1])),
                             None)
         if offending_nl:
             raise _UpdateError(
                 f"--rewrite-ac pair {offending_nl[0]!r} -> {offending_nl[1]!r} has a line "
-                f"break in NEW; an AC row is a single line (a newline would split it into "
-                f"an extra, unreviewed row). No PATCH was made."
+                f"boundary in NEW; an AC row is a single line (it would split into an "
+                f"extra, unreviewed row). No PATCH was made."
             )
         # --rewrite-ac is repeatable (issue #308): apply every OLD/NEW pair in
         # argument order against the progressively-rewritten section. Each pair
@@ -1545,8 +1569,8 @@ def _apply_mutations(body: str, args, failed_ticks) -> str:
         # untagged -> terminally-tagged is a laundered deferral regardless of how the
         # pairs were shaped, so abort here (still before any PATCH → all-or-nothing
         # holds). Row indices are stable because `_rewrite_checkbox` replaces a line
-        # in place AND the newline rejection above keeps a NEW from splitting a row.
-        # The flags span EVERY tick state (`_post_merge_flags`, not
+        # in place AND the `_is_single_line` rejection above keeps a NEW from splitting
+        # a row. The flags span EVERY tick state (`_post_merge_flags`, not
         # `_unticked_rows`): an unticked-only population would miss the same shuttle
         # aimed at an already-`[x]` row, which still net-adds a tagged row. And the
         # comparison is positional, not an aggregate count, so a call that removes
@@ -1773,7 +1797,10 @@ def main():
                         'Repeatable: multiple pairs apply in argument order, each '
                         'validated by the exactly-one-match rule; any pair '
                         'matching zero or multiple rows aborts the whole call '
-                        'with no PATCH (structural all-or-nothing). A pair that '
+                        'with no PATCH (structural all-or-nothing). NEW must be a '
+                        'single line: a line boundary would split the criterion '
+                        'into an extra, unreviewed row, so it aborts the call. '
+                        'A pair that '
                         'appends the (post-merge) tag (NEW ends with it; neither '
                         'OLD nor the row it targets already does) is a mid-run '
                         'retag and requires a non-empty --note rationale (issue '
