@@ -4258,7 +4258,7 @@ assert_pin_unique "#346: Pass 5 cloud-tier defer routes capability-blocked ACs t
   'issue-claim audit (execution-capability): cloud tier — ACs {list} require editing .github/workflows/' "$P1_FILE"
 assert_pin_unique "#346: Pass 5 all-blocked arm takes the Phase 1 Blocked path and opens no PR" \
   'issue-claim audit (execution-capability): every in-scope acceptance criterion requires editing .github/workflows/' "$P1_FILE"
-assert_pin_unique "#346: Pass 5 local/interactive tier behavior is unchanged (no defer, no block)" \
+assert_pin_unique "#346/#350: Pass 5 workflow-capable-credential arm (local/interactive OR cloud+DEVFLOW_APP_ID-set) never defers/blocks" \
   'never defer, never block' "$P1_FILE"
 # Coupled mirror sites: the 2.2.5 capability trigger (phase-2) and the Phase 4.0
 # human/PAT follow-up statement (phase-4) land in the SAME change as Pass 5.
@@ -4278,10 +4278,14 @@ assert_pin_unique "#346: a Phase 2.3-discovered workflow edit re-routes through 
   'if Phase 2.3 code-writing *itself* later reveals a required `.github/workflows/` edit' "$IMPL_PHASES_DIR/phase-2-implement.md"
 assert_pin_unique "#350: Pass 5 proceeds (not defers) when a discriminating signal is genuinely unreadable" \
   'When a discriminating signal is genuinely unreadable, proceed — do not defer.' "$P1_FILE"
-assert_pin_unique "#346: Phase 4.0 follow-up states landing a capability-deferral needs a human/PAT workflows-scope push" \
+assert_pin_unique "#346: Phase 4.0 template bullet states landing a capability-deferral needs a human/PAT workflows-scope push" \
   'Landing this requires a human/PAT push carrying the `workflows` scope' "$IMPL_PHASES_DIR/phase-4-documentation.md"
-assert_pin_unique "#346: Phase 4.0 follow-up states landing a capability-deferral needs a human/PAT workflows-scope push" \
-  'Landing this requires a human/PAT push carrying the `workflows` scope' "$IMPL_PHASES_DIR/phase-4-documentation.md"
+# #350 (pr-test-analyzer): the byte-identical duplicate here masked a coverage gap — it
+# re-pinned the *template placeholder* bullet (line 44) while the normative OBLIGATION prose
+# (the "MUST state explicitly" instruction) was itself unpinned, so deleting the obligation
+# would leave the suite green. Re-point the second pin at the obligation sentence.
+assert_pin_unique "#346: Phase 4.0 OBLIGATION requires the follow-up body to state the credential boundary" \
+  'the follow-up body MUST state explicitly that' "$IMPL_PHASES_DIR/phase-4-documentation.md"
 # Review iter 3 (shadow): the all-blocked decline was executable only at Phase 1.6; when
 # every-AC-blocked is discovered late (at 2.2.5/2.3), narrowing yields an EMPTY pushable
 # subset with no executable stop, so the run could fall through to a near-empty PR. Pin the
