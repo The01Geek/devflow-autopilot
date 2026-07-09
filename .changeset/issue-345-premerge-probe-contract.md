@@ -1,6 +1,0 @@
----
-bump: patch
-type: Changed
----
-
-- **`/devflow:implement` now requires a recorded pre-merge probe of observable preconditions before any `(post-merge)` acceptance-criteria deferral.** The Phase 3.4 gate's genuinely-live test was whole-criterion binary, so a criterion could be tagged `(post-merge)` while carrying a pre-merge-observable precondition that was already false (the failure behind PR #301's post-merge release-pipeline break on `main`). The gate now states a single **Pre-merge probe contract** in `skills/implement/phases/phase-3-review.md` — decompose a criterion into pre-merge-observable preconditions and genuinely-live residue, probe each precondition read-only (folding in any failure mode the linked issue's Potential Gotchas / Implementation Notes names for its mechanism), and record each probe command and observed result in the deferral `--note` (or the explicit "no pre-merge-observable precondition" finding). An observed-cannot-succeed probe routes to a pre-merge fix or the Blocked path — never a deferral — and a new red-flags STOP entry forbids that launder; a denied probe is recorded as denied and does not block, and a passed probe never ticks the AC box. The Phase 1.2 partial-live rule in `skills/implement/phases/phase-1-setup.md` references the same contract so tag-time and retag-time deferrals carry an identical obligation. (#348)
