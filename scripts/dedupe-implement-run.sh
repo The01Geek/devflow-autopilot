@@ -86,17 +86,6 @@ set -euo pipefail
 
 emit() { printf '%s=%s\n' "$1" "$2"; }
 
-# gh binary: resolved once via the single-source resolver (execution-verified);
-# an explicit DEVFLOW_GH still wins, so test stubs are untouched.
-# shellcheck source=../lib/resolve-gh.sh
-. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/resolve-gh.sh"
-: "${DEVFLOW_GH:=$(devflow_resolve_gh)}"
-GH="$DEVFLOW_GH"
-repo="${REPO:-}"
-target="${CONTEXT_NUMBER:-}"
-run_id="${RUN_ID:-}"
-workflow="${WORKFLOW:-devflow-implement.yml}"
-
 # The marker every stall-backstop auto-resume comment carries on its first line
 # (see the `MARKER` the Stall backstop step writes in devflow-implement.yml). Keep
 # the two literals identical — lib/test/run.sh pins that they agree across files.
@@ -107,8 +96,10 @@ STALL_RESUME_MARKER='<!-- devflow:stall-backstop-audit -->'
 # Actions event payload. Reading the payload here (rather than a workflow-passed
 # env) keeps the fix entirely inside this script, so it needs no
 # devflow-implement.yml edit (a workflow file the bot's token cannot push).
+# This runs BEFORE the gh resolver below so a stall resume — which never queries
+# gh — skips the (execution-verified) `gh --version` probe entirely.
 is_stall_resume="${IS_STALL_RESUME:-}"
-if [ -z "$is_stall_resume" ] && [ -n "${GITHUB_EVENT_PATH:-}" ] && [ -r "${GITHUB_EVENT_PATH:-}" ]; then
+if [ -z "$is_stall_resume" ] && [ -n "${GITHUB_EVENT_PATH:-}" ] && [ -r "$GITHUB_EVENT_PATH" ]; then
   # A parse/read failure here is non-fatal: it just leaves is_stall_resume empty,
   # so the run falls through to ordinary dedupe (the pre-#280 behavior).
   if "$DEVFLOW_JQ" -e --arg m "$STALL_RESUME_MARKER" \
@@ -122,6 +113,17 @@ if [ "$is_stall_resume" = "true" ]; then
   emit duplicate false
   exit 0
 fi
+
+# gh binary: resolved once via the single-source resolver (execution-verified);
+# an explicit DEVFLOW_GH still wins, so test stubs are untouched.
+# shellcheck source=../lib/resolve-gh.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/resolve-gh.sh"
+: "${DEVFLOW_GH:=$(devflow_resolve_gh)}"
+GH="$DEVFLOW_GH"
+repo="${REPO:-}"
+target="${CONTEXT_NUMBER:-}"
+run_id="${RUN_ID:-}"
+workflow="${WORKFLOW:-devflow-implement.yml}"
 
 # Fail open on any missing prerequisite — we cannot reliably dedupe without all
 # three, and blocking a legitimate run on our own missing context is the worse
