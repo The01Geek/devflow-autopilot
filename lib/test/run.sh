@@ -3334,8 +3334,15 @@ assert_pin_red_on_removal "#362: generalized re-anchor resume directive flips RE
 
 # (2) Non-interactive self-answer rule — the orchestrator answers a nested skill's
 #     user-facing question itself on the cloud tier, and records the answer.
-assert_pin_unique "#362: self-answer rule keys on the non-interactive (GITHUB_ACTIONS) tier" \
-  'When the run is non-interactive' "$IMPL_ORCH"
+#     The tier gate is OPERATIVE, not framing: drop it and the rule would authorize an
+#     INTERACTIVE run to answer the user's questions for them without asking. So pin the
+#     `GITHUB_ACTIONS` keying itself — not just the prose lead-in, which a same-sentence
+#     edit could keep while swapping the gating env var — and prove it non-vacuous with a
+#     removal proof, like its three siblings below.
+assert_pin_unique "#362: self-answer rule keys on the non-interactive tier by GITHUB_ACTIONS" \
+  'When the run is non-interactive — `GITHUB_ACTIONS` is set (the cloud tier)' "$IMPL_ORCH"
+assert_pin_red_on_removal "#362: self-answer GITHUB_ACTIONS tier gate flips RED on removal" \
+  'When the run is non-interactive — `GITHUB_ACTIONS` is set (the cloud tier)' "$IMPL_ORCH"
 assert_pin_unique "#362: self-answer rule carries its operative answer directive" \
   'answer that question yourself on behalf of the user, using the issue description as the primary guide' "$IMPL_ORCH"
 assert_pin_unique "#362: self-answer rule requires recording each self-answered decision" \
@@ -18658,18 +18665,73 @@ assert_eq "#362 isg: non-numeric marker is left on disk" "yes" \
   "$([ -e "$ISG_D/.devflow/tmp/implement-active-not-a-number" ] && echo yes || echo no)"
 rm -rf "$ISG_D"
 
-# ── the two arms that drive the REAL workpad.py, against a gh stub (the #258
-# stub contract): a terminal workpad self-heals its marker; an interim one blocks.
+# ── allow: config-source.sh cannot be sourced (a partial-copy deployment — the guard
+# resolves it as a sibling of itself). The guard must fail OPEN, never abort non-zero.
+ISG_D="$(isg_repo "isg: unsourceable config-source arm")"
+mkdir -p "$ISG_D/lib" && cp "$ISG_SH" "$ISG_D/lib/"   # deliberately NO config-source.sh beside it
+ISG_ERR="$(mktemp)"
+( cd "$ISG_D" && printf '{"session_id":"sidL"}' | bash "$ISG_D/lib/implement-stop-guard.sh" ) >/dev/null 2>"$ISG_ERR"
+assert_eq "#362 isg: an unsourceable config-source.sh -> allow (exit 0, never a non-zero abort)" "0" "$?"
+assert_eq "#362 isg: unsourceable-config-source arm emits its own breadcrumb" "yes" \
+  "$(grep -qF 'could not source config-source.sh' "$ISG_ERR" && echo yes || echo no)"
+rm -f "$ISG_ERR"; rm -rf "$ISG_D"
+
+# ── allow + KEEP every marker: scripts/workpad.py is absent. `python3 <script>` exits 2
+# on an unopenable script — the same code workpad.py uses for "no workpad" — so without
+# the existence guard this arm would DELETE a live run's marker and silently disable the
+# backstop. Assert the marker survives.
+ISG_D="$(isg_repo "isg: absent workpad.py arm")"
+: > "$ISG_D/.devflow/tmp/implement-active-605"
+rm -f "$ISG_D/scripts/workpad.py"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidM"}')"
+assert_eq "#362 isg: absent scripts/workpad.py -> allow (exit 0)" "0" "${ISG_R%%|*}"
+assert_eq "#362 isg: absent-workpad.py arm emits its own breadcrumb" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'not found — cannot read any workpad' && echo yes || echo no)"
+assert_eq "#362 isg: an absent workpad.py NEVER deletes the marker (a missing helper is not an absent workpad)" "yes" \
+  "$([ -e "$ISG_D/.devflow/tmp/implement-active-605" ] && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# ── allow + KEEP the marker: workpad.py exits 0 but prints a class the guard does not
+# recognize (a future workpad.py contract break). Fail open rather than guess.
+ISG_D="$(isg_repo "isg: unrecognized status class arm")"
+cat > "$ISG_D/scripts/workpad.py" <<'STUB'
+#!/usr/bin/env python3
+print("weirdclass 🚀 Foo")
+STUB
+chmod +x "$ISG_D/scripts/workpad.py"
+: > "$ISG_D/.devflow/tmp/implement-active-606"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidN"}')"
+assert_eq "#362 isg: an unrecognized status class -> allow (exit 0, fail open)" "0" "${ISG_R%%|*}"
+assert_eq "#362 isg: unrecognized-class arm emits its own breadcrumb" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF "unrecognized class 'weirdclass'" && echo yes || echo no)"
+assert_eq "#362 isg: an unrecognized class keeps the marker" "yes" \
+  "$([ -e "$ISG_D/.devflow/tmp/implement-active-606" ] && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# ── the arms that drive the REAL workpad.py, against a gh stub (the #258 stub contract):
+# a terminal workpad self-heals its marker; an interim one blocks.
 ISG_GHD="$(mktemp -d)"
 cat > "$ISG_GHD/gh" <<'STUB'
 #!/usr/bin/env bash
-# Minimal gh stub for `workpad.py status`: repo resolution + one comments page
-# carrying the fixture workpad body (json-encoded via python3, so the body's
-# quotes/glyphs never traverse shell quoting).
+# gh stub for `workpad.py status`: repo resolution + one comments page carrying the
+# fixture workpad body for THE REQUESTED ISSUE (json-encoded via python3, so the body's
+# quotes/glyphs never traverse shell quoting). Keying the body on the issue number in the
+# request URL is load-bearing: an issue-agnostic stub would return the same status for
+# every marker, so the guard's marker->issue-number threading and its multi-marker scan
+# order could not be asserted at all.
 case "$*" in
   *"repo view"*) echo "owner/repo"; exit 0 ;;
   *comments*)
-    python3 -c 'import json,os,sys; sys.stdout.write(json.dumps([{"id":1,"body":open(os.environ["ISG_BODY"]).read()}]))'
+    python3 -c '
+import json, os, re, sys
+m = re.search(r"/issues/(\d+)/comments", " ".join(sys.argv[1:]))
+if not m:
+    sys.stdout.write("[]"); raise SystemExit(0)
+body = os.environ.get("ISG_BODY_" + m.group(1))
+if not body or not os.path.exists(body):
+    sys.stdout.write("[]"); raise SystemExit(0)   # no workpad for this issue -> status exit 2
+sys.stdout.write(json.dumps([{"id": 1, "body": open(body).read()}]))
+' "$@"
     exit 0 ;;
 esac
 echo '[]'
@@ -18696,7 +18758,7 @@ ISG_D="$(isg_repo "isg: terminal self-heal arm")"
 cp "$WP_PY" "$ISG_D/scripts/workpad.py"
 : > "$ISG_D/.devflow/tmp/implement-active-603"
 ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidG"}' \
-  "DEVFLOW_GH=$ISG_GHD/gh" "ISG_BODY=$ISG_GHD/terminal.md")"
+  "DEVFLOW_GH=$ISG_GHD/gh" "ISG_BODY_603=$ISG_GHD/terminal.md")"
 assert_eq "#362 isg: terminal workpad -> allow (exit 0)" "0" "${ISG_R%%|*}"
 assert_eq "#362 isg: terminal arm names the status word in its breadcrumb" "yes" \
   "$(printf '%s' "${ISG_R#*|}" | grep -qF 'is terminal (Complete)' && echo yes || echo no)"
@@ -18711,7 +18773,7 @@ cp "$WP_PY" "$ISG_D/scripts/workpad.py"
 : > "$ISG_D/.devflow/tmp/implement-active-603"
 chmod 555 "$ISG_D/.devflow/tmp"
 ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidK"}' \
-  "DEVFLOW_GH=$ISG_GHD/gh" "ISG_BODY=$ISG_GHD/terminal.md")"
+  "DEVFLOW_GH=$ISG_GHD/gh" "ISG_BODY_603=$ISG_GHD/terminal.md")"
 chmod 755 "$ISG_D/.devflow/tmp"
 assert_eq "#362 isg: an undeletable terminal marker still allows the stop (exit 0)" "0" "${ISG_R%%|*}"
 assert_eq "#362 isg: an undeletable marker is reported as NOT deleted (no success for work that did not happen)" "yes" \
@@ -18720,12 +18782,68 @@ assert_eq "#362 isg: the undeletable marker really is still on disk (the breadcr
   "$([ -e "$ISG_D/.devflow/tmp/implement-active-603" ] && echo yes || echo no)"
 rm -rf "$ISG_D"
 
+# ── multi-marker scan: the guard's header promises that a terminal marker earlier in scan
+# order is healed, the FIRST interim marker blocks, and markers after it are simply
+# re-scanned on a later Stop event (deferred, never lost). Markers glob in lexical order,
+# so 603 (terminal) precedes 604 (interim) precedes 607 (terminal). Asserting this needs an
+# issue-number-keyed gh stub: an issue-agnostic one returns the same status for every marker.
+cat > "$ISG_GHD/terminal607.md" <<'WPMD'
+<!-- devflow:workpad -->
+# DevFlow Workpad — Issue #607
+
+**Status:** 🎉 Complete
+**Last updated:** 2026-05-15T00:00:00Z
+WPMD
+ISG_D="$(isg_repo "isg: multi-marker scan order")"
+cp "$WP_PY" "$ISG_D/scripts/workpad.py"
+: > "$ISG_D/.devflow/tmp/implement-active-603"   # terminal, scanned first  -> healed
+: > "$ISG_D/.devflow/tmp/implement-active-604"   # interim,  scanned second -> blocks
+: > "$ISG_D/.devflow/tmp/implement-active-607"   # terminal, scanned third  -> deferred
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidP"}' "DEVFLOW_GH=$ISG_GHD/gh" \
+  "ISG_BODY_603=$ISG_GHD/terminal.md" "ISG_BODY_604=$ISG_GHD/interim.md" "ISG_BODY_607=$ISG_GHD/terminal607.md")"
+assert_eq "#362 isg: multi-marker — the first interim marker BLOCKS (exit 2)" "2" "${ISG_R%%|*}"
+assert_eq "#362 isg: multi-marker — the block names the interim issue (604), not an earlier terminal one" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF '#604' && echo yes || echo no)"
+assert_eq "#362 isg: multi-marker — a terminal marker EARLIER in scan order is healed before the block" "no" \
+  "$([ -e "$ISG_D/.devflow/tmp/implement-active-603" ] && echo yes || echo no)"
+assert_eq "#362 isg: multi-marker — the interim marker itself survives the block" "yes" \
+  "$([ -e "$ISG_D/.devflow/tmp/implement-active-604" ] && echo yes || echo no)"
+assert_eq "#362 isg: multi-marker — a terminal marker AFTER the block is deferred, not lost" "yes" \
+  "$([ -e "$ISG_D/.devflow/tmp/implement-active-607" ] && echo yes || echo no)"
+# The deferred heal really is only deferred: the next Stop event (same session, sentinel
+# present) still allows, and a later one with the interim marker gone heals 607.
+rm -f "$ISG_D/.devflow/tmp/implement-active-604" "$ISG_D/.devflow/tmp/stop-guard-sidP"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidQ"}' "DEVFLOW_GH=$ISG_GHD/gh" \
+  "ISG_BODY_607=$ISG_GHD/terminal607.md")"
+assert_eq "#362 isg: multi-marker — the deferred terminal marker heals on a later Stop event (exit 0)" "0" "${ISG_R%%|*}"
+assert_eq "#362 isg: multi-marker — the deferred heal actually removed marker 607" "no" \
+  "$([ -e "$ISG_D/.devflow/tmp/implement-active-607" ] && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# ── the issue-number threading is real: a marker whose issue has NO workpad (the stub
+# returns an empty comments page for it) heals as stale, while a sibling marker whose
+# issue DOES have an interim workpad blocks. An issue-agnostic stub could not tell these
+# apart, so this asserts the guard passes each marker's own issue number to workpad.py.
+ISG_D="$(isg_repo "isg: per-issue status threading")"
+cp "$WP_PY" "$ISG_D/scripts/workpad.py"
+: > "$ISG_D/.devflow/tmp/implement-active-608"   # no ISG_BODY_608 -> no workpad -> exit 2 -> stale heal
+: > "$ISG_D/.devflow/tmp/implement-active-609"   # interim
+sed 's/#604/#609/' "$ISG_GHD/interim.md" > "$ISG_GHD/interim609.md"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidR"}' "DEVFLOW_GH=$ISG_GHD/gh" \
+  "ISG_BODY_609=$ISG_GHD/interim609.md")"
+assert_eq "#362 isg: per-issue threading — the interim sibling still blocks (exit 2)" "2" "${ISG_R%%|*}"
+assert_eq "#362 isg: per-issue threading — the block names issue 609, proving the marker's own number was queried" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF '#609' && echo yes || echo no)"
+assert_eq "#362 isg: per-issue threading — the workpad-less marker 608 healed as stale" "no" \
+  "$([ -e "$ISG_D/.devflow/tmp/implement-active-608" ] && echo yes || echo no)"
+rm -rf "$ISG_D"
+
 # interim -> write the sentinel, print the instruction, exit 2 (BLOCK).
 ISG_D="$(isg_repo "isg: interim block arm")"
 cp "$WP_PY" "$ISG_D/scripts/workpad.py"
 : > "$ISG_D/.devflow/tmp/implement-active-604"
 ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidH"}' \
-  "DEVFLOW_GH=$ISG_GHD/gh" "ISG_BODY=$ISG_GHD/interim.md")"
+  "DEVFLOW_GH=$ISG_GHD/gh" "ISG_BODY_604=$ISG_GHD/interim.md")"
 assert_eq "#362 isg: interim workpad -> BLOCKS the stop (exit 2)" "2" "${ISG_R%%|*}"
 assert_eq "#362 isg: interim block names the issue number on stderr" "yes" \
   "$(printf '%s' "${ISG_R#*|}" | grep -qF '#604' && echo yes || echo no)"
@@ -18744,11 +18862,11 @@ assert_eq "#362 isg: interim block leaves the marker in place" "yes" \
 # though the workpad is still interim — a session that genuinely cannot
 # finalize is never trapped.
 ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidH"}' \
-  "DEVFLOW_GH=$ISG_GHD/gh" "ISG_BODY=$ISG_GHD/interim.md")"
+  "DEVFLOW_GH=$ISG_GHD/gh" "ISG_BODY_604=$ISG_GHD/interim.md")"
 assert_eq "#362 isg: second stop in the same session is allowed (exit 0)" "0" "${ISG_R%%|*}"
 # ...while a DIFFERENT session (its own sentinel absent) is still blocked once.
 ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidI"}' \
-  "DEVFLOW_GH=$ISG_GHD/gh" "ISG_BODY=$ISG_GHD/interim.md")"
+  "DEVFLOW_GH=$ISG_GHD/gh" "ISG_BODY_604=$ISG_GHD/interim.md")"
 assert_eq "#362 isg: a different session is still blocked once (exit 2)" "2" "${ISG_R%%|*}"
 rm -rf "$ISG_D"
 
@@ -18760,7 +18878,7 @@ cp "$WP_PY" "$ISG_D/scripts/workpad.py"
 : > "$ISG_D/.devflow/tmp/implement-active-604"
 chmod 555 "$ISG_D/.devflow/tmp"
 ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidJ"}' \
-  "DEVFLOW_GH=$ISG_GHD/gh" "ISG_BODY=$ISG_GHD/interim.md")"
+  "DEVFLOW_GH=$ISG_GHD/gh" "ISG_BODY_604=$ISG_GHD/interim.md")"
 chmod 755 "$ISG_D/.devflow/tmp"
 assert_eq "#362 isg: sentinel write failure -> allow (exit 0), never a sentinel-less block" "0" "${ISG_R%%|*}"
 assert_eq "#362 isg: sentinel-write-failure arm emits its own breadcrumb" "yes" \

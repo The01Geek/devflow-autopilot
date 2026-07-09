@@ -13,16 +13,19 @@
 # documented block (exit 2, the Stop-hook blocking code; sentinel written) OR an
 # allow (exit 0 + a stderr breadcrumb naming that specific arm):
 #
+#   allow  config-source.sh unsourceable   cannot resolve the repo root; nothing to guard
 #   allow  GITHUB_ACTIONS set              cloud tier has its own stall backstop
-#   allow  stdin unparseable / no usable   covers empty stdin, non-JSON, a non-object
-#          session_id                      value, an absent/blank/non-string session_id,
-#                                          a session_id unsafe as a filename component,
-#                                          and python3 being unavailable — none of them
-#                                          let the sentinel be safely keyed
 #   allow  no implement-active-* marker    the fast path every ordinary session takes:
 #                                          checked by a pure-bash glob, so it spawns no
 #                                          interpreter and queries no workpad
+#   allow  python3 unavailable             cannot parse the payload or read a workpad
+#   allow  stdin unparseable / no usable   covers empty stdin, non-JSON, a non-object
+#          session_id                      value, an absent/blank/non-string session_id,
+#                                          and a session_id unsafe as a filename component
+#                                          — none of them let the sentinel be safely keyed
 #   allow  this session's sentinel exists  at-most-one-block-per-session bound
+#   allow  scripts/workpad.py absent       every marker kept: a missing helper is an
+#                                          infrastructure fault, NOT an absent workpad
 #   allow  sentinel write fails            a sentinel-less block could re-block forever
 #   allow  marker suffix non-numeric       shape not understood; never queried, never deleted
 #   allow  workpad.py status exits 1 or 3  the workpad could not be read (unreadable /
@@ -33,6 +36,13 @@
 #
 # A heal whose `rm` fails says so and leaves the marker; it never reports a deletion that
 # did not happen, and the next Stop event simply retries the heal.
+#
+# Why the workpad.py existence check is load-bearing: `python3 <script>` itself exits 2 when
+# it cannot open the script, and argparse exits 2 on any usage error — the SAME code
+# workpad.py uses for "this issue has no workpad". Without the check, a missing or renamed
+# helper would be read as "stale marker" and DELETE it, silently disabling this backstop for
+# a live run. The check removes the missing-file path; a future argparse-usage drift is
+# caught instead by the real-workpad.py tests in lib/test/run.sh, which pin the CLI shape.
 #
 # The FIRST interim marker blocks and exits; any markers after it in scan order are
 # re-scanned on a later Stop event, so their self-heal is deferred, never lost.
@@ -89,11 +99,15 @@ if [ "${#MARKERS[@]}" -eq 0 ]; then
   exit 0
 fi
 
-# One python3 call covers every "cannot key the sentinel" shape. `command -v` gates
-# it so a host with no python3 lands here too, rather than on a raw exec error.
-SESSION_ID=""
-if command -v python3 >/dev/null 2>&1; then
-  SESSION_ID="$(printf '%s' "$STDIN_JSON" | python3 -c '
+# A python3-less host gets its own breadcrumb: folding it into the parse arm below would
+# point an operator at the hook payload when the real cause is a missing interpreter.
+if ! command -v python3 >/dev/null 2>&1; then
+  breadcrumb "python3 not found — cannot parse the hook payload or read a workpad, allowing stop (fail open)"
+  exit 0
+fi
+
+# One python3 call covers every remaining "cannot key the sentinel" shape.
+SESSION_ID="$(printf '%s' "$STDIN_JSON" | python3 -c '
 import json, sys
 try:
     data = json.load(sys.stdin)
@@ -104,7 +118,6 @@ if not isinstance(sid, str) or not sid.strip():
     sys.exit(1)
 sys.stdout.write(sid.strip())
 ' 2>/dev/null)"
-fi
 # The session id becomes a filename component, so anything outside this charset —
 # a path separator above all — is rejected rather than sanitized.
 case "$SESSION_ID" in
@@ -122,10 +135,20 @@ fi
 
 WORKPAD_PY="$ROOT/scripts/workpad.py"
 
-# heal_marker PATH ISSUE REASON — delete a marker and report honestly. `rm -f` hides a
-# failure (a read-only .devflow/tmp), and a breadcrumb claiming "deleted" for a marker
-# still on disk would report success for work that did not happen. Leaving it is harmless:
-# the next Stop event re-reads the same terminal workpad and retries the heal.
+# See the header note: `python3 <script>` exits 2 on an unopenable script, which is exactly
+# the code workpad.py uses for "no workpad on this issue" — the one arm that DELETES state.
+# Refuse to query at all rather than let a missing helper heal away a live run's marker.
+if [ ! -f "$WORKPAD_PY" ]; then
+  breadcrumb "$WORKPAD_PY not found — cannot read any workpad, keeping every marker, allowing stop (fail open)"
+  exit 0
+fi
+
+# heal_marker PATH ISSUE REASON — delete a marker and report honestly. A breadcrumb claiming
+# "deleted" for a marker still on disk would report success for work that did not happen, so
+# the outcome is read back from the filesystem rather than trusted from `rm`'s exit status
+# (`rm -f` reports success for an already-absent target, and a read-only `.devflow/tmp` is a
+# reachable failure the chmod-555 test exercises). Leaving the marker is harmless: the next
+# Stop event re-reads the same terminal workpad and retries the heal.
 heal_marker() {
   if rm -f "$1" 2>/dev/null && [ ! -e "$1" ]; then
     breadcrumb "issue #$2 $3 — deleted stale marker $1, continuing"
