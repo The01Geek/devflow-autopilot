@@ -4158,6 +4158,14 @@ sed 's/- \[ \] AC two/- [ ] AC two (post-merge)/' "$S338/base.md" > "$S338/base-
 # reason — staying green against a mutant that lets a reflection satisfy the guard (T4d).
 cp "$S338/base.md" "$S338/base-refl.md"
 printf '\n## Devflow Reflection\n- existing bullet\n' >> "$S338/base-refl.md"
+# A fixture whose AC two is already TICKED (`- [x]`). The retag guards must treat a
+# ticked row's tag exactly like an unticked one: `- [x]` rows are outside the Phase 3.4
+# terminal gate's population, but a `(post-merge)` tag landing on one is still a net-added
+# tagged row, and SKILL.md/DEVFLOW_SYSTEM_OVERVIEW both promise a crafted multi-pair
+# sequence that net-adds such a row is caught.
+sed 's/- \[ \] AC two/- [x] AC two/' "$S338/base.md" > "$S338/base-ticked.md"
+# ...and one whose ticked AC two is already tagged (for the tag-preserving no-false-fire control).
+sed 's/- \[ \] AC two/- [x] AC two (post-merge)/' "$S338/base.md" > "$S338/base-ticked-tagged.md"
 
 # run338 <body-file> <args...> → prints the exit code; leaves out/err/patchlog on disk.
 run338() {
@@ -4329,6 +4337,66 @@ assert_eq "#338(T7): the refusal is the state backstop's 'net-adds' abort, not a
 _c="$(run338 "$S338/base.md" --rewrite-ac "AC two" "(post-merge) AC two" \
   --rewrite-ac "(post-merge)" "AC two (post-merge)" --note "retro-tagged (genuinely-live): live endpoint")"
 assert_eq "#338(T7b): the same multi-pair retag WITH a --note succeeds (exit 0)" "0" "$_c"
+
+# T8 (single-pair append onto an already-TICKED row): the per-pair guard is tick-state
+# agnostic — it reasons over the row's LABEL text, which `_CHECKBOX_ROW_RE` exposes
+# independently of the `[ ]`/`[x]` state cell — so this is refused with no note. Behavior
+# was already correct but unpinned; without this a refactor that skipped `[x]` rows in the
+# per-pair guard (to "match" the backstop's old unticked-only population) would go
+# unnoticed by every other S338 test, all of which drive `- [ ]` rows.
+#
+# ATTRIBUTION IS LOAD-BEARING HERE, not decoration. Since the backstop now also counts
+# ticked rows, a mutant that skips `[x]` rows in the per-pair guard STILL exits non-zero
+# with no PATCH — the backstop catches it one step later. rc/no-PATCH assertions alone
+# therefore pass on the very mutant this test exists to kill. Pin the refusal to the
+# PER-PAIR guard: its message names the offending pair, and it never says `net-adds` (the
+# backstop's word). Both attribution assertions below independently kill that mutant — the
+# backstop's message omits the pair AND says `net-adds` — while the rc/no-PATCH assertions
+# alone stay GREEN on it. Note the backstop's message also contains the phrase
+# `no non-empty --note rationale`, so that substring alone does not discriminate; the
+# pair name is what does.
+_c="$(run338 "$S338/base-ticked.md" --rewrite-ac "AC two" "AC two (post-merge)")"
+assert_eq "#338(T8): a single-pair (post-merge) append onto a TICKED [x] row is refused (non-zero)" "no" \
+  "$([ "$_c" = "0" ] && echo yes || echo no)"
+assert_eq "#338(T8): the ticked-row single-pair refusal made NO PATCH" "yes" \
+  "$([ -s "$S338/patchlog" ] && echo no || echo yes)"
+assert_eq "#338(T8): the refusal is the PER-PAIR guard's (names the pair + rationale), not the backstop's" "yes" \
+  "$(grep -q 'AC two' "$S338/err" && grep -q 'no non-empty --note rationale' "$S338/err" && echo yes || echo no)"
+assert_eq "#338(T8): the per-pair guard — not the state backstop — refused (stderr has no 'net-adds')" "yes" \
+  "$(grep -q 'net-adds' "$S338/err" && echo no || echo yes)"
+
+# T8b (the ticked-row SHUTTLE — the fail-open this backstop population closes): the same
+# crafted two-pair shuttle as T7, aimed at an already-`[x]` row. Both pairs dodge the
+# per-pair guard exactly as in T7; with the backstop counting only UNTICKED rows the
+# tagged row landed with NO note and exit 0, silently falsifying SKILL.md's and
+# DEVFLOW_SYSTEM_OVERVIEW's promise that "a crafted multi-pair sequence that net-adds a
+# (post-merge) row is caught by the same rule". Counting post-merge-terminal rows across
+# EVERY tick state (`_count_post_merge_rows`) closes it. RED against the unticked-only
+# backstop; the 'net-adds' grep pins that the STATE BACKSTOP is what refuses it (T8 already
+# covers the per-pair path, so a refusal for the wrong reason would otherwise pass here).
+_c="$(run338 "$S338/base-ticked.md" --rewrite-ac "AC two" "(post-merge) AC two" \
+  --rewrite-ac "(post-merge)" "AC two (post-merge)")"
+assert_eq "#338(T8b): a multi-pair shuttle that net-adds (post-merge) onto a TICKED row is refused (non-zero)" "no" \
+  "$([ "$_c" = "0" ] && echo yes || echo no)"
+assert_eq "#338(T8b): the ticked-row shuttle refusal made NO PATCH (all-or-nothing)" "yes" \
+  "$([ -s "$S338/patchlog" ] && echo no || echo yes)"
+assert_eq "#338(T8b): the ticked-row shuttle refusal is the state backstop's 'net-adds' abort" "yes" \
+  "$(grep -q 'net-adds' "$S338/err" && echo yes || echo no)"
+# T8c (no false fire on the widened population): a tag-PRESERVING tweak on an already-tagged
+# TICKED row adds no tagged row, so the wider count must not fire — this is the assertion a
+# naive "count every tagged row and abort on any tagged row present" backstop would fail.
+_c="$(run338 "$S338/base-ticked-tagged.md" --rewrite-ac "AC two (post-merge)" "AC two reworded (post-merge)")"
+assert_eq "#338(T8c): a tag-preserving tweak on a TICKED tagged row still passes with no note (exit 0)" "0" "$_c"
+assert_eq "#338(T8c): the ticked tag-preserving rewrite PATCHed" "yes" \
+  "$([ -s "$S338/patchlog" ] && echo yes || echo no)"
+# T8d (no false fire): REMOVING the tag from a ticked tagged row decreases the count → passes.
+_c="$(run338 "$S338/base-ticked-tagged.md" --rewrite-ac "AC two (post-merge)" "AC two")"
+assert_eq "#338(T8d): removing the tag from a TICKED row passes with no note (exit 0)" "0" "$_c"
+
+# Source pin: the backstop's population spans every tick state. A revert to
+# `_unticked_rows(content)[1]` here re-opens the T8b ticked-row fail-open.
+assert_eq "#338: the retag backstop counts post-merge rows across every tick state" "yes" \
+  "$(grep -q 'pre_pm = _count_post_merge_rows(content)' "$WP_PY" && echo yes || echo no)"
 
 # Source pin: the rationale-required guard + its predicate live in workpad.py.
 assert_eq "#338: workpad.py carries the (post-merge)-retag rationale guard" "yes" \

@@ -1327,6 +1327,23 @@ def _unticked_rows(content: str) -> tuple[list[str], list[str]]:
     return non_pm, pm
 
 
+def _count_post_merge_rows(content: str) -> int:
+    """Count the `## Acceptance Criteria` checkbox rows whose text ends with the
+    `(post-merge)` marker, across EVERY tick state (`[ ]` and `[x]` alike).
+
+    This is the retag backstop's population, and it is deliberately WIDER than
+    `_unticked_rows`' (which is `[ ]`-only because the Phase 3.4 terminal gate
+    only reconciles still-unmet criteria). Counting only unticked rows would let a
+    crafted multi-pair shuttle land the marker on an already-`[x]` row with no
+    `--note` — a net-added `(post-merge)` row the backstop never sees — which is
+    exactly the shape SKILL.md and DEVFLOW_SYSTEM_OVERVIEW promise is caught.
+    Read-only — never mutates a row."""
+    return sum(
+        1 for line in content.splitlines()
+        if (m := _CHECKBOX_ROW_RE.match(line)) and _ends_with_post_merge(m.group(4))
+    )
+
+
 def _terminal_complete_gate(sections) -> list[str]:
     """Reconcile the workpad self-record on a terminal `--status Complete` write.
 
@@ -1485,16 +1502,20 @@ def _apply_mutations(body: str, args, failed_ticks) -> str:
         # doesn't end in the tag), pair 2 makes it terminal (`(post-merge)` ->
         # `X (post-merge)`, OLD ends in the tag) — could net-add a post-merge row
         # with no note and slip past. Compare the count of post-merge-terminal
-        # unticked rows before vs. after the whole loop: a net increase with no
-        # non-empty --note is a laundered deferral regardless of how the pairs were
-        # shaped, so abort here (still before any PATCH → all-or-nothing holds).
+        # rows before vs. after the whole loop: a net increase with no non-empty
+        # --note is a laundered deferral regardless of how the pairs were shaped,
+        # so abort here (still before any PATCH → all-or-nothing holds).
+        # The count spans EVERY tick state (`_count_post_merge_rows`, not
+        # `_unticked_rows`): an unticked-only population would miss the same
+        # shuttle aimed at an already-`[x]` row, which still net-adds a tagged row.
         # This is additive — it never fires on a call the per-pair guard already
         # caught, and it leaves the tag-preserving/tag-removing cases (no count
-        # increase) untouched. Residual known limitations (not closed here): a tag
-        # appended to an already-ticked `[x]` row is outside the unticked-row
-        # population, and a call that removes one tag while adding another nets to
-        # no increase — both far outside the natural single-retag flow.
-        pre_pm = len(_unticked_rows(content)[1])
+        # increase) untouched. Residual known limitation (not closed here): a call
+        # that removes the tag from one row while adding it to another nets to no
+        # increase — far outside the natural single-retag flow, and it un-defers
+        # the first criterion, which the terminal Complete gate then hard-fails
+        # unless it is ticked.
+        pre_pm = _count_post_merge_rows(content)
         for old, new in args.rewrite_ac:
             if not has_note:
                 # Resolve the row this pair targets with the rewriter's own
@@ -1511,7 +1532,7 @@ def _apply_mutations(body: str, args, failed_ticks) -> str:
                         f"(§3.4). No PATCH was made."
                     )
             content = _rewrite_checkbox(content, old, new, 'Acceptance Criteria')
-        if not has_note and len(_unticked_rows(content)[1]) > pre_pm:
+        if not has_note and _count_post_merge_rows(content) > pre_pm:
             raise _UpdateError(
                 f"a --rewrite-ac in this call net-adds a {_POST_MERGE_MARKER} "
                 f"criterion but no non-empty --note rationale was supplied; a "
