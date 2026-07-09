@@ -813,12 +813,14 @@ jobs:
               K=$((ATTEMPTS + 1))
               # The ONLY comment that may carry the trigger phrase. It must not
               # embed the workpad marker (the gate's self-trigger guard declines
-              # any comment containing it). Known accepted race: this comment is
-              # posted while the current run is still in_progress, so the new
-              # run's gate dedupe can classify it as a duplicate and skip — the
-              # audit comment remains as the visible record and a human re-post
-              # recovers; a dedupe carve-out is a deliberate follow-up, not
-              # silently assumed here.
+              # any comment containing it). This comment is posted while the
+              # current run is still in_progress; the new run's gate dedupe no
+              # longer classifies it as a duplicate, because the dedupe carve-out
+              # (issue #280 / PR #354) is now implemented: dedupe-implement-run.sh
+              # reads the triggering comment from GITHUB_EVENT_PATH and, seeing the
+              # stall-backstop-audit marker ($MARKER, above) this resume comment
+              # carries, skips deduping so the taking-over run proceeds instead of
+              # being swallowed as a duplicate of the still-finishing original.
               {
                 printf '%s\n\n' "$MARKER"
                 printf '**DevFlow stall backstop** — this cloud run ended while the workpad Status was still in-progress (`%s`). Auto-resume attempt %s of %s:\n\n' "$STATUS_OUT" "$K" "$MAX"
