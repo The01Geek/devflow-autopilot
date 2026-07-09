@@ -4177,6 +4177,26 @@ assert_eq "#338(T2): the same retag WITH a non-empty --note succeeds (exit 0)" "
 assert_eq "#338(T2): the with-note retag PATCHed the row with the (post-merge) tag" "yes" \
   "$([ -s "$S338/patchlog" ] && grep -q '\- \[ \] AC two (post-merge)' "$S338/out" && echo yes || echo no)"
 
+# T2b (note scope is the CALL, not the pair): the guard's documented contract is that ANY
+# one non-empty --note in the same update call satisfies it, whether or not the note is
+# *about* the retag — the note is appended to ## Progress, never bound to the rewritten
+# row, so the guard enforces that a rationale EXISTS for the retrospective auditor to
+# read, not that it is true or on-topic. This batched call carries a note describing the
+# OTHER pair (the plain AC one rewrite) and never mentions the tag or the retagged row,
+# and must still pass. Without this pin a refactor that bound the note to the specific
+# appending pair would tighten the contract past what workpad.py's guard comment,
+# SKILL.md, and docs/implement-skill.md all promise, while every other S338 test — whose
+# notes all happen to describe the retag itself — stayed green. Compare T5: the same
+# batched shape with NO note is refused.
+_c="$(run338 "$S338/base.md" --rewrite-ac "AC one" "AC one edited" \
+  --rewrite-ac "AC two" "AC two (post-merge)" \
+  --note "reworded the first criterion for clarity")"
+assert_eq "#338(T2b): an appending retag is satisfied by any non-empty --note in the call, even one about an unrelated pair (exit 0)" "0" "$_c"
+assert_eq "#338(T2b): the call-scoped-note retag PATCHed the (post-merge) row" "yes" \
+  "$([ -s "$S338/patchlog" ] && grep -q '\- \[ \] AC two (post-merge)' "$S338/out" && echo yes || echo no)"
+assert_eq "#338(T2b): the unrelated pair in the same call applied too" "yes" \
+  "$(grep -q '\- \[ \] AC one edited' "$S338/out" && echo yes || echo no)"
+
 # T3 (no false fire): OLD already ends with the tag → a text tweak needs no note.
 _c="$(run338 "$S338/base-tagged.md" --rewrite-ac "AC two (post-merge)" "AC two reworded (post-merge)")"
 assert_eq "#338(T3): a rewrite whose OLD already ends with (post-merge) passes with no note (exit 0)" "0" "$_c"
