@@ -739,6 +739,11 @@ jobs:
           # it). The dropped-resume and no-App-token aborts ARE fail-loud exits
           # despite living on the resume decision, so they flip: the resume did
           # not actually take, so no run is disarmed.
+          # Maintenance obligation of the positional guard: a trap would cover
+          # new exits automatically, but cannot (it would fire on the resume
+          # path). So every fail-loud exit ADDED to this step must call
+          # flip_to_failed itself — omitting the call silently regresses the
+          # flip on that arm.
           RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           flip_to_failed() {
             [ "${CLASS:-}" = "interim" ] || return 0
