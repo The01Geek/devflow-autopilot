@@ -10145,6 +10145,22 @@ for f in devflow-implement devflow; do
     "$(printf '%s\n' "$_co_blk" | grep -cF 'reviewer-token' || true)"
 done
 
+# ── actionlint's create-github-app-token carve-out stays NARROW (issue #357) ──
+# actionlint checks `with:` inputs against a BUNDLED snapshot of popular actions,
+# whose create-github-app-token entry predates v3's `client-id` (it still demands
+# the deprecated `app-id`). `.github/actionlint.yaml` ignores exactly those two
+# messages, each pinned to that one action by name. Pin the SHAPE of the carve-out
+# so it is never widened into a blanket "ignore unknown inputs" that would let a
+# genuine typo'd input reach a cloud run — the lint is the only gate that catches
+# those before deploy.
+_AL="$WF/../actionlint.yaml"
+assert_eq "actionlint-config: .github/actionlint.yaml exists" "yes" \
+  "$([ -f "$_AL" ] && echo yes || echo no)"
+assert_eq "actionlint-config: exactly 2 ignore entries" "2" \
+  "$(grep -cE "^      - '" "$_AL" || true)"
+assert_eq "actionlint-config: every ignore entry names actions/create-github-app-token" "2" \
+  "$(grep -E "^      - '" "$_AL" | grep -cF 'actions/create-github-app-token' || true)"
+
 # Explicit write-widening absence pins (belt to the exact-count braces above —
 # these name the two inputs that would let a downscoped site push or edit
 # workflows, per the issue's negative/security dimension).
