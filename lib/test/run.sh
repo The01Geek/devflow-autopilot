@@ -9739,6 +9739,42 @@ assert_eq "di: event-path comment without the stall marker dedupes normally" "du
      DEDUPE_RUNS_JSON='[{"databaseId":100,"displayTitle":"DevFlow implement (issue 42)","status":"in_progress"}]' \
      bash "$DIR" 2>/dev/null)"
 rm -f "$DI_EVT_YES" "$DI_EVT_NO"
+# 15c-err. Fail-open detection errors (issue #280 hardening): the marker probe reads a
+#      runner-provided payload, so a malformed/unreadable/missing GITHUB_EVENT_PATH must
+#      NOT be mistaken for a resume — it falls through to ordinary dedupe (duplicate=true
+#      when an older active peer exists). A genuine jq error (exit >1: bad JSON, empty
+#      file) additionally emits a ::warning:: so the swallow is visible; a marker merely
+#      ABSENT (jq exit 1) stays silent. All three run under set -euo pipefail without
+#      aborting. The older-active-peer fixture makes the fall-through observable as
+#      duplicate=true (a fail-open-to-dedupe result, not a bypass).
+DI_PEER='[{"databaseId":100,"displayTitle":"DevFlow implement (issue 42)","status":"in_progress"}]'
+DI_EVT_BAD="$(mktemp)"; printf '%s' 'not json{' > "$DI_EVT_BAD"
+# malformed payload → jq exit >1 → fall through to dedupe (duplicate=true) + ::warning::
+DI_BAD_ERR="$(mktemp)"
+assert_eq "di: malformed GITHUB_EVENT_PATH → not a resume, ordinary dedupe applies" "duplicate=true" \
+  "$(DEVFLOW_GH="$DI_STUB/gh" REPO=o/r RUN_ID=200 CONTEXT_NUMBER=42 GITHUB_EVENT_PATH="$DI_EVT_BAD" \
+     DEDUPE_RUNS_JSON="$DI_PEER" bash "$DIR" 2>"$DI_BAD_ERR")"
+assert_eq "di: malformed GITHUB_EVENT_PATH emits a ::warning:: (real error is not silent)" "1" \
+  "$(grep -c '::warning::dedupe: could not read the stall-resume marker' "$DI_BAD_ERR")"
+rm -f "$DI_EVT_BAD" "$DI_BAD_ERR"
+# unreadable path (nonexistent) → the [ -r ] guard skips the probe → dedupe, no warning
+DI_UNREAD_ERR="$(mktemp)"
+assert_eq "di: nonexistent GITHUB_EVENT_PATH → not a resume, ordinary dedupe applies" "duplicate=true" \
+  "$(DEVFLOW_GH="$DI_STUB/gh" REPO=o/r RUN_ID=200 CONTEXT_NUMBER=42 GITHUB_EVENT_PATH=/nonexistent/devflow-event.json \
+     DEDUPE_RUNS_JSON="$DI_PEER" bash "$DIR" 2>"$DI_UNREAD_ERR")"
+assert_eq "di: nonexistent GITHUB_EVENT_PATH emits no marker-read warning (guard skips probe)" "0" \
+  "$(grep -c 'could not read the stall-resume marker' "$DI_UNREAD_ERR")"
+rm -f "$DI_UNREAD_ERR"
+# well-formed JSON missing .comment.body → marker genuinely absent (jq exit 1) → dedupe,
+# no warning (an absent marker is the expected non-resume case, must stay silent).
+DI_EVT_NOBODY="$(mktemp)"; printf '%s' '{"issue":{"number":42}}' > "$DI_EVT_NOBODY"
+DI_NOBODY_ERR="$(mktemp)"
+assert_eq "di: valid payload with no .comment.body → ordinary dedupe applies" "duplicate=true" \
+  "$(DEVFLOW_GH="$DI_STUB/gh" REPO=o/r RUN_ID=200 CONTEXT_NUMBER=42 GITHUB_EVENT_PATH="$DI_EVT_NOBODY" \
+     DEDUPE_RUNS_JSON="$DI_PEER" bash "$DIR" 2>"$DI_NOBODY_ERR")"
+assert_eq "di: absent marker (jq exit 1) emits no warning (expected non-resume is silent)" "0" \
+  "$(grep -c 'could not read the stall-resume marker' "$DI_NOBODY_ERR")"
+rm -f "$DI_EVT_NOBODY" "$DI_NOBODY_ERR"
 # 15d. Coupled cross-file invariant (issue #280): the stall-resume marker the dedupe
 #      script keys on MUST stay identical to the marker the stall-backstop step
 #      writes into its resume comment. Assert the exact literal is present in both.

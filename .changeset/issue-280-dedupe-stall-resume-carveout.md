@@ -12,4 +12,6 @@ type: Fixed
   `<!-- devflow:stall-backstop-audit -->` marker every resume comment writes, skips deduping so
   the taking-over run proceeds. The detection lives entirely in the script (not a workflow env),
   so the fix needs no `.github/workflows/` change. The carve-out only ever fails open, so an
-  ordinary duplicate command is still deduped normally. (#280)
+  ordinary duplicate command is still deduped normally, and a genuine payload read/parse error
+  during marker detection now emits a `::warning::` (instead of being silently swallowed) while
+  still falling through to ordinary dedupe. (#280)

@@ -100,12 +100,25 @@ STALL_RESUME_MARKER='<!-- devflow:stall-backstop-audit -->'
 # gh — skips the (execution-verified) `gh --version` probe entirely.
 is_stall_resume="${IS_STALL_RESUME:-}"
 if [ -z "$is_stall_resume" ] && [ -n "${GITHUB_EVENT_PATH:-}" ] && [ -r "$GITHUB_EVENT_PATH" ]; then
-  # A parse/read failure here is non-fatal: it just leaves is_stall_resume empty,
-  # so the run falls through to ordinary dedupe (the pre-#280 behavior).
-  if "$DEVFLOW_JQ" -e --arg m "$STALL_RESUME_MARKER" \
-       '(.comment.body // "") | contains($m)' "$GITHUB_EVENT_PATH" >/dev/null 2>&1; then
+  # Distinguish jq exit 1 (marker genuinely ABSENT — the expected non-resume case,
+  # silent) from jq exit >1 (a REAL read/parse error — a malformed/empty payload).
+  # Both keep the fail-open direction (leave is_stall_resume empty, fall through to
+  # ordinary dedupe), but a real error is NOT silent: it emits a ::warning:: like
+  # every other error path here and the header contract, because a detection failure
+  # on a genuine resume that then dedupes to duplicate=true is the #268 swallow — it
+  # must be visible, not swallowed behind /dev/null. Same jq-stderr-capture discipline
+  # as the run-list dedupe below. This runs BEFORE the gh resolver, so a stall resume
+  # still skips the `gh --version` probe.
+  marker_err="$(mktemp)"
+  jq_rc=0
+  "$DEVFLOW_JQ" -e --arg m "$STALL_RESUME_MARKER" \
+    '(.comment.body // "") | contains($m)' "$GITHUB_EVENT_PATH" >/dev/null 2>"$marker_err" || jq_rc=$?
+  if [ "$jq_rc" -eq 0 ]; then
     is_stall_resume=true
+  elif [ "$jq_rc" -gt 1 ]; then
+    echo "::warning::dedupe: could not read the stall-resume marker from GITHUB_EVENT_PATH (jq: $(tr '\n' ' ' < "$marker_err")); treating as a non-resume, so ordinary dedupe applies." >&2
   fi
+  rm -f "$marker_err"
 fi
 
 if [ "$is_stall_resume" = "true" ]; then
