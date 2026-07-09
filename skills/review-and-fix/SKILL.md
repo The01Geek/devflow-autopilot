@@ -919,20 +919,40 @@ The run-scoped scratch under `.devflow/tmp/review/<slug>/<run-id>/` is gitignore
 # effectiveness-trace block's $WORKPAD_DIR is telemetry-gated, so it is not in scope here.
 WORKPAD_DIR=".devflow/tmp/review/<slug>/<run-id>"
 DURABLE=".devflow/logs/review/<slug>/<run-id>"
-# `compgen -G` both tests for and (on success) is the source of the .json matches, so the
-# unmatched-glob case (run dir exists but holds no .json — reachable only if iter-1's
-# best-effort write failed) short-circuits the copy entirely instead of passing a literal
-# `*.json` to cp and tripping a spurious failure warning under nullglob-off.
-if [ -d "$WORKPAD_DIR" ] && compgen -G "$WORKPAD_DIR"/*.json >/dev/null; then
+# Portability: this prose block runs under the AGENT's own shell (zsh on macOS, sometimes
+# dash/sh), NOT a bash-shebanged .sh — so no bash-only builtin (the glob-completion builtin,
+# shopt, [[ ]], or arrays), and every unquoted glob must survive zsh's default `nomatch`. The
+# old form used the bash-only glob-completion builtin here, unavailable under zsh/dash/sh. The guard turns nomatch off
+# under native zsh (a no-op under bash/sh/dash: $ZSH_VERSION is unset so `&&` short-circuits,
+# and `|| :` keeps it rc-0 under a future set -e); WITHOUT it an unmatched glob would abort
+# this whole block on zsh, making the skip breadcrumb below unreachable exactly when it is
+# needed. `set -- "$WORKPAD_DIR"/*.json` then both TESTS for matches and (on success) IS the
+# matched list in "$@": with nomatch off, an unmatched glob leaves $1 the literal pattern, so
+# `[ -e "$1" ]` is false — a definitive "no .json here" (no external tool whose absence could
+# fake it), short-circuiting the copy instead of passing a literal `*.json` to cp. The
+# unmatched case (run dir exists but holds no .json) is reachable only if iter-1's best-effort
+# write failed. Caveat: `[ -e "$1" ]` is false if the first match is a dangling symlink —
+# irrelevant for this DevFlow-controlled tmp dir; don't "fix" it into a portability
+# regression. `set --` clobbers the positional params, so $WORKPAD_DIR/$DURABLE are captured
+# into named vars above, BEFORE this line.
+[ -n "${ZSH_VERSION:-}" ] && setopt nonomatch || :
+set -- "$WORKPAD_DIR"/*.json
+if [ -d "$WORKPAD_DIR" ] && [ -e "$1" ]; then
   # Best-effort (never aborts the loop), but log on failure rather than swallowing it
   # with a bare `|| true` — a denied mkdir/cp (read-only FS, ENOSPC, perms) should leave
   # a breadcrumb, matching the effectiveness-trace block's posture, so a missing durable
   # copy isn't discovered only when someone later goes looking for it. Capture the real
   # mkdir/cp stderr into the warning rather than `2>/dev/null`-ing it, so the breadcrumb
-  # names the actual reason (ENOSPC/perms) instead of just asserting failure.
-  if ! cp_err="$( { mkdir -p "$DURABLE" && cp -p "$WORKPAD_DIR"/*.json "$DURABLE"/; } 2>&1 )"; then
+  # names the actual reason (ENOSPC/perms) instead of just asserting failure. Copy "$@"
+  # (the matched list from `set --`), never a re-globbed literal.
+  if ! cp_err="$( { mkdir -p "$DURABLE" && cp -p "$@" "$DURABLE"/; } 2>&1 )"; then
     echo "::warning::durable workpad copy failed ($WORKPAD_DIR -> $DURABLE): ${cp_err:-unknown}; best-effort, loop continues"
   fi
+else
+  # Skip path made observable (best-effort contract: always exit 0, but ALWAYS leave a
+  # specific breadcrumb) so a silently-skipped durable copy can never recur. The nomatch
+  # guard above is what makes this branch REACHABLE on zsh when the glob is unmatched.
+  echo "::warning::durable workpad copy skipped: $WORKPAD_DIR absent or holds no *.json (iter-1 best-effort write failed earlier?); best-effort, loop continues" >&2
 fi
 ```
 
