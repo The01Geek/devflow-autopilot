@@ -4,6 +4,61 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.92] — 2026-07-09
+
+### Changed
+- **`/devflow:implement` now requires a recorded pre-merge probe of observable preconditions before any `(post-merge)` acceptance-criteria deferral.** The Phase 3.4 gate's genuinely-live test was whole-criterion binary, so a criterion could be tagged `(post-merge)` while carrying a pre-merge-observable precondition that was already false (the failure behind PR #301's post-merge release-pipeline break on `main`). The gate now states a single **Pre-merge probe contract** in `skills/implement/phases/phase-3-review.md` — decompose a criterion into pre-merge-observable preconditions and genuinely-live residue, probe each precondition read-only (folding in any failure mode the linked issue's Potential Gotchas / Implementation Notes names for its mechanism), and record each probe command and observed result in the deferral `--note` (or the explicit "no pre-merge-observable precondition" finding). An observed-cannot-succeed probe routes to a pre-merge fix or the Blocked path — never a deferral — and a new red-flags STOP entry forbids that launder; a denied probe is recorded as denied and does not block, and a passed probe never ticks the AC box. The Phase 1.2 partial-live rule in `skills/implement/phases/phase-1-setup.md` references the same contract so tag-time and retag-time deferrals carry an identical obligation. (#348)
+
+### Fixed
+- **`workpad.py` and `match-deferrals.py` now fail fast with an actionable `Python 3.11+ required` error on pre-3.11 interpreters.** Both helpers annotate functions with PEP 604 unions (`str | None`), which any interpreter older than 3.10 evaluates at definition time and dies on with a raw `TypeError` traceback naming neither the cause nor the remedy. Each helper now carries a `sys.version_info < (3, 11)` gate immediately after its import block — before any annotation is evaluated — that prints one plain-ASCII stderr line naming the running version, the `Python 3.11+ required` floor, and the `scripts/provision-python3-shim.sh` / `docs/install.md` remedy, then exits 1. On Python 3.11+ (the declared floor, unchanged) behavior is identical. Also corrects the stale `config.schema.json`, `CLAUDE.md`, and `skills/init` claims that `workpad.py` needs PyYAML — it is stdlib-only; the lazy-yaml helpers are `match-deferrals.py` and `consolidate-changesets.py`. (#343)
+
+## [2.8.91] — 2026-07-09
+
+### Fixed
+- **Collapse duplicate workflow runs to the latest per `(workflow_id, event)` group in the review CI-green gate.** `scripts/derive-review-preconditions.sh` now collapses the non-self Actions runs on a PR head to the highest-`run_number` run per `(workflow_id, event)` group before gating, so a superseded non-green run — an approval-gated re-dispatch, a rapid double-fire, or a cancelled sibling — no longer wedges `Devflow Review` behind a permanently-deferred required check once a newer run of the same workflow+event has passed. A non-self run missing a numeric `workflow_id`/`run_number` or a string `event` fails closed as `unverifiable` (never a dropped signal), and a run still awaiting manual approval (conclusion `action_required`) defers with a new, distinct `ci-approval-required` reason. (The matching plain-language check title for `ci-approval-required` is a coupled `.github/workflows/` change tracked as a follow-up, since a GitHub App token cannot push workflow files; until it lands the reason still defers correctly under the generic deferral title.) (#352)
+
+## [2.8.90] — 2026-07-09
+
+### Changed
+- **The cloud tier's App-token mints now pass `client-id` instead of the deprecated `app-id`
+  input.** `actions/create-github-app-token@v3` emits `Input 'app-id' has been deprecated with
+  message: Use 'client-id' instead.` on every mint. All nine mint steps across
+  `devflow-implement.yml` (3), `devflow.yml` (4), `devflow-runner.yml` (1), and
+  `version-consolidate.yml` (1) now use `client-id:`, sourced from the unchanged
+  `vars.DEVFLOW_APP_ID` / `vars.DEVFLOW_REVIEWER_APP_ID` repository variables — the variable
+  names, the opt-in `!= ''` gates, the `permission-*` downscopes, and the fail-loud contract
+  are all untouched, so no consumer action is required. `lib/test/run.sh`'s two coupled
+  literal pins (primary + reviewer mint sites) move with them. `docs/cloud-setup.md` now names
+  the App's **client ID** as the variable's value, since `client-id` is the input it feeds.
+
+### Fixed
+- **Cloud writers now actually push under the configured GitHub App, so `/devflow:implement`
+  and `/devflow:review-and-fix` can finally land `.github/workflows/` changes.** The push
+  credential is the one `actions/checkout` persists — **not** the `github_token` handed to
+  `claude-code-action`. `actions/checkout@v6` stopped writing its auth header into
+  `.git/config` and now writes `http.<server>/.extraheader` to an external config file wired
+  in via `includeIf.gitdir:` (covering `.git/worktrees/*`), so `claude-code-action`'s
+  `git config --unset-all http.<server>/.extraheader` — which searches only `.git/config` —
+  clears nothing, and the surviving preemptive `Authorization:` header outranks the App token
+  that action embeds in `origin`'s URL. Every push in both writer jobs therefore
+  authenticated as `github-actions[bot]`, a GitHub App holding no `workflows` permission:
+  ordinary pushes succeeded and only `.github/workflows/` pushes died with `refusing to allow
+  a GitHub App to create or update workflow … without workflows permission`, which is why the
+  failure was repeatedly misread as a missing App permission. The writer mint now runs
+  **before** `actions/checkout` in `devflow-implement.yml`'s `claude` job and `devflow.yml`'s
+  `command` job, and is passed to it as
+  `token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}` — mirroring
+  `version-consolidate.yml`, the one job that already did this and the only one whose pushes
+  were correctly attributed to `devflow-autopilot[bot]`. Unset-App behavior is byte-for-byte
+  unchanged (mint skipped → `GITHUB_TOKEN`, which is also checkout's own default), and on a
+  `/devflow:review` command the writer mint stays skipped so the checkout falls back to
+  `GITHUB_TOKEN` rather than receiving the read-only `DevFlow-Reviewer` token — preserving the
+  #300 review-identity split. `lib/test/run.sh` pins both halves per pushing job (mint
+  precedes checkout; checkout consumes the app token with the `GITHUB_TOKEN` fallback; the
+  reviewer token is never a checkout credential), each mutation-checked RED against the
+  pre-fix layout. `docs/cloud-setup.md` documents why the checkout token, not `github_token`,
+  is the push credential. (#357)
+
 ## [2.8.89] — 2026-07-09
 
 ### Added

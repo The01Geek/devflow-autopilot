@@ -154,7 +154,7 @@ create a GitHub App, install it on the repo, and configure:
 
 | Kind | Name | Value |
 |---|---|---|
-| Repository **variable** | `DEVFLOW_APP_ID` | The App's ID (or client ID). |
+| Repository **variable** | `DEVFLOW_APP_ID` | The App's client ID. |
 | Repository **secret** | `DEVFLOW_APP_PRIVATE_KEY` | The App's PEM private key. |
 
 The App must be **installed on the repo** with **`Contents: write`**,
@@ -179,6 +179,21 @@ ignores the job's `permissions:` block):
 | Trigger reactions + notices (`devflow.yml` / `devflow-implement.yml` `gate`, `devflow.yml` `review_dedupe`) | `issues: write` and/or `pull-requests: write` | add reactions, post notice comments — nothing more |
 
 The **review agent** (`devflow-runner.yml`'s automated review, and `devflow.yml`'s manual `/devflow:review` command) is the one exception: it runs under a **separate** `DevFlow-Reviewer` App, not the primary one — see [The dedicated DevFlow-Reviewer app](#the-dedicated-devflow-reviewer-app-review-identity) below.
+
+In the two **writer** jobs the App token is minted *before* `actions/checkout` and
+passed to it as `token:`. This is load-bearing, not stylistic: the credential
+`actions/checkout` persists — not the `github_token` handed to
+`claude-code-action` — is what the agent's `git push` authenticates with.
+`checkout@v6` writes its auth header to an external config file included via
+`includeIf.gitdir:` rather than into `.git/config`, so `claude-code-action`'s
+attempt to clear that header finds nothing, and the header it leaves behind
+outranks the token that action embeds in `origin`'s URL. An unseeded checkout
+therefore pushes as `github-actions[bot]`, which holds no `workflows`
+permission — every ordinary push succeeds and only `.github/workflows/` pushes
+fail, with `refusing to allow a GitHub App to create or update workflow …
+without workflows permission`. Seeding the checkout puts the App token in that
+header instead. When the App is unset the mint is skipped and the checkout
+falls back to `GITHUB_TOKEN`, exactly as checkout would default on its own.
 
 Every primary-App mint step is gated on `vars.DEVFLOW_APP_ID != ''`, so it is skipped
 when the variable is unset and each consumer falls back to `GITHUB_TOKEN` (the two
