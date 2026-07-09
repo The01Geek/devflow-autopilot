@@ -3305,8 +3305,11 @@ assert_pin_unique "#232: orchestrator mirror keeps the AC4 Phase-4.1-only scope 
 assert_pin_red_on_removal "#232: orchestrator AC4 scope mirror flips RED on removal" \
   'scoped to the Phase 4.1 docs subagent return only, not the Phase 2/3 returns' "$IMPL_ORCH"
 # ── issue #366: guard /devflow:implement against a nested-Skill tail-call early-stop.
-# Three prose contracts in the always-resident orchestrator ($IMPL_ORCH) plus one coupled
-# CLAUDE.md bullet. Each operative sentence is pinned with assert_pin_unique (exactly-once)
+# Four prose contracts in the always-resident orchestrator ($IMPL_ORCH) — the completion
+# re-anchor, the exclusionary Skill rule, the carve-out's SKILL.md sentence, and the
+# terminal-status self-check — one of which (the carve-out) is a coupled pair whose other
+# half is a CLAUDE.md Conventions bullet pinned against the CLAUDE.md path.
+# Each operative sentence is pinned with assert_pin_unique (exactly-once)
 # and mutation-checked with assert_pin_red_on_removal (PASS->FAIL on removal), each passing
 # its file explicitly because assert_pin_red_on_removal defaults its file arg to $MAXI_SKILL.
 # (a) Skill-completion re-anchor trigger — completion-anchored, never re-invoke, orchestrator-resident.
@@ -3342,6 +3345,19 @@ assert_pin_unique "#366: CLAUDE.md carve-out bullet mirrors the SKILL rule (coup
   'is made **directly by the orchestrator**, citing this carve-out and recording it in the workpad, **never** by invoking' "$LIB/../CLAUDE.md"
 assert_pin_red_on_removal "#366: CLAUDE.md carve-out bullet flips RED on removal" \
   'is made **directly by the orchestrator**, citing this carve-out and recording it in the workpad, **never** by invoking' "$LIB/../CLAUDE.md"
+# (c') the AC4 WIDENING arm — the carve-out must cover a review finding *or the issue's own
+# acceptance criteria*. A partial narrowing edit that strikes only the widening clause (reverting
+# to the pre-#366 review-findings-only form) leaves the (c) substrings intact, so pin the widening
+# clause on BOTH files so un-widening either side flips RED. Literal is apostrophe-free (stops before
+# "issue's") per the CLAUDE.md single-quote/apostrophe gotcha.
+assert_pin_unique "#366: SKILL carve-out is widened to cover the issue's own ACs (AC4 widening arm)" \
+  'whether by a Phase-3 review finding **or by the issue' "$IMPL_ORCH"
+assert_pin_red_on_removal "#366: SKILL carve-out widening arm flips RED on removal" \
+  'whether by a Phase-3 review finding **or by the issue' "$IMPL_ORCH"
+assert_pin_unique "#366: CLAUDE.md carve-out bullet carries the same AC4 widening arm (coupled)" \
+  'whether by a Phase-3 review finding **or by the issue' "$LIB/../CLAUDE.md"
+assert_pin_red_on_removal "#366: CLAUDE.md carve-out widening arm flips RED on removal" \
+  'whether by a Phase-3 review finding **or by the issue' "$LIB/../CLAUDE.md"
 # (d) Terminal-status self-check: read Status immediately before run-final message + accurate backstop citation.
 assert_pin_unique "#366: SKILL self-check reads Status immediately before any run-final message (operative)" \
   'read the workpad `Status` line immediately before emitting any run-final message' "$IMPL_ORCH"
