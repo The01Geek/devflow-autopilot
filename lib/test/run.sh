@@ -2735,7 +2735,7 @@ assert_pin_unique "#235 (B) phase-3.3: the no-inputs case emits the dropped-fail
 # 3 occurrences). The scan uses a fixed-string (`-lF`) match on the literal `compgen`, so it
 # matches ONLY that token — never the docs-family `[[…_DOC_LOCATION]]` placeholders (a naive
 # bash-construct blacklist that included `[[` would false-positive on those; this does not).
-CG_PAT="comp""gen"   # split so this guard file does not itself appear as a skills/ match target (belt-and-braces; the scan is skills/-scoped anyway)
+CG_PAT="compgen"   # the scan is skills/-scoped and this guard file lives under lib/test/, so run.sh naming the token here can never be a match target
 compgen_scan() {  # repo-root -> empty on clean, offending file list on a hit, sentinel on a git error
   local root="$1" hits rc
   # `git -C "$root"` keeps git the only rc-bearing command (a `cd && git grep` would
