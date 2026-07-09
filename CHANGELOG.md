@@ -4,6 +4,25 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.98] — 2026-07-09
+
+### Fixed
+- **Skill prose bash blocks no longer rely on the bash-only `compgen` builtin or unguarded glob expansion, so they behave correctly under non-bash agent shells (macOS zsh, dash, POSIX sh).** The three agent-executed prose blocks that used `compgen -G` — the durable-workpad-copy block in `skills/review-and-fix/SKILL.md` and the pre-loop snapshot + no-inputs detector in `skills/implement/phases/phase-3-review.md` — are rewritten to the portable positional-parameter idiom (`set -- <glob>; [ -e "$1" ]`) behind a `[ -n "${ZSH_VERSION:-}" ] && setopt nonomatch || :` guard that neutralizes zsh's default `nomatch` glob-abort. The durable-copy block now emits a specific stderr breadcrumb when it skips (dir absent or holds no `*.json`), so a silently-lost durable workpad copy can never recur; the no-inputs detector now structurally distinguishes a genuinely-empty result (`[ ! -e "$1" ]`) from a failed enumeration, eliminating the false `dropped-failed` telemetry-loss reflection (and the unnecessary LLM retrospective it forced) that fired on every non-bash-shell run. A mutation-checked `lib/test/run.sh` regression pin now keeps `compgen` out of `skills/` prose (`lib/**`/`scripts/**` bash-shebanged `.sh` files exempt), and the two existing site pins are rewritten to the portable form. (#365)
+
+## [2.8.97] — 2026-07-09
+
+### Fixed
+- **Guard `/devflow:implement` against nested-Skill tail-call early-stops.** The implement
+  orchestrator now carries a **Nested-skill completion re-anchor** (after completing any nested
+  skill's procedure, re-`Read` the current phase file and resume the interrupted step, never
+  re-invoking the nested skill) and an **exhaustive, exclusionary Skill rule** that forbids
+  invoking any approval-gated or interactive skill (e.g. `claude-md-management:revise-claude-md`,
+  the `superpowers` `brainstorming` skill) mid-run, so a nested skill's interactive terminal step can no
+  longer become the run's terminal step and freeze the workpad at an in-progress `Status`. A
+  scoped carve-out lets an autonomous run make a required `CLAUDE.md` edit directly, and the
+  Terminal-status self-check now reads the workpad `Status` immediately before any run-final
+  message. Runner-agnostic prose only — no Claude Code `Stop` hook. (#366)
+
 ## [2.8.96] — 2026-07-09
 
 ### Added

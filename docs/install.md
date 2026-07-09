@@ -6,6 +6,13 @@ The [README quick start](../README.md#quick-start) gets you running in one line.
 
 DevFlow is published as a Claude Code plugin from this repository, which is also its own marketplace.
 
+> [!TIP]
+> **Just ask your agent.** Paste this into Claude Code and it performs the whole install for you — the two plugin commands *and* the PATH dependencies `/plugin install` doesn't cover (see [the step people miss](#the-step-people-miss-pyyaml)):
+>
+> ```text
+> Read https://github.com/The01Geek/devflow-autopilot#quick-start and install DevFlow and its dependencies.
+> ```
+
 **In your terminal** (two commands — run them in order; works in any shell, including PowerShell and fish that don't support `&&` chaining):
 
 ```bash
