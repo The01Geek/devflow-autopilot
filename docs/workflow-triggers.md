@@ -57,12 +57,9 @@ PR. Its trigger policy (issue #304):
   required check does not block merge — pair it with branch protection's "require
   branches up to date" if staleness must hard-block). A surviving run awaiting
   manual approval (conclusion `action_required`) defers with the distinct reason
-  `ci-approval-required`. Once `devflow-review.yml`'s `create_check` title arm for
-  that reason lands (a `workflows`-scoped change tracked as a follow-up — a GitHub
-  App token cannot push `.github/workflows/`), the neutral check reads **"Devflow
-  review waiting: CI approval required"** rather than the opaque "other CI not
-  green"; until then the reason still defers correctly but renders under the
-  generic deferral title.
+  `ci-approval-required`, and `devflow-review.yml`'s `create_check` title arm maps
+  it to the plain-language neutral check **"Devflow review waiting: CI approval
+  required"** rather than the opaque "other CI not green".
 - **CI-completion re-trigger.** A review deferred behind `require_ci_green` (or
   `require_up_to_date`) auto-re-fires once the PR becomes reviewable — via the
   `workflow_run` (Actions CI) and `check_suite` (external CI) `completed` events,

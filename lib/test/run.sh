@@ -9218,12 +9218,35 @@ REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREE
 REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
   DRP_CHECKS='{"check_runs":[{"name":"ext","app":{"slug":"circleci"},"status":"completed","conclusion":"action_required"}]}' \
   drp "#351 external check run action_required (signal-set 3, shared gate) -> false ci-approval-required" "false ci-approval-required"
-# NOTE: the devflow-review.yml create_check title-arm pin (AC10) and the
-# deferral-SUMMARY 'cancelled sibling run' removal pin (AC13) are the coupled
-# WORKFLOW half of #351. They are deferred to a follow-up landed by a human/PAT,
-# because a GitHub App installation token cannot push a .github/workflows/ change
-# (CLAUDE.md: workflow changes land via a human/PAT, not an agent run). The two
-# static grep pins move with that workflow change so they land in the same commit.
+# #353 (coupled WORKFLOW half of #351's ci-approval-required, landed via human/PAT):
+# the devflow-review.yml create_check title-arm pin and the deferral-SUMMARY
+# 'cancelled sibling run' removal pin. These two static grep pins move with the
+# workflow change so they land in the same commit as the case arm they assert.
+# AC10: the create_check title `case` maps ci-approval-required to the exact title.
+assert_pin_unique "#353 create_check maps ci-approval-required to its exact title" \
+  "ci-approval-required) TITLE='Devflow review waiting: CI approval required'" \
+  "$LIB/../.github/workflows/devflow-review.yml"
+# AC13-guard: the absence pin below reads "no" both when the phrase is truly
+# gone AND when the workflow file is missing/renamed/unreadable (a failed grep
+# also yields "no", the expected value) — the repo's vacuous-pin/fail-open bug
+# class. This existence pin makes the absence assertion fail CLOSED on a missing
+# target INDEPENDENTLY of AC10's uniqueness pin, so a future edit that relocates
+# AC10 cannot silently re-open the hole. The operand is the deterministic
+# `[ -f FILE ]` test (yes on a present file, no otherwise); assert_eq expects
+# "yes", so a renamed/removed target flips it to "no" and the suite goes RED.
+assert_eq "#353 devflow-review.yml exists (AC13 absence-pin fail-closed backstop)" "yes" \
+  "$([ -f "$LIB/../.github/workflows/devflow-review.yml" ] && echo yes || echo no)"
+# AC13-guard fail-closed proof: the existence idiom yields "no" on a
+# missing/renamed target (the absent-operand shape), so the assert_eq above
+# would go RED rather than pass vacuously if the workflow file ever moves.
+assert_eq "#353 existence idiom fails closed on a missing workflow file" "no" \
+  "$([ -f "$LIB/../.github/workflows/devflow-review-DOES-NOT-EXIST.yml" ] && echo yes || echo no)"
+# AC13: the deferral SUMMARY no longer cites a cancelled sibling run as a
+# permanently-stuck signal (the #351 collapse now auto-resolves the superseded
+# cancelled-sibling case), so the phrase must be GONE (expected no). The
+# existence pin above closes the vacuous-pass hole (file present is proven).
+assert_eq "#353 deferral SUMMARY no longer cites 'cancelled sibling run'" "no" \
+  "$(grep -qF 'cancelled sibling run' "$LIB/../.github/workflows/devflow-review.yml" && echo yes || echo no)"  # raw-guard-ok: absence pin: asserts the removed phrase is GONE (expected no)
 rm -f "$DRP_STUB"
 
 # ────────────────────────────────────────────────────────────────────────────
