@@ -42,10 +42,21 @@ PR="${1:-}"
 MARKER="${2:-}"
 CAUSE="${3:-review run ended without a verdict}"
 
+# `workpad.py id` declares its issue arg `type=int`, so ARGPARSE also exits 2 on a
+# usage error — the same code `cmd_id` uses for "scanned cleanly, no match". Keep the
+# rc-2 arm below unambiguous by refusing a non-numeric PR here, so the only rc 2 that
+# can reach it is the genuine comment-absent one (a guard's accepted-input set must be
+# a subset of its consumer's contract, not wider).
 if [ -z "$PR" ] || [ -z "$MARKER" ]; then
   echo "flip-review-progress-failed: usage: flip-review-progress-failed.sh <pr_number> <marker> <cause>; missing pr number or marker — no-op" >&2
   exit 0
 fi
+case "$PR" in
+  *[!0-9]*)
+    echo "flip-review-progress-failed: usage: pr number '${PR}' is not numeric — no-op (refusing it here keeps 'workpad.py id' rc 2 unambiguous: argparse also exits 2 on a usage error)" >&2
+    exit 0
+    ;;
+esac
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKPAD="$HERE/workpad.py"

@@ -4313,6 +4313,21 @@ WP_PATCHLOG="$S356/patchlog" DEVFLOW_GH="$S356/gh" \
 assert_eq "#356 flip: exits 0 with a missing marker" "0" "$_fc"
 assert_eq "#356 flip: missing-marker arm makes NO PATCH" "yes" \
   "$([ -s "$S356/patchlog" ] && echo no || echo yes)"
+assert_eq "#356 flip: missing-marker breadcrumb names the usage arm" "yes" \
+  "$(grep -qi 'missing pr number or marker' "$S356/ferr" && echo yes || echo no)"
+
+# (non-numeric pr) `workpad.py id` declares its issue arg type=int, so ARGPARSE also
+# exits 2 on a usage error — the same rc cmd_id uses for "scanned cleanly, no match".
+# The helper must refuse a non-numeric PR before the id call, so the rc-2 arm stays
+# unambiguous and a malformed invocation is never reported as "comment-absent".
+: > "$S356/patchlog"
+WP_BODY="$S356/rev-interim.md" WP_PATCHLOG="$S356/patchlog" DEVFLOW_GH="$S356/gh" \
+  bash "$FLIP_SH" "not-a-number" "$RMARK" "job died" >/dev/null 2>"$S356/ferr"; _fc=$?
+assert_eq "#356 flip: exits 0 on a non-numeric pr number" "0" "$_fc"
+assert_eq "#356 flip: non-numeric pr makes NO PATCH" "yes" \
+  "$([ -s "$S356/patchlog" ] && echo no || echo yes)"
+assert_eq "#356 flip: a non-numeric pr is NOT reported as 'comment-absent'" "yes" \
+  "$(grep -qi 'not numeric' "$S356/ferr" && ! grep -qi 'comment-absent' "$S356/ferr" && echo yes || echo no)"
 
 # Helper contract pins: SPDX header + always-exit-0 + routes via workpad.py (no bare gh).
 assert_eq "#356 flip: helper carries the SPDX header" "yes" \
