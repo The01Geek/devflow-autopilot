@@ -4227,7 +4227,8 @@ assert_pin_unique "#254: Pass 4 treats a MERGED dependency as satisfied (landed 
 # (cloud-tier AND DEVFLOW_APP_ID empty), never on tier alone.
 # Pin the Pass 5 heading removal-proof, plus its operative
 # contracts (non-exhaustive; each pin below names its own): among them the
-# static-not-a-live-probe rule, the tier-keyed (not path-keyed) decision, the
+# static-not-a-live-probe rule, the credential-capability-keyed (not tier- or
+# path-keyed) decision, the
 # repo-own-vs-vendored carve-out, the coupled-CI-pin-blocked-with-it rule, the
 # cloud-tier defer reflection, the all-blocked → Blocked-path arm (the most
 # safety-relevant route — it declines the issue up front, opening no PR), and the
