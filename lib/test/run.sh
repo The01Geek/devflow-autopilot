@@ -18554,8 +18554,11 @@ assert_eq "#362 isg: GITHUB_ACTIONS arm emits its own breadcrumb" "yes" \
   "$(printf '%s' "${ISG_R#*|}" | grep -qF 'GITHUB_ACTIONS is set' && echo yes || echo no)"
 rm -rf "$ISG_D"
 
-# ── allow: stdin is not parseable JSON ──────────────────────────────────────
+# ── allow: stdin is not parseable JSON. A marker is present, so the cheaper
+# no-marker arm cannot pre-empt this one (arm order: glob, THEN session-id parse).
 ISG_D="$(isg_repo "isg: unparseable stdin arm")"
+isg_stub_workpad "$ISG_D" 0
+: > "$ISG_D/.devflow/tmp/implement-active-598"
 ISG_R="$(isg_run "$ISG_D" 'not json {{{' )"
 assert_eq "#362 isg: unparseable stdin -> allow (exit 0)" "0" "${ISG_R%%|*}"
 assert_eq "#362 isg: unparseable-stdin arm emits its own breadcrumb" "yes" \
@@ -18565,8 +18568,12 @@ rm -rf "$ISG_D"
 # ── allow: a session_id that is unsafe as a filename component (path traversal)
 # folds into the same fail-open arm — the sentinel cannot be safely keyed.
 ISG_D="$(isg_repo "isg: unsafe session_id arm")"
+isg_stub_workpad "$ISG_D" 0
+: > "$ISG_D/.devflow/tmp/implement-active-599"
 ISG_R="$(isg_run "$ISG_D" '{"session_id":"../../etc/passwd"}')"
 assert_eq "#362 isg: path-traversing session_id -> allow (exit 0)" "0" "${ISG_R%%|*}"
+assert_eq "#362 isg: path-traversing session_id arm emits its own breadcrumb" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'no usable session_id' && echo yes || echo no)"
 assert_eq "#362 isg: path-traversing session_id never writes outside .devflow/tmp" "no" \
   "$([ -e "$ISG_D/../../etc/passwd" ] && echo yes || echo no)"
 rm -rf "$ISG_D"
@@ -18586,6 +18593,15 @@ assert_eq "#362 isg: no-marker arm emits its own breadcrumb" "yes" \
   "$(printf '%s' "${ISG_R#*|}" | grep -qF 'no .devflow/tmp/implement-active-* marker' && echo yes || echo no)"
 assert_eq "#362 isg: no-marker arm never invokes the workpad helper (no network call)" "no" \
   "$([ -e "$ISG_D/tattle" ] && echo yes || echo no)"
+# Hot-path arm-ordering pin: the pure-bash marker glob must decide BEFORE the session-id
+# parse, so an ordinary session's turn-end spawns no python3 at all. Unparseable stdin with
+# no marker present must therefore surface the *no-marker* breadcrumb, not the session-id
+# one — if a future edit hoists the parse back above the glob, this flips RED.
+ISG_R="$(isg_run "$ISG_D" 'not json {{{')"
+assert_eq "#362 isg: the marker glob decides before the session-id parse (no python3 on the hot path)" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'no .devflow/tmp/implement-active-* marker' && echo yes || echo no)"
+assert_eq "#362 isg: that hot-path exit never reached the session-id arm" "no" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'no usable session_id' && echo yes || echo no)"
 rm -rf "$ISG_D"
 
 # ── allow: this session's sentinel already exists (at-most-one-block bound),

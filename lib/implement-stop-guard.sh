@@ -19,8 +19,9 @@
 #                                          a session_id unsafe as a filename component,
 #                                          and python3 being unavailable — none of them
 #                                          let the sentinel be safely keyed
-#   allow  no implement-active-* marker    the zero-network fast path every ordinary
-#                                          session takes; queries no workpad
+#   allow  no implement-active-* marker    the fast path every ordinary session takes:
+#                                          checked by a pure-bash glob, so it spawns no
+#                                          interpreter and queries no workpad
 #   allow  this session's sentinel exists  at-most-one-block-per-session bound
 #   allow  sentinel write fails            a sentinel-less block could re-block forever
 #   allow  marker suffix non-numeric       shape not understood; never queried, never deleted
@@ -46,6 +47,22 @@ _GUARD_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 breadcrumb() { printf 'devflow: implement-stop-guard: %s\n' "$1" >&2; }
 
+# ARM ORDER IS A HOT-PATH CONTRACT, not a stylistic choice. This hook runs at the
+# turn-end of EVERY session in this repo, almost all of which have no implement run
+# in flight. So the arms are ordered cheapest-decisive-first, and the two `python3`
+# forks (session-id parse, workpad status) sit BELOW the pure-bash marker glob: an
+# ordinary session must exit having spawned no interpreter and made no network call.
+# Do not hoist the session-id parse above the glob — its only consumer is the
+# sentinel path, which is meaningless when no marker exists.
+
+# Drain stdin before any exit path so the harness's writing end never sees EPIPE.
+STDIN_JSON="$(cat)"
+
+if [ -n "${GITHUB_ACTIONS:-}" ]; then
+  breadcrumb "GITHUB_ACTIONS is set (cloud tier, which has its own stall backstop) — allowing stop"
+  exit 0
+fi
+
 # config-source.sh owns devflow_repo_root(). It sets `-euo pipefail` for its own
 # sourcing chain, and a Stop hook must never inherit `-e`: any stray non-zero
 # sub-command would abort mid-script and exit non-zero, which the hook contract
@@ -59,11 +76,16 @@ if ! . "$_GUARD_DIR/config-source.sh"; then
 fi
 set +e
 
-# Drain stdin once, before any exit path, so the writing end never sees EPIPE.
-STDIN_JSON="$(cat)"
+ROOT="$(devflow_repo_root)"
+TMPDIR_DEVFLOW="$ROOT/.devflow/tmp"
 
-if [ -n "${GITHUB_ACTIONS:-}" ]; then
-  breadcrumb "GITHUB_ACTIONS is set (cloud tier, which has its own stall backstop) — allowing stop"
+# nullglob so an unmatched pattern yields an empty array rather than the literal
+# pattern as a phantom filename.
+shopt -s nullglob
+MARKERS=("$TMPDIR_DEVFLOW"/implement-active-*)
+shopt -u nullglob
+if [ "${#MARKERS[@]}" -eq 0 ]; then
+  breadcrumb "no .devflow/tmp/implement-active-* marker present — no implement run to guard, allowing stop"
   exit 0
 fi
 
@@ -92,22 +114,9 @@ case "$SESSION_ID" in
     ;;
 esac
 
-ROOT="$(devflow_repo_root)"
-TMPDIR_DEVFLOW="$ROOT/.devflow/tmp"
 SENTINEL="$TMPDIR_DEVFLOW/stop-guard-$SESSION_ID"
-
 if [ -e "$SENTINEL" ]; then
   breadcrumb "this session was already blocked once (sentinel $SENTINEL exists) — allowing stop"
-  exit 0
-fi
-
-# nullglob so an unmatched pattern yields an empty array rather than the literal
-# pattern as a phantom filename.
-shopt -s nullglob
-MARKERS=("$TMPDIR_DEVFLOW"/implement-active-*)
-shopt -u nullglob
-if [ "${#MARKERS[@]}" -eq 0 ]; then
-  breadcrumb "no .devflow/tmp/implement-active-* marker present — no implement run to guard, allowing stop"
   exit 0
 fi
 
