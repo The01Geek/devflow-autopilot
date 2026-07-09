@@ -4286,6 +4286,12 @@ assert_eq "#356 flip: a failed lookup is diagnosed as a read failure, not 'comme
   "$(grep -qi 'read-failure' "$S356/ferr" && ! grep -qi 'comment-absent' "$S356/ferr" && echo yes || echo no)"
 assert_eq "#356 flip: id-read-failure breadcrumb states absence was not established" "yes" \
   "$(grep -q 'absence was NOT established' "$S356/ferr" && echo yes || echo no)"
+# Assert the CAUSE CONTENT, not just the arm name: a breadcrumb that names the arm but
+# carries an empty `Cause:` delivers none of the diagnostic value it exists for. (The
+# stub writes `list boom` to workpad.py's stderr; a short cause must survive the clamp
+# — bash's `${c: -N}` yields EMPTY when the string is shorter than N.)
+assert_eq "#356 flip: id-read-failure breadcrumb carries the underlying gh cause" "yes" \
+  "$(grep -qi 'list boom' "$S356/ferr" && echo yes || echo no)"
 
 # (body read failure) the comment id resolves but the body read fails → read-failure
 # no-op, exit 0, no PATCH.
@@ -4297,6 +4303,8 @@ assert_eq "#356 flip: body-read-failure arm makes NO PATCH" "yes" \
   "$([ -s "$S356/patchlog" ] && echo no || echo yes)"
 assert_eq "#356 flip: body-read-failure breadcrumb names the read-failure arm" "yes" \
   "$(grep -qi 'could not read body' "$S356/ferr" && echo yes || echo no)"
+assert_eq "#356 flip: body-read-failure breadcrumb carries the underlying gh cause" "yes" \
+  "$(grep -qi 'body boom' "$S356/ferr" && echo yes || echo no)"
 
 # (missing args) no pr number / no marker → usage no-op, exit 0, no PATCH.
 : > "$S356/patchlog"

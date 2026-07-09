@@ -96,7 +96,12 @@ WP_ERR="$(mktemp 2>/dev/null)" || WP_ERR=""
 _wp_cause() {
   [ -n "$WP_ERR" ] && [ -s "$WP_ERR" ] || { printf '(cause unavailable)'; return 0; }
   local c; c="$(<"$WP_ERR")"; c="${c//$'\n'/ }"
-  printf '%s' "${c: -300}"
+  # Clamp explicitly: bash's `${c: -N}` does NOT behave like `tail -c N` — when the
+  # string is SHORTER than N the negative offset lands before the start and bash
+  # yields the EMPTY string (zsh clamps, bash does not). Unclamped, this dropped the
+  # cause for exactly the short messages it exists to surface (a 403, a rate limit).
+  [ "${#c}" -gt 300 ] && c="${c: -300}"
+  printf '%s' "$c"
 }
 _wp_err_cleanup() { [ -n "$WP_ERR" ] && rm -f "$WP_ERR"; return 0; }
 CID="$(python3 "$WORKPAD" id "$PR" --marker "$MARKER" 2>"${WP_ERR:-/dev/null}")"
