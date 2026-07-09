@@ -1,14 +1,14 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "devflow-marketplace",
-  "description": "DevFlow makes agentic coding work on real codebases, a one-line request becomes a complete, tested, reviewed, documented PR that's ready for your final review, and it improves itself weekly. Includes /devflow:implement orchestrator, /devflow:review + /devflow:review-and-fix engines (which audit their own approval), the /devflow:docs suite, /devflow:create-issue, plus a self-improving retrospective loop.",
+  "description": "Local marketplace for the vendored DevFlow plugin (.devflow/vendor/devflow). Installed by devflow-autopilot/install.sh.",
   "owner": { "name": "Daniel Radman", "email": "daniel@radman.ai" },
-  "allowCrossMarketplaceDependenciesOn": [],
+  "allowCrossMarketplaceDependenciesOn": ["claude-plugins-official"],
   "plugins": [
     {
       "name": "devflow",
-      "source": "./",
-      "description": "Make agentic coding work on real codebases, a one-line request becomes a complete, tested, reviewed, documented PR that's ready for your final review, and DevFlow improves itself weekly. /devflow:implement orchestrator, /devflow:review + /devflow:review-and-fix engines (which audit their own approval), the /devflow:docs suite, /devflow:create-issue, plus the per-PR + weekly retrospective loop.",
+      "source": "./.devflow/vendor/devflow",
+      "description": "End-to-end dev workflow: /devflow:implement, /devflow:review + /devflow:review-and-fix, the /devflow:docs suite, /devflow:create-issue, plus the retrospective loop.",
       "author": { "name": "Daniel Radman", "email": "daniel@radman.ai" },
       "homepage": "https://github.com/The01Geek/devflow-autopilot",
       "category": "development"
