@@ -1,0 +1,20 @@
+---
+bump: patch
+---
+
+### Fixed
+
+- Cloud review runs can no longer consume an entire budget and terminate without a verdict. The review engine is now given ground truth about the two things it previously discovered by trial and denial: the exact set of commands it may execute, and the CI results already observed for the commit it is reviewing. Both are prepended to the review prompt as a `> [!IMPORTANT]` block on every run, on the automated `devflow-review` path and the manual `/devflow:review` comment path alike ([#367](https://github.com/The01Geek/devflow-autopilot/pull/367)).
+- The auto-review tool profile now grants the commands the review engine actually invokes — `mkdir`, `tee`, `git cat-file`, `git checkout`, `mktemp`, `cmp`, and `rm -f` — plus `load-prompt-extension.sh` from any anchor directory. Phase 0.2's cached diff is created (so Phase 3's `{DIFF_PATH}` resolves), and Phase 0.3.6's blocker-recheck fast path and Phase 3.1's dirty-tree backstop execute in cloud for the first time ([#367](https://github.com/The01Geek/devflow-autopilot/pull/367)).
+- A review run that reaches no verdict now announces itself twice, independently: the engine stamps a terminal `❌` on its progress comment, and `finalize_check` emits an `::error::` naming the reviewed HEAD and the permission-denial count. The second survives an engine that never runs the first ([#367](https://github.com/The01Geek/devflow-autopilot/pull/367)).
+- `scripts/surface-execution-diagnostics.sh` emits a `::warning::` when a run records permission denials, so a stalled run is visible in the job log rather than buried in a Markdown block ([#367](https://github.com/The01Geek/devflow-autopilot/pull/367)).
+
+### Added
+
+- `scripts/summarize-ci-checks.sh` renders the CI signals observed for a PR head, one line per signal. It excludes DevFlow's own workflow, the duplicate `github-actions` app check-runs, and its own `Devflow Review` check. Check names are attacker-controlled text entering a `pull_request_target` prompt, so they are sanitized, truncated, and count-capped; every failure path prints `CI status unavailable` with a query-specific breadcrumb and exits 0, so an unknown CI state is never rendered as a passing one ([#367](https://github.com/The01Geek/devflow-autopilot/pull/367)).
+- `lib/test/run.sh` now pins every Bash command head in `skills/review/SKILL.md`'s `bash`-fenced blocks against **both** allowlists the skill runs under — `devflow-runner.yml`'s `review` profile and `devflow.yml`'s command allowlist — so a command the skill invokes but a profile omits turns the suite RED instead of being silently denied at runtime ([#367](https://github.com/The01Geek/devflow-autopilot/pull/367)).
+
+### Changed
+
+- `checks: read` is granted to `devflow-runner.yml` and to its caller job in `devflow-review.yml`, and to `devflow.yml`'s `command` job, for the new check-runs query. The runner and its caller are a coupled pair: a reusable workflow requesting a permission its caller did not grant aborts the run at graph-build time ([#367](https://github.com/The01Geek/devflow-autopilot/pull/367)).
+- `devflow.yml`'s inline `--allowed-tools` list is hoisted into a step output consumed by both `claude_args` and the injected block, so the block quotes the exact string the run resolved rather than a second copy that could drift. No grant was removed by the hoist ([#367](https://github.com/The01Geek/devflow-autopilot/pull/367)).

@@ -78,6 +78,17 @@ on:
           absent/unparseable execution log (fail-safe; the consumer's HEAD-SHA
           verdict scoping remains the primary staleness guard).
         value: ${{ jobs.run.outputs.engine_is_error }}
+      permission_denials_count:
+        description: |
+          Number of Bash permission denials recorded in this run's execution log
+          (issue #363), or the literal `unavailable` when the count could not be
+          established — diagnostics disabled, the step skipped, or an absent or
+          unparseable execution file. A consumer MUST treat `unavailable` as
+          unknown and never render it as `0`: the whole point of the no-verdict
+          ::error:: is to name the cause, and "refused 0 commands" on a run whose
+          diagnostics never parsed is a false statement that steers the reader
+          away from permission denials.
+        value: ${{ jobs.run.outputs.permission_denials_count }}
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN:
         description: 'Anthropic Claude Code OAuth token. Pass via `secrets: inherit` from callers.'
@@ -108,12 +119,24 @@ permissions:
   id-token: write
   actions: read # Required for Claude to read CI results (paired with additional_permissions below)
   issues: read # Required to read the linked issue when reviewing against its acceptance criteria
+  # Required by scripts/summarize-ci-checks.sh's commits/{sha}/check-runs query.
+  # COUPLED with the `review` caller job's grant in devflow-review.yml: a reusable
+  # workflow requesting a permission its caller did not grant aborts the run at
+  # graph-build time (startup_failure), so these two land together or not at all.
+  checks: read
 
 jobs:
   run:
     runs-on: ubuntu-latest
     outputs:
       engine_is_error: ${{ steps.engine.outputs.is_error }}
+      # `|| 'unavailable'` is the load-bearing default: it covers EVERY path on which
+      # the diagnostics step publishes nothing (config-disabled, skipped, absent or
+      # unparseable execution file). The sentinel is deliberately NOT `0` — a
+      # consumer must be able to tell "the engine recorded no denials" from "the
+      # count could not be established", and collapsing both onto `0` makes the
+      # no-verdict ::error:: assert a denial count it never observed (issue #363).
+      permission_denials_count: ${{ steps.diagnostics.outputs.permission_denials_count || 'unavailable' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -295,7 +318,15 @@ jobs:
               # the run's workpads and prints Markdown. The per-run record FILE write
               # (--mode record) is gated to writable runs by the skill and is not
               # attempted here, so the profile stays read-only for the tree.
-              TOOLS='Read,Glob,Grep,LS,Skill,Agent,TodoWrite,WebFetch,WebSearch,Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git ls-files:*),Bash(git rev-parse:*),Bash(git merge-base:*),Bash(git blame:*),Bash(git branch:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr review:*),Bash(gh pr comment:*),Bash(gh pr list:*),Bash(gh pr checks:*),Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue list:*),Bash(gh search:*),Bash(gh repo view:*),Bash(gh run view:*),Bash(gh run list:*),Bash(gh api:*),Bash(jq:*),Bash(.devflow/vendor/devflow/scripts/run-jq.sh:*),Bash(grep:*),Bash(rg:*),Bash(find:*),Bash(wc:*),Bash(sort:*),Bash(uniq:*),Bash(cut:*),Bash(tr:*),Bash(xargs:*),Bash(awk:*),Bash(sed:*),Bash(diff:*),Bash(comm:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(ls:*),Bash(tree:*),Bash(file:*),Bash(stat:*),Bash(date:*),Bash(pwd:*),Bash(realpath:*),Bash(dirname:*),Bash(basename:*),Bash(which:*),Bash(type:*),Bash(env:*),Bash(echo:*),Bash(printf:*),Bash(test:*),Bash(.devflow/vendor/devflow/scripts/match-deferrals.py:*),Bash(.devflow/vendor/devflow/scripts/dismiss-stale-rejections.sh:*),Bash(.devflow/vendor/devflow/scripts/workpad.py:*),Bash(.devflow/vendor/devflow/scripts/config-get.sh:*),Bash(.devflow/vendor/devflow/scripts/load-prompt-extension.sh:*),Bash(.devflow/vendor/devflow/scripts/resolve-review-overrides.py:*),Bash(.devflow/vendor/devflow/lib/efficiency-trace.sh:*)'
+              # Command heads the review skill actually invokes are pinned against this
+              # string by lib/test/run.sh (issue #363): a head the skill runs but this
+              # profile omits is silently DENIED at runtime, burning the run's budget and
+              # stalling it without a verdict. `mkdir`/`tee` back Phase 0.2's cached diff;
+              # `git cat-file` backs Phase 0.3.6's blocker-recheck precondition;
+              # `git checkout`/`mktemp`/`cmp`/`rm -f` back Phase 3.1's dirty-tree backstop.
+              # `git checkout` mutates the worktree, which is exactly what that backstop
+              # restores; the reviewer's `contents: read` token still makes a push impossible.
+              TOOLS='Read,Glob,Grep,LS,Skill,Agent,TodoWrite,WebFetch,WebSearch,Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git ls-files:*),Bash(git rev-parse:*),Bash(git merge-base:*),Bash(git blame:*),Bash(git branch:*),Bash(git cat-file:*),Bash(git checkout:*),Bash(mkdir:*),Bash(tee:*),Bash(mktemp:*),Bash(cmp:*),Bash(rm -f:*),Bash(*/load-prompt-extension.sh:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr review:*),Bash(gh pr comment:*),Bash(gh pr list:*),Bash(gh pr checks:*),Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue list:*),Bash(gh search:*),Bash(gh repo view:*),Bash(gh run view:*),Bash(gh run list:*),Bash(gh api:*),Bash(jq:*),Bash(.devflow/vendor/devflow/scripts/run-jq.sh:*),Bash(grep:*),Bash(rg:*),Bash(find:*),Bash(wc:*),Bash(sort:*),Bash(uniq:*),Bash(cut:*),Bash(tr:*),Bash(xargs:*),Bash(awk:*),Bash(sed:*),Bash(diff:*),Bash(comm:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(ls:*),Bash(tree:*),Bash(file:*),Bash(stat:*),Bash(date:*),Bash(pwd:*),Bash(realpath:*),Bash(dirname:*),Bash(basename:*),Bash(which:*),Bash(type:*),Bash(env:*),Bash(echo:*),Bash(printf:*),Bash(test:*),Bash(.devflow/vendor/devflow/scripts/match-deferrals.py:*),Bash(.devflow/vendor/devflow/scripts/dismiss-stale-rejections.sh:*),Bash(.devflow/vendor/devflow/scripts/workpad.py:*),Bash(.devflow/vendor/devflow/scripts/config-get.sh:*),Bash(.devflow/vendor/devflow/scripts/load-prompt-extension.sh:*),Bash(.devflow/vendor/devflow/scripts/resolve-review-overrides.py:*),Bash(.devflow/vendor/devflow/lib/efficiency-trace.sh:*)'
               # When the trusted base config opted into provisioning, the runner
               # has a built env (setup-project-env ran below), so grant the
               # freeform build/verify commands the maintainer listed in
@@ -469,15 +500,63 @@ jobs:
       # provision_env: when the provision step is skipped (or every service is
       # healthy) the output resolves to empty and the prompt is forwarded
       # byte-for-byte unchanged, so the read-only happy path is unaffected.
+      #
+      # The engine is also given GROUND TRUTH about two things it otherwise burns
+      # turns rediscovering (issue #363): the exact set of commands it may run, and
+      # the CI results that already exist for the head it is reviewing. Without this
+      # the engine probes its own boundary by attempting denied commands — on PR #340
+      # seven of fourteen denials were it trying, seven ways, to run the test suite —
+      # and can consume an entire run without producing a verdict. This block is
+      # prepended on EVERY review run, independently of health_summary.
       - name: Compose review prompt
         id: compose
         env:
           BASE_PROMPT: ${{ inputs.prompt }}
           HEALTH_SUMMARY: ${{ steps.provision.outputs.health_summary }}
+          ALLOWED_TOOLS: ${{ steps.tools.outputs.tools }}
+          # The job's own GITHUB_TOKEN, whose `permissions:` block declares the
+          # `checks: read` + `actions: read` the CI queries need. The downscoped
+          # DevFlow-Reviewer token is minted LATER (it posts the review), so it is
+          # deliberately not used here.
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SELF_WORKFLOW_NAME: ${{ github.workflow }}
         run: |
           set -euo pipefail
+          # The reviewed head is the commit `actions/checkout` put in the worktree.
+          HEAD_SHA=$(git rev-parse HEAD 2>/dev/null || echo "")
+          export HEAD_SHA
+          # summarize-ci-checks.sh always exits 0, printing `CI status unavailable`
+          # when it cannot determine the CI state — so the block is present even when
+          # the query fails, and an absent result never renders as a passing one.
+          SCC=.devflow/vendor/devflow/scripts/summarize-ci-checks.sh
+          [ -f "$SCC" ] || SCC=scripts/summarize-ci-checks.sh
+          if [ -f "$SCC" ]; then
+            CI_SUMMARY=$(bash "$SCC") || CI_SUMMARY="CI status unavailable"
+          else
+            echo "::warning::devflow: summarize-ci-checks.sh not found at either the vendored or repo path — the review prompt's CI section will report it unavailable" >&2
+            CI_SUMMARY="CI status unavailable"
+          fi
+          [ -n "$CI_SUMMARY" ] || CI_SUMMARY="CI status unavailable"
+
+          RGB=.devflow/vendor/devflow/scripts/render-grounding-block.sh
+          [ -f "$RGB" ] || RGB=scripts/render-grounding-block.sh
+          if [ -f "$RGB" ]; then
+            GROUNDING=$(CI_SUMMARY="$CI_SUMMARY" ALLOWED_TOOLS="$ALLOWED_TOOLS" bash "$RGB") || GROUNDING=""
+          else
+            echo "::warning::devflow: render-grounding-block.sh not found at either the vendored or repo path — the review prompt carries no engine-ground-truth block this run" >&2
+            GROUNDING=""
+          fi
+          # Verify the OUTCOME, not the file's existence: a present-but-truncated
+          # renderer that exits 0 printing nothing would silently strip the block's
+          # prompt-injection defense from the prompt with no breadcrumb.
+          [ -n "$GROUNDING" ] || echo "::warning::devflow: render-grounding-block.sh produced no output — the review prompt carries no engine-ground-truth block this run (the engine will rediscover its tool boundary by trial and denial)" >&2
+          # The grounding block is ALWAYS present. When the infra-health block is also
+          # present, both are prepended — grounding first, then health, then the base
+          # prompt — so neither displaces the other.
           if [ -n "$HEALTH_SUMMARY" ]; then
-            PROMPT="> [!IMPORTANT]
+            PROMPT="${GROUNDING}
+          > [!IMPORTANT]
           > **Infrastructure status: one or more service containers did not come up.**
           > This reviewer environment was provisioned (\`provision_env\` is on), but
           > the following services are degraded:
@@ -493,7 +572,8 @@ jobs:
 
           ${BASE_PROMPT}"
           else
-            PROMPT="$BASE_PROMPT"
+            PROMPT="${GROUNDING}
+          ${BASE_PROMPT}"
           fi
           # Heredoc transport with a unique, timestamped delimiter: the prompt is
           # full of markdown/backticks, so a fixed sentinel could collide with its
@@ -576,12 +656,13 @@ jobs:
             claude-md-management@claude-plugins-official
             devflow@devflow-marketplace
 
-          # --permission-mode acceptEdits auto-approves Edit/Write plus the
-          # filesystem Bash commands mkdir/touch/rm/rmdir/mv/cp/sed. The
-          # "review" profile uses none of those, so the flag is a no-op for
-          # this profile today — kept as defensive precedent-matching with
-          # prompt-mode invocations and to absorb future profiles
-          # that may need the auto-approved commands.
+          # --permission-mode acceptEdits does NOT widen an explicit --allowed-tools
+          # list: the allowlist is a separate, stricter gate, and a command absent
+          # from it is denied no matter what the permission mode auto-approves. So a
+          # command the "review" profile needs must be granted in TOOLS above —
+          # acceptEdits is never a substitute (issue #363; the observed `Write` denial
+          # under this very flag is the proof). Kept for precedent-matching with
+          # prompt-mode invocations and for future profiles.
           claude_args: >-
             --model ${{ inputs.model != '' && inputs.model || steps.extract.outputs.claude_model }}
             --effort ${{ steps.effort.outputs.value }}
@@ -646,6 +727,7 @@ jobs:
       # checkout); only the exact string "false" disables it, and an empty read
       # (config-get soft/hard failure) falls safe to enabled.
       - name: Surface execution diagnostics
+        id: diagnostics
         if: always()
         env:
           EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
