@@ -95,23 +95,30 @@ A re-triggered or backstop-resumed run may already have a feature branch and an 
 # Each `|| PR_JSON=''` sits in the same statement as the command whose failure it handles
 # (never a `RC=$?` captured in one statement and read in a later one — an inline-bash
 # runner that strips such cross-statement reads would leave the check inert; issue #284).
+# `closingIssuesReferences` is fetched by BOTH queries because the selection predicate below
+# reads it: a field the query never fetches is a filter the run can never apply.
 PR_JSON='[]'
-[ -n "$WP_BRANCH" ] && { PR_JSON=$(gh pr list --head "$WP_BRANCH" --state open --json number,headRefName,createdAt) || PR_JSON=''; }
-[ "$PR_JSON" = "[]" ] && { PR_JSON=$(gh pr list --search "$ISSUE_NUMBER in:body" --state open --json number,headRefName,createdAt) || PR_JSON=''; }
+[ -n "$WP_BRANCH" ] && { PR_JSON=$(gh pr list --head "$WP_BRANCH" --state open --json number,headRefName,createdAt,closingIssuesReferences) || PR_JSON=''; }
+[ "$PR_JSON" = "[]" ] && { PR_JSON=$(gh pr list --search "$ISSUE_NUMBER in:body" --state open --json number,headRefName,createdAt,closingIssuesReferences) || PR_JSON=''; }
 ```
 
-**Selecting the PR.** A PR found by the **head-branch** query is a resume target by construction. A PR found **only** by the body-reference query must additionally *close this issue* — its body carries a `Resolves`/`Fixes`/`Closes #<n>` line, or its `closingIssuesReferences` includes the issue (the same branch-naming-independent predicate `lib/scan.sh` uses). A PR that merely *mentions* the number ("supersedes #<n>", "see #<n>") is **not** a resume target; discard it. When several candidates survive, pick the one whose `headRefName` equals the workpad `Branch` line; if none matches, pick the newest by `createdAt`.
+**Selecting the PR, and binding `HEAD_REF`.** A PR found by the **head-branch** query is a resume target by construction. A PR found **only** by the body-reference query must additionally *close this issue*: its `closingIssuesReferences` must contain this issue number — the same branch-naming-independent closes-issue predicate `lib/scan.sh` uses. A PR that merely *mentions* the number ("supersedes #<n>", "see #<n>") is **not** a resume target; discard it. Among the survivors pick the one whose `headRefName` equals the workpad `Branch` line; if none matches, pick the newest by `createdAt`. Then **bind `HEAD_REF` to that PR's `headRefName`** — the checkout and its confirmation both read it. An empty `HEAD_REF` is a selection bug, not a checkout failure: take the Blocked path below rather than running `git checkout ""`.
 
-**When an open PR for the issue exists**, that PR's head branch is the branch this run continues: check out that PR head branch instead of creating a new one — fetching it first when it is absent locally (`git fetch origin "$HEAD_REF" && git checkout "$HEAD_REF"`) — and skip branch creation and both signals entirely. Record the resume decision with `--note` (which PR, which branch, why).
+**When an open PR for the issue exists**, that PR's head branch is the branch this run continues. Check it out — fetching it first when it is absent locally — and **only once you have confirmed the tree landed on `$HEAD_REF`** skip branch creation and both signals. The skip is never unconditional: a `git fetch` that fails (so the `&&` short-circuits), a deleted remote ref, or a checkout refused by local modifications would otherwise leave you on the harness's fresh branch with the signals already waived — you would commit there and open a second PR, the exact duplication this pre-check exists to prevent. Record the resume decision with `--note` (which PR, which branch, why).
 
-**Confirm the checkout actually landed before honoring that skip.** "Skip branch creation and both signals" is only safe once this run is *on* `$HEAD_REF`; a `git fetch` that fails (so the `&&` short-circuits), a deleted remote ref, or a checkout refused by local modifications would otherwise leave you on the harness's fresh branch while the pre-check has already waived the signals — and you would commit there and open a second PR, the exact duplication this pre-check exists to prevent. So verify the tree landed, and treat the two failure shapes differently:
+Capture the checkout's own stderr in the **same statement** that runs it: `already checked out` is the *only* discriminator between the two failure shapes below, and a later `git rev-parse` cannot recover it (a rev-parse comparison tells you only *that* the tree did not land, never *why*). Never read a `$?` captured in one statement in a later one (issue #284).
 
 ```bash
-[ "$(git rev-parse --abbrev-ref HEAD)" = "$HEAD_REF" ] || echo "devflow: resume checkout did not land on $HEAD_REF" >&2
+# The `|| true` is deliberate and is NOT a swallowed failure: the failure is not discarded,
+# it is captured in $CO_ERR and routed by the three bullets below. Without it, a checkout
+# refusal would abort the block before LANDED could be computed.
+CO_ERR=$( { git fetch origin "$HEAD_REF" && git checkout "$HEAD_REF"; } 2>&1 1>/dev/null ) || true
+LANDED=no; [ -n "$HEAD_REF" ] && [ "$(git rev-parse --abbrev-ref HEAD 2>/dev/null)" = "$HEAD_REF" ] && LANDED=yes
 ```
 
-- **The branch is already checked out in another linked worktree** (git refuses with `already checked out`) — do not force it and do not duplicate the branch: read that worktree's path from `git worktree list --porcelain` and continue in that worktree instead of duplicating the branch, noting the switch in the workpad. (If the harness already placed you in a worktree, the checkout happens **inside** it — that is simply the current working tree, so no extra step is needed.)
-- **Any other failure to land on `$HEAD_REF`** — record it and **stop**: `workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind blocked --reflection "resume pre-check: PR #<n> exists on branch $HEAD_REF but the checkout did not land (fetch/checkout failed); refusing to fall through to branch creation, which would duplicate that PR and abandon its commits"`, then emit the 👎 outcome reaction and stop the run. Falling through here is never correct: an open PR is *known* to exist, so creating a branch is a known duplication, not an unknown risk.
+- **`LANDED` is `yes`** — the tree is on the PR's head branch. Skip branch creation and both signals entirely.
+- **`LANDED` is `no` and `$CO_ERR` names an `already checked out` refusal** — the branch is live in another linked worktree. Do not force it and do not duplicate the branch: read that worktree's path from `git worktree list --porcelain` and continue in that worktree instead of duplicating the branch, noting the switch in the workpad. (If the harness already placed you in a worktree, the checkout happens **inside** it — that is simply the current working tree, so no extra step is needed.)
+- **`LANDED` is `no` for any other reason** (including an empty `HEAD_REF`) — record it and **stop**: `workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind blocked --reflection "resume pre-check: PR #<n> exists on branch $HEAD_REF but the checkout did not land ($CO_ERR); refusing to fall through to branch creation, which would duplicate that PR and abandon its commits"`, then emit the 👎 outcome reaction and stop the run. Falling through here is never correct: an open PR is *known* to exist, so creating a branch is a known duplication, not an unknown risk.
 
 **When there is no workpad `Branch` line and no open PR for the issue** — `PR_JSON` is the literal `[]`, meaning the queries *ran* and found nothing — this pre-check is a no-op and the rest of §1.4 behaves exactly as it did before this pre-check existed — Signal 1, then Signal 2, then the create-fresh fallthrough.
 

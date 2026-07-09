@@ -3394,8 +3394,10 @@ assert_pin_red_on_removal "#362: Outcome-reaction marker path flips RED on remov
 #     no longer shadow an existing feature branch + open PR (the #356 resume defect).
 assert_pin_unique "#362: Phase 1.4 gains a resume pre-check ahead of Signal 1" \
   'Resume pre-check (runs BEFORE Signal 1)' "$P362_P1"
-assert_pin_unique "#362: the resume pre-check checks out the existing PR head branch" \
-  'check out that PR head branch instead of creating a new one' "$P362_P1"
+# The skip of both branch signals is CONDITIONAL on the checkout landing. Pin that
+# conditionality — an unconditional "skip branch creation" is the regression this guards.
+assert_pin_unique "#362: the resume pre-check skips branch creation only once the checkout landed" \
+  'only once you have confirmed the tree landed on `$HEAD_REF`** skip branch creation' "$P362_P1"
 assert_pin_unique "#362: the resume pre-check reuses an existing linked worktree rather than duplicating the branch" \
   'continue in that worktree instead of duplicating the branch' "$P362_P1"
 assert_pin_unique "#362: the resume pre-check falls through unchanged when there is no workpad Branch and no open PR" \
@@ -3418,27 +3420,46 @@ assert_pin_unique "#362: an unresolvable PR query is never read as 'no open PR'"
   'An unresolvable PR query is not evidence that no PR exists' "$P362_P1"
 assert_pin_red_on_removal "#362: resume pre-check gh-failure breadcrumb obligation flips RED on removal" \
   'An unresolvable PR query is not evidence that no PR exists' "$P362_P1"
-# The pre-check waives both signals on the strength of a checkout it never confirms. Pin the
-# confirmation and its fail-CLOSED routing: with an open PR known to exist, falling through to
-# branch creation is a KNOWN duplication, so the non-worktree failure shape stops the run.
-assert_pin_unique "#362: the resume pre-check confirms the checkout landed before waiving the signals" \
-  'Confirm the checkout actually landed before honoring that skip' "$P362_P1"
+# The pre-check waives both branch signals on the strength of a checkout it must first
+# confirm. Pin the MECHANISM, not the paragraph that motivates it: an earlier attempt pinned
+# the motivating header, which survived deletion of BOTH the confirmation and the fail-closed
+# stop it named (the framing-pin hole behind PRs #62/#173). These four pins target, in order:
+# the LANDED computation, the stderr discriminator the two failure shapes route on, the
+# fail-closed stop directive, and its rationale.
+assert_pin_unique "#362: the resume pre-check computes whether the checkout actually landed" \
+  'LANDED=no; [ -n "$HEAD_REF" ]' "$P362_P1"
+assert_pin_unique "#362: the two resume-checkout failure shapes route on the captured checkout stderr" \
+  'is the *only* discriminator between the two failure shapes' "$P362_P1"
 assert_pin_unique "#362: a resume checkout that did not land stops the run rather than duplicating the PR" \
+  'refusing to fall through to branch creation' "$P362_P1"
+assert_pin_unique "#362: the fail-closed stop carries its rationale (a known duplication, not an unknown risk)" \
   'Falling through here is never correct' "$P362_P1"
-assert_pin_red_on_removal "#362: resume checkout confirmation flips RED on removal" \
-  'Confirm the checkout actually landed before honoring that skip' "$P362_P1"
-assert_pin_red_on_removal "#362: resume checkout fail-closed routing flips RED on removal" \
-  'Falling through here is never correct' "$P362_P1"
+assert_pin_red_on_removal "#362: resume LANDED computation flips RED on removal" \
+  'LANDED=no; [ -n "$HEAD_REF" ]' "$P362_P1"
+assert_pin_red_on_removal "#362: resume checkout stderr discriminator flips RED on removal" \
+  'is the *only* discriminator between the two failure shapes' "$P362_P1"
+assert_pin_red_on_removal "#362: resume checkout fail-closed stop flips RED on removal" \
+  'refusing to fall through to branch creation' "$P362_P1"
+
 # A body-reference match that merely MENTIONS the issue number is not a resume target —
-# adopting it would check out an unrelated PR's branch. Pin the closes-the-issue predicate.
+# adopting it would check out an unrelated PR's branch. Pin the closes-the-issue predicate
+# AND its operand's producer: a predicate reading a field the query never fetches is a filter
+# the run can never apply (the unverified-assumption class — the guard's comparand must have a
+# producer). Both queries must request `closingIssuesReferences`, so this is a count guard.
 assert_pin_unique "#362: a body-only PR match must actually close the issue to be a resume target" \
   'must additionally *close this issue*' "$P362_P1"
 assert_pin_red_on_removal "#362: body-only resume predicate flips RED on removal" \
   'must additionally *close this issue*' "$P362_P1"
+assert_eq "#362: both resume-pre-check queries fetch the closingIssuesReferences the predicate reads" \
+  "2" "$(pin_count ',createdAt,closingIssuesReferences)' "$P362_P1")"
+assert_pin_unique "#362: HEAD_REF, the checkout comparand, is explicitly bound from the selected PR" \
+  'bind `HEAD_REF` to that PR' "$P362_P1"
+assert_pin_red_on_removal "#362: HEAD_REF binding flips RED on removal" \
+  'bind `HEAD_REF` to that PR' "$P362_P1"
 assert_pin_red_on_removal "#362: resume pre-check ordering clause flips RED on removal" \
   'Resume pre-check (runs BEFORE Signal 1)' "$P362_P1"
-assert_pin_red_on_removal "#362: resume pre-check checkout directive flips RED on removal" \
-  'check out that PR head branch instead of creating a new one' "$P362_P1"
+assert_pin_red_on_removal "#362: resume pre-check conditional-skip directive flips RED on removal" \
+  'only once you have confirmed the tree landed on `$HEAD_REF`** skip branch creation' "$P362_P1"
 assert_pin_red_on_removal "#362: resume pre-check worktree arm flips RED on removal" \
   'continue in that worktree instead of duplicating the branch' "$P362_P1"
 assert_pin_red_on_removal "#362: resume pre-check fallthrough guarantee flips RED on removal" \
