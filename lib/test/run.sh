@@ -4216,6 +4216,124 @@ assert_pin_unique "#254: Pass 4 fails closed (Blocked) when a declared dependenc
 # prerequisite (the fail-closed-but-wrong direction the review flagged).
 assert_pin_unique "#254: Pass 4 treats a MERGED dependency as satisfied (landed = CLOSED or MERGED)" \
   'when it is `CLOSED` **or** `MERGED`' "$IMPL_SKILL"
+# ── issue #346 (+ #350): Phase 1.6 gains Pass 5 — execution-capability claims. ─
+# A cloud-tier bot implement run whose credential is the built-in GITHUB_TOKEN
+# fallback (DEVFLOW_APP_ID empty) cannot push .github/workflows/, so an AC that is
+# workflow-resident must be deferred at PLAN time (via 2.2.5) rather than discovered
+# at push time after the full commit is built. #350 correction: the block is NOT a
+# property of the cloud tier as a whole — a cloud run with DEVFLOW_APP_ID set mints a
+# workflow-capable App token (Contents+Workflows write) seeded into checkout (#357/#358)
+# and pushes workflows fine, so Pass 5 keys the deferral on CREDENTIAL CAPABILITY
+# (cloud-tier AND DEVFLOW_APP_ID empty), never on tier alone.
+# Pin the Pass 5 heading removal-proof, plus its operative
+# contracts (non-exhaustive; each pin below names its own): among them the
+# static-not-a-live-probe rule, the credential-capability-keyed (not tier- or
+# path-keyed) decision, the
+# repo-own-vs-vendored carve-out, the coupled-CI-pin-blocked-with-it rule, the
+# cloud-tier defer reflection, the all-blocked → Blocked-path arm (the most
+# safety-relevant route — it declines the issue up front, opening no PR), and the
+# workflow-capable-credential proceed arm (local/interactive OR cloud+DEVFLOW_APP_ID-set,
+# never defers/blocks).
+# Scoped to phase-1-setup.md (where Phase 1.6 lives) so the pins are precise to the
+# audit-pass surface AC7 names, not the whole bundle.
+P1_FILE="$IMPL_PHASES_DIR/phase-1-setup.md"
+assert_pin_red_on_removal "#346: deleting the Pass 5 execution-capability heading turns its pin RED" \
+  'Execution-capability claims (workflow-resident ACs vs. the executing credential)' "$P1_FILE"
+assert_pin_unique "#346: Pass 5 is static, never a live gh/API probe" \
+  'not** run a `gh`/API probe to test the token'"'"'s actual scope' "$P1_FILE"
+assert_pin_unique "#346/#350: Pass 5 keys the decision on the pushing credential's capability, not tier or path alone" \
+  'Key the routing decision on the pushing credential'"'"'s actual capability, not on the tier or the path alone' "$P1_FILE"
+# #350 (Critical): the deferral premise is credential-capability, not tier. Pin the two
+# operative sentences whose removal re-introduces the false "cloud ⇒ defer" premise the
+# review flagged: (a) DEFER only on cloud-tier AND DEVFLOW_APP_ID empty; (b) a NON-EMPTY
+# DEVFLOW_APP_ID (workflow-capable App token, #357/#358) ⇒ do NOT defer. Half-reverting
+# either back to a tier-only rule turns these RED.
+assert_pin_unique "#350: Pass 5 defers ONLY on cloud-tier AND DEVFLOW_APP_ID empty (not tier alone)" \
+  'Defer only when you can positively confirm the pushing credential cannot push a workflow file — i.e. a cloud-tier run (`GITHUB_ACTIONS=true`) whose `DEVFLOW_APP_ID` is empty/unset' "$P1_FILE"
+assert_pin_unique "#350: Pass 5 does NOT defer when DEVFLOW_APP_ID is non-empty (workflow-capable App token)" \
+  'When **`DEVFLOW_APP_ID` is non-empty**, the seeded App token carries the `workflows` scope and this run pushes `.github/workflows/` exactly like a human run — **do NOT defer.**' "$P1_FILE"
+assert_pin_unique "#346: Pass 5 matches only the repo's own .github/workflows (vendored copy is pushable)" \
+  'Match only the repo'"'"'s *own* `.github/workflows/`' "$P1_FILE"
+assert_pin_unique "#346: Pass 5 treats a coupled CI pin as blocked with the workflow edit" \
+  'blocked with it**, so the pushable subset stays CI-green on its own' "$P1_FILE"
+assert_pin_unique "#346: Pass 5 cloud-tier defer routes capability-blocked ACs through 2.2.5" \
+  'issue-claim audit (execution-capability): cloud tier — ACs {list} require editing .github/workflows/' "$P1_FILE"
+assert_pin_unique "#346: Pass 5 all-blocked arm takes the Phase 1 Blocked path and opens no PR" \
+  'issue-claim audit (execution-capability): every in-scope acceptance criterion requires editing .github/workflows/' "$P1_FILE"
+assert_pin_unique "#346/#350: Pass 5 workflow-capable-credential arm (local/interactive OR cloud+DEVFLOW_APP_ID-set) never defers/blocks" \
+  'never defer, never block' "$P1_FILE"
+# Coupled mirror sites: the 2.2.5 capability trigger (phase-2) and the Phase 4.0
+# human/PAT follow-up statement (phase-4) land in the SAME change as Pass 5.
+assert_pin_unique "#346: 2.2.5 lists capability-blocked ACs as a sanctioned scope-adjustment trigger" \
+  'Capability-blocked ACs are a sanctioned trigger too' "$IMPL_PHASES_DIR/phase-2-implement.md"
+# Review iter 2 (shadow): Pass 5's text-only 1.6 detection cannot see an AC whose
+# workflow-residence surfaces only during planning/implementation — 2.2.5 is the concrete-diff
+# backstop that catches those, and a Phase 2.3-discovered edit re-routes through it before
+# committing. Pin the backstop clause + the 2.3-discovery re-route so a trim can't silently
+# reopen the push-time gap. #350 supersedes the old tier-indeterminate fail-closed-toward-cloud
+# rule: post-#357 a spurious deferral silently under-delivers shippable workflow work (the
+# Critical failure), so when a discriminating signal is unreadable the pass PROCEEDS (fail-open
+# toward the pushable direction), not defers. Pin that corrected fail-direction sentence.
+assert_pin_unique "#346: 2.2.5 backstop catches planning-surfaced workflow-resident ACs Pass 5's text scan misses" \
+  'also catch any AC whose workflow-residence surfaced only during planning' "$IMPL_PHASES_DIR/phase-2-implement.md"
+assert_pin_unique "#346: a Phase 2.3-discovered workflow edit re-routes through 2.2.5 before committing" \
+  'if Phase 2.3 code-writing *itself* later reveals a required `.github/workflows/` edit' "$IMPL_PHASES_DIR/phase-2-implement.md"
+assert_pin_unique "#350: Pass 5 proceeds (not defers) when a discriminating signal is genuinely unreadable" \
+  'When a discriminating signal is genuinely unreadable, proceed — do not defer.' "$P1_FILE"
+assert_pin_unique "#346: Phase 4.0 template bullet states landing a capability-deferral needs a human/PAT workflows-scope push" \
+  'Landing this requires a human/PAT push carrying the `workflows` scope' "$IMPL_PHASES_DIR/phase-4-documentation.md"
+# #350 (pr-test-analyzer): the byte-identical duplicate here masked a coverage gap — it
+# re-pinned the *template placeholder* bullet (line 44) while the normative OBLIGATION prose
+# (the "MUST state explicitly" instruction) was itself unpinned, so deleting the obligation
+# would leave the suite green. Re-point the second pin at the obligation sentence.
+assert_pin_unique "#346: Phase 4.0 OBLIGATION requires the follow-up body to state the credential boundary" \
+  'the follow-up body MUST state explicitly that' "$IMPL_PHASES_DIR/phase-4-documentation.md"
+# Review iter 3 (shadow): the all-blocked decline was executable only at Phase 1.6; when
+# every-AC-blocked is discovered late (at 2.2.5/2.3), narrowing yields an EMPTY pushable
+# subset with no executable stop, so the run could fall through to a near-empty PR. Pin the
+# empty-subset → Blocked stop restated at 2.2.5. Also pin the clean cloud-tier arm's
+# record-even-when-clean reflection (AC1's contract on the no-workflow-AC path).
+assert_pin_unique "#346: 2.2.5 takes the Blocked path when the pushable subset would be empty (late-discovered all-blocked)" \
+  'Empty pushable subset ⇒ take the Blocked path here, do not narrow-and-proceed' "$IMPL_PHASES_DIR/phase-2-implement.md"
+# Review iter 4 (shadow): the Phase 2.3-discovery backstop was inert prose — no firing
+# point at the commit step. Pin the Phase 2.5 cloud-tier commit guard that actually fires it
+# (git diff HEAD + git ls-files --others against the repo-own .github/workflows/, revert +
+# route through 2.2.5) so a later edit cannot strand the backstop as unexecutable prose again.
+assert_pin_unique "#346: Phase 2.5 commit guard fires the workflow-edit backstop (repo-own .github/workflows/, cloud tier)" \
+  'Cloud-tier workflow-edit commit guard (fires the Pass 5 / 2.2.5 backstop here)' "$IMPL_PHASES_DIR/phase-2-implement.md"
+# The guard checks BOTH detection arms — tracked edits (git diff HEAD) AND untracked new
+# workflow files (git ls-files --others) — because a workflow-*adding* AC leaves an untracked
+# file that git diff HEAD never lists yet git add -A would stage, while a workflow-*editing* AC
+# (the dominant case) is caught only by the tracked arm. Pin BOTH clauses so a future trim to
+# either arm alone goes RED instead of silently regressing the other's catch: the tracked arm
+# (modified/deleted existing workflow) and the untracked arm (newly-added workflow, iteration-4).
+assert_pin_unique "#346: Phase 2.5 commit guard detects tracked workflow edits (git diff HEAD arm)" \
+  'git diff HEAD --name-only -- .github/workflows/' "$IMPL_PHASES_DIR/phase-2-implement.md"
+assert_pin_unique "#346: Phase 2.5 commit guard also detects untracked new workflow files (not tracked-only)" \
+  'git ls-files --others --exclude-standard -- .github/workflows/' "$IMPL_PHASES_DIR/phase-2-implement.md"
+assert_pin_unique "#346: Pass 5 records a clean note on the cloud-tier no-workflow-AC path (record-even-when-clean)" \
+  'issue-claim audit (execution-capability): cloud tier — no acceptance criterion requires editing .github/workflows/' "$P1_FILE"
+# ── #350 review fixes: re-key the deferral on CREDENTIAL CAPABILITY, and make the
+# signal observable + the guard complete. Coupled sites for this ONE change:
+#   (1) phase-1 Pass 5 + phase-2 2.2.5/2.5 prose (keyed on cloud AND DEVFLOW_APP_ID empty),
+#   (2) the 2.5 guard reverts files COUPLED to a reverted workflow (Important-1),
+#   (3) devflow-implement.yml EXPORTS DEVFLOW_APP_ID into the claude step's env so the
+#       Phase 1.6 pass can actually read the operand it now keys on (producer for the guard).
+IMPL_YML="$LIB/../.github/workflows/devflow-implement.yml"
+assert_pin_unique "#350: 2.2.5 exempts a cloud run with DEVFLOW_APP_ID set (workflow-capable App token)" \
+  'a cloud run with `DEVFLOW_APP_ID` **set** carries a workflow-capable App token seeded into checkout' "$IMPL_PHASES_DIR/phase-2-implement.md"
+assert_pin_unique "#350: Phase 2.5 guard keys on the same cloud + DEVFLOW_APP_ID-empty condition as Pass 5" \
+  'the same condition Pass 5 keys on: cloud tier (`GITHUB_ACTIONS=true`) with `DEVFLOW_APP_ID` empty/unset' "$IMPL_PHASES_DIR/phase-2-implement.md"
+assert_pin_unique "#350 (Important-1): Phase 2.5 guard reverts files coupled to a reverted workflow (else CI-red)" \
+  'revert every file coupled to it in the same step' "$IMPL_PHASES_DIR/phase-2-implement.md"
+assert_pin_unique "#350: devflow-implement.yml exports DEVFLOW_APP_ID into the agent env (Pass 5's observable signal)" \
+  'DEVFLOW_APP_ID: ${{ vars.DEVFLOW_APP_ID }}' "$IMPL_YML"
+# Structurally confirm the export sits inside the 'Run Claude Code' step (between its
+# `name:` and its `with:`), so the /devflow:implement agent actually reads it — a bare
+# count could pass on a line stranded in the wrong step.
+CLAUDE_STEP_BLK="$(awk '/name: Run Claude Code/{f=1} f{print} f&&/^        with:/{exit}' "$IMPL_YML")"
+assert_eq "#350: the DEVFLOW_APP_ID env export lives in the Run Claude Code step (before its with:)" "1" \
+  "$(printf '%s\n' "$CLAUDE_STEP_BLK" | grep -cF 'DEVFLOW_APP_ID: ${{ vars.DEVFLOW_APP_ID }}')"
 # ── issue #185 (+ Addendum): Phase 4.1 Documentation Needed cross-check ─────
 # Phase 4.1 enforces named documentation deliverables in two stages:
 #   Stage 1 pre-flight: extract the Documentation Needed paths and inject them
@@ -9819,6 +9937,123 @@ assert_eq "di: duplicate notice contains no /devflow: phrase" "0" \
   "$(grep -c '/devflow:' <<< "$NOTICE_LINE")"
 assert_eq "di: duplicate notice contains no @claude" "0" \
   "$(grep -c '@claude' <<< "$NOTICE_LINE")"
+
+# 15. Stall-backstop-resume carve-out (issue #280, deferred #268 finding): a run
+#     triggered by the stall backstop's auto-resume comment must NOT dedupe against
+#     the still-winding-down run it is taking over. With IS_STALL_RESUME=true (the
+#     explicit override) the script proceeds even though an OLDER active run for the
+#     same thread exists (case 1 above would otherwise be duplicate=true).
+assert_eq "di: stall-backstop resume bypasses dedupe (older active peer present)" "duplicate=false" \
+  "$(DEVFLOW_GH="$DI_STUB/gh" REPO=o/r RUN_ID=200 CONTEXT_NUMBER=42 IS_STALL_RESUME=true \
+     DEDUPE_RUNS_JSON='[{"databaseId":100,"displayTitle":"DevFlow implement (issue 42)","status":"in_progress"}]' \
+     bash "$DIR" 2>/dev/null)"
+# 15b. The carve-out is opt-in: any non-"true" value dedupes normally (older active
+#      peer → duplicate=true), so an unrelated command is never let through.
+assert_eq "di: IS_STALL_RESUME=false still dedupes normally" "duplicate=true" \
+  "$(DEVFLOW_GH="$DI_STUB/gh" REPO=o/r RUN_ID=200 CONTEXT_NUMBER=42 IS_STALL_RESUME=false \
+     DEDUPE_RUNS_JSON='[{"databaseId":100,"displayTitle":"DevFlow implement (issue 42)","status":"in_progress"}]' \
+     bash "$DIR" 2>/dev/null)"
+# 15c. Self-derive from GITHUB_EVENT_PATH (the production path — no workflow env is
+#      passed). A triggering comment whose body carries the stall-backstop-audit
+#      marker bypasses dedupe; the same event without the marker dedupes normally.
+DI_EVT_YES="$(mktemp)"; printf '%s' '{"comment":{"body":"<!-- devflow:stall-backstop-audit -->\n/devflow:implement 42"}}' > "$DI_EVT_YES"
+DI_EVT_NO="$(mktemp)";  printf '%s' '{"comment":{"body":"/devflow:implement 42"}}' > "$DI_EVT_NO"
+assert_eq "di: event-path comment carrying the stall marker bypasses dedupe" "duplicate=false" \
+  "$(DEVFLOW_GH="$DI_STUB/gh" REPO=o/r RUN_ID=200 CONTEXT_NUMBER=42 GITHUB_EVENT_PATH="$DI_EVT_YES" \
+     DEDUPE_RUNS_JSON='[{"databaseId":100,"displayTitle":"DevFlow implement (issue 42)","status":"in_progress"}]' \
+     bash "$DIR" 2>/dev/null)"
+assert_eq "di: event-path comment without the stall marker dedupes normally" "duplicate=true" \
+  "$(DEVFLOW_GH="$DI_STUB/gh" REPO=o/r RUN_ID=200 CONTEXT_NUMBER=42 GITHUB_EVENT_PATH="$DI_EVT_NO" \
+     DEDUPE_RUNS_JSON='[{"databaseId":100,"displayTitle":"DevFlow implement (issue 42)","status":"in_progress"}]' \
+     bash "$DIR" 2>/dev/null)"
+rm -f "$DI_EVT_YES" "$DI_EVT_NO"
+# 15c-err. Fail-open detection errors (issue #280 hardening): the marker probe reads a
+#      runner-provided payload, so a malformed/unreadable/missing GITHUB_EVENT_PATH must
+#      NOT be mistaken for a resume — it falls through to ordinary dedupe (duplicate=true
+#      when an older active peer exists). A genuine jq error (exit >1: bad JSON, empty
+#      file) additionally emits a ::warning:: so the swallow is visible; a marker merely
+#      ABSENT (jq exit 1) stays silent. All three run under set -euo pipefail without
+#      aborting. The older-active-peer fixture makes the fall-through observable as
+#      duplicate=true (a fail-open-to-dedupe result, not a bypass).
+DI_PEER='[{"databaseId":100,"displayTitle":"DevFlow implement (issue 42)","status":"in_progress"}]'
+DI_EVT_BAD="$(mktemp)"; printf '%s' 'not json{' > "$DI_EVT_BAD"
+# malformed payload → jq exit >1 → fall through to dedupe (duplicate=true) + ::warning::
+DI_BAD_ERR="$(mktemp)"
+assert_eq "di: malformed GITHUB_EVENT_PATH → not a resume, ordinary dedupe applies" "duplicate=true" \
+  "$(DEVFLOW_GH="$DI_STUB/gh" REPO=o/r RUN_ID=200 CONTEXT_NUMBER=42 GITHUB_EVENT_PATH="$DI_EVT_BAD" \
+     DEDUPE_RUNS_JSON="$DI_PEER" bash "$DIR" 2>"$DI_BAD_ERR")"
+assert_eq "di: malformed GITHUB_EVENT_PATH emits a ::warning:: (real error is not silent)" "1" \
+  "$(grep -c '::warning::dedupe: could not read the stall-resume marker' "$DI_BAD_ERR")"
+rm -f "$DI_EVT_BAD" "$DI_BAD_ERR"
+# well-formed-but-wrong-SHAPE payload (top-level array/scalar, not an object): jq's
+# `.comment` index raises an error → exit >1 → warning branch, same as malformed text.
+# This is a distinct input class from "malformed text" — the adversarial input-shape
+# matrix (CLAUDE.md best-effort-parser gotcha) designates a runner-provided payload
+# parser subject to the {object, array, scalar, ...} sweep. Guards against a future
+# `?`/`try` hardening silently flipping a wrong-type payload from warning to silent.
+DI_EVT_ARR="$(mktemp)"; printf '%s' '[]' > "$DI_EVT_ARR"
+DI_ARR_ERR="$(mktemp)"
+assert_eq "di: wrong-type (array) GITHUB_EVENT_PATH → not a resume, ordinary dedupe applies" "duplicate=true" \
+  "$(DEVFLOW_GH="$DI_STUB/gh" REPO=o/r RUN_ID=200 CONTEXT_NUMBER=42 GITHUB_EVENT_PATH="$DI_EVT_ARR" \
+     DEDUPE_RUNS_JSON="$DI_PEER" bash "$DIR" 2>"$DI_ARR_ERR")"
+assert_eq "di: wrong-type (array) GITHUB_EVENT_PATH emits a ::warning:: (real error is not silent)" "1" \
+  "$(grep -c '::warning::dedupe: could not read the stall-resume marker' "$DI_ARR_ERR")"
+rm -f "$DI_EVT_ARR" "$DI_ARR_ERR"
+# empty-but-readable payload (the "empty file" example the code comment names): passes
+# the [ -r ] guard, jq -e on empty input produces no output → exit 4 → warning branch.
+DI_EVT_EMPTY="$(mktemp)"; printf '' > "$DI_EVT_EMPTY"
+DI_EMPTY_ERR="$(mktemp)"
+assert_eq "di: empty GITHUB_EVENT_PATH → not a resume, ordinary dedupe applies" "duplicate=true" \
+  "$(DEVFLOW_GH="$DI_STUB/gh" REPO=o/r RUN_ID=200 CONTEXT_NUMBER=42 GITHUB_EVENT_PATH="$DI_EVT_EMPTY" \
+     DEDUPE_RUNS_JSON="$DI_PEER" bash "$DIR" 2>"$DI_EMPTY_ERR")"
+assert_eq "di: empty GITHUB_EVENT_PATH emits a ::warning:: (real error is not silent)" "1" \
+  "$(grep -c '::warning::dedupe: could not read the stall-resume marker' "$DI_EMPTY_ERR")"
+rm -f "$DI_EVT_EMPTY" "$DI_EMPTY_ERR"
+# unreadable path (nonexistent) → the [ -r ] guard skips the probe → dedupe, no warning
+DI_UNREAD_ERR="$(mktemp)"
+assert_eq "di: nonexistent GITHUB_EVENT_PATH → not a resume, ordinary dedupe applies" "duplicate=true" \
+  "$(DEVFLOW_GH="$DI_STUB/gh" REPO=o/r RUN_ID=200 CONTEXT_NUMBER=42 GITHUB_EVENT_PATH=/nonexistent/devflow-event.json \
+     DEDUPE_RUNS_JSON="$DI_PEER" bash "$DIR" 2>"$DI_UNREAD_ERR")"
+assert_eq "di: nonexistent GITHUB_EVENT_PATH emits no marker-read warning (guard skips probe)" "0" \
+  "$(grep -c 'could not read the stall-resume marker' "$DI_UNREAD_ERR")"
+rm -f "$DI_UNREAD_ERR"
+# PRESENT-but-unreadable payload (issue #280 shadow finding): a file that EXISTS but
+# cannot be read (permission/mount anomaly, a partially-materialised/locked payload) is
+# a distinct input class from the NONEXISTENT path above — the [ -r ] guard fails on
+# both, but only the present-but-unreadable one is an "unreadable payload" the header
+# contract promises to WARN on. It must fall through to ordinary dedupe (duplicate=true
+# with an older active peer) AND emit a ::warning:: (never a silent swallow of a
+# possible genuine resume), unlike the absent-path case which stays silent. chmod a-r is
+# a no-op under root (`[ -r ]` is always true), so guard on non-root like the F1 arm.
+if [ "$(id -u)" != 0 ]; then
+  DI_EVT_LOCKED="$(mktemp)"; printf '%s' '{"comment":{"body":"<!-- devflow:stall-backstop-audit -->"}}' > "$DI_EVT_LOCKED"; chmod a-r "$DI_EVT_LOCKED"
+  DI_LOCKED_ERR="$(mktemp)"
+  assert_eq "di: present-but-unreadable GITHUB_EVENT_PATH → not a resume, ordinary dedupe applies" "duplicate=true" \
+    "$(DEVFLOW_GH="$DI_STUB/gh" REPO=o/r RUN_ID=200 CONTEXT_NUMBER=42 GITHUB_EVENT_PATH="$DI_EVT_LOCKED" \
+       DEDUPE_RUNS_JSON="$DI_PEER" bash "$DIR" 2>"$DI_LOCKED_ERR")"
+  assert_eq "di: present-but-unreadable GITHUB_EVENT_PATH emits a ::warning:: (unreadable payload is not silent)" "1" \
+    "$(grep -c 'is set but not readable' "$DI_LOCKED_ERR")"
+  chmod u+rw "$DI_EVT_LOCKED" 2>/dev/null || true
+  rm -f "$DI_EVT_LOCKED" "$DI_LOCKED_ERR"
+fi
+# well-formed JSON missing .comment.body → marker genuinely absent (jq exit 1) → dedupe,
+# no warning (an absent marker is the expected non-resume case, must stay silent).
+DI_EVT_NOBODY="$(mktemp)"; printf '%s' '{"issue":{"number":42}}' > "$DI_EVT_NOBODY"
+DI_NOBODY_ERR="$(mktemp)"
+assert_eq "di: valid payload with no .comment.body → ordinary dedupe applies" "duplicate=true" \
+  "$(DEVFLOW_GH="$DI_STUB/gh" REPO=o/r RUN_ID=200 CONTEXT_NUMBER=42 GITHUB_EVENT_PATH="$DI_EVT_NOBODY" \
+     DEDUPE_RUNS_JSON="$DI_PEER" bash "$DIR" 2>"$DI_NOBODY_ERR")"
+assert_eq "di: absent marker (jq exit 1) emits no warning (expected non-resume is silent)" "0" \
+  "$(grep -c 'could not read the stall-resume marker' "$DI_NOBODY_ERR")"
+rm -f "$DI_EVT_NOBODY" "$DI_NOBODY_ERR"
+# 15d. Coupled cross-file invariant (issue #280): the stall-resume marker the dedupe
+#      script keys on MUST stay identical to the marker the stall-backstop step
+#      writes into its resume comment. Assert the exact literal is present in both.
+DI_WF="$LIB/../.github/workflows/devflow-implement.yml"
+assert_eq "di: dedupe script defines the stall-backstop-audit marker" "1" \
+  "$(grep -c "STALL_RESUME_MARKER='<!-- devflow:stall-backstop-audit -->'" "$DIR")"
+assert_eq "di: same stall-backstop-audit marker literal exists in the workflow (coupling holds)" "true" \
+  "$(grep -q "<!-- devflow:stall-backstop-audit -->" "$DI_WF" && echo true || echo false)"
 
 rm -rf "$DI_STUB"
 

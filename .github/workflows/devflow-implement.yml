@@ -414,6 +414,18 @@ jobs:
       - name: Run Claude Code
         id: claude
         uses: anthropics/claude-code-action@v1
+        env:
+          # Surfaces the workflow-capable-token signal to the /devflow:implement
+          # agent's Phase 1.6 execution-capability pass (Pass 5, issues #346/#350).
+          # NON-EMPTY ⇒ the App token minted above (Contents + Workflows write) is
+          # seeded into actions/checkout (#357), so the agent CAN push
+          # .github/workflows/ and workflow-resident ACs are NOT deferred. EMPTY ⇒
+          # the checkout credential is the built-in GITHUB_TOKEN (github-actions[bot]),
+          # which cannot push .github/workflows/, so Pass 5 defers those ACs at plan
+          # time. Always exported (empty-valued when the variable is unset) so the
+          # pass reads a definite signal rather than an absent one. Coupled to Pass 5's
+          # keying in skills/implement/phases/phase-1-setup.md and its lib/test/run.sh pins.
+          DEVFLOW_APP_ID: ${{ vars.DEVFLOW_APP_ID }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # Use the minted App token for git auth when the opt-in App is
@@ -813,12 +825,14 @@ jobs:
               K=$((ATTEMPTS + 1))
               # The ONLY comment that may carry the trigger phrase. It must not
               # embed the workpad marker (the gate's self-trigger guard declines
-              # any comment containing it). Known accepted race: this comment is
-              # posted while the current run is still in_progress, so the new
-              # run's gate dedupe can classify it as a duplicate and skip — the
-              # audit comment remains as the visible record and a human re-post
-              # recovers; a dedupe carve-out is a deliberate follow-up, not
-              # silently assumed here.
+              # any comment containing it). This comment is posted while the
+              # current run is still in_progress; the new run's gate dedupe no
+              # longer classifies it as a duplicate, because the dedupe carve-out
+              # (issue #280 / PR #354) is now implemented: dedupe-implement-run.sh
+              # reads the triggering comment from GITHUB_EVENT_PATH and, seeing the
+              # stall-backstop-audit marker ($MARKER, above) this resume comment
+              # carries, skips deduping so the taking-over run proceeds instead of
+              # being swallowed as a duplicate of the still-finishing original.
               {
                 printf '%s\n\n' "$MARKER"
                 printf '**DevFlow stall backstop** — this cloud run ended while the workpad Status was still in-progress (`%s`). Auto-resume attempt %s of %s:\n\n' "$STATUS_OUT" "$K" "$MAX"
