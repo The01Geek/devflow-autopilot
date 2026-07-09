@@ -64,16 +64,23 @@
 # audit comment visible but inert, the exact race the #268 finding named. The
 # resume comment is identified by the stall-backstop-audit marker it carries
 # (kept identical to the `MARKER` the backstop step writes in devflow-implement.yml).
-# The carve-out only ever fails OPEN (a redundant run at worst), never swallows a
-# request.
+# The carve-out never WRONGLY bypasses dedupe for an ordinary command: only a
+# comment carrying the marker skips dedupe (a redundant run at worst). A
+# marker-detection error on a genuine resume (a malformed/unreadable payload)
+# does NOT bypass dedupe — it falls through to ordinary dedupe, which CAN then
+# emit duplicate=true and swallow the resume — but such an error is made VISIBLE
+# via a ::warning:: (see the detection block below) rather than swallowed silently.
 #
 # Output: one `key=value` line on stdout (the caller appends to $GITHUB_OUTPUT;
 # tests assert it directly):
 #   duplicate=true|false
 #
-# Fails OPEN: any missing input or query error yields duplicate=false (the run
-# proceeds) with a ::warning::, because silently swallowing a legitimate single
-# request is worse than a rare redundant run. Diagnostics go to stderr.
+# Fails OPEN: a missing input or a run-list query error yields duplicate=false
+# (the run proceeds) with a ::warning::, because silently swallowing a legitimate
+# single request is worse than a rare redundant run. (The one exception is a
+# marker-detection error in the resume carve-out below: it emits a ::warning:: but
+# then falls through to ordinary dedupe rather than forcing duplicate=false, since
+# an unreadable payload cannot be confirmed a resume.) Diagnostics go to stderr.
 
 set -euo pipefail
 

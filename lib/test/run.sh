@@ -9757,6 +9757,30 @@ assert_eq "di: malformed GITHUB_EVENT_PATH → not a resume, ordinary dedupe app
 assert_eq "di: malformed GITHUB_EVENT_PATH emits a ::warning:: (real error is not silent)" "1" \
   "$(grep -c '::warning::dedupe: could not read the stall-resume marker' "$DI_BAD_ERR")"
 rm -f "$DI_EVT_BAD" "$DI_BAD_ERR"
+# well-formed-but-wrong-SHAPE payload (top-level array/scalar, not an object): jq's
+# `.comment` index raises an error → exit >1 → warning branch, same as malformed text.
+# This is a distinct input class from "malformed text" — the adversarial input-shape
+# matrix (CLAUDE.md best-effort-parser gotcha) designates a runner-provided payload
+# parser subject to the {object, array, scalar, ...} sweep. Guards against a future
+# `?`/`try` hardening silently flipping a wrong-type payload from warning to silent.
+DI_EVT_ARR="$(mktemp)"; printf '%s' '[]' > "$DI_EVT_ARR"
+DI_ARR_ERR="$(mktemp)"
+assert_eq "di: wrong-type (array) GITHUB_EVENT_PATH → not a resume, ordinary dedupe applies" "duplicate=true" \
+  "$(DEVFLOW_GH="$DI_STUB/gh" REPO=o/r RUN_ID=200 CONTEXT_NUMBER=42 GITHUB_EVENT_PATH="$DI_EVT_ARR" \
+     DEDUPE_RUNS_JSON="$DI_PEER" bash "$DIR" 2>"$DI_ARR_ERR")"
+assert_eq "di: wrong-type (array) GITHUB_EVENT_PATH emits a ::warning:: (real error is not silent)" "1" \
+  "$(grep -c '::warning::dedupe: could not read the stall-resume marker' "$DI_ARR_ERR")"
+rm -f "$DI_EVT_ARR" "$DI_ARR_ERR"
+# empty-but-readable payload (the "empty file" example the code comment names): passes
+# the [ -r ] guard, jq -e on empty input produces no output → exit 4 → warning branch.
+DI_EVT_EMPTY="$(mktemp)"; printf '' > "$DI_EVT_EMPTY"
+DI_EMPTY_ERR="$(mktemp)"
+assert_eq "di: empty GITHUB_EVENT_PATH → not a resume, ordinary dedupe applies" "duplicate=true" \
+  "$(DEVFLOW_GH="$DI_STUB/gh" REPO=o/r RUN_ID=200 CONTEXT_NUMBER=42 GITHUB_EVENT_PATH="$DI_EVT_EMPTY" \
+     DEDUPE_RUNS_JSON="$DI_PEER" bash "$DIR" 2>"$DI_EMPTY_ERR")"
+assert_eq "di: empty GITHUB_EVENT_PATH emits a ::warning:: (real error is not silent)" "1" \
+  "$(grep -c '::warning::dedupe: could not read the stall-resume marker' "$DI_EMPTY_ERR")"
+rm -f "$DI_EVT_EMPTY" "$DI_EMPTY_ERR"
 # unreadable path (nonexistent) → the [ -r ] guard skips the probe → dedupe, no warning
 DI_UNREAD_ERR="$(mktemp)"
 assert_eq "di: nonexistent GITHUB_EVENT_PATH → not a resume, ordinary dedupe applies" "duplicate=true" \

@@ -11,7 +11,7 @@ type: Fixed
   triggering comment from `GITHUB_EVENT_PATH` and, when it carries the
   `<!-- devflow:stall-backstop-audit -->` marker every resume comment writes, skips deduping so
   the taking-over run proceeds. The detection lives entirely in the script (not a workflow env),
-  so the fix needs no `.github/workflows/` change. The carve-out only ever fails open, so an
-  ordinary duplicate command is still deduped normally, and a genuine payload read/parse error
-  during marker detection now emits a `::warning::` (instead of being silently swallowed) while
-  still falling through to ordinary dedupe. (#280)
+  so the fix needs no `.github/workflows/` change. The carve-out never wrongly bypasses dedupe
+  for an ordinary duplicate command, and a genuine payload read/parse error during marker
+  detection now emits a `::warning::` (instead of being silently swallowed) while still falling
+  through to ordinary dedupe. (#280)
