@@ -3327,9 +3327,9 @@ assert_pin_red_on_removal "#366: SKILL re-anchor orchestrator-placement clause f
   'for the same eviction-resistance reason the Phase 4.1 re-anchor cites' "$IMPL_ORCH"
 # (b) exclusionary Skill rule + two-guards division of labor.
 assert_pin_unique "#366: SKILL rule forbids the interactive skills mid-run, naming revise-claude-md/brainstorming (operative)" \
-  '`claude-md-management:revise-claude-md` and `superpowers:brainstorming` are examples that must never be invoked from inside an autonomous phase' "$IMPL_ORCH"
+  '`claude-md-management:revise-claude-md` and the `superpowers` `brainstorming` skill are examples that must never be invoked from inside an autonomous phase' "$IMPL_ORCH"
 assert_pin_red_on_removal "#366: SKILL exclusionary-rule sentence flips RED on removal" \
-  '`claude-md-management:revise-claude-md` and `superpowers:brainstorming` are examples that must never be invoked from inside an autonomous phase' "$IMPL_ORCH"
+  '`claude-md-management:revise-claude-md` and the `superpowers` `brainstorming` skill are examples that must never be invoked from inside an autonomous phase' "$IMPL_ORCH"
 assert_pin_unique "#366: SKILL states the two guards division of labor (mid-procedure stop unreachable by re-anchor)" \
   'no completion-anchored re-anchor can ever reach' "$IMPL_ORCH"
 assert_pin_red_on_removal "#366: SKILL division-of-labor clause flips RED on removal" \
