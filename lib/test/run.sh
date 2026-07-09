@@ -4232,7 +4232,8 @@ assert_pin_unique "#254: Pass 4 treats a MERGED dependency as satisfied (landed 
 # repo-own-vs-vendored carve-out, the coupled-CI-pin-blocked-with-it rule, the
 # cloud-tier defer reflection, the all-blocked → Blocked-path arm (the most
 # safety-relevant route — it declines the issue up front, opening no PR), and the
-# local/interactive tier-unchanged arm.
+# workflow-capable-credential proceed arm (local/interactive OR cloud+DEVFLOW_APP_ID-set,
+# never defers/blocks).
 # Scoped to phase-1-setup.md (where Phase 1.6 lives) so the pins are precise to the
 # audit-pass surface AC7 names, not the whole bundle.
 P1_FILE="$IMPL_PHASES_DIR/phase-1-setup.md"
