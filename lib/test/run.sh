@@ -4186,6 +4186,17 @@ assert_eq "#356: update --status Failed writes '**Status:** 💥 Failed'" "yes" 
   "$(grep -q '^\*\*Status:\*\* 💥 Failed$' "$S356/out" && echo yes || echo no)"
 assert_eq "#356: update --status Failed PATCHed (Complete-only gate not tripped)" "yes" \
   "$([ -s "$S356/patchlog" ] && echo yes || echo no)"
+# The three assertions above prove Failed BYPASSES the gate — but they would all stay
+# GREEN if the gate were deleted outright. Pin that the gate is Complete-ONLY by also
+# asserting the CONTRAST on the identical fixture: --status Complete over the same
+# unticked non-post-merge AC must abort (non-zero, no PATCH). Without this row the
+# carve-out pin asserts nothing about the gate's existence.
+: > "$S356/patchlog"
+_c="$(run356 "$S356/interim.md" --status Complete)"
+assert_eq "#356: --status Complete on the SAME unticked-AC fixture aborts (gate is Complete-only)" "yes" \
+  "$([ "$_c" = "0" ] && echo no || echo yes)"
+assert_eq "#356: --status Complete on an unticked AC makes NO PATCH (structural abort)" "yes" \
+  "$([ -s "$S356/patchlog" ] && echo no || echo yes)"
 
 # AC: re-applying --status Failed to a 💥 Failed body is idempotent (single glyph).
 _c="$(run356 "$S356/failed.md" --status Failed)"
