@@ -73,8 +73,12 @@
 #   reason=<empty|behind-base|ci-not-green|ci-approval-required|unverifiable>
 # `reason` is empty only when should_run=true. ci-approval-required is a distinct
 # deferral for a completed run awaiting manual approval (conclusion
-# 'action_required'), so the neutral check can say so in plain language rather
-# than the opaque 'other CI not green'. Every deferral and fail-closed
+# 'action_required'); it exists so the neutral check can name approval as the
+# blocker in plain language rather than the opaque 'other CI not green' -- once
+# devflow-review.yml's create_check maps it to a title (the coupled workflow-side
+# arm, a workflows-scoped change deferred to a human/PAT follow-up). Until that
+# arm lands the reason still defers correctly, under the generic deferral title.
+# Every deferral and fail-closed
 # arm emits a SPECIFIC stderr breadcrumb naming which condition fired. Fail
 # closed on any unverifiable query: a missed review is recoverable via the
 # next event or the check's Re-run button; a wasted/premature LLM review is
@@ -144,9 +148,12 @@ gate_signal_lines() {  # $1=lines  $2=signal noun for the breadcrumb
       action_required)
         # A completed run awaiting manual approval (an approval-gated re-dispatch,
         # e.g. a bot-actor run) — distinct from a generic non-green conclusion so
-        # the neutral check can say "CI approval required" in plain language
-        # instead of the opaque "other CI not green" (issue #351). Shared gate, so
-        # an external app's action_required check run is treated the same way.
+        # the neutral check can name approval as the blocker once devflow-review.yml
+        # maps ci-approval-required to a title (that create_check title arm is the
+        # coupled workflow-side change, deferred to a human/PAT follow-up; until it
+        # lands the reason renders under the generic deferral title) (issue #351).
+        # Shared gate, so an external app's action_required check run is treated
+        # the same way.
         echo "derive-review-preconditions: $2 on $HEAD_SHA concluded 'action_required' — an approval is required before it can run; deferring the review (ci-approval-required)." >&2
         emit false ci-approval-required
         ;;

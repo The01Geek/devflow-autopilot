@@ -8640,6 +8640,18 @@ REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREE
 REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
   DRP_RUNS='{"workflow_runs":[{"name":"CI","workflow_id":1,"event":"pull_request","run_number":1435,"status":"completed","conclusion":"success"},{"name":"CI","workflow_id":1,"event":"pull_request","run_number":1436,"status":"completed","conclusion":"failure"}]}' \
   drp "#351 newest run in group failed (green sibling superseded) -> false ci-not-green" "false ci-not-green"
+# #351 AC3 (collapse discriminator): an OLDER failure superseded by a NEWER success
+# in the same group collapses to the newer green run -> true. This is the case that
+# is uniquely RED on pre-fix code and GREEN post-fix: pre-fix emitted every non-self
+# line, so the older failure deferred ci-not-green; post-fix max_by(.run_number)
+# drops it. (AC4/AC5 above pin the reverse — newest non-green gates despite a green
+# sibling — but their superseded sibling is itself non-green, so pre-fix code already
+# deferred and they do not discriminate the "newest green supersedes older red"
+# contract; this case does. It uses a plain failure, not action_required, so it is a
+# pure collapse test independent of the AC9 ci-approval-required arm.)
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","workflow_id":1,"event":"pull_request","run_number":1435,"status":"completed","conclusion":"failure"},{"name":"CI","workflow_id":1,"event":"pull_request","run_number":1436,"status":"completed","conclusion":"success"}]}' \
+  drp "#351 older failure superseded by newer success (same group) collapses -> true (RED pre-fix)" "true "
 # #351 AC6: same workflow_id under DIFFERENT events are two independent groups —
 # a failure under one event defers even when the run under the other event is
 # newer and green (the collapse is per (workflow_id, event), not per workflow_id).
@@ -8663,6 +8675,24 @@ REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREE
 REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
   DRP_RUNS='{"workflow_runs":[{"name":"CI","workflow_id":1,"event":"pull_request","run_number":"nope","status":"completed","conclusion":"failure"}]}' \
   drp_stderr "#351 non-numeric run_number breadcrumb names the field" "numeric run_number"
+# #351 AC7 (shape-matrix completion): the guard treats workflow_id and run_number
+# with the same `type != "number"` predicate, so sweep the remaining two of the
+# {missing, non-numeric} x {workflow_id, run_number} matrix — a present-but-non-numeric
+# workflow_id and a missing run_number — both fail closed unverifiable, each with a
+# field-naming breadcrumb. workflow_id is checked before run_number, so a run failing
+# BOTH still names workflow_id first.
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","workflow_id":"nope","event":"pull_request","run_number":6,"status":"completed","conclusion":"failure"}]}' \
+  drp "#351 non-self run with non-numeric workflow_id -> false unverifiable (fail closed)" "false unverifiable"
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","workflow_id":"nope","event":"pull_request","run_number":6,"status":"completed","conclusion":"failure"}]}' \
+  drp_stderr "#351 non-numeric workflow_id breadcrumb names the field" "numeric workflow_id"
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","workflow_id":1,"event":"pull_request","status":"completed","conclusion":"failure"}]}' \
+  drp "#351 non-self run missing run_number -> false unverifiable (fail closed)" "false unverifiable"
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","workflow_id":1,"event":"pull_request","status":"completed","conclusion":"failure"}]}' \
+  drp_stderr "#351 missing run_number breadcrumb names the field" "numeric run_number"
 # #351 AC8: zero NON-self workflow runs still satisfies the CI-green precondition
 # (a CI-less-repo / self-only head is reviewed, never wedged).
 REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
