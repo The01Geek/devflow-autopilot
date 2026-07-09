@@ -13,5 +13,6 @@ type: Fixed
   the taking-over run proceeds. The detection lives entirely in the script (not a workflow env),
   so the fix needs no `.github/workflows/` change. The carve-out never wrongly bypasses dedupe
   for an ordinary duplicate command, and a genuine payload read/parse error during marker
-  detection now emits a `::warning::` (instead of being silently swallowed) while still falling
-  through to ordinary dedupe. (#280)
+  detection — including a payload that is present but unreadable (a permission/mount anomaly or a
+  partially-materialised/locked payload) — now emits a `::warning::` (instead of being silently
+  swallowed) while still falling through to ordinary dedupe. (#280)

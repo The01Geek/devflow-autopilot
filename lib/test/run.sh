@@ -9789,6 +9789,25 @@ assert_eq "di: nonexistent GITHUB_EVENT_PATH → not a resume, ordinary dedupe a
 assert_eq "di: nonexistent GITHUB_EVENT_PATH emits no marker-read warning (guard skips probe)" "0" \
   "$(grep -c 'could not read the stall-resume marker' "$DI_UNREAD_ERR")"
 rm -f "$DI_UNREAD_ERR"
+# PRESENT-but-unreadable payload (issue #280 shadow finding): a file that EXISTS but
+# cannot be read (permission/mount anomaly, a partially-materialised/locked payload) is
+# a distinct input class from the NONEXISTENT path above — the [ -r ] guard fails on
+# both, but only the present-but-unreadable one is an "unreadable payload" the header
+# contract promises to WARN on. It must fall through to ordinary dedupe (duplicate=true
+# with an older active peer) AND emit a ::warning:: (never a silent swallow of a
+# possible genuine resume), unlike the absent-path case which stays silent. chmod a-r is
+# a no-op under root (`[ -r ]` is always true), so guard on non-root like the F1 arm.
+if [ "$(id -u)" != 0 ]; then
+  DI_EVT_LOCKED="$(mktemp)"; printf '%s' '{"comment":{"body":"<!-- devflow:stall-backstop-audit -->"}}' > "$DI_EVT_LOCKED"; chmod a-r "$DI_EVT_LOCKED"
+  DI_LOCKED_ERR="$(mktemp)"
+  assert_eq "di: present-but-unreadable GITHUB_EVENT_PATH → not a resume, ordinary dedupe applies" "duplicate=true" \
+    "$(DEVFLOW_GH="$DI_STUB/gh" REPO=o/r RUN_ID=200 CONTEXT_NUMBER=42 GITHUB_EVENT_PATH="$DI_EVT_LOCKED" \
+       DEDUPE_RUNS_JSON="$DI_PEER" bash "$DIR" 2>"$DI_LOCKED_ERR")"
+  assert_eq "di: present-but-unreadable GITHUB_EVENT_PATH emits a ::warning:: (unreadable payload is not silent)" "1" \
+    "$(grep -c 'is set but not readable' "$DI_LOCKED_ERR")"
+  chmod u+rw "$DI_EVT_LOCKED" 2>/dev/null || true
+  rm -f "$DI_EVT_LOCKED" "$DI_LOCKED_ERR"
+fi
 # well-formed JSON missing .comment.body → marker genuinely absent (jq exit 1) → dedupe,
 # no warning (an absent marker is the expected non-resume case, must stay silent).
 DI_EVT_NOBODY="$(mktemp)"; printf '%s' '{"issue":{"number":42}}' > "$DI_EVT_NOBODY"

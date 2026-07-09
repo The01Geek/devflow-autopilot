@@ -106,26 +106,40 @@ STALL_RESUME_MARKER='<!-- devflow:stall-backstop-audit -->'
 # This runs BEFORE the gh resolver below so a stall resume — which never queries
 # gh — skips the (execution-verified) `gh --version` probe entirely.
 is_stall_resume="${IS_STALL_RESUME:-}"
-if [ -z "$is_stall_resume" ] && [ -n "${GITHUB_EVENT_PATH:-}" ] && [ -r "$GITHUB_EVENT_PATH" ]; then
-  # Distinguish jq exit 1 (marker genuinely ABSENT — the expected non-resume case,
-  # silent) from jq exit >1 (a REAL read/parse error — a malformed/empty payload).
-  # Both keep the fail-open direction (leave is_stall_resume empty, fall through to
-  # ordinary dedupe), but a real error is NOT silent: it emits a ::warning:: like
-  # every other error path here and the header contract, because a detection failure
-  # on a genuine resume that then dedupes to duplicate=true is the #268 swallow — it
-  # must be visible, not swallowed behind /dev/null. Same jq-stderr-capture discipline
-  # as the run-list dedupe below. This runs BEFORE the gh resolver, so a stall resume
-  # still skips the `gh --version` probe.
-  marker_err="$(mktemp)"
-  jq_rc=0
-  "$DEVFLOW_JQ" -e --arg m "$STALL_RESUME_MARKER" \
-    '(.comment.body // "") | contains($m)' "$GITHUB_EVENT_PATH" >/dev/null 2>"$marker_err" || jq_rc=$?
-  if [ "$jq_rc" -eq 0 ]; then
-    is_stall_resume=true
-  elif [ "$jq_rc" -gt 1 ]; then
-    echo "::warning::dedupe: could not read the stall-resume marker from GITHUB_EVENT_PATH (jq: $(tr '\n' ' ' < "$marker_err")); treating as a non-resume, so ordinary dedupe applies." >&2
+if [ -z "$is_stall_resume" ] && [ -n "${GITHUB_EVENT_PATH:-}" ]; then
+  if [ -r "$GITHUB_EVENT_PATH" ]; then
+    # Distinguish jq exit 1 (marker genuinely ABSENT — the expected non-resume case,
+    # silent) from jq exit >1 (a REAL read/parse error — a malformed/empty payload).
+    # Both keep the fail-open direction (leave is_stall_resume empty, fall through to
+    # ordinary dedupe), but a real error is NOT silent: it emits a ::warning:: like
+    # every other error path here and the header contract, because a detection failure
+    # on a genuine resume that then dedupes to duplicate=true is the #268 swallow — it
+    # must be visible, not swallowed behind /dev/null. Same jq-stderr-capture discipline
+    # as the run-list dedupe below. This runs BEFORE the gh resolver, so a stall resume
+    # still skips the `gh --version` probe.
+    marker_err="$(mktemp)"
+    jq_rc=0
+    "$DEVFLOW_JQ" -e --arg m "$STALL_RESUME_MARKER" \
+      '(.comment.body // "") | contains($m)' "$GITHUB_EVENT_PATH" >/dev/null 2>"$marker_err" || jq_rc=$?
+    if [ "$jq_rc" -eq 0 ]; then
+      is_stall_resume=true
+    elif [ "$jq_rc" -gt 1 ]; then
+      echo "::warning::dedupe: could not read the stall-resume marker from GITHUB_EVENT_PATH (jq: $(tr '\n' ' ' < "$marker_err")); treating as a non-resume, so ordinary dedupe applies." >&2
+    fi
+    rm -f "$marker_err"
+  elif [ -e "$GITHUB_EVENT_PATH" ]; then
+    # PRESENT-but-unreadable payload (a permission/mount anomaly, or a partially
+    # materialised/locked payload): the [ -r ] probe above returned false, so the
+    # marker-read (jq) inside that branch never runs and the marker cannot be checked.
+    # Like the malformed/empty jq-error branch, keep the fail-open
+    # direction (leave is_stall_resume empty, fall through to ordinary dedupe) — but
+    # make the anomaly VISIBLE with a ::warning:: rather than swallowing a possible
+    # genuine resume silently, exactly as the header contract promises for an unreadable
+    # payload. An unset/empty (guarded above) or NONEXISTENT GITHUB_EVENT_PATH is an
+    # ABSENT optional signal, not an unreadable one, so it stays silent (the [ -e ] test
+    # excludes it here) — the IS_STALL_RESUME override covers the no-payload case.
+    echo "::warning::dedupe: could not read the stall-resume marker from GITHUB_EVENT_PATH ($GITHUB_EVENT_PATH is set but not readable); treating as a non-resume, so ordinary dedupe applies." >&2
   fi
-  rm -f "$marker_err"
 fi
 
 if [ "$is_stall_resume" = "true" ]; then
