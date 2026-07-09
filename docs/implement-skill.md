@@ -210,6 +210,29 @@ This is the gate enforcing "verified before merge" rather than trusting the run'
 tooling gap can no longer be laundered into a post-merge pass, and a self-claim confirmation can no
 longer be deferred past the one test that would catch it.
 
+**Pre-merge probe contract.** Passing the genuinely-live test is necessary but not sufficient: a
+criterion whose *verification* needs a runtime environment can still carry a **pre-merge-observable
+precondition that is already false**, and a `(post-merge)` tag means "the live check can't run until after
+merge **and everything observable now has been checked**" — not "the criterion is deferred unexamined."
+So before any `(post-merge)` tag or retag lands (whether at Phase 1.2 parse time or retro-tagged here),
+the run must decompose the criterion into **(a) pre-merge-observable preconditions** — remote
+configuration readable via read-only `gh api` reads (repo settings, a ruleset's required checks and
+bypass-actor list, branch protection), static properties of the shipped files (a workflow's declared
+`permissions:` / token wiring, a config key's presence) — and **(b) the genuinely-live residue** only a
+merge/deploy/live-CI run can produce; probe every (a) precondition read-only (folding in any failure mode
+the linked issue's Potential Gotchas / Implementation Notes name for that mechanism); and record each
+probed precondition, its probe command, and its observed result in the deferral `--note` (or the explicit
+finding `"no pre-merge-observable precondition"` — an empty set is legal, a *silent* deferral is the
+defect). A probe whose observed result shows the deferred live verification cannot succeed as shipped
+routes to a pre-merge fix or the `Blocked` path — **never** a deferral. A *denied* probe (classifier /
+sandbox refused it, or the API returned an auth/permission error so state was unreadable) is recorded as
+denied and the deferral proceeds; the two are told apart by whether the probe obtained a definitive answer
+about the precondition, not by raw exit status — a `gh api` **404** (object observably absent) or **200
+with falsy data** (empty required-checks array, absent bypass actor) is **observed-false**, not a denial.
+A passed probe only *narrows* the deferral to the genuinely-live residue; it never ticks the AC box. The
+contract lives in `skills/implement/phases/phase-3-review.md` and is the single source of truth for both
+the Phase 1.2 tag-time path (`skills/implement/phases/phase-1-setup.md`) and the Phase 3.4 retro-tag path.
+
 ## Phase 4.3 finalize: publish vs. draft (`implement_pr_state`)
 
 Phase 4.3 (*Finalize the PR and Finalize Workpad*) is where a run ends. It runs three things in order:

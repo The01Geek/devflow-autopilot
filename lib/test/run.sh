@@ -4018,6 +4018,60 @@ assert_eq "#258: workpad.py carries the terminal --status Complete self-record g
   "$(grep -q '_terminal_complete_gate' "$WP_PY" && grep -q "(post-merge)" "$WP_PY" && echo yes || echo no)"
 rm -rf "$S258"
 
+# ── Issue #345: pre-merge probe contract before any (post-merge) AC deferral ──
+# Coupled-invariant pins: the probe contract is stated once in phase-3-review.md
+# (Phase 3.4, alongside the genuinely-live test + retro-tag path) and referenced
+# from phase-1-setup.md (Phase 1.2 partial-live rule). Both mirror sites and these
+# pins land in one commit. Each pin targets an operative clause of the contract so
+# a half-revert that removes the obligation turns the suite RED at the desk.
+P345_P3="$IMPL_PHASES_DIR/phase-3-review.md"
+P345_P1="$IMPL_PHASES_DIR/phase-1-setup.md"
+# AC1: the contract exists in phase-3-review.md and the retro-tag path runs it,
+# recording each probe command + observed result (or the empty-set finding).
+assert_pin_unique "#345 AC1: phase-3-review.md states the Pre-merge probe contract before any (post-merge) tag/retag" \
+  'Pre-merge probe contract (mandatory before any' "$P345_P3"
+# AC1 operative step 1 (decompose) — the structural premise the whole contract rests
+# on; unpinned, a half-revert deleting it while keeping the header stays GREEN.
+assert_pin_unique "#345 AC1: the contract's step 1 decomposes into pre-merge-observable preconditions" \
+  '**Decompose** the criterion into **(a) pre-merge-observable preconditions**' "$P345_P3"
+# AC1 operative step 3 (non-empty record obligation) — the auditable-record requirement
+# that IS the point of the AC; pinning only its empty-set branch left this desync-open.
+assert_pin_unique "#345 AC1: the contract records each probed precondition + command + observed result in the deferral note" \
+  'Record each probed precondition, the probe command, and its observed result in the deferral' "$P345_P3"
+assert_pin_unique "#345 AC1: the retro-tag path runs the probe contract before the retag lands" \
+  'Before the retag lands, run the Pre-merge probe contract above' "$P345_P3"
+assert_pin_unique "#345 AC1: the empty observable-precondition set is a legal, explicitly recordable finding" \
+  'when the observable set is genuinely empty, the explicit finding' "$P345_P3"
+# AC2: an observed-cannot-succeed probe routes to a pre-merge fix or the Blocked
+# path (never a deferral), and the red-flags STOP list forbids the launder.
+assert_pin_unique "#345 AC2: an observed-cannot-succeed probe routes to a pre-merge fix or the Blocked path, never a deferral" \
+  'cannot succeed as shipped routes to a pre-merge fix or the Blocked path (step 4 below) — never a deferral' "$P345_P3"
+assert_pin_unique "#345 AC2: the red-flags STOP list forbids a deferral over a failed probe" \
+  'observed-cannot-succeed probe: **never** a deferral' "$P345_P3"
+# AC1/AC2 operative step 2 (probe read-only) — the probe mandate itself; without this
+# a half-revert could delete "probe every precondition" and keep decompose+record GREEN.
+assert_pin_unique "#345 AC1: the contract's step 2 mandates probing every precondition read-only" \
+  '**Probe every (a) precondition read-only**' "$P345_P3"
+# AC2 reverse-launder guard (step 5): a denial must be an inability to observe the
+# state, NOT a non-zero gh-api exit carrying an observed-false answer (404/empty). This
+# is the dual of the observed-cannot-succeed routing; unpinned it fails OPEN silently.
+assert_pin_unique "#345 AC2: step 5 keys denial on whether the probe obtained a definitive answer, not raw exit status (no reverse launder)" \
+  'Tell the two apart by whether the probe obtained a definitive answer about the precondition' "$P345_P3"
+# AC3: the probe obligation includes issue-named failure modes for the mechanism.
+assert_pin_unique "#345 AC3: the probe set must include any issue-named failure mode for the criterion's mechanism" \
+  "any failure mode the linked issue's Potential Gotchas or Implementation Notes names for that criterion's mechanism" "$P345_P3"
+# AC4: phase-1-setup.md references the SAME contract, and states a passed probe
+# never ticks the AC box.
+assert_pin_unique "#345 AC4: phase-1-setup.md ties the partial-live rule to the same Pre-merge probe contract" \
+  'is the Pre-merge probe contract, not just files-in-the-diff' "$P345_P1"
+assert_pin_unique "#345 AC4: phase-1-setup.md states a passed probe never ticks the AC box" \
+  'A passed probe never ticks the AC box' "$P345_P1"
+# AC4 coupled-invariant: the passed-probe-never-ticks clause also lives in phase-3's
+# contract (step 6); pin the phase-3 side too so removing it there turns the suite RED
+# (the two files are a stated single-source-of-truth pair).
+assert_pin_unique "#345 AC4: phase-3-review.md's contract step 6 also states a passed probe never ticks the AC box" \
+  'A passed probe never ticks the AC box' "$P345_P3"
+
 # ── Issue #184: Phase 1.6 Issue-Claim Audit ──────────────────────────────
 # Five assert_pin_red_on_removal guards + five assert_pin_unique pins.
 # assert_pin_red_on_removal: presence+uniqueness (PASS-before) + deletion
