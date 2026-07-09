@@ -18,7 +18,10 @@
 #             "true", an unrecognized string) resolves to enabled — the safe,
 #             honest-failure direction the issue mandates.
 #   CLASS     The workpad status class from `workpad.py status`:
-#               terminal      — 🎉 Complete / 👎 Blocked (healthy end)
+#               terminal      — 🎉 Complete / 👎 Blocked / 💥 Failed (a decided
+#                               end; no resume. 💥 Failed is written by the
+#                               workflow's own dead-run flip, issue #356, so a
+#                               re-triggered run reads terminal -> noop here)
 #               interim       — 🚀 any in-progress phase (a stall)
 #               unreadable    — no workpad, or its Status could not be parsed
 #               auth-failure  — a gh-api / transport / auth error (e.g. an

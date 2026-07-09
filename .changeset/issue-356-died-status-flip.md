@@ -11,8 +11,9 @@ type: Added
   every fail-loud exit, best-effort and never altering the step's exit code. The review
   engine's live progress comment is flipped to its existing `❌ Review failed` state by a new
   best-effort helper (`scripts/flip-review-progress-failed.sh`) wired into `devflow-review.yml`'s
-  `finalize_check` (job failure / cancellation / engine-error incomplete) and `devflow.yml`'s
-  comment-triggered job (claude step failure / cancellation). Both flips fire only when the
+  `finalize_check` and `devflow.yml`'s comment-triggered job — each covering the same three
+  non-success arms: job/step failure, cancellation, and an engine that ended `is_error` while
+  the step itself still reported success. Both flips fire only when the
   comment's Status is still interim (🚀), so a terminal Status is never clobbered and an
   auto-resume in flight is untouched. A `💥 Failed` workpad also gates non-clean in the weekly
   retrospective, so dead implement runs stop masquerading as clean. (#356)

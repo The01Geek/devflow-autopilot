@@ -327,8 +327,8 @@ def cmd_body(args):
 def _is_recognized_status_word(word: str) -> bool:
     """True if `word` (already glyph-stripped) is a canonical Status word —
     exactly one of `_STATUS_TO_PROGRESS_PHASE`'s keys (every in-progress phase
-    word, plus 'complete') or the literal terminal word 'blocked' (the one
-    word `_STATUS_TO_PROGRESS_PHASE` intentionally omits — see
+    word, plus 'complete') or one of the literal terminal words 'blocked' /
+    'failed' (the words `_STATUS_TO_PROGRESS_PHASE` intentionally omits — see
     `_progress_phase_for_status`). Deliberately exact-match, NOT
     `_status_glyph(word) in ('🎉', '👎')`: that delegates to `_status_glyph`'s
     own `startswith('complete'/'blocked')` prefix check, which is intentional
@@ -1564,8 +1564,8 @@ def main():
     )
     u.add_argument('issue', type=int)
     u.add_argument('--status', help='Replace the Status line value. A canonical '
-                   'glyph (🚀 running / 🎉 Complete / 👎 Blocked) is derived from '
-                   'the status word and prepended automatically.')
+                   'glyph (🚀 running / 🎉 Complete / 👎 Blocked / 💥 Failed) is '
+                   'derived from the status word and prepended automatically.')
     u.add_argument('--branch', help='Replace the Branch line value.')
     u.add_argument('--run-link', metavar='VALUE',
                    help='Set the Run front-matter line to VALUE (markdown ok). '

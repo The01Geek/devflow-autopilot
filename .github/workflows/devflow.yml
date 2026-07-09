@@ -729,22 +729,54 @@ jobs:
             echo "::notice::surface-execution-diagnostics.sh absent; execution diagnostics not surfaced (best-effort)."
           fi
 
+      # Parse the engine's is_error out of claude-code-action's execution log,
+      # mirroring devflow-runner.yml's "Surface review-engine execution result"
+      # step and reusing the same unit-tested helper. This is what lets the flip
+      # below cover the third non-success arm finalize_check already covers: the
+      # claude STEP can exit success while the engine's final message carries
+      # is_error (the parse runs after the step, so the two are independent).
+      # Fail-safe: an absent/unparseable log yields false (no flip), matching the
+      # helper's own contract.
+      - name: Surface review-engine execution result
+        id: engine
+        if: ${{ always() }}
+        env:
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          set -uo pipefail
+          PEE=.devflow/vendor/devflow/scripts/parse-engine-error.sh
+          [ -f "$PEE" ] || PEE=scripts/parse-engine-error.sh
+          if [ -f "$PEE" ]; then
+            # Never 2>/dev/null the helper — a broken jq would otherwise report
+            # is_error=false forever with zero trace.
+            IS_ERROR=$(bash "$PEE" "${EXECUTION_FILE:-}" || echo false)
+            [ "$IS_ERROR" = "true" ] || IS_ERROR=false
+          else
+            echo "::notice::parse-engine-error.sh absent; treating engine is_error as false (fail-safe)."
+            IS_ERROR=false
+          fi
+          echo "is_error=$IS_ERROR" >> "$GITHUB_OUTPUT"
+
       # Dead-run review-progress flip (issue #356). A comment-triggered
       # /devflow:review or /devflow:review-and-fix seeds a run-keyed
-      # devflow:review-progress comment; if the claude step dies (failure or
-      # cancellation) the agent never flips it out of the interim 🚀 Reviewing
-      # state. This always() step does the workflow-level flip, keyed on the
-      # claude step's RAW outcome (success/failure/cancelled/skipped, before
-      # continue-on-error). Best-effort: the helper always exits 0, so this never
-      # changes the job's pass/fail. A /devflow:implement or /devflow:pr-description
-      # trigger seeds no such comment, so the helper's comment-absent no-op arm
-      # handles it. The run-keyed marker matches ONLY this run's comment.
+      # devflow:review-progress comment; if the run ends non-success the agent
+      # never flips it out of the interim 🚀 Reviewing state. This always() step
+      # does the workflow-level flip on the same three non-success arms
+      # devflow-review.yml's finalize_check covers — job failure, cancellation,
+      # and an engine that ended is_error while the step still reported success.
+      # `steps.claude.outcome` is the RAW outcome (success/failure/cancelled/
+      # skipped, before continue-on-error). Best-effort: the helper always exits
+      # 0, so this never changes the job's pass/fail. A /devflow:implement or
+      # /devflow:pr-description trigger seeds no such comment, so the helper's
+      # comment-absent no-op arm handles it. The run-keyed marker matches ONLY
+      # this run's comment, so an earlier run's comment is never touched.
       - name: Flip review-progress comment on dead run
-        if: ${{ always() && (steps.claude.outcome == 'failure' || steps.claude.outcome == 'cancelled') }}
+        if: ${{ always() && (steps.claude.outcome == 'failure' || steps.claude.outcome == 'cancelled' || steps.engine.outputs.is_error == 'true') }}
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
           CONTEXT_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
           CLAUDE_OUTCOME: ${{ steps.claude.outcome }}
+          ENGINE_ERROR: ${{ steps.engine.outputs.is_error }}
         run: |
           set -uo pipefail
           FLIP_MARKER="<!-- devflow:review-progress run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} -->"
@@ -754,8 +786,15 @@ jobs:
             echo "::notice::flip review-progress: no issue/PR number on this event; nothing to flip"
             exit 0
           fi
+          # Name the specific arm that fired, so the comment's cause line and the
+          # job log agree on why the run was treated as dead.
+          if [ "${ENGINE_ERROR:-false}" = "true" ] && [ "$CLAUDE_OUTCOME" = "success" ]; then
+            CAUSE="review engine ended with an error (is_error)"
+          else
+            CAUSE="claude step ${CLAUDE_OUTCOME}"
+          fi
           if [ -f "$FLIP_HELPER" ]; then
-            bash "$FLIP_HELPER" "$CONTEXT_NUMBER" "$FLIP_MARKER" "claude step ${CLAUDE_OUTCOME}" || true
+            bash "$FLIP_HELPER" "$CONTEXT_NUMBER" "$FLIP_MARKER" "$CAUSE" || true
           else
             echo "::warning::flip review-progress: flip-review-progress-failed.sh absent at $FLIP_HELPER; review-progress comment not flipped to '❌ Review failed'"
           fi

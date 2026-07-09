@@ -16,8 +16,12 @@
 #   - ALWAYS exits 0 — a flip hiccup must never change the invoking job's or
 #     step's exit code (finalize_check runs `set -euo pipefail` on a REQUIRED
 #     check; devflow.yml's step runs `always()`).
-#   - Emits exactly one stderr breadcrumb naming the arm it took: flipped,
-#     comment-absent, status-already-terminal, or read/patch-failure.
+#   - Emits exactly one stderr breadcrumb naming the arm it took — e.g. flipped,
+#     comment-absent, status-already-terminal, no-Status-line, missing-args, or
+#     read/patch-failure. Each arm names the SPECIFIC condition that fired: a
+#     failed comment lookup (`id` rc 1) is reported as a read failure, never as
+#     "comment-absent" (rc 2), so an operator is never told the comment does not
+#     exist when the read merely failed.
 #   - Flips ONLY when the comment exists AND its `**Status:**` line begins with
 #     🚀 (interim) — anything else (a written verdict, an agent-side
 #     `❌ Review failed`, any terminal glyph) is treated as terminal and left
@@ -56,14 +60,21 @@ else
 fi
 
 # 1. Locate THIS run's comment. The run-keyed marker matches only the current
-#    run, so a prior run's comment is never a candidate. `id` exits 2 (absent)
-#    or 1 (read error) with empty stdout — both route to the comment-absent /
-#    read-failure no-op, so a review with no seeded comment (flag off, non-PR
-#    mode, /pr-description runs, seed failure) is handled here.
+#    run, so a prior run's comment is never a candidate. `id`'s two failure
+#    exits mean DIFFERENT things and must not share a breadcrumb: rc 2 is a
+#    clean scan that found no comment (flag off, non-PR mode, /pr-description
+#    runs, seed failure), while rc 1 is a gh-api/parse failure that never
+#    established absence at all (rate limit, 403 token scope, 5xx). Reporting
+#    the latter as "comment-absent" would send an operator hunting for a
+#    missing comment that in fact exists — so each gets its own arm. Both are
+#    still best-effort no-ops (exit 0); only the diagnosis differs.
 CID="$(python3 "$WORKPAD" id "$PR" --marker "$MARKER" 2>/dev/null)"
 ID_RC=$?
-if [ "$ID_RC" -ne 0 ] || [ -z "$CID" ]; then
-  echo "flip-review-progress-failed: no devflow:review-progress comment for PR #${PR} (marker '${MARKER}', workpad.py id rc=${ID_RC}) — comment-absent no-op" >&2
+if [ "$ID_RC" -eq 2 ]; then
+  echo "flip-review-progress-failed: no devflow:review-progress comment for PR #${PR} (marker '${MARKER}', workpad.py id rc=2 — scanned cleanly, none present) — comment-absent no-op" >&2
+  exit 0
+elif [ "$ID_RC" -ne 0 ] || [ -z "$CID" ]; then
+  echo "flip-review-progress-failed: could not look up PR #${PR}'s review-progress comment (marker '${MARKER}', workpad.py id rc=${ID_RC}) — read-failure no-op; the comment's absence was NOT established" >&2
   exit 0
 fi
 

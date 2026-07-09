@@ -4127,8 +4127,16 @@ if [[ "$j" == *"-X PATCH"* ]]; then
   for a in "$@"; do case "$a" in body=@*) cat "${a#body=@}" | tee "${WP_PATCHBODY:-/dev/null}";; esac; done
   exit 0
 fi
-if [[ "$j" == *"issues/comments/7"* ]]; then cat "$WP_BODY"; exit 0; fi
+if [[ "$j" == *"issues/comments/7"* ]]; then
+  # WP_BODY_FAIL: the single-comment read fails (403/5xx) -> workpad.py body rc 1.
+  if [ -n "${WP_BODY_FAIL:-}" ]; then echo "body boom" >&2; exit 1; fi
+  cat "$WP_BODY"; exit 0
+fi
 if [[ "$j" == *"/comments"* ]]; then
+  # WP_ID_FAIL: the comment-LIST read fails (rate limit/403/5xx) -> workpad.py id
+  # rc 1. Distinct from WP_ABSENT (a clean scan finding nothing -> rc 2): the flip
+  # helper must diagnose these differently, never calling a failed read "absent".
+  if [ -n "${WP_ID_FAIL:-}" ]; then echo "list boom" >&2; exit 1; fi
   if [ -n "${WP_ABSENT:-}" ]; then echo '[]'; exit 0; fi
   printf '[{"id":7,"body":%s}]' "$(jq -Rs . < "$WP_BODY")"; exit 0
 fi
@@ -4264,6 +4272,48 @@ assert_eq "#356 flip: exits 0 even when the PATCH fails" "0" "$_fc"
 assert_eq "#356 flip: patch-failure breadcrumb names the failure arm" "yes" \
   "$(grep -qi 'patch-failure' "$S356/ferr" && echo yes || echo no)"
 
+# (id read failure) `workpad.py id` rc 1 (a gh-api/parse failure) is a READ failure,
+# NOT "comment-absent" (rc 2). Misreporting a failed lookup as an absent comment
+# sends an operator hunting for a comment that in fact exists, so the two arms
+# carry distinct breadcrumbs. Both are still best-effort no-ops (exit 0, no PATCH).
+: > "$S356/patchlog"
+WP_BODY="$S356/rev-interim.md" WP_PATCHLOG="$S356/patchlog" WP_ID_FAIL=1 DEVFLOW_GH="$S356/gh" \
+  bash "$FLIP_SH" 55 "$RMARK" "job died" >/dev/null 2>"$S356/ferr"; _fc=$?
+assert_eq "#356 flip: exits 0 when the comment lookup itself fails" "0" "$_fc"
+assert_eq "#356 flip: id-read-failure arm makes NO PATCH" "yes" \
+  "$([ -s "$S356/patchlog" ] && echo no || echo yes)"
+assert_eq "#356 flip: a failed lookup is diagnosed as a read failure, not 'comment-absent'" "yes" \
+  "$(grep -qi 'read-failure' "$S356/ferr" && ! grep -qi 'comment-absent' "$S356/ferr" && echo yes || echo no)"
+assert_eq "#356 flip: id-read-failure breadcrumb states absence was not established" "yes" \
+  "$(grep -q 'absence was NOT established' "$S356/ferr" && echo yes || echo no)"
+
+# (body read failure) the comment id resolves but the body read fails → read-failure
+# no-op, exit 0, no PATCH.
+: > "$S356/patchlog"
+WP_BODY="$S356/rev-interim.md" WP_PATCHLOG="$S356/patchlog" WP_BODY_FAIL=1 DEVFLOW_GH="$S356/gh" \
+  bash "$FLIP_SH" 55 "$RMARK" "job died" >/dev/null 2>"$S356/ferr"; _fc=$?
+assert_eq "#356 flip: exits 0 when the body read fails" "0" "$_fc"
+assert_eq "#356 flip: body-read-failure arm makes NO PATCH" "yes" \
+  "$([ -s "$S356/patchlog" ] && echo no || echo yes)"
+assert_eq "#356 flip: body-read-failure breadcrumb names the read-failure arm" "yes" \
+  "$(grep -qi 'could not read body' "$S356/ferr" && echo yes || echo no)"
+
+# (missing args) no pr number / no marker → usage no-op, exit 0, no PATCH.
+: > "$S356/patchlog"
+WP_PATCHLOG="$S356/patchlog" DEVFLOW_GH="$S356/gh" \
+  bash "$FLIP_SH" "" "$RMARK" "job died" >/dev/null 2>"$S356/ferr"; _fc=$?
+assert_eq "#356 flip: exits 0 with a missing pr number" "0" "$_fc"
+assert_eq "#356 flip: missing-args arm makes NO PATCH" "yes" \
+  "$([ -s "$S356/patchlog" ] && echo no || echo yes)"
+assert_eq "#356 flip: missing-args breadcrumb names the usage arm" "yes" \
+  "$(grep -qi 'missing pr number or marker' "$S356/ferr" && echo yes || echo no)"
+: > "$S356/patchlog"
+WP_PATCHLOG="$S356/patchlog" DEVFLOW_GH="$S356/gh" \
+  bash "$FLIP_SH" 55 "" "job died" >/dev/null 2>"$S356/ferr"; _fc=$?
+assert_eq "#356 flip: exits 0 with a missing marker" "0" "$_fc"
+assert_eq "#356 flip: missing-marker arm makes NO PATCH" "yes" \
+  "$([ -s "$S356/patchlog" ] && echo no || echo yes)"
+
 # Helper contract pins: SPDX header + always-exit-0 + routes via workpad.py (no bare gh).
 assert_eq "#356 flip: helper carries the SPDX header" "yes" \
   "$(grep -q 'SPDX-License-Identifier: MIT' "$FLIP_SH" && echo yes || echo no)"
@@ -4286,7 +4336,9 @@ IMPL_YML="$LIB/../.github/workflows/devflow-implement.yml"
 REVIEW_YML="$LIB/../.github/workflows/devflow-review.yml"
 DEVFLOW_YML="$LIB/../.github/workflows/devflow.yml"
 
-# Implement flip: the function + its four fail-loud call sites, guarded on interim.
+# Implement flip: the function + each of its fail-loud call sites (at least the four
+# pinned below), guarded on interim. Each pin quotes that site's unique cause string,
+# so deleting the call goes RED; a fifth site added later never falsifies this prose.
 assert_eq "#356 pin: devflow-implement.yml defines flip_to_failed guarded on CLASS=interim" "yes" \
   "$(grep -q 'flip_to_failed()' "$IMPL_YML" && grep -q '\[ "\${CLASS:-}" = "interim" \] || return 0' "$IMPL_YML" && echo yes || echo no)"
 assert_eq "#356 pin: implement flip writes --status Failed with a dead-run note" "yes" \
@@ -4314,8 +4366,27 @@ assert_eq "#356 pin: devflow-review.yml wires flip-review-progress-failed.sh" "y
   "$(grep -q 'flip-review-progress-failed.sh' "$REVIEW_YML" && echo yes || echo no)"
 assert_eq "#356 pin: devflow.yml adds the dead-run review-progress flip step" "yes" \
   "$(grep -q 'Flip review-progress comment on dead run' "$DEVFLOW_YML" && echo yes || echo no)"
-assert_eq "#356 pin: devflow.yml flip step keys on the claude step outcome and wires the helper" "yes" \
-  "$(grep -q 'steps.claude.outcome' "$DEVFLOW_YML" && grep -q 'flip-review-progress-failed.sh' "$DEVFLOW_YML" && echo yes || echo no)"
+assert_eq "#356 pin: devflow.yml flip step wires the helper" "yes" \
+  "$(grep -q 'flip-review-progress-failed.sh' "$DEVFLOW_YML" && echo yes || echo no)"
+# Per-DISJUNCT pins on the flip step's `if:` guard. A bare `grep steps.claude.outcome`
+# would also match the step's own `CLAUDE_OUTCOME:` env line, so deleting a disjunct
+# from the guard would leave it GREEN — the exact vacuous-pin failure these replace.
+# Each pin below quotes the whole comparison, so removing any one arm goes RED.
+# The guard is extracted once (the single `if:` line carrying `always()`), so a
+# comparison appearing anywhere else in the file cannot satisfy these.
+DF356_IF="$(grep -F 'if: ${{ always() && (steps.claude.outcome' "$DEVFLOW_YML" || true)"
+assert_eq "#356 pin: devflow.yml flip step fires on a FAILED claude step" "yes" \
+  "$(printf '%s' "$DF356_IF" | grep -qF "steps.claude.outcome == 'failure'" && echo yes || echo no)"
+assert_eq "#356 pin: devflow.yml flip step fires on a CANCELLED claude step" "yes" \
+  "$(printf '%s' "$DF356_IF" | grep -qF "steps.claude.outcome == 'cancelled'" && echo yes || echo no)"
+assert_eq "#356 pin: devflow.yml flip step fires when the engine ended is_error" "yes" \
+  "$(printf '%s' "$DF356_IF" | grep -qF "steps.engine.outputs.is_error == 'true'" && echo yes || echo no)"
+assert_eq "#356 pin: devflow.yml flip step's guard is always()-wrapped (runs on cancellation)" "yes" \
+  "$(printf '%s' "$DF356_IF" | grep -qF 'always()' && echo yes || echo no)"
+# The is_error disjunct needs a producer: devflow.yml must parse the engine result
+# into steps.engine, mirroring devflow-runner.yml's own parse step.
+assert_eq "#356 pin: devflow.yml surfaces the engine execution result as steps.engine.is_error" "yes" \
+  "$(grep -q 'id: engine' "$DEVFLOW_YML" && grep -q 'parse-engine-error.sh' "$DEVFLOW_YML" && grep -q 'is_error=\$IS_ERROR' "$DEVFLOW_YML" && echo yes || echo no)"
 rm -rf "$S356"
 
 # ── Issue #345: pre-merge probe contract before any (post-merge) AC deferral ──
