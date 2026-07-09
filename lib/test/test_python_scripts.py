@@ -2767,6 +2767,56 @@ for _modname, _mod in (
               True, hasattr(_mod, '_force_utf8_streams'))
 
 
+# ── issue #338: _net_adds_post_merge fails CLOSED on a row-count mismatch ────
+# The CLI-level tests cannot reach this branch: `--rewrite-ac` structurally rejects a
+# newline in NEW, so `_rewrite_checkbox` can never change the row count. Pin the branch
+# directly, because the shape that matters is precisely the one an aggregate
+# `sum(post) > sum(pre)` fallback gets WRONG: a shorter-but-newly-tagged post state.
+# Here sum(pre)=2 > sum(post)=1, so an aggregate compare returns False (fail OPEN) while
+# row 1 transitioned untagged -> tagged. Fail-closed must return True.
+assert_eq("#338: _net_adds_post_merge fails closed on a row-count mismatch "
+          "(aggregate sum compare would fail open here)",
+          True, workpad._net_adds_post_merge([True, True], [False, True, False]))
+# Equal-length: positional add detected even though the totals are unchanged (the
+# remove-one/add-one swap an aggregate count is blind to).
+assert_eq("#338: _net_adds_post_merge catches a net-zero remove-one/add-one swap",
+          True, workpad._net_adds_post_merge([True, False], [False, True]))
+# Equal-length no-op / tag-removal must NOT fire.
+assert_eq("#338: _net_adds_post_merge does not fire on a tag-preserving rewrite",
+          False, workpad._net_adds_post_merge([True, False], [True, False]))
+assert_eq("#338: _net_adds_post_merge does not fire on a tag removal",
+          False, workpad._net_adds_post_merge([True, False], [False, False]))
+# `_is_single_line` must accept no more than its consumer (`str.splitlines()`) does.
+# A `'\n' in s or '\r' in s` membership test accepts every separator below and each one
+# still splits a checkbox row — the validator-superset bug class. Sweep the full set.
+for _sep in ('\n', '\r', '\r\n', '\v', '\f', '\x1c', '\x1d', '\x1e',
+             '\x85', ' ', ' '):
+    assert_eq(f"#338: _is_single_line rejects {_sep!r} (a str.splitlines() boundary)",
+              False, workpad._is_single_line(f"AC two (post-merge){_sep}- [x] Phantom"))
+    # A trailing separator also splits/reflows the row, so it is rejected too.
+    assert_eq(f"#338: _is_single_line rejects a trailing {_sep!r}",
+              False, workpad._is_single_line(f"AC two{_sep}"))
+# ...and accepts ordinary single-line text, including a LITERAL backslash-n (two chars),
+# internal whitespace, the empty string, and a tab.
+for _ok in ('AC two', 'AC two (post-merge)', r'a literal \n backslash-n', 'a  b   c',
+            '', '\tindented'):
+    assert_eq(f"#338: _is_single_line accepts {_ok!r}", True, workpad._is_single_line(_ok))
+# Contract check: the accepted set is exactly the set splitlines() does not split.
+assert_eq("#338: _is_single_line agrees with str.splitlines() on every accepted input",
+          True, all(len(s.splitlines()) <= 1
+                    for s in ('AC two', '', '\tx', r'a \n b')
+                    if workpad._is_single_line(s)))
+
+# `_post_merge_flags` spans every tick state and ignores non-checkbox lines.
+assert_eq("#338: _post_merge_flags flags ticked and unticked rows alike, skipping prose",
+          [False, True, True],
+          workpad._post_merge_flags(
+              "- [ ] plain\n"
+              "- [x] done (post-merge)\n"
+              "some prose (post-merge)\n"
+              "- [ ] deferred (post-merge)\n"))
+
+
 print()
 print(f"{PASS} passed, {FAIL} failed")
 sys.exit(0 if FAIL == 0 else 1)
