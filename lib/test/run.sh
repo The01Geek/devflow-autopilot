@@ -4413,9 +4413,34 @@ assert_eq "#356 pin: implement flip called at the resume-posted-but-no-App-token
   "$(grep -q 'flip_to_failed "resume comment posted but no App token' "$IMPL_YML" && echo yes || echo no)"
 assert_eq "#356 pin: implement flip at the shared final exit is guarded FAIL=1 (never the green resume)" "yes" \
   "$(grep -q '\[ "\$FAIL" -eq 1 \] && flip_to_failed "\${DECISION}"' "$IMPL_YML" && echo yes || echo no)"
-# Absence: the flip must NOT sit inside the resume-comment case arm (the green path).
+# Absence: the flip must NOT sit inside the resume-comment case arm (the green path) —
+# writing a terminal Failed before a resume would make the resumed run's own backstop
+# read `terminal -> noop` and permanently disarm it. This is THE load-bearing invariant.
+#
+# The range is located indentation-AGNOSTICALLY, and the arm's body is asserted
+# non-empty FIRST. A range keyed on literal indentation fails OPEN on any reflow of the
+# `case` block: the range never opens, awk prints nothing, and the absence check reports
+# PASS while the regression sits in the arm. The positive control below turns that
+# vacuous-range case RED instead — an absence pin that cannot locate its subject asserts
+# nothing, so it must fail, not pass.
+_resume_arm_body() {  # print the lines strictly inside the `resume)` case arm
+  awk '
+    /^[[:space:]]*resume\)[[:space:]]*$/ { f=1; next }
+    f && /^[[:space:]]*;;[[:space:]]*$/  { f=0; next }
+    f { print }
+  ' "$1"
+}
+assert_eq "#356 pin: the resume) case arm is locatable (absence pin below is not vacuous)" "yes" \
+  "$([ -n "$(_resume_arm_body "$IMPL_YML")" ] && echo yes || echo no)"
 assert_eq "#356 pin: no flip_to_failed inside the resume) comment-building case arm" "yes" \
-  "$(awk '/^            resume\)/{f=1} f&&/flip_to_failed/{print "found"} /^              ;;/{if(f)f=0}' "$IMPL_YML" | grep -q found && echo no || echo yes)"
+  "$(_resume_arm_body "$IMPL_YML" | grep -q 'flip_to_failed' && echo no || echo yes)"
+
+# The flip step names the specific arm that fired, so the comment's cause line and the
+# job log agree on why the run was treated as dead. Pin both cause strings.
+assert_eq "#356 pin: devflow.yml names the engine-error cause when is_error fired on a success step" "yes" \
+  "$(grep -qF 'CAUSE="review engine ended with an error (is_error)"' "$DEVFLOW_YML" && echo yes || echo no)"
+assert_eq "#356 pin: devflow.yml otherwise names the claude step outcome as the cause" "yes" \
+  "$(grep -qF 'CAUSE="claude step ${CLAUDE_OUTCOME}"' "$DEVFLOW_YML" && echo yes || echo no)"
 
 # Review flip: finalize_check's three arms + devflow.yml's outcome-keyed step.
 assert_eq "#356 pin: devflow-review.yml finalize_check invokes flip_review on job failure" "yes" \
