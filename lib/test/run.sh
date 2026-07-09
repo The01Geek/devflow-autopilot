@@ -2704,18 +2704,70 @@ assert_pin_unique "#235 (B) phase-3.3: the --persist backstop command is actuall
 # The "no inputs" detector is THIS-RUN-SCOPED (#236 review): it snapshots the pre-existing
 # iter-*.json BEFORE the inline loop and, after, records a loss only when NO NEW iter-*.json
 # appeared (comm -13 vs the snapshot). A whole-tree presence check would let a prior-run
-# leftover on the persistent local tier mask a genuine loss. The glob now appears in TWO
-# lines (snapshot + detector), so the bare glob substring is no longer unique — pin each full
-# line instead. The detector-line pin also captures the operative condition SENSE (`[ -z … ]`
-# over the comm-diff): a half-revert flipping the sense (-z→-n) or dropping the snapshot diff
-# turns the suite RED — closing the framing-only-pin gap on the guard's condition itself
-# (this PR's own lesson, applied to the detector sense; #236 pr-test-analyzer note).
-assert_pin_unique "#235 (B) phase-3.3: pre-loop snapshot captures pre-existing iter-*.json before the inline loop" \
-  'compgen -G "$ROOT/.devflow/tmp/review/*/*/iter-*.json" 2>/dev/null | sort > "$ROOT/.devflow/tmp/.phase33-iters-before"' "$DEF_SKILL"
-assert_pin_unique "#235 (B) phase-3.3: no-inputs detector is this-run-scoped (comm -13 vs snapshot) AND fail-closed on empty (-z)" \
-  'if [ -z "$(compgen -G "$ROOT/.devflow/tmp/review/*/*/iter-*.json" 2>/dev/null | sort | comm -13 "$BEFORE" -)" ]; then' "$DEF_SKILL"
+# leftover on the persistent local tier mask a genuine loss. Both blocks now use the
+# #365 portable enumeration idiom (`set -- <glob>` after the zsh nomatch guard, then the
+# builtin `printf '%s\n' "$@"`) in place of the bash-only `compgen -G` — so the pin
+# targets each block's DISTINCTIVE full line, not the shared `set --` glob line (which is
+# byte-identical in both blocks and so no longer unique). The snapshot-line pin captures
+# the empty-set-writes-empty-file `{ [ -e "$1" ] && … ; } > snapshot` shape; the detector-
+# line pin captures BOTH the definitive-absence arm (`[ ! -e "$1" ]`, structurally distinct
+# from the enumerate-and-diff arm) AND the operative condition SENSE (`[ -z … ]` over the
+# comm-diff): a half-revert flipping the sense (-z→-n), dropping the snapshot diff, or
+# dropping the definitive-absence arm turns the suite RED — closing the framing-only-pin gap
+# on the guard's condition itself (this PR's own lesson, applied to the detector sense; #236
+# pr-test-analyzer note).
+assert_pin_unique "#235 (B)/#365 phase-3.3: pre-loop snapshot captures pre-existing iter-*.json (portable enumeration; empty-set writes an empty snapshot)" \
+  '{ [ -e "$1" ] && printf '"'"'%s\n'"'"' "$@" | sort; } > "$ROOT/.devflow/tmp/.phase33-iters-before"' "$DEF_SKILL"
+assert_pin_unique "#235 (B)/#365 phase-3.3: no-inputs detector is this-run-scoped (comm -13 vs snapshot), definitive-absence-aware (! -e \$1) AND fail-closed on empty (-z)" \
+  'if [ ! -e "$1" ] || [ -z "$(printf '"'"'%s\n'"'"' "$@" | sort | comm -13 "$BEFORE" -)" ]; then' "$DEF_SKILL"
 assert_pin_unique "#235 (B) phase-3.3: the no-inputs case emits the dropped-failed telemetry-lost reflection" \
   'lib/efficiency-trace.sh --persist had no inputs' "$DEF_SKILL"
+# #365: NO agent-executed prose block under skills/ may use the bash-only `compgen` builtin
+# (the sole bash-only builtin this fix removed). Prose bash blocks in SKILL.md / phase files
+# are run by the AGENT's own shell (zsh on macOS, sometimes dash/sh), NOT a bash-shebanged
+# .sh — so compgen is unavailable there and silently mis-fires (fail-open/silent, or a false
+# telemetry-loss reflection). SCOPE IS skills/ ONLY: lib/** and scripts/** .sh files are
+# EXEMPT because they carry a `#!/usr/bin/env bash` shebang and execute as bash, so
+# lib/efficiency-trace.sh's and this test file's own legitimate compgen uses never trip this
+# guard. A repo-wide `git grep -- skills/` auto-discovers every prose surface, so the guard
+# cannot drift as skills are added. Mutation-checked and non-vacuous: reintroducing `compgen`
+# into any skills/ prose block turns this RED (proven RED against the pre-fix tree, which held
+# 3 occurrences). The scan uses a fixed-string (`-lF`) match on the literal `compgen`, so it
+# matches ONLY that token — never the docs-family `[[…_DOC_LOCATION]]` placeholders (a naive
+# bash-construct blacklist that included `[[` would false-positive on those; this does not).
+CG_PAT="compgen"   # the scan is skills/-scoped and this guard file lives under lib/test/, so run.sh naming the token here can never be a match target
+compgen_scan() {  # repo-root -> empty on clean, offending file list on a hit, sentinel on a git error
+  local root="$1" hits rc
+  # `git -C "$root"` keeps git the only rc-bearing command (a `cd && git grep` would
+  # short-circuit `&&` on cd failure and masquerade rc-1 as a clean no-match — the fail-open
+  # class the RGB guard already closes). rc>1 is a real git error → fail closed with the
+  # shared sentinel value + an ACCURATE (#365, not RGB) stderr breadcrumb.
+  hits="$(git -C "$root" grep -lF "$CG_PAT" -- 'skills/' 2>/dev/null)"; rc=$?
+  if [ "$rc" -gt 1 ]; then
+    printf 'devflow: #365 compgen-in-skills guard could not run (git rc=%s) — guard did not run\n' "$rc" >&2
+    printf '<rgb-guard-errored>'
+    return 0
+  fi
+  printf '%s' "$hits"
+}
+assert_eq "#365: no skills/ prose block uses the bash-only compgen builtin (lib/** and scripts/** .sh are exempt via bash shebang)" \
+  "" "$(compgen_scan "$LIB/..")"
+# Fail-closed contract test: drive the SAME scan against a non-repo path (git -C → rc 128) and
+# assert the exact error sentinel — not empty (a silent PASS) — so a revert to the rc-1-
+# masquerading `cd && git grep` form turns THIS assertion RED. PID-suffixed so it cannot exist.
+assert_eq "#365: the compgen-in-skills guard fails closed on a git error (sentinel, not a silent PASS)" \
+  "<rgb-guard-errored>" "$(compgen_scan "$LIB/../nonexistent-compgen-probe-$$" 2>/dev/null)"
+# #365: positive sense-pins for the THIRD rewritten prose block — the durable-workpad-copy
+# block in review-and-fix/SKILL.md. The negative compgen_scan above proves only that `compgen`
+# is ABSENT there; it does not prove the replacement idiom or the new observable skip breadcrumb
+# are INTACT. Mirror the phase-3 sense-pin discipline so a half-revert that drops the `[ -e "$1" ]`
+# empty-set guard (regressing to passing a literal `*.json` to cp) or removes the AC-4 skip
+# breadcrumb (re-introducing the silent-skip this issue closed) turns the suite RED.
+RF_SKILL_365="$LIB/../skills/review-and-fix/SKILL.md"
+assert_pin_unique "#365 site-1: durable-copy existence guard uses the portable [ -e \"\$1\" ] test (preserving the [ -d \"\$WORKPAD_DIR\" ] guard), not compgen" \
+  'if [ -d "$WORKPAD_DIR" ] && [ -e "$1" ]; then' "$RF_SKILL_365"
+assert_pin_unique "#365 site-1: the skip path emits the specific AC-4 stderr breadcrumb (never a silent skip)" \
+  '::warning::durable workpad copy skipped:' "$RF_SKILL_365"
 # The detector references $ROOT and $BEFORE literally, so it stays GREEN even if the $ROOT
 # *derivation* were reverted to a cwd-relative form (e.g. `ROOT=$(pwd)`), silently defeating
 # the repo-root anchoring that keeps the detector congruent with --persist. $ROOT is now
