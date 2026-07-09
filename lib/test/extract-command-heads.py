@@ -34,13 +34,13 @@ Claude Code's own matching behavior, which this models:
 CLI:
     extract-command-heads.py heads FILE
         -> one extracted head per line, sorted and deduped.
-    extract-command-heads.py ungranted FILE ALLOWLIST_FILE [SCOPE]
+    extract-command-heads.py ungranted FILE ALLOWLIST_FILE [tools-line]
         -> one head per line that no rule in ALLOWLIST_FILE grants.
-       Without SCOPE, every `Bash(<spec>:*)` rule anywhere in ALLOWLIST_FILE grants
-       — including one merely CITED inside a comment. Pass SCOPE (`runner` or
-       `command`) to restrict parsing to the real allowlist line of a workflow file;
-       both workflows carry cited specs in their deny-floor commentary, so the
-       scoped form is the only correct one to use against them.
+       By default every `Bash(<spec>:*)` rule anywhere in ALLOWLIST_FILE grants —
+       including one merely CITED inside a comment. Pass the literal `tools-line`
+       to parse only a workflow's real `TOOLS='...'` allowlist line; both workflows
+       carry cited specs in their deny-floor commentary, so `tools-line` is the only
+       correct form to use against them.
 Both subcommands exit 0; `ungranted` prints nothing when everything is granted.
 """
 
@@ -126,7 +126,6 @@ def _strip_comments_and_heredocs(block: str) -> str:
     """
     out: list[str] = []
     pending_tag: str | None = None
-    in_case = False
     for line in block.split("\n"):
         if pending_tag is not None:
             if line.strip() == pending_tag:
@@ -156,20 +155,30 @@ def _strip_comments_and_heredocs(block: str) -> str:
             pending_tag = match.group(2)
             cleaned = cleaned[: match.start()]
 
-        # Strip `case` arm patterns. Tracked line-by-line because a pattern's
-        # `|` alternation would otherwise be split as a pipe, yielding each
-        # alternative as its own bogus "command".
-        stripped = cleaned.strip()
+        out.append(cleaned)
+    return "\n".join(out)
+
+
+def _strip_case_patterns(block: str) -> str:
+    """Drop `case` arm patterns (`critical|important)`, `*)`, `[RC])`).
+
+    A pattern's `|` alternation would otherwise be split as a pipe, yielding each
+    alternative as its own bogus command. Tracked line-by-line, which is how the
+    fences actually write case arms.
+    """
+    out: list[str] = []
+    in_case = False
+    for line in block.split("\n"):
+        stripped = line.strip()
         if re.match(r"^case\b", stripped):
             in_case = True
         elif re.match(r"^esac\b", stripped):
             in_case = False
         elif in_case and not stripped.startswith((";;", "#")):
-            pattern = _CASE_PATTERN.match(cleaned)
+            pattern = _CASE_PATTERN.match(line)
             if pattern:
-                cleaned = cleaned[pattern.end() :]
-
-        out.append(cleaned)
+                line = line[pattern.end() :]
+        out.append(line)
     return "\n".join(out)
 
 
@@ -368,7 +377,8 @@ def extract_heads(text: str) -> list[list[str]]:
     """Every command head's argv words, from every ```bash fence in `text`."""
     heads: list[list[str]] = []
     for block in _fenced_bash_blocks(text):
-        _collect(_join_continuations(_strip_comments_and_heredocs(block)), heads)
+        cleaned = _strip_case_patterns(_strip_comments_and_heredocs(block))
+        _collect(_join_continuations(cleaned), heads)
     return heads
 
 
@@ -381,28 +391,23 @@ def _collect(text: str, heads: list[list[str]]) -> None:
             heads.append(head)
 
 
-def scoped_allowlist(text: str, scope: str) -> str:
-    """Return only the allowlist string named by `scope`.
+def tools_allowlist_line(text: str) -> str:
+    """Return the single `TOOLS='...'` allowlist line from a workflow file.
 
-    Scoping is load-bearing, not hygiene: both workflow files mention `Bash(...)`
-    specs inside *comments* (devflow-runner.yml's deny-floor commentary cites
-    `Bash(npm:*)`, `Bash(env bash:*)`, …). Parsing the whole file would read those
-    citations as grants and the pin would pass on a head nothing actually grants.
+    Scoping to that line is load-bearing, not hygiene: both workflows mention
+    `Bash(...)` specs inside *comments* (devflow-runner.yml's deny-floor commentary
+    cites `Bash(npm:*)`, `Bash(env bash:*)`, …). Parsing the whole file would read
+    those citations as grants and the pin would pass on a head nothing grants.
 
-    `runner` -> the single-quoted `TOOLS='...'` assignment (the `review` profile).
-    `command`-> the `--allowed-tools "..."` folded scalar in devflow.yml.
+    Both allowlists live on such a line — devflow-runner.yml's `review` case arm and
+    devflow.yml's hoisted `Resolve allowed-tools` step. devflow-runner.yml also
+    carries a `TOOLS="$TOOLS,$FILTERED"` append under provision_env; the
+    single-quote anchor excludes it, so the match stays unique.
     """
-    if scope in ("runner", "command"):
-        # Both workflows now assign their allowlist to a single-quoted `TOOLS='...'`
-        # line: devflow-runner.yml's `review` case arm, and devflow.yml's hoisted
-        # `Resolve allowed-tools` step. devflow-runner.yml also carries a
-        # `TOOLS="$TOOLS,$FILTERED"` append under provision_env; the single-quote
-        # anchor excludes it, so the match stays unique.
-        for line in text.splitlines():
-            if re.match(r"^\s*TOOLS='", line):
-                return line
-        raise SystemExit(f"devflow: no `TOOLS='...'` allowlist line found for scope {scope!r}")
-    raise SystemExit(f"devflow: unknown allowlist scope {scope!r}")
+    for line in text.splitlines():
+        if re.match(r"^\s*TOOLS='", line):
+            return line
+    raise SystemExit("devflow: no `TOOLS='...'` allowlist line found")
 
 
 def parse_allowlist(text: str) -> set[tuple[str, ...]]:
@@ -452,8 +457,8 @@ def main(argv: list[str]) -> int:
             heads = extract_heads(handle.read())
         with open(argv[3], encoding="utf-8") as handle:
             allowlist = handle.read()
-        if len(argv) >= 5:
-            allowlist = scoped_allowlist(allowlist, argv[4])
+        if len(argv) >= 5 and argv[4] == "tools-line":
+            allowlist = tools_allowlist_line(allowlist)
         granted = parse_allowlist(allowlist)
         for name in sorted(
             {name_of(h) for h in heads if not is_granted(h, granted)}
@@ -462,8 +467,7 @@ def main(argv: list[str]) -> int:
         return 0
     print(
         "usage: extract-command-heads.py heads FILE\n"
-        "       extract-command-heads.py ungranted FILE ALLOWLIST_FILE [SCOPE]\n"
-        "         SCOPE: runner | command",
+        "       extract-command-heads.py ungranted FILE ALLOWLIST_FILE [tools-line]",
         file=sys.stderr,
     )
     return 2
