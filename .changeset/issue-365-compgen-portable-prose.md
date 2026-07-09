@@ -1,0 +1,6 @@
+---
+bump: patch
+type: Fixed
+---
+
+- **Skill prose bash blocks no longer rely on the bash-only `compgen` builtin or unguarded glob expansion, so they behave correctly under non-bash agent shells (macOS zsh, dash, POSIX sh).** The three agent-executed prose blocks that used `compgen -G` — the durable-workpad-copy block in `skills/review-and-fix/SKILL.md` and the pre-loop snapshot + no-inputs detector in `skills/implement/phases/phase-3-review.md` — are rewritten to the portable positional-parameter idiom (`set -- <glob>; [ -e "$1" ]`) behind a `[ -n "${ZSH_VERSION:-}" ] && setopt nonomatch || :` guard that neutralizes zsh's default `nomatch` glob-abort. The durable-copy block now emits a specific stderr breadcrumb when it skips (dir absent or holds no `*.json`), so a silently-lost durable workpad copy can never recur; the no-inputs detector now structurally distinguishes a genuinely-empty result (`[ ! -e "$1" ]`) from a failed enumeration, eliminating the false `dropped-failed` telemetry-loss reflection (and the unnecessary LLM retrospective it forced) that fired on every non-bash-shell run. A mutation-checked `lib/test/run.sh` regression pin now keeps `compgen` out of `skills/` prose (`lib/**`/`scripts/**` bash-shebanged `.sh` files exempt), and the two existing site pins are rewritten to the portable form. (#365)

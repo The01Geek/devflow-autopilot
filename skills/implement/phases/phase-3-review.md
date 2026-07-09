@@ -89,7 +89,16 @@ ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 if ! mkdir -p "$ROOT/.devflow/tmp" 2>/dev/null; then
   echo "::warning::phase-3.3: could not create $ROOT/.devflow/tmp (permissions/read-only-fs/disk-full?); pre-loop snapshot will be missing, degrading the no-inputs detector to whole-tree presence below" >&2
 fi
-compgen -G "$ROOT/.devflow/tmp/review/*/*/iter-*.json" 2>/dev/null | sort > "$ROOT/.devflow/tmp/.phase33-iters-before" || :
+# Portable enumeration (this prose block runs under the AGENT's shell — zsh/dash/sh — not a
+# bash-shebanged .sh, so no bash-only glob-completion builtin, and the unquoted glob must survive zsh's
+# default `nomatch`). The guard turns nomatch off under native zsh (no-op elsewhere: $ZSH_VERSION
+# unset → `&&` short-circuits, `|| :` stays rc-0). `set --` captures the matched iter-*.json into
+# "$@" (with nomatch off, an unmatched glob leaves $1 the literal pattern). `[ -e "$1" ]` gates
+# the enumeration so the EMPTY-set case writes an EMPTY snapshot file — never the literal
+# unmatched pattern — via the builtin `printf` (no external tool whose absence could fake output).
+[ -n "${ZSH_VERSION:-}" ] && setopt nonomatch || :
+set -- "$ROOT"/.devflow/tmp/review/*/*/iter-*.json
+{ [ -e "$1" ] && printf '%s\n' "$@" | sort; } > "$ROOT/.devflow/tmp/.phase33-iters-before" || :
 ```
 
 Invoke the **Skill tool** with `skill: review-and-fix` and `args: "--push-each-iteration"`. The flag is load-bearing here: this phase operates on the live draft PR created in 3.1, and `--push-each-iteration` propagates each fix iteration to the remote branch so its CI validates the converging state and progress survives a mid-loop crash. (Direct users of `/devflow:review-and-fix` omit the flag and the loop stays local — see that skill's Input section for the flag's semantics.)
@@ -160,7 +169,18 @@ if [ ! -f "$BEFORE" ]; then
   : > "$BEFORE"
   echo "::warning::phase-3.3: pre-loop iter-*.json snapshot missing; no-inputs detector degrades to whole-tree presence, which can MASK a real this-run telemetry loss behind a leftover iter-*.json from a prior local run" >&2
 fi
-if [ -z "$(compgen -G "$ROOT/.devflow/tmp/review/*/*/iter-*.json" 2>/dev/null | sort | comm -13 "$BEFORE" -)" ]; then
+# Portable, no bash-only glob-completion builtin (this prose runs under the agent's shell — zsh/dash/sh). The
+# zsh nomatch guard + `set --` capture the current iter-*.json into "$@"; the two arms then make
+# the "no inputs FROM THIS RUN" decision STRUCTURALLY distinguish a genuine zero-set from a failed
+# enumeration: `[ ! -e "$1" ]` is definitive absence (zero iter-*.json exist at all — with nomatch
+# off an unmatched glob leaves $1 the literal pattern, so `! -e` is true), and ONLY when files DO
+# exist does the `-z` arm enumerate them via the builtin `printf` and diff `comm -13 "$BEFORE"`
+# (files present now but not pre-loop = what THIS run wrote). The old glob-completion-builtin substitution form
+# could yield empty output from a MISSING glob-completion builtin and fire the false telemetry-loss reflection; the
+# builtin `printf` over real matches removes that fail-open path.
+[ -n "${ZSH_VERSION:-}" ] && setopt nonomatch || :
+set -- "$ROOT"/.devflow/tmp/review/*/*/iter-*.json
+if [ ! -e "$1" ] || [ -z "$(printf '%s\n' "$@" | sort | comm -13 "$BEFORE" -)" ]; then
   # Guard the loss-record write itself: if workpad.py fails (gh API/permission error,
   # absent reflection section, bad $ISSUE_NUMBER) the ::warning:: keeps the gap visible on
   # the run log rather than silently dropping both the telemetry AND its loss-record — a
