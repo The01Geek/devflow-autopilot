@@ -3415,10 +3415,16 @@ assert_pin_unique "#366: SKILL self-check reads Status immediately before any ru
   'read the workpad `Status` line immediately before emitting any run-final message' "$IMPL_ORCH"
 assert_pin_red_on_removal "#366: SKILL self-check Status-read clause flips RED on removal" \
   'read the workpad `Status` line immediately before emitting any run-final message' "$IMPL_ORCH"
-assert_pin_unique "#366: SKILL self-check cites the cloud Stall backstop as re-dispatch, never a terminal-Status flip (operative)" \
-  're-dispatches (bounded auto-resume, honest-red on cap exhaustion) — it never writes a terminal `Status`' "$IMPL_ORCH"
-assert_pin_red_on_removal "#366: SKILL self-check backstop-accuracy clause flips RED on removal" \
-  're-dispatches (bounded auto-resume, honest-red on cap exhaustion) — it never writes a terminal `Status`' "$IMPL_ORCH"
+# The backstop-accuracy clause must track what the backstop actually does. Since #356 it
+# re-dispatches AND, on a fail-loud exit taken after a genuinely interim Status read, flips
+# the workpad to the terminal `Failed` (💥) status — so the old clause ("it never writes a
+# terminal `Status`") is false, and pinning it would enforce the falsehood. What stays true,
+# and is the load-bearing point for the self-check, is that the backstop never drives a run
+# to `Complete`: only the run itself can do that.
+assert_pin_unique "#366/#356: SKILL self-check cites the cloud Stall backstop as re-dispatch + a dead-run Failed flip, never a Complete (operative)" \
+  're-dispatches (bounded auto-resume, honest-red on cap exhaustion) and, on a fail-loud exit, flips the workpad to the terminal `Failed` (💥) status — it never drives a run to `Complete`' "$IMPL_ORCH"
+assert_pin_red_on_removal "#366/#356: SKILL self-check backstop-accuracy clause flips RED on removal" \
+  're-dispatches (bounded auto-resume, honest-red on cap exhaustion) and, on a fail-loud exit, flips the workpad to the terminal `Failed` (💥) status — it never drives a run to `Complete`' "$IMPL_ORCH"
 # ── issue #254: Phase 4.0.5 deferrals-manifest discovery must search BOTH the pr-<N>
 # slug dir and the sanitized-current-branch slug dir — a current-branch-mode
 # /devflow:review-and-fix run writes its manifest under the branch slug, so a
