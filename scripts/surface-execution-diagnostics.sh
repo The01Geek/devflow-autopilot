@@ -70,6 +70,31 @@ _emit() {
   fi
 }
 
+# Publish the denial count and, when it is positive, raise a `::warning::` so a run
+# that stalled on permission denials announces itself in the job log instead of
+# hiding in a Markdown block nobody opens (issue #363).
+#
+# The count is read back out of the ALREADY-RENDERED block rather than re-derived,
+# so the human-readable number and the machine-readable one cannot disagree — the
+# jq program above is the single place the reconciliation lives.
+#
+# A count that is absent or `n/a` (genuinely unknown) publishes `0` and raises NO
+# warning: unknown is not evidence of denials, and this output exists to gate
+# finalize_check's ::error::, not for exact accounting. Both side effects are
+# additive — this script still always exits 0 and never changes a run's pass/fail.
+_publish_denials() {  # rendered-block
+  _count=$(printf '%s\n' "$1" \
+    | sed -n 's/^- permission_denials_count: \([0-9][0-9]*\)$/\1/p' | head -1)
+  [ -n "${_count:-}" ] || _count=0
+  if [ -n "${GITHUB_OUTPUT:-}" ]; then
+    printf 'permission_denials_count=%s\n' "$_count" >> "$GITHUB_OUTPUT" \
+      || echo "devflow: surface-execution-diagnostics: could not append permission_denials_count to GITHUB_OUTPUT ('$GITHUB_OUTPUT') — downstream jobs will read the default 0" >&2
+  fi
+  if [ "$_count" -gt 0 ] 2>/dev/null; then
+    echo "::warning::DevFlow: this run recorded $_count permission denial(s) — the engine attempted commands its tool profile does not grant. See the execution-diagnostics block for which ones."
+  fi
+}
+
 _HEADER="## DevFlow execution diagnostics"
 _NO_DIAG="$_HEADER
 _No diagnostics available (execution file absent, empty, or unparseable)._"
@@ -80,6 +105,7 @@ if [ -z "$FILE" ] || [ ! -f "$FILE" ] || [ ! -s "$FILE" ]; then
   # otherwise disarm this diagnostic silently (the id-rename hazard).
   echo "devflow: surface-execution-diagnostics: execution file absent or empty ('$FILE') — no diagnostics available" >&2
   _emit "$_NO_DIAG"
+  _publish_denials "$_NO_DIAG"
   exit 0
 fi
 
@@ -157,8 +183,10 @@ if ! BLOCK=$("$DEVFLOW_JQ" -rs --arg header "$_HEADER" '
   # rather than misattributing a missing binary to a parse error.
   echo "devflow: surface-execution-diagnostics: jq ('$DEVFLOW_JQ') exited non-zero on '$FILE' (parse error or unrunnable jq) — no diagnostics available" >&2
   _emit "$_NO_DIAG"
+  _publish_denials "$_NO_DIAG"
   exit 0
 fi
 
 _emit "$BLOCK"
+_publish_denials "$BLOCK"
 exit 0
