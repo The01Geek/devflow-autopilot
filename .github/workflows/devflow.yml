@@ -564,10 +564,19 @@ jobs:
           export HEAD_SHA
           SCC=.devflow/vendor/devflow/scripts/summarize-ci-checks.sh
           [ -f "$SCC" ] || SCC=scripts/summarize-ci-checks.sh
-          if [ -f "$SCC" ] && [ -n "$HEAD_SHA" ]; then
-            CI_SUMMARY=$(bash "$SCC") || CI_SUMMARY="CI status unavailable"
-          else
+          # Each no-op branch names the condition that fired. Two different causes
+          # converging on one breadcrumb would leave a reader unable to tell a missing
+          # helper from an unresolved head — both render the same `CI status
+          # unavailable`, which is the point: an unknown CI state must never render
+          # as a passing one.
+          if [ ! -f "$SCC" ]; then
+            echo "::warning::devflow: summarize-ci-checks.sh not found at either the vendored or repo path — the review prompt's CI section will report it unavailable" >&2
             CI_SUMMARY="CI status unavailable"
+          elif [ -z "$HEAD_SHA" ]; then
+            echo "::warning::devflow: could not resolve a head SHA for PR '${PR_NUM:-<none parsed from the command>}' (gh pr view failed, or the command carried no PR number) — the review prompt's CI section will report it unavailable" >&2
+            CI_SUMMARY="CI status unavailable"
+          else
+            CI_SUMMARY=$(bash "$SCC") || CI_SUMMARY="CI status unavailable"
           fi
           [ -n "$CI_SUMMARY" ] || CI_SUMMARY="CI status unavailable"
 

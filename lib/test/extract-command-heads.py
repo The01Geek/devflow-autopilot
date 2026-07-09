@@ -34,10 +34,13 @@ Claude Code's own matching behavior, which this models:
 CLI:
     extract-command-heads.py heads FILE
         -> one extracted head per line, sorted and deduped.
-    extract-command-heads.py ungranted FILE ALLOWLIST_FILE
+    extract-command-heads.py ungranted FILE ALLOWLIST_FILE [SCOPE]
         -> one head per line that no rule in ALLOWLIST_FILE grants.
-       ALLOWLIST_FILE is any text containing `Bash(<spec>:*)` rules; the rest of
-       the file is ignored, so a whole workflow YAML can be passed verbatim.
+       Without SCOPE, every `Bash(<spec>:*)` rule anywhere in ALLOWLIST_FILE grants
+       — including one merely CITED inside a comment. Pass SCOPE (`runner` or
+       `command`) to restrict parsing to the real allowlist line of a workflow file;
+       both workflows carry cited specs in their deny-floor commentary, so the
+       scoped form is the only correct one to use against them.
 Both subcommands exit 0; `ungranted` prints nothing when everything is granted.
 """
 
