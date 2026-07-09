@@ -28,7 +28,22 @@
 #                             than "CI has not registered yet"; a registration
 #                             race is theoretically possible and accepted (a
 #                             premature review is a bounded cost, and the
-#                             deferral/exactly-once machinery bounds it);
+#                             deferral/exactly-once machinery bounds it). The
+#                             non-self runs are COLLAPSED to the latest run
+#                             (highest run_number) per (workflow_id, event)
+#                             group before gating, so a superseded run (an
+#                             approval-gated re-dispatch, a double-fire, a
+#                             cancelled sibling) never gates once a newer run of
+#                             the same workflow+event exists (issue #351). A
+#                             non-self run missing a numeric workflow_id or
+#                             run_number, or a string event, makes the collapse
+#                             unverifiable and fails closed (unverifiable), never
+#                             a dropped signal. The runs API returns each run's CURRENT
+#                             attempt, so a re-run needs no special handling.
+#                             Signal sets (2) and (3) need no collapse: GitHub
+#                             already returns the latest per name server-side
+#                             (check-runs defaults to filter=latest; the
+#                             combined status is collapsed too);
 #                         (2) the legacy combined commit status (total_count
 #                             gates it — an empty status set reports state
 #                             "pending" and must not be read as pending CI);
@@ -55,8 +70,13 @@
 #
 # Output (stdout, two lines, always emitted; always exits 0):
 #   should_run=<true|false>
-#   reason=<empty|behind-base|ci-not-green|unverifiable>
-# `reason` is empty only when should_run=true. Every deferral and fail-closed
+#   reason=<empty|behind-base|ci-not-green|ci-approval-required|unverifiable>
+# `reason` is empty only when should_run=true. ci-approval-required is a distinct
+# deferral for a completed run awaiting manual approval (conclusion
+# 'action_required'); it exists so the neutral check can name approval as the
+# blocker in plain language rather than the opaque 'other CI not green':
+# devflow-review.yml's create_check maps it to the title 'Devflow review
+# waiting: CI approval required'. Every deferral and fail-closed
 # arm emits a SPECIFIC stderr breadcrumb naming which condition fired. Fail
 # closed on any unverifiable query: a missed review is recoverable via the
 # next event or the check's Re-run button; a wasted/premature LLM review is
@@ -123,6 +143,18 @@ gate_signal_lines() {  # $1=lines  $2=signal noun for the breadcrumb
     fi
     case "$_cn" in
       success|skipped|neutral) : ;;  # green: skipped/neutral signals (path filters etc.) must not wedge the review
+      action_required)
+        # A completed run awaiting manual approval (an approval-gated re-dispatch,
+        # e.g. a bot-actor run) — distinct from a generic non-green conclusion so
+        # the neutral check can name approval as the blocker: devflow-review.yml
+        # maps ci-approval-required to the title 'Devflow review waiting: CI
+        # approval required' (that create_check title arm is the coupled
+        # workflow-side change, landed in #353) (issue #351).
+        # Shared gate, so an external app's action_required check run is treated
+        # the same way.
+        echo "derive-review-preconditions: $2 on $HEAD_SHA concluded 'action_required' — an approval is required before it can run; deferring the review (ci-approval-required)." >&2
+        emit false ci-approval-required
+        ;;
       *)
         echo "derive-review-preconditions: $2 on $HEAD_SHA concluded '$_cn' — deferring the review (ci-not-green)." >&2
         emit false ci-not-green
@@ -189,11 +221,53 @@ if [ "$REQUIRE_CI_GREEN" != "false" ]; then
     emit false unverifiable
   fi
   [ "$_runs_err" = /dev/null ] || rm -f "$_runs_err"
+  # Collapse duplicate runs to one per (workflow_id, event) group before gating.
+  # A PR head can carry several runs of the SAME workflow+event — an approval-gated
+  # re-dispatch, a superseded double-fire, a cancelled sibling — and only the
+  # latest (highest run_number) reflects the head's real state; gating on a
+  # superseded non-green run wedges the review forever (issue #351, PR #349).
+  # run_number is preferred over created_at: created_at has 1s granularity and can
+  # tie, while run_number is strictly monotonic per workflow, so a group has one
+  # maximum. Self-exclusion runs BEFORE the numeric-operand guard AND the grouping,
+  # so the review's own runs never form a group and a self run lacking
+  # workflow_id/run_number/event cannot trip the guard. The guard fails CLOSED (jq
+  # errors, caught below) when a NON-self run lacks a numeric workflow_id or
+  # run_number, OR a string event: group_by/max_by on an absent key silently drops
+  # or nondeterministically picks a signal, and an absent event mis-groups a run
+  # under a null bucket so an older non-green run could survive the collapse in its
+  # own group and re-wedge the review (fail-open) — all three group/select operands
+  # are validated before grouping — see issue #351 AC7.
+  _runlines_err=$(mktemp 2>/dev/null) || _runlines_err=/dev/null
   if ! RUN_LINES=$(printf '%s' "$RUNS_JSON" | "$DEVFLOW_JQ" -rs --arg self "$SELF_WORKFLOW_NAME" \
-        'map(.workflow_runs // []) | add // [] | map(select((.name // "") != $self)) | .[] | ((.status // "") + "|" + (.conclusion // ""))' 2>/dev/null); then
-    echo "derive-review-preconditions: workflow-runs payload could not be parsed (jq failed or a non-object page) — failing closed (unverifiable)." >&2
+        'map(.workflow_runs // []) | add // []
+         | map(select((.name // "") != $self))
+         | if any(.[]; (.workflow_id | type) != "number")
+           then error("a non-self workflow run is missing a numeric workflow_id")
+           elif any(.[]; (.run_number | type) != "number")
+           then error("a non-self workflow run is missing a numeric run_number")
+           elif any(.[]; (.event | type) != "string")
+           then error("a non-self workflow run is missing a string event")
+           else . end
+         | group_by([.workflow_id, .event])
+         | map(max_by(.run_number))
+         | .[] | ((.status // "") + "|" + (.conclusion // ""))' 2>"$_runlines_err"); then
+    _runlines_detail=$(gh_err_detail "$_runlines_err")
+    [ "$_runlines_err" = /dev/null ] || rm -f "$_runlines_err"
+    # Distinguish an UNGROUPABLE run (a non-self run missing the numeric
+    # workflow_id/run_number or string event the collapse needs — name the field)
+    # from a genuinely unparseable page; both fail closed (unverifiable), never a
+    # dropped signal or a positively-asserted ci-not-green.
+    case "$_runlines_detail" in
+      *"numeric workflow_id"*|*"numeric run_number"*|*"string event"*)
+        echo "derive-review-preconditions: a non-self workflow run on $HEAD_SHA cannot be collapsed to the latest run per (workflow_id, event) group ($_runlines_detail) — other-CI state unverifiable; failing closed (unverifiable)." >&2
+        ;;
+      *)
+        echo "derive-review-preconditions: workflow-runs payload could not be parsed (jq failed or a non-object page: $_runlines_detail) — failing closed (unverifiable)." >&2
+        ;;
+    esac
     emit false unverifiable
   fi
+  [ "$_runlines_err" = /dev/null ] || rm -f "$_runlines_err"
   if [ -n "$RUN_LINES" ]; then
     OTHER_SIGNALS=1
     gate_signal_lines "$RUN_LINES" "another workflow run"

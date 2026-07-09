@@ -4,6 +4,93 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.96] — 2026-07-09
+
+### Added
+- **Plain-language `Devflow Review` deferral title for a run awaiting CI approval.** `devflow-review.yml`'s `create_check` title `case` now maps the `ci-approval-required` reason (shipped in #351) to the neutral check title **"Devflow review waiting: CI approval required"** instead of the generic "precondition not met" fallback, so an operator sees the exact unblock action. The deferral `SUMMARY` prose no longer cites "a cancelled sibling run" as a permanently-stuck signal requiring a manual Re-run, since the #351 collapse now auto-resolves the superseded cancelled-sibling case. Lands the coupled workflow-side half of #351 (held out because a GitHub App token cannot push `.github/workflows/`). (#359)
+
+## [2.8.95] — 2026-07-09
+
+### Added
+- **`/devflow:implement` Phase 1 now defers workflow-resident acceptance criteria at plan time — keyed on the pushing credential's actual capability.** The Phase 1.6 issue-claim audit gains an execution-capability pass (Pass 5): an acceptance criterion that requires editing the repo's own `.github/workflows/` is deferred **only when this run's credential cannot push workflows** — a cloud-tier run (`GITHUB_ACTIONS=true`) whose `DEVFLOW_APP_ID` is empty, i.e. the built-in `GITHUB_TOKEN` fallback. A cloud run with `DEVFLOW_APP_ID` set mints a workflow-capable GitHub App token (Contents + Workflows write) seeded into `actions/checkout`, so it pushes workflow files fine and is **not** deferred; keying on the cloud tier alone would spuriously defer deliverable workflow work on the App-configured tier. When the deferral does fire, the AC is routed through the Phase 2.2.5 scope-adjustment before any code is written and filed as a follow-up issue that states landing it needs a workflows-capable push (a human/PAT, or an App-configured cloud run), instead of being discovered at push time after a full commit is built. A file coupled to a blocked workflow edit (a `lib/test/run.sh` pin that turns CI red without the workflow change) is deferred with it — the Phase 2.5 commit guard reverts coupled files alongside the workflow so the pushable subset stays CI-green — and an issue whose every in-scope criterion is workflow-resident is declined up front rather than producing an empty-handed run. To make the credential signal observable to the pass, `devflow-implement.yml` exports `DEVFLOW_APP_ID` into the agent's environment. Local/interactive-tier runs, which push workflow files routinely, are unchanged. (#350)
+
+## [2.8.94] — 2026-07-09
+
+### Fixed
+- **Stall-backstop auto-resume is no longer swallowed by the implement-run deduper.** When the
+  cloud stall backstop re-dispatches a stalled `/devflow:implement` run, the resume comment is
+  posted while the original run is still `in_progress` (it fires from that run's own trailing
+  `always()` backstop step), so the new run's gate dedupe used to classify it as a duplicate and
+  skip — leaving the audit comment visible but inert. `dedupe-implement-run.sh` now reads the
+  triggering comment from `GITHUB_EVENT_PATH` and, when it carries the
+  `<!-- devflow:stall-backstop-audit -->` marker every resume comment writes, skips deduping so
+  the taking-over run proceeds. The detection lives entirely in the script (not a workflow env),
+  so the fix needs no `.github/workflows/` change. The carve-out never wrongly bypasses dedupe
+  for an ordinary duplicate command, and a genuine payload read/parse error during marker
+  detection — including a payload that is present but unreadable (a permission/mount anomaly or a
+  partially-materialised/locked payload) — now emits a `::warning::` (instead of being silently
+  swallowed) while still falling through to ordinary dedupe. (#280)
+
+## [2.8.93] — 2026-07-09
+
+### Added
+- **Review engine now files false-against-HEAD changed docs/comments/examples as documented falsehoods and runs a pre-verdict truthfulness sweep.** The shared `defect_signature` contract gains a `documented_falsehood` kind plus a truthfulness discriminator inherited by all six Phase-3 finding producers, so a diff-added/modified doc line, code comment, example, or command-form whose claim is false against HEAD is filed as a truthfulness defect rather than a demotable clarity Suggestion. Phase 4.1.5 shape 2 now excludes such artifacts from the cosmetic-wording class, and a new Phase 4.1.6 pre-verdict truthfulness sweep runs promote-only over every finding regardless of severity chip, routing a demonstrated falsehood into the Phase 4.2 self-contradicting-diff carve-out (REJECT). `/devflow:review`, `/devflow:review-and-fix`, and `/devflow:implement` Phase 3 all inherit the change through the shared engine. (#341)
+
+## [2.8.92] — 2026-07-09
+
+### Changed
+- **`/devflow:implement` now requires a recorded pre-merge probe of observable preconditions before any `(post-merge)` acceptance-criteria deferral.** The Phase 3.4 gate's genuinely-live test was whole-criterion binary, so a criterion could be tagged `(post-merge)` while carrying a pre-merge-observable precondition that was already false (the failure behind PR #301's post-merge release-pipeline break on `main`). The gate now states a single **Pre-merge probe contract** in `skills/implement/phases/phase-3-review.md` — decompose a criterion into pre-merge-observable preconditions and genuinely-live residue, probe each precondition read-only (folding in any failure mode the linked issue's Potential Gotchas / Implementation Notes names for its mechanism), and record each probe command and observed result in the deferral `--note` (or the explicit "no pre-merge-observable precondition" finding). An observed-cannot-succeed probe routes to a pre-merge fix or the Blocked path — never a deferral — and a new red-flags STOP entry forbids that launder; a denied probe is recorded as denied and does not block, and a passed probe never ticks the AC box. The Phase 1.2 partial-live rule in `skills/implement/phases/phase-1-setup.md` references the same contract so tag-time and retag-time deferrals carry an identical obligation. (#348)
+
+### Fixed
+- **`workpad.py` and `match-deferrals.py` now fail fast with an actionable `Python 3.11+ required` error on pre-3.11 interpreters.** Both helpers annotate functions with PEP 604 unions (`str | None`), which any interpreter older than 3.10 evaluates at definition time and dies on with a raw `TypeError` traceback naming neither the cause nor the remedy. Each helper now carries a `sys.version_info < (3, 11)` gate immediately after its import block — before any annotation is evaluated — that prints one plain-ASCII stderr line naming the running version, the `Python 3.11+ required` floor, and the `scripts/provision-python3-shim.sh` / `docs/install.md` remedy, then exits 1. On Python 3.11+ (the declared floor, unchanged) behavior is identical. Also corrects the stale `config.schema.json`, `CLAUDE.md`, and `skills/init` claims that `workpad.py` needs PyYAML — it is stdlib-only; the lazy-yaml helpers are `match-deferrals.py` and `consolidate-changesets.py`. (#343)
+
+## [2.8.91] — 2026-07-09
+
+### Fixed
+- **Collapse duplicate workflow runs to the latest per `(workflow_id, event)` group in the review CI-green gate.** `scripts/derive-review-preconditions.sh` now collapses the non-self Actions runs on a PR head to the highest-`run_number` run per `(workflow_id, event)` group before gating, so a superseded non-green run — an approval-gated re-dispatch, a rapid double-fire, or a cancelled sibling — no longer wedges `Devflow Review` behind a permanently-deferred required check once a newer run of the same workflow+event has passed. A non-self run missing a numeric `workflow_id`/`run_number` or a string `event` fails closed as `unverifiable` (never a dropped signal), and a run still awaiting manual approval (conclusion `action_required`) defers with a new, distinct `ci-approval-required` reason. (The matching plain-language check title for `ci-approval-required` is a coupled `.github/workflows/` change tracked as a follow-up, since a GitHub App token cannot push workflow files; until it lands the reason still defers correctly under the generic deferral title.) (#352)
+
+## [2.8.90] — 2026-07-09
+
+### Changed
+- **The cloud tier's App-token mints now pass `client-id` instead of the deprecated `app-id`
+  input.** `actions/create-github-app-token@v3` emits `Input 'app-id' has been deprecated with
+  message: Use 'client-id' instead.` on every mint. All nine mint steps across
+  `devflow-implement.yml` (3), `devflow.yml` (4), `devflow-runner.yml` (1), and
+  `version-consolidate.yml` (1) now use `client-id:`, sourced from the unchanged
+  `vars.DEVFLOW_APP_ID` / `vars.DEVFLOW_REVIEWER_APP_ID` repository variables — the variable
+  names, the opt-in `!= ''` gates, the `permission-*` downscopes, and the fail-loud contract
+  are all untouched, so no consumer action is required. `lib/test/run.sh`'s two coupled
+  literal pins (primary + reviewer mint sites) move with them. `docs/cloud-setup.md` now names
+  the App's **client ID** as the variable's value, since `client-id` is the input it feeds.
+
+### Fixed
+- **Cloud writers now actually push under the configured GitHub App, so `/devflow:implement`
+  and `/devflow:review-and-fix` can finally land `.github/workflows/` changes.** The push
+  credential is the one `actions/checkout` persists — **not** the `github_token` handed to
+  `claude-code-action`. `actions/checkout@v6` stopped writing its auth header into
+  `.git/config` and now writes `http.<server>/.extraheader` to an external config file wired
+  in via `includeIf.gitdir:` (covering `.git/worktrees/*`), so `claude-code-action`'s
+  `git config --unset-all http.<server>/.extraheader` — which searches only `.git/config` —
+  clears nothing, and the surviving preemptive `Authorization:` header outranks the App token
+  that action embeds in `origin`'s URL. Every push in both writer jobs therefore
+  authenticated as `github-actions[bot]`, a GitHub App holding no `workflows` permission:
+  ordinary pushes succeeded and only `.github/workflows/` pushes died with `refusing to allow
+  a GitHub App to create or update workflow … without workflows permission`, which is why the
+  failure was repeatedly misread as a missing App permission. The writer mint now runs
+  **before** `actions/checkout` in `devflow-implement.yml`'s `claude` job and `devflow.yml`'s
+  `command` job, and is passed to it as
+  `token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}` — mirroring
+  `version-consolidate.yml`, the one job that already did this and the only one whose pushes
+  were correctly attributed to `devflow-autopilot[bot]`. Unset-App behavior is byte-for-byte
+  unchanged (mint skipped → `GITHUB_TOKEN`, which is also checkout's own default), and on a
+  `/devflow:review` command the writer mint stays skipped so the checkout falls back to
+  `GITHUB_TOKEN` rather than receiving the read-only `DevFlow-Reviewer` token — preserving the
+  #300 review-identity split. `lib/test/run.sh` pins both halves per pushing job (mint
+  precedes checkout; checkout consumes the app token with the `GITHUB_TOKEN` fallback; the
+  reviewer token is never a checkout credential), each mutation-checked RED against the
+  pre-fix layout. `docs/cloud-setup.md` documents why the checkout token, not `github_token`,
+  is the push credential. (#357)
+
 ## [2.8.89] — 2026-07-09
 
 ### Added

@@ -1918,6 +1918,93 @@ assert_pin_unique "291(AC7): DEVFLOW_SYSTEM_OVERVIEW states the deterministic in
 assert_pin_unique "291(AC7): shadow-review.md states the deterministic in-code-comment cap" \
   'One deterministic exception — the in-code-comment cap.' "$OG_SHADOW_DOC"
 
+# ────────────────────────────────────────────────────────────────────────────
+echo "documented_falsehood tagging + pre-verdict truthfulness sweep (Phase 4.1.5/4.1.6) (#339)"
+# ────────────────────────────────────────────────────────────────────────────
+# #339 closes two failure modes for a diff-added/modified doc/comment/example/
+# command-form whose claim is false against HEAD: (1) production-time tagging — the
+# shared defect_signature block gains a `documented_falsehood` kind + a truthfulness
+# discriminator, inherited by all six Phase-3 producers; (2) a pre-verdict truthfulness
+# sweep (Phase 4.1.6) that runs over EVERY finding regardless of severity chip, is
+# promote-only, and routes a demonstrated falsehood into the Phase 4.2 self-contradicting
+# carve-out (REJECT). Phase 4.1.5 shape 2 excludes such an artifact from the cosmetic
+# class and is the single source of truth for the discriminator; the agents mirror it.
+# Deliverable is LLM-executed skill prose — no automated verdict boundary — so these are
+# operative-sentence pins (PASS→FAIL on removal) + mirror-count pins, same idiom as #263/#291.
+FALSE_COMMENT_AGENT="$LIB/../agents/comment-analyzer.md"
+FALSE_CODEREV_AGENT="$LIB/../agents/code-reviewer.md"
+# AC1 — documented_falsehood is added to the shared defect_signature kind enum (enum-line
+# fragment is ST_REV-unique; the bare token recurs at the discriminator/sweep/agent sites).
+assert_pin_unique "339(AC1): defect_signature kind enum gains documented_falsehood" \
+  'comment_drift | documented_falsehood | test_gap' "$ST_REV"
+# AC4 — the truthfulness discriminator is single-sourced in Phase 4.1.5 shape 2 and mirrored
+# verbatim: it occurs at 2 sites in the review engine (shape-2 canonical + shared
+# defect_signature block) and once in each agent file. A dropped mirror moves a count → RED.
+assert_eq "339(AC4): discriminator phrase mirrored at 2 sites in the review engine (shape-2 + defect_signature block)" \
+  "2" "$(pin_count 'false against HEAD is a truthfulness defect (a self-contradicting diff — non-demotable REJECT); true but awkwardly worded is a clarity Suggestion (demotable)' "$ST_REV")"
+assert_pin_unique "339(AC3): comment-analyzer mirrors the truthfulness discriminator" \
+  'false against HEAD is a truthfulness defect (a self-contradicting diff — non-demotable REJECT); true but awkwardly worded is a clarity Suggestion (demotable)' "$FALSE_COMMENT_AGENT"
+assert_pin_unique "339(AC3): code-reviewer mirrors the truthfulness discriminator" \
+  'false against HEAD is a truthfulness defect (a self-contradicting diff — non-demotable REJECT); true but awkwardly worded is a clarity Suggestion (demotable)' "$FALSE_CODEREV_AGENT"
+# AC3 — code-reviewer: a HEAD-verified false changed-line claim clears the ≥80 confidence filter.
+assert_pin_unique "339(AC3): code-reviewer scores a HEAD-verified false changed-line claim >= 80 by definition" \
+  'scores ≥ 80 confidence by definition' "$FALSE_CODEREV_AGENT"
+# AC2 — both dispatch prompts name the four recurring shapes (the last shape's clause occurs
+# once per dispatch prompt = 2 sites in the review engine).
+assert_eq "339(AC2): dispatch prompts name the four recurring shapes (comment-analyzer + code-reviewer)" \
+  "2" "$(pin_count 'claim the code does not bear out' "$ST_REV")"
+# AC2 (hardening) — pin an EARLIER shape too, not only the fourth shape's tail: the
+# "known limitation the same diff already fixed" shape occurs once per dispatch prompt (= 2),
+# so dropping shapes 1-3 from a prompt now turns a pin RED instead of shipping GREEN.
+assert_eq "339(AC2): dispatch prompts name the 'known limitation already fixed' shape (both prompts)" \
+  "2" "$(pin_count 'a "known limitation" the same diff already fixed' "$ST_REV")"
+# AC4 — Phase 4.1.5 shape 2 explicitly excludes a false-against-HEAD diff-added/modified artifact
+# from the cosmetic-wording class (the operative exclusion sentence; removal re-opens the mis-file).
+assert_pin_unique "339(AC4): shape 2 excludes a false-against-HEAD diff-added/modified artifact" \
+  'Excludes a false-against-HEAD diff-added/modified artifact.' "$ST_REV"
+# AC5 — the pre-verdict truthfulness sweep operative sentences: (a) it runs over every finding
+# regardless of severity chip and does NOT inherit 4.1.5's Critical/Important/Major scope;
+# (b) a demonstrated falsehood routes into the Phase 4.2 carve-out (REJECT); (c) promote-only;
+# (d) the visible clean-pass line; (e) the inconclusive/only-on-demonstrated-falsity fail
+# direction — the load-bearing safety property that contains the false-REJECT risk (its
+# deletion would let the sweep promote on suspicion). Each is removal-proof (its deletion
+# re-opens a failure mode).
+assert_pin_unique "339(AC5): sweep runs over every finding regardless of severity chip (not 4.1.5's scope)" \
+  "this sweep does **not** inherit 4.1.5's Critical/Important/Major scope" "$ST_REV"
+assert_pin_unique "339(AC5): sweep routes a demonstrated falsehood into the Phase 4.2 carve-out" \
+  'a **demonstrated** falsehood — the claim is false against the shipped code — is routed into the Phase 4.2 self-contradicting-diff carve-out' "$ST_REV"
+assert_pin_unique "339(AC5): sweep is promote-only (never demotes/downgrades/clears)" \
+  'The sweep is promote-only: it never demotes, downgrades, or clears any finding' "$ST_REV"
+assert_pin_unique "339(AC5): sweep emits a visible clean-pass line" \
+  'truthfulness sweep: no finding promoted' "$ST_REV"
+assert_pin_unique "339(AC5): sweep promotes only on demonstrated falsity, never on suspicion (fail-direction safety)" \
+  'The sweep never promotes on suspicion, only on demonstrated falsity' "$ST_REV"
+# AC5 (coupled-invariant guard, #341 review follow-up) — the sweep's relationship to the
+# Phase 4.2 self-contradicting-diff carve-out enumeration is a two-sided contract: the sweep
+# ROUTES a demonstrated falsehood into the byte-frozen carve-out categories "as the doc line
+# or code comment it inhabits" but must NEVER widen or edit that enumeration. Neither half was
+# pinned, so a future edit could silently let the sweep widen the carve-out and every existing
+# 339 pin would stay GREEN (the coupled-invariant-without-an-asserting-test class CLAUDE.md
+# warns about). Pin both the mapping clause and the never-widen/never-edit clause, and prove
+# the never-widen clause goes RED on removal.
+assert_pin_unique "339(AC5): example/command-form routes into the carve-out as the doc line/code comment it inhabits (mapping clause)" \
+  'it routes into the carve-out **as the doc line or code comment it inhabits**' "$ST_REV"
+assert_pin_unique "339(AC5): sweep does not widen (and must never edit) the Phase 4.2 carve-out enumeration" \
+  'this sweep does **not** widen (and must never edit) the Phase 4.2 carve-out enumeration' "$ST_REV"
+assert_pin_red_on_removal "339(AC5)-mp: deleting the never-widen/never-edit carve-out clause turns its pin RED" \
+  'this sweep does **not** widen (and must never edit) the Phase 4.2 carve-out enumeration' "$ST_REV"
+# AC5/AC9 (hardening) — pin the negative-scope carve-out (what is NEVER a sweep subject): a
+# machine-significant comment keeps its behavioral fail-direction grading. Its deletion would
+# strip the boundary preventing the sweep from colliding with the #291 in-code-comment cap, so
+# it is a load-bearing safety-envelope sentence that must go RED on removal.
+assert_pin_unique "339(AC9): sweep excludes a machine-significant comment (graded by behavioral fail-direction)" \
+  'machine-significant comment (lint/type directive, tool-read marker — graded by its behavioral fail-direction)' "$ST_REV"
+# AC (docs sync) — both engine docs describe the pre-verdict truthfulness sweep.
+assert_pin_unique "339(docs): DEVFLOW_SYSTEM_OVERVIEW describes the pre-verdict truthfulness sweep" \
+  'pre-verdict truthfulness sweep' "$OG_OVERVIEW_DOC"
+assert_pin_unique "339(docs): shadow-review.md describes the pre-verdict truthfulness sweep" \
+  'pre-verdict truthfulness sweep' "$OG_SHADOW_DOC"
+
 # ── Meta-test (#157, AC2): widen the raw-guard audit from the park-calibration
 # region fence to the WHOLE suite. #155 enforced helper-routing ONLY inside the
 # PARKCAL_GUARD_REGION; the maxi_clamp / DEF_SKILL / IMPL_SKILL / INIT_SKILL /
@@ -4169,6 +4256,60 @@ assert_pin_unique "#338(T6): §3.4 pins the operative sentence of the self-recon
   'is runnable on this host and is never `(post-merge)`' "$P3REVIEW"
 rm -rf "$S338"
 
+# ── Issue #345: pre-merge probe contract before any (post-merge) AC deferral ──
+# Coupled-invariant pins: the probe contract is stated once in phase-3-review.md
+# (Phase 3.4, alongside the genuinely-live test + retro-tag path) and referenced
+# from phase-1-setup.md (Phase 1.2 partial-live rule). Both mirror sites and these
+# pins land in one commit. Each pin targets an operative clause of the contract so
+# a half-revert that removes the obligation turns the suite RED at the desk.
+P345_P3="$IMPL_PHASES_DIR/phase-3-review.md"
+P345_P1="$IMPL_PHASES_DIR/phase-1-setup.md"
+# AC1: the contract exists in phase-3-review.md and the retro-tag path runs it,
+# recording each probe command + observed result (or the empty-set finding).
+assert_pin_unique "#345 AC1: phase-3-review.md states the Pre-merge probe contract before any (post-merge) tag/retag" \
+  'Pre-merge probe contract (mandatory before any' "$P345_P3"
+# AC1 operative step 1 (decompose) — the structural premise the whole contract rests
+# on; unpinned, a half-revert deleting it while keeping the header stays GREEN.
+assert_pin_unique "#345 AC1: the contract's step 1 decomposes into pre-merge-observable preconditions" \
+  '**Decompose** the criterion into **(a) pre-merge-observable preconditions**' "$P345_P3"
+# AC1 operative step 3 (non-empty record obligation) — the auditable-record requirement
+# that IS the point of the AC; pinning only its empty-set branch left this desync-open.
+assert_pin_unique "#345 AC1: the contract records each probed precondition + command + observed result in the deferral note" \
+  'Record each probed precondition, the probe command, and its observed result in the deferral' "$P345_P3"
+assert_pin_unique "#345 AC1: the retro-tag path runs the probe contract before the retag lands" \
+  'Before the retag lands, run the Pre-merge probe contract above' "$P345_P3"
+assert_pin_unique "#345 AC1: the empty observable-precondition set is a legal, explicitly recordable finding" \
+  'when the observable set is genuinely empty, the explicit finding' "$P345_P3"
+# AC2: an observed-cannot-succeed probe routes to a pre-merge fix or the Blocked
+# path (never a deferral), and the red-flags STOP list forbids the launder.
+assert_pin_unique "#345 AC2: an observed-cannot-succeed probe routes to a pre-merge fix or the Blocked path, never a deferral" \
+  'cannot succeed as shipped routes to a pre-merge fix or the Blocked path (step 4 below) — never a deferral' "$P345_P3"
+assert_pin_unique "#345 AC2: the red-flags STOP list forbids a deferral over a failed probe" \
+  'observed-cannot-succeed probe: **never** a deferral' "$P345_P3"
+# AC1/AC2 operative step 2 (probe read-only) — the probe mandate itself; without this
+# a half-revert could delete "probe every precondition" and keep decompose+record GREEN.
+assert_pin_unique "#345 AC1: the contract's step 2 mandates probing every precondition read-only" \
+  '**Probe every (a) precondition read-only**' "$P345_P3"
+# AC2 reverse-launder guard (step 5): a denial must be an inability to observe the
+# state, NOT a non-zero gh-api exit carrying an observed-false answer (404/empty). This
+# is the dual of the observed-cannot-succeed routing; unpinned it fails OPEN silently.
+assert_pin_unique "#345 AC2: step 5 keys denial on whether the probe obtained a definitive answer, not raw exit status (no reverse launder)" \
+  'Tell the two apart by whether the probe obtained a definitive answer about the precondition' "$P345_P3"
+# AC3: the probe obligation includes issue-named failure modes for the mechanism.
+assert_pin_unique "#345 AC3: the probe set must include any issue-named failure mode for the criterion's mechanism" \
+  "any failure mode the linked issue's Potential Gotchas or Implementation Notes names for that criterion's mechanism" "$P345_P3"
+# AC4: phase-1-setup.md references the SAME contract, and states a passed probe
+# never ticks the AC box.
+assert_pin_unique "#345 AC4: phase-1-setup.md ties the partial-live rule to the same Pre-merge probe contract" \
+  'is the Pre-merge probe contract, not just files-in-the-diff' "$P345_P1"
+assert_pin_unique "#345 AC4: phase-1-setup.md states a passed probe never ticks the AC box" \
+  'A passed probe never ticks the AC box' "$P345_P1"
+# AC4 coupled-invariant: the passed-probe-never-ticks clause also lives in phase-3's
+# contract (step 6); pin the phase-3 side too so removing it there turns the suite RED
+# (the two files are a stated single-source-of-truth pair).
+assert_pin_unique "#345 AC4: phase-3-review.md's contract step 6 also states a passed probe never ticks the AC box" \
+  'A passed probe never ticks the AC box' "$P345_P3"
+
 # ── Issue #184: Phase 1.6 Issue-Claim Audit ──────────────────────────────
 # Five assert_pin_red_on_removal guards + five assert_pin_unique pins.
 # assert_pin_red_on_removal: presence+uniqueness (PASS-before) + deletion
@@ -4226,6 +4367,124 @@ assert_pin_unique "#254: Pass 4 fails closed (Blocked) when a declared dependenc
 # prerequisite (the fail-closed-but-wrong direction the review flagged).
 assert_pin_unique "#254: Pass 4 treats a MERGED dependency as satisfied (landed = CLOSED or MERGED)" \
   'when it is `CLOSED` **or** `MERGED`' "$IMPL_SKILL"
+# ── issue #346 (+ #350): Phase 1.6 gains Pass 5 — execution-capability claims. ─
+# A cloud-tier bot implement run whose credential is the built-in GITHUB_TOKEN
+# fallback (DEVFLOW_APP_ID empty) cannot push .github/workflows/, so an AC that is
+# workflow-resident must be deferred at PLAN time (via 2.2.5) rather than discovered
+# at push time after the full commit is built. #350 correction: the block is NOT a
+# property of the cloud tier as a whole — a cloud run with DEVFLOW_APP_ID set mints a
+# workflow-capable App token (Contents+Workflows write) seeded into checkout (#357/#358)
+# and pushes workflows fine, so Pass 5 keys the deferral on CREDENTIAL CAPABILITY
+# (cloud-tier AND DEVFLOW_APP_ID empty), never on tier alone.
+# Pin the Pass 5 heading removal-proof, plus its operative
+# contracts (non-exhaustive; each pin below names its own): among them the
+# static-not-a-live-probe rule, the credential-capability-keyed (not tier- or
+# path-keyed) decision, the
+# repo-own-vs-vendored carve-out, the coupled-CI-pin-blocked-with-it rule, the
+# cloud-tier defer reflection, the all-blocked → Blocked-path arm (the most
+# safety-relevant route — it declines the issue up front, opening no PR), and the
+# workflow-capable-credential proceed arm (local/interactive OR cloud+DEVFLOW_APP_ID-set,
+# never defers/blocks).
+# Scoped to phase-1-setup.md (where Phase 1.6 lives) so the pins are precise to the
+# audit-pass surface AC7 names, not the whole bundle.
+P1_FILE="$IMPL_PHASES_DIR/phase-1-setup.md"
+assert_pin_red_on_removal "#346: deleting the Pass 5 execution-capability heading turns its pin RED" \
+  'Execution-capability claims (workflow-resident ACs vs. the executing credential)' "$P1_FILE"
+assert_pin_unique "#346: Pass 5 is static, never a live gh/API probe" \
+  'not** run a `gh`/API probe to test the token'"'"'s actual scope' "$P1_FILE"
+assert_pin_unique "#346/#350: Pass 5 keys the decision on the pushing credential's capability, not tier or path alone" \
+  'Key the routing decision on the pushing credential'"'"'s actual capability, not on the tier or the path alone' "$P1_FILE"
+# #350 (Critical): the deferral premise is credential-capability, not tier. Pin the two
+# operative sentences whose removal re-introduces the false "cloud ⇒ defer" premise the
+# review flagged: (a) DEFER only on cloud-tier AND DEVFLOW_APP_ID empty; (b) a NON-EMPTY
+# DEVFLOW_APP_ID (workflow-capable App token, #357/#358) ⇒ do NOT defer. Half-reverting
+# either back to a tier-only rule turns these RED.
+assert_pin_unique "#350: Pass 5 defers ONLY on cloud-tier AND DEVFLOW_APP_ID empty (not tier alone)" \
+  'Defer only when you can positively confirm the pushing credential cannot push a workflow file — i.e. a cloud-tier run (`GITHUB_ACTIONS=true`) whose `DEVFLOW_APP_ID` is empty/unset' "$P1_FILE"
+assert_pin_unique "#350: Pass 5 does NOT defer when DEVFLOW_APP_ID is non-empty (workflow-capable App token)" \
+  'When **`DEVFLOW_APP_ID` is non-empty**, the seeded App token carries the `workflows` scope and this run pushes `.github/workflows/` exactly like a human run — **do NOT defer.**' "$P1_FILE"
+assert_pin_unique "#346: Pass 5 matches only the repo's own .github/workflows (vendored copy is pushable)" \
+  'Match only the repo'"'"'s *own* `.github/workflows/`' "$P1_FILE"
+assert_pin_unique "#346: Pass 5 treats a coupled CI pin as blocked with the workflow edit" \
+  'blocked with it**, so the pushable subset stays CI-green on its own' "$P1_FILE"
+assert_pin_unique "#346: Pass 5 cloud-tier defer routes capability-blocked ACs through 2.2.5" \
+  'issue-claim audit (execution-capability): cloud tier — ACs {list} require editing .github/workflows/' "$P1_FILE"
+assert_pin_unique "#346: Pass 5 all-blocked arm takes the Phase 1 Blocked path and opens no PR" \
+  'issue-claim audit (execution-capability): every in-scope acceptance criterion requires editing .github/workflows/' "$P1_FILE"
+assert_pin_unique "#346/#350: Pass 5 workflow-capable-credential arm (local/interactive OR cloud+DEVFLOW_APP_ID-set) never defers/blocks" \
+  'never defer, never block' "$P1_FILE"
+# Coupled mirror sites: the 2.2.5 capability trigger (phase-2) and the Phase 4.0
+# human/PAT follow-up statement (phase-4) land in the SAME change as Pass 5.
+assert_pin_unique "#346: 2.2.5 lists capability-blocked ACs as a sanctioned scope-adjustment trigger" \
+  'Capability-blocked ACs are a sanctioned trigger too' "$IMPL_PHASES_DIR/phase-2-implement.md"
+# Review iter 2 (shadow): Pass 5's text-only 1.6 detection cannot see an AC whose
+# workflow-residence surfaces only during planning/implementation — 2.2.5 is the concrete-diff
+# backstop that catches those, and a Phase 2.3-discovered edit re-routes through it before
+# committing. Pin the backstop clause + the 2.3-discovery re-route so a trim can't silently
+# reopen the push-time gap. #350 supersedes the old tier-indeterminate fail-closed-toward-cloud
+# rule: post-#357 a spurious deferral silently under-delivers shippable workflow work (the
+# Critical failure), so when a discriminating signal is unreadable the pass PROCEEDS (fail-open
+# toward the pushable direction), not defers. Pin that corrected fail-direction sentence.
+assert_pin_unique "#346: 2.2.5 backstop catches planning-surfaced workflow-resident ACs Pass 5's text scan misses" \
+  'also catch any AC whose workflow-residence surfaced only during planning' "$IMPL_PHASES_DIR/phase-2-implement.md"
+assert_pin_unique "#346: a Phase 2.3-discovered workflow edit re-routes through 2.2.5 before committing" \
+  'if Phase 2.3 code-writing *itself* later reveals a required `.github/workflows/` edit' "$IMPL_PHASES_DIR/phase-2-implement.md"
+assert_pin_unique "#350: Pass 5 proceeds (not defers) when a discriminating signal is genuinely unreadable" \
+  'When a discriminating signal is genuinely unreadable, proceed — do not defer.' "$P1_FILE"
+assert_pin_unique "#346: Phase 4.0 template bullet states landing a capability-deferral needs a human/PAT workflows-scope push" \
+  'Landing this requires a human/PAT push carrying the `workflows` scope' "$IMPL_PHASES_DIR/phase-4-documentation.md"
+# #350 (pr-test-analyzer): the byte-identical duplicate here masked a coverage gap — it
+# re-pinned the *template placeholder* bullet (line 44) while the normative OBLIGATION prose
+# (the "MUST state explicitly" instruction) was itself unpinned, so deleting the obligation
+# would leave the suite green. Re-point the second pin at the obligation sentence.
+assert_pin_unique "#346: Phase 4.0 OBLIGATION requires the follow-up body to state the credential boundary" \
+  'the follow-up body MUST state explicitly that' "$IMPL_PHASES_DIR/phase-4-documentation.md"
+# Review iter 3 (shadow): the all-blocked decline was executable only at Phase 1.6; when
+# every-AC-blocked is discovered late (at 2.2.5/2.3), narrowing yields an EMPTY pushable
+# subset with no executable stop, so the run could fall through to a near-empty PR. Pin the
+# empty-subset → Blocked stop restated at 2.2.5. Also pin the clean cloud-tier arm's
+# record-even-when-clean reflection (AC1's contract on the no-workflow-AC path).
+assert_pin_unique "#346: 2.2.5 takes the Blocked path when the pushable subset would be empty (late-discovered all-blocked)" \
+  'Empty pushable subset ⇒ take the Blocked path here, do not narrow-and-proceed' "$IMPL_PHASES_DIR/phase-2-implement.md"
+# Review iter 4 (shadow): the Phase 2.3-discovery backstop was inert prose — no firing
+# point at the commit step. Pin the Phase 2.5 cloud-tier commit guard that actually fires it
+# (git diff HEAD + git ls-files --others against the repo-own .github/workflows/, revert +
+# route through 2.2.5) so a later edit cannot strand the backstop as unexecutable prose again.
+assert_pin_unique "#346: Phase 2.5 commit guard fires the workflow-edit backstop (repo-own .github/workflows/, cloud tier)" \
+  'Cloud-tier workflow-edit commit guard (fires the Pass 5 / 2.2.5 backstop here)' "$IMPL_PHASES_DIR/phase-2-implement.md"
+# The guard checks BOTH detection arms — tracked edits (git diff HEAD) AND untracked new
+# workflow files (git ls-files --others) — because a workflow-*adding* AC leaves an untracked
+# file that git diff HEAD never lists yet git add -A would stage, while a workflow-*editing* AC
+# (the dominant case) is caught only by the tracked arm. Pin BOTH clauses so a future trim to
+# either arm alone goes RED instead of silently regressing the other's catch: the tracked arm
+# (modified/deleted existing workflow) and the untracked arm (newly-added workflow, iteration-4).
+assert_pin_unique "#346: Phase 2.5 commit guard detects tracked workflow edits (git diff HEAD arm)" \
+  'git diff HEAD --name-only -- .github/workflows/' "$IMPL_PHASES_DIR/phase-2-implement.md"
+assert_pin_unique "#346: Phase 2.5 commit guard also detects untracked new workflow files (not tracked-only)" \
+  'git ls-files --others --exclude-standard -- .github/workflows/' "$IMPL_PHASES_DIR/phase-2-implement.md"
+assert_pin_unique "#346: Pass 5 records a clean note on the cloud-tier no-workflow-AC path (record-even-when-clean)" \
+  'issue-claim audit (execution-capability): cloud tier — no acceptance criterion requires editing .github/workflows/' "$P1_FILE"
+# ── #350 review fixes: re-key the deferral on CREDENTIAL CAPABILITY, and make the
+# signal observable + the guard complete. Coupled sites for this ONE change:
+#   (1) phase-1 Pass 5 + phase-2 2.2.5/2.5 prose (keyed on cloud AND DEVFLOW_APP_ID empty),
+#   (2) the 2.5 guard reverts files COUPLED to a reverted workflow (Important-1),
+#   (3) devflow-implement.yml EXPORTS DEVFLOW_APP_ID into the claude step's env so the
+#       Phase 1.6 pass can actually read the operand it now keys on (producer for the guard).
+IMPL_YML="$LIB/../.github/workflows/devflow-implement.yml"
+assert_pin_unique "#350: 2.2.5 exempts a cloud run with DEVFLOW_APP_ID set (workflow-capable App token)" \
+  'a cloud run with `DEVFLOW_APP_ID` **set** carries a workflow-capable App token seeded into checkout' "$IMPL_PHASES_DIR/phase-2-implement.md"
+assert_pin_unique "#350: Phase 2.5 guard keys on the same cloud + DEVFLOW_APP_ID-empty condition as Pass 5" \
+  'the same condition Pass 5 keys on: cloud tier (`GITHUB_ACTIONS=true`) with `DEVFLOW_APP_ID` empty/unset' "$IMPL_PHASES_DIR/phase-2-implement.md"
+assert_pin_unique "#350 (Important-1): Phase 2.5 guard reverts files coupled to a reverted workflow (else CI-red)" \
+  'revert every file coupled to it in the same step' "$IMPL_PHASES_DIR/phase-2-implement.md"
+assert_pin_unique "#350: devflow-implement.yml exports DEVFLOW_APP_ID into the agent env (Pass 5's observable signal)" \
+  'DEVFLOW_APP_ID: ${{ vars.DEVFLOW_APP_ID }}' "$IMPL_YML"
+# Structurally confirm the export sits inside the 'Run Claude Code' step (between its
+# `name:` and its `with:`), so the /devflow:implement agent actually reads it — a bare
+# count could pass on a line stranded in the wrong step.
+CLAUDE_STEP_BLK="$(awk '/name: Run Claude Code/{f=1} f{print} f&&/^        with:/{exit}' "$IMPL_YML")"
+assert_eq "#350: the DEVFLOW_APP_ID env export lives in the Run Claude Code step (before its with:)" "1" \
+  "$(printf '%s\n' "$CLAUDE_STEP_BLK" | grep -cF 'DEVFLOW_APP_ID: ${{ vars.DEVFLOW_APP_ID }}')"
 # ── issue #185 (+ Addendum): Phase 4.1 Documentation Needed cross-check ─────
 # Phase 4.1 enforces named documentation deliverables in two stages:
 #   Stage 1 pre-flight: extract the Documentation Needed paths and inject them
@@ -8811,11 +9070,11 @@ REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=true REQUIRE_CI_GREEN
 
 # AC2 (failure arm): another workflow run concluded failure -> defer ci-not-green.
 REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
-  DRP_RUNS='{"workflow_runs":[{"name":"CI","status":"completed","conclusion":"failure"}]}' \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","workflow_id":1,"event":"pull_request","run_number":1,"status":"completed","conclusion":"failure"}]}' \
   drp "#304 other workflow run failed -> false ci-not-green" "false ci-not-green"
 # AC2 (pending arm): another workflow run still in progress -> defer.
 REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
-  DRP_RUNS='{"workflow_runs":[{"name":"CI","status":"in_progress","conclusion":null}]}' \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","workflow_id":1,"event":"pull_request","run_number":1,"status":"in_progress","conclusion":null}]}' \
   drp "#304 other workflow run in_progress -> false ci-not-green (pending)" "false ci-not-green"
 # AC3 + AC9: only the review workflow's own run present -> excluded by
 # SELF_WORKFLOW_NAME -> zero other CI -> satisfied (self never blocks itself,
@@ -8826,12 +9085,12 @@ REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREE
   drp "#304 only the review workflow itself running -> true (self-excluded; zero other CI satisfied)" "true "
 # AC4: all other runs green -> proceed.
 REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
-  DRP_RUNS='{"workflow_runs":[{"name":"CI","status":"completed","conclusion":"success"},{"name":"Devflow Review (auto-trigger)","status":"in_progress","conclusion":null}]}' \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","workflow_id":1,"event":"pull_request","run_number":1,"status":"completed","conclusion":"success"},{"name":"Devflow Review (auto-trigger)","status":"in_progress","conclusion":null}]}' \
   drp "#304 other CI green (self still running) -> true" "true "
 # Skipped/neutral conclusions on other runs are green (a path-filtered workflow
 # must not wedge the review).
 REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
-  DRP_RUNS='{"workflow_runs":[{"name":"Docs","status":"completed","conclusion":"skipped"},{"name":"Lint","status":"completed","conclusion":"neutral"}]}' \
+  DRP_RUNS='{"workflow_runs":[{"name":"Docs","workflow_id":1,"event":"pull_request","run_number":1,"status":"completed","conclusion":"skipped"},{"name":"Lint","workflow_id":2,"event":"pull_request","run_number":1,"status":"completed","conclusion":"neutral"}]}' \
   drp "#304 skipped/neutral other runs count as green -> true" "true "
 # AC10: workflow-runs query failure fails CLOSED with a specific breadcrumb.
 REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
@@ -8909,7 +9168,7 @@ REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREE
 # catching a sequencing regression between precondition 1 and 2.
 REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=true REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
   DRP_COMPARE='{"behind_by":0}' \
-  DRP_RUNS='{"workflow_runs":[{"name":"CI","status":"completed","conclusion":"success"}]}' \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","workflow_id":1,"event":"pull_request","run_number":1,"status":"completed","conclusion":"success"}]}' \
   DRP_STATUS='{"state":"success","total_count":1}' \
   DRP_CHECKS='{"check_runs":[{"name":"ext","app":{"slug":"circleci"},"status":"completed","conclusion":"success"}]}' \
   drp "#304 both gates enabled, all signals green -> true (full happy path)" "true "
@@ -8943,7 +9202,7 @@ REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREE
 # its unknown status is deliberately treated as not-completed (pending) —
 # pinned so a future edit makes this choice consciously.
 REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
-  DRP_RUNS='{"workflow_runs":[{"name":"CI"}]}' \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","workflow_id":1,"event":"pull_request","run_number":1}]}' \
   drp "#304 workflow run without a status field -> false ci-not-green (observed run, unknown status = pending)" "false ci-not-green"
 # The base_branch extraction expression, executed like the require_* ones.
 assert_eq "#304 base_branch extraction: non-default value kept" "develop" \
@@ -8974,7 +9233,7 @@ REPO=o/r HEAD_SHA=aaaa BASE_BRANCH="" REQUIRE_UP_TO_DATE=true REQUIRE_CI_GREEN=f
 # Paginated (concatenated-objects) workflow-runs payload: a failure on page 2
 # must still gate — the -s normalization flattens the page objects.
 REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
-  DRP_RUNS='{"workflow_runs":[{"name":"A","status":"completed","conclusion":"success"}]}{"workflow_runs":[{"name":"B","status":"completed","conclusion":"failure"}]}' \
+  DRP_RUNS='{"workflow_runs":[{"name":"A","workflow_id":1,"event":"pull_request","run_number":1,"status":"completed","conclusion":"success"}]}{"workflow_runs":[{"name":"B","workflow_id":2,"event":"pull_request","run_number":1,"status":"completed","conclusion":"failure"}]}' \
   drp "#304 paginated workflow-runs payload: page-2 failure still gates -> false ci-not-green" "false ci-not-green"
 # Adversarial shape: a non-object/garbage runs payload is a parse failure ->
 # fail closed, never a fabricated green.
@@ -8990,6 +9249,155 @@ DRP_CONTRACT_OUT="$(REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=f
 assert_eq "#304 preconditions stdout contract: exactly 2 lines" "2" "$(printf '%s\n' "$DRP_CONTRACT_OUT" | wc -l | tr -d ' ')"
 assert_eq "#304 preconditions stdout contract: line 1 should_run=, line 2 reason=" "yes" \
   "$(printf '%s\n' "$DRP_CONTRACT_OUT" | sed -n '1s/^should_run=.*/ok1/p;2s/^reason=.*/ok2/p' | tr '\n' ' ' | grep -q 'ok1 ok2' && echo yes || echo no)"
+
+# ── #351: collapse non-self workflow runs to the latest per (workflow_id, event) ──
+# Signal-set (1) now collapses duplicate runs of the same workflow+event to the
+# highest-run_number run before gating, so a superseded non-green run never wedges
+# the review once a newer run of the same group exists. A NON-self run missing a
+# numeric workflow_id/run_number makes the collapse unverifiable and fails closed.
+# A completed run awaiting approval (conclusion action_required) gets its own
+# distinct reason (ci-approval-required), in the SHARED green-gate so signal-set
+# (3) external check runs get it too.
+# #351 AC1/AC3: the literal PR #349 payload — run 1435 action_required + run 1436
+# success, same workflow_id/event — collapses to the newer green run -> true.
+# (RED before the fix: the un-collapsed action_required line deferred the review.)
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","workflow_id":280327711,"event":"pull_request","run_number":1435,"status":"completed","conclusion":"action_required"},{"name":"CI","workflow_id":280327711,"event":"pull_request","run_number":1436,"status":"completed","conclusion":"success"}]}' \
+  drp "#351 superseded action_required + newer success (PR #349 payload) collapses -> true" "true "
+# #351 AC8-companion: a single-run group is a collapse no-op -> still true.
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","workflow_id":1,"event":"pull_request","run_number":9,"status":"completed","conclusion":"success"}]}' \
+  drp "#351 single green run in a group (collapse no-op) -> true" "true "
+# #351 AC2: a self-named run is excluded BEFORE grouping — even one lacking
+# workflow_id/run_number never trips the numeric-operand guard — so a green CI run
+# still collapses to true (the guard applies to NON-self runs only).
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  SELF_WORKFLOW_NAME='Devflow Review (auto-trigger)' \
+  DRP_RUNS='{"workflow_runs":[{"name":"Devflow Review (auto-trigger)","event":"pull_request","status":"in_progress","conclusion":null},{"name":"CI","workflow_id":1,"event":"pull_request","run_number":6,"status":"completed","conclusion":"success"}]}' \
+  drp "#351 self run (no workflow_id) excluded before the guard; green CI collapses -> true" "true "
+# #351 AC4: the highest-run_number run in a group is NOT completed -> defer
+# ci-not-green, regardless of a lower-run_number green sibling in that group.
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","workflow_id":1,"event":"pull_request","run_number":1435,"status":"completed","conclusion":"success"},{"name":"CI","workflow_id":1,"event":"pull_request","run_number":1436,"status":"in_progress","conclusion":null}]}' \
+  drp "#351 newest run in group not completed (green sibling superseded) -> false ci-not-green" "false ci-not-green"
+# #351 AC5: the highest-run_number run in a group concluded failure -> defer
+# ci-not-green, regardless of a lower-run_number green sibling.
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","workflow_id":1,"event":"pull_request","run_number":1435,"status":"completed","conclusion":"success"},{"name":"CI","workflow_id":1,"event":"pull_request","run_number":1436,"status":"completed","conclusion":"failure"}]}' \
+  drp "#351 newest run in group failed (green sibling superseded) -> false ci-not-green" "false ci-not-green"
+# #351 AC3 (collapse discriminator): an OLDER failure superseded by a NEWER success
+# in the same group collapses to the newer green run -> true. This is the case that
+# is uniquely RED on pre-fix code and GREEN post-fix: pre-fix emitted every non-self
+# line, so the older failure deferred ci-not-green; post-fix max_by(.run_number)
+# drops it. (AC4/AC5 above pin the reverse — newest non-green gates despite a green
+# sibling — but their superseded sibling is itself non-green, so pre-fix code already
+# deferred and they do not discriminate the "newest green supersedes older red"
+# contract; this case does. It uses a plain failure, not action_required, so it is a
+# pure collapse test independent of the AC9 ci-approval-required arm.)
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","workflow_id":1,"event":"pull_request","run_number":1435,"status":"completed","conclusion":"failure"},{"name":"CI","workflow_id":1,"event":"pull_request","run_number":1436,"status":"completed","conclusion":"success"}]}' \
+  drp "#351 older failure superseded by newer success (same group) collapses -> true (RED pre-fix)" "true "
+# #351 AC6: same workflow_id under DIFFERENT events are two independent groups —
+# a failure under one event defers even when the run under the other event is
+# newer and green (the collapse is per (workflow_id, event), not per workflow_id).
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","workflow_id":1,"event":"push","run_number":5,"status":"completed","conclusion":"failure"},{"name":"CI","workflow_id":1,"event":"pull_request","run_number":6,"status":"completed","conclusion":"success"}]}' \
+  drp "#351 same workflow_id, different events stay independent: push failure still gates -> false ci-not-green" "false ci-not-green"
+# #351 AC7: a NON-self run missing workflow_id -> unverifiable (never a dropped
+# signal, never a positively-asserted ci-not-green), with a breadcrumb NAMING the
+# missing field. (RED before the fix: with no guard the run would gate ci-not-green.)
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","event":"pull_request","run_number":6,"status":"completed","conclusion":"failure"}]}' \
+  drp "#351 non-self run missing workflow_id -> false unverifiable (fail closed, no dropped signal)" "false unverifiable"
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","event":"pull_request","run_number":6,"status":"completed","conclusion":"failure"}]}' \
+  drp_stderr "#351 missing workflow_id breadcrumb names the field" "numeric workflow_id"
+# #351 AC7: a NON-self run whose run_number is non-numeric -> unverifiable, with a
+# breadcrumb naming run_number.
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","workflow_id":1,"event":"pull_request","run_number":"nope","status":"completed","conclusion":"failure"}]}' \
+  drp "#351 non-self run with non-numeric run_number -> false unverifiable (fail closed)" "false unverifiable"
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","workflow_id":1,"event":"pull_request","run_number":"nope","status":"completed","conclusion":"failure"}]}' \
+  drp_stderr "#351 non-numeric run_number breadcrumb names the field" "numeric run_number"
+# #351 AC7 (shape-matrix completion): the guard treats workflow_id and run_number
+# with the same `type != "number"` predicate, so sweep the remaining two of the
+# {missing, non-numeric} x {workflow_id, run_number} matrix — a present-but-non-numeric
+# workflow_id and a missing run_number — both fail closed unverifiable, each with a
+# field-naming breadcrumb. workflow_id is checked before run_number, so a run failing
+# BOTH still names workflow_id first.
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","workflow_id":"nope","event":"pull_request","run_number":6,"status":"completed","conclusion":"failure"}]}' \
+  drp "#351 non-self run with non-numeric workflow_id -> false unverifiable (fail closed)" "false unverifiable"
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","workflow_id":"nope","event":"pull_request","run_number":6,"status":"completed","conclusion":"failure"}]}' \
+  drp_stderr "#351 non-numeric workflow_id breadcrumb names the field" "numeric workflow_id"
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","workflow_id":1,"event":"pull_request","status":"completed","conclusion":"failure"}]}' \
+  drp "#351 non-self run missing run_number -> false unverifiable (fail closed)" "false unverifiable"
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","workflow_id":1,"event":"pull_request","status":"completed","conclusion":"failure"}]}' \
+  drp_stderr "#351 missing run_number breadcrumb names the field" "numeric run_number"
+# #351 AC7 (event operand): `event` is the OTHER group-key operand — an absent/non-string
+# event mis-groups a run under a null bucket, so an older non-green run could survive the
+# collapse in its own group and re-wedge the review (the exact fail-open #351 fixes). It is
+# validated (string) before grouping like the two numeric fields, so a non-self run missing
+# event -> false unverifiable with a field-naming breadcrumb. (workflow_id/run_number are
+# checked first, so a run failing multiple operands names workflow_id before event.)
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","workflow_id":1,"run_number":6,"status":"completed","conclusion":"failure"}]}' \
+  drp "#351 non-self run missing event -> false unverifiable (fail closed, no mis-group)" "false unverifiable"
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","workflow_id":1,"run_number":6,"status":"completed","conclusion":"failure"}]}' \
+  drp_stderr "#351 missing event breadcrumb names the field" "string event"
+# #351 AC8: zero NON-self workflow runs still satisfies the CI-green precondition
+# (a CI-less-repo / self-only head is reviewed, never wedged).
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_RUNS='{"workflow_runs":[]}' \
+  drp "#351 zero non-self workflow runs -> true (never wedged)" "true "
+# #351 AC9: a surviving run (signal-set 1) whose newest conclusion is
+# action_required -> defer with the DISTINCT ci-approval-required reason, and the
+# breadcrumb names approval as the blocker.
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","workflow_id":1,"event":"pull_request","run_number":6,"status":"completed","conclusion":"action_required"}]}' \
+  drp "#351 newest run action_required (signal-set 1) -> false ci-approval-required" "false ci-approval-required"
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","workflow_id":1,"event":"pull_request","run_number":6,"status":"completed","conclusion":"action_required"}]}' \
+  drp_stderr "#351 action_required breadcrumb names approval as the blocker" "an approval is required"
+# #351 AC9 (signal-set 3): the SHARED green-gate gives an external check run
+# concluding action_required the same ci-approval-required reason.
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_CHECKS='{"check_runs":[{"name":"ext","app":{"slug":"circleci"},"status":"completed","conclusion":"action_required"}]}' \
+  drp "#351 external check run action_required (signal-set 3, shared gate) -> false ci-approval-required" "false ci-approval-required"
+# #353 (coupled WORKFLOW half of #351's ci-approval-required, landed via human/PAT):
+# the devflow-review.yml create_check title-arm pin and the deferral-SUMMARY
+# 'cancelled sibling run' removal pin. These two static grep pins move with the
+# workflow change so they land in the same commit as the case arm they assert.
+# AC10: the create_check title `case` maps ci-approval-required to the exact title.
+assert_pin_unique "#353 create_check maps ci-approval-required to its exact title" \
+  "ci-approval-required) TITLE='Devflow review waiting: CI approval required'" \
+  "$LIB/../.github/workflows/devflow-review.yml"
+# AC13-guard: the absence pin below reads "no" both when the phrase is truly
+# gone AND when the workflow file is missing/renamed/unreadable (a failed grep
+# also yields "no", the expected value) — the repo's vacuous-pin/fail-open bug
+# class. This existence pin makes the absence assertion fail CLOSED on a missing
+# target INDEPENDENTLY of AC10's uniqueness pin, so a future edit that relocates
+# AC10 cannot silently re-open the hole. The operand is the deterministic
+# `[ -f FILE ]` test (yes on a present file, no otherwise); assert_eq expects
+# "yes", so a renamed/removed target flips it to "no" and the suite goes RED.
+assert_eq "#353 devflow-review.yml exists (AC13 absence-pin fail-closed backstop)" "yes" \
+  "$([ -f "$LIB/../.github/workflows/devflow-review.yml" ] && echo yes || echo no)"
+# AC13-guard fail-closed proof: the existence idiom yields "no" on a
+# missing/renamed target (the absent-operand shape), so the assert_eq above
+# would go RED rather than pass vacuously if the workflow file ever moves.
+assert_eq "#353 existence idiom fails closed on a missing workflow file" "no" \
+  "$([ -f "$LIB/../.github/workflows/devflow-review-DOES-NOT-EXIST.yml" ] && echo yes || echo no)"
+# AC13: the deferral SUMMARY no longer cites a cancelled sibling run as a
+# permanently-stuck signal (the #351 collapse now auto-resolves the superseded
+# cancelled-sibling case), so the phrase must be GONE (expected no). The
+# existence pin above closes the vacuous-pass hole (file present is proven).
+assert_eq "#353 deferral SUMMARY no longer cites 'cancelled sibling run'" "no" \
+  "$(grep -qF 'cancelled sibling run' "$LIB/../.github/workflows/devflow-review.yml" && echo yes || echo no)"  # raw-guard-ok: absence pin: asserts the removed phrase is GONE (expected no)
 rm -f "$DRP_STUB"
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -9680,6 +10088,123 @@ assert_eq "di: duplicate notice contains no /devflow: phrase" "0" \
   "$(grep -c '/devflow:' <<< "$NOTICE_LINE")"
 assert_eq "di: duplicate notice contains no @claude" "0" \
   "$(grep -c '@claude' <<< "$NOTICE_LINE")"
+
+# 15. Stall-backstop-resume carve-out (issue #280, deferred #268 finding): a run
+#     triggered by the stall backstop's auto-resume comment must NOT dedupe against
+#     the still-winding-down run it is taking over. With IS_STALL_RESUME=true (the
+#     explicit override) the script proceeds even though an OLDER active run for the
+#     same thread exists (case 1 above would otherwise be duplicate=true).
+assert_eq "di: stall-backstop resume bypasses dedupe (older active peer present)" "duplicate=false" \
+  "$(DEVFLOW_GH="$DI_STUB/gh" REPO=o/r RUN_ID=200 CONTEXT_NUMBER=42 IS_STALL_RESUME=true \
+     DEDUPE_RUNS_JSON='[{"databaseId":100,"displayTitle":"DevFlow implement (issue 42)","status":"in_progress"}]' \
+     bash "$DIR" 2>/dev/null)"
+# 15b. The carve-out is opt-in: any non-"true" value dedupes normally (older active
+#      peer → duplicate=true), so an unrelated command is never let through.
+assert_eq "di: IS_STALL_RESUME=false still dedupes normally" "duplicate=true" \
+  "$(DEVFLOW_GH="$DI_STUB/gh" REPO=o/r RUN_ID=200 CONTEXT_NUMBER=42 IS_STALL_RESUME=false \
+     DEDUPE_RUNS_JSON='[{"databaseId":100,"displayTitle":"DevFlow implement (issue 42)","status":"in_progress"}]' \
+     bash "$DIR" 2>/dev/null)"
+# 15c. Self-derive from GITHUB_EVENT_PATH (the production path — no workflow env is
+#      passed). A triggering comment whose body carries the stall-backstop-audit
+#      marker bypasses dedupe; the same event without the marker dedupes normally.
+DI_EVT_YES="$(mktemp)"; printf '%s' '{"comment":{"body":"<!-- devflow:stall-backstop-audit -->\n/devflow:implement 42"}}' > "$DI_EVT_YES"
+DI_EVT_NO="$(mktemp)";  printf '%s' '{"comment":{"body":"/devflow:implement 42"}}' > "$DI_EVT_NO"
+assert_eq "di: event-path comment carrying the stall marker bypasses dedupe" "duplicate=false" \
+  "$(DEVFLOW_GH="$DI_STUB/gh" REPO=o/r RUN_ID=200 CONTEXT_NUMBER=42 GITHUB_EVENT_PATH="$DI_EVT_YES" \
+     DEDUPE_RUNS_JSON='[{"databaseId":100,"displayTitle":"DevFlow implement (issue 42)","status":"in_progress"}]' \
+     bash "$DIR" 2>/dev/null)"
+assert_eq "di: event-path comment without the stall marker dedupes normally" "duplicate=true" \
+  "$(DEVFLOW_GH="$DI_STUB/gh" REPO=o/r RUN_ID=200 CONTEXT_NUMBER=42 GITHUB_EVENT_PATH="$DI_EVT_NO" \
+     DEDUPE_RUNS_JSON='[{"databaseId":100,"displayTitle":"DevFlow implement (issue 42)","status":"in_progress"}]' \
+     bash "$DIR" 2>/dev/null)"
+rm -f "$DI_EVT_YES" "$DI_EVT_NO"
+# 15c-err. Fail-open detection errors (issue #280 hardening): the marker probe reads a
+#      runner-provided payload, so a malformed/unreadable/missing GITHUB_EVENT_PATH must
+#      NOT be mistaken for a resume — it falls through to ordinary dedupe (duplicate=true
+#      when an older active peer exists). A genuine jq error (exit >1: bad JSON, empty
+#      file) additionally emits a ::warning:: so the swallow is visible; a marker merely
+#      ABSENT (jq exit 1) stays silent. All three run under set -euo pipefail without
+#      aborting. The older-active-peer fixture makes the fall-through observable as
+#      duplicate=true (a fail-open-to-dedupe result, not a bypass).
+DI_PEER='[{"databaseId":100,"displayTitle":"DevFlow implement (issue 42)","status":"in_progress"}]'
+DI_EVT_BAD="$(mktemp)"; printf '%s' 'not json{' > "$DI_EVT_BAD"
+# malformed payload → jq exit >1 → fall through to dedupe (duplicate=true) + ::warning::
+DI_BAD_ERR="$(mktemp)"
+assert_eq "di: malformed GITHUB_EVENT_PATH → not a resume, ordinary dedupe applies" "duplicate=true" \
+  "$(DEVFLOW_GH="$DI_STUB/gh" REPO=o/r RUN_ID=200 CONTEXT_NUMBER=42 GITHUB_EVENT_PATH="$DI_EVT_BAD" \
+     DEDUPE_RUNS_JSON="$DI_PEER" bash "$DIR" 2>"$DI_BAD_ERR")"
+assert_eq "di: malformed GITHUB_EVENT_PATH emits a ::warning:: (real error is not silent)" "1" \
+  "$(grep -c '::warning::dedupe: could not read the stall-resume marker' "$DI_BAD_ERR")"
+rm -f "$DI_EVT_BAD" "$DI_BAD_ERR"
+# well-formed-but-wrong-SHAPE payload (top-level array/scalar, not an object): jq's
+# `.comment` index raises an error → exit >1 → warning branch, same as malformed text.
+# This is a distinct input class from "malformed text" — the adversarial input-shape
+# matrix (CLAUDE.md best-effort-parser gotcha) designates a runner-provided payload
+# parser subject to the {object, array, scalar, ...} sweep. Guards against a future
+# `?`/`try` hardening silently flipping a wrong-type payload from warning to silent.
+DI_EVT_ARR="$(mktemp)"; printf '%s' '[]' > "$DI_EVT_ARR"
+DI_ARR_ERR="$(mktemp)"
+assert_eq "di: wrong-type (array) GITHUB_EVENT_PATH → not a resume, ordinary dedupe applies" "duplicate=true" \
+  "$(DEVFLOW_GH="$DI_STUB/gh" REPO=o/r RUN_ID=200 CONTEXT_NUMBER=42 GITHUB_EVENT_PATH="$DI_EVT_ARR" \
+     DEDUPE_RUNS_JSON="$DI_PEER" bash "$DIR" 2>"$DI_ARR_ERR")"
+assert_eq "di: wrong-type (array) GITHUB_EVENT_PATH emits a ::warning:: (real error is not silent)" "1" \
+  "$(grep -c '::warning::dedupe: could not read the stall-resume marker' "$DI_ARR_ERR")"
+rm -f "$DI_EVT_ARR" "$DI_ARR_ERR"
+# empty-but-readable payload (the "empty file" example the code comment names): passes
+# the [ -r ] guard, jq -e on empty input produces no output → exit 4 → warning branch.
+DI_EVT_EMPTY="$(mktemp)"; printf '' > "$DI_EVT_EMPTY"
+DI_EMPTY_ERR="$(mktemp)"
+assert_eq "di: empty GITHUB_EVENT_PATH → not a resume, ordinary dedupe applies" "duplicate=true" \
+  "$(DEVFLOW_GH="$DI_STUB/gh" REPO=o/r RUN_ID=200 CONTEXT_NUMBER=42 GITHUB_EVENT_PATH="$DI_EVT_EMPTY" \
+     DEDUPE_RUNS_JSON="$DI_PEER" bash "$DIR" 2>"$DI_EMPTY_ERR")"
+assert_eq "di: empty GITHUB_EVENT_PATH emits a ::warning:: (real error is not silent)" "1" \
+  "$(grep -c '::warning::dedupe: could not read the stall-resume marker' "$DI_EMPTY_ERR")"
+rm -f "$DI_EVT_EMPTY" "$DI_EMPTY_ERR"
+# unreadable path (nonexistent) → the [ -r ] guard skips the probe → dedupe, no warning
+DI_UNREAD_ERR="$(mktemp)"
+assert_eq "di: nonexistent GITHUB_EVENT_PATH → not a resume, ordinary dedupe applies" "duplicate=true" \
+  "$(DEVFLOW_GH="$DI_STUB/gh" REPO=o/r RUN_ID=200 CONTEXT_NUMBER=42 GITHUB_EVENT_PATH=/nonexistent/devflow-event.json \
+     DEDUPE_RUNS_JSON="$DI_PEER" bash "$DIR" 2>"$DI_UNREAD_ERR")"
+assert_eq "di: nonexistent GITHUB_EVENT_PATH emits no marker-read warning (guard skips probe)" "0" \
+  "$(grep -c 'could not read the stall-resume marker' "$DI_UNREAD_ERR")"
+rm -f "$DI_UNREAD_ERR"
+# PRESENT-but-unreadable payload (issue #280 shadow finding): a file that EXISTS but
+# cannot be read (permission/mount anomaly, a partially-materialised/locked payload) is
+# a distinct input class from the NONEXISTENT path above — the [ -r ] guard fails on
+# both, but only the present-but-unreadable one is an "unreadable payload" the header
+# contract promises to WARN on. It must fall through to ordinary dedupe (duplicate=true
+# with an older active peer) AND emit a ::warning:: (never a silent swallow of a
+# possible genuine resume), unlike the absent-path case which stays silent. chmod a-r is
+# a no-op under root (`[ -r ]` is always true), so guard on non-root like the F1 arm.
+if [ "$(id -u)" != 0 ]; then
+  DI_EVT_LOCKED="$(mktemp)"; printf '%s' '{"comment":{"body":"<!-- devflow:stall-backstop-audit -->"}}' > "$DI_EVT_LOCKED"; chmod a-r "$DI_EVT_LOCKED"
+  DI_LOCKED_ERR="$(mktemp)"
+  assert_eq "di: present-but-unreadable GITHUB_EVENT_PATH → not a resume, ordinary dedupe applies" "duplicate=true" \
+    "$(DEVFLOW_GH="$DI_STUB/gh" REPO=o/r RUN_ID=200 CONTEXT_NUMBER=42 GITHUB_EVENT_PATH="$DI_EVT_LOCKED" \
+       DEDUPE_RUNS_JSON="$DI_PEER" bash "$DIR" 2>"$DI_LOCKED_ERR")"
+  assert_eq "di: present-but-unreadable GITHUB_EVENT_PATH emits a ::warning:: (unreadable payload is not silent)" "1" \
+    "$(grep -c 'is set but not readable' "$DI_LOCKED_ERR")"
+  chmod u+rw "$DI_EVT_LOCKED" 2>/dev/null || true
+  rm -f "$DI_EVT_LOCKED" "$DI_LOCKED_ERR"
+fi
+# well-formed JSON missing .comment.body → marker genuinely absent (jq exit 1) → dedupe,
+# no warning (an absent marker is the expected non-resume case, must stay silent).
+DI_EVT_NOBODY="$(mktemp)"; printf '%s' '{"issue":{"number":42}}' > "$DI_EVT_NOBODY"
+DI_NOBODY_ERR="$(mktemp)"
+assert_eq "di: valid payload with no .comment.body → ordinary dedupe applies" "duplicate=true" \
+  "$(DEVFLOW_GH="$DI_STUB/gh" REPO=o/r RUN_ID=200 CONTEXT_NUMBER=42 GITHUB_EVENT_PATH="$DI_EVT_NOBODY" \
+     DEDUPE_RUNS_JSON="$DI_PEER" bash "$DIR" 2>"$DI_NOBODY_ERR")"
+assert_eq "di: absent marker (jq exit 1) emits no warning (expected non-resume is silent)" "0" \
+  "$(grep -c 'could not read the stall-resume marker' "$DI_NOBODY_ERR")"
+rm -f "$DI_EVT_NOBODY" "$DI_NOBODY_ERR"
+# 15d. Coupled cross-file invariant (issue #280): the stall-resume marker the dedupe
+#      script keys on MUST stay identical to the marker the stall-backstop step
+#      writes into its resume comment. Assert the exact literal is present in both.
+DI_WF="$LIB/../.github/workflows/devflow-implement.yml"
+assert_eq "di: dedupe script defines the stall-backstop-audit marker" "1" \
+  "$(grep -c "STALL_RESUME_MARKER='<!-- devflow:stall-backstop-audit -->'" "$DIR")"
+assert_eq "di: same stall-backstop-audit marker literal exists in the workflow (coupling holds)" "true" \
+  "$(grep -q "<!-- devflow:stall-backstop-audit -->" "$DI_WF" && echo true || echo false)"
 
 rm -rf "$DI_STUB"
 
@@ -10395,8 +10920,8 @@ for site in "${APP_SITES[@]}"; do
   # expression.
   assert_eq "app-token: $f.yml '$name' is gated on vars.DEVFLOW_APP_ID != ''" "1" \
     "$(printf '%s\n' "$blk" | grep -cF "vars.DEVFLOW_APP_ID != ''" || true)"
-  assert_eq "app-token: $f.yml '$name' reads app-id from vars.DEVFLOW_APP_ID" "1" \
-    "$(printf '%s\n' "$blk" | grep -cF 'app-id: ${{ vars.DEVFLOW_APP_ID }}')"
+  assert_eq "app-token: $f.yml '$name' reads client-id from vars.DEVFLOW_APP_ID" "1" \
+    "$(printf '%s\n' "$blk" | grep -cF 'client-id: ${{ vars.DEVFLOW_APP_ID }}')"
   assert_eq "app-token: $f.yml '$name' reads private-key from secrets.DEVFLOW_APP_PRIVATE_KEY" "1" \
     "$(printf '%s\n' "$blk" | grep -cF 'private-key: ${{ secrets.DEVFLOW_APP_PRIVATE_KEY }}')"
   # Fail-loud: no continue-on-error KEY anywhere in the mint step (the block
@@ -10454,15 +10979,16 @@ for site in "${REVIEWER_SITES[@]}"; do
   # Gated on the SEPARATE reviewer variable, never the primary DEVFLOW_APP_ID.
   assert_eq "reviewer-token: $f.yml '$name' is gated on vars.DEVFLOW_REVIEWER_APP_ID != ''" "1" \
     "$(printf '%s\n' "$blk" | grep -cF "vars.DEVFLOW_REVIEWER_APP_ID != ''" || true)"
-  assert_eq "reviewer-token: $f.yml '$name' reads app-id from vars.DEVFLOW_REVIEWER_APP_ID" "1" \
-    "$(printf '%s\n' "$blk" | grep -cF 'app-id: ${{ vars.DEVFLOW_REVIEWER_APP_ID }}')"
+  assert_eq "reviewer-token: $f.yml '$name' reads client-id from vars.DEVFLOW_REVIEWER_APP_ID" "1" \
+    "$(printf '%s\n' "$blk" | grep -cF 'client-id: ${{ vars.DEVFLOW_REVIEWER_APP_ID }}')"
   assert_eq "reviewer-token: $f.yml '$name' reads private-key from secrets.DEVFLOW_REVIEWER_PRIVATE_KEY" "1" \
     "$(printf '%s\n' "$blk" | grep -cF 'private-key: ${{ secrets.DEVFLOW_REVIEWER_PRIVATE_KEY }}')"
   # NOTE: a "reviewer block never mentions DEVFLOW_APP_ID" per-block pin is
   # deliberately NOT asserted here — mint_blk extends to the next `- name:`, so a
-  # reviewer block bleeds the FOLLOWING step's leading comment (in devflow.yml
-  # that is the primary app-token step, whose comment legitimately names
-  # DEVFLOW_APP_ID). The review-identity invariant is pinned precisely, and
+  # reviewer block bleeds the FOLLOWING step's leading comment, which is free to
+  # name DEVFLOW_APP_ID (it did exactly that while the primary app-token step
+  # still followed the reviewer mint, before #357 hoisted that step above the
+  # checkout). The review-identity invariant is pinned precisely, and
   # extraction-safely, by the whole-file / review-branch-conditional pins after
   # the consumer block below.
   assert_eq "reviewer-token: $f.yml '$name' is fail-loud (no continue-on-error)" "" \
@@ -10482,6 +11008,69 @@ for site in "${REVIEWER_SITES[@]}"; do
   assert_eq "reviewer-token: $f.yml '$name' declares exactly 4 permission-* inputs" "4" \
     "$(printf '%s\n' "$blk" | grep -cE '^[[:space:]]*permission-[a-z-]+:' || true)"
 done
+
+# ── The push credential is the CHECKOUT token, not github_token (issue #357) ──
+# actions/checkout@v6 no longer writes its auth header into .git/config: it
+# writes `http.<server>/.extraheader` into an external config file and wires it
+# in via `includeIf.gitdir:` (covering .git/worktrees/* too). claude-code-action's
+# `git config --unset-all http.<server>/.extraheader` searches only .git/config,
+# so it clears nothing ("No existing authentication headers to remove"), and the
+# surviving preemptive `Authorization:` header outranks the token that action
+# embeds in origin's URL. Net effect of an unseeded checkout: EVERY push in the
+# job authenticates as github-actions[bot] — a GitHub App with no `workflows`
+# permission — so pushes touching .github/workflows/ fail ("refusing to allow a
+# GitHub App to create or update workflow … without workflows permission") while
+# all other pushes succeed, which is why this hid for so long. Both halves are
+# pinned per pushing job: (a) the writer mint PRECEDES the checkout, and (b) the
+# checkout consumes it with the unchanged GITHUB_TOKEN fallback. Removing either
+# half — or "tidying" the mint back down next to Run Claude Code — goes RED.
+# The two non-pushing mint sites (gate, review_dedupe) hand their token straight
+# to `gh` and are deliberately NOT covered here.
+for f in devflow-implement devflow; do
+  WFF="$WF/$f.yml"
+  # Anchors must be unambiguous for the ordering comparison below: exactly one
+  # named checkout (the pushing job's) and exactly one writer-mint id per file.
+  assert_eq "checkout-token: $f.yml has exactly one named 'Checkout repository' step" "1" \
+    "$(grep -c '^      - name: Checkout repository$' "$WFF" || true)"
+  assert_eq "checkout-token: $f.yml has exactly one 'id: app-token' writer mint" "1" \
+    "$(grep -c '^        id: app-token$' "$WFF" || true)"
+
+  # (a) Ordering: the mint must appear ABOVE the checkout it feeds. A step can
+  # only read `steps.<id>.outputs.*` of an EARLIER step; minted after, the
+  # expression resolves to empty and silently degrades to GITHUB_TOKEN.
+  _mint_ln="$(grep -n '^        id: app-token$' "$WFF" | head -1 | cut -d: -f1)"
+  _co_ln="$(grep -n '^      - name: Checkout repository$' "$WFF" | head -1 | cut -d: -f1)"
+  assert_eq "checkout-token: $f.yml writer mint precedes the checkout it feeds" "yes" \
+    "$([ -n "$_mint_ln" ] && [ -n "$_co_ln" ] && [ "$_mint_ln" -lt "$_co_ln" ] && echo yes || echo no)"
+
+  # (b) Consumption: the exact opt-in literal, INSIDE the checkout step block.
+  _co_blk="$(mint_blk 'Checkout repository' "$WFF")"
+  assert_eq "checkout-token: $f.yml checkout consumes steps.app-token with GITHUB_TOKEN fallback" "1" \
+    "$(printf '%s\n' "$_co_blk" | grep -cF 'token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}' || true)"
+
+  # The read-only review identity must never become the checkout/push credential
+  # (issue #300): DevFlow-Reviewer holds contents:read and must not be able to
+  # seed a push. On a /devflow:review command the writer mint is skipped by
+  # design and the checkout falls back to GITHUB_TOKEN.
+  assert_eq "checkout-token: $f.yml checkout never consumes the reviewer token" "0" \
+    "$(printf '%s\n' "$_co_blk" | grep -cF 'reviewer-token' || true)"
+done
+
+# ── actionlint's create-github-app-token carve-out stays NARROW (issue #357) ──
+# actionlint checks `with:` inputs against a BUNDLED snapshot of popular actions,
+# whose create-github-app-token entry predates v3's `client-id` (it still demands
+# the deprecated `app-id`). `.github/actionlint.yaml` ignores exactly those two
+# messages, each pinned to that one action by name. Pin the SHAPE of the carve-out
+# so it is never widened into a blanket "ignore unknown inputs" that would let a
+# genuine typo'd input reach a cloud run — the lint is the only gate that catches
+# those before deploy.
+_AL="$WF/../actionlint.yaml"
+assert_eq "actionlint-config: .github/actionlint.yaml exists" "yes" \
+  "$([ -f "$_AL" ] && echo yes || echo no)"
+assert_eq "actionlint-config: exactly 2 ignore entries" "2" \
+  "$(grep -cE "^      - '" "$_AL" || true)"
+assert_eq "actionlint-config: every ignore entry names actions/create-github-app-token" "2" \
+  "$(grep -E "^      - '" "$_AL" | grep -cF 'actions/create-github-app-token' || true)"
 
 # Explicit write-widening absence pins (belt to the exact-count braces above —
 # these name the two inputs that would let a downscoped site push or edit
@@ -14233,7 +14822,10 @@ assert_eq "#142 CLAUDE.md does NOT claim a vendored first-party devflow:writing-
 # discipline pinned in (1c); the internalized requesting/receiving ids are still covered on
 # CLAUDE.md by (1)'s repo-wide scans, and using-git-worktrees by (6), so excepting CLAUDE.md
 # here only narrows this net to "no OTHER stray superpowers: ref outside CLAUDE.md." Same
-# history/migration exceptions as (1), PLUS lib/test — this suite's own scaffolding
+# history/migration exceptions as (1), PLUS .devflow/learnings — append-only retrospective
+# audit data (same category as .devflow/logs and CHANGELOG history): an entry legitimately
+# quotes a past run's "superpowers:writing-skills was unavailable" reflection, so the
+# historical record naturally names the id it reports on. PLUS lib/test — this suite's own scaffolding
 # necessarily names the forbidden pattern to assert its absence, and a guard cannot scan
 # itself. Excepting all of lib/test leaves a narrow blind spot: a stray *non-internalized*
 # superpowers: id introduced into a non-scaffolding test helper would slip THIS broad scan.
@@ -14242,8 +14834,8 @@ assert_eq "#142 CLAUDE.md does NOT claim a vendored first-party devflow:writing-
 # new reference to some OTHER superpowers skill, placed in lib/test, would evade detection.
 # Pattern split-literal so this run.sh never self-matches outside lib/test.
 SP_PAT_NS="superpowers"":"
-assert_eq "#142 no operative surface outside CLAUDE.md carries any bare superpowers: namespaced id (non-internalized refs incl.; CLAUDE.md/test scaffolding/history/migration excepted)" \
-  "" "$(tracked_scan "$FDROOT" "$SP_PAT_NS" ':!.devflow/logs' ':!CHANGELOG.md' ':!docs/review-agent-overrides.md' ':!lib/test' ':!CLAUDE.md')"
+assert_eq "#142 no operative surface outside CLAUDE.md carries any bare superpowers: namespaced id (non-internalized refs incl.; CLAUDE.md/test scaffolding/history/migration/learnings excepted)" \
+  "" "$(tracked_scan "$FDROOT" "$SP_PAT_NS" ':!.devflow/logs' ':!.devflow/learnings' ':!CHANGELOG.md' ':!docs/review-agent-overrides.md' ':!lib/test' ':!CLAUDE.md')"
 
 # (2/2b/2c) Per-skill vendoring + structural validity. For each of the two skills the file
 # exists first-party under skills/<name>/SKILL.md; its frontmatter declares name: <name> (so
@@ -17784,6 +18376,180 @@ assert_eq "#312: _famgrep emits the key on a grep ERROR (rc>=2) — fail-closed,
   "actions" "$(printf 'x\n' | _famgrep '[' actions 2>/dev/null)"
 assert_eq "#312: _famgrep stays silent on a clean no-match (rc 1)" \
   "" "$(printf 'x\n' | _famgrep 'repos/[^ \"'\'']*/actions/runs' actions 2>/dev/null)"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "#342 interpreter version gate: workpad.py / match-deferrals.py fail fast on pre-3.11"
+# ────────────────────────────────────────────────────────────────────────────
+# These two helpers annotate functions with PEP 604 unions (`str | None`), which
+# Python evaluates at function-definition time — so on an interpreter older than
+# 3.10 the module dies at import with a raw `TypeError` naming neither the cause
+# nor the remedy. The fix is a `sys.version_info < (3, 11)` gate placed AFTER the
+# import block but BEFORE the first function definition, so it fires ahead of any
+# annotation evaluation and prints the contract instead of a traceback.
+#
+# This guard is deterministic and ast-based (not a text scan, so comments/strings
+# can never satisfy it) and runs on the suite's normal >=3.11 interpreter — no
+# sub-3.11 interpreter is needed (and none exists in any gate; the #225 alt-python
+# machinery is fake version-reporting PATH stubs). It asserts, per file, that a
+# top-level `if` exists whose test is `sys.version_info < (3, 11)` — checking the
+# comparison's operator DIRECTION, not just its two operands, plus two
+# placement/behavior invariants:
+#   (1) the left operand is `sys.version_info` and the comparator is the tuple
+#       `(3, 11)` — the floor value;
+#   (2) the comparison operator is `<` (ast.Lt) — a *reversed* gate
+#       (`sys.version_info >= (3, 11)`) would exit on exactly the SUPPORTED
+#       interpreters and fall through on the unsupported ones, i.e. fail in the
+#       precisely-wrong direction, so the direction is load-bearing and pinned;
+#   (3) the `if` body actually calls `sys.exit(...)` — a warn-then-continue gate
+#       (stderr write but no exit) would fail OPEN, printing the message and then
+#       dying with the raw `TypeError` the gate exists to prevent (GATE_NO_EXIT);
+#   (3b) the sys.exit argument is a non-zero integer CONSTANT — a regression to
+#       `sys.exit(0)` or bare `sys.exit()` (both an exit CODE of 0) would satisfy
+#       the plain "calls sys.exit" check yet exit SUCCESSFULLY on a sub-3.11
+#       interpreter, i.e. fail OPEN in exactly the direction the gate exists to
+#       prevent (a caller reading `$?` would proceed as if the helper ran)
+#       (GATE_ZERO_EXIT); pinning the constant's non-zero value closes that hole
+#       (finding #343-1);
+# and (4) the gate precedes the first FunctionDef/ClassDef (below it, the gate can
+#       no longer fire ahead of annotation evaluation — GATE_BELOW_DEF).
+# It separately pins the message wording (`Python 3.11+ required` + the
+# `provision-python3-shim.sh` remedy). Bug-reproducing direction: RED against the
+# gate-less files, RED on a reversed operator / a missing exit / a below-def gate,
+# GREEN after the correct gate is added. The floor tuple `(3, 11)` is a coupled
+# constant mirrored in lib/resolve-python.sh, lib/preflight.sh, and both gates — a
+# future floor change updates every site in one commit.
+GATE_CHECK='
+import ast, sys
+def _find_exit_call(body):
+    # Walk only the gate body statements (NOT the whole If node) so a sys.exit in an
+    # `else` branch cannot satisfy this — an else-exit gate fires on the SUPPORTED
+    # interpreters, the fail-open direction this check exists to reject. Returns the
+    # sys.exit Call node (so the caller can inspect its argument) or None.
+    for stmt in body:
+        for sub in ast.walk(stmt):
+            if isinstance(sub, ast.Call):
+                f = sub.func
+                if isinstance(f, ast.Attribute) and f.attr == "exit" \
+                   and isinstance(f.value, ast.Name) and f.value.id == "sys":
+                    return sub
+    return None
+def _exits_nonzero(call):
+    # The exit CODE must be a non-zero integer constant. bool is a subclass of int
+    # so it is excluded explicitly (sys.exit(True) is code 1 but reads as an obvious
+    # mistake; sys.exit(False) is code 0). A bare sys.exit() / sys.exit(None) /
+    # sys.exit(0) all exit 0 — the fail-open regression this rejects.
+    arg = call.args[0] if call.args else None
+    return (isinstance(arg, ast.Constant)
+            and isinstance(arg.value, int) and not isinstance(arg.value, bool)
+            and arg.value != 0)
+def check(path):
+    tree = ast.parse(open(path, encoding="utf-8").read())
+    first_def = None
+    gate_idx = None
+    gate_node = None
+    for i, node in enumerate(tree.body):
+        if first_def is None and isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            first_def = i
+        if gate_idx is None and isinstance(node, ast.If) and isinstance(node.test, ast.Compare):
+            left = node.test.left
+            is_vi = (isinstance(left, ast.Attribute) and left.attr == "version_info"
+                     and isinstance(left.value, ast.Name) and left.value.id == "sys")
+            is_lt = bool(node.test.ops) and isinstance(node.test.ops[0], ast.Lt)
+            comp = node.test.comparators[0] if node.test.comparators else None
+            is_tuple = (isinstance(comp, ast.Tuple)
+                        and [getattr(e, "value", None) for e in comp.elts] == [3, 11])
+            if is_vi and is_lt and is_tuple:
+                gate_idx = i
+                gate_node = node
+    if gate_idx is None:
+        print("NO_GATE"); return
+    if first_def is not None and gate_idx > first_def:
+        print("GATE_BELOW_DEF"); return
+    exit_call = _find_exit_call(gate_node.body)
+    if exit_call is None:
+        print("GATE_NO_EXIT"); return
+    if not _exits_nonzero(exit_call):
+        print("GATE_ZERO_EXIT"); return
+    print("GATE_OK")
+check(sys.argv[1])
+'
+for _gf in workpad.py match-deferrals.py; do
+  assert_eq "#342 gate: $_gf has a sys.version_info<(3,11) gate above the first def (ast)" \
+    "GATE_OK" "$(python3 -c "$GATE_CHECK" "$LIB/../scripts/$_gf" 2>&1)"
+  assert_pin_unique "#342 gate: $_gf pins the 'Python 3.11+ required' floor phrase" \
+    'Python 3.11+ required' "$LIB/../scripts/$_gf"
+  assert_pin_unique "#342 gate: $_gf points at the provision-python3-shim.sh remedy" \
+    'provision-python3-shim.sh' "$LIB/../scripts/$_gf"
+done
+
+# Meta-guard (removal-proof): assert GATE_CHECK itself goes RED on each regression
+# direction the block comment claims to cover — not merely GREEN on the real files.
+# Asserting only GATE_OK against the shipped gates would stay green if a future edit
+# reopened a hole (e.g. `_find_exit_call` reverting to walk the whole `If` node, `is_lt`
+# dropped, the tuple loosened, or the non-zero-exit-code check dropped) because the real
+# files still emit GATE_OK. Exercising each negative sentinel against a synthetic fixture
+# bakes the #342/#343 AC's RED-direction requirement (gate absent / comparison no longer
+# `< (3,11)` / gate below the first def / body does not exit / body exits with code 0)
+# into the suite, so those mutations fail RED here rather than in a later shadow. Fail
+# CLOSED if the fixture dir can't be created (record a FAIL, never a silent skip).
+if _G342_DIR="$(mktemp -d 2>/dev/null)" && [ -n "$_G342_DIR" ] && [ -d "$_G342_DIR" ]; then
+  printf 'import sys\n\ndef f(x: "int | None"):\n    pass\n' > "$_G342_DIR/absent.py"
+  printf 'import sys\nif sys.version_info >= (3, 11):\n    sys.exit(1)\ndef f(x: "int | None"):\n    pass\n' > "$_G342_DIR/reversed.py"
+  printf 'import sys\nif sys.version_info < (3, 10):\n    sys.exit(1)\ndef f(x: "int | None"):\n    pass\n' > "$_G342_DIR/wrongtuple.py"
+  printf 'import sys\n\ndef f(x: "int | None"):\n    pass\n\nif sys.version_info < (3, 11):\n    sys.exit(1)\n' > "$_G342_DIR/belowdef.py"
+  printf 'import sys\nif sys.version_info < (3, 11):\n    sys.stderr.write("Python 3.11+ required\\n")\ndef f(x: "int | None"):\n    pass\n' > "$_G342_DIR/noexit.py"
+  printf 'import sys\nif sys.version_info < (3, 11):\n    sys.stderr.write("x\\n")\nelse:\n    sys.exit(1)\ndef f(x: "int | None"):\n    pass\n' > "$_G342_DIR/elseexit.py"
+  printf 'import sys\nif sys.version_info < (3, 11):\n    sys.exit(0)\ndef f(x: "int | None"):\n    pass\n' > "$_G342_DIR/zeroexit.py"
+  printf 'import sys\nif sys.version_info < (3, 11):\n    sys.exit()\ndef f(x: "int | None"):\n    pass\n' > "$_G342_DIR/bareexit.py"
+  printf 'import sys\nif sys.version_info < (3, 11):\n    sys.exit(1)\ndef f(x: "int | None"):\n    pass\n' > "$_G342_DIR/ok.py"
+  assert_eq "#342 meta-guard: absent gate does NOT read GATE_OK" \
+    "NO_GATE" "$(python3 -c "$GATE_CHECK" "$_G342_DIR/absent.py" 2>&1)"
+  assert_eq "#342 meta-guard: reversed operator (>=) does NOT read GATE_OK" \
+    "NO_GATE" "$(python3 -c "$GATE_CHECK" "$_G342_DIR/reversed.py" 2>&1)"
+  assert_eq "#342 meta-guard: wrong floor tuple (3,10) does NOT read GATE_OK" \
+    "NO_GATE" "$(python3 -c "$GATE_CHECK" "$_G342_DIR/wrongtuple.py" 2>&1)"
+  assert_eq "#342 meta-guard: gate below first def reads GATE_BELOW_DEF" \
+    "GATE_BELOW_DEF" "$(python3 -c "$GATE_CHECK" "$_G342_DIR/belowdef.py" 2>&1)"
+  assert_eq "#342 meta-guard: gate body without exit reads GATE_NO_EXIT" \
+    "GATE_NO_EXIT" "$(python3 -c "$GATE_CHECK" "$_G342_DIR/noexit.py" 2>&1)"
+  assert_eq "#342 meta-guard: exit only in else branch reads GATE_NO_EXIT" \
+    "GATE_NO_EXIT" "$(python3 -c "$GATE_CHECK" "$_G342_DIR/elseexit.py" 2>&1)"
+  assert_eq "#343 meta-guard: sys.exit(0) gate (fails open) reads GATE_ZERO_EXIT" \
+    "GATE_ZERO_EXIT" "$(python3 -c "$GATE_CHECK" "$_G342_DIR/zeroexit.py" 2>&1)"
+  assert_eq "#343 meta-guard: bare sys.exit() gate (code 0, fails open) reads GATE_ZERO_EXIT" \
+    "GATE_ZERO_EXIT" "$(python3 -c "$GATE_CHECK" "$_G342_DIR/bareexit.py" 2>&1)"
+  assert_eq "#342 meta-guard: a correct synthetic gate reads GATE_OK" \
+    "GATE_OK" "$(python3 -c "$GATE_CHECK" "$_G342_DIR/ok.py" 2>&1)"
+  rm -rf "$_G342_DIR"
+else
+  echo FAIL >> "$RESULTS_FILE"
+  printf '  FAIL  #342 meta-guard: mktemp -d failed (negative-direction assertions could not run; not a vacuous pass)\n' >&2
+fi
+
+# ── #343 runtime gate exercise: EXECUTE the gate body on a simulated sub-3.11 host ──
+# The ast meta-guard above proves the gate's SHAPE; it never RUNS the gate body, so the
+# `%`-formatting inside the message (three `%s` against `sys.version_info[:3]`) is
+# unexercised on the interpreter class the gate actually fires on. A later arg-count
+# mismatch would raise `TypeError` only on <3.11 — resurfacing the opaque traceback this
+# whole fix set out to eliminate — and stay green everywhere the suite runs (>=3.11).
+# Close it by monkeypatching `sys.version_info` to a 3.10 tuple, then exec-ing the real
+# file: the gate is above every def, so it fires (writing the formatted message + exiting
+# non-zero) before any PEP 604 annotation is evaluated, on the suite's own >=3.11 python3.
+# Operand trace (per CLAUDE.md guard discipline): rc and stderr are both PRODUCED by the
+# shipped gate itself — `sys.exit(1)` → rc 1 (finding #343-1's non-zero contract, now also
+# checked at runtime), `sys.stderr.write(... % sys.version_info[:3])` → the message. The
+# patched `(3, 10, 0)` feeds `[:3]` exactly three elements, so a placeholder/arg-count
+# regression detonates HERE as a non-1 rc / empty stderr rather than only on a real 3.10 host.
+for _gf in workpad.py match-deferrals.py; do
+  _G343_ERR="$(python3 -c 'import sys; sys.version_info=(3,10,0); exec(open(sys.argv[1]).read())' "$LIB/../scripts/$_gf" 2>&1 >/dev/null)"
+  _G343_RC=$?
+  assert_eq "#343 runtime: $_gf gate exits NON-ZERO on simulated 3.10 (fails closed)" \
+    "1" "$_G343_RC"
+  assert_eq "#343 runtime: $_gf gate prints the formatted floor+found message (no TypeError)" \
+    "yes" "$(printf '%s' "$_G343_ERR" | grep -q 'Python 3.11+ required (found 3.10.0)' && echo yes || echo no)"
+  assert_eq "#343 runtime: $_gf gate names the provision-python3-shim.sh remedy at runtime" \
+    "yes" "$(printf '%s' "$_G343_ERR" | grep -q 'provision-python3-shim.sh' && echo yes || echo no)"
+done
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.

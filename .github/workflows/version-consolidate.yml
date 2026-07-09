@@ -42,13 +42,13 @@ jobs:
       # first-party github-actions app as a bypass actor — "must be part of the ruleset
       # source or owner organization"), so a direct `git push origin HEAD:main` with it is
       # declined (GH013). The DevFlow App IS a valid org integration and is added to the
-      # ruleset's bypass list, so its token's push is exempt. Same app-id/private-key pair
+      # ruleset's bypass list, so its token's push is exempt. Same client-id/private-key pair
       # the other DevFlow cloud workflows mint from. (#294 post-merge follow-up.)
       - name: Mint DevFlow App token
         id: app-token
         uses: actions/create-github-app-token@v3
         with:
-          app-id: ${{ vars.DEVFLOW_APP_ID }}
+          client-id: ${{ vars.DEVFLOW_APP_ID }}
           private-key: ${{ secrets.DEVFLOW_APP_PRIVATE_KEY }}
           permission-contents: write
 
