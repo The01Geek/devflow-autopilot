@@ -208,7 +208,7 @@
       "properties": {
         "python_version": {
           "type": "string",
-          "description": "setup-python runs ONLY if non-empty. Config (JSON) is read by a python3 resolver (config-get.sh) using the stdlib json module — no PyYAML needed for config. match-deferrals.py and workpad.py additionally need Python >= 3.11 with PyYAML to parse the YAML deferred-findings/workpad blocks in PR/issue bodies, and those run in the cloud workflows, so keep this set (e.g. '3.11')."
+          "description": "setup-python runs ONLY if non-empty. Config (JSON) is read by a python3 resolver (config-get.sh) using the stdlib json module — no PyYAML needed for config. match-deferrals.py additionally needs Python >= 3.11 with PyYAML to parse the YAML deferred-findings blocks in PR bodies, and it runs in the cloud workflows, so keep this set (e.g. '3.11'). (workpad.py is stdlib-only — it needs Python >= 3.11 but not PyYAML.)"
         },
         "node_version": {
           "type": "string",

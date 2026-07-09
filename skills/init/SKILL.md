@@ -35,7 +35,7 @@ It resolves the templates from the installed plugin (`"${CLAUDE_SKILL_DIR:-<abso
 
 ## Then: verify the runtime dependencies are present
 
-The scaffolder needs only `jq`, but **running** DevFlow's skills needs more — and **PyYAML is the one dependency people miss**, because `/plugin install` resolves companion *plugins* and never runs `pip`. Config itself is JSON (read by a python3 resolver, no PyYAML), so a missing PyYAML doesn't break scaffolding — but it silently degrades the runtime Python helpers that parse YAML blocks in PR/issue bodies (`match-deferrals.py`, `workpad.py`). So after scaffolding, run the preflight check and surface any gap:
+The scaffolder needs only `jq`, but **running** DevFlow's skills needs more — and **PyYAML is the one dependency people miss**, because `/plugin install` resolves companion *plugins* and never runs `pip`. Config itself is JSON (read by a python3 resolver, no PyYAML), so a missing PyYAML doesn't break scaffolding — but it silently degrades the runtime Python helper that parses YAML blocks in PR bodies (`match-deferrals.py`). So after scaffolding, run the preflight check and surface any gap:
 
 ```bash
 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/preflight.sh

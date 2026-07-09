@@ -33,7 +33,7 @@ A post-merge criterion is **not** deferred work (that's the 2.2.5 rule) — the 
 
 Either kind of override goes into the workpad notes (`--note`) with a one-line reason.
 
-A criterion that is partially live (mixed code + live concerns) is tagged post-merge — verify the code-part during /devflow:implement, leave the live-part for after-merge.
+A criterion that is partially live (mixed code + live concerns) is tagged post-merge — verify the code-part during /devflow:implement, leave the live-part for after-merge. **"Verify the code-part" is the Pre-merge probe contract, not just files-in-the-diff:** before this tag exempts the criterion from the Phase 3.4 gate, run that contract — stated authoritatively in `skills/implement/phases/phase-3-review.md` (Phase 3.4), so this rule is a pointer, not a second copy: decompose the criterion into pre-merge-observable preconditions and genuinely-live residue, probe every observable precondition read-only, and record each probe command and observed result in the tag `--note` (or the explicit finding "no pre-merge-observable precondition" when the set is empty). This is the **same contract** the Phase 3.4 retro-tag path runs, so a tag-time deferral and a retag-time deferral carry an identical obligation. A probe whose observed result shows the deferred verification cannot succeed as shipped routes to a pre-merge fix or the Blocked path, never a tag; a denied probe is recorded as denied and does not block. **A passed probe never ticks the AC box** — it only narrows the deferral to the genuinely-live residue; the live signal still owns the tick.
 
 ### 1.3 Initialize or Load the Workpad
 

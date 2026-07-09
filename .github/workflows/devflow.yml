@@ -262,7 +262,7 @@ jobs:
         if: ${{ vars.DEVFLOW_APP_ID != '' && steps.guard.outputs.suppress == 'true' }}
         uses: actions/create-github-app-token@v3
         with:
-          app-id: ${{ vars.DEVFLOW_APP_ID }}
+          client-id: ${{ vars.DEVFLOW_APP_ID }}
           private-key: ${{ secrets.DEVFLOW_APP_PRIVATE_KEY }}
           permission-pull-requests: write
 
@@ -375,7 +375,7 @@ jobs:
         if: ${{ vars.DEVFLOW_APP_ID != '' && steps.resolve.outputs.should_run == 'true' }}
         uses: actions/create-github-app-token@v3
         with:
-          app-id: ${{ vars.DEVFLOW_APP_ID }}
+          client-id: ${{ vars.DEVFLOW_APP_ID }}
           private-key: ${{ secrets.DEVFLOW_APP_PRIVATE_KEY }}
           permission-issues: write
           permission-pull-requests: write
@@ -412,6 +412,32 @@ jobs:
       id-token: write
       actions: write # write scope so actions/cache can save the pip cache (read alone → "cache write denied: token has no writable scopes"); superset still lets Claude read CI results on PRs
     steps:
+      # Optional, opt-in: mint a primary-App installation token at full
+      # installation scope (notably Contents: write + Workflows: write — no
+      # permission-* downscope, unlike the per-site tokens elsewhere in this
+      # workflow) so the /devflow:review-and-fix push can
+      # edit .github/workflows/ files (which the built-in GITHUB_TOKEN is
+      # hard-blocked from), and so /devflow:pr-description posts under the App.
+      # Gated on the DEVFLOW_APP_ID repository VARIABLE and skipped on a
+      # `/devflow:review` command (that path uses the DevFlow-Reviewer token
+      # below so it never shares the PR-authoring identity — issue #300):
+      # unset/empty → the step is skipped and both the checkout token and
+      # github_token below fall back to GITHUB_TOKEN, leaving behavior
+      # byte-for-byte unchanged for consumers who do not opt in. NO
+      # continue-on-error: a configured-but-broken App (invalid/rotated key)
+      # fails the job here rather than silently degrading.
+      #
+      # MUST precede the checkout below, whose `token:` it feeds — see the
+      # checkout comment. Kept in sync with the same step in
+      # devflow-implement.yml.
+      - name: Mint workflow-capable token (optional)
+        id: app-token
+        if: ${{ vars.DEVFLOW_APP_ID != '' && !startsWith(needs.gate.outputs.command, '/devflow:review ') }}
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.DEVFLOW_APP_ID }}
+          private-key: ${{ secrets.DEVFLOW_APP_PRIVATE_KEY }}
+
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
@@ -425,6 +451,21 @@ jobs:
           # output. Bump to `fetch-depth: 0` if that becomes a recurring
           # problem.
           fetch-depth: 50
+          # LOAD-BEARING (issue #357): the credential actions/checkout persists
+          # here is what /devflow:review-and-fix's `git push` actually
+          # authenticates with — NOT the `github_token` handed to
+          # claude-code-action below. checkout@v6 writes the auth header to an
+          # external config file wired in via `includeIf.gitdir:`, NOT to
+          # `.git/config`, so claude-code-action's `--unset-all
+          # http.<server>/.extraheader` matches nothing and its
+          # `git remote set-url origin https://x-access-token:<app-token>@…`
+          # loses to that surviving preemptive `Authorization:` header — every
+          # push then authenticates as github-actions[bot], which has no
+          # `workflows` permission. Seed the App token here instead. On a
+          # `/devflow:review` command the mint is skipped by design and this
+          # falls back to GITHUB_TOKEN — that path is read-only and never
+          # pushes, so it must NOT be given the reviewer token either.
+          token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
 
       # Materialize the plugin (committed → self → fetch) so claude-code-action
       # loads it from .devflow/vendor/devflow/ and the agent's helper scripts
@@ -462,34 +503,12 @@ jobs:
         if: ${{ vars.DEVFLOW_REVIEWER_APP_ID != '' && startsWith(needs.gate.outputs.command, '/devflow:review ') }}
         uses: actions/create-github-app-token@v3
         with:
-          app-id: ${{ vars.DEVFLOW_REVIEWER_APP_ID }}
+          client-id: ${{ vars.DEVFLOW_REVIEWER_APP_ID }}
           private-key: ${{ secrets.DEVFLOW_REVIEWER_PRIVATE_KEY }}
           permission-contents: read
           permission-issues: read
           permission-pull-requests: write
           permission-actions: read
-
-      # Optional, opt-in: mint a primary-App installation token at full
-      # installation scope (notably Contents: write + Workflows: write — no
-      # permission-* downscope, unlike the per-site tokens elsewhere in this
-      # workflow) so the /devflow:review-and-fix push can
-      # edit .github/workflows/ files (which the built-in GITHUB_TOKEN is
-      # hard-blocked from), and so /devflow:pr-description posts under the App.
-      # Gated on the DEVFLOW_APP_ID repository VARIABLE and skipped on a
-      # `/devflow:review` command (that path uses the DevFlow-Reviewer token
-      # above so it never shares the PR-authoring identity — issue #300):
-      # unset/empty → the step is skipped and github_token below falls back to
-      # GITHUB_TOKEN, leaving behavior byte-for-byte unchanged for consumers who
-      # do not opt in. NO continue-on-error: a configured-but-broken App
-      # (invalid/rotated key) fails the job here rather than silently degrading.
-      # Kept in sync with the same step in devflow-implement.yml.
-      - name: Mint workflow-capable token (optional)
-        id: app-token
-        if: ${{ vars.DEVFLOW_APP_ID != '' && !startsWith(needs.gate.outputs.command, '/devflow:review ') }}
-        uses: actions/create-github-app-token@v3
-        with:
-          app-id: ${{ vars.DEVFLOW_APP_ID }}
-          private-key: ${{ secrets.DEVFLOW_APP_PRIVATE_KEY }}
 
       - name: Run Claude Code
         id: claude
