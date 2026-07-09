@@ -4438,6 +4438,14 @@ assert_eq "#338(T10): the refusal names the line boundary, not the missing note"
 # `_is_single_line` shares splitlines' own contract, so the rejected set matches exactly.
 # Driven with a --note so a refusal cannot come from a post-merge guard. RED against the
 # two-character membership test (all eight exited 0 and PATCHed an injected row).
+# Interpreter note: `printf '%b'` must expand `\302\205` (NEL), `\342\200\250` (LS) and
+# `\342\200\251` (PS) to their real bytes for the last three cases to drive a separator at
+# all. Bash's printf does; zsh's does not — it emits the literal backslash text, which
+# carries no separator, so workpad.py would accept the rewrite (exit 0) and these
+# assertions would FAIL LOUDLY. They cannot degrade into a silent green. This suite's
+# shebang is `#!/usr/bin/env bash`, so the expansion holds. Independently verified: under a
+# membership-test mutant all eight — including these three — go RED, which they could not
+# if their input carried no separator.
 for _sep in '\v' '\f' '\034' '\035' '\036' '\302\205' '\342\200\250' '\342\200\251'; do
   _new="$(printf 'AC two (post-merge)%b- [x] Phantom' "$_sep")"
   _c="$(run338 "$S338/base.md" --rewrite-ac "AC two" "$_new" --note "genuinely-live: endpoint")"
@@ -4473,7 +4481,7 @@ assert_eq "#338: _net_adds_post_merge fails closed on a row-count mismatch (no a
   "$(grep -q 'sum(post) > sum(pre)' "$WP_PY" && echo no || echo yes)"
 # Source pin: the newline rejection guards the row-index-stability premise. Pin the SYMBOL,
 # not the stderr wording — the message literal is an f-string wrapped across two source
-# lines ("...has a line " / "break in NEW; ..."), so no single line contains the phrase
+# lines ("...has a line " / "boundary in NEW; ..."), so no single line contains the phrase
 # whole and a source grep for it always fails. (That is the same wrapped-literal blind spot
 # that let the argparse help text drift; the rendered-surface pins are the ones that catch
 # wording, and T10 already asserts this message on real stderr.)
