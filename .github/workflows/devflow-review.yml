@@ -798,17 +798,19 @@ jobs:
             # branch-freshness gate is a cost optimization; pair it with
             # branch protection's "require branches up to date" if staleness
             # must block).
-            # behind-base / ci-not-green are POSITIVELY-OBSERVED conditions;
-            # unverifiable means a precondition query failed — the title must
-            # never assert a state the script did not observe (a user who
-            # rebases in response to a false "behind base" fixes nothing).
+            # behind-base / ci-not-green / ci-approval-required are
+            # POSITIVELY-OBSERVED conditions; unverifiable means a precondition
+            # query failed — the title must never assert a state the script did
+            # not observe (a user who rebases in response to a false "behind
+            # base" fixes nothing).
             case "$SKIP_REASON" in
               behind-base)  TITLE='Devflow review waiting: branch behind base' ;;
               ci-not-green) TITLE='Devflow review waiting: other CI not green' ;;
+              ci-approval-required) TITLE='Devflow review waiting: CI approval required' ;;
               unverifiable) TITLE='Devflow review waiting: preconditions unverifiable (API query failed — see the precheck log)' ;;
               *)            TITLE='Devflow review waiting: precondition not met' ;;
             esac
-            SUMMARY='This PR is not yet in a reviewable state, so the review was deferred (not run). It auto-re-triggers when the branch is updated, or when a CI workflow named in this workflow'"'"'s workflow_run trigger list (or an external check_suite CI, or a legacy commit status transitioning to success) completes. If your CI workflow is not in that list, or a signal is permanently stuck (a cancelled sibling run, a forever-pending status), click Re-run on this check once CI is green to force a review of the current HEAD. See docs/workflow-triggers.md for the deferral and re-trigger policy.'
+            SUMMARY='This PR is not yet in a reviewable state, so the review was deferred (not run). It auto-re-triggers when the branch is updated, or when a CI workflow named in this workflow'"'"'s workflow_run trigger list (or an external check_suite CI, or a legacy commit status transitioning to success) completes. If your CI workflow is not in that list, or a signal is permanently stuck (a forever-pending status), click Re-run on this check once CI is green to force a review of the current HEAD. See docs/workflow-triggers.md for the deferral and re-trigger policy.'
             # De-duplicate repeated deferral re-evaluations. A branch that
             # stays behind base (or whose CI stays red) across several
             # CI-completion events re-enters this job each time; POSTing a

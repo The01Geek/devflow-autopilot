@@ -4,6 +4,38 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.96] — 2026-07-09
+
+### Added
+- **Plain-language `Devflow Review` deferral title for a run awaiting CI approval.** `devflow-review.yml`'s `create_check` title `case` now maps the `ci-approval-required` reason (shipped in #351) to the neutral check title **"Devflow review waiting: CI approval required"** instead of the generic "precondition not met" fallback, so an operator sees the exact unblock action. The deferral `SUMMARY` prose no longer cites "a cancelled sibling run" as a permanently-stuck signal requiring a manual Re-run, since the #351 collapse now auto-resolves the superseded cancelled-sibling case. Lands the coupled workflow-side half of #351 (held out because a GitHub App token cannot push `.github/workflows/`). (#359)
+
+## [2.8.95] — 2026-07-09
+
+### Added
+- **`/devflow:implement` Phase 1 now defers workflow-resident acceptance criteria at plan time — keyed on the pushing credential's actual capability.** The Phase 1.6 issue-claim audit gains an execution-capability pass (Pass 5): an acceptance criterion that requires editing the repo's own `.github/workflows/` is deferred **only when this run's credential cannot push workflows** — a cloud-tier run (`GITHUB_ACTIONS=true`) whose `DEVFLOW_APP_ID` is empty, i.e. the built-in `GITHUB_TOKEN` fallback. A cloud run with `DEVFLOW_APP_ID` set mints a workflow-capable GitHub App token (Contents + Workflows write) seeded into `actions/checkout`, so it pushes workflow files fine and is **not** deferred; keying on the cloud tier alone would spuriously defer deliverable workflow work on the App-configured tier. When the deferral does fire, the AC is routed through the Phase 2.2.5 scope-adjustment before any code is written and filed as a follow-up issue that states landing it needs a workflows-capable push (a human/PAT, or an App-configured cloud run), instead of being discovered at push time after a full commit is built. A file coupled to a blocked workflow edit (a `lib/test/run.sh` pin that turns CI red without the workflow change) is deferred with it — the Phase 2.5 commit guard reverts coupled files alongside the workflow so the pushable subset stays CI-green — and an issue whose every in-scope criterion is workflow-resident is declined up front rather than producing an empty-handed run. To make the credential signal observable to the pass, `devflow-implement.yml` exports `DEVFLOW_APP_ID` into the agent's environment. Local/interactive-tier runs, which push workflow files routinely, are unchanged. (#350)
+
+## [2.8.94] — 2026-07-09
+
+### Fixed
+- **Stall-backstop auto-resume is no longer swallowed by the implement-run deduper.** When the
+  cloud stall backstop re-dispatches a stalled `/devflow:implement` run, the resume comment is
+  posted while the original run is still `in_progress` (it fires from that run's own trailing
+  `always()` backstop step), so the new run's gate dedupe used to classify it as a duplicate and
+  skip — leaving the audit comment visible but inert. `dedupe-implement-run.sh` now reads the
+  triggering comment from `GITHUB_EVENT_PATH` and, when it carries the
+  `<!-- devflow:stall-backstop-audit -->` marker every resume comment writes, skips deduping so
+  the taking-over run proceeds. The detection lives entirely in the script (not a workflow env),
+  so the fix needs no `.github/workflows/` change. The carve-out never wrongly bypasses dedupe
+  for an ordinary duplicate command, and a genuine payload read/parse error during marker
+  detection — including a payload that is present but unreadable (a permission/mount anomaly or a
+  partially-materialised/locked payload) — now emits a `::warning::` (instead of being silently
+  swallowed) while still falling through to ordinary dedupe. (#280)
+
+## [2.8.93] — 2026-07-09
+
+### Added
+- **Review engine now files false-against-HEAD changed docs/comments/examples as documented falsehoods and runs a pre-verdict truthfulness sweep.** The shared `defect_signature` contract gains a `documented_falsehood` kind plus a truthfulness discriminator inherited by all six Phase-3 finding producers, so a diff-added/modified doc line, code comment, example, or command-form whose claim is false against HEAD is filed as a truthfulness defect rather than a demotable clarity Suggestion. Phase 4.1.5 shape 2 now excludes such artifacts from the cosmetic-wording class, and a new Phase 4.1.6 pre-verdict truthfulness sweep runs promote-only over every finding regardless of severity chip, routing a demonstrated falsehood into the Phase 4.2 self-contradicting-diff carve-out (REJECT). `/devflow:review`, `/devflow:review-and-fix`, and `/devflow:implement` Phase 3 all inherit the change through the shared engine. (#341)
+
 ## [2.8.92] — 2026-07-09
 
 ### Changed
