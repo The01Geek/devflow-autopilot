@@ -43,16 +43,44 @@
 #                   the monotonic tie-break boundary).
 #   GH_TOKEN        token for `gh`, set by the caller.
 #   WORKFLOW        workflow file to scope the run list (default devflow-implement.yml).
+#   IS_STALL_RESUME optional explicit override: "true" forces the stall-resume
+#                   carve-out (skip dedupe, proceed), any other non-empty value
+#                   forces normal dedupe. When UNSET/empty the script self-derives
+#                   it from the triggering comment (see below). Mainly a test hook.
+#   GITHUB_EVENT_PATH  the Actions event payload (set by the runner). When
+#                   IS_STALL_RESUME is not explicitly set, the script reads
+#                   `.comment.body` from it and treats the run as a stall resume
+#                   when that body carries the STALL_RESUME_MARKER below. This lets
+#                   the carve-out work with NO devflow-implement.yml change — the
+#                   workflow file needs a `workflows`-scoped push the bot lacks.
 #   DEVFLOW_GH      gh executable override for tests; when unset or empty it is
 #                   resolved (execution-verified) via lib/resolve-gh.sh.
+#
+# Stall-resume carve-out (issue #280, resolving the deferred #268 finding): a run
+# triggered by the stall backstop's auto-resume comment must NOT defer to the run
+# it is taking over. That original run posts the resume comment from its own
+# trailing `always()` backstop step while it is still `in_progress`, so a plain
+# run-list dedupe sees the older active peer and swallows the resume — leaving the
+# audit comment visible but inert, the exact race the #268 finding named. The
+# resume comment is identified by the stall-backstop-audit marker it carries
+# (kept identical to the `MARKER` the backstop step writes in devflow-implement.yml).
+# The carve-out never WRONGLY bypasses dedupe for an ordinary command: only a
+# comment carrying the marker skips dedupe (a redundant run at worst). A
+# marker-detection error on a genuine resume (a malformed/unreadable payload)
+# does NOT bypass dedupe — it falls through to ordinary dedupe, which CAN then
+# emit duplicate=true and swallow the resume — but such an error is made VISIBLE
+# via a ::warning:: (see the detection block below) rather than swallowed silently.
 #
 # Output: one `key=value` line on stdout (the caller appends to $GITHUB_OUTPUT;
 # tests assert it directly):
 #   duplicate=true|false
 #
-# Fails OPEN: any missing input or query error yields duplicate=false (the run
-# proceeds) with a ::warning::, because silently swallowing a legitimate single
-# request is worse than a rare redundant run. Diagnostics go to stderr.
+# Fails OPEN: a missing input or a run-list query error yields duplicate=false
+# (the run proceeds) with a ::warning::, because silently swallowing a legitimate
+# single request is worse than a rare redundant run. (The one exception is a
+# marker-detection error in the resume carve-out below: it emits a ::warning:: but
+# then falls through to ordinary dedupe rather than forcing duplicate=false, since
+# an unreadable payload cannot be confirmed a resume.) Diagnostics go to stderr.
 
 set -euo pipefail
 
@@ -64,6 +92,61 @@ set -euo pipefail
   || { echo "devflow: resolve-jq.sh could not be sourced from ../lib relative to ${BASH_SOURCE[0]} — using bare 'jq' (set DEVFLOW_JQ to override)" >&2; : "${DEVFLOW_JQ:=jq}"; }
 
 emit() { printf '%s=%s\n' "$1" "$2"; }
+
+# The marker every stall-backstop auto-resume comment carries on its first line
+# (see the `MARKER` the Stall backstop step writes in devflow-implement.yml). Keep
+# the two literals identical — lib/test/run.sh pins that they agree across files.
+STALL_RESUME_MARKER='<!-- devflow:stall-backstop-audit -->'
+
+# Resolve the carve-out signal: an explicit IS_STALL_RESUME wins (test hook /
+# override); otherwise self-derive it from the triggering comment body in the
+# Actions event payload. Reading the payload here (rather than a workflow-passed
+# env) keeps the fix entirely inside this script, so it needs no
+# devflow-implement.yml edit (a workflow file the bot's token cannot push).
+# This runs BEFORE the gh resolver below so a stall resume — which never queries
+# gh — skips the (execution-verified) `gh --version` probe entirely.
+is_stall_resume="${IS_STALL_RESUME:-}"
+if [ -z "$is_stall_resume" ] && [ -n "${GITHUB_EVENT_PATH:-}" ]; then
+  if [ -r "$GITHUB_EVENT_PATH" ]; then
+    # Distinguish jq exit 1 (marker genuinely ABSENT — the expected non-resume case,
+    # silent) from jq exit >1 (a REAL read/parse error — a malformed/empty payload).
+    # Both keep the fail-open direction (leave is_stall_resume empty, fall through to
+    # ordinary dedupe), but a real error is NOT silent: it emits a ::warning:: like
+    # every other error path here and the header contract, because a detection failure
+    # on a genuine resume that then dedupes to duplicate=true is the #268 swallow — it
+    # must be visible, not swallowed behind /dev/null. Same jq-stderr-capture discipline
+    # as the run-list dedupe below. This runs BEFORE the gh resolver, so a stall resume
+    # still skips the `gh --version` probe.
+    marker_err="$(mktemp)"
+    jq_rc=0
+    "$DEVFLOW_JQ" -e --arg m "$STALL_RESUME_MARKER" \
+      '(.comment.body // "") | contains($m)' "$GITHUB_EVENT_PATH" >/dev/null 2>"$marker_err" || jq_rc=$?
+    if [ "$jq_rc" -eq 0 ]; then
+      is_stall_resume=true
+    elif [ "$jq_rc" -gt 1 ]; then
+      echo "::warning::dedupe: could not read the stall-resume marker from GITHUB_EVENT_PATH (jq: $(tr '\n' ' ' < "$marker_err")); treating as a non-resume, so ordinary dedupe applies." >&2
+    fi
+    rm -f "$marker_err"
+  elif [ -e "$GITHUB_EVENT_PATH" ]; then
+    # PRESENT-but-unreadable payload (a permission/mount anomaly, or a partially
+    # materialised/locked payload): the [ -r ] probe above returned false, so the
+    # marker-read (jq) inside that branch never runs and the marker cannot be checked.
+    # Like the malformed/empty jq-error branch, keep the fail-open
+    # direction (leave is_stall_resume empty, fall through to ordinary dedupe) — but
+    # make the anomaly VISIBLE with a ::warning:: rather than swallowing a possible
+    # genuine resume silently, exactly as the header contract promises for an unreadable
+    # payload. An unset/empty (guarded above) or NONEXISTENT GITHUB_EVENT_PATH is an
+    # ABSENT optional signal, not an unreadable one, so it stays silent (the [ -e ] test
+    # excludes it here) — the IS_STALL_RESUME override covers the no-payload case.
+    echo "::warning::dedupe: could not read the stall-resume marker from GITHUB_EVENT_PATH ($GITHUB_EVENT_PATH is set but not readable); treating as a non-resume, so ordinary dedupe applies." >&2
+  fi
+fi
+
+if [ "$is_stall_resume" = "true" ]; then
+  echo "::notice::dedupe: this run was triggered by a stall-backstop auto-resume; skipping dedupe so it can take over the winding-down run (issue #280)." >&2
+  emit duplicate false
+  exit 0
+fi
 
 # gh binary: resolved once via the single-source resolver (execution-verified);
 # an explicit DEVFLOW_GH still wins, so test stubs are untouched.
