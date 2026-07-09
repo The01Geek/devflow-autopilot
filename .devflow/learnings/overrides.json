@@ -42,6 +42,24 @@
       "dismissed_by": "retrospective-weekly",
       "reason": "meta-plugin-issue",
       "meta_issue": "https://github.com/The01Geek/devflow-autopilot/issues/186"
+    },
+    "deferred-verification": {
+      "dismissed_at": "2026-07-08T20:53:38Z",
+      "dismissed_by": "retrospective-weekly",
+      "reason": "meta-plugin-issue",
+      "meta_issue": "https://github.com/The01Geek/devflow-autopilot/issues/345"
+    },
+    "unmet-acceptance-criteria": {
+      "dismissed_at": "2026-07-08T20:55:15Z",
+      "dismissed_by": "retrospective-weekly",
+      "reason": "meta-plugin-issue",
+      "meta_issue": "https://github.com/The01Geek/devflow-autopilot/issues/346"
+    },
+    "outstanding-reject": {
+      "dismissed_at": "2026-07-08T20:57:05Z",
+      "dismissed_by": "retrospective-weekly",
+      "reason": "meta-plugin-issue",
+      "meta_issue": "https://github.com/The01Geek/devflow-autopilot/issues/347"
     }
   }
 }
