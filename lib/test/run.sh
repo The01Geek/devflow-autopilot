@@ -4343,6 +4343,22 @@ assert_eq "#338: the retag guard resolves the target row via _find_checkbox_row"
 assert_eq "#338: SKILL.md publishes the row-scoped (post-merge) exemption" "yes" \
   "$(grep -q 'neither OLD nor the row it targets already does' \
        "$LIB/../skills/implement/SKILL.md" && echo yes || echo no)"
+# Coupled-invariant pin on the RENDERED CLI surface. workpad.py's --rewrite-ac argparse
+# help is a third mirror of the guard contract, and it is the one a plain source grep for
+# the contract sentence MISSES: argparse help is assembled from adjacent string literals,
+# so the phrase wraps across lines ('... OLD does ' 'not)') and no line contains it whole.
+# Pin what the user actually reads — `update --help` — so a stale OLD-only help text turns
+# the suite RED. Asserts the row-scoped phrasing is present AND the stale form is gone.
+_h338="$(python3 "$WP_PY" update --help 2>&1)"
+assert_eq "#338: workpad.py --rewrite-ac help publishes the row-scoped exemption" "yes" \
+  "$(printf '%s' "$_h338" | tr -s '[:space:]' ' ' \
+     | grep -q 'neither OLD nor the row it targets already does' && echo yes || echo no)"
+assert_eq "#338: workpad.py --rewrite-ac help no longer carries the stale OLD-only form" "yes" \
+  "$(printf '%s' "$_h338" | tr -s '[:space:]' ' ' \
+     | grep -q 'NEW ends with it, OLD does not' && echo no || echo yes)"
+assert_eq "#338: workpad.py --rewrite-ac help states a --reflection does not satisfy the note" "yes" \
+  "$(printf '%s' "$_h338" | tr -s '[:space:]' ' ' \
+     | grep -q 'Only --note satisfies the rationale; a --reflection does not' && echo yes || echo no)"
 
 # T6 (pin mutation check): the operative sentence of the new third forbidden case in
 # phase-3-review.md §3.4. This is a behavioral-fix pin (removing the sentence

@@ -1446,7 +1446,8 @@ def _apply_mutations(body: str, args, failed_ticks) -> str:
         if idx is None:
             raise _UpdateError("section '## Acceptance Criteria' not found")
         # Rationale-required guard (issue #338): any pair that *appends* the
-        # `(post-merge)` tag (NEW ends with it, OLD does not) is a mid-run retag —
+        # `(post-merge)` tag (NEW ends with it; neither OLD nor the row the pair
+        # resolves to already does) is a mid-run retag —
         # the §3.4 channel used to defer a criterion's verification past merge — and
         # MUST carry a non-empty `--note` recording why the deferral qualifies
         # (genuinely-live), so a silently-laundered self-reconfiguration/tooling-gap
@@ -1711,10 +1712,13 @@ def main():
                         'validated by the exactly-one-match rule; any pair '
                         'matching zero or multiple rows aborts the whole call '
                         'with no PATCH (structural all-or-nothing). A pair that '
-                        'appends the (post-merge) tag (NEW ends with it, OLD does '
-                        'not) is a mid-run retag and requires a non-empty --note '
-                        'rationale (issue #338); without one the call aborts '
-                        'structurally before any PATCH.')
+                        'appends the (post-merge) tag (NEW ends with it; neither '
+                        'OLD nor the row it targets already does) is a mid-run '
+                        'retag and requires a non-empty --note rationale (issue '
+                        '#338); without one the call aborts structurally before '
+                        'any PATCH. A pair targeting a row that already ends '
+                        'with the tag, or that removes it, needs no note. Only '
+                        '--note satisfies the rationale; a --reflection does not.')
     u.add_argument('--note', metavar='TEXT', action='append', default=[],
                    help='Append a note bullet, prefixed with a time-only '
                         'HH:MM:SS UTC timestamp and nested under the current '
