@@ -18526,6 +18526,7 @@ assert_eq "#363 a Bash(...) spec cited in a COMMENT does not grant the head (sco
 RUNNER_YML="$LIB/../.github/workflows/devflow-runner.yml"
 REVIEW_YML="$LIB/../.github/workflows/devflow-review.yml"
 DEVFLOW_YML="$LIB/../.github/workflows/devflow.yml"
+DDC_SH="$LIB/../scripts/describe-denial-count.sh"
 for _g363 in 'Bash(mkdir:*)' 'Bash(tee:*)' 'Bash(git cat-file:*)' 'Bash(git checkout:*)' \
              'Bash(mktemp:*)' 'Bash(cmp:*)' 'Bash(rm -f:*)'; do
   assert_pin_unique "#363 review profile grants $_g363" "$_g363" "$RUNNER_YML"
@@ -18906,14 +18907,45 @@ assert_pin_unique "#363 finalize_check consumes the runner's permission_denials_
 # All-output-channels honesty: an unestablished count is reported AS unestablished.
 # "refused 0 command(s)" on a run whose diagnostics never parsed is a false claim
 # that steers the reader away from permission denials.
-assert_pin_unique "#363 finalize_check reports an unestablished denial count as unestablished, never as 0" \
-  'The permission-denial count could not be established (execution diagnostics unavailable), so denials cannot be ruled out as the cause' "$REVIEW_YML"
-assert_pin_unique "#363 finalize_check reports a genuine zero as 'refused no commands'" \
-  'The harness refused no commands, so the stall has some other cause' "$REVIEW_YML"
+# All three clause literals live in describe-denial-count.sh, driven by the arm tests
+# above. The workflow keeps only the fallback used when the helper cannot be resolved.
+assert_pin_unique "#363 the unestablished-count clause is defined once, in the helper" \
+  'The permission-denial count could not be established (execution diagnostics unavailable), so denials cannot be ruled out as the cause' "$DDC_SH"
+assert_pin_unique "#363 the refused-nothing clause is defined once, in the helper" \
+  'The harness refused no commands, so the stall has some other cause' "$DDC_SH"
+assert_pin_unique "#363 the refused-N clause is defined once, in the helper (third arm pinned)" \
+  'The harness refused $1 command(s) during execution' "$DDC_SH"
 assert_pin_unique "#363 finalize_check raises an ::error:: naming the HEAD SHA and the denial count on a no-verdict run" \
   '::error::Devflow review produced NO VERDICT for $HEAD_SHA' "$REVIEW_YML"
 assert_pin_unique "#363 finalize_check reads the progress comment's phase best-effort, never failing the step" \
   "LAST_PHASE=\$(" "$REVIEW_YML"
+
+# ── The no-verdict ::error::'s denial clause. This clause IS the accurate-diagnosis
+# ── output the change exists to produce, so every arm is DRIVEN, not grep-pinned:
+# ── a reordered `case` or a glob typo would misattribute the diagnosis silently.
+assert_eq "#363 describe-denial-count.sh exists and is executable" "yes" \
+  "$([ -x "$DDC_SH" ] && echo yes || echo no)"
+assert_eq "#363 denial clause: a genuine 0 reports that nothing was refused" \
+  "The harness refused no commands, so the stall has some other cause" "$(bash "$DDC_SH" 0)"
+assert_eq "#363 denial clause: a positive count names the number refused" \
+  "The harness refused 14 command(s) during execution" "$(bash "$DDC_SH" 14)"
+# The three unknown shapes: the sentinel, an empty value, and a non-numeric value.
+# None may render as `0` — that is the fail-open this whole change removes.
+for _u363 in unavailable "" "n/a" "x1" "+5"; do
+  assert_eq "#363 denial clause: '$_u363' reports the count as unestablished, never as 0" \
+    "The permission-denial count could not be established (execution diagnostics unavailable), so denials cannot be ruled out as the cause" \
+    "$(bash "$DDC_SH" "$_u363")"
+done
+assert_eq "#363 denial clause: no argument at all still reports unestablished (exit 0)" "0" \
+  "$(bash "$DDC_SH" >/dev/null 2>&1; echo $?)"
+# Arm ORDER is load-bearing: `0` must not be absorbed by the non-digit arm, and a
+# positive count must not be absorbed by the zero arm.
+assert_eq "#363 denial clause: the 0 arm and the positive arm are distinct (order pinned)" "differ" \
+  "$([ "$(bash "$DDC_SH" 0)" != "$(bash "$DDC_SH" 1)" ] && echo differ || echo same)"
+assert_pin_unique "#363 finalize_check routes the denial clause through the testable helper" \
+  'DDC=.devflow/vendor/devflow/scripts/describe-denial-count.sh' "$REVIEW_YML"
+assert_pin_unique "#363 finalize_check verifies the clause helper's OUTCOME, not just its existence" \
+  '[ -n "$DENIAL_CLAUSE" ] || DENIAL_CLAUSE=' "$REVIEW_YML"
 
 # ── The injected grounding block. The security-sensitive prompt-injection prose
 # ── lives in ONE place (scripts/render-grounding-block.sh) rather than hand-copied
@@ -19075,6 +19107,16 @@ assert_eq "#363 finalize_check phase extraction exits NON-zero on a malformed pa
   "$(_last_phase_jq 'not json' >/dev/null 2>&1 && echo no || echo yes)"
 assert_pin_unique "#363 finalize_check absorbs a failed progress-comment read instead of aborting the step" \
   'LAST_PHASE=""' "$REVIEW_YML"
+# The jq exercised above is a copy of the one deployed in YAML. Pin the deployed
+# program's operative fragments so the tested copy and the shipped one cannot drift
+# (CLAUDE.md coupled-mirror rule): if the marker or the capture regex changes in the
+# workflow without changing the test, this goes RED.
+assert_pin_unique "#363 finalize_check's deployed jq selects the run-keyed progress comment (tested copy pinned identical)" \
+  'contains("<!-- devflow:review-progress")' "$REVIEW_YML"
+assert_pin_unique "#363 finalize_check's deployed jq captures the Status line (tested copy pinned identical)" \
+  'capture("\\*\\*Status:\\*\\* (?<s>[^' "$REVIEW_YML"
+assert_pin_unique "#363 finalize_check's deployed jq flattens paginated comment pages" \
+  'map(.[]?)' "$REVIEW_YML"
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.

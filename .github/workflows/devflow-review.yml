@@ -1188,12 +1188,17 @@ jobs:
                   # Report an unestablished count AS unestablished. `0` would be a
                   # concrete claim the run never observed, and it would steer the
                   # reader away from permission denials — the mis-diagnosis this
-                  # annotation exists to prevent.
-                  case "${PERMISSION_DENIALS_COUNT:-unavailable}" in
-                    ''|*[!0-9]*) DENIAL_CLAUSE="The permission-denial count could not be established (execution diagnostics unavailable), so denials cannot be ruled out as the cause" ;;
-                    0)           DENIAL_CLAUSE="The harness refused no commands, so the stall has some other cause" ;;
-                    *)           DENIAL_CLAUSE="The harness refused ${PERMISSION_DENIALS_COUNT} command(s) during execution" ;;
-                  esac
+                  # annotation exists to prevent. The arm selection lives in a helper
+                  # so lib/test/run.sh can drive every arm: a reordered `case` or a
+                  # glob typo here would misattribute the diagnosis while the workflow
+                  # still ran clean, which is the whole feature silently defeated.
+                  DDC=.devflow/vendor/devflow/scripts/describe-denial-count.sh
+                  [ -f "$DDC" ] || DDC=scripts/describe-denial-count.sh
+                  DENIAL_CLAUSE=""
+                  [ -f "$DDC" ] && DENIAL_CLAUSE=$(bash "$DDC" "${PERMISSION_DENIALS_COUNT:-}")
+                  # Verify the OUTCOME, not the file's existence: an absent or empty
+                  # helper must not silently drop the clause from the annotation.
+                  [ -n "$DENIAL_CLAUSE" ] || DENIAL_CLAUSE="The permission-denial count could not be established (describe-denial-count.sh missing or produced no output), so denials cannot be ruled out as the cause"
                   echo "::error::Devflow review produced NO VERDICT for $HEAD_SHA. ${DENIAL_CLAUSE}${LAST_PHASE:+ (engine last reported: ${LAST_PHASE})}. A Re-run will hit the same wall unless the review tool profile grants what the engine needs — see the review job's 'Surface execution diagnostics' step for the exact denied commands."
                   ;;
               esac

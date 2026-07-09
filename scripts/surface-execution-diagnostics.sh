@@ -106,9 +106,9 @@ _publish_denials() {  # rendered-block
         break
         ;;
     esac
-  done <<EOF
-$1
-EOF
+  done <<<"$1"   # here-string, not a heredoc: a block line reading exactly `EOF` cannot
+                 # terminate it early, and (unlike `printf … | while`) the loop stays in
+                 # this shell, so `_count` survives it.
   case "$_count" in
     *[!0-9]* | "")
       # `n/a` is the renderer's own honest "unknown". A missing label line means the
