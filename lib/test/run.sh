@@ -9295,6 +9295,44 @@ assert_eq "di: duplicate notice contains no /devflow: phrase" "0" \
 assert_eq "di: duplicate notice contains no @claude" "0" \
   "$(grep -c '@claude' <<< "$NOTICE_LINE")"
 
+# 15. Stall-backstop-resume carve-out (issue #280, deferred #268 finding): a run
+#     triggered by the stall backstop's auto-resume comment must NOT dedupe against
+#     the still-winding-down run it is taking over. With IS_STALL_RESUME=true (the
+#     explicit override) the script proceeds even though an OLDER active run for the
+#     same thread exists (case 1 above would otherwise be duplicate=true).
+assert_eq "di: stall-backstop resume bypasses dedupe (older active peer present)" "duplicate=false" \
+  "$(DEVFLOW_GH="$DI_STUB/gh" REPO=o/r RUN_ID=200 CONTEXT_NUMBER=42 IS_STALL_RESUME=true \
+     DEDUPE_RUNS_JSON='[{"databaseId":100,"displayTitle":"DevFlow implement (issue 42)","status":"in_progress"}]' \
+     bash "$DIR" 2>/dev/null)"
+# 15b. The carve-out is opt-in: any non-"true" value dedupes normally (older active
+#      peer → duplicate=true), so an unrelated command is never let through.
+assert_eq "di: IS_STALL_RESUME=false still dedupes normally" "duplicate=true" \
+  "$(DEVFLOW_GH="$DI_STUB/gh" REPO=o/r RUN_ID=200 CONTEXT_NUMBER=42 IS_STALL_RESUME=false \
+     DEDUPE_RUNS_JSON='[{"databaseId":100,"displayTitle":"DevFlow implement (issue 42)","status":"in_progress"}]' \
+     bash "$DIR" 2>/dev/null)"
+# 15c. Self-derive from GITHUB_EVENT_PATH (the production path — no workflow env is
+#      passed). A triggering comment whose body carries the stall-backstop-audit
+#      marker bypasses dedupe; the same event without the marker dedupes normally.
+DI_EVT_YES="$(mktemp)"; printf '%s' '{"comment":{"body":"<!-- devflow:stall-backstop-audit -->\n/devflow:implement 42"}}' > "$DI_EVT_YES"
+DI_EVT_NO="$(mktemp)";  printf '%s' '{"comment":{"body":"/devflow:implement 42"}}' > "$DI_EVT_NO"
+assert_eq "di: event-path comment carrying the stall marker bypasses dedupe" "duplicate=false" \
+  "$(DEVFLOW_GH="$DI_STUB/gh" REPO=o/r RUN_ID=200 CONTEXT_NUMBER=42 GITHUB_EVENT_PATH="$DI_EVT_YES" \
+     DEDUPE_RUNS_JSON='[{"databaseId":100,"displayTitle":"DevFlow implement (issue 42)","status":"in_progress"}]' \
+     bash "$DIR" 2>/dev/null)"
+assert_eq "di: event-path comment without the stall marker dedupes normally" "duplicate=true" \
+  "$(DEVFLOW_GH="$DI_STUB/gh" REPO=o/r RUN_ID=200 CONTEXT_NUMBER=42 GITHUB_EVENT_PATH="$DI_EVT_NO" \
+     DEDUPE_RUNS_JSON='[{"databaseId":100,"displayTitle":"DevFlow implement (issue 42)","status":"in_progress"}]' \
+     bash "$DIR" 2>/dev/null)"
+rm -f "$DI_EVT_YES" "$DI_EVT_NO"
+# 15d. Coupled cross-file invariant (issue #280): the stall-resume marker the dedupe
+#      script keys on MUST stay identical to the marker the stall-backstop step
+#      writes into its resume comment. Assert the exact literal is present in both.
+DI_WF="$LIB/../.github/workflows/devflow-implement.yml"
+assert_eq "di: dedupe script defines the stall-backstop-audit marker" "1" \
+  "$(grep -c "STALL_RESUME_MARKER='<!-- devflow:stall-backstop-audit -->'" "$DIR")"
+assert_eq "di: same stall-backstop-audit marker literal exists in the workflow (coupling holds)" "true" \
+  "$(grep -q "<!-- devflow:stall-backstop-audit -->" "$DI_WF" && echo true || echo false)"
+
 rm -rf "$DI_STUB"
 
 # ────────────────────────────────────────────────────────────────────────────

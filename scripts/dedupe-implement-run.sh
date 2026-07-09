@@ -43,8 +43,29 @@
 #                   the monotonic tie-break boundary).
 #   GH_TOKEN        token for `gh`, set by the caller.
 #   WORKFLOW        workflow file to scope the run list (default devflow-implement.yml).
+#   IS_STALL_RESUME optional explicit override: "true" forces the stall-resume
+#                   carve-out (skip dedupe, proceed), any other non-empty value
+#                   forces normal dedupe. When UNSET/empty the script self-derives
+#                   it from the triggering comment (see below). Mainly a test hook.
+#   GITHUB_EVENT_PATH  the Actions event payload (set by the runner). When
+#                   IS_STALL_RESUME is not explicitly set, the script reads
+#                   `.comment.body` from it and treats the run as a stall resume
+#                   when that body carries the STALL_RESUME_MARKER below. This lets
+#                   the carve-out work with NO devflow-implement.yml change — the
+#                   workflow file needs a `workflows`-scoped push the bot lacks.
 #   DEVFLOW_GH      gh executable override for tests; when unset or empty it is
 #                   resolved (execution-verified) via lib/resolve-gh.sh.
+#
+# Stall-resume carve-out (issue #280, resolving the deferred #268 finding): a run
+# triggered by the stall backstop's auto-resume comment must NOT defer to the run
+# it is taking over. That original run posts the resume comment from its own
+# trailing `always()` backstop step while it is still `in_progress`, so a plain
+# run-list dedupe sees the older active peer and swallows the resume — leaving the
+# audit comment visible but inert, the exact race the #268 finding named. The
+# resume comment is identified by the stall-backstop-audit marker it carries
+# (kept identical to the `MARKER` the backstop step writes in devflow-implement.yml).
+# The carve-out only ever fails OPEN (a redundant run at worst), never swallows a
+# request.
 #
 # Output: one `key=value` line on stdout (the caller appends to $GITHUB_OUTPUT;
 # tests assert it directly):
@@ -75,6 +96,32 @@ repo="${REPO:-}"
 target="${CONTEXT_NUMBER:-}"
 run_id="${RUN_ID:-}"
 workflow="${WORKFLOW:-devflow-implement.yml}"
+
+# The marker every stall-backstop auto-resume comment carries on its first line
+# (see the `MARKER` the Stall backstop step writes in devflow-implement.yml). Keep
+# the two literals identical — lib/test/run.sh pins that they agree across files.
+STALL_RESUME_MARKER='<!-- devflow:stall-backstop-audit -->'
+
+# Resolve the carve-out signal: an explicit IS_STALL_RESUME wins (test hook /
+# override); otherwise self-derive it from the triggering comment body in the
+# Actions event payload. Reading the payload here (rather than a workflow-passed
+# env) keeps the fix entirely inside this script, so it needs no
+# devflow-implement.yml edit (a workflow file the bot's token cannot push).
+is_stall_resume="${IS_STALL_RESUME:-}"
+if [ -z "$is_stall_resume" ] && [ -n "${GITHUB_EVENT_PATH:-}" ] && [ -r "${GITHUB_EVENT_PATH:-}" ]; then
+  # A parse/read failure here is non-fatal: it just leaves is_stall_resume empty,
+  # so the run falls through to ordinary dedupe (the pre-#280 behavior).
+  if "$DEVFLOW_JQ" -e --arg m "$STALL_RESUME_MARKER" \
+       '(.comment.body // "") | contains($m)' "$GITHUB_EVENT_PATH" >/dev/null 2>&1; then
+    is_stall_resume=true
+  fi
+fi
+
+if [ "$is_stall_resume" = "true" ]; then
+  echo "::notice::dedupe: this run was triggered by a stall-backstop auto-resume; skipping dedupe so it can take over the winding-down run (issue #280)." >&2
+  emit duplicate false
+  exit 0
+fi
 
 # Fail open on any missing prerequisite — we cannot reliably dedupe without all
 # three, and blocking a legitimate run on our own missing context is the worse
