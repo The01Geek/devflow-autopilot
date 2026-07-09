@@ -1,0 +1,55 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-08T20:20:00Z",
+  "fix_commit_sha": "dfc9af57aa6052f07abd97c52a9b25fa35fe50e0",
+  "fix_files": ["skills/init/SKILL.md", "lib/test/run.sh", ".changeset/issue-342-python-floor-fail-fast.md"],
+  "loop_role": "fix",
+  "checklist": [],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {
+      "agent": "devflow:code-reviewer",
+      "severity": "Important",
+      "description": "Third stale PyYAML claim naming workpad.py survives in skills/init/SKILL.md:38",
+      "defect_signature": {"file": "skills/init/SKILL.md", "line_range": [38, 38], "kind": "stale-wording"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "ast guard checks comparison operands but not the operator (reversed >= passes) nor that the body exits",
+      "defect_signature": {"file": "lib/test/run.sh", "line_range": [17434, 17447], "kind": "vacuous-guard"},
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-1", "decision": "applied", "commit": "dfc9af57aa6052f07abd97c52a9b25fa35fe50e0"},
+    {"finding_id": "F-2", "decision": "applied", "commit": "dfc9af57aa6052f07abd97c52a9b25fa35fe50e0"}
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 2,
+    "fix_diff_lines": 30,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "telemetry": {
+    "phase_3": {"calls": 5, "tokens": 199000, "wall_clock_s": 133}
+  }
+}

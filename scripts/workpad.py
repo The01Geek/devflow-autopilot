@@ -59,6 +59,15 @@ import subprocess
 import sys
 from pathlib import Path
 
+if sys.version_info < (3, 11):  # fail fast, before any PEP 604 annotation is evaluated below
+    sys.stderr.write(
+        "devflow: Python 3.11+ required (found %s.%s.%s). This helper requires"
+        " features of Python 3.11+. Install Python 3.11+; on Windows/Git-Bash"
+        " run scripts/provision-python3-shim.sh --apply (see docs/install.md).\n"
+        % sys.version_info[:3]
+    )
+    sys.exit(1)
+
 # The gh binary to shell out to. `DEVFLOW_GH` (the documented override the shell
 # helpers resolve via lib/resolve-gh.sh) wins when set and non-empty; otherwise
 # bare `gh`. Read once at import so every subprocess call uses the same binary.
