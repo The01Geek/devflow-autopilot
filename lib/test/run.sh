@@ -1173,15 +1173,41 @@ assert_pin_unique "347: Phase 0.3.6 blocker-recheck fast path exists in the revi
 # it would go RED on a behavior-preserving reword (operative-vs-framing pin discipline).
 assert_pin_unique "347(AC2): the blinded verifier receives only the enumerated blockers" \
   'receives **only** the enumerated blockers' "$ST_REV"
+# PR #349 review (pin-coverage gap): the verifier's DISPATCH SHAPE (one general-purpose Agent that does
+# not itself fan out) was unpinned — a revert to a fan-out dispatch would have stayed green while
+# quietly restoring the cost the fast path exists to avoid. Pin the operative constraint.
+assert_pin_unique "347(AC2): the verifier is a single agent that does not itself fan out" \
+  'that does not itself fan out' "$ST_REV"
 # AC3 (APPROVE posts through Phase 4.4 + reuses dismiss-stale-rejections.sh unchanged).
 assert_pin_unique "347(AC3): fast-path APPROVE reuses dismiss-stale-rejections.sh like a full run" \
   'on the APPROVE exactly like a full-run APPROVE' "$ST_REV"
+# PR #349 review (MEDIUM): the fast path originally said only "post it exactly through Phase 4.4".
+# Phase 4.4 is JUST the `gh pr review` step — the progress-comment finalization (Status glyph, report,
+# and the `Reviewed HEAD` producer key) lives in the separate Phase 4 update protocol. So a fast-path
+# run left its own comment at `_(set at Phase 4)_` / `🚀 Reviewing`, meaning (a) a fast-path REJECT can
+# never satisfy a LATER fast path's precondition-2 join (the feature cannot chain across successive
+# carve-out fixes — exactly its target case), and (b) Phase 4.4's stub body points at an unfinalized
+# comment. Pin the finalization step and its Reviewed-HEAD stamp so a revert to 4.4-only goes RED.
+assert_pin_unique "347(AC3): the fast path finalizes its own progress comment, not just Phase 4.4" \
+  'First, finalize this run' "$ST_REV"
+assert_pin_unique "347(AC3): the fast path stamps Reviewed HEAD with \$PR_HEAD_SHA (chaining producer key)" \
+  'set the `Reviewed HEAD` line to `$PR_HEAD_SHA`' "$ST_REV"
+assert_pin_unique "347(AC3): leaving the seeded Reviewed HEAD placeholder is a defect, not a shortcut" \
+  'is a defect, not a shortcut' "$ST_REV"
 # AC1 detection preconditions (unpinned before PR #349 review) — precondition 1 reads the
 # rejected head from the reviews-API commit_id, precondition 2 pins to a PRIOR run's progress
 # comment (never this run's freshly-seeded one). Both underpin the $REJECTED_HEAD..$PR_HEAD_SHA
 # smuggle guard, so pin their operative phrases.
 assert_pin_unique "347(AC1): rejected head is the reviews-API commit_id (authoritative)" \
   'the authoritative rejected head' "$ST_REV"
+# PR #349 review: precondition 1 must require the MOST RECENT devflow review to itself be a live
+# CHANGES_REQUESTED — not merely "the last REJECT among all reviews". Scanning past a newer APPROVE
+# (or a DISMISSED reject) to an older REJECT would recheck a superseded verdict. Pin both operative
+# halves: the state requirement and the no-scan-past rule.
+assert_pin_unique "347(AC1): the last devflow review must itself be a live CHANGES_REQUESTED" \
+  'state exactly `CHANGES_REQUESTED`' "$ST_REV"
+assert_pin_unique "347(AC1): never scan past a newer APPROVE/dismissal to an older REJECT" \
+  'Never scan past it for an older REJECT' "$ST_REV"
 assert_pin_unique "347(AC1): precondition 2 reads a prior run's REJECT comment, not this run's seed" \
   'its run-key differs from' "$ST_REV"
 # AC1/AC4 (shadow-review fix): precondition 2's progress comment must belong to the
@@ -1215,7 +1241,25 @@ assert_pin_unique "347(AC4): precondition requires zero checklist FAIL/INCONCLUS
 assert_pin_unique "347(AC4/producer): Phase 4.1 stamps carve-out findings with an unconditional marker" \
   'unconditional machine-detectable marker' "$ST_REV"
 assert_pin_unique "347(AC4/consumer): a REJECT-driver lacking the carve-out marker falls through" \
-  'A REJECT-driving finding without the `[self-contradicting-diff carve-out]` marker' "$ST_REV"
+  'A REJECT-driving finding without the `[self-contradicting-diff carve-out:` marker' "$ST_REV"
+# PR #349 review (HIGH, phantom producer/consumer contract): precondition 4 originally sourced the
+# blocker file from `defect_signature.file` — an internal Phase-3 AGENT output field that the Phase 4.1
+# render template never emits into the report or the progress comment (findings render as bare prose:
+# "1. description (raised by N/M agents)"). The consumer therefore read a field the producer never
+# writes to the surface it parses, so the fast path could never enumerate a blocker (fail-closed but
+# permanently inert), or would guess a path from prose. Fix: the carve-out marker itself now CARRIES the
+# file (` [self-contradicting-diff carve-out: {file}]`), making it the single producer key for both
+# carve-out classification AND the blocker path. Pin BOTH sides plus the explicit ban on the old field.
+assert_pin_unique "347(AC4/producer): the carve-out marker carries the blocker file as a required field" \
+  '` [self-contradicting-diff carve-out: {file}]` on its line' "$ST_REV"
+assert_pin_unique "347(AC4/producer): an absent defect_signature.file renders the marker as unknown, never omitted/invented" \
+  'replaced by `unknown` (never omit the marker, never invent a path)' "$ST_REV"
+assert_pin_unique "347(AC4/consumer): precondition 4 reads the blocker file from the marker" \
+  '**the `file` comes from the marker' "$ST_REV"
+assert_pin_unique "347(AC4/consumer): precondition 4 must NOT read the unrendered defect_signature.file" \
+  'do *not* read `defect_signature.file`' "$ST_REV"
+assert_pin_unique "347(AC4/consumer): an unknown/malformed marker path falls through, never a guessed path" \
+  'A marker carrying `unknown`, a malformed marker' "$ST_REV"
 # Shadow-review fix (iter4): the marker audit is THRESHOLD-INDEPENDENT — a carve-out REJECTs
 # regardless of severity, so a below-threshold REJECT-driver lacking the marker must also fall
 # through, and an EMPTY $BLOCKERS set must fall through (never reach the vacuously-true
