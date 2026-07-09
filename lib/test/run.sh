@@ -14889,13 +14889,16 @@ assert_eq "#142 LICENSES/superpowers-LICENSE retains the upstream MIT license te
           && grep -q 'Jesse Vincent' "$FDROOT/LICENSES/superpowers-LICENSE" && echo yes || echo no)"
 
 # (4) Manifest contract (mirrors AC5): with the last companion removed, plugin.json
-# `dependencies` is now EMPTY and marketplace.json's cross-marketplace allowlist is emptied —
-# DevFlow has ZERO companion-plugin install dependencies. (The per-name superpowers-absence
-# row in plugin.json lives in the flipped #139 (4) guard above; the workflow axis is (5) below.)
+# `dependencies` is now EMPTY — DevFlow has ZERO companion-plugin install dependencies.
+# (The per-name superpowers-absence row in plugin.json lives in the flipped #139 (4)
+# guard above; the workflow axis is (5) below.) marketplace.json's cross-marketplace
+# allowlist was emptied by #142 and later deliberately re-opened for the official
+# marketplace only (main commit "allow cross marketplace dependencies"); the pin
+# asserts that exact value so any further widening is a deliberate, test-reconciled edit.
 assert_eq "#142 plugin.json dependencies is now empty (zero companion-plugin dependencies)" \
   "0" "$(jq '.dependencies | length' "$FDROOT/.claude-plugin/plugin.json")"
-assert_eq "#142 marketplace.json allowCrossMarketplaceDependenciesOn is now empty" \
-  "0" "$(jq '.allowCrossMarketplaceDependenciesOn | length' "$FDROOT/.claude-plugin/marketplace.json")"
+assert_eq "#142 marketplace.json allowCrossMarketplaceDependenciesOn allows exactly the official marketplace" \
+  '["claude-plugins-official"]' "$(jq -c '.allowCrossMarketplaceDependenciesOn' "$FDROOT/.claude-plugin/marketplace.json")"
 
 # (5) Workflow contract: no cloud workflow installs the superpowers companion anymore — the
 # same tracked_scan-aggregate shape as the #139 (5) feature-dev guard, and it fails loud on a
@@ -18645,6 +18648,13 @@ DDC_SH="$LIB/../scripts/describe-denial-count.sh"
 for _g363 in 'Bash(mkdir:*)' 'Bash(tee:*)' 'Bash(git cat-file:*)' 'Bash(git checkout:*)' \
              'Bash(mktemp:*)' 'Bash(cmp:*)' 'Bash(rm -f:*)'; do
   assert_pin_unique "#363 review profile grants $_g363" "$_g363" "$RUNNER_YML"
+done
+# The manual /devflow:review comment path runs the SAME skill under devflow.yml's
+# hoisted allowlist, so the prose-invoked heads (out of the extractor's fenced-block
+# reach) need the compensating literal pin against BOTH allowlists — pinning only the
+# runner profile shipped a silent manual-path denial of `git cat-file` once (PR #367).
+for _g363 in 'Bash(git cat-file:*)' 'Bash(git checkout:*)'; do
+  assert_pin_unique "#363 devflow.yml command allowlist grants prose-invoked $_g363" "$_g363" "$DEVFLOW_YML"
 done
 # The final-pass reviewer (skills/requesting-code-review) is dispatched as an INSTALLED
 # skill, so its ${CLAUDE_SKILL_DIR} anchor resolves to the plugin checkout, NOT to
