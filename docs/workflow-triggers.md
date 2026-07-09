@@ -315,6 +315,22 @@ phase boundary; Phase 4.5 finalizes it).
   verdict stub); the live comment is the human-readable narrative pointing at it.
   The final comment state reflects the actual verdict — never a green check above
   a REJECT.
+- **Dead-run backstop (issue #356).** The agent flips this comment to
+  `❌ Review failed` on its own fatal aborts, but on a non-success run it never
+  gets to — the claude step failed, the run was cancelled (so the agent was torn
+  down mid-flight), or the step reported `success` while the engine's final
+  message carried `is_error` (the agent ran but ended in error without reaching
+  its own flip). A workflow-level backstop then mirrors that flip:
+  `scripts/flip-review-progress-failed.sh`
+  locates *this run's* comment by its run-keyed marker and, only when its
+  `**Status:**` line still begins with the interim `🚀` glyph, rewrites it to
+  `❌ Review failed` with a one-line cause and run link (a terminal Status is
+  never clobbered; earlier runs' comments are never touched). It is best-effort
+  (always exits 0, so it never fails the required check) and is wired into the
+  **same three** non-success arms at both call sites — `devflow-review.yml`'s
+  `finalize_check` job (`if: always()`, so it survives even a review-job runner
+  death) and `devflow.yml`'s comment-triggered job (an `always()` step). Reviews
+  have no auto-resume, so every non-success is a dead-end flip.
 - It works under the **read-only cloud `review` profile**: the comment is
   created/edited via `gh` (a comment edit, not a tree write), and the runner's
   `review` tool profile additionally allow-lists `workpad.py`, `config-get.sh`,
