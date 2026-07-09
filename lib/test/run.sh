@@ -4562,8 +4562,22 @@ assert_eq "#356 pin: devflow-review.yml finalize_check invokes flip_review on jo
   "$(grep -q 'flip_review "review job failed' "$REVIEW_YML" && echo yes || echo no)"
 assert_eq "#356 pin: devflow-review.yml finalize_check invokes flip_review on cancellation" "yes" \
   "$(grep -q 'flip_review "review job cancelled"' "$REVIEW_YML" && echo yes || echo no)"
+# The engine-error arm is GATED on ENGINE_ERROR so a plain no-verdict incomplete —
+# where the agent ran to completion and wrote its own verdict — is left to the agent.
+# A file-wide `grep -q 'ENGINE_ERROR:-false'` does NOT pin that gate: the literal also
+# occurs in a prose comment and on the DERIVED= line, so deleting the `if` guard while
+# keeping the flip_review call leaves such a pin GREEN while the flip starts firing on
+# every incomplete. Pin the guard CO-LOCATED with the call it gates instead: extract the
+# guard line and the line that follows it, and require the call to sit inside. The
+# positive control below asserts the extracted window is non-empty first, so a guard that
+# is reworded (and thus no longer locatable) fails RED rather than passing vacuously.
+_engine_error_guard_window() {  # print the ENGINE_ERROR guard line + the line after it
+  grep -A1 -F 'if [ "${ENGINE_ERROR:-false}" = "true" ]; then' "$1"
+}
+assert_eq "#356 pin: the ENGINE_ERROR guard is locatable (co-location pin below is not vacuous)" "yes" \
+  "$([ -n "$(_engine_error_guard_window "$REVIEW_YML")" ] && echo yes || echo no)"
 assert_eq "#356 pin: devflow-review.yml finalize_check invokes flip_review on engine-error incomplete" "yes" \
-  "$(grep -q 'flip_review "review engine ended with an error' "$REVIEW_YML" && grep -q 'ENGINE_ERROR:-false' "$REVIEW_YML" && echo yes || echo no)"
+  "$(_engine_error_guard_window "$REVIEW_YML" | grep -q 'flip_review "review engine ended with an error' && echo yes || echo no)"
 assert_eq "#356 pin: devflow-review.yml wires flip-review-progress-failed.sh" "yes" \
   "$(grep -q 'flip-review-progress-failed.sh' "$REVIEW_YML" && echo yes || echo no)"
 # The filename alone also appears on the FLIP_HELPER= path-assignment lines, so a
@@ -7179,8 +7193,20 @@ assert_eq "diff not null"              "false"  "$(jq -r '.diff == null' <<<"$CT
 OUTF="$(DEVFLOW_GH="$GH_STUB" DEVFLOW_FIXTURE_PR=FAILED bash "$LIB/fetch-pr-context.sh" 4343)"
 CTXF="$(cat "$OUTF")"
 assert_eq "#356: workpad_final_status=Failed (💥 stripped)" "Failed" "$(jq -r '.signals.workpad_final_status' <<<"$CTXF")"
+# Feed cheap-gate.jq the WHOLE bundle, exactly as the real consumer does
+# (`run-jq.sh -f cheap-gate.jq < "$CTX"`, see skills/retrospective-weekly/SKILL.md).
+# Re-wrapping as `{signals: .signals}` would drop the bundle's TOP-LEVEL `reflections`
+# field — a sibling of `.signals`, not a member of it — leaving cheap-gate's reflection
+# check inert against a shape the producer never emits.
 assert_eq "#356: a 💥 Failed workpad gates non-clean via cheap-gate" "false" \
-  "$(jq -c '.signals' <<<"$CTXF" | jq -c '{signals:.}' | jq -c -f "$LIB/cheap-gate.jq" | jq -r .clean)"
+  "$(jq -c -f "$LIB/cheap-gate.jq" <<<"$CTXF" | jq -r .clean)"
+# Assert the REASON, not just clean=false. This fixture's workpad also carries a
+# `## Devflow Reflection` bullet, which is independently a non-clean signal — so
+# `clean=false` alone stays GREEN even if the workpad-status check were deleted or
+# reordered below the reflections check, and this block would pass for the wrong reason.
+# Pinning the reason is what proves the 💥 Failed status is what gated the run.
+assert_eq "#356: a 💥 Failed workpad gates non-clean for the workpad-status reason" "workpad status not Complete" \
+  "$(jq -c -f "$LIB/cheap-gate.jq" <<<"$CTXF" | jq -r .reason)"
 
 # #1: post_bot_commits / human_postbot SHA list count only *substantive* (non-merge)
 # commits after the bot's last commit. A `git merge main` by a human (parents>1)
