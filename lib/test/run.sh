@@ -4417,6 +4417,54 @@ _c="$(run338 "$S338/base-tagged.md" --rewrite-ac "AC two (post-merge)" "AC two" 
   --note "moved the deferral: AC one needs the live endpoint, AC two was verified")"
 assert_eq "#338(T9b): the same net-zero swap WITH a --note succeeds (exit 0)" "0" "$_c"
 
+# T10 (newline in NEW — the premise the positional comparison rests on): `_rewrite_checkbox`
+# writes NEW verbatim into ONE line, so an embedded newline splits that checkbox row in two.
+# That injects an unreviewed AC row AND breaks the row-index stability `_net_adds_post_merge`
+# compares against. It also slips the per-pair guard, whose `NEW ends with the marker` test
+# reads the whole string (`X (post-merge)\n- [ ] Y` ends with `Y`). Reject it structurally,
+# note or not. RED against the pre-fix code, which exited 0 and PATCHed the injected row.
+_c="$(run338 "$S338/base.md" --rewrite-ac "AC two" 'AC two (post-merge)
+- [ ] Injected')"
+assert_eq "#338(T10): a --rewrite-ac NEW containing a line break is refused (non-zero)" "no" \
+  "$([ "$_c" = "0" ] && echo yes || echo no)"
+assert_eq "#338(T10): the line-break refusal made NO PATCH (no row injected)" "yes" \
+  "$([ -s "$S338/patchlog" ] && echo no || echo yes)"
+assert_eq "#338(T10): the refusal names the line break, not the missing note" "yes" \
+  "$(grep -q 'line break in NEW' "$S338/err" && echo yes || echo no)"
+# T10b: a --note does NOT excuse it — the newline is a malformed argument, not a deferral.
+_c="$(run338 "$S338/base.md" --rewrite-ac "AC two" 'AC two (post-merge)
+- [ ] Injected' --note "genuinely-live: live endpoint")"
+assert_eq "#338(T10b): a line break in NEW is refused even WITH a --note (non-zero)" "no" \
+  "$([ "$_c" = "0" ] && echo yes || echo no)"
+# T10c (the laundering combo the newline enabled): remove a tag from one row while
+# newline-splitting another into a terminally-tagged row. Row counts differ, so an
+# aggregate-count fallback reads the sum as flat and passes. Refused now — first by the
+# newline check; and were that ever removed, _net_adds_post_merge's length-mismatch branch
+# fails CLOSED rather than downgrading to the blind aggregate compare.
+_c="$(run338 "$S338/base-tagged.md" --rewrite-ac "AC two (post-merge)" "AC two" \
+  --rewrite-ac "AC one" 'AC one (post-merge)
+- [ ] Injected')"
+assert_eq "#338(T10c): a newline-split net-zero laundering combo is refused (non-zero)" "no" \
+  "$([ "$_c" = "0" ] && echo yes || echo no)"
+assert_eq "#338(T10c): the laundering combo made NO PATCH" "yes" \
+  "$([ -s "$S338/patchlog" ] && echo no || echo yes)"
+# T10d (no false fire): a NEW with ordinary internal whitespace (not a line break) is fine.
+_c="$(run338 "$S338/base.md" --rewrite-ac "AC two" "AC two   with   spaces")"
+assert_eq "#338(T10d): a NEW with internal spaces (no line break) still passes (exit 0)" "0" "$_c"
+
+# Source pin: the length-mismatch branch fails CLOSED (returns True), never degrading to an
+# aggregate `sum(post) > sum(pre)` compare that is blind to a remove-one/add-one swap.
+assert_eq "#338: _net_adds_post_merge fails closed on a row-count mismatch (no aggregate fallback)" "yes" \
+  "$(grep -q 'sum(post) > sum(pre)' "$WP_PY" && echo no || echo yes)"
+# Source pin: the newline rejection guards the row-index-stability premise. Pin the SYMBOL,
+# not the stderr wording — the message literal is an f-string wrapped across two source
+# lines ("...has a line " / "break in NEW; ..."), so no single line contains the phrase
+# whole and a source grep for it always fails. (That is the same wrapped-literal blind spot
+# that let the argparse help text drift; the rendered-surface pins are the ones that catch
+# wording, and T10 already asserts this message on real stderr.)
+assert_eq "#338: --rewrite-ac structurally rejects a line break in NEW" "yes" \
+  "$(grep -q 'offending_nl' "$WP_PY" && echo yes || echo no)"
+
 # Source pin: the backstop's population spans every tick state AND compares positionally.
 # A revert to `_unticked_rows(content)[1]` re-opens the T8b ticked-row fail-open; a revert
 # to an aggregate count re-opens the T9 net-zero fail-open.
