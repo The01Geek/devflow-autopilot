@@ -3418,6 +3418,23 @@ assert_pin_unique "#362: an unresolvable PR query is never read as 'no open PR'"
   'An unresolvable PR query is not evidence that no PR exists' "$P362_P1"
 assert_pin_red_on_removal "#362: resume pre-check gh-failure breadcrumb obligation flips RED on removal" \
   'An unresolvable PR query is not evidence that no PR exists' "$P362_P1"
+# The pre-check waives both signals on the strength of a checkout it never confirms. Pin the
+# confirmation and its fail-CLOSED routing: with an open PR known to exist, falling through to
+# branch creation is a KNOWN duplication, so the non-worktree failure shape stops the run.
+assert_pin_unique "#362: the resume pre-check confirms the checkout landed before waiving the signals" \
+  'Confirm the checkout actually landed before honoring that skip' "$P362_P1"
+assert_pin_unique "#362: a resume checkout that did not land stops the run rather than duplicating the PR" \
+  'Falling through here is never correct' "$P362_P1"
+assert_pin_red_on_removal "#362: resume checkout confirmation flips RED on removal" \
+  'Confirm the checkout actually landed before honoring that skip' "$P362_P1"
+assert_pin_red_on_removal "#362: resume checkout fail-closed routing flips RED on removal" \
+  'Falling through here is never correct' "$P362_P1"
+# A body-reference match that merely MENTIONS the issue number is not a resume target —
+# adopting it would check out an unrelated PR's branch. Pin the closes-the-issue predicate.
+assert_pin_unique "#362: a body-only PR match must actually close the issue to be a resume target" \
+  'must additionally *close this issue*' "$P362_P1"
+assert_pin_red_on_removal "#362: body-only resume predicate flips RED on removal" \
+  'must additionally *close this issue*' "$P362_P1"
 assert_pin_red_on_removal "#362: resume pre-check ordering clause flips RED on removal" \
   'Resume pre-check (runs BEFORE Signal 1)' "$P362_P1"
 assert_pin_red_on_removal "#362: resume pre-check checkout directive flips RED on removal" \
