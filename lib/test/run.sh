@@ -18560,9 +18560,6 @@ assert_eq "#363 devflow_runner.provision_env stays false in config.example.json"
 
 # ── checks: read is a COUPLED PAIR. A reusable workflow requesting a permission its
 # ── caller did not grant aborts the run at graph-build time (startup_failure), so
-# ── landing one alone breaks every review. Both pins fail together or not at all.
-# ── checks: read is a COUPLED PAIR. A reusable workflow requesting a permission its
-# ── caller did not grant aborts the run at graph-build time (startup_failure), so
 # ── landing one alone breaks every review. Asserted per-JOB rather than by counting
 # ── the literal file-wide: an unrelated job gaining `checks: read` must not satisfy
 # ── this pin, and a removal must not be masked by a re-add somewhere else.
@@ -18732,6 +18729,45 @@ printf '%s' '{"jobs":[{"name":"page1","conclusion":"success"}]}{"jobs":[{"name":
 assert_eq "#363 scc flattens concatenated --paginate pages (both pages' signals appear)" "yes" \
   "$(_o=$(scc_run); printf '%s' "$_o" | grep -qF 'page1: success' && printf '%s' "$_o" | grep -qF 'page2: failure' && echo yes || echo no)"
 
+# ── Stub-blindness pins. The `gh` stub dispatches on `"$*"` path substrings and
+# ── therefore IGNORES: the `--paginate` flag, the `?head_sha=` value, and the
+# ── `/runs/{id}/jobs` id value. Each ignored property is a behavior the stub can
+# ── never exercise, so pin it statically in the same change (CLAUDE.md stub-blindness
+# ── rule). Dropping `--paginate` would keep the suite green while losing every page
+# ── after the first in production.
+assert_eq "#363 scc passes --paginate on all three gh queries (stub cannot see flags)" "3" \
+  "$(python3 - "$SCC" <<'PY'
+import re, sys
+src = open(sys.argv[1], encoding="utf-8").read()
+print(len(re.findall(r'"\$DEVFLOW_GH" api --paginate ', src)))
+PY
+)"
+assert_eq "#363 scc scopes the runs query to the reviewed head (?head_sha=\$HEAD_SHA)" "1" \
+  "$(pin_count 'actions/runs?head_sha=$HEAD_SHA' "$SCC")"
+assert_eq "#363 scc scopes the check-runs query to the reviewed head" "1" \
+  "$(pin_count 'commits/$HEAD_SHA/check-runs' "$SCC")"
+assert_eq "#363 scc scopes the jobs query to each surviving run id" "1" \
+  "$(pin_count 'actions/runs/$_run_id/jobs' "$SCC")"
+
+# ── Matrix completeness: the non-array guard exists on all THREE jq programs, but was
+# ── only exercised for check_runs. A structurally-identical guard is still an
+# ── untested guard — assert each query's own breadcrumb.
+scc_reset; printf '%s' '{"jobs":{"name":"x"}}' > "$S363/jobs"
+scc_363_unavailable "jobs is an object not an array" "jobs payload could not be parsed for workflow run 11"
+scc_reset; printf '%s' '{"workflow_runs":{"id":1}}' > "$S363/runs"
+scc_363_unavailable "workflow_runs is an object not an array" "workflow-runs payload could not be parsed"
+scc_reset; printf '%s' '{"total_count":0}' > "$S363/runs"
+assert_eq "#363 scc payload missing workflow_runs exits 0 (no runs to summarize)" "0" "$(scc_rc)"
+
+# Empty jobs and empty check_runs in ISOLATION, not only together: a head whose only
+# CI is an external check must still render that check.
+scc_reset; printf '%s' '{"jobs":[]}' > "$S363/jobs"
+assert_eq "#363 scc empty jobs alone still renders the external check runs" "codecov/patch: success" \
+  "$(scc_run | head -1)"
+scc_reset; printf '%s' '{"check_runs":[]}' > "$S363/checks"
+assert_eq "#363 scc empty check_runs alone still renders the workflow jobs" "yes" \
+  "$(scc_run | grep -qxF 'lib + python tests: success' && echo yes || echo no)"
+
 # ── The per-run jobs-query cap is announced, never silent. A silent truncation of
 # ── the CI signal set would read as "these are all the checks" when they are not.
 scc_reset
@@ -18805,15 +18841,38 @@ assert_eq "#363 diagnostics publishes permission_denials_count=14 to GITHUB_OUTP
 _D_COLD='{"type":"result","is_error":false,"num_turns":3,"permission_denials_count":0}'
 assert_eq "#363 diagnostics emits NO ::warning:: when the permission-denial count is 0" "no" \
   "$(_diag_run "$_D_COLD" | grep -qF '::warning::DevFlow: this run recorded' && echo yes || echo no)"
-assert_eq "#363 diagnostics publishes permission_denials_count=0 on a clean run" "yes" \
+assert_eq "#363 diagnostics publishes permission_denials_count=0 on a genuinely clean run" "yes" \
   "$(_diag_run "$_D_COLD" >/dev/null; grep -qxF 'permission_denials_count=0' "$D363/out" && echo yes || echo no)"
 
-# Unknown (unparseable execution file) publishes 0 and warns nothing: "unknown" is
-# not evidence of denials, and it must never render as a denial-free *claim* either
-# — the block still says the count is unavailable.
-assert_eq "#363 diagnostics publishes 0 and raises no warning when the count is unknown" "0-nowarn" \
+# Unknown (unparseable execution file) publishes the literal `unavailable`, NOT 0,
+# and warns nothing. Collapsing unknown onto 0 is what made the downstream
+# no-verdict ::error:: assert "refused 0 command(s)" on a run it never measured.
+assert_eq "#363 diagnostics publishes 'unavailable' (never 0) and raises no warning when the count is unknown" "unavailable-nowarn" \
   "$(_o=$(_diag_run 'not json'); _c=$(sed -n 's/^permission_denials_count=//p' "$D363/out"); \
      printf '%s' "$_o" | grep -qF '::warning::DevFlow: this run recorded' && _w=warn || _w=nowarn; echo "${_c}-${_w}")"
+# A genuinely clean run still publishes a real 0, so the two remain distinguishable.
+assert_eq "#363 diagnostics distinguishes a clean run (0) from an unmeasurable one (unavailable)" "0|unavailable" \
+  "$(_diag_run "$_D_COLD" >/dev/null; _clean=$(sed -n 's/^permission_denials_count=//p' "$D363/out"); \
+     _diag_run 'not json' >/dev/null; _unk=$(sed -n 's/^permission_denials_count=//p' "$D363/out"); \
+     echo "${_clean}|${_unk}")"
+# The count must not be derived through an external PATH tool: `tr`/`sed`/`cut` are
+# NOT preflight prerequisites, and a missing one silently published 0 and suppressed
+# the warning on a run that HAD recorded denials (guard-class shape 2).
+assert_eq "#363 diagnostics derives the denial count with bash builtins, not sed/head" "0" \
+  "$(python3 - "$SED_SH" <<'PY'
+import re, sys
+src = open(sys.argv[1], encoding="utf-8").read()
+body = src[src.index("_publish_denials() {"):src.index("\n}", src.index("_publish_denials() {"))]
+print(len(re.findall(r"(^|[|;&(]|\$\()\s*(sed|head|grep|awk|cut|tr)\s", body, re.M)))
+PY
+)"
+assert_eq "#363 diagnostics still reports a positive count when sed is absent from PATH" "14" \
+  "$(_sedless=$(mktemp -d); mkdir -p "$_sedless/bin"; \
+     for _c in bash printf echo cat rm mktemp grep head tr wc cut date dirname basename env test jq python3 type; do \
+       _p=$(command -v "$_c" 2>/dev/null) && ln -sf "$_p" "$_sedless/bin/$_c" 2>/dev/null; done; \
+     printf '%s' "$_D_HOT" > "$_sedless/exec.json"; \
+     ( PATH="$_sedless/bin" GITHUB_OUTPUT="$_sedless/out" bash "$SED_SH" "$_sedless/exec.json" >/dev/null 2>&1 ); \
+     sed -n 's/^permission_denials_count=//p' "$_sedless/out"; rm -rf "$_sedless")"
 assert_eq "#363 diagnostics still exits 0 on an unparseable execution file" "0" \
   "$(_diag_run 'not json' >/dev/null 2>&1; echo $?)"
 
@@ -18834,12 +18893,23 @@ assert_eq "#363 diagnostics exits 0 with no GITHUB_OUTPUT set (standalone run)" 
 # ── never stamps its own terminal status, so each is pinned by literal.
 assert_pin_unique "#363 devflow-runner.yml names the diagnostics step so its output can be read" \
   "id: diagnostics" "$RUNNER_YML"
-assert_pin_unique "#363 devflow-runner.yml exposes permission_denials_count as a job output, defaulting to 0" \
-  "permission_denials_count: \${{ steps.diagnostics.outputs.permission_denials_count || '0' }}" "$RUNNER_YML"
+# The default is the `unavailable` sentinel, NOT 0: a consumer must distinguish
+# "the engine refused no commands" from "the count could not be established".
+assert_pin_unique "#363 devflow-runner.yml defaults permission_denials_count to the 'unavailable' sentinel, never 0" \
+  "permission_denials_count: \${{ steps.diagnostics.outputs.permission_denials_count || 'unavailable' }}" "$RUNNER_YML"
+assert_eq "#363 devflow-runner.yml never defaults the denial count to a literal 0" "0" \
+  "$(pin_count "permission_denials_count || '0'" "$RUNNER_YML")"
 assert_pin_unique "#363 devflow-runner.yml exposes permission_denials_count as a workflow_call output" \
   "value: \${{ jobs.run.outputs.permission_denials_count }}" "$RUNNER_YML"
-assert_pin_unique "#363 finalize_check consumes the runner's permission_denials_count (defaulting to 0)" \
-  "PERMISSION_DENIALS_COUNT: \${{ needs.review.outputs.permission_denials_count || '0' }}" "$REVIEW_YML"
+assert_pin_unique "#363 finalize_check consumes the runner's permission_denials_count (defaulting to 'unavailable')" \
+  "PERMISSION_DENIALS_COUNT: \${{ needs.review.outputs.permission_denials_count || 'unavailable' }}" "$REVIEW_YML"
+# All-output-channels honesty: an unestablished count is reported AS unestablished.
+# "refused 0 command(s)" on a run whose diagnostics never parsed is a false claim
+# that steers the reader away from permission denials.
+assert_pin_unique "#363 finalize_check reports an unestablished denial count as unestablished, never as 0" \
+  'The permission-denial count could not be established (execution diagnostics unavailable), so denials cannot be ruled out as the cause' "$REVIEW_YML"
+assert_pin_unique "#363 finalize_check reports a genuine zero as 'refused no commands'" \
+  'The harness refused no commands, so the stall has some other cause' "$REVIEW_YML"
 assert_pin_unique "#363 finalize_check raises an ::error:: naming the HEAD SHA and the denial count on a no-verdict run" \
   '::error::Devflow review produced NO VERDICT for $HEAD_SHA' "$REVIEW_YML"
 assert_pin_unique "#363 finalize_check reads the progress comment's phase best-effort, never failing the step" \
@@ -18878,7 +18948,12 @@ for _b363 in "$RUNNER_YML" "$DEVFLOW_YML"; do
   assert_pin_unique "#363 $_w renders the block through the shared renderer (no hand-copied prose)" \
     'RGB=.devflow/vendor/devflow/scripts/render-grounding-block.sh' "$_b363"
   assert_pin_unique "#363 $_w passes the resolved allowed-tools string into the renderer" \
-    'GROUNDING=$(CI_SUMMARY="$CI_SUMMARY" ALLOWED_TOOLS="$ALLOWED_TOOLS" bash "$RGB")' "$_b363"
+    'GROUNDING=$(CI_SUMMARY="$CI_SUMMARY" ALLOWED_TOOLS="$ALLOWED_TOOLS" bash "$RGB") || GROUNDING=""' "$_b363"
+  # Guard-class shape 1 (existence-vs-sourceability): `[ -f "$RGB" ]` proves the path
+  # exists, never that the renderer produced a block. A truncated vendored copy that
+  # exits 0 printing nothing would silently strip the injection defense from the prompt.
+  assert_pin_unique "#363 $_w verifies the renderer's OUTCOME (non-empty block), not just the file's existence" \
+    'render-grounding-block.sh produced no output' "$_b363"
   # The injection-defense prose must NOT be re-inlined into a workflow: a second
   # copy is exactly the coupled-mirror drift this extraction removed.
   assert_eq "#363 $_w carries no hand-copied copy of the injection-defense prose" "0" \
@@ -18969,6 +19044,37 @@ assert_pin_unique "#363 skill: a budget/turn/denial exhaustion counts as a no-ve
 # sentence would tell the engine not to use a command it holds.
 assert_eq "#363 skill: no longer claims the review profile lacks Bash(tee:*)" "0" \
   "$(pin_count 'but **not** `Bash(tee:*)`' "$REVIEW_SKILL")"
+
+# ── finalize_check's progress-comment phase extraction. The jq lives inline in YAML,
+# ── so the literal is pinned above; here the EXPRESSION itself is exercised against
+# ── the shapes it must survive without failing the step. It is best-effort: every
+# ── shape must yield either a phase or an empty string, and must exit 0.
+_last_phase_jq() {  # comments-json -> extracted phase (empty when none)
+  printf '%s' "$1" | "${DEVFLOW_JQ:-jq}" -rs 'map(.[]?) | map(select(((.body // "") | tostring) | contains("<!-- devflow:review-progress")))
+    | last | ((.body // "") | tostring)
+    | capture("\\*\\*Status:\\*\\* (?<s>[^\n]*)").s? // empty' 2>/dev/null
+}
+assert_eq "#363 finalize_check phase extraction reads the Status line of the run-keyed progress comment" \
+  "🚀 Reviewing" "$(_last_phase_jq '[{"body":"<!-- devflow:review-progress run=1-1 -->\n**Status:** 🚀 Reviewing\nmore"}]')"
+assert_eq "#363 finalize_check phase extraction yields empty (not an error) on a body with no Status line" \
+  "" "$(_last_phase_jq '[{"body":"<!-- devflow:review-progress run=1-1 -->\nno status"}]')"
+assert_eq "#363 finalize_check phase extraction yields empty on an empty comment list" \
+  "" "$(_last_phase_jq '[]')"
+assert_eq "#363 finalize_check phase extraction yields empty when no progress comment exists" \
+  "" "$(_last_phase_jq '[{"body":"unrelated"}]')"
+assert_eq "#363 finalize_check phase extraction flattens concatenated --paginate comment pages" \
+  "👎 Blocked" "$(_last_phase_jq '[{"body":"x"}][{"body":"<!-- devflow:review-progress run=1-1 -->\n**Status:** 👎 Blocked"}]')"
+# On any WELL-FORMED comment payload the expression exits 0 and yields a phase or "".
+assert_eq "#363 finalize_check phase extraction exits 0 on every well-formed comment shape" "000" \
+  "$(for _b in '[]' '[{"body":"unrelated"}]' '[{"body":"<!-- devflow:review-progress -->\nno status"}]'; do \
+       _last_phase_jq "$_b" >/dev/null 2>&1; printf '%s' $?; done)"
+# A MALFORMED payload makes jq exit non-zero — which is why the caller must absorb it.
+# Without the `|| LAST_PHASE=""`, finalize_check runs under `set -euo pipefail` and a
+# transient/garbled comment read would abort the step, losing the ::error:: entirely.
+assert_eq "#363 finalize_check phase extraction exits NON-zero on a malformed payload (caller must absorb)" "yes" \
+  "$(_last_phase_jq 'not json' >/dev/null 2>&1 && echo no || echo yes)"
+assert_pin_unique "#363 finalize_check absorbs a failed progress-comment read instead of aborting the step" \
+  'LAST_PHASE=""' "$REVIEW_YML"
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.

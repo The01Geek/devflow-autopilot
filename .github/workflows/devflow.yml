@@ -586,7 +586,14 @@ jobs:
             echo "::warning::devflow: render-grounding-block.sh not found at either the vendored or repo path — falling back to the bare command prompt" >&2
             exit 0
           fi
-          GROUNDING=$(CI_SUMMARY="$CI_SUMMARY" ALLOWED_TOOLS="$ALLOWED_TOOLS" bash "$RGB")
+          GROUNDING=$(CI_SUMMARY="$CI_SUMMARY" ALLOWED_TOOLS="$ALLOWED_TOOLS" bash "$RGB") || GROUNDING=""
+          # Verify the OUTCOME, not the file's existence (see devflow-runner.yml).
+          # An empty block means the engine gets the bare command prompt back, which
+          # is the pre-#363 behavior — degraded, but never a silently-empty block.
+          if [ -z "$GROUNDING" ]; then
+            echo "::warning::devflow: render-grounding-block.sh produced no output — falling back to the bare command prompt for this review" >&2
+            exit 0
+          fi
           PROMPT="${GROUNDING}
 
           ${CMD}"

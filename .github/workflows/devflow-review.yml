@@ -1086,7 +1086,7 @@ jobs:
           # diagnostics step and a version-skewed vendored runner that predates the
           # output. `0` therefore means "clean OR unavailable" — it gates the ::error::
           # message's detail, never the fail-closed verdict itself.
-          PERMISSION_DENIALS_COUNT: ${{ needs.review.outputs.permission_denials_count || '0' }}
+          PERMISSION_DENIALS_COUNT: ${{ needs.review.outputs.permission_denials_count || 'unavailable' }}
         run: |
           set -euo pipefail
           # The `Devflow Review` check conclusion encodes the review
@@ -1185,7 +1185,16 @@ jobs:
                     | jq -rs 'map(.[]?) | map(select(((.body // "") | tostring) | contains("<!-- devflow:review-progress")))
                               | last | ((.body // "") | tostring)
                               | capture("\\*\\*Status:\\*\\* (?<s>[^\n]*)").s? // empty' 2>/dev/null) || LAST_PHASE=""
-                  echo "::error::Devflow review produced NO VERDICT for $HEAD_SHA. The harness refused ${PERMISSION_DENIALS_COUNT:-0} command(s) during execution${LAST_PHASE:+ (engine last reported: ${LAST_PHASE})}. A Re-run will hit the same wall unless the review tool profile grants what the engine needs — see the review job's 'Surface execution diagnostics' step for the exact denied commands."
+                  # Report an unestablished count AS unestablished. `0` would be a
+                  # concrete claim the run never observed, and it would steer the
+                  # reader away from permission denials — the mis-diagnosis this
+                  # annotation exists to prevent.
+                  case "${PERMISSION_DENIALS_COUNT:-unavailable}" in
+                    ''|*[!0-9]*) DENIAL_CLAUSE="The permission-denial count could not be established (execution diagnostics unavailable), so denials cannot be ruled out as the cause" ;;
+                    0)           DENIAL_CLAUSE="The harness refused no commands, so the stall has some other cause" ;;
+                    *)           DENIAL_CLAUSE="The harness refused ${PERMISSION_DENIALS_COUNT} command(s) during execution" ;;
+                  esac
+                  echo "::error::Devflow review produced NO VERDICT for $HEAD_SHA. ${DENIAL_CLAUSE}${LAST_PHASE:+ (engine last reported: ${LAST_PHASE})}. A Re-run will hit the same wall unless the review tool profile grants what the engine needs — see the review job's 'Surface execution diagnostics' step for the exact denied commands."
                   ;;
               esac
               ;;

@@ -81,11 +81,13 @@ on:
       permission_denials_count:
         description: |
           Number of Bash permission denials recorded in this run's execution log
-          (issue #363). Defaults "0" whenever the count cannot be established —
-          diagnostics disabled, the step skipped, or an absent/unparseable
-          execution file — so a consumer CANNOT distinguish "clean" from
-          "unavailable" from this value alone. It exists to gate finalize_check's
-          ::error:: on a no-verdict run, not for exact accounting.
+          (issue #363), or the literal `unavailable` when the count could not be
+          established — diagnostics disabled, the step skipped, or an absent or
+          unparseable execution file. A consumer MUST treat `unavailable` as
+          unknown and never render it as `0`: the whole point of the no-verdict
+          ::error:: is to name the cause, and "refused 0 commands" on a run whose
+          diagnostics never parsed is a false statement that steers the reader
+          away from permission denials.
         value: ${{ jobs.run.outputs.permission_denials_count }}
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN:
@@ -128,10 +130,13 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       engine_is_error: ${{ steps.engine.outputs.is_error }}
-      # `|| '0'` is the load-bearing default: it covers EVERY path on which the
-      # diagnostics step publishes nothing (config-disabled, skipped, absent or
-      # unparseable execution file), not just the unparseable one.
-      permission_denials_count: ${{ steps.diagnostics.outputs.permission_denials_count || '0' }}
+      # `|| 'unavailable'` is the load-bearing default: it covers EVERY path on which
+      # the diagnostics step publishes nothing (config-disabled, skipped, absent or
+      # unparseable execution file). The sentinel is deliberately NOT `0` — a
+      # consumer must be able to tell "the engine recorded no denials" from "the
+      # count could not be established", and collapsing both onto `0` makes the
+      # no-verdict ::error:: assert a denial count it never observed (issue #363).
+      permission_denials_count: ${{ steps.diagnostics.outputs.permission_denials_count || 'unavailable' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -537,11 +542,15 @@ jobs:
           RGB=.devflow/vendor/devflow/scripts/render-grounding-block.sh
           [ -f "$RGB" ] || RGB=scripts/render-grounding-block.sh
           if [ -f "$RGB" ]; then
-            GROUNDING=$(CI_SUMMARY="$CI_SUMMARY" ALLOWED_TOOLS="$ALLOWED_TOOLS" bash "$RGB")
+            GROUNDING=$(CI_SUMMARY="$CI_SUMMARY" ALLOWED_TOOLS="$ALLOWED_TOOLS" bash "$RGB") || GROUNDING=""
           else
             echo "::warning::devflow: render-grounding-block.sh not found at either the vendored or repo path — the review prompt carries no engine-ground-truth block this run" >&2
             GROUNDING=""
           fi
+          # Verify the OUTCOME, not the file's existence: a present-but-truncated
+          # renderer that exits 0 printing nothing would silently strip the block's
+          # prompt-injection defense from the prompt with no breadcrumb.
+          [ -n "$GROUNDING" ] || echo "::warning::devflow: render-grounding-block.sh produced no output — the review prompt carries no engine-ground-truth block this run (the engine will rediscover its tool boundary by trial and denial)" >&2
           # The grounding block is ALWAYS present. When the infra-health block is also
           # present, both are prepended — grounding first, then health, then the base
           # prompt — so neither displaces the other.

@@ -15,6 +15,15 @@
 #     line, and stderr carries a SPECIFIC breadcrumb naming which query failed.
 #     An absent result must never render as a passing one — that fail-open is the
 #     bug this helper exists to prevent.
+#   * A head with genuinely zero CI signals (no non-self workflow jobs and no
+#     external check runs) is NOT a failure: stdout is exactly
+#     `No CI signals reported for this commit`, distinct from `CI status
+#     unavailable`. Neither reads as a pass.
+#   * No value that decides a selection or an emitted result is derived through an
+#     external PATH tool (`tr`/`sed`/`wc`/`cut`): those are not preflight
+#     prerequisites, and a missing one would silently change the answer rather
+#     than fail. Sanitization still uses `tr`/`cut`, where a missing tool empties
+#     the pipeline and the name fails CLOSED to `(unnamed check)`.
 #   * `gh` routes through lib/resolve-gh.sh, `jq` through lib/resolve-jq.sh.
 #
 # Reads from the environment: REPO, HEAD_SHA, SELF_WORKFLOW_NAME.
@@ -23,7 +32,8 @@
 # run that a pull request can add, so it is attacker-controlled text entering a
 # `pull_request_target` prompt. Names are sanitized to printable ASCII with
 # backticks/angle brackets/newlines removed, truncated to 120 characters, and
-# capped at 50 lines. Sanitization is a security control, not cosmetics.
+# capped at 50 signal lines (plus one line naming how many were dropped).
+# Sanitization is a security control, not cosmetics.
 
 set -u
 
@@ -95,10 +105,18 @@ fi
 # matrix expansions) can carry dozens. The runs endpoint returns newest-first, so the
 # cap keeps the most recent runs. A dropped run is announced, never silent.
 MAX_RUNS=30
-RUN_COUNT=$(printf '%s\n' "$RUN_IDS" | grep -c '[0-9]' || true)
-if [ "${RUN_COUNT:-0}" -gt "$MAX_RUNS" ]; then
+RUN_COUNT=0
+for _rid in $RUN_IDS; do RUN_COUNT=$((RUN_COUNT + 1)); done
+if [ "$RUN_COUNT" -gt "$MAX_RUNS" ]; then
   echo "summarize-ci-checks: $RUN_COUNT non-self workflow runs for $HEAD_SHA exceeds the $MAX_RUNS-run query cap; summarizing the $MAX_RUNS most recent and skipping $((RUN_COUNT - MAX_RUNS))." >&2
-  RUN_IDS=$(printf '%s\n' "$RUN_IDS" | head -"$MAX_RUNS")
+  _kept=""
+  _n=0
+  for _rid in $RUN_IDS; do
+    [ "$_n" -lt "$MAX_RUNS" ] || break
+    _kept="$_kept $_rid"
+    _n=$((_n + 1))
+  done
+  RUN_IDS="$_kept"
 fi
 
 SIGNALS_FILE=$(mktemp 2>/dev/null) || unavailable "could not allocate a temp file for the CI signal list (mktemp failed)."
@@ -155,8 +173,13 @@ if ! printf '%s' "$CHECKS_JSON" | "$DEVFLOW_JQ" -rs '
 fi
 
 # ── Render. Sanitize, truncate, cap.
-TOTAL=$(wc -l < "$SIGNALS_FILE" | tr -d ' ')
-if [ "${TOTAL:-0}" -eq 0 ]; then
+# Counted with bash builtins, not `wc`: this value selects between "no CI ran" and
+# "render the signals", and an absent/differing `wc` would make a head that DOES
+# carry signals render as "No CI signals reported" — an absent tool silently
+# reading as an absent CI result. `tr`/`wc`/`cut` are not preflight prerequisites.
+TOTAL=0
+while IFS= read -r _ignored; do TOTAL=$((TOTAL + 1)); done < "$SIGNALS_FILE"
+if [ "$TOTAL" -eq 0 ]; then
   echo "summarize-ci-checks: no CI signals found for $HEAD_SHA (no non-self workflow jobs and no external check runs)." >&2
   echo "No CI signals reported for this commit"
   exit 0
