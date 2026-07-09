@@ -4132,15 +4132,18 @@ assert_pin_unique "#346: 2.2.5 takes the Blocked path when the pushable subset w
   'Empty pushable subset ⇒ take the Blocked path here, do not narrow-and-proceed' "$IMPL_PHASES_DIR/phase-2-implement.md"
 # Review iter 4 (shadow): the Phase 2.3-discovery backstop was inert prose — no firing
 # point at the commit step. Pin the Phase 2.5 cloud-tier commit guard that actually fires it
-# (git status against the repo-own .github/workflows/, revert + route through 2.2.5) so a
-# later edit cannot strand the backstop as unexecutable prose again.
+# (git diff HEAD + git ls-files --others against the repo-own .github/workflows/, revert +
+# route through 2.2.5) so a later edit cannot strand the backstop as unexecutable prose again.
 assert_pin_unique "#346: Phase 2.5 commit guard fires the workflow-edit backstop (repo-own .github/workflows/, cloud tier)" \
   'Cloud-tier workflow-edit commit guard (fires the Pass 5 / 2.2.5 backstop here)' "$IMPL_PHASES_DIR/phase-2-implement.md"
-# The guard checks BOTH tracked edits (git diff HEAD) AND untracked new workflow files
-# (git ls-files --others), because a workflow-*adding* AC leaves an untracked file that
-# git diff HEAD never lists yet git add -A would stage. Pin the untracked-detection clause
-# so a future trim back to tracked-only detection (git diff HEAD alone) goes RED instead of
-# silently regressing the untracked-workflow catch that iteration-4 added.
+# The guard checks BOTH detection arms — tracked edits (git diff HEAD) AND untracked new
+# workflow files (git ls-files --others) — because a workflow-*adding* AC leaves an untracked
+# file that git diff HEAD never lists yet git add -A would stage, while a workflow-*editing* AC
+# (the dominant case) is caught only by the tracked arm. Pin BOTH clauses so a future trim to
+# either arm alone goes RED instead of silently regressing the other's catch: the tracked arm
+# (modified/deleted existing workflow) and the untracked arm (newly-added workflow, iteration-4).
+assert_pin_unique "#346: Phase 2.5 commit guard detects tracked workflow edits (git diff HEAD arm)" \
+  'git diff HEAD --name-only -- .github/workflows/' "$IMPL_PHASES_DIR/phase-2-implement.md"
 assert_pin_unique "#346: Phase 2.5 commit guard also detects untracked new workflow files (not tracked-only)" \
   'git ls-files --others --exclude-standard -- .github/workflows/' "$IMPL_PHASES_DIR/phase-2-implement.md"
 assert_pin_unique "#346: Pass 5 records a clean note on the cloud-tier no-workflow-AC path (record-even-when-clean)" \
