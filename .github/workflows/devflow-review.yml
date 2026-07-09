@@ -1082,10 +1082,16 @@ jobs:
           # because the deriver's HEAD-SHA verdict scoping remains the primary
           # staleness guard.
           ENGINE_ERROR: ${{ needs.review.outputs.engine_is_error }}
-          # Denials recorded by the review engine. `|| '0'` covers a skipped/disabled
-          # diagnostics step and a version-skewed vendored runner that predates the
-          # output. `0` therefore means "clean OR unavailable" — it gates the ::error::
-          # message's detail, never the fail-closed verdict itself.
+          # Denials recorded by the review engine. `|| 'unavailable'` covers an
+          # EMPTY output — a version-skewed vendored runner predating the output,
+          # or a review job that never ran; a skipped/disabled diagnostics step
+          # already arrives as `unavailable` from the runner's own fallback. The
+          # fallback is deliberately NOT `0`: a real `0` means "the engine
+          # recorded no denials", while `unavailable` means "the count could not
+          # be established" — collapsing both onto `0` would make the no-verdict
+          # ::error:: assert a denial count it never observed (issue #363). This
+          # gates the ::error:: message's detail, never the fail-closed verdict
+          # itself.
           PERMISSION_DENIALS_COUNT: ${{ needs.review.outputs.permission_denials_count || 'unavailable' }}
         run: |
           set -euo pipefail
