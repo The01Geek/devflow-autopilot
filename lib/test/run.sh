@@ -18811,8 +18811,16 @@ ISG_R="$(isg_run "$ISG_D" '{"session_id":"../../etc/passwd"}')"
 assert_eq "#362 isg: path-traversing session_id -> allow (exit 0)" "0" "${ISG_R%%|*}"
 assert_eq "#362 isg: path-traversing session_id arm emits its own breadcrumb" "yes" \
   "$(printf '%s' "${ISG_R#*|}" | grep -qF 'no usable session_id' && echo yes || echo no)"
-assert_eq "#362 isg: path-traversing session_id never writes outside .devflow/tmp" "no" \
-  "$([ -e "$ISG_D/../../etc/passwd" ] && echo yes || echo no)"
+# The guard must have written NO sentinel at all. Assert that by searching the sandbox for
+# any `stop-guard-*` file, not by probing `$ISG_D/../../etc/passwd`: that path is what the
+# session_id would traverse TO, and where it lands depends on how deep mktemp roots the
+# sandbox. Under CI (`/tmp/<x>`) it resolves to the host's real `/etc/passwd`, which exists
+# and the guard never touched — a false FAIL; under macOS's deep `/var/folders/...` root it
+# resolves nowhere, so the check passed vacuously and would not have caught a real escape.
+# A `find` for the sentinel name is depth-independent and non-vacuous: a guard that keyed a
+# sentinel on this session_id (sanitized or not) leaves a `stop-guard-*` file behind.
+assert_eq "#362 isg: path-traversing session_id never writes a sentinel anywhere" "" \
+  "$(find "$ISG_D" -name 'stop-guard-*' 2>/dev/null | head -1)"
 rm -rf "$ISG_D"
 
 # ── allow: no marker present — and the workpad helper is NEVER invoked (the
