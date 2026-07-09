@@ -711,6 +711,29 @@ jobs:
             echo "::warning::stall backstop: vendored scripts dir '$V' missing (claude step outcome: ${CLAUDE_OUTCOME:-unknown}); skipped — the job is already non-green"
             exit 0
           fi
+          # Dead-run Status flip (issue #356): when this backstop step takes a
+          # fail-loud exit AND the workpad Status was successfully read as a
+          # genuinely interim (🚀) value, flip it to the terminal 💥 Failed word
+          # so the workpad stops lying that a dead run is still working. Best-
+          # effort: a flip failure emits a ::warning:: and never changes which
+          # exit statement is reached (kept inside the step's `set +e`
+          # discipline). Guarded on CLASS=interim, so a terminal/unreadable/
+          # auth-failure class is never clobbered (fail closed) — this makes the
+          # fail-auth and fail-unreadable arms no-ops for the flip even though
+          # they reach the shared final exit. The guard is POSITIONAL, not
+          # temporal: the flip is called only at genuine fail-loud exits, never
+          # on the green resume path (a terminal Failed written before a resume
+          # would make the resumed run's backstop read terminal→noop and disarm
+          # it). The dropped-resume and no-App-token aborts ARE fail-loud exits
+          # despite living on the resume decision, so they flip: the resume did
+          # not actually take, so no run is disarmed.
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          flip_to_failed() {
+            [ "${CLASS:-}" = "interim" ] || return 0
+            python3 "$V/workpad.py" update "$ISSUE_NUMBER" --status Failed \
+              --note "run died: ${1:-dead-end exit} — ${RUN_URL}" \
+              || echo "::warning::stall backstop: could not flip workpad Status to 💥 Failed (${1:-dead-end exit}); leaving it unchanged"
+          }
           # Master switch first: disabled → fully skipped (no status read, no
           # comment, no resume, no fail). Unrecognized/missing resolves to
           # enabled (only the exact string "false" disables — the decide
@@ -807,7 +830,7 @@ jobs:
           # arm that would silently drop the re-dispatch (a masked stall, the
           # exact green-but-stalled outcome this backstop exists to prevent),
           # so it always fails the job loud, whatever the decision was.
-          BODY="$(mktemp)" || { echo "::error::stall backstop: mktemp failed; cannot post the ${DECISION} comment — failing loud (a resume comment that was never posted must not read as green)"; exit 1; }
+          BODY="$(mktemp)" || { flip_to_failed "mktemp failed; cannot post the ${DECISION} comment"; echo "::error::stall backstop: mktemp failed; cannot post the ${DECISION} comment — failing loud (a resume comment that was never posted must not read as green)"; exit 1; }
           case "$DECISION" in
             resume)
               K=$((ATTEMPTS + 1))
@@ -850,6 +873,7 @@ jobs:
           POST_ERR="$(bash "$V/post-issue-comment.sh" "$ISSUE_NUMBER" "$BODY" 2>&1)"
           printf '%s\n' "$POST_ERR"
           if [ "$FAIL" -eq 0 ] && ! printf '%s' "$POST_ERR" | grep -qxF "devflow: posted comment on #${ISSUE_NUMBER}"; then
+            flip_to_failed "resume re-dispatch comment did not land"
             echo "::error::stall backstop: the resume re-dispatch comment did not land (see the breadcrumb above) — failing loud so the stall stays visible for a manual retrigger"
             exit 1
           fi
@@ -859,7 +883,15 @@ jobs:
           # exists to prevent. The comment (with the trigger phrase a human
           # can re-post) is already up; fail loud so the stall shows red.
           if [ "$FAIL" -eq 0 ] && [ "$APP_TOKEN_PRESENT" != "true" ]; then
+            flip_to_failed "resume comment posted but no App token to start a new run"
             echo "::error::stall backstop: resume comment posted, but no DEVFLOW_APP_ID App token is configured — a GITHUB_TOKEN-authored comment cannot start a new run, so auto-resume is inert; failing loud (configure DEVFLOW_APP_ID for auto-resume, or re-post the trigger comment manually)"
             exit 1
           fi
+          # The shared final exit is reached by the green resume path (FAIL=0)
+          # and every fail-loud decision (FAIL=1: fail-exhausted, fail-auth,
+          # fail-unreadable). Flip ONLY on a fail-loud exit (FAIL=1) — never on
+          # the resume green path — and flip_to_failed itself guards CLASS=interim
+          # so fail-auth/fail-unreadable (non-interim) are no-ops here; only the
+          # fail-exhausted arm (interim + cap reached) actually flips.
+          [ "$FAIL" -eq 1 ] && flip_to_failed "${DECISION}"
           exit "$FAIL"

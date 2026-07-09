@@ -729,6 +729,37 @@ jobs:
             echo "::notice::surface-execution-diagnostics.sh absent; execution diagnostics not surfaced (best-effort)."
           fi
 
+      # Dead-run review-progress flip (issue #356). A comment-triggered
+      # /devflow:review or /devflow:review-and-fix seeds a run-keyed
+      # devflow:review-progress comment; if the claude step dies (failure or
+      # cancellation) the agent never flips it out of the interim 🚀 Reviewing
+      # state. This always() step does the workflow-level flip, keyed on the
+      # claude step's RAW outcome (success/failure/cancelled/skipped, before
+      # continue-on-error). Best-effort: the helper always exits 0, so this never
+      # changes the job's pass/fail. A /devflow:implement or /devflow:pr-description
+      # trigger seeds no such comment, so the helper's comment-absent no-op arm
+      # handles it. The run-keyed marker matches ONLY this run's comment.
+      - name: Flip review-progress comment on dead run
+        if: ${{ always() && (steps.claude.outcome == 'failure' || steps.claude.outcome == 'cancelled') }}
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+          CONTEXT_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+          CLAUDE_OUTCOME: ${{ steps.claude.outcome }}
+        run: |
+          set -uo pipefail
+          FLIP_MARKER="<!-- devflow:review-progress run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} -->"
+          FLIP_HELPER=.devflow/vendor/devflow/scripts/flip-review-progress-failed.sh
+          [ -f "$FLIP_HELPER" ] || FLIP_HELPER=scripts/flip-review-progress-failed.sh
+          if [ -z "${CONTEXT_NUMBER:-}" ]; then
+            echo "::notice::flip review-progress: no issue/PR number on this event; nothing to flip"
+            exit 0
+          fi
+          if [ -f "$FLIP_HELPER" ]; then
+            bash "$FLIP_HELPER" "$CONTEXT_NUMBER" "$FLIP_MARKER" "claude step ${CLAUDE_OUTCOME}" || true
+          else
+            echo "::warning::flip review-progress: flip-review-progress-failed.sh absent at $FLIP_HELPER; review-progress comment not flipped to '❌ Review failed'"
+          fi
+
       - name: Persist review-and-fix observability artifacts (backstop)
         if: ${{ always() }}
         run: |

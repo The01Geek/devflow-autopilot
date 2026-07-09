@@ -4018,6 +4018,219 @@ assert_eq "#258: workpad.py carries the terminal --status Complete self-record g
   "$(grep -q '_terminal_complete_gate' "$WP_PY" && grep -q "(post-merge)" "$WP_PY" && echo yes || echo no)"
 rm -rf "$S258"
 
+# ── issue #356: 💥 Failed terminal workpad status + dead-run flips ─────────────
+# A cloud run that dies (job failure/cancel/exhausted auto-resume) must stop its
+# Status-bearing comment lying. Two flips, one vocabulary each:
+#   - implement workpad → new canonical terminal word `Failed`, glyph 💥
+#   - review progress comment → the skill's existing `❌ Review failed` state
+# Coupled invariant: 💥 is mirrored across workpad.py's _STATUS_GLYPHS,
+# fetch-pr-context.sh's glyph strip, and the docs; the `❌ Review failed` literal
+# and the run-keyed marker are a coupled contract with skills/review/SKILL.md.
+S356="$(mktemp -d)"
+cat > "$S356/gh" <<'STUB'
+#!/usr/bin/env bash
+# Minimal gh stub for workpad.py (status/update) and flip-review-progress-failed.sh
+# (id/body/patch). Comments-list returns the full WP_BODY so `status` (which reads
+# the body straight from the list) and `id`/`update` (which then fetch it) both work.
+j="$*"
+if [[ "$j" == *"repo view"* ]]; then echo "owner/repo"; exit 0; fi
+if [[ "$j" == *"-X PATCH"* ]]; then
+  if [ -n "${WP_PATCH_FAIL:-}" ]; then echo "patch boom" >&2; exit 1; fi
+  echo p >> "$WP_PATCHLOG"
+  for a in "$@"; do case "$a" in body=@*) cat "${a#body=@}" | tee "${WP_PATCHBODY:-/dev/null}";; esac; done
+  exit 0
+fi
+if [[ "$j" == *"issues/comments/7"* ]]; then cat "$WP_BODY"; exit 0; fi
+if [[ "$j" == *"/comments"* ]]; then
+  if [ -n "${WP_ABSENT:-}" ]; then echo '[]'; exit 0; fi
+  printf '[{"id":7,"body":%s}]' "$(jq -Rs . < "$WP_BODY")"; exit 0
+fi
+echo '[]'
+STUB
+chmod +x "$S356/gh"
+
+# Fixture: an interim (🚀 Implementing) workpad with Setup ticked, Implement not,
+# and an unticked non-post-merge AC (to exercise the Complete-only-gate carve-out).
+cat > "$S356/interim.md" <<'WPMD'
+<!-- devflow:workpad -->
+# DevFlow Workpad — Issue #888
+
+**Status:** 🚀 Implementing
+**Last updated:** 2026-07-09T00:00:00Z
+
+## Progress
+- [x] **Setup** — branch & workpad
+- [ ] **Implement**
+
+## Plan
+- [ ] do the thing
+
+## Acceptance Criteria
+- [ ] AC one
+WPMD
+# A body already carrying the terminal 💥 Failed status (for status + idempotency).
+sed 's/🚀 Implementing/💥 Failed/' "$S356/interim.md" > "$S356/failed.md"
+
+run356() {  # <body-file> <args...> → prints exit code; leaves out/err/patchlog on disk.
+  local body="$1"; shift
+  : > "$S356/patchlog"
+  WP_BODY="$body" WP_PATCHLOG="$S356/patchlog" DEVFLOW_GH="$S356/gh" \
+    python3 "$WP_PY" update 888 "$@" >"$S356/out" 2>"$S356/err"
+  echo $?
+}
+
+# AC: `workpad.py status` prints `terminal 💥 Failed` exit 0 for a 💥 Failed body.
+_so="$(WP_BODY="$S356/failed.md" DEVFLOW_GH="$S356/gh" python3 "$WP_PY" status 888 2>/dev/null)"; _src=$?
+assert_eq "#356: workpad.py status prints 'terminal 💥 Failed' for a 💥 Failed body" "terminal 💥 Failed" "$_so"
+assert_eq "#356: workpad.py status exits 0 for a 💥 Failed body" "0" "$_src"
+
+# AC: update --status Failed writes 💥 Failed and does NOT trip the Complete-only gate.
+_c="$(run356 "$S356/interim.md" --status Failed)"
+assert_eq "#356: update --status Failed succeeds (exit 0) even with an unticked non-post-merge AC" "0" "$_c"
+assert_eq "#356: update --status Failed writes '**Status:** 💥 Failed'" "yes" \
+  "$(grep -q '^\*\*Status:\*\* 💥 Failed$' "$S356/out" && echo yes || echo no)"
+assert_eq "#356: update --status Failed PATCHed (Complete-only gate not tripped)" "yes" \
+  "$([ -s "$S356/patchlog" ] && echo yes || echo no)"
+
+# AC: re-applying --status Failed to a 💥 Failed body is idempotent (single glyph).
+_c="$(run356 "$S356/failed.md" --status Failed)"
+assert_eq "#356: re-applying --status Failed stays exit 0" "0" "$_c"
+assert_eq "#356: re-applying --status Failed yields one 💥, not '💥 💥'" "yes" \
+  "$(grep -q '^\*\*Status:\*\* 💥 Failed$' "$S356/out" && ! grep -q '💥 💥' "$S356/out" && echo yes || echo no)"
+
+# AC: Failed is absent from _STATUS_TO_PROGRESS_PHASE, so a --note nests under the
+# most-recent-ticked phase (Setup here) — the same fallback Blocked uses.
+_c="$(run356 "$S356/interim.md" --status Failed --note "died here")"
+assert_eq "#356: --status Failed --note nests under the most-recent-ticked phase (Setup)" "yes" \
+  "$(python3 -c "
+t=open('$S356/out').read().splitlines()
+si=[i for i,l in enumerate(t) if 'Setup' in l and l.startswith('- [')]
+ii=[i for i,l in enumerate(t) if 'Implement' in l and l.startswith('- [')]
+ni=[i for i,l in enumerate(t) if 'died here' in l]
+print('yes' if si and ii and ni and si[0]<ni[0]<ii[0] else 'no')
+")"
+
+# Source pins: the 💥 vocabulary lives in workpad.py (single source of truth).
+assert_eq "#356: workpad.py _STATUS_GLYPHS includes 💥 (extended tuple)" "yes" \
+  "$(grep -q "💥')" "$WP_PY" && echo yes || echo no)"
+assert_eq "#356: workpad.py maps 'failed' → 💥 (write path) and leaves it out of _STATUS_TO_PROGRESS_PHASE" "yes" \
+  "$(grep -q "return '💥'" "$WP_PY" && ! grep -q "'failed':" "$WP_PY" && echo yes || echo no)"
+
+# ── flip-review-progress-failed.sh unit tests ─────────────────────────────────
+FLIP_SH="$LIB/../scripts/flip-review-progress-failed.sh"
+RMARK="<!-- devflow:review-progress run=RUNTEST-1 -->"
+# Interim review-progress comment (🚀 Reviewing) — the flip candidate.
+cat > "$S356/rev-interim.md" <<RMD
+$RMARK
+# Devflow Review — PR #55
+
+**Status:** 🚀 Reviewing
+
+## Blueprint
+- [ ] step one
+RMD
+# Terminal review-progress comment (already ❌ Review failed) — must NOT be touched.
+sed 's/🚀 Reviewing/❌ Review failed/' "$S356/rev-interim.md" > "$S356/rev-terminal.md"
+
+# (flipped) 🚀 Reviewing → ❌ Review failed, cause line appended, PATCH made, exit 0.
+: > "$S356/patchlog"; : > "$S356/patchbody"
+WP_BODY="$S356/rev-interim.md" WP_PATCHLOG="$S356/patchlog" WP_PATCHBODY="$S356/patchbody" DEVFLOW_GH="$S356/gh" \
+  bash "$FLIP_SH" 55 "$RMARK" "job died" >/dev/null 2>"$S356/ferr"; _fc=$?
+assert_eq "#356 flip: exits 0 on a successful flip" "0" "$_fc"
+# The stub records the patched body it received to WP_PATCHBODY.
+assert_eq "#356 flip: rewrote the Status line to '❌ Review failed'" "yes" \
+  "$(grep -q '^\*\*Status:\*\* ❌ Review failed$' "$S356/patchbody" && echo yes || echo no)"
+assert_eq "#356 flip: the interim 🚀 Reviewing status is gone after the flip" "yes" \
+  "$(grep -q '🚀 Reviewing' "$S356/patchbody" && echo no || echo yes)"
+assert_eq "#356 flip: a one-line cause is appended" "yes" \
+  "$(grep -q 'job died' "$S356/patchbody" && echo yes || echo no)"
+assert_eq "#356 flip: breadcrumb names the 'flipped' arm" "yes" \
+  "$(grep -qi 'flipped' "$S356/ferr" && echo yes || echo no)"
+assert_eq "#356 flip: a PATCH was actually made" "yes" \
+  "$([ -s "$S356/patchlog" ] && echo yes || echo no)"
+
+# (already-terminal) a ❌ Review failed comment is left untouched, exit 0, no PATCH.
+: > "$S356/patchlog"
+WP_BODY="$S356/rev-terminal.md" WP_PATCHLOG="$S356/patchlog" DEVFLOW_GH="$S356/gh" \
+  bash "$FLIP_SH" 55 "$RMARK" "job died" >/dev/null 2>"$S356/ferr"; _fc=$?
+assert_eq "#356 flip: exits 0 on an already-terminal comment" "0" "$_fc"
+assert_eq "#356 flip: makes NO PATCH on an already-terminal comment" "yes" \
+  "$([ -s "$S356/patchlog" ] && echo no || echo yes)"
+assert_eq "#356 flip: breadcrumb names the already-terminal arm" "yes" \
+  "$(grep -qi 'already terminal' "$S356/ferr" && echo yes || echo no)"
+
+# (comment absent) no matching run-keyed marker → comment-absent no-op, exit 0.
+: > "$S356/patchlog"
+WP_BODY="$S356/rev-interim.md" WP_PATCHLOG="$S356/patchlog" WP_ABSENT=1 DEVFLOW_GH="$S356/gh" \
+  bash "$FLIP_SH" 55 "$RMARK" "job died" >/dev/null 2>"$S356/ferr"; _fc=$?
+assert_eq "#356 flip: exits 0 when no progress comment exists" "0" "$_fc"
+assert_eq "#356 flip: comment-absent arm makes NO PATCH" "yes" \
+  "$([ -s "$S356/patchlog" ] && echo no || echo yes)"
+assert_eq "#356 flip: breadcrumb names the comment-absent arm" "yes" \
+  "$(grep -qi 'comment-absent' "$S356/ferr" && echo yes || echo no)"
+
+# (patch failure) the PATCH itself fails → exit 0, failure breadcrumb.
+: > "$S356/patchlog"
+WP_BODY="$S356/rev-interim.md" WP_PATCHLOG="$S356/patchlog" WP_PATCH_FAIL=1 DEVFLOW_GH="$S356/gh" \
+  bash "$FLIP_SH" 55 "$RMARK" "job died" >/dev/null 2>"$S356/ferr"; _fc=$?
+assert_eq "#356 flip: exits 0 even when the PATCH fails" "0" "$_fc"
+assert_eq "#356 flip: patch-failure breadcrumb names the failure arm" "yes" \
+  "$(grep -qi 'patch-failure' "$S356/ferr" && echo yes || echo no)"
+
+# Helper contract pins: SPDX header + always-exit-0 + routes via workpad.py (no bare gh).
+assert_eq "#356 flip: helper carries the SPDX header" "yes" \
+  "$(grep -q 'SPDX-License-Identifier: MIT' "$FLIP_SH" && echo yes || echo no)"
+assert_eq "#356 flip: helper routes GitHub access through workpad.py (no bare gh invocation)" "yes" \
+  "$(grep -q 'workpad.py' "$FLIP_SH" && ! grep -qE '(^|[^A-Za-z_.])gh (api|issue|pr|label|repo)' "$FLIP_SH" && echo yes || echo no)"
+# Coupled contract with skills/review/SKILL.md (the agent-side fatal-abort rule):
+# the `❌ Review failed` literal must match. Pin the SKILL side uniquely (a rename
+# there goes RED); assert the helper carries the matching literal via grep_present.
+assert_pin_unique "#356 flip: skills/review/SKILL.md carries the '❌ Review failed' literal the helper mirrors" \
+  '❌ Review failed' "$LIB/../skills/review/SKILL.md"
+assert_eq "#356 flip: helper carries the matching '❌ Review failed' literal" "yes" \
+  "$(grep -qF '❌ Review failed' "$FLIP_SH" && echo yes || echo no)"
+
+# ── fetch-pr-context.sh glyph-strip pin (unit) ────────────────────────────────
+assert_eq "#356: fetch-pr-context.sh strips 💥 from the workpad Status glyph set" "yes" \
+  "$(grep -q '🚀|🎉|👎|💥' "$LIB/fetch-pr-context.sh" && echo yes || echo no)"
+
+# ── Static workflow-wiring pins (the repo's #232/#258 pattern) ─────────────────
+IMPL_YML="$LIB/../.github/workflows/devflow-implement.yml"
+REVIEW_YML="$LIB/../.github/workflows/devflow-review.yml"
+DEVFLOW_YML="$LIB/../.github/workflows/devflow.yml"
+
+# Implement flip: the function + its four fail-loud call sites, guarded on interim.
+assert_eq "#356 pin: devflow-implement.yml defines flip_to_failed guarded on CLASS=interim" "yes" \
+  "$(grep -q 'flip_to_failed()' "$IMPL_YML" && grep -q '\[ "\${CLASS:-}" = "interim" \] || return 0' "$IMPL_YML" && echo yes || echo no)"
+assert_eq "#356 pin: implement flip writes --status Failed with a dead-run note" "yes" \
+  "$(grep -q -- '--status Failed' "$IMPL_YML" && grep -q 'run died:' "$IMPL_YML" && echo yes || echo no)"
+assert_eq "#356 pin: implement flip called at the mktemp abort" "yes" \
+  "$(grep -q 'flip_to_failed "mktemp failed' "$IMPL_YML" && echo yes || echo no)"
+assert_eq "#356 pin: implement flip called at the dropped-resume-comment abort" "yes" \
+  "$(grep -q 'flip_to_failed "resume re-dispatch comment did not land"' "$IMPL_YML" && echo yes || echo no)"
+assert_eq "#356 pin: implement flip called at the resume-posted-but-no-App-token abort" "yes" \
+  "$(grep -q 'flip_to_failed "resume comment posted but no App token' "$IMPL_YML" && echo yes || echo no)"
+assert_eq "#356 pin: implement flip at the shared final exit is guarded FAIL=1 (never the green resume)" "yes" \
+  "$(grep -q '\[ "\$FAIL" -eq 1 \] && flip_to_failed "\${DECISION}"' "$IMPL_YML" && echo yes || echo no)"
+# Absence: the flip must NOT sit inside the resume-comment case arm (the green path).
+assert_eq "#356 pin: no flip_to_failed inside the resume) comment-building case arm" "yes" \
+  "$(awk '/^            resume\)/{f=1} f&&/flip_to_failed/{print "found"} /^              ;;/{if(f)f=0}' "$IMPL_YML" | grep -q found && echo no || echo yes)"
+
+# Review flip: finalize_check's three arms + devflow.yml's outcome-keyed step.
+assert_eq "#356 pin: devflow-review.yml finalize_check invokes flip_review on job failure" "yes" \
+  "$(grep -q 'flip_review "review job failed' "$REVIEW_YML" && echo yes || echo no)"
+assert_eq "#356 pin: devflow-review.yml finalize_check invokes flip_review on cancellation" "yes" \
+  "$(grep -q 'flip_review "review job cancelled"' "$REVIEW_YML" && echo yes || echo no)"
+assert_eq "#356 pin: devflow-review.yml finalize_check invokes flip_review on engine-error incomplete" "yes" \
+  "$(grep -q 'flip_review "review engine ended with an error' "$REVIEW_YML" && grep -q 'ENGINE_ERROR:-false' "$REVIEW_YML" && echo yes || echo no)"
+assert_eq "#356 pin: devflow-review.yml wires flip-review-progress-failed.sh" "yes" \
+  "$(grep -q 'flip-review-progress-failed.sh' "$REVIEW_YML" && echo yes || echo no)"
+assert_eq "#356 pin: devflow.yml adds the dead-run review-progress flip step" "yes" \
+  "$(grep -q 'Flip review-progress comment on dead run' "$DEVFLOW_YML" && echo yes || echo no)"
+assert_eq "#356 pin: devflow.yml flip step keys on the claude step outcome and wires the helper" "yes" \
+  "$(grep -q 'steps.claude.outcome' "$DEVFLOW_YML" && grep -q 'flip-review-progress-failed.sh' "$DEVFLOW_YML" && echo yes || echo no)"
+rm -rf "$S356"
+
 # ── Issue #345: pre-merge probe contract before any (post-merge) AC deferral ──
 # Coupled-invariant pins: the probe contract is stated once in phase-3-review.md
 # (Phase 3.4, alongside the genuinely-live test + retro-tag path) and referenced
@@ -6475,6 +6688,15 @@ assert_eq "ci_status_unknown=false (CLEAN fixture)"  "false" "$(jq -r '.signals.
 assert_eq "diff is a non-empty string" "string" "$(jq -r '.diff | type' <<<"$CTX")"
 assert_eq "diff not null"              "false"  "$(jq -r '.diff == null' <<<"$CTX")"
 
+# #356: a workpad whose Status is `💥 Failed` yields the bare word `Failed`
+# (fetch-pr-context strips 💥 like the other glyphs), and cheap-gate gates it
+# non-clean with reason "workpad status not Complete".
+OUTF="$(DEVFLOW_GH="$GH_STUB" DEVFLOW_FIXTURE_PR=FAILED bash "$LIB/fetch-pr-context.sh" 4343)"
+CTXF="$(cat "$OUTF")"
+assert_eq "#356: workpad_final_status=Failed (💥 stripped)" "Failed" "$(jq -r '.signals.workpad_final_status' <<<"$CTXF")"
+assert_eq "#356: a 💥 Failed workpad gates non-clean via cheap-gate" "false" \
+  "$(jq -c '.signals' <<<"$CTXF" | jq -c '{signals:.}' | jq -c -f "$LIB/cheap-gate.jq" | jq -r .clean)"
+
 # #1: post_bot_commits / human_postbot SHA list count only *substantive* (non-merge)
 # commits after the bot's last commit. A `git merge main` by a human (parents>1)
 # is branch hygiene, not a fixup, and must not be counted.
@@ -6567,6 +6789,8 @@ assert_eq "ci_status_unknown=true reason"     "CI status could not be read" "$(e
 assert_eq "human commit → clean=false"        "false" "$(echo "$BASE" | jq '.signals.post_bot_commits=2' | gate | jq -r .clean)"
 assert_eq "review comment → clean=false"      "false" "$(echo "$BASE" | jq '.signals.review_comments_count=1' | gate | jq -r .clean)"
 assert_eq "workpad Blocked → clean=false"     "false" "$(echo "$BASE" | jq '.signals.workpad_final_status="Blocked"' | gate | jq -r .clean)"
+assert_eq "#356: workpad Failed → clean=false" "false" "$(echo "$BASE" | jq '.signals.workpad_final_status="Failed"' | gate | jq -r .clean)"
+assert_eq "#356: workpad Failed → reason 'workpad status not Complete'" "workpad status not Complete" "$(echo "$BASE" | jq '.signals.workpad_final_status="Failed"' | gate | jq -r .reason)"
 assert_eq "workpad empty string → clean=true" "true"  "$(echo "$BASE" | jq '.signals.workpad_final_status=""' | gate | jq -r .clean)"
 assert_eq "workpad null → clean=true"         "true"  "$(echo "$BASE" | jq '.signals.workpad_final_status=null' | gate | jq -r .clean)"
 

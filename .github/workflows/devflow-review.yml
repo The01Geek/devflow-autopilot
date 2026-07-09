@@ -1101,6 +1101,26 @@ jobs:
           # body), or the run-keyed progress comment carrying the `## Verdict:`
           # line on the same-identity self-review fallback.
           SUMMARY='See the formal review verdict on the PR. Click Re-run on this check to re-review the current HEAD.'
+          # Dead-run review-progress flip (issue #356). When this review-engine
+          # run ends non-success (job failure, cancellation, or a success whose
+          # verdict is incomplete because the engine ended is_error), the agent
+          # may never have flipped its own live progress comment out of the
+          # interim 🚀 Reviewing state. finalize_check is a SEPARATE job, so it
+          # survives even a review-job runner death — the coverage an in-step
+          # handler cannot give. The run-keyed marker (shared GITHUB_RUN_ID/
+          # ATTEMPT) matches ONLY this run's comment; earlier runs' comments are
+          # never touched. Best-effort: the helper always exits 0, so a flip
+          # hiccup never fails this REQUIRED check (set -euo pipefail).
+          FLIP_MARKER="<!-- devflow:review-progress run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} -->"
+          FLIP_HELPER=.devflow/vendor/devflow/scripts/flip-review-progress-failed.sh
+          [ -f "$FLIP_HELPER" ] || FLIP_HELPER=scripts/flip-review-progress-failed.sh
+          flip_review() {
+            if [ -f "$FLIP_HELPER" ]; then
+              bash "$FLIP_HELPER" "$PR_NUMBER" "$FLIP_MARKER" "$1" || true
+            else
+              echo "::warning::finalize_check: flip-review-progress-failed.sh absent at $FLIP_HELPER; review-progress comment not flipped to '❌ Review failed'"
+            fi
+          }
           # (#304 note: this job never runs on a precondition deferral — the
           # deferral's neutral "waiting" check is posted pre-completed by
           # create_check, and this job's if: skips on a non-empty
@@ -1110,6 +1130,14 @@ jobs:
             cancelled|skipped)
               CONCLUSION=neutral
               TITLE="Devflow review not run ($REVIEW_RESULT)"
+              # A cancelled run dead-ends (a cancelled Re-run is superseded, but
+              # its progress comment still shows 🚀 Reviewing); a `skipped` job
+              # was intentionally not run and has no comment to flip. Flip only
+              # on cancellation. `if` (not `&& `) so the false skipped branch
+              # never trips `set -e`.
+              if [ "$REVIEW_RESULT" = "cancelled" ]; then
+                flip_review "review job cancelled"
+              fi
               ;;
             success)
               # Derive the verdict for the current HEAD via the unit-tested
@@ -1152,12 +1180,25 @@ jobs:
                   CONCLUSION=failure
                   TITLE='Devflow review incomplete — re-run needed'
                   SUMMARY='No positively-observed APPROVE for the current HEAD (the engine stopped short, produced no verdict for this commit, or the verdict could not be verified). Click Re-run on this check to re-review the current HEAD.'
+                  # The engine ended is_error: the review died mid-run, so the
+                  # agent likely never flipped its own progress comment out of
+                  # 🚀 Reviewing. Flip it here (the helper's own 🚀-guard makes
+                  # this a no-op if the agent DID reach a terminal state). Gated
+                  # on ENGINE_ERROR so a plain no-verdict incomplete — where the
+                  # agent ran to completion and wrote its own verdict — is left
+                  # to the agent.
+                  if [ "${ENGINE_ERROR:-false}" = "true" ]; then
+                    flip_review "review engine ended with an error (is_error)"
+                  fi
                   ;;
               esac
               ;;
             *)
               CONCLUSION=failure
               TITLE='Devflow review process failed'
+              # REVIEW_RESULT of `failure` (the job broke): a dead-end run whose
+              # progress comment is likely still 🚀 Reviewing. Flip it.
+              flip_review "review job failed (result: $REVIEW_RESULT)"
               ;;
           esac
           if ! gh api -X PATCH "repos/$REPO/check-runs/$CHECK_RUN_ID" \
