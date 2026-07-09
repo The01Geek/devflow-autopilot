@@ -1229,6 +1229,36 @@ assert_pin_unique "347(AC4/consumer): precondition 2 joins by Reviewed HEAD equa
 # fail-closed — an unresolvable threshold is a fall-through, not an undefined comparison.
 assert_pin_unique "347(AC4): precondition 3's threshold read is fail-closed (unresolvable → fall-through)" \
   'a threshold that cannot be resolved to a concrete enum value is a fall-through' "$ST_REV"
+# PR #349 review (Important 1): the threshold read originally said BOTH "fall back to critical on any
+# resolver failure" AND "unresolvable → fall-through" — internally contradictory, and the fail-open arm
+# wins on a transient resolver failure with a non-critical configured threshold: substituting `critical`
+# NARROWS the REJECT-driving set, so a prior non-carve-out Important finding escapes the marker audit and
+# the fast path clears a REJECT that still had a real code finding. Fix: the `critical` default is
+# reserved for the benign resolver-exit-0-key-absent case; a failed/out-of-enum read falls through.
+# Pin both arms so a re-merge of the two branches goes RED.
+assert_pin_unique "347(AC4): a resolver-exit-0 absent/empty threshold key legitimately defaults to critical" \
+  'Resolver exits 0 and the key is absent or empty' "$ST_REV"
+assert_pin_unique "347(AC4): a failed/out-of-enum threshold read falls through, never defaults to critical" \
+  'the configured threshold is *unknown*, not `critical`' "$ST_REV"
+assert_pin_unique "347(AC4): the critical default is reserved for key-absent, never a failed read" \
+  'reserved for the benign key-absent case alone, never for a failed read' "$ST_REV"
+# PR #349 review (Important 2): a fast-path-authored REJECT comment has no Phase-1/2 checklist tally, so
+# the seeded `_(pending)_` made a LATER fast path's precondition-3 tally parse fall through — fail-closed,
+# but it defeats the fast-path→fast-path chaining the `Reviewed HEAD` producer key was added to enable.
+# Fix: the fast path writes an exact sentinel tally, and precondition 3 admits that sentinel (only it).
+# Pin the producer write, the consumer admission, and the `_(pending)_`-still-falls-through guard.
+assert_pin_unique "347(AC3/producer): the fast path records the checklist-not-run sentinel tally" \
+  'Record the checklist tally as the exact sentinel' "$ST_REV"
+assert_pin_unique "347(AC4/consumer): precondition 3 admits the fast-path sentinel tally (enables chaining)" \
+  'A fast-path-authored comment carries the sentinel tally' "$ST_REV"
+assert_pin_unique "347(AC4/consumer): a bare _(pending)_ tally still falls through (sentinel is not a wildcard)" \
+  'and a bare `_(pending)_`, remain fall-throughs' "$ST_REV"
+# PR #349 review (Suggestion 2, adopted): the SHA-resolution fall-through guards were unpinned — a silent
+# revert of either `git cat-file -e` check would stay green while re-opening a stale/unresolvable-head read.
+assert_pin_unique "347(AC1): the rejected head must resolve locally (cat-file guard) or fall through" \
+  'git cat-file -e "$REJECTED_HEAD"' "$ST_REV"
+assert_pin_unique "347(AC4): the pushed head must resolve locally (cat-file guard) or fall through" \
+  'git cat-file -e "$PR_HEAD_SHA"' "$ST_REV"
 # AC4 fail-closed precondition — all-PASS except carve-out: zero FAIL/INCONCLUSIVE, and no
 # non-carve-out verdict-driving finding at/above threshold. Two operative sentences.
 assert_pin_unique "347(AC4): precondition requires zero checklist FAIL/INCONCLUSIVE" \
