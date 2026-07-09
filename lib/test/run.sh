@@ -10009,8 +10009,8 @@ for site in "${APP_SITES[@]}"; do
   # expression.
   assert_eq "app-token: $f.yml '$name' is gated on vars.DEVFLOW_APP_ID != ''" "1" \
     "$(printf '%s\n' "$blk" | grep -cF "vars.DEVFLOW_APP_ID != ''" || true)"
-  assert_eq "app-token: $f.yml '$name' reads app-id from vars.DEVFLOW_APP_ID" "1" \
-    "$(printf '%s\n' "$blk" | grep -cF 'app-id: ${{ vars.DEVFLOW_APP_ID }}')"
+  assert_eq "app-token: $f.yml '$name' reads client-id from vars.DEVFLOW_APP_ID" "1" \
+    "$(printf '%s\n' "$blk" | grep -cF 'client-id: ${{ vars.DEVFLOW_APP_ID }}')"
   assert_eq "app-token: $f.yml '$name' reads private-key from secrets.DEVFLOW_APP_PRIVATE_KEY" "1" \
     "$(printf '%s\n' "$blk" | grep -cF 'private-key: ${{ secrets.DEVFLOW_APP_PRIVATE_KEY }}')"
   # Fail-loud: no continue-on-error KEY anywhere in the mint step (the block
@@ -10068,15 +10068,16 @@ for site in "${REVIEWER_SITES[@]}"; do
   # Gated on the SEPARATE reviewer variable, never the primary DEVFLOW_APP_ID.
   assert_eq "reviewer-token: $f.yml '$name' is gated on vars.DEVFLOW_REVIEWER_APP_ID != ''" "1" \
     "$(printf '%s\n' "$blk" | grep -cF "vars.DEVFLOW_REVIEWER_APP_ID != ''" || true)"
-  assert_eq "reviewer-token: $f.yml '$name' reads app-id from vars.DEVFLOW_REVIEWER_APP_ID" "1" \
-    "$(printf '%s\n' "$blk" | grep -cF 'app-id: ${{ vars.DEVFLOW_REVIEWER_APP_ID }}')"
+  assert_eq "reviewer-token: $f.yml '$name' reads client-id from vars.DEVFLOW_REVIEWER_APP_ID" "1" \
+    "$(printf '%s\n' "$blk" | grep -cF 'client-id: ${{ vars.DEVFLOW_REVIEWER_APP_ID }}')"
   assert_eq "reviewer-token: $f.yml '$name' reads private-key from secrets.DEVFLOW_REVIEWER_PRIVATE_KEY" "1" \
     "$(printf '%s\n' "$blk" | grep -cF 'private-key: ${{ secrets.DEVFLOW_REVIEWER_PRIVATE_KEY }}')"
   # NOTE: a "reviewer block never mentions DEVFLOW_APP_ID" per-block pin is
   # deliberately NOT asserted here — mint_blk extends to the next `- name:`, so a
-  # reviewer block bleeds the FOLLOWING step's leading comment (in devflow.yml
-  # that is the primary app-token step, whose comment legitimately names
-  # DEVFLOW_APP_ID). The review-identity invariant is pinned precisely, and
+  # reviewer block bleeds the FOLLOWING step's leading comment, which is free to
+  # name DEVFLOW_APP_ID (it did exactly that while the primary app-token step
+  # still followed the reviewer mint, before #357 hoisted that step above the
+  # checkout). The review-identity invariant is pinned precisely, and
   # extraction-safely, by the whole-file / review-branch-conditional pins after
   # the consumer block below.
   assert_eq "reviewer-token: $f.yml '$name' is fail-loud (no continue-on-error)" "" \
@@ -10095,6 +10096,53 @@ for site in "${REVIEWER_SITES[@]}"; do
   # APP_SITES loop's count-based house style for downscoped sites.
   assert_eq "reviewer-token: $f.yml '$name' declares exactly 4 permission-* inputs" "4" \
     "$(printf '%s\n' "$blk" | grep -cE '^[[:space:]]*permission-[a-z-]+:' || true)"
+done
+
+# ── The push credential is the CHECKOUT token, not github_token (issue #357) ──
+# actions/checkout@v6 no longer writes its auth header into .git/config: it
+# writes `http.<server>/.extraheader` into an external config file and wires it
+# in via `includeIf.gitdir:` (covering .git/worktrees/* too). claude-code-action's
+# `git config --unset-all http.<server>/.extraheader` searches only .git/config,
+# so it clears nothing ("No existing authentication headers to remove"), and the
+# surviving preemptive `Authorization:` header outranks the token that action
+# embeds in origin's URL. Net effect of an unseeded checkout: EVERY push in the
+# job authenticates as github-actions[bot] — a GitHub App with no `workflows`
+# permission — so pushes touching .github/workflows/ fail ("refusing to allow a
+# GitHub App to create or update workflow … without workflows permission") while
+# all other pushes succeed, which is why this hid for so long. Both halves are
+# pinned per pushing job: (a) the writer mint PRECEDES the checkout, and (b) the
+# checkout consumes it with the unchanged GITHUB_TOKEN fallback. Removing either
+# half — or "tidying" the mint back down next to Run Claude Code — goes RED.
+# The two non-pushing mint sites (gate, review_dedupe) hand their token straight
+# to `gh` and are deliberately NOT covered here.
+for f in devflow-implement devflow; do
+  WFF="$WF/$f.yml"
+  # Anchors must be unambiguous for the ordering comparison below: exactly one
+  # named checkout (the pushing job's) and exactly one writer-mint id per file.
+  assert_eq "checkout-token: $f.yml has exactly one named 'Checkout repository' step" "1" \
+    "$(grep -c '^      - name: Checkout repository$' "$WFF" || true)"
+  assert_eq "checkout-token: $f.yml has exactly one 'id: app-token' writer mint" "1" \
+    "$(grep -c '^        id: app-token$' "$WFF" || true)"
+
+  # (a) Ordering: the mint must appear ABOVE the checkout it feeds. A step can
+  # only read `steps.<id>.outputs.*` of an EARLIER step; minted after, the
+  # expression resolves to empty and silently degrades to GITHUB_TOKEN.
+  _mint_ln="$(grep -n '^        id: app-token$' "$WFF" | head -1 | cut -d: -f1)"
+  _co_ln="$(grep -n '^      - name: Checkout repository$' "$WFF" | head -1 | cut -d: -f1)"
+  assert_eq "checkout-token: $f.yml writer mint precedes the checkout it feeds" "yes" \
+    "$([ -n "$_mint_ln" ] && [ -n "$_co_ln" ] && [ "$_mint_ln" -lt "$_co_ln" ] && echo yes || echo no)"
+
+  # (b) Consumption: the exact opt-in literal, INSIDE the checkout step block.
+  _co_blk="$(mint_blk 'Checkout repository' "$WFF")"
+  assert_eq "checkout-token: $f.yml checkout consumes steps.app-token with GITHUB_TOKEN fallback" "1" \
+    "$(printf '%s\n' "$_co_blk" | grep -cF 'token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}' || true)"
+
+  # The read-only review identity must never become the checkout/push credential
+  # (issue #300): DevFlow-Reviewer holds contents:read and must not be able to
+  # seed a push. On a /devflow:review command the writer mint is skipped by
+  # design and the checkout falls back to GITHUB_TOKEN.
+  assert_eq "checkout-token: $f.yml checkout never consumes the reviewer token" "0" \
+    "$(printf '%s\n' "$_co_blk" | grep -cF 'reviewer-token' || true)"
 done
 
 # Explicit write-widening absence pins (belt to the exact-count braces above —
