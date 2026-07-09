@@ -24,8 +24,8 @@
 #                                          and a session_id unsafe as a filename component
 #                                          — none of them let the sentinel be safely keyed
 #   allow  this session's sentinel exists  at-most-one-block-per-session bound
-#   allow  scripts/workpad.py absent       every marker kept: a missing helper is an
-#                                          infrastructure fault, NOT an absent workpad
+#   allow  workpad.py absent/unreadable    every marker kept: an unopenable helper is
+#                                          an infrastructure fault, NOT an absent workpad
 #   allow  sentinel write fails            a sentinel-less block could re-block forever
 #   allow  marker suffix non-numeric       shape not understood; never queried, never deleted
 #   allow  workpad.py status exits 1 or 3  the workpad could not be read (unreadable /
@@ -137,9 +137,11 @@ WORKPAD_PY="$ROOT/scripts/workpad.py"
 
 # See the header note: `python3 <script>` exits 2 on an unopenable script, which is exactly
 # the code workpad.py uses for "no workpad on this issue" — the one arm that DELETES state.
-# Refuse to query at all rather than let a missing helper heal away a live run's marker.
-if [ ! -f "$WORKPAD_PY" ]; then
-  breadcrumb "$WORKPAD_PY not found — cannot read any workpad, keeping every marker, allowing stop (fail open)"
+# Refuse to query at all rather than let an unopenable helper heal away a live run's marker.
+# `-r` as well as `-f`: a present-but-unreadable regular file passes `-f` yet still makes
+# python3 exit 2, so testing existence alone would accept an input the consumer rejects.
+if [ ! -f "$WORKPAD_PY" ] || [ ! -r "$WORKPAD_PY" ]; then
+  breadcrumb "$WORKPAD_PY not found or not readable — cannot read any workpad, keeping every marker, allowing stop (fail open)"
   exit 0
 fi
 

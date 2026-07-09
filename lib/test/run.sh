@@ -18686,9 +18686,25 @@ rm -f "$ISG_D/scripts/workpad.py"
 ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidM"}')"
 assert_eq "#362 isg: absent scripts/workpad.py -> allow (exit 0)" "0" "${ISG_R%%|*}"
 assert_eq "#362 isg: absent-workpad.py arm emits its own breadcrumb" "yes" \
-  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'not found — cannot read any workpad' && echo yes || echo no)"
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'not found or not readable' && echo yes || echo no)"
 assert_eq "#362 isg: an absent workpad.py NEVER deletes the marker (a missing helper is not an absent workpad)" "yes" \
   "$([ -e "$ISG_D/.devflow/tmp/implement-active-605" ] && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# ── the same arm, one operand-shape over: a PRESENT but UNREADABLE workpad.py. It passes an
+# existence test yet still makes python3 exit 2, so an existence-only guard would accept an
+# input its consumer rejects and delete the marker anyway (the #62/#98 operand-contract class).
+ISG_D="$(isg_repo "isg: unreadable workpad.py arm")"
+: > "$ISG_D/.devflow/tmp/implement-active-610"
+printf '#!/usr/bin/env python3\n' > "$ISG_D/scripts/workpad.py"
+chmod 000 "$ISG_D/scripts/workpad.py"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidO"}')"
+chmod 644 "$ISG_D/scripts/workpad.py"
+assert_eq "#362 isg: an unreadable workpad.py -> allow (exit 0)" "0" "${ISG_R%%|*}"
+assert_eq "#362 isg: unreadable-workpad.py arm emits its own breadcrumb" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'not found or not readable' && echo yes || echo no)"
+assert_eq "#362 isg: an unreadable workpad.py NEVER deletes the marker (guard accepts no input its consumer rejects)" "yes" \
+  "$([ -e "$ISG_D/.devflow/tmp/implement-active-610" ] && echo yes || echo no)"
 rm -rf "$ISG_D"
 
 # ── allow + KEEP the marker: workpad.py exits 0 but prints a class the guard does not
