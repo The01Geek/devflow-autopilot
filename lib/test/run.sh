@@ -18742,13 +18742,19 @@ STUB
 # isg_run DIR STDIN_JSON [VAR=value ...] -> prints "<rc>|<stderr>".
 # stderr can itself contain '|', so callers take rc as "${R%%|*}" (first field)
 # and stderr as "${R#*|}" (everything past the first separator).
+#
+# `env -u GITHUB_ACTIONS` scrubs the AMBIENT variable: the guard's second arm allows the
+# stop outright when it is set, so under CI (where the runner exports GITHUB_ACTIONS=true)
+# every arm below that one would be unreachable and its test would assert against the
+# cloud-tier breadcrumb instead. The `-u` precedes "$@", so the GITHUB_ACTIONS arm's own
+# test still sets it back explicitly and keeps testing what it names.
 isg_run() {
   local dir="$1" stdin_json="$2"; shift 2
   local err rc
   err="$(mktemp)"
   (
     cd "$dir" || exit 90
-    printf '%s' "$stdin_json" | env "$@" bash "$ISG_SH"
+    printf '%s' "$stdin_json" | env -u GITHUB_ACTIONS "$@" bash "$ISG_SH"
   ) >/dev/null 2>"$err"
   rc=$?
   printf '%s|%s' "$rc" "$(cat "$err")"
@@ -18894,7 +18900,10 @@ rm -rf "$ISG_D"
 ISG_D="$(isg_repo "isg: unsourceable config-source arm")"
 mkdir -p "$ISG_D/lib" && cp "$ISG_SH" "$ISG_D/lib/"   # deliberately NO config-source.sh beside it
 ISG_ERR="$(mktemp)"
-( cd "$ISG_D" && printf '{"session_id":"sidL"}' | bash "$ISG_D/lib/implement-stop-guard.sh" ) >/dev/null 2>"$ISG_ERR"
+# This arm invokes the copied guard directly rather than through isg_run (the point is the
+# guard's own sibling resolution), so it must scrub the ambient GITHUB_ACTIONS itself — see
+# the isg_run header for why.
+( cd "$ISG_D" && printf '{"session_id":"sidL"}' | env -u GITHUB_ACTIONS bash "$ISG_D/lib/implement-stop-guard.sh" ) >/dev/null 2>"$ISG_ERR"
 assert_eq "#362 isg: an unsourceable config-source.sh -> allow (exit 0, never a non-zero abort)" "0" "$?"
 assert_eq "#362 isg: unsourceable-config-source arm emits its own breadcrumb" "yes" \
   "$(grep -qF 'could not source config-source.sh' "$ISG_ERR" && echo yes || echo no)"
