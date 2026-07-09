@@ -274,7 +274,11 @@ leading-token helper forms and the Write tool for scratch, not a broadened permi
   the "review-and-fix activity detected but no committed record exists" gate: it is a clean no-op when
   there is nothing unpersisted. It is best-effort (`|| true`); a failure never fails the session. The
   hook config (for this repo; adopters point the command at the vendored
-  `.devflow/vendor/devflow/lib/efficiency-trace.sh`):
+  `.devflow/vendor/devflow/lib/efficiency-trace.sh`). The `Stop` array carries a **second,
+  unrelated** command — `lib/implement-stop-guard.sh`, the local-tier terminal-status backstop
+  documented in [`implement-skill.md`](implement-skill.md). The two are independent: only the
+  `--persist` entry takes `|| true`, and the guard deliberately does **not**, because its
+  blocking exit code 2 must reach the harness:
 
   ```json
   {
@@ -283,7 +287,8 @@ leading-token helper forms and the Write tool for scratch, not a broadened permi
         {
           "matcher": "",
           "hooks": [
-            { "type": "command", "command": "bash lib/efficiency-trace.sh --persist || true" }
+            { "type": "command", "command": "bash lib/efficiency-trace.sh --persist || true" },
+            { "type": "command", "command": "bash lib/implement-stop-guard.sh", "timeout": 15 }
           ]
         }
       ]
@@ -292,10 +297,12 @@ leading-token helper forms and the Write tool for scratch, not a broadened permi
   ```
 
   > **Note on this repo's `.claude/settings.json`.** Writing `.claude/` is a privileged,
-  > self-modifying action that an agent is structurally barred from (it is the harness boundary that
-  > stops an agent rewriting its own hooks/permissions), so this hook file was committed by a
-  > maintainer, not by `/devflow:implement`. It now ships committed in this repo (`.claude/settings.json`);
-  > the `--persist` mode it calls and the cloud-tier guarantee land in the same wiring.
+  > self-modifying action, and an agent cannot use it to widen its own `permissions.allow`
+  > allowlist (the harness boundary that stops an agent granting itself new capabilities);
+  > the hook wiring itself has since been edited from inside a `/devflow:implement` run
+  > (the `implement-stop-guard.sh` entry above landed that way). It ships committed in this
+  > repo (`.claude/settings.json`); the `--persist` mode it calls and the cloud-tier guarantee
+  > land in the same wiring.
 - *Cloud-tier wrapper.* **`Stop` hooks are local-only**: `claude-code-action` `rm -rf`s and restores
   `.claude/` from the **base** branch before installing plugins, so a PR branch's `.claude/` hook is
   discarded for that PR's own cloud run, and the cloud guarantee must **never** depend on the hook.

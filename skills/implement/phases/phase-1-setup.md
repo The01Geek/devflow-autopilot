@@ -67,9 +67,40 @@ WORKPAD_ID=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner rep
 
 After this step, every later phase boundary touches the workpad via `workpad.py update $ISSUE_NUMBER ...` — no `WORKPAD_ID` variable to track across calls.
 
+**Write the run marker (both arms — fresh create and resume).** Immediately after the workpad exists (created above, or detected on the resume arm), write an empty run-marker file so a local-tier Stop-hook guard knows an implement run is in flight for this issue. The workpad remains the source of truth for the run's `Status`; the marker only gates *whether* the guard queries it, so ordinary sessions never pay a network call on stop. It lives under the gitignored `.devflow/tmp/`, anchored to the repo (or worktree) root, and is removed at every terminal `Status` transition by the *Outcome reaction* block in the orchestrator:
+
+```bash
+DEVFLOW_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+mkdir -p "$DEVFLOW_ROOT/.devflow/tmp" && : > "$DEVFLOW_ROOT/.devflow/tmp/implement-active-$ISSUE_NUMBER"
+```
+
+This is best-effort: if the write fails, note it and continue — a missing marker only means the Stop-hook backstop stays silent for this run. A marker left behind by a killed run self-heals, because the guard deletes any marker whose live workpad `Status` reads terminal (or whose workpad no longer exists).
+
 ### 1.4 Create or Detect Feature Branch
 
-Decide whether you are **already on the branch to use** or must **create one**. Two independent signals mean "already on it — skip creation":
+#### Resume pre-check (runs BEFORE Signal 1)
+
+A re-triggered or backstop-resumed run may already have a feature branch and an **open PR** from its first attempt — and the local harness may hand it a *fresh* worktree on a *different* branch, which Signal 1 below would happily adopt, opening a second branch and a second PR while silently abandoning the committed work. So before evaluating either signal, look for the run's own prior output:
+
+1. Read the workpad's `**Branch:**` line (the workpad was located in 1.3; a placeholder like `_(creating…)_` counts as absent).
+2. Query the issue's open PRs two ways, because either alone has a blind spot — by head branch (misses a PR whose branch the workpad never recorded) and by body reference (misses a PR that does not cite the issue):
+
+```bash
+# WP_BRANCH is the workpad Branch line, empty when absent/placeholder.
+PR_JSON=$( { [ -n "$WP_BRANCH" ] && gh pr list --head "$WP_BRANCH" --state open --json number,headRefName,createdAt || echo '[]'; } 2>/dev/null || echo '[]')
+[ "$(printf '%s' "$PR_JSON" | tr -d '[:space:]')" = "[]" ] && \
+  PR_JSON=$(gh pr list --search "$ISSUE_NUMBER in:body" --state open --json number,headRefName,createdAt 2>/dev/null || echo '[]')
+```
+
+**When an open PR for the issue exists**, that PR's head branch is the branch this run continues: check out that PR head branch instead of creating a new one — fetching it first when it is absent locally (`git fetch origin "$HEAD_REF" && git checkout "$HEAD_REF"`) — and skip branch creation and both signals entirely. When the query returns **several** open PRs, pick the one whose `headRefName` equals the workpad `Branch` line; if none matches, pick the newest by `createdAt`. Record the resume decision with `--note` (which PR, which branch, why).
+
+If the harness placed you in a worktree, perform that checkout **inside the harness-provided worktree** — that is simply the current working tree, so no extra step is needed. If the checkout is refused because the branch is *already checked out in another linked worktree*, do not force it and do not duplicate the branch: read that worktree's path from `git worktree list --porcelain` and continue in that worktree instead of duplicating the branch, noting the switch in the workpad.
+
+**When there is no workpad `Branch` line and no open PR for the issue**, this pre-check is a no-op and the rest of §1.4 behaves exactly as it did before this pre-check existed — Signal 1, then Signal 2, then the create-fresh fallthrough. A `gh` failure is likewise a no-op with a `--note` breadcrumb: an unresolvable PR query is not evidence that no PR exists, but the fallthrough (create a branch) is the pre-existing behavior, so it degrades no worse than before.
+
+#### Signals
+
+Otherwise, decide whether you are **already on the branch to use** or must **create one**. Two independent signals mean "already on it — skip creation":
 
 1. **A linked git worktree** — the local harness pre-creates a worktree and checks out a branch for you (e.g. `worktree-issue-165`), whatever its name. This is the deterministic, **naming-independent** signal: a linked worktree's `--git-common-dir` (the main repo's `.git`) differs from its `--git-dir` (`.git/worktrees/<name>`); in the main working tree they are equal. The two are compared in **absolute form** (`--path-format=absolute`) so the test reflects directory identity rather than path representation.
 2. **A recognized feature-branch name** — `claude/issue-*` / `issue-*`, the cloud-tier GitHub Action path (the Action checks out such a branch; it is not a worktree).

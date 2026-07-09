@@ -3255,16 +3255,19 @@ assert_pin_red_on_removal "#232: SKILL self-check operative clause flips RED on 
 assert_pin_red_on_removal "#232: SKILL Status-not-draft clause flips RED on removal" \
   'keys on the workpad `Status`, not on PR draft state' "$IMPL_ORCH"
 # (2) phase-4-documentation.md Phase 4.1 post-subagent re-anchor — AC3 (re-read the phase
-#     file before §4.2 after the docs subagent returns) + AC4 (scoped to the Phase 4.1
-#     docs subagent return only, not the Phase 2/3 subagent returns).
+#     file before §4.2 after the docs subagent returns) + AC4 (scoped to SUBAGENT returns,
+#     not the Phase 2/3 subagent returns). Issue #362 reworded AC4's scope clause from
+#     "the Phase 4.1 docs subagent return only" to "**subagent** returns", because a
+#     Skill-tool return is now covered by the orchestrator's generalized mid-phase
+#     re-anchor instead; the wording and these pins move together.
 assert_pin_unique "#232: phase-4 re-anchor operative clause present (re-read before §4.2)" \
   're-anchoring the remaining §4.2 (PR description) and §4.3 (finalize) procedure' "$P4_FILE"
-assert_pin_unique "#232: phase-4 re-anchor scoped to the Phase 4.1 docs subagent return only (AC4)" \
-  'scoped to the Phase 4.1 docs subagent return **only**' "$P4_FILE"
+assert_pin_unique "#232/#362: phase-4 re-anchor scoped to **subagent** returns (AC4, reworded)" \
+  'scoped to **subagent** returns' "$P4_FILE"
 assert_pin_red_on_removal "#232: phase-4 re-anchor operative clause flips RED on removal" \
   're-anchoring the remaining §4.2 (PR description) and §4.3 (finalize) procedure' "$P4_FILE"
-assert_pin_red_on_removal "#232: phase-4 re-anchor scope clause flips RED on removal" \
-  'scoped to the Phase 4.1 docs subagent return **only**' "$P4_FILE"
+assert_pin_red_on_removal "#232/#362: phase-4 re-anchor scope clause flips RED on removal" \
+  'scoped to **subagent** returns' "$P4_FILE"
 # review iter-1 (pr-test-analyzer): pin the OPERATIVE directives, not only their framing —
 # a same-line surgical edit that drops the actual instruction while keeping the descriptive
 # appendix would otherwise ship GREEN (the recurring framing-only-pin hole).
@@ -3300,10 +3303,101 @@ assert_pin_red_on_removal "#232: orchestrator operative always-loaded re-Read di
   'the phase file before continuing to §4.2 (resume from §4.2' "$IMPL_ORCH"
 # AC4 scope constraint is mirrored in the always-loaded orchestrator too; pin that copy so the
 # "not the Phase 2/3 returns" guardrail can't be dropped from the resident mirror unnoticed.
-assert_pin_unique "#232: orchestrator mirror keeps the AC4 Phase-4.1-only scope (SFH F2 mirror)" \
-  'scoped to the Phase 4.1 docs subagent return only, not the Phase 2/3 returns' "$IMPL_ORCH"
-assert_pin_red_on_removal "#232: orchestrator AC4 scope mirror flips RED on removal" \
-  'scoped to the Phase 4.1 docs subagent return only, not the Phase 2/3 returns' "$IMPL_ORCH"
+# Reworded by #362 (see the phase-4 block above) to scope the trigger to SUBAGENT returns,
+# since a Skill-tool return now has its own generalized re-anchor in the same resident body.
+assert_pin_unique "#232/#362: orchestrator mirror scopes the re-anchor to **subagent** returns (SFH F2 mirror)" \
+  'scoped to **subagent** returns, not the Phase 2/3 subagent returns' "$IMPL_ORCH"
+assert_pin_red_on_removal "#232/#362: orchestrator AC4 scope mirror flips RED on removal" \
+  'scoped to **subagent** returns, not the Phase 2/3 subagent returns' "$IMPL_ORCH"
+
+# ── issue #362: run-continuity guards. Three always-resident cross-phase rules in the
+# orchestrator (generalized mid-phase re-anchor after ANY Skill-tool return; the
+# non-interactive self-answer rule; the Agent-subagent dispatch path for interactive
+# skills), plus the run-marker lifecycle (written in Phase 1.3, removed at every terminal
+# Status transition) and the Phase 1.4 resume pre-check. Each pin below targets the
+# OPERATIVE sentence — the minimal text whose removal alone re-introduces the #356 defect
+# class (a run that dies mid-phase on a nested skill's tail call, or a resume that forks a
+# second branch + PR) — never an adjacent framing clause. Paired removal proofs make that
+# half-revert check re-run on every suite execution.
+P362_P1="$IMPL_PHASES_DIR/phase-1-setup.md"
+
+# (1) Generalized mid-phase re-anchor — fires after EVERY Skill-tool return, not just the
+#     Phase 4.1 docs subagent.
+assert_pin_unique "#362: orchestrator re-anchors after every Skill-tool return (trigger)" \
+  'after **every** Skill-tool return mid-phase' "$IMPL_ORCH"
+assert_pin_unique "#362: generalized re-anchor carries its operative resume directive" \
+  'resume at the step immediately following the invocation, never re-dispatching the skill that just returned' "$IMPL_ORCH"
+assert_pin_red_on_removal "#362: generalized re-anchor trigger flips RED on removal" \
+  'after **every** Skill-tool return mid-phase' "$IMPL_ORCH"
+assert_pin_red_on_removal "#362: generalized re-anchor resume directive flips RED on removal" \
+  'resume at the step immediately following the invocation, never re-dispatching the skill that just returned' "$IMPL_ORCH"
+
+# (2) Non-interactive self-answer rule — the orchestrator answers a nested skill's
+#     user-facing question itself on the cloud tier, and records the answer.
+assert_pin_unique "#362: self-answer rule keys on the non-interactive (GITHUB_ACTIONS) tier" \
+  'When the run is non-interactive' "$IMPL_ORCH"
+assert_pin_unique "#362: self-answer rule carries its operative answer directive" \
+  'answer that question yourself on behalf of the user, using the issue description as the primary guide' "$IMPL_ORCH"
+assert_pin_unique "#362: self-answer rule requires recording each self-answered decision" \
+  'record each self-answered question and the answer you chose in the workpad via `--note`' "$IMPL_ORCH"
+assert_pin_unique "#362: self-answer rule is confined to a nested skill question (a Blocked pause stays a pause)" \
+  'a workpad `Blocked` pause stays a pause' "$IMPL_ORCH"
+assert_pin_red_on_removal "#362: self-answer operative directive flips RED on removal" \
+  'answer that question yourself on behalf of the user, using the issue description as the primary guide' "$IMPL_ORCH"
+assert_pin_red_on_removal "#362: self-answer recording obligation flips RED on removal" \
+  'record each self-answered question and the answer you chose in the workpad via `--note`' "$IMPL_ORCH"
+assert_pin_red_on_removal "#362: self-answer scope confinement flips RED on removal" \
+  'a workpad `Blocked` pause stays a pause' "$IMPL_ORCH"
+
+# (3) Interactive skills are dispatched into an Agent-tool subagent, never Skill-invoked
+#     mid-phase. Both halves are operative: the positive dispatch directive AND the
+#     prohibition it replaces (dropping either re-opens the #356 tail-call death).
+assert_pin_unique "#362: Skill rule routes an interactive skill into an Agent-tool subagent" \
+  'dispatch that skill inside a context-isolated **Agent-tool subagent** whose prompt pre-grants the approval' "$IMPL_ORCH"
+assert_pin_unique "#362: Skill rule forbids the mid-phase Skill-tool invocation it replaces" \
+  'never invoke it through the Skill tool mid-phase' "$IMPL_ORCH"
+assert_pin_red_on_removal "#362: subagent-dispatch directive flips RED on removal" \
+  'dispatch that skill inside a context-isolated **Agent-tool subagent** whose prompt pre-grants the approval' "$IMPL_ORCH"
+assert_pin_red_on_removal "#362: mid-phase Skill-tool prohibition flips RED on removal" \
+  'never invoke it through the Skill tool mid-phase' "$IMPL_ORCH"
+
+# (4) Run-marker lifecycle. Written in Phase 1.3 (both the fresh and the resume arm);
+#     removed by the always-resident Outcome-reaction block, which already binds every
+#     terminal Status transition. Coupled to lib/implement-stop-guard.sh, which globs
+#     exactly this path — change one site and this pin names the other.
+assert_pin_unique "#362: Phase 1.3 writes the run marker the Stop-hook guard globs" \
+  '.devflow/tmp/implement-active-$ISSUE_NUMBER' "$P362_P1"
+assert_pin_red_on_removal "#362: Phase 1.3 run-marker write flips RED on removal" \
+  '.devflow/tmp/implement-active-$ISSUE_NUMBER' "$P362_P1"
+assert_pin_unique "#362: the Outcome-reaction block removes the run marker at every terminal transition" \
+  'remove the Phase 1.3 run-marker' "$IMPL_ORCH"
+assert_pin_red_on_removal "#362: run-marker removal flips RED on removal" \
+  'remove the Phase 1.3 run-marker' "$IMPL_ORCH"
+
+# (5) Phase 1.4 resume pre-check — runs BEFORE Signal 1, so a harness-created worktree can
+#     no longer shadow an existing feature branch + open PR (the #356 resume defect).
+assert_pin_unique "#362: Phase 1.4 gains a resume pre-check ahead of Signal 1" \
+  'Resume pre-check (runs BEFORE Signal 1)' "$P362_P1"
+assert_pin_unique "#362: the resume pre-check checks out the existing PR head branch" \
+  'check out that PR head branch instead of creating a new one' "$P362_P1"
+assert_pin_unique "#362: the resume pre-check reuses an existing linked worktree rather than duplicating the branch" \
+  'continue in that worktree instead of duplicating the branch' "$P362_P1"
+assert_pin_unique "#362: the resume pre-check falls through unchanged when there is no workpad Branch and no open PR" \
+  'behaves exactly as it did before this pre-check existed' "$P362_P1"
+assert_pin_red_on_removal "#362: resume pre-check ordering clause flips RED on removal" \
+  'Resume pre-check (runs BEFORE Signal 1)' "$P362_P1"
+assert_pin_red_on_removal "#362: resume pre-check checkout directive flips RED on removal" \
+  'check out that PR head branch instead of creating a new one' "$P362_P1"
+assert_pin_red_on_removal "#362: resume pre-check worktree arm flips RED on removal" \
+  'continue in that worktree instead of duplicating the branch' "$P362_P1"
+assert_pin_red_on_removal "#362: resume pre-check fallthrough guarantee flips RED on removal" \
+  'behaves exactly as it did before this pre-check existed' "$P362_P1"
+
+# (6) The two vendored superpowers skills stay untouched by this change (AC).
+assert_eq "#362: the vendored receiving-code-review skill is still present and unvendored-from" "yes" \
+  "$([ -f "$LIB/../skills/receiving-code-review/SKILL.md" ] && echo yes || echo no)"
+assert_eq "#362: the vendored requesting-code-review skill is still present and unvendored-from" "yes" \
+  "$([ -f "$LIB/../skills/requesting-code-review/SKILL.md" ] && echo yes || echo no)"
 # ── issue #254: Phase 4.0.5 deferrals-manifest discovery must search BOTH the pr-<N>
 # slug dir and the sanitized-current-branch slug dir — a current-branch-mode
 # /devflow:review-and-fix run writes its manifest under the branch slug, so a
@@ -18399,6 +18493,282 @@ for _gf in workpad.py match-deferrals.py; do
   assert_eq "#343 runtime: $_gf gate names the provision-python3-shim.sh remedy at runtime" \
     "yes" "$(printf '%s' "$_G343_ERR" | grep -q 'provision-python3-shim.sh' && echo yes || echo no)"
 done
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "implement-stop-guard.sh (issue #362)"
+# ────────────────────────────────────────────────────────────────────────────
+# lib/implement-stop-guard.sh is the local-tier Stop-hook backstop: it blocks a
+# session's stop (exit 2 — the documented Stop-hook blocking code) while an
+# /devflow:implement run's issue workpad Status is still interim, and fails OPEN
+# (exit 0 + an arm-naming stderr breadcrumb) on every other path.
+#
+# The guard resolves its repo root via devflow_repo_root() (git rev-parse
+# --show-toplevel), so each scenario runs it with cwd inside a real, throwaway
+# git-inited sandbox rather than threading a test-only override through
+# production code — the guard carries NO env-var backdoor for testability.
+ISG_SH="$LIB/implement-stop-guard.sh"
+
+# isg_repo NAME -> prints a fresh git-inited sandbox with scripts/ + .devflow/tmp/.
+isg_repo() {
+  local d
+  d="$(git_sandbox "$1")" || { printf '%s\n' "$d"; return 1; }
+  git -C "$d" init -q >/dev/null 2>&1
+  mkdir -p "$d/scripts" "$d/.devflow/tmp"
+  printf '%s\n' "$d"
+}
+
+# isg_stub_workpad DIR RC -> a scripts/workpad.py that ignores its args and exits RC.
+# Drives the workpad-unreadable arms (exit 1, exit 3) and the no-workpad arm (exit 2)
+# deterministically, with no gh stub and no network.
+isg_stub_workpad() {
+  cat > "$1/scripts/workpad.py" <<STUB
+#!/usr/bin/env python3
+import sys
+sys.stderr.write("stub workpad.py status: forced rc $2\n")
+sys.exit($2)
+STUB
+  chmod +x "$1/scripts/workpad.py"
+}
+
+# isg_run DIR STDIN_JSON [VAR=value ...] -> prints "<rc>|<stderr>".
+# stderr can itself contain '|', so callers take rc as "${R%%|*}" (first field)
+# and stderr as "${R#*|}" (everything past the first separator).
+isg_run() {
+  local dir="$1" stdin_json="$2"; shift 2
+  local err rc
+  err="$(mktemp)"
+  (
+    cd "$dir" || exit 90
+    printf '%s' "$stdin_json" | env "$@" bash "$ISG_SH"
+  ) >/dev/null 2>"$err"
+  rc=$?
+  printf '%s|%s' "$rc" "$(cat "$err")"
+  rm -f "$err"
+}
+
+# ── allow: GITHUB_ACTIONS set (cloud tier owns its own finalization) ─────────
+ISG_D="$(isg_repo "isg: GITHUB_ACTIONS arm")"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidA"}' GITHUB_ACTIONS=true)"
+assert_eq "#362 isg: GITHUB_ACTIONS set -> allow (exit 0)" "0" "${ISG_R%%|*}"
+assert_eq "#362 isg: GITHUB_ACTIONS arm emits its own breadcrumb" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'GITHUB_ACTIONS is set' && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# ── allow: stdin is not parseable JSON ──────────────────────────────────────
+ISG_D="$(isg_repo "isg: unparseable stdin arm")"
+ISG_R="$(isg_run "$ISG_D" 'not json {{{' )"
+assert_eq "#362 isg: unparseable stdin -> allow (exit 0)" "0" "${ISG_R%%|*}"
+assert_eq "#362 isg: unparseable-stdin arm emits its own breadcrumb" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'no usable session_id' && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# ── allow: a session_id that is unsafe as a filename component (path traversal)
+# folds into the same fail-open arm — the sentinel cannot be safely keyed.
+ISG_D="$(isg_repo "isg: unsafe session_id arm")"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"../../etc/passwd"}')"
+assert_eq "#362 isg: path-traversing session_id -> allow (exit 0)" "0" "${ISG_R%%|*}"
+assert_eq "#362 isg: path-traversing session_id never writes outside .devflow/tmp" "no" \
+  "$([ -e "$ISG_D/../../etc/passwd" ] && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# ── allow: no marker present — and the workpad helper is NEVER invoked (the
+# zero-network property every ordinary, non-implement session relies on). The
+# stub tattles to a file; its absence is the assertion.
+ISG_D="$(isg_repo "isg: no-marker arm")"
+cat > "$ISG_D/scripts/workpad.py" <<STUB
+#!/usr/bin/env python3
+open("$ISG_D/tattle", "a").write("invoked\n")
+STUB
+chmod +x "$ISG_D/scripts/workpad.py"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidB"}')"
+assert_eq "#362 isg: no marker -> allow (exit 0)" "0" "${ISG_R%%|*}"
+assert_eq "#362 isg: no-marker arm emits its own breadcrumb" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'no .devflow/tmp/implement-active-* marker' && echo yes || echo no)"
+assert_eq "#362 isg: no-marker arm never invokes the workpad helper (no network call)" "no" \
+  "$([ -e "$ISG_D/tattle" ] && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# ── allow: this session's sentinel already exists (at-most-one-block bound),
+# and that arm too skips the workpad helper entirely.
+ISG_D="$(isg_repo "isg: existing-sentinel arm")"
+isg_stub_workpad "$ISG_D" 0
+: > "$ISG_D/.devflow/tmp/implement-active-600"
+: > "$ISG_D/.devflow/tmp/stop-guard-sidC"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidC"}')"
+assert_eq "#362 isg: existing sentinel -> allow (exit 0)" "0" "${ISG_R%%|*}"
+assert_eq "#362 isg: existing-sentinel arm emits its own breadcrumb" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'was already blocked once' && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# ── allow + KEEP the marker: workpad.py exit 1 (unreadable) and exit 3
+# (gh/transport/auth). Never block on a workpad the helper could not read.
+for ISG_RC in 1 3; do
+  ISG_D="$(isg_repo "isg: keep-marker rc=$ISG_RC arm")"
+  isg_stub_workpad "$ISG_D" "$ISG_RC"
+  : > "$ISG_D/.devflow/tmp/implement-active-601"
+  ISG_R="$(isg_run "$ISG_D" "{\"session_id\":\"sidD$ISG_RC\"}")"
+  assert_eq "#362 isg: workpad.py exit $ISG_RC -> allow (exit 0, fail open)" "0" "${ISG_R%%|*}"
+  assert_eq "#362 isg: workpad.py exit $ISG_RC arm emits its own breadcrumb" "yes" \
+    "$(printf '%s' "${ISG_R#*|}" | grep -qF "status exited $ISG_RC" && echo yes || echo no)"
+  assert_eq "#362 isg: workpad.py exit $ISG_RC keeps the marker" "yes" \
+    "$([ -e "$ISG_D/.devflow/tmp/implement-active-601" ] && echo yes || echo no)"
+  assert_eq "#362 isg: workpad.py exit $ISG_RC writes no sentinel" "no" \
+    "$([ -e "$ISG_D/.devflow/tmp/stop-guard-sidD$ISG_RC" ] && echo yes || echo no)"
+  rm -rf "$ISG_D"
+done
+
+# ── allow + DELETE the stale marker: workpad.py exit 2 (no workpad on the issue)
+ISG_D="$(isg_repo "isg: stale-marker arm")"
+isg_stub_workpad "$ISG_D" 2
+: > "$ISG_D/.devflow/tmp/implement-active-602"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidE"}')"
+assert_eq "#362 isg: workpad.py exit 2 -> allow (exit 0)" "0" "${ISG_R%%|*}"
+assert_eq "#362 isg: stale-marker arm emits its own breadcrumb" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'marker was stale' && echo yes || echo no)"
+assert_eq "#362 isg: workpad.py exit 2 deletes the stale marker (self-heal)" "no" \
+  "$([ -e "$ISG_D/.devflow/tmp/implement-active-602" ] && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# ── allow + skip: a marker whose issue suffix is not numeric is never parsed,
+# never queried, and never deleted (we do not understand its shape).
+ISG_D="$(isg_repo "isg: non-numeric marker arm")"
+isg_stub_workpad "$ISG_D" 0
+: > "$ISG_D/.devflow/tmp/implement-active-not-a-number"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidF"}')"
+assert_eq "#362 isg: non-numeric marker suffix -> allow (exit 0)" "0" "${ISG_R%%|*}"
+assert_eq "#362 isg: non-numeric-suffix arm emits its own breadcrumb" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'non-numeric issue suffix' && echo yes || echo no)"
+assert_eq "#362 isg: non-numeric marker is left on disk" "yes" \
+  "$([ -e "$ISG_D/.devflow/tmp/implement-active-not-a-number" ] && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# ── the two arms that drive the REAL workpad.py, against a gh stub (the #258
+# stub contract): a terminal workpad self-heals its marker; an interim one blocks.
+ISG_GHD="$(mktemp -d)"
+cat > "$ISG_GHD/gh" <<'STUB'
+#!/usr/bin/env bash
+# Minimal gh stub for `workpad.py status`: repo resolution + one comments page
+# carrying the fixture workpad body (json-encoded via python3, so the body's
+# quotes/glyphs never traverse shell quoting).
+case "$*" in
+  *"repo view"*) echo "owner/repo"; exit 0 ;;
+  *comments*)
+    python3 -c 'import json,os,sys; sys.stdout.write(json.dumps([{"id":1,"body":open(os.environ["ISG_BODY"]).read()}]))'
+    exit 0 ;;
+esac
+echo '[]'
+STUB
+chmod +x "$ISG_GHD/gh"
+
+cat > "$ISG_GHD/terminal.md" <<'WPMD'
+<!-- devflow:workpad -->
+# DevFlow Workpad — Issue #603
+
+**Status:** 🎉 Complete
+**Last updated:** 2026-05-15T00:00:00Z
+WPMD
+cat > "$ISG_GHD/interim.md" <<'WPMD'
+<!-- devflow:workpad -->
+# DevFlow Workpad — Issue #604
+
+**Status:** 🚀 Reviewing
+**Last updated:** 2026-05-15T00:00:00Z
+WPMD
+
+# terminal -> delete the marker, allow the stop.
+ISG_D="$(isg_repo "isg: terminal self-heal arm")"
+cp "$WP_PY" "$ISG_D/scripts/workpad.py"
+: > "$ISG_D/.devflow/tmp/implement-active-603"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidG"}' \
+  "DEVFLOW_GH=$ISG_GHD/gh" "ISG_BODY=$ISG_GHD/terminal.md")"
+assert_eq "#362 isg: terminal workpad -> allow (exit 0)" "0" "${ISG_R%%|*}"
+assert_eq "#362 isg: terminal arm names the status word in its breadcrumb" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'is terminal (Complete)' && echo yes || echo no)"
+assert_eq "#362 isg: terminal workpad deletes the marker (self-heal)" "no" \
+  "$([ -e "$ISG_D/.devflow/tmp/implement-active-603" ] && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# terminal, but the marker cannot be removed (read-only .devflow/tmp): the guard must
+# still allow the stop AND must not claim it deleted a marker that is still on disk.
+ISG_D="$(isg_repo "isg: unhealable terminal marker")"
+cp "$WP_PY" "$ISG_D/scripts/workpad.py"
+: > "$ISG_D/.devflow/tmp/implement-active-603"
+chmod 555 "$ISG_D/.devflow/tmp"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidK"}' \
+  "DEVFLOW_GH=$ISG_GHD/gh" "ISG_BODY=$ISG_GHD/terminal.md")"
+chmod 755 "$ISG_D/.devflow/tmp"
+assert_eq "#362 isg: an undeletable terminal marker still allows the stop (exit 0)" "0" "${ISG_R%%|*}"
+assert_eq "#362 isg: an undeletable marker is reported as NOT deleted (no success for work that did not happen)" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'could NOT be deleted' && echo yes || echo no)"
+assert_eq "#362 isg: the undeletable marker really is still on disk (the breadcrumb told the truth)" "yes" \
+  "$([ -e "$ISG_D/.devflow/tmp/implement-active-603" ] && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# interim -> write the sentinel, print the instruction, exit 2 (BLOCK).
+ISG_D="$(isg_repo "isg: interim block arm")"
+cp "$WP_PY" "$ISG_D/scripts/workpad.py"
+: > "$ISG_D/.devflow/tmp/implement-active-604"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidH"}' \
+  "DEVFLOW_GH=$ISG_GHD/gh" "ISG_BODY=$ISG_GHD/interim.md")"
+assert_eq "#362 isg: interim workpad -> BLOCKS the stop (exit 2)" "2" "${ISG_R%%|*}"
+assert_eq "#362 isg: interim block names the issue number on stderr" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF '#604' && echo yes || echo no)"
+assert_eq "#362 isg: interim block names the interim status word on stderr" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'Reviewing' && echo yes || echo no)"
+assert_eq "#362 isg: interim block instructs the implement run to drive Status terminal" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'return to the phase that owns the remaining work' && echo yes || echo no)"
+assert_eq "#362 isg: interim block instructs any OTHER session to just end its turn again" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'end your turn again' && echo yes || echo no)"
+assert_eq "#362 isg: interim block writes the session-keyed sentinel" "yes" \
+  "$([ -e "$ISG_D/.devflow/tmp/stop-guard-sidH" ] && echo yes || echo no)"
+assert_eq "#362 isg: interim block leaves the marker in place" "yes" \
+  "$([ -e "$ISG_D/.devflow/tmp/implement-active-604" ] && echo yes || echo no)"
+
+# at-most-one-block bound: the SECOND stop in the SAME session is allowed even
+# though the workpad is still interim — a session that genuinely cannot
+# finalize is never trapped.
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidH"}' \
+  "DEVFLOW_GH=$ISG_GHD/gh" "ISG_BODY=$ISG_GHD/interim.md")"
+assert_eq "#362 isg: second stop in the same session is allowed (exit 0)" "0" "${ISG_R%%|*}"
+# ...while a DIFFERENT session (its own sentinel absent) is still blocked once.
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidI"}' \
+  "DEVFLOW_GH=$ISG_GHD/gh" "ISG_BODY=$ISG_GHD/interim.md")"
+assert_eq "#362 isg: a different session is still blocked once (exit 2)" "2" "${ISG_R%%|*}"
+rm -rf "$ISG_D"
+
+# ── allow: the sentinel write itself fails (read-only .devflow/tmp). The guard
+# must NOT exit 2 without a sentinel — that would break the one-block bound and
+# could trap the session in a re-block loop.
+ISG_D="$(isg_repo "isg: sentinel-write-failure arm")"
+cp "$WP_PY" "$ISG_D/scripts/workpad.py"
+: > "$ISG_D/.devflow/tmp/implement-active-604"
+chmod 555 "$ISG_D/.devflow/tmp"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidJ"}' \
+  "DEVFLOW_GH=$ISG_GHD/gh" "ISG_BODY=$ISG_GHD/interim.md")"
+chmod 755 "$ISG_D/.devflow/tmp"
+assert_eq "#362 isg: sentinel write failure -> allow (exit 0), never a sentinel-less block" "0" "${ISG_R%%|*}"
+assert_eq "#362 isg: sentinel-write-failure arm emits its own breadcrumb" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'could not write the sentinel' && echo yes || echo no)"
+rm -rf "$ISG_D" "$ISG_GHD"
+
+# ── static pin: .claude/settings.json wires the guard. Bare jq is fine here —
+# the resolve-jq.sh routing rule binds shipped .sh helpers, not this test file.
+ISG_SETTINGS="$LIB/../.claude/settings.json"
+ISG_GUARD_CMD="$(jq -r '.hooks.Stop[]?.hooks[]? | select((.command // "") | contains("implement-stop-guard.sh")) | .command' "$ISG_SETTINGS" 2>/dev/null)"
+ISG_GUARD_TIMEOUT="$(jq -r '.hooks.Stop[]?.hooks[]? | select((.command // "") | contains("implement-stop-guard.sh")) | .timeout' "$ISG_SETTINGS" 2>/dev/null)"
+ISG_ET_CMD="$(jq -r '.hooks.Stop[]?.hooks[]? | select((.command // "") | contains("efficiency-trace.sh")) | .command' "$ISG_SETTINGS" 2>/dev/null)"
+assert_eq "#362 settings.json: the Stop hook wires implement-stop-guard.sh" "yes" \
+  "$([ -n "$ISG_GUARD_CMD" ] && echo yes || echo no)"
+assert_eq "#362 settings.json: the guard entry carries a 15s per-command timeout" "15" "$ISG_GUARD_TIMEOUT"
+# Scoped to the guard's OWN command string: a whole-file grep would match the
+# sibling efficiency-trace.sh entry's legitimate `|| true` and pass vacuously.
+# A `|| true` here would swallow the guard's blocking exit 2 and neuter it.
+assert_eq "#362 settings.json: the guard command carries NO '|| true' (it would swallow exit 2)" "no" \
+  "$(printf '%s' "$ISG_GUARD_CMD" | grep -qF '|| true' && echo yes || echo no)"
+assert_eq "#362 settings.json: the pre-existing efficiency-trace.sh entry survives" "yes" \
+  "$([ -n "$ISG_ET_CMD" ] && echo yes || echo no)"
+assert_eq "#362 settings.json: the efficiency-trace.sh entry keeps its own '|| true'" "yes" \
+  "$(printf '%s' "$ISG_ET_CMD" | grep -qF '|| true' && echo yes || echo no)"
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.
