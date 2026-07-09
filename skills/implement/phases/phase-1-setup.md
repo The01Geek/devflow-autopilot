@@ -108,7 +108,7 @@ PR_JSON='[]'
 
 Capture the checkout's own stderr in the **same statement** that runs it: git's worktree refusal is the *only* discriminator between the two failure shapes below, and a later `git rev-parse` cannot recover it (a rev-parse comparison tells you only *that* the tree did not land, never *why*). Never read a `$?` captured in one statement in a later one (issue #284).
 
-The refusal git actually prints is `fatal: '<branch>' is already used by worktree at '<path>'` — **match `already used by worktree`**, verified against git 2.50.1. Do **not** match `already checked out`: that phrase appears only in `git worktree --help`'s description of `--ignore-other-worktrees`, never in the error, so keying on it silently routes a resumable worktree case into the fail-closed stop below. (`is already checked out at` is retained as a secondary alternative for older git.)
+The refusal git actually prints is `fatal: '<branch>' is already used by worktree at '<path>'` — **match `already used by worktree`**, verified against git 2.50.1. Do **not** match the bare phrase `already checked out`: it occurs only in git's `--help` prose, never in the refusal error, so keying on it silently routes a resumable worktree case into the fail-closed stop below. (Git before 2.43 worded the same refusal `is already checked out at`, so that full phrase is retained as a secondary alternative for older git.)
 
 ```bash
 # The `|| true` is deliberate and is NOT a swallowed failure: the failure is not discarded,

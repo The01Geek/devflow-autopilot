@@ -3441,17 +3441,20 @@ assert_pin_unique "#362: the resume checkout captures its own stderr in the same
 assert_pin_red_on_removal "#362: resume checkout stderr capture flips RED on removal" \
   'CO_ERR=$( { git fetch origin "$HEAD_REF" && git checkout "$HEAD_REF"; } 2>&1 1>/dev/null ) || true' "$P362_P1"
 # COUPLED TO GIT'S ACTUAL MESSAGE, verified against git 2.50.1: the refusal reads
-# "is already used by worktree at". `already checked out` appears ONLY in `git worktree
-# --help`, never in the error — keying on it made the worktree-resume arm unreachable and
-# falsely Blocked a resumable run. Pin the string git really emits, at both sites that name it.
-assert_pin_unique "#362: the prose names the worktree-refusal string git actually emits" \
-  '**match `already used by worktree`**' "$P362_P1"
-assert_pin_unique "#362: the resume routing bullet keys on the real worktree refusal" \
-  'matches `already used by worktree`' "$P362_P1"
-assert_pin_red_on_removal "#362: verified worktree-refusal string flips RED on removal" \
-  '**match `already used by worktree`**' "$P362_P1"
-assert_pin_red_on_removal "#362: worktree-refusal discriminator flips RED on removal" \
-  'matches `already used by worktree`' "$P362_P1"
+# "is already used by worktree at". The bare phrase `already checked out` occurs only in
+# git's --help prose, never in the error — keying on it made the worktree-resume arm
+# unreachable and falsely Blocked a resumable run. Pin the ROUTING BULLET including the
+# `$CO_ERR` operand it reads: a pin on the string alone stays GREEN when the bullet is
+# rewired to a different (or empty) variable, which is the same fail-open it must catch.
+assert_pin_unique "#362: the resume routing bullet matches git's real refusal, read from the captured CO_ERR" \
+  '`$CO_ERR` matches `already used by worktree`' "$P362_P1"
+assert_pin_red_on_removal "#362: worktree-refusal routing (string + CO_ERR operand) flips RED on removal" \
+  '`$CO_ERR` matches `already used by worktree`' "$P362_P1"
+# The PR tiebreak decides WHICH branch a resume adopts; collapsing it adopts the wrong PR.
+assert_pin_unique "#362: the resume pre-check tiebreak prefers the workpad Branch, else the newest PR" \
+  'pick the one whose `headRefName` equals the workpad `Branch` line; if none matches, pick the newest by `createdAt`' "$P362_P1"
+assert_pin_red_on_removal "#362: resume PR tiebreak flips RED on removal" \
+  'pick the one whose `headRefName` equals the workpad `Branch` line; if none matches, pick the newest by `createdAt`' "$P362_P1"
 assert_pin_unique "#362: a resume checkout that did not land stops the run rather than duplicating the PR" \
   'refusing to fall through to branch creation' "$P362_P1"
 assert_pin_unique "#362: the fail-closed stop carries its rationale (a known duplication, not an unknown risk)" \
