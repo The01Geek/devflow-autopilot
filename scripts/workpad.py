@@ -818,18 +818,22 @@ def _tick_checkbox_by_index(content: str, n: int, section_label: str) -> str:
     return _join_preserving_newline(new_lines, content)
 
 
-def _rewrite_checkbox(
-    content: str, old_substr: str, new_text: str, section_label: str
-) -> str:
-    """Find one checkbox matching old_substr; replace its label text with new_text.
-    Preserves checkbox state (`[ ]` vs `[x]`) and indentation."""
+def _find_checkbox_row(content: str, old_substr: str, section_label: str):
+    """Resolve the ONE checkbox row `old_substr` names, returning
+    `(lines, line_idx, match)`. Raises `_UpdateError` when the substring matches
+    zero or multiple rows (the exactly-one-match rule).
+
+    Split out of `_rewrite_checkbox` so the `(post-merge)` rationale guard can
+    reason over the row's CURRENT text using the very same resolution the rewrite
+    will use (issue #338). Sharing the resolution — rather than re-deriving the
+    row from the OLD argument string — keeps the guard's view of "which row is
+    this pair about" identical to the rewriter's by construction."""
     matched = []
-    new_lines = []
-    for line in content.splitlines():
+    lines = content.splitlines()
+    for i, line in enumerate(lines):
         m = _CHECKBOX_ROW_RE.match(line)
         if m and old_substr.lower() in m.group(4).lower():
-            matched.append((len(new_lines), m))
-        new_lines.append(line)
+            matched.append((i, m))
     if not matched:
         raise _UpdateError(
             f"no {section_label} checkbox matched {old_substr!r} for rewrite"
@@ -840,6 +844,15 @@ def _rewrite_checkbox(
             f"be more specific"
         )
     line_idx, m = matched[0]
+    return lines, line_idx, m
+
+
+def _rewrite_checkbox(
+    content: str, old_substr: str, new_text: str, section_label: str
+) -> str:
+    """Find one checkbox matching old_substr; replace its label text with new_text.
+    Preserves checkbox state (`[ ]` vs `[x]`) and indentation."""
+    new_lines, line_idx, m = _find_checkbox_row(content, old_substr, section_label)
     new_lines[line_idx] = f"{m.group(1)}{m.group(2)}{m.group(3)}{new_text}"
     return _join_preserving_newline(new_lines, content)
 
@@ -1267,17 +1280,36 @@ def _apply_section_ticks(
 _POST_MERGE_MARKER = '(post-merge)'
 
 
-def _pair_appends_post_merge(old: str, new: str) -> bool:
-    """True when a `--rewrite-ac` OLD/NEW pair *appends* the `(post-merge)` tag —
-    NEW ends with the marker while OLD does not (both sides trailing-whitespace
-    stripped first, so a stray space or newline on either side can't mask the
-    comparison). This is exactly the mid-run retag channel §3.4 requires a
-    rationale `--note` for (issue #338): a pair that tags a previously-untagged
-    criterion. A pair whose OLD already ends with the tag (a text tweak on an
-    already-tagged row) or that *removes* the tag returns False — those need no
-    rationale."""
-    return (new.rstrip().endswith(_POST_MERGE_MARKER)
-            and not old.rstrip().endswith(_POST_MERGE_MARKER))
+def _ends_with_post_merge(text: str) -> bool:
+    """True when `text` carries the `(post-merge)` marker in TERMINAL position.
+    Trailing whitespace is stripped first, so a stray space or newline can't mask
+    the comparison (the anti-evasion the retag guard and `_unticked_rows` share)."""
+    return text.rstrip().endswith(_POST_MERGE_MARKER)
+
+
+def _pair_appends_post_merge(old: str, new: str, row_text: str) -> bool:
+    """True when a `--rewrite-ac` OLD/NEW pair *appends* the `(post-merge)` tag to
+    the row it targets: NEW ends with the marker while NEITHER the OLD argument nor
+    `row_text` — the matched row's CURRENT label text, resolved by
+    `_find_checkbox_row`, the same resolution the rewrite itself uses — already
+    does. This is exactly the mid-run retag channel §3.4 requires a rationale
+    `--note` for (issue #338): a pair that tags a previously-untagged criterion.
+
+    Returns False (no rationale needed) when the pair *removes* the tag, or when
+    the row it targets is ALREADY terminally tagged — a text tweak on an
+    already-post-merge row creates no new deferral. Consulting `row_text` rather
+    than the OLD argument alone is what makes that exemption hold for an OLD
+    substring that does not itself span the tag (e.g. `--rewrite-ac "AC two"
+    "AC two clarified (post-merge)"` against a row already reading
+    `AC two (post-merge)`), which the argument-string-only form false-refused.
+
+    The OLD conjunct is retained: a pair whose OLD spans the tag while the row is
+    non-terminally tagged is the crafted multi-pair shuttle the state-based
+    backstop in `_apply_mutations` exists to catch (it is not caught here, by
+    design — see that backstop's comment)."""
+    return (_ends_with_post_merge(new)
+            and not _ends_with_post_merge(old)
+            and not _ends_with_post_merge(row_text))
 
 
 def _unticked_rows(content: str) -> tuple[list[str], list[str]]:
@@ -1291,7 +1323,7 @@ def _unticked_rows(content: str) -> tuple[list[str], list[str]]:
         if not m or m.group(2) != '[ ]':
             continue
         text = m.group(4)
-        (pm if text.rstrip().endswith(_POST_MERGE_MARKER) else non_pm).append(text)
+        (pm if _ends_with_post_merge(text) else non_pm).append(text)
     return non_pm, pm
 
 
@@ -1426,22 +1458,16 @@ def _apply_mutations(body: str, args, failed_ticks) -> str:
         # `update` call satisfies it, whether or not that note is *about* the retag
         # (the note is appended to Progress, not bound to the rewritten row). The
         # retrospective auditor reads the recorded note; the guard only guarantees
-        # there is one to read.
+        # there is one to read. Only `--note` satisfies it: a `--reflection` is a
+        # different channel (## Devflow Reflection) and never stands in for the
+        # rationale. The check runs per pair INSIDE the rewrite loop below, against
+        # the row each pair actually resolves to, so a text tweak on an
+        # already-`(post-merge)` row is exempt even when the OLD substring does not
+        # itself span the tag.
         # Scope: this covers the `--rewrite-ac` retag channel only; the Phase 2.2.5
         # `--replace-acs-file` channel can introduce `(post-merge)` rows wholesale —
         # a deliberate, known limitation left open here, not closed by this guard.
         has_note = any(n.strip() for n in args.note)
-        if not has_note:
-            offending = next(((old, new) for old, new in args.rewrite_ac
-                              if _pair_appends_post_merge(old, new)), None)
-            if offending:
-                old, new = offending
-                raise _UpdateError(
-                    f"--rewrite-ac pair {old!r} -> {new!r} appends the "
-                    f"{_POST_MERGE_MARKER} tag but no non-empty --note rationale was "
-                    f"supplied; a mid-run {_POST_MERGE_MARKER} retag must record why "
-                    f"the deferral is genuinely-live (§3.4). No PATCH was made."
-                )
         # --rewrite-ac is repeatable (issue #308): apply every OLD/NEW pair in
         # argument order against the progressively-rewritten section. Each pair
         # runs the existing exactly-one-match rule, so a pair matching zero or
@@ -1450,9 +1476,10 @@ def _apply_mutations(body: str, args, failed_ticks) -> str:
         # `content` through a local and write `sections[idx]` once after the
         # loop, so a mid-loop raise leaves the section fully untouched.
         heading, content = sections[idx]
-        # State-based backstop (issue #338 hardening): the per-pair guard above
-        # reasons over the OLD/NEW argument *strings*, so a crafted MULTI-pair call
-        # whose pairs each individually dodge `_pair_appends_post_merge` — e.g.
+        # State-based backstop (issue #338 hardening): the per-pair guard consults
+        # the resolved row's text, but still exempts any pair whose OLD argument
+        # itself spans the tag, so a crafted MULTI-pair call whose pairs each
+        # individually dodge `_pair_appends_post_merge` — e.g.
         # pair 1 places the marker non-terminally (`X` -> `(post-merge) X`, NEW
         # doesn't end in the tag), pair 2 makes it terminal (`(post-merge)` ->
         # `X (post-merge)`, OLD ends in the tag) — could net-add a post-merge row
@@ -1468,6 +1495,20 @@ def _apply_mutations(body: str, args, failed_ticks) -> str:
         # no increase — both far outside the natural single-retag flow.
         pre_pm = len(_unticked_rows(content)[1])
         for old, new in args.rewrite_ac:
+            if not has_note:
+                # Resolve the row this pair targets with the rewriter's own
+                # resolution, then ask whether the pair terminally tags it.
+                _row_text = _find_checkbox_row(
+                    content, old, 'Acceptance Criteria',
+                )[2].group(4)
+                if _pair_appends_post_merge(old, new, _row_text):
+                    raise _UpdateError(
+                        f"--rewrite-ac pair {old!r} -> {new!r} appends the "
+                        f"{_POST_MERGE_MARKER} tag but no non-empty --note "
+                        f"rationale was supplied; a mid-run {_POST_MERGE_MARKER} "
+                        f"retag must record why the deferral is genuinely-live "
+                        f"(§3.4). No PATCH was made."
+                    )
             content = _rewrite_checkbox(content, old, new, 'Acceptance Criteria')
         if not has_note and len(_unticked_rows(content)[1]) > pre_pm:
             raise _UpdateError(

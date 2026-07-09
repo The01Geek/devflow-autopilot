@@ -12,4 +12,7 @@ type: Changed
   and the closing retag paragraph refuse it alongside the tooling-gap and self-claim cases,
   and Phase 2.3.4 and Phase 1.2 bind to the same rule. `scripts/workpad.py` now structurally
   rejects a `--rewrite-ac` that appends the `(post-merge)` tag without a non-empty `--note`
-  rationale, so every mid-run retag is a recorded, retrospective-auditable claim. (#340)
+  rationale, so every mid-run retag is a recorded, retrospective-auditable claim. The guard
+  resolves the row each pair targets with the rewriter's own lookup, so a text tweak on an
+  already-`(post-merge)` criterion creates no new deferral and needs no note — even when the
+  `OLD` substring does not itself span the tag. (#340)

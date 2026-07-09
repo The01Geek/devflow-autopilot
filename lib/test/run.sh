@@ -4107,13 +4107,14 @@ rm -rf "$S258"
 
 # ── issue #338: --rewrite-ac (post-merge) retag requires a --note rationale ────
 # scripts/workpad.py: an `update` call in which any --rewrite-ac pair APPENDS the
-# trailing (post-merge) tag (NEW ends with it after rstrip, OLD does not) and which
-# carries no non-empty --note aborts STRUCTURALLY — _UpdateError, exit 1, stderr
-# naming the offending pair, NO PATCH issued (all-or-nothing preserved). The same
-# call with a non-empty --note succeeds. A pair whose OLD already ends with the tag,
-# or that removes it, needs no note. Exercised as a real CLI subprocess against a gh
-# stub, mirroring the #258 fixture pattern. T1/T4/T5 go RED against the pre-guard
-# workpad.py (the laundered tag PATCHed with no rationale); T2/T3 are pass controls.
+# trailing (post-merge) tag (NEW ends with it after rstrip; neither OLD nor the row
+# the pair resolves to already does) and which carries no non-empty --note aborts
+# STRUCTURALLY — _UpdateError, exit 1, stderr naming the offending pair, NO PATCH
+# issued (all-or-nothing preserved). The same call with a non-empty --note succeeds.
+# A pair targeting a row that already ends with the tag, or that removes it, needs no
+# note. Exercised as a real CLI subprocess against a gh stub, mirroring the #258
+# fixture pattern. T1/T4/T5 go RED against the pre-guard workpad.py (the laundered
+# tag PATCHed with no rationale); T2/T3/T3c/T5b are pass controls.
 S338="$(mktemp -d)"
 cat > "$S338/gh" <<'STUB'
 #!/usr/bin/env bash
@@ -4151,6 +4152,12 @@ cat > "$S338/base.md" <<'WPMD'
 WPMD
 # A fixture whose AC two already carries the (post-merge) tag (for the OLD-already-tagged case).
 sed 's/- \[ \] AC two/- [ ] AC two (post-merge)/' "$S338/base.md" > "$S338/base-tagged.md"
+# A fixture carrying a `## Devflow Reflection` section, so a --reflection is a VALID
+# mutation on it. Without that section --reflection aborts on 'section not found', and a
+# test asserting "a reflection does not satisfy the --note" would pass for that unrelated
+# reason — staying green against a mutant that lets a reflection satisfy the guard (T4d).
+cp "$S338/base.md" "$S338/base-refl.md"
+printf '\n## Devflow Reflection\n- existing bullet\n' >> "$S338/base-refl.md"
 
 # run338 <body-file> <args...> → prints the exit code; leaves out/err/patchlog on disk.
 run338() {
@@ -4219,6 +4226,18 @@ assert_eq "#338(T5): a mixed call with one appending pair, no note, aborts non-z
 assert_eq "#338(T5): the mixed-call refusal made NO PATCH (the plain rewrite did not partially apply)" "yes" \
   "$([ -s "$S338/patchlog" ] && echo no || echo yes)"
 
+# T5b (guard + backstop no FALSE FIRE): an ordinary batched multi-pair rewrite that never
+# touches the (post-merge) tag needs no note and must apply in full. Pins the innocent
+# path both guards share: a regression that miscounted a plain row as post-merge-terminal
+# (or classified a plain pair as an append) would abort an honest batch, and no other
+# S338 test would notice — every one of them either carries a note or expects a refusal.
+_c="$(run338 "$S338/base.md" --rewrite-ac "AC one" "AC one edited" \
+  --rewrite-ac "AC two" "AC two edited")"
+assert_eq "#338(T5b): an ordinary batched no-note rewrite that never touches the tag succeeds (exit 0)" "0" "$_c"
+assert_eq "#338(T5b): both pairs of the innocent batch applied" "yes" \
+  "$([ -s "$S338/patchlog" ] && grep -q '\- \[ \] AC one edited' "$S338/out" \
+     && grep -q '\- \[ \] AC two edited' "$S338/out" && echo yes || echo no)"
+
 # T3b (removal pair — documented no-note case, unpinned until now): NEW lacks the tag
 # and OLD ends with it (de-tagging an already-post-merge row) needs no note. Pins the
 # predicate's first-conjunct-False path (no current test drives it: T1/T2/T3 all have NEW
@@ -4227,6 +4246,25 @@ _c="$(run338 "$S338/base-tagged.md" --rewrite-ac "AC two (post-merge)" "AC two")
 assert_eq "#338(T3b): a rewrite that REMOVES the (post-merge) tag passes with no note (exit 0)" "0" "$_c"
 assert_eq "#338(T3b): the tag-removing rewrite PATCHed" "yes" \
   "$([ -s "$S338/patchlog" ] && echo yes || echo no)"
+
+# T3c (no false REFUSAL — the guard reasons over the RESOLVED ROW, not the OLD string):
+# a text tweak on a row that ALREADY ends with the tag creates no new deferral, so it
+# needs no note — even when the OLD substring does not itself span the tag. The
+# argument-string-only predicate classified this as an append and demanded a --note,
+# contradicting the exemption workpad.py's docstring, SKILL.md and docs/implement-skill.md
+# all publish. Fails CLOSED (an extra-note demand, never a laundered deferral), but the
+# published contract must match the code. RED against the OLD-string-only predicate.
+_c="$(run338 "$S338/base-tagged.md" --rewrite-ac "AC two" "AC two clarified (post-merge)")"
+assert_eq "#338(T3c): a tweak on an already-(post-merge) row needs no note even when OLD omits the tag (exit 0)" "0" "$_c"
+assert_eq "#338(T3c): the already-tagged-row tweak PATCHed the reworded row" "yes" \
+  "$([ -s "$S338/patchlog" ] && grep -q '\- \[ \] AC two clarified (post-merge)' "$S338/out" && echo yes || echo no)"
+# Control: the SAME shape onto an UNTAGGED row is still refused — the exemption is bound
+# to the target row's existing tag, not to the OLD substring being a prefix.
+_c="$(run338 "$S338/base-tagged.md" --rewrite-ac "AC one" "AC one clarified (post-merge)")"
+assert_eq "#338(T3c): the same shape onto an UNTAGGED row is still refused (non-zero)" "no" \
+  "$([ "$_c" = "0" ] && echo yes || echo no)"
+assert_eq "#338(T3c): the untagged-row refusal made NO PATCH" "yes" \
+  "$([ -s "$S338/patchlog" ] && echo no || echo yes)"
 
 # T4b (trailing-whitespace anti-evasion — the reason the predicate rstrips): an appending
 # pair whose NEW ends with the tag plus trailing spaces is still an append and is refused
@@ -4237,6 +4275,38 @@ assert_eq "#338(T4b): an appending pair with trailing whitespace after the tag i
   "$([ "$_c" = "0" ] && echo yes || echo no)"
 assert_eq "#338(T4b): the trailing-whitespace-append refusal made NO PATCH" "yes" \
   "$([ -s "$S338/patchlog" ] && echo no || echo yes)"
+
+# T4c (note-side anti-evasion — the discriminating input that actually pins `.strip()`):
+# T4's `--note ""` does NOT pin it — `any([""])` is already falsy, so T4 stays GREEN
+# against a mutant `has_note = any(n for n in args.note)`. A whitespace-only note is the
+# input that separates them: truthy as a bare string, falsy after `.strip()`. Mutation-
+# checked — dropping `.strip()` turns THIS assertion RED while T4 stays GREEN.
+_c="$(run338 "$S338/base.md" --rewrite-ac "AC two" "AC two (post-merge)" --note "   ")"
+assert_eq "#338(T4c): a whitespace-only --note is treated as missing → refused (non-zero)" "no" \
+  "$([ "$_c" = "0" ] && echo yes || echo no)"
+assert_eq "#338(T4c): the whitespace-note refusal made NO PATCH" "yes" \
+  "$([ -s "$S338/patchlog" ] && echo no || echo yes)"
+
+# T4d (only --note satisfies the rationale): a --reflection is a different channel
+# (## Devflow Reflection) and never stands in for the retag rationale. Without this pin a
+# refactor broadening has_note to accept a reflection would loosen the contract while
+# every other S338 test stayed green. Runs against base-refl.md — the fixture that HAS a
+# ## Devflow Reflection section — so the reflection is a valid mutation and the refusal is
+# attributable to the guard; on a section-less fixture this test would pass vacuously via
+# 'section not found'. The stderr assertion pins that attribution (cf. T7's 'net-adds').
+_c="$(run338 "$S338/base-refl.md" --rewrite-ac "AC two" "AC two (post-merge)" \
+  --reflection "retro-tagged as post-merge (genuinely-live): live deploy target")"
+assert_eq "#338(T4d): a --reflection does not satisfy the --note rationale → refused (non-zero)" "no" \
+  "$([ "$_c" = "0" ] && echo yes || echo no)"
+assert_eq "#338(T4d): the reflection-only refusal made NO PATCH" "yes" \
+  "$([ -s "$S338/patchlog" ] && echo no || echo yes)"
+assert_eq "#338(T4d): the refusal is the rationale guard's, not an incidental section abort" "yes" \
+  "$(grep -q 'no non-empty --note rationale' "$S338/err" && echo yes || echo no)"
+# Control: the same call on the same fixture WITH a --note succeeds — proving base-refl.md
+# is not itself the reason T4d is refused (the reflection applies cleanly alongside).
+_c="$(run338 "$S338/base-refl.md" --rewrite-ac "AC two" "AC two (post-merge)" \
+  --reflection "context bullet" --note "genuinely-live: live deploy target")"
+assert_eq "#338(T4d): the same reflection call WITH a --note succeeds (exit 0)" "0" "$_c"
 
 # T7 (state-based multi-pair backstop, issue #338 hardening): a crafted two-pair call whose
 # pairs each individually dodge the per-pair guard — pair 1 places the marker non-terminally
@@ -4263,6 +4333,16 @@ assert_eq "#338(T7b): the same multi-pair retag WITH a --note succeeds (exit 0)"
 # Source pin: the rationale-required guard + its predicate live in workpad.py.
 assert_eq "#338: workpad.py carries the (post-merge)-retag rationale guard" "yes" \
   "$(grep -q '_pair_appends_post_merge' "$WP_PY" && echo yes || echo no)"
+# Source pin: the guard SHARES the rewriter's row resolution (parse, don't validate)
+# rather than re-deriving the target row from the OLD argument string. A revert to the
+# two-argument, string-only predicate re-introduces the T3c false refusal.
+assert_eq "#338: the retag guard resolves the target row via _find_checkbox_row" "yes" \
+  "$(grep -q '_find_checkbox_row' "$WP_PY" && echo yes || echo no)"
+# Coupled-invariant pin: SKILL.md's --rewrite-ac row publishes the row-scoped exemption
+# (not the stale OLD-only form). Edited in lockstep with the predicate above.
+assert_eq "#338: SKILL.md publishes the row-scoped (post-merge) exemption" "yes" \
+  "$(grep -q 'neither OLD nor the row it targets already does' \
+       "$LIB/../skills/implement/SKILL.md" && echo yes || echo no)"
 
 # T6 (pin mutation check): the operative sentence of the new third forbidden case in
 # phase-3-review.md §3.4. This is a behavioral-fix pin (removing the sentence
