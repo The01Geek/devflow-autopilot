@@ -8693,6 +8693,18 @@ REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREE
 REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
   DRP_RUNS='{"workflow_runs":[{"name":"CI","workflow_id":1,"event":"pull_request","status":"completed","conclusion":"failure"}]}' \
   drp_stderr "#351 missing run_number breadcrumb names the field" "numeric run_number"
+# #351 AC7 (event operand): `event` is the OTHER group-key operand — an absent/non-string
+# event mis-groups a run under a null bucket, so an older non-green run could survive the
+# collapse in its own group and re-wedge the review (the exact fail-open #351 fixes). It is
+# validated (string) before grouping like the two numeric fields, so a non-self run missing
+# event -> false unverifiable with a field-naming breadcrumb. (workflow_id/run_number are
+# checked first, so a run failing multiple operands names workflow_id before event.)
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","workflow_id":1,"run_number":6,"status":"completed","conclusion":"failure"}]}' \
+  drp "#351 non-self run missing event -> false unverifiable (fail closed, no mis-group)" "false unverifiable"
+REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \
+  DRP_RUNS='{"workflow_runs":[{"name":"CI","workflow_id":1,"run_number":6,"status":"completed","conclusion":"failure"}]}' \
+  drp_stderr "#351 missing event breadcrumb names the field" "string event"
 # #351 AC8: zero NON-self workflow runs still satisfies the CI-green precondition
 # (a CI-less-repo / self-only head is reviewed, never wedged).
 REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREEN=true DEVFLOW_GH="$DRP_STUB" \

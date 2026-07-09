@@ -36,9 +36,9 @@
 #                             cancelled sibling) never gates once a newer run of
 #                             the same workflow+event exists (issue #351). A
 #                             non-self run missing a numeric workflow_id or
-#                             run_number makes the collapse unverifiable and
-#                             fails closed (unverifiable), never a dropped
-#                             signal. The runs API returns each run's CURRENT
+#                             run_number, or a string event, makes the collapse
+#                             unverifiable and fails closed (unverifiable), never
+#                             a dropped signal. The runs API returns each run's CURRENT
 #                             attempt, so a re-run needs no special handling.
 #                             Signal sets (2) and (3) need no collapse: GitHub
 #                             already returns the latest per name server-side
@@ -232,10 +232,13 @@ if [ "$REQUIRE_CI_GREEN" != "false" ]; then
   # tie, while run_number is strictly monotonic per workflow, so a group has one
   # maximum. Self-exclusion runs BEFORE the numeric-operand guard AND the grouping,
   # so the review's own runs never form a group and a self run lacking
-  # workflow_id/run_number cannot trip the guard. The guard fails CLOSED (jq
+  # workflow_id/run_number/event cannot trip the guard. The guard fails CLOSED (jq
   # errors, caught below) when a NON-self run lacks a numeric workflow_id or
-  # run_number: group_by/max_by on an absent key silently drops or
-  # nondeterministically picks a signal (fail-open) — see issue #351 AC7.
+  # run_number, OR a string event: group_by/max_by on an absent key silently drops
+  # or nondeterministically picks a signal, and an absent event mis-groups a run
+  # under a null bucket so an older non-green run could survive the collapse in its
+  # own group and re-wedge the review (fail-open) — all three group/select operands
+  # are validated before grouping — see issue #351 AC7.
   _runlines_err=$(mktemp 2>/dev/null) || _runlines_err=/dev/null
   if ! RUN_LINES=$(printf '%s' "$RUNS_JSON" | "$DEVFLOW_JQ" -rs --arg self "$SELF_WORKFLOW_NAME" \
         'map(.workflow_runs // []) | add // []
@@ -244,6 +247,8 @@ if [ "$REQUIRE_CI_GREEN" != "false" ]; then
            then error("a non-self workflow run is missing a numeric workflow_id")
            elif any(.[]; (.run_number | type) != "number")
            then error("a non-self workflow run is missing a numeric run_number")
+           elif any(.[]; (.event | type) != "string")
+           then error("a non-self workflow run is missing a string event")
            else . end
          | group_by([.workflow_id, .event])
          | map(max_by(.run_number))
@@ -251,11 +256,11 @@ if [ "$REQUIRE_CI_GREEN" != "false" ]; then
     _runlines_detail=$(gh_err_detail "$_runlines_err")
     [ "$_runlines_err" = /dev/null ] || rm -f "$_runlines_err"
     # Distinguish an UNGROUPABLE run (a non-self run missing the numeric
-    # workflow_id/run_number the collapse needs — name the field) from a
-    # genuinely unparseable page; both fail closed (unverifiable), never a
+    # workflow_id/run_number or string event the collapse needs — name the field)
+    # from a genuinely unparseable page; both fail closed (unverifiable), never a
     # dropped signal or a positively-asserted ci-not-green.
     case "$_runlines_detail" in
-      *"numeric workflow_id"*|*"numeric run_number"*)
+      *"numeric workflow_id"*|*"numeric run_number"*|*"string event"*)
         echo "derive-review-preconditions: a non-self workflow run on $HEAD_SHA cannot be collapsed to the latest run per (workflow_id, event) group ($_runlines_detail) — other-CI state unverifiable; failing closed (unverifiable)." >&2
         ;;
       *)

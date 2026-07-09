@@ -50,7 +50,8 @@ PR. Its trigger policy (issue #304):
   (highest `run_number`) per `(workflow_id, event)` group**, so a superseded run —
   an approval-gated re-dispatch, a double-fire, a cancelled sibling — never gates
   the review once a newer run of the same workflow+event exists (a run missing a
-  numeric `workflow_id`/`run_number` fails closed as *unverifiable*). When a gate
+  numeric `workflow_id`/`run_number` or a string `event` fails closed as
+  *unverifiable*). When a gate
   is unmet the review is **deferred**, not run: a neutral "waiting" `Devflow Review`
   check is posted so the required context is present but non-blocking (a neutral
   required check does not block merge — pair it with branch protection's "require
