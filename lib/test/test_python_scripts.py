@@ -2767,6 +2767,29 @@ for _modname, _mod in (
               True, hasattr(_mod, '_force_utf8_streams'))
 
 
+# #356: `Failed` must stay OUT of _STATUS_TO_PROGRESS_PHASE, so a --note passed with
+# --status Failed nests under the most-recent-ticked phase (the same fallback Blocked
+# uses) instead of a Failed-specific phase.
+#
+# Asserted SEMANTICALLY, against the real dict — not by grepping the source for a
+# quoting style. A source grep for `'failed':` is evaded by a double-quoted
+# `"failed": ...` key, and the behavioral note-nesting test does not catch that either
+# (its fixture has no `Review` row, so a `failed -> 'Review'` mapping falls through to
+# the same last-ticked fallback and the note still lands where the test expects). This
+# assertion is the only guard that cannot be evaded by either route.
+assert_eq("#356: 'failed' is absent from _STATUS_TO_PROGRESS_PHASE (quote-agnostic)",
+          False, 'failed' in workpad._STATUS_TO_PROGRESS_PHASE)
+assert_eq("#356: 'blocked' is likewise absent (the sibling terminal word)",
+          False, 'blocked' in workpad._STATUS_TO_PROGRESS_PHASE)
+# Positive control: the map is non-empty and carries a known in-progress phase, so the
+# two absence assertions above cannot pass vacuously against an empty/renamed dict.
+assert_eq("#356: _STATUS_TO_PROGRESS_PHASE is populated (absence assertions not vacuous)",
+          True, 'setup' in workpad._STATUS_TO_PROGRESS_PHASE)
+# Both terminal words are still RECOGNIZED status words even though they have no phase.
+assert_eq("#356: 'failed' is a recognized status word despite having no progress phase",
+          True, workpad._is_recognized_status_word('Failed'))
+
+
 print()
 print(f"{PASS} passed, {FAIL} failed")
 sys.exit(0 if FAIL == 0 else 1)
