@@ -217,6 +217,24 @@
           "description": "When true (the default), the devflow-review auto-trigger defers \u2014 posting a neutral 'waiting: other CI not green' Devflow Review check instead of running the engine \u2014 until every other signal on the PR head (GitHub Actions workflow runs excluding the Devflow Review workflow itself, legacy commit statuses, and non-Actions check runs) has completed without failing (success, skipped, and neutral conclusions all count as green, so a path-filtered or optional workflow never wedges the review), so a code-quality verdict is never produced for known-broken code. Generic: no CI job names are referenced. A head with NO other CI at all is treated as satisfied (nothing to wait on), so a CI-less repo is reviewed immediately and never wedged. The review auto-re-triggers when other CI completes \u2014 a workflow_run/check_suite completed event, or (since issue #310) a legacy commit-status `status` event with `state == 'success'` for repos whose CI reports only via the commit-status API (classic Jenkins, legacy CircleCI); the workflow_run trigger's `workflows:` list must name the repo's CI workflows, a GitHub platform requirement. When false, restores the unconditional auto-trigger for this precondition. Evaluated by scripts/derive-review-preconditions.sh; an unverifiable query fails closed (defer, recoverable via a later event or the check's Re-run button).",
           "default": true
         },
+        "stall_backstop": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Cloud-only workflow-level backstop for the review engine (devflow-review.yml's finalize_check and devflow.yml's manual /devflow:review path). A headless review run can end `success` with NO verdict — the SDK session ends the moment the model emits a tool-call-free turn (e.g. after ScheduleWakeup while a Phase-3 agent is still pending), so the required `Devflow Review` check fails 'incomplete — re-run needed' and a human must manually re-trigger. When the run concludes incomplete and a verdict was NOT positively observed for the head, the backstop posts a `/devflow:review` re-trigger comment (authored by a freshly minted App token) up to `max_resume_attempts` per head, so the review re-runs without human intervention. When the cap is exhausted, or no workflow-capable App token is configured (DEVFLOW_APP_ID unset — a GITHUB_TOKEN-authored comment never re-triggers a workflow), behavior degrades to exactly the pre-existing dead-end flip, with a breadcrumb naming why the backstop did not fire. This is the review-side sibling of devflow_implement.stall_backstop. Purely additive: absent/disabled, the review behaves exactly as before.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Master switch for the review stall backstop. true (the default) enables the no-verdict auto-resume; false skips it entirely (no resume comment) so an incomplete review degrades to the dead-end flip exactly as before this feature. An unrecognized/missing value resolves to true — the safe, honest-failure direction.",
+              "default": true
+            },
+            "max_resume_attempts": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Hard cap on automatic review-resume attempts per head before the backstop stops firing and the run degrades to the dead-end flip. 0 disables auto-resume (detect-and-flip only). N means up to N auto-resumes per head, each carrying a distinct `<!-- devflow:review-backstop head=<sha> attempt=<n> -->` marker comment that the count is derived from. A negative or non-integer value resolves to the default 2.",
+              "default": 2
+            }
+          }
+        },
         "agent_overrides": {
           "type": "object",
           "description": "Per-subagent model/effort overrides for the shared /devflow:review engine. Applies to BOTH standalone /devflow:review AND the Phase-3 review pass of /devflow:review-and-fix (and thus /devflow:implement), since both drive the same engine. Keys are the nine review-engine subagent identifiers (byte-identical to the telemetry strings) plus an optional `default` fallback. Each value optionally sets `model` (free-form model id, forwarded to the dispatch as given) and/or `effort` (one of low/medium/high/xhigh/max \u2014 an out-of-enum value warns and falls back to the session effort rather than aborting). Resolution is entry-level: a subagent with its own entry uses only that entry (the `default` does NOT backfill its missing fields); `default` supplies model/effort only for subagents with no entry of their own. A subagent with neither its own entry nor a `default` is dispatched exactly as today \u2014 global claude_model + session effort \u2014 with no --agents override emitted for it. See docs/review-agent-overrides.md.",

@@ -1294,6 +1294,15 @@ jobs:
                   if [ "${ENGINE_ERROR:-false}" = "true" ]; then
                     flip_review "review engine ended with an error (is_error)"
                   fi
+                  # Mark this run eligible for the no-verdict auto-resume backstop
+                  # (issue #408). ONLY the incomplete arm sets this: an APPROVE or a
+                  # REJECT is a decided verdict and must never be resumed, and a
+                  # cancelled/superseded or process-failure run is not a benign
+                  # timing stall. The `Review stall backstop` step below reads this
+                  # output and calls request-review-backstop.sh, which owns the
+                  # fire/no-fire decision (enabled/cap/attempt-count/App-token). The
+                  # #356 flip above still runs regardless — the backstop is additive.
+                  echo "backstop_eligible=true" >> "$GITHUB_OUTPUT"
                   ;;
               esac
               ;;
@@ -1355,3 +1364,75 @@ jobs:
           if [ "$CONCLUSION" = "failure" ]; then
             exit 1
           fi
+
+      # ── No-verdict auto-resume backstop (issue #408) ──────────────────────
+      # When finalize_check concluded the review INCOMPLETE (no positively-
+      # observed verdict for HEAD — the headless early-quit), fire a bounded
+      # `/devflow:review` re-trigger so the review re-runs without a human. The
+      # comment must be authored by a workflow-capable App token — a
+      # GITHUB_TOKEN-authored comment never re-triggers a workflow (GitHub
+      # suppresses recursive GITHUB_TOKEN events). Minted just-in-time here
+      # (finalize_check mints none of its own); skipped when DEVFLOW_APP_ID is
+      # unset, in which case the backstop reports no-fire and the run degrades to
+      # the pre-existing dead-end flip. `always()` so it runs after finalize's
+      # `exit 1` on the incomplete (failure) conclusion.
+      - name: Mint review-backstop token (optional)
+        id: backstop-token
+        if: ${{ always() && steps.finalize.outputs.backstop_eligible == 'true' && vars.DEVFLOW_APP_ID != '' }}
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.DEVFLOW_APP_ID }}
+          private-key: ${{ secrets.DEVFLOW_APP_PRIVATE_KEY }}
+      - name: Review stall backstop
+        if: ${{ always() && steps.finalize.outputs.backstop_eligible == 'true' }}
+        env:
+          # Author with the App token when present; the helper's App-token guard
+          # (APP_TOKEN_PRESENT) turns the missing-token case into an explicit
+          # no-fire breadcrumb rather than an inert GITHUB_TOKEN comment.
+          GH_TOKEN: ${{ steps.backstop-token.outputs.token || github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ needs.precheck.outputs.pr_number }}
+          HEAD_SHA: ${{ needs.precheck.outputs.head_sha }}
+          # This step runs ONLY on the incomplete arm (backstop_eligible), so the
+          # verdict is incomplete by construction; pass it explicitly so the
+          # helper's verdict guard is exercised the same way the unit tests drive it.
+          VERDICT: incomplete
+          APP_TOKEN_PRESENT: ${{ steps.backstop-token.outputs.token != '' }}
+        run: |
+          set -uo pipefail
+          RRB=.devflow/vendor/devflow/scripts/request-review-backstop.sh
+          [ -f "$RRB" ] || RRB=scripts/request-review-backstop.sh
+          if [ ! -f "$RRB" ]; then
+            echo "::warning::review stall backstop: request-review-backstop.sh absent at $RRB; no auto-resume (degrades to the pre-existing dead-end flip)."
+            exit 0
+          fi
+          # The helper owns the whole fire/no-fire decision and always exits 0.
+          DECISION_OUT=$(VERDICT="$VERDICT" HEAD_SHA="$HEAD_SHA" PR_NUMBER="$PR_NUMBER" \
+                         REPO="$REPO" APP_TOKEN_PRESENT="$APP_TOKEN_PRESENT" bash "$RRB") || true
+          DECISION=$(printf '%s\n' "$DECISION_OUT" | sed -n 's/^decision=//p')
+          REASON=$(printf '%s\n' "$DECISION_OUT" | sed -n 's/^reason=//p')
+          MARKER=$(printf '%s\n' "$DECISION_OUT" | sed -n 's/^marker=//p')
+          ATTEMPT=$(printf '%s\n' "$DECISION_OUT" | sed -n 's/^attempt=//p')
+          if [ "$DECISION" != "fire" ]; then
+            echo "::notice::review stall backstop: no auto-resume (reason: ${REASON:-unknown}); degraded to the dead-end flip for PR #${PR_NUMBER:-?}."
+            exit 0
+          fi
+          # Post the marker + the manual `/devflow:review` trigger. The re-trigger
+          # goes through the SAME manual comment path a human would use, so the
+          # precheck's authorization and dedupe rules apply exactly as to a human's.
+          # Body via a file so newlines/backticks never traverse shell quoting.
+          BODY_FILE="$(mktemp)"
+          {
+            printf '%s\n\n' "$MARKER"
+            printf '**DevFlow review stall backstop** — this cloud review ended with no verdict for `%s`. Auto-resume attempt %s:\n\n' "$HEAD_SHA" "$ATTEMPT"
+            printf '/devflow:review\n'
+          } > "$BODY_FILE"
+          POST=.devflow/vendor/devflow/scripts/post-issue-comment.sh
+          [ -f "$POST" ] || POST=scripts/post-issue-comment.sh
+          if [ -f "$POST" ]; then
+            bash "$POST" "$PR_NUMBER" "$BODY_FILE" || echo "::warning::review stall backstop: failed to post the re-trigger comment for PR #$PR_NUMBER."
+          else
+            echo "::warning::review stall backstop: post-issue-comment.sh absent at $POST; re-trigger comment not posted for PR #$PR_NUMBER."
+          fi
+          rm -f "$BODY_FILE"
+          echo "::notice::review stall backstop: posted /devflow:review re-trigger (attempt ${ATTEMPT}) for PR #$PR_NUMBER."

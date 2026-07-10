@@ -771,6 +771,76 @@ jobs:
             echo "::warning::flip review-progress: flip-review-progress-failed.sh absent at $FLIP_HELPER; review-progress comment not flipped to '❌ Review failed'"
           fi
 
+      # ── No-verdict auto-resume backstop for the manual /devflow:review path
+      # (issue #408). The review-side sibling of the devflow-review.yml
+      # finalize_check backstop: when a manual `/devflow:review` run died with no
+      # verdict (engine is_error, or the claude step failed — a cancelled run is
+      # superseded, not a benign stall, so it is excluded), fire a bounded
+      # `/devflow:review` re-trigger authored by a freshly minted App token. The
+      # app-token step above is SKIPPED on a /devflow:review command (that path
+      # uses the downscoped reviewer token), so mint a fresh backstop token here.
+      # Skipped when DEVFLOW_APP_ID is unset → the helper reports no-fire and the
+      # run degrades to the pre-existing dead-end flip.
+      - name: Mint review-backstop token (optional)
+        id: backstop-token
+        if: ${{ always() && startsWith(needs.gate.outputs.command, '/devflow:review ') && (steps.engine.outputs.is_error == 'true' || steps.claude.outcome == 'failure') && vars.DEVFLOW_APP_ID != '' }}
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.DEVFLOW_APP_ID }}
+          private-key: ${{ secrets.DEVFLOW_APP_PRIVATE_KEY }}
+      - name: Review stall backstop
+        if: ${{ always() && startsWith(needs.gate.outputs.command, '/devflow:review ') && (steps.engine.outputs.is_error == 'true' || steps.claude.outcome == 'failure') }}
+        env:
+          GH_TOKEN: ${{ steps.backstop-token.outputs.token || github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+          # A dead manual review posted no verdict for HEAD, so the derived
+          # verdict is incomplete by construction.
+          VERDICT: incomplete
+          APP_TOKEN_PRESENT: ${{ steps.backstop-token.outputs.token != '' }}
+        run: |
+          set -uo pipefail
+          if [ -z "${PR_NUMBER:-}" ]; then
+            echo "::notice::review stall backstop: no PR number on this event; nothing to resume."
+            exit 0
+          fi
+          RRB=.devflow/vendor/devflow/scripts/request-review-backstop.sh
+          [ -f "$RRB" ] || RRB=scripts/request-review-backstop.sh
+          if [ ! -f "$RRB" ]; then
+            echo "::warning::review stall backstop: request-review-backstop.sh absent at $RRB; no auto-resume (degrades to the pre-existing dead-end flip)."
+            exit 0
+          fi
+          # The comment marker is head-scoped; resolve the PR head SHA (this path
+          # carries no precheck head_sha output). A failed lookup leaves HEAD_SHA
+          # empty and the helper takes its unscoped no-fire arm — never an
+          # unbounded resume.
+          HEAD_SHA=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq .head.sha 2>/dev/null || true)
+          DECISION_OUT=$(VERDICT="$VERDICT" HEAD_SHA="$HEAD_SHA" PR_NUMBER="$PR_NUMBER" \
+                         REPO="$REPO" APP_TOKEN_PRESENT="$APP_TOKEN_PRESENT" bash "$RRB") || true
+          DECISION=$(printf '%s\n' "$DECISION_OUT" | sed -n 's/^decision=//p')
+          REASON=$(printf '%s\n' "$DECISION_OUT" | sed -n 's/^reason=//p')
+          MARKER=$(printf '%s\n' "$DECISION_OUT" | sed -n 's/^marker=//p')
+          ATTEMPT=$(printf '%s\n' "$DECISION_OUT" | sed -n 's/^attempt=//p')
+          if [ "$DECISION" != "fire" ]; then
+            echo "::notice::review stall backstop: no auto-resume (reason: ${REASON:-unknown}); degraded to the dead-end flip for PR #${PR_NUMBER}."
+            exit 0
+          fi
+          BODY_FILE="$(mktemp)"
+          {
+            printf '%s\n\n' "$MARKER"
+            printf '**DevFlow review stall backstop** — this cloud review ended with no verdict for `%s`. Auto-resume attempt %s:\n\n' "$HEAD_SHA" "$ATTEMPT"
+            printf '/devflow:review\n'
+          } > "$BODY_FILE"
+          POST=.devflow/vendor/devflow/scripts/post-issue-comment.sh
+          [ -f "$POST" ] || POST=scripts/post-issue-comment.sh
+          if [ -f "$POST" ]; then
+            bash "$POST" "$PR_NUMBER" "$BODY_FILE" || echo "::warning::review stall backstop: failed to post the re-trigger comment for PR #$PR_NUMBER."
+          else
+            echo "::warning::review stall backstop: post-issue-comment.sh absent at $POST; re-trigger comment not posted for PR #$PR_NUMBER."
+          fi
+          rm -f "$BODY_FILE"
+          echo "::notice::review stall backstop: posted /devflow:review re-trigger (attempt ${ATTEMPT}) for PR #$PR_NUMBER."
+
       - name: Persist review-and-fix observability artifacts (backstop)
         if: ${{ always() }}
         run: |
