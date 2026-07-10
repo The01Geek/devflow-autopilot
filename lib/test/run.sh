@@ -1121,6 +1121,14 @@ assert_pin_unique "#384 review-seed: failure arm surfaces the rc-2-with-stderr i
 # two-way breadcrumb into one generic message (while keeping the [ ! -r ] guard) goes RED
 # (review-and-fix iter1 pr-test-analyzer gap):
 assert_pin_unique "#384 review-seed: S2 breadcrumb names the unreadable ([Errno 13]) cause distinctly" 'present but unreadable ([Errno 13])' "$ST_REV"
+# ...and the symmetric MISSING half of AC2's two-way distinction — pin it too so collapsing
+# the [ -e ] split into a message that no longer names the missing case goes RED (shadow
+# pr-test-analyzer: only the unreadable half was pinned):
+assert_pin_unique "#384 review-seed: S2 breadcrumb names the missing ([Errno 2]) cause distinctly" 'not present ([Errno 2]) — a partial vendor copy' "$ST_REV"
+# (S1 surfacing) the non-numeric arm's breadcrumb — pin it so dropping the ::warning:: to a
+# bare WP='' (reintroducing the silent-no-op this fix eliminates) goes RED, giving all four
+# no-op arms symmetric breadcrumb coverage (shadow pr-test-analyzer):
+assert_pin_unique "#384 review-seed: S1 non-numeric arm surfaces a breadcrumb (no silent no-op)" "is not numeric — refusing the workpad.py id call" "$ST_REV"
 # (create-arm guard) the S3 create call is guarded like the id call — a create failure emits
 # a specific breadcrumb rather than a silent WP='' no-op (review-and-fix iter1
 # silent-failure-hunter finding); pin the breadcrumb so removing the guard goes RED:
