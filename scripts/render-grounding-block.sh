@@ -30,6 +30,17 @@ ALLOWED_TOOLS="${ALLOWED_TOOLS:-}"
 # caller normally supplies summarize-ci-checks.sh's own fail-closed literal; this
 # is the backstop for a caller that supplied nothing at all.
 [ -n "$CI_SUMMARY" ] || CI_SUMMARY="CI status unavailable"
+
+# Defense in depth for the fence below. CI_SUMMARY carries check names, which are
+# attacker-controlled text entering a `pull_request_target` prompt; a backtick in one
+# would close the ```text fence early and land the rest as live markdown outside it.
+# summarize-ci-checks.sh already strips backticks, and both workflows feed CI_SUMMARY
+# only from it — but that makes the containment a property of the CALLER, not of this
+# renderer, and this file is where the injection defense is supposed to live. Strip them
+# here too, so a future caller that pipes unsanitized text in cannot break the fence.
+# Bash parameter expansion, NOT `tr`: `tr` is not a preflight prerequisite, and a missing
+# one would silently pass the backticks through — a sanitizer that fails OPEN.
+CI_SUMMARY="${CI_SUMMARY//\`/}"
 # An empty allowed-tools string renders a block that grants nothing and still
 # states the denial rule — the engine must not read "empty" as "unrestricted".
 [ -n "$ALLOWED_TOOLS" ] || ALLOWED_TOOLS="(no commands are granted to this run)"
