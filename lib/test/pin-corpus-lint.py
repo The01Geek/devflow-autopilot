@@ -270,6 +270,10 @@ def extract_pins(text, lib, overrides):
         args = toks[1:]
         lit_idx, file_idx, default_file = HELPERS[first[0]]
         if lit_idx >= len(args):
+            # A pin call with too few args to carry its literal — malformed, but still
+            # surfaced as unresolved (literal=None) rather than silently dropped, honoring
+            # the "never silently skipped" contract.
+            yield {"lineno": lineno, "helper": first[0], "literal": None, "file": None}
             continue
         literal = resolve_arg(args[lit_idx], literal_vars, path_vars, want_path=False)
         if file_idx < len(args):
