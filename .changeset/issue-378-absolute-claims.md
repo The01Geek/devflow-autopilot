@@ -1,0 +1,6 @@
+---
+bump: patch
+type: Added
+---
+
+- **The review engine now attacks the absolute claims a diff publishes instead of reading them (#371 R1/R2/R6).** The verification-checklist generator gains an `absolute_claim` category for a diff-added universal ("every", "never", "cannot", "is caught by the same rule"); such items always resolve through an `agent` verifier that *constructs the falsifying input* and are never lite-grepped — reading a universal confirms nothing, only a failed attempt to falsify it does. The pre-verdict truthfulness sweep gains a **diff-scan input** (an intra-diff contradiction scan) that, independent of any finding, cross-products the diff's added absolute claims against its added-or-retained limitation notes about the same symbol and files a contradicting pair as a non-demotable `documented_falsehood` — closing the PR #340 case where a diff published an absolute claim while retaining a contradicting limitation and no agent flagged it. Severity calibration is sharpened so a fail-**open** defect is never graded mild merely because its limitation is documented or its trigger input is contrived — "documented" and "contrived" are disclosure facts, not severity facts. (#382)

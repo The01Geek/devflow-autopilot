@@ -1949,9 +1949,10 @@ assert_pin_unique "339(AC3): code-reviewer mirrors the truthfulness discriminato
 # AC3 — code-reviewer: a HEAD-verified false changed-line claim clears the ≥80 confidence filter.
 assert_pin_unique "339(AC3): code-reviewer scores a HEAD-verified false changed-line claim >= 80 by definition" \
   'scores ≥ 80 confidence by definition' "$FALSE_CODEREV_AGENT"
-# AC2 — both dispatch prompts name the four recurring shapes (the last shape's clause occurs
-# once per dispatch prompt = 2 sites in the review engine).
-assert_eq "339(AC2): dispatch prompts name the four recurring shapes (comment-analyzer + code-reviewer)" \
+# AC2 — both dispatch prompts name the recurring shapes (the fourth shape's clause occurs
+# once per dispatch prompt = 2 sites in the review engine). #378 added a fifth shape after
+# it; this pin on the fourth shape's tail is unaffected (the fifth appends after it).
+assert_eq "339(AC2): dispatch prompts name the recurring shapes (comment-analyzer + code-reviewer)" \
   "2" "$(pin_count 'claim the code does not bear out' "$ST_REV")"
 # AC2 (hardening) — pin an EARLIER shape too, not only the fourth shape's tail: the
 # "known limitation the same diff already fixed" shape occurs once per dispatch prompt (= 2),
@@ -2004,6 +2005,77 @@ assert_pin_unique "339(docs): DEVFLOW_SYSTEM_OVERVIEW describes the pre-verdict 
   'pre-verdict truthfulness sweep' "$OG_OVERVIEW_DOC"
 assert_pin_unique "339(docs): shadow-review.md describes the pre-verdict truthfulness sweep" \
   'pre-verdict truthfulness sweep' "$OG_SHADOW_DOC"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "absolute-claim category + intra-diff contradiction sweep + fail-open severity (#378, #371 R1/R2/R6)"
+# ────────────────────────────────────────────────────────────────────────────
+# #378 makes the review engine ATTACK absolute claims instead of reading them (the PR #340
+# retrospective #371, items R1/R2/R6). Deliverable is LLM-executed skill/agent prose plus a
+# checklist-generator category enum — no automated verdict boundary — so these are
+# operative-sentence pins (PASS→FAIL on removal, several removal-proven) + mirror-count pins,
+# the same idiom as the #339/#263 blocks above.
+GEN_378="$LIB/../agents/checklist-generator.md"
+# ── R1: absolute_claim checklist category, forced to verification_mode: agent, never lite.
+assert_pin_unique "378(R1): checklist-generator category enum gains absolute_claim" \
+  'string_presence | absolute_claim' "$GEN_378"
+# The operative forcing rule — its removal re-opens the lite-grep procedure that failed on #340.
+assert_pin_unique "378(R1): absolute_claim is always agent, never lite (operative)" \
+  'never** be added to that lite-mode category list' "$GEN_378"
+assert_pin_red_on_removal "378(R1)-mp: deleting the never-lite forcing rule turns its pin RED" \
+  'never** be added to that lite-mode category list' "$GEN_378"
+# The lite-mode permitted category list is UNCHANGED — it still names only api_contract /
+# string_presence, so absolute_claim is excluded by construction (widening it to add
+# absolute_claim would change this line → RED). This is the "absent from the lite list" AC.
+assert_pin_unique "378(R1): lite-mode category condition still excludes absolute_claim (only api_contract/string_presence)" \
+  '`category` is `api_contract` or `string_presence`.' "$GEN_378"
+# The verify_hint contract: construct-and-run the falsifying input (not grep/read).
+assert_pin_unique "378(R1): absolute_claim verify_hint constructs the falsifying input" \
+  'construct an input satisfying the claim' "$GEN_378"
+# ── R2: the fifth documented_falsehood shape (opposite direction) at all four literal sites.
+# In the review engine it occurs once per dispatch prompt = 2 sites (mirror-count, like the
+# #339 fourth-shape pin); once in each agent file.
+assert_eq "378(R2): fifth documented_falsehood shape present in both review dispatch prompts" \
+  "2" "$(pin_count 'contradicts by adding or retaining a limitation note about the same symbol it did not actually close' "$ST_REV")"
+assert_pin_unique "378(R2): comment-analyzer carries the fifth (absolute-claim contradiction) shape" \
+  'contradicts by adding or retaining a limitation note about the same symbol it did not actually close' "$FALSE_COMMENT_AGENT"
+assert_pin_unique "378(R2): code-reviewer carries the fifth (absolute-claim contradiction) shape" \
+  'contradicts by adding or retaining a limitation note about the same symbol it did not actually close' "$FALSE_CODEREV_AGENT"
+# ── R2: §4.1.6 gains a diff-scan input (the failing case has no finding to iterate over).
+assert_pin_unique "378(R2): §4.1.6 takes a diff-scan input (intra-diff contradiction scan)" \
+  'this sweep also takes a **diff-scan input**' "$ST_REV"
+assert_pin_red_on_removal "378(R2)-mp: deleting the §4.1.6 diff-scan input turns its pin RED" \
+  'this sweep also takes a **diff-scan input**' "$ST_REV"
+# The contradiction routes as a NON-DEMOTABLE documented_falsehood into the Phase 4.2 carve-out.
+assert_pin_unique "378(R2): intra-diff contradiction files a non-demotable documented_falsehood → 4.2 carve-out" \
+  'file it as a non-demotable `documented_falsehood` and route it into the Phase 4.2 self-contradicting-diff carve-out (REJECT)' "$ST_REV"
+# Same-symbol scoping — the false-positive bound (different symbols = no finding).
+assert_pin_unique "378(R2): same-symbol scoping bounds the contradiction scan" \
+  'an absolute claim and a limitation note about *different* symbols are not a contradiction and produce no finding' "$ST_REV"
+# Visible clean-scan sentinel (skipped-step vs clean-pass disambiguation).
+assert_pin_unique "378(R2): intra-diff contradiction scan emits a visible clean-scan line" \
+  'intra-diff contradiction scan: no contradiction found' "$ST_REV"
+# ── R6: fail-open-is-not-mild severity rule. Repo-agnostic in the vendored receiving-code-review
+# body; single-sourced in review §4.1.5 shape 1 (consumed unchanged by review-and-fix's over-grade gate).
+assert_pin_unique "378(R6): receiving-code-review — fail-open defect not mild regardless of contrived/documented" \
+  'not mild regardless of how contrived that input is or whether a comment disclosed it' "$ST_RCV"
+assert_pin_red_on_removal "378(R6)-mp: deleting the receiving-code-review fail-open severity rule turns its pin RED" \
+  'not mild regardless of how contrived that input is or whether a comment disclosed it' "$ST_RCV"
+assert_pin_unique "378(R6): review §4.1.5 shape 1 excludes a fail-open defect (single source)" \
+  'A fail-*open* defect is never this shape' "$ST_REV"
+assert_pin_red_on_removal "378(R6)-mp: deleting the §4.1.5 fail-open exclusion turns its pin RED" \
+  'A fail-*open* defect is never this shape' "$ST_REV"
+# Repo-agnostic guard: the R6 rule in the vendored body carries no DevFlow-internal strings.
+assert_eq "378(R6): receiving-code-review R6 rule stays repo-agnostic (no repo test path)" \
+  "no" "$(grep -qF 'lib/test/run.sh' "$ST_RCV" && echo yes || echo no)"
+# ── R1 coupled invariant (review-finding follow-up): absolute_claim's priority RANK is
+# mirrored in the review engine's §1.1.5 cap-and-prioritize list AND the DEVFLOW_SYSTEM_OVERVIEW
+# priority ordering — the two must keep it at rank 2. Neither placement was pinned, so a reorder
+# in either file would silently desync them (the coupled-invariant-without-a-pin class). Pin the
+# rank-2 placement at both sites so a reorder/drop in either goes RED.
+assert_pin_unique "378(R1): absolute_claim sits at rank 2 in review §1.1.5 cap-priority list" \
+  '2. `absolute_claim` items' "$ST_REV"
+assert_pin_unique "378(R1): overview priority ordering keeps absolute_claim above dependency_interaction (rank 2)" \
+  'absolute_claim > dependency_interaction' "$OG_OVERVIEW_DOC"
 
 # ── Meta-test (#157, AC2): widen the raw-guard audit from the park-calibration
 # region fence to the WHOLE suite. #155 enforced helper-routing ONLY inside the
