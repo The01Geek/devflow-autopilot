@@ -219,7 +219,15 @@ recorded_fix_shas() {
       echo "::warning::efficiency-trace.sh --persist: could not read fix_commit_sha from ${f} (unreadable or malformed workpad); its sha (if any) cannot be excluded from synthesis" >&2
       continue
     fi
-    [ -n "$sha_out" ] && printf '%s\n' "$sha_out"
+    # Emit only sha-shaped tokens (lowercase hex, abbreviated-to-full length): a
+    # corrupt string value ("aaa bbb <realsha>", an embedded newline) must not
+    # smuggle arbitrary tokens into the space-delimited exclusion set — the
+    # residual there is only a breadcrumbed under-count, but confining emission
+    # to genuine shas removes even that class.
+    case "$sha_out" in
+      ''|*[!0-9a-f]*) [ -n "$sha_out" ] && echo "::warning::efficiency-trace.sh --persist: fix_commit_sha in ${f} is not sha-shaped; not added to the exclusion set" >&2 ;;
+      *) printf '%s\n' "$sha_out" ;;
+    esac
   done
   return 0
 }
@@ -432,8 +440,13 @@ persist_one() {
       4)
         echo "::warning::efficiency-trace.sh --persist: run ${slug}/${run_id} left no iter-*.json; matching fix commits were selected but every synthesized record write failed (see the per-commit warnings above) — telemetry not synthesized" >&2
         return 0 ;;
-      *)
+      2)
         echo "::warning::efficiency-trace.sh --persist: run ${slug}/${run_id} left no iter-*.json and no unrecorded 'fix: address review findings (iteration N)' commits were found — per-iteration effectiveness telemetry was not captured this run; nothing to synthesize" >&2
+        return 0 ;;
+      *)
+        # Unknown is not zero: an rc outside the 0/2/3/4 contract (a signal, a
+        # future drift) must not be reported as "no commits were found".
+        echo "::warning::efficiency-trace.sh --persist: run ${slug}/${run_id} left no iter-*.json and synthesis exited with unexpected rc=${synth_rc} — whether matching fix commits exist was never established; telemetry not synthesized" >&2
         return 0 ;;
     esac
     iters=("$dir"/iter-*.json)
