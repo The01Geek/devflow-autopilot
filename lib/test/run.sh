@@ -21642,7 +21642,7 @@ assert_pin_unique "#363 docs: the overview's paraphrase carries the unknown-CI c
 assert_pin_unique "#363 skill: the instructions are conditioned on the block's PRESENCE" \
   "Everything in this section is **conditioned on that block being present in your prompt.**" "$REVIEW_SKILL"
 assert_pin_unique "#363 skill: names review-and-fix as the no-block path that is unaffected" \
-  "as it is under \`/devflow:review-and-fix\`, which executes these phases verbatim under a different, write-enabled profile" "$REVIEW_SKILL"
+  "as it is on the **inline tier** (\`/devflow:review-and-fix\`, and the review engine as executed by an implement run's review phase, both under a write-enabled profile)" "$REVIEW_SKILL"
 # Terminal ❌ on ANY no-verdict path, not only a fatal abort.
 assert_pin_unique "#363 skill: stamps a terminal ❌ on ANY path that reaches no verdict" \
   "**Any path that reaches no verdict — stamp a terminal \`❌\` as your final action.**" "$REVIEW_SKILL"
@@ -22182,6 +22182,21 @@ assert_pin_red_under "#405 AC2 phase-3.4: in-env-denied criterion routes to Bloc
   'add it to devflow_implement.allowed_tools (and devflow.allowed_tools for the command path) so the run can verify in-env, then re-run' \
   '/so the run can verify in-env, then re-run/d' \
   "$I405_P3"
+# AC3: the §3.4 gate positively forbids waiting for / polling / re-checking / citing CI to
+# gate a verification-command criterion. Behavioral pin on the operative no-wait directive:
+assert_pin_red_under "#405 AC3 phase-3.4: gate never waits for / polls / re-checks / cites CI" \
+  'Do **not** wait for, poll, re-check, or cite CI to gate this criterion' \
+  '/wait for, poll, re-check, or cite CI to gate this criterion/d' \
+  "$I405_P3"
+
+# AC4: the shared review engine, executed inline, takes its test evidence from the
+# orchestrator's in-env suite/lint results — never a CI conclusion. Behavioral pin on the
+# inline-tier evidence sentence in the engine's grounding-block section:
+I405_REVIEW="$LIB/../skills/review/SKILL.md"
+assert_pin_red_under "#405 AC4 review/SKILL.md: inline-tier test evidence is the orchestrator's in-env suite/lint, never CI" \
+  "On the inline tier the test evidence is the orchestrator's own in-environment suite/lint results for the current HEAD" \
+  '/On the inline tier the test evidence is the/d' \
+  "$I405_REVIEW"
 
 # AC5: the implement SKILL.md pins the cloud helper-invocation form (vendored literal as the
 # leading token) and the two-denials-then-switch rule. Behavioral-fix pins via assert_pin_red_under
