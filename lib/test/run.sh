@@ -20210,16 +20210,19 @@ if _F375="$(mktemp -d 2>/dev/null)" && [ -n "$_F375" ] && [ -d "$_F375" ]; then
   printf 'The FLAG_TILDE operative prose line.\n~~~\necho running  # FLAG_TILDE named in this tilde fenced comment\n~~~\n' > "$_F375/tgt_tilde.md"
   # .md DEEP-INDENT fail-open regression (issue #394 review): a run of >=4 leading spaces before
   # ``` is CommonMark *indented code*, NOT a fence opener. If it were (mis)treated as one it would
-  # open a never-closed fence and fold the following operative ATX heading `# FLAG_DEEPINDENT …`
-  # into the comment region — removing that operative occurrence from "outside" so its real
-  # <!-- … --> comment collision goes UNFLAGGED (a #370-class fail-open in the guard's own
-  # direction). With the 0-3-space opener cap the indented run does not open a fence, the heading
-  # stays operative, and the collision is flagged. Revert the cap and this fixture goes RED.
-  # NOTE: the literal's ONLY operative occurrence is the ATX heading on line 3 (line 1 carries
-  # no literal), so if the indented run wrongly opened a fence and folded that heading into the
-  # comment region, "outside" would hold no operative occurrence and the collision would vanish —
-  # which is precisely what makes this fixture flip RED on a reverted cap rather than pass vacuously.
-  printf 'Unrelated prose with no literal on this line.\n    ``` four-space-indented, must NOT open a fence\n# FLAG_DEEPINDENT heading is the only operative occurrence, must not be swallowed\n<!-- FLAG_DEEPINDENT quoted in this real comment -->\n' > "$_F375/deepindent.md"
+  # open a fence and fold the following operative ATX heading `# FLAG_DEEPINDENT …` into the
+  # comment region — removing that operative occurrence from "outside" so its real <!-- … -->
+  # comment collision goes UNFLAGGED (a #370-class fail-open in the guard's own direction). With
+  # the 0-3-space opener cap the indented runs are plain text, the heading stays operative, and the
+  # collision is flagged. Revert the cap and this fixture goes RED.
+  # NOTE the two design choices that keep this pin isolated to the OPENER-INDENT CAP and non-vacuous:
+  #  (1) the literal's ONLY operative occurrence is the ATX heading on line 3 (line 1 carries none),
+  #      so folding that heading empties "outside" of the literal and the collision vanishes; and
+  #  (2) a MATCHING 4-space-indented CLOSING fence follows the heading, so a cap-revert opens AND
+  #      cleanly closes a fence (committing the fold) — defeating the sibling unterminated-fence
+  #      fail-closed drop, which would otherwise discard the never-closed fence and mask the cap
+  #      regression (making this pin vacuous). Same closer-isolation technique as btinfo.md below.
+  printf 'Unrelated prose with no literal on this line.\n    ``` four-space-indented, must NOT open a fence\n# FLAG_DEEPINDENT heading is the only operative occurrence, must not be swallowed\n    ```\n<!-- FLAG_DEEPINDENT quoted in this real comment -->\n' > "$_F375/deepindent.md"
   # .md UNTERMINATED-fence fail-open regression (issue #394 review): a stray 0-3-indent ```
   # opener that never closes is suspect — its content must be DROPPED (fail closed), not folded
   # to EOF. Here the literal's only operative occurrence is the ATX heading after the stray
