@@ -66,31 +66,68 @@ cat >> /tmp/review-wp.md <<'EOF'
 …review-workpad body, WITHOUT a marker line — the template below, from its `# Devflow Review` H1 down…
 EOF
 # find-or-resume THIS run's comment by its run-keyed marker (a prior run's comment has
-# a different key and is never matched). `id` exit codes: 0 = found (resume — e.g. a
-# mid-run retry after context loss), 2 = scanned cleanly but absent (this run's first
-# write → create), 1 = a real gh-api/parse failure. Branch on the code so a transient
-# API error is NOT mistaken for "first write" (which would post a duplicate for this run):
-# Capture id's stderr to a temp file (NOT /dev/null) so the rc=1 branch can report
-# the *actual* gh-api/parse error rather than a generic "it failed":
+# a different key and is never matched). `id` exit codes FROM cmd_id: 0 = found (resume —
+# e.g. a mid-run retry after context loss), 2 = scanned cleanly but absent (this run's
+# first write → create), 1 = a real gh-api/parse failure. Branch on the code so a
+# transient API error is NOT mistaken for "first write" (which would post a duplicate).
+#
+# BUT rc 2 is not cmd_id's alone (issue #384): `python3` ALSO exits 2 when it cannot open
+# the script (`can't open file … [Errno 2]` on a partial vendor copy; `[Errno 13]` on an
+# unreadable one), and `argparse` exits 2 on a usage error (the `id` subcommand declares
+# `issue` as `type=int`, so a non-numeric PR number lands there). Any of those, misread as
+# cmd_id's clean-absence rc 2, would wrongly take the `create` arm — and the old code then
+# DISCARDED the captured stderr on that arm, so an operator debugging a missing live comment
+# was told nothing. Three coupled screens keep the "first write" arm reachable ONLY from
+# cmd_id's own exit (the operand-contract fix pattern issue #384 specifies):
+#   (S1) Refuse a non-numeric $PR_NUMBER BEFORE the id call, so argparse's own rc 2
+#        (`type=int` on `issue`) can never reach the arm split.
+#   (S2) Share the consumer's own operation as the guard: verify the workpad.py path this
+#        skill is about to exec is a readable file — never re-derive python3's open contract —
+#        with a distinct breadcrumb naming missing ([Errno 2]) vs. unreadable ([Errno 13]).
+#   (S3) Backstop on the observable that separates the rc-2 sources: cmd_id exits 2
+#        SILENTLY (`sys.exit(2)`, no stderr write); every interpreter-level rc 2 writes a
+#        diagnostic. So `rc == 2` with NON-EMPTY captured stderr is never a clean scan. This
+#        relies on the caller always passing an explicit `--marker` (it does, above), which
+#        short-circuits `_workpad_marker` before the `.devflow/config.json` read that could
+#        otherwise breadcrumb to stderr and spoil the discriminator.
+# Capture id's stderr to a temp file (NOT /dev/null) so EVERY failure arm — not only the
+# `else` — can surface the *actual* error rather than a generic "it failed".
 # Branch on the command's OWN exit status via a single-statement `if`/`elif [ "$?" … ]`
 # chain — never a captured rc read in a later statement (an inline-bash runner that strips
 # such cross-statement variable reads — Copilot CLI / Cursor / Codex CLI / Gemini CLI —
 # would leave it empty and collapse the three-way). The `elif` reads `$?` from the failed
 # `if` condition (the `id` call) inline, exactly as this repo's sanctioned `else RC=$?`
-# idiom does, so a transient rc-1 API error is never mistaken for the rc-2 "first write".
-if WP=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py id "$PR_NUMBER" --marker "$MARKER" 2>/tmp/devflow-rv-id.err); then
-  :                                                                                    # rc 0 — resume $WP (this run's own comment)
-elif [ "$?" -eq 2 ]; then
-  # this run's first GitHub write — the marker is the body file's first line, so
-  # `create` needs no --marker:
-  WP=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py create "$PR_NUMBER" /tmp/review-wp.md)
-else
-  # API error/parse failure (NOT "absent"): skip seeding to avoid a duplicate, but
-  # surface the no-op WITH the captured error so a missing live comment is
-  # diagnosable rather than baffling (mirrors Phase 4.5's no-silent-failure discipline):
-  WP=""
-  echo "::warning::devflow review: live progress-comment seeding failed (workpad.py id rc≠0): $(cat /tmp/devflow-rv-id.err); continuing without the live comment" >&2
-fi
+# idiom does. Resolve the skill-dir anchor INLINE at each call site (never captured into a
+# shell variable a later statement reads — issue #275), same as elsewhere in this skill.
+case "$PR_NUMBER" in
+  ''|*[!0-9]*)
+    # (S1) argparse would exit 2 on a non-numeric $PR_NUMBER (id declares `issue` as
+    # type=int) — indistinguishable from cmd_id's clean-absence rc 2. Refuse before the
+    # id call so it can never reach the "first write" arm:
+    WP=""
+    echo "::warning::devflow review: PR number '$PR_NUMBER' is not numeric — refusing the workpad.py id call (argparse would exit 2, indistinguishable from cmd_id's clean-absence rc 2); continuing without the live comment" >&2 ;;
+  *)
+    if [ ! -r "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py ]; then
+      # (S2) missing/unreadable script — python3 would exit 2 ([Errno 2]/[Errno 13]) and be
+      # misread as "first write". Take a read-failure arm with a distinct breadcrumb naming
+      # the cause, NEVER the create arm ([ -e ] present-but-unreadable ⇒ [Errno 13]; else missing ⇒ [Errno 2]):
+      WP=""
+      echo "::warning::devflow review: workpad.py is missing or unreadable — cannot seed the live progress comment; skipping. $( [ -e "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py ] && echo 'present but unreadable ([Errno 13]) — a permission-broken vendor copy' || echo 'not present ([Errno 2]) — a partial vendor copy' )" >&2
+    elif WP=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py id "$PR_NUMBER" --marker "$MARKER" 2>/tmp/devflow-rv-id.err); then
+      :                                                                                    # rc 0 — resume $WP (this run's own comment)
+    elif [ "$?" -eq 2 ] && [ ! -s /tmp/devflow-rv-id.err ]; then
+      # (S3) rc 2 AND silent ⇒ genuinely cmd_id's clean-absence exit. This run's first
+      # GitHub write — the marker is the body file's first line, so `create` needs no --marker:
+      WP=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py create "$PR_NUMBER" /tmp/review-wp.md)
+    else
+      # A real gh-api/parse failure (rc 1), OR an rc-2 WITH stderr (an interpreter-level exit
+      # — NOT cmd_id's clean scan). Skip seeding to avoid a duplicate, and surface the
+      # captured stderr (previously discarded on the misdiagnosed create arm) so a missing
+      # live comment is diagnosable rather than baffling:
+      WP=""
+      echo "::warning::devflow review: live progress-comment seeding failed (workpad.py id rc≠0, or rc 2 with stderr — an interpreter-level exit, not cmd_id's clean scan): $(cat /tmp/devflow-rv-id.err 2>/dev/null); continuing without the live comment" >&2
+    fi ;;
+esac
 # rewrite in place at each phase boundary (only when $WP is set); `patch` targets
 # the comment by its ID, so it needs no marker either. Guard it like the seed: a
 # mid-run patch failure is the feature's most visible failure mode (a frozen

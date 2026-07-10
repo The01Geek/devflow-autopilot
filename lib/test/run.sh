@@ -1093,6 +1093,31 @@ assert_eq "sev(rcv): vendored body has no repo-specific test path (lib/test/run.
 assert_eq "sev(rcv): vendored body has no repo-specific CI job name (lib + python tests)" "no" "$(grep -qF 'lib + python tests' "$ST_RCV" && echo yes || echo no)"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "review live-comment seeding: rc-2 arm screens an interpreter-level exit 2 (#384)"
+# ────────────────────────────────────────────────────────────────────────────
+# skills/review/SKILL.md seeds its live progress comment by branching on workpad.py `id`'s
+# exit code, where rc 2 means cmd_id's clean-absence "first write → create". But rc 2 is
+# NOT cmd_id's alone: python3 also exits 2 when it cannot open the script ([Errno 2] on a
+# partial vendor copy; [Errno 13] on an unreadable one) and argparse exits 2 on a usage
+# error (the `id` subcommand declares `issue` as type=int, so a non-numeric PR number lands
+# there). Any of those, misread as "first write", would wrongly take the create arm. Three
+# coupled screens keep that arm reachable ONLY from cmd_id's own SILENT sys.exit(2). Pin
+# each so deleting one goes RED independently of the others — AC5's requirement that the
+# readable-path check and the stderr discriminator each fail on their own (and vice versa).
+# (S1) refuse a non-numeric $PR_NUMBER before the id call, so argparse's own rc 2 can't reach it:
+assert_pin_unique "#384 review-seed: non-numeric PR-number guard before the id call" "''|*[!0-9]*)" "$ST_REV"
+# (S2) verify the workpad.py path is a readable file before exec — shares the consumer's own
+# operation as the guard rather than re-deriving python3's open contract. Deleting THIS alone → RED:
+assert_pin_unique "#384 review-seed: readable-path precheck on workpad.py before exec" '[ ! -r "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py ]' "$ST_REV"
+# (S3) stderr discriminator on the rc-2 arm: cmd_id's clean-absence exit is silent, so rc 2
+# with non-empty captured stderr is an interpreter-level exit, never a clean scan. Deleting
+# THIS alone → RED (the vice-versa half of AC5 relative to S2):
+assert_pin_unique "#384 review-seed: rc-2 arm requires empty captured stderr (silent-exit discriminator)" '[ "$?" -eq 2 ] && [ ! -s /tmp/devflow-rv-id.err ]' "$ST_REV"
+# (AC4) the captured id stderr is surfaced on the interpreter-level-rc-2 / rc-1 failure arm,
+# no longer discarded on the (now-unreachable-by-an-interpreter-error) create arm:
+assert_pin_unique "#384 review-seed: failure arm surfaces the rc-2-with-stderr interpreter exit" 'rc 2 with stderr — an interpreter-level exit' "$ST_REV"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "self-contradicting-diff verdict carve-out (Phase 4.2, threshold-independent) (#263)"
 # ────────────────────────────────────────────────────────────────────────────
 # #263 adds a threshold- AND severity-independent carve-out to the shared review
@@ -18500,7 +18525,12 @@ assert_pin_unique "#284 positive: receiving-code-review discriminates via single
 assert_pin_unique "#284 positive: review-and-fix fix-threshold discriminates via single-statement if!" 'if ! FIX_THRESHOLD=$(' "$ST_RAF"
 assert_pin_unique "#284 positive: review-and-fix max_iterations discriminates via single-statement if!" 'if ! MAX_ITERS=$(' "$ST_RAF"
 assert_pin_unique "#284 positive: review verdict-threshold discriminates via single-statement if!" 'if ! VERDICT_THRESHOLD=$(' "$ST_REV"
-assert_pin_unique "#284 positive: review live-comment 3-way reads \$? inline in the elif" 'elif [ "$?" -eq 2 ]; then' "$ST_REV"
+# #384 appended the silent-exit discriminator (`&& [ ! -s /tmp/devflow-rv-id.err ]`) to this
+# elif, but the invariant this pin protects is unchanged: `[ "$?" -eq 2 ]` is STILL the
+# leading inline read of the id call's own exit status (never a captured rc read in a later
+# statement). Pin the new form so a revert to a captured-rc read fails, and so the #384
+# discriminator can't be silently dropped from this exact site either.
+assert_pin_unique "#284 positive: review live-comment 3-way reads \$? inline in the elif (with #384 stderr discriminator)" 'elif [ "$?" -eq 2 ] && [ ! -s /tmp/devflow-rv-id.err ]; then' "$ST_REV"
 # The efficiency-trace render reads are the QUOTED command-substitution sites the absence
 # detector previously could not see (#284 shadow review) — pin the migrated `if ! VAR="$(`
 # idiom positively so a straight revert to `VAR="$(…)"; VAR_RC=$?` fails BOTH the extended
