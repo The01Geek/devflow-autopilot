@@ -1789,6 +1789,76 @@ assert_pin_red_on_removal() {  # name literal [file]   (file defaults to $MAXI_S
   assert_eq "$1" "PASS->FAIL" "$before->$after"
   rm -f "$t"
 }
+# ── #375 assert_pin_red_under: the MUTATION-TAKING pin primitive ──────────────
+# assert_pin_red_on_removal above deletes the pinned literal's whole physical LINE (grep -vF)
+# and re-checks uniqueness. That proves only that the pin notices its OWN line vanishing — for
+# ANY present-and-unique literal it reports PASS->FAIL, whether that line is the operative
+# mechanism or a motivating framing header (issue #370 Rec 3 demonstrated this vacuity directly).
+# assert_pin_red_under instead applies a SPECIFIC regression <mutation> (a `sed -E` program) to a
+# scratch copy and asserts the named pin flips PASS->FAIL under THAT regression. A pin on a
+# framing clause the operative mutation leaves present-and-unique stays PASS after the mutation,
+# so the transition is PASS->PASS and this helper's own assert_eq FAILs — the vacuity is REPORTED,
+# not hidden. This is the primitive issue #375's behavioral-fix-pin rule (and Wave 2 #376's sweep
+# pins) express their pins through, so a framing pin fails at authoring time, not in a later shadow.
+# Contract (mirrors assert_pin_red_on_removal's probe_tmp scratch + probe_assert transition shape):
+#   - copies <file> (default $MAXI_SKILL, like assert_pin_red_on_removal) to a probe_tmp scratch file;
+#   - applies <mutation> to the copy with `sed -E` (the mutation side carries the regex power, so the
+#     LITERAL side stays a fixed string matched by assert_pin_unique/pin_count's -F);
+#   - if the mutated copy is byte-identical to the original (`cmp -s`), records a FAIL naming the
+#     no-op — a mutation that changes nothing would make EVERY pin "pass" vacuously, so it is never
+#     a vacuous pass here;
+#   - otherwise asserts the full PASS->FAIL transition of assert_pin_unique on <literal> between the
+#     REAL file (before) and the mutated copy (after) via probe_assert, so a framing-only pin (still
+#     present-and-unique post-mutation → PASS->PASS) is reported RED here.
+# probe_tmp is fail-closed (records a suite FAIL + returns /dev/null on mktemp failure — self-tested
+# at the git_sandbox/probe_tmp blocks above), and this helper's `|| return 0` inherits that: a
+# temp-alloc failure records a FAIL, never a vacuous pass.
+assert_pin_red_under() {  # name literal mutation [file]   (file defaults to $MAXI_SKILL)
+  local name="$1" literal="$2" mutation="$3" file="${4:-$MAXI_SKILL}" t before after
+  t="$(probe_tmp "$name (mutation setup)")" || return 0
+  sed -E "$mutation" "$file" > "$t"
+  if cmp -s "$file" "$t"; then
+    echo FAIL >> "$RESULTS_FILE"
+    printf '  FAIL  %s\n         mutation was a NO-OP (mutated copy byte-identical to original) — a mutation that changes nothing is never a vacuous pass\n         mutation: %s\n         file: %s\n' \
+      "$name" "$mutation" "$file"
+    rm -f "$t"
+    return 0
+  fi
+  before="$(probe_assert assert_pin_unique 'probe-present' "$literal" "$file")"
+  after="$(probe_assert assert_pin_unique 'probe-mutated' "$literal" "$t")"
+  assert_eq "$name" "PASS->FAIL" "$before->$after"
+  rm -f "$t"
+}
+# #375 self-tests (synthetic fixtures, probed via probe_assert so the intentional REDs never hit
+# the suite tally): the operative-vs-framing discrimination is the whole reason the helper exists.
+PRU_FX="$(probe_tmp '#375 assert_pin_red_under fixture setup')"
+printf 'PRU_OPERATIVE the fix lives on this line\nPRU_FRAMING this sentence merely introduces the fix\n' > "$PRU_FX"
+# Operative pin: the operative mutation (delete only the operative line) removes the pinned text →
+# assert_pin_unique goes PASS->FAIL → assert_pin_red_under reports PASS.
+assert_eq "#375 assert_pin_red_under: operative pin flips PASS->FAIL under the operative mutation (PASS)" \
+  "PASS" "$(probe_assert assert_pin_red_under 'op' 'PRU_OPERATIVE the fix lives on this line' '/PRU_OPERATIVE/d' "$PRU_FX")"
+# Framing pin: the SAME operative mutation leaves the framing line present-and-unique → PASS->PASS →
+# the transition assertion FAILs. This is the vacuity assert_pin_red_on_removal cannot report.
+assert_eq "#375 assert_pin_red_under: framing pin stays present-and-unique under the operative mutation → vacuity reported (FAIL)" \
+  "FAIL" "$(probe_assert assert_pin_red_under 'frame' 'PRU_FRAMING this sentence merely introduces the fix' '/PRU_OPERATIVE/d' "$PRU_FX")"
+# No-op mutation (matches nothing → byte-identical copy) records a FAIL, never a vacuous pass.
+assert_eq "#375 assert_pin_red_under: a no-op mutation (byte-identical copy) records FAIL" \
+  "FAIL" "$(probe_assert assert_pin_red_under 'noop' 'PRU_OPERATIVE the fix lives on this line' 's/ZZZ_NEVER_MATCHES/x/' "$PRU_FX")"
+# Absent literal: the before-probe is already FAIL (count 0), so the transition is FAIL->… , never
+# PASS->FAIL → reported FAIL. This closes the vacuity where a never-present literal would look "red".
+assert_eq "#375 assert_pin_red_under: a literal absent from the real file yields the before-FAIL transition mismatch (FAIL)" \
+  "FAIL" "$(probe_assert assert_pin_red_under 'absent' 'PRU_NEVER_PRESENT' '/PRU_OPERATIVE/d' "$PRU_FX")"
+rm -f "$PRU_FX"
+# Metachar round-trip: a pinned literal carrying regex metacharacters AND a sed-delimiter char
+# (`a.c/[x]`) is matched as a FIXED string by assert_pin_unique (-F), while the mutation's `sed -E`
+# regex (`/a\.c/d`) carries the pattern power — the operative separation the AC3(a3) probe pins for
+# pin_count, re-proven end-to-end through the primitive.
+PRU_META="$(probe_tmp '#375 assert_pin_red_under metachar setup')"
+printf 'operative token a.c/[x] on this line\nunrelated framing line\n' > "$PRU_META"
+assert_eq "#375 assert_pin_red_under: a pinned literal carrying regex+sed-delimiter metachars round-trips (fixed-string match; mutation flips it PASS->FAIL)" \
+  "PASS" "$(probe_assert assert_pin_red_under 'meta' 'a.c/[x]' '/a\.c/d' "$PRU_META")"
+rm -f "$PRU_META"
+#
 assert_pin_red_on_removal "AC3(c): deleting the Step 2.6 sentinel contract turns its pin RED" \
   'park-calibration gate clean: no parked finding matched'
 assert_pin_red_on_removal "AC3(d): narrowing the mutation-check rule back to fix-only turns its pin RED" \
@@ -19845,6 +19915,93 @@ for _gf in workpad.py match-deferrals.py; do
   assert_eq "#343 runtime: $_gf gate names the provision-python3-shim.sh remedy at runtime" \
     "yes" "$(printf '%s' "$_G343_ERR" | grep -q 'provision-python3-shim.sh' && echo yes || echo no)"
 done
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "#375 pin-corpus static self-scan: pin-in-comment lint + wrapped-literal meta-guard"
+# ────────────────────────────────────────────────────────────────────────────
+# Two mechanical guards over the suite's OWN pin corpus (issue #375), driven by the
+# lib/test/pin-corpus-lint.py static scanner (the extract-command-heads.py precedent):
+#   lint    — a pin literal that ALSO appears inside a comment of its own target file
+#             (a #-comment for .sh/.py/.jq/.yml, an <!-- … --> region for .md) AND also
+#             outside every comment inflates the pin's occurrence count / can mask a
+#             refactored-away operative site (issue #370's pin_count-read-3 defect). A
+#             literal living ONLY in a comment (an SPDX-header pin) is the pin's intended
+#             target and is NOT flagged.
+#   wrapped — a source-grep pin whose phrase occurs on NO single line of its target, split
+#             "phrase absent" from "present only in the whitespace-normalized rendering"
+#             (tr -s '[:space:]' ' '), naming the wrapped-literal diagnosis; and any pin into
+#             a multi-literal argparse help= string is FAILed with the rendered-surface
+#             requirement (issue #371's `'… OLD does '`+`'not) …'` help= blind spot).
+# A call site the scanner cannot resolve statically is COUNTED and reported on stderr
+# (UNRESOLVED / UNRESOLVED-COUNT), never silently skipped.
+PCL="$LIB/test/pin-corpus-lint.py"
+assert_eq "#375 pin-corpus-lint helper exists" "yes" "$([ -f "$PCL" ] && echo yes || echo no)"
+# Runtime-resolved target-file bindings the static scanner cannot derive itself: DEF_SKILL /
+# IMPL_SKILL_BUNDLE are the mktemp'd implement-skill bundle (markdown, no extension → --md);
+# the $LIB-relative ones the helper resolves on its own, but binding them explicitly is harmless.
+_PCL_ARGS=( --lib "$LIB" --md "$DEF_SKILL"
+  --var "MAXI_SKILL=$MAXI_SKILL" --var "DEF_SKILL=$DEF_SKILL"
+  --var "IMPL_SKILL_BUNDLE=$IMPL_SKILL_BUNDLE"
+  --var "ST_RAF=$ST_RAF" --var "ST_REV=$ST_REV" --var "ST_RCV=$ST_RCV" )
+# (1) Real corpus: no pin literal collides with a comment of its target; a collision here is a
+# real defect to fix in this same PR (issue #375 AC). stderr (the unresolved report) is dropped.
+assert_eq "#375 lint: no pin literal collides with a comment of its own target (real corpus)" \
+  "" "$(python3 "$PCL" lint "$SELF_SRC" "${_PCL_ARGS[@]}" 2>/dev/null)"
+# (2) Real corpus: no resolvable source-grep pin is an off-line / wrapped-literal / help= blind spot.
+assert_eq "#375 wrapped-literal meta-guard: no resolvable pin phrase is off-line/wrapped (real corpus)" \
+  "" "$(python3 "$PCL" wrapped "$SELF_SRC" "${_PCL_ARGS[@]}" 2>/dev/null)"
+
+# ── #375 synthetic-fixture self-tests (the #342/#343 negative-direction style): prove each
+# guard actually FLAGS the bad shape and is SILENT on the good one, so a future edit that
+# defangs a guard fails RED here. Fail CLOSED if the fixture dir can't be created.
+if _F375="$(mktemp -d 2>/dev/null)" && [ -n "$_F375" ] && [ -d "$_F375" ]; then
+  # Targets: a #-comment collision (operative + comment), a comment-free twin, an .md
+  # <!-- --> collision, a wrapped-adjacent-literal .py, a multi-literal argparse help= .py,
+  # and a single-line .py (must NOT flag).
+  printf 'echo FLAG_OPERATIVE running\n# note: FLAG_OPERATIVE is the flag name\n' > "$_F375/tgt.sh"
+  printf 'echo FLAG_OPERATIVE running\n' > "$_F375/tgt_nocomment.sh"
+  printf 'The FLAG_MD operative prose line.\n<!-- FLAG_MD is quoted in this comment -->\n' > "$_F375/tgt.md"
+  # WRAPPED (pure `tr -s` case): a prose phrase wrapped across a line boundary by whitespace
+  # only — no single line holds it, but `tr -s '[:space:]' ' '` over the file rejoins it.
+  printf 'the phrase does\nnot fit on one line\n' > "$_F375/wrapped.md"
+  # HELP case: a phrase split across ADJACENT quoted literals in an argparse help= — the quotes
+  # between the literals mean `tr -s` does NOT rejoin it (that is why help= needs its own check),
+  # so only the rendered --help concatenation contains it.
+  printf "p.add_argument('--x', help='the help text is '\n                           'split across literals')\n" > "$_F375/help.py"
+  printf 'msg = "the phrase sits entirely on one line"\n' > "$_F375/single.py"
+  # Fixture pin-source: literal-path file args, plus one deliberately unresolvable site.
+  printf '%s\n' \
+    "assert_pin_unique \"fx-comment-collision\" 'FLAG_OPERATIVE' \"$_F375/tgt.sh\"" \
+    "assert_pin_unique \"fx-no-collision\" 'FLAG_OPERATIVE' \"$_F375/tgt_nocomment.sh\"" \
+    "assert_pin_unique \"fx-md-collision\" 'FLAG_MD' \"$_F375/tgt.md\"" \
+    "assert_pin_unique \"fx-wrapped\" 'the phrase does not fit on one line' \"$_F375/wrapped.md\"" \
+    "assert_pin_unique \"fx-help\" 'the help text is split across literals' \"$_F375/help.py\"" \
+    "assert_pin_unique \"fx-single\" 'the phrase sits entirely on one line' \"$_F375/single.py\"" \
+    "assert_pin_unique \"fx-unresolvable\" 'x' \"\$NEVER_SET_VAR\"" \
+    > "$_F375/pins.sh"
+  _L375="$(python3 "$PCL" lint "$_F375/pins.sh" --lib "$_F375" 2>"$_F375/lint.err")"
+  _W375="$(python3 "$PCL" wrapped "$_F375/pins.sh" --lib "$_F375" 2>/dev/null)"
+  # Lint self-tests.
+  assert_eq "#375 lint self-test: a #-comment that also quotes an operative literal is flagged" \
+    "yes" "$(printf '%s' "$_L375" | grep -q 'COLLISION.*tgt.sh.*FLAG_OPERATIVE' && echo yes || echo no)"
+  assert_eq "#375 lint self-test: the comment-free twin is NOT flagged (discriminates)" \
+    "no" "$(printf '%s' "$_L375" | grep -q 'tgt_nocomment.sh' && echo yes || echo no)"
+  assert_eq "#375 lint self-test: an .md <!-- … --> comment collision is flagged" \
+    "yes" "$(printf '%s' "$_L375" | grep -q 'COLLISION.*tgt.md.*FLAG_MD' && echo yes || echo no)"
+  assert_eq "#375 lint self-test: an unresolvable call site is reported on stderr (never silently skipped)" \
+    "yes" "$(grep -q 'file=?' "$_F375/lint.err" && echo yes || echo no)"
+  # Wrapped-literal meta-guard self-tests.
+  assert_eq "#375 meta-guard self-test: a whitespace-wrapped phrase is flagged with the wrapped-literal diagnosis" \
+    "yes" "$(printf '%s' "$_W375" | grep -q 'WRAPPED.*wrapped.md.*wrapped-literal' && echo yes || echo no)"
+  assert_eq "#375 meta-guard self-test: a phrase that sits on one line is NOT flagged" \
+    "no" "$(printf '%s' "$_W375" | grep -q 'single.py' && echo yes || echo no)"
+  assert_eq "#375 meta-guard self-test: a pin into a multi-literal argparse help= is FAILed with the rendered-surface requirement" \
+    "yes" "$(printf '%s' "$_W375" | grep -qi 'HELP.*help.py.*rendered' && echo yes || echo no)"
+  rm -rf "$_F375"
+else
+  echo FAIL >> "$RESULTS_FILE"
+  printf '  FAIL  #375 pin-corpus self-tests: mktemp -d failed (guards could not be exercised; not a vacuous skip)\n' >&2
+fi
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "#363 review-engine grounding: skill<->allowlist command-head contract pin"
