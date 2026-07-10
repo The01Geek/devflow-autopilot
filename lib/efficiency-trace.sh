@@ -86,8 +86,9 @@ done
 # ARGV route only; the basename-derived route — a literal `<slug>/<run-id>`
 # DIRECTORY reaching discovery mode — is refused by persist_one's twin guard.
 # Accepted limitation: a repo checked out under a path that itself contains
-# `<`/`>` refuses every targeted invocation (loudly, exit 0) — fail-closed in
-# the safe direction for a vanishingly rare layout. Accepted residual: a
+# `<`/`>` refuses every targeted invocation here (and discovery refuses each
+# dir via persist_one's twin guard) — loudly, exit 0; fail-closed in the safe
+# direction for a vanishingly rare layout. Accepted residual: a
 # CALLER-side shell redirect (e.g. a verbatim Loop Exit `--mode record >
 # "$RECORD"` fence) touches its placeholder-NAMED file before this script
 # runs — the guard keeps the file EMPTY (no fabricated content), but cannot
@@ -648,10 +649,14 @@ do_persist() {
     # Targeted: persist exactly the given run. Slug from --slug, else the parent
     # dir name; run-id is the workpad-dir basename. Derived with bash parameter
     # expansion only — these values DECIDE which run identity receives the
-    # record, and a nested `basename "$(dirname …)"` would mask a missing PATH
-    # tool under set -e (the inner rc-127 is discarded, the outer runs on "",
-    # every identity silently reads empty — guard-class 2 failing open).
+    # record, so they must not depend on PATH tools at all (guard-class 2): a
+    # broken/shadowed `basename` on PATH would abort the persist mid-run under
+    # set -e (rc 127 — violating the best-effort exit-0 contract and losing the
+    # record), and builtins remove that dependency outright. (The script's init
+    # line still uses `dirname` to locate itself; a host that broken never gets
+    # this far.)
     dir="${WORKPAD_DIR%/}"
+    while [ "${dir%/}" != "$dir" ]; do dir="${dir%/}"; done   # collapse any extra trailing slashes
     run_id="${dir##*/}"
     if [ -n "$SLUG" ]; then
       slug="$SLUG"
@@ -698,8 +703,8 @@ do_persist() {
     for dir in "$root"/.devflow/tmp/review/*/*/; do
       [ -d "$dir" ] || continue
       dir="${dir%/}"                                # strip trailing slash
-      run_id="${dir##*/}"                           # builtins only (guard-class 2):
-      slug="${dir%/*}"; slug="${slug##*/}"          # these decide record identity
+      run_id="${dir##*/}"                           # builtins only (guard-class 2:
+      slug="${dir%/*}"; slug="${slug##*/}"          # identity-deciding, no PATH tools)
       d_iters=("$dir"/iter-*.json)
       if [ -e "${d_iters[0]}" ]; then
         persist_one "$dir" "$slug" "$run_id" "$root" 1
@@ -711,8 +716,8 @@ do_persist() {
     wl_slug_first=""
     for ((wl_i = 0; wl_i < wl_n; wl_i++)); do
       slug="${wl_dirs[$wl_i]%/*}"; slug="${slug##*/}"   # builtins only — this
-      # comparison DECIDES the multi-slug ambiguity trip; a masked-failure empty
-      # slug on every dir would fail the guard open (guard-class 2).
+      # comparison DECIDES the multi-slug ambiguity trip, so it must not depend
+      # on a PATH tool whose failure would abort or degrade it (guard-class 2).
       if [ -z "$wl_slug_first" ]; then
         wl_slug_first="$slug"
       elif [ "$slug" != "$wl_slug_first" ]; then

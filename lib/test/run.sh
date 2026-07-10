@@ -14506,6 +14506,12 @@ assert_eq "et-synth(ambiguity): the targeted persist PRECEDES the discovery pers
   "$([ -n "$ETSP_T" ] && [ -n "$ETSP_D" ] && [ "$ETSP_T" -lt "$ETSP_D" ] && echo yes || echo no)"
 assert_eq "et-synth(ambiguity): 'span multiple slugs' breadcrumb literal present at the producer site (efficiency-trace.sh)" "yes" \
   "$([ "$(pin_count 'span multiple slugs' "$LIB/efficiency-trace.sh")" -ge 1 ] && echo yes || echo no)"
+# Guard-class 2 source-shape pin: do_persist's identity derivations (slug/run-id —
+# they decide which run receives a record) must stay bash builtins; restoring a
+# `$(basename …)`/`$(dirname …)` form here goes RED (a broken PATH tool would
+# abort the persist mid-run, violating the best-effort exit-0 contract).
+assert_eq "et-synth(guard-class-2): no invocation-position basename/dirname inside do_persist" "0" \
+  "$(sed -n '/^do_persist() {/,/^}$/p' "$LIB/efficiency-trace.sh" | grep -c '\$(basename\|\$(dirname')"
 
 # Exclusion-BEFORE-dedupe ordering: a sibling-recorded commit with subject
 # (iteration 1) plus a LATER unrecorded commit also titled (iteration 1) — the
