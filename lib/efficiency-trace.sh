@@ -158,6 +158,11 @@ emit_jq() {
 # from a persisted iter workpad. Plain (non-readonly) single-line assignment so the
 # run.sh divergence guard can grep `^ITER_EXPECTED_FIELDS=` to extract it.
 ITER_EXPECTED_FIELDS="iter started_at fix_commit_sha fix_files loop_role checklist phase3_dispatched diff_profile phase3_findings fix_decisions convergence_inputs cap_drops telemetry"
+# The synthesized-record minimal field set (issue #381): what synthesize_iter_workpads
+# writes, and what --self-check validates a synthesized:true record against (a
+# synthesized record is a recognized degraded class, exempt from the full set above
+# but NOT from its own — a truncated synthesized record must still warn).
+ITER_SYNTH_EXPECTED_FIELDS="iter fix_commit_sha fix_files loop_role synthesized"
 
 # ── Synthesis backstop (Layer 3+): reconstruct a minimal iteration record from
 # the branch's fix commits when a run left ZERO iter-*.json (issue #381) ───────
@@ -172,13 +177,17 @@ ITER_EXPECTED_FIELDS="iter started_at fix_commit_sha fix_files loop_role checkli
 FIX_COMMIT_SUBJECT_PREFIX="fix: address review findings (iteration"
 
 # Resolve the ref the fix-commit range diffs against (config .base_branch,
-# default main). Prefer a local ref; fall back to origin/<base>. Echoes the
+# default main). Prefer origin/<base> over the local ref: in this repo's linked-
+# worktree flow the local base branch is routinely BEHIND origin (nobody pulls it
+# in a worktree), and a stale local base widens base..HEAD to sweep already-merged
+# history — misattributing an old merged PR's fix commits to this run. Falls back
+# to the local ref (fixtures and offline clones with no origin). Echoes the
 # resolved ref, or returns non-zero when neither resolves (fail-closed).
 synth_base_ref() {
   local root="$1" base ref
   base="$(devflow_conf '.base_branch' 'main')"
   [ -n "$base" ] || base="main"
-  for ref in "$base" "origin/$base"; do
+  for ref in "origin/$base" "$base"; do
     if git -C "$root" rev-parse --verify --quiet "${ref}^{commit}" >/dev/null 2>&1; then
       printf '%s\n' "$ref"; return 0
     fi
@@ -186,22 +195,38 @@ synth_base_ref() {
   return 1
 }
 
+# Emit every fix_commit_sha already recorded by ANY other run's iter-*.json —
+# both the live tmp tree and the committed durable copies — so synthesis never
+# re-attributes a commit some other run (real or previously-synthesized) already
+# recorded. $2 is the target run dir, excluded from the scan (its own workpads
+# are what synthesis is about to write). Best-effort: unreadable files are
+# skipped (a sha that cannot be read cannot be excluded — the residual window
+# this leaves is a run whose workpads were ALL deleted after its record was
+# derived, which the durable-copy layer exists to prevent).
+recorded_fix_shas() {
+  local root="$1" skip_dir="$2" f
+  for f in "$root"/.devflow/tmp/review/*/*/iter-*.json "$root"/.devflow/logs/review/*/*/iter-*.json; do
+    [ -e "$f" ] || continue
+    case "$f" in "$skip_dir"/*) continue ;; esac
+    "$DEVFLOW_JQ" -r 'if (.fix_commit_sha | type) == "string" then .fix_commit_sha else empty end' "$f" 2>/dev/null
+  done
+  return 0
+}
+
 # Emit `N<TAB>sha` lines (oldest-first) for commits reachable from HEAD but not
-# from the base ref whose subject matches the fix-commit contract. Deterministic,
-# network-free. Adversarial subjects each emit an exit-0 stderr breadcrumb and
-# are skipped: prefix present but no closing `)` iteration suffix, a non-numeric
-# iteration token, or a duplicate N (first occurrence wins). Always exits 0.
+# from $2 (the pre-resolved base ref) whose subject matches the fix-commit
+# contract, excluding any sha in $3 (space-separated already-recorded set).
+# Deterministic, network-free. Adversarial subjects each emit an exit-0 stderr
+# breadcrumb and are skipped: prefix present but no trailing `)` iteration
+# suffix, a non-numeric iteration token, an already-recorded sha, or a duplicate
+# N (first unexcluded occurrence wins). Always exits 0.
 select_fix_commits() {
-  local root="$1" base base_subject sha subj n tab seen_ns=" "
+  local root="$1" base="$2" excl="$3" base_subject sha subj n tab seen_ns=" "
   tab="$(printf '\t')"
   # The fix-loop subject family, derived from the coupled prefix constant (no
   # second hardcoded literal): a commit in this family but WITHOUT the
   # `(iteration N)` suffix is breadcrumbed, not silently dropped (issue #381 AC4).
   base_subject="${FIX_COMMIT_SUBJECT_PREFIX% (iteration}"
-  base="$(synth_base_ref "$root")" || {
-    echo "::warning::efficiency-trace.sh --persist: could not resolve a base branch ref (.base_branch and origin/<base> both absent); cannot select fix commits for synthesis" >&2
-    return 0
-  }
   # --reverse → oldest-first so a duplicate N keeps the EARLIEST commit.
   while IFS="$tab" read -r sha subj; do
     [ -n "$sha" ] || continue
@@ -211,45 +236,80 @@ select_fix_commits() {
         echo "::warning::efficiency-trace.sh --persist: fix-commit ${sha} is in the fix-loop subject family but has no '(iteration N)' suffix; skipping" >&2; continue ;;
       *) continue ;;                              # unrelated commit — silently skip
     esac
+    # Already recorded by another run's workpad (real or previously synthesized,
+    # tmp or durable copy) — never re-attribute it to this run (the double-count
+    # guard; checked BEFORE duplicate-N dedupe so an excluded commit does not
+    # consume its iteration number and shadow this run's own commit with that N).
+    case " $excl " in
+      *" $sha "*) echo "::warning::efficiency-trace.sh --persist: fix-commit ${sha} is already recorded by another run's iter-*.json workpad; skipping so it is not double-counted" >&2; continue ;;
+    esac
     n="${subj#"$FIX_COMMIT_SUBJECT_PREFIX"}"      # -> " N)"
     n="${n# }"                                    # drop one leading space
     case "$n" in
       *")") n="${n%)}" ;;
-      *) echo "::warning::efficiency-trace.sh --persist: fix-commit ${sha} matches the fix-subject prefix but has no closing ')' iteration suffix; skipping" >&2; continue ;;
+      *) echo "::warning::efficiency-trace.sh --persist: fix-commit ${sha} matches the fix-subject prefix but has no trailing ')' iteration suffix; skipping" >&2; continue ;;
     esac
     case "$n" in
       ''|*[!0-9]*) echo "::warning::efficiency-trace.sh --persist: fix-commit ${sha} has a non-numeric iteration token '${n}'; skipping" >&2; continue ;;
     esac
+    # Normalize leading zeros (pure bash — a selection-deciding value must not
+    # route through a non-preflight PATH tool): "01" and "1" are the same
+    # iteration, so they must collide in the duplicate-N dedupe, and a leading-
+    # zero token must never reach `--argjson` (jq builds disagree on leading-zero
+    # JSON numbers — acceptance is version-dependent, rejection would be
+    # misattributed as a disk write failure).
+    while [ "${n#0}" != "$n" ] && [ -n "${n#0}" ]; do n="${n#0}"; done
     case "$seen_ns" in
       *" $n "*) echo "::warning::efficiency-trace.sh --persist: duplicate iteration ${n} (fix-commit ${sha}); keeping the first occurrence, skipping this one" >&2; continue ;;
     esac
     seen_ns="${seen_ns}${n} "
     printf '%s\t%s\n' "$n" "$sha"
   done < <(git -C "$root" log --reverse --format="%H${tab}%s" "${base}..HEAD" 2>/dev/null)
+  return 0
 }
 
 # Synthesize minimal iter-<N>.json workpads into $1 from the branch's fix
 # commits (issue #381). Each record carries only iter / fix_commit_sha /
 # fix_files / loop_role:"fix" / synthesized:true — a distinct recognized degraded
-# class the jq filter and --self-check both ride. Returns 0 iff ≥1 record was
-# written, non-zero when there were no matching commits (nothing to synthesize).
+# class the jq filter and --self-check both ride. Three-way outcome so the
+# caller's breadcrumb never collapses an unestablished measurement onto "found
+# none" (the repo's unknown-is-not-zero gotcha): returns 0 iff ≥1 record was
+# written; 2 when selection RAN and found no unrecorded matching commit; 3 when
+# selection could not run at all (no base ref resolvable — whether matching
+# commits exist was never established); 4 when commits WERE selected but every
+# record write failed (per-commit warnings already emitted).
 synthesize_iter_workpads() {
-  local dir="$1" root="$2" n sha files tab wrote=1
+  local dir="$1" root="$2" n sha files base excl tab attempted=0 wrote=0
   tab="$(printf '\t')"
+  if ! base="$(synth_base_ref "$root")"; then
+    echo "::warning::efficiency-trace.sh --persist: could not resolve a base branch ref (.base_branch and origin/<base> both absent); cannot select fix commits for synthesis" >&2
+    return 3
+  fi
+  # Join the exclusion set with bash builtins only — it DECIDES which commits are
+  # selected, so it must not be derived through a non-preflight PATH tool (the
+  # repo's guard-class 2: a missing tool would silently empty the set and re-open
+  # the double-count this guard exists to close).
+  excl=""
+  while IFS= read -r sha; do
+    [ -n "$sha" ] && excl="${excl}${sha} "
+  done < <(recorded_fix_shas "$root" "$dir")
   while IFS="$tab" read -r n sha; do
     [ -n "$n" ] && [ -n "$sha" ] || continue
+    attempted=$((attempted + 1))
     files="$(git -C "$root" diff-tree --no-commit-id --name-only -r "$sha" 2>/dev/null)"
     if "$DEVFLOW_JQ" -n --argjson iter "$n" --arg sha "$sha" --arg files "$files" \
          '{iter: $iter, fix_commit_sha: $sha,
            fix_files: ($files | split("\n") | map(select(length > 0))),
            loop_role: "fix", synthesized: true}' > "$dir/iter-$n.json" 2>/dev/null; then
-      wrote=0
+      wrote=$((wrote + 1))
     else
       echo "::warning::efficiency-trace.sh --persist: failed to write synthesized iter-${n}.json for ${sha}; skipping" >&2
       rm -f "$dir/iter-$n.json" 2>/dev/null
     fi
-  done < <(select_fix_commits "$root")
-  return "$wrote"
+  done < <(select_fix_commits "$root" "$base" "$excl")
+  [ "$wrote" -gt 0 ] && return 0
+  [ "$attempted" -gt 0 ] && return 4
+  return 2
 }
 
 # ── --self-check (Layer 2): warn-only, never writes, never fails ─────────────
@@ -299,10 +359,13 @@ do_self_check() {
     [ -e "$iter" ] || continue
     # A synthesized record (issue #381) is a recognized degraded class — it
     # legitimately carries only iter/fix_commit_sha/fix_files/loop_role/synthesized,
-    # so it emits NO missing-field warnings (a wave of them would train operators to
-    # ignore the self-check). `.synthesized == true` short-circuits to `empty`.
-    if ! missing="$("$DEVFLOW_JQ" -r --arg fields "$ITER_EXPECTED_FIELDS" \
-                      'if type == "object" then (if (.synthesized == true) then empty else (($fields | split(" ")) - keys)[] end) else "__non_object__" end' \
+    # so it is validated against THAT minimal set (ITER_SYNTH_EXPECTED_FIELDS),
+    # not the full ITER_EXPECTED_FIELDS (a wave of spurious warnings would train
+    # operators to ignore the self-check) — and not against nothing, or a
+    # truncated/hand-edited synthesized record would validate silently (the
+    # writer-controlled flag must not buy a total exemption).
+    if ! missing="$("$DEVFLOW_JQ" -r --arg fields "$ITER_EXPECTED_FIELDS" --arg synth_fields "$ITER_SYNTH_EXPECTED_FIELDS" \
+                      'if type == "object" then (if (.synthesized == true) then (($synth_fields | split(" ")) - keys)[] else (($fields | split(" ")) - keys)[] end) else "__non_object__" end' \
                       "$iter" 2>/dev/null)"; then
       echo "::warning::devflow review-and-fix self-check: iter workpad '$(basename "$iter")' is unreadable or not valid JSON — cannot validate its fields" >&2
       continue
@@ -328,20 +391,49 @@ persist_one() {
   if [ ! -e "${iters[0]}" ]; then
     # No per-iteration workpad. Layer-3+ synthesis floor (issue #381): reconstruct
     # a minimal record from this branch's fix commits so a fully-dropped run still
-    # contributes effectiveness telemetry. Multi-run disambiguation: only the
-    # lexicographically-latest workpad-less run-id per slug synthesizes
-    # (allow_synth=1); the rest breadcrumb, so one fix commit is never
-    # double-counted into two runs' records.
+    # contributes effectiveness telemetry. Two guards keep a fix commit from being
+    # double-counted into two runs' records: (a) sha-level exclusion — synthesis
+    # skips any commit already recorded as a fix_commit_sha by another run's
+    # iter-*.json (real or synthesized, tmp tree or committed durable copy), so a
+    # workpad-holding sibling run, a cross-slug sibling, a later targeted
+    # --workpad-dir invocation, and a later discovery pass all decline the same
+    # commit; and (b) among the workpad-less dirs of one slug, only the
+    # lexicographically-latest run-id synthesizes (allow_synth=1) — the rest
+    # breadcrumb. The residual window is a run whose EVERY workpad copy (tmp and
+    # durable) was deleted after its record was derived — the durable-copy layer
+    # exists precisely so that does not happen.
     if [ "$allow_synth" != "1" ]; then
       echo "::warning::efficiency-trace.sh --persist: run ${slug}/${run_id} has no iter-*.json and is not the synthesis target for slug '${slug}' (a later run-id holds it); skipping synthesis so fix commits are not double-counted" >&2
       return 0
     fi
-    if ! synthesize_iter_workpads "$dir" "$root"; then
-      echo "::warning::efficiency-trace.sh --persist: run ${slug}/${run_id} left no iter-*.json and no 'fix: address review findings (iteration N)' commits were found — per-iteration effectiveness telemetry was not captured this run; nothing to synthesize" >&2
+    # Three-way outcome (unknown is never collapsed onto "found none" — the
+    # repo's describe-denial-count.sh gotcha): rc 2 = selection ran, nothing
+    # unrecorded to synthesize; rc 3 = selection could not run (base ref
+    # unresolvable — whether commits exist was never established); rc 4 =
+    # commits were selected but every record write failed.
+    local synth_rc=0
+    synthesize_iter_workpads "$dir" "$root" || synth_rc=$?
+    case "$synth_rc" in
+      0) : ;;
+      3)
+        echo "::warning::efficiency-trace.sh --persist: run ${slug}/${run_id} left no iter-*.json and the fix-commit search could not run (no base branch ref resolvable) — whether matching fix commits exist was never established; telemetry not synthesized" >&2
+        return 0 ;;
+      4)
+        echo "::warning::efficiency-trace.sh --persist: run ${slug}/${run_id} left no iter-*.json; matching fix commits were selected but every synthesized record write failed (see the per-commit warnings above) — telemetry not synthesized" >&2
+        return 0 ;;
+      *)
+        echo "::warning::efficiency-trace.sh --persist: run ${slug}/${run_id} left no iter-*.json and no unrecorded 'fix: address review findings (iteration N)' commits were found — per-iteration effectiveness telemetry was not captured this run; nothing to synthesize" >&2
+        return 0 ;;
+    esac
+    iters=("$dir"/iter-*.json)
+    if [ ! -e "${iters[0]}" ]; then
+      # Defensive: unreachable while synthesize_iter_workpads' rc-0 contract
+      # guarantees >=1 surviving write into $dir — but if a future edit
+      # desynchronizes that contract, dropping the record with zero signal is
+      # exactly the silent hole this file exists to close.
+      echo "::warning::efficiency-trace.sh --persist: synthesis reported success but no iter-*.json exists in ${dir}; record not derived for ${slug}/${run_id}" >&2
       return 0
     fi
-    iters=("$dir"/iter-*.json)
-    [ -e "${iters[0]}" ] || return 0
   fi
   # Skip standalone /devflow:review runs (source == "review") — they have their
   # own Phase 4.5 record path and are out of scope for this backstop. `source` is
@@ -432,10 +524,13 @@ do_persist() {
     # slash restricts the glob to directories; an unmatched glob stays literal and
     # the `[ -d ]` guard skips it (no nullglob needed). A dir HOLDING iter-*.json
     # is persisted immediately. A WORKPAD-LESS dir is collected so the issue #381
-    # synthesis floor attaches the branch's fix commits to only the
-    # lexicographically-latest run-id per slug: the glob is sorted, so same-slug
-    # dirs are contiguous with run-ids ascending — the LAST workpad-less dir of a
-    # slug is its latest, and every earlier one gets allow_synth=0 (breadcrumb).
+    # synthesis floor synthesizes into only the lexicographically-latest
+    # workpad-less run-id per slug: the glob is sorted, so same-slug dirs are
+    # contiguous with run-ids ascending — the LAST workpad-less dir of a slug is
+    # its latest, and every earlier one gets allow_synth=0 (breadcrumb). This
+    # ordering guard is one of TWO double-count defenses; the sha-level exclusion
+    # inside synthesis (see persist_one) covers the shapes ordering cannot — a
+    # workpad-holding sibling run, a cross-slug sibling, and later passes.
     local wl_dirs=() wl_n wl_i next_slug allow d_iters
     for dir in "$root"/.devflow/tmp/review/*/*/; do
       [ -d "$dir" ] || continue
