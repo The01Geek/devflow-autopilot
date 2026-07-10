@@ -211,9 +211,11 @@ post-merge. Three cases are therefore never eligible and the gate refuses the ta
 - **Runnable-but-blocked (local tooling/environment gap)** — a criterion verifiable on this host but
   blocked right now by a denied command, a missing build tool, an un-spawnable helper, or a failed
   restore. A tooling gap is not a runtime-environment gap; it takes the existing **`Blocked`** escalation
-  path (human handoff), never a silent post-merge pass. (A genuine permission/sandbox denial of the *test
-  suite itself* is a distinct mechanism — the auditable, workpad-recorded skip to the CI `lib + python
-  tests` gate per `CLAUDE.md`; it does not tick the AC.)
+  path (human handoff), never a silent post-merge pass. (A *verification command* that is **not granted**
+  in the run's allowlist — its direct-form invocation refused before it could run — takes that same
+  **`Blocked`** path, naming `devflow_implement.allowed_tools` (and `devflow.allowed_tools` for the command
+  path) as the exact remedy: grant the command so the run can verify in-env, then re-run. It is **never**
+  deferred to a CI result — see *In-env verification is the gate* below.)
 - **Confirmation of a self-authored claim** — a criterion whose purpose is to confirm a behavioral claim
   the PR already asserts as true. It is runnable pre-merge by construction (the claim is about the shipped
   diff), so deferring it would defer the one check that could falsify the claim; the gate refuses the tag
@@ -234,6 +236,41 @@ ride a "cleanest in a fresh session" rationale into an unchecked post-merge defe
 `--rewrite-ac` retag auditable, `workpad.py` structurally rejects a `--rewrite-ac` call that appends the
 `(post-merge)` tag (a single pair or a crafted multi-pair sequence) without a non-empty `--note` rationale
 (issue #338). (The Phase 2.2.5 `--replace-acs-file` wholesale channel is a deliberate, known exception.)
+
+### In-env verification is the gate — CI is never an in-run verification channel (issue #405)
+
+A **verification-command** acceptance criterion — one whose verification is *running a test/lint/build
+command* (the project's test suite, `shellcheck`/`ruff`, a `pytest`/build invocation) — is satisfied
+**only by an in-environment observed pass**, on both the local and cloud `/devflow:implement` tiers. The
+run executes the command **in its own environment** and ticks the criterion on the pass it observes there.
+It **never waits on, polls, re-checks, or cites CI** for its own progress, and ticks nothing on a CI
+result. CI (for this repo, the `lib + python tests` job) is the **required post-PR check that gates the
+human merge** — not a channel the run reads to verify itself.
+
+The command is invoked by its **direct leading-token** form (`lib/test/run.sh`, not `bash lib/test/run.sh`
+— the `bash <path>` wrapper is deny-floored and can never be granted), which resolves because the
+suite/lint commands are granted through `devflow_implement.allowed_tools` (and `devflow.allowed_tools` for
+the `/devflow:*` command path). This repo grants the three direct forms — `Bash(lib/test/run.sh:*)`,
+`Bash(lib/preflight.sh:*)`, `Bash(shellcheck:*)` — under both keys. The three outcomes at the Phase 3.4
+gate:
+
+- **In-env pass** — the command ran and passed here; tick the criterion on that observed result.
+- **In-env failure** — the command *ran and failed*; that is a real failure, not a deferral: fix it or
+  take the **`Blocked`** path. Never `(post-merge)` it.
+- **In-env run denied** — the direct-form command is **not granted** in this run's allowlist, so it was
+  refused before it could run. Take the **`Blocked`** path naming `devflow_implement.allowed_tools` (and
+  `devflow.allowed_tools` for the command path) as the remedy, then re-run. Never launder a denied
+  verification command into a `(post-merge)` retag or a CI observation — never a silent stall, never a
+  verdict resting on a CI result the run never saw.
+
+**Consumer rule.** List your repo's test/lint commands in `devflow_implement.allowed_tools` (and
+`devflow.allowed_tools` for the command path) and the run verifies them in-env; leave them ungranted and a
+verification-command AC goes **`Blocked`**, its message naming `devflow_implement.allowed_tools` as the
+exact remedy. See [`cloud-setup.md`](cloud-setup.md#extending-the-tool-allowlist) for the config surface.
+The shared review engine, executed inline by Phase 3.3, takes its **test evidence from the orchestrator's
+own in-env suite/lint results** for the current HEAD — never a CI conclusion. (The read-only `review`
+runner is a separate, unchanged case: its wait-for-CI-then-review posture is the correct *post-PR*
+sequence.)
 
 **Documentation-AC deferral (Phase-4.1-owned, distinct from `(post-merge)`).** A criterion whose
 satisfaction is a *documentation edit that Phase 4.1's `devflow:docs` subagent owns* — a `docs/…`
@@ -359,6 +396,8 @@ When enabled, a post-`claude` step keys on the issue workpad `Status` (via `work
 
 - **Terminal `Status`** (`Complete` 🎉 / `Blocked` 👎 / `Failed` 💥) → no-op; the job concludes normally. (`Failed` is written by this backstop's own dead-run flip below, so a re-triggered run reads it as a decided end rather than a stall.)
 - **Interim `Status`** (any 🚀 phase) → auto-resume: post a distinct audit comment (attempt *k* of `max_resume_attempts`) and re-dispatch `/devflow:implement <n>` so the skill's Phase 1.3 workpad-resume continues from where it stopped, bounded by the cap.
+
+**Denial-proof helper invocation on a resumed run (issue #405).** A resumed run — and every cloud helper invocation — must invoke bundled helpers with the **repo-relative vendored literal** (`.devflow/vendor/devflow/scripts/…`, `.devflow/vendor/devflow/lib/…`) as the command's **leading token**: never an absolute path (`/home/runner/.../scripts/workpad.py`), never the repo-root `scripts/…` form, and never behind a `VAR=value` prefix or a `bash <path>` wrapper. Each of those makes the command no longer *begin with* the granted literal, so the cloud allowlist silently denies it — and a resumed run that reaches for the absolute or repo-root form is denied on its very first `workpad.py` call and dies without resuming. The stall-backstop **resume comment now carries this discipline inline** (a `Resume note:` line in the comment body), so a resumed run receives the rule inside its own triggering comment even if it never re-reads the skill prose; the same rule is stated in the skill's always-resident orchestrator body. After two denials of a given command shape, switch to a listed legal form rather than iterating a third spelling.
 - **Cap exhausted** (including `max_resume_attempts: 0`) → the job exits non-zero (red) and posts a distinct comment naming the stall for a manual retrigger.
 - **Unreadable `Status`** (workpad missing / unparseable — `workpad.py status` exits 2 or 1, where exit 2 is "no workpad" and exit 1 covers both a missing/empty `Status` line and a present `Status` line whose word isn't in the canonical vocabulary (`Reviewing`/`Complete`/`Blocked`/etc.)) → fail closed (`unreadable` class) with a distinct diagnostic comment, never a false "stalled at X" claim.
 - **Auth/API failure reading the workpad** (`workpad.py status` exits **3** — a `gh`-api/transport/auth failure such as an expired App installation token, reading either the workpad `Status` or the issue comment list that counts prior attempts) → fail closed (`auth-failure` class, distinct from `unreadable`) with an auth-specific diagnostic comment, and **without consuming a resume attempt** — the workpad may be perfectly healthy; only the read failed (issue #287).
