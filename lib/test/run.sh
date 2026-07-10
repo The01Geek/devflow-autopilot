@@ -2704,6 +2704,49 @@ assert_pin_unique "step8: CI-fallback local-skip requires an auditable recorded 
 assert_pin_unique "step8: CI-fallback: submitting a push is not the same as observing green" \
   'submitting a push is not the same as observing green' "$RECV_SKILL"
 
+# Drift guards (issue #399): the Verification Gate gains a fourth evidence item — branch-sync
+# evidence regenerated in the turn the completion claim is made — plus the Step 0 point-in-time
+# disclaimer and the closing item widened to gate on the full evidence set. These are SKILL
+# prose shipped to consumer repos, so an assert_pin_unique on the operative sentence is the
+# drift guard; each behavioral-fix pin is additionally proven via assert_pin_red_under with a
+# `sed -E` mutation that re-introduces the NAMED regression (one-shot Step 0 semantics, an
+# unbounded drift chase, a settled-fact Step 0 claim, dropping the branch-sync gate, or
+# collapsing a failed fetch onto a zero-behind false-sync), so a framing-only pin is reported
+# RED. Literals are gate-unique, apostrophe-free ASCII, and
+# engine-agnostic (no DevFlow machinery named in the pinned text).
+# pin-A (AC1/AC5): the fourth item requires evidence generated in the same turn as completion.
+assert_pin_unique "399: gate item 4 requires same-turn branch-sync evidence" \
+  'Generate branch-sync evidence in the same turn as the completion claim' "$RECV_SKILL"
+assert_pin_red_under "399: re-timing item 4 to Step 0 re-introduces one-shot Step 0 semantics" \
+  'Generate branch-sync evidence in the same turn as the completion claim' \
+  's/Generate branch-sync evidence in the same turn as the completion claim/Generate branch-sync evidence when you update the branch in Step 0/' "$RECV_SKILL"
+# pin-B (AC2): the drift response re-runs the Step 0 update ONCE, never chasing until it settles.
+assert_pin_unique "399: bounded drift response re-runs Step 0 once" \
+  're-run the Step 0 update once, regenerate this evidence on the new state' "$RECV_SKILL"
+assert_pin_red_under "399: stripping the re-run-once bound re-introduces an unbounded drift chase" \
+  're-run the Step 0 update once, regenerate this evidence on the new state' \
+  's/re-run the Step 0 update once, regenerate this evidence on the new state/re-run the Step 0 update and regenerate this evidence, repeating until it settles/' "$RECV_SKILL"
+# pin-C (AC7): Step 0's update is point-in-time, not citable as completion-time evidence.
+assert_pin_unique "399: Step 0 result is not citable as completion-time evidence" \
+  'the sync state it establishes is not citable as completion-time evidence' "$RECV_SKILL"
+assert_pin_red_under "399: reverting Step 0 to settled-fact phrasing re-introduces the stale-claim bug" \
+  'the sync state it establishes is not citable as completion-time evidence' \
+  's/the sync state it establishes is not citable as completion-time evidence/the sync state it establishes remains a settled fact for the rest of the session/' "$RECV_SKILL"
+# pin-D (AC5): the closing item gates on all FOUR evidence items, not three.
+assert_pin_unique "399: gate closing item requires all four evidence items" \
+  'Only after all four pass, claim completion' "$RECV_SKILL"
+assert_pin_red_under "399: reverting the closing item to all-three drops the branch-sync gate" \
+  'Only after all four pass, claim completion' \
+  's/Only after all four pass, claim completion/Only after all three pass, claim completion/' "$RECV_SKILL"
+# pin-E (item 4, d3b0ba5/fbaf447): the safety-critical failed-fetch clause — when the fetch
+# does not succeed BOTH the remote-counterpart divergence and the base-branch divergence are
+# unestablished (unknown), never collapsed onto a stale-remote-tracking-ref zero-behind result.
+assert_pin_unique "399: failed fetch leaves both divergences unestablished, never zero-behind" \
+  'treat both the remote-counterpart divergence and the base-branch divergence as unestablished' "$RECV_SKILL"
+assert_pin_red_under "399: collapsing the failed-fetch clause onto zero-behind re-introduces the stale-ref false-sync bug" \
+  'treat both the remote-counterpart divergence and the base-branch divergence as unestablished' \
+  's/treat both the remote-counterpart divergence and the base-branch divergence as unestablished/treat both the remote-counterpart divergence and the base-branch divergence as zero-behind/' "$RECV_SKILL"
+
 # Drift guards (issue #196): the convergence-discipline additions to the vendored
 # receiving-code-review skill — a stopping rule, a Record-Every-Deferral contract, the
 # Response-Pattern RECORD DEFERRALS step, and the cross-iteration finding union. Each is
@@ -14424,6 +14467,25 @@ assert_eq "provision: read-only base profile has no build tools (all 8)" "0" \
   "$(grep "TOOLS='Read,Glob,Grep" "$RUNNER" \
      | grep -cE 'Bash\((npm|npx|node|yarn|pnpm|composer|php|make):\*\)' || true)"
 
+# Issue #401 — probe-gated review-profile grants. matcher-probe.yml run 29111394360
+# empirically measured which shapes the deployed claude-code-action matcher permits:
+#   - row 9: Write(.devflow/tmp/**) PERMITTED (side-effect file created) → LANDED;
+#     the reviewer authors workpad/scratch into the gitignored .devflow/tmp via the
+#     Write tool (never a shell `>` redirect, which the probe recorded DENIED).
+#   - row 8: Write(/tmp/**) DENIED (out-of-workspace) → DROPPED.
+#   - row 3: Bash(cd:*) DENIED, but confounded by an independently-denied `>` redirect
+#     in the same command → UNPROVEN, DROPPED (a redirect-free re-probe must settle it).
+# Pin the landed grant present and the two dropped candidates absent, so a one-sided
+# removal of the scoped Write goes RED and neither dropped candidate is silently
+# re-added without a fresh probe. All three read the review profile TOOLS line only.
+REVIEW_TOOLS_LINE="$(grep "TOOLS='Read,Glob,Grep" "$RUNNER")"
+assert_eq "#401 review profile grants Write(.devflow/tmp/**) (probe row 9 PERMITTED — scoped scratch write)" "1" \
+  "$(printf '%s\n' "$REVIEW_TOOLS_LINE" | grep -cF 'Write(.devflow/tmp/**)' || true)"
+assert_eq "#401 review profile does NOT grant Write(/tmp/**) (probe row 8 DENIED — out-of-workspace)" "0" \
+  "$(printf '%s\n' "$REVIEW_TOOLS_LINE" | grep -cF 'Write(/tmp/**)' || true)"
+assert_eq "#401 review profile does NOT grant Bash(cd:*) (probe row 3 DENIED, confounded by redirect — unproven)" "0" \
+  "$(printf '%s\n' "$REVIEW_TOOLS_LINE" | grep -cF 'Bash(cd:*)' || true)"
+
 # Issue #21: the build append is now the FREEFORM devflow_runner.allowed_tools
 # list (read from the trusted base ref), not the old hard-coded npm…make set.
 # (1) The fixed 8-tool append line must be GONE — listing build tools is now the
@@ -16609,8 +16671,16 @@ assert_eq "#142 CLAUDE.md does NOT claim a vendored first-party devflow:writing-
 # new reference to some OTHER superpowers skill, placed in lib/test, would evade detection.
 # Pattern split-literal so this run.sh never self-matches outside lib/test.
 SP_PAT_NS="superpowers"":"
-assert_eq "#142 no operative surface outside CLAUDE.md carries any bare superpowers: namespaced id (non-internalized refs incl.; CLAUDE.md/test scaffolding/history/migration/learnings excepted)" \
-  "" "$(tracked_scan "$FDROOT" "$SP_PAT_NS" ':!.devflow/logs' ':!.devflow/learnings' ':!CHANGELOG.md' ':!docs/review-agent-overrides.md' ':!lib/test' ':!CLAUDE.md')"
+# docs/superpowers/specs/ is excepted for the same reason CLAUDE.md is: a design
+# spec authored under the superpowers brainstorming/writing-plans discipline
+# legitimately NAMES the external dev-time `superpowers:writing-skills` authoring
+# discipline in its prose (the skill files it directs the implementer to edit are
+# edited under that discipline). Like CLAUDE.md's carried reference, this is a
+# documentation surface, not a runtime dependency, so the zero-companion-dependency
+# claim is unaffected. The narrow scope (only docs/superpowers/specs) keeps the net
+# closed on any OTHER stray superpowers: id in an operative surface.
+assert_eq "#142 no operative surface outside CLAUDE.md carries any bare superpowers: namespaced id (non-internalized refs incl.; CLAUDE.md/test scaffolding/history/migration/learnings/design-specs excepted)" \
+  "" "$(tracked_scan "$FDROOT" "$SP_PAT_NS" ':!.devflow/logs' ':!.devflow/learnings' ':!CHANGELOG.md' ':!docs/review-agent-overrides.md' ':!docs/superpowers/specs' ':!lib/test' ':!CLAUDE.md')"
 
 # (2/2b/2c) Per-skill vendoring + structural validity. For each of the two skills the file
 # exists first-party under skills/<name>/SKILL.md; its frontmatter declares name: <name> (so
