@@ -14491,9 +14491,17 @@ rm -rf "$ETSAM_REPO"
 # The phase-3.3 backstop persists TARGETED-FIRST (this run by explicit identity —
 # immune to every discovery-mode skip and to the lone-stale-foreign-dir
 # misattribution) and only then runs argument-less discovery for other leftovers.
-assert_pin_unique "et-synth(ambiguity): phase-3.3 runs the targeted persist (explicit --workpad-dir/--slug) before discovery" \
+assert_pin_unique "et-synth(ambiguity): phase-3.3 carries the targeted persist invocation (explicit --workpad-dir/--slug)" \
   '--workpad-dir "$ROOT/.devflow/tmp/review/<slug>/<run-id>" --slug "<slug>" --persist' \
   "$LIB/../skills/implement/phases/phase-3-review.md"
+# ORDER is the load-bearing property (probe-confirmed: a presence pin alone stays
+# green under a discovery-first swap, which re-opens the lone-stale-foreign-dir
+# misattribution AND lets the targeted call's truncating 2> destroy discovery's
+# captured breadcrumbs): assert targeted's line number precedes discovery's.
+ETSP_T="$(grep -nF -- '--slug "<slug>" --persist 2>' "$LIB/../skills/implement/phases/phase-3-review.md" | cut -d: -f1 | head -1)"
+ETSP_D="$(grep -nF -- '/../../lib/efficiency-trace.sh --persist 2>>' "$LIB/../skills/implement/phases/phase-3-review.md" | cut -d: -f1 | head -1)"
+assert_eq "et-synth(ambiguity): the targeted persist PRECEDES the discovery persist in the phase-3.3 fence" "yes" \
+  "$([ -n "$ETSP_T" ] && [ -n "$ETSP_D" ] && [ "$ETSP_T" -lt "$ETSP_D" ] && echo yes || echo no)"
 assert_eq "et-synth(ambiguity): 'span multiple slugs' breadcrumb literal present at the producer site (efficiency-trace.sh)" "yes" \
   "$([ "$(pin_count 'span multiple slugs' "$LIB/efficiency-trace.sh")" -ge 1 ] && echo yes || echo no)"
 

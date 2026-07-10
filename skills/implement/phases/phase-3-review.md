@@ -222,7 +222,8 @@ fi
 # there the record IS written to disk, just not yet committed, a materially different and
 # lower-priority gap deferred on the issue #235 workpad. KNOWN LIMITATION (also deferred,
 # #236 review shadow pass): unlike the this-run-scoped no-inputs detector above, this grep
-# runs against --persist's WHOLE-TREE discovery-mode stderr (no --workpad-dir/--slug), so a
+# runs against the combined capture (the targeted call's stderr plus the whole-tree
+# discovery call's), so a
 # persistently-failing LEFTOVER run directory elsewhere on the local tier can also match —
 # the reflection below therefore does not assert the failure is scoped to this run.
 if [ "$PERSIST_ERR_IS_DEVNULL" -eq 0 ] && grep -qE 'record not written|failed \(disk/permission\); not persisted for' "$PERSIST_ERR" 2>/dev/null; then

@@ -647,9 +647,10 @@ do_persist() {
     # exclusion still prevents any double-count). And a workpad-less dir left by
     # a standalone /devflow:review run is indistinguishable here from a dropped
     # fix loop's — its synthesized record defaults to source "review-and-fix"
-    # (the source probe reads iter workpads, which this dir by definition lacks)
-    # even though the run that created the dir was a review; content stays
-    # correct and the sha exclusion still holds.
+    # (a synthesized workpad carries no `source` field, so the probe's else-arm
+    # default fires, not the unreadable-file breadcrumb) even though the run
+    # that created the dir was a review; content stays correct and the sha
+    # exclusion still holds.
     local wl_dirs=() wl_n wl_i next_slug allow d_iters wl_slug_first wl_multi_slug=0
     for dir in "$root"/.devflow/tmp/review/*/*/; do
       [ -d "$dir" ] || continue
