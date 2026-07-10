@@ -82,7 +82,7 @@
         "stall_backstop": {
           "type": "object",
           "additionalProperties": false,
-          "description": "Cloud-only workflow-level backstop for /devflow:implement (devflow-implement.yml). A headless single-shot run can end mid-lifecycle (e.g. right after `gh pr create`) yet report success, because the SDK session ends the moment the model emits a tool-call-free turn. After the `claude` step, the backstop reads the issue workpad Status (never PR draft state): a terminal Status (🎉 Complete / 👎 Blocked) is a no-op, an interim Status (🚀 …) auto-resumes `/devflow:implement <n>` up to `max_resume_attempts`, and an exhausted cap or an unreadable Status fails the job loud with a distinct issue comment. Purely additive: absent/disabled, the job behaves exactly as before.",
+          "description": "Cloud-only workflow-level backstop for /devflow:implement (devflow-implement.yml). A headless single-shot run can end mid-lifecycle (e.g. right after `gh pr create`) yet report success, because the SDK session ends the moment the model emits a tool-call-free turn. After the `claude` step, the backstop reads the issue workpad Status (never PR draft state): a terminal Status (🎉 Complete / 👎 Blocked / 💥 Failed) is a no-op, an interim Status (🚀 …) auto-resumes `/devflow:implement <n>` up to `max_resume_attempts`, and an exhausted cap or an unreadable Status fails the job loud with a distinct issue comment. Every fail-loud exit reached after reading a genuinely interim Status also flips the workpad Status to 💥 Failed (best-effort) so a dead run stops reporting itself as still working. Purely additive: absent/disabled, the job behaves exactly as before.",
           "properties": {
             "enabled": {
               "type": "boolean",

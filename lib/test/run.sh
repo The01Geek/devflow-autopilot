@@ -1949,9 +1949,10 @@ assert_pin_unique "339(AC3): code-reviewer mirrors the truthfulness discriminato
 # AC3 — code-reviewer: a HEAD-verified false changed-line claim clears the ≥80 confidence filter.
 assert_pin_unique "339(AC3): code-reviewer scores a HEAD-verified false changed-line claim >= 80 by definition" \
   'scores ≥ 80 confidence by definition' "$FALSE_CODEREV_AGENT"
-# AC2 — both dispatch prompts name the four recurring shapes (the last shape's clause occurs
-# once per dispatch prompt = 2 sites in the review engine).
-assert_eq "339(AC2): dispatch prompts name the four recurring shapes (comment-analyzer + code-reviewer)" \
+# AC2 — both dispatch prompts name the recurring shapes (the fourth shape's clause occurs
+# once per dispatch prompt = 2 sites in the review engine). #378 added a fifth shape after
+# it; this pin on the fourth shape's tail is unaffected (the fifth appends after it).
+assert_eq "339(AC2): dispatch prompts name the recurring shapes (comment-analyzer + code-reviewer)" \
   "2" "$(pin_count 'claim the code does not bear out' "$ST_REV")"
 # AC2 (hardening) — pin an EARLIER shape too, not only the fourth shape's tail: the
 # "known limitation the same diff already fixed" shape occurs once per dispatch prompt (= 2),
@@ -2004,6 +2005,77 @@ assert_pin_unique "339(docs): DEVFLOW_SYSTEM_OVERVIEW describes the pre-verdict 
   'pre-verdict truthfulness sweep' "$OG_OVERVIEW_DOC"
 assert_pin_unique "339(docs): shadow-review.md describes the pre-verdict truthfulness sweep" \
   'pre-verdict truthfulness sweep' "$OG_SHADOW_DOC"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "absolute-claim category + intra-diff contradiction sweep + fail-open severity (#378, #371 R1/R2/R6)"
+# ────────────────────────────────────────────────────────────────────────────
+# #378 makes the review engine ATTACK absolute claims instead of reading them (the PR #340
+# retrospective #371, items R1/R2/R6). Deliverable is LLM-executed skill/agent prose plus a
+# checklist-generator category enum — no automated verdict boundary — so these are
+# operative-sentence pins (PASS→FAIL on removal, several removal-proven) + mirror-count pins,
+# the same idiom as the #339/#263 blocks above.
+GEN_378="$LIB/../agents/checklist-generator.md"
+# ── R1: absolute_claim checklist category, forced to verification_mode: agent, never lite.
+assert_pin_unique "378(R1): checklist-generator category enum gains absolute_claim" \
+  'string_presence | absolute_claim' "$GEN_378"
+# The operative forcing rule — its removal re-opens the lite-grep procedure that failed on #340.
+assert_pin_unique "378(R1): absolute_claim is always agent, never lite (operative)" \
+  'never** be added to that lite-mode category list' "$GEN_378"
+assert_pin_red_on_removal "378(R1)-mp: deleting the never-lite forcing rule turns its pin RED" \
+  'never** be added to that lite-mode category list' "$GEN_378"
+# The lite-mode permitted category list is UNCHANGED — it still names only api_contract /
+# string_presence, so absolute_claim is excluded by construction (widening it to add
+# absolute_claim would change this line → RED). This is the "absent from the lite list" AC.
+assert_pin_unique "378(R1): lite-mode category condition still excludes absolute_claim (only api_contract/string_presence)" \
+  '`category` is `api_contract` or `string_presence`.' "$GEN_378"
+# The verify_hint contract: construct-and-run the falsifying input (not grep/read).
+assert_pin_unique "378(R1): absolute_claim verify_hint constructs the falsifying input" \
+  'construct an input satisfying the claim' "$GEN_378"
+# ── R2: the fifth documented_falsehood shape (opposite direction) at all four literal sites.
+# In the review engine it occurs once per dispatch prompt = 2 sites (mirror-count, like the
+# #339 fourth-shape pin); once in each agent file.
+assert_eq "378(R2): fifth documented_falsehood shape present in both review dispatch prompts" \
+  "2" "$(pin_count 'contradicts by adding or retaining a limitation note about the same symbol it did not actually close' "$ST_REV")"
+assert_pin_unique "378(R2): comment-analyzer carries the fifth (absolute-claim contradiction) shape" \
+  'contradicts by adding or retaining a limitation note about the same symbol it did not actually close' "$FALSE_COMMENT_AGENT"
+assert_pin_unique "378(R2): code-reviewer carries the fifth (absolute-claim contradiction) shape" \
+  'contradicts by adding or retaining a limitation note about the same symbol it did not actually close' "$FALSE_CODEREV_AGENT"
+# ── R2: §4.1.6 gains a diff-scan input (the failing case has no finding to iterate over).
+assert_pin_unique "378(R2): §4.1.6 takes a diff-scan input (intra-diff contradiction scan)" \
+  'this sweep also takes a **diff-scan input**' "$ST_REV"
+assert_pin_red_on_removal "378(R2)-mp: deleting the §4.1.6 diff-scan input turns its pin RED" \
+  'this sweep also takes a **diff-scan input**' "$ST_REV"
+# The contradiction routes as a NON-DEMOTABLE documented_falsehood into the Phase 4.2 carve-out.
+assert_pin_unique "378(R2): intra-diff contradiction files a non-demotable documented_falsehood → 4.2 carve-out" \
+  'file it as a non-demotable `documented_falsehood` and route it into the Phase 4.2 self-contradicting-diff carve-out (REJECT)' "$ST_REV"
+# Same-symbol scoping — the false-positive bound (different symbols = no finding).
+assert_pin_unique "378(R2): same-symbol scoping bounds the contradiction scan" \
+  'an absolute claim and a limitation note about *different* symbols are not a contradiction and produce no finding' "$ST_REV"
+# Visible clean-scan sentinel (skipped-step vs clean-pass disambiguation).
+assert_pin_unique "378(R2): intra-diff contradiction scan emits a visible clean-scan line" \
+  'intra-diff contradiction scan: no contradiction found' "$ST_REV"
+# ── R6: fail-open-is-not-mild severity rule. Repo-agnostic in the vendored receiving-code-review
+# body; single-sourced in review §4.1.5 shape 1 (consumed unchanged by review-and-fix's over-grade gate).
+assert_pin_unique "378(R6): receiving-code-review — fail-open defect not mild regardless of contrived/documented" \
+  'not mild regardless of how contrived that input is or whether a comment disclosed it' "$ST_RCV"
+assert_pin_red_on_removal "378(R6)-mp: deleting the receiving-code-review fail-open severity rule turns its pin RED" \
+  'not mild regardless of how contrived that input is or whether a comment disclosed it' "$ST_RCV"
+assert_pin_unique "378(R6): review §4.1.5 shape 1 excludes a fail-open defect (single source)" \
+  'A fail-*open* defect is never this shape' "$ST_REV"
+assert_pin_red_on_removal "378(R6)-mp: deleting the §4.1.5 fail-open exclusion turns its pin RED" \
+  'A fail-*open* defect is never this shape' "$ST_REV"
+# Repo-agnostic guard: the R6 rule in the vendored body carries no DevFlow-internal strings.
+assert_eq "378(R6): receiving-code-review R6 rule stays repo-agnostic (no repo test path)" \
+  "no" "$(grep -qF 'lib/test/run.sh' "$ST_RCV" && echo yes || echo no)"
+# ── R1 coupled invariant (review-finding follow-up): absolute_claim's priority RANK is
+# mirrored in the review engine's §1.1.5 cap-and-prioritize list AND the DEVFLOW_SYSTEM_OVERVIEW
+# priority ordering — the two must keep it at rank 2. Neither placement was pinned, so a reorder
+# in either file would silently desync them (the coupled-invariant-without-a-pin class). Pin the
+# rank-2 placement at both sites so a reorder/drop in either goes RED.
+assert_pin_unique "378(R1): absolute_claim sits at rank 2 in review §1.1.5 cap-priority list" \
+  '2. `absolute_claim` items' "$ST_REV"
+assert_pin_unique "378(R1): overview priority ordering keeps absolute_claim above dependency_interaction (rank 2)" \
+  'absolute_claim > dependency_interaction' "$OG_OVERVIEW_DOC"
 
 # ── Meta-test (#157, AC2): widen the raw-guard audit from the park-calibration
 # region fence to the WHOLE suite. #155 enforced helper-routing ONLY inside the
@@ -3307,16 +3379,19 @@ assert_pin_red_on_removal "#232: SKILL self-check operative clause flips RED on 
 assert_pin_red_on_removal "#232: SKILL Status-not-draft clause flips RED on removal" \
   'keys on the workpad `Status`, not on PR draft state' "$IMPL_ORCH"
 # (2) phase-4-documentation.md Phase 4.1 post-subagent re-anchor — AC3 (re-read the phase
-#     file before §4.2 after the docs subagent returns) + AC4 (scoped to the Phase 4.1
-#     docs subagent return only, not the Phase 2/3 subagent returns).
+#     file before §4.2 after the docs subagent returns) + AC4 (scoped to SUBAGENT returns,
+#     not the Phase 2/3 subagent returns). Issue #362 reworded AC4's scope clause from
+#     "the Phase 4.1 docs subagent return only" to "**subagent** returns", because a
+#     Skill-tool return is now covered by the orchestrator's generalized mid-phase
+#     re-anchor instead; the wording and these pins move together.
 assert_pin_unique "#232: phase-4 re-anchor operative clause present (re-read before §4.2)" \
   're-anchoring the remaining §4.2 (PR description) and §4.3 (finalize) procedure' "$P4_FILE"
-assert_pin_unique "#232: phase-4 re-anchor scoped to the Phase 4.1 docs subagent return only (AC4)" \
-  'scoped to the Phase 4.1 docs subagent return **only**' "$P4_FILE"
+assert_pin_unique "#232/#362: phase-4 re-anchor scoped to **subagent** returns (AC4, reworded)" \
+  'scoped to **subagent** returns' "$P4_FILE"
 assert_pin_red_on_removal "#232: phase-4 re-anchor operative clause flips RED on removal" \
   're-anchoring the remaining §4.2 (PR description) and §4.3 (finalize) procedure' "$P4_FILE"
-assert_pin_red_on_removal "#232: phase-4 re-anchor scope clause flips RED on removal" \
-  'scoped to the Phase 4.1 docs subagent return **only**' "$P4_FILE"
+assert_pin_red_on_removal "#232/#362: phase-4 re-anchor scope clause flips RED on removal" \
+  'scoped to **subagent** returns' "$P4_FILE"
 # review iter-1 (pr-test-analyzer): pin the OPERATIVE directives, not only their framing —
 # a same-line surgical edit that drops the actual instruction while keeping the descriptive
 # appendix would otherwise ship GREEN (the recurring framing-only-pin hole).
@@ -3352,10 +3427,195 @@ assert_pin_red_on_removal "#232: orchestrator operative always-loaded re-Read di
   'the phase file before continuing to §4.2 (resume from §4.2' "$IMPL_ORCH"
 # AC4 scope constraint is mirrored in the always-loaded orchestrator too; pin that copy so the
 # "not the Phase 2/3 returns" guardrail can't be dropped from the resident mirror unnoticed.
-assert_pin_unique "#232: orchestrator mirror keeps the AC4 Phase-4.1-only scope (SFH F2 mirror)" \
-  'scoped to the Phase 4.1 docs subagent return only, not the Phase 2/3 returns' "$IMPL_ORCH"
-assert_pin_red_on_removal "#232: orchestrator AC4 scope mirror flips RED on removal" \
-  'scoped to the Phase 4.1 docs subagent return only, not the Phase 2/3 returns' "$IMPL_ORCH"
+# Reworded by #362 (see the phase-4 block above) to scope the trigger to SUBAGENT returns,
+# since a Skill-tool return now has its own generalized re-anchor in the same resident body.
+assert_pin_unique "#232/#362: orchestrator mirror scopes the re-anchor to **subagent** returns (SFH F2 mirror)" \
+  'scoped to **subagent** returns, not the Phase 2/3 subagent returns' "$IMPL_ORCH"
+assert_pin_red_on_removal "#232/#362: orchestrator AC4 scope mirror flips RED on removal" \
+  'scoped to **subagent** returns, not the Phase 2/3 subagent returns' "$IMPL_ORCH"
+
+# ── issue #362: run-continuity guards. Three always-resident cross-phase rules in the
+# orchestrator (generalized mid-phase re-anchor after ANY Skill-tool return; the
+# non-interactive self-answer rule; the Agent-subagent dispatch path for interactive
+# skills), plus the run-marker lifecycle (written in Phase 1.3, removed at every terminal
+# Status transition) and the Phase 1.4 resume pre-check. Each pin below targets the
+# OPERATIVE sentence — the minimal text whose removal alone re-introduces the #356 defect
+# class (a run that dies mid-phase on a nested skill's tail call, or a resume that forks a
+# second branch + PR) — never an adjacent framing clause. Paired removal proofs make that
+# half-revert check re-run on every suite execution.
+P362_P1="$IMPL_PHASES_DIR/phase-1-setup.md"
+
+# (1) Generalized mid-phase re-anchor — fires after EVERY Skill-tool return, not just the
+#     Phase 4.1 docs subagent.
+assert_pin_unique "#362: orchestrator re-anchors after every Skill-tool return (trigger)" \
+  'after **every** Skill-tool return mid-phase' "$IMPL_ORCH"
+assert_pin_unique "#362: generalized re-anchor carries its operative resume directive" \
+  'resume at the step immediately following the invocation, never re-dispatching the skill that just returned' "$IMPL_ORCH"
+assert_pin_red_on_removal "#362: generalized re-anchor trigger flips RED on removal" \
+  'after **every** Skill-tool return mid-phase' "$IMPL_ORCH"
+assert_pin_red_on_removal "#362: generalized re-anchor resume directive flips RED on removal" \
+  'resume at the step immediately following the invocation, never re-dispatching the skill that just returned' "$IMPL_ORCH"
+
+# (2) Non-interactive self-answer rule — the orchestrator answers a nested skill's
+#     user-facing question itself on the cloud tier, and records the answer.
+#     The tier gate is OPERATIVE, not framing: drop it and the rule would authorize an
+#     INTERACTIVE run to answer the user's questions for them without asking. So pin the
+#     `GITHUB_ACTIONS` keying itself — not just the prose lead-in, which a same-sentence
+#     edit could keep while swapping the gating env var — and prove it non-vacuous with a
+#     removal proof, like its three siblings below.
+assert_pin_unique "#362: self-answer rule keys on the non-interactive tier by GITHUB_ACTIONS" \
+  'When the run is non-interactive — `GITHUB_ACTIONS` is set (the cloud tier)' "$IMPL_ORCH"
+assert_pin_red_on_removal "#362: self-answer GITHUB_ACTIONS tier gate flips RED on removal" \
+  'When the run is non-interactive — `GITHUB_ACTIONS` is set (the cloud tier)' "$IMPL_ORCH"
+assert_pin_unique "#362: self-answer rule carries its operative answer directive" \
+  'answer that question yourself on behalf of the user, using the issue description as the primary guide' "$IMPL_ORCH"
+assert_pin_unique "#362: self-answer rule requires recording each self-answered decision" \
+  'record each self-answered question and the answer you chose in the workpad via `--note`' "$IMPL_ORCH"
+assert_pin_unique "#362: self-answer rule is confined to a nested skill question (a Blocked pause stays a pause)" \
+  'a workpad `Blocked` pause stays a pause' "$IMPL_ORCH"
+assert_pin_red_on_removal "#362: self-answer operative directive flips RED on removal" \
+  'answer that question yourself on behalf of the user, using the issue description as the primary guide' "$IMPL_ORCH"
+assert_pin_red_on_removal "#362: self-answer recording obligation flips RED on removal" \
+  'record each self-answered question and the answer you chose in the workpad via `--note`' "$IMPL_ORCH"
+assert_pin_red_on_removal "#362: self-answer scope confinement flips RED on removal" \
+  'a workpad `Blocked` pause stays a pause' "$IMPL_ORCH"
+
+# (3) Interactive skills are dispatched into an Agent-tool subagent, never Skill-invoked
+#     mid-phase. Both halves are operative: the positive dispatch directive AND the
+#     prohibition it replaces (dropping either re-opens the #356 tail-call death).
+assert_pin_unique "#362: Skill rule routes an interactive skill into an Agent-tool subagent" \
+  'dispatch that skill inside a context-isolated **Agent-tool subagent** whose prompt pre-grants the approval' "$IMPL_ORCH"
+assert_pin_unique "#362: Skill rule forbids the mid-phase Skill-tool invocation it replaces" \
+  'never invoke it through the Skill tool mid-phase' "$IMPL_ORCH"
+assert_pin_red_on_removal "#362: subagent-dispatch directive flips RED on removal" \
+  'dispatch that skill inside a context-isolated **Agent-tool subagent** whose prompt pre-grants the approval' "$IMPL_ORCH"
+assert_pin_red_on_removal "#362: mid-phase Skill-tool prohibition flips RED on removal" \
+  'never invoke it through the Skill tool mid-phase' "$IMPL_ORCH"
+
+# (4) Run-marker lifecycle. Written in Phase 1.3 (both the fresh and the resume arm);
+#     removed by the always-resident Outcome-reaction block, which already binds every
+#     terminal Status transition. Coupled to lib/implement-stop-guard.sh, which globs
+#     exactly this path — change one site and this pin names the other.
+assert_pin_unique "#362: Phase 1.3 writes the run marker the Stop-hook guard globs" \
+  '.devflow/tmp/implement-active-$ISSUE_NUMBER' "$P362_P1"
+assert_pin_red_on_removal "#362: Phase 1.3 run-marker write flips RED on removal" \
+  '.devflow/tmp/implement-active-$ISSUE_NUMBER' "$P362_P1"
+assert_pin_unique "#362: the Outcome-reaction block removes the run marker at every terminal transition" \
+  'remove the Phase 1.3 run-marker' "$IMPL_ORCH"
+assert_pin_red_on_removal "#362: run-marker removal flips RED on removal" \
+  'remove the Phase 1.3 run-marker' "$IMPL_ORCH"
+# The marker filename is a THREE-site coupled invariant: the Phase 1.3 write (pinned above),
+# the guard's glob (covered functionally by every marker test), and the Outcome-reaction
+# removal command. The prose pin above binds the removal *obligation*; this one binds the
+# removal *path*, so a drift in the orchestrator's `rm` literal alone cannot slip through
+# (it would only delay cleanup — the guard self-heals — but a silent desync is the defect).
+assert_pin_unique "#362: the Outcome-reaction removal targets the exact path the guard globs" \
+  '.devflow/tmp/implement-active-$ISSUE_NUMBER' "$IMPL_ORCH"
+assert_pin_red_on_removal "#362: Outcome-reaction marker path flips RED on removal" \
+  '.devflow/tmp/implement-active-$ISSUE_NUMBER' "$IMPL_ORCH"
+
+# (5) Phase 1.4 resume pre-check — runs BEFORE Signal 1, so a harness-created worktree can
+#     no longer shadow an existing feature branch + open PR (the #356 resume defect).
+assert_pin_unique "#362: Phase 1.4 gains a resume pre-check ahead of Signal 1" \
+  'Resume pre-check (runs BEFORE Signal 1)' "$P362_P1"
+# The skip of both branch signals is CONDITIONAL on the checkout landing. Pin that
+# conditionality — an unconditional "skip branch creation" is the regression this guards.
+assert_pin_unique "#362: the resume pre-check skips branch creation only once the checkout landed" \
+  'only once you have confirmed the tree landed on `$HEAD_REF`** skip branch creation' "$P362_P1"
+assert_pin_unique "#362: the resume pre-check reuses an existing linked worktree rather than duplicating the branch" \
+  'continue in that worktree instead of duplicating the branch' "$P362_P1"
+assert_pin_unique "#362: the resume pre-check falls through unchanged when there is no workpad Branch and no open PR" \
+  'behaves exactly as it did before this pre-check existed' "$P362_P1"
+# A `gh` failure and a clean "no PRs found" both produce an empty result. Collapsing them
+# makes an unresolvable query read as "nothing to resume" and forks a duplicate branch+PR —
+# the very bug this pre-check exists to stop. Pin the distinct-values contract AND the
+# breadcrumb obligation it enables; a policy whose operand cannot be observed is inert.
+# Pin the OPERATIVE shell, not the comment that explains it: each of the two `gh pr list`
+# calls must carry its own same-statement `|| PR_JSON=''`, which is what makes a failed
+# query distinguishable from a clean empty one. A comment-only pin would stay GREEN against
+# the exact edit that collapses the two outcomes back together. Both call sites need it, so
+# this is a count guard (a lower bound would let one site silently lose its handler).
+# The literal carries the statement's closing `; }` so it matches ONLY the two command
+# lines — the phase file's own prose quotes the bare handler, and counting that comment
+# would make the pin PASS on the very regression it guards (it did, once).
+assert_eq "#362: both resume-pre-check gh queries mark an unresolvable result distinctly (same-statement handler)" \
+  "2" "$(pin_count "|| PR_JSON=''; }" "$P362_P1")"
+assert_pin_unique "#362: an unresolvable PR query is never read as 'no open PR'" \
+  'An unresolvable PR query is not evidence that no PR exists' "$P362_P1"
+assert_pin_red_on_removal "#362: resume pre-check gh-failure breadcrumb obligation flips RED on removal" \
+  'An unresolvable PR query is not evidence that no PR exists' "$P362_P1"
+# The pre-check waives both branch signals on the strength of a checkout it must first
+# confirm. Pin the MECHANISM, not the paragraph that motivates it: an earlier attempt pinned
+# the motivating header, which survived deletion of BOTH the confirmation and the fail-closed
+# stop it named (the framing-pin hole behind PRs #62/#173). These four pins target, in order:
+# the LANDED computation, the stderr discriminator the two failure shapes route on, the
+# fail-closed stop directive, and its rationale.
+# The LANDED pin must cover the rev-parse COMPARISON, not just the `LANDED=no` prefix: an
+# edit that drops the comparison and sets LANDED=yes whenever HEAD_REF is non-empty waives
+# the signals without ever confirming the tree landed — the #356 regression itself.
+assert_pin_unique "#362: the resume pre-check confirms the tree landed by comparing HEAD to HEAD_REF" \
+  '[ "$(git rev-parse --abbrev-ref HEAD 2>/dev/null)" = "$HEAD_REF" ] && LANDED=yes' "$P362_P1"
+assert_pin_red_on_removal "#362: resume landing confirmation flips RED on removal" \
+  '[ "$(git rev-parse --abbrev-ref HEAD 2>/dev/null)" = "$HEAD_REF" ] && LANDED=yes' "$P362_P1"
+# The stderr capture and its `|| true` ARE the mechanism the two failure shapes route on —
+# pin them, not the sentence that motivates them. (An earlier pin sat on that motivating
+# sentence and survived a mutation that gutted the capture and collapsed the routing.)
+assert_pin_unique "#362: the resume checkout captures its own stderr in the same statement" \
+  'CO_ERR=$( { git fetch origin "$HEAD_REF" && git checkout "$HEAD_REF"; } 2>&1 1>/dev/null ) || true' "$P362_P1"
+assert_pin_red_on_removal "#362: resume checkout stderr capture flips RED on removal" \
+  'CO_ERR=$( { git fetch origin "$HEAD_REF" && git checkout "$HEAD_REF"; } 2>&1 1>/dev/null ) || true' "$P362_P1"
+# COUPLED TO GIT'S ACTUAL MESSAGE, verified against git 2.50.1: the refusal reads
+# "is already used by worktree at". The bare phrase `already checked out` occurs only in
+# git's --help prose, never in the error — keying on it made the worktree-resume arm
+# unreachable and falsely Blocked a resumable run. Pin the ROUTING BULLET including the
+# `$CO_ERR` operand it reads: a pin on the string alone stays GREEN when the bullet is
+# rewired to a different (or empty) variable, which is the same fail-open it must catch.
+assert_pin_unique "#362: the resume routing bullet matches git's real refusal, read from the captured CO_ERR" \
+  '`$CO_ERR` matches `already used by worktree`' "$P362_P1"
+assert_pin_red_on_removal "#362: worktree-refusal routing (string + CO_ERR operand) flips RED on removal" \
+  '`$CO_ERR` matches `already used by worktree`' "$P362_P1"
+# The PR tiebreak decides WHICH branch a resume adopts; collapsing it adopts the wrong PR.
+assert_pin_unique "#362: the resume pre-check tiebreak prefers the workpad Branch, else the newest PR" \
+  'pick the one whose `headRefName` equals the workpad `Branch` line; if none matches, pick the newest by `createdAt`' "$P362_P1"
+assert_pin_red_on_removal "#362: resume PR tiebreak flips RED on removal" \
+  'pick the one whose `headRefName` equals the workpad `Branch` line; if none matches, pick the newest by `createdAt`' "$P362_P1"
+assert_pin_unique "#362: a resume checkout that did not land stops the run rather than duplicating the PR" \
+  'refusing to fall through to branch creation' "$P362_P1"
+assert_pin_unique "#362: the fail-closed stop carries its rationale (a known duplication, not an unknown risk)" \
+  'Falling through here is never correct' "$P362_P1"
+assert_pin_red_on_removal "#362: resume checkout fail-closed stop flips RED on removal" \
+  'refusing to fall through to branch creation' "$P362_P1"
+
+# A body-reference match that merely MENTIONS the issue number is not a resume target —
+# adopting it would check out an unrelated PR's branch. Pin the closes-the-issue predicate
+# AND its operand's producer: a predicate reading a field the query never fetches is a filter
+# the run can never apply (the unverified-assumption class — the guard's comparand must have a
+# producer). Both queries must request `closingIssuesReferences`, so this is a count guard.
+assert_pin_unique "#362: a body-only PR match must actually close the issue to be a resume target" \
+  'must additionally *close this issue*' "$P362_P1"
+assert_pin_red_on_removal "#362: body-only resume predicate flips RED on removal" \
+  'must additionally *close this issue*' "$P362_P1"
+assert_eq "#362: both resume-pre-check queries fetch the closingIssuesReferences the predicate reads" \
+  "2" "$(pin_count ',createdAt,closingIssuesReferences)' "$P362_P1")"
+assert_pin_unique "#362: HEAD_REF, the checkout comparand, is explicitly bound from the selected PR" \
+  'bind `HEAD_REF` to that PR' "$P362_P1"
+assert_pin_red_on_removal "#362: HEAD_REF binding flips RED on removal" \
+  'bind `HEAD_REF` to that PR' "$P362_P1"
+assert_pin_red_on_removal "#362: resume pre-check ordering clause flips RED on removal" \
+  'Resume pre-check (runs BEFORE Signal 1)' "$P362_P1"
+assert_pin_red_on_removal "#362: resume pre-check conditional-skip directive flips RED on removal" \
+  'only once you have confirmed the tree landed on `$HEAD_REF`** skip branch creation' "$P362_P1"
+assert_pin_red_on_removal "#362: resume pre-check worktree arm flips RED on removal" \
+  'continue in that worktree instead of duplicating the branch' "$P362_P1"
+assert_pin_red_on_removal "#362: resume pre-check fallthrough guarantee flips RED on removal" \
+  'behaves exactly as it did before this pre-check existed' "$P362_P1"
+
+# (6) The two vendored superpowers skills stay untouched by this change (AC).
+assert_eq "#362: the vendored receiving-code-review skill is still present and unvendored-from" "yes" \
+  "$([ -f "$LIB/../skills/receiving-code-review/SKILL.md" ] && echo yes || echo no)"
+assert_eq "#362: the vendored requesting-code-review skill is still present and unvendored-from" "yes" \
+  "$([ -f "$LIB/../skills/requesting-code-review/SKILL.md" ] && echo yes || echo no)"
+
 # ── issue #366: guard /devflow:implement against a nested-Skill tail-call early-stop.
 # Four prose contracts in the always-resident orchestrator ($IMPL_ORCH) — the completion
 # re-anchor, the exclusionary Skill rule, the carve-out's SKILL.md sentence, and the
@@ -3415,10 +3675,16 @@ assert_pin_unique "#366: SKILL self-check reads Status immediately before any ru
   'read the workpad `Status` line immediately before emitting any run-final message' "$IMPL_ORCH"
 assert_pin_red_on_removal "#366: SKILL self-check Status-read clause flips RED on removal" \
   'read the workpad `Status` line immediately before emitting any run-final message' "$IMPL_ORCH"
-assert_pin_unique "#366: SKILL self-check cites the cloud Stall backstop as re-dispatch, never a terminal-Status flip (operative)" \
-  're-dispatches (bounded auto-resume, honest-red on cap exhaustion) — it never writes a terminal `Status`' "$IMPL_ORCH"
-assert_pin_red_on_removal "#366: SKILL self-check backstop-accuracy clause flips RED on removal" \
-  're-dispatches (bounded auto-resume, honest-red on cap exhaustion) — it never writes a terminal `Status`' "$IMPL_ORCH"
+# The backstop-accuracy clause must track what the backstop actually does. Since #356 it
+# re-dispatches AND, on a fail-loud exit taken after a genuinely interim Status read, flips
+# the workpad to the terminal `Failed` (💥) status — so the old clause ("it never writes a
+# terminal `Status`") is false, and pinning it would enforce the falsehood. What stays true,
+# and is the load-bearing point for the self-check, is that the backstop never drives a run
+# to `Complete`: only the run itself can do that.
+assert_pin_unique "#366/#356: SKILL self-check cites the cloud Stall backstop as re-dispatch + a dead-run Failed flip, never a Complete (operative)" \
+  're-dispatches (bounded auto-resume, honest-red on cap exhaustion) and, on a fail-loud exit, flips the workpad to the terminal `Failed` (💥) status — it never drives a run to `Complete`' "$IMPL_ORCH"
+assert_pin_red_on_removal "#366/#356: SKILL self-check backstop-accuracy clause flips RED on removal" \
+  're-dispatches (bounded auto-resume, honest-red on cap exhaustion) and, on a fail-loud exit, flips the workpad to the terminal `Failed` (💥) status — it never drives a run to `Complete`' "$IMPL_ORCH"
 # ── issue #254: Phase 4.0.5 deferrals-manifest discovery must search BOTH the pr-<N>
 # slug dir and the sanitized-current-branch slug dir — a current-branch-mode
 # /devflow:review-and-fix run writes its manifest under the branch slug, so a
@@ -4219,6 +4485,497 @@ assert_eq "#258(e): --status Blocked with an unticked AC still PATCHed (Status �
 assert_eq "#258: workpad.py carries the terminal --status Complete self-record gate" "yes" \
   "$(grep -q '_terminal_complete_gate' "$WP_PY" && grep -q "(post-merge)" "$WP_PY" && echo yes || echo no)"
 rm -rf "$S258"
+
+# ── issue #356: 💥 Failed terminal workpad status + dead-run flips ─────────────
+# A cloud run that dies (job failure/cancel/exhausted auto-resume) must stop its
+# Status-bearing comment lying. Two flips, one vocabulary each:
+#   - implement workpad → new canonical terminal word `Failed`, glyph 💥
+#   - review progress comment → the skill's existing `❌ Review failed` state
+# Coupled invariant: 💥 is mirrored across workpad.py's _STATUS_GLYPHS,
+# fetch-pr-context.sh's glyph strip, and the docs; the `❌ Review failed` literal
+# and the run-keyed marker are a coupled contract with skills/review/SKILL.md.
+S356="$(mktemp -d)"
+cat > "$S356/gh" <<'STUB'
+#!/usr/bin/env bash
+# Minimal gh stub for workpad.py (status/update) and flip-review-progress-failed.sh
+# (id/body/patch). Comments-list returns the full WP_BODY so `status` (which reads
+# the body straight from the list) and `id`/`update` (which then fetch it) both work.
+j="$*"
+if [[ "$j" == *"repo view"* ]]; then echo "owner/repo"; exit 0; fi
+if [[ "$j" == *"-X PATCH"* ]]; then
+  if [ -n "${WP_PATCH_FAIL:-}" ]; then echo "patch boom" >&2; exit 1; fi
+  echo p >> "$WP_PATCHLOG"
+  for a in "$@"; do case "$a" in body=@*) cat "${a#body=@}" | tee "${WP_PATCHBODY:-/dev/null}";; esac; done
+  exit 0
+fi
+if [[ "$j" == *"issues/comments/7"* ]]; then
+  # WP_BODY_FAIL: the single-comment read fails (403/5xx) -> workpad.py body rc 1.
+  if [ -n "${WP_BODY_FAIL:-}" ]; then echo "body boom" >&2; exit 1; fi
+  cat "$WP_BODY"; exit 0
+fi
+if [[ "$j" == *"/comments"* ]]; then
+  # WP_ID_FAIL: the comment-LIST read fails (rate limit/403/5xx) -> workpad.py id
+  # rc 1. Distinct from WP_ABSENT (a clean scan finding nothing -> rc 2): the flip
+  # helper must diagnose these differently, never calling a failed read "absent".
+  if [ -n "${WP_ID_FAIL:-}" ]; then echo "list boom" >&2; exit 1; fi
+  if [ -n "${WP_ABSENT:-}" ]; then echo '[]'; exit 0; fi
+  printf '[{"id":7,"body":%s}]' "$(jq -Rs . < "$WP_BODY")"; exit 0
+fi
+echo '[]'
+STUB
+chmod +x "$S356/gh"
+
+# Fixture: an interim (🚀 Implementing) workpad with Setup ticked, Implement not,
+# and an unticked non-post-merge AC (to exercise the Complete-only-gate carve-out).
+cat > "$S356/interim.md" <<'WPMD'
+<!-- devflow:workpad -->
+# DevFlow Workpad — Issue #888
+
+**Status:** 🚀 Implementing
+**Last updated:** 2026-07-09T00:00:00Z
+
+## Progress
+- [x] **Setup** — branch & workpad
+- [ ] **Implement**
+
+## Plan
+- [ ] do the thing
+
+## Acceptance Criteria
+- [ ] AC one
+WPMD
+# A body already carrying the terminal 💥 Failed status (for status + idempotency).
+sed 's/🚀 Implementing/💥 Failed/' "$S356/interim.md" > "$S356/failed.md"
+
+run356() {  # <body-file> <args...> → prints exit code; leaves out/err/patchlog on disk.
+  local body="$1"; shift
+  : > "$S356/patchlog"
+  WP_BODY="$body" WP_PATCHLOG="$S356/patchlog" DEVFLOW_GH="$S356/gh" \
+    python3 "$WP_PY" update 888 "$@" >"$S356/out" 2>"$S356/err"
+  echo $?
+}
+
+# AC: `workpad.py status` prints `terminal 💥 Failed` exit 0 for a 💥 Failed body.
+_so="$(WP_BODY="$S356/failed.md" DEVFLOW_GH="$S356/gh" python3 "$WP_PY" status 888 2>/dev/null)"; _src=$?
+assert_eq "#356: workpad.py status prints 'terminal 💥 Failed' for a 💥 Failed body" "terminal 💥 Failed" "$_so"
+assert_eq "#356: workpad.py status exits 0 for a 💥 Failed body" "0" "$_src"
+
+# AC: update --status Failed writes 💥 Failed and does NOT trip the Complete-only gate.
+_c="$(run356 "$S356/interim.md" --status Failed)"
+assert_eq "#356: update --status Failed succeeds (exit 0) even with an unticked non-post-merge AC" "0" "$_c"
+assert_eq "#356: update --status Failed writes '**Status:** 💥 Failed'" "yes" \
+  "$(grep -q '^\*\*Status:\*\* 💥 Failed$' "$S356/out" && echo yes || echo no)"
+assert_eq "#356: update --status Failed PATCHed (Complete-only gate not tripped)" "yes" \
+  "$([ -s "$S356/patchlog" ] && echo yes || echo no)"
+# The three assertions above prove Failed BYPASSES the gate — but they would all stay
+# GREEN if the gate were deleted outright. Pin that the gate is Complete-ONLY by also
+# asserting the CONTRAST on the identical fixture: --status Complete over the same
+# unticked non-post-merge AC must abort (non-zero, no PATCH). Without this row the
+# carve-out pin asserts nothing about the gate's existence.
+: > "$S356/patchlog"
+_c="$(run356 "$S356/interim.md" --status Complete)"
+assert_eq "#356: --status Complete on the SAME unticked-AC fixture aborts (gate is Complete-only)" "yes" \
+  "$([ "$_c" = "0" ] && echo no || echo yes)"
+assert_eq "#356: --status Complete on an unticked AC makes NO PATCH (structural abort)" "yes" \
+  "$([ -s "$S356/patchlog" ] && echo no || echo yes)"
+
+# AC: re-applying --status Failed to a 💥 Failed body is idempotent (single glyph).
+_c="$(run356 "$S356/failed.md" --status Failed)"
+assert_eq "#356: re-applying --status Failed stays exit 0" "0" "$_c"
+assert_eq "#356: re-applying --status Failed yields one 💥, not '💥 💥'" "yes" \
+  "$(grep -q '^\*\*Status:\*\* 💥 Failed$' "$S356/out" && ! grep -q '💥 💥' "$S356/out" && echo yes || echo no)"
+
+# AC: Failed is absent from _STATUS_TO_PROGRESS_PHASE, so a --note nests under the
+# most-recent-ticked phase (Setup here) — the same fallback Blocked uses.
+_c="$(run356 "$S356/interim.md" --status Failed --note "died here")"
+assert_eq "#356: --status Failed --note nests under the most-recent-ticked phase (Setup)" "yes" \
+  "$(python3 -c "
+t=open('$S356/out').read().splitlines()
+si=[i for i,l in enumerate(t) if 'Setup' in l and l.startswith('- [')]
+ii=[i for i,l in enumerate(t) if 'Implement' in l and l.startswith('- [')]
+ni=[i for i,l in enumerate(t) if 'died here' in l]
+print('yes' if si and ii and ni and si[0]<ni[0]<ii[0] else 'no')
+")"
+
+# Source pins: the 💥 vocabulary lives in workpad.py (single source of truth).
+assert_eq "#356: workpad.py _STATUS_GLYPHS includes 💥 (extended tuple)" "yes" \
+  "$(grep -q "💥')" "$WP_PY" && echo yes || echo no)"
+assert_eq "#356: workpad.py maps 'failed' → 💥 (write path) and leaves it out of _STATUS_TO_PROGRESS_PHASE" "yes" \
+  "$(grep -q "return '💥'" "$WP_PY" && ! grep -q "'failed':" "$WP_PY" && echo yes || echo no)"
+
+# ── flip-review-progress-failed.sh unit tests ─────────────────────────────────
+FLIP_SH="$LIB/../scripts/flip-review-progress-failed.sh"
+RMARK="<!-- devflow:review-progress run=RUNTEST-1 -->"
+# Interim review-progress comment (🚀 Reviewing) — the flip candidate.
+cat > "$S356/rev-interim.md" <<RMD
+$RMARK
+# Devflow Review — PR #55
+
+**Status:** 🚀 Reviewing
+
+## Blueprint
+- [ ] step one
+RMD
+# Terminal review-progress comment (already ❌ Review failed) — must NOT be touched.
+sed 's/🚀 Reviewing/❌ Review failed/' "$S356/rev-interim.md" > "$S356/rev-terminal.md"
+
+# (flipped) 🚀 Reviewing → ❌ Review failed, cause line appended, PATCH made, exit 0.
+: > "$S356/patchlog"; : > "$S356/patchbody"
+WP_BODY="$S356/rev-interim.md" WP_PATCHLOG="$S356/patchlog" WP_PATCHBODY="$S356/patchbody" DEVFLOW_GH="$S356/gh" \
+  bash "$FLIP_SH" 55 "$RMARK" "job died" >/dev/null 2>"$S356/ferr"; _fc=$?
+assert_eq "#356 flip: exits 0 on a successful flip" "0" "$_fc"
+# The stub records the patched body it received to WP_PATCHBODY.
+assert_eq "#356 flip: rewrote the Status line to '❌ Review failed'" "yes" \
+  "$(grep -q '^\*\*Status:\*\* ❌ Review failed$' "$S356/patchbody" && echo yes || echo no)"
+assert_eq "#356 flip: the interim 🚀 Reviewing status is gone after the flip" "yes" \
+  "$(grep -q '🚀 Reviewing' "$S356/patchbody" && echo no || echo yes)"
+assert_eq "#356 flip: a one-line cause is appended" "yes" \
+  "$(grep -q 'job died' "$S356/patchbody" && echo yes || echo no)"
+assert_eq "#356 flip: breadcrumb names the 'flipped' arm" "yes" \
+  "$(grep -qi 'flipped' "$S356/ferr" && echo yes || echo no)"
+assert_eq "#356 flip: a PATCH was actually made" "yes" \
+  "$([ -s "$S356/patchlog" ] && echo yes || echo no)"
+
+# (already-terminal) a ❌ Review failed comment is left untouched, exit 0, no PATCH.
+: > "$S356/patchlog"
+WP_BODY="$S356/rev-terminal.md" WP_PATCHLOG="$S356/patchlog" DEVFLOW_GH="$S356/gh" \
+  bash "$FLIP_SH" 55 "$RMARK" "job died" >/dev/null 2>"$S356/ferr"; _fc=$?
+assert_eq "#356 flip: exits 0 on an already-terminal comment" "0" "$_fc"
+assert_eq "#356 flip: makes NO PATCH on an already-terminal comment" "yes" \
+  "$([ -s "$S356/patchlog" ] && echo no || echo yes)"
+assert_eq "#356 flip: breadcrumb names the already-terminal arm" "yes" \
+  "$(grep -qi 'already terminal' "$S356/ferr" && echo yes || echo no)"
+
+# (comment absent) no matching run-keyed marker → comment-absent no-op, exit 0.
+: > "$S356/patchlog"
+WP_BODY="$S356/rev-interim.md" WP_PATCHLOG="$S356/patchlog" WP_ABSENT=1 DEVFLOW_GH="$S356/gh" \
+  bash "$FLIP_SH" 55 "$RMARK" "job died" >/dev/null 2>"$S356/ferr"; _fc=$?
+assert_eq "#356 flip: exits 0 when no progress comment exists" "0" "$_fc"
+assert_eq "#356 flip: comment-absent arm makes NO PATCH" "yes" \
+  "$([ -s "$S356/patchlog" ] && echo no || echo yes)"
+assert_eq "#356 flip: breadcrumb names the comment-absent arm" "yes" \
+  "$(grep -qi 'comment-absent' "$S356/ferr" && echo yes || echo no)"
+
+# (patch failure) the PATCH itself fails → exit 0, failure breadcrumb.
+: > "$S356/patchlog"
+WP_BODY="$S356/rev-interim.md" WP_PATCHLOG="$S356/patchlog" WP_PATCH_FAIL=1 DEVFLOW_GH="$S356/gh" \
+  bash "$FLIP_SH" 55 "$RMARK" "job died" >/dev/null 2>"$S356/ferr"; _fc=$?
+assert_eq "#356 flip: exits 0 even when the PATCH fails" "0" "$_fc"
+assert_eq "#356 flip: patch-failure breadcrumb names the failure arm" "yes" \
+  "$(grep -qi 'patch-failure' "$S356/ferr" && echo yes || echo no)"
+
+# (id read failure) `workpad.py id` rc 1 (a gh-api/parse failure) is a READ failure,
+# NOT "comment-absent" (rc 2). Misreporting a failed lookup as an absent comment
+# sends an operator hunting for a comment that in fact exists, so the two arms
+# carry distinct breadcrumbs. Both are still best-effort no-ops (exit 0, no PATCH).
+: > "$S356/patchlog"
+WP_BODY="$S356/rev-interim.md" WP_PATCHLOG="$S356/patchlog" WP_ID_FAIL=1 DEVFLOW_GH="$S356/gh" \
+  bash "$FLIP_SH" 55 "$RMARK" "job died" >/dev/null 2>"$S356/ferr"; _fc=$?
+assert_eq "#356 flip: exits 0 when the comment lookup itself fails" "0" "$_fc"
+assert_eq "#356 flip: id-read-failure arm makes NO PATCH" "yes" \
+  "$([ -s "$S356/patchlog" ] && echo no || echo yes)"
+assert_eq "#356 flip: a failed lookup is diagnosed as a read failure, not 'comment-absent'" "yes" \
+  "$(grep -qi 'read-failure' "$S356/ferr" && ! grep -qi 'comment-absent' "$S356/ferr" && echo yes || echo no)"
+assert_eq "#356 flip: id-read-failure breadcrumb states absence was not established" "yes" \
+  "$(grep -q 'absence was NOT established' "$S356/ferr" && echo yes || echo no)"
+# Assert the CAUSE CONTENT, not just the arm name: a breadcrumb that names the arm but
+# carries an empty `Cause:` delivers none of the diagnostic value it exists for. (The
+# stub writes `list boom` to workpad.py's stderr; a short cause must survive the clamp
+# — bash's `${c: -N}` yields EMPTY when the string is shorter than N.)
+assert_eq "#356 flip: id-read-failure breadcrumb carries the underlying gh cause" "yes" \
+  "$(grep -qi 'list boom' "$S356/ferr" && echo yes || echo no)"
+
+# (body read failure) the comment id resolves but the body read fails → read-failure
+# no-op, exit 0, no PATCH.
+: > "$S356/patchlog"
+WP_BODY="$S356/rev-interim.md" WP_PATCHLOG="$S356/patchlog" WP_BODY_FAIL=1 DEVFLOW_GH="$S356/gh" \
+  bash "$FLIP_SH" 55 "$RMARK" "job died" >/dev/null 2>"$S356/ferr"; _fc=$?
+assert_eq "#356 flip: exits 0 when the body read fails" "0" "$_fc"
+assert_eq "#356 flip: body-read-failure arm makes NO PATCH" "yes" \
+  "$([ -s "$S356/patchlog" ] && echo no || echo yes)"
+assert_eq "#356 flip: body-read-failure breadcrumb names the read-failure arm" "yes" \
+  "$(grep -qi 'could not read body' "$S356/ferr" && echo yes || echo no)"
+assert_eq "#356 flip: body-read-failure breadcrumb carries the underlying gh cause" "yes" \
+  "$(grep -qi 'body boom' "$S356/ferr" && echo yes || echo no)"
+
+# (missing args) no pr number / no marker → usage no-op, exit 0, no PATCH.
+: > "$S356/patchlog"
+WP_PATCHLOG="$S356/patchlog" DEVFLOW_GH="$S356/gh" \
+  bash "$FLIP_SH" "" "$RMARK" "job died" >/dev/null 2>"$S356/ferr"; _fc=$?
+assert_eq "#356 flip: exits 0 with a missing pr number" "0" "$_fc"
+assert_eq "#356 flip: missing-args arm makes NO PATCH" "yes" \
+  "$([ -s "$S356/patchlog" ] && echo no || echo yes)"
+# An empty PR and an empty MARKER are DIFFERENT no-op modes and must not share one
+# breadcrumb: the empty-PR path is reachable in production (finalize_check passes a
+# possibly-empty pr_number output), the empty-marker path is a caller bug.
+assert_eq "#356 flip: empty-pr breadcrumb names the pr number specifically" "yes" \
+  "$(grep -qi 'empty pr number' "$S356/ferr" && ! grep -qi 'empty marker' "$S356/ferr" && echo yes || echo no)"
+: > "$S356/patchlog"
+WP_PATCHLOG="$S356/patchlog" DEVFLOW_GH="$S356/gh" \
+  bash "$FLIP_SH" 55 "" "job died" >/dev/null 2>"$S356/ferr"; _fc=$?
+assert_eq "#356 flip: exits 0 with a missing marker" "0" "$_fc"
+assert_eq "#356 flip: missing-marker arm makes NO PATCH" "yes" \
+  "$([ -s "$S356/patchlog" ] && echo no || echo yes)"
+assert_eq "#356 flip: empty-marker breadcrumb names the marker specifically" "yes" \
+  "$(grep -qi 'empty marker' "$S356/ferr" && ! grep -qi 'empty pr number' "$S356/ferr" && echo yes || echo no)"
+
+# (NOSTATUS) the comment exists and the marker matches, but it carries no `**Status:**`
+# line -> no flip, exit 0, no PATCH. This arm is reachable if the review skill's seed
+# format ever drifts, so it must fail CLOSED (never PATCH a body it cannot parse).
+cat > "$S356/rev-nostatus.md" <<RMD
+$RMARK
+# Devflow Review — PR #55
+
+Status is missing entirely.
+RMD
+: > "$S356/patchlog"
+WP_BODY="$S356/rev-nostatus.md" WP_PATCHLOG="$S356/patchlog" DEVFLOW_GH="$S356/gh" \
+  bash "$FLIP_SH" 55 "$RMARK" "job died" >/dev/null 2>"$S356/ferr"; _fc=$?
+assert_eq "#356 flip: exits 0 on a comment with no Status line" "0" "$_fc"
+assert_eq "#356 flip: no-Status arm makes NO PATCH (fails closed)" "yes" \
+  "$([ -s "$S356/patchlog" ] && echo no || echo yes)"
+assert_eq "#356 flip: no-Status breadcrumb names its own arm" "yes" \
+  "$(grep -qi 'has no Status line' "$S356/ferr" && echo yes || echo no)"
+
+# Coupled contract: the helper's interim test keys on a `**Status:** 🚀 Reviewing`
+# line that skills/review/SKILL.md seeds. Pin the SEED SHAPE, not just the terminal
+# literal — a seed drift to e.g. `**Status**:` would silently route every flip to the
+# NOSTATUS no-op arm above while every other pin stayed green.
+assert_pin_unique "#356 pin: skills/review/SKILL.md seeds the '**Status:** 🚀 Reviewing' line the helper matches" \
+  '**Status:** 🚀 Reviewing' "$LIB/../skills/review/SKILL.md"
+
+# (non-numeric pr) `workpad.py id` declares its issue arg type=int, so ARGPARSE also
+# exits 2 on a usage error — the same rc cmd_id uses for "scanned cleanly, no match".
+# The helper must refuse a non-numeric PR before the id call, so the rc-2 arm stays
+# unambiguous and a malformed invocation is never reported as "comment-absent".
+: > "$S356/patchlog"
+WP_BODY="$S356/rev-interim.md" WP_PATCHLOG="$S356/patchlog" DEVFLOW_GH="$S356/gh" \
+  bash "$FLIP_SH" "not-a-number" "$RMARK" "job died" >/dev/null 2>"$S356/ferr"; _fc=$?
+assert_eq "#356 flip: exits 0 on a non-numeric pr number" "0" "$_fc"
+assert_eq "#356 flip: non-numeric pr makes NO PATCH" "yes" \
+  "$([ -s "$S356/patchlog" ] && echo no || echo yes)"
+assert_eq "#356 flip: a non-numeric pr is NOT reported as 'comment-absent'" "yes" \
+  "$(grep -qi 'not numeric' "$S356/ferr" && ! grep -qi 'comment-absent' "$S356/ferr" && echo yes || echo no)"
+
+# (missing workpad.py sibling) `python3` ALSO exits 2 when it cannot open the script —
+# `can't open file … [Errno 2]` on a partial vendor copy, `[Errno 13]` on a mode-000 file
+# — the same rc `cmd_id` uses for "scanned cleanly, no match". Without a screen, that
+# interpreter-level rc 2 lands in the comment-absent arm and tells an operator the comment
+# does not exist when the read never happened. Copy the helper WITHOUT its workpad.py
+# sibling to drive the real deployment shape, and assert it takes a read-failure arm.
+mkdir -p "$S356/lonely"
+cp "$FLIP_SH" "$S356/lonely/flip-review-progress-failed.sh"
+: > "$S356/patchlog"
+WP_BODY="$S356/rev-interim.md" WP_PATCHLOG="$S356/patchlog" DEVFLOW_GH="$S356/gh" \
+  bash "$S356/lonely/flip-review-progress-failed.sh" 55 "$RMARK" "job died" >/dev/null 2>"$S356/ferr"; _fc=$?
+assert_eq "#356 flip: exits 0 when its workpad.py sibling is missing" "0" "$_fc"
+assert_eq "#356 flip: a missing workpad.py sibling makes NO PATCH" "yes" \
+  "$([ -s "$S356/patchlog" ] && echo no || echo yes)"
+assert_eq "#356 flip: a missing workpad.py sibling is NOT reported as 'comment-absent'" "yes" \
+  "$(! grep -qi 'comment-absent' "$S356/ferr" && echo yes || echo no)"
+assert_eq "#356 flip: a missing workpad.py sibling states absence was NOT established" "yes" \
+  "$(grep -q 'absence was NOT established' "$S356/ferr" && echo yes || echo no)"
+# The helper screens this class TWICE — a readable-sibling precheck and an rc-2 + non-empty
+# stderr discriminator — and either alone yields a read-failure arm. So asserting only the
+# OUTCOME leaves both guards individually deletable with the suite still GREEN. Pin the
+# PRECHECK specifically, by the breadcrumb only it emits: the discriminator's message names
+# python3's exit, never "a partial vendor copy". Deleting the precheck alone now goes RED.
+# (The precheck is the robust half: the discriminator no-ops when $WP_ERR could not be
+# allocated, and relies on --marker always being explicit.)
+assert_eq "#356 flip: the readable-sibling PRECHECK fired (not merely the rc-2 stderr discriminator)" "yes" \
+  "$(grep -q 'missing or unreadable — a partial vendor copy?' "$S356/ferr" && echo yes || echo no)"
+# An unreadable (mode-000) sibling is the same class and must take the same arm, not the
+# comment-absent one. Skip under a uid that ignores the mode bit (e.g. root in a container).
+cp "$WP_PY" "$S356/lonely/workpad.py"
+chmod 000 "$S356/lonely/workpad.py"
+if [ ! -r "$S356/lonely/workpad.py" ]; then
+  : > "$S356/patchlog"
+  WP_BODY="$S356/rev-interim.md" WP_PATCHLOG="$S356/patchlog" DEVFLOW_GH="$S356/gh" \
+    bash "$S356/lonely/flip-review-progress-failed.sh" 55 "$RMARK" "job died" >/dev/null 2>"$S356/ferr"; _fc=$?
+  assert_eq "#356 flip: exits 0 when its workpad.py sibling is unreadable" "0" "$_fc"
+  assert_eq "#356 flip: an unreadable workpad.py sibling is NOT reported as 'comment-absent'" "yes" \
+    "$(! grep -qi 'comment-absent' "$S356/ferr" && echo yes || echo no)"
+else
+  # Never skip SILENTLY: under a uid that ignores the mode bit (root in a container) the
+  # two assertions above cannot run, and a quietly-lower assertion count is precisely the
+  # unaudited coverage loss the rest of this block exists to catch.
+  echo "  SKIP  #356 flip: unreadable-sibling arm (this uid ignores the mode bit; chmod 000 stayed readable)"
+fi
+chmod 644 "$S356/lonely/workpad.py" 2>/dev/null || true
+
+# Helper contract pins: SPDX header + always-exit-0 + routes via workpad.py (no bare gh).
+# ── #356: the two skill-side enumerations of the status vocabulary this issue extends ──
+# `Failed`/💥 is a new member of workpad.py's CLOSED status model, so every skill body that
+# enumerates that model must name it. These two sites are operative (an agent reads them at
+# runtime), unpinned before this change, and were left stale by the first pass — pin them so
+# a future glyph addition cannot silently desync them again.
+assert_pin_unique "#356: implement SKILL's --status row names the full canonical glyph set (incl. 💥)" \
+  'the helper prepends the canonical glyph (🚀/🎉/👎/💥)' "$LIB/../skills/implement/SKILL.md"
+assert_pin_red_on_removal "#356: implement SKILL canonical-glyph-set clause flips RED on removal" \
+  'the helper prepends the canonical glyph (🚀/🎉/👎/💥)' "$LIB/../skills/implement/SKILL.md"
+assert_pin_unique "#356: retrospective SKILL enumerates Failed among the terminal workpad_final_status values" \
+  '`Complete` / `Blocked` / `Failed`' "$LIB/../skills/retrospective/SKILL.md"
+assert_pin_red_on_removal "#356: retrospective SKILL terminal-status enumeration flips RED on removal" \
+  '`Complete` / `Blocked` / `Failed`' "$LIB/../skills/retrospective/SKILL.md"
+
+assert_eq "#356 flip: helper carries the SPDX header" "yes" \
+  "$(grep -q 'SPDX-License-Identifier: MIT' "$FLIP_SH" && echo yes || echo no)"
+assert_eq "#356 flip: helper routes GitHub access through workpad.py (no bare gh invocation)" "yes" \
+  "$(grep -q 'workpad.py' "$FLIP_SH" && ! grep -qE '(^|[^A-Za-z_.])gh (api|issue|pr|label|repo)' "$FLIP_SH" && echo yes || echo no)"
+# Coupled contract with skills/review/SKILL.md (the agent-side fatal-abort rule):
+# the `❌ Review failed` literal must match. Pin the SKILL side uniquely (a rename
+# there goes RED); assert the helper carries the matching literal via grep_present.
+assert_pin_unique "#356 flip: skills/review/SKILL.md carries the '❌ Review failed' literal the helper mirrors" \
+  '❌ Review failed' "$LIB/../skills/review/SKILL.md"
+assert_eq "#356 flip: helper carries the matching '❌ Review failed' literal" "yes" \
+  "$(grep -qF '❌ Review failed' "$FLIP_SH" && echo yes || echo no)"
+
+# ── Run-keyed MARKER shape: the OTHER half of the coupled contract ─────────────
+# The helper finds the comment with `workpad.py id --marker "$FLIP_MARKER"`. If the review
+# skill's SEED marker and the workflows' FLIP_MARKER ever drift apart, `id` returns rc 2,
+# the helper takes its comment-absent no-op arm, exits 0 — and BOTH dead-run flips silently
+# never fire. That is a fail-open in exactly the scenario the flip exists to cover, and
+# nothing else in the suite goes RED for it. `flip-review-progress-failed.sh`'s header and
+# docs/DEVFLOW_SYSTEM_OVERVIEW.md both assert this marker shape is "pinned in
+# lib/test/run.sh" — these are the pins that make that claim true.
+#
+# The producer and consumer are not byte-identical (the skill defaults the env for a local
+# run; the workflows rely on Actions always setting it), so pin the invariant *sub-shape*
+# each carries, plus the identity of the two workflow literals.
+#
+# Declared here rather than reused from the workflow-wiring block below: that block defines
+# $REVIEW_YML/$DEVFLOW_YML further down, and this block must not depend on statement order.
+M356_REVIEW_YML="$LIB/../.github/workflows/devflow-review.yml"
+M356_DEVFLOW_YML="$LIB/../.github/workflows/devflow.yml"
+assert_pin_unique "#356 marker: skills/review/SKILL.md seeds the run-keyed review-progress marker" \
+  'MARKER="<!-- devflow:review-progress run=${GITHUB_RUN_ID:-local-$(date -u +%Y%m%dT%H%M%SZ)}-${GITHUB_RUN_ATTEMPT:-1} -->"' \
+  "$LIB/../skills/review/SKILL.md"
+assert_pin_red_on_removal "#356 marker: the SKILL.md seed-marker line flips RED on removal" \
+  'MARKER="<!-- devflow:review-progress run=${GITHUB_RUN_ID:-local-$(date -u +%Y%m%dT%H%M%SZ)}-${GITHUB_RUN_ATTEMPT:-1} -->"' \
+  "$LIB/../skills/review/SKILL.md"
+assert_pin_unique "#356 marker: devflow-review.yml rebuilds the identical run-keyed marker" \
+  'FLIP_MARKER="<!-- devflow:review-progress run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} -->"' "$M356_REVIEW_YML"
+assert_pin_unique "#356 marker: devflow.yml rebuilds the identical run-keyed marker" \
+  'FLIP_MARKER="<!-- devflow:review-progress run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} -->"' "$M356_DEVFLOW_YML"
+# Cross-file identity: the two consumers must agree byte-for-byte with each other, and both
+# must carry the marker PREFIX the skill seeds. A rename of `devflow:review-progress` on
+# either side now goes RED here rather than silently disabling the flip in production.
+assert_eq "#356 marker: both workflows' FLIP_MARKER literals are byte-identical" "yes" \
+  "$([ "$(grep -oF 'FLIP_MARKER="<!-- devflow:review-progress run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} -->"' "$M356_REVIEW_YML")" \
+     = "$(grep -oF 'FLIP_MARKER="<!-- devflow:review-progress run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} -->"' "$M356_DEVFLOW_YML")" ] \
+     && [ -n "$(grep -oF 'FLIP_MARKER="<!-- devflow:review-progress run=' "$M356_REVIEW_YML")" ] && echo yes || echo no)"
+assert_eq "#356 marker: the marker prefix the skill seeds is the prefix both workflows rebuild" "yes" \
+  "$(grep -qF '<!-- devflow:review-progress run=' "$LIB/../skills/review/SKILL.md" \
+     && grep -qF '<!-- devflow:review-progress run=' "$M356_REVIEW_YML" \
+     && grep -qF '<!-- devflow:review-progress run=' "$M356_DEVFLOW_YML" && echo yes || echo no)"
+
+# ── fetch-pr-context.sh glyph-strip pin (unit) ────────────────────────────────
+assert_eq "#356: fetch-pr-context.sh strips 💥 from the workpad Status glyph set" "yes" \
+  "$(grep -q '🚀|🎉|👎|💥' "$LIB/fetch-pr-context.sh" && echo yes || echo no)"
+
+# ── Static workflow-wiring pins (the repo's #232/#258 pattern) ─────────────────
+IMPL_YML="$LIB/../.github/workflows/devflow-implement.yml"
+REVIEW_YML="$LIB/../.github/workflows/devflow-review.yml"
+DEVFLOW_YML="$LIB/../.github/workflows/devflow.yml"
+
+# Implement flip: the function + each of its fail-loud call sites (at least the four
+# pinned below), guarded on interim. Each pin quotes that site's unique cause string,
+# so deleting the call goes RED; a fifth site added later never falsifies this prose.
+assert_eq "#356 pin: devflow-implement.yml defines flip_to_failed guarded on CLASS=interim" "yes" \
+  "$(grep -q 'flip_to_failed()' "$IMPL_YML" && grep -q '\[ "\${CLASS:-}" = "interim" \] || return 0' "$IMPL_YML" && echo yes || echo no)"
+assert_eq "#356 pin: implement flip writes --status Failed with a dead-run note" "yes" \
+  "$(grep -q -- '--status Failed' "$IMPL_YML" && grep -q 'run died:' "$IMPL_YML" && echo yes || echo no)"
+assert_eq "#356 pin: implement flip called at the mktemp abort" "yes" \
+  "$(grep -q 'flip_to_failed "mktemp failed' "$IMPL_YML" && echo yes || echo no)"
+assert_eq "#356 pin: implement flip called at the dropped-resume-comment abort" "yes" \
+  "$(grep -q 'flip_to_failed "resume re-dispatch comment did not land"' "$IMPL_YML" && echo yes || echo no)"
+assert_eq "#356 pin: implement flip called at the resume-posted-but-no-App-token abort" "yes" \
+  "$(grep -q 'flip_to_failed "resume comment posted but no App token' "$IMPL_YML" && echo yes || echo no)"
+assert_eq "#356 pin: implement flip at the shared final exit is guarded FAIL=1 (never the green resume)" "yes" \
+  "$(grep -q '\[ "\$FAIL" -eq 1 \] && flip_to_failed "\${DECISION}"' "$IMPL_YML" && echo yes || echo no)"
+# Absence: the flip must NOT sit inside the resume-comment case arm (the green path) —
+# writing a terminal Failed before a resume would make the resumed run's own backstop
+# read `terminal -> noop` and permanently disarm it. This is THE load-bearing invariant.
+#
+# The range is located indentation-AGNOSTICALLY, and the arm's body is asserted
+# non-empty FIRST. A range keyed on literal indentation fails OPEN on any reflow of the
+# `case` block: the range never opens, awk prints nothing, and the absence check reports
+# PASS while the regression sits in the arm. The positive control below turns that
+# vacuous-range case RED instead — an absence pin that cannot locate its subject asserts
+# nothing, so it must fail, not pass.
+_resume_arm_body() {  # print the lines strictly inside the `resume)` case arm
+  awk '
+    /^[[:space:]]*resume\)[[:space:]]*$/ { f=1; next }
+    f && /^[[:space:]]*;;[[:space:]]*$/  { f=0; next }
+    f { print }
+  ' "$1"
+}
+assert_eq "#356 pin: the resume) case arm is locatable (absence pin below is not vacuous)" "yes" \
+  "$([ -n "$(_resume_arm_body "$IMPL_YML")" ] && echo yes || echo no)"
+assert_eq "#356 pin: no flip_to_failed inside the resume) comment-building case arm" "yes" \
+  "$(_resume_arm_body "$IMPL_YML" | grep -q 'flip_to_failed' && echo no || echo yes)"
+
+# The flip step names the specific arm that fired, so the comment's cause line and the
+# job log agree on why the run was treated as dead. Pin both cause strings.
+assert_eq "#356 pin: devflow.yml names the engine-error cause when is_error fired on a success step" "yes" \
+  "$(grep -qF 'CAUSE="review engine ended with an error (is_error)"' "$DEVFLOW_YML" && echo yes || echo no)"
+assert_eq "#356 pin: devflow.yml otherwise names the claude step outcome as the cause" "yes" \
+  "$(grep -qF 'CAUSE="claude step ${CLAUDE_OUTCOME}"' "$DEVFLOW_YML" && echo yes || echo no)"
+
+# Review flip: finalize_check's three arms + devflow.yml's outcome-keyed step.
+assert_eq "#356 pin: devflow-review.yml finalize_check invokes flip_review on job failure" "yes" \
+  "$(grep -q 'flip_review "review job failed' "$REVIEW_YML" && echo yes || echo no)"
+assert_eq "#356 pin: devflow-review.yml finalize_check invokes flip_review on cancellation" "yes" \
+  "$(grep -q 'flip_review "review job cancelled"' "$REVIEW_YML" && echo yes || echo no)"
+# The engine-error arm is GATED on ENGINE_ERROR so a plain no-verdict incomplete —
+# where the agent ran to completion and wrote its own verdict — is left to the agent.
+# A file-wide `grep -q 'ENGINE_ERROR:-false'` does NOT pin that gate: the literal also
+# occurs in a prose comment and on the DERIVED= line, so deleting the `if` guard while
+# keeping the flip_review call leaves such a pin GREEN while the flip starts firing on
+# every incomplete. Pin the guard CO-LOCATED with the call it gates instead: extract the
+# guard line and the line that follows it, and require the call to sit inside. The
+# positive control below asserts the extracted window is non-empty first, so a guard that
+# is reworded (and thus no longer locatable) fails RED rather than passing vacuously.
+_engine_error_guard_window() {  # print the ENGINE_ERROR guard line + the line after it
+  grep -A1 -F 'if [ "${ENGINE_ERROR:-false}" = "true" ]; then' "$1"
+}
+assert_eq "#356 pin: the ENGINE_ERROR guard is locatable (co-location pin below is not vacuous)" "yes" \
+  "$([ -n "$(_engine_error_guard_window "$REVIEW_YML")" ] && echo yes || echo no)"
+assert_eq "#356 pin: devflow-review.yml finalize_check invokes flip_review on engine-error incomplete" "yes" \
+  "$(_engine_error_guard_window "$REVIEW_YML" | grep -q 'flip_review "review engine ended with an error' && echo yes || echo no)"
+assert_eq "#356 pin: devflow-review.yml wires flip-review-progress-failed.sh" "yes" \
+  "$(grep -q 'flip-review-progress-failed.sh' "$REVIEW_YML" && echo yes || echo no)"
+# The filename alone also appears on the FLIP_HELPER= path-assignment lines, so a
+# filename-only pin stays GREEN even if the INVOCATION is deleted (gutting the flip).
+# Pin the invocation itself, in each workflow.
+assert_eq "#356 pin: devflow-review.yml actually INVOKES the helper (not just names it)" "yes" \
+  "$(grep -qF 'bash "$FLIP_HELPER" "$PR_NUMBER" "$FLIP_MARKER"' "$REVIEW_YML" && echo yes || echo no)"
+assert_eq "#356 pin: devflow.yml adds the dead-run review-progress flip step" "yes" \
+  "$(grep -q 'Flip review-progress comment on dead run' "$DEVFLOW_YML" && echo yes || echo no)"
+assert_eq "#356 pin: devflow.yml flip step wires the helper" "yes" \
+  "$(grep -q 'flip-review-progress-failed.sh' "$DEVFLOW_YML" && echo yes || echo no)"
+assert_eq "#356 pin: devflow.yml actually INVOKES the helper (not just names it)" "yes" \
+  "$(grep -qF 'bash "$FLIP_HELPER" "$CONTEXT_NUMBER" "$FLIP_MARKER"' "$DEVFLOW_YML" && echo yes || echo no)"
+# Per-DISJUNCT pins on the flip step's `if:` guard. A bare `grep steps.claude.outcome`
+# would also match the step's own `CLAUDE_OUTCOME:` env line, so deleting a disjunct
+# from the guard would leave it GREEN — the exact vacuous-pin failure these replace.
+# Each pin below quotes the whole comparison, so removing any one arm goes RED.
+# The guard is extracted once (the single `if:` line carrying `always()`), so a
+# comparison appearing anywhere else in the file cannot satisfy these.
+DF356_IF="$(grep -F 'if: ${{ always() && (steps.claude.outcome' "$DEVFLOW_YML" || true)"
+assert_eq "#356 pin: devflow.yml flip step fires on a FAILED claude step" "yes" \
+  "$(printf '%s' "$DF356_IF" | grep -qF "steps.claude.outcome == 'failure'" && echo yes || echo no)"
+assert_eq "#356 pin: devflow.yml flip step fires on a CANCELLED claude step" "yes" \
+  "$(printf '%s' "$DF356_IF" | grep -qF "steps.claude.outcome == 'cancelled'" && echo yes || echo no)"
+assert_eq "#356 pin: devflow.yml flip step fires when the engine ended is_error" "yes" \
+  "$(printf '%s' "$DF356_IF" | grep -qF "steps.engine.outputs.is_error == 'true'" && echo yes || echo no)"
+assert_eq "#356 pin: devflow.yml flip step's guard is always()-wrapped (runs on cancellation)" "yes" \
+  "$(printf '%s' "$DF356_IF" | grep -qF 'always()' && echo yes || echo no)"
+# The is_error disjunct needs a producer: devflow.yml must parse the engine result
+# into steps.engine, mirroring devflow-runner.yml's own parse step.
+assert_eq "#356 pin: devflow.yml surfaces the engine execution result as steps.engine.is_error" "yes" \
+  "$(grep -q 'id: engine' "$DEVFLOW_YML" && grep -q 'parse-engine-error.sh' "$DEVFLOW_YML" && grep -q 'is_error=\$IS_ERROR' "$DEVFLOW_YML" && echo yes || echo no)"
+rm -rf "$S356"
 
 # ── issue #338: --rewrite-ac (post-merge) retag requires a --note rationale ────
 # scripts/workpad.py: an `update` call in which any --rewrite-ac pair APPENDS the
@@ -7240,6 +7997,27 @@ assert_eq "ci_status_unknown=false (CLEAN fixture)"  "false" "$(jq -r '.signals.
 assert_eq "diff is a non-empty string" "string" "$(jq -r '.diff | type' <<<"$CTX")"
 assert_eq "diff not null"              "false"  "$(jq -r '.diff == null' <<<"$CTX")"
 
+# #356: a workpad whose Status is `💥 Failed` yields the bare word `Failed`
+# (fetch-pr-context strips 💥 like the other glyphs), and cheap-gate gates it
+# non-clean with reason "workpad status not Complete".
+OUTF="$(DEVFLOW_GH="$GH_STUB" DEVFLOW_FIXTURE_PR=FAILED bash "$LIB/fetch-pr-context.sh" 4343)"
+CTXF="$(cat "$OUTF")"
+assert_eq "#356: workpad_final_status=Failed (💥 stripped)" "Failed" "$(jq -r '.signals.workpad_final_status' <<<"$CTXF")"
+# Feed cheap-gate.jq the WHOLE bundle, exactly as the real consumer does
+# (`run-jq.sh -f cheap-gate.jq < "$CTX"`, see skills/retrospective-weekly/SKILL.md).
+# Re-wrapping as `{signals: .signals}` would drop the bundle's TOP-LEVEL `reflections`
+# field — a sibling of `.signals`, not a member of it — leaving cheap-gate's reflection
+# check inert against a shape the producer never emits.
+assert_eq "#356: a 💥 Failed workpad gates non-clean via cheap-gate" "false" \
+  "$(jq -c -f "$LIB/cheap-gate.jq" <<<"$CTXF" | jq -r .clean)"
+# Assert the REASON, not just clean=false. This fixture's workpad also carries a
+# `## Devflow Reflection` bullet, which is independently a non-clean signal — so
+# `clean=false` alone stays GREEN even if the workpad-status check were deleted or
+# reordered below the reflections check, and this block would pass for the wrong reason.
+# Pinning the reason is what proves the 💥 Failed status is what gated the run.
+assert_eq "#356: a 💥 Failed workpad gates non-clean for the workpad-status reason" "workpad status not Complete" \
+  "$(jq -c -f "$LIB/cheap-gate.jq" <<<"$CTXF" | jq -r .reason)"
+
 # #1: post_bot_commits / human_postbot SHA list count only *substantive* (non-merge)
 # commits after the bot's last commit. A `git merge main` by a human (parents>1)
 # is branch hygiene, not a fixup, and must not be counted.
@@ -7332,6 +8110,8 @@ assert_eq "ci_status_unknown=true reason"     "CI status could not be read" "$(e
 assert_eq "human commit → clean=false"        "false" "$(echo "$BASE" | jq '.signals.post_bot_commits=2' | gate | jq -r .clean)"
 assert_eq "review comment → clean=false"      "false" "$(echo "$BASE" | jq '.signals.review_comments_count=1' | gate | jq -r .clean)"
 assert_eq "workpad Blocked → clean=false"     "false" "$(echo "$BASE" | jq '.signals.workpad_final_status="Blocked"' | gate | jq -r .clean)"
+assert_eq "#356: workpad Failed → clean=false" "false" "$(echo "$BASE" | jq '.signals.workpad_final_status="Failed"' | gate | jq -r .clean)"
+assert_eq "#356: workpad Failed → reason 'workpad status not Complete'" "workpad status not Complete" "$(echo "$BASE" | jq '.signals.workpad_final_status="Failed"' | gate | jq -r .reason)"
 assert_eq "workpad empty string → clean=true" "true"  "$(echo "$BASE" | jq '.signals.workpad_final_status=""' | gate | jq -r .clean)"
 assert_eq "workpad null → clean=true"         "true"  "$(echo "$BASE" | jq '.signals.workpad_final_status=null' | gate | jq -r .clean)"
 
@@ -11159,6 +11939,14 @@ assert_eq "install: no shipped cloud-tier file references the old vendored path"
 # consumers uncaught. Assert it matches the relocated vendor destination.
 assert_eq "install: marketplace.json source matches the vendored path" \
   "1" "$(grep -cF '"source": "./.devflow/vendor/devflow"' "$LIB/../install.sh")"
+
+# The generated marketplace.json must mirror the repo-root manifest's #142
+# zero-companion-dependency shape: the allowlist key is retained but empty.
+# A future edit reintroducing "claude-plugins-official" (or any non-empty
+# allowlist) drops this literal's count to 0 and turns the pin RED, so the
+# stale cross-marketplace dependency can never ship to a fresh consumer again.
+assert_eq "install: marketplace.json allowCrossMarketplaceDependenciesOn is empty (#142/#385)" \
+  "1" "$(grep -cF '"allowCrossMarketplaceDependenciesOn": []' "$LIB/../install.sh")"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "workflow partition invariant"
@@ -19929,6 +20717,464 @@ assert_pin_unique "#363 finalize_check's deployed jq captures the Status line (t
   'capture("\\*\\*Status:\\*\\* (?<s>[^' "$REVIEW_YML"
 assert_pin_unique "#363 finalize_check's deployed jq flattens paginated comment pages" \
   'map(.[]?)' "$REVIEW_YML"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "implement-stop-guard.sh (issue #362)"
+# ────────────────────────────────────────────────────────────────────────────
+# lib/implement-stop-guard.sh is the local-tier Stop-hook backstop: it blocks a
+# session's stop (exit 2 — the documented Stop-hook blocking code) while an
+# /devflow:implement run's issue workpad Status is still interim, and fails OPEN
+# (exit 0 + an arm-naming stderr breadcrumb) on every other path.
+#
+# The guard resolves its repo root via devflow_repo_root() (git rev-parse
+# --show-toplevel), so each scenario runs it with cwd inside a real, throwaway
+# git-inited sandbox rather than threading a test-only override through
+# production code — the guard carries NO env-var backdoor for testability.
+ISG_SH="$LIB/implement-stop-guard.sh"
+
+# isg_repo NAME -> prints a fresh git-inited sandbox with scripts/ + .devflow/tmp/.
+isg_repo() {
+  local d
+  d="$(git_sandbox "$1")" || { printf '%s\n' "$d"; return 1; }
+  git -C "$d" init -q >/dev/null 2>&1
+  mkdir -p "$d/scripts" "$d/.devflow/tmp"
+  printf '%s\n' "$d"
+}
+
+# isg_stub_workpad DIR RC -> a scripts/workpad.py that ignores its args and exits RC.
+# Drives the workpad-unreadable arms (exit 1, exit 3) and the no-workpad arm (exit 2)
+# deterministically, with no gh stub and no network.
+isg_stub_workpad() {
+  cat > "$1/scripts/workpad.py" <<STUB
+#!/usr/bin/env python3
+import sys
+sys.stderr.write("stub workpad.py status: forced rc $2\n")
+sys.exit($2)
+STUB
+  chmod +x "$1/scripts/workpad.py"
+}
+
+# isg_run DIR STDIN_JSON [VAR=value ...] -> prints "<rc>|<stderr>".
+# stderr can itself contain '|', so callers take rc as "${R%%|*}" (first field)
+# and stderr as "${R#*|}" (everything past the first separator).
+#
+# `env -u GITHUB_ACTIONS` scrubs the AMBIENT variable: the guard's second arm allows the
+# stop outright when it is set, so under CI (where the runner exports GITHUB_ACTIONS=true)
+# every arm below that one would be unreachable and its test would assert against the
+# cloud-tier breadcrumb instead. The `-u` precedes "$@", so the GITHUB_ACTIONS arm's own
+# test still sets it back explicitly and keeps testing what it names.
+isg_run() {
+  local dir="$1" stdin_json="$2"; shift 2
+  local err rc
+  err="$(mktemp)"
+  (
+    cd "$dir" || exit 90
+    printf '%s' "$stdin_json" | env -u GITHUB_ACTIONS "$@" bash "$ISG_SH"
+  ) >/dev/null 2>"$err"
+  rc=$?
+  printf '%s|%s' "$rc" "$(cat "$err")"
+  rm -f "$err"
+}
+
+# ── allow: GITHUB_ACTIONS set (cloud tier owns its own finalization) ─────────
+ISG_D="$(isg_repo "isg: GITHUB_ACTIONS arm")"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidA"}' GITHUB_ACTIONS=true)"
+assert_eq "#362 isg: GITHUB_ACTIONS set -> allow (exit 0)" "0" "${ISG_R%%|*}"
+assert_eq "#362 isg: GITHUB_ACTIONS arm emits its own breadcrumb" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'GITHUB_ACTIONS is set' && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# ── allow: python3 is unavailable. Reached only with a marker present (the glob decides
+# first), and it must carry its OWN breadcrumb rather than being folded into the
+# session-id parse arm below — an operator on a python3-less host must be pointed at the
+# missing interpreter, not at the hook payload. PATH is narrowed to a dir holding only the
+# binaries the guard needs before that check: bash, cat, dirname, git.
+ISG_D="$(isg_repo "isg: python3-unavailable arm")"
+isg_stub_workpad "$ISG_D" 0
+: > "$ISG_D/.devflow/tmp/implement-active-611"
+mkdir -p "$ISG_D/nopybin"
+for ISG_B in bash cat dirname git; do
+  ln -sf "$(command -v "$ISG_B")" "$ISG_D/nopybin/$ISG_B" 2>/dev/null
+done
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidS"}' "PATH=$ISG_D/nopybin")"
+assert_eq "#362 isg: python3 unavailable -> allow (exit 0)" "0" "${ISG_R%%|*}"
+assert_eq "#362 isg: python3-unavailable arm emits its OWN breadcrumb (not the stdin one)" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'python3 not found' && echo yes || echo no)"
+assert_eq "#362 isg: python3-unavailable arm does NOT misreport the hook payload as unparseable" "no" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'no usable session_id' && echo yes || echo no)"
+assert_eq "#362 isg: python3 unavailable keeps the marker" "yes" \
+  "$([ -e "$ISG_D/.devflow/tmp/implement-active-611" ] && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# ── allow: stdin is not parseable JSON. A marker is present, so the cheaper
+# no-marker arm cannot pre-empt this one (arm order: glob, THEN session-id parse).
+ISG_D="$(isg_repo "isg: unparseable stdin arm")"
+isg_stub_workpad "$ISG_D" 0
+: > "$ISG_D/.devflow/tmp/implement-active-598"
+ISG_R="$(isg_run "$ISG_D" 'not json {{{' )"
+assert_eq "#362 isg: unparseable stdin -> allow (exit 0)" "0" "${ISG_R%%|*}"
+assert_eq "#362 isg: unparseable-stdin arm emits its own breadcrumb" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'no usable session_id' && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# ── allow: a session_id that is unsafe as a filename component (path traversal)
+# folds into the same fail-open arm — the sentinel cannot be safely keyed.
+ISG_D="$(isg_repo "isg: unsafe session_id arm")"
+isg_stub_workpad "$ISG_D" 0
+: > "$ISG_D/.devflow/tmp/implement-active-599"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"../../etc/passwd"}')"
+assert_eq "#362 isg: path-traversing session_id -> allow (exit 0)" "0" "${ISG_R%%|*}"
+assert_eq "#362 isg: path-traversing session_id arm emits its own breadcrumb" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'no usable session_id' && echo yes || echo no)"
+# The guard must have written NO sentinel at all. Assert that by searching the sandbox for
+# any `stop-guard-*` file, not by probing `$ISG_D/../../etc/passwd`: that path is what the
+# session_id would traverse TO, and where it lands depends on how deep mktemp roots the
+# sandbox. Under CI (`/tmp/<x>`) it resolves to the host's real `/etc/passwd`, which exists
+# and the guard never touched — a false FAIL; under macOS's deep `/var/folders/...` root it
+# resolves nowhere, so the check passed vacuously and would not have caught a real escape.
+# A `find` for the sentinel name is depth-independent and non-vacuous: a guard that keyed a
+# sentinel on this session_id (sanitized or not) leaves a `stop-guard-*` file behind.
+assert_eq "#362 isg: path-traversing session_id never writes a sentinel anywhere" "" \
+  "$(find "$ISG_D" -name 'stop-guard-*' 2>/dev/null | head -1)"
+rm -rf "$ISG_D"
+
+# ── allow: no marker present — and the workpad helper is NEVER invoked (the
+# zero-network property every ordinary, non-implement session relies on). The
+# stub tattles to a file; its absence is the assertion.
+ISG_D="$(isg_repo "isg: no-marker arm")"
+cat > "$ISG_D/scripts/workpad.py" <<STUB
+#!/usr/bin/env python3
+open("$ISG_D/tattle", "a").write("invoked\n")
+STUB
+chmod +x "$ISG_D/scripts/workpad.py"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidB"}')"
+assert_eq "#362 isg: no marker -> allow (exit 0)" "0" "${ISG_R%%|*}"
+assert_eq "#362 isg: no-marker arm emits its own breadcrumb" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'no .devflow/tmp/implement-active-* marker' && echo yes || echo no)"
+assert_eq "#362 isg: no-marker arm never invokes the workpad helper (no network call)" "no" \
+  "$([ -e "$ISG_D/tattle" ] && echo yes || echo no)"
+# Hot-path arm-ordering pin: the pure-bash marker glob must decide BEFORE the session-id
+# parse, so an ordinary session's turn-end spawns no python3 at all. Unparseable stdin with
+# no marker present must therefore surface the *no-marker* breadcrumb, not the session-id
+# one — if a future edit hoists the parse back above the glob, this flips RED.
+ISG_R="$(isg_run "$ISG_D" 'not json {{{')"
+assert_eq "#362 isg: the marker glob decides before the session-id parse (no python3 on the hot path)" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'no .devflow/tmp/implement-active-* marker' && echo yes || echo no)"
+assert_eq "#362 isg: that hot-path exit never reached the session-id arm" "no" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'no usable session_id' && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# ── allow: this session's sentinel already exists (at-most-one-block bound),
+# and that arm too skips the workpad helper entirely.
+ISG_D="$(isg_repo "isg: existing-sentinel arm")"
+isg_stub_workpad "$ISG_D" 0
+: > "$ISG_D/.devflow/tmp/implement-active-600"
+: > "$ISG_D/.devflow/tmp/stop-guard-sidC"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidC"}')"
+assert_eq "#362 isg: existing sentinel -> allow (exit 0)" "0" "${ISG_R%%|*}"
+assert_eq "#362 isg: existing-sentinel arm emits its own breadcrumb" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'was already blocked once' && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# ── allow + KEEP the marker: workpad.py exit 1 (unreadable) and exit 3
+# (gh/transport/auth). Never block on a workpad the helper could not read.
+for ISG_RC in 1 3; do
+  ISG_D="$(isg_repo "isg: keep-marker rc=$ISG_RC arm")"
+  isg_stub_workpad "$ISG_D" "$ISG_RC"
+  : > "$ISG_D/.devflow/tmp/implement-active-601"
+  ISG_R="$(isg_run "$ISG_D" "{\"session_id\":\"sidD$ISG_RC\"}")"
+  assert_eq "#362 isg: workpad.py exit $ISG_RC -> allow (exit 0, fail open)" "0" "${ISG_R%%|*}"
+  assert_eq "#362 isg: workpad.py exit $ISG_RC arm emits its own breadcrumb" "yes" \
+    "$(printf '%s' "${ISG_R#*|}" | grep -qF "status exited $ISG_RC" && echo yes || echo no)"
+  assert_eq "#362 isg: workpad.py exit $ISG_RC keeps the marker" "yes" \
+    "$([ -e "$ISG_D/.devflow/tmp/implement-active-601" ] && echo yes || echo no)"
+  assert_eq "#362 isg: workpad.py exit $ISG_RC writes no sentinel" "no" \
+    "$([ -e "$ISG_D/.devflow/tmp/stop-guard-sidD$ISG_RC" ] && echo yes || echo no)"
+  rm -rf "$ISG_D"
+done
+
+# ── allow + DELETE the stale marker: workpad.py exit 2 (no workpad on the issue)
+ISG_D="$(isg_repo "isg: stale-marker arm")"
+isg_stub_workpad "$ISG_D" 2
+: > "$ISG_D/.devflow/tmp/implement-active-602"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidE"}')"
+assert_eq "#362 isg: workpad.py exit 2 -> allow (exit 0)" "0" "${ISG_R%%|*}"
+assert_eq "#362 isg: stale-marker arm emits its own breadcrumb" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'marker was stale' && echo yes || echo no)"
+assert_eq "#362 isg: workpad.py exit 2 deletes the stale marker (self-heal)" "no" \
+  "$([ -e "$ISG_D/.devflow/tmp/implement-active-602" ] && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# ── allow + skip: a marker whose issue suffix is not numeric is never parsed,
+# never queried, and never deleted (we do not understand its shape).
+ISG_D="$(isg_repo "isg: non-numeric marker arm")"
+isg_stub_workpad "$ISG_D" 0
+: > "$ISG_D/.devflow/tmp/implement-active-not-a-number"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidF"}')"
+assert_eq "#362 isg: non-numeric marker suffix -> allow (exit 0)" "0" "${ISG_R%%|*}"
+assert_eq "#362 isg: non-numeric-suffix arm emits its own breadcrumb" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'non-numeric issue suffix' && echo yes || echo no)"
+assert_eq "#362 isg: non-numeric marker is left on disk" "yes" \
+  "$([ -e "$ISG_D/.devflow/tmp/implement-active-not-a-number" ] && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# ── allow: config-source.sh cannot be sourced (a partial-copy deployment — the guard
+# resolves it as a sibling of itself). The guard must fail OPEN, never abort non-zero.
+ISG_D="$(isg_repo "isg: unsourceable config-source arm")"
+mkdir -p "$ISG_D/lib" && cp "$ISG_SH" "$ISG_D/lib/"   # deliberately NO config-source.sh beside it
+ISG_ERR="$(mktemp)"
+# This arm invokes the copied guard directly rather than through isg_run (the point is the
+# guard's own sibling resolution), so it must scrub the ambient GITHUB_ACTIONS itself — see
+# the isg_run header for why.
+( cd "$ISG_D" && printf '{"session_id":"sidL"}' | env -u GITHUB_ACTIONS bash "$ISG_D/lib/implement-stop-guard.sh" ) >/dev/null 2>"$ISG_ERR"
+assert_eq "#362 isg: an unsourceable config-source.sh -> allow (exit 0, never a non-zero abort)" "0" "$?"
+assert_eq "#362 isg: unsourceable-config-source arm emits its own breadcrumb" "yes" \
+  "$(grep -qF 'could not source config-source.sh' "$ISG_ERR" && echo yes || echo no)"
+rm -f "$ISG_ERR"; rm -rf "$ISG_D"
+
+# ── allow + KEEP every marker: scripts/workpad.py is absent. `python3 <script>` exits 2
+# on an unopenable script — the same code workpad.py uses for "no workpad" — so without
+# the existence guard this arm would DELETE a live run's marker and silently disable the
+# backstop. Assert the marker survives.
+ISG_D="$(isg_repo "isg: absent workpad.py arm")"
+: > "$ISG_D/.devflow/tmp/implement-active-605"
+rm -f "$ISG_D/scripts/workpad.py"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidM"}')"
+assert_eq "#362 isg: absent scripts/workpad.py -> allow (exit 0)" "0" "${ISG_R%%|*}"
+assert_eq "#362 isg: absent-workpad.py arm emits its own breadcrumb" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'not found or not readable' && echo yes || echo no)"
+assert_eq "#362 isg: an absent workpad.py NEVER deletes the marker (a missing helper is not an absent workpad)" "yes" \
+  "$([ -e "$ISG_D/.devflow/tmp/implement-active-605" ] && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# ── the same arm, one operand-shape over: a PRESENT but UNREADABLE workpad.py. It passes an
+# existence test yet still makes python3 exit 2, so an existence-only guard would accept an
+# input its consumer rejects and delete the marker anyway (the #62/#98 operand-contract class).
+ISG_D="$(isg_repo "isg: unreadable workpad.py arm")"
+: > "$ISG_D/.devflow/tmp/implement-active-610"
+printf '#!/usr/bin/env python3\n' > "$ISG_D/scripts/workpad.py"
+chmod 000 "$ISG_D/scripts/workpad.py"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidO"}')"
+chmod 644 "$ISG_D/scripts/workpad.py"
+assert_eq "#362 isg: an unreadable workpad.py -> allow (exit 0)" "0" "${ISG_R%%|*}"
+assert_eq "#362 isg: unreadable-workpad.py arm emits its own breadcrumb" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'not found or not readable' && echo yes || echo no)"
+assert_eq "#362 isg: an unreadable workpad.py NEVER deletes the marker (guard accepts no input its consumer rejects)" "yes" \
+  "$([ -e "$ISG_D/.devflow/tmp/implement-active-610" ] && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# ── allow + KEEP the marker: workpad.py exits 0 but prints a class the guard does not
+# recognize (a future workpad.py contract break). Fail open rather than guess.
+ISG_D="$(isg_repo "isg: unrecognized status class arm")"
+cat > "$ISG_D/scripts/workpad.py" <<'STUB'
+#!/usr/bin/env python3
+print("weirdclass 🚀 Foo")
+STUB
+chmod +x "$ISG_D/scripts/workpad.py"
+: > "$ISG_D/.devflow/tmp/implement-active-606"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidN"}')"
+assert_eq "#362 isg: an unrecognized status class -> allow (exit 0, fail open)" "0" "${ISG_R%%|*}"
+assert_eq "#362 isg: unrecognized-class arm emits its own breadcrumb" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF "unrecognized class 'weirdclass'" && echo yes || echo no)"
+assert_eq "#362 isg: an unrecognized class keeps the marker" "yes" \
+  "$([ -e "$ISG_D/.devflow/tmp/implement-active-606" ] && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# ── the arms that drive the REAL workpad.py, against a gh stub (the #258 stub contract):
+# a terminal workpad self-heals its marker; an interim one blocks.
+ISG_GHD="$(mktemp -d)"
+cat > "$ISG_GHD/gh" <<'STUB'
+#!/usr/bin/env bash
+# gh stub for `workpad.py status`: repo resolution + one comments page carrying the
+# fixture workpad body for THE REQUESTED ISSUE (json-encoded via python3, so the body's
+# quotes/glyphs never traverse shell quoting). Keying the body on the issue number in the
+# request URL is load-bearing: an issue-agnostic stub would return the same status for
+# every marker, so the guard's marker->issue-number threading and its multi-marker scan
+# order could not be asserted at all.
+case "$*" in
+  *"repo view"*) echo "owner/repo"; exit 0 ;;
+  *comments*)
+    python3 -c '
+import json, os, re, sys
+m = re.search(r"/issues/(\d+)/comments", " ".join(sys.argv[1:]))
+if not m:
+    sys.stdout.write("[]"); raise SystemExit(0)
+body = os.environ.get("ISG_BODY_" + m.group(1))
+if not body or not os.path.exists(body):
+    sys.stdout.write("[]"); raise SystemExit(0)   # no workpad for this issue -> status exit 2
+sys.stdout.write(json.dumps([{"id": 1, "body": open(body).read()}]))
+' "$@"
+    exit 0 ;;
+esac
+echo '[]'
+STUB
+chmod +x "$ISG_GHD/gh"
+
+cat > "$ISG_GHD/terminal.md" <<'WPMD'
+<!-- devflow:workpad -->
+# DevFlow Workpad — Issue #603
+
+**Status:** 🎉 Complete
+**Last updated:** 2026-05-15T00:00:00Z
+WPMD
+cat > "$ISG_GHD/interim.md" <<'WPMD'
+<!-- devflow:workpad -->
+# DevFlow Workpad — Issue #604
+
+**Status:** 🚀 Reviewing
+**Last updated:** 2026-05-15T00:00:00Z
+WPMD
+
+# terminal -> delete the marker, allow the stop.
+ISG_D="$(isg_repo "isg: terminal self-heal arm")"
+cp "$WP_PY" "$ISG_D/scripts/workpad.py"
+: > "$ISG_D/.devflow/tmp/implement-active-603"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidG"}' \
+  "DEVFLOW_GH=$ISG_GHD/gh" "ISG_BODY_603=$ISG_GHD/terminal.md")"
+assert_eq "#362 isg: terminal workpad -> allow (exit 0)" "0" "${ISG_R%%|*}"
+assert_eq "#362 isg: terminal arm names the status word in its breadcrumb" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'is terminal (Complete)' && echo yes || echo no)"
+assert_eq "#362 isg: terminal workpad deletes the marker (self-heal)" "no" \
+  "$([ -e "$ISG_D/.devflow/tmp/implement-active-603" ] && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# terminal, but the marker cannot be removed (read-only .devflow/tmp): the guard must
+# still allow the stop AND must not claim it deleted a marker that is still on disk.
+ISG_D="$(isg_repo "isg: unhealable terminal marker")"
+cp "$WP_PY" "$ISG_D/scripts/workpad.py"
+: > "$ISG_D/.devflow/tmp/implement-active-603"
+chmod 555 "$ISG_D/.devflow/tmp"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidK"}' \
+  "DEVFLOW_GH=$ISG_GHD/gh" "ISG_BODY_603=$ISG_GHD/terminal.md")"
+chmod 755 "$ISG_D/.devflow/tmp"
+assert_eq "#362 isg: an undeletable terminal marker still allows the stop (exit 0)" "0" "${ISG_R%%|*}"
+assert_eq "#362 isg: an undeletable marker is reported as NOT deleted (no success for work that did not happen)" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'could NOT be deleted' && echo yes || echo no)"
+assert_eq "#362 isg: the undeletable marker really is still on disk (the breadcrumb told the truth)" "yes" \
+  "$([ -e "$ISG_D/.devflow/tmp/implement-active-603" ] && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# ── multi-marker scan: the guard's header promises that a terminal marker earlier in scan
+# order is healed, the FIRST interim marker blocks, and markers after it are simply
+# re-scanned on a later Stop event (deferred, never lost). Markers glob in lexical order,
+# so 603 (terminal) precedes 604 (interim) precedes 607 (terminal). Asserting this needs an
+# issue-number-keyed gh stub: an issue-agnostic one returns the same status for every marker.
+cat > "$ISG_GHD/terminal607.md" <<'WPMD'
+<!-- devflow:workpad -->
+# DevFlow Workpad — Issue #607
+
+**Status:** 🎉 Complete
+**Last updated:** 2026-05-15T00:00:00Z
+WPMD
+ISG_D="$(isg_repo "isg: multi-marker scan order")"
+cp "$WP_PY" "$ISG_D/scripts/workpad.py"
+: > "$ISG_D/.devflow/tmp/implement-active-603"   # terminal, scanned first  -> healed
+: > "$ISG_D/.devflow/tmp/implement-active-604"   # interim,  scanned second -> blocks
+: > "$ISG_D/.devflow/tmp/implement-active-607"   # terminal, scanned third  -> deferred
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidP"}' "DEVFLOW_GH=$ISG_GHD/gh" \
+  "ISG_BODY_603=$ISG_GHD/terminal.md" "ISG_BODY_604=$ISG_GHD/interim.md" "ISG_BODY_607=$ISG_GHD/terminal607.md")"
+assert_eq "#362 isg: multi-marker — the first interim marker BLOCKS (exit 2)" "2" "${ISG_R%%|*}"
+assert_eq "#362 isg: multi-marker — the block names the interim issue (604), not an earlier terminal one" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF '#604' && echo yes || echo no)"
+assert_eq "#362 isg: multi-marker — a terminal marker EARLIER in scan order is healed before the block" "no" \
+  "$([ -e "$ISG_D/.devflow/tmp/implement-active-603" ] && echo yes || echo no)"
+assert_eq "#362 isg: multi-marker — the interim marker itself survives the block" "yes" \
+  "$([ -e "$ISG_D/.devflow/tmp/implement-active-604" ] && echo yes || echo no)"
+assert_eq "#362 isg: multi-marker — a terminal marker AFTER the block is deferred, not lost" "yes" \
+  "$([ -e "$ISG_D/.devflow/tmp/implement-active-607" ] && echo yes || echo no)"
+# The deferred heal really is only deferred: the next Stop event (same session, sentinel
+# present) still allows, and a later one with the interim marker gone heals 607.
+rm -f "$ISG_D/.devflow/tmp/implement-active-604" "$ISG_D/.devflow/tmp/stop-guard-sidP"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidQ"}' "DEVFLOW_GH=$ISG_GHD/gh" \
+  "ISG_BODY_607=$ISG_GHD/terminal607.md")"
+assert_eq "#362 isg: multi-marker — the deferred terminal marker heals on a later Stop event (exit 0)" "0" "${ISG_R%%|*}"
+assert_eq "#362 isg: multi-marker — the deferred heal actually removed marker 607" "no" \
+  "$([ -e "$ISG_D/.devflow/tmp/implement-active-607" ] && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# ── the issue-number threading is real: a marker whose issue has NO workpad (the stub
+# returns an empty comments page for it) heals as stale, while a sibling marker whose
+# issue DOES have an interim workpad blocks. An issue-agnostic stub could not tell these
+# apart, so this asserts the guard passes each marker's own issue number to workpad.py.
+ISG_D="$(isg_repo "isg: per-issue status threading")"
+cp "$WP_PY" "$ISG_D/scripts/workpad.py"
+: > "$ISG_D/.devflow/tmp/implement-active-608"   # no ISG_BODY_608 -> no workpad -> exit 2 -> stale heal
+: > "$ISG_D/.devflow/tmp/implement-active-609"   # interim
+sed 's/#604/#609/' "$ISG_GHD/interim.md" > "$ISG_GHD/interim609.md"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidR"}' "DEVFLOW_GH=$ISG_GHD/gh" \
+  "ISG_BODY_609=$ISG_GHD/interim609.md")"
+assert_eq "#362 isg: per-issue threading — the interim sibling still blocks (exit 2)" "2" "${ISG_R%%|*}"
+assert_eq "#362 isg: per-issue threading — the block names issue 609, proving the marker's own number was queried" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF '#609' && echo yes || echo no)"
+assert_eq "#362 isg: per-issue threading — the workpad-less marker 608 healed as stale" "no" \
+  "$([ -e "$ISG_D/.devflow/tmp/implement-active-608" ] && echo yes || echo no)"
+rm -rf "$ISG_D"
+
+# interim -> write the sentinel, print the instruction, exit 2 (BLOCK).
+ISG_D="$(isg_repo "isg: interim block arm")"
+cp "$WP_PY" "$ISG_D/scripts/workpad.py"
+: > "$ISG_D/.devflow/tmp/implement-active-604"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidH"}' \
+  "DEVFLOW_GH=$ISG_GHD/gh" "ISG_BODY_604=$ISG_GHD/interim.md")"
+assert_eq "#362 isg: interim workpad -> BLOCKS the stop (exit 2)" "2" "${ISG_R%%|*}"
+assert_eq "#362 isg: interim block names the issue number on stderr" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF '#604' && echo yes || echo no)"
+assert_eq "#362 isg: interim block names the interim status word on stderr" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'Reviewing' && echo yes || echo no)"
+assert_eq "#362 isg: interim block instructs the implement run to drive Status terminal" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'return to the phase that owns the remaining work' && echo yes || echo no)"
+assert_eq "#362 isg: interim block instructs any OTHER session to just end its turn again" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'end your turn again' && echo yes || echo no)"
+assert_eq "#362 isg: interim block writes the session-keyed sentinel" "yes" \
+  "$([ -e "$ISG_D/.devflow/tmp/stop-guard-sidH" ] && echo yes || echo no)"
+assert_eq "#362 isg: interim block leaves the marker in place" "yes" \
+  "$([ -e "$ISG_D/.devflow/tmp/implement-active-604" ] && echo yes || echo no)"
+
+# at-most-one-block bound: the SECOND stop in the SAME session is allowed even
+# though the workpad is still interim — a session that genuinely cannot
+# finalize is never trapped.
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidH"}' \
+  "DEVFLOW_GH=$ISG_GHD/gh" "ISG_BODY_604=$ISG_GHD/interim.md")"
+assert_eq "#362 isg: second stop in the same session is allowed (exit 0)" "0" "${ISG_R%%|*}"
+# ...while a DIFFERENT session (its own sentinel absent) is still blocked once.
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidI"}' \
+  "DEVFLOW_GH=$ISG_GHD/gh" "ISG_BODY_604=$ISG_GHD/interim.md")"
+assert_eq "#362 isg: a different session is still blocked once (exit 2)" "2" "${ISG_R%%|*}"
+rm -rf "$ISG_D"
+
+# ── allow: the sentinel write itself fails (read-only .devflow/tmp). The guard
+# must NOT exit 2 without a sentinel — that would break the one-block bound and
+# could trap the session in a re-block loop.
+ISG_D="$(isg_repo "isg: sentinel-write-failure arm")"
+cp "$WP_PY" "$ISG_D/scripts/workpad.py"
+: > "$ISG_D/.devflow/tmp/implement-active-604"
+chmod 555 "$ISG_D/.devflow/tmp"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidJ"}' \
+  "DEVFLOW_GH=$ISG_GHD/gh" "ISG_BODY_604=$ISG_GHD/interim.md")"
+chmod 755 "$ISG_D/.devflow/tmp"
+assert_eq "#362 isg: sentinel write failure -> allow (exit 0), never a sentinel-less block" "0" "${ISG_R%%|*}"
+assert_eq "#362 isg: sentinel-write-failure arm emits its own breadcrumb" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'could not write the sentinel' && echo yes || echo no)"
+rm -rf "$ISG_D" "$ISG_GHD"
+
+# ── static pin: .claude/settings.json wires the guard. Bare jq is fine here —
+# the resolve-jq.sh routing rule binds shipped .sh helpers, not this test file.
+ISG_SETTINGS="$LIB/../.claude/settings.json"
+ISG_GUARD_CMD="$(jq -r '.hooks.Stop[]?.hooks[]? | select((.command // "") | contains("implement-stop-guard.sh")) | .command' "$ISG_SETTINGS" 2>/dev/null)"
+ISG_GUARD_TIMEOUT="$(jq -r '.hooks.Stop[]?.hooks[]? | select((.command // "") | contains("implement-stop-guard.sh")) | .timeout' "$ISG_SETTINGS" 2>/dev/null)"
+ISG_ET_CMD="$(jq -r '.hooks.Stop[]?.hooks[]? | select((.command // "") | contains("efficiency-trace.sh")) | .command' "$ISG_SETTINGS" 2>/dev/null)"
+assert_eq "#362 settings.json: the Stop hook wires implement-stop-guard.sh" "yes" \
+  "$([ -n "$ISG_GUARD_CMD" ] && echo yes || echo no)"
+assert_eq "#362 settings.json: the guard entry carries a 15s per-command timeout" "15" "$ISG_GUARD_TIMEOUT"
+# Scoped to the guard's OWN command string: a whole-file grep would match the
+# sibling efficiency-trace.sh entry's legitimate `|| true` and pass vacuously.
+# A `|| true` here would swallow the guard's blocking exit 2 and neuter it.
+assert_eq "#362 settings.json: the guard command carries NO '|| true' (it would swallow exit 2)" "no" \
+  "$(printf '%s' "$ISG_GUARD_CMD" | grep -qF '|| true' && echo yes || echo no)"
+assert_eq "#362 settings.json: the pre-existing efficiency-trace.sh entry survives" "yes" \
+  "$([ -n "$ISG_ET_CMD" ] && echo yes || echo no)"
+assert_eq "#362 settings.json: the efficiency-trace.sh entry keeps its own '|| true'" "yes" \
+  "$(printf '%s' "$ISG_ET_CMD" | grep -qF '|| true' && echo yes || echo no)"
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.

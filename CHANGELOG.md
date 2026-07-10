@@ -4,6 +4,65 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.103] — 2026-07-10
+
+### Added
+- **Mark a dead cloud run's Status comment as died instead of leaving it frozen.** When a
+  cloud run dies — job failure, cancellation, or an exhausted implement auto-resume cap — its
+  Status-bearing comment no longer lies at its last interim value. The implement workpad gains
+  a new terminal status word **`Failed`** (glyph **💥**, a workpad-only glyph with no
+  triggering-comment reaction): every fail-loud exit of the stall backstop that is reached
+  after reading a genuinely **interim** Status flips the workpad to `💥 Failed`, best-effort
+  and never altering the step's exit code (a terminal, unreadable, or auth-failure Status is
+  never clobbered, and the green auto-resume path never flips). The review
+  engine's live progress comment is flipped to its existing `❌ Review failed` state by a new
+  best-effort helper (`scripts/flip-review-progress-failed.sh`) wired into `devflow-review.yml`'s
+  `finalize_check` and `devflow.yml`'s comment-triggered job — each covering the same three
+  non-success arms: job/step failure, cancellation, and an engine that ended `is_error` while
+  the step itself still reported success. Both flips fire only when the
+  comment's Status is still interim (🚀), so a terminal Status is never clobbered and an
+  auto-resume in flight is untouched. A `💥 Failed` workpad also gates non-clean in the weekly
+  retrospective, so dead implement runs stop masquerading as clean. (#356)
+
+## [2.8.102] — 2026-07-10
+
+### Fixed
+- **Removed the stale `claude-plugins-official` cross-marketplace dependency from the installer's consumer `marketplace.json` template.** `install.sh` now emits `"allowCrossMarketplaceDependenciesOn": []`, mirroring the repo-root manifest's #142 zero-companion-dependency shape, so fresh consumers get a manifest consistent with DevFlow's documented "no companion plugins" install story. A removal-proof `lib/test/run.sh` pin now guards the empty allowlist. (#385)
+
+## [2.8.101] — 2026-07-10
+
+### Added
+- **The review engine now attacks the absolute claims a diff publishes instead of reading them (#371 R1/R2/R6).** The verification-checklist generator gains an `absolute_claim` category for a diff-added universal ("every", "never", "cannot", "is caught by the same rule"); such items always resolve through an `agent` verifier that *constructs the falsifying input* and are never lite-grepped — reading a universal confirms nothing, only a failed attempt to falsify it does. The pre-verdict truthfulness sweep gains a **diff-scan input** (an intra-diff contradiction scan) that, independent of any finding, cross-products the diff's added absolute claims against its added-or-retained limitation notes about the same symbol and files a contradicting pair as a non-demotable `documented_falsehood` — closing the PR #340 case where a diff published an absolute claim while retaining a contradicting limitation and no agent flagged it. Severity calibration is sharpened so a fail-**open** defect is never graded mild merely because its limitation is documented or its trigger input is contrived — "documented" and "contrived" are disclosure facts, not severity facts. (#382)
+
+## [2.8.100] — 2026-07-09
+
+### Added
+- **`/devflow:implement` now survives a nested skill's return and resumes onto an existing PR.**
+  A Skill-tool invocation is a tail call, not a subroutine call: when a nested skill's procedure
+  ended in a user-facing approval step, the implement run ended with it — the workpad froze at an
+  in-progress `Status`, no terminal reaction fired, and the run died silently. Four orchestrator
+  rules close that gap. A **generalized mid-phase re-anchor** makes the orchestrator re-read the
+  current phase file after *every* Skill-tool return and resume at the step that follows it (the
+  Phase 4.1 docs-subagent re-anchor remains, now scoped to *subagent* returns). A
+  **non-interactive self-answer rule** has a cloud-tier run answer a nested skill's user-facing
+  question itself — from the issue description, recorded in the workpad — instead of stranding on
+  a question no one can answer, while an interactive run still asks the user. A **subagent-dispatch
+  rule** routes any edit that project conventions send through an *interactive* skill (one whose
+  procedure ends in a user approval step) into a context-isolated Agent-tool subagent whose prompt
+  pre-grants the approval, rather than invoking it mid-phase. And a **Phase 1.4 resume pre-check**
+  now consults the workpad `Branch` line and the issue's open PRs *before* the linked-worktree
+  signal, so a re-triggered run continues the existing branch and draft PR instead of forking a
+  duplicate and abandoning committed work. (#364)
+- **New local-tier Stop-hook backstop, `lib/implement-stop-guard.sh`.** Phase 1.3 writes a
+  gitignored run marker under `.devflow/tmp/`, and the guard — wired as a second `Stop` hook —
+  blocks a session's stop (exit 2) while that issue's workpad `Status` is still interim, naming the
+  issue and the status word so the run returns and finalizes. It is bounded to at most one block
+  per session, fails open on every ambiguous path (unreadable workpad, `gh` transport failure,
+  unparseable hook input), performs **no** network call when no marker is present, and self-heals a
+  stale marker. The marker is removed at every terminal `Status` transition. Consumer repos are
+  unaffected: the hook is repo-local, and the cloud tier keeps its existing workflow-level stall
+  backstop. (#364)
+
 ## [2.8.99] — 2026-07-09
 
 ### Changed
