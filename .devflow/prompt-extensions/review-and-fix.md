@@ -102,7 +102,7 @@ subset of separators) rather than the value the consumer actually operates on.
   rewrite appended the tag by inspecting the **OLD argument string** rather than the row the rewrite
   would actually resolve — a re-derivation of `_find_checkbox_row`'s contract. Second, and after the
   principle had been read: a guard rejecting a multi-line `NEW` was written as `'\n' in s or '\r' in s`.
-  Its consumer is `str.splitlines()`, which splits on nine separators. Eight of them — `\v`, `\f`,
+  Its consumer is `str.splitlines()`, which splits on ten separators. Eight of them — `\v`, `\f`,
   `\x1c`, `\x1d`, `\x1e`, NEL, LS, PS — passed the guard and still split the checkbox row, injecting a
   phantom `- [x]` acceptance-criterion row at exit 0. The correct idiom, `' '.join(text.splitlines())`,
   already existed ten lines above in the same file. **PR #340 cost this would have eliminated:** the

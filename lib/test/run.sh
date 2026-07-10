@@ -1541,8 +1541,9 @@ assert_pin_unique "#379(AC7): implement extension records the printf %b bash/zsh
 # positive non-vacuity control (a known sentence of the SAME body) so a moved/renamed/empty
 # file cannot vacuously pass the negative check (the #379 R3 positive-control rule applied to
 # these very assertions). The existing sev(rcv) block above already asserts the two negatives
-# for receiving-code-review; here we add the positive control for it and the full pair for
-# requesting-code-review.
+# for receiving-code-review; here we re-state those two negatives alongside a positive control
+# for it (a deliberate, self-contained AC8 restatement — the two RCV negatives duplicate the
+# sev(rcv) pins), and add the full negatives+control pair for requesting-code-review.
 # (Mirror the sev(rcv) negative-assertion idiom above — an inline `grep -qF … && echo yes ||
 # echo no` over a path held in a variable, NOT grep_present, whose call-site count is pinned
 # to exactly 2 audit-bypass sites.)
