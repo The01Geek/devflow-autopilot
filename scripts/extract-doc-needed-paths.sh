@@ -6,19 +6,25 @@
 # in an issue body's **Documentation Needed** bullet, one per line.
 #
 # Reads the issue body on stdin (or from a file path given as $1) and emits the
-# recognizable file paths declared in the `**Documentation Needed**` bullet of
-# the `## Implementation Notes` section — a `- **…**` list item or a bare bold
-# paragraph, per the scope note below (issue #309). Both Phase 4.1
+# recognizable file paths declared in the Documentation Needed block of the
+# `## Implementation Notes` section. THREE scope-opening shapes are accepted, per
+# the scope note below: (1) a `- **Documentation Needed**` list item (issue #185),
+# (2) a bare blank-line-preceded `**Documentation Needed**` bold paragraph (issue
+# #309), and (3) a `### Documentation Needed` level-3 heading (issue #380). Both Phase 4.1
 # Stage 1 (pre-flight briefing) and Stage 2 (post-hoc diff gate) consume THIS
 # output rather than re-deriving paths by LLM prose interpretation — so the two
 # passes can never disagree about which paths were named (issue #185 Addendum).
 #
 # Extraction is intentionally deterministic and scoped:
-#   * scope — only the text between the `**Documentation Needed**` bullet (either
-#     a `- **…**` list item OR a bare blank-line-preceded `**…**` bold paragraph,
-#     the shape an LLM-drafted `## Implementation Notes` section — and the real
-#     issue #304 body — uses; issue #309) and the next top-level bold bullet of
-#     the same two shapes, or the next `## ` heading (or EOF). A bold-emphasis
+#   * scope — only the text between the Documentation Needed opener (a `- **…**`
+#     list item, a bare blank-line-preceded `**…**` bold paragraph — the shape an
+#     LLM-drafted `## Implementation Notes` section, and the real issue #304 body,
+#     uses; issue #309 — OR a `### Documentation Needed` level-3 heading, issue
+#     #380) and the next top-level bold bullet of the same shapes, the next `## `
+#     heading, or (for a heading-opened scope) the next level-3+ heading (or EOF).
+#     A `### Documentation Needed` heading only opens inside `## Implementation
+#     Notes`; a deeper `#### …` heading or a bullet that merely mentions the label
+#     does not open. A bold-emphasis
 #     span that only begins a wrapped CONTINUATION line inside the bullet (no
 #     `- `, not blank-preceded) does NOT close the scope, so paths on wrapped
 #     lines are still captured. Two adjacent-grammar shapes are handled per
@@ -104,6 +110,33 @@ block="$(printf '%s\n' "$body" | awk -v extre="$doc_ext_alt" '
   /^## / {
     state = ($0 ~ /^## Implementation Notes[[:space:]]*$/) ? 1 : 0
     prev_blank = 1           # a heading is a block boundary: the next line begins a new paragraph
+    next
+  }
+  # A level-3-or-deeper Markdown heading (### … and deeper — `###+` is unbounded;
+  # Markdown itself caps headings at ######, but the opener anchors to level 3). The
+  # `### Documentation Needed` heading is a THIRD scope-opening shape (issue #380):
+  # an issue whose `## Implementation Notes` section renders the deliverables under a
+  # `### Documentation Needed` SUBHEADING (the real issue #363 body) matched NOTHING
+  # under the `- **…**` list / bare-bold-paragraph openers, silently skipping the
+  # Phase 4.1 gate — the same fail-open the #309 bare-paragraph widening fixed for a
+  # different shape. Only INSIDE Implementation Notes (state>=1), so a
+  # `### Documentation Needed` under any OTHER section never opens (heading-outside
+  # -Implementation-Notes case). `emitted` is reset on a fresh open (symmetric with
+  # the bold openers above) so the Shape 2 trailing-prose close can still tell a
+  # captured deliverable from a primary prose declaration. Any OTHER level-3+ heading
+  # CLOSES an open scope (2 -> 1) so later-subsection paths never leak — the
+  # heading-form analogue of the `## ` and peer-bullet closers. The open-match is
+  # anchored to `^###[[:space:]]+…Documentation Needed` (exactly level 3), so a
+  # heading that merely deepens (`#### …`) takes the close arm, and a bullet line
+  # that only MENTIONS the label in its prose never matches `^###+ ` at all.
+  /^###+ / {
+    if (state >= 1 && $0 ~ /^###[[:space:]]+\*{0,2}Documentation Needed/) {
+      if (state != 2) emitted = 0
+      state = 2
+    } else if (state == 2) {
+      state = 1
+    }
+    prev_blank = 1
     next
   }
   # A bold BULLET opens the Documentation Needed scope (when its label is

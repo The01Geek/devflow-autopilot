@@ -392,8 +392,13 @@ loop (`skills/review-and-fix/SKILL.md` Step 3). First, **bake the half-revert in
 mutation-check run once by hand proves the pin caught the regression only at authoring time, so the pin
 must instead be expressed through the framework's *removal-proof assertion* — the assertion form that
 itself proves *PASS with the pinned text → FAIL without it* — so the check re-runs on every suite
-execution (`assert_pin_red_on_removal` is this repo's removal-proof form — it drives an
-`assert_pin_unique` probe over the text-removed file and asserts the PASS→FAIL transition). Second, **confirm the guard
+execution (`assert_pin_red_on_removal` is this repo's whole-line removal-proof form — it drives an
+`assert_pin_unique` probe over the text-removed file and asserts the PASS→FAIL transition). For a
+**behavioral-fix** pin, #375 mandates the stronger mutation-taking sibling `assert_pin_red_under`
+(`name literal mutation [file]`): it applies a specific `sed -E` regression — one that deletes *only*
+the operative sentence — to a scratch copy and asserts the pin flips PASS→FAIL under *that* mutation,
+so a framing-only pin the operative mutation leaves present-and-unique is reported RED for vacuity —
+a discrimination whole-line removal cannot make. Second, **confirm the guard
 registered**: a green suite is not evidence a guard *ran*, so after adding any guard, confirm its named
 assertion appears in the run as a PASS *and* that the suite's assertion count rose by what was added — a
 guard that silently no-ops (an assertion helper invoked before it is defined, a test file the runner

@@ -186,13 +186,22 @@ jobs:
       pr_number: ${{ steps.route.outputs.pr_number }}
       head_sha: ${{ steps.route.outputs.head_sha }}
       # Non-empty ONLY when a #304 precondition deferred the review (values:
-      # behind-base | ci-not-green | unverifiable). create_check widens its
+      # behind-base | ci-not-green | ci-approval-required | unverifiable).
+      # create_check widens its
       # gate on it so the required check is still posted — pre-completed
       # neutral with the "waiting" title, in one POST — and finalize_check is
       # deliberately skipped (see its if:). Every pre-existing
       # should_run=false path (dedupe loser, draft, unauthorized, exactly-once)
       # leaves it empty and still posts NO check — unchanged behavior.
       skip_reason: ${{ steps.route.outputs.skip_reason }}
+      # The deferral check-run TITLE for the skip_reason above, computed here (issue
+      # #389) by the `title` step via scripts/describe-skip-title.sh. precheck already
+      # checks out the repo and runs helpers (derive-review-preconditions.sh) the same
+      # vendored-first way, so the helper is reachable here — whereas create_check has
+      # NO checkout, so it consumes this precomputed output instead of invoking the
+      # helper (which would be absent in its empty workspace). Empty unless skip_reason
+      # is non-empty (the `title` step's if:).
+      skip_title: ${{ steps.title.outputs.skip_title }}
     steps:
       - uses: actions/checkout@v6
       - id: cfg
@@ -756,6 +765,37 @@ jobs:
           emit pr_number "$PR"
           emit head_sha "$HEAD"
           echo "::notice::First reviewable event ($CR_ACTION) for PR #$PR; auto-triggering Devflow Review at $HEAD."
+      # Compute the deferral check-run TITLE from the skip reason via the extracted
+      # helper (issue #389). Runs here in precheck — which already checked out the repo
+      # above and reaches helpers the same vendored-first way derive-review-preconditions
+      # does — because create_check has NO checkout and so cannot invoke the helper file
+      # itself; it consumes this as the skip_title output. Gated on a non-empty
+      # skip_reason so it is a no-op on the normal (review-runs) path. The helper carries
+      # the honesty rule; the title must never assert a state the precheck did not
+      # observe. Invoked leading-token, vendored path first; verify the OUTCOME
+      # (non-empty), never asserting a specific state on a missing/broken helper.
+      - id: title
+        if: steps.route.outputs.skip_reason != ''
+        env:
+          SKIP_REASON: ${{ steps.route.outputs.skip_reason }}
+        run: |
+          set -euo pipefail
+          DST=.devflow/vendor/devflow/scripts/describe-skip-title.sh
+          [ -x "$DST" ] || DST=scripts/describe-skip-title.sh
+          TITLE=""
+          # if/then (not an `&&` list): under set -e, a present-but-broken helper that
+          # exits non-zero as the FINAL command of an && list would abort this step,
+          # fail precheck, and skip create_check (no always()) — the deferral check
+          # would never post. The if-form degrades to the generic fallback below
+          # instead (same idiom as preconditions_ok's `if ! pre=$(...)` above).
+          if [ -x "$DST" ]; then TITLE=$("$DST" "$SKIP_REASON") || TITLE=""; fi
+          # Degraded path: name the OBSERVED skip reason in the fallback title (it was
+          # positively observed, so including it honors the honesty rule) and leave a
+          # ::warning:: breadcrumb, so an operator learns why the review deferred
+          # without opening this log, and the helper breakage is loud.
+          if [ -z "$TITLE" ]; then echo "::warning::devflow review precheck: describe-skip-title.sh missing, not executable, or produced no usable output for skip reason '${SKIP_REASON}' — posting the generic deferral title"; fi
+          [ -n "$TITLE" ] || TITLE="Devflow review waiting: precondition not met (reason: ${SKIP_REASON}; describe-skip-title.sh missing or produced no output)"
+          echo "skip_title=$TITLE" >> "$GITHUB_OUTPUT"
 
   create_check:
     needs: precheck
@@ -784,6 +824,12 @@ jobs:
           HEAD_SHA: ${{ needs.precheck.outputs.head_sha }}
           RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
           SKIP_REASON: ${{ needs.precheck.outputs.skip_reason }}
+          # The deferral title, precomputed by precheck's `title` step via
+          # scripts/describe-skip-title.sh (issue #389). create_check has NO checkout,
+          # so it cannot invoke the helper file itself — it consumes the precomputed
+          # output. Non-empty whenever SKIP_REASON is (precheck's title step guarantees
+          # it); the fallback below covers a lost/empty output defensively.
+          SKIP_TITLE: ${{ needs.precheck.outputs.skip_title }}
         run: |
           set -euo pipefail
           if [ -n "${SKIP_REASON:-}" ]; then
@@ -798,18 +844,16 @@ jobs:
             # branch-freshness gate is a cost optimization; pair it with
             # branch protection's "require branches up to date" if staleness
             # must block).
-            # behind-base / ci-not-green / ci-approval-required are
-            # POSITIVELY-OBSERVED conditions; unverifiable means a precondition
-            # query failed — the title must never assert a state the script did
-            # not observe (a user who rebases in response to a false "behind
-            # base" fixes nothing).
-            case "$SKIP_REASON" in
-              behind-base)  TITLE='Devflow review waiting: branch behind base' ;;
-              ci-not-green) TITLE='Devflow review waiting: other CI not green' ;;
-              ci-approval-required) TITLE='Devflow review waiting: CI approval required' ;;
-              unverifiable) TITLE='Devflow review waiting: preconditions unverifiable (API query failed — see the precheck log)' ;;
-              *)            TITLE='Devflow review waiting: precondition not met' ;;
-            esac
+            # The SKIP_REASON -> TITLE selection AND its honesty rule (never assert a
+            # state the precheck did not observe) live in describe-skip-title.sh (issue
+            # #389), so lib/test/run.sh can drive every arm and its order: a reordered
+            # `case` or a glob typo there would misattribute the deferral title while the
+            # workflow still ran clean. It is invoked (leading-token) by precheck's
+            # `title` step, NOT here — create_check has no checkout, so the helper file
+            # is absent in its workspace. Consume the precomputed skip_title output;
+            # verify the OUTCOME (non-empty), falling back to the generic title (never a
+            # specific unobserved state) if the output is somehow empty.
+            TITLE="${SKIP_TITLE:-Devflow review waiting: precondition not met (skip_title unavailable from precheck)}"
             SUMMARY='This PR is not yet in a reviewable state, so the review was deferred (not run). It auto-re-triggers when the branch is updated, or when a CI workflow named in this workflow'"'"'s workflow_run trigger list (or an external check_suite CI, or a legacy commit status transitioning to success) completes. If your CI workflow is not in that list, or a signal is permanently stuck (a forever-pending status), click Re-run on this check once CI is green to force a review of the current HEAD. See docs/workflow-triggers.md for the deferral and re-trigger policy.'
             # De-duplicate repeated deferral re-evaluations. A branch that
             # stays behind base (or whose CI stays red) across several
@@ -820,7 +864,13 @@ jobs:
             # (title): look one up and PATCH it in place, refreshing its
             # details_url/summary; only POST when none exists. Same head +
             # same title = same deferral, so refreshing (not duplicating) is
-            # correct. Match the title in bash (not in --jq, which gh api does
+            # correct. Known trade-off: the degraded-path fallback titles (the
+            # precheck title step's and the ${SKIP_TITLE:-...} default above)
+            # carry diagnostic suffixes that differ from the helper's canonical
+            # titles, so a repo oscillating between healthy and degraded helper
+            # states posts per-spelling checks instead of PATCHing one — the
+            # diagnostic value wins over dedupe convergence on that rare path.
+            # Match the title in bash (not in --jq, which gh api does
             # not let us parameterize with --arg) over the id+title pairs of
             # every neutral 'Devflow Review' check on this head. Best-effort:
             # a lookup failure leaves REUSE_ID empty and falls through to the

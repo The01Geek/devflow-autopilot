@@ -55,6 +55,10 @@ Dispatch a `general-purpose` subagent, filling the template at [code-reviewer.md
 - Note Minor issues for later
 - Push back if reviewer is wrong (with reasoning)
 
+## State Mutation Evidence for the Tests You Present
+
+When the change you send for review adds or alters tests, a green run is not evidence those tests *work* — a vacuous test passes too. State the **mutation evidence** for each test you present: which behavior you broke to confirm the test fails, and that it failed for the reason it pins. A review request that presents new or changed tests without their mutation evidence asks the reviewer to trust a green suite that may be asserting nothing.
+
 ## Example
 
 ```

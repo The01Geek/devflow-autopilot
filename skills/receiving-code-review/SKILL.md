@@ -53,6 +53,8 @@ Before declaring the review findings addressed:
 3. Run the project's test suite. Attempt the direct/local invocation first; restrict the CI fallback to a genuine sandbox or permission denial — never when the suite runs but fails. When using the CI fallback, actively wait to observe CI go green (submitting a push is not the same as observing green); do not claim completion until CI confirms green. Record the local-skip reason as an auditable note.
 4. Only after all three pass, claim completion.
 
+**Mutation-check every test the change adds or alters before claiming completion.** A green suite is necessary but not sufficient for a *guard* — a drift/sync assertion, a coverage pin, a regression test pinning a literal or contract — because a vacuous guard passes too. So mutation-check every new test before completion is claimed: break the behavior it pins (delete the line or block it asserts, or flip the condition) **on a copy of the file, never the working-tree file in place**, run the project's test suite against that copy, and confirm the test fails **for the reason it pins** — not merely that something went red. Then discard the copy. A test you never saw fail proves nothing; working on a copy means an interrupted mutation can never leave the real file broken.
+
 This gate applies in both interactive sessions and the autonomous `/devflow:review-and-fix` fix loop. In the loop, the fix step runs tests and the review engine re-runs each iteration to re-check whether every finding is resolved — no additional step 8 invocation is needed at the APPROVE claim.
 
 ## Stop When the Verdict Is Already Non-Blocking
@@ -321,9 +323,23 @@ A fix is not a lower-stakes edit than the code it corrects — it is fresh code,
 
 The reason to do this *now*, before claiming done, is cost: a defect you catch in your own fix delta costs nothing, one that reaches the next review pass costs a whole iteration, and one that slips the pass ships. Don't lean on a later review — or on an automated fix-delta gate, if your loop has one — to find a defect your fix introduced. Write it right the first time.
 
+## Negative Tests: Attribute the Rejection
+
+A negative test — one asserting that a bad input is *rejected* — is meaningful only if it is rejected for the reason it names. Two failure modes make such a test pass while proving nothing:
+
+- **Rejection from an unrelated precondition.** The fixture trips an earlier guard — a missing section, an absent field, a malformed shape — and the call fails *before* it ever reaches the guard under test. The test is green; the guard it names was never exercised.
+- **Rejection from the wrong guard.** More than one guard can reject the input, and a *different* one fires first. A test that asserts only the exit code and the absence of output stays green even against a mutant that disables the very guard it was written to protect.
+
+Two rules close both holes:
+
+- **Attribute the rejection.** A negative test asserts *why* the call failed, pinning the rejecting guard's own distinct signal whenever more than one guard can reject the input — its specific message, error code, or breadcrumb, not merely that the call failed. A bare exit-code-and-no-output assertion cannot tell the guard under test from a precondition ten lines away.
+- **Carry a positive control on the same fixture.** A negative test carries a positive control on the same fixture, so a rejection from an unrelated precondition cannot masquerade as the rejection under test — a companion assertion that the fixture is otherwise valid and the call would succeed but for the one property under test. Without it, an earlier guard silently rejecting the fixture reads as a passing negative test.
+
 ## Share the Contract: Parse, Don't Validate
 
-When a fix adds a guard or validator protecting a **downstream consumer** (a parser, a `strptime`, a JSON decode, a type-narrowing op), **prefer using that consumer as the guard itself** rather than writing a separate validator that *approximates* the consumer's contract.
+**This is a rule that fires on the event of writing a guard — not standing advice to recall later.** The moment you are about to add a guard or validator protecting a **downstream consumer** (a parser, a `strptime`, a JSON decode, a type-narrowing op), the trigger fires and you do two things in order. First, **name the downstream operation the guard protects, in the code, before writing the predicate** — then write the guard *as* that operation rather than a predicate that approximates it. Second, **before writing any new predicate over a string or shape, grep the file for an existing idiom doing the same job** — the correct operation often already sits a few lines away, and re-deriving it by hand is exactly how a guard's accepted-input set drifts wider than its consumer's.
+
+Concretely: **prefer using that consumer as the guard itself** rather than writing a separate validator that *approximates* the consumer's contract.
 
 ```
 IF a fix needs to guard input before a downstream operation:

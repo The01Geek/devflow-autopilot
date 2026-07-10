@@ -97,9 +97,14 @@ assert_eq() {
 # the captured value and the fallback coincide, so the result is a single clean `0` either
 # way (no double-"0"). An absent literal thus yields a clean 0 (the helper below then fails
 # it as non-unique, not as a pass).
+# The literal is passed to `grep -oF` after an explicit `--` (end-of-options): a literal that
+# begins with `-`/`--` (e.g. a `--tick-progress` flag pin) would otherwise be parsed as grep
+# options and error out to a spurious 0, silently misreading a present literal as absent. With
+# the `--` guard, pin_count (and therefore assert_pin_unique below) accepts a flag-shaped
+# literal — the case that previously forced a hand-guarded raw `grep -qF --` at the call site.
 pin_count() {  # literal file -> prints occurrence count (always a single integer)
   local n
-  n="$(grep -oF "$1" "$2" 2>/dev/null | grep -c .)" || n=0
+  n="$(grep -oF -- "$1" "$2" 2>/dev/null | grep -c .)" || n=0
   printf '%s\n' "${n:-0}"
 }
 
@@ -156,7 +161,8 @@ assert_pin_unique() {  # name literal file
 # inline marker. A deliberate, documented escape hatch — NOT a substitute for
 # assert_pin_unique on a plain unique presence pin.
 grep_present() {  # literal file -> echoes yes if present, no otherwise
-  grep -qF "$1" "$2" && echo yes || echo no
+  # `--` guards a flag-shaped literal from being parsed as grep options, matching pin_count (#374).
+  grep -qF -- "$1" "$2" && echo yes || echo no
 }
 
 # Run a single assertion function against an ISOLATED results file and echo its verdict
@@ -1093,6 +1099,48 @@ assert_eq "sev(rcv): vendored body has no repo-specific test path (lib/test/run.
 assert_eq "sev(rcv): vendored body has no repo-specific CI job name (lib + python tests)" "no" "$(grep -qF 'lib + python tests' "$ST_RCV" && echo yes || echo no)"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "review live-comment seeding: rc-2 arm screens an interpreter-level exit 2 (#384)"
+# ────────────────────────────────────────────────────────────────────────────
+# skills/review/SKILL.md seeds its live progress comment by branching on workpad.py `id`'s
+# exit code, where rc 2 means cmd_id's clean-absence "first write → create". But rc 2 is
+# NOT cmd_id's alone: python3 also exits 2 when it cannot open the script ([Errno 2] on a
+# partial vendor copy; [Errno 13] on an unreadable one) and argparse exits 2 on a usage
+# error (the `id` subcommand declares `issue` as type=int, so a non-numeric PR number lands
+# there). Any of those, misread as "first write", would wrongly take the create arm. Three
+# coupled screens keep that arm reachable ONLY from cmd_id's own SILENT sys.exit(2). Pin
+# each so deleting one goes RED independently of the others — AC5's requirement that the
+# readable-path check and the stderr discriminator each fail on their own (and vice versa).
+# (S1) refuse a non-numeric $PR_NUMBER before the id call, so argparse's own rc 2 can't reach it:
+assert_pin_unique "#384 review-seed: non-numeric PR-number guard before the id call" "''|*[!0-9]*)" "$ST_REV"
+# (S2) verify the workpad.py path is a readable file before exec — shares the consumer's own
+# operation as the guard rather than re-deriving python3's open contract. Deleting THIS alone → RED:
+assert_pin_unique "#384 review-seed: readable-path precheck on workpad.py before exec" '[ ! -r "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py ]' "$ST_REV"
+# (S3) stderr discriminator on the rc-2 arm: cmd_id's clean-absence exit is silent, so rc 2
+# with non-empty captured stderr is an interpreter-level exit, never a clean scan. Deleting
+# THIS alone → RED (the vice-versa half of AC5 relative to S2):
+assert_pin_unique "#384 review-seed: rc-2 arm requires empty captured stderr (silent-exit discriminator)" '[ "$?" -eq 2 ] && [ ! -s /tmp/devflow-rv-id.err ]' "$ST_REV"
+# (AC4) the captured id stderr is surfaced on the interpreter-level-rc-2 / rc-1 failure arm,
+# no longer discarded on the (now-unreachable-by-an-interpreter-error) create arm:
+assert_pin_unique "#384 review-seed: failure arm surfaces the rc-2-with-stderr interpreter exit" 'rc 2 with stderr — an interpreter-level exit' "$ST_REV"
+# (S2 distinct-cause) AC2 promises a breadcrumb distinguishing a MISSING ([Errno 2]) from an
+# UNREADABLE ([Errno 13]) workpad.py; pin the unreadable-cause literal so collapsing the
+# two-way breadcrumb into one generic message (while keeping the [ ! -r ] guard) goes RED
+# (review-and-fix iter1 pr-test-analyzer gap):
+assert_pin_unique "#384 review-seed: S2 breadcrumb names the unreadable ([Errno 13]) cause distinctly" 'present but unreadable ([Errno 13])' "$ST_REV"
+# ...and the symmetric MISSING half of AC2's two-way distinction — pin it too so collapsing
+# the [ -e ] split into a message that no longer names the missing case goes RED (shadow
+# pr-test-analyzer: only the unreadable half was pinned):
+assert_pin_unique "#384 review-seed: S2 breadcrumb names the missing ([Errno 2]) cause distinctly" 'not present ([Errno 2]) — a partial vendor copy' "$ST_REV"
+# (S1 surfacing) the non-numeric arm's breadcrumb — pin it so dropping the ::warning:: to a
+# bare WP='' (reintroducing the silent-no-op this fix eliminates) goes RED, giving all four
+# no-op arms symmetric breadcrumb coverage (shadow pr-test-analyzer):
+assert_pin_unique "#384 review-seed: S1 non-numeric arm surfaces a breadcrumb (no silent no-op)" "is not numeric — refusing the workpad.py id call" "$ST_REV"
+# (create-arm guard) the S3 create call is guarded like the id call — a create failure emits
+# a specific breadcrumb rather than a silent WP='' no-op (review-and-fix iter1
+# silent-failure-hunter finding); pin the breadcrumb so removing the guard goes RED:
+assert_pin_unique "#384 review-seed: create arm surfaces a breadcrumb on create failure (no silent no-op)" 'live progress-comment create failed (workpad.py create rc≠0)' "$ST_REV"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "self-contradicting-diff verdict carve-out (Phase 4.2, threshold-independent) (#263)"
 # ────────────────────────────────────────────────────────────────────────────
 # #263 adds a threshold- AND severity-independent carve-out to the shared review
@@ -1430,6 +1478,88 @@ assert_pin_unique "#254: extension carries the tr-dependence guard shape" \
 assert_pin_unique "#254: tr-dependence shape names its #247 reproduction (derived-through-tr slug degrades)" \
   'degrades on a `PATH` without `tr`' "$RAF_EXT"
 
+# ────────────────────────────────────────────────────────────────────────────
+echo "verification discipline for the vendored review skills (#379 / #371 R3,R4,R7)"
+# ────────────────────────────────────────────────────────────────────────────
+# #379 lands generic verification discipline in the two VENDORED bodies (repo-agnostic,
+# they ship into consumer repos) and the repo-specific PR #340 reproductions in the
+# DevFlow prompt extensions. These pins assert the vendored/extension prose; the prose
+# never references these pins (the vendored bodies stay repo-agnostic — AC8). Each literal
+# is target-unique and single-quoted apostrophe-free (per the CLAUDE.md jq/pin gotcha), and
+# each is on ONE physical line of its target (the #375/#371 R5 wrapped-literal hazard). A
+# deleted operative sentence flips assert_pin_unique count 1→0 → RED, which is the AC9
+# mutation-verification for a presence pin.
+RCV379="$LIB/../skills/receiving-code-review/SKILL.md"
+RQ379="$LIB/../skills/requesting-code-review/SKILL.md"
+RAF379="$LIB/../.devflow/prompt-extensions/review-and-fix.md"
+IMPL379="$LIB/../.devflow/prompt-extensions/implement.md"
+
+# AC1 — negative-test attribution rule in receiving-code-review (apostrophe-free tail of the sentence)
+assert_pin_unique "#379(AC1): receiving-code-review states the negative-test attribution rule" \
+  'distinct signal whenever more than one guard can reject the input' "$RCV379"
+# AC2 — positive-control rule (mid-sentence substring; the sentence opens with a capital 'A')
+assert_pin_unique "#379(AC2): receiving-code-review states the positive-control rule" \
+  'carries a positive control on the same fixture, so a rejection from an unrelated precondition cannot masquerade as the rejection under test' "$RCV379"
+# AC3 — mutation-check required before completion, in the Verification Gate
+assert_pin_unique "#379(AC3): receiving-code-review requires a mutation check before completion" \
+  'mutation-check every new test before completion is claimed' "$RCV379"
+assert_eq "#379(AC3): receiving-code-review body mentions 'mutation' at least once" "yes" \
+  "$([ "$(grep -ci mutation "$RCV379")" -ge 1 ] && echo yes || echo no)"
+# AC5 — Share the Contract converted to a fired-on-writing-a-guard trigger (two operative sentences)
+assert_pin_unique "#379(AC5): share-the-contract fires — name the protected operation before the predicate" \
+  'name the downstream operation the guard protects, in the code, before writing the predicate' "$RCV379"
+assert_pin_unique "#379(AC5): share-the-contract fires — grep the file for an existing idiom first" \
+  'before writing any new predicate over a string or shape, grep the file for an existing idiom doing the same job' "$RCV379"
+# AC4 — requesting-code-review requires mutation evidence for presented tests
+assert_pin_unique "#379(AC4): requesting-code-review requires mutation evidence for the tests it presents" \
+  'State the **mutation evidence** for each test you present' "$RQ379"
+assert_eq "#379(AC4): requesting-code-review body mentions 'mutation' at least once" "yes" \
+  "$([ "$(grep -ci mutation "$RQ379")" -ge 1 ] && echo yes || echo no)"
+# AC6 — extension gains shapes 3 (R3) and 4 (R4); preamble count/attribution updated in the same edit
+assert_pin_unique "#379(AC6): extension preamble count/attribution updated (two → four shapes)" \
+  'four repo-specific verification-discipline shapes' "$RAF379"
+assert_pin_unique "#379(AC6): extension carries the R3 vacuous-negative-test guard shape" \
+  'Guard-class shape 3 — vacuous negative test' "$RAF379"
+assert_pin_unique "#379(AC6): R3 shape Flag names the exit-code-and-no-output tell" \
+  'a negative test whose only assertions are the exit code and the absence of output/PATCH' "$RAF379"
+assert_pin_unique "#379(AC6): extension carries the R4 re-derived-consumer-contract guard shape" \
+  'Guard-class shape 4 — re-derived consumer contract' "$RAF379"
+assert_pin_unique "#379(AC6): R4 shape Flag names the hand-derived-predicate tell" \
+  'a new guard/predicate over a string or shape that hand-derives what a nearby parser' "$RAF379"
+# AC11 — each new shape/rule names the PR #340 cost it would have eliminated (3 in the extension)
+assert_eq "#379(AC11): extension records the PR #340 cost eliminated for each of shape 3, shape 4, and the probe rule" \
+  "3" "$(pin_count 'this would have eliminated' "$RAF379")"
+# AC7 — interpreter-faithful probe rule in BOTH extensions (operative half, single-line in each)
+assert_pin_unique "#379(AC7): review-and-fix extension carries the interpreter-faithful probe rule" \
+  'prefer mutation evidence over a hand probe when the two disagree' "$RAF379"
+assert_pin_unique "#379(AC7): implement extension carries the interpreter-faithful probe rule" \
+  'prefer mutation evidence over a hand probe when the two disagree' "$IMPL379"
+assert_pin_unique "#379(AC7): implement extension records the printf %b bash/zsh reproduction" \
+  'Bash expands them; that session' "$IMPL379"
+
+# AC8 — neither vendored body may carry a DevFlow-internal string, each paired with a
+# positive non-vacuity control (a known sentence of the SAME body) so a moved/renamed/empty
+# file cannot vacuously pass the negative check (the #379 R3 positive-control rule applied to
+# these very assertions). The existing sev(rcv) block above already asserts the two negatives
+# for receiving-code-review; here we re-state those two negatives alongside a positive control
+# for it (a deliberate, self-contained AC8 restatement — the two RCV negatives duplicate the
+# sev(rcv) pins), and add the full negatives+control pair for requesting-code-review.
+# (Mirror the sev(rcv) negative-assertion idiom above — an inline `grep -qF … && echo yes ||
+# echo no` over a path held in a variable, NOT grep_present, whose call-site count is pinned
+# to exactly 2 audit-bypass sites.)
+assert_eq "#379(AC8): receiving-code-review has no repo-specific test path (lib/test/run.sh)" "no" \
+  "$(grep -qF 'lib/test/run.sh' "$RCV379" && echo yes || echo no)"
+assert_eq "#379(AC8): receiving-code-review has no repo-specific CI job name (lib + python tests)" "no" \
+  "$(grep -qF 'lib + python tests' "$RCV379" && echo yes || echo no)"
+assert_eq "#379(AC8): receiving-code-review negative-check non-vacuity control (a known sentence is present)" "yes" \
+  "$(grep -qF 'mutation-check every new test before completion is claimed' "$RCV379" && echo yes || echo no)"
+assert_eq "#379(AC8): requesting-code-review has no repo-specific test path (lib/test/run.sh)" "no" \
+  "$(grep -qF 'lib/test/run.sh' "$RQ379" && echo yes || echo no)"
+assert_eq "#379(AC8): requesting-code-review has no repo-specific CI job name (lib + python tests)" "no" \
+  "$(grep -qF 'lib + python tests' "$RQ379" && echo yes || echo no)"
+assert_eq "#379(AC8): requesting-code-review negative-check non-vacuity control (a known sentence is present)" "yes" \
+  "$(grep -qF 'State the **mutation evidence** for each test you present' "$RQ379" && echo yes || echo no)"
+
 # Drift guard: the park-calibration gate is the lenient-verdict catch — it re-reads
 # parked findings against three generic under-grade shapes before the review-and-fix
 # loop concludes on an APPROVE-family verdict, so every review-and-fix-engine consumer
@@ -1613,6 +1743,23 @@ assert_eq "AC3(a3): pin_count still matches the exact metachar literal as a fixe
   "1" "$(pin_count 'a.c' "$PINPROBE_RE")"
 rm -f "$PINPROBE_RE"
 #
+# AC3(a4) (#374): pin_count passes its literal to `grep -oF` after an explicit `--`, so a
+# literal that BEGINS with `-`/`--` (a flag-shaped pin such as `--tick-progress`) counts as a
+# search pattern, not grep options. Without the `--`, `grep -oF "--foo"` parses `--foo` as an
+# (invalid) long option, errors to stdout-empty, and the count collapses to 0 — silently
+# misreading a present flag literal as absent. This is a self-contained mutation proof: drop the
+# `--` from pin_count's `grep -oF` and this assertion goes RED (the count reads 0, not 3). Uses a
+# same-line double occurrence so it also confirms the `--`-guarded path still counts occurrences.
+# (Only the count-3 assertion is a mutation proof — an *absent* --leading literal reads 0 with or
+# without the `--` (a clean no-match with the `--`; a suppressed grep option-parse error without
+# it), so it would not discriminate the mutation and is omitted; the absent-literal→0 property is
+# already pinned by AC3(a) above.)
+PINPROBE_DASH="$(probe_tmp 'AC3(a4) leading-dash-literal setup')"
+printf -- '--tick-progress here --tick-progress\n--tick-progress alone\n' > "$PINPROBE_DASH"
+assert_eq "AC3(a4): pin_count counts a --leading literal via the explicit -- guard (not parsed as grep options)" \
+  "3" "$(pin_count '--tick-progress' "$PINPROBE_DASH")"
+rm -f "$PINPROBE_DASH"
+#
 # AC3(b): the meta-test detects a raw SKILL guard injected into the region. Inject a line
 # carrying `grep -qF` + a `_SKILL` var right after the BEGIN marker of a temp copy; the
 # injected text is passed via awk -v (no \x escapes) to stay portable to BSD/mawk.
@@ -1717,15 +1864,122 @@ rm -f "$PINPROBE_EMPTY"
 assert_pin_red_on_removal() {  # name literal [file]   (file defaults to $MAXI_SKILL)
   local t file="${3:-$MAXI_SKILL}" before after; t="$(probe_tmp "$1 (removal setup)")" || return 0
   before="$(probe_assert assert_pin_unique 'probe-present' "$2" "$file")"
-  grep -vF "$2" "$file" > "$t"
+  # `--` guards a flag-shaped literal from grep option-parsing, matching pin_count (#374) — so
+  # the removal step stays consistent with the guarded pin_count-routed presence probe above.
+  grep -vF -- "$2" "$file" > "$t"
   after="$(probe_assert assert_pin_unique 'probe-removal' "$2" "$t")"
   assert_eq "$1" "PASS->FAIL" "$before->$after"
   rm -f "$t"
 }
+# ── #375 assert_pin_red_under: the MUTATION-TAKING pin primitive ──────────────
+# assert_pin_red_on_removal above deletes the pinned literal's whole physical LINE (grep -vF)
+# and re-checks uniqueness. That proves only that the pin notices its OWN line vanishing — for
+# ANY present-and-unique literal it reports PASS->FAIL, whether that line is the operative
+# mechanism or a motivating framing header (issue #370 Rec 3 demonstrated this vacuity directly).
+# assert_pin_red_under instead applies a SPECIFIC regression <mutation> (a `sed -E` program) to a
+# scratch copy and asserts the named pin flips PASS->FAIL under THAT regression. A pin on a
+# framing clause the operative mutation leaves present-and-unique stays PASS after the mutation,
+# so the transition is PASS->PASS and this helper's own assert_eq FAILs — the vacuity is REPORTED,
+# not hidden. This is the primitive issue #375's behavioral-fix-pin rule (and Wave 2 #376's sweep
+# pins) express their pins through, so a framing pin fails at authoring time, not in a later shadow.
+# Contract (mirrors assert_pin_red_on_removal's probe_tmp scratch + probe_assert transition shape):
+#   - copies <file> (default $MAXI_SKILL, like assert_pin_red_on_removal) to a probe_tmp scratch file;
+#   - applies <mutation> to the copy with `sed -E` (the mutation side carries the regex power, so the
+#     LITERAL side stays a fixed string matched by assert_pin_unique/pin_count's -F);
+#   - if the mutated copy is byte-identical to the original (`cmp -s`), records a FAIL naming the
+#     no-op — a mutation that changes nothing would make EVERY pin "pass" vacuously, so it is never
+#     a vacuous pass here;
+#   - otherwise asserts the full PASS->FAIL transition of assert_pin_unique on <literal> between the
+#     REAL file (before) and the mutated copy (after) via probe_assert, so a framing-only pin (still
+#     present-and-unique post-mutation → PASS->PASS) is reported RED here.
+# probe_tmp is fail-closed (records a suite FAIL + returns /dev/null on mktemp failure — self-tested
+# at the git_sandbox/probe_tmp blocks above), and this helper's `|| return 0` inherits that: a
+# temp-alloc failure records a FAIL, never a vacuous pass.
+assert_pin_red_under() {  # name literal mutation [file]   (file defaults to $MAXI_SKILL)
+  local name="$1" literal="$2" mutation="$3" file="${4:-$MAXI_SKILL}" t before after
+  t="$(probe_tmp "$name (mutation setup)")" || return 0
+  # Check sed's own exit status: a MALFORMED mutation program (unbalanced `[`, bad
+  # backreference) errors, writes nothing, and `> "$t"` truncates the copy to EMPTY — which
+  # would then read as a spurious PASS->FAIL (before present, after absent-because-empty),
+  # a green from the file being blanked rather than the operative line being removed. Record
+  # a FAIL naming the broken mutation instead — a mutation that cannot run is never a pass.
+  if ! sed -E "$mutation" "$file" > "$t" 2>/dev/null; then
+    echo FAIL >> "$RESULTS_FILE"
+    printf '  FAIL  %s\n         mutation sed program errored (not a valid regression) — a broken mutation is never a vacuous pass\n         mutation: %s\n         file: %s\n' \
+      "$name" "$mutation" "$file"
+    rm -f "$t"
+    return 0
+  fi
+  if cmp -s "$file" "$t"; then
+    echo FAIL >> "$RESULTS_FILE"
+    printf '  FAIL  %s\n         mutation was a NO-OP (mutated copy byte-identical to original) — a mutation that changes nothing is never a vacuous pass\n         mutation: %s\n         file: %s\n' \
+      "$name" "$mutation" "$file"
+    rm -f "$t"
+    return 0
+  fi
+  before="$(probe_assert assert_pin_unique 'probe-present' "$literal" "$file")"
+  after="$(probe_assert assert_pin_unique 'probe-mutated' "$literal" "$t")"
+  assert_eq "$name" "PASS->FAIL" "$before->$after"
+  rm -f "$t"
+}
+# #375 self-tests (synthetic fixtures, probed via probe_assert so the intentional REDs never hit
+# the suite tally): the operative-vs-framing discrimination is the whole reason the helper exists.
+PRU_FX="$(probe_tmp '#375 assert_pin_red_under fixture setup')"
+printf 'PRU_OPERATIVE the fix lives on this line\nPRU_FRAMING this sentence merely introduces the fix\n' > "$PRU_FX"
+# Operative pin: the operative mutation (delete only the operative line) removes the pinned text →
+# assert_pin_unique goes PASS->FAIL → assert_pin_red_under reports PASS.
+assert_eq "#375 assert_pin_red_under: operative pin flips PASS->FAIL under the operative mutation (PASS)" \
+  "PASS" "$(probe_assert assert_pin_red_under 'op' 'PRU_OPERATIVE the fix lives on this line' '/PRU_OPERATIVE/d' "$PRU_FX")"
+# Framing pin: the SAME operative mutation leaves the framing line present-and-unique → PASS->PASS →
+# the transition assertion FAILs. This is the vacuity assert_pin_red_on_removal cannot report.
+assert_eq "#375 assert_pin_red_under: framing pin stays present-and-unique under the operative mutation → vacuity reported (FAIL)" \
+  "FAIL" "$(probe_assert assert_pin_red_under 'frame' 'PRU_FRAMING this sentence merely introduces the fix' '/PRU_OPERATIVE/d' "$PRU_FX")"
+# No-op mutation (matches nothing → byte-identical copy) records a FAIL, never a vacuous pass.
+assert_eq "#375 assert_pin_red_under: a no-op mutation (byte-identical copy) records FAIL" \
+  "FAIL" "$(probe_assert assert_pin_red_under 'noop' 'PRU_OPERATIVE the fix lives on this line' 's/ZZZ_NEVER_MATCHES/x/' "$PRU_FX")"
+# Absent literal: the before-probe is already FAIL (count 0), so the transition is FAIL->… , never
+# PASS->FAIL → reported FAIL. This closes the vacuity where a never-present literal would look "red".
+assert_eq "#375 assert_pin_red_under: a literal absent from the real file yields the before-FAIL transition mismatch (FAIL)" \
+  "FAIL" "$(probe_assert assert_pin_red_under 'absent' 'PRU_NEVER_PRESENT' '/PRU_OPERATIVE/d' "$PRU_FX")"
+# Malformed sed mutation (unbalanced `[`): sed errors, blanks the copy — WITHOUT the sed-rc
+# check this would read as a spurious PASS->FAIL (before present, after absent-from-empty). The
+# rc check records a FAIL instead. This is the RED-direction proof for the sed-error arm.
+assert_eq "#375 assert_pin_red_under: a malformed sed mutation records FAIL (no spurious green from a blanked file)" \
+  "FAIL" "$(probe_assert assert_pin_red_under 'badsed' 'PRU_OPERATIVE the fix lives on this line' '/[/d' "$PRU_FX")"
+rm -f "$PRU_FX"
+# Metachar round-trip: a pinned literal carrying regex metacharacters AND a sed-delimiter char
+# (`a.c/[x]`) is matched as a FIXED string by assert_pin_unique (-F), while the mutation's `sed -E`
+# regex (`/a\.c/d`) carries the pattern power — the operative separation the AC3(a3) probe pins for
+# pin_count, re-proven end-to-end through the primitive.
+PRU_META="$(probe_tmp '#375 assert_pin_red_under metachar setup')"
+printf 'operative token a.c/[x] on this line\nunrelated framing line\n' > "$PRU_META"
+assert_eq "#375 assert_pin_red_under: a pinned literal carrying regex+sed-delimiter metachars round-trips (fixed-string match; mutation flips it PASS->FAIL)" \
+  "PASS" "$(probe_assert assert_pin_red_under 'meta' 'a.c/[x]' '/a\.c/d' "$PRU_META")"
+rm -f "$PRU_META"
+#
 assert_pin_red_on_removal "AC3(c): deleting the Step 2.6 sentinel contract turns its pin RED" \
   'park-calibration gate clean: no parked finding matched'
 assert_pin_red_on_removal "AC3(d): narrowing the mutation-check rule back to fix-only turns its pin RED" \
   'any added or edited test guard in the diff'
+# #374: the mutation-check discipline is COPY-BASED, never destructive — both coupled sites
+# (review-and-fix Step 3, and the implement skill's Phase 2.3 test-guard rule) must instruct
+# mutating a COPY of the file rather than an in-place "break then restore" that a crash could
+# leave broken. Behavioral-fix pin: the operative sentence is the copy-based directive whose
+# removal alone re-admits the destructive in-place restore; pin that exact substring at each
+# site, mutation-proven (PASS with it → FAIL without it). Coupled mirror — one edit updates both.
+_MC_COPYBASED='on a copy of the file — never edit the working-tree file in place'
+assert_pin_red_on_removal "#374 copy-based mutation-check: review-and-fix instructs mutating a copy, never the working-tree file in place" \
+  "$_MC_COPYBASED"
+assert_pin_red_on_removal "#374 copy-based mutation-check: implement Phase 2.3 test-guard rule instructs mutating a copy, never the working-tree file in place" \
+  "$_MC_COPYBASED" "$DEF_SKILL"
+# #374: both sites must also state that `git checkout -- <file>` cannot restore an UNTRACKED
+# file and silently appears to succeed (the fabricated-RED failure mode from issue #372).
+# Same coupled-mirror shape as _MC_COPYBASED: one shared operative literal, pinned at each site.
+_MC_UNTRACKED='`git checkout -- <file>`: it cannot restore an untracked file and silently appears to succeed'
+assert_pin_red_on_removal "#374 untracked-file warning: review-and-fix states git checkout cannot restore an untracked file" \
+  "$_MC_UNTRACKED"
+assert_pin_red_on_removal "#374 untracked-file warning: implement Phase 2.3 states git checkout cannot restore an untracked file" \
+  "$_MC_UNTRACKED" "$DEF_SKILL"
 # #254 post-shadow gate removal-proofs (the assert_pin_unique presence pins are up in the
 # max_iterations/review-and-fix block; these removal-proofs must sit below the helper def).
 assert_pin_red_on_removal "#254: post-shadow gate logs-only exemption flips RED on removal" \
@@ -2692,32 +2946,27 @@ assert_pin_red_on_removal "#167 core-mp: deleting the false-positive-shape exclu
 # property, so by its own "at least one pin per operative sentence" rule each DIRECTIVE sentence
 # (the text that tells the implementer what to DO) gets its own removal-proof pin; the
 # definitions/rationale/history that merely elaborate them stay unpinned (pinning every clause
-# is the over-pinning treadmill the issue warns against). assert_pin_red_on_removal (not bare
-# assert_pin_unique) bakes step (c) of the rule — "half-revert and confirm RED" — into the
-# suite permanently, instead of leaving it a one-time authoring act. ($DEF_SKILL = the implement
-# SKILL.md; defined at the top of this file.)
+# is the over-pinning treadmill the issue warns against). ($DEF_SKILL = the implement SKILL.md
+# bundle; defined at the top of this file.) #375 update: step (c)/(d) now route through
+# assert_pin_red_under (not a one-time manual half-revert); the old `counterfactually
+# half-revert` step-(c) pin was retired and the (c)/(d) routing + evidence-note directives are
+# pinned in the #375 block below. The operative-vs-framing definition, the at-least-one-pin, and
+# the scope-limiter rules are unchanged and stay pinned here.
 assert_pin_red_on_removal "#186 behavioral-fix-pin: deleting 'pin the operative sentence, not framing' turns its pin RED" \
   'pin the operative sentence, not an adjacent framing clause' "$DEF_SKILL"
-assert_pin_red_on_removal "#186 behavioral-fix-pin: deleting the (a)/(b)/(c) counterfactual procedure turns its pin RED" \
-  'counterfactually half-revert' "$DEF_SKILL"
 assert_pin_red_on_removal "#186 behavioral-fix-pin: deleting the at-least-one-pin-per-operative-sentence rule turns its pin RED" \
   'at least one pin per operative sentence' "$DEF_SKILL"
 assert_pin_red_on_removal "#186 behavioral-fix-pin: deleting the behavioral-fix-pin scope limiter turns its pin RED" \
   'literal constants, token names, count-based guards, absence pins' "$DEF_SKILL"
-# #194: two additions HARDEN the #186 mutation-check guidance — each is its own operative
-# DIRECTIVE sentence, so each gets a removal-proof pin (the rule pins itself). (A) bake the
-# half-revert into the suite via the framework's removal-proof assertion, not a one-time manual
-# act; (B) confirm a newly-added guard REGISTERED — its named assertion appears as PASS and the
-# assertion count rose — because a green suite alone does not prove a guard ran. Both additions
-# are COUPLED across the two skills (implement = $DEF_SKILL, review-and-fix = $MAXI_SKILL), so the
-# same operative literal pins each file; assert_pin_red_on_removal requires it appear exactly once
-# per file. Pinning (B)'s sentence with a *registering* assertion dogfoods the rule it states.
-assert_pin_red_on_removal "#194 (A) implement: deleting the bake-via-removal-proof-assertion directive turns its pin RED" \
-  "your framework's removal-proof assertion" "$DEF_SKILL"
+# #194: the (B) confirm-a-guard-REGISTERED directive — its named assertion appears as PASS AND the
+# assertion count rose — pinned per file (implement = $DEF_SKILL, review-and-fix = $MAXI_SKILL),
+# because a green suite alone does not prove a guard ran. (#194's (A) bake-the-half-revert
+# directive was rewritten by #375 to route through assert_pin_red_under; the old removal-proof
+# wording no longer exists in any target, so its pins were *replaced* — not moved — by the
+# #375-block pins on the new evidence-mechanism literals below.) Pinning (B)'s
+# sentence with a *registering* assertion dogfoods the rule it states.
 assert_pin_red_on_removal "#194 (B) implement: deleting the confirm-guard-registered directive turns its pin RED" \
   'confirm the guard registered' "$DEF_SKILL"
-assert_pin_red_on_removal "#194 (A) review-and-fix: deleting the bake-via-removal-proof-assertion directive turns its pin RED" \
-  "your framework's removal-proof assertion" "$MAXI_SKILL"
 assert_pin_red_on_removal "#194 (B) review-and-fix: deleting the confirm-guard-registered directive turns its pin RED" \
   'confirm the guard registered' "$MAXI_SKILL"
 # (B) is a two-conjunct directive ("named assertion appears as PASS" AND "the assertion
@@ -2741,18 +2990,39 @@ assert_pin_red_on_removal "#194 (B) implement: deleting the named-assertion-appe
   'its named assertion actually appears in the run as a PASS' "$DEF_SKILL"
 assert_pin_red_on_removal "#194 (B) review-and-fix: deleting the named-assertion-appears-as-PASS conjunct turns its pin RED" \
   'its named assertion appears in the run as a PASS' "$MAXI_SKILL"
-# #235 (finding A): the forced per-behavioral-fix-pin operative-sentence NOTE — before writing
-# a behavioral-fix pin the author records a one-line workpad --note naming the operative
-# sentence and asserting the pin literal is a substring of it (the same auditable-commitment
-# idiom as the sweep-selection / test-first notes). COUPLED across the implement skill's Phase
-# 2.3 (phase-2-implement.md, inside $DEF_SKILL) and the review-and-fix fix loop's Step 3 item 4
-# ($MAXI_SKILL), so the same operative literal pins each — a half-revert that drops the
-# directive from either file turns its pin RED. This clause is itself a behavioral-fix pin, so
-# per finding A's own rule the literal targets the operative NOTE directive, not its framing.
-assert_pin_red_on_removal "#235 (A) implement: deleting the forced operative-sentence-note directive turns its pin RED" \
-  'naming the operative sentence and asserting the pin literal is a substring of it' "$DEF_SKILL"
-assert_pin_red_on_removal "#235 (A) review-and-fix: deleting the forced operative-sentence-note directive turns its pin RED" \
-  'naming the operative sentence and asserting the pin literal is a substring of it' "$MAXI_SKILL"
+# #235 (finding A) was the forced per-behavioral-fix-pin NOTE. #375 REPLACED its
+# operative-sentence-substring attestation with an EVIDENCE note (record the mutation you ran and
+# the pin observed RED); the replacement's pins live in the #375 block immediately below, so
+# finding A's old substring-attestation pins were retired there.
+#
+# #375: the behavioral-fix-pin rule rewrite. Steps (c)/(d) now route through assert_pin_red_under
+# and the note records EVIDENCE (the mutation run + the pin observed RED), replacing #194 (A)'s
+# "your framework's removal-proof assertion" wording and #235 (A)'s operative-sentence-substring
+# attestation. The rule has THREE coupled homes: the implement skill Phase 2.3 ($DEF_SKILL
+# bundle), the review-and-fix fix loop Step 3 item 4 ($MAXI_SKILL), and DevFlow's prompt
+# extension ($EXT_IMPL). Each operative sentence is pinned through assert_pin_red_under ITSELF —
+# the rewrite's first customer is its own tooling — with a `sed -E` mutation deleting the
+# operative line; the mutation pattern is a metachar-free sub-phrase of that line, so it
+# addresses it cleanly. NOTE these are self-referential *dogfood* pins, not a demonstration of
+# assert_pin_red_under's discrimination over assert_pin_red_on_removal: two of the three targets
+# (phase-2-implement.md, review-and-fix/SKILL.md) hold the whole rule on a single markdown line,
+# so `/phrase/d` there IS a whole-line strip byte-equivalent to assert_pin_red_on_removal's
+# grep -vF (only $EXT_IMPL, hard-wrapped across lines, splits operative from framing). The
+# operative-vs-framing discrimination the primitive adds is proven by the synthetic 'op'/'frame'
+# self-tests near the assert_pin_red_under definition, NOT by these three prose pins.
+EXT_IMPL="$LIB/../.devflow/prompt-extensions/implement.md"
+assert_pin_red_under "#375 (c)/(d) routing directive — implement Phase 2.3 routes the pin through assert_pin_red_under" \
+  'mutation that re-introduces the named bug' '/mutation that re-introduces the named bug/d' "$DEF_SKILL"
+assert_pin_red_under "#375 (c)/(d) routing directive — review-and-fix Step 3 item 4 routes the pin through assert_pin_red_under" \
+  'mutation that re-introduces the named bug' '/mutation that re-introduces the named bug/d' "$MAXI_SKILL"
+assert_pin_red_under "#375 (c)/(d) routing directive — prompt extension states the assert_pin_red_under routing" \
+  'mutation that re-introduces the named bug' '/mutation that re-introduces the named bug/d' "$EXT_IMPL"
+assert_pin_red_under "#375 evidence-note directive — implement Phase 2.3 records the mutation run + the pin observed RED" \
+  'the mutation you ran and the pin you observed go RED' '/the mutation you ran and the pin you observed go RED/d' "$DEF_SKILL"
+assert_pin_red_under "#375 evidence-note directive — review-and-fix Step 3 item 4 records the mutation run + the pin observed RED" \
+  'the mutation you ran and the pin you observed go RED' '/the mutation you ran and the pin you observed go RED/d' "$MAXI_SKILL"
+assert_pin_red_under "#375 evidence-note directive — prompt extension records the mutation run + the pin observed RED" \
+  'the mutation you ran and the pin you observed go RED' '/the mutation you ran and the pin you observed go RED/d' "$EXT_IMPL"
 # #235 (finding B): the Phase 3.3 observability-persistence backstop — after the inline
 # review-and-fix loop returns, verify the run's telemetry artifacts were persisted, run
 # lib/efficiency-trace.sh --persist when they are missing, and record a dropped-failed
@@ -4324,9 +4594,12 @@ assert_eq "implement_pr_state: clean-tree backstop precedes the publish gate (ru
 # so renaming one without the other goes red here.
 WP_PY="$LIB/../scripts/workpad.py"
 # NB: `--` ends grep's option parsing — the pattern begins with `--tick-progress`, which
-# grep would otherwise treat as an (invalid) long option.
+# grep would otherwise treat as an (invalid) long option. pin_count now carries the same `--`
+# guard (#374), so the flag shape is no longer the blocker; this stays a raw presence guard
+# only because the literal is NON-UNIQUE across the bundle (it recurs in phase-4-documentation.md
+# alongside the SKILL.md prose site), which assert_pin_unique (== 1) would reject.
 assert_eq "implement finalize: SKILL ticks the workpad.py-owned 'PR marked ready' label" "yes" \
-  "$(grep -qF -- '--tick-progress "PR marked ready"' "$IMPL_SKILL" && echo yes || echo no)"  # raw-guard-ok: literal begins with --; incompatible with pin_count's unguarded grep -oF
+  "$(grep -qF -- '--tick-progress "PR marked ready"' "$IMPL_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: '--tick-progress "PR marked ready"' recurs across the bundle (SKILL.md prose + phase-4)
 assert_eq "implement finalize: workpad.py owns the 'PR marked ready' label (template + _PROGRESS_PHASES agree)" "yes" \
   "$(grep -qF '**PR marked ready**' "$WP_PY" && grep -qF "'PR marked ready'" "$WP_PY" && echo yes || echo no)"
 
@@ -6404,6 +6677,169 @@ Update \`docs/guide.md\` here."
 assert_eq "#327 Shape 2 fail-open pin: a list item whose only ext token is a rooted path (Stage-B-dropped) does NOT arm the close; the trailing-prose deliverable is captured" \
   "docs/guide.md" \
   "$(printf '%s\n' "$fx_327_arms_rooted" | bash "$EXTRACT_HELPER")"
+
+# ── issue #380: the `### Documentation Needed` HEADING as a third scope-opening ─
+# shape. Bug-class fix — reproduced RED first at authoring time: against today's
+# extractor a heading-form body extracted NOTHING (rc 0, empty stdout — the exact
+# #363 gap that defeated the Phase 4.1 deliverable cross-check). The four W6A
+# fixtures below assert the widened behavior; the coupled-pair + operative-sentence
+# removal-proof pins follow.
+
+# W6A Case 38: a `### Documentation Needed` heading inside `## Implementation Notes`
+# extracts its paths, the same as the equivalent bold-bullet body.
+fx_380_heading="## Implementation Notes
+
+### Documentation Needed
+
+- update \`docs/a.md\`
+- update \`docs/b.md\`"
+assert_eq "#380 W6A heading shape: '### Documentation Needed' body extracts its paths" \
+  "$(printf 'docs/a.md\ndocs/b.md')" \
+  "$(printf '%s\n' "$fx_380_heading" | bash "$EXTRACT_HELPER")"
+
+# W6A Case 39: a heading-opened scope CLOSES at the next heading, so a later
+# subsection's paths never leak.
+fx_380_heading_close="## Implementation Notes
+
+### Documentation Needed
+
+- update \`docs/a.md\`
+
+### Potential Gotchas
+
+names \`docs/leak.md\`."
+assert_eq "#380 W6A heading shape: scope closes at next heading (no leak)" \
+  "docs/a.md" \
+  "$(printf '%s\n' "$fx_380_heading_close" | bash "$EXTRACT_HELPER")"
+
+# W6A Case 40: prose that merely MENTIONS `### Documentation Needed` inside another
+# bullet does NOT open a scope (the line starts with `- `, never `^###`), so a path
+# named in that bullet is not extracted — the heading-form analogue of Case 5.
+fx_380_heading_mention="## Implementation Notes
+
+- **Potential Gotchas** — the \`### Documentation Needed\` heading form is new; do not extract \`docs/leak.md\` mentioned here."
+assert_eq "#380 W6A heading shape: mention inside another bullet does not open scope" \
+  "" \
+  "$(printf '%s\n' "$fx_380_heading_mention" | bash "$EXTRACT_HELPER")"
+
+# W6A Case 41: a `### Documentation Needed` heading OUTSIDE `## Implementation Notes`
+# does not open a scope (the opener is gated on state>=1).
+fx_380_heading_outside="## Technical Context
+
+### Documentation Needed
+
+- update \`docs/should-not.md\`"
+assert_eq "#380 W6A heading shape: heading outside Implementation Notes does not open scope" \
+  "" \
+  "$(printf '%s\n' "$fx_380_heading_outside" | bash "$EXTRACT_HELPER")"
+
+# W6A Case 42 (review pin — discriminating anchor): a DEEPER `#### Documentation Needed`
+# heading does NOT open a scope. The opener is anchored to level 3 (`^###[[:space:]]+…`),
+# so a 4th `#` blocks the `[[:space:]]+` and the line takes the close arm. This pins the
+# exact level-3 discrimination: relaxing the opener to `^###+[[:space:]]+…` (the intuitive
+# "any heading level" generalization) would make `####` open and silently over-extract,
+# and WITHOUT this fixture the whole suite would stay green through that regression.
+fx_380_deeper_noopen="## Implementation Notes
+
+#### Documentation Needed
+
+- update \`docs/should-not.md\`"
+assert_eq "#380 W6A heading shape: a deeper #### Documentation Needed heading does NOT open scope (level-3 anchor)" \
+  "" \
+  "$(printf '%s\n' "$fx_380_deeper_noopen" | bash "$EXTRACT_HELPER")"
+
+# W6A Case 43 (review pin — leak-prevention close path): a deeper `####` sub-heading
+# inside an OPEN `### Documentation Needed` scope CLOSES it (2 -> 1), so a later
+# subsection's paths never leak. Pins the `else if (state == 2) state = 1` close arm on a
+# deeper heading (Case 39 pins only a peer-`###` close); a regression making `####` a
+# no-op fall-through would leak `docs/leak.md`.
+fx_380_deeper_closes="## Implementation Notes
+
+### Documentation Needed
+
+- update \`docs/a.md\`
+
+#### Sub-section
+
+names \`docs/leak.md\`."
+assert_eq "#380 W6A heading shape: a deeper #### sub-heading closes an open ### scope (no leak)" \
+  "docs/a.md" \
+  "$(printf '%s\n' "$fx_380_deeper_closes" | bash "$EXTRACT_HELPER")"
+
+# W6A Case 44 (review pin — bold-tolerance): a bold-wrapped `### **Documentation Needed**`
+# heading opens the scope — the opener's `\*{0,2}` tolerance. Pins the shape the Stage 1
+# safety-net grep's matching `\*{0,2}` (phase-4 §4.1) is coupled to, so the two heading
+# recognizers cannot silently diverge on the bold-in-heading form.
+fx_380_bold_heading="## Implementation Notes
+
+### **Documentation Needed**
+
+- update \`docs/a.md\`"
+assert_eq "#380 W6A heading shape: a bold-wrapped ### **Documentation Needed** heading opens scope" \
+  "docs/a.md" \
+  "$(printf '%s\n' "$fx_380_bold_heading" | bash "$EXTRACT_HELPER")"
+
+# W6A Case 45 (shadow-review pin — the heading arm's `emitted = 0` reset is
+# load-bearing, not vacuous): a MULTI-scope body arms `emitted` in an earlier
+# bold-bullet scope (docs/a.md, a structural deliverable), that scope closes on a
+# peer bullet, then a later `### Documentation Needed` heading re-opens and its
+# reset clears `emitted` so a PRIMARY-PROSE declaration (docs/b.md) is still
+# captured. Cases 38-44 each hold a single scope, so `emitted` is always 0 when the
+# heading opens and deleting the reset leaves them all GREEN; only this multi-scope
+# body makes the reset load-bearing. Verified at authoring time: with the reset the
+# output is {docs/a.md, docs/b.md}; removing the heading-arm `emitted = 0` reset
+# drops docs/b.md to {docs/a.md} — the #289/#309/#327 primary-prose fail-open class,
+# one scope-shape over. Goes RED if the reset is removed.
+fx_380_multiscope="## Implementation Notes
+
+- **Documentation Needed** — update \`docs/a.md\`
+- **Potential Gotchas** — something
+
+### Documentation Needed
+
+Update \`docs/b.md\` to reflect the change."
+assert_eq "#380 W6A heading shape: heading-arm emitted-reset keeps a later primary-prose deliverable (multi-scope, non-vacuous)" \
+  "$(printf 'docs/a.md\ndocs/b.md')" \
+  "$(printf '%s\n' "$fx_380_multiscope" | bash "$EXTRACT_HELPER")"
+
+# W6A coupled pair (AC6): the create-issue template canonically emits the bold-bullet
+# `**Documentation Needed**` form, and the extractor accepts all three shapes. Pin
+# BOTH sites with removal proofs so mutating EITHER alone turns the suite RED — the
+# producer/consumer coupling this issue exists to manage.
+assert_pin_red_on_removal "#380 W6A coupled pair: template emits the canonical bold-bullet Documentation Needed form" \
+  '**Documentation Needed** — what doc updates the change requires.' "$CI312_TMPL"
+assert_pin_red_on_removal "#380 W6A coupled pair: extractor opener accepts the ### Documentation Needed heading shape" \
+  '^###[[:space:]]+\*{0,2}Documentation Needed' "$EXTRACT_HELPER"
+
+# W6A operative-sentence removal proofs (AC8) — every new operative sentence pinned.
+# (Interim primitive assert_pin_red_on_removal; #375's assert_pin_red_under supersedes
+# it once that wave lands.)
+P380_P3="$IMPL_PHASES_DIR/phase-3-review.md"
+P380_P4="$IMPL_PHASES_DIR/phase-4-documentation.md"
+P380_P2="$IMPL_PHASES_DIR/phase-2-implement.md"
+assert_pin_red_on_removal "#380 W6A: §3.4 doc-AC deferral rule leaves it unticked and does not block the gate" \
+  'and does not block the gate' "$P380_P3"
+assert_pin_red_on_removal "#380 W6A: §3.4 rule 1 excludes Phase-4.1-owned doc authoring from its 'do it now' channel" \
+  'This "do it now" channel excludes documentation authoring owned by Phase 4.1' "$P380_P3"
+assert_pin_red_on_removal "#380 W6A: §4.1 requires discharging every 3.4-deferred doc-AC before §4.3 Complete" \
+  'Discharge every 3.4-deferred documentation AC (mandatory, before §4.3)' "$P380_P4"
+assert_pin_red_on_removal "#380 W6A: §4.1 Stage 1 safety-net grep fires on the bold-bullet OR ### heading form (bold-tolerant, mirrors the extractor opener)" \
+  "grep -qE '\\*\\*Documentation Needed\\*\\*|^###[[:space:]]+\\*{0,2}Documentation Needed'" "$P380_P4"
+assert_pin_red_on_removal "#380 W6A: phase-2 cross-references the doc-AC deferral (docs stay Phase-4.1-authored)" \
+  'is why an acceptance criterion satisfied by a' "$P380_P2"
+assert_pin_red_on_removal "#380 W6A: create-issue template Move 3 carries the verified-or-obligation mechanical-claim rule" \
+  'A mechanical claim is verified-or-obligation, never a bare prediction.' "$CI312_TMPL"
+assert_pin_red_on_removal "#380 W6A: create-issue SKILL.md drafting step mirrors the verified-or-obligation rule" \
+  'A mechanical claim is verified-or-obligation, never a bare prediction' "$CI312_SKILL"
+# AC8 completeness (shadow-review pin): the Relevant Classes/Files line-anchor rule is a
+# distinct new operative sentence, so it earns its own removal proof in BOTH sites.
+assert_pin_red_on_removal "#380 W6A: create-issue template pins the Relevant Classes/Files line-anchor rule" \
+  '**Relevant Classes/Files line anchors**: cite the symbol or section' "$CI312_TMPL"
+assert_pin_red_on_removal "#380 W6A: create-issue SKILL.md pins the Relevant Classes/Files line-anchor rule" \
+  '`Relevant Classes/Files` references cite the symbol or section, not a `file:line` anchor, which rots.' "$CI312_SKILL"
+# Extractor header names all three shapes and this issue (AC5 documentation clause).
+assert_pin_unique "#380 W6A: extractor header names the ### Documentation Needed shape and issue #380" \
+  'a `### Documentation Needed` level-3 heading (issue #380)' "$EXTRACT_HELPER"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "scaffold-config.sh"
@@ -10559,13 +10995,15 @@ REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREE
   DRP_CHECKS='{"check_runs":[{"name":"ext","app":{"slug":"circleci"},"status":"completed","conclusion":"action_required"}]}' \
   drp "#351 external check run action_required (signal-set 3, shared gate) -> false ci-approval-required" "false ci-approval-required"
 # #353 (coupled WORKFLOW half of #351's ci-approval-required, landed via human/PAT):
-# the devflow-review.yml create_check title-arm pin and the deferral-SUMMARY
-# 'cancelled sibling run' removal pin. These two static grep pins move with the
-# workflow change so they land in the same commit as the case arm they assert.
-# AC10: the create_check title `case` maps ci-approval-required to the exact title.
-assert_pin_unique "#353 create_check maps ci-approval-required to its exact title" \
-  "ci-approval-required) TITLE='Devflow review waiting: CI approval required'" \
-  "$LIB/../.github/workflows/devflow-review.yml"
+# the deferral check-run title pin (the title create_check posts) and the
+# deferral-SUMMARY 'cancelled sibling run' removal pin. These static grep pins move
+# with the workflow change so they land in the same commit as the code they assert.
+# AC10: ci-approval-required maps to its exact title. The SKIP_REASON->title
+# selection moved from create_check's inline `case` arm into describe-skip-title.sh
+# (#389), so this pin now asserts the title lives (once) in the helper.
+assert_pin_unique "#353 create_check maps ci-approval-required to its exact title (via the helper)" \
+  "Devflow review waiting: CI approval required" \
+  "$LIB/../scripts/describe-skip-title.sh"
 # AC13-guard: the absence pin below reads "no" both when the phrase is truly
 # gone AND when the workflow file is missing/renamed/unreadable (a failed grep
 # also yields "no", the expected value) — the repo's vacuous-pin/fail-open bug
@@ -12560,13 +12998,14 @@ assert_eq "#304 create_check gate widened to skip_reason (deferral still posts t
 # (b) The review engine job is NOT widened — a deferral must never run it.
 assert_eq "#304 review job still gates on should_run only (a deferral never runs the engine)" "0" \
   "$(grep -cF "skip_reason" <(sed -n '/^  review:/,/^  finalize_check:/p' "$REVIEW_WF") || true)"
-# (c) create_check maps the two deferral reasons to the distinctive neutral
-# "waiting" titles (the AC-required reasons) — posted pre-completed in ONE
-# POST, so no finalize PATCH is involved on the deferral path.
-assert_eq "#304 deferral maps behind-base to the waiting title" "yes" \
-  "$(grep -qF "Devflow review waiting: branch behind base" "$REVIEW_WF" && echo yes || echo no)"
-assert_eq "#304 deferral maps ci-not-green to the waiting title" "yes" \
-  "$(grep -qF "Devflow review waiting: other CI not green" "$REVIEW_WF" && echo yes || echo no)"
+# (c) The two deferral reasons map to the distinctive neutral "waiting" titles
+# (posted pre-completed in ONE POST, so no finalize PATCH on the deferral path).
+# The title selection moved into describe-skip-title.sh (#389); these coupled
+# presence pins move with it (full arm/order coverage is the #389 block below).
+assert_eq "#304 deferral maps behind-base to the waiting title (via the helper)" "yes" \
+  "$(grep -qF "Devflow review waiting: branch behind base" "$LIB/../scripts/describe-skip-title.sh" && echo yes || echo no)"
+assert_eq "#304 deferral maps ci-not-green to the waiting title (via the helper)" "yes" \
+  "$(grep -qF "Devflow review waiting: other CI not green" "$LIB/../scripts/describe-skip-title.sh" && echo yes || echo no)"
 # (c2) finalize_check is SKIPPED on a deferral (skip_reason non-empty). This is
 # load-bearing for the re-trigger: a finalize run that exits 0 emits a SUCCESS
 # workflow job check-run named 'Devflow Review', which devflow_review_run_count
@@ -12630,11 +13069,12 @@ assert_eq "#304 resolve_pr_for_head pins the query-failure misattribution breadc
 assert_eq "#304 resolve_pr_for_head pins the parse-failure misattribution breadcrumb" "yes" \
   "$(grep -qF 'the real cause is the parse, not an absent PR' "$REVIEW_WF" && echo yes || echo no)"
 # (c9) The unverifiable reason gets its own HONEST title (never a condition the
-# script did not observe), and the CI-completion path enforces the open-PR
-# invariant on the payload-carried arm too (a closed/merged PR is never
-# reviewed off a late CI completion).
-assert_eq "#304 unverifiable deferral maps to the honest 'preconditions unverifiable' title" "yes" \
-  "$(grep -qF "Devflow review waiting: preconditions unverifiable" "$REVIEW_WF" && echo yes || echo no)"
+# script did not observe). The title selection moved into describe-skip-title.sh
+# (#389), so this pin asserts the honest title lives in the helper. The
+# CI-completion path enforces the open-PR invariant on the payload-carried arm
+# too (a closed/merged PR is never reviewed off a late CI completion).
+assert_eq "#304 unverifiable deferral maps to the honest 'preconditions unverifiable' title (via the helper)" "yes" \
+  "$(grep -qF "Devflow review waiting: preconditions unverifiable" "$LIB/../scripts/describe-skip-title.sh" && echo yes || echo no)"
 assert_eq "#304 CI-completion path guards PR state == OPEN" "yes" \
   "$(grep -qF '"$PR_STATE" != "OPEN"' "$REVIEW_WF" && echo yes || echo no)"
 # (c10) Coupled literals: the workflow_run workflows list must name ci.yml's
@@ -19192,7 +19632,12 @@ assert_pin_unique "#284 positive: receiving-code-review discriminates via single
 assert_pin_unique "#284 positive: review-and-fix fix-threshold discriminates via single-statement if!" 'if ! FIX_THRESHOLD=$(' "$ST_RAF"
 assert_pin_unique "#284 positive: review-and-fix max_iterations discriminates via single-statement if!" 'if ! MAX_ITERS=$(' "$ST_RAF"
 assert_pin_unique "#284 positive: review verdict-threshold discriminates via single-statement if!" 'if ! VERDICT_THRESHOLD=$(' "$ST_REV"
-assert_pin_unique "#284 positive: review live-comment 3-way reads \$? inline in the elif" 'elif [ "$?" -eq 2 ]; then' "$ST_REV"
+# #384 appended the silent-exit discriminator (`&& [ ! -s /tmp/devflow-rv-id.err ]`) to this
+# elif, but the invariant this pin protects is unchanged: `[ "$?" -eq 2 ]` is STILL the
+# leading inline read of the id call's own exit status (never a captured rc read in a later
+# statement). Pin the new form so a revert to a captured-rc read fails, and so the #384
+# discriminator can't be silently dropped from this exact site either.
+assert_pin_unique "#284 positive: review live-comment 3-way reads \$? inline in the elif (with #384 stderr discriminator)" 'elif [ "$?" -eq 2 ] && [ ! -s /tmp/devflow-rv-id.err ]; then' "$ST_REV"
 # The efficiency-trace render reads are the QUOTED command-substitution sites the absence
 # detector previously could not see (#284 shadow review) — pin the migrated `if ! VAR="$(`
 # idiom positively so a straight revert to `VAR="$(…)"; VAR_RC=$?` fails BOTH the extended
@@ -19921,6 +20366,235 @@ for _gf in workpad.py match-deferrals.py; do
 done
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "#375 pin-corpus static self-scan: pin-in-comment lint + wrapped-literal meta-guard"
+# ────────────────────────────────────────────────────────────────────────────
+# Two mechanical guards over the suite's OWN pin corpus (issue #375), driven by the
+# lib/test/pin-corpus-lint.py static scanner (the extract-command-heads.py precedent):
+#   lint    — a pin literal that ALSO appears inside a comment of its own target file
+#             (a #-comment for .sh/.py/.jq/.yml, an <!-- … --> region for .md) AND also
+#             outside every comment inflates the pin's occurrence count / can mask a
+#             refactored-away operative site (issue #370's pin_count-read-3 defect). A
+#             literal living ONLY in a comment (an SPDX-header pin) is the pin's intended
+#             target and is NOT flagged.
+#   wrapped — a source-grep pin whose phrase occurs on NO single line of its target, split
+#             "phrase absent" from "present only in the whitespace-normalized rendering"
+#             (tr -s '[:space:]' ' '), naming the wrapped-literal diagnosis; and any pin into
+#             a multi-literal argparse help= string is FAILed with the rendered-surface
+#             requirement (issue #371's `'… OLD does '`+`'not) …'` help= blind spot).
+# A call site the scanner cannot resolve statically is COUNTED and reported on stderr
+# (UNRESOLVED / UNRESOLVED-COUNT), never silently skipped.
+PCL="$LIB/test/pin-corpus-lint.py"
+assert_eq "#375 pin-corpus-lint helper exists" "yes" "$([ -f "$PCL" ] && echo yes || echo no)"
+# Runtime-resolved target-file bindings the static scanner cannot derive itself: DEF_SKILL /
+# IMPL_SKILL_BUNDLE are the mktemp'd implement-skill bundle (markdown, no extension → --md);
+# the $LIB-relative ones the helper resolves on its own, but binding them explicitly is harmless.
+_PCL_ARGS=( --lib "$LIB" --md "$DEF_SKILL"
+  --var "MAXI_SKILL=$MAXI_SKILL" --var "DEF_SKILL=$DEF_SKILL"
+  --var "IMPL_SKILL_BUNDLE=$IMPL_SKILL_BUNDLE"
+  --var "ST_RAF=$ST_RAF" --var "ST_REV=$ST_REV" --var "ST_RCV=$ST_RCV" )
+# (1) Real corpus: no pin literal collides with a comment of its target; a collision here is a
+# real defect to fix in this same PR (issue #375 AC). The scanner reports every unresolvable
+# call site on stderr (UNRESOLVED / UNRESOLVED-COUNT) — SURFACE that count to the run log rather
+# than discarding it with `2>/dev/null`, so a growing unresolved set (a pin the static resolver
+# cannot reach, hence silently exempt from the guard) is VISIBLE at the real-corpus level, not
+# only in the synthetic self-test — honoring the "reported, never silently skipped" contract.
+# The count is surfaced, not asserted zero: an unresolvable site is not a collision, and the
+# current corpus legitimately carries loop-var / command-substitution targets the resolver
+# cannot reach. probe_tmp fail-closes a mktemp failure (records a suite FAIL, never skips the
+# assertion below); guard the rm against its /dev/null sentinel.
+_PCL_LINT_ERR="$(probe_tmp '#375 real-corpus lint stderr capture')"
+# Capture BOTH stdout and the scanner's exit status. A Python traceback on a real-corpus-only
+# input (a resolved-but-unreadable target, a decode error, a latent tokenizer bug the synthetic
+# fixtures don't exercise) writes to stderr and leaves stdout EMPTY with rc!=0 — which a bare
+# `assert_eq "" "$(...)"` would pass VACUOUSLY, the exact fail-open this PR exists to kill. Fold
+# rc into the comparand so a crash is RED (rc!=0) and a real collision is RED (rc=0, non-empty).
+_PCL_LINT_OUT="$(python3 "$PCL" lint "$SELF_SRC" "${_PCL_ARGS[@]}" 2>"$_PCL_LINT_ERR")"; _PCL_LINT_RC=$?
+assert_eq "#375 lint: no pin literal collides with a comment of its own target (real corpus; exit 0 + empty)" \
+  "rc=0|" "rc=$_PCL_LINT_RC|$_PCL_LINT_OUT"
+# Positive-coverage floor: a regression that silently empties the extraction (build_var_maps /
+# extract_pins resolving zero real-corpus sites) would make the empty-output assertion pass while
+# guarding NOTHING — as vacuous as the framing pins this PR eliminates. Assert the scan actually
+# resolved a lower-bound pin count (currently ~660); a generous floor tolerates ordinary pin churn
+# but catches a corpus-emptying regression. Extract the count with a bash builtin, not a PATH tool
+# whose absence would silently change the compared value (CLAUDE.md non-preflight-tool gotcha); a
+# missing/empty count fails the -ge test → RED (fail-closed), never a false pass.
+_PCL_LINT_RCLINE="$(grep '^RESOLVED-COUNT' "$_PCL_LINT_ERR" 2>/dev/null)"; _PCL_LINT_RESOLVED="${_PCL_LINT_RCLINE##*$'\t'}"
+assert_eq "#375 lint: real-corpus scan resolved a non-trivial pin count (>=300; not a silently-empty scan)" \
+  "yes" "$({ [ -n "$_PCL_LINT_RESOLVED" ] && [ "$_PCL_LINT_RESOLVED" -ge 300 ]; } 2>/dev/null && echo yes || echo no)"
+grep '^UNRESOLVED-COUNT' "$_PCL_LINT_ERR" 2>/dev/null | sed 's/^/  #375 lint (surfaced, not asserted): /' >&2 || true
+[ "$_PCL_LINT_ERR" = /dev/null ] || rm -f "$_PCL_LINT_ERR"
+# (2) Real corpus: no resolvable source-grep pin is an off-line / wrapped-literal / help= blind
+# spot; the unresolved count is surfaced the same way.
+_PCL_WRAP_ERR="$(probe_tmp '#375 real-corpus wrapped stderr capture')"
+# Same exit-status fold as the lint block above: a scanner crash (empty stdout + rc!=0) must be
+# RED, not a vacuous green.
+_PCL_WRAP_OUT="$(python3 "$PCL" wrapped "$SELF_SRC" "${_PCL_ARGS[@]}" 2>"$_PCL_WRAP_ERR")"; _PCL_WRAP_RC=$?
+assert_eq "#375 wrapped-literal meta-guard: no resolvable pin phrase is off-line/wrapped (real corpus; exit 0 + empty)" \
+  "rc=0|" "rc=$_PCL_WRAP_RC|$_PCL_WRAP_OUT"
+# Same positive-coverage floor as the lint block (bash-builtin count extraction, fail-closed).
+_PCL_WRAP_RCLINE="$(grep '^RESOLVED-COUNT' "$_PCL_WRAP_ERR" 2>/dev/null)"; _PCL_WRAP_RESOLVED="${_PCL_WRAP_RCLINE##*$'\t'}"
+assert_eq "#375 wrapped: real-corpus scan resolved a non-trivial pin count (>=300; not a silently-empty scan)" \
+  "yes" "$({ [ -n "$_PCL_WRAP_RESOLVED" ] && [ "$_PCL_WRAP_RESOLVED" -ge 300 ]; } 2>/dev/null && echo yes || echo no)"
+grep '^UNRESOLVED-COUNT' "$_PCL_WRAP_ERR" 2>/dev/null | sed 's/^/  #375 wrapped (surfaced, not asserted): /' >&2 || true
+[ "$_PCL_WRAP_ERR" = /dev/null ] || rm -f "$_PCL_WRAP_ERR"
+
+# ── #375 synthetic-fixture self-tests (the #342/#343 negative-direction style): prove each
+# guard actually FLAGS the bad shape and is SILENT on the good one, so a future edit that
+# defangs a guard fails RED here. Fail CLOSED if the fixture dir can't be created.
+if _F375="$(mktemp -d 2>/dev/null)" && [ -n "$_F375" ] && [ -d "$_F375" ]; then
+  # Targets: a #-comment collision (operative + comment), a comment-free twin, an .md
+  # <!-- --> collision, a wrapped-adjacent-literal .py, a multi-literal argparse help= .py,
+  # and a single-line .py (must NOT flag).
+  printf 'echo FLAG_OPERATIVE running\n# note: FLAG_OPERATIVE is the flag name\n' > "$_F375/tgt.sh"
+  printf 'echo FLAG_OPERATIVE running\n' > "$_F375/tgt_nocomment.sh"
+  printf 'The FLAG_MD operative prose line.\n<!-- FLAG_MD is quoted in this comment -->\n' > "$_F375/tgt.md"
+  # .md FENCED-#-COMMENT collision (issue #394): a literal quoted in a `#` comment inside a
+  # ```bash fence AND present operatively outside the fence must be flagged, exactly as the
+  # .sh/.py arm does for a #-comment — the #375 .md arm scanned only <!-- … --> regions, so a
+  # #370-class count-inflation collision hiding in a fenced comment of a skill bundle slipped
+  # through. Its comment-ONLY twin (literal lives ONLY in the fenced comment) must NOT flag,
+  # proving the `lit in outside` conjunct is preserved for the new fenced-comment region too.
+  printf 'The FLAG_MDFENCE operative prose line.\n```bash\necho running  # FLAG_MDFENCE named in this fenced comment\n```\n' > "$_F375/tgt_fenced.md"
+  printf 'Unrelated prose here.\n```bash\necho running  # FLAG_FENCEONLY lives only in this fenced comment\n```\n' > "$_F375/fenceonly.md"
+  # .md TILDE-fence collision (issue #394): the ~~~ opener branch must be exercised too — a
+  # literal in a `#` comment inside a ~~~ fence AND operative outside must flag. Drop ~~~
+  # support and this line's comment folds back into operative "outside" and the collision goes
+  # unflagged, so this fixture goes RED — pinning the ~{3,} arm the happy-path ```bash fixture
+  # never reaches.
+  printf 'The FLAG_TILDE operative prose line.\n~~~\necho running  # FLAG_TILDE named in this tilde fenced comment\n~~~\n' > "$_F375/tgt_tilde.md"
+  # .md DEEP-INDENT fail-open regression (issue #394 review): a run of >=4 leading spaces before
+  # ``` is CommonMark *indented code*, NOT a fence opener. If it were (mis)treated as one it would
+  # open a fence and fold the following operative ATX heading `# FLAG_DEEPINDENT …` into the
+  # comment region — removing that operative occurrence from "outside" so its real <!-- … -->
+  # comment collision goes UNFLAGGED (a #370-class fail-open in the guard's own direction). With
+  # the 0-3-space opener cap the indented runs are plain text, the heading stays operative, and the
+  # collision is flagged. Revert the cap and this fixture goes RED.
+  # NOTE the two design choices that keep this pin isolated to the OPENER-INDENT CAP and non-vacuous:
+  #  (1) the literal's ONLY operative occurrence is the ATX heading on line 3 (line 1 carries none),
+  #      so folding that heading empties "outside" of the literal and the collision vanishes; and
+  #  (2) a MATCHING 4-space-indented CLOSING fence follows the heading, so a cap-revert opens AND
+  #      cleanly closes a fence (committing the fold) — defeating the sibling unterminated-fence
+  #      fail-closed drop, which would otherwise discard the never-closed fence and mask the cap
+  #      regression (making this pin vacuous). Same closer-isolation technique as btinfo.md below.
+  printf 'Unrelated prose with no literal on this line.\n    ``` four-space-indented, must NOT open a fence\n# FLAG_DEEPINDENT heading is the only operative occurrence, must not be swallowed\n    ```\n<!-- FLAG_DEEPINDENT quoted in this real comment -->\n' > "$_F375/deepindent.md"
+  # .md UNTERMINATED-fence fail-open regression (issue #394 review): a stray 0-3-indent ```
+  # opener that never closes is suspect — its content must be DROPPED (fail closed), not folded
+  # to EOF. Here the literal's only operative occurrence is the ATX heading after the stray
+  # opener; if the never-closed fence swallowed it, "outside" would lose the operative occurrence
+  # and the real <!-- … --> collision would go UNFLAGGED. With the fail-closed drop the heading
+  # stays operative and the collision is flagged. Remove the unterminated-fence drop and this
+  # fixture flips yes->no (RED).
+  printf 'Intro line with no literal here.\n```\n# FLAG_UNTERM heading is the only operative occurrence, must not be swallowed\n<!-- FLAG_UNTERM quoted in this real comment -->\n' > "$_F375/unterminated.md"
+  # .md BACKTICK-INFO-STRING regression (issue #394 review): a ```-opener whose info string
+  # itself contains a backtick is NOT a valid fence opener (CommonMark), so it must not open a
+  # fence and swallow the following operative heading. A trailing ``` closer is included so the
+  # mis-opened fence would CLOSE cleanly (defeating the unterminated-fence fail-closed drop),
+  # isolating this pin to the info-string guard: drop that guard and the stray line opens a fence
+  # that the closer commits, folding the heading (the literal's ONLY operative occurrence) out of
+  # "outside" so the real collision goes unflagged -> RED.
+  printf 'Intro line with no literal here.\n```ba`sh info string has a backtick, not a valid opener\n# FLAG_BTINFO heading is the only operative occurrence, must not be swallowed\n```\n<!-- FLAG_BTINFO quoted in this real comment -->\n' > "$_F375/btinfo.md"
+  # WRAPPED (pure `tr -s` case): a prose phrase wrapped across a line boundary by whitespace
+  # only — no single line holds it, but `tr -s '[:space:]' ' '` over the file rejoins it.
+  printf 'the phrase does\nnot fit on one line\n' > "$_F375/wrapped.md"
+  # HELP case: a phrase split across ADJACENT quoted literals in an argparse help= — the quotes
+  # between the literals mean `tr -s` does NOT rejoin it (that is why help= needs its own check),
+  # so only the rendered --help concatenation contains it.
+  printf "p.add_argument('--x', help='the help text is '\n                           'split across literals')\n" > "$_F375/help.py"
+  printf 'msg = "the phrase sits entirely on one line"\n' > "$_F375/single.py"
+  # Comment-ONLY targets (an SPDX-header pin / deliberately comment-targeted contract): the
+  # literal lives ONLY in a comment, never outside it — the pin's intended home, so it must NOT
+  # be flagged. This is the RED-direction proof for the `lit in outside` conjunct: drop that
+  # conjunct and every legitimate comment-anchored pin over-flags while the collision test above
+  # (which has an operative occurrence too) stays green. Cover both the #-comment and .md arms.
+  printf 'echo unrelated running\n# SPDX-style pin: FLAG_CMTONLY_SH lives only in this comment\n' > "$_F375/cmtonly.sh"
+  printf 'Unrelated prose here.\n<!-- FLAG_CMTONLY_MD lives only in this comment -->\n' > "$_F375/cmtonly.md"
+  # ABSENT target: a phrase on no line AND not in the whitespace-normalized rendering → the
+  # meta-guard's ABSENT branch (distinguished from WRAPPED), not a false WRAPPED.
+  printf 'totally unrelated content on one line\n' > "$_F375/absent.py"
+  # RESOLVED-BUT-UNDECODABLE target (issue #375 review): a real file that passes os.path.isfile
+  # but is not valid UTF-8. Without _read_target's guard the scanner raised an uncaught
+  # UnicodeDecodeError, emptying stdout with a non-zero exit — which the real-corpus assertion
+  # would pass VACUOUSLY. The fail-CLOSED contract requires it be COUNTED (target-unreadable) and
+  # the scan to survive. (A chmod-000 permission target is unreliable here: CI runs as root, which
+  # reads 0000 files, so a decode error is the portable way to force the unreadable path.)
+  printf '\377\376 not valid utf-8 bytes here\n' > "$_F375/undecodable.py"
+  # Fixture pin-source: literal-path file args, plus one deliberately unresolvable site.
+  printf '%s\n' \
+    "assert_pin_unique \"fx-comment-collision\" 'FLAG_OPERATIVE' \"$_F375/tgt.sh\"" \
+    "assert_pin_unique \"fx-no-collision\" 'FLAG_OPERATIVE' \"$_F375/tgt_nocomment.sh\"" \
+    "assert_pin_unique \"fx-md-collision\" 'FLAG_MD' \"$_F375/tgt.md\"" \
+    "assert_pin_unique \"fx-md-fenced-collision\" 'FLAG_MDFENCE' \"$_F375/tgt_fenced.md\"" \
+    "assert_pin_unique \"fx-md-fenceonly\" 'FLAG_FENCEONLY' \"$_F375/fenceonly.md\"" \
+    "assert_pin_unique \"fx-md-tilde-collision\" 'FLAG_TILDE' \"$_F375/tgt_tilde.md\"" \
+    "assert_pin_unique \"fx-md-deepindent-collision\" 'FLAG_DEEPINDENT' \"$_F375/deepindent.md\"" \
+    "assert_pin_unique \"fx-md-unterminated-collision\" 'FLAG_UNTERM' \"$_F375/unterminated.md\"" \
+    "assert_pin_unique \"fx-md-btinfo-collision\" 'FLAG_BTINFO' \"$_F375/btinfo.md\"" \
+    "assert_pin_unique \"fx-cmtonly-sh\" 'FLAG_CMTONLY_SH' \"$_F375/cmtonly.sh\"" \
+    "assert_pin_unique \"fx-cmtonly-md\" 'FLAG_CMTONLY_MD' \"$_F375/cmtonly.md\"" \
+    "assert_pin_unique \"fx-wrapped\" 'the phrase does not fit on one line' \"$_F375/wrapped.md\"" \
+    "assert_pin_unique \"fx-help\" 'the help text is split across literals' \"$_F375/help.py\"" \
+    "assert_pin_unique \"fx-single\" 'the phrase sits entirely on one line' \"$_F375/single.py\"" \
+    "assert_pin_unique \"fx-absent\" 'this phrase is entirely absent from the target' \"$_F375/absent.py\"" \
+    "assert_pin_unique \"fx-undecodable\" 'undecodable-marker' \"$_F375/undecodable.py\"" \
+    "assert_pin_unique \"fx-unresolvable\" 'x' \"\$NEVER_SET_VAR\"" \
+    > "$_F375/pins.sh"
+  _L375="$(python3 "$PCL" lint "$_F375/pins.sh" --lib "$_F375" 2>"$_F375/lint.err")"
+  _W375="$(python3 "$PCL" wrapped "$_F375/pins.sh" --lib "$_F375" 2>/dev/null)"
+  # Lint self-tests.
+  assert_eq "#375 lint self-test: a #-comment that also quotes an operative literal is flagged" \
+    "yes" "$(printf '%s' "$_L375" | grep -q 'COLLISION.*tgt.sh.*FLAG_OPERATIVE' && echo yes || echo no)"
+  assert_eq "#375 lint self-test: the comment-free twin is NOT flagged (discriminates)" \
+    "no" "$(printf '%s' "$_L375" | grep -q 'tgt_nocomment.sh' && echo yes || echo no)"
+  assert_eq "#375 lint self-test: an .md <!-- … --> comment collision is flagged" \
+    "yes" "$(printf '%s' "$_L375" | grep -q 'COLLISION.*tgt.md.*FLAG_MD' && echo yes || echo no)"
+  assert_eq "#375 lint self-test: a literal living ONLY in a #-comment (SPDX-style) is NOT flagged" \
+    "no" "$(printf '%s' "$_L375" | grep -q 'cmtonly.sh' && echo yes || echo no)"
+  assert_eq "#375 lint self-test: a literal living ONLY in an .md <!-- … --> comment is NOT flagged" \
+    "no" "$(printf '%s' "$_L375" | grep -q 'cmtonly.md' && echo yes || echo no)"
+  # #394: the fenced-#-comment .md arm — the collision twin flags, the comment-only twin does not.
+  assert_eq "#394 lint self-test: a fenced bash-block #-comment collision in an .md target is flagged" \
+    "yes" "$(printf '%s' "$_L375" | grep -q 'COLLISION.*tgt_fenced.md.*FLAG_MDFENCE' && echo yes || echo no)"
+  assert_eq "#394 lint self-test: a literal living ONLY in a fenced #-comment of an .md target is NOT flagged" \
+    "no" "$(printf '%s' "$_L375" | grep -q 'fenceonly.md' && echo yes || echo no)"
+  # #394: the ~~~ opener arm flags a tilde-fenced collision (pins the non-``` fence branch).
+  assert_eq "#394 lint self-test: a tilde (~~~) fenced #-comment collision in an .md target is flagged" \
+    "yes" "$(printf '%s' "$_L375" | grep -q 'COLLISION.*tgt_tilde.md.*FLAG_TILDE' && echo yes || echo no)"
+  # #394: a >=4-space-indented ``` must NOT open a fence (CommonMark indented code), so the
+  # following operative heading is not swallowed and its collision is flagged — the fail-open
+  # regression pin; reverting the 0-3-space opener cap flips this yes->no (RED).
+  assert_eq "#394 lint self-test: a >=4-space-indented \`\`\` does not open a fence (operative heading not swallowed, collision flagged)" \
+    "yes" "$(printf '%s' "$_L375" | grep -q 'COLLISION.*deepindent.md.*FLAG_DEEPINDENT' && echo yes || echo no)"
+  # #394 review: an UNTERMINATED fence fails closed — its content is dropped, so an operative
+  # #-heading after a stray opener is not swallowed and its collision is flagged (revert the drop -> RED).
+  assert_eq "#394 lint self-test: an unterminated \`\`\` fence fails closed (operative heading not swallowed, collision flagged)" \
+    "yes" "$(printf '%s' "$_L375" | grep -q 'COLLISION.*unterminated.md.*FLAG_UNTERM' && echo yes || echo no)"
+  # #394 review: a ```-opener whose info string contains a backtick is not a valid opener, so the
+  # following operative #-heading is not folded and its collision is flagged (drop the guard -> RED).
+  assert_eq "#394 lint self-test: a backtick-in-info-string \`\`\` is not a fence opener (operative heading not swallowed, collision flagged)" \
+    "yes" "$(printf '%s' "$_L375" | grep -q 'COLLISION.*btinfo.md.*FLAG_BTINFO' && echo yes || echo no)"
+  assert_eq "#375 lint self-test: an unresolvable call site is reported on stderr (never silently skipped)" \
+    "yes" "$(grep -q 'file=?' "$_F375/lint.err" && echo yes || echo no)"
+  # A resolved-but-undecodable target is COUNTED (fail-closed), not an uncaught crash. The scan
+  # SURVIVING (the collision self-tests above still see their findings in $_L375) proves the bad
+  # target did not abort the whole run; this asserts it was reported, not silently swallowed.
+  assert_eq "#375 lint self-test: a resolved-but-undecodable target is counted (target-unreadable), not a crash" \
+    "yes" "$(grep -q 'target-unreadable=.*undecodable.py' "$_F375/lint.err" && echo yes || echo no)"
+  # Wrapped-literal meta-guard self-tests.
+  assert_eq "#375 meta-guard self-test: a whitespace-wrapped phrase is flagged with the wrapped-literal diagnosis" \
+    "yes" "$(printf '%s' "$_W375" | grep -q 'WRAPPED.*wrapped.md.*wrapped-literal' && echo yes || echo no)"
+  assert_eq "#375 meta-guard self-test: a phrase that sits on one line is NOT flagged" \
+    "no" "$(printf '%s' "$_W375" | grep -q 'single.py' && echo yes || echo no)"
+  assert_eq "#375 meta-guard self-test: a pin into a multi-literal argparse help= is FAILed with the rendered-surface requirement" \
+    "yes" "$(printf '%s' "$_W375" | grep -qi 'HELP.*help.py.*rendered' && echo yes || echo no)"
+  assert_eq "#375 meta-guard self-test: a genuinely-absent phrase reads ABSENT, not a false WRAPPED" \
+    "yes" "$(printf '%s' "$_W375" | grep -q 'ABSENT.*absent.py' && ! printf '%s' "$_W375" | grep -q 'WRAPPED.*absent.py' && echo yes || echo no)"
+  rm -rf "$_F375"
+else
+  echo FAIL >> "$RESULTS_FILE"
+  printf '  FAIL  #375 pin-corpus self-tests: mktemp -d failed (guards could not be exercised; not a vacuous skip)\n' >&2
+fi
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "#363 review-engine grounding: skill<->allowlist command-head contract pin"
 # ────────────────────────────────────────────────────────────────────────────
 # skills/review/SKILL.md runs under TWO allowlists — devflow-runner.yml's `review`
@@ -20012,6 +20686,111 @@ assert_eq "#363 every subcommand of a compound command is extracted (all 7 separ
 printf '%s\n' '```bash' 'aa 2>&1' 'bb >&2' 'cc &>log' '```' > "$E363/redir.md"
 assert_eq "#363 '&' inside a redirection (2>&1, >&2, &>log) never emits a file descriptor as a head" \
   "aa bb cc" "$(python3 "$ECH" heads "$E363/redir.md" | tr '\n' ' ' | sed 's/ *$//')"
+
+# ── A `case` arm is shell syntax, not a command. Negated bracket expressions are
+# ── legal pattern characters in both spellings — bash's `[!0-9]` and POSIX's
+# ── `[^0-9]` — so the arm-stripping pattern class must accept `!` and `^`. When it
+# ── did not, skills/review/SKILL.md's `''|*[!0-9]*)` arm (added by #384) was emitted
+# ── as the bogus head `*[!0-9]*)` and the two allowlist pins above went RED.
+cat > "$E363/caseneg.md" <<'CASEMD'
+```bash
+case "$N" in
+  ''|*[!0-9]*)
+    aa ;;
+  [^a-z]*)
+    bb ;;
+  *)
+    cc ;;
+esac
+```
+CASEMD
+assert_eq "#363 a negated bracket case arm ([!0-9] and [^a-z]) is pattern syntax, never a command head" \
+  "aa bb cc" "$(python3 "$ECH" heads "$E363/caseneg.md" | tr '\n' ' ' | sed 's/ *$//')"
+
+# ── Non-regression for the widened arm class: a case *body* command ending in `)`
+# ── (a `$(...)` close) is still a head, not a swallowed pattern. This is what keeps
+# ── the `!`/`^` widening from turning body commands into patterns.
+cat > "$E363/casecmd.md" <<'CASECMD'
+```bash
+case "$N" in
+  *)
+    aa $(bb) ;;
+esac
+```
+CASECMD
+assert_eq "#363 a case-body command ending in a \$(...) close is still a head, not a case arm" \
+  "aa bb" "$(python3 "$ECH" heads "$E363/casecmd.md" | tr '\n' ' ' | sed 's/ *$//')"
+
+# ── Arm-position tracking (#392). `_CASE_PATTERN` stripping applies ONLY where a
+# ── case arm can legally begin — right after `case … in` and right after each `;;` —
+# ── never on a statement in the case *body*. Two latent fail-open defects the old
+# ── every-line stripper carried, each of which silently dropped a command head out
+# ── of the pin's coverage the moment a fence was written in the triggering shape.
+
+# Defect 1: a bare subshell `(dd)` in a case BODY was stripped as if it were an arm
+# pattern (the optional leading `(` in _CASE_PATTERN matched it), dropping head `dd`.
+cat > "$E363/casebody.md" <<'CASEBODY'
+```bash
+case "$N" in
+  *)
+    (dd) ;;
+esac
+```
+CASEBODY
+assert_eq "#363 a bare subshell in a case body yields its head" \
+  "dd" "$(python3 "$ECH" heads "$E363/casebody.md" | tr '\n' ' ' | sed 's/ *$//')"
+
+# Defect 2: a one-line `case … esac` latched `in_case` true forever (the esac check
+# only fired on a line whose FIRST token was esac), so a following body line `(zz)`
+# was treated as an arm and its head `zz` dropped. skills/review/SKILL.md's 3.2
+# dirty-path restore fence contains exactly such a one-line case.
+cat > "$E363/caseoneline.md" <<'CASEONELINE'
+```bash
+case "$x" in [RC]) a=1 ;; esac
+(zz)
+esac
+```
+CASEONELINE
+assert_eq "#363 a one-line case ... esac clears the in-case state" \
+  "zz" "$(python3 "$ECH" heads "$E363/caseoneline.md" | tr '\n' ' ' | sed 's/ *$//')"
+
+# Every arm shape the suite pins — including the optional-leading-paren `(pattern)`
+# form — is still recognized as pattern syntax at an arm position and yields no head,
+# while each arm's body command survives. The arm-position fix must not regress this.
+cat > "$E363/armshapes.md" <<'ARMSHAPES'
+```bash
+case "$N" in
+  *)
+    aa ;;
+  [RC])
+    bb ;;
+  critical|important)
+    cc ;;
+  ''|*[!0-9]*)
+    dd ;;
+  [^a-z]*)
+    ee ;;
+  (pattern)
+    ff ;;
+esac
+```
+ARMSHAPES
+assert_eq "#363 every already-pinned arm shape (incl. optional-leading-paren) still yields no head" \
+  "aa bb cc dd ee ff" "$(python3 "$ECH" heads "$E363/armshapes.md" | tr '\n' ' ' | sed 's/ *$//')"
+
+# Regression guard: the arm-position fix is a NO-OP on today's skills/review/SKILL.md.
+# Assert BOTH the occurrence count and the distinct-name count — the distinct count
+# alone would not catch a duplicate head silently gained (or lost). Whoever next adds
+# a command to a review-skill fence updates these two numbers in the same commit,
+# per CLAUDE.md's coupled-invariant rule.
+assert_eq "#363 the review-skill head set is unchanged by the arm-position fix (88 occurrences)" \
+  "88" "$(python3 -c 'import importlib.util,sys
+s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
+print(len(m.extract_heads(open(sys.argv[2],encoding="utf-8").read())))' "$ECH" "$LIB/../skills/review/SKILL.md")"
+assert_eq "#363 the review-skill head set is unchanged by the arm-position fix (28 distinct names)" \
+  "28" "$(python3 -c 'import importlib.util,sys
+s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
+h=m.extract_heads(open(sys.argv[2],encoding="utf-8").read());print(len({m.name_of(x) for x in h}))' "$ECH" "$LIB/../skills/review/SKILL.md")"
 
 # ── Process wrappers are stripped before matching, exactly as Claude Code does.
 printf '%s\n' '```bash' 'timeout 300 bash x.sh' 'nice -n 5 aa' 'nohup bb' 'stdbuf -oL cc' 'xargs dd' 'time ee' '```' > "$E363/wrap.md"
@@ -20611,6 +21390,133 @@ assert_pin_unique "#363 finalize_check routes the denial clause through the test
   'DDC=.devflow/vendor/devflow/scripts/describe-denial-count.sh' "$REVIEW_YML"
 assert_pin_unique "#363 finalize_check verifies the clause helper's OUTCOME, not just its existence" \
   '[ -n "$DENIAL_CLAUSE" ] || DENIAL_CLAUSE=' "$REVIEW_YML"
+
+# ── The deferral check-run TITLE selection (issue #389). create_check's
+# ── SKIP_REASON→TITLE case is extracted into describe-skip-title.sh so the suite
+# ── can drive every arm AND its order: the arms are disjoint literals + a `*`
+# ── default, so a reordered/deleted arm would misattribute the deferral title
+# ── while the workflow still ran clean. Same rationale as describe-denial-count.sh.
+DST_SH="$LIB/../scripts/describe-skip-title.sh"
+assert_eq "#389 describe-skip-title.sh exists and is executable" "yes" \
+  "$([ -x "$DST_SH" ] && echo yes || echo no)"
+# Each of the four positively-observed reasons drives its own arm to its own title.
+assert_eq "#389 skip title: behind-base" \
+  "Devflow review waiting: branch behind base" "$("$DST_SH" behind-base)"
+assert_eq "#389 skip title: ci-not-green" \
+  "Devflow review waiting: other CI not green" "$("$DST_SH" ci-not-green)"
+assert_eq "#389 skip title: ci-approval-required" \
+  "Devflow review waiting: CI approval required" "$("$DST_SH" ci-approval-required)"
+assert_eq "#389 skip title: unverifiable names the query failure, not an unobserved state" \
+  "Devflow review waiting: preconditions unverifiable (API query failed — see the precheck log)" \
+  "$("$DST_SH" unverifiable)"
+# The `*` default: any unrecognized/empty reason gets the generic title, never a
+# specific state the precheck did not observe (the load-bearing honesty rule).
+for _r389 in "" "bogus" "behind_base" "BEHIND-BASE"; do
+  assert_eq "#389 skip title: '$_r389' falls to the generic default (asserts no unobserved cause)" \
+    "Devflow review waiting: precondition not met" "$("$DST_SH" "$_r389")"
+done
+assert_eq "#389 skip title: no argument at all still exits 0" "0" \
+  "$("$DST_SH" >/dev/null 2>&1; echo $?)"
+# The exit-0 contract holds on the recognized and unrecognized arms too, not only the
+# no-arg path: the assert_eq stdout comparisons above discard the exit status, so an
+# arm regressed to a nonzero exit would otherwise stay invisible to the unit suite.
+assert_eq "#389 skip title: a recognized reason exits 0" "0" \
+  "$("$DST_SH" behind-base >/dev/null 2>&1; echo $?)"
+assert_eq "#389 skip title: an unrecognized reason exits 0" "0" \
+  "$("$DST_SH" bogus >/dev/null 2>&1; echo $?)"
+# Vocabulary drift is LOUD: an unrecognized reason (a new token added upstream in
+# derive-review-preconditions.sh without a matching arm here) emits a stderr breadcrumb
+# alongside the generic title; a recognized reason stays stderr-silent (the title is
+# command-substituted, so stdout must remain exactly the title either way).
+assert_eq "#389 skip title: an unrecognized reason emits a stderr breadcrumb (drift is loud)" "yes" \
+  "$([ -n "$("$DST_SH" bogus 2>&1 >/dev/null)" ] && echo yes || echo no)"
+assert_eq "#389 skip title: a recognized reason emits no stderr" "" \
+  "$("$DST_SH" behind-base 2>&1 >/dev/null)"
+# Arm ORDER is load-bearing (AC2). Because the arms are disjoint literals, a
+# reordered specific arm is behaviorally invisible — pin the SOURCE order so a
+# reorder or deletion turns RED; `*` MUST be last, or a specific reason it
+# precedes is silently absorbed.
+ARM_ORDER_389=$(grep -oE '^[[:space:]]*(behind-base|ci-not-green|ci-approval-required|unverifiable|\*)\)' "$DST_SH" 2>/dev/null \
+  | sed -E 's/^[[:space:]]*//; s/\)$//' | tr '\n' ',')
+assert_eq "#389 skip title: case arms appear in the pinned order, * last" \
+  "behind-base,ci-not-green,ci-approval-required,unverifiable,*," "$ARM_ORDER_389"
+# The titles are defined ONCE, in the helper — the workflow keeps only the generic
+# fallbacks (the same single-definition contract as describe-denial-count.sh). Two
+# sampled uniqueness pins here (behind-base + the generic default); the workflow-absence
+# loop below covers the remaining specific titles' single-home property.
+assert_pin_unique "#389 the behind-base title is defined once, in the helper" \
+  'Devflow review waiting: branch behind base' "$DST_SH"
+assert_pin_unique "#389 the generic-default title is defined once, in the helper" \
+  'Devflow review waiting: precondition not met' "$DST_SH"
+# The workflow routes the title through the testable helper (leading-token, vendored
+# path first) and verifies the OUTCOME, not just the file's existence. The invocation
+# lives in the *precheck* job's `title` step, NOT create_check: create_check has no
+# actions/checkout, so the helper file is absent in its workspace — precheck (which does
+# check out and already runs helpers) computes the title and passes it as the skip_title
+# output, which create_check consumes (issue #389 iter-2 fix, caught by the shadow pass).
+assert_pin_unique "#389 precheck routes the deferral title through the helper (vendored path first)" \
+  'DST=.devflow/vendor/devflow/scripts/describe-skip-title.sh' "$REVIEW_YML"
+assert_pin_unique "#389 precheck invokes the helper as a leading-token command" \
+  'TITLE=$("$DST" "$SKIP_REASON")' "$REVIEW_YML"
+# The vendored-path miss degrades to the repo-path copy — deleting this fallback would
+# silently collapse every non-vendored deferral to the generic title, suite green.
+assert_pin_unique "#389 precheck falls back to the repo-path helper when the vendored copy is absent" \
+  '[ -x "$DST" ] || DST=scripts/describe-skip-title.sh' "$REVIEW_YML"
+# The invocation is an if/then, never an `&&` list: under the step's set -e, a
+# present-but-executable helper exiting non-zero as the FINAL command of an && list
+# aborts the step -> precheck fails -> create_check (no always()) is skipped and the
+# deferral check is never posted, instead of degrading to the generic fallback.
+assert_pin_unique "#389 precheck tolerates a present-but-broken helper (if/then + || fallback, no set -e abort)" \
+  'if [ -x "$DST" ]; then TITLE=$("$DST" "$SKIP_REASON") || TITLE=""; fi' "$REVIEW_YML"
+assert_eq "#389 no abort-prone &&-list invocation of the helper remains in the workflow" "0" \
+  "$(pin_count '[ -x "$DST" ] && TITLE=' "$REVIEW_YML")"
+assert_pin_unique "#389 precheck verifies the helper OUTCOME with a resolution fallback" \
+  '[ -n "$TITLE" ] || TITLE=' "$REVIEW_YML"
+# Pin BOTH halves of the output chain: the outputs mapping alone stays green if the
+# producer echo is deleted or its key typo'd — every deferral would then silently
+# collapse to create_check's defensive fallback title while the suite stayed green.
+assert_pin_unique "#389 the title step writes the skip_title output (the producer half of the wiring)" \
+  'echo "skip_title=$TITLE" >> "$GITHUB_OUTPUT"' "$REVIEW_YML"
+# The title step runs only on a deferral — the diff-added outputs comment ("Empty unless
+# skip_reason is non-empty") depends on this gate, so pin it.
+assert_pin_unique "#389 the title step is gated on a non-empty skip_reason" \
+  "if: steps.route.outputs.skip_reason != ''" "$REVIEW_YML"
+# precheck exposes the computed title as an output, and create_check consumes it (rather
+# than invoking the helper in its checkout-less workspace).
+assert_pin_unique "#389 precheck exposes the deferral title as the skip_title output" \
+  'skip_title: ${{ steps.title.outputs.skip_title }}' "$REVIEW_YML"
+assert_pin_unique "#389 create_check consumes the precomputed skip_title output" \
+  'SKIP_TITLE: ${{ needs.precheck.outputs.skip_title }}' "$REVIEW_YML"
+assert_pin_unique "#389 create_check uses the precomputed title with a defensive fallback" \
+  'TITLE="${SKIP_TITLE:-' "$REVIEW_YML"
+# The inline case is gone — extraction is complete, not duplicated.
+assert_eq "#389 the inline SKIP_REASON case no longer lives in the workflow" "0" \
+  "$(pin_count 'case "$SKIP_REASON" in' "$REVIEW_YML")"
+# Single-definition, repo-wide: the four SPECIFIC deferral titles live ONLY in the helper
+# now — never in the workflow (create_check's/precheck's only workflow-resident title is
+# the generic "precondition not met" fallback). A specific title lingering in the workflow
+# would be a stale duplicate the "defined once in the helper" pins above cannot see.
+for _t389 in "Devflow review waiting: branch behind base" \
+             "Devflow review waiting: other CI not green" \
+             "Devflow review waiting: CI approval required" \
+             "Devflow review waiting: preconditions unverifiable"; do
+  assert_eq "#389 specific deferral title '$_t389' does not linger in the workflow (helper is the only home)" "0" \
+    "$(pin_count "$_t389" "$REVIEW_YML")"
+done
+# JOB PLACEMENT is the load-bearing invariant of this extraction (issue #389 iter-3): the
+# helper must be invoked ONLY in precheck (which has actions/checkout, so the helper file
+# is present) and NEVER in create_check (which has NO checkout — invoking there 404s the
+# file and every deferral silently collapses to the generic fallback title, the exact
+# Critical the shadow pass caught). The file-wide pins above assert the invocation exists
+# once but NOT which job it lives in — a move back into create_check would leave them all
+# GREEN. So scope to each job body (same technique as the #304 block's sed slices).
+# Mutation proof: relocating the `- id: title` step into create_check turns both pins RED.
+PRECHECK_SLICE_389=$(sed -n '/^  precheck:/,/^  create_check:/p' "$REVIEW_YML")
+CREATE_SLICE_389=$(sed -n '/^  create_check:/,/^  review:/p' "$REVIEW_YML")
+assert_eq "#389 the helper is invoked in the precheck job (the job that checks out)" "1" \
+  "$(printf '%s\n' "$PRECHECK_SLICE_389" | grep -cF 'TITLE=$("$DST" "$SKIP_REASON")')"
+assert_eq "#389 the helper is NOT invoked in create_check (no checkout — would 404 the file)" "0" \
+  "$(printf '%s\n' "$CREATE_SLICE_389" | grep -cF 'DST=.devflow/vendor/devflow/scripts/describe-skip-title.sh')"
 
 # ── The injected grounding block. The security-sensitive prompt-injection prose
 # ── lives in ONE place (scripts/render-grounding-block.sh) rather than hand-copied

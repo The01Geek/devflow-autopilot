@@ -4,6 +4,86 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.110] — 2026-07-10
+
+### Changed
+- **Extracted `devflow-review.yml`'s inline `SKIP_REASON`→deferral-title selection into
+  `scripts/describe-skip-title.sh`.** The `create_check` job's five-arm `case` that composed
+  the "Devflow review waiting: …" check-run title now lives in a dedicated helper (mirroring
+  `scripts/describe-denial-count.sh`), so the test suite drives every arm and asserts
+  arm-order — a reordered or deleted arm now turns the suite RED instead of silently
+  misattributing a deferral title. The titles are byte-identical and the honesty rule (never
+  assert a state the precheck did not observe) is carried into the helper. The precheck
+  `title` step tolerates a present-but-broken helper: the invocation is an `if/then` with a
+  `|| TITLE=""` fallback (not an `&&` list `set -e` would abort on), so a helper that exits
+  non-zero degrades to the generic fallback title instead of failing precheck and skipping
+  the deferral check entirely. (#393)
+
+## [2.8.109] — 2026-07-10
+
+### Added
+- **Verification discipline in the vendored review skills.** `receiving-code-review` now
+  carries a negative-test attribution rule (pin the rejecting guard's own distinct signal
+  when more than one guard can reject the input), a positive-control rule (a negative test
+  carries a positive control on the same fixture), a mutation-check requirement before any
+  completion claim, and a fired-on-writing-a-guard rewrite of *Share the Contract* (name the
+  protected downstream operation before writing the predicate; grep for an existing idiom
+  first). `requesting-code-review` now requires stating mutation evidence for the tests a
+  review request presents. All wording is repo-agnostic so consumer repos inherit it. The
+  DevFlow prompt extensions gain two new guard-class shapes (vacuous negative test;
+  re-derived consumer contract) and an interpreter-faithful-probe rule, each recording its
+  PR #340 reproduction. Discharges #371 R3, R4, and R7. (#398)
+
+## [2.8.108] — 2026-07-10
+
+### Added
+- **Harden the `lib/test/run.sh` pin tooling with a mutation-taking assertion and two mechanical guards.** Added `assert_pin_red_under <name> <literal> <mutation> [file]`, a pin primitive that applies a specific `sed -E` regression to a scratch copy and asserts the pin flips `PASS->FAIL` under *that* mutation — reporting a framing-only pin's vacuity, which the whole-line `assert_pin_red_on_removal` cannot distinguish. Added `lib/test/pin-corpus-lint.py` (self-scanned by the suite): a pin-in-comment lint that fails when a pin literal also appears in a comment of its own target file (the count-inflation defect), and a wrapped-literal meta-guard that fails a source-grep pin whose phrase is on no single line — distinguishing a whitespace-wrapped phrase from an absent one and flagging any pin into a multi-literal argparse `help=` with a rendered-surface requirement. The behavioral-fix-pin rule in the implement skill (Phase 2.3), the review-and-fix fix loop (Step 3), and the DevFlow prompt extension now routes new pins through `assert_pin_red_under` and records the mutation run plus the pin observed RED — evidence instead of self-attestation. `CLAUDE.md` gains a gotcha on wrapped-literal blind spots. (#375)
+
+## [2.8.107] — 2026-07-10
+
+### Fixed
+- **Recognize documentation acceptance criteria as Phase-4-owned in the Phase 3.4 gate.** An
+  acceptance criterion whose satisfaction is a `docs/…` edit that the Phase 4.1 `devflow:docs`
+  pass authors is now left unticked at the Phase 3.4 acceptance-criteria gate, recorded in a
+  workpad deferral note, and exempted from the gate's blocking check (never routed through the
+  `(post-merge)` channel); Phase 4.1 discharges and ticks it before the terminal
+  `--status Complete` write. This removes the ordering contradiction where a documentation AC
+  was structurally unsatisfiable at the gate and only passed when a reviewer happened to author
+  the docs early. (#380)
+- **Harden `/devflow:create-issue`'s mechanical-claim contract.** The issue template's Testing
+  Strategy and the create-issue skill now require a mechanical claim ("running X reports Y" /
+  "must fail RED reporting Y") to be either executed-and-cited as verified output or written as
+  an obligation, never an unverified prediction; `Relevant Classes/Files` references cite a
+  symbol or section rather than a rot-prone `file:line` anchor. (#380)
+- **Accept `### Documentation Needed` as a third Documentation-Needed shape.**
+  `scripts/extract-doc-needed-paths.sh` now opens its extraction scope on a
+  `### Documentation Needed` level-3 heading (inside `## Implementation Notes`), alongside the
+  existing bold-bullet and bare-bold-paragraph shapes, so a heading-form issue body no longer
+  silently defeats the Phase 4.1 deliverable cross-check. The create-issue template's canonical
+  bold-bullet form and the extractor's accepted shapes are pinned as a coupled pair in
+  `lib/test/run.sh`, and the Phase 4.1 Stage 1 safety-net fires on either form. (#380)
+
+## [2.8.106] — 2026-07-10
+
+### Fixed
+- **Review live-comment seeding no longer misreads an interpreter-level exit 2 as "first write."** `skills/review/SKILL.md` branched its live progress-comment seed on `workpad.py id`'s exit code, treating rc 2 as `cmd_id`'s clean-absence "first write". But `python3` also exits 2 when it cannot open the script (`[Errno 2]`/`[Errno 13]` on a partial or unreadable vendor copy) and `argparse` exits 2 on a non-numeric PR number, so an interpreter-level failure was misdiagnosed as "create" and its captured stderr discarded. Three coupled screens now keep the "first write" arm reachable only from `cmd_id`'s own silent `sys.exit(2)`: a non-numeric-PR-number guard before the `id` call, a readable-path precheck on `workpad.py` before exec (with a distinct missing/unreadable breadcrumb), and an empty-captured-stderr requirement on the rc-2 arm; the failure arm now surfaces the captured stderr instead of swallowing it. (#388)
+
+## [2.8.105] — 2026-07-10
+
+### Changed
+- **The `lib/test/run.sh` pin-helper family is now option-safe for flag-shaped literals.**
+  `pin_count`, `grep_present`, and `assert_pin_red_on_removal` all pass their caller literal to
+  `grep -F` after an explicit `--`, so a literal beginning with `-`/`--` (e.g. a `--tick-progress`
+  pin) is treated as the search pattern rather than parsed as grep options and silently
+  mis-counted as absent (0). This makes `pin_count` — and therefore `assert_pin_unique` — safe
+  for flag-shaped pins that previously required a hand-guarded raw `grep -qF --` at the call site.
+  (#374)
+- **The mutation-check discipline is now copy-based, never destructive.** At both coupled sites
+  (`skills/review-and-fix/SKILL.md` Step 3 and `skills/implement/phases/phase-2-implement.md`), a
+  guard's vacuity is proven by breaking what it pins *on a copy of the file* and confirming it
+  goes RED there — never by an in-place "break then restore" that a crash or interruption could
+  leave broken. (#374)
+
 ## [2.8.104] — 2026-07-10
 
 ### Changed
