@@ -14502,7 +14502,15 @@ assert_eq "#402 helper: Write(**) stripped (parameterized file-tool)" "" "$(frt_
 assert_eq "#402 helper: Edit(src/**) stripped (parameterized file-tool)" "" "$(frt_out 'Edit(src/**)')"
 assert_eq "#402 helper: notebookedit(x) stripped (case-insensitive parameterized)" "" "$(frt_out 'notebookedit(x)')"
 assert_eq "#402 helper: bare Write still stripped" "" "$(frt_out 'Write')"
+assert_eq "#402 helper: bare Edit still stripped" "" "$(frt_out 'Edit')"
 assert_eq "#402 helper: bare MultiEdit still stripped" "" "$(frt_out 'MultiEdit')"
+assert_eq "#402 helper: bare NotebookEdit still stripped" "" "$(frt_out 'NotebookEdit')"
+# Individual DENY_CMDS words beyond the head of the list (exec/source/dash ride the
+# same `for c in $DENY_CMDS` loop) — pin a few so an accidental deletion of a word
+# from DENY_CMDS in the helper is caught, not only the grep prefix-pin of the head.
+assert_eq "#402 helper: Bash(exec sh:*) stripped (exec in DENY_CMDS)" "" "$(frt_out 'Bash(exec sh:*)')"
+assert_eq "#402 helper: Bash(source x:*) stripped (source in DENY_CMDS)" "" "$(frt_out 'Bash(source x:*)')"
+assert_eq "#402 helper: Bash(dash -c:*) stripped (dash in DENY_CMDS)" "" "$(frt_out 'Bash(dash -c:*)')"
 # --- every shape the OLD filter stripped stays stripped (AC3 regression corpus) ---
 assert_eq "#402 helper: Bash(sudo rm:*) stripped" "" "$(frt_out 'Bash(sudo rm:*)')"
 assert_eq "#402 helper: Bash(sh -c:*) stripped" "" "$(frt_out 'Bash(sh -c:*)')"
