@@ -181,12 +181,20 @@ def _strip_case_patterns(block: str) -> str:
     `(dd)`) is never mistaken for a pattern and keeps its head. Two pieces of state
     carry this: `in_case` (inside a `case` block) and `expect_arm` (an arm pattern
     may start on this line). `expect_arm` is set on entry and re-set after each `;;`,
-    and cleared after one successful strip.
+    and cleared after the first non-comment line at an arm position (whether or not a
+    pattern actually matched).
 
-    Accepted limitation: `in_case` is a flag, not a depth counter, so a *nested*
-    `case` block would clear the outer state one `esac` too early. No fence in
-    skills/review/SKILL.md nests a `case`, so this is left unhandled deliberately —
-    a depth counter would add complexity the real input never exercises.
+    Accepted limitations (all fail CLOSED — an unhandled shape leaks an arm pattern as
+    a bogus head that no allowlist grants, turning the suite RED, never a silently
+    un-granted command; and none occurs in skills/review/SKILL.md today):
+    - `in_case` is a flag, not a depth counter, so a *nested* `case` block would clear
+      the outer state one `esac` too early.
+    - Only `;;` re-arms; the bash fall-through terminators `;&` and `;;&` do not, so an
+      arm terminated by one leaks the *next* arm's pattern.
+    - A blank line between arms consumes `expect_arm` without a pattern, so the next
+      arm's pattern is not stripped.
+    A depth counter / broader terminator match would add complexity the real input
+    never exercises, so these are left unhandled deliberately.
     """
     out: list[str] = []
     in_case = False
