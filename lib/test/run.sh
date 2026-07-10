@@ -2848,32 +2848,26 @@ assert_pin_red_on_removal "#167 core-mp: deleting the false-positive-shape exclu
 # property, so by its own "at least one pin per operative sentence" rule each DIRECTIVE sentence
 # (the text that tells the implementer what to DO) gets its own removal-proof pin; the
 # definitions/rationale/history that merely elaborate them stay unpinned (pinning every clause
-# is the over-pinning treadmill the issue warns against). assert_pin_red_on_removal (not bare
-# assert_pin_unique) bakes step (c) of the rule — "half-revert and confirm RED" — into the
-# suite permanently, instead of leaving it a one-time authoring act. ($DEF_SKILL = the implement
-# SKILL.md; defined at the top of this file.)
+# is the over-pinning treadmill the issue warns against). ($DEF_SKILL = the implement SKILL.md
+# bundle; defined at the top of this file.) #375 update: step (c)/(d) now route through
+# assert_pin_red_under (not a one-time manual half-revert); the old `counterfactually
+# half-revert` step-(c) pin was retired and the (c)/(d) routing + evidence-note directives are
+# pinned in the #375 block below. The operative-vs-framing definition, the at-least-one-pin, and
+# the scope-limiter rules are unchanged and stay pinned here.
 assert_pin_red_on_removal "#186 behavioral-fix-pin: deleting 'pin the operative sentence, not framing' turns its pin RED" \
   'pin the operative sentence, not an adjacent framing clause' "$DEF_SKILL"
-assert_pin_red_on_removal "#186 behavioral-fix-pin: deleting the (a)/(b)/(c) counterfactual procedure turns its pin RED" \
-  'counterfactually half-revert' "$DEF_SKILL"
 assert_pin_red_on_removal "#186 behavioral-fix-pin: deleting the at-least-one-pin-per-operative-sentence rule turns its pin RED" \
   'at least one pin per operative sentence' "$DEF_SKILL"
 assert_pin_red_on_removal "#186 behavioral-fix-pin: deleting the behavioral-fix-pin scope limiter turns its pin RED" \
   'literal constants, token names, count-based guards, absence pins' "$DEF_SKILL"
-# #194: two additions HARDEN the #186 mutation-check guidance — each is its own operative
-# DIRECTIVE sentence, so each gets a removal-proof pin (the rule pins itself). (A) bake the
-# half-revert into the suite via the framework's removal-proof assertion, not a one-time manual
-# act; (B) confirm a newly-added guard REGISTERED — its named assertion appears as PASS and the
-# assertion count rose — because a green suite alone does not prove a guard ran. Both additions
-# are COUPLED across the two skills (implement = $DEF_SKILL, review-and-fix = $MAXI_SKILL), so the
-# same operative literal pins each file; assert_pin_red_on_removal requires it appear exactly once
-# per file. Pinning (B)'s sentence with a *registering* assertion dogfoods the rule it states.
-assert_pin_red_on_removal "#194 (A) implement: deleting the bake-via-removal-proof-assertion directive turns its pin RED" \
-  "your framework's removal-proof assertion" "$DEF_SKILL"
+# #194: the (B) confirm-a-guard-REGISTERED directive — its named assertion appears as PASS AND the
+# assertion count rose — pinned per file (implement = $DEF_SKILL, review-and-fix = $MAXI_SKILL),
+# because a green suite alone does not prove a guard ran. (#194's (A) bake-the-half-revert
+# directive was rewritten by #375 to route through assert_pin_red_under, so its
+# "your framework's removal-proof assertion" pins moved to the #375 block below.) Pinning (B)'s
+# sentence with a *registering* assertion dogfoods the rule it states.
 assert_pin_red_on_removal "#194 (B) implement: deleting the confirm-guard-registered directive turns its pin RED" \
   'confirm the guard registered' "$DEF_SKILL"
-assert_pin_red_on_removal "#194 (A) review-and-fix: deleting the bake-via-removal-proof-assertion directive turns its pin RED" \
-  "your framework's removal-proof assertion" "$MAXI_SKILL"
 assert_pin_red_on_removal "#194 (B) review-and-fix: deleting the confirm-guard-registered directive turns its pin RED" \
   'confirm the guard registered' "$MAXI_SKILL"
 # (B) is a two-conjunct directive ("named assertion appears as PASS" AND "the assertion
@@ -2897,18 +2891,34 @@ assert_pin_red_on_removal "#194 (B) implement: deleting the named-assertion-appe
   'its named assertion actually appears in the run as a PASS' "$DEF_SKILL"
 assert_pin_red_on_removal "#194 (B) review-and-fix: deleting the named-assertion-appears-as-PASS conjunct turns its pin RED" \
   'its named assertion appears in the run as a PASS' "$MAXI_SKILL"
-# #235 (finding A): the forced per-behavioral-fix-pin operative-sentence NOTE — before writing
-# a behavioral-fix pin the author records a one-line workpad --note naming the operative
-# sentence and asserting the pin literal is a substring of it (the same auditable-commitment
-# idiom as the sweep-selection / test-first notes). COUPLED across the implement skill's Phase
-# 2.3 (phase-2-implement.md, inside $DEF_SKILL) and the review-and-fix fix loop's Step 3 item 4
-# ($MAXI_SKILL), so the same operative literal pins each — a half-revert that drops the
-# directive from either file turns its pin RED. This clause is itself a behavioral-fix pin, so
-# per finding A's own rule the literal targets the operative NOTE directive, not its framing.
-assert_pin_red_on_removal "#235 (A) implement: deleting the forced operative-sentence-note directive turns its pin RED" \
-  'naming the operative sentence and asserting the pin literal is a substring of it' "$DEF_SKILL"
-assert_pin_red_on_removal "#235 (A) review-and-fix: deleting the forced operative-sentence-note directive turns its pin RED" \
-  'naming the operative sentence and asserting the pin literal is a substring of it' "$MAXI_SKILL"
+# #235 (finding A) was the forced per-behavioral-fix-pin NOTE. #375 REPLACED its
+# operative-sentence-substring attestation with an EVIDENCE note (record the mutation you ran and
+# the pin observed RED); the replacement's pins live in the #375 block immediately below, so
+# finding A's old substring-attestation pins were retired there.
+#
+# #375: the behavioral-fix-pin rule rewrite. Steps (c)/(d) now route through assert_pin_red_under
+# and the note records EVIDENCE (the mutation run + the pin observed RED), replacing #194 (A)'s
+# "your framework's removal-proof assertion" wording and #235 (A)'s operative-sentence-substring
+# attestation. The rule has THREE coupled homes: the implement skill Phase 2.3 ($DEF_SKILL
+# bundle), the review-and-fix fix loop Step 3 item 4 ($MAXI_SKILL), and DevFlow's prompt
+# extension ($EXT_IMPL). Each operative sentence is pinned through assert_pin_red_under ITSELF —
+# the rewrite's first customer is its own tooling — with a `sed -E` mutation that deletes ONLY
+# that operative line, so a framing-only paraphrase surviving the mutation is reported RED (what
+# assert_pin_red_on_removal's whole-line strip could not distinguish). The mutation pattern is a
+# metachar-free sub-phrase of the pinned operative line, so it addresses that one line cleanly.
+EXT_IMPL="$LIB/../.devflow/prompt-extensions/implement.md"
+assert_pin_red_under "#375 (c)/(d) routing directive — implement Phase 2.3 routes the pin through assert_pin_red_under" \
+  'mutation that re-introduces the named bug' '/mutation that re-introduces the named bug/d' "$DEF_SKILL"
+assert_pin_red_under "#375 (c)/(d) routing directive — review-and-fix Step 3 item 4 routes the pin through assert_pin_red_under" \
+  'mutation that re-introduces the named bug' '/mutation that re-introduces the named bug/d' "$MAXI_SKILL"
+assert_pin_red_under "#375 (c)/(d) routing directive — prompt extension states the assert_pin_red_under routing" \
+  'mutation that re-introduces the named bug' '/mutation that re-introduces the named bug/d' "$EXT_IMPL"
+assert_pin_red_under "#375 evidence-note directive — implement Phase 2.3 records the mutation run + the pin observed RED" \
+  'the mutation you ran and the pin you observed go RED' '/the mutation you ran and the pin you observed go RED/d' "$DEF_SKILL"
+assert_pin_red_under "#375 evidence-note directive — review-and-fix Step 3 item 4 records the mutation run + the pin observed RED" \
+  'the mutation you ran and the pin you observed go RED' '/the mutation you ran and the pin you observed go RED/d' "$MAXI_SKILL"
+assert_pin_red_under "#375 evidence-note directive — prompt extension records the mutation run + the pin observed RED" \
+  'the mutation you ran and the pin you observed go RED' '/the mutation you ran and the pin you observed go RED/d' "$EXT_IMPL"
 # #235 (finding B): the Phase 3.3 observability-persistence backstop — after the inline
 # review-and-fix loop returns, verify the run's telemetry artifacts were persisted, run
 # lib/efficiency-trace.sh --persist when they are missing, and record a dropped-failed

@@ -1,0 +1,6 @@
+---
+bump: patch
+type: Added
+---
+
+- **Harden the `lib/test/run.sh` pin tooling with a mutation-taking assertion and two mechanical guards.** Added `assert_pin_red_under <name> <literal> <mutation> [file]`, a pin primitive that applies a specific `sed -E` regression to a scratch copy and asserts the pin flips `PASS->FAIL` under *that* mutation — reporting a framing-only pin's vacuity, which the whole-line `assert_pin_red_on_removal` cannot distinguish. Added `lib/test/pin-corpus-lint.py` (self-scanned by the suite): a pin-in-comment lint that fails when a pin literal also appears in a comment of its own target file (the count-inflation defect), and a wrapped-literal meta-guard that fails a source-grep pin whose phrase is on no single line — distinguishing a whitespace-wrapped phrase from an absent one and flagging any pin into a multi-literal argparse `help=` with a rendered-surface requirement. The behavioral-fix-pin rule in the implement skill (Phase 2.3), the review-and-fix fix loop (Step 3), and the DevFlow prompt extension now routes new pins through `assert_pin_red_under` and records the mutation run plus the pin observed RED — evidence instead of self-attestation. `CLAUDE.md` gains a gotcha on wrapped-literal blind spots. (#375)
