@@ -165,7 +165,7 @@ The marker-locating subcommands (`id`, `new-body`, `update`) also accept `--mark
 
 | Flag | Effect |
 | --- | --- |
-| `--status STATUS` | Replace the Status line. Pass a **bare** status word — the helper prepends the canonical glyph (🚀/🎉/👎) and strips any glyph you pass, so re-applying is idempotent. |
+| `--status STATUS` | Replace the Status line. Pass a **bare** status word — the helper prepends the canonical glyph (🚀/🎉/👎/💥) and strips any glyph you pass, so re-applying is idempotent. You only ever pass `Complete`/`Blocked` or an in-progress word — `Failed` (💥) is written solely by the cloud stall backstop's dead-run flip. |
 | `--branch BRANCH` | Replace the Branch line. |
 | `--run-link VALUE` | Set the `Run` front-matter line to VALUE (markdown ok). Inserted after `Branch` if the line is absent (legacy-workpad resume). |
 | `--pr-link VALUE` | Set the `PR` front-matter line to VALUE (markdown ok). Inserted after `Branch` if absent. Used in Phase 3.1 once the draft PR exists. |
@@ -269,7 +269,7 @@ Verify each `Status` PATCH actually landed at the time it was issued (see the Up
 
 This self-check keys on the workpad `Status`, not on PR draft state — a run that deliberately finishes with a draft PR (`implement_pr_state=draft`) still reaches `Status: Complete`, so it is never a false positive; conversely a published PR whose workpad is still `Documenting` does trip it. (Same discipline as the "Always verify a Status PATCH actually landed" rule in the Workpad Reference: the `Status` line is the source of truth for whether the run finished, so read it before asserting completion.)
 
-**Make the self-check checkable, not merely stated: read the workpad `Status` line immediately before emitting any run-final message** — not from memory of where you think the run got to, but from the live comment — and only conclude the run when that line reads a terminal value. This local/interactive prose guard is load-bearing because the tiers do not back each other up: on the **cloud tier** the `devflow-implement.yml` **Stall backstop** (issue #268/#287) detects an interim `Status` post-run and **re-dispatches (bounded auto-resume, honest-red on cap exhaustion) — it never writes a terminal `Status`** (no `Failed` workpad status exists), whereas the **local/interactive tier has no such backstop**, so nothing but this self-check catches a run that stalls there.
+**Make the self-check checkable, not merely stated: read the workpad `Status` line immediately before emitting any run-final message** — not from memory of where you think the run got to, but from the live comment — and only conclude the run when that line reads a terminal value. This local/interactive prose guard is load-bearing because the tiers do not back each other up: on the **cloud tier** the `devflow-implement.yml` **Stall backstop** (issues #268/#287/#356) detects an interim `Status` post-run and **re-dispatches (bounded auto-resume, honest-red on cap exhaustion) and, on a fail-loud exit, flips the workpad to the terminal `Failed` (💥) status — it never drives a run to `Complete`** (only the run itself can finalize), whereas the **local/interactive tier has no such backstop**, so nothing but this self-check catches a run that stalls there.
 
 ---
 
