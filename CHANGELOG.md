@@ -4,6 +4,31 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.115] — 2026-07-10
+
+### Changed
+### Added
+- The cloud runner now preserves the engine's execution transcript as a
+  short-retention run artifact (`claude-execution-transcript-<run>-<attempt>`),
+  token-scrubbed and gated by the NEW opt-in (default-false, fail-closed)
+  `devflow.execution_transcript_artifact_enabled` key — a consumer must opt in; this repo's own config.json enables it. Follow-up to issue #401: three
+  no-verdict review stalls ended on a voluntary final message that was never
+  readable because the execution file died with the runner — the next stall
+  becomes a read, not an inference (evidence trail on issue #401, PR #397).
+
+## [2.8.114] — 2026-07-10
+
+### Changed
+- **Cloud `/devflow:implement` is now self-contained: in-run verification happens in the run's own environment, never via CI.** The implement run runs the project's test/lint commands in-env (granted through `devflow_implement.allowed_tools` / `devflow.allowed_tools`) and ticks every verification-command acceptance criterion — and the inline review pass's test evidence — on the pass it observes there. It no longer waits on, polls, or cites CI for its own progress; a verification command that is not granted goes **Blocked** naming `devflow_implement.allowed_tools` as the remedy instead of silently deferring to CI. CI remains the required post-PR check that gates the human merge. Auto-resume runs are now instructed — inside their own triggering comment and in the skill prose — to invoke bundled helpers with the repo-relative vendored literal (`.devflow/vendor/devflow/scripts/…`) as the leading token — the only form the cloud allowlist grants — so a resumed run actually resumes instead of dying on a silently-denied first helper call. (#406)
+
+## [2.8.113] — 2026-07-10
+
+### Added
+- **`/devflow:implement` authoring sweeps: operand-trace sweep (§2.3.0c) plus external-output, fail-open-guard, and agent-prompt-prose rules.** `skills/implement/phases/phase-2-implement.md` gains a new §2.3.0c operand-trace sweep with two triggers — a diff that adds a guard/predicate/validator/coverage-invariant (requiring a four-column operand table whose load-bearing fourth column asks *what OTHER inputs produce the same value?*), and agent-executed imperative prose that states a policy (requiring each policy to name its observable operand, its producing step, and a route for every outcome including failure). §2.3.4 now routes its in-diff carve-out to §2.3.0c and carries an external-tool-output reproduction obligation (paste the observed bytes; doc prose is not evidence) plus a companion outcome-verification rule; §2.3.6 gains the existence-vs-outcome and un-guaranteed-tool fail-open guard classes; and §2.4 splits human-read prose (adversarial dry-trace) from prose that enters a model's context as instruction (a `writing-skills` subagent RED/GREEN micro-test with a no-guidance control). The DevFlow preflight-guaranteed tool set is named in `.devflow/prompt-extensions/implement.md` as the repo instantiation of "the project's preflight." These shift four defect classes left from the blinded review loop to authoring time. (#397)
+
+### Fixed
+- **Cloud review no-verdict stalls: command-SHAPE discipline for the review engine (issue #401, B-side).** The deployed `claude-code-action` matcher denies whole command *shapes* even when the command *head* is granted by the read-only `review` profile — a leading `VAR="…"` assignment, a shell `>`/`>>` redirect to `/tmp`, a `cat`-headed heredoc write, a leading `cd`, or an interpreter head — so a cloud review can burn its budget re-trying denied variants and end with no verdict (Devflow Review run 29105381021 on PR #397: 22 denials, engine quit mid-Phase-3). Three durable guards, all keyed to the empirical matcher probe `.github/workflows/matcher-probe.yml` (evidence of record; re-runnable after any action/CLI upgrade): (1) a new `lib/test/extract-command-shapes.py` fence shape-lint (sibling of the issue-#363 head extractor, wired into `lib/test/run.sh`) that flags the four denied shape-classes in `skills/review/SKILL.md`'s ```bash fences; (2) `skills/review/SKILL.md` Phase 0.3.5 now authors the live progress-comment body with the Write tool under the run-scoped `.devflow/tmp/review/<slug>/<run-id>/` scratch dir (probe-permitted) instead of a `/tmp` `printf`-redirect + `cat`-heredoc (probe-denied), every `2>/tmp/devflow-rv-*.err` capture is retargeted into that in-workspace scratch dir, every computed `VAR="…"` assignment moves to the proven-permitted `VAR=$(printf '%s' "…")` capture form, and a new "Cloud command-shape discipline" subsection plus an anchor-preamble note state the permitted/denied shapes and the after-two-denials-then-switch rule; (3) `scripts/render-grounding-block.sh` appends the same command-shape rules to the injected engine-ground-truth block so improvised commands get the guidance at run time. (#397)
+
 ## [2.8.112] — 2026-07-10
 
 ### Changed

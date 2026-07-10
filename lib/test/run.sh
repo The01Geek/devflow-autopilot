@@ -1118,7 +1118,7 @@ assert_pin_unique "#384 review-seed: readable-path precheck on workpad.py before
 # (S3) stderr discriminator on the rc-2 arm: cmd_id's clean-absence exit is silent, so rc 2
 # with non-empty captured stderr is an interpreter-level exit, never a clean scan. Deleting
 # THIS alone → RED (the vice-versa half of AC5 relative to S2):
-assert_pin_unique "#384 review-seed: rc-2 arm requires empty captured stderr (silent-exit discriminator)" '[ "$?" -eq 2 ] && [ ! -s /tmp/devflow-rv-id.err ]' "$ST_REV"
+assert_pin_unique "#384 review-seed: rc-2 arm requires empty captured stderr (silent-exit discriminator)" '[ "$?" -eq 2 ] && [ ! -s .devflow/tmp/review/<slug>/<run-id>/rv-id.err ]' "$ST_REV"
 # (AC4) the captured id stderr is surfaced on the interpreter-level-rc-2 / rc-1 failure arm,
 # no longer discarded on the (now-unreachable-by-an-interpreter-error) create arm:
 assert_pin_unique "#384 review-seed: failure arm surfaces the rc-2-with-stderr interpreter exit" 'rc 2 with stderr — an interpreter-level exit' "$ST_REV"
@@ -4189,7 +4189,7 @@ assert_eq "sweep 2.3.0b: docs/implement-skill.md keeps the rationale table row" 
 # Pin one step token unique to the 2.3.0b procedure (the grep-every-enumerating-site
 # rule) so a reviewer who guts the steps but keeps the heading still trips the suite.
 assert_pin_unique "sweep 2.3.0b: implement SKILL keeps the enumerate-every-site step" 'Enumerate every site that names a member of the set, by grep' "$IMPL_SKILL"
-# Fourth mirror site (unique to 2.3.0b — 2.3.0a/2.3.6 have no OVERVIEW entry): Part C
+# Fourth mirror site (the same pinned-OVERVIEW-row idiom 2.3.0c's AC11 pin reuses below): Part C
 # added a sweep-list line in docs/DEVFLOW_SYSTEM_OVERVIEW.md. This PR's own iteration-1
 # review caught that line stale, proving it is a coupled mirror — so pin it too, or a
 # later edit could silently drop 2.3.0b from the OVERVIEW and the suite would stay green.
@@ -5166,10 +5166,10 @@ assert_eq "#356 flip: helper carries the matching '❌ Review failed' literal" "
 M356_REVIEW_YML="$LIB/../.github/workflows/devflow-review.yml"
 M356_DEVFLOW_YML="$LIB/../.github/workflows/devflow.yml"
 assert_pin_unique "#356 marker: skills/review/SKILL.md seeds the run-keyed review-progress marker" \
-  'MARKER="<!-- devflow:review-progress run=${GITHUB_RUN_ID:-local-$(date -u +%Y%m%dT%H%M%SZ)}-${GITHUB_RUN_ATTEMPT:-1} -->"' \
+  'MARKER=$(printf '"'"'%s'"'"' "<!-- devflow:review-progress run=${GITHUB_RUN_ID:-local-$(date -u +%Y%m%dT%H%M%SZ)}-${GITHUB_RUN_ATTEMPT:-1} -->")' \
   "$LIB/../skills/review/SKILL.md"
 assert_pin_red_on_removal "#356 marker: the SKILL.md seed-marker line flips RED on removal" \
-  'MARKER="<!-- devflow:review-progress run=${GITHUB_RUN_ID:-local-$(date -u +%Y%m%dT%H%M%SZ)}-${GITHUB_RUN_ATTEMPT:-1} -->"' \
+  'MARKER=$(printf '"'"'%s'"'"' "<!-- devflow:review-progress run=${GITHUB_RUN_ID:-local-$(date -u +%Y%m%dT%H%M%SZ)}-${GITHUB_RUN_ATTEMPT:-1} -->")' \
   "$LIB/../skills/review/SKILL.md"
 assert_pin_unique "#356 marker: devflow-review.yml rebuilds the identical run-keyed marker" \
   'FLIP_MARKER="<!-- devflow:review-progress run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} -->"' "$M356_REVIEW_YML"
@@ -6135,6 +6135,157 @@ assert_pin_unique "#334: §2.3.4a step drift-proofs mirror-fact comments before 
   'is made drift-proof per the §2.3 treatments — rewritten or removed — before commit, **even when the comment is currently accurate.**' "$P2_FILE"
 assert_pin_unique "#334: docs/implement-skill.md mirrors the 2.3.4a mirror-fact drift-proofing clause (docs↔skill coupled invariant)" \
   'is rewritten or removed per the §2.3 authoring' "$IMPL_DOC"
+
+# ── issue #376 (Wave 2): the merged operand-trace sweep (§2.3.0c) plus the ────
+# external-output, fail-open-guard, and agent-prompt-prose rules in
+# phases/phase-2-implement.md. Each operative-sentence pin below is a behavioral-fix
+# pin expressed through assert_pin_red_under (#375): the <mutation> re-introduces
+# the guarded defect by removing (or, for w2-fail-open-defect and w2-cosmetic-carveout,
+# demoting/loosening) ONLY that operative sentence in a scratch copy,
+# so a pin that drifted onto an adjacent framing clause is reported RED rather than
+# passing vacuously. SEVEN coupled-MIRROR presence checks are the deliberate exceptions
+# to the "assert_pin_red_under" phrasing: three AC-numbered — the AC8 assert_eq on
+# lib/preflight.sh's header, the AC11 assert_eq on the DEVFLOW_SYSTEM_OVERVIEW
+# sweep-index row, and the AC12 docs-row assert_pin_unique on $IMPL_DOC — plus the four
+# class-sweep docs-row assert_pin_unique presence pins on $IMPL_DOC below (w2-docs-2.3.4-row,
+# w2-docs-2.3.6-row, w2-docs-2.4-split, w2-docs-five-kinds), all the #334 docs-mirror idiom.
+# The mutations are recorded as the per-pin evidence in the issue #376 workpad.
+# $P2_FILE / $IMPL_DOC / $EXT_IMPL are defined above.
+# AC1 — the §2.3.0c heading states BOTH authoritative triggers.
+assert_pin_red_under "#376 w2-trigger-code: §2.3.0c heading states the code-guard trigger" \
+  'the diff adds a guard, predicate, validator, or coverage invariant in code' \
+  's/the diff adds a guard, predicate, validator, or coverage invariant in code//' "$P2_FILE"
+assert_pin_red_under "#376 w2-trigger-prose: §2.3.0c heading states the policy-stating-prose trigger" \
+  'ships agent-executed imperative prose stating a policy' \
+  's/ships agent-executed imperative prose stating a policy//' "$P2_FILE"
+# AC2 — the four-column operand table, with the load-bearing fourth column.
+assert_pin_red_under "#376 w2-fourth-column: §2.3.0c keeps the load-bearing fourth column (what OTHER inputs produce the same value?)" \
+  'what OTHER inputs produce the same value?' \
+  's/what OTHER inputs produce the same value\?//' "$P2_FILE"
+# AC2 (enforcement sentence) — trigger (a)'s teeth, symmetric to w2-inert-guard (trigger (b)'s
+# defect definition): an undistinguished same-value producer in the fourth column IS a fail-open
+# guard and a defect in this PR. The mutation softens the defect verdict to advisory language, so
+# a future edit that keeps the table but demotes "is a defect" goes RED.
+assert_pin_red_under "#376 w2-fail-open-defect: §2.3.0c defines an undistinguished same-value producer as a fail-open guard/defect in this PR" \
+  'is a fail-open guard and a defect in **this** PR' \
+  's/is a fail-open guard and a defect in \*\*this\*\* PR/warrants a closer look/' "$P2_FILE"
+# AC3 — the prose-policy arm's stated-policy contract: (1) the naming obligation whose load-bearing
+# clause is "route for every outcome INCLUDING THE FAILURE OUTCOME" (the clause that gives trigger (b)
+# teeth against a fail-open policy), and (2) the inert-guard defect definition. w2-inert-guard covers
+# (2); the failure-outcome pin below covers (1) — its mutation strips only the failure-outcome routing
+# clause, so weakening the obligation to route the failure outcome goes RED even though the inert-guard
+# sentence survives (a distinct clause on the same paragraph line).
+assert_pin_red_under "#376 w2-policy-failure-route: §2.3.0c trigger (b) requires a route for the failure outcome" \
+  '**including the failure outcome** (the operand absent, the producing step failing, the value unresolvable)' \
+  's/\*\*including the failure outcome\*\* \(the operand absent, the producing step failing, the value unresolvable\)//' "$P2_FILE"
+assert_pin_red_under "#376 w2-inert-guard: §2.3.0c defines a policy whose operand no step produces as an inert guard/defect" \
+  'A stated policy whose operand no step produces is an inert guard and a defect in this PR' \
+  's/A stated policy whose operand no step produces is an inert guard and a defect in this PR//' "$P2_FILE"
+# AC4 — §2.3.4's carve-out routes in-diff guards to §2.3.0c.
+assert_pin_red_under "#376 w2-carveout-route: §2.3.4 routes its in-diff carve-out to §2.3.0c" \
+  "routed to §2.3.0c's operand-trace sweep" \
+  "s/routed to §2.3.0c's operand-trace sweep//" "$P2_FILE"
+# AC5 — §2.3.4's external-output reproduction obligation and doc-prose-not-evidence clause.
+assert_pin_red_under "#376 w2-reproduce-bytes: §2.3.4 requires reproducing external output in a scratch dir and pasting observed bytes" \
+  'reproduce the command once in a scratch directory and paste the' \
+  's/reproduce the command once in a scratch directory and paste the//' "$P2_FILE"
+assert_pin_red_under "#376 w2-doc-prose-not-evidence: §2.3.4 states doc prose is not acceptable evidence" \
+  'Doc prose is not acceptable evidence' \
+  's/Doc prose is not acceptable evidence//' "$P2_FILE"
+# AC5 (kind bullet) — the External-tool output boundary KIND bullet itself (the enumerated member that
+# makes §2.3.4's external-output machinery apply); removing it silently disables the whole external-output
+# obligation. Grouped with the other AC5 (external-output) pins above rather than in issue-AC numeric order.
+assert_pin_red_under "#376 w2-external-output-kind: §2.3.4 lists External-tool output as a boundary kind" \
+  'a literal string, message, or exit code the diff matches against, or documents, as the output of an external tool' \
+  's/a literal string, message, or exit code the diff matches against, or documents, as the output of an external tool//' "$P2_FILE"
+# AC7 — §2.3.4's companion outcome-verification rule (grouped with the other §2.3.4 pins above, ahead of
+# the §2.3.6 AC6 pins below — pins are grouped by phase-file section, not strictly by issue-AC number).
+assert_pin_red_under "#376 w2-outcome-companion: §2.3.4 states a precondition check never stands in for verifying the consumed outcome" \
+  'A precondition check never stands in for verifying the consumed outcome' \
+  's/A precondition check never stands in for verifying the consumed outcome//' "$P2_FILE"
+# AC6 — §2.3.6 gains the two fail-open guard classes.
+assert_pin_red_under "#376 w2-outcome-shape: §2.3.6 lists the existence-standing-in-for-outcome fail-open shape" \
+  'precondition check standing in for an unverified consumption' \
+  's/precondition check standing in for an unverified consumption//' "$P2_FILE"
+assert_pin_red_under "#376 w2-preflight-property: §2.3.6 keys the un-guaranteed-tool shape on the preflight property" \
+  "value that decides which thing is selected or what is emitted must not be derived through a tool the project's preflight does not guarantee" \
+  "s/value that decides which thing is selected or what is emitted must not be derived through a tool the project's preflight does not guarantee//" "$P2_FILE"
+# AC8 — the implement extension names DevFlow's preflight-guaranteed set, coupled to lib/preflight.sh's
+# header. The EXTENSION side (the exact joined enumeration present in $EXT_IMPL) is pinned by the
+# w2-preflight-set-coupling assert_pin_red_under just below — which already establishes presence-and-
+# uniqueness before mutating out PyYAML — so this assert_eq only asserts the PREFLIGHT side names the same
+# set (its header wraps the enumeration across two comment lines, so match the two line-fragments). Together
+# the two assertions catch drift on either mirror: rename a tool in $EXT_IMPL → the pin goes RED; rename it in
+# lib/preflight.sh → this assert_eq goes RED. (grep_present is NOT used here — it is a count-pinned escape
+# hatch fixed at 2 call sites. The bare `grep -qF` need no `# raw-guard-ok:` marker because the #157 raw-guard
+# audit only flags guard lines carrying a *SKILL* token (_SKILL / SKILL_ / SKILL.md); these target lib/preflight.sh,
+# so the audit's pattern never matches them — it is the SKILL-token scope, not the command-substitution, that exempts them.)
+assert_eq "#376 AC8: lib/preflight.sh header enumerates the same guaranteed set the implement extension mirrors (coupled mirror; extension side pinned by w2-preflight-set-coupling below)" \
+  "yes" \
+  "$(grep -qF 'git, gh (authenticated), jq, and' "$LIB/preflight.sh" \
+     && grep -qF 'python3 (>=3.11) with PyYAML' "$LIB/preflight.sh" && echo yes || echo no)"
+assert_pin_red_under "#376 w2-preflight-set-coupling: removing PyYAML from the extension enumeration turns the coupled-mirror pin RED" \
+  'git, gh (authenticated), jq, and python3 (>=3.11) with PyYAML' \
+  's/ with PyYAML//' "$EXT_IMPL"
+# AC9 — §2.4 distinguishes agent-prompt prose (subagent RED/GREEN + no-guidance control) from human-read prose.
+assert_pin_red_under "#376 w2-agent-prompt-trigger: §2.4 keys the split on whether the text enters a model's context as instruction" \
+  "does this text enter a model's context as instruction" \
+  "s/does this text enter a model's context as instruction//" "$P2_FILE"
+assert_pin_red_under "#376 w2-no-guidance-control: §2.4 requires a subagent RED/GREEN micro-test with a no-guidance control" \
+  'subagent RED/GREEN micro-test with a no-guidance control' \
+  's|subagent RED/GREEN micro-test with a no-guidance control||' "$P2_FILE"
+# AC10 — the Sweep-selection index carries the §2.3.0c entry.
+assert_pin_red_under "#376 w2-index-entry: the Sweep-selection index carries the §2.3.0c operand-trace entry" \
+  'policy-stating agent-executed prose' \
+  's/policy-stating agent-executed prose//' "$P2_FILE"
+# AC11 — docs↔skill coupled mirror: DEVFLOW_SYSTEM_OVERVIEW.md carries the §2.3.0c sweep-index row
+# (the fourth-mirror-site idiom of the 2.3.0b OVERVIEW pin above). assert_eq + grep -qF like that
+# precedent (a presence check on a non-$IMPL_DOC doc; the bare grep -qF needs no raw-guard-ok marker
+# for the same SKILL-token-scope reason as AC8).
+assert_eq "#376 AC11 w2-overview-2.3.0c-row: DEVFLOW_SYSTEM_OVERVIEW keeps the §2.3.0c sweep-index entry (docs↔skill coupled invariant)" \
+  "yes" \
+  "$(grep -qF -- '- **2.3.0c** Operand-trace sweep (a diff that adds a guard/predicate/validator/coverage invariant in code' \
+     "$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md" && echo yes || echo no)"
+# AC12 — docs↔skill coupled mirror: docs/implement-skill.md carries the §2.3.0c sweep-table row. Presence
+# pin (the #334 docs-mirror idiom, assert_pin_unique on $IMPL_DOC) so a future edit that reverts/contradicts
+# the docs 2.3.0c row while the phase file stays intact goes RED — the coupled-invariant discipline extended
+# to the docs surface this block's other pins do not touch.
+assert_pin_unique "#376 w2-docs-2.3.0c-row: docs/implement-skill.md mirrors the §2.3.0c sweep-table row (docs↔skill coupled invariant)" \
+  "the blind spot 2.3.4 carves out and 2.3.0a/2.3.0b's peer/enum focus misses" "$IMPL_DOC"
+# Class sweep of the AC11/AC12 docs-mirror idiom (PR #397 review pass): the SAME diff also
+# rewrote the docs 2.3.4 row (external-output kind + reproduction obligation), the 2.3.6 row
+# (two mirrored fail-open guard classes), the §2.4 split paragraph, and the boundary-kinds
+# count — pin each so a future edit cannot silently revert one doc row while the fully-pinned
+# phase file stays intact (the docs surface was the only unpinned side of these mirrors).
+assert_pin_unique "#376 w2-docs-2.3.4-row: docs/implement-skill.md 2.3.4 row carries the external-output reproduction obligation (docs↔skill coupled invariant)" \
+  'the external-output kind carries a reproduction obligation (paste the observed bytes; doc prose is not evidence)' "$IMPL_DOC"
+assert_pin_unique "#376 w2-docs-2.3.6-row: docs/implement-skill.md 2.3.6 row carries the two mirrored fail-open guard classes (docs↔skill coupled invariant)" \
+  'two fail-open guard classes mirrored from the reviewer extension' "$IMPL_DOC"
+assert_pin_unique "#376 w2-docs-2.4-split: docs/implement-skill.md describes the §2.4 agent-prompt micro-test split (docs↔skill coupled invariant)" \
+  'subagent RED/GREEN micro-test with a no-guidance control, because a dry-trace cannot catch a prompt-prose defect' "$IMPL_DOC"
+assert_pin_unique "#376 w2-docs-five-kinds: docs/implement-skill.md carries the five-boundary-kinds count (coupled count mirror)" \
+  'The five boundary kinds and how to verify each' "$IMPL_DOC"
+# AC6 (carve-out clause) — the cosmetic-sanitization fail-closed carve-out is itself an operative
+# clause of the un-guaranteed-tool bullet (deleting or loosening it changes what the sweep permits);
+# the mutation LOOSENS the iff-condition to unconditional acceptance, so a future edit that keeps
+# the bullet but drops the fails-closed condition goes RED.
+assert_pin_red_under "#376 w2-cosmetic-carveout: §2.3.6 keys the cosmetic-sanitization carve-out on the missing-tool-fails-closed condition" \
+  'sanitization through such a tool remains acceptable **iff** a missing tool fails closed' \
+  's/remains acceptable \*\*iff\*\* a missing tool fails closed/is always acceptable/' "$P2_FILE"
+# AC2/AC3 (completion criterion) — §2.3.0c's "not done until…" enforcement sentence binds both
+# triggers into a done-gate, the peer of 2.3.0a/2.3.0b's own completion pins. The mutation removes
+# it, so a future edit that guts the enforcement gate while leaving the descriptive triggers intact
+# (all their pins still green) goes RED.
+assert_pin_red_under "#376 w2-completion-gate: §2.3.0c binds both triggers into a completion criterion (not done until every comparand has a row and every policy names operand/producer/route)" \
+  'The sweep is not done until every comparand has a completed four-column row' \
+  's/The sweep is not done until every comparand has a completed four-column row//' "$P2_FILE"
+# AC5 (phase-file-side count mirror) — pin the FIVE-boundary-kinds count on the authoritative phase
+# file too (w2-docs-five-kinds pins only the docs side). The mutation reverts the count to "four",
+# re-introducing the miscount a 6th kind (or a dropped bullet) would leave stale, so the count is
+# now pinned on both mirrors, not just the weaker docs one.
+assert_pin_red_under "#376 w2-phase-five-kinds: phase-2-implement.md §2.3.4 step cites the five boundary kinds (count mirror, phase-file side)" \
+  'one of the five kinds above' \
+  's/one of the five kinds above/one of the four kinds above/' "$P2_FILE"
 
 # ── issue #185 Addendum: deterministic extraction helper (fixture matrix) ────
 # The helper is the deterministic boundary the Addendum mandates; test its
@@ -20182,19 +20333,21 @@ assert_eq "#284 shadow-fix: review-and-fix record gate no longer carries the old
 assert_eq "#284 shadow-fix: review record gate no longer carries the old R_RC capture" \
   "0" "$(pin_count 'R_RC=$?' "$ST_REV")"
 assert_pin_unique "#284 positive: review-and-fix record gate discriminates via single-statement if" 'slug "<slug>" --mode record > "$RECORD" 2>/tmp/devflow-et-record.err; then' "$ST_RAF"
-assert_pin_unique "#284 positive: review record gate discriminates via single-statement if" 'slug "<slug>" --mode record > "$RECORD" 2>/tmp/devflow-rv-rec.err; then' "$ST_REV"
+assert_pin_unique "#284 positive: review record gate discriminates via single-statement if" 'slug "<slug>" --mode record > "$RECORD" 2>.devflow/tmp/review/<slug>/<run-id>/rv-rec.err; then' "$ST_REV"
 # (2) POSITIVE-form pins (AC5): the new single-statement `if !` idiom is present at each
 # migrated site (routed through assert_pin_unique — no bare grep on the line).
 assert_pin_unique "#284 positive: receiving-code-review discriminates via single-statement if!" 'if ! REOPEN_THRESHOLD=$(' "$ST_RCV"
 assert_pin_unique "#284 positive: review-and-fix fix-threshold discriminates via single-statement if!" 'if ! FIX_THRESHOLD=$(' "$ST_RAF"
 assert_pin_unique "#284 positive: review-and-fix max_iterations discriminates via single-statement if!" 'if ! MAX_ITERS=$(' "$ST_RAF"
 assert_pin_unique "#284 positive: review verdict-threshold discriminates via single-statement if!" 'if ! VERDICT_THRESHOLD=$(' "$ST_REV"
-# #384 appended the silent-exit discriminator (`&& [ ! -s /tmp/devflow-rv-id.err ]`) to this
-# elif, but the invariant this pin protects is unchanged: `[ "$?" -eq 2 ]` is STILL the
+# #384 appended the silent-exit discriminator (`&& [ ! -s .devflow/tmp/review/<slug>/<run-id>/rv-id.err ]`)
+# to this elif, but the invariant this pin protects is unchanged: `[ "$?" -eq 2 ]` is STILL the
 # leading inline read of the id call's own exit status (never a captured rc read in a later
 # statement). Pin the new form so a revert to a captured-rc read fails, and so the #384
-# discriminator can't be silently dropped from this exact site either.
-assert_pin_unique "#284 positive: review live-comment 3-way reads \$? inline in the elif (with #384 stderr discriminator)" 'elif [ "$?" -eq 2 ] && [ ! -s /tmp/devflow-rv-id.err ]; then' "$ST_REV"
+# discriminator can't be silently dropped from this exact site either. (#401 retargeted the
+# stderr capture off /tmp into the run-scoped scratch dir — an in-workspace path; the probe
+# denies only /tmp-targeted redirects, and real-run 29105381021 executed such 2> captures.)
+assert_pin_unique "#284 positive: review live-comment 3-way reads \$? inline in the elif (with #384 stderr discriminator)" 'elif [ "$?" -eq 2 ] && [ ! -s .devflow/tmp/review/<slug>/<run-id>/rv-id.err ]; then' "$ST_REV"
 # The efficiency-trace render reads are the QUOTED command-substitution sites the absence
 # detector previously could not see (#284 shadow review) — pin the migrated `if ! VAR="$(`
 # idiom positively so a straight revert to `VAR="$(…)"; VAR_RC=$?` fails BOTH the extended
@@ -21340,14 +21493,117 @@ assert_eq "#363 every already-pinned arm shape (incl. optional-leading-paren) st
 # alone would not catch a duplicate head silently gained (or lost). Whoever next adds
 # a command to a review-skill fence updates these two numbers in the same commit,
 # per CLAUDE.md's coupled-invariant rule.
-assert_eq "#363 the review-skill head set is unchanged by the arm-position fix (88 occurrences)" \
-  "88" "$(python3 -c 'import importlib.util,sys
+assert_eq "#363 the review-skill head set is unchanged by the arm-position fix (95 occurrences — 95th is Phase 0.3.5's defensive mkdir, review-REJECT fix)" \
+  "95" "$(python3 -c 'import importlib.util,sys
 s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
 print(len(m.extract_heads(open(sys.argv[2],encoding="utf-8").read())))' "$ECH" "$LIB/../skills/review/SKILL.md")"
 assert_eq "#363 the review-skill head set is unchanged by the arm-position fix (28 distinct names)" \
   "28" "$(python3 -c 'import importlib.util,sys
 s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
 h=m.extract_heads(open(sys.argv[2],encoding="utf-8").read());print(len({m.name_of(x) for x in h}))' "$ECH" "$LIB/../skills/review/SKILL.md")"
+
+# ══ #401 fence SHAPE-lint: proven-denied command SHAPES in skills/review/SKILL.md ══════
+# extract-command-heads.py (above) validates command HEADS. But the deployed cloud matcher
+# ALSO denies whole command SHAPES even when the head is granted — silently, burning budget
+# until a run ends with NO verdict (issue #401; Devflow Review run 29105381021 on PR #397:
+# 22 denials, engine quit mid-Phase-3). extract-command-shapes.py is the desk-time pin for
+# that class, keyed to .github/workflows/matcher-probe.yml's evidence-of-record table.
+ECS="$LIB/test/extract-command-shapes.py"
+RGB="$LIB/../scripts/render-grounding-block.sh"
+assert_eq "#401 shape-lint helper exists" "yes" "$([ -f "$ECS" ] && echo yes || echo no)"
+
+# The contract: the real review skill teaches NO proven-denied command shape (exit 0, empty).
+assert_eq "#401 skills/review/SKILL.md teaches no proven-denied command shape" "" \
+  "$(python3 "$ECS" "$ST_REV" 2>&1)"
+assert_eq "#401 shape-lint exits 0 on the clean review skill" "0" \
+  "$(python3 "$ECS" "$ST_REV" >/dev/null 2>&1; echo $?)"
+
+# ── Anti-vacuity: each rule flags its denied shape (fixtures under $E363's trap-cleaned dir).
+printf '%s\n' '```bash' 'M=x printf hi' '```' > "$E363/s-r1a.md"
+assert_eq "#401 R1 flags an env-prefix compound (M=x cmd)" "yes" \
+  "$(python3 "$ECS" "$E363/s-r1a.md" | grep -q '  R1  ' && echo yes || echo no)"
+printf '%s\n' '```bash' 'FOO="a literal value"' '```' > "$E363/s-r1b.md"
+assert_eq "#401 R1 flags a computed double-quoted literal assignment" "yes" \
+  "$(python3 "$ECS" "$E363/s-r1b.md" | grep -q '  R1  ' && echo yes || echo no)"
+printf '%s\n' '```bash' 'cd somewhere' '```' > "$E363/s-r2.md"
+assert_eq "#401 R2 flags a leading cd" "yes" \
+  "$(python3 "$ECS" "$E363/s-r2.md" | grep -q '  R2  ' && echo yes || echo no)"
+printf '%s\n' '```bash' 'printf hi > /tmp/f' '```' > "$E363/s-r3a.md"
+assert_eq "#401 R3 flags a > redirect to a /tmp target" "yes" \
+  "$(python3 "$ECS" "$E363/s-r3a.md" | grep -q '  R3  ' && echo yes || echo no)"
+{ printf '%s\n' '```bash' "cat >> /tmp/f <<'EOF'" 'body' 'EOF' '```'; } > "$E363/s-r3b.md"
+assert_eq "#401 R3 flags a cat-headed heredoc write to /tmp" "yes" \
+  "$(python3 "$ECS" "$E363/s-r3b.md" | grep -q '  R3  ' && echo yes || echo no)"
+{ printf '%s\n' '```bash' "cat > kept.md <<'EOF'" 'body' 'EOF' '```'; } > "$E363/s-r3c.md"
+assert_eq "#401 R3 flags a cat-heredoc write even to a NON-/tmp target (heredoc-write shape)" "yes" \
+  "$(python3 "$ECS" "$E363/s-r3c.md" | grep -q '  R3  ' && echo yes || echo no)"
+printf '%s\n' '```bash' 'python3 helper.py' '```' > "$E363/s-r4.md"
+assert_eq "#401 R4 flags an interpreter head (python3)" "yes" \
+  "$(python3 "$ECS" "$E363/s-r4.md" | grep -q '  R4  ' && echo yes || echo no)"
+# ── R1 fail-open regression (PR #397 review finding): an env-prefix compound whose value is
+# ── a SUBSTITUTION is the same denied leading-`VAR=value` shape as a literal-valued one —
+# ── the substitution-capture exemption applies only to a PURE capture with no following
+# ── command token. Both fixtures linted CLEAN before the fix (observed rc 0).
+printf '%s\n' '```bash' 'M=$(x) printf hi' '```' > "$E363/s-r1c.md"
+assert_eq "#401 R1 flags an env-prefix compound with a substitution value (M=\$(x) cmd)" "yes" \
+  "$(python3 "$ECS" "$E363/s-r1c.md" | grep -q '  R1  ' && echo yes || echo no)"
+printf '%s\n' '```bash' 'VAR="$(x)" printf hi' '```' > "$E363/s-r1d.md"
+assert_eq "#401 R1 flags an env-prefix compound with a quoted-substitution value" "yes" \
+  "$(python3 "$ECS" "$E363/s-r1d.md" | grep -q '  R1  ' && echo yes || echo no)"
+printf '%s\n' '```bash' 'M=$(x) N=1 printf hi' '```' > "$E363/s-r1f.md"
+assert_eq "#401 R1 flags a CHAINED env-prefix compound with a substitution-valued first assignment" "yes" \
+  "$(python3 "$ECS" "$E363/s-r1f.md" | grep -q '  R1  ' && echo yes || echo no)"
+# ── R3 anti-vacuity for the stderr arm: `2>` to /tmp is the ORIGINAL denied capture shape
+# ── from run 29105381021 (the skill's old `2>/tmp/devflow-rv-*.err` captures).
+printf '%s\n' '```bash' 'printf hi 2>/tmp/e.err' '```' > "$E363/s-r3d.md"
+assert_eq "#401 R3 flags a 2> stderr redirect to a /tmp target" "yes" \
+  "$(python3 "$ECS" "$E363/s-r3d.md" | grep -q '  R3  ' && echo yes || echo no)"
+# ── Control-word stripping: a violation BEHIND a stripped control word still fires; a pure
+# ── capture behind one stays clean (the `elif WP=$(…)` idiom Phase 0.3.5 relies on).
+printf '%s\n' '```bash' 'if M=x printf hi; then' 'echo y' 'fi' '```' > "$E363/s-r1e.md"
+assert_eq "#401 R1 still fires behind a stripped control word (if M=x cmd; then)" "yes" \
+  "$(python3 "$ECS" "$E363/s-r1e.md" | grep -q '  R1  ' && echo yes || echo no)"
+
+# ── Discrimination: the PERMITTED shapes are NOT flagged (the false-positive class this
+# ── lint must avoid: a capture, an empty reset, `IFS= read`, `tee`, a pipe into `tee`, and
+# ── a `>` redirect to an in-workspace .devflow/tmp target all pass).
+{ printf '%s\n' '```bash' 'WP=$(gh pr view 1)' 'WP=""' 'IFS= read -r x' "tee f <<'EOF'" 'body' 'EOF' \
+    'printf hi | tee f' 'VAR="$(gh pr view 2)"' 'elif WP=$(gh pr view 3); then' 'cdrecord x' 'pythonize data' '```'; } > "$E363/s-ok.md"
+assert_eq "#401 shape-lint does NOT flag permitted shapes (capture, empty reset, IFS= read, tee, pipe-tee, elif-capture, near-miss heads)" "" \
+  "$(python3 "$ECS" "$E363/s-ok.md")"
+printf '%s\n' '```bash' 'somehelper.sh -n > .devflow/tmp/x.json' '```' > "$E363/s-ok2.md"
+assert_eq "#401 shape-lint does NOT flag a > redirect to an in-workspace .devflow/tmp target" "" \
+  "$(python3 "$ECS" "$E363/s-ok2.md")"
+
+# ── Behavioral proof (the assert_pin_red_under analogue for a program-based guard): a mutation
+# ── REINTRODUCING the exact cat-heredoc /tmp authoring #401 removed from Phase 0.3.5 flips the
+# ── lint RED and is named R3 — the guarded regression, not merely a vanished line.
+S401_MUT="$E363/mut-skill.md"; cp "$ST_REV" "$S401_MUT"
+{ printf '%s\n' '```bash' "cat >> /tmp/review-wp.md <<'EOF'" 'body' 'EOF' '```'; } >> "$S401_MUT"
+S401_OUT="$(python3 "$ECS" "$S401_MUT" 2>&1)"; S401_RC=$?
+assert_eq "#401 behavioral: reintroducing a cat-heredoc /tmp authoring flips the shape-lint RED (exit 1)" "1" "$S401_RC"
+assert_eq "#401 behavioral: that reintroduced regression is named R3" "yes" \
+  "$(printf '%s\n' "$S401_OUT" | grep -q '  R3  ' && echo yes || echo no)"
+
+# ── Phase 4.5's authoring recipe is PROSE the fence lint cannot reach (the PR #397 review
+# ── REJECT: it offered `cat <<'EOF'` while the same diff's discipline bans cat-heredocs).
+# ── Pin the corrected surface both ways: the tee-based clause present, the cat option gone.
+assert_eq "#401 Phase 4.5 authoring prose offers the sanctioned tee heredoc, never cat (corrected clause present)" "1" \
+  "$(grep -cF 'never a `cat`-headed heredoc, which the *Cloud command-shape discipline* classifies as denied' "$ST_REV")"
+assert_eq "#401 Phase 4.5 authoring prose carries NO cat-heredoc authoring option (review-REJECT regression pin)" "0" \
+  "$(grep -cF "(or \`cat <<'EOF'\`" "$ST_REV")"
+
+# ── #401 grounding block: the command-shape rules render into the injected engine-ground-truth
+# ── block. Pin the RENDERED surface (#375 discipline — the switch rule wraps across source lines),
+# ── executing the single render site, plus a behavioral pin on the source.
+GB401_OUT="$(HEAD_SHA=x CI_SUMMARY='c: success' ALLOWED_TOOLS='Read' bash "$RGB")"
+assert_eq "#401 grounding block renders the command-shapes section heading" "yes" \
+  "$(printf '%s\n' "$GB401_OUT" | grep -qF 'Command shapes this run' && echo yes || echo no)"
+assert_eq "#401 grounding block renders the two-denials-then-switch rule" "yes" \
+  "$(printf '%s\n' "$GB401_OUT" | grep -qF 'after two denials of a shape, switch to a permitted alternative' && echo yes || echo no)"
+assert_pin_red_under "#401 grounding: deleting the two-denials-switch rule from the renderer flips its pin RED" \
+  'after two denials of a shape, switch to a permitted alternative above' \
+  '/after two denials of a shape/d' "$RGB"
 
 # ── Process wrappers are stripped before matching, exactly as Claude Code does.
 printf '%s\n' '```bash' 'timeout 300 bash x.sh' 'nice -n 5 aa' 'nohup bb' 'stdbuf -oL cc' 'xargs dd' 'time ee' '```' > "$E363/wrap.md"
@@ -22297,7 +22553,7 @@ assert_pin_unique "#363 docs: the overview's paraphrase carries the unknown-CI c
 assert_pin_unique "#363 skill: the instructions are conditioned on the block's PRESENCE" \
   "Everything in this section is **conditioned on that block being present in your prompt.**" "$REVIEW_SKILL"
 assert_pin_unique "#363 skill: names review-and-fix as the no-block path that is unaffected" \
-  "as it is under \`/devflow:review-and-fix\`, which executes these phases verbatim under a different, write-enabled profile" "$REVIEW_SKILL"
+  "as it is on the **inline tier** (\`/devflow:review-and-fix\`, and the review engine as executed by an implement run's review phase, both under a write-enabled profile)" "$REVIEW_SKILL"
 # Terminal ❌ on ANY no-verdict path, not only a fatal abort.
 assert_pin_unique "#363 skill: stamps a terminal ❌ on ANY path that reaches no verdict" \
   "**Any path that reaches no verdict — stamp a terminal \`❌\` as your final action.**" "$REVIEW_SKILL"
@@ -22806,6 +23062,80 @@ assert_eq "#362 settings.json: the pre-existing efficiency-trace.sh entry surviv
   "$([ -n "$ISG_ET_CMD" ] && echo yes || echo no)"
 assert_eq "#362 settings.json: the efficiency-trace.sh entry keeps its own '|| true'" "yes" \
   "$(printf '%s' "$ISG_ET_CMD" | grep -qF '|| true' && echo yes || echo no)"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "#405 cloud implement self-contained: in-env verification, denial-proof resume"
+# ────────────────────────────────────────────────────────────────────────────
+I405_CONFIG="$LIB/../.devflow/config.json"
+I405_P3="$LIB/../skills/implement/phases/phase-3-review.md"
+I405_SKILL="$LIB/../skills/implement/SKILL.md"
+I405_IMPL_YML="$LIB/../.github/workflows/devflow-implement.yml"
+I405_DEVFLOW_YML="$LIB/../.github/workflows/devflow.yml"
+
+# AC1: both allowed_tools arrays grant the three in-env verification commands. Reuse the
+# established dpt_has() JSON-array-membership helper (the same one the detect-project-tools
+# assertions use against these exact allowed_tools paths) rather than a bespoke inline reader.
+# RED today only if any entry is missing from either array.
+for I405_KEY in devflow devflow_implement; do
+  for I405_ENT in 'Bash(lib/test/run.sh:*)' 'Bash(lib/preflight.sh:*)' 'Bash(shellcheck:*)'; do
+    assert_eq "#405 AC1 config: $I405_KEY.allowed_tools grants $I405_ENT" "yes" \
+      "$(dpt_has ".$I405_KEY.allowed_tools" "$I405_ENT" "$I405_CONFIG")"
+  done
+done
+
+# AC2: the Phase 3.4 gate carries NO gate-time CI channel — neither the "verified via CI"
+# tick arm nor the "deferred to CI" (post-merge) retag arm. Negative pins (RED today):
+assert_eq "#405 AC2 phase-3.4: no 'verified via CI' tick arm remains" "0" "$(pin_count 'verified via CI' "$I405_P3")"
+assert_eq "#405 AC2 phase-3.4: no gate-time 'deferred to CI' retag arm remains" "0" "$(pin_count 'deferred to CI' "$I405_P3")"
+# Behavioral-fix pin: the operative replacement is the in-env-denied Blocked arm naming the
+# config key. A mutation removing that arm re-introduces the silent CI-deferral bug → RED.
+assert_pin_red_under "#405 AC2 phase-3.4: in-env-denied criterion routes to Blocked naming devflow_implement.allowed_tools" \
+  'add it to devflow_implement.allowed_tools (and devflow.allowed_tools for the command path) so the run can verify in-env, then re-run' \
+  '/so the run can verify in-env, then re-run/d' \
+  "$I405_P3"
+# AC3: the §3.4 gate positively forbids waiting for / polling / re-checking / citing CI to
+# gate a verification-command criterion. Behavioral pin on the operative no-wait directive:
+assert_pin_red_under "#405 AC3 phase-3.4: gate never waits for / polls / re-checks / cites CI" \
+  'Do **not** wait for, poll, re-check, or cite CI to gate this criterion' \
+  '/wait for, poll, re-check, or cite CI to gate this criterion/d' \
+  "$I405_P3"
+
+# AC4: the shared review engine, executed inline, takes its test evidence from the
+# orchestrator's in-env suite/lint results — never a CI conclusion. Behavioral pin on the
+# inline-tier evidence sentence in the engine's grounding-block section:
+I405_REVIEW="$LIB/../skills/review/SKILL.md"
+assert_pin_red_under "#405 AC4 review/SKILL.md: inline-tier test evidence is the orchestrator's in-env suite/lint, never CI" \
+  "On the inline tier the test evidence is the orchestrator's own in-environment suite/lint results for the current HEAD" \
+  '/On the inline tier the test evidence is the/d' \
+  "$I405_REVIEW"
+
+# AC5: the implement SKILL.md pins the cloud helper-invocation form (vendored literal as the
+# leading token) and the two-denials-then-switch rule. Behavioral-fix pins via assert_pin_red_under
+# (mutation deletes the operative paragraph, re-introducing the denial-prone iteration bug):
+assert_pin_red_under "#405 AC5 SKILL: bundled helpers granted only as the repo-relative vendored literal (leading token)" \
+  "grants each bundled helper **only** as the repo-relative vendored literal with that path as the command's **leading token**" \
+  '/grants each bundled helper/d' \
+  "$I405_SKILL"
+assert_pin_red_under "#405 AC5 SKILL: after two denials of a command shape, switch to a listed legal form" \
+  'After two denials of a given command shape, do not iterate variants of it' \
+  '/grants each bundled helper/d' \
+  "$I405_SKILL"
+
+# AC6: the stall-backstop resume comment carries the helper-invocation-form line, so a resumed
+# run receives the discipline inside its own triggering comment. Behavioral-fix pin (mutation
+# deletes the printf line → RED):
+assert_pin_red_under "#405 AC6 devflow-implement.yml: resume comment states the vendored-literal helper form" \
+  'Resume note: invoke bundled helpers as' \
+  '/Resume note: invoke bundled helpers as/d' \
+  "$I405_IMPL_YML"
+
+# AC8: after this change, neither writer TOOLS list carries a Bash(/-prefixed rule, and the only
+# wildcard-path rule is the pre-existing Bash(*/load-prompt-extension.sh:*) in devflow.yml.
+assert_eq "#405 AC8 devflow-implement.yml: no Bash(/ absolute-path rule" "0" "$(pin_count 'Bash(/' "$I405_IMPL_YML")"
+assert_eq "#405 AC8 devflow.yml: no Bash(/ absolute-path rule" "0" "$(pin_count 'Bash(/' "$I405_DEVFLOW_YML")"
+assert_eq "#405 AC8 devflow-implement.yml: no wildcard-path Bash(*/ rule" "0" "$(pin_count 'Bash(*/' "$I405_IMPL_YML")"
+assert_eq "#405 AC8 devflow.yml: every wildcard-path Bash(*/ rule is the load-prompt-extension one" \
+  "$(pin_count 'Bash(*/load-prompt-extension.sh' "$I405_DEVFLOW_YML")" "$(pin_count 'Bash(*/' "$I405_DEVFLOW_YML")"
 
 # Tally the shell assertions from the results file (authoritative — includes the
 # subshell blocks). The python section below adds its own counts on top.

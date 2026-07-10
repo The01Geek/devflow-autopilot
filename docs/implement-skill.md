@@ -17,13 +17,14 @@ A **"Sweep selection (run first)"** preamble in the skill indexes which of these
 | 2.3.0 Changed-contract | a change that **modifies** a signature, renames/moves a symbol, tightens a validator, or alters a classifying predicate | dependent sites left on the *old* contract (other predicate branches, sibling callers, fixtures/assertions) |
 | 2.3.0a Peer-checkpoint completeness | a change that **adds** a rule/clause/guard/invariant which has *co-equal peer sites* (two or more sites that must each enforce the same rule for it to hold) | the rule stated at only *some* peers — a guard applied to one config-leaf branch but not its siblings, a read-only clause present at 2 of 4 gate checkpoints, a fallback in the selection predicate but not the parallel derivation |
 | 2.3.0b Enum-enumeration reconciliation | a change that **adds a value to an enumerated value set** (a new enum/string-union member, status, kind, verdict, or `fix_decision`) | enumerating sites left stale — a doc/comment list of the value set, or a fall-through consumer (an `else`/`default`/`// null` arm) — that the *code*-call-site sweeps (2.3.0/2.3.0a) miss, even when the runtime stays correct because the new value rides an intended fall-through |
+| 2.3.0c Operand-trace | a change that **adds a guard, predicate, validator, or coverage invariant** in code, **or** ships **agent-executed imperative prose stating a policy** (a `SKILL.md`/`phases/*.md` command block) | a guard whose comparand comes from the diff's *own* code (the blind spot 2.3.4 carves out and 2.3.0a/2.3.0b's peer/enum focus misses), and a stated policy whose operand no step produces (an inert guard). Trigger (a) demands a four-column operand table — comparand, producer (file+line), emitted on every selected path?, and the load-bearing *what OTHER inputs produce the same value?*; trigger (b) demands every policy name its observable operand, its producing step, and a route for every outcome including failure |
 | 2.3.1 Orphaned-setup | a **deletion** of code | setup lines (a dependency fetch, lookup, computed local, import) whose only consumer was the deleted code |
 | 2.3.2 Stranded-dependents | a **deletion** of a method, file, route, or page | references *outside* the diff the deletion stripped of purpose (callerless public methods, dead args, surviving inbound links) |
 | 2.3.3 Convention-compliance | any code the diff **added or modified** | `CLAUDE.md` convention violations in touched code |
-| 2.3.4 Boundary-assumption | any diff that **depends on** a fact about something it does not own | claims about a dependency version, the supported runtime, a sibling producer's output, or the real host that were asserted from memory instead of verified |
+| 2.3.4 Boundary-assumption | any diff that **depends on** a fact about something it does not own | claims about a dependency version, the supported runtime, a sibling producer's output, the real host, or an **external tool's output string/message/exit code** that were asserted from memory instead of verified — the external-output kind carries a reproduction obligation (paste the observed bytes; doc prose is not evidence) and the companion outcome-verification rule (a precondition check never stands in for verifying the consumed outcome). In-diff guards carved out here route to **2.3.0c** |
 | 2.3.4a Self-authored-claim reconciliation | any diff that **authors** a behavioral claim in prose — internal/external docs it edits, or code comments it adds/changes | a sentence or comment that asserts what the shipped code does but contradicts the actual code path (including the diff's *own* new code, which 2.3.4 carves out) — caught by tracing each authored claim to the code, following dispatch into pre-existing helpers the diff calls |
 | 2.3.5 Simplification & Efficiency | any code the diff **added or modified** | avoidable complexity (redundant/derivable state, copy-paste variation, deep nesting, dead code) and wasted work (redundant I/O or computation, needless sequential ops, hot-path/startup cost) that only show up once the change is assembled |
-| 2.3.6 Error-handling & silent-failure | any code the diff **added or modified** | silent failures — swallowed or over-broadly-caught errors, unjustified or fail-open fallbacks, mock/stub leaks, and generic/misdirected breadcrumbs — that ship clean because the happy path works and only fire on an input the tests don't exercise |
+| 2.3.6 Error-handling & silent-failure | any code the diff **added or modified** | silent failures — swallowed or over-broadly-caught errors, unjustified or fail-open fallbacks, mock/stub leaks, generic/misdirected breadcrumbs, plus two fail-open guard classes mirrored from the reviewer extension: the **existence-standing-in-for-outcome** shape (verify the outcome, not the precondition) and the **un-guaranteed-tool derivation** shape (a value that decides a selection or an emission must not be derived through a tool the project's preflight does not guarantee, cosmetic sanitization excepted when it fails closed) — all shipping clean because the happy path works and only firing on an input the tests don't exercise |
 
 2.3.1–2.3.3 trigger on *deletion* or *addition*. **2.3.0** fills the gap for *modification*: changing a
 contract is just as blast-radius-prone as deleting one, but it is harder to catch because every
@@ -65,6 +66,10 @@ recorded with a `--note`; only a *silent* stale enumeration is the defect.
 
 **2.3.6** front-loads the Phase 3.3 `silent-failure-hunter` review agent the way 2.3.5 front-loads `/simplify`. Its defect class — a swallowed error, an over-broad `except`/catch, a fallback that masks a failure (or fails *open*, defaulting an error to a success-shaped value), a mock/stub leaking into production, or a generic/misdirected breadcrumb — has no home among the other sweeps: it isn't a contract change (2.3.0), a deletion (2.3.1/2.3.2), or, in general, a documented `CLAUDE.md` rule (2.3.3), and it only sometimes doubles as a boundary claim (2.3.4) or added complexity (2.3.5). Baseline testing of the implement skill confirmed the gap: capable agents running 2.3.0–2.3.5 caught these defects only when they happened to overlap another sweep's trigger, attributed them inconsistently, and missed a pure swallow (a `gh … 2>/dev/null || true` that printed success for a comment that never posted) outright — exactly the findings `silent-failure-hunter` then raised in Phase 3.3. Making it an always-on, explicitly-named sweep gives the class a deterministic home so it is caught at implement time, not a review iteration later. It is a *correctness* sweep numbered last only to avoid renumbering its predecessors; each sweep's intro references "2.3.0–2.3.N" of the lower-numbered sweeps, so the ordering is presentational, not an execution dependency. The sweep also carries a **per-branch-breadcrumb** sub-check: for any multi-branch no-op path the diff adds (e.g. "if A, stop; else find B; if B absent, stop"), it confirms each branch emits a distinct diagnostic naming which condition fired — two failure modes converging on one shared breadcrumb is flagged, a variant of the misdirected/generic-breadcrumb kind.
 
+**2.3.0c** (operand-trace) sits with the additive 2.3.0a/2.3.0b family but targets a different blind spot: an operand nobody traced to its producer. Its code trigger owns exactly the diff's *own* guards that 2.3.4 carves out (2.3.4 verifies boundaries the diff doesn't own; 2.3.0a/2.3.0b watch peer sites and enumerated sets, not the operand a single guard reads), demanding a four-column operand table whose load-bearing fourth column asks *what OTHER inputs produce the same value?* — the "what else exits 2?" question that, unanswered, let a marker-deletion guard read `python3`/argparse/unopenable-script's shared exit-2 as "no workpad." Its prose-policy trigger fires on agent-executed `SKILL.md`/`phases/*.md` command blocks: a policy stated against an operand no step produces is an inert guard that silently no-ops on exactly the input it was written to gate, so every stated policy must name its observable operand, its producing step, and a route for every outcome including failure.
+
+**Phase 2.4** splits the "no automated test" verification by one question — *does this text enter a model's context as instruction?* Human-read prose keeps the adversarial dry-trace; prose that becomes an agent's prompt (an injected block, a composed prompt, a `SKILL.md`/`phases/*.md` command block) gets a `writing-skills` subagent RED/GREEN micro-test with a no-guidance control, because a dry-trace cannot catch a prompt-prose defect — the text reads perfectly while steering the model wrong. The trigger is what the text *becomes*, never where the file lives (a block in a script or workflow YAML that becomes a prompt still takes the micro-test).
+
 ## Changed-contract sweep (2.3.0) and the post-merge re-sweep
 
 The skill spells out the three checks (predicate variants, sibling call sites, fixtures/assertions).
@@ -80,7 +85,7 @@ follow-up.
 
 ## Boundary-assumption sweep (2.3.4)
 
-The four boundary kinds and how to verify each are in the skill (and summarized in the table above).
+The five boundary kinds and how to verify each are in the skill (and summarized in the table above).
 The *why*: these bugs ship clean and pass the author's own tests — because the tests encode the same
 wrong assumption — so a green run is not confirmation, and a test assertion *about* a boundary is
 itself an unverified claim. A boundary that genuinely cannot be verified in-environment is never
@@ -206,9 +211,11 @@ post-merge. Three cases are therefore never eligible and the gate refuses the ta
 - **Runnable-but-blocked (local tooling/environment gap)** — a criterion verifiable on this host but
   blocked right now by a denied command, a missing build tool, an un-spawnable helper, or a failed
   restore. A tooling gap is not a runtime-environment gap; it takes the existing **`Blocked`** escalation
-  path (human handoff), never a silent post-merge pass. (A genuine permission/sandbox denial of the *test
-  suite itself* is a distinct mechanism — the auditable, workpad-recorded skip to the CI `lib + python
-  tests` gate per `CLAUDE.md`; it does not tick the AC.)
+  path (human handoff), never a silent post-merge pass. (A *verification command* that is **not granted**
+  in the run's allowlist — its direct-form invocation refused before it could run — takes that same
+  **`Blocked`** path, naming `devflow_implement.allowed_tools` (and `devflow.allowed_tools` for the command
+  path) as the exact remedy: grant the command so the run can verify in-env, then re-run. It is **never**
+  deferred to a CI result — see *In-env verification is the gate* below.)
 - **Confirmation of a self-authored claim** — a criterion whose purpose is to confirm a behavioral claim
   the PR already asserts as true. It is runnable pre-merge by construction (the claim is about the shipped
   diff), so deferring it would defer the one check that could falsify the claim; the gate refuses the tag
@@ -229,6 +236,41 @@ ride a "cleanest in a fresh session" rationale into an unchecked post-merge defe
 `--rewrite-ac` retag auditable, `workpad.py` structurally rejects a `--rewrite-ac` call that appends the
 `(post-merge)` tag (a single pair or a crafted multi-pair sequence) without a non-empty `--note` rationale
 (issue #338). (The Phase 2.2.5 `--replace-acs-file` wholesale channel is a deliberate, known exception.)
+
+### In-env verification is the gate — CI is never an in-run verification channel (issue #405)
+
+A **verification-command** acceptance criterion — one whose verification is *running a test/lint/build
+command* (the project's test suite, `shellcheck`/`ruff`, a `pytest`/build invocation) — is satisfied
+**only by an in-environment observed pass**, on both the local and cloud `/devflow:implement` tiers. The
+run executes the command **in its own environment** and ticks the criterion on the pass it observes there.
+It **never waits on, polls, re-checks, or cites CI** for its own progress, and ticks nothing on a CI
+result. CI (for this repo, the `lib + python tests` job) is the **required post-PR check that gates the
+human merge** — not a channel the run reads to verify itself.
+
+The command is invoked by its **direct leading-token** form (`lib/test/run.sh`, not `bash lib/test/run.sh`
+— the `bash <path>` wrapper is deny-floored and can never be granted), which resolves because the
+suite/lint commands are granted through `devflow_implement.allowed_tools` (and `devflow.allowed_tools` for
+the `/devflow:*` command path). This repo grants the three direct forms — `Bash(lib/test/run.sh:*)`,
+`Bash(lib/preflight.sh:*)`, `Bash(shellcheck:*)` — under both keys. The three outcomes at the Phase 3.4
+gate:
+
+- **In-env pass** — the command ran and passed here; tick the criterion on that observed result.
+- **In-env failure** — the command *ran and failed*; that is a real failure, not a deferral: fix it or
+  take the **`Blocked`** path. Never `(post-merge)` it.
+- **In-env run denied** — the direct-form command is **not granted** in this run's allowlist, so it was
+  refused before it could run. Take the **`Blocked`** path naming `devflow_implement.allowed_tools` (and
+  `devflow.allowed_tools` for the command path) as the remedy, then re-run. Never launder a denied
+  verification command into a `(post-merge)` retag or a CI observation — never a silent stall, never a
+  verdict resting on a CI result the run never saw.
+
+**Consumer rule.** List your repo's test/lint commands in `devflow_implement.allowed_tools` (and
+`devflow.allowed_tools` for the command path) and the run verifies them in-env; leave them ungranted and a
+verification-command AC goes **`Blocked`**, its message naming `devflow_implement.allowed_tools` as the
+exact remedy. See [`cloud-setup.md`](cloud-setup.md#extending-the-tool-allowlist) for the config surface.
+The shared review engine, executed inline by Phase 3.3, takes its **test evidence from the orchestrator's
+own in-env suite/lint results** for the current HEAD — never a CI conclusion. (The read-only `review`
+runner is a separate, unchanged case: its wait-for-CI-then-review posture is the correct *post-PR*
+sequence.)
 
 **Documentation-AC deferral (Phase-4.1-owned, distinct from `(post-merge)`).** A criterion whose
 satisfaction is a *documentation edit that Phase 4.1's `devflow:docs` subagent owns* — a `docs/…`
@@ -354,6 +396,8 @@ When enabled, a post-`claude` step keys on the issue workpad `Status` (via `work
 
 - **Terminal `Status`** (`Complete` 🎉 / `Blocked` 👎 / `Failed` 💥) → no-op; the job concludes normally. (`Failed` is written by this backstop's own dead-run flip below, so a re-triggered run reads it as a decided end rather than a stall.)
 - **Interim `Status`** (any 🚀 phase) → auto-resume: post a distinct audit comment (attempt *k* of `max_resume_attempts`) and re-dispatch `/devflow:implement <n>` so the skill's Phase 1.3 workpad-resume continues from where it stopped, bounded by the cap.
+
+**Denial-proof helper invocation on a resumed run (issue #405).** A resumed run — and every cloud helper invocation — must invoke bundled helpers with the **repo-relative vendored literal** (`.devflow/vendor/devflow/scripts/…`, `.devflow/vendor/devflow/lib/…`) as the command's **leading token**: never an absolute path (`/home/runner/.../scripts/workpad.py`), never the repo-root `scripts/…` form, and never behind a `VAR=value` prefix or a `bash <path>` wrapper. Each of those makes the command no longer *begin with* the granted literal, so the cloud allowlist silently denies it — and a resumed run that reaches for the absolute or repo-root form is denied on its very first `workpad.py` call and dies without resuming. The stall-backstop **resume comment now carries this discipline inline** (a `Resume note:` line in the comment body), so a resumed run receives the rule inside its own triggering comment even if it never re-reads the skill prose; the same rule is stated in the skill's always-resident orchestrator body. After two denials of a given command shape, switch to a listed legal form rather than iterating a third spelling.
 - **Cap exhausted** (including `max_resume_attempts: 0`) → the job exits non-zero (red) and posts a distinct comment naming the stall for a manual retrigger.
 - **Unreadable `Status`** (workpad missing / unparseable — `workpad.py status` exits 2 or 1, where exit 2 is "no workpad" and exit 1 covers both a missing/empty `Status` line and a present `Status` line whose word isn't in the canonical vocabulary (`Reviewing`/`Complete`/`Blocked`/etc.)) → fail closed (`unreadable` class) with a distinct diagnostic comment, never a false "stalled at X" claim.
 - **Auth/API failure reading the workpad** (`workpad.py status` exits **3** — a `gh`-api/transport/auth failure such as an expired App installation token, reading either the workpad `Status` or the issue comment list that counts prior attempts) → fail closed (`auth-failure` class, distinct from `unreadable`) with an auth-specific diagnostic comment, and **without consuming a resume attempt** — the workpad may be perfectly healthy; only the read failed (issue #287).
