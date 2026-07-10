@@ -1624,7 +1624,7 @@ rm -f "$PINPROBE_RE"
 # search pattern, not grep options. Without the `--`, `grep -oF "--foo"` parses `--foo` as an
 # (invalid) long option, errors to stdout-empty, and the count collapses to 0 — silently
 # misreading a present flag literal as absent. This is a self-contained mutation proof: drop the
-# `--` from pin_count's `grep -oF` and this assertion goes RED (the count reads 0, not 2). Uses a
+# `--` from pin_count's `grep -oF` and this assertion goes RED (the count reads 0, not 3). Uses a
 # same-line double occurrence so it also confirms the `--`-guarded path still counts occurrences.
 # (Only the count-3 assertion is a mutation proof — an *absent* --leading literal reads 0 with or
 # without the `--` (grep errors either way), so it would not discriminate the mutation and is
