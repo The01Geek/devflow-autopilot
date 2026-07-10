@@ -186,7 +186,8 @@ jobs:
       pr_number: ${{ steps.route.outputs.pr_number }}
       head_sha: ${{ steps.route.outputs.head_sha }}
       # Non-empty ONLY when a #304 precondition deferred the review (values:
-      # behind-base | ci-not-green | unverifiable). create_check widens its
+      # behind-base | ci-not-green | ci-approval-required | unverifiable).
+      # create_check widens its
       # gate on it so the required check is still posted — pre-completed
       # neutral with the "waiting" title, in one POST — and finalize_check is
       # deliberately skipped (see its if:). Every pre-existing

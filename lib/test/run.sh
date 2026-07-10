@@ -20813,6 +20813,20 @@ for _t389 in "Devflow review waiting: branch behind base" \
   assert_eq "#389 specific deferral title '$_t389' does not linger in the workflow (helper is the only home)" "0" \
     "$(pin_count "$_t389" "$REVIEW_YML")"
 done
+# JOB PLACEMENT is the load-bearing invariant of this extraction (issue #389 iter-3): the
+# helper must be invoked ONLY in precheck (which has actions/checkout, so the helper file
+# is present) and NEVER in create_check (which has NO checkout — invoking there 404s the
+# file and every deferral silently collapses to the generic fallback title, the exact
+# Critical the shadow pass caught). The file-wide pins above assert the invocation exists
+# once but NOT which job it lives in — a move back into create_check would leave them all
+# GREEN. So scope to each job body (same technique as the #304 block's sed slices).
+# Mutation proof: relocating the `- id: title` step into create_check turns both pins RED.
+PRECHECK_SLICE_389=$(sed -n '/^  precheck:/,/^  create_check:/p' "$REVIEW_YML")
+CREATE_SLICE_389=$(sed -n '/^  create_check:/,/^  review:/p' "$REVIEW_YML")
+assert_eq "#389 the helper is invoked in the precheck job (the job that checks out)" "1" \
+  "$(printf '%s\n' "$PRECHECK_SLICE_389" | grep -cF 'TITLE=$("$DST" "$SKIP_REASON")')"
+assert_eq "#389 the helper is NOT invoked in create_check (no checkout — would 404 the file)" "0" \
+  "$(printf '%s\n' "$CREATE_SLICE_389" | grep -cF 'DST=.devflow/vendor/devflow/scripts/describe-skip-title.sh')"
 
 # ── The injected grounding block. The security-sensitive prompt-injection prose
 # ── lives in ONE place (scripts/render-grounding-block.sh) rather than hand-copied
