@@ -11,7 +11,14 @@
 # tree-mutation tools (Edit/Write/MultiEdit/NotebookEdit) and any Bash entry that
 # can reach a raw shell / eval / privilege binary. The fast-feedback `denylisted`
 # jq mirror in scripts/detect-project-tools.sh applies the same rules, but this
-# copy ENFORCES — a hand-edit can bypass the jq mirror, it cannot bypass this.
+# copy ENFORCES — a hand-edit to the CONFIG cannot get past it. A hand-edit to
+# THIS FILE is a different threat, and the enforcement point is the workflow,
+# not this header: devflow-runner.yml executes the floor only from a TRUSTED
+# copy — one materialized from the base ref by its baseprovision step, or the
+# vendored copy when (and only when) vendor-plugin freshly fetched it at the
+# pinned devflow_version — never from the PR-head checkout. A PR that edits
+# this file therefore changes nothing about how that PR's own review is
+# floored; the edit takes effect only after it lands on the base branch.
 #
 # Why a helper rather than an inline loop in the workflow YAML: the filter IS a
 # security boundary, so a logic regression (a broken command-word split, the

@@ -180,6 +180,7 @@ jobs:
       # resolve at the literal workspace path. Only `ref` is PR-influenced; the
       # source repo is fixed, so a PR can at most select an official-repo commit.
       - uses: ./.github/actions/vendor-plugin
+        id: vendor
         with:
           ref: ${{ steps.extract.outputs.devflow_version }}
 
@@ -213,6 +214,15 @@ jobs:
           # devflow-bootstrap-via-PR case) all collapse to provision_env=false.
           PROVISION=false
           BASE_JSON='{}'
+          # Trusted deny-floor helper (PR-#404 REJECT fix): materialized from the
+          # base ref below, ONLY inside the successful base-ref fetch branch —
+          # FETCH_HEAD elsewhere (e.g. left by actions/checkout) can point at the
+          # PR HEAD, and reading the floor from there would hand the security
+          # filter to the PR author. Empty means "no trusted base-ref copy"; the
+          # tools step then falls back to a runtime-FETCHED vendored copy or
+          # fails closed — never to the PR-head checkout.
+          FLOOR_HELPER=''
+          FLOOR_SOURCE='absent'
           if [ -n "$BASE_REF" ]; then
             # origin is the upstream repo (fork-PR commits live under upstream
             # refs), so the base tip is the maintainer-controlled config, not the
@@ -252,11 +262,42 @@ jobs:
                 # notice so a silently-downgraded opt-in is at least observable.
                 echo "::notice::No .devflow/config.json on base ref '$BASE_REF'; provision_env=false (read-only review)."
               fi
+              # Materialize the deny-floor helper from the SAME trusted base-ref
+              # tip (FETCH_HEAD is still the base ref here — this block must stay
+              # inside this fetch-success branch). Candidate paths, in order: the
+              # committed vendor copy (self-hosting consumers), then the repo's
+              # own scripts/ copy — the latter ONLY when the base ref IS the
+              # DevFlow plugin repo (same plugin.json-name discriminator as
+              # vendor-slice.sh's self branch), so a consumer's unrelated
+              # like-named script is never executed as the floor. Written to
+              # RUNNER_TEMP: outside the PR-writable workspace, so PR content can
+              # neither pre-place nor overwrite it. Best-effort: any failure
+              # leaves FLOOR_HELPER empty and the tools step fails closed.
+              _floor_raw=''
+              if _floor_raw=$(git show "FETCH_HEAD:.devflow/vendor/devflow/scripts/filter-runner-tools.sh" 2>/dev/null); then
+                FLOOR_SOURCE='base-ref-vendored'
+              elif git show "FETCH_HEAD:.claude-plugin/plugin.json" 2>/dev/null | grep -Eq '"name"[[:space:]]*:[[:space:]]*"devflow"' \
+                && _floor_raw=$(git show "FETCH_HEAD:scripts/filter-runner-tools.sh" 2>/dev/null); then
+                FLOOR_SOURCE='base-ref-repo'
+              fi
+              if [ "$FLOOR_SOURCE" != 'absent' ]; then
+                if mkdir -p "$RUNNER_TEMP/devflow-trusted-floor" 2>/dev/null \
+                  && printf '%s\n' "$_floor_raw" > "$RUNNER_TEMP/devflow-trusted-floor/filter-runner-tools.sh" 2>/dev/null; then
+                  FLOOR_HELPER="$RUNNER_TEMP/devflow-trusted-floor/filter-runner-tools.sh"
+                else
+                  echo "::warning::could not write the base-ref deny-floor helper into RUNNER_TEMP; the tools step will fall back to a runtime-fetched vendored copy or fail closed."
+                  FLOOR_SOURCE='absent'
+                fi
+              fi
             else
               echo "::warning::Could not fetch base ref '$BASE_REF'; defaulting to provision_env=false (read-only review)."
             fi
           fi
-          echo "provision_env=$PROVISION" >> "$GITHUB_OUTPUT"
+          {
+            echo "provision_env=$PROVISION"
+            echo "floor_helper=$FLOOR_HELPER"
+            echo "floor_source=$FLOOR_SOURCE"
+          } >> "$GITHUB_OUTPUT"
           # Freeform reviewer build allowlist, read from the SAME trusted base ref
           # as provision_env above (so a PR cannot grant itself tools). Emitted as
           # a comma-joined string. `map(strings)` keeps only string elements so a
@@ -296,6 +337,17 @@ jobs:
           # the review profile only when PROVISION_ENV is 'true', and only after
           # the deny-list floor below strips the catastrophic tier.
           RUNNER_TOOLS: ${{ steps.baseprovision.outputs.runner_tools }}
+          # Trusted deny-floor helper, materialized by baseprovision from the base
+          # ref into RUNNER_TEMP (empty when the base ref carries none). The floor
+          # must never execute a PR-head copy — see the trust rule in the review
+          # profile below.
+          FLOOR_HELPER: ${{ steps.baseprovision.outputs.floor_helper }}
+          FLOOR_SOURCE: ${{ steps.baseprovision.outputs.floor_source }}
+          # Which vendor-slice branch materialized .devflow/vendor/devflow this
+          # run: committed | self | fetch. Only 'fetch' (a fresh clone of the
+          # official repo at the pinned devflow_version) is a trusted source for
+          # the floor helper; committed/self copies come from the PR-head tree.
+          VENDOR_SOURCE: ${{ steps.vendor.outputs.vendor_source }}
         run: |
           set -euo pipefail
           # Profiles intentionally kept inline (single-string per profile) to
@@ -368,25 +420,42 @@ jobs:
               # closed when it is absent, and re-emits its strip warnings.
               if [ "$PROVISION_ENV" = "true" ]; then
                 # The deny-list floor is applied by scripts/filter-runner-tools.sh
-                # (issue #402) — the AUTHORITATIVE, suite-driven boundary. Resolve
-                # it at the vendored path (consumer repos) then the in-repo path
-                # (DevFlow itself), and FAIL CLOSED when neither resolves: a
-                # security filter that cannot run must append NOTHING, not the
-                # unfiltered list. Version-skew directions (an updated workflow atop
-                # an out-of-date vendored plugin): a *missing* helper hits the
-                # fail-closed arm here (no build tools appended, warning emitted,
-                # read-only review still works, until the consumer re-vendors); a
-                # *present-but-stale* helper enforces its OWN (possibly older) rules,
-                # so the floor is only as current as the vendored copy — a consumer
-                # must re-vendor for a later tightening (e.g. #402's parameterized
-                # file-tool strip) to take effect. Both are stated in
+                # (issue #402) — the AUTHORITATIVE, suite-driven boundary. TRUST
+                # RULE (the PR-#404 REJECT finding): this job checks out the PR
+                # HEAD, so any copy of the helper in the checked-out tree — the
+                # committed vendor dir or the repo's own scripts/ — is
+                # PR-author-editable, and a floor whose code the PR controls is no
+                # floor at all. The helper is therefore executed ONLY from a
+                # trusted source, in rank order:
+                #   1. FLOOR_HELPER — materialized by the baseprovision step from
+                #      the TRUSTED base ref (git show FETCH_HEAD:…) into
+                #      RUNNER_TEMP, outside the PR-writable workspace;
+                #   2. the vendored copy, ONLY when the vendor-plugin step reports
+                #      vendor_source=fetch — i.e. the copy was cloned THIS RUN from
+                #      the official repo at the pinned devflow_version, never taken
+                #      from the PR-head tree (a PR can at most select an
+                #      official-repo commit — the same accepted posture as the
+                #      vendor step itself).
+                # A committed/self vendor copy is deliberately NEVER consulted
+                # here, and FAIL CLOSED when no trusted source resolves: a security
+                # filter that cannot run must append NOTHING, not the unfiltered
+                # list. Version skew: the floor is as current as the BASE REF's
+                # helper (or the pinned fetch) — a consumer must land a re-vendor
+                # on the base branch for a later tightening (e.g. #402's
+                # parameterized file-tool strip) to take effect; until then a
+                # base ref with no helper fails closed (no build tools, warning,
+                # read-only review still works). Both are stated in
                 # docs/DEVFLOW_SYSTEM_OVERVIEW.md's deny-floor paragraph.
                 FILTER_HELPER=''
-                for _p in .devflow/vendor/devflow/scripts/filter-runner-tools.sh scripts/filter-runner-tools.sh; do
-                  if [ -f "$_p" ]; then FILTER_HELPER="$_p"; break; fi
-                done
+                if [ -n "${FLOOR_HELPER:-}" ] && [ -f "$FLOOR_HELPER" ]; then
+                  FILTER_HELPER="$FLOOR_HELPER"
+                  echo "deny-list floor source: trusted base ref (${FLOOR_SOURCE:-base-ref})"
+                elif [ "${VENDOR_SOURCE:-}" = "fetch" ] && [ -f .devflow/vendor/devflow/scripts/filter-runner-tools.sh ]; then
+                  FILTER_HELPER=.devflow/vendor/devflow/scripts/filter-runner-tools.sh
+                  echo "deny-list floor source: runtime-fetched vendored copy (pinned devflow_version)"
+                fi
                 if [ -z "$FILTER_HELPER" ]; then
-                  echo "::warning::devflow deny-list floor helper (filter-runner-tools.sh) not found at .devflow/vendor/devflow/scripts/ or scripts/ — failing closed: NO build/verify tools appended to the review profile (the reviewer keeps the read-only profile). Re-vendor the DevFlow plugin so the helper is present."
+                  echo "::warning::devflow deny-list floor helper (filter-runner-tools.sh) not found at any TRUSTED source — neither materialized from the base ref (baseprovision) nor runtime-fetched at the pinned devflow_version (vendor_source='${VENDOR_SOURCE:-unknown}'); the PR-head checkout's own copy is deliberately not consulted, because the floor must not be PR-editable. Failing closed: NO build/verify tools appended to the review profile (the reviewer keeps the read-only profile). Land the DevFlow re-vendor on the BASE branch (or use a thin install with a pinned devflow_version) so a trusted helper is available."
                 else
                   # The helper reads the raw RUNNER_TOOLS from the environment,
                   # prints the KEPT entries as one comma-joined line on stdout, and

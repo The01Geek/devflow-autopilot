@@ -599,7 +599,12 @@ does two extra things before launching Claude:
    (`Bash(docker exec:*)`, `Bash(make CC=gcc:*)`) are kept. The runner emits a
    `::warning::` for each stripped entry and continues with the safe remainder, so
    this catastrophic tier can never reach the reviewer's write-token job no matter
-   what `config.json` lists. (The floor blocks *direct* shell/privilege access; it
+   what `config.json` lists. The floor's filter code itself is executed only from
+   a **trusted source** — a copy materialized from your base branch, or the
+   vendored copy when it was freshly fetched this run at the pinned
+   `devflow_version` — never from the PR-head checkout, so a pull request cannot
+   edit the filter that governs its own review; when no trusted copy is
+   available the runner fails closed (no build tools appended). (The floor blocks *direct* shell/privilege access; it
    does **not** try to block interpreters like `node -e` / `python -c`, which are
    legitimate build tools — enabling `provision_env` already means accepting that
    the reviewer runs the PR's build code.) If the
