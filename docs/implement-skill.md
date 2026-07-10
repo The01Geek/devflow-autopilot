@@ -222,6 +222,20 @@ ride a "cleanest in a fresh session" rationale into an unchecked post-merge defe
 `(post-merge)` tag (a single pair or a crafted multi-pair sequence) without a non-empty `--note` rationale
 (issue #338). (The Phase 2.2.5 `--replace-acs-file` wholesale channel is a deliberate, known exception.)
 
+**Documentation-AC deferral (Phase-4.1-owned, distinct from `(post-merge)`).** A criterion whose
+satisfaction is a *documentation edit that Phase 4.1's `devflow:docs` subagent owns* — a `docs/…`
+deliverable that pass authors, rather than a `skills/`/`scripts/`/`lib/`/test change this phase can make
+now — is **left unticked at the 3.4 gate, recorded in a workpad deferral note naming the AC (`3.4: doc-AC
+deferred to Phase 4.1: {AC text}`), and does not block the gate**. This is deliberately not the
+`(post-merge)` channel (reserved for genuinely-live verification the host can never run in-session): a
+doc-AC is fully dischargeable *in this run* by Phase 4.1, so it is neither retagged `(post-merge)` nor
+routed through the gate's "satisfiable with a small follow-up edit — do it now" channel, whose remediation
+explicitly excludes doc authoring owned by Phase 4.1. The deferral keeps docs Phase-4.1-authored (it does
+not weaken Phase 2's docs-ownership rule) while stopping the gate from forcing doc authoring into Phase 3
+to satisfy a criterion Phase 4.1 owns. Phase 4.1 **must** discharge each such deferred doc-AC and tick it
+(citing the deferral note) before the §4.3 terminal `--status Complete` write — see the Phase 4.1 gate
+below; an undischargeable doc-AC routes to the existing `Blocked` path, never to a silent Complete.
+
 **Pre-merge probe contract.** Passing the genuinely-live test is necessary but not sufficient: a
 criterion whose *verification* needs a runtime environment can still carry a **pre-merge-observable
 precondition that is already false**, and a `(post-merge)` tag means "the live check can't run until after
@@ -403,12 +417,18 @@ of named deliverables; it does not decide whether the doc pass runs.
 
 Path extraction is **deterministic, not LLM-interpreted** (issue #185 Addendum): a bundled helper,
 `scripts/extract-doc-needed-paths.sh`, is the single extraction boundary both stages consume. It reads
-the issue body, scopes strictly to the `**Documentation Needed**` bullet under `## Implementation
-Notes` — recognized in **either** bullet shape real bodies use: the template's `- **Documentation
-Needed** — …` list item **or** a bare, blank-line-preceded `**Documentation Needed** — …` bold
-paragraph with no `- ` marker (the form an LLM-drafted `## Implementation Notes` section commonly
-renders, which the older `- `-required anchor matched nothing of, silently skipping the gate; issue
-#309, a sibling of the #289 miss class). A bold-emphasis span that only begins a wrapped continuation
+the issue body, scopes strictly to the Documentation Needed block under `## Implementation
+Notes` — recognized in **any** of the three scope-opening shapes real bodies use: the template's
+canonical `- **Documentation Needed** — …` list item (issue #185), a bare, blank-line-preceded
+`**Documentation Needed** — …` bold paragraph with no `- ` marker (the form an LLM-drafted `##
+Implementation Notes` section commonly renders, which the older `- `-required anchor matched nothing of,
+silently skipping the gate; issue #309, a sibling of the #289 miss class), **or** a `### Documentation
+Needed` level-3 heading (issue #380 — the form a body that renders its deliverables under a subheading
+uses, the real issue #363 body, which matched nothing under the two bold openers and silently skipped the
+gate). The heading opener anchors to exactly level 3 inside `## Implementation Notes`, so a deeper `####
+…` heading or a bullet that merely mentions the label does not open, and any other level-3+ heading closes
+an open heading-form scope so later-subsection paths never leak. The template canonically emits the
+bold-bullet form; the heading form is accepted so a differently-rendered body still gates. A bold-emphasis span that only begins a wrapped continuation
 line inside the bullet does not close the scope, so paths on later wrapped lines are still captured.
 Two adjacent grammar shapes are handled explicitly (issue #327), both in the leak-safe direction: (1) a
 top-level bold **deliverable** list after the bullet stays in scope — a backtick-led bold item
@@ -438,9 +458,13 @@ rooted-token rejection) rather than by the shadow review.
 body and treats its output as the required deliverables. If the helper emits one or more paths, the
 dispatch instruction sent to the `devflow:docs` subagent is extended with "The issue requires the
 following files to be updated; treat each as a mandatory deliverable: `<path1>`, `<path2>`, …". If the
-helper emits nothing **but** the issue body still contains a `**Documentation Needed**` bullet, the
-orchestrator records an auditable workpad note (the skipped enforcement is logged rather than silently
-disabled). When no paths are extractable the subagent receives the normal instruction unchanged.
+helper emits nothing **but** the issue body still contains a Documentation Needed section **in either
+accepted form** — the bold-bullet `**Documentation Needed**` form **or** a `### Documentation Needed`
+heading (the safety-net grep matches both, carrying the same `\*{0,2}` bold-tolerance as the extractor's
+own opener so the two heading recognizers cannot drift) — the orchestrator records an auditable workpad
+note (the skipped enforcement is logged rather than silently disabled). Matching only the bold-bullet form
+here would leave a heading-form issue's empty extraction silently unrecorded — the exact #363 gap. When no
+paths are extractable the subagent receives the normal instruction unchanged.
 
 **Stage 2 — Post-hoc diff gate (after the subagent commits).** After the subagent completes and before
 ticking `Documentation`, the orchestrator **re-runs the same helper** — the single source of truth, so
@@ -500,6 +524,19 @@ the `Documented` label that would mislead downstream docs automation.
 The two-stage gate closes a silent-miss class: prior to this change, if a docs subagent missed a
 named deliverable, Phase 4.1 ticked `Documentation` without any cross-check and the gap was only
 visible to a human reading the PR diff.
+
+**Discharging 3.4-deferred documentation ACs (before §4.3 Complete).** Any acceptance criterion the
+Phase 3.4 gate deferred as Phase-4.1-owned (a `docs/…` deliverable, recorded in a `3.4: doc-AC deferred to
+Phase 4.1: {AC text}` workpad note — see the Phase 3.4 gate above) is this phase's obligation to close.
+Once the docs pass has run and its changes are committed, for **each** such deferred doc-AC the
+orchestrator confirms the required docs actually landed in this run's diff (Stage 2 already verified the
+named deliverable paths) and ticks the criterion by its 1-based position, citing the deferral note. This
+tick **must** happen before §4.3's terminal `--status Complete` write, because `workpad.py`'s terminal
+Complete gate hard-fails a Complete write while any non-post-merge acceptance-criteria row is still
+unticked — a doc-AC left unticked would abort the finalize. A deferred doc-AC that genuinely cannot be
+discharged (the docs pass could not author it and the content cannot be derived) is *not* ticked and *not*
+finalized: it takes the existing `Blocked` path and emits the 👎 outcome reaction, never a silent Complete
+over an undischarged doc-AC.
 
 ## Scope boundary between Phase 2.3.2 and Phase 4.1
 
