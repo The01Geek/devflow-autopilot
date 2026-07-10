@@ -4758,6 +4758,45 @@ assert_pin_unique "#356 flip: skills/review/SKILL.md carries the '❌ Review fai
 assert_eq "#356 flip: helper carries the matching '❌ Review failed' literal" "yes" \
   "$(grep -qF '❌ Review failed' "$FLIP_SH" && echo yes || echo no)"
 
+# ── Run-keyed MARKER shape: the OTHER half of the coupled contract ─────────────
+# The helper finds the comment with `workpad.py id --marker "$FLIP_MARKER"`. If the review
+# skill's SEED marker and the workflows' FLIP_MARKER ever drift apart, `id` returns rc 2,
+# the helper takes its comment-absent no-op arm, exits 0 — and BOTH dead-run flips silently
+# never fire. That is a fail-open in exactly the scenario the flip exists to cover, and
+# nothing else in the suite goes RED for it. `flip-review-progress-failed.sh`'s header and
+# docs/DEVFLOW_SYSTEM_OVERVIEW.md both assert this marker shape is "pinned in
+# lib/test/run.sh" — these are the pins that make that claim true.
+#
+# The producer and consumer are not byte-identical (the skill defaults the env for a local
+# run; the workflows rely on Actions always setting it), so pin the invariant *sub-shape*
+# each carries, plus the identity of the two workflow literals.
+#
+# Declared here rather than reused from the workflow-wiring block below: that block defines
+# $REVIEW_YML/$DEVFLOW_YML further down, and this block must not depend on statement order.
+M356_REVIEW_YML="$LIB/../.github/workflows/devflow-review.yml"
+M356_DEVFLOW_YML="$LIB/../.github/workflows/devflow.yml"
+assert_pin_unique "#356 marker: skills/review/SKILL.md seeds the run-keyed review-progress marker" \
+  'MARKER="<!-- devflow:review-progress run=${GITHUB_RUN_ID:-local-$(date -u +%Y%m%dT%H%M%SZ)}-${GITHUB_RUN_ATTEMPT:-1} -->"' \
+  "$LIB/../skills/review/SKILL.md"
+assert_pin_red_on_removal "#356 marker: the SKILL.md seed-marker line flips RED on removal" \
+  'MARKER="<!-- devflow:review-progress run=${GITHUB_RUN_ID:-local-$(date -u +%Y%m%dT%H%M%SZ)}-${GITHUB_RUN_ATTEMPT:-1} -->"' \
+  "$LIB/../skills/review/SKILL.md"
+assert_pin_unique "#356 marker: devflow-review.yml rebuilds the identical run-keyed marker" \
+  'FLIP_MARKER="<!-- devflow:review-progress run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} -->"' "$M356_REVIEW_YML"
+assert_pin_unique "#356 marker: devflow.yml rebuilds the identical run-keyed marker" \
+  'FLIP_MARKER="<!-- devflow:review-progress run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} -->"' "$M356_DEVFLOW_YML"
+# Cross-file identity: the two consumers must agree byte-for-byte with each other, and both
+# must carry the marker PREFIX the skill seeds. A rename of `devflow:review-progress` on
+# either side now goes RED here rather than silently disabling the flip in production.
+assert_eq "#356 marker: both workflows' FLIP_MARKER literals are byte-identical" "yes" \
+  "$([ "$(grep -oF 'FLIP_MARKER="<!-- devflow:review-progress run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} -->"' "$M356_REVIEW_YML")" \
+     = "$(grep -oF 'FLIP_MARKER="<!-- devflow:review-progress run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} -->"' "$M356_DEVFLOW_YML")" ] \
+     && [ -n "$(grep -oF 'FLIP_MARKER="<!-- devflow:review-progress run=' "$M356_REVIEW_YML")" ] && echo yes || echo no)"
+assert_eq "#356 marker: the marker prefix the skill seeds is the prefix both workflows rebuild" "yes" \
+  "$(grep -qF '<!-- devflow:review-progress run=' "$LIB/../skills/review/SKILL.md" \
+     && grep -qF '<!-- devflow:review-progress run=' "$M356_REVIEW_YML" \
+     && grep -qF '<!-- devflow:review-progress run=' "$M356_DEVFLOW_YML" && echo yes || echo no)"
+
 # ── fetch-pr-context.sh glyph-strip pin (unit) ────────────────────────────────
 assert_eq "#356: fetch-pr-context.sh strips 💥 from the workpad Status glyph set" "yes" \
   "$(grep -q '🚀|🎉|👎|💥' "$LIB/fetch-pr-context.sh" && echo yes || echo no)"
