@@ -347,14 +347,20 @@ def md_fenced_hash_comment_spans(text):
     an opening fence is a line whose first non-space run is >=3 backticks or
     tildes (a backtick opener's info string may not itself contain a backtick);
     the matching closer is the same marker char, at least as long, with only
-    whitespace after it. Indented and language-tagged fences are handled; the
-    fence markers themselves are never treated as content.
+    whitespace after it. Language-tagged fences and fences indented up to 3
+    spaces are handled; a run indented >=4 spaces is CommonMark *indented code*,
+    NOT a fence, so it is deliberately not treated as a fence marker — otherwise
+    a deeply-indented ``` in prose would spuriously open a never-closed fence and
+    fold every following operative ``#``-line into the comment region, a
+    fail-open that could hide a real #370-class collision (issue #394 review).
+    The fence markers themselves are never treated as content.
     """
     lines = text.split("\n")
     fence = None  # (char, length) while inside a fence, else None
     inside = []  # (lineno, line) content lines strictly inside fences
     for i, line in enumerate(lines, 1):
-        m = re.match(r"^(`{3,}|~{3,})(.*)$", line.lstrip())
+        # 0-3 leading spaces only (>=4 is indented code, not a fence marker).
+        m = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
         if fence is None:
             # A backtick opener's info string must not contain a backtick.
             if m and not (m.group(1)[0] == "`" and "`" in m.group(2)):

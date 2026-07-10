@@ -20202,6 +20202,24 @@ if _F375="$(mktemp -d 2>/dev/null)" && [ -n "$_F375" ] && [ -d "$_F375" ]; then
   # proving the `lit in outside` conjunct is preserved for the new fenced-comment region too.
   printf 'The FLAG_MDFENCE operative prose line.\n```bash\necho running  # FLAG_MDFENCE named in this fenced comment\n```\n' > "$_F375/tgt_fenced.md"
   printf 'Unrelated prose here.\n```bash\necho running  # FLAG_FENCEONLY lives only in this fenced comment\n```\n' > "$_F375/fenceonly.md"
+  # .md TILDE-fence collision (issue #394): the ~~~ opener branch must be exercised too — a
+  # literal in a `#` comment inside a ~~~ fence AND operative outside must flag. Drop ~~~
+  # support and this line's comment folds back into operative "outside" and the collision goes
+  # unflagged, so this fixture goes RED — pinning the ~{3,} arm the happy-path ```bash fixture
+  # never reaches.
+  printf 'The FLAG_TILDE operative prose line.\n~~~\necho running  # FLAG_TILDE named in this tilde fenced comment\n~~~\n' > "$_F375/tgt_tilde.md"
+  # .md DEEP-INDENT fail-open regression (issue #394 review): a run of >=4 leading spaces before
+  # ``` is CommonMark *indented code*, NOT a fence opener. If it were (mis)treated as one it would
+  # open a never-closed fence and fold the following operative ATX heading `# FLAG_DEEPINDENT …`
+  # into the comment region — removing that operative occurrence from "outside" so its real
+  # <!-- … --> comment collision goes UNFLAGGED (a #370-class fail-open in the guard's own
+  # direction). With the 0-3-space opener cap the indented run does not open a fence, the heading
+  # stays operative, and the collision is flagged. Revert the cap and this fixture goes RED.
+  # NOTE: the literal's ONLY operative occurrence is the ATX heading on line 3 (line 1 carries
+  # no literal), so if the indented run wrongly opened a fence and folded that heading into the
+  # comment region, "outside" would hold no operative occurrence and the collision would vanish —
+  # which is precisely what makes this fixture flip RED on a reverted cap rather than pass vacuously.
+  printf 'Unrelated prose with no literal on this line.\n    ``` four-space-indented, must NOT open a fence\n# FLAG_DEEPINDENT heading is the only operative occurrence, must not be swallowed\n<!-- FLAG_DEEPINDENT quoted in this real comment -->\n' > "$_F375/deepindent.md"
   # WRAPPED (pure `tr -s` case): a prose phrase wrapped across a line boundary by whitespace
   # only — no single line holds it, but `tr -s '[:space:]' ' '` over the file rejoins it.
   printf 'the phrase does\nnot fit on one line\n' > "$_F375/wrapped.md"
@@ -20234,6 +20252,8 @@ if _F375="$(mktemp -d 2>/dev/null)" && [ -n "$_F375" ] && [ -d "$_F375" ]; then
     "assert_pin_unique \"fx-md-collision\" 'FLAG_MD' \"$_F375/tgt.md\"" \
     "assert_pin_unique \"fx-md-fenced-collision\" 'FLAG_MDFENCE' \"$_F375/tgt_fenced.md\"" \
     "assert_pin_unique \"fx-md-fenceonly\" 'FLAG_FENCEONLY' \"$_F375/fenceonly.md\"" \
+    "assert_pin_unique \"fx-md-tilde-collision\" 'FLAG_TILDE' \"$_F375/tgt_tilde.md\"" \
+    "assert_pin_unique \"fx-md-deepindent-collision\" 'FLAG_DEEPINDENT' \"$_F375/deepindent.md\"" \
     "assert_pin_unique \"fx-cmtonly-sh\" 'FLAG_CMTONLY_SH' \"$_F375/cmtonly.sh\"" \
     "assert_pin_unique \"fx-cmtonly-md\" 'FLAG_CMTONLY_MD' \"$_F375/cmtonly.md\"" \
     "assert_pin_unique \"fx-wrapped\" 'the phrase does not fit on one line' \"$_F375/wrapped.md\"" \
@@ -20261,6 +20281,14 @@ if _F375="$(mktemp -d 2>/dev/null)" && [ -n "$_F375" ] && [ -d "$_F375" ]; then
     "yes" "$(printf '%s' "$_L375" | grep -q 'COLLISION.*tgt_fenced.md.*FLAG_MDFENCE' && echo yes || echo no)"
   assert_eq "#394 lint self-test: a literal living ONLY in a fenced #-comment of an .md target is NOT flagged" \
     "no" "$(printf '%s' "$_L375" | grep -q 'fenceonly.md' && echo yes || echo no)"
+  # #394: the ~~~ opener arm flags a tilde-fenced collision (pins the non-``` fence branch).
+  assert_eq "#394 lint self-test: a tilde (~~~) fenced #-comment collision in an .md target is flagged" \
+    "yes" "$(printf '%s' "$_L375" | grep -q 'COLLISION.*tgt_tilde.md.*FLAG_TILDE' && echo yes || echo no)"
+  # #394: a >=4-space-indented ``` must NOT open a fence (CommonMark indented code), so the
+  # following operative heading is not swallowed and its collision is flagged — the fail-open
+  # regression pin; reverting the 0-3-space opener cap flips this yes->no (RED).
+  assert_eq "#394 lint self-test: a >=4-space-indented \`\`\` does not open a fence (operative heading not swallowed, collision flagged)" \
+    "yes" "$(printf '%s' "$_L375" | grep -q 'COLLISION.*deepindent.md.*FLAG_DEEPINDENT' && echo yes || echo no)"
   assert_eq "#375 lint self-test: an unresolvable call site is reported on stderr (never silently skipped)" \
     "yes" "$(grep -q 'file=?' "$_F375/lint.err" && echo yes || echo no)"
   # A resolved-but-undecodable target is COUNTED (fail-closed), not an uncaught crash. The scan
