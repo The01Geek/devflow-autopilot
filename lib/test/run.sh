@@ -20780,16 +20780,39 @@ assert_pin_unique "#389 the behind-base title is defined once, in the helper" \
 assert_pin_unique "#389 the generic-default title is defined once, in the helper" \
   'Devflow review waiting: precondition not met' "$DST_SH"
 # The workflow routes the title through the testable helper (leading-token, vendored
-# path first) and verifies the OUTCOME, not just the file's existence.
-assert_pin_unique "#389 create_check routes the deferral title through the helper (vendored path first)" \
+# path first) and verifies the OUTCOME, not just the file's existence. The invocation
+# lives in the *precheck* job's `title` step, NOT create_check: create_check has no
+# actions/checkout, so the helper file is absent in its workspace — precheck (which does
+# check out and already runs helpers) computes the title and passes it as the skip_title
+# output, which create_check consumes (issue #389 iter-2 fix, caught by the shadow pass).
+assert_pin_unique "#389 precheck routes the deferral title through the helper (vendored path first)" \
   'DST=.devflow/vendor/devflow/scripts/describe-skip-title.sh' "$REVIEW_YML"
-assert_pin_unique "#389 create_check invokes the helper as a leading-token command" \
+assert_pin_unique "#389 precheck invokes the helper as a leading-token command" \
   'TITLE=$("$DST" "$SKIP_REASON")' "$REVIEW_YML"
-assert_pin_unique "#389 create_check verifies the helper OUTCOME with a resolution fallback" \
+assert_pin_unique "#389 precheck verifies the helper OUTCOME with a resolution fallback" \
   '[ -n "$TITLE" ] || TITLE=' "$REVIEW_YML"
+# precheck exposes the computed title as an output, and create_check consumes it (rather
+# than invoking the helper in its checkout-less workspace).
+assert_pin_unique "#389 precheck exposes the deferral title as the skip_title output" \
+  'skip_title: ${{ steps.title.outputs.skip_title }}' "$REVIEW_YML"
+assert_pin_unique "#389 create_check consumes the precomputed skip_title output" \
+  'SKIP_TITLE: ${{ needs.precheck.outputs.skip_title }}' "$REVIEW_YML"
+assert_pin_unique "#389 create_check uses the precomputed title with a defensive fallback" \
+  'TITLE="${SKIP_TITLE:-' "$REVIEW_YML"
 # The inline case is gone — extraction is complete, not duplicated.
 assert_eq "#389 the inline SKIP_REASON case no longer lives in the workflow" "0" \
   "$(pin_count 'case "$SKIP_REASON" in' "$REVIEW_YML")"
+# Single-definition, repo-wide: the four SPECIFIC deferral titles live ONLY in the helper
+# now — never in the workflow (create_check's/precheck's only workflow-resident title is
+# the generic "precondition not met" fallback). A specific title lingering in the workflow
+# would be a stale duplicate the "defined once in the helper" pins above cannot see.
+for _t389 in "Devflow review waiting: branch behind base" \
+             "Devflow review waiting: other CI not green" \
+             "Devflow review waiting: CI approval required" \
+             "Devflow review waiting: preconditions unverifiable"; do
+  assert_eq "#389 specific deferral title '$_t389' does not linger in the workflow (helper is the only home)" "0" \
+    "$(pin_count "$_t389" "$REVIEW_YML")"
+done
 
 # ── The injected grounding block. The security-sensitive prompt-injection prose
 # ── lives in ONE place (scripts/render-grounding-block.sh) rather than hand-copied

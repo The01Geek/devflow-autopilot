@@ -193,6 +193,14 @@ jobs:
       # should_run=false path (dedupe loser, draft, unauthorized, exactly-once)
       # leaves it empty and still posts NO check — unchanged behavior.
       skip_reason: ${{ steps.route.outputs.skip_reason }}
+      # The deferral check-run TITLE for the skip_reason above, computed here (issue
+      # #389) by the `title` step via scripts/describe-skip-title.sh. precheck already
+      # checks out the repo and runs helpers (derive-review-preconditions.sh) the same
+      # vendored-first way, so the helper is reachable here — whereas create_check has
+      # NO checkout, so it consumes this precomputed output instead of invoking the
+      # helper (which would be absent in its empty workspace). Empty unless skip_reason
+      # is non-empty (the `title` step's if:).
+      skip_title: ${{ steps.title.outputs.skip_title }}
     steps:
       - uses: actions/checkout@v6
       - id: cfg
@@ -756,6 +764,27 @@ jobs:
           emit pr_number "$PR"
           emit head_sha "$HEAD"
           echo "::notice::First reviewable event ($CR_ACTION) for PR #$PR; auto-triggering Devflow Review at $HEAD."
+      # Compute the deferral check-run TITLE from the skip reason via the extracted
+      # helper (issue #389). Runs here in precheck — which already checked out the repo
+      # above and reaches helpers the same vendored-first way derive-review-preconditions
+      # does — because create_check has NO checkout and so cannot invoke the helper file
+      # itself; it consumes this as the skip_title output. Gated on a non-empty
+      # skip_reason so it is a no-op on the normal (review-runs) path. The helper carries
+      # the honesty rule; the title must never assert a state the precheck did not
+      # observe. Invoked leading-token, vendored path first; verify the OUTCOME
+      # (non-empty), never asserting a specific state on a missing/broken helper.
+      - id: title
+        if: steps.route.outputs.skip_reason != ''
+        env:
+          SKIP_REASON: ${{ steps.route.outputs.skip_reason }}
+        run: |
+          set -euo pipefail
+          DST=.devflow/vendor/devflow/scripts/describe-skip-title.sh
+          [ -x "$DST" ] || DST=scripts/describe-skip-title.sh
+          TITLE=""
+          [ -x "$DST" ] && TITLE=$("$DST" "$SKIP_REASON")
+          [ -n "$TITLE" ] || TITLE='Devflow review waiting: precondition not met (describe-skip-title.sh missing or produced no output)'
+          echo "skip_title=$TITLE" >> "$GITHUB_OUTPUT"
 
   create_check:
     needs: precheck
@@ -784,6 +813,12 @@ jobs:
           HEAD_SHA: ${{ needs.precheck.outputs.head_sha }}
           RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
           SKIP_REASON: ${{ needs.precheck.outputs.skip_reason }}
+          # The deferral title, precomputed by precheck's `title` step via
+          # scripts/describe-skip-title.sh (issue #389). create_check has NO checkout,
+          # so it cannot invoke the helper file itself — it consumes the precomputed
+          # output. Non-empty whenever SKIP_REASON is (precheck's title step guarantees
+          # it); the fallback below covers a lost/empty output defensively.
+          SKIP_TITLE: ${{ needs.precheck.outputs.skip_title }}
         run: |
           set -euo pipefail
           if [ -n "${SKIP_REASON:-}" ]; then
@@ -798,19 +833,16 @@ jobs:
             # branch-freshness gate is a cost optimization; pair it with
             # branch protection's "require branches up to date" if staleness
             # must block).
-            # The SKIP_REASON -> TITLE selection AND its honesty rule (never assert
-            # a state the precheck did not observe) live in describe-skip-title.sh
-            # (issue #389), so lib/test/run.sh can drive every arm and its order: a
-            # reordered `case` or a glob typo there would misattribute the deferral
-            # title while the workflow still ran clean. Invoked leading-token,
-            # vendored path first.
-            DST=.devflow/vendor/devflow/scripts/describe-skip-title.sh
-            [ -x "$DST" ] || DST=scripts/describe-skip-title.sh
-            TITLE=""
-            [ -x "$DST" ] && TITLE=$("$DST" "$SKIP_REASON")
-            # Verify the OUTCOME, not the file's existence: an absent or
-            # non-executable helper must not silently drop the title.
-            [ -n "$TITLE" ] || TITLE='Devflow review waiting: precondition not met (describe-skip-title.sh missing or produced no output)'
+            # The SKIP_REASON -> TITLE selection AND its honesty rule (never assert a
+            # state the precheck did not observe) live in describe-skip-title.sh (issue
+            # #389), so lib/test/run.sh can drive every arm and its order: a reordered
+            # `case` or a glob typo there would misattribute the deferral title while the
+            # workflow still ran clean. It is invoked (leading-token) by precheck's
+            # `title` step, NOT here — create_check has no checkout, so the helper file
+            # is absent in its workspace. Consume the precomputed skip_title output;
+            # verify the OUTCOME (non-empty), falling back to the generic title (never a
+            # specific unobserved state) if the output is somehow empty.
+            TITLE="${SKIP_TITLE:-Devflow review waiting: precondition not met (skip_title unavailable from precheck)}"
             SUMMARY='This PR is not yet in a reviewable state, so the review was deferred (not run). It auto-re-triggers when the branch is updated, or when a CI workflow named in this workflow'"'"'s workflow_run trigger list (or an external check_suite CI, or a legacy commit status transitioning to success) completes. If your CI workflow is not in that list, or a signal is permanently stuck (a forever-pending status), click Re-run on this check once CI is green to force a review of the current HEAD. See docs/workflow-triggers.md for the deferral and re-trigger policy.'
             # De-duplicate repeated deferral re-evaluations. A branch that
             # stays behind base (or whose CI stays red) across several

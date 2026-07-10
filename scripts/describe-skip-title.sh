@@ -10,7 +10,7 @@
 # would misattribute the deferral while the workflow still ran clean. Inline shell inside
 # YAML cannot be unit-tested; here lib/test/run.sh drives every arm AND its order.
 #
-# Honesty rule (load-bearing — carried verbatim from the extraction site): the title must
+# Honesty rule (load-bearing — carried over from the extraction site): the title must
 # never assert a state the precheck did not observe. behind-base / ci-not-green /
 # ci-approval-required are POSITIVELY-OBSERVED conditions; `unverifiable` means a
 # precondition query failed (so the title names the query failure, not a concrete cause);
