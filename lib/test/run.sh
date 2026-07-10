@@ -19690,7 +19690,8 @@ assert_pin_unique "#284 positive: review verdict-threshold discriminates via sin
 # leading inline read of the id call's own exit status (never a captured rc read in a later
 # statement). Pin the new form so a revert to a captured-rc read fails, and so the #384
 # discriminator can't be silently dropped from this exact site either. (#401 retargeted the
-# stderr capture off /tmp into the run-scoped scratch dir — a probe-permitted in-workspace path.)
+# stderr capture off /tmp into the run-scoped scratch dir — an in-workspace path; the probe
+# denies only /tmp-targeted redirects, and real-run 29105381021 executed such 2> captures.)
 assert_pin_unique "#284 positive: review live-comment 3-way reads \$? inline in the elif (with #384 stderr discriminator)" 'elif [ "$?" -eq 2 ] && [ ! -s .devflow/tmp/review/<slug>/<run-id>/rv-id.err ]; then' "$ST_REV"
 # The efficiency-trace render reads are the QUOTED command-substitution sites the absence
 # detector previously could not see (#284 shadow review) — pin the migrated `if ! VAR="$(`

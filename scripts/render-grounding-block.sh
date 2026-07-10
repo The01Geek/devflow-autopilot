@@ -105,10 +105,12 @@ ${ALLOWED_TOOLS}
 > - **Permitted:** a single statement whose leading token is a granted head (or a
 >   resolved helper path); author a file with the Write tool under \`.devflow/tmp/\`;
 >   stream or capture through a pipe into \`tee\` (or a \`tee <file> <<'EOF'\` heredoc);
->   capture a command's output with \`VAR=\$(cmd)\`.
+>   capture a command's output with \`VAR=\$(cmd)\`; an in-workspace \`>\`/\`2>\` redirect
+>   of a granted head.
 > - **Denied — do not emit:** a leading \`VAR=value\` assignment or env-prefix
->   (\`M=x cmd\`); a leading \`cd\`; any shell \`>\`/\`>>\` file-authoring redirect, a
->   \`/tmp\` redirect target, or a \`cat\`-headed heredoc write; an interpreter head
+>   (\`M=x cmd\`); a leading \`cd\`; a \`>\`/\`>>\` redirect (or any other authoring)
+>   targeting \`/tmp\`; the Write tool outside \`.devflow/tmp/\`; a \`cat\`-headed heredoc
+>   write to any target (use the Write tool or \`tee\` instead); an interpreter head
 >   (\`python3\`/\`python\`/\`node\`).
 > - **Hard rule: after two denials of a shape, switch to a permitted alternative above
 >   — never iterate variants of the denied shape.** Iterating denied variants is what
