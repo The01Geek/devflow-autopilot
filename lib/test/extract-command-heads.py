@@ -205,7 +205,12 @@ def _strip_case_patterns(block: str) -> str:
         elif re.match(r"^esac\b", stripped):
             in_case = False
             expect_arm = False
-        elif in_case and expect_arm and not stripped.startswith((";;", "#")):
+        elif expect_arm and not stripped.startswith("#"):
+            # `expect_arm` is only ever set while inside a `case` block, so it alone
+            # gates the strip (it implies `in_case`). A comment line at an arm
+            # position is skipped without consuming `expect_arm`, so the following
+            # real arm is still stripped; a `;;`-leading line can't reach here
+            # because `expect_arm` is False on the terminator's own line.
             pattern = _CASE_PATTERN.match(line)
             if pattern:
                 line = line[pattern.end() :]
