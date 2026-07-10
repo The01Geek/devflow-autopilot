@@ -429,6 +429,17 @@ def _target_ext(path, md_targets):
     return os.path.splitext(path)[1]
 
 
+def _strip_line_spans(lines, spans):
+    """Remove each line-keyed comment suffix from `lines`, returning the joined
+    "outside-comments" text. Shared by the hash arm and the .md fenced-#-comment
+    arm (issue #394) so the two subtractions stay in lockstep rather than being
+    two hand-maintained copies of the same off-by-one-prone slice."""
+    return "\n".join(
+        (line[: len(line) - len(spans[i])] if i in spans else line)
+        for i, line in enumerate(lines, 1)
+    )
+
+
 def _lint_view(path, ext, cache):
     """Memoized per-target-file comment analysis (read + comment regions + the
     outside-comments text). Many pins share a target, so this is derived once per
@@ -444,10 +455,7 @@ def _lint_view(path, ext, cache):
     if ext in COMMENT_HASH_EXTS:
         lines = ftext.split("\n")
         comment_spans = {cln: ctext for cln, ctext in hash_comment_regions(lines)}
-        outside = "\n".join(
-            (line[: len(line) - len(comment_spans.get(i, ""))] if i in comment_spans else line)
-            for i, line in enumerate(lines, 1)
-        )
+        outside = _strip_line_spans(lines, comment_spans)
         v = ("hash", comment_spans, outside)
     elif ext in COMMENT_MD_EXTS:
         # Comment regions of a .md target are BOTH its HTML <!-- … --> spans AND
@@ -459,10 +467,7 @@ def _lint_view(path, ext, cache):
         comment_text = md_comment_text(ftext)
         if fenced_spans:
             comment_text = comment_text + "\n" + "\n".join(fenced_spans.values())
-        without_fenced = "\n".join(
-            (line[: len(line) - len(fenced_spans[i])] if i in fenced_spans else line)
-            for i, line in enumerate(ftext.split("\n"), 1)
-        )
+        without_fenced = _strip_line_spans(ftext.split("\n"), fenced_spans)
         outside = re.sub(r"<!--.*?-->", "", without_fenced, flags=re.DOTALL)
         v = ("md", comment_text, outside)
     else:
