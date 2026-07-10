@@ -26,12 +26,7 @@ HEAD_SHA="${HEAD_SHA:-}"
 CI_SUMMARY="${CI_SUMMARY:-}"
 ALLOWED_TOOLS="${ALLOWED_TOOLS:-}"
 
-# An empty CI summary must read as UNKNOWN, never as "no problems found". The
-# caller normally supplies summarize-ci-checks.sh's own fail-closed literal; this
-# is the backstop for a caller that supplied nothing at all.
-[ -n "$CI_SUMMARY" ] || CI_SUMMARY="CI status unavailable"
-
-# Defense in depth for the fence below. CI_SUMMARY carries check names, which are
+# Defense in depth for the fences below. CI_SUMMARY carries check names, which are
 # attacker-controlled text entering a `pull_request_target` prompt; a backtick in one
 # would close the ```text fence early and land the rest as live markdown outside it.
 # summarize-ci-checks.sh already strips backticks, and both workflows feed CI_SUMMARY
@@ -40,7 +35,25 @@ ALLOWED_TOOLS="${ALLOWED_TOOLS:-}"
 # here too, so a future caller that pipes unsanitized text in cannot break the fence.
 # Bash parameter expansion, NOT `tr`: `tr` is not a preflight prerequisite, and a missing
 # one would silently pass the backticks through — a sanitizer that fails OPEN.
+#
+# ALLOWED_TOOLS gets the same treatment even though it is maintainer-controlled today (the
+# resolved tool-profile string, never PR-author text) and carries no backticks. Containment
+# is meant to be a property of THIS renderer rather than of whoever calls it; a strip on one
+# interpolated slot and not the other would leave that property true only by accident of the
+# current callers. Both `Bash(...)` specs and tool names are backtick-free, so this is inert
+# on every real value.
+#
+# The strips run BEFORE the empty-value defaults below, never after: a value consisting only
+# of backticks strips to the empty string, and an empty CI fence reads as "no problems found"
+# while an empty tool fence reads as "unrestricted". Stripping first routes both into the
+# fail-closed literals instead.
 CI_SUMMARY="${CI_SUMMARY//\`/}"
+ALLOWED_TOOLS="${ALLOWED_TOOLS//\`/}"
+
+# An empty CI summary must read as UNKNOWN, never as "no problems found". The
+# caller normally supplies summarize-ci-checks.sh's own fail-closed literal; this
+# is the backstop for a caller that supplied nothing at all.
+[ -n "$CI_SUMMARY" ] || CI_SUMMARY="CI status unavailable"
 # An empty allowed-tools string renders a block that grants nothing and still
 # states the denial rule — the engine must not read "empty" as "unrestricted".
 [ -n "$ALLOWED_TOOLS" ] || ALLOWED_TOOLS="(no commands are granted to this run)"

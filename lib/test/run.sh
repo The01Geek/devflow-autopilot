@@ -19696,6 +19696,32 @@ assert_eq "#363 renderer does not sanitize via tr (a missing tr would fail OPEN)
   "$(pin_count 'tr -d' "$RGB_SH")"
 assert_pin_unique "#363 renderer strips CI_SUMMARY backticks with a bash builtin" \
   'CI_SUMMARY="${CI_SUMMARY//\`/}"' "$RGB_SH"
+assert_pin_unique "#363 renderer strips ALLOWED_TOOLS backticks too (containment is the renderer's property, not its caller's)" \
+  'ALLOWED_TOOLS="${ALLOWED_TOOLS//\`/}"' "$RGB_SH"
+# Valid-falsy row of the input-shape matrix, and the reason the strips must precede the
+# empty-value defaults: a value of ONLY backticks strips to "". Stripped first, it routes
+# into the fail-closed literal; stripped after the default, it would render an EMPTY fence —
+# a blank CI fence reads as "no problems found" and a blank tool fence as "unrestricted",
+# the two exact misreadings the defaults exist to prevent.
+#
+# Assert on the FENCE BODY, never on the whole block: the block's own prose quotes the
+# literal `CI status unavailable` when it explains the unknown-CI carve-out, so a whole-block
+# `grep -F 'CI status unavailable'` matches even when the fence is empty — a vacuous guard
+# that stays green under exactly the mutation it exists to catch (verified: with the strips
+# moved after the defaults, the whole-block grep still passed while the fence was empty).
+_rgb_fence() {  # $1..$3 -> _rgb args; prints the body of the Nth ```text fence ($4)
+  _rgb "$1" "$2" "$3" | awk -v n="$4" '/^```text$/{f++; next} /^```$/{if (f==n) exit; next} f==n'
+}
+assert_eq "#363 renderer routes an all-backtick CI summary into the unavailable literal, not an empty fence" \
+  "CI status unavailable" "$(_rgb_fence deadbeef '```' 'Read' 1)"
+assert_eq "#363 renderer routes an all-backtick tool list into 'grants nothing', not an empty fence" \
+  "(no commands are granted to this run)" "$(_rgb_fence deadbeef 'ok: success' '```' 2)"
+# And the ordinary path still renders the real values in those same two fences, so the two
+# assertions above are pinning a real slot rather than a permanently-defaulted one.
+assert_eq "#363 renderer renders a real CI summary in the CI fence" \
+  "lint: success" "$(_rgb_fence deadbeef 'lint: success' 'Read' 1)"
+assert_eq "#363 renderer renders the resolved tool list in the tools fence" \
+  "Read,Bash(git status:*)" "$(_rgb_fence deadbeef 'lint: success' 'Read,Bash(git status:*)' 2)"
 assert_eq "#363 renderer renders an empty allowed-tools string as granting nothing" "yes" \
   "$(_rgb deadbeef 'lint: success' '' | grep -qF '(no commands are granted to this run)' && echo yes || echo no)"
 assert_eq "#363 renderer still states the denial rule when the tool list is empty" "yes" \
