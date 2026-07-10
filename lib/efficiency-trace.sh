@@ -223,9 +223,11 @@ recorded_fix_shas() {
     # unchecked, which is sufficient here: the check exists to keep a corrupt
     # string value ("aaa bbb <realsha>", an embedded newline) from smuggling
     # arbitrary whitespace-bearing tokens into the space-delimited exclusion
-    # set, and space/newline both fail the charset class; the producer contract
-    # is `git rev-parse HEAD`, so a wrong-length hex token can only cause a
-    # breadcrumbed under-count, never a wrong exclusion of a full-sha match).
+    # set, and space/newline both fail the charset class. The producer contract
+    # is `git rev-parse HEAD`, so a wrong-LENGTH hex token — which passes this
+    # arm silently and then matches nothing against full `%H` shas — can only
+    # weaken the exclusion for a workpad that was already corrupt, never cause
+    # a wrong exclusion of a full-sha match).
     case "$sha_out" in
       ''|*[!0-9a-f]*) [ -n "$sha_out" ] && echo "::warning::efficiency-trace.sh --persist: fix_commit_sha in ${f} is not sha-shaped; not added to the exclusion set" >&2 ;;
       *) printf '%s\n' "$sha_out" ;;
@@ -352,10 +354,10 @@ synthesize_iter_workpads() {
       echo "::warning::efficiency-trace.sh --persist: failed to write synthesized iter-${n}.json for ${sha}; skipping" >&2
       rm -f "$dir/iter-$n.json" 2>/dev/null
     fi
-  done < <(select_fix_commits "$excl" <<EOF
-$log_out
-EOF
-)
+  done < <(printf '%s\n' "$log_out" | select_fix_commits "$excl")
+  # (printf-pipe, not a heredoc: bash heredocs materialize a temp file, so a
+  # denied-TMPDIR host would collapse an already-captured commit list onto the
+  # rc-2 "found none" arm — the builtin pipe has no such failure channel.)
   [ "$wrote" -gt 0 ] && return 0
   [ "$attempted" -gt 0 ] && return 4
   return 2
@@ -601,7 +603,12 @@ do_persist() {
     # exclusion would then lock in). Slug ownership is not derivable offline
     # (a pr-<N> slug cannot be mapped to the checkout without the API), so the
     # ambiguous case fails closed for every candidate, each with a breadcrumb
-    # naming the targeted --workpad-dir escape hatch.
+    # naming the targeted --workpad-dir escape hatch. Known residual for the
+    # MISATTRIBUTION direction: a SINGLE stale foreign slug's workpad-less dir,
+    # when the current run left no tmp dir at all, is the sole candidate and
+    # still claims the branch's fix commits under the wrong slug — guard (c)
+    # trips only on multiple slugs, because a lone candidate is
+    # indistinguishable offline from the legitimate current run.
     local wl_dirs=() wl_n wl_i next_slug allow d_iters wl_slug_first wl_multi_slug=0
     for dir in "$root"/.devflow/tmp/review/*/*/; do
       [ -d "$dir" ] || continue

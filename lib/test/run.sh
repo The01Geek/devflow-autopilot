@@ -14217,6 +14217,11 @@ assert_eq "et-synth(T4): duplicate-N keeps the EARLIEST commit's sha (--reverse 
 # dedupe (never writes iter-01.json, never reaches --argjson with a leading zero).
 assert_eq "et-synth(T4): leading-zero iteration 01 collides with 1 in the dedupe (no iter-01.json)" "no" \
   "$([ -e "$ETSA_REPO/.devflow/tmp/review/pr-9/run-a/iter-01.json" ] && echo yes || echo no)"
+# jq-version-independent detection: on a jq that REJECTS leading-zero --argjson, a
+# removed normalization would surface as a write failure instead of a file — so
+# also assert the write-failure breadcrumb for iter-01 is absent.
+assert_eq "et-synth(T4): leading-zero 01 never reaches --argjson (no iter-01 write-failure breadcrumb)" "no" \
+  "$(printf '%s' "$ETSA_ERR" | grep -qF 'failed to write synthesized iter-01' && echo yes || echo no)"
 # The missing-')' arm has its own distinct breadcrumb.
 assert_eq "et-synth(T4): missing-')' subject gets the no-trailing-paren breadcrumb" "yes" \
   "$(printf '%s' "$ETSA_ERR" | grep -qF "has no trailing ')' iteration suffix" && echo yes || echo no)"
