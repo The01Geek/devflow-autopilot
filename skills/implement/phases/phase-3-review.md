@@ -112,7 +112,7 @@ This runs the four-phase review engine in your context:
 
 Follow the skill's instructions. It handles evaluation, fixing, testing, and re-review internally.
 
-**Observability-persistence backstop (after `review-and-fix` returns, before the verdict branches below).** `review-and-fix`'s Loop Exit is what normally derives this run's effectiveness record (`.devflow/logs/efficiency/<slug>-<run-id>.json`) and durable workpad copy from its per-iteration `iter-*.json`. But this phase drives that loop **inline in your context**, so a dropped Loop Exit leaves those artifacts unpersisted and the run contributes nothing to `.devflow/logs/efficiency/` — the skill's own #1 documented "Common Mistake," unguarded at this seam. So regardless of the verdict, first **verify this run's observability artifacts were persisted and run the efficiency-trace persist backstop when they are missing**; the backstop is idempotent (it never re-derives an existing record), so running it unconditionally is safe. **When even that backstop has no `iter-*.json` inputs** — the inline loop wrote no per-iteration workpad this run — **record a `dropped-failed` reflection naming the observability gap** so the lost telemetry is visible rather than silently absent:
+**Observability-persistence backstop (after `review-and-fix` returns, before the verdict branches below).** `review-and-fix`'s Loop Exit is what normally derives this run's effectiveness record (`.devflow/logs/efficiency/<slug>-<run-id>.json`) and durable workpad copy from its per-iteration `iter-*.json`. But this phase drives that loop **inline in your context**, so a dropped Loop Exit leaves those artifacts unpersisted and the run contributes nothing to `.devflow/logs/efficiency/` — the skill's own #1 documented "Common Mistake," unguarded at this seam. So regardless of the verdict, first **verify this run's observability artifacts were persisted and run the efficiency-trace persist backstop when they are missing**; the backstop is idempotent (it never re-derives an existing record), so running it unconditionally is safe. **When the inline loop wrote no per-iteration workpad, `--persist` now first *synthesizes* a minimal iteration record from this run's fix commits** (issue #381 — `fix: address review findings (iteration N)` commits → `iter` / `fix_commit_sha` / `fix_files` / `loop_role` / `synthesized: true`), so the zero-workpad case is answered by synthesis, not only a reflection. The synthesized `iter-*.json` land under the same `.devflow/tmp/review/` tree, so the new-input detector below counts them as recovered inputs and does **not** fire the gap reflection. **Only when synthesis *also* finds nothing** — the loop wrote no workpad **and** synthesis recovered nothing (no unrecorded fix commit, a failed search — unresolvable base ref or a failed `git log` — failed writes, a discovery-mode skip: workpad-less run dirs ambiguous across slugs, or this dir not its slug's synthesis target, or an unsubstituted `<placeholder>` identity refused by either persist call; `--persist`'s warnings name which when a candidate dir was visited at all) — **record a `dropped-failed` reflection naming the observability gap** so the lost telemetry is visible rather than silently absent:
 ```bash
 # Anchor on the repo root the SAME way efficiency-trace.sh does (git toplevel), so the
 # "no inputs" detector below reads the exact .devflow/tmp/review tree --persist scans —
@@ -124,9 +124,16 @@ ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 # no-op if already persisted (the effectiveness record is presence-idempotent — skipped when
 # it already exists; the durable workpad copy re-runs but is content-idempotent, rewriting
 # identical bytes) and a full no-op if the inline loop wrote no per-iter workpad. Best-effort
-# (always exits 0). No --workpad-dir/--slug: with no args --persist scans every run-scoped
-# dir on disk, which is exactly the "the orchestrator does not hold review-and-fix's
-# internal slug/run-id" case at this inline seam.
+# (always exits 0). Two calls, targeted FIRST: this orchestrator drove review-and-fix
+# inline and holds the loop's <slug> and RUN_ID, and persisting its own run by explicit
+# identity is immune to every discovery-mode skip (multi-slug ambiguity, not-latest
+# ordering) AND to the lone-stale-foreign-dir shape, where discovery would misattribute
+# this branch's fix commits to a leftover slug and the sha exclusion would lock the
+# misattribution in while the new synthesized files suppressed the gap reflection. The
+# argument-less discovery call then covers every OTHER leftover run dir on disk. If the
+# slug/run-id are genuinely not held (the inline loop died before RUN_ID was computed),
+# skip the targeted call with a --note recording that, and rely on discovery + the
+# detector below as the loud floor — never substitute guessed values.
 # On mktemp failure, degrade to /dev/null rather than aborting — the capture becomes a
 # no-op (stderr is discarded, so the record-write-failure grep below can never match), but
 # --persist's own best-effort exit-0 contract is preserved. Track the degrade explicitly in
@@ -143,7 +150,12 @@ else
   PERSIST_ERR_IS_DEVNULL=1
   echo "::warning::phase-3.3: could not allocate a temp file for --persist's stderr (mktemp failed); ALL of --persist's stderr (durable-copy/staging/commit warnings included, not only the record-write-failure check) is discarded this run, and the record-write-failure detector is DISABLED (only the no-new-inputs case below is still checked)" >&2
 fi
-"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/efficiency-trace.sh --persist 2>"$PERSIST_ERR" || true   # best-effort; captured (not swallowed) so its ::warning:: breadcrumbs both surface to the run log below AND are checked for a record-write failure by the detector
+# Targeted persist FIRST (substituting this run's held <slug>/<run-id> — the
+# targeted form is exempt from every discovery-mode skip by caller intent):
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/efficiency-trace.sh --workpad-dir "$ROOT/.devflow/tmp/review/<slug>/<run-id>" --slug "<slug>" --persist 2>"$PERSIST_ERR" || true
+# Then argument-less discovery for every OTHER leftover run dir on disk; its
+# stderr appends to the same capture so the single surfacing line carries both:
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/efficiency-trace.sh --persist 2>>"$PERSIST_ERR" || true   # best-effort; captured (not swallowed) so its ::warning:: breadcrumbs both surface to the run log below AND are checked for a record-write failure by the detector
 cat "$PERSIST_ERR" >&2   # surface every --persist breadcrumb to the run log, same as before this capture was added
 # Detect the "no inputs FROM THIS RUN" case by diffing against the pre-loop snapshot, anchored
 # on $ROOT (matching --persist): comm -13 lists iter-*.json present now but NOT before the
@@ -189,7 +201,7 @@ if [ ! -e "$1" ] || [ -z "$(printf '%s\n' "$@" | sort | comm -13 "$BEFORE" -)" ]
   # the run log rather than silently dropping both the telemetry AND its loss-record — a
   # double silent failure at the exact seam this clause exists to make visible. Mirrors the
   # --persist line's best-effort breadcrumb discipline.
-  workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "review-and-fix inline loop wrote no iter-*.json this run; lib/efficiency-trace.sh --persist had no inputs, so this run's effectiveness telemetry (.devflow/logs/efficiency/) is missing" \
+  workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "review-and-fix inline loop wrote no iter-*.json this run AND lib/efficiency-trace.sh --persist synthesized nothing (no unrecorded 'fix: address review findings (iteration N)' commit to reconstruct from, a failed search — unresolvable base ref or failed git log — failed synthesized writes, or a discovery-mode skip such as multi-slug ambiguity or a refused unsubstituted placeholder identity; --persist's own warnings name which when a candidate dir was visited), so this run's effectiveness telemetry (.devflow/logs/efficiency/) is missing" \
     || echo "::warning::phase-3.3: failed to record dropped-failed observability-gap reflection on issue #$ISSUE_NUMBER; this run's effectiveness telemetry is lost AND its loss-record could not be written" >&2
 fi
 # The no-new-inputs case above only catches a dropped LOOP EXIT (the inline loop wrote no
@@ -210,7 +222,8 @@ fi
 # there the record IS written to disk, just not yet committed, a materially different and
 # lower-priority gap deferred on the issue #235 workpad. KNOWN LIMITATION (also deferred,
 # #236 review shadow pass): unlike the this-run-scoped no-inputs detector above, this grep
-# runs against --persist's WHOLE-TREE discovery-mode stderr (no --workpad-dir/--slug), so a
+# runs against the combined capture (the targeted call's stderr plus the whole-tree
+# discovery call's), so a
 # persistently-failing LEFTOVER run directory elsewhere on the local tier can also match —
 # the reflection below therefore does not assert the failure is scoped to this run.
 if [ "$PERSIST_ERR_IS_DEVNULL" -eq 0 ] && grep -qE 'record not written|failed \(disk/permission\); not persisted for' "$PERSIST_ERR" 2>/dev/null; then

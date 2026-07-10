@@ -1,14 +1,16 @@
 {
   "schema_version": 1,
   "slug": "issue-381-wave-6b-infrastructure-unloseable-review-loop",
-  "generated_at": "2026-07-10T16:51:19Z",
+  "generated_at": "2026-07-10T16:37:32Z",
   "source": "review-and-fix",
+  "synthesized": false,
   "cut_candidate_min_dispatch": 3,
   "iterations": 1,
   "per_iteration": [
     {
       "iter": 1,
       "loop_role": "fix",
+      "synthesized": false,
       "phase3_dispatched": [
         "devflow:code-reviewer",
         "devflow:silent-failure-hunter",

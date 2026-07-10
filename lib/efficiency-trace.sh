@@ -32,8 +32,10 @@
 #
 # Gating: when devflow_review_and_fix.efficiency_telemetry_enabled is false,
 # --mode and --self-check emit NOTHING and exit 0, and --persist derives no
-# record (the durable workpad copy is not telemetry-gated — it runs on every
-# writable run, mirroring the SKILL.md Loop Exit split).
+# record AND synthesizes no workpad (a synthesized workpad exists only to feed
+# the record — issue #381); the durable copy of REAL workpads is not
+# telemetry-gated — it runs on every writable run, mirroring the SKILL.md Loop
+# Exit split.
 #
 # Best-effort: a missing dir, zero readable workpads, or an unreadable workpad
 # never aborts — every mode degrades gracefully and --persist/--self-check
@@ -72,6 +74,30 @@ while [ $# -gt 0 ]; do
     *) echo "efficiency-trace.sh: unknown argument '$1'" >&2; exit 2 ;;
   esac
 done
+
+# Unsubstituted-placeholder guard, argv half: the phase-3.3 backstop fence
+# carries literal `<slug>`/`<run-id>` placeholders the executing agent must
+# substitute; run verbatim, they would fabricate a
+# `.devflow/tmp/review/<slug>/<run-id>` identity, synthesize the branch's real
+# fix commits under it, and the sha exclusion would then lock the
+# misattribution in while the new files suppressed the gap reflection — a
+# silent, durable corruption. No legitimate slug/run-id/path carries `<` or
+# `>`, so refuse them loudly (best-effort exit 0 preserved). This covers the
+# ARGV route only; the basename-derived route — a literal `<slug>/<run-id>`
+# DIRECTORY reaching discovery mode — is refused by persist_one's twin guard.
+# Accepted limitation: a repo checked out under a path that itself contains
+# `<`/`>` refuses every targeted invocation here (and discovery refuses each
+# dir via persist_one's twin guard) — loudly, exit 0; fail-closed in the safe
+# direction for a vanishingly rare layout. Accepted residual: a
+# CALLER-side shell redirect (e.g. a verbatim Loop Exit `--mode record >
+# "$RECORD"` fence) touches its placeholder-NAMED file before this script
+# runs — the guard keeps the file EMPTY (no fabricated content), but cannot
+# undo the caller's touch.
+case "${WORKPAD_DIR}${SLUG}" in
+  *'<'*|*'>'*)
+    echo "::warning::efficiency-trace.sh: --workpad-dir/--slug contains an unsubstituted '<placeholder>' (got --workpad-dir '${WORKPAD_DIR}' --slug '${SLUG}'); refusing to run under a placeholder identity — substitute the run's real slug/run-id and rerun" >&2
+    exit 0 ;;
+esac
 
 # ── Gating flag (on by default). ─────────────────────────────────────────────
 ENABLED="$(devflow_conf '.devflow_review_and_fix.efficiency_telemetry_enabled' 'true')"
@@ -158,6 +184,236 @@ emit_jq() {
 # from a persisted iter workpad. Plain (non-readonly) single-line assignment so the
 # run.sh divergence guard can grep `^ITER_EXPECTED_FIELDS=` to extract it.
 ITER_EXPECTED_FIELDS="iter started_at fix_commit_sha fix_files loop_role checklist phase3_dispatched diff_profile phase3_findings fix_decisions convergence_inputs cap_drops telemetry"
+# The synthesized-record minimal field set (issue #381): what synthesize_iter_workpads
+# writes, and what --self-check validates a synthesized:true record against (a
+# synthesized record is a recognized degraded class, exempt from the full set above
+# but NOT from its own — a truncated synthesized record must still warn).
+ITER_SYNTH_EXPECTED_FIELDS="iter fix_commit_sha fix_files loop_role synthesized"
+
+# ── Synthesis backstop (Layer 3+): reconstruct a minimal iteration record from
+# the branch's fix commits when a run left ZERO iter-*.json (issue #381) ───────
+#
+# SHARED FIX-COMMIT SUBJECT CONTRACT (coupled two-site invariant — issue #381):
+# the fix-commit subject template `fix: address review findings (iteration {N})`
+# is WRITTEN by skills/review-and-fix/SKILL.md Step 3 item 6 and PARSED here to
+# reconstruct the per-iteration records when the workpads were dropped. Both
+# sites must carry the identical literal; lib/test/run.sh pins both and a
+# targeted edit to either turns the suite RED. Changing the subject? Edit item 6
+# and this selector in the SAME commit.
+FIX_COMMIT_SUBJECT_PREFIX="fix: address review findings (iteration"
+
+# Resolve the ref the fix-commit range diffs against (config .base_branch,
+# default main). Prefer origin/<base> over the local ref: in this repo's linked-
+# worktree flow the local base branch is routinely BEHIND origin (nobody pulls it
+# in a worktree), and a stale local base widens base..HEAD to sweep already-merged
+# history — misattributing an old merged PR's fix commits to this run. Falls back
+# to the local ref (fixtures and offline clones with no origin). Echoes the
+# resolved ref, or returns non-zero when neither resolves (fail-closed).
+synth_base_ref() {
+  local root="$1" base ref
+  base="$(devflow_conf '.base_branch' 'main')"
+  [ -n "$base" ] || base="main"
+  for ref in "origin/$base" "$base"; do
+    if git -C "$root" rev-parse --verify --quiet "${ref}^{commit}" >/dev/null 2>&1; then
+      printf '%s\n' "$ref"; return 0
+    fi
+  done
+  # Name the tried value on the failure path — "which base was tried" is the
+  # one actionable operand, and a present-but-unresolvable value (a typo'd
+  # branch, a wrong-type config coerced to a string like "false") must not be
+  # misreported as the key being absent.
+  echo "::warning::efficiency-trace.sh: neither 'origin/${base}' nor '${base}' resolves to a commit (.base_branch resolved to '${base}' — absent key, typo, wrong-type value, or missing ref)" >&2
+  return 1
+}
+
+# Emit every fix_commit_sha already recorded by ANY other run's iter-*.json —
+# both the live tmp tree and the committed durable copies — so synthesis never
+# re-attributes a commit some other run (real or previously-synthesized) already
+# recorded. $2 is the target run dir's TMP path, excluded from the scan (its own
+# workpads are what synthesis is about to write; its durable mirror under
+# .devflow/logs/review/, if one survives a wiped tmp, is deliberately NOT
+# excluded — a run whose workpads were already persisted reads as already-
+# recorded, which is correct: its record exists and must not be re-attributed).
+# Best-effort with a CONTAINED, breadcrumbed per-file failure: an unreadable/
+# malformed workpad is skipped — its sha (if any) is lost from the exclusion
+# set, a fail-open-for-that-file window the breadcrumb makes loud — while the
+# `if !` guard keeps the failure from truncating the REST of the scan (this
+# loop runs in an errexit-inheriting process-substitution subshell, where a
+# bare failing jq would kill it mid-list and silently drop every later sha —
+# the wider fail-open the #62/#98 operand-contract check exists to catch).
+# Residual windows: a run whose EVERY workpad copy was deleted after its record
+# was derived (the durable-copy layer exists to prevent it), and the
+# single-unreadable-sibling sha just described (breadcrumbed, never silent).
+recorded_fix_shas() {
+  local root="$1" skip_dir="$2" f sha_out
+  for f in "$root"/.devflow/tmp/review/*/*/iter-*.json "$root"/.devflow/logs/review/*/*/iter-*.json; do
+    [ -e "$f" ] || continue
+    case "$f" in "$skip_dir"/*) continue ;; esac
+    if ! sha_out="$("$DEVFLOW_JQ" -r 'if (.fix_commit_sha | type) == "string" then .fix_commit_sha else empty end' "$f" 2>/dev/null)"; then
+      echo "::warning::efficiency-trace.sh --persist: could not read fix_commit_sha from ${f} (unreadable or malformed workpad); its sha (if any) cannot be excluded from synthesis" >&2
+      continue
+    fi
+    # Emit only sha-shaped tokens (lowercase-hex charset — length deliberately
+    # unchecked, which is sufficient here: the check exists to keep a corrupt
+    # string value ("aaa bbb <realsha>", an embedded newline) from smuggling
+    # arbitrary whitespace-bearing tokens into the space-delimited exclusion
+    # set, and space/newline both fail the charset class. The producer contract
+    # is `git rev-parse HEAD`, so a wrong-LENGTH hex token — which passes this
+    # arm silently and then matches nothing against full `%H` shas — can only
+    # weaken the exclusion for a workpad that was already corrupt, never cause
+    # a wrong exclusion of a full-sha match).
+    case "$sha_out" in
+      ''|*[!0-9a-f]*) [ -n "$sha_out" ] && echo "::warning::efficiency-trace.sh --persist: fix_commit_sha in ${f} is not sha-shaped; not added to the exclusion set" >&2 ;;
+      *) printf '%s\n' "$sha_out" ;;
+    esac
+  done
+  return 0
+}
+
+# Reads `sha<TAB>subject` lines (oldest-first) on STDIN — the caller captures
+# `git log` output first so a failed log is routed to the rc-3 "never
+# established" arm instead of reading as an empty commit list — and emits
+# `N<TAB>sha` lines for subjects matching the fix-commit contract, excluding any
+# sha in $1 (space-separated already-recorded set). Deterministic, network-free.
+# Adversarial subjects each emit an exit-0 stderr breadcrumb and are skipped:
+# prefix present but no trailing `)` iteration suffix, a non-numeric iteration
+# token, an already-recorded sha, or a duplicate N (first unexcluded occurrence
+# wins). Known accepted lenience: `(iteration1)` (missing space) parses as
+# iteration 1 — the strip drops at most one optional space. Known limitation:
+# iteration numbers restart at 1 per review loop, so a branch carrying TWO
+# unrecorded loops keeps only the first loop's commit for each N (duplicate-N
+# breadcrumbs name the rest) — acceptable for a minimal floor. Always exits 0.
+select_fix_commits() {
+  local excl="$1" base_subject sha subj n tab seen_ns=" "
+  tab="$(printf '\t')"
+  # The fix-loop subject family, derived from the coupled prefix constant (the
+  # strip pattern necessarily repeats the constant's ` (iteration` tail — keep
+  # the two in lockstep if the subject template is ever reworded): a commit in
+  # this family but WITHOUT the `(iteration N)` suffix is breadcrumbed, not
+  # silently dropped (issue #381 AC4).
+  base_subject="${FIX_COMMIT_SUBJECT_PREFIX% (iteration}"
+  # --reverse → oldest-first so a duplicate N keeps the EARLIEST commit.
+  while IFS="$tab" read -r sha subj; do
+    [ -n "$sha" ] || continue
+    case "$subj" in
+      "$FIX_COMMIT_SUBJECT_PREFIX"*) ;;          # has the "(iteration" suffix — parse N below
+      "$base_subject"*)                           # fix-loop family but no "(iteration N)" suffix
+        echo "::warning::efficiency-trace.sh --persist: fix-commit ${sha} is in the fix-loop subject family but has no '(iteration N)' suffix; skipping" >&2; continue ;;
+      *) continue ;;                              # unrelated commit — silently skip
+    esac
+    # Already recorded by another run's workpad (real or previously synthesized,
+    # tmp or durable copy) — never re-attribute it to this run (the double-count
+    # guard; checked BEFORE duplicate-N dedupe so an excluded commit does not
+    # consume its iteration number and shadow this run's own commit with that N).
+    case " $excl " in
+      *" $sha "*) echo "::warning::efficiency-trace.sh --persist: fix-commit ${sha} is already recorded by another run's iter-*.json workpad; skipping so it is not double-counted" >&2; continue ;;
+    esac
+    n="${subj#"$FIX_COMMIT_SUBJECT_PREFIX"}"      # -> " N)"
+    n="${n# }"                                    # drop one leading space
+    case "$n" in
+      *")") n="${n%)}" ;;
+      *) echo "::warning::efficiency-trace.sh --persist: fix-commit ${sha} matches the fix-subject prefix but does not END with the '(iteration N)' suffix (trailing text after it, or a missing ')'); skipping" >&2; continue ;;
+    esac
+    case "$n" in
+      ''|*[!0-9]*) echo "::warning::efficiency-trace.sh --persist: fix-commit ${sha} has a non-numeric iteration token '${n}'; skipping" >&2; continue ;;
+    esac
+    # Normalize leading zeros (pure bash — a selection-deciding value must not
+    # route through a non-preflight PATH tool): "01" and "1" are the same
+    # iteration, so they must collide in the duplicate-N dedupe, and a leading-
+    # zero token must never reach `--argjson` (jq builds disagree on leading-zero
+    # JSON numbers — acceptance is version-dependent, rejection would be
+    # misattributed as a disk write failure).
+    while [ "${n#0}" != "$n" ] && [ -n "${n#0}" ]; do n="${n#0}"; done
+    case "$seen_ns" in
+      *" $n "*) echo "::warning::efficiency-trace.sh --persist: duplicate iteration ${n} (fix-commit ${sha}); keeping the first occurrence, skipping this one" >&2; continue ;;
+    esac
+    seen_ns="${seen_ns}${n} "
+    printf '%s\t%s\n' "$n" "$sha"
+  done
+  return 0
+}
+
+# Synthesize minimal iter-<N>.json workpads into $1 from the branch's fix
+# commits (issue #381). Each record carries only iter / fix_commit_sha /
+# fix_files / loop_role:"fix" / synthesized:true — a distinct recognized degraded
+# class the jq filter and --self-check both ride. Three-way outcome so the
+# caller's breadcrumb never collapses an unestablished measurement onto "found
+# none" (the repo's unknown-is-not-zero gotcha): returns 0 iff ≥1 record was
+# written; 2 when selection RAN and found no unrecorded matching commit; 3 when
+# the search could not run at all (an uncreatable target dir, no base ref
+# resolvable, OR the git log enumeration itself failed — either way, whether
+# matching commits could be synthesized was never established; the arm-specific
+# warning names which); 4 when commits WERE selected but every record write
+# failed (per-commit warnings already emitted).
+synthesize_iter_workpads() {
+  local dir="$1" root="$2" n sha files files_ok base excl log_out jq_err tab attempted=0 wrote=0
+  tab="$(printf '\t')"
+  # The target dir can be absent on the one shape this floor exists for — a
+  # fully-degraded run that never created its tmp dir, reached via the
+  # phase-3.3 targeted retry / the breadcrumb-named --workpad-dir escape hatch.
+  # Without this, every write below fails ENOENT and the rc-4 arm misreads a
+  # missing directory as a disk/write failure.
+  if ! mkdir -p "$dir" 2>/dev/null; then
+    echo "::warning::efficiency-trace.sh --persist: could not create workpad dir ${dir} (permissions/read-only fs, or on the cloud tier the sandbox's write denial into .devflow/tmp?); cannot synthesize into it" >&2
+    return 3
+  fi
+  if ! base="$(synth_base_ref "$root")"; then
+    echo "::warning::efficiency-trace.sh --persist: could not resolve a base branch ref (the warning above names the tried value); cannot select fix commits for synthesis" >&2
+    return 3
+  fi
+  # Capture the log BEFORE parsing, checking its own exit status: a failed
+  # `git log` (unborn HEAD, index-lock race, corrupt object store) is "the
+  # enumeration never ran" — rc 3, never collapsed onto rc 2's "found none"
+  # (the unknown-is-not-zero gotcha, applied to the search itself).
+  # Data purity: stderr is discarded, never REDIRECTED into the capture — do
+  # not change this to `2>&1`, which would inject a succeeding git advisory
+  # (unreadable ~/.config/git, ref warnings) into the parsed commit stream.
+  if ! log_out="$(git -C "$root" log --reverse --format="%H${tab}%s" "${base}..HEAD" 2>/dev/null)"; then
+    echo "::warning::efficiency-trace.sh --persist: git log ${base}..HEAD failed (rc-checked; its stderr is suppressed to keep the data stream pure — rerun the command manually for detail); whether matching fix commits exist was never established" >&2
+    return 3
+  fi
+  # Join the exclusion set with bash builtins only — it DECIDES which commits are
+  # selected, so it must not be derived through a non-preflight PATH tool (the
+  # repo's guard-class 2: a missing tool would silently empty the set and re-open
+  # the double-count this guard exists to close).
+  excl=""
+  while IFS= read -r sha; do
+    [ -n "$sha" ] && excl="${excl}${sha} "
+  done < <(recorded_fix_shas "$root" "$dir")
+  while IFS="$tab" read -r n sha; do
+    [ -n "$n" ] && [ -n "$sha" ] || continue
+    attempted=$((attempted + 1))
+    # Guard the fix_files derivation: a failed diff-tree must record
+    # fix_files: null (unestablished — distinguishable from a genuine
+    # empty/--allow-empty commit's []) with a breadcrumb, never a silent
+    # fabricated "this commit touched no files".
+    files_ok=1
+    if ! files="$(git -C "$root" diff-tree --no-commit-id --name-only -r "$sha" 2>/dev/null)"; then
+      echo "::warning::efficiency-trace.sh --persist: could not derive fix_files for ${sha} (git diff-tree failed; stderr suppressed to keep the data stream pure); recording fix_files as null (unestablished)" >&2
+      files_ok=0
+      files=""
+    fi
+    # stdout goes to the record file, so stderr is free to capture — unlike the
+    # git log/diff-tree data streams above, keeping the failure CAUSE
+    # (ENOENT/EACCES/ENOSPC/argjson rejection) costs no data purity here.
+    if jq_err="$("$DEVFLOW_JQ" -n --argjson iter "$n" --arg sha "$sha" --arg files "$files" --arg files_ok "$files_ok" \
+         '{iter: $iter, fix_commit_sha: $sha,
+           fix_files: (if $files_ok == "1" then ($files | split("\n") | map(select(length > 0))) else null end),
+           loop_role: "fix", synthesized: true}' 2>&1 > "$dir/iter-$n.json")"; then
+      wrote=$((wrote + 1))
+    else
+      echo "::warning::efficiency-trace.sh --persist: failed to write synthesized iter-${n}.json for ${sha} (${jq_err:-no error text}); skipping" >&2
+      rm -f "$dir/iter-$n.json" 2>/dev/null
+    fi
+  done < <(printf '%s\n' "$log_out" | select_fix_commits "$excl")
+  # (printf-pipe, not a heredoc: bash <5.1 heredocs — and over-pipe-buffer ones
+  # on newer bash — materialize a temp file, so a denied-TMPDIR host could
+  # collapse an already-captured commit list onto the rc-2 "found none" arm —
+  # the builtin pipe has no such failure channel.)
+  [ "$wrote" -gt 0 ] && return 0
+  [ "$attempted" -gt 0 ] && return 4
+  return 2
+}
 
 # ── --self-check (Layer 2): warn-only, never writes, never fails ─────────────
 do_self_check() {
@@ -174,7 +430,7 @@ do_self_check() {
   root="$(devflow_repo_root)"
   # No iter-*.json workpad at all → per-iteration telemetry was never captured.
   if [ ! -d "$WORKPAD_DIR" ] || ! compgen -G "$WORKPAD_DIR"/iter-*.json >/dev/null 2>&1; then
-    echo "::warning::devflow review-and-fix self-check: NO iter-*.json workpad was written for run ${SLUG}/${run_id} — per-iteration effectiveness telemetry was not captured this run; there is nothing to persist." >&2
+    echo "::warning::devflow review-and-fix self-check: NO iter-*.json workpad was written for run ${SLUG}/${run_id} — per-iteration effectiveness telemetry was not captured this run; recover a minimal floor with 'lib/efficiency-trace.sh --persist --workpad-dir ${WORKPAD_DIR} --slug ${SLUG}' (the targeted form — bare discovery-mode --persist can decline this dir on a multi-slug or not-latest skip), which synthesizes an iteration record from this branch's unrecorded 'fix: address review findings (iteration N)' commits when any exist." >&2
     return 0
   fi
   # Workpads exist but the effectiveness record was not persisted.
@@ -204,8 +460,15 @@ do_self_check() {
   local iter field missing
   for iter in "$WORKPAD_DIR"/iter-*.json; do
     [ -e "$iter" ] || continue
-    if ! missing="$("$DEVFLOW_JQ" -r --arg fields "$ITER_EXPECTED_FIELDS" \
-                      'if type == "object" then (($fields | split(" ")) - keys)[] else "__non_object__" end' \
+    # A synthesized record (issue #381) is a recognized degraded class — it
+    # legitimately carries only iter/fix_commit_sha/fix_files/loop_role/synthesized,
+    # so it is validated against THAT minimal set (ITER_SYNTH_EXPECTED_FIELDS),
+    # not the full ITER_EXPECTED_FIELDS (a wave of spurious warnings would train
+    # operators to ignore the self-check) — and not against nothing, or a
+    # truncated/hand-edited synthesized record would validate silently (the
+    # writer-controlled flag must not buy a total exemption).
+    if ! missing="$("$DEVFLOW_JQ" -r --arg fields "$ITER_EXPECTED_FIELDS" --arg synth_fields "$ITER_SYNTH_EXPECTED_FIELDS" \
+                      'if type == "object" then (if (.synthesized == true) then (($synth_fields | split(" ")) - keys)[] else (($fields | split(" ")) - keys)[] end) else "__non_object__" end' \
                       "$iter" 2>/dev/null)"; then
       echo "::warning::devflow review-and-fix self-check: iter workpad '$(basename "$iter")' is unreadable or not valid JSON — cannot validate its fields" >&2
       continue
@@ -225,11 +488,89 @@ do_self_check() {
 
 # Persist one run dir's artifacts (best-effort). Returns 0 always.
 persist_one() {
-  local dir="$1" slug="$2" run_id="$3" root="$4"
+  local dir="$1" slug="$2" run_id="$3" root="$4" allow_synth="${5:-1}"
+  # Basename-derived identities need the same unsubstituted-placeholder refusal
+  # as the argv guard above: a literal `<slug>/<run-id>` DIRECTORY (left by a
+  # non-substituting agent running a workpad-dir mkdir fence verbatim) reaches
+  # discovery mode without ever passing through argv, and synthesizing into it
+  # would fabricate the same placeholder identity the argv guard refuses.
+  case "${dir}${slug}${run_id}" in
+    *'<'*|*'>'*)
+      echo "::warning::efficiency-trace.sh --persist: run dir '${dir}' carries an unsubstituted '<placeholder>' identity (a verbatim '<slug>/<run-id>' directory left by a non-substituting run?); refusing to persist or synthesize under it — remove or rename the directory to recover" >&2
+      return 0 ;;
+  esac
   local src durable record out jq_rc cp_err src_probe
-  # A run dir with no iter-*.json is nothing to persist.
   local iters=("$dir"/iter-*.json)
-  [ -e "${iters[0]}" ] || return 0
+  if [ ! -e "${iters[0]}" ]; then
+    # No per-iteration workpad. Layer-3+ synthesis floor (issue #381): reconstruct
+    # a minimal record from this branch's fix commits so a fully-dropped run still
+    # contributes effectiveness telemetry. Three guards keep a fix commit from
+    # being double-counted into (or misattributed across) runs' records: (a)
+    # sha-level exclusion — synthesis skips any commit already recorded as a
+    # fix_commit_sha by another run's iter-*.json (real or synthesized, tmp tree
+    # or committed durable copy), so a workpad-holding sibling run, a later
+    # targeted --workpad-dir invocation, and a later discovery pass all decline
+    # the same commit; (b) among the workpad-less dirs of one slug, only the
+    # lexicographically-latest run-id synthesizes (allow_synth=1) — the rest
+    # breadcrumb; and (c) when the workpad-less dirs span MULTIPLE slugs in one
+    # discovery pass, ownership of the branch's fix commits is ambiguous offline
+    # (a stale slug's leftover empty dir could claim the current branch's
+    # commits), so discovery synthesizes into NONE of them (allow_synth=2,
+    # breadcrumb naming the targeted escape hatch). The residual window is a run
+    # whose EVERY workpad copy (tmp and durable) was deleted after its record
+    # was derived — the durable-copy layer exists precisely so that does not
+    # happen.
+    if [ "$ENABLED" != "true" ]; then
+      # Telemetry off: synthesized workpads exist ONLY to feed the (disabled)
+      # effectiveness record — unlike REAL workpads, whose flag-off durable copy
+      # is a deliberate carve-out — so fabricating them here would commit
+      # telemetry artifacts to a repo that switched telemetry off. One gate
+      # covers both the targeted and discovery paths.
+      echo "::warning::efficiency-trace.sh --persist: run ${slug}/${run_id} has no iter-*.json and efficiency telemetry is disabled; skipping synthesis (a disabled record has no consumer for a synthesized workpad)" >&2
+      return 0
+    fi
+    if [ "$allow_synth" = "2" ]; then
+      echo "::warning::efficiency-trace.sh --persist: run ${slug}/${run_id} has no iter-*.json, but workpad-less run dirs span multiple slugs in this discovery pass — the branch's fix commits cannot be attributed to a slug offline, so synthesis is skipped for all of them; to synthesize this run explicitly, rerun with --persist --workpad-dir <dir> --slug ${slug}" >&2
+      return 0
+    fi
+    if [ "$allow_synth" != "1" ]; then
+      echo "::warning::efficiency-trace.sh --persist: run ${slug}/${run_id} has no iter-*.json and is not the synthesis target for slug '${slug}' (a later run-id holds it); skipping synthesis so fix commits are not double-counted" >&2
+      return 0
+    fi
+    # Three-way outcome (unknown is never collapsed onto "found none" — the
+    # repo's describe-denial-count.sh gotcha): rc 2 = selection ran, nothing
+    # unrecorded to synthesize; rc 3 = the search could not run (unresolvable
+    # base ref OR a failed git log — whether commits exist was never
+    # established); rc 4 = commits were selected but every record write failed.
+    local synth_rc=0
+    synthesize_iter_workpads "$dir" "$root" || synth_rc=$?
+    case "$synth_rc" in
+      0) : ;;
+      3)
+        echo "::warning::efficiency-trace.sh --persist: run ${slug}/${run_id} left no iter-*.json and the fix-commit search could not run (an uncreatable target dir, an unresolvable base ref, or a failed git log enumeration — the warning above names which) — whether matching fix commits exist was never established; telemetry not synthesized" >&2
+        return 0 ;;
+      4)
+        echo "::warning::efficiency-trace.sh --persist: run ${slug}/${run_id} left no iter-*.json; matching fix commits were selected but every synthesized record write failed (see the per-commit warnings above — disk/permissions, or on the cloud tier the sandbox's redirect-write denial into .devflow/tmp) — telemetry not synthesized" >&2
+        return 0 ;;
+      2)
+        echo "::warning::efficiency-trace.sh --persist: run ${slug}/${run_id} left no iter-*.json and no unrecorded 'fix: address review findings (iteration N)' commits were found — per-iteration effectiveness telemetry was not captured this run; nothing to synthesize" >&2
+        return 0 ;;
+      *)
+        # Unknown is not zero: an rc outside the 0/2/3/4 contract (a signal, a
+        # future drift) must not be reported as "no commits were found".
+        echo "::warning::efficiency-trace.sh --persist: run ${slug}/${run_id} left no iter-*.json and synthesis exited with unexpected rc=${synth_rc} — whether matching fix commits exist was never established; telemetry not synthesized" >&2
+        return 0 ;;
+    esac
+    iters=("$dir"/iter-*.json)
+    if [ ! -e "${iters[0]}" ]; then
+      # Defensive: unreachable while synthesize_iter_workpads' rc-0 contract
+      # guarantees >=1 surviving write into $dir — but if a future edit
+      # desynchronizes that contract, dropping the record with zero signal is
+      # exactly the silent hole this file exists to close.
+      echo "::warning::efficiency-trace.sh --persist: synthesis reported success but no iter-*.json exists in ${dir}; record not derived for ${slug}/${run_id}" >&2
+      return 0
+    fi
+  fi
   # Skip standalone /devflow:review runs (source == "review") — they have their
   # own Phase 4.5 record path and are out of scope for this backstop. `source` is
   # a RUN-level field, identical across a run's iterations, so any one iter is a
@@ -306,26 +647,97 @@ do_persist() {
   root="$(devflow_repo_root)"
   if [ -n "$WORKPAD_DIR" ]; then
     # Targeted: persist exactly the given run. Slug from --slug, else the parent
-    # dir name; run-id is the workpad-dir basename.
-    run_id="$(basename "$WORKPAD_DIR")"
+    # dir name; run-id is the workpad-dir basename. Derived with bash parameter
+    # expansion only — these values DECIDE which run identity receives the
+    # record, so they must not depend on PATH tools at all (guard-class 2): a
+    # broken/shadowed `basename` on PATH would abort the persist mid-run under
+    # set -e (rc 127 — violating the best-effort exit-0 contract and losing the
+    # record), and builtins remove that dependency outright. (The script's init
+    # line still uses `dirname` to locate itself; a host that broken never gets
+    # this far.)
+    dir="${WORKPAD_DIR%/}"
+    while [ "${dir%/}" != "$dir" ]; do dir="${dir%/}"; done   # collapse any extra trailing slashes
+    run_id="${dir##*/}"
     if [ -n "$SLUG" ]; then
       slug="$SLUG"
     else
-      slug="$(basename "$(dirname "$WORKPAD_DIR")")"
+      slug="${dir%/*}"; slug="${slug##*/}"
     fi
-    persist_one "$WORKPAD_DIR" "$slug" "$run_id" "$root"
+    persist_one "$WORKPAD_DIR" "$slug" "$run_id" "$root" 1
   else
-    # Discovery: every .devflow/tmp/review/<slug>/<run-id>/ holding iter-*.json
-    # (the "holding iter-*.json" filter happens one level down, in persist_one's
-    # `[ -e "${iters[0]}" ]` guard — the loop visits every <slug>/<run-id> dir).
-    # The trailing slash restricts the glob to directories; an unmatched glob
-    # stays literal and the `[ -d ]` guard skips it (no nullglob needed).
+    # Discovery: every .devflow/tmp/review/<slug>/<run-id>/ directory. The trailing
+    # slash restricts the glob to directories; an unmatched glob stays literal and
+    # the `[ -d ]` guard skips it (no nullglob needed). A dir HOLDING iter-*.json
+    # is persisted immediately. A WORKPAD-LESS dir is collected so the issue #381
+    # synthesis floor synthesizes into only the lexicographically-latest
+    # workpad-less run-id per slug: the glob is sorted, so same-slug dirs are
+    # contiguous with run-ids ascending — the LAST workpad-less dir of a slug is
+    # its latest, and every earlier one gets allow_synth=0 (breadcrumb). This
+    # ordering guard is one of the double-count defenses; the sha-level exclusion
+    # inside synthesis (see persist_one) covers the shapes ordering cannot — a
+    # workpad-holding sibling run and later passes — and the multi-slug ambiguity
+    # guard below covers the shape NEITHER can: workpad-less dirs spanning
+    # multiple slugs, where whichever slug sorts first would otherwise claim the
+    # current branch's fix commits even when it is a stale leftover from an
+    # aborted run of a DIFFERENT branch/PR (misattribution, which the sha
+    # exclusion would then lock in). Slug ownership is not derivable offline
+    # (a pr-<N> slug cannot be mapped to the checkout without the API), so the
+    # ambiguous case fails closed for every candidate, each with a breadcrumb
+    # naming the targeted --workpad-dir escape hatch. Known residual for the
+    # MISATTRIBUTION direction: a SINGLE stale foreign slug's workpad-less dir,
+    # when the current run left no tmp dir at all, is the sole candidate and
+    # still claims the branch's fix commits under the wrong slug — guard (c)
+    # trips only on multiple slugs, because a lone candidate is
+    # indistinguishable offline from the legitimate current run. A sibling
+    # residual within one slug: a workpad-less dir sorting EARLIER than a
+    # workpad-holding one is that slug's only synthesis candidate, so a stale
+    # earlier run-id can receive the record (right slug, wrong run-id; the sha
+    # exclusion still prevents any double-count). And a workpad-less dir left by
+    # a standalone /devflow:review run is indistinguishable here from a dropped
+    # fix loop's — its synthesized record defaults to source "review-and-fix"
+    # (a synthesized workpad carries no `source` field, so the probe's else-arm
+    # default fires, not the unreadable-file breadcrumb) even though the run
+    # that created the dir was a review; content stays correct and the sha
+    # exclusion still holds.
+    local wl_dirs=() wl_n wl_i next_slug allow d_iters wl_slug_first wl_multi_slug=0
     for dir in "$root"/.devflow/tmp/review/*/*/; do
       [ -d "$dir" ] || continue
       dir="${dir%/}"                                # strip trailing slash
-      run_id="$(basename "$dir")"
-      slug="$(basename "$(dirname "$dir")")"
-      persist_one "$dir" "$slug" "$run_id" "$root"
+      run_id="${dir##*/}"                           # builtins only (guard-class 2:
+      slug="${dir%/*}"; slug="${slug##*/}"          # identity-deciding, no PATH tools)
+      d_iters=("$dir"/iter-*.json)
+      if [ -e "${d_iters[0]}" ]; then
+        persist_one "$dir" "$slug" "$run_id" "$root" 1
+      else
+        wl_dirs+=("$dir")
+      fi
+    done
+    wl_n=${#wl_dirs[@]}
+    wl_slug_first=""
+    for ((wl_i = 0; wl_i < wl_n; wl_i++)); do
+      slug="${wl_dirs[$wl_i]%/*}"; slug="${slug##*/}"   # builtins only — this
+      # comparison DECIDES the multi-slug ambiguity trip, so it must not depend
+      # on a PATH tool whose failure would abort or degrade it (guard-class 2).
+      if [ -z "$wl_slug_first" ]; then
+        wl_slug_first="$slug"
+      elif [ "$slug" != "$wl_slug_first" ]; then
+        wl_multi_slug=1
+      fi
+    done
+    for ((wl_i = 0; wl_i < wl_n; wl_i++)); do
+      dir="${wl_dirs[$wl_i]}"
+      run_id="${dir##*/}"
+      slug="${dir%/*}"; slug="${slug##*/}"
+      if [ "$wl_multi_slug" = "1" ]; then
+        allow=2
+      else
+        next_slug=""
+        if [ $((wl_i + 1)) -lt "$wl_n" ]; then
+          next_slug="${wl_dirs[$((wl_i + 1))]%/*}"; next_slug="${next_slug##*/}"
+        fi
+        if [ "$slug" = "$next_slug" ]; then allow=0; else allow=1; fi
+      fi
+      persist_one "$dir" "$slug" "$run_id" "$root" "$allow"
     done
   fi
 

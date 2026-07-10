@@ -123,13 +123,17 @@ directory), **not** a fresh `date` timestamp: this is what lets the `--persist` 
 idempotent — the agent's Loop-Exit write and any later `--persist` re-derivation resolve the *same*
 path, so a run is never recorded twice. The record carries:
 
-- `schema_version`, `slug`, `generated_at`, `iterations`.
+- `schema_version`, `slug`, `generated_at`, `iterations`, and `synthesized` — record-level `true`
+  when **any** iteration was reconstructed by `--persist`'s synthesis floor rather than written by
+  the loop (see *Non-droppable persistence* below); an agent-written run reads `false`.
 - `cut_candidate_min_dispatch` — the config threshold (below), carried forward for the follow-up
   cross-run analyzer.
 - `per_iteration[]` — dispatch counts, `diff_profile` (Phase 0.5 flags — segment cut decisions by
   this), `verification_posture`, checklist lite/agent split, fixes applied, the `added_nothing` flag,
   `phase3_dispatched_present` (so the analyzer can tell a genuinely zero-dispatch iteration from one
-  degraded by an absent roster — both show count 0), the `agent_verdicts` roster, and `loop_role`
+  degraded by an absent roster — both show count 0), the `agent_verdicts` roster, `synthesized`
+  (whether *this* iteration was reconstructed by the synthesis floor — a strict `== true` of the
+  workpad field, so an absent field reads `false`), and `loop_role`
   (`fix` | `promoted`) — each iteration's role in the fix loop, **derived here** from the prior
   iteration's shadow block (iteration 1 → `fix`; iteration N → `promoted` when iteration N−1's
   `shadow.promoted_to_iter_next` is set, else `fix`), preserving any non-empty value the orchestrator
@@ -209,10 +213,12 @@ Best-effort persistence has a failure mode: when `/devflow:review-and-fix` is dr
 agent can follow the engine's *substance* (review, shadow, fixes) but silently drop the Loop Exit
 *bookkeeping* — the per-iteration workpad write, the record derivation, the durable copy, and the
 `chore:` persist commit. Nothing distinguishes "correctly persisted nothing because telemetry was
-off" from "silently forgot to persist," so the gap is invisible, and the lost record can never be
-reconstructed (token/wall-clock telemetry is only capturable live). Three layers close this, weakest
-to strongest — the deterministic backstop (Layer 3) is the actual guarantee; the others shrink the
-blast radius and provide a portable fallback.
+off" from "silently forgot to persist," so the gap is invisible, and the lost *full* record can never
+be reconstructed (token/wall-clock telemetry is only capturable live; the Layer-3+ synthesis floor
+below recovers a minimal effectiveness skeleton from the fix commits, never that detail). Layered
+backstops close this, weakest to strongest — the deterministic backstop (Layer 3) and its synthesis
+floor (Layer 3+) are the actual guarantee; the others shrink the blast radius and provide a portable
+fallback.
 
 **The telemetry splits into two halves with different recoverability, and the split drives the whole
 design.** The **effectiveness** data — findings-per-agent, dispatch counts, verdicts, fix decisions —
@@ -238,10 +244,12 @@ is worth noting: the read-only `review` runner runs under `--permission-mode acc
 leading-token helper forms and the Write tool for scratch, not a broadened permission grant.)
 
 **Layer 2 — self-check + incremental capture (portable, agent-executed).**
-- *Incremental capture.* Each `iter-<N>.json` is written **the moment that iteration's data exists**
-  (Step 3 item 7), not batched at Loop Exit — so a dropped Loop Exit still leaves the workpads on
-  disk for Layers 2/3 to derive from. This shrinks the blast radius from "everything" to "just the
-  final derive+commit."
+- *Incremental capture, fused to the fix commit.* Each `iter-<N>.json` is written **at Step 3
+  item 6's fix-commit moment** — capture `fix_commit_sha`, then Write, as one step, so an
+  inline-driven loop has no seam between "fix landed" and "record exists" (Step 3 item 7 is the
+  authoritative specification of the record's shape and fields) — not batched at Loop Exit. A
+  dropped Loop Exit therefore still leaves the workpads on disk for Layers 2/3 to derive from,
+  shrinking the blast radius from "everything" to "just the final derive+commit."
 - *Self-check.* `lib/efficiency-trace.sh --self-check --workpad-dir DIR --slug SLUG` is run at Loop
   Exit on a converged writable run. If the run wrote **zero** `iter-*.json` workpads, or produced no
   effectiveness record at `.devflow/logs/efficiency/<slug>-<run-id>.json`, it emits a loud
@@ -250,6 +258,13 @@ leading-token helper forms and the Write tool for scratch, not a broadened permi
   field in the single-source `ITER_EXPECTED_FIELDS` set (the iter schema's top-level fields minus
   `shadow`, which Step 2.6 appends later and is legitimately absent), it emits a `::warning::` naming
   the field and the iter file — turning a silently-dropped inline-persist field into a visible signal.
+  A workpad carrying `synthesized: true` (written by the Layer-3+ synthesis floor, below) is a
+  recognized degraded class validated against its **own** minimal set (`ITER_SYNTH_EXPECTED_FIELDS`:
+  `iter`, `fix_commit_sha`, `fix_files`, `loop_role`, `synthesized`) rather than the full set — so a
+  truncated synthesized record still warns instead of validating silently. And the zero-workpad
+  warning names the **targeted** recovery command (`--persist --workpad-dir DIR --slug SLUG` — the
+  form immune to discovery-mode synthesis skips) rather than implying there is nothing left to
+  persist.
   It **warns, never blocks** — it never writes, never commits, never changes the verdict, and always
   exits 0 (a malformed/unparseable/unreadable iter file is skipped rather than aborting the pass; that
   case is breadcrumbed by the `--persist`/`--mode` parse paths). It is **silent** when telemetry is
@@ -260,7 +275,8 @@ leading-token helper forms and the Write tool for scratch, not a broadened permi
 - *`lib/efficiency-trace.sh --persist`.* Derives the effectiveness record **and** stages+commits it +
   the durable workpad copy from whatever `iter-*.json` workpads exist on disk, in one scoped
   `chore:` commit. With `--workpad-dir`/`--slug` it persists one run; without them it **discovers**
-  every `.devflow/tmp/review/<slug>/<run-id>/` holding `iter-*.json` and persists each (skipping
+  every `.devflow/tmp/review/<slug>/<run-id>/` run dir and persists each — a dir holding
+  `iter-*.json` directly, a workpad-less dir via the Layer-3+ synthesis floor below (skipping
   standalone `/devflow:review` runs — `source == "review"` — which have their own Phase 4.5 path).
   It is **idempotent**: the record filename is run-id-keyed and presence-based (an existing record is
   never re-derived, so its `generated_at` can't churn), the durable copy is a content-idempotent
@@ -341,17 +357,28 @@ leading-token helper forms and the Write tool for scratch, not a broadened permi
   runs in-context and can be dropped exactly like any other interactive/inline drive. To close that
   seam without waiting for a harness-tier caller, `phase-3-review.md` runs `--persist` directly
   (resolved via the portable skill-dir anchor as `…/../../lib/efficiency-trace.sh`, best-effort `|| true`) the moment
-  the inline loop returns — regardless of verdict, before the verdict branches. It passes **no**
-  `--workpad-dir`/`--slug` (the orchestrator does not hold the loop's internal slug/run-id), so
-  `--persist` falls back to its disk-discovery mode and picks up whatever run-scoped
-  `iter-*.json` this run left behind. The "no inputs" detector is **this-run-scoped**, not a
+  the inline loop returns — regardless of verdict, before the verdict branches. It runs `--persist`
+  **twice, targeted first**: this orchestrator drove the loop inline and *does* hold its
+  `<slug>`/`<run-id>`, and persisting its own run by explicit `--workpad-dir`/`--slug` identity is
+  immune to every discovery-mode synthesis skip (multi-slug ambiguity, not-latest ordering) **and**
+  to the lone-stale-foreign-dir shape, where discovery would misattribute this branch's fix commits
+  to a leftover slug and the sha exclusion would lock the misattribution in. An argument-less
+  discovery call then covers every *other* leftover run dir on disk; both calls' stderr land in one
+  capture. When the slug/run-id are genuinely not held (the inline loop died before `RUN_ID` was
+  computed), the targeted call is skipped with a workpad note recording that, and discovery plus the
+  detector below remain the loud floor — never guessed values. The "no inputs" detector is **this-run-scoped**, not a
   whole-tree presence check: before driving the loop, Phase 3.3 snapshots the `iter-*.json`
   already on disk, then after `--persist` returns it diffs (`comm -13`) the current tree against
   that snapshot — only files that are genuinely NEW this run count. This is deliberate: a
   whole-tree presence check would let a leftover `iter-*.json` from an earlier local run mask a
-  real loss on this run. When the diff is empty — no NEW `iter-*.json` appeared — the
-  inline loop wrote no per-iteration workpad, so the telemetry is genuinely lost — Phase 3.3 records a
-  `dropped-failed` reflection naming the gap rather than letting it vanish. The phase anchors both
+  real loss on this run. Because the Layer-3+ synthesis floor writes its reconstructed
+  `iter-*.json` under the same `.devflow/tmp/review/` tree, the detector counts synthesized files
+  as recovered inputs — a zero-workpad run that synthesis recovered does **not** fire the gap
+  reflection. Only when the diff is empty — the inline loop wrote no per-iteration workpad **and**
+  synthesis also recovered nothing (no unrecorded fix commit, a failed search, failed writes, or a
+  discovery-mode skip; `--persist`'s own warnings name which when a candidate dir was visited at
+  all) — is the telemetry genuinely lost, and Phase 3.3 records a `dropped-failed` reflection
+  naming the gap rather than letting it vanish. The phase anchors both
   the snapshot and the detector on the git top-level the **same** way `efficiency-trace.sh` does, so
   it scans the exact `.devflow/tmp/review/` tree `--persist` scans and never fires a false "telemetry
   lost" reflection from a cwd-relative divergence (if the pre-loop snapshot is itself missing, the
@@ -376,6 +403,74 @@ leading-token helper forms and the Write tool for scratch, not a broadened permi
   bounded re-review), Phase 3.3 re-runs the whole snapshot-then-backstop procedure — a fresh
   this-run baseline before, the persistence check after — around that second invocation too, so it
   is not left unguarded at the same seam the first invocation's backstop protects.
+
+**Layer 3+ — synthesis floor (part of `--persist`): reconstruct a fully-dropped run from its fix
+commits.** When `--persist` finds a run dir with **zero** `iter-*.json` (targeted or discovered), it
+no longer stops at "nothing to derive": it reconstructs **minimal** iteration records from the
+branch's fix commits, so even a run whose every workpad emit was dropped still contributes an
+effectiveness floor. The floor is exactly that — a floor, **never license to skip the item-6 emit**:
+it recovers only the skeleton below and none of the checklist / findings / per-phase cost detail the
+real record carries, which is unreconstructable once dropped.
+
+- *Commit-subject selector (coupled two-site invariant).* Commits are selected by the subject
+  template `fix: address review findings (iteration {N})` — **written** by
+  `skills/review-and-fix/SKILL.md` Step 3 item 6 and **parsed** by `lib/efficiency-trace.sh`
+  (`FIX_COMMIT_SUBJECT_PREFIX`). `lib/test/run.sh` pins both sites; rewording the subject means
+  editing both in the same commit. The commit range is `<base>..HEAD`, where the base ref prefers
+  `origin/<base>` over the local base branch (routinely stale in worktrees — a stale local base
+  would widen the range to sweep already-merged history and misattribute an old PR's fix commits);
+  `<base>` is config `.base_branch`, default `main`, and an unresolvable base fails closed with a
+  breadcrumb naming the tried value. Adversarial subject shapes are each breadcrumbed and skipped,
+  always exit 0: a fix-loop-family subject without the `(iteration N)` suffix, trailing text after
+  the suffix or a missing `)`, and a non-numeric iteration token; a leading-zero token is normalized
+  (`01` and `1` are the same iteration), and a duplicate N keeps the **earliest** commit
+  (`git log --reverse`).
+- *Synthesized-record shape.* Each synthesized `iter-<N>.json` carries exactly `iter`,
+  `fix_commit_sha`, `fix_files` (from `git diff-tree`; **`null` when that derivation fails** —
+  unestablished, deliberately distinct from a genuine empty commit's `[]`), `loop_role: "fix"`, and
+  `synthesized: true`. `lib/efficiency-trace.jq` surfaces the marker at every level: per-iteration
+  and in each `per_iteration[]` entry as a strict `== true` (an absent or malformed field reads
+  `false` — agent-written workpads carry no such field, so real records read `synthesized: false`),
+  and record-level as `any(…)` — `true` when **any** iteration was reconstructed, the key a
+  cross-run analyzer uses to weight a reconstructed record differently from an agent-written one. A
+  synthesized-only run renders normally in both `--mode trace` and `--mode record`, with
+  `verification_posture: "none-recorded"` (no checklist was ever captured — correctly flagged as
+  the instrumentation gap it is).
+- *Double-count defenses.* Three guards keep a fix commit from being counted into two runs'
+  records or misattributed across runs: (a) **sha-level exclusion** — any commit already recorded
+  as a `fix_commit_sha` by another run's `iter-*.json`, in the live tmp tree **or** the committed
+  durable copies under `.devflow/logs/review/`, is skipped; the exclusion is checked **before**
+  duplicate-N dedupe so an excluded commit never consumes its iteration number and shadows this
+  run's own commit; (b) among one slug's workpad-less dirs, only the **lexicographically-latest**
+  run-id synthesizes — earlier ones breadcrumb and decline; (c) workpad-less dirs spanning
+  **multiple slugs** in one discovery pass are **all declined** — slug ownership of the branch's
+  commits is not derivable offline, so the ambiguity fails closed for every candidate, each
+  breadcrumb naming the targeted `--workpad-dir` escape hatch. Documented residual windows: a run
+  whose every workpad copy (tmp *and* durable) was deleted after its record was derived; a **lone**
+  stale foreign slug's workpad-less dir when the current run left no tmp dir at all (a single
+  candidate is offline-indistinguishable from the legitimate run — the phase-3.3 targeted-first
+  call is the mitigation); within one slug, a stale earlier run-id that is the only candidate
+  receives the record (right slug, wrong run-id; the sha exclusion still prevents any
+  double-count); and a workpad-less dir left by a standalone `/devflow:review` run synthesizes
+  under the default `source: "review-and-fix"` (a synthesized workpad carries no `source` field).
+- *Honesty ladder (unknown is never collapsed onto "found none").* `synthesize_iter_workpads`
+  returns **0** (wrote ≥1 record), **2** (the selection ran and found no unrecorded matching
+  commit), **3** (the search **could not run** — an uncreatable target dir, an unresolvable base
+  ref, or a failed `git log` enumeration, each with its own producer breadcrumb naming the tried
+  value), or **4** (commits *were* selected but every record write failed, with per-commit
+  warnings). `persist_one` dispatches each arm to a distinct `::warning::`, plus an unknown-rc arm
+  so a future rc drift is never reported as "no commits were found."
+- *Unsubstituted-placeholder guards.* A `<placeholder>` identity is refused loudly (best-effort
+  exit 0 preserved) on **both** routes it can arrive by: the **argv** route (`--workpad-dir` /
+  `--slug` containing `<` or `>` — a verbatim-run backstop fence) and the **basename-derived**
+  route (a literal `<slug>/<run-id>` *directory* reaching discovery mode is refused by
+  `persist_one`'s twin guard). Without these, a non-substituting run would fabricate a placeholder
+  identity, synthesize the branch's real fix commits under it, and the sha exclusion would then
+  lock the misattribution in — a placeholder identity is never fabricated.
+- *Telemetry gating.* `efficiency_telemetry_enabled: false` skips synthesis entirely — a
+  synthesized workpad exists **only** to feed the (disabled) effectiveness record, so fabricating
+  one would commit telemetry artifacts to a repo that switched telemetry off. The durable copy of
+  **real** workpads stays ungated, as before.
 
 This guarantees **persistence of whatever telemetry was captured**. It does **not** guarantee
 *capture* of `tokens` / `wall_clock_s` — those come from `<usage>` blocks the agent reads live and no
