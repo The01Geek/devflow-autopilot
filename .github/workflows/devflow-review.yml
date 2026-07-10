@@ -798,16 +798,12 @@ jobs:
             # branch-freshness gate is a cost optimization; pair it with
             # branch protection's "require branches up to date" if staleness
             # must block).
-            # The SKIP_REASON -> TITLE selection lives in describe-skip-title.sh
-            # (issue #389) so lib/test/run.sh can drive every arm AND its order: a
-            # reordered `case` or a glob typo here would misattribute the deferral
-            # title while the workflow still ran clean. The helper carries the
-            # honesty rule verbatim — behind-base / ci-not-green /
-            # ci-approval-required are POSITIVELY-OBSERVED, `unverifiable` names a
-            # failed precondition query, and `*` stays the generic "precondition
-            # not met"; the title must never assert a state the precheck did not
-            # observe (a user who rebases in response to a false "behind base"
-            # fixes nothing). Invoked leading-token, vendored path first.
+            # The SKIP_REASON -> TITLE selection AND its honesty rule (never assert
+            # a state the precheck did not observe) live in describe-skip-title.sh
+            # (issue #389), so lib/test/run.sh can drive every arm and its order: a
+            # reordered `case` or a glob typo there would misattribute the deferral
+            # title while the workflow still ran clean. Invoked leading-token,
+            # vendored path first.
             DST=.devflow/vendor/devflow/scripts/describe-skip-title.sh
             [ -x "$DST" ] || DST=scripts/describe-skip-title.sh
             TITLE=""
