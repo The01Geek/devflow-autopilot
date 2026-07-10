@@ -6015,9 +6015,10 @@ assert_pin_unique "#334: docs/implement-skill.md mirrors the 2.3.4a mirror-fact 
 # pin expressed through assert_pin_red_under (#375): the <mutation> re-introduces
 # the guarded defect by removing ONLY that operative sentence from a scratch copy,
 # so a pin that drifted onto an adjacent framing clause is reported RED rather than
-# passing vacuously. The two coupled-MIRROR checks are the deliberate exceptions to
+# passing vacuously. The three coupled-MIRROR checks are the deliberate exceptions to
 # the "assert_pin_red_under" phrasing: the AC8 assert_eq on lib/preflight.sh's header,
-# and the docs-row assert_pin_unique on $IMPL_DOC (a presence pin, the #334 docs-mirror
+# the AC11 assert_eq on the DEVFLOW_SYSTEM_OVERVIEW sweep-index row, and the AC12
+# docs-row assert_pin_unique on $IMPL_DOC (presence pins, the #334 docs-mirror
 # idiom). The mutations are recorded as the per-pin evidence in the issue #376 workpad.
 # $P2_FILE / $IMPL_DOC / $EXT_IMPL are defined above.
 # AC1 — the §2.3.0c heading states BOTH authoritative triggers.
@@ -6031,6 +6032,13 @@ assert_pin_red_under "#376 w2-trigger-prose: §2.3.0c heading states the policy-
 assert_pin_red_under "#376 w2-fourth-column: §2.3.0c keeps the load-bearing fourth column (what OTHER inputs produce the same value?)" \
   'what OTHER inputs produce the same value?' \
   's/what OTHER inputs produce the same value\?//' "$P2_FILE"
+# AC2 (enforcement sentence) — trigger (a)'s teeth, symmetric to w2-inert-guard (trigger (b)'s
+# defect definition): an undistinguished same-value producer in the fourth column IS a fail-open
+# guard and a defect in this PR. The mutation softens the defect verdict to advisory language, so
+# a future edit that keeps the table but demotes "is a defect" goes RED.
+assert_pin_red_under "#376 w2-fail-open-defect: §2.3.0c defines an undistinguished same-value producer as a fail-open guard/defect in this PR" \
+  'is a fail-open guard and a defect in **this** PR' \
+  's/is a fail-open guard and a defect in \*\*this\*\* PR/warrants a closer look/' "$P2_FILE"
 # AC3 — the prose-policy arm's stated-policy contract: (1) the naming obligation whose load-bearing
 # clause is "route for every outcome INCLUDING THE FAILURE OUTCOME" (the clause that gives trigger (b)
 # teeth against a fail-open policy), and (2) the inert-guard defect definition. w2-inert-guard covers
@@ -6100,6 +6108,14 @@ assert_pin_red_under "#376 w2-no-guidance-control: §2.4 requires a subagent RED
 assert_pin_red_under "#376 w2-index-entry: the Sweep-selection index carries the §2.3.0c operand-trace entry" \
   'policy-stating agent-executed prose' \
   's/policy-stating agent-executed prose//' "$P2_FILE"
+# AC11 — docs↔skill coupled mirror: DEVFLOW_SYSTEM_OVERVIEW.md carries the §2.3.0c sweep-index row
+# (the fourth-mirror-site idiom of the 2.3.0b OVERVIEW pin above). assert_eq + grep -qF like that
+# precedent (a presence check on a non-$IMPL_DOC doc; the bare grep -qF needs no raw-guard-ok marker
+# for the same SKILL-token-scope reason as AC8).
+assert_eq "#376 AC11 w2-overview-2.3.0c-row: DEVFLOW_SYSTEM_OVERVIEW keeps the §2.3.0c sweep-index entry (docs↔skill coupled invariant)" \
+  "yes" \
+  "$(grep -qF -- '- **2.3.0c** Operand-trace sweep (a diff that adds a guard/predicate/validator/coverage-invariant in code' \
+     "$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md" && echo yes || echo no)"
 # AC12 — docs↔skill coupled mirror: docs/implement-skill.md carries the §2.3.0c sweep-table row. Presence
 # pin (the #334 docs-mirror idiom, assert_pin_unique on $IMPL_DOC) so a future edit that reverts/contradicts
 # the docs 2.3.0c row while the phase file stays intact goes RED — the coupled-invariant discipline extended
