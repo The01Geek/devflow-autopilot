@@ -1478,6 +1478,88 @@ assert_pin_unique "#254: extension carries the tr-dependence guard shape" \
 assert_pin_unique "#254: tr-dependence shape names its #247 reproduction (derived-through-tr slug degrades)" \
   'degrades on a `PATH` without `tr`' "$RAF_EXT"
 
+# ────────────────────────────────────────────────────────────────────────────
+echo "verification discipline for the vendored review skills (#379 / #371 R3,R4,R7)"
+# ────────────────────────────────────────────────────────────────────────────
+# #379 lands generic verification discipline in the two VENDORED bodies (repo-agnostic,
+# they ship into consumer repos) and the repo-specific PR #340 reproductions in the
+# DevFlow prompt extensions. These pins assert the vendored/extension prose; the prose
+# never references these pins (the vendored bodies stay repo-agnostic — AC8). Each literal
+# is target-unique and single-quoted apostrophe-free (per the CLAUDE.md jq/pin gotcha), and
+# each is on ONE physical line of its target (the #375/#371 R5 wrapped-literal hazard). A
+# deleted operative sentence flips assert_pin_unique count 1→0 → RED, which is the AC9
+# mutation-verification for a presence pin.
+RCV379="$LIB/../skills/receiving-code-review/SKILL.md"
+RQ379="$LIB/../skills/requesting-code-review/SKILL.md"
+RAF379="$LIB/../.devflow/prompt-extensions/review-and-fix.md"
+IMPL379="$LIB/../.devflow/prompt-extensions/implement.md"
+
+# AC1 — negative-test attribution rule in receiving-code-review (apostrophe-free tail of the sentence)
+assert_pin_unique "#379(AC1): receiving-code-review states the negative-test attribution rule" \
+  'distinct signal whenever more than one guard can reject the input' "$RCV379"
+# AC2 — positive-control rule (mid-sentence substring; the sentence opens with a capital 'A')
+assert_pin_unique "#379(AC2): receiving-code-review states the positive-control rule" \
+  'carries a positive control on the same fixture, so a rejection from an unrelated precondition cannot masquerade as the rejection under test' "$RCV379"
+# AC3 — mutation-check required before completion, in the Verification Gate
+assert_pin_unique "#379(AC3): receiving-code-review requires a mutation check before completion" \
+  'mutation-check every new test before completion is claimed' "$RCV379"
+assert_eq "#379(AC3): receiving-code-review body mentions 'mutation' at least once" "yes" \
+  "$([ "$(grep -ci mutation "$RCV379")" -ge 1 ] && echo yes || echo no)"
+# AC5 — Share the Contract converted to a fired-on-writing-a-guard trigger (two operative sentences)
+assert_pin_unique "#379(AC5): share-the-contract fires — name the protected operation before the predicate" \
+  'name the downstream operation the guard protects, in the code, before writing the predicate' "$RCV379"
+assert_pin_unique "#379(AC5): share-the-contract fires — grep the file for an existing idiom first" \
+  'before writing any new predicate over a string or shape, grep the file for an existing idiom doing the same job' "$RCV379"
+# AC4 — requesting-code-review requires mutation evidence for presented tests
+assert_pin_unique "#379(AC4): requesting-code-review requires mutation evidence for the tests it presents" \
+  'State the **mutation evidence** for each test you present' "$RQ379"
+assert_eq "#379(AC4): requesting-code-review body mentions 'mutation' at least once" "yes" \
+  "$([ "$(grep -ci mutation "$RQ379")" -ge 1 ] && echo yes || echo no)"
+# AC6 — extension gains shapes 3 (R3) and 4 (R4); preamble count/attribution updated in the same edit
+assert_pin_unique "#379(AC6): extension preamble count/attribution updated (two → four shapes)" \
+  'four repo-specific verification-discipline shapes' "$RAF379"
+assert_pin_unique "#379(AC6): extension carries the R3 vacuous-negative-test guard shape" \
+  'Guard-class shape 3 — vacuous negative test' "$RAF379"
+assert_pin_unique "#379(AC6): R3 shape Flag names the exit-code-and-no-output tell" \
+  'a negative test whose only assertions are the exit code and the absence of output/PATCH' "$RAF379"
+assert_pin_unique "#379(AC6): extension carries the R4 re-derived-consumer-contract guard shape" \
+  'Guard-class shape 4 — re-derived consumer contract' "$RAF379"
+assert_pin_unique "#379(AC6): R4 shape Flag names the hand-derived-predicate tell" \
+  'a new guard/predicate over a string or shape that hand-derives what a nearby parser' "$RAF379"
+# AC11 — each new shape/rule names the PR #340 cost it would have eliminated (3 in the extension)
+assert_eq "#379(AC11): extension records the PR #340 cost eliminated for each of shape 3, shape 4, and the probe rule" \
+  "3" "$(pin_count 'this would have eliminated' "$RAF379")"
+# AC7 — interpreter-faithful probe rule in BOTH extensions (operative half, single-line in each)
+assert_pin_unique "#379(AC7): review-and-fix extension carries the interpreter-faithful probe rule" \
+  'prefer mutation evidence over a hand probe when the two disagree' "$RAF379"
+assert_pin_unique "#379(AC7): implement extension carries the interpreter-faithful probe rule" \
+  'prefer mutation evidence over a hand probe when the two disagree' "$IMPL379"
+assert_pin_unique "#379(AC7): implement extension records the printf %b bash/zsh reproduction" \
+  'Bash expands them; that session' "$IMPL379"
+
+# AC8 — neither vendored body may carry a DevFlow-internal string, each paired with a
+# positive non-vacuity control (a known sentence of the SAME body) so a moved/renamed/empty
+# file cannot vacuously pass the negative check (the #379 R3 positive-control rule applied to
+# these very assertions). The existing sev(rcv) block above already asserts the two negatives
+# for receiving-code-review; here we re-state those two negatives alongside a positive control
+# for it (a deliberate, self-contained AC8 restatement — the two RCV negatives duplicate the
+# sev(rcv) pins), and add the full negatives+control pair for requesting-code-review.
+# (Mirror the sev(rcv) negative-assertion idiom above — an inline `grep -qF … && echo yes ||
+# echo no` over a path held in a variable, NOT grep_present, whose call-site count is pinned
+# to exactly 2 audit-bypass sites.)
+assert_eq "#379(AC8): receiving-code-review has no repo-specific test path (lib/test/run.sh)" "no" \
+  "$(grep -qF 'lib/test/run.sh' "$RCV379" && echo yes || echo no)"
+assert_eq "#379(AC8): receiving-code-review has no repo-specific CI job name (lib + python tests)" "no" \
+  "$(grep -qF 'lib + python tests' "$RCV379" && echo yes || echo no)"
+assert_eq "#379(AC8): receiving-code-review negative-check non-vacuity control (a known sentence is present)" "yes" \
+  "$(grep -qF 'mutation-check every new test before completion is claimed' "$RCV379" && echo yes || echo no)"
+assert_eq "#379(AC8): requesting-code-review has no repo-specific test path (lib/test/run.sh)" "no" \
+  "$(grep -qF 'lib/test/run.sh' "$RQ379" && echo yes || echo no)"
+assert_eq "#379(AC8): requesting-code-review has no repo-specific CI job name (lib + python tests)" "no" \
+  "$(grep -qF 'lib + python tests' "$RQ379" && echo yes || echo no)"
+assert_eq "#379(AC8): requesting-code-review negative-check non-vacuity control (a known sentence is present)" "yes" \
+  "$(grep -qF 'State the **mutation evidence** for each test you present' "$RQ379" && echo yes || echo no)"
+
 # Drift guard: the park-calibration gate is the lenient-verdict catch — it re-reads
 # parked findings against three generic under-grade shapes before the review-and-fix
 # loop concludes on an APPROVE-family verdict, so every review-and-fix-engine consumer
