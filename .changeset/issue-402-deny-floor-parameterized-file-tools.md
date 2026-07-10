@@ -15,5 +15,3 @@ type: Security
   `scripts/detect-project-tools.sh` gains the same check. Consumer repos keep the read-only-tree
   guarantee even when a generated or hand-edited config smuggles a parameterized tree-mutation
   rule. (#404)
-</content>
-</invoke>
