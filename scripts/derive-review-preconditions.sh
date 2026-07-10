@@ -148,8 +148,9 @@ gate_signal_lines() {  # $1=lines  $2=signal noun for the breadcrumb
         # e.g. a bot-actor run) — distinct from a generic non-green conclusion so
         # the neutral check can name approval as the blocker: devflow-review.yml
         # maps ci-approval-required to the title 'Devflow review waiting: CI
-        # approval required' (that create_check title arm is the coupled
-        # workflow-side change, landed in #353) (issue #351).
+        # approval required' (selected by scripts/describe-skip-title.sh; that
+        # create_check title is the coupled workflow-side change, landed in #353,
+        # extracted to the helper in #389) (issue #351).
         # Shared gate, so an external app's action_required check run is treated
         # the same way.
         echo "derive-review-preconditions: $2 on $HEAD_SHA concluded 'action_required' — an approval is required before it can run; deferring the review (ci-approval-required)." >&2

@@ -10811,13 +10811,15 @@ REPO=o/r HEAD_SHA=aaaa BASE_BRANCH=main REQUIRE_UP_TO_DATE=false REQUIRE_CI_GREE
   DRP_CHECKS='{"check_runs":[{"name":"ext","app":{"slug":"circleci"},"status":"completed","conclusion":"action_required"}]}' \
   drp "#351 external check run action_required (signal-set 3, shared gate) -> false ci-approval-required" "false ci-approval-required"
 # #353 (coupled WORKFLOW half of #351's ci-approval-required, landed via human/PAT):
-# the devflow-review.yml create_check title-arm pin and the deferral-SUMMARY
-# 'cancelled sibling run' removal pin. These two static grep pins move with the
-# workflow change so they land in the same commit as the case arm they assert.
-# AC10: the create_check title `case` maps ci-approval-required to the exact title.
-assert_pin_unique "#353 create_check maps ci-approval-required to its exact title" \
-  "ci-approval-required) TITLE='Devflow review waiting: CI approval required'" \
-  "$LIB/../.github/workflows/devflow-review.yml"
+# the create_check title pin and the deferral-SUMMARY 'cancelled sibling run'
+# removal pin. These static grep pins move with the workflow change so they land in
+# the same commit as the code they assert.
+# AC10: ci-approval-required maps to its exact title. The SKIP_REASON->title
+# selection moved from create_check's inline `case` arm into describe-skip-title.sh
+# (#389), so this pin now asserts the title lives (once) in the helper.
+assert_pin_unique "#353 create_check maps ci-approval-required to its exact title (via the helper)" \
+  "Devflow review waiting: CI approval required" \
+  "$LIB/../scripts/describe-skip-title.sh"
 # AC13-guard: the absence pin below reads "no" both when the phrase is truly
 # gone AND when the workflow file is missing/renamed/unreadable (a failed grep
 # also yields "no", the expected value) — the repo's vacuous-pin/fail-open bug
@@ -12812,13 +12814,14 @@ assert_eq "#304 create_check gate widened to skip_reason (deferral still posts t
 # (b) The review engine job is NOT widened — a deferral must never run it.
 assert_eq "#304 review job still gates on should_run only (a deferral never runs the engine)" "0" \
   "$(grep -cF "skip_reason" <(sed -n '/^  review:/,/^  finalize_check:/p' "$REVIEW_WF") || true)"
-# (c) create_check maps the two deferral reasons to the distinctive neutral
-# "waiting" titles (the AC-required reasons) — posted pre-completed in ONE
-# POST, so no finalize PATCH is involved on the deferral path.
-assert_eq "#304 deferral maps behind-base to the waiting title" "yes" \
-  "$(grep -qF "Devflow review waiting: branch behind base" "$REVIEW_WF" && echo yes || echo no)"
-assert_eq "#304 deferral maps ci-not-green to the waiting title" "yes" \
-  "$(grep -qF "Devflow review waiting: other CI not green" "$REVIEW_WF" && echo yes || echo no)"
+# (c) The two deferral reasons map to the distinctive neutral "waiting" titles
+# (posted pre-completed in ONE POST, so no finalize PATCH on the deferral path).
+# The title selection moved into describe-skip-title.sh (#389); these coupled
+# presence pins move with it (full arm/order coverage is the #389 block below).
+assert_eq "#304 deferral maps behind-base to the waiting title (via the helper)" "yes" \
+  "$(grep -qF "Devflow review waiting: branch behind base" "$LIB/../scripts/describe-skip-title.sh" && echo yes || echo no)"
+assert_eq "#304 deferral maps ci-not-green to the waiting title (via the helper)" "yes" \
+  "$(grep -qF "Devflow review waiting: other CI not green" "$LIB/../scripts/describe-skip-title.sh" && echo yes || echo no)"
 # (c2) finalize_check is SKIPPED on a deferral (skip_reason non-empty). This is
 # load-bearing for the re-trigger: a finalize run that exits 0 emits a SUCCESS
 # workflow job check-run named 'Devflow Review', which devflow_review_run_count
@@ -12882,11 +12885,12 @@ assert_eq "#304 resolve_pr_for_head pins the query-failure misattribution breadc
 assert_eq "#304 resolve_pr_for_head pins the parse-failure misattribution breadcrumb" "yes" \
   "$(grep -qF 'the real cause is the parse, not an absent PR' "$REVIEW_WF" && echo yes || echo no)"
 # (c9) The unverifiable reason gets its own HONEST title (never a condition the
-# script did not observe), and the CI-completion path enforces the open-PR
-# invariant on the payload-carried arm too (a closed/merged PR is never
-# reviewed off a late CI completion).
-assert_eq "#304 unverifiable deferral maps to the honest 'preconditions unverifiable' title" "yes" \
-  "$(grep -qF "Devflow review waiting: preconditions unverifiable" "$REVIEW_WF" && echo yes || echo no)"
+# script did not observe). The title selection moved into describe-skip-title.sh
+# (#389), so this pin asserts the honest title lives in the helper. The
+# CI-completion path enforces the open-PR invariant on the payload-carried arm
+# too (a closed/merged PR is never reviewed off a late CI completion).
+assert_eq "#304 unverifiable deferral maps to the honest 'preconditions unverifiable' title (via the helper)" "yes" \
+  "$(grep -qF "Devflow review waiting: preconditions unverifiable" "$LIB/../scripts/describe-skip-title.sh" && echo yes || echo no)"
 assert_eq "#304 CI-completion path guards PR state == OPEN" "yes" \
   "$(grep -qF '"$PR_STATE" != "OPEN"' "$REVIEW_WF" && echo yes || echo no)"
 # (c10) Coupled literals: the workflow_run workflows list must name ci.yml's
@@ -20734,6 +20738,58 @@ assert_pin_unique "#363 finalize_check routes the denial clause through the test
   'DDC=.devflow/vendor/devflow/scripts/describe-denial-count.sh' "$REVIEW_YML"
 assert_pin_unique "#363 finalize_check verifies the clause helper's OUTCOME, not just its existence" \
   '[ -n "$DENIAL_CLAUSE" ] || DENIAL_CLAUSE=' "$REVIEW_YML"
+
+# ── The deferral check-run TITLE selection (issue #389). create_check's
+# ── SKIP_REASON→TITLE case is extracted into describe-skip-title.sh so the suite
+# ── can drive every arm AND its order: the arms are disjoint literals + a `*`
+# ── default, so a reordered/deleted arm would misattribute the deferral title
+# ── while the workflow still ran clean. Same rationale as describe-denial-count.sh.
+DST_SH="$LIB/../scripts/describe-skip-title.sh"
+assert_eq "#389 describe-skip-title.sh exists and is executable" "yes" \
+  "$([ -x "$DST_SH" ] && echo yes || echo no)"
+# Each of the four positively-observed reasons drives its own arm to its own title.
+assert_eq "#389 skip title: behind-base" \
+  "Devflow review waiting: branch behind base" "$("$DST_SH" behind-base)"
+assert_eq "#389 skip title: ci-not-green" \
+  "Devflow review waiting: other CI not green" "$("$DST_SH" ci-not-green)"
+assert_eq "#389 skip title: ci-approval-required" \
+  "Devflow review waiting: CI approval required" "$("$DST_SH" ci-approval-required)"
+assert_eq "#389 skip title: unverifiable names the query failure, not an unobserved state" \
+  "Devflow review waiting: preconditions unverifiable (API query failed — see the precheck log)" \
+  "$("$DST_SH" unverifiable)"
+# The `*` default: any unrecognized/empty reason gets the generic title, never a
+# specific state the precheck did not observe (the load-bearing honesty rule).
+for _r389 in "" "bogus" "behind_base" "BEHIND-BASE"; do
+  assert_eq "#389 skip title: '$_r389' falls to the generic default (asserts no unobserved cause)" \
+    "Devflow review waiting: precondition not met" "$("$DST_SH" "$_r389")"
+done
+assert_eq "#389 skip title: no argument at all still exits 0" "0" \
+  "$("$DST_SH" >/dev/null 2>&1; echo $?)"
+# Arm ORDER is load-bearing (AC2). Because the arms are disjoint literals, a
+# reordered specific arm is behaviorally invisible — pin the SOURCE order so a
+# reorder or deletion turns RED; `*` MUST be last, or a specific reason it
+# precedes is silently absorbed.
+ARM_ORDER_389=$(grep -oE '^[[:space:]]*(behind-base|ci-not-green|ci-approval-required|unverifiable|\*)\)' "$DST_SH" 2>/dev/null \
+  | sed -E 's/^[[:space:]]*//; s/\)$//' | tr '\n' ',')
+assert_eq "#389 skip title: case arms appear in the pinned order, * last" \
+  "behind-base,ci-not-green,ci-approval-required,unverifiable,*," "$ARM_ORDER_389"
+# The five titles are defined ONCE, in the helper — the workflow keeps only the
+# resolution fallback (the same single-definition contract as describe-denial-count.sh).
+assert_pin_unique "#389 the behind-base title is defined once, in the helper" \
+  'Devflow review waiting: branch behind base' "$DST_SH"
+assert_pin_unique "#389 the generic-default title is defined once, in the helper" \
+  'Devflow review waiting: precondition not met' "$DST_SH"
+# The workflow routes the title through the testable helper (leading-token, vendored
+# path first) and verifies the OUTCOME, not just the file's existence.
+assert_pin_unique "#389 create_check routes the deferral title through the helper (vendored path first)" \
+  'DST=.devflow/vendor/devflow/scripts/describe-skip-title.sh' "$REVIEW_YML"
+assert_pin_unique "#389 create_check invokes the helper as a leading-token command" \
+  'TITLE=$("$DST" "$SKIP_REASON")' "$REVIEW_YML"
+assert_pin_unique "#389 create_check verifies the helper OUTCOME with a resolution fallback" \
+  '[ -n "$TITLE" ] || TITLE=' "$REVIEW_YML"
+# The inline case is gone — extraction is complete, not duplicated.
+assert_eq "#389 the inline SKIP_REASON case no longer lives in the workflow" "0" \
+  "$(pin_count 'case "$SKIP_REASON" in' "$REVIEW_YML")"
 
 # ── The injected grounding block. The security-sensitive prompt-injection prose
 # ── lives in ONE place (scripts/render-grounding-block.sh) rather than hand-copied
