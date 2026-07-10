@@ -203,7 +203,7 @@ The addition is not done until grepping each member literal of the value set ret
 
 Both triggers are the same defect at bottom: a check written against an operand nobody traced back to what actually produces it, so the check passes — or is inert — exactly on the inputs it was added to catch.
 
-**Trigger (a) — the operand table.** For every comparand the added guard/predicate/validator/coverage-invariant reads, commit a table to the workpad via `--note`, **one row per comparand**, with these four columns:
+**Trigger (a) — the operand table.** For every comparand the added guard/predicate/validator/coverage invariant reads, commit a table to the workpad via `--note`, **one row per comparand**, with these four columns:
 
 | comparand | producer (file + line) | emitted on every path the guard now selects? | what OTHER inputs produce the same value? |
 |---|---|---|---|

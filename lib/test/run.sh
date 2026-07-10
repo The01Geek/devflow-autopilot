@@ -6098,11 +6098,13 @@ assert_pin_unique "#334: docs/implement-skill.md mirrors the 2.3.4a mirror-fact 
 # the guarded defect by removing (or, for w2-fail-open-defect and w2-cosmetic-carveout,
 # demoting/loosening) ONLY that operative sentence in a scratch copy,
 # so a pin that drifted onto an adjacent framing clause is reported RED rather than
-# passing vacuously. The three coupled-MIRROR checks are the deliberate exceptions to
-# the "assert_pin_red_under" phrasing: the AC8 assert_eq on lib/preflight.sh's header,
-# the AC11 assert_eq on the DEVFLOW_SYSTEM_OVERVIEW sweep-index row, and the AC12
-# docs-row assert_pin_unique on $IMPL_DOC (presence pins, the #334 docs-mirror
-# idiom). The mutations are recorded as the per-pin evidence in the issue #376 workpad.
+# passing vacuously. SEVEN coupled-MIRROR presence checks are the deliberate exceptions
+# to the "assert_pin_red_under" phrasing: three AC-numbered — the AC8 assert_eq on
+# lib/preflight.sh's header, the AC11 assert_eq on the DEVFLOW_SYSTEM_OVERVIEW
+# sweep-index row, and the AC12 docs-row assert_pin_unique on $IMPL_DOC — plus the four
+# class-sweep docs-row assert_pin_unique presence pins on $IMPL_DOC below (w2-docs-2.3.4-row,
+# w2-docs-2.3.6-row, w2-docs-2.4-split, w2-docs-five-kinds), all the #334 docs-mirror idiom.
+# The mutations are recorded as the per-pin evidence in the issue #376 workpad.
 # $P2_FILE / $IMPL_DOC / $EXT_IMPL are defined above.
 # AC1 — the §2.3.0c heading states BOTH authoritative triggers.
 assert_pin_red_under "#376 w2-trigger-code: §2.3.0c heading states the code-guard trigger" \
@@ -6197,7 +6199,7 @@ assert_pin_red_under "#376 w2-index-entry: the Sweep-selection index carries the
 # for the same SKILL-token-scope reason as AC8).
 assert_eq "#376 AC11 w2-overview-2.3.0c-row: DEVFLOW_SYSTEM_OVERVIEW keeps the §2.3.0c sweep-index entry (docs↔skill coupled invariant)" \
   "yes" \
-  "$(grep -qF -- '- **2.3.0c** Operand-trace sweep (a diff that adds a guard/predicate/validator/coverage-invariant in code' \
+  "$(grep -qF -- '- **2.3.0c** Operand-trace sweep (a diff that adds a guard/predicate/validator/coverage invariant in code' \
      "$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md" && echo yes || echo no)"
 # AC12 — docs↔skill coupled mirror: docs/implement-skill.md carries the §2.3.0c sweep-table row. Presence
 # pin (the #334 docs-mirror idiom, assert_pin_unique on $IMPL_DOC) so a future edit that reverts/contradicts
@@ -6225,6 +6227,20 @@ assert_pin_unique "#376 w2-docs-five-kinds: docs/implement-skill.md carries the 
 assert_pin_red_under "#376 w2-cosmetic-carveout: §2.3.6 keys the cosmetic-sanitization carve-out on the missing-tool-fails-closed condition" \
   'sanitization through such a tool remains acceptable **iff** a missing tool fails closed' \
   's/remains acceptable \*\*iff\*\* a missing tool fails closed/is always acceptable/' "$P2_FILE"
+# AC2/AC3 (completion criterion) — §2.3.0c's "not done until…" enforcement sentence binds both
+# triggers into a done-gate, the peer of 2.3.0a/2.3.0b's own completion pins. The mutation removes
+# it, so a future edit that guts the enforcement gate while leaving the descriptive triggers intact
+# (all their pins still green) goes RED.
+assert_pin_red_under "#376 w2-completion-gate: §2.3.0c binds both triggers into a completion criterion (not done until every comparand has a row and every policy names operand/producer/route)" \
+  'The sweep is not done until every comparand has a completed four-column row' \
+  's/The sweep is not done until every comparand has a completed four-column row//' "$P2_FILE"
+# AC5 (phase-file-side count mirror) — pin the FIVE-boundary-kinds count on the authoritative phase
+# file too (w2-docs-five-kinds pins only the docs side). The mutation reverts the count to "four",
+# re-introducing the miscount a 6th kind (or a dropped bullet) would leave stale, so the count is
+# now pinned on both mirrors, not just the weaker docs one.
+assert_pin_red_under "#376 w2-phase-five-kinds: phase-2-implement.md §2.3.4 step cites the five boundary kinds (count mirror, phase-file side)" \
+  'one of the five kinds above' \
+  's/one of the five kinds above/one of the four kinds above/' "$P2_FILE"
 
 # ── issue #185 Addendum: deterministic extraction helper (fixture matrix) ────
 # The helper is the deterministic boundary the Addendum mandates; test its

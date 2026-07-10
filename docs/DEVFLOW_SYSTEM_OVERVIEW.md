@@ -238,7 +238,7 @@ DevFlow maintains **exactly one** marker-tagged comment on the GitHub issue for 
   - **2.3.0** Changed-contract sweep (re-run after any merge/rebase of main)
   - **2.3.0a** Peer-checkpoint completeness sweep
   - **2.3.0b** Enum-enumeration reconciliation sweep (added value to an enumerated set → reconcile every enumerating site, incl. doc/comment enumerations and fall-through consumers)
-  - **2.3.0c** Operand-trace sweep (a diff that adds a guard/predicate/validator/coverage-invariant in code, or ships agent-executed policy-stating prose → trace every operand back to its producer; the load-bearing "what OTHER inputs produce the same value?" check owns exactly the in-diff code 2.3.4 carves out)
+  - **2.3.0c** Operand-trace sweep (a diff that adds a guard/predicate/validator/coverage invariant in code, or ships agent-executed policy-stating prose → trace every operand back to its producer; the load-bearing "what OTHER inputs produce the same value?" check owns exactly the in-diff code 2.3.4 carves out)
   - **2.3.1** Orphaned-setup sweep
   - **2.3.2** Stranded-dependents sweep
   - **2.3.3** Convention-compliance sweep
