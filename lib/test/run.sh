@@ -20477,6 +20477,77 @@ CASECMD
 assert_eq "#363 a case-body command ending in a \$(...) close is still a head, not a case arm" \
   "aa bb" "$(python3 "$ECH" heads "$E363/casecmd.md" | tr '\n' ' ' | sed 's/ *$//')"
 
+# ── Arm-position tracking (#392). `_CASE_PATTERN` stripping applies ONLY where a
+# ── case arm can legally begin — right after `case … in` and right after each `;;` —
+# ── never on a statement in the case *body*. Two latent fail-open defects the old
+# ── every-line stripper carried, each of which silently dropped a command head out
+# ── of the pin's coverage the moment a fence was written in the triggering shape.
+
+# Defect 1: a bare subshell `(dd)` in a case BODY was stripped as if it were an arm
+# pattern (the optional leading `(` in _CASE_PATTERN matched it), dropping head `dd`.
+cat > "$E363/casebody.md" <<'CASEBODY'
+```bash
+case "$N" in
+  *)
+    (dd) ;;
+esac
+```
+CASEBODY
+assert_eq "#363 a bare subshell in a case body yields its head" \
+  "dd" "$(python3 "$ECH" heads "$E363/casebody.md" | tr '\n' ' ' | sed 's/ *$//')"
+
+# Defect 2: a one-line `case … esac` latched `in_case` true forever (the esac check
+# only fired on a line whose FIRST token was esac), so a following body line `(zz)`
+# was treated as an arm and its head `zz` dropped. skills/review/SKILL.md's 3.2
+# dirty-path restore fence contains exactly such a one-line case.
+cat > "$E363/caseoneline.md" <<'CASEONELINE'
+```bash
+case "$x" in [RC]) a=1 ;; esac
+(zz)
+esac
+```
+CASEONELINE
+assert_eq "#363 a one-line case ... esac clears the in-case state" \
+  "zz" "$(python3 "$ECH" heads "$E363/caseoneline.md" | tr '\n' ' ' | sed 's/ *$//')"
+
+# Every arm shape the suite pins — including the optional-leading-paren `(pattern)`
+# form — is still recognized as pattern syntax at an arm position and yields no head,
+# while each arm's body command survives. The arm-position fix must not regress this.
+cat > "$E363/armshapes.md" <<'ARMSHAPES'
+```bash
+case "$N" in
+  *)
+    aa ;;
+  [RC])
+    bb ;;
+  critical|important)
+    cc ;;
+  ''|*[!0-9]*)
+    dd ;;
+  [^a-z]*)
+    ee ;;
+  (pattern)
+    ff ;;
+esac
+```
+ARMSHAPES
+assert_eq "#363 every already-pinned arm shape (incl. optional-leading-paren) still yields no head" \
+  "aa bb cc dd ee ff" "$(python3 "$ECH" heads "$E363/armshapes.md" | tr '\n' ' ' | sed 's/ *$//')"
+
+# Regression guard: the arm-position fix is a NO-OP on today's skills/review/SKILL.md.
+# Assert BOTH the occurrence count and the distinct-name count — the distinct count
+# alone would not catch a duplicate head silently gained (or lost). Whoever next adds
+# a command to a review-skill fence updates these two numbers in the same commit,
+# per CLAUDE.md's coupled-invariant rule.
+assert_eq "#363 the review-skill head set is unchanged by the arm-position fix (88 occurrences)" \
+  "88" "$(python3 -c 'import importlib.util,sys
+s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
+print(len(m.extract_heads(open(sys.argv[2],encoding="utf-8").read())))' "$ECH" "$LIB/../skills/review/SKILL.md")"
+assert_eq "#363 the review-skill head set is unchanged by the arm-position fix (28 distinct names)" \
+  "28" "$(python3 -c 'import importlib.util,sys
+s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
+h=m.extract_heads(open(sys.argv[2],encoding="utf-8").read());print(len({m.name_of(x) for x in h}))' "$ECH" "$LIB/../skills/review/SKILL.md")"
+
 # ── Process wrappers are stripped before matching, exactly as Claude Code does.
 printf '%s\n' '```bash' 'timeout 300 bash x.sh' 'nice -n 5 aa' 'nohup bb' 'stdbuf -oL cc' 'xargs dd' 'time ee' '```' > "$E363/wrap.md"
 assert_eq "#363 process wrappers (timeout/nice/nohup/stdbuf/xargs/time) are stripped; timeout 300 bash x.sh -> bash" \
