@@ -644,7 +644,12 @@ do_persist() {
     # residual within one slug: a workpad-less dir sorting EARLIER than a
     # workpad-holding one is that slug's only synthesis candidate, so a stale
     # earlier run-id can receive the record (right slug, wrong run-id; the sha
-    # exclusion still prevents any double-count).
+    # exclusion still prevents any double-count). And a workpad-less dir left by
+    # a standalone /devflow:review run is indistinguishable here from a dropped
+    # fix loop's — its synthesized record defaults to source "review-and-fix"
+    # (the source probe reads iter workpads, which this dir by definition lacks)
+    # even though the run that created the dir was a review; content stays
+    # correct and the sha exclusion still holds.
     local wl_dirs=() wl_n wl_i next_slug allow d_iters wl_slug_first wl_multi_slug=0
     for dir in "$root"/.devflow/tmp/review/*/*/; do
       [ -d "$dir" ] || continue

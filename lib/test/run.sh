@@ -3158,7 +3158,7 @@ assert_eq "#236 (B) phase-3.3: observability backstop directive precedes the app
 # failure paths leave a "record not written" breadcrumb on stderr while exiting 0 by design). Pin
 # that the backstop captures --persist's stderr and checks it for that literal.
 assert_pin_unique "#236 (B) phase-3.3: backstop captures --persist stderr for the record-write-failure check" \
-  '/../../lib/efficiency-trace.sh --persist 2>"$PERSIST_ERR" || true' "$DEF_SKILL"
+  '/../../lib/efficiency-trace.sh --persist 2>>"$PERSIST_ERR" || true' "$DEF_SKILL"
 # The single-literal grep above was itself a #236-review fix-delta-gate finding: jq-derivation
 # and mkdir failures both end "...record not written[ for ...]", but the disk/permission
 # write failure (write-after-mkdir-succeeded: ENOSPC/EROFS/quota/perms) reads "...failed
@@ -14173,6 +14173,12 @@ ETSY_RMODE="$( ( cd "$ETSY_REPO" && bash "$LIB/efficiency-trace.sh" --mode recor
 assert_eq "et-synth(T4): --mode record over synthesized records exits 0" "0" "$ETSY_RMRC"
 assert_eq "et-synth(T4): record-mode verification_posture is the degraded value" "none-recorded" \
   "$(printf '%s' "$ETSY_RMODE" | jq -r '.per_iteration[0].verification_posture' 2>/dev/null)"
+# Writer <-> validator lockstep: --self-check over the REAL freshly-synthesized
+# records (not a hand-written fixture) emits no missing-field warning — a drift
+# in either ITER_SYNTH_EXPECTED_FIELDS or the writer's jq object goes RED here.
+ETSY_SC="$( ( cd "$ETSY_REPO" && bash "$LIB/efficiency-trace.sh" --self-check --workpad-dir "$ETSY_REPO/.devflow/tmp/review/pr-1/run-s" --slug pr-1 ) 2>&1 )"
+assert_eq "et-synth(T2): real synthesized records validate cleanly against ITER_SYNTH_EXPECTED_FIELDS" "no" \
+  "$(printf '%s' "$ETSY_SC" | grep -qF 'is missing expected field' && echo yes || echo no)"
 # Idempotency: a second --persist makes no new commit.
 ETSY_C1="$(git -C "$ETSY_REPO" rev-list --count HEAD)"
 ( cd "$ETSY_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$ETSY_REPO/.devflow/tmp/review/pr-1/run-s" --slug pr-1 ) >/dev/null 2>&1
@@ -14196,6 +14202,7 @@ printf 5 > "$ETSA_REPO/e"; git -C "$ETSA_REPO" add e; git -C "$ETSA_REPO" commit
 printf 6 > "$ETSA_REPO/f"; git -C "$ETSA_REPO" add f; git -C "$ETSA_REPO" commit -qm "fix: address review findings (iteration 01)"
 printf 7 > "$ETSA_REPO/g"; git -C "$ETSA_REPO" add g; git -C "$ETSA_REPO" commit -qm "fix: address review findings (iteration 1"
 printf 8 > "$ETSA_REPO/h"; git -C "$ETSA_REPO" add h; git -C "$ETSA_REPO" commit -qm "fix: address review findings (iteration1)"
+printf 9 > "$ETSA_REPO/i"; git -C "$ETSA_REPO" add i; git -C "$ETSA_REPO" commit -qm "fix: address review findings (iteration 1) follow-up"
 mkdir -p "$ETSA_REPO/.devflow/tmp/review/pr-9/run-a"
 ETSA_ERR="$( ( cd "$ETSA_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$ETSA_REPO/.devflow/tmp/review/pr-9/run-a" --slug pr-9 ) 2>&1 1>/dev/null )"; ETSA_RC=$?
 ETSA_REC="$ETSA_REPO/.devflow/logs/efficiency/pr-9-run-a.json"
@@ -14232,8 +14239,8 @@ assert_eq "et-synth(T4): leading-zero 01 never reaches --argjson (no iter-01 wri
 assert_eq "et-synth(T4): the (iteration1) lenience parses as iteration 1 (three duplicate-iteration-1 breadcrumbs)" "3" \
   "$(printf '%s' "$ETSA_ERR" | grep -cF 'duplicate iteration 1')"
 # The missing-')' arm has its own distinct breadcrumb.
-assert_eq "et-synth(T4): missing-')' subject gets the does-not-end-with-suffix breadcrumb" "yes" \
-  "$(printf '%s' "$ETSA_ERR" | grep -qF "does not END with the '(iteration N)' suffix" && echo yes || echo no)"
+assert_eq "et-synth(T4): BOTH does-not-end-with-suffix shapes breadcrumbed (missing ')' AND trailing text)" "2" \
+  "$(printf '%s' "$ETSA_ERR" | grep -cF "does not END with the '(iteration N)' suffix")"
 rm -rf "$ETSA_REPO"
 
 # T4 zero-match: workpad-less dir + NO fix commits → no record, "was not captured"
@@ -14481,14 +14488,14 @@ assert_eq "et-synth(ambiguity): the already-recorded commit is still excluded (b
   "$(printf '%s' "$ETSAM_ERR2" | grep -qF 'already recorded by another run' && echo yes || echo no)"
 rm -rf "$ETSAM_REPO"
 
-# Coupled two-site invariant: the 'span multiple slugs' breadcrumb literal is
-# EMITTED by efficiency-trace.sh's ambiguity arm and GREPPED by phase-3-review.md's
-# targeted-retry gate — reword one without the other and the retry silently never
-# fires. Both sites must carry the identical literal.
-assert_eq "et-synth(ambiguity): 'span multiple slugs' literal present at the producer site (efficiency-trace.sh)" "yes" \
+# The phase-3.3 backstop persists TARGETED-FIRST (this run by explicit identity —
+# immune to every discovery-mode skip and to the lone-stale-foreign-dir
+# misattribution) and only then runs argument-less discovery for other leftovers.
+assert_pin_unique "et-synth(ambiguity): phase-3.3 runs the targeted persist (explicit --workpad-dir/--slug) before discovery" \
+  '--workpad-dir "$ROOT/.devflow/tmp/review/<slug>/<run-id>" --slug "<slug>" --persist' \
+  "$LIB/../skills/implement/phases/phase-3-review.md"
+assert_eq "et-synth(ambiguity): 'span multiple slugs' breadcrumb literal present at the producer site (efficiency-trace.sh)" "yes" \
   "$([ "$(pin_count 'span multiple slugs' "$LIB/efficiency-trace.sh")" -ge 1 ] && echo yes || echo no)"
-assert_eq "et-synth(ambiguity): 'span multiple slugs' grep present at the consumer site (phase-3-review.md retry gate)" "yes" \
-  "$([ "$(pin_count "span multiple slugs' \"\$PERSIST_ERR\"" "$LIB/../skills/implement/phases/phase-3-review.md")" -ge 1 ] && echo yes || echo no)"
 
 # Exclusion-BEFORE-dedupe ordering: a sibling-recorded commit with subject
 # (iteration 1) plus a LATER unrecorded commit also titled (iteration 1) — the

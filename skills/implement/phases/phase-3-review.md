@@ -124,9 +124,16 @@ ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 # no-op if already persisted (the effectiveness record is presence-idempotent — skipped when
 # it already exists; the durable workpad copy re-runs but is content-idempotent, rewriting
 # identical bytes) and a full no-op if the inline loop wrote no per-iter workpad. Best-effort
-# (always exits 0). No --workpad-dir/--slug: with no args --persist scans every run-scoped
-# dir on disk, which is exactly the "the orchestrator does not hold review-and-fix's
-# internal slug/run-id" case at this inline seam.
+# (always exits 0). Two calls, targeted FIRST: this orchestrator drove review-and-fix
+# inline and holds the loop's <slug> and RUN_ID, and persisting its own run by explicit
+# identity is immune to every discovery-mode skip (multi-slug ambiguity, not-latest
+# ordering) AND to the lone-stale-foreign-dir shape, where discovery would misattribute
+# this branch's fix commits to a leftover slug and the sha exclusion would lock the
+# misattribution in while the new synthesized files suppressed the gap reflection. The
+# argument-less discovery call then covers every OTHER leftover run dir on disk. If the
+# slug/run-id are genuinely not held (the inline loop died before RUN_ID was computed),
+# skip the targeted call with a --note recording that, and rely on discovery + the
+# detector below as the loud floor — never substitute guessed values.
 # On mktemp failure, degrade to /dev/null rather than aborting — the capture becomes a
 # no-op (stderr is discarded, so the record-write-failure grep below can never match), but
 # --persist's own best-effort exit-0 contract is preserved. Track the degrade explicitly in
@@ -141,22 +148,14 @@ if PERSIST_ERR=$(mktemp 2>/dev/null); then
 else
   PERSIST_ERR=/dev/null
   PERSIST_ERR_IS_DEVNULL=1
-  echo "::warning::phase-3.3: could not allocate a temp file for --persist's stderr (mktemp failed); ALL of --persist's stderr (durable-copy/staging/commit warnings included, not only the record-write-failure check) is discarded this run, and the record-write-failure detector AND the multi-slug targeted-retry check are DISABLED (only the no-new-inputs case below is still checked)" >&2
+  echo "::warning::phase-3.3: could not allocate a temp file for --persist's stderr (mktemp failed); ALL of --persist's stderr (durable-copy/staging/commit warnings included, not only the record-write-failure check) is discarded this run, and the record-write-failure detector is DISABLED (only the no-new-inputs case below is still checked)" >&2
 fi
-"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/efficiency-trace.sh --persist 2>"$PERSIST_ERR" || true   # best-effort; captured (not swallowed) so its ::warning:: breadcrumbs both surface to the run log below AND are checked for a record-write failure by the detector
-# Discovery mode declines synthesis for EVERY candidate when workpad-less run dirs
-# span multiple slugs (a stale leftover from another PR beside this run's dir — a
-# routine condition on the persistent local tier). Unlike discovery, THIS
-# orchestrator knows its own run: it drove review-and-fix inline and holds the
-# loop's <slug> and RUN_ID. So when the ambiguity breadcrumb fired, re-run the
-# persist TARGETED at this run's own dir (substituting the held values; the
-# targeted form is exempt from the ambiguity guard by caller intent) before the
-# detector below reads the tree — recovering the exact telemetry the ambiguity
-# skip declined, with the same idempotent, best-effort contract. Its stderr
-# appends to the same capture so the single surfacing line below carries both:
-if grep -qF 'span multiple slugs' "$PERSIST_ERR" 2>/dev/null; then
-  "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/efficiency-trace.sh --workpad-dir "$ROOT/.devflow/tmp/review/<slug>/<run-id>" --slug "<slug>" --persist 2>>"$PERSIST_ERR" || true
-fi
+# Targeted persist FIRST (substituting this run's held <slug>/<run-id> — the
+# targeted form is exempt from every discovery-mode skip by caller intent):
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/efficiency-trace.sh --workpad-dir "$ROOT/.devflow/tmp/review/<slug>/<run-id>" --slug "<slug>" --persist 2>"$PERSIST_ERR" || true
+# Then argument-less discovery for every OTHER leftover run dir on disk; its
+# stderr appends to the same capture so the single surfacing line carries both:
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/efficiency-trace.sh --persist 2>>"$PERSIST_ERR" || true   # best-effort; captured (not swallowed) so its ::warning:: breadcrumbs both surface to the run log below AND are checked for a record-write failure by the detector
 cat "$PERSIST_ERR" >&2   # surface every --persist breadcrumb to the run log, same as before this capture was added
 # Detect the "no inputs FROM THIS RUN" case by diffing against the pre-loop snapshot, anchored
 # on $ROOT (matching --persist): comm -13 lists iter-*.json present now but NOT before the
