@@ -6031,7 +6031,15 @@ assert_pin_red_under "#376 w2-trigger-prose: §2.3.0c heading states the policy-
 assert_pin_red_under "#376 w2-fourth-column: §2.3.0c keeps the load-bearing fourth column (what OTHER inputs produce the same value?)" \
   'what OTHER inputs produce the same value?' \
   's/what OTHER inputs produce the same value\?//' "$P2_FILE"
-# AC3 — the prose-policy arm's inert-guard defect definition.
+# AC3 — the prose-policy arm's stated-policy contract: (1) the naming obligation whose load-bearing
+# clause is "route for every outcome INCLUDING THE FAILURE OUTCOME" (the clause that gives trigger (b)
+# teeth against a fail-open policy), and (2) the inert-guard defect definition. w2-inert-guard covers
+# (2); the failure-outcome pin below covers (1) — its mutation strips only the failure-outcome routing
+# clause, so weakening the obligation to route the failure outcome goes RED even though the inert-guard
+# sentence survives (a distinct clause on the same paragraph line).
+assert_pin_red_under "#376 w2-policy-failure-route: §2.3.0c trigger (b) requires a route for the failure outcome" \
+  '**including the failure outcome** (the operand absent, the producing step failing, the value unresolvable)' \
+  's/\*\*including the failure outcome\*\* \(the operand absent, the producing step failing, the value unresolvable\)//' "$P2_FILE"
 assert_pin_red_under "#376 w2-inert-guard: §2.3.0c defines a policy whose operand no step produces as an inert guard/defect" \
   'A stated policy whose operand no step produces is an inert guard and a defect in this PR' \
   's/A stated policy whose operand no step produces is an inert guard and a defect in this PR//' "$P2_FILE"
@@ -6046,12 +6054,14 @@ assert_pin_red_under "#376 w2-reproduce-bytes: §2.3.4 requires reproducing exte
 assert_pin_red_under "#376 w2-doc-prose-not-evidence: §2.3.4 states doc prose is not acceptable evidence" \
   'Doc prose is not acceptable evidence' \
   's/Doc prose is not acceptable evidence//' "$P2_FILE"
-# AC5 — the External-tool output boundary KIND bullet itself (the enumerated member that makes §2.3.4's
-# external-output machinery apply); removing it silently disables the whole external-output obligation.
+# AC5 (kind bullet) — the External-tool output boundary KIND bullet itself (the enumerated member that
+# makes §2.3.4's external-output machinery apply); removing it silently disables the whole external-output
+# obligation. Grouped with the other AC5 (external-output) pins above rather than in issue-AC numeric order.
 assert_pin_red_under "#376 w2-external-output-kind: §2.3.4 lists External-tool output as a boundary kind" \
   'a literal string, message, or exit code the diff matches against, or documents, as the output of an external tool' \
   's/a literal string, message, or exit code the diff matches against, or documents, as the output of an external tool//' "$P2_FILE"
-# AC7 — §2.3.4's companion outcome-verification rule.
+# AC7 — §2.3.4's companion outcome-verification rule (grouped with the other §2.3.4 pins above, ahead of
+# the §2.3.6 AC6 pins below — pins are grouped by phase-file section, not strictly by issue-AC number).
 assert_pin_red_under "#376 w2-outcome-companion: §2.3.4 states a precondition check never stands in for verifying the consumed outcome" \
   'A precondition check never stands in for verifying the consumed outcome' \
   's/A precondition check never stands in for verifying the consumed outcome//' "$P2_FILE"
