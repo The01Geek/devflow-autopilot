@@ -14553,6 +14553,79 @@ assert_eq "et-synth(flag-off): the skip is breadcrumbed with the telemetry-disab
   "$(printf '%s' "$ETSG_ERR" | grep -qF 'efficiency telemetry is disabled; skipping synthesis' && echo yes || echo no)"
 rm -rf "$ETSG_REPO"
 
+# Unsubstituted-placeholder guard: a verbatim `<slug>`/`<run-id>` invocation (the
+# phase-3.3 fence run without substitution) must refuse loudly and fabricate
+# NOTHING — never synthesize the branch's commits under a placeholder identity.
+ETSPH_REPO="$(git_sandbox "et-synth placeholder repo")"
+git -C "$ETSPH_REPO" init -q
+git -C "$ETSPH_REPO" config user.email t@e.com; git -C "$ETSPH_REPO" config user.name t
+git -C "$ETSPH_REPO" commit --allow-empty -qm base
+git -C "$ETSPH_REPO" branch -M main
+git -C "$ETSPH_REPO" checkout -q -b feat
+printf a > "$ETSPH_REPO/a"; git -C "$ETSPH_REPO" add a; git -C "$ETSPH_REPO" commit -qm "fix: address review findings (iteration 1)"
+ETSPH_ERR="$( ( cd "$ETSPH_REPO" && bash "$LIB/efficiency-trace.sh" --workpad-dir "$ETSPH_REPO/.devflow/tmp/review/<slug>/<run-id>" --slug "<slug>" --persist ) 2>&1 1>/dev/null )"; ETSPH_RC=$?
+assert_eq "et-synth(placeholder): verbatim placeholder invocation exits 0 (best-effort preserved)" "0" "$ETSPH_RC"
+assert_eq "et-synth(placeholder): the refusal breadcrumb names the unsubstituted placeholder" "yes" \
+  "$(printf '%s' "$ETSPH_ERR" | grep -qF "unsubstituted '<placeholder>'" && echo yes || echo no)"
+assert_eq "et-synth(placeholder): NO placeholder-identity dir is fabricated" "no" \
+  "$([ -d "$ETSPH_REPO/.devflow/tmp/review/<slug>" ] && echo yes || echo no)"
+assert_eq "et-synth(placeholder): NO record is written under a placeholder identity" "no" \
+  "$(ls "$ETSPH_REPO/.devflow/logs/efficiency/" 2>/dev/null | grep -q . && echo yes || echo no)"
+rm -rf "$ETSPH_REPO"
+
+# rc-3's uncreatable-target-dir arm: a read-only SLUG PARENT (mkdir -p of a
+# not-yet-created run dir fails) must route to the rc-3 could-not-run diagnosis,
+# never the rc-4 every-write-failed misattribution.
+ETSMK_REPO="$(git_sandbox "et-synth unmkdirable repo")"
+git -C "$ETSMK_REPO" init -q
+git -C "$ETSMK_REPO" config user.email t@e.com; git -C "$ETSMK_REPO" config user.name t
+git -C "$ETSMK_REPO" commit --allow-empty -qm base
+git -C "$ETSMK_REPO" branch -M main
+git -C "$ETSMK_REPO" checkout -q -b feat
+printf a > "$ETSMK_REPO/a"; git -C "$ETSMK_REPO" add a; git -C "$ETSMK_REPO" commit -qm "fix: address review findings (iteration 1)"
+mkdir -p "$ETSMK_REPO/.devflow/tmp/review/pr-m"
+chmod 555 "$ETSMK_REPO/.devflow/tmp/review/pr-m"
+ETSMK_ERR="$( ( cd "$ETSMK_REPO" && bash "$LIB/efficiency-trace.sh" --workpad-dir "$ETSMK_REPO/.devflow/tmp/review/pr-m/run-m" --slug pr-m --persist ) 2>&1 1>/dev/null )"; ETSMK_RC=$?
+chmod 755 "$ETSMK_REPO/.devflow/tmp/review/pr-m"
+assert_eq "et-synth(unmkdirable): exits 0" "0" "$ETSMK_RC"
+assert_eq "et-synth(unmkdirable): the could-not-create-dir breadcrumb fires" "yes" \
+  "$(printf '%s' "$ETSMK_ERR" | grep -qF 'could not create workpad dir' && echo yes || echo no)"
+assert_eq "et-synth(unmkdirable): NOT misattributed as every-write-failed (rc-4)" "no" \
+  "$(printf '%s' "$ETSMK_ERR" | grep -qF 'every synthesized record write failed' && echo yes || echo no)"
+rm -rf "$ETSMK_REPO"
+
+# fix_files [] vs null: a genuine --allow-empty fix commit synthesizes fix_files
+# [] (never null, never [""] from the empty-string split).
+ETSE_REPO="$(git_sandbox "et-synth empty-commit repo")"
+git -C "$ETSE_REPO" init -q
+git -C "$ETSE_REPO" config user.email t@e.com; git -C "$ETSE_REPO" config user.name t
+git -C "$ETSE_REPO" commit --allow-empty -qm base
+git -C "$ETSE_REPO" branch -M main
+git -C "$ETSE_REPO" checkout -q -b feat
+git -C "$ETSE_REPO" commit --allow-empty -qm "fix: address review findings (iteration 1)"
+mkdir -p "$ETSE_REPO/.devflow/tmp/review/pr-e/run-e"
+( cd "$ETSE_REPO" && bash "$LIB/efficiency-trace.sh" --workpad-dir "$ETSE_REPO/.devflow/tmp/review/pr-e/run-e" --slug pr-e --persist ) >/dev/null 2>&1
+assert_eq "et-synth(empty-commit): an --allow-empty fix commit synthesizes fix_files [] (not null, not [\"\"])" "[]" \
+  "$(jq -c '.fix_files' "$ETSE_REPO/.devflow/tmp/review/pr-e/run-e/iter-1.json" 2>/dev/null)"
+rm -rf "$ETSE_REPO"
+
+# Wrong-type base_branch row (adversarial input-shape matrix): a boolean config
+# value must fail closed to a working default, never detonate.
+ETSWT_REPO="$(git_sandbox "et-synth wrongtype-base repo")"
+git -C "$ETSWT_REPO" init -q
+git -C "$ETSWT_REPO" config user.email t@e.com; git -C "$ETSWT_REPO" config user.name t
+git -C "$ETSWT_REPO" commit --allow-empty -qm base
+git -C "$ETSWT_REPO" branch -M main
+git -C "$ETSWT_REPO" checkout -q -b feat
+printf a > "$ETSWT_REPO/a"; git -C "$ETSWT_REPO" add a; git -C "$ETSWT_REPO" commit -qm "fix: address review findings (iteration 1)"
+mkdir -p "$ETSWT_REPO/.devflow"
+printf '{"base_branch": false}' > "$ETSWT_REPO/.devflow/config.json"
+mkdir -p "$ETSWT_REPO/.devflow/tmp/review/pr-wt/run-wt"
+ETSWT_RC=0
+( cd "$ETSWT_REPO" && bash "$LIB/efficiency-trace.sh" --workpad-dir "$ETSWT_REPO/.devflow/tmp/review/pr-wt/run-wt" --slug pr-wt --persist ) >/dev/null 2>&1 || ETSWT_RC=$?
+assert_eq "et-synth(wrongtype-base): a boolean base_branch config value never detonates (exit 0)" "0" "$ETSWT_RC"
+rm -rf "$ETSWT_REPO"
+
 # origin/<base> preferred over a STALE local base: a worktree's local main is
 # routinely behind origin; diffing against it would sweep already-merged history
 # (an old PR's fix commits) into this run's synthesis. origin-first prevents it.

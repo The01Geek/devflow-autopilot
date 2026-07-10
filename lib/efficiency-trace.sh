@@ -75,6 +75,20 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# Unsubstituted-placeholder guard: the phase-3.3 backstop fence carries literal
+# `<slug>`/`<run-id>` placeholders the executing agent must substitute; run
+# verbatim, they would fabricate a `.devflow/tmp/review/<slug>/<run-id>` identity,
+# synthesize the branch's real fix commits under it, and the sha exclusion would
+# then lock the misattribution in while the new files suppressed the gap
+# reflection — a silent, durable corruption. No legitimate slug/run-id/path
+# carries `<` or `>`, so refuse them loudly here at the one producer every
+# prose-substituted call site funnels through (best-effort exit 0 preserved).
+case "${WORKPAD_DIR}${SLUG}" in
+  *'<'*|*'>'*)
+    echo "::warning::efficiency-trace.sh: --workpad-dir/--slug contains an unsubstituted '<placeholder>' (got --workpad-dir '${WORKPAD_DIR}' --slug '${SLUG}'); refusing to run under a placeholder identity — substitute the run's real slug/run-id and rerun" >&2
+    exit 0 ;;
+esac
+
 # ── Gating flag (on by default). ─────────────────────────────────────────────
 ENABLED="$(devflow_conf '.devflow_review_and_fix.efficiency_telemetry_enabled' 'true')"
 
@@ -511,7 +525,7 @@ persist_one() {
         echo "::warning::efficiency-trace.sh --persist: run ${slug}/${run_id} left no iter-*.json and the fix-commit search could not run (an uncreatable target dir, an unresolvable base ref, or a failed git log enumeration — the warning above names which) — whether matching fix commits exist was never established; telemetry not synthesized" >&2
         return 0 ;;
       4)
-        echo "::warning::efficiency-trace.sh --persist: run ${slug}/${run_id} left no iter-*.json; matching fix commits were selected but every synthesized record write failed (see the per-commit warnings above) — telemetry not synthesized" >&2
+        echo "::warning::efficiency-trace.sh --persist: run ${slug}/${run_id} left no iter-*.json; matching fix commits were selected but every synthesized record write failed (see the per-commit warnings above — disk/permissions, or on the cloud tier the sandbox's redirect-write denial into .devflow/tmp) — telemetry not synthesized" >&2
         return 0 ;;
       2)
         echo "::warning::efficiency-trace.sh --persist: run ${slug}/${run_id} left no iter-*.json and no unrecorded 'fix: address review findings (iteration N)' commits were found — per-iteration effectiveness telemetry was not captured this run; nothing to synthesize" >&2
