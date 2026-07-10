@@ -14452,6 +14452,15 @@ assert_eq "et-synth(ambiguity): both candidates are breadcrumbed with the multi-
   "$([ "$(printf '%s' "$ETSAM_ERR" | grep -cF 'span multiple slugs')" -eq 2 ] && echo yes || echo no)"
 rm -rf "$ETSAM_REPO"
 
+# Coupled two-site invariant: the 'span multiple slugs' breadcrumb literal is
+# EMITTED by efficiency-trace.sh's ambiguity arm and GREPPED by phase-3-review.md's
+# targeted-retry gate — reword one without the other and the retry silently never
+# fires. Both sites must carry the identical literal.
+assert_eq "et-synth(ambiguity): 'span multiple slugs' literal present at the producer site (efficiency-trace.sh)" "yes" \
+  "$([ "$(pin_count 'span multiple slugs' "$LIB/efficiency-trace.sh")" -ge 1 ] && echo yes || echo no)"
+assert_eq "et-synth(ambiguity): 'span multiple slugs' grep present at the consumer site (phase-3-review.md retry gate)" "yes" \
+  "$([ "$(pin_count "span multiple slugs' \"\$PERSIST_ERR\"" "$LIB/../skills/implement/phases/phase-3-review.md")" -ge 1 ] && echo yes || echo no)"
+
 # origin/<base> preferred over a STALE local base: a worktree's local main is
 # routinely behind origin; diffing against it would sweep already-merged history
 # (an old PR's fix commits) into this run's synthesis. origin-first prevents it.
