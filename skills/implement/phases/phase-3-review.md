@@ -141,7 +141,7 @@ if PERSIST_ERR=$(mktemp 2>/dev/null); then
 else
   PERSIST_ERR=/dev/null
   PERSIST_ERR_IS_DEVNULL=1
-  echo "::warning::phase-3.3: could not allocate a temp file for --persist's stderr (mktemp failed); ALL of --persist's stderr (durable-copy/staging/commit warnings included, not only the record-write-failure check) is discarded this run, and the record-write-failure detector is DISABLED (only the no-new-inputs case below is still checked)" >&2
+  echo "::warning::phase-3.3: could not allocate a temp file for --persist's stderr (mktemp failed); ALL of --persist's stderr (durable-copy/staging/commit warnings included, not only the record-write-failure check) is discarded this run, and the record-write-failure detector AND the multi-slug targeted-retry check are DISABLED (only the no-new-inputs case below is still checked)" >&2
 fi
 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/efficiency-trace.sh --persist 2>"$PERSIST_ERR" || true   # best-effort; captured (not swallowed) so its ::warning:: breadcrumbs both surface to the run log below AND are checked for a record-write failure by the detector
 # Discovery mode declines synthesis for EVERY candidate when workpad-less run dirs

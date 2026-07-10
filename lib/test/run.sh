@@ -14530,8 +14530,8 @@ git -C "$ETSU_REPO" symbolic-ref HEAD refs/heads/unborn
 mkdir -p "$ETSU_REPO/.devflow/tmp/review/pr-u/run-u"
 ETSU_ERR="$( ( cd "$ETSU_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$ETSU_REPO/.devflow/tmp/review/pr-u/run-u" --slug pr-u ) 2>&1 1>/dev/null )"; ETSU_RC=$?
 assert_eq "et-synth(log-fail): exits 0" "0" "$ETSU_RC"
-assert_eq "et-synth(log-fail): the git log failure arm breadcrumbs the log, never-established" "yes" \
-  "$(printf '%s' "$ETSU_ERR" | grep -q 'git log .*failed.*never established' && echo yes || echo no)"
+assert_eq "et-synth(log-fail): the git log failure arm emits its OWN producer breadcrumb (rc-checked)" "yes" \
+  "$(printf '%s' "$ETSU_ERR" | grep -q 'git log .*failed (rc-checked' && echo yes || echo no)"
 assert_eq "et-synth(log-fail): does NOT misattribute the failure to an unresolvable base ref" "no" \
   "$(printf '%s' "$ETSU_ERR" | grep -qF 'could not resolve a base branch ref' && echo yes || echo no)"
 assert_eq "et-synth(log-fail): does NOT claim commits were absent" "no" \

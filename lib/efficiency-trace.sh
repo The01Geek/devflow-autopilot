@@ -475,9 +475,9 @@ persist_one() {
     fi
     # Three-way outcome (unknown is never collapsed onto "found none" — the
     # repo's describe-denial-count.sh gotcha): rc 2 = selection ran, nothing
-    # unrecorded to synthesize; rc 3 = selection could not run (base ref
-    # unresolvable — whether commits exist was never established); rc 4 =
-    # commits were selected but every record write failed.
+    # unrecorded to synthesize; rc 3 = the search could not run (unresolvable
+    # base ref OR a failed git log — whether commits exist was never
+    # established); rc 4 = commits were selected but every record write failed.
     local synth_rc=0
     synthesize_iter_workpads "$dir" "$root" || synth_rc=$?
     case "$synth_rc" in
