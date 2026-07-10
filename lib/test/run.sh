@@ -161,7 +161,8 @@ assert_pin_unique() {  # name literal file
 # inline marker. A deliberate, documented escape hatch — NOT a substitute for
 # assert_pin_unique on a plain unique presence pin.
 grep_present() {  # literal file -> echoes yes if present, no otherwise
-  grep -qF "$1" "$2" && echo yes || echo no
+  # `--` guards a flag-shaped literal from being parsed as grep options, matching pin_count (#374).
+  grep -qF -- "$1" "$2" && echo yes || echo no
 }
 
 # Run a single assertion function against an ISOLATED results file and echo its verdict
@@ -1625,12 +1626,13 @@ rm -f "$PINPROBE_RE"
 # misreading a present flag literal as absent. This is a self-contained mutation proof: drop the
 # `--` from pin_count's `grep -oF` and this assertion goes RED (the count reads 0, not 2). Uses a
 # same-line double occurrence so it also confirms the `--`-guarded path still counts occurrences.
+# (Only the count-3 assertion is a mutation proof — an *absent* --leading literal reads 0 with or
+# without the `--` (grep errors either way), so it would not discriminate the mutation and is
+# omitted; the absent-literal→0 property is already pinned by AC3(a) above.)
 PINPROBE_DASH="$(probe_tmp 'AC3(a4) leading-dash-literal setup')"
 printf -- '--tick-progress here --tick-progress\n--tick-progress alone\n' > "$PINPROBE_DASH"
 assert_eq "AC3(a4): pin_count counts a --leading literal via the explicit -- guard (not parsed as grep options)" \
   "3" "$(pin_count '--tick-progress' "$PINPROBE_DASH")"
-assert_eq "AC3(a4): pin_count returns a clean 0 for an absent --leading literal (still option-safe)" \
-  "0" "$(pin_count '--absent-flag' "$PINPROBE_DASH")"
 rm -f "$PINPROBE_DASH"
 #
 # AC3(b): the meta-test detects a raw SKILL guard injected into the region. Inject a line
@@ -1737,7 +1739,9 @@ rm -f "$PINPROBE_EMPTY"
 assert_pin_red_on_removal() {  # name literal [file]   (file defaults to $MAXI_SKILL)
   local t file="${3:-$MAXI_SKILL}" before after; t="$(probe_tmp "$1 (removal setup)")" || return 0
   before="$(probe_assert assert_pin_unique 'probe-present' "$2" "$file")"
-  grep -vF "$2" "$file" > "$t"
+  # `--` guards a flag-shaped literal from grep option-parsing, matching pin_count (#374) — so
+  # the removal step stays consistent with the guarded pin_count-routed presence probe above.
+  grep -vF -- "$2" "$file" > "$t"
   after="$(probe_assert assert_pin_unique 'probe-removal' "$2" "$t")"
   assert_eq "$1" "PASS->FAIL" "$before->$after"
   rm -f "$t"
