@@ -85,11 +85,17 @@ _RULE = re.compile(r"Bash\(([^)]*)\)")
 _HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
 
 # A `case` arm's pattern (`critical|important)`, `*)`, `[RC])`, `''|*[!0-9]*)`) is
-# shell syntax, not a command. Patterns are restricted to glob/alternation
-# characters so a real command ending in `)` — a subshell close — is never mistaken
-# for one. `!` and `^` are in the class because a bracket expression may be negated
-# in either spelling (bash's `[!0-9]`, POSIX's `[^0-9]`); omitting them leaks the
-# arm itself out as a bogus command head.
+# shell syntax, not a command. This regex is applied by `_strip_case_patterns` ONLY
+# at a position where an arm may legally begin (right after `case … in`, and right
+# after each `;;`); a statement in the case *body* is never offered to it. That
+# positional guard — not the character class — is what keeps a real command ending
+# in `)` (a subshell close such as `(dd)`) from being mistaken for an arm: the class
+# still admits the optional leading `(`, which is correct for a genuine `(pattern)`
+# arm and is only ever reached at an arm position. The class stays restricted to
+# glob/alternation characters — including `!` and `^`, because a bracket expression
+# may be negated in either spelling (bash's `[!0-9]`, POSIX's `[^0-9]`) — so an arm
+# pattern is recognized in full; widening it further would let a body statement look
+# like an arm from the other side.
 _CASE_PATTERN = re.compile(r"^\s*\(?\s*([\w*?\[\]|.\-\"' !^]+?)\)\s*")
 
 # A leading redirection (`>file`, `2>&1`, `&>log`) is not a command head.
@@ -168,19 +174,46 @@ def _strip_case_patterns(block: str) -> str:
     A pattern's `|` alternation would otherwise be split as a pipe, yielding each
     alternative as its own bogus command. Tracked line-by-line, which is how the
     fences actually write case arms.
+
+    Arm patterns are stripped ONLY at a position where an arm may legally begin —
+    the statement immediately after `case … in`, and the statement immediately after
+    each `;;` terminator — so a statement in the case *body* (e.g. a bare subshell
+    `(dd)`) is never mistaken for a pattern and keeps its head. Two pieces of state
+    carry this: `in_case` (inside a `case` block) and `expect_arm` (an arm pattern
+    may start on this line). `expect_arm` is set on entry and re-set after each `;;`,
+    and cleared after one successful strip.
+
+    Accepted limitation: `in_case` is a flag, not a depth counter, so a *nested*
+    `case` block would clear the outer state one `esac` too early. No fence in
+    skills/review/SKILL.md nests a `case`, so this is left unhandled deliberately —
+    a depth counter would add complexity the real input never exercises.
     """
     out: list[str] = []
     in_case = False
+    expect_arm = False
     for line in block.split("\n"):
         stripped = line.strip()
         if re.match(r"^case\b", stripped):
             in_case = True
+            expect_arm = True
+            # A single-line `case … esac` opens and closes on the same line; leave
+            # the block cleanly so following lines parse as ordinary statements.
+            # This is the latch the old flag-only stripper never released.
+            if re.search(r"\besac\b", stripped):
+                in_case = False
+                expect_arm = False
         elif re.match(r"^esac\b", stripped):
             in_case = False
-        elif in_case and not stripped.startswith((";;", "#")):
+            expect_arm = False
+        elif in_case and expect_arm and not stripped.startswith((";;", "#")):
             pattern = _CASE_PATTERN.match(line)
             if pattern:
                 line = line[pattern.end() :]
+            expect_arm = False
+        # A `;;` terminator (matched on the ORIGINAL line, before any strip above)
+        # means the next line may open a new arm.
+        if in_case and stripped.endswith(";;"):
+            expect_arm = True
         out.append(line)
     return "\n".join(out)
 
@@ -344,6 +377,15 @@ def _normalize(token: str) -> str:
 
 def _head_of(statement: str) -> list[str] | None:
     """Return the argv words of a statement's head command, or None."""
+    statement = statement.strip()
+    # A bare subshell `(cmd …)` runs `cmd`; the allowlist must grant that inner
+    # command, so descend through a wrapping `(…)` to its head. (A `$(…)` command
+    # substitution starts with `$`, not `(`, and is handled by _substitutions —
+    # this arm only fires for a real subshell group.) Once `_strip_case_patterns`
+    # has removed arm patterns at their legal positions, the only `(…)` a body
+    # statement carries is a genuine subshell, so this never re-swallows an arm.
+    if statement.startswith("(") and statement.endswith(")"):
+        return _head_of(statement[1:-1])
     tokens = _tokenize(statement)
     i = 0
     # Strip a leading `!` negation (`if ! VAR=$(cmd); then`).
