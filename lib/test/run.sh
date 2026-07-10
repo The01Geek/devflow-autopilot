@@ -16471,8 +16471,16 @@ assert_eq "#142 CLAUDE.md does NOT claim a vendored first-party devflow:writing-
 # new reference to some OTHER superpowers skill, placed in lib/test, would evade detection.
 # Pattern split-literal so this run.sh never self-matches outside lib/test.
 SP_PAT_NS="superpowers"":"
-assert_eq "#142 no operative surface outside CLAUDE.md carries any bare superpowers: namespaced id (non-internalized refs incl.; CLAUDE.md/test scaffolding/history/migration/learnings excepted)" \
-  "" "$(tracked_scan "$FDROOT" "$SP_PAT_NS" ':!.devflow/logs' ':!.devflow/learnings' ':!CHANGELOG.md' ':!docs/review-agent-overrides.md' ':!lib/test' ':!CLAUDE.md')"
+# docs/superpowers/specs/ is excepted for the same reason CLAUDE.md is: a design
+# spec authored under the superpowers brainstorming/writing-plans discipline
+# legitimately NAMES the external dev-time `superpowers:writing-skills` authoring
+# discipline in its prose (the skill files it directs the implementer to edit are
+# edited under that discipline). Like CLAUDE.md's carried reference, this is a
+# documentation surface, not a runtime dependency, so the zero-companion-dependency
+# claim is unaffected. The narrow scope (only docs/superpowers/specs) keeps the net
+# closed on any OTHER stray superpowers: id in an operative surface.
+assert_eq "#142 no operative surface outside CLAUDE.md carries any bare superpowers: namespaced id (non-internalized refs incl.; CLAUDE.md/test scaffolding/history/migration/learnings/design-specs excepted)" \
+  "" "$(tracked_scan "$FDROOT" "$SP_PAT_NS" ':!.devflow/logs' ':!.devflow/learnings' ':!CHANGELOG.md' ':!docs/review-agent-overrides.md' ':!docs/superpowers/specs' ':!lib/test' ':!CLAUDE.md')"
 
 # (2/2b/2c) Per-skill vendoring + structural validity. For each of the two skills the file
 # exists first-party under skills/<name>/SKILL.md; its frontmatter declares name: <name> (so
