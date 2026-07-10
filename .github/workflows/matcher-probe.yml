@@ -94,6 +94,12 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
+          # Allow any bot to initiate the probe. This diagnostic runs same-repo only
+          # (the job `if:` refuses fork PRs) and is read-only, but claude-code-action
+          # otherwise refuses a bot-initiated run ("Workflow initiated by non-human
+          # actor") — which is exactly the case when a DevFlow bot PR touches this file,
+          # leaving every shape UNATTEMPTED. `*` lets the probe actually measure.
+          allowed_bots: "*"
           prompt: |
             You are a PERMISSION-MATCHER PROBE. Your ONLY task is to attempt each
             of the 14 numbered command shapes below EXACTLY ONCE, each in its OWN
