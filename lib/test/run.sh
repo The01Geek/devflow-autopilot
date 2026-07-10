@@ -6054,11 +6054,17 @@ assert_pin_red_under "#376 w2-outcome-shape: §2.3.6 lists the existence-standin
 assert_pin_red_under "#376 w2-preflight-property: §2.3.6 keys the un-guaranteed-tool shape on the preflight property" \
   "value that decides which thing is selected or what is emitted must not be derived through a tool the project's preflight does not guarantee" \
   "s/value that decides which thing is selected or what is emitted must not be derived through a tool the project's preflight does not guarantee//" "$P2_FILE"
-# AC8 — the implement extension names DevFlow's preflight-guaranteed set, coupled to lib/preflight.sh's header.
-assert_eq "#376 AC8: implement extension enumerates preflight's guaranteed set, agreeing with lib/preflight.sh header (coupled mirror)" \
+# AC8 — the implement extension names DevFlow's preflight-guaranteed set, coupled to lib/preflight.sh's
+# header. The EXTENSION side (the exact joined enumeration present in $EXT_IMPL) is pinned by the
+# w2-preflight-set-coupling assert_pin_red_under just below — which already establishes presence-and-
+# uniqueness before mutating out PyYAML — so this assert_eq only asserts the PREFLIGHT side names the same
+# set (its header wraps the enumeration across two comment lines, so match the two line-fragments). Together
+# the two assertions catch drift on either mirror: rename a tool in $EXT_IMPL → the pin goes RED; rename it in
+# lib/preflight.sh → this assert_eq goes RED. (grep_present is NOT used here — it is a count-pinned escape
+# hatch fixed at 2 call sites; these bare `grep -qF` live inside a command substitution, off the raw-guard audit.)
+assert_eq "#376 AC8: lib/preflight.sh header enumerates the same guaranteed set the implement extension mirrors (coupled mirror; extension side pinned by w2-preflight-set-coupling below)" \
   "yes" \
-  "$(grep -qF 'git, gh (authenticated), jq, and python3 (>=3.11) with PyYAML' "$EXT_IMPL" \
-     && grep -qF 'git, gh (authenticated), jq, and' "$LIB/preflight.sh" \
+  "$(grep -qF 'git, gh (authenticated), jq, and' "$LIB/preflight.sh" \
      && grep -qF 'python3 (>=3.11) with PyYAML' "$LIB/preflight.sh" && echo yes || echo no)"
 assert_pin_red_under "#376 w2-preflight-set-coupling: removing PyYAML from the extension enumeration turns the coupled-mirror pin RED" \
   'git, gh (authenticated), jq, and python3 (>=3.11) with PyYAML' \
