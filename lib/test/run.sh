@@ -5937,6 +5937,29 @@ assert_eq "#380 W6A heading shape: a bold-wrapped ### **Documentation Needed** h
   "docs/a.md" \
   "$(printf '%s\n' "$fx_380_bold_heading" | bash "$EXTRACT_HELPER")"
 
+# W6A Case 45 (shadow-review pin — the heading arm's `emitted = 0` reset is
+# load-bearing, not vacuous): a MULTI-scope body arms `emitted` in an earlier
+# bold-bullet scope (docs/a.md, a structural deliverable), that scope closes on a
+# peer bullet, then a later `### Documentation Needed` heading re-opens and its
+# reset clears `emitted` so a PRIMARY-PROSE declaration (docs/b.md) is still
+# captured. Cases 38-44 each hold a single scope, so `emitted` is always 0 when the
+# heading opens and deleting the reset leaves them all GREEN; only this multi-scope
+# body makes the reset load-bearing. Verified at authoring time: with the reset the
+# output is {docs/a.md, docs/b.md}; removing the heading-arm `emitted = 0` reset
+# drops docs/b.md to {docs/a.md} — the #289/#309/#327 primary-prose fail-open class,
+# one scope-shape over. Goes RED if the reset is removed.
+fx_380_multiscope="## Implementation Notes
+
+- **Documentation Needed** — update \`docs/a.md\`
+- **Potential Gotchas** — something
+
+### Documentation Needed
+
+Update \`docs/b.md\` to reflect the change."
+assert_eq "#380 W6A heading shape: heading-arm emitted-reset keeps a later primary-prose deliverable (multi-scope, non-vacuous)" \
+  "$(printf 'docs/a.md\ndocs/b.md')" \
+  "$(printf '%s\n' "$fx_380_multiscope" | bash "$EXTRACT_HELPER")"
+
 # W6A coupled pair (AC6): the create-issue template canonically emits the bold-bullet
 # `**Documentation Needed**` form, and the extractor accepts all three shapes. Pin
 # BOTH sites with removal proofs so mutating EITHER alone turns the suite RED — the
@@ -5966,6 +5989,12 @@ assert_pin_red_on_removal "#380 W6A: create-issue template Move 3 carries the ve
   'A mechanical claim is verified-or-obligation, never a bare prediction.' "$CI312_TMPL"
 assert_pin_red_on_removal "#380 W6A: create-issue SKILL.md drafting step mirrors the verified-or-obligation rule" \
   'A mechanical claim is verified-or-obligation, never a bare prediction' "$CI312_SKILL"
+# AC8 completeness (shadow-review pin): the Relevant Classes/Files line-anchor rule is a
+# distinct new operative sentence, so it earns its own removal proof in BOTH sites.
+assert_pin_red_on_removal "#380 W6A: create-issue template pins the Relevant Classes/Files line-anchor rule" \
+  '**Relevant Classes/Files line anchors**: cite the symbol or section' "$CI312_TMPL"
+assert_pin_red_on_removal "#380 W6A: create-issue SKILL.md pins the Relevant Classes/Files line-anchor rule" \
+  '`Relevant Classes/Files` references cite the symbol or section, not a `file:line` anchor, which rots.' "$CI312_SKILL"
 # Extractor header names all three shapes and this issue (AC5 documentation clause).
 assert_pin_unique "#380 W6A: extractor header names the ### Documentation Needed shape and issue #380" \
   'a `### Documentation Needed` level-3 heading (issue #380)' "$EXTRACT_HELPER"
