@@ -198,17 +198,28 @@ synth_base_ref() {
 # Emit every fix_commit_sha already recorded by ANY other run's iter-*.json —
 # both the live tmp tree and the committed durable copies — so synthesis never
 # re-attributes a commit some other run (real or previously-synthesized) already
-# recorded. $2 is the target run dir, excluded from the scan (its own workpads
-# are what synthesis is about to write). Best-effort: unreadable files are
-# skipped (a sha that cannot be read cannot be excluded — the residual window
-# this leaves is a run whose workpads were ALL deleted after its record was
-# derived, which the durable-copy layer exists to prevent).
+# recorded. $2 is the target run dir's TMP path, excluded from the scan (its own
+# workpads are what synthesis is about to write; its durable mirror under
+# .devflow/logs/review/, if one survives a wiped tmp, is deliberately NOT
+# excluded — a run whose workpads were already persisted reads as already-
+# recorded, which is correct: its record exists and must not be re-attributed).
+# Best-effort AND fail-closed per file: an unreadable/malformed workpad is
+# breadcrumbed and skipped — the jq is `if !`-guarded because this loop runs in
+# an errexit-inheriting process-substitution subshell, where a bare failing jq
+# would kill the scan mid-list and silently truncate the exclusion set (the
+# fail-open the #62/#98 operand-contract check exists to catch). The residual
+# window is a run whose EVERY workpad copy was deleted after its record was
+# derived, which the durable-copy layer exists to prevent.
 recorded_fix_shas() {
-  local root="$1" skip_dir="$2" f
+  local root="$1" skip_dir="$2" f sha_out
   for f in "$root"/.devflow/tmp/review/*/*/iter-*.json "$root"/.devflow/logs/review/*/*/iter-*.json; do
     [ -e "$f" ] || continue
     case "$f" in "$skip_dir"/*) continue ;; esac
-    "$DEVFLOW_JQ" -r 'if (.fix_commit_sha | type) == "string" then .fix_commit_sha else empty end' "$f" 2>/dev/null
+    if ! sha_out="$("$DEVFLOW_JQ" -r 'if (.fix_commit_sha | type) == "string" then .fix_commit_sha else empty end' "$f" 2>/dev/null)"; then
+      echo "::warning::efficiency-trace.sh --persist: could not read fix_commit_sha from ${f} (unreadable or malformed workpad); its sha (if any) cannot be excluded from synthesis" >&2
+      continue
+    fi
+    [ -n "$sha_out" ] && printf '%s\n' "$sha_out"
   done
   return 0
 }

@@ -14345,6 +14345,13 @@ ETSX_B="$(git -C "$ETSX_REPO" rev-list main..HEAD | head -1)"
 mkdir -p "$ETSX_REPO/.devflow/tmp/review/pr-7/run-aaa" "$ETSX_REPO/.devflow/tmp/review/pr-7/run-bbb"
 printf '{"iter":1,"fix_commit_sha":"%s","fix_files":["a"],"loop_role":"fix"}' "$ETSX_A" \
   > "$ETSX_REPO/.devflow/tmp/review/pr-7/run-aaa/iter-1.json"
+# A corrupt sibling workpad that SORTS BEFORE the sha-bearing one: the exclusion
+# scan runs in an errexit-inheriting process-substitution subshell, so an
+# unguarded jq failure here would kill the scan mid-list and silently drop every
+# later sha from the exclusion set (fail-open, order-dependent). The guard must
+# breadcrumb + skip it and still exclude commit A.
+mkdir -p "$ETSX_REPO/.devflow/tmp/review/a-corrupt/run-c"
+printf '[1,2,3]' > "$ETSX_REPO/.devflow/tmp/review/a-corrupt/run-c/iter-1.json"
 ETSX_ERR="$( ( cd "$ETSX_REPO" && bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"; ETSX_RC=$?
 assert_eq "et-synth(mixed): discovery --persist exits 0" "0" "$ETSX_RC"
 assert_eq "et-synth(mixed): sibling-recorded commit A is NOT re-synthesized into run-bbb" "no" \
@@ -14353,6 +14360,8 @@ assert_eq "et-synth(mixed): only the unrecorded commit B is synthesized (iter 2,
   "$(jq -r '.fix_commit_sha' "$ETSX_REPO/.devflow/tmp/review/pr-7/run-bbb/iter-2.json" 2>/dev/null)"
 assert_eq "et-synth(mixed): the exclusion is breadcrumbed, not silent" "yes" \
   "$(printf '%s' "$ETSX_ERR" | grep -qF 'already recorded by another run' && echo yes || echo no)"
+assert_eq "et-synth(mixed): a corrupt sibling workpad is breadcrumbed and skipped, never truncating the scan" "yes" \
+  "$(printf '%s' "$ETSX_ERR" | grep -qF 'could not read fix_commit_sha from' && echo yes || echo no)"
 # The strict `== true` coercion in the false direction: the REAL run's record must
 # read synthesized:false at both record and per-iteration level (guards a future
 # `// true`-style default drift — the #312 valid-falsy class in reverse).
