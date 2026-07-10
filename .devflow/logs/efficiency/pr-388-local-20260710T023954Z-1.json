@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "slug": "pr-397",
-  "generated_at": "2026-07-10T16:51:19Z",
+  "slug": "pr-388",
+  "generated_at": "2026-07-10T16:14:12Z",
   "source": "review-and-fix",
   "cut_candidate_min_dispatch": 3,
   "iterations": 1,
@@ -26,9 +26,9 @@
         "checklist_skipped": null
       },
       "verification_posture": "mixed",
-      "checklist_lite_count": 10,
-      "checklist_agent_count": 7,
-      "fixes_applied": 6,
+      "checklist_lite_count": 12,
+      "checklist_agent_count": 10,
+      "fixes_applied": 3,
       "added_nothing": false,
       "agent_verdicts": [
         {
@@ -37,7 +37,7 @@
         },
         {
           "agent": "devflow:comment-analyzer",
-          "verdict": "unique-effective"
+          "verdict": "corroborating"
         },
         {
           "agent": "devflow:pr-test-analyzer",
@@ -45,11 +45,11 @@
         },
         {
           "agent": "devflow:requesting-code-review",
-          "verdict": "unique-effective"
+          "verdict": null
         },
         {
           "agent": "devflow:silent-failure-hunter",
-          "verdict": "unique-effective"
+          "verdict": null
         }
       ]
     }
@@ -61,7 +61,7 @@
         "phase_0": {
           "calls": 0,
           "tokens": 0,
-          "wall_clock_s": 60
+          "wall_clock_s": 40
         },
         "phase_0_5": {
           "calls": 0,
@@ -70,18 +70,23 @@
         },
         "phase_1": {
           "calls": 1,
-          "tokens": 64914,
-          "wall_clock_s": 115
+          "tokens": 0,
+          "wall_clock_s": 120
+        },
+        "phase_1_5": {
+          "calls": 0,
+          "tokens": 0,
+          "wall_clock_s": 0
         },
         "phase_2": {
-          "calls": 4,
-          "tokens": 177020,
-          "wall_clock_s": 118
+          "calls": 3,
+          "tokens": 90276,
+          "wall_clock_s": 120
         },
         "phase_3": {
           "calls": 5,
-          "tokens": 323996,
-          "wall_clock_s": 400
+          "tokens": 301743,
+          "wall_clock_s": 345
         },
         "step_2_5": {
           "calls": 0,

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "slug": "pr-397",
-  "generated_at": "2026-07-10T16:51:19Z",
+  "slug": "pr-391",
+  "generated_at": "2026-07-10T16:14:12Z",
   "source": "review-and-fix",
   "cut_candidate_min_dispatch": 3,
   "iterations": 1,
@@ -26,9 +26,9 @@
         "checklist_skipped": null
       },
       "verification_posture": "mixed",
-      "checklist_lite_count": 10,
-      "checklist_agent_count": 7,
-      "fixes_applied": 6,
+      "checklist_lite_count": 2,
+      "checklist_agent_count": 1,
+      "fixes_applied": 3,
       "added_nothing": false,
       "agent_verdicts": [
         {
@@ -37,11 +37,11 @@
         },
         {
           "agent": "devflow:comment-analyzer",
-          "verdict": "unique-effective"
+          "verdict": null
         },
         {
           "agent": "devflow:pr-test-analyzer",
-          "verdict": "unique-effective"
+          "verdict": null
         },
         {
           "agent": "devflow:requesting-code-review",
@@ -49,6 +49,10 @@
         },
         {
           "agent": "devflow:silent-failure-hunter",
+          "verdict": "corroborating"
+        },
+        {
+          "agent": "orchestrator-4.1.6-truthfulness-sweep",
           "verdict": "unique-effective"
         }
       ]
@@ -57,44 +61,7 @@
   "telemetry": [
     {
       "iter": 1,
-      "phases": {
-        "phase_0": {
-          "calls": 0,
-          "tokens": 0,
-          "wall_clock_s": 60
-        },
-        "phase_0_5": {
-          "calls": 0,
-          "tokens": 0,
-          "wall_clock_s": 5
-        },
-        "phase_1": {
-          "calls": 1,
-          "tokens": 64914,
-          "wall_clock_s": 115
-        },
-        "phase_2": {
-          "calls": 4,
-          "tokens": 177020,
-          "wall_clock_s": 118
-        },
-        "phase_3": {
-          "calls": 5,
-          "tokens": 323996,
-          "wall_clock_s": 400
-        },
-        "step_2_5": {
-          "calls": 0,
-          "tokens": 0,
-          "wall_clock_s": 5,
-          "webfetches": 0
-        },
-        "phase_4_x": {
-          "calls": 0,
-          "tokens": 0,
-          "wall_clock_s": 30
-        }
-      }
+      "phases": null
     }
   ]
 }

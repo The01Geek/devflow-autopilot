@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "slug": "pr-397",
+  "slug": "issue-381-wave-6b-infrastructure-unloseable-review-loop",
   "generated_at": "2026-07-10T16:51:19Z",
   "source": "review-and-fix",
   "cut_candidate_min_dispatch": 3,
@@ -26,14 +26,14 @@
         "checklist_skipped": null
       },
       "verification_posture": "mixed",
-      "checklist_lite_count": 10,
-      "checklist_agent_count": 7,
-      "fixes_applied": 6,
+      "checklist_lite_count": 8,
+      "checklist_agent_count": 11,
+      "fixes_applied": 13,
       "added_nothing": false,
       "agent_verdicts": [
         {
           "agent": "devflow:code-reviewer",
-          "verdict": null
+          "verdict": "corroborating"
         },
         {
           "agent": "devflow:comment-analyzer",
@@ -66,27 +66,32 @@
         "phase_0_5": {
           "calls": 0,
           "tokens": 0,
-          "wall_clock_s": 5
+          "wall_clock_s": 30
         },
         "phase_1": {
           "calls": 1,
-          "tokens": 64914,
-          "wall_clock_s": 115
+          "tokens": 83024,
+          "wall_clock_s": 120
+        },
+        "phase_1_5": {
+          "calls": 0,
+          "tokens": 0,
+          "wall_clock_s": 0
         },
         "phase_2": {
-          "calls": 4,
-          "tokens": 177020,
-          "wall_clock_s": 118
+          "calls": 11,
+          "tokens": 549511,
+          "wall_clock_s": 380
         },
         "phase_3": {
           "calls": 5,
-          "tokens": 323996,
-          "wall_clock_s": 400
+          "tokens": 447030,
+          "wall_clock_s": 480
         },
         "step_2_5": {
           "calls": 0,
           "tokens": 0,
-          "wall_clock_s": 5,
+          "wall_clock_s": 10,
           "webfetches": 0
         },
         "phase_4_x": {

@@ -14575,6 +14575,25 @@ assert_eq "provision: read-only base profile has no build tools (all 8)" "0" \
   "$(grep "TOOLS='Read,Glob,Grep" "$RUNNER" \
      | grep -cE 'Bash\((npm|npx|node|yarn|pnpm|composer|php|make):\*\)' || true)"
 
+# Issue #401 — probe-gated review-profile grants. matcher-probe.yml run 29111394360
+# empirically measured which shapes the deployed claude-code-action matcher permits:
+#   - row 9: Write(.devflow/tmp/**) PERMITTED (side-effect file created) → LANDED;
+#     the reviewer authors workpad/scratch into the gitignored .devflow/tmp via the
+#     Write tool (never a shell `>` redirect, which the probe recorded DENIED).
+#   - row 8: Write(/tmp/**) DENIED (out-of-workspace) → DROPPED.
+#   - row 3: Bash(cd:*) DENIED, but confounded by an independently-denied `>` redirect
+#     in the same command → UNPROVEN, DROPPED (a redirect-free re-probe must settle it).
+# Pin the landed grant present and the two dropped candidates absent, so a one-sided
+# removal of the scoped Write goes RED and neither dropped candidate is silently
+# re-added without a fresh probe. All three read the review profile TOOLS line only.
+REVIEW_TOOLS_LINE="$(grep "TOOLS='Read,Glob,Grep" "$RUNNER")"
+assert_eq "#401 review profile grants Write(.devflow/tmp/**) (probe row 9 PERMITTED — scoped scratch write)" "1" \
+  "$(printf '%s\n' "$REVIEW_TOOLS_LINE" | grep -cF 'Write(.devflow/tmp/**)' || true)"
+assert_eq "#401 review profile does NOT grant Write(/tmp/**) (probe row 8 DENIED — out-of-workspace)" "0" \
+  "$(printf '%s\n' "$REVIEW_TOOLS_LINE" | grep -cF 'Write(/tmp/**)' || true)"
+assert_eq "#401 review profile does NOT grant Bash(cd:*) (probe row 3 DENIED, confounded by redirect — unproven)" "0" \
+  "$(printf '%s\n' "$REVIEW_TOOLS_LINE" | grep -cF 'Bash(cd:*)' || true)"
+
 # Issue #21: the build append is now the FREEFORM devflow_runner.allowed_tools
 # list (read from the trusted base ref), not the old hard-coded npm…make set.
 # (1) The fixed 8-tool append line must be GONE — listing build tools is now the
@@ -16622,8 +16641,16 @@ assert_eq "#142 CLAUDE.md does NOT claim a vendored first-party devflow:writing-
 # new reference to some OTHER superpowers skill, placed in lib/test, would evade detection.
 # Pattern split-literal so this run.sh never self-matches outside lib/test.
 SP_PAT_NS="superpowers"":"
-assert_eq "#142 no operative surface outside CLAUDE.md carries any bare superpowers: namespaced id (non-internalized refs incl.; CLAUDE.md/test scaffolding/history/migration/learnings excepted)" \
-  "" "$(tracked_scan "$FDROOT" "$SP_PAT_NS" ':!.devflow/logs' ':!.devflow/learnings' ':!CHANGELOG.md' ':!docs/review-agent-overrides.md' ':!lib/test' ':!CLAUDE.md')"
+# docs/superpowers/specs/ is excepted for the same reason CLAUDE.md is: a design
+# spec authored under the superpowers brainstorming/writing-plans discipline
+# legitimately NAMES the external dev-time `superpowers:writing-skills` authoring
+# discipline in its prose (the skill files it directs the implementer to edit are
+# edited under that discipline). Like CLAUDE.md's carried reference, this is a
+# documentation surface, not a runtime dependency, so the zero-companion-dependency
+# claim is unaffected. The narrow scope (only docs/superpowers/specs) keeps the net
+# closed on any OTHER stray superpowers: id in an operative surface.
+assert_eq "#142 no operative surface outside CLAUDE.md carries any bare superpowers: namespaced id (non-internalized refs incl.; CLAUDE.md/test scaffolding/history/migration/learnings/design-specs excepted)" \
+  "" "$(tracked_scan "$FDROOT" "$SP_PAT_NS" ':!.devflow/logs' ':!.devflow/learnings' ':!CHANGELOG.md' ':!docs/review-agent-overrides.md' ':!docs/superpowers/specs' ':!lib/test' ':!CLAUDE.md')"
 
 # (2/2b/2c) Per-skill vendoring + structural validity. For each of the two skills the file
 # exists first-party under skills/<name>/SKILL.md; its frontmatter declares name: <name> (so

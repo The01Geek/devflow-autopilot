@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "slug": "pr-397",
+  "slug": "pr-395",
   "generated_at": "2026-07-10T16:51:19Z",
   "source": "review-and-fix",
   "cut_candidate_min_dispatch": 3,
@@ -23,12 +23,13 @@
         "config_only": false,
         "has_new_types": false,
         "engine_self_modifying": true,
+        "detect_all_audit": false,
         "checklist_skipped": null
       },
-      "verification_posture": "mixed",
-      "checklist_lite_count": 10,
-      "checklist_agent_count": 7,
-      "fixes_applied": 6,
+      "verification_posture": "agent-only",
+      "checklist_lite_count": 0,
+      "checklist_agent_count": 12,
+      "fixes_applied": 8,
       "added_nothing": false,
       "agent_verdicts": [
         {
@@ -66,22 +67,27 @@
         "phase_0_5": {
           "calls": 0,
           "tokens": 0,
-          "wall_clock_s": 5
+          "wall_clock_s": 10
         },
         "phase_1": {
           "calls": 1,
-          "tokens": 64914,
-          "wall_clock_s": 115
+          "tokens": 57695,
+          "wall_clock_s": 104
+        },
+        "phase_1_5": {
+          "calls": 0,
+          "tokens": 0,
+          "wall_clock_s": 0
         },
         "phase_2": {
-          "calls": 4,
-          "tokens": 177020,
-          "wall_clock_s": 118
+          "calls": 12,
+          "tokens": 560000,
+          "wall_clock_s": 300
         },
         "phase_3": {
-          "calls": 5,
-          "tokens": 323996,
-          "wall_clock_s": 400
+          "calls": 6,
+          "tokens": 385000,
+          "wall_clock_s": 2400
         },
         "step_2_5": {
           "calls": 0,
@@ -92,7 +98,7 @@
         "phase_4_x": {
           "calls": 0,
           "tokens": 0,
-          "wall_clock_s": 30
+          "wall_clock_s": 120
         }
       }
     }
