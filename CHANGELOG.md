@@ -4,6 +4,50 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.106] — 2026-07-10
+
+### Fixed
+- **Review live-comment seeding no longer misreads an interpreter-level exit 2 as "first write."** `skills/review/SKILL.md` branched its live progress-comment seed on `workpad.py id`'s exit code, treating rc 2 as `cmd_id`'s clean-absence "first write". But `python3` also exits 2 when it cannot open the script (`[Errno 2]`/`[Errno 13]` on a partial or unreadable vendor copy) and `argparse` exits 2 on a non-numeric PR number, so an interpreter-level failure was misdiagnosed as "create" and its captured stderr discarded. Three coupled screens now keep the "first write" arm reachable only from `cmd_id`'s own silent `sys.exit(2)`: a non-numeric-PR-number guard before the `id` call, a readable-path precheck on `workpad.py` before exec (with a distinct missing/unreadable breadcrumb), and an empty-captured-stderr requirement on the rc-2 arm; the failure arm now surfaces the captured stderr instead of swallowing it. (#388)
+
+## [2.8.105] — 2026-07-10
+
+### Changed
+- **The `lib/test/run.sh` pin-helper family is now option-safe for flag-shaped literals.**
+  `pin_count`, `grep_present`, and `assert_pin_red_on_removal` all pass their caller literal to
+  `grep -F` after an explicit `--`, so a literal beginning with `-`/`--` (e.g. a `--tick-progress`
+  pin) is treated as the search pattern rather than parsed as grep options and silently
+  mis-counted as absent (0). This makes `pin_count` — and therefore `assert_pin_unique` — safe
+  for flag-shaped pins that previously required a hand-guarded raw `grep -qF --` at the call site.
+  (#374)
+- **The mutation-check discipline is now copy-based, never destructive.** At both coupled sites
+  (`skills/review-and-fix/SKILL.md` Step 3 and `skills/implement/phases/phase-2-implement.md`), a
+  guard's vacuity is proven by breaking what it pins *on a copy of the file* and confirming it
+  goes RED there — never by an in-place "break then restore" that a crash or interruption could
+  leave broken. (#374)
+
+## [2.8.104] — 2026-07-10
+
+### Changed
+### Fixed
+
+- Cloud review runs can no longer consume an entire budget and terminate without a verdict. The review engine is now given ground truth about the two things it previously discovered by trial and denial: the exact set of commands it may execute, and the CI results already observed for the commit it is reviewing. Both are prepended to the review prompt as a `> [!IMPORTANT]` block on every run, on the automated `devflow-review` path and the manual `/devflow:review` comment path alike ([#367](https://github.com/The01Geek/devflow-autopilot/pull/367)).
+- The auto-review tool profile now grants the commands the review engine actually invokes — `mkdir`, `tee`, `git cat-file`, `git checkout`, `mktemp`, `cmp`, and `rm -f` — plus `load-prompt-extension.sh` from any anchor directory. Phase 0.2's cached diff is created (so Phase 3's `{DIFF_PATH}` resolves), and Phase 0.3.6's blocker-recheck fast path and Phase 3.1's dirty-tree backstop execute in cloud for the first time ([#367](https://github.com/The01Geek/devflow-autopilot/pull/367)).
+- A review run that reaches no verdict now announces itself twice, independently: the engine stamps a terminal `❌` on its progress comment, and `finalize_check` emits an `::error::` naming the reviewed HEAD and the permission-denial count. The second survives an engine that never runs the first ([#367](https://github.com/The01Geek/devflow-autopilot/pull/367)).
+- `scripts/surface-execution-diagnostics.sh` emits a `::warning::` when a run records permission denials, so a stalled run is visible in the job log rather than buried in a Markdown block ([#367](https://github.com/The01Geek/devflow-autopilot/pull/367)).
+- An absent CI result can no longer read as a passing one. The injected block declared its CI fence "the authoritative test evidence" unconditionally, so on a commit whose CI state could not be established the engine was told an unavailability notice discharged its test evidence. The block and `skills/review/SKILL.md` now scope that claim to a fence naming a check *and* a conclusion, and state that `CI status unavailable` and `No CI signals reported for this commit` mean the test evidence is **missing** — never green ([#367](https://github.com/The01Geek/devflow-autopilot/pull/367)).
+
+- `scripts/render-grounding-block.sh` strips backticks from the CI summary before interpolating it into the block's fenced code block. Containment previously depended entirely on `summarize-ci-checks.sh` sanitizing check names upstream, which made it a property of the caller rather than of the renderer that carries the injection defense. The strip uses bash parameter expansion, not `tr` — a sanitizer built on a non-preflight PATH tool fails open when the tool is absent ([#367](https://github.com/The01Geek/devflow-autopilot/pull/367)).
+
+### Added
+
+- `scripts/summarize-ci-checks.sh` renders the CI signals observed for a PR head, one line per signal. It excludes DevFlow's own workflow, the duplicate `github-actions` app check-runs, and its own `Devflow Review` check. Check names are attacker-controlled text entering a `pull_request_target` prompt, so they are sanitized, truncated, and count-capped; every failure path prints `CI status unavailable` with a query-specific breadcrumb and exits 0, so an unknown CI state is never rendered as a passing one ([#367](https://github.com/The01Geek/devflow-autopilot/pull/367)).
+- `lib/test/run.sh` now pins every Bash command head in `skills/review/SKILL.md`'s `bash`-fenced blocks against **both** allowlists the skill runs under — `devflow-runner.yml`'s `review` profile and `devflow.yml`'s command allowlist — so a command the skill invokes but a profile omits turns the suite RED instead of being silently denied at runtime. The extractor deliberately does not read inline-backtick prose, so the heads the engine invokes from prose or a markdown table — including `gh pr review`, the command that emits the verdict — are covered by a second pin that *derives* them from the skill on every run (by an independent signal: backtick spans outside the fences) and feeds them to the same granting matcher. Adding a prose-invoked command the profile does not grant now turns the suite RED, rather than shipping a silent runtime denial ([#367](https://github.com/The01Geek/devflow-autopilot/pull/367)).
+
+### Changed
+
+- `checks: read` is granted to `devflow-runner.yml` and to its caller job in `devflow-review.yml`, and to `devflow.yml`'s `command` job, for the new check-runs query. The runner and its caller are a coupled pair: a reusable workflow requesting a permission its caller did not grant aborts the run at graph-build time ([#367](https://github.com/The01Geek/devflow-autopilot/pull/367)).
+- `devflow.yml`'s inline `--allowed-tools` list is hoisted into a step output consumed by both `claude_args` and the injected block, so the block quotes the exact string the run resolved rather than a second copy that could drift. No grant was removed by the hoist ([#367](https://github.com/The01Geek/devflow-autopilot/pull/367)).
+
 ## [2.8.103] — 2026-07-10
 
 ### Added
