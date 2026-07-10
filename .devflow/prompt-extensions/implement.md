@@ -78,6 +78,25 @@ issue provenance of a non-obvious shape — are load-bearing and stay, pinned or
 lower bound over an exact count in both the comment and its pin** (`at least N`, not `N`), so
 adding an Nth site never forces a coupled edit of the comment and the assertion.
 
+## Behavioral-fix pins — evidence, not attestation
+
+When you add a **behavioral-fix pin** in this repo (a coverage pin added *specifically because*
+removing the pinned text would re-introduce a **named** bug — the operative qualifier of a sweep
+rule, a coupled-invariant pin, a regression guard), express it through **`assert_pin_red_under`**
+— the mutation-taking removal-proof assertion in `lib/test/run.sh`
+(`assert_pin_red_under <name> <literal> <mutation> [file]`) — passing a `sed -E`
+**mutation that re-introduces the named bug** by removing *only* the operative sentence from a
+scratch copy. Unlike `assert_pin_red_on_removal` (whole-line deletion, which reports PASS→FAIL for
+*any* present-and-unique literal, framing or operative alike), `assert_pin_red_under` reports a
+framing-only pin **RED** when it survives the operative mutation, so the pin proves it catches the
+*guarded regression*, not merely its own line vanishing.
+
+Then record **evidence, not an attestation**. The workpad `--note` records
+**the mutation you ran and the pin you observed go RED** under it — a reproducible fact — instead of
+the old unfalsifiable attestation that "the pin literal is a substring of the operative sentence." A
+note that testifies about the pin proves nothing a reviewer can re-run; a note that states the
+mutation and the observed RED verdict does.
+
 ## Verification under classifier friction — never ship an unverified assumption
 
 The sandbox permission classifier in this repo frequently denies the very commands that
