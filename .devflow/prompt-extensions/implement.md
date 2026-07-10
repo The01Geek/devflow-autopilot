@@ -63,6 +63,21 @@ reconciliation. The producer (`version-consolidate.yml`) and consumer (Step 4b) 
 lockstep by a coupling pin in `lib/test/run.sh`; change one and the suite goes RED until the
 other matches.
 
+## The project's preflight-guaranteed tool set (for §2.3.6's un-guaranteed-tool sweep)
+
+The base skill's §2.3.6 un-guaranteed-tool guard class keys on "a tool **the project's
+preflight** does not guarantee." For this repository, that preflight set is fixed and small:
+DevFlow's preflight guarantees exactly **git, gh (authenticated), jq, and python3 (>=3.11) with PyYAML**
+— the same set `lib/preflight.sh`'s header declares (this enumeration is a coupled mirror of that
+header; `lib/test/run.sh` pins the two, so renaming or removing a tool on either side turns
+the suite RED; a tool *added* to the preflight set is reconciled here by the §2.3.0b
+enumeration-reconciliation sweep, not by these pins). Everything else a helper might
+reach for on `PATH` — `tr`, `sed`, `awk`, `cut`, `wc`, `head`, `paste` — is **not** guaranteed: a
+value that decides a selection or an emitted result must not be derived through one of those (derive
+it with bash builtins instead), while cosmetic sanitization through them is acceptable only when a
+missing tool fails closed. This concrete set is what instantiates "the project's preflight" in the
+base skill's generic wording; the base skill stays repo-agnostic and names no tools.
+
 ## Comment discipline — pin mirror-fact comments or don't write them
 
 The base skill's §2.3 authoring rule keeps mirror-fact comments (an exact count, an
