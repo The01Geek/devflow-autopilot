@@ -22161,13 +22161,14 @@ I405_SKILL="$LIB/../skills/implement/SKILL.md"
 I405_IMPL_YML="$LIB/../.github/workflows/devflow-implement.yml"
 I405_DEVFLOW_YML="$LIB/../.github/workflows/devflow.yml"
 
-# AC1: both allowed_tools arrays grant the three in-env verification commands. Read via
-# python3 (a hard preflight prereq — no jq/tr dependency) so a membership check never
-# degrades to a false "present". RED today only if any entry is missing from either array.
+# AC1: both allowed_tools arrays grant the three in-env verification commands. Reuse the
+# established dpt_has() JSON-array-membership helper (the same one the detect-project-tools
+# assertions use against these exact allowed_tools paths) rather than a bespoke inline reader.
+# RED today only if any entry is missing from either array.
 for I405_KEY in devflow devflow_implement; do
   for I405_ENT in 'Bash(lib/test/run.sh:*)' 'Bash(lib/preflight.sh:*)' 'Bash(shellcheck:*)'; do
     assert_eq "#405 AC1 config: $I405_KEY.allowed_tools grants $I405_ENT" "yes" \
-      "$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print("yes" if sys.argv[3] in d.get(sys.argv[2],{}).get("allowed_tools",[]) else "no")' "$I405_CONFIG" "$I405_KEY" "$I405_ENT" 2>/dev/null || echo no)"
+      "$(dpt_has ".$I405_KEY.allowed_tools" "$I405_ENT" "$I405_CONFIG")"
   done
 done
 
