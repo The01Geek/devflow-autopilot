@@ -1,0 +1,56 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-10T05:26:06Z",
+  "fix_commit_sha": "53a05572a7924c4246b083056ea5ad80389e132a",
+  "fix_files": ["lib/test/pin-corpus-lint.py", "lib/test/run.sh"],
+  "loop_role": "fix",
+  "fix_severity_threshold_resolved": "important",
+  "max_iterations_resolved": 5,
+  "checklist": [
+    {"id": "VC-12", "claim": "CLAUDE.md gains the wrapped-literal gotcha (tr -s, rendered surface)", "file": "CLAUDE.md", "verification_mode": "lite", "claim_signature": "api_contract:CLAUDE.md:wrapped-literal-gotcha-present", "verdict": "PASS", "evidence": "lite probe: hit at CLAUDE.md:45", "reused_from_iter_prev": false},
+    {"id": "VC-13", "claim": "Changeset carries bump: patch", "file": ".changeset/issue-375-pin-tooling-hardening.md", "verification_mode": "lite", "claim_signature": "api_contract:changeset:bump-patch-present", "verdict": "PASS", "evidence": "lite probe: hit at line 2", "reused_from_iter_prev": false},
+    {"id": "VC-1..VC-11,VC-14,VC-15", "claim": "13 agent-mode items dispatched to devflow:checklist-verifier; results not collected before loop wrap-up (verifier agents still running at coordinator-directed completion)", "file": "various", "verification_mode": "agent", "claim_signature": "batch:agent-items-dispatched-results-pending", "verdict": "INCONCLUSIVE", "evidence": "dispatched 13 verifiers; orchestrator-direct verification substituted for the two REJECT-driving claims (help= conditionality: confirmed then FIXED in 53a0557; CI-runs-as-root comment: confirmed false then FIXED in 53a0557)", "reused_from_iter_prev": false}
+  ],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {"agent": "devflow:requesting-code-review", "severity": "Important", "description": "multi-literal help= FAIL is conditional on the phrase being off-line while the AC and four doc sites state it unconditionally (reproduced on fixture)", "defect_signature": {"file": "lib/test/pin-corpus-lint.py", "line_range": [518, 527], "kind": "documented_falsehood"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "orchestrator-4.1.6-truthfulness-sweep", "severity": "Important", "description": "diff-added comment at run.sh:20253 claims 'CI runs as root' — false against the shipped ubuntu-latest non-container CI (documented_falsehood, self-contradicting-diff carve-out)", "defect_signature": {"file": "lib/test/run.sh", "line_range": [20249, 20254], "kind": "documented_falsehood"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "engine skill bodies hardcode assert_pin_red_under (DevFlow-suite-only), making the behavioral-fix-pin guard inert in consumer repos", "defect_signature": {"file": "skills/review-and-fix/SKILL.md", "line_range": [618, 620], "kind": "logic_error"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "pushed_back"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "kind=='none' resolved-but-unlintable targets silently exempt from the comment lint (latent; no current corpus member)", "defect_signature": {"file": "lib/test/pin-corpus-lint.py", "line_range": [456, 480], "kind": "logic_error"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "deferred"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "unguarded rm -f on probe_tmp /dev/null sentinel (PRU_FX/PRU_META)", "defect_signature": {"file": "lib/test/run.sh", "line_range": [1865, 1907], "kind": "logic_error"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "real-corpus scan surfaces only UNRESOLVED-COUNT (unbounded), discards per-site detail", "defect_signature": {"file": "lib/test/run.sh", "line_range": [20180, 20215], "kind": "test_gap"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "deferred"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "synthetic self-test invocations drop scanner exit status; wrapped call discards stderr", "defect_signature": {"file": "lib/test/run.sh", "line_range": [20260, 20262], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "deferred"},
+    {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "hash_comment_regions applies shell comment rules to .py targets (two narrow fail-open edges)", "defect_signature": {"file": "lib/test/pin-corpus-lint.py", "line_range": [293, 331], "kind": "logic_error"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "deferred"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-1", "decision": "applied", "commit": "53a05572a7924c4246b083056ea5ad80389e132a", "source_file": "lib/test/pin-corpus-lint.py", "claim_text": "multi-literal help= FAIL conditional vs unconditional docs/AC", "evidence": "code brought to spec (issue #375 AC mandates unconditional); mutation-verified: old scanner missed helponline fixture, new scanner flags it; real corpus stays clean (suite 4658/0)"},
+    {"finding_id": "F-2", "decision": "applied", "commit": "53a05572a7924c4246b083056ea5ad80389e132a", "source_file": "lib/test/run.sh", "claim_text": "diff-added comment 'CI runs as root' false against HEAD", "evidence": "reworded to conditional root-run-suite form; ci.yml runs-on ubuntu-latest with no container (non-root runner) is the shipped truth"},
+    {"finding_id": "F-3", "decision": "pushed_back", "source_file": "skills/review-and-fix/SKILL.md", "claim_text": "skill bodies should stay framework-agnostic; assert_pin_red_under naming belongs only in the prompt extension", "skip_category": "claim-quality", "evidence": "issue #375 AC mandates verbatim that phase-2-implement.md section 2.3 and review-and-fix SKILL.md Step 3 item 4 are rewritten to route through assert_pin_red_under at those exact sites; the prescription contradicts the spec-of-record. CLAUDE.md scopes the repo-agnostic constraint to the two vendored superpowers skills (receiving-code-review, requesting-code-review) only. Making the engine text generic again would un-implement the AC; a consumer-facing generalization is follow-up-issue material, not a defect in this PR."},
+    {"finding_id": "F-4", "decision": "deferred", "source_file": "lib/test/pin-corpus-lint.py", "claim_text": "kind=='none' resolved-but-unlintable targets silently exempt from comment lint", "skip_category": "uncategorized", "evidence": "latent by construction: every current corpus target has a covered extension or an --md binding (matches the standalone cloud review's Minor 7, already parked in the approve-with-notes report); revisit when a pin targets an uncovered extension"},
+    {"finding_id": "F-5", "decision": "applied", "commit": "53a05572a7924c4246b083056ea5ad80389e132a", "source_file": "lib/test/run.sh", "claim_text": "unguarded rm -f on probe_tmp /dev/null sentinel", "evidence": "sentinel guards added for PRU_FX/PRU_META (corroborated by 2 agents; trivial, clearly correct, adjacent to the over-broad fix block)"},
+    {"finding_id": "F-6", "decision": "deferred", "source_file": "lib/test/run.sh", "claim_text": "UNRESOLVED-COUNT unbounded / per-site detail discarded", "skip_category": "uncategorized", "evidence": "the code comment deliberately chose surface-not-assert; an upper bound is hardening for a follow-up, not a defect (2 agents agree it is not a contract violation)"},
+    {"finding_id": "F-7", "decision": "deferred", "source_file": "lib/test/run.sh", "claim_text": "synthetic self-test rc/stderr capture gaps", "skip_category": "uncategorized", "evidence": "fail-closed already (positive assertions go RED on empty output per the finding's own analysis); diagnosability polish only"},
+    {"finding_id": "F-8", "decision": "deferred", "source_file": "lib/test/pin-corpus-lint.py", "claim_text": "hash_comment_regions .py heuristics (foo()#note; # inside triple-quoted strings)", "skip_category": "uncategorized", "evidence": "narrow edges; no current corpus member exercises them; tokenize-based pass is follow-up material"},
+    {"finding_id": "F-3", "decision": "severity-calibrated", "source_file": "skills/review-and-fix/SKILL.md", "claim_text": "engine skill bodies hardcode assert_pin_red_under", "original_severity": "Important", "calibrated_severity": "Important", "evidence": "grade kept: a consumer-repo directive pointing at an absent helper is a real fail-open in deployed contexts; disposition is pushback on spec grounds (the AC mandates this design), not severity"}
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 3,
+    "fix_diff_lines": 80,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "notes": "Run executed by the fix subagent for PR #391 inside /devflow:review-and-fix invoked from the shepherd fix procedure. Phase 3 dispatched 6 agents (5 returned results consumed: checklist-generator, silent-failure-hunter, requesting-code-review final pass, plus orchestrator-direct 4.1.6 truthfulness sweep and 3.1.5 completeness-critic [no finding]; code-reviewer/comment-analyzer/pr-test-analyzer and 13 checklist verifiers had not returned by coordinator-directed wrap-up and are recorded as dispatched-but-uncollected). Phase 2: 2 lite PASS; the two REJECT-driving claims were orchestrator-verified directly and fixed. Dirty-tree backstop: the orchestrator's own Step 3 edits overlapped the dispatch window, so the snapshot compare cannot attribute divergence; agents are read-only-instructed and no unexpected paths were dirty at commit time (git status showed only the two fix files)."
+}
