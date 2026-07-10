@@ -57,6 +57,8 @@ For each changed file, find every place the NEW or MODIFIED code:
 - Request body fields that must match backend route parameter schemas
 - Status codes or error formats assumed by callers
 
+**Absolute claims** — a diff-added doc line, comment, example, or help string that asserts a **universal**: that some property holds in *all* cases, or that *no* input can produce some outcome. The claim qualifies when its text carries a universal quantifier or a closed-guarantee phrasing — e.g. "no X can Y", "every", "never", "always", "cannot", "in all cases", "is caught by the same rule", "handles every". These are the highest-value verification targets precisely because a reviewer *reading* the claim confirms nothing — only a *failed attempt to falsify* it does. So an absolute-claim item does not ask the verifier to re-read the code; its `verify_hint` instructs the verifier to **construct an input satisfying the claim's antecedent and observe whether the consequent actually holds** (build the falsifying case — the crafted multi-pair sequence, the ticked-row, the boundary input the universal says is covered — and run it). A merely *scoped* claim ("in the common case", "for a single retag", "usually") is **not** an absolute claim and does not warrant an item under this category.
+
 ### Step 2b: Variance-recovery filter (only when a prior-iteration checklist is supplied)
 
 When the caller provides a prior-iteration checklist:
@@ -80,7 +82,7 @@ Return a JSON array of checklist items. Each item:
 [
   {
     "id": "VC-1",
-    "category": "dependency_interaction | test_mock_alignment | data_format_assumption | api_contract | string_presence",
+    "category": "dependency_interaction | test_mock_alignment | data_format_assumption | api_contract | string_presence | absolute_claim",
     "claim": "Human-readable description of what the code assumes",
     "source_file": "path/to/file.py",
     "source_line": 111,
@@ -119,6 +121,9 @@ Tag every item with one of two modes:
   - "Mock return value matches the real `save_tool_usage` signature in `chroma_memory.py`" (requires reading both call sites and comparing semantics)
   - "Frontend interface `UserDto` keys match backend response schema" (cross-file shape comparison)
   - "Caller handles the empty-array return from `list_data_sources`" (requires reasoning about control flow)
+  - "The claim 'a crafted multi-pair sequence is caught by the same rule' holds against a falsifying input" (an `absolute_claim` — the verifier must construct and run the falsifying case, not grep)
+
+**`absolute_claim` items are ALWAYS `verification_mode: agent` — never `lite`.** This is not optional: `lite` mode is permitted only when `category` is `api_contract` or `string_presence` (condition 1 above), so `absolute_claim` is excluded by construction, and it must **never** be added to that lite-mode category list. A lite item is resolved by the orchestrator running a `grep` — and "read the claim / grep for it" is exactly the procedure that *cannot* falsify a universal (it confirms the claim's text exists, never that the claim is true). Emit every `absolute_claim` item as `agent` with a `verify_hint` that names the falsifying input to construct, and omit `lite_probe`.
 
 When emitting a `lite` item, the `lite_probe` object is REQUIRED — the orchestrator cannot run the probe without it. If you cannot populate `lite_probe` confidently, mark the item `agent` instead.
 
@@ -136,6 +141,7 @@ Examples:
 - `api_contract:new_module.py:spdx-header-present`
 - `test_mock_alignment:chroma_memory.py:save-tool-usage-mock-shape:188`
 - `dependency_interaction:postgres.py:engine-url-key-name`
+- `absolute_claim:SKILL.md:multi-pair-caught-by-same-rule`
 
 ## Rules
 
