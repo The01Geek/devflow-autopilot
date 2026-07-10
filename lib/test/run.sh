@@ -19088,6 +19088,23 @@ assert_eq "#363 \${CLAUDE_SKILL_DIR:-...}/../../ normalizes to .devflow/vendor/d
 assert_eq "#363 a Bash(...) spec cited in a COMMENT does not grant the head (scoped extraction)" \
   "somecmd" "$(python3 "$ECH" ungranted "$E363/red.md" "$E363/cited.yml" tools-line)"
 
+# ── The allowlist-line selector is fail-closed on BOTH degenerate shapes. Returning the
+# ── first of several TOOLS='...' lines would silently audit the review engine against the
+# ── wrong profile's grants — a fail-open in the matcher every pin above depends on.
+printf "%s\n" "no allowlist here" > "$E363/zero-tools.yml"
+assert_eq "#363 the allowlist selector aborts when NO TOOLS='...' line exists (fail-closed)" "yes" \
+  "$(python3 "$ECH" ungranted "$E363/red.md" "$E363/zero-tools.yml" tools-line >/dev/null 2>&1 && echo no || echo yes)"
+{ printf "%s\n" "TOOLS='Read,Bash(somecmd:*)'"; printf "%s\n" "TOOLS='Read'"; } > "$E363/dup-tools.yml"
+assert_eq "#363 the allowlist selector aborts on a DUPLICATE TOOLS='...' line rather than guessing (fail-closed)" "yes" \
+  "$(python3 "$ECH" ungranted "$E363/red.md" "$E363/dup-tools.yml" tools-line >/dev/null 2>&1 && echo no || echo yes)"
+assert_eq "#363 the duplicate-allowlist abort names the count so the failure is attributable" "yes" \
+  "$(python3 "$ECH" ungranted "$E363/red.md" "$E363/dup-tools.yml" tools-line 2>&1 | grep -qF '2 `TOOLS='"'"'...'"'"'` allowlist lines found' && echo yes || echo no)"
+# Non-vacuity: WITHOUT the uniqueness guard the first line would win and `somecmd` would read
+# as GRANTED (empty output, rc 0) even though a second, narrower allowlist does not grant it.
+assert_eq "#363 the duplicate fixture would otherwise pass vacuously (first line grants somecmd)" "" \
+  "$(printf "%s\n" "TOOLS='Read,Bash(somecmd:*)'" > "$E363/first-only.yml"; \
+     python3 "$ECH" ungranted "$E363/red.md" "$E363/first-only.yml" tools-line)"
+
 # ── Direct grant pins. `git cat-file` is out of the extractor's fenced-block reach
 # ── (Phase 0.3.6 invokes it from inline prose), so it is pinned by literal here —
 # ── this is the documented compensating control for the narrow extraction scope.

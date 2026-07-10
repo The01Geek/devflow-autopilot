@@ -403,11 +403,21 @@ def tools_allowlist_line(text: str) -> str:
     devflow.yml's hoisted `Resolve allowed-tools` step. devflow-runner.yml also
     carries a `TOOLS="$TOOLS,$FILTERED"` append under provision_env; the
     single-quote anchor excludes it, so the match stays unique.
+
+    Uniqueness is ENFORCED, not assumed. Returning the first of several matches would
+    silently pick one allowlist and ignore the rest, so a second profile's `TOOLS='...'`
+    line added later would be audited against the wrong grants — a fail-open in the very
+    matcher the #363 pins rely on. Zero matches and more than one match both abort.
     """
-    for line in text.splitlines():
-        if re.match(r"^\s*TOOLS='", line):
-            return line
-    raise SystemExit("devflow: no `TOOLS='...'` allowlist line found")
+    matches = [line for line in text.splitlines() if re.match(r"^\s*TOOLS='", line)]
+    if not matches:
+        raise SystemExit("devflow: no `TOOLS='...'` allowlist line found")
+    if len(matches) > 1:
+        raise SystemExit(
+            f"devflow: {len(matches)} `TOOLS='...'` allowlist lines found; expected exactly one. "
+            "Refusing to guess which one grants the review engine's commands."
+        )
+    return matches[0]
 
 
 def parse_allowlist(text: str) -> set[tuple[str, ...]]:
