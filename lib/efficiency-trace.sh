@@ -203,13 +203,16 @@ synth_base_ref() {
 # .devflow/logs/review/, if one survives a wiped tmp, is deliberately NOT
 # excluded — a run whose workpads were already persisted reads as already-
 # recorded, which is correct: its record exists and must not be re-attributed).
-# Best-effort AND fail-closed per file: an unreadable/malformed workpad is
-# breadcrumbed and skipped — the jq is `if !`-guarded because this loop runs in
-# an errexit-inheriting process-substitution subshell, where a bare failing jq
-# would kill the scan mid-list and silently truncate the exclusion set (the
-# fail-open the #62/#98 operand-contract check exists to catch). The residual
-# window is a run whose EVERY workpad copy was deleted after its record was
-# derived, which the durable-copy layer exists to prevent.
+# Best-effort with a CONTAINED, breadcrumbed per-file failure: an unreadable/
+# malformed workpad is skipped — its sha (if any) is lost from the exclusion
+# set, a fail-open-for-that-file window the breadcrumb makes loud — while the
+# `if !` guard keeps the failure from truncating the REST of the scan (this
+# loop runs in an errexit-inheriting process-substitution subshell, where a
+# bare failing jq would kill it mid-list and silently drop every later sha —
+# the wider fail-open the #62/#98 operand-contract check exists to catch).
+# Residual windows: a run whose EVERY workpad copy was deleted after its record
+# was derived (the durable-copy layer exists to prevent it), and the
+# single-unreadable-sibling sha just described (breadcrumbed, never silent).
 recorded_fix_shas() {
   local root="$1" skip_dir="$2" f sha_out
   for f in "$root"/.devflow/tmp/review/*/*/iter-*.json "$root"/.devflow/logs/review/*/*/iter-*.json; do
@@ -278,7 +281,7 @@ select_fix_commits() {
     n="${n# }"                                    # drop one leading space
     case "$n" in
       *")") n="${n%)}" ;;
-      *) echo "::warning::efficiency-trace.sh --persist: fix-commit ${sha} matches the fix-subject prefix but has no trailing ')' iteration suffix; skipping" >&2; continue ;;
+      *) echo "::warning::efficiency-trace.sh --persist: fix-commit ${sha} matches the fix-subject prefix but does not END with the '(iteration N)' suffix (trailing text after it, or a missing ')'); skipping" >&2; continue ;;
     esac
     case "$n" in
       ''|*[!0-9]*) echo "::warning::efficiency-trace.sh --persist: fix-commit ${sha} has a non-numeric iteration token '${n}'; skipping" >&2; continue ;;
@@ -306,9 +309,10 @@ select_fix_commits() {
 # caller's breadcrumb never collapses an unestablished measurement onto "found
 # none" (the repo's unknown-is-not-zero gotcha): returns 0 iff ≥1 record was
 # written; 2 when selection RAN and found no unrecorded matching commit; 3 when
-# selection could not run at all (no base ref resolvable — whether matching
-# commits exist was never established); 4 when commits WERE selected but every
-# record write failed (per-commit warnings already emitted).
+# the search could not run at all (no base ref resolvable, OR the git log
+# enumeration itself failed — either way, whether matching commits exist was
+# never established; the arm-specific warning names which); 4 when commits WERE
+# selected but every record write failed (per-commit warnings already emitted).
 synthesize_iter_workpads() {
   local dir="$1" root="$2" n sha files files_ok base excl log_out tab attempted=0 wrote=0
   tab="$(printf '\t')"
@@ -320,8 +324,11 @@ synthesize_iter_workpads() {
   # `git log` (unborn HEAD, index-lock race, corrupt object store) is "the
   # enumeration never ran" — rc 3, never collapsed onto rc 2's "found none"
   # (the unknown-is-not-zero gotcha, applied to the search itself).
-  if ! log_out="$(git -C "$root" log --reverse --format="%H${tab}%s" "${base}..HEAD" 2>&1)"; then
-    echo "::warning::efficiency-trace.sh --persist: git log ${base}..HEAD failed (${log_out:-no error text}); whether matching fix commits exist was never established" >&2
+  # Data purity: stderr is DISCARDED, never merged into the captured list — a
+  # succeeding git that also prints an advisory (unreadable ~/.config/git, ref
+  # warnings) must not inject stderr lines into the parsed commit stream.
+  if ! log_out="$(git -C "$root" log --reverse --format="%H${tab}%s" "${base}..HEAD" 2>/dev/null)"; then
+    echo "::warning::efficiency-trace.sh --persist: git log ${base}..HEAD failed (rc-checked; its stderr is suppressed to keep the data stream pure — rerun the command manually for detail); whether matching fix commits exist was never established" >&2
     return 3
   fi
   # Join the exclusion set with bash builtins only — it DECIDES which commits are
@@ -340,8 +347,8 @@ synthesize_iter_workpads() {
     # empty/--allow-empty commit's []) with a breadcrumb, never a silent
     # fabricated "this commit touched no files".
     files_ok=1
-    if ! files="$(git -C "$root" diff-tree --no-commit-id --name-only -r "$sha" 2>&1)"; then
-      echo "::warning::efficiency-trace.sh --persist: could not derive fix_files for ${sha} (git diff-tree failed: ${files:-no error text}); recording fix_files as null (unestablished)" >&2
+    if ! files="$(git -C "$root" diff-tree --no-commit-id --name-only -r "$sha" 2>/dev/null)"; then
+      echo "::warning::efficiency-trace.sh --persist: could not derive fix_files for ${sha} (git diff-tree failed; stderr suppressed to keep the data stream pure); recording fix_files as null (unestablished)" >&2
       files_ok=0
       files=""
     fi
@@ -476,7 +483,7 @@ persist_one() {
     case "$synth_rc" in
       0) : ;;
       3)
-        echo "::warning::efficiency-trace.sh --persist: run ${slug}/${run_id} left no iter-*.json and the fix-commit search could not run (no base branch ref resolvable) — whether matching fix commits exist was never established; telemetry not synthesized" >&2
+        echo "::warning::efficiency-trace.sh --persist: run ${slug}/${run_id} left no iter-*.json and the fix-commit search could not run (unresolvable base ref, or the git log enumeration failed — the warning above names which) — whether matching fix commits exist was never established; telemetry not synthesized" >&2
         return 0 ;;
       4)
         echo "::warning::efficiency-trace.sh --persist: run ${slug}/${run_id} left no iter-*.json; matching fix commits were selected but every synthesized record write failed (see the per-commit warnings above) — telemetry not synthesized" >&2
