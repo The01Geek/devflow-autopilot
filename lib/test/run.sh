@@ -2704,6 +2704,40 @@ assert_pin_unique "step8: CI-fallback local-skip requires an auditable recorded 
 assert_pin_unique "step8: CI-fallback: submitting a push is not the same as observing green" \
   'submitting a push is not the same as observing green' "$RECV_SKILL"
 
+# Drift guards (issue #399): the Verification Gate gains a fourth evidence item — branch-sync
+# evidence regenerated in the turn the completion claim is made — plus the Step 0 point-in-time
+# disclaimer and the closing item widened to gate on the full evidence set. These are SKILL
+# prose shipped to consumer repos, so an assert_pin_unique on the operative sentence is the
+# drift guard; each behavioral-fix pin is additionally proven via assert_pin_red_under with a
+# `sed -E` mutation that re-introduces the NAMED regression (one-shot Step 0 semantics, an
+# unbounded drift chase, a settled-fact Step 0 claim, or dropping the branch-sync gate), so a
+# framing-only pin is reported RED. Literals are gate-unique, apostrophe-free ASCII, and
+# engine-agnostic (no DevFlow machinery named in the pinned text).
+# pin-A (AC1/AC5): the fourth item requires evidence generated in the same turn as completion.
+assert_pin_unique "399: gate item 4 requires same-turn branch-sync evidence" \
+  'Generate branch-sync evidence in the same turn as the completion claim' "$RECV_SKILL"
+assert_pin_red_under "399: removing item 4 re-introduces one-shot Step 0 semantics" \
+  'Generate branch-sync evidence in the same turn as the completion claim' \
+  '/Generate branch-sync evidence in the same turn as the completion claim/d' "$RECV_SKILL"
+# pin-B (AC2): the drift response re-runs the Step 0 update ONCE, never chasing until it settles.
+assert_pin_unique "399: bounded drift response re-runs Step 0 once" \
+  're-run the Step 0 update once, regenerate this evidence on the new state' "$RECV_SKILL"
+assert_pin_red_under "399: stripping the re-run-once bound re-introduces an unbounded drift chase" \
+  're-run the Step 0 update once, regenerate this evidence on the new state' \
+  's/re-run the Step 0 update once, regenerate this evidence on the new state/re-run the Step 0 update and regenerate this evidence, repeating until it settles/' "$RECV_SKILL"
+# pin-C (AC7): Step 0's update is point-in-time, not citable as completion-time evidence.
+assert_pin_unique "399: Step 0 result is not citable as completion-time evidence" \
+  'the sync state it establishes is not citable as completion-time evidence' "$RECV_SKILL"
+assert_pin_red_under "399: reverting Step 0 to settled-fact phrasing re-introduces the stale-claim bug" \
+  'the sync state it establishes is not citable as completion-time evidence' \
+  's/the sync state it establishes is not citable as completion-time evidence/the sync state it establishes remains a settled fact for the rest of the session/' "$RECV_SKILL"
+# pin-D (AC5): the closing item gates on all FOUR evidence items, not three.
+assert_pin_unique "399: gate closing item requires all four evidence items" \
+  'Only after all four pass, claim completion' "$RECV_SKILL"
+assert_pin_red_under "399: reverting the closing item to all-three drops the branch-sync gate" \
+  'Only after all four pass, claim completion' \
+  's/Only after all four pass, claim completion/Only after all three pass, claim completion/' "$RECV_SKILL"
+
 # Drift guards (issue #196): the convergence-discipline additions to the vendored
 # receiving-code-review skill — a stopping rule, a Record-Every-Deferral contract, the
 # Response-Pattern RECORD DEFERRALS step, and the cross-iteration finding union. Each is
