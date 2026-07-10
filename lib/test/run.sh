@@ -20838,8 +20838,8 @@ assert_eq "#363 every already-pinned arm shape (incl. optional-leading-paren) st
 # alone would not catch a duplicate head silently gained (or lost). Whoever next adds
 # a command to a review-skill fence updates these two numbers in the same commit,
 # per CLAUDE.md's coupled-invariant rule.
-assert_eq "#363 the review-skill head set is unchanged by the arm-position fix (94 occurrences)" \
-  "94" "$(python3 -c 'import importlib.util,sys
+assert_eq "#363 the review-skill head set is unchanged by the arm-position fix (95 occurrences — 95th is Phase 0.3.5's defensive mkdir, review-REJECT fix)" \
+  "95" "$(python3 -c 'import importlib.util,sys
 s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
 print(len(m.extract_heads(open(sys.argv[2],encoding="utf-8").read())))' "$ECH" "$LIB/../skills/review/SKILL.md")"
 assert_eq "#363 the review-skill head set is unchanged by the arm-position fix (28 distinct names)" \
@@ -20895,6 +20895,9 @@ assert_eq "#401 R1 flags an env-prefix compound with a substitution value (M=\$(
 printf '%s\n' '```bash' 'VAR="$(x)" printf hi' '```' > "$E363/s-r1d.md"
 assert_eq "#401 R1 flags an env-prefix compound with a quoted-substitution value" "yes" \
   "$(python3 "$ECS" "$E363/s-r1d.md" | grep -q '  R1  ' && echo yes || echo no)"
+printf '%s\n' '```bash' 'M=$(x) N=1 printf hi' '```' > "$E363/s-r1f.md"
+assert_eq "#401 R1 flags a CHAINED env-prefix compound with a substitution-valued first assignment" "yes" \
+  "$(python3 "$ECS" "$E363/s-r1f.md" | grep -q '  R1  ' && echo yes || echo no)"
 # ── R3 anti-vacuity for the stderr arm: `2>` to /tmp is the ORIGINAL denied capture shape
 # ── from run 29105381021 (the skill's old `2>/tmp/devflow-rv-*.err` captures).
 printf '%s\n' '```bash' 'printf hi 2>/tmp/e.err' '```' > "$E363/s-r3d.md"

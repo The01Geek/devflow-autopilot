@@ -28,8 +28,11 @@ Scope boundary (deliberate — mirrors extract-command-heads.py's narrow reach):
   workspace, and the exact shape the probe denied), NOT every `>` redirect: an
   in-workspace `> .devflow/tmp/…` write of a granted head is left to the existing
   head/allowlist pins, matching how the skill already authors run-scoped scratch.
-  A `cat`-headed heredoc write (`cat >`/`cat >>` … `<<`) is flagged to ANY target,
-  because the probe denied the heredoc-write shape itself (probe row 1).
+  A `cat`-headed heredoc write (`cat >`/`cat >>` … `<<`) is flagged to ANY target:
+  the /tmp arm is probe-denied (row 1, which is /tmp-targeted and so confounded
+  like row 7); the in-workspace arm is UNPROVEN either way and is banned as
+  discipline in favor of the proven Write-tool/`tee` alternatives — a lint rule,
+  not a probe result (mirrors skills/review/SKILL.md's discipline section).
 * R1 flags an env-prefix compound (`VAR=v cmd …`) and a computed double-quoted
   literal assignment (`MARKER="…"`), NOT a pure-shell sentinel/counter/status
   capture (`WP=""`, `n=0`, `rc=$?`, `VAR=$'…'`) nor a command-substitution capture
@@ -47,7 +50,8 @@ Rule table (each keyed to a probe row / run — see .github/workflows/matcher-pr
   R3  a `>`/`>>` redirect (stdout or `2>`/`&>` stderr) to a `/tmp/…` target
       (probe rows 1,2,7 — out-of-workspace + `>`-redirect denials), OR a
       `cat`-headed heredoc write (`cat >`/`cat >>` with `<<`) to ANY target
-      (probe row 1 — heredoc-write shape denied; row 6 shows only `tee` passes).
+      (/tmp arm probe-denied — row 1; in-workspace arm unproven, banned as
+      discipline in favor of the proven `tee` (row 6) / Write-tool (row 9) forms).
   R4  a leading interpreter (`python3`, `python`, `node`) — the read-only
       `review` profile grants no interpreter (run 29105381021 denials).
 
@@ -227,8 +231,27 @@ def _assignment_violation(statement: str) -> bool:
         if balanced and not rest.strip():
             return False
         if balanced:
-            first = rest.split(None, 1)[0]
-            return _is_command_token(first)
+            # A chain of further assignments (`M=$(x) N=1 cmd`) is still the same
+            # env-prefix compound — skip assignment tokens (each of which may itself
+            # carry a substitution value) and judge the first non-assignment token.
+            rest_s = rest.lstrip()
+            while True:
+                chain = re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", rest_s)
+                if not chain:
+                    break
+                tail = rest_s[chain.end():]
+                nested = _leading_substitution_split(tail)
+                if nested is not None:
+                    n_balanced, n_rest = nested
+                    if not n_balanced:
+                        return True  # fail closed on an unmeasurable chain
+                    rest_s = n_rest.lstrip()
+                else:
+                    parts = tail.split(None, 1)
+                    rest_s = parts[1].lstrip() if len(parts) > 1 else ""
+            if not rest_s:
+                return False  # a chain of captures/assignments with no command
+            return _is_command_token(rest_s.split(None, 1)[0])
         # Unbalanced leading substitution inside one statement: a splitting artifact
         # or crafted input. Fail CLOSED — flag rather than exempt what the scan could
         # not measure (a guard that shrugs here re-opens the fail-open).
