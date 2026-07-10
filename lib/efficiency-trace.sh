@@ -32,8 +32,10 @@
 #
 # Gating: when devflow_review_and_fix.efficiency_telemetry_enabled is false,
 # --mode and --self-check emit NOTHING and exit 0, and --persist derives no
-# record (the durable workpad copy is not telemetry-gated — it runs on every
-# writable run, mirroring the SKILL.md Loop Exit split).
+# record AND synthesizes no workpad (a synthesized workpad exists only to feed
+# the record — issue #381); the durable copy of REAL workpads is not
+# telemetry-gated — it runs on every writable run, mirroring the SKILL.md Loop
+# Exit split.
 #
 # Best-effort: a missing dir, zero readable workpads, or an unreadable workpad
 # never aborts — every mode degrades gracefully and --persist/--self-check
@@ -309,13 +311,23 @@ select_fix_commits() {
 # caller's breadcrumb never collapses an unestablished measurement onto "found
 # none" (the repo's unknown-is-not-zero gotcha): returns 0 iff ≥1 record was
 # written; 2 when selection RAN and found no unrecorded matching commit; 3 when
-# the search could not run at all (no base ref resolvable, OR the git log
-# enumeration itself failed — either way, whether matching commits exist was
-# never established; the arm-specific warning names which); 4 when commits WERE
-# selected but every record write failed (per-commit warnings already emitted).
+# the search could not run at all (an uncreatable target dir, no base ref
+# resolvable, OR the git log enumeration itself failed — either way, whether
+# matching commits could be synthesized was never established; the arm-specific
+# warning names which); 4 when commits WERE selected but every record write
+# failed (per-commit warnings already emitted).
 synthesize_iter_workpads() {
-  local dir="$1" root="$2" n sha files files_ok base excl log_out tab attempted=0 wrote=0
+  local dir="$1" root="$2" n sha files files_ok base excl log_out jq_err tab attempted=0 wrote=0
   tab="$(printf '\t')"
+  # The target dir can be absent on the one shape this floor exists for — a
+  # fully-degraded run that never created its tmp dir, reached via the
+  # phase-3.3 targeted retry / the breadcrumb-named --workpad-dir escape hatch.
+  # Without this, every write below fails ENOENT and the rc-4 arm misreads a
+  # missing directory as a disk/write failure.
+  if ! mkdir -p "$dir" 2>/dev/null; then
+    echo "::warning::efficiency-trace.sh --persist: could not create workpad dir ${dir} (permissions/read-only fs?); cannot synthesize into it" >&2
+    return 3
+  fi
   if ! base="$(synth_base_ref "$root")"; then
     echo "::warning::efficiency-trace.sh --persist: could not resolve a base branch ref (.base_branch and origin/<base> both absent); cannot select fix commits for synthesis" >&2
     return 3
@@ -324,9 +336,9 @@ synthesize_iter_workpads() {
   # `git log` (unborn HEAD, index-lock race, corrupt object store) is "the
   # enumeration never ran" — rc 3, never collapsed onto rc 2's "found none"
   # (the unknown-is-not-zero gotcha, applied to the search itself).
-  # Data purity: stderr is DISCARDED, never merged into the captured list — a
-  # succeeding git that also prints an advisory (unreadable ~/.config/git, ref
-  # warnings) must not inject stderr lines into the parsed commit stream.
+  # Data purity: stderr is discarded, never REDIRECTED into the capture — do
+  # not change this to `2>&1`, which would inject a succeeding git advisory
+  # (unreadable ~/.config/git, ref warnings) into the parsed commit stream.
   if ! log_out="$(git -C "$root" log --reverse --format="%H${tab}%s" "${base}..HEAD" 2>/dev/null)"; then
     echo "::warning::efficiency-trace.sh --persist: git log ${base}..HEAD failed (rc-checked; its stderr is suppressed to keep the data stream pure — rerun the command manually for detail); whether matching fix commits exist was never established" >&2
     return 3
@@ -352,19 +364,23 @@ synthesize_iter_workpads() {
       files_ok=0
       files=""
     fi
-    if "$DEVFLOW_JQ" -n --argjson iter "$n" --arg sha "$sha" --arg files "$files" --arg files_ok "$files_ok" \
+    # stdout goes to the record file, so stderr is free to capture — unlike the
+    # git log/diff-tree data streams above, keeping the failure CAUSE
+    # (ENOENT/EACCES/ENOSPC/argjson rejection) costs no data purity here.
+    if jq_err="$("$DEVFLOW_JQ" -n --argjson iter "$n" --arg sha "$sha" --arg files "$files" --arg files_ok "$files_ok" \
          '{iter: $iter, fix_commit_sha: $sha,
            fix_files: (if $files_ok == "1" then ($files | split("\n") | map(select(length > 0))) else null end),
-           loop_role: "fix", synthesized: true}' > "$dir/iter-$n.json" 2>/dev/null; then
+           loop_role: "fix", synthesized: true}' 2>&1 > "$dir/iter-$n.json")"; then
       wrote=$((wrote + 1))
     else
-      echo "::warning::efficiency-trace.sh --persist: failed to write synthesized iter-${n}.json for ${sha}; skipping" >&2
+      echo "::warning::efficiency-trace.sh --persist: failed to write synthesized iter-${n}.json for ${sha} (${jq_err:-no error text}); skipping" >&2
       rm -f "$dir/iter-$n.json" 2>/dev/null
     fi
   done < <(printf '%s\n' "$log_out" | select_fix_commits "$excl")
-  # (printf-pipe, not a heredoc: bash heredocs materialize a temp file, so a
-  # denied-TMPDIR host would collapse an already-captured commit list onto the
-  # rc-2 "found none" arm — the builtin pipe has no such failure channel.)
+  # (printf-pipe, not a heredoc: bash <5.1 heredocs — and over-pipe-buffer ones
+  # on newer bash — materialize a temp file, so a denied-TMPDIR host could
+  # collapse an already-captured commit list onto the rc-2 "found none" arm —
+  # the builtin pipe has no such failure channel.)
   [ "$wrote" -gt 0 ] && return 0
   [ "$attempted" -gt 0 ] && return 4
   return 2
@@ -385,7 +401,7 @@ do_self_check() {
   root="$(devflow_repo_root)"
   # No iter-*.json workpad at all → per-iteration telemetry was never captured.
   if [ ! -d "$WORKPAD_DIR" ] || ! compgen -G "$WORKPAD_DIR"/iter-*.json >/dev/null 2>&1; then
-    echo "::warning::devflow review-and-fix self-check: NO iter-*.json workpad was written for run ${SLUG}/${run_id} — per-iteration effectiveness telemetry was not captured this run; recover a minimal floor with 'lib/efficiency-trace.sh --persist', which synthesizes an iteration record from this branch's 'fix: address review findings (iteration N)' commits when any exist." >&2
+    echo "::warning::devflow review-and-fix self-check: NO iter-*.json workpad was written for run ${SLUG}/${run_id} — per-iteration effectiveness telemetry was not captured this run; recover a minimal floor with 'lib/efficiency-trace.sh --persist --workpad-dir ${WORKPAD_DIR} --slug ${SLUG}' (the targeted form — bare discovery-mode --persist can decline this dir on a multi-slug or not-latest skip), which synthesizes an iteration record from this branch's unrecorded 'fix: address review findings (iteration N)' commits when any exist." >&2
     return 0
   fi
   # Workpads exist but the effectiveness record was not persisted.
@@ -465,6 +481,15 @@ persist_one() {
     # whose EVERY workpad copy (tmp and durable) was deleted after its record
     # was derived — the durable-copy layer exists precisely so that does not
     # happen.
+    if [ "$ENABLED" != "true" ]; then
+      # Telemetry off: synthesized workpads exist ONLY to feed the (disabled)
+      # effectiveness record — unlike REAL workpads, whose flag-off durable copy
+      # is a deliberate carve-out — so fabricating them here would commit
+      # telemetry artifacts to a repo that switched telemetry off. One gate
+      # covers both the targeted and discovery paths.
+      echo "::warning::efficiency-trace.sh --persist: run ${slug}/${run_id} has no iter-*.json and efficiency telemetry is disabled; skipping synthesis (a disabled record has no consumer for a synthesized workpad)" >&2
+      return 0
+    fi
     if [ "$allow_synth" = "2" ]; then
       echo "::warning::efficiency-trace.sh --persist: run ${slug}/${run_id} has no iter-*.json, but workpad-less run dirs span multiple slugs in this discovery pass — the branch's fix commits cannot be attributed to a slug offline, so synthesis is skipped for all of them; to synthesize this run explicitly, rerun with --persist --workpad-dir <dir> --slug ${slug}" >&2
       return 0
@@ -483,7 +508,7 @@ persist_one() {
     case "$synth_rc" in
       0) : ;;
       3)
-        echo "::warning::efficiency-trace.sh --persist: run ${slug}/${run_id} left no iter-*.json and the fix-commit search could not run (unresolvable base ref, or the git log enumeration failed — the warning above names which) — whether matching fix commits exist was never established; telemetry not synthesized" >&2
+        echo "::warning::efficiency-trace.sh --persist: run ${slug}/${run_id} left no iter-*.json and the fix-commit search could not run (an uncreatable target dir, an unresolvable base ref, or a failed git log enumeration — the warning above names which) — whether matching fix commits exist was never established; telemetry not synthesized" >&2
         return 0 ;;
       4)
         echo "::warning::efficiency-trace.sh --persist: run ${slug}/${run_id} left no iter-*.json; matching fix commits were selected but every synthesized record write failed (see the per-commit warnings above) — telemetry not synthesized" >&2
@@ -615,7 +640,11 @@ do_persist() {
     # when the current run left no tmp dir at all, is the sole candidate and
     # still claims the branch's fix commits under the wrong slug — guard (c)
     # trips only on multiple slugs, because a lone candidate is
-    # indistinguishable offline from the legitimate current run.
+    # indistinguishable offline from the legitimate current run. A sibling
+    # residual within one slug: a workpad-less dir sorting EARLIER than a
+    # workpad-holding one is that slug's only synthesis candidate, so a stale
+    # earlier run-id can receive the record (right slug, wrong run-id; the sha
+    # exclusion still prevents any double-count).
     local wl_dirs=() wl_n wl_i next_slug allow d_iters wl_slug_first wl_multi_slug=0
     for dir in "$root"/.devflow/tmp/review/*/*/; do
       [ -d "$dir" ] || continue

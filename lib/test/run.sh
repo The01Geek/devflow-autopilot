@@ -14195,6 +14195,7 @@ printf 4 > "$ETSA_REPO/d"; git -C "$ETSA_REPO" add d; git -C "$ETSA_REPO" commit
 printf 5 > "$ETSA_REPO/e"; git -C "$ETSA_REPO" add e; git -C "$ETSA_REPO" commit -qm "feat: unrelated"
 printf 6 > "$ETSA_REPO/f"; git -C "$ETSA_REPO" add f; git -C "$ETSA_REPO" commit -qm "fix: address review findings (iteration 01)"
 printf 7 > "$ETSA_REPO/g"; git -C "$ETSA_REPO" add g; git -C "$ETSA_REPO" commit -qm "fix: address review findings (iteration 1"
+printf 8 > "$ETSA_REPO/h"; git -C "$ETSA_REPO" add h; git -C "$ETSA_REPO" commit -qm "fix: address review findings (iteration1)"
 mkdir -p "$ETSA_REPO/.devflow/tmp/review/pr-9/run-a"
 ETSA_ERR="$( ( cd "$ETSA_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$ETSA_REPO/.devflow/tmp/review/pr-9/run-a" --slug pr-9 ) 2>&1 1>/dev/null )"; ETSA_RC=$?
 ETSA_REC="$ETSA_REPO/.devflow/logs/efficiency/pr-9-run-a.json"
@@ -14222,6 +14223,11 @@ assert_eq "et-synth(T4): leading-zero iteration 01 collides with 1 in the dedupe
 # also assert the write-failure breadcrumb for iter-01 is absent.
 assert_eq "et-synth(T4): leading-zero 01 never reaches --argjson (no iter-01 write-failure breadcrumb)" "no" \
   "$(printf '%s' "$ETSA_ERR" | grep -qF 'failed to write synthesized iter-01' && echo yes || echo no)"
+# The documented (iteration1) missing-space lenience: it parses as iteration 1,
+# proven by colliding with the existing iteration-1 in the dedupe (a third
+# duplicate breadcrumb) rather than being skipped as non-numeric.
+assert_eq "et-synth(T4): the (iteration1) lenience parses as iteration 1 (not rejected as non-numeric '1)')" "no" \
+  "$(printf '%s' "$ETSA_ERR" | grep -qF "non-numeric iteration token '1)'" && echo yes || echo no)"
 # The missing-')' arm has its own distinct breadcrumb.
 assert_eq "et-synth(T4): missing-')' subject gets the does-not-end-with-suffix breadcrumb" "yes" \
   "$(printf '%s' "$ETSA_ERR" | grep -qF "does not END with the '(iteration N)' suffix" && echo yes || echo no)"
@@ -14450,6 +14456,21 @@ assert_eq "et-synth(ambiguity): the second slug does not synthesize either (fail
   "$([ -e "$ETSAM_REPO/.devflow/logs/efficiency/pr-cur-run-2.json" ] && echo yes || echo no)"
 assert_eq "et-synth(ambiguity): both candidates are breadcrumbed with the multi-slug reason + escape hatch" "yes" \
   "$([ "$(printf '%s' "$ETSAM_ERR" | grep -cF 'span multiple slugs')" -eq 2 ] && echo yes || echo no)"
+# Drive the escape hatch the ambiguity breadcrumb names: the targeted form is
+# exempt from the ambiguity guard (allow_synth=1 by caller intent) and MUST
+# synthesize — this is also the exact command phase-3.3's retry block runs.
+( cd "$ETSAM_REPO" && bash "$LIB/efficiency-trace.sh" --workpad-dir "$ETSAM_REPO/.devflow/tmp/review/pr-cur/run-2" --slug pr-cur --persist ) >/dev/null 2>&1
+assert_eq "et-synth(ambiguity): the breadcrumb-named targeted retry DOES synthesize after the ambiguity skip" "[1]" \
+  "$(jq -c '[.per_iteration[].iter]' "$ETSAM_REPO/.devflow/logs/efficiency/pr-cur-run-2.json" 2>/dev/null)"
+# And a targeted --workpad-dir pointing at a NEVER-CREATED dir (the fully-degraded
+# inline-loop shape the retry exists for) must mkdir it — never collapse onto the
+# every-write-failed misdiagnosis; here it then declines via sha exclusion since
+# run-2 already recorded the commit.
+ETSAM_ERR2="$( ( cd "$ETSAM_REPO" && bash "$LIB/efficiency-trace.sh" --workpad-dir "$ETSAM_REPO/.devflow/tmp/review/pr-new/run-9" --slug pr-new --persist ) 2>&1 1>/dev/null )"
+assert_eq "et-synth(ambiguity): targeted retry against a never-created dir creates it (no write-failed misdiagnosis)" "no" \
+  "$(printf '%s' "$ETSAM_ERR2" | grep -qF 'every synthesized record write failed' && echo yes || echo no)"
+assert_eq "et-synth(ambiguity): never-created-dir retry declines via sha exclusion (commit already recorded by run-2)" "yes" \
+  "$(printf '%s' "$ETSAM_ERR2" | grep -qF 'already recorded by another run' && echo yes || echo no)"
 rm -rf "$ETSAM_REPO"
 
 # Coupled two-site invariant: the 'span multiple slugs' breadcrumb literal is
@@ -14460,6 +14481,54 @@ assert_eq "et-synth(ambiguity): 'span multiple slugs' literal present at the pro
   "$([ "$(pin_count 'span multiple slugs' "$LIB/efficiency-trace.sh")" -ge 1 ] && echo yes || echo no)"
 assert_eq "et-synth(ambiguity): 'span multiple slugs' grep present at the consumer site (phase-3-review.md retry gate)" "yes" \
   "$([ "$(pin_count "span multiple slugs' \"\$PERSIST_ERR\"" "$LIB/../skills/implement/phases/phase-3-review.md")" -ge 1 ] && echo yes || echo no)"
+
+# Exclusion-BEFORE-dedupe ordering: a sibling-recorded commit with subject
+# (iteration 1) plus a LATER unrecorded commit also titled (iteration 1) — the
+# excluded commit must not consume its iteration number, so the run's own
+# commit becomes iter 1 (swapping the case blocks would breadcrumb it as a
+# duplicate and synthesize nothing, while every other fixture stayed green).
+ETSXO_REPO="$(git_sandbox "et-synth exclusion-order repo")"
+git -C "$ETSXO_REPO" init -q
+git -C "$ETSXO_REPO" config user.email t@e.com; git -C "$ETSXO_REPO" config user.name t
+git -C "$ETSXO_REPO" commit --allow-empty -qm base
+git -C "$ETSXO_REPO" branch -M main
+git -C "$ETSXO_REPO" checkout -q -b feat
+printf a > "$ETSXO_REPO/a"; git -C "$ETSXO_REPO" add a; git -C "$ETSXO_REPO" commit -qm "fix: address review findings (iteration 1)"
+ETSXO_A="$(git -C "$ETSXO_REPO" rev-parse HEAD)"
+printf c > "$ETSXO_REPO/c"; git -C "$ETSXO_REPO" add c; git -C "$ETSXO_REPO" commit -qm "fix: address review findings (iteration 1)"
+ETSXO_C="$(git -C "$ETSXO_REPO" rev-parse HEAD)"
+mkdir -p "$ETSXO_REPO/.devflow/tmp/review/pr-x/run-old" "$ETSXO_REPO/.devflow/tmp/review/pr-x/run-new"
+printf '{"iter":1,"fix_commit_sha":"%s","fix_files":["a"],"loop_role":"fix"}' "$ETSXO_A" \
+  > "$ETSXO_REPO/.devflow/tmp/review/pr-x/run-old/iter-1.json"
+( cd "$ETSXO_REPO" && bash "$LIB/efficiency-trace.sh" --workpad-dir "$ETSXO_REPO/.devflow/tmp/review/pr-x/run-new" --slug pr-x --persist ) >/dev/null 2>&1
+assert_eq "et-synth(order): the excluded same-N commit does not consume its iteration number" "$ETSXO_C" \
+  "$(jq -r '.fix_commit_sha' "$ETSXO_REPO/.devflow/tmp/review/pr-x/run-new/iter-1.json" 2>/dev/null)"
+rm -rf "$ETSXO_REPO"
+
+# Telemetry off-switch gates synthesis: a flag-off repo must fabricate NO
+# synthesized workpad, durable copy, record, or commit (pre-#381 this shape was
+# a complete no-op; the flag must keep it one).
+ETSG_REPO="$(git_sandbox "et-synth flag-off repo")"
+git -C "$ETSG_REPO" init -q
+git -C "$ETSG_REPO" config user.email t@e.com; git -C "$ETSG_REPO" config user.name t
+git -C "$ETSG_REPO" commit --allow-empty -qm base
+git -C "$ETSG_REPO" branch -M main
+git -C "$ETSG_REPO" checkout -q -b feat
+printf a > "$ETSG_REPO/a"; git -C "$ETSG_REPO" add a; git -C "$ETSG_REPO" commit -qm "fix: address review findings (iteration 1)"
+mkdir -p "$ETSG_REPO/.devflow"
+printf '{"devflow_review_and_fix":{"efficiency_telemetry_enabled":false}}' > "$ETSG_REPO/.devflow/config.json"
+mkdir -p "$ETSG_REPO/.devflow/tmp/review/pr-g/run-g"
+ETSG_C0="$(git -C "$ETSG_REPO" rev-list --count HEAD)"
+ETSG_ERR="$( ( cd "$ETSG_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$ETSG_REPO/.devflow/tmp/review/pr-g/run-g" --slug pr-g ) 2>&1 1>/dev/null )"; ETSG_RC=$?
+assert_eq "et-synth(flag-off): exits 0" "0" "$ETSG_RC"
+assert_eq "et-synth(flag-off): no synthesized workpad is fabricated" "no" \
+  "$([ -e "$ETSG_REPO/.devflow/tmp/review/pr-g/run-g/iter-1.json" ] && echo yes || echo no)"
+assert_eq "et-synth(flag-off): no record is written" "no" \
+  "$([ -e "$ETSG_REPO/.devflow/logs/efficiency/pr-g-run-g.json" ] && echo yes || echo no)"
+assert_eq "et-synth(flag-off): no commit is made" "$ETSG_C0" "$(git -C "$ETSG_REPO" rev-list --count HEAD)"
+assert_eq "et-synth(flag-off): the skip is breadcrumbed with the telemetry-disabled reason" "yes" \
+  "$(printf '%s' "$ETSG_ERR" | grep -qF 'efficiency telemetry is disabled; skipping synthesis' && echo yes || echo no)"
+rm -rf "$ETSG_REPO"
 
 # origin/<base> preferred over a STALE local base: a worktree's local main is
 # routinely behind origin; diffing against it would sweep already-merged history
