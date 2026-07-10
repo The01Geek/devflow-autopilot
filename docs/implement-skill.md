@@ -85,7 +85,7 @@ follow-up.
 
 ## Boundary-assumption sweep (2.3.4)
 
-The four boundary kinds and how to verify each are in the skill (and summarized in the table above).
+The five boundary kinds and how to verify each are in the skill (and summarized in the table above).
 The *why*: these bugs ship clean and pass the author's own tests — because the tests encode the same
 wrong assumption — so a green run is not confirmation, and a test assertion *about* a boundary is
 itself an unverified claim. A boundary that genuinely cannot be verified in-environment is never

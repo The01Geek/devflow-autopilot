@@ -6011,12 +6011,15 @@ assert_pin_unique "#334: docs/implement-skill.md mirrors the 2.3.4a mirror-fact 
 
 # ── issue #376 (Wave 2): the merged operand-trace sweep (§2.3.0c) plus the ────
 # external-output, fail-open-guard, and agent-prompt-prose rules in
-# phases/phase-2-implement.md. Every operative sentence below is a behavioral-fix
+# phases/phase-2-implement.md. Each operative-sentence pin below is a behavioral-fix
 # pin expressed through assert_pin_red_under (#375): the <mutation> re-introduces
 # the guarded defect by removing ONLY that operative sentence from a scratch copy,
 # so a pin that drifted onto an adjacent framing clause is reported RED rather than
-# passing vacuously. The mutations are recorded as the per-pin evidence in the
-# issue #376 workpad. $P2_FILE / $IMPL_DOC / $EXT_IMPL are defined above.
+# passing vacuously. The two coupled-MIRROR checks are the deliberate exceptions to
+# the "assert_pin_red_under" phrasing: the AC8 assert_eq on lib/preflight.sh's header,
+# and the docs-row assert_pin_unique on $IMPL_DOC (a presence pin, the #334 docs-mirror
+# idiom). The mutations are recorded as the per-pin evidence in the issue #376 workpad.
+# $P2_FILE / $IMPL_DOC / $EXT_IMPL are defined above.
 # AC1 — the §2.3.0c heading states BOTH authoritative triggers.
 assert_pin_red_under "#376 w2-trigger-code: §2.3.0c heading states the code-guard trigger" \
   'the diff adds a guard, predicate, validator, or coverage invariant in code' \
@@ -6043,6 +6046,11 @@ assert_pin_red_under "#376 w2-reproduce-bytes: §2.3.4 requires reproducing exte
 assert_pin_red_under "#376 w2-doc-prose-not-evidence: §2.3.4 states doc prose is not acceptable evidence" \
   'Doc prose is not acceptable evidence' \
   's/Doc prose is not acceptable evidence//' "$P2_FILE"
+# AC5 — the External-tool output boundary KIND bullet itself (the enumerated member that makes §2.3.4's
+# external-output machinery apply); removing it silently disables the whole external-output obligation.
+assert_pin_red_under "#376 w2-external-output-kind: §2.3.4 lists External-tool output as a boundary kind" \
+  'a literal string, message, or exit code the diff matches against, or documents, as the output of an external tool' \
+  's/a literal string, message, or exit code the diff matches against, or documents, as the output of an external tool//' "$P2_FILE"
 # AC7 — §2.3.4's companion outcome-verification rule.
 assert_pin_red_under "#376 w2-outcome-companion: §2.3.4 states a precondition check never stands in for verifying the consumed outcome" \
   'A precondition check never stands in for verifying the consumed outcome' \
@@ -6061,7 +6069,9 @@ assert_pin_red_under "#376 w2-preflight-property: §2.3.6 keys the un-guaranteed
 # set (its header wraps the enumeration across two comment lines, so match the two line-fragments). Together
 # the two assertions catch drift on either mirror: rename a tool in $EXT_IMPL → the pin goes RED; rename it in
 # lib/preflight.sh → this assert_eq goes RED. (grep_present is NOT used here — it is a count-pinned escape
-# hatch fixed at 2 call sites; these bare `grep -qF` live inside a command substitution, off the raw-guard audit.)
+# hatch fixed at 2 call sites. The bare `grep -qF` need no `# raw-guard-ok:` marker because the #157 raw-guard
+# audit only flags guard lines carrying a *SKILL* token (_SKILL / SKILL_ / SKILL.md); these target lib/preflight.sh,
+# so the audit's pattern never matches them — it is the SKILL-token scope, not the command-substitution, that exempts them.)
 assert_eq "#376 AC8: lib/preflight.sh header enumerates the same guaranteed set the implement extension mirrors (coupled mirror; extension side pinned by w2-preflight-set-coupling below)" \
   "yes" \
   "$(grep -qF 'git, gh (authenticated), jq, and' "$LIB/preflight.sh" \
@@ -6080,6 +6090,12 @@ assert_pin_red_under "#376 w2-no-guidance-control: §2.4 requires a subagent RED
 assert_pin_red_under "#376 w2-index-entry: the Sweep-selection index carries the §2.3.0c operand-trace entry" \
   'policy-stating agent-executed prose' \
   's/policy-stating agent-executed prose//' "$P2_FILE"
+# AC12 — docs↔skill coupled mirror: docs/implement-skill.md carries the §2.3.0c sweep-table row. Presence
+# pin (the #334 docs-mirror idiom, assert_pin_unique on $IMPL_DOC) so a future edit that reverts/contradicts
+# the docs 2.3.0c row while the phase file stays intact goes RED — the coupled-invariant discipline extended
+# to the docs surface this block's other pins do not touch.
+assert_pin_unique "#376 w2-docs-2.3.0c-row: docs/implement-skill.md mirrors the §2.3.0c sweep-table row (docs↔skill coupled invariant)" \
+  "the blind spot 2.3.4 carves out and 2.3.0a/2.3.0b's peer/enum focus misses" "$IMPL_DOC"
 
 # ── issue #185 Addendum: deterministic extraction helper (fixture matrix) ────
 # The helper is the deterministic boundary the Addendum mandates; test its
