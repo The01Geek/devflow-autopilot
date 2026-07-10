@@ -1,14 +1,16 @@
 {
   "schema_version": 1,
   "slug": "issue-381-wave-6b-infrastructure-unloseable-review-loop",
-  "generated_at": "2026-07-10T22:21:38Z",
+  "generated_at": "2026-07-10T19:37:37Z",
   "source": "review-and-fix",
+  "synthesized": true,
   "cut_candidate_min_dispatch": 3,
   "iterations": 5,
   "per_iteration": [
     {
       "iter": 1,
       "loop_role": "fix",
+      "synthesized": true,
       "phase3_dispatched": [],
       "phase3_dispatched_count": 0,
       "phase3_dispatched_present": false,
@@ -23,6 +25,7 @@
     {
       "iter": 2,
       "loop_role": "fix",
+      "synthesized": true,
       "phase3_dispatched": [],
       "phase3_dispatched_count": 0,
       "phase3_dispatched_present": false,
@@ -37,6 +40,7 @@
     {
       "iter": 3,
       "loop_role": "fix",
+      "synthesized": true,
       "phase3_dispatched": [],
       "phase3_dispatched_count": 0,
       "phase3_dispatched_present": false,
@@ -51,6 +55,7 @@
     {
       "iter": 4,
       "loop_role": "fix",
+      "synthesized": true,
       "phase3_dispatched": [],
       "phase3_dispatched_count": 0,
       "phase3_dispatched_present": false,
@@ -65,6 +70,7 @@
     {
       "iter": 5,
       "loop_role": "fix",
+      "synthesized": true,
       "phase3_dispatched": [],
       "phase3_dispatched_count": 0,
       "phase3_dispatched_present": false,
