@@ -1627,8 +1627,9 @@ rm -f "$PINPROBE_RE"
 # `--` from pin_count's `grep -oF` and this assertion goes RED (the count reads 0, not 3). Uses a
 # same-line double occurrence so it also confirms the `--`-guarded path still counts occurrences.
 # (Only the count-3 assertion is a mutation proof — an *absent* --leading literal reads 0 with or
-# without the `--` (grep errors either way), so it would not discriminate the mutation and is
-# omitted; the absent-literal→0 property is already pinned by AC3(a) above.)
+# without the `--` (a clean no-match with the `--`; a suppressed grep option-parse error without
+# it), so it would not discriminate the mutation and is omitted; the absent-literal→0 property is
+# already pinned by AC3(a) above.)
 PINPROBE_DASH="$(probe_tmp 'AC3(a4) leading-dash-literal setup')"
 printf -- '--tick-progress here --tick-progress\n--tick-progress alone\n' > "$PINPROBE_DASH"
 assert_eq "AC3(a4): pin_count counts a --leading literal via the explicit -- guard (not parsed as grep options)" \
@@ -1761,6 +1762,14 @@ assert_pin_red_on_removal "#374 copy-based mutation-check: review-and-fix instru
   "$_MC_COPYBASED"
 assert_pin_red_on_removal "#374 copy-based mutation-check: implement Phase 2.3 test-guard rule instructs mutating a copy, never the working-tree file in place" \
   "$_MC_COPYBASED" "$DEF_SKILL"
+# #374: both sites must also state that `git checkout -- <file>` cannot restore an UNTRACKED
+# file and silently appears to succeed (the fabricated-RED failure mode from issue #372).
+# Same coupled-mirror shape as _MC_COPYBASED: one shared operative literal, pinned at each site.
+_MC_UNTRACKED='`git checkout -- <file>`: it cannot restore an untracked file and silently appears to succeed'
+assert_pin_red_on_removal "#374 untracked-file warning: review-and-fix states git checkout cannot restore an untracked file" \
+  "$_MC_UNTRACKED"
+assert_pin_red_on_removal "#374 untracked-file warning: implement Phase 2.3 states git checkout cannot restore an untracked file" \
+  "$_MC_UNTRACKED" "$DEF_SKILL"
 # #254 post-shadow gate removal-proofs (the assert_pin_unique presence pins are up in the
 # max_iterations/review-and-fix block; these removal-proofs must sit below the helper def).
 assert_pin_red_on_removal "#254: post-shadow gate logs-only exemption flips RED on removal" \
