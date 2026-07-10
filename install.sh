@@ -338,7 +338,7 @@ cat > .claude-plugin/marketplace.json <<'JSON'
   "name": "devflow-marketplace",
   "description": "Local marketplace for the vendored DevFlow plugin (.devflow/vendor/devflow). Installed by devflow-autopilot/install.sh.",
   "owner": { "name": "Daniel Radman", "email": "daniel@radman.ai" },
-  "allowCrossMarketplaceDependenciesOn": ["claude-plugins-official"],
+  "allowCrossMarketplaceDependenciesOn": [],
   "plugins": [
     {
       "name": "devflow",
