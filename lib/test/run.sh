@@ -20102,6 +20102,40 @@ printf '%s\n' '```bash' 'aa 2>&1' 'bb >&2' 'cc &>log' '```' > "$E363/redir.md"
 assert_eq "#363 '&' inside a redirection (2>&1, >&2, &>log) never emits a file descriptor as a head" \
   "aa bb cc" "$(python3 "$ECH" heads "$E363/redir.md" | tr '\n' ' ' | sed 's/ *$//')"
 
+# ── A `case` arm is shell syntax, not a command. Negated bracket expressions are
+# ── legal pattern characters in both spellings — bash's `[!0-9]` and POSIX's
+# ── `[^0-9]` — so the arm-stripping pattern class must accept `!` and `^`. When it
+# ── did not, skills/review/SKILL.md's `''|*[!0-9]*)` arm (added by #384) was emitted
+# ── as the bogus head `*[!0-9]*)` and the two allowlist pins above went RED.
+cat > "$E363/caseneg.md" <<'CASEMD'
+```bash
+case "$N" in
+  ''|*[!0-9]*)
+    aa ;;
+  [^a-z]*)
+    bb ;;
+  *)
+    cc ;;
+esac
+```
+CASEMD
+assert_eq "#363 a negated bracket case arm ([!0-9] and [^a-z]) is pattern syntax, never a command head" \
+  "aa bb cc" "$(python3 "$ECH" heads "$E363/caseneg.md" | tr '\n' ' ' | sed 's/ *$//')"
+
+# ── Non-regression for the widened arm class: a case *body* command ending in `)`
+# ── (a `$(...)` close) is still a head, not a swallowed pattern. This is what keeps
+# ── the `!`/`^` widening from turning body commands into patterns.
+cat > "$E363/casecmd.md" <<'CASECMD'
+```bash
+case "$N" in
+  *)
+    aa $(bb) ;;
+esac
+```
+CASECMD
+assert_eq "#363 a case-body command ending in a \$(...) close is still a head, not a case arm" \
+  "aa bb" "$(python3 "$ECH" heads "$E363/casecmd.md" | tr '\n' ' ' | sed 's/ *$//')"
+
 # ── Process wrappers are stripped before matching, exactly as Claude Code does.
 printf '%s\n' '```bash' 'timeout 300 bash x.sh' 'nice -n 5 aa' 'nohup bb' 'stdbuf -oL cc' 'xargs dd' 'time ee' '```' > "$E363/wrap.md"
 assert_eq "#363 process wrappers (timeout/nice/nohup/stdbuf/xargs/time) are stripped; timeout 300 bash x.sh -> bash" \
