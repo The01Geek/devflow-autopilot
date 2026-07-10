@@ -1,0 +1,294 @@
+name: Matcher probe
+
+# Permanent, empirical probe of which command SHAPES the deployed
+# `anthropics/claude-code-action@v1` permission matcher accepts under the
+# read-only `review` tool profile (issue #401). Cloud review runs stall with no
+# verdict when the matcher silently DENIES a command *shape* whose *head* the
+# profile grants (leading `cd`, leading `VAR=` assignments, heredoc writes, the
+# unexpanded `"${CLAUDE_SKILL_DIR:-…}"` anchor form). The issue-#363 head
+# extractor validates heads, not shapes, so it stays green on all of them.
+#
+# This workflow runs ONE Haiku claude-code-action session whose --allowed-tools is
+# the review profile literal PLUS the candidate grants under test, instructs the
+# model to attempt each corpus shape once, then computes a per-shape
+# PERMITTED/DENIED/UNATTEMPTED verdict DETERMINISTICALLY from the action's
+# execution file (`permission_denials` + recorded `tool_use` calls) and the
+# on-disk side-effect files. The model's own text output is NEVER the measurement.
+#
+# Triggers: workflow_dispatch (available post-merge, from the default branch) plus
+# pull_request scoped to this file's own path (so a change to the probe re-runs it
+# pre-merge from its branch). Same-repo only — a fork PR gets no secrets and the
+# job `if:` refuses to run for it. Concurrency-capped; a run costs cents.
+#
+# Re-run this whenever claude-code-action or the Claude Code CLI upgrades — matcher
+# semantics are version-dependent, and this probe is the evidence of record that
+# keeps the review profile's grants honest.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/matcher-probe.yml'
+
+# Cancel a superseded probe run on the same ref so a rapid push sequence does not
+# stack redundant paid runs.
+concurrency:
+  group: matcher-probe-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  # The review profile literal this probe copies verbatim into --allowed-tools
+  # grants helper tools that touch the pull-requests API (e.g.
+  # dismiss-stale-rejections.sh → repos/*/pulls/{n}/reviews), so the
+  # endpoint↔permission lint (issue #312) requires the family be declared even
+  # though the probe never invokes them. `read` is the safe floor: it satisfies
+  # the family-presence lint while making every mutating review call (gh pr
+  # review, review dismissal) fail closed at the API — the probe must never be
+  # able to mutate a PR.
+  pull-requests: read
+
+jobs:
+  probe:
+    # Same-repo only: a pull_request from a fork has no secrets (so
+    # CLAUDE_CODE_OAUTH_TOKEN would be empty and the run useless), and we never
+    # want to spend a paid run on untrusted input. workflow_dispatch is always
+    # same-repo (it only exists on the default branch).
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      # Compose --allowed-tools = the review profile's exact TOOLS literal (kept
+      # verbatim in sync with .github/workflows/devflow-runner.yml's `review`
+      # profile — including the Write(.devflow/tmp/**) grant that landed from this
+      # probe's first run, 29111394360) PLUS the candidate grants still under test:
+      # Bash(cd:*) and Write(/tmp/**). Both were DENIED on the first run — cd's row
+      # was confounded by an independently-denied `>` redirect, and Write(/tmp/**)
+      # is a genuine out-of-workspace denial — so they are kept here for a future
+      # redirect-free re-probe rather than granted. If devflow-runner.yml's review
+      # literal changes, update this copy too — a deliberate second copy so the
+      # probe measures the real profile, not a paraphrase.
+      - name: Resolve allowed-tools (review profile + candidate grants)
+        id: tools
+        run: |
+          set -euo pipefail
+          REVIEW='Read,Glob,Grep,LS,Skill,Agent,TodoWrite,WebFetch,WebSearch,Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git ls-files:*),Bash(git rev-parse:*),Bash(git merge-base:*),Bash(git blame:*),Bash(git branch:*),Bash(git cat-file:*),Bash(git checkout:*),Bash(mkdir:*),Bash(tee:*),Bash(mktemp:*),Bash(cmp:*),Bash(rm -f:*),Bash(*/load-prompt-extension.sh:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr review:*),Bash(gh pr comment:*),Bash(gh pr list:*),Bash(gh pr checks:*),Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue list:*),Bash(gh search:*),Bash(gh repo view:*),Bash(gh run view:*),Bash(gh run list:*),Bash(gh api:*),Bash(jq:*),Bash(.devflow/vendor/devflow/scripts/run-jq.sh:*),Bash(grep:*),Bash(rg:*),Bash(find:*),Bash(wc:*),Bash(sort:*),Bash(uniq:*),Bash(cut:*),Bash(tr:*),Bash(xargs:*),Bash(awk:*),Bash(sed:*),Bash(diff:*),Bash(comm:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(ls:*),Bash(tree:*),Bash(file:*),Bash(stat:*),Bash(date:*),Bash(pwd:*),Bash(realpath:*),Bash(dirname:*),Bash(basename:*),Bash(which:*),Bash(type:*),Bash(env:*),Bash(echo:*),Bash(printf:*),Bash(test:*),Bash(.devflow/vendor/devflow/scripts/match-deferrals.py:*),Bash(.devflow/vendor/devflow/scripts/dismiss-stale-rejections.sh:*),Bash(.devflow/vendor/devflow/scripts/workpad.py:*),Bash(.devflow/vendor/devflow/scripts/config-get.sh:*),Bash(.devflow/vendor/devflow/scripts/load-prompt-extension.sh:*),Bash(.devflow/vendor/devflow/scripts/resolve-review-overrides.py:*),Bash(.devflow/vendor/devflow/lib/efficiency-trace.sh:*),Write(.devflow/tmp/**)'
+          CANDIDATES='Bash(cd:*),Write(/tmp/**)'
+          TOOLS="$REVIEW,$CANDIDATES"
+          delim="TOOLS_EOF_$(date +%s%N)_$$"
+          {
+            printf 'tools<<%s\n' "$delim"
+            printf '%s\n' "$TOOLS"
+            printf '%s\n' "$delim"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Run Claude Code (matcher probe)
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          prompt: |
+            You are a PERMISSION-MATCHER PROBE. Your ONLY task is to attempt each
+            of the 11 numbered command shapes below EXACTLY ONCE, each in its OWN
+            single tool call, VERBATIM — do not modify, wrap, quote-escape, split,
+            or combine them, and do not add any command that is not listed. Attempt
+            them in order 1 through 11. If a shape is DENIED or errors, do NOT
+            retry it and do NOT try a different formulation — move straight to the
+            next number. After attempting all 11, STOP and reply with the single
+            word DONE.
+
+            Your text output is not measured. Only the harness record of which tool
+            calls the permission matcher allowed versus denied, and which
+            side-effect files exist afterward, is measured. Attempt every shape even
+            if you expect it to fail — a denial is exactly the signal being
+            collected.
+
+            Shape 1 — heredoc write with a granted head (Bash):
+            cat > /tmp/probe-01.txt <<'EOF'
+            probe01
+            EOF
+
+            Shape 2 — assignment-led compound with a granted head (Bash, one call, both lines):
+            M=probe02
+            printf '%s\n' "$M" > /tmp/probe-02.txt
+
+            Shape 3 — cd-led compound (Bash):
+            cd /tmp && printf 'probe03\n' > /tmp/probe-03.txt
+
+            Shape 4 — unexpanded CLAUDE_SKILL_DIR anchor form (Bash). It is expected
+            to exit non-zero because the vendored plugin is not present in this
+            checkout; attempt it anyway — permission granted vs denied is what
+            matters, not the exit code:
+            "${CLAUDE_SKILL_DIR:-.devflow/vendor/devflow/skills/review}"/../../scripts/load-prompt-extension.sh review
+
+            Shape 5 — repo-relative vendored literal (Bash). Also expected to exit
+            non-zero (file absent); attempt it anyway:
+            .devflow/vendor/devflow/scripts/load-prompt-extension.sh review
+
+            Shape 6 — tee heredoc write (Bash):
+            tee /tmp/probe-06.txt <<'EOF'
+            probe06
+            EOF
+
+            Shape 7 — multi-argument printf redirect, single statement (Bash):
+            printf '%s\n' probe07a probe07b > /tmp/probe-07.txt
+
+            Shape 8 — Write tool: use the Write tool to create the file
+            /tmp/probe-08.txt with exactly this content:
+            probe08
+
+            Shape 9 — Write tool: use the Write tool to create the file
+            .devflow/tmp/probe-09.txt with exactly this content:
+            probe09
+
+            Shape 10 — pipe into tee (Bash):
+            printf 'probe10\n' | tee /tmp/probe-10.txt
+
+            Shape 11 — plainly granted single command, positive control (Bash):
+            grep -c . /etc/hosts
+
+          plugin_marketplaces: |
+            https://github.com/anthropics/claude-plugins-official.git
+            ./
+
+          plugins: |
+            devflow@devflow-marketplace
+
+          claude_args: >-
+            --model claude-haiku-4-5-20251001
+            --effort low
+            --permission-mode acceptEdits
+            --allowed-tools "${{ steps.tools.outputs.tools }}"
+
+      # Deterministic verdict. Parse the action's execution file for
+      # `permission_denials` (the authoritative DENIED signal) and recorded
+      # `tool_use` inputs (the PERMITTED signal — a call that reached the model's
+      # tool stream), corroborated by the on-disk side-effect files. The model's
+      # prose is never read: `permission_denials` and `tool_use` are harness
+      # records, and matching is done against the recorded tool INPUTS (which carry
+      # the verbatim command), not against the prompt echo. always() so the table
+      # is produced even if the engine ended in error.
+      - name: Compute per-shape verdict
+        if: always()
+        env:
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          set -uo pipefail
+          python3 - <<'PY'
+          import json, os
+
+          exec_file = os.environ.get("EXECUTION_FILE", "") or ""
+          denials = []      # json-encoded permission_denials entries
+          tool_uses = []    # json-encoded tool_use inputs (+ tool name)
+          parsed = None
+          note_top = ""
+
+          if exec_file and os.path.isfile(exec_file):
+              raw = open(exec_file, encoding="utf-8", errors="replace").read()
+              try:
+                  parsed = json.loads(raw)
+              except Exception:
+                  parsed = []
+                  for line in raw.splitlines():
+                      s = line.strip()
+                      if not s:
+                          continue
+                      try:
+                          parsed.append(json.loads(s))
+                      except Exception:
+                          pass
+                  if not parsed:
+                      note_top = "execution file present but unparseable"
+          else:
+              note_top = "execution file absent or empty at '%s'" % exec_file
+
+          def walk(o):
+              if isinstance(o, dict):
+                  if o.get("type") == "tool_use" and "input" in o:
+                      tool_uses.append(json.dumps(o.get("input")) + " NAME=" + str(o.get("name", "")))
+                  pd = o.get("permission_denials")
+                  if isinstance(pd, list):
+                      for d in pd:
+                          denials.append(json.dumps(d))
+                  for v in o.values():
+                      walk(v)
+              elif isinstance(o, list):
+                  for it in o:
+                      walk(it)
+
+          if parsed is not None:
+              walk(parsed)
+
+          denial_text = "\n".join(denials)
+          tooluse_text = "\n".join(tool_uses)
+
+          # (num, description, marker, sidefile-or-None)
+          rows = [
+              (1,  "heredoc write, granted head (`cat > f <<'EOF'`)",        "probe-01", "/tmp/probe-01.txt"),
+              (2,  "assignment-led compound, granted head (`M=…`; printf)",   "probe-02", "/tmp/probe-02.txt"),
+              (3,  "cd-led compound (`cd … && printf > f`)",                  "probe-03", "/tmp/probe-03.txt"),
+              (4,  "unexpanded `${CLAUDE_SKILL_DIR:-…}` anchor invocation",   "CLAUDE_SKILL_DIR", None),
+              (5,  "repo-relative vendored-literal helper invocation",        "vendor/devflow/scripts/load-prompt-extension.sh", None),
+              (6,  "tee heredoc write (`tee f <<'EOF'`)",                     "probe-06", "/tmp/probe-06.txt"),
+              (7,  "multi-arg printf redirect (`printf '%s\\n' a b > f`)",     "probe-07", "/tmp/probe-07.txt"),
+              (8,  "Write tool under `Write(/tmp/**)`",                       "probe-08", "/tmp/probe-08.txt"),
+              (9,  "Write tool under `Write(.devflow/tmp/**)`",               "probe-09", ".devflow/tmp/probe-09.txt"),
+              (10, "pipe into tee (`printf … | tee f`)",                      "probe-10", "/tmp/probe-10.txt"),
+              (11, "plainly granted single command (positive control)",       "/etc/hosts", None),
+          ]
+
+          out = []
+          out.append("## Matcher-probe results")
+          out.append("")
+          out.append("Deterministic verdict computed from the execution file's "
+                     "`permission_denials` (DENIED) and recorded `tool_use` inputs "
+                     "(PERMITTED), corroborated by on-disk side-effect files. The "
+                     "model's text output is never the measurement.")
+          out.append("")
+          if note_top:
+              out.append("> [!WARNING]")
+              out.append("> %s — every row will read UNATTEMPTED; re-run the probe." % note_top)
+              out.append("")
+          out.append("| # | Shape | Verdict | Evidence |")
+          out.append("|---|-------|---------|----------|")
+
+          for num, desc, marker, sidefile in rows:
+              denied = marker in denial_text
+              attempted = marker in tooluse_text
+              file_ok = bool(sidefile) and os.path.exists(sidefile)
+              if denied:
+                  verdict = "DENIED"
+              elif file_ok or attempted:
+                  verdict = "PERMITTED"
+              else:
+                  verdict = "UNATTEMPTED"
+              ev = []
+              ev.append("denial=%s" % ("yes" if denied else "no"))
+              ev.append("tool_use=%s" % ("yes" if attempted else "no"))
+              if sidefile:
+                  ev.append("side-effect(%s)=%s" % (sidefile, "present" if file_ok else "absent"))
+              else:
+                  ev.append("side-effect=n/a (judge by denial vs execution)")
+              out.append("| %d | %s | **%s** | %s |" % (num, desc, verdict, "; ".join(ev)))
+
+          out.append("")
+          out.append("### Raw denial entries (%d)" % len(denials))
+          out.append("")
+          if denials:
+              out.append("```")
+              for d in denials:
+                  out.append(d[:400])
+              out.append("```")
+          else:
+              out.append("_No permission_denials entries found in the execution file._")
+
+          table = "\n".join(out)
+          print(table)
+          summary = os.environ.get("GITHUB_STEP_SUMMARY", "")
+          if summary:
+              with open(summary, "a", encoding="utf-8") as fh:
+                  fh.write(table + "\n")
+          PY
