@@ -710,6 +710,19 @@
     "over_grade_calibration_gate": {
       "S-1": "not flagged - source is the completeness critic, not an empirical over-grader (shape 3 N/A); shape 1 inapplicable (no suite catches it - that IS the finding). Promotes at Important.",
       "S-4": "FLAGGED under shape 3 (uncorroborated single-source from pr-test-analyzer, an empirical over-grader). Recorded evaluation below; calibrated down, so it does not drive the promotion."
+    },
+    "post_shadow_delta_review": {
+      "span": "93ff33caee2c41c24cb1311fe6d747ceee8ac033..76c2dc79937222689ad8cee642d2db856c5aa69f",
+      "blinded": true,
+      "single_reviewer": true,
+      "note": "Bounded delta-review per the Loop Exit post-shadow edit gate \u2014 NOT a second full multi-agent shadow.",
+      "result": "clean (no Critical/Important)",
+      "suggestions": [
+        "derived prose pin: a future nested ``` fence inside a fenced example would desync the toggle; the 8-head anti-vacuity backstop catches a total emptying but not a partial drop (intrinsic to a best-effort derived pin; the comments disclaim exhaustiveness)",
+        "derivation's second-token filter rejects tokens containing / or . (e.g. `python3 scripts/foo.py`), narrowing the independent signal; harmless today. Also: the heredoc uses bare open() while SKILL.md contains a non-ASCII ellipsis, so a non-UTF-8 locale raises -> empty fixture -> RED (fails closed)"
+      ],
+      "reviewed_sha_after_gate": "9b99b0805eeae607184dd883472c94b998214eda",
+      "logs_only_exemption": "the chore: persist commit (9b99b08) touches only .devflow/logs/**, so it is exempt per the gate"
     }
   }
 }

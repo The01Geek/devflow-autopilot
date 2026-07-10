@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "slug": "pr-367",
-  "generated_at": "2026-07-10T01:35:35Z",
+  "generated_at": "2026-07-10T01:44:45Z",
   "source": "review-and-fix",
   "cut_candidate_min_dispatch": 3,
   "iterations": 2,
