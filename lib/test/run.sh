@@ -2067,6 +2067,15 @@ assert_pin_red_on_removal "378(R6)-mp: deleting the §4.1.5 fail-open exclusion 
 # Repo-agnostic guard: the R6 rule in the vendored body carries no DevFlow-internal strings.
 assert_eq "378(R6): receiving-code-review R6 rule stays repo-agnostic (no repo test path)" \
   "no" "$(grep -qF 'lib/test/run.sh' "$ST_RCV" && echo yes || echo no)"
+# ── R1 coupled invariant (review-finding follow-up): absolute_claim's priority RANK is
+# mirrored in the review engine's §1.1.5 cap-and-prioritize list AND the DEVFLOW_SYSTEM_OVERVIEW
+# priority ordering — the two must keep it at rank 2. Neither placement was pinned, so a reorder
+# in either file would silently desync them (the coupled-invariant-without-a-pin class). Pin the
+# rank-2 placement at both sites so a reorder/drop in either goes RED.
+assert_pin_unique "378(R1): absolute_claim sits at rank 2 in review §1.1.5 cap-priority list" \
+  '2. `absolute_claim` items' "$ST_REV"
+assert_pin_unique "378(R1): overview priority ordering keeps absolute_claim above dependency_interaction (rank 2)" \
+  'absolute_claim > dependency_interaction' "$OG_OVERVIEW_DOC"
 
 # ── Meta-test (#157, AC2): widen the raw-guard audit from the park-calibration
 # region fence to the WHOLE suite. #155 enforced helper-routing ONLY inside the
