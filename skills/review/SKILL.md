@@ -43,6 +43,14 @@ When the block IS present:
 
 **Portable helper anchor (single-statement).** The bundled-helper commands in this skill resolve the skill directory inline at each call site via `${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}`. When `$CLAUDE_SKILL_DIR` is set and non-empty (Claude Code), run each command exactly as written. On a runner where it is unset or empty, replace the placeholder with the skill base directory the runner reports in context (e.g. a `Base directory for this skill:` line) before running the command; if that reported path is Windows-form (`C:\...`), first convert it to this shell's POSIX form with one standalone `wslpath -u '<path>'` (WSL) or `cygpath -u '<path>'` (Git Bash/MSYS2) command and substitute the printed result **only if the command succeeds and prints a non-empty path — otherwise fall through to the drive-letter rules exactly as if the tool were absent, the same success-and-non-empty acceptance the platform's path-normalization rules apply** (if neither tool exists: lowercase the drive letter, map `C:\` to `/mnt/c` on WSL or `/c` on MSYS2, and turn backslashes into `/`; if the environment is neither WSL nor MSYS2, use the path unchanged and report that it could not be normalized — the same arm the platform's path-normalization rules take). Resolve the anchor inline at every call site — never capture it into a shell variable that a later statement reads, because some runners' inline-bash marshaling drops such variables (observed on Copilot CLI). If neither `$CLAUDE_SKILL_DIR` nor a runner-reported base directory is available, stop and report that the helper anchor could not be resolved rather than running a command with a broken path.
 
+**In cloud, the resolved anchor IS the command's leading token, and it must resolve to the vendored literal.** On the cloud `review` runner the anchor variable is set, so each helper call written through the portable anchor (`…/../../<dir>/<helper>`) resolves — as the command's *leading token* — under `.devflow/vendor/devflow/<dir>/<helper>`, which the read-only `review` allowlist grants (the matcher probe confirms a repo-relative vendored-literal helper path executes: `.github/workflows/matcher-probe.yml` row 5). Emit the resolved literal path as the leading token, never the *unexpanded* anchor placeholder itself — the probe confirms the unexpanded anchor form is denied (row 4). Non-cloud runners keep the anchor recipe above unchanged (they substitute their own reported base directory).
+
+**Cloud command-shape discipline.** The cloud `review` runner's harness denies whole command *shapes* even when the command *head* is granted — silently, burning budget until a run can end with no verdict. Keep every command you emit to a **permitted** shape; the denied shapes below are keyed to the empirical matcher probe (`.github/workflows/matcher-probe.yml`, re-runnable after any action/CLI upgrade — that workflow's table is the evidence of record).
+
+- **Permitted:** a single statement whose *leading token* is a granted head or a resolved vendored-literal helper path; authoring a file with the **Write tool** under `.devflow/tmp/**` (probe row 9); streaming or capturing through a pipe into `tee`, or a `tee <file> <<'EOF'` heredoc (rows 6, 10); capturing a command into a variable with `VAR=$(cmd)` / `VAR="$(cmd)"` (the matcher descends into the substitution — row 5, real-run confirmed).
+- **Denied — never emit:** a leading `VAR=value` assignment or env-prefix `M=x cmd …` (row 2 — use the `VAR=$(cmd)` capture instead); a leading `cd` (row 3); ANY shell `>`/`>>` file-authoring redirect, a `/tmp` target of any redirect, or a `cat`-headed heredoc write (rows 1, 7, 8 — author via the Write tool or `tee`); an interpreter head `python3`/`python`/`node` (ungranted); the *unexpanded* helper anchor placeholder as a leading token (row 4 — emit the resolved literal path).
+- **Hard rule: after two permission denials of a shape, switch to a permitted alternative from this list — never iterate variants of the denied shape.** Iterating denied variants is precisely what exhausts the run's budget and ends it with no verdict.
+
 **Consumer prompt extension (load first).** Before doing this skill's work, load any consumer-supplied prompt extension for this skill and honor it. From the repo root, run:
 
 ```bash
@@ -70,6 +78,8 @@ This is the review-side analogue of `/devflow:implement`'s workpad and reuses th
 
 Invoke the helper inline by its portable skill-dir-anchored path (cwd-independent, and it resolves to the `.devflow/vendor/devflow/scripts/workpad.py` form the cloud allow-list grants). **Do not route the *executable* through a shell variable (`WP_PY="…"; "$WP_PY" …`) or a leading `VAR=value` env-assignment** — either makes the command no longer *begin with* the allow-listed path, so every call is silently denied under the read-only cloud `review` profile and the live comment never appears. Pass the marker with `--marker "$MARKER"` instead — a variable in *argument* position is fine (the command still starts with the path); only the leading token and an env-assignment prefix break the match:
 
+**Author the workpad body with the Write tool, never a shell redirect.** Before seeding, author the review body into the run-scoped scratch file `.devflow/tmp/review/<slug>/<run-id>/review-wp.md` — the same `<slug>`/`<run-id>` Phase 0.2 resolves, whose directory Phase 0.2 already created with `mkdir -p` (this step runs at Phase 0.3.5, after Phase 0.2). Use the **Write tool**, with the run-keyed marker (`$MARKER`, derived in the fence below — hold that exact literal) as the file's **first line**, followed by the `# Devflow Review` template (from its H1 down). Authoring in-workspace under `.devflow/tmp/` with the Write tool is the probe-permitted shape (matcher-probe row 9 — `Write(.devflow/tmp/**)` is granted in the read-only `review` profile); a `/tmp` target, a shell `>`/`>>` redirect, and a `cat`-headed heredoc write are all probe-denied, which is exactly why the former `printf … > /tmp` / `cat >> /tmp <<'EOF'` recipe was silently refused and the live comment never appeared (evidence: `.github/workflows/matcher-probe.yml`, re-runnable after any action upgrade). A runner with **no** Write tool authors the same file with a `tee` heredoc — `tee .devflow/tmp/review/<slug>/<run-id>/review-wp.md <<'EOF'` … `EOF`, the marker as the heredoc's first body line (probe row 6 — `tee` heredocs are permitted). That `tee` form is the portable fallback, not a general-purpose alternative: Claude Code (cloud and local) uses the Write tool; only a runner lacking it falls back to `tee`.
+
 ```bash
 # One progress comment PER REVIEW RUN. The marker carries a run discriminator so a
 # later run never re-discovers (and overwrites) an earlier run's comment — each run
@@ -79,21 +89,25 @@ Invoke the helper inline by its portable skill-dir-anchored path (cwd-independen
 # isolation on the local PR path). Compute $MARKER ONCE and reuse that exact literal
 # for every call in this run — you hold it in context; do not let it drift between
 # phases. (Re-deriving in cloud yields the same string since the env vars persist;
-# locally the timestamp would change, so reuse the held literal, never recompute.):
-MARKER="<!-- devflow:review-progress run=${GITHUB_RUN_ID:-local-$(date -u +%Y%m%dT%H%M%SZ)}-${GITHUB_RUN_ATTEMPT:-1} -->"
+# locally the timestamp would change, so reuse the held literal, never recompute.)
+# Capture form `VAR=$(printf …)`: the matcher descends into the substitution and matches
+# the granted `printf` head, so this is permitted; a bare `MARKER="…"` computed-literal
+# assignment is a probe-denied shape (.github/workflows/matcher-probe.yml). The runtime
+# string is identical, so the #356 marker parity with the workflows' FLIP_MARKER holds:
+MARKER=$(printf '%s' "<!-- devflow:review-progress run=${GITHUB_RUN_ID:-local-$(date -u +%Y%m%dT%H%M%SZ)}-${GITHUB_RUN_ATTEMPT:-1} -->")
 # Human-facing indicator: a link to THIS run's job, rendered as the comment's `Run`
 # line (same convention as the /devflow:implement workpad). The "/actions/runs/"
 # segment is literal; empty env (a local run outside Actions) → use a plain
-# "_(local run)_" placeholder for the Run line instead of a broken link:
-RUN_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-# Author the body to /tmp. The marker MUST be the body's first line; write it
-# separately (printf) so the rest can stay a quoted heredoc with no expansion of the
-# template's own backticks/`$`. (Bash(cat:*)/Bash(printf:*) are granted under the
-# read-only cloud profile; /tmp is outside the repo tree, so this is not a tree write.)
-printf '%s\n' "$MARKER" > /tmp/review-wp.md
-cat >> /tmp/review-wp.md <<'EOF'
-…review-workpad body, WITHOUT a marker line — the template below, from its `# Devflow Review` H1 down…
-EOF
+# "_(local run)_" placeholder for the Run line instead of a broken link (capture form,
+# same probe rationale as $MARKER above):
+RUN_URL=$(printf '%s' "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID")
+# The body file was authored ABOVE, via the Write tool, into the run-scoped scratch dir
+# at .devflow/tmp/review/<slug>/<run-id>/review-wp.md — the marker ($MARKER, held above)
+# is its FIRST line. The create/patch calls below read that file. Authoring in-workspace
+# under .devflow/tmp/ with the Write tool is probe-permitted (matcher-probe row 9); a /tmp
+# target, a `>`/`>>` redirect, or a `cat`-heredoc write are all probe-denied — which is
+# why the old `printf … > /tmp` / `cat >> /tmp <<'EOF'` recipe was silently refused and
+# the live comment never appeared (.github/workflows/matcher-probe.yml).
 # find-or-resume THIS run's comment by its run-keyed marker (a prior run's comment has
 # a different key and is never matched). `id` exit codes FROM cmd_id: 0 = found (resume —
 # e.g. a mid-run retry after context loss), 2 = scanned cleanly but absent (this run's
@@ -142,18 +156,18 @@ case "$PR_NUMBER" in
       # the cause, NEVER the create arm ([ -e ] present-but-unreadable ⇒ [Errno 13]; else missing ⇒ [Errno 2]):
       WP=""
       echo "::warning::devflow review: workpad.py is missing or unreadable — cannot seed the live progress comment; skipping. $( [ -e "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py ] && echo 'present but unreadable ([Errno 13]) — a permission-broken vendor copy' || echo 'not present ([Errno 2]) — a partial vendor copy' )" >&2
-    elif WP=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py id "$PR_NUMBER" --marker "$MARKER" 2>/tmp/devflow-rv-id.err); then
+    elif WP=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py id "$PR_NUMBER" --marker "$MARKER" 2>.devflow/tmp/review/<slug>/<run-id>/rv-id.err); then
       :                                                                                    # rc 0 — resume $WP (this run's own comment)
-    elif [ "$?" -eq 2 ] && [ ! -s /tmp/devflow-rv-id.err ]; then
+    elif [ "$?" -eq 2 ] && [ ! -s .devflow/tmp/review/<slug>/<run-id>/rv-id.err ]; then
       # (S3) rc 2 AND silent ⇒ genuinely cmd_id's clean-absence exit. This run's first
       # GitHub write — the marker is the body file's first line, so `create` needs no --marker.
       # Guard the create the SAME way as the id call: a create failure (gh-api error, rate
       # limit, malformed body file) otherwise leaves WP="" and the downstream patch a silent
       # no-op — the exact baffling missing-comment this block was rewritten to eliminate. So
       # capture its stderr and surface a breadcrumb rather than swallowing it:
-      if ! WP=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py create "$PR_NUMBER" /tmp/review-wp.md 2>/tmp/devflow-rv-create.err); then
+      if ! WP=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py create "$PR_NUMBER" .devflow/tmp/review/<slug>/<run-id>/review-wp.md 2>.devflow/tmp/review/<slug>/<run-id>/rv-create.err); then
         WP=""
-        echo "::warning::devflow review: live progress-comment create failed (workpad.py create rc≠0): $(cat /tmp/devflow-rv-create.err 2>/dev/null); continuing without the live comment" >&2
+        echo "::warning::devflow review: live progress-comment create failed (workpad.py create rc≠0): $(cat .devflow/tmp/review/<slug>/<run-id>/rv-create.err 2>/dev/null); continuing without the live comment" >&2
       fi
     else
       # A real gh-api/parse failure (rc 1), OR an rc-2 WITH stderr (an interpreter-level exit
@@ -161,7 +175,7 @@ case "$PR_NUMBER" in
       # captured stderr (previously discarded on the misdiagnosed create arm) so a missing
       # live comment is diagnosable rather than baffling:
       WP=""
-      echo "::warning::devflow review: live progress-comment seeding failed (workpad.py id rc≠0, or rc 2 with stderr — an interpreter-level exit, not cmd_id's clean scan): $(cat /tmp/devflow-rv-id.err 2>/dev/null); continuing without the live comment" >&2
+      echo "::warning::devflow review: live progress-comment seeding failed (workpad.py id rc≠0, or rc 2 with stderr — an interpreter-level exit, not cmd_id's clean scan): $(cat .devflow/tmp/review/<slug>/<run-id>/rv-id.err 2>/dev/null); continuing without the live comment" >&2
     fi ;;
 esac
 # rewrite in place at each phase boundary (only when $WP is set); `patch` targets
@@ -169,12 +183,12 @@ esac
 # mid-run patch failure is the feature's most visible failure mode (a frozen
 # comment), so capture rc + stderr and surface a ::warning:: — never silently freeze:
 if [ -n "$WP" ]; then
-  "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py patch "$WP" /tmp/review-wp.md 2>/tmp/devflow-rv-patch.err || \
-    echo "::warning::devflow review: live progress-comment update failed (workpad.py patch rc=$?): $(cat /tmp/devflow-rv-patch.err); the comment may be frozen at an earlier phase — the review continues to its verdict" >&2
+  "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py patch "$WP" .devflow/tmp/review/<slug>/<run-id>/review-wp.md 2>.devflow/tmp/review/<slug>/<run-id>/rv-patch.err || \
+    echo "::warning::devflow review: live progress-comment update failed (workpad.py patch rc=$?): $(cat .devflow/tmp/review/<slug>/<run-id>/rv-patch.err); the comment may be frozen at an earlier phase — the review continues to its verdict" >&2
 fi
 ```
 
-The review body uses its **own section template** (the orchestrator authors it; `workpad.py` only carries it). Rebuild the body from your held state (re-author the `/tmp` file: `printf` the `$MARKER` line, then the template below from its `# Devflow Review` H1 down) and `patch` at each phase boundary — you hold the full run state in context, so a full-body rewrite is simplest and avoids implement-specific section mutations. Substitute `{N}` (PR number), `{RUN_URL}` (the run link computed above; `_(local run)_` when there is no run id), and `{workpad.py now}` (the timestamp) when authoring:
+The review body uses its **own section template** (the orchestrator authors it; `workpad.py` only carries it). Rebuild the body from your held state (re-author `.devflow/tmp/review/<slug>/<run-id>/review-wp.md` with the **Write tool**: the `$MARKER` literal as the first line, then the template below from its `# Devflow Review` H1 down — same probe-permitted shape as the initial seed above; a runner without a Write tool uses the `tee` heredoc fallback) and `patch` at each phase boundary — you hold the full run state in context, so a full-body rewrite is simplest and avoids implement-specific section mutations. Substitute `{N}` (PR number), `{RUN_URL}` (the run link computed above; `_(local run)_` when there is no run id), and `{workpad.py now}` (the timestamp) when authoring:
 
 ```markdown
 # Devflow Review — PR #{N}
@@ -237,7 +251,7 @@ Operators can tune each review subagent's model and reasoning effort via the `de
 # emit a bare `$PHASE` (it would be unset and collapse all phases onto one file,
 # truncating earlier phases' unread diagnostics — see the surfacing rule below).
 OVERRIDES=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/resolve-review-overrides.py \
-    "devflow:checklist-generator" 2>/tmp/devflow-rv-ovr.phase1.err)
+    "devflow:checklist-generator" 2>.devflow/tmp/review/<slug>/<run-id>/rv-ovr.phase1.err)
 ```
 
 The same cloud allow-list leading-token rule that governs `workpad.py` (see the Live Progress Comment section above) applies here: the helper must be the command's leading token. `OVERRIDES=$(…)` is fine — the path is the leading token *inside* the command substitution — but do **not** refactor it to route the executable through a shell variable (`RRO="…/resolve-review-overrides.py"; "$RRO" …`) or prepend a `VAR=value` env-assignment, or the read-only cloud `review` profile silently denies it and every dispatch falls back to no overrides.
@@ -247,7 +261,7 @@ Resolution rules the helper enforces (so the engine just consumes its output):
 - **No-entry passthrough.** A subagent with neither its own entry nor a `default` produces no override — dispatch it unchanged.
 - **Invalid effort → warn + fall back.** An `effort` outside the `low/medium/high/xhigh/max` enum is dropped with a `::warning::` (the subagent falls back to the session effort); the run never aborts. A non-blank `model` string is forwarded as given; an empty/whitespace-only/non-string `model` is likewise dropped with a `::warning::`, mirroring the invalid-effort path.
 
-For each subagent present in `$OVERRIDES`, build its `--agents` entry from the resolved `model`/`effort` (each agent's own `description`/`prompt`/`tools` come from its committed first-party definition under `agents/` (or `skills/` for the final-pass reviewer) — you only layer on the configured `model`/`effort`). Dispatch the phase's agents through that materialized `--agents` block; dispatch any subagent absent from `$OVERRIDES` exactly as before. The helper is best-effort: **surface its captured stderr (the `/tmp/devflow-rv-ovr.<phase>.err` file this phase wrote, e.g. `…phase1.err`) whenever it is non-empty — not only on a non-zero exit, and do so immediately after this phase's resolve, before the next dispatch phase runs.** The helper deliberately exits 0 even when it drops a malformed entry (invalid effort, non-object entry, unusable model), writing those `::warning::` lines to stderr; keying the surfacing on exit code alone would silently swallow exactly those operator-misconfiguration diagnostics. Because the resolver runs once per dispatch phase (Phase 1, 1.5, 2, 3), each phase writes its **own** `<phase>`-tagged stderr file (`phase1` / `phase1_5` / `phase2` / `phase3`, substituted as a literal — not a shell variable) and surfaces it before the next phase; a single shared filename (or a bare unset `$PHASE` that collapses to one) would let a later phase truncate an earlier phase's unread diagnostics. On a non-zero exit, additionally dispatch with no overrides rather than blocking the review.
+For each subagent present in `$OVERRIDES`, build its `--agents` entry from the resolved `model`/`effort` (each agent's own `description`/`prompt`/`tools` come from its committed first-party definition under `agents/` (or `skills/` for the final-pass reviewer) — you only layer on the configured `model`/`effort`). Dispatch the phase's agents through that materialized `--agents` block; dispatch any subagent absent from `$OVERRIDES` exactly as before. The helper is best-effort: **surface its captured stderr (the `.devflow/tmp/review/<slug>/<run-id>/rv-ovr.<phase>.err` file this phase wrote, e.g. `…rv-ovr.phase1.err`) whenever it is non-empty — not only on a non-zero exit, and do so immediately after this phase's resolve, before the next dispatch phase runs.** The helper deliberately exits 0 even when it drops a malformed entry (invalid effort, non-object entry, unusable model), writing those `::warning::` lines to stderr; keying the surfacing on exit code alone would silently swallow exactly those operator-misconfiguration diagnostics. Because the resolver runs once per dispatch phase (Phase 1, 1.5, 2, 3), each phase writes its **own** `<phase>`-tagged stderr file (`phase1` / `phase1_5` / `phase2` / `phase3`, substituted as a literal — not a shell variable) and surfaces it before the next phase; a single shared filename (or a bare unset `$PHASE` that collapses to one) would let a later phase truncate an earlier phase's unread diagnostics. On a non-zero exit, additionally dispatch with no overrides rather than blocking the review.
 
 ---
 
@@ -383,7 +397,7 @@ ISSUE_NUM=$(gh pr view HEAD --json body --jq '.body' 2>/dev/null | grep -oiE '(r
 if [ -z "$ISSUE_NUM" ]; then
   # If reviewing a PR, use the stored head branch name from Phase 0.2
   # If reviewing current branch, use git branch --show-current
-  BRANCH_NAME="${STORED_HEAD_BRANCH:-$(git branch --show-current)}"
+  BRANCH_NAME=$(printf '%s' "${STORED_HEAD_BRANCH:-$(git branch --show-current)}")   # capture form: the matcher descends into $(…); a bare VAR="…" assignment is a probe-denied shape (.github/workflows/matcher-probe.yml)
   ISSUE_NUM=$(echo "$BRANCH_NAME" | grep -oE 'issue-[0-9]+' | grep -oE '[0-9]+')
 fi
 ```
@@ -1200,15 +1214,15 @@ When enabled, assemble a **single workpad-shaped object** for this run from stat
 Then render the trace and (on a writable run) persist the record, reusing the **same hardened invocation** `/devflow:review-and-fix`'s Loop Exit uses (direct invocation — no `bash` prefix; rc/stderr `::warning::` breadcrumbs; remove-on-rc≠0):
 
 ```bash
-WORKPAD_DIR=".devflow/tmp/review/<slug>/<run-id>"   # run-scoped: read THIS run's iter-1.json
+WORKPAD_DIR=$(printf '%s' ".devflow/tmp/review/<slug>/<run-id>")   # run-scoped: read THIS run's iter-1.json. Capture form: a bare VAR="…" assignment is a probe-denied shape (.github/workflows/matcher-probe.yml); the matcher descends into $(…).
 # Trace (renders to chat / the live comment; reads only):
 # Three-way, mirroring /devflow:review-and-fix's Loop Exit. `if !` reads the helper's OWN
 # exit status — never a captured rc read in a later statement (a cross-statement-variable-
 # stripping inline-bash runner would leave it empty): rc≠0 is a failure; rc=0-but-empty
 # stdout (e.g. telemetry flag off, or zero readable workpads) is a benign no-trace —
 # surface it but append nothing, never a blank trace section:
-if ! TELEM="$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/efficiency-trace.sh --workpad-dir "$WORKPAD_DIR" --slug "<slug>" --mode trace 2>/tmp/devflow-rv-et.err)"; then
-  echo "::warning::review effectiveness trace unavailable (rc≠0): $(cat /tmp/devflow-rv-et.err 2>/dev/null)"; TELEM=""
+if ! TELEM="$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/efficiency-trace.sh --workpad-dir "$WORKPAD_DIR" --slug "<slug>" --mode trace 2>.devflow/tmp/review/<slug>/<run-id>/rv-et.err)"; then
+  echo "::warning::review effectiveness trace unavailable (rc≠0): $(cat .devflow/tmp/review/<slug>/<run-id>/rv-et.err 2>/dev/null)"; TELEM=""
 elif [ -z "$TELEM" ]; then
   echo "::warning::review effectiveness trace rendered empty (rc=0, no output — telemetry disabled or no readable workpads); omitting the trace section"
 fi
@@ -1218,15 +1232,15 @@ fi
 # is load-bearing — without it a truncated mid-write or 0-byte record survives into
 # the run's git add -A. (jq emits `empty` on zero iterations, so the file guard is
 # the only thing preventing a 0-byte artifact.)
-RECORD=".devflow/logs/efficiency/<slug>-$(date -u +%Y%m%dT%H%M%SZ).json"
+RECORD=$(printf '%s' ".devflow/logs/efficiency/<slug>-$(date -u +%Y%m%dT%H%M%SZ).json")   # capture form (probe-denied bare VAR="…"); the > "$RECORD" write targets .devflow/logs, a writable-run tree, not /tmp
 mkdir -p .devflow/logs/efficiency
 # Discriminate the helper's exit status with a single-statement `if` (reads its OWN status,
 # never a captured rc read in a later statement). Only a clean rc-0, non-empty write
 # survives — a truncated mid-write (rc≠0) or a 0-byte record is removed before `git add -A`.
-if "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/efficiency-trace.sh --workpad-dir "$WORKPAD_DIR" --slug "<slug>" --mode record > "$RECORD" 2>/tmp/devflow-rv-rec.err; then
+if "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/efficiency-trace.sh --workpad-dir "$WORKPAD_DIR" --slug "<slug>" --mode record > "$RECORD" 2>.devflow/tmp/review/<slug>/<run-id>/rv-rec.err; then
   [ -s "$RECORD" ] || rm -f "$RECORD"
 else
-  echo "::warning::review effectiveness record failed (rc≠0): $(cat /tmp/devflow-rv-rec.err 2>/dev/null)"
+  echo "::warning::review effectiveness record failed (rc≠0): $(cat .devflow/tmp/review/<slug>/<run-id>/rv-rec.err 2>/dev/null)"
   rm -f "$RECORD"
 fi
 ```

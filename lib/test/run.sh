@@ -1118,7 +1118,7 @@ assert_pin_unique "#384 review-seed: readable-path precheck on workpad.py before
 # (S3) stderr discriminator on the rc-2 arm: cmd_id's clean-absence exit is silent, so rc 2
 # with non-empty captured stderr is an interpreter-level exit, never a clean scan. Deleting
 # THIS alone → RED (the vice-versa half of AC5 relative to S2):
-assert_pin_unique "#384 review-seed: rc-2 arm requires empty captured stderr (silent-exit discriminator)" '[ "$?" -eq 2 ] && [ ! -s /tmp/devflow-rv-id.err ]' "$ST_REV"
+assert_pin_unique "#384 review-seed: rc-2 arm requires empty captured stderr (silent-exit discriminator)" '[ "$?" -eq 2 ] && [ ! -s .devflow/tmp/review/<slug>/<run-id>/rv-id.err ]' "$ST_REV"
 # (AC4) the captured id stderr is surfaced on the interpreter-level-rc-2 / rc-1 failure arm,
 # no longer discarded on the (now-unreachable-by-an-interpreter-error) create arm:
 assert_pin_unique "#384 review-seed: failure arm surfaces the rc-2-with-stderr interpreter exit" 'rc 2 with stderr — an interpreter-level exit' "$ST_REV"
@@ -5121,10 +5121,10 @@ assert_eq "#356 flip: helper carries the matching '❌ Review failed' literal" "
 M356_REVIEW_YML="$LIB/../.github/workflows/devflow-review.yml"
 M356_DEVFLOW_YML="$LIB/../.github/workflows/devflow.yml"
 assert_pin_unique "#356 marker: skills/review/SKILL.md seeds the run-keyed review-progress marker" \
-  'MARKER="<!-- devflow:review-progress run=${GITHUB_RUN_ID:-local-$(date -u +%Y%m%dT%H%M%SZ)}-${GITHUB_RUN_ATTEMPT:-1} -->"' \
+  'MARKER=$(printf '"'"'%s'"'"' "<!-- devflow:review-progress run=${GITHUB_RUN_ID:-local-$(date -u +%Y%m%dT%H%M%SZ)}-${GITHUB_RUN_ATTEMPT:-1} -->")' \
   "$LIB/../skills/review/SKILL.md"
 assert_pin_red_on_removal "#356 marker: the SKILL.md seed-marker line flips RED on removal" \
-  'MARKER="<!-- devflow:review-progress run=${GITHUB_RUN_ID:-local-$(date -u +%Y%m%dT%H%M%SZ)}-${GITHUB_RUN_ATTEMPT:-1} -->"' \
+  'MARKER=$(printf '"'"'%s'"'"' "<!-- devflow:review-progress run=${GITHUB_RUN_ID:-local-$(date -u +%Y%m%dT%H%M%SZ)}-${GITHUB_RUN_ATTEMPT:-1} -->")' \
   "$LIB/../skills/review/SKILL.md"
 assert_pin_unique "#356 marker: devflow-review.yml rebuilds the identical run-keyed marker" \
   'FLIP_MARKER="<!-- devflow:review-progress run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} -->"' "$M356_REVIEW_YML"
@@ -19635,19 +19635,20 @@ assert_eq "#284 shadow-fix: review-and-fix record gate no longer carries the old
 assert_eq "#284 shadow-fix: review record gate no longer carries the old R_RC capture" \
   "0" "$(pin_count 'R_RC=$?' "$ST_REV")"
 assert_pin_unique "#284 positive: review-and-fix record gate discriminates via single-statement if" 'slug "<slug>" --mode record > "$RECORD" 2>/tmp/devflow-et-record.err; then' "$ST_RAF"
-assert_pin_unique "#284 positive: review record gate discriminates via single-statement if" 'slug "<slug>" --mode record > "$RECORD" 2>/tmp/devflow-rv-rec.err; then' "$ST_REV"
+assert_pin_unique "#284 positive: review record gate discriminates via single-statement if" 'slug "<slug>" --mode record > "$RECORD" 2>.devflow/tmp/review/<slug>/<run-id>/rv-rec.err; then' "$ST_REV"
 # (2) POSITIVE-form pins (AC5): the new single-statement `if !` idiom is present at each
 # migrated site (routed through assert_pin_unique — no bare grep on the line).
 assert_pin_unique "#284 positive: receiving-code-review discriminates via single-statement if!" 'if ! REOPEN_THRESHOLD=$(' "$ST_RCV"
 assert_pin_unique "#284 positive: review-and-fix fix-threshold discriminates via single-statement if!" 'if ! FIX_THRESHOLD=$(' "$ST_RAF"
 assert_pin_unique "#284 positive: review-and-fix max_iterations discriminates via single-statement if!" 'if ! MAX_ITERS=$(' "$ST_RAF"
 assert_pin_unique "#284 positive: review verdict-threshold discriminates via single-statement if!" 'if ! VERDICT_THRESHOLD=$(' "$ST_REV"
-# #384 appended the silent-exit discriminator (`&& [ ! -s /tmp/devflow-rv-id.err ]`) to this
-# elif, but the invariant this pin protects is unchanged: `[ "$?" -eq 2 ]` is STILL the
+# #384 appended the silent-exit discriminator (`&& [ ! -s .devflow/tmp/review/<slug>/<run-id>/rv-id.err ]`)
+# to this elif, but the invariant this pin protects is unchanged: `[ "$?" -eq 2 ]` is STILL the
 # leading inline read of the id call's own exit status (never a captured rc read in a later
 # statement). Pin the new form so a revert to a captured-rc read fails, and so the #384
-# discriminator can't be silently dropped from this exact site either.
-assert_pin_unique "#284 positive: review live-comment 3-way reads \$? inline in the elif (with #384 stderr discriminator)" 'elif [ "$?" -eq 2 ] && [ ! -s /tmp/devflow-rv-id.err ]; then' "$ST_REV"
+# discriminator can't be silently dropped from this exact site either. (#401 retargeted the
+# stderr capture off /tmp into the run-scoped scratch dir — a probe-permitted in-workspace path.)
+assert_pin_unique "#284 positive: review live-comment 3-way reads \$? inline in the elif (with #384 stderr discriminator)" 'elif [ "$?" -eq 2 ] && [ ! -s .devflow/tmp/review/<slug>/<run-id>/rv-id.err ]; then' "$ST_REV"
 # The efficiency-trace render reads are the QUOTED command-substitution sites the absence
 # detector previously could not see (#284 shadow review) — pin the migrated `if ! VAR="$(`
 # idiom positively so a straight revert to `VAR="$(…)"; VAR_RC=$?` fails BOTH the extended
@@ -20793,14 +20794,86 @@ assert_eq "#363 every already-pinned arm shape (incl. optional-leading-paren) st
 # alone would not catch a duplicate head silently gained (or lost). Whoever next adds
 # a command to a review-skill fence updates these two numbers in the same commit,
 # per CLAUDE.md's coupled-invariant rule.
-assert_eq "#363 the review-skill head set is unchanged by the arm-position fix (88 occurrences)" \
-  "88" "$(python3 -c 'import importlib.util,sys
+assert_eq "#363 the review-skill head set is unchanged by the arm-position fix (94 occurrences)" \
+  "94" "$(python3 -c 'import importlib.util,sys
 s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
 print(len(m.extract_heads(open(sys.argv[2],encoding="utf-8").read())))' "$ECH" "$LIB/../skills/review/SKILL.md")"
 assert_eq "#363 the review-skill head set is unchanged by the arm-position fix (28 distinct names)" \
   "28" "$(python3 -c 'import importlib.util,sys
 s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
 h=m.extract_heads(open(sys.argv[2],encoding="utf-8").read());print(len({m.name_of(x) for x in h}))' "$ECH" "$LIB/../skills/review/SKILL.md")"
+
+# ══ #401 fence SHAPE-lint: proven-denied command SHAPES in skills/review/SKILL.md ══════
+# extract-command-heads.py (above) validates command HEADS. But the deployed cloud matcher
+# ALSO denies whole command SHAPES even when the head is granted — silently, burning budget
+# until a run ends with NO verdict (issue #401; Devflow Review run 29105381021 on PR #397:
+# 22 denials, engine quit mid-Phase-3). extract-command-shapes.py is the desk-time pin for
+# that class, keyed to .github/workflows/matcher-probe.yml's evidence-of-record table.
+ECS="$LIB/test/extract-command-shapes.py"
+RGB="$LIB/../scripts/render-grounding-block.sh"
+assert_eq "#401 shape-lint helper exists" "yes" "$([ -f "$ECS" ] && echo yes || echo no)"
+
+# The contract: the real review skill teaches NO proven-denied command shape (exit 0, empty).
+assert_eq "#401 skills/review/SKILL.md teaches no proven-denied command shape" "" \
+  "$(python3 "$ECS" "$ST_REV" 2>&1)"
+assert_eq "#401 shape-lint exits 0 on the clean review skill" "0" \
+  "$(python3 "$ECS" "$ST_REV" >/dev/null 2>&1; echo $?)"
+
+# ── Anti-vacuity: each rule flags its denied shape (fixtures under $E363's trap-cleaned dir).
+printf '%s\n' '```bash' 'M=x printf hi' '```' > "$E363/s-r1a.md"
+assert_eq "#401 R1 flags an env-prefix compound (M=x cmd)" "yes" \
+  "$(python3 "$ECS" "$E363/s-r1a.md" | grep -q '  R1  ' && echo yes || echo no)"
+printf '%s\n' '```bash' 'FOO="a literal value"' '```' > "$E363/s-r1b.md"
+assert_eq "#401 R1 flags a computed double-quoted literal assignment" "yes" \
+  "$(python3 "$ECS" "$E363/s-r1b.md" | grep -q '  R1  ' && echo yes || echo no)"
+printf '%s\n' '```bash' 'cd somewhere' '```' > "$E363/s-r2.md"
+assert_eq "#401 R2 flags a leading cd" "yes" \
+  "$(python3 "$ECS" "$E363/s-r2.md" | grep -q '  R2  ' && echo yes || echo no)"
+printf '%s\n' '```bash' 'printf hi > /tmp/f' '```' > "$E363/s-r3a.md"
+assert_eq "#401 R3 flags a > redirect to a /tmp target" "yes" \
+  "$(python3 "$ECS" "$E363/s-r3a.md" | grep -q '  R3  ' && echo yes || echo no)"
+{ printf '%s\n' '```bash' "cat >> /tmp/f <<'EOF'" 'body' 'EOF' '```'; } > "$E363/s-r3b.md"
+assert_eq "#401 R3 flags a cat-headed heredoc write to /tmp" "yes" \
+  "$(python3 "$ECS" "$E363/s-r3b.md" | grep -q '  R3  ' && echo yes || echo no)"
+{ printf '%s\n' '```bash' "cat > kept.md <<'EOF'" 'body' 'EOF' '```'; } > "$E363/s-r3c.md"
+assert_eq "#401 R3 flags a cat-heredoc write even to a NON-/tmp target (heredoc-write shape)" "yes" \
+  "$(python3 "$ECS" "$E363/s-r3c.md" | grep -q '  R3  ' && echo yes || echo no)"
+printf '%s\n' '```bash' 'python3 helper.py' '```' > "$E363/s-r4.md"
+assert_eq "#401 R4 flags an interpreter head (python3)" "yes" \
+  "$(python3 "$ECS" "$E363/s-r4.md" | grep -q '  R4  ' && echo yes || echo no)"
+
+# ── Discrimination: the PERMITTED shapes are NOT flagged (the false-positive class this
+# ── lint must avoid: a capture, an empty reset, `IFS= read`, `tee`, a pipe into `tee`, and
+# ── a `>` redirect to an in-workspace .devflow/tmp target all pass).
+{ printf '%s\n' '```bash' 'WP=$(gh pr view 1)' 'WP=""' 'IFS= read -r x' "tee f <<'EOF'" 'body' 'EOF' \
+    'printf hi | tee f' 'VAR="$(gh pr view 2)"' '```'; } > "$E363/s-ok.md"
+assert_eq "#401 shape-lint does NOT flag permitted shapes (capture, empty reset, IFS= read, tee, pipe-tee)" "" \
+  "$(python3 "$ECS" "$E363/s-ok.md")"
+printf '%s\n' '```bash' 'somehelper.sh -n > .devflow/tmp/x.json' '```' > "$E363/s-ok2.md"
+assert_eq "#401 shape-lint does NOT flag a > redirect to an in-workspace .devflow/tmp target" "" \
+  "$(python3 "$ECS" "$E363/s-ok2.md")"
+
+# ── Behavioral proof (the assert_pin_red_under analogue for a program-based guard): a mutation
+# ── REINTRODUCING the exact cat-heredoc /tmp authoring #401 removed from Phase 0.3.5 flips the
+# ── lint RED and is named R3 — the guarded regression, not merely a vanished line.
+S401_MUT="$E363/mut-skill.md"; cp "$ST_REV" "$S401_MUT"
+{ printf '%s\n' '```bash' "cat >> /tmp/review-wp.md <<'EOF'" 'body' 'EOF' '```'; } >> "$S401_MUT"
+S401_OUT="$(python3 "$ECS" "$S401_MUT" 2>&1)"; S401_RC=$?
+assert_eq "#401 behavioral: reintroducing a cat-heredoc /tmp authoring flips the shape-lint RED (exit 1)" "1" "$S401_RC"
+assert_eq "#401 behavioral: that reintroduced regression is named R3" "yes" \
+  "$(printf '%s\n' "$S401_OUT" | grep -q '  R3  ' && echo yes || echo no)"
+
+# ── #401 grounding block: the command-shape rules render into the injected engine-ground-truth
+# ── block. Pin the RENDERED surface (#375 discipline — the switch rule wraps across source lines),
+# ── executing the single render site, plus a behavioral pin on the source.
+GB401_OUT="$(HEAD_SHA=x CI_SUMMARY='c: success' ALLOWED_TOOLS='Read' bash "$RGB")"
+assert_eq "#401 grounding block renders the command-shapes section heading" "yes" \
+  "$(printf '%s\n' "$GB401_OUT" | grep -qF 'Command shapes this run' && echo yes || echo no)"
+assert_eq "#401 grounding block renders the two-denials-then-switch rule" "yes" \
+  "$(printf '%s\n' "$GB401_OUT" | grep -qF 'after two denials of a shape, switch to a permitted alternative' && echo yes || echo no)"
+assert_pin_red_under "#401 grounding: deleting the two-denials-switch rule from the renderer flips its pin RED" \
+  'after two denials of a shape, switch to a permitted alternative above' \
+  '/after two denials of a shape/d' "$RGB"
 
 # ── Process wrappers are stripped before matching, exactly as Claude Code does.
 printf '%s\n' '```bash' 'timeout 300 bash x.sh' 'nice -n 5 aa' 'nohup bb' 'stdbuf -oL cc' 'xargs dd' 'time ee' '```' > "$E363/wrap.md"
