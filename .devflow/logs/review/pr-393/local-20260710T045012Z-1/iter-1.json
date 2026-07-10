@@ -37,6 +37,33 @@
     "by_category": {}
   },
   "telemetry": {
-    "phase_3": {"calls": 5, "tokens": 261000, "wall_clock_s": 305}
+    "phase_3": {"calls": 5, "tokens": 261000, "wall_clock_s": 305},
+    "step_2_6": {"calls": 5, "tokens": 262000, "wall_clock_s": 375}
+  },
+  "shadow": {
+    "ran_at": "2026-07-10T05:05:00Z",
+    "reviewed_sha": "PENDING",
+    "verdict": "REJECT",
+    "coverage": "full",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {"agent": "devflow:requesting-code-review", "severity": "Critical", "description": "create_check job has no actions/checkout, so scripts/describe-skip-title.sh is absent at runtime; every deferral falls to the generic fallback title, regressing the specific titles #304/#353 pin", "defect_signature": {"file": ".github/workflows/devflow-review.yml", "line_range": [807, 810], "kind": "boundary_assumption_unreachable_file"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+      {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "helper header says honesty rule 'carried verbatim' but it was reworded (script->precheck, behind base->branch behind base)", "defect_signature": {"file": "scripts/describe-skip-title.sh", "line_range": [13, 13], "kind": "self_authored_claim_overclaim"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "single-definition verified only within the helper; a title lingering elsewhere in the workflow would not be caught (optional absence pin)", "defect_signature": {"file": "lib/test/run.sh", "line_range": [20780, 20781], "kind": "coverage_gap"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "workflow fallback string not behaviorally tested (gold-plating to extract)", "defect_signature": {"file": ".github/workflows/devflow-review.yml", "line_range": [813, 813], "kind": "coverage_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "pushed_back"},
+      {"agent": "devflow:requesting-code-review", "severity": "Minor", "description": "changeset ends with (#393) 'likely wrong number'", "defect_signature": {"file": ".changeset/issue-389-extract-skip-title-selector.md", "line_range": [11, 11], "kind": "false_positive"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "pushed_back"}
+    ],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 5,
+      "overlap_with_iter_1": 2,
+      "new": 3,
+      "new_critical": 1,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": true
   }
 }
