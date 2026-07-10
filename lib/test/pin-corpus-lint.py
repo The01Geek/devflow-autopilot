@@ -331,6 +331,50 @@ def md_comment_text(text):
     return "\n".join(re.findall(r"<!--(.*?)-->", text, flags=re.DOTALL))
 
 
+def md_fenced_hash_comment_spans(text):
+    """Return {lineno: comment_text} for #-comment regions inside fenced code
+    blocks (``` / ~~~, language-tagged or indented) of a markdown target.
+
+    The #375 .md arm scanned only HTML ``<!-- … -->`` regions; a pin literal
+    quoted in a ``#`` comment inside a ```` ```bash ```` fence of a skill bundle
+    was folded into the operative "outside" text, so a #370-class count-inflation
+    collision there went unflagged (issue #394). Extracting these fenced ``#``
+    comments lets the .md arm subtract them from "outside" symmetrically with the
+    .sh/.py arm, so such a collision is flagged while a literal living ONLY in a
+    fenced comment (the ``lit in outside`` conjunct) still is not.
+
+    Fence tracking mirrors CommonMark's opener/closer rules enough for this use:
+    an opening fence is a line whose first non-space run is >=3 backticks or
+    tildes (a backtick opener's info string may not itself contain a backtick);
+    the matching closer is the same marker char, at least as long, with only
+    whitespace after it. Indented and language-tagged fences are handled; the
+    fence markers themselves are never treated as content.
+    """
+    lines = text.split("\n")
+    fence = None  # (char, length) while inside a fence, else None
+    inside = []  # (lineno, line) content lines strictly inside fences
+    for i, line in enumerate(lines, 1):
+        m = re.match(r"^(`{3,}|~{3,})(.*)$", line.lstrip())
+        if fence is None:
+            # A backtick opener's info string must not contain a backtick.
+            if m and not (m.group(1)[0] == "`" and "`" in m.group(2)):
+                fence = (m.group(1)[0], len(m.group(1)))
+            continue
+        if (
+            m
+            and m.group(1)[0] == fence[0]
+            and len(m.group(1)) >= fence[1]
+            and m.group(2).strip() == ""
+        ):
+            fence = None
+            continue
+        inside.append((i, line))
+    spans = {}
+    for idx, ctext in hash_comment_regions([ln for _, ln in inside]):
+        spans[inside[idx - 1][0]] = ctext
+    return spans
+
+
 def normalize_ws(s):
     return " ".join(s.split())
 
@@ -406,7 +450,21 @@ def _lint_view(path, ext, cache):
         )
         v = ("hash", comment_spans, outside)
     elif ext in COMMENT_MD_EXTS:
-        v = ("md", md_comment_text(ftext), re.sub(r"<!--.*?-->", "", ftext, flags=re.DOTALL))
+        # Comment regions of a .md target are BOTH its HTML <!-- … --> spans AND
+        # the #-comments inside its fenced code blocks (issue #394). Union them
+        # into `comments`, and subtract both from `outside` symmetrically so a
+        # literal living only in a fenced # comment is removed from "outside"
+        # (preserving the `lit in outside` conjunct) exactly as the .sh/.py arm.
+        fenced_spans = md_fenced_hash_comment_spans(ftext)
+        comment_text = md_comment_text(ftext)
+        if fenced_spans:
+            comment_text = comment_text + "\n" + "\n".join(fenced_spans.values())
+        without_fenced = "\n".join(
+            (line[: len(line) - len(fenced_spans[i])] if i in fenced_spans else line)
+            for i, line in enumerate(ftext.split("\n"), 1)
+        )
+        outside = re.sub(r"<!--.*?-->", "", without_fenced, flags=re.DOTALL)
+        v = ("md", comment_text, outside)
     else:
         v = ("none", None, None)
     cache[path] = v

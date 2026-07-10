@@ -20194,6 +20194,14 @@ if _F375="$(mktemp -d 2>/dev/null)" && [ -n "$_F375" ] && [ -d "$_F375" ]; then
   printf 'echo FLAG_OPERATIVE running\n# note: FLAG_OPERATIVE is the flag name\n' > "$_F375/tgt.sh"
   printf 'echo FLAG_OPERATIVE running\n' > "$_F375/tgt_nocomment.sh"
   printf 'The FLAG_MD operative prose line.\n<!-- FLAG_MD is quoted in this comment -->\n' > "$_F375/tgt.md"
+  # .md FENCED-#-COMMENT collision (issue #394): a literal quoted in a `#` comment inside a
+  # ```bash fence AND present operatively outside the fence must be flagged, exactly as the
+  # .sh/.py arm does for a #-comment — the #375 .md arm scanned only <!-- … --> regions, so a
+  # #370-class count-inflation collision hiding in a fenced comment of a skill bundle slipped
+  # through. Its comment-ONLY twin (literal lives ONLY in the fenced comment) must NOT flag,
+  # proving the `lit in outside` conjunct is preserved for the new fenced-comment region too.
+  printf 'The FLAG_MDFENCE operative prose line.\n```bash\necho running  # FLAG_MDFENCE named in this fenced comment\n```\n' > "$_F375/tgt_fenced.md"
+  printf 'Unrelated prose here.\n```bash\necho running  # FLAG_FENCEONLY lives only in this fenced comment\n```\n' > "$_F375/fenceonly.md"
   # WRAPPED (pure `tr -s` case): a prose phrase wrapped across a line boundary by whitespace
   # only — no single line holds it, but `tr -s '[:space:]' ' '` over the file rejoins it.
   printf 'the phrase does\nnot fit on one line\n' > "$_F375/wrapped.md"
@@ -20224,6 +20232,8 @@ if _F375="$(mktemp -d 2>/dev/null)" && [ -n "$_F375" ] && [ -d "$_F375" ]; then
     "assert_pin_unique \"fx-comment-collision\" 'FLAG_OPERATIVE' \"$_F375/tgt.sh\"" \
     "assert_pin_unique \"fx-no-collision\" 'FLAG_OPERATIVE' \"$_F375/tgt_nocomment.sh\"" \
     "assert_pin_unique \"fx-md-collision\" 'FLAG_MD' \"$_F375/tgt.md\"" \
+    "assert_pin_unique \"fx-md-fenced-collision\" 'FLAG_MDFENCE' \"$_F375/tgt_fenced.md\"" \
+    "assert_pin_unique \"fx-md-fenceonly\" 'FLAG_FENCEONLY' \"$_F375/fenceonly.md\"" \
     "assert_pin_unique \"fx-cmtonly-sh\" 'FLAG_CMTONLY_SH' \"$_F375/cmtonly.sh\"" \
     "assert_pin_unique \"fx-cmtonly-md\" 'FLAG_CMTONLY_MD' \"$_F375/cmtonly.md\"" \
     "assert_pin_unique \"fx-wrapped\" 'the phrase does not fit on one line' \"$_F375/wrapped.md\"" \
@@ -20246,6 +20256,11 @@ if _F375="$(mktemp -d 2>/dev/null)" && [ -n "$_F375" ] && [ -d "$_F375" ]; then
     "no" "$(printf '%s' "$_L375" | grep -q 'cmtonly.sh' && echo yes || echo no)"
   assert_eq "#375 lint self-test: a literal living ONLY in an .md <!-- … --> comment is NOT flagged" \
     "no" "$(printf '%s' "$_L375" | grep -q 'cmtonly.md' && echo yes || echo no)"
+  # #394: the fenced-#-comment .md arm — the collision twin flags, the comment-only twin does not.
+  assert_eq "#394 lint self-test: a fenced bash-block #-comment collision in an .md target is flagged" \
+    "yes" "$(printf '%s' "$_L375" | grep -q 'COLLISION.*tgt_fenced.md.*FLAG_MDFENCE' && echo yes || echo no)"
+  assert_eq "#394 lint self-test: a literal living ONLY in a fenced #-comment of an .md target is NOT flagged" \
+    "no" "$(printf '%s' "$_L375" | grep -q 'fenceonly.md' && echo yes || echo no)"
   assert_eq "#375 lint self-test: an unresolvable call site is reported on stderr (never silently skipped)" \
     "yes" "$(grep -q 'file=?' "$_F375/lint.err" && echo yes || echo no)"
   # A resolved-but-undecodable target is COUNTED (fail-closed), not an uncaught crash. The scan
