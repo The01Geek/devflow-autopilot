@@ -5891,6 +5891,52 @@ assert_eq "#380 W6A heading shape: heading outside Implementation Notes does not
   "" \
   "$(printf '%s\n' "$fx_380_heading_outside" | bash "$EXTRACT_HELPER")"
 
+# W6A Case 42 (review pin — discriminating anchor): a DEEPER `#### Documentation Needed`
+# heading does NOT open a scope. The opener is anchored to level 3 (`^###[[:space:]]+…`),
+# so a 4th `#` blocks the `[[:space:]]+` and the line takes the close arm. This pins the
+# exact level-3 discrimination: relaxing the opener to `^###+[[:space:]]+…` (the intuitive
+# "any heading level" generalization) would make `####` open and silently over-extract,
+# and WITHOUT this fixture the whole suite would stay green through that regression.
+fx_380_deeper_noopen="## Implementation Notes
+
+#### Documentation Needed
+
+- update \`docs/should-not.md\`"
+assert_eq "#380 W6A heading shape: a deeper #### Documentation Needed heading does NOT open scope (level-3 anchor)" \
+  "" \
+  "$(printf '%s\n' "$fx_380_deeper_noopen" | bash "$EXTRACT_HELPER")"
+
+# W6A Case 43 (review pin — leak-prevention close path): a deeper `####` sub-heading
+# inside an OPEN `### Documentation Needed` scope CLOSES it (2 -> 1), so a later
+# subsection's paths never leak. Pins the `else if (state == 2) state = 1` close arm on a
+# deeper heading (Case 39 pins only a peer-`###` close); a regression making `####` a
+# no-op fall-through would leak `docs/leak.md`.
+fx_380_deeper_closes="## Implementation Notes
+
+### Documentation Needed
+
+- update \`docs/a.md\`
+
+#### Sub-section
+
+names \`docs/leak.md\`."
+assert_eq "#380 W6A heading shape: a deeper #### sub-heading closes an open ### scope (no leak)" \
+  "docs/a.md" \
+  "$(printf '%s\n' "$fx_380_deeper_closes" | bash "$EXTRACT_HELPER")"
+
+# W6A Case 44 (review pin — bold-tolerance): a bold-wrapped `### **Documentation Needed**`
+# heading opens the scope — the opener's `\*{0,2}` tolerance. Pins the shape the Stage 1
+# safety-net grep's matching `\*{0,2}` (phase-4 §4.1) is coupled to, so the two heading
+# recognizers cannot silently diverge on the bold-in-heading form.
+fx_380_bold_heading="## Implementation Notes
+
+### **Documentation Needed**
+
+- update \`docs/a.md\`"
+assert_eq "#380 W6A heading shape: a bold-wrapped ### **Documentation Needed** heading opens scope" \
+  "docs/a.md" \
+  "$(printf '%s\n' "$fx_380_bold_heading" | bash "$EXTRACT_HELPER")"
+
 # W6A coupled pair (AC6): the create-issue template canonically emits the bold-bullet
 # `**Documentation Needed**` form, and the extractor accepts all three shapes. Pin
 # BOTH sites with removal proofs so mutating EITHER alone turns the suite RED — the
@@ -5912,8 +5958,8 @@ assert_pin_red_on_removal "#380 W6A: §3.4 rule 1 excludes Phase-4.1-owned doc a
   'This "do it now" channel excludes documentation authoring owned by Phase 4.1' "$P380_P3"
 assert_pin_red_on_removal "#380 W6A: §4.1 requires discharging every 3.4-deferred doc-AC before §4.3 Complete" \
   'Discharge every 3.4-deferred documentation AC (mandatory, before §4.3)' "$P380_P4"
-assert_pin_red_on_removal "#380 W6A: §4.1 Stage 1 safety-net grep fires on the bold-bullet OR ### heading form" \
-  "grep -qE '\\*\\*Documentation Needed\\*\\*|^###[[:space:]]+Documentation Needed'" "$P380_P4"
+assert_pin_red_on_removal "#380 W6A: §4.1 Stage 1 safety-net grep fires on the bold-bullet OR ### heading form (bold-tolerant, mirrors the extractor opener)" \
+  "grep -qE '\\*\\*Documentation Needed\\*\\*|^###[[:space:]]+\\*{0,2}Documentation Needed'" "$P380_P4"
 assert_pin_red_on_removal "#380 W6A: phase-2 cross-references the doc-AC deferral (docs stay Phase-4.1-authored)" \
   'is why an acceptance criterion satisfied by a' "$P380_P2"
 assert_pin_red_on_removal "#380 W6A: create-issue template Move 3 carries the verified-or-obligation mechanical-claim rule" \

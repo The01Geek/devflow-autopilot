@@ -112,7 +112,8 @@ block="$(printf '%s\n' "$body" | awk -v extre="$doc_ext_alt" '
     prev_blank = 1           # a heading is a block boundary: the next line begins a new paragraph
     next
   }
-  # A level-3-or-deeper Markdown heading (### … through ###### …). The
+  # A level-3-or-deeper Markdown heading (### … and deeper — `###+` is unbounded;
+  # Markdown itself caps headings at ######, but the opener anchors to level 3). The
   # `### Documentation Needed` heading is a THIRD scope-opening shape (issue #380):
   # an issue whose `## Implementation Notes` section renders the deliverables under a
   # `### Documentation Needed` SUBHEADING (the real issue #363 body) matched NOTHING
