@@ -2793,7 +2793,7 @@ assert_pin_unique "#235 (B)/#365 phase-3.3: pre-loop snapshot captures pre-exist
 assert_pin_unique "#235 (B)/#365 phase-3.3: no-inputs detector is this-run-scoped (comm -13 vs snapshot), definitive-absence-aware (! -e \$1) AND fail-closed on empty (-z)" \
   'if [ ! -e "$1" ] || [ -z "$(printf '"'"'%s\n'"'"' "$@" | sort | comm -13 "$BEFORE" -)" ]; then' "$DEF_SKILL"
 assert_pin_unique "#235 (B) phase-3.3: the no-inputs case emits the dropped-failed telemetry-lost reflection" \
-  'lib/efficiency-trace.sh --persist had no inputs' "$DEF_SKILL"
+  'lib/efficiency-trace.sh --persist synthesized nothing' "$DEF_SKILL"
 # #365: NO agent-executed prose block under skills/ may use the bash-only `compgen` builtin
 # (the sole bash-only builtin this fix removed). Prose bash blocks in SKILL.md / phase files
 # are run by the AGENT's own shell (zsh on macOS, sometimes dash/sh), NOT a bash-shebanged
@@ -13764,7 +13764,7 @@ assert_eq "et-synth(T4): duplicate-N breadcrumb present" "yes" \
 assert_eq "et-synth(T4): non-numeric-N breadcrumb present" "yes" \
   "$(printf '%s' "$ETSA_ERR" | grep -qF 'non-numeric iteration token' && echo yes || echo no)"
 assert_eq "et-synth(T4): no-suffix breadcrumb present" "yes" \
-  "$(printf '%s' "$ETSA_ERR" | grep -qF "no closing ')' iteration suffix" && echo yes || echo no)"
+  "$(printf '%s' "$ETSA_ERR" | grep -qF "has no '(iteration N)' suffix" && echo yes || echo no)"
 rm -rf "$ETSA_REPO"
 
 # T4 zero-match: workpad-less dir + NO fix commits → no record, "was not captured"

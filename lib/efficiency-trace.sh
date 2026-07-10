@@ -192,8 +192,12 @@ synth_base_ref() {
 # are skipped: prefix present but no closing `)` iteration suffix, a non-numeric
 # iteration token, or a duplicate N (first occurrence wins). Always exits 0.
 select_fix_commits() {
-  local root="$1" base sha subj n tab seen_ns=" "
+  local root="$1" base base_subject sha subj n tab seen_ns=" "
   tab="$(printf '\t')"
+  # The fix-loop subject family, derived from the coupled prefix constant (no
+  # second hardcoded literal): a commit in this family but WITHOUT the
+  # `(iteration N)` suffix is breadcrumbed, not silently dropped (issue #381 AC4).
+  base_subject="${FIX_COMMIT_SUBJECT_PREFIX% (iteration}"
   base="$(synth_base_ref "$root")" || {
     echo "::warning::efficiency-trace.sh --persist: could not resolve a base branch ref (.base_branch and origin/<base> both absent); cannot select fix commits for synthesis" >&2
     return 0
@@ -202,8 +206,10 @@ select_fix_commits() {
   while IFS="$tab" read -r sha subj; do
     [ -n "$sha" ] || continue
     case "$subj" in
-      "$FIX_COMMIT_SUBJECT_PREFIX"*) ;;
-      *) continue ;;                              # not a fix-loop commit — silently skip
+      "$FIX_COMMIT_SUBJECT_PREFIX"*) ;;          # has the "(iteration" suffix — parse N below
+      "$base_subject"*)                           # fix-loop family but no "(iteration N)" suffix
+        echo "::warning::efficiency-trace.sh --persist: fix-commit ${sha} is in the fix-loop subject family but has no '(iteration N)' suffix; skipping" >&2; continue ;;
+      *) continue ;;                              # unrelated commit — silently skip
     esac
     n="${subj#"$FIX_COMMIT_SUBJECT_PREFIX"}"      # -> " N)"
     n="${n# }"                                    # drop one leading space
