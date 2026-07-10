@@ -389,10 +389,11 @@ Merge the resulting checklists by concatenating all items. If batching ran (>1 b
 
 If the merged-and-deduped checklist has more than **100 items**, sort by priority and keep the top 100:
 1. Items whose claim cites an issue acceptance criterion (highest yield — these failing means the PR doesn't deliver the feature).
-2. `dependency_interaction` items (cross-boundary contracts — highest drift risk).
-3. `test_mock_alignment` items (mocks-vs-real divergence is a classic PR-killer).
-4. `api_contract` items.
-5. `data_format_assumption` items.
+2. `absolute_claim` items (a diff-added universal the reviewer must *falsify* by constructing the offending input — the highest-value target precisely because reading it confirms nothing; see `agents/checklist-generator.md`).
+3. `dependency_interaction` items (cross-boundary contracts — highest drift risk).
+4. `test_mock_alignment` items (mocks-vs-real divergence is a classic PR-killer).
+5. `api_contract` items.
+6. `data_format_assumption` items.
 
 Drop items below the cap. This is a cost cap: every checklist item triggers a verifier subagent in Phase 2. Real-world runs on medium PRs have produced 150+ items when generators are exhaustive on doc-heavy diffs, but the load-bearing signal (cross-boundary contracts, mock-vs-real divergence, issue acceptance) is usually captured well within 100. Announce the cap in chat: `Capped checklist at 100 of {N} items (dropped {M} items by category: dependency_interaction: K1, api_contract: K2, ...; priority kept: issue-acceptance, dependency_interaction, ...).` so the human reader knows which categories took the hit, not just that coverage was truncated. (In `/devflow:review-and-fix` mode the same data also lands in the workpad's `cap_drops` block and the report's `## Coverage` section; in standalone `/devflow:review` runs the chat announcement is the only surface.)
 
