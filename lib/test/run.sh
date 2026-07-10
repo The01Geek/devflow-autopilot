@@ -6009,6 +6009,72 @@ assert_pin_unique "#334: §2.3.4a step drift-proofs mirror-fact comments before 
 assert_pin_unique "#334: docs/implement-skill.md mirrors the 2.3.4a mirror-fact drift-proofing clause (docs↔skill coupled invariant)" \
   'is rewritten or removed per the §2.3 authoring' "$IMPL_DOC"
 
+# ── issue #376 (Wave 2): the merged operand-trace sweep (§2.3.0c) plus the ────
+# external-output, fail-open-guard, and agent-prompt-prose rules in
+# phases/phase-2-implement.md. Every operative sentence below is a behavioral-fix
+# pin expressed through assert_pin_red_under (#375): the <mutation> re-introduces
+# the guarded defect by removing ONLY that operative sentence from a scratch copy,
+# so a pin that drifted onto an adjacent framing clause is reported RED rather than
+# passing vacuously. The mutations are recorded as the per-pin evidence in the
+# issue #376 workpad. $P2_FILE / $IMPL_DOC / $EXT_IMPL are defined above.
+# AC1 — the §2.3.0c heading states BOTH authoritative triggers.
+assert_pin_red_under "#376 w2-trigger-code: §2.3.0c heading states the code-guard trigger" \
+  'the diff adds a guard, predicate, validator, or coverage invariant in code' \
+  's/the diff adds a guard, predicate, validator, or coverage invariant in code//' "$P2_FILE"
+assert_pin_red_under "#376 w2-trigger-prose: §2.3.0c heading states the policy-stating-prose trigger" \
+  'ships agent-executed imperative prose stating a policy' \
+  's/ships agent-executed imperative prose stating a policy//' "$P2_FILE"
+# AC2 — the four-column operand table, with the load-bearing fourth column.
+assert_pin_red_under "#376 w2-fourth-column: §2.3.0c keeps the load-bearing fourth column (what OTHER inputs produce the same value?)" \
+  'what OTHER inputs produce the same value?' \
+  's/what OTHER inputs produce the same value\?//' "$P2_FILE"
+# AC3 — the prose-policy arm's inert-guard defect definition.
+assert_pin_red_under "#376 w2-inert-guard: §2.3.0c defines a policy whose operand no step produces as an inert guard/defect" \
+  'A stated policy whose operand no step produces is an inert guard and a defect in this PR' \
+  's/A stated policy whose operand no step produces is an inert guard and a defect in this PR//' "$P2_FILE"
+# AC4 — §2.3.4's carve-out routes in-diff guards to §2.3.0c.
+assert_pin_red_under "#376 w2-carveout-route: §2.3.4 routes its in-diff carve-out to §2.3.0c" \
+  "routed to §2.3.0c's operand-trace sweep" \
+  "s/routed to §2.3.0c's operand-trace sweep//" "$P2_FILE"
+# AC5 — §2.3.4's external-output reproduction obligation and doc-prose-not-evidence clause.
+assert_pin_red_under "#376 w2-reproduce-bytes: §2.3.4 requires reproducing external output in a scratch dir and pasting observed bytes" \
+  'reproduce the command once in a scratch directory and paste the' \
+  's/reproduce the command once in a scratch directory and paste the//' "$P2_FILE"
+assert_pin_red_under "#376 w2-doc-prose-not-evidence: §2.3.4 states doc prose is not acceptable evidence" \
+  'Doc prose is not acceptable evidence' \
+  's/Doc prose is not acceptable evidence//' "$P2_FILE"
+# AC7 — §2.3.4's companion outcome-verification rule.
+assert_pin_red_under "#376 w2-outcome-companion: §2.3.4 states a precondition check never stands in for verifying the consumed outcome" \
+  'A precondition check never stands in for verifying the consumed outcome' \
+  's/A precondition check never stands in for verifying the consumed outcome//' "$P2_FILE"
+# AC6 — §2.3.6 gains the two fail-open guard classes.
+assert_pin_red_under "#376 w2-outcome-shape: §2.3.6 lists the existence-standing-in-for-outcome fail-open shape" \
+  'precondition check standing in for an unverified consumption' \
+  's/precondition check standing in for an unverified consumption//' "$P2_FILE"
+assert_pin_red_under "#376 w2-preflight-property: §2.3.6 keys the un-guaranteed-tool shape on the preflight property" \
+  "value that decides which thing is selected or what is emitted must not be derived through a tool the project's preflight does not guarantee" \
+  "s/value that decides which thing is selected or what is emitted must not be derived through a tool the project's preflight does not guarantee//" "$P2_FILE"
+# AC8 — the implement extension names DevFlow's preflight-guaranteed set, coupled to lib/preflight.sh's header.
+assert_eq "#376 AC8: implement extension enumerates preflight's guaranteed set, agreeing with lib/preflight.sh header (coupled mirror)" \
+  "yes" \
+  "$(grep -qF 'git, gh (authenticated), jq, and python3 (>=3.11) with PyYAML' "$EXT_IMPL" \
+     && grep -qF 'git, gh (authenticated), jq, and' "$LIB/preflight.sh" \
+     && grep -qF 'python3 (>=3.11) with PyYAML' "$LIB/preflight.sh" && echo yes || echo no)"
+assert_pin_red_under "#376 w2-preflight-set-coupling: removing PyYAML from the extension enumeration turns the coupled-mirror pin RED" \
+  'git, gh (authenticated), jq, and python3 (>=3.11) with PyYAML' \
+  's/ with PyYAML//' "$EXT_IMPL"
+# AC9 — §2.4 distinguishes agent-prompt prose (subagent RED/GREEN + no-guidance control) from human-read prose.
+assert_pin_red_under "#376 w2-agent-prompt-trigger: §2.4 keys the split on whether the text enters a model's context as instruction" \
+  "does this text enter a model's context as instruction" \
+  "s/does this text enter a model's context as instruction//" "$P2_FILE"
+assert_pin_red_under "#376 w2-no-guidance-control: §2.4 requires a subagent RED/GREEN micro-test with a no-guidance control" \
+  'subagent RED/GREEN micro-test with a no-guidance control' \
+  's|subagent RED/GREEN micro-test with a no-guidance control||' "$P2_FILE"
+# AC10 — the Sweep-selection index carries the §2.3.0c entry.
+assert_pin_red_under "#376 w2-index-entry: the Sweep-selection index carries the §2.3.0c operand-trace entry" \
+  'policy-stating agent-executed prose' \
+  's/policy-stating agent-executed prose//' "$P2_FILE"
+
 # ── issue #185 Addendum: deterministic extraction helper (fixture matrix) ────
 # The helper is the deterministic boundary the Addendum mandates; test its
 # BEHAVIOR over the required input-shape matrix (bullet-with-paths, no-paths,
